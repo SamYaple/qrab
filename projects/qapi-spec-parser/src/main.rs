@@ -4,8 +4,12 @@ use std::io::Read;
 use std::path::Path;
 
 mod helpers;
+mod qapi_cond;
+pub use qapi_cond::QapiCond;
+mod qapi_string;
+pub use qapi_string::QapiString;
 mod qapi_type_ref;
-use qapi_type_ref::QapiTypeRef;
+pub use qapi_type_ref::QapiTypeRef;
 
 fn read_file(path: &Path) -> std::io::Result<String> {
     let mut file = File::open(path)?;

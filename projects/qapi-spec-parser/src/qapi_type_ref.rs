@@ -1,4 +1,5 @@
-use crate::helpers::{clean_line, take_qapi_string};
+use crate::helpers::cl;
+use crate::QapiString;
 use nom::branch::alt;
 use nom::bytes::complete::tag;
 use nom::combinator::map;
@@ -7,23 +8,20 @@ use nom::IResult;
 
 #[derive(Debug)]
 pub enum QapiTypeRef {
-    Weak(String),
-    WeakArray(String),
+    Weak(QapiString),
+    WeakArray(QapiString),
 }
 
 impl QapiTypeRef {
     /// TYPE-REF = STRING | ARRAY-TYPE
     /// ARRAY-TYPE = [ STRING ]
     pub fn parse(input: &str) -> IResult<&str, Self> {
-        let weak_parser = take_qapi_string;
-        let weak_array_parser = delimited(
-            tuple((clean_line, tag("["))),
-            weak_parser,
-            tuple((tag("]"), clean_line)),
-        );
+        let weak_parser = QapiString::parse;
+        let weak_array_parser =
+            delimited(tuple((cl, tag("["))), weak_parser, tuple((tag("]"), cl)));
         alt((
-            map(weak_parser, |v| Self::Weak(v.to_string())),
-            map(weak_array_parser, |v| Self::WeakArray(v.to_string())),
+            map(weak_parser, |v| Self::Weak(v)),
+            map(weak_array_parser, |v| Self::WeakArray(v)),
         ))(input)
     }
 }
@@ -66,7 +64,7 @@ mod tests {
             let result = QapiTypeRef::parse(input);
             match result {
                 Ok((remaining, QapiTypeRef::Weak(weak_str))) => {
-                    assert_eq!(weak_str, "STRING".to_string());
+                    assert_eq!(weak_str, QapiString("STRING".into()));
                     assert_eq!(remaining, "");
                 }
                 _ => panic!("Failed to parse weak type"),
@@ -80,7 +78,7 @@ mod tests {
             let result = QapiTypeRef::parse(input);
             match result {
                 Ok((remaining, QapiTypeRef::WeakArray(weak_array_str))) => {
-                    assert_eq!(weak_array_str, "ARRAYSTRING".to_string());
+                    assert_eq!(weak_array_str, QapiString("ARRAYSTRING".into()));
                     assert_eq!(remaining, "");
                 }
                 _ => panic!("Failed to parse weak array type"),
