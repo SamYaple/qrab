@@ -2,7 +2,6 @@ use crate::helpers::{kv, qtag};
 use crate::{QapiBool, QapiString};
 use nom::branch::alt;
 use nom::combinator::map;
-use nom::multi::separated_list0;
 use nom::multi::separated_list1;
 use nom::sequence::{delimited, tuple};
 use nom::IResult;
@@ -40,7 +39,7 @@ impl QapiPragma {
                 qtag("command-name-exceptions"),
                 delimited(
                     qtag("["),
-                    separated_list0(qtag(","), QapiString::parse),
+                    separated_list1(qtag(","), QapiString::parse),
                     qtag("]"),
                 ),
             ),
@@ -51,7 +50,7 @@ impl QapiPragma {
                 qtag("command-returns-exceptions"),
                 delimited(
                     qtag("["),
-                    separated_list0(qtag(","), QapiString::parse),
+                    separated_list1(qtag(","), QapiString::parse),
                     qtag("]"),
                 ),
             ),
@@ -62,7 +61,7 @@ impl QapiPragma {
                 qtag("documentation-exceptions"),
                 delimited(
                     qtag("["),
-                    separated_list0(qtag(","), QapiString::parse),
+                    separated_list1(qtag(","), QapiString::parse),
                     qtag("]"),
                 ),
             ),
@@ -73,7 +72,7 @@ impl QapiPragma {
                 qtag("member-name-exceptions"),
                 delimited(
                     qtag("["),
-                    separated_list0(qtag(","), QapiString::parse),
+                    separated_list1(qtag(","), QapiString::parse),
                     qtag("]"),
                 ),
             ),
