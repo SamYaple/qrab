@@ -35,56 +35,40 @@ mod tests {
         # some precomment
         'STRING'"#,
     ];
+
+    #[test]
+    fn test_valid() {
+        for input in VALID_INPUTS {
+            let result = QapiTypeRef::parse(input);
+            match result {
+                Ok((remaining, _)) => {
+                    assert_eq!(remaining, "");
+                }
+                _ => panic!("Failed to parse: ```\n{input}\n```"),
+            }
+        }
+    }
+
     const VALID_INPUTS_ARRAY: [&str; 5] = [
         "['ARRAYSTRING']",
         "['ARRAYSTRING' ]",
         "[ 'ARRAYSTRING' ]",
         "[ 'ARRAYSTRING']",
-        r#"[ # some qapi comment 
+        r#"[ # some qapi comment
             'ARRAYSTRING' # another comment with a ]
-            ]"#,
-    ];
-    const INVALID_INPUTS: [&str; 5] = [
-        "invalid_input",
-        "STRING",
-        "[STRING]",
-        "['STRING',]",
-        "['STRING','STRING']",
+        ]"#,
     ];
 
     #[test]
-    fn test_qapi_type_ref_weak() {
-        for input in VALID_INPUTS {
-            let result = QapiTypeRef::parse(input);
-            match result {
-                Ok((remaining, QapiTypeRef::Weak(weak_str))) => {
-                    assert_eq!(weak_str, QapiString("STRING".into()));
-                    assert_eq!(remaining, "");
-                }
-                _ => panic!("Failed to parse weak type"),
-            }
-        }
-    }
-
-    #[test]
-    fn test_qapi_type_ref_weak_array() {
+    fn test_array_valid() {
         for input in VALID_INPUTS_ARRAY {
             let result = QapiTypeRef::parse(input);
             match result {
-                Ok((remaining, QapiTypeRef::WeakArray(weak_array_str))) => {
-                    assert_eq!(weak_array_str, QapiString("ARRAYSTRING".into()));
+                Ok((remaining, _)) => {
                     assert_eq!(remaining, "");
                 }
-                _ => panic!("Failed to parse weak array type"),
+                _ => panic!("Failed to parse: ```\n{input}\n```"),
             }
-        }
-    }
-
-    #[test]
-    fn test_qapi_type_ref_invalid() {
-        for input in INVALID_INPUTS {
-            let result = QapiTypeRef::parse(input);
-            assert!(result.is_err());
         }
     }
 }

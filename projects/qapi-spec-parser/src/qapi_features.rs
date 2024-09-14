@@ -60,7 +60,7 @@ impl QapiFeatures {
 mod tests {
     use super::*;
 
-    const VALID_INPUTS: [&str; 4] = [
+    const VALID_INPUTS_FEATURES: [&str; 4] = [
         "[{'name':'deprecated'}]",
         "['deprecated']",
         "[{'name':'deprecated','if':'CONFIG_OPTION'}]",
@@ -68,8 +68,8 @@ mod tests {
     ];
 
     #[test]
-    fn test_qapi_features_valid() {
-        for input in VALID_INPUTS {
+    fn test_features_valid() {
+        for input in VALID_INPUTS_FEATURES {
             let result = QapiFeatures::parse(input);
             match result {
                 Ok((remaining, _)) => {
@@ -79,15 +79,15 @@ mod tests {
             }
         }
     }
-    const VALID_INPUTS2: [&str; 3] = [
+    const VALID_INPUTS_FEATURE: [&str; 3] = [
         "{'name':'deprecated'}",
         "'deprecated'",
         "{'name':'deprecated','if':'CONFIG_OPTION'}",
     ];
 
     #[test]
-    fn test_qapi_feature_valid() {
-        for input in VALID_INPUTS2 {
+    fn test_feature_valid() {
+        for input in VALID_INPUTS_FEATURE {
             let result = QapiFeature::parse(input);
             match result {
                 Ok((remaining, _)) => {

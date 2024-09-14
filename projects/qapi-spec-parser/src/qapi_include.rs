@@ -1,20 +1,18 @@
-use crate::helpers::qtag;
-use nom::bytes::complete::{tag, take_until};
+use crate::helpers::{kv, qtag};
+use crate::QapiString;
 use nom::combinator::map;
 use nom::sequence::delimited;
 use nom::IResult;
 
-#[derive(Debug, PartialEq, Clone)]
-pub struct QapiString(pub String);
-impl QapiString {
+#[derive(Debug)]
+pub struct QapiInclude(QapiString);
+impl QapiInclude {
+    /// INCLUDE = { 'include': STRING }
     pub fn parse(input: &str) -> IResult<&str, Self> {
-        map(
-            delimited(
-                qtag("'"),
-                take_until("'"), // TODO handle escaped '\''?
-                tag("'"),
-            ),
-            |v| Self(v.into()),
+        delimited(
+            qtag("{"),
+            map(kv(qtag("include"), QapiString::parse), |v| Self(v)),
+            qtag("}"),
         )(input)
     }
 }
@@ -24,16 +22,18 @@ mod tests {
     use super::*;
 
     const VALID_INPUTS: [&str; 3] = [
-        "'name'",
-        "  'name'",
-        r#" # some comment
-        'name'"#,
+        "{'include':'path/to/file.json'}",
+        "{ 'include' : '../file.json' }",
+        r#"{ # comment
+            'include' : # comment
+            '../file.json' # comemnt
+        }"#,
     ];
 
     #[test]
     fn test_valid() {
         for input in VALID_INPUTS {
-            let result = QapiString::parse(input);
+            let result = QapiInclude::parse(input);
             match result {
                 Ok((remaining, _)) => {
                     assert_eq!(remaining, "");

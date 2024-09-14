@@ -28,9 +28,7 @@ impl QapiMember {
     pub fn parse(input: &str) -> IResult<&str, Self> {
         let (input, name) = terminated(QapiString::parse, qtag(":"))(input)?;
 
-        let type_parser = map(kv(qtag("type"), QapiTypeRef::parse), |v| {
-            ParserKey::Type(v)
-        });
+        let type_parser = map(kv(qtag("type"), QapiTypeRef::parse), |v| ParserKey::Type(v));
         let cond_parser = map(kv(qtag("if"), QapiCond::parse), |v| ParserKey::If(v));
         let features_parser = map(kv(qtag("features"), QapiFeatures::parse), |v| {
             ParserKey::Features(v)

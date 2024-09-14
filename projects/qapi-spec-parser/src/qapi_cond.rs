@@ -55,7 +55,7 @@ mod tests {
     ];
 
     #[test]
-    fn test_qapi_cond_valid() {
+    fn test_valid() {
         for input in VALID_INPUTS {
             let result = QapiCond::parse(input);
             match result {
