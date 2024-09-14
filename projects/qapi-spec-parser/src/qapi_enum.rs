@@ -3,7 +3,7 @@ use crate::{QapiCond, QapiFeatures, QapiString};
 use nom::branch::alt;
 use nom::combinator::map;
 use nom::multi::separated_list1;
-use nom::sequence::{delimited};
+use nom::sequence::delimited;
 use nom::IResult;
 
 enum EnumParserKey {
