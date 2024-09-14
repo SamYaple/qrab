@@ -1,7 +1,7 @@
-use crate::helpers::cl;
+use crate::helpers::qtag;
 use nom::bytes::complete::{tag, take_until};
 use nom::combinator::map;
-use nom::sequence::{delimited, tuple};
+use nom::sequence::delimited;
 use nom::IResult;
 
 #[derive(Debug, PartialEq)]
@@ -10,9 +10,9 @@ impl QapiString {
     pub fn parse(input: &str) -> IResult<&str, Self> {
         map(
             delimited(
-                tuple((cl, tag("'"))),
+                qtag("'"),
                 take_until("'"), // TODO handle escaped '\''?
-                tuple((tag("'"), cl)),
+                tag("'"),
             ),
             |v| Self(v.into()),
         )(input)

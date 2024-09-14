@@ -1,8 +1,8 @@
-use crate::helpers::{dict_parser, kv_parser, list_parser};
+use crate::helpers::{kv, list, qtag};
 use crate::QapiString;
 use nom::branch::alt;
-use nom::bytes::complete::tag;
 use nom::combinator::map;
+use nom::sequence::delimited;
 use nom::IResult;
 
 #[derive(Debug)]
@@ -20,14 +20,20 @@ impl QapiCond {
     ///      | { 'not': COND }
     pub fn parse(input: &str) -> IResult<&str, Self> {
         let value_parser = QapiString::parse;
-        let not_parser = dict_parser(kv_parser(tag("not"), Self::parse));
-        let any_parser = dict_parser(kv_parser(tag("any"), list_parser(Self::parse)));
-        let all_parser = dict_parser(kv_parser(tag("all"), list_parser(Self::parse)));
+        let not_parser = kv(qtag("not"), Self::parse);
+        let any_parser = kv(qtag("any"), list(Self::parse));
+        let all_parser = kv(qtag("all"), list(Self::parse));
         alt((
-            map(all_parser, |v| Self::All(v)),
-            map(any_parser, |v| Self::Any(v)),
-            map(not_parser, |v| Self::Not(Box::new(v))),
             map(value_parser, |v| Self::Value(v)),
+            delimited(
+                qtag("{"),
+                alt((
+                    map(all_parser, |v| Self::All(v)),
+                    map(any_parser, |v| Self::Any(v)),
+                    map(not_parser, |v| Self::Not(Box::new(v))),
+                )),
+                qtag("}"),
+            ),
         ))(input)
     }
 }

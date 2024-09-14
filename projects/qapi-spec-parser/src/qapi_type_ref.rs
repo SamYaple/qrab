@@ -1,9 +1,8 @@
-use crate::helpers::cl;
+use crate::helpers::qtag;
 use crate::QapiString;
 use nom::branch::alt;
-use nom::bytes::complete::tag;
 use nom::combinator::map;
-use nom::sequence::{delimited, tuple};
+use nom::sequence::delimited;
 use nom::IResult;
 
 #[derive(Debug)]
@@ -17,11 +16,10 @@ impl QapiTypeRef {
     /// ARRAY-TYPE = [ STRING ]
     pub fn parse(input: &str) -> IResult<&str, Self> {
         let weak_parser = QapiString::parse;
-        let weak_array_parser =
-            delimited(tuple((cl, tag("["))), weak_parser, tuple((tag("]"), cl)));
+        let array_parser = delimited(qtag("["), weak_parser, qtag("]"));
         alt((
             map(weak_parser, |v| Self::Weak(v)),
-            map(weak_array_parser, |v| Self::WeakArray(v)),
+            map(array_parser, |v| Self::WeakArray(v)),
         ))(input)
     }
 }
@@ -30,25 +28,21 @@ impl QapiTypeRef {
 mod tests {
     use super::*;
 
-    const VALID_INPUTS: [&str; 5] = [
+    const VALID_INPUTS: [&str; 3] = [
         "'STRING'",
         " 'STRING'",
-        " 'STRING' ",
-        "'STRING' ",
         r#"
         # some precomment
-        'STRING' "#,
+        'STRING'"#,
     ];
-    const VALID_INPUTS_ARRAY: [&str; 6] = [
+    const VALID_INPUTS_ARRAY: [&str; 5] = [
         "['ARRAYSTRING']",
         "['ARRAYSTRING' ]",
         "[ 'ARRAYSTRING' ]",
         "[ 'ARRAYSTRING']",
-        "[ 'ARRAYSTRING']  ",
         r#"[ # some qapi comment 
             'ARRAYSTRING' # another comment with a ]
-            ]  #final comment
-        "#,
+            ]"#,
     ];
     const INVALID_INPUTS: [&str; 5] = [
         "invalid_input",

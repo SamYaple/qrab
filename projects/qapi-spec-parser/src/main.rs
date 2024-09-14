@@ -4,6 +4,8 @@ use std::io::Read;
 use std::path::Path;
 
 mod helpers;
+mod qapi_features;
+pub use qapi_features::QapiFeatures;
 mod qapi_cond;
 pub use qapi_cond::QapiCond;
 mod qapi_string;
