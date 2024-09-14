@@ -19,7 +19,7 @@ mod qapi_pragma;
 mod qapi_string;
 mod qapi_struct;
 mod qapi_type_ref;
-//mod qapi_union;
+mod qapi_union;
 
 pub use qapi_alternate::QapiAlternate;
 pub use qapi_bool::QapiBool;
@@ -35,7 +35,7 @@ pub use qapi_pragma::QapiPragma;
 pub use qapi_string::QapiString;
 pub use qapi_struct::QapiStruct;
 pub use qapi_type_ref::QapiTypeRef;
-//pub use qapi_union::QapiUnion;
+pub use qapi_union::QapiUnion;
 
 fn read_file(path: &Path) -> std::io::Result<String> {
     let mut file = File::open(path)?;
@@ -49,7 +49,7 @@ fn main() -> Result<()> {
     let schema_type = "qapi"; // choose ["qapi", "qga", "storage-daemon/qapi"]
     let schema_file = qemu_src_root.join(schema_type).join("qapi-schema.json");
     let schema = read_file(&schema_file)?;
-    let (leftover, out) = nom::multi::many1(QapiPragma::parse)(&schema).unwrap();
+    let (leftover, out) = nom::multi::many1(QapiUnion::parse)(&schema).unwrap();
     dbg![&leftover];
     dbg![&out];
     Ok(())
