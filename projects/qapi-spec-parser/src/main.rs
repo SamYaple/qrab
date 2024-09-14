@@ -16,6 +16,7 @@ mod qapi_features;
 mod qapi_include;
 mod qapi_members;
 mod qapi_pragma;
+mod qapi_schema;
 mod qapi_string;
 mod qapi_struct;
 mod qapi_type_ref;
@@ -32,6 +33,7 @@ pub use qapi_features::QapiFeatures;
 pub use qapi_include::QapiInclude;
 pub use qapi_members::QapiMembers;
 pub use qapi_pragma::QapiPragma;
+pub use qapi_schema::QapiSchema;
 pub use qapi_string::QapiString;
 pub use qapi_struct::QapiStruct;
 pub use qapi_type_ref::QapiTypeRef;
@@ -49,8 +51,8 @@ fn main() -> Result<()> {
     let schema_type = "qapi"; // choose ["qapi", "qga", "storage-daemon/qapi"]
     let schema_file = qemu_src_root.join(schema_type).join("qapi-schema.json");
     let schema = read_file(&schema_file)?;
-    let (leftover, out) = nom::multi::many1(QapiEvent::parse)(&schema).unwrap();
-    dbg![&leftover];
+    let (leftover, out) = QapiSchema::parse(&schema).unwrap();
     dbg![&out];
+    dbg![&leftover];
     Ok(())
 }

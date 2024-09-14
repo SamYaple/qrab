@@ -5,18 +5,21 @@ use nom::multi::many1;
 use nom::sequence::{delimited, preceded, terminated, tuple};
 use nom::IResult;
 
-pub(crate) fn take_comment(input: &str) -> IResult<&str, &str> {
-    preceded(tuple((multispace0, tag("#"))), take_until("\n"))(input)
+pub(crate) fn qcomment(input: &str) -> IResult<&str, &str> {
+    preceded(multispace0, recognize(preceded(tag("#"), take_until("\n"))))(input)
 }
 
-pub(crate) fn cl(input: &str) -> IResult<&str, &str> {
-    recognize(tuple((opt(take_comment), multispace0)))(input)
+pub(crate) fn clean_lines(input: &str) -> IResult<&str, &str> {
+    recognize(tuple((
+        multispace0,
+        opt(many1(tuple((multispace0, qcomment)))),
+    )))(input)
 }
 
 pub(crate) fn qtag<'input>(
     t: &'static str,
 ) -> impl FnMut(&'input str) -> IResult<&'input str, &'input str> {
-    preceded(cl, tag(t))
+    preceded(clean_lines, tag(t))
 }
 
 pub(crate) fn array_parser<'input, I1, I2, I3, O1, O2, O3>(
@@ -30,9 +33,9 @@ where
     I3: FnMut(&'input str) -> IResult<&'input str, O3>,
 {
     delimited(
-        tuple((cl, begin_delim)),
-        preceded(cl, item_parser),
-        tuple((cl, end_delim)),
+        tuple((clean_lines, begin_delim)),
+        preceded(clean_lines, item_parser),
+        tuple((clean_lines, end_delim)),
     )
 }
 
@@ -72,6 +75,6 @@ where
     delimited(
         tuple((qtag("'"), key_parser, qtag("'"), qtag(":"))),
         value_parser,
-        cl,
+        clean_lines,
     )
 }
