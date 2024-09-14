@@ -82,12 +82,13 @@ impl QapiEvent {
                     }
                 }
                 let name = name.expect("struct is a required key");
-                if let Some(ref b) = boxed {
-                    if b.0 && data.is_none() {
-                        // TODO Proper parser error returns, but not now...
-                        panic!("data is a required key");
-                    }
-                }
+                // TODO This is a validation check, not a parsing check
+                //if let Some(ref b) = boxed {
+                //    if b.0 && data.is_none() {
+                //        // TODO Proper parser error returns, but not now...
+                //        panic!("data is a required key");
+                //    }
+                //}
                 Self {
                     name,
                     r#if,
