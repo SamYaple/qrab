@@ -29,7 +29,7 @@ impl QapiMember {
         let (input, name) = terminated(QapiString::parse, qtag(":"))(input)?;
 
         let type_parser = map(kv(qtag("type"), QapiTypeRef::parse), |v| {
-            ParserKey::Type(v.into())
+            ParserKey::Type(v)
         });
         let cond_parser = map(kv(qtag("if"), QapiCond::parse), |v| ParserKey::If(v));
         let features_parser = map(kv(qtag("features"), QapiFeatures::parse), |v| {
@@ -39,9 +39,9 @@ impl QapiMember {
         let simple_parser = QapiTypeRef::parse;
         let complex_parser = dict(alt((type_parser, cond_parser, features_parser)));
         let (input, members) = alt((
-            map(simple_parser, |v| Self {
+            map(simple_parser, |r#type| Self {
                 name: name.clone(),
-                r#type: v.into(),
+                r#type,
                 r#if: None,
                 features: None,
             }),
@@ -94,7 +94,7 @@ mod tests {
         "'name':'type'",
         "'name':['type']",
         "'name':{'if':'CONFIG_OPTION', 'type': ['sometype'], 'features': ['yes']}",
-        "'name':{'if':'CONFIG_OPTION', 'type': ['sometype'], 'features': [{'name':'yes', 'if': 'CONFIG_MAP'}]}",
+        "'name':{'if':'CONFIG_OPTION', 'type': 'sometype', 'features': [{'name':'yes', 'if': 'CONFIG_MAP'}]}",
     ];
 
     #[test]
