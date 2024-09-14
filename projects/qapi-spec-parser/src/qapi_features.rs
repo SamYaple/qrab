@@ -1,7 +1,10 @@
-use crate::helpers::{dict, kv, list, qtag};
+use crate::helpers::{dict, kv, qtag};
 use crate::{QapiCond, QapiString};
 use nom::branch::alt;
 use nom::combinator::map;
+use nom::multi::separated_list1;
+use nom::sequence::delimited;
+
 use nom::IResult;
 
 enum ParserKey {
@@ -52,7 +55,14 @@ pub struct QapiFeatures(Vec<QapiFeature>);
 impl QapiFeatures {
     /// FEATURES = [ FEATURE, ... ]
     pub fn parse(input: &str) -> IResult<&str, Self> {
-        map(list(QapiFeature::parse), |v| Self(v))(input)
+        map(
+            delimited(
+                qtag("["),
+                separated_list1(qtag(","), QapiFeature::parse),
+                qtag("]"),
+            ),
+            |v| Self(v),
+        )(input)
     }
 }
 

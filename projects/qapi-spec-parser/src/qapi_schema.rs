@@ -3,6 +3,7 @@ use crate::{
     QapiAlternate, QapiCommand, QapiEnum, QapiEvent, QapiInclude, QapiPragma, QapiStruct, QapiUnion,
 };
 use nom::branch::alt;
+use nom::character::complete::multispace1;
 use nom::combinator::map;
 use nom::multi::many1;
 use nom::IResult;
@@ -18,6 +19,7 @@ pub enum QapiSchema {
     Event(QapiEvent),
     Command(QapiCommand),
     Comment(String),
+    Empty,
 }
 
 impl QapiSchema {
@@ -32,6 +34,7 @@ impl QapiSchema {
             map(QapiEvent::parse, |v| Self::Event(v)),
             map(QapiCommand::parse, |v| Self::Command(v)),
             map(qcomment, |v| Self::Comment(v.into())),
+            map(multispace1, |_| Self::Empty),
         )))(input)
     }
 }

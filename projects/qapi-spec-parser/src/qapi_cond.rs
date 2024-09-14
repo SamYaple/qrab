@@ -1,7 +1,8 @@
-use crate::helpers::{kv, list, qtag};
+use crate::helpers::{kv, qtag};
 use crate::QapiString;
 use nom::branch::alt;
 use nom::combinator::map;
+use nom::multi::separated_list1;
 use nom::sequence::delimited;
 use nom::IResult;
 
@@ -21,8 +22,22 @@ impl QapiCond {
     pub fn parse(input: &str) -> IResult<&str, Self> {
         let value_parser = QapiString::parse;
         let not_parser = kv(qtag("not"), Self::parse);
-        let any_parser = kv(qtag("any"), list(Self::parse));
-        let all_parser = kv(qtag("all"), list(Self::parse));
+        let any_parser = kv(
+            qtag("any"),
+            delimited(
+                qtag("["),
+                separated_list1(qtag(","), Self::parse),
+                qtag("]"),
+            ),
+        );
+        let all_parser = kv(
+            qtag("all"),
+            delimited(
+                qtag("["),
+                separated_list1(qtag(","), Self::parse),
+                qtag("]"),
+            ),
+        );
         alt((
             map(value_parser, |v| Self::Value(v)),
             delimited(

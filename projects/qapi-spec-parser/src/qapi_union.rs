@@ -88,7 +88,6 @@ impl QapiUnion {
                         ParserKey::Features(v) => features = Some(v),
                     }
                 }
-                dbg![&name];
                 let name = name.expect("union is a required key");
                 let data = data.expect("data is a required key");
                 let discriminator = discriminator.expect("discriminator is a required key");

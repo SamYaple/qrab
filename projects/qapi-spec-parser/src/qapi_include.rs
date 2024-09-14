@@ -5,7 +5,7 @@ use nom::sequence::delimited;
 use nom::IResult;
 
 #[derive(Debug)]
-pub struct QapiInclude(QapiString);
+pub struct QapiInclude(pub QapiString);
 impl QapiInclude {
     /// INCLUDE = { 'include': STRING }
     pub fn parse(input: &str) -> IResult<&str, Self> {

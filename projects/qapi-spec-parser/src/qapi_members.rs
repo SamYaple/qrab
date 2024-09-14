@@ -2,7 +2,7 @@ use crate::helpers::{dict, kv, qtag};
 use crate::{QapiCond, QapiFeatures, QapiString, QapiTypeRef};
 use nom::branch::alt;
 use nom::combinator::map;
-use nom::multi::separated_list1;
+use nom::multi::separated_list0;
 use nom::sequence::{delimited, terminated};
 use nom::IResult;
 
@@ -75,7 +75,7 @@ impl QapiMembers {
         map(
             delimited(
                 qtag("{"),
-                separated_list1(qtag(","), QapiMember::parse),
+                separated_list0(qtag(","), QapiMember::parse),
                 qtag("}"),
             ),
             |v| Self(v),
