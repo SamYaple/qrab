@@ -4,7 +4,7 @@ use nom::combinator::map;
 use nom::sequence::delimited;
 use nom::IResult;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct QapiString(pub String);
 impl QapiString {
     pub fn parse(input: &str) -> IResult<&str, Self> {
