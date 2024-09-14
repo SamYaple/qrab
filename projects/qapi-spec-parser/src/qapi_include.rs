@@ -4,7 +4,7 @@ use nom::combinator::map;
 use nom::sequence::delimited;
 use nom::IResult;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct QapiInclude(pub QapiString);
 impl QapiInclude {
     /// INCLUDE = { 'include': STRING }
