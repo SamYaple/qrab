@@ -1,6 +1,6 @@
 use crate::helpers::qcomment;
 use crate::{
-    QapiAlternate, QapiCommand, QapiEnum, QapiEvent, QapiInclude, QapiPragma, QapiStruct, QapiUnion,
+    QapiAlternate, QapiCommand, QapiEnum, QapiEvent, QapiInclude, QapiPragma, QapiStruct, QapiUnion, QapiDocumentation,
 };
 use anyhow::Result;
 use nom::branch::alt;
@@ -16,6 +16,7 @@ use std::path::{Path, PathBuf};
 pub enum ParserKey {
     Struct(QapiStruct),
     Enum(QapiEnum),
+    Documentation(QapiDocumentation),
     Alternate(QapiAlternate),
     Pragma(QapiPragma),
     Include(QapiInclude),
@@ -29,6 +30,7 @@ pub enum ParserKey {
 #[derive(Debug)]
 pub struct QapiSchema {
     pub structs: Vec<QapiStruct>,
+    pub documentations: Vec<QapiDocumentation>,
     pub enums: Vec<QapiEnum>,
     pub alternates: Vec<QapiAlternate>,
     pub pragmas: Vec<QapiPragma>,
@@ -42,6 +44,7 @@ impl QapiSchema {
     pub fn parse(input: &str) -> IResult<&str, Self> {
         map(
             many0(alt((
+                map(QapiDocumentation::parse, |v| ParserKey::Documentation(v)),
                 map(QapiStruct::parse, |v| ParserKey::Struct(v)),
                 map(QapiEnum::parse, |v| ParserKey::Enum(v)),
                 map(QapiAlternate::parse, |v| ParserKey::Alternate(v)),
@@ -56,6 +59,7 @@ impl QapiSchema {
             |tokens| {
                 let mut structs = vec![];
                 let mut enums = vec![];
+                let mut documentations = vec![];
                 let mut alternates = vec![];
                 let mut pragmas = vec![];
                 let mut includes = vec![];
@@ -65,7 +69,7 @@ impl QapiSchema {
                 for token in tokens {
                     match token {
                         ParserKey::Struct(v) => structs.push(v),
-                        ParserKey::Enum(v) => enums.push(v),
+                        ParserKey::Documentation(v) => documentations.push(v),
                         ParserKey::Alternate(v) => alternates.push(v),
                         ParserKey::Pragma(v) => pragmas.push(v),
                         ParserKey::Include(v) => includes.push(v),
@@ -78,6 +82,7 @@ impl QapiSchema {
                 Self {
                     structs,
                     enums,
+                    documentations,
                     alternates,
                     pragmas,
                     includes,
@@ -91,6 +96,7 @@ impl QapiSchema {
     pub fn flatten(schemas: Vec<QapiSchema>) -> Self {
         let mut structs = vec![];
         let mut enums = vec![];
+        let mut documentations = vec![];
         let mut alternates = vec![];
         let mut pragmas = vec![];
         let mut includes = vec![];
@@ -101,6 +107,7 @@ impl QapiSchema {
         for schema in schemas {
             structs.extend(schema.structs);
             enums.extend(schema.enums);
+            documentations.extend(schema.documentations);
             alternates.extend(schema.alternates);
             pragmas.extend(schema.pragmas);
             includes.extend(schema.includes);
@@ -112,6 +119,7 @@ impl QapiSchema {
         Self {
             structs,
             enums,
+            documentations,
             alternates,
             pragmas,
             includes,
