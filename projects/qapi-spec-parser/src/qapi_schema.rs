@@ -5,10 +5,9 @@ use crate::{
 };
 use anyhow::Result;
 use nom::branch::alt;
-use nom::character::complete::multispace1;
-use nom::combinator::{map, opt};
-use nom::sequence::preceded;
 use nom::bytes::complete::tag;
+use nom::character::complete::multispace1;
+use nom::combinator::map;
 use nom::multi::many0;
 use nom::IResult;
 use std::fs::File;

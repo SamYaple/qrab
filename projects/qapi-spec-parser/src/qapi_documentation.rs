@@ -1,10 +1,10 @@
-use nom::bytes::complete::tag;
-use nom::character::complete::{line_ending, not_line_ending, space0, multispace0};
-use nom::combinator::{map, not, peek, recognize, opt};
-use nom::multi::{many0, many1};
-use nom::sequence::{delimited, tuple, preceded};
 use nom::branch::alt;
+use nom::bytes::complete::tag;
 use nom::bytes::complete::take_until;
+use nom::character::complete::{line_ending, not_line_ending, space0};
+use nom::combinator::{map, not, opt, recognize};
+use nom::multi::many0;
+use nom::sequence::{delimited, preceded, tuple};
 use nom::IResult;
 use std::collections::HashMap;
 
@@ -14,75 +14,104 @@ pub struct QapiDocumentation {
     description: Option<String>,
     fields: HashMap<String, String>,
     since: Option<String>,
+    returns: Option<String>,
 }
 
 #[derive(Debug)]
 enum ParserKey {
-    Name(String),
-    Description(String),
     Since(String),
+    Returns(String),
     Field((String, String)),
     Empty,
 }
 
 fn take_name(input: &str) -> IResult<&str, &str> {
-    delimited(tag("@"), take_until(":"), tag(":"))(input)
+    delimited(
+        tuple((tag("#"), space0, tag("@"))),
+        take_until(":"),
+        tag(":"),
+    )(input)
 }
 
 fn take_empty(input: &str) -> IResult<&str, &str> {
-    recognize(tuple((multispace0, not(peek(tag("##"))), tag("#"), space0)))(input)
+    recognize(many0(tuple((opt(tag("#")), space0, line_ending))))(input)
 }
-
 
 impl QapiDocumentation {
     pub fn parse(input: &str) -> IResult<&str, Self> {
-        let description_parser = many1(delimited(take_empty, preceded(tuple((not(peek(tag("##"))), not(peek(take_name)))), not_line_ending), line_ending));
-        // since parser
+        let since_parser = delimited(
+            take_empty,
+            preceded(
+                tuple((
+                    tag("#"),
+                    space0,
+                    alt((tag("Since:"), tag("since:"))),
+                    space0,
+                )),
+                not_line_ending,
+            ),
+            take_empty,
+        );
         // field parser
 
         let parsers = alt((
-            map(take_name, |v: &str| ParserKey::Name(v.into())),
-            map(description_parser, |v: Vec<&str>| {
-                let mut description = String::new();
-                for l in v {
-                    if description.len() != 0 {
-                        description.push_str(" ");
-                    }
-                    description.push_str(l);
-                }
-                ParserKey::Description(description)
-            }),
-            // since parser
+            map(since_parser, |v: &str| ParserKey::Since(v.into())),
             // field parser
-            map(take_empty, |_| ParserKey::Empty),
         ));
-        delimited(
-            tuple((tag("##"), take_empty)),
-            map(many1(parsers), |tokens| {
-                dbg![&tokens];
-                let mut name = None;
-                let mut description = None;
-                let mut since = None;
-                let mut fields = HashMap::new();
-                for token in tokens {
-                    match token {
-                        ParserKey::Name(v) => name = Some(v),
-                        ParserKey::Description(v) => description = Some(v),
-                        ParserKey::Since(v) => since = Some(v),
-                        ParserKey::Field(v) => { fields.insert(v.0, v.1); },
-                        ParserKey::Empty => {},
-                    }
+
+        let (input, _) = tag("##")(input)?;
+        let (input, _) = take_empty(input)?;
+        let (input, name) = take_name(input)?;
+        let (input, _) = take_empty(input)?;
+        let (input, description) = many0(preceded(
+            tuple((
+                take_empty,
+                tag("#"),
+                not(tag("#")),
+                space0,
+                not(alt((tag("@"), tag("Returns"), tag("Since"), tag("since")))),
+            )),
+            not_line_ending,
+        ))(input)?;
+        let (input, _) = take_empty(input)?;
+        let (input, tokens) = many0(parsers)(input)?;
+        let (input, _) = take_empty(input)?;
+        let (input, _) = tag("##")(input)?;
+
+        let name = name.into();
+        let mut since = None;
+        let mut returns = None;
+        let mut fields = HashMap::new();
+        for token in tokens {
+            match token {
+                ParserKey::Since(v) => since = Some(v),
+                ParserKey::Returns(v) => returns = Some(v),
+                ParserKey::Field(v) => {
+                    fields.insert(v.0, v.1);
                 }
-                let name = name.expect("No name token found");
-                Self {
-                    name,
-                    description,
-                    fields,
-                    since,
+                ParserKey::Empty => {}
+            }
+        }
+        let description = {
+            let mut cc = String::new();
+            for line in description {
+                if cc.len() != 0 {
+                    cc.push_str(" ");
                 }
-            }),
-            tag("##"),
-        )(input)
+                cc.push_str(line);
+            }
+            Some(cc)
+        };
+        Ok((
+            input,
+            Self {
+                name,
+                description,
+                returns,
+                fields,
+                since,
+            },
+        ))
     }
 }
 
