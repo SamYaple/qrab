@@ -1,8 +1,10 @@
 use nom::bytes::complete::tag;
-use nom::character::complete::{line_ending, not_line_ending, space0};
-use nom::combinator::{map, not, peek, recognize};
-use nom::multi::many1;
-use nom::sequence::{delimited, tuple};
+use nom::character::complete::{line_ending, not_line_ending, space0, multispace0};
+use nom::combinator::{map, not, peek, recognize, opt};
+use nom::multi::{many0, many1};
+use nom::sequence::{delimited, tuple, preceded};
+use nom::branch::alt;
+use nom::bytes::complete::take_until;
 use nom::IResult;
 use std::collections::HashMap;
 
@@ -11,24 +13,74 @@ pub struct QapiDocumentation {
     name: String,
     description: Option<String>,
     fields: HashMap<String, String>,
+    since: Option<String>,
 }
+
+#[derive(Debug)]
+enum ParserKey {
+    Name(String),
+    Description(String),
+    Since(String),
+    Field((String, String)),
+    Empty,
+}
+
+fn take_name(input: &str) -> IResult<&str, &str> {
+    delimited(tag("@"), take_until(":"), tag(":"))(input)
+}
+
+fn take_empty(input: &str) -> IResult<&str, &str> {
+    recognize(tuple((multispace0, not(peek(tag("##"))), tag("#"), space0)))(input)
+}
+
 
 impl QapiDocumentation {
     pub fn parse(input: &str) -> IResult<&str, Self> {
+        let description_parser = many1(delimited(take_empty, preceded(tuple((not(peek(tag("##"))), not(peek(take_name)))), not_line_ending), line_ending));
+        // since parser
+        // field parser
+
+        let parsers = alt((
+            map(take_name, |v: &str| ParserKey::Name(v.into())),
+            map(description_parser, |v: Vec<&str>| {
+                let mut description = String::new();
+                for l in v {
+                    if description.len() != 0 {
+                        description.push_str(" ");
+                    }
+                    description.push_str(l);
+                }
+                ParserKey::Description(description)
+            }),
+            // since parser
+            // field parser
+            map(take_empty, |_| ParserKey::Empty),
+        ));
         delimited(
-            tuple((tag("##"), space0, line_ending)),
-            map(
-                recognize(many1(delimited(
-                    tuple((not(peek(tag("##"))), tag("#"))),
-                    not_line_ending,
-                    line_ending,
-                ))),
-                |v: &str| Self {
-                    name: v.into(),
-                    description: None,
-                    fields: HashMap::new(),
-                },
-            ),
+            tuple((tag("##"), take_empty)),
+            map(many1(parsers), |tokens| {
+                dbg![&tokens];
+                let mut name = None;
+                let mut description = None;
+                let mut since = None;
+                let mut fields = HashMap::new();
+                for token in tokens {
+                    match token {
+                        ParserKey::Name(v) => name = Some(v),
+                        ParserKey::Description(v) => description = Some(v),
+                        ParserKey::Since(v) => since = Some(v),
+                        ParserKey::Field(v) => { fields.insert(v.0, v.1); },
+                        ParserKey::Empty => {},
+                    }
+                }
+                let name = name.expect("No name token found");
+                Self {
+                    name,
+                    description,
+                    fields,
+                    since,
+                }
+            }),
             tag("##"),
         )(input)
     }
@@ -38,7 +90,13 @@ impl QapiDocumentation {
 mod tests {
     use super::*;
 
-    const VALID_INPUTS: [&str; 3] = [
+    const VALID_INPUTS: [&str; 4] = [
+        r#"##
+# @RbdAuthMode:
+#
+# blah blah
+#
+##"#,
         r#"##
 # @RbdAuthMode:
 #

@@ -6,7 +6,9 @@ use crate::{
 use anyhow::Result;
 use nom::branch::alt;
 use nom::character::complete::multispace1;
-use nom::combinator::map;
+use nom::combinator::{map, opt};
+use nom::sequence::preceded;
+use nom::bytes::complete::tag;
 use nom::multi::many0;
 use nom::IResult;
 use std::fs::File;
@@ -56,6 +58,9 @@ impl QapiSchema {
                 map(QapiCommand::parse, |v| ParserKey::Command(v)),
                 map(qcomment, |v| ParserKey::Comment(v.into())),
                 map(multispace1, |_| ParserKey::Empty),
+                // This was a documentation block starter that gets ignored by
+                // qcomment
+                map(tag("##"), |_| ParserKey::Empty),
             ))),
             |tokens| {
                 let mut structs = vec![];
@@ -166,6 +171,7 @@ pub fn walk_schema(
     let schema_string = read_file(path)?;
     let (remaining, schema) = QapiSchema::parse(&schema_string).unwrap();
     if remaining.len() != 0 {
+        dbg![remaining];
         todo! {"No errors, but input remains"};
     }
 

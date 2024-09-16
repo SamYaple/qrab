@@ -7,7 +7,7 @@ use nom::IResult;
 
 pub(crate) fn qcomment(input: &str) -> IResult<&str, &str> {
     delimited(
-        tuple((not(peek(tag("##"))), tag("#"))),
+        tuple((tag("#"), not(peek(tag("#"))))),
         not_line_ending,
         line_ending,
     )(input)
