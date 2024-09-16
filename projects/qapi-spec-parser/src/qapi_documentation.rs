@@ -1,19 +1,10 @@
-use crate::{QapiCond, QapiFeatures, QapiMembers, QapiString};
 use nom::bytes::complete::tag;
-use std::collections::HashMap;
-use nom::branch::alt;
-use nom::combinator::{recognize, map};
-use nom::multi::{separated_list1, many1};
-use nom::sequence::{tuple, delimited};
-use nom::character::complete::multispace0;
-use nom::character::complete::{line_ending, not_line_ending};
+use nom::character::complete::{line_ending, not_line_ending, space0};
+use nom::combinator::{map, not, peek, recognize};
+use nom::multi::many1;
+use nom::sequence::{delimited, tuple};
 use nom::IResult;
-
-//enum ParserKey {
-//    Name(String),
-//    Data(HashMap<String, String>),
-//    Description(String),
-//}
+use std::collections::HashMap;
 
 #[derive(Debug)]
 pub struct QapiDocumentation {
@@ -24,18 +15,20 @@ pub struct QapiDocumentation {
 
 impl QapiDocumentation {
     pub fn parse(input: &str) -> IResult<&str, Self> {
-        //let data_parser = map(kv(qtag("data"), QapiMembers::parse), |v| ParserKey::Data(v));
-        //let name_parser = map(kv(qtag("name"), QapiString::parse), |v| ParserKey::Name(v));
-        //let description_parser = map(kv(qtag("description"), QapiString::parse), |v| ParserKey::Description(v));
-
-        //let parsers = alt((
-        //    data_parser,
-        //    name_parser,
-        //    description_parser,
-        //));
         delimited(
-            tag("##"),
-            map(recognize(many1(delimited(tuple((multispace0, tag("#"))), not_line_ending, line_ending))), |v: &str| Self { name: v.into(), description: None, fields: HashMap::new() }),
+            tuple((tag("##"), space0, line_ending)),
+            map(
+                recognize(many1(delimited(
+                    tuple((not(peek(tag("##"))), tag("#"))),
+                    not_line_ending,
+                    line_ending,
+                ))),
+                |v: &str| Self {
+                    name: v.into(),
+                    description: None,
+                    fields: HashMap::new(),
+                },
+            ),
             tag("##"),
         )(input)
     }
@@ -46,7 +39,7 @@ mod tests {
     use super::*;
 
     const VALID_INPUTS: [&str; 3] = [
-    r#"##
+        r#"##
 # @RbdAuthMode:
 #
 # Since: 3.0

@@ -1,12 +1,16 @@
-use nom::bytes::complete::{tag, take_until};
-use nom::character::complete::multispace0;
-use nom::combinator::{opt, recognize};
+use nom::bytes::complete::tag;
+use nom::character::complete::{line_ending, multispace0, not_line_ending};
+use nom::combinator::{not, opt, peek, recognize};
 use nom::multi::many1;
 use nom::sequence::{delimited, preceded, terminated, tuple};
 use nom::IResult;
 
 pub(crate) fn qcomment(input: &str) -> IResult<&str, &str> {
-    preceded(multispace0, recognize(preceded(tag("#"), take_until("\n"))))(input)
+    delimited(
+        tuple((not(peek(tag("##"))), tag("#"))),
+        not_line_ending,
+        line_ending,
+    )(input)
 }
 
 pub(crate) fn clean_lines(input: &str) -> IResult<&str, &str> {
