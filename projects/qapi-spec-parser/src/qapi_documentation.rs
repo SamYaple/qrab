@@ -1,10 +1,10 @@
 use nom::branch::alt;
-use nom::bytes::complete::tag;
-use nom::bytes::complete::take_until;
+use nom::bytes::complete::{tag, tag_no_case, take_while1};
 use nom::character::complete::{line_ending, not_line_ending, space0};
+use nom::character::is_space;
 use nom::combinator::{map, not, opt, recognize};
 use nom::multi::{many0, many1};
-use nom::sequence::{delimited, pair, preceded, tuple};
+use nom::sequence::{delimited, pair, preceded, terminated, tuple};
 use nom::IResult;
 use std::collections::HashMap;
 
@@ -12,200 +12,244 @@ use std::collections::HashMap;
 pub struct QapiDocumentation {
     name: String,
     description: Option<String>,
-    note: Option<String>,
     fields: HashMap<String, String>,
     features: HashMap<String, String>,
     errors: Option<String>,
     since: Option<String>,
     returns: Option<String>,
-    admonition: Option<String>,
-    example: Option<String>,
-    table: Option<String>,
-    caution: Option<String>,
+    qmp_examples: Vec<String>,
+    notes: Vec<String>,
+    admonitions: Vec<String>,
+    tables: Vec<String>,
+    cautions: Vec<String>,
+}
+
+enum ParserToken<'input> {
+    Errors(&'input str),
+    Since(&'input str),
+    Returns(&'input str),
+    Note(&'input str),
+    Caution(&'input str),
+    QmpExample(&'input str),
+    Table(&'input str),
+    Admonition(&'input str),
+    Features(Vec<(&'input str, Vec<&'input str>)>),
+}
+
+fn not_name_break(c: char) -> bool {
+    c != ':' && !is_space(c as u8)
 }
 
 fn take_name(input: &str) -> IResult<&str, &str> {
+    let (input, name) = delimited(
+        tuple((take_line_start, tag("@"))),
+        take_while1(not_name_break),
+        tuple((space0, tag(":"))),
+    )(input)?;
+    Ok((input, name.trim()))
+}
+
+fn take_namedkv<'input>(
+    key: &'static str,
+) -> impl FnMut(&'input str) -> IResult<&'input str, &'input str> {
+    preceded(
+        take_namedkey(key),
+        recognize(tuple((
+            not_line_ending,
+            line_ending,
+            opt(take_multiline_text),
+        ))),
+    )
+}
+
+// Case insensitive match for a line like: ```# {key}:```
+fn take_namedkey<'input>(
+    key: &'static str,
+) -> impl FnMut(&'input str) -> IResult<&'input str, &'input str> {
     delimited(
-        tuple((tag("#"), space0, tag("@"))),
-        take_until(":"),
-        tag(":"),
-    )(input)
+        take_line_start,
+        tag_no_case(key),
+        tuple((space0, tag(":"), space0)),
+    )
+}
+
+fn take_line_end(input: &str) -> IResult<&str, &str> {
+    recognize(tuple((space0, line_ending)))(input)
 }
 
 fn take_empty(input: &str) -> IResult<&str, &str> {
-    recognize(many0(tuple((opt(tag("#")), space0, line_ending))))(input)
+    recognize(tuple((take_line_start, take_line_end)))(input)
 }
 
-// TODO make this a proper parser instead of this String type
-fn take_description(input: &str) -> IResult<&str, String> {
-    let (input, description) = many1(preceded(
-        tuple((
-            take_empty,
-            not(take_name),
-            tag("#"),
-            not(alt((tag("#"), tag(" ..")))),
-            space0,
-            not(alt((
-                tag("Features:"),
-                tag("Returns:"),
-                tag("Errors:"),
-                alt((tag("Since:"), tag("since:"))),
-            ))),
-        )),
-        not_line_ending,
-    ))(input)?;
-    let description = {
-        let mut cc = String::new();
-        for line in description {
-            if cc.len() != 0 {
-                cc.push_str(" ");
-            }
-            cc.push_str(line);
+fn take_line_start(input: &str) -> IResult<&str, &str> {
+    recognize(tuple((tag("#"), space0)))(input)
+}
+
+fn take_value(input: &str) -> IResult<&str, Vec<&str>> {
+    let (input, (firstline, extralines)) = pair(
+        terminated(not_line_ending, line_ending),
+        opt(take_multiline_text),
+    )(input)?;
+    let mut description = vec![];
+    description.push(firstline.trim());
+    if let Some(lines) = extralines {
+        for line in lines {
+            let trimmed = line.trim();
+            description.push(trimmed);
         }
-        cc
-    };
+    }
     Ok((input, description))
 }
 
-fn take_fields(input: &str) -> IResult<&str, (&str, &str)> {
-    delimited(
-        take_empty,
-        pair(
+fn take_kv(input: &str) -> IResult<&str, (&str, Vec<&str>)> {
+    pair(take_name, take_value)(input)
+}
+
+// SUCCESS: on success, this is equivalent to the `take_line_start` parser
+// FAILURE: fails when the parser encouters the start of a new section
+fn take_line_continuation(input: &str) -> IResult<&str, &str> {
+    recognize(tuple((
+        not(alt((
             take_name,
-            recognize(tuple((opt(not_line_ending), opt(take_description)))),
-        ),
-        take_empty,
-    )(input)
+            take_namedkey("since"),
+            take_namedkey("returns"),
+            take_namedkey("errors"),
+            take_namedkey("features"),
+        ))),
+        take_line_start,
+        not(alt((
+            tag(".. "), // gen-doc strings like `.. qmp-example::`
+            tag("#"),   // we are at the end-of-section marker if this succeeds
+        ))),
+    )))(input)
+}
+
+fn take_multiline_text(input: &str) -> IResult<&str, Vec<&str>> {
+    let (input, lines) = many1(delimited(
+        take_line_continuation,
+        not_line_ending,
+        line_ending,
+    ))(input)?;
+    let mut description = vec![];
+    for line in lines {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        description.push(trimmed);
+    }
+    Ok((input, description))
 }
 
 impl QapiDocumentation {
     pub fn parse(input: &str) -> IResult<&str, Self> {
-        let take_table = delimited(
-            tuple((take_empty, tag("#"), space0, tag(".. table::"))),
-            recognize(tuple((opt(not_line_ending), opt(take_description)))),
-            take_empty,
-        );
-        let take_caution = delimited(
-            tuple((take_empty, tag("#"), space0, tag(".. caution::"))),
-            recognize(tuple((opt(not_line_ending), opt(take_description)))),
-            take_empty,
-        );
-        let take_note = delimited(
-            tuple((take_empty, tag("#"), space0, tag(".. note::"))),
-            recognize(tuple((opt(not_line_ending), opt(take_description)))),
-            take_empty,
-        );
-        let take_admonition = delimited(
-            tuple((take_empty, tag("#"), space0, tag(".. admonition::"))),
-            recognize(tuple((opt(not_line_ending), opt(take_description)))),
-            take_empty,
-        );
-        let take_example = delimited(
-            tuple((take_empty, tag("#"), space0, tag(".. qmp-example::"))),
-            recognize(tuple((opt(not_line_ending), opt(take_description)))),
-            take_empty,
-        );
-        let take_errors = delimited(
-            take_empty,
-            preceded(
-                tuple((tag("#"), space0, tag("Errors:"), space0)),
-                recognize(tuple((opt(not_line_ending), opt(take_description)))),
-            ),
-            take_empty,
-        );
-        let take_features = delimited(
-            take_empty,
-            preceded(
-                tuple((tag("#"), space0, tag("Features:"), space0)),
-                many0(take_fields),
-                //recognize(tuple((opt(not_line_ending), opt(take_description)))),
-            ),
-            take_empty,
-        );
-        let take_returns = delimited(
-            take_empty,
-            preceded(
-                tuple((tag("#"), space0, tag("Returns:"), space0)),
-                recognize(tuple((opt(not_line_ending), opt(take_description)))),
-            ),
-            take_empty,
-        );
-        let take_since = delimited(
-            take_empty,
-            preceded(
-                tuple((
-                    tag("#"),
-                    space0,
-                    alt((tag("Since:"), tag("since:"))),
-                    space0,
-                )),
-                recognize(tuple((opt(not_line_ending), opt(take_description)))),
-            ),
-            take_empty,
-        );
+        let (input, _) = terminated(tag("##"), take_line_end)(input)?;
+        let (input, _) = many0(take_empty)(input)?;
+        let (input, name) = terminated(take_name, take_line_end)(input)?;
+        let (input, _) = many0(take_empty)(input)?;
+        let (input, description) = opt(take_multiline_text)(input)?;
+        let (input, _) = many0(take_empty)(input)?;
+        let (input, fields_vec_tuple) = many0(take_kv)(input)?;
+        let (input, _) = many0(take_empty)(input)?;
 
+        ////
+        // at this point in the parsing, we have to switch to a more dynamic
+        // parsing mode. While for the most part the keys are ordered, there are
+        // some exceptions. Since there is no convention I can find, we must
+        // match them in any order.
+        ////
+
+        // all branches of the `alt()` parser need to have the same type, which
+        // leads to this `map(take_something, |v| ParserToken::Something(v))`
+        // pattern. It's not my favorite, but not all return types are `&str`.
+        let (input, tokens) = many0(alt((
+            map(take_namedkv("since"), |v| ParserToken::Since(v)),
+            map(take_namedkv("returns"), |v| ParserToken::Returns(v)),
+            map(take_namedkv("errors"), |v| ParserToken::Errors(v)),
+            map(take_namedkv(".. note:"), |v| ParserToken::Note(v)),
+            map(take_namedkv(".. caution:"), |v| ParserToken::Caution(v)),
+            map(take_namedkv(".. table:"), |v| ParserToken::Table(v)),
+            map(take_namedkv(".. qmp-example:"), |v| {
+                ParserToken::QmpExample(v)
+            }),
+            map(take_namedkv(".. admonition:"), |v| {
+                ParserToken::Admonition(v)
+            }),
+            map(
+                preceded(
+                    tuple((take_namedkey("features"), take_line_end, many0(take_empty))),
+                    many1(take_kv),
+                ),
+                |v| ParserToken::Features(v),
+            ),
+        )))(input)?;
         let (input, _) = tag("##")(input)?;
-        let (input, _) = take_empty(input)?;
-        let (input, name) = take_name(input)?;
-        let (input, _) = take_empty(input)?;
-        let (input, description) = opt(take_description)(input)?;
-        let (input, _) = take_empty(input)?;
-        let (input, fields_vec_tuple) = many0(take_fields)(input)?;
-        let (input, _) = take_empty(input)?;
-        let (input, features_vec_tuple) = opt(take_features)(input)?;
-        let (input, _) = take_empty(input)?;
-        let (input, returns) = opt(take_returns)(input)?;
-        let (input, _) = take_empty(input)?;
-        let (input, errors) = opt(take_errors)(input)?;
-        let (input, _) = take_empty(input)?;
-        let (input, note) = opt(recognize(many1(take_note)))(input)?;
-        let (input, _) = take_empty(input)?;
-        let (input, since) = opt(take_since)(input)?;
-        let (input, _) = take_empty(input)?;
-        let (input, table) = opt(recognize(many1(take_table)))(input)?;
-        let (input, _) = take_empty(input)?;
-        let (input, caution) = opt(recognize(many1(take_caution)))(input)?;
-        let (input, _) = take_empty(input)?;
-        let (input, admonition) = opt(recognize(many1(take_admonition)))(input)?;
-        let (input, _) = take_empty(input)?;
-        let (input, example) = opt(recognize(many1(take_example)))(input)?;
-        let (input, _) = take_empty(input)?;
-        let (input, _) = tag("##")(input)?;
+
+        ////
+        // Parsing is now done, we might still return a parsing error after
+        // this point, but that will be an issue of a missing field or other
+        // required value. The `input` string will no longer be touched though
+        ////
+
+        let mut since = None;
+        let mut returns = None;
+        let mut errors = None;
+        let mut notes = vec![];
+        let mut cautions = vec![];
+        let mut tables = vec![];
+        let mut qmp_examples = vec![];
+        let mut admonitions = vec![];
+        let mut features_vec_tuple = vec![];
+        for token in tokens {
+            match token {
+                ParserToken::Since(v) => since = Some(v.into()),
+                ParserToken::Errors(v) => errors = Some(v.into()),
+                ParserToken::Returns(v) => returns = Some(v.into()),
+                ParserToken::Note(v) => notes.push(v.into()),
+                ParserToken::Caution(v) => cautions.push(v.into()),
+                ParserToken::Table(v) => tables.push(v.into()),
+                ParserToken::QmpExample(v) => qmp_examples.push(v.into()),
+                ParserToken::Admonition(v) => admonitions.push(v.into()),
+                ParserToken::Features(v) => features_vec_tuple = v,
+            }
+        }
 
         let name = name.into();
+        let description = if let Some(d) = description {
+            Some(d.join(" "))
+        } else {
+            None
+        };
+
+        // sort out fields
         let mut fields = HashMap::new();
         for (name, value) in fields_vec_tuple {
-            fields.insert(name.into(), value.into());
+            let description = value.join(" ");
+            fields.insert(name.into(), description);
         }
+
+        // sort out features
         let mut features = HashMap::new();
-        if let Some(features_vec) = features_vec_tuple {
-            for (name, value) in features_vec {
-                features.insert(name.into(), value.into());
-            }
-        };
-        let errors = if let Some(v) = errors { Some(v.into()) } else { None };
-        let caution = if let Some(v) = caution { Some(v.into()) } else { None };
-        let table = if let Some(v) = table { Some(v.into()) } else { None };
-        let note = if let Some(v) = note { Some(v.into()) } else { None };
-        let returns = if let Some(v) = returns { Some(v.into()) } else { None };
-        let since = if let Some(v) = since { Some(v.into()) } else { None };
-        let example = if let Some(v) = example { Some(v.into()) } else { None };
-        let admonition = if let Some(v) = admonition { Some(v.into()) } else { None };
+        for (name, value) in features_vec_tuple {
+            let description = value.join(" ");
+            features.insert(name.into(), description);
+        }
+
         Ok((
             input,
             Self {
                 features,
-                caution,
-                table,
+                cautions,
+                tables,
                 errors,
-                note,
+                notes,
                 name,
                 description,
                 returns,
                 fields,
                 since,
-                example,
-                admonition,
+                qmp_examples,
+                admonitions,
             },
         ))
     }
@@ -215,11 +259,10 @@ impl QapiDocumentation {
 mod tests {
     use super::*;
 
-    const VALID_INPUTS: [&str; 11] = [
+    const VALID_INPUTS: [&str; 12] = [
         r#"##
 # @RbdAuthMode:
 #
-# Since: 3.0
 ##"#,
         r#"##
 # @IscsiHeaderDigest:
@@ -525,6 +568,34 @@ mod tests {
 # @unstable: Member x-check-cache-dropped is meant for debugging.
 #
 # Since: 2.9
+##"#,
+        r#"##
+# @add-fd:
+#
+# Add a file descriptor, that was passed via SCM rights, to an fd set.
+# 
+# @fdset-id: The ID of the fd set to add the file descriptor to.
+#
+# @opaque: A free-form string that can be used to describe the fd.
+#
+# Returns:
+#     @AddfdInfo 
+#
+# Errors:
+#     - If file descriptor was not received, GenericError
+#     - If @fdset-id is a negative value, GenericError
+#
+# .. note:: The list of fd sets is shared by all monitor connections.
+# 
+# .. note:: If @fdset-id is not specified, a new fd set will be
+#    created.
+#
+# Since: 1.2
+#
+# .. qmp-example::
+#
+#     -> { "execute": "add-fd", "arguments": { "fdset-id": 1 } }
+#     <- { "return": { "fdset-id": 1, "fd": 3 } }
 ##"#,
     ];
 
