@@ -14,6 +14,7 @@ pub struct QapiDocumentation {
     description: Option<String>,
     note: Option<String>,
     fields: HashMap<String, String>,
+    features: HashMap<String, String>,
     errors: Option<String>,
     since: Option<String>,
     returns: Option<String>,
@@ -21,20 +22,6 @@ pub struct QapiDocumentation {
     example: Option<String>,
     table: Option<String>,
     caution: Option<String>,
-}
-
-#[derive(Debug)]
-enum ParserKey {
-    Since(String),
-    Caution(String),
-    Admonition(String),
-    Note(String),
-    Returns(String),
-    Table(String),
-    Example(String),
-    Errors(String),
-    Field((String, String)),
-    Empty,
 }
 
 fn take_name(input: &str) -> IResult<&str, &str> {
@@ -59,10 +46,10 @@ fn take_description(input: &str) -> IResult<&str, String> {
             not(alt((tag("#"), tag(" ..")))),
             space0,
             not(alt((
-                tag("Errors:"),
+                tag("Features:"),
                 tag("Returns:"),
-                tag("Since:"),
-                tag("since:"),
+                tag("Errors:"),
+                alt((tag("Since:"), tag("since:"))),
             ))),
         )),
         not_line_ending,
@@ -80,42 +67,45 @@ fn take_description(input: &str) -> IResult<&str, String> {
     Ok((input, description))
 }
 
+fn take_fields(input: &str) -> IResult<&str, (&str, &str)> {
+    delimited(
+        take_empty,
+        pair(
+            take_name,
+            recognize(tuple((opt(not_line_ending), opt(take_description)))),
+        ),
+        take_empty,
+    )(input)
+}
+
 impl QapiDocumentation {
     pub fn parse(input: &str) -> IResult<&str, Self> {
-        let table_parser = delimited(
+        let take_table = delimited(
             tuple((take_empty, tag("#"), space0, tag(".. table::"))),
             recognize(tuple((opt(not_line_ending), opt(take_description)))),
             take_empty,
         );
-        let caution_parser = delimited(
+        let take_caution = delimited(
             tuple((take_empty, tag("#"), space0, tag(".. caution::"))),
             recognize(tuple((opt(not_line_ending), opt(take_description)))),
             take_empty,
         );
-        let note_parser = delimited(
+        let take_note = delimited(
             tuple((take_empty, tag("#"), space0, tag(".. note::"))),
             recognize(tuple((opt(not_line_ending), opt(take_description)))),
             take_empty,
         );
-        let admonition_parser = delimited(
+        let take_admonition = delimited(
             tuple((take_empty, tag("#"), space0, tag(".. admonition::"))),
             recognize(tuple((opt(not_line_ending), opt(take_description)))),
             take_empty,
         );
-        let example_parser = delimited(
+        let take_example = delimited(
             tuple((take_empty, tag("#"), space0, tag(".. qmp-example::"))),
             recognize(tuple((opt(not_line_ending), opt(take_description)))),
             take_empty,
         );
-        let field_parser = delimited(
-            take_empty,
-            pair(
-                take_name,
-                recognize(tuple((opt(not_line_ending), opt(take_description)))),
-            ),
-            take_empty,
-        );
-        let errors_parser = delimited(
+        let take_errors = delimited(
             take_empty,
             preceded(
                 tuple((tag("#"), space0, tag("Errors:"), space0)),
@@ -123,7 +113,16 @@ impl QapiDocumentation {
             ),
             take_empty,
         );
-        let returns_parser = delimited(
+        let take_features = delimited(
+            take_empty,
+            preceded(
+                tuple((tag("#"), space0, tag("Features:"), space0)),
+                many0(take_fields),
+                //recognize(tuple((opt(not_line_ending), opt(take_description)))),
+            ),
+            take_empty,
+        );
+        let take_returns = delimited(
             take_empty,
             preceded(
                 tuple((tag("#"), space0, tag("Returns:"), space0)),
@@ -131,7 +130,7 @@ impl QapiDocumentation {
             ),
             take_empty,
         );
-        let since_parser = delimited(
+        let take_since = delimited(
             take_empty,
             preceded(
                 tuple((
@@ -145,57 +144,57 @@ impl QapiDocumentation {
             take_empty,
         );
 
-        let parsers = alt((
-            map(example_parser, |v| ParserKey::Example(v.into())),
-            map(caution_parser, |v| ParserKey::Caution(v.into())),
-            map(table_parser, |v| ParserKey::Table(v.into())),
-            map(note_parser, |v| ParserKey::Note(v.into())),
-            map(since_parser, |v: &str| ParserKey::Since(v.into())),
-            map(returns_parser, |v: &str| ParserKey::Returns(v.into())),
-            map(field_parser, |v| ParserKey::Field((v.0.into(), v.1.into()))),
-            map(errors_parser, |v| ParserKey::Errors(v.into())),
-            map(admonition_parser, |v| ParserKey::Admonition(v.into())),
-        ));
-
         let (input, _) = tag("##")(input)?;
         let (input, _) = take_empty(input)?;
         let (input, name) = take_name(input)?;
         let (input, _) = take_empty(input)?;
         let (input, description) = opt(take_description)(input)?;
         let (input, _) = take_empty(input)?;
-        let (input, tokens) = many0(parsers)(input)?;
+        let (input, fields_vec_tuple) = many0(take_fields)(input)?;
+        let (input, _) = take_empty(input)?;
+        let (input, features_vec_tuple) = opt(take_features)(input)?;
+        let (input, _) = take_empty(input)?;
+        let (input, returns) = opt(take_returns)(input)?;
+        let (input, _) = take_empty(input)?;
+        let (input, errors) = opt(take_errors)(input)?;
+        let (input, _) = take_empty(input)?;
+        let (input, note) = opt(recognize(many1(take_note)))(input)?;
+        let (input, _) = take_empty(input)?;
+        let (input, since) = opt(take_since)(input)?;
+        let (input, _) = take_empty(input)?;
+        let (input, table) = opt(recognize(many1(take_table)))(input)?;
+        let (input, _) = take_empty(input)?;
+        let (input, caution) = opt(recognize(many1(take_caution)))(input)?;
+        let (input, _) = take_empty(input)?;
+        let (input, admonition) = opt(recognize(many1(take_admonition)))(input)?;
+        let (input, _) = take_empty(input)?;
+        let (input, example) = opt(recognize(many1(take_example)))(input)?;
         let (input, _) = take_empty(input)?;
         let (input, _) = tag("##")(input)?;
 
         let name = name.into();
-        let mut since = None;
-        let mut note = None;
-        let mut example = None;
-        let mut returns = None;
-        let mut errors = None;
-        let mut table = None;
-        let mut caution = None;
-        let mut admonition = None;
         let mut fields = HashMap::new();
-        for token in tokens {
-            match token {
-                ParserKey::Admonition(v) => admonition = Some(v),
-                ParserKey::Since(v) => since = Some(v),
-                ParserKey::Example(v) => example = Some(v),
-                ParserKey::Note(v) => note = Some(v),
-                ParserKey::Caution(v) => caution = Some(v),
-                ParserKey::Table(v) => table = Some(v),
-                ParserKey::Errors(v) => errors = Some(v),
-                ParserKey::Returns(v) => returns = Some(v),
-                ParserKey::Field(v) => {
-                    fields.insert(v.0, v.1);
-                }
-                ParserKey::Empty => {}
-            }
+        for (name, value) in fields_vec_tuple {
+            fields.insert(name.into(), value.into());
         }
+        let mut features = HashMap::new();
+        if let Some(features_vec) = features_vec_tuple {
+            for (name, value) in features_vec {
+                features.insert(name.into(), value.into());
+            }
+        };
+        let errors = if let Some(v) = errors { Some(v.into()) } else { None };
+        let caution = if let Some(v) = caution { Some(v.into()) } else { None };
+        let table = if let Some(v) = table { Some(v.into()) } else { None };
+        let note = if let Some(v) = note { Some(v.into()) } else { None };
+        let returns = if let Some(v) = returns { Some(v.into()) } else { None };
+        let since = if let Some(v) = since { Some(v.into()) } else { None };
+        let example = if let Some(v) = example { Some(v.into()) } else { None };
+        let admonition = if let Some(v) = admonition { Some(v.into()) } else { None };
         Ok((
             input,
             Self {
+                features,
                 caution,
                 table,
                 errors,
@@ -216,7 +215,7 @@ impl QapiDocumentation {
 mod tests {
     use super::*;
 
-    const VALID_INPUTS: [&str; 10] = [
+    const VALID_INPUTS: [&str; 11] = [
         r#"##
 # @RbdAuthMode:
 #
@@ -480,6 +479,53 @@ mod tests {
 # 
 #     (since 8.2)
 ##"#,
+        r#"##
+# @BlockdevOptionsFile:
+# 
+# Driver specific block device options for the file backend.
+#           
+# @filename: path to the image file
+#           
+# @pr-manager: the id for the object that will handle persistent
+#     reservations for this device (default: none, forward the
+#     commands via SG_IO; since 2.11)
+#
+# @aio: AIO backend (default: threads) (since: 2.8)
+#
+# @aio-max-batch: maximum number of requests to batch together into a
+#     single submission in the AIO backend.  The smallest value
+#     between this and the aio-max-batch value of the IOThread object
+#     is chosen.  0 means that the AIO backend will handle it
+#     automatically.  (default: 0, since 6.2)
+#
+# @locking: whether to enable file locking.  If set to 'auto', only
+#     enable when Open File Descriptor (OFD) locking API is available
+#     (default: auto, since 2.10)
+#
+# @drop-cache: invalidate page cache during live migration.  This
+#     prevents stale data on the migration destination with
+#     cache.direct=off.  Currently only supported on Linux hosts.
+#     (default: on, since: 4.0)
+#
+# @x-check-cache-dropped: whether to check that page cache was dropped
+#     on live migration.  May cause noticeable delays if the image
+#     file is large, do not use in production.  (default: off)
+#     (since: 3.0)
+#
+# Features:
+#
+# @dynamic-auto-read-only: If present, enabled auto-read-only means
+#     that the driver will open the image read-only at first,
+#     dynamically reopen the image file read-write when the first
+#     writer is attached to the node and reopen read-only when the
+#     last writer is detached.  This allows giving QEMU write
+#     permissions only on demand when an operation actually needs
+#     write access.
+#
+# @unstable: Member x-check-cache-dropped is meant for debugging.
+#
+# Since: 2.9
+##"#,
     ];
 
     #[test]
@@ -490,9 +536,6 @@ mod tests {
             match result {
                 Ok((remaining, d)) => {
                     assert_eq!(remaining, "");
-                    if d.name == "MigMode" {
-                        todo! {"why is this broken"}
-                    }
                 }
                 _ => panic!("Failed to parse: ```\n{input}\n```"),
             }
