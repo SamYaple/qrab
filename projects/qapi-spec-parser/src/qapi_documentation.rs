@@ -1,6 +1,6 @@
 use nom::branch::alt;
 use nom::bytes::complete::{tag, tag_no_case, take_while1};
-use nom::character::complete::{line_ending, not_line_ending, space0};
+use nom::character::complete::{line_ending, multispace0, not_line_ending, space0};
 use nom::character::is_space;
 use nom::combinator::{map, not, opt, recognize};
 use nom::multi::{many0, many1};
@@ -183,6 +183,9 @@ impl QapiDocumentation {
                 |v| ParserToken::Features(v),
             ),
         )))(input)?;
+
+        // UPSTREAMFIX: This is because `qga/qapi-schema.json` in the `@GuestNetworkRoute` doc block.
+        let (input, _) = multispace0(input)?;
         let (input, _) = tag("##")(input)?;
 
         ////

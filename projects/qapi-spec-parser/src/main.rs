@@ -41,15 +41,18 @@ pub use qapi_union::QapiUnion;
 
 fn main() -> Result<()> {
     let qemu_src_root = Path::new("/home/sam/repos/qemu");
-    let schema_type = "qga";
     let schema_type = "storage-daemon/qapi";
+    let schema_type = "qga";
     let schema_type = "qapi";
     let schema_file = qemu_src_root.join(schema_type).join("qapi-schema.json");
 
-    // todo! shovel this into the qapi_schema module and convert this to a lib
-    let mut visited_files = std::collections::HashSet::new();
-    let tokens = qapi_schema::walk_schema(&schema_file, &mut visited_files)?;
-    dbg![&tokens.documentations];
+    let mut schemas = std::collections::HashMap::new();
+    helpers::walk_schemas(&schema_file, &mut schemas)?;
+    for (f, schema) in schemas.values() {
+        dbg![&f];
+        dbg![&schema];
+        break;
+    }
 
     Ok(())
 }

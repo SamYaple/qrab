@@ -3,16 +3,12 @@ use crate::{
     QapiAlternate, QapiCommand, QapiDocumentation, QapiEnum, QapiEvent, QapiInclude, QapiPragma,
     QapiStruct, QapiUnion,
 };
-use anyhow::Result;
 use nom::branch::alt;
 use nom::bytes::complete::tag;
 use nom::character::complete::multispace1;
 use nom::combinator::map;
 use nom::multi::many0;
 use nom::IResult;
-use std::fs::File;
-use std::io::Read;
-use std::path::{Path, PathBuf};
 
 #[derive(Debug)]
 pub enum ParserKey {
@@ -89,6 +85,7 @@ impl QapiSchema {
                                 "" |
                                 "-*- Mode: Python -*-" |
                                 "-*- mode: python -*-" |
+                                "*-*- Mode: Python -*-*" |
                                 "vim: filetype=python" |
                                 "SPDX-License-Identifier: GPL-2.0-or-later" |
                                 "See the COPYING file in the top-level directory." |
@@ -149,38 +146,4 @@ impl QapiSchema {
             commands,
         }
     }
-}
-
-fn read_file(path: &Path) -> Result<String> {
-    let mut file = File::open(path)?;
-    let mut contents = String::new();
-    file.read_to_string(&mut contents)?;
-    Ok(contents)
-}
-
-pub fn walk_schema(
-    path: &Path,
-    visited: &mut std::collections::HashSet<PathBuf>,
-) -> Result<QapiSchema> {
-    if !visited.insert(path.to_path_buf()) {
-        let (_, schema) = QapiSchema::parse("").unwrap();
-        return Ok(schema);
-    }
-
-    let schema_string = read_file(path)?;
-    let (remaining, schema) = QapiSchema::parse(&schema_string).unwrap();
-    if remaining.len() != 0 {
-        dbg![remaining];
-        todo! {"No errors, but input remains"};
-    }
-
-    let includes = schema.includes.clone();
-    let mut schemas = vec![schema];
-    for include in includes {
-        let full_path = path.parent().unwrap().join(include.0 .0.clone());
-        let new_schema = walk_schema(&full_path, visited)?;
-        schemas.push(new_schema);
-    }
-
-    Ok(QapiSchema::flatten(schemas))
 }
