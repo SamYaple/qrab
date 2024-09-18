@@ -50,8 +50,14 @@ fn main() -> Result<()> {
     helpers::walk_schemas(&schema_file, &mut schema_raw_strs)?;
     let schemas = helpers::process_schemas(&schema_raw_strs)?;
     for (path, schema) in schemas {
-        dbg![&path, &schema];
-        break;
+        for doc in schema.documentations {
+            if let Some(d) = doc.description {
+                dbg![d];
+                println!["{}", qapi_documentation::trim_docstring(d)];
+            }
+        }
+        //dbg![&path, &schema];
+        //break;
     }
 
     Ok(())
