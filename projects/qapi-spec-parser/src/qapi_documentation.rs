@@ -8,20 +8,20 @@ use nom::sequence::{delimited, pair, preceded, terminated, tuple};
 use nom::IResult;
 use std::collections::HashMap;
 
-#[derive(Debug)]
-pub struct QapiDocumentation {
-    name: String,
-    description: Option<String>,
-    fields: HashMap<String, String>,
-    features: HashMap<String, String>,
-    errors: Option<String>,
-    since: Option<String>,
-    returns: Option<String>,
-    qmp_examples: Vec<String>,
-    notes: Vec<String>,
-    admonitions: Vec<String>,
-    tables: Vec<String>,
-    cautions: Vec<String>,
+#[derive(Debug, Clone)]
+pub struct QapiDocumentation<'input> {
+    name: &'input str,
+    description: Option<&'input str>,
+    fields: HashMap<&'input str, &'input str>,
+    features: HashMap<&'input str, &'input str>,
+    errors: Option<&'input str>,
+    since: Option<&'input str>,
+    returns: Option<&'input str>,
+    qmp_examples: Vec<&'input str>,
+    notes: Vec<&'input str>,
+    admonitions: Vec<&'input str>,
+    tables: Vec<&'input str>,
+    cautions: Vec<&'input str>,
 }
 
 enum ParserToken<'input> {
@@ -33,7 +33,7 @@ enum ParserToken<'input> {
     QmpExample(&'input str),
     Table(&'input str),
     Admonition(&'input str),
-    Features(Vec<(&'input str, Vec<&'input str>)>),
+    Features(Vec<(&'input str, &'input str)>),
 }
 
 fn not_name_break(c: char) -> bool {
@@ -85,23 +85,14 @@ fn take_line_start(input: &str) -> IResult<&str, &str> {
     recognize(tuple((tag("#"), space0)))(input)
 }
 
-fn take_value(input: &str) -> IResult<&str, Vec<&str>> {
-    let (input, (firstline, extralines)) = pair(
+fn take_value(input: &str) -> IResult<&str, &str> {
+    recognize(pair(
         terminated(not_line_ending, line_ending),
         opt(take_multiline_text),
-    )(input)?;
-    let mut description = vec![];
-    description.push(firstline.trim());
-    if let Some(lines) = extralines {
-        for line in lines {
-            let trimmed = line.trim();
-            description.push(trimmed);
-        }
-    }
-    Ok((input, description))
+    ))(input)
 }
 
-fn take_kv(input: &str) -> IResult<&str, (&str, Vec<&str>)> {
+fn take_kv(input: &str) -> IResult<&str, (&str, &str)> {
     pair(take_name, take_value)(input)
 }
 
@@ -124,25 +115,16 @@ fn take_line_continuation(input: &str) -> IResult<&str, &str> {
     )))(input)
 }
 
-fn take_multiline_text(input: &str) -> IResult<&str, Vec<&str>> {
-    let (input, lines) = many1(delimited(
+fn take_multiline_text(input: &str) -> IResult<&str, &str> {
+    recognize(many1(delimited(
         take_line_continuation,
         not_line_ending,
         line_ending,
-    ))(input)?;
-    let mut description = vec![];
-    for line in lines {
-        let trimmed = line.trim();
-        if trimmed.is_empty() {
-            continue;
-        }
-        description.push(trimmed);
-    }
-    Ok((input, description))
+    )))(input)
 }
 
-impl QapiDocumentation {
-    pub fn parse(input: &str) -> IResult<&str, Self> {
+impl<'input> QapiDocumentation<'input> {
+    pub fn parse(input: &'input str) -> IResult<&'input str, Self> {
         let (input, _) = terminated(tag("##"), take_line_end)(input)?;
         let (input, _) = many0(take_empty)(input)?;
         let (input, name) = terminated(take_name, take_line_end)(input)?;
@@ -205,37 +187,28 @@ impl QapiDocumentation {
         let mut features_vec_tuple = vec![];
         for token in tokens {
             match token {
-                ParserToken::Since(v) => since = Some(v.into()),
-                ParserToken::Errors(v) => errors = Some(v.into()),
-                ParserToken::Returns(v) => returns = Some(v.into()),
-                ParserToken::Note(v) => notes.push(v.into()),
-                ParserToken::Caution(v) => cautions.push(v.into()),
-                ParserToken::Table(v) => tables.push(v.into()),
-                ParserToken::QmpExample(v) => qmp_examples.push(v.into()),
-                ParserToken::Admonition(v) => admonitions.push(v.into()),
+                ParserToken::Since(v) => since = Some(v),
+                ParserToken::Errors(v) => errors = Some(v),
+                ParserToken::Returns(v) => returns = Some(v),
+                ParserToken::Note(v) => notes.push(v),
+                ParserToken::Caution(v) => cautions.push(v),
+                ParserToken::Table(v) => tables.push(v),
+                ParserToken::QmpExample(v) => qmp_examples.push(v),
+                ParserToken::Admonition(v) => admonitions.push(v),
                 ParserToken::Features(v) => features_vec_tuple = v,
             }
         }
 
-        let name = name.into();
-        let description = if let Some(d) = description {
-            Some(d.join(" "))
-        } else {
-            None
-        };
-
         // sort out fields
         let mut fields = HashMap::new();
-        for (name, value) in fields_vec_tuple {
-            let description = value.join(" ");
-            fields.insert(name.into(), description);
+        for (name, description) in fields_vec_tuple {
+            fields.insert(name, description);
         }
 
         // sort out features
         let mut features = HashMap::new();
-        for (name, value) in features_vec_tuple {
-            let description = value.join(" ");
-            features.insert(name.into(), description);
+        for (name, description) in features_vec_tuple {
+            features.insert(name, description);
         }
 
         Ok((

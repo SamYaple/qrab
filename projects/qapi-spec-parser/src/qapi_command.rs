@@ -6,13 +6,13 @@ use nom::multi::separated_list1;
 use nom::sequence::delimited;
 use nom::IResult;
 
-enum ParserKey {
-    Name(QapiString),
-    Data(QapiCommandData),
-    If(QapiCond),
-    Features(QapiFeatures),
+enum ParserKey<'input> {
+    Name(QapiString<'input>),
+    Data(QapiCommandData<'input>),
+    If(QapiCond<'input>),
+    Features(QapiFeatures<'input>),
     Boxed(QapiBool),
-    Returns(QapiTypeRef),
+    Returns(QapiTypeRef<'input>),
     SuccessResponse(QapiBool),
     Gen(QapiBool),
     AllowOob(QapiBool),
@@ -20,20 +20,20 @@ enum ParserKey {
     Coroutine(QapiBool),
 }
 
-#[derive(Debug)]
-enum QapiCommandData {
-    Ref(QapiString),
-    Members(QapiMembers),
+#[derive(Debug, Clone)]
+enum QapiCommandData<'input> {
+    Ref(QapiString<'input>),
+    Members(QapiMembers<'input>),
 }
 
-#[derive(Debug)]
-pub struct QapiCommand {
-    name: QapiString,
-    data: Option<QapiCommandData>,
+#[derive(Debug, Clone)]
+pub struct QapiCommand<'input> {
+    name: QapiString<'input>,
+    data: Option<QapiCommandData<'input>>,
     boxed: Option<QapiBool>,
-    r#if: Option<QapiCond>,
-    features: Option<QapiFeatures>,
-    returns: Option<QapiTypeRef>,
+    r#if: Option<QapiCond<'input>>,
+    features: Option<QapiFeatures<'input>>,
+    returns: Option<QapiTypeRef<'input>>,
     success_response: Option<QapiBool>,
     gen: Option<QapiBool>,
     allow_oob: Option<QapiBool>,
@@ -41,7 +41,7 @@ pub struct QapiCommand {
     coroutine: Option<QapiBool>,
 }
 
-impl QapiCommand {
+impl<'input> QapiCommand<'input> {
     /// COMMAND = { 'command': STRING,
     ///             (
     ///             '*data': ( MEMBERS | STRING ),
@@ -57,7 +57,7 @@ impl QapiCommand {
     ///             '*coroutine': true,
     ///             '*if': COND,
     ///             '*features': FEATURES }
-    pub fn parse(input: &str) -> IResult<&str, Self> {
+    pub fn parse(input: &'input str) -> IResult<&'input str, Self> {
         let boxed_parser = map(kv(qtag("boxed"), QapiBool::parse), |v| ParserKey::Boxed(v));
         let cond_parser = map(kv(qtag("if"), QapiCond::parse), |v| ParserKey::If(v));
         let features_parser = map(kv(qtag("features"), QapiFeatures::parse), |v| {

@@ -6,30 +6,30 @@ use nom::multi::separated_list1;
 use nom::sequence::delimited;
 use nom::IResult;
 
-enum ParserKey {
-    Name(QapiString),
-    Data(QapiMembers),
-    Base(QapiString),
-    If(QapiCond),
-    Features(QapiFeatures),
+enum ParserKey<'input> {
+    Name(QapiString<'input>),
+    Data(QapiMembers<'input>),
+    Base(QapiString<'input>),
+    If(QapiCond<'input>),
+    Features(QapiFeatures<'input>),
 }
 
-#[derive(Debug)]
-pub struct QapiStruct {
-    name: QapiString,
-    data: QapiMembers,
-    base: Option<QapiString>,
-    r#if: Option<QapiCond>,
-    features: Option<QapiFeatures>,
+#[derive(Debug, Clone)]
+pub struct QapiStruct<'input> {
+    name: QapiString<'input>,
+    data: QapiMembers<'input>,
+    base: Option<QapiString<'input>>,
+    r#if: Option<QapiCond<'input>>,
+    features: Option<QapiFeatures<'input>>,
 }
 
-impl QapiStruct {
+impl<'input> QapiStruct<'input> {
     /// STRUCT = { 'struct': STRING,
     ///            'data': MEMBERS,
     ///            '*base': STRING,
     ///            '*if': COND,
     ///            '*features': FEATURES }
-    pub fn parse(input: &str) -> IResult<&str, Self> {
+    pub fn parse(input: &'input str) -> IResult<&'input str, Self> {
         let cond_parser = map(kv(qtag("if"), QapiCond::parse), |v| ParserKey::If(v));
         let features_parser = map(kv(qtag("features"), QapiFeatures::parse), |v| {
             ParserKey::Features(v)

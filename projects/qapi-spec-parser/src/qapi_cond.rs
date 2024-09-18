@@ -6,20 +6,20 @@ use nom::multi::separated_list1;
 use nom::sequence::delimited;
 use nom::IResult;
 
-#[derive(Debug)]
-pub enum QapiCond {
-    All(Vec<QapiCond>),
-    Any(Vec<QapiCond>),
-    Not(Box<QapiCond>),
-    Value(QapiString),
+#[derive(Debug, Clone)]
+pub enum QapiCond<'input> {
+    All(Vec<QapiCond<'input>>),
+    Any(Vec<QapiCond<'input>>),
+    Not(Box<QapiCond<'input>>),
+    Value(QapiString<'input>),
 }
 
-impl QapiCond {
+impl<'input> QapiCond<'input> {
     /// COND = STRING
     ///      | { 'all: [ COND, ... ] }
     ///      | { 'any: [ COND, ... ] }
     ///      | { 'not': COND }
-    pub fn parse(input: &str) -> IResult<&str, Self> {
+    pub fn parse(input: &'input str) -> IResult<&'input str, Self> {
         let value_parser = QapiString::parse;
         let not_parser = kv(qtag("not"), Self::parse);
         let any_parser = kv(

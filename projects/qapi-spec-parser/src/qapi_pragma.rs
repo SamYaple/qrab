@@ -6,31 +6,31 @@ use nom::multi::separated_list1;
 use nom::sequence::{delimited, tuple};
 use nom::IResult;
 
-enum ParserKey {
+enum ParserKey<'input> {
     DocRequired(QapiBool),
-    CommandReturnsExceptions(Vec<QapiString>),
-    CommandNameExceptions(Vec<QapiString>),
-    DocumentationExceptions(Vec<QapiString>),
-    MemberNameExceptions(Vec<QapiString>),
+    CommandReturnsExceptions(Vec<QapiString<'input>>),
+    CommandNameExceptions(Vec<QapiString<'input>>),
+    DocumentationExceptions(Vec<QapiString<'input>>),
+    MemberNameExceptions(Vec<QapiString<'input>>),
 }
 
-#[derive(Debug)]
-pub struct QapiPragma {
+#[derive(Debug, Clone)]
+pub struct QapiPragma<'input> {
     doc_required: Option<QapiBool>,
-    command_name_exceptions: Option<Vec<QapiString>>,
-    command_returns_exceptions: Option<Vec<QapiString>>,
-    documentation_exceptions: Option<Vec<QapiString>>,
-    member_name_exceptions: Option<Vec<QapiString>>,
+    command_name_exceptions: Option<Vec<QapiString<'input>>>,
+    command_returns_exceptions: Option<Vec<QapiString<'input>>>,
+    documentation_exceptions: Option<Vec<QapiString<'input>>>,
+    member_name_exceptions: Option<Vec<QapiString<'input>>>,
 }
 
-impl QapiPragma {
+impl<'input> QapiPragma<'input> {
     /// PRAGMA = { 'pragma': {
     ///            '*doc-required': BOOL,
     ///            '*command-name-exceptions': [ STRING, ... ],
     ///            '*command-returns-exceptions': [ STRING, ... ],
     ///            '*documentation-exceptions': [ STRING, ... ],
     ///            '*member-name-exceptions': [ STRING, ... ] } }
-    pub fn parse(input: &str) -> IResult<&str, Self> {
+    pub fn parse(input: &'input str) -> IResult<&'input str, Self> {
         let doc_required_parser = map(kv(qtag("doc-required"), QapiBool::parse), |v| {
             ParserKey::DocRequired(v)
         });

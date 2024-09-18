@@ -11,35 +11,35 @@ use nom::multi::many0;
 use nom::IResult;
 
 #[derive(Debug)]
-pub enum ParserKey {
-    Struct(QapiStruct),
-    Enum(QapiEnum),
-    Documentation(QapiDocumentation),
-    Alternate(QapiAlternate),
-    Pragma(QapiPragma),
-    Include(QapiInclude),
-    Union(QapiUnion),
-    Event(QapiEvent),
-    Command(QapiCommand),
+pub enum ParserKey<'input> {
+    Struct(QapiStruct<'input>),
+    Enum(QapiEnum<'input>),
+    Documentation(QapiDocumentation<'input>),
+    Alternate(QapiAlternate<'input>),
+    Pragma(QapiPragma<'input>),
+    Include(QapiInclude<'input>),
+    Union(QapiUnion<'input>),
+    Event(QapiEvent<'input>),
+    Command(QapiCommand<'input>),
     Comment(String),
     Empty,
 }
 
-#[derive(Debug)]
-pub struct QapiSchema {
-    pub structs: Vec<QapiStruct>,
-    pub documentations: Vec<QapiDocumentation>,
-    pub enums: Vec<QapiEnum>,
-    pub alternates: Vec<QapiAlternate>,
-    pub pragmas: Vec<QapiPragma>,
-    pub includes: Vec<QapiInclude>,
-    pub unions: Vec<QapiUnion>,
-    pub events: Vec<QapiEvent>,
-    pub commands: Vec<QapiCommand>,
+#[derive(Debug, Clone)]
+pub struct QapiSchema<'input> {
+    pub structs: Vec<QapiStruct<'input>>,
+    pub documentations: Vec<QapiDocumentation<'input>>,
+    pub enums: Vec<QapiEnum<'input>>,
+    pub alternates: Vec<QapiAlternate<'input>>,
+    pub pragmas: Vec<QapiPragma<'input>>,
+    pub includes: Vec<QapiInclude<'input>>,
+    pub unions: Vec<QapiUnion<'input>>,
+    pub events: Vec<QapiEvent<'input>>,
+    pub commands: Vec<QapiCommand<'input>>,
 }
 
-impl QapiSchema {
-    pub fn parse(input: &str) -> IResult<&str, Self> {
+impl<'input> QapiSchema<'input> {
+    pub fn parse(input: &'input str) -> IResult<&'input str, Self> {
         map(
             many0(alt((
                 map(QapiDocumentation::parse, |v| ParserKey::Documentation(v)),
@@ -111,7 +111,7 @@ impl QapiSchema {
             },
         )(input)
     }
-    pub fn flatten(schemas: Vec<QapiSchema>) -> Self {
+    pub fn flatten(schemas: Vec<QapiSchema<'input>>) -> Self {
         let mut structs = vec![];
         let mut enums = vec![];
         let mut documentations = vec![];

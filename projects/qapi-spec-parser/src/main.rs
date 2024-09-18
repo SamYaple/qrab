@@ -46,11 +46,11 @@ fn main() -> Result<()> {
     let schema_type = "qapi";
     let schema_file = qemu_src_root.join(schema_type).join("qapi-schema.json");
 
-    let mut schemas = std::collections::HashMap::new();
-    helpers::walk_schemas(&schema_file, &mut schemas)?;
-    for (f, schema) in schemas.values() {
-        dbg![&f];
-        dbg![&schema];
+    let mut schema_raw_strs = std::collections::HashMap::new();
+    helpers::walk_schemas(&schema_file, &mut schema_raw_strs)?;
+    let schemas = helpers::process_schemas(&schema_raw_strs)?;
+    for (path, schema) in schemas {
+        dbg![&path, &schema];
         break;
     }
 

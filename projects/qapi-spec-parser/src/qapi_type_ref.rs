@@ -5,16 +5,16 @@ use nom::combinator::map;
 use nom::sequence::delimited;
 use nom::IResult;
 
-#[derive(Debug)]
-pub enum QapiTypeRef {
-    Weak(QapiString),
-    WeakArray(QapiString),
+#[derive(Debug, Clone)]
+pub enum QapiTypeRef<'input> {
+    Weak(QapiString<'input>),
+    WeakArray(QapiString<'input>),
 }
 
-impl QapiTypeRef {
+impl<'input> QapiTypeRef<'input> {
     /// TYPE-REF = STRING | ARRAY-TYPE
     /// ARRAY-TYPE = [ STRING ]
-    pub fn parse(input: &str) -> IResult<&str, Self> {
+    pub fn parse(input: &'input str) -> IResult<&'input str, Self> {
         let weak_parser = QapiString::parse;
         let array_parser = delimited(qtag("["), weak_parser, qtag("]"));
         alt((

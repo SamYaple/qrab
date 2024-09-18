@@ -3,7 +3,7 @@ use nom::branch::alt;
 use nom::combinator::map;
 use nom::IResult;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct QapiBool(pub bool);
 impl QapiBool {
     pub fn parse(input: &str) -> IResult<&str, Self> {

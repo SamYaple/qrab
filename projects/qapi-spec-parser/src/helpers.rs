@@ -67,46 +67,40 @@ fn read_file(path: &Path) -> Result<String> {
     Ok(contents)
 }
 
-pub fn walk_schemas(
-    path: &Path,
-    schemas: &mut HashMap<PathBuf, (String, Option<QapiSchema>)>,
-) -> Result<()> {
+pub fn walk_schemas(path: &Path, schemas: &mut HashMap<PathBuf, String>) -> Result<()> {
     if schemas.contains_key(path) {
         // we have already included this schema
         return Ok(());
     }
 
     let file_as_string = read_file(path)?;
-    schemas.insert(path.to_path_buf(), (file_as_string, None));
+    let pathbuf = path.to_path_buf();
+    schemas.insert(pathbuf, file_as_string);
 
-    // get a mut reference to the file we just read to String and the Option<>
-    // for the parsed_schema. This will allow the &str references to point back
-    // to the original source file. This will allow me to keep the qapi file
-    // structure and ordering intact for future rendering. Additionally, this is
-    // useful for errors/debugging the parser.
-    {
-        let (schema_str, ref mut parsed_schema) = schemas.get_mut(path).unwrap();
-        if parsed_schema.is_some() {
-            unreachable! {"BUG: This Option should be `None` at this stage"};
-        }
+    let schema_str = schemas.get(path).unwrap();
+    let (_, schema) = all_consuming(QapiSchema::parse)(schema_str)
+        .expect("nom failed to parse the entire schema");
 
-        let (_, schema) =
-            all_consuming(QapiSchema::parse)(&schema_str).expect("nom failed to parse schema_str");
-        *parsed_schema = Some(schema);
+    let mut new_schema_paths = vec![];
+    for include in schema.includes {
+        let parent_path = path.parent().unwrap();
+        let relative_file_path = include.0 .0; // TODO fix after include has the proper impl
+        let new_schema_path = parent_path.join(relative_file_path);
+        new_schema_paths.push(new_schema_path);
     }
-
-    let (_, schema) = schemas.get(path).expect("BUG: This entry should exist");
-    if schema.is_none() {
-        unreachable! {"BUG: This Option should be `Some()` at this stage"};
-    }
-
-    if let Some(schema) = schema {
-        for include in schema.includes.clone() {
-            let parent_path = path.parent().unwrap();
-            let relative_file_path = include.0 .0.clone(); // TODO fix after include has the proper impl
-            let full_path = parent_path.join(relative_file_path);
-            walk_schemas(&full_path, schemas)?;
-        }
+    for new_schema_path in new_schema_paths {
+        walk_schemas(&new_schema_path, schemas)?;
     }
     Ok(())
+}
+
+pub fn process_schemas<'input>(
+    schemas: &'input HashMap<PathBuf, String>,
+) -> Result<HashMap<PathBuf, QapiSchema<'input>>> {
+    let mut processed = HashMap::new();
+    for (path, schema_str) in schemas {
+        let (_, schema) = all_consuming(QapiSchema::parse)(schema_str).unwrap();
+        processed.insert(path.to_path_buf(), schema);
+    }
+    Ok(processed)
 }

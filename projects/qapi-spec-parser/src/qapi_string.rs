@@ -5,17 +5,10 @@ use nom::sequence::delimited;
 use nom::IResult;
 
 #[derive(Debug, PartialEq, Clone)]
-pub struct QapiString(pub String);
-impl QapiString {
-    pub fn parse(input: &str) -> IResult<&str, Self> {
-        map(
-            delimited(
-                qtag("'"),
-                take_until("'"), // TODO handle escaped '\''?
-                tag("'"),
-            ),
-            |v| Self(v.into()),
-        )(input)
+pub struct QapiString<'input>(pub &'input str);
+impl<'input> QapiString<'input> {
+    pub fn parse(input: &'input str) -> IResult<&'input str, Self> {
+        map(delimited(qtag("'"), take_until("'"), tag("'")), |v| Self(v))(input)
     }
 }
 

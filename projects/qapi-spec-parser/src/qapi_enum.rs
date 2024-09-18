@@ -6,30 +6,30 @@ use nom::multi::separated_list1;
 use nom::sequence::delimited;
 use nom::IResult;
 
-enum EnumParserKey {
-    Name(QapiString),
-    Prefix(QapiString),
-    Data(Vec<QapiEnumValue>),
-    If(QapiCond),
-    Features(QapiFeatures),
+enum EnumParserKey<'input> {
+    Name(QapiString<'input>),
+    Prefix(QapiString<'input>),
+    Data(Vec<QapiEnumValue<'input>>),
+    If(QapiCond<'input>),
+    Features(QapiFeatures<'input>),
 }
 
-#[derive(Debug)]
-pub struct QapiEnum {
-    name: QapiString,
-    data: Vec<QapiEnumValue>,
-    r#if: Option<QapiCond>,
-    prefix: Option<QapiString>,
-    features: Option<QapiFeatures>,
+#[derive(Debug, Clone)]
+pub struct QapiEnum<'input> {
+    name: QapiString<'input>,
+    data: Vec<QapiEnumValue<'input>>,
+    r#if: Option<QapiCond<'input>>,
+    prefix: Option<QapiString<'input>>,
+    features: Option<QapiFeatures<'input>>,
 }
 
-impl QapiEnum {
+impl<'input> QapiEnum<'input> {
     /// ENUM = { 'enum': STRING,
     ///          'data': [ ENUM-VALUE, ... ],
     ///          '*prefix': STRING,
     ///          '*if': COND,
     ///          '*features': FEATURES }
-    pub fn parse(input: &str) -> IResult<&str, Self> {
+    pub fn parse(input: &'input str) -> IResult<&'input str, Self> {
         let name_parser = map(kv(qtag("enum"), QapiString::parse), |v| {
             EnumParserKey::Name(v)
         });
@@ -88,25 +88,25 @@ impl QapiEnum {
     }
 }
 
-enum EnumValueParserKey {
-    Name(QapiString),
-    If(QapiCond),
-    Features(QapiFeatures),
+enum EnumValueParserKey<'input> {
+    Name(QapiString<'input>),
+    If(QapiCond<'input>),
+    Features(QapiFeatures<'input>),
 }
 
-#[derive(Debug)]
-pub struct QapiEnumValue {
-    name: QapiString,
-    r#if: Option<QapiCond>,
-    features: Option<QapiFeatures>,
+#[derive(Debug, Clone)]
+pub struct QapiEnumValue<'input> {
+    name: QapiString<'input>,
+    r#if: Option<QapiCond<'input>>,
+    features: Option<QapiFeatures<'input>>,
 }
 
-impl QapiEnumValue {
+impl<'input> QapiEnumValue<'input> {
     /// ENUM-VALUE = STRING
     ///            | { 'name': STRING,
     ///                '*if': COND,
     ///                '*features': FEATURES }
-    pub fn parse(input: &str) -> IResult<&str, Self> {
+    pub fn parse(input: &'input str) -> IResult<&'input str, Self> {
         let name_parser = map(kv(qtag("name"), QapiString::parse), |v| {
             EnumValueParserKey::Name(v)
         });

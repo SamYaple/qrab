@@ -6,39 +6,39 @@ use nom::multi::separated_list1;
 use nom::sequence::delimited;
 use nom::IResult;
 
-enum ParserKey {
-    Name(QapiString),
-    Discriminator(QapiString),
-    Data(QapiBranches),
-    Base(QapiUnionBase),
-    If(QapiCond),
-    Features(QapiFeatures),
+enum ParserKey<'input> {
+    Name(QapiString<'input>),
+    Discriminator(QapiString<'input>),
+    Data(QapiBranches<'input>),
+    Base(QapiUnionBase<'input>),
+    If(QapiCond<'input>),
+    Features(QapiFeatures<'input>),
 }
 
-#[derive(Debug)]
-enum QapiUnionBase {
-    Ref(QapiString),
-    Members(QapiMembers),
+#[derive(Debug, Clone)]
+enum QapiUnionBase<'input> {
+    Ref(QapiString<'input>),
+    Members(QapiMembers<'input>),
 }
 
-#[derive(Debug)]
-pub struct QapiUnion {
-    name: QapiString,
-    data: QapiBranches,
-    base: QapiUnionBase,
-    discriminator: QapiString,
-    r#if: Option<QapiCond>,
-    features: Option<QapiFeatures>,
+#[derive(Debug, Clone)]
+pub struct QapiUnion<'input> {
+    name: QapiString<'input>,
+    data: QapiBranches<'input>,
+    base: QapiUnionBase<'input>,
+    discriminator: QapiString<'input>,
+    r#if: Option<QapiCond<'input>>,
+    features: Option<QapiFeatures<'input>>,
 }
 
-impl QapiUnion {
+impl<'input> QapiUnion<'input> {
     /// UNION = { 'union': STRING,
     ///           'base': ( MEMBERS | STRING ),
     ///           'discriminator': STRING,
     ///           'data': BRANCHES,
     ///           '*if': COND,
     ///           '*features': FEATURES }
-    pub fn parse(input: &str) -> IResult<&str, Self> {
+    pub fn parse(input: &'input str) -> IResult<&'input str, Self> {
         let cond_parser = map(kv(qtag("if"), QapiCond::parse), |v| ParserKey::If(v));
         let features_parser = map(kv(qtag("features"), QapiFeatures::parse), |v| {
             ParserKey::Features(v)

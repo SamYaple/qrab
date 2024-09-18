@@ -6,30 +6,30 @@ use nom::multi::separated_list1;
 use nom::sequence::delimited;
 use nom::IResult;
 
-enum ParserKey {
-    Name(QapiString),
-    Data(QapiEventData),
-    If(QapiCond),
-    Features(QapiFeatures),
+enum ParserKey<'input> {
+    Name(QapiString<'input>),
+    Data(QapiEventData<'input>),
+    If(QapiCond<'input>),
+    Features(QapiFeatures<'input>),
     Boxed(QapiBool),
 }
 
-#[derive(Debug)]
-enum QapiEventData {
-    Ref(QapiString),
-    Members(QapiMembers),
+#[derive(Debug, Clone)]
+enum QapiEventData<'input> {
+    Ref(QapiString<'input>),
+    Members(QapiMembers<'input>),
 }
 
-#[derive(Debug)]
-pub struct QapiEvent {
-    name: QapiString,
-    data: Option<QapiEventData>,
+#[derive(Debug, Clone)]
+pub struct QapiEvent<'input> {
+    name: QapiString<'input>,
+    data: Option<QapiEventData<'input>>,
     boxed: Option<QapiBool>,
-    r#if: Option<QapiCond>,
-    features: Option<QapiFeatures>,
+    r#if: Option<QapiCond<'input>>,
+    features: Option<QapiFeatures<'input>>,
 }
 
-impl QapiEvent {
+impl<'input> QapiEvent<'input> {
     /// EVENT = { 'event': STRING,
     ///           (
     ///           '*data': ( MEMBERS | STRING ),
@@ -39,7 +39,7 @@ impl QapiEvent {
     ///           )
     ///           '*if': COND,
     ///           '*features': FEATURES }
-    pub fn parse(input: &str) -> IResult<&str, Self> {
+    pub fn parse(input: &'input str) -> IResult<&'input str, Self> {
         let boxed_parser = map(kv(qtag("boxed"), QapiBool::parse), |v| ParserKey::Boxed(v));
         let cond_parser = map(kv(qtag("if"), QapiCond::parse), |v| ParserKey::If(v));
         let features_parser = map(kv(qtag("features"), QapiFeatures::parse), |v| {

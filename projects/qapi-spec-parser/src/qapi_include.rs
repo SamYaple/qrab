@@ -5,10 +5,10 @@ use nom::sequence::delimited;
 use nom::IResult;
 
 #[derive(Debug, Clone)]
-pub struct QapiInclude(pub QapiString);
-impl QapiInclude {
+pub struct QapiInclude<'input>(pub QapiString<'input>);
+impl<'input> QapiInclude<'input> {
     /// INCLUDE = { 'include': STRING }
-    pub fn parse(input: &str) -> IResult<&str, Self> {
+    pub fn parse(input: &'input str) -> IResult<&'input str, Self> {
         delimited(
             qtag("{"),
             map(kv(qtag("include"), QapiString::parse), |v| Self(v)),

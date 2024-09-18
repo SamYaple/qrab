@@ -6,22 +6,22 @@ use nom::multi::separated_list1;
 use nom::sequence::{delimited, terminated};
 use nom::IResult;
 
-enum ParserKey {
-    Type(QapiTypeRef),
-    If(QapiCond),
+enum ParserKey<'input> {
+    Type(QapiTypeRef<'input>),
+    If(QapiCond<'input>),
 }
 
-#[derive(Debug)]
-pub struct QapiBranch {
-    name: QapiString,
-    r#type: QapiTypeRef,
-    r#if: Option<QapiCond>,
+#[derive(Debug, Clone)]
+pub struct QapiBranch<'input> {
+    name: QapiString<'input>,
+    r#type: QapiTypeRef<'input>,
+    r#if: Option<QapiCond<'input>>,
 }
 
-impl QapiBranch {
+impl<'input> QapiBranch<'input> {
     /// BRANCH = STRING : TYPE-REF
     ///        | STRING : { 'type': TYPE-REF, '*if': COND }
-    pub fn parse(input: &str) -> IResult<&str, Self> {
+    pub fn parse(input: &'input str) -> IResult<&'input str, Self> {
         let (input, name) = terminated(QapiString::parse, qtag(":"))(input)?;
 
         let type_parser = map(kv(qtag("type"), QapiTypeRef::parse), |v| ParserKey::Type(v));
@@ -56,11 +56,11 @@ impl QapiBranch {
     }
 }
 
-#[derive(Debug)]
-pub struct QapiBranches(Vec<QapiBranch>);
-impl QapiBranches {
+#[derive(Debug, Clone)]
+pub struct QapiBranches<'input>(Vec<QapiBranch<'input>>);
+impl<'input> QapiBranches<'input> {
     /// BRANCHES = { BRANCH, ... }
-    pub fn parse(input: &str) -> IResult<&str, Self> {
+    pub fn parse(input: &'input str) -> IResult<&'input str, Self> {
         map(
             delimited(
                 qtag("{"),
