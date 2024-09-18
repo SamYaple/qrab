@@ -11,7 +11,7 @@ use nom::multi::many0;
 use nom::IResult;
 
 #[derive(Debug)]
-pub enum ParserKey<'input> {
+pub enum ParserToken<'input> {
     Struct(QapiStruct<'input>),
     Enum(QapiEnum<'input>),
     Documentation(QapiDocumentation<'input>),
@@ -42,20 +42,20 @@ impl<'input> QapiSchema<'input> {
     pub fn parse(input: &'input str) -> IResult<&'input str, Self> {
         map(
             many0(alt((
-                map(QapiDocumentation::parse, |v| ParserKey::Documentation(v)),
-                map(QapiStruct::parse, |v| ParserKey::Struct(v)),
-                map(QapiEnum::parse, |v| ParserKey::Enum(v)),
-                map(QapiAlternate::parse, |v| ParserKey::Alternate(v)),
-                map(QapiPragma::parse, |v| ParserKey::Pragma(v)),
-                map(QapiInclude::parse, |v| ParserKey::Include(v)),
-                map(QapiUnion::parse, |v| ParserKey::Union(v)),
-                map(QapiEvent::parse, |v| ParserKey::Event(v)),
-                map(QapiCommand::parse, |v| ParserKey::Command(v)),
-                map(qcomment, |v| ParserKey::Comment(v.into())),
-                map(multispace1, |_| ParserKey::Empty),
+                map(QapiDocumentation::parse, |v| ParserToken::Documentation(v)),
+                map(QapiStruct::parse, |v| ParserToken::Struct(v)),
+                map(QapiEnum::parse, |v| ParserToken::Enum(v)),
+                map(QapiAlternate::parse, |v| ParserToken::Alternate(v)),
+                map(QapiPragma::parse, |v| ParserToken::Pragma(v)),
+                map(QapiInclude::parse, |v| ParserToken::Include(v)),
+                map(QapiUnion::parse, |v| ParserToken::Union(v)),
+                map(QapiEvent::parse, |v| ParserToken::Event(v)),
+                map(QapiCommand::parse, |v| ParserToken::Command(v)),
+                map(qcomment, |v| ParserToken::Comment(v.into())),
+                map(multispace1, |_| ParserToken::Empty),
                 // This was a documentation block starter that gets ignored by
                 // qcomment
-                map(tag("##"), |_| ParserKey::Empty),
+                map(tag("##"), |_| ParserToken::Empty),
             ))),
             |tokens| {
                 let mut structs = vec![];
@@ -69,16 +69,16 @@ impl<'input> QapiSchema<'input> {
                 let mut commands = vec![];
                 for token in tokens {
                     match token {
-                        ParserKey::Struct(v) => structs.push(v),
-                        ParserKey::Documentation(v) => documentations.push(v),
-                        ParserKey::Alternate(v) => alternates.push(v),
-                        ParserKey::Pragma(v) => pragmas.push(v),
-                        ParserKey::Include(v) => includes.push(v),
-                        ParserKey::Union(v) => unions.push(v),
-                        ParserKey::Event(v) => events.push(v),
-                        ParserKey::Command(v) => commands.push(v),
-                        ParserKey::Enum(v) => enums.push(v),
-                        ParserKey::Comment(v) => {
+                        ParserToken::Struct(v) => structs.push(v),
+                        ParserToken::Documentation(v) => documentations.push(v),
+                        ParserToken::Alternate(v) => alternates.push(v),
+                        ParserToken::Pragma(v) => pragmas.push(v),
+                        ParserToken::Include(v) => includes.push(v),
+                        ParserToken::Union(v) => unions.push(v),
+                        ParserToken::Event(v) => events.push(v),
+                        ParserToken::Command(v) => commands.push(v),
+                        ParserToken::Enum(v) => enums.push(v),
+                        ParserToken::Comment(v) => {
                             // Discarding known strings and eprinting everything
                             // else for debug and such
                             match v.trim() {
@@ -94,7 +94,7 @@ impl<'input> QapiSchema<'input> {
                                 _ => eprintln!("DEBUG: unused comment string ```{v}"),
                             }
                         }
-                        ParserKey::Empty => {}
+                        ParserToken::Empty => {}
                     }
                 }
                 Self {

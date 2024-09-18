@@ -6,7 +6,7 @@ use nom::multi::separated_list1;
 use nom::sequence::delimited;
 use nom::IResult;
 
-enum ParserKey<'input> {
+enum ParserToken<'input> {
     Name(QapiString<'input>),
     Data(QapiEventData<'input>),
     If(QapiCond<'input>),
@@ -40,12 +40,16 @@ impl<'input> QapiEvent<'input> {
     ///           '*if': COND,
     ///           '*features': FEATURES }
     pub fn parse(input: &'input str) -> IResult<&'input str, Self> {
-        let boxed_parser = map(kv(qtag("boxed"), QapiBool::parse), |v| ParserKey::Boxed(v));
-        let cond_parser = map(kv(qtag("if"), QapiCond::parse), |v| ParserKey::If(v));
-        let features_parser = map(kv(qtag("features"), QapiFeatures::parse), |v| {
-            ParserKey::Features(v)
+        let boxed_parser = map(kv(qtag("boxed"), QapiBool::parse), |v| {
+            ParserToken::Boxed(v)
         });
-        let name_parser = map(kv(qtag("event"), QapiString::parse), |v| ParserKey::Name(v));
+        let cond_parser = map(kv(qtag("if"), QapiCond::parse), |v| ParserToken::If(v));
+        let features_parser = map(kv(qtag("features"), QapiFeatures::parse), |v| {
+            ParserToken::Features(v)
+        });
+        let name_parser = map(kv(qtag("event"), QapiString::parse), |v| {
+            ParserToken::Name(v)
+        });
         let data_parser = map(
             kv(
                 qtag("data"),
@@ -54,7 +58,7 @@ impl<'input> QapiEvent<'input> {
                     map(QapiMembers::parse, |v| QapiEventData::Members(v)),
                 )),
             ),
-            |v| ParserKey::Data(v),
+            |v| ParserToken::Data(v),
         );
 
         let parsers = alt((
@@ -74,11 +78,11 @@ impl<'input> QapiEvent<'input> {
                 let mut name = None;
                 for i in tokens {
                     match i {
-                        ParserKey::If(v) => r#if = Some(v),
-                        ParserKey::Boxed(v) => boxed = Some(v),
-                        ParserKey::Data(v) => data = Some(v),
-                        ParserKey::Name(v) => name = Some(v),
-                        ParserKey::Features(v) => features = Some(v),
+                        ParserToken::If(v) => r#if = Some(v),
+                        ParserToken::Boxed(v) => boxed = Some(v),
+                        ParserToken::Data(v) => data = Some(v),
+                        ParserToken::Name(v) => name = Some(v),
+                        ParserToken::Features(v) => features = Some(v),
                     }
                 }
                 let name = name.expect("struct is a required key");

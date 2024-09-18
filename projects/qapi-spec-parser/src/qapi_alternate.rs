@@ -6,7 +6,7 @@ use nom::multi::separated_list1;
 use nom::sequence::{delimited, terminated};
 use nom::IResult;
 
-enum AlternateParserKey<'input> {
+enum AlternateParserToken<'input> {
     Name(QapiString<'input>),
     Data(QapiAlternatives<'input>),
     If(QapiCond<'input>),
@@ -28,16 +28,16 @@ impl<'input> QapiAlternate<'input> {
     ///               '*features': FEATURES }
     pub fn parse(input: &'input str) -> IResult<&'input str, Self> {
         let cond_parser = map(kv(qtag("if"), QapiCond::parse), |v| {
-            AlternateParserKey::If(v)
+            AlternateParserToken::If(v)
         });
         let features_parser = map(kv(qtag("features"), QapiFeatures::parse), |v| {
-            AlternateParserKey::Features(v)
+            AlternateParserToken::Features(v)
         });
         let name_parser = map(kv(qtag("alternate"), QapiString::parse), |v| {
-            AlternateParserKey::Name(v)
+            AlternateParserToken::Name(v)
         });
         let data_parser = map(kv(qtag("data"), QapiAlternatives::parse), |v| {
-            AlternateParserKey::Data(v)
+            AlternateParserToken::Data(v)
         });
 
         let parsers = alt((data_parser, cond_parser, features_parser, name_parser));
@@ -50,10 +50,10 @@ impl<'input> QapiAlternate<'input> {
                 let mut name = None;
                 for i in tokens {
                     match i {
-                        AlternateParserKey::If(v) => r#if = Some(v),
-                        AlternateParserKey::Data(v) => data = Some(v),
-                        AlternateParserKey::Name(v) => name = Some(v),
-                        AlternateParserKey::Features(v) => features = Some(v),
+                        AlternateParserToken::If(v) => r#if = Some(v),
+                        AlternateParserToken::Data(v) => data = Some(v),
+                        AlternateParserToken::Name(v) => name = Some(v),
+                        AlternateParserToken::Features(v) => features = Some(v),
                     }
                 }
                 let name = name.expect("alternate is a required key");
@@ -70,7 +70,7 @@ impl<'input> QapiAlternate<'input> {
     }
 }
 
-enum AlternativeParserKey<'input> {
+enum AlternativeParserToken<'input> {
     Type(QapiTypeRef<'input>),
     If(QapiCond<'input>),
 }
@@ -89,10 +89,10 @@ impl<'input> QapiAlternative<'input> {
         let (input, name) = terminated(QapiString::parse, qtag(":"))(input)?;
 
         let type_parser = map(kv(qtag("type"), QapiTypeRef::parse), |v| {
-            AlternativeParserKey::Type(v)
+            AlternativeParserToken::Type(v)
         });
         let cond_parser = map(kv(qtag("if"), QapiCond::parse), |v| {
-            AlternativeParserKey::If(v)
+            AlternativeParserToken::If(v)
         });
 
         let simple_parser = QapiTypeRef::parse;
@@ -108,8 +108,8 @@ impl<'input> QapiAlternative<'input> {
                 let mut r#type = None;
                 for i in tokens {
                     match i {
-                        AlternativeParserKey::If(v) => r#if = Some(v),
-                        AlternativeParserKey::Type(v) => r#type = Some(v),
+                        AlternativeParserToken::If(v) => r#if = Some(v),
+                        AlternativeParserToken::Type(v) => r#type = Some(v),
                     }
                 }
                 let r#type = r#type.expect("type is a required key");

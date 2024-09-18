@@ -6,7 +6,7 @@ use nom::multi::separated_list1;
 use nom::sequence::delimited;
 use nom::IResult;
 
-enum EnumParserKey<'input> {
+enum EnumParserToken<'input> {
     Name(QapiString<'input>),
     Prefix(QapiString<'input>),
     Data(Vec<QapiEnumValue<'input>>),
@@ -31,10 +31,10 @@ impl<'input> QapiEnum<'input> {
     ///          '*features': FEATURES }
     pub fn parse(input: &'input str) -> IResult<&'input str, Self> {
         let name_parser = map(kv(qtag("enum"), QapiString::parse), |v| {
-            EnumParserKey::Name(v)
+            EnumParserToken::Name(v)
         });
         let prefix_parser = map(kv(qtag("prefix"), QapiString::parse), |v| {
-            EnumParserKey::Prefix(v)
+            EnumParserToken::Prefix(v)
         });
         let type_parser = map(
             kv(
@@ -45,11 +45,11 @@ impl<'input> QapiEnum<'input> {
                     qtag("]"),
                 ),
             ),
-            |v| EnumParserKey::Data(v),
+            |v| EnumParserToken::Data(v),
         );
-        let cond_parser = map(kv(qtag("if"), QapiCond::parse), |v| EnumParserKey::If(v));
+        let cond_parser = map(kv(qtag("if"), QapiCond::parse), |v| EnumParserToken::If(v));
         let features_parser = map(kv(qtag("features"), QapiFeatures::parse), |v| {
-            EnumParserKey::Features(v)
+            EnumParserToken::Features(v)
         });
 
         let token_parser = dict(alt((
@@ -67,11 +67,11 @@ impl<'input> QapiEnum<'input> {
             let mut features = None;
             for i in tokens {
                 match i {
-                    EnumParserKey::If(v) => r#if = Some(v),
-                    EnumParserKey::Data(v) => data = Some(v),
-                    EnumParserKey::Name(v) => name = Some(v),
-                    EnumParserKey::Prefix(v) => prefix = Some(v),
-                    EnumParserKey::Features(v) => features = Some(v),
+                    EnumParserToken::If(v) => r#if = Some(v),
+                    EnumParserToken::Data(v) => data = Some(v),
+                    EnumParserToken::Name(v) => name = Some(v),
+                    EnumParserToken::Prefix(v) => prefix = Some(v),
+                    EnumParserToken::Features(v) => features = Some(v),
                 }
             }
             let name = name.expect("enum is a required key");
@@ -88,7 +88,7 @@ impl<'input> QapiEnum<'input> {
     }
 }
 
-enum EnumValueParserKey<'input> {
+enum EnumValueParserToken<'input> {
     Name(QapiString<'input>),
     If(QapiCond<'input>),
     Features(QapiFeatures<'input>),
@@ -108,13 +108,13 @@ impl<'input> QapiEnumValue<'input> {
     ///                '*features': FEATURES }
     pub fn parse(input: &'input str) -> IResult<&'input str, Self> {
         let name_parser = map(kv(qtag("name"), QapiString::parse), |v| {
-            EnumValueParserKey::Name(v)
+            EnumValueParserToken::Name(v)
         });
         let cond_parser = map(kv(qtag("if"), QapiCond::parse), |v| {
-            EnumValueParserKey::If(v)
+            EnumValueParserToken::If(v)
         });
         let features_parser = map(kv(qtag("features"), QapiFeatures::parse), |v| {
-            EnumValueParserKey::Features(v)
+            EnumValueParserToken::Features(v)
         });
 
         let simple_parser = QapiString::parse;
@@ -131,9 +131,9 @@ impl<'input> QapiEnumValue<'input> {
                 let mut features = None;
                 for i in tokens {
                     match i {
-                        EnumValueParserKey::If(v) => r#if = Some(v),
-                        EnumValueParserKey::Name(v) => name = Some(v),
-                        EnumValueParserKey::Features(v) => features = Some(v),
+                        EnumValueParserToken::If(v) => r#if = Some(v),
+                        EnumValueParserToken::Name(v) => name = Some(v),
+                        EnumValueParserToken::Features(v) => features = Some(v),
                     }
                 }
                 let name = name.expect("name is a required key");

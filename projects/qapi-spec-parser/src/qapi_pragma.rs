@@ -6,7 +6,7 @@ use nom::multi::separated_list1;
 use nom::sequence::{delimited, tuple};
 use nom::IResult;
 
-enum ParserKey<'input> {
+enum ParserToken<'input> {
     DocRequired(QapiBool),
     CommandReturnsExceptions(Vec<QapiString<'input>>),
     CommandNameExceptions(Vec<QapiString<'input>>),
@@ -32,7 +32,7 @@ impl<'input> QapiPragma<'input> {
     ///            '*member-name-exceptions': [ STRING, ... ] } }
     pub fn parse(input: &'input str) -> IResult<&'input str, Self> {
         let doc_required_parser = map(kv(qtag("doc-required"), QapiBool::parse), |v| {
-            ParserKey::DocRequired(v)
+            ParserToken::DocRequired(v)
         });
         let command_name_exceptions_parser = map(
             kv(
@@ -43,7 +43,7 @@ impl<'input> QapiPragma<'input> {
                     qtag("]"),
                 ),
             ),
-            |v| ParserKey::CommandNameExceptions(v),
+            |v| ParserToken::CommandNameExceptions(v),
         );
         let command_returns_exceptions_parser = map(
             kv(
@@ -54,7 +54,7 @@ impl<'input> QapiPragma<'input> {
                     qtag("]"),
                 ),
             ),
-            |v| ParserKey::CommandReturnsExceptions(v),
+            |v| ParserToken::CommandReturnsExceptions(v),
         );
         let documentation_exceptions_parser = map(
             kv(
@@ -65,7 +65,7 @@ impl<'input> QapiPragma<'input> {
                     qtag("]"),
                 ),
             ),
-            |v| ParserKey::DocumentationExceptions(v),
+            |v| ParserToken::DocumentationExceptions(v),
         );
         let member_name_exceptions_parser = map(
             kv(
@@ -76,7 +76,7 @@ impl<'input> QapiPragma<'input> {
                     qtag("]"),
                 ),
             ),
-            |v| ParserKey::MemberNameExceptions(v),
+            |v| ParserToken::MemberNameExceptions(v),
         );
 
         let parsers = alt((
@@ -96,13 +96,15 @@ impl<'input> QapiPragma<'input> {
                 let mut member_name_exceptions = None;
                 for i in tokens {
                     match i {
-                        ParserKey::DocRequired(v) => doc_required = Some(v),
-                        ParserKey::CommandReturnsExceptions(v) => {
+                        ParserToken::DocRequired(v) => doc_required = Some(v),
+                        ParserToken::CommandReturnsExceptions(v) => {
                             command_returns_exceptions = Some(v)
                         }
-                        ParserKey::CommandNameExceptions(v) => command_name_exceptions = Some(v),
-                        ParserKey::DocumentationExceptions(v) => documentation_exceptions = Some(v),
-                        ParserKey::MemberNameExceptions(v) => member_name_exceptions = Some(v),
+                        ParserToken::CommandNameExceptions(v) => command_name_exceptions = Some(v),
+                        ParserToken::DocumentationExceptions(v) => {
+                            documentation_exceptions = Some(v)
+                        }
+                        ParserToken::MemberNameExceptions(v) => member_name_exceptions = Some(v),
                     }
                 }
                 Self {

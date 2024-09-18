@@ -6,7 +6,7 @@ use nom::multi::separated_list1;
 use nom::sequence::{delimited, terminated};
 use nom::IResult;
 
-enum ParserKey<'input> {
+enum ParserToken<'input> {
     Type(QapiTypeRef<'input>),
     If(QapiCond<'input>),
 }
@@ -24,8 +24,10 @@ impl<'input> QapiBranch<'input> {
     pub fn parse(input: &'input str) -> IResult<&'input str, Self> {
         let (input, name) = terminated(QapiString::parse, qtag(":"))(input)?;
 
-        let type_parser = map(kv(qtag("type"), QapiTypeRef::parse), |v| ParserKey::Type(v));
-        let cond_parser = map(kv(qtag("if"), QapiCond::parse), |v| ParserKey::If(v));
+        let type_parser = map(kv(qtag("type"), QapiTypeRef::parse), |v| {
+            ParserToken::Type(v)
+        });
+        let cond_parser = map(kv(qtag("if"), QapiCond::parse), |v| ParserToken::If(v));
 
         let simple_parser = QapiTypeRef::parse;
         let complex_parser = dict(alt((type_parser, cond_parser)));
@@ -40,8 +42,8 @@ impl<'input> QapiBranch<'input> {
                 let mut r#type = None;
                 for i in tokens {
                     match i {
-                        ParserKey::If(v) => r#if = Some(v),
-                        ParserKey::Type(v) => r#type = Some(v),
+                        ParserToken::If(v) => r#if = Some(v),
+                        ParserToken::Type(v) => r#type = Some(v),
                     }
                 }
                 let r#type = r#type.expect("type is a required key");

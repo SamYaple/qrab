@@ -7,7 +7,7 @@ use nom::sequence::delimited;
 
 use nom::IResult;
 
-enum ParserKey<'input> {
+enum ParserToken<'input> {
     Name(QapiString<'input>),
     If(QapiCond<'input>),
 }
@@ -25,9 +25,9 @@ impl<'input> QapiFeature<'input> {
         let simple_parser = QapiString::parse;
 
         let name_parser = map(kv(qtag("name"), QapiString::parse), |v| {
-            ParserKey::Name(v.into())
+            ParserToken::Name(v.into())
         });
-        let cond_parser = map(kv(qtag("if"), QapiCond::parse), |v| ParserKey::If(v));
+        let cond_parser = map(kv(qtag("if"), QapiCond::parse), |v| ParserToken::If(v));
         let complex_parser = dict(alt((name_parser, cond_parser)));
         alt((
             map(simple_parser, |v| Self {
@@ -39,8 +39,8 @@ impl<'input> QapiFeature<'input> {
                 let mut r#if = None;
                 for i in tokens {
                     match i {
-                        ParserKey::Name(v) => name = Some(v),
-                        ParserKey::If(v) => r#if = Some(v),
+                        ParserToken::Name(v) => name = Some(v),
+                        ParserToken::If(v) => r#if = Some(v),
                     }
                 }
                 let name = name.expect("name is a required key");

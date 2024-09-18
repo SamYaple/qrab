@@ -6,7 +6,7 @@ use nom::multi::separated_list1;
 use nom::sequence::delimited;
 use nom::IResult;
 
-enum ParserKey<'input> {
+enum ParserToken<'input> {
     Name(QapiString<'input>),
     Discriminator(QapiString<'input>),
     Data(QapiBranches<'input>),
@@ -39,16 +39,18 @@ impl<'input> QapiUnion<'input> {
     ///           '*if': COND,
     ///           '*features': FEATURES }
     pub fn parse(input: &'input str) -> IResult<&'input str, Self> {
-        let cond_parser = map(kv(qtag("if"), QapiCond::parse), |v| ParserKey::If(v));
+        let cond_parser = map(kv(qtag("if"), QapiCond::parse), |v| ParserToken::If(v));
         let features_parser = map(kv(qtag("features"), QapiFeatures::parse), |v| {
-            ParserKey::Features(v)
+            ParserToken::Features(v)
         });
-        let name_parser = map(kv(qtag("union"), QapiString::parse), |v| ParserKey::Name(v));
+        let name_parser = map(kv(qtag("union"), QapiString::parse), |v| {
+            ParserToken::Name(v)
+        });
         let data_parser = map(kv(qtag("data"), QapiBranches::parse), |v| {
-            ParserKey::Data(v)
+            ParserToken::Data(v)
         });
         let discriminator_parser = map(kv(qtag("discriminator"), QapiString::parse), |v| {
-            ParserKey::Discriminator(v)
+            ParserToken::Discriminator(v)
         });
         let base_parser = map(
             kv(
@@ -58,7 +60,7 @@ impl<'input> QapiUnion<'input> {
                     map(QapiMembers::parse, |v| QapiUnionBase::Members(v)),
                 )),
             ),
-            |v| ParserKey::Base(v),
+            |v| ParserToken::Base(v),
         );
 
         let parsers = alt((
@@ -80,12 +82,12 @@ impl<'input> QapiUnion<'input> {
                 let mut discriminator = None;
                 for i in tokens {
                     match i {
-                        ParserKey::If(v) => r#if = Some(v),
-                        ParserKey::Discriminator(v) => discriminator = Some(v),
-                        ParserKey::Base(v) => base = Some(v),
-                        ParserKey::Data(v) => data = Some(v),
-                        ParserKey::Name(v) => name = Some(v),
-                        ParserKey::Features(v) => features = Some(v),
+                        ParserToken::If(v) => r#if = Some(v),
+                        ParserToken::Discriminator(v) => discriminator = Some(v),
+                        ParserToken::Base(v) => base = Some(v),
+                        ParserToken::Data(v) => data = Some(v),
+                        ParserToken::Name(v) => name = Some(v),
+                        ParserToken::Features(v) => features = Some(v),
                     }
                 }
                 let name = name.expect("union is a required key");

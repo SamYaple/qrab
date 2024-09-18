@@ -6,7 +6,7 @@ use nom::multi::separated_list1;
 use nom::sequence::delimited;
 use nom::IResult;
 
-enum ParserKey<'input> {
+enum ParserToken<'input> {
     Name(QapiString<'input>),
     Data(QapiCommandData<'input>),
     If(QapiCond<'input>),
@@ -58,13 +58,15 @@ impl<'input> QapiCommand<'input> {
     ///             '*if': COND,
     ///             '*features': FEATURES }
     pub fn parse(input: &'input str) -> IResult<&'input str, Self> {
-        let boxed_parser = map(kv(qtag("boxed"), QapiBool::parse), |v| ParserKey::Boxed(v));
-        let cond_parser = map(kv(qtag("if"), QapiCond::parse), |v| ParserKey::If(v));
+        let boxed_parser = map(kv(qtag("boxed"), QapiBool::parse), |v| {
+            ParserToken::Boxed(v)
+        });
+        let cond_parser = map(kv(qtag("if"), QapiCond::parse), |v| ParserToken::If(v));
         let features_parser = map(kv(qtag("features"), QapiFeatures::parse), |v| {
-            ParserKey::Features(v)
+            ParserToken::Features(v)
         });
         let name_parser = map(kv(qtag("command"), QapiString::parse), |v| {
-            ParserKey::Name(v)
+            ParserToken::Name(v)
         });
         let data_parser = map(
             kv(
@@ -74,23 +76,23 @@ impl<'input> QapiCommand<'input> {
                     map(QapiMembers::parse, |v| QapiCommandData::Members(v)),
                 )),
             ),
-            |v| ParserKey::Data(v),
+            |v| ParserToken::Data(v),
         );
         let returns_parser = map(kv(qtag("returns"), QapiTypeRef::parse), |v| {
-            ParserKey::Returns(v)
+            ParserToken::Returns(v)
         });
         let success_response_parser = map(kv(qtag("success-response"), QapiBool::parse), |v| {
-            ParserKey::SuccessResponse(v)
+            ParserToken::SuccessResponse(v)
         });
-        let gen_parser = map(kv(qtag("gen"), QapiBool::parse), |v| ParserKey::Gen(v));
+        let gen_parser = map(kv(qtag("gen"), QapiBool::parse), |v| ParserToken::Gen(v));
         let allow_oob_parser = map(kv(qtag("allow-oob"), QapiBool::parse), |v| {
-            ParserKey::AllowOob(v)
+            ParserToken::AllowOob(v)
         });
         let allow_preconfig_parser = map(kv(qtag("allow-preconfig"), QapiBool::parse), |v| {
-            ParserKey::AllowPreconfig(v)
+            ParserToken::AllowPreconfig(v)
         });
         let coroutine_parser = map(kv(qtag("coroutine"), QapiBool::parse), |v| {
-            ParserKey::Coroutine(v)
+            ParserToken::Coroutine(v)
         });
 
         let parsers = alt((
@@ -122,17 +124,17 @@ impl<'input> QapiCommand<'input> {
                 let mut coroutine = None;
                 for i in tokens {
                     match i {
-                        ParserKey::If(v) => r#if = Some(v),
-                        ParserKey::Boxed(v) => boxed = Some(v),
-                        ParserKey::Data(v) => data = Some(v),
-                        ParserKey::Name(v) => name = Some(v),
-                        ParserKey::Features(v) => features = Some(v),
-                        ParserKey::Returns(v) => returns = Some(v),
-                        ParserKey::SuccessResponse(v) => success_response = Some(v),
-                        ParserKey::Gen(v) => gen = Some(v),
-                        ParserKey::AllowOob(v) => allow_oob = Some(v),
-                        ParserKey::AllowPreconfig(v) => allow_preconfig = Some(v),
-                        ParserKey::Coroutine(v) => coroutine = Some(v),
+                        ParserToken::If(v) => r#if = Some(v),
+                        ParserToken::Boxed(v) => boxed = Some(v),
+                        ParserToken::Data(v) => data = Some(v),
+                        ParserToken::Name(v) => name = Some(v),
+                        ParserToken::Features(v) => features = Some(v),
+                        ParserToken::Returns(v) => returns = Some(v),
+                        ParserToken::SuccessResponse(v) => success_response = Some(v),
+                        ParserToken::Gen(v) => gen = Some(v),
+                        ParserToken::AllowOob(v) => allow_oob = Some(v),
+                        ParserToken::AllowPreconfig(v) => allow_preconfig = Some(v),
+                        ParserToken::Coroutine(v) => coroutine = Some(v),
                     }
                 }
                 let name = name.expect("struct is a required key");
