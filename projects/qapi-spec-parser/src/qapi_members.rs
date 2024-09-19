@@ -15,6 +15,7 @@ enum ParserToken<'i> {
 #[derive(Debug, Clone)]
 pub struct QapiMember<'i> {
     name: &'i str,
+    optional: bool,
     r#type: QapiTypeRef<'i>,
     r#if: Option<QapiCond<'i>>,
     features: Option<QapiFeatures<'i>>,
@@ -27,6 +28,13 @@ impl<'i> QapiMember<'i> {
     ///                     '*features': FEATURES }
     pub fn parse(input: &'i str) -> IResult<&'i str, Self> {
         let (input, name) = terminated(qstring, qtag(":"))(input)?;
+        let mut optional = false;
+        let name = if name.starts_with('*') {
+            optional = true;
+            &name[1..]
+        } else {
+            name
+        };
 
         let type_parser = map(take_kv("type", QapiTypeRef::parse), |v| {
             ParserToken::Type(v)
@@ -44,6 +52,7 @@ impl<'i> QapiMember<'i> {
                 r#type,
                 r#if: None,
                 features: None,
+                optional,
             }),
             map(complex_parser, |tokens| {
                 let mut r#if = None;
@@ -62,6 +71,7 @@ impl<'i> QapiMember<'i> {
                     r#if,
                     features,
                     r#type,
+                    optional,
                 }
             }),
         ))(input)?;

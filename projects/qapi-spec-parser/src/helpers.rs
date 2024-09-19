@@ -2,7 +2,7 @@ use crate::QapiSchema;
 use anyhow::Result;
 use nom::branch::alt;
 use nom::bytes::complete::{tag, take_until};
-use nom::character::complete::{line_ending, multispace0, not_line_ending};
+use nom::character::complete::{line_ending, multispace0, not_line_ending, space0};
 use nom::combinator::{all_consuming, not, opt, peek, recognize};
 use nom::multi::{many1, separated_list0};
 use nom::sequence::{delimited, preceded, tuple};
@@ -14,7 +14,7 @@ use std::path::{Path, PathBuf};
 
 pub(crate) fn qcomment(input: &str) -> IResult<&str, &str> {
     delimited(
-        tuple((tag("#"), not(peek(tag("#"))))),
+        tuple((tag("#"), not(peek(tag("#"))), space0)),
         not_line_ending,
         line_ending,
     )(input)

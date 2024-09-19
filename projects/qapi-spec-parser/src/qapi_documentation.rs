@@ -6,9 +6,30 @@ use nom::combinator::{map, not, opt, recognize};
 use nom::multi::{many0, many1};
 use nom::sequence::{delimited, pair, preceded, terminated, tuple};
 use nom::IResult;
-use std::collections::HashMap;
 
-pub(crate) fn trim_docstring_keep_structure(input: &str) -> String {
+pub(crate) fn trim_docstr(s: &str) -> &str {
+    s.trim_matches(|c: char| c == '#' || c.is_whitespace())
+}
+
+pub(crate) fn docstr_to_string(input: &str) -> String {
+    let mut output = String::new();
+    for line in input.lines() {
+        let trimmed = trim_docstr(line);
+        if trimmed.is_empty() {
+            output.push('\n');
+            continue;
+        }
+        if let Some(c) = output.chars().last() {
+            if c != '\n' {
+                output.push(' ')
+            }
+        }
+        output.push_str(trimmed);
+    }
+    output.trim().to_string()
+}
+
+pub(crate) fn docstr_to_string_keep_structure(input: &str) -> String {
     let mut output = String::new();
     for line in input.lines() {
         let trimmed = line.trim_start_matches('#');
@@ -24,26 +45,6 @@ pub(crate) fn trim_docstring_keep_structure(input: &str) -> String {
         };
         output.push_str(trimmed);
         output.push('\n');
-    }
-    output.trim().to_string()
-}
-
-pub(crate) fn trim_docstring(input: &str) -> String {
-    let mut output = String::new();
-    for line in input.lines() {
-        let trimmed = line.trim_start_matches('#');
-        let trimmed = trimmed.trim();
-        if trimmed.is_empty() {
-            output.push('\n');
-            continue;
-        }
-        let trimmed = trimmed.trim();
-        if let Some(c) = output.chars().last() {
-            if c != '\n' {
-                output.push(' ')
-            }
-        }
-        output.push_str(trimmed);
     }
     output.trim().to_string()
 }
@@ -93,11 +94,12 @@ fn take_empty_line(input: &str) -> IResult<&str, &str> {
 }
 
 fn take_value(input: &str) -> IResult<&str, &str> {
-    recognize(tuple((
+    let (input, description) = recognize(tuple((
         not_line_ending,
         line_ending,
         opt(take_multiline_text),
-    )))(input)
+    )))(input)?;
+    Ok((input, trim_docstr(description)))
 }
 
 // SUCCESS: on success, this is equivalent to the `take_line_start` parser
@@ -143,14 +145,14 @@ enum ParserToken<'i> {
     QmpExample(&'i str),
     Table(&'i str),
     Admonition(&'i str),
-    Features(HashMap<&'i str, &'i str>),
+    Features(Vec<(&'i str, &'i str)>),
 }
 
 #[derive(Debug, Clone)]
 pub struct QapiDocumentation<'i> {
     pub name: &'i str,
-    pub fields: HashMap<&'i str, &'i str>,
-    pub features: HashMap<&'i str, &'i str>,
+    pub fields: Vec<(&'i str, &'i str)>,
+    pub features: Vec<(&'i str, &'i str)>,
     pub description: Option<&'i str>,
     pub errors: Option<&'i str>,
     pub since: Option<&'i str>,
@@ -168,9 +170,9 @@ impl<'i> QapiDocumentation<'i> {
         let (input, _) = many0(take_empty_line)(input)?;
         let (input, name) = terminated(take_name, take_line_end)(input)?;
         let (input, _) = many0(take_empty_line)(input)?;
-        let (input, description) = opt(take_multiline_text)(input)?;
+        let (input, mut description) = opt(take_multiline_text)(input)?;
         let (input, _) = many0(take_empty_line)(input)?;
-        let (input, fields_vec_tuple) = many0(pair(take_name, take_value))(input)?;
+        let (input, fields) = many0(pair(take_name, take_value))(input)?;
         let (input, _) = many0(take_empty_line)(input)?;
 
         ////
@@ -205,13 +207,7 @@ impl<'i> QapiDocumentation<'i> {
                     )),
                     many1(pair(take_name, take_value)),
                 ),
-                |v| {
-                    let mut features = HashMap::new();
-                    for (name, description) in v {
-                        features.insert(name, description);
-                    }
-                    ParserToken::Features(features)
-                },
+                |v| ParserToken::Features(v),
             ),
         )))(input)?;
 
@@ -228,7 +224,7 @@ impl<'i> QapiDocumentation<'i> {
         let mut since = None;
         let mut errors = None;
         let mut returns = None;
-        let mut features = None;
+        let mut features = vec![];
         let mut notes = vec![];
         let mut cautions = vec![];
         let mut tables = vec![];
@@ -236,25 +232,21 @@ impl<'i> QapiDocumentation<'i> {
         let mut admonitions = vec![];
         for token in tokens {
             match token {
-                ParserToken::Since(v) => since = Some(v),
-                ParserToken::Errors(v) => errors = Some(v),
-                ParserToken::Returns(v) => returns = Some(v),
-                ParserToken::Features(v) => features = Some(v),
-                ParserToken::Note(v) => notes.push(v),
-                ParserToken::Caution(v) => cautions.push(v),
-                ParserToken::Table(v) => tables.push(v),
-                ParserToken::QmpExample(v) => qmp_examples.push(v),
-                ParserToken::Admonition(v) => admonitions.push(v),
+                ParserToken::Since(v) => since = Some(trim_docstr(v)),
+                ParserToken::Errors(v) => errors = Some(trim_docstr(v)),
+                ParserToken::Returns(v) => returns = Some(trim_docstr(v)),
+                ParserToken::Features(v) => features = v,
+                ParserToken::Note(v) => notes.push(trim_docstr(v)),
+                ParserToken::Caution(v) => cautions.push(trim_docstr(v)),
+                ParserToken::Table(v) => tables.push(trim_docstr(v)),
+                ParserToken::QmpExample(v) => qmp_examples.push(trim_docstr(v)),
+                ParserToken::Admonition(v) => admonitions.push(trim_docstr(v)),
             }
         }
-        let features = features.unwrap_or(HashMap::new());
-
-        // sort out fields
-        let mut fields = HashMap::new();
-        for (name, description) in fields_vec_tuple {
-            fields.insert(name, description);
-        }
-
+        let name = trim_docstr(name);
+        if let Some(ref mut d) = description {
+            *d = trim_docstr(d);
+        };
         Ok((
             input,
             Self {
@@ -290,10 +282,14 @@ impl<'i> QapiSectionDocumentation<'i> {
             preceded(tag("="), not_line_ending),
             take_line_end,
         )(input)?;
-        let (input, description) = opt(take_doc_text)(input)?;
+        let (input, mut description) = opt(take_doc_text)(input)?;
         let (input, _) = many0(take_empty_line)(input)?;
         let (input, _) = tag("##")(input)?;
 
+        let name = trim_docstr(name);
+        if let Some(ref mut d) = description {
+            *d = trim_docstr(d);
+        };
         Ok((input, Self { name, description }))
     }
 }

@@ -7,13 +7,13 @@ use nom::IResult;
 
 enum ParserToken<'i> {
     Name(&'i str),
-    Cond(QapiCond<'i>),
+    If(QapiCond<'i>),
 }
 
 #[derive(Debug, Clone)]
 pub struct QapiFeature<'i> {
     name: &'i str,
-    cond: Option<QapiCond<'i>>,
+    r#if: Option<QapiCond<'i>>,
 }
 
 impl<'i> QapiFeature<'i> {
@@ -21,27 +21,27 @@ impl<'i> QapiFeature<'i> {
     ///         | { 'name': STRING, '*if': COND }
     pub fn parse(input: &'i str) -> IResult<&'i str, Self> {
         let name_parser = map(take_kv("name", qstring), |v| ParserToken::Name(v));
-        let cond_parser = map(take_kv("if", QapiCond::parse), |v| ParserToken::Cond(v));
+        let cond_parser = map(take_kv("if", QapiCond::parse), |v| ParserToken::If(v));
         let dict_parser = take_dict(alt((name_parser, cond_parser)));
-        let (input, (name, cond)) = alt((
+        let (input, (name, r#if)) = alt((
             map(qstring, |name| (Some(name), None)),
             map(dict_parser, |tokens| {
                 let mut name = None;
-                let mut cond = None;
+                let mut r#if = None;
                 for i in tokens {
                     match i {
                         ParserToken::Name(v) => name = Some(v),
-                        ParserToken::Cond(v) => cond = Some(v),
+                        ParserToken::If(v) => r#if = Some(v),
                     }
                 }
-                (name, cond)
+                (name, r#if)
             }),
         ))(input)?;
         if name.is_none() {
             todo! {"missing 'name' key, but this should be a nom error not a crash"};
         }
         let name = name.unwrap();
-        Ok((input, Self { name, cond }))
+        Ok((input, Self { name, r#if }))
     }
 }
 
