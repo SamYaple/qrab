@@ -1,5 +1,5 @@
-use crate::helpers::{kv, qstring, qtag};
-use crate::{QapiBool, QapiCond, QapiFeatures, QapiMembers};
+use crate::helpers::{kv, qbool, qstring, qtag};
+use crate::{QapiCond, QapiFeatures, QapiMembers};
 use nom::branch::alt;
 use nom::combinator::map;
 use nom::multi::separated_list1;
@@ -11,7 +11,7 @@ enum ParserToken<'i> {
     Data(QapiEventData<'i>),
     If(QapiCond<'i>),
     Features(QapiFeatures<'i>),
-    Boxed(QapiBool),
+    Boxed(&'i str),
 }
 
 #[derive(Debug, Clone)]
@@ -24,7 +24,7 @@ enum QapiEventData<'i> {
 pub struct QapiEvent<'i> {
     name: &'i str,
     data: Option<QapiEventData<'i>>,
-    boxed: Option<QapiBool>,
+    boxed: Option<&'i str>,
     r#if: Option<QapiCond<'i>>,
     features: Option<QapiFeatures<'i>>,
 }
@@ -40,9 +40,7 @@ impl<'i> QapiEvent<'i> {
     ///           '*if': COND,
     ///           '*features': FEATURES }
     pub fn parse(input: &'i str) -> IResult<&'i str, Self> {
-        let boxed_parser = map(kv(qtag("boxed"), QapiBool::parse), |v| {
-            ParserToken::Boxed(v)
-        });
+        let boxed_parser = map(kv(qtag("boxed"), qbool), |v| ParserToken::Boxed(v));
         let cond_parser = map(kv(qtag("if"), QapiCond::parse), |v| ParserToken::If(v));
         let features_parser = map(kv(qtag("features"), QapiFeatures::parse), |v| {
             ParserToken::Features(v)

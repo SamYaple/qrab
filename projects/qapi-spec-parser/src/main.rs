@@ -4,7 +4,6 @@ use std::path::Path;
 mod helpers;
 
 mod qapi_alternate;
-mod qapi_bool;
 mod qapi_branches;
 mod qapi_command;
 mod qapi_cond;
@@ -21,7 +20,6 @@ mod qapi_type_ref;
 mod qapi_union;
 
 pub use qapi_alternate::QapiAlternate;
-pub use qapi_bool::QapiBool;
 pub use qapi_branches::QapiBranches;
 pub use qapi_command::QapiCommand;
 pub use qapi_cond::QapiCond;

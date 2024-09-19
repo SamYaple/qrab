@@ -1,5 +1,4 @@
-use crate::helpers::{kv, qcomment, qstring, qtag};
-use crate::QapiBool;
+use crate::helpers::{kv, qbool, qcomment, qstring, qtag};
 use nom::branch::alt;
 use nom::combinator::{map, opt};
 use nom::multi::separated_list1;
@@ -7,7 +6,7 @@ use nom::sequence::{delimited, terminated, tuple};
 use nom::IResult;
 
 enum ParserToken<'i> {
-    DocRequired(QapiBool),
+    DocRequired(&'i str),
     CommandReturnsExceptions(Vec<&'i str>),
     CommandNameExceptions(Vec<&'i str>),
     DocumentationExceptions(Vec<&'i str>),
@@ -16,7 +15,7 @@ enum ParserToken<'i> {
 
 #[derive(Debug, Clone)]
 pub struct QapiPragma<'i> {
-    doc_required: Option<QapiBool>,
+    doc_required: Option<&'i str>,
     command_name_exceptions: Option<Vec<&'i str>>,
     command_returns_exceptions: Option<Vec<&'i str>>,
     documentation_exceptions: Option<Vec<&'i str>>,
@@ -31,7 +30,7 @@ impl<'i> QapiPragma<'i> {
     ///            '*documentation-exceptions': [ STRING, ... ],
     ///            '*member-name-exceptions': [ STRING, ... ] } }
     pub fn parse(input: &'i str) -> IResult<&'i str, Self> {
-        let doc_required_parser = map(kv(qtag("doc-required"), QapiBool::parse), |v| {
+        let doc_required_parser = map(kv(qtag("doc-required"), qbool), |v| {
             ParserToken::DocRequired(v)
         });
         let command_name_exceptions_parser = map(

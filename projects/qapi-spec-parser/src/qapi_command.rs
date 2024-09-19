@@ -1,5 +1,5 @@
-use crate::helpers::{kv, qstring, qtag};
-use crate::{QapiBool, QapiCond, QapiFeatures, QapiMembers, QapiTypeRef};
+use crate::helpers::{kv, qbool, qstring, qtag};
+use crate::{QapiCond, QapiFeatures, QapiMembers, QapiTypeRef};
 use nom::branch::alt;
 use nom::combinator::map;
 use nom::multi::separated_list1;
@@ -11,13 +11,13 @@ enum ParserToken<'i> {
     Data(QapiCommandData<'i>),
     If(QapiCond<'i>),
     Features(QapiFeatures<'i>),
-    Boxed(QapiBool),
+    Boxed(&'i str),
     Returns(QapiTypeRef<'i>),
-    SuccessResponse(QapiBool),
-    Gen(QapiBool),
-    AllowOob(QapiBool),
-    AllowPreconfig(QapiBool),
-    Coroutine(QapiBool),
+    SuccessResponse(&'i str),
+    Gen(&'i str),
+    AllowOob(&'i str),
+    AllowPreconfig(&'i str),
+    Coroutine(&'i str),
 }
 
 #[derive(Debug, Clone)]
@@ -30,15 +30,15 @@ enum QapiCommandData<'i> {
 pub struct QapiCommand<'i> {
     name: &'i str,
     data: Option<QapiCommandData<'i>>,
-    boxed: Option<QapiBool>,
+    boxed: Option<&'i str>,
     r#if: Option<QapiCond<'i>>,
     features: Option<QapiFeatures<'i>>,
     returns: Option<QapiTypeRef<'i>>,
-    success_response: Option<QapiBool>,
-    gen: Option<QapiBool>,
-    allow_oob: Option<QapiBool>,
-    allow_preconfig: Option<QapiBool>,
-    coroutine: Option<QapiBool>,
+    success_response: Option<&'i str>,
+    gen: Option<&'i str>,
+    allow_oob: Option<&'i str>,
+    allow_preconfig: Option<&'i str>,
+    coroutine: Option<&'i str>,
 }
 
 impl<'i> QapiCommand<'i> {
@@ -58,9 +58,7 @@ impl<'i> QapiCommand<'i> {
     ///             '*if': COND,
     ///             '*features': FEATURES }
     pub fn parse(input: &'i str) -> IResult<&'i str, Self> {
-        let boxed_parser = map(kv(qtag("boxed"), QapiBool::parse), |v| {
-            ParserToken::Boxed(v)
-        });
+        let boxed_parser = map(kv(qtag("boxed"), qbool), |v| ParserToken::Boxed(v));
         let cond_parser = map(kv(qtag("if"), QapiCond::parse), |v| ParserToken::If(v));
         let features_parser = map(kv(qtag("features"), QapiFeatures::parse), |v| {
             ParserToken::Features(v)
@@ -79,19 +77,15 @@ impl<'i> QapiCommand<'i> {
         let returns_parser = map(kv(qtag("returns"), QapiTypeRef::parse), |v| {
             ParserToken::Returns(v)
         });
-        let success_response_parser = map(kv(qtag("success-response"), QapiBool::parse), |v| {
+        let success_response_parser = map(kv(qtag("success-response"), qbool), |v| {
             ParserToken::SuccessResponse(v)
         });
-        let gen_parser = map(kv(qtag("gen"), QapiBool::parse), |v| ParserToken::Gen(v));
-        let allow_oob_parser = map(kv(qtag("allow-oob"), QapiBool::parse), |v| {
-            ParserToken::AllowOob(v)
-        });
-        let allow_preconfig_parser = map(kv(qtag("allow-preconfig"), QapiBool::parse), |v| {
+        let gen_parser = map(kv(qtag("gen"), qbool), |v| ParserToken::Gen(v));
+        let allow_oob_parser = map(kv(qtag("allow-oob"), qbool), |v| ParserToken::AllowOob(v));
+        let allow_preconfig_parser = map(kv(qtag("allow-preconfig"), qbool), |v| {
             ParserToken::AllowPreconfig(v)
         });
-        let coroutine_parser = map(kv(qtag("coroutine"), QapiBool::parse), |v| {
-            ParserToken::Coroutine(v)
-        });
+        let coroutine_parser = map(kv(qtag("coroutine"), qbool), |v| ParserToken::Coroutine(v));
 
         let parsers = alt((
             data_parser,

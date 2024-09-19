@@ -1,5 +1,6 @@
 use crate::QapiSchema;
 use anyhow::Result;
+use nom::branch::alt;
 use nom::bytes::complete::{tag, take_until};
 use nom::character::complete::{line_ending, multispace0, not_line_ending};
 use nom::combinator::{all_consuming, not, opt, peek, recognize};
@@ -32,6 +33,10 @@ pub(crate) fn qtag<'i>(t: &'static str) -> impl FnMut(&'i str) -> IResult<&'i st
 
 pub(crate) fn qstring(input: &str) -> IResult<&str, &str> {
     delimited(qtag("'"), take_until("'"), tag("'"))(input)
+}
+
+pub(crate) fn qbool(input: &str) -> IResult<&str, &str> {
+    alt((qtag("true"), qtag("false")))(input)
 }
 
 pub(crate) fn dict<'i, I, O>(item_parser: I) -> impl FnMut(&'i str) -> IResult<&'i str, Vec<O>>
