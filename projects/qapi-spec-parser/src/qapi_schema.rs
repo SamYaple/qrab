@@ -43,34 +43,5 @@ impl<'i> QapiSchema<'i> {
             map(qcomment, |v| QapiSchema::Comment(v)),
             map(multispace1, |_| QapiSchema::EmptyLines),
         )))(input)
-        // QapiSchema::Comment(v) => {
-        //     // Discarding known strings and eprinting everything
-        //     // else for debug and such
-        //     match v.trim() {
-        //         "" |
-        //         "-*- Mode: Python -*-" |
-        //         "-*- mode: python -*-" |
-        //         "*-*- Mode: Python -*-*" |
-        //         "vim: filetype=python" => {},
-        //         // Ignore floating dev comment
-        //         "Note: This type is deprecated in favor of SocketAddress.  The" |
-        //         "difference between SocketAddressLegacy and SocketAddress is that the" |
-        //         "latter has fewer ``{}`` on the wire." => {},
-        //         // Ignore floating dev comment
-        //         "If we need to add block driver specific parameters for" |
-        //         "LUKS in future, then we'll subclass QCryptoBlockInfoLUKS" |
-        //         "to define a ImageInfoSpecificLUKS" => {},
-        //         // Ignore various license string bits
-        //         "SPDX-License-Identifier: GPL-2.0-or-later" |
-        //         "See the COPYING file in the top-level directory." |
-        //         "This work is licensed under the terms of the GNU GPL, version 2 or later." => {},
-        //         v if v.starts_with("Copyright") => {},
-        //         v if v.starts_with("Authors") => {},
-        //         v if v.starts_with("Markus") => {},
-        //         // All bytes in all schema files parse as of 9.1.0 so this should
-        //         // only trigger on newer schemas
-        //         _ => eprintln!("WARNING: unused comment string ```{v}```"),
-        //     }
-        // }
     }
 }
