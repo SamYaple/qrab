@@ -26,7 +26,7 @@ pub use qapi_bool::QapiBool;
 pub use qapi_branches::QapiBranches;
 pub use qapi_command::QapiCommand;
 pub use qapi_cond::QapiCond;
-pub use qapi_documentation::QapiDocumentation;
+pub use qapi_documentation::{QapiDocumentation, QapiSectionDocumentation};
 pub use qapi_enum::QapiEnum;
 pub use qapi_event::QapiEvent;
 pub use qapi_features::QapiFeatures;
@@ -49,16 +49,8 @@ fn main() -> Result<()> {
     let mut schema_raw_strs = std::collections::HashMap::new();
     helpers::walk_schemas(&schema_file, &mut schema_raw_strs)?;
     let schemas = helpers::process_schemas(&schema_raw_strs)?;
-    for (path, schema) in schemas {
-        for doc in schema.documentations {
-            if let Some(d) = doc.description {
-                dbg![d];
-                println!["{}", qapi_documentation::trim_docstring(d)];
-            }
-        }
-        //dbg![&path, &schema];
-        //break;
-    }
+    let schema = schemas.get(&schema_file).unwrap();
+    dbg![&schema_file, &schema];
 
     Ok(())
 }

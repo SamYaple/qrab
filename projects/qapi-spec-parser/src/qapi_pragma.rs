@@ -1,9 +1,9 @@
-use crate::helpers::{kv, qtag};
+use crate::helpers::{kv, qcomment, qtag};
 use crate::{QapiBool, QapiString};
 use nom::branch::alt;
-use nom::combinator::map;
+use nom::combinator::{map, opt};
 use nom::multi::separated_list1;
-use nom::sequence::{delimited, tuple};
+use nom::sequence::{delimited, terminated, tuple};
 use nom::IResult;
 
 enum ParserToken<'input> {
@@ -47,7 +47,10 @@ impl<'input> QapiPragma<'input> {
         );
         let command_returns_exceptions_parser = map(
             kv(
-                qtag("command-returns-exceptions"),
+                alt((
+                    qtag("command-returns-exceptions"),
+                    qtag("returns-whitelist"),
+                )),
                 delimited(
                     qtag("["),
                     separated_list1(qtag(","), QapiString::parse),
@@ -69,10 +72,10 @@ impl<'input> QapiPragma<'input> {
         );
         let member_name_exceptions_parser = map(
             kv(
-                qtag("member-name-exceptions"),
+                alt((qtag("member-name-exceptions"), qtag("name-case-whitelist"))),
                 delimited(
                     qtag("["),
-                    separated_list1(qtag(","), QapiString::parse),
+                    separated_list1(qtag(","), terminated(QapiString::parse, opt(qcomment))),
                     qtag("]"),
                 ),
             ),

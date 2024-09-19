@@ -8,7 +8,7 @@ use nom::sequence::{delimited, pair, preceded, terminated, tuple};
 use nom::IResult;
 use std::collections::HashMap;
 
-pub(crate) fn trim_docstring(input: &str) -> String {
+pub(crate) fn trim_docstring_keep_structure(input: &str) -> String {
     let mut output = String::new();
     for line in input.lines() {
         let trimmed = line.trim_start_matches('#');
@@ -24,6 +24,26 @@ pub(crate) fn trim_docstring(input: &str) -> String {
         };
         output.push_str(trimmed);
         output.push('\n');
+    }
+    output.trim().to_string()
+}
+
+pub(crate) fn trim_docstring(input: &str) -> String {
+    let mut output = String::new();
+    for line in input.lines() {
+        let trimmed = line.trim_start_matches('#');
+        let trimmed = trimmed.trim();
+        if trimmed.is_empty() {
+            output.push('\n');
+            continue;
+        }
+        let trimmed = trimmed.trim();
+        if let Some(c) = output.chars().last() {
+            if c != '\n' {
+                output.push(' ')
+            }
+        }
+        output.push_str(trimmed);
     }
     output.trim().to_string()
 }
@@ -104,6 +124,13 @@ fn take_line_continuation(input: &str) -> IResult<&str, &str> {
 }
 
 fn take_multiline_text(input: &str) -> IResult<&str, &str> {
+    recognize(many1(delimited(
+        take_line_continuation,
+        not_line_ending,
+        line_ending,
+    )))(input)
+}
+fn take_doc_text(input: &str) -> IResult<&str, &str> {
     recognize(many1(delimited(
         take_line_continuation,
         not_line_ending,
@@ -249,6 +276,29 @@ impl<'input> QapiDocumentation<'input> {
                 admonitions,
             },
         ))
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct QapiSectionDocumentation<'input> {
+    pub name: &'input str,
+    pub description: Option<&'input str>,
+}
+
+impl<'input> QapiSectionDocumentation<'input> {
+    pub fn parse(input: &'input str) -> IResult<&'input str, Self> {
+        let (input, _) = terminated(tag("##"), take_line_end)(input)?;
+        let (input, _) = many0(take_empty_line)(input)?;
+        let (input, name) = delimited(
+            take_line_start,
+            preceded(tag("="), not_line_ending),
+            take_line_end,
+        )(input)?;
+        let (input, description) = opt(take_doc_text)(input)?;
+        let (input, _) = many0(take_empty_line)(input)?;
+        let (input, _) = tag("##")(input)?;
+
+        Ok((input, Self { name, description }))
     }
 }
 

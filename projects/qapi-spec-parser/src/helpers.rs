@@ -82,11 +82,15 @@ pub fn walk_schemas(path: &Path, schemas: &mut HashMap<PathBuf, String>) -> Resu
         .expect("nom failed to parse the entire schema");
 
     let mut new_schema_paths = vec![];
-    for include in schema.includes {
-        let parent_path = path.parent().unwrap();
-        let relative_file_path = include.0 .0; // TODO fix after include has the proper impl
-        let new_schema_path = parent_path.join(relative_file_path);
-        new_schema_paths.push(new_schema_path);
+    for schema_obj in schema {
+        match schema_obj {
+            QapiSchema::Include(include) => {
+                let parent_path = path.parent().unwrap();
+                let new_schema_path = parent_path.join(include.0 .0);
+                new_schema_paths.push(new_schema_path);
+            }
+            _ => {}
+        }
     }
     for new_schema_path in new_schema_paths {
         walk_schemas(&new_schema_path, schemas)?;
@@ -96,7 +100,7 @@ pub fn walk_schemas(path: &Path, schemas: &mut HashMap<PathBuf, String>) -> Resu
 
 pub fn process_schemas<'input>(
     schemas: &'input HashMap<PathBuf, String>,
-) -> Result<HashMap<PathBuf, QapiSchema<'input>>> {
+) -> Result<HashMap<PathBuf, Vec<QapiSchema<'input>>>> {
     let mut processed = HashMap::new();
     for (path, schema_str) in schemas {
         let (_, schema) = all_consuming(QapiSchema::parse)(schema_str).unwrap();
