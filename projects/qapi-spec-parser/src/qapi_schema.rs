@@ -10,23 +10,23 @@ use nom::multi::many0;
 use nom::IResult;
 
 #[derive(Debug, Clone)]
-pub enum QapiSchema<'input> {
-    Struct(QapiStruct<'input>),
-    Enum(QapiEnum<'input>),
-    Documentation(QapiDocumentation<'input>),
-    SectionDocumentation(QapiSectionDocumentation<'input>),
-    Alternate(QapiAlternate<'input>),
-    Pragma(QapiPragma<'input>),
-    Include(QapiInclude<'input>),
-    Union(QapiUnion<'input>),
-    Event(QapiEvent<'input>),
-    Command(QapiCommand<'input>),
-    Comment(&'input str),
+pub enum QapiSchema<'i> {
+    Struct(QapiStruct<'i>),
+    Enum(QapiEnum<'i>),
+    Documentation(QapiDocumentation<'i>),
+    SectionDocumentation(QapiSectionDocumentation<'i>),
+    Alternate(QapiAlternate<'i>),
+    Pragma(QapiPragma<'i>),
+    Include(QapiInclude<'i>),
+    Union(QapiUnion<'i>),
+    Event(QapiEvent<'i>),
+    Command(QapiCommand<'i>),
+    Comment(&'i str),
     EmptyLines,
 }
 
-impl<'input> QapiSchema<'input> {
-    pub fn parse(input: &'input str) -> IResult<&'input str, Vec<Self>> {
+impl<'i> QapiSchema<'i> {
+    pub fn parse(input: &'i str) -> IResult<&'i str, Vec<Self>> {
         many0(alt((
             map(QapiSectionDocumentation::parse, |v| {
                 QapiSchema::SectionDocumentation(v)

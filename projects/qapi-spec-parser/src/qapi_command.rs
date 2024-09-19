@@ -6,13 +6,13 @@ use nom::multi::separated_list1;
 use nom::sequence::delimited;
 use nom::IResult;
 
-enum ParserToken<'input> {
-    Name(QapiString<'input>),
-    Data(QapiCommandData<'input>),
-    If(QapiCond<'input>),
-    Features(QapiFeatures<'input>),
+enum ParserToken<'i> {
+    Name(QapiString<'i>),
+    Data(QapiCommandData<'i>),
+    If(QapiCond<'i>),
+    Features(QapiFeatures<'i>),
     Boxed(QapiBool),
-    Returns(QapiTypeRef<'input>),
+    Returns(QapiTypeRef<'i>),
     SuccessResponse(QapiBool),
     Gen(QapiBool),
     AllowOob(QapiBool),
@@ -21,19 +21,19 @@ enum ParserToken<'input> {
 }
 
 #[derive(Debug, Clone)]
-enum QapiCommandData<'input> {
-    Ref(QapiString<'input>),
-    Members(QapiMembers<'input>),
+enum QapiCommandData<'i> {
+    Ref(QapiString<'i>),
+    Members(QapiMembers<'i>),
 }
 
 #[derive(Debug, Clone)]
-pub struct QapiCommand<'input> {
-    name: QapiString<'input>,
-    data: Option<QapiCommandData<'input>>,
+pub struct QapiCommand<'i> {
+    name: QapiString<'i>,
+    data: Option<QapiCommandData<'i>>,
     boxed: Option<QapiBool>,
-    r#if: Option<QapiCond<'input>>,
-    features: Option<QapiFeatures<'input>>,
-    returns: Option<QapiTypeRef<'input>>,
+    r#if: Option<QapiCond<'i>>,
+    features: Option<QapiFeatures<'i>>,
+    returns: Option<QapiTypeRef<'i>>,
     success_response: Option<QapiBool>,
     gen: Option<QapiBool>,
     allow_oob: Option<QapiBool>,
@@ -41,7 +41,7 @@ pub struct QapiCommand<'input> {
     coroutine: Option<QapiBool>,
 }
 
-impl<'input> QapiCommand<'input> {
+impl<'i> QapiCommand<'i> {
     /// COMMAND = { 'command': STRING,
     ///             (
     ///             '*data': ( MEMBERS | STRING ),
@@ -57,7 +57,7 @@ impl<'input> QapiCommand<'input> {
     ///             '*coroutine': true,
     ///             '*if': COND,
     ///             '*features': FEATURES }
-    pub fn parse(input: &'input str) -> IResult<&'input str, Self> {
+    pub fn parse(input: &'i str) -> IResult<&'i str, Self> {
         let boxed_parser = map(kv(qtag("boxed"), QapiBool::parse), |v| {
             ParserToken::Boxed(v)
         });

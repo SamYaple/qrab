@@ -7,19 +7,19 @@ use nom::sequence::delimited;
 use nom::IResult;
 
 #[derive(Debug, Clone)]
-pub enum QapiCond<'input> {
-    All(Vec<QapiCond<'input>>),
-    Any(Vec<QapiCond<'input>>),
-    Not(Box<QapiCond<'input>>),
-    Value(QapiString<'input>),
+pub enum QapiCond<'i> {
+    All(Vec<QapiCond<'i>>),
+    Any(Vec<QapiCond<'i>>),
+    Not(Box<QapiCond<'i>>),
+    Value(QapiString<'i>),
 }
 
-impl<'input> QapiCond<'input> {
+impl<'i> QapiCond<'i> {
     /// COND = STRING
     ///      | { 'all: [ COND, ... ] }
     ///      | { 'any: [ COND, ... ] }
     ///      | { 'not': COND }
-    pub fn parse(input: &'input str) -> IResult<&'input str, Self> {
+    pub fn parse(input: &'i str) -> IResult<&'i str, Self> {
         let value_parser = QapiString::parse;
         let not_parser = kv(qtag("not"), Self::parse);
         let any_parser = kv(

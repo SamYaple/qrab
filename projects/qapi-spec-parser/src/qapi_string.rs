@@ -5,9 +5,9 @@ use nom::sequence::delimited;
 use nom::IResult;
 
 #[derive(Debug, PartialEq, Clone)]
-pub struct QapiString<'input>(pub &'input str);
-impl<'input> QapiString<'input> {
-    pub fn parse(input: &'input str) -> IResult<&'input str, Self> {
+pub struct QapiString<'i>(pub &'i str);
+impl<'i> QapiString<'i> {
+    pub fn parse(input: &'i str) -> IResult<&'i str, Self> {
         map(delimited(qtag("'"), take_until("'"), tag("'")), |v| Self(v))(input)
     }
 }

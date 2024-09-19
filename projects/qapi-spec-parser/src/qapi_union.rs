@@ -6,39 +6,39 @@ use nom::multi::separated_list1;
 use nom::sequence::delimited;
 use nom::IResult;
 
-enum ParserToken<'input> {
-    Name(QapiString<'input>),
-    Discriminator(QapiString<'input>),
-    Data(QapiBranches<'input>),
-    Base(QapiUnionBase<'input>),
-    If(QapiCond<'input>),
-    Features(QapiFeatures<'input>),
+enum ParserToken<'i> {
+    Name(QapiString<'i>),
+    Discriminator(QapiString<'i>),
+    Data(QapiBranches<'i>),
+    Base(QapiUnionBase<'i>),
+    If(QapiCond<'i>),
+    Features(QapiFeatures<'i>),
 }
 
 #[derive(Debug, Clone)]
-enum QapiUnionBase<'input> {
-    Ref(QapiString<'input>),
-    Members(QapiMembers<'input>),
+enum QapiUnionBase<'i> {
+    Ref(QapiString<'i>),
+    Members(QapiMembers<'i>),
 }
 
 #[derive(Debug, Clone)]
-pub struct QapiUnion<'input> {
-    name: QapiString<'input>,
-    data: QapiBranches<'input>,
-    base: QapiUnionBase<'input>,
-    discriminator: QapiString<'input>,
-    r#if: Option<QapiCond<'input>>,
-    features: Option<QapiFeatures<'input>>,
+pub struct QapiUnion<'i> {
+    name: QapiString<'i>,
+    data: QapiBranches<'i>,
+    base: QapiUnionBase<'i>,
+    discriminator: QapiString<'i>,
+    r#if: Option<QapiCond<'i>>,
+    features: Option<QapiFeatures<'i>>,
 }
 
-impl<'input> QapiUnion<'input> {
+impl<'i> QapiUnion<'i> {
     /// UNION = { 'union': STRING,
     ///           'base': ( MEMBERS | STRING ),
     ///           'discriminator': STRING,
     ///           'data': BRANCHES,
     ///           '*if': COND,
     ///           '*features': FEATURES }
-    pub fn parse(input: &'input str) -> IResult<&'input str, Self> {
+    pub fn parse(input: &'i str) -> IResult<&'i str, Self> {
         let cond_parser = map(kv(qtag("if"), QapiCond::parse), |v| ParserToken::If(v));
         let features_parser = map(kv(qtag("features"), QapiFeatures::parse), |v| {
             ParserToken::Features(v)

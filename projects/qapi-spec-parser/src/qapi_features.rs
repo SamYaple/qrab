@@ -7,21 +7,21 @@ use nom::sequence::delimited;
 
 use nom::IResult;
 
-enum ParserToken<'input> {
-    Name(QapiString<'input>),
-    If(QapiCond<'input>),
+enum ParserToken<'i> {
+    Name(QapiString<'i>),
+    If(QapiCond<'i>),
 }
 
 #[derive(Debug, Clone)]
-pub struct QapiFeature<'input> {
-    name: QapiString<'input>,
-    r#if: Option<QapiCond<'input>>,
+pub struct QapiFeature<'i> {
+    name: QapiString<'i>,
+    r#if: Option<QapiCond<'i>>,
 }
 
-impl<'input> QapiFeature<'input> {
+impl<'i> QapiFeature<'i> {
     /// FEATURE = STRING
     ///         | { 'name': STRING, '*if': COND }
-    pub fn parse(input: &'input str) -> IResult<&'input str, Self> {
+    pub fn parse(input: &'i str) -> IResult<&'i str, Self> {
         let simple_parser = QapiString::parse;
 
         let name_parser = map(kv(qtag("name"), QapiString::parse), |v| {
@@ -51,10 +51,10 @@ impl<'input> QapiFeature<'input> {
 }
 
 #[derive(Debug, Clone)]
-pub struct QapiFeatures<'input>(Vec<QapiFeature<'input>>);
-impl<'input> QapiFeatures<'input> {
+pub struct QapiFeatures<'i>(Vec<QapiFeature<'i>>);
+impl<'i> QapiFeatures<'i> {
     /// FEATURES = [ FEATURE, ... ]
-    pub fn parse(input: &'input str) -> IResult<&'input str, Self> {
+    pub fn parse(input: &'i str) -> IResult<&'i str, Self> {
         map(
             delimited(
                 qtag("["),

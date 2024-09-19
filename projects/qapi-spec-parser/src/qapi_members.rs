@@ -6,26 +6,26 @@ use nom::multi::separated_list0;
 use nom::sequence::{delimited, terminated};
 use nom::IResult;
 
-enum ParserToken<'input> {
-    Type(QapiTypeRef<'input>),
-    If(QapiCond<'input>),
-    Features(QapiFeatures<'input>),
+enum ParserToken<'i> {
+    Type(QapiTypeRef<'i>),
+    If(QapiCond<'i>),
+    Features(QapiFeatures<'i>),
 }
 
 #[derive(Debug, Clone)]
-pub struct QapiMember<'input> {
-    name: QapiString<'input>,
-    r#type: QapiTypeRef<'input>,
-    r#if: Option<QapiCond<'input>>,
-    features: Option<QapiFeatures<'input>>,
+pub struct QapiMember<'i> {
+    name: QapiString<'i>,
+    r#type: QapiTypeRef<'i>,
+    r#if: Option<QapiCond<'i>>,
+    features: Option<QapiFeatures<'i>>,
 }
 
-impl<'input> QapiMember<'input> {
+impl<'i> QapiMember<'i> {
     /// MEMBER = STRING : TYPE-REF
     ///        | STRING : { 'type': TYPE-REF,
     ///                     '*if': COND,
     ///                     '*features': FEATURES }
-    pub fn parse(input: &'input str) -> IResult<&'input str, Self> {
+    pub fn parse(input: &'i str) -> IResult<&'i str, Self> {
         let (input, name) = terminated(QapiString::parse, qtag(":"))(input)?;
 
         let type_parser = map(kv(qtag("type"), QapiTypeRef::parse), |v| {
@@ -70,10 +70,10 @@ impl<'input> QapiMember<'input> {
 }
 
 #[derive(Debug, Clone)]
-pub struct QapiMembers<'input>(Vec<QapiMember<'input>>);
-impl<'input> QapiMembers<'input> {
+pub struct QapiMembers<'i>(Vec<QapiMember<'i>>);
+impl<'i> QapiMembers<'i> {
     /// MEMBERS = { MEMBER, ... }
-    pub fn parse(input: &'input str) -> IResult<&'input str, Self> {
+    pub fn parse(input: &'i str) -> IResult<&'i str, Self> {
         map(
             delimited(
                 qtag("{"),

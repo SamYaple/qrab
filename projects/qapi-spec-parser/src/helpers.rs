@@ -26,17 +26,13 @@ pub(crate) fn clean_lines(input: &str) -> IResult<&str, &str> {
     )))(input)
 }
 
-pub(crate) fn qtag<'input>(
-    t: &'static str,
-) -> impl FnMut(&'input str) -> IResult<&'input str, &'input str> {
+pub(crate) fn qtag<'i>(t: &'static str) -> impl FnMut(&'i str) -> IResult<&'i str, &'i str> {
     preceded(clean_lines, tag(t))
 }
 
-pub(crate) fn dict<'input, I, O>(
-    item_parser: I,
-) -> impl FnMut(&'input str) -> IResult<&'input str, Vec<O>>
+pub(crate) fn dict<'i, I, O>(item_parser: I) -> impl FnMut(&'i str) -> IResult<&'i str, Vec<O>>
 where
-    I: FnMut(&'input str) -> IResult<&'input str, O>,
+    I: FnMut(&'i str) -> IResult<&'i str, O>,
 {
     delimited(
         qtag("{"),
@@ -45,13 +41,13 @@ where
     )
 }
 
-pub(crate) fn kv<'input, I1, I2, O1, O2>(
+pub(crate) fn kv<'i, I1, I2, O1, O2>(
     key_parser: I1,
     value_parser: I2,
-) -> impl FnMut(&'input str) -> IResult<&'input str, O2>
+) -> impl FnMut(&'i str) -> IResult<&'i str, O2>
 where
-    I1: FnMut(&'input str) -> IResult<&'input str, O1>,
-    I2: FnMut(&'input str) -> IResult<&'input str, O2>,
+    I1: FnMut(&'i str) -> IResult<&'i str, O1>,
+    I2: FnMut(&'i str) -> IResult<&'i str, O2>,
 {
     delimited(
         tuple((qtag("'"), key_parser, qtag("'"), qtag(":"))),
@@ -98,9 +94,9 @@ pub fn walk_schemas(path: &Path, schemas: &mut HashMap<PathBuf, String>) -> Resu
     Ok(())
 }
 
-pub fn process_schemas<'input>(
-    schemas: &'input HashMap<PathBuf, String>,
-) -> Result<HashMap<PathBuf, Vec<QapiSchema<'input>>>> {
+pub fn process_schemas<'i>(
+    schemas: &'i HashMap<PathBuf, String>,
+) -> Result<HashMap<PathBuf, Vec<QapiSchema<'i>>>> {
     let mut processed = HashMap::new();
     for (path, schema_str) in schemas {
         let (_, schema) = all_consuming(QapiSchema::parse)(schema_str).unwrap();

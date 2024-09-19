@@ -6,27 +6,27 @@ use nom::multi::separated_list1;
 use nom::sequence::{delimited, terminated};
 use nom::IResult;
 
-enum AlternateParserToken<'input> {
-    Name(QapiString<'input>),
-    Data(QapiAlternatives<'input>),
-    If(QapiCond<'input>),
-    Features(QapiFeatures<'input>),
+enum AlternateParserToken<'i> {
+    Name(QapiString<'i>),
+    Data(QapiAlternatives<'i>),
+    If(QapiCond<'i>),
+    Features(QapiFeatures<'i>),
 }
 
 #[derive(Debug, Clone)]
-pub struct QapiAlternate<'input> {
-    name: QapiString<'input>,
-    data: QapiAlternatives<'input>,
-    r#if: Option<QapiCond<'input>>,
-    features: Option<QapiFeatures<'input>>,
+pub struct QapiAlternate<'i> {
+    name: QapiString<'i>,
+    data: QapiAlternatives<'i>,
+    r#if: Option<QapiCond<'i>>,
+    features: Option<QapiFeatures<'i>>,
 }
 
-impl<'input> QapiAlternate<'input> {
+impl<'i> QapiAlternate<'i> {
     /// ALTERNATE = { 'alternate': STRING,
     ///               'data': ALTERNATIVES,
     ///               '*if': COND,
     ///               '*features': FEATURES }
-    pub fn parse(input: &'input str) -> IResult<&'input str, Self> {
+    pub fn parse(input: &'i str) -> IResult<&'i str, Self> {
         let cond_parser = map(kv(qtag("if"), QapiCond::parse), |v| {
             AlternateParserToken::If(v)
         });
@@ -70,22 +70,22 @@ impl<'input> QapiAlternate<'input> {
     }
 }
 
-enum AlternativeParserToken<'input> {
-    Type(QapiTypeRef<'input>),
-    If(QapiCond<'input>),
+enum AlternativeParserToken<'i> {
+    Type(QapiTypeRef<'i>),
+    If(QapiCond<'i>),
 }
 
 #[derive(Debug, Clone)]
-pub struct QapiAlternative<'input> {
-    pub name: QapiString<'input>,
-    pub r#type: QapiTypeRef<'input>,
-    pub r#if: Option<QapiCond<'input>>,
+pub struct QapiAlternative<'i> {
+    pub name: QapiString<'i>,
+    pub r#type: QapiTypeRef<'i>,
+    pub r#if: Option<QapiCond<'i>>,
 }
 
-impl<'input> QapiAlternative<'input> {
+impl<'i> QapiAlternative<'i> {
     /// ALTERNATIVE = STRING : STRING
     ///             | STRING : { 'type': STRING, '*if': COND }
-    pub fn parse(input: &'input str) -> IResult<&'input str, Self> {
+    pub fn parse(input: &'i str) -> IResult<&'i str, Self> {
         let (input, name) = terminated(QapiString::parse, qtag(":"))(input)?;
 
         let type_parser = map(kv(qtag("type"), QapiTypeRef::parse), |v| {
@@ -125,10 +125,10 @@ impl<'input> QapiAlternative<'input> {
 }
 
 #[derive(Debug, Clone)]
-pub struct QapiAlternatives<'input>(pub Vec<QapiAlternative<'input>>);
-impl<'input> QapiAlternatives<'input> {
+pub struct QapiAlternatives<'i>(pub Vec<QapiAlternative<'i>>);
+impl<'i> QapiAlternatives<'i> {
     /// ALTERNATIVES = { ALTERNATIVE, ... }
-    pub fn parse(input: &'input str) -> IResult<&'input str, Self> {
+    pub fn parse(input: &'i str) -> IResult<&'i str, Self> {
         map(
             delimited(
                 qtag("{"),

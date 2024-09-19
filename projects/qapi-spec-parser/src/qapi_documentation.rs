@@ -60,9 +60,7 @@ fn take_name(input: &str) -> IResult<&str, &str> {
     )(input)
 }
 
-fn take_namedkv<'input>(
-    key: &'static str,
-) -> impl FnMut(&'input str) -> IResult<&'input str, &'input str> {
+fn take_namedkv<'i>(key: &'static str) -> impl FnMut(&'i str) -> IResult<&'i str, &'i str> {
     preceded(
         take_namedkey(key),
         recognize(tuple((
@@ -74,9 +72,7 @@ fn take_namedkv<'input>(
 }
 
 // Case insensitive match for a line like: ```# {key}:```
-fn take_namedkey<'input>(
-    key: &'static str,
-) -> impl FnMut(&'input str) -> IResult<&'input str, &'input str> {
+fn take_namedkey<'i>(key: &'static str) -> impl FnMut(&'i str) -> IResult<&'i str, &'i str> {
     delimited(
         take_line_start,
         tag_no_case(key),
@@ -138,36 +134,36 @@ fn take_doc_text(input: &str) -> IResult<&str, &str> {
     )))(input)
 }
 
-enum ParserToken<'input> {
-    Errors(&'input str),
-    Since(&'input str),
-    Returns(&'input str),
-    Note(&'input str),
-    Caution(&'input str),
-    QmpExample(&'input str),
-    Table(&'input str),
-    Admonition(&'input str),
-    Features(HashMap<&'input str, &'input str>),
+enum ParserToken<'i> {
+    Errors(&'i str),
+    Since(&'i str),
+    Returns(&'i str),
+    Note(&'i str),
+    Caution(&'i str),
+    QmpExample(&'i str),
+    Table(&'i str),
+    Admonition(&'i str),
+    Features(HashMap<&'i str, &'i str>),
 }
 
 #[derive(Debug, Clone)]
-pub struct QapiDocumentation<'input> {
-    pub name: &'input str,
-    pub fields: HashMap<&'input str, &'input str>,
-    pub features: HashMap<&'input str, &'input str>,
-    pub description: Option<&'input str>,
-    pub errors: Option<&'input str>,
-    pub since: Option<&'input str>,
-    pub returns: Option<&'input str>,
-    pub qmp_examples: Vec<&'input str>,
-    pub notes: Vec<&'input str>,
-    pub admonitions: Vec<&'input str>,
-    pub tables: Vec<&'input str>,
-    pub cautions: Vec<&'input str>,
+pub struct QapiDocumentation<'i> {
+    pub name: &'i str,
+    pub fields: HashMap<&'i str, &'i str>,
+    pub features: HashMap<&'i str, &'i str>,
+    pub description: Option<&'i str>,
+    pub errors: Option<&'i str>,
+    pub since: Option<&'i str>,
+    pub returns: Option<&'i str>,
+    pub qmp_examples: Vec<&'i str>,
+    pub notes: Vec<&'i str>,
+    pub admonitions: Vec<&'i str>,
+    pub tables: Vec<&'i str>,
+    pub cautions: Vec<&'i str>,
 }
 
-impl<'input> QapiDocumentation<'input> {
-    pub fn parse(input: &'input str) -> IResult<&'input str, Self> {
+impl<'i> QapiDocumentation<'i> {
+    pub fn parse(input: &'i str) -> IResult<&'i str, Self> {
         let (input, _) = terminated(tag("##"), take_line_end)(input)?;
         let (input, _) = many0(take_empty_line)(input)?;
         let (input, name) = terminated(take_name, take_line_end)(input)?;
@@ -280,13 +276,13 @@ impl<'input> QapiDocumentation<'input> {
 }
 
 #[derive(Debug, Clone)]
-pub struct QapiSectionDocumentation<'input> {
-    pub name: &'input str,
-    pub description: Option<&'input str>,
+pub struct QapiSectionDocumentation<'i> {
+    pub name: &'i str,
+    pub description: Option<&'i str>,
 }
 
-impl<'input> QapiSectionDocumentation<'input> {
-    pub fn parse(input: &'input str) -> IResult<&'input str, Self> {
+impl<'i> QapiSectionDocumentation<'i> {
+    pub fn parse(input: &'i str) -> IResult<&'i str, Self> {
         let (input, _) = terminated(tag("##"), take_line_end)(input)?;
         let (input, _) = many0(take_empty_line)(input)?;
         let (input, name) = delimited(
