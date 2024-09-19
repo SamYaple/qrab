@@ -9,42 +9,41 @@ use nom::IResult;
 
 enum ParserToken<'i> {
     Name(&'i str),
-    If(QapiCond<'i>),
+    Cond(QapiCond<'i>),
 }
 
 #[derive(Debug, Clone)]
 pub struct QapiFeature<'i> {
     name: &'i str,
-    r#if: Option<QapiCond<'i>>,
+    cond: Option<QapiCond<'i>>,
 }
 
 impl<'i> QapiFeature<'i> {
     /// FEATURE = STRING
     ///         | { 'name': STRING, '*if': COND }
     pub fn parse(input: &'i str) -> IResult<&'i str, Self> {
-        let simple_parser = qstring;
-
-        let name_parser = map(kv(qtag("name"), qstring), |v| ParserToken::Name(v.into()));
-        let cond_parser = map(kv(qtag("if"), QapiCond::parse), |v| ParserToken::If(v));
-        let complex_parser = dict(alt((name_parser, cond_parser)));
-        alt((
-            map(simple_parser, |v| Self {
-                name: v.into(),
-                r#if: None,
-            }),
-            map(complex_parser, |tokens| {
+        let name_parser = map(kv(qtag("name"), qstring), |v| ParserToken::Name(v));
+        let cond_parser = map(kv(qtag("if"), QapiCond::parse), |v| ParserToken::Cond(v));
+        let dict_parser = dict(alt((name_parser, cond_parser)));
+        let (input, (name, cond)) = alt((
+            map(qstring, |name| (Some(name), None)),
+            map(dict_parser, |tokens| {
                 let mut name = None;
-                let mut r#if = None;
+                let mut cond = None;
                 for i in tokens {
                     match i {
                         ParserToken::Name(v) => name = Some(v),
-                        ParserToken::If(v) => r#if = Some(v),
+                        ParserToken::Cond(v) => cond = Some(v),
                     }
                 }
-                let name = name.expect("name is a required key");
-                Self { name, r#if }
+                (name, cond)
             }),
-        ))(input)
+        ))(input)?;
+        if name.is_none() {
+            todo! {"missing 'name' key, but this should be a nom error not a crash"};
+        }
+        let name = name.unwrap();
+        Ok((input, Self { name, cond }))
     }
 }
 

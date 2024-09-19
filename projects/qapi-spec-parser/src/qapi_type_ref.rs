@@ -6,19 +6,18 @@ use nom::IResult;
 
 #[derive(Debug, Clone)]
 pub enum QapiTypeRef<'i> {
-    Weak(&'i str),
-    WeakArray(&'i str),
+    Ref(&'i str),
+    ArrayRef(&'i str),
 }
 
 impl<'i> QapiTypeRef<'i> {
     /// TYPE-REF = STRING | ARRAY-TYPE
     /// ARRAY-TYPE = [ STRING ]
     pub fn parse(input: &'i str) -> IResult<&'i str, Self> {
-        let weak_parser = qstring;
-        let array_parser = delimited(qtag("["), weak_parser, qtag("]"));
+        let array_parser = delimited(qtag("["), qstring, qtag("]"));
         alt((
-            map(weak_parser, |v| Self::Weak(v)),
-            map(array_parser, |v| Self::WeakArray(v)),
+            map(qstring, |v| Self::Ref(v)),
+            map(array_parser, |v| Self::ArrayRef(v)),
         ))(input)
     }
 }

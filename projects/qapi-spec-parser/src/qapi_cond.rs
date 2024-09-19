@@ -10,7 +10,7 @@ pub enum QapiCond<'i> {
     All(Vec<QapiCond<'i>>),
     Any(Vec<QapiCond<'i>>),
     Not(Box<QapiCond<'i>>),
-    Value(&'i str),
+    ConfigName(&'i str),
 }
 
 impl<'i> QapiCond<'i> {
@@ -19,7 +19,6 @@ impl<'i> QapiCond<'i> {
     ///      | { 'any: [ COND, ... ] }
     ///      | { 'not': COND }
     pub fn parse(input: &'i str) -> IResult<&'i str, Self> {
-        let value_parser = qstring;
         let not_parser = kv(qtag("not"), Self::parse);
         let any_parser = kv(
             qtag("any"),
@@ -38,7 +37,7 @@ impl<'i> QapiCond<'i> {
             ),
         );
         alt((
-            map(value_parser, |v| Self::Value(v)),
+            map(qstring, |v| Self::ConfigName(v)),
             delimited(
                 qtag("{"),
                 alt((
