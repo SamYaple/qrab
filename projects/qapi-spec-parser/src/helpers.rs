@@ -1,6 +1,6 @@
 use crate::QapiSchema;
 use anyhow::Result;
-use nom::bytes::complete::tag;
+use nom::bytes::complete::{tag, take_until};
 use nom::character::complete::{line_ending, multispace0, not_line_ending};
 use nom::combinator::{all_consuming, not, opt, peek, recognize};
 use nom::multi::many1;
@@ -28,6 +28,10 @@ pub(crate) fn clean_lines(input: &str) -> IResult<&str, &str> {
 
 pub(crate) fn qtag<'i>(t: &'static str) -> impl FnMut(&'i str) -> IResult<&'i str, &'i str> {
     preceded(clean_lines, tag(t))
+}
+
+pub(crate) fn qstring(input: &str) -> IResult<&str, &str> {
+    delimited(qtag("'"), take_until("'"), tag("'"))(input)
 }
 
 pub(crate) fn dict<'i, I, O>(item_parser: I) -> impl FnMut(&'i str) -> IResult<&'i str, Vec<O>>
@@ -82,7 +86,7 @@ pub fn walk_schemas(path: &Path, schemas: &mut HashMap<PathBuf, String>) -> Resu
         match schema_obj {
             QapiSchema::Include(include) => {
                 let parent_path = path.parent().unwrap();
-                let new_schema_path = parent_path.join(include.0 .0);
+                let new_schema_path = parent_path.join(include.0);
                 new_schema_paths.push(new_schema_path);
             }
             _ => {}

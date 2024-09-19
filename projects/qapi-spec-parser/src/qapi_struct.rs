@@ -1,5 +1,5 @@
-use crate::helpers::{kv, qtag};
-use crate::{QapiCond, QapiFeatures, QapiMembers, QapiString};
+use crate::helpers::{kv, qstring, qtag};
+use crate::{QapiCond, QapiFeatures, QapiMembers};
 use nom::branch::alt;
 use nom::combinator::map;
 use nom::multi::separated_list1;
@@ -7,18 +7,18 @@ use nom::sequence::delimited;
 use nom::IResult;
 
 enum ParserToken<'i> {
-    Name(QapiString<'i>),
+    Name(&'i str),
     Data(QapiMembers<'i>),
-    Base(QapiString<'i>),
+    Base(&'i str),
     If(QapiCond<'i>),
     Features(QapiFeatures<'i>),
 }
 
 #[derive(Debug, Clone)]
 pub struct QapiStruct<'i> {
-    name: QapiString<'i>,
+    name: &'i str,
     data: QapiMembers<'i>,
-    base: Option<QapiString<'i>>,
+    base: Option<&'i str>,
     r#if: Option<QapiCond<'i>>,
     features: Option<QapiFeatures<'i>>,
 }
@@ -34,15 +34,11 @@ impl<'i> QapiStruct<'i> {
         let features_parser = map(kv(qtag("features"), QapiFeatures::parse), |v| {
             ParserToken::Features(v)
         });
-        let name_parser = map(kv(qtag("struct"), QapiString::parse), |v| {
-            ParserToken::Name(v)
-        });
+        let name_parser = map(kv(qtag("struct"), qstring), |v| ParserToken::Name(v));
         let data_parser = map(kv(qtag("data"), QapiMembers::parse), |v| {
             ParserToken::Data(v)
         });
-        let base_parser = map(kv(qtag("base"), QapiString::parse), |v| {
-            ParserToken::Base(v)
-        });
+        let base_parser = map(kv(qtag("base"), qstring), |v| ParserToken::Base(v));
 
         let parsers = alt((
             data_parser,

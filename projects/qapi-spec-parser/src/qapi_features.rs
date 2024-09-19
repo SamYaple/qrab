@@ -1,5 +1,5 @@
-use crate::helpers::{dict, kv, qtag};
-use crate::{QapiCond, QapiString};
+use crate::helpers::{dict, kv, qstring, qtag};
+use crate::QapiCond;
 use nom::branch::alt;
 use nom::combinator::map;
 use nom::multi::separated_list1;
@@ -8,13 +8,13 @@ use nom::sequence::delimited;
 use nom::IResult;
 
 enum ParserToken<'i> {
-    Name(QapiString<'i>),
+    Name(&'i str),
     If(QapiCond<'i>),
 }
 
 #[derive(Debug, Clone)]
 pub struct QapiFeature<'i> {
-    name: QapiString<'i>,
+    name: &'i str,
     r#if: Option<QapiCond<'i>>,
 }
 
@@ -22,11 +22,9 @@ impl<'i> QapiFeature<'i> {
     /// FEATURE = STRING
     ///         | { 'name': STRING, '*if': COND }
     pub fn parse(input: &'i str) -> IResult<&'i str, Self> {
-        let simple_parser = QapiString::parse;
+        let simple_parser = qstring;
 
-        let name_parser = map(kv(qtag("name"), QapiString::parse), |v| {
-            ParserToken::Name(v.into())
-        });
+        let name_parser = map(kv(qtag("name"), qstring), |v| ParserToken::Name(v.into()));
         let cond_parser = map(kv(qtag("if"), QapiCond::parse), |v| ParserToken::If(v));
         let complex_parser = dict(alt((name_parser, cond_parser)));
         alt((

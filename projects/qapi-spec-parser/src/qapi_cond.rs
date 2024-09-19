@@ -1,5 +1,4 @@
-use crate::helpers::{kv, qtag};
-use crate::QapiString;
+use crate::helpers::{kv, qstring, qtag};
 use nom::branch::alt;
 use nom::combinator::map;
 use nom::multi::separated_list1;
@@ -11,7 +10,7 @@ pub enum QapiCond<'i> {
     All(Vec<QapiCond<'i>>),
     Any(Vec<QapiCond<'i>>),
     Not(Box<QapiCond<'i>>),
-    Value(QapiString<'i>),
+    Value(&'i str),
 }
 
 impl<'i> QapiCond<'i> {
@@ -20,7 +19,7 @@ impl<'i> QapiCond<'i> {
     ///      | { 'any: [ COND, ... ] }
     ///      | { 'not': COND }
     pub fn parse(input: &'i str) -> IResult<&'i str, Self> {
-        let value_parser = QapiString::parse;
+        let value_parser = qstring;
         let not_parser = kv(qtag("not"), Self::parse);
         let any_parser = kv(
             qtag("any"),

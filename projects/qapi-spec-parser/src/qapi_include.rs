@@ -1,17 +1,16 @@
-use crate::helpers::{kv, qtag};
-use crate::QapiString;
+use crate::helpers::{kv, qstring, qtag};
 use nom::combinator::map;
 use nom::sequence::delimited;
 use nom::IResult;
 
 #[derive(Debug, Clone)]
-pub struct QapiInclude<'i>(pub QapiString<'i>);
+pub struct QapiInclude<'i>(pub &'i str);
 impl<'i> QapiInclude<'i> {
     /// INCLUDE = { 'include': STRING }
     pub fn parse(input: &'i str) -> IResult<&'i str, Self> {
         delimited(
             qtag("{"),
-            map(kv(qtag("include"), QapiString::parse), |v| Self(v)),
+            map(kv(qtag("include"), qstring), |v| Self(v)),
             qtag("}"),
         )(input)
     }

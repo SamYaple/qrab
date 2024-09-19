@@ -1,5 +1,5 @@
-use crate::helpers::{dict, kv, qtag};
-use crate::{QapiCond, QapiFeatures, QapiString, QapiTypeRef};
+use crate::helpers::{dict, kv, qstring, qtag};
+use crate::{QapiCond, QapiFeatures, QapiTypeRef};
 use nom::branch::alt;
 use nom::combinator::map;
 use nom::multi::separated_list0;
@@ -14,7 +14,7 @@ enum ParserToken<'i> {
 
 #[derive(Debug, Clone)]
 pub struct QapiMember<'i> {
-    name: QapiString<'i>,
+    name: &'i str,
     r#type: QapiTypeRef<'i>,
     r#if: Option<QapiCond<'i>>,
     features: Option<QapiFeatures<'i>>,
@@ -26,7 +26,7 @@ impl<'i> QapiMember<'i> {
     ///                     '*if': COND,
     ///                     '*features': FEATURES }
     pub fn parse(input: &'i str) -> IResult<&'i str, Self> {
-        let (input, name) = terminated(QapiString::parse, qtag(":"))(input)?;
+        let (input, name) = terminated(qstring, qtag(":"))(input)?;
 
         let type_parser = map(kv(qtag("type"), QapiTypeRef::parse), |v| {
             ParserToken::Type(v)
@@ -40,7 +40,7 @@ impl<'i> QapiMember<'i> {
         let complex_parser = dict(alt((type_parser, cond_parser, features_parser)));
         let (input, members) = alt((
             map(simple_parser, |r#type| Self {
-                name: name.clone(),
+                name,
                 r#type,
                 r#if: None,
                 features: None,
@@ -58,7 +58,7 @@ impl<'i> QapiMember<'i> {
                 }
                 let r#type = r#type.expect("type is a required key");
                 Self {
-                    name: name.clone(),
+                    name,
                     r#if,
                     features,
                     r#type,

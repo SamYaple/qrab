@@ -1,5 +1,5 @@
-use crate::helpers::{dict, kv, qtag};
-use crate::{QapiCond, QapiFeatures, QapiString, QapiTypeRef};
+use crate::helpers::{dict, kv, qstring, qtag};
+use crate::{QapiCond, QapiFeatures, QapiTypeRef};
 use nom::branch::alt;
 use nom::combinator::map;
 use nom::multi::separated_list1;
@@ -7,7 +7,7 @@ use nom::sequence::{delimited, terminated};
 use nom::IResult;
 
 enum AlternateParserToken<'i> {
-    Name(QapiString<'i>),
+    Name(&'i str),
     Data(QapiAlternatives<'i>),
     If(QapiCond<'i>),
     Features(QapiFeatures<'i>),
@@ -15,7 +15,7 @@ enum AlternateParserToken<'i> {
 
 #[derive(Debug, Clone)]
 pub struct QapiAlternate<'i> {
-    name: QapiString<'i>,
+    name: &'i str,
     data: QapiAlternatives<'i>,
     r#if: Option<QapiCond<'i>>,
     features: Option<QapiFeatures<'i>>,
@@ -33,7 +33,7 @@ impl<'i> QapiAlternate<'i> {
         let features_parser = map(kv(qtag("features"), QapiFeatures::parse), |v| {
             AlternateParserToken::Features(v)
         });
-        let name_parser = map(kv(qtag("alternate"), QapiString::parse), |v| {
+        let name_parser = map(kv(qtag("alternate"), qstring), |v| {
             AlternateParserToken::Name(v)
         });
         let data_parser = map(kv(qtag("data"), QapiAlternatives::parse), |v| {
@@ -77,7 +77,7 @@ enum AlternativeParserToken<'i> {
 
 #[derive(Debug, Clone)]
 pub struct QapiAlternative<'i> {
-    pub name: QapiString<'i>,
+    pub name: &'i str,
     pub r#type: QapiTypeRef<'i>,
     pub r#if: Option<QapiCond<'i>>,
 }
@@ -86,7 +86,7 @@ impl<'i> QapiAlternative<'i> {
     /// ALTERNATIVE = STRING : STRING
     ///             | STRING : { 'type': STRING, '*if': COND }
     pub fn parse(input: &'i str) -> IResult<&'i str, Self> {
-        let (input, name) = terminated(QapiString::parse, qtag(":"))(input)?;
+        let (input, name) = terminated(qstring, qtag(":"))(input)?;
 
         let type_parser = map(kv(qtag("type"), QapiTypeRef::parse), |v| {
             AlternativeParserToken::Type(v)
@@ -99,7 +99,7 @@ impl<'i> QapiAlternative<'i> {
         let complex_parser = dict(alt((type_parser, cond_parser)));
         let (input, members) = alt((
             map(simple_parser, |r#type| Self {
-                name: name.clone(),
+                name,
                 r#type,
                 r#if: None,
             }),
@@ -113,11 +113,7 @@ impl<'i> QapiAlternative<'i> {
                     }
                 }
                 let r#type = r#type.expect("type is a required key");
-                Self {
-                    name: name.clone(),
-                    r#if,
-                    r#type,
-                }
+                Self { name, r#if, r#type }
             }),
         ))(input)?;
         Ok((input, members))

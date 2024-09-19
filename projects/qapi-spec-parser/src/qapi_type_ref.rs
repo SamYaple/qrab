@@ -1,5 +1,4 @@
-use crate::helpers::qtag;
-use crate::QapiString;
+use crate::helpers::{qstring, qtag};
 use nom::branch::alt;
 use nom::combinator::map;
 use nom::sequence::delimited;
@@ -7,15 +6,15 @@ use nom::IResult;
 
 #[derive(Debug, Clone)]
 pub enum QapiTypeRef<'i> {
-    Weak(QapiString<'i>),
-    WeakArray(QapiString<'i>),
+    Weak(&'i str),
+    WeakArray(&'i str),
 }
 
 impl<'i> QapiTypeRef<'i> {
     /// TYPE-REF = STRING | ARRAY-TYPE
     /// ARRAY-TYPE = [ STRING ]
     pub fn parse(input: &'i str) -> IResult<&'i str, Self> {
-        let weak_parser = QapiString::parse;
+        let weak_parser = qstring;
         let array_parser = delimited(qtag("["), weak_parser, qtag("]"));
         alt((
             map(weak_parser, |v| Self::Weak(v)),

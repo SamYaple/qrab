@@ -1,5 +1,5 @@
-use crate::helpers::{kv, qcomment, qtag};
-use crate::{QapiBool, QapiString};
+use crate::helpers::{kv, qcomment, qstring, qtag};
+use crate::QapiBool;
 use nom::branch::alt;
 use nom::combinator::{map, opt};
 use nom::multi::separated_list1;
@@ -8,19 +8,19 @@ use nom::IResult;
 
 enum ParserToken<'i> {
     DocRequired(QapiBool),
-    CommandReturnsExceptions(Vec<QapiString<'i>>),
-    CommandNameExceptions(Vec<QapiString<'i>>),
-    DocumentationExceptions(Vec<QapiString<'i>>),
-    MemberNameExceptions(Vec<QapiString<'i>>),
+    CommandReturnsExceptions(Vec<&'i str>),
+    CommandNameExceptions(Vec<&'i str>),
+    DocumentationExceptions(Vec<&'i str>),
+    MemberNameExceptions(Vec<&'i str>),
 }
 
 #[derive(Debug, Clone)]
 pub struct QapiPragma<'i> {
     doc_required: Option<QapiBool>,
-    command_name_exceptions: Option<Vec<QapiString<'i>>>,
-    command_returns_exceptions: Option<Vec<QapiString<'i>>>,
-    documentation_exceptions: Option<Vec<QapiString<'i>>>,
-    member_name_exceptions: Option<Vec<QapiString<'i>>>,
+    command_name_exceptions: Option<Vec<&'i str>>,
+    command_returns_exceptions: Option<Vec<&'i str>>,
+    documentation_exceptions: Option<Vec<&'i str>>,
+    member_name_exceptions: Option<Vec<&'i str>>,
 }
 
 impl<'i> QapiPragma<'i> {
@@ -37,11 +37,7 @@ impl<'i> QapiPragma<'i> {
         let command_name_exceptions_parser = map(
             kv(
                 qtag("command-name-exceptions"),
-                delimited(
-                    qtag("["),
-                    separated_list1(qtag(","), QapiString::parse),
-                    qtag("]"),
-                ),
+                delimited(qtag("["), separated_list1(qtag(","), qstring), qtag("]")),
             ),
             |v| ParserToken::CommandNameExceptions(v),
         );
@@ -51,22 +47,14 @@ impl<'i> QapiPragma<'i> {
                     qtag("command-returns-exceptions"),
                     qtag("returns-whitelist"),
                 )),
-                delimited(
-                    qtag("["),
-                    separated_list1(qtag(","), QapiString::parse),
-                    qtag("]"),
-                ),
+                delimited(qtag("["), separated_list1(qtag(","), qstring), qtag("]")),
             ),
             |v| ParserToken::CommandReturnsExceptions(v),
         );
         let documentation_exceptions_parser = map(
             kv(
                 qtag("documentation-exceptions"),
-                delimited(
-                    qtag("["),
-                    separated_list1(qtag(","), QapiString::parse),
-                    qtag("]"),
-                ),
+                delimited(qtag("["), separated_list1(qtag(","), qstring), qtag("]")),
             ),
             |v| ParserToken::DocumentationExceptions(v),
         );
@@ -75,7 +63,7 @@ impl<'i> QapiPragma<'i> {
                 alt((qtag("member-name-exceptions"), qtag("name-case-whitelist"))),
                 delimited(
                     qtag("["),
-                    separated_list1(qtag(","), terminated(QapiString::parse, opt(qcomment))),
+                    separated_list1(qtag(","), terminated(qstring, opt(qcomment))),
                     qtag("]"),
                 ),
             ),

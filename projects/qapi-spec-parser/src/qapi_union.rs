@@ -1,5 +1,5 @@
-use crate::helpers::{kv, qtag};
-use crate::{QapiBranches, QapiCond, QapiFeatures, QapiMembers, QapiString};
+use crate::helpers::{kv, qstring, qtag};
+use crate::{QapiBranches, QapiCond, QapiFeatures, QapiMembers};
 use nom::branch::alt;
 use nom::combinator::map;
 use nom::multi::separated_list1;
@@ -7,8 +7,8 @@ use nom::sequence::delimited;
 use nom::IResult;
 
 enum ParserToken<'i> {
-    Name(QapiString<'i>),
-    Discriminator(QapiString<'i>),
+    Name(&'i str),
+    Discriminator(&'i str),
     Data(QapiBranches<'i>),
     Base(QapiUnionBase<'i>),
     If(QapiCond<'i>),
@@ -17,16 +17,16 @@ enum ParserToken<'i> {
 
 #[derive(Debug, Clone)]
 enum QapiUnionBase<'i> {
-    Ref(QapiString<'i>),
+    Ref(&'i str),
     Members(QapiMembers<'i>),
 }
 
 #[derive(Debug, Clone)]
 pub struct QapiUnion<'i> {
-    name: QapiString<'i>,
+    name: &'i str,
     data: QapiBranches<'i>,
     base: QapiUnionBase<'i>,
-    discriminator: QapiString<'i>,
+    discriminator: &'i str,
     r#if: Option<QapiCond<'i>>,
     features: Option<QapiFeatures<'i>>,
 }
@@ -43,20 +43,18 @@ impl<'i> QapiUnion<'i> {
         let features_parser = map(kv(qtag("features"), QapiFeatures::parse), |v| {
             ParserToken::Features(v)
         });
-        let name_parser = map(kv(qtag("union"), QapiString::parse), |v| {
-            ParserToken::Name(v)
-        });
+        let name_parser = map(kv(qtag("union"), qstring), |v| ParserToken::Name(v));
         let data_parser = map(kv(qtag("data"), QapiBranches::parse), |v| {
             ParserToken::Data(v)
         });
-        let discriminator_parser = map(kv(qtag("discriminator"), QapiString::parse), |v| {
+        let discriminator_parser = map(kv(qtag("discriminator"), qstring), |v| {
             ParserToken::Discriminator(v)
         });
         let base_parser = map(
             kv(
                 qtag("base"),
                 alt((
-                    map(QapiString::parse, |v| QapiUnionBase::Ref(v)),
+                    map(qstring, |v| QapiUnionBase::Ref(v)),
                     map(QapiMembers::parse, |v| QapiUnionBase::Members(v)),
                 )),
             ),

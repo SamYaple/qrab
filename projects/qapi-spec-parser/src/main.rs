@@ -16,7 +16,6 @@ mod qapi_include;
 mod qapi_members;
 mod qapi_pragma;
 mod qapi_schema;
-mod qapi_string;
 mod qapi_struct;
 mod qapi_type_ref;
 mod qapi_union;
@@ -34,7 +33,6 @@ pub use qapi_include::QapiInclude;
 pub use qapi_members::QapiMembers;
 pub use qapi_pragma::QapiPragma;
 pub use qapi_schema::QapiSchema;
-pub use qapi_string::QapiString;
 pub use qapi_struct::QapiStruct;
 pub use qapi_type_ref::QapiTypeRef;
 pub use qapi_union::QapiUnion;
@@ -49,8 +47,9 @@ fn main() -> Result<()> {
     let mut schema_raw_strs = std::collections::HashMap::new();
     helpers::walk_schemas(&schema_file, &mut schema_raw_strs)?;
     let schemas = helpers::process_schemas(&schema_raw_strs)?;
-    let schema = schemas.get(&schema_file).unwrap();
-    dbg![&schema_file, &schema];
+    //let schema = schemas.get(&schema_file).unwrap();
+    //dbg![&schema_file, &schema];
+    dbg![&schemas];
 
     Ok(())
 }

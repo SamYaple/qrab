@@ -1,5 +1,5 @@
-use crate::helpers::{dict, kv, qtag};
-use crate::{QapiCond, QapiFeatures, QapiString};
+use crate::helpers::{dict, kv, qstring, qtag};
+use crate::{QapiCond, QapiFeatures};
 use nom::branch::alt;
 use nom::combinator::map;
 use nom::multi::separated_list1;
@@ -7,8 +7,8 @@ use nom::sequence::delimited;
 use nom::IResult;
 
 enum EnumParserToken<'i> {
-    Name(QapiString<'i>),
-    Prefix(QapiString<'i>),
+    Name(&'i str),
+    Prefix(&'i str),
     Data(Vec<QapiEnumValue<'i>>),
     If(QapiCond<'i>),
     Features(QapiFeatures<'i>),
@@ -16,10 +16,10 @@ enum EnumParserToken<'i> {
 
 #[derive(Debug, Clone)]
 pub struct QapiEnum<'i> {
-    name: QapiString<'i>,
+    name: &'i str,
     data: Vec<QapiEnumValue<'i>>,
     r#if: Option<QapiCond<'i>>,
-    prefix: Option<QapiString<'i>>,
+    prefix: Option<&'i str>,
     features: Option<QapiFeatures<'i>>,
 }
 
@@ -30,12 +30,8 @@ impl<'i> QapiEnum<'i> {
     ///          '*if': COND,
     ///          '*features': FEATURES }
     pub fn parse(input: &'i str) -> IResult<&'i str, Self> {
-        let name_parser = map(kv(qtag("enum"), QapiString::parse), |v| {
-            EnumParserToken::Name(v)
-        });
-        let prefix_parser = map(kv(qtag("prefix"), QapiString::parse), |v| {
-            EnumParserToken::Prefix(v)
-        });
+        let name_parser = map(kv(qtag("enum"), qstring), |v| EnumParserToken::Name(v));
+        let prefix_parser = map(kv(qtag("prefix"), qstring), |v| EnumParserToken::Prefix(v));
         let type_parser = map(
             kv(
                 qtag("data"),
@@ -89,14 +85,14 @@ impl<'i> QapiEnum<'i> {
 }
 
 enum EnumValueParserToken<'i> {
-    Name(QapiString<'i>),
+    Name(&'i str),
     If(QapiCond<'i>),
     Features(QapiFeatures<'i>),
 }
 
 #[derive(Debug, Clone)]
 pub struct QapiEnumValue<'i> {
-    name: QapiString<'i>,
+    name: &'i str,
     r#if: Option<QapiCond<'i>>,
     features: Option<QapiFeatures<'i>>,
 }
@@ -107,9 +103,7 @@ impl<'i> QapiEnumValue<'i> {
     ///                '*if': COND,
     ///                '*features': FEATURES }
     pub fn parse(input: &'i str) -> IResult<&'i str, Self> {
-        let name_parser = map(kv(qtag("name"), QapiString::parse), |v| {
-            EnumValueParserToken::Name(v)
-        });
+        let name_parser = map(kv(qtag("name"), qstring), |v| EnumValueParserToken::Name(v));
         let cond_parser = map(kv(qtag("if"), QapiCond::parse), |v| {
             EnumValueParserToken::If(v)
         });
@@ -117,7 +111,7 @@ impl<'i> QapiEnumValue<'i> {
             EnumValueParserToken::Features(v)
         });
 
-        let simple_parser = QapiString::parse;
+        let simple_parser = qstring;
         let complex_parser = dict(alt((name_parser, cond_parser, features_parser)));
         let (input, members) = alt((
             map(simple_parser, |name| Self {

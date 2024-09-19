@@ -1,5 +1,5 @@
-use crate::helpers::{dict, kv, qtag};
-use crate::{QapiCond, QapiString, QapiTypeRef};
+use crate::helpers::{dict, kv, qstring, qtag};
+use crate::{QapiCond, QapiTypeRef};
 use nom::branch::alt;
 use nom::combinator::map;
 use nom::multi::separated_list1;
@@ -13,7 +13,7 @@ enum ParserToken<'i> {
 
 #[derive(Debug, Clone)]
 pub struct QapiBranch<'i> {
-    name: QapiString<'i>,
+    name: &'i str,
     r#type: QapiTypeRef<'i>,
     r#if: Option<QapiCond<'i>>,
 }
@@ -22,7 +22,7 @@ impl<'i> QapiBranch<'i> {
     /// BRANCH = STRING : TYPE-REF
     ///        | STRING : { 'type': TYPE-REF, '*if': COND }
     pub fn parse(input: &'i str) -> IResult<&'i str, Self> {
-        let (input, name) = terminated(QapiString::parse, qtag(":"))(input)?;
+        let (input, name) = terminated(qstring, qtag(":"))(input)?;
 
         let type_parser = map(kv(qtag("type"), QapiTypeRef::parse), |v| {
             ParserToken::Type(v)
@@ -33,7 +33,7 @@ impl<'i> QapiBranch<'i> {
         let complex_parser = dict(alt((type_parser, cond_parser)));
         let (input, members) = alt((
             map(simple_parser, |r#type| Self {
-                name: name.clone(),
+                name,
                 r#type,
                 r#if: None,
             }),
@@ -47,11 +47,7 @@ impl<'i> QapiBranch<'i> {
                     }
                 }
                 let r#type = r#type.expect("type is a required key");
-                Self {
-                    name: name.clone(),
-                    r#if,
-                    r#type,
-                }
+                Self { name, r#if, r#type }
             }),
         ))(input)?;
         Ok((input, members))
