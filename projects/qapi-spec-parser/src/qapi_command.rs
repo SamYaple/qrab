@@ -1,4 +1,4 @@
-use crate::helpers::{kv, qbool, qstring, qtag};
+use crate::helpers::{qbool, qstring, qtag, take_kv};
 use crate::{QapiCond, QapiFeatures, QapiMembers, QapiTypeRef};
 use nom::branch::alt;
 use nom::combinator::map;
@@ -58,15 +58,15 @@ impl<'i> QapiCommand<'i> {
     ///             '*if': COND,
     ///             '*features': FEATURES }
     pub fn parse(input: &'i str) -> IResult<&'i str, Self> {
-        let boxed_parser = map(kv(qtag("boxed"), qbool), |v| ParserToken::Boxed(v));
-        let cond_parser = map(kv(qtag("if"), QapiCond::parse), |v| ParserToken::If(v));
-        let features_parser = map(kv(qtag("features"), QapiFeatures::parse), |v| {
+        let boxed_parser = map(take_kv("boxed", qbool), |v| ParserToken::Boxed(v));
+        let cond_parser = map(take_kv("if", QapiCond::parse), |v| ParserToken::If(v));
+        let features_parser = map(take_kv("features", QapiFeatures::parse), |v| {
             ParserToken::Features(v)
         });
-        let name_parser = map(kv(qtag("command"), qstring), |v| ParserToken::Name(v));
+        let name_parser = map(take_kv("command", qstring), |v| ParserToken::Name(v));
         let data_parser = map(
-            kv(
-                qtag("data"),
+            take_kv(
+                "data",
                 alt((
                     map(qstring, |v| QapiCommandData::Ref(v)),
                     map(QapiMembers::parse, |v| QapiCommandData::Members(v)),
@@ -74,18 +74,18 @@ impl<'i> QapiCommand<'i> {
             ),
             |v| ParserToken::Data(v),
         );
-        let returns_parser = map(kv(qtag("returns"), QapiTypeRef::parse), |v| {
+        let returns_parser = map(take_kv("returns", QapiTypeRef::parse), |v| {
             ParserToken::Returns(v)
         });
-        let success_response_parser = map(kv(qtag("success-response"), qbool), |v| {
+        let success_response_parser = map(take_kv("success-response", qbool), |v| {
             ParserToken::SuccessResponse(v)
         });
-        let gen_parser = map(kv(qtag("gen"), qbool), |v| ParserToken::Gen(v));
-        let allow_oob_parser = map(kv(qtag("allow-oob"), qbool), |v| ParserToken::AllowOob(v));
-        let allow_preconfig_parser = map(kv(qtag("allow-preconfig"), qbool), |v| {
+        let gen_parser = map(take_kv("gen", qbool), |v| ParserToken::Gen(v));
+        let allow_oob_parser = map(take_kv("allow-oob", qbool), |v| ParserToken::AllowOob(v));
+        let allow_preconfig_parser = map(take_kv("allow-preconfig", qbool), |v| {
             ParserToken::AllowPreconfig(v)
         });
-        let coroutine_parser = map(kv(qtag("coroutine"), qbool), |v| ParserToken::Coroutine(v));
+        let coroutine_parser = map(take_kv("coroutine", qbool), |v| ParserToken::Coroutine(v));
 
         let parsers = alt((
             data_parser,

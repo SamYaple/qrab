@@ -4,8 +4,8 @@ use nom::branch::alt;
 use nom::bytes::complete::{tag, take_until};
 use nom::character::complete::{line_ending, multispace0, not_line_ending};
 use nom::combinator::{all_consuming, not, opt, peek, recognize};
-use nom::multi::many1;
-use nom::sequence::{delimited, preceded, terminated, tuple};
+use nom::multi::{many1, separated_list0};
+use nom::sequence::{delimited, preceded, tuple};
 use nom::IResult;
 use std::collections::HashMap;
 use std::fs::File;
@@ -39,27 +39,37 @@ pub(crate) fn qbool(input: &str) -> IResult<&str, &str> {
     alt((qtag("true"), qtag("false")))(input)
 }
 
-pub(crate) fn dict<'i, I, O>(item_parser: I) -> impl FnMut(&'i str) -> IResult<&'i str, Vec<O>>
+pub(crate) fn take_list<'i, I, O>(item_parser: I) -> impl FnMut(&'i str) -> IResult<&'i str, Vec<O>>
+where
+    I: FnMut(&'i str) -> IResult<&'i str, O>,
+{
+    delimited(
+        qtag("["),
+        separated_list0(qtag(","), item_parser),
+        qtag("]"),
+    )
+}
+
+pub(crate) fn take_dict<'i, I, O>(item_parser: I) -> impl FnMut(&'i str) -> IResult<&'i str, Vec<O>>
 where
     I: FnMut(&'i str) -> IResult<&'i str, O>,
 {
     delimited(
         qtag("{"),
-        many1(terminated(item_parser, opt(qtag(",")))),
+        separated_list0(qtag(","), item_parser),
         qtag("}"),
     )
 }
 
-pub(crate) fn kv<'i, I1, I2, O1, O2>(
-    key_parser: I1,
-    value_parser: I2,
-) -> impl FnMut(&'i str) -> IResult<&'i str, O2>
+pub(crate) fn take_kv<'i, I, O>(
+    key: &'static str,
+    value_parser: I,
+) -> impl FnMut(&'i str) -> IResult<&'i str, O>
 where
-    I1: FnMut(&'i str) -> IResult<&'i str, O1>,
-    I2: FnMut(&'i str) -> IResult<&'i str, O2>,
+    I: FnMut(&'i str) -> IResult<&'i str, O>,
 {
     delimited(
-        tuple((qtag("'"), key_parser, qtag("'"), qtag(":"))),
+        tuple((qtag("'"), tag(key), qtag("'"), qtag(":"))),
         value_parser,
         clean_lines,
     )

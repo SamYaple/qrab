@@ -1,9 +1,7 @@
-use crate::helpers::{dict, kv, qstring, qtag};
+use crate::helpers::{qstring, take_dict, take_kv, take_list};
 use crate::QapiCond;
 use nom::branch::alt;
 use nom::combinator::map;
-use nom::multi::separated_list1;
-use nom::sequence::delimited;
 
 use nom::IResult;
 
@@ -22,9 +20,9 @@ impl<'i> QapiFeature<'i> {
     /// FEATURE = STRING
     ///         | { 'name': STRING, '*if': COND }
     pub fn parse(input: &'i str) -> IResult<&'i str, Self> {
-        let name_parser = map(kv(qtag("name"), qstring), |v| ParserToken::Name(v));
-        let cond_parser = map(kv(qtag("if"), QapiCond::parse), |v| ParserToken::Cond(v));
-        let dict_parser = dict(alt((name_parser, cond_parser)));
+        let name_parser = map(take_kv("name", qstring), |v| ParserToken::Name(v));
+        let cond_parser = map(take_kv("if", QapiCond::parse), |v| ParserToken::Cond(v));
+        let dict_parser = take_dict(alt((name_parser, cond_parser)));
         let (input, (name, cond)) = alt((
             map(qstring, |name| (Some(name), None)),
             map(dict_parser, |tokens| {
@@ -52,14 +50,7 @@ pub struct QapiFeatures<'i>(Vec<QapiFeature<'i>>);
 impl<'i> QapiFeatures<'i> {
     /// FEATURES = [ FEATURE, ... ]
     pub fn parse(input: &'i str) -> IResult<&'i str, Self> {
-        map(
-            delimited(
-                qtag("["),
-                separated_list1(qtag(","), QapiFeature::parse),
-                qtag("]"),
-            ),
-            |v| Self(v),
-        )(input)
+        map(take_list(QapiFeature::parse), |v| Self(v))(input)
     }
 }
 

@@ -1,4 +1,4 @@
-use crate::helpers::{kv, qstring, qtag};
+use crate::helpers::{qstring, qtag, take_kv};
 use nom::combinator::map;
 use nom::sequence::delimited;
 use nom::IResult;
@@ -10,7 +10,7 @@ impl<'i> QapiInclude<'i> {
     pub fn parse(input: &'i str) -> IResult<&'i str, Self> {
         delimited(
             qtag("{"),
-            map(kv(qtag("include"), qstring), |v| Self(v)),
+            map(take_kv("include", qstring), |v| Self(v)),
             qtag("}"),
         )(input)
     }

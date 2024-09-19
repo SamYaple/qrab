@@ -1,4 +1,4 @@
-use crate::helpers::{kv, qbool, qstring, qtag};
+use crate::helpers::{qbool, qstring, qtag, take_kv};
 use crate::{QapiCond, QapiFeatures, QapiMembers};
 use nom::branch::alt;
 use nom::combinator::map;
@@ -40,15 +40,15 @@ impl<'i> QapiEvent<'i> {
     ///           '*if': COND,
     ///           '*features': FEATURES }
     pub fn parse(input: &'i str) -> IResult<&'i str, Self> {
-        let boxed_parser = map(kv(qtag("boxed"), qbool), |v| ParserToken::Boxed(v));
-        let cond_parser = map(kv(qtag("if"), QapiCond::parse), |v| ParserToken::If(v));
-        let features_parser = map(kv(qtag("features"), QapiFeatures::parse), |v| {
+        let boxed_parser = map(take_kv("boxed", qbool), |v| ParserToken::Boxed(v));
+        let cond_parser = map(take_kv("if", QapiCond::parse), |v| ParserToken::If(v));
+        let features_parser = map(take_kv("features", QapiFeatures::parse), |v| {
             ParserToken::Features(v)
         });
-        let name_parser = map(kv(qtag("event"), qstring), |v| ParserToken::Name(v));
+        let name_parser = map(take_kv("event", qstring), |v| ParserToken::Name(v));
         let data_parser = map(
-            kv(
-                qtag("data"),
+            take_kv(
+                "data",
                 alt((
                     map(qstring, |v| QapiEventData::Ref(v)),
                     map(QapiMembers::parse, |v| QapiEventData::Members(v)),

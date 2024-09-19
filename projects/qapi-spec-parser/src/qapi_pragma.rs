@@ -1,8 +1,8 @@
-use crate::helpers::{kv, qbool, qcomment, qstring, qtag};
+use crate::helpers::{qbool, qstring, qtag, take_kv, take_list};
 use nom::branch::alt;
-use nom::combinator::{map, opt};
+use nom::combinator::map;
 use nom::multi::separated_list1;
-use nom::sequence::{delimited, terminated, tuple};
+use nom::sequence::{delimited, tuple};
 use nom::IResult;
 
 enum ParserToken<'i> {
@@ -30,44 +30,25 @@ impl<'i> QapiPragma<'i> {
     ///            '*documentation-exceptions': [ STRING, ... ],
     ///            '*member-name-exceptions': [ STRING, ... ] } }
     pub fn parse(input: &'i str) -> IResult<&'i str, Self> {
-        let doc_required_parser = map(kv(qtag("doc-required"), qbool), |v| {
+        let doc_required_parser = map(take_kv("doc-required", qbool), |v| {
             ParserToken::DocRequired(v)
         });
         let command_name_exceptions_parser = map(
-            kv(
-                qtag("command-name-exceptions"),
-                delimited(qtag("["), separated_list1(qtag(","), qstring), qtag("]")),
-            ),
+            take_kv("command-name-exceptions", take_list(qstring)),
             |v| ParserToken::CommandNameExceptions(v),
         );
         let command_returns_exceptions_parser = map(
-            kv(
-                alt((
-                    qtag("command-returns-exceptions"),
-                    qtag("returns-whitelist"),
-                )),
-                delimited(qtag("["), separated_list1(qtag(","), qstring), qtag("]")),
-            ),
+            take_kv("command-returns-exceptions", take_list(qstring)),
             |v| ParserToken::CommandReturnsExceptions(v),
         );
         let documentation_exceptions_parser = map(
-            kv(
-                qtag("documentation-exceptions"),
-                delimited(qtag("["), separated_list1(qtag(","), qstring), qtag("]")),
-            ),
+            take_kv("documentation-exceptions", take_list(qstring)),
             |v| ParserToken::DocumentationExceptions(v),
         );
-        let member_name_exceptions_parser = map(
-            kv(
-                alt((qtag("member-name-exceptions"), qtag("name-case-whitelist"))),
-                delimited(
-                    qtag("["),
-                    separated_list1(qtag(","), terminated(qstring, opt(qcomment))),
-                    qtag("]"),
-                ),
-            ),
-            |v| ParserToken::MemberNameExceptions(v),
-        );
+        let member_name_exceptions_parser =
+            map(take_kv("member-name-exceptions", take_list(qstring)), |v| {
+                ParserToken::MemberNameExceptions(v)
+            });
 
         let parsers = alt((
             doc_required_parser,

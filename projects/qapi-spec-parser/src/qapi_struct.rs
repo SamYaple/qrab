@@ -1,4 +1,4 @@
-use crate::helpers::{kv, qstring, qtag};
+use crate::helpers::{qstring, qtag, take_kv};
 use crate::{QapiCond, QapiFeatures, QapiMembers};
 use nom::branch::alt;
 use nom::combinator::map;
@@ -30,15 +30,15 @@ impl<'i> QapiStruct<'i> {
     ///            '*if': COND,
     ///            '*features': FEATURES }
     pub fn parse(input: &'i str) -> IResult<&'i str, Self> {
-        let cond_parser = map(kv(qtag("if"), QapiCond::parse), |v| ParserToken::If(v));
-        let features_parser = map(kv(qtag("features"), QapiFeatures::parse), |v| {
+        let cond_parser = map(take_kv("if", QapiCond::parse), |v| ParserToken::If(v));
+        let features_parser = map(take_kv("features", QapiFeatures::parse), |v| {
             ParserToken::Features(v)
         });
-        let name_parser = map(kv(qtag("struct"), qstring), |v| ParserToken::Name(v));
-        let data_parser = map(kv(qtag("data"), QapiMembers::parse), |v| {
+        let name_parser = map(take_kv("struct", qstring), |v| ParserToken::Name(v));
+        let data_parser = map(take_kv("data", QapiMembers::parse), |v| {
             ParserToken::Data(v)
         });
-        let base_parser = map(kv(qtag("base"), qstring), |v| ParserToken::Base(v));
+        let base_parser = map(take_kv("base", qstring), |v| ParserToken::Base(v));
 
         let parsers = alt((
             data_parser,

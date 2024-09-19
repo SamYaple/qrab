@@ -1,7 +1,6 @@
-use crate::helpers::{kv, qstring, qtag};
+use crate::helpers::{qstring, qtag, take_kv, take_list};
 use nom::branch::alt;
 use nom::combinator::map;
-use nom::multi::separated_list1;
 use nom::sequence::delimited;
 use nom::IResult;
 
@@ -19,23 +18,9 @@ impl<'i> QapiCond<'i> {
     ///      | { 'any: [ COND, ... ] }
     ///      | { 'not': COND }
     pub fn parse(input: &'i str) -> IResult<&'i str, Self> {
-        let not_parser = kv(qtag("not"), Self::parse);
-        let any_parser = kv(
-            qtag("any"),
-            delimited(
-                qtag("["),
-                separated_list1(qtag(","), Self::parse),
-                qtag("]"),
-            ),
-        );
-        let all_parser = kv(
-            qtag("all"),
-            delimited(
-                qtag("["),
-                separated_list1(qtag(","), Self::parse),
-                qtag("]"),
-            ),
-        );
+        let not_parser = take_kv("not", Self::parse);
+        let any_parser = take_kv("any", take_list(Self::parse));
+        let all_parser = take_kv("all", take_list(Self::parse));
         alt((
             map(qstring, |v| Self::ConfigName(v)),
             delimited(

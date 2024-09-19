@@ -1,4 +1,4 @@
-use crate::helpers::{kv, qstring, qtag};
+use crate::helpers::{qstring, qtag, take_kv};
 use crate::{QapiBranches, QapiCond, QapiFeatures, QapiMembers};
 use nom::branch::alt;
 use nom::combinator::map;
@@ -39,20 +39,20 @@ impl<'i> QapiUnion<'i> {
     ///           '*if': COND,
     ///           '*features': FEATURES }
     pub fn parse(input: &'i str) -> IResult<&'i str, Self> {
-        let cond_parser = map(kv(qtag("if"), QapiCond::parse), |v| ParserToken::If(v));
-        let features_parser = map(kv(qtag("features"), QapiFeatures::parse), |v| {
+        let cond_parser = map(take_kv("if", QapiCond::parse), |v| ParserToken::If(v));
+        let features_parser = map(take_kv("features", QapiFeatures::parse), |v| {
             ParserToken::Features(v)
         });
-        let name_parser = map(kv(qtag("union"), qstring), |v| ParserToken::Name(v));
-        let data_parser = map(kv(qtag("data"), QapiBranches::parse), |v| {
+        let name_parser = map(take_kv("union", qstring), |v| ParserToken::Name(v));
+        let data_parser = map(take_kv("data", QapiBranches::parse), |v| {
             ParserToken::Data(v)
         });
-        let discriminator_parser = map(kv(qtag("discriminator"), qstring), |v| {
+        let discriminator_parser = map(take_kv("discriminator", qstring), |v| {
             ParserToken::Discriminator(v)
         });
         let base_parser = map(
-            kv(
-                qtag("base"),
+            take_kv(
+                "base",
                 alt((
                     map(qstring, |v| QapiUnionBase::Ref(v)),
                     map(QapiMembers::parse, |v| QapiUnionBase::Members(v)),

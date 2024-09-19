@@ -1,4 +1,4 @@
-use crate::helpers::{dict, kv, qstring, qtag};
+use crate::helpers::{qstring, qtag, take_dict, take_kv};
 use crate::{QapiCond, QapiFeatures, QapiTypeRef};
 use nom::branch::alt;
 use nom::combinator::map;
@@ -28,16 +28,16 @@ impl<'i> QapiMember<'i> {
     pub fn parse(input: &'i str) -> IResult<&'i str, Self> {
         let (input, name) = terminated(qstring, qtag(":"))(input)?;
 
-        let type_parser = map(kv(qtag("type"), QapiTypeRef::parse), |v| {
+        let type_parser = map(take_kv("type", QapiTypeRef::parse), |v| {
             ParserToken::Type(v)
         });
-        let cond_parser = map(kv(qtag("if"), QapiCond::parse), |v| ParserToken::If(v));
-        let features_parser = map(kv(qtag("features"), QapiFeatures::parse), |v| {
+        let cond_parser = map(take_kv("if", QapiCond::parse), |v| ParserToken::If(v));
+        let features_parser = map(take_kv("features", QapiFeatures::parse), |v| {
             ParserToken::Features(v)
         });
 
         let simple_parser = QapiTypeRef::parse;
-        let complex_parser = dict(alt((type_parser, cond_parser, features_parser)));
+        let complex_parser = take_dict(alt((type_parser, cond_parser, features_parser)));
         let (input, members) = alt((
             map(simple_parser, |r#type| Self {
                 name,
