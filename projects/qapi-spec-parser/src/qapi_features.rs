@@ -1,52 +1,14 @@
-use crate::helpers::{qstring, take_dict, take_kv, take_list};
-use crate::QapiCond;
-use nom::branch::alt;
+use crate::helpers::{take_kv, take_list};
+use crate::QapiFeature;
 use nom::combinator::map;
-
 use nom::IResult;
 
-enum ParserToken<'i> {
-    Name(&'i str),
-    If(QapiCond<'i>),
+pub fn take_features(input: &str) -> IResult<&str, QapiFeatures<'_>> {
+    take_kv("features", QapiFeatures::parse)(input)
 }
 
 #[derive(Debug, Clone)]
-pub struct QapiFeature<'i> {
-    name: &'i str,
-    r#if: Option<QapiCond<'i>>,
-}
-
-impl<'i> QapiFeature<'i> {
-    /// FEATURE = STRING
-    ///         | { 'name': STRING, '*if': COND }
-    pub fn parse(input: &'i str) -> IResult<&'i str, Self> {
-        let name_parser = map(take_kv("name", qstring), |v| ParserToken::Name(v));
-        let cond_parser = map(take_kv("if", QapiCond::parse), |v| ParserToken::If(v));
-        let dict_parser = take_dict(alt((name_parser, cond_parser)));
-        let (input, (name, r#if)) = alt((
-            map(qstring, |name| (Some(name), None)),
-            map(dict_parser, |tokens| {
-                let mut name = None;
-                let mut r#if = None;
-                for i in tokens {
-                    match i {
-                        ParserToken::Name(v) => name = Some(v),
-                        ParserToken::If(v) => r#if = Some(v),
-                    }
-                }
-                (name, r#if)
-            }),
-        ))(input)?;
-        if name.is_none() {
-            todo! {"missing 'name' key, but this should be a nom error not a crash"};
-        }
-        let name = name.unwrap();
-        Ok((input, Self { name, r#if }))
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct QapiFeatures<'i>(Vec<QapiFeature<'i>>);
+pub struct QapiFeatures<'i>(pub Vec<QapiFeature<'i>>);
 impl<'i> QapiFeatures<'i> {
     /// FEATURES = [ FEATURE, ... ]
     pub fn parse(input: &'i str) -> IResult<&'i str, Self> {

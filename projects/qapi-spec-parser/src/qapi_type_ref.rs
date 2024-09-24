@@ -1,8 +1,12 @@
-use crate::helpers::{qstring, qtag};
+use crate::helpers::{qstring, qtag, take_kv};
 use nom::branch::alt;
 use nom::combinator::map;
 use nom::sequence::delimited;
 use nom::IResult;
+
+pub fn take_type_ref(input: &str) -> IResult<&str, QapiTypeRef<'_>> {
+    take_kv("type", QapiTypeRef::parse)(input)
+}
 
 #[derive(Debug, Clone)]
 pub enum QapiTypeRef<'i> {

@@ -4,6 +4,10 @@ use nom::combinator::map;
 use nom::sequence::delimited;
 use nom::IResult;
 
+pub fn take_cond(input: &str) -> IResult<&str, QapiCond<'_>> {
+    take_kv("if", QapiCond::parse)(input)
+}
+
 #[derive(Debug, Clone)]
 pub enum QapiCond<'i> {
     All(Vec<QapiCond<'i>>),
