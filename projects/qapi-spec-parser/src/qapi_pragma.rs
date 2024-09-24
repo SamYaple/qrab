@@ -5,6 +5,10 @@ use nom::multi::separated_list1;
 use nom::sequence::{delimited, tuple};
 use nom::IResult;
 
+pub fn take_pragma(input: &str) -> IResult<&str, QapiPragma<'_>> {
+    QapiPragma::parse(input)
+}
+
 enum ParserToken<'i> {
     DocRequired(&'i str),
     CommandReturnsExceptions(Vec<&'i str>),

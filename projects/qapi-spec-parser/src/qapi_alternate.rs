@@ -1,10 +1,8 @@
-use crate::helpers::{qstring, qtag, take_kv};
+use crate::helpers::{qstring, take_dict, take_kv};
 use crate::{take_alternatives, take_cond, take_features};
 use crate::{QapiAlternatives, QapiCond, QapiFeatures};
 use nom::branch::alt;
 use nom::combinator::map;
-use nom::multi::separated_list1;
-use nom::sequence::delimited;
 use nom::IResult;
 
 pub fn take_alternate(input: &str) -> IResult<&str, QapiAlternate<'_>> {
@@ -26,27 +24,12 @@ impl<'i> QapiAlternate<'i> {
     ///               '*features': FEATURES }
     pub fn parse(input: &'i str) -> IResult<&'i str, Self> {
         let mut s = Self::default();
-        let (input, _) = delimited(
-            qtag("{"),
-            separated_list1(
-                qtag(","),
-                alt((
-                    map(take_kv("alternate", qstring), |v| {
-                        s.name = Some(v);
-                    }),
-                    map(take_alternatives, |v| {
-                        s.data = Some(v);
-                    }),
-                    map(take_cond, |v| {
-                        s.r#if = Some(v);
-                    }),
-                    map(take_features, |v| {
-                        s.features = Some(v);
-                    }),
-                )),
-            ),
-            qtag("}"),
-        )(input)?;
+        let (input, _) = take_dict(alt((
+            map(take_kv("alternate", qstring), |v| s.name = Some(v)),
+            map(take_alternatives, |v| s.data = Some(v)),
+            map(take_cond, |v| s.r#if = Some(v)),
+            map(take_features, |v| s.features = Some(v)),
+        )))(input)?;
         Ok((input, s))
     }
 }

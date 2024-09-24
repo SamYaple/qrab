@@ -3,6 +3,10 @@ use nom::combinator::map;
 use nom::sequence::delimited;
 use nom::IResult;
 
+pub fn take_include(input: &str) -> IResult<&str, QapiInclude<'_>> {
+    QapiInclude::parse(input)
+}
+
 #[derive(Debug, Clone)]
 pub struct QapiInclude<'i>(pub &'i str);
 impl<'i> QapiInclude<'i> {

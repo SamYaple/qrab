@@ -1,17 +1,12 @@
-use crate::helpers::{qbool, qstring, qtag, take_kv};
+use crate::helpers::{qbool, qstring, take_dict, take_kv};
+use crate::{take_cond, take_features, take_members};
 use crate::{QapiCond, QapiFeatures, QapiMembers};
 use nom::branch::alt;
 use nom::combinator::map;
-use nom::multi::separated_list1;
-use nom::sequence::delimited;
 use nom::IResult;
 
-enum ParserToken<'i> {
-    Name(&'i str),
-    Data(QapiEventData<'i>),
-    If(QapiCond<'i>),
-    Features(QapiFeatures<'i>),
-    Boxed(&'i str),
+pub fn take_event(input: &str) -> IResult<&str, QapiEvent<'_>> {
+    QapiEvent::parse(input)
 }
 
 #[derive(Debug, Clone)]
@@ -20,9 +15,9 @@ enum QapiEventData<'i> {
     Members(QapiMembers<'i>),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct QapiEvent<'i> {
-    name: &'i str,
+    name: Option<&'i str>,
     data: Option<QapiEventData<'i>>,
     boxed: Option<&'i str>,
     r#if: Option<QapiCond<'i>>,
@@ -40,65 +35,24 @@ impl<'i> QapiEvent<'i> {
     ///           '*if': COND,
     ///           '*features': FEATURES }
     pub fn parse(input: &'i str) -> IResult<&'i str, Self> {
-        let boxed_parser = map(take_kv("boxed", qbool), |v| ParserToken::Boxed(v));
-        let cond_parser = map(take_kv("if", QapiCond::parse), |v| ParserToken::If(v));
-        let features_parser = map(take_kv("features", QapiFeatures::parse), |v| {
-            ParserToken::Features(v)
-        });
-        let name_parser = map(take_kv("event", qstring), |v| ParserToken::Name(v));
-        let data_parser = map(
-            take_kv(
-                "data",
-                alt((
-                    map(qstring, |v| QapiEventData::Ref(v)),
-                    map(QapiMembers::parse, |v| QapiEventData::Members(v)),
-                )),
+        let mut s = Self::default();
+        let (input, _) = take_dict(alt((
+            map(take_kv("event", qstring), |v| s.name = Some(v)),
+            map(take_kv("boxed", qbool), |v| s.boxed = Some(v)),
+            map(take_cond, |v| s.r#if = Some(v)),
+            map(take_features, |v| s.features = Some(v)),
+            map(
+                take_kv(
+                    "data",
+                    alt((
+                        map(qstring, |v| QapiEventData::Ref(v)),
+                        map(take_members, |v| QapiEventData::Members(v)),
+                    )),
+                ),
+                |v| s.data = Some(v),
             ),
-            |v| ParserToken::Data(v),
-        );
-
-        let parsers = alt((
-            data_parser,
-            cond_parser,
-            features_parser,
-            name_parser,
-            boxed_parser,
-        ));
-        delimited(
-            qtag("{"),
-            map(separated_list1(qtag(","), parsers), |tokens| {
-                let mut r#if = None;
-                let mut data = None;
-                let mut features = None;
-                let mut boxed = None;
-                let mut name = None;
-                for i in tokens {
-                    match i {
-                        ParserToken::If(v) => r#if = Some(v),
-                        ParserToken::Boxed(v) => boxed = Some(v),
-                        ParserToken::Data(v) => data = Some(v),
-                        ParserToken::Name(v) => name = Some(v),
-                        ParserToken::Features(v) => features = Some(v),
-                    }
-                }
-                let name = name.expect("struct is a required key");
-                // TODO This is a validation check, not a parsing check
-                //if let Some(ref b) = boxed {
-                //    if b.0 && data.is_none() {
-                //        // TODO Proper parser error returns, but not now...
-                //        panic!("data is a required key");
-                //    }
-                //}
-                Self {
-                    name,
-                    r#if,
-                    features,
-                    data,
-                    boxed,
-                }
-            }),
-            qtag("}"),
-        )(input)
+        )))(input)?;
+        Ok((input, s))
     }
 }
 

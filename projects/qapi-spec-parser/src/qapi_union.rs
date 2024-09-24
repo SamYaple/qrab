@@ -1,18 +1,12 @@
-use crate::helpers::{qstring, qtag, take_kv};
+use crate::helpers::{qstring, take_dict, take_kv};
+use crate::{take_branches, take_cond, take_features, take_members};
 use crate::{QapiBranches, QapiCond, QapiFeatures, QapiMembers};
 use nom::branch::alt;
 use nom::combinator::map;
-use nom::multi::separated_list1;
-use nom::sequence::delimited;
 use nom::IResult;
 
-enum ParserToken<'i> {
-    Name(&'i str),
-    Discriminator(&'i str),
-    Data(QapiBranches<'i>),
-    Base(QapiUnionBase<'i>),
-    If(QapiCond<'i>),
-    Features(QapiFeatures<'i>),
+pub fn take_union(input: &str) -> IResult<&str, QapiUnion<'_>> {
+    QapiUnion::parse(input)
 }
 
 #[derive(Debug, Clone)]
@@ -21,12 +15,12 @@ enum QapiUnionBase<'i> {
     Members(QapiMembers<'i>),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct QapiUnion<'i> {
-    name: &'i str,
-    data: QapiBranches<'i>,
-    base: QapiUnionBase<'i>,
-    discriminator: &'i str,
+    name: Option<&'i str>,
+    data: Option<QapiBranches<'i>>,
+    base: Option<QapiUnionBase<'i>>,
+    discriminator: Option<&'i str>,
     r#if: Option<QapiCond<'i>>,
     features: Option<QapiFeatures<'i>>,
 }
@@ -39,70 +33,27 @@ impl<'i> QapiUnion<'i> {
     ///           '*if': COND,
     ///           '*features': FEATURES }
     pub fn parse(input: &'i str) -> IResult<&'i str, Self> {
-        let cond_parser = map(take_kv("if", QapiCond::parse), |v| ParserToken::If(v));
-        let features_parser = map(take_kv("features", QapiFeatures::parse), |v| {
-            ParserToken::Features(v)
-        });
-        let name_parser = map(take_kv("union", qstring), |v| ParserToken::Name(v));
-        let data_parser = map(take_kv("data", QapiBranches::parse), |v| {
-            ParserToken::Data(v)
-        });
-        let discriminator_parser = map(take_kv("discriminator", qstring), |v| {
-            ParserToken::Discriminator(v)
-        });
-        let base_parser = map(
-            take_kv(
-                "base",
-                alt((
-                    map(qstring, |v| QapiUnionBase::Ref(v)),
-                    map(QapiMembers::parse, |v| QapiUnionBase::Members(v)),
-                )),
-            ),
-            |v| ParserToken::Base(v),
-        );
-
-        let parsers = alt((
-            data_parser,
-            cond_parser,
-            features_parser,
-            name_parser,
-            base_parser,
-            discriminator_parser,
-        ));
-        delimited(
-            qtag("{"),
-            map(separated_list1(qtag(","), parsers), |tokens| {
-                let mut r#if = None;
-                let mut data = None;
-                let mut features = None;
-                let mut base = None;
-                let mut name = None;
-                let mut discriminator = None;
-                for i in tokens {
-                    match i {
-                        ParserToken::If(v) => r#if = Some(v),
-                        ParserToken::Discriminator(v) => discriminator = Some(v),
-                        ParserToken::Base(v) => base = Some(v),
-                        ParserToken::Data(v) => data = Some(v),
-                        ParserToken::Name(v) => name = Some(v),
-                        ParserToken::Features(v) => features = Some(v),
-                    }
-                }
-                let name = name.expect("union is a required key");
-                let data = data.expect("data is a required key");
-                let discriminator = discriminator.expect("discriminator is a required key");
-                let base = base.expect("base is a required key");
-                Self {
-                    name,
-                    r#if,
-                    features,
-                    data,
-                    base,
-                    discriminator,
-                }
+        let mut s = Self::default();
+        let (input, _) = take_dict(alt((
+            map(take_kv("union", qstring), |v| s.name = Some(v)),
+            map(take_kv("data", take_branches), |v| s.data = Some(v)),
+            map(take_kv("discriminator", qstring), |v| {
+                s.discriminator = Some(v)
             }),
-            qtag("}"),
-        )(input)
+            map(take_cond, |v| s.r#if = Some(v)),
+            map(take_features, |v| s.features = Some(v)),
+            map(
+                take_kv(
+                    "base",
+                    alt((
+                        map(qstring, |v| QapiUnionBase::Ref(v)),
+                        map(take_members, |v| QapiUnionBase::Members(v)),
+                    )),
+                ),
+                |v| s.base = Some(v),
+            ),
+        )))(input)?;
+        Ok((input, s))
     }
 }
 
