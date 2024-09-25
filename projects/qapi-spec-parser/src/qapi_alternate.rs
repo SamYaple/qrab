@@ -1,8 +1,8 @@
 use crate::helpers::{qstring, take_dict, take_kv};
 use crate::{take_alternatives, take_cond, take_features};
-use crate::{QapiAlternatives, QapiCond, QapiFeatures};
+use crate::{QapiAlternatives, QapiCond, QapiDocumentation, QapiFeatures};
 use nom::branch::alt;
-use nom::combinator::map;
+use nom::combinator::{map, opt};
 use nom::IResult;
 
 pub fn take_alternate(input: &str) -> IResult<&str, QapiAlternate<'_>> {
@@ -23,6 +23,8 @@ impl<'i> QapiAlternate<'i> {
     ///               '*if': COND,
     ///               '*features': FEATURES }
     pub fn parse(input: &'i str) -> IResult<&'i str, Self> {
+        let (input, doc) = opt(QapiDocumentation::parse)(input)?;
+
         let mut s = Self::default();
         let (input, _) = take_dict(alt((
             map(take_kv("alternate", qstring), |v| s.name = Some(v)),

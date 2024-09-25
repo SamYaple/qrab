@@ -1,8 +1,8 @@
 use crate::helpers::{qstring, take_dict, take_kv, take_list};
 use crate::{take_cond, take_enum_value, take_features};
-use crate::{QapiCond, QapiEnumValue, QapiFeatures};
+use crate::{QapiCond, QapiDocumentation, QapiEnumValue, QapiFeatures};
 use nom::branch::alt;
-use nom::combinator::map;
+use nom::combinator::{map, opt};
 use nom::IResult;
 
 pub fn take_enum(input: &str) -> IResult<&str, QapiEnum<'_>> {
@@ -25,6 +25,7 @@ impl<'i> QapiEnum<'i> {
     ///          '*if': COND,
     ///          '*features': FEATURES }
     pub fn parse(input: &'i str) -> IResult<&'i str, Self> {
+        let (input, doc) = opt(QapiDocumentation::parse)(input)?;
         let mut s = Self::default();
         let (input, _) = take_dict(alt((
             map(take_kv("enum", qstring), |v| s.name = Some(v)),

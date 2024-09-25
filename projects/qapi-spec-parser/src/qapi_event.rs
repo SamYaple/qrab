@@ -1,8 +1,8 @@
 use crate::helpers::{qbool, qstring, take_dict, take_kv};
 use crate::{take_cond, take_features, take_members};
-use crate::{QapiCond, QapiFeatures, QapiMembers};
+use crate::{QapiCond, QapiDocumentation, QapiFeatures, QapiMembers};
 use nom::branch::alt;
-use nom::combinator::map;
+use nom::combinator::{map, opt};
 use nom::IResult;
 
 pub fn take_event(input: &str) -> IResult<&str, QapiEvent<'_>> {
@@ -35,6 +35,7 @@ impl<'i> QapiEvent<'i> {
     ///           '*if': COND,
     ///           '*features': FEATURES }
     pub fn parse(input: &'i str) -> IResult<&'i str, Self> {
+        let (input, doc) = opt(QapiDocumentation::parse)(input)?;
         let mut s = Self::default();
         let (input, _) = take_dict(alt((
             map(take_kv("event", qstring), |v| s.name = Some(v)),
