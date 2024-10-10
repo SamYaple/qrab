@@ -241,7 +241,7 @@ fn main() -> Result<()> {
             add_feat! {meta, qenumvalue.r#features};
             let variant = EnumVariant {
                 name: name.into(),
-                kind: EnumVariantKind::QapiEnum,
+                kind: EnumVariantKind::Unit,
                 meta,
                 array: false,
             };
@@ -249,13 +249,10 @@ fn main() -> Result<()> {
         }
 
         add_docs! {meta, v.doc, name, &mut variants};
-        for v in &mut variants {
-            v.name = rustify_type(&v.name);
-        }
 
         // ASSEMBLE!
         let qenum = Enum {
-            name: rustify_type(name),
+            name: name.into(),
             variants,
             meta,
         };
@@ -275,10 +272,10 @@ fn main() -> Result<()> {
             let mut array = false;
             let r#type = match qaltvalue.r#type {
                 QapiTypeRef::Unset => unreachable! {"this should have failed the parser"},
-                QapiTypeRef::Ref(v) => rustify_type(v),
+                QapiTypeRef::Ref(v) => v.into(),
                 QapiTypeRef::ArrayRef(v) => {
                     array = true;
-                    rustify_type(v)
+                    v.into()
                 }
             };
             let mut meta = Metadata::default();
@@ -286,7 +283,7 @@ fn main() -> Result<()> {
             add_cond! {meta, qaltvalue.r#if};
             let variant = EnumVariant {
                 name: name.into(),
-                kind: EnumVariantKind::QapiAlternate(r#type),
+                kind: EnumVariantKind::Tuple(r#type),
                 meta,
                 array,
             };
@@ -294,13 +291,10 @@ fn main() -> Result<()> {
         }
 
         add_docs! {meta, v.doc, name, &mut variants};
-        for variant in &mut variants {
-            variant.name = rustify_type(&variant.name);
-        }
 
         // ASSEMBLE!
         let qalternate = Enum {
-            name: rustify_type(name),
+            name: name.into(),
             variants,
             meta,
         };
@@ -321,10 +315,10 @@ fn main() -> Result<()> {
             let mut array = false;
             let r#type = match field.r#type {
                 QapiTypeRef::Unset => unreachable! {"this should have failed the parser"},
-                QapiTypeRef::Ref(v) => rustify_type(v),
+                QapiTypeRef::Ref(v) => v.into(),
                 QapiTypeRef::ArrayRef(v) => {
                     array = true;
-                    rustify_type(v)
+                    v.into()
                 }
             };
             let mut meta = Metadata::default();
@@ -333,8 +327,8 @@ fn main() -> Result<()> {
             add_feat! {meta, field.features};
             let field = StructField {
                 name: name.into(),
-                r#type,
                 meta,
+                r#type,
                 optional,
                 array,
             };
@@ -342,13 +336,10 @@ fn main() -> Result<()> {
         }
 
         add_docs! {meta, v.doc, name, &mut fields};
-        for v in &mut fields {
-            v.name = rustify_field(&v.name);
-        }
 
         // ASSEMBLE!
         let qstruct = Struct {
-            name: rustify_type(name),
+            name: name.into(),
             fields,
             meta,
         };
