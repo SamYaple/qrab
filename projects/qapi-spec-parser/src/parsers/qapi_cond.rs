@@ -8,7 +8,7 @@ pub fn take_cond(input: &str) -> IResult<&str, QapiCond<'_>> {
     take_kv("if", QapiCond::parse)(input)
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum QapiCond<'i> {
     All(Vec<QapiCond<'i>>),
     Any(Vec<QapiCond<'i>>),
@@ -37,6 +37,35 @@ impl<'i> QapiCond<'i> {
                 qtag("}"),
             ),
         ))(input)
+    }
+
+    pub fn recursive_print(&self) -> String {
+        let mut output = String::new();
+        match self {
+            Self::Any(conds) => {
+                output.push('(');
+                for cond in conds {
+                    output.push_str(&format! {"{} || ", cond.recursive_print()})
+                }
+                if output.ends_with(" || ") {
+                    output.truncate(output.len() - 4);
+                }
+                output.push(')');
+            }
+            Self::All(conds) => {
+                output.push('(');
+                for cond in conds {
+                    output.push_str(&format! {"{} && ", cond.recursive_print()})
+                }
+                if output.ends_with(" && ") {
+                    output.truncate(output.len() - 4);
+                }
+                output.push(')');
+            }
+            Self::Not(cond) => output.push_str(&format! {"!{}", cond.recursive_print()}),
+            Self::ConfigName(name) => output.push_str(name),
+        }
+        output
     }
 }
 

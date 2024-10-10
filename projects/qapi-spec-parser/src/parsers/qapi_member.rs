@@ -12,11 +12,11 @@ pub fn take_member(input: &str) -> IResult<&str, QapiMember<'_>> {
 
 #[derive(Debug, Clone, Default)]
 pub struct QapiMember<'i> {
-    name: Option<&'i str>,
-    optional: bool,
-    r#type: Option<QapiTypeRef<'i>>,
-    r#if: Option<QapiCond<'i>>,
-    features: Option<QapiFeatures<'i>>,
+    pub name: Option<&'i str>,
+    pub optional: bool,
+    pub r#type: Option<QapiTypeRef<'i>>,
+    pub r#if: Option<QapiCond<'i>>,
+    pub features: Option<QapiFeatures<'i>>,
 }
 
 impl<'i> QapiMember<'i> {

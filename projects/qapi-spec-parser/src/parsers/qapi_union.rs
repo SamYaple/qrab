@@ -1,6 +1,6 @@
 use crate::helpers::{qstring, take_dict, take_kv};
-use crate::{take_branches, take_cond, take_features, take_members};
-use crate::{QapiBranches, QapiCond, QapiDocumentation, QapiFeatures, QapiMembers};
+use crate::{take_branches, take_cond, take_features, take_members_or_ref};
+use crate::{MembersOrRef, QapiBranches, QapiCond, QapiDocumentation, QapiFeatures};
 use nom::branch::alt;
 use nom::combinator::{map, opt};
 use nom::IResult;
@@ -9,20 +9,15 @@ pub fn take_union(input: &str) -> IResult<&str, QapiUnion<'_>> {
     QapiUnion::parse(input)
 }
 
-#[derive(Debug, Clone)]
-enum QapiUnionBase<'i> {
-    Ref(&'i str),
-    Members(QapiMembers<'i>),
-}
-
 #[derive(Debug, Clone, Default)]
 pub struct QapiUnion<'i> {
-    name: Option<&'i str>,
-    data: Option<QapiBranches<'i>>,
-    base: Option<QapiUnionBase<'i>>,
-    discriminator: Option<&'i str>,
-    r#if: Option<QapiCond<'i>>,
-    features: Option<QapiFeatures<'i>>,
+    pub name: Option<&'i str>,
+    pub data: Option<QapiBranches<'i>>,
+    pub base: Option<MembersOrRef<'i>>,
+    pub discriminator: Option<&'i str>,
+    pub r#if: Option<QapiCond<'i>>,
+    pub features: Option<QapiFeatures<'i>>,
+    pub doc: Option<QapiDocumentation<'i>>,
 }
 
 impl<'i> QapiUnion<'i> {
@@ -34,7 +29,10 @@ impl<'i> QapiUnion<'i> {
     ///           '*features': FEATURES }
     pub fn parse(input: &'i str) -> IResult<&'i str, Self> {
         let (input, doc) = opt(QapiDocumentation::parse)(input)?;
-        let mut s = Self::default();
+        let mut s = Self {
+            doc,
+            ..Default::default()
+        };
         let (input, _) = take_dict(alt((
             map(take_kv("union", qstring), |v| s.name = Some(v)),
             map(take_kv("data", take_branches), |v| s.data = Some(v)),
@@ -43,16 +41,7 @@ impl<'i> QapiUnion<'i> {
             }),
             map(take_cond, |v| s.r#if = Some(v)),
             map(take_features, |v| s.features = Some(v)),
-            map(
-                take_kv(
-                    "base",
-                    alt((
-                        map(qstring, |v| QapiUnionBase::Ref(v)),
-                        map(take_members, |v| QapiUnionBase::Members(v)),
-                    )),
-                ),
-                |v| s.base = Some(v),
-            ),
+            map(take_kv("base", take_members_or_ref), |v| s.base = Some(v)),
         )))(input)?;
         Ok((input, s))
     }

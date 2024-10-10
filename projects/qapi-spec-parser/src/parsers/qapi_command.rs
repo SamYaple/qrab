@@ -1,6 +1,6 @@
 use crate::helpers::{qbool, qstring, take_dict, take_kv};
-use crate::{take_cond, take_features, take_members};
-use crate::{QapiCond, QapiDocumentation, QapiFeatures, QapiMembers, QapiTypeRef};
+use crate::{take_cond, take_features, take_members_or_ref};
+use crate::{MembersOrRef, QapiCond, QapiDocumentation, QapiFeatures, QapiMembers, QapiTypeRef};
 use nom::branch::alt;
 use nom::combinator::{map, opt};
 use nom::IResult;
@@ -10,24 +10,25 @@ pub fn take_command(input: &str) -> IResult<&str, QapiCommand<'_>> {
 }
 
 #[derive(Debug, Clone)]
-enum QapiCommandData<'i> {
+pub enum QapiCommandData<'i> {
     Ref(&'i str),
     Members(QapiMembers<'i>),
 }
 
 #[derive(Debug, Clone, Default)]
 pub struct QapiCommand<'i> {
-    name: Option<&'i str>,
-    data: Option<QapiCommandData<'i>>,
-    boxed: Option<&'i str>,
-    r#if: Option<QapiCond<'i>>,
-    features: Option<QapiFeatures<'i>>,
-    returns: Option<QapiTypeRef<'i>>,
-    success_response: Option<&'i str>,
-    gen: Option<&'i str>,
-    allow_oob: Option<&'i str>,
-    allow_preconfig: Option<&'i str>,
-    coroutine: Option<&'i str>,
+    pub name: Option<&'i str>,
+    pub data: Option<MembersOrRef<'i>>,
+    pub boxed: Option<&'i str>,
+    pub r#if: Option<QapiCond<'i>>,
+    pub features: Option<QapiFeatures<'i>>,
+    pub returns: Option<QapiTypeRef<'i>>,
+    pub success_response: Option<&'i str>,
+    pub gen: Option<&'i str>,
+    pub allow_oob: Option<&'i str>,
+    pub allow_preconfig: Option<&'i str>,
+    pub coroutine: Option<&'i str>,
+    pub doc: Option<QapiDocumentation<'i>>,
 }
 
 impl<'i> QapiCommand<'i> {
@@ -48,7 +49,10 @@ impl<'i> QapiCommand<'i> {
     ///             '*features': FEATURES }
     pub fn parse(input: &'i str) -> IResult<&'i str, Self> {
         let (input, doc) = opt(QapiDocumentation::parse)(input)?;
-        let mut s = Self::default();
+        let mut s = Self {
+            doc,
+            ..Default::default()
+        };
         let (input, _) = take_dict(alt((
             map(take_kv("command", qstring), |v| s.name = Some(v)),
             map(take_kv("boxed", qbool), |v| s.boxed = Some(v)),
@@ -66,16 +70,7 @@ impl<'i> QapiCommand<'i> {
             map(take_kv("allow-preconfig", qbool), |v| {
                 s.allow_preconfig = Some(v)
             }),
-            map(
-                take_kv(
-                    "data",
-                    alt((
-                        map(qstring, |v| QapiCommandData::Ref(v)),
-                        map(take_members, |v| QapiCommandData::Members(v)),
-                    )),
-                ),
-                |v| s.data = Some(v),
-            ),
+            map(take_kv("data", take_members_or_ref), |v| s.data = Some(v)),
         )))(input)?;
         Ok((input, s))
     }

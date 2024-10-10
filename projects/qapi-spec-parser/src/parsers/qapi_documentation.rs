@@ -26,7 +26,8 @@ pub(crate) fn docstr_to_string(input: &str) -> String {
         }
         output.push_str(trimmed);
     }
-    output.trim().to_string()
+    let output = output.trim().replace(".  ", ". ");
+    format!(" {}", output)
 }
 
 pub(crate) fn docstr_to_string_keep_structure(input: &str) -> String {
@@ -46,7 +47,7 @@ pub(crate) fn docstr_to_string_keep_structure(input: &str) -> String {
         output.push_str(trimmed);
         output.push('\n');
     }
-    output.trim().to_string()
+    output.trim().replace(".  ", ". ")
 }
 
 fn not_name_break(c: char) -> bool {

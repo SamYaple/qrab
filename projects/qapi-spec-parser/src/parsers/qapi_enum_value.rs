@@ -11,9 +11,9 @@ pub fn take_enum_value(input: &str) -> IResult<&str, QapiEnumValue<'_>> {
 
 #[derive(Debug, Clone, Default)]
 pub struct QapiEnumValue<'i> {
-    name: Option<&'i str>,
-    r#if: Option<QapiCond<'i>>,
-    features: Option<QapiFeatures<'i>>,
+    pub name: Option<&'i str>,
+    pub r#if: Option<QapiCond<'i>>,
+    pub features: Option<QapiFeatures<'i>>,
 }
 
 impl<'i> QapiEnumValue<'i> {

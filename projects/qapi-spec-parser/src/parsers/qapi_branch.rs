@@ -12,9 +12,9 @@ pub fn take_branch(input: &str) -> IResult<&str, QapiBranch<'_>> {
 
 #[derive(Debug, Clone, Default)]
 pub struct QapiBranch<'i> {
-    name: Option<&'i str>,
-    r#type: Option<QapiTypeRef<'i>>,
-    r#if: Option<QapiCond<'i>>,
+    pub name: Option<&'i str>,
+    pub r#type: Option<QapiTypeRef<'i>>,
+    pub r#if: Option<QapiCond<'i>>,
 }
 
 impl<'i> QapiBranch<'i> {

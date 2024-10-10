@@ -1,6 +1,6 @@
 use crate::helpers::{qbool, qstring, take_dict, take_kv};
-use crate::{take_cond, take_features, take_members};
-use crate::{QapiCond, QapiDocumentation, QapiFeatures, QapiMembers};
+use crate::{take_cond, take_features, take_members_or_ref};
+use crate::{MembersOrRef, QapiCond, QapiDocumentation, QapiFeatures};
 use nom::branch::alt;
 use nom::combinator::{map, opt};
 use nom::IResult;
@@ -9,19 +9,14 @@ pub fn take_event(input: &str) -> IResult<&str, QapiEvent<'_>> {
     QapiEvent::parse(input)
 }
 
-#[derive(Debug, Clone)]
-enum QapiEventData<'i> {
-    Ref(&'i str),
-    Members(QapiMembers<'i>),
-}
-
 #[derive(Debug, Clone, Default)]
 pub struct QapiEvent<'i> {
-    name: Option<&'i str>,
-    data: Option<QapiEventData<'i>>,
-    boxed: Option<&'i str>,
-    r#if: Option<QapiCond<'i>>,
-    features: Option<QapiFeatures<'i>>,
+    pub name: Option<&'i str>,
+    pub data: Option<MembersOrRef<'i>>,
+    pub boxed: Option<&'i str>,
+    pub r#if: Option<QapiCond<'i>>,
+    pub features: Option<QapiFeatures<'i>>,
+    pub doc: Option<QapiDocumentation<'i>>,
 }
 
 impl<'i> QapiEvent<'i> {
@@ -36,22 +31,16 @@ impl<'i> QapiEvent<'i> {
     ///           '*features': FEATURES }
     pub fn parse(input: &'i str) -> IResult<&'i str, Self> {
         let (input, doc) = opt(QapiDocumentation::parse)(input)?;
-        let mut s = Self::default();
+        let mut s = Self {
+            doc,
+            ..Default::default()
+        };
         let (input, _) = take_dict(alt((
             map(take_kv("event", qstring), |v| s.name = Some(v)),
             map(take_kv("boxed", qbool), |v| s.boxed = Some(v)),
             map(take_cond, |v| s.r#if = Some(v)),
             map(take_features, |v| s.features = Some(v)),
-            map(
-                take_kv(
-                    "data",
-                    alt((
-                        map(qstring, |v| QapiEventData::Ref(v)),
-                        map(take_members, |v| QapiEventData::Members(v)),
-                    )),
-                ),
-                |v| s.data = Some(v),
-            ),
+            map(take_kv("data", take_members_or_ref), |v| s.data = Some(v)),
         )))(input)?;
         Ok((input, s))
     }

@@ -11,11 +11,12 @@ pub fn take_enum(input: &str) -> IResult<&str, QapiEnum<'_>> {
 
 #[derive(Debug, Clone, Default)]
 pub struct QapiEnum<'i> {
-    name: Option<&'i str>,
-    data: Vec<QapiEnumValue<'i>>,
-    r#if: Option<QapiCond<'i>>,
-    prefix: Option<&'i str>,
-    features: Option<QapiFeatures<'i>>,
+    pub name: Option<&'i str>,
+    pub data: Vec<QapiEnumValue<'i>>,
+    pub r#if: Option<QapiCond<'i>>,
+    pub prefix: Option<&'i str>,
+    pub features: Option<QapiFeatures<'i>>,
+    pub doc: Option<QapiDocumentation<'i>>,
 }
 
 impl<'i> QapiEnum<'i> {
@@ -26,7 +27,10 @@ impl<'i> QapiEnum<'i> {
     ///          '*features': FEATURES }
     pub fn parse(input: &'i str) -> IResult<&'i str, Self> {
         let (input, doc) = opt(QapiDocumentation::parse)(input)?;
-        let mut s = Self::default();
+        let mut s = Self {
+            doc,
+            ..Default::default()
+        };
         let (input, _) = take_dict(alt((
             map(take_kv("enum", qstring), |v| s.name = Some(v)),
             map(take_kv("prefix", qstring), |v| s.prefix = Some(v)),

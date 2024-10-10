@@ -15,6 +15,7 @@ pub struct QapiAlternate<'i> {
     pub data: Option<QapiAlternatives<'i>>,
     pub r#if: Option<QapiCond<'i>>,
     pub features: Option<QapiFeatures<'i>>,
+    pub doc: Option<QapiDocumentation<'i>>,
 }
 
 impl<'i> QapiAlternate<'i> {
@@ -24,8 +25,10 @@ impl<'i> QapiAlternate<'i> {
     ///               '*features': FEATURES }
     pub fn parse(input: &'i str) -> IResult<&'i str, Self> {
         let (input, doc) = opt(QapiDocumentation::parse)(input)?;
-
-        let mut s = Self::default();
+        let mut s = Self {
+            doc,
+            ..Default::default()
+        };
         let (input, _) = take_dict(alt((
             map(take_kv("alternate", qstring), |v| s.name = Some(v)),
             map(take_alternatives, |v| s.data = Some(v)),

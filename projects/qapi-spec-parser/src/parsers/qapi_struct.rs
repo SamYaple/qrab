@@ -11,11 +11,12 @@ pub fn take_struct(input: &str) -> IResult<&str, QapiStruct<'_>> {
 
 #[derive(Debug, Clone, Default)]
 pub struct QapiStruct<'i> {
-    name: Option<&'i str>,
-    data: Option<QapiMembers<'i>>,
-    base: Option<&'i str>,
-    r#if: Option<QapiCond<'i>>,
-    features: Option<QapiFeatures<'i>>,
+    pub name: Option<&'i str>,
+    pub data: Option<QapiMembers<'i>>,
+    pub base: Option<&'i str>,
+    pub r#if: Option<QapiCond<'i>>,
+    pub features: Option<QapiFeatures<'i>>,
+    pub doc: Option<QapiDocumentation<'i>>,
 }
 
 impl<'i> QapiStruct<'i> {
@@ -26,7 +27,10 @@ impl<'i> QapiStruct<'i> {
     ///            '*features': FEATURES }
     pub fn parse(input: &'i str) -> IResult<&'i str, Self> {
         let (input, doc) = opt(QapiDocumentation::parse)(input)?;
-        let mut s = Self::default();
+        let mut s = Self {
+            doc,
+            ..Default::default()
+        };
         let (input, _) = take_dict(alt((
             map(take_kv("struct", qstring), |v| s.name = Some(v)),
             map(take_kv("base", qstring), |v| s.base = Some(v)),
