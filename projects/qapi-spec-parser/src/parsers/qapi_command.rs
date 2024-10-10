@@ -3,6 +3,7 @@ use crate::{take_cond, take_features, take_members_or_ref};
 use crate::{MembersOrRef, QapiCond, QapiDocumentation, QapiFeatures, QapiMembers, QapiTypeRef};
 use nom::branch::alt;
 use nom::combinator::{map, opt};
+use nom::error::{Error, ErrorKind};
 use nom::IResult;
 
 pub fn take_command(input: &str) -> IResult<&str, QapiCommand<'_>> {
@@ -17,7 +18,7 @@ pub enum QapiCommandData<'i> {
 
 #[derive(Debug, Clone, Default)]
 pub struct QapiCommand<'i> {
-    pub name: Option<&'i str>,
+    pub name: &'i str,
     pub data: Option<MembersOrRef<'i>>,
     pub boxed: Option<&'i str>,
     pub r#if: Option<QapiCond<'i>>,
@@ -53,8 +54,9 @@ impl<'i> QapiCommand<'i> {
             doc,
             ..Default::default()
         };
+        let start = input;
         let (input, _) = take_dict(alt((
-            map(take_kv("command", qstring), |v| s.name = Some(v)),
+            map(take_kv("command", qstring), |v| s.name = v),
             map(take_kv("boxed", qbool), |v| s.boxed = Some(v)),
             map(take_cond, |v| s.r#if = Some(v)),
             map(take_features, |v| s.features = Some(v)),
@@ -72,6 +74,11 @@ impl<'i> QapiCommand<'i> {
             }),
             map(take_kv("data", take_members_or_ref), |v| s.data = Some(v)),
         )))(input)?;
+        if s.name == "" {
+            return Err(nom::Err::Error(Error::new(start, ErrorKind::Tag)));
+        }
+        // if boxed is set to true, `data` is no optional. I do no account for this at all.
+        // the qapi spec needs to be correct here, data being equal to None is allowed for us.
         Ok((input, s))
     }
 }

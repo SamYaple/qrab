@@ -3,6 +3,7 @@ use crate::{take_cond, take_features, take_members};
 use crate::{QapiCond, QapiDocumentation, QapiFeatures, QapiMembers};
 use nom::branch::alt;
 use nom::combinator::{map, opt};
+use nom::error::{Error, ErrorKind};
 use nom::IResult;
 
 pub fn take_struct(input: &str) -> IResult<&str, QapiStruct<'_>> {
@@ -11,8 +12,8 @@ pub fn take_struct(input: &str) -> IResult<&str, QapiStruct<'_>> {
 
 #[derive(Debug, Clone, Default)]
 pub struct QapiStruct<'i> {
-    pub name: Option<&'i str>,
-    pub data: Option<QapiMembers<'i>>,
+    pub name: &'i str,
+    pub data: QapiMembers<'i>,
     pub base: Option<&'i str>,
     pub r#if: Option<QapiCond<'i>>,
     pub features: Option<QapiFeatures<'i>>,
@@ -31,13 +32,17 @@ impl<'i> QapiStruct<'i> {
             doc,
             ..Default::default()
         };
+        let start = input;
         let (input, _) = take_dict(alt((
-            map(take_kv("struct", qstring), |v| s.name = Some(v)),
+            map(take_kv("struct", qstring), |v| s.name = v),
             map(take_kv("base", qstring), |v| s.base = Some(v)),
             map(take_cond, |v| s.r#if = Some(v)),
             map(take_features, |v| s.features = Some(v)),
-            map(take_kv("data", take_members), |v| s.data = Some(v)),
+            map(take_kv("data", take_members), |v| s.data = v),
         )))(input)?;
+        if s.name == "" || s.data.len() == 0 {
+            return Err(nom::Err::Error(Error::new(start, ErrorKind::Tag)));
+        }
         Ok((input, s))
     }
 }

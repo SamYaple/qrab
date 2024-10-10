@@ -96,7 +96,7 @@ macro_rules! add_cond {
 macro_rules! add_feat {
     ($meta:expr, $feat:expr) => {
         if let Some(features) = $feat {
-            for feature in &features.0 {
+            for feature in features {
                 let name = feature.name;
                 if let Some(condition) = &feature.r#if {
                     $meta.attributes.push(Attribute::new(
@@ -156,7 +156,6 @@ fn read_schema_file(schema_file: &Path, sources: &mut Vec<(PathBuf, String)>) ->
     sources.push((schema_file.to_path_buf(), content.clone()));
     let schema_tokens = parse_schema(&content)?;
     let includes: Vec<&str> = schema_tokens
-        .0
         .into_iter()
         .filter_map(|token| match token {
             QapiSchemaToken::Include(filename) => Some(filename.0),
@@ -201,31 +200,25 @@ fn main() -> Result<()> {
     let mut structs: HashMap<&str, QapiStruct> = HashMap::new();
     let mut unions: HashMap<&str, QapiUnion> = HashMap::new();
     dbg![&tokens];
-    for token in tokens.0 {
+    for token in tokens {
         match token {
             QapiSchemaToken::Alternate(v) => {
-                let name = v.name.unwrap();
-                alternates.insert(name, v);
+                alternates.insert(v.name, v);
             }
             QapiSchemaToken::Command(v) => {
-                let name = v.name.unwrap();
-                commands.insert(name, v);
+                commands.insert(v.name, v);
             }
             QapiSchemaToken::Enum(v) => {
-                let name = v.name.unwrap();
-                enums.insert(name, v);
+                enums.insert(v.name, v);
             }
             QapiSchemaToken::Event(v) => {
-                let name = v.name.unwrap();
-                events.insert(name, v);
+                events.insert(v.name, v);
             }
             QapiSchemaToken::Struct(v) => {
-                let name = v.name.unwrap();
-                structs.insert(name, v);
+                structs.insert(v.name, v);
             }
             QapiSchemaToken::Union(v) => {
-                let name = v.name.unwrap();
-                unions.insert(name, v);
+                unions.insert(v.name, v);
             }
             _ => continue,
         }
@@ -235,17 +228,17 @@ fn main() -> Result<()> {
     for (name, v) in enums.into_iter() {
         let mut meta = Metadata::default();
         meta.attributes.push(Attribute::new("name", Some(name)));
-        add_cond! {meta, &v.r#if};
-        add_feat! {meta, &v.r#features};
+        add_cond! {meta, v.r#if};
+        add_feat! {meta, v.r#features};
 
         // Convert variants
         let mut variants = Vec::new();
-        for qenumvalue in &v.data {
-            let name = qenumvalue.name.expect("name is missing");
+        for qenumvalue in v.data {
+            let name = qenumvalue.name;
             let mut meta = Metadata::default();
             meta.attributes.push(Attribute::new("name", Some(name)));
-            add_cond! {meta, &qenumvalue.r#if};
-            add_feat! {meta, &qenumvalue.r#features};
+            add_cond! {meta, qenumvalue.r#if};
+            add_feat! {meta, qenumvalue.r#features};
             let variant = EnumVariant {
                 name: name.into(),
                 kind: EnumVariantKind::QapiEnum,
@@ -255,7 +248,7 @@ fn main() -> Result<()> {
             variants.push(variant);
         }
 
-        add_docs! {meta, &v.doc, name, &mut variants};
+        add_docs! {meta, v.doc, name, &mut variants};
         for v in &mut variants {
             v.name = rustify_type(&v.name);
         }
@@ -272,15 +265,16 @@ fn main() -> Result<()> {
     for (name, v) in alternates.into_iter() {
         let mut meta = Metadata::default();
         meta.attributes.push(Attribute::new("name", Some(name)));
-        add_cond! {meta, &v.r#if};
-        add_feat! {meta, &v.r#features};
+        add_cond! {meta, v.r#if};
+        add_feat! {meta, v.r#features};
 
         // Convert variants
         let mut variants = Vec::new();
-        for qaltvalue in v.data.clone().unwrap().0 {
-            let name = qaltvalue.name.expect("name is missing");
+        for qaltvalue in v.data {
+            let name = qaltvalue.name;
             let mut array = false;
-            let r#type = match qaltvalue.r#type.expect("type is missing") {
+            let r#type = match qaltvalue.r#type {
+                QapiTypeRef::Unset => unreachable! {"this should have failed the parser"},
                 QapiTypeRef::Ref(v) => rustify_type(v),
                 QapiTypeRef::ArrayRef(v) => {
                     array = true;
@@ -289,7 +283,7 @@ fn main() -> Result<()> {
             };
             let mut meta = Metadata::default();
             meta.attributes.push(Attribute::new("name", Some(name)));
-            add_cond! {meta, &qaltvalue.r#if};
+            add_cond! {meta, qaltvalue.r#if};
             let variant = EnumVariant {
                 name: name.into(),
                 kind: EnumVariantKind::QapiAlternate(r#type),
@@ -299,33 +293,34 @@ fn main() -> Result<()> {
             variants.push(variant);
         }
 
-        add_docs! {meta, &v.doc, name, &mut variants};
-        for v in &mut variants {
-            v.name = rustify_type(&v.name);
+        add_docs! {meta, v.doc, name, &mut variants};
+        for variant in &mut variants {
+            variant.name = rustify_type(&variant.name);
         }
 
         // ASSEMBLE!
-        let qalt = Enum {
+        let qalternate = Enum {
             name: rustify_type(name),
             variants,
             meta,
         };
-        schema.alternates.push(qalt);
+        schema.alternates.push(qalternate);
     }
     for (name, v) in structs.into_iter() {
-        let name = v.name.expect("name is missing");
+        let name = v.name;
         let mut meta = Metadata::default();
         meta.attributes.push(Attribute::new("name", Some(name)));
-        add_cond! {meta, &v.r#if};
-        add_feat! {meta, &v.r#features};
+        add_cond! {meta, v.r#if};
+        add_feat! {meta, v.r#features};
 
         // Convert variants
         let mut fields = Vec::new();
-        for field in v.data.clone().unwrap().0 {
-            let name = field.name.expect("name is missing");
+        for field in v.data {
+            let name = field.name;
             let optional = field.optional;
             let mut array = false;
-            let r#type = match field.r#type.expect("type is missing") {
+            let r#type = match field.r#type {
+                QapiTypeRef::Unset => unreachable! {"this should have failed the parser"},
                 QapiTypeRef::Ref(v) => rustify_type(v),
                 QapiTypeRef::ArrayRef(v) => {
                     array = true;
@@ -334,8 +329,8 @@ fn main() -> Result<()> {
             };
             let mut meta = Metadata::default();
             meta.attributes.push(Attribute::new("name", Some(name)));
-            add_cond! {meta, &field.r#if};
-            add_feat! {meta, &field.features};
+            add_cond! {meta, field.r#if};
+            add_feat! {meta, field.features};
             let field = StructField {
                 name: name.into(),
                 r#type,
@@ -346,14 +341,14 @@ fn main() -> Result<()> {
             fields.push(field);
         }
 
-        add_docs! {meta, &v.doc, name, &mut fields};
+        add_docs! {meta, v.doc, name, &mut fields};
         for v in &mut fields {
             v.name = rustify_field(&v.name);
         }
 
         // ASSEMBLE!
         let qstruct = Struct {
-            name: name.into(),
+            name: rustify_type(name),
             fields,
             meta,
         };

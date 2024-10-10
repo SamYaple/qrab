@@ -3,6 +3,7 @@ use crate::{take_cond, take_enum_value, take_features};
 use crate::{QapiCond, QapiDocumentation, QapiEnumValue, QapiFeatures};
 use nom::branch::alt;
 use nom::combinator::{map, opt};
+use nom::error::{Error, ErrorKind};
 use nom::IResult;
 
 pub fn take_enum(input: &str) -> IResult<&str, QapiEnum<'_>> {
@@ -11,7 +12,7 @@ pub fn take_enum(input: &str) -> IResult<&str, QapiEnum<'_>> {
 
 #[derive(Debug, Clone, Default)]
 pub struct QapiEnum<'i> {
-    pub name: Option<&'i str>,
+    pub name: &'i str,
     pub data: Vec<QapiEnumValue<'i>>,
     pub r#if: Option<QapiCond<'i>>,
     pub prefix: Option<&'i str>,
@@ -31,13 +32,17 @@ impl<'i> QapiEnum<'i> {
             doc,
             ..Default::default()
         };
+        let start = input;
         let (input, _) = take_dict(alt((
-            map(take_kv("enum", qstring), |v| s.name = Some(v)),
+            map(take_kv("enum", qstring), |v| s.name = v),
             map(take_kv("prefix", qstring), |v| s.prefix = Some(v)),
             map(take_kv("data", take_list(take_enum_value)), |v| s.data = v),
             map(take_cond, |v| s.r#if = Some(v)),
             map(take_features, |v| s.features = Some(v)),
         )))(input)?;
+        if s.name == "" || s.data.len() == 0 {
+            return Err(nom::Err::Error(Error::new(start, ErrorKind::Tag)));
+        }
         Ok((input, s))
     }
 }

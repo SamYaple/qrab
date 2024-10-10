@@ -3,7 +3,9 @@ use crate::{take_branches, take_cond, take_features, take_members_or_ref};
 use crate::{MembersOrRef, QapiBranches, QapiCond, QapiDocumentation, QapiFeatures};
 use nom::branch::alt;
 use nom::combinator::{map, opt};
+use nom::error::{Error, ErrorKind};
 use nom::IResult;
+use std::ops::{Deref, DerefMut};
 
 pub fn take_union(input: &str) -> IResult<&str, QapiUnion<'_>> {
     QapiUnion::parse(input)
@@ -11,10 +13,10 @@ pub fn take_union(input: &str) -> IResult<&str, QapiUnion<'_>> {
 
 #[derive(Debug, Clone, Default)]
 pub struct QapiUnion<'i> {
-    pub name: Option<&'i str>,
-    pub data: Option<QapiBranches<'i>>,
-    pub base: Option<MembersOrRef<'i>>,
-    pub discriminator: Option<&'i str>,
+    pub name: &'i str,
+    pub data: QapiBranches<'i>,
+    pub base: MembersOrRef<'i>,
+    pub discriminator: &'i str,
     pub r#if: Option<QapiCond<'i>>,
     pub features: Option<QapiFeatures<'i>>,
     pub doc: Option<QapiDocumentation<'i>>,
@@ -33,16 +35,22 @@ impl<'i> QapiUnion<'i> {
             doc,
             ..Default::default()
         };
+        let start = input;
         let (input, _) = take_dict(alt((
-            map(take_kv("union", qstring), |v| s.name = Some(v)),
-            map(take_kv("data", take_branches), |v| s.data = Some(v)),
-            map(take_kv("discriminator", qstring), |v| {
-                s.discriminator = Some(v)
-            }),
+            map(take_kv("union", qstring), |v| s.name = v),
+            map(take_kv("data", take_branches), |v| s.data = v),
+            map(take_kv("discriminator", qstring), |v| s.discriminator = v),
             map(take_cond, |v| s.r#if = Some(v)),
             map(take_features, |v| s.features = Some(v)),
-            map(take_kv("base", take_members_or_ref), |v| s.base = Some(v)),
+            map(take_kv("base", take_members_or_ref), |v| s.base = v),
         )))(input)?;
+        if s.name == ""
+            || s.discriminator == ""
+            || s.data.len() == 0
+            || s.base == MembersOrRef::Unset
+        {
+            return Err(nom::Err::Error(Error::new(start, ErrorKind::Tag)));
+        }
         Ok((input, s))
     }
 }

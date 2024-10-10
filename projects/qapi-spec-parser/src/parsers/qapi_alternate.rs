@@ -3,6 +3,7 @@ use crate::{take_alternatives, take_cond, take_features};
 use crate::{QapiAlternatives, QapiCond, QapiDocumentation, QapiFeatures};
 use nom::branch::alt;
 use nom::combinator::{map, opt};
+use nom::error::{Error, ErrorKind};
 use nom::IResult;
 
 pub fn take_alternate(input: &str) -> IResult<&str, QapiAlternate<'_>> {
@@ -11,8 +12,8 @@ pub fn take_alternate(input: &str) -> IResult<&str, QapiAlternate<'_>> {
 
 #[derive(Debug, Clone, Default)]
 pub struct QapiAlternate<'i> {
-    pub name: Option<&'i str>,
-    pub data: Option<QapiAlternatives<'i>>,
+    pub name: &'i str,
+    pub data: QapiAlternatives<'i>,
     pub r#if: Option<QapiCond<'i>>,
     pub features: Option<QapiFeatures<'i>>,
     pub doc: Option<QapiDocumentation<'i>>,
@@ -29,12 +30,16 @@ impl<'i> QapiAlternate<'i> {
             doc,
             ..Default::default()
         };
+        let start = input;
         let (input, _) = take_dict(alt((
-            map(take_kv("alternate", qstring), |v| s.name = Some(v)),
-            map(take_alternatives, |v| s.data = Some(v)),
+            map(take_kv("alternate", qstring), |v| s.name = v),
+            map(take_alternatives, |v| s.data = v),
             map(take_cond, |v| s.r#if = Some(v)),
             map(take_features, |v| s.features = Some(v)),
         )))(input)?;
+        if s.name == "" || s.data.len() == 0 {
+            return Err(nom::Err::Error(Error::new(start, ErrorKind::Tag)));
+        }
         Ok((input, s))
     }
 }

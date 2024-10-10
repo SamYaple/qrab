@@ -8,6 +8,7 @@ use nom::character::complete::multispace1;
 use nom::combinator::{all_consuming, map};
 use nom::multi::many0;
 use nom::IResult;
+use std::ops::{Deref, DerefMut};
 
 pub fn take_schema(input: &str) -> IResult<&str, QapiSchema<'_>> {
     QapiSchema::parse(input)
@@ -28,7 +29,11 @@ pub enum QapiSchemaToken<'i> {
     EmptyLines,
 }
 
-#[derive(Debug)]
+// To preserve the token ordering at this stage, the parsers schema output is a
+// Vec<Token> with each token being a parsed element from the qapi spec. At this
+// stage, all ordering is preserved and the `&str` references can still be used
+// to highlight and debug the original schema file.
+#[derive(Debug, Clone)]
 pub struct QapiSchema<'i>(pub Vec<QapiSchemaToken<'i>>);
 impl<'i> QapiSchema<'i> {
     pub fn parse(input: &'i str) -> IResult<&'i str, Self> {
@@ -48,5 +53,28 @@ impl<'i> QapiSchema<'i> {
             ))),
             |tokens| Self(tokens),
         )(input)
+    }
+}
+
+impl<'i> Deref for QapiSchema<'i> {
+    type Target = Vec<QapiSchemaToken<'i>>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl<'i> DerefMut for QapiSchema<'i> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+impl<'i> IntoIterator for QapiSchema<'i> {
+    type Item = QapiSchemaToken<'i>;
+    type IntoIter = std::vec::IntoIter<Self::Item>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.into_iter()
     }
 }

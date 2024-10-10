@@ -2,14 +2,14 @@ use crate::helpers::{qstring, take_dict, take_kv};
 use crate::{take_cond, QapiCond};
 use nom::branch::alt;
 use nom::combinator::map;
-use nom::IResult;
 use nom::error::{Error, ErrorKind};
+use nom::IResult;
 
 pub fn take_feature(input: &str) -> IResult<&str, QapiFeature<'_>> {
     QapiFeature::parse(input)
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct QapiFeature<'i> {
     pub name: &'i str,
     pub r#if: Option<QapiCond<'i>>,
@@ -91,15 +91,15 @@ mod tests {
     #[test]
     fn test_invalid_input() {
         let invalid_inputs = vec![
-            r#"invalid_input"#, // missing wrapping single quotes
-            r#"'invalid_input"#, // missing trailing single quote
-            r#""invalid_input""#, // incorrect double quotes
-            r#"{'name': "invalid_input"}"#, // incorrect double quotes
+            r#"invalid_input"#,              // missing wrapping single quotes
+            r#"'invalid_input"#,             // missing trailing single quote
+            r#""invalid_input""#,            // incorrect double quotes
+            r#"{'name': "invalid_input"}"#,  // incorrect double quotes
             r#"{'name': 'invalid_input',}"#, // trailing comma
             r#"{'name': 'invalid_input', 'if': CONFIG_NAME}"#, // missing wrapping single quotes
             r#"{'name': 'invalid_input', 'if': 'CONFIG_NAME',}"#, // trailing comma
             r#"{'name': 'invalid_input', 'if': 'CONFIG_NAME', 'other': 'valid'}"#, // unknown field
-            r#"{'if': 'CONFIG_NAME'}"#, // missing name field
+            r#"{'if': 'CONFIG_NAME'}"#,      // missing name field
         ];
         for input in invalid_inputs {
             let result = take_feature(input);

@@ -8,10 +8,17 @@ pub fn take_type_ref(input: &str) -> IResult<&str, QapiTypeRef<'_>> {
     take_kv("type", QapiTypeRef::parse)(input)
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum QapiTypeRef<'i> {
+    Unset,
     Ref(&'i str),
     ArrayRef(&'i str),
+}
+
+impl Default for QapiTypeRef<'_> {
+    fn default() -> Self {
+        Self::Unset
+    }
 }
 
 impl<'i> QapiTypeRef<'i> {
