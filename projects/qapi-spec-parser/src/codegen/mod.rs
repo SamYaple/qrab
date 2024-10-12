@@ -3,6 +3,9 @@ use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 use std::cmp::Ordering;
 
+mod process_qapi;
+pub use process_qapi::*;
+
 mod rust_enum;
 mod rust_struct;
 pub use rust_enum::*;
@@ -120,7 +123,7 @@ pub struct Metadata {
 pub struct Schema {
     pub alternates: Vec<Enum>,
     pub enums: Vec<Enum>,
-    pub unions: Vec<Enum>,
+    pub unions: Vec<(Enum, Struct)>,
     pub structs: Vec<Struct>,
     pub events: Vec<Struct>,
     pub commands: Vec<Struct>,

@@ -24,7 +24,7 @@ impl PartialOrd for StructField {
     }
 }
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq, Clone)]
 pub struct Struct {
     pub name: String,
     pub meta: Metadata,
@@ -67,7 +67,7 @@ impl Struct {
         });
 
         let fields = self.fields.iter().map(|field| {
-            let field_name = format_ident!("{}", rustify_field(&field.name));
+            let field_name: TokenStream = rustify_field(&field.name).parse().unwrap();
             let mut field_type: TokenStream = rustify_type(&field.r#type).parse().unwrap();
             if field.array {
                 field_type = quote!( Vec<#field_type> );

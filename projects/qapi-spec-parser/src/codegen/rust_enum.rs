@@ -1,16 +1,16 @@
-use super::{rustify_type, Metadata, StructField};
+use super::{rustify_field, rustify_type, Metadata, StructField};
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 use std::cmp::Ordering;
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq, Clone)]
 pub enum EnumVariantKind {
     Unit,
     Tuple(String),
     Struct(Vec<StructField>),
 }
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq, Clone)]
 pub struct EnumVariant {
     pub name: String,
     pub meta: Metadata,
@@ -30,7 +30,7 @@ impl PartialOrd for EnumVariant {
     }
 }
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq, Clone)]
 pub struct Enum {
     pub name: String,
     pub meta: Metadata,
@@ -114,7 +114,7 @@ impl Enum {
                 }
                 EnumVariantKind::Struct(fields) => {
                     let fields_tokens = fields.iter().map(|field| {
-                        let field_name = format_ident!("{}", field.name);
+                        let field_name = format_ident!("{}", rustify_field(&field.name));
                         let field_type = format_ident!("{}", field.r#type);
 
                         let field_attrs = field.meta.attributes.iter().map(|attr| {
@@ -147,7 +147,7 @@ impl Enum {
                         #variant_doc
                         #(#variant_attrs)*
                         #variant_name {
-                            #(#fields_tokens),*
+                            #(#fields_tokens)*
                         },
                     }
                 }

@@ -11,6 +11,14 @@ pub(crate) fn trim_docstr(s: &str) -> &str {
     s.trim_matches(|c: char| c == '#' || c.is_whitespace())
 }
 
+pub(crate) fn docstr_to_str(input: &str) -> Vec<&str> {
+    let mut output = Vec::new();
+    for line in input.lines() {
+        output.push(trim_docstr(line).trim_end());
+    }
+    output
+}
+
 pub(crate) fn docstr_to_string(input: &str) -> String {
     let mut output = String::new();
     for line in input.lines() {
@@ -94,13 +102,13 @@ fn take_empty_line(input: &str) -> IResult<&str, &str> {
     recognize(tuple((take_line_start, take_line_end)))(input)
 }
 
-fn take_value(input: &str) -> IResult<&str, &str> {
+fn take_value(input: &str) -> IResult<&str, Vec<&str>> {
     let (input, description) = recognize(tuple((
         not_line_ending,
         line_ending,
         opt(take_multiline_text),
     )))(input)?;
-    Ok((input, trim_docstr(description)))
+    Ok((input, docstr_to_str(description)))
 }
 
 // SUCCESS: on success, this is equivalent to the `take_line_start` parser
@@ -146,15 +154,15 @@ enum ParserToken<'i> {
     QmpExample(&'i str),
     Table(&'i str),
     Admonition(&'i str),
-    Features(Vec<(&'i str, &'i str)>),
+    Features(Vec<(&'i str, Vec<&'i str>)>),
 }
 
 #[derive(Debug, Clone)]
 pub struct QapiDocumentation<'i> {
     pub name: &'i str,
-    pub fields: Vec<(&'i str, &'i str)>,
-    pub features: Vec<(&'i str, &'i str)>,
-    pub description: Option<&'i str>,
+    pub fields: Vec<(&'i str, Vec<&'i str>)>,
+    pub features: Vec<(&'i str, Vec<&'i str>)>,
+    pub description: Vec<&'i str>,
     pub errors: Option<&'i str>,
     pub since: Option<&'i str>,
     pub returns: Option<&'i str>,
@@ -171,7 +179,7 @@ impl<'i> QapiDocumentation<'i> {
         let (input, _) = many0(take_empty_line)(input)?;
         let (input, name) = terminated(take_name, take_line_end)(input)?;
         let (input, _) = many0(take_empty_line)(input)?;
-        let (input, mut description) = opt(take_multiline_text)(input)?;
+        let (input, description_str) = opt(take_multiline_text)(input)?;
         let (input, _) = many0(take_empty_line)(input)?;
         let (input, fields) = many0(pair(take_name, take_value))(input)?;
         let (input, _) = many0(take_empty_line)(input)?;
@@ -245,8 +253,10 @@ impl<'i> QapiDocumentation<'i> {
             }
         }
         let name = trim_docstr(name);
-        if let Some(ref mut d) = description {
-            *d = trim_docstr(d);
+        let description = if let Some(d) = description_str {
+            docstr_to_str(d)
+        } else {
+            Vec::new()
         };
         Ok((
             input,
@@ -643,7 +653,6 @@ mod tests {
     fn test_valid() {
         for input in VALID_INPUTS {
             let result = QapiDocumentation::parse(input);
-            dbg![&result];
             match result {
                 Ok((remaining, d)) => {
                     assert_eq!(remaining, "");

@@ -60,7 +60,6 @@ mod tests {
     fn test_valid() {
         for input in VALID_INPUTS {
             let result = QapiAlternate::parse(input);
-            dbg![&result];
             match result {
                 Ok((remaining, _)) => {
                     assert_eq!(remaining, "");
