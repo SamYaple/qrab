@@ -243,7 +243,6 @@ pub fn process_union(
         optional: true,
         array: false,
     };
-
     let mut fields = Vec::new();
     match q.base {
         MembersOrRef::Unset => unreachable! {"this should have failed the parser"},
@@ -269,6 +268,18 @@ pub fn process_union(
             fields.extend(struct_ref.fields.clone());
         }
     };
+    if let Some(index) = fields
+        .iter()
+        .position(|field| field.name == q.discriminator)
+    {
+        fields[index]
+            .meta
+            .attributes
+            .push(Attribute::new("discriminator", None));
+    } else {
+        unreachable! {"this should have failed the parser"};
+    }
+
     fields.push(union_branch_field);
 
     let mut meta = Metadata::default();
