@@ -1,9 +1,9 @@
 ///
 /// Here lies hot-garbage. Youve been warned
-/// This code is a bandaid to go from the raw qapi parsed schema to the structs
-/// I have setup for rendering enum and struct variants as rust code.
+/// This code is a bandaid to go from the raw qapi parsed schema to the structs we
+/// setup for rendering enum and struct variants as rust code.
 ///
-/// I have to extract all documentation, if conditions, features, and the original
+/// We have to extract all documentation, if conditions, features, and the original
 /// names of the various objects and fields. Those get set to attributes in the
 /// generated code.
 ///
