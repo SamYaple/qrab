@@ -34,7 +34,8 @@ use heck::{ToPascalCase, ToSnakeCase};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 fn parse_schema(input: &str) -> Result<QapiSchema<'_>> {
-    let (_, schema) = take_schema(input).unwrap();
+    let (i, schema) = take_schema(input).unwrap();
+    assert![i == ""];
     Ok(schema)
 }
 
@@ -89,43 +90,29 @@ fn main() -> Result<()> {
         tokens.extend(parse_schema(source)?.0);
     }
 
-    let mut structs_lookup = HashMap::new();
-    let mut enums_lookup = HashMap::new();
     let mut schema = Schema::default();
-    let mut unions = Vec::new();
     for token in tokens {
         match token {
             QapiSchemaToken::Alternate(v) => {
                 schema.alternates.push(process_alternate(v));
             }
             QapiSchemaToken::Command(v) => {
-                //schema.commands.push(process_command(v));
+                schema.commands.push(process_command(v));
             }
             QapiSchemaToken::Enum(v) => {
-                let name = v.name;
-                let e = process_enum(v);
-                enums_lookup.insert(name.to_string(), e.clone());
-                schema.enums.push(e);
+                schema.enums.push(process_enum(v));
             }
             QapiSchemaToken::Event(v) => {
-                //schema.events.push(process_event(v));
+                schema.events.push(process_event(v));
             }
             QapiSchemaToken::Struct(v) => {
-                let name = v.name;
-                let s = process_struct(v, &structs_lookup);
-                structs_lookup.insert(name.to_string(), s.clone());
-                schema.structs.push(s);
+                schema.structs.push(process_struct(v));
             }
             QapiSchemaToken::Union(v) => {
-                unions.push(v);
+                schema.unions.push(process_union(v));
             }
             _ => continue,
         }
-    }
-    for v in unions {
-        schema
-            .unions
-            .push(process_union(v, &structs_lookup, &enums_lookup));
     }
 
     for e in &schema.alternates {

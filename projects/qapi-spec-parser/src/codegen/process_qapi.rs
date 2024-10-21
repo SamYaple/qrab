@@ -105,6 +105,7 @@ pub fn process_alternate(q: QapiAlternate) -> Enum {
     }
 
     let mut meta = Metadata::default();
+    meta.attributes.push(Attribute::new("Alternate", None));
     add_name! {meta, q.name};
     add_cond! {meta, q.r#if};
     add_docs! {meta, q.doc, q.name, &mut variants};
@@ -138,6 +139,7 @@ pub fn process_enum(q: QapiEnum) -> Enum {
     }
 
     let mut meta = Metadata::default();
+    meta.attributes.push(Attribute::new("Enum", None));
     add_name! {meta, q.name};
     add_cond! {meta, q.r#if};
     add_feat! {meta, q.r#features};
@@ -147,21 +149,6 @@ pub fn process_enum(q: QapiEnum) -> Enum {
         name: q.name.into(),
         variants,
         meta,
-    }
-}
-
-pub fn process_command(q: QapiCommand) -> Struct {
-    Struct {
-        name: "command_test".into(),
-        meta: Metadata::default(),
-        fields: vec![],
-    }
-}
-pub fn process_event(q: QapiEvent) -> Struct {
-    Struct {
-        name: "event_test".into(),
-        meta: Metadata::default(),
-        fields: vec![],
     }
 }
 
@@ -181,21 +168,27 @@ pub fn process_member(q: QapiMember) -> StructField {
     }
 }
 
-pub fn process_struct(q: QapiStruct, struct_lookup: &HashMap<String, Struct>) -> Struct {
-    let mut meta = Metadata::default();
-    add_name! {meta, q.name};
-    add_cond! {meta, q.r#if};
-    add_feat! {meta, q.r#features};
-
+pub fn process_struct(q: QapiStruct) -> Struct {
     let mut fields = Vec::new();
     if let Some(base) = q.base {
-        let struct_ref = struct_lookup.get(base).unwrap();
-        fields.extend(struct_ref.fields.clone());
+        let field = StructField {
+            name: "base".into(),
+            r#type: base.into(),
+            meta: Metadata::default(),
+            optional: false,
+            array: false,
+        };
+        fields.push(field);
     }
     for member in q.data {
         let field = process_member(member);
         fields.push(field);
     }
+    let mut meta = Metadata::default();
+    meta.attributes.push(Attribute::new("Struct", None));
+    add_name! {meta, q.name};
+    add_cond! {meta, q.r#if};
+    add_feat! {meta, q.r#features};
     add_docs! {meta, q.doc, q.name, &mut fields};
 
     Struct {
@@ -204,11 +197,8 @@ pub fn process_struct(q: QapiStruct, struct_lookup: &HashMap<String, Struct>) ->
         meta,
     }
 }
-pub fn process_union(
-    q: QapiUnion,
-    struct_lookup: &HashMap<String, Struct>,
-    enum_lookup: &HashMap<String, Enum>,
-) -> (Enum, Struct) {
+
+pub fn process_union(q: QapiUnion) -> (Enum, Struct) {
     let mut variants = Vec::new();
     for branch in q.data {
         let (r#type, array) = process_type_ref(branch.r#type);
@@ -224,18 +214,16 @@ pub fn process_union(
         variants.push(variant);
     }
     let e = Enum {
-        name: q.name.to_owned() + "Union",
+        name: q.name.to_owned() + "Branch",
         variants,
         meta: Metadata::default(),
     };
 
-    let mut meta = Metadata::default();
-    meta.attributes.push(Attribute::new("union", None));
     let union_branch_field = StructField {
         name: "branch".into(),
         r#type: e.name.clone(),
         meta: Metadata {
-            attributes: vec![Attribute::new("union", None)],
+            attributes: vec![Attribute::new("branch", None)],
             doc: Some(
                 "Generated field to support unions. This gets flattened during ser/de".into(),
             ),
@@ -244,7 +232,34 @@ pub fn process_union(
         array: false,
     };
     let mut fields = Vec::new();
-    match q.base {
+    fields.extend(process_members_or_ref(q.base));
+    for field in &mut fields {
+        if field.name == q.discriminator {
+            field
+                .meta
+                .attributes
+                .push(Attribute::new("discriminator", None));
+        }
+    }
+    fields.push(union_branch_field);
+
+    let mut meta = Metadata::default();
+    meta.attributes.push(Attribute::new("Union", None));
+    add_name! {meta, q.name};
+    add_cond! {meta, q.r#if};
+    add_feat! {meta, q.r#features};
+    add_docs! {meta, q.doc, q.name, &mut fields};
+    let s = Struct {
+        name: q.name.into(),
+        fields,
+        meta,
+    };
+    (e, s)
+}
+
+fn process_members_or_ref(q: MembersOrRef) -> Vec<StructField> {
+    let mut fields = Vec::new();
+    match q {
         MembersOrRef::Unset => unreachable! {"this should have failed the parser"},
         MembersOrRef::Members(v) => {
             for field in v {
@@ -264,33 +279,84 @@ pub fn process_union(
             }
         }
         MembersOrRef::Ref(v) => {
-            let struct_ref = struct_lookup.get(v).unwrap();
-            fields.extend(struct_ref.fields.clone());
+            let mut meta = Metadata::default();
+            meta.attributes.push(Attribute::new("base", None));
+            let field = StructField {
+                name: "data".into(),
+                r#type: v.into(),
+                meta,
+                optional: false,
+                array: false,
+            };
+            fields.push(field);
         }
-    };
-    if let Some(index) = fields
-        .iter()
-        .position(|field| field.name == q.discriminator)
-    {
-        fields[index]
-            .meta
-            .attributes
-            .push(Attribute::new("discriminator", None));
-    } else {
-        unreachable! {"this should have failed the parser"};
     }
+    fields
+}
 
-    fields.push(union_branch_field);
-
+pub fn process_event(q: QapiEvent) -> Struct {
+    let mut fields = Vec::new();
+    if let Some(data) = q.data {
+        fields.extend(process_members_or_ref(data));
+    }
     let mut meta = Metadata::default();
+    meta.attributes.push(Attribute::new("Event", None));
     add_name! {meta, q.name};
     add_cond! {meta, q.r#if};
     add_feat! {meta, q.r#features};
     add_docs! {meta, q.doc, q.name, &mut fields};
-    let s = Struct {
+
+    Struct {
         name: q.name.into(),
         fields,
         meta,
-    };
-    (e, s)
+    }
+}
+
+pub fn process_command(q: QapiCommand) -> Struct {
+    let mut fields = Vec::new();
+    if let Some(data) = q.data {
+        fields.extend(process_members_or_ref(data));
+    }
+    let mut meta = Metadata::default();
+    meta.attributes.push(Attribute::new("Command", None));
+    add_name! {meta, q.name};
+    add_cond! {meta, q.r#if};
+    add_feat! {meta, q.r#features};
+    add_docs! {meta, q.doc, q.name, &mut fields};
+    if let Some(returns) = q.returns {
+        let (mut r#type, array) = process_type_ref(returns);
+        let r#type = if array {
+            format! {"Vec<{}>", r#type}
+        } else {
+            r#type.into()
+        };
+        meta.attributes
+            .push(Attribute::new("returns", Some(&r#type)));
+    } else {
+        meta.attributes.push(Attribute::new("returns", Some("()")));
+    }
+    if let Some(b) = q.allow_oob {
+        if b.parse().unwrap() {
+            meta.attributes.push(Attribute::new("allow_oob", None));
+        }
+    }
+    if let Some(b) = q.allow_preconfig {
+        if b.parse().unwrap() {
+            meta.attributes
+                .push(Attribute::new("allow_preconfig", None));
+        }
+    }
+    if let Some(b) = q.success_response {
+        if !b.parse::<bool>().unwrap() {
+            meta.attributes
+                .push(Attribute::new("no_success_response", None));
+        }
+    }
+
+    Struct {
+        name: q.name.into(),
+        fields,
+        meta,
+    }
 }

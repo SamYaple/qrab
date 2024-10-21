@@ -35,8 +35,7 @@ fn qapi_to_rust_type(qapi_type: &str) -> String {
         "uint64" => "u64".into(),
         "size" => "u64".into(),
         "bool" => "bool".into(),
-        "null" => "FIXME_null_type".into(),
-        "any" => "FIXME_any_type".into(),
+        "any" => "serde_json::Value".into(),
         _ => qapi_type.to_pascal_case(),
     }
 }
@@ -60,21 +59,20 @@ fn rustify_type(input: &str) -> String {
 }
 
 fn rustify_field(input: &str) -> String {
-    let input = match input {
-        "type" | "abstract" | "in" | "static" | "if" | "match" => format! {"r#{}", input},
-        _ => input.to_string(),
-    };
-    input.to_snake_case()
+    match input {
+        "type" | "abstract" | "in" | "static" | "if" | "match" | "use" => format! {"r#{}", input},
+        _ => input.to_snake_case(),
+    }
 }
 
 fn match_type(qtype: QapiType) -> TokenStream {
     match qtype {
-        QapiType::Enum => quote! {#[derive(QapiEnum)]},
-        QapiType::Alternate => quote! {#[derive(QapiAlternate)]},
-        QapiType::Union => quote! {#[derive(QapiUnion)]},
-        QapiType::Struct => quote! {#[derive(QapiStruct)]},
-        QapiType::Event => quote! {#[derive(QapiEvent)]},
-        QapiType::Command => quote! {#[derive(QapiCommand)]},
+        QapiType::Enum => quote! {#[derive(Enum)]},
+        QapiType::Alternate => quote! {#[derive(Alternate)]},
+        QapiType::Union => quote! {#[derive(Union)]},
+        QapiType::Struct => quote! {#[derive(Struct)]},
+        QapiType::Event => quote! {#[derive(Event)]},
+        QapiType::Command => quote! {#[derive(Command)]},
     }
 }
 

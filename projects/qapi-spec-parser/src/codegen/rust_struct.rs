@@ -46,7 +46,7 @@ impl Struct {
     pub fn generate(&self) -> TokenStream {
         let struct_name = format_ident!("{}", rustify_type(&self.name));
 
-        let mut struct_attrs = Vec::new(); //vec![match_type(qtype)];
+        let mut struct_attrs = Vec::new();
         for attr in &self.meta.attributes {
             let attr_name = format_ident!("{}", attr.name);
             struct_attrs.push(if let Some(attr_value) = &attr.value {
@@ -99,6 +99,7 @@ impl Struct {
                  #field_doc
                  #(#field_attrs)*
                  pub #field_name: #field_type,
+
             }
         });
 
@@ -107,6 +108,7 @@ impl Struct {
             #(#struct_attrs)*
             pub struct #struct_name {
                 #(#fields)*
+
             }
         }
     }

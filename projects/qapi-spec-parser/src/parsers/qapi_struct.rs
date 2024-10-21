@@ -2,8 +2,11 @@ use crate::helpers::{qstring, take_dict, take_kv};
 use crate::{take_cond, take_features, take_members};
 use crate::{QapiCond, QapiDocumentation, QapiFeatures, QapiMembers};
 use nom::branch::alt;
+use nom::bytes::complete::tag;
+use nom::character::complete::space0;
 use nom::combinator::{map, opt};
 use nom::error::{Error, ErrorKind};
+use nom::sequence::tuple;
 use nom::IResult;
 
 pub fn take_struct(input: &str) -> IResult<&str, QapiStruct<'_>> {
@@ -40,7 +43,7 @@ impl<'i> QapiStruct<'i> {
             map(take_features, |v| s.features = Some(v)),
             map(take_kv("data", take_members), |v| s.data = v),
         )))(input)?;
-        if s.name == "" || s.data.len() == 0 {
+        if s.name == "" {
             return Err(nom::Err::Error(Error::new(start, ErrorKind::Tag)));
         }
         Ok((input, s))
@@ -51,18 +54,27 @@ impl<'i> QapiStruct<'i> {
 mod tests {
     use super::*;
 
-    const VALID_INPUTS: [&str; 5] = [
+    const VALID_INPUTS: [&str; 6] = [
         "{'struct':'SOMENAME','data':{'membername':'membertype'}}",
         "{ 'struct': 'SOMENAME', 'data': {'membername':{'if':'CONFIG_OPTION', 'type': ['sometype'], 'features': ['yes']}}}",
         "{'struct': 'SOMENAME', 'data':{'membername':'membertype'}, 'if':{'not':'CONFIG_VALUE'}}",
         "{'struct': 'SOMENAME', 'data':{'membername':'membertype'}, 'base':'SOMETHING'}",
         "{'struct': 'SOMENAME', 'data':{'membername':{'type':'membertype'}}}",
+        r#"##
+# @RbdEncryptionOptionsLUKS:
+#
+# Since: 6.1
+##
+{ 'struct': 'RbdEncryptionOptionsLUKS',
+  'base': 'RbdEncryptionOptionsLUKSBase',
+  'data': { } }"#,
     ];
 
     #[test]
     fn test_valid() {
         for input in VALID_INPUTS {
             let result = QapiStruct::parse(input);
+            dbg![&result];
             match result {
                 Ok((remaining, _)) => {
                     assert_eq!(remaining, "");
