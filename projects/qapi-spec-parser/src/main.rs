@@ -1,7 +1,6 @@
 mod codegen;
 use codegen::*;
 
-mod helpers;
 mod parsers;
 pub use parsers::{
     qapi_alternate::{take_alternate, QapiAlternate},
@@ -70,13 +69,10 @@ fn read_schema_file(schema_file: &Path, sources: &mut Vec<(PathBuf, String)>) ->
 
 fn main() -> Result<()> {
     let qemu_src_root = Path::new("/home/sam/repos/qemu");
-    let schema_type = "qga";
-    let schema_type = "storage-daemon/qapi";
+    //let schema_type = "qga";
+    //let schema_type = "storage-daemon/qapi";
     let schema_type = "qapi";
     let schema_file = qemu_src_root.join(schema_type).join("qapi-schema.json");
-
-    //let b = std::fs::read_to_string(&schema_file)?;
-    //let tokens = parse_schema(&b)?;
 
     // We start with the provided root schema file then recursively parse the
     // includes and load the strings in the `sources` Vec.

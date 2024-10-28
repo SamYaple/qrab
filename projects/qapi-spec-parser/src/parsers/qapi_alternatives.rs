@@ -1,4 +1,4 @@
-use crate::helpers::{take_dict, take_kv};
+use super::{take_dict, take_kv};
 use crate::take_alternative;
 use crate::QapiAlternative;
 use nom::combinator::map;

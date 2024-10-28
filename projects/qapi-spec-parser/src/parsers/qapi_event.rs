@@ -1,4 +1,4 @@
-use crate::helpers::{qbool, qstring, take_dict, take_kv};
+use super::{qbool, qstring, take_dict, take_kv};
 use crate::{take_cond, take_features, take_members_or_ref};
 use crate::{MembersOrRef, QapiCond, QapiDocumentation, QapiFeatures};
 use nom::branch::alt;

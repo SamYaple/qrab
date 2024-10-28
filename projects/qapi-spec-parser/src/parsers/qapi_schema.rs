@@ -1,4 +1,4 @@
-use crate::helpers::qcomment;
+use super::qcomment;
 use crate::{
     QapiAlternate, QapiCommand, QapiEnum, QapiEvent, QapiInclude, QapiPragma,
     QapiSectionDocumentation, QapiStruct, QapiUnion,

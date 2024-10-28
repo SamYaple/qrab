@@ -1,4 +1,4 @@
-use crate::helpers::take_dict;
+use super::take_dict;
 use crate::QapiBranch;
 use nom::combinator::map;
 use nom::IResult;

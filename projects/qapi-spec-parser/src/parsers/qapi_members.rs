@@ -1,4 +1,4 @@
-use crate::helpers::{qstring, take_dict};
+use super::{qstring, take_dict};
 use crate::QapiMember;
 use nom::branch::alt;
 use nom::combinator::map;
