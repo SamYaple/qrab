@@ -98,23 +98,30 @@ mod tests {
         for input in inputs.iter() {
             let (remaining, parsed) = QapiCond::parse(input).expect("Parsing failed");
             assert_eq!(remaining, "");
-            assert!(matches!(parsed, QapiCond::ConfigName(_) | QapiCond::Not(_) | QapiCond::Any(_) | QapiCond::All(_)));
+            assert!(matches!(
+                parsed,
+                QapiCond::ConfigName(_) | QapiCond::Not(_) | QapiCond::Any(_) | QapiCond::All(_)
+            ));
         }
     }
 
     #[test]
     fn test_parse_invalid_inputs() {
         let invalid_inputs = [
-            "", // Empty input
-            "'CONFIG_OPTION", // Missing closing quote
+            "",                              // Empty input
+            "'CONFIG_OPTION",                // Missing closing quote
             "{'unknown':['CONFIG_OPTION']}", // Unknown keyword
-            "{'any':}", // Missing list
-            "{'not':}", // Missing condition
-            "{'any':['CONFIG_OPTION',]}", // Trailing comma
+            "{'any':}",                      // Missing list
+            "{'not':}",                      // Missing condition
+            "{'any':['CONFIG_OPTION',]}",    // Trailing comma
         ];
         for input in invalid_inputs.iter() {
             let result = QapiCond::parse(input);
-            assert!(result.is_err(), "Expected parsing to fail for input: {}", input);
+            assert!(
+                result.is_err(),
+                "Expected parsing to fail for input: {}",
+                input
+            );
         }
     }
 

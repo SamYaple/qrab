@@ -23,10 +23,9 @@ macro_rules! add_name {
 macro_rules! add_cond {
     ($meta:expr, $cond:expr) => {
         if let Some(condition) = $cond {
-            $meta.attributes.push(Attribute::new(
-                "condition",
-                Some(&condition.to_string()),
-            ));
+            $meta
+                .attributes
+                .push(Attribute::new("condition", Some(&condition.to_string())));
         }
     };
 }
