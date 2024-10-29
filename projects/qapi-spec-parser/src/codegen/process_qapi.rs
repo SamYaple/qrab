@@ -25,7 +25,7 @@ macro_rules! add_cond {
         if let Some(condition) = $cond {
             $meta.attributes.push(Attribute::new(
                 "condition",
-                Some(&condition.recursive_print()),
+                Some(&condition.to_string()),
             ));
         }
     };
