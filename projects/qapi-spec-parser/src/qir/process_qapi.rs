@@ -16,7 +16,7 @@ use std::collections::{HashMap, HashSet};
 
 macro_rules! add_name {
     ($meta:expr, $name:expr) => {
-        $meta.attributes.push(Attribute::new("name", Some($name)));
+        $meta.attributes.push(Attribute::with_value("name", $name));
     };
 }
 
@@ -25,7 +25,7 @@ macro_rules! add_cond {
         if let Some(condition) = $cond {
             $meta
                 .attributes
-                .push(Attribute::new("condition", Some(&condition.to_string())));
+                .push(Attribute::with_value("condition", condition));
         }
     };
 }
@@ -42,7 +42,9 @@ macro_rules! add_feat {
                     //    Some(condition.recursive_print()),
                     //));
                 }
-                $meta.attributes.push(Attribute::new("feature", Some(name)));
+                $meta
+                    .attributes
+                    .push(Attribute::with_value("feature", name));
             }
         }
     };
@@ -58,7 +60,7 @@ macro_rules! add_docs {
                 $meta.doc = Some(doc.description.join("\n"));
             }
             if let Some(since) = doc.since {
-                $meta.attributes.push(Attribute::new("since", Some(since)));
+                $meta.attributes.push(Attribute::with_value("since", since));
             }
             'outer_loop: for (name, desc) in &doc.fields {
                 for mut value in $variants {
@@ -104,7 +106,7 @@ pub fn process_alternate(q: QapiAlternate) -> Enum {
     }
 
     let mut meta = Metadata::default();
-    meta.attributes.push(Attribute::new("Alternate", None));
+    meta.attributes.push(Attribute::new("Alternate"));
     add_name! {meta, q.name};
     add_cond! {meta, q.r#if};
     add_docs! {meta, q.doc, q.name, &mut variants};
@@ -138,7 +140,7 @@ pub fn process_enum(q: QapiEnum) -> Enum {
     }
 
     let mut meta = Metadata::default();
-    meta.attributes.push(Attribute::new("Enum", None));
+    meta.attributes.push(Attribute::new("Enum"));
     add_name! {meta, q.name};
     add_cond! {meta, q.r#if};
     add_feat! {meta, q.r#features};
@@ -184,7 +186,7 @@ pub fn process_struct(q: QapiStruct) -> Struct {
         fields.push(field);
     }
     let mut meta = Metadata::default();
-    meta.attributes.push(Attribute::new("Struct", None));
+    meta.attributes.push(Attribute::new("Struct"));
     add_name! {meta, q.name};
     add_cond! {meta, q.r#if};
     add_feat! {meta, q.r#features};
@@ -222,7 +224,7 @@ pub fn process_union(q: QapiUnion) -> (Enum, Struct) {
         name: "branch".into(),
         r#type: e.name.clone(),
         meta: Metadata {
-            attributes: vec![Attribute::new("branch", None)],
+            attributes: vec![Attribute::new("branch")],
             doc: Some(
                 "Generated field to support unions. This gets flattened during ser/de".into(),
             ),
@@ -234,16 +236,13 @@ pub fn process_union(q: QapiUnion) -> (Enum, Struct) {
     fields.extend(process_members_or_ref(q.base));
     for field in &mut fields {
         if field.name == q.discriminator {
-            field
-                .meta
-                .attributes
-                .push(Attribute::new("discriminator", None));
+            field.meta.attributes.push(Attribute::new("discriminator"));
         }
     }
     fields.push(union_branch_field);
 
     let mut meta = Metadata::default();
-    meta.attributes.push(Attribute::new("Union", None));
+    meta.attributes.push(Attribute::new("Union"));
     add_name! {meta, q.name};
     add_cond! {meta, q.r#if};
     add_feat! {meta, q.r#features};
@@ -279,7 +278,7 @@ fn process_members_or_ref(q: MembersOrRef) -> Vec<StructField> {
         }
         MembersOrRef::Ref(v) => {
             let mut meta = Metadata::default();
-            meta.attributes.push(Attribute::new("base", None));
+            meta.attributes.push(Attribute::new("base"));
             let field = StructField {
                 name: "data".into(),
                 r#type: v.into(),
@@ -299,7 +298,7 @@ pub fn process_event(q: QapiEvent) -> Struct {
         fields.extend(process_members_or_ref(data));
     }
     let mut meta = Metadata::default();
-    meta.attributes.push(Attribute::new("Event", None));
+    meta.attributes.push(Attribute::new("Event"));
     add_name! {meta, q.name};
     add_cond! {meta, q.r#if};
     add_feat! {meta, q.r#features};
@@ -318,7 +317,7 @@ pub fn process_command(q: QapiCommand) -> Struct {
         fields.extend(process_members_or_ref(data));
     }
     let mut meta = Metadata::default();
-    meta.attributes.push(Attribute::new("Command", None));
+    meta.attributes.push(Attribute::new("Command"));
     add_name! {meta, q.name};
     add_cond! {meta, q.r#if};
     add_feat! {meta, q.r#features};
@@ -331,25 +330,23 @@ pub fn process_command(q: QapiCommand) -> Struct {
             r#type.into()
         };
         meta.attributes
-            .push(Attribute::new("returns", Some(&r#type)));
+            .push(Attribute::with_value("returns", r#type));
     } else {
-        meta.attributes.push(Attribute::new("returns", Some("()")));
+        meta.attributes.push(Attribute::with_value("returns", "()"));
     }
     if let Some(b) = q.allow_oob {
         if b.parse().unwrap() {
-            meta.attributes.push(Attribute::new("allow_oob", None));
+            meta.attributes.push(Attribute::new("allow_oob"));
         }
     }
     if let Some(b) = q.allow_preconfig {
         if b.parse().unwrap() {
-            meta.attributes
-                .push(Attribute::new("allow_preconfig", None));
+            meta.attributes.push(Attribute::new("allow_preconfig"));
         }
     }
     if let Some(b) = q.success_response {
         if !b.parse::<bool>().unwrap() {
-            meta.attributes
-                .push(Attribute::new("no_success_response", None));
+            meta.attributes.push(Attribute::new("no_success_response"));
         }
     }
 

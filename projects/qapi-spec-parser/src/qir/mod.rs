@@ -1,3 +1,9 @@
+/// qir -- QAPI Intermediate Representation
+///
+/// The qapi dsl changes from time to time, but the representation in rust
+/// remains the same in rust. This IR serves to seperate the parser structs
+/// from the codegen structs. All documentation is also properly merged into
+/// these structs using the doc attr: `#[doc("Some flavor text")]`
 use heck::{ToPascalCase, ToSnakeCase};
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
@@ -83,18 +89,17 @@ pub struct Attribute {
 }
 
 impl Attribute {
-    pub fn new<T>(name: T, value: Option<T>) -> Self
-    where
-        String: From<T>,
-    {
-        let value = if let Some(v) = value {
-            Some(v.into())
-        } else {
-            None
-        };
+    pub fn new<N: ToString>(name: N) -> Self {
         Self {
-            name: name.into(),
-            value,
+            name: name.to_string(),
+            value: None,
+        }
+    }
+
+    pub fn with_value<N: ToString, V: ToString>(name: N, value: V) -> Self {
+        Self {
+            name: name.to_string(),
+            value: Some(value.to_string()),
         }
     }
 }

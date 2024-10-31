@@ -1,5 +1,7 @@
-mod codegen;
-use codegen::*;
+//mod codegen;
+//use codegen::*;
+mod qir;
+use qir::*;
 
 mod parsers;
 pub use parsers::{
