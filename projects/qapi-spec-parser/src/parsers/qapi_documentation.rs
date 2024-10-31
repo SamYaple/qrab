@@ -1,3 +1,5 @@
+// TODO: Refactor/comment/tests this code.
+// BUG: sometimes struct documentation will get consumed into an option doc
 use nom::branch::alt;
 use nom::bytes::complete::{tag, tag_no_case, take_while1};
 use nom::character::complete::{line_ending, multispace0, not_line_ending, space0};

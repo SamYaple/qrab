@@ -106,7 +106,7 @@ pub fn process_alternate(q: QapiAlternate) -> Enum {
     }
 
     let mut meta = Metadata::default();
-    meta.attributes.push(Attribute::new("Alternate"));
+    //meta.attributes.push(Attribute::new("Alternate"));
     add_name! {meta, q.name};
     add_cond! {meta, q.r#if};
     add_docs! {meta, q.doc, q.name, &mut variants};
@@ -140,7 +140,7 @@ pub fn process_enum(q: QapiEnum) -> Enum {
     }
 
     let mut meta = Metadata::default();
-    meta.attributes.push(Attribute::new("Enum"));
+    //meta.attributes.push(Attribute::new("Enum"));
     add_name! {meta, q.name};
     add_cond! {meta, q.r#if};
     add_feat! {meta, q.r#features};
@@ -169,24 +169,20 @@ pub fn process_member(q: QapiMember) -> StructField {
     }
 }
 
-pub fn process_struct(q: QapiStruct) -> Struct {
+pub fn process_struct(q: QapiStruct, structs_lookup: &HashMap<String, Struct>) -> Struct {
     let mut fields = Vec::new();
     if let Some(base) = q.base {
-        let field = StructField {
-            name: "base".into(),
-            r#type: base.into(),
-            meta: Metadata::default(),
-            optional: false,
-            array: false,
-        };
-        fields.push(field);
+        let struct_ref = structs_lookup.get(base.into()).expect(&format!(
+            "base struct not found for {} with base {}",
+            q.name, base
+        ));
+        fields.extend(struct_ref.fields.clone());
     }
     for member in q.data {
         let field = process_member(member);
         fields.push(field);
     }
     let mut meta = Metadata::default();
-    meta.attributes.push(Attribute::new("Struct"));
     add_name! {meta, q.name};
     add_cond! {meta, q.r#if};
     add_feat! {meta, q.r#features};
@@ -242,7 +238,7 @@ pub fn process_union(q: QapiUnion) -> (Enum, Struct) {
     fields.push(union_branch_field);
 
     let mut meta = Metadata::default();
-    meta.attributes.push(Attribute::new("Union"));
+    //meta.attributes.push(Attribute::new("Union"));
     add_name! {meta, q.name};
     add_cond! {meta, q.r#if};
     add_feat! {meta, q.r#features};
@@ -298,7 +294,7 @@ pub fn process_event(q: QapiEvent) -> Struct {
         fields.extend(process_members_or_ref(data));
     }
     let mut meta = Metadata::default();
-    meta.attributes.push(Attribute::new("Event"));
+    //meta.attributes.push(Attribute::new("Event"));
     add_name! {meta, q.name};
     add_cond! {meta, q.r#if};
     add_feat! {meta, q.r#features};
@@ -317,7 +313,7 @@ pub fn process_command(q: QapiCommand) -> Struct {
         fields.extend(process_members_or_ref(data));
     }
     let mut meta = Metadata::default();
-    meta.attributes.push(Attribute::new("Command"));
+    //meta.attributes.push(Attribute::new("Command"));
     add_name! {meta, q.name};
     add_cond! {meta, q.r#if};
     add_feat! {meta, q.r#features};

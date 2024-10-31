@@ -1,7 +1,5 @@
-//mod codegen;
-//use codegen::*;
-mod qir;
-use qir::*;
+mod qapi_ir;
+use qapi_ir::*;
 
 mod parsers;
 pub use parsers::{
@@ -43,7 +41,7 @@ fn parse_schema(input: &str) -> Result<QapiSchema<'_>> {
 fn read_schema(schema_file: &Path) -> Result<Vec<(PathBuf, String)>> {
     let mut sources = Vec::new();
     read_schema_file(&schema_file, &mut sources)?;
-    sources.rotate_left(1); // move the initial file to the end of the stack
+    sources.rotate_left(1); // move the initial file to the end of the stack; this is wrong. TODO FIXME
     Ok(sources)
 }
 
@@ -52,6 +50,7 @@ fn read_schema_file(schema_file: &Path, sources: &mut Vec<(PathBuf, String)>) ->
         // we have already seen this file
         return Ok(());
     }
+
     let content = std::fs::read_to_string(&schema_file)?;
     sources.push((schema_file.to_path_buf(), content.clone()));
     let schema_tokens = parse_schema(&content)?;
@@ -88,6 +87,8 @@ fn main() -> Result<()> {
         tokens.extend(parse_schema(source)?.0);
     }
 
+    let mut unprocessed_structs = Vec::new();
+    let mut structs_lookup = HashMap::new();
     let mut schema = Schema::default();
     for token in tokens {
         match token {
@@ -104,13 +105,24 @@ fn main() -> Result<()> {
                 schema.events.push(process_event(v));
             }
             QapiSchemaToken::Struct(v) => {
-                schema.structs.push(process_struct(v));
+                if v.base.is_some() {
+                    unprocessed_structs.push(v);
+                    continue;
+                }
+                let processed = process_struct(v, &structs_lookup);
+                structs_lookup.insert(processed.name.clone(), processed.clone());
+                schema.structs.push(processed);
             }
-            QapiSchemaToken::Union(v) => {
-                schema.unions.push(process_union(v));
-            }
+            //QapiSchemaToken::Union(v) => {
+            //    schema.unions.push(process_union(v));
+            //}
             _ => continue,
         }
+    }
+    for v in unprocessed_structs.drain(..) {
+        let processed = process_struct(v, &structs_lookup);
+        structs_lookup.insert(processed.name.clone(), processed.clone());
+        schema.structs.push(processed);
     }
 
     for e in &schema.alternates {
@@ -131,28 +143,28 @@ fn main() -> Result<()> {
         let prettycode = prettyplease::unparse(&syntree);
         println!("{}", prettycode);
     }
-    for (e, s) in &schema.unions {
-        let code = e.generate();
-        let syntree: syn::File = syn::parse2(code)?;
-        let prettycode = prettyplease::unparse(&syntree);
-        println!("{}", prettycode);
+    //for (e, s) in &schema.unions {
+    //    let code = e.generate();
+    //    let syntree: syn::File = syn::parse2(code)?;
+    //    let prettycode = prettyplease::unparse(&syntree);
+    //    println!("{}", prettycode);
 
-        let code = s.generate();
-        let syntree: syn::File = syn::parse2(code)?;
-        let prettycode = prettyplease::unparse(&syntree);
-        println!("{}", prettycode);
-    }
-    for e in &schema.events {
-        let code = e.generate();
-        let syntree: syn::File = syn::parse2(code)?;
-        let prettycode = prettyplease::unparse(&syntree);
-        println!("{}", prettycode);
-    }
-    for e in &schema.commands {
-        let code = e.generate();
-        let syntree: syn::File = syn::parse2(code)?;
-        let prettycode = prettyplease::unparse(&syntree);
-        println!("{}", prettycode);
-    }
+    //    let code = s.generate();
+    //    let syntree: syn::File = syn::parse2(code)?;
+    //    let prettycode = prettyplease::unparse(&syntree);
+    //    println!("{}", prettycode);
+    //}
+    //for e in &schema.events {
+    //    let code = e.generate();
+    //    let syntree: syn::File = syn::parse2(code)?;
+    //    let prettycode = prettyplease::unparse(&syntree);
+    //    println!("{}", prettycode);
+    //}
+    //for e in &schema.commands {
+    //    let code = e.generate();
+    //    let syntree: syn::File = syn::parse2(code)?;
+    //    let prettycode = prettyplease::unparse(&syntree);
+    //    println!("{}", prettycode);
+    //}
     Ok(())
 }
