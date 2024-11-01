@@ -56,6 +56,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "qapi"
+version = "0.1.0"
+
+[[package]]
 name = "qapi-spec-parser"
 version = "0.1.0"
 dependencies = [
