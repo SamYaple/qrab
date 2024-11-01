@@ -1,6 +1,13 @@
 [workspace]
 resolver = "2"
 members = [
+    "examples/simple-vm",
     "projects/qapi-spec-parser",
     "projects/qapi",
+    "projects/qapi-old-hack",
+    "projects/dashboard",
+    "projects/manager",
+    "projects/protodbschema",
+    "projects/qmp",
+    "projects/server",
 ]

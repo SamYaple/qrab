@@ -1,0 +1,17 @@
+[package]
+name = "protodbschema"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = "1"
+chrono = "0.4"
+surrealdb = "1.5.4"
+
+[dependencies.serde]
+version = "1"
+features = ["derive"]
+
+[dependencies.qapi]
+version = "0.1.0"
+path = "../qapi"

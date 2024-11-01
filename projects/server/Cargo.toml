@@ -1,0 +1,35 @@
+[package]
+name = "server"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = "1"
+futures = "0.3"
+surrealdb = "1.5.4"
+chrono = "0.4"
+
+[dependencies.manager]
+version = "0.1.0"
+path = "../manager"
+
+[dependencies.protodbschema]
+version = "0.1.0"
+path = "../protodbschema"
+
+[dependencies.zbus_systemd]
+version = "0.25600.0"
+features = ["hostname1", "systemd1"]
+
+[dependencies.zbus]
+version = "4"
+features = ["tokio"]
+
+[dependencies.tokio]
+version = "1"
+#features = ["macros", "rt-multi-thread", "time", "net", "full"]
+features = ["full"]
+
+[dependencies.serde]
+version = "1"
+features = ["derive"]

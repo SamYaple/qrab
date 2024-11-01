@@ -1,0 +1,20 @@
+[application]
+name = "dashboard"
+default_platform = "web"
+out_dir = "dist"
+asset_dir = "assets"
+
+[web.app]
+title = "qrab dashboard"
+
+[web.resource]
+style  = [] # CSS style file
+script = [] # Javascript code file
+
+[web.resource.dev]
+script = [] # Javascript code file
+
+# auto-reload options (probably only going to use in dev)
+[web.watcher]
+reload_html = true
+watch_path = ["src", "assets"]

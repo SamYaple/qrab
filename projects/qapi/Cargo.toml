@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 
-[dependencies.qapi-macros]
+# TODO import macros from old repo
+#[dependencies.qapi-macros]
 #version = "0.1.0"
-path = "../qapi-macros"
+#path = "../qapi-macros"

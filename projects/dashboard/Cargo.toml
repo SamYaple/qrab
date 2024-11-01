@@ -1,0 +1,51 @@
+[package]
+name = "dashboard"
+version = "0.1.0"
+authors = ["Sam Yaple <sam@yaple.net>"]
+edition = "2021"
+
+[dependencies]
+futures = "0.3"
+surrealdb = "1.5.4"
+#dioxus = "0.5.7"
+
+[dependencies.dioxus]
+git = "https://github.com/DioxusLabs/dioxus.git"
+#branch = "v0.5"
+rev = "f76c80bab20f71acc14b330f3b565926b352cb3f"
+
+[dependencies.protodbschema]
+version = "0.1.0"
+path = "../protodbschema"
+
+[dependencies.tokio]
+version = "1"
+optional = true
+
+[dependencies.rand]
+version = "0.8"
+optional = true
+
+[dependencies.gloo-timers]
+version = "0.3.0"
+features = ["futures"]
+optional = true
+
+[dependencies.wasm-bindgen-futures]
+version = "0.4"
+optional = true
+
+[features]
+default = []
+fullstack = ["dioxus/fullstack"]
+server = [
+    "dioxus/axum",
+    "dep:rand",
+    "dep:tokio",
+    "dep:gloo-timers",
+]
+web = [
+    "dioxus/web",
+    "dep:wasm-bindgen-futures",
+    "dep:gloo-timers",
+]
