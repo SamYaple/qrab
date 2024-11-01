@@ -69,7 +69,12 @@ fn read_schema_file(schema_file: &Path, sources: &mut Vec<(PathBuf, String)>) ->
 }
 
 fn main() -> Result<()> {
-    let qemu_src_root = Path::new("/home/sam/repos/qemu");
+    let args: Vec<String> = std::env::args().collect();
+    if args.len() < 2 {
+        eprintln!("Please provide qemu source path as argument");
+        std::process::exit(1);
+    }
+    let qemu_src_root = Path::new(&args[1]);
     //let schema_type = "qga";
     //let schema_type = "storage-daemon/qapi";
     let schema_type = "qapi";
@@ -145,6 +150,7 @@ fn main() -> Result<()> {
     // paths and tokens once more and render everything in the same order as the
     // QAPI spec expects. This might be helpful to anyone reading the generated
     // code, but it doesn't matter at all during compliation.
+    println!("use qapi_macros::qapi;");
     for (path, source) in &sources {
         println!(
             "// path begin:\t{}",

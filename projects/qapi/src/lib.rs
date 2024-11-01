@@ -1,3 +1,4 @@
+use qapi_macros::qapi;
 // path begin:	qapi/pragma.json
 // path end:	qapi/pragma.json
 // path begin:	qapi/error.json

@@ -10,4 +10,5 @@ members = [
     "projects/protodbschema",
     "projects/qmp",
     "projects/server",
+    "projects/qapi-macros",
 ]

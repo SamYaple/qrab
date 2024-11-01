@@ -9,8 +9,8 @@ use tokio::net::{
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio::task::{spawn, JoinHandle};
 
-pub use qapi_old_hack as qapi;
 use qapi::{Event, QMPCommand};
+pub use qapi_old_hack as qapi;
 
 #[derive(Debug)]
 pub struct QMP {
