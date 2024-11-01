@@ -69,7 +69,7 @@ macro_rules! add_docs {
                         continue 'outer_loop;
                     }
                 }
-                todo! { "This is a validation error; Documented field does not exist" }
+                //todo! { "This is a validation error; Documented field does not exist" }
             }
         }
     };
@@ -195,63 +195,123 @@ pub fn process_struct(q: QapiStruct, structs_lookup: &HashMap<String, Struct>) -
     }
 }
 
-pub fn process_union(q: QapiUnion) -> (Enum, Struct) {
-    let mut variants = Vec::new();
-    for branch in q.data {
-        let (r#type, array) = process_type_ref(branch.r#type);
-        let mut meta = Metadata::default();
-        add_name! {meta, branch.name};
-        add_cond! {meta, branch.r#if.clone()};
-        let variant = EnumVariant {
-            name: branch.name.into(),
-            kind: EnumVariantKind::Tuple(r#type.into()),
-            meta,
-            array,
-        };
-        variants.push(variant);
-    }
-    let e = Enum {
-        name: q.name.to_owned() + "Branch",
-        variants,
-        meta: Metadata::default(),
-    };
-
-    let union_branch_field = StructField {
-        name: "branch".into(),
-        r#type: e.name.clone(),
-        meta: Metadata {
-            attributes: vec![Attribute::new("branch")],
-            doc: Some(
-                "Generated field to support unions. This gets flattened during ser/de".into(),
-            ),
-        },
-        optional: true,
-        array: false,
-    };
+pub fn process_union(
+    q: QapiUnion,
+    structs_lookup: &HashMap<String, Struct>,
+    enums_lookup: &HashMap<String, Enum>,
+) -> Enum {
+    let mut discriminator = String::new();
     let mut fields = Vec::new();
-    fields.extend(process_members_or_ref(q.base));
-    for field in &mut fields {
+    for field in process_members_or_ref(q.base, structs_lookup) {
         if field.name == q.discriminator {
-            field.meta.attributes.push(Attribute::new("discriminator"));
+            discriminator = field.r#type.clone();
+            continue;
         }
+        fields.push(field);
     }
-    fields.push(union_branch_field);
+    let mut extended_fields = HashMap::new();
+    for branch in q.data {
+        extended_fields.insert(branch.name.to_string(), branch);
+    }
 
+    let base_enum = enums_lookup.get(&discriminator).expect(&format!(
+        "{} could not find a base enum named {}",
+        q.name, discriminator
+    ));
+    let mut variants = base_enum.variants.clone();
+    for mut variant in &mut variants {
+        let mut fields = fields.clone();
+        if let Some(branch) = extended_fields.get(&variant.name) {
+            let (r#type, array) = process_type_ref(branch.r#type.clone());
+            let mut meta = Metadata::default();
+            meta.attributes.push(Attribute::new("union"));
+            fields.push(StructField {
+                name: "branch".into(),
+                r#type: r#type.into(),
+                meta,
+                optional: false,
+                array,
+            });
+            let mut meta = Metadata::default();
+            add_name! {meta, branch.name};
+            add_cond! {meta, branch.r#if.clone()};
+            meta.doc = variant.meta.doc.clone();
+            variant.meta = meta;
+        }
+        variant.kind = EnumVariantKind::Struct(fields);
+    }
     let mut meta = Metadata::default();
     //meta.attributes.push(Attribute::new("Union"));
     add_name! {meta, q.name};
     add_cond! {meta, q.r#if};
     add_feat! {meta, q.r#features};
+    add_docs! {meta, q.doc, q.name, &mut variants};
+    meta.attributes
+        .push(Attribute::with_value("discriminator", discriminator));
+    Enum {
+        name: q.name.into(),
+        variants,
+        meta,
+    }
+}
+
+fn process_members_or_ref(
+    q: MembersOrRef,
+    structs_lookup: &HashMap<String, Struct>,
+) -> Vec<StructField> {
+    let mut fields = Vec::new();
+    match q {
+        MembersOrRef::Unset => unreachable! {"this should have failed the parser"},
+        MembersOrRef::Members(v) => {
+            for field in v {
+                let (r#type, array) = process_type_ref(field.r#type);
+                let mut meta = Metadata::default();
+                add_name! {meta, field.name};
+                add_cond! {meta, field.r#if};
+                add_feat! {meta, field.features};
+                let field = StructField {
+                    name: field.name.into(),
+                    r#type: r#type.into(),
+                    meta,
+                    optional: field.optional,
+                    array,
+                };
+                fields.push(field);
+            }
+        }
+        MembersOrRef::Ref(v) => {
+            let struct_ref = structs_lookup
+                .get(v)
+                .expect(&format!("failed to lookup base ref for {}", v));
+            fields.extend(struct_ref.fields.clone());
+        }
+    }
+    fields
+}
+
+pub fn process_event(q: QapiEvent, structs_lookup: &HashMap<String, Struct>) -> Struct {
+    let mut fields = Vec::new();
+    if let Some(data) = q.data {
+        fields.extend(process_members_or_ref(data, structs_lookup));
+    }
+    let mut meta = Metadata::default();
+    //meta.attributes.push(Attribute::new("Event"));
+    add_name! {meta, q.name};
+    add_cond! {meta, q.r#if};
+    add_feat! {meta, q.r#features};
     add_docs! {meta, q.doc, q.name, &mut fields};
-    let s = Struct {
+
+    Struct {
         name: q.name.into(),
         fields,
         meta,
-    };
-    (e, s)
+    }
 }
 
-fn process_members_or_ref(q: MembersOrRef) -> Vec<StructField> {
+fn command_process_members_or_ref(
+    q: MembersOrRef,
+    structs_lookup: &HashMap<String, Struct>,
+) -> Vec<StructField> {
     let mut fields = Vec::new();
     match q {
         MembersOrRef::Unset => unreachable! {"this should have failed the parser"},
@@ -274,7 +334,7 @@ fn process_members_or_ref(q: MembersOrRef) -> Vec<StructField> {
         }
         MembersOrRef::Ref(v) => {
             let mut meta = Metadata::default();
-            meta.attributes.push(Attribute::new("base"));
+            meta.attributes.push(Attribute::new("flatten"));
             let field = StructField {
                 name: "data".into(),
                 r#type: v.into(),
@@ -288,29 +348,10 @@ fn process_members_or_ref(q: MembersOrRef) -> Vec<StructField> {
     fields
 }
 
-pub fn process_event(q: QapiEvent) -> Struct {
+pub fn process_command(q: QapiCommand, structs_lookup: &HashMap<String, Struct>) -> Struct {
     let mut fields = Vec::new();
     if let Some(data) = q.data {
-        fields.extend(process_members_or_ref(data));
-    }
-    let mut meta = Metadata::default();
-    //meta.attributes.push(Attribute::new("Event"));
-    add_name! {meta, q.name};
-    add_cond! {meta, q.r#if};
-    add_feat! {meta, q.r#features};
-    add_docs! {meta, q.doc, q.name, &mut fields};
-
-    Struct {
-        name: q.name.into(),
-        fields,
-        meta,
-    }
-}
-
-pub fn process_command(q: QapiCommand) -> Struct {
-    let mut fields = Vec::new();
-    if let Some(data) = q.data {
-        fields.extend(process_members_or_ref(data));
+        fields.extend(command_process_members_or_ref(data, structs_lookup));
     }
     let mut meta = Metadata::default();
     //meta.attributes.push(Attribute::new("Command"));

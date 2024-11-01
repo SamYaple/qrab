@@ -79,92 +79,128 @@ fn main() -> Result<()> {
     // includes and load the strings in the `sources` Vec.
     let sources = read_schema(&schema_file)?;
 
-    // Here we _reparse_ the String elements in the vec. This is the only way
-    // I could figure out lifetimes while still keeping &str references to the
-    // original String across many files.
-    let mut tokens: Vec<QapiSchemaToken> = Vec::new();
-    for (path, source) in &sources {
-        tokens.extend(parse_schema(source)?.0);
-    }
-
     let mut unprocessed_structs = Vec::new();
+    let mut unprocessed_unions = Vec::new();
+    let mut unprocessed_commands = Vec::new();
+    let mut unprocessed_events = Vec::new();
     let mut structs_lookup = HashMap::new();
-    let mut schema = Schema::default();
-    for token in tokens {
-        match token {
-            QapiSchemaToken::Alternate(v) => {
-                schema.alternates.push(process_alternate(v));
-            }
-            QapiSchemaToken::Command(v) => {
-                schema.commands.push(process_command(v));
-            }
-            QapiSchemaToken::Enum(v) => {
-                schema.enums.push(process_enum(v));
-            }
-            QapiSchemaToken::Event(v) => {
-                schema.events.push(process_event(v));
-            }
-            QapiSchemaToken::Struct(v) => {
-                if v.base.is_some() {
-                    unprocessed_structs.push(v);
-                    continue;
+    let mut enums_lookup = HashMap::new();
+    for (_path, source) in &sources {
+        for token in parse_schema(source)?.0 {
+            match token {
+                QapiSchemaToken::Enum(v) => {
+                    let processed = process_enum(v);
+                    enums_lookup.insert(processed.name.clone(), processed);
                 }
-                let processed = process_struct(v, &structs_lookup);
-                structs_lookup.insert(processed.name.clone(), processed.clone());
-                schema.structs.push(processed);
+                QapiSchemaToken::Alternate(v) => {
+                    let processed = process_alternate(v);
+                    enums_lookup.insert(processed.name.clone(), processed);
+                }
+                QapiSchemaToken::Command(v) => {
+                    unprocessed_commands.push(v);
+                }
+                QapiSchemaToken::Event(v) => {
+                    unprocessed_events.push(v);
+                }
+                QapiSchemaToken::Struct(v) => {
+                    // Some structs reference other structs but the ordering
+                    // within a single qapi spec file means we may not have
+                    // processed the referenced struct yet. We skip for now
+                    if v.base.is_some() {
+                        unprocessed_structs.push(v);
+                        continue;
+                    }
+                    let processed = process_struct(v, &structs_lookup);
+                    structs_lookup.insert(processed.name.clone(), processed);
+                }
+                QapiSchemaToken::Union(v) => {
+                    unprocessed_unions.push(v);
+                }
+                _ => continue,
             }
-            //QapiSchemaToken::Union(v) => {
-            //    schema.unions.push(process_union(v));
-            //}
-            _ => continue,
         }
     }
+    // Process remaining structs
     for v in unprocessed_structs.drain(..) {
         let processed = process_struct(v, &structs_lookup);
-        structs_lookup.insert(processed.name.clone(), processed.clone());
-        schema.structs.push(processed);
+        structs_lookup.insert(processed.name.clone(), processed);
+    }
+    // With all structs and enums processed, we can assemble the unions
+    for v in unprocessed_unions.drain(..) {
+        let processed = process_union(v, &structs_lookup, &enums_lookup);
+        enums_lookup.insert(processed.name.clone(), processed);
+    }
+    // Events can reference structs which we expand out (TODO: Is this correct behaviour?)
+    for v in unprocessed_events.drain(..) {
+        let processed = process_event(v, &structs_lookup);
+        structs_lookup.insert(processed.name.clone(), processed);
+    }
+    // Commands can reference structs and unions
+    for v in unprocessed_commands.drain(..) {
+        let processed = process_command(v, &structs_lookup);
+        structs_lookup.insert(processed.name.clone(), processed);
     }
 
-    for e in &schema.alternates {
-        let code = e.generate();
-        let syntree: syn::File = syn::parse2(code)?;
-        let prettycode = prettyplease::unparse(&syntree);
-        println!("{}", prettycode);
+    // With `enums_lookup` and `structs_lookup` in hand, we loop over all the
+    // paths and tokens once more and render everything in the same order as the
+    // QAPI spec expects. This might be helpful to anyone reading the generated
+    // code, but it doesn't matter at all during compliation.
+    for (path, source) in &sources {
+        println!(
+            "// path begin:\t{}",
+            path.strip_prefix(qemu_src_root).unwrap().display()
+        );
+        for token in parse_schema(source)?.0 {
+            match token {
+                QapiSchemaToken::Enum(v) => {
+                    let qir = enums_lookup.get(v.name).unwrap();
+                    let code = qir.generate();
+                    let syntree: syn::File = syn::parse2(code)?;
+                    let prettycode = prettyplease::unparse(&syntree);
+                    print!("{}", prettycode);
+                }
+                QapiSchemaToken::Alternate(v) => {
+                    let qir = enums_lookup.get(v.name).unwrap();
+                    let code = qir.generate();
+                    let syntree: syn::File = syn::parse2(code)?;
+                    let prettycode = prettyplease::unparse(&syntree);
+                    print!("{}", prettycode);
+                }
+                QapiSchemaToken::Command(v) => {
+                    let qir = structs_lookup.get(v.name).unwrap();
+                    let code = qir.generate();
+                    let syntree: syn::File = syn::parse2(code)?;
+                    let prettycode = prettyplease::unparse(&syntree);
+                    print!("{}", prettycode);
+                }
+                QapiSchemaToken::Event(v) => {
+                    let qir = structs_lookup.get(v.name).unwrap();
+                    let code = qir.generate();
+                    let syntree: syn::File = syn::parse2(code)?;
+                    let prettycode = prettyplease::unparse(&syntree);
+                    print!("{}", prettycode);
+                }
+                QapiSchemaToken::Struct(v) => {
+                    let qir = structs_lookup.get(v.name).unwrap();
+                    let code = qir.generate();
+                    let syntree: syn::File = syn::parse2(code)?;
+                    let prettycode = prettyplease::unparse(&syntree);
+                    print!("{}", prettycode);
+                }
+                QapiSchemaToken::Union(v) => {
+                    let qir = enums_lookup.get(v.name).unwrap();
+                    let code = qir.generate();
+                    let syntree: syn::File = syn::parse2(code)?;
+                    let prettycode = prettyplease::unparse(&syntree);
+                    print!("{}", prettycode);
+                }
+                _ => continue,
+            }
+        }
+        println!(
+            "// path end:\t{}",
+            path.strip_prefix(qemu_src_root).unwrap().display()
+        );
     }
-    for e in &schema.enums {
-        let code = e.generate();
-        let syntree: syn::File = syn::parse2(code)?;
-        let prettycode = prettyplease::unparse(&syntree);
-        println!("{}", prettycode);
-    }
-    for e in &schema.structs {
-        let code = e.generate();
-        let syntree: syn::File = syn::parse2(code)?;
-        let prettycode = prettyplease::unparse(&syntree);
-        println!("{}", prettycode);
-    }
-    //for (e, s) in &schema.unions {
-    //    let code = e.generate();
-    //    let syntree: syn::File = syn::parse2(code)?;
-    //    let prettycode = prettyplease::unparse(&syntree);
-    //    println!("{}", prettycode);
-
-    //    let code = s.generate();
-    //    let syntree: syn::File = syn::parse2(code)?;
-    //    let prettycode = prettyplease::unparse(&syntree);
-    //    println!("{}", prettycode);
-    //}
-    //for e in &schema.events {
-    //    let code = e.generate();
-    //    let syntree: syn::File = syn::parse2(code)?;
-    //    let prettycode = prettyplease::unparse(&syntree);
-    //    println!("{}", prettycode);
-    //}
-    //for e in &schema.commands {
-    //    let code = e.generate();
-    //    let syntree: syn::File = syn::parse2(code)?;
-    //    let prettycode = prettyplease::unparse(&syntree);
-    //    println!("{}", prettycode);
-    //}
     Ok(())
 }

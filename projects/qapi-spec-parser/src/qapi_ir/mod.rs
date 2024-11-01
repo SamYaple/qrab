@@ -126,7 +126,7 @@ pub struct Metadata {
 pub struct Schema {
     pub alternates: Vec<Enum>,
     pub enums: Vec<Enum>,
-    pub unions: Vec<(Enum, Struct)>,
+    pub unions: Vec<Enum>,
     pub structs: Vec<Struct>,
     pub events: Vec<Struct>,
     pub commands: Vec<Struct>,

@@ -53,7 +53,7 @@ impl Enum {
     pub fn generate(&self) -> TokenStream {
         let enum_name = format_ident!("{}", rustify_type(&self.name));
 
-        let mut enum_attrs = Vec::new(); // vec![match_type(qtype)];
+        let mut enum_attrs = Vec::new();
         for attr in &self.meta.attributes {
             let attr_name = format_ident!("{}", attr.name);
             let attr_value = &attr.value;
@@ -115,7 +115,7 @@ impl Enum {
                 EnumVariantKind::Struct(fields) => {
                     let fields_tokens = fields.iter().map(|field| {
                         let field_name = format_ident!("{}", rustify_field(&field.name));
-                        let field_type = format_ident!("{}", field.r#type);
+                        let field_type = format_ident!("{}", rustify_type(&field.r#type));
 
                         let field_attrs = field.meta.attributes.iter().map(|attr| {
                             let attr_name = format_ident!("{}", attr.name);
