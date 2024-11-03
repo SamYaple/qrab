@@ -3342,6 +3342,7 @@ name = "qapi"
 version = "0.1.0"
 dependencies = [
  "qapi-macros",
+ "serde_json",
 ]
 
 [[package]]

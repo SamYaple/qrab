@@ -1,4 +1,5 @@
 use qapi_macros::qapi;
+use serde_json;
 // path begin:	qapi/pragma.json
 // path end:	qapi/pragma.json
 // path begin:	qapi/error.json
@@ -356,36 +357,23 @@ pub struct FdSocketAddressWrapper {
     #[qapi(name = "data")]
     pub data: FdSocketAddress,
 }
+pub enum SocketAddressLegacyBranch {
+    #[qapi(name = "inet")]
+    Inet(InetSocketAddressWrapper),
+    #[qapi(name = "unix")]
+    Unix(UnixSocketAddressWrapper),
+    #[qapi(name = "vsock")]
+    Vsock(VsockSocketAddressWrapper),
+    #[qapi(name = "fd")]
+    Fd(FdSocketAddressWrapper),
+}
 /// Captures the address of a socket, which could also be a named file
 /// descriptor
 #[qapi(name = "SocketAddressLegacy")]
 #[qapi(since = "1.3")]
-#[qapi(discriminator = "SocketAddressType")]
-pub enum SocketAddressLegacy {
-    /// Internet address
-    #[qapi(name = "inet")]
-    Inet {
-        #[qapi(union)]
-        branch: InetSocketAddressWrapper,
-    },
-    /// Unix domain socket
-    #[qapi(name = "unix")]
-    Unix {
-        #[qapi(union)]
-        branch: UnixSocketAddressWrapper,
-    },
-    /// VMCI address
-    #[qapi(name = "vsock")]
-    Vsock {
-        #[qapi(union)]
-        branch: VsockSocketAddressWrapper,
-    },
-    /// Socket file descriptor
-    #[qapi(name = "fd")]
-    Fd {
-        #[qapi(union)]
-        branch: FdSocketAddressWrapper,
-    },
+pub struct SocketAddressLegacy {
+    #[qapi(union)]
+    pub u: Option<SocketAddressLegacyBranch>,
 }
 /// Available SocketAddress types
 #[qapi(name = "SocketAddressType")]
@@ -404,36 +392,23 @@ pub enum SocketAddressType {
     #[qapi(name = "fd")]
     Fd,
 }
+pub enum SocketAddressBranch {
+    #[qapi(name = "inet")]
+    Inet(InetSocketAddress),
+    #[qapi(name = "unix")]
+    Unix(UnixSocketAddress),
+    #[qapi(name = "vsock")]
+    Vsock(VsockSocketAddress),
+    #[qapi(name = "fd")]
+    Fd(FdSocketAddress),
+}
 /// Captures the address of a socket, which could also be a socket file
 /// descriptor
 #[qapi(name = "SocketAddress")]
 #[qapi(since = "2.9")]
-#[qapi(discriminator = "SocketAddressType")]
-pub enum SocketAddress {
-    /// Internet address
-    #[qapi(name = "inet")]
-    Inet {
-        #[qapi(union)]
-        branch: InetSocketAddress,
-    },
-    /// Unix domain socket
-    #[qapi(name = "unix")]
-    Unix {
-        #[qapi(union)]
-        branch: UnixSocketAddress,
-    },
-    /// VMCI address
-    #[qapi(name = "vsock")]
-    Vsock {
-        #[qapi(union)]
-        branch: VsockSocketAddress,
-    },
-    /// Socket file descriptor
-    #[qapi(name = "fd")]
-    Fd {
-        #[qapi(union)]
-        branch: FdSocketAddress,
-    },
+pub struct SocketAddress {
+    #[qapi(union)]
+    pub u: Option<SocketAddressBranch>,
 }
 // path end:	qapi/sockets.json
 // path begin:	qapi/run-state.json
@@ -777,23 +752,18 @@ pub enum GuestPanicInformationType {
     #[qapi(name = "s390")]
     S390,
 }
+pub enum GuestPanicInformationBranch {
+    #[qapi(name = "hyper-v")]
+    HyperV(GuestPanicInformationHyperV),
+    #[qapi(name = "s390")]
+    S390(GuestPanicInformationS390),
+}
 /// Information about a guest panic
 #[qapi(name = "GuestPanicInformation")]
 #[qapi(since = "2.9")]
-#[qapi(discriminator = "GuestPanicInformationType")]
-pub enum GuestPanicInformation {
-    /// hyper-v guest panic information type
-    #[qapi(name = "hyper-v")]
-    HyperV {
-        #[qapi(union)]
-        branch: GuestPanicInformationHyperV,
-    },
-    /// s390 guest panic information type (Since: 2.12)
-    #[qapi(name = "s390")]
-    S390 {
-        #[qapi(union)]
-        branch: GuestPanicInformationS390,
-    },
+pub struct GuestPanicInformation {
+    #[qapi(union)]
+    pub u: Option<GuestPanicInformationBranch>,
 }
 /// Hyper-V specific guest panic information (HV crash MSRs)
 #[qapi(name = "GuestPanicInformationHyperV")]
@@ -1146,45 +1116,33 @@ pub struct QCryptoBlockCreateOptionsLuks {
     #[qapi(name = "iter-time")]
     pub iter_time: Option<i64>,
 }
+pub enum QCryptoBlockOpenOptionsBranch {
+    #[qapi(name = "qcow")]
+    Qcow(QCryptoBlockOptionsQCow),
+    #[qapi(name = "luks")]
+    Luks(QCryptoBlockOptionsLuks),
+}
 /// The options that are available for all encryption formats when
 /// opening an existing volume
 #[qapi(name = "QCryptoBlockOpenOptions")]
 #[qapi(since = "2.6")]
-#[qapi(discriminator = "QCryptoBlockFormat")]
-pub enum QCryptoBlockOpenOptions {
-    /// QCow/QCow2 built-in AES-CBC encryption.  Use only for
-    /// liberating data from old images.
+pub struct QCryptoBlockOpenOptions {
+    #[qapi(union)]
+    pub u: Option<QCryptoBlockOpenOptionsBranch>,
+}
+pub enum QCryptoBlockCreateOptionsBranch {
     #[qapi(name = "qcow")]
-    Qcow {
-        #[qapi(union)]
-        branch: QCryptoBlockOptionsQCow,
-    },
-    /// LUKS encryption format.  Recommended for new images
+    Qcow(QCryptoBlockOptionsQCow),
     #[qapi(name = "luks")]
-    Luks {
-        #[qapi(union)]
-        branch: QCryptoBlockOptionsLuks,
-    },
+    Luks(QCryptoBlockCreateOptionsLuks),
 }
 /// The options that are available for all encryption formats when
 /// initializing a new volume
 #[qapi(name = "QCryptoBlockCreateOptions")]
 #[qapi(since = "2.6")]
-#[qapi(discriminator = "QCryptoBlockFormat")]
-pub enum QCryptoBlockCreateOptions {
-    /// QCow/QCow2 built-in AES-CBC encryption.  Use only for
-    /// liberating data from old images.
-    #[qapi(name = "qcow")]
-    Qcow {
-        #[qapi(union)]
-        branch: QCryptoBlockOptionsQCow,
-    },
-    /// LUKS encryption format.  Recommended for new images
-    #[qapi(name = "luks")]
-    Luks {
-        #[qapi(union)]
-        branch: QCryptoBlockCreateOptionsLuks,
-    },
+pub struct QCryptoBlockCreateOptions {
+    #[qapi(union)]
+    pub u: Option<QCryptoBlockCreateOptionsBranch>,
 }
 /// The common information that applies to all full disk encryption
 /// formats
@@ -1247,21 +1205,16 @@ pub struct QCryptoBlockInfoLuks {
     #[qapi(name = "slots")]
     pub slots: Vec<QCryptoBlockInfoLuksSlot>,
 }
+pub enum QCryptoBlockInfoBranch {
+    #[qapi(name = "luks")]
+    Luks(QCryptoBlockInfoLuks),
+}
 /// Information about the block encryption options
 #[qapi(name = "QCryptoBlockInfo")]
 #[qapi(since = "2.7")]
-#[qapi(discriminator = "QCryptoBlockFormat")]
-pub enum QCryptoBlockInfo {
-    /// QCow/QCow2 built-in AES-CBC encryption.  Use only for
-    /// liberating data from old images.
-    #[qapi(name = "qcow")]
-    Qcow {},
-    /// LUKS encryption format.  Recommended for new images
-    #[qapi(name = "luks")]
-    Luks {
-        #[qapi(union)]
-        branch: QCryptoBlockInfoLuks,
-    },
+pub struct QCryptoBlockInfo {
+    #[qapi(union)]
+    pub u: Option<QCryptoBlockInfoBranch>,
 }
 /// Defines state of keyslots that are affected by the update
 #[qapi(name = "QCryptoBlockLUKSKeyslotState")]
@@ -1313,22 +1266,17 @@ pub struct QCryptoBlockAmendOptionsLuks {
     #[qapi(name = "secret")]
     pub secret: Option<String>,
 }
+pub enum QCryptoBlockAmendOptionsBranch {
+    #[qapi(name = "luks")]
+    Luks(QCryptoBlockAmendOptionsLuks),
+}
 /// The options that are available for all encryption formats when
 /// amending encryption settings
 #[qapi(name = "QCryptoBlockAmendOptions")]
 #[qapi(since = "5.1")]
-#[qapi(discriminator = "QCryptoBlockFormat")]
-pub enum QCryptoBlockAmendOptions {
-    /// QCow/QCow2 built-in AES-CBC encryption.  Use only for
-    /// liberating data from old images.
-    #[qapi(name = "qcow")]
-    Qcow {},
-    /// LUKS encryption format.  Recommended for new images
-    #[qapi(name = "luks")]
-    Luks {
-        #[qapi(union)]
-        branch: QCryptoBlockAmendOptionsLuks,
-    },
+pub struct QCryptoBlockAmendOptions {
+    #[qapi(union)]
+    pub u: Option<QCryptoBlockAmendOptionsBranch>,
 }
 /// Properties for objects of classes derived from secret-common.
 #[qapi(name = "SecretCommonProperties")]
@@ -1587,18 +1535,17 @@ pub struct QCryptoAkCipherOptionsRsa {
     #[qapi(name = "padding-alg")]
     pub padding_alg: QCryptoRsaPaddingAlgorithm,
 }
+pub enum QCryptoAkCipherOptionsBranch {
+    #[qapi(name = "rsa")]
+    Rsa(QCryptoAkCipherOptionsRsa),
+}
 /// The options that are available for all asymmetric key algorithms
 /// when creating a new QCryptoAkCipher.
 #[qapi(name = "QCryptoAkCipherOptions")]
 #[qapi(since = "7.1")]
-#[qapi(discriminator = "QCryptoAkCipherAlgorithm")]
-pub enum QCryptoAkCipherOptions {
-    /// RSA algorithm
-    #[qapi(name = "rsa")]
-    Rsa {
-        #[qapi(union)]
-        branch: QCryptoAkCipherOptionsRsa,
-    },
+pub struct QCryptoAkCipherOptions {
+    #[qapi(union)]
+    pub u: Option<QCryptoAkCipherOptionsBranch>,
 }
 // path end:	qapi/crypto.json
 // path begin:	qapi/job.json
@@ -2222,18 +2169,15 @@ pub struct ImageInfoSpecificQCow2EncryptionBase {
     #[qapi(name = "format")]
     pub format: BlockdevQcow2EncryptionFormat,
 }
+pub enum ImageInfoSpecificQCow2EncryptionBranch {
+    #[qapi(name = "luks")]
+    Luks(QCryptoBlockInfoLuks),
+}
 #[qapi(name = "ImageInfoSpecificQCow2Encryption")]
 #[qapi(since = "2.10")]
-#[qapi(discriminator = "BlockdevQcow2EncryptionFormat")]
-pub enum ImageInfoSpecificQCow2Encryption {
-    /// AES-CBC with plain64 initialization vectors
-    #[qapi(name = "aes")]
-    Aes {},
-    #[qapi(name = "luks")]
-    Luks {
-        #[qapi(union)]
-        branch: QCryptoBlockInfoLuks,
-    },
+pub struct ImageInfoSpecificQCow2Encryption {
+    #[qapi(union)]
+    pub u: Option<ImageInfoSpecificQCow2EncryptionBranch>,
 }
 #[qapi(name = "ImageInfoSpecificQCow2")]
 #[qapi(since = "1.7")]
@@ -2378,40 +2322,25 @@ pub struct ImageInfoSpecificFileWrapper {
     #[qapi(name = "data")]
     pub data: ImageInfoSpecificFile,
 }
+pub enum ImageInfoSpecificBranch {
+    #[qapi(name = "qcow2")]
+    Qcow2(ImageInfoSpecificQCow2Wrapper),
+    #[qapi(name = "vmdk")]
+    Vmdk(ImageInfoSpecificVmdkWrapper),
+    #[qapi(name = "luks")]
+    Luks(ImageInfoSpecificLuksWrapper),
+    #[qapi(name = "rbd")]
+    Rbd(ImageInfoSpecificRbdWrapper),
+    #[qapi(name = "file")]
+    File(ImageInfoSpecificFileWrapper),
+}
 /// A discriminated record of image format specific information
 /// structures.
 #[qapi(name = "ImageInfoSpecific")]
 #[qapi(since = "1.7")]
-#[qapi(discriminator = "ImageInfoSpecificKind")]
-pub enum ImageInfoSpecific {
-    #[qapi(name = "qcow2")]
-    Qcow2 {
-        #[qapi(union)]
-        branch: ImageInfoSpecificQCow2Wrapper,
-    },
-    #[qapi(name = "vmdk")]
-    Vmdk {
-        #[qapi(union)]
-        branch: ImageInfoSpecificVmdkWrapper,
-    },
-    /// Since 2.7
-    #[qapi(name = "luks")]
-    Luks {
-        #[qapi(union)]
-        branch: ImageInfoSpecificLuksWrapper,
-    },
-    /// Since 6.1
-    #[qapi(name = "rbd")]
-    Rbd {
-        #[qapi(union)]
-        branch: ImageInfoSpecificRbdWrapper,
-    },
-    /// Since 8.0
-    #[qapi(name = "file")]
-    File {
-        #[qapi(union)]
-        branch: ImageInfoSpecificFileWrapper,
-    },
+pub struct ImageInfoSpecific {
+    #[qapi(union)]
+    pub u: Option<ImageInfoSpecificBranch>,
 }
 /// Information about a QEMU image file
 #[qapi(name = "BlockNodeInfo")]
@@ -3225,130 +3154,21 @@ pub struct BlockStatsSpecificNvme {
     #[qapi(name = "unaligned-accesses")]
     pub unaligned_accesses: u64,
 }
+pub enum BlockStatsSpecificBranch {
+    #[qapi(name = "file")]
+    File(BlockStatsSpecificFile),
+    #[qapi(name = "host_device")]
+    #[qapi(condition = "HAVE_HOST_BLOCK_DEVICE")]
+    HostDevice(BlockStatsSpecificFile),
+    #[qapi(name = "nvme")]
+    Nvme(BlockStatsSpecificNvme),
+}
 /// Block driver specific statistics
 #[qapi(name = "BlockStatsSpecific")]
 #[qapi(since = "4.2")]
-#[qapi(discriminator = "BlockdevDriver")]
-pub enum BlockStatsSpecific {
-    #[qapi(name = "blkdebug")]
-    Blkdebug {},
-    /// Since 3.0
-    #[qapi(name = "blklogwrites")]
-    Blklogwrites {},
-    /// Since 4.2
-    #[qapi(name = "blkreplay")]
-    Blkreplay {},
-    #[qapi(name = "blkverify")]
-    Blkverify {},
-    #[qapi(name = "bochs")]
-    Bochs {},
-    #[qapi(name = "cloop")]
-    Cloop {},
-    /// Since 5.0
-    #[qapi(name = "compress")]
-    Compress {},
-    /// Since 6.2
-    #[qapi(name = "copy-before-write")]
-    CopyBeforeWrite {},
-    /// Since 3.0
-    #[qapi(name = "copy-on-read")]
-    CopyOnRead {},
-    #[qapi(name = "dmg")]
-    Dmg {},
-    #[qapi(name = "file")]
-    File {
-        #[qapi(union)]
-        branch: BlockStatsSpecificFile,
-    },
-    /// Since 7.0
-    #[qapi(name = "snapshot-access")]
-    SnapshotAccess {},
-    #[qapi(name = "ftp")]
-    Ftp {},
-    #[qapi(name = "ftps")]
-    Ftps {},
-    #[qapi(name = "gluster")]
-    Gluster {},
-    #[qapi(name = "host_cdrom")]
-    #[qapi(condition = "HAVE_HOST_BLOCK_DEVICE")]
-    HostCdrom {},
-    #[qapi(name = "host_device")]
-    #[qapi(condition = "HAVE_HOST_BLOCK_DEVICE")]
-    HostDevice {
-        #[qapi(union)]
-        branch: BlockStatsSpecificFile,
-    },
-    #[qapi(name = "http")]
-    Http {},
-    #[qapi(name = "https")]
-    Https {},
-    #[qapi(name = "io_uring")]
-    #[qapi(condition = "CONFIG_BLKIO")]
-    IoUring {},
-    #[qapi(name = "iscsi")]
-    Iscsi {},
-    #[qapi(name = "luks")]
-    Luks {},
-    #[qapi(name = "nbd")]
-    Nbd {},
-    #[qapi(name = "nfs")]
-    Nfs {},
-    #[qapi(name = "null-aio")]
-    NullAio {},
-    #[qapi(name = "null-co")]
-    NullCo {},
-    /// Since 2.12
-    #[qapi(name = "nvme")]
-    Nvme {
-        #[qapi(union)]
-        branch: BlockStatsSpecificNvme,
-    },
-    #[qapi(name = "nvme-io_uring")]
-    #[qapi(condition = "CONFIG_BLKIO")]
-    NvmeIoUring {},
-    #[qapi(name = "parallels")]
-    Parallels {},
-    #[qapi(name = "preallocate")]
-    Preallocate {},
-    #[qapi(name = "qcow")]
-    Qcow {},
-    #[qapi(name = "qcow2")]
-    Qcow2 {},
-    #[qapi(name = "qed")]
-    Qed {},
-    #[qapi(name = "quorum")]
-    Quorum {},
-    #[qapi(name = "raw")]
-    Raw {},
-    #[qapi(name = "rbd")]
-    Rbd {},
-    #[qapi(name = "replication")]
-    #[qapi(condition = "CONFIG_REPLICATION")]
-    Replication {},
-    #[qapi(name = "ssh")]
-    Ssh {},
-    /// Since 2.11
-    #[qapi(name = "throttle")]
-    Throttle {},
-    #[qapi(name = "vdi")]
-    Vdi {},
-    #[qapi(name = "vhdx")]
-    Vhdx {},
-    #[qapi(name = "virtio-blk-vfio-pci")]
-    #[qapi(condition = "CONFIG_BLKIO")]
-    VirtioBlkVfioPci {},
-    #[qapi(name = "virtio-blk-vhost-user")]
-    #[qapi(condition = "CONFIG_BLKIO")]
-    VirtioBlkVhostUser {},
-    #[qapi(name = "virtio-blk-vhost-vdpa")]
-    #[qapi(condition = "CONFIG_BLKIO")]
-    VirtioBlkVhostVdpa {},
-    #[qapi(name = "vmdk")]
-    Vmdk {},
-    #[qapi(name = "vpc")]
-    Vpc {},
-    #[qapi(name = "vvfat")]
-    Vvfat {},
+pub struct BlockStatsSpecific {
+    #[qapi(union)]
+    pub u: Option<BlockStatsSpecificBranch>,
 }
 /// Statistics of a virtual block device or a block backing device.
 #[qapi(name = "BlockStats")]
@@ -3492,269 +3312,62 @@ pub struct BlockJobInfoMirror {
     #[qapi(name = "actively-synced")]
     pub actively_synced: bool,
 }
+pub enum BlockJobInfoBranch {
+    #[qapi(name = "mirror")]
+    Mirror(BlockJobInfoMirror),
+}
 /// Information about a long-running block device operation.
 #[qapi(name = "BlockJobInfo")]
 #[qapi(since = "1.1")]
-#[qapi(discriminator = "JobType")]
-pub enum BlockJobInfo {
-    /// block commit job type, see "block-commit"
-    #[qapi(name = "commit")]
-    Commit {
-        #[qapi(name = "device")]
-        device: String,
-        #[qapi(name = "len")]
-        len: i64,
-        #[qapi(name = "offset")]
-        offset: i64,
-        #[qapi(name = "busy")]
-        busy: bool,
-        #[qapi(name = "paused")]
-        paused: bool,
-        #[qapi(name = "speed")]
-        speed: i64,
-        #[qapi(name = "io-status")]
-        io_status: BlockDeviceIoStatus,
-        #[qapi(name = "ready")]
-        ready: bool,
-        #[qapi(name = "status")]
-        status: JobStatus,
-        #[qapi(name = "auto-finalize")]
-        auto_finalize: bool,
-        #[qapi(name = "auto-dismiss")]
-        auto_dismiss: bool,
-        #[qapi(name = "error")]
-        error: String,
-    },
-    /// block stream job type, see "block-stream"
-    #[qapi(name = "stream")]
-    Stream {
-        #[qapi(name = "device")]
-        device: String,
-        #[qapi(name = "len")]
-        len: i64,
-        #[qapi(name = "offset")]
-        offset: i64,
-        #[qapi(name = "busy")]
-        busy: bool,
-        #[qapi(name = "paused")]
-        paused: bool,
-        #[qapi(name = "speed")]
-        speed: i64,
-        #[qapi(name = "io-status")]
-        io_status: BlockDeviceIoStatus,
-        #[qapi(name = "ready")]
-        ready: bool,
-        #[qapi(name = "status")]
-        status: JobStatus,
-        #[qapi(name = "auto-finalize")]
-        auto_finalize: bool,
-        #[qapi(name = "auto-dismiss")]
-        auto_dismiss: bool,
-        #[qapi(name = "error")]
-        error: String,
-    },
-    /// drive mirror job type, see "drive-mirror"
-    #[qapi(name = "mirror")]
-    Mirror {
-        #[qapi(name = "device")]
-        device: String,
-        #[qapi(name = "len")]
-        len: i64,
-        #[qapi(name = "offset")]
-        offset: i64,
-        #[qapi(name = "busy")]
-        busy: bool,
-        #[qapi(name = "paused")]
-        paused: bool,
-        #[qapi(name = "speed")]
-        speed: i64,
-        #[qapi(name = "io-status")]
-        io_status: BlockDeviceIoStatus,
-        #[qapi(name = "ready")]
-        ready: bool,
-        #[qapi(name = "status")]
-        status: JobStatus,
-        #[qapi(name = "auto-finalize")]
-        auto_finalize: bool,
-        #[qapi(name = "auto-dismiss")]
-        auto_dismiss: bool,
-        #[qapi(name = "error")]
-        error: String,
-        #[qapi(union)]
-        branch: BlockJobInfoMirror,
-    },
-    /// drive backup job type, see "drive-backup"
-    #[qapi(name = "backup")]
-    Backup {
-        #[qapi(name = "device")]
-        device: String,
-        #[qapi(name = "len")]
-        len: i64,
-        #[qapi(name = "offset")]
-        offset: i64,
-        #[qapi(name = "busy")]
-        busy: bool,
-        #[qapi(name = "paused")]
-        paused: bool,
-        #[qapi(name = "speed")]
-        speed: i64,
-        #[qapi(name = "io-status")]
-        io_status: BlockDeviceIoStatus,
-        #[qapi(name = "ready")]
-        ready: bool,
-        #[qapi(name = "status")]
-        status: JobStatus,
-        #[qapi(name = "auto-finalize")]
-        auto_finalize: bool,
-        #[qapi(name = "auto-dismiss")]
-        auto_dismiss: bool,
-        #[qapi(name = "error")]
-        error: String,
-    },
-    /// image creation job type, see "blockdev-create" (since 3.0)
-    #[qapi(name = "create")]
-    Create {
-        #[qapi(name = "device")]
-        device: String,
-        #[qapi(name = "len")]
-        len: i64,
-        #[qapi(name = "offset")]
-        offset: i64,
-        #[qapi(name = "busy")]
-        busy: bool,
-        #[qapi(name = "paused")]
-        paused: bool,
-        #[qapi(name = "speed")]
-        speed: i64,
-        #[qapi(name = "io-status")]
-        io_status: BlockDeviceIoStatus,
-        #[qapi(name = "ready")]
-        ready: bool,
-        #[qapi(name = "status")]
-        status: JobStatus,
-        #[qapi(name = "auto-finalize")]
-        auto_finalize: bool,
-        #[qapi(name = "auto-dismiss")]
-        auto_dismiss: bool,
-        #[qapi(name = "error")]
-        error: String,
-    },
-    /// image options amend job type, see "x-blockdev-amend" (since
-    /// 5.1)
-    #[qapi(name = "amend")]
-    Amend {
-        #[qapi(name = "device")]
-        device: String,
-        #[qapi(name = "len")]
-        len: i64,
-        #[qapi(name = "offset")]
-        offset: i64,
-        #[qapi(name = "busy")]
-        busy: bool,
-        #[qapi(name = "paused")]
-        paused: bool,
-        #[qapi(name = "speed")]
-        speed: i64,
-        #[qapi(name = "io-status")]
-        io_status: BlockDeviceIoStatus,
-        #[qapi(name = "ready")]
-        ready: bool,
-        #[qapi(name = "status")]
-        status: JobStatus,
-        #[qapi(name = "auto-finalize")]
-        auto_finalize: bool,
-        #[qapi(name = "auto-dismiss")]
-        auto_dismiss: bool,
-        #[qapi(name = "error")]
-        error: String,
-    },
-    /// snapshot load job type, see "snapshot-load" (since
-    /// 6.0)
-    #[qapi(name = "snapshot-load")]
-    SnapshotLoad {
-        #[qapi(name = "device")]
-        device: String,
-        #[qapi(name = "len")]
-        len: i64,
-        #[qapi(name = "offset")]
-        offset: i64,
-        #[qapi(name = "busy")]
-        busy: bool,
-        #[qapi(name = "paused")]
-        paused: bool,
-        #[qapi(name = "speed")]
-        speed: i64,
-        #[qapi(name = "io-status")]
-        io_status: BlockDeviceIoStatus,
-        #[qapi(name = "ready")]
-        ready: bool,
-        #[qapi(name = "status")]
-        status: JobStatus,
-        #[qapi(name = "auto-finalize")]
-        auto_finalize: bool,
-        #[qapi(name = "auto-dismiss")]
-        auto_dismiss: bool,
-        #[qapi(name = "error")]
-        error: String,
-    },
-    /// snapshot save job type, see "snapshot-save" (since
-    /// 6.0)
-    #[qapi(name = "snapshot-save")]
-    SnapshotSave {
-        #[qapi(name = "device")]
-        device: String,
-        #[qapi(name = "len")]
-        len: i64,
-        #[qapi(name = "offset")]
-        offset: i64,
-        #[qapi(name = "busy")]
-        busy: bool,
-        #[qapi(name = "paused")]
-        paused: bool,
-        #[qapi(name = "speed")]
-        speed: i64,
-        #[qapi(name = "io-status")]
-        io_status: BlockDeviceIoStatus,
-        #[qapi(name = "ready")]
-        ready: bool,
-        #[qapi(name = "status")]
-        status: JobStatus,
-        #[qapi(name = "auto-finalize")]
-        auto_finalize: bool,
-        #[qapi(name = "auto-dismiss")]
-        auto_dismiss: bool,
-        #[qapi(name = "error")]
-        error: String,
-    },
-    /// snapshot delete job type, see "snapshot-delete"
-    /// (since 6.0)
-    #[qapi(name = "snapshot-delete")]
-    SnapshotDelete {
-        #[qapi(name = "device")]
-        device: String,
-        #[qapi(name = "len")]
-        len: i64,
-        #[qapi(name = "offset")]
-        offset: i64,
-        #[qapi(name = "busy")]
-        busy: bool,
-        #[qapi(name = "paused")]
-        paused: bool,
-        #[qapi(name = "speed")]
-        speed: i64,
-        #[qapi(name = "io-status")]
-        io_status: BlockDeviceIoStatus,
-        #[qapi(name = "ready")]
-        ready: bool,
-        #[qapi(name = "status")]
-        status: JobStatus,
-        #[qapi(name = "auto-finalize")]
-        auto_finalize: bool,
-        #[qapi(name = "auto-dismiss")]
-        auto_dismiss: bool,
-        #[qapi(name = "error")]
-        error: String,
-    },
+pub struct BlockJobInfo {
+    /// The job identifier.  Originally the device name but other
+    /// values are allowed since QEMU 2.7
+    #[qapi(name = "device")]
+    pub device: String,
+    /// Estimated @offset value at the completion of the job.  This
+    /// value can arbitrarily change while the job is running, in both
+    /// directions.
+    #[qapi(name = "len")]
+    pub len: i64,
+    /// Progress made until now.  The unit is arbitrary and the
+    /// value can only meaningfully be used for the ratio of @offset to
+    /// @len.  The value is monotonically increasing.
+    #[qapi(name = "offset")]
+    pub offset: i64,
+    /// false if the job is known to be in a quiescent state, with no
+    /// pending I/O.  (Since 1.3)
+    #[qapi(name = "busy")]
+    pub busy: bool,
+    /// whether the job is paused or, if @busy is true, will pause
+    /// itself as soon as possible.  (Since 1.3)
+    #[qapi(name = "paused")]
+    pub paused: bool,
+    /// the rate limit, bytes per second
+    #[qapi(name = "speed")]
+    pub speed: i64,
+    /// the status of the job (since 1.3)
+    #[qapi(name = "io-status")]
+    pub io_status: BlockDeviceIoStatus,
+    /// true if the job may be completed (since 2.2)
+    #[qapi(name = "ready")]
+    pub ready: bool,
+    /// Current job state/status (since 2.12)
+    #[qapi(name = "status")]
+    pub status: JobStatus,
+    /// Job will finalize itself when PENDING, moving to the
+    /// CONCLUDED state.  (since 2.12)
+    #[qapi(name = "auto-finalize")]
+    pub auto_finalize: bool,
+    /// Job will dismiss itself when CONCLUDED, moving to the
+    /// NULL state and disappearing from the query list.  (since 2.12)
+    #[qapi(name = "auto-dismiss")]
+    pub auto_dismiss: bool,
+    /// Error information if the job did not complete successfully.
+    /// Not set if the job completed successfully.  (since 2.12.1)
+    #[qapi(name = "error")]
+    pub error: Option<String>,
+    #[qapi(union)]
+    pub u: Option<BlockJobInfoBranch>,
 }
 /// Return information about long-running block device operations.
 #[qapi(name = "query-block-jobs")]
@@ -5197,71 +4810,19 @@ pub struct BlockJobChangeOptionsMirror {
     #[qapi(name = "copy-mode")]
     pub copy_mode: MirrorCopyMode,
 }
+pub enum BlockJobChangeOptionsBranch {
+    #[qapi(name = "mirror")]
+    Mirror(BlockJobChangeOptionsMirror),
+}
 /// Block job options that can be changed after job creation.
 #[qapi(name = "BlockJobChangeOptions")]
 #[qapi(since = "8.2")]
-#[qapi(discriminator = "JobType")]
-pub enum BlockJobChangeOptions {
-    /// block commit job type, see "block-commit"
-    #[qapi(name = "commit")]
-    Commit {
-        #[qapi(name = "id")]
-        id: String,
-    },
-    /// block stream job type, see "block-stream"
-    #[qapi(name = "stream")]
-    Stream {
-        #[qapi(name = "id")]
-        id: String,
-    },
-    /// drive mirror job type, see "drive-mirror"
-    #[qapi(name = "mirror")]
-    Mirror {
-        #[qapi(name = "id")]
-        id: String,
-        #[qapi(union)]
-        branch: BlockJobChangeOptionsMirror,
-    },
-    /// drive backup job type, see "drive-backup"
-    #[qapi(name = "backup")]
-    Backup {
-        #[qapi(name = "id")]
-        id: String,
-    },
-    /// image creation job type, see "blockdev-create" (since 3.0)
-    #[qapi(name = "create")]
-    Create {
-        #[qapi(name = "id")]
-        id: String,
-    },
-    /// image options amend job type, see "x-blockdev-amend" (since
-    /// 5.1)
-    #[qapi(name = "amend")]
-    Amend {
-        #[qapi(name = "id")]
-        id: String,
-    },
-    /// snapshot load job type, see "snapshot-load" (since
-    /// 6.0)
-    #[qapi(name = "snapshot-load")]
-    SnapshotLoad {
-        #[qapi(name = "id")]
-        id: String,
-    },
-    /// snapshot save job type, see "snapshot-save" (since
-    /// 6.0)
-    #[qapi(name = "snapshot-save")]
-    SnapshotSave {
-        #[qapi(name = "id")]
-        id: String,
-    },
-    /// snapshot delete job type, see "snapshot-delete"
-    /// (since 6.0)
-    #[qapi(name = "snapshot-delete")]
-    SnapshotDelete {
-        #[qapi(name = "id")]
-        id: String,
-    },
+pub struct BlockJobChangeOptions {
+    /// The job identifier
+    #[qapi(name = "id")]
+    pub id: String,
+    #[qapi(union)]
+    pub u: Option<BlockJobChangeOptionsBranch>,
 }
 /// Change the block job's options.
 #[qapi(name = "block-job-change")]
@@ -5660,16 +5221,15 @@ pub enum BlockdevQcowEncryptionFormat {
     #[qapi(name = "aes")]
     Aes,
 }
+pub enum BlockdevQcowEncryptionBranch {
+    #[qapi(name = "aes")]
+    Aes(QCryptoBlockOptionsQCow),
+}
 #[qapi(name = "BlockdevQcowEncryption")]
 #[qapi(since = "2.10")]
-#[qapi(discriminator = "BlockdevQcowEncryptionFormat")]
-pub enum BlockdevQcowEncryption {
-    /// AES-CBC with plain64 initialization vectors
-    #[qapi(name = "aes")]
-    Aes {
-        #[qapi(union)]
-        branch: QCryptoBlockOptionsQCow,
-    },
+pub struct BlockdevQcowEncryption {
+    #[qapi(union)]
+    pub u: Option<BlockdevQcowEncryptionBranch>,
 }
 /// Driver specific block device options for qcow.
 #[qapi(name = "BlockdevOptionsQcow")]
@@ -5697,21 +5257,17 @@ pub enum BlockdevQcow2EncryptionFormat {
     #[qapi(name = "luks")]
     Luks,
 }
+pub enum BlockdevQcow2EncryptionBranch {
+    #[qapi(name = "aes")]
+    Aes(QCryptoBlockOptionsQCow),
+    #[qapi(name = "luks")]
+    Luks(QCryptoBlockOptionsLuks),
+}
 #[qapi(name = "BlockdevQcow2Encryption")]
 #[qapi(since = "2.10")]
-#[qapi(discriminator = "BlockdevQcow2EncryptionFormat")]
-pub enum BlockdevQcow2Encryption {
-    /// AES-CBC with plain64 initialization vectors
-    #[qapi(name = "aes")]
-    Aes {
-        #[qapi(union)]
-        branch: QCryptoBlockOptionsQCow,
-    },
-    #[qapi(name = "luks")]
-    Luks {
-        #[qapi(union)]
-        branch: QCryptoBlockOptionsLuks,
-    },
+pub struct BlockdevQcow2Encryption {
+    #[qapi(union)]
+    pub u: Option<BlockdevQcow2EncryptionBranch>,
 }
 /// Filter driver intended to be inserted between format and protocol
 /// node and do preallocation in protocol node on write.
@@ -5849,22 +5405,15 @@ pub struct SshHostKeyHash {
     #[qapi(name = "hash")]
     pub hash: String,
 }
+pub enum SshHostKeyCheckBranch {
+    #[qapi(name = "hash")]
+    Hash(SshHostKeyHash),
+}
 #[qapi(name = "SshHostKeyCheck")]
 #[qapi(since = "2.12")]
-#[qapi(discriminator = "SshHostKeyCheckMode")]
-pub enum SshHostKeyCheck {
-    /// Don't check the host key at all
-    #[qapi(name = "none")]
-    None {},
-    /// Compare the host key with a given hash
-    #[qapi(name = "hash")]
-    Hash {
-        #[qapi(union)]
-        branch: SshHostKeyHash,
-    },
-    /// Check the host key against the known_hosts file
-    #[qapi(name = "known_hosts")]
-    KnownHosts {},
+pub struct SshHostKeyCheck {
+    #[qapi(union)]
+    pub u: Option<SshHostKeyCheckBranch>,
 }
 #[qapi(name = "BlockdevOptionsSsh")]
 #[qapi(since = "2.9")]
@@ -6413,50 +5962,37 @@ pub struct RbdEncryptionCreateOptionsLuks2 {
     #[qapi(name = "cipher-alg")]
     pub cipher_alg: Option<QCryptoCipherAlgorithm>,
 }
+pub enum RbdEncryptionOptionsBranch {
+    #[qapi(name = "luks")]
+    Luks(RbdEncryptionOptionsLuks),
+    #[qapi(name = "luks2")]
+    Luks2(RbdEncryptionOptionsLuks2),
+    #[qapi(name = "luks-any")]
+    LuksAny(RbdEncryptionOptionsLuksAny),
+}
 #[qapi(name = "RbdEncryptionOptions")]
 #[qapi(since = "6.1")]
-#[qapi(discriminator = "RbdImageEncryptionFormat")]
-pub enum RbdEncryptionOptions {
+pub struct RbdEncryptionOptions {
+    /// Parent image encryption options (for cloned images).  Can
+    /// be left unspecified if this cloned image is encrypted using the
+    /// same format and secret as its parent image (i.e. not explicitly
+    /// formatted) or if its parent image is not encrypted.  (Since 8.0)
+    #[qapi(name = "parent")]
+    pub parent: Option<RbdEncryptionOptions>,
+    #[qapi(union)]
+    pub u: Option<RbdEncryptionOptionsBranch>,
+}
+pub enum RbdEncryptionCreateOptionsBranch {
     #[qapi(name = "luks")]
-    Luks {
-        #[qapi(name = "parent")]
-        parent: RbdEncryptionOptions,
-        #[qapi(union)]
-        branch: RbdEncryptionOptionsLuks,
-    },
+    Luks(RbdEncryptionCreateOptionsLuks),
     #[qapi(name = "luks2")]
-    Luks2 {
-        #[qapi(name = "parent")]
-        parent: RbdEncryptionOptions,
-        #[qapi(union)]
-        branch: RbdEncryptionOptionsLuks2,
-    },
-    /// Used for opening either luks or luks2 (Since 8.0)
-    #[qapi(name = "luks-any")]
-    LuksAny {
-        #[qapi(name = "parent")]
-        parent: RbdEncryptionOptions,
-        #[qapi(union)]
-        branch: RbdEncryptionOptionsLuksAny,
-    },
+    Luks2(RbdEncryptionCreateOptionsLuks2),
 }
 #[qapi(name = "RbdEncryptionCreateOptions")]
 #[qapi(since = "6.1")]
-#[qapi(discriminator = "RbdImageEncryptionFormat")]
-pub enum RbdEncryptionCreateOptions {
-    #[qapi(name = "luks")]
-    Luks {
-        #[qapi(union)]
-        branch: RbdEncryptionCreateOptionsLuks,
-    },
-    #[qapi(name = "luks2")]
-    Luks2 {
-        #[qapi(union)]
-        branch: RbdEncryptionCreateOptionsLuks2,
-    },
-    /// Used for opening either luks or luks2 (Since 8.0)
-    #[qapi(name = "luks-any")]
-    LuksAny {},
+pub struct RbdEncryptionCreateOptions {
+    #[qapi(union)]
+    pub u: Option<RbdEncryptionCreateOptionsBranch>,
 }
 #[qapi(name = "BlockdevOptionsRbd")]
 #[qapi(since = "2.9")]
@@ -6899,921 +6435,153 @@ pub struct BlockdevOptionsCbw {
     #[qapi(name = "cbw-timeout")]
     pub cbw_timeout: Option<u32>,
 }
+pub enum BlockdevOptionsBranch {
+    #[qapi(name = "blkdebug")]
+    Blkdebug(BlockdevOptionsBlkdebug),
+    #[qapi(name = "blklogwrites")]
+    Blklogwrites(BlockdevOptionsBlklogwrites),
+    #[qapi(name = "blkverify")]
+    Blkverify(BlockdevOptionsBlkverify),
+    #[qapi(name = "blkreplay")]
+    Blkreplay(BlockdevOptionsBlkreplay),
+    #[qapi(name = "bochs")]
+    Bochs(BlockdevOptionsGenericFormat),
+    #[qapi(name = "cloop")]
+    Cloop(BlockdevOptionsGenericFormat),
+    #[qapi(name = "compress")]
+    Compress(BlockdevOptionsGenericFormat),
+    #[qapi(name = "copy-before-write")]
+    CopyBeforeWrite(BlockdevOptionsCbw),
+    #[qapi(name = "copy-on-read")]
+    CopyOnRead(BlockdevOptionsCor),
+    #[qapi(name = "dmg")]
+    Dmg(BlockdevOptionsGenericFormat),
+    #[qapi(name = "file")]
+    File(BlockdevOptionsFile),
+    #[qapi(name = "ftp")]
+    Ftp(BlockdevOptionsCurlFtp),
+    #[qapi(name = "ftps")]
+    Ftps(BlockdevOptionsCurlFtps),
+    #[qapi(name = "gluster")]
+    Gluster(BlockdevOptionsGluster),
+    #[qapi(name = "host_cdrom")]
+    #[qapi(condition = "HAVE_HOST_BLOCK_DEVICE")]
+    HostCdrom(BlockdevOptionsFile),
+    #[qapi(name = "host_device")]
+    #[qapi(condition = "HAVE_HOST_BLOCK_DEVICE")]
+    HostDevice(BlockdevOptionsFile),
+    #[qapi(name = "http")]
+    Http(BlockdevOptionsCurlHttp),
+    #[qapi(name = "https")]
+    Https(BlockdevOptionsCurlHttps),
+    #[qapi(name = "io_uring")]
+    #[qapi(condition = "CONFIG_BLKIO")]
+    IoUring(BlockdevOptionsIoUring),
+    #[qapi(name = "iscsi")]
+    Iscsi(BlockdevOptionsIscsi),
+    #[qapi(name = "luks")]
+    Luks(BlockdevOptionsLuks),
+    #[qapi(name = "nbd")]
+    Nbd(BlockdevOptionsNbd),
+    #[qapi(name = "nfs")]
+    Nfs(BlockdevOptionsNfs),
+    #[qapi(name = "null-aio")]
+    NullAio(BlockdevOptionsNull),
+    #[qapi(name = "null-co")]
+    NullCo(BlockdevOptionsNull),
+    #[qapi(name = "nvme")]
+    Nvme(BlockdevOptionsNvMe),
+    #[qapi(name = "nvme-io_uring")]
+    #[qapi(condition = "CONFIG_BLKIO")]
+    NvmeIoUring(BlockdevOptionsNvmeIoUring),
+    #[qapi(name = "parallels")]
+    Parallels(BlockdevOptionsGenericFormat),
+    #[qapi(name = "preallocate")]
+    Preallocate(BlockdevOptionsPreallocate),
+    #[qapi(name = "qcow2")]
+    Qcow2(BlockdevOptionsQcow2),
+    #[qapi(name = "qcow")]
+    Qcow(BlockdevOptionsQcow),
+    #[qapi(name = "qed")]
+    Qed(BlockdevOptionsGenericCowFormat),
+    #[qapi(name = "quorum")]
+    Quorum(BlockdevOptionsQuorum),
+    #[qapi(name = "raw")]
+    Raw(BlockdevOptionsRaw),
+    #[qapi(name = "rbd")]
+    Rbd(BlockdevOptionsRbd),
+    #[qapi(name = "replication")]
+    #[qapi(condition = "CONFIG_REPLICATION")]
+    Replication(BlockdevOptionsReplication),
+    #[qapi(name = "snapshot-access")]
+    SnapshotAccess(BlockdevOptionsGenericFormat),
+    #[qapi(name = "ssh")]
+    Ssh(BlockdevOptionsSsh),
+    #[qapi(name = "throttle")]
+    Throttle(BlockdevOptionsThrottle),
+    #[qapi(name = "vdi")]
+    Vdi(BlockdevOptionsGenericFormat),
+    #[qapi(name = "vhdx")]
+    Vhdx(BlockdevOptionsGenericFormat),
+    #[qapi(name = "virtio-blk-vfio-pci")]
+    #[qapi(condition = "CONFIG_BLKIO")]
+    VirtioBlkVfioPci(BlockdevOptionsVirtioBlkVfioPci),
+    #[qapi(name = "virtio-blk-vhost-user")]
+    #[qapi(condition = "CONFIG_BLKIO")]
+    VirtioBlkVhostUser(BlockdevOptionsVirtioBlkVhostUser),
+    #[qapi(name = "virtio-blk-vhost-vdpa")]
+    #[qapi(condition = "CONFIG_BLKIO")]
+    VirtioBlkVhostVdpa(BlockdevOptionsVirtioBlkVhostVdpa),
+    #[qapi(name = "vmdk")]
+    Vmdk(BlockdevOptionsGenericCowFormat),
+    #[qapi(name = "vpc")]
+    Vpc(BlockdevOptionsGenericFormat),
+    #[qapi(name = "vvfat")]
+    Vvfat(BlockdevOptionsVvfat),
+}
 /// Options for creating a block device.  Many options are available for
 /// all block devices, independent of the block driver:
 #[qapi(name = "BlockdevOptions")]
 #[qapi(since = "2.9")]
-#[qapi(discriminator = "BlockdevDriver")]
-pub enum BlockdevOptions {
-    #[qapi(name = "blkdebug")]
-    Blkdebug {
-        #[qapi(name = "node-name")]
-        node_name: String,
-        #[qapi(name = "discard")]
-        discard: BlockdevDiscardOptions,
-        #[qapi(name = "cache")]
-        cache: BlockdevCacheOptions,
-        #[qapi(name = "read-only")]
-        read_only: bool,
-        #[qapi(name = "auto-read-only")]
-        auto_read_only: bool,
-        #[qapi(name = "force-share")]
-        force_share: bool,
-        #[qapi(name = "detect-zeroes")]
-        detect_zeroes: BlockdevDetectZeroesOptions,
-        #[qapi(union)]
-        branch: BlockdevOptionsBlkdebug,
-    },
-    /// Since 3.0
-    #[qapi(name = "blklogwrites")]
-    Blklogwrites {
-        #[qapi(name = "node-name")]
-        node_name: String,
-        #[qapi(name = "discard")]
-        discard: BlockdevDiscardOptions,
-        #[qapi(name = "cache")]
-        cache: BlockdevCacheOptions,
-        #[qapi(name = "read-only")]
-        read_only: bool,
-        #[qapi(name = "auto-read-only")]
-        auto_read_only: bool,
-        #[qapi(name = "force-share")]
-        force_share: bool,
-        #[qapi(name = "detect-zeroes")]
-        detect_zeroes: BlockdevDetectZeroesOptions,
-        #[qapi(union)]
-        branch: BlockdevOptionsBlklogwrites,
-    },
-    /// Since 4.2
-    #[qapi(name = "blkreplay")]
-    Blkreplay {
-        #[qapi(name = "node-name")]
-        node_name: String,
-        #[qapi(name = "discard")]
-        discard: BlockdevDiscardOptions,
-        #[qapi(name = "cache")]
-        cache: BlockdevCacheOptions,
-        #[qapi(name = "read-only")]
-        read_only: bool,
-        #[qapi(name = "auto-read-only")]
-        auto_read_only: bool,
-        #[qapi(name = "force-share")]
-        force_share: bool,
-        #[qapi(name = "detect-zeroes")]
-        detect_zeroes: BlockdevDetectZeroesOptions,
-        #[qapi(union)]
-        branch: BlockdevOptionsBlkreplay,
-    },
-    #[qapi(name = "blkverify")]
-    Blkverify {
-        #[qapi(name = "node-name")]
-        node_name: String,
-        #[qapi(name = "discard")]
-        discard: BlockdevDiscardOptions,
-        #[qapi(name = "cache")]
-        cache: BlockdevCacheOptions,
-        #[qapi(name = "read-only")]
-        read_only: bool,
-        #[qapi(name = "auto-read-only")]
-        auto_read_only: bool,
-        #[qapi(name = "force-share")]
-        force_share: bool,
-        #[qapi(name = "detect-zeroes")]
-        detect_zeroes: BlockdevDetectZeroesOptions,
-        #[qapi(union)]
-        branch: BlockdevOptionsBlkverify,
-    },
-    #[qapi(name = "bochs")]
-    Bochs {
-        #[qapi(name = "node-name")]
-        node_name: String,
-        #[qapi(name = "discard")]
-        discard: BlockdevDiscardOptions,
-        #[qapi(name = "cache")]
-        cache: BlockdevCacheOptions,
-        #[qapi(name = "read-only")]
-        read_only: bool,
-        #[qapi(name = "auto-read-only")]
-        auto_read_only: bool,
-        #[qapi(name = "force-share")]
-        force_share: bool,
-        #[qapi(name = "detect-zeroes")]
-        detect_zeroes: BlockdevDetectZeroesOptions,
-        #[qapi(union)]
-        branch: BlockdevOptionsGenericFormat,
-    },
-    #[qapi(name = "cloop")]
-    Cloop {
-        #[qapi(name = "node-name")]
-        node_name: String,
-        #[qapi(name = "discard")]
-        discard: BlockdevDiscardOptions,
-        #[qapi(name = "cache")]
-        cache: BlockdevCacheOptions,
-        #[qapi(name = "read-only")]
-        read_only: bool,
-        #[qapi(name = "auto-read-only")]
-        auto_read_only: bool,
-        #[qapi(name = "force-share")]
-        force_share: bool,
-        #[qapi(name = "detect-zeroes")]
-        detect_zeroes: BlockdevDetectZeroesOptions,
-        #[qapi(union)]
-        branch: BlockdevOptionsGenericFormat,
-    },
-    /// Since 5.0
-    #[qapi(name = "compress")]
-    Compress {
-        #[qapi(name = "node-name")]
-        node_name: String,
-        #[qapi(name = "discard")]
-        discard: BlockdevDiscardOptions,
-        #[qapi(name = "cache")]
-        cache: BlockdevCacheOptions,
-        #[qapi(name = "read-only")]
-        read_only: bool,
-        #[qapi(name = "auto-read-only")]
-        auto_read_only: bool,
-        #[qapi(name = "force-share")]
-        force_share: bool,
-        #[qapi(name = "detect-zeroes")]
-        detect_zeroes: BlockdevDetectZeroesOptions,
-        #[qapi(union)]
-        branch: BlockdevOptionsGenericFormat,
-    },
-    /// Since 6.2
-    #[qapi(name = "copy-before-write")]
-    CopyBeforeWrite {
-        #[qapi(name = "node-name")]
-        node_name: String,
-        #[qapi(name = "discard")]
-        discard: BlockdevDiscardOptions,
-        #[qapi(name = "cache")]
-        cache: BlockdevCacheOptions,
-        #[qapi(name = "read-only")]
-        read_only: bool,
-        #[qapi(name = "auto-read-only")]
-        auto_read_only: bool,
-        #[qapi(name = "force-share")]
-        force_share: bool,
-        #[qapi(name = "detect-zeroes")]
-        detect_zeroes: BlockdevDetectZeroesOptions,
-        #[qapi(union)]
-        branch: BlockdevOptionsCbw,
-    },
-    /// Since 3.0
-    #[qapi(name = "copy-on-read")]
-    CopyOnRead {
-        #[qapi(name = "node-name")]
-        node_name: String,
-        #[qapi(name = "discard")]
-        discard: BlockdevDiscardOptions,
-        #[qapi(name = "cache")]
-        cache: BlockdevCacheOptions,
-        #[qapi(name = "read-only")]
-        read_only: bool,
-        #[qapi(name = "auto-read-only")]
-        auto_read_only: bool,
-        #[qapi(name = "force-share")]
-        force_share: bool,
-        #[qapi(name = "detect-zeroes")]
-        detect_zeroes: BlockdevDetectZeroesOptions,
-        #[qapi(union)]
-        branch: BlockdevOptionsCor,
-    },
-    #[qapi(name = "dmg")]
-    Dmg {
-        #[qapi(name = "node-name")]
-        node_name: String,
-        #[qapi(name = "discard")]
-        discard: BlockdevDiscardOptions,
-        #[qapi(name = "cache")]
-        cache: BlockdevCacheOptions,
-        #[qapi(name = "read-only")]
-        read_only: bool,
-        #[qapi(name = "auto-read-only")]
-        auto_read_only: bool,
-        #[qapi(name = "force-share")]
-        force_share: bool,
-        #[qapi(name = "detect-zeroes")]
-        detect_zeroes: BlockdevDetectZeroesOptions,
-        #[qapi(union)]
-        branch: BlockdevOptionsGenericFormat,
-    },
-    #[qapi(name = "file")]
-    File {
-        #[qapi(name = "node-name")]
-        node_name: String,
-        #[qapi(name = "discard")]
-        discard: BlockdevDiscardOptions,
-        #[qapi(name = "cache")]
-        cache: BlockdevCacheOptions,
-        #[qapi(name = "read-only")]
-        read_only: bool,
-        #[qapi(name = "auto-read-only")]
-        auto_read_only: bool,
-        #[qapi(name = "force-share")]
-        force_share: bool,
-        #[qapi(name = "detect-zeroes")]
-        detect_zeroes: BlockdevDetectZeroesOptions,
-        #[qapi(union)]
-        branch: BlockdevOptionsFile,
-    },
-    /// Since 7.0
-    #[qapi(name = "snapshot-access")]
-    SnapshotAccess {
-        #[qapi(name = "node-name")]
-        node_name: String,
-        #[qapi(name = "discard")]
-        discard: BlockdevDiscardOptions,
-        #[qapi(name = "cache")]
-        cache: BlockdevCacheOptions,
-        #[qapi(name = "read-only")]
-        read_only: bool,
-        #[qapi(name = "auto-read-only")]
-        auto_read_only: bool,
-        #[qapi(name = "force-share")]
-        force_share: bool,
-        #[qapi(name = "detect-zeroes")]
-        detect_zeroes: BlockdevDetectZeroesOptions,
-        #[qapi(union)]
-        branch: BlockdevOptionsGenericFormat,
-    },
-    #[qapi(name = "ftp")]
-    Ftp {
-        #[qapi(name = "node-name")]
-        node_name: String,
-        #[qapi(name = "discard")]
-        discard: BlockdevDiscardOptions,
-        #[qapi(name = "cache")]
-        cache: BlockdevCacheOptions,
-        #[qapi(name = "read-only")]
-        read_only: bool,
-        #[qapi(name = "auto-read-only")]
-        auto_read_only: bool,
-        #[qapi(name = "force-share")]
-        force_share: bool,
-        #[qapi(name = "detect-zeroes")]
-        detect_zeroes: BlockdevDetectZeroesOptions,
-        #[qapi(union)]
-        branch: BlockdevOptionsCurlFtp,
-    },
-    #[qapi(name = "ftps")]
-    Ftps {
-        #[qapi(name = "node-name")]
-        node_name: String,
-        #[qapi(name = "discard")]
-        discard: BlockdevDiscardOptions,
-        #[qapi(name = "cache")]
-        cache: BlockdevCacheOptions,
-        #[qapi(name = "read-only")]
-        read_only: bool,
-        #[qapi(name = "auto-read-only")]
-        auto_read_only: bool,
-        #[qapi(name = "force-share")]
-        force_share: bool,
-        #[qapi(name = "detect-zeroes")]
-        detect_zeroes: BlockdevDetectZeroesOptions,
-        #[qapi(union)]
-        branch: BlockdevOptionsCurlFtps,
-    },
-    #[qapi(name = "gluster")]
-    Gluster {
-        #[qapi(name = "node-name")]
-        node_name: String,
-        #[qapi(name = "discard")]
-        discard: BlockdevDiscardOptions,
-        #[qapi(name = "cache")]
-        cache: BlockdevCacheOptions,
-        #[qapi(name = "read-only")]
-        read_only: bool,
-        #[qapi(name = "auto-read-only")]
-        auto_read_only: bool,
-        #[qapi(name = "force-share")]
-        force_share: bool,
-        #[qapi(name = "detect-zeroes")]
-        detect_zeroes: BlockdevDetectZeroesOptions,
-        #[qapi(union)]
-        branch: BlockdevOptionsGluster,
-    },
-    #[qapi(name = "host_cdrom")]
-    #[qapi(condition = "HAVE_HOST_BLOCK_DEVICE")]
-    HostCdrom {
-        #[qapi(name = "node-name")]
-        node_name: String,
-        #[qapi(name = "discard")]
-        discard: BlockdevDiscardOptions,
-        #[qapi(name = "cache")]
-        cache: BlockdevCacheOptions,
-        #[qapi(name = "read-only")]
-        read_only: bool,
-        #[qapi(name = "auto-read-only")]
-        auto_read_only: bool,
-        #[qapi(name = "force-share")]
-        force_share: bool,
-        #[qapi(name = "detect-zeroes")]
-        detect_zeroes: BlockdevDetectZeroesOptions,
-        #[qapi(union)]
-        branch: BlockdevOptionsFile,
-    },
-    #[qapi(name = "host_device")]
-    #[qapi(condition = "HAVE_HOST_BLOCK_DEVICE")]
-    HostDevice {
-        #[qapi(name = "node-name")]
-        node_name: String,
-        #[qapi(name = "discard")]
-        discard: BlockdevDiscardOptions,
-        #[qapi(name = "cache")]
-        cache: BlockdevCacheOptions,
-        #[qapi(name = "read-only")]
-        read_only: bool,
-        #[qapi(name = "auto-read-only")]
-        auto_read_only: bool,
-        #[qapi(name = "force-share")]
-        force_share: bool,
-        #[qapi(name = "detect-zeroes")]
-        detect_zeroes: BlockdevDetectZeroesOptions,
-        #[qapi(union)]
-        branch: BlockdevOptionsFile,
-    },
-    #[qapi(name = "http")]
-    Http {
-        #[qapi(name = "node-name")]
-        node_name: String,
-        #[qapi(name = "discard")]
-        discard: BlockdevDiscardOptions,
-        #[qapi(name = "cache")]
-        cache: BlockdevCacheOptions,
-        #[qapi(name = "read-only")]
-        read_only: bool,
-        #[qapi(name = "auto-read-only")]
-        auto_read_only: bool,
-        #[qapi(name = "force-share")]
-        force_share: bool,
-        #[qapi(name = "detect-zeroes")]
-        detect_zeroes: BlockdevDetectZeroesOptions,
-        #[qapi(union)]
-        branch: BlockdevOptionsCurlHttp,
-    },
-    #[qapi(name = "https")]
-    Https {
-        #[qapi(name = "node-name")]
-        node_name: String,
-        #[qapi(name = "discard")]
-        discard: BlockdevDiscardOptions,
-        #[qapi(name = "cache")]
-        cache: BlockdevCacheOptions,
-        #[qapi(name = "read-only")]
-        read_only: bool,
-        #[qapi(name = "auto-read-only")]
-        auto_read_only: bool,
-        #[qapi(name = "force-share")]
-        force_share: bool,
-        #[qapi(name = "detect-zeroes")]
-        detect_zeroes: BlockdevDetectZeroesOptions,
-        #[qapi(union)]
-        branch: BlockdevOptionsCurlHttps,
-    },
-    #[qapi(name = "io_uring")]
-    #[qapi(condition = "CONFIG_BLKIO")]
-    IoUring {
-        #[qapi(name = "node-name")]
-        node_name: String,
-        #[qapi(name = "discard")]
-        discard: BlockdevDiscardOptions,
-        #[qapi(name = "cache")]
-        cache: BlockdevCacheOptions,
-        #[qapi(name = "read-only")]
-        read_only: bool,
-        #[qapi(name = "auto-read-only")]
-        auto_read_only: bool,
-        #[qapi(name = "force-share")]
-        force_share: bool,
-        #[qapi(name = "detect-zeroes")]
-        detect_zeroes: BlockdevDetectZeroesOptions,
-        #[qapi(union)]
-        branch: BlockdevOptionsIoUring,
-    },
-    #[qapi(name = "iscsi")]
-    Iscsi {
-        #[qapi(name = "node-name")]
-        node_name: String,
-        #[qapi(name = "discard")]
-        discard: BlockdevDiscardOptions,
-        #[qapi(name = "cache")]
-        cache: BlockdevCacheOptions,
-        #[qapi(name = "read-only")]
-        read_only: bool,
-        #[qapi(name = "auto-read-only")]
-        auto_read_only: bool,
-        #[qapi(name = "force-share")]
-        force_share: bool,
-        #[qapi(name = "detect-zeroes")]
-        detect_zeroes: BlockdevDetectZeroesOptions,
-        #[qapi(union)]
-        branch: BlockdevOptionsIscsi,
-    },
-    #[qapi(name = "luks")]
-    Luks {
-        #[qapi(name = "node-name")]
-        node_name: String,
-        #[qapi(name = "discard")]
-        discard: BlockdevDiscardOptions,
-        #[qapi(name = "cache")]
-        cache: BlockdevCacheOptions,
-        #[qapi(name = "read-only")]
-        read_only: bool,
-        #[qapi(name = "auto-read-only")]
-        auto_read_only: bool,
-        #[qapi(name = "force-share")]
-        force_share: bool,
-        #[qapi(name = "detect-zeroes")]
-        detect_zeroes: BlockdevDetectZeroesOptions,
-        #[qapi(union)]
-        branch: BlockdevOptionsLuks,
-    },
-    #[qapi(name = "nbd")]
-    Nbd {
-        #[qapi(name = "node-name")]
-        node_name: String,
-        #[qapi(name = "discard")]
-        discard: BlockdevDiscardOptions,
-        #[qapi(name = "cache")]
-        cache: BlockdevCacheOptions,
-        #[qapi(name = "read-only")]
-        read_only: bool,
-        #[qapi(name = "auto-read-only")]
-        auto_read_only: bool,
-        #[qapi(name = "force-share")]
-        force_share: bool,
-        #[qapi(name = "detect-zeroes")]
-        detect_zeroes: BlockdevDetectZeroesOptions,
-        #[qapi(union)]
-        branch: BlockdevOptionsNbd,
-    },
-    #[qapi(name = "nfs")]
-    Nfs {
-        #[qapi(name = "node-name")]
-        node_name: String,
-        #[qapi(name = "discard")]
-        discard: BlockdevDiscardOptions,
-        #[qapi(name = "cache")]
-        cache: BlockdevCacheOptions,
-        #[qapi(name = "read-only")]
-        read_only: bool,
-        #[qapi(name = "auto-read-only")]
-        auto_read_only: bool,
-        #[qapi(name = "force-share")]
-        force_share: bool,
-        #[qapi(name = "detect-zeroes")]
-        detect_zeroes: BlockdevDetectZeroesOptions,
-        #[qapi(union)]
-        branch: BlockdevOptionsNfs,
-    },
-    #[qapi(name = "null-aio")]
-    NullAio {
-        #[qapi(name = "node-name")]
-        node_name: String,
-        #[qapi(name = "discard")]
-        discard: BlockdevDiscardOptions,
-        #[qapi(name = "cache")]
-        cache: BlockdevCacheOptions,
-        #[qapi(name = "read-only")]
-        read_only: bool,
-        #[qapi(name = "auto-read-only")]
-        auto_read_only: bool,
-        #[qapi(name = "force-share")]
-        force_share: bool,
-        #[qapi(name = "detect-zeroes")]
-        detect_zeroes: BlockdevDetectZeroesOptions,
-        #[qapi(union)]
-        branch: BlockdevOptionsNull,
-    },
-    #[qapi(name = "null-co")]
-    NullCo {
-        #[qapi(name = "node-name")]
-        node_name: String,
-        #[qapi(name = "discard")]
-        discard: BlockdevDiscardOptions,
-        #[qapi(name = "cache")]
-        cache: BlockdevCacheOptions,
-        #[qapi(name = "read-only")]
-        read_only: bool,
-        #[qapi(name = "auto-read-only")]
-        auto_read_only: bool,
-        #[qapi(name = "force-share")]
-        force_share: bool,
-        #[qapi(name = "detect-zeroes")]
-        detect_zeroes: BlockdevDetectZeroesOptions,
-        #[qapi(union)]
-        branch: BlockdevOptionsNull,
-    },
-    /// Since 2.12
-    #[qapi(name = "nvme")]
-    Nvme {
-        #[qapi(name = "node-name")]
-        node_name: String,
-        #[qapi(name = "discard")]
-        discard: BlockdevDiscardOptions,
-        #[qapi(name = "cache")]
-        cache: BlockdevCacheOptions,
-        #[qapi(name = "read-only")]
-        read_only: bool,
-        #[qapi(name = "auto-read-only")]
-        auto_read_only: bool,
-        #[qapi(name = "force-share")]
-        force_share: bool,
-        #[qapi(name = "detect-zeroes")]
-        detect_zeroes: BlockdevDetectZeroesOptions,
-        #[qapi(union)]
-        branch: BlockdevOptionsNvMe,
-    },
-    #[qapi(name = "nvme-io_uring")]
-    #[qapi(condition = "CONFIG_BLKIO")]
-    NvmeIoUring {
-        #[qapi(name = "node-name")]
-        node_name: String,
-        #[qapi(name = "discard")]
-        discard: BlockdevDiscardOptions,
-        #[qapi(name = "cache")]
-        cache: BlockdevCacheOptions,
-        #[qapi(name = "read-only")]
-        read_only: bool,
-        #[qapi(name = "auto-read-only")]
-        auto_read_only: bool,
-        #[qapi(name = "force-share")]
-        force_share: bool,
-        #[qapi(name = "detect-zeroes")]
-        detect_zeroes: BlockdevDetectZeroesOptions,
-        #[qapi(union)]
-        branch: BlockdevOptionsNvmeIoUring,
-    },
-    #[qapi(name = "parallels")]
-    Parallels {
-        #[qapi(name = "node-name")]
-        node_name: String,
-        #[qapi(name = "discard")]
-        discard: BlockdevDiscardOptions,
-        #[qapi(name = "cache")]
-        cache: BlockdevCacheOptions,
-        #[qapi(name = "read-only")]
-        read_only: bool,
-        #[qapi(name = "auto-read-only")]
-        auto_read_only: bool,
-        #[qapi(name = "force-share")]
-        force_share: bool,
-        #[qapi(name = "detect-zeroes")]
-        detect_zeroes: BlockdevDetectZeroesOptions,
-        #[qapi(union)]
-        branch: BlockdevOptionsGenericFormat,
-    },
-    #[qapi(name = "preallocate")]
-    Preallocate {
-        #[qapi(name = "node-name")]
-        node_name: String,
-        #[qapi(name = "discard")]
-        discard: BlockdevDiscardOptions,
-        #[qapi(name = "cache")]
-        cache: BlockdevCacheOptions,
-        #[qapi(name = "read-only")]
-        read_only: bool,
-        #[qapi(name = "auto-read-only")]
-        auto_read_only: bool,
-        #[qapi(name = "force-share")]
-        force_share: bool,
-        #[qapi(name = "detect-zeroes")]
-        detect_zeroes: BlockdevDetectZeroesOptions,
-        #[qapi(union)]
-        branch: BlockdevOptionsPreallocate,
-    },
-    #[qapi(name = "qcow")]
-    Qcow {
-        #[qapi(name = "node-name")]
-        node_name: String,
-        #[qapi(name = "discard")]
-        discard: BlockdevDiscardOptions,
-        #[qapi(name = "cache")]
-        cache: BlockdevCacheOptions,
-        #[qapi(name = "read-only")]
-        read_only: bool,
-        #[qapi(name = "auto-read-only")]
-        auto_read_only: bool,
-        #[qapi(name = "force-share")]
-        force_share: bool,
-        #[qapi(name = "detect-zeroes")]
-        detect_zeroes: BlockdevDetectZeroesOptions,
-        #[qapi(union)]
-        branch: BlockdevOptionsQcow,
-    },
-    #[qapi(name = "qcow2")]
-    Qcow2 {
-        #[qapi(name = "node-name")]
-        node_name: String,
-        #[qapi(name = "discard")]
-        discard: BlockdevDiscardOptions,
-        #[qapi(name = "cache")]
-        cache: BlockdevCacheOptions,
-        #[qapi(name = "read-only")]
-        read_only: bool,
-        #[qapi(name = "auto-read-only")]
-        auto_read_only: bool,
-        #[qapi(name = "force-share")]
-        force_share: bool,
-        #[qapi(name = "detect-zeroes")]
-        detect_zeroes: BlockdevDetectZeroesOptions,
-        #[qapi(union)]
-        branch: BlockdevOptionsQcow2,
-    },
-    #[qapi(name = "qed")]
-    Qed {
-        #[qapi(name = "node-name")]
-        node_name: String,
-        #[qapi(name = "discard")]
-        discard: BlockdevDiscardOptions,
-        #[qapi(name = "cache")]
-        cache: BlockdevCacheOptions,
-        #[qapi(name = "read-only")]
-        read_only: bool,
-        #[qapi(name = "auto-read-only")]
-        auto_read_only: bool,
-        #[qapi(name = "force-share")]
-        force_share: bool,
-        #[qapi(name = "detect-zeroes")]
-        detect_zeroes: BlockdevDetectZeroesOptions,
-        #[qapi(union)]
-        branch: BlockdevOptionsGenericCowFormat,
-    },
-    #[qapi(name = "quorum")]
-    Quorum {
-        #[qapi(name = "node-name")]
-        node_name: String,
-        #[qapi(name = "discard")]
-        discard: BlockdevDiscardOptions,
-        #[qapi(name = "cache")]
-        cache: BlockdevCacheOptions,
-        #[qapi(name = "read-only")]
-        read_only: bool,
-        #[qapi(name = "auto-read-only")]
-        auto_read_only: bool,
-        #[qapi(name = "force-share")]
-        force_share: bool,
-        #[qapi(name = "detect-zeroes")]
-        detect_zeroes: BlockdevDetectZeroesOptions,
-        #[qapi(union)]
-        branch: BlockdevOptionsQuorum,
-    },
-    #[qapi(name = "raw")]
-    Raw {
-        #[qapi(name = "node-name")]
-        node_name: String,
-        #[qapi(name = "discard")]
-        discard: BlockdevDiscardOptions,
-        #[qapi(name = "cache")]
-        cache: BlockdevCacheOptions,
-        #[qapi(name = "read-only")]
-        read_only: bool,
-        #[qapi(name = "auto-read-only")]
-        auto_read_only: bool,
-        #[qapi(name = "force-share")]
-        force_share: bool,
-        #[qapi(name = "detect-zeroes")]
-        detect_zeroes: BlockdevDetectZeroesOptions,
-        #[qapi(union)]
-        branch: BlockdevOptionsRaw,
-    },
-    #[qapi(name = "rbd")]
-    Rbd {
-        #[qapi(name = "node-name")]
-        node_name: String,
-        #[qapi(name = "discard")]
-        discard: BlockdevDiscardOptions,
-        #[qapi(name = "cache")]
-        cache: BlockdevCacheOptions,
-        #[qapi(name = "read-only")]
-        read_only: bool,
-        #[qapi(name = "auto-read-only")]
-        auto_read_only: bool,
-        #[qapi(name = "force-share")]
-        force_share: bool,
-        #[qapi(name = "detect-zeroes")]
-        detect_zeroes: BlockdevDetectZeroesOptions,
-        #[qapi(union)]
-        branch: BlockdevOptionsRbd,
-    },
-    #[qapi(name = "replication")]
-    #[qapi(condition = "CONFIG_REPLICATION")]
-    Replication {
-        #[qapi(name = "node-name")]
-        node_name: String,
-        #[qapi(name = "discard")]
-        discard: BlockdevDiscardOptions,
-        #[qapi(name = "cache")]
-        cache: BlockdevCacheOptions,
-        #[qapi(name = "read-only")]
-        read_only: bool,
-        #[qapi(name = "auto-read-only")]
-        auto_read_only: bool,
-        #[qapi(name = "force-share")]
-        force_share: bool,
-        #[qapi(name = "detect-zeroes")]
-        detect_zeroes: BlockdevDetectZeroesOptions,
-        #[qapi(union)]
-        branch: BlockdevOptionsReplication,
-    },
-    #[qapi(name = "ssh")]
-    Ssh {
-        #[qapi(name = "node-name")]
-        node_name: String,
-        #[qapi(name = "discard")]
-        discard: BlockdevDiscardOptions,
-        #[qapi(name = "cache")]
-        cache: BlockdevCacheOptions,
-        #[qapi(name = "read-only")]
-        read_only: bool,
-        #[qapi(name = "auto-read-only")]
-        auto_read_only: bool,
-        #[qapi(name = "force-share")]
-        force_share: bool,
-        #[qapi(name = "detect-zeroes")]
-        detect_zeroes: BlockdevDetectZeroesOptions,
-        #[qapi(union)]
-        branch: BlockdevOptionsSsh,
-    },
-    /// Since 2.11
-    #[qapi(name = "throttle")]
-    Throttle {
-        #[qapi(name = "node-name")]
-        node_name: String,
-        #[qapi(name = "discard")]
-        discard: BlockdevDiscardOptions,
-        #[qapi(name = "cache")]
-        cache: BlockdevCacheOptions,
-        #[qapi(name = "read-only")]
-        read_only: bool,
-        #[qapi(name = "auto-read-only")]
-        auto_read_only: bool,
-        #[qapi(name = "force-share")]
-        force_share: bool,
-        #[qapi(name = "detect-zeroes")]
-        detect_zeroes: BlockdevDetectZeroesOptions,
-        #[qapi(union)]
-        branch: BlockdevOptionsThrottle,
-    },
-    #[qapi(name = "vdi")]
-    Vdi {
-        #[qapi(name = "node-name")]
-        node_name: String,
-        #[qapi(name = "discard")]
-        discard: BlockdevDiscardOptions,
-        #[qapi(name = "cache")]
-        cache: BlockdevCacheOptions,
-        #[qapi(name = "read-only")]
-        read_only: bool,
-        #[qapi(name = "auto-read-only")]
-        auto_read_only: bool,
-        #[qapi(name = "force-share")]
-        force_share: bool,
-        #[qapi(name = "detect-zeroes")]
-        detect_zeroes: BlockdevDetectZeroesOptions,
-        #[qapi(union)]
-        branch: BlockdevOptionsGenericFormat,
-    },
-    #[qapi(name = "vhdx")]
-    Vhdx {
-        #[qapi(name = "node-name")]
-        node_name: String,
-        #[qapi(name = "discard")]
-        discard: BlockdevDiscardOptions,
-        #[qapi(name = "cache")]
-        cache: BlockdevCacheOptions,
-        #[qapi(name = "read-only")]
-        read_only: bool,
-        #[qapi(name = "auto-read-only")]
-        auto_read_only: bool,
-        #[qapi(name = "force-share")]
-        force_share: bool,
-        #[qapi(name = "detect-zeroes")]
-        detect_zeroes: BlockdevDetectZeroesOptions,
-        #[qapi(union)]
-        branch: BlockdevOptionsGenericFormat,
-    },
-    #[qapi(name = "virtio-blk-vfio-pci")]
-    #[qapi(condition = "CONFIG_BLKIO")]
-    VirtioBlkVfioPci {
-        #[qapi(name = "node-name")]
-        node_name: String,
-        #[qapi(name = "discard")]
-        discard: BlockdevDiscardOptions,
-        #[qapi(name = "cache")]
-        cache: BlockdevCacheOptions,
-        #[qapi(name = "read-only")]
-        read_only: bool,
-        #[qapi(name = "auto-read-only")]
-        auto_read_only: bool,
-        #[qapi(name = "force-share")]
-        force_share: bool,
-        #[qapi(name = "detect-zeroes")]
-        detect_zeroes: BlockdevDetectZeroesOptions,
-        #[qapi(union)]
-        branch: BlockdevOptionsVirtioBlkVfioPci,
-    },
-    #[qapi(name = "virtio-blk-vhost-user")]
-    #[qapi(condition = "CONFIG_BLKIO")]
-    VirtioBlkVhostUser {
-        #[qapi(name = "node-name")]
-        node_name: String,
-        #[qapi(name = "discard")]
-        discard: BlockdevDiscardOptions,
-        #[qapi(name = "cache")]
-        cache: BlockdevCacheOptions,
-        #[qapi(name = "read-only")]
-        read_only: bool,
-        #[qapi(name = "auto-read-only")]
-        auto_read_only: bool,
-        #[qapi(name = "force-share")]
-        force_share: bool,
-        #[qapi(name = "detect-zeroes")]
-        detect_zeroes: BlockdevDetectZeroesOptions,
-        #[qapi(union)]
-        branch: BlockdevOptionsVirtioBlkVhostUser,
-    },
-    #[qapi(name = "virtio-blk-vhost-vdpa")]
-    #[qapi(condition = "CONFIG_BLKIO")]
-    VirtioBlkVhostVdpa {
-        #[qapi(name = "node-name")]
-        node_name: String,
-        #[qapi(name = "discard")]
-        discard: BlockdevDiscardOptions,
-        #[qapi(name = "cache")]
-        cache: BlockdevCacheOptions,
-        #[qapi(name = "read-only")]
-        read_only: bool,
-        #[qapi(name = "auto-read-only")]
-        auto_read_only: bool,
-        #[qapi(name = "force-share")]
-        force_share: bool,
-        #[qapi(name = "detect-zeroes")]
-        detect_zeroes: BlockdevDetectZeroesOptions,
-        #[qapi(union)]
-        branch: BlockdevOptionsVirtioBlkVhostVdpa,
-    },
-    #[qapi(name = "vmdk")]
-    Vmdk {
-        #[qapi(name = "node-name")]
-        node_name: String,
-        #[qapi(name = "discard")]
-        discard: BlockdevDiscardOptions,
-        #[qapi(name = "cache")]
-        cache: BlockdevCacheOptions,
-        #[qapi(name = "read-only")]
-        read_only: bool,
-        #[qapi(name = "auto-read-only")]
-        auto_read_only: bool,
-        #[qapi(name = "force-share")]
-        force_share: bool,
-        #[qapi(name = "detect-zeroes")]
-        detect_zeroes: BlockdevDetectZeroesOptions,
-        #[qapi(union)]
-        branch: BlockdevOptionsGenericCowFormat,
-    },
-    #[qapi(name = "vpc")]
-    Vpc {
-        #[qapi(name = "node-name")]
-        node_name: String,
-        #[qapi(name = "discard")]
-        discard: BlockdevDiscardOptions,
-        #[qapi(name = "cache")]
-        cache: BlockdevCacheOptions,
-        #[qapi(name = "read-only")]
-        read_only: bool,
-        #[qapi(name = "auto-read-only")]
-        auto_read_only: bool,
-        #[qapi(name = "force-share")]
-        force_share: bool,
-        #[qapi(name = "detect-zeroes")]
-        detect_zeroes: BlockdevDetectZeroesOptions,
-        #[qapi(union)]
-        branch: BlockdevOptionsGenericFormat,
-    },
-    #[qapi(name = "vvfat")]
-    Vvfat {
-        #[qapi(name = "node-name")]
-        node_name: String,
-        #[qapi(name = "discard")]
-        discard: BlockdevDiscardOptions,
-        #[qapi(name = "cache")]
-        cache: BlockdevCacheOptions,
-        #[qapi(name = "read-only")]
-        read_only: bool,
-        #[qapi(name = "auto-read-only")]
-        auto_read_only: bool,
-        #[qapi(name = "force-share")]
-        force_share: bool,
-        #[qapi(name = "detect-zeroes")]
-        detect_zeroes: BlockdevDetectZeroesOptions,
-        #[qapi(union)]
-        branch: BlockdevOptionsVvfat,
-    },
+pub struct BlockdevOptions {
+    /// the node name of the new node (Since 2.0).  This option
+    /// is required on the top level of blockdev-add.  Valid node names
+    /// start with an alphabetic character and may contain only
+    /// alphanumeric characters, '-', '.' and '_'.  Their maximum length
+    /// is 31 characters.
+    #[qapi(name = "node-name")]
+    pub node_name: Option<String>,
+    /// discard-related options (default: ignore)
+    #[qapi(name = "discard")]
+    pub discard: Option<BlockdevDiscardOptions>,
+    /// cache-related options
+    #[qapi(name = "cache")]
+    pub cache: Option<BlockdevCacheOptions>,
+    /// whether the block device should be read-only (default:
+    /// false).  Note that some block drivers support only read-only
+    /// access, either generally or in certain configurations.  In this
+    /// case, the default value does not work and the option must be
+    /// specified explicitly.
+    #[qapi(name = "read-only")]
+    pub read_only: Option<bool>,
+    /// if true and @read-only is false, QEMU may
+    /// automatically decide not to open the image read-write as
+    /// requested, but fall back to read-only instead (and switch
+    /// between the modes later), e.g. depending on whether the image
+    /// file is writable or whether a writing user is attached to the
+    /// node (default: false, since 3.1)
+    #[qapi(name = "auto-read-only")]
+    pub auto_read_only: Option<bool>,
+    /// force share all permission on added nodes.  Requires
+    /// read-only=true.  (Since 2.10)
+    #[qapi(name = "force-share")]
+    pub force_share: Option<bool>,
+    /// detect and optimize zero writes (Since 2.1)
+    /// (default: off)
+    #[qapi(name = "detect-zeroes")]
+    pub detect_zeroes: Option<BlockdevDetectZeroesOptions>,
+    #[qapi(union)]
+    pub u: Option<BlockdevOptionsBranch>,
 }
 /// Reference to a block device.
 #[qapi(name = "BlockdevRef")]
@@ -8332,163 +7100,42 @@ pub struct BlockdevCreateOptionsVpc {
     #[qapi(name = "force-size")]
     pub force_size: Option<bool>,
 }
+pub enum BlockdevCreateOptionsBranch {
+    #[qapi(name = "file")]
+    File(BlockdevCreateOptionsFile),
+    #[qapi(name = "gluster")]
+    Gluster(BlockdevCreateOptionsGluster),
+    #[qapi(name = "luks")]
+    Luks(BlockdevCreateOptionsLuks),
+    #[qapi(name = "nfs")]
+    Nfs(BlockdevCreateOptionsNfs),
+    #[qapi(name = "parallels")]
+    Parallels(BlockdevCreateOptionsParallels),
+    #[qapi(name = "qcow")]
+    Qcow(BlockdevCreateOptionsQcow),
+    #[qapi(name = "qcow2")]
+    Qcow2(BlockdevCreateOptionsQcow2),
+    #[qapi(name = "qed")]
+    Qed(BlockdevCreateOptionsQed),
+    #[qapi(name = "rbd")]
+    Rbd(BlockdevCreateOptionsRbd),
+    #[qapi(name = "ssh")]
+    Ssh(BlockdevCreateOptionsSsh),
+    #[qapi(name = "vdi")]
+    Vdi(BlockdevCreateOptionsVdi),
+    #[qapi(name = "vhdx")]
+    Vhdx(BlockdevCreateOptionsVhdx),
+    #[qapi(name = "vmdk")]
+    Vmdk(BlockdevCreateOptionsVmdk),
+    #[qapi(name = "vpc")]
+    Vpc(BlockdevCreateOptionsVpc),
+}
 /// Options for creating an image format on a given node.
 #[qapi(name = "BlockdevCreateOptions")]
 #[qapi(since = "2.12")]
-#[qapi(discriminator = "BlockdevDriver")]
-pub enum BlockdevCreateOptions {
-    #[qapi(name = "blkdebug")]
-    Blkdebug {},
-    /// Since 3.0
-    #[qapi(name = "blklogwrites")]
-    Blklogwrites {},
-    /// Since 4.2
-    #[qapi(name = "blkreplay")]
-    Blkreplay {},
-    #[qapi(name = "blkverify")]
-    Blkverify {},
-    #[qapi(name = "bochs")]
-    Bochs {},
-    #[qapi(name = "cloop")]
-    Cloop {},
-    /// Since 5.0
-    #[qapi(name = "compress")]
-    Compress {},
-    /// Since 6.2
-    #[qapi(name = "copy-before-write")]
-    CopyBeforeWrite {},
-    /// Since 3.0
-    #[qapi(name = "copy-on-read")]
-    CopyOnRead {},
-    #[qapi(name = "dmg")]
-    Dmg {},
-    #[qapi(name = "file")]
-    File {
-        #[qapi(union)]
-        branch: BlockdevCreateOptionsFile,
-    },
-    /// Since 7.0
-    #[qapi(name = "snapshot-access")]
-    SnapshotAccess {},
-    #[qapi(name = "ftp")]
-    Ftp {},
-    #[qapi(name = "ftps")]
-    Ftps {},
-    #[qapi(name = "gluster")]
-    Gluster {
-        #[qapi(union)]
-        branch: BlockdevCreateOptionsGluster,
-    },
-    #[qapi(name = "host_cdrom")]
-    #[qapi(condition = "HAVE_HOST_BLOCK_DEVICE")]
-    HostCdrom {},
-    #[qapi(name = "host_device")]
-    #[qapi(condition = "HAVE_HOST_BLOCK_DEVICE")]
-    HostDevice {},
-    #[qapi(name = "http")]
-    Http {},
-    #[qapi(name = "https")]
-    Https {},
-    #[qapi(name = "io_uring")]
-    #[qapi(condition = "CONFIG_BLKIO")]
-    IoUring {},
-    #[qapi(name = "iscsi")]
-    Iscsi {},
-    #[qapi(name = "luks")]
-    Luks {
-        #[qapi(union)]
-        branch: BlockdevCreateOptionsLuks,
-    },
-    #[qapi(name = "nbd")]
-    Nbd {},
-    #[qapi(name = "nfs")]
-    Nfs {
-        #[qapi(union)]
-        branch: BlockdevCreateOptionsNfs,
-    },
-    #[qapi(name = "null-aio")]
-    NullAio {},
-    #[qapi(name = "null-co")]
-    NullCo {},
-    /// Since 2.12
-    #[qapi(name = "nvme")]
-    Nvme {},
-    #[qapi(name = "nvme-io_uring")]
-    #[qapi(condition = "CONFIG_BLKIO")]
-    NvmeIoUring {},
-    #[qapi(name = "parallels")]
-    Parallels {
-        #[qapi(union)]
-        branch: BlockdevCreateOptionsParallels,
-    },
-    #[qapi(name = "preallocate")]
-    Preallocate {},
-    #[qapi(name = "qcow")]
-    Qcow {
-        #[qapi(union)]
-        branch: BlockdevCreateOptionsQcow,
-    },
-    #[qapi(name = "qcow2")]
-    Qcow2 {
-        #[qapi(union)]
-        branch: BlockdevCreateOptionsQcow2,
-    },
-    #[qapi(name = "qed")]
-    Qed {
-        #[qapi(union)]
-        branch: BlockdevCreateOptionsQed,
-    },
-    #[qapi(name = "quorum")]
-    Quorum {},
-    #[qapi(name = "raw")]
-    Raw {},
-    #[qapi(name = "rbd")]
-    Rbd {
-        #[qapi(union)]
-        branch: BlockdevCreateOptionsRbd,
-    },
-    #[qapi(name = "replication")]
-    #[qapi(condition = "CONFIG_REPLICATION")]
-    Replication {},
-    #[qapi(name = "ssh")]
-    Ssh {
-        #[qapi(union)]
-        branch: BlockdevCreateOptionsSsh,
-    },
-    /// Since 2.11
-    #[qapi(name = "throttle")]
-    Throttle {},
-    #[qapi(name = "vdi")]
-    Vdi {
-        #[qapi(union)]
-        branch: BlockdevCreateOptionsVdi,
-    },
-    #[qapi(name = "vhdx")]
-    Vhdx {
-        #[qapi(union)]
-        branch: BlockdevCreateOptionsVhdx,
-    },
-    #[qapi(name = "virtio-blk-vfio-pci")]
-    #[qapi(condition = "CONFIG_BLKIO")]
-    VirtioBlkVfioPci {},
-    #[qapi(name = "virtio-blk-vhost-user")]
-    #[qapi(condition = "CONFIG_BLKIO")]
-    VirtioBlkVhostUser {},
-    #[qapi(name = "virtio-blk-vhost-vdpa")]
-    #[qapi(condition = "CONFIG_BLKIO")]
-    VirtioBlkVhostVdpa {},
-    #[qapi(name = "vmdk")]
-    Vmdk {
-        #[qapi(union)]
-        branch: BlockdevCreateOptionsVmdk,
-    },
-    #[qapi(name = "vpc")]
-    Vpc {
-        #[qapi(union)]
-        branch: BlockdevCreateOptionsVpc,
-    },
-    #[qapi(name = "vvfat")]
-    Vvfat {},
+pub struct BlockdevCreateOptions {
+    #[qapi(union)]
+    pub u: Option<BlockdevCreateOptionsBranch>,
 }
 /// Starts a job to create an image format on a given node.  The job is
 /// automatically finalized, but a manual job-dismiss is required.
@@ -8550,127 +7197,18 @@ pub struct BlockdevAmendOptionsQcow2 {
     #[qapi(name = "encrypt")]
     pub encrypt: Option<QCryptoBlockAmendOptions>,
 }
+pub enum BlockdevAmendOptionsBranch {
+    #[qapi(name = "luks")]
+    Luks(BlockdevAmendOptionsLuks),
+    #[qapi(name = "qcow2")]
+    Qcow2(BlockdevAmendOptionsQcow2),
+}
 /// Options for amending an image format
 #[qapi(name = "BlockdevAmendOptions")]
 #[qapi(since = "5.1")]
-#[qapi(discriminator = "BlockdevDriver")]
-pub enum BlockdevAmendOptions {
-    #[qapi(name = "blkdebug")]
-    Blkdebug {},
-    /// Since 3.0
-    #[qapi(name = "blklogwrites")]
-    Blklogwrites {},
-    /// Since 4.2
-    #[qapi(name = "blkreplay")]
-    Blkreplay {},
-    #[qapi(name = "blkverify")]
-    Blkverify {},
-    #[qapi(name = "bochs")]
-    Bochs {},
-    #[qapi(name = "cloop")]
-    Cloop {},
-    /// Since 5.0
-    #[qapi(name = "compress")]
-    Compress {},
-    /// Since 6.2
-    #[qapi(name = "copy-before-write")]
-    CopyBeforeWrite {},
-    /// Since 3.0
-    #[qapi(name = "copy-on-read")]
-    CopyOnRead {},
-    #[qapi(name = "dmg")]
-    Dmg {},
-    #[qapi(name = "file")]
-    File {},
-    /// Since 7.0
-    #[qapi(name = "snapshot-access")]
-    SnapshotAccess {},
-    #[qapi(name = "ftp")]
-    Ftp {},
-    #[qapi(name = "ftps")]
-    Ftps {},
-    #[qapi(name = "gluster")]
-    Gluster {},
-    #[qapi(name = "host_cdrom")]
-    #[qapi(condition = "HAVE_HOST_BLOCK_DEVICE")]
-    HostCdrom {},
-    #[qapi(name = "host_device")]
-    #[qapi(condition = "HAVE_HOST_BLOCK_DEVICE")]
-    HostDevice {},
-    #[qapi(name = "http")]
-    Http {},
-    #[qapi(name = "https")]
-    Https {},
-    #[qapi(name = "io_uring")]
-    #[qapi(condition = "CONFIG_BLKIO")]
-    IoUring {},
-    #[qapi(name = "iscsi")]
-    Iscsi {},
-    #[qapi(name = "luks")]
-    Luks {
-        #[qapi(union)]
-        branch: BlockdevAmendOptionsLuks,
-    },
-    #[qapi(name = "nbd")]
-    Nbd {},
-    #[qapi(name = "nfs")]
-    Nfs {},
-    #[qapi(name = "null-aio")]
-    NullAio {},
-    #[qapi(name = "null-co")]
-    NullCo {},
-    /// Since 2.12
-    #[qapi(name = "nvme")]
-    Nvme {},
-    #[qapi(name = "nvme-io_uring")]
-    #[qapi(condition = "CONFIG_BLKIO")]
-    NvmeIoUring {},
-    #[qapi(name = "parallels")]
-    Parallels {},
-    #[qapi(name = "preallocate")]
-    Preallocate {},
-    #[qapi(name = "qcow")]
-    Qcow {},
-    #[qapi(name = "qcow2")]
-    Qcow2 {
-        #[qapi(union)]
-        branch: BlockdevAmendOptionsQcow2,
-    },
-    #[qapi(name = "qed")]
-    Qed {},
-    #[qapi(name = "quorum")]
-    Quorum {},
-    #[qapi(name = "raw")]
-    Raw {},
-    #[qapi(name = "rbd")]
-    Rbd {},
-    #[qapi(name = "replication")]
-    #[qapi(condition = "CONFIG_REPLICATION")]
-    Replication {},
-    #[qapi(name = "ssh")]
-    Ssh {},
-    /// Since 2.11
-    #[qapi(name = "throttle")]
-    Throttle {},
-    #[qapi(name = "vdi")]
-    Vdi {},
-    #[qapi(name = "vhdx")]
-    Vhdx {},
-    #[qapi(name = "virtio-blk-vfio-pci")]
-    #[qapi(condition = "CONFIG_BLKIO")]
-    VirtioBlkVfioPci {},
-    #[qapi(name = "virtio-blk-vhost-user")]
-    #[qapi(condition = "CONFIG_BLKIO")]
-    VirtioBlkVhostUser {},
-    #[qapi(name = "virtio-blk-vhost-vdpa")]
-    #[qapi(condition = "CONFIG_BLKIO")]
-    VirtioBlkVhostVdpa {},
-    #[qapi(name = "vmdk")]
-    Vmdk {},
-    #[qapi(name = "vpc")]
-    Vpc {},
-    #[qapi(name = "vvfat")]
-    Vvfat {},
+pub struct BlockdevAmendOptions {
+    #[qapi(union)]
+    pub u: Option<BlockdevAmendOptionsBranch>,
 }
 /// Starts a job to amend format specific options of an existing open
 /// block device The job is automatically finalized, but a manual
@@ -9371,87 +7909,55 @@ pub enum BlockExportType {
     #[qapi(condition = "CONFIG_VDUSE_BLK_EXPORT")]
     VduseBlk,
 }
+pub enum BlockExportOptionsBranch {
+    #[qapi(name = "nbd")]
+    Nbd(BlockExportOptionsNbd),
+    #[qapi(name = "vhost-user-blk")]
+    #[qapi(condition = "CONFIG_VHOST_USER_BLK_SERVER")]
+    VhostUserBlk(BlockExportOptionsVhostUserBlk),
+    #[qapi(name = "fuse")]
+    #[qapi(condition = "CONFIG_FUSE")]
+    Fuse(BlockExportOptionsFuse),
+    #[qapi(name = "vduse-blk")]
+    #[qapi(condition = "CONFIG_VDUSE_BLK_EXPORT")]
+    VduseBlk(BlockExportOptionsVduseBlk),
+}
 /// Describes a block export, i.e. how single node should be exported on
 /// an external interface.
 #[qapi(name = "BlockExportOptions")]
 #[qapi(since = "4.2")]
-#[qapi(discriminator = "BlockExportType")]
-pub enum BlockExportOptions {
-    /// NBD export
-    #[qapi(name = "nbd")]
-    Nbd {
-        #[qapi(name = "id")]
-        id: String,
-        #[qapi(name = "fixed-iothread")]
-        fixed_iothread: bool,
-        #[qapi(name = "iothread")]
-        iothread: String,
-        #[qapi(name = "node-name")]
-        node_name: String,
-        #[qapi(name = "writable")]
-        writable: bool,
-        #[qapi(name = "writethrough")]
-        writethrough: bool,
-        #[qapi(union)]
-        branch: BlockExportOptionsNbd,
-    },
-    /// vhost-user-blk export (since 5.2)
-    #[qapi(name = "vhost-user-blk")]
-    #[qapi(condition = "CONFIG_VHOST_USER_BLK_SERVER")]
-    VhostUserBlk {
-        #[qapi(name = "id")]
-        id: String,
-        #[qapi(name = "fixed-iothread")]
-        fixed_iothread: bool,
-        #[qapi(name = "iothread")]
-        iothread: String,
-        #[qapi(name = "node-name")]
-        node_name: String,
-        #[qapi(name = "writable")]
-        writable: bool,
-        #[qapi(name = "writethrough")]
-        writethrough: bool,
-        #[qapi(union)]
-        branch: BlockExportOptionsVhostUserBlk,
-    },
-    /// FUSE export (since: 6.0)
-    #[qapi(name = "fuse")]
-    #[qapi(condition = "CONFIG_FUSE")]
-    Fuse {
-        #[qapi(name = "id")]
-        id: String,
-        #[qapi(name = "fixed-iothread")]
-        fixed_iothread: bool,
-        #[qapi(name = "iothread")]
-        iothread: String,
-        #[qapi(name = "node-name")]
-        node_name: String,
-        #[qapi(name = "writable")]
-        writable: bool,
-        #[qapi(name = "writethrough")]
-        writethrough: bool,
-        #[qapi(union)]
-        branch: BlockExportOptionsFuse,
-    },
-    /// vduse-blk export (since 7.1)
-    #[qapi(name = "vduse-blk")]
-    #[qapi(condition = "CONFIG_VDUSE_BLK_EXPORT")]
-    VduseBlk {
-        #[qapi(name = "id")]
-        id: String,
-        #[qapi(name = "fixed-iothread")]
-        fixed_iothread: bool,
-        #[qapi(name = "iothread")]
-        iothread: String,
-        #[qapi(name = "node-name")]
-        node_name: String,
-        #[qapi(name = "writable")]
-        writable: bool,
-        #[qapi(name = "writethrough")]
-        writethrough: bool,
-        #[qapi(union)]
-        branch: BlockExportOptionsVduseBlk,
-    },
+pub struct BlockExportOptions {
+    /// A unique identifier for the block export (across all export
+    /// types)
+    #[qapi(name = "id")]
+    pub id: String,
+    /// True prevents the block node from being moved to
+    /// another thread while the export is active.  If true and
+    /// @iothread is given, export creation fails if the block node
+    /// cannot be moved to the iothread.  The default is false.
+    /// (since: 5.2)
+    #[qapi(name = "fixed-iothread")]
+    pub fixed_iothread: Option<bool>,
+    /// The name of the iothread object where the export will
+    /// run.  The default is to use the thread currently associated with
+    /// the block node.  (since: 5.2)
+    #[qapi(name = "iothread")]
+    pub iothread: Option<String>,
+    /// The node name of the block node to be exported
+    /// (since: 5.2)
+    #[qapi(name = "node-name")]
+    pub node_name: String,
+    /// True if clients should be able to write to the export
+    /// (default false)
+    #[qapi(name = "writable")]
+    pub writable: Option<bool>,
+    /// If true, caches are flushed after every write request
+    /// to the export before completion is signalled.  (since: 5.2;
+    /// default: false)
+    #[qapi(name = "writethrough")]
+    pub writethrough: Option<bool>,
+    #[qapi(union)]
+    pub u: Option<BlockExportOptionsBranch>,
 }
 /// Creates a new block export.
 #[qapi(name = "block-export-add")]
@@ -10027,145 +8533,66 @@ pub struct ChardevRingbufWrapper {
     #[qapi(name = "data")]
     pub data: ChardevRingbuf,
 }
+pub enum ChardevBackendBranch {
+    #[qapi(name = "file")]
+    File(ChardevFileWrapper),
+    #[qapi(name = "serial")]
+    #[qapi(condition = "HAVE_CHARDEV_SERIAL")]
+    Serial(ChardevHostdevWrapper),
+    #[qapi(name = "parallel")]
+    #[qapi(condition = "HAVE_CHARDEV_PARALLEL")]
+    Parallel(ChardevHostdevWrapper),
+    #[qapi(name = "pipe")]
+    Pipe(ChardevHostdevWrapper),
+    #[qapi(name = "socket")]
+    Socket(ChardevSocketWrapper),
+    #[qapi(name = "udp")]
+    Udp(ChardevUdpWrapper),
+    #[qapi(name = "pty")]
+    Pty(ChardevCommonWrapper),
+    #[qapi(name = "null")]
+    Null(ChardevCommonWrapper),
+    #[qapi(name = "mux")]
+    Mux(ChardevMuxWrapper),
+    #[qapi(name = "msmouse")]
+    Msmouse(ChardevCommonWrapper),
+    #[qapi(name = "wctablet")]
+    Wctablet(ChardevCommonWrapper),
+    #[qapi(name = "braille")]
+    #[qapi(condition = "CONFIG_BRLAPI")]
+    Braille(ChardevCommonWrapper),
+    #[qapi(name = "testdev")]
+    Testdev(ChardevCommonWrapper),
+    #[qapi(name = "stdio")]
+    Stdio(ChardevStdioWrapper),
+    #[qapi(name = "console")]
+    #[qapi(condition = "CONFIG_WIN32")]
+    Console(ChardevCommonWrapper),
+    #[qapi(name = "spicevmc")]
+    #[qapi(condition = "CONFIG_SPICE")]
+    Spicevmc(ChardevSpiceChannelWrapper),
+    #[qapi(name = "spiceport")]
+    #[qapi(condition = "CONFIG_SPICE")]
+    Spiceport(ChardevSpicePortWrapper),
+    #[qapi(name = "qemu-vdagent")]
+    #[qapi(condition = "CONFIG_SPICE_PROTOCOL")]
+    QemuVdagent(ChardevQemuVdAgentWrapper),
+    #[qapi(name = "dbus")]
+    #[qapi(condition = "CONFIG_DBUS_DISPLAY")]
+    Dbus(ChardevDBusWrapper),
+    #[qapi(name = "vc")]
+    Vc(ChardevVcWrapper),
+    #[qapi(name = "ringbuf")]
+    Ringbuf(ChardevRingbufWrapper),
+    #[qapi(name = "memory")]
+    Memory(ChardevRingbufWrapper),
+}
 /// Configuration info for the new chardev backend.
 #[qapi(name = "ChardevBackend")]
 #[qapi(since = "1.4")]
-#[qapi(discriminator = "ChardevBackendKind")]
-pub enum ChardevBackend {
-    #[qapi(name = "file")]
-    File {
-        #[qapi(union)]
-        branch: ChardevFileWrapper,
-    },
-    #[qapi(name = "serial")]
-    #[qapi(condition = "HAVE_CHARDEV_SERIAL")]
-    Serial {
-        #[qapi(union)]
-        branch: ChardevHostdevWrapper,
-    },
-    #[qapi(name = "parallel")]
-    #[qapi(condition = "HAVE_CHARDEV_PARALLEL")]
-    Parallel {
-        #[qapi(union)]
-        branch: ChardevHostdevWrapper,
-    },
-    /// Since 1.5
-    #[qapi(name = "pipe")]
-    Pipe {
-        #[qapi(union)]
-        branch: ChardevHostdevWrapper,
-    },
-    #[qapi(name = "socket")]
-    Socket {
-        #[qapi(union)]
-        branch: ChardevSocketWrapper,
-    },
-    /// Since 1.5
-    #[qapi(name = "udp")]
-    Udp {
-        #[qapi(union)]
-        branch: ChardevUdpWrapper,
-    },
-    #[qapi(name = "pty")]
-    Pty {
-        #[qapi(union)]
-        branch: ChardevCommonWrapper,
-    },
-    #[qapi(name = "null")]
-    Null {
-        #[qapi(union)]
-        branch: ChardevCommonWrapper,
-    },
-    /// Since 1.5
-    #[qapi(name = "mux")]
-    Mux {
-        #[qapi(union)]
-        branch: ChardevMuxWrapper,
-    },
-    /// Since 1.5
-    #[qapi(name = "msmouse")]
-    Msmouse {
-        #[qapi(union)]
-        branch: ChardevCommonWrapper,
-    },
-    /// Since 2.9
-    #[qapi(name = "wctablet")]
-    Wctablet {
-        #[qapi(union)]
-        branch: ChardevCommonWrapper,
-    },
-    /// Since 1.5
-    #[qapi(name = "braille")]
-    #[qapi(condition = "CONFIG_BRLAPI")]
-    Braille {
-        #[qapi(union)]
-        branch: ChardevCommonWrapper,
-    },
-    /// Since 2.2
-    #[qapi(name = "testdev")]
-    Testdev {
-        #[qapi(union)]
-        branch: ChardevCommonWrapper,
-    },
-    /// Since 1.5
-    #[qapi(name = "stdio")]
-    Stdio {
-        #[qapi(union)]
-        branch: ChardevStdioWrapper,
-    },
-    /// Since 1.5
-    #[qapi(name = "console")]
-    #[qapi(condition = "CONFIG_WIN32")]
-    Console {
-        #[qapi(union)]
-        branch: ChardevCommonWrapper,
-    },
-    /// Since 1.5
-    #[qapi(name = "spicevmc")]
-    #[qapi(condition = "CONFIG_SPICE")]
-    Spicevmc {
-        #[qapi(union)]
-        branch: ChardevSpiceChannelWrapper,
-    },
-    /// Since 1.5
-    #[qapi(name = "spiceport")]
-    #[qapi(condition = "CONFIG_SPICE")]
-    Spiceport {
-        #[qapi(union)]
-        branch: ChardevSpicePortWrapper,
-    },
-    /// Since 6.1
-    #[qapi(name = "qemu-vdagent")]
-    #[qapi(condition = "CONFIG_SPICE_PROTOCOL")]
-    QemuVdagent {
-        #[qapi(union)]
-        branch: ChardevQemuVdAgentWrapper,
-    },
-    /// Since 7.0
-    #[qapi(name = "dbus")]
-    #[qapi(condition = "CONFIG_DBUS_DISPLAY")]
-    Dbus {
-        #[qapi(union)]
-        branch: ChardevDBusWrapper,
-    },
-    /// v1.5
-    #[qapi(name = "vc")]
-    Vc {
-        #[qapi(union)]
-        branch: ChardevVcWrapper,
-    },
-    /// Since 1.6
-    #[qapi(name = "ringbuf")]
-    Ringbuf {
-        #[qapi(union)]
-        branch: ChardevRingbufWrapper,
-    },
-    /// Since 1.5
-    #[qapi(name = "memory")]
-    Memory {
-        #[qapi(union)]
-        branch: ChardevRingbufWrapper,
-    },
+pub struct ChardevBackend {
+    #[qapi(union)]
+    pub u: Option<ChardevBackendBranch>,
 }
 /// Return info about the chardev backend just created.
 #[qapi(name = "ChardevReturn")]
@@ -10979,147 +9406,55 @@ pub enum NetClientDriver {
     #[qapi(condition = "CONFIG_VMNET")]
     VmnetBridged,
 }
+pub enum NetdevBranch {
+    #[qapi(name = "nic")]
+    Nic(NetLegacyNicOptions),
+    #[qapi(name = "user")]
+    User(NetdevUserOptions),
+    #[qapi(name = "tap")]
+    Tap(NetdevTapOptions),
+    #[qapi(name = "l2tpv3")]
+    L2tpv3(NetdevL2tPv3Options),
+    #[qapi(name = "socket")]
+    Socket(NetdevSocketOptions),
+    #[qapi(name = "stream")]
+    Stream(NetdevStreamOptions),
+    #[qapi(name = "dgram")]
+    Dgram(NetdevDgramOptions),
+    #[qapi(name = "vde")]
+    Vde(NetdevVdeOptions),
+    #[qapi(name = "bridge")]
+    Bridge(NetdevBridgeOptions),
+    #[qapi(name = "hubport")]
+    Hubport(NetdevHubPortOptions),
+    #[qapi(name = "netmap")]
+    Netmap(NetdevNetmapOptions),
+    #[qapi(name = "af-xdp")]
+    #[qapi(condition = "CONFIG_AF_XDP")]
+    AfXdp(NetdevAfxdpOptions),
+    #[qapi(name = "vhost-user")]
+    VhostUser(NetdevVhostUserOptions),
+    #[qapi(name = "vhost-vdpa")]
+    VhostVdpa(NetdevVhostVdpaOptions),
+    #[qapi(name = "vmnet-host")]
+    #[qapi(condition = "CONFIG_VMNET")]
+    VmnetHost(NetdevVmnetHostOptions),
+    #[qapi(name = "vmnet-shared")]
+    #[qapi(condition = "CONFIG_VMNET")]
+    VmnetShared(NetdevVmnetSharedOptions),
+    #[qapi(name = "vmnet-bridged")]
+    #[qapi(condition = "CONFIG_VMNET")]
+    VmnetBridged(NetdevVmnetBridgedOptions),
+}
 /// Captures the configuration of a network device.
 #[qapi(name = "Netdev")]
 #[qapi(since = "1.2")]
-#[qapi(discriminator = "NetClientDriver")]
-pub enum Netdev {
-    #[qapi(name = "none")]
-    None {
-        #[qapi(name = "id")]
-        id: String,
-    },
-    #[qapi(name = "nic")]
-    Nic {
-        #[qapi(name = "id")]
-        id: String,
-        #[qapi(union)]
-        branch: NetLegacyNicOptions,
-    },
-    #[qapi(name = "user")]
-    User {
-        #[qapi(name = "id")]
-        id: String,
-        #[qapi(union)]
-        branch: NetdevUserOptions,
-    },
-    #[qapi(name = "tap")]
-    Tap {
-        #[qapi(name = "id")]
-        id: String,
-        #[qapi(union)]
-        branch: NetdevTapOptions,
-    },
-    /// since 2.1
-    #[qapi(name = "l2tpv3")]
-    L2tpv3 {
-        #[qapi(name = "id")]
-        id: String,
-        #[qapi(union)]
-        branch: NetdevL2tPv3Options,
-    },
-    #[qapi(name = "socket")]
-    Socket {
-        #[qapi(name = "id")]
-        id: String,
-        #[qapi(union)]
-        branch: NetdevSocketOptions,
-    },
-    /// since 7.2
-    #[qapi(name = "stream")]
-    Stream {
-        #[qapi(name = "id")]
-        id: String,
-        #[qapi(union)]
-        branch: NetdevStreamOptions,
-    },
-    /// since 7.2
-    #[qapi(name = "dgram")]
-    Dgram {
-        #[qapi(name = "id")]
-        id: String,
-        #[qapi(union)]
-        branch: NetdevDgramOptions,
-    },
-    #[qapi(name = "vde")]
-    Vde {
-        #[qapi(name = "id")]
-        id: String,
-        #[qapi(union)]
-        branch: NetdevVdeOptions,
-    },
-    #[qapi(name = "bridge")]
-    Bridge {
-        #[qapi(name = "id")]
-        id: String,
-        #[qapi(union)]
-        branch: NetdevBridgeOptions,
-    },
-    #[qapi(name = "hubport")]
-    Hubport {
-        #[qapi(name = "id")]
-        id: String,
-        #[qapi(union)]
-        branch: NetdevHubPortOptions,
-    },
-    #[qapi(name = "netmap")]
-    Netmap {
-        #[qapi(name = "id")]
-        id: String,
-        #[qapi(union)]
-        branch: NetdevNetmapOptions,
-    },
-    #[qapi(name = "vhost-user")]
-    VhostUser {
-        #[qapi(name = "id")]
-        id: String,
-        #[qapi(union)]
-        branch: NetdevVhostUserOptions,
-    },
-    /// since 5.1
-    #[qapi(name = "vhost-vdpa")]
-    VhostVdpa {
-        #[qapi(name = "id")]
-        id: String,
-        #[qapi(union)]
-        branch: NetdevVhostVdpaOptions,
-    },
-    /// since 8.2
-    #[qapi(name = "af-xdp")]
-    #[qapi(condition = "CONFIG_AF_XDP")]
-    AfXdp {
-        #[qapi(name = "id")]
-        id: String,
-        #[qapi(union)]
-        branch: NetdevAfxdpOptions,
-    },
-    /// since 7.1
-    #[qapi(name = "vmnet-host")]
-    #[qapi(condition = "CONFIG_VMNET")]
-    VmnetHost {
-        #[qapi(name = "id")]
-        id: String,
-        #[qapi(union)]
-        branch: NetdevVmnetHostOptions,
-    },
-    /// since 7.1
-    #[qapi(name = "vmnet-shared")]
-    #[qapi(condition = "CONFIG_VMNET")]
-    VmnetShared {
-        #[qapi(name = "id")]
-        id: String,
-        #[qapi(union)]
-        branch: NetdevVmnetSharedOptions,
-    },
-    /// since 7.1
-    #[qapi(name = "vmnet-bridged")]
-    #[qapi(condition = "CONFIG_VMNET")]
-    VmnetBridged {
-        #[qapi(name = "id")]
-        id: String,
-        #[qapi(union)]
-        branch: NetdevVmnetBridgedOptions,
-    },
+pub struct Netdev {
+    /// identifier for monitor commands.
+    #[qapi(name = "id")]
+    pub id: String,
+    #[qapi(union)]
+    pub u: Option<NetdevBranch>,
 }
 /// Packets receiving state
 #[qapi(name = "RxState")]
@@ -11634,25 +9969,20 @@ pub struct TpmEmulatorOptionsWrapper {
     #[qapi(name = "data")]
     pub data: TpmEmulatorOptions,
 }
+pub enum TpmTypeOptionsBranch {
+    #[qapi(name = "passthrough")]
+    Passthrough(TpmPassthroughOptionsWrapper),
+    #[qapi(name = "emulator")]
+    Emulator(TpmEmulatorOptionsWrapper),
+}
 /// A union referencing different TPM backend types' configuration
 /// options
 #[qapi(name = "TpmTypeOptions")]
 #[qapi(condition = "CONFIG_TPM")]
 #[qapi(since = "1.5")]
-#[qapi(discriminator = "TpmType")]
-pub enum TpmTypeOptions {
-    /// TPM passthrough type
-    #[qapi(name = "passthrough")]
-    Passthrough {
-        #[qapi(union)]
-        branch: TpmPassthroughOptionsWrapper,
-    },
-    /// Software Emulator TPM type (since 2.11)
-    #[qapi(name = "emulator")]
-    Emulator {
-        #[qapi(union)]
-        branch: TpmEmulatorOptionsWrapper,
-    },
+pub struct TpmTypeOptions {
+    #[qapi(union)]
+    pub u: Option<TpmTypeOptionsBranch>,
 }
 /// Information about the TPM
 #[qapi(name = "TPMInfo")]
@@ -11701,27 +10031,24 @@ pub enum SetPasswordAction {
     #[qapi(name = "disconnect")]
     Disconnect,
 }
+pub enum SetPasswordOptionsBranch {
+    #[qapi(name = "vnc")]
+    Vnc(SetPasswordOptionsVnc),
+}
 /// Options for set_password.
 #[qapi(name = "SetPasswordOptions")]
 #[qapi(since = "7.0")]
-#[qapi(discriminator = "DisplayProtocol")]
-pub enum SetPasswordOptions {
-    #[qapi(name = "vnc")]
-    Vnc {
-        #[qapi(name = "password")]
-        password: String,
-        #[qapi(name = "connected")]
-        connected: SetPasswordAction,
-        #[qapi(union)]
-        branch: SetPasswordOptionsVnc,
-    },
-    #[qapi(name = "spice")]
-    Spice {
-        #[qapi(name = "password")]
-        password: String,
-        #[qapi(name = "connected")]
-        connected: SetPasswordAction,
-    },
+pub struct SetPasswordOptions {
+    /// the new password
+    #[qapi(name = "password")]
+    pub password: String,
+    /// How to handle existing clients when changing the
+    /// password.  If nothing is specified, defaults to 'keep'.  For
+    /// VNC, only 'keep' is currently implemented.
+    #[qapi(name = "connected")]
+    pub connected: Option<SetPasswordAction>,
+    #[qapi(union)]
+    pub u: Option<SetPasswordOptionsBranch>,
 }
 /// Options for set_password specific to the VNC protocol.
 #[qapi(name = "SetPasswordOptionsVnc")]
@@ -11740,23 +10067,24 @@ pub struct SetPassword {
     #[qapi(flatten)]
     pub data: SetPasswordOptions,
 }
+pub enum ExpirePasswordOptionsBranch {
+    #[qapi(name = "vnc")]
+    Vnc(ExpirePasswordOptionsVnc),
+}
 /// General options for expire_password.
 #[qapi(name = "ExpirePasswordOptions")]
 #[qapi(since = "7.0")]
-#[qapi(discriminator = "DisplayProtocol")]
-pub enum ExpirePasswordOptions {
-    #[qapi(name = "vnc")]
-    Vnc {
-        #[qapi(name = "time")]
-        time: String,
-        #[qapi(union)]
-        branch: ExpirePasswordOptionsVnc,
-    },
-    #[qapi(name = "spice")]
-    Spice {
-        #[qapi(name = "time")]
-        time: String,
-    },
+pub struct ExpirePasswordOptions {
+    /// when to expire the password.
+    ///
+    /// - 'now' to expire the password immediately
+    /// - 'never' to cancel password expiration
+    /// - '+INT' where INT is the number of seconds from now (integer)
+    /// - 'INT' where INT is the absolute time in seconds
+    #[qapi(name = "time")]
+    pub time: String,
+    #[qapi(union)]
+    pub u: Option<ExpirePasswordOptionsBranch>,
 }
 /// Options for expire_password specific to the VNC protocol.
 #[qapi(name = "ExpirePasswordOptionsVnc")]
@@ -12691,21 +11019,18 @@ pub struct QKeyCodeWrapper {
     #[qapi(name = "data")]
     pub data: QKeyCode,
 }
+pub enum KeyValueBranch {
+    #[qapi(name = "number")]
+    f64(IntWrapper),
+    #[qapi(name = "qcode")]
+    Qcode(QKeyCodeWrapper),
+}
 /// Represents a keyboard key.
 #[qapi(name = "KeyValue")]
 #[qapi(since = "1.3")]
-#[qapi(discriminator = "KeyValueKind")]
-pub enum KeyValue {
-    #[qapi(name = "number")]
-    f64 {
-        #[qapi(union)]
-        branch: IntWrapper,
-    },
-    #[qapi(name = "qcode")]
-    Qcode {
-        #[qapi(union)]
-        branch: QKeyCodeWrapper,
-    },
+pub struct KeyValue {
+    #[qapi(union)]
+    pub u: Option<KeyValueBranch>,
 }
 /// Send keys to guest.
 #[qapi(name = "send-key")]
@@ -12882,41 +11207,24 @@ pub struct InputMultiTouchEventWrapper {
     #[qapi(name = "data")]
     pub data: InputMultiTouchEvent,
 }
+pub enum InputEventBranch {
+    #[qapi(name = "key")]
+    Key(InputKeyEventWrapper),
+    #[qapi(name = "btn")]
+    Btn(InputBtnEventWrapper),
+    #[qapi(name = "rel")]
+    Rel(InputMoveEventWrapper),
+    #[qapi(name = "abs")]
+    Abs(InputMoveEventWrapper),
+    #[qapi(name = "mtt")]
+    Mtt(InputMultiTouchEventWrapper),
+}
 /// Input event union.
 #[qapi(name = "InputEvent")]
 #[qapi(since = "2.0")]
-#[qapi(discriminator = "InputEventKind")]
-pub enum InputEvent {
-    /// a keyboard input event
-    #[qapi(name = "key")]
-    Key {
-        #[qapi(union)]
-        branch: InputKeyEventWrapper,
-    },
-    /// a pointer button input event
-    #[qapi(name = "btn")]
-    Btn {
-        #[qapi(union)]
-        branch: InputBtnEventWrapper,
-    },
-    /// a relative pointer motion input event
-    #[qapi(name = "rel")]
-    Rel {
-        #[qapi(union)]
-        branch: InputMoveEventWrapper,
-    },
-    /// an absolute pointer motion input event
-    #[qapi(name = "abs")]
-    Abs {
-        #[qapi(union)]
-        branch: InputMoveEventWrapper,
-    },
-    /// a multi-touch input event
-    #[qapi(name = "mtt")]
-    Mtt {
-        #[qapi(union)]
-        branch: InputMultiTouchEventWrapper,
-    },
+pub struct InputEvent {
+    #[qapi(union)]
+    pub u: Option<InputEventBranch>,
 }
 /// Send input event(s) to guest.
 ///
@@ -13126,150 +11434,47 @@ pub enum DisplayType {
     #[qapi(condition = "CONFIG_DBUS_DISPLAY")]
     Dbus,
 }
+pub enum DisplayOptionsBranch {
+    #[qapi(name = "gtk")]
+    #[qapi(condition = "CONFIG_GTK")]
+    Gtk(DisplayGtk),
+    #[qapi(name = "cocoa")]
+    #[qapi(condition = "CONFIG_COCOA")]
+    Cocoa(DisplayCocoa),
+    #[qapi(name = "curses")]
+    #[qapi(condition = "CONFIG_CURSES")]
+    Curses(DisplayCurses),
+    #[qapi(name = "egl-headless")]
+    #[qapi(condition = "CONFIG_OPENGL")]
+    EglHeadless(DisplayEglHeadless),
+    #[qapi(name = "dbus")]
+    #[qapi(condition = "CONFIG_DBUS_DISPLAY")]
+    Dbus(DisplayDBus),
+    #[qapi(name = "sdl")]
+    #[qapi(condition = "CONFIG_SDL")]
+    Sdl(DisplaySdl),
+}
 /// Display (user interface) options.
 #[qapi(name = "DisplayOptions")]
 #[qapi(since = "2.12")]
-#[qapi(discriminator = "DisplayType")]
-pub enum DisplayOptions {
-    /// The default user interface, selecting from the first
-    /// available of gtk, sdl, cocoa, and vnc.
-    #[qapi(name = "default")]
-    Default {
-        #[qapi(name = "full-screen")]
-        full_screen: bool,
-        #[qapi(name = "window-close")]
-        window_close: bool,
-        #[qapi(name = "show-cursor")]
-        show_cursor: bool,
-        #[qapi(name = "gl")]
-        gl: DisplayGlMode,
-    },
-    /// No user interface or video output display.  The guest will
-    /// still see an emulated graphics card, but its output will not be
-    /// displayed to the QEMU user.
-    #[qapi(name = "none")]
-    None {
-        #[qapi(name = "full-screen")]
-        full_screen: bool,
-        #[qapi(name = "window-close")]
-        window_close: bool,
-        #[qapi(name = "show-cursor")]
-        show_cursor: bool,
-        #[qapi(name = "gl")]
-        gl: DisplayGlMode,
-    },
-    /// The GTK user interface.
-    #[qapi(name = "gtk")]
-    #[qapi(condition = "CONFIG_GTK")]
-    Gtk {
-        #[qapi(name = "full-screen")]
-        full_screen: bool,
-        #[qapi(name = "window-close")]
-        window_close: bool,
-        #[qapi(name = "show-cursor")]
-        show_cursor: bool,
-        #[qapi(name = "gl")]
-        gl: DisplayGlMode,
-        #[qapi(union)]
-        branch: DisplayGtk,
-    },
-    /// The SDL user interface.
-    #[qapi(name = "sdl")]
-    #[qapi(condition = "CONFIG_SDL")]
-    Sdl {
-        #[qapi(name = "full-screen")]
-        full_screen: bool,
-        #[qapi(name = "window-close")]
-        window_close: bool,
-        #[qapi(name = "show-cursor")]
-        show_cursor: bool,
-        #[qapi(name = "gl")]
-        gl: DisplayGlMode,
-        #[qapi(union)]
-        branch: DisplaySdl,
-    },
-    /// No user interface, offload GL operations to a local
-    /// DRI device.  Graphical display need to be paired with VNC or
-    /// Spice.  (Since 3.1)
-    #[qapi(name = "egl-headless")]
-    #[qapi(condition = "CONFIG_OPENGL")]
-    EglHeadless {
-        #[qapi(name = "full-screen")]
-        full_screen: bool,
-        #[qapi(name = "window-close")]
-        window_close: bool,
-        #[qapi(name = "show-cursor")]
-        show_cursor: bool,
-        #[qapi(name = "gl")]
-        gl: DisplayGlMode,
-        #[qapi(union)]
-        branch: DisplayEglHeadless,
-    },
-    /// Display video output via curses.  For graphics device
-    /// models which support a text mode, QEMU can display this output
-    /// using a curses/ncurses interface.  Nothing is displayed when the
-    /// graphics device is in graphical mode or if the graphics device
-    /// does not support a text mode.  Generally only the VGA device
-    /// models support text mode.
-    #[qapi(name = "curses")]
-    #[qapi(condition = "CONFIG_CURSES")]
-    Curses {
-        #[qapi(name = "full-screen")]
-        full_screen: bool,
-        #[qapi(name = "window-close")]
-        window_close: bool,
-        #[qapi(name = "show-cursor")]
-        show_cursor: bool,
-        #[qapi(name = "gl")]
-        gl: DisplayGlMode,
-        #[qapi(union)]
-        branch: DisplayCurses,
-    },
-    /// The Cocoa user interface.
-    #[qapi(name = "cocoa")]
-    #[qapi(condition = "CONFIG_COCOA")]
-    Cocoa {
-        #[qapi(name = "full-screen")]
-        full_screen: bool,
-        #[qapi(name = "window-close")]
-        window_close: bool,
-        #[qapi(name = "show-cursor")]
-        show_cursor: bool,
-        #[qapi(name = "gl")]
-        gl: DisplayGlMode,
-        #[qapi(union)]
-        branch: DisplayCocoa,
-    },
-    /// Set up a Spice server and run the default associated
-    /// application to connect to it.  The server will redirect the
-    /// serial console and QEMU monitors.  (Since 4.0)
-    #[qapi(name = "spice-app")]
-    #[qapi(condition = "CONFIG_SPICE")]
-    SpiceApp {
-        #[qapi(name = "full-screen")]
-        full_screen: bool,
-        #[qapi(name = "window-close")]
-        window_close: bool,
-        #[qapi(name = "show-cursor")]
-        show_cursor: bool,
-        #[qapi(name = "gl")]
-        gl: DisplayGlMode,
-    },
-    /// Start a D-Bus service for the display.  (Since 7.0)
-    #[qapi(name = "dbus")]
-    #[qapi(condition = "CONFIG_DBUS_DISPLAY")]
-    Dbus {
-        #[qapi(name = "full-screen")]
-        full_screen: bool,
-        #[qapi(name = "window-close")]
-        window_close: bool,
-        #[qapi(name = "show-cursor")]
-        show_cursor: bool,
-        #[qapi(name = "gl")]
-        gl: DisplayGlMode,
-        #[qapi(union)]
-        branch: DisplayDBus,
-    },
+pub struct DisplayOptions {
+    /// Start user interface in fullscreen mode
+    /// (default: off).
+    #[qapi(name = "full-screen")]
+    pub full_screen: Option<bool>,
+    /// Allow to quit qemu with window close button
+    /// (default: on).
+    #[qapi(name = "window-close")]
+    pub window_close: Option<bool>,
+    /// Force showing the mouse cursor (default: off).
+    /// (since: 5.0)
+    #[qapi(name = "show-cursor")]
+    pub show_cursor: Option<bool>,
+    /// Enable OpenGL support (default: off).
+    #[qapi(name = "gl")]
+    pub gl: Option<DisplayGlMode>,
+    #[qapi(union)]
+    pub u: Option<DisplayOptionsBranch>,
 }
 /// Returns information about display configuration
 #[qapi(name = "query-display-options")]
@@ -13292,17 +11497,16 @@ pub struct DisplayReloadOptionsVnc {
     #[qapi(name = "tls-certs")]
     pub tls_certs: Option<bool>,
 }
+pub enum DisplayReloadOptionsBranch {
+    #[qapi(name = "vnc")]
+    Vnc(DisplayReloadOptionsVnc),
+}
 /// Options of the display configuration reload.
 #[qapi(name = "DisplayReloadOptions")]
 #[qapi(since = "6.0")]
-#[qapi(discriminator = "DisplayReloadType")]
-pub enum DisplayReloadOptions {
-    /// VNC display
-    #[qapi(name = "vnc")]
-    Vnc {
-        #[qapi(union)]
-        branch: DisplayReloadOptionsVnc,
-    },
+pub struct DisplayReloadOptions {
+    #[qapi(union)]
+    pub u: Option<DisplayReloadOptionsBranch>,
 }
 /// Reload display configuration.
 #[qapi(name = "display-reload")]
@@ -13330,17 +11534,16 @@ pub struct DisplayUpdateOptionsVnc {
     #[qapi(name = "addresses")]
     pub addresses: Option<Vec<SocketAddress>>,
 }
+pub enum DisplayUpdateOptionsBranch {
+    #[qapi(name = "vnc")]
+    Vnc(DisplayUpdateOptionsVnc),
+}
 /// Options of the display configuration reload.
 #[qapi(name = "DisplayUpdateOptions")]
 #[qapi(since = "7.1")]
-#[qapi(discriminator = "DisplayUpdateType")]
-pub enum DisplayUpdateOptions {
-    /// VNC display
-    #[qapi(name = "vnc")]
-    Vnc {
-        #[qapi(union)]
-        branch: DisplayUpdateOptionsVnc,
-    },
+pub struct DisplayUpdateOptions {
+    #[qapi(union)]
+    pub u: Option<DisplayUpdateOptionsBranch>,
 }
 /// Update display configuration.
 #[qapi(name = "display-update")]
@@ -14724,35 +12927,22 @@ pub struct MigrationExecCommand {
     #[qapi(name = "args")]
     pub args: Vec<String>,
 }
+pub enum MigrationAddressBranch {
+    #[qapi(name = "socket")]
+    Socket(SocketAddress),
+    #[qapi(name = "exec")]
+    Exec(MigrationExecCommand),
+    #[qapi(name = "rdma")]
+    Rdma(InetSocketAddress),
+    #[qapi(name = "file")]
+    File(FileMigrationArgs),
+}
 /// Migration endpoint configuration.
 #[qapi(name = "MigrationAddress")]
 #[qapi(since = "8.2")]
-#[qapi(discriminator = "MigrationAddressType")]
-pub enum MigrationAddress {
-    /// Migrate via socket.
-    #[qapi(name = "socket")]
-    Socket {
-        #[qapi(union)]
-        branch: SocketAddress,
-    },
-    /// Direct the migration stream to another process.
-    #[qapi(name = "exec")]
-    Exec {
-        #[qapi(union)]
-        branch: MigrationExecCommand,
-    },
-    /// Migrate via RDMA.
-    #[qapi(name = "rdma")]
-    Rdma {
-        #[qapi(union)]
-        branch: InetSocketAddress,
-    },
-    /// Direct the migration stream to a file.
-    #[qapi(name = "file")]
-    File {
-        #[qapi(union)]
-        branch: FileMigrationArgs,
-    },
+pub struct MigrationAddress {
+    #[qapi(union)]
+    pub u: Option<MigrationAddressBranch>,
 }
 /// The migration channel-type request options.
 #[qapi(name = "MigrationChannelType")]
@@ -15360,84 +13550,39 @@ pub struct DriveBackupWrapper {
     #[qapi(name = "data")]
     pub data: DriveBackup,
 }
+pub enum TransactionActionBranch {
+    #[qapi(name = "abort")]
+    Abort(AbortWrapper),
+    #[qapi(name = "block-dirty-bitmap-add")]
+    BlockDirtyBitmapAdd(BlockDirtyBitmapAddWrapper),
+    #[qapi(name = "block-dirty-bitmap-remove")]
+    BlockDirtyBitmapRemove(BlockDirtyBitmapWrapper),
+    #[qapi(name = "block-dirty-bitmap-clear")]
+    BlockDirtyBitmapClear(BlockDirtyBitmapWrapper),
+    #[qapi(name = "block-dirty-bitmap-enable")]
+    BlockDirtyBitmapEnable(BlockDirtyBitmapWrapper),
+    #[qapi(name = "block-dirty-bitmap-disable")]
+    BlockDirtyBitmapDisable(BlockDirtyBitmapWrapper),
+    #[qapi(name = "block-dirty-bitmap-merge")]
+    BlockDirtyBitmapMerge(BlockDirtyBitmapMergeWrapper),
+    #[qapi(name = "blockdev-backup")]
+    BlockdevBackup(BlockdevBackupWrapper),
+    #[qapi(name = "blockdev-snapshot")]
+    BlockdevSnapshot(BlockdevSnapshotWrapper),
+    #[qapi(name = "blockdev-snapshot-internal-sync")]
+    BlockdevSnapshotInternalSync(BlockdevSnapshotInternalWrapper),
+    #[qapi(name = "blockdev-snapshot-sync")]
+    BlockdevSnapshotSync(BlockdevSnapshotSyncWrapper),
+    #[qapi(name = "drive-backup")]
+    DriveBackup(DriveBackupWrapper),
+}
 /// A discriminated record of operations that can be performed with
 /// @transaction.
 #[qapi(name = "TransactionAction")]
 #[qapi(since = "1.1")]
-#[qapi(discriminator = "TransactionActionKind")]
-pub enum TransactionAction {
-    /// Since 1.6
-    #[qapi(name = "abort")]
-    Abort {
-        #[qapi(union)]
-        branch: AbortWrapper,
-    },
-    /// Since 2.5
-    #[qapi(name = "block-dirty-bitmap-add")]
-    BlockDirtyBitmapAdd {
-        #[qapi(union)]
-        branch: BlockDirtyBitmapAddWrapper,
-    },
-    /// Since 4.2
-    #[qapi(name = "block-dirty-bitmap-remove")]
-    BlockDirtyBitmapRemove {
-        #[qapi(union)]
-        branch: BlockDirtyBitmapWrapper,
-    },
-    /// Since 2.5
-    #[qapi(name = "block-dirty-bitmap-clear")]
-    BlockDirtyBitmapClear {
-        #[qapi(union)]
-        branch: BlockDirtyBitmapWrapper,
-    },
-    /// Since 4.0
-    #[qapi(name = "block-dirty-bitmap-enable")]
-    BlockDirtyBitmapEnable {
-        #[qapi(union)]
-        branch: BlockDirtyBitmapWrapper,
-    },
-    /// Since 4.0
-    #[qapi(name = "block-dirty-bitmap-disable")]
-    BlockDirtyBitmapDisable {
-        #[qapi(union)]
-        branch: BlockDirtyBitmapWrapper,
-    },
-    /// Since 4.0
-    #[qapi(name = "block-dirty-bitmap-merge")]
-    BlockDirtyBitmapMerge {
-        #[qapi(union)]
-        branch: BlockDirtyBitmapMergeWrapper,
-    },
-    /// Since 2.3
-    #[qapi(name = "blockdev-backup")]
-    BlockdevBackup {
-        #[qapi(union)]
-        branch: BlockdevBackupWrapper,
-    },
-    /// Since 2.5
-    #[qapi(name = "blockdev-snapshot")]
-    BlockdevSnapshot {
-        #[qapi(union)]
-        branch: BlockdevSnapshotWrapper,
-    },
-    /// Since 1.7
-    #[qapi(name = "blockdev-snapshot-internal-sync")]
-    BlockdevSnapshotInternalSync {
-        #[qapi(union)]
-        branch: BlockdevSnapshotInternalWrapper,
-    },
-    /// since 1.1
-    #[qapi(name = "blockdev-snapshot-sync")]
-    BlockdevSnapshotSync {
-        #[qapi(union)]
-        branch: BlockdevSnapshotSyncWrapper,
-    },
-    /// Since 1.6
-    #[qapi(name = "drive-backup")]
-    DriveBackup {
-        #[qapi(union)]
-        branch: DriveBackupWrapper,
-    },
+pub struct TransactionAction {
+    #[qapi(union)]
+    pub u: Option<TransactionActionBranch>,
 }
 /// Optional arguments to modify the behavior of a Transaction.
 #[qapi(name = "TransactionProperties")]
@@ -15762,80 +13907,40 @@ pub enum SchemaMetaType {
     #[qapi(name = "event")]
     Event,
 }
+pub enum SchemaInfoBranch {
+    #[qapi(name = "builtin")]
+    Builtin(SchemaInfoBuiltin),
+    #[qapi(name = "enum")]
+    Enum(SchemaInfoEnum),
+    #[qapi(name = "array")]
+    Array(SchemaInfoArray),
+    #[qapi(name = "object")]
+    Object(SchemaInfoObject),
+    #[qapi(name = "alternate")]
+    Alternate(SchemaInfoAlternate),
+    #[qapi(name = "command")]
+    Command(SchemaInfoCommand),
+    #[qapi(name = "event")]
+    Event(SchemaInfoEvent),
+}
 #[qapi(name = "SchemaInfo")]
 #[qapi(since = "2.5")]
-#[qapi(discriminator = "SchemaMetaType")]
-pub enum SchemaInfo {
-    /// a predefined type such as 'int' or 'bool'.
-    #[qapi(name = "builtin")]
-    Builtin {
-        #[qapi(name = "name")]
-        name: String,
-        #[qapi(name = "features")]
-        features: String,
-        #[qapi(union)]
-        branch: SchemaInfoBuiltin,
-    },
-    /// an enumeration type
-    #[qapi(name = "enum")]
-    Enum {
-        #[qapi(name = "name")]
-        name: String,
-        #[qapi(name = "features")]
-        features: String,
-        #[qapi(union)]
-        branch: SchemaInfoEnum,
-    },
-    /// an array type
-    #[qapi(name = "array")]
-    Array {
-        #[qapi(name = "name")]
-        name: String,
-        #[qapi(name = "features")]
-        features: String,
-        #[qapi(union)]
-        branch: SchemaInfoArray,
-    },
-    /// an object type (struct or union)
-    #[qapi(name = "object")]
-    Object {
-        #[qapi(name = "name")]
-        name: String,
-        #[qapi(name = "features")]
-        features: String,
-        #[qapi(union)]
-        branch: SchemaInfoObject,
-    },
-    /// an alternate type
-    #[qapi(name = "alternate")]
-    Alternate {
-        #[qapi(name = "name")]
-        name: String,
-        #[qapi(name = "features")]
-        features: String,
-        #[qapi(union)]
-        branch: SchemaInfoAlternate,
-    },
-    /// a QMP command
-    #[qapi(name = "command")]
-    Command {
-        #[qapi(name = "name")]
-        name: String,
-        #[qapi(name = "features")]
-        features: String,
-        #[qapi(union)]
-        branch: SchemaInfoCommand,
-    },
-    /// a QMP event
-    #[qapi(name = "event")]
-    Event {
-        #[qapi(name = "name")]
-        name: String,
-        #[qapi(name = "features")]
-        features: String,
-        #[qapi(union)]
-        branch: SchemaInfoEvent,
-    },
+pub struct SchemaInfo {
+    /// the entity's name, inherited from @base.  The SchemaInfo is
+    /// always referenced by this name.  Commands and events have the
+    /// name defined in the QAPI schema.  Unlike command and event
+    /// names, type names are not part of the wire ABI.  Consequently,
+    /// type names are meaningless strings here, although they are still
+    /// guaranteed unique regardless of @meta-type.
+    #[qapi(name = "name")]
+    pub name: String,
+    /// names of features associated with the entity, in no
+    /// particular order.  (since 4.1 for object types, 4.2 for
+    /// commands, 5.0 for the rest)
+    #[qapi(name = "features")]
+    pub features: Option<Vec<String>>,
+    #[qapi(union)]
+    pub u: Option<SchemaInfoBranch>,
 }
 /// Additional SchemaInfo members for meta-type 'builtin'.
 #[qapi(name = "SchemaInfoBuiltin")]
@@ -17279,350 +15384,116 @@ pub enum ObjectType {
     #[qapi(feature = "unstable")]
     XVfioUserServer,
 }
+pub enum ObjectOptionsBranch {
+    #[qapi(name = "acpi-generic-initiator")]
+    AcpiGenericInitiator(AcpiGenericInitiatorProperties),
+    #[qapi(name = "authz-list")]
+    AuthzList(AuthZListProperties),
+    #[qapi(name = "authz-listfile")]
+    AuthzListfile(AuthZListFileProperties),
+    #[qapi(name = "authz-pam")]
+    AuthzPam(AuthZpamProperties),
+    #[qapi(name = "authz-simple")]
+    AuthzSimple(AuthZSimpleProperties),
+    #[qapi(name = "can-host-socketcan")]
+    #[qapi(condition = "CONFIG_LINUX")]
+    CanHostSocketcan(CanHostSocketcanProperties),
+    #[qapi(name = "colo-compare")]
+    ColoCompare(ColoCompareProperties),
+    #[qapi(name = "cryptodev-backend")]
+    CryptodevBackend(CryptodevBackendProperties),
+    #[qapi(name = "cryptodev-backend-builtin")]
+    CryptodevBackendBuiltin(CryptodevBackendProperties),
+    #[qapi(name = "cryptodev-backend-lkcf")]
+    CryptodevBackendLkcf(CryptodevBackendProperties),
+    #[qapi(name = "cryptodev-vhost-user")]
+    #[qapi(condition = "CONFIG_VHOST_CRYPTO")]
+    CryptodevVhostUser(CryptodevVhostUserProperties),
+    #[qapi(name = "dbus-vmstate")]
+    DbusVmstate(DBusVmStateProperties),
+    #[qapi(name = "filter-buffer")]
+    FilterBuffer(FilterBufferProperties),
+    #[qapi(name = "filter-dump")]
+    FilterDump(FilterDumpProperties),
+    #[qapi(name = "filter-mirror")]
+    FilterMirror(FilterMirrorProperties),
+    #[qapi(name = "filter-redirector")]
+    FilterRedirector(FilterRedirectorProperties),
+    #[qapi(name = "filter-replay")]
+    FilterReplay(NetfilterProperties),
+    #[qapi(name = "filter-rewriter")]
+    FilterRewriter(FilterRewriterProperties),
+    #[qapi(name = "input-barrier")]
+    InputBarrier(InputBarrierProperties),
+    #[qapi(name = "input-linux")]
+    #[qapi(condition = "CONFIG_LINUX")]
+    InputLinux(InputLinuxProperties),
+    #[qapi(name = "iommufd")]
+    Iommufd(IommufdProperties),
+    #[qapi(name = "iothread")]
+    Iothread(IothreadProperties),
+    #[qapi(name = "main-loop")]
+    MainLoop(MainLoopProperties),
+    #[qapi(name = "memory-backend-epc")]
+    #[qapi(condition = "CONFIG_LINUX")]
+    MemoryBackendEpc(MemoryBackendEpcProperties),
+    #[qapi(name = "memory-backend-file")]
+    MemoryBackendFile(MemoryBackendFileProperties),
+    #[qapi(name = "memory-backend-memfd")]
+    #[qapi(condition = "CONFIG_LINUX")]
+    MemoryBackendMemfd(MemoryBackendMemfdProperties),
+    #[qapi(name = "memory-backend-ram")]
+    MemoryBackendRam(MemoryBackendProperties),
+    #[qapi(name = "memory-backend-shm")]
+    #[qapi(condition = "CONFIG_POSIX")]
+    MemoryBackendShm(MemoryBackendShmProperties),
+    #[qapi(name = "pr-manager-helper")]
+    #[qapi(condition = "CONFIG_LINUX")]
+    PrManagerHelper(PrManagerHelperProperties),
+    #[qapi(name = "qtest")]
+    Qtest(QtestProperties),
+    #[qapi(name = "rng-builtin")]
+    RngBuiltin(RngProperties),
+    #[qapi(name = "rng-egd")]
+    RngEgd(RngEgdProperties),
+    #[qapi(name = "rng-random")]
+    #[qapi(condition = "CONFIG_POSIX")]
+    RngRandom(RngRandomProperties),
+    #[qapi(name = "secret")]
+    Secret(SecretProperties),
+    #[qapi(name = "secret_keyring")]
+    #[qapi(condition = "CONFIG_SECRET_KEYRING")]
+    SecretKeyring(SecretKeyringProperties),
+    #[qapi(name = "sev-guest")]
+    SevGuest(SevGuestProperties),
+    #[qapi(name = "sev-snp-guest")]
+    SevSnpGuest(SevSnpGuestProperties),
+    #[qapi(name = "thread-context")]
+    ThreadContext(ThreadContextProperties),
+    #[qapi(name = "throttle-group")]
+    ThrottleGroup(ThrottleGroupProperties),
+    #[qapi(name = "tls-creds-anon")]
+    TlsCredsAnon(TlsCredsAnonProperties),
+    #[qapi(name = "tls-creds-psk")]
+    TlsCredsPsk(TlsCredsPskProperties),
+    #[qapi(name = "tls-creds-x509")]
+    TlsCredsX509(TlsCredsX509Properties),
+    #[qapi(name = "tls-cipher-suites")]
+    TlsCipherSuites(TlsCredsProperties),
+    #[qapi(name = "x-remote-object")]
+    XRemoteObject(RemoteObjectProperties),
+    #[qapi(name = "x-vfio-user-server")]
+    XVfioUserServer(VfioUserServerProperties),
+}
 /// Describes the options of a user creatable QOM object.
 #[qapi(name = "ObjectOptions")]
 #[qapi(since = "6.0")]
-#[qapi(discriminator = "ObjectType")]
-pub enum ObjectOptions {
-    #[qapi(name = "acpi-generic-initiator")]
-    AcpiGenericInitiator {
-        #[qapi(name = "id")]
-        id: String,
-        #[qapi(union)]
-        branch: AcpiGenericInitiatorProperties,
-    },
-    #[qapi(name = "authz-list")]
-    AuthzList {
-        #[qapi(name = "id")]
-        id: String,
-        #[qapi(union)]
-        branch: AuthZListProperties,
-    },
-    #[qapi(name = "authz-listfile")]
-    AuthzListfile {
-        #[qapi(name = "id")]
-        id: String,
-        #[qapi(union)]
-        branch: AuthZListFileProperties,
-    },
-    #[qapi(name = "authz-pam")]
-    AuthzPam {
-        #[qapi(name = "id")]
-        id: String,
-        #[qapi(union)]
-        branch: AuthZpamProperties,
-    },
-    #[qapi(name = "authz-simple")]
-    AuthzSimple {
-        #[qapi(name = "id")]
-        id: String,
-        #[qapi(union)]
-        branch: AuthZSimpleProperties,
-    },
-    #[qapi(name = "can-bus")]
-    CanBus {
-        #[qapi(name = "id")]
-        id: String,
-    },
-    #[qapi(name = "can-host-socketcan")]
-    #[qapi(condition = "CONFIG_LINUX")]
-    CanHostSocketcan {
-        #[qapi(name = "id")]
-        id: String,
-        #[qapi(union)]
-        branch: CanHostSocketcanProperties,
-    },
-    #[qapi(name = "colo-compare")]
-    ColoCompare {
-        #[qapi(name = "id")]
-        id: String,
-        #[qapi(union)]
-        branch: ColoCompareProperties,
-    },
-    #[qapi(name = "cryptodev-backend")]
-    CryptodevBackend {
-        #[qapi(name = "id")]
-        id: String,
-        #[qapi(union)]
-        branch: CryptodevBackendProperties,
-    },
-    #[qapi(name = "cryptodev-backend-builtin")]
-    CryptodevBackendBuiltin {
-        #[qapi(name = "id")]
-        id: String,
-        #[qapi(union)]
-        branch: CryptodevBackendProperties,
-    },
-    #[qapi(name = "cryptodev-backend-lkcf")]
-    CryptodevBackendLkcf {
-        #[qapi(name = "id")]
-        id: String,
-        #[qapi(union)]
-        branch: CryptodevBackendProperties,
-    },
-    #[qapi(name = "cryptodev-vhost-user")]
-    #[qapi(condition = "CONFIG_VHOST_CRYPTO")]
-    CryptodevVhostUser {
-        #[qapi(name = "id")]
-        id: String,
-        #[qapi(union)]
-        branch: CryptodevVhostUserProperties,
-    },
-    #[qapi(name = "dbus-vmstate")]
-    DbusVmstate {
-        #[qapi(name = "id")]
-        id: String,
-        #[qapi(union)]
-        branch: DBusVmStateProperties,
-    },
-    #[qapi(name = "filter-buffer")]
-    FilterBuffer {
-        #[qapi(name = "id")]
-        id: String,
-        #[qapi(union)]
-        branch: FilterBufferProperties,
-    },
-    #[qapi(name = "filter-dump")]
-    FilterDump {
-        #[qapi(name = "id")]
-        id: String,
-        #[qapi(union)]
-        branch: FilterDumpProperties,
-    },
-    #[qapi(name = "filter-mirror")]
-    FilterMirror {
-        #[qapi(name = "id")]
-        id: String,
-        #[qapi(union)]
-        branch: FilterMirrorProperties,
-    },
-    #[qapi(name = "filter-redirector")]
-    FilterRedirector {
-        #[qapi(name = "id")]
-        id: String,
-        #[qapi(union)]
-        branch: FilterRedirectorProperties,
-    },
-    #[qapi(name = "filter-replay")]
-    FilterReplay {
-        #[qapi(name = "id")]
-        id: String,
-        #[qapi(union)]
-        branch: NetfilterProperties,
-    },
-    #[qapi(name = "filter-rewriter")]
-    FilterRewriter {
-        #[qapi(name = "id")]
-        id: String,
-        #[qapi(union)]
-        branch: FilterRewriterProperties,
-    },
-    #[qapi(name = "input-barrier")]
-    InputBarrier {
-        #[qapi(name = "id")]
-        id: String,
-        #[qapi(union)]
-        branch: InputBarrierProperties,
-    },
-    #[qapi(name = "input-linux")]
-    #[qapi(condition = "CONFIG_LINUX")]
-    InputLinux {
-        #[qapi(name = "id")]
-        id: String,
-        #[qapi(union)]
-        branch: InputLinuxProperties,
-    },
-    #[qapi(name = "iommufd")]
-    Iommufd {
-        #[qapi(name = "id")]
-        id: String,
-        #[qapi(union)]
-        branch: IommufdProperties,
-    },
-    #[qapi(name = "iothread")]
-    Iothread {
-        #[qapi(name = "id")]
-        id: String,
-        #[qapi(union)]
-        branch: IothreadProperties,
-    },
-    #[qapi(name = "main-loop")]
-    MainLoop {
-        #[qapi(name = "id")]
-        id: String,
-        #[qapi(union)]
-        branch: MainLoopProperties,
-    },
-    #[qapi(name = "memory-backend-epc")]
-    #[qapi(condition = "CONFIG_LINUX")]
-    MemoryBackendEpc {
-        #[qapi(name = "id")]
-        id: String,
-        #[qapi(union)]
-        branch: MemoryBackendEpcProperties,
-    },
-    #[qapi(name = "memory-backend-file")]
-    MemoryBackendFile {
-        #[qapi(name = "id")]
-        id: String,
-        #[qapi(union)]
-        branch: MemoryBackendFileProperties,
-    },
-    #[qapi(name = "memory-backend-memfd")]
-    #[qapi(condition = "CONFIG_LINUX")]
-    MemoryBackendMemfd {
-        #[qapi(name = "id")]
-        id: String,
-        #[qapi(union)]
-        branch: MemoryBackendMemfdProperties,
-    },
-    #[qapi(name = "memory-backend-ram")]
-    MemoryBackendRam {
-        #[qapi(name = "id")]
-        id: String,
-        #[qapi(union)]
-        branch: MemoryBackendProperties,
-    },
-    #[qapi(name = "memory-backend-shm")]
-    #[qapi(condition = "CONFIG_POSIX")]
-    MemoryBackendShm {
-        #[qapi(name = "id")]
-        id: String,
-        #[qapi(union)]
-        branch: MemoryBackendShmProperties,
-    },
-    #[qapi(name = "pef-guest")]
-    PefGuest {
-        #[qapi(name = "id")]
-        id: String,
-    },
-    #[qapi(name = "pr-manager-helper")]
-    #[qapi(condition = "CONFIG_LINUX")]
-    PrManagerHelper {
-        #[qapi(name = "id")]
-        id: String,
-        #[qapi(union)]
-        branch: PrManagerHelperProperties,
-    },
-    #[qapi(name = "qtest")]
-    Qtest {
-        #[qapi(name = "id")]
-        id: String,
-        #[qapi(union)]
-        branch: QtestProperties,
-    },
-    #[qapi(name = "rng-builtin")]
-    RngBuiltin {
-        #[qapi(name = "id")]
-        id: String,
-        #[qapi(union)]
-        branch: RngProperties,
-    },
-    #[qapi(name = "rng-egd")]
-    RngEgd {
-        #[qapi(name = "id")]
-        id: String,
-        #[qapi(union)]
-        branch: RngEgdProperties,
-    },
-    #[qapi(name = "rng-random")]
-    #[qapi(condition = "CONFIG_POSIX")]
-    RngRandom {
-        #[qapi(name = "id")]
-        id: String,
-        #[qapi(union)]
-        branch: RngRandomProperties,
-    },
-    #[qapi(name = "secret")]
-    Secret {
-        #[qapi(name = "id")]
-        id: String,
-        #[qapi(union)]
-        branch: SecretProperties,
-    },
-    #[qapi(name = "secret_keyring")]
-    #[qapi(condition = "CONFIG_SECRET_KEYRING")]
-    SecretKeyring {
-        #[qapi(name = "id")]
-        id: String,
-        #[qapi(union)]
-        branch: SecretKeyringProperties,
-    },
-    #[qapi(name = "sev-guest")]
-    SevGuest {
-        #[qapi(name = "id")]
-        id: String,
-        #[qapi(union)]
-        branch: SevGuestProperties,
-    },
-    #[qapi(name = "sev-snp-guest")]
-    SevSnpGuest {
-        #[qapi(name = "id")]
-        id: String,
-        #[qapi(union)]
-        branch: SevSnpGuestProperties,
-    },
-    #[qapi(name = "thread-context")]
-    ThreadContext {
-        #[qapi(name = "id")]
-        id: String,
-        #[qapi(union)]
-        branch: ThreadContextProperties,
-    },
-    #[qapi(name = "s390-pv-guest")]
-    S390PvGuest {
-        #[qapi(name = "id")]
-        id: String,
-    },
-    #[qapi(name = "throttle-group")]
-    ThrottleGroup {
-        #[qapi(name = "id")]
-        id: String,
-        #[qapi(union)]
-        branch: ThrottleGroupProperties,
-    },
-    #[qapi(name = "tls-creds-anon")]
-    TlsCredsAnon {
-        #[qapi(name = "id")]
-        id: String,
-        #[qapi(union)]
-        branch: TlsCredsAnonProperties,
-    },
-    #[qapi(name = "tls-creds-psk")]
-    TlsCredsPsk {
-        #[qapi(name = "id")]
-        id: String,
-        #[qapi(union)]
-        branch: TlsCredsPskProperties,
-    },
-    #[qapi(name = "tls-creds-x509")]
-    TlsCredsX509 {
-        #[qapi(name = "id")]
-        id: String,
-        #[qapi(union)]
-        branch: TlsCredsX509Properties,
-    },
-    #[qapi(name = "tls-cipher-suites")]
-    TlsCipherSuites {
-        #[qapi(name = "id")]
-        id: String,
-        #[qapi(union)]
-        branch: TlsCredsProperties,
-    },
-    #[qapi(name = "x-remote-object")]
-    XRemoteObject {
-        #[qapi(name = "id")]
-        id: String,
-        #[qapi(union)]
-        branch: RemoteObjectProperties,
-    },
-    #[qapi(name = "x-vfio-user-server")]
-    XVfioUserServer {
-        #[qapi(name = "id")]
-        id: String,
-        #[qapi(union)]
-        branch: VfioUserServerProperties,
-    },
+pub struct ObjectOptions {
+    /// the name of the new object
+    #[qapi(name = "id")]
+    pub id: String,
+    #[qapi(union)]
+    pub u: Option<ObjectOptionsBranch>,
 }
 /// Create a QOM object.
 #[qapi(name = "object-add")]
@@ -17826,346 +15697,28 @@ pub struct CpuInfoS390 {
     #[qapi(name = "entitlement")]
     pub entitlement: Option<CpuS390Entitlement>,
 }
+pub enum CpuInfoFastBranch {
+    #[qapi(name = "s390x")]
+    S390x(CpuInfoS390),
+}
 /// Information about a virtual CPU
 #[qapi(name = "CpuInfoFast")]
 #[qapi(since = "2.12")]
-#[qapi(discriminator = "SysEmuTarget")]
-pub enum CpuInfoFast {
-    #[qapi(name = "aarch64")]
-    Aarch64 {
-        #[qapi(name = "cpu-index")]
-        cpu_index: i64,
-        #[qapi(name = "qom-path")]
-        qom_path: String,
-        #[qapi(name = "thread-id")]
-        thread_id: i64,
-        #[qapi(name = "props")]
-        props: CpuInstanceProperties,
-    },
-    #[qapi(name = "alpha")]
-    Alpha {
-        #[qapi(name = "cpu-index")]
-        cpu_index: i64,
-        #[qapi(name = "qom-path")]
-        qom_path: String,
-        #[qapi(name = "thread-id")]
-        thread_id: i64,
-        #[qapi(name = "props")]
-        props: CpuInstanceProperties,
-    },
-    #[qapi(name = "arm")]
-    Arm {
-        #[qapi(name = "cpu-index")]
-        cpu_index: i64,
-        #[qapi(name = "qom-path")]
-        qom_path: String,
-        #[qapi(name = "thread-id")]
-        thread_id: i64,
-        #[qapi(name = "props")]
-        props: CpuInstanceProperties,
-    },
-    /// since 5.1
-    #[qapi(name = "avr")]
-    Avr {
-        #[qapi(name = "cpu-index")]
-        cpu_index: i64,
-        #[qapi(name = "qom-path")]
-        qom_path: String,
-        #[qapi(name = "thread-id")]
-        thread_id: i64,
-        #[qapi(name = "props")]
-        props: CpuInstanceProperties,
-    },
-    #[qapi(name = "cris")]
-    Cris {
-        #[qapi(name = "cpu-index")]
-        cpu_index: i64,
-        #[qapi(name = "qom-path")]
-        qom_path: String,
-        #[qapi(name = "thread-id")]
-        thread_id: i64,
-        #[qapi(name = "props")]
-        props: CpuInstanceProperties,
-    },
-    #[qapi(name = "hppa")]
-    Hppa {
-        #[qapi(name = "cpu-index")]
-        cpu_index: i64,
-        #[qapi(name = "qom-path")]
-        qom_path: String,
-        #[qapi(name = "thread-id")]
-        thread_id: i64,
-        #[qapi(name = "props")]
-        props: CpuInstanceProperties,
-    },
-    #[qapi(name = "i386")]
-    I386 {
-        #[qapi(name = "cpu-index")]
-        cpu_index: i64,
-        #[qapi(name = "qom-path")]
-        qom_path: String,
-        #[qapi(name = "thread-id")]
-        thread_id: i64,
-        #[qapi(name = "props")]
-        props: CpuInstanceProperties,
-    },
-    /// since 7.1
-    #[qapi(name = "loongarch64")]
-    Loongarch64 {
-        #[qapi(name = "cpu-index")]
-        cpu_index: i64,
-        #[qapi(name = "qom-path")]
-        qom_path: String,
-        #[qapi(name = "thread-id")]
-        thread_id: i64,
-        #[qapi(name = "props")]
-        props: CpuInstanceProperties,
-    },
-    #[qapi(name = "m68k")]
-    M68k {
-        #[qapi(name = "cpu-index")]
-        cpu_index: i64,
-        #[qapi(name = "qom-path")]
-        qom_path: String,
-        #[qapi(name = "thread-id")]
-        thread_id: i64,
-        #[qapi(name = "props")]
-        props: CpuInstanceProperties,
-    },
-    #[qapi(name = "microblaze")]
-    Microblaze {
-        #[qapi(name = "cpu-index")]
-        cpu_index: i64,
-        #[qapi(name = "qom-path")]
-        qom_path: String,
-        #[qapi(name = "thread-id")]
-        thread_id: i64,
-        #[qapi(name = "props")]
-        props: CpuInstanceProperties,
-    },
-    #[qapi(name = "microblazeel")]
-    Microblazeel {
-        #[qapi(name = "cpu-index")]
-        cpu_index: i64,
-        #[qapi(name = "qom-path")]
-        qom_path: String,
-        #[qapi(name = "thread-id")]
-        thread_id: i64,
-        #[qapi(name = "props")]
-        props: CpuInstanceProperties,
-    },
-    #[qapi(name = "mips")]
-    Mips {
-        #[qapi(name = "cpu-index")]
-        cpu_index: i64,
-        #[qapi(name = "qom-path")]
-        qom_path: String,
-        #[qapi(name = "thread-id")]
-        thread_id: i64,
-        #[qapi(name = "props")]
-        props: CpuInstanceProperties,
-    },
-    #[qapi(name = "mips64")]
-    Mips64 {
-        #[qapi(name = "cpu-index")]
-        cpu_index: i64,
-        #[qapi(name = "qom-path")]
-        qom_path: String,
-        #[qapi(name = "thread-id")]
-        thread_id: i64,
-        #[qapi(name = "props")]
-        props: CpuInstanceProperties,
-    },
-    #[qapi(name = "mips64el")]
-    Mips64el {
-        #[qapi(name = "cpu-index")]
-        cpu_index: i64,
-        #[qapi(name = "qom-path")]
-        qom_path: String,
-        #[qapi(name = "thread-id")]
-        thread_id: i64,
-        #[qapi(name = "props")]
-        props: CpuInstanceProperties,
-    },
-    #[qapi(name = "mipsel")]
-    Mipsel {
-        #[qapi(name = "cpu-index")]
-        cpu_index: i64,
-        #[qapi(name = "qom-path")]
-        qom_path: String,
-        #[qapi(name = "thread-id")]
-        thread_id: i64,
-        #[qapi(name = "props")]
-        props: CpuInstanceProperties,
-    },
-    #[qapi(name = "or1k")]
-    Or1k {
-        #[qapi(name = "cpu-index")]
-        cpu_index: i64,
-        #[qapi(name = "qom-path")]
-        qom_path: String,
-        #[qapi(name = "thread-id")]
-        thread_id: i64,
-        #[qapi(name = "props")]
-        props: CpuInstanceProperties,
-    },
-    #[qapi(name = "ppc")]
-    Ppc {
-        #[qapi(name = "cpu-index")]
-        cpu_index: i64,
-        #[qapi(name = "qom-path")]
-        qom_path: String,
-        #[qapi(name = "thread-id")]
-        thread_id: i64,
-        #[qapi(name = "props")]
-        props: CpuInstanceProperties,
-    },
-    #[qapi(name = "ppc64")]
-    Ppc64 {
-        #[qapi(name = "cpu-index")]
-        cpu_index: i64,
-        #[qapi(name = "qom-path")]
-        qom_path: String,
-        #[qapi(name = "thread-id")]
-        thread_id: i64,
-        #[qapi(name = "props")]
-        props: CpuInstanceProperties,
-    },
-    #[qapi(name = "riscv32")]
-    Riscv32 {
-        #[qapi(name = "cpu-index")]
-        cpu_index: i64,
-        #[qapi(name = "qom-path")]
-        qom_path: String,
-        #[qapi(name = "thread-id")]
-        thread_id: i64,
-        #[qapi(name = "props")]
-        props: CpuInstanceProperties,
-    },
-    #[qapi(name = "riscv64")]
-    Riscv64 {
-        #[qapi(name = "cpu-index")]
-        cpu_index: i64,
-        #[qapi(name = "qom-path")]
-        qom_path: String,
-        #[qapi(name = "thread-id")]
-        thread_id: i64,
-        #[qapi(name = "props")]
-        props: CpuInstanceProperties,
-    },
-    /// since 5.0
-    #[qapi(name = "rx")]
-    Rx {
-        #[qapi(name = "cpu-index")]
-        cpu_index: i64,
-        #[qapi(name = "qom-path")]
-        qom_path: String,
-        #[qapi(name = "thread-id")]
-        thread_id: i64,
-        #[qapi(name = "props")]
-        props: CpuInstanceProperties,
-    },
-    #[qapi(name = "s390x")]
-    S390x {
-        #[qapi(name = "cpu-index")]
-        cpu_index: i64,
-        #[qapi(name = "qom-path")]
-        qom_path: String,
-        #[qapi(name = "thread-id")]
-        thread_id: i64,
-        #[qapi(name = "props")]
-        props: CpuInstanceProperties,
-        #[qapi(union)]
-        branch: CpuInfoS390,
-    },
-    #[qapi(name = "sh4")]
-    Sh4 {
-        #[qapi(name = "cpu-index")]
-        cpu_index: i64,
-        #[qapi(name = "qom-path")]
-        qom_path: String,
-        #[qapi(name = "thread-id")]
-        thread_id: i64,
-        #[qapi(name = "props")]
-        props: CpuInstanceProperties,
-    },
-    #[qapi(name = "sh4eb")]
-    Sh4eb {
-        #[qapi(name = "cpu-index")]
-        cpu_index: i64,
-        #[qapi(name = "qom-path")]
-        qom_path: String,
-        #[qapi(name = "thread-id")]
-        thread_id: i64,
-        #[qapi(name = "props")]
-        props: CpuInstanceProperties,
-    },
-    #[qapi(name = "sparc")]
-    Sparc {
-        #[qapi(name = "cpu-index")]
-        cpu_index: i64,
-        #[qapi(name = "qom-path")]
-        qom_path: String,
-        #[qapi(name = "thread-id")]
-        thread_id: i64,
-        #[qapi(name = "props")]
-        props: CpuInstanceProperties,
-    },
-    #[qapi(name = "sparc64")]
-    Sparc64 {
-        #[qapi(name = "cpu-index")]
-        cpu_index: i64,
-        #[qapi(name = "qom-path")]
-        qom_path: String,
-        #[qapi(name = "thread-id")]
-        thread_id: i64,
-        #[qapi(name = "props")]
-        props: CpuInstanceProperties,
-    },
-    #[qapi(name = "tricore")]
-    Tricore {
-        #[qapi(name = "cpu-index")]
-        cpu_index: i64,
-        #[qapi(name = "qom-path")]
-        qom_path: String,
-        #[qapi(name = "thread-id")]
-        thread_id: i64,
-        #[qapi(name = "props")]
-        props: CpuInstanceProperties,
-    },
-    #[qapi(name = "x86_64")]
-    X8664 {
-        #[qapi(name = "cpu-index")]
-        cpu_index: i64,
-        #[qapi(name = "qom-path")]
-        qom_path: String,
-        #[qapi(name = "thread-id")]
-        thread_id: i64,
-        #[qapi(name = "props")]
-        props: CpuInstanceProperties,
-    },
-    #[qapi(name = "xtensa")]
-    Xtensa {
-        #[qapi(name = "cpu-index")]
-        cpu_index: i64,
-        #[qapi(name = "qom-path")]
-        qom_path: String,
-        #[qapi(name = "thread-id")]
-        thread_id: i64,
-        #[qapi(name = "props")]
-        props: CpuInstanceProperties,
-    },
-    #[qapi(name = "xtensaeb")]
-    Xtensaeb {
-        #[qapi(name = "cpu-index")]
-        cpu_index: i64,
-        #[qapi(name = "qom-path")]
-        qom_path: String,
-        #[qapi(name = "thread-id")]
-        thread_id: i64,
-        #[qapi(name = "props")]
-        props: CpuInstanceProperties,
-    },
+pub struct CpuInfoFast {
+    /// index of the virtual CPU
+    #[qapi(name = "cpu-index")]
+    pub cpu_index: i64,
+    /// path to the CPU object in the QOM tree
+    #[qapi(name = "qom-path")]
+    pub qom_path: String,
+    /// ID of the underlying host thread
+    #[qapi(name = "thread-id")]
+    pub thread_id: i64,
+    /// properties associated with a virtual CPU, e.g. the socket id
+    #[qapi(name = "props")]
+    pub props: Option<CpuInstanceProperties>,
+    #[qapi(union)]
+    pub u: Option<CpuInfoFastBranch>,
 }
 /// Returns information about all virtual CPUs.
 #[qapi(name = "query-cpus-fast")]
@@ -18390,41 +15943,24 @@ pub enum NumaOptionsType {
     #[qapi(name = "hmat-cache")]
     HmatCache,
 }
+pub enum NumaOptionsBranch {
+    #[qapi(name = "node")]
+    Node(NumaNodeOptions),
+    #[qapi(name = "dist")]
+    Dist(NumaDistOptions),
+    #[qapi(name = "cpu")]
+    Cpu(NumaCpuOptions),
+    #[qapi(name = "hmat-lb")]
+    HmatLb(NumaHmatLbOptions),
+    #[qapi(name = "hmat-cache")]
+    HmatCache(NumaHmatCacheOptions),
+}
 /// A discriminated record of NUMA options.  (for OptsVisitor)
 #[qapi(name = "NumaOptions")]
 #[qapi(since = "2.1")]
-#[qapi(discriminator = "NumaOptionsType")]
-pub enum NumaOptions {
-    /// NUMA nodes configuration
-    #[qapi(name = "node")]
-    Node {
-        #[qapi(union)]
-        branch: NumaNodeOptions,
-    },
-    /// NUMA distance configuration (since 2.10)
-    #[qapi(name = "dist")]
-    Dist {
-        #[qapi(union)]
-        branch: NumaDistOptions,
-    },
-    /// property based CPU(s) to node mapping (Since: 2.10)
-    #[qapi(name = "cpu")]
-    Cpu {
-        #[qapi(union)]
-        branch: NumaCpuOptions,
-    },
-    /// memory latency and bandwidth information (Since: 5.0)
-    #[qapi(name = "hmat-lb")]
-    HmatLb {
-        #[qapi(union)]
-        branch: NumaHmatLbOptions,
-    },
-    /// memory side cache information (Since: 5.0)
-    #[qapi(name = "hmat-cache")]
-    HmatCache {
-        #[qapi(union)]
-        branch: NumaHmatCacheOptions,
-    },
+pub struct NumaOptions {
+    #[qapi(union)]
+    pub u: Option<NumaOptionsBranch>,
 }
 /// Create a guest NUMA node.  (for OptsVisitor)
 #[qapi(name = "NumaNodeOptions")]
@@ -19148,46 +16684,26 @@ pub struct HvBalloonDeviceInfoWrapper {
     #[qapi(name = "data")]
     pub data: HvBalloonDeviceInfo,
 }
+pub enum MemoryDeviceInfoBranch {
+    #[qapi(name = "dimm")]
+    Dimm(PcdimmDeviceInfoWrapper),
+    #[qapi(name = "nvdimm")]
+    Nvdimm(PcdimmDeviceInfoWrapper),
+    #[qapi(name = "virtio-pmem")]
+    VirtioPmem(VirtioPmemDeviceInfoWrapper),
+    #[qapi(name = "virtio-mem")]
+    VirtioMem(VirtioMemDeviceInfoWrapper),
+    #[qapi(name = "sgx-epc")]
+    SgxEpc(SgxEpcDeviceInfoWrapper),
+    #[qapi(name = "hv-balloon")]
+    HvBalloon(HvBalloonDeviceInfoWrapper),
+}
 /// Union containing information about a memory device
 #[qapi(name = "MemoryDeviceInfo")]
 #[qapi(since = "2.1")]
-#[qapi(discriminator = "MemoryDeviceInfoKind")]
-pub enum MemoryDeviceInfo {
-    #[qapi(name = "dimm")]
-    Dimm {
-        #[qapi(union)]
-        branch: PcdimmDeviceInfoWrapper,
-    },
-    /// since 2.12
-    #[qapi(name = "nvdimm")]
-    Nvdimm {
-        #[qapi(union)]
-        branch: PcdimmDeviceInfoWrapper,
-    },
-    /// since 4.1
-    #[qapi(name = "virtio-pmem")]
-    VirtioPmem {
-        #[qapi(union)]
-        branch: VirtioPmemDeviceInfoWrapper,
-    },
-    /// since 5.1
-    #[qapi(name = "virtio-mem")]
-    VirtioMem {
-        #[qapi(union)]
-        branch: VirtioMemDeviceInfoWrapper,
-    },
-    /// since 6.2.
-    #[qapi(name = "sgx-epc")]
-    SgxEpc {
-        #[qapi(union)]
-        branch: SgxEpcDeviceInfoWrapper,
-    },
-    /// since 8.2.
-    #[qapi(name = "hv-balloon")]
-    HvBalloon {
-        #[qapi(union)]
-        branch: HvBalloonDeviceInfoWrapper,
-    },
+pub struct MemoryDeviceInfo {
+    #[qapi(union)]
+    pub u: Option<MemoryDeviceInfoBranch>,
 }
 /// Sgx EPC cmdline information
 #[qapi(name = "SgxEPC")]
@@ -19881,24 +17397,19 @@ pub struct YankInstanceChardev {
     #[qapi(name = "id")]
     pub id: String,
 }
+pub enum YankInstanceBranch {
+    #[qapi(name = "block-node")]
+    BlockNode(YankInstanceBlockNode),
+    #[qapi(name = "chardev")]
+    Chardev(YankInstanceChardev),
+}
 /// A yank instance can be yanked with the @yank qmp command to recover
 /// from a hanging QEMU.
 #[qapi(name = "YankInstance")]
 #[qapi(since = "6.0")]
-#[qapi(discriminator = "YankInstanceType")]
-pub enum YankInstance {
-    #[qapi(name = "block-node")]
-    BlockNode {
-        #[qapi(union)]
-        branch: YankInstanceBlockNode,
-    },
-    #[qapi(name = "chardev")]
-    Chardev {
-        #[qapi(union)]
-        branch: YankInstanceChardev,
-    },
-    #[qapi(name = "migration")]
-    Migration {},
+pub struct YankInstance {
+    #[qapi(union)]
+    pub u: Option<YankInstanceBranch>,
 }
 /// Try to recover from hanging QEMU by yanking the specified instances.
 /// See @YankInstance for more information.
@@ -20285,44 +17796,34 @@ pub struct SevSnpGuestInfo {
     #[qapi(name = "snp-policy")]
     pub snp_policy: u64,
 }
+pub enum SevInfoBranch {
+    #[qapi(name = "sev")]
+    Sev(SevGuestInfo),
+    #[qapi(name = "sev-snp")]
+    SevSnp(SevSnpGuestInfo),
+}
 /// Information about Secure Encrypted Virtualization (SEV) support
 #[qapi(name = "SevInfo")]
 #[qapi(condition = "TARGET_I386")]
 #[qapi(since = "2.12")]
-#[qapi(discriminator = "SevGuestType")]
-pub enum SevInfo {
-    /// The guest is a legacy SEV or SEV-ES guest.
-    #[qapi(name = "sev")]
-    Sev {
-        #[qapi(name = "enabled")]
-        enabled: bool,
-        #[qapi(name = "api-major")]
-        api_major: u8,
-        #[qapi(name = "api-minor")]
-        api_minor: u8,
-        #[qapi(name = "build-id")]
-        build_id: u8,
-        #[qapi(name = "state")]
-        state: SevState,
-        #[qapi(union)]
-        branch: SevGuestInfo,
-    },
-    /// The guest is an SEV-SNP guest.
-    #[qapi(name = "sev-snp")]
-    SevSnp {
-        #[qapi(name = "enabled")]
-        enabled: bool,
-        #[qapi(name = "api-major")]
-        api_major: u8,
-        #[qapi(name = "api-minor")]
-        api_minor: u8,
-        #[qapi(name = "build-id")]
-        build_id: u8,
-        #[qapi(name = "state")]
-        state: SevState,
-        #[qapi(union)]
-        branch: SevSnpGuestInfo,
-    },
+pub struct SevInfo {
+    /// true if SEV is active
+    #[qapi(name = "enabled")]
+    pub enabled: bool,
+    /// SEV API major version
+    #[qapi(name = "api-major")]
+    pub api_major: u8,
+    /// SEV API minor version
+    #[qapi(name = "api-minor")]
+    pub api_minor: u8,
+    /// SEV FW build id
+    #[qapi(name = "build-id")]
+    pub build_id: u8,
+    /// SEV guest state
+    #[qapi(name = "state")]
+    pub state: SevState,
+    #[qapi(union)]
+    pub u: Option<SevInfoBranch>,
 }
 /// Returns information about SEV
 #[qapi(name = "query-sev")]
@@ -21133,140 +18634,58 @@ pub enum AudiodevDriver {
     #[qapi(name = "wav")]
     Wav,
 }
+pub enum AudiodevBranch {
+    #[qapi(name = "none")]
+    None(AudiodevGenericOptions),
+    #[qapi(name = "alsa")]
+    #[qapi(condition = "CONFIG_AUDIO_ALSA")]
+    Alsa(AudiodevAlsaOptions),
+    #[qapi(name = "coreaudio")]
+    #[qapi(condition = "CONFIG_AUDIO_COREAUDIO")]
+    Coreaudio(AudiodevCoreaudioOptions),
+    #[qapi(name = "dbus")]
+    #[qapi(condition = "CONFIG_DBUS_DISPLAY")]
+    Dbus(AudiodevGenericOptions),
+    #[qapi(name = "dsound")]
+    #[qapi(condition = "CONFIG_AUDIO_DSOUND")]
+    Dsound(AudiodevDsoundOptions),
+    #[qapi(name = "jack")]
+    #[qapi(condition = "CONFIG_AUDIO_JACK")]
+    Jack(AudiodevJackOptions),
+    #[qapi(name = "oss")]
+    #[qapi(condition = "CONFIG_AUDIO_OSS")]
+    Oss(AudiodevOssOptions),
+    #[qapi(name = "pa")]
+    #[qapi(condition = "CONFIG_AUDIO_PA")]
+    Pa(AudiodevPaOptions),
+    #[qapi(name = "pipewire")]
+    #[qapi(condition = "CONFIG_AUDIO_PIPEWIRE")]
+    Pipewire(AudiodevPipewireOptions),
+    #[qapi(name = "sdl")]
+    #[qapi(condition = "CONFIG_AUDIO_SDL")]
+    Sdl(AudiodevSdlOptions),
+    #[qapi(name = "sndio")]
+    #[qapi(condition = "CONFIG_AUDIO_SNDIO")]
+    Sndio(AudiodevSndioOptions),
+    #[qapi(name = "spice")]
+    #[qapi(condition = "CONFIG_SPICE")]
+    Spice(AudiodevGenericOptions),
+    #[qapi(name = "wav")]
+    Wav(AudiodevWavOptions),
+}
 /// Options of an audio backend.
 #[qapi(name = "Audiodev")]
 #[qapi(since = "4.0")]
-#[qapi(discriminator = "AudiodevDriver")]
-pub enum Audiodev {
-    #[qapi(name = "none")]
-    None {
-        #[qapi(name = "id")]
-        id: String,
-        #[qapi(name = "timer-period")]
-        timer_period: u32,
-        #[qapi(union)]
-        branch: AudiodevGenericOptions,
-    },
-    #[qapi(name = "alsa")]
-    #[qapi(condition = "CONFIG_AUDIO_ALSA")]
-    Alsa {
-        #[qapi(name = "id")]
-        id: String,
-        #[qapi(name = "timer-period")]
-        timer_period: u32,
-        #[qapi(union)]
-        branch: AudiodevAlsaOptions,
-    },
-    #[qapi(name = "coreaudio")]
-    #[qapi(condition = "CONFIG_AUDIO_COREAUDIO")]
-    Coreaudio {
-        #[qapi(name = "id")]
-        id: String,
-        #[qapi(name = "timer-period")]
-        timer_period: u32,
-        #[qapi(union)]
-        branch: AudiodevCoreaudioOptions,
-    },
-    #[qapi(name = "dbus")]
-    #[qapi(condition = "CONFIG_DBUS_DISPLAY")]
-    Dbus {
-        #[qapi(name = "id")]
-        id: String,
-        #[qapi(name = "timer-period")]
-        timer_period: u32,
-        #[qapi(union)]
-        branch: AudiodevGenericOptions,
-    },
-    #[qapi(name = "dsound")]
-    #[qapi(condition = "CONFIG_AUDIO_DSOUND")]
-    Dsound {
-        #[qapi(name = "id")]
-        id: String,
-        #[qapi(name = "timer-period")]
-        timer_period: u32,
-        #[qapi(union)]
-        branch: AudiodevDsoundOptions,
-    },
-    /// JACK audio backend (since 5.1)
-    #[qapi(name = "jack")]
-    #[qapi(condition = "CONFIG_AUDIO_JACK")]
-    Jack {
-        #[qapi(name = "id")]
-        id: String,
-        #[qapi(name = "timer-period")]
-        timer_period: u32,
-        #[qapi(union)]
-        branch: AudiodevJackOptions,
-    },
-    #[qapi(name = "oss")]
-    #[qapi(condition = "CONFIG_AUDIO_OSS")]
-    Oss {
-        #[qapi(name = "id")]
-        id: String,
-        #[qapi(name = "timer-period")]
-        timer_period: u32,
-        #[qapi(union)]
-        branch: AudiodevOssOptions,
-    },
-    #[qapi(name = "pa")]
-    #[qapi(condition = "CONFIG_AUDIO_PA")]
-    Pa {
-        #[qapi(name = "id")]
-        id: String,
-        #[qapi(name = "timer-period")]
-        timer_period: u32,
-        #[qapi(union)]
-        branch: AudiodevPaOptions,
-    },
-    #[qapi(name = "pipewire")]
-    #[qapi(condition = "CONFIG_AUDIO_PIPEWIRE")]
-    Pipewire {
-        #[qapi(name = "id")]
-        id: String,
-        #[qapi(name = "timer-period")]
-        timer_period: u32,
-        #[qapi(union)]
-        branch: AudiodevPipewireOptions,
-    },
-    #[qapi(name = "sdl")]
-    #[qapi(condition = "CONFIG_AUDIO_SDL")]
-    Sdl {
-        #[qapi(name = "id")]
-        id: String,
-        #[qapi(name = "timer-period")]
-        timer_period: u32,
-        #[qapi(union)]
-        branch: AudiodevSdlOptions,
-    },
-    #[qapi(name = "sndio")]
-    #[qapi(condition = "CONFIG_AUDIO_SNDIO")]
-    Sndio {
-        #[qapi(name = "id")]
-        id: String,
-        #[qapi(name = "timer-period")]
-        timer_period: u32,
-        #[qapi(union)]
-        branch: AudiodevSndioOptions,
-    },
-    #[qapi(name = "spice")]
-    #[qapi(condition = "CONFIG_SPICE")]
-    Spice {
-        #[qapi(name = "id")]
-        id: String,
-        #[qapi(name = "timer-period")]
-        timer_period: u32,
-        #[qapi(union)]
-        branch: AudiodevGenericOptions,
-    },
-    #[qapi(name = "wav")]
-    Wav {
-        #[qapi(name = "id")]
-        id: String,
-        #[qapi(name = "timer-period")]
-        timer_period: u32,
-        #[qapi(union)]
-        branch: AudiodevWavOptions,
-    },
+pub struct Audiodev {
+    /// identifier of the backend
+    #[qapi(name = "id")]
+    pub id: String,
+    /// timer period (in microseconds, 0: use lowest
+    /// possible)
+    #[qapi(name = "timer-period")]
+    pub timer_period: Option<u32>,
+    #[qapi(union)]
+    pub u: Option<AudiodevBranch>,
 }
 /// Returns information about audiodev configuration
 #[qapi(name = "query-audiodevs")]
@@ -21613,34 +19032,22 @@ pub struct StatsVcpuFilter {
     #[qapi(name = "vcpus")]
     pub vcpus: Option<Vec<String>>,
 }
+pub enum StatsFilterBranch {
+    #[qapi(name = "vcpu")]
+    Vcpu(StatsVcpuFilter),
+}
 /// The arguments to the query-stats command; specifies a target for
 /// which to request statistics and optionally the required subset of
 /// information for that target.
 #[qapi(name = "StatsFilter")]
 #[qapi(since = "7.1")]
-#[qapi(discriminator = "StatsTarget")]
-pub enum StatsFilter {
-    /// statistics that apply to the entire virtual machine or the
-    /// entire QEMU process.
-    #[qapi(name = "vm")]
-    Vm {
-        #[qapi(name = "providers")]
-        providers: StatsRequest,
-    },
-    /// statistics that apply to a single virtual CPU.
-    #[qapi(name = "vcpu")]
-    Vcpu {
-        #[qapi(name = "providers")]
-        providers: StatsRequest,
-        #[qapi(union)]
-        branch: StatsVcpuFilter,
-    },
-    /// statistics that apply to a crypto device (since 8.0)
-    #[qapi(name = "cryptodev")]
-    Cryptodev {
-        #[qapi(name = "providers")]
-        providers: StatsRequest,
-    },
+pub struct StatsFilter {
+    /// which providers to request statistics from, and
+    /// optionally which named values to return within each provider
+    #[qapi(name = "providers")]
+    pub providers: Option<Vec<StatsRequest>>,
+    #[qapi(union)]
+    pub u: Option<StatsFilterBranch>,
 }
 #[qapi(name = "StatsValue")]
 #[qapi(since = "7.1")]

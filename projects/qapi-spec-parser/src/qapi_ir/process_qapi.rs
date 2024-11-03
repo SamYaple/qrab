@@ -199,7 +199,7 @@ pub fn process_union(
     q: QapiUnion,
     structs_lookup: &HashMap<String, Struct>,
     enums_lookup: &HashMap<String, Enum>,
-) -> Enum {
+) -> (Struct, Enum) {
     let mut discriminator = String::new();
     let mut fields = Vec::new();
     for field in process_members_or_ref(q.base, structs_lookup) {
@@ -209,50 +209,54 @@ pub fn process_union(
         }
         fields.push(field);
     }
-    let mut extended_fields = HashMap::new();
-    for branch in q.data {
-        extended_fields.insert(branch.name.to_string(), branch);
-    }
 
     let base_enum = enums_lookup.get(&discriminator).expect(&format!(
         "{} could not find a base enum named {}",
         q.name, discriminator
     ));
-    let mut variants = base_enum.variants.clone();
-    for mut variant in &mut variants {
-        let mut fields = fields.clone();
-        if let Some(branch) = extended_fields.get(&variant.name) {
-            let (r#type, array) = process_type_ref(branch.r#type.clone());
-            let mut meta = Metadata::default();
-            meta.attributes.push(Attribute::new("union"));
-            fields.push(StructField {
-                name: "branch".into(),
-                r#type: r#type.into(),
-                meta,
-                optional: false,
-                array,
-            });
-            let mut meta = Metadata::default();
-            add_name! {meta, branch.name};
-            add_cond! {meta, branch.r#if.clone()};
-            meta.doc = variant.meta.doc.clone();
-            variant.meta = meta;
-        }
-        variant.kind = EnumVariantKind::Struct(fields);
+
+    let mut variants = Vec::new();
+    for branch in q.data {
+        let (r#type, array) = process_type_ref(branch.r#type);
+        assert!(array == false);
+        let mut meta = Metadata::default();
+        add_name! {meta, branch.name};
+        add_cond! {meta, branch.r#if.clone()};
+        variants.push(EnumVariant {
+            name: branch.name.into(),
+            kind: EnumVariantKind::Tuple(r#type.into()),
+            meta,
+            array: false,
+        });
     }
+    let e = Enum {
+        name: q.name.to_owned() + "Branch",
+        variants,
+        meta: Metadata::default(),
+    };
+
     let mut meta = Metadata::default();
-    //meta.attributes.push(Attribute::new("Union"));
+    meta.attributes.push(Attribute::new("union"));
+    fields.push(StructField {
+        name: "u".into(),
+        meta,
+        r#type: q.name.to_owned() + "Branch",
+        optional: true,
+        array: false,
+    });
+    let mut meta = Metadata::default();
     add_name! {meta, q.name};
     add_cond! {meta, q.r#if};
     add_feat! {meta, q.r#features};
-    add_docs! {meta, q.doc, q.name, &mut variants};
-    meta.attributes
-        .push(Attribute::with_value("discriminator", discriminator));
-    Enum {
+    add_docs! {meta, q.doc, q.name, &mut fields};
+    //meta.attributes
+    //    .push(Attribute::with_value("discriminator", discriminator));
+    let s = Struct {
         name: q.name.into(),
-        variants,
+        fields,
         meta,
-    }
+    };
+    (s, e)
 }
 
 fn process_members_or_ref(

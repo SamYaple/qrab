@@ -132,8 +132,9 @@ fn main() -> Result<()> {
     }
     // With all structs and enums processed, we can assemble the unions
     for v in unprocessed_unions.drain(..) {
-        let processed = process_union(v, &structs_lookup, &enums_lookup);
-        enums_lookup.insert(processed.name.clone(), processed);
+        let (processed_struct, processed_enum) = process_union(v, &structs_lookup, &enums_lookup);
+        enums_lookup.insert(processed_enum.name.clone(), processed_enum);
+        structs_lookup.insert(processed_struct.name.clone(), processed_struct);
     }
     // Events can reference structs which we expand out (TODO: Is this correct behaviour?)
     for v in unprocessed_events.drain(..) {
@@ -151,6 +152,7 @@ fn main() -> Result<()> {
     // QAPI spec expects. This might be helpful to anyone reading the generated
     // code, but it doesn't matter at all during compliation.
     println!("use qapi_macros::qapi;");
+    println!("use serde_json;");
     for (path, source) in &sources {
         println!(
             "// path begin:\t{}",
@@ -194,7 +196,13 @@ fn main() -> Result<()> {
                     print!("{}", prettycode);
                 }
                 QapiSchemaToken::Union(v) => {
-                    let qir = enums_lookup.get(v.name).unwrap();
+                    let qir = enums_lookup.get(&(v.name.to_owned() + "Branch")).unwrap();
+                    let code = qir.generate();
+                    let syntree: syn::File = syn::parse2(code)?;
+                    let prettycode = prettyplease::unparse(&syntree);
+                    print!("{}", prettycode);
+
+                    let qir = structs_lookup.get(v.name).unwrap();
                     let code = qir.generate();
                     let syntree: syn::File = syn::parse2(code)?;
                     let prettycode = prettyplease::unparse(&syntree);
