@@ -200,16 +200,16 @@ pub fn process_union(
     structs_lookup: &HashMap<String, Struct>,
     enums_lookup: &HashMap<String, Enum>,
 ) -> (Struct, Enum) {
-    let mut discriminator = String::new();
-    let mut fields = Vec::new();
-    for field in process_members_or_ref(q.base, structs_lookup) {
+    let mut discriminator_opt = None;
+    let mut fields = process_members_or_ref(q.base, structs_lookup);
+    for mut field in &mut fields {
         if field.name == q.discriminator {
-            discriminator = field.r#type.clone();
-            continue;
+            field.meta.attributes.push(Attribute::new("discriminator"));
+            discriminator_opt = Some(field.r#type.clone());
         }
-        fields.push(field);
     }
 
+    let discriminator = discriminator_opt.expect("discriminator field not found");
     let base_enum = enums_lookup.get(&discriminator).expect(&format!(
         "{} could not find a base enum named {}",
         q.name, discriminator
@@ -249,8 +249,6 @@ pub fn process_union(
     add_cond! {meta, q.r#if};
     add_feat! {meta, q.r#features};
     add_docs! {meta, q.doc, q.name, &mut fields};
-    //meta.attributes
-    //    .push(Attribute::with_value("discriminator", discriminator));
     let s = Struct {
         name: q.name.into(),
         fields,

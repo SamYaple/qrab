@@ -372,6 +372,10 @@ pub enum SocketAddressLegacyBranch {
 #[qapi(name = "SocketAddressLegacy")]
 #[qapi(since = "1.3")]
 pub struct SocketAddressLegacy {
+    /// Transport type
+    #[qapi(name = "type")]
+    #[qapi(discriminator)]
+    pub r#type: SocketAddressType,
     #[qapi(union)]
     pub u: Option<SocketAddressLegacyBranch>,
 }
@@ -407,6 +411,10 @@ pub enum SocketAddressBranch {
 #[qapi(name = "SocketAddress")]
 #[qapi(since = "2.9")]
 pub struct SocketAddress {
+    /// Transport type
+    #[qapi(name = "type")]
+    #[qapi(discriminator)]
+    pub r#type: SocketAddressType,
     #[qapi(union)]
     pub u: Option<SocketAddressBranch>,
 }
@@ -762,6 +770,10 @@ pub enum GuestPanicInformationBranch {
 #[qapi(name = "GuestPanicInformation")]
 #[qapi(since = "2.9")]
 pub struct GuestPanicInformation {
+    /// Crash type that defines the hypervisor specific information
+    #[qapi(name = "type")]
+    #[qapi(discriminator)]
+    pub r#type: GuestPanicInformationType,
     #[qapi(union)]
     pub u: Option<GuestPanicInformationBranch>,
 }
@@ -1127,6 +1139,10 @@ pub enum QCryptoBlockOpenOptionsBranch {
 #[qapi(name = "QCryptoBlockOpenOptions")]
 #[qapi(since = "2.6")]
 pub struct QCryptoBlockOpenOptions {
+    /// the encryption format
+    #[qapi(name = "format")]
+    #[qapi(discriminator)]
+    pub format: QCryptoBlockFormat,
     #[qapi(union)]
     pub u: Option<QCryptoBlockOpenOptionsBranch>,
 }
@@ -1141,6 +1157,10 @@ pub enum QCryptoBlockCreateOptionsBranch {
 #[qapi(name = "QCryptoBlockCreateOptions")]
 #[qapi(since = "2.6")]
 pub struct QCryptoBlockCreateOptions {
+    /// the encryption format
+    #[qapi(name = "format")]
+    #[qapi(discriminator)]
+    pub format: QCryptoBlockFormat,
     #[qapi(union)]
     pub u: Option<QCryptoBlockCreateOptionsBranch>,
 }
@@ -1213,6 +1233,10 @@ pub enum QCryptoBlockInfoBranch {
 #[qapi(name = "QCryptoBlockInfo")]
 #[qapi(since = "2.7")]
 pub struct QCryptoBlockInfo {
+    /// the encryption format
+    #[qapi(name = "format")]
+    #[qapi(discriminator)]
+    pub format: QCryptoBlockFormat,
     #[qapi(union)]
     pub u: Option<QCryptoBlockInfoBranch>,
 }
@@ -1275,6 +1299,10 @@ pub enum QCryptoBlockAmendOptionsBranch {
 #[qapi(name = "QCryptoBlockAmendOptions")]
 #[qapi(since = "5.1")]
 pub struct QCryptoBlockAmendOptions {
+    /// the encryption format
+    #[qapi(name = "format")]
+    #[qapi(discriminator)]
+    pub format: QCryptoBlockFormat,
     #[qapi(union)]
     pub u: Option<QCryptoBlockAmendOptionsBranch>,
 }
@@ -1544,6 +1572,10 @@ pub enum QCryptoAkCipherOptionsBranch {
 #[qapi(name = "QCryptoAkCipherOptions")]
 #[qapi(since = "7.1")]
 pub struct QCryptoAkCipherOptions {
+    /// encryption cipher algorithm
+    #[qapi(name = "alg")]
+    #[qapi(discriminator)]
+    pub alg: QCryptoAkCipherAlgorithm,
     #[qapi(union)]
     pub u: Option<QCryptoAkCipherOptionsBranch>,
 }
@@ -2176,6 +2208,10 @@ pub enum ImageInfoSpecificQCow2EncryptionBranch {
 #[qapi(name = "ImageInfoSpecificQCow2Encryption")]
 #[qapi(since = "2.10")]
 pub struct ImageInfoSpecificQCow2Encryption {
+    /// The encryption format
+    #[qapi(name = "format")]
+    #[qapi(discriminator)]
+    pub format: BlockdevQcow2EncryptionFormat,
     #[qapi(union)]
     pub u: Option<ImageInfoSpecificQCow2EncryptionBranch>,
 }
@@ -2339,6 +2375,10 @@ pub enum ImageInfoSpecificBranch {
 #[qapi(name = "ImageInfoSpecific")]
 #[qapi(since = "1.7")]
 pub struct ImageInfoSpecific {
+    /// block driver name
+    #[qapi(name = "type")]
+    #[qapi(discriminator)]
+    pub r#type: ImageInfoSpecificKind,
     #[qapi(union)]
     pub u: Option<ImageInfoSpecificBranch>,
 }
@@ -3167,6 +3207,10 @@ pub enum BlockStatsSpecificBranch {
 #[qapi(name = "BlockStatsSpecific")]
 #[qapi(since = "4.2")]
 pub struct BlockStatsSpecific {
+    /// block driver name
+    #[qapi(name = "driver")]
+    #[qapi(discriminator)]
+    pub driver: BlockdevDriver,
     #[qapi(union)]
     pub u: Option<BlockStatsSpecificBranch>,
 }
@@ -3320,6 +3364,10 @@ pub enum BlockJobInfoBranch {
 #[qapi(name = "BlockJobInfo")]
 #[qapi(since = "1.1")]
 pub struct BlockJobInfo {
+    /// the job type ('stream' for image streaming)
+    #[qapi(name = "type")]
+    #[qapi(discriminator)]
+    pub r#type: JobType,
     /// The job identifier.  Originally the device name but other
     /// values are allowed since QEMU 2.7
     #[qapi(name = "device")]
@@ -4821,6 +4869,10 @@ pub struct BlockJobChangeOptions {
     /// The job identifier
     #[qapi(name = "id")]
     pub id: String,
+    /// The job type
+    #[qapi(name = "type")]
+    #[qapi(discriminator)]
+    pub r#type: JobType,
     #[qapi(union)]
     pub u: Option<BlockJobChangeOptionsBranch>,
 }
@@ -5228,6 +5280,10 @@ pub enum BlockdevQcowEncryptionBranch {
 #[qapi(name = "BlockdevQcowEncryption")]
 #[qapi(since = "2.10")]
 pub struct BlockdevQcowEncryption {
+    /// encryption format
+    #[qapi(name = "format")]
+    #[qapi(discriminator)]
+    pub format: BlockdevQcowEncryptionFormat,
     #[qapi(union)]
     pub u: Option<BlockdevQcowEncryptionBranch>,
 }
@@ -5266,6 +5322,10 @@ pub enum BlockdevQcow2EncryptionBranch {
 #[qapi(name = "BlockdevQcow2Encryption")]
 #[qapi(since = "2.10")]
 pub struct BlockdevQcow2Encryption {
+    /// encryption format
+    #[qapi(name = "format")]
+    #[qapi(discriminator)]
+    pub format: BlockdevQcow2EncryptionFormat,
     #[qapi(union)]
     pub u: Option<BlockdevQcow2EncryptionBranch>,
 }
@@ -5412,6 +5472,10 @@ pub enum SshHostKeyCheckBranch {
 #[qapi(name = "SshHostKeyCheck")]
 #[qapi(since = "2.12")]
 pub struct SshHostKeyCheck {
+    /// How to check the host key
+    #[qapi(name = "mode")]
+    #[qapi(discriminator)]
+    pub mode: SshHostKeyCheckMode,
     #[qapi(union)]
     pub u: Option<SshHostKeyCheckBranch>,
 }
@@ -5973,6 +6037,10 @@ pub enum RbdEncryptionOptionsBranch {
 #[qapi(name = "RbdEncryptionOptions")]
 #[qapi(since = "6.1")]
 pub struct RbdEncryptionOptions {
+    /// Encryption format.
+    #[qapi(name = "format")]
+    #[qapi(discriminator)]
+    pub format: RbdImageEncryptionFormat,
     /// Parent image encryption options (for cloned images).  Can
     /// be left unspecified if this cloned image is encrypted using the
     /// same format and secret as its parent image (i.e. not explicitly
@@ -5991,6 +6059,10 @@ pub enum RbdEncryptionCreateOptionsBranch {
 #[qapi(name = "RbdEncryptionCreateOptions")]
 #[qapi(since = "6.1")]
 pub struct RbdEncryptionCreateOptions {
+    /// Encryption format.
+    #[qapi(name = "format")]
+    #[qapi(discriminator)]
+    pub format: RbdImageEncryptionFormat,
     #[qapi(union)]
     pub u: Option<RbdEncryptionCreateOptionsBranch>,
 }
@@ -6544,6 +6616,10 @@ pub enum BlockdevOptionsBranch {
 #[qapi(name = "BlockdevOptions")]
 #[qapi(since = "2.9")]
 pub struct BlockdevOptions {
+    /// block driver name
+    #[qapi(name = "driver")]
+    #[qapi(discriminator)]
+    pub driver: BlockdevDriver,
     /// the node name of the new node (Since 2.0).  This option
     /// is required on the top level of blockdev-add.  Valid node names
     /// start with an alphabetic character and may contain only
@@ -7134,6 +7210,10 @@ pub enum BlockdevCreateOptionsBranch {
 #[qapi(name = "BlockdevCreateOptions")]
 #[qapi(since = "2.12")]
 pub struct BlockdevCreateOptions {
+    /// block driver to create the image format
+    #[qapi(name = "driver")]
+    #[qapi(discriminator)]
+    pub driver: BlockdevDriver,
     #[qapi(union)]
     pub u: Option<BlockdevCreateOptionsBranch>,
 }
@@ -7207,6 +7287,10 @@ pub enum BlockdevAmendOptionsBranch {
 #[qapi(name = "BlockdevAmendOptions")]
 #[qapi(since = "5.1")]
 pub struct BlockdevAmendOptions {
+    /// Block driver of the node to amend.
+    #[qapi(name = "driver")]
+    #[qapi(discriminator)]
+    pub driver: BlockdevDriver,
     #[qapi(union)]
     pub u: Option<BlockdevAmendOptionsBranch>,
 }
@@ -7927,6 +8011,10 @@ pub enum BlockExportOptionsBranch {
 #[qapi(name = "BlockExportOptions")]
 #[qapi(since = "4.2")]
 pub struct BlockExportOptions {
+    /// Block export type
+    #[qapi(name = "type")]
+    #[qapi(discriminator)]
+    pub r#type: BlockExportType,
     /// A unique identifier for the block export (across all export
     /// types)
     #[qapi(name = "id")]
@@ -8591,6 +8679,10 @@ pub enum ChardevBackendBranch {
 #[qapi(name = "ChardevBackend")]
 #[qapi(since = "1.4")]
 pub struct ChardevBackend {
+    /// backend type
+    #[qapi(name = "type")]
+    #[qapi(discriminator)]
+    pub r#type: ChardevBackendKind,
     #[qapi(union)]
     pub u: Option<ChardevBackendBranch>,
 }
@@ -9453,6 +9545,10 @@ pub struct Netdev {
     /// identifier for monitor commands.
     #[qapi(name = "id")]
     pub id: String,
+    /// Specify the driver used for interpreting remaining arguments.
+    #[qapi(name = "type")]
+    #[qapi(discriminator)]
+    pub r#type: NetClientDriver,
     #[qapi(union)]
     pub u: Option<NetdevBranch>,
 }
@@ -9981,6 +10077,13 @@ pub enum TpmTypeOptionsBranch {
 #[qapi(condition = "CONFIG_TPM")]
 #[qapi(since = "1.5")]
 pub struct TpmTypeOptions {
+    /// - 'passthrough' The configuration options for the TPM
+    /// passthrough type
+    /// - 'emulator' The configuration options for TPM emulator backend
+    /// type
+    #[qapi(name = "type")]
+    #[qapi(discriminator)]
+    pub r#type: TpmType,
     #[qapi(union)]
     pub u: Option<TpmTypeOptionsBranch>,
 }
@@ -10039,6 +10142,11 @@ pub enum SetPasswordOptionsBranch {
 #[qapi(name = "SetPasswordOptions")]
 #[qapi(since = "7.0")]
 pub struct SetPasswordOptions {
+    /// - 'vnc' to modify the VNC server password
+    /// - 'spice' to modify the Spice server password
+    #[qapi(name = "protocol")]
+    #[qapi(discriminator)]
+    pub protocol: DisplayProtocol,
     /// the new password
     #[qapi(name = "password")]
     pub password: String,
@@ -10075,6 +10183,11 @@ pub enum ExpirePasswordOptionsBranch {
 #[qapi(name = "ExpirePasswordOptions")]
 #[qapi(since = "7.0")]
 pub struct ExpirePasswordOptions {
+    /// - 'vnc' to modify the VNC server expiration
+    /// - 'spice' to modify the Spice server expiration
+    #[qapi(name = "protocol")]
+    #[qapi(discriminator)]
+    pub protocol: DisplayProtocol,
     /// when to expire the password.
     ///
     /// - 'now' to expire the password immediately
@@ -11029,6 +11142,10 @@ pub enum KeyValueBranch {
 #[qapi(name = "KeyValue")]
 #[qapi(since = "1.3")]
 pub struct KeyValue {
+    /// key encoding
+    #[qapi(name = "type")]
+    #[qapi(discriminator)]
+    pub r#type: KeyValueKind,
     #[qapi(union)]
     pub u: Option<KeyValueBranch>,
 }
@@ -11223,6 +11340,10 @@ pub enum InputEventBranch {
 #[qapi(name = "InputEvent")]
 #[qapi(since = "2.0")]
 pub struct InputEvent {
+    /// the type of input event
+    #[qapi(name = "type")]
+    #[qapi(discriminator)]
+    pub r#type: InputEventKind,
     #[qapi(union)]
     pub u: Option<InputEventBranch>,
 }
@@ -11458,6 +11579,10 @@ pub enum DisplayOptionsBranch {
 #[qapi(name = "DisplayOptions")]
 #[qapi(since = "2.12")]
 pub struct DisplayOptions {
+    /// Which DisplayType qemu should use.
+    #[qapi(name = "type")]
+    #[qapi(discriminator)]
+    pub r#type: DisplayType,
     /// Start user interface in fullscreen mode
     /// (default: off).
     #[qapi(name = "full-screen")]
@@ -11505,6 +11630,10 @@ pub enum DisplayReloadOptionsBranch {
 #[qapi(name = "DisplayReloadOptions")]
 #[qapi(since = "6.0")]
 pub struct DisplayReloadOptions {
+    /// Specify the display type.
+    #[qapi(name = "type")]
+    #[qapi(discriminator)]
+    pub r#type: DisplayReloadType,
     #[qapi(union)]
     pub u: Option<DisplayReloadOptionsBranch>,
 }
@@ -11542,6 +11671,10 @@ pub enum DisplayUpdateOptionsBranch {
 #[qapi(name = "DisplayUpdateOptions")]
 #[qapi(since = "7.1")]
 pub struct DisplayUpdateOptions {
+    /// Specify the display type.
+    #[qapi(name = "type")]
+    #[qapi(discriminator)]
+    pub r#type: DisplayUpdateType,
     #[qapi(union)]
     pub u: Option<DisplayUpdateOptionsBranch>,
 }
@@ -12941,6 +13074,10 @@ pub enum MigrationAddressBranch {
 #[qapi(name = "MigrationAddress")]
 #[qapi(since = "8.2")]
 pub struct MigrationAddress {
+    /// The migration stream transport mechanism
+    #[qapi(name = "transport")]
+    #[qapi(discriminator)]
+    pub transport: MigrationAddressType,
     #[qapi(union)]
     pub u: Option<MigrationAddressBranch>,
 }
@@ -13581,6 +13718,10 @@ pub enum TransactionActionBranch {
 #[qapi(name = "TransactionAction")]
 #[qapi(since = "1.1")]
 pub struct TransactionAction {
+    /// the operation to be performed
+    #[qapi(name = "type")]
+    #[qapi(discriminator)]
+    pub r#type: TransactionActionKind,
     #[qapi(union)]
     pub u: Option<TransactionActionBranch>,
 }
@@ -13934,6 +14075,10 @@ pub struct SchemaInfo {
     /// guaranteed unique regardless of @meta-type.
     #[qapi(name = "name")]
     pub name: String,
+    /// the entity's meta type, inherited from @base.
+    #[qapi(name = "meta-type")]
+    #[qapi(discriminator)]
+    pub meta_type: SchemaMetaType,
     /// names of features associated with the entity, in no
     /// particular order.  (since 4.1 for object types, 4.2 for
     /// commands, 5.0 for the rest)
@@ -15489,6 +15634,10 @@ pub enum ObjectOptionsBranch {
 #[qapi(name = "ObjectOptions")]
 #[qapi(since = "6.0")]
 pub struct ObjectOptions {
+    /// the class name for the object to be created
+    #[qapi(name = "qom-type")]
+    #[qapi(discriminator)]
+    pub qom_type: ObjectType,
     /// the name of the new object
     #[qapi(name = "id")]
     pub id: String,
@@ -15717,6 +15866,11 @@ pub struct CpuInfoFast {
     /// properties associated with a virtual CPU, e.g. the socket id
     #[qapi(name = "props")]
     pub props: Option<CpuInstanceProperties>,
+    /// the QEMU system emulation target, which determines which
+    /// additional fields will be listed (since 3.0)
+    #[qapi(name = "target")]
+    #[qapi(discriminator)]
+    pub target: SysEmuTarget,
     #[qapi(union)]
     pub u: Option<CpuInfoFastBranch>,
 }
@@ -15959,6 +16113,10 @@ pub enum NumaOptionsBranch {
 #[qapi(name = "NumaOptions")]
 #[qapi(since = "2.1")]
 pub struct NumaOptions {
+    /// NUMA option type
+    #[qapi(name = "type")]
+    #[qapi(discriminator)]
+    pub r#type: NumaOptionsType,
     #[qapi(union)]
     pub u: Option<NumaOptionsBranch>,
 }
@@ -16702,6 +16860,10 @@ pub enum MemoryDeviceInfoBranch {
 #[qapi(name = "MemoryDeviceInfo")]
 #[qapi(since = "2.1")]
 pub struct MemoryDeviceInfo {
+    /// memory device type
+    #[qapi(name = "type")]
+    #[qapi(discriminator)]
+    pub r#type: MemoryDeviceInfoKind,
     #[qapi(union)]
     pub u: Option<MemoryDeviceInfoBranch>,
 }
@@ -17408,6 +17570,20 @@ pub enum YankInstanceBranch {
 #[qapi(name = "YankInstance")]
 #[qapi(since = "6.0")]
 pub struct YankInstance {
+    /// yank instance type
+    ///
+    /// Currently implemented yank instances:
+    ///
+    /// - nbd block device: Yanking it will shut down the connection to the
+    /// nbd server without attempting to reconnect.
+    /// - socket chardev: Yanking it will shut down the connected socket.
+    /// - migration: Yanking it will shut down all migration connections.
+    /// Unlike @migrate_cancel, it will not notify the migration process,
+    /// so migration will go into @failed state, instead of @cancelled
+    /// state.  @yank should be used to recover from hangs.
+    #[qapi(name = "type")]
+    #[qapi(discriminator)]
+    pub r#type: YankInstanceType,
     #[qapi(union)]
     pub u: Option<YankInstanceBranch>,
 }
@@ -17822,6 +17998,10 @@ pub struct SevInfo {
     /// SEV guest state
     #[qapi(name = "state")]
     pub state: SevState,
+    /// Type of SEV guest being run
+    #[qapi(name = "sev-type")]
+    #[qapi(discriminator)]
+    pub sev_type: SevGuestType,
     #[qapi(union)]
     pub u: Option<SevInfoBranch>,
 }
@@ -18680,6 +18860,10 @@ pub struct Audiodev {
     /// identifier of the backend
     #[qapi(name = "id")]
     pub id: String,
+    /// the backend driver to use
+    #[qapi(name = "driver")]
+    #[qapi(discriminator)]
+    pub driver: AudiodevDriver,
     /// timer period (in microseconds, 0: use lowest
     /// possible)
     #[qapi(name = "timer-period")]
@@ -19042,6 +19226,11 @@ pub enum StatsFilterBranch {
 #[qapi(name = "StatsFilter")]
 #[qapi(since = "7.1")]
 pub struct StatsFilter {
+    /// the kind of objects to query.  Note that each possible
+    /// target may enable additional filtering options
+    #[qapi(name = "target")]
+    #[qapi(discriminator)]
+    pub target: StatsTarget,
     /// which providers to request statistics from, and
     /// optionally which named values to return within each provider
     #[qapi(name = "providers")]
