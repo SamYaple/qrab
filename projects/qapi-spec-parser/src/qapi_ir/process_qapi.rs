@@ -15,16 +15,6 @@ use crate::{
 };
 use std::collections::{HashMap, HashSet};
 
-macro_rules! add_cond {
-    ($meta:expr, $cond:expr) => {
-        if let Some(condition) = $cond {
-            $meta
-                .attributes
-                .push(Attribute::with_value("condition", condition));
-        }
-    };
-}
-
 macro_rules! add_feat {
     ($meta:expr, $feat:expr) => {
         if let Some(features) = $feat {
@@ -103,7 +93,10 @@ fn process_alternative(q: QapiAlternative) -> EnumVariant {
     if let Some(attr) = name_attr(q.name) {
         meta.attributes.push(attr);
     }
-    add_cond! {meta, q.r#if};
+    if let Some(condition) = q.r#if {
+        meta.attributes
+            .push(Attribute::with_value("condition", condition));
+    }
 
     EnumVariant {
         name: q.name.into(),
@@ -125,7 +118,10 @@ pub fn process_alternate(q: QapiAlternate) -> Enum {
     if let Some(attr) = name_attr(q.name) {
         meta.attributes.push(attr);
     }
-    add_cond! {meta, q.r#if};
+    if let Some(condition) = q.r#if {
+        meta.attributes
+            .push(Attribute::with_value("condition", condition));
+    }
     add_docs! {meta, q.doc, q.name, &mut variants};
 
     Enum {
@@ -140,7 +136,10 @@ fn process_enum_value(q: QapiEnumValue) -> EnumVariant {
     if let Some(attr) = name_attr(q.name) {
         meta.attributes.push(attr);
     }
-    add_cond! {meta, q.r#if};
+    if let Some(condition) = q.r#if {
+        meta.attributes
+            .push(Attribute::with_value("condition", condition));
+    }
     add_feat! {meta, q.r#features};
 
     EnumVariant {
@@ -163,7 +162,10 @@ pub fn process_enum(q: QapiEnum) -> Enum {
     if let Some(attr) = name_attr(q.name) {
         meta.attributes.push(attr);
     }
-    add_cond! {meta, q.r#if};
+    if let Some(condition) = q.r#if {
+        meta.attributes
+            .push(Attribute::with_value("condition", condition));
+    }
     add_feat! {meta, q.r#features};
     add_docs! {meta, q.doc, q.name, &mut variants};
 
@@ -181,7 +183,10 @@ pub fn process_member(q: QapiMember) -> StructField {
     if let Some(attr) = name_attr(q.name) {
         meta.attributes.push(attr);
     }
-    add_cond! {meta, q.r#if};
+    if let Some(condition) = q.r#if {
+        meta.attributes
+            .push(Attribute::with_value("condition", condition));
+    }
     add_feat! {meta, q.features};
     StructField {
         name: q.name.into(),
@@ -209,7 +214,10 @@ pub fn process_struct(q: QapiStruct, structs_lookup: &HashMap<String, Struct>) -
     if let Some(attr) = name_attr(q.name) {
         meta.attributes.push(attr);
     }
-    add_cond! {meta, q.r#if};
+    if let Some(condition) = q.r#if {
+        meta.attributes
+            .push(Attribute::with_value("condition", condition));
+    }
     add_feat! {meta, q.r#features};
     add_docs! {meta, q.doc, q.name, &mut fields};
 
@@ -248,7 +256,10 @@ pub fn process_union(
         if let Some(attr) = name_attr(branch.name) {
             meta.attributes.push(attr);
         }
-        add_cond! {meta, branch.r#if.clone()};
+        if let Some(condition) = branch.r#if {
+            meta.attributes
+                .push(Attribute::with_value("condition", condition));
+        }
         variants.push(EnumVariant {
             name: branch.name.into(),
             kind: EnumVariantKind::Tuple(r#type.into()),
@@ -275,7 +286,10 @@ pub fn process_union(
     if let Some(attr) = name_attr(q.name) {
         meta.attributes.push(attr);
     }
-    add_cond! {meta, q.r#if};
+    if let Some(condition) = q.r#if {
+        meta.attributes
+            .push(Attribute::with_value("condition", condition));
+    }
     add_feat! {meta, q.r#features};
     add_docs! {meta, q.doc, q.name, &mut fields};
     let s = Struct {
@@ -300,7 +314,10 @@ fn process_members_or_ref(
                 if let Some(attr) = field_name_attr(field.name) {
                     meta.attributes.push(attr);
                 }
-                add_cond! {meta, field.r#if};
+                if let Some(condition) = field.r#if {
+                    meta.attributes
+                        .push(Attribute::with_value("condition", condition));
+                }
                 add_feat! {meta, field.features};
                 let field = StructField {
                     name: field.name.into(),
@@ -332,7 +349,10 @@ pub fn process_event(q: QapiEvent, structs_lookup: &HashMap<String, Struct>) -> 
     if let Some(attr) = name_attr(q.name) {
         meta.attributes.push(attr);
     }
-    add_cond! {meta, q.r#if};
+    if let Some(condition) = q.r#if {
+        meta.attributes
+            .push(Attribute::with_value("condition", condition));
+    }
     add_feat! {meta, q.r#features};
     add_docs! {meta, q.doc, q.name, &mut fields};
 
@@ -357,7 +377,10 @@ fn command_process_members_or_ref(
                 if let Some(attr) = field_name_attr(field.name) {
                     meta.attributes.push(attr);
                 }
-                add_cond! {meta, field.r#if};
+                if let Some(condition) = field.r#if {
+                    meta.attributes
+                        .push(Attribute::with_value("condition", condition));
+                }
                 add_feat! {meta, field.features};
                 let field = StructField {
                     name: field.name.into(),
@@ -395,7 +418,10 @@ pub fn process_command(q: QapiCommand, structs_lookup: &HashMap<String, Struct>)
     if let Some(attr) = name_attr(q.name) {
         meta.attributes.push(attr);
     }
-    add_cond! {meta, q.r#if};
+    if let Some(condition) = q.r#if {
+        meta.attributes
+            .push(Attribute::with_value("condition", condition));
+    }
     add_feat! {meta, q.r#features};
     add_docs! {meta, q.doc, q.name, &mut fields};
     if let Some(returns) = q.returns {
