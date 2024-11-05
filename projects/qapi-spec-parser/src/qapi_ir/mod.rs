@@ -59,6 +59,16 @@ fn fix_leading_digit(input: &str) -> String {
     }
 }
 
+fn rustify_name(input: &str) -> String {
+    let input = input.to_pascal_case();
+    fix_leading_digit(&input)
+}
+
+fn rustify_field_name(input: &str) -> String {
+    let input = input.to_snake_case();
+    fix_leading_digit(&input)
+}
+
 fn rustify_type(input: &str) -> String {
     let input = qapi_to_rust_type(input);
     fix_leading_digit(&input)

@@ -8,17 +8,12 @@
 /// generated code.
 ///
 use super::{Attribute, Enum, EnumVariant, EnumVariantKind, Metadata, Struct, StructField};
+use crate::qapi_ir::{rustify_field_name, rustify_name};
 use crate::{
     MembersOrRef, QapiAlternate, QapiAlternative, QapiCommand, QapiEnum, QapiEnumValue, QapiEvent,
     QapiMember, QapiStruct, QapiTypeRef, QapiUnion,
 };
 use std::collections::{HashMap, HashSet};
-
-macro_rules! add_name {
-    ($meta:expr, $name:expr) => {
-        $meta.attributes.push(Attribute::with_value("name", $name));
-    };
-}
 
 macro_rules! add_cond {
     ($meta:expr, $cond:expr) => {
@@ -69,10 +64,28 @@ macro_rules! add_docs {
                         continue 'outer_loop;
                     }
                 }
-                //todo! { "This is a validation error; Documented field does not exist" }
+                todo! { "This is a validation error; Documented field does not exist" }
             }
         }
     };
+}
+
+fn field_name_attr(name: &str) -> Option<Attribute> {
+    let rust_name = rustify_field_name(name);
+    if name != &rust_name {
+        Some(Attribute::with_value("name", name))
+    } else {
+        None
+    }
+}
+
+fn name_attr(name: &str) -> Option<Attribute> {
+    let rust_name = rustify_name(name);
+    if name != &rust_name {
+        Some(Attribute::with_value("name", name))
+    } else {
+        None
+    }
 }
 
 fn process_type_ref(q: QapiTypeRef) -> (&str, bool) {
@@ -87,7 +100,9 @@ fn process_alternative(q: QapiAlternative) -> EnumVariant {
     let (r#type, array) = process_type_ref(q.r#type);
 
     let mut meta = Metadata::default();
-    add_name! {meta, q.name};
+    if let Some(attr) = name_attr(q.name) {
+        meta.attributes.push(attr);
+    }
     add_cond! {meta, q.r#if};
 
     EnumVariant {
@@ -107,7 +122,9 @@ pub fn process_alternate(q: QapiAlternate) -> Enum {
 
     let mut meta = Metadata::default();
     //meta.attributes.push(Attribute::new("Alternate"));
-    add_name! {meta, q.name};
+    if let Some(attr) = name_attr(q.name) {
+        meta.attributes.push(attr);
+    }
     add_cond! {meta, q.r#if};
     add_docs! {meta, q.doc, q.name, &mut variants};
 
@@ -120,7 +137,9 @@ pub fn process_alternate(q: QapiAlternate) -> Enum {
 
 fn process_enum_value(q: QapiEnumValue) -> EnumVariant {
     let mut meta = Metadata::default();
-    add_name! {meta, q.name};
+    if let Some(attr) = name_attr(q.name) {
+        meta.attributes.push(attr);
+    }
     add_cond! {meta, q.r#if};
     add_feat! {meta, q.r#features};
 
@@ -141,7 +160,9 @@ pub fn process_enum(q: QapiEnum) -> Enum {
 
     let mut meta = Metadata::default();
     //meta.attributes.push(Attribute::new("Enum"));
-    add_name! {meta, q.name};
+    if let Some(attr) = name_attr(q.name) {
+        meta.attributes.push(attr);
+    }
     add_cond! {meta, q.r#if};
     add_feat! {meta, q.r#features};
     add_docs! {meta, q.doc, q.name, &mut variants};
@@ -157,7 +178,9 @@ pub fn process_member(q: QapiMember) -> StructField {
     let (r#type, array) = process_type_ref(q.r#type);
 
     let mut meta = Metadata::default();
-    add_name! {meta, q.name};
+    if let Some(attr) = name_attr(q.name) {
+        meta.attributes.push(attr);
+    }
     add_cond! {meta, q.r#if};
     add_feat! {meta, q.features};
     StructField {
@@ -183,7 +206,9 @@ pub fn process_struct(q: QapiStruct, structs_lookup: &HashMap<String, Struct>) -
         fields.push(field);
     }
     let mut meta = Metadata::default();
-    add_name! {meta, q.name};
+    if let Some(attr) = name_attr(q.name) {
+        meta.attributes.push(attr);
+    }
     add_cond! {meta, q.r#if};
     add_feat! {meta, q.r#features};
     add_docs! {meta, q.doc, q.name, &mut fields};
@@ -220,7 +245,9 @@ pub fn process_union(
         let (r#type, array) = process_type_ref(branch.r#type);
         assert!(array == false);
         let mut meta = Metadata::default();
-        add_name! {meta, branch.name};
+        if let Some(attr) = name_attr(branch.name) {
+            meta.attributes.push(attr);
+        }
         add_cond! {meta, branch.r#if.clone()};
         variants.push(EnumVariant {
             name: branch.name.into(),
@@ -245,7 +272,9 @@ pub fn process_union(
         array: false,
     });
     let mut meta = Metadata::default();
-    add_name! {meta, q.name};
+    if let Some(attr) = name_attr(q.name) {
+        meta.attributes.push(attr);
+    }
     add_cond! {meta, q.r#if};
     add_feat! {meta, q.r#features};
     add_docs! {meta, q.doc, q.name, &mut fields};
@@ -268,7 +297,9 @@ fn process_members_or_ref(
             for field in v {
                 let (r#type, array) = process_type_ref(field.r#type);
                 let mut meta = Metadata::default();
-                add_name! {meta, field.name};
+                if let Some(attr) = field_name_attr(field.name) {
+                    meta.attributes.push(attr);
+                }
                 add_cond! {meta, field.r#if};
                 add_feat! {meta, field.features};
                 let field = StructField {
@@ -298,7 +329,9 @@ pub fn process_event(q: QapiEvent, structs_lookup: &HashMap<String, Struct>) -> 
     }
     let mut meta = Metadata::default();
     //meta.attributes.push(Attribute::new("Event"));
-    add_name! {meta, q.name};
+    if let Some(attr) = name_attr(q.name) {
+        meta.attributes.push(attr);
+    }
     add_cond! {meta, q.r#if};
     add_feat! {meta, q.r#features};
     add_docs! {meta, q.doc, q.name, &mut fields};
@@ -321,7 +354,9 @@ fn command_process_members_or_ref(
             for field in v {
                 let (r#type, array) = process_type_ref(field.r#type);
                 let mut meta = Metadata::default();
-                add_name! {meta, field.name};
+                if let Some(attr) = field_name_attr(field.name) {
+                    meta.attributes.push(attr);
+                }
                 add_cond! {meta, field.r#if};
                 add_feat! {meta, field.features};
                 let field = StructField {
@@ -357,7 +392,9 @@ pub fn process_command(q: QapiCommand, structs_lookup: &HashMap<String, Struct>)
     }
     let mut meta = Metadata::default();
     //meta.attributes.push(Attribute::new("Command"));
-    add_name! {meta, q.name};
+    if let Some(attr) = name_attr(q.name) {
+        meta.attributes.push(attr);
+    }
     add_cond! {meta, q.r#if};
     add_feat! {meta, q.r#features};
     add_docs! {meta, q.doc, q.name, &mut fields};
