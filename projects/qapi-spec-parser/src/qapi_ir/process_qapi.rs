@@ -241,9 +241,8 @@ pub fn process_union(
             discriminator_opt = Some(field.r#type.clone());
         }
     }
-
     let discriminator = discriminator_opt.expect("discriminator field not found");
-    let base_enum = enums_lookup.get(&discriminator).expect(&format!(
+    let _base_enum = enums_lookup.get(&discriminator).expect(&format!(
         "{} could not find a base enum named {}",
         q.name, discriminator
     ));
@@ -363,10 +362,7 @@ pub fn process_event(q: QapiEvent, structs_lookup: &HashMap<String, Struct>) -> 
     }
 }
 
-fn command_process_members_or_ref(
-    q: MembersOrRef,
-    structs_lookup: &HashMap<String, Struct>,
-) -> Vec<StructField> {
+fn command_process_members_or_ref(q: MembersOrRef) -> Vec<StructField> {
     let mut fields = Vec::new();
     match q {
         MembersOrRef::Unset => unreachable! {"this should have failed the parser"},
@@ -408,10 +404,10 @@ fn command_process_members_or_ref(
     fields
 }
 
-pub fn process_command(q: QapiCommand, structs_lookup: &HashMap<String, Struct>) -> Struct {
+pub fn process_command(q: QapiCommand) -> Struct {
     let mut fields = Vec::new();
     if let Some(data) = q.data {
-        fields.extend(command_process_members_or_ref(data, structs_lookup));
+        fields.extend(command_process_members_or_ref(data));
     }
     let mut meta = Metadata::default();
     //meta.attributes.push(Attribute::new("Command"));

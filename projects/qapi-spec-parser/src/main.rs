@@ -140,7 +140,7 @@ fn main() -> Result<()> {
     }
     // Commands can reference structs and unions
     for v in unprocessed_commands.drain(..) {
-        let processed = process_command(v, &structs_lookup);
+        let processed = process_command(v);
         structs_lookup.insert(processed.name.clone(), processed);
     }
 

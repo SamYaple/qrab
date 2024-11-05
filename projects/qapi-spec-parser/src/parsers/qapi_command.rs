@@ -1,6 +1,6 @@
 use super::{qbool, qstring, take_dict, take_kv};
 use crate::{take_cond, take_features, take_members_or_ref};
-use crate::{MembersOrRef, QapiCond, QapiDocumentation, QapiFeatures, QapiMembers, QapiTypeRef};
+use crate::{MembersOrRef, QapiCond, QapiDocumentation, QapiFeatures, QapiTypeRef};
 use nom::branch::alt;
 use nom::combinator::{map, opt};
 use nom::error::{Error, ErrorKind};
@@ -8,12 +8,6 @@ use nom::IResult;
 
 pub fn take_command(input: &str) -> IResult<&str, QapiCommand<'_>> {
     QapiCommand::parse(input)
-}
-
-#[derive(Debug, Clone)]
-pub enum QapiCommandData<'i> {
-    Ref(&'i str),
-    Members(QapiMembers<'i>),
 }
 
 #[derive(Debug, Clone, Default)]

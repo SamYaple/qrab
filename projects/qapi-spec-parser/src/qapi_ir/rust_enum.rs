@@ -56,7 +56,6 @@ impl Enum {
         let mut enum_attrs = Vec::new();
         for attr in &self.meta.attributes {
             let attr_name = format_ident!("{}", attr.name);
-            let attr_value = &attr.value;
             enum_attrs.push(if let Some(attr_value) = &attr.value {
                 quote! {
                     #[qapi(#attr_name = #attr_value)]

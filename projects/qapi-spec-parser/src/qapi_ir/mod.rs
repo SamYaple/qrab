@@ -5,8 +5,6 @@
 /// from the codegen structs. All documentation is also properly merged into
 /// these structs using the doc attr: `#[doc("Some flavor text")]`
 use heck::{ToPascalCase, ToSnakeCase};
-use proc_macro2::TokenStream;
-use quote::quote;
 use std::cmp::Ordering;
 
 mod process_qapi;
@@ -16,15 +14,6 @@ mod rust_enum;
 mod rust_struct;
 pub use rust_enum::*;
 pub use rust_struct::*;
-
-pub enum QapiType {
-    Enum,
-    Struct,
-    Union,
-    Event,
-    Alternate,
-    Command,
-}
 
 fn qapi_to_rust_type(qapi_type: &str) -> String {
     match qapi_type {
@@ -81,17 +70,6 @@ fn rustify_field(input: &str) -> String {
     }
 }
 
-fn match_type(qtype: QapiType) -> TokenStream {
-    match qtype {
-        QapiType::Enum => quote! {#[derive(Enum)]},
-        QapiType::Alternate => quote! {#[derive(Alternate)]},
-        QapiType::Union => quote! {#[derive(Union)]},
-        QapiType::Struct => quote! {#[derive(Struct)]},
-        QapiType::Event => quote! {#[derive(Event)]},
-        QapiType::Command => quote! {#[derive(Command)]},
-    }
-}
-
 #[derive(Debug, Eq, PartialEq, Clone)]
 pub struct Attribute {
     pub name: String,
@@ -130,14 +108,4 @@ impl PartialOrd for Attribute {
 pub struct Metadata {
     pub doc: Option<String>,
     pub attributes: Vec<Attribute>,
-}
-
-#[derive(Debug, Default)]
-pub struct Schema {
-    pub alternates: Vec<Enum>,
-    pub enums: Vec<Enum>,
-    pub unions: Vec<Enum>,
-    pub structs: Vec<Struct>,
-    pub events: Vec<Struct>,
-    pub commands: Vec<Struct>,
 }
