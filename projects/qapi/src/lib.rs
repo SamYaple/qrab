@@ -4826,6 +4826,7 @@ pub enum BlockdevDriver {
 }
 /// Driver specific block device options for the file backend.
 #[qapi(feature = "dynamic-auto-read-only")]
+#[qapi(feature_dynamic_auto_read_only_if = "CONFIG_POSIX")]
 #[qapi(since = "2.9")]
 pub struct BlockdevOptionsFile {
     /// path to the image file
@@ -5609,6 +5610,7 @@ pub struct BlockdevOptionsVirtioBlkVhostUser {
 /// backend.
 #[qapi(condition = "CONFIG_BLKIO")]
 #[qapi(feature = "fdset")]
+#[qapi(feature_fdset_if = "CONFIG_BLKIO_VHOST_VDPA_FD")]
 #[qapi(since = "7.2")]
 pub struct BlockdevOptionsVirtioBlkVhostVdpa {
     /// path to the vhost-vdpa character device.

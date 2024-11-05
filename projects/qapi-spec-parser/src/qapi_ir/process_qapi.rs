@@ -19,17 +19,17 @@ macro_rules! add_feat {
     ($meta:expr, $feat:expr) => {
         if let Some(features) = $feat {
             for feature in features {
-                let name = feature.name;
-                if let Some(condition) = &feature.r#if {
-                    // TODO: I dont like this feature conditional.
-                    //$meta.attributes.push(Attribute::new(
-                    //    format!("feature_{}_if", rustify_field(name)),
-                    //    Some(condition.recursive_print()),
-                    //));
-                }
                 $meta
                     .attributes
-                    .push(Attribute::with_value("feature", name));
+                    .push(Attribute::with_value("feature", feature.name));
+                if let Some(condition) = &feature.r#if {
+                    // TODO: I still dont like this feature conditional. Exposing it, we just
+                    // ignore it in the macro currently.
+                    $meta.attributes.push(Attribute::with_value(
+                        format!("feature_{}_if", rustify_field_name(feature.name)),
+                        condition,
+                    ));
+                }
             }
         }
     };
