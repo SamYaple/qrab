@@ -5,7 +5,7 @@ use crate::{
 };
 use nom::branch::alt;
 use nom::character::complete::multispace1;
-use nom::combinator::{all_consuming, map};
+use nom::combinator::map;
 use nom::multi::many0;
 use nom::IResult;
 use std::ops::{Deref, DerefMut};

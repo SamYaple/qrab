@@ -5,7 +5,6 @@ use nom::branch::alt;
 use nom::combinator::{map, opt};
 use nom::error::{Error, ErrorKind};
 use nom::IResult;
-use std::ops::{Deref, DerefMut};
 
 pub fn take_union(input: &str) -> IResult<&str, QapiUnion<'_>> {
     QapiUnion::parse(input)

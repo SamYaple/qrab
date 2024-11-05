@@ -26,11 +26,8 @@ pub use parsers::{
     qapi_union::{take_union, QapiUnion},
 };
 
-use crate::parsers::qapi_documentation::docstr_to_string;
-use crate::parsers::qapi_documentation::docstr_to_string_keep_structure;
 use anyhow::Result;
-use heck::{ToPascalCase, ToSnakeCase};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 fn parse_schema(input: &str) -> Result<QapiSchema<'_>> {
     let (i, schema) = take_schema(input).unwrap();

@@ -2,11 +2,8 @@ use super::{qstring, take_dict, take_kv};
 use crate::{take_cond, take_features, take_members};
 use crate::{QapiCond, QapiDocumentation, QapiFeatures, QapiMembers};
 use nom::branch::alt;
-use nom::bytes::complete::tag;
-use nom::character::complete::space0;
 use nom::combinator::{map, opt};
 use nom::error::{Error, ErrorKind};
-use nom::sequence::tuple;
 use nom::IResult;
 
 pub fn take_struct(input: &str) -> IResult<&str, QapiStruct<'_>> {

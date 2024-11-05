@@ -20,12 +20,10 @@ pub mod qapi_struct;
 pub mod qapi_type_ref;
 pub mod qapi_union;
 
-use qapi_schema::QapiSchema;
-
 use nom::branch::alt;
 use nom::bytes::complete::{tag, take_until};
 use nom::character::complete::{line_ending, multispace0, not_line_ending, space0};
-use nom::combinator::{all_consuming, not, opt, peek, recognize};
+use nom::combinator::{not, opt, peek, recognize};
 use nom::multi::{many1, separated_list0};
 use nom::sequence::{delimited, preceded, tuple};
 use nom::IResult;

@@ -13,7 +13,7 @@ use crate::{
     MembersOrRef, QapiAlternate, QapiAlternative, QapiCommand, QapiEnum, QapiEnumValue, QapiEvent,
     QapiMember, QapiStruct, QapiTypeRef, QapiUnion,
 };
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 macro_rules! add_feat {
     ($meta:expr, $feat:expr) => {
@@ -48,7 +48,7 @@ macro_rules! add_docs {
                 $meta.attributes.push(Attribute::with_value("since", since));
             }
             'outer_loop: for (name, desc) in &doc.fields {
-                for mut value in $variants {
+                for value in $variants {
                     if &value.name == name {
                         value.meta.doc = Some(desc.join("\n"));
                         continue 'outer_loop;
@@ -235,7 +235,7 @@ pub fn process_union(
 ) -> (Struct, Enum) {
     let mut discriminator_opt = None;
     let mut fields = process_members_or_ref(q.base, structs_lookup);
-    for mut field in &mut fields {
+    for field in &mut fields {
         if field.name == q.discriminator {
             field.meta.attributes.push(Attribute::new("discriminator"));
             discriminator_opt = Some(field.r#type.clone());
@@ -425,7 +425,7 @@ pub fn process_command(q: QapiCommand, structs_lookup: &HashMap<String, Struct>)
     add_feat! {meta, q.r#features};
     add_docs! {meta, q.doc, q.name, &mut fields};
     if let Some(returns) = q.returns {
-        let (mut r#type, array) = process_type_ref(returns);
+        let (r#type, array) = process_type_ref(returns);
         let r#type = if array {
             format! {"Vec<{}>", r#type}
         } else {

@@ -6,7 +6,7 @@
 /// these structs using the doc attr: `#[doc("Some flavor text")]`
 use heck::{ToPascalCase, ToSnakeCase};
 use proc_macro2::TokenStream;
-use quote::{format_ident, quote};
+use quote::quote;
 use std::cmp::Ordering;
 
 mod process_qapi;
