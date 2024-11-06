@@ -180,7 +180,7 @@ pub fn process_member(q: QapiMember) -> StructField {
     let (r#type, array) = process_type_ref(q.r#type);
 
     let mut meta = Metadata::default();
-    if let Some(attr) = name_attr(q.name) {
+    if let Some(attr) = field_name_attr(q.name) {
         meta.attributes.push(attr);
     }
     if let Some(condition) = q.r#if {

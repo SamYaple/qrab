@@ -66,7 +66,7 @@ fn rustify_type(input: &str) -> String {
 fn rustify_field(input: &str) -> String {
     match input {
         "type" | "abstract" | "in" | "static" | "if" | "match" | "use" => format! {"r#{}", input},
-        _ => input.to_snake_case(),
+        _ => rustify_field_name(input),
     }
 }
 
