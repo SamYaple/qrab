@@ -1,4 +1,4 @@
-use super::{rustify_field, rustify_type, Metadata};
+use super::{generate_attribute, rustify_field, rustify_type, Metadata};
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 use std::cmp::Ordering;
@@ -45,21 +45,7 @@ impl PartialOrd for Struct {
 impl Struct {
     pub fn generate(&self) -> TokenStream {
         let struct_name = format_ident!("{}", rustify_type(&self.name));
-
-        let mut struct_attrs = Vec::new();
-        for attr in &self.meta.attributes {
-            let attr_name = format_ident!("{}", attr.name);
-            struct_attrs.push(if let Some(attr_value) = &attr.value {
-                quote! {
-                    #[qapi(#attr_name = #attr_value)]
-                }
-            } else {
-                quote! {
-                    #[qapi(#attr_name)]
-                }
-            });
-        }
-
+        let struct_attrs = self.meta.attributes.iter().map(generate_attribute);
         let struct_doc = self.meta.doc.as_ref().map(|doc| {
             quote! {
                 #[doc = #doc]
@@ -76,19 +62,7 @@ impl Struct {
                 field_type = quote!( Option<#field_type> );
             }
 
-            let field_attrs = field.meta.attributes.iter().map(|attr| {
-                let attr_name = format_ident!("{}", attr.name);
-                if let Some(attr_value) = &attr.value {
-                    quote! {
-                        #[qapi(#attr_name = #attr_value)]
-                    }
-                } else {
-                    quote! {
-                        #[qapi(#attr_name)]
-                    }
-                }
-            });
-
+            let field_attrs = field.meta.attributes.iter().map(generate_attribute);
             let field_doc = field.meta.doc.as_ref().map(|doc| {
                 quote! {
                     #[doc = #doc]

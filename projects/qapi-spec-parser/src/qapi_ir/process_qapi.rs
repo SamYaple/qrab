@@ -19,17 +19,12 @@ macro_rules! add_feat {
     ($meta:expr, $feat:expr) => {
         if let Some(features) = $feat {
             for feature in features {
-                $meta
-                    .attributes
-                    .push(Attribute::with_value("feature", feature.name));
+                let mut attrs = Vec::new();
+                attrs.push(("feature", Some(feature.name.to_string())));
                 if let Some(condition) = &feature.r#if {
-                    // TODO: I still dont like this feature conditional. Exposing it, we just
-                    // ignore it in the macro currently.
-                    $meta.attributes.push(Attribute::with_value(
-                        format!("feature_{}_if", rustify_field_name(feature.name)),
-                        condition,
-                    ));
+                    attrs.push(("if", Some(condition.to_string())));
                 }
+                $meta.attributes.push(Attribute::with_values(attrs));
             }
         }
     };

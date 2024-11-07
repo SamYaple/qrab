@@ -5,7 +5,9 @@
 /// from the codegen structs. All documentation is also properly merged into
 /// these structs using the doc attr: `#[doc("Some flavor text")]`
 use heck::{ToPascalCase, ToSnakeCase};
-use std::cmp::Ordering;
+
+use proc_macro2::TokenStream;
+use quote::{format_ident, quote};
 
 mod process_qapi;
 pub use process_qapi::*;
@@ -70,37 +72,68 @@ fn rustify_field(input: &str) -> String {
     }
 }
 
+pub fn generate_attribute(attribute: &Attribute) -> TokenStream {
+    let options = match attribute {
+        Attribute::List(attributes) => attributes
+            .iter()
+            .flat_map(generate_options)
+            .collect::<Vec<_>>(),
+        _ => generate_options(attribute),
+    };
+    quote! {
+        #[qapi( #(#options),* )]
+    }
+}
+
+pub fn generate_options(attribute: &Attribute) -> Vec<TokenStream> {
+    match attribute {
+        Attribute::Item { name, value } => {
+            let name = format_ident!("{}", name);
+            vec![quote! { #name = #value }]
+        }
+        Attribute::Unit(name) => {
+            let name = format_ident!("{}", name);
+            vec![quote! { #name }]
+        }
+        Attribute::List(attributes) => attributes.iter().flat_map(generate_options).collect(),
+    }
+}
+
 #[derive(Debug, Eq, PartialEq, Clone)]
-pub struct Attribute {
-    pub name: String,
-    pub value: Option<String>,
+pub enum Attribute {
+    Item { name: String, value: String },
+    List(Vec<Attribute>),
+    Unit(String),
 }
 
 impl Attribute {
     pub fn new<N: ToString>(name: N) -> Self {
-        Self {
-            name: name.to_string(),
-            value: None,
-        }
+        Self::Unit(name.to_string())
     }
 
     pub fn with_value<N: ToString, V: ToString>(name: N, value: V) -> Self {
-        Self {
+        Self::Item {
             name: name.to_string(),
-            value: Some(value.to_string()),
+            value: value.to_string(),
         }
     }
-}
 
-impl Ord for Attribute {
-    fn cmp(&self, other: &Self) -> Ordering {
-        self.name.cmp(&other.name)
-    }
-}
-
-impl PartialOrd for Attribute {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
+    pub fn with_values<N: ToString, V: ToString>(values: Vec<(N, Option<V>)>) -> Self {
+        let attrs = values
+            .iter()
+            .map(|i| {
+                let name = i.0.to_string();
+                if let Some(value) = &i.1 {
+                    Self::Item {
+                        name: name,
+                        value: value.to_string(),
+                    }
+                } else {
+                    Self::Unit(name)
+                }
+            })
+            .collect();
+        Self::List(attrs)
     }
 }
 

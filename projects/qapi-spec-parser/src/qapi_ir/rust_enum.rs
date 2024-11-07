@@ -1,4 +1,4 @@
-use super::{rustify_field, rustify_type, Metadata, StructField};
+use super::{generate_attribute, rustify_field, rustify_type, Metadata, StructField};
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 use std::cmp::Ordering;
@@ -53,20 +53,7 @@ impl Enum {
     pub fn generate(&self) -> TokenStream {
         let enum_name = format_ident!("{}", rustify_type(&self.name));
 
-        let mut enum_attrs = Vec::new();
-        for attr in &self.meta.attributes {
-            let attr_name = format_ident!("{}", attr.name);
-            enum_attrs.push(if let Some(attr_value) = &attr.value {
-                quote! {
-                    #[qapi(#attr_name = #attr_value)]
-                }
-            } else {
-                quote! {
-                    #[qapi(#attr_name)]
-                }
-            });
-        }
-
+        let enum_attrs = self.meta.attributes.iter().map(generate_attribute);
         let enum_doc = self.meta.doc.as_ref().map(|doc| {
             quote! {
                 #[doc = #doc]
@@ -76,19 +63,7 @@ impl Enum {
         let variants = self.variants.iter().map(|variant| {
             let variant_name = format_ident!("{}", rustify_type(&variant.name));
 
-            let variant_attrs = variant.meta.attributes.iter().map(|attr| {
-                let attr_name = format_ident!("{}", attr.name);
-                if let Some(attr_value) = &attr.value {
-                    quote! {
-                        #[qapi(#attr_name = #attr_value)]
-                    }
-                } else {
-                    quote! {
-                        #[qapi(#attr_name)]
-                    }
-                }
-            });
-
+            let variant_attrs = variant.meta.attributes.iter().map(generate_attribute);
             let variant_doc = variant.meta.doc.as_ref().map(|doc| {
                 quote! {
                     #[doc = #doc]
@@ -116,19 +91,7 @@ impl Enum {
                         let field_name = format_ident!("{}", rustify_field(&field.name));
                         let field_type = format_ident!("{}", rustify_type(&field.r#type));
 
-                        let field_attrs = field.meta.attributes.iter().map(|attr| {
-                            let attr_name = format_ident!("{}", attr.name);
-                            if let Some(attr_value) = &attr.value {
-                                quote! {
-                                    #[qapi(#attr_name = #attr_value)]
-                                }
-                            } else {
-                                quote! {
-                                    #[qapi(#attr_name)]
-                                }
-                            }
-                        });
-
+                        let field_attrs = field.meta.attributes.iter().map(generate_attribute);
                         let field_doc = field.meta.doc.as_ref().map(|doc| {
                             quote! {
                                 #[doc = #doc]
