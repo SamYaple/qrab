@@ -10,8 +10,8 @@
 use super::{Attribute, Enum, EnumVariant, EnumVariantKind, Metadata, Struct, StructField};
 use crate::qapi_ir::{rustify_field_name, rustify_name};
 use crate::{
-    MembersOrRef, QapiAlternate, QapiAlternative, QapiCommand, QapiEnum, QapiEnumValue, QapiEvent,
-    QapiMember, QapiStruct, QapiTypeRef, QapiUnion,
+    extract_since_from_comment, MembersOrRef, QapiAlternate, QapiAlternative, QapiCommand,
+    QapiEnum, QapiEnumValue, QapiEvent, QapiMember, QapiStruct, QapiTypeRef, QapiUnion,
 };
 use std::collections::HashMap;
 
@@ -45,7 +45,14 @@ macro_rules! add_docs {
             'outer_loop: for (name, desc) in &doc.fields {
                 for value in $variants {
                     if &value.name == name {
+                        let since = extract_since_from_comment(desc);
                         value.meta.doc = Some(desc.join("\n"));
+                        if let Some(since) = since {
+                            value
+                                .meta
+                                .attributes
+                                .push(Attribute::with_value("since", since));
+                        }
                         continue 'outer_loop;
                     }
                 }

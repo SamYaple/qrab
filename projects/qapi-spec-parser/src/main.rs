@@ -10,7 +10,7 @@ pub use parsers::{
     qapi_branches::{take_branches, QapiBranches},
     qapi_command::{take_command, QapiCommand},
     qapi_cond::{take_cond, QapiCond},
-    qapi_documentation::{QapiDocumentation, QapiSectionDocumentation},
+    qapi_documentation::{extract_since_from_comment, QapiDocumentation, QapiSectionDocumentation},
     qapi_enum::{take_enum, QapiEnum},
     qapi_enum_value::{take_enum_value, QapiEnumValue},
     qapi_event::{take_event, QapiEvent},
