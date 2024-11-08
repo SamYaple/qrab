@@ -10,22 +10,23 @@ use nom::sequence::{delimited, pair, preceded, terminated, tuple};
 use nom::IResult;
 
 fn take_until_since(input: &str) -> IResult<&str, &str> {
-    let (input, _) = opt(alt((take_until("since"), take_until("Since"))))(input)?;
-    let (input, _) = tag_no_case("since")(input)?;
-    let (input, _) = many0(is_a(" :"))(input)?;
-    let (input, since) = recognize(many1(is_a("0123456789.")))(input)?;
-    Ok((input, since))
+    preceded(
+        many1(tuple((
+            alt((take_until("since"), take_until("Since"))),
+            tag_no_case("since"),
+            many0(is_a(" :")),
+        ))),
+        recognize(many1(is_a("0123456789."))),
+    )(input)
 }
 
 pub fn extract_since_from_comment(desc: &Vec<&str>) -> Option<String> {
-    let mut since = None;
-    for line in desc {
-        let (line, strmatch) = opt(take_until_since)(line).unwrap();
-        if let Some(s) = strmatch {
-            since = Some(s.into());
-        }
+    let input = desc.join(" ");
+    let (line, strmatch) = opt(take_until_since)(&input).unwrap();
+    if let Some(s) = strmatch {
+        return Some(s.into());
     }
-    since
+    None
 }
 
 pub(crate) fn trim_docstr(s: &str) -> &str {

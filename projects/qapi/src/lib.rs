@@ -629,6 +629,7 @@ pub enum PanicAction {
     /// Shutdown the VM and exit with nonzero status (since
     /// 7.1)
     #[qapi(name = "exit-failure")]
+    #[qapi(since = "7.1")]
     ExitFailure,
     /// Continue VM execution
     #[qapi(name = "none")]
@@ -1471,14 +1472,17 @@ pub enum JobType {
     /// image options amend job type, see "x-blockdev-amend" (since
     /// 5.1)
     #[qapi(name = "amend")]
+    #[qapi(since = "5.1")]
     Amend,
     /// snapshot load job type, see "snapshot-load" (since
     /// 6.0)
     #[qapi(name = "snapshot-load")]
+    #[qapi(since = "6.0")]
     SnapshotLoad,
     /// snapshot save job type, see "snapshot-save" (since
     /// 6.0)
     #[qapi(name = "snapshot-save")]
+    #[qapi(since = "6.0")]
     SnapshotSave,
     /// snapshot delete job type, see "snapshot-delete"
     /// (since 6.0)
@@ -2023,6 +2027,7 @@ pub struct SnapshotInfo {
     /// the moment in the recorded execution with the snapshots.  This
     /// counter may be obtained through @query-replay command (since
     /// 5.2)
+    #[qapi(since = "5.2")]
     pub icount: Option<i64>,
 }
 #[qapi(since = "2.10")]
@@ -2473,9 +2478,11 @@ pub struct BlockDeviceInfo {
     pub bps_max: Option<i64>,
     /// read throughput limit during bursts, in bytes (Since
     /// 1.7)
+    #[qapi(since = "1.7")]
     pub bps_rd_max: Option<i64>,
     /// write throughput limit during bursts, in bytes (Since
     /// 1.7)
+    #[qapi(since = "1.7")]
     pub bps_wr_max: Option<i64>,
     /// total I/O operations per second during bursts, in bytes
     /// (Since 1.7)
@@ -2781,9 +2788,11 @@ pub struct BlockDeviceStats {
     pub unmap_operations: i64,
     /// Total time spent on reads in nanoseconds (since
     /// 0.15).
+    #[qapi(since = "0.15")]
     pub rd_total_time_ns: i64,
     /// Total time spent on writes in nanoseconds (since
     /// 0.15).
+    #[qapi(since = "0.15")]
     pub wr_total_time_ns: i64,
     /// Total time spent on zone append writes
     /// in nanoseconds (since 8.1)
@@ -3177,6 +3186,7 @@ pub struct BlockdevSnapshotSync {
     /// graph node name to generate the snapshot from (Since
     /// 2.0)
     #[qapi(name = "node-name")]
+    #[qapi(since = "2.0")]
     pub node_name: Option<String>,
     /// the target of the new overlay image.  If the file
     /// exists, or if it is a device, the overlay will be created in the
@@ -3186,6 +3196,7 @@ pub struct BlockdevSnapshotSync {
     /// the graph node name of the new image (Since
     /// 2.0)
     #[qapi(name = "snapshot-node-name")]
+    #[qapi(since = "2.0")]
     pub snapshot_node_name: Option<String>,
     /// the format of the overlay image, default is 'qcow2'.
     pub format: Option<String>,
@@ -3776,6 +3787,7 @@ pub struct DriveMirror {
     /// the new block driver state node name in the graph (Since
     /// 2.1)
     #[qapi(name = "node-name")]
+    #[qapi(since = "2.1")]
     pub node_name: Option<String>,
     /// with sync=full graph node name to be replaced by the new
     /// image when a whole image copy is done.  This can be used to
@@ -4077,9 +4089,11 @@ pub struct BlockIoThrottle {
     pub bps_max: Option<i64>,
     /// read throughput limit during bursts, in bytes (Since
     /// 1.7)
+    #[qapi(since = "1.7")]
     pub bps_rd_max: Option<i64>,
     /// write throughput limit during bursts, in bytes (Since
     /// 1.7)
+    #[qapi(since = "1.7")]
     pub bps_wr_max: Option<i64>,
     /// total I/O operations per second during bursts, in bytes
     /// (Since 1.7)
@@ -5072,6 +5086,7 @@ pub struct BlockdevOptionsQcow2 {
     /// Image decryption options.  Mandatory for encrypted images,
     /// except when doing a metadata-only probe of the image.  (since
     /// 2.10)
+    #[qapi(since = "2.10")]
     pub encrypt: Option<BlockdevQcow2Encryption>,
     /// reference to or definition of the external data file.
     /// This may only be specified for images that require an external
@@ -5688,6 +5703,7 @@ pub struct BlockdevOptionsRbd {
     /// to Ceph configuration option "auth_client_required".  (Since
     /// 3.0)
     #[qapi(name = "auth-client-required")]
+    #[qapi(since = "3.0")]
     pub auth_client_required: Option<Vec<RbdAuthMode>>,
     /// ID of a QCryptoSecret object providing a key for cephx
     /// authentication.  This maps to Ceph configuration option "key".
@@ -5957,6 +5973,7 @@ pub struct BlockdevOptionsNbd {
     /// successful reconnect will immediately fail.  Default 0 (Since
     /// 4.2)
     #[qapi(name = "reconnect-delay")]
+    #[qapi(since = "4.2")]
     pub reconnect_delay: Option<u32>,
     /// In seconds.  If zero, the nbd driver tries the
     /// connection only once, and fails to open if the connection fails.
@@ -8312,6 +8329,7 @@ pub struct NetdevUserOptions {
     /// IPv6 network prefix length (default is 64) (since
     /// 2.6)
     #[qapi(name = "ipv6-prefixlen")]
+    #[qapi(since = "2.6")]
     pub ipv6_prefixlen: Option<i64>,
     /// guest-visible IPv6 address of the host (since 2.6)
     #[qapi(name = "ipv6-host")]
@@ -8456,6 +8474,7 @@ pub struct NetdevHubPortOptions {
     pub hubid: i32,
     /// used to connect hub to a netdev instead of a device (since
     /// 2.12)
+    #[qapi(since = "2.12")]
     pub netdev: Option<String>,
 }
 /// Connect a client to a netmap-enabled NIC or to a VALE switch port
@@ -8546,6 +8565,7 @@ pub struct NetdevVhostVdpaOptions {
     /// 7.1) (default: false)
     #[qapi(name = "x-svq")]
     #[qapi(feature = "unstable")]
+    #[qapi(since = "7.1")]
     pub x_svq: Option<bool>,
 }
 /// vmnet (host mode) network backend.
@@ -9391,6 +9411,7 @@ pub struct Screendump {
     /// ID of the display device that should be dumped.  If this
     /// parameter is missing, the primary display will be used.  (Since
     /// 2.12)
+    #[qapi(since = "2.12")]
     pub device: Option<String>,
     /// head to use in case the device supports multiple heads.  If
     /// this parameter is missing, head #0 will be used.  Also note that
@@ -10920,6 +10941,7 @@ pub struct MigrationStats {
     /// between 0 and @dirty-sync-count * @multifd-channels.  (since
     /// 7.1)
     #[qapi(name = "dirty-sync-missed-zero-copy")]
+    #[qapi(since = "7.1")]
     pub dirty_sync_missed_zero_copy: u64,
 }
 /// Detailed XBZRLE migration cache statistics
@@ -10986,6 +11008,7 @@ pub enum MigrationStatus {
     /// like active, but now in postcopy mode.  (since
     /// 2.5)
     #[qapi(name = "postcopy-active")]
+    #[qapi(since = "2.5")]
     PostcopyActive,
     /// during postcopy but paused.  (since 3.0)
     #[qapi(name = "postcopy-paused")]
@@ -10999,6 +11022,7 @@ pub enum MigrationStatus {
     /// trying to recover from a paused postcopy.  (since
     /// 3.0)
     #[qapi(name = "postcopy-recover")]
+    #[qapi(since = "3.0")]
     PostcopyRecover,
     /// migration is finished.
     #[qapi(name = "completed")]
@@ -11202,6 +11226,7 @@ pub enum MigrationCapability {
     /// serialising device state and before disabling block IO (since
     /// 2.11)
     #[qapi(name = "pause-before-switchover")]
+    #[qapi(since = "2.11")]
     PauseBeforeSwitchover,
     /// Use more than one fd for migration (since 4.0)
     #[qapi(name = "multifd")]
@@ -11396,6 +11421,7 @@ pub struct BitmapMigrationBitmapAlias {
     pub alias: String,
     /// Allows the modification of the migrated bitmap.  (since
     /// 6.0)
+    #[qapi(since = "6.0")]
     pub transform: Option<BitmapMigrationBitmapAliasTransform>,
 }
 /// Maps a block node name and the bitmaps it has to aliases for dirty
@@ -11465,6 +11491,7 @@ pub enum MigrationParameter {
     /// be excessive at tail stage.  The default value is false.  (Since
     /// 5.1)
     #[qapi(name = "cpu-throttle-tailslow")]
+    #[qapi(since = "5.1")]
     CpuThrottleTailslow,
     /// ID of the 'tls-creds' object that provides credentials
     /// for establishing a TLS connection over the migration data
@@ -11670,6 +11697,7 @@ pub struct MigrateSetParameters {
     /// be excessive at tail stage.  The default value is false.  (Since
     /// 5.1)
     #[qapi(name = "cpu-throttle-tailslow")]
+    #[qapi(since = "5.1")]
     pub cpu_throttle_tailslow: Option<bool>,
     /// ID of the 'tls-creds' object that provides credentials
     /// for establishing a TLS connection over the migration data
@@ -11862,6 +11890,7 @@ pub struct MigrationParameters {
     /// throttled when migration auto-converge is activated.  (Since
     /// 2.7)
     #[qapi(name = "cpu-throttle-initial")]
+    #[qapi(since = "2.7")]
     pub cpu_throttle_initial: Option<u8>,
     /// throttle percentage increase each time
     /// auto-converge detects that migration is not making progress.
@@ -11882,6 +11911,7 @@ pub struct MigrationParameters {
     /// be excessive at tail stage.  The default value is false.  (Since
     /// 5.1)
     #[qapi(name = "cpu-throttle-tailslow")]
+    #[qapi(since = "5.1")]
     pub cpu_throttle_tailslow: Option<bool>,
     /// ID of the 'tls-creds' object that provides credentials
     /// for establishing a TLS connection over the migration data
@@ -13190,6 +13220,7 @@ pub enum JsonType {
 pub struct SchemaInfoEnum {
     /// the enum type's members, in no particular order (since
     /// 6.2).
+    #[qapi(since = "6.2")]
     pub members: Vec<SchemaInfoEnumMember>,
     /// the enumeration type's member names, in no particular
     /// order.  Redundant with @members.  Just for backward
@@ -14807,6 +14838,7 @@ pub struct MachineInfo {
     /// the default ID of initial RAM memory backend (since
     /// 5.2)
     #[qapi(name = "default-ram-id")]
+    #[qapi(since = "5.2")]
     pub default_ram_id: Option<String>,
     /// machine type supports ACPI (since 8.0)
     #[qapi(since = "8.0")]
