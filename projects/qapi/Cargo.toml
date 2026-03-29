@@ -4,7 +4,8 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-serde_json = "1.0.132"
+serde_json = "1"
+serde = "1"
 
 [dependencies.qapi-macros]
 path = "../qapi-macros"

@@ -2,6 +2,7 @@ mod qapi_ir;
 use qapi_ir::*;
 
 mod parsers;
+pub mod versions;
 pub use parsers::{
     qapi_alternate::{take_alternate, QapiAlternate},
     qapi_alternative::{take_alternative, QapiAlternative},
@@ -76,6 +77,7 @@ fn main() -> Result<()> {
     //let schema_type = "storage-daemon/qapi";
     let schema_type = "qapi";
     let schema_file = qemu_src_root.join(schema_type).join("qapi-schema.json");
+    let schema_file = qemu_src_root.join(schema_type).join("common.json");
 
     // We start with the provided root schema file then recursively parse the
     // includes and load the strings in the `sources` Vec.
@@ -149,7 +151,11 @@ fn main() -> Result<()> {
     // QAPI spec expects. This might be helpful to anyone reading the generated
     // code, but it doesn't matter at all during compliation.
     println!("use qapi_macros::qapi;");
+    println!("use serde;");
     println!("use serde_json;");
+    println!("use std::str::FromStr;");
+    println!("use std::collections::HashMap;");
+    println!("fn runtime_version() -> &'static str {{ \"5.1\" }}"); // TODO impl runtime check
     for (path, source) in &sources {
         println!(
             "// path begin:\t{}",

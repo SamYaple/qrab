@@ -1,0 +1,3 @@
+[submodule "vendor/qemu"]
+	path = vendor/qemu
+	url = /home/sam/repos/qemu

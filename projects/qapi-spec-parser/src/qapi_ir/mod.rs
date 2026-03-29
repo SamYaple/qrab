@@ -33,7 +33,8 @@ fn qapi_to_rust_type(qapi_type: &str) -> String {
         "size" => "u64".into(),
         "bool" => "bool".into(),
         "any" => "serde_json::Value".into(),
-        _ => qapi_type.to_pascal_case(),
+        "null" => "NULL_REPLACE_NULL".into(),
+        _ => rustify_name(qapi_type),
     }
 }
 
