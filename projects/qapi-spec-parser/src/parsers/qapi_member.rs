@@ -4,8 +4,9 @@ use crate::{QapiCond, QapiFeatures, QapiTypeRef};
 use nom::branch::alt;
 use nom::combinator::map;
 use nom::error::{Error, ErrorKind};
-use nom::sequence::{terminated, tuple};
+use nom::sequence::terminated;
 use nom::IResult;
+use nom::Parser;
 
 pub fn take_member(input: &str) -> IResult<&str, QapiMember<'_>> {
     QapiMember::parse(input)
@@ -27,7 +28,7 @@ impl<'i> QapiMember<'i> {
     ///                     '*features': FEATURES }
     pub fn parse(input: &'i str) -> IResult<&'i str, Self> {
         let start = input;
-        let (input, mut member) = alt((Self::simple_parser, Self::complex_parser))(input)?;
+        let (input, mut member) = alt((Self::simple_parser, Self::complex_parser)).parse(input)?;
         if member.name == "" || member.r#type == QapiTypeRef::Unset {
             return Err(nom::Err::Error(Error::new(start, ErrorKind::Tag)));
         }
@@ -43,7 +44,7 @@ impl<'i> QapiMember<'i> {
         let mut s = Self::default();
         let name_parser = map(terminated(qstring, qtag(":")), |v| s.name = v);
         let type_parser = map(QapiTypeRef::parse, |v| s.r#type = v);
-        let (input, _) = tuple((name_parser, type_parser))(input)?;
+        let (input, _) = (name_parser, type_parser).parse(input)?;
         Ok((input, s))
     }
 
@@ -56,10 +57,11 @@ impl<'i> QapiMember<'i> {
         let type_parser = map(take_type_ref, |v| s.r#type = v);
         let cond_parser = map(take_cond, |v| s.r#if = Some(v));
         let features_parser = map(take_features, |v| s.features = Some(v));
-        let (input, _) = tuple((
+        let (input, _) = (
             name_parser,
             take_dict(alt((features_parser, type_parser, cond_parser))),
-        ))(input)?;
+        )
+            .parse(input)?;
         Ok((input, s))
     }
 }

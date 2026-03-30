@@ -3,28 +3,30 @@
 use nom::branch::alt;
 use nom::bytes::complete::{is_a, tag, tag_no_case, take_until, take_while1};
 use nom::character::complete::{line_ending, multispace0, not_line_ending, space0};
-use nom::character::is_space;
 use nom::combinator::{map, not, opt, recognize};
+use nom::error::Error;
 use nom::multi::{many0, many1};
-use nom::sequence::{delimited, pair, preceded, terminated, tuple};
+use nom::sequence::{delimited, preceded, terminated};
 use nom::IResult;
+use nom::Parser;
 
 fn take_until_since(input: &str) -> IResult<&str, &str> {
     preceded(
-        many1(tuple((
+        many1((
             alt((take_until("since"), take_until("Since"))),
             tag_no_case("since"),
             many0(is_a(" :")),
-        ))),
+        )),
         recognize(many1(is_a("0123456789."))),
-    )(input)
+    )
+    .parse(input)
 }
 
 pub fn extract_since_from_comment(desc: &Vec<&str>) -> Option<String> {
     let input = desc.join(" ");
-    let (line, strmatch) = opt(take_until_since)(&input).unwrap();
+    let (_, strmatch) = opt(take_until_since).parse(&input).unwrap();
     if let Some(s) = strmatch {
-        return Some(s.into());
+        return Some(s.to_string());
     }
     None
 }
@@ -81,62 +83,68 @@ pub(crate) fn docstr_to_string_keep_structure(input: &str) -> String {
 }
 
 fn not_name_break(c: char) -> bool {
-    c != ':' && !is_space(c as u8)
+    c != ':' && !c.is_ascii_whitespace()
 }
 
 fn take_name(input: &str) -> IResult<&str, &str> {
     delimited(
-        tuple((take_line_start, tag("@"))),
+        (take_line_start, tag("@")),
         take_while1(not_name_break),
-        tuple((space0, tag(":"))),
-    )(input)
+        (space0, tag(":")),
+    )
+    .parse(input)
 }
 
-fn take_namedkv<'i>(key: &'static str) -> impl FnMut(&'i str) -> IResult<&'i str, &'i str> {
+fn take_namedkv<'i>(
+    key: &'static str,
+) -> impl Parser<&'i str, Output = &'i str, Error = Error<&'i str>> {
     preceded(
         take_namedkey(key),
-        recognize(tuple((
+        recognize((
             not_line_ending,
             line_ending,
             opt(take_multiline_text),
-        ))),
+        )),
     )
 }
 
 // Case insensitive match for a line like: ```# {key}:```
-fn take_namedkey<'i>(key: &'static str) -> impl FnMut(&'i str) -> IResult<&'i str, &'i str> {
+fn take_namedkey<'i>(
+    key: &'static str,
+) -> impl Parser<&'i str, Output = &'i str, Error = Error<&'i str>> {
     delimited(
         take_line_start,
         tag_no_case(key),
-        tuple((space0, tag(":"), space0)),
+        (space0, tag(":"), space0),
     )
 }
 
 fn take_line_start(input: &str) -> IResult<&str, &str> {
-    recognize(tuple((tag("#"), space0)))(input)
+    recognize((tag("#"), space0)).parse(input)
 }
 
 fn take_line_end(input: &str) -> IResult<&str, &str> {
-    recognize(tuple((space0, line_ending)))(input)
+    recognize((space0, line_ending)).parse(input)
 }
 
 fn take_empty_line(input: &str) -> IResult<&str, &str> {
-    recognize(tuple((take_line_start, take_line_end)))(input)
+    recognize((take_line_start, take_line_end)).parse(input)
 }
 
 fn take_value(input: &str) -> IResult<&str, Vec<&str>> {
-    let (input, description) = recognize(tuple((
+    let (input, description) = recognize((
         not_line_ending,
         line_ending,
         opt(take_multiline_text),
-    )))(input)?;
+    ))
+    .parse(input)?;
     Ok((input, docstr_to_str(description)))
 }
 
 // SUCCESS: on success, this is equivalent to the `take_line_start` parser
 // FAILURE: fails when the parser encouters the start of a new section
 fn take_line_continuation(input: &str) -> IResult<&str, &str> {
-    recognize(tuple((
+    recognize((
         not(alt((
             take_name,
             take_namedkey("since"),
@@ -149,7 +157,8 @@ fn take_line_continuation(input: &str) -> IResult<&str, &str> {
             tag(".. "), // gen-doc strings like `.. qmp-example::`
             tag("#"),   // we are at the end-of-section marker if this succeeds
         ))),
-    )))(input)
+    ))
+    .parse(input)
 }
 
 fn take_multiline_text(input: &str) -> IResult<&str, &str> {
@@ -157,14 +166,16 @@ fn take_multiline_text(input: &str) -> IResult<&str, &str> {
         take_line_continuation,
         not_line_ending,
         line_ending,
-    )))(input)
+    )))
+    .parse(input)
 }
 fn take_doc_text(input: &str) -> IResult<&str, &str> {
     recognize(many1(delimited(
         take_line_continuation,
         not_line_ending,
         line_ending,
-    )))(input)
+    )))
+    .parse(input)
 }
 
 enum ParserToken<'i> {
@@ -197,14 +208,14 @@ pub struct QapiDocumentation<'i> {
 
 impl<'i> QapiDocumentation<'i> {
     pub fn parse(input: &'i str) -> IResult<&'i str, Self> {
-        let (input, _) = terminated(tag("##"), take_line_end)(input)?;
-        let (input, _) = many0(take_empty_line)(input)?;
-        let (input, name) = terminated(take_name, take_line_end)(input)?;
-        let (input, _) = many0(take_empty_line)(input)?;
-        let (input, description_str) = opt(take_multiline_text)(input)?;
-        let (input, _) = many0(take_empty_line)(input)?;
-        let (input, fields) = many0(pair(take_name, take_value))(input)?;
-        let (input, _) = many0(take_empty_line)(input)?;
+        let (input, _) = terminated(tag("##"), take_line_end).parse(input)?;
+        let (input, _) = many0(take_empty_line).parse(input)?;
+        let (input, name) = terminated(take_name, take_line_end).parse(input)?;
+        let (input, _) = many0(take_empty_line).parse(input)?;
+        let (input, description_str) = opt(take_multiline_text).parse(input)?;
+        let (input, _) = many0(take_empty_line).parse(input)?;
+        let (input, fields) = many0((take_name, take_value)).parse(input)?;
+        let (input, _) = many0(take_empty_line).parse(input)?;
 
         ////
         // at this point in the parsing, we have to switch to a more dynamic
@@ -231,16 +242,17 @@ impl<'i> QapiDocumentation<'i> {
             }),
             map(
                 preceded(
-                    tuple((
+                    (
                         take_namedkey("features"),
                         take_line_end,
                         many0(take_empty_line),
-                    )),
-                    many1(pair(take_name, take_value)),
+                    ),
+                    many1((take_name, take_value)),
                 ),
                 |v| ParserToken::Features(v),
             ),
-        )))(input)?;
+        )))
+        .parse(input)?;
 
         // UPSTREAMFIX: This is because `qga/qapi-schema.json` in the `@GuestNetworkRoute` doc block.
         let (input, _) = multispace0(input)?;
@@ -308,15 +320,16 @@ pub struct QapiSectionDocumentation<'i> {
 
 impl<'i> QapiSectionDocumentation<'i> {
     pub fn parse(input: &'i str) -> IResult<&'i str, Self> {
-        let (input, _) = terminated(tag("##"), take_line_end)(input)?;
-        let (input, _) = many0(take_empty_line)(input)?;
+        let (input, _) = terminated(tag("##"), take_line_end).parse(input)?;
+        let (input, _) = many0(take_empty_line).parse(input)?;
         let (input, name) = delimited(
             take_line_start,
             preceded(tag("="), not_line_ending),
             take_line_end,
-        )(input)?;
-        let (input, mut description) = opt(take_doc_text)(input)?;
-        let (input, _) = many0(take_empty_line)(input)?;
+        )
+        .parse(input)?;
+        let (input, mut description) = opt(take_doc_text).parse(input)?;
+        let (input, _) = many0(take_empty_line).parse(input)?;
         let (input, _) = tag("##")(input)?;
 
         let name = trim_docstr(name);

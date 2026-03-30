@@ -5,6 +5,7 @@ use nom::branch::alt;
 use nom::combinator::{map, opt};
 use nom::error::{Error, ErrorKind};
 use nom::IResult;
+use nom::Parser;
 
 pub fn take_event(input: &str) -> IResult<&str, QapiEvent<'_>> {
     QapiEvent::parse(input)
@@ -31,7 +32,7 @@ impl<'i> QapiEvent<'i> {
     ///           '*if': COND,
     ///           '*features': FEATURES }
     pub fn parse(input: &'i str) -> IResult<&'i str, Self> {
-        let (input, doc) = opt(QapiDocumentation::parse)(input)?;
+        let (input, doc) = opt(QapiDocumentation::parse).parse(input)?;
         let mut s = Self {
             doc,
             ..Default::default()
@@ -43,7 +44,8 @@ impl<'i> QapiEvent<'i> {
             map(take_cond, |v| s.r#if = Some(v)),
             map(take_features, |v| s.features = Some(v)),
             map(take_kv("data", take_members_or_ref), |v| s.data = Some(v)),
-        )))(input)?;
+        )))
+        .parse(input)?;
         if s.name == "" {
             return Err(nom::Err::Error(Error::new(start, ErrorKind::Tag)));
         }

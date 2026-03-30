@@ -5,6 +5,7 @@ use nom::branch::alt;
 use nom::combinator::{map, opt};
 use nom::error::{Error, ErrorKind};
 use nom::IResult;
+use nom::Parser;
 
 pub fn take_union(input: &str) -> IResult<&str, QapiUnion<'_>> {
     QapiUnion::parse(input)
@@ -29,7 +30,7 @@ impl<'i> QapiUnion<'i> {
     ///           '*if': COND,
     ///           '*features': FEATURES }
     pub fn parse(input: &'i str) -> IResult<&'i str, Self> {
-        let (input, doc) = opt(QapiDocumentation::parse)(input)?;
+        let (input, doc) = opt(QapiDocumentation::parse).parse(input)?;
         let mut s = Self {
             doc,
             ..Default::default()
@@ -42,7 +43,8 @@ impl<'i> QapiUnion<'i> {
             map(take_cond, |v| s.r#if = Some(v)),
             map(take_features, |v| s.features = Some(v)),
             map(take_kv("base", take_members_or_ref), |v| s.base = v),
-        )))(input)?;
+        )))
+        .parse(input)?;
         if s.name == ""
             || s.discriminator == ""
             || s.data.len() == 0

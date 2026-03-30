@@ -2,6 +2,7 @@ use super::{qstring, qtag, take_kv};
 use nom::combinator::map;
 use nom::sequence::delimited;
 use nom::IResult;
+use nom::Parser;
 
 pub fn take_include(input: &str) -> IResult<&str, QapiInclude<'_>> {
     QapiInclude::parse(input)
@@ -16,7 +17,8 @@ impl<'i> QapiInclude<'i> {
             qtag("{"),
             map(take_kv("include", qstring), |v| Self(v)),
             qtag("}"),
-        )(input)
+        )
+        .parse(input)
     }
 }
 

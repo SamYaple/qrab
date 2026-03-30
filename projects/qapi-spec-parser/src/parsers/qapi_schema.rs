@@ -8,6 +8,7 @@ use nom::character::complete::multispace1;
 use nom::combinator::map;
 use nom::multi::many0;
 use nom::IResult;
+use nom::Parser;
 use std::ops::{Deref, DerefMut};
 
 pub fn take_schema(input: &str) -> IResult<&str, QapiSchema<'_>> {
@@ -52,7 +53,8 @@ impl<'i> QapiSchema<'i> {
                 map(multispace1, |_| QapiSchemaToken::EmptyLines),
             ))),
             |tokens| Self(tokens),
-        )(input)
+        )
+        .parse(input)
     }
 }
 

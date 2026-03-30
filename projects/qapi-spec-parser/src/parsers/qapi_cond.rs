@@ -3,6 +3,7 @@ use nom::branch::alt;
 use nom::combinator::map;
 use nom::sequence::delimited;
 use nom::IResult;
+use nom::Parser;
 
 /// Convenience wrapper for taking a condition keypair.
 /// Examples:
@@ -11,7 +12,7 @@ use nom::IResult;
 ///   - `'if': {'all': [CONFIG_OPT1, CONFIG_OPT2}`
 ///   - `'if': {'any': [CONFIG_OPT1, CONFIG_OPT2}`
 pub fn take_cond(input: &str) -> IResult<&str, QapiCond<'_>> {
-    take_kv("if", QapiCond::parse)(input)
+    take_kv("if", QapiCond::parse).parse(input)
 }
 
 /// Holds conditional information about an option, feature, or field.
@@ -44,7 +45,8 @@ impl<'i> QapiCond<'i> {
                 )),
                 qtag("}"),
             ),
-        ))(input)
+        ))
+        .parse(input)
     }
 }
 

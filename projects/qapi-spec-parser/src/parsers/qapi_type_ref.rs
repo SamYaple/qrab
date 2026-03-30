@@ -3,9 +3,10 @@ use nom::branch::alt;
 use nom::combinator::map;
 use nom::sequence::delimited;
 use nom::IResult;
+use nom::Parser;
 
 pub fn take_type_ref(input: &str) -> IResult<&str, QapiTypeRef<'_>> {
-    take_kv("type", QapiTypeRef::parse)(input)
+    take_kv("type", QapiTypeRef::parse).parse(input)
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -29,7 +30,8 @@ impl<'i> QapiTypeRef<'i> {
         alt((
             map(qstring, |v| Self::Ref(v)),
             map(array_parser, |v| Self::ArrayRef(v)),
-        ))(input)
+        ))
+        .parse(input)
     }
 }
 

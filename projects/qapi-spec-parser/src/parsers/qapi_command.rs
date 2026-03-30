@@ -5,6 +5,7 @@ use nom::branch::alt;
 use nom::combinator::{map, opt};
 use nom::error::{Error, ErrorKind};
 use nom::IResult;
+use nom::Parser;
 
 pub fn take_command(input: &str) -> IResult<&str, QapiCommand<'_>> {
     QapiCommand::parse(input)
@@ -43,7 +44,7 @@ impl<'i> QapiCommand<'i> {
     ///             '*if': COND,
     ///             '*features': FEATURES }
     pub fn parse(input: &'i str) -> IResult<&'i str, Self> {
-        let (input, doc) = opt(QapiDocumentation::parse)(input)?;
+        let (input, doc) = opt(QapiDocumentation::parse).parse(input)?;
         let mut s = Self {
             doc,
             ..Default::default()
@@ -67,7 +68,8 @@ impl<'i> QapiCommand<'i> {
                 s.allow_preconfig = Some(v)
             }),
             map(take_kv("data", take_members_or_ref), |v| s.data = Some(v)),
-        )))(input)?;
+        )))
+        .parse(input)?;
         if s.name == "" {
             return Err(nom::Err::Error(Error::new(start, ErrorKind::Tag)));
         }

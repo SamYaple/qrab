@@ -4,8 +4,9 @@ use crate::{QapiCond, QapiTypeRef};
 use nom::branch::alt;
 use nom::combinator::map;
 use nom::error::{Error, ErrorKind};
-use nom::sequence::{terminated, tuple};
+use nom::sequence::terminated;
 use nom::IResult;
+use nom::Parser;
 
 pub fn take_branch(input: &str) -> IResult<&str, QapiBranch<'_>> {
     QapiBranch::parse(input)
@@ -23,7 +24,7 @@ impl<'i> QapiBranch<'i> {
     ///        | STRING : { 'type': TYPE-REF, '*if': COND }
     pub fn parse(input: &'i str) -> IResult<&'i str, Self> {
         let start = input;
-        let (input, branch) = alt((Self::simple_parser, Self::complex_parser))(input)?;
+        let (input, branch) = alt((Self::simple_parser, Self::complex_parser)).parse(input)?;
         if branch.name == "" || branch.r#type == QapiTypeRef::Unset {
             return Err(nom::Err::Error(Error::new(start, ErrorKind::Tag)));
         }
@@ -35,7 +36,7 @@ impl<'i> QapiBranch<'i> {
         let mut s = Self::default();
         let name_parser = map(terminated(qstring, qtag(":")), |v| s.name = v);
         let type_parser = map(QapiTypeRef::parse, |v| s.r#type = v);
-        let (input, _) = tuple((name_parser, type_parser))(input)?;
+        let (input, _) = (name_parser, type_parser).parse(input)?;
         Ok((input, s))
     }
 
@@ -45,7 +46,7 @@ impl<'i> QapiBranch<'i> {
         let name_parser = map(terminated(qstring, qtag(":")), |v| s.name = v);
         let type_parser = map(take_type_ref, |v| s.r#type = v);
         let cond_parser = map(take_cond, |v| s.r#if = Some(v));
-        let (input, _) = tuple((name_parser, take_dict(alt((type_parser, cond_parser)))))(input)?;
+        let (input, _) = (name_parser, take_dict(alt((type_parser, cond_parser)))).parse(input)?;
         Ok((input, s))
     }
 }

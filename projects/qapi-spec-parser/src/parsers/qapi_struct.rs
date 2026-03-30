@@ -5,6 +5,7 @@ use nom::branch::alt;
 use nom::combinator::{map, opt};
 use nom::error::{Error, ErrorKind};
 use nom::IResult;
+use nom::Parser;
 
 pub fn take_struct(input: &str) -> IResult<&str, QapiStruct<'_>> {
     QapiStruct::parse(input)
@@ -27,7 +28,7 @@ impl<'i> QapiStruct<'i> {
     ///            '*if': COND,
     ///            '*features': FEATURES }
     pub fn parse(input: &'i str) -> IResult<&'i str, Self> {
-        let (input, doc) = opt(QapiDocumentation::parse)(input)?;
+        let (input, doc) = opt(QapiDocumentation::parse).parse(input)?;
         let mut s = Self {
             doc,
             ..Default::default()
@@ -39,7 +40,8 @@ impl<'i> QapiStruct<'i> {
             map(take_cond, |v| s.r#if = Some(v)),
             map(take_features, |v| s.features = Some(v)),
             map(take_kv("data", take_members), |v| s.data = v),
-        )))(input)?;
+        )))
+        .parse(input)?;
         if s.name == "" {
             return Err(nom::Err::Error(Error::new(start, ErrorKind::Tag)));
         }

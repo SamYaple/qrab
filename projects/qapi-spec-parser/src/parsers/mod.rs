@@ -24,40 +24,48 @@ use nom::branch::alt;
 use nom::bytes::complete::{tag, take_until};
 use nom::character::complete::{line_ending, multispace0, not_line_ending, space0};
 use nom::combinator::{not, opt, peek, recognize};
+use nom::error::Error;
 use nom::multi::{many1, separated_list0};
-use nom::sequence::{delimited, preceded, tuple};
+use nom::sequence::{delimited, preceded};
 use nom::IResult;
+use nom::Parser;
 
 pub(crate) fn qcomment(input: &str) -> IResult<&str, &str> {
     delimited(
-        tuple((tag("#"), not(peek(tag("#"))), space0)),
+        (tag("#"), not(peek(tag("#"))), space0),
         not_line_ending,
         line_ending,
-    )(input)
+    )
+    .parse(input)
 }
 
 pub(crate) fn clean_lines(input: &str) -> IResult<&str, &str> {
-    recognize(tuple((
+    recognize((
         multispace0,
-        opt(tuple((many1(tuple((multispace0, qcomment))), multispace0))),
-    )))(input)
+        opt((many1((multispace0, qcomment)), multispace0)),
+    ))
+    .parse(input)
 }
 
-pub(crate) fn qtag<'i>(t: &'static str) -> impl FnMut(&'i str) -> IResult<&'i str, &'i str> {
+pub(crate) fn qtag<'i>(
+    t: &'static str,
+) -> impl Parser<&'i str, Output = &'i str, Error = Error<&'i str>> {
     preceded(clean_lines, tag(t))
 }
 
 pub(crate) fn qstring(input: &str) -> IResult<&str, &str> {
-    delimited(qtag("'"), take_until("'"), tag("'"))(input)
+    delimited(qtag("'"), take_until("'"), tag("'")).parse(input)
 }
 
 pub(crate) fn qbool(input: &str) -> IResult<&str, &str> {
-    alt((qtag("true"), qtag("false")))(input)
+    alt((qtag("true"), qtag("false"))).parse(input)
 }
 
-pub(crate) fn take_list<'i, I, O>(item_parser: I) -> impl FnMut(&'i str) -> IResult<&'i str, Vec<O>>
+pub(crate) fn take_list<'i, I, O>(
+    item_parser: I,
+) -> impl Parser<&'i str, Output = Vec<O>, Error = Error<&'i str>>
 where
-    I: FnMut(&'i str) -> IResult<&'i str, O>,
+    I: Parser<&'i str, Output = O, Error = Error<&'i str>>,
 {
     delimited(
         qtag("["),
@@ -66,9 +74,11 @@ where
     )
 }
 
-pub(crate) fn take_dict<'i, I, O>(item_parser: I) -> impl FnMut(&'i str) -> IResult<&'i str, Vec<O>>
+pub(crate) fn take_dict<'i, I, O>(
+    item_parser: I,
+) -> impl Parser<&'i str, Output = Vec<O>, Error = Error<&'i str>>
 where
-    I: FnMut(&'i str) -> IResult<&'i str, O>,
+    I: Parser<&'i str, Output = O, Error = Error<&'i str>>,
 {
     delimited(
         qtag("{"),
@@ -80,12 +90,12 @@ where
 pub(crate) fn take_kv<'i, I, O>(
     key: &'static str,
     value_parser: I,
-) -> impl FnMut(&'i str) -> IResult<&'i str, O>
+) -> impl Parser<&'i str, Output = O, Error = Error<&'i str>>
 where
-    I: FnMut(&'i str) -> IResult<&'i str, O>,
+    I: Parser<&'i str, Output = O, Error = Error<&'i str>>,
 {
     delimited(
-        tuple((qtag("'"), tag(key), qtag("'"), qtag(":"))),
+        (qtag("'"), tag(key), qtag("'"), qtag(":")),
         value_parser,
         clean_lines,
     )

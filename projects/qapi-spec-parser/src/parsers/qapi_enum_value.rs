@@ -5,6 +5,7 @@ use nom::branch::alt;
 use nom::combinator::map;
 use nom::error::{Error, ErrorKind};
 use nom::IResult;
+use nom::Parser;
 
 pub fn take_enum_value(input: &str) -> IResult<&str, QapiEnumValue<'_>> {
     QapiEnumValue::parse(input)
@@ -24,7 +25,7 @@ impl<'i> QapiEnumValue<'i> {
     ///                '*features': FEATURES }
     pub fn parse(input: &'i str) -> IResult<&'i str, Self> {
         let start = input;
-        let (input, enumvalue) = alt((Self::simple_parser, Self::complex_parser))(input)?;
+        let (input, enumvalue) = alt((Self::simple_parser, Self::complex_parser)).parse(input)?;
         if enumvalue.name == "" {
             return Err(nom::Err::Error(Error::new(start, ErrorKind::Tag)));
         }
@@ -34,7 +35,7 @@ impl<'i> QapiEnumValue<'i> {
     /// STRING
     fn simple_parser(input: &'i str) -> IResult<&'i str, Self> {
         let mut s = Self::default();
-        let (input, _) = map(qstring, |v| s.name = v)(input)?;
+        let (input, _) = map(qstring, |v| s.name = v).parse(input)?;
         Ok((input, s))
     }
 
@@ -47,7 +48,8 @@ impl<'i> QapiEnumValue<'i> {
             map(take_kv("name", qstring), |v| s.name = v),
             map(take_features, |v| s.features = Some(v)),
             map(take_cond, |v| s.r#if = Some(v)),
-        )))(input)?;
+        )))
+        .parse(input)?;
         Ok((input, s))
     }
 }

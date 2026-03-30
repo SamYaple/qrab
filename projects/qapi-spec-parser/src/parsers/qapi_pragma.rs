@@ -2,8 +2,9 @@ use super::{qbool, qstring, qtag, take_kv, take_list};
 use nom::branch::alt;
 use nom::combinator::map;
 use nom::multi::separated_list1;
-use nom::sequence::{delimited, tuple};
+use nom::sequence::delimited;
 use nom::IResult;
+use nom::Parser;
 
 pub fn take_pragma(input: &str) -> IResult<&str, QapiPragma<'_>> {
     QapiPragma::parse(input)
@@ -62,7 +63,7 @@ impl<'i> QapiPragma<'i> {
             member_name_exceptions_parser,
         ));
         delimited(
-            tuple((qtag("{"), qtag("'pragma'"), qtag(":"), qtag("{"))),
+            (qtag("{"), qtag("'pragma'"), qtag(":"), qtag("{")),
             map(separated_list1(qtag(","), parsers), |tokens| {
                 let mut doc_required = None;
                 let mut command_name_exceptions = None;
@@ -90,8 +91,9 @@ impl<'i> QapiPragma<'i> {
                     member_name_exceptions,
                 }
             }),
-            tuple((qtag("}"), qtag("}"))),
-        )(input)
+            (qtag("}"), qtag("}")),
+        )
+        .parse(input)
     }
 }
 

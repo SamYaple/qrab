@@ -4,6 +4,7 @@ use nom::branch::alt;
 use nom::combinator::map;
 use nom::error::{Error, ErrorKind};
 use nom::IResult;
+use nom::Parser;
 
 /// Convenience wrapper around the QapiFeature parser
 pub fn take_feature(input: &str) -> IResult<&str, QapiFeature<'_>> {
@@ -23,7 +24,7 @@ impl<'i> QapiFeature<'i> {
     ///             | { 'name': STRING, '*if': COND }
     pub fn parse(input: &'i str) -> IResult<&'i str, Self> {
         let start = input;
-        let (input, feature) = alt((Self::string_parser, Self::dict_parser))(input)?;
+        let (input, feature) = alt((Self::string_parser, Self::dict_parser)).parse(input)?;
         if feature.name == "" {
             return Err(nom::Err::Error(Error::new(start, ErrorKind::Tag)));
         }
@@ -33,7 +34,7 @@ impl<'i> QapiFeature<'i> {
     /// STRING
     fn string_parser(input: &'i str) -> IResult<&'i str, Self> {
         let mut s = Self::default();
-        let (input, _) = map(qstring, |v| s.name = v)(input)?;
+        let (input, _) = map(qstring, |v| s.name = v).parse(input)?;
         Ok((input, s))
     }
 
@@ -42,7 +43,7 @@ impl<'i> QapiFeature<'i> {
         let mut s = Self::default();
         let name_parser = map(take_kv("name", qstring), |v| s.name = v);
         let cond_parser = map(take_cond, |v| s.r#if = Some(v));
-        let (input, _) = take_dict(alt((name_parser, cond_parser)))(input)?;
+        let (input, _) = take_dict(alt((name_parser, cond_parser))).parse(input)?;
         Ok((input, s))
     }
 }
