@@ -3,6 +3,14 @@ name = "qapi-spec-parser"
 version = "0.1.0"
 edition = "2021"
 
+[lib]
+name = "qapi_spec_parser"
+path = "src/lib.rs"
+
+[[bin]]
+name = "qapi-spec-parser"
+path = "src/main.rs"
+
 [dependencies]
 anyhow = "1"
 heck = "0.5.0"
@@ -10,4 +18,7 @@ nom = "8"
 prettyplease = "0.2.22"
 proc-macro2 = "1"
 quote = "1"
-syn = { version = "2", features = ["full"] }
+
+[dependencies.syn]
+version = "2"
+features = ["full"]
