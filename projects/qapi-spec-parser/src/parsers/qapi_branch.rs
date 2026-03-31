@@ -25,7 +25,7 @@ impl<'i> QapiBranch<'i> {
     pub fn parse(input: &'i str) -> IResult<&'i str, Self> {
         let start = input;
         let (input, branch) = alt((Self::simple_parser, Self::complex_parser)).parse(input)?;
-        if branch.name == "" || branch.r#type == QapiTypeRef::Unset {
+        if branch.name.is_empty() || branch.r#type == QapiTypeRef::Unset {
             return Err(nom::Err::Error(Error::new(start, ErrorKind::Tag)));
         }
         Ok((input, branch))

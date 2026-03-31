@@ -70,7 +70,7 @@ impl<'i> QapiCommand<'i> {
             map(take_kv("data", take_members_or_ref), |v| s.data = Some(v)),
         )))
         .parse(input)?;
-        if s.name == "" {
+        if s.name.is_empty() {
             return Err(nom::Err::Error(Error::new(start, ErrorKind::Tag)));
         }
         // if boxed is set to true, `data` is no optional. I do no account for this at all.

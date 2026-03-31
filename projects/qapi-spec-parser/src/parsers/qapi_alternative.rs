@@ -25,7 +25,7 @@ impl<'i> QapiAlternative<'i> {
     pub fn parse(input: &'i str) -> IResult<&'i str, Self> {
         let start = input;
         let (input, alternative) = alt((Self::simple_parser, Self::dict_parser)).parse(input)?;
-        if alternative.name == "" || QapiTypeRef::Unset == alternative.r#type {
+        if alternative.name.is_empty() || QapiTypeRef::Unset == alternative.r#type {
             return Err(nom::Err::Error(Error::new(start, ErrorKind::Tag)));
         }
         Ok((input, alternative))

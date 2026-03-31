@@ -26,7 +26,7 @@ impl<'i> QapiEnumValue<'i> {
     pub fn parse(input: &'i str) -> IResult<&'i str, Self> {
         let start = input;
         let (input, enumvalue) = alt((Self::simple_parser, Self::complex_parser)).parse(input)?;
-        if enumvalue.name == "" {
+        if enumvalue.name.is_empty() {
             return Err(nom::Err::Error(Error::new(start, ErrorKind::Tag)));
         }
         Ok((input, enumvalue))

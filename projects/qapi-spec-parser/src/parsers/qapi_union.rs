@@ -45,9 +45,9 @@ impl<'i> QapiUnion<'i> {
             map(take_kv("base", take_members_or_ref), |v| s.base = v),
         )))
         .parse(input)?;
-        if s.name == ""
-            || s.discriminator == ""
-            || s.data.len() == 0
+        if s.name.is_empty()
+            || s.discriminator.is_empty()
+            || s.data.is_empty()
             || s.base == MembersOrRef::Unset
         {
             return Err(nom::Err::Error(Error::new(start, ErrorKind::Tag)));

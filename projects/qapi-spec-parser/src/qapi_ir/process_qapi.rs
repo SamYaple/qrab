@@ -22,7 +22,7 @@ macro_rules! add_feat {
                 let mut attrs = Vec::new();
                 attrs.push(("feature", Some(feature.name.to_string())));
                 if let Some(condition) = &feature.r#if {
-                    attrs.push(("if", Some(condition.to_string() as String)));
+                    attrs.push(("if", Some(condition.to_string())));
                 }
                 $meta.attributes.push(Attribute::with_values(attrs));
             }
@@ -36,7 +36,7 @@ macro_rules! add_docs {
             if doc.name != $name {
                 todo! { "This is a validation error; Doc section name does not match" }
             }
-            if doc.description.len() > 0 {
+            if !doc.description.is_empty() {
                 $meta.doc = Some(doc.description.join("\n"));
             }
             if let Some(since) = doc.since {
@@ -80,7 +80,7 @@ fn name_attr(name: &str) -> Option<Attribute> {
     }
 }
 
-fn process_type_ref(q: QapiTypeRef) -> (&str, bool) {
+fn process_type_ref(q: QapiTypeRef<'_>) -> (&str, bool) {
     match q {
         QapiTypeRef::Unset => unreachable! {"this should have failed the parser"},
         QapiTypeRef::Ref(v) => (v, false),
@@ -252,7 +252,7 @@ pub fn process_union(
     let mut variants = Vec::new();
     for branch in q.data {
         let (r#type, array) = process_type_ref(branch.r#type);
-        assert!(array == false);
+        assert!(!array);
         let mut meta = Metadata::default();
         if let Some(attr) = name_attr(branch.name) {
             meta.attributes.push(attr);

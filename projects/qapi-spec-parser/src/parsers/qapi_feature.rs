@@ -25,7 +25,7 @@ impl<'i> QapiFeature<'i> {
     pub fn parse(input: &'i str) -> IResult<&'i str, Self> {
         let start = input;
         let (input, feature) = alt((Self::string_parser, Self::dict_parser)).parse(input)?;
-        if feature.name == "" {
+        if feature.name.is_empty() {
             return Err(nom::Err::Error(Error::new(start, ErrorKind::Tag)));
         }
         Ok((input, feature))

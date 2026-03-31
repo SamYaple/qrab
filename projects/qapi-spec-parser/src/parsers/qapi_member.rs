@@ -29,7 +29,7 @@ impl<'i> QapiMember<'i> {
     pub fn parse(input: &'i str) -> IResult<&'i str, Self> {
         let start = input;
         let (input, mut member) = alt((Self::simple_parser, Self::complex_parser)).parse(input)?;
-        if member.name == "" || member.r#type == QapiTypeRef::Unset {
+        if member.name.is_empty() || member.r#type == QapiTypeRef::Unset {
             return Err(nom::Err::Error(Error::new(start, ErrorKind::Tag)));
         }
         if member.name.starts_with('*') {

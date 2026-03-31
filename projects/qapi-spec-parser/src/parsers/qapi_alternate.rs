@@ -39,7 +39,7 @@ impl<'i> QapiAlternate<'i> {
             map(take_features, |v| s.features = Some(v)),
         )))
         .parse(input)?;
-        if s.name == "" || s.data.len() == 0 {
+        if s.name.is_empty() || s.data.is_empty() {
             return Err(nom::Err::Error(Error::new(start, ErrorKind::Tag)));
         }
         Ok((input, s))

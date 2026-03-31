@@ -689,7 +689,7 @@ mod tests {
         for input in VALID_INPUTS {
             let result = QapiDocumentation::parse(input);
             match result {
-                Ok((remaining, d)) => {
+                Ok((remaining, _d)) => {
                     assert_eq!(remaining, "");
                 }
                 _ => panic!("Failed to parse: ```\n{input}\n```"),

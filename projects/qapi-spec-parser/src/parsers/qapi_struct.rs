@@ -42,7 +42,7 @@ impl<'i> QapiStruct<'i> {
             map(take_kv("data", take_members), |v| s.data = v),
         )))
         .parse(input)?;
-        if s.name == "" {
+        if s.name.is_empty() {
             return Err(nom::Err::Error(Error::new(start, ErrorKind::Tag)));
         }
         Ok((input, s))
