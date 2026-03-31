@@ -34,7 +34,7 @@ macro_rules! add_docs {
     ($meta:expr, $docs:expr, $name:expr, $variants:expr) => {
         if let Some(doc) = $docs {
             if doc.name != $name {
-                todo! { "This is a validation error; Doc section name does not match" }
+                eprintln!("WARNING: Doc section name '{}' does not match '{}'", doc.name, $name);
             }
             if !doc.description.is_empty() {
                 $meta.doc = Some(doc.description.join("\n"));
@@ -56,7 +56,7 @@ macro_rules! add_docs {
                         continue 'outer_loop;
                     }
                 }
-                todo! { "This is a validation error; Documented field does not exist" }
+                eprintln!("WARNING: Documented field '{}' does not exist in '{}'", name, $name);
             }
         }
     };
@@ -202,7 +202,7 @@ pub fn process_member(q: QapiMember) -> StructField {
 pub fn process_struct(q: QapiStruct, structs_lookup: &HashMap<String, Struct>) -> Struct {
     let mut fields = Vec::new();
     if let Some(base) = q.base {
-        let struct_ref = structs_lookup.get(base.into()).expect(&format!(
+        let struct_ref = structs_lookup.get(base.into()).unwrap_or_else(|| panic!(
             "base struct not found for {} with base {}",
             q.name, base
         ));
@@ -236,7 +236,7 @@ pub fn process_union(
     enums_lookup: &HashMap<String, Enum>,
 ) -> (Struct, Enum) {
     let mut discriminator_opt = None;
-    let mut fields = process_members_or_ref(q.base, structs_lookup);
+    let mut fields = process_members_or_ref(q.base, RefStrategy::InlineFields(structs_lookup));
     for field in &mut fields {
         if field.name == q.discriminator {
             field.meta.attributes.push(Attribute::new("discriminator"));
@@ -244,7 +244,7 @@ pub fn process_union(
         }
     }
     let discriminator = discriminator_opt.expect("discriminator field not found");
-    let _base_enum = enums_lookup.get(&discriminator).expect(&format!(
+    let _base_enum = enums_lookup.get(&discriminator).unwrap_or_else(|| panic!(
         "{} could not find a base enum named {}",
         q.name, discriminator
     ));
@@ -301,41 +301,39 @@ pub fn process_union(
     (s, e)
 }
 
-fn process_members_or_ref(
-    q: MembersOrRef,
-    structs_lookup: &HashMap<String, Struct>,
-) -> Vec<StructField> {
+enum RefStrategy<'a> {
+    InlineFields(&'a HashMap<String, Struct>),
+    Flatten,
+}
+
+fn process_members_or_ref(q: MembersOrRef, strategy: RefStrategy<'_>) -> Vec<StructField> {
     let mut fields = Vec::new();
     match q {
-        MembersOrRef::Unset => unreachable! {"this should have failed the parser"},
+        MembersOrRef::Unset => unreachable!("this should have failed the parser"),
         MembersOrRef::Members(v) => {
             for field in v {
-                let (r#type, array) = process_type_ref(field.r#type);
-                let mut meta = Metadata::default();
-                if let Some(attr) = field_name_attr(field.name) {
-                    meta.attributes.push(attr);
-                }
-                if let Some(condition) = field.r#if {
-                    meta.attributes
-                        .push(Attribute::with_value("condition", condition));
-                }
-                add_feat! {meta, field.features};
-                let field = StructField {
-                    name: field.name.into(),
-                    r#type: r#type.into(),
-                    meta,
-                    optional: field.optional,
-                    array,
-                };
-                fields.push(field);
+                fields.push(process_member(field));
             }
         }
-        MembersOrRef::Ref(v) => {
-            let struct_ref = structs_lookup
-                .get(v)
-                .expect(&format!("failed to lookup base ref for {}", v));
-            fields.extend(struct_ref.fields.clone());
-        }
+        MembersOrRef::Ref(v) => match strategy {
+            RefStrategy::InlineFields(structs_lookup) => {
+                let struct_ref = structs_lookup
+                    .get(v)
+                    .unwrap_or_else(|| panic!("failed to lookup base ref for {}", v));
+                fields.extend(struct_ref.fields.clone());
+            }
+            RefStrategy::Flatten => {
+                let mut meta = Metadata::default();
+                meta.attributes.push(Attribute::new("flatten"));
+                fields.push(StructField {
+                    name: "data".into(),
+                    r#type: v.into(),
+                    meta,
+                    optional: false,
+                    array: false,
+                });
+            }
+        },
     }
     fields
 }
@@ -343,7 +341,7 @@ fn process_members_or_ref(
 pub fn process_event(q: QapiEvent, structs_lookup: &HashMap<String, Struct>) -> Struct {
     let mut fields = Vec::new();
     if let Some(data) = q.data {
-        fields.extend(process_members_or_ref(data, structs_lookup));
+        fields.extend(process_members_or_ref(data, RefStrategy::InlineFields(structs_lookup)));
     }
     let mut meta = Metadata::default();
     //meta.attributes.push(Attribute::new("Event"));
@@ -364,52 +362,10 @@ pub fn process_event(q: QapiEvent, structs_lookup: &HashMap<String, Struct>) -> 
     }
 }
 
-fn command_process_members_or_ref(q: MembersOrRef) -> Vec<StructField> {
-    let mut fields = Vec::new();
-    match q {
-        MembersOrRef::Unset => unreachable! {"this should have failed the parser"},
-        MembersOrRef::Members(v) => {
-            for field in v {
-                let (r#type, array) = process_type_ref(field.r#type);
-                let mut meta = Metadata::default();
-                if let Some(attr) = field_name_attr(field.name) {
-                    meta.attributes.push(attr);
-                }
-                if let Some(condition) = field.r#if {
-                    meta.attributes
-                        .push(Attribute::with_value("condition", condition));
-                }
-                add_feat! {meta, field.features};
-                let field = StructField {
-                    name: field.name.into(),
-                    r#type: r#type.into(),
-                    meta,
-                    optional: field.optional,
-                    array,
-                };
-                fields.push(field);
-            }
-        }
-        MembersOrRef::Ref(v) => {
-            let mut meta = Metadata::default();
-            meta.attributes.push(Attribute::new("flatten"));
-            let field = StructField {
-                name: "data".into(),
-                r#type: v.into(),
-                meta,
-                optional: false,
-                array: false,
-            };
-            fields.push(field);
-        }
-    }
-    fields
-}
-
 pub fn process_command(q: QapiCommand) -> Struct {
     let mut fields = Vec::new();
     if let Some(data) = q.data {
-        fields.extend(command_process_members_or_ref(data));
+        fields.extend(process_members_or_ref(data, RefStrategy::Flatten));
     }
     let mut meta = Metadata::default();
     //meta.attributes.push(Attribute::new("Command"));
