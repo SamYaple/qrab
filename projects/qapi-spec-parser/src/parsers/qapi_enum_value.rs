@@ -2,7 +2,6 @@ use super::{qstring, take_dict, take_kv};
 use crate::{take_cond, take_features};
 use crate::{QapiCond, QapiFeatures};
 use nom::branch::alt;
-use nom::combinator::map;
 use nom::error::{Error, ErrorKind};
 use nom::IResult;
 use nom::Parser;
@@ -35,7 +34,7 @@ impl<'i> QapiEnumValue<'i> {
     /// STRING
     fn simple_parser(input: &'i str) -> IResult<&'i str, Self> {
         let mut s = Self::default();
-        let (input, _) = map(qstring, |v| s.name = v).parse(input)?;
+        let (input, _) = qstring.map(|v| s.name = v).parse(input)?;
         Ok((input, s))
     }
 
@@ -45,9 +44,9 @@ impl<'i> QapiEnumValue<'i> {
     fn complex_parser(input: &'i str) -> IResult<&'i str, Self> {
         let mut s = Self::default();
         let (input, _) = take_dict(alt((
-            map(take_kv("name", qstring), |v| s.name = v),
-            map(take_features, |v| s.features = Some(v)),
-            map(take_cond, |v| s.r#if = Some(v)),
+            take_kv("name", qstring).map(|v| s.name = v),
+            take_features.map(|v| s.features = Some(v)),
+            take_cond.map(|v| s.r#if = Some(v)),
         )))
         .parse(input)?;
         Ok((input, s))

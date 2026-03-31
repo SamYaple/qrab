@@ -2,7 +2,7 @@ use super::{qstring, take_dict, take_kv};
 use crate::{take_cond, take_features, take_members};
 use crate::{QapiCond, QapiDocumentation, QapiFeatures, QapiMembers};
 use nom::branch::alt;
-use nom::combinator::{map, opt};
+use nom::combinator::opt;
 use nom::error::{Error, ErrorKind};
 use nom::IResult;
 use nom::Parser;
@@ -35,11 +35,11 @@ impl<'i> QapiStruct<'i> {
         };
         let start = input;
         let (input, _) = take_dict(alt((
-            map(take_kv("struct", qstring), |v| s.name = v),
-            map(take_kv("base", qstring), |v| s.base = Some(v)),
-            map(take_cond, |v| s.r#if = Some(v)),
-            map(take_features, |v| s.features = Some(v)),
-            map(take_kv("data", take_members), |v| s.data = v),
+            take_kv("struct", qstring).map(|v| s.name = v),
+            take_kv("base", qstring).map(|v| s.base = Some(v)),
+            take_cond.map(|v| s.r#if = Some(v)),
+            take_features.map(|v| s.features = Some(v)),
+            take_kv("data", take_members).map(|v| s.data = v),
         )))
         .parse(input)?;
         if s.name.is_empty() {

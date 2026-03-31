@@ -2,7 +2,7 @@ use super::{qstring, take_dict, take_kv, take_list};
 use crate::{take_cond, take_enum_value, take_features};
 use crate::{QapiCond, QapiDocumentation, QapiEnumValue, QapiFeatures};
 use nom::branch::alt;
-use nom::combinator::{map, opt};
+use nom::combinator::opt;
 use nom::error::{Error, ErrorKind};
 use nom::IResult;
 use nom::Parser;
@@ -35,11 +35,11 @@ impl<'i> QapiEnum<'i> {
         };
         let start = input;
         let (input, _) = take_dict(alt((
-            map(take_kv("enum", qstring), |v| s.name = v),
-            map(take_kv("prefix", qstring), |v| s.prefix = Some(v)),
-            map(take_kv("data", take_list(take_enum_value)), |v| s.data = v),
-            map(take_cond, |v| s.r#if = Some(v)),
-            map(take_features, |v| s.features = Some(v)),
+            take_kv("enum", qstring).map(|v| s.name = v),
+            take_kv("prefix", qstring).map(|v| s.prefix = Some(v)),
+            take_kv("data", take_list(take_enum_value)).map(|v| s.data = v),
+            take_cond.map(|v| s.r#if = Some(v)),
+            take_features.map(|v| s.features = Some(v)),
         )))
         .parse(input)?;
         if s.name.is_empty() || s.data.is_empty() {

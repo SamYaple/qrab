@@ -2,7 +2,7 @@ use super::{qstring, take_dict, take_kv};
 use crate::{take_alternatives, take_cond, take_features};
 use crate::{QapiAlternatives, QapiCond, QapiDocumentation, QapiFeatures};
 use nom::branch::alt;
-use nom::combinator::{map, opt};
+use nom::combinator::opt;
 use nom::error::{Error, ErrorKind};
 use nom::IResult;
 use nom::Parser;
@@ -33,10 +33,10 @@ impl<'i> QapiAlternate<'i> {
         };
         let start = input;
         let (input, _) = take_dict(alt((
-            map(take_kv("alternate", qstring), |v| s.name = v),
-            map(take_alternatives, |v| s.data = v),
-            map(take_cond, |v| s.r#if = Some(v)),
-            map(take_features, |v| s.features = Some(v)),
+            take_kv("alternate", qstring).map(|v| s.name = v),
+            take_alternatives.map(|v| s.data = v),
+            take_cond.map(|v| s.r#if = Some(v)),
+            take_features.map(|v| s.features = Some(v)),
         )))
         .parse(input)?;
         if s.name.is_empty() || s.data.is_empty() {

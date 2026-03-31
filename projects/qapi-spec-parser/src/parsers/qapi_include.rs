@@ -1,5 +1,4 @@
 use super::{qstring, qtag, take_kv};
-use nom::combinator::map;
 use nom::sequence::delimited;
 use nom::IResult;
 use nom::Parser;
@@ -15,7 +14,7 @@ impl<'i> QapiInclude<'i> {
     pub fn parse(input: &'i str) -> IResult<&'i str, Self> {
         delimited(
             qtag("{"),
-            map(take_kv("include", qstring), |v| Self(v)),
+            take_kv("include", qstring).map(|v| Self(v)),
             qtag("}"),
         )
         .parse(input)

@@ -2,7 +2,7 @@ use super::{qstring, take_dict, take_kv};
 use crate::{take_branches, take_cond, take_features, take_members_or_ref};
 use crate::{MembersOrRef, QapiBranches, QapiCond, QapiDocumentation, QapiFeatures};
 use nom::branch::alt;
-use nom::combinator::{map, opt};
+use nom::combinator::opt;
 use nom::error::{Error, ErrorKind};
 use nom::IResult;
 use nom::Parser;
@@ -37,12 +37,12 @@ impl<'i> QapiUnion<'i> {
         };
         let start = input;
         let (input, _) = take_dict(alt((
-            map(take_kv("union", qstring), |v| s.name = v),
-            map(take_kv("data", take_branches), |v| s.data = v),
-            map(take_kv("discriminator", qstring), |v| s.discriminator = v),
-            map(take_cond, |v| s.r#if = Some(v)),
-            map(take_features, |v| s.features = Some(v)),
-            map(take_kv("base", take_members_or_ref), |v| s.base = v),
+            take_kv("union", qstring).map(|v| s.name = v),
+            take_kv("data", take_branches).map(|v| s.data = v),
+            take_kv("discriminator", qstring).map(|v| s.discriminator = v),
+            take_cond.map(|v| s.r#if = Some(v)),
+            take_features.map(|v| s.features = Some(v)),
+            take_kv("base", take_members_or_ref).map(|v| s.base = v),
         )))
         .parse(input)?;
         if s.name.is_empty()

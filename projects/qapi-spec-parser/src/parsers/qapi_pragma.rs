@@ -1,6 +1,5 @@
 use super::{qbool, qstring, qtag, take_kv, take_list};
 use nom::branch::alt;
-use nom::combinator::map;
 use nom::multi::separated_list1;
 use nom::sequence::delimited;
 use nom::IResult;
@@ -35,25 +34,21 @@ impl<'i> QapiPragma<'i> {
     ///            '*documentation-exceptions': [ STRING, ... ],
     ///            '*member-name-exceptions': [ STRING, ... ] } }
     pub fn parse(input: &'i str) -> IResult<&'i str, Self> {
-        let doc_required_parser = map(take_kv("doc-required", qbool), |v| {
+        let doc_required_parser = take_kv("doc-required", qbool).map(|v| {
             ParserToken::DocRequired(v)
         });
-        let command_name_exceptions_parser = map(
-            take_kv("command-name-exceptions", take_list(qstring)),
-            |v| ParserToken::CommandNameExceptions(v),
-        );
-        let command_returns_exceptions_parser = map(
-            take_kv("command-returns-exceptions", take_list(qstring)),
-            |v| ParserToken::CommandReturnsExceptions(v),
-        );
-        let documentation_exceptions_parser = map(
-            take_kv("documentation-exceptions", take_list(qstring)),
-            |v| ParserToken::DocumentationExceptions(v),
-        );
+        let command_name_exceptions_parser =
+            take_kv("command-name-exceptions", take_list(qstring))
+                .map(|v| ParserToken::CommandNameExceptions(v));
+        let command_returns_exceptions_parser =
+            take_kv("command-returns-exceptions", take_list(qstring))
+                .map(|v| ParserToken::CommandReturnsExceptions(v));
+        let documentation_exceptions_parser =
+            take_kv("documentation-exceptions", take_list(qstring))
+                .map(|v| ParserToken::DocumentationExceptions(v));
         let member_name_exceptions_parser =
-            map(take_kv("member-name-exceptions", take_list(qstring)), |v| {
-                ParserToken::MemberNameExceptions(v)
-            });
+            take_kv("member-name-exceptions", take_list(qstring))
+                .map(|v| ParserToken::MemberNameExceptions(v));
 
         let parsers = alt((
             doc_required_parser,
@@ -64,7 +59,7 @@ impl<'i> QapiPragma<'i> {
         ));
         delimited(
             (qtag("{"), qtag("'pragma'"), qtag(":"), qtag("{")),
-            map(separated_list1(qtag(","), parsers), |tokens| {
+            separated_list1(qtag(","), parsers).map(|tokens| {
                 let mut doc_required = None;
                 let mut command_name_exceptions = None;
                 let mut command_returns_exceptions = None;

@@ -1,7 +1,6 @@
 use super::{qstring, take_dict};
 use crate::QapiMember;
 use nom::branch::alt;
-use nom::combinator::map;
 use nom::IResult;
 use nom::Parser;
 use std::ops::{Deref, DerefMut};
@@ -15,7 +14,7 @@ pub struct QapiMembers<'i>(pub Vec<QapiMember<'i>>);
 impl<'i> QapiMembers<'i> {
     /// MEMBERS = { MEMBER, ... }
     pub fn parse(input: &'i str) -> IResult<&'i str, Self> {
-        map(take_dict(QapiMember::parse), |v| Self(v)).parse(input)
+        take_dict(QapiMember::parse).map(|v| Self(v)).parse(input)
     }
 }
 
@@ -57,8 +56,8 @@ impl<'i> MembersOrRef<'i> {
     /// STRING | MEMBERS
     pub fn parse(input: &'i str) -> IResult<&'i str, Self> {
         alt((
-            map(qstring, |v| Self::Ref(v)),
-            map(take_members, |v| Self::Members(v)),
+            qstring.map(|v| Self::Ref(v)),
+            take_members.map(|v| Self::Members(v)),
         ))
         .parse(input)
     }

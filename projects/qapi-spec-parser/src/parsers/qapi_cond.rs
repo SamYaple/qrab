@@ -1,6 +1,5 @@
 use super::{qstring, qtag, take_kv, take_list};
 use nom::branch::alt;
-use nom::combinator::map;
 use nom::sequence::delimited;
 use nom::IResult;
 use nom::Parser;
@@ -35,13 +34,13 @@ impl<'i> QapiCond<'i> {
         let any_parser = take_kv("any", take_list(Self::parse));
         let all_parser = take_kv("all", take_list(Self::parse));
         alt((
-            map(qstring, |v| Self::ConfigName(v)),
+            qstring.map(|v| Self::ConfigName(v)),
             delimited(
                 qtag("{"),
                 alt((
-                    map(all_parser, |v| Self::All(v)),
-                    map(any_parser, |v| Self::Any(v)),
-                    map(not_parser, |v| Self::Not(Box::new(v))),
+                    all_parser.map(|v| Self::All(v)),
+                    any_parser.map(|v| Self::Any(v)),
+                    not_parser.map(|v| Self::Not(Box::new(v))),
                 )),
                 qtag("}"),
             ),

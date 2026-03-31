@@ -5,7 +5,6 @@ use crate::{
 };
 use nom::branch::alt;
 use nom::character::complete::multispace1;
-use nom::combinator::map;
 use nom::multi::many0;
 use nom::IResult;
 use nom::Parser;
@@ -38,22 +37,20 @@ pub enum QapiSchemaToken<'i> {
 pub struct QapiSchema<'i>(pub Vec<QapiSchemaToken<'i>>);
 impl<'i> QapiSchema<'i> {
     pub fn parse(input: &'i str) -> IResult<&'i str, Self> {
-        map(
-            many0(alt((
-                map(QapiAlternate::parse, |v| QapiSchemaToken::Alternate(v)),
-                map(QapiCommand::parse, |v| QapiSchemaToken::Command(v)),
-                map(QapiEnum::parse, |v| QapiSchemaToken::Enum(v)),
-                map(QapiEvent::parse, |v| QapiSchemaToken::Event(v)),
-                map(QapiStruct::parse, |v| QapiSchemaToken::Struct(v)),
-                map(QapiUnion::parse, |v| QapiSchemaToken::Union(v)),
-                map(QapiInclude::parse, |v| QapiSchemaToken::Include(v)),
-                map(QapiPragma::parse, |v| QapiSchemaToken::Pragma(v)),
-                map(QapiSectionDocumentation::parse, |v| QapiSchemaToken::Doc(v)),
-                map(qcomment, |v| QapiSchemaToken::Comment(v)),
-                map(multispace1, |_| QapiSchemaToken::EmptyLines),
-            ))),
-            |tokens| Self(tokens),
-        )
+        many0(alt((
+            QapiAlternate::parse.map(|v| QapiSchemaToken::Alternate(v)),
+            QapiCommand::parse.map(|v| QapiSchemaToken::Command(v)),
+            QapiEnum::parse.map(|v| QapiSchemaToken::Enum(v)),
+            QapiEvent::parse.map(|v| QapiSchemaToken::Event(v)),
+            QapiStruct::parse.map(|v| QapiSchemaToken::Struct(v)),
+            QapiUnion::parse.map(|v| QapiSchemaToken::Union(v)),
+            QapiInclude::parse.map(|v| QapiSchemaToken::Include(v)),
+            QapiPragma::parse.map(|v| QapiSchemaToken::Pragma(v)),
+            QapiSectionDocumentation::parse.map(|v| QapiSchemaToken::Doc(v)),
+            qcomment.map(|v| QapiSchemaToken::Comment(v)),
+            multispace1.map(|_| QapiSchemaToken::EmptyLines),
+        )))
+        .map(|tokens| Self(tokens))
         .parse(input)
     }
 }

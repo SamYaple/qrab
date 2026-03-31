@@ -1,7 +1,6 @@
 use super::{qstring, take_dict, take_kv};
 use crate::{take_cond, QapiCond};
 use nom::branch::alt;
-use nom::combinator::map;
 use nom::error::{Error, ErrorKind};
 use nom::IResult;
 use nom::Parser;
@@ -34,15 +33,15 @@ impl<'i> QapiFeature<'i> {
     /// STRING
     fn string_parser(input: &'i str) -> IResult<&'i str, Self> {
         let mut s = Self::default();
-        let (input, _) = map(qstring, |v| s.name = v).parse(input)?;
+        let (input, _) = qstring.map(|v| s.name = v).parse(input)?;
         Ok((input, s))
     }
 
     /// { 'name': STRING, '*if': COND }
     fn dict_parser(input: &'i str) -> IResult<&'i str, Self> {
         let mut s = Self::default();
-        let name_parser = map(take_kv("name", qstring), |v| s.name = v);
-        let cond_parser = map(take_cond, |v| s.r#if = Some(v));
+        let name_parser = take_kv("name", qstring).map(|v| s.name = v);
+        let cond_parser = take_cond.map(|v| s.r#if = Some(v));
         let (input, _) = take_dict(alt((name_parser, cond_parser))).parse(input)?;
         Ok((input, s))
     }

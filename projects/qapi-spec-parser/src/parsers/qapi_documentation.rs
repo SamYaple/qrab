@@ -3,7 +3,7 @@
 use nom::branch::alt;
 use nom::bytes::complete::{is_a, tag, tag_no_case, take_until, take_while1};
 use nom::character::complete::{line_ending, multispace0, not_line_ending, space0};
-use nom::combinator::{map, not, opt, recognize};
+use nom::combinator::{not, opt, recognize};
 use nom::error::Error;
 use nom::multi::{many0, many1};
 use nom::sequence::{delimited, preceded, terminated};
@@ -225,38 +225,36 @@ impl<'i> QapiDocumentation<'i> {
         ////
 
         // all branches of the `alt()` parser need to have the same type, which
-        // leads to this `map(take_something, |v| ParserToken::Something(v))`
-        // pattern. It's not my favorite, but not all return types are `&str`.
+        // leads to this `parser.map(|v| ParserToken::Something(v))` pattern.
+        // It's not my favorite, but not all return types are `&str`.
         let (input, tokens) = many0(alt((
-            map(take_namedkv("since"), |v| ParserToken::Since(v)),
-            map(take_namedkv("returns"), |v| ParserToken::Returns(v)),
-            map(take_namedkv("errors"), |v| ParserToken::Errors(v)),
-            map(take_namedkv(".. note:"), |v| ParserToken::Note(v)),
-            map(take_namedkv(".. caution:"), |v| ParserToken::Caution(v)),
-            map(take_namedkv(".. table:"), |v| ParserToken::Table(v)),
-            map(take_namedkv(".. qmp-example:"), |v| {
+            take_namedkv("since").map(|v| ParserToken::Since(v)),
+            take_namedkv("returns").map(|v| ParserToken::Returns(v)),
+            take_namedkv("errors").map(|v| ParserToken::Errors(v)),
+            take_namedkv(".. note:").map(|v| ParserToken::Note(v)),
+            take_namedkv(".. caution:").map(|v| ParserToken::Caution(v)),
+            take_namedkv(".. table:").map(|v| ParserToken::Table(v)),
+            take_namedkv(".. qmp-example:").map(|v| {
                 ParserToken::QmpExample(v)
             }),
-            map(take_namedkv(".. admonition:"), |v| {
+            take_namedkv(".. admonition:").map(|v| {
                 ParserToken::Admonition(v)
             }),
-            map(
-                preceded(
-                    (
-                        take_namedkey("features"),
-                        take_line_end,
-                        many0(take_empty_line),
-                    ),
-                    many1((take_name, take_value)),
+            preceded(
+                (
+                    take_namedkey("features"),
+                    take_line_end,
+                    many0(take_empty_line),
                 ),
-                |v| ParserToken::Features(v),
-            ),
+                many1((take_name, take_value)),
+            )
+            .map(|v| ParserToken::Features(v)),
         )))
         .parse(input)?;
 
         // UPSTREAMFIX: This is because `qga/qapi-schema.json` in the `@GuestNetworkRoute` doc block.
         let (input, _) = multispace0(input)?;
-        let (input, _) = tag("##")(input)?;
+        let (input, _) = tag("##").parse(input)?;
 
         ////
         // Parsing is now done, we might still return a parsing error after
@@ -330,7 +328,7 @@ impl<'i> QapiSectionDocumentation<'i> {
         .parse(input)?;
         let (input, mut description) = opt(take_doc_text).parse(input)?;
         let (input, _) = many0(take_empty_line).parse(input)?;
-        let (input, _) = tag("##")(input)?;
+        let (input, _) = tag("##").parse(input)?;
 
         let name = trim_docstr(name);
         if let Some(ref mut d) = description {

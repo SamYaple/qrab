@@ -2,7 +2,6 @@ use super::{qstring, qtag, take_dict};
 use crate::{take_cond, take_features, take_type_ref};
 use crate::{QapiCond, QapiFeatures, QapiTypeRef};
 use nom::branch::alt;
-use nom::combinator::map;
 use nom::error::{Error, ErrorKind};
 use nom::sequence::terminated;
 use nom::IResult;
@@ -42,8 +41,8 @@ impl<'i> QapiMember<'i> {
     /// STRING : TYPE-REF
     fn simple_parser(input: &'i str) -> IResult<&'i str, Self> {
         let mut s = Self::default();
-        let name_parser = map(terminated(qstring, qtag(":")), |v| s.name = v);
-        let type_parser = map(QapiTypeRef::parse, |v| s.r#type = v);
+        let name_parser = terminated(qstring, qtag(":")).map(|v| s.name = v);
+        let type_parser = QapiTypeRef::parse.map(|v| s.r#type = v);
         let (input, _) = (name_parser, type_parser).parse(input)?;
         Ok((input, s))
     }
@@ -53,10 +52,10 @@ impl<'i> QapiMember<'i> {
     ///            '*features': FEATURES }
     fn complex_parser(input: &'i str) -> IResult<&'i str, Self> {
         let mut s = Self::default();
-        let name_parser = map(terminated(qstring, qtag(":")), |v| s.name = v);
-        let type_parser = map(take_type_ref, |v| s.r#type = v);
-        let cond_parser = map(take_cond, |v| s.r#if = Some(v));
-        let features_parser = map(take_features, |v| s.features = Some(v));
+        let name_parser = terminated(qstring, qtag(":")).map(|v| s.name = v);
+        let type_parser = take_type_ref.map(|v| s.r#type = v);
+        let cond_parser = take_cond.map(|v| s.r#if = Some(v));
+        let features_parser = take_features.map(|v| s.features = Some(v));
         let (input, _) = (
             name_parser,
             take_dict(alt((features_parser, type_parser, cond_parser))),

@@ -2,7 +2,7 @@ use super::{qbool, qstring, take_dict, take_kv};
 use crate::{take_cond, take_features, take_members_or_ref};
 use crate::{MembersOrRef, QapiCond, QapiDocumentation, QapiFeatures, QapiTypeRef};
 use nom::branch::alt;
-use nom::combinator::{map, opt};
+use nom::combinator::opt;
 use nom::error::{Error, ErrorKind};
 use nom::IResult;
 use nom::Parser;
@@ -51,23 +51,23 @@ impl<'i> QapiCommand<'i> {
         };
         let start = input;
         let (input, _) = take_dict(alt((
-            map(take_kv("command", qstring), |v| s.name = v),
-            map(take_kv("boxed", qbool), |v| s.boxed = Some(v)),
-            map(take_cond, |v| s.r#if = Some(v)),
-            map(take_features, |v| s.features = Some(v)),
-            map(take_kv("returns", QapiTypeRef::parse), |v| {
+            take_kv("command", qstring).map(|v| s.name = v),
+            take_kv("boxed", qbool).map(|v| s.boxed = Some(v)),
+            take_cond.map(|v| s.r#if = Some(v)),
+            take_features.map(|v| s.features = Some(v)),
+            take_kv("returns", QapiTypeRef::parse).map(|v| {
                 s.returns = Some(v)
             }),
-            map(take_kv("success-response", qbool), |v| {
+            take_kv("success-response", qbool).map(|v| {
                 s.success_response = Some(v)
             }),
-            map(take_kv("gen", qbool), |v| s.r#gen = Some(v)),
-            map(take_kv("allow-oob", qbool), |v| s.allow_oob = Some(v)),
-            map(take_kv("coroutine", qbool), |v| s.coroutine = Some(v)),
-            map(take_kv("allow-preconfig", qbool), |v| {
+            take_kv("gen", qbool).map(|v| s.r#gen = Some(v)),
+            take_kv("allow-oob", qbool).map(|v| s.allow_oob = Some(v)),
+            take_kv("coroutine", qbool).map(|v| s.coroutine = Some(v)),
+            take_kv("allow-preconfig", qbool).map(|v| {
                 s.allow_preconfig = Some(v)
             }),
-            map(take_kv("data", take_members_or_ref), |v| s.data = Some(v)),
+            take_kv("data", take_members_or_ref).map(|v| s.data = Some(v)),
         )))
         .parse(input)?;
         if s.name.is_empty() {

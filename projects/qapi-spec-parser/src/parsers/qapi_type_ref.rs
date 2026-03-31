@@ -1,6 +1,5 @@
 use super::{qstring, qtag, take_kv};
 use nom::branch::alt;
-use nom::combinator::map;
 use nom::sequence::delimited;
 use nom::IResult;
 use nom::Parser;
@@ -28,8 +27,8 @@ impl<'i> QapiTypeRef<'i> {
     pub fn parse(input: &'i str) -> IResult<&'i str, Self> {
         let array_parser = delimited(qtag("["), qstring, qtag("]"));
         alt((
-            map(qstring, |v| Self::Ref(v)),
-            map(array_parser, |v| Self::ArrayRef(v)),
+            qstring.map(|v| Self::Ref(v)),
+            array_parser.map(|v| Self::ArrayRef(v)),
         ))
         .parse(input)
     }

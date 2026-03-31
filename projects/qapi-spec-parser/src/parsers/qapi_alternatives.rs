@@ -1,7 +1,6 @@
 use super::{take_dict, take_kv};
 use crate::take_alternative;
 use crate::QapiAlternative;
-use nom::combinator::map;
 use nom::IResult;
 use nom::Parser;
 use std::ops::{Deref, DerefMut};
@@ -15,7 +14,7 @@ pub struct QapiAlternatives<'i>(pub Vec<QapiAlternative<'i>>);
 impl<'i> QapiAlternatives<'i> {
     /// ALTERNATIVES = { ALTERNATIVE, ... }
     pub fn parse(input: &'i str) -> IResult<&'i str, Self> {
-        map(take_dict(take_alternative), |v| Self(v)).parse(input)
+        take_dict(take_alternative).map(|v| Self(v)).parse(input)
     }
 }
 

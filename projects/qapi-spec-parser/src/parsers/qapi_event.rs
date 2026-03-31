@@ -2,7 +2,7 @@ use super::{qbool, qstring, take_dict, take_kv};
 use crate::{take_cond, take_features, take_members_or_ref};
 use crate::{MembersOrRef, QapiCond, QapiDocumentation, QapiFeatures};
 use nom::branch::alt;
-use nom::combinator::{map, opt};
+use nom::combinator::opt;
 use nom::error::{Error, ErrorKind};
 use nom::IResult;
 use nom::Parser;
@@ -39,11 +39,11 @@ impl<'i> QapiEvent<'i> {
         };
         let start = input;
         let (input, _) = take_dict(alt((
-            map(take_kv("event", qstring), |v| s.name = v),
-            map(take_kv("boxed", qbool), |v| s.boxed = Some(v)),
-            map(take_cond, |v| s.r#if = Some(v)),
-            map(take_features, |v| s.features = Some(v)),
-            map(take_kv("data", take_members_or_ref), |v| s.data = Some(v)),
+            take_kv("event", qstring).map(|v| s.name = v),
+            take_kv("boxed", qbool).map(|v| s.boxed = Some(v)),
+            take_cond.map(|v| s.r#if = Some(v)),
+            take_features.map(|v| s.features = Some(v)),
+            take_kv("data", take_members_or_ref).map(|v| s.data = Some(v)),
         )))
         .parse(input)?;
         if s.name.is_empty() {

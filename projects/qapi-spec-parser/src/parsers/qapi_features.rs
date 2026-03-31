@@ -1,6 +1,5 @@
 use super::{take_kv, take_list};
 use crate::QapiFeature;
-use nom::combinator::map;
 use nom::IResult;
 use nom::Parser;
 use std::ops::{Deref, DerefMut};
@@ -17,7 +16,7 @@ impl<'i> QapiFeatures<'i> {
     /// Parses a `FEATURES` as defined in the QAPI spec:
     ///     FEATURES = [ FEATURE, ... ]
     pub fn parse(input: &'i str) -> IResult<&'i str, Self> {
-        map(take_list(QapiFeature::parse), |v| Self(v)).parse(input)
+        take_list(QapiFeature::parse).map(|v| Self(v)).parse(input)
     }
 }
 
