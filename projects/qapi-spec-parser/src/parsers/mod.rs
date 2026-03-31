@@ -3,6 +3,7 @@ pub mod qapi_alternative;
 pub mod qapi_alternatives;
 pub mod qapi_branch;
 pub mod qapi_branches;
+pub mod qapi_variant;
 pub mod qapi_command;
 pub mod qapi_cond;
 pub mod qapi_documentation;
@@ -19,6 +20,31 @@ pub mod qapi_schema;
 pub mod qapi_struct;
 pub mod qapi_type_ref;
 pub mod qapi_union;
+
+/// Generates Deref, DerefMut, and IntoIterator impls for a Vec newtype.
+macro_rules! vec_newtype {
+    ($name:ident, $inner:ty) => {
+        impl<'i> std::ops::Deref for $name<'i> {
+            type Target = Vec<$inner>;
+            fn deref(&self) -> &Self::Target {
+                &self.0
+            }
+        }
+        impl<'i> std::ops::DerefMut for $name<'i> {
+            fn deref_mut(&mut self) -> &mut Self::Target {
+                &mut self.0
+            }
+        }
+        impl<'i> IntoIterator for $name<'i> {
+            type Item = $inner;
+            type IntoIter = std::vec::IntoIter<Self::Item>;
+            fn into_iter(self) -> Self::IntoIter {
+                self.0.into_iter()
+            }
+        }
+    };
+}
+pub(crate) use vec_newtype;
 
 use nom::branch::alt;
 use nom::bytes::complete::{tag, take_until};

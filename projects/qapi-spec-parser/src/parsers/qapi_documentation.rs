@@ -169,15 +169,6 @@ fn take_multiline_text(input: &str) -> IResult<&str, &str> {
     )))
     .parse(input)
 }
-fn take_doc_text(input: &str) -> IResult<&str, &str> {
-    recognize(many1(delimited(
-        take_line_continuation,
-        not_line_ending,
-        line_ending,
-    )))
-    .parse(input)
-}
-
 enum ParserToken<'i> {
     Errors(&'i str),
     Since(&'i str),
@@ -326,7 +317,7 @@ impl<'i> QapiSectionDocumentation<'i> {
             take_line_end,
         )
         .parse(input)?;
-        let (input, mut description) = opt(take_doc_text).parse(input)?;
+        let (input, mut description) = opt(take_multiline_text).parse(input)?;
         let (input, _) = many0(take_empty_line).parse(input)?;
         let (input, _) = tag("##").parse(input)?;
 

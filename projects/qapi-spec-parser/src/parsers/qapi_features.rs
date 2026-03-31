@@ -1,8 +1,7 @@
-use super::{take_kv, take_list};
+use super::{take_kv, take_list, vec_newtype};
 use crate::QapiFeature;
 use nom::IResult;
 use nom::Parser;
-use std::ops::{Deref, DerefMut};
 
 /// Convenience wrapper for taking a list of features
 pub fn take_features(input: &str) -> IResult<&str, QapiFeatures<'_>> {
@@ -19,27 +18,7 @@ impl<'i> QapiFeatures<'i> {
         take_list(QapiFeature::parse).map(|v| Self(v)).parse(input)
     }
 }
-
-impl<'i> Deref for QapiFeatures<'i> {
-    type Target = Vec<QapiFeature<'i>>;
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl<'i> DerefMut for QapiFeatures<'i> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
-
-impl<'i> IntoIterator for QapiFeatures<'i> {
-    type Item = QapiFeature<'i>;
-    type IntoIter = std::vec::IntoIter<Self::Item>;
-    fn into_iter(self) -> Self::IntoIter {
-        self.0.into_iter()
-    }
-}
+vec_newtype!(QapiFeatures, QapiFeature<'i>);
 
 #[cfg(test)]
 mod tests {

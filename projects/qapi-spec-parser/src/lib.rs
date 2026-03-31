@@ -8,6 +8,7 @@ pub use parsers::{
     qapi_alternatives::{take_alternatives, QapiAlternatives},
     qapi_branch::{take_branch, QapiBranch},
     qapi_branches::{take_branches, QapiBranches},
+    qapi_variant::{take_variant, QapiVariant},
     qapi_command::{take_command, QapiCommand},
     qapi_cond::{take_cond, QapiCond},
     qapi_documentation::{extract_since_from_comment, QapiDocumentation, QapiSectionDocumentation},

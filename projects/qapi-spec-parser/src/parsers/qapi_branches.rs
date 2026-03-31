@@ -1,8 +1,7 @@
-use super::take_dict;
+use super::{take_dict, vec_newtype};
 use crate::QapiBranch;
 use nom::IResult;
 use nom::Parser;
-use std::ops::{Deref, DerefMut};
 
 pub fn take_branches(input: &str) -> IResult<&str, QapiBranches<'_>> {
     QapiBranches::parse(input)
@@ -16,26 +15,4 @@ impl<'i> QapiBranches<'i> {
         take_dict(QapiBranch::parse).map(|v| Self(v)).parse(input)
     }
 }
-
-impl<'i> Deref for QapiBranches<'i> {
-    type Target = Vec<QapiBranch<'i>>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl<'i> DerefMut for QapiBranches<'i> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
-
-impl<'i> IntoIterator for QapiBranches<'i> {
-    type Item = QapiBranch<'i>;
-    type IntoIter = std::vec::IntoIter<Self::Item>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.0.into_iter()
-    }
-}
+vec_newtype!(QapiBranches, QapiBranch<'i>);

@@ -1,4 +1,4 @@
-use super::qcomment;
+use super::{qcomment, vec_newtype};
 use crate::{
     QapiAlternate, QapiCommand, QapiEnum, QapiEvent, QapiInclude, QapiPragma,
     QapiSectionDocumentation, QapiStruct, QapiUnion,
@@ -8,7 +8,6 @@ use nom::character::complete::multispace1;
 use nom::multi::many0;
 use nom::IResult;
 use nom::Parser;
-use std::ops::{Deref, DerefMut};
 
 pub fn take_schema(input: &str) -> IResult<&str, QapiSchema<'_>> {
     QapiSchema::parse(input)
@@ -55,25 +54,4 @@ impl<'i> QapiSchema<'i> {
     }
 }
 
-impl<'i> Deref for QapiSchema<'i> {
-    type Target = Vec<QapiSchemaToken<'i>>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl<'i> DerefMut for QapiSchema<'i> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
-
-impl<'i> IntoIterator for QapiSchema<'i> {
-    type Item = QapiSchemaToken<'i>;
-    type IntoIter = std::vec::IntoIter<Self::Item>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.0.into_iter()
-    }
-}
+vec_newtype!(QapiSchema, QapiSchemaToken<'i>);
