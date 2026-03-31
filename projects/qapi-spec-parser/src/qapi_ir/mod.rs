@@ -126,7 +126,7 @@ impl Attribute {
                 let name = i.0.to_string();
                 if let Some(value) = &i.1 {
                     Self::Item {
-                        name: name,
+                        name,
                         value: value.to_string(),
                     }
                 } else {

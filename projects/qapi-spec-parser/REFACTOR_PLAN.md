@@ -1,20 +1,11 @@
 # qapi-spec-parser Refactoring & Testing Plan
 
-## Phase 1: Idiomatic Rust 2024 Cleanups (R1)
+## Phase 1: Idiomatic Rust 2024 Cleanups (R1) ✓ COMPLETE
 
-Low-risk, mechanical changes across the codebase.
+Most items were already applied in prior work. Remaining fix applied:
+- Field init shorthand (`name: name` -> `name`) in `qapi_ir/mod.rs:129`
 
-**Files affected:** Most parser files, `process_qapi.rs`, `qapi_ir/mod.rs`
-
-| Change | Locations | Count |
-|--------|-----------|-------|
-| `== ""` -> `.is_empty()` | `qapi_enum.rs:45`, `qapi_struct.rs:45`, `qapi_union.rs:48`, `qapi_command.rs:73`, `qapi_event.rs:49`, `qapi_alternate.rs:42`, `qapi_enum_value.rs:29`, `qapi_feature.rs:28`, `qapi_member.rs:32`, `qapi_branch.rs:28`, `qapi_alternative.rs:28` | ~11 |
-| `.len() == 0` -> `.is_empty()` | `qapi_enum.rs:45`, `qapi_alternate.rs:42`, `qapi_union.rs:50` | ~3 |
-| `assert!(x == false)` -> `assert!(!x)` | `process_qapi.rs:255` | 1 |
-| Remove redundant `as String` cast | `process_qapi.rs:25` | 1 |
-| Field init shorthand (`name: name` -> `name`) | `qapi_ir/mod.rs:129` | 1+ |
-| Fix `mismatched_lifetime_syntaxes` warning | `process_qapi.rs:83` — add `<'_>` to `QapiTypeRef` | 1 |
-| Fix unused variable warning | `qapi_documentation.rs:692` — rename `d` to `_d` | 1 |
+All 50 tests pass.
 
 ## Phase 2: nom 8 Idiomatic Migration (R2)
 
