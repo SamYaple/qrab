@@ -20,7 +20,7 @@ pub struct QapiCommand<'i> {
     pub features: Option<QapiFeatures<'i>>,
     pub returns: Option<QapiTypeRef<'i>>,
     pub success_response: Option<&'i str>,
-    pub gen: Option<&'i str>,
+    pub r#gen: Option<&'i str>,
     pub allow_oob: Option<&'i str>,
     pub allow_preconfig: Option<&'i str>,
     pub coroutine: Option<&'i str>,
@@ -61,7 +61,7 @@ impl<'i> QapiCommand<'i> {
             map(take_kv("success-response", qbool), |v| {
                 s.success_response = Some(v)
             }),
-            map(take_kv("gen", qbool), |v| s.gen = Some(v)),
+            map(take_kv("gen", qbool), |v| s.r#gen = Some(v)),
             map(take_kv("allow-oob", qbool), |v| s.allow_oob = Some(v)),
             map(take_kv("coroutine", qbool), |v| s.coroutine = Some(v)),
             map(take_kv("allow-preconfig", qbool), |v| {

@@ -22,7 +22,7 @@ macro_rules! add_feat {
                 let mut attrs = Vec::new();
                 attrs.push(("feature", Some(feature.name.to_string())));
                 if let Some(condition) = &feature.r#if {
-                    attrs.push(("if", Some(condition.to_string())));
+                    attrs.push(("if", Some(condition.to_string() as String)));
                 }
                 $meta.attributes.push(Attribute::with_values(attrs));
             }
@@ -435,12 +435,12 @@ pub fn process_command(q: QapiCommand) -> Struct {
         meta.attributes.push(Attribute::with_value("returns", "()"));
     }
     if let Some(b) = q.allow_oob {
-        if b.parse().unwrap() {
+        if b.parse::<bool>().unwrap() {
             meta.attributes.push(Attribute::new("allow_oob"));
         }
     }
     if let Some(b) = q.allow_preconfig {
-        if b.parse().unwrap() {
+        if b.parse::<bool>().unwrap() {
             meta.attributes.push(Attribute::new("allow_preconfig"));
         }
     }
