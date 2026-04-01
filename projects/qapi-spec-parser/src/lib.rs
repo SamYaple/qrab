@@ -143,7 +143,6 @@ pub fn generate_qapi_code(qemu_src_root: &Path, schema_file: &Path) -> Result<St
     output.push_str("use serde_json;\n");
     output.push_str("use std::str::FromStr;\n");
     output.push_str("use std::collections::HashMap;\n");
-    output.push_str("fn runtime_version() -> &'static str { \"5.1\" }\n");
 
     for (path, source) in &sources {
         output.push_str(&format!(

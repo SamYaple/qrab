@@ -43,45 +43,6 @@ pub(crate) fn docstr_to_str(input: &str) -> Vec<&str> {
     output
 }
 
-pub(crate) fn docstr_to_string(input: &str) -> String {
-    let mut output = String::new();
-    for line in input.lines() {
-        let trimmed = trim_docstr(line);
-        if trimmed.is_empty() {
-            output.push('\n');
-            continue;
-        }
-        if let Some(c) = output.chars().last() {
-            if c != '\n' {
-                output.push(' ')
-            }
-        }
-        output.push_str(trimmed);
-    }
-    let output = output.trim().replace(".  ", ". ");
-    format!(" {}", output)
-}
-
-pub(crate) fn docstr_to_string_keep_structure(input: &str) -> String {
-    let mut output = String::new();
-    for line in input.lines() {
-        let trimmed = line.trim_start_matches('#');
-        let trimmed = trimmed.trim_end();
-        if trimmed.is_empty() {
-            output.push('\n');
-            continue;
-        }
-        let trimmed = if trimmed.starts_with(' ') {
-            &trimmed[1..]
-        } else {
-            trimmed
-        };
-        output.push_str(trimmed);
-        output.push('\n');
-    }
-    output.trim().replace(".  ", ". ")
-}
-
 fn not_name_break(c: char) -> bool {
     c != ':' && !c.is_ascii_whitespace()
 }

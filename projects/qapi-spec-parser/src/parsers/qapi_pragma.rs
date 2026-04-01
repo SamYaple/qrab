@@ -19,11 +19,11 @@ enum ParserToken<'i> {
 
 #[derive(Debug, Clone)]
 pub struct QapiPragma<'i> {
-    doc_required: Option<&'i str>,
-    command_name_exceptions: Option<Vec<&'i str>>,
-    command_returns_exceptions: Option<Vec<&'i str>>,
-    documentation_exceptions: Option<Vec<&'i str>>,
-    member_name_exceptions: Option<Vec<&'i str>>,
+    _doc_required: Option<&'i str>,
+    _command_name_exceptions: Option<Vec<&'i str>>,
+    _command_returns_exceptions: Option<Vec<&'i str>>,
+    _documentation_exceptions: Option<Vec<&'i str>>,
+    _member_name_exceptions: Option<Vec<&'i str>>,
 }
 
 impl<'i> QapiPragma<'i> {
@@ -79,11 +79,11 @@ impl<'i> QapiPragma<'i> {
                     }
                 }
                 Self {
-                    doc_required,
-                    command_name_exceptions,
-                    command_returns_exceptions,
-                    documentation_exceptions,
-                    member_name_exceptions,
+                    _doc_required: doc_required,
+                    _command_name_exceptions: command_name_exceptions,
+                    _command_returns_exceptions: command_returns_exceptions,
+                    _documentation_exceptions: documentation_exceptions,
+                    _member_name_exceptions: member_name_exceptions,
                 }
             }),
             (qtag("}"), qtag("}")),

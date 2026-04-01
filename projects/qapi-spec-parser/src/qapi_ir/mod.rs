@@ -33,7 +33,7 @@ fn qapi_to_rust_type(qapi_type: &str) -> String {
         "size" => "u64".into(),
         "bool" => "bool".into(),
         "any" => "serde_json::Value".into(),
-        "null" => "NULL_REPLACE_NULL".into(),
+        "null" => "()".into(),
         _ => rustify_name(qapi_type),
     }
 }
@@ -51,7 +51,7 @@ fn fix_leading_digit(input: &str) -> String {
     }
 }
 
-fn rustify_name(input: &str) -> String {
+pub(crate) fn rustify_name(input: &str) -> String {
     let input = input.to_pascal_case();
     fix_leading_digit(&input)
 }
