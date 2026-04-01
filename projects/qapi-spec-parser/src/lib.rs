@@ -78,6 +78,16 @@ fn read_schema_file(schema_file: &Path, sources: &mut Vec<(PathBuf, String)>) ->
 pub fn generate_qapi_code(qemu_src_root: &Path, schema_file: &Path) -> Result<String> {
     let sources = read_schema(schema_file)?;
 
+    // Parse each schema file once and reuse for both processing and codegen.
+    let parsed: Vec<_> = sources
+        .iter()
+        .map(|(path, source)| {
+            let schema = parse_schema(source)
+                .with_context(|| format!("Failed to parse: {}", path.display()))?;
+            Ok((path, schema))
+        })
+        .collect::<Result<Vec<_>>>()?;
+
     let mut unprocessed_structs = Vec::new();
     let mut unprocessed_unions = Vec::new();
     let mut unprocessed_commands = Vec::new();
@@ -85,33 +95,33 @@ pub fn generate_qapi_code(qemu_src_root: &Path, schema_file: &Path) -> Result<St
     let mut structs_lookup = HashMap::new();
     let mut enums_lookup = HashMap::new();
 
-    for (_path, source) in &sources {
-        for token in parse_schema(source)?.0 {
+    for (_path, schema) in &parsed {
+        for token in &schema.0 {
             match token {
                 QapiSchemaToken::Enum(v) => {
-                    let processed = process_enum(v);
+                    let processed = process_enum(v.clone());
                     enums_lookup.insert(processed.name.clone(), processed);
                 }
                 QapiSchemaToken::Alternate(v) => {
-                    let processed = process_alternate(v);
+                    let processed = process_alternate(v.clone());
                     enums_lookup.insert(processed.name.clone(), processed);
                 }
                 QapiSchemaToken::Command(v) => {
-                    unprocessed_commands.push(v);
+                    unprocessed_commands.push(v.clone());
                 }
                 QapiSchemaToken::Event(v) => {
-                    unprocessed_events.push(v);
+                    unprocessed_events.push(v.clone());
                 }
                 QapiSchemaToken::Struct(v) => {
                     if v.base.is_some() {
-                        unprocessed_structs.push(v);
+                        unprocessed_structs.push(v.clone());
                         continue;
                     }
-                    let processed = process_struct(v, &structs_lookup);
+                    let processed = process_struct(v.clone(), &structs_lookup);
                     structs_lookup.insert(processed.name.clone(), processed);
                 }
                 QapiSchemaToken::Union(v) => {
-                    unprocessed_unions.push(v);
+                    unprocessed_unions.push(v.clone());
                 }
                 _ => continue,
             }
@@ -144,12 +154,12 @@ pub fn generate_qapi_code(qemu_src_root: &Path, schema_file: &Path) -> Result<St
     output.push_str("use std::str::FromStr;\n");
     output.push_str("use std::collections::HashMap;\n");
 
-    for (path, source) in &sources {
+    for (path, schema) in &parsed {
         output.push_str(&format!(
             "// path begin:\t{}\n",
             path.strip_prefix(qemu_src_root).unwrap_or(path).display()
         ));
-        for token in parse_schema(source)?.0 {
+        for token in &schema.0 {
             let code = match token {
                 QapiSchemaToken::Enum(v) => {
                     enums_lookup.get(v.name).unwrap().generate()
