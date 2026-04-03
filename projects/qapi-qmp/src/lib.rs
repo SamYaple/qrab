@@ -1,77 +1,87 @@
+use anyhow::Result;
 use qapi::QapiCommand;
-use serde_json::Value;
-use std::io::{BufRead, BufReader, Write};
-use std::os::unix::net::UnixStream;
 
+use std::path::Path;
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::net::unix::{OwnedReadHalf, OwnedWriteHalf};
+use tokio::net::UnixStream;
+use tokio::sync::{mpsc, oneshot, watch};
+use tokio::task::{spawn, JoinHandle};
+
+/// A raw QMP event as received from QEMU.
+#[derive(Debug, serde::Deserialize)]
+pub struct QmpEvent {
+    pub event: String,
+    pub timestamp: Timestamp,
+    #[serde(default)]
+    pub data: serde_json::Value,
+}
+
+/// QMP event timestamp.
+#[derive(Debug, serde::Deserialize)]
+pub struct Timestamp {
+    pub seconds: i64,
+    pub microseconds: u32,
+}
+
+/// Async QMP client connected to a QEMU instance.
 #[derive(Debug)]
-pub enum Error {
-    Io(std::io::Error),
-    Json(serde_json::Error),
-    Qmp(String),
+pub struct Qmp {
+    command_tx: mpsc::Sender<(String, oneshot::Sender<serde_json::Value>)>,
+    shutdown_signal: watch::Sender<()>,
+    read_handle: Option<JoinHandle<()>>,
+    write_handle: Option<JoinHandle<()>>,
+    event_handle: Option<JoinHandle<()>>,
 }
 
-impl std::fmt::Display for Error {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Error::Io(e) => write!(f, "IO error: {}", e),
-            Error::Json(e) => write!(f, "JSON error: {}", e),
-            Error::Qmp(e) => write!(f, "QMP error: {}", e),
-        }
-    }
-}
+impl Qmp {
+    /// Connect to a QEMU QMP socket and perform the capabilities negotiation.
+    ///
+    /// Returns the `Qmp` handle and a receiver for QMP events.
+    /// Also sets the global QEMU version via `qapi::set_qemu_version()`.
+    pub async fn new(socket_path: &Path) -> Result<(Self, mpsc::Receiver<QmpEvent>)> {
+        let stream = UnixStream::connect(socket_path).await?;
+        let (read_half, write_half) = stream.into_split();
 
-impl std::error::Error for Error {}
+        let (command_tx, command_rx) = mpsc::channel(1);
+        let (response_tx, response_rx) = mpsc::channel(1);
+        let (raw_event_tx, raw_event_rx) = mpsc::channel(100);
+        let (event_tx, event_rx) = mpsc::channel(100);
+        let (shutdown_tx, shutdown_rx) = watch::channel(());
 
-impl From<std::io::Error> for Error {
-    fn from(e: std::io::Error) -> Self {
-        Error::Io(e)
-    }
-}
+        let read_handle = spawn(Self::read_loop(
+            read_half,
+            response_tx,
+            raw_event_tx,
+            shutdown_rx.clone(),
+        ));
 
-impl From<serde_json::Error> for Error {
-    fn from(e: serde_json::Error) -> Self {
-        Error::Json(e)
-    }
-}
+        let write_handle = spawn(Self::write_loop(
+            write_half,
+            command_rx,
+            response_rx,
+            shutdown_rx.clone(),
+        ));
 
-pub type Result<T> = std::result::Result<T, Error>;
+        let event_handle = spawn(Self::event_worker(
+            raw_event_rx,
+            shutdown_rx.clone(),
+            event_tx,
+        ));
 
-pub struct QmpConnection {
-    reader: BufReader<UnixStream>,
-    writer: UnixStream,
-}
+        let qmp = Self {
+            command_tx,
+            shutdown_signal: shutdown_tx,
+            read_handle: Some(read_handle),
+            write_handle: Some(write_handle),
+            event_handle: Some(event_handle),
+        };
 
-impl QmpConnection {
-    /// Connect to a QEMU QMP socket.
-    pub fn connect(path: &str) -> Result<Self> {
-        let stream = UnixStream::connect(path)?;
-        let writer = stream.try_clone()?;
-        let reader = BufReader::new(stream);
-        Ok(QmpConnection { reader, writer })
-    }
-
-    /// Read the QMP greeting and send qmp_capabilities to complete the handshake.
-    /// Returns the QEMU version as (major, minor, patch).
-    pub fn negotiate(&mut self) -> Result<(u32, u32, u32)> {
-        // Read greeting
-        let greeting = self.read_response()?;
-        let qmp = &greeting["QMP"]["version"]["qemu"];
-        let major = qmp["major"].as_u64().unwrap_or(0) as u32;
-        let minor = qmp["minor"].as_u64().unwrap_or(0) as u32;
-        let micro = qmp["micro"].as_u64().unwrap_or(0) as u32;
-
-        // Send qmp_capabilities
-        self.send_raw(r#"{"execute": "qmp_capabilities"}"#)?;
-        let resp = self.read_response()?;
-        if resp.get("error").is_some() {
-            return Err(Error::Qmp(format!("qmp_capabilities failed: {}", resp)));
-        }
-
-        Ok((major, minor, micro))
+        Ok((qmp, event_rx))
     }
 
-    /// Execute a QapiCommand and return the deserialized result.
-    pub fn execute<C: QapiCommand>(&mut self, cmd: &C) -> Result<C::Returns> {
+    /// Execute a typed QMP command and deserialize the response.
+    pub async fn execute<C: QapiCommand>(&self, cmd: &C) -> Result<C::Returns> {
         let args = serde_json::to_value(cmd)?;
         let request = if args.is_object() && args.as_object().unwrap().is_empty() {
             serde_json::json!({ "execute": C::NAME })
@@ -79,38 +89,139 @@ impl QmpConnection {
             serde_json::json!({ "execute": C::NAME, "arguments": args })
         };
 
-        self.send_raw(&serde_json::to_string(&request)?)?;
+        let request_str = serde_json::to_string(&request)?;
+        let (reply_tx, reply_rx) = oneshot::channel();
+        self.command_tx
+            .send((request_str, reply_tx))
+            .await
+            .map_err(|_| anyhow::anyhow!("command channel closed"))?;
 
-        // Read responses, skipping events until we get a return or error
-        loop {
-            let resp = self.read_response()?;
-            if resp.get("event").is_some() {
-                continue; // skip events
-            }
-            if let Some(error) = resp.get("error") {
-                return Err(Error::Qmp(format!(
-                    "{}: {}",
-                    error["class"].as_str().unwrap_or("unknown"),
-                    error["desc"].as_str().unwrap_or("unknown error")
-                )));
-            }
-            if let Some(ret) = resp.get("return") {
-                return Ok(serde_json::from_value(ret.clone())?);
-            }
-            return Err(Error::Qmp(format!("unexpected response: {}", resp)));
+        let response = reply_rx.await?;
+
+        if let Some(error) = response.get("error") {
+            anyhow::bail!(
+                "QMP error {}: {}",
+                error["class"].as_str().unwrap_or("unknown"),
+                error["desc"].as_str().unwrap_or("unknown error")
+            );
+        }
+
+        let ret = response
+            .get("return")
+            .cloned()
+            .unwrap_or(serde_json::Value::Object(serde_json::Map::new()));
+
+        Ok(serde_json::from_value(ret)?)
+    }
+
+    /// Gracefully shut down all background tasks.
+    pub async fn shutdown(&mut self) {
+        let _ = self.shutdown_signal.send(());
+        if let Some(handle) = self.write_handle.take() {
+            let _ = handle.await;
+        }
+        if let Some(handle) = self.event_handle.take() {
+            let _ = handle.await;
+        }
+        if let Some(handle) = self.read_handle.take() {
+            let _ = handle.await;
         }
     }
 
-    fn send_raw(&mut self, msg: &str) -> Result<()> {
-        self.writer.write_all(msg.as_bytes())?;
-        self.writer.write_all(b"\n")?;
-        self.writer.flush()?;
-        Ok(())
+    async fn read_loop(
+        read_half: OwnedReadHalf,
+        response_tx: mpsc::Sender<serde_json::Value>,
+        event_tx: mpsc::Sender<String>,
+        mut shutdown_rx: watch::Receiver<()>,
+    ) {
+        let reader = BufReader::new(read_half);
+        let mut lines = reader.lines();
+
+        // Read and discard the QMP greeting
+        if let Ok(Some(greeting)) = lines.next_line().await {
+            // Extract version from greeting and set it globally
+            if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&greeting) {
+                if let Some(qmp) = parsed.get("QMP").and_then(|q| q.get("version")).and_then(|v| v.get("qemu")) {
+                    let major = qmp["major"].as_u64().unwrap_or(0) as u32;
+                    let minor = qmp["minor"].as_u64().unwrap_or(0) as u32;
+                    let micro = qmp["micro"].as_u64().unwrap_or(0) as u32;
+                    qapi::set_qemu_version(major, minor, micro);
+                }
+            }
+        }
+
+        // Read the qmp_capabilities response
+        if let Ok(Some(_caps_response)) = lines.next_line().await {
+            // Discard the capabilities response
+        }
+
+        loop {
+            tokio::select! {
+                result = lines.next_line() => {
+                    match result {
+                        Ok(Some(line)) => {
+                            if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&line) {
+                                if parsed.get("event").is_some() {
+                                    let _ = event_tx.send(line).await;
+                                } else {
+                                    let _ = response_tx.send(parsed).await;
+                                }
+                            }
+                        }
+                        Ok(None) => break, // EOF
+                        Err(_) => break,
+                    }
+                }
+                _ = shutdown_rx.changed() => break,
+            }
+        }
     }
 
-    fn read_response(&mut self) -> Result<Value> {
-        let mut line = String::new();
-        self.reader.read_line(&mut line)?;
-        Ok(serde_json::from_str(&line)?)
+    async fn write_loop(
+        mut write_half: OwnedWriteHalf,
+        mut command_rx: mpsc::Receiver<(String, oneshot::Sender<serde_json::Value>)>,
+        mut response_rx: mpsc::Receiver<serde_json::Value>,
+        mut shutdown_rx: watch::Receiver<()>,
+    ) {
+        // Send qmp_capabilities as the first command
+        let caps = r#"{"execute":"qmp_capabilities"}"#;
+        if write_half.write_all(caps.as_bytes()).await.is_err() {
+            return;
+        }
+        let _ = write_half.write_all(b"\n").await;
+
+        loop {
+            tokio::select! {
+                Some((command, reply_tx)) = command_rx.recv() => {
+                    if write_half.write_all(command.as_bytes()).await.is_err() {
+                        break;
+                    }
+                    let _ = write_half.write_all(b"\n").await;
+
+                    match response_rx.recv().await {
+                        Some(response) => { let _ = reply_tx.send(response); }
+                        None => break,
+                    }
+                }
+                _ = shutdown_rx.changed() => break,
+            }
+        }
+    }
+
+    async fn event_worker(
+        mut raw_event_rx: mpsc::Receiver<String>,
+        mut shutdown_rx: watch::Receiver<()>,
+        event_tx: mpsc::Sender<QmpEvent>,
+    ) {
+        loop {
+            tokio::select! {
+                Some(raw) = raw_event_rx.recv() => {
+                    if let Ok(event) = serde_json::from_str::<QmpEvent>(&raw) {
+                        let _ = event_tx.send(event).await;
+                    }
+                }
+                _ = shutdown_rx.changed() => break,
+            }
+        }
     }
 }

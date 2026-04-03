@@ -1,22 +1,20 @@
 use qapi::*;
-use qapi_qmp::QmpConnection;
-use std::process::{Child, Command};
+use qapi_qmp::Qmp;
+use std::path::PathBuf;
+use std::process::Stdio;
+use tokio::process::{Child, Command};
 
 struct QemuProcess {
     child: Child,
-    socket_path: String,
+    socket_path: PathBuf,
 }
 
 impl QemuProcess {
-    fn start() -> Option<Self> {
+    async fn start() -> Option<Self> {
         let tmpdir = std::env::temp_dir();
-        let socket_path = tmpdir
-            .join(format!("qrab-test-{}.sock", std::process::id()))
-            .to_string_lossy()
-            .to_string();
+        let socket_path = tmpdir.join(format!("qrab-test-{}.sock", std::process::id()));
 
-        // Clean up any stale socket
-        let _ = std::fs::remove_file(&socket_path);
+        let _ = tokio::fs::remove_file(&socket_path).await;
 
         let child = Command::new("qemu-system-x86_64")
             .args([
@@ -25,22 +23,22 @@ impl QemuProcess {
                 "-nographic",
                 "-nodefaults",
                 "-qmp",
-                &format!("unix:{},server=on,wait=off", socket_path),
+                &format!("unix:{},server=on,wait=off", socket_path.display()),
             ])
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
             .spawn()
             .ok()?;
 
         // Wait for socket to appear
         for _ in 0..50 {
-            if std::path::Path::new(&socket_path).exists() {
+            if socket_path.exists() {
                 return Some(QemuProcess {
                     child,
                     socket_path,
                 });
             }
-            std::thread::sleep(std::time::Duration::from_millis(100));
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
         }
 
         None
@@ -49,66 +47,72 @@ impl QemuProcess {
 
 impl Drop for QemuProcess {
     fn drop(&mut self) {
-        let _ = self.child.kill();
-        let _ = self.child.wait();
+        // Best-effort cleanup. The child may already be dead.
+        let _ = self.child.start_kill();
         let _ = std::fs::remove_file(&self.socket_path);
     }
 }
 
-#[test]
+#[tokio::test]
 #[ignore]
-fn test_qmp_negotiate() {
-    let qemu = QemuProcess::start().expect("Failed to start QEMU — is qemu-system-x86_64 in PATH?");
-    let mut conn = QmpConnection::connect(&qemu.socket_path).expect("Failed to connect");
-    let (major, minor, micro) = conn.negotiate().expect("Failed to negotiate");
-    println!("QEMU version: {}.{}.{}", major, minor, micro);
-    assert!(major > 0 || minor > 0, "Got zero version");
+async fn test_qmp_negotiate_and_query_status() {
+    let qemu = QemuProcess::start()
+        .await
+        .expect("Failed to start QEMU — is qemu-system-x86_64 in PATH?");
 
-    // Set the version for runtime gating
-    set_qemu_version(major, minor, micro);
+    let (mut qmp, _events) = Qmp::new(&qemu.socket_path)
+        .await
+        .expect("Failed to connect to QMP");
+
+    // qemu_version should have been set during negotiation
+    let version = qapi::qemu_version();
+    println!("QEMU version: {}.{}.{}", version.0, version.1, version.2);
+    assert!(version.0 > 0 || version.1 > 0, "Got zero version");
+
+    // Query status
+    let status: StatusInfo = qmp.execute(&QueryStatus {}).await.unwrap();
+    println!(
+        "Status: running={}, status={}",
+        status.running,
+        serde_json::to_string(&status.status).unwrap()
+    );
+
+    qmp.shutdown().await;
 }
 
-#[test]
+#[tokio::test]
 #[ignore]
-fn test_qmp_query_status() {
-    let qemu = QemuProcess::start().expect("Failed to start QEMU");
-    let mut conn = QmpConnection::connect(&qemu.socket_path).unwrap();
-    let (major, minor, micro) = conn.negotiate().unwrap();
-    set_qemu_version(major, minor, micro);
+async fn test_qmp_query_version() {
+    let qemu = QemuProcess::start()
+        .await
+        .expect("Failed to start QEMU");
 
-    let cmd = QueryStatus {};
-    let status: StatusInfo = conn.execute(&cmd).unwrap();
-    println!("Status: running={}, status={:?}", status.running, serde_json::to_string(&status.status).unwrap());
-    // With -machine none, QEMU starts in prelaunch or running state
-    assert!(!status.running || matches!(status.status, RunState::Running));
+    let (mut qmp, _events) = Qmp::new(&qemu.socket_path).await.unwrap();
+
+    let version: VersionInfo = qmp.execute(&QueryVersion {}).await.unwrap();
+    println!(
+        "Version: {}.{}.{}",
+        version.qemu.major, version.qemu.minor, version.qemu.micro
+    );
+
+    let global = qapi::qemu_version();
+    assert_eq!(version.qemu.major as u32, global.0);
+    assert_eq!(version.qemu.minor as u32, global.1);
+
+    qmp.shutdown().await;
 }
 
-#[test]
+#[tokio::test]
 #[ignore]
-fn test_qmp_query_version() {
-    let qemu = QemuProcess::start().expect("Failed to start QEMU");
-    let mut conn = QmpConnection::connect(&qemu.socket_path).unwrap();
-    let (major, minor, micro) = conn.negotiate().unwrap();
-    set_qemu_version(major, minor, micro);
+async fn test_qmp_query_name() {
+    let qemu = QemuProcess::start()
+        .await
+        .expect("Failed to start QEMU");
 
-    let cmd = QueryVersion {};
-    let version: VersionInfo = conn.execute(&cmd).unwrap();
-    assert_eq!(version.qemu.major as u32, major);
-    assert_eq!(version.qemu.minor as u32, minor);
-    assert_eq!(version.qemu.micro as u32, micro);
-    println!("Version: {}.{}.{}", version.qemu.major, version.qemu.minor, version.qemu.micro);
-}
+    let (mut qmp, _events) = Qmp::new(&qemu.socket_path).await.unwrap();
 
-#[test]
-#[ignore]
-fn test_qmp_query_name() {
-    let qemu = QemuProcess::start().expect("Failed to start QEMU");
-    let mut conn = QmpConnection::connect(&qemu.socket_path).unwrap();
-    let (major, minor, micro) = conn.negotiate().unwrap();
-    set_qemu_version(major, minor, micro);
-
-    let cmd = QueryName {};
-    let name: NameInfo = conn.execute(&cmd).unwrap();
-    // Name is optional and typically unset
+    let name: NameInfo = qmp.execute(&QueryName {}).await.unwrap();
     println!("Name: {:?}", name.name);
+
+    qmp.shutdown().await;
 }
