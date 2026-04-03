@@ -45,7 +45,12 @@ impl PartialOrd for Struct {
 impl Struct {
     pub fn generate(&self) -> TokenStream {
         let struct_name = format_ident!("{}", rustify_type(&self.name));
-        let struct_attrs = self.meta.attributes.iter().map(generate_attribute);
+        // Always emit at least #[qapi] so inner field attrs get processed
+        let struct_attrs: Vec<TokenStream> = if self.meta.attributes.is_empty() {
+            vec![quote! { #[qapi] }]
+        } else {
+            self.meta.attributes.iter().map(generate_attribute).collect()
+        };
         let struct_doc = self.meta.doc.as_ref().map(|doc| {
             quote! {
                 #[doc = #doc]

@@ -148,10 +148,9 @@ pub fn generate_qapi_code(qemu_src_root: &Path, schema_file: &Path) -> Result<St
     }
 
     let mut output = String::new();
+    output.push_str("#![allow(unused_imports, non_camel_case_types, dead_code)]\n");
+    output.push_str("use crate as qapi;\n");
     output.push_str("use qapi_macros::qapi;\n");
-    output.push_str("use serde;\n");
-    output.push_str("use serde_json;\n");
-    output.push_str("use std::str::FromStr;\n");
     output.push_str("use std::collections::HashMap;\n");
 
     for (path, schema) in &parsed {
@@ -171,7 +170,8 @@ pub fn generate_qapi_code(qemu_src_root: &Path, schema_file: &Path) -> Result<St
                     structs_lookup.get(v.name).unwrap().generate()
                 }
                 QapiSchemaToken::Event(v) => {
-                    structs_lookup.get(v.name).unwrap().generate()
+                    let event_key = format!("{}Event", v.name);
+                    structs_lookup.get(&event_key).unwrap().generate()
                 }
                 QapiSchemaToken::Struct(v) => {
                     structs_lookup.get(v.name).unwrap().generate()

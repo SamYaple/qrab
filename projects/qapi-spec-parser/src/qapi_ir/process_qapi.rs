@@ -344,10 +344,10 @@ pub fn process_event(q: QapiEvent, structs_lookup: &HashMap<String, Struct>) -> 
         fields.extend(process_members_or_ref(data, RefStrategy::InlineFields(structs_lookup)));
     }
     let mut meta = Metadata::default();
-    //meta.attributes.push(Attribute::new("Event"));
-    if let Some(attr) = name_attr(q.name) {
-        meta.attributes.push(attr);
-    }
+    meta.attributes.push(Attribute::new("event"));
+    // Always store the original wire name for events
+    meta.attributes
+        .push(Attribute::with_value("name", q.name));
     if let Some(condition) = q.r#if {
         meta.attributes
             .push(Attribute::with_value("condition", condition));
@@ -355,8 +355,10 @@ pub fn process_event(q: QapiEvent, structs_lookup: &HashMap<String, Struct>) -> 
     add_feat! {meta, q.r#features};
     add_docs! {meta, q.doc, q.name, &mut fields};
 
+    // Suffix event struct names with "Event" to avoid name collisions with commands
+    let event_name = format!("{}Event", q.name);
     Struct {
-        name: q.name.into(),
+        name: event_name,
         fields,
         meta,
     }
@@ -650,7 +652,7 @@ pub fn process_command(q: QapiCommand) -> Struct {
         fields.extend(process_members_or_ref(data, RefStrategy::Flatten));
     }
     let mut meta = Metadata::default();
-    //meta.attributes.push(Attribute::new("Command"));
+    meta.attributes.push(Attribute::new("command"));
     if let Some(attr) = name_attr(q.name) {
         meta.attributes.push(attr);
     }
@@ -662,10 +664,11 @@ pub fn process_command(q: QapiCommand) -> Struct {
     add_docs! {meta, q.doc, q.name, &mut fields};
     if let Some(returns) = q.returns {
         let (r#type, array) = process_type_ref(returns);
+        let rust_type = super::rustify_type(r#type);
         let r#type = if array {
-            format! {"Vec<{}>", r#type}
+            format!("Vec<{}>", rust_type)
         } else {
-            r#type.into()
+            rust_type
         };
         meta.attributes
             .push(Attribute::with_value("returns", r#type));

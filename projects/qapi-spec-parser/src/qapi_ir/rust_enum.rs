@@ -53,7 +53,12 @@ impl Enum {
     pub fn generate(&self) -> TokenStream {
         let enum_name = format_ident!("{}", rustify_type(&self.name));
 
-        let enum_attrs = self.meta.attributes.iter().map(generate_attribute);
+        // Always emit at least #[qapi] so inner variant attrs get processed
+        let enum_attrs: Vec<TokenStream> = if self.meta.attributes.is_empty() {
+            vec![quote! { #[qapi] }]
+        } else {
+            self.meta.attributes.iter().map(generate_attribute).collect()
+        };
         let enum_doc = self.meta.doc.as_ref().map(|doc| {
             quote! {
                 #[doc = #doc]
@@ -120,6 +125,7 @@ impl Enum {
             #enum_doc
             #(#enum_attrs)*
             pub enum #enum_name {
+
                 #(#variants)*
             }
         }
