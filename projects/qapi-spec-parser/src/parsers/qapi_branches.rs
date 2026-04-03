@@ -16,3 +16,48 @@ impl<'i> QapiBranches<'i> {
     }
 }
 vec_newtype!(QapiBranches, QapiBranch<'i>);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::QapiTypeRef;
+
+    #[test]
+    fn test_empty_branches() {
+        let (rem, b) = QapiBranches::parse("{}").unwrap();
+        assert_eq!(rem, "");
+        assert_eq!(b.len(), 0);
+    }
+
+    #[test]
+    fn test_single_branch() {
+        let (rem, b) = QapiBranches::parse("{ 'variant-a': 'TypeA' }").unwrap();
+        assert_eq!(rem, "");
+        assert_eq!(b.len(), 1);
+        assert_eq!(b[0].name, "variant-a");
+        assert_eq!(b[0].r#type, QapiTypeRef::Ref("TypeA"));
+    }
+
+    #[test]
+    fn test_multiple_branches() {
+        let input = "{ 'a': 'TypeA', 'b': ['TypeB'], 'c': 'TypeC' }";
+        let (rem, b) = QapiBranches::parse(input).unwrap();
+        assert_eq!(rem, "");
+        assert_eq!(b.len(), 3);
+        assert_eq!(b[1].r#type, QapiTypeRef::ArrayRef("TypeB"));
+    }
+
+    #[test]
+    fn test_branch_with_condition() {
+        let input = "{ 'x': { 'type': 'TypeX', 'if': 'CONFIG_X' } }";
+        let (rem, b) = QapiBranches::parse(input).unwrap();
+        assert_eq!(rem, "");
+        assert_eq!(b.len(), 1);
+        assert!(b[0].r#if.is_some());
+    }
+
+    #[test]
+    fn test_invalid_input() {
+        assert!(QapiBranches::parse("not_valid").is_err());
+    }
+}

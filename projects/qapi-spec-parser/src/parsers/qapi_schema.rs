@@ -55,3 +55,72 @@ impl<'i> QapiSchema<'i> {
 }
 
 vec_newtype!(QapiSchema, QapiSchemaToken<'i>);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_empty_input() {
+        let (rem, s) = QapiSchema::parse("").unwrap();
+        assert_eq!(rem, "");
+        assert_eq!(s.len(), 0);
+    }
+
+    #[test]
+    fn test_single_enum() {
+        let input = "{ 'enum': 'MyEnum', 'data': ['val-a', 'val-b'] }\n";
+        let (rem, s) = QapiSchema::parse(input).unwrap();
+        assert_eq!(rem, "");
+        assert!(s.iter().any(|t| matches!(t, QapiSchemaToken::Enum(_))));
+    }
+
+    #[test]
+    fn test_single_struct() {
+        let input = "{ 'struct': 'MyStruct', 'data': { 'name': 'str' } }\n";
+        let (rem, s) = QapiSchema::parse(input).unwrap();
+        assert_eq!(rem, "");
+        assert!(s.iter().any(|t| matches!(t, QapiSchemaToken::Struct(_))));
+    }
+
+    #[test]
+    fn test_single_command() {
+        let input = "{ 'command': 'my-cmd', 'data': { 'arg': 'str' } }\n";
+        let (rem, s) = QapiSchema::parse(input).unwrap();
+        assert_eq!(rem, "");
+        assert!(s.iter().any(|t| matches!(t, QapiSchemaToken::Command(_))));
+    }
+
+    #[test]
+    fn test_include() {
+        let input = "{ 'include': 'other.json' }\n";
+        let (rem, s) = QapiSchema::parse(input).unwrap();
+        assert_eq!(rem, "");
+        assert!(s.iter().any(|t| matches!(t, QapiSchemaToken::Include(_))));
+    }
+
+    #[test]
+    fn test_comment_and_whitespace() {
+        // Comments before a definition get absorbed by clean_lines during parsing.
+        // A standalone comment only appears as a Comment token when not adjacent to a definition.
+        let input = "# a comment\n{ 'enum': 'E', 'data': ['a'] }\n";
+        let (rem, s) = QapiSchema::parse(input).unwrap();
+        assert_eq!(rem, "");
+        let has_enum = s.iter().any(|t| matches!(t, QapiSchemaToken::Enum(_)));
+        assert!(has_enum);
+    }
+
+    #[test]
+    fn test_multi_entry_schema() {
+        let input = concat!(
+            "{ 'enum': 'Status', 'data': ['ok', 'error'] }\n",
+            "{ 'struct': 'Info', 'data': { 'name': 'str' } }\n",
+            "{ 'command': 'get-info', 'returns': 'Info' }\n",
+            "{ 'event': 'STATUS_CHANGE', 'data': { 'status': 'Status' } }\n",
+        );
+        let (rem, s) = QapiSchema::parse(input).unwrap();
+        assert_eq!(rem, "");
+        let type_count = s.iter().filter(|t| !matches!(t, QapiSchemaToken::EmptyLines | QapiSchemaToken::Comment(_))).count();
+        assert_eq!(type_count, 4);
+    }
+}

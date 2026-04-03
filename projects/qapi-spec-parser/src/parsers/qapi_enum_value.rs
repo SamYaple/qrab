@@ -52,3 +52,74 @@ impl<'i> QapiEnumValue<'i> {
         Ok((input, s))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_simple_string() {
+        let (rem, v) = QapiEnumValue::parse("'my-value'").unwrap();
+        assert_eq!(rem, "");
+        assert_eq!(v.name, "my-value");
+        assert!(v.r#if.is_none());
+        assert!(v.features.is_none());
+    }
+
+    #[test]
+    fn test_dict_name_only() {
+        let (rem, v) = QapiEnumValue::parse("{ 'name': 'my-value' }").unwrap();
+        assert_eq!(rem, "");
+        assert_eq!(v.name, "my-value");
+        assert!(v.r#if.is_none());
+        assert!(v.features.is_none());
+    }
+
+    #[test]
+    fn test_dict_with_condition() {
+        let input = "{ 'name': 'my-value', 'if': 'CONFIG_X' }";
+        let (rem, v) = QapiEnumValue::parse(input).unwrap();
+        assert_eq!(rem, "");
+        assert_eq!(v.name, "my-value");
+        assert!(v.r#if.is_some());
+    }
+
+    #[test]
+    fn test_dict_with_features() {
+        let input = "{ 'name': 'my-value', 'features': ['deprecated'] }";
+        let (rem, v) = QapiEnumValue::parse(input).unwrap();
+        assert_eq!(rem, "");
+        assert_eq!(v.name, "my-value");
+        assert!(v.features.is_some());
+    }
+
+    #[test]
+    fn test_dict_with_all_fields() {
+        let input = "{ 'name': 'my-value', 'if': 'CONFIG_X', 'features': ['deprecated'] }";
+        let (rem, v) = QapiEnumValue::parse(input).unwrap();
+        assert_eq!(rem, "");
+        assert_eq!(v.name, "my-value");
+        assert!(v.r#if.is_some());
+        assert!(v.features.is_some());
+    }
+
+    #[test]
+    fn test_empty_name_fails() {
+        assert!(QapiEnumValue::parse("''").is_err());
+    }
+
+    #[test]
+    fn test_missing_name_in_dict_fails() {
+        assert!(QapiEnumValue::parse("{ 'if': 'CONFIG_X' }").is_err());
+    }
+
+    #[test]
+    fn test_invalid_input_fails() {
+        assert!(QapiEnumValue::parse("not_valid").is_err());
+    }
+
+    #[test]
+    fn test_unknown_field_fails() {
+        assert!(QapiEnumValue::parse("{ 'name': 'val', 'unknown': 'x' }").is_err());
+    }
+}

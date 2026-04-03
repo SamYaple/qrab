@@ -362,6 +362,288 @@ pub fn process_event(q: QapiEvent, structs_lookup: &HashMap<String, Struct>) -> 
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        QapiEnumValue, QapiFeature, QapiFeatures, QapiMembers, QapiTypeRef,
+    };
+
+    fn make_enum_value(name: &str) -> QapiEnumValue<'_> {
+        QapiEnumValue {
+            name,
+            r#if: None,
+            features: None,
+        }
+    }
+
+    #[test]
+    fn test_process_enum_simple() {
+        let q = QapiEnum {
+            name: "StatusCode",
+            data: vec![make_enum_value("ok"), make_enum_value("error")].into(),
+            prefix: None,
+            r#if: None,
+            features: None,
+            doc: None,
+        };
+        let e = process_enum(q);
+        assert_eq!(e.name, "StatusCode");
+        assert_eq!(e.variants.len(), 2);
+        assert_eq!(e.variants[0].name, "ok");
+        assert_eq!(e.variants[0].kind, EnumVariantKind::Unit);
+        assert_eq!(e.variants[1].name, "error");
+    }
+
+    #[test]
+    fn test_process_enum_with_features() {
+        let q = QapiEnum {
+            name: "MyEnum",
+            data: vec![QapiEnumValue {
+                name: "deprecated-val",
+                r#if: None,
+                features: Some(QapiFeatures(vec![QapiFeature {
+                    name: "deprecated",
+                    r#if: None,
+                }])),
+            }]
+            .into(),
+            prefix: None,
+            r#if: None,
+            features: None,
+            doc: None,
+        };
+        let e = process_enum(q);
+        assert_eq!(e.variants.len(), 1);
+        let feat_attrs: Vec<_> = e.variants[0]
+            .meta
+            .attributes
+            .iter()
+            .filter(|a| matches!(a, Attribute::List(_)))
+            .collect();
+        assert!(!feat_attrs.is_empty());
+    }
+
+    #[test]
+    fn test_process_struct_simple() {
+        let q = QapiStruct {
+            name: "MyStruct",
+            data: QapiMembers(vec![QapiMember {
+                name: "field-name",
+                optional: false,
+                r#type: QapiTypeRef::Ref("str"),
+                r#if: None,
+                features: None,
+            }]),
+            base: None,
+            r#if: None,
+            features: None,
+            doc: None,
+        };
+        let s = process_struct(q, &HashMap::new());
+        assert_eq!(s.name, "MyStruct");
+        assert_eq!(s.fields.len(), 1);
+        assert_eq!(s.fields[0].name, "field-name");
+        assert_eq!(s.fields[0].r#type, "str");
+        assert!(!s.fields[0].optional);
+    }
+
+    #[test]
+    fn test_process_struct_with_base() {
+        let mut lookup = HashMap::new();
+        lookup.insert(
+            "BaseStruct".to_string(),
+            Struct {
+                name: "BaseStruct".into(),
+                fields: vec![StructField {
+                    name: "base-field".into(),
+                    r#type: "int".into(),
+                    optional: false,
+                    array: false,
+                    meta: Metadata::default(),
+                }],
+                meta: Metadata::default(),
+            },
+        );
+
+        let q = QapiStruct {
+            name: "Child",
+            data: QapiMembers(vec![QapiMember {
+                name: "extra",
+                optional: true,
+                r#type: QapiTypeRef::Ref("bool"),
+                r#if: None,
+                features: None,
+            }]),
+            base: Some("BaseStruct"),
+            r#if: None,
+            features: None,
+            doc: None,
+        };
+        let s = process_struct(q, &lookup);
+        assert_eq!(s.name, "Child");
+        assert_eq!(s.fields.len(), 2);
+        assert_eq!(s.fields[0].name, "base-field");
+        assert_eq!(s.fields[1].name, "extra");
+        assert!(s.fields[1].optional);
+    }
+
+    #[test]
+    fn test_process_member_optional_and_array() {
+        let m = QapiMember {
+            name: "items",
+            optional: true,
+            r#type: QapiTypeRef::ArrayRef("SomeType"),
+            r#if: None,
+            features: None,
+        };
+        let f = process_member(m);
+        assert_eq!(f.name, "items");
+        assert!(f.optional);
+        assert!(f.array);
+        assert_eq!(f.r#type, "SomeType");
+    }
+
+    #[test]
+    fn test_process_command_simple() {
+        let q = QapiCommand {
+            name: "query-status",
+            data: Some(MembersOrRef::Members(QapiMembers(vec![]))),
+            returns: Some(QapiTypeRef::Ref("StatusInfo")),
+            r#if: None,
+            features: None,
+            doc: None,
+            success_response: None,
+            r#gen: None,
+            boxed: None,
+            allow_oob: None,
+            allow_preconfig: None,
+            coroutine: None,
+        };
+        let s = process_command(q);
+        assert_eq!(s.name, "query-status");
+        let returns_attr = s
+            .meta
+            .attributes
+            .iter()
+            .find(|a| matches!(a, Attribute::Item { name, .. } if name == "returns"));
+        assert!(returns_attr.is_some());
+    }
+
+    #[test]
+    fn test_process_command_with_flags() {
+        let q = QapiCommand {
+            name: "test-cmd",
+            data: None,
+            returns: None,
+            r#if: None,
+            features: None,
+            doc: None,
+            success_response: Some("false"),
+            r#gen: None,
+            boxed: None,
+            allow_oob: Some("true"),
+            allow_preconfig: Some("true"),
+            coroutine: None,
+        };
+        let s = process_command(q);
+        let attr_names: Vec<_> = s
+            .meta
+            .attributes
+            .iter()
+            .filter_map(|a| match a {
+                Attribute::Unit(n) => Some(n.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert!(attr_names.contains(&"allow_oob"));
+        assert!(attr_names.contains(&"allow_preconfig"));
+        assert!(attr_names.contains(&"no_success_response"));
+    }
+
+    #[test]
+    fn test_process_alternate() {
+        let q = QapiAlternate {
+            name: "StrOrInt",
+            data: crate::QapiAlternatives(vec![
+                crate::QapiAlternative {
+                    name: "s",
+                    r#type: QapiTypeRef::Ref("str"),
+                    r#if: None,
+                },
+                crate::QapiAlternative {
+                    name: "i",
+                    r#type: QapiTypeRef::Ref("int"),
+                    r#if: None,
+                },
+            ]),
+            r#if: None,
+            features: None,
+            doc: None,
+        };
+        let e = process_alternate(q);
+        assert_eq!(e.name, "StrOrInt");
+        assert_eq!(e.variants.len(), 2);
+        assert_eq!(e.variants[0].kind, EnumVariantKind::Tuple("str".into()));
+        assert_eq!(e.variants[1].kind, EnumVariantKind::Tuple("int".into()));
+    }
+
+    #[test]
+    fn test_enum_codegen_roundtrip() {
+        let q = QapiEnum {
+            name: "TestEnum",
+            data: vec![make_enum_value("value-one"), make_enum_value("value-two")].into(),
+            prefix: None,
+            r#if: None,
+            features: None,
+            doc: None,
+        };
+        let e = process_enum(q);
+        let tokens = e.generate();
+        let code = prettyplease::unparse(
+            &syn::parse2(tokens).expect("generated tokens should be valid Rust"),
+        );
+        assert!(code.contains("pub enum TestEnum"));
+        assert!(code.contains("ValueOne"));
+        assert!(code.contains("ValueTwo"));
+    }
+
+    #[test]
+    fn test_struct_codegen_roundtrip() {
+        let q = QapiStruct {
+            name: "MyData",
+            data: QapiMembers(vec![
+                QapiMember {
+                    name: "name",
+                    optional: false,
+                    r#type: QapiTypeRef::Ref("str"),
+                    r#if: None,
+                    features: None,
+                },
+                QapiMember {
+                    name: "count",
+                    optional: true,
+                    r#type: QapiTypeRef::Ref("int"),
+                    r#if: None,
+                    features: None,
+                },
+            ]),
+            base: None,
+            r#if: None,
+            features: None,
+            doc: None,
+        };
+        let s = process_struct(q, &HashMap::new());
+        let tokens = s.generate();
+        let code = prettyplease::unparse(
+            &syn::parse2(tokens).expect("generated tokens should be valid Rust"),
+        );
+        assert!(code.contains("pub struct MyData"));
+        assert!(code.contains("pub name: String"));
+        assert!(code.contains("pub count: Option<i64>"));
+    }
+}
+
 pub fn process_command(q: QapiCommand) -> Struct {
     let mut fields = Vec::new();
     if let Some(data) = q.data {

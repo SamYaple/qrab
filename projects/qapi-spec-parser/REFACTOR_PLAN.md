@@ -113,7 +113,7 @@ fn test_generate_code_current_qemu() {
 
 The tests will use the current vendor/qemu checkout only (no tag switching for now). They'll reference the vendor submodule path relative to the workspace root.
 
-## Phase 8: Unit Tests for Untested Parsers (T2)
+## Phase 8: Unit Tests for Untested Parsers (T2) ✓ COMPLETE
 
 Add `#[cfg(test)] mod tests` to:
 - `qapi_schema.rs` — test full schema parsing with a multi-entry input
@@ -125,7 +125,7 @@ Add `#[cfg(test)] mod tests` to:
 
 Follow the pattern from `qapi_feature.rs`: test both valid inputs and expected failure cases.
 
-## Phase 9: IR/Codegen Tests (T3)
+## Phase 9: IR/Codegen Tests (T3) ✓ COMPLETE
 
 Add tests in `qapi_ir/`:
 - Test `process_enum` with a simple `QapiEnum` input, assert correct `Enum` IR output

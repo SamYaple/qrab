@@ -11,6 +11,71 @@ pub fn take_variant(input: &str) -> IResult<&str, QapiVariant<'_>> {
     QapiVariant::parse(input)
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_simple_string_type() {
+        let (rem, v) = QapiVariant::parse("'branch-name': 'SomeType'").unwrap();
+        assert_eq!(rem, "");
+        assert_eq!(v.name, "branch-name");
+        assert_eq!(v.r#type, QapiTypeRef::Ref("SomeType"));
+        assert!(v.r#if.is_none());
+    }
+
+    #[test]
+    fn test_simple_array_type() {
+        let (rem, v) = QapiVariant::parse("'items': ['ItemType']").unwrap();
+        assert_eq!(rem, "");
+        assert_eq!(v.name, "items");
+        assert_eq!(v.r#type, QapiTypeRef::ArrayRef("ItemType"));
+    }
+
+    #[test]
+    fn test_complex_with_condition() {
+        let input = "'branch-name': { 'type': 'SomeType', 'if': 'CONFIG_X' }";
+        let (rem, v) = QapiVariant::parse(input).unwrap();
+        assert_eq!(rem, "");
+        assert_eq!(v.name, "branch-name");
+        assert_eq!(v.r#type, QapiTypeRef::Ref("SomeType"));
+        assert!(v.r#if.is_some());
+    }
+
+    #[test]
+    fn test_complex_array_with_condition() {
+        let input = "'data': { 'type': ['MyType'], 'if': 'CONFIG_Y' }";
+        let (rem, v) = QapiVariant::parse(input).unwrap();
+        assert_eq!(rem, "");
+        assert_eq!(v.name, "data");
+        assert_eq!(v.r#type, QapiTypeRef::ArrayRef("MyType"));
+        assert!(v.r#if.is_some());
+    }
+
+    #[test]
+    fn test_whitespace_tolerance() {
+        let input = " 'name' : 'Type' ";
+        let (_, v) = QapiVariant::parse(input).unwrap();
+        assert_eq!(v.name, "name");
+        assert_eq!(v.r#type, QapiTypeRef::Ref("Type"));
+    }
+
+    #[test]
+    fn test_missing_name_fails() {
+        assert!(QapiVariant::parse("").is_err());
+    }
+
+    #[test]
+    fn test_missing_type_fails() {
+        assert!(QapiVariant::parse("'name':").is_err());
+    }
+
+    #[test]
+    fn test_invalid_format() {
+        assert!(QapiVariant::parse("not_valid").is_err());
+    }
+}
+
 /// A named type reference with an optional condition.
 /// Used for both union branches and alternate alternatives in the QAPI schema.
 #[derive(Debug, Clone, Default)]
