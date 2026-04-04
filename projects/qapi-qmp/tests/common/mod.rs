@@ -355,7 +355,14 @@ pub async fn wait_for_typed_event<T: qapi::QapiEvent + serde::de::DeserializeOwn
     timeout: Duration,
 ) -> Option<T> {
     let evt = wait_for_event(events, T::NAME, timeout).await?;
-    serde_json::from_value(evt.data).ok()
+    // Events with no data field default to Value::Null via serde(default).
+    // Treat null as empty object for struct deserialization.
+    let data = if evt.data.is_null() {
+        serde_json::Value::Object(serde_json::Map::new())
+    } else {
+        evt.data
+    };
+    serde_json::from_value(data).ok()
 }
 
 /// Event/operation timeout from env or default 30s.

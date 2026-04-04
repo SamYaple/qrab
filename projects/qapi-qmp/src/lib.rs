@@ -147,6 +147,18 @@ impl Qmp {
             .cloned()
             .unwrap_or(serde_json::Value::Object(serde_json::Map::new()));
 
+        // Handle commands that return () — QMP returns {"return":{}} which
+        // can't deserialize as (). Treat empty objects as null for unit types.
+        let ret = if ret.is_object() && ret.as_object().unwrap().is_empty() {
+            // Try deserializing as-is first; fall back to null for unit return types.
+            match serde_json::from_value::<C::Returns>(ret.clone()) {
+                Ok(v) => return Ok(v),
+                Err(_) => serde_json::Value::Null,
+            }
+        } else {
+            ret
+        };
+
         Ok(serde_json::from_value(ret)?)
     }
 
