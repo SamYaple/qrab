@@ -418,9 +418,10 @@ macro_rules! arch_tests {
 }
 
 /// Like arch_tests! but also checks QEMU version.
+/// Usage: `arch_version_tests!(name, [X86_64], >= (5, 2), |arch| async move { ... });`
 #[macro_export]
 macro_rules! arch_version_tests {
-    ($name:ident, [$($arch:ident),+ $(,)?], >= $maj:literal . $min:literal, $body:expr) => {
+    ($name:ident, [$($arch:ident),+ $(,)?], >= ($maj:expr, $min:expr), $body:expr) => {
         $(
             paste::paste! {
                 #[tokio::test]
