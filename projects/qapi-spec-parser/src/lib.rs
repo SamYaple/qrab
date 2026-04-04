@@ -42,34 +42,45 @@ pub fn parse_schema(input: &str) -> Result<QapiSchema<'_>> {
     Ok(schema)
 }
 
-/// Preprocess schema content to fix known issues in older schemas.
-/// Returns owned content with fixes applied, or the original if no fixes needed.
+/// Preprocess schema content using a specific version.
+/// When no version is known (standalone parsing), use a high version so only
+/// format-agnostic fixes (commas, doc cleanup, RST headers) are applied.
 pub fn preprocess_schema(content: &str) -> String {
-    // Fix missing comma in v1.1.0/v1.3.0 NewImageMode:
-    // { 'enum': 'NewImageMode'\n  'data': ... }
-    // The only known case is a missing comma before 'data' key.
-    content
-        .replace("'NewImageMode'\n  'data'", "'NewImageMode',\n  'data'")
-        .to_string()
+    // Use a high version so version-gated transforms (type→struct, simple unions, etc.)
+    // are NOT applied. Only format-agnostic fixes run.
+    preprocess::preprocess(content, (99, 0, 0))
+}
+
+/// Preprocess schema content for a specific QEMU version.
+pub fn preprocess_schema_versioned(content: &str, version: preprocess::Version) -> String {
+    preprocess::preprocess(content, version)
 }
 
 pub fn read_schema(schema_file: &Path) -> Result<Vec<(PathBuf, String)>> {
+    read_schema_with_version(schema_file, None)
+}
+
+/// Read schema files with version-specific preprocessing.
+pub fn read_schema_with_version(schema_file: &Path, version: Option<preprocess::Version>) -> Result<Vec<(PathBuf, String)>> {
     let mut sources = Vec::new();
-    read_schema_file(schema_file, &mut sources)?;
+    read_schema_file(schema_file, &mut sources, version)?;
     if sources.len() > 1 {
         sources.rotate_left(1);
     }
     Ok(sources)
 }
 
-fn read_schema_file(schema_file: &Path, sources: &mut Vec<(PathBuf, String)>) -> Result<()> {
+fn read_schema_file(schema_file: &Path, sources: &mut Vec<(PathBuf, String)>, version: Option<preprocess::Version>) -> Result<()> {
     if sources.iter().any(|(path, _)| path == schema_file) {
         return Ok(());
     }
 
     let raw_content = std::fs::read_to_string(schema_file)
         .with_context(|| format!("Failed to read schema file: {}", schema_file.display()))?;
-    let content = preprocess_schema(&raw_content);
+    let content = match version {
+        Some(v) => preprocess_schema_versioned(&raw_content, v),
+        None => preprocess_schema(&raw_content),
+    };
     sources.push((schema_file.to_path_buf(), content.clone()));
     let schema_tokens = parse_schema(&content)
         .with_context(|| format!("Failed to parse schema file: {}", schema_file.display()))?;
@@ -82,7 +93,7 @@ fn read_schema_file(schema_file: &Path, sources: &mut Vec<(PathBuf, String)>) ->
         .collect();
     for include in includes {
         let include_path = schema_file.parent().unwrap().join(include);
-        read_schema_file(&include_path, sources)?;
+        read_schema_file(&include_path, sources, version)?;
     }
     Ok(())
 }
@@ -90,7 +101,11 @@ fn read_schema_file(schema_file: &Path, sources: &mut Vec<(PathBuf, String)>) ->
 /// Run the full codegen pipeline: parse all schema files and generate Rust source code.
 /// Returns the generated Rust source as a String.
 pub fn generate_qapi_code(qemu_src_root: &Path, schema_file: &Path) -> Result<String> {
-    let sources = read_schema(schema_file)?;
+    generate_qapi_code_versioned(qemu_src_root, schema_file, None)
+}
+
+pub fn generate_qapi_code_versioned(qemu_src_root: &Path, schema_file: &Path, version: Option<preprocess::Version>) -> Result<String> {
+    let sources = read_schema_with_version(schema_file, version)?;
 
     // Parse each schema file once and reuse for both processing and codegen.
     let parsed: Vec<_> = sources
@@ -147,12 +162,9 @@ pub fn generate_qapi_code(qemu_src_root: &Path, schema_file: &Path) -> Result<St
         structs_lookup.insert(processed.name.clone(), processed);
     }
     for v in unprocessed_unions.drain(..) {
-        let (processed_struct, processed_enum, disc_enum) =
+        let (processed_struct, processed_enum) =
             process_union(v, &structs_lookup, &enums_lookup);
         enums_lookup.insert(processed_enum.name.clone(), processed_enum);
-        if let Some(de) = disc_enum {
-            enums_lookup.insert(de.name.clone(), de);
-        }
         structs_lookup.insert(processed_struct.name.clone(), processed_struct);
     }
     for v in unprocessed_events.drain(..) {

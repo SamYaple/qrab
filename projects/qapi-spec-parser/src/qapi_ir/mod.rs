@@ -19,7 +19,7 @@ pub use rust_struct::*;
 
 fn qapi_to_rust_type(qapi_type: &str) -> String {
     match qapi_type {
-        "str" | "String" => "String".into(),
+        "str" => "String".into(),
         "number" => "f64".into(),
         "int" => "i64".into(),
         "int8" => "i8".into(),
@@ -33,9 +33,6 @@ fn qapi_to_rust_type(qapi_type: &str) -> String {
         "size" => "u64".into(),
         "bool" => "bool".into(),
         "any" => "serde_json::Value".into(),
-        "**" => "serde_json::Value".into(),
-        "dict" => "serde_json::Value".into(),
-        "visitor" => "serde_json::Value".into(),
         "null" => "()".into(),
         _ => rustify_name(qapi_type),
     }

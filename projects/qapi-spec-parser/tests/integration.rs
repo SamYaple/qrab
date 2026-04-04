@@ -1,7 +1,7 @@
 use std::path::Path;
 
-use qapi_spec_parser::{parse_schema, read_schema, generate_qapi_code};
-use qapi_spec_parser::versions::{find_schema_entry, extract_schema_from_tag, find_extracted_schema_entry};
+use qapi_spec_parser::{parse_schema, read_schema, read_schema_with_version, generate_qapi_code, generate_qapi_code_versioned};
+use qapi_spec_parser::versions::{find_schema_entry, extract_schema_from_tag, find_extracted_schema_entry, parse_version_tag};
 use qapi_spec_parser::unified::build_unified_registry;
 
 fn qemu_root() -> &'static Path {
@@ -125,13 +125,14 @@ fn test_parse_all_target_versions() {
 }
 
 fn try_parse_version(tag: &str, repo: &Path) -> Result<usize, String> {
+    let version = parse_version_tag(tag).ok_or_else(|| format!("bad tag: {}", tag))?;
     let tmpdir = extract_schema_from_tag(repo, tag)
         .map_err(|e| format!("extract failed: {}", e))?;
 
     let entry = find_extracted_schema_entry(tmpdir.path())
         .ok_or_else(|| "no schema entry point found".to_string())?;
 
-    let sources = read_schema(&entry)
+    let sources = read_schema_with_version(&entry, Some(version))
         .map_err(|e| format!("read_schema failed: {}", e))?;
 
     let mut total_tokens = 0;
@@ -167,7 +168,8 @@ fn test_process_ir_all_target_versions() {
             }
         };
 
-        match generate_qapi_code(tmpdir.path(), &entry) {
+        let version = parse_version_tag(tag);
+        match generate_qapi_code_versioned(tmpdir.path(), &entry, version) {
             Ok(output) => {
                 // Verify it's valid Rust
                 match syn::parse_str::<syn::File>(&output) {

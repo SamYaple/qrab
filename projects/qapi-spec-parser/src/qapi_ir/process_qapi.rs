@@ -85,12 +85,6 @@ fn process_type_ref(q: QapiTypeRef<'_>) -> (&str, bool) {
         QapiTypeRef::Unset => unreachable! {"this should have failed the parser"},
         QapiTypeRef::Ref(v) => (v, false),
         QapiTypeRef::ArrayRef(v) => (v, true),
-        QapiTypeRef::InlineStruct(_) => {
-            // Inline anonymous structs from old schemas — treated as opaque for now.
-            // The unified codegen will resolve these to named types.
-            eprintln!("WARNING: Inline anonymous struct encountered — using serde_json::Value as placeholder");
-            ("any", false)
-        }
     }
 }
 
@@ -236,49 +230,24 @@ pub fn process_struct(q: QapiStruct, structs_lookup: &HashMap<String, Struct>) -
     }
 }
 
-/// Returns (struct, branch_enum, optional_discriminator_enum).
-/// Simple unions (no discriminator in the schema) auto-generate a discriminator enum.
 pub fn process_union(
     q: QapiUnion,
     structs_lookup: &HashMap<String, Struct>,
     enums_lookup: &HashMap<String, Enum>,
-) -> (Struct, Enum, Option<Enum>) {
-    let is_simple = q.discriminator.is_none();
-    let mut fields = if q.base == MembersOrRef::Unset {
-        Vec::new()
-    } else {
-        process_members_or_ref(q.base, RefStrategy::InlineFields(structs_lookup))
-    };
-
-    if !is_simple {
-        let disc_name = q.discriminator.as_ref().unwrap();
-        let mut discriminator_opt = None;
-        for field in &mut fields {
-            if field.name == *disc_name {
-                field.meta.attributes.push(Attribute::new("discriminator"));
-                discriminator_opt = Some(field.r#type.clone());
-            }
+) -> (Struct, Enum) {
+    let mut discriminator_opt = None;
+    let mut fields = process_members_or_ref(q.base, RefStrategy::InlineFields(structs_lookup));
+    for field in &mut fields {
+        if field.name == q.discriminator {
+            field.meta.attributes.push(Attribute::new("discriminator"));
+            discriminator_opt = Some(field.r#type.clone());
         }
-        let discriminator = discriminator_opt.expect("discriminator field not found");
-        // In older schemas, the discriminator type might be 'str' instead of a specific enum
-        if enums_lookup.get(&discriminator).is_none() {
-            eprintln!("WARNING: {} discriminator type '{}' is not an enum (may be 'str' in older schemas)", q.name, discriminator);
-        }
-    } else {
-        // Simple union: auto-generate a `type` discriminator field.
-        // The enum type is the branch enum we'll create below.
-        let type_name = format!("{}Type", rustify_name(q.name));
-        let mut meta = Metadata::default();
-        meta.attributes.push(Attribute::new("discriminator"));
-        meta.attributes.push(Attribute::with_value("name", "type".to_string()));
-        fields.push(StructField {
-            name: "r#type".into(),
-            meta,
-            r#type: type_name,
-            optional: false,
-            array: false,
-        });
     }
+    let discriminator = discriminator_opt.expect("discriminator field not found");
+    let _base_enum = enums_lookup.get(&discriminator).unwrap_or_else(|| panic!(
+        "{} could not find a base enum named {}",
+        q.name, discriminator
+    ));
 
     let mut variants = Vec::new();
     for branch in q.data {
@@ -329,27 +298,7 @@ pub fn process_union(
         fields,
         meta,
     };
-
-    // For simple unions, generate a discriminator type enum with unit variants
-    let disc_enum = if is_simple {
-        let disc_variants = e.variants.iter().map(|v| {
-            EnumVariant {
-                name: v.name.clone(),
-                kind: EnumVariantKind::Unit,
-                meta: v.meta.clone(),
-                array: false,
-            }
-        }).collect();
-        Some(Enum {
-            name: format!("{}Type", rustify_name(q.name)),
-            variants: disc_variants,
-            meta: Metadata::default(),
-        })
-    } else {
-        None
-    };
-
-    (s, e, disc_enum)
+    (s, e)
 }
 
 enum RefStrategy<'a> {

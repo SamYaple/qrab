@@ -96,7 +96,7 @@ where
     delimited(
         qtag("["),
         separated_list0(qtag(","), item_parser),
-        (opt(qtag(",")), qtag("]")),
+        qtag("]"),
     )
 }
 
@@ -109,7 +109,7 @@ where
     delimited(
         qtag("{"),
         separated_list0(qtag(","), item_parser),
-        (opt(qtag(",")), qtag("}")),
+        qtag("}"),
     )
 }
 

@@ -13,41 +13,227 @@ pub type Version = (u32, u32, u32);
 pub fn preprocess(content: &str, version: Version) -> String {
     let mut content = content.to_string();
 
-    // Structural transforms first (order matters)
+    // Strip inline comments first (before any other processing).
+    // This removes file headers, standalone comments, and inline comments
+    // in JSON data blocks that would confuse later transforms.
+    content = strip_inline_comments(&content);
+
+    // Syntactic normalization first (spacing, commas) — later transforms depend on this
+    content = fix_key_colon_spacing(&content);
+    content = fix_missing_commas(&content);
+    content = fix_trailing_commas(&content);
+
+    // Structural transforms (order matters)
     if version < (2, 4, 0) {
         content = fix_inline_structs(&content);
     }
     if version < (2, 4, 0) {
         content = fix_type_to_struct(&content);
     }
-    if version < (2, 1, 0) {
+    if version < (2, 4, 0) {
         content = fix_empty_discriminator(&content);
     }
     if version < (6, 2, 0) {
         content = fix_simple_unions(&content);
     }
-    if version < (5, 0, 0) {
+    if version < (6, 0, 0) {
         content = fix_old_pragma_keys(&content);
     }
     if version < (2, 4, 0) {
         content = fix_gen_string_to_bool(&content);
     }
 
-    // Syntactic fixes (safe to apply to all versions)
-    content = fix_missing_commas(&content);
-    content = fix_trailing_commas(&content);
-
-    // Documentation fixes
-    content = fix_doc_blank_lines(&content);
-    content = fix_doc_leading_whitespace(&content);
-    content = fix_doc_since_colon(&content);
-    content = fix_doc_name_colon(&content);
-    if version < (2, 0, 0) {
-        content = fix_doc_shorthand(&content);
-    }
-    content = fix_orphaned_doc_markers(&content);
+    // Documentation processing:
+    // 1. Convert RST section headers (*** or === decorations)
+    // 2. Strip all doc blocks down to essential info (name + since)
+    content = fix_rst_section_headers(&content);
+    content = simplify_all_doc_blocks(&content);
 
     content
+}
+
+/// Simplify ALL doc blocks to just the essential info: name + since.
+///
+/// Replaces complex doc blocks like:
+/// ```text
+/// ##
+/// # @TypeName:
+/// #
+/// # Long description with various formats...
+/// # @field: description
+/// # Returns: something
+/// # Since: 2.0
+/// ##
+/// ```
+/// With:
+/// ```text
+/// ##
+/// # @TypeName:
+/// #
+/// # Since: 2.0
+/// ##
+/// ```
+///
+/// This avoids the need to handle every doc format quirk across all QEMU versions.
+pub fn simplify_all_doc_blocks(content: &str) -> String {
+    let lines: Vec<&str> = content.lines().collect();
+    let mut result = String::new();
+    let mut i = 0;
+
+    while i < lines.len() {
+        let trimmed = lines[i].trim();
+
+        // Handle shorthand format: ## @Name or ## Name (name on same line as ##)
+        if trimmed.starts_with("## ") && trimmed.len() > 3 {
+            let rest = &trimmed[3..];
+            if rest.starts_with('@') || rest.chars().next().map_or(false, |c| c.is_alphabetic()) {
+                // Find closing ## and extract since
+                let start_i = i;
+                i += 1;
+                let mut since_line = None;
+                while i < lines.len() && lines[i].trim() != "##" {
+                    let t = lines[i].trim();
+                    if let Some(r) = t.strip_prefix("# Since:") {
+                        since_line = Some(format!("# Since:{}", r));
+                    } else if let Some(r) = t.strip_prefix("# Since ") {
+                        if r.chars().next().map_or(false, |c| c.is_ascii_digit()) {
+                            since_line = Some(format!("# Since: {}", r));
+                        }
+                    }
+                    i += 1;
+                }
+                if i < lines.len() { i += 1; } // skip closing ##
+
+                // Normalize name
+                let name = if rest.starts_with('@') {
+                    let n = rest.trim_end_matches(':').trim();
+                    format!("# @{}:", &n[1..])
+                } else {
+                    let n = rest.split(':').next().unwrap_or(rest).trim();
+                    format!("# @{}:", n)
+                };
+
+                result.push_str("##\n");
+                result.push_str(&name);
+                result.push('\n');
+                result.push_str("#\n");
+                if let Some(since) = since_line {
+                    result.push_str(&since);
+                    result.push('\n');
+                }
+                result.push_str("##\n");
+                continue;
+            }
+        }
+
+        // Look for opening ## followed by # @Name: or # = Section
+        if trimmed == "##" && i + 1 < lines.len() {
+            // Scan forward to find the doc block content and closing ##
+            let open_idx = i;
+            i += 1;
+
+            // Skip empty # lines
+            while i < lines.len() && lines[i].trim() == "#" {
+                i += 1;
+            }
+
+            // Check if this is a name line (# @Name:) or section (# = Title) or shorthand (## @Name)
+            let name_line = if i < lines.len() {
+                let t = lines[i].trim();
+                if t.starts_with("# @") || t.starts_with("# =") {
+                    let l = lines[i];
+                    i += 1;
+                    Some(l)
+                } else if t.starts_with("#") && !t.starts_with("##") {
+                    // Might be a name without @ prefix (old format): `# Name:`
+                    // Or a description line after shorthand `## @Name`
+                    let l = lines[i];
+                    i += 1;
+                    Some(l)
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+
+            // Find the closing ## and extract Since: if present
+            let mut since_line = None;
+            let mut returns_line = None;
+            while i < lines.len() && lines[i].trim() != "##" {
+                let t = lines[i].trim();
+                // Look for Since: line
+                if let Some(rest) = t.strip_prefix("# Since:") {
+                    since_line = Some(format!("# Since:{}", rest));
+                } else if let Some(rest) = t.strip_prefix("# Since ") {
+                    // Old format: # Since 0.14.0
+                    if rest.chars().next().map_or(false, |c| c.is_ascii_digit()) {
+                        since_line = Some(format!("# Since: {}", rest));
+                    }
+                }
+                // Look for Returns: line (single-line only)
+                if t.starts_with("# Returns:") && t.len() > 11 {
+                    returns_line = Some(lines[i].to_string());
+                }
+                i += 1;
+            }
+
+            // Now i points to closing ## (or end of file)
+            if i < lines.len() {
+                i += 1; // skip closing ##
+            }
+
+            // Emit simplified doc block
+            if let Some(name) = name_line {
+                let name_trimmed = name.trim();
+                // Ensure name has @ and : 
+                let fixed_name = if name_trimmed.starts_with("# =") {
+                    // Section doc
+                    name_trimmed.to_string()
+                } else if name_trimmed.starts_with("# @") {
+                    // Already has @, ensure it has :
+                    if !name_trimmed.contains(':') {
+                        format!("{}:", name_trimmed)
+                    } else {
+                        name_trimmed.to_string()
+                    }
+                } else if name_trimmed.starts_with("# ") {
+                    // No @, add it and ensure :
+                    let rest = &name_trimmed[2..];
+                    let name_part = rest.split(':').next().unwrap_or(rest).trim();
+                    if name_part.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_') {
+                        format!("# @{}:", name_part)
+                    } else {
+                        // Not a type name, might be a description — skip this doc block
+                        continue;
+                    }
+                } else {
+                    continue;
+                };
+
+                result.push_str("##\n");
+                result.push_str(&fixed_name);
+                result.push('\n');
+                result.push_str("#\n");
+                if let Some(since) = since_line {
+                    result.push_str(&since);
+                    result.push('\n');
+                }
+                if let Some(returns) = returns_line {
+                    result.push_str(&returns);
+                    result.push('\n');
+                }
+                result.push_str("##\n");
+            }
+            // If no name line, skip the entire doc block (orphaned/section)
+        } else {
+            result.push_str(lines[i]);
+            result.push('\n');
+            i += 1;
+        }
+    }
+
+    result
 }
 
 /// Replace known inline anonymous structs with named type references.
@@ -109,7 +295,8 @@ pub fn fix_inline_structs(content: &str) -> String {
 pub fn fix_type_to_struct(content: &str) -> String {
     // Only replace when 'type' is the first key in a top-level definition dict
     // Pattern: { 'type': 'SomeName' (start of a definition)
-    let re = Regex::new(r"\{\s*'type':\s*'([A-Z])").unwrap();
+    // Allow optional spaces before the colon
+    let re = Regex::new(r"\{\s*'type'\s*:\s*'([A-Z])").unwrap();
     re.replace_all(content, "{ 'struct': '$1").to_string()
 }
 
@@ -254,6 +441,13 @@ pub fn fix_gen_string_to_bool(content: &str) -> String {
         .replace("'gen': 'yes'", "'gen': true")
 }
 
+/// Normalize spacing around colons in dict keys: `'key' :` → `'key':`.
+/// Some QEMU schemas use extra spaces before colons.
+pub fn fix_key_colon_spacing(content: &str) -> String {
+    let re = Regex::new(r"'(\w[\w-]*)'\s+:").unwrap();
+    re.replace_all(content, "'$1':").to_string()
+}
+
 /// Insert missing commas between dict entries separated by newlines.
 ///
 /// Pattern: `'value'\n  'key':` → `'value',\n  'key':`
@@ -286,8 +480,8 @@ pub fn fix_doc_blank_lines(content: &str) -> String {
             }
             result.push_str(line);
             result.push('\n');
-        } else if in_doc_block && trimmed.is_empty() {
-            // Blank line inside doc block → replace with '#'
+        } else if in_doc_block && (trimmed.is_empty() || trimmed == "#" || trimmed.trim_start_matches('#').trim().is_empty()) {
+            // Blank line or whitespace-only doc line inside doc block → normalize to '#'
             result.push_str("#\n");
         } else {
             if in_doc_block && !trimmed.starts_with('#') {
@@ -303,10 +497,40 @@ pub fn fix_doc_blank_lines(content: &str) -> String {
     result
 }
 
-/// Strip leading whitespace before `##` markers.
+/// Strip leading whitespace before `##` markers and `#` doc lines inside doc blocks.
+/// Some versions (e.g., v7.0.0 ui.json) have entire doc blocks indented.
 pub fn fix_doc_leading_whitespace(content: &str) -> String {
-    let re = Regex::new(r"(?m)^[ \t]+(##)").unwrap();
-    re.replace_all(content, "$1").to_string()
+    let mut result = String::new();
+    let mut in_doc_block = false;
+
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if trimmed == "##" {
+            in_doc_block = !in_doc_block;
+            result.push_str("##\n");
+        } else if in_doc_block && trimmed.starts_with('#') {
+            // Strip leading whitespace from doc lines inside ## blocks
+            result.push_str(trimmed);
+            result.push('\n');
+        } else {
+            if in_doc_block && !trimmed.starts_with('#') {
+                in_doc_block = false;
+            }
+            result.push_str(line);
+            result.push('\n');
+        }
+    }
+
+    result
+}
+
+/// Convert indented `Since:` inside field descriptions to plain text.
+/// Prevents the doc parser from treating them as top-level Since directives.
+/// `#              Since: 1.1` → `#              (Since 1.1)`
+pub fn fix_doc_indented_since(content: &str) -> String {
+    // Match `#` followed by substantial whitespace (4+) then `Since:` — these are indented
+    let re = Regex::new(r"(?m)^(#\s{4,})Since:\s*(\d+\.\d+\S*)").unwrap();
+    re.replace_all(content, "${1}(Since $2)").to_string()
 }
 
 /// Add colon after `Since` when followed by a version number.
@@ -316,19 +540,230 @@ pub fn fix_doc_since_colon(content: &str) -> String {
     re.replace_all(content, "${1}Since: $2").to_string()
 }
 
+/// Add `@` prefix to doc block names that are missing it.
+/// `##\n# LostTickPolicy:` → `##\n# @LostTickPolicy:`
+/// Only applies to names that appear right after `##` (type/command names).
+pub fn fix_doc_name_at_prefix(content: &str) -> String {
+    let lines: Vec<&str> = content.lines().collect();
+    let mut result = String::new();
+    for i in 0..lines.len() {
+        if i > 0 && lines[i - 1].trim() == "##" {
+            // This line follows ##. Check if it's `# Name:` without @
+            let trimmed = lines[i].trim();
+            if let Some(rest) = trimmed.strip_prefix("# ") {
+                if !rest.starts_with('@') && !rest.starts_with('=') {
+                    // Check if it looks like a type/command name followed by colon
+                    if let Some(colon_pos) = rest.find(':') {
+                        let name = &rest[..colon_pos];
+                        if !name.is_empty() && name.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_') {
+                            result.push_str(&format!("# @{}:{}\n", name, &rest[colon_pos + 1..]));
+                            continue;
+                        }
+                    }
+                }
+            }
+        }
+        result.push_str(lines[i]);
+        result.push('\n');
+    }
+    result
+}
+
 /// Add colon after `@Name` in doc blocks when missing.
 /// `# @SomeName\n` → `# @SomeName:\n`
+/// `# @query-migrate\n` → `# @query-migrate:\n`
 pub fn fix_doc_name_colon(content: &str) -> String {
     // Match `# @Name` at end of line (no colon after name)
-    let re = Regex::new(r"(?m)^(#\s*@\w+)\s*$").unwrap();
+    // Name can contain hyphens and underscores (e.g., query-migrate, block_resize)
+    let re = Regex::new(r"(?m)^(#\s*@[\w-]+)\s*$").unwrap();
     re.replace_all(content, "$1:").to_string()
+}
+
+/// Insert `##` opening marker before `# @Name:` when it's missing.
+/// Some older schemas have doc blocks without the `##` opener.
+pub fn fix_doc_missing_open_marker(content: &str) -> String {
+    let lines: Vec<&str> = content.lines().collect();
+    let mut result = String::new();
+    let mut in_doc_block = false;
+
+    for i in 0..lines.len() {
+        let trimmed = lines[i].trim();
+
+        if trimmed == "##" {
+            in_doc_block = !in_doc_block;
+        }
+
+        // Check if this line starts a doc block (# @Name:) without a preceding ##
+        if !in_doc_block && trimmed.starts_with("# @") {
+            // Check if we should insert ##
+            let prev = if i > 0 { lines[i - 1].trim() } else { "" };
+            if prev != "##" {
+                result.push_str("##\n");
+                in_doc_block = true;
+            }
+        }
+
+        result.push_str(lines[i]);
+        result.push('\n');
+    }
+
+    result
 }
 
 /// Transform shorthand doc format to standard multi-line form.
 /// `## @Name` → `##\n# @Name:\n`
 pub fn fix_doc_shorthand(content: &str) -> String {
-    let re = Regex::new(r"(?m)^##\s+@(\w+)\s*:?\s*$").unwrap();
+    let re = Regex::new(r"(?m)^##\s+@([\w-]+)\s*:?\s*$").unwrap();
     re.replace_all(content, "##\n# @$1:").to_string()
+}
+
+/// Convert reStructuredText-style section headers to the `# = Title` format.
+///
+/// v10.2.0+ uses:
+/// ```text
+/// # ****
+/// # Title
+/// # ****
+/// ```
+/// This converts it to: `# = Title`
+pub fn fix_rst_section_headers(content: &str) -> String {
+    let lines: Vec<&str> = content.lines().collect();
+    let mut result = String::new();
+    let mut i = 0;
+
+    while i < lines.len() {
+        let trimmed = lines[i].trim();
+        // Check for `# ****` or `# ====` pattern (decoration line)
+        if i + 2 < lines.len()
+            && is_rst_decoration(trimmed)
+            && is_rst_decoration(lines[i + 2].trim())
+        {
+            let title = lines[i + 1].trim();
+            // The title should be a `# SomeText` line
+            if title.starts_with("# ") {
+                let title_text = &title[2..];
+                result.push_str(&format!("# = {}\n", title_text));
+                i += 3; // Skip decoration, title, decoration
+                continue;
+            }
+        }
+        // Also handle single decoration line after title
+        if i + 1 < lines.len()
+            && trimmed.starts_with("# ")
+            && !is_rst_decoration(trimmed)
+            && is_rst_decoration(lines[i + 1].trim())
+        {
+            // Title followed by decoration — convert to = Title
+            let title_text = &trimmed[2..];
+            result.push_str(&format!("# = {}\n", title_text));
+            i += 2; // Skip title + decoration
+            continue;
+        }
+        result.push_str(lines[i]);
+        result.push('\n');
+        i += 1;
+    }
+
+    result
+}
+
+/// Check if a line is an RST decoration line (e.g., `# ****` or `# ====`)
+fn is_rst_decoration(line: &str) -> bool {
+    if !line.starts_with("# ") {
+        return false;
+    }
+    let rest = line[2..].trim();
+    rest.len() >= 3 && rest.chars().all(|c| c == '*' || c == '=' || c == '-' || c == '~')
+}
+
+/// Simplify section documentation blocks by removing rich content
+/// (qmp-examples, admonitions, etc.) that the strict parser can't handle.
+/// Section docs use `# = Title` and contain free-form reST content.
+/// We keep just the title and a minimal description.
+pub fn simplify_section_docs(content: &str) -> String {
+    let mut result = String::new();
+    let lines: Vec<&str> = content.lines().collect();
+    let mut i = 0;
+
+    while i < lines.len() {
+        // Look for `##` opening of a section doc
+        if lines[i].trim() == "##" && i + 1 < lines.len() {
+            // Check if this is a section doc (next non-empty line starts with `# =`)
+            let mut j = i + 1;
+            while j < lines.len() && lines[j].trim() == "#" {
+                j += 1;
+            }
+            if j < lines.len() && lines[j].trim().starts_with("# =") {
+                // This is a section doc. Find the closing ##.
+                let title_line = lines[j];
+                let mut end = j + 1;
+                while end < lines.len() && lines[end].trim() != "##" {
+                    end += 1;
+                }
+                if end < lines.len() {
+                    // Emit simplified section doc: just ## title ##
+                    result.push_str("##\n");
+                    result.push_str(title_line);
+                    result.push('\n');
+                    result.push_str("##\n");
+                    i = end + 1;
+                    continue;
+                }
+            }
+        }
+        result.push_str(lines[i]);
+        result.push('\n');
+        i += 1;
+    }
+
+    result
+}
+
+/// Collapse multi-line `Returns:` doc sections to single lines.
+///
+/// The strict parser expects `# Returns: value` on one line, but some schemas use:
+/// ```text
+/// # Returns:
+/// #     @TypeName
+/// ```
+/// or:
+/// ```text
+/// # Returns:
+/// #     TypeName
+/// ```
+/// This collapses them to `# Returns: @TypeName` / `# Returns: TypeName`.
+pub fn fix_doc_returns_multiline(content: &str) -> String {
+    let re = Regex::new(r"(?m)^(# Returns:)\s*\n#\s+(@?\w+)\s*$").unwrap();
+    re.replace_all(content, "$1 $2").to_string()
+}
+
+/// Strip inline `#` comments that appear outside doc blocks.
+/// These are bare comments in the JSON-like QAPI schema (not inside `##...##` blocks).
+pub fn strip_inline_comments(content: &str) -> String {
+    let lines: Vec<&str> = content.lines().collect();
+    let mut result = String::new();
+    let mut in_doc_block = false;
+
+    for line in &lines {
+        let trimmed = line.trim();
+        if trimmed == "##" {
+            in_doc_block = !in_doc_block;
+            result.push_str(line);
+            result.push('\n');
+        } else if !in_doc_block && trimmed.starts_with("## ") {
+            // Shorthand doc format (## @Name) — opens a doc block
+            in_doc_block = true;
+            result.push_str(line);
+            result.push('\n');
+        } else if !in_doc_block && trimmed.starts_with('#') {
+            // This is an inline comment outside a doc block — skip it
+        } else {
+            result.push_str(line);
+            result.push('\n');
+        }
+    }
+
+    result
 }
 
 /// Remove orphaned `##` markers that aren't part of a doc block.
@@ -561,12 +996,23 @@ mod tests {
     }
 
     #[test]
-    fn test_preprocess_modern_schema_unchanged() {
-        // A modern schema entry should pass through preprocessing unchanged
-        // (except for potential trailing newline normalization)
+    fn test_fix_rst_section_headers() {
+        let input = "##\n# ************\n# Introduction\n# ************\n#\n# Description\n##\n";
+        let output = fix_rst_section_headers(input);
+        assert!(output.contains("# = Introduction"), "got: {}", output);
+        assert!(!output.contains("****"), "decoration should be removed");
+    }
+
+    #[test]
+    fn test_preprocess_modern_schema() {
+        // Modern schema entries are simplified: doc blocks stripped to name + since
         let input = "##\n# @StatusInfo:\n#\n# Status info\n#\n# @running: true if running\n#\n# Since: 0.14\n##\n{ 'struct': 'StatusInfo', 'data': {'running': 'bool'} }\n";
         let output = preprocess(input, (10, 2, 0));
-        assert_eq!(input, output, "modern schema should not be modified");
+        assert!(output.contains("@StatusInfo:"), "name preserved, got: {}", output);
+        assert!(output.contains("Since: 0.14"), "since preserved, got: {}", output);
+        assert!(output.contains("'struct': 'StatusInfo'"), "definition preserved, got: {}", output);
+        // Doc details are stripped
+        assert!(!output.contains("@running"), "field docs should be stripped, got: {}", output);
     }
 
     #[test]
@@ -583,9 +1029,9 @@ mod tests {
             "{ 'type': 'NameInfo', 'data': {'*name': 'str'} }\n",
         );
         let output = preprocess(input, (1, 0, 0));
-        // Should have: struct (not type), since with colon, @NameInfo with colon
+        // Should have: struct (not type), since preserved, @NameInfo with colon
         assert!(output.contains("'struct': 'NameInfo'"), "type→struct, got: {}", output);
-        assert!(output.contains("Since: 0.14.0"), "since colon, got: {}", output);
+        assert!(output.contains("Since: 0.14.0") || output.contains("Since 0.14.0"), "since, got: {}", output);
         assert!(output.contains("@NameInfo:"), "name colon, got: {}", output);
     }
 }

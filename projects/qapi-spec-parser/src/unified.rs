@@ -5,7 +5,7 @@
 //! annotations (since/until).
 
 use crate::versions::{extract_schema_from_tag, find_extracted_schema_entry, parse_version_tag};
-use crate::{read_schema, parse_schema, QapiSchemaToken};
+use crate::{read_schema_with_version, parse_schema, QapiSchemaToken};
 use crate::qapi_ir::*;
 use anyhow::{Context, Result};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
@@ -115,11 +115,8 @@ fn process_version_schema(
         structs_lookup.insert(processed.name.clone(), processed);
     }
     for v in unprocessed_unions {
-        let (s, e, disc_enum) = process_union(v, &structs_lookup, &enums_lookup);
+        let (s, e) = process_union(v, &structs_lookup, &enums_lookup);
         enums_lookup.insert(e.name.clone(), e);
-        if let Some(de) = disc_enum {
-            enums_lookup.insert(de.name.clone(), de);
-        }
         structs_lookup.insert(s.name.clone(), s);
     }
     for v in unprocessed_events {
@@ -156,7 +153,7 @@ pub fn build_unified_registry(
         let schema_entry = find_extracted_schema_entry(tmpdir.path())
             .with_context(|| format!("No schema entry point found for {}", tag))?;
 
-        let sources = read_schema(&schema_entry)
+        let sources = read_schema_with_version(&schema_entry, Some(version))
             .with_context(|| format!("Failed to read schema for {}", tag))?;
 
         let (enums, structs) = process_version_schema(&sources)

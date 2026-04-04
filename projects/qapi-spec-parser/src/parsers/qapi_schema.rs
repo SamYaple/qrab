@@ -4,9 +4,7 @@ use crate::{
     QapiSectionDocumentation, QapiStruct, QapiUnion,
 };
 use nom::branch::alt;
-use nom::bytes::complete::tag;
-use nom::character::complete::{line_ending, multispace1, space0};
-use nom::combinator::recognize;
+use nom::character::complete::multispace1;
 use nom::multi::many0;
 use nom::IResult;
 use nom::Parser;
@@ -49,8 +47,6 @@ impl<'i> QapiSchema<'i> {
             QapiPragma::parse.map(|v| QapiSchemaToken::Pragma(v)),
             QapiSectionDocumentation::parse.map(|v| QapiSchemaToken::Doc(v)),
             qcomment.map(|v| QapiSchemaToken::Comment(v)),
-            // Bare `##` line — orphaned doc end marker in older schemas
-            recognize((space0, tag("##"), line_ending)).map(|v| QapiSchemaToken::Comment(v)),
             multispace1.map(|_| QapiSchemaToken::EmptyLines),
         )))
         .map(|tokens| Self(tokens))

@@ -1,6 +1,4 @@
 use super::{qstring, qtag, take_kv};
-use crate::QapiMembers;
-use crate::take_members;
 use nom::branch::alt;
 use nom::sequence::delimited;
 use nom::IResult;
@@ -15,8 +13,6 @@ pub enum QapiTypeRef<'i> {
     Unset,
     Ref(&'i str),
     ArrayRef(&'i str),
-    /// Inline anonymous struct (v1.x schemas): `{'field': 'type', ...}`
-    InlineStruct(QapiMembers<'i>),
 }
 
 impl Default for QapiTypeRef<'_> {
@@ -33,16 +29,6 @@ impl<'i> QapiTypeRef<'i> {
         alt((
             qstring.map(|v| Self::Ref(v)),
             array_parser.map(|v| Self::ArrayRef(v)),
-        ))
-        .parse(input)
-    }
-
-    /// Extended parser that also handles inline anonymous structs (v1.x schemas).
-    /// Use this only in contexts where inline structs are valid (member simple parser).
-    pub fn parse_with_inline(input: &'i str) -> IResult<&'i str, Self> {
-        alt((
-            Self::parse,
-            take_members.map(|v| Self::InlineStruct(v)),
         ))
         .parse(input)
     }
