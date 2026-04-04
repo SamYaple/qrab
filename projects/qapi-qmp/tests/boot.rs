@@ -2,8 +2,10 @@
 //! Uses direct kernel boot (-kernel/-initrd/-append) to bypass GRUB
 //! and passes dslist=nocloud to skip EC2 metadata retries (~10s boot).
 
+#[allow(dead_code, unused_imports)]
 mod common;
 
+#[allow(unused_imports)]
 use common::*;
 use common::fixtures;
 use qapi::*;
@@ -29,7 +31,7 @@ async fn cirros_builder(arch: Arch) -> QemuBuilder {
 
 arch_tests!(boot_cirros, [X86_64], |arch: Arch| async move {
     let builder = cirros_builder(arch).await;
-    let mut t = builder.spawn().await.unwrap();
+    let t = builder.spawn().await.unwrap();
 
     t.serial.as_ref().unwrap().wait_for_boot(boot_timeout()).await
         .expect("cirros did not boot");
@@ -46,7 +48,7 @@ arch_tests!(boot_cirros, [X86_64], |arch: Arch| async move {
 
 arch_tests!(query_cpus_after_boot, [X86_64], |arch: Arch| async move {
     let builder = cirros_builder(arch).await;
-    let mut t = builder.spawn().await.unwrap();
+    let t = builder.spawn().await.unwrap();
     t.serial.as_ref().unwrap().wait_for_boot(boot_timeout()).await.unwrap();
 
     let cpus: Vec<CpuInfoFast> = t.qmp.execute(&QueryCpusFast {}).await.unwrap();
@@ -57,7 +59,7 @@ arch_tests!(query_cpus_after_boot, [X86_64], |arch: Arch| async move {
 
 arch_tests!(query_block_after_boot, [X86_64], |arch: Arch| async move {
     let builder = cirros_builder(arch).await;
-    let mut t = builder.spawn().await.unwrap();
+    let t = builder.spawn().await.unwrap();
     t.serial.as_ref().unwrap().wait_for_boot(boot_timeout()).await.unwrap();
 
     let blocks: Vec<BlockInfo> = t.qmp.execute(&QueryBlock {}).await.unwrap();
@@ -68,7 +70,7 @@ arch_tests!(query_block_after_boot, [X86_64], |arch: Arch| async move {
 
 arch_tests!(query_blockstats_after_boot, [X86_64], |arch: Arch| async move {
     let builder = cirros_builder(arch).await;
-    let mut t = builder.spawn().await.unwrap();
+    let t = builder.spawn().await.unwrap();
     t.serial.as_ref().unwrap().wait_for_boot(boot_timeout()).await.unwrap();
 
     let stats: Vec<BlockStats> = t.qmp.execute(&QueryBlockstats { query_nodes: None }).await.unwrap();
@@ -79,7 +81,7 @@ arch_tests!(query_blockstats_after_boot, [X86_64], |arch: Arch| async move {
 
 arch_tests!(query_memory_after_boot, [X86_64], |arch: Arch| async move {
     let builder = cirros_builder(arch).await;
-    let mut t = builder.spawn().await.unwrap();
+    let t = builder.spawn().await.unwrap();
     t.serial.as_ref().unwrap().wait_for_boot(boot_timeout()).await.unwrap();
 
     let mem: MemoryInfo = t.qmp.execute(&QueryMemorySizeSummary {}).await.unwrap();
@@ -90,7 +92,7 @@ arch_tests!(query_memory_after_boot, [X86_64], |arch: Arch| async move {
 
 arch_tests!(query_pci_after_boot, [X86_64], |arch: Arch| async move {
     let builder = cirros_builder(arch).await;
-    let mut t = builder.spawn().await.unwrap();
+    let t = builder.spawn().await.unwrap();
     t.serial.as_ref().unwrap().wait_for_boot(boot_timeout()).await.unwrap();
 
     let pci: Vec<PciInfo> = t.qmp.execute(&QueryPci {}).await.unwrap();
@@ -101,7 +103,7 @@ arch_tests!(query_pci_after_boot, [X86_64], |arch: Arch| async move {
 
 arch_tests!(query_chardev_after_boot, [X86_64], |arch: Arch| async move {
     let builder = cirros_builder(arch).await;
-    let mut t = builder.spawn().await.unwrap();
+    let t = builder.spawn().await.unwrap();
     t.serial.as_ref().unwrap().wait_for_boot(boot_timeout()).await.unwrap();
 
     let devs: Vec<ChardevInfo> = t.qmp.execute(&QueryChardev {}).await.unwrap();
@@ -112,7 +114,7 @@ arch_tests!(query_chardev_after_boot, [X86_64], |arch: Arch| async move {
 
 arch_tests!(query_hotpluggable_cpus_after_boot, [X86_64], |arch: Arch| async move {
     let builder = cirros_builder(arch).await;
-    let mut t = builder.spawn().await.unwrap();
+    let t = builder.spawn().await.unwrap();
     t.serial.as_ref().unwrap().wait_for_boot(boot_timeout()).await.unwrap();
 
     let cpus: Vec<HotpluggableCpu> = t.qmp.execute(&QueryHotpluggableCpus {}).await.unwrap();

@@ -1,8 +1,10 @@
 //! Non-QEMU serde tests (trait metadata, enum coverage, field renames)
 //! plus QMP schema introspection (needs QEMU x86_64).
 
+#[allow(dead_code, unused_imports)]
 mod common;
 
+#[allow(unused_imports)]
 use common::*;
 use qapi::*;
 
@@ -180,7 +182,7 @@ fn struct_field_renames() {
 // ── QMP schema introspection (needs QEMU) ────────────────────────────────────
 
 arch_tests!(query_qmp_schema, [X86_64], |arch: Arch| async move {
-    let mut t = QemuBuilder::new(arch, MachineConfig::None).spawn().await.unwrap();
+    let t = QemuBuilder::new(arch, MachineConfig::None).spawn().await.unwrap();
     let schema: Vec<SchemaInfo> = t.qmp.execute(&QueryQmpSchema {}).await.unwrap();
     assert!(schema.len() > 100, "QMP schema should have >100 entries, got {}", schema.len());
 

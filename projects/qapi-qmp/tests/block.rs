@@ -1,8 +1,10 @@
 //! Block device operation tests.
 //! Tests blockdev-add/del, query-block, query-blockstats, query-named-block-nodes.
 
+#[allow(dead_code, unused_imports)]
 mod common;
 
+#[allow(unused_imports)]
 use common::*;
 use common::fixtures;
 use qapi::*;
@@ -18,7 +20,7 @@ async fn query_block_empty() {
         return;
     }
 
-    let mut t = QemuBuilder::new(Arch::X86_64, MachineConfig::None)
+    let t = QemuBuilder::new(Arch::X86_64, MachineConfig::None)
         .spawn().await.unwrap();
 
     let blocks: Vec<BlockInfo> = t.qmp.execute(&QueryBlock {}).await.unwrap();
@@ -48,7 +50,7 @@ async fn blockdev_add_via_cli_and_query() {
     }
 
     let image = fixtures::blank_qcow2("block-test-cli", 64).await;
-    let mut t = QemuBuilder::new(Arch::X86_64, MachineConfig::None)
+    let t = QemuBuilder::new(Arch::X86_64, MachineConfig::None)
         .arg("-blockdev")
         .arg(format!("driver=file,node-name=test-file,filename={}", image.display()))
         .arg("-blockdev")
@@ -91,7 +93,7 @@ async fn blockdev_del_typed() {
     }
 
     let image = fixtures::blank_qcow2("block-test-del", 64).await;
-    let mut t = QemuBuilder::new(Arch::X86_64, MachineConfig::None)
+    let t = QemuBuilder::new(Arch::X86_64, MachineConfig::None)
         .arg("-blockdev")
         .arg(format!("driver=file,node-name=test-file,filename={}", image.display()))
         .spawn().await.unwrap();
@@ -119,7 +121,7 @@ async fn drive_arg_queries() {
 
     let image = fixtures::blank_qcow2("block-test-drive", 64).await;
     // Use -machine pc to have a virtio bus for the drive
-    let mut t = QemuBuilder::new(Arch::X86_64, MachineConfig::Bios { memory: "64M".into() })
+    let t = QemuBuilder::new(Arch::X86_64, MachineConfig::Bios { memory: "64M".into() })
         .drive(image, "qcow2")
         .spawn().await.unwrap();
 
@@ -162,7 +164,7 @@ async fn block_roundtrip_after_boot() {
     let kernel = fixtures::cirros_kernel(Arch::X86_64).await;
     let initrd = fixtures::cirros_initramfs(Arch::X86_64).await;
     let cidata = fixtures::nocloud_cidata().await;
-    let mut t = QemuBuilder::new(Arch::X86_64, MachineConfig::Bios { memory: "128M".into() })
+    let t = QemuBuilder::new(Arch::X86_64, MachineConfig::Bios { memory: "128M".into() })
         .kernel(kernel, initrd, "console=ttyS0 root=/dev/vda1 dslist=nocloud")
         .drive(image, "qcow2")
         .raw_drive_ro(cidata)

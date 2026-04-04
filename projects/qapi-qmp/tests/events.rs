@@ -1,7 +1,9 @@
 //! Event capture tests: trigger QMP events and validate typed deserialization.
 
+#[allow(dead_code, unused_imports)]
 mod common;
 
+#[allow(unused_imports)]
 use common::*;
 use qapi::*;
 
