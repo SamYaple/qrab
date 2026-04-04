@@ -46,6 +46,22 @@ pub async fn cirros_image(arch: Arch) -> PathBuf {
     path
 }
 
+/// Create a temporary copy of the cirros image for a single test.
+/// This avoids file locking conflicts when multiple tests run in parallel.
+pub async fn cirros_image_copy(arch: Arch) -> PathBuf {
+    let source = cirros_image(arch).await;
+    let id = super::SOCKET_COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    let dest = std::env::temp_dir().join(format!(
+        "qrab-cirros-{}-{}-{}.img",
+        arch.label(),
+        std::process::id(),
+        id
+    ));
+    tokio::fs::copy(&source, &dest).await
+        .expect("Failed to copy cirros image");
+    dest
+}
+
 /// Create a blank qcow2 image. Cached by name.
 pub async fn blank_qcow2(name: &str, size_mb: u64) -> PathBuf {
     let path = fixtures_dir().join(format!("{}.qcow2", name));

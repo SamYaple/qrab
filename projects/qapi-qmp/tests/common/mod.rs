@@ -155,14 +155,14 @@ impl QemuBuilder {
         let id = SOCKET_COUNTER.fetch_add(1, Ordering::SeqCst);
         let tmpdir = std::env::temp_dir();
         let qmp_sock = tmpdir.join(format!("qrab-qmp-{}-{}.sock", std::process::id(), id));
-        let serial_sock = if self.serial {
-            Some(tmpdir.join(format!("qrab-serial-{}-{}.sock", std::process::id(), id)))
+        let serial_log = if self.serial {
+            Some(tmpdir.join(format!("qrab-serial-{}-{}.log", std::process::id(), id)))
         } else {
             Option::None
         };
 
         let _ = tokio::fs::remove_file(&qmp_sock).await;
-        if let Some(ref s) = serial_sock {
+        if let Some(ref s) = serial_log {
             let _ = tokio::fs::remove_file(s).await;
         }
 
@@ -211,11 +211,11 @@ impl QemuBuilder {
             format!("unix:{},server=on,wait=off", qmp_sock.display()),
         ]);
 
-        // Serial
-        if let Some(ref sock) = serial_sock {
+        // Serial (file-based for reliable boot detection)
+        if let Some(ref log) = serial_log {
             args.extend([
                 "-serial".into(),
-                format!("unix:{},server=on,wait=off", sock.display()),
+                format!("file:{}", log.display()),
             ]);
         }
 
@@ -253,15 +253,8 @@ impl QemuBuilder {
 
         let (qmp, events) = Qmp::new(&qmp_sock).await?;
 
-        let serial = if let Some(ref sock) = serial_sock {
-            // Wait for serial socket
-            for _ in 0..50 {
-                if sock.exists() {
-                    break;
-                }
-                tokio::time::sleep(Duration::from_millis(100)).await;
-            }
-            Some(SerialConsole::connect(sock).await?)
+        let serial = if let Some(ref log) = serial_log {
+            Some(SerialConsole::new(log.clone()))
         } else {
             Option::None
         };
@@ -273,7 +266,7 @@ impl QemuBuilder {
             _process: QemuProcess {
                 child,
                 qmp_sock,
-                serial_sock,
+                serial_log,
             },
         })
     }
@@ -297,14 +290,14 @@ impl TestQemu {
 struct QemuProcess {
     child: Child,
     qmp_sock: PathBuf,
-    serial_sock: Option<PathBuf>,
+    serial_log: Option<PathBuf>,
 }
 
 impl Drop for QemuProcess {
     fn drop(&mut self) {
         let _ = self.child.start_kill();
         let _ = std::fs::remove_file(&self.qmp_sock);
-        if let Some(ref s) = self.serial_sock {
+        if let Some(ref s) = self.serial_log {
             let _ = std::fs::remove_file(s);
         }
     }
@@ -374,12 +367,13 @@ pub fn event_timeout() -> Duration {
     Duration::from_secs(secs)
 }
 
-/// Boot timeout from env or default 30s.
+/// Boot timeout from env or default 90s.
+/// Cirros takes ~50s due to cloud-init metadata service retries.
 pub fn boot_timeout() -> Duration {
     let secs: u64 = std::env::var("QEMU_TEST_BOOT_TIMEOUT_SECS")
         .ok()
         .and_then(|s| s.parse().ok())
-        .unwrap_or(30);
+        .unwrap_or(90);
     Duration::from_secs(secs)
 }
 
