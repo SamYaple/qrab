@@ -1,9 +1,10 @@
-use super::{qstring, take_dict, take_kv};
+use super::{qstring, qtag, take_dict, take_kv, with_parser_config};
 use crate::{take_branches, take_cond, take_features, take_members_or_ref};
 use crate::{MembersOrRef, QapiBranches, QapiCond, QapiDocumentation, QapiFeatures};
 use nom::branch::alt;
 use nom::combinator::opt;
 use nom::error::{Error, ErrorKind};
+use nom::sequence::delimited;
 use nom::IResult;
 use nom::Parser;
 
@@ -16,19 +17,14 @@ pub struct QapiUnion<'i> {
     pub name: &'i str,
     pub data: QapiBranches<'i>,
     pub base: MembersOrRef<'i>,
-    pub discriminator: &'i str,
+    /// None for simple unions (v1.x-v6.1.0)
+    pub discriminator: Option<&'i str>,
     pub r#if: Option<QapiCond<'i>>,
     pub features: Option<QapiFeatures<'i>>,
     pub doc: Option<QapiDocumentation<'i>>,
 }
 
 impl<'i> QapiUnion<'i> {
-    /// UNION = { 'union': STRING,
-    ///           'base': ( MEMBERS | STRING ),
-    ///           'discriminator': STRING,
-    ///           'data': BRANCHES,
-    ///           '*if': COND,
-    ///           '*features': FEATURES }
     pub fn parse(input: &'i str) -> IResult<&'i str, Self> {
         let (input, doc) = opt(QapiDocumentation::parse).parse(input)?;
         let mut s = Self {
@@ -39,19 +35,25 @@ impl<'i> QapiUnion<'i> {
         let (input, _) = take_dict(alt((
             take_kv("union", qstring).map(|v| s.name = v),
             take_kv("data", take_branches).map(|v| s.data = v),
-            take_kv("discriminator", qstring).map(|v| s.discriminator = v),
+            take_kv("discriminator", qstring).map(|v| s.discriminator = Some(v)),
+            // Old alternate syntax: 'discriminator': {} (v1.7.0-v2.0.0)
+            take_kv("discriminator", delimited(qtag("{"), opt(qstring), qtag("}"))).map(|_| ()),
             take_cond.map(|v| s.r#if = Some(v)),
             take_features.map(|v| s.features = Some(v)),
             take_kv("base", take_members_or_ref).map(|v| s.base = v),
         )))
         .parse(input)?;
-        if s.name.is_empty()
-            || s.discriminator.is_empty()
-            || s.data.is_empty()
-            || s.base == MembersOrRef::Unset
-        {
+
+        if s.name.is_empty() || s.data.is_empty() {
             return Err(nom::Err::Error(Error::new(start, ErrorKind::Tag)));
         }
+
+        if !with_parser_config(|c| c.simple_unions) {
+            if s.discriminator.is_none() || s.base == MembersOrRef::Unset {
+                return Err(nom::Err::Error(Error::new(start, ErrorKind::Tag)));
+            }
+        }
+
         Ok((input, s))
     }
 }
@@ -59,108 +61,61 @@ impl<'i> QapiUnion<'i> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    const VALID_INPUTS: [&str; 5] = [
-        "{'union':'SOMENAME',  'discriminator': 'testdiscrim', 'base': 'testbase', 'data':{'branchname':'branchtype'}}",
-        "{'union': 'SOMENAME', 'discriminator': 'testdiscrim', 'data': {'branchname':'branchtype'}, 'base': {'membername':{'if':'CONFIG_OPTION', 'type': ['sometype'], 'features': ['yes']}}}",
-        r#"{ 'union': 'StatsFilter',
-             'base': {
-                 'target': 'StatsTarget',
-                 '*providers': [ 'StatsRequest' ] },
-             'discriminator': 'target',
-             'data': { 'vcpu': 'StatsVCPUFilter' } }"#,
-        r#"{ 'union': 'ImageInfoSpecific',
-             'base': { 'type': 'ImageInfoSpecificKind' },
-             'discriminator': 'type',
-             'data': {
-                 'qcow2': 'ImageInfoSpecificQCow2Wrapper',
-                 'vmdk': 'ImageInfoSpecificVmdkWrapper',
-                 'luks': 'ImageInfoSpecificLUKSWrapper',
-                 'rbd': 'ImageInfoSpecificRbdWrapper',
-                 'file': 'ImageInfoSpecificFileWrapper'
-              } }"#,
-        r#"{ 'union': 'BlockdevOptions',
-             'base': { 'driver': 'BlockdevDriver',
-                       '*node-name': 'str',
-                       '*discard': 'BlockdevDiscardOptions',
-                       '*cache': 'BlockdevCacheOptions',
-                       '*read-only': 'bool',
-                       '*auto-read-only': 'bool',
-                       '*force-share': 'bool',
-                       '*detect-zeroes': 'BlockdevDetectZeroesOptions' },
-             'discriminator': 'driver',
-             'data': {
-                 'blkdebug':   'BlockdevOptionsBlkdebug',
-                 'blklogwrites':'BlockdevOptionsBlklogwrites',
-                 'blkverify':  'BlockdevOptionsBlkverify',
-                 'blkreplay':  'BlockdevOptionsBlkreplay',
-                 'bochs':      'BlockdevOptionsGenericFormat',
-                 'cloop':      'BlockdevOptionsGenericFormat',
-                 'compress':   'BlockdevOptionsGenericFormat',
-                 'copy-before-write':'BlockdevOptionsCbw',
-                 'copy-on-read':'BlockdevOptionsCor',
-                 'dmg':        'BlockdevOptionsGenericFormat',
-                 'file':       'BlockdevOptionsFile',
-                 'ftp':        'BlockdevOptionsCurlFtp',
-                 'ftps':       'BlockdevOptionsCurlFtps',
-                 'gluster':    'BlockdevOptionsGluster',
-                 'host_cdrom':  { 'type': 'BlockdevOptionsFile',
-                                  'if': 'HAVE_HOST_BLOCK_DEVICE' },
-                 'host_device': { 'type': 'BlockdevOptionsFile',
-                                  'if': 'HAVE_HOST_BLOCK_DEVICE' },
-                 'http':       'BlockdevOptionsCurlHttp',
-                 'https':      'BlockdevOptionsCurlHttps',
-                 'io_uring':   { 'type': 'BlockdevOptionsIoUring',
-                                 'if': 'CONFIG_BLKIO' },
-                 'iscsi':      'BlockdevOptionsIscsi',
-                 'luks':       'BlockdevOptionsLUKS',
-                 'nbd':        'BlockdevOptionsNbd',
-                 'nfs':        'BlockdevOptionsNfs',
-                 'null-aio':   'BlockdevOptionsNull',
-                 'null-co':    'BlockdevOptionsNull',
-                 'nvme':       'BlockdevOptionsNVMe',
-                 'nvme-io_uring': { 'type': 'BlockdevOptionsNvmeIoUring',
-                                    'if': 'CONFIG_BLKIO' },
-                 'parallels':  'BlockdevOptionsGenericFormat',
-                 'preallocate':'BlockdevOptionsPreallocate',
-                 'qcow2':      'BlockdevOptionsQcow2',
-                 'qcow':       'BlockdevOptionsQcow',
-                 'qed':        'BlockdevOptionsGenericCOWFormat',
-                 'quorum':     'BlockdevOptionsQuorum',
-                 'raw':        'BlockdevOptionsRaw',
-                 'rbd':        'BlockdevOptionsRbd',
-                 'replication': { 'type': 'BlockdevOptionsReplication',
-                                  'if': 'CONFIG_REPLICATION' },
-                 'snapshot-access': 'BlockdevOptionsGenericFormat',
-                 'ssh':        'BlockdevOptionsSsh',
-                 'throttle':   'BlockdevOptionsThrottle',
-                 'vdi':        'BlockdevOptionsGenericFormat',
-                 'vhdx':       'BlockdevOptionsGenericFormat',
-                 'virtio-blk-vfio-pci':
-                               { 'type': 'BlockdevOptionsVirtioBlkVfioPci',
-                                 'if': 'CONFIG_BLKIO' },
-                 'virtio-blk-vhost-user':
-                               { 'type': 'BlockdevOptionsVirtioBlkVhostUser',
-                                 'if': 'CONFIG_BLKIO' },
-                 'virtio-blk-vhost-vdpa':
-                               { 'type': 'BlockdevOptionsVirtioBlkVhostVdpa',
-                                 'if': 'CONFIG_BLKIO' },
-                 'vmdk':       'BlockdevOptionsGenericCOWFormat',
-                 'vpc':        'BlockdevOptionsGenericFormat',
-                 'vvfat':      'BlockdevOptionsVVFAT'
-             } }"#,
-    ];
+    use crate::parsers::{ParserConfig, set_parser_config};
 
     #[test]
     fn test_valid() {
-        for input in VALID_INPUTS {
+        let inputs = [
+            "{'union':'SOMENAME',  'discriminator': 'testdiscrim', 'base': 'testbase', 'data':{'branchname':'branchtype'}}",
+            "{'union': 'SOMENAME', 'discriminator': 'testdiscrim', 'data': {'branchname':'branchtype'}, 'base': {'membername':{'if':'CONFIG_OPTION', 'type': ['sometype'], 'features': ['yes']}}}",
+        ];
+        for input in inputs {
             let result = QapiUnion::parse(input);
             match result {
-                Ok((remaining, _)) => {
-                    assert_eq!(remaining, "");
-                }
-                _ => panic!("Failed to parse: ```\n{input}\n```"),
+                Ok((remaining, _)) => assert_eq!(remaining, ""),
+                _ => panic!("Failed to parse: {}", input),
             }
         }
+    }
+
+    #[test]
+    fn test_simple_union() {
+        set_parser_config(ParserConfig::for_version((2, 0, 0)));
+        let input = "{ 'union': 'BlockdevAction', 'data': { 'blockdev-snapshot-sync': 'BlockdevSnapshot' } }";
+        let result = QapiUnion::parse(input);
+        set_parser_config(ParserConfig::modern());
+        match result {
+            Ok((remaining, u)) => {
+                assert_eq!(remaining, "");
+                assert_eq!(u.name, "BlockdevAction");
+                assert!(u.discriminator.is_none());
+                assert_eq!(u.base, MembersOrRef::Unset);
+            }
+            Err(e) => panic!("Simple union should be accepted: {}", e),
+        }
+    }
+
+    #[test]
+    fn test_empty_discriminator() {
+        set_parser_config(ParserConfig::for_version((1, 7, 0)));
+        let input = "{ 'union': 'BlockdevRef', 'discriminator': {}, 'data': { 'definition': 'BlockdevOptions', 'reference': 'str' } }";
+        let result = QapiUnion::parse(input);
+        set_parser_config(ParserConfig::modern());
+        match result {
+            Ok((remaining, u)) => {
+                assert_eq!(remaining, "");
+                assert_eq!(u.name, "BlockdevRef");
+                assert!(u.discriminator.is_none());
+            }
+            Err(e) => panic!("Empty discriminator should be accepted: {}", e),
+        }
+    }
+
+    #[test]
+    fn test_simple_union_rejected_in_modern() {
+        set_parser_config(ParserConfig::modern());
+        let input = "{ 'union': 'Test', 'data': { 'a': 'TypeA' } }";
+        let result = QapiUnion::parse(input);
+        assert!(result.is_err(), "Simple unions should be rejected in modern mode");
     }
 }

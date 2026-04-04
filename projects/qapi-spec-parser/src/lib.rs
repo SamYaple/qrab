@@ -163,9 +163,12 @@ pub fn generate_qapi_code_versioned(qemu_src_root: &Path, schema_file: &Path, ve
         structs_lookup.insert(processed.name.clone(), processed);
     }
     for v in unprocessed_unions.drain(..) {
-        let (processed_struct, processed_enum) =
+        let (processed_struct, processed_enum, disc_enum) =
             process_union(v, &structs_lookup, &enums_lookup);
         enums_lookup.insert(processed_enum.name.clone(), processed_enum);
+        if let Some(de) = disc_enum {
+            enums_lookup.insert(de.name.clone(), de);
+        }
         structs_lookup.insert(processed_struct.name.clone(), processed_struct);
     }
     for v in unprocessed_events.drain(..) {

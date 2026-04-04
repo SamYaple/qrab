@@ -115,7 +115,10 @@ fn process_version_schema(
         structs_lookup.insert(processed.name.clone(), processed);
     }
     for v in unprocessed_unions {
-        let (s, e) = process_union(v, &structs_lookup, &enums_lookup);
+        let (s, e, disc_enum) = process_union(v, &structs_lookup, &enums_lookup);
+        if let Some(de) = disc_enum {
+            enums_lookup.insert(de.name.clone(), de);
+        }
         enums_lookup.insert(e.name.clone(), e);
         structs_lookup.insert(s.name.clone(), s);
     }
