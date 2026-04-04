@@ -1,5 +1,6 @@
 // TODO: Refactor/comment/tests this code.
 // BUG: sometimes struct documentation will get consumed into an option doc
+use super::with_parser_config;
 use nom::branch::alt;
 use nom::bytes::complete::{is_a, tag, tag_no_case, take_until, take_while1};
 use nom::character::complete::{line_ending, multispace0, not_line_ending, space0};
@@ -48,12 +49,22 @@ fn not_name_break(c: char) -> bool {
 }
 
 fn take_name(input: &str) -> IResult<&str, &str> {
-    delimited(
-        (take_line_start, tag("@")),
-        take_while1(not_name_break),
-        (space0, tag(":")),
-    )
-    .parse(input)
+    if with_parser_config(|c| c.optional_doc_name_colon) {
+        // Accept `# @Name` without colon (old format)
+        delimited(
+            (take_line_start, tag("@")),
+            take_while1(not_name_break),
+            (space0, opt(tag(":"))),
+        )
+        .parse(input)
+    } else {
+        delimited(
+            (take_line_start, tag("@")),
+            take_while1(not_name_break),
+            (space0, tag(":")),
+        )
+        .parse(input)
+    }
 }
 
 fn take_namedkv<'i>(
@@ -89,7 +100,15 @@ fn take_line_end(input: &str) -> IResult<&str, &str> {
 }
 
 fn take_empty_line(input: &str) -> IResult<&str, &str> {
-    recognize((take_line_start, take_line_end)).parse(input)
+    if with_parser_config(|c| c.doc_blank_lines) {
+        // Accept both `# ` empty lines and completely blank lines inside doc blocks
+        alt((
+            recognize((take_line_start, take_line_end)),
+            recognize((space0, line_ending)),
+        )).parse(input)
+    } else {
+        recognize((take_line_start, take_line_end)).parse(input)
+    }
 }
 
 fn take_value(input: &str) -> IResult<&str, Vec<&str>> {
@@ -102,6 +121,19 @@ fn take_value(input: &str) -> IResult<&str, Vec<&str>> {
     Ok((input, docstr_to_str(description)))
 }
 
+/// Check for `Since X.Y` without colon (only a stop condition, doesn't consume)
+fn is_since_without_colon(input: &str) -> IResult<&str, &str> {
+    if !with_parser_config(|c| c.optional_doc_name_colon) {
+        return Err(nom::Err::Error(Error::new(input, nom::error::ErrorKind::Tag)));
+    }
+    recognize((
+        take_line_start,
+        tag_no_case("since"),
+        space0,
+        take_while1(|c: char| c.is_ascii_digit() || c == '.'),
+    )).parse(input)
+}
+
 // SUCCESS: on success, this is equivalent to the `take_line_start` parser
 // FAILURE: fails when the parser encouters the start of a new section
 fn take_line_continuation(input: &str) -> IResult<&str, &str> {
@@ -112,6 +144,7 @@ fn take_line_continuation(input: &str) -> IResult<&str, &str> {
             take_namedkey("returns"),
             take_namedkey("errors"),
             take_namedkey("features"),
+            is_since_without_colon,
         ))),
         take_line_start,
         not(alt((
@@ -160,6 +193,12 @@ pub struct QapiDocumentation<'i> {
 
 impl<'i> QapiDocumentation<'i> {
     pub fn parse(input: &'i str) -> IResult<&'i str, Self> {
+        // Consume optional leading whitespace before opening ##
+        let input = if with_parser_config(|c| c.doc_leading_whitespace) {
+            space0::<&str, Error<&str>>(input).map(|(i, _)| i).unwrap_or(input)
+        } else {
+            input
+        };
         let (input, _) = terminated(tag("##"), take_line_end).parse(input)?;
         let (input, _) = many0(take_empty_line).parse(input)?;
         let (input, name) = terminated(take_name, take_line_end).parse(input)?;
@@ -180,7 +219,21 @@ impl<'i> QapiDocumentation<'i> {
         // leads to this `parser.map(|v| ParserToken::Something(v))` pattern.
         // It's not my favorite, but not all return types are `&str`.
         let (input, tokens) = many0(alt((
+            // Standard "Since: X.Y" with colon
             take_namedkv("since").map(ParserToken::Since),
+            // Old format "Since X.Y" without colon — only version numbers
+            (|input| {
+                if !with_parser_config(|c| c.optional_doc_name_colon) {
+                    return Err(nom::Err::Error(Error::new(input, nom::error::ErrorKind::Tag)));
+                }
+                let (input, _) = take_line_start(input)?;
+                let (input, _) = tag_no_case("since")(input)?;
+                let (input, _) = space0(input)?;
+                let (input, ver) = recognize(many1(is_a("0123456789."))).parse(input)?;
+                let (input, _) = not_line_ending(input)?;
+                let (input, _) = line_ending(input)?;
+                Ok((input, ver))
+            }).map(ParserToken::Since),
             take_namedkv("returns").map(ParserToken::Returns),
             take_namedkv("errors").map(ParserToken::Errors),
             take_namedkv(".. note:").map(ParserToken::Note),
@@ -206,6 +259,12 @@ impl<'i> QapiDocumentation<'i> {
 
         // UPSTREAMFIX: This is because `qga/qapi-schema.json` in the `@GuestNetworkRoute` doc block.
         let (input, _) = multispace0(input)?;
+        // Consume optional leading whitespace before closing ##
+        let input = if with_parser_config(|c| c.doc_leading_whitespace) {
+            space0::<&str, Error<&str>>(input).map(|(i, _)| i).unwrap_or(input)
+        } else {
+            input
+        };
         let (input, _) = tag("##").parse(input)?;
 
         ////
@@ -270,6 +329,11 @@ pub struct QapiSectionDocumentation<'i> {
 
 impl<'i> QapiSectionDocumentation<'i> {
     pub fn parse(input: &'i str) -> IResult<&'i str, Self> {
+        let input = if with_parser_config(|c| c.doc_leading_whitespace) {
+            space0::<&str, Error<&str>>(input).map(|(i, _)| i).unwrap_or(input)
+        } else {
+            input
+        };
         let (input, _) = terminated(tag("##"), take_line_end).parse(input)?;
         let (input, _) = many0(take_empty_line).parse(input)?;
         let (input, name) = delimited(
@@ -644,6 +708,83 @@ mod tests {
                 }
                 _ => panic!("Failed to parse: ```\n{input}\n```"),
             }
+        }
+    }
+
+    #[test]
+    fn test_doc_preserves_description() {
+        let input = "##\n# @RunState:\n#\n# An enumeration of VM run states.\n#\n# @debug: QEMU is running on a debugger\n#\n# Since: 0.14\n##";
+        let (_, doc) = QapiDocumentation::parse(input).unwrap();
+        assert_eq!(doc.name, "RunState");
+        assert!(!doc.description.is_empty(), "description should be preserved");
+        assert!(doc.description.iter().any(|d| d.contains("enumeration")));
+        assert_eq!(doc.since, Some("0.14"));
+        assert!(!doc.fields.is_empty(), "fields should be preserved");
+        assert_eq!(doc.fields[0].0, "debug");
+    }
+
+    #[test]
+    fn test_doc_blank_lines() {
+        use crate::parsers::{ParserConfig, set_parser_config};
+        set_parser_config(ParserConfig { doc_blank_lines: true, ..ParserConfig::modern() });
+        let input = "##\n# @Name:\n\n# description\n#\n# Since: 1.0\n##";
+        let result = QapiDocumentation::parse(input);
+        set_parser_config(ParserConfig::modern());
+        match result {
+            Ok((remaining, doc)) => {
+                assert_eq!(remaining, "");
+                assert_eq!(doc.name, "Name");
+            }
+            Err(e) => panic!("Blank lines in doc block should be accepted: {}", e),
+        }
+    }
+
+    #[test]
+    fn test_doc_leading_whitespace() {
+        use crate::parsers::{ParserConfig, set_parser_config};
+        set_parser_config(ParserConfig { doc_leading_whitespace: true, ..ParserConfig::modern() });
+        let input = " ##\n# @Name:\n#\n# Since: 1.0\n ##";
+        let result = QapiDocumentation::parse(input);
+        set_parser_config(ParserConfig::modern());
+        match result {
+            Ok((remaining, doc)) => {
+                assert_eq!(remaining, "");
+                assert_eq!(doc.name, "Name");
+            }
+            Err(e) => panic!("Leading whitespace before ## should be accepted: {}", e),
+        }
+    }
+
+    #[test]
+    fn test_doc_optional_name_colon() {
+        use crate::parsers::{ParserConfig, set_parser_config};
+        set_parser_config(ParserConfig { optional_doc_name_colon: true, ..ParserConfig::modern() });
+        let input = "##\n# @StatusInfo\n#\n# Since: 0.14\n##";
+        let result = QapiDocumentation::parse(input);
+        set_parser_config(ParserConfig::modern());
+        match result {
+            Ok((remaining, doc)) => {
+                assert_eq!(remaining, "");
+                assert_eq!(doc.name, "StatusInfo");
+            }
+            Err(e) => panic!("Name without colon should be accepted: {}", e),
+        }
+    }
+
+    #[test]
+    fn test_doc_since_without_colon() {
+        use crate::parsers::{ParserConfig, set_parser_config};
+        set_parser_config(ParserConfig { optional_doc_name_colon: true, ..ParserConfig::modern() });
+        let input = "##\n# @StatusInfo:\n#\n# Since 0.14.0\n##";
+        let result = QapiDocumentation::parse(input);
+        set_parser_config(ParserConfig::modern());
+        match result {
+            Ok((remaining, doc)) => {
+                assert_eq!(remaining, "");
+                assert_eq!(doc.name, "StatusInfo");
+                assert_eq!(doc.since, Some("0.14.0"));
+            }
+            Err(e) => panic!("Since without colon should be accepted: {}", e),
         }
     }
 }
