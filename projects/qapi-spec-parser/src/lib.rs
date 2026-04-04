@@ -1,3 +1,4 @@
+pub mod preprocess;
 pub mod qapi_ir;
 pub mod parsers;
 pub mod unified;
