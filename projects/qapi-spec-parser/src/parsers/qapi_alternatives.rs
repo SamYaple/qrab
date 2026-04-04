@@ -13,7 +13,7 @@ pub struct QapiAlternatives<'i>(pub Vec<QapiAlternative<'i>>);
 impl<'i> QapiAlternatives<'i> {
     /// ALTERNATIVES = { ALTERNATIVE, ... }
     pub fn parse(input: &'i str) -> IResult<&'i str, Self> {
-        take_dict(take_alternative).map(|v| Self(v)).parse(input)
+        take_dict(take_alternative).map(Self).parse(input)
     }
 }
 vec_newtype!(QapiAlternatives, QapiAlternative<'i>);

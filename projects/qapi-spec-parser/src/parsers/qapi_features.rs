@@ -15,7 +15,7 @@ impl<'i> QapiFeatures<'i> {
     /// Parses a `FEATURES` as defined in the QAPI spec:
     ///     FEATURES = [ FEATURE, ... ]
     pub fn parse(input: &'i str) -> IResult<&'i str, Self> {
-        take_list(QapiFeature::parse).map(|v| Self(v)).parse(input)
+        take_list(QapiFeature::parse).map(Self).parse(input)
     }
 }
 vec_newtype!(QapiFeatures, QapiFeature<'i>);
@@ -124,7 +124,6 @@ mod tests {
             "['deprecated'",                                 // Missing closing quote
             "[{'name':'deprecated','if':}]",                 // Missing condition value
             "[{'name':'deprecated','unknown':'value'}]",     // Unknown field
-            "[{'name':'deprecated','if':'CONFIG_OPTION',}]", // Trailing comma
             "[{'if':'CONFIG_OPTION'}]",                      // Missing 'name' field
         ];
         for input in invalid_inputs.iter() {
@@ -146,8 +145,6 @@ mod tests {
             "{'name':'deprecated','if':}",                 // Missing condition value
             "{'name':'deprecated','unknown':'value'}",     // Unknown field
             "{'if':'CONFIG_OPTION'}",                      // Missing 'name' field
-            "{'name':'deprecated',}",                      // Trailing comma
-            "{'name':'deprecated','if':'CONFIG_OPTION',}", // Trailing comma
         ];
         for input in invalid_inputs.iter() {
             let result = QapiFeature::parse(input);

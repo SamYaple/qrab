@@ -362,7 +362,6 @@ pub fn fix_simple_unions(content: &str) -> String {
         }
 
         // Extract the union name
-        let name_re = Regex::new(r"'union':\s*'([^']+)'").unwrap();
         let name = match name_re.captures(full_block) {
             Some(cap) => cap.get(1).unwrap().as_str().to_string(),
             None => { result.push_str(&remaining[..brace_start + block_end + 1]); remaining = &remaining[brace_start + block_end + 1..]; continue; }
@@ -384,7 +383,6 @@ pub fn fix_simple_unions(content: &str) -> String {
         };
         let data_content = &full_block[data_brace + 1..data_end];
 
-        let branch_re = Regex::new(r"'([^']+)'\s*:").unwrap();
         let branches: Vec<String> = branch_re.captures_iter(data_content)
             .map(|c| c.get(1).unwrap().as_str().to_string())
             .collect();
@@ -564,15 +562,13 @@ pub fn fix_doc_name_at_prefix(content: &str) -> String {
         if i > 0 && lines[i - 1].trim() == "##" {
             // This line follows ##. Check if it's `# Name:` without @
             let trimmed = lines[i].trim();
-            if let Some(rest) = trimmed.strip_prefix("# ") {
-                if !rest.starts_with('@') && !rest.starts_with('=') {
-                    // Check if it looks like a type/command name followed by colon
-                    if let Some(colon_pos) = rest.find(':') {
-                        let name = &rest[..colon_pos];
-                        if !name.is_empty() && name.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_') {
-                            result.push_str(&format!("# @{}:{}\n", name, &rest[colon_pos + 1..]));
-                            continue;
-                        }
+            if let Some(rest) = trimmed.strip_prefix("# ").filter(|r| !r.starts_with('@') && !r.starts_with('=')) {
+                // Check if it looks like a type/command name followed by colon
+                if let Some(colon_pos) = rest.find(':') {
+                    let name = &rest[..colon_pos];
+                    if !name.is_empty() && name.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_') {
+                        result.push_str(&format!("# @{}:{}\n", name, &rest[colon_pos + 1..]));
+                        continue;
                     }
                 }
             }
@@ -654,8 +650,7 @@ pub fn fix_rst_section_headers(content: &str) -> String {
         {
             let title = lines[i + 1].trim();
             // The title should be a `# SomeText` line
-            if title.starts_with("# ") {
-                let title_text = &title[2..];
+            if let Some(title_text) = title.strip_prefix("# ") {
                 result.push_str(&format!("# = {}\n", title_text));
                 i += 3; // Skip decoration, title, decoration
                 continue;

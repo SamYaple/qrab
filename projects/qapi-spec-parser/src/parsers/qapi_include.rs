@@ -14,7 +14,7 @@ impl<'i> QapiInclude<'i> {
     pub fn parse(input: &'i str) -> IResult<&'i str, Self> {
         delimited(
             qtag("{"),
-            take_kv("include", qstring).map(|v| Self(v)),
+            take_kv("include", qstring).map(Self),
             qtag("}"),
         )
         .parse(input)

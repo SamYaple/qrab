@@ -13,7 +13,7 @@ pub struct QapiMembers<'i>(pub Vec<QapiMember<'i>>);
 impl<'i> QapiMembers<'i> {
     /// MEMBERS = { MEMBER, ... }
     pub fn parse(input: &'i str) -> IResult<&'i str, Self> {
-        take_dict(QapiMember::parse).map(|v| Self(v)).parse(input)
+        take_dict(QapiMember::parse).map(Self).parse(input)
     }
 }
 vec_newtype!(QapiMembers, QapiMember<'i>);
@@ -23,7 +23,9 @@ pub fn take_members_or_ref(input: &str) -> IResult<&str, MembersOrRef<'_>> {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+#[derive(Default)]
 pub enum MembersOrRef<'i> {
+    #[default]
     Unset,
     Ref(&'i str),
     Members(QapiMembers<'i>),
@@ -33,18 +35,13 @@ impl<'i> MembersOrRef<'i> {
     /// STRING | MEMBERS
     pub fn parse(input: &'i str) -> IResult<&'i str, Self> {
         alt((
-            qstring.map(|v| Self::Ref(v)),
-            take_members.map(|v| Self::Members(v)),
+            qstring.map(Self::Ref),
+            take_members.map(Self::Members),
         ))
         .parse(input)
     }
 }
 
-impl Default for MembersOrRef<'_> {
-    fn default() -> Self {
-        Self::Unset
-    }
-}
 
 #[cfg(test)]
 mod tests {

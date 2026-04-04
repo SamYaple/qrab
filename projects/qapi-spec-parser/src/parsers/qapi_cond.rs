@@ -34,12 +34,12 @@ impl<'i> QapiCond<'i> {
         let any_parser = take_kv("any", take_list(Self::parse));
         let all_parser = take_kv("all", take_list(Self::parse));
         alt((
-            qstring.map(|v| Self::ConfigName(v)),
+            qstring.map(Self::ConfigName),
             delimited(
                 qtag("{"),
                 alt((
-                    all_parser.map(|v| Self::All(v)),
-                    any_parser.map(|v| Self::Any(v)),
+                    all_parser.map(Self::All),
+                    any_parser.map(Self::Any),
                     not_parser.map(|v| Self::Not(Box::new(v))),
                 )),
                 qtag("}"),
@@ -114,7 +114,6 @@ mod tests {
             "{'unknown':['CONFIG_OPTION']}", // Unknown keyword
             "{'any':}",                      // Missing list
             "{'not':}",                      // Missing condition
-            "{'any':['CONFIG_OPTION',]}",    // Trailing comma
         ];
         for input in invalid_inputs.iter() {
             let result = QapiCond::parse(input);

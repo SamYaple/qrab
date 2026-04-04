@@ -1,4 +1,4 @@
-use super::{qbool, qstring, take_dict, take_kv};
+use super::{qbool, qstring, take_dict, take_kv, with_parser_config};
 use crate::{take_cond, take_features, take_members_or_ref};
 use crate::{MembersOrRef, QapiCond, QapiDocumentation, QapiFeatures, QapiTypeRef};
 use nom::branch::alt;
@@ -61,7 +61,14 @@ impl<'i> QapiCommand<'i> {
             take_kv("success-response", qbool).map(|v| {
                 s.success_response = Some(v)
             }),
-            take_kv("gen", qbool).map(|v| s.r#gen = Some(v)),
+            take_kv("gen", |input| {
+                // Accept 'gen': 'no'/'yes' (string) in older schemas alongside true/false
+                if with_parser_config(|c| c.gen_string_as_bool) {
+                    nom::branch::alt((qbool, qstring)).parse(input)
+                } else {
+                    qbool(input)
+                }
+            }).map(|v| s.r#gen = Some(v)),
             take_kv("allow-oob", qbool).map(|v| s.allow_oob = Some(v)),
             take_kv("coroutine", qbool).map(|v| s.coroutine = Some(v)),
             take_kv("allow-preconfig", qbool).map(|v| {
@@ -98,5 +105,31 @@ mod tests {
                 _ => panic!("Failed to parse: ```\n{input}\n```"),
             }
         }
+    }
+
+    #[test]
+    fn test_gen_string_as_bool() {
+        use crate::parsers::{ParserConfig, set_parser_config};
+        set_parser_config(ParserConfig::for_version((1, 1, 0)));
+        let input = "{ 'command': 'query-name', 'returns': 'NameInfo', 'gen': 'no' }";
+        let result = QapiCommand::parse(input);
+        set_parser_config(ParserConfig::modern());
+        match result {
+            Ok((remaining, cmd)) => {
+                assert_eq!(remaining, "");
+                assert_eq!(cmd.name, "query-name");
+                assert_eq!(cmd.r#gen, Some("no"));
+            }
+            Err(e) => panic!("gen string should be accepted in old mode: {}", e),
+        }
+    }
+
+    #[test]
+    fn test_gen_string_rejected_in_modern() {
+        use crate::parsers::{ParserConfig, set_parser_config};
+        set_parser_config(ParserConfig::modern());
+        let input = "{ 'command': 'test', 'gen': 'no' }";
+        let result = QapiCommand::parse(input);
+        assert!(result.is_err(), "'gen': 'no' should be rejected in modern mode");
     }
 }

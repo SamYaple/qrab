@@ -9,17 +9,14 @@ pub fn take_type_ref(input: &str) -> IResult<&str, QapiTypeRef<'_>> {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+#[derive(Default)]
 pub enum QapiTypeRef<'i> {
+    #[default]
     Unset,
     Ref(&'i str),
     ArrayRef(&'i str),
 }
 
-impl Default for QapiTypeRef<'_> {
-    fn default() -> Self {
-        Self::Unset
-    }
-}
 
 impl<'i> QapiTypeRef<'i> {
     /// TYPE-REF = STRING | ARRAY-TYPE
@@ -27,8 +24,8 @@ impl<'i> QapiTypeRef<'i> {
     pub fn parse(input: &'i str) -> IResult<&'i str, Self> {
         let array_parser = delimited(qtag("["), qstring, qtag("]"));
         alt((
-            qstring.map(|v| Self::Ref(v)),
-            array_parser.map(|v| Self::ArrayRef(v)),
+            qstring.map(Self::Ref),
+            array_parser.map(Self::ArrayRef),
         ))
         .parse(input)
     }

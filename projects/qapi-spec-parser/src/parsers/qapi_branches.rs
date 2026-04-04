@@ -12,7 +12,7 @@ pub struct QapiBranches<'i>(pub Vec<QapiBranch<'i>>);
 impl<'i> QapiBranches<'i> {
     /// BRANCHES = { BRANCH, ... }
     pub fn parse(input: &'i str) -> IResult<&'i str, Self> {
-        take_dict(QapiBranch::parse).map(|v| Self(v)).parse(input)
+        take_dict(QapiBranch::parse).map(Self).parse(input)
     }
 }
 vec_newtype!(QapiBranches, QapiBranch<'i>);

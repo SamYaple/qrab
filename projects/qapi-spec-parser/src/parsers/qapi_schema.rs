@@ -37,19 +37,19 @@ pub struct QapiSchema<'i>(pub Vec<QapiSchemaToken<'i>>);
 impl<'i> QapiSchema<'i> {
     pub fn parse(input: &'i str) -> IResult<&'i str, Self> {
         many0(alt((
-            QapiAlternate::parse.map(|v| QapiSchemaToken::Alternate(v)),
-            QapiCommand::parse.map(|v| QapiSchemaToken::Command(v)),
-            QapiEnum::parse.map(|v| QapiSchemaToken::Enum(v)),
-            QapiEvent::parse.map(|v| QapiSchemaToken::Event(v)),
-            QapiStruct::parse.map(|v| QapiSchemaToken::Struct(v)),
-            QapiUnion::parse.map(|v| QapiSchemaToken::Union(v)),
-            QapiInclude::parse.map(|v| QapiSchemaToken::Include(v)),
-            QapiPragma::parse.map(|v| QapiSchemaToken::Pragma(v)),
-            QapiSectionDocumentation::parse.map(|v| QapiSchemaToken::Doc(v)),
-            qcomment.map(|v| QapiSchemaToken::Comment(v)),
+            QapiAlternate::parse.map(QapiSchemaToken::Alternate),
+            QapiCommand::parse.map(QapiSchemaToken::Command),
+            QapiEnum::parse.map(QapiSchemaToken::Enum),
+            QapiEvent::parse.map(QapiSchemaToken::Event),
+            QapiStruct::parse.map(QapiSchemaToken::Struct),
+            QapiUnion::parse.map(QapiSchemaToken::Union),
+            QapiInclude::parse.map(QapiSchemaToken::Include),
+            QapiPragma::parse.map(QapiSchemaToken::Pragma),
+            QapiSectionDocumentation::parse.map(QapiSchemaToken::Doc),
+            qcomment.map(QapiSchemaToken::Comment),
             multispace1.map(|_| QapiSchemaToken::EmptyLines),
         )))
-        .map(|tokens| Self(tokens))
+        .map(Self)
         .parse(input)
     }
 }

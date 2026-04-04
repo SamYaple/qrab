@@ -64,7 +64,7 @@ macro_rules! add_docs {
 
 fn field_name_attr(name: &str) -> Option<Attribute> {
     let rust_name = rustify_field_name(name);
-    if name != &rust_name {
+    if name != rust_name {
         Some(Attribute::with_value("name", name))
     } else {
         None
@@ -73,7 +73,7 @@ fn field_name_attr(name: &str) -> Option<Attribute> {
 
 fn name_attr(name: &str) -> Option<Attribute> {
     let rust_name = rustify_name(name);
-    if name != &rust_name {
+    if name != rust_name {
         Some(Attribute::with_value("name", name))
     } else {
         None
@@ -202,7 +202,7 @@ pub fn process_member(q: QapiMember) -> StructField {
 pub fn process_struct(q: QapiStruct, structs_lookup: &HashMap<String, Struct>) -> Struct {
     let mut fields = Vec::new();
     if let Some(base) = q.base {
-        let struct_ref = structs_lookup.get(base.into()).unwrap_or_else(|| panic!(
+        let struct_ref = structs_lookup.get(base).unwrap_or_else(|| panic!(
             "base struct not found for {} with base {}",
             q.name, base
         ));
@@ -675,20 +675,14 @@ pub fn process_command(q: QapiCommand) -> Struct {
     } else {
         meta.attributes.push(Attribute::with_value("returns", "()"));
     }
-    if let Some(b) = q.allow_oob {
-        if b.parse::<bool>().unwrap() {
-            meta.attributes.push(Attribute::new("allow_oob"));
-        }
+    if q.allow_oob == Some("true") {
+        meta.attributes.push(Attribute::new("allow_oob"));
     }
-    if let Some(b) = q.allow_preconfig {
-        if b.parse::<bool>().unwrap() {
-            meta.attributes.push(Attribute::new("allow_preconfig"));
-        }
+    if q.allow_preconfig == Some("true") {
+        meta.attributes.push(Attribute::new("allow_preconfig"));
     }
-    if let Some(b) = q.success_response {
-        if !b.parse::<bool>().unwrap() {
-            meta.attributes.push(Attribute::new("no_success_response"));
-        }
+    if q.success_response == Some("false") {
+        meta.attributes.push(Attribute::new("no_success_response"));
     }
 
     Struct {

@@ -223,7 +223,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_invalid_trailing_comma() {
+    fn test_parse_trailing_comma_accepted() {
         let inputs = [
             "{'name':'feature_name',}",
             "{'name':'feature_name', 'if':'condition',}",
@@ -231,8 +231,9 @@ mod tests {
         for input in inputs.iter() {
             let result = QapiFeature::parse(input);
             assert!(
-                result.is_err(),
-                "Expected parsing to fail due to trailing comma"
+                result.is_ok(),
+                "Trailing commas should be accepted: {}",
+                input
             );
         }
     }

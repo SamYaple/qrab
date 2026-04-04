@@ -184,7 +184,7 @@ where
 {
     delimited(
         qtag("["),
-        separated_list0(qtag(","), item_parser),
+        (separated_list0(qtag(","), item_parser), opt(qtag(","))).map(|(v, _)| v),
         qtag("]"),
     )
 }
@@ -197,7 +197,7 @@ where
 {
     delimited(
         qtag("{"),
-        separated_list0(qtag(","), item_parser),
+        (separated_list0(qtag(","), item_parser), opt(qtag(","))).map(|(v, _)| v),
         qtag("}"),
     )
 }

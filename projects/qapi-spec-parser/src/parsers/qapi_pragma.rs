@@ -39,16 +39,24 @@ impl<'i> QapiPragma<'i> {
         });
         let command_name_exceptions_parser =
             take_kv("command-name-exceptions", take_list(qstring))
-                .map(|v| ParserToken::CommandNameExceptions(v));
+                .map(ParserToken::CommandNameExceptions);
         let command_returns_exceptions_parser =
             take_kv("command-returns-exceptions", take_list(qstring))
-                .map(|v| ParserToken::CommandReturnsExceptions(v));
+                .map(ParserToken::CommandReturnsExceptions);
         let documentation_exceptions_parser =
             take_kv("documentation-exceptions", take_list(qstring))
-                .map(|v| ParserToken::DocumentationExceptions(v));
+                .map(ParserToken::DocumentationExceptions);
         let member_name_exceptions_parser =
             take_kv("member-name-exceptions", take_list(qstring))
-                .map(|v| ParserToken::MemberNameExceptions(v));
+                .map(ParserToken::MemberNameExceptions);
+
+        // Old pragma keys (v2.10.0–v4.2.0) — treated as aliases
+        let returns_whitelist_parser =
+            take_kv("returns-whitelist", take_list(qstring))
+                .map(ParserToken::CommandReturnsExceptions);
+        let name_case_whitelist_parser =
+            take_kv("name-case-whitelist", take_list(qstring))
+                .map(ParserToken::MemberNameExceptions);
 
         let parsers = alt((
             doc_required_parser,
@@ -56,6 +64,8 @@ impl<'i> QapiPragma<'i> {
             command_returns_exceptions_parser,
             documentation_exceptions_parser,
             member_name_exceptions_parser,
+            returns_whitelist_parser,
+            name_case_whitelist_parser,
         ));
         delimited(
             (qtag("{"), qtag("'pragma'"), qtag(":"), qtag("{")),
@@ -133,6 +143,16 @@ mod tests {
                 }
                 _ => panic!("Failed to parse: ```\n{input}\n```"),
             }
+        }
+    }
+
+    #[test]
+    fn test_old_pragma_keys() {
+        let input = "{ 'pragma': { 'returns-whitelist': ['human-monitor-command'], 'name-case-whitelist': ['ACPISlotType'] } }";
+        let result = QapiPragma::parse(input);
+        match result {
+            Ok((remaining, _)) => assert_eq!(remaining, ""),
+            Err(e) => panic!("Old pragma keys should be accepted: {}", e),
         }
     }
 }

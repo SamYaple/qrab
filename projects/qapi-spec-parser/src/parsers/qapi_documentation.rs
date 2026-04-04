@@ -180,12 +180,12 @@ impl<'i> QapiDocumentation<'i> {
         // leads to this `parser.map(|v| ParserToken::Something(v))` pattern.
         // It's not my favorite, but not all return types are `&str`.
         let (input, tokens) = many0(alt((
-            take_namedkv("since").map(|v| ParserToken::Since(v)),
-            take_namedkv("returns").map(|v| ParserToken::Returns(v)),
-            take_namedkv("errors").map(|v| ParserToken::Errors(v)),
-            take_namedkv(".. note:").map(|v| ParserToken::Note(v)),
-            take_namedkv(".. caution:").map(|v| ParserToken::Caution(v)),
-            take_namedkv(".. table:").map(|v| ParserToken::Table(v)),
+            take_namedkv("since").map(ParserToken::Since),
+            take_namedkv("returns").map(ParserToken::Returns),
+            take_namedkv("errors").map(ParserToken::Errors),
+            take_namedkv(".. note:").map(ParserToken::Note),
+            take_namedkv(".. caution:").map(ParserToken::Caution),
+            take_namedkv(".. table:").map(ParserToken::Table),
             take_namedkv(".. qmp-example:").map(|v| {
                 ParserToken::QmpExample(v)
             }),
@@ -200,7 +200,7 @@ impl<'i> QapiDocumentation<'i> {
                 ),
                 many1((take_name, take_value)),
             )
-            .map(|v| ParserToken::Features(v)),
+            .map(ParserToken::Features),
         )))
         .parse(input)?;
 

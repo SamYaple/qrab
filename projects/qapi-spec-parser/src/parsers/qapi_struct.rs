@@ -1,4 +1,4 @@
-use super::{qstring, take_dict, take_kv};
+use super::{qstring, take_dict, take_kv, with_parser_config};
 use crate::{take_cond, take_features, take_members};
 use crate::{QapiCond, QapiDocumentation, QapiFeatures, QapiMembers};
 use nom::branch::alt;
@@ -6,6 +6,17 @@ use nom::combinator::opt;
 use nom::error::{Error, ErrorKind};
 use nom::IResult;
 use nom::Parser;
+
+/// Parser that accepts `'struct': STRING` or `'type': STRING` (when enabled).
+fn take_struct_name(input: &str) -> IResult<&str, &str> {
+    if let Ok(result) = take_kv("struct", qstring).parse(input) {
+        return Ok(result);
+    }
+    if with_parser_config(|c| c.type_as_struct) {
+        return take_kv("type", qstring).parse(input);
+    }
+    Err(nom::Err::Error(Error::new(input, ErrorKind::Tag)))
+}
 
 pub fn take_struct(input: &str) -> IResult<&str, QapiStruct<'_>> {
     QapiStruct::parse(input)
@@ -35,7 +46,7 @@ impl<'i> QapiStruct<'i> {
         };
         let start = input;
         let (input, _) = take_dict(alt((
-            take_kv("struct", qstring).map(|v| s.name = v),
+            take_struct_name.map(|v| s.name = v),
             take_kv("base", qstring).map(|v| s.base = Some(v)),
             take_cond.map(|v| s.r#if = Some(v)),
             take_features.map(|v| s.features = Some(v)),
@@ -81,5 +92,30 @@ mod tests {
                 _ => panic!("Failed to parse: ```\n{input}\n```"),
             }
         }
+    }
+
+    #[test]
+    fn test_type_as_struct_enabled() {
+        use crate::parsers::{ParserConfig, set_parser_config};
+        set_parser_config(ParserConfig::for_version((2, 0, 0)));
+        let input = "{ 'type': 'NameInfo', 'data': {'*name': 'str'} }";
+        let result = QapiStruct::parse(input);
+        set_parser_config(ParserConfig::modern());
+        match result {
+            Ok((remaining, s)) => {
+                assert_eq!(remaining, "");
+                assert_eq!(s.name, "NameInfo");
+            }
+            Err(e) => panic!("Failed: {}", e),
+        }
+    }
+
+    #[test]
+    fn test_type_as_struct_rejected_in_modern() {
+        use crate::parsers::{ParserConfig, set_parser_config};
+        set_parser_config(ParserConfig::modern());
+        let input = "{ 'type': 'NameInfo', 'data': {'*name': 'str'} }";
+        let result = QapiStruct::parse(input);
+        assert!(result.is_err(), "'type' should be rejected in modern mode");
     }
 }
