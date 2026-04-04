@@ -114,7 +114,7 @@ mod tests {
             "{'unknown':['CONFIG_OPTION']}", // Unknown keyword
             "{'any':}",                      // Missing list
             "{'not':}",                      // Missing condition
-            "{'any':['CONFIG_OPTION',]}",    // Trailing comma
+            // Trailing commas are now accepted for compatibility
         ];
         for input in invalid_inputs.iter() {
             let result = QapiCond::parse(input);

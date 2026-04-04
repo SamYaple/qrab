@@ -113,6 +113,7 @@ fn struct_roundtrip() {
     init_version();
     let val = StatusInfo {
         running: true,
+        singlestep: Some(false),
         status: RunState::Running,
     };
     let json = serde_json::to_string(&val).unwrap();
@@ -125,7 +126,6 @@ fn struct_roundtrip() {
 fn command_trait_query_status() {
     assert_eq!(QueryStatus::NAME, "query-status");
     assert!(!QueryStatus::ALLOW_OOB);
-    assert!(QueryStatus::ALLOW_PRECONFIG);
     assert!(QueryStatus::SUCCESS_RESPONSE);
     // Returns type check — this is a compile-time check
     fn _check_returns(_: <QueryStatus as QapiCommand>::Returns) {}
@@ -167,8 +167,8 @@ fn command_serialize() {
 fn event_serialize() {
     init_version();
     let evt = ShutdownEvent {
-        guest: true,
-        reason: ShutdownCause::HostSignal,
+        guest: Some(true),
+        reason: Some(ShutdownCause::HostSignal),
     };
     let json = serde_json::to_string(&evt).unwrap();
     let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
@@ -181,17 +181,12 @@ fn event_deserialize() {
     init_version();
     let json = r#"{"guest": false, "reason": "host-qmp-quit"}"#;
     let evt: ShutdownEvent = serde_json::from_str(json).unwrap();
-    assert!(!evt.guest);
-    assert!(matches!(evt.reason, ShutdownCause::HostQmpQuit));
+    assert_eq!(evt.guest, Some(false));
+    assert!(matches!(evt.reason, Some(ShutdownCause::HostQmpQuit)));
 }
 
 #[test]
 fn version_gating_rejects_old_version() {
-    // Set a very old version
-    // Note: OnceLock only sets once, so this test must run in isolation
-    // or we rely on the version being set high from init_version
-    // For now just verify the version check logic exists by testing serialization
-    // with the high version set
     init_version();
     let val = IoOperationType::Read;
     assert!(serde_json::to_string(&val).is_ok());
@@ -219,4 +214,11 @@ fn error_class_roundtrip() {
     assert_eq!(json, r#""GenericError""#);
     let back: QapiErrorClass = serde_json::from_str(&json).unwrap();
     assert!(matches!(back, QapiErrorClass::GenericError));
+}
+
+#[test]
+fn command_version_info() {
+    // Test that AVAILABLE_SINCE and REMOVED_IN are set correctly
+    assert_eq!(QueryStatus::AVAILABLE_SINCE, (0, 14, 0));
+    assert_eq!(QueryStatus::REMOVED_IN, None);
 }

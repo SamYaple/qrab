@@ -50,12 +50,22 @@ impl<'i> QapiPragma<'i> {
             take_kv("member-name-exceptions", take_list(qstring))
                 .map(|v| ParserToken::MemberNameExceptions(v));
 
+        // Old pragma key names (v2.10.0 - v4.2.0)
+        let returns_whitelist_parser =
+            take_kv("returns-whitelist", take_list(qstring))
+                .map(|v| ParserToken::CommandReturnsExceptions(v));
+        let name_case_whitelist_parser =
+            take_kv("name-case-whitelist", take_list(qstring))
+                .map(|v| ParserToken::MemberNameExceptions(v));
+
         let parsers = alt((
             doc_required_parser,
             command_name_exceptions_parser,
             command_returns_exceptions_parser,
             documentation_exceptions_parser,
             member_name_exceptions_parser,
+            returns_whitelist_parser,
+            name_case_whitelist_parser,
         ));
         delimited(
             (qtag("{"), qtag("'pragma'"), qtag(":"), qtag("{")),

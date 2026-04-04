@@ -12,6 +12,7 @@ use syn::{
 struct TypeAttrs {
     name: Option<String>,
     since: Option<String>,
+    until: Option<String>,
     condition: Option<String>,
     returns: Option<String>,
     allow_oob: bool,
@@ -25,6 +26,7 @@ struct TypeAttrs {
 struct ItemAttrs {
     name: Option<String>,
     since: Option<String>,
+    until: Option<String>,
     condition: Option<String>,
     feature: Option<String>,
     flatten: bool,
@@ -45,6 +47,8 @@ fn parse_type_attrs(args: &[NestedMeta]) -> TypeAttrs {
                         attrs.name = Some(val);
                     } else if nv.path.is_ident("since") {
                         attrs.since = Some(val);
+                    } else if nv.path.is_ident("until") {
+                        attrs.until = Some(val);
                     } else if nv.path.is_ident("condition") {
                         attrs.condition = Some(val);
                     } else if nv.path.is_ident("returns") {
@@ -86,6 +90,8 @@ fn parse_item_attrs(meta_list: &MetaList) -> ItemAttrs {
                         attrs.name = Some(val);
                     } else if nv.path.is_ident("since") {
                         attrs.since = Some(val);
+                    } else if nv.path.is_ident("until") {
+                        attrs.until = Some(val);
                     } else if nv.path.is_ident("condition") {
                         attrs.condition = Some(val);
                     } else if nv.path.is_ident("feature") {
@@ -116,6 +122,7 @@ fn extract_all_item_attrs(syn_attrs: &[syn::Attribute]) -> ItemAttrs {
                 let parsed = parse_item_attrs(&meta_list);
                 result.name = result.name.or(parsed.name);
                 result.since = result.since.or(parsed.since);
+                result.until = result.until.or(parsed.until);
                 result.condition = result.condition.or(parsed.condition);
                 result.feature = result.feature.or(parsed.feature);
                 result.flatten = result.flatten || parsed.flatten;
@@ -146,15 +153,40 @@ fn version_check(version: &str) -> TokenStream2 {
     quote! { qapi::qemu_version() >= (#major, #minor, #patch) }
 }
 
+fn version_range_check(since: Option<&str>, until: Option<&str>) -> Option<TokenStream2> {
+    match (since, until) {
+        (Some(s), Some(u)) => {
+            let since_chk = version_check(s);
+            let (umaj, umin, upatch) = parse_version(u);
+            Some(quote! { (#since_chk) && qapi::qemu_version() < (#umaj, #umin, #upatch) })
+        }
+        (Some(s), None) => Some(version_check(s)),
+        (None, Some(u)) => {
+            let (umaj, umin, upatch) = parse_version(u);
+            Some(quote! { qapi::qemu_version() < (#umaj, #umin, #upatch) })
+        }
+        (None, None) => None,
+    }
+}
+
 fn condition_cfg(condition: &str) -> TokenStream2 {
     match condition {
         "CONFIG_LINUX" => quote! { #[cfg(target_os = "linux")] },
         "CONFIG_WIN32" => quote! { #[cfg(target_os = "windows")] },
         "CONFIG_POSIX" => quote! { #[cfg(unix)] },
-        other => {
-            let feature_name = other.to_lowercase().replace('_', "-");
-            quote! { #[cfg(feature = #feature_name)] }
-        }
+        // All other conditions (CONFIG_*, TARGET_*, HAVE_*) are QEMU build-time
+        // options that don't map to the Rust compilation target. We always compile
+        // these types and handle availability at runtime.
+        _ => quote! {},
+    }
+}
+
+fn condition_cfg_attr(condition: &str) -> Option<syn::Attribute> {
+    match condition {
+        "CONFIG_LINUX" => Some(syn::parse_quote! { #[cfg(target_os = "linux")] }),
+        "CONFIG_WIN32" => Some(syn::parse_quote! { #[cfg(target_os = "windows")] }),
+        "CONFIG_POSIX" => Some(syn::parse_quote! { #[cfg(unix)] }),
+        _ => None,
     }
 }
 
@@ -197,6 +229,7 @@ pub fn qapi(args: TokenStream, input: TokenStream) -> TokenStream {
                 let extra = parse_type_attrs(&nested);
                 ta.name = ta.name.or(extra.name);
                 ta.since = ta.since.or(extra.since);
+                ta.until = ta.until.or(extra.until);
                 ta.condition = ta.condition.or(extra.condition);
                 ta.returns = ta.returns.or(extra.returns);
                 ta.allow_oob = ta.allow_oob || extra.allow_oob;
@@ -232,6 +265,13 @@ fn gen_enum(input_ast: &mut DeriveInput, ta: &TypeAttrs) -> TokenStream2 {
     for v in &mut data_enum.variants {
         let attrs = extract_all_item_attrs(&v.attrs);
         v.attrs.retain(|a| !a.path.is_ident("qapi"));
+
+        // Apply cfg attribute to the variant definition itself (only for OS-level conditions)
+        if let Some(ref cond) = attrs.condition {
+            if let Some(cfg_attr) = condition_cfg_attr(cond) {
+                v.attrs.push(cfg_attr);
+            }
+        }
 
         let kind = match &v.fields {
             Fields::Unit => VariantKind::Unit,
@@ -287,8 +327,7 @@ fn gen_unit_enum_ser(
         }
     }).collect();
 
-    let body = if let Some(ref since) = ta.since {
-        let chk = version_check(since);
+    let body = if let Some(chk) = version_range_check(ta.since.as_deref(), ta.until.as_deref()) {
         quote! {
             if !(#chk) {
                 return Err(serde::ser::Error::custom(concat!("Type ", stringify!(#name), " not available in this QEMU version")));
@@ -339,12 +378,13 @@ fn gen_unit_enum_de(name: &syn::Ident, variants: &[VariantInfo]) -> TokenStream2
 fn gen_alt_ser(name: &syn::Ident, variants: &[VariantInfo]) -> TokenStream2 {
     let arms: Vec<TokenStream2> = variants.iter().map(|v| {
         let ident = &v.ident;
+        let cond = v.attrs.condition.as_ref().map(|c| condition_cfg(c));
         match &v.kind {
             VariantKind::Tuple(_) => {
-                quote! { #name::#ident(ref inner) => serde::Serialize::serialize(inner, serializer), }
+                quote! { #cond #name::#ident(ref inner) => serde::Serialize::serialize(inner, serializer), }
             }
             VariantKind::Unit => {
-                quote! { #name::#ident => serializer.serialize_unit(), }
+                quote! { #cond #name::#ident => serializer.serialize_unit(), }
             }
         }
     }).collect();
@@ -362,9 +402,11 @@ fn gen_alt_ser(name: &syn::Ident, variants: &[VariantInfo]) -> TokenStream2 {
 fn gen_alt_de(name: &syn::Ident, variants: &[VariantInfo]) -> TokenStream2 {
     let try_arms: Vec<TokenStream2> = variants.iter().map(|v| {
         let ident = &v.ident;
+        let cond = v.attrs.condition.as_ref().map(|c| condition_cfg(c));
         match &v.kind {
             VariantKind::Tuple(ty) => {
                 quote! {
+                    #cond
                     if let Ok(v) = serde_json::from_value::<#ty>(value.clone()) {
                         return Ok(#name::#ident(v));
                     }
@@ -372,6 +414,7 @@ fn gen_alt_de(name: &syn::Ident, variants: &[VariantInfo]) -> TokenStream2 {
             }
             VariantKind::Unit => {
                 quote! {
+                    #cond
                     if value.is_null() {
                         return Ok(#name::#ident);
                     }
@@ -407,6 +450,14 @@ fn gen_struct(input_ast: &mut DeriveInput, ta: &TypeAttrs) -> TokenStream2 {
         for f in &mut named.named {
             let attrs = extract_all_item_attrs(&f.attrs);
             f.attrs.retain(|a| !a.path.is_ident("qapi"));
+
+            // Apply cfg attribute to the field definition itself (only for OS-level conditions)
+            if let Some(ref cond) = attrs.condition {
+                if let Some(cfg_attr) = condition_cfg_attr(cond) {
+                    f.attrs.push(cfg_attr);
+                }
+            }
+
             fields.push(FieldInfo {
                 ident: f.ident.clone().unwrap(),
                 ty: f.ty.clone(),
@@ -477,8 +528,7 @@ fn gen_struct_ser(
             quote! { state.serialize_field(#fwn, &self.#ident)?; }
         };
 
-        let code = if let Some(ref since) = f.attrs.since {
-            let chk = version_check(since);
+        let code = if let Some(chk) = version_range_check(f.attrs.since.as_deref(), f.attrs.until.as_deref()) {
             quote! { if #chk { #code } }
         } else {
             code
@@ -494,8 +544,7 @@ fn gen_struct_ser(
         state.end()
     };
 
-    let body = if let Some(ref since) = ta.since {
-        let chk = version_check(since);
+    let body = if let Some(chk) = version_range_check(ta.since.as_deref(), ta.until.as_deref()) {
         quote! {
             if !(#chk) {
                 return Err(serde::ser::Error::custom(concat!("Type ", stringify!(#name), " not available in this QEMU version")));
@@ -526,9 +575,18 @@ fn gen_struct_ser_flatten(
         let cond = f.attrs.condition.as_ref().map(|c| condition_cfg(c));
 
         if f.attrs.flatten {
+            // Serialize flattened struct's fields inline into the map.
+            // Convert to serde_json::Value and merge its fields.
             quote! {
                 #cond
-                serde::Serialize::serialize(&self.#ident, serde::__private::ser::FlatMapSerializer(&mut map))?;
+                {
+                    let flat_value = serde_json::to_value(&self.#ident).map_err(serde::ser::Error::custom)?;
+                    if let serde_json::Value::Object(flat_map) = flat_value {
+                        for (k, v) in flat_map {
+                            map.serialize_entry(&k, &v)?;
+                        }
+                    }
+                }
             }
         } else if is_opt {
             quote! {
@@ -550,8 +608,7 @@ fn gen_struct_ser_flatten(
         map.end()
     };
 
-    let body = if let Some(ref since) = ta.since {
-        let chk = version_check(since);
+    let body = if let Some(chk) = version_range_check(ta.since.as_deref(), ta.until.as_deref()) {
         quote! {
             if !(#chk) {
                 return Err(serde::ser::Error::custom(concat!("Type ", stringify!(#name), " not available in this QEMU version")));
@@ -682,6 +739,20 @@ fn gen_command_impl(name: &syn::Ident, wn: &str, ta: &TypeAttrs) -> TokenStream2
     let preconfig = ta.allow_preconfig;
     let success = !ta.no_success_response;
 
+    let since_const = if let Some(ref s) = ta.since {
+        let (maj, min, pat) = parse_version(s);
+        quote! { const AVAILABLE_SINCE: (u32, u32, u32) = (#maj, #min, #pat); }
+    } else {
+        quote! { const AVAILABLE_SINCE: (u32, u32, u32) = (0, 0, 0); }
+    };
+
+    let until_const = if let Some(ref u) = ta.until {
+        let (maj, min, pat) = parse_version(u);
+        quote! { const REMOVED_IN: Option<(u32, u32, u32)> = Some((#maj, #min, #pat)); }
+    } else {
+        quote! { const REMOVED_IN: Option<(u32, u32, u32)> = None; }
+    };
+
     quote! {
         impl qapi::QapiCommand for #name {
             type Returns = #returns;
@@ -689,6 +760,8 @@ fn gen_command_impl(name: &syn::Ident, wn: &str, ta: &TypeAttrs) -> TokenStream2
             const ALLOW_OOB: bool = #oob;
             const ALLOW_PRECONFIG: bool = #preconfig;
             const SUCCESS_RESPONSE: bool = #success;
+            #since_const
+            #until_const
         }
     }
 }

@@ -27,7 +27,7 @@ impl<'i> QapiMember<'i> {
     ///                     '*features': FEATURES }
     pub fn parse(input: &'i str) -> IResult<&'i str, Self> {
         let start = input;
-        let (input, mut member) = alt((Self::simple_parser, Self::complex_parser)).parse(input)?;
+        let (input, mut member) = alt((Self::complex_parser, Self::simple_parser)).parse(input)?;
         if member.name.is_empty() || member.r#type == QapiTypeRef::Unset {
             return Err(nom::Err::Error(Error::new(start, ErrorKind::Tag)));
         }
@@ -38,11 +38,11 @@ impl<'i> QapiMember<'i> {
         Ok((input, member))
     }
 
-    /// STRING : TYPE-REF
+    /// STRING : TYPE-REF (including inline anonymous structs for v1.x compat)
     fn simple_parser(input: &'i str) -> IResult<&'i str, Self> {
         let mut s = Self::default();
         let name_parser = terminated(qstring, qtag(":")).map(|v| s.name = v);
-        let type_parser = QapiTypeRef::parse.map(|v| s.r#type = v);
+        let type_parser = QapiTypeRef::parse_with_inline.map(|v| s.r#type = v);
         let (input, _) = (name_parser, type_parser).parse(input)?;
         Ok((input, s))
     }

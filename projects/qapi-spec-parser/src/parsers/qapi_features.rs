@@ -124,7 +124,6 @@ mod tests {
             "['deprecated'",                                 // Missing closing quote
             "[{'name':'deprecated','if':}]",                 // Missing condition value
             "[{'name':'deprecated','unknown':'value'}]",     // Unknown field
-            "[{'name':'deprecated','if':'CONFIG_OPTION',}]", // Trailing comma
             "[{'if':'CONFIG_OPTION'}]",                      // Missing 'name' field
         ];
         for input in invalid_inputs.iter() {
@@ -146,8 +145,6 @@ mod tests {
             "{'name':'deprecated','if':}",                 // Missing condition value
             "{'name':'deprecated','unknown':'value'}",     // Unknown field
             "{'if':'CONFIG_OPTION'}",                      // Missing 'name' field
-            "{'name':'deprecated',}",                      // Trailing comma
-            "{'name':'deprecated','if':'CONFIG_OPTION',}", // Trailing comma
         ];
         for input in invalid_inputs.iter() {
             let result = QapiFeature::parse(input);

@@ -1,5 +1,6 @@
 pub mod qapi_ir;
 pub mod parsers;
+pub mod unified;
 pub mod versions;
 
 pub use parsers::{
@@ -40,6 +41,17 @@ pub fn parse_schema(input: &str) -> Result<QapiSchema<'_>> {
     Ok(schema)
 }
 
+/// Preprocess schema content to fix known issues in older schemas.
+/// Returns owned content with fixes applied, or the original if no fixes needed.
+pub fn preprocess_schema(content: &str) -> String {
+    // Fix missing comma in v1.1.0/v1.3.0 NewImageMode:
+    // { 'enum': 'NewImageMode'\n  'data': ... }
+    // The only known case is a missing comma before 'data' key.
+    content
+        .replace("'NewImageMode'\n  'data'", "'NewImageMode',\n  'data'")
+        .to_string()
+}
+
 pub fn read_schema(schema_file: &Path) -> Result<Vec<(PathBuf, String)>> {
     let mut sources = Vec::new();
     read_schema_file(schema_file, &mut sources)?;
@@ -54,8 +66,9 @@ fn read_schema_file(schema_file: &Path, sources: &mut Vec<(PathBuf, String)>) ->
         return Ok(());
     }
 
-    let content = std::fs::read_to_string(schema_file)
+    let raw_content = std::fs::read_to_string(schema_file)
         .with_context(|| format!("Failed to read schema file: {}", schema_file.display()))?;
+    let content = preprocess_schema(&raw_content);
     sources.push((schema_file.to_path_buf(), content.clone()));
     let schema_tokens = parse_schema(&content)
         .with_context(|| format!("Failed to parse schema file: {}", schema_file.display()))?;
@@ -133,9 +146,12 @@ pub fn generate_qapi_code(qemu_src_root: &Path, schema_file: &Path) -> Result<St
         structs_lookup.insert(processed.name.clone(), processed);
     }
     for v in unprocessed_unions.drain(..) {
-        let (processed_struct, processed_enum) =
+        let (processed_struct, processed_enum, disc_enum) =
             process_union(v, &structs_lookup, &enums_lookup);
         enums_lookup.insert(processed_enum.name.clone(), processed_enum);
+        if let Some(de) = disc_enum {
+            enums_lookup.insert(de.name.clone(), de);
+        }
         structs_lookup.insert(processed_struct.name.clone(), processed_struct);
     }
     for v in unprocessed_events.drain(..) {
@@ -177,6 +193,13 @@ pub fn generate_qapi_code(qemu_src_root: &Path, schema_file: &Path) -> Result<St
                     structs_lookup.get(v.name).unwrap().generate()
                 }
                 QapiSchemaToken::Union(v) => {
+                    // Emit discriminator enum for simple unions
+                    let disc_key = format!("{}Type", rustify_name(v.name));
+                    if let Some(disc_enum) = enums_lookup.get(&disc_key) {
+                        let disc_code = disc_enum.generate();
+                        let syntree: syn::File = syn::parse2(disc_code)?;
+                        output.push_str(&prettyplease::unparse(&syntree));
+                    }
                     let enum_code = enums_lookup
                         .get(&(v.name.to_owned() + "Branch"))
                         .unwrap()

@@ -2,7 +2,10 @@ use qapi::*;
 use qapi_qmp::Qmp;
 use std::path::PathBuf;
 use std::process::Stdio;
+use std::sync::atomic::{AtomicU64, Ordering};
 use tokio::process::{Child, Command};
+
+static TEST_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 struct QemuProcess {
     child: Child,
@@ -11,8 +14,9 @@ struct QemuProcess {
 
 impl QemuProcess {
     async fn start() -> Option<Self> {
+        let id = TEST_COUNTER.fetch_add(1, Ordering::SeqCst);
         let tmpdir = std::env::temp_dir();
-        let socket_path = tmpdir.join(format!("qrab-test-{}.sock", std::process::id()));
+        let socket_path = tmpdir.join(format!("qrab-test-{}-{}.sock", std::process::id(), id));
 
         let _ = tokio::fs::remove_file(&socket_path).await;
 
@@ -54,7 +58,6 @@ impl Drop for QemuProcess {
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_qmp_negotiate_and_query_status() {
     let qemu = QemuProcess::start()
         .await
@@ -81,7 +84,6 @@ async fn test_qmp_negotiate_and_query_status() {
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_qmp_query_version() {
     let qemu = QemuProcess::start()
         .await
@@ -90,20 +92,19 @@ async fn test_qmp_query_version() {
     let (mut qmp, _events) = Qmp::new(&qemu.socket_path).await.unwrap();
 
     let version: VersionInfo = qmp.execute(&QueryVersion {}).await.unwrap();
-    println!(
-        "Version: {}.{}.{}",
-        version.qemu.major, version.qemu.minor, version.qemu.micro
-    );
+    // VersionInfo.qemu is serde_json::Value (covers all QEMU versions)
+    let major = version.qemu["major"].as_u64().unwrap();
+    let minor = version.qemu["minor"].as_u64().unwrap();
+    println!("Version: {}.{}", major, minor);
 
     let global = qapi::qemu_version();
-    assert_eq!(version.qemu.major as u32, global.0);
-    assert_eq!(version.qemu.minor as u32, global.1);
+    assert_eq!(major as u32, global.0);
+    assert_eq!(minor as u32, global.1);
 
     qmp.shutdown().await;
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_qmp_query_name() {
     let qemu = QemuProcess::start()
         .await

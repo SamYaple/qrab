@@ -35,7 +35,10 @@ impl<'i> QapiStruct<'i> {
         };
         let start = input;
         let (input, _) = take_dict(alt((
-            take_kv("struct", qstring).map(|v| s.name = v),
+            alt((
+                take_kv("struct", qstring),
+                take_kv("type", qstring),
+            )).map(|v| s.name = v),
             take_kv("base", qstring).map(|v| s.base = Some(v)),
             take_cond.map(|v| s.r#if = Some(v)),
             take_features.map(|v| s.features = Some(v)),

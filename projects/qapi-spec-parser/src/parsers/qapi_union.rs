@@ -1,9 +1,10 @@
-use super::{qstring, take_dict, take_kv};
+use super::{qstring, qtag, take_dict, take_kv};
 use crate::{take_branches, take_cond, take_features, take_members_or_ref};
 use crate::{MembersOrRef, QapiBranches, QapiCond, QapiDocumentation, QapiFeatures};
 use nom::branch::alt;
 use nom::combinator::opt;
 use nom::error::{Error, ErrorKind};
+use nom::sequence::delimited;
 use nom::IResult;
 use nom::Parser;
 
@@ -16,7 +17,7 @@ pub struct QapiUnion<'i> {
     pub name: &'i str,
     pub data: QapiBranches<'i>,
     pub base: MembersOrRef<'i>,
-    pub discriminator: &'i str,
+    pub discriminator: Option<&'i str>,
     pub r#if: Option<QapiCond<'i>>,
     pub features: Option<QapiFeatures<'i>>,
     pub doc: Option<QapiDocumentation<'i>>,
@@ -39,17 +40,15 @@ impl<'i> QapiUnion<'i> {
         let (input, _) = take_dict(alt((
             take_kv("union", qstring).map(|v| s.name = v),
             take_kv("data", take_branches).map(|v| s.data = v),
-            take_kv("discriminator", qstring).map(|v| s.discriminator = v),
+            take_kv("discriminator", qstring).map(|v| s.discriminator = Some(v)),
+            // Old alternate syntax: 'discriminator': {} (empty dict means "type-based discrimination")
+            take_kv("discriminator", delimited(qtag("{"), opt(qstring), qtag("}"))).map(|_| ()),
             take_cond.map(|v| s.r#if = Some(v)),
             take_features.map(|v| s.features = Some(v)),
             take_kv("base", take_members_or_ref).map(|v| s.base = v),
         )))
         .parse(input)?;
-        if s.name.is_empty()
-            || s.discriminator.is_empty()
-            || s.data.is_empty()
-            || s.base == MembersOrRef::Unset
-        {
+        if s.name.is_empty() || s.data.is_empty() {
             return Err(nom::Err::Error(Error::new(start, ErrorKind::Tag)));
         }
         Ok((input, s))
@@ -60,7 +59,11 @@ impl<'i> QapiUnion<'i> {
 mod tests {
     use super::*;
 
-    const VALID_INPUTS: [&str; 5] = [
+    const VALID_INPUTS: [&str; 7] = [
+        // Simple union (no discriminator, no base) — v1.x style
+        "{ 'union': 'BlockdevAction', 'data': { 'blockdev-snapshot-sync': 'BlockdevSnapshot' } }",
+        // Old alternate syntax with empty discriminator
+        "{ 'union': 'BlockdevRef', 'discriminator': {}, 'data': { 'definition': 'BlockdevOptions', 'reference': 'str' } }",
         "{'union':'SOMENAME',  'discriminator': 'testdiscrim', 'base': 'testbase', 'data':{'branchname':'branchtype'}}",
         "{'union': 'SOMENAME', 'discriminator': 'testdiscrim', 'data': {'branchname':'branchtype'}, 'base': {'membername':{'if':'CONFIG_OPTION', 'type': ['sometype'], 'features': ['yes']}}}",
         r#"{ 'union': 'StatsFilter',

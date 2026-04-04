@@ -2,7 +2,7 @@
 // BUG: sometimes struct documentation will get consumed into an option doc
 use nom::branch::alt;
 use nom::bytes::complete::{is_a, tag, tag_no_case, take_until, take_while1};
-use nom::character::complete::{line_ending, multispace0, not_line_ending, space0};
+use nom::character::complete::{line_ending, not_line_ending, space0};
 use nom::combinator::{not, opt, recognize};
 use nom::error::Error;
 use nom::multi::{many0, many1};
@@ -56,6 +56,17 @@ fn take_name(input: &str) -> IResult<&str, &str> {
     .parse(input)
 }
 
+/// Like take_name but with optional colon — for top-level doc block names
+/// in older schemas that use `# @ErrorClass` without colon.
+fn take_name_optional_colon(input: &str) -> IResult<&str, &str> {
+    delimited(
+        (take_line_start, tag("@")),
+        take_while1(not_name_break),
+        (space0, opt(tag(":"))),
+    )
+    .parse(input)
+}
+
 fn take_namedkv<'i>(
     key: &'static str,
 ) -> impl Parser<&'i str, Output = &'i str, Error = Error<&'i str>> {
@@ -80,6 +91,26 @@ fn take_namedkey<'i>(
     )
 }
 
+
+/// Parse `# Since: X.Y` or `# Since X.Y` (colon optional).
+/// When the colon is absent, requires a version number (digits/dots) immediately after,
+/// to avoid matching prose like "# Since some limit combinations are illegal".
+fn take_namedkv_since(input: &str) -> IResult<&str, &str> {
+    alt((
+        // Standard form: `# Since: X.Y`
+        preceded(
+            take_namedkey("since"),
+            recognize((not_line_ending, line_ending, opt(take_multiline_text))),
+        ),
+        // Legacy form without colon: `# Since X.Y` — require version number
+        preceded(
+            (tag("#"), opt(tag(" ")), tag_no_case("since"), space0),
+            recognize((is_a("0123456789."), not_line_ending, line_ending)),
+        ),
+    ))
+    .parse(input)
+}
+
 fn take_line_start(input: &str) -> IResult<&str, &str> {
     recognize((tag("#"), space0)).parse(input)
 }
@@ -90,6 +121,16 @@ fn take_line_end(input: &str) -> IResult<&str, &str> {
 
 fn take_empty_line(input: &str) -> IResult<&str, &str> {
     recognize((take_line_start, take_line_end)).parse(input)
+}
+
+/// Match either a `# ` empty doc line or a completely blank line within a doc block.
+/// Handles schemas where blank lines (no `#`) appear inside `##...##` blocks.
+fn take_empty_line_or_blank(input: &str) -> IResult<&str, &str> {
+    alt((
+        take_empty_line,
+        recognize((space0, line_ending)),
+    ))
+    .parse(input)
 }
 
 fn take_value(input: &str) -> IResult<&str, Vec<&str>> {
@@ -108,7 +149,7 @@ fn take_line_continuation(input: &str) -> IResult<&str, &str> {
     recognize((
         not(alt((
             take_name,
-            take_namedkey("since"),
+            recognize(take_namedkv_since),
             take_namedkey("returns"),
             take_namedkey("errors"),
             take_namedkey("features"),
@@ -160,14 +201,33 @@ pub struct QapiDocumentation<'i> {
 
 impl<'i> QapiDocumentation<'i> {
     pub fn parse(input: &'i str) -> IResult<&'i str, Self> {
-        let (input, _) = terminated(tag("##"), take_line_end).parse(input)?;
-        let (input, _) = many0(take_empty_line).parse(input)?;
-        let (input, name) = terminated(take_name, take_line_end).parse(input)?;
-        let (input, _) = many0(take_empty_line).parse(input)?;
+        // Handle both `##\n# @Name:` (standard) and `## @Name` (v2.x shorthand)
+        let (input, _) = (space0, tag("##")).parse(input)?;
+        let (input, name) = alt((
+            // Standard: ## on its own line, then # @Name: on next line
+            preceded(
+                (take_line_end, many0(take_empty_line_or_blank)),
+                terminated(take_name_optional_colon, take_line_end),
+            ),
+            // Shorthand: ## @Name on same line (v2.x)
+            delimited(
+                space0,
+                preceded(
+                    opt(tag("@")),
+                    take_while1(not_name_break),
+                ),
+                (space0, opt(tag(":")), take_line_end),
+            ),
+        ))
+        .parse(input)?;
+        let (input, _) = many0(take_empty_line_or_blank).parse(input)?;
         let (input, description_str) = opt(take_multiline_text).parse(input)?;
-        let (input, _) = many0(take_empty_line).parse(input)?;
-        let (input, fields) = many0((take_name, take_value)).parse(input)?;
-        let (input, _) = many0(take_empty_line).parse(input)?;
+        let (input, _) = many0(take_empty_line_or_blank).parse(input)?;
+        let (input, fields) = many0(preceded(
+            many0(take_empty_line_or_blank),
+            (take_name, take_value),
+        )).parse(input)?;
+        let (input, _) = many0(take_empty_line_or_blank).parse(input)?;
 
         ////
         // at this point in the parsing, we have to switch to a more dynamic
@@ -179,34 +239,38 @@ impl<'i> QapiDocumentation<'i> {
         // all branches of the `alt()` parser need to have the same type, which
         // leads to this `parser.map(|v| ParserToken::Something(v))` pattern.
         // It's not my favorite, but not all return types are `&str`.
-        let (input, tokens) = many0(alt((
-            take_namedkv("since").map(|v| ParserToken::Since(v)),
-            take_namedkv("returns").map(|v| ParserToken::Returns(v)),
-            take_namedkv("errors").map(|v| ParserToken::Errors(v)),
-            take_namedkv(".. note:").map(|v| ParserToken::Note(v)),
-            take_namedkv(".. caution:").map(|v| ParserToken::Caution(v)),
-            take_namedkv(".. table:").map(|v| ParserToken::Table(v)),
-            take_namedkv(".. qmp-example:").map(|v| {
-                ParserToken::QmpExample(v)
-            }),
-            take_namedkv(".. admonition:").map(|v| {
-                ParserToken::Admonition(v)
-            }),
-            preceded(
-                (
-                    take_namedkey("features"),
-                    take_line_end,
-                    many0(take_empty_line),
-                ),
-                many1((take_name, take_value)),
-            )
-            .map(|v| ParserToken::Features(v)),
-        )))
+        let (input, tokens) = many0(preceded(
+            many0(take_empty_line_or_blank),
+            alt((
+                take_namedkv_since.map(|v| ParserToken::Since(v)),
+                take_namedkv("returns").map(|v| ParserToken::Returns(v)),
+                take_namedkv("errors").map(|v| ParserToken::Errors(v)),
+                take_namedkv(".. note:").map(|v| ParserToken::Note(v)),
+                take_namedkv(".. caution:").map(|v| ParserToken::Caution(v)),
+                take_namedkv(".. table:").map(|v| ParserToken::Table(v)),
+                take_namedkv(".. qmp-example:").map(|v| {
+                    ParserToken::QmpExample(v)
+                }),
+                take_namedkv(".. admonition:").map(|v| {
+                    ParserToken::Admonition(v)
+                }),
+                preceded(
+                    (
+                        take_namedkey("features"),
+                        take_line_end,
+                        many0(take_empty_line_or_blank),
+                    ),
+                    many1((take_name, take_value)),
+                )
+                .map(|v| ParserToken::Features(v)),
+            )),
+        ))
         .parse(input)?;
 
-        // UPSTREAMFIX: This is because `qga/qapi-schema.json` in the `@GuestNetworkRoute` doc block.
-        let (input, _) = multispace0(input)?;
-        let (input, _) = tag("##").parse(input)?;
+        // Allow blank lines and whitespace before the closing ##.
+        // The closing ## is optional for older shorthand docs (e.g., `## @Name\n#...\n{...}`)
+        let (input, _) = many0(take_empty_line_or_blank).parse(input)?;
+        let (input, _) = opt((space0, tag("##"))).parse(input)?;
 
         ////
         // Parsing is now done, we might still return a parsing error after
@@ -270,8 +334,8 @@ pub struct QapiSectionDocumentation<'i> {
 
 impl<'i> QapiSectionDocumentation<'i> {
     pub fn parse(input: &'i str) -> IResult<&'i str, Self> {
-        let (input, _) = terminated(tag("##"), take_line_end).parse(input)?;
-        let (input, _) = many0(take_empty_line).parse(input)?;
+        let (input, _) = (space0, terminated(tag("##"), take_line_end)).parse(input)?;
+        let (input, _) = many0(take_empty_line_or_blank).parse(input)?;
         let (input, name) = delimited(
             take_line_start,
             preceded(tag("="), not_line_ending),
@@ -279,8 +343,8 @@ impl<'i> QapiSectionDocumentation<'i> {
         )
         .parse(input)?;
         let (input, mut description) = opt(take_multiline_text).parse(input)?;
-        let (input, _) = many0(take_empty_line).parse(input)?;
-        let (input, _) = tag("##").parse(input)?;
+        let (input, _) = many0(take_empty_line_or_blank).parse(input)?;
+        let (input, _) = (space0, tag("##")).parse(input)?;
 
         let name = trim_docstr(name);
         if let Some(ref mut d) = description {

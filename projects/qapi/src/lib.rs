@@ -11,6 +11,8 @@ pub trait QapiCommand: serde::Serialize {
     const ALLOW_OOB: bool;
     const ALLOW_PRECONFIG: bool;
     const SUCCESS_RESPONSE: bool;
+    const AVAILABLE_SINCE: (u32, u32, u32);
+    const REMOVED_IN: Option<(u32, u32, u32)>;
 }
 
 /// Trait implemented by QAPI event types.

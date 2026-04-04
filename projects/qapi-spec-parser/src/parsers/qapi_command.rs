@@ -61,7 +61,7 @@ impl<'i> QapiCommand<'i> {
             take_kv("success-response", qbool).map(|v| {
                 s.success_response = Some(v)
             }),
-            take_kv("gen", qbool).map(|v| s.r#gen = Some(v)),
+            take_kv("gen", alt((qbool, qstring))).map(|v| s.r#gen = Some(v)),
             take_kv("allow-oob", qbool).map(|v| s.allow_oob = Some(v)),
             take_kv("coroutine", qbool).map(|v| s.coroutine = Some(v)),
             take_kv("allow-preconfig", qbool).map(|v| {
