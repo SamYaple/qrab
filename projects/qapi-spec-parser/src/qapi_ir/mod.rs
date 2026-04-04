@@ -34,6 +34,11 @@ fn qapi_to_rust_type(qapi_type: &str) -> String {
         "bool" => "bool".into(),
         "any" => "serde_json::Value".into(),
         "null" => "()".into(),
+        // Special opaque types used by QOM commands (qom-get, qom-set, object-add)
+        "Visitor" | "visitor" => "serde_json::Value".into(),
+        "Dict" | "dict" => "serde_json::Value".into(),
+        // Wildcard type used in older versions (e.g., netdev_add '*props': '**')
+        "**" => "serde_json::Value".into(),
         _ => rustify_name(qapi_type),
     }
 }
@@ -67,9 +72,12 @@ fn rustify_type(input: &str) -> String {
 }
 
 pub(crate) fn rustify_field(input: &str) -> String {
-    match input {
-        "type" | "abstract" | "in" | "static" | "if" | "match" | "use" => format! {"r#{}", input},
-        _ => rustify_field_name(input),
+    // Check if the snake_case version of the input is a Rust keyword
+    let snake = rustify_field_name(input);
+    if syn::parse_str::<syn::Ident>(&snake).is_err() {
+        format!("r#{}", snake)
+    } else {
+        snake
     }
 }
 

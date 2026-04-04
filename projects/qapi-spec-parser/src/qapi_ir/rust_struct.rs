@@ -63,11 +63,21 @@ impl Struct {
             if field.array {
                 field_type = quote!( Vec<#field_type> );
             }
+            // Check if field needs Box wrapping (recursive types)
+            let is_boxed = field.meta.attributes.iter().any(|a| {
+                matches!(a, super::Attribute::Unit(n) if n == "boxed")
+            });
+            if is_boxed {
+                field_type = quote!( Box<#field_type> );
+            }
             if field.optional {
                 field_type = quote!( Option<#field_type> );
             }
 
-            let field_attrs = field.meta.attributes.iter().map(generate_attribute);
+            // Filter out the "boxed" attribute — it's internal, not a qapi attr
+            let field_attrs = field.meta.attributes.iter()
+                .filter(|a| !matches!(a, super::Attribute::Unit(n) if n == "boxed"))
+                .map(generate_attribute);
             let field_doc = field.meta.doc.as_ref().map(|doc| {
                 quote! {
                     #[doc = #doc]

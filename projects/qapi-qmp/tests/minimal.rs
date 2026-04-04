@@ -18,8 +18,7 @@ arch_tests!(negotiate_and_version, [X86_64, I386, Aarch64, Arm], |arch: Arch| as
     let version = qapi::qemu_version();
     assert!(version.0 > 0 || version == (99, 0, 0), "Version should be set");
     let info: VersionInfo = t.qmp.execute(&QueryVersion {}).await.unwrap();
-    let major = info.qemu["major"].as_u64().unwrap();
-    assert!(major > 0, "QEMU major version should be > 0");
+    assert!(info.qemu.major > 0, "QEMU major version should be > 0");
     t.shutdown().await;
 });
 
