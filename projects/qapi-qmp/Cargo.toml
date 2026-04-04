@@ -15,6 +15,10 @@ path = "../qapi"
 version = "1"
 features = ["net", "io-util", "sync", "rt", "macros"]
 
+[dev-dependencies]
+paste = "1"
+which = "7"
+
 [dev-dependencies.tokio]
 version = "1"
 features = ["net", "io-util", "sync", "rt", "macros", "rt-multi-thread", "process", "time", "fs"]
