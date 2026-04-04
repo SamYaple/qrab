@@ -5,6 +5,7 @@ pub mod unified;
 pub mod versions;
 
 pub use parsers::{
+    ParserConfig, set_parser_config, with_parser_config,
     qapi_alternate::{take_alternate, QapiAlternate},
     qapi_alternative::{take_alternative, QapiAlternative},
     qapi_alternatives::{take_alternatives, QapiAlternatives},

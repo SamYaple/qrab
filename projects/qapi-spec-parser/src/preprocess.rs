@@ -8,6 +8,21 @@ use regex::Regex;
 
 pub type Version = (u32, u32, u32);
 
+/// Minimal preprocessing: only simple syntactic fixes that don't change semantics.
+/// Used when the parser handles format differences via ParserConfig.
+pub fn minimal_preprocess(content: &str) -> String {
+    let mut content = content.to_string();
+    // Fix malformed doc end marker (typo in v2.0.0-v2.7.0): ### → ##
+    content = content.replace("\n###\n", "\n##\n");
+    // Normalize spacing around colons: 'key' : → 'key':
+    content = fix_key_colon_spacing(&content);
+    // Insert missing commas between dict entries separated by newlines
+    content = fix_missing_commas(&content);
+    // Remove trailing commas before ] or }
+    content = fix_trailing_commas(&content);
+    content
+}
+
 /// Preprocess schema content, normalizing old formats to canonical (modern) form.
 /// The version parameter controls which transforms are applied.
 pub fn preprocess(content: &str, version: Version) -> String {
@@ -86,19 +101,17 @@ pub fn simplify_all_doc_blocks(content: &str) -> String {
         // Handle shorthand format: ## @Name or ## Name (name on same line as ##)
         if trimmed.starts_with("## ") && trimmed.len() > 3 {
             let rest = &trimmed[3..];
-            if rest.starts_with('@') || rest.chars().next().map_or(false, |c| c.is_alphabetic()) {
+            if rest.starts_with('@') || rest.starts_with(|c: char| c.is_alphabetic()) {
                 // Find closing ## and extract since
-                let start_i = i;
+                let _start_i = i;
                 i += 1;
                 let mut since_line = None;
                 while i < lines.len() && lines[i].trim() != "##" {
                     let t = lines[i].trim();
                     if let Some(r) = t.strip_prefix("# Since:") {
                         since_line = Some(format!("# Since:{}", r));
-                    } else if let Some(r) = t.strip_prefix("# Since ") {
-                        if r.chars().next().map_or(false, |c| c.is_ascii_digit()) {
-                            since_line = Some(format!("# Since: {}", r));
-                        }
+                    } else if let Some(r) = t.strip_prefix("# Since ").filter(|r| r.starts_with(|c: char| c.is_ascii_digit())) {
+                        since_line = Some(format!("# Since: {}", r));
                     }
                     i += 1;
                 }
@@ -129,7 +142,7 @@ pub fn simplify_all_doc_blocks(content: &str) -> String {
         // Look for opening ## followed by # @Name: or # = Section
         if trimmed == "##" && i + 1 < lines.len() {
             // Scan forward to find the doc block content and closing ##
-            let open_idx = i;
+            let _open_idx = i;
             i += 1;
 
             // Skip empty # lines
@@ -167,7 +180,7 @@ pub fn simplify_all_doc_blocks(content: &str) -> String {
                     since_line = Some(format!("# Since:{}", rest));
                 } else if let Some(rest) = t.strip_prefix("# Since ") {
                     // Old format: # Since 0.14.0
-                    if rest.chars().next().map_or(false, |c| c.is_ascii_digit()) {
+                    if rest.starts_with(|c: char| c.is_ascii_digit()) {
                         since_line = Some(format!("# Since: {}", rest));
                     }
                 }
@@ -197,9 +210,8 @@ pub fn simplify_all_doc_blocks(content: &str) -> String {
                     } else {
                         name_trimmed.to_string()
                     }
-                } else if name_trimmed.starts_with("# ") {
+                } else if let Some(rest) = name_trimmed.strip_prefix("# ") {
                     // No @, add it and ensure :
-                    let rest = &name_trimmed[2..];
                     let name_part = rest.split(':').next().unwrap_or(rest).trim();
                     if name_part.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_') {
                         format!("# @{}:", name_part)
@@ -323,6 +335,8 @@ pub fn fix_empty_discriminator(content: &str) -> String {
 pub fn fix_simple_unions(content: &str) -> String {
     let mut result = String::new();
     let mut remaining = content;
+    let name_re = Regex::new(r"'union':\s*'([^']+)'").unwrap();
+    let branch_re = Regex::new(r"'([^']+)'\s*:").unwrap();
 
     while let Some(idx) = remaining.find("'union'") {
         // Find the opening brace before 'union'
@@ -1001,6 +1015,42 @@ mod tests {
         let output = fix_rst_section_headers(input);
         assert!(output.contains("# = Introduction"), "got: {}", output);
         assert!(!output.contains("****"), "decoration should be removed");
+    }
+
+    #[test]
+    fn test_minimal_preprocess() {
+        // Fixes malformed doc markers
+        let input = "##\n# @Name:\n###\n";
+        let output = minimal_preprocess(input);
+        assert!(output.contains("\n##\n"), "### should become ##");
+
+        // Fixes missing commas
+        let input = "{ 'enum': 'Test'\n  'data': [] }";
+        let output = minimal_preprocess(input);
+        assert!(output.contains("'Test',"), "missing comma inserted");
+
+        // Fixes key colon spacing
+        let input = "'key' : 'val'";
+        let output = minimal_preprocess(input);
+        assert!(output.contains("'key':"), "spacing normalized");
+
+        // Fixes trailing commas
+        let input = "['a',]";
+        let output = minimal_preprocess(input);
+        assert_eq!(output, "['a']");
+    }
+
+    #[test]
+    fn test_minimal_preprocess_no_structural_changes() {
+        // Should NOT change 'type' to 'struct'
+        let input = "{ 'type': 'NameInfo', 'data': {} }";
+        let output = minimal_preprocess(input);
+        assert!(output.contains("'type':"), "should not change type to struct");
+
+        // Should NOT convert simple unions
+        let input = "{ 'union': 'X', 'data': { 'a': 'TypeA' } }";
+        let output = minimal_preprocess(input);
+        assert!(!output.contains("'discriminator'"), "should not add discriminator");
     }
 
     #[test]
