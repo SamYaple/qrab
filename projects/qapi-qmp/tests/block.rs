@@ -159,8 +159,13 @@ async fn block_roundtrip_after_boot() {
     }
 
     let image = fixtures::cirros_image_copy(Arch::X86_64).await;
+    let kernel = fixtures::cirros_kernel(Arch::X86_64).await;
+    let initrd = fixtures::cirros_initramfs(Arch::X86_64).await;
+    let cidata = fixtures::nocloud_cidata().await;
     let mut t = QemuBuilder::new(Arch::X86_64, MachineConfig::Bios { memory: "128M".into() })
+        .kernel(kernel, initrd, "console=ttyS0 root=/dev/vda1 dslist=nocloud")
         .drive(image, "qcow2")
+        .raw_drive_ro(cidata)
         .serial()
         .spawn().await.unwrap();
 

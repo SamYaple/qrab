@@ -113,6 +113,10 @@ pub struct QemuBuilder {
     arch: Arch,
     config: MachineConfig,
     drives: Vec<(PathBuf, String)>, // (file, format)
+    raw_drives: Vec<(PathBuf, String)>, // (file, format) - readonly raw drives
+    kernel: Option<PathBuf>,
+    initrd: Option<PathBuf>,
+    append: Option<String>,
     serial: bool,
     no_shutdown: bool,
     extra_args: Vec<String>,
@@ -124,6 +128,10 @@ impl QemuBuilder {
             arch,
             config,
             drives: Vec::new(),
+            raw_drives: Vec::new(),
+            kernel: None,
+            initrd: None,
+            append: None,
             serial: false,
             no_shutdown: false,
             extra_args: Vec::new(),
@@ -132,6 +140,20 @@ impl QemuBuilder {
 
     pub fn drive(mut self, file: PathBuf, format: &str) -> Self {
         self.drives.push((file, format.to_string()));
+        self
+    }
+
+    /// Add a read-only raw drive (e.g., CIDATA configdrive).
+    pub fn raw_drive_ro(mut self, file: PathBuf) -> Self {
+        self.raw_drives.push((file, "raw".to_string()));
+        self
+    }
+
+    /// Use direct kernel boot (bypasses bootloader for faster boot).
+    pub fn kernel(mut self, kernel: PathBuf, initrd: PathBuf, append: &str) -> Self {
+        self.kernel = Some(kernel);
+        self.initrd = Some(initrd);
+        self.append = Some(append.to_string());
         self
     }
 
@@ -219,11 +241,30 @@ impl QemuBuilder {
             ]);
         }
 
+        // Direct kernel boot
+        if let Some(ref kernel) = self.kernel {
+            args.extend(["-kernel".into(), kernel.display().to_string()]);
+        }
+        if let Some(ref initrd) = self.initrd {
+            args.extend(["-initrd".into(), initrd.display().to_string()]);
+        }
+        if let Some(ref append) = self.append {
+            args.extend(["-append".into(), append.clone()]);
+        }
+
         // Drives
         for (file, format) in &self.drives {
             args.extend([
                 "-drive".into(),
                 format!("if=virtio,format={},file={}", format, file.display()),
+            ]);
+        }
+
+        // Read-only raw drives (e.g., configdrive)
+        for (file, format) in &self.raw_drives {
+            args.extend([
+                "-drive".into(),
+                format!("if=virtio,format={},file={},readonly=on", format, file.display()),
             ]);
         }
 
@@ -367,13 +408,13 @@ pub fn event_timeout() -> Duration {
     Duration::from_secs(secs)
 }
 
-/// Boot timeout from env or default 90s.
-/// Cirros takes ~50s due to cloud-init metadata service retries.
+/// Boot timeout from env or default 30s.
+/// With direct kernel boot + dslist=nocloud, cirros boots in ~10s.
 pub fn boot_timeout() -> Duration {
     let secs: u64 = std::env::var("QEMU_TEST_BOOT_TIMEOUT_SECS")
         .ok()
         .and_then(|s| s.parse().ok())
-        .unwrap_or(90);
+        .unwrap_or(30);
     Duration::from_secs(secs)
 }
 
