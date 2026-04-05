@@ -8,4 +8,5 @@ members = [
     "projects/manager",
     "examples/simple-vm",
     "examples/preconfig-vm",
+    "examples/events",
 ]
