@@ -2898,35 +2898,35 @@ pub struct BlockdevOptionsBlkdebug {
     /// underlying file's request alignment (but need not be a power of
     /// 2), or 0 for default (since 2.10)
     #[qapi(name = "max-discard")]
-    #[qapi(added = "2.10.0")]
+    #[qapi(added = "2.9.1")]
     pub max_discard: Option<i32>,
     /// maximum size for I/O transfers in bytes, must be
     /// positive multiple of @align and of the underlying file's request
     /// alignment (but need not be a power of 2), or 0 for default
     /// (since 2.10)
     #[qapi(name = "max-transfer")]
-    #[qapi(added = "2.10.0")]
+    #[qapi(added = "2.9.1")]
     pub max_transfer: Option<i32>,
     /// maximum size for write zero requests in bytes, must
     /// be positive multiple of @align, of @opt-write-zero, and of the
     /// underlying file's request alignment (but need not be a power of
     /// 2), or 0 for default (since 2.10)
     #[qapi(name = "max-write-zero")]
-    #[qapi(added = "2.10.0")]
+    #[qapi(added = "2.9.1")]
     pub max_write_zero: Option<i32>,
     /// preferred alignment for discard requests in bytes,
     /// must be positive multiple of @align and of the underlying file's
     /// request alignment (but need not be a power of 2), or 0 for
     /// default (since 2.10)
     #[qapi(name = "opt-discard")]
-    #[qapi(added = "2.10.0")]
+    #[qapi(added = "2.9.1")]
     pub opt_discard: Option<i32>,
     /// preferred alignment for write zero requests in
     /// bytes, must be positive multiple of @align and of the underlying
     /// file's request alignment (but need not be a power of 2), or 0
     /// for default (since 2.10)
     #[qapi(name = "opt-write-zero")]
-    #[qapi(added = "2.10.0")]
+    #[qapi(added = "2.9.1")]
     pub opt_write_zero: Option<i32>,
     /// array of state-change descriptions
     #[qapi(name = "set-state")]
@@ -2935,13 +2935,13 @@ pub struct BlockdevOptionsBlkdebug {
     /// is necessary anyway (which depends on how the blkdebug node is
     /// used).  Defaults to none.  (since 5.0)
     #[qapi(name = "take-child-perms")]
-    #[qapi(added = "5.0.0")]
+    #[qapi(added = "4.2.1")]
     pub take_child_perms: Option<Vec<BlockPermission>>,
     /// Permissions not to share on @image in addition
     /// to what cannot be shared anyway (which depends on how the
     /// blkdebug node is used).  Defaults to none.  (since 5.0)
     #[qapi(name = "unshare-child-perms")]
-    #[qapi(added = "5.0.0")]
+    #[qapi(added = "4.2.1")]
     pub unshare_child_perms: Option<Vec<BlockPermission>>,
 }
 /// Driver specific block device options for blklogwrites.
@@ -5031,7 +5031,7 @@ pub struct BlockJobInfo {
     pub device: String,
     /// Error information if the job did not complete successfully.
     /// Not set if the job completed successfully.  (since 2.12.1)
-    #[qapi(added = "3.0.0")]
+    #[qapi(added = "2.12.1")]
     pub error: Option<String>,
     /// the status of the job (since 1.3)
     #[qapi(name = "io-status")]
@@ -5847,7 +5847,7 @@ pub enum ChardevBackendBranch {
     #[qapi(added = "6.1.0")]
     QemuVdagent(ChardevQemuVdAgent),
     #[qapi(name = "ringbuf")]
-    #[qapi(added = "1.6.0")]
+    #[qapi(added = "1.5.3")]
     Ringbuf(ChardevRingbuf),
     #[qapi(name = "serial")]
     Serial(ChardevHostdev),
@@ -5987,7 +5987,7 @@ pub enum ChardevBackendType {
     #[qapi(added = "6.1.0")]
     QemuVdagent,
     #[qapi(name = "ringbuf")]
-    #[qapi(added = "1.6.0")]
+    #[qapi(added = "1.5.3")]
     Ringbuf,
     #[qapi(name = "serial")]
     Serial,
@@ -15686,7 +15686,7 @@ pub enum QKeyCode {
     KpAdd,
     /// since 2.4
     #[qapi(name = "kp_comma")]
-    #[qapi(added = "2.4.0")]
+    #[qapi(added = "2.3.1")]
     KpComma,
     #[qapi(name = "kp_decimal")]
     KpDecimal,
@@ -15778,7 +15778,7 @@ pub enum QKeyCode {
     Right,
     /// since 2.4
     #[qapi(name = "ro")]
-    #[qapi(added = "2.4.0")]
+    #[qapi(added = "2.3.1")]
     Ro,
     #[qapi(name = "s")]
     S,
@@ -18479,7 +18479,7 @@ pub struct SpiceInfo {
     pub host: Option<String>,
     /// true if the last guest migration completed and spice
     /// migration had completed as well, false otherwise (since 1.4)
-    #[qapi(added = "1.3.0")]
+    #[qapi(added = "1.2.1")]
     pub migrated: Option<bool>,
     /// The mode in which the mouse cursor is displayed
     /// currently.  Can be determined by the client or the server, or

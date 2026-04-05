@@ -108,7 +108,7 @@ pub fn find_extracted_schema_entry(dir: &Path) -> Option<PathBuf> {
 }
 
 /// Discover all QEMU version tags in a git repository.
-/// Returns only .0 release tags (patch releases have identical schemas), sorted by version.
+/// Returns all release tags (including patch releases), sorted by version.
 pub fn discover_version_tags(qemu_repo: &Path) -> Result<Vec<String>> {
     let output = Command::new("git")
         .args(["tag", "--list", "v*"])
@@ -121,12 +121,7 @@ pub fn discover_version_tags(qemu_repo: &Path) -> Result<Vec<String>> {
         .lines()
         .filter(|t| {
             let t = t.trim();
-            if t.is_empty() || t.contains("rc") {
-                return false;
-            }
-            // Only .0 releases
-            let parts: Vec<&str> = t.trim_start_matches('v').split('.').collect();
-            (parts.len() == 2 || (parts.len() == 3 && parts[2] == "0"))
+            !t.is_empty() && !t.contains("rc")
                 && parse_version_tag(t).is_some_and(|v| v >= (1, 0, 0))
         })
         .map(|s| s.trim().to_string())

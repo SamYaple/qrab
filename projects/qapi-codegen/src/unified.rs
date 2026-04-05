@@ -193,6 +193,8 @@ fn process_version_schema(
 struct VersionResult {
     tag: String,
     version: Version,
+    /// Hash of the raw schema content (for dedup of identical patch releases).
+    schema_hash: u64,
     enums: HashMap<String, Enum>,
     structs: HashMap<String, Struct>,
 }
@@ -215,12 +217,24 @@ fn process_single_version(qemu_repo: &Path, tag: &str) -> Result<VersionResult> 
     let sources = crate::read_schema_with_version(&schema_entry, Some(version))
         .with_context(|| format!("Failed to read schema for {}", tag))?;
 
+    // Hash the raw schema content for deduplication (use filename only, not temp dir path)
+    let schema_hash = {
+        use std::hash::{Hash, Hasher};
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        for (path, content) in &sources {
+            path.file_name().hash(&mut hasher);
+            content.hash(&mut hasher);
+        }
+        hasher.finish()
+    };
+
     let (enums, structs) = process_version_schema(&sources)
         .with_context(|| format!("Failed to process IR for {}", tag))?;
 
     Ok(VersionResult {
         tag: tag.to_string(),
         version,
+        schema_hash,
         enums,
         structs,
     })
@@ -259,9 +273,18 @@ pub fn build_unified_registry(
     // Phase 2: Merge sequentially in version order
     let merge_start = Instant::now();
     let mut registry = UnifiedRegistry::default();
+    let mut prev_hash: Option<u64> = None;
+    let mut skipped = 0;
 
     for vr in &version_results {
         registry.versions.push(vr.version);
+
+        // Skip versions with identical schemas (patch releases)
+        if prev_hash == Some(vr.schema_hash) {
+            skipped += 1;
+            continue;
+        }
+        prev_hash = Some(vr.schema_hash);
 
         let mut seen_types = BTreeSet::new();
 
@@ -338,6 +361,9 @@ pub fn build_unified_registry(
         }
     }
 
+    if skipped > 0 {
+        eprintln!("  Skipped {} versions with identical schemas", skipped);
+    }
     eprintln!("  Merge loop: {:.1}s", merge_start.elapsed().as_secs_f64());
     let fix_start = Instant::now();
     fix_recursive_types(&mut registry);

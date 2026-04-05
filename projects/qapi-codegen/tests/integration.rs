@@ -71,17 +71,11 @@ fn test_discover_version_tags() {
     let repo = qemu_root();
     let tags = discover_version_tags(repo).expect("discover_version_tags failed");
 
-    // Should find .0 releases (v1.0 through v10.2.0)
-    assert!(tags.len() > 30, "expected >30 version tags, got {}", tags.len());
+    // Should find all release tags (v1.0 through v10.2.x)
+    assert!(tags.len() > 100, "expected >100 version tags, got {}", tags.len());
 
     // First tag should be v1.0
     assert_eq!(tags[0], "v1.0", "First tag should be v1.0, got {}", tags[0]);
-
-    // Should only include .0 releases (patch releases have identical schemas)
-    let all_zero_patch = tags.iter().all(|t| {
-        parse_version_tag(t).is_some_and(|v| v.2 == 0)
-    });
-    assert!(all_zero_patch, "Should only contain .0 release tags");
 
     // Should be sorted by version
     for w in tags.windows(2) {
