@@ -30,14 +30,14 @@ pub struct QapiPragma<'i> {
 impl<'i> QapiPragma<'i> {
     pub fn parse(input: &'i str) -> IResult<&'i str, Self> {
         let v = parser_version();
-        if v < (5, 0, 0) {
+        if v < (6, 0, 0) {
             Self::parse_v1(input)
         } else {
             Self::parse_v2(input)
         }
     }
 
-    /// v1 (QEMU v2.10.0–v4.2.0): old keys `returns-whitelist`, `name-case-whitelist`.
+    /// v1 (QEMU v2.10.0–v5.2.0): old keys `returns-whitelist`, `name-case-whitelist`.
     pub fn parse_v1(input: &'i str) -> IResult<&'i str, Self> {
         Self::parse_common(input, true)
     }

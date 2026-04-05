@@ -71,6 +71,8 @@ impl<'i> QapiUnion<'i> {
             take_kv("union", qstring).map(|v| s.name = v),
             take_kv("data", take_branches).map(|v| s.data = v),
             take_kv("discriminator", qstring).map(|v| s.discriminator = Some(v)),
+            // 'discriminator': {} — alternate syntax (v1.7.0–v2.0.0), treated as no discriminator
+            take_kv("discriminator", delimited(qtag("{"), opt(qstring), qtag("}"))).map(|_| ()),
             take_cond.map(|v| s.r#if = Some(v)),
             take_features.map(|v| s.features = Some(v)),
             take_kv("base", take_members_or_ref).map(|v| s.base = v),

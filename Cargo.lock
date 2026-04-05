@@ -230,6 +230,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "qapi-codegen"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "heck",
+ "nom",
+ "prettyplease",
+ "proc-macro2",
+ "quote",
+ "regex",
+ "syn 2.0.117",
+ "tempfile",
+ "walkdir",
+]
+
+[[package]]
 name = "qapi-macros"
 version = "0.1.0"
 dependencies = [

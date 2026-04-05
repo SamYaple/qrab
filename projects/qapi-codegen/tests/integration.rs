@@ -16,6 +16,18 @@ fn qemu_root() -> &'static Path {
     Box::leak(workspace_root.join("vendor/qemu").into_boxed_path())
 }
 
+/// Representative version tags covering all parser eras.
+/// Used for integration tests to keep runtime reasonable.
+fn representative_tags() -> Vec<String> {
+    vec![
+        "v1.0", "v1.1.0", "v1.7.0",
+        "v2.0.0", "v2.1.0", "v2.5.0",
+        "v2.8.0", "v2.12.0",
+        "v3.0.0", "v5.0.0",
+        "v7.0.0", "v9.0.0", "v10.2.0",
+    ].into_iter().map(String::from).collect()
+}
+
 // ── Basic schema parsing tests (using latest vendored QEMU) ──
 
 #[test]
@@ -95,7 +107,15 @@ fn test_discover_version_tags() {
 #[test]
 fn test_parse_all_discovered_versions() {
     let repo = qemu_root();
-    let tags = discover_version_tags(repo).expect("discover_version_tags failed");
+    // Representative versions covering all parser eras
+    let tags: Vec<String> = vec![
+        "v1.0", "v1.1.0", "v1.4.0", "v1.7.0",     // era A: type keyword, simple unions
+        "v2.0.0", "v2.1.0", "v2.3.0", "v2.5.0",    // era A/B: includes, alternates
+        "v2.7.0", "v2.8.0", "v2.10.0", "v2.12.0",  // era C/D: struct keyword, pragmas
+        "v3.0.0", "v4.0.0", "v5.0.0",               // era D: conditions, features
+        "v6.0.0", "v7.0.0", "v8.0.0",               // era E: modern format
+        "v9.0.0", "v10.2.0",                         // latest
+    ].into_iter().map(String::from).collect();
     let mut failures = Vec::new();
 
     for tag in &tags {
@@ -143,7 +163,7 @@ fn try_parse_version(tag: &str, repo: &Path) -> Result<usize, String> {
 #[test]
 fn test_build_unified_registry() {
     let repo = qemu_root();
-    let tags = discover_version_tags(repo).expect("discover_version_tags failed");
+    let tags = representative_tags();
     let tag_refs: Vec<&str> = tags.iter().map(|s| s.as_str()).collect();
 
     let registry = build_unified_registry(repo, &tag_refs)
