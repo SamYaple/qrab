@@ -412,7 +412,7 @@ pub enum BlkdebugIoType {
 }
 /**An enumeration of block device I/O status.
 */
-#[qapi(since = "1.1.0")]
+#[qapi(since = "1.0.0")]
 pub enum BlockDeviceIoStatus {
     /**The last I/O operation has succeeded
 */
@@ -1579,7 +1579,7 @@ pub enum ChardevBackendBranch {
     #[qapi(since = "1.5.0")]
     Memory(ChardevRingbuf),
     #[qapi(name = "ringbuf")]
-    #[qapi(since = "1.6.0")]
+    #[qapi(since = "1.5.3")]
     Ringbuf(ChardevRingbuf),
     #[qapi(name = "testdev")]
     #[qapi(since = "2.2.0")]
@@ -1749,7 +1749,7 @@ pub enum ChardevBackendType {
     #[qapi(since = "1.5.0")]
     Memory,
     #[qapi(name = "ringbuf")]
-    #[qapi(since = "1.6.0")]
+    #[qapi(since = "1.5.3")]
     Ringbuf,
     #[qapi(name = "testdev")]
     #[qapi(since = "2.2.0")]
@@ -6070,12 +6070,12 @@ pub enum QKeyCode {
     /**since 2.4.0
 */
     #[qapi(name = "ro")]
-    #[qapi(since = "2.4.0")]
+    #[qapi(since = "2.3.1")]
     Ro,
     /**since 2.4.0
 */
     #[qapi(name = "kp_comma")]
-    #[qapi(since = "2.4.0")]
+    #[qapi(since = "2.3.1")]
     KpComma,
     /**since 2.6.0
 */
@@ -6585,7 +6585,7 @@ pub enum RockerPortDuplex {
 }
 /**An enumeration of VM run states.
 */
-#[qapi(since = "1.1.0")]
+#[qapi(since = "1.0.0")]
 pub enum RunState {
     /**QEMU is running on a debugger
 */
@@ -6641,15 +6641,16 @@ pause on I/O errors
 */
     #[qapi(name = "shutdown")]
     Shutdown,
-    /**guest is suspended (ACPI S3)
-*/
-    #[qapi(name = "suspended")]
-    Suspended,
     /**the watchdog action is configured to pause and has been
 triggered
 */
     #[qapi(name = "watchdog")]
     Watchdog,
+    /**guest is suspended (ACPI S3)
+*/
+    #[qapi(name = "suspended")]
+    #[qapi(since = "1.1.0")]
+    Suspended,
     /**guest has been panicked as a result of guest OS
 panic
 */
@@ -9084,7 +9085,7 @@ and 64 KiB.  Default 0.  (Since 9.2.0)
 }
 /**Information about the guest balloon device.
 */
-#[qapi(since = "1.1.0")]
+#[qapi(since = "1.0.0")]
 pub struct BalloonInfo {
     /**the logical size of the VM in bytes.  Formula used:
 logical_vm_size = vm_ram_size - balloon_size
@@ -9218,7 +9219,7 @@ in its role as the child of some undescribed parent node
 }
 /**Information about the backing device for a block device.
 */
-#[qapi(since = "1.1.0")]
+#[qapi(since = "1.0.0")]
 pub struct BlockDeviceInfo {
     /**the filename of the backing device
 */
@@ -9244,22 +9245,28 @@ added, 'tftp' dropped 2.9: 'archipelago' dropped
     pub encrypted: bool,
     /**total throughput limit in bytes per second is specified
 */
-    pub bps: i64,
+    #[qapi(since = "1.1.0")]
+    pub bps: Option<i64>,
     /**read throughput limit in bytes per second is specified
 */
-    pub bps_rd: i64,
+    #[qapi(since = "1.1.0")]
+    pub bps_rd: Option<i64>,
     /**write throughput limit in bytes per second is specified
 */
-    pub bps_wr: i64,
+    #[qapi(since = "1.1.0")]
+    pub bps_wr: Option<i64>,
     /**total I/O operations per second is specified
 */
-    pub iops: i64,
+    #[qapi(since = "1.1.0")]
+    pub iops: Option<i64>,
     /**read I/O operations per second is specified
 */
-    pub iops_rd: i64,
+    #[qapi(since = "1.1.0")]
+    pub iops_rd: Option<i64>,
     /**write I/O operations per second is specified
 */
-    pub iops_wr: i64,
+    #[qapi(since = "1.1.0")]
+    pub iops_wr: Option<i64>,
     /**number of files in the backing file chain
 (since: 1.2.0)
 */
@@ -9409,7 +9416,7 @@ raw format at the given offset.
 }
 /**Statistics of a virtual block device or a block backing device.
 */
-#[qapi(since = "1.1.0")]
+#[qapi(since = "1.0.0")]
 pub struct BlockDeviceStats {
     /**The number of bytes read by the device.
 */
@@ -10194,7 +10201,7 @@ as well.  Defaults to 1.  (Since 2.6.0)
 /**Block device information.  This structure describes a virtual device
 and the backing device associated with it.
 */
-#[qapi(since = "1.1.0")]
+#[qapi(since = "1.0.0")]
 pub struct BlockInfo {
     /**The device name associated with the virtual device.
 */
@@ -10328,7 +10335,7 @@ disappear.  (since 2.12.0)
     /**Error information if the job did not complete successfully.
 Not set if the job completed successfully.  (since 2.12.1)
 */
-    #[qapi(since = "3.0.0")]
+    #[qapi(since = "2.12.1")]
     pub error: Option<String>,
     #[qapi(union)]
     #[qapi(since = "8.2.0")]
@@ -10535,7 +10542,7 @@ information (since 1.7.0)
 }
 /**Statistics of a virtual block device or a block backing device.
 */
-#[qapi(since = "1.1.0")]
+#[qapi(since = "1.0.0")]
 pub struct BlockStats {
     /**If the stats are for a virtual block device, the name
 corresponding to the virtual block device.
@@ -11460,7 +11467,7 @@ alignment (but need not be a power of 2), or 0 for default
 (since 2.10.0)
 */
     #[qapi(name = "max-transfer")]
-    #[qapi(since = "2.10.0")]
+    #[qapi(since = "2.9.1")]
     pub max_transfer: Option<i32>,
     /**preferred alignment for write zero requests in
 bytes, must be positive multiple of @align and of the underlying
@@ -11468,7 +11475,7 @@ file's request alignment (but need not be a power of 2), or 0
 for default (since 2.10.0)
 */
     #[qapi(name = "opt-write-zero")]
-    #[qapi(since = "2.10.0")]
+    #[qapi(since = "2.9.1")]
     pub opt_write_zero: Option<i32>,
     /**maximum size for write zero requests in bytes, must
 be positive multiple of @align, of @opt-write-zero, and of the
@@ -11476,7 +11483,7 @@ underlying file's request alignment (but need not be a power of
 2), or 0 for default (since 2.10.0)
 */
     #[qapi(name = "max-write-zero")]
-    #[qapi(since = "2.10.0")]
+    #[qapi(since = "2.9.1")]
     pub max_write_zero: Option<i32>,
     /**preferred alignment for discard requests in bytes,
 must be positive multiple of @align and of the underlying file's
@@ -11484,7 +11491,7 @@ request alignment (but need not be a power of 2), or 0 for
 default (since 2.10.0)
 */
     #[qapi(name = "opt-discard")]
-    #[qapi(since = "2.10.0")]
+    #[qapi(since = "2.9.1")]
     pub opt_discard: Option<i32>,
     /**maximum size for discard requests in bytes, must be
 positive multiple of @align, of @opt-discard, and of the
@@ -11492,21 +11499,21 @@ underlying file's request alignment (but need not be a power of
 2), or 0 for default (since 2.10.0)
 */
     #[qapi(name = "max-discard")]
-    #[qapi(since = "2.10.0")]
+    #[qapi(since = "2.9.1")]
     pub max_discard: Option<i32>,
     /**Permissions to take on @image in addition to what
 is necessary anyway (which depends on how the blkdebug node is
 used).  Defaults to none.  (since 5.0.0)
 */
     #[qapi(name = "take-child-perms")]
-    #[qapi(since = "5.0.0")]
+    #[qapi(since = "4.2.1")]
     pub take_child_perms: Option<Vec<BlockPermission>>,
     /**Permissions not to share on @image in addition
 to what cannot be shared anyway (which depends on how the
 blkdebug node is used).  Defaults to none.  (since 5.0.0)
 */
     #[qapi(name = "unshare-child-perms")]
-    #[qapi(since = "5.0.0")]
+    #[qapi(since = "4.2.1")]
     pub unshare_child_perms: Option<Vec<BlockPermission>>,
 }
 /**Driver specific block device options for blklogwrites.
@@ -12921,7 +12928,7 @@ pub struct ChardevHubWrapper {
 }
 /**Information about a character device.
 */
-#[qapi(since = "1.1.0")]
+#[qapi(since = "1.0.0")]
 pub struct ChardevInfo {
     /**the label of the character device
 */
@@ -13298,7 +13305,7 @@ additional packets are dropped.  (default: 1024)
 }
 /**Information about a QMP command
 */
-#[qapi(since = "1.1.0")]
+#[qapi(since = "1.0.0")]
 pub struct CommandInfo {
     /**The command name
 */
@@ -13479,7 +13486,7 @@ available.
 }
 /**Information about a virtual CPU
 */
-#[qapi(since = "1.1.0")]
+#[qapi(since = "1.0.0")]
 #[qapi(until = "6.0.0")]
 pub struct CpuInfo {
     /**the index of the virtual CPU
@@ -13510,7 +13517,7 @@ pointer
     /**optional If the target is MIPS, the instruction pointer
 */
     #[qapi(name = "PC")]
-    #[qapi(until = "1.2.0")]
+    #[qapi(until = "1.1.0")]
     pub pc_alt: Option<i64>,
     /**ID of the underlying host thread
 */
@@ -15796,7 +15803,7 @@ pub struct KeyValue {
 }
 /**Information about support for KVM acceleration
 */
-#[qapi(since = "1.1.0")]
+#[qapi(since = "1.0.0")]
 pub struct KvmInfo {
     /**true if KVM acceleration is active
 */
@@ -16796,7 +16803,7 @@ pub struct MigrationExecCommand {
 }
 /**Information about current migration process.
 */
-#[qapi(since = "1.1.0")]
+#[qapi(since = "1.0.0")]
 pub struct MigrationInfo {
     /**`MigrationStatus` describing the current migration status.
 If this field is not returned, no migration process has been
@@ -17281,7 +17288,7 @@ the remainder its arguments.  (Since 10.2.0)
 }
 /**Detailed migration status.
 */
-#[qapi(since = "1.1.0")]
+#[qapi(since = "1.0.0")]
 pub struct MigrationStats {
     /**amount of bytes already transferred to the target VM
 */
@@ -17410,7 +17417,7 @@ emulator, control in qemu-storage-daemon)
 }
 /**Information about a mouse device.
 */
-#[qapi(since = "1.1.0")]
+#[qapi(since = "1.0.0")]
 pub struct MouseInfo {
     /**the name of the mouse device
 */
@@ -17505,7 +17512,7 @@ pub struct NicRxFilterChangedEvent {
 }
 /**Guest name information.
 */
-#[qapi(since = "1.1.0")]
+#[qapi(since = "1.0.0")]
 pub struct NameInfo {
     /**The name of the guest
 */
@@ -18755,7 +18762,7 @@ pub struct PrManagerStatusChangedEvent {
 }
 /**Information about a PCI Bridge device
 */
-#[qapi(since = "1.1.0")]
+#[qapi(since = "1.0.0")]
 pub struct PciBridgeInfo {
     /**information about the bus the device resides on
 */
@@ -18764,7 +18771,7 @@ pub struct PciBridgeInfo {
 */
     pub devices: Option<Box<Vec<PciDeviceInfo>>>,
 }
-#[qapi(since = "1.1.0")]
+#[qapi(since = "1.0.0")]
 #[qapi(until = "2.4.0")]
 pub struct PciBridgeInfoBus {
     pub number: i64,
@@ -18835,7 +18842,7 @@ pub struct PciDeviceId {
 }
 /**Information about a PCI device
 */
-#[qapi(since = "1.1.0")]
+#[qapi(since = "1.0.0")]
 pub struct PciDeviceInfo {
     /**the bus number of the device
 */
@@ -18869,13 +18876,13 @@ pub struct PciDeviceInfo {
     #[qapi(since = "5.1.0")]
     pub irq_pin: Option<i64>,
 }
-#[qapi(since = "1.1.0")]
+#[qapi(since = "1.0.0")]
 #[qapi(until = "2.4.0")]
 pub struct PciDeviceInfoClassInfo {
     pub desc: Option<String>,
     pub class: i64,
 }
-#[qapi(since = "1.1.0")]
+#[qapi(since = "1.0.0")]
 #[qapi(until = "2.4.0")]
 pub struct PciDeviceInfoId {
     pub device: i64,
@@ -18883,7 +18890,7 @@ pub struct PciDeviceInfoId {
 }
 /**Information about a PCI bus
 */
-#[qapi(since = "1.1.0")]
+#[qapi(since = "1.0.0")]
 pub struct PciInfo {
     /**the bus index
 */
@@ -18894,7 +18901,7 @@ pub struct PciInfo {
 }
 /**A PCI device memory region
 */
-#[qapi(since = "1.1.0")]
+#[qapi(since = "1.0.0")]
 pub struct PciMemoryRange {
     /**the starting address (guest physical)
 */
@@ -18905,7 +18912,7 @@ pub struct PciMemoryRange {
 }
 /**Information about a PCI device I/O region.
 */
-#[qapi(since = "1.1.0")]
+#[qapi(since = "1.0.0")]
 pub struct PciMemoryRegion {
     /**the index of the Base Address Register for this region
 */
@@ -20905,7 +20912,7 @@ pub struct SpiceBasicInfo {
 }
 /**Information about a SPICE client channel.
 */
-#[qapi(since = "1.1.0")]
+#[qapi(since = "1.0.0")]
 pub struct SpiceChannel {
     /**IP address
 */
@@ -20939,7 +20946,7 @@ multiple display channels in a multihead setup
 }
 /**Information about the SPICE session.
 */
-#[qapi(since = "1.1.0")]
+#[qapi(since = "1.0.0")]
 pub struct SpiceInfo {
     /**true if the SPICE server is enabled, false otherwise
 */
@@ -20966,20 +20973,21 @@ command line options
 */
     #[qapi(name = "compiled-version")]
     pub compiled_version: Option<String>,
+    /**a list of `SpiceChannel` for each active spice channel
+*/
+    pub channels: Option<Vec<SpiceChannel>>,
     /**The mode in which the mouse cursor is displayed
 currently.  Can be determined by the client or the server, or
 unknown if spice server doesn't provide this information.
 (since: 1.1.0)
 */
     #[qapi(name = "mouse-mode")]
-    pub mouse_mode: SpiceQueryMouseMode,
-    /**a list of `SpiceChannel` for each active spice channel
-*/
-    pub channels: Option<Vec<SpiceChannel>>,
+    #[qapi(since = "1.1.0")]
+    pub mouse_mode: Option<SpiceQueryMouseMode>,
     /**true if the last guest migration completed and spice
 migration had completed as well, false otherwise (since 1.4.0)
 */
-    #[qapi(since = "1.3.0")]
+    #[qapi(since = "1.2.1")]
     pub migrated: Option<bool>,
 }
 /**Information about a SPICE server
@@ -21135,7 +21143,7 @@ pub struct StatsVcpuFilter {
 }
 /**Information about VM run state
 */
-#[qapi(since = "1.1.0")]
+#[qapi(since = "1.0.0")]
 pub struct StatusInfo {
     /**true if all VCPUs are runnable, false if not runnable
 */
@@ -21693,7 +21701,7 @@ pub struct UnixSocketAddressWrapper {
 }
 /**Guest UUID information (Universally Unique Identifier).
 */
-#[qapi(since = "1.1.0")]
+#[qapi(since = "1.0.0")]
 pub struct UuidInfo {
     /**the UUID of the guest
 */
@@ -21800,7 +21808,7 @@ pub struct VserportChangeEvent {
 }
 /**A description of QEMU's version.
 */
-#[qapi(since = "1.1.0")]
+#[qapi(since = "1.0.0")]
 pub struct VersionInfo {
     /**The version of QEMU.  By current convention, a micro version
 of 50 signifies a development branch.  A micro version greater
@@ -21816,7 +21824,7 @@ highly recommended that a unique name is used.
 */
     pub package: String,
 }
-#[qapi(since = "1.1.0")]
+#[qapi(since = "1.0.0")]
 #[qapi(until = "2.4.0")]
 pub struct VersionInfoQemu {
     pub major: i64,
@@ -22355,7 +22363,7 @@ relied on.
 }
 /**Information about a connected VNC client.
 */
-#[qapi(since = "1.1.0")]
+#[qapi(since = "1.0.0")]
 pub struct VncClientInfo {
     /**IP address
 */
@@ -22383,7 +22391,7 @@ used for authentication.
 }
 /**Information about the VNC session.
 */
-#[qapi(since = "1.1.0")]
+#[qapi(since = "1.0.0")]
 pub struct VncInfo {
     /**true if the VNC server is enabled, false otherwise
 */
@@ -24132,7 +24140,7 @@ pub struct Cont {}
 #[qapi(command)]
 #[qapi(name = "cpu")]
 #[qapi(returns = "()")]
-#[qapi(since = "1.1.0")]
+#[qapi(since = "1.0.0")]
 #[qapi(until = "2.12.0")]
 pub struct Cpu {
     pub index: i64,
@@ -25446,14 +25454,14 @@ pub struct QueryAudiodevs {}
 #[qapi(command)]
 #[qapi(name = "query-balloon")]
 #[qapi(returns = "BalloonInfo")]
-#[qapi(since = "1.1.0")]
+#[qapi(since = "1.0.0")]
 pub struct QueryBalloon {}
 /**Get a list of `BlockInfo` for all virtual block devices.
 */
 #[qapi(command)]
 #[qapi(name = "query-block")]
 #[qapi(returns = "Vec<BlockInfo>")]
-#[qapi(since = "1.1.0")]
+#[qapi(since = "1.0.0")]
 pub struct QueryBlock {}
 #[qapi(command)]
 #[qapi(name = "query-block-exports")]
@@ -25472,7 +25480,7 @@ pub struct QueryBlockJobs {}
 #[qapi(command)]
 #[qapi(name = "query-blockstats")]
 #[qapi(returns = "Vec<BlockStats>")]
-#[qapi(since = "1.1.0")]
+#[qapi(since = "1.0.0")]
 pub struct QueryBlockstats {
     /**If true, the command will query all the block nodes
 that have a node name, in a list which will include "parent"
@@ -25491,7 +25499,7 @@ mode.  (Since 2.3.0)
 #[qapi(command)]
 #[qapi(name = "query-chardev")]
 #[qapi(returns = "Vec<ChardevInfo>")]
-#[qapi(since = "1.1.0")]
+#[qapi(since = "1.0.0")]
 pub struct QueryChardev {}
 /**Return information about character device backends.
 */
@@ -25525,7 +25533,7 @@ pub struct QueryCommandLineOptions {
 #[qapi(command)]
 #[qapi(name = "query-commands")]
 #[qapi(returns = "Vec<CommandInfo>")]
-#[qapi(since = "1.1.0")]
+#[qapi(since = "1.0.0")]
 pub struct QueryCommands {}
 /**Return a list of supported virtual CPU definitions
 */
@@ -25671,7 +25679,7 @@ impact on realtime guests and other latency sensitive guest workloads.
 #[qapi(command)]
 #[qapi(name = "query-cpus")]
 #[qapi(returns = "Vec<CpuInfo>")]
-#[qapi(since = "1.1.0")]
+#[qapi(since = "1.0.0")]
 #[qapi(until = "6.0.0")]
 pub struct QueryCpus {}
 /**Return information about all virtual CPUs.
@@ -25804,7 +25812,7 @@ pub struct QueryJobs {}
 #[qapi(command)]
 #[qapi(name = "query-kvm")]
 #[qapi(returns = "KvmInfo")]
-#[qapi(since = "1.1.0")]
+#[qapi(since = "1.0.0")]
 pub struct QueryKvm {}
 /**Return a list of supported machines
 */
@@ -25850,7 +25858,7 @@ pub struct QueryMemorySizeSummary {}
 #[qapi(command)]
 #[qapi(name = "query-mice")]
 #[qapi(returns = "Vec<MouseInfo>")]
-#[qapi(since = "1.1.0")]
+#[qapi(since = "1.0.0")]
 pub struct QueryMice {}
 /**Return information about current migration process.  If migration is
 active there will be another json-object with RAM migration status.
@@ -25858,7 +25866,7 @@ active there will be another json-object with RAM migration status.
 #[qapi(command)]
 #[qapi(name = "query-migrate")]
 #[qapi(returns = "MigrationInfo")]
-#[qapi(since = "1.1.0")]
+#[qapi(since = "1.0.0")]
 pub struct QueryMigrate {}
 /**Query migration XBZRLE cache size
 */
@@ -25894,7 +25902,7 @@ pub struct QueryMigrationthreads {}
 #[qapi(command)]
 #[qapi(name = "query-name")]
 #[qapi(returns = "NameInfo")]
-#[qapi(since = "1.1.0")]
+#[qapi(since = "1.0.0")]
 pub struct QueryName {}
 /**Get the named block driver list
 */
@@ -25914,7 +25922,7 @@ key) if true.  Default is false (Since 5.0.0)
 #[qapi(command)]
 #[qapi(name = "query-pci")]
 #[qapi(returns = "Vec<PciInfo>")]
-#[qapi(since = "1.1.0")]
+#[qapi(since = "1.0.0")]
 pub struct QueryPci {}
 /**Return a list of information about each persistent reservation
 manager.
@@ -26097,7 +26105,7 @@ pub struct QuerySgxCapabilities {}
 #[qapi(command)]
 #[qapi(name = "query-spice")]
 #[qapi(returns = "SpiceInfo")]
-#[qapi(since = "1.1.0")]
+#[qapi(since = "1.0.0")]
 pub struct QuerySpice {}
 /**Return runtime-collected statistics for objects such as the VM or
 its vCPUs.
@@ -26129,7 +26137,7 @@ pub struct QueryStatsSchemas {
 #[qapi(command)]
 #[qapi(name = "query-status")]
 #[qapi(returns = "StatusInfo")]
-#[qapi(since = "1.1.0")]
+#[qapi(since = "1.0.0")]
 pub struct QueryStatus {}
 /**Return information about the target for this QEMU
 */
@@ -26164,7 +26172,7 @@ pub struct QueryTpmTypes {}
 #[qapi(command)]
 #[qapi(name = "query-uuid")]
 #[qapi(returns = "UuidInfo")]
-#[qapi(since = "1.1.0")]
+#[qapi(since = "1.0.0")]
 pub struct QueryUuid {}
 /**Return information about virtual CPU dirty page rate limits, if any.
 */
@@ -26178,7 +26186,7 @@ pub struct QueryVcpuDirtyLimit {}
 #[qapi(command)]
 #[qapi(name = "query-version")]
 #[qapi(returns = "VersionInfo")]
-#[qapi(since = "1.1.0")]
+#[qapi(since = "1.0.0")]
 pub struct QueryVersion {}
 /**Show Virtual Machine Generation ID
 */
@@ -26192,7 +26200,7 @@ pub struct QueryVmGenerationId {}
 #[qapi(command)]
 #[qapi(name = "query-vnc")]
 #[qapi(returns = "VncInfo")]
-#[qapi(since = "1.1.0")]
+#[qapi(since = "1.0.0")]
 pub struct QueryVnc {}
 /**Return a list of vnc servers.  The list can be empty.
 */
@@ -26229,7 +26237,7 @@ premature EOF would not be unexpected.
 #[qapi(command)]
 #[qapi(name = "quit")]
 #[qapi(returns = "()")]
-#[qapi(since = "1.1.0")]
+#[qapi(since = "1.0.0")]
 pub struct Quit {}
 /**Remove a file descriptor from an fd set.
 */
@@ -26659,21 +26667,21 @@ If @tag already exists, an error will be reported
 #[qapi(command)]
 #[qapi(name = "stop")]
 #[qapi(returns = "()")]
-#[qapi(since = "1.1.0")]
+#[qapi(since = "1.0.0")]
 pub struct Stop {}
 /**Requests that a guest perform a powerdown operation.
 */
 #[qapi(command)]
 #[qapi(name = "system_powerdown")]
 #[qapi(returns = "()")]
-#[qapi(since = "1.1.0")]
+#[qapi(since = "1.0.0")]
 pub struct SystemPowerdown {}
 /**Performs a hard reset of a guest.
 */
 #[qapi(command)]
 #[qapi(name = "system_reset")]
 #[qapi(returns = "()")]
-#[qapi(since = "1.1.0")]
+#[qapi(since = "1.0.0")]
 pub struct SystemReset {}
 /**Wake up guest from suspend.  If the guest has wake-up from suspend
 support enabled (wakeup-suspend-support flag from
