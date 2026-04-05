@@ -151,3 +151,15 @@ pub struct Metadata {
     pub doc: Option<String>,
     pub attributes: Vec<Attribute>,
 }
+
+/// Convert a doc string into `#[doc = "..."]` token stream.
+/// Each line gets its own `#[doc]` attribute so `prettyplease` renders them as `///`.
+pub fn doc_to_tokens(doc: &str) -> proc_macro2::TokenStream {
+    let lines: Vec<proc_macro2::TokenStream> = doc.lines().map(|line| {
+        // Strip leading `# ` (QAPI comment prefix) if present
+        let line = line.strip_prefix("# ").or_else(|| line.strip_prefix("#")).unwrap_or(line);
+        let line = format!(" {}", line); // leading space for `/// text` formatting
+        quote! { #[doc = #line] }
+    }).collect();
+    quote! { #(#lines)* }
+}

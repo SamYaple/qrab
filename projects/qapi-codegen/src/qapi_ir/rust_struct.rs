@@ -1,4 +1,4 @@
-use super::{generate_attribute, rustify_field, rustify_type, Metadata};
+use super::{doc_to_tokens, generate_attribute, rustify_field, rustify_type, Metadata};
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 use std::cmp::Ordering;
@@ -51,11 +51,7 @@ impl Struct {
         } else {
             self.meta.attributes.iter().map(generate_attribute).collect()
         };
-        let struct_doc = self.meta.doc.as_ref().map(|doc| {
-            quote! {
-                #[doc = #doc]
-            }
-        });
+        let struct_doc = self.meta.doc.as_ref().map(|doc| doc_to_tokens(doc));
 
         let fields = self.fields.iter().map(|field| {
             let field_name: TokenStream = rustify_field(&field.name).parse().unwrap();
@@ -78,11 +74,7 @@ impl Struct {
             let field_attrs = field.meta.attributes.iter()
                 .filter(|a| !matches!(a, super::Attribute::Unit(n) if n == "boxed"))
                 .map(generate_attribute);
-            let field_doc = field.meta.doc.as_ref().map(|doc| {
-                quote! {
-                    #[doc = #doc]
-                }
-            });
+            let field_doc = field.meta.doc.as_ref().map(|doc| doc_to_tokens(doc));
 
             quote! {
                  #field_doc

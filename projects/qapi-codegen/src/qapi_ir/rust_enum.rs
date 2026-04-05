@@ -1,4 +1,4 @@
-use super::{generate_attribute, rustify_field, rustify_name, rustify_type, Metadata, StructField};
+use super::{doc_to_tokens, generate_attribute, rustify_field, rustify_name, rustify_type, Metadata, StructField};
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 use std::cmp::Ordering;
@@ -60,20 +60,14 @@ impl Enum {
             self.meta.attributes.iter().map(generate_attribute).collect()
         };
         let enum_doc = self.meta.doc.as_ref().map(|doc| {
-            quote! {
-                #[doc = #doc]
-            }
+            doc_to_tokens(doc)
         });
 
         let variants = self.variants.iter().map(|variant| {
             let variant_name = format_ident!("{}", rustify_name(&variant.name));
 
             let variant_attrs = variant.meta.attributes.iter().map(generate_attribute);
-            let variant_doc = variant.meta.doc.as_ref().map(|doc| {
-                quote! {
-                    #[doc = #doc]
-                }
-            });
+            let variant_doc = variant.meta.doc.as_ref().map(|doc| doc_to_tokens(doc));
 
             match &variant.kind {
                 EnumVariantKind::Unit => {
@@ -97,11 +91,7 @@ impl Enum {
                         let field_type: TokenStream = rustify_type(&field.r#type).parse().unwrap();
 
                         let field_attrs = field.meta.attributes.iter().map(generate_attribute);
-                        let field_doc = field.meta.doc.as_ref().map(|doc| {
-                            quote! {
-                                #[doc = #doc]
-                            }
-                        });
+                        let field_doc = field.meta.doc.as_ref().map(|doc| doc_to_tokens(doc));
 
                         quote! {
                             #field_doc
