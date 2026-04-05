@@ -5,4 +5,6 @@ members = [
     "projects/qapi-macros",
     "projects/qapi",
     "projects/qapi-protocol",
+    "projects/manager",
+    "examples/simple-vm",
 ]
