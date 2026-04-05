@@ -43,20 +43,6 @@ pub fn parse_schema(input: &str) -> Result<QapiSchema<'_>> {
     Ok(schema)
 }
 
-/// Preprocess schema content using a specific version.
-/// When no version is known (standalone parsing), use a high version so only
-/// format-agnostic fixes (commas, doc cleanup, RST headers) are applied.
-pub fn preprocess_schema(content: &str) -> String {
-    // Use a high version so version-gated transforms (type→struct, simple unions, etc.)
-    // are NOT applied. Only format-agnostic fixes run.
-    preprocess::preprocess(content, (99, 0, 0))
-}
-
-/// Preprocess schema content for a specific QEMU version.
-pub fn preprocess_schema_versioned(content: &str, version: preprocess::Version) -> String {
-    preprocess::preprocess(content, version)
-}
-
 pub fn read_schema(schema_file: &Path) -> Result<Vec<(PathBuf, String)>> {
     read_schema_with_version(schema_file, None)
 }
