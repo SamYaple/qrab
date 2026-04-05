@@ -270,13 +270,37 @@ impl<'i> QapiDocumentation<'i> {
                 input = next;
                 continue;
             }
-            // Try field: @field-name: description
-            if let Ok((next, name)) = terminated(take_name, take_line_end).parse(input) {
-                let (next2, _) = many0(take_empty_line).parse(next)?;
-                let (next3, vals) = opt(take_value).parse(next2)?;
-                let field_vals = vals.unwrap_or_default();
+            // Try field: @field-name: description (possibly multi-line)
+            if let Ok((next, (name, first_line))) = (|input| {
+                let (input, _) = take_line_start(input)?;
+                let (input, _) = tag("@").parse(input)?;
+                let (input, name) = take_while1(not_name_break).parse(input)?;
+                let (input, _) = opt(tag(":")).parse(input)?;
+                let (input, _) = space0.parse(input)?;
+                let (input, first_line) = not_line_ending.parse(input)?;
+                let (input, _) = line_ending.parse(input)?;
+                Ok((input, (name, first_line)))
+            }).parse(input) {
+                let mut field_vals: Vec<&str> = Vec::new();
+                if !first_line.trim().is_empty() {
+                    field_vals.push(first_line);
+                }
+                // Consume continuation lines (indented, not starting with @, not a section keyword)
+                let mut next = next;
+                loop {
+                    if let Ok((n, line)) = take_line_continuation(next) {
+                        field_vals.push(line);
+                        next = n;
+                    } else {
+                        break;
+                    }
+                }
+                // Skip trailing empty lines
+                while let Ok((n, _)) = take_empty_line(next) {
+                    next = n;
+                }
                 doc.fields.push((name, field_vals));
-                input = next3;
+                input = next;
                 continue;
             }
             // Try since

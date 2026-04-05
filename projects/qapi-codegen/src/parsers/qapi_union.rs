@@ -4,6 +4,7 @@ use super::qapi_cond::{take_cond, QapiCond};
 use super::qapi_documentation::QapiDocumentation;
 use super::qapi_features::{take_features, QapiFeatures};
 use super::qapi_members::{take_members_or_ref, MembersOrRef};
+use super::parser_version;
 use nom::branch::alt;
 use nom::combinator::opt;
 use nom::error::{Error, ErrorKind};
@@ -20,7 +21,7 @@ pub struct QapiUnion<'i> {
     pub name: &'i str,
     pub data: QapiBranches<'i>,
     pub base: MembersOrRef<'i>,
-    /// None for simple unions (v1.x-v6.1.0)
+    /// None for simple unions (v1.x–v6.1.0)
     pub discriminator: Option<&'i str>,
     pub r#if: Option<QapiCond<'i>>,
     pub features: Option<QapiFeatures<'i>>,
@@ -29,10 +30,134 @@ pub struct QapiUnion<'i> {
 
 impl<'i> QapiUnion<'i> {
     pub fn parse(input: &'i str) -> IResult<&'i str, Self> {
-        Self::parse_v1(input)
+        let v = parser_version();
+        if v < (1, 7, 0) {
+            Self::parse_v1(input)
+        } else if v < (6, 2, 0) {
+            Self::parse_v2(input)
+        } else {
+            Self::parse_v3(input)
+        }
     }
 
+    /// v1 (QEMU v1.0–v1.6.0): simple unions only, `'discriminator': {}` for alternates.
     pub fn parse_v1(input: &'i str) -> IResult<&'i str, Self> {
-        todo!("qapi_union::parse_v1 — Phase 7")
+        let (input, doc) = opt(QapiDocumentation::parse).parse(input)?;
+        let mut s = Self { doc, ..Default::default() };
+        let start = input;
+        let (input, _) = take_dict(alt((
+            take_kv("union", qstring).map(|v| s.name = v),
+            take_kv("data", take_branches).map(|v| s.data = v),
+            // 'discriminator': {} — alternate syntax (treated as no discriminator)
+            take_kv("discriminator", delimited(qtag("{"), opt(qstring), qtag("}"))).map(|_| ()),
+            take_cond.map(|v| s.r#if = Some(v)),
+            take_features.map(|v| s.features = Some(v)),
+            take_kv("base", take_members_or_ref).map(|v| s.base = v),
+        )))
+        .parse(input)?;
+        if s.name.is_empty() || s.data.is_empty() {
+            return Err(nom::Err::Error(Error::new(start, ErrorKind::Tag)));
+        }
+        // v1: simple unions are valid without discriminator/base
+        Ok((input, s))
+    }
+
+    /// v2 (QEMU v1.7.0–v6.1.0): simple unions + discriminated unions coexist.
+    pub fn parse_v2(input: &'i str) -> IResult<&'i str, Self> {
+        let (input, doc) = opt(QapiDocumentation::parse).parse(input)?;
+        let mut s = Self { doc, ..Default::default() };
+        let start = input;
+        let (input, _) = take_dict(alt((
+            take_kv("union", qstring).map(|v| s.name = v),
+            take_kv("data", take_branches).map(|v| s.data = v),
+            take_kv("discriminator", qstring).map(|v| s.discriminator = Some(v)),
+            take_cond.map(|v| s.r#if = Some(v)),
+            take_features.map(|v| s.features = Some(v)),
+            take_kv("base", take_members_or_ref).map(|v| s.base = v),
+        )))
+        .parse(input)?;
+        if s.name.is_empty() || s.data.is_empty() {
+            return Err(nom::Err::Error(Error::new(start, ErrorKind::Tag)));
+        }
+        // v2: both simple (no discriminator) and flat (with discriminator) are valid
+        Ok((input, s))
+    }
+
+    /// v3 (QEMU v6.2.0+): discriminated (flat) unions only — base + discriminator required.
+    pub fn parse_v3(input: &'i str) -> IResult<&'i str, Self> {
+        let (input, doc) = opt(QapiDocumentation::parse).parse(input)?;
+        let mut s = Self { doc, ..Default::default() };
+        let start = input;
+        let (input, _) = take_dict(alt((
+            take_kv("union", qstring).map(|v| s.name = v),
+            take_kv("data", take_branches).map(|v| s.data = v),
+            take_kv("discriminator", qstring).map(|v| s.discriminator = Some(v)),
+            take_cond.map(|v| s.r#if = Some(v)),
+            take_features.map(|v| s.features = Some(v)),
+            take_kv("base", take_members_or_ref).map(|v| s.base = v),
+        )))
+        .parse(input)?;
+        if s.name.is_empty() || s.data.is_empty() {
+            return Err(nom::Err::Error(Error::new(start, ErrorKind::Tag)));
+        }
+        // v3: discriminator and base are required
+        if s.discriminator.is_none() || s.base == MembersOrRef::Unset {
+            return Err(nom::Err::Error(Error::new(start, ErrorKind::Tag)));
+        }
+        Ok((input, s))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::parsers::set_parser_version;
+
+    #[test]
+    fn test_flat_union_v3() {
+        set_parser_version((10, 2, 0));
+        let input = "{'union':'SOMENAME', 'discriminator': 'testdiscrim', 'base': 'testbase', 'data':{'branchname':'branchtype'}}";
+        let (rem, u) = QapiUnion::parse(input).unwrap();
+        assert_eq!(rem, "");
+        assert_eq!(u.name, "SOMENAME");
+        assert_eq!(u.discriminator, Some("testdiscrim"));
+    }
+
+    #[test]
+    fn test_simple_union_rejected_in_v3() {
+        set_parser_version((10, 2, 0));
+        let input = "{ 'union': 'Test', 'data': { 'a': 'TypeA' } }";
+        let result = QapiUnion::parse(input);
+        assert!(result.is_err(), "Simple unions should be rejected in v3");
+    }
+
+    #[test]
+    fn test_simple_union_accepted_in_v2() {
+        set_parser_version((2, 0, 0));
+        let input = "{ 'union': 'BlockdevAction', 'data': { 'blockdev-snapshot-sync': 'BlockdevSnapshot' } }";
+        let (rem, u) = QapiUnion::parse(input).unwrap();
+        assert_eq!(rem, "");
+        assert_eq!(u.name, "BlockdevAction");
+        assert!(u.discriminator.is_none());
+        assert_eq!(u.base, MembersOrRef::Unset);
+    }
+
+    #[test]
+    fn test_empty_discriminator_v1() {
+        set_parser_version((1, 5, 0));
+        let input = "{ 'union': 'BlockdevRef', 'discriminator': {}, 'data': { 'definition': 'BlockdevOptions', 'reference': 'str' } }";
+        let (rem, u) = QapiUnion::parse(input).unwrap();
+        assert_eq!(rem, "");
+        assert_eq!(u.name, "BlockdevRef");
+        assert!(u.discriminator.is_none());
+    }
+
+    #[test]
+    fn test_flat_union_accepted_in_v2() {
+        set_parser_version((3, 0, 0));
+        let input = "{'union': 'TestUnion', 'discriminator': 'type', 'base': 'TestBase', 'data': {'a': 'TypeA'}}";
+        let (rem, u) = QapiUnion::parse(input).unwrap();
+        assert_eq!(rem, "");
+        assert_eq!(u.discriminator, Some("type"));
     }
 }
