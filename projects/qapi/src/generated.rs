@@ -10096,7 +10096,7 @@ information (since 1.7.0)
     /**Array of links to this node's child nodes' information
 */
     pub children: Box<Vec<BlockChildInfo>>,
-    /**block limits that are used for I/O on the node (Since 10.2)
+    /**block limits that are used for I/O on the node (Since 10.2.0)
 */
     #[qapi(since = "10.2.0")]
     pub limits: Option<BlockLimitsInfo>,
@@ -10528,7 +10528,7 @@ information (since 1.7.0)
 */
     #[qapi(name = "format-specific")]
     pub format_specific: Option<ImageInfoSpecific>,
-    /**block limits that are used for I/O on the node (Since 10.2)
+    /**block limits that are used for I/O on the node (Since 10.2.0)
 */
     #[qapi(since = "10.2.0")]
     pub limits: Option<BlockLimitsInfo>,
@@ -10945,7 +10945,7 @@ processing.  Currently defaults to 2000.  (since 2.8.0)
 */
     #[qapi(since = "4.2.0")]
     pub preallocation: Option<PreallocMode>,
-    /**create a detached LUKS header.  (since 9.0)
+    /**create a detached LUKS header.  (since 9.0.0)
 */
     #[qapi(name = "detached-header")]
     #[qapi(since = "9.0.0")]
@@ -15287,7 +15287,7 @@ information (since 1.7.0)
     #[qapi(name = "format-specific")]
     #[qapi(since = "1.7.0")]
     pub format_specific: Option<Box<ImageInfoSpecific>>,
-    /**block limits that are used for I/O on the node (Since 10.2)
+    /**block limits that are used for I/O on the node (Since 10.2.0)
 */
     #[qapi(since = "10.2.0")]
     pub limits: Option<BlockLimitsInfo>,
@@ -16748,7 +16748,7 @@ compression ratio which will consume more CPU.  Defaults to 1.
     pub multifd_qatzip_level: Option<u8>,
     /**Command to start the new QEMU process when @mode
 is @cpr-exec.  The first list element is the program's filename,
-the remainder its arguments.  (Since 10.2)
+the remainder its arguments.  (Since 10.2.0)
 */
     #[qapi(name = "cpr-exec-command")]
     #[qapi(since = "10.2.0")]
@@ -16898,7 +16898,7 @@ is supported by all VFIO devices and status is 'active' or
 */
     #[qapi(since = "5.2.0")]
     pub vfio: Option<VfioStats>,
-    /**True if outgoing migration is blocked (since 6.0)
+    /**True if outgoing migration is blocked (since 6.0.0)
 */
     #[qapi(feature = "deprecated")]
     #[qapi(since = "6.0.0")]
@@ -17273,7 +17273,7 @@ compression ratio which will consume more CPU.  Defaults to 1.
     pub multifd_qatzip_level: Option<u8>,
     /**Command to start the new QEMU process when @mode
 is @cpr-exec.  The first list element is the program's filename,
-the remainder its arguments.  (Since 10.2)
+the remainder its arguments.  (Since 10.2.0)
 */
     #[qapi(name = "cpr-exec-command")]
     #[qapi(since = "10.2.0")]
@@ -19093,7 +19093,7 @@ processing.  Currently defaults to 2000.  (since 2.8.0)
     #[qapi(name = "iter-time")]
     #[qapi(since = "2.8.0")]
     pub iter_time: Option<i64>,
-    /**create a detached LUKS header.  (since 9.0)
+    /**create a detached LUKS header.  (since 9.0.0)
 */
     #[qapi(name = "detached-header")]
     #[qapi(since = "9.0.0")]
@@ -20195,7 +20195,7 @@ QMP)
     #[qapi(since = "2.12.0")]
     pub allow_oob: Option<bool>,
     /**names of features associated with the command, in no particular
-order. (since 4.2)
+order. (since 4.2.0)
 
 TODO: @success-response (currently irrelevant, because it's QGA, not QMP)
 */
@@ -22066,7 +22066,7 @@ been decoded (bits 0-63)
     #[qapi(name = "unknown-dev-features")]
     pub unknown_dev_features: Option<u64>,
     /**Virtio device features bitmap that have not
-been decoded (bits 64-127) (since 10.2)
+been decoded (bits 64-127) (since 10.2.0)
 */
     #[qapi(name = "unknown-dev-features2")]
     #[qapi(since = "10.2.0")]
@@ -23469,7 +23469,7 @@ in bytes (Since 1.7.0)
     /**optional maximum length of the @bps_max burst
 period, in seconds. It must only
 be set if @bps_max is set as well.
-Defaults to 1. (Since 2.6)
+Defaults to 1. (Since 2.6.0)
 */
     #[qapi(since = "2.6.0")]
     #[qapi(until = "2.7.0")]
@@ -23477,7 +23477,7 @@ Defaults to 1. (Since 2.6)
     /**optional maximum length of the @bps_rd_max
 burst period, in seconds. It must only
 be set if @bps_rd_max is set as well.
-Defaults to 1. (Since 2.6)
+Defaults to 1. (Since 2.6.0)
 */
     #[qapi(since = "2.6.0")]
     #[qapi(until = "2.7.0")]
@@ -23485,7 +23485,7 @@ Defaults to 1. (Since 2.6)
     /**optional maximum length of the @bps_wr_max
 burst period, in seconds. It must only
 be set if @bps_wr_max is set as well.
-Defaults to 1. (Since 2.6)
+Defaults to 1. (Since 2.6.0)
 */
     #[qapi(since = "2.6.0")]
     #[qapi(until = "2.7.0")]
@@ -23493,7 +23493,7 @@ Defaults to 1. (Since 2.6)
     /**optional maximum length of the @iops burst
 period, in seconds. It must only
 be set if @iops_max is set as well.
-Defaults to 1. (Since 2.6)
+Defaults to 1. (Since 2.6.0)
 */
     #[qapi(since = "2.6.0")]
     #[qapi(until = "2.7.0")]
@@ -23501,7 +23501,7 @@ Defaults to 1. (Since 2.6)
     /**optional maximum length of the @iops_rd_max
 burst period, in seconds. It must only
 be set if @iops_rd_max is set as well.
-Defaults to 1. (Since 2.6)
+Defaults to 1. (Since 2.6.0)
 */
     #[qapi(since = "2.6.0")]
     #[qapi(until = "2.7.0")]
@@ -23509,7 +23509,7 @@ Defaults to 1. (Since 2.6)
     /**optional maximum length of the @iops_wr_max
 burst period, in seconds. It must only
 be set if @iops_wr_max is set as well.
-Defaults to 1. (Since 2.6)
+Defaults to 1. (Since 2.6.0)
 */
     #[qapi(since = "2.6.0")]
     #[qapi(until = "2.7.0")]

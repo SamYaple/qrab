@@ -649,5 +649,15 @@ fn generate_unified_struct(us: &UnifiedStruct, _registry: &UnifiedRegistry) -> p
         }
     }
 
+    // Final pass: normalize all doc version strings to major.minor.patch
+    if let Some(doc) = &ir.meta.doc {
+        ir.meta.doc = Some(normalize_doc_versions(doc));
+    }
+    for field in &mut ir.fields {
+        if let Some(doc) = &field.meta.doc {
+            field.meta.doc = Some(normalize_doc_versions(doc));
+        }
+    }
+
     ir.generate()
 }
