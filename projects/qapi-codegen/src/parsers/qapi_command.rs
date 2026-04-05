@@ -64,7 +64,13 @@ impl<'i> QapiCommand<'i> {
             take_cond.map(|v| s.r#if = Some(v)),
             take_features.map(|v| s.features = Some(v)),
             take_kv("returns", QapiTypeRef::parse).map(|v| s.returns = Some(v)),
-            take_kv("success-response", qbool).map(|v| s.success_response = Some(v)),
+            take_kv("success-response", move |input| {
+                if gen_string_as_bool {
+                    alt((qbool, qstring)).parse(input)
+                } else {
+                    qbool(input)
+                }
+            }).map(|v| s.success_response = Some(v)),
             take_kv("gen", move |input| {
                 if gen_string_as_bool {
                     alt((qbool, qstring)).parse(input)

@@ -35,3 +35,18 @@ pub fn qemu_version() -> (u32, u32, u32) {
 
 mod generated;
 pub use generated::*;
+
+/// QEMU Guest Agent (QGA) types.
+pub mod qga;
+
+static QGA_VERSION: OnceLock<String> = OnceLock::new();
+
+/// Set the QGA version string (from guest-info response).
+pub fn set_qga_version(version: String) {
+    QGA_VERSION.set(version).ok();
+}
+
+/// Get the QGA version. Returns empty string if not yet set.
+pub fn qga_version() -> &'static str {
+    QGA_VERSION.get().map(|s| s.as_str()).unwrap_or("")
+}

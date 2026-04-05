@@ -36,37 +36,32 @@ pub fn extract_schema_from_tag(qemu_repo: &Path, tag: &str) -> Result<tempfile::
     let tmpdir = tempfile::tempdir().context("Failed to create temp directory")?;
 
     // Use git archive to extract all schema files in one shot.
-    // Try both root qapi-schema.json and qapi/ directory.
-    let output = Command::new("git")
-        .args(["archive", tag, "--", "qapi-schema.json", "qapi/"])
-        .current_dir(qemu_repo)
-        .output()
-        .context("Failed to run git archive")?;
+    // Try: qapi-schema.json + qapi/ + qga/ (covers all versions and QGA).
+    // git archive fails if ANY path doesn't exist, so try progressively.
+    let paths_to_try: &[&[&str]] = &[
+        &["qapi-schema.json", "qapi/", "qga/"],   // root schema + qapi dir + qga
+        &["qapi-schema.json", "qapi/"],            // root schema + qapi dir (no qga)
+        &["qapi/", "qga/"],                        // qapi dir + qga (v2.12.0+)
+        &["qapi-schema.json", "qga/"],             // root schema + qga
+        &["qapi-schema.json"],                     // root schema only (v1.0-v1.4.0)
+        &["qapi/"],                                // qapi dir only
+    ];
 
-    // git archive may fail if one of the paths doesn't exist (e.g., v1.0 has no qapi/ dir).
-    // Try individual paths as fallback.
-    let tar_data = if output.status.success() {
-        output.stdout
-    } else {
-        // Try just qapi-schema.json (v1.0-v2.11.0)
+    let mut tar_data = None;
+    for paths in paths_to_try {
+        let mut args = vec!["archive".to_string(), tag.to_string(), "--".to_string()];
+        args.extend(paths.iter().map(|p| p.to_string()));
         let output = Command::new("git")
-            .args(["archive", tag, "--", "qapi-schema.json"])
+            .args(&args)
             .current_dir(qemu_repo)
             .output()
-            .context("Failed to run git archive for root schema")?;
+            .context("Failed to run git archive")?;
         if output.status.success() {
-            output.stdout
-        } else {
-            // Try just qapi/ (v2.12.0+)
-            let output = Command::new("git")
-                .args(["archive", tag, "--", "qapi/"])
-                .current_dir(qemu_repo)
-                .output()
-                .context("Failed to run git archive for qapi dir")?;
-            anyhow::ensure!(output.status.success(), "git archive failed for tag {}", tag);
-            output.stdout
+            tar_data = Some(output.stdout);
+            break;
         }
-    };
+    }
+    let tar_data = tar_data.with_context(|| format!("git archive failed for all path combos on tag {}", tag))?;
 
     // Extract tar to tmpdir, filtering to .json files only
     let mut archive = tar::Archive::new(&tar_data[..]);
@@ -79,8 +74,8 @@ pub fn extract_schema_from_tag(qemu_repo: &Path, tag: &str) -> Result<tempfile::
         if !path_str.ends_with(".json") {
             continue;
         }
-        // Skip non-schema json files
-        if !path_str.starts_with("qapi") {
+        // Only extract QAPI/QGA schema files
+        if !path_str.starts_with("qapi") && !path_str.starts_with("qga") {
             continue;
         }
 
@@ -103,6 +98,15 @@ pub fn find_extracted_schema_entry(dir: &Path) -> Option<PathBuf> {
     let root = dir.join("qapi-schema.json");
     if root.exists() {
         return Some(root);
+    }
+    None
+}
+
+/// Find the QGA schema entry point in an extracted temp directory.
+pub fn find_extracted_qga_schema_entry(dir: &Path) -> Option<PathBuf> {
+    let qga = dir.join("qga").join("qapi-schema.json");
+    if qga.exists() {
+        return Some(qga);
     }
     None
 }

@@ -4,7 +4,7 @@
 //! unified type registry where each type, field, and variant has version range
 //! annotations (since/until).
 
-use crate::versions::{extract_schema_from_tag, find_extracted_schema_entry, parse_version_tag};
+use crate::versions::{extract_schema_from_tag, find_extracted_schema_entry, find_extracted_qga_schema_entry, parse_version_tag};
 use crate::{read_schema_with_version, parse_schema, QapiSchemaToken};
 use crate::qapi_ir::*;
 use anyhow::{Context, Result};
@@ -238,6 +238,47 @@ fn process_single_version(qemu_repo: &Path, tag: &str) -> Result<VersionResult> 
         enums,
         structs,
     })
+}
+
+/// Extract, parse, and process IR for a single version's QGA schema.
+fn process_single_version_qga(qemu_repo: &Path, tag: &str) -> Result<Option<VersionResult>> {
+    let version = parse_version_tag(tag)
+        .with_context(|| format!("Invalid version tag: {}", tag))?;
+
+    let tmpdir = extract_schema_from_tag(qemu_repo, tag)
+        .with_context(|| format!("Failed to extract schema for {}", tag))?;
+
+    let schema_entry = match find_extracted_qga_schema_entry(tmpdir.path()) {
+        Some(entry) => entry,
+        None => return Ok(None), // No QGA schema in this version
+    };
+
+    crate::set_parser_version(version);
+
+    let sources = crate::read_schema_with_version(&schema_entry, Some(version))
+        .with_context(|| format!("Failed to read QGA schema for {}", tag))?;
+
+    let schema_hash = {
+        use std::hash::{Hash, Hasher};
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        hasher.write(b"qga"); // Differentiate from QMP hash
+        for (path, content) in &sources {
+            path.file_name().hash(&mut hasher);
+            content.hash(&mut hasher);
+        }
+        hasher.finish()
+    };
+
+    let (enums, structs) = process_version_schema(&sources)
+        .with_context(|| format!("Failed to process QGA IR for {}", tag))?;
+
+    Ok(Some(VersionResult {
+        tag: tag.to_string(),
+        version,
+        schema_hash,
+        enums,
+        structs,
+    }))
 }
 
 /// Parse schemas from multiple versions and build a unified registry.
@@ -853,4 +894,148 @@ fn generate_unified_struct(us: &UnifiedStruct, _registry: &UnifiedRegistry) -> p
     ir.fields.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
 
     ir.generate()
+}
+
+/// Build a unified registry from QGA schemas across versions.
+pub fn build_qga_registry(
+    qemu_repo: &Path,
+    version_tags: &[&str],
+) -> Result<UnifiedRegistry> {
+    use std::time::Instant;
+    let start = Instant::now();
+
+    eprintln!("Extracting and parsing QGA schemas from {} versions...", version_tags.len());
+    let results: Vec<Result<Option<VersionResult>>> = std::thread::scope(|scope| {
+        let handles: Vec<_> = version_tags.iter().map(|tag| {
+            scope.spawn(move || process_single_version_qga(qemu_repo, tag))
+        }).collect();
+        handles.into_iter().map(|h| h.join().unwrap()).collect()
+    });
+
+    eprintln!("  QGA extraction + parsing: {:.1}s", start.elapsed().as_secs_f64());
+
+    let mut version_results: Vec<VersionResult> = Vec::new();
+    let mut parse_failures = 0;
+    for result in results {
+        match result {
+            Ok(Some(vr)) => version_results.push(vr),
+            Ok(None) => {} // No QGA schema in this version
+            Err(e) => {
+                parse_failures += 1;
+                if parse_failures <= 3 {
+                    eprintln!("  QGA parse error (skipping): {:#}", e);
+                }
+            }
+        }
+    }
+    if parse_failures > 3 {
+        eprintln!("  ... and {} more QGA parse errors", parse_failures - 3);
+    }
+    version_results.sort_by_key(|r| r.version);
+    eprintln!("  QGA: {} versions parsed, {} skipped (no schema or parse error)", version_results.len(), parse_failures);
+
+    let merge_start = Instant::now();
+    let mut registry = UnifiedRegistry::default();
+    let mut prev_hash: Option<u64> = None;
+    let mut skipped = 0;
+
+    for vr in &version_results {
+        registry.versions.push(vr.version);
+        if prev_hash == Some(vr.schema_hash) {
+            skipped += 1;
+            continue;
+        }
+        prev_hash = Some(vr.schema_hash);
+
+        let mut seen_types = BTreeSet::new();
+        for (name, e) in &vr.enums {
+            seen_types.insert(name.clone());
+            merge_enum(&mut registry, name, e, vr.version);
+        }
+        for (name, s) in &vr.structs {
+            seen_types.insert(name.clone());
+            merge_struct(&mut registry, name, s, vr.version);
+        }
+        for (name, ut) in registry.types.iter_mut() {
+            if !seen_types.contains(name) {
+                let vr_inner = match ut {
+                    UnifiedType::Enum(e) => &mut e.versions,
+                    UnifiedType::Struct(s) => &mut s.versions,
+                };
+                if vr_inner.until.is_none() && vr_inner.since < vr.version {
+                    vr_inner.until = Some(vr.version);
+                }
+            }
+        }
+    }
+
+    if skipped > 0 {
+        eprintln!("  QGA skipped {} identical schemas", skipped);
+    }
+    fix_recursive_types(&mut registry);
+    eprintln!("  QGA merge: {:.1}s — {} types", merge_start.elapsed().as_secs_f64(), registry.types.len());
+
+    Ok(registry)
+}
+
+/// Generate unified QGA code from the registry.
+pub fn generate_qga_code(
+    qemu_repo: &Path,
+    version_tags: &[&str],
+) -> Result<String> {
+    use std::time::Instant;
+    let registry = build_qga_registry(qemu_repo, version_tags)?;
+    let codegen_start = Instant::now();
+
+    let mut output = String::new();
+    output.push_str("#![allow(unused_imports, non_camel_case_types, dead_code)]\n");
+    output.push_str("use crate as qapi;\n");
+    output.push_str("use qapi_macros::qapi;\n");
+    output.push_str("use std::collections::HashMap;\n\n");
+
+    let mut seen_rust_names: BTreeSet<String> = ["String", "Option", "Vec", "Box", "Result"]
+        .iter().map(|s| s.to_string()).collect();
+
+    let mut all_entries: Vec<_> = registry.types.iter().collect();
+    all_entries.sort_by(|(_, a), (_, b)| {
+        let name_a = match a {
+            UnifiedType::Enum(ue) => rustify_name(&ue.ir.name),
+            UnifiedType::Struct(us) => rustify_name(&us.ir.name),
+        };
+        let name_b = match b {
+            UnifiedType::Enum(ue) => rustify_name(&ue.ir.name),
+            UnifiedType::Struct(us) => rustify_name(&us.ir.name),
+        };
+        name_a.to_lowercase().cmp(&name_b.to_lowercase())
+    });
+
+    let mut all_tokens = proc_macro2::TokenStream::new();
+
+    for (name, ut) in &all_entries {
+        let rust_name = match ut {
+            UnifiedType::Enum(ue) => rustify_name(&ue.ir.name),
+            UnifiedType::Struct(us) => rustify_name(&us.ir.name),
+        };
+        if !seen_rust_names.insert(rust_name.clone()) {
+            eprintln!("WARNING: QGA skipping duplicate '{}'", rust_name);
+            continue;
+        }
+        let code = match ut {
+            UnifiedType::Enum(ue) => generate_unified_enum(ue, &registry),
+            UnifiedType::Struct(us) => generate_unified_struct(us, &registry),
+        };
+        all_tokens.extend(code);
+    }
+
+    let combined = format!("{}{}", output, all_tokens);
+    match syn::parse_file(&combined) {
+        Ok(syntree) => {
+            eprintln!("  QGA codegen: {:.1}s", codegen_start.elapsed().as_secs_f64());
+            Ok(prettyplease::unparse(&syntree))
+        }
+        Err(e) => {
+            eprintln!("WARNING: Failed to parse QGA output: {}", e);
+            Ok(combined)
+        }
+    }
 }

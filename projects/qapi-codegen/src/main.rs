@@ -5,16 +5,18 @@ use std::path::Path;
 fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().collect();
 
-    let repo = if args.len() >= 2 {
+    let repo = if args.len() >= 2 && !args[1].starts_with("--") {
         args[1].clone()
     } else {
         "vendor/qemu".to_string()
     };
 
+    let qga_mode = args.iter().any(|a| a == "--qga");
+
     let repo_path = Path::new(&repo);
     anyhow::ensure!(
         repo_path.join(".git").exists() || repo_path.join("HEAD").exists(),
-        "Not a git repository: {}. Usage: qapi-codegen [qemu-git-repo]",
+        "Not a git repository: {}. Usage: qapi-codegen [qemu-git-repo] [--qga]",
         repo
     );
 
@@ -26,7 +28,14 @@ fn main() -> Result<()> {
     );
 
     let tag_refs: Vec<&str> = tags.iter().map(|s| s.as_str()).collect();
-    let code = qapi_codegen::unified::generate_unified_code(repo_path, &tag_refs)?;
-    print!("{}", code);
+
+    if qga_mode {
+        let code = qapi_codegen::unified::generate_qga_code(repo_path, &tag_refs)?;
+        print!("{}", code);
+    } else {
+        let code = qapi_codegen::unified::generate_unified_code(repo_path, &tag_refs)?;
+        print!("{}", code);
+    }
+
     Ok(())
 }
