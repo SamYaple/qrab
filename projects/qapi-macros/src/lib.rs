@@ -45,10 +45,12 @@ fn parse_type_attrs(args: &[NestedMeta]) -> TypeAttrs {
                     let val = lit_str.value();
                     if nv.path.is_ident("name") {
                         attrs.name = Some(val);
-                    } else if nv.path.is_ident("since") {
+                    } else if nv.path.is_ident("since") || nv.path.is_ident("added") {
                         attrs.since = Some(val);
-                    } else if nv.path.is_ident("until") {
+                    } else if nv.path.is_ident("until") || nv.path.is_ident("removed") {
                         attrs.until = Some(val);
+                    } else if nv.path.is_ident("deprecated") {
+                        // Recognized but not acted upon in the macro (informational)
                     } else if nv.path.is_ident("condition") {
                         attrs.condition = Some(val);
                     } else if nv.path.is_ident("returns") {
@@ -88,10 +90,12 @@ fn parse_item_attrs(meta_list: &MetaList) -> ItemAttrs {
                     let val = lit_str.value();
                     if nv.path.is_ident("name") {
                         attrs.name = Some(val);
-                    } else if nv.path.is_ident("since") {
+                    } else if nv.path.is_ident("since") || nv.path.is_ident("added") {
                         attrs.since = Some(val);
-                    } else if nv.path.is_ident("until") {
+                    } else if nv.path.is_ident("until") || nv.path.is_ident("removed") {
                         attrs.until = Some(val);
+                    } else if nv.path.is_ident("deprecated") {
+                        // Recognized but not acted upon in the macro (informational)
                     } else if nv.path.is_ident("condition") {
                         attrs.condition = Some(val);
                     } else if nv.path.is_ident("feature") {

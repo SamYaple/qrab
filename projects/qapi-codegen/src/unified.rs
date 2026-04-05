@@ -37,11 +37,12 @@ fn clean_doc(doc: &str) -> Option<String> {
 pub struct VersionRange {
     pub since: Version,
     pub until: Option<Version>,
+    pub deprecated: Option<Version>,
 }
 
 impl VersionRange {
     pub fn new(since: Version) -> Self {
-        Self { since, until: None }
+        Self { since, until: None, deprecated: None }
     }
 }
 
@@ -269,6 +270,16 @@ pub fn build_unified_registry(
     Ok(registry)
 }
 
+/// Check if an IR node has the 'deprecated' feature.
+fn has_deprecated_feature(meta: &Metadata) -> bool {
+    meta.attributes.iter().any(|a| match a {
+        Attribute::List(items) => items.iter().any(|item| matches!(item,
+            Attribute::Item { name, value } if name == "feature" && value == "deprecated"
+        )),
+        _ => false,
+    })
+}
+
 /// Map from QAPI variant name to its Rust name (for detecting renames).
 fn variant_rust_name(v: &EnumVariant) -> String {
     crate::qapi_ir::rustify_name(&v.name)
@@ -277,6 +288,10 @@ fn variant_rust_name(v: &EnumVariant) -> String {
 fn merge_enum(registry: &mut UnifiedRegistry, name: &str, e: &Enum, version: Version) {
     if let Some(UnifiedType::Enum(existing)) = registry.types.get_mut(name) {
         existing.versions.until = None;
+        // Track type-level deprecation
+        if has_deprecated_feature(&e.meta) && existing.versions.deprecated.is_none() {
+            existing.versions.deprecated = Some(version);
+        }
         // Update doc from latest version (latest has best docs)
         if e.meta.doc.is_some() {
             existing.ir.meta.doc = e.meta.doc.as_deref().and_then(clean_doc);
@@ -287,7 +302,12 @@ fn merge_enum(registry: &mut UnifiedRegistry, name: &str, e: &Enum, version: Ver
             seen_variants.insert(variant.name.clone());
             if existing.variant_versions.contains_key(&variant.name) {
                 // Variant still exists — clear until, update doc from latest version
-                existing.variant_versions.get_mut(&variant.name).unwrap().until = None;
+                let vr = existing.variant_versions.get_mut(&variant.name).unwrap();
+                vr.until = None;
+                // Track variant deprecation
+                if has_deprecated_feature(&variant.meta) && vr.deprecated.is_none() {
+                    vr.deprecated = Some(version);
+                }
                 if let (Some(ev), true) = (existing.ir.variants.iter_mut().find(|v| v.name == variant.name), variant.meta.doc.is_some()) {
                     ev.meta.doc = variant.meta.doc.as_deref().and_then(clean_doc);
                 }
@@ -362,6 +382,10 @@ fn field_rust_name(f: &StructField) -> String {
 fn merge_struct(registry: &mut UnifiedRegistry, name: &str, s: &Struct, version: Version) {
     if let Some(UnifiedType::Struct(existing)) = registry.types.get_mut(name) {
         existing.versions.until = None;
+        // Track type-level deprecation
+        if has_deprecated_feature(&s.meta) && existing.versions.deprecated.is_none() {
+            existing.versions.deprecated = Some(version);
+        }
         // Update doc from latest version (latest has best docs)
         if s.meta.doc.is_some() {
             existing.ir.meta.doc = s.meta.doc.as_deref().and_then(clean_doc);
@@ -372,7 +396,12 @@ fn merge_struct(registry: &mut UnifiedRegistry, name: &str, s: &Struct, version:
             seen_fields.insert(field.name.clone());
             if existing.field_versions.contains_key(&field.name) {
                 // Field still exists — clear until, update doc from latest version
-                existing.field_versions.get_mut(&field.name).unwrap().until = None;
+                let fr = existing.field_versions.get_mut(&field.name).unwrap();
+                fr.until = None;
+                // Track field deprecation
+                if has_deprecated_feature(&field.meta) && fr.deprecated.is_none() {
+                    fr.deprecated = Some(version);
+                }
                 if let (Some(ef), true) = (existing.ir.fields.iter_mut().find(|f| f.name == field.name), field.meta.doc.is_some()) {
                     ef.meta.doc = field.meta.doc.as_deref().and_then(clean_doc);
                 }
@@ -629,26 +658,27 @@ fn generate_unified_enum(ue: &UnifiedEnum, _registry: &UnifiedRegistry) -> proc_
     let mut ir = ue.ir.clone();
 
     // Strip any existing since from doc comments — always use registry version
-    ir.meta.attributes.retain(|a| !matches!(a, Attribute::Item { name, .. } if name == "added" || name == "since"));
-    ir.meta.attributes.push(Attribute::with_value("since", version_str(ue.versions.since)));
-
-    // Add until if the type was removed
+    ir.meta.attributes.retain(|a| !matches!(a, Attribute::Item { name, .. } if name == "added" || name == "since" || name == "removed" || name == "until" || name == "deprecated"));
+    ir.meta.attributes.push(Attribute::with_value("added", version_str(ue.versions.since)));
+    if let Some(dep) = ue.versions.deprecated {
+        ir.meta.attributes.push(Attribute::with_value("deprecated", version_str(dep)));
+    }
     if let Some(until) = ue.versions.until {
-        ir.meta.attributes.push(Attribute::with_value("until", version_str(until)));
+        ir.meta.attributes.push(Attribute::with_value("removed", version_str(until)));
     }
 
-    // Add per-variant since/until
+    // Add per-variant added/deprecated/removed
     for variant in &mut ir.variants {
-        // Strip existing since from doc comments
-        variant.meta.attributes.retain(|a| !matches!(a, Attribute::Item { name, .. } if name == "added" || name == "since"));
+        variant.meta.attributes.retain(|a| !matches!(a, Attribute::Item { name, .. } if name == "added" || name == "since" || name == "removed" || name == "until" || name == "deprecated"));
         if let Some(vr) = ue.variant_versions.get(&variant.name) {
-            // Add since if variant appeared after the type
             if vr.since > ue.versions.since {
-                variant.meta.attributes.push(Attribute::with_value("since", version_str(vr.since)));
+                variant.meta.attributes.push(Attribute::with_value("added", version_str(vr.since)));
             }
-            // Add until if variant was removed
+            if let Some(dep) = vr.deprecated {
+                variant.meta.attributes.push(Attribute::with_value("deprecated", version_str(dep)));
+            }
             if let Some(until) = vr.until {
-                variant.meta.attributes.push(Attribute::with_value("until", version_str(until)));
+                variant.meta.attributes.push(Attribute::with_value("removed", version_str(until)));
             }
         }
     }
@@ -672,29 +702,30 @@ fn generate_unified_struct(us: &UnifiedStruct, _registry: &UnifiedRegistry) -> p
     let mut ir = us.ir.clone();
 
     // Strip existing since from doc comments — always use registry version
-    ir.meta.attributes.retain(|a| !matches!(a, Attribute::Item { name, .. } if name == "added" || name == "since"));
-    ir.meta.attributes.push(Attribute::with_value("since", version_str(us.versions.since)));
-
+    ir.meta.attributes.retain(|a| !matches!(a, Attribute::Item { name, .. } if name == "added" || name == "since" || name == "removed" || name == "until" || name == "deprecated"));
+    ir.meta.attributes.push(Attribute::with_value("added", version_str(us.versions.since)));
+    if let Some(dep) = us.versions.deprecated {
+        ir.meta.attributes.push(Attribute::with_value("deprecated", version_str(dep)));
+    }
     if let Some(until) = us.versions.until {
-        ir.meta.attributes.push(Attribute::with_value("until", version_str(until)));
+        ir.meta.attributes.push(Attribute::with_value("removed", version_str(until)));
     }
 
-    // Add per-field since/until and make fields optional if they don't span the full type range
+    // Add per-field added/deprecated/removed and make fields optional if needed
     for field in &mut ir.fields {
-        // Strip existing since from doc comments
-        field.meta.attributes.retain(|a| !matches!(a, Attribute::Item { name, .. } if name == "added" || name == "since"));
+        field.meta.attributes.retain(|a| !matches!(a, Attribute::Item { name, .. } if name == "added" || name == "since" || name == "removed" || name == "until" || name == "deprecated"));
         if let Some(fr) = us.field_versions.get(&field.name) {
-            // Field appeared after the type — must be optional
             if fr.since > us.versions.since {
-                field.meta.attributes.push(Attribute::with_value("since", version_str(fr.since)));
-                // Make optional if not already
+                field.meta.attributes.push(Attribute::with_value("added", version_str(fr.since)));
                 if !field.optional {
                     field.optional = true;
                 }
             }
-            // Field was removed — must be optional
+            if let Some(dep) = fr.deprecated {
+                field.meta.attributes.push(Attribute::with_value("deprecated", version_str(dep)));
+            }
             if let Some(until) = fr.until {
-                field.meta.attributes.push(Attribute::with_value("until", version_str(until)));
+                field.meta.attributes.push(Attribute::with_value("removed", version_str(until)));
                 if !field.optional {
                     field.optional = true;
                 }
