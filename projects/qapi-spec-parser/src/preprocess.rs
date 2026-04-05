@@ -14,6 +14,11 @@ pub fn minimal_preprocess(content: &str) -> String {
     let mut content = content.to_string();
     // Fix malformed doc end marker (typo in v2.0.0-v2.7.0): ### → ##
     content = content.replace("\n###\n", "\n##\n");
+    // Fix shorthand doc format: `## @Name` → `##\n# @Name:`
+    // Used in v2.4.0-v2.7.0 for a few types (ACPISlotType, ACPIOSTInfo)
+    content = fix_doc_shorthand(&content);
+    // Strip leading whitespace from # and ## doc lines (some versions indent entire doc blocks)
+    content = strip_doc_leading_whitespace(&content);
     // Normalize spacing around colons: 'key' : → 'key':
     content = fix_key_colon_spacing(&content);
     // Insert missing commas between dict entries separated by newlines
@@ -21,6 +26,28 @@ pub fn minimal_preprocess(content: &str) -> String {
     // Remove trailing commas before ] or }
     content = fix_trailing_commas(&content);
     content
+}
+
+/// Strip leading whitespace from lines that start with `#` or `##`.
+/// Some QEMU schema versions (v3.0.0+) indent entire doc blocks.
+fn strip_doc_leading_whitespace(content: &str) -> String {
+    let mut result: String = content
+        .lines()
+        .map(|line| {
+            let trimmed = line.trim_start();
+            if trimmed.starts_with('#') {
+                trimmed
+            } else {
+                line
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    // Preserve trailing newline if original had one
+    if content.ends_with('\n') && !result.ends_with('\n') {
+        result.push('\n');
+    }
+    result
 }
 
 /// Preprocess schema content, normalizing old formats to canonical (modern) form.

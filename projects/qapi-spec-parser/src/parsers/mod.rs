@@ -86,7 +86,7 @@ impl ParserConfig {
             empty_discriminator_as_alternate: v < (2, 1, 0),
             old_pragma_keys: v < (5, 0, 0),
             gen_string_as_bool: v < (2, 4, 0),
-            bare_doc_blocks: v < (2, 0, 0),
+            bare_doc_blocks: v < (2, 8, 0),
             optional_doc_name_colon: v < (2, 4, 0),
             inline_member_structs: v < (2, 4, 0),
             doc_blank_lines: true, // various versions have this

@@ -1,6 +1,10 @@
 use super::{qcomment, vec_newtype};
+use nom::bytes::complete::tag;
+use nom::character::complete::line_ending;
+use nom::combinator::recognize;
+use nom::sequence::terminated;
 use crate::{
-    QapiAlternate, QapiCommand, QapiEnum, QapiEvent, QapiInclude, QapiPragma,
+    QapiAlternate, QapiCommand, QapiEnum, QapiEvent, QapiFreeformDoc, QapiInclude, QapiPragma,
     QapiSectionDocumentation, QapiStruct, QapiUnion,
 };
 use nom::branch::alt;
@@ -24,6 +28,7 @@ pub enum QapiSchemaToken<'i> {
     Include(QapiInclude<'i>),
     Pragma(QapiPragma<'i>),
     Doc(QapiSectionDocumentation<'i>),
+    FreeformDoc(QapiFreeformDoc<'i>),
     Comment(&'i str),
     EmptyLines,
 }
@@ -46,12 +51,20 @@ impl<'i> QapiSchema<'i> {
             QapiInclude::parse.map(QapiSchemaToken::Include),
             QapiPragma::parse.map(QapiSchemaToken::Pragma),
             QapiSectionDocumentation::parse.map(QapiSchemaToken::Doc),
+            QapiFreeformDoc::parse.map(QapiSchemaToken::FreeformDoc),
+            // Bare ## separator (not followed by doc content, common in v2.x)
+            bare_doc_separator.map(|_| QapiSchemaToken::EmptyLines),
             qcomment.map(QapiSchemaToken::Comment),
             multispace1.map(|_| QapiSchemaToken::EmptyLines),
         )))
         .map(Self)
         .parse(input)
     }
+}
+
+/// Matches a bare `##\n` line that acts as a separator (not a doc block).
+fn bare_doc_separator(input: &str) -> IResult<&str, &str> {
+    recognize(terminated(tag("##"), line_ending)).parse(input)
 }
 
 vec_newtype!(QapiSchema, QapiSchemaToken<'i>);
@@ -122,5 +135,32 @@ mod tests {
         assert_eq!(rem, "");
         let type_count = s.iter().filter(|t| !matches!(t, QapiSchemaToken::EmptyLines | QapiSchemaToken::Comment(_))).count();
         assert_eq!(type_count, 4);
+    }
+}
+
+#[cfg(test)]
+mod freeform_schema_tests {
+    use super::*;
+    use crate::parsers::{ParserConfig, set_parser_config};
+
+    #[test]
+    fn test_freeform_doc_direct() {
+        set_parser_config(ParserConfig::modern());
+        // Test QapiFreeformDoc directly on the input
+        let input = "##\n# title\n# body\n##\n";
+        let result = QapiFreeformDoc::parse(input);
+        assert!(result.is_ok(), "Direct FreeformDoc parse failed: {:?}", result.err());
+    }
+
+    #[test]
+    fn test_freeform_doc_in_schema() {
+        set_parser_config(ParserConfig::modern());
+        let input = "##\n# title\n# body\n##\n{ 'include': 'other.json' }\n";
+        let (rem, s) = QapiSchema::parse(input).unwrap();
+        assert_eq!(rem, "", "Unparsed: {:?}", &rem[..std::cmp::min(rem.len(), 100)]);
+        let has_freeform = s.iter().any(|t| matches!(t, QapiSchemaToken::FreeformDoc(_)));
+        assert!(has_freeform, "Should have freeform doc");
+        let has_include = s.iter().any(|t| matches!(t, QapiSchemaToken::Include(_)));
+        assert!(has_include, "Should have include");
     }
 }

@@ -14,7 +14,7 @@ pub use parsers::{
     qapi_variant::{take_variant, QapiVariant},
     qapi_command::{take_command, QapiCommand},
     qapi_cond::{take_cond, QapiCond},
-    qapi_documentation::{extract_since_from_comment, QapiDocumentation, QapiSectionDocumentation},
+    qapi_documentation::{extract_since_from_comment, QapiDocumentation, QapiSectionDocumentation, QapiFreeformDoc},
     qapi_enum::{take_enum, QapiEnum},
     qapi_enum_value::{take_enum_value, QapiEnumValue},
     qapi_event::{take_event, QapiEvent},
@@ -39,7 +39,7 @@ use std::path::{Path, PathBuf};
 pub fn parse_schema(input: &str) -> Result<QapiSchema<'_>> {
     let (i, schema) = take_schema(input)
         .map_err(|e| anyhow::anyhow!("Parse error: {}", e))?;
-    anyhow::ensure!(i.is_empty(), "Unparsed input remaining: {:?}", &i[..i.len().min(100)]);
+    anyhow::ensure!(i.is_empty(), "Unparsed input remaining ({} bytes): {:?}", i.len(), &i[..i.len().min(200)]);
     Ok(schema)
 }
 
@@ -76,15 +76,20 @@ fn read_schema_file(schema_file: &Path, sources: &mut Vec<(PathBuf, String)>, ve
         return Ok(());
     }
 
+    // Set parser config for version-aware parsing
+    if let Some(v) = version {
+        set_parser_config(ParserConfig::for_version(v));
+    } else {
+        set_parser_config(ParserConfig::modern());
+    }
+
     let raw_content = std::fs::read_to_string(schema_file)
         .with_context(|| format!("Failed to read schema file: {}", schema_file.display()))?;
-    let content = match version {
-        Some(v) => preprocess_schema_versioned(&raw_content, v),
-        None => preprocess_schema(&raw_content),
-    };
+    // Use minimal preprocessing only — parser handles format differences via ParserConfig
+    let content = preprocess::minimal_preprocess(&raw_content);
     sources.push((schema_file.to_path_buf(), content.clone()));
     let schema_tokens = parse_schema(&content)
-        .with_context(|| format!("Failed to parse schema file: {}", schema_file.display()))?;
+        .with_context(|| format!("Failed to parse schema file: {} (version: {:?})", schema_file.display(), version))?;
     let includes: Vec<&str> = schema_tokens
         .into_iter()
         .filter_map(|token| match token {
@@ -147,8 +152,11 @@ pub fn generate_qapi_code_versioned(qemu_src_root: &Path, schema_file: &Path, ve
                         unprocessed_structs.push(v.clone());
                         continue;
                     }
-                    let processed = process_struct(v.clone(), &structs_lookup);
+                    let (processed, extracted) = process_struct(v.clone(), &structs_lookup);
                     structs_lookup.insert(processed.name.clone(), processed);
+                    for e in extracted {
+                        structs_lookup.insert(e.name.clone(), e);
+                    }
                 }
                 QapiSchemaToken::Union(v) => {
                     unprocessed_unions.push(v.clone());
@@ -159,8 +167,11 @@ pub fn generate_qapi_code_versioned(qemu_src_root: &Path, schema_file: &Path, ve
     }
 
     for v in unprocessed_structs.drain(..) {
-        let processed = process_struct(v, &structs_lookup);
+        let (processed, extracted) = process_struct(v, &structs_lookup);
         structs_lookup.insert(processed.name.clone(), processed);
+        for e in extracted {
+            structs_lookup.insert(e.name.clone(), e);
+        }
     }
     for v in unprocessed_unions.drain(..) {
         let (processed_struct, processed_enum, disc_enum) =

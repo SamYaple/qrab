@@ -48,12 +48,11 @@ impl<'i> QapiUnion<'i> {
             return Err(nom::Err::Error(Error::new(start, ErrorKind::Tag)));
         }
 
-        if !with_parser_config(|c| c.simple_unions) {
-            if s.discriminator.is_none() || s.base == MembersOrRef::Unset {
-                return Err(nom::Err::Error(Error::new(start, ErrorKind::Tag)));
-            }
+        if !with_parser_config(|c| c.simple_unions)
+            && (s.discriminator.is_none() || s.base == MembersOrRef::Unset)
+        {
+            return Err(nom::Err::Error(Error::new(start, ErrorKind::Tag)));
         }
-
         Ok((input, s))
     }
 }

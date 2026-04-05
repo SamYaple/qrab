@@ -142,7 +142,7 @@ fn try_parse_version(tag: &str, repo: &Path) -> Result<usize, String> {
         .ok_or_else(|| "no schema entry point found".to_string())?;
 
     let sources = read_schema_with_version(&entry, Some(version))
-        .map_err(|e| format!("read_schema failed: {}", e))?;
+        .map_err(|e| format!("read_schema failed: {:#}", e))?;
 
     let mut total_tokens = 0;
     for (path, content) in &sources {

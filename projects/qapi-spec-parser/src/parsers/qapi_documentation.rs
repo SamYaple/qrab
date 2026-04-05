@@ -4,7 +4,7 @@ use super::with_parser_config;
 use nom::branch::alt;
 use nom::bytes::complete::{is_a, tag, tag_no_case, take_until, take_while1};
 use nom::character::complete::{line_ending, multispace0, not_line_ending, space0};
-use nom::combinator::{not, opt, recognize};
+use nom::combinator::{not, opt, peek, recognize};
 use nom::error::Error;
 use nom::multi::{many0, many1};
 use nom::sequence::{delimited, preceded, terminated};
@@ -92,7 +92,11 @@ fn take_namedkey<'i>(
 }
 
 fn take_line_start(input: &str) -> IResult<&str, &str> {
-    recognize((tag("#"), space0)).parse(input)
+    if with_parser_config(|c| c.doc_leading_whitespace) {
+        recognize((space0, tag("#"), space0)).parse(input)
+    } else {
+        recognize((tag("#"), space0)).parse(input)
+    }
 }
 
 fn take_line_end(input: &str) -> IResult<&str, &str> {
@@ -199,9 +203,40 @@ impl<'i> QapiDocumentation<'i> {
         } else {
             input
         };
-        let (input, _) = terminated(tag("##"), take_line_end).parse(input)?;
+
+        // Try standard ## opening, shorthand ## @Name, or bare doc block
+        let (input, shorthand_name) = if let Ok((input, _)) = terminated(tag::<&str, &str, Error<&str>>("##"), take_line_end).parse(input) {
+            // Standard opening: ##\n followed by # @Name: on next line
+            (input, None)
+        } else if with_parser_config(|c| c.bare_doc_blocks) {
+            // Shorthand: ## @Name on same line, or bare # @Name without ##
+            if let Ok((input, name)) = preceded(
+                (tag::<&str, &str, Error<&str>>("##"), space0),
+                terminated(
+                    delimited(
+                        tag("@"),
+                        take_while1(not_name_break),
+                        (space0, opt(tag(":"))),
+                    ),
+                    take_line_end,
+                ),
+            ).parse(input) {
+                (input, Some(name))
+            } else {
+                // Bare doc block: no ## opening, starts directly with # @Name
+                let _ = peek(terminated(take_name, take_line_end)).parse(input)?;
+                (input, None)
+            }
+        } else {
+            return Err(nom::Err::Error(Error::new(input, nom::error::ErrorKind::Tag)));
+        };
+
         let (input, _) = many0(take_empty_line).parse(input)?;
-        let (input, name) = terminated(take_name, take_line_end).parse(input)?;
+        let (input, name) = if let Some(n) = shorthand_name {
+            (input, n)
+        } else {
+            terminated(take_name, take_line_end).parse(input)?
+        };
         let (input, _) = many0(take_empty_line).parse(input)?;
         let (input, description_str) = opt(take_multiline_text).parse(input)?;
         let (input, _) = many0(take_empty_line).parse(input)?;
@@ -265,7 +300,14 @@ impl<'i> QapiDocumentation<'i> {
         } else {
             input
         };
-        let (input, _) = tag("##").parse(input)?;
+        // Closing ## is required for standard doc blocks, optional for bare doc blocks
+        let input = if let Ok((input, _)) = tag::<&str, &str, Error<&str>>("##").parse(input) {
+            input
+        } else if with_parser_config(|c| c.bare_doc_blocks) {
+            input
+        } else {
+            return Err(nom::Err::Error(Error::new(input, nom::error::ErrorKind::Tag)));
+        };
 
         ////
         // Parsing is now done, we might still return a parsing error after
@@ -352,6 +394,49 @@ impl<'i> QapiSectionDocumentation<'i> {
         };
         Ok((input, Self { name, description }))
     }
+}
+
+/// A freeform documentation block: ##\n# text...\n##
+/// Used for section intros, copyright headers, etc.
+/// These don't have a # @Name: line — they're just free text.
+#[derive(Debug, Clone)]
+pub struct QapiFreeformDoc<'i> {
+    pub text: &'i str,
+}
+
+impl<'i> QapiFreeformDoc<'i> {
+    pub fn parse(input: &'i str) -> IResult<&'i str, Self> {
+        let input = if with_parser_config(|c| c.doc_leading_whitespace) {
+            space0::<&str, Error<&str>>(input).map(|(i, _)| i).unwrap_or(input)
+        } else {
+            input
+        };
+        let start = input;
+        let (input, _) = terminated(tag("##"), take_line_end).parse(input)?;
+        // Consume lines starting with # until we hit ##
+        let (input, _) = many0(alt((
+            take_empty_line,
+            take_doc_line,
+        ))).parse(input)?;
+        let (input, _) = tag("##").parse(input)?;
+
+        let consumed = &start[..start.len() - input.len()];
+        Ok((input, Self { text: consumed }))
+    }
+}
+
+/// Parse a single # doc comment line (used within ## blocks).
+/// Does NOT match the closing ## marker.
+fn take_doc_line(input: &str) -> IResult<&str, &str> {
+    // Ensure we don't consume the closing ## marker
+    // Don't consume the closing ## (with optional leading whitespace)
+    let (input, _) = not(peek(terminated((space0, tag("##")), take_line_end))).parse(input)?;
+    delimited(
+        take_line_start,
+        not_line_ending,
+        take_line_end,
+    )
+    .parse(input)
 }
 
 #[cfg(test)]
@@ -785,6 +870,51 @@ mod tests {
                 assert_eq!(doc.since, Some("0.14.0"));
             }
             Err(e) => panic!("Since without colon should be accepted: {}", e),
+        }
+    }
+}
+
+#[cfg(test)]
+mod freeform_tests {
+    use super::*;
+    use crate::parsers::{ParserConfig, set_parser_config};
+
+    #[test]
+    fn test_freeform_doc_simple() {
+        set_parser_config(ParserConfig::modern());
+        let input = "##\n# some text\n# more text\n##";
+        let result = QapiFreeformDoc::parse(input);
+        match result {
+            Ok((remaining, _doc)) => {
+                assert_eq!(remaining, "");
+            }
+            Err(e) => panic!("Freeform doc should parse: {}", e),
+        }
+    }
+
+    #[test]
+    fn test_freeform_doc_with_empty_lines() {
+        set_parser_config(ParserConfig::modern());
+        let input = "##\n# title\n#\n# body\n##";
+        let result = QapiFreeformDoc::parse(input);
+        match result {
+            Ok((remaining, _doc)) => {
+                assert_eq!(remaining, "");
+            }
+            Err(e) => panic!("Freeform doc with empty line should parse: {}", e),
+        }
+    }
+
+    #[test]
+    fn test_freeform_intro_block() {
+        set_parser_config(ParserConfig::modern());
+        let input = "##\n# ************\n# Introduction\n# ************\n#\n# Some description.\n##";
+        let result = QapiFreeformDoc::parse(input);
+        match result {
+            Ok((remaining, _doc)) => {
+                assert_eq!(remaining, "");
+            }
+            Err(e) => panic!("Introduction block should parse: {}", e),
         }
     }
 }

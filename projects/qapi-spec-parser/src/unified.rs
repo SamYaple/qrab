@@ -14,11 +14,9 @@ use std::path::Path;
 pub type Version = (u32, u32, u32);
 
 fn version_str(v: Version) -> String {
-    if v.2 == 0 {
-        format!("{}.{}", v.0, v.1)
-    } else {
-        format!("{}.{}.{}", v.0, v.1, v.2)
-    }
+    // Always use major.minor.patch format, minimum 1.0.0
+    let v = (v.0.max(1), v.1, v.2);
+    format!("{}.{}.{}", v.0, v.1, v.2)
 }
 
 #[derive(Debug, Clone)]
@@ -93,8 +91,11 @@ fn process_version_schema(
                         unprocessed_structs.push(v.clone());
                         continue;
                     }
-                    let processed = process_struct(v.clone(), &structs_lookup);
+                    let (processed, extracted) = process_struct(v.clone(), &structs_lookup);
                     structs_lookup.insert(processed.name.clone(), processed);
+                    for e in extracted {
+                        structs_lookup.insert(e.name.clone(), e);
+                    }
                 }
                 QapiSchemaToken::Union(v) => {
                     unprocessed_unions.push(v.clone());
@@ -111,8 +112,11 @@ fn process_version_schema(
     }
 
     for v in unprocessed_structs {
-        let processed = process_struct(v, &structs_lookup);
+        let (processed, extracted) = process_struct(v, &structs_lookup);
         structs_lookup.insert(processed.name.clone(), processed);
+        for e in extracted {
+            structs_lookup.insert(e.name.clone(), e);
+        }
     }
     for v in unprocessed_unions {
         let (s, e, disc_enum) = process_union(v, &structs_lookup, &enums_lookup);
@@ -212,13 +216,20 @@ fn variant_rust_name(v: &EnumVariant) -> String {
 fn merge_enum(registry: &mut UnifiedRegistry, name: &str, e: &Enum, version: Version) {
     if let Some(UnifiedType::Enum(existing)) = registry.types.get_mut(name) {
         existing.versions.until = None;
+        // Update doc from latest version (latest has best docs)
+        if e.meta.doc.is_some() {
+            existing.ir.meta.doc = e.meta.doc.clone();
+        }
 
         let mut seen_variants = BTreeSet::new();
         for variant in &e.variants {
             seen_variants.insert(variant.name.clone());
             if existing.variant_versions.contains_key(&variant.name) {
-                // Variant still exists — clear until
+                // Variant still exists — clear until, update doc from latest version
                 existing.variant_versions.get_mut(&variant.name).unwrap().until = None;
+                if let (Some(ev), true) = (existing.ir.variants.iter_mut().find(|v| v.name == variant.name), variant.meta.doc.is_some()) {
+                    ev.meta.doc = variant.meta.doc.clone();
+                }
             } else {
                 // Check if this is a rename (same Rust name, different QAPI name)
                 let rust_name = variant_rust_name(variant);
@@ -273,12 +284,20 @@ fn field_rust_name(f: &StructField) -> String {
 fn merge_struct(registry: &mut UnifiedRegistry, name: &str, s: &Struct, version: Version) {
     if let Some(UnifiedType::Struct(existing)) = registry.types.get_mut(name) {
         existing.versions.until = None;
+        // Update doc from latest version (latest has best docs)
+        if s.meta.doc.is_some() {
+            existing.ir.meta.doc = s.meta.doc.clone();
+        }
 
         let mut seen_fields = BTreeSet::new();
         for field in &s.fields {
             seen_fields.insert(field.name.clone());
             if existing.field_versions.contains_key(&field.name) {
+                // Field still exists — clear until, update doc from latest version
                 existing.field_versions.get_mut(&field.name).unwrap().until = None;
+                if let (Some(ef), true) = (existing.ir.fields.iter_mut().find(|f| f.name == field.name), field.meta.doc.is_some()) {
+                    ef.meta.doc = field.meta.doc.clone();
+                }
             } else {
                 // Check for rename (same Rust field name, different QAPI name)
                 let rust_name = field_rust_name(field);
@@ -518,11 +537,9 @@ fn generate_unified_enum(ue: &UnifiedEnum, _registry: &UnifiedRegistry) -> proc_
 
     let mut ir = ue.ir.clone();
 
-    // Add type-level since from registry if not already present
-    let has_since = ir.meta.attributes.iter().any(|a| matches!(a, Attribute::Item { name, .. } if name == "since"));
-    if !has_since {
-        ir.meta.attributes.push(Attribute::with_value("since", version_str(ue.versions.since)));
-    }
+    // Strip any existing since from doc comments — always use registry version
+    ir.meta.attributes.retain(|a| !matches!(a, Attribute::Item { name, .. } if name == "since"));
+    ir.meta.attributes.push(Attribute::with_value("since", version_str(ue.versions.since)));
 
     // Add until if the type was removed
     if let Some(until) = ue.versions.until {
@@ -531,13 +548,12 @@ fn generate_unified_enum(ue: &UnifiedEnum, _registry: &UnifiedRegistry) -> proc_
 
     // Add per-variant since/until
     for variant in &mut ir.variants {
+        // Strip existing since from doc comments
+        variant.meta.attributes.retain(|a| !matches!(a, Attribute::Item { name, .. } if name == "since"));
         if let Some(vr) = ue.variant_versions.get(&variant.name) {
             // Add since if variant appeared after the type
             if vr.since > ue.versions.since {
-                let has_since = variant.meta.attributes.iter().any(|a| matches!(a, Attribute::Item { name, .. } if name == "since"));
-                if !has_since {
-                    variant.meta.attributes.push(Attribute::with_value("since", version_str(vr.since)));
-                }
+                variant.meta.attributes.push(Attribute::with_value("since", version_str(vr.since)));
             }
             // Add until if variant was removed
             if let Some(until) = vr.until {
@@ -554,11 +570,9 @@ fn generate_unified_struct(us: &UnifiedStruct, _registry: &UnifiedRegistry) -> p
 
     let mut ir = us.ir.clone();
 
-    // Add type-level since from registry
-    let has_since = ir.meta.attributes.iter().any(|a| matches!(a, Attribute::Item { name, .. } if name == "since"));
-    if !has_since {
-        ir.meta.attributes.push(Attribute::with_value("since", version_str(us.versions.since)));
-    }
+    // Strip existing since from doc comments — always use registry version
+    ir.meta.attributes.retain(|a| !matches!(a, Attribute::Item { name, .. } if name == "since"));
+    ir.meta.attributes.push(Attribute::with_value("since", version_str(us.versions.since)));
 
     if let Some(until) = us.versions.until {
         ir.meta.attributes.push(Attribute::with_value("until", version_str(until)));
@@ -566,13 +580,12 @@ fn generate_unified_struct(us: &UnifiedStruct, _registry: &UnifiedRegistry) -> p
 
     // Add per-field since/until and make fields optional if they don't span the full type range
     for field in &mut ir.fields {
+        // Strip existing since from doc comments
+        field.meta.attributes.retain(|a| !matches!(a, Attribute::Item { name, .. } if name == "since"));
         if let Some(fr) = us.field_versions.get(&field.name) {
             // Field appeared after the type — must be optional
             if fr.since > us.versions.since {
-                let has_since = field.meta.attributes.iter().any(|a| matches!(a, Attribute::Item { name, .. } if name == "since"));
-                if !has_since {
-                    field.meta.attributes.push(Attribute::with_value("since", version_str(fr.since)));
-                }
+                field.meta.attributes.push(Attribute::with_value("since", version_str(fr.since)));
                 // Make optional if not already
                 if !field.optional {
                     field.optional = true;
