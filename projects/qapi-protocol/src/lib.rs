@@ -1,3 +1,6 @@
+pub mod qga;
+pub mod server;
+
 use anyhow::Result;
 use qapi::QapiCommand;
 

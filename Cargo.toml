@@ -4,5 +4,5 @@ members = [
     "projects/qapi-codegen",
     "projects/qapi-macros",
     "projects/qapi",
-    "projects/qapi-qmp",
+    "projects/qapi-protocol",
 ]

@@ -1,7 +1,7 @@
 pub mod fixtures;
 pub mod serial;
 
-use qapi_qmp::{Qmp, QmpEvent};
+use qapi_protocol::{Qmp, QmpEvent};
 use std::path::PathBuf;
 use std::process::Stdio;
 use std::sync::atomic::{AtomicU64, Ordering};
