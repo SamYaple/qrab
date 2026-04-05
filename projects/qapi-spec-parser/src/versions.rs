@@ -88,3 +88,45 @@ pub fn find_extracted_schema_entry(dir: &Path) -> Option<PathBuf> {
     }
     None
 }
+
+/// Discover all QEMU version tags from v1.0 to v10.2.0 (including patch versions)
+/// by querying the git repository.
+pub fn discover_version_tags(qemu_repo: &Path) -> Result<Vec<String>> {
+    let output = Command::new("git")
+        .args(["tag", "-l", "v[0-9]*"])
+        .current_dir(qemu_repo)
+        .output()
+        .context("Failed to run git tag")?;
+
+    anyhow::ensure!(output.status.success(), "git tag failed");
+
+    let tag_list = String::from_utf8(output.stdout).context("Invalid UTF-8 in git output")?;
+
+    let mut tags: Vec<String> = tag_list
+        .lines()
+        .filter(|tag| {
+            // Skip release candidates
+            if tag.contains("rc") {
+                return false;
+            }
+            // Parse version and filter to v1.0+
+            if let Some((major, _, _)) = parse_version_tag(tag) {
+                major >= 1
+            } else {
+                false
+            }
+        })
+        .map(|s| s.to_string())
+        .collect();
+
+    // Sort by version
+    tags.sort_by(|a, b| {
+        let va = parse_version_tag(a).unwrap_or((0, 0, 0));
+        let vb = parse_version_tag(b).unwrap_or((0, 0, 0));
+        va.cmp(&vb)
+    });
+
+    anyhow::ensure!(!tags.is_empty(), "No version tags found in {}", qemu_repo.display());
+
+    Ok(tags)
+}

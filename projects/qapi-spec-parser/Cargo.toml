@@ -20,6 +20,7 @@ prettyplease = "0.2.37"
 proc-macro2 = "1.0.106"
 quote = "1.0.45"
 regex = "1.12.3"
+walkdir = "2"
 
 [dependencies.syn]
 version = "2.0.117"

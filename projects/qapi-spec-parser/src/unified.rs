@@ -162,6 +162,8 @@ pub fn build_unified_registry(
 ) -> Result<UnifiedRegistry> {
     let mut registry = UnifiedRegistry::default();
 
+    let mut prev_schema_hash: Option<u64> = None;
+
     for tag in version_tags {
         let version = parse_version_tag(tag)
             .with_context(|| format!("Invalid version tag: {}", tag))?;
@@ -174,6 +176,31 @@ pub fn build_unified_registry(
 
         let schema_entry = find_extracted_schema_entry(tmpdir.path())
             .with_context(|| format!("No schema entry point found for {}", tag))?;
+
+        // Hash schema files to detect identical schemas (patch versions)
+        let schema_hash = {
+            use std::hash::{Hash, Hasher};
+            let mut hasher = std::collections::hash_map::DefaultHasher::new();
+            let mut files: Vec<_> = walkdir::WalkDir::new(tmpdir.path())
+                .into_iter()
+                .filter_map(|e| e.ok())
+                .filter(|e| e.path().extension().is_some_and(|ext| ext == "json"))
+                .collect();
+            files.sort_by_key(|f| f.path().to_path_buf());
+            for f in &files {
+                if let Ok(content) = std::fs::read(f.path()) {
+                    f.path().strip_prefix(tmpdir.path()).unwrap_or(f.path()).hash(&mut hasher);
+                    content.hash(&mut hasher);
+                }
+            }
+            hasher.finish()
+        };
+
+        if prev_schema_hash == Some(schema_hash) {
+            eprintln!("  Skipping {} (schema identical to previous version)", tag);
+            continue;
+        }
+        prev_schema_hash = Some(schema_hash);
 
         let sources = read_schema_with_version(&schema_entry, Some(version))
             .with_context(|| format!("Failed to read schema for {}", tag))?;
