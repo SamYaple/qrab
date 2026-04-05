@@ -19,6 +19,9 @@ features = ["net", "io-util", "sync", "rt", "macros"]
 paste = "1"
 which = "7"
 
+[dev-dependencies.manager]
+path = "../manager"
+
 [dev-dependencies.tokio]
 version = "1"
 features = ["net", "io-util", "sync", "rt", "macros", "rt-multi-thread", "process", "time", "fs"]

@@ -192,11 +192,13 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "nix",
+ "paste",
  "qapi",
  "qapi-protocol",
  "serde",
  "serde_json",
  "tokio",
+ "which",
 ]
 
 [[package]]
@@ -341,6 +343,7 @@ name = "qapi-protocol"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "manager",
  "paste",
  "qapi",
  "serde",

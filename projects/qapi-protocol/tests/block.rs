@@ -7,6 +7,7 @@ mod common;
 #[allow(unused_imports)]
 use common::*;
 use common::fixtures;
+use common::serial::SerialConsole;
 use qapi::*;
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -20,19 +21,19 @@ async fn query_block_empty() {
         return;
     }
 
-    let t = QemuBuilder::new(Arch::X86_64, MachineConfig::None)
+    let t = VmBuilder::new(Arch::X86_64, MachineConfig::None)
         .spawn().await.unwrap();
 
-    let blocks: Vec<BlockInfo> = t.qmp.execute(&QueryBlock {}).await.unwrap();
+    let blocks: Vec<BlockInfo> = t.execute(&QueryBlock {}).await.unwrap();
     assert!(blocks.is_empty());
 
-    let stats: Vec<BlockStats> = t.qmp.execute(&QueryBlockstats { query_nodes: None }).await.unwrap();
+    let stats: Vec<BlockStats> = t.execute(&QueryBlockstats { query_nodes: None }).await.unwrap();
     assert!(stats.is_empty());
 
-    let exports: Vec<BlockExportInfo> = t.qmp.execute(&QueryBlockExports {}).await.unwrap();
+    let exports: Vec<BlockExportInfo> = t.execute(&QueryBlockExports {}).await.unwrap();
     assert!(exports.is_empty());
 
-    let jobs: Vec<BlockJobInfo> = t.qmp.execute(&QueryBlockJobs {}).await.unwrap();
+    let jobs: Vec<BlockJobInfo> = t.execute(&QueryBlockJobs {}).await.unwrap();
     assert!(jobs.is_empty());
 
     t.shutdown().await;
@@ -50,7 +51,7 @@ async fn blockdev_add_via_cli_and_query() {
     }
 
     let image = fixtures::blank_qcow2("block-test-cli", 64).await;
-    let t = QemuBuilder::new(Arch::X86_64, MachineConfig::None)
+    let t = VmBuilder::new(Arch::X86_64, MachineConfig::None)
         .arg("-blockdev")
         .arg(format!("driver=file,node-name=test-file,filename={}", image.display()))
         .arg("-blockdev")
@@ -63,7 +64,7 @@ async fn blockdev_add_via_cli_and_query() {
     // ImageInfoSpecific — a union type with version-dependent discriminator.
     // Some node types (e.g., "file") may fail deserialization with the
     // current generated code. Use raw JSON to verify the nodes exist.
-    let result = t.qmp.execute(&QueryNamedBlockNodes { flat: None }).await;
+    let result = t.execute(&QueryNamedBlockNodes { flat: None }).await;
     match result {
         Ok(nodes) => {
             assert!(nodes.len() >= 2, "Should have at least 2 nodes (file + qcow2)");
@@ -79,7 +80,7 @@ async fn blockdev_add_via_cli_and_query() {
     }
 
     // query-blockstats should work even if named-block-nodes fails
-    let stats: Vec<BlockStats> = t.qmp.execute(&QueryBlockstats { query_nodes: Some(true) }).await.unwrap();
+    let stats: Vec<BlockStats> = t.execute(&QueryBlockstats { query_nodes: Some(true) }).await.unwrap();
     assert!(!stats.is_empty(), "Should have block stats for -blockdev nodes");
 
     t.shutdown().await;
@@ -93,16 +94,16 @@ async fn blockdev_del_typed() {
     }
 
     let image = fixtures::blank_qcow2("block-test-del", 64).await;
-    let t = QemuBuilder::new(Arch::X86_64, MachineConfig::None)
+    let t = VmBuilder::new(Arch::X86_64, MachineConfig::None)
         .arg("-blockdev")
         .arg(format!("driver=file,node-name=test-file,filename={}", image.display()))
         .spawn().await.unwrap();
 
     // Delete the node
-    t.qmp.execute(&BlockdevDel { node_name: "test-file".to_string() }).await.unwrap();
+    t.execute(&BlockdevDel { node_name: "test-file".to_string() }).await.unwrap();
 
     // Verify stats are empty after deletion
-    let stats: Vec<BlockStats> = t.qmp.execute(&QueryBlockstats { query_nodes: Some(true) }).await.unwrap();
+    let stats: Vec<BlockStats> = t.execute(&QueryBlockstats { query_nodes: Some(true) }).await.unwrap();
     assert!(stats.is_empty(), "Block stats should be empty after blockdev-del");
 
     t.shutdown().await;
@@ -121,12 +122,12 @@ async fn drive_arg_queries() {
 
     let image = fixtures::blank_qcow2("block-test-drive", 64).await;
     // Use -machine pc to have a virtio bus for the drive
-    let t = QemuBuilder::new(Arch::X86_64, MachineConfig::Bios { memory: "64M".into() })
+    let t = VmBuilder::new(Arch::X86_64, MachineConfig::Bios { memory: "64M".into() })
         .drive(image, "qcow2")
         .spawn().await.unwrap();
 
     // query-block should show the drive
-    let blocks: Vec<BlockInfo> = t.qmp.execute(&QueryBlock {}).await.unwrap();
+    let blocks: Vec<BlockInfo> = t.execute(&QueryBlock {}).await.unwrap();
     assert!(!blocks.is_empty(), "Should have block device from -drive arg");
 
     // Roundtrip BlockInfo
@@ -137,7 +138,7 @@ async fn drive_arg_queries() {
     }
 
     // query-blockstats
-    let stats: Vec<BlockStats> = t.qmp.execute(&QueryBlockstats { query_nodes: None }).await.unwrap();
+    let stats: Vec<BlockStats> = t.execute(&QueryBlockstats { query_nodes: None }).await.unwrap();
     assert!(!stats.is_empty(), "Should have block stats");
 
     // Roundtrip BlockStats
@@ -164,21 +165,21 @@ async fn block_roundtrip_after_boot() {
     let kernel = fixtures::cirros_kernel(Arch::X86_64).await;
     let initrd = fixtures::cirros_initramfs(Arch::X86_64).await;
     let cidata = fixtures::nocloud_cidata().await;
-    let t = QemuBuilder::new(Arch::X86_64, MachineConfig::Bios { memory: "128M".into() })
+    let t = VmBuilder::new(Arch::X86_64, MachineConfig::Bios { memory: "128M".into() })
         .kernel(kernel, initrd, "console=ttyS0 root=/dev/vda1 dslist=nocloud")
         .drive(image, "qcow2")
         .raw_drive_ro(cidata)
         .serial()
         .spawn().await.unwrap();
 
-    t.serial.as_ref().unwrap().wait_for_boot(boot_timeout()).await
+    SerialConsole::new(t.serial_log.as_ref().unwrap().clone()).wait_for_boot(boot_timeout()).await
         .expect("cirros did not boot");
 
     // After boot, block devices have real I/O stats
-    let blocks: Vec<BlockInfo> = t.qmp.execute(&QueryBlock {}).await.unwrap();
+    let blocks: Vec<BlockInfo> = t.execute(&QueryBlock {}).await.unwrap();
     assert!(!blocks.is_empty());
 
-    let stats: Vec<BlockStats> = t.qmp.execute(&QueryBlockstats { query_nodes: None }).await.unwrap();
+    let stats: Vec<BlockStats> = t.execute(&QueryBlockstats { query_nodes: None }).await.unwrap();
     assert!(!stats.is_empty());
 
     // Roundtrip all block info

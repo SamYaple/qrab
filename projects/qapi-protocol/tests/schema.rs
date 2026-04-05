@@ -182,8 +182,8 @@ fn struct_field_renames() {
 // ── QMP schema introspection (needs QEMU) ────────────────────────────────────
 
 arch_tests!(query_qmp_schema, [X86_64], |arch: Arch| async move {
-    let t = QemuBuilder::new(arch, MachineConfig::None).spawn().await.unwrap();
-    let schema: Vec<SchemaInfo> = t.qmp.execute(&QueryQmpSchema {}).await.unwrap();
+    let t = VmBuilder::new(arch, MachineConfig::None).spawn().await.unwrap();
+    let schema: Vec<SchemaInfo> = t.execute(&QueryQmpSchema {}).await.unwrap();
     assert!(schema.len() > 100, "QMP schema should have >100 entries, got {}", schema.len());
 
     let mut commands = 0u32;

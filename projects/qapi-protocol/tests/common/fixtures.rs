@@ -1,5 +1,8 @@
 use super::Arch;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
+
+static FIXTURE_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 /// Cache directory for test fixtures.
 fn fixtures_dir() -> PathBuf {
@@ -50,7 +53,7 @@ pub async fn cirros_image(arch: Arch) -> PathBuf {
 /// This avoids file locking conflicts when multiple tests run in parallel.
 pub async fn cirros_image_copy(arch: Arch) -> PathBuf {
     let source = cirros_image(arch).await;
-    let id = super::SOCKET_COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    let id = FIXTURE_COUNTER.fetch_add(1, Ordering::SeqCst);
     let dest = std::env::temp_dir().join(format!(
         "qrab-cirros-{}-{}-{}.img",
         arch.label(),
