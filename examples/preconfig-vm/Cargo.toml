@@ -1,0 +1,17 @@
+[package]
+name = "preconfig-vm"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = "1"
+
+[dependencies.manager]
+path = "../../projects/manager"
+
+[dependencies.qapi]
+path = "../../projects/qapi"
+
+[dependencies.tokio]
+version = "1"
+features = ["rt-multi-thread", "macros"]
