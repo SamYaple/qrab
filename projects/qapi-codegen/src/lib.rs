@@ -1,4 +1,3 @@
-pub mod preprocess;
 pub mod parsers;
 pub mod qapi_ir;
 pub mod unified;
@@ -43,7 +42,8 @@ pub fn parse_schema(input: &str) -> Result<QapiSchema<'_>> {
     Ok(schema)
 }
 
-/// Read schema files with version-specific preprocessing, following includes.
+/// Read schema files following includes, with version-aware parser dispatch.
+/// No preprocessing is applied — the parser handles all format variations directly.
 pub fn read_schema_with_version(schema_file: &Path, version: Option<(u32, u32, u32)>) -> Result<Vec<(PathBuf, String)>> {
     let mut sources = Vec::new();
     read_schema_file(schema_file, &mut sources, version)?;
@@ -65,9 +65,8 @@ fn read_schema_file(schema_file: &Path, sources: &mut Vec<(PathBuf, String)>, ve
         set_parser_version((99, 0, 0));
     }
 
-    let raw_content = std::fs::read_to_string(schema_file)
+    let content = std::fs::read_to_string(schema_file)
         .with_context(|| format!("Failed to read schema file: {}", schema_file.display()))?;
-    let content = preprocess::minimal_preprocess(&raw_content);
     sources.push((schema_file.to_path_buf(), content.clone()));
     let schema_tokens = parse_schema(&content)
         .with_context(|| format!("Failed to parse schema file: {} (version: {:?})", schema_file.display(), version))?;
