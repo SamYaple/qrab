@@ -16,7 +16,8 @@ fn not_name_break(c: char) -> bool {
 }
 
 fn take_line_start(input: &str) -> IResult<&str, &str> {
-    recognize((tag("#"), space0)).parse(input)
+    // Accept optional leading whitespace before # (some versions indent doc blocks)
+    recognize((space0, tag("#"), space0)).parse(input)
 }
 
 fn take_line_end(input: &str) -> IResult<&str, &str> {
@@ -25,6 +26,20 @@ fn take_line_end(input: &str) -> IResult<&str, &str> {
 
 fn take_empty_line(input: &str) -> IResult<&str, &str> {
     recognize((take_line_start, take_line_end)).parse(input)
+}
+
+/// Like take_empty_line but tolerates leading whitespace before `#`.
+fn take_empty_line_ws(input: &str) -> IResult<&str, &str> {
+    recognize((space0, tag("#"), space0, take_line_end)).parse(input)
+}
+
+/// Like take_name but tolerates leading whitespace before `# @Name:`.
+fn take_name_ws(input: &str) -> IResult<&str, &str> {
+    preceded(
+        (space0, tag("#"), space0, tag("@")),
+        terminated(take_while1(not_name_break), opt(tag(":"))),
+    )
+    .parse(input)
 }
 
 fn take_value(input: &str) -> IResult<&str, Vec<&str>> {
@@ -206,10 +221,11 @@ impl<'i> QapiDocumentation<'i> {
     }
 
     /// v2 (QEMU v2.8.0–v4.2.0): `# @Name:` with mandatory colon, standard `##...##`.
+    /// Tolerates leading whitespace on `##` and `#` lines.
     pub fn parse_v2(input: &'i str) -> IResult<&'i str, Self> {
-        let (input, _) = terminated(tag("##"), take_line_end).parse(input)?;
-        let (input, _) = many0(take_empty_line).parse(input)?;
-        let (input, name) = terminated(take_name, take_line_end).parse(input)?;
+        let (input, _) = terminated(preceded(space0, tag("##")), take_line_end).parse(input)?;
+        let (input, _) = many0(take_empty_line_ws).parse(input)?;
+        let (input, name) = terminated(take_name_ws, take_line_end).parse(input)?;
         let (input, _) = many0(take_empty_line).parse(input)?;
         let (input, description_str) = opt(take_multiline_text).parse(input)?;
         let (input, _) = many0(take_empty_line).parse(input)?;
@@ -233,15 +249,15 @@ impl<'i> QapiDocumentation<'i> {
             doc.description = desc.lines().collect();
         }
 
-        let (input, _) = tag("##").parse(input)?;
+        // Closing ## (accept leading whitespace)
+        let (input, _) = preceded(space0, tag("##")).parse(input)?;
         Ok((input, doc))
     }
 
     /// v3 (QEMU v5.0.0+): standard + blank lines allowed, leading whitespace tolerance.
     pub fn parse_v3(input: &'i str) -> IResult<&'i str, Self> {
         // Allow leading whitespace before ##
-        let input = input.trim_start();
-        let (input, _) = terminated(tag("##"), take_line_end).parse(input)?;
+        let (input, _) = terminated(preceded(space0, tag("##")), take_line_end).parse(input)?;
         let (input, _) = many0(take_empty_line).parse(input)?;
         let (input, name) = terminated(take_name, take_line_end).parse(input)?;
         let (input, _) = many0(take_empty_line).parse(input)?;
@@ -267,7 +283,8 @@ impl<'i> QapiDocumentation<'i> {
             doc.description = desc.lines().collect();
         }
 
-        let (input, _) = tag("##").parse(input)?;
+        // Closing ## (accept leading whitespace)
+        let (input, _) = preceded(space0, tag("##")).parse(input)?;
         Ok((input, doc))
     }
 
@@ -407,13 +424,9 @@ impl<'i> QapiSectionDocumentation<'i> {
         Self::parse_common(input, true)
     }
 
-    fn parse_common(input: &'i str, allow_leading_ws: bool) -> IResult<&'i str, Self> {
-        let input = if allow_leading_ws {
-            input.trim_start()
-        } else {
-            input
-        };
-        let (input, _) = terminated(tag("##"), take_line_end).parse(input)?;
+    fn parse_common(input: &'i str, _allow_leading_ws: bool) -> IResult<&'i str, Self> {
+        // Always accept optional leading whitespace (harmless)
+        let (input, _) = terminated(preceded(space0, tag("##")), take_line_end).parse(input)?;
         let (input, _) = many0(take_empty_line).parse(input)?;
         // Section docs start with "= Section Name" or similar
         let (input, name) = preceded(
@@ -426,7 +439,7 @@ impl<'i> QapiSectionDocumentation<'i> {
         let (input, _) = many0(take_empty_line).parse(input)?;
         let (input, desc_str) = opt(take_multiline_text).parse(input)?;
         let (input, _) = many0(take_empty_line).parse(input)?;
-        let (input, _) = tag("##").parse(input)?;
+        let (input, _) = preceded(space0, tag("##")).parse(input)?;
 
         let description = desc_str
             .map(|s| s.lines().collect())
@@ -470,14 +483,10 @@ impl<'i> QapiFreeformDoc<'i> {
         Self::parse_common(input, true)
     }
 
-    fn parse_common(input: &'i str, allow_leading_ws: bool) -> IResult<&'i str, Self> {
-        let input = if allow_leading_ws {
-            input.trim_start()
-        } else {
-            input
-        };
+    fn parse_common(input: &'i str, _allow_leading_ws: bool) -> IResult<&'i str, Self> {
+        // Always accept optional leading whitespace (harmless)
         let start = input;
-        let (input, _) = terminated(tag("##"), take_line_end).parse(input)?;
+        let (input, _) = terminated(preceded(space0, tag("##")), take_line_end).parse(input)?;
         // Don't match if this is a doc block (starts with # @Name)
         // A freeform doc has NO @Name line — it's just free text
         // Check if this looks like a type doc block (has @Name)
@@ -494,7 +503,7 @@ impl<'i> QapiFreeformDoc<'i> {
         // Consume lines starting with # until ##
         let mut input = input;
         loop {
-            if let Ok((next, _)) = tag::<&str, &str, Error<&str>>("##").parse(input) {
+            if let Ok((next, _)) = preceded(space0::<&str, Error<&str>>, tag::<&str, &str, Error<&str>>("##")).parse(input) {
                 let consumed = &start[..start.len() - next.len()];
                 return Ok((next, Self { text: consumed }));
             }
@@ -578,5 +587,20 @@ mod tests {
         let input = "##\n# @SomeName:\n# desc\n##";
         let result = QapiFreeformDoc::parse(input);
         assert!(result.is_err(), "Freeform should reject @Name blocks");
+    }
+
+    #[test]
+    fn test_doc_v2_indented_block() {
+        set_parser_version((3, 0, 0));
+        let input = " ##\n # @DisplayGLMode:\n #\n # Display OpenGL mode.\n #\n # @off: Disable OpenGL (default).\n #\n # Since: 3.0\n #\n ##";
+        let result = QapiDocumentation::parse(input);
+        match result {
+            Ok((rem, doc)) => {
+                assert_eq!(rem, "");
+                assert_eq!(doc.name, "DisplayGLMode");
+                assert!(!doc.fields.is_empty(), "Should have field @off");
+            }
+            Err(e) => panic!("Indented doc block should parse: {}", e),
+        }
     }
 }
