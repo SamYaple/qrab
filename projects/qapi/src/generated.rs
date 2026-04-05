@@ -6,10 +6,12 @@ use std::collections::HashMap;
 ///
 #[qapi(added = "1.6.0")]
 pub struct Abort {}
+
 #[qapi(added = "6.2.0")]
 pub struct AbortWrapper {
     pub data: Abort,
 }
+
 /// Information about support for MSHV acceleration
 ///
 #[qapi(added = "10.2.0")]
@@ -39,6 +41,7 @@ pub enum Accelerator {
     #[qapi(name = "xen")]
     Xen,
 }
+
 /// Information about support for various accelerators
 ///
 #[qapi(added = "10.2.0")]
@@ -49,6 +52,7 @@ pub struct AcceleratorInfo {
     /// executable
     pub present: Vec<Accelerator>,
 }
+
 /// Emitted when guest executes ACPI _OST method.
 ///
 #[qapi(event)]
@@ -59,6 +63,7 @@ pub struct AcpiDeviceOstEvent {
     ///
     pub info: AcpiostInfo,
 }
+
 /// Properties for acpi-generic-initiator objects.
 ///
 #[qapi(added = "9.0.0")]
@@ -69,6 +74,7 @@ pub struct AcpiGenericInitiatorProperties {
     #[qapi(name = "pci-dev")]
     pub pci_dev: String,
 }
+
 /// Properties for acpi-generic-port objects.
 ///
 #[qapi(added = "9.2.0")]
@@ -103,6 +109,7 @@ pub struct AcpiGenericPortProperties {
     #[qapi(name = "pci-bus")]
     pub pci_bus: String,
 }
+
 /// OSPM Status Indication for a device.  For description of possible
 /// values of @source and @status fields see "_OST (OSPM Status
 /// Indication)" chapter of ACPI5.0 spec.
@@ -122,6 +129,7 @@ pub struct AcpiostInfo {
     /// an integer containing the status code
     pub status: i64,
 }
+
 #[qapi(name = "ACPISlotType")]
 #[qapi(added = "2.1.0")]
 pub enum AcpiSlotType {
@@ -133,6 +141,7 @@ pub enum AcpiSlotType {
     #[qapi(name = "DIMM")]
     Dimm,
 }
+
 /// Specify an ACPI table on the command line to load.
 ///
 /// At most one of @file and @data can be specified.  The list of files
@@ -178,6 +187,7 @@ pub struct AcpiTableOptions {
     /// table signature / identifier (4 bytes)
     pub sig: Option<String>,
 }
+
 /// An enumeration of transactional completion modes.
 ///
 #[qapi(added = "2.5.0")]
@@ -195,6 +205,7 @@ pub enum ActionCompletionMode {
     #[qapi(name = "individual")]
     Individual,
 }
+
 #[qapi(command)]
 #[qapi(name = "add_client")]
 #[qapi(returns = "()")]
@@ -205,6 +216,7 @@ pub struct AddClient {
     pub skipauth: Option<bool>,
     pub tls: Option<bool>,
 }
+
 #[qapi(command)]
 #[qapi(name = "add-fd")]
 #[qapi(returns = "AddfdInfo")]
@@ -214,6 +226,7 @@ pub struct AddFd {
     pub fdset_id: Option<i64>,
     pub opaque: Option<String>,
 }
+
 /// Information about a file descriptor that was added to an fd set.
 ///
 #[qapi(added = "1.2.0")]
@@ -225,6 +238,7 @@ pub struct AddfdInfo {
     #[qapi(name = "fdset-id")]
     pub fdset_id: i64,
 }
+
 /// Attach mode for a default XDP program
 ///
 #[qapi(name = "AFXDPMode")]
@@ -239,6 +253,7 @@ pub enum AfxdpMode {
     #[qapi(name = "skb")]
     Skb,
 }
+
 /// Parameters for self-announce timers
 ///
 #[qapi(command)]
@@ -264,6 +279,7 @@ pub struct AnnounceParameters {
     /// Delay increase (in ms) after each self-announcement attempt
     pub step: i64,
 }
+
 /// Options of an audio backend.
 ///
 #[qapi(added = "4.0.0")]
@@ -280,6 +296,7 @@ pub struct Audiodev {
     #[qapi(union)]
     pub u: Option<AudiodevBranch>,
 }
+
 /// Options of the ALSA audio backend.
 ///
 #[qapi(added = "4.0.0")]
@@ -291,6 +308,7 @@ pub struct AudiodevAlsaOptions {
     /// set the threshold (in microseconds) when playback starts
     pub threshold: Option<u32>,
 }
+
 /// Options of the ALSA backend that are used for both playback and
 /// recording.
 ///
@@ -331,6 +349,7 @@ pub struct AudiodevAlsaPerDirectionOptions {
     /// number of voices to use (default 1)
     pub voices: Option<u32>,
 }
+
 #[qapi(added = "4.0.0")]
 pub enum AudiodevBranch {
     #[qapi(name = "alsa")]
@@ -365,6 +384,7 @@ pub enum AudiodevBranch {
     #[qapi(name = "wav")]
     Wav(AudiodevWavOptions),
 }
+
 /// Options of the coreaudio audio backend.
 ///
 #[qapi(added = "4.0.0")]
@@ -374,6 +394,7 @@ pub struct AudiodevCoreaudioOptions {
     /// options of the playback stream
     pub out: Option<AudiodevCoreaudioPerDirectionOptions>,
 }
+
 /// Options of the Core Audio backend that are used for both playback
 /// and recording.
 ///
@@ -408,6 +429,7 @@ pub struct AudiodevCoreaudioPerDirectionOptions {
     /// number of voices to use (default 1)
     pub voices: Option<u32>,
 }
+
 /// Options of the D-Bus audio backend.
 ///
 #[qapi(added = "10.0.0")]
@@ -420,6 +442,7 @@ pub struct AudiodevDBusOptions {
     /// options of the playback stream
     pub out: Option<AudiodevPerDirectionOptions>,
 }
+
 /// An enumeration of possible audio backend drivers.
 ///
 #[qapi(added = "4.0.0")]
@@ -457,6 +480,7 @@ pub enum AudiodevDriver {
     #[qapi(name = "wav")]
     Wav,
 }
+
 /// Options of the DirectSound audio backend.
 ///
 #[qapi(added = "4.0.0")]
@@ -469,6 +493,7 @@ pub struct AudiodevDsoundOptions {
     /// options of the playback stream
     pub out: Option<AudiodevPerDirectionOptions>,
 }
+
 /// Generic driver-specific options.
 ///
 #[qapi(added = "4.0.0")]
@@ -478,6 +503,7 @@ pub struct AudiodevGenericOptions {
     /// options of the playback stream
     pub out: Option<AudiodevPerDirectionOptions>,
 }
+
 /// Options of the JACK audio backend.
 ///
 #[qapi(added = "5.1.0")]
@@ -487,6 +513,7 @@ pub struct AudiodevJackOptions {
     /// options of the playback stream
     pub out: Option<AudiodevJackPerDirectionOptions>,
 }
+
 /// Options of the JACK backend that are used for both playback and
 /// recording.
 ///
@@ -539,6 +566,7 @@ pub struct AudiodevJackPerDirectionOptions {
     /// number of voices to use (default 1)
     pub voices: Option<u32>,
 }
+
 /// Options of the OSS audio backend.
 ///
 #[qapi(added = "4.0.0")]
@@ -561,6 +589,7 @@ pub struct AudiodevOssOptions {
     #[qapi(name = "try-mmap")]
     pub try_mmap: Option<bool>,
 }
+
 /// Options of the OSS backend that are used for both playback and
 /// recording.
 ///
@@ -601,6 +630,7 @@ pub struct AudiodevOssPerDirectionOptions {
     /// number of voices to use (default 1)
     pub voices: Option<u32>,
 }
+
 /// Options of the PulseAudio audio backend.
 ///
 #[qapi(added = "4.0.0")]
@@ -612,6 +642,7 @@ pub struct AudiodevPaOptions {
     /// PulseAudio server address (default: let PulseAudio choose)
     pub server: Option<String>,
 }
+
 /// Options of the Pulseaudio backend that are used for both playback
 /// and recording.
 ///
@@ -655,6 +686,7 @@ pub struct AudiodevPaPerDirectionOptions {
     /// number of voices to use (default 1)
     pub voices: Option<u32>,
 }
+
 /// General audio backend options that are used for both playback and
 /// recording.
 ///
@@ -686,6 +718,7 @@ pub struct AudiodevPerDirectionOptions {
     /// number of voices to use (default 1)
     pub voices: Option<u32>,
 }
+
 /// Options of the PipeWire audio backend.
 ///
 #[qapi(added = "8.1.0")]
@@ -695,6 +728,7 @@ pub struct AudiodevPipewireOptions {
     /// options of the playback stream
     pub out: Option<AudiodevPipewirePerDirectionOptions>,
 }
+
 /// Options of the PipeWire backend that are used for both playback and
 /// recording.
 ///
@@ -736,6 +770,7 @@ pub struct AudiodevPipewirePerDirectionOptions {
     /// number of voices to use (default 1)
     pub voices: Option<u32>,
 }
+
 /// Options of the SDL audio backend.
 ///
 #[qapi(added = "6.0.0")]
@@ -745,6 +780,7 @@ pub struct AudiodevSdlOptions {
     /// options of the playback stream
     pub out: Option<AudiodevSdlPerDirectionOptions>,
 }
+
 /// Options of the SDL audio backend that are used for both playback and
 /// recording.
 ///
@@ -778,6 +814,7 @@ pub struct AudiodevSdlPerDirectionOptions {
     /// number of voices to use (default 1)
     pub voices: Option<u32>,
 }
+
 /// Options of the sndio audio backend.
 ///
 #[qapi(added = "7.2.0")]
@@ -791,6 +828,7 @@ pub struct AudiodevSndioOptions {
     /// options of the playback stream
     pub out: Option<AudiodevPerDirectionOptions>,
 }
+
 /// Options of the wav audio backend.
 ///
 #[qapi(added = "4.0.0")]
@@ -802,6 +840,7 @@ pub struct AudiodevWavOptions {
     /// name of the wav file to record (default 'qemu.wav')
     pub path: Option<String>,
 }
+
 /// An enumeration of possible audio formats.
 ///
 #[qapi(added = "4.0.0")]
@@ -829,6 +868,7 @@ pub enum AudioFormat {
     #[qapi(name = "u8")]
     U8,
 }
+
 /// Properties for authz-listfile objects.
 ///
 #[qapi(added = "6.0.0")]
@@ -843,6 +883,7 @@ pub struct AuthZListFileProperties {
     /// with CONFIG_INOTIFY1, false otherwise)
     pub refresh: Option<bool>,
 }
+
 /// Properties for authz-list objects.
 ///
 #[qapi(added = "6.0.0")]
@@ -853,6 +894,7 @@ pub struct AuthZListProperties {
     /// Authorization rules based on matching user
     pub rules: Option<Vec<QAuthZListRule>>,
 }
+
 /// Properties for authz-pam objects.
 ///
 #[qapi(name = "AuthZPAMProperties")]
@@ -861,6 +903,7 @@ pub struct AuthZpamProperties {
     /// PAM service name to use for authorization
     pub service: String,
 }
+
 /// Properties for authz-simple objects.
 ///
 #[qapi(added = "6.0.0")]
@@ -871,6 +914,7 @@ pub struct AuthZSimpleProperties {
     /// must be the x509 distinguished name.
     pub identity: String,
 }
+
 #[qapi(added = "4.2.0")]
 pub struct BackupCommon {
     #[qapi(name = "auto-dismiss")]
@@ -902,6 +946,7 @@ pub struct BackupCommon {
     #[qapi(added = "6.0.0")]
     pub x_perf: Option<BackupPerf>,
 }
+
 /// Optional parameters for backup.  These parameters don't affect
 /// functionality, but may significantly affect performance.
 ///
@@ -930,6 +975,7 @@ pub struct BackupPerf {
     #[qapi(name = "use-copy-range")]
     pub use_copy_range: Option<bool>,
 }
+
 #[qapi(command)]
 #[qapi(name = "balloon")]
 #[qapi(returns = "()")]
@@ -937,6 +983,7 @@ pub struct BackupPerf {
 pub struct Balloon {
     pub value: i64,
 }
+
 /// Emitted when the guest changes the actual BALLOON level. This value is
 /// equivalent to the @actual field return by the 'query-balloon' command
 ///
@@ -947,6 +994,7 @@ pub struct BalloonChangeEvent {
     /// actual level of the guest memory balloon in bytes
     pub actual: i64,
 }
+
 /// Information about the guest balloon device.
 ///
 #[qapi(added = "1.0.0")]
@@ -967,6 +1015,7 @@ pub struct BalloonInfo {
     #[qapi(removed = "1.4.0")]
     pub total_mem: Option<i64>,
 }
+
 /// Policy that BIOS should use to interpret cylinder/head/sector
 /// addresses.  Note that Bochs BIOS and SeaBIOS will not actually
 /// translate logical CHS to physical; instead, they will use logical
@@ -1001,6 +1050,7 @@ pub enum BiosAtaTranslation {
     #[qapi(name = "rechs")]
     Rechs,
 }
+
 #[qapi(added = "5.2.0")]
 pub struct BitmapMigrationBitmapAlias {
     /// An alias name for migration (for example the bitmap name on
@@ -1013,12 +1063,14 @@ pub struct BitmapMigrationBitmapAlias {
     #[qapi(added = "6.0.0")]
     pub transform: Option<BitmapMigrationBitmapAliasTransform>,
 }
+
 #[qapi(added = "6.0.0")]
 pub struct BitmapMigrationBitmapAliasTransform {
     /// If present, the bitmap will be made persistent or
     /// transient depending on this parameter.
     pub persistent: Option<bool>,
 }
+
 /// Maps a block node name and the bitmaps it has to aliases for dirty
 /// bitmap migration.
 ///
@@ -1033,6 +1085,7 @@ pub struct BitmapMigrationNodeAlias {
     #[qapi(name = "node-name")]
     pub node_name: String,
 }
+
 /// An enumeration of possible behaviors for the synchronization of a
 /// bitmap when used for data copy operations.
 ///
@@ -1052,6 +1105,7 @@ pub enum BitmapSyncMode {
     #[qapi(name = "on-success")]
     OnSuccess,
 }
+
 /// Trigger events supported by blkdebug.
 ///
 #[qapi(added = "2.0.0")]
@@ -1173,6 +1227,7 @@ pub enum BlkdebugEvent {
     #[qapi(name = "write_compressed")]
     WriteCompressed,
 }
+
 /// Describes a single error injection for blkdebug.
 ///
 #[qapi(added = "2.0.0")]
@@ -1198,6 +1253,7 @@ pub struct BlkdebugInjectErrorOptions {
     /// trigger the event; defaults to "any"
     pub state: Option<i64>,
 }
+
 /// Kinds of I/O that blkdebug can inject errors in.
 ///
 #[qapi(name = "BlkdebugIOType")]
@@ -1222,6 +1278,7 @@ pub enum BlkdebugIoType {
     #[qapi(name = "write-zeroes")]
     WriteZeroes,
 }
+
 /// Describes a single state-change event for blkdebug.
 ///
 #[qapi(added = "2.0.0")]
@@ -1235,6 +1292,7 @@ pub struct BlkdebugSetStateOptions {
     /// defaults to "any"
     pub state: Option<i64>,
 }
+
 /// Information about all nodes in the block graph starting at some
 /// node, annotated with information about that node in relation to its
 /// parent.
@@ -1247,6 +1305,7 @@ pub struct BlockChildInfo {
     /// in its role as the child of some undescribed parent node
     pub name: String,
 }
+
 #[qapi(command)]
 #[qapi(name = "block-commit")]
 #[qapi(returns = "()")]
@@ -1286,6 +1345,7 @@ pub struct BlockCommit {
     #[qapi(added = "3.1.0")]
     pub top_node: Option<String>,
 }
+
 /// A discriminated record of operations that can be performed with
 #[qapi(added = "1.1.0")]
 #[qapi(removed = "1.6.0")]
@@ -1296,18 +1356,21 @@ pub struct BlockdevAction {
     #[qapi(union)]
     pub u: Option<BlockdevActionBranch>,
 }
+
 #[qapi(added = "1.1.0")]
 #[qapi(removed = "1.6.0")]
 pub enum BlockdevActionBranch {
     #[qapi(name = "blockdev-snapshot-sync")]
     BlockdevSnapshotSync(BlockdevSnapshot),
 }
+
 #[qapi(added = "1.1.0")]
 #[qapi(removed = "1.6.0")]
 pub enum BlockdevActionType {
     #[qapi(name = "blockdev-snapshot-sync")]
     BlockdevSnapshotSync,
 }
+
 /// Creates a new block device. If the @id option is given at the top level, a
 /// BlockBackend will be created; otherwise, @node-name is mandatory at the top
 /// level and no BlockBackend will be created.
@@ -1325,6 +1388,7 @@ pub struct BlockdevAdd {
     /// block device options for the new device
     pub options: BlockdevOptions,
 }
+
 /// Selects the AIO backend to handle I/O requests
 ///
 #[qapi(added = "1.7.0")]
@@ -1341,6 +1405,7 @@ pub enum BlockdevAioOptions {
     #[qapi(name = "threads")]
     Threads,
 }
+
 /// Options for amending an image format
 ///
 #[qapi(added = "5.1.0")]
@@ -1351,6 +1416,7 @@ pub struct BlockdevAmendOptions {
     #[qapi(union)]
     pub u: Option<BlockdevAmendOptionsBranch>,
 }
+
 #[qapi(added = "5.1.0")]
 pub enum BlockdevAmendOptionsBranch {
     #[qapi(name = "luks")]
@@ -1358,6 +1424,7 @@ pub enum BlockdevAmendOptionsBranch {
     #[qapi(name = "qcow2")]
     Qcow2(BlockdevAmendOptionsQcow2),
 }
+
 /// Driver specific image amend options for LUKS.
 ///
 #[qapi(name = "BlockdevAmendOptionsLUKS")]
@@ -1393,6 +1460,7 @@ pub struct BlockdevAmendOptionsLuks {
     /// the desired state of the keyslots
     pub state: QCryptoBlockLuksKeyslotState,
 }
+
 /// Driver specific image amend options for qcow2.  For now, only
 /// encryption options can be amended
 ///
@@ -1401,6 +1469,7 @@ pub struct BlockdevAmendOptionsQcow2 {
     /// Encryption options to be amended
     pub encrypt: Option<QCryptoBlockAmendOptions>,
 }
+
 #[qapi(command)]
 #[qapi(returns = "()")]
 #[qapi(added = "2.3.0")]
@@ -1443,10 +1512,12 @@ pub struct BlockdevBackup {
     #[qapi(added = "6.0.0")]
     pub x_perf: Option<BackupPerf>,
 }
+
 #[qapi(added = "6.2.0")]
 pub struct BlockdevBackupWrapper {
     pub data: BlockdevBackup,
 }
+
 /// Cache mode information for a block device
 ///
 #[qapi(added = "2.3.0")]
@@ -1459,6 +1530,7 @@ pub struct BlockdevCacheInfo {
     /// true if writeback mode is enabled
     pub writeback: bool,
 }
+
 /// Includes cache-related options for block devices
 ///
 #[qapi(added = "1.7.0")]
@@ -1473,6 +1545,7 @@ pub struct BlockdevCacheOptions {
     #[qapi(removed = "2.6.0")]
     pub writeback: Option<bool>,
 }
+
 /// Changes the medium inserted into a block device by ejecting the current medium
 /// and loading a new image file which is inserted as the new medium (this command
 /// combines blockdev-open-tray, x-blockdev-remove-medium,
@@ -1502,6 +1575,7 @@ pub struct BlockdevChangeMedium {
     #[qapi(name = "read-only-mode")]
     pub read_only_mode: Option<BlockdevChangeReadOnlyMode>,
 }
+
 /// Specifies the new read-only mode of a block device subject to the
 /// `blockdev-change-medium` command.
 ///
@@ -1517,6 +1591,7 @@ pub enum BlockdevChangeReadOnlyMode {
     #[qapi(name = "retain")]
     Retain,
 }
+
 #[qapi(added = "10.1.0")]
 pub struct BlockdevChild {
     /// The name of the child, for example 'file' or 'backing'.
@@ -1525,6 +1600,7 @@ pub struct BlockdevChild {
     #[qapi(name = "node-name")]
     pub node_name: String,
 }
+
 /// Closes a block device's tray. If there is a block driver state tree associated
 /// with the block device (which is currently ejected), that tree will be loaded
 /// as the medium.
@@ -1543,6 +1619,7 @@ pub struct BlockdevCloseTray {
     #[qapi(added = "2.8.0")]
     pub id: Option<String>,
 }
+
 /// Starts a job to create an image format on a given node.  The job is
 /// automatically finalized, but a manual `job-dismiss` is required.
 ///
@@ -1557,11 +1634,13 @@ pub struct BlockdevCreate {
     /// Options for the image creation.
     pub options: BlockdevCreateOptions,
 }
+
 /// This is used for all drivers that don't support creating images.
 ///
 #[qapi(added = "2.12.0")]
 #[qapi(removed = "3.0.0")]
 pub struct BlockdevCreateNotSupported {}
+
 /// Options for creating an image format on a given node.
 ///
 #[qapi(command)]
@@ -1574,6 +1653,7 @@ pub struct BlockdevCreateOptions {
     #[qapi(union)]
     pub u: Option<BlockdevCreateOptionsBranch>,
 }
+
 #[qapi(added = "2.12.0")]
 pub enum BlockdevCreateOptionsBranch {
     #[qapi(name = "blkdebug")]
@@ -1674,6 +1754,7 @@ pub enum BlockdevCreateOptionsBranch {
     #[qapi(removed = "3.0.0")]
     Vxhs(BlockdevCreateNotSupported),
 }
+
 /// Driver specific image creation options for file.
 ///
 #[qapi(added = "2.12.0")]
@@ -1694,6 +1775,7 @@ pub struct BlockdevCreateOptionsFile {
     /// Size of the virtual disk in bytes
     pub size: u64,
 }
+
 /// Driver specific image creation options for gluster.
 ///
 #[qapi(added = "2.12.0")]
@@ -1707,6 +1789,7 @@ pub struct BlockdevCreateOptionsGluster {
     /// Size of the virtual disk in bytes
     pub size: u64,
 }
+
 /// Driver specific image creation options for LUKS.
 ///
 #[qapi(name = "BlockdevCreateOptionsLUKS")]
@@ -1759,6 +1842,7 @@ pub struct BlockdevCreateOptionsLuks {
     /// Size of the virtual disk in bytes
     pub size: u64,
 }
+
 /// Driver specific image creation options for NFS.
 ///
 #[qapi(added = "2.12.0")]
@@ -1768,6 +1852,7 @@ pub struct BlockdevCreateOptionsNfs {
     /// Size of the virtual disk in bytes
     pub size: u64,
 }
+
 /// Driver specific image creation options for parallels.
 ///
 #[qapi(added = "2.12.0")]
@@ -1780,6 +1865,7 @@ pub struct BlockdevCreateOptionsParallels {
     /// Size of the virtual disk in bytes
     pub size: u64,
 }
+
 /// Driver specific image creation options for qcow.
 ///
 #[qapi(added = "2.12.0")]
@@ -1795,6 +1881,7 @@ pub struct BlockdevCreateOptionsQcow {
     /// Size of the virtual disk in bytes
     pub size: u64,
 }
+
 /// Driver specific image creation options for qcow2.
 ///
 #[qapi(added = "2.12.0")]
@@ -1850,6 +1937,7 @@ pub struct BlockdevCreateOptionsQcow2 {
     /// Compatibility level (default: v3)
     pub version: Option<BlockdevQcow2Version>,
 }
+
 /// Driver specific image creation options for qed.
 ///
 #[qapi(added = "2.12.0")]
@@ -1872,6 +1960,7 @@ pub struct BlockdevCreateOptionsQed {
     #[qapi(name = "table-size")]
     pub table_size: Option<i64>,
 }
+
 /// Driver specific image creation options for rbd/Ceph.
 ///
 #[qapi(added = "2.12.0")]
@@ -1888,6 +1977,7 @@ pub struct BlockdevCreateOptionsRbd {
     /// Size of the virtual disk in bytes
     pub size: u64,
 }
+
 /// Driver specific image creation options for Sheepdog.
 ///
 #[qapi(added = "2.12.0")]
@@ -1909,6 +1999,7 @@ pub struct BlockdevCreateOptionsSheepdog {
     /// Size of the virtual disk in bytes
     pub size: u64,
 }
+
 /// Driver specific image creation options for SSH.
 ///
 #[qapi(added = "2.12.0")]
@@ -1918,6 +2009,7 @@ pub struct BlockdevCreateOptionsSsh {
     /// Size of the virtual disk in bytes
     pub size: u64,
 }
+
 /// Driver specific image creation options for VDI.
 ///
 #[qapi(added = "2.12.0")]
@@ -1930,6 +2022,7 @@ pub struct BlockdevCreateOptionsVdi {
     /// Size of the virtual disk in bytes
     pub size: u64,
 }
+
 /// Driver specific image creation options for vhdx.
 ///
 #[qapi(added = "2.12.0")]
@@ -1955,6 +2048,7 @@ pub struct BlockdevCreateOptionsVhdx {
     /// vhdx subformat (default: dynamic)
     pub subformat: Option<BlockdevVhdxSubformat>,
 }
+
 /// Driver specific image creation options for VMDK.
 ///
 #[qapi(added = "4.0.0")]
@@ -1995,6 +2089,7 @@ pub struct BlockdevCreateOptionsVmdk {
     #[qapi(name = "zeroed-grain")]
     pub zeroed_grain: Option<bool>,
 }
+
 /// Driver specific image creation options for vpc (VHD).
 ///
 #[qapi(added = "2.12.0")]
@@ -2011,6 +2106,7 @@ pub struct BlockdevCreateOptionsVpc {
     /// vhdx subformat (default: dynamic)
     pub subformat: Option<BlockdevVpcSubformat>,
 }
+
 #[qapi(command)]
 #[qapi(name = "blockdev-del")]
 #[qapi(returns = "()")]
@@ -2019,6 +2115,7 @@ pub struct BlockdevDel {
     #[qapi(name = "node-name")]
     pub node_name: String,
 }
+
 /// Describes the operation mode for the automatic conversion of plain
 /// zero writes by the OS to driver specific optimized zero write
 /// commands.
@@ -2037,6 +2134,7 @@ pub enum BlockdevDetectZeroesOptions {
     #[qapi(name = "unmap")]
     Unmap,
 }
+
 /// Determines how to handle discard requests.
 ///
 #[qapi(added = "1.7.0")]
@@ -2048,6 +2146,7 @@ pub enum BlockdevDiscardOptions {
     #[qapi(name = "unmap")]
     Unmap,
 }
+
 /// Drivers that are supported in block device operations.
 ///
 #[qapi(added = "2.0.0")]
@@ -2218,6 +2317,7 @@ pub enum BlockdevDriver {
     #[qapi(removed = "5.1.0")]
     Vxhs,
 }
+
 /// Information about the backing device for a block device.
 ///
 #[qapi(added = "1.0.0")]
@@ -2351,6 +2451,7 @@ pub struct BlockDeviceInfo {
     #[qapi(added = "2.3.0")]
     pub write_threshold: Option<i64>,
 }
+
 /// An enumeration of block device I/O status.
 ///
 #[qapi(added = "1.0.0")]
@@ -2366,6 +2467,7 @@ pub enum BlockDeviceIoStatus {
     #[qapi(name = "ok")]
     Ok,
 }
+
 /// Entry in the metadata map of the device (returned by "qemu-img map")
 ///
 #[qapi(added = "1.7.0")]
@@ -2390,6 +2492,7 @@ pub struct BlockDeviceMapEntry {
     /// the sectors in this range read as zeros
     pub zero: bool,
 }
+
 /// Statistics of a virtual block device or a block backing device.
 ///
 #[qapi(added = "1.0.0")]
@@ -2543,6 +2646,7 @@ pub struct BlockDeviceStats {
     #[qapi(added = "8.1.0")]
     pub zone_append_total_time_ns: Option<i64>,
 }
+
 /// Statistics of a block device during a given interval of time.
 ///
 #[qapi(added = "2.5.0")]
@@ -2600,6 +2704,7 @@ pub struct BlockDeviceTimedStats {
     #[qapi(added = "8.1.0")]
     pub min_zone_append_latency_ns: Option<i64>,
 }
+
 #[qapi(command)]
 #[qapi(name = "blockdev-insert-medium")]
 #[qapi(returns = "()")]
@@ -2609,6 +2714,7 @@ pub struct BlockdevInsertMedium {
     #[qapi(name = "node-name")]
     pub node_name: String,
 }
+
 #[qapi(command)]
 #[qapi(name = "blockdev-mirror")]
 #[qapi(returns = "()")]
@@ -2645,6 +2751,7 @@ pub struct BlockdevMirror {
     #[qapi(added = "10.1.0")]
     pub target_is_zero: Option<bool>,
 }
+
 /// An enumeration of possible behaviors for errors on I/O operations.
 /// The exact meaning depends on whether the I/O was initiated by a
 /// guest or by a block job
@@ -2674,6 +2781,7 @@ pub enum BlockdevOnError {
     #[qapi(name = "stop")]
     Stop,
 }
+
 /// Opens a block device's tray. If there is a block driver state tree inserted as
 /// a medium, it will become inaccessible to the guest (but it will remain
 /// associated to the block device, so closing the tray will make it accessible
@@ -2706,6 +2814,7 @@ pub struct BlockdevOpenTray {
     #[qapi(added = "2.8.0")]
     pub id: Option<String>,
 }
+
 /// Options for creating a block device.  Many options are available for
 /// all block devices, independent of the block driver:
 ///
@@ -2798,6 +2907,7 @@ pub struct BlockdevOptions {
     #[qapi(removed = "2.7.0")]
     pub werror: Option<BlockdevOnError>,
 }
+
 /// Driver specific block device options for Archipelago.
 ///
 #[qapi(added = "2.2.0")]
@@ -2821,6 +2931,7 @@ pub struct BlockdevOptionsArchipelago {
     /// use the default port (501).
     pub vport: Option<i64>,
 }
+
 /// Options that are available for all block devices, independent of the block
 /// driver.
 ///
@@ -2879,6 +2990,7 @@ pub struct BlockdevOptionsBase {
     /// (default: enospc)
     pub werror: Option<BlockdevOnError>,
 }
+
 /// Driver specific block device options for blkdebug.
 ///
 #[qapi(added = "2.0.0")]
@@ -2944,6 +3056,7 @@ pub struct BlockdevOptionsBlkdebug {
     #[qapi(added = "4.2.1")]
     pub unshare_child_perms: Option<Vec<BlockPermission>>,
 }
+
 /// Driver specific block device options for blklogwrites.
 ///
 #[qapi(added = "3.0.0")]
@@ -2965,6 +3078,7 @@ pub struct BlockdevOptionsBlklogwrites {
     #[qapi(name = "log-super-update-interval")]
     pub log_super_update_interval: Option<u64>,
 }
+
 /// Driver specific block device options for blkreplay.
 ///
 #[qapi(added = "4.2.0")]
@@ -2972,6 +3086,7 @@ pub struct BlockdevOptionsBlkreplay {
     /// disk image which should be controlled with blkreplay
     pub image: Box<BlockdevRef>,
 }
+
 /// Driver specific block device options for blkverify.
 ///
 #[qapi(added = "2.0.0")]
@@ -2981,6 +3096,7 @@ pub struct BlockdevOptionsBlkverify {
     /// block device to be tested
     pub test: Box<BlockdevRef>,
 }
+
 #[qapi(added = "1.7.0")]
 pub enum BlockdevOptionsBranch {
     #[qapi(name = "archipelago")]
@@ -3134,6 +3250,7 @@ pub enum BlockdevOptionsBranch {
     #[qapi(removed = "5.1.0")]
     Vxhs(BlockdevOptionsVxHs),
 }
+
 /// Driver specific block device options for the copy-before-write
 /// driver, which does so called copy-before-write operations: when data
 /// is written to the filter, the filter first reads corresponding
@@ -3176,6 +3293,7 @@ pub struct BlockdevOptionsCbw {
     /// The target for copy-before-write operations.
     pub target: Box<BlockdevRef>,
 }
+
 /// Driver specific block device options for the copy-on-read driver.
 ///
 #[qapi(added = "6.0.0")]
@@ -3189,6 +3307,7 @@ pub struct BlockdevOptionsCor {
     /// reference to or definition of the data source block device
     pub file: BlockdevRef,
 }
+
 /// Driver specific block device options for the curl backend.
 ///
 #[qapi(added = "2.8.0")]
@@ -3197,6 +3316,7 @@ pub struct BlockdevOptionsCurl {
     /// path to the image file
     pub filename: String,
 }
+
 /// Driver specific block device options shared by all protocols
 /// supported by the curl backend.
 ///
@@ -3224,6 +3344,7 @@ pub struct BlockdevOptionsCurlBase {
     /// Username for authentication (defaults to none)
     pub username: Option<String>,
 }
+
 /// Driver specific block device options for FTP connections over the
 /// curl backend.  URLs must start with "ftp://".
 ///
@@ -3251,6 +3372,7 @@ pub struct BlockdevOptionsCurlFtp {
     /// Username for authentication (defaults to none)
     pub username: Option<String>,
 }
+
 /// Driver specific block device options for FTPS connections over the
 /// curl backend.  URLs must start with "ftps://".
 ///
@@ -3281,6 +3403,7 @@ pub struct BlockdevOptionsCurlFtps {
     /// Username for authentication (defaults to none)
     pub username: Option<String>,
 }
+
 /// Driver specific block device options for HTTP connections over the
 /// curl backend.  URLs must start with "http://".
 ///
@@ -3317,6 +3440,7 @@ pub struct BlockdevOptionsCurlHttp {
     /// Username for authentication (defaults to none)
     pub username: Option<String>,
 }
+
 /// Driver specific block device options for HTTPS connections over the
 /// curl backend.  URLs must start with "https://".
 ///
@@ -3356,6 +3480,7 @@ pub struct BlockdevOptionsCurlHttps {
     /// Username for authentication (defaults to none)
     pub username: Option<String>,
 }
+
 /// Driver specific block device options for the file backend.
 ///
 #[qapi(added = "1.7.0")]
@@ -3394,6 +3519,7 @@ pub struct BlockdevOptionsFile {
     #[qapi(added = "3.0.0")]
     pub x_check_cache_dropped: Option<bool>,
 }
+
 /// Driver specific block device options for image format that have no
 /// option besides their data source and an optional backing file.
 ///
@@ -3407,6 +3533,7 @@ pub struct BlockdevOptionsGenericCowFormat {
     /// reference to or definition of the data source block device
     pub file: Box<BlockdevRef>,
 }
+
 /// Driver specific block device options for image format that have no
 /// option besides their data source.
 ///
@@ -3415,6 +3542,7 @@ pub struct BlockdevOptionsGenericFormat {
     /// reference to or definition of the data source block device
     pub file: Box<BlockdevRef>,
 }
+
 /// Driver specific block device options for Gluster
 ///
 #[qapi(added = "2.7.0")]
@@ -3436,6 +3564,7 @@ pub struct BlockdevOptionsGluster {
     /// name of gluster volume where VM image resides
     pub volume: String,
 }
+
 /// Driver specific block device options for the io_uring backend.
 ///
 #[qapi(condition = "CONFIG_BLKIO")]
@@ -3444,6 +3573,7 @@ pub struct BlockdevOptionsIoUring {
     /// path to the image file
     pub filename: String,
 }
+
 /// Driver specific block device options for iscsi
 ///
 #[qapi(added = "2.9.0")]
@@ -3476,6 +3606,7 @@ pub struct BlockdevOptionsIscsi {
     /// is performed.
     pub user: Option<String>,
 }
+
 /// Driver specific block device options for LUKS.
 ///
 #[qapi(name = "BlockdevOptionsLUKS")]
@@ -3492,6 +3623,7 @@ pub struct BlockdevOptionsLuks {
     #[qapi(name = "key-secret")]
     pub key_secret: Option<String>,
 }
+
 /// Driver specific block device options for NBD.
 ///
 #[qapi(added = "2.8.0")]
@@ -3529,6 +3661,7 @@ pub struct BlockdevOptionsNbd {
     #[qapi(added = "3.0.0")]
     pub x_dirty_bitmap: Option<String>,
 }
+
 /// Driver specific block device option for NFS
 ///
 #[qapi(added = "2.8.0")]
@@ -3558,6 +3691,7 @@ pub struct BlockdevOptionsNfs {
     /// 65534 on Windows and getuid() on unix)
     pub user: Option<i64>,
 }
+
 /// Driver specific block device options for the null backend.
 ///
 #[qapi(added = "2.2.0")]
@@ -3577,6 +3711,7 @@ pub struct BlockdevOptionsNull {
     /// size of the device in bytes.
     pub size: Option<i64>,
 }
+
 /// Driver specific block device options for the NVMe backend.
 ///
 #[qapi(name = "BlockdevOptionsNVMe")]
@@ -3587,6 +3722,7 @@ pub struct BlockdevOptionsNvMe {
     /// namespace number of the device, starting from 1.
     pub namespace: i64,
 }
+
 /// Driver specific block device options for the nvme-io_uring backend.
 ///
 #[qapi(condition = "CONFIG_BLKIO")]
@@ -3596,6 +3732,7 @@ pub struct BlockdevOptionsNvmeIoUring {
     /// /dev/ng0n1).
     pub path: String,
 }
+
 /// Filter driver intended to be inserted between format and protocol
 /// node and do preallocation in protocol node on write.
 ///
@@ -3611,6 +3748,7 @@ pub struct BlockdevOptionsPreallocate {
     #[qapi(name = "prealloc-size")]
     pub prealloc_size: Option<i64>,
 }
+
 /// Driver specific block device options for qcow.
 ///
 #[qapi(added = "2.10.0")]
@@ -3625,6 +3763,7 @@ pub struct BlockdevOptionsQcow {
     /// reference to or definition of the data source block device
     pub file: BlockdevRef,
 }
+
 /// Driver specific block device options for qcow2.
 ///
 #[qapi(added = "1.7.0")]
@@ -3715,6 +3854,7 @@ pub struct BlockdevOptionsQcow2 {
     #[qapi(added = "2.2.0")]
     pub refcount_cache_size: Option<i64>,
 }
+
 /// Driver specific block device options for Quorum
 ///
 #[qapi(added = "2.0.0")]
@@ -3738,6 +3878,7 @@ pub struct BlockdevOptionsQuorum {
     #[qapi(name = "vote-threshold")]
     pub vote_threshold: i64,
 }
+
 /// Driver specific block device options for the raw driver.
 ///
 #[qapi(added = "2.8.0")]
@@ -3749,6 +3890,7 @@ pub struct BlockdevOptionsRaw {
     /// the assumed size of the device
     pub size: Option<i64>,
 }
+
 #[qapi(added = "2.9.0")]
 pub struct BlockdevOptionsRbd {
     /// Acceptable authentication modes.  This maps
@@ -3784,6 +3926,7 @@ pub struct BlockdevOptionsRbd {
     /// Ceph id name.
     pub user: Option<String>,
 }
+
 /// Driver specific block device options for replication
 ///
 #[qapi(added = "2.8.0")]
@@ -3798,6 +3941,7 @@ pub struct BlockdevOptionsReplication {
     #[qapi(name = "top-id")]
     pub top_id: Option<String>,
 }
+
 /// Driver specific block device options for sheepdog
 ///
 #[qapi(added = "2.9.0")]
@@ -3815,6 +3959,7 @@ pub struct BlockdevOptionsSheepdog {
     /// Virtual disk image name
     pub vdi: String,
 }
+
 #[qapi(added = "2.8.0")]
 pub struct BlockdevOptionsSsh {
     /// Defines how and what to check the host key against
@@ -3829,6 +3974,7 @@ pub struct BlockdevOptionsSsh {
     /// user as which to connect, defaults to current local user name
     pub user: Option<String>,
 }
+
 /// Driver specific block device options for the throttle driver
 ///
 #[qapi(added = "2.11.0")]
@@ -3840,6 +3986,7 @@ pub struct BlockdevOptionsThrottle {
     #[qapi(name = "throttle-group")]
     pub throttle_group: String,
 }
+
 /// Driver specific block device options for the virtio-blk-vfio-pci
 /// backend.
 ///
@@ -3850,6 +3997,7 @@ pub struct BlockdevOptionsVirtioBlkVfioPci {
     /// /sys/bus/pci/devices/0000:00:01.0).
     pub path: String,
 }
+
 /// Driver specific block device options for the virtio-blk-vhost-user
 /// backend.
 ///
@@ -3859,6 +4007,7 @@ pub struct BlockdevOptionsVirtioBlkVhostUser {
     /// path to the vhost-user UNIX domain socket.
     pub path: String,
 }
+
 /// Driver specific block device options for the virtio-blk-vhost-vdpa backend.
 ///
 #[qapi(condition = "CONFIG_BLKIO")]
@@ -3867,6 +4016,7 @@ pub struct BlockdevOptionsVirtioBlkVhostVdpa {
     /// path to the vhost-vdpa character device.
     pub path: String,
 }
+
 /// Driver specific block device options for the vvfat protocol.
 ///
 #[qapi(name = "BlockdevOptionsVVFAT")]
@@ -3889,6 +4039,7 @@ pub struct BlockdevOptionsVvfat {
     /// whether to allow write operations (default: false)
     pub rw: Option<bool>,
 }
+
 /// Driver specific block device options for VxHS
 ///
 #[qapi(name = "BlockdevOptionsVxHS")]
@@ -3904,6 +4055,7 @@ pub struct BlockdevOptionsVxHs {
     #[qapi(name = "vdisk-id")]
     pub vdisk_id: String,
 }
+
 #[qapi(added = "2.10.0")]
 pub struct BlockdevQcow2Encryption {
     /// encryption format
@@ -3912,6 +4064,7 @@ pub struct BlockdevQcow2Encryption {
     #[qapi(union)]
     pub u: Option<BlockdevQcow2EncryptionBranch>,
 }
+
 #[qapi(added = "2.10.0")]
 pub enum BlockdevQcow2EncryptionBranch {
     #[qapi(name = "aes")]
@@ -3919,6 +4072,7 @@ pub enum BlockdevQcow2EncryptionBranch {
     #[qapi(name = "luks")]
     Luks(QCryptoBlockOptionsLuks),
 }
+
 #[qapi(added = "2.10.0")]
 pub enum BlockdevQcow2EncryptionFormat {
     /// AES-CBC with plain64 initialization vectors
@@ -3927,6 +4081,7 @@ pub enum BlockdevQcow2EncryptionFormat {
     #[qapi(name = "luks")]
     Luks,
 }
+
 #[qapi(added = "2.12.0")]
 pub enum BlockdevQcow2Version {
     /// The original QCOW2 format as introduced in QEMU 0.10 (version
@@ -3937,6 +4092,7 @@ pub enum BlockdevQcow2Version {
     #[qapi(name = "v3")]
     V3,
 }
+
 #[qapi(added = "2.10.0")]
 pub struct BlockdevQcowEncryption {
     /// encryption format
@@ -3945,17 +4101,20 @@ pub struct BlockdevQcowEncryption {
     #[qapi(union)]
     pub u: Option<BlockdevQcowEncryptionBranch>,
 }
+
 #[qapi(added = "2.10.0")]
 pub enum BlockdevQcowEncryptionBranch {
     #[qapi(name = "aes")]
     Aes(QCryptoBlockOptionsQCow),
 }
+
 #[qapi(added = "2.10.0")]
 pub enum BlockdevQcowEncryptionFormat {
     /// AES-CBC with plain64 initialization vectors
     #[qapi(name = "aes")]
     Aes,
 }
+
 /// Reference to a block device.
 ///
 #[qapi(added = "2.4.0")]
@@ -3967,6 +4126,7 @@ pub enum BlockdevRef {
     #[qapi(name = "reference")]
     Reference(String),
 }
+
 #[qapi(added = "1.7.0")]
 #[qapi(removed = "2.4.0")]
 pub enum BlockdevRefBranch {
@@ -3975,6 +4135,7 @@ pub enum BlockdevRefBranch {
     #[qapi(name = "reference")]
     Reference(String),
 }
+
 /// Reference to a block device.
 ///
 #[qapi(added = "2.10.0")]
@@ -3991,6 +4152,7 @@ pub enum BlockdevRefOrNull {
     #[qapi(name = "reference")]
     Reference(String),
 }
+
 #[qapi(added = "1.7.0")]
 #[qapi(removed = "2.4.0")]
 pub enum BlockdevRefType {
@@ -3999,6 +4161,7 @@ pub enum BlockdevRefType {
     #[qapi(name = "reference")]
     Reference,
 }
+
 #[qapi(command)]
 #[qapi(name = "blockdev-remove-medium")]
 #[qapi(returns = "()")]
@@ -4006,6 +4169,7 @@ pub enum BlockdevRefType {
 pub struct BlockdevRemoveMedium {
     pub id: String,
 }
+
 /// Reopens one or more block devices using the given set of options.
 /// Any option not specified will be reset to its default value
 /// regardless of its previous status.  If an option cannot be changed
@@ -4057,6 +4221,7 @@ pub struct BlockdevRemoveMedium {
 pub struct BlockdevReopen {
     pub options: Vec<BlockdevOptions>,
 }
+
 #[qapi(command)]
 #[qapi(name = "blockdev-set-active")]
 #[qapi(returns = "()")]
@@ -4067,6 +4232,7 @@ pub struct BlockdevSetActive {
     #[qapi(name = "node-name")]
     pub node_name: Option<String>,
 }
+
 /// Either @device or @node-name must be set but not both.
 ///
 #[qapi(added = "1.1.0")]
@@ -4106,6 +4272,7 @@ pub struct BlockdevSnapshot {
     #[qapi(removed = "2.5.0")]
     pub snapshot_node_name: Option<String>,
 }
+
 #[qapi(command)]
 #[qapi(name = "blockdev-snapshot-delete-internal-sync")]
 #[qapi(returns = "SnapshotInfo")]
@@ -4115,6 +4282,7 @@ pub struct BlockdevSnapshotDeleteInternalSync {
     pub id: Option<String>,
     pub name: Option<String>,
 }
+
 #[qapi(command)]
 #[qapi(returns = "()")]
 #[qapi(added = "1.7.0")]
@@ -4125,10 +4293,12 @@ pub struct BlockdevSnapshotInternal {
     /// the name of the internal snapshot to be created
     pub name: String,
 }
+
 #[qapi(added = "6.2.0")]
 pub struct BlockdevSnapshotInternalWrapper {
     pub data: BlockdevSnapshotInternal,
 }
+
 /// Either @device or @node-name must be set but not both.
 ///
 #[qapi(command)]
@@ -4153,14 +4323,17 @@ pub struct BlockdevSnapshotSync {
     #[qapi(name = "snapshot-node-name")]
     pub snapshot_node_name: Option<String>,
 }
+
 #[qapi(added = "6.2.0")]
 pub struct BlockdevSnapshotSyncWrapper {
     pub data: BlockdevSnapshotSync,
 }
+
 #[qapi(added = "6.2.0")]
 pub struct BlockdevSnapshotWrapper {
     pub data: BlockdevSnapshot,
 }
+
 #[qapi(added = "2.12.0")]
 pub enum BlockdevVhdxSubformat {
     /// Growing image file
@@ -4170,6 +4343,7 @@ pub enum BlockdevVhdxSubformat {
     #[qapi(name = "fixed")]
     Fixed,
 }
+
 /// Adapter type info for VMDK images
 ///
 #[qapi(added = "4.0.0")]
@@ -4183,6 +4357,7 @@ pub enum BlockdevVmdkAdapterType {
     #[qapi(name = "lsilogic")]
     Lsilogic,
 }
+
 /// Subformat options for VMDK images
 ///
 #[qapi(added = "4.0.0")]
@@ -4206,6 +4381,7 @@ pub enum BlockdevVmdkSubformat {
     #[qapi(name = "twoGbMaxExtentSparse")]
     TwoGbMaxExtentSparse,
 }
+
 #[qapi(added = "2.12.0")]
 pub enum BlockdevVpcSubformat {
     /// Growing image file
@@ -4215,6 +4391,7 @@ pub enum BlockdevVpcSubformat {
     #[qapi(name = "fixed")]
     Fixed,
 }
+
 #[qapi(command)]
 #[qapi(returns = "()")]
 #[qapi(added = "2.4.0")]
@@ -4224,6 +4401,7 @@ pub struct BlockDirtyBitmap {
     /// name of device/node which the bitmap is tracking
     pub node: String,
 }
+
 #[qapi(command)]
 #[qapi(returns = "()")]
 #[qapi(added = "2.4.0")]
@@ -4261,10 +4439,12 @@ pub struct BlockDirtyBitmapAdd {
     #[qapi(removed = "4.0.0")]
     pub x_disabled: Option<bool>,
 }
+
 #[qapi(added = "6.2.0")]
 pub struct BlockDirtyBitmapAddWrapper {
     pub data: BlockDirtyBitmapAdd,
 }
+
 #[qapi(command)]
 #[qapi(returns = "()")]
 #[qapi(added = "3.0.0")]
@@ -4286,6 +4466,7 @@ pub struct BlockDirtyBitmapMerge {
     #[qapi(added = "4.0.0")]
     pub target: Option<String>,
 }
+
 #[qapi(added = "4.1.0")]
 #[qapi(removed = "7.1.0")]
 pub enum BlockDirtyBitmapMergeSource {
@@ -4296,10 +4477,12 @@ pub enum BlockDirtyBitmapMergeSource {
     #[qapi(name = "local")]
     Local(String),
 }
+
 #[qapi(added = "6.2.0")]
 pub struct BlockDirtyBitmapMergeWrapper {
     pub data: BlockDirtyBitmapMerge,
 }
+
 #[qapi(added = "7.1.0")]
 pub enum BlockDirtyBitmapOrStr {
     /// bitmap with specified node
@@ -4310,6 +4493,7 @@ pub enum BlockDirtyBitmapOrStr {
     #[qapi(name = "local")]
     Local(String),
 }
+
 /// SHA256 hash of dirty bitmap data
 ///
 #[qapi(added = "2.10.0")]
@@ -4317,10 +4501,12 @@ pub struct BlockDirtyBitmapSha256 {
     /// ASCII representation of SHA256 bitmap hash
     pub sha256: String,
 }
+
 #[qapi(added = "6.2.0")]
 pub struct BlockDirtyBitmapWrapper {
     pub data: BlockDirtyBitmap,
 }
+
 /// Block dirty bitmap information.
 ///
 #[qapi(added = "1.3.0")]
@@ -4358,6 +4544,7 @@ pub struct BlockDirtyInfo {
     #[qapi(removed = "6.0.0")]
     pub status: Option<DirtyBitmapStatus>,
 }
+
 /// An enumeration of action that has been taken when a DISK I/O occurs
 ///
 #[qapi(added = "2.1.0")]
@@ -4372,6 +4559,7 @@ pub enum BlockErrorAction {
     #[qapi(name = "stop")]
     Stop,
 }
+
 /// Describes a block export, i.e. how single node should be exported on an
 /// external interface.
 ///
@@ -4383,12 +4571,14 @@ pub struct BlockExport {
     #[qapi(union)]
     pub u: Option<BlockExportBranch>,
 }
+
 #[qapi(added = "5.0.0")]
 #[qapi(removed = "5.2.0")]
 pub enum BlockExportBranch {
     #[qapi(name = "nbd")]
     Nbd(BlockExportNbd),
 }
+
 #[qapi(command)]
 #[qapi(name = "block-export-del")]
 #[qapi(returns = "()")]
@@ -4397,6 +4587,7 @@ pub struct BlockExportDel {
     pub id: String,
     pub mode: Option<BlockExportRemoveMode>,
 }
+
 /// Emitted when a block export is removed and its id can be reused.
 ///
 #[qapi(event)]
@@ -4406,6 +4597,7 @@ pub struct BlockExportDeletedEvent {
     /// Block export id.
     pub id: String,
 }
+
 /// Information about a single block export.
 ///
 #[qapi(added = "5.2.0")]
@@ -4423,6 +4615,7 @@ pub struct BlockExportInfo {
     /// The block export type
     pub r#type: BlockExportType,
 }
+
 /// An NBD block export.
 ///
 #[qapi(command)]
@@ -4446,6 +4639,7 @@ pub struct BlockExportNbd {
     /// NBD connection (default false).
     pub writable: Option<bool>,
 }
+
 /// Describes a block export, i.e. how single node should be exported on
 /// an external interface.
 ///
@@ -4491,6 +4685,7 @@ pub struct BlockExportOptions {
     /// default: false)
     pub writethrough: Option<bool>,
 }
+
 #[qapi(added = "5.2.0")]
 pub enum BlockExportOptionsBranch {
     #[qapi(name = "fuse")]
@@ -4506,6 +4701,7 @@ pub enum BlockExportOptionsBranch {
     #[qapi(name = "vhost-user-blk")]
     VhostUserBlk(BlockExportOptionsVhostUserBlk),
 }
+
 /// Options for exporting a block graph node on some (file) mountpoint
 /// as a raw image.
 ///
@@ -4531,6 +4727,7 @@ pub struct BlockExportOptionsFuse {
     /// This must point to an existing regular file.
     pub mountpoint: String,
 }
+
 /// An NBD block export (distinct options used in the NBD branch of
 /// `block-export-add`).
 ///
@@ -4551,6 +4748,7 @@ pub struct BlockExportOptionsNbd {
     /// as the export name.  (Since 2.12)
     pub name: Option<String>,
 }
+
 /// An NBD block export (common options shared between `nbd-server-add`
 /// and the NBD branch of `block-export-add`).
 ///
@@ -4563,6 +4761,7 @@ pub struct BlockExportOptionsNbdBase {
     /// as the export name.  (Since 2.12)
     pub name: Option<String>,
 }
+
 /// A vduse-blk block export.
 ///
 #[qapi(added = "7.1.0")]
@@ -4583,6 +4782,7 @@ pub struct BlockExportOptionsVduseBlk {
     /// empty string.
     pub serial: Option<String>,
 }
+
 /// A vhost-user-blk block export.
 ///
 #[qapi(added = "5.2.0")]
@@ -4600,6 +4800,7 @@ pub struct BlockExportOptionsVhostUserBlk {
     #[qapi(name = "num-queues")]
     pub num_queues: Option<u16>,
 }
+
 /// Mode for removing a block export.
 ///
 #[qapi(added = "5.2.0")]
@@ -4620,6 +4821,7 @@ pub enum BlockExportRemoveMode {
     #[qapi(name = "safe")]
     Safe,
 }
+
 /// An enumeration of block export types
 ///
 #[qapi(added = "5.0.0")]
@@ -4642,6 +4844,7 @@ pub enum BlockExportType {
     #[qapi(added = "5.2.0")]
     VhostUserBlk,
 }
+
 /// Information about all nodes in a block (sub)graph in the form of
 /// `BlockNodeInfo` data.  The base `BlockNodeInfo` struct contains the
 /// information for the (sub)graph's root node.
@@ -4689,6 +4892,7 @@ pub struct BlockGraphInfo {
     #[qapi(name = "virtual-size")]
     pub virtual_size: i64,
 }
+
 /// Emitted when a disk image is being marked corrupt.  The image can be
 /// identified by its device or node name.  The 'device' field is always
 /// present for compatibility reasons, but it can be empty ("") if the
@@ -4732,6 +4936,7 @@ pub struct BlockImageCorruptedEvent {
     /// access size
     pub size: Option<i64>,
 }
+
 /// Block device information.  This structure describes a virtual device
 /// and the backing device associated with it.
 ///
@@ -4777,6 +4982,7 @@ pub struct BlockInfo {
     /// should not be used (always returns 'unknown')
     pub r#type: String,
 }
+
 #[qapi(event)]
 #[qapi(name = "BLOCK_IO_ERROR")]
 #[qapi(added = "2.1.0")]
@@ -4795,6 +5001,7 @@ pub struct BlockIoErrorEvent {
     #[qapi(added = "2.2.0")]
     pub reason: Option<String>,
 }
+
 /// A set of parameters describing block throttling.
 ///
 #[qapi(name = "BlockIOThrottle")]
@@ -4873,6 +5080,7 @@ pub struct BlockIoThrottle {
     /// Defaults to 1. (Since 2.6)
     pub iops_wr_max_length: Option<i64>,
 }
+
 #[qapi(command)]
 #[qapi(name = "block-job-cancel")]
 #[qapi(returns = "()")]
@@ -4882,6 +5090,7 @@ pub struct BlockJobCancel {
     #[qapi(added = "1.3.0")]
     pub force: Option<bool>,
 }
+
 /// Emitted when a block job has been cancelled
 ///
 #[qapi(event)]
@@ -4901,6 +5110,7 @@ pub struct BlockJobCancelledEvent {
     /// job type
     pub r#type: BlockJobType,
 }
+
 /// Block job options that can be changed after job creation.
 ///
 #[qapi(command)]
@@ -4915,11 +5125,13 @@ pub struct BlockJobChangeOptions {
     #[qapi(union)]
     pub u: Option<BlockJobChangeOptionsBranch>,
 }
+
 #[qapi(added = "8.2.0")]
 pub enum BlockJobChangeOptionsBranch {
     #[qapi(name = "mirror")]
     Mirror(BlockJobChangeOptionsMirror),
 }
+
 #[qapi(added = "8.2.0")]
 pub struct BlockJobChangeOptionsMirror {
     /// Switch to this copy mode.  Currently, only the switch
@@ -4927,6 +5139,7 @@ pub struct BlockJobChangeOptionsMirror {
     #[qapi(name = "copy-mode")]
     pub copy_mode: MirrorCopyMode,
 }
+
 #[qapi(command)]
 #[qapi(name = "block-job-complete")]
 #[qapi(returns = "()")]
@@ -4935,6 +5148,7 @@ pub struct BlockJobChangeOptionsMirror {
 pub struct BlockJobComplete {
     pub device: String,
 }
+
 /// Emitted when a block job has completed
 ///
 #[qapi(event)]
@@ -4959,6 +5173,7 @@ pub struct BlockJobCompletedEvent {
     /// job type
     pub r#type: BlockJobType,
 }
+
 /// For jobs that have already concluded, remove them from the
 /// block-job-query list.  This command only needs to be run for jobs
 /// which were started with QEMU 2.12+ job lifetime management
@@ -4978,6 +5193,7 @@ pub struct BlockJobDismiss {
     /// The job identifier.
     pub id: String,
 }
+
 /// Emitted when a block job encounters an error
 ///
 #[qapi(event)]
@@ -4992,6 +5208,7 @@ pub struct BlockJobErrorEvent {
     /// I/O operation
     pub operation: IoOperationType,
 }
+
 /// Once a job that has manual=true reaches the pending state, it can be
 /// instructed to finalize any graph changes and do any necessary
 /// cleanup via this command.  For jobs in a transaction, instructing
@@ -5008,6 +5225,7 @@ pub struct BlockJobFinalize {
     /// The job identifier.
     pub id: String,
 }
+
 /// Information about a long-running block device operation.
 ///
 #[qapi(added = "1.1.0")]
@@ -5064,11 +5282,13 @@ pub struct BlockJobInfo {
     #[qapi(added = "8.2.0")]
     pub u: Option<BlockJobInfoBranch>,
 }
+
 #[qapi(added = "8.2.0")]
 pub enum BlockJobInfoBranch {
     #[qapi(name = "mirror")]
     Mirror(BlockJobInfoMirror),
 }
+
 /// Information specific to mirror block jobs.
 ///
 #[qapi(added = "8.2.0")]
@@ -5079,6 +5299,7 @@ pub struct BlockJobInfoMirror {
     #[qapi(name = "actively-synced")]
     pub actively_synced: bool,
 }
+
 #[qapi(command)]
 #[qapi(name = "block-job-pause")]
 #[qapi(returns = "()")]
@@ -5087,6 +5308,7 @@ pub struct BlockJobInfoMirror {
 pub struct BlockJobPause {
     pub device: String,
 }
+
 #[qapi(event)]
 #[qapi(name = "BLOCK_JOB_PENDING")]
 #[qapi(added = "2.12.0")]
@@ -5094,6 +5316,7 @@ pub struct BlockJobPendingEvent {
     pub id: String,
     pub r#type: BlockJobType,
 }
+
 #[qapi(event)]
 #[qapi(name = "BLOCK_JOB_READY")]
 #[qapi(added = "2.1.0")]
@@ -5104,6 +5327,7 @@ pub struct BlockJobReadyEvent {
     pub speed: i64,
     pub r#type: BlockJobType,
 }
+
 #[qapi(command)]
 #[qapi(name = "block-job-resume")]
 #[qapi(returns = "()")]
@@ -5112,6 +5336,7 @@ pub struct BlockJobReadyEvent {
 pub struct BlockJobResume {
     pub device: String,
 }
+
 #[qapi(command)]
 #[qapi(name = "block-job-set-speed")]
 #[qapi(returns = "()")]
@@ -5120,6 +5345,7 @@ pub struct BlockJobSetSpeed {
     pub device: String,
     pub speed: i64,
 }
+
 /// Indicates the present state of a given blockjob in its lifetime.
 ///
 #[qapi(added = "2.12.0")]
@@ -5172,6 +5398,7 @@ pub enum BlockJobStatus {
     #[qapi(name = "waiting")]
     Waiting,
 }
+
 /// Type of a block job.
 ///
 #[qapi(added = "1.7.0")]
@@ -5190,6 +5417,7 @@ pub enum BlockJobType {
     #[qapi(name = "stream")]
     Stream,
 }
+
 /// Represents command verbs that can be applied to a blockjob.
 ///
 #[qapi(added = "2.12.0")]
@@ -5217,6 +5445,7 @@ pub enum BlockJobVerb {
     #[qapi(name = "set-speed")]
     SetSpeed,
 }
+
 /// Block latency histogram.
 ///
 #[qapi(added = "2.12.0")]
@@ -5242,6 +5471,7 @@ pub struct BlockLatencyHistogramInfo {
     /// histogram intervals: [0, 10), [10, 50), [50, 100), [100, +inf).
     pub boundaries: Vec<u64>,
 }
+
 #[qapi(command)]
 #[qapi(name = "block-latency-histogram-set")]
 #[qapi(returns = "()")]
@@ -5259,6 +5489,7 @@ pub struct BlockLatencyHistogramSet {
     pub boundaries_zap: Option<Vec<u64>>,
     pub id: String,
 }
+
 #[qapi(added = "10.2.0")]
 pub struct BlockLimitsInfo {
     #[qapi(name = "discard-alignment")]
@@ -5286,6 +5517,7 @@ pub struct BlockLimitsInfo {
     #[qapi(name = "write-zeroes-alignment")]
     pub write_zeroes_alignment: Option<u32>,
 }
+
 /// Image file size calculation information.  This structure describes
 /// the size requirements for creating a new image file.
 ///
@@ -5317,6 +5549,7 @@ pub struct BlockMeasureInfo {
     /// copying just allocated guest-visible contents.
     pub required: i64,
 }
+
 /// Information about a QEMU image file
 ///
 #[qapi(added = "8.0.0")]
@@ -5360,6 +5593,7 @@ pub struct BlockNodeInfo {
     #[qapi(name = "virtual-size")]
     pub virtual_size: i64,
 }
+
 #[qapi(command)]
 #[qapi(name = "block_passwd")]
 #[qapi(returns = "()")]
@@ -5372,6 +5606,7 @@ pub struct BlockPasswd {
     pub node_name: Option<String>,
     pub password: String,
 }
+
 /// Enum of base block permissions.
 ///
 #[qapi(added = "4.0.0")]
@@ -5407,6 +5642,7 @@ pub enum BlockPermission {
     #[qapi(name = "write-unchanged")]
     WriteUnchanged,
 }
+
 #[qapi(command)]
 #[qapi(name = "block_resize")]
 #[qapi(returns = "()")]
@@ -5418,6 +5654,7 @@ pub struct BlockResize {
     pub node_name: Option<String>,
     pub size: i64,
 }
+
 #[qapi(command)]
 #[qapi(name = "block_set_io_throttle")]
 #[qapi(returns = "()")]
@@ -5460,6 +5697,7 @@ pub struct BlockSetIoThrottle {
     #[qapi(added = "2.6.0")]
     pub iops_wr_max_length: Option<i64>,
 }
+
 /// Change the write threshold for a block drive. An event will be delivered
 /// if a write to this block drive crosses the configured threshold.
 /// This is useful to transparently resize thin-provisioned drives without
@@ -5478,6 +5716,7 @@ pub struct BlockSetWriteThreshold {
     #[qapi(name = "write-threshold")]
     pub write_threshold: u64,
 }
+
 /// Statistics of a virtual block device or a block backing device.
 ///
 #[qapi(added = "1.0.0")]
@@ -5509,6 +5748,7 @@ pub struct BlockStats {
     /// A `BlockDeviceStats` for the device.
     pub stats: BlockDeviceStats,
 }
+
 /// Block driver specific statistics
 ///
 #[qapi(added = "4.2.0")]
@@ -5519,6 +5759,7 @@ pub struct BlockStatsSpecific {
     #[qapi(union)]
     pub u: Option<BlockStatsSpecificBranch>,
 }
+
 #[qapi(added = "4.2.0")]
 pub enum BlockStatsSpecificBranch {
     #[qapi(name = "file")]
@@ -5529,6 +5770,7 @@ pub enum BlockStatsSpecificBranch {
     #[qapi(added = "5.2.0")]
     Nvme(BlockStatsSpecificNvme),
 }
+
 /// File driver statistics
 ///
 #[qapi(added = "4.2.0")]
@@ -5545,6 +5787,7 @@ pub struct BlockStatsSpecificFile {
     #[qapi(name = "discard-nb-ok")]
     pub discard_nb_ok: u64,
 }
+
 /// NVMe driver statistics
 ///
 #[qapi(added = "5.2.0")]
@@ -5561,6 +5804,7 @@ pub struct BlockStatsSpecificNvme {
     #[qapi(name = "unaligned-accesses")]
     pub unaligned_accesses: u64,
 }
+
 /// Copy data from a backing file into a block device.
 ///
 /// The block streaming operation is performed in the background until the entire
@@ -5644,6 +5888,7 @@ pub struct BlockStream {
     /// optional the maximum speed, in bytes per second
     pub speed: Option<i64>,
 }
+
 /// Emitted when writes on block device reaches or exceeds the
 /// configured write threshold.  For thin-provisioned devices, this
 /// means the device should be extended to avoid pausing for disk
@@ -5665,6 +5910,7 @@ pub struct BlockWriteThresholdEvent {
     #[qapi(name = "write-threshold")]
     pub write_threshold: u64,
 }
+
 /// Schema for virtual machine boot configuration.
 ///
 #[qapi(added = "7.1.0")]
@@ -5688,6 +5934,7 @@ pub struct BootConfiguration {
     /// boot order
     pub strict: Option<bool>,
 }
+
 /// Caches a system may have.  The enumeration value here is the
 /// combination of cache level and cache type.
 ///
@@ -5706,6 +5953,7 @@ pub enum CacheLevelAndType {
     #[qapi(name = "l3")]
     L3,
 }
+
 #[qapi(command)]
 #[qapi(name = "calc-dirty-rate")]
 #[qapi(returns = "()")]
@@ -5722,6 +5970,7 @@ pub struct CalcDirtyRate {
     #[qapi(added = "6.1.0")]
     pub sample_pages: Option<i64>,
 }
+
 #[qapi(command)]
 #[qapi(name = "cancel-vcpu-dirty-limit")]
 #[qapi(returns = "()")]
@@ -5730,6 +5979,7 @@ pub struct CancelVcpuDirtyLimit {
     #[qapi(name = "cpu-index")]
     pub cpu_index: Option<i64>,
 }
+
 /// Properties for can-host-socketcan objects.
 ///
 #[qapi(added = "6.0.0")]
@@ -5740,6 +5990,7 @@ pub struct CanHostSocketcanProperties {
     /// interface name of the host system CAN bus to connect to
     pub r#if: String,
 }
+
 #[qapi(command)]
 #[qapi(name = "change")]
 #[qapi(returns = "()")]
@@ -5751,6 +6002,7 @@ pub struct Change {
     pub device: String,
     pub target: String,
 }
+
 /// Change the backing file in the image file metadata.  This does not
 /// cause QEMU to reopen the image file to reparse the backing filename
 /// (it may, however, perform a reopen to change permissions from
@@ -5777,6 +6029,7 @@ pub struct ChangeBackingFile {
     #[qapi(name = "image-node-name")]
     pub image_node_name: String,
 }
+
 #[qapi(command)]
 #[qapi(name = "change-vnc-password")]
 #[qapi(returns = "()")]
@@ -5784,6 +6037,7 @@ pub struct ChangeBackingFile {
 pub struct ChangeVncPassword {
     pub password: String,
 }
+
 #[qapi(command)]
 #[qapi(name = "chardev-add")]
 #[qapi(returns = "ChardevReturn")]
@@ -5792,6 +6046,7 @@ pub struct ChardevAdd {
     pub backend: ChardevBackend,
     pub id: String,
 }
+
 /// Configuration info for the new chardev backend.
 ///
 #[qapi(added = "1.4.0")]
@@ -5807,6 +6062,7 @@ pub struct ChardevBackend {
     #[qapi(union)]
     pub u: Option<ChardevBackendBranch>,
 }
+
 #[qapi(added = "1.4.0")]
 pub enum ChardevBackendBranch {
     #[qapi(name = "braille")]
@@ -5875,6 +6131,7 @@ pub enum ChardevBackendBranch {
     #[qapi(added = "2.9.0")]
     Wctablet(ChardevCommon),
 }
+
 /// Information about a character device backend
 ///
 #[qapi(added = "2.0.0")]
@@ -5882,6 +6139,7 @@ pub struct ChardevBackendInfo {
     /// The backend name
     pub name: String,
 }
+
 #[qapi(added = "6.2.0")]
 pub enum ChardevBackendKind {
     /// Since 1.5
@@ -5954,6 +6212,7 @@ pub enum ChardevBackendKind {
     #[qapi(name = "wctablet")]
     Wctablet,
 }
+
 #[qapi(added = "1.4.0")]
 #[qapi(removed = "6.2.0")]
 pub enum ChardevBackendType {
@@ -6015,6 +6274,7 @@ pub enum ChardevBackendType {
     #[qapi(added = "2.9.0")]
     Wctablet,
 }
+
 #[qapi(command)]
 #[qapi(name = "chardev-change")]
 #[qapi(returns = "ChardevReturn")]
@@ -6023,6 +6283,7 @@ pub struct ChardevChange {
     pub backend: ChardevBackend,
     pub id: String,
 }
+
 /// Configuration shared across all chardev backends
 ///
 #[qapi(added = "2.6.0")]
@@ -6033,11 +6294,13 @@ pub struct ChardevCommon {
     /// The name of a logfile to save output
     pub logfile: Option<String>,
 }
+
 #[qapi(added = "6.2.0")]
 pub struct ChardevCommonWrapper {
     /// Configuration shared across all chardev backends
     pub data: ChardevCommon,
 }
+
 /// Configuration info for DBus chardevs.
 ///
 #[qapi(condition = "CONFIG_DBUS_DISPLAY")]
@@ -6051,17 +6314,20 @@ pub struct ChardevDBus {
     /// name of the channel (following docs/spice-port-fqdn.txt)
     pub name: String,
 }
+
 #[qapi(condition = "CONFIG_DBUS_DISPLAY")]
 #[qapi(added = "7.0.0")]
 pub struct ChardevDBusWrapper {
     /// Configuration info for DBus chardevs
     pub data: ChardevDBus,
 }
+
 /// Configuration info for the new chardev backend.
 ///
 #[qapi(added = "1.4.0")]
 #[qapi(removed = "2.6.0")]
 pub struct ChardevDummy {}
+
 /// Configuration info for file chardevs.
 ///
 #[qapi(added = "1.4.0")]
@@ -6082,11 +6348,13 @@ pub struct ChardevFile {
     /// The name of the output file
     pub out: String,
 }
+
 #[qapi(added = "6.2.0")]
 pub struct ChardevFileWrapper {
     /// Configuration info for file chardevs
     pub data: ChardevFile,
 }
+
 /// Configuration info for device and pipe chardevs.
 ///
 #[qapi(added = "1.4.0")]
@@ -6102,11 +6370,13 @@ pub struct ChardevHostdev {
     #[qapi(added = "2.6.0")]
     pub logfile: Option<String>,
 }
+
 #[qapi(added = "6.2.0")]
 pub struct ChardevHostdevWrapper {
     /// Configuration info for device and pipe chardevs
     pub data: ChardevHostdev,
 }
+
 /// Configuration info for hub chardevs.
 ///
 #[qapi(added = "10.0.0")]
@@ -6119,11 +6389,13 @@ pub struct ChardevHub {
     /// The name of a logfile to save output
     pub logfile: Option<String>,
 }
+
 #[qapi(added = "10.0.0")]
 pub struct ChardevHubWrapper {
     /// Configuration info for hub chardevs
     pub data: ChardevHub,
 }
+
 /// Information about a character device.
 ///
 #[qapi(added = "1.0.0")]
@@ -6142,6 +6414,7 @@ pub struct ChardevInfo {
     /// the label of the character device
     pub label: String,
 }
+
 /// Configuration info for mux chardevs.
 ///
 #[qapi(added = "1.5.0")]
@@ -6156,11 +6429,13 @@ pub struct ChardevMux {
     #[qapi(added = "2.6.0")]
     pub logfile: Option<String>,
 }
+
 #[qapi(added = "6.2.0")]
 pub struct ChardevMuxWrapper {
     /// Configuration info for mux chardevs
     pub data: ChardevMux,
 }
+
 /// Configuration info for pty implementation.
 ///
 #[qapi(added = "9.2.0")]
@@ -6174,11 +6449,13 @@ pub struct ChardevPty {
     /// allocated PTY
     pub path: Option<String>,
 }
+
 #[qapi(added = "9.2.0")]
 pub struct ChardevPtyWrapper {
     /// Configuration info for pty chardevs
     pub data: ChardevPty,
 }
+
 /// Configuration info for QEMU vdagent implementation.
 ///
 #[qapi(name = "ChardevQemuVDAgent")]
@@ -6195,6 +6472,7 @@ pub struct ChardevQemuVdAgent {
     /// enable/disable mouse, default is enabled.
     pub mouse: Option<bool>,
 }
+
 #[qapi(name = "ChardevQemuVDAgentWrapper")]
 #[qapi(condition = "CONFIG_SPICE_PROTOCOL")]
 #[qapi(added = "6.2.0")]
@@ -6202,6 +6480,7 @@ pub struct ChardevQemuVdAgentWrapper {
     /// Configuration info for QEMU vdagent implementation
     pub data: ChardevQemuVdAgent,
 }
+
 #[qapi(command)]
 #[qapi(name = "chardev-remove")]
 #[qapi(returns = "()")]
@@ -6209,6 +6488,7 @@ pub struct ChardevQemuVdAgentWrapper {
 pub struct ChardevRemove {
     pub id: String,
 }
+
 /// Return info about the chardev backend just created.
 ///
 #[qapi(added = "1.4.0")]
@@ -6217,6 +6497,7 @@ pub struct ChardevReturn {
     /// if a chardev of type 'pty' was created
     pub pty: Option<String>,
 }
+
 /// Configuration info for ring buffer chardevs.
 ///
 #[qapi(added = "1.5.0")]
@@ -6231,11 +6512,13 @@ pub struct ChardevRingbuf {
     /// ring buffer size, must be power of two, default is 65536
     pub size: Option<i64>,
 }
+
 #[qapi(added = "6.2.0")]
 pub struct ChardevRingbufWrapper {
     /// Configuration info for ring buffer chardevs
     pub data: ChardevRingbuf,
 }
+
 #[qapi(command)]
 #[qapi(name = "chardev-send-break")]
 #[qapi(returns = "()")]
@@ -6243,6 +6526,7 @@ pub struct ChardevRingbufWrapper {
 pub struct ChardevSendBreak {
     pub id: String,
 }
+
 /// Configuration info for (stream) socket chardevs.
 ///
 #[qapi(added = "1.4.0")]
@@ -6302,11 +6586,13 @@ pub struct ChardevSocket {
     #[qapi(added = "3.1.0")]
     pub websocket: Option<bool>,
 }
+
 #[qapi(added = "6.2.0")]
 pub struct ChardevSocketWrapper {
     /// Configuration info for (stream) socket chardevs
     pub data: ChardevSocket,
 }
+
 /// Configuration info for spice vm channel chardevs.
 ///
 #[qapi(added = "1.5.0")]
@@ -6321,12 +6607,14 @@ pub struct ChardevSpiceChannel {
     /// kind of channel (for example vdagent).
     pub r#type: String,
 }
+
 #[qapi(condition = "CONFIG_SPICE")]
 #[qapi(added = "6.2.0")]
 pub struct ChardevSpiceChannelWrapper {
     /// Configuration info for spice vm channel chardevs
     pub data: ChardevSpiceChannel,
 }
+
 /// Configuration info for spice port chardevs.
 ///
 #[qapi(added = "1.5.0")]
@@ -6341,12 +6629,14 @@ pub struct ChardevSpicePort {
     #[qapi(added = "2.6.0")]
     pub logfile: Option<String>,
 }
+
 #[qapi(condition = "CONFIG_SPICE")]
 #[qapi(added = "6.2.0")]
 pub struct ChardevSpicePortWrapper {
     /// Configuration info for spice port chardevs
     pub data: ChardevSpicePort,
 }
+
 /// Configuration info for stdio chardevs.
 ///
 #[qapi(added = "1.5.0")]
@@ -6362,11 +6652,13 @@ pub struct ChardevStdio {
     /// to QEMU.  Default: true.
     pub signal: Option<bool>,
 }
+
 #[qapi(added = "6.2.0")]
 pub struct ChardevStdioWrapper {
     /// Configuration info for stdio chardevs
     pub data: ChardevStdio,
 }
+
 /// Configuration info for datagram socket chardevs.
 ///
 #[qapi(added = "1.5.0")]
@@ -6383,11 +6675,13 @@ pub struct ChardevUdp {
     /// remote address
     pub remote: SocketAddress,
 }
+
 #[qapi(added = "6.2.0")]
 pub struct ChardevUdpWrapper {
     /// Configuration info for datagram socket chardevs
     pub data: ChardevUdp,
 }
+
 /// Configuration info for virtual console chardevs.
 ///
 #[qapi(name = "ChardevVC")]
@@ -6413,12 +6707,14 @@ pub struct ChardevVc {
     /// console width, in pixels
     pub width: Option<i64>,
 }
+
 #[qapi(name = "ChardevVCWrapper")]
 #[qapi(added = "6.2.0")]
 pub struct ChardevVcWrapper {
     /// Configuration info for virtual console chardevs
     pub data: ChardevVc,
 }
+
 /// Set migration information for remote display.  This makes the server
 /// ask the client to automatically reconnect using the new parameters
 /// once migration finished successfully.  Only implemented for SPICE.
@@ -6441,6 +6737,7 @@ pub struct ClientMigrateInfo {
     #[qapi(name = "tls-port")]
     pub tls_port: Option<i64>,
 }
+
 #[qapi(command)]
 #[qapi(name = "closefd")]
 #[qapi(returns = "()")]
@@ -6448,6 +6745,7 @@ pub struct ClientMigrateInfo {
 pub struct Closefd {
     pub fdname: String,
 }
+
 /// Properties for colo-compare objects.
 ///
 #[qapi(added = "6.0.0")]
@@ -6483,6 +6781,7 @@ pub struct ColoCompareProperties {
     /// (default: false)
     pub vnet_hdr_support: Option<bool>,
 }
+
 #[qapi(event)]
 #[qapi(name = "COLO_EXIT")]
 #[qapi(added = "3.1.0")]
@@ -6490,6 +6789,7 @@ pub struct ColoExitEvent {
     pub mode: ColoMode,
     pub reason: ColoExitReason,
 }
+
 /// The reason for a COLO exit.
 ///
 #[qapi(name = "COLOExitReason")]
@@ -6511,6 +6811,7 @@ pub enum ColoExitReason {
     #[qapi(name = "request")]
     Request,
 }
+
 /// The message transmission between Primary side and Secondary side.
 ///
 #[qapi(name = "COLOMessage")]
@@ -6539,6 +6840,7 @@ pub enum ColoMessage {
     #[qapi(name = "vmstate-size")]
     VmstateSize,
 }
+
 /// The COLO current mode.
 ///
 #[qapi(name = "COLOMode")]
@@ -6559,6 +6861,7 @@ pub enum ColoMode {
     #[qapi(removed = "3.1.0")]
     Unknown,
 }
+
 /// The result format for `query-colo-status`.
 ///
 #[qapi(name = "COLOStatus")]
@@ -6576,6 +6879,7 @@ pub struct ColoStatus {
     /// describes the reason for the COLO exit.
     pub reason: ColoExitReason,
 }
+
 #[qapi(event)]
 #[qapi(name = "COMMAND_DROPPED")]
 #[qapi(added = "2.12.0")]
@@ -6584,6 +6888,7 @@ pub struct CommandDroppedEvent {
     pub id: serde_json::Value,
     pub reason: CommandDropReason,
 }
+
 /// Reasons that caused one command to be dropped.
 ///
 #[qapi(added = "2.12.0")]
@@ -6596,6 +6901,7 @@ pub enum CommandDropReason {
     #[qapi(name = "queue-full")]
     QueueFull,
 }
+
 /// Information about a QMP command
 ///
 #[qapi(added = "1.0.0")]
@@ -6603,6 +6909,7 @@ pub struct CommandInfo {
     /// The command name
     pub name: String,
 }
+
 /// Details about a command line option, including its list of parameter
 /// details
 ///
@@ -6613,6 +6920,7 @@ pub struct CommandLineOptionInfo {
     /// an array of `CommandLineParameterInfo`
     pub parameters: Vec<CommandLineParameterInfo>,
 }
+
 /// Details about a single parameter of a command line option.
 ///
 #[qapi(added = "1.5.0")]
@@ -6627,6 +6935,7 @@ pub struct CommandLineParameterInfo {
     /// parameter `CommandLineParameterType`
     pub r#type: CommandLineParameterType,
 }
+
 /// Possible types for an option parameter.
 ///
 #[qapi(added = "1.5.0")]
@@ -6645,6 +6954,7 @@ pub enum CommandLineParameterType {
     #[qapi(name = "string")]
     String,
 }
+
 /// Policy for handling deprecated management interfaces.
 ///
 /// This is intended for testing users of the management interfaces.
@@ -6676,6 +6986,7 @@ pub struct CompatPolicy {
     #[qapi(added = "6.2.0")]
     pub unstable_output: Option<CompatPolicyOutput>,
 }
+
 /// Policy for handling "funny" input.
 ///
 #[qapi(added = "6.0.0")]
@@ -6690,6 +7001,7 @@ pub enum CompatPolicyInput {
     #[qapi(name = "reject")]
     Reject,
 }
+
 /// Policy for handling "funny" output.
 ///
 #[qapi(added = "6.0.0")]
@@ -6701,6 +7013,7 @@ pub enum CompatPolicyOutput {
     #[qapi(name = "hide")]
     Hide,
 }
+
 /// Property default values specific to a machine type, for use by
 /// scripts/compare-machine-types.
 ///
@@ -6715,6 +7028,7 @@ pub struct CompatProperty {
     /// the "default" default, to avoid this use -machine none)
     pub value: String,
 }
+
 /// Detailed migration compression statistics
 ///
 #[qapi(added = "3.1.0")]
@@ -6734,11 +7048,13 @@ pub struct CompressionStats {
     /// amount of pages compressed and transferred to the target VM
     pub pages: i64,
 }
+
 #[qapi(command)]
 #[qapi(name = "cont")]
 #[qapi(returns = "()")]
 #[qapi(added = "1.1.0")]
 pub struct Cont {}
+
 #[qapi(command)]
 #[qapi(name = "cpu")]
 #[qapi(returns = "()")]
@@ -6747,6 +7063,7 @@ pub struct Cont {}
 pub struct Cpu {
     pub index: i64,
 }
+
 #[qapi(command)]
 #[qapi(name = "cpu-add")]
 #[qapi(returns = "()")]
@@ -6756,6 +7073,7 @@ pub struct Cpu {
 pub struct CpuAdd {
     pub id: i64,
 }
+
 /// Virtual CPU definition.
 ///
 #[qapi(added = "1.2.0")]
@@ -6803,6 +7121,7 @@ pub struct CpuDefinitionInfo {
     #[qapi(added = "2.8.0")]
     pub unavailable_features: Option<Vec<String>>,
 }
+
 #[qapi(added = "1.0.0")]
 #[qapi(removed = "6.0.0")]
 pub struct CpuInfo {
@@ -6832,6 +7151,7 @@ pub struct CpuInfo {
     #[qapi(added = "2.6.0")]
     pub u: Option<CpuInfoBranch>,
 }
+
 /// An enumeration of cpu types that enable additional information during
 #[qapi(added = "2.6.0")]
 #[qapi(removed = "6.0.0")]
@@ -6857,6 +7177,7 @@ pub enum CpuInfoArch {
     #[qapi(name = "x86")]
     X86,
 }
+
 #[qapi(added = "2.6.0")]
 #[qapi(removed = "6.0.0")]
 pub enum CpuInfoBranch {
@@ -6880,6 +7201,7 @@ pub enum CpuInfoBranch {
     #[qapi(name = "x86")]
     X86(CpuInfoX86),
 }
+
 /// Information about a virtual CPU
 ///
 #[qapi(added = "2.12.0")]
@@ -6913,6 +7235,7 @@ pub struct CpuInfoFast {
     #[qapi(union)]
     pub u: Option<CpuInfoFastBranch>,
 }
+
 #[qapi(added = "2.12.0")]
 pub enum CpuInfoFastBranch {
     #[qapi(name = "mips")]
@@ -6943,6 +7266,7 @@ pub enum CpuInfoFastBranch {
     #[qapi(removed = "3.0.0")]
     X86(CpuInfoOther),
 }
+
 /// Additional information about a virtual MIPS CPU
 ///
 #[qapi(name = "CpuInfoMIPS")]
@@ -6953,11 +7277,13 @@ pub struct CpuInfoMips {
     #[qapi(name = "PC")]
     pub pc: i64,
 }
+
 /// No additional information is available about the virtual CPU
 ///
 #[qapi(added = "2.6.0")]
 #[qapi(removed = "3.0.0")]
 pub struct CpuInfoOther {}
+
 /// Additional information about a virtual PPC CPU
 ///
 #[qapi(name = "CpuInfoPPC")]
@@ -6967,6 +7293,7 @@ pub struct CpuInfoPpc {
     /// the instruction pointer
     pub nip: i64,
 }
+
 /// Additional information about a virtual RISCV CPU
 ///
 #[qapi(name = "CpuInfoRISCV")]
@@ -6976,6 +7303,7 @@ pub struct CpuInfoRiscv {
     /// the instruction pointer
     pub pc: i64,
 }
+
 /// Additional information about a virtual S390 CPU
 ///
 #[qapi(added = "2.12.0")]
@@ -6990,6 +7318,7 @@ pub struct CpuInfoS390 {
     #[qapi(added = "8.2.0")]
     pub entitlement: Option<CpuS390Entitlement>,
 }
+
 /// Additional information about a virtual SPARC CPU
 ///
 #[qapi(name = "CpuInfoSPARC")]
@@ -7001,6 +7330,7 @@ pub struct CpuInfoSparc {
     /// the PC component of the instruction pointer
     pub pc: i64,
 }
+
 /// Additional information about a virtual Tricore CPU
 ///
 #[qapi(added = "2.6.0")]
@@ -7010,6 +7340,7 @@ pub struct CpuInfoTricore {
     #[qapi(name = "PC")]
     pub pc: i64,
 }
+
 /// Additional information about a virtual i386 or x86_64 CPU
 ///
 #[qapi(added = "2.6.0")]
@@ -7018,6 +7349,7 @@ pub struct CpuInfoX86 {
     /// the 64-bit instruction pointer
     pub pc: i64,
 }
+
 /// Properties identifying a CPU.
 ///
 /// Which members are optional and which mandatory depends on the
@@ -7069,6 +7401,7 @@ pub struct CpuInstanceProperties {
     #[qapi(name = "thread-id")]
     pub thread_id: Option<i64>,
 }
+
 /// The result of a CPU model baseline.
 ///
 #[qapi(added = "2.8.0")]
@@ -7076,6 +7409,7 @@ pub struct CpuModelBaselineInfo {
     /// the baselined `CpuModelInfo`.
     pub model: CpuModelInfo,
 }
+
 /// The result of a CPU model comparison.
 ///
 #[qapi(added = "2.8.0")]
@@ -7091,6 +7425,7 @@ pub struct CpuModelCompareInfo {
     /// The result of the compare operation.
     pub result: CpuModelCompareResult,
 }
+
 /// An enumeration of CPU model comparison results.  The result is
 /// usually calculated using e.g. CPU features or CPU generations.
 ///
@@ -7115,6 +7450,7 @@ pub enum CpuModelCompareResult {
     #[qapi(name = "superset")]
     Superset,
 }
+
 /// The result of a cpu model expansion.
 ///
 #[qapi(added = "2.8.0")]
@@ -7132,6 +7468,7 @@ pub struct CpuModelExpansionInfo {
     /// the expanded `CpuModelInfo`.
     pub model: CpuModelInfo,
 }
+
 /// An enumeration of CPU model expansion types.
 ///
 #[qapi(added = "2.8.0")]
@@ -7162,6 +7499,7 @@ pub enum CpuModelExpansionType {
     #[qapi(name = "static")]
     Static,
 }
+
 /// Virtual CPU model.
 ///
 /// A CPU model consists of the name of a CPU definition, to which delta
@@ -7177,6 +7515,7 @@ pub struct CpuModelInfo {
     /// a dictionary of QOM properties to be applied
     pub props: Option<serde_json::Value>,
 }
+
 #[qapi(event)]
 #[qapi(name = "CPU_POLARIZATION_CHANGE")]
 #[qapi(condition = "(TARGET_S390X && CONFIG_KVM)")]
@@ -7185,6 +7524,7 @@ pub struct CpuModelInfo {
 pub struct CpuPolarizationChangeEvent {
     pub polarization: CpuS390Polarization,
 }
+
 /// The result of a CPU polarization query.
 ///
 #[qapi(condition = "(TARGET_S390X && CONFIG_KVM)")]
@@ -7193,6 +7533,7 @@ pub struct CpuPolarizationInfo {
     /// the CPU polarization
     pub polarization: CpuS390Polarization,
 }
+
 /// An enumeration of CPU entitlements that can be assumed by a virtual
 /// S390 CPU
 ///
@@ -7208,6 +7549,7 @@ pub enum CpuS390Entitlement {
     #[qapi(name = "medium")]
     Medium,
 }
+
 /// An enumeration of CPU polarization that can be assumed by a virtual
 /// S390 CPU
 ///
@@ -7220,6 +7562,7 @@ pub enum CpuS390Polarization {
     #[qapi(name = "vertical")]
     Vertical,
 }
+
 /// An enumeration of cpu states that can be assumed by a virtual S390
 /// CPU
 ///
@@ -7237,6 +7580,7 @@ pub enum CpuS390State {
     #[qapi(name = "uninitialized")]
     Uninitialized,
 }
+
 /// An enumeration of CPU topology levels.
 ///
 #[qapi(added = "9.2.0")]
@@ -7282,6 +7626,7 @@ pub enum CpuTopologyLevel {
     #[qapi(name = "thread")]
     Thread,
 }
+
 /// Properties for cryptodev-backend and cryptodev-backend-builtin
 /// objects.
 ///
@@ -7300,6 +7645,7 @@ pub struct CryptodevBackendProperties {
     #[qapi(added = "8.0.0")]
     pub throttle_ops: Option<u64>,
 }
+
 /// Properties for cryptodev-vhost-user objects.
 ///
 #[qapi(added = "6.0.0")]
@@ -7320,6 +7666,7 @@ pub struct CryptodevVhostUserProperties {
     #[qapi(added = "8.0.0")]
     pub throttle_ops: Option<u64>,
 }
+
 /// Information describing the running machine parameters.
 ///
 #[qapi(added = "4.0.0")]
@@ -7329,6 +7676,7 @@ pub struct CurrentMachineParams {
     #[qapi(name = "wakeup-suspend-support")]
     pub wakeup_suspend_support: bool,
 }
+
 #[qapi(command)]
 #[qapi(name = "cxl-add-dynamic-capacity")]
 #[qapi(feature = "unstable")]
@@ -7344,6 +7692,7 @@ pub struct CxlAddDynamicCapacity {
     pub selection_policy: CxlExtentSelectionPolicy,
     pub tag: Option<String>,
 }
+
 /// Type of CXL correctable error to inject
 ///
 #[qapi(added = "8.0.0")]
@@ -7372,6 +7721,7 @@ pub enum CxlCorErrorType {
     #[qapi(name = "retry-threshold")]
     RetryThreshold,
 }
+
 /// A single dynamic capacity extent.  This is a contiguous allocation
 /// of memory by Device Physical Address within a single Dynamic
 /// Capacity Region on a CXL Type 3 Device.
@@ -7384,6 +7734,7 @@ pub struct CxlDynamicCapacityExtent {
     /// extent belongs to.
     pub offset: u64,
 }
+
 /// CXL has a number of separate event logs for different types of
 /// events.  Each such event log is handled and signaled independently.
 ///
@@ -7402,6 +7753,7 @@ pub enum CxlEventLog {
     #[qapi(name = "warning")]
     Warning,
 }
+
 /// The policy to use for selecting which extents comprise the released
 /// capacity, defined in the "Flags" field in Compute Express Link (CXL)
 /// Specification, Revision 3.1, Table 7-71.
@@ -7417,6 +7769,7 @@ pub enum CxlExtentRemovalPolicy {
     #[qapi(name = "tag-based")]
     TagBased,
 }
+
 /// The policy to use for selecting which extents comprise the added
 /// capacity, as defined in Compute Express Link (CXL) Specification,
 /// Revision 3.1, Table 7-70.
@@ -7453,6 +7806,7 @@ pub enum CxlExtentSelectionPolicy {
     #[qapi(name = "prescriptive")]
     Prescriptive,
 }
+
 /// Create a CXL Fixed Memory Window
 ///
 #[qapi(name = "CXLFixedMemoryWindowOptions")]
@@ -7470,6 +7824,7 @@ pub struct CxlFixedMemoryWindowOptions {
     /// root bridge.
     pub targets: Vec<String>,
 }
+
 /// List of CXL Fixed Memory Windows.
 ///
 #[qapi(name = "CXLFMWProperties")]
@@ -7479,6 +7834,7 @@ pub struct CxlfmwProperties {
     #[qapi(name = "cxl-fmw")]
     pub cxl_fmw: Vec<CxlFixedMemoryWindowOptions>,
 }
+
 /// Command to inject a single correctable error.  Multiple error
 /// injection of this error type is not interesting as there is no
 /// associated header log.  These errors are reported via AER as a
@@ -7495,6 +7851,7 @@ pub struct CxlInjectCorrectableError {
     /// Type of error.
     pub r#type: CxlCorErrorType,
 }
+
 /// Inject an event record for a DRAM Event (CXL r3.0 8.2.9.2.1.2).
 /// This event type is reported via one of the event logs specified via
 /// the log parameter.
@@ -7552,6 +7909,7 @@ pub struct CxlInjectDramEvent {
     /// DRAM Event Record, Memory Event Type for possible values.
     pub r#type: u8,
 }
+
 /// Inject an event record for a General Media Event (CXL r3.0
 /// 8.2.9.2.1.1).  This event type is reported via one of the event logs
 /// specified via the log parameter.
@@ -7599,6 +7957,7 @@ pub struct CxlInjectGeneralMediaEvent {
     /// values.
     pub r#type: u8,
 }
+
 #[qapi(command)]
 #[qapi(name = "cxl-inject-memory-module-event")]
 #[qapi(returns = "()")]
@@ -7624,6 +7983,7 @@ pub struct CxlInjectMemoryModuleEvent {
     pub temperature: i16,
     pub r#type: u8,
 }
+
 /// Poison records indicate that a CXL memory device knows that a
 /// particular memory region may be corrupted.  This may be because of
 /// locally detected errors (e.g. ECC failure) or poisoned writes
@@ -7643,6 +8003,7 @@ pub struct CxlInjectPoison {
     /// Start address; must be 64 byte aligned.
     pub start: u64,
 }
+
 /// Command to allow injection of multiple errors in one go.  This
 /// allows testing of multiple header log handling in the OS.
 ///
@@ -7656,6 +8017,7 @@ pub struct CxlInjectUncorrectableErrors {
     /// CXL Type 3 device canonical QOM path
     pub path: String,
 }
+
 #[qapi(command)]
 #[qapi(name = "cxl-release-dynamic-capacity")]
 #[qapi(feature = "unstable")]
@@ -7675,6 +8037,7 @@ pub struct CxlReleaseDynamicCapacity {
     pub sanitize_on_release: Option<bool>,
     pub tag: Option<String>,
 }
+
 /// Record of a single error including header log.
 ///
 #[qapi(name = "CXLUncorErrorRecord")]
@@ -7685,6 +8048,7 @@ pub struct CxlUncorErrorRecord {
     /// Type of error
     pub r#type: CxlUncorErrorType,
 }
+
 /// Type of uncorrectable CXL error to inject.  These errors are
 /// reported via an AER uncorrectable internal error with additional
 /// information logged at the CXL device.
@@ -7744,6 +8108,7 @@ pub enum CxlUncorErrorType {
     #[qapi(name = "rsvd-encoding")]
     RsvdEncoding,
 }
+
 /// An enumeration of data format.
 ///
 #[qapi(added = "1.4.0")]
@@ -7755,6 +8120,7 @@ pub enum DataFormat {
     #[qapi(name = "utf8")]
     Utf8,
 }
+
 /// Properties for dbus-vmstate objects.
 ///
 #[qapi(name = "DBusVMStateProperties")]
@@ -7767,6 +8133,7 @@ pub struct DBusVmStateProperties {
     #[qapi(name = "id-list")]
     pub id_list: Option<String>,
 }
+
 #[qapi(command)]
 #[qapi(name = "device_add")]
 #[qapi(returns = "()")]
@@ -7777,6 +8144,7 @@ pub struct DeviceAdd {
     pub driver: String,
     pub id: String,
 }
+
 #[qapi(command)]
 #[qapi(name = "device_del")]
 #[qapi(returns = "()")]
@@ -7784,6 +8152,7 @@ pub struct DeviceAdd {
 pub struct DeviceDel {
     pub id: String,
 }
+
 /// Emitted whenever the device removal completion is acknowledged by the guest.
 /// At this point, it's safe to reuse the specified device ID. Device removal can
 /// be initiated by the guest or by HMP/QMP commands.
@@ -7797,6 +8166,7 @@ pub struct DeviceDeletedEvent {
     /// device path
     pub path: String,
 }
+
 #[qapi(command)]
 #[qapi(name = "device-list-properties")]
 #[qapi(returns = "Vec<DevicePropertyInfo>")]
@@ -7804,6 +8174,7 @@ pub struct DeviceDeletedEvent {
 pub struct DeviceListProperties {
     pub typename: String,
 }
+
 /// Information about device properties.
 ///
 #[qapi(added = "1.2.0")]
@@ -7818,6 +8189,7 @@ pub struct DevicePropertyInfo {
     /// the typename of the property
     pub r#type: String,
 }
+
 #[qapi(command)]
 #[qapi(name = "device-sync-config")]
 #[qapi(feature = "unstable")]
@@ -7826,6 +8198,7 @@ pub struct DevicePropertyInfo {
 pub struct DeviceSyncConfig {
     pub id: String,
 }
+
 /// Emitted whenever the tray of a removable device is moved by the guest or by
 /// HMP/QMP commands
 ///
@@ -7844,6 +8217,7 @@ pub struct DeviceTrayMovedEvent {
     #[qapi(name = "tray-open")]
     pub tray_open: bool,
 }
+
 #[qapi(event)]
 #[qapi(name = "DEVICE_UNPLUG_GUEST_ERROR")]
 #[qapi(added = "6.2.0")]
@@ -7851,6 +8225,7 @@ pub struct DeviceUnplugGuestErrorEvent {
     pub device: Option<String>,
     pub path: String,
 }
+
 /// An enumeration of possible states that a dirty bitmap can report to the user.
 ///
 #[qapi(added = "2.4.0")]
@@ -7891,6 +8266,7 @@ pub enum DirtyBitmapStatus {
     #[qapi(added = "2.12.0")]
     Locked,
 }
+
 /// Dirty page rate limit information of a virtual CPU.
 ///
 #[qapi(added = "7.1.0")]
@@ -7906,6 +8282,7 @@ pub struct DirtyLimitInfo {
     #[qapi(name = "limit-rate")]
     pub limit_rate: u64,
 }
+
 /// Information about measured dirty page rate.
 ///
 #[qapi(added = "5.2.0")]
@@ -7941,6 +8318,7 @@ pub struct DirtyRateInfo {
     #[qapi(added = "6.2.0")]
     pub vcpu_dirty_rate: Option<Vec<DirtyRateVcpu>>,
 }
+
 /// Method used to measure dirty page rate.  Differences between
 /// available methods are explained in `calc-dirty-rate`.
 ///
@@ -7956,6 +8334,7 @@ pub enum DirtyRateMeasureMode {
     #[qapi(name = "page-sampling")]
     PageSampling,
 }
+
 /// Dirty page rate measurement status.
 ///
 #[qapi(added = "5.2.0")]
@@ -7970,6 +8349,7 @@ pub enum DirtyRateStatus {
     #[qapi(name = "unstarted")]
     Unstarted,
 }
+
 /// Dirty rate of vcpu.
 ///
 #[qapi(added = "6.2.0")]
@@ -7980,6 +8360,7 @@ pub struct DirtyRateVcpu {
     /// vcpu index.
     pub id: i64,
 }
+
 /// Cocoa display options.
 ///
 #[qapi(added = "7.0.0")]
@@ -8012,6 +8393,7 @@ pub struct DisplayCocoa {
     #[qapi(added = "8.2.0")]
     pub zoom_to_fit: Option<bool>,
 }
+
 /// Curses display options.
 ///
 #[qapi(added = "4.0.0")]
@@ -8019,6 +8401,7 @@ pub struct DisplayCurses {
     /// Font charset used by guest (default: CP437).
     pub charset: Option<String>,
 }
+
 /// DBus display options.
 ///
 #[qapi(added = "7.0.0")]
@@ -8034,6 +8417,7 @@ pub struct DisplayDBus {
     /// first available node on the host.
     pub rendernode: Option<String>,
 }
+
 /// EGL headless display options.
 ///
 #[qapi(name = "DisplayEGLHeadless")]
@@ -8043,6 +8427,7 @@ pub struct DisplayEglHeadless {
     /// first available node on the host.
     pub rendernode: Option<String>,
 }
+
 /// Display OpenGL mode.
 ///
 #[qapi(name = "DisplayGLMode")]
@@ -8063,6 +8448,7 @@ pub enum DisplayGlMode {
     #[qapi(name = "on")]
     On,
 }
+
 /// GTK display options.
 ///
 #[qapi(name = "DisplayGTK")]
@@ -8101,11 +8487,13 @@ pub struct DisplayGtk {
     #[qapi(added = "3.1.0")]
     pub zoom_to_fit: Option<bool>,
 }
+
 /// Empty struct for displays without config options.
 ///
 #[qapi(added = "2.12.0")]
 #[qapi(removed = "3.0.0")]
 pub struct DisplayNoOpts {}
+
 /// Display (user interface) options.
 ///
 #[qapi(added = "2.12.0")]
@@ -8131,6 +8519,7 @@ pub struct DisplayOptions {
     #[qapi(name = "window-close")]
     pub window_close: Option<bool>,
 }
+
 #[qapi(added = "2.12.0")]
 pub enum DisplayOptionsBranch {
     #[qapi(name = "cocoa")]
@@ -8154,6 +8543,7 @@ pub enum DisplayOptionsBranch {
     #[qapi(name = "sdl")]
     Sdl(DisplayNoOpts),
 }
+
 /// Display protocols which support changing password options.
 ///
 #[qapi(added = "7.0.0")]
@@ -8163,6 +8553,7 @@ pub enum DisplayProtocol {
     #[qapi(name = "vnc")]
     Vnc,
 }
+
 /// Options of the display configuration reload.
 ///
 #[qapi(command)]
@@ -8175,11 +8566,13 @@ pub struct DisplayReloadOptions {
     #[qapi(union)]
     pub u: Option<DisplayReloadOptionsBranch>,
 }
+
 #[qapi(added = "6.0.0")]
 pub enum DisplayReloadOptionsBranch {
     #[qapi(name = "vnc")]
     Vnc(DisplayReloadOptionsVnc),
 }
+
 /// Specify the VNC reload options.
 ///
 #[qapi(name = "DisplayReloadOptionsVNC")]
@@ -8189,6 +8582,7 @@ pub struct DisplayReloadOptionsVnc {
     #[qapi(name = "tls-certs")]
     pub tls_certs: Option<bool>,
 }
+
 /// Available DisplayReload types.
 ///
 #[qapi(added = "6.0.0")]
@@ -8197,6 +8591,7 @@ pub enum DisplayReloadType {
     #[qapi(name = "vnc")]
     Vnc,
 }
+
 /// SDL2 display options.
 ///
 #[qapi(name = "DisplaySDL")]
@@ -8207,6 +8602,7 @@ pub struct DisplaySdl {
     #[qapi(name = "grab-mod")]
     pub grab_mod: Option<HotKeyMod>,
 }
+
 /// Display (user interface) type.
 ///
 #[qapi(added = "2.12.0")]
@@ -8254,6 +8650,7 @@ pub enum DisplayType {
     #[qapi(added = "4.0.0")]
     SpiceApp,
 }
+
 /// Options of the display configuration reload.
 ///
 #[qapi(command)]
@@ -8266,11 +8663,13 @@ pub struct DisplayUpdateOptions {
     #[qapi(union)]
     pub u: Option<DisplayUpdateOptionsBranch>,
 }
+
 #[qapi(added = "7.1.0")]
 pub enum DisplayUpdateOptionsBranch {
     #[qapi(name = "vnc")]
     Vnc(DisplayUpdateOptionsVnc),
 }
+
 /// Specify the VNC reload options.
 ///
 #[qapi(name = "DisplayUpdateOptionsVNC")]
@@ -8281,6 +8680,7 @@ pub struct DisplayUpdateOptionsVnc {
     /// touched.
     pub addresses: Option<Vec<SocketAddress>>,
 }
+
 /// Available DisplayUpdate types.
 ///
 #[qapi(added = "7.1.0")]
@@ -8289,6 +8689,7 @@ pub enum DisplayUpdateType {
     #[qapi(name = "vnc")]
     Vnc,
 }
+
 #[qapi(command)]
 #[qapi(returns = "()")]
 #[qapi(added = "1.6.0")]
@@ -8338,10 +8739,12 @@ pub struct DriveBackup {
     #[qapi(added = "6.0.0")]
     pub x_perf: Option<BackupPerf>,
 }
+
 #[qapi(added = "6.2.0")]
 pub struct DriveBackupWrapper {
     pub data: DriveBackup,
 }
+
 /// A set of parameters describing drive mirror setup.
 ///
 #[qapi(command)]
@@ -8425,6 +8828,7 @@ pub struct DriveMirror {
     /// Default is true.  (Since 2.4)
     pub unmap: Option<bool>,
 }
+
 /// Not used by QMP; hack to let us use BlockGraphInfoList internally
 ///
 #[qapi(added = "8.0.0")]
@@ -8432,6 +8836,7 @@ pub struct DummyBlockCoreForceArrays {
     #[qapi(name = "unused-block-graph-info")]
     pub unused_block_graph_info: Vec<BlockGraphInfo>,
 }
+
 /// Not used by QMP; hack to let us use X86CPUFeatureWordInfoList
 /// internally
 ///
@@ -8439,6 +8844,7 @@ pub struct DummyBlockCoreForceArrays {
 pub struct DummyForceArrays {
     pub unused: Vec<X86cpuFeatureWordInfo>,
 }
+
 /// Not used by QMP; hack to let us use IOThreadVirtQueueMappingList and
 /// VirtIOGPUOutputList internally
 ///
@@ -8450,6 +8856,7 @@ pub struct DummyVirtioForceArrays {
     #[qapi(added = "10.1.0")]
     pub unused_virtio_gpu_output: Option<Vec<VirtIogpuOutput>>,
 }
+
 /// Emitted when background dump has completed
 ///
 #[qapi(event)]
@@ -8463,6 +8870,7 @@ pub struct DumpCompletedEvent {
     /// DumpQueryResult type described in qapi-schema.json.
     pub result: DumpQueryResult,
 }
+
 #[qapi(command)]
 #[qapi(name = "dumpdtb")]
 #[qapi(condition = "CONFIG_FDT")]
@@ -8471,6 +8879,7 @@ pub struct DumpCompletedEvent {
 pub struct Dumpdtb {
     pub filename: String,
 }
+
 #[qapi(command)]
 #[qapi(name = "dump-guest-memory")]
 #[qapi(returns = "()")]
@@ -8485,6 +8894,7 @@ pub struct DumpGuestMemory {
     pub paging: bool,
     pub protocol: String,
 }
+
 /// A list of the available formats for dump-guest-memory
 ///
 #[qapi(added = "2.0.0")]
@@ -8492,6 +8902,7 @@ pub struct DumpGuestMemoryCapability {
     /// the available formats for `dump-guest-memory`
     pub formats: Vec<DumpGuestMemoryFormat>,
 }
+
 /// An enumeration of guest-memory-dump's format.
 ///
 #[qapi(added = "2.0.0")]
@@ -8532,6 +8943,7 @@ pub enum DumpGuestMemoryFormat {
     #[qapi(added = "3.0.0")]
     WinDmp,
 }
+
 /// The result format for `query-dump`.
 ///
 #[qapi(added = "2.6.0")]
@@ -8543,6 +8955,7 @@ pub struct DumpQueryResult {
     /// total bytes to be written in latest dump (uncompressed)
     pub total: i64,
 }
+
 /// Dump guest's storage keys
 ///
 #[qapi(command)]
@@ -8555,6 +8968,7 @@ pub struct DumpSkeys {
     /// This command is only supported on s390 architecture.
     pub filename: String,
 }
+
 /// Describe the status of a long-running background guest memory dump.
 ///
 #[qapi(added = "2.6.0")]
@@ -8572,6 +8986,7 @@ pub enum DumpStatus {
     #[qapi(name = "none")]
     None,
 }
+
 /// An eBPF ELF object.
 ///
 #[qapi(condition = "CONFIG_EBPF")]
@@ -8580,6 +8995,7 @@ pub struct EbpfObject {
     /// the eBPF object encoded in base64
     pub object: String,
 }
+
 /// The eBPF programs that can be gotten with `request-ebpf`.
 ///
 #[qapi(name = "EbpfProgramID")]
@@ -8593,6 +9009,7 @@ pub enum EbpfProgramId {
     #[qapi(name = "rss")]
     Rss,
 }
+
 #[qapi(command)]
 #[qapi(name = "eject")]
 #[qapi(returns = "()")]
@@ -8604,6 +9021,7 @@ pub struct Eject {
     #[qapi(added = "2.8.0")]
     pub id: Option<String>,
 }
+
 #[qapi(added = "10.0.0")]
 pub enum EndianMode {
     /// Big endianness
@@ -8616,6 +9034,7 @@ pub enum EndianMode {
     #[qapi(name = "unspecified")]
     Unspecified,
 }
+
 /// QEMU error classes
 ///
 #[qapi(added = "1.2.0")]
@@ -8642,6 +9061,7 @@ pub enum ErrorClass {
     #[qapi(removed = "1.3.0")]
     MigrationExpected,
 }
+
 /// Information about a QMP event
 ///
 #[qapi(added = "1.2.0")]
@@ -8650,6 +9070,7 @@ pub struct EventInfo {
     /// The event name
     pub name: String,
 }
+
 /// Common properties for event loops
 ///
 #[qapi(added = "7.1.0")]
@@ -8668,6 +9089,7 @@ pub struct EventLoopBaseProperties {
     #[qapi(name = "thread-pool-min")]
     pub thread_pool_min: Option<i64>,
 }
+
 /// Information about a Xen event channel port
 ///
 #[qapi(condition = "TARGET_I386")]
@@ -8689,6 +9111,7 @@ pub struct EvtchnInfo {
     /// target vCPU for this port
     pub vcpu: u32,
 }
+
 /// An enumeration of Xen event channel port types.
 ///
 #[qapi(condition = "TARGET_I386")]
@@ -8713,6 +9136,7 @@ pub enum EvtchnPortType {
     #[qapi(name = "virq")]
     Virq,
 }
+
 #[qapi(command)]
 #[qapi(name = "expire_password")]
 #[qapi(returns = "()")]
@@ -8722,6 +9146,7 @@ pub struct ExpirePassword {
     pub protocol: String,
     pub time: String,
 }
+
 /// General options for `expire_password`.
 ///
 #[qapi(command)]
@@ -8748,11 +9173,13 @@ pub struct ExpirePasswordOptions {
     #[qapi(union)]
     pub u: Option<ExpirePasswordOptionsBranch>,
 }
+
 #[qapi(added = "7.0.0")]
 pub enum ExpirePasswordOptionsBranch {
     #[qapi(name = "vnc")]
     Vnc(ExpirePasswordOptionsVnc),
 }
+
 /// Options for `expire_password` specific to the VNC protocol.
 ///
 #[qapi(added = "7.0.0")]
@@ -8761,6 +9188,7 @@ pub struct ExpirePasswordOptionsVnc {
     /// changed.  Defaults to the first.
     pub display: Option<String>,
 }
+
 #[qapi(event)]
 #[qapi(name = "FAILOVER_NEGOTIATED")]
 #[qapi(added = "4.2.0")]
@@ -8768,6 +9196,7 @@ pub struct FailoverNegotiatedEvent {
     #[qapi(name = "device-id")]
     pub device_id: String,
 }
+
 /// An enumeration of COLO failover status
 ///
 #[qapi(added = "2.8.0")]
@@ -8790,6 +9219,7 @@ pub enum FailoverStatus {
     #[qapi(name = "require")]
     Require,
 }
+
 /// Information about a file descriptor that belongs to an fd set.
 ///
 #[qapi(added = "1.2.0")]
@@ -8799,6 +9229,7 @@ pub struct FdsetFdInfo {
     /// A free-form string that can be used to describe the fd.
     pub opaque: Option<String>,
 }
+
 /// Information about an fd set.
 ///
 #[qapi(added = "1.2.0")]
@@ -8809,6 +9240,7 @@ pub struct FdsetInfo {
     #[qapi(name = "fdset-id")]
     pub fdset_id: i64,
 }
+
 /// A file descriptor name or number.
 ///
 #[qapi(added = "9.0.0")]
@@ -8820,11 +9252,13 @@ pub struct FdSocketAddress {
     /// contexts where no monitor context is active.
     pub str: String,
 }
+
 #[qapi(added = "9.0.0")]
 pub struct FdSocketAddressWrapper {
     /// file descriptor name or number
     pub data: FdSocketAddress,
 }
+
 #[qapi(added = "8.2.0")]
 pub struct FileMigrationArgs {
     /// The file to receive the migration stream
@@ -8832,6 +9266,7 @@ pub struct FileMigrationArgs {
     /// The file offset where the migration stream will start
     pub offset: u64,
 }
+
 /// Properties for filter-buffer objects.
 ///
 #[qapi(added = "6.0.0")]
@@ -8860,6 +9295,7 @@ pub struct FilterBufferProperties {
     /// ("off") (default: "on")
     pub status: Option<String>,
 }
+
 /// Properties for filter-dump objects.
 ///
 #[qapi(added = "6.0.0")]
@@ -8889,6 +9325,7 @@ pub struct FilterDumpProperties {
     /// ("off") (default: "on")
     pub status: Option<String>,
 }
+
 /// Properties for filter-mirror objects.
 ///
 #[qapi(added = "6.0.0")]
@@ -8919,6 +9356,7 @@ pub struct FilterMirrorProperties {
     /// (default: false)
     pub vnet_hdr_support: Option<bool>,
 }
+
 /// Properties for filter-redirector objects.
 ///
 /// At least one of @indev or @outdev must be present.  If both are
@@ -8955,6 +9393,7 @@ pub struct FilterRedirectorProperties {
     /// (default: false)
     pub vnet_hdr_support: Option<bool>,
 }
+
 /// Properties for filter-rewriter objects.
 ///
 #[qapi(added = "6.0.0")]
@@ -8982,6 +9421,7 @@ pub struct FilterRewriterProperties {
     /// (default: false)
     pub vnet_hdr_support: Option<bool>,
 }
+
 #[qapi(added = "10.2.0")]
 pub struct FirmwareLog {
     /// Firmware debug log, in base64 encoding.  First and last log
@@ -8990,6 +9430,7 @@ pub struct FirmwareLog {
     /// Firmware version.
     pub version: Option<String>,
 }
+
 /// Type of floppy drive to be emulated by the Floppy Disk Controller.
 ///
 #[qapi(added = "2.6.0")]
@@ -9010,6 +9451,7 @@ pub enum FloppyDriveType {
     #[qapi(name = "none")]
     None,
 }
+
 /// Possible allow_other modes for FUSE exports.
 ///
 #[qapi(added = "6.1.0")]
@@ -9025,6 +9467,7 @@ pub enum FuseExportAllowOther {
     #[qapi(name = "on")]
     On,
 }
+
 #[qapi(command)]
 #[qapi(name = "getfd")]
 #[qapi(returns = "()")]
@@ -9032,6 +9475,7 @@ pub enum FuseExportAllowOther {
 pub struct Getfd {
     pub fdname: String,
 }
+
 #[qapi(command)]
 #[qapi(name = "get-win32-socket")]
 #[qapi(condition = "CONFIG_WIN32")]
@@ -9041,6 +9485,7 @@ pub struct GetWin32Socket {
     pub fdname: String,
     pub info: String,
 }
+
 /// The struct describes capability for a specific GIC (Generic
 /// Interrupt Controller) version.  These bits are not only decided by
 /// QEMU/KVM software version, but also decided by the hardware that the
@@ -9059,6 +9504,7 @@ pub struct GicCapability {
     /// are supported.
     pub version: i64,
 }
+
 /// Captures the address of a socket
 ///
 /// Details for connecting to a gluster server
@@ -9084,6 +9530,7 @@ pub struct GlusterServer {
     #[qapi(union)]
     pub u: Option<GlusterServerBranch>,
 }
+
 #[qapi(added = "2.7.0")]
 #[qapi(removed = "2.9.0")]
 pub enum GlusterServerBranch {
@@ -9092,6 +9539,7 @@ pub enum GlusterServerBranch {
     #[qapi(name = "unix")]
     Unix(UnixSocketAddress),
 }
+
 /// An enumeration of Gluster transport types
 ///
 #[qapi(added = "2.7.0")]
@@ -9104,6 +9552,7 @@ pub enum GlusterTransport {
     #[qapi(name = "unix")]
     Unix,
 }
+
 /// Key combinations to toggle input-linux between host and guest.
 ///
 #[qapi(added = "4.0.0")]
@@ -9128,6 +9577,7 @@ pub enum GrabToggleKeys {
     #[qapi(added = "4.2.0")]
     ShiftShift,
 }
+
 #[qapi(added = "9.0.0")]
 pub enum GranuleMode {
     /// granule page size of 16KiB
@@ -9146,6 +9596,7 @@ pub enum GranuleMode {
     #[qapi(name = "host")]
     Host,
 }
+
 #[qapi(event)]
 #[qapi(name = "GUEST_CRASHLOADED")]
 #[qapi(added = "5.0.0")]
@@ -9153,6 +9604,7 @@ pub struct GuestCrashloadedEvent {
     pub action: GuestPanicAction,
     pub info: Option<GuestPanicInformation>,
 }
+
 /// An enumeration of the actions taken when guest OS panic is detected
 ///
 #[qapi(added = "2.1.0")]
@@ -9169,6 +9621,7 @@ pub enum GuestPanicAction {
     #[qapi(added = "5.0.0")]
     Run,
 }
+
 /// Information about a guest panic
 ///
 #[qapi(added = "2.9.0")]
@@ -9179,6 +9632,7 @@ pub struct GuestPanicInformation {
     #[qapi(union)]
     pub u: Option<GuestPanicInformationBranch>,
 }
+
 #[qapi(added = "2.9.0")]
 pub enum GuestPanicInformationBranch {
     #[qapi(name = "hyper-v")]
@@ -9190,6 +9644,7 @@ pub enum GuestPanicInformationBranch {
     #[qapi(added = "10.1.0")]
     Tdx(GuestPanicInformationTdx),
 }
+
 /// Hyper-V specific guest panic information (HV crash MSRs)
 ///
 #[qapi(added = "2.9.0")]
@@ -9211,6 +9666,7 @@ pub struct GuestPanicInformationHyperV {
     /// the stack pointer of the guest.
     pub arg5: u64,
 }
+
 /// S390 specific guest panic information (PSW)
 ///
 #[qapi(added = "2.12.0")]
@@ -9226,6 +9682,7 @@ pub struct GuestPanicInformationS390 {
     /// guest crash reason
     pub reason: S390CrashReason,
 }
+
 /// TDX Guest panic information specific to TDX, as specified in the
 /// "Guest-Hypervisor Communication Interface (GHCI) Specification",
 /// section TDG.VP.VMCALL<ReportFatalError>.
@@ -9243,6 +9700,7 @@ pub struct GuestPanicInformationTdx {
     /// to be trusted.
     pub message: String,
 }
+
 /// An enumeration of the guest panic information types
 ///
 #[qapi(added = "2.9.0")]
@@ -9259,6 +9717,7 @@ pub enum GuestPanicInformationType {
     #[qapi(added = "10.1.0")]
     Tdx,
 }
+
 /// Emitted when guest OS panic is detected
 ///
 #[qapi(event)]
@@ -9270,10 +9729,12 @@ pub struct GuestPanickedEvent {
     #[qapi(added = "2.9.0")]
     pub info: Option<GuestPanicInformation>,
 }
+
 #[qapi(event)]
 #[qapi(name = "GUEST_PVSHUTDOWN")]
 #[qapi(added = "9.1.0")]
 pub struct GuestPvshutdownEvent {}
+
 /// GUID information.
 ///
 #[qapi(added = "2.9.0")]
@@ -9281,6 +9742,7 @@ pub struct GuidInfo {
     /// the globally unique identifier
     pub guid: String,
 }
+
 /// Cache associativity in the Memory Side Cache Information Structure
 /// of HMAT
 ///
@@ -9300,6 +9762,7 @@ pub enum HmatCacheAssociativity {
     #[qapi(name = "none")]
     None,
 }
+
 /// Cache write policy in the Memory Side Cache Information Structure of
 /// HMAT
 ///
@@ -9319,6 +9782,7 @@ pub enum HmatCacheWritePolicy {
     #[qapi(name = "write-through")]
     WriteThrough,
 }
+
 /// Data type in the System Locality Latency and Bandwidth Information
 /// Structure of HMAT (Heterogeneous Memory Attribute Table)
 ///
@@ -9347,6 +9811,7 @@ pub enum HmatLbDataType {
     #[qapi(name = "write-latency")]
     WriteLatency,
 }
+
 /// The memory hierarchy in the System Locality Latency and Bandwidth
 /// Information Structure of HMAT (Heterogeneous Memory Attribute Table)
 ///
@@ -9369,6 +9834,7 @@ pub enum HmatLbMemoryHierarchy {
     #[qapi(name = "third-level")]
     ThirdLevel,
 }
+
 /// Host memory policy types
 ///
 #[qapi(added = "2.1.0")]
@@ -9388,6 +9854,7 @@ pub enum HostMemPolicy {
     #[qapi(name = "preferred")]
     Preferred,
 }
+
 /// Set of modifier keys that need to be held for shortcut key actions.
 ///
 #[qapi(added = "7.1.0")]
@@ -9399,6 +9866,7 @@ pub enum HotKeyMod {
     #[qapi(name = "rctrl")]
     Rctrl,
 }
+
 #[qapi(name = "HotpluggableCPU")]
 #[qapi(added = "2.7.0")]
 pub struct HotpluggableCpu {
@@ -9419,6 +9887,7 @@ pub struct HotpluggableCpu {
     #[qapi(name = "vcpus-count")]
     pub vcpus_count: i64,
 }
+
 #[qapi(command)]
 #[qapi(name = "human-monitor-command")]
 #[qapi(returns = "String")]
@@ -9429,12 +9898,14 @@ pub struct HumanMonitorCommand {
     #[qapi(name = "cpu-index")]
     pub cpu_index: Option<i64>,
 }
+
 #[qapi(added = "6.2.0")]
 pub struct HumanReadableText {
     /// Formatted output intended for humans.
     #[qapi(name = "human-readable-text")]
     pub human_readable_text: String,
 }
+
 /// hv-balloon provided memory state information
 ///
 #[qapi(added = "8.2.0")]
@@ -9449,11 +9920,13 @@ pub struct HvBalloonDeviceInfo {
     /// memory backend linked with device
     pub memdev: Option<String>,
 }
+
 #[qapi(added = "8.2.0")]
 pub struct HvBalloonDeviceInfoWrapper {
     /// hv-balloon provided memory state information
     pub data: HvBalloonDeviceInfo,
 }
+
 /// hv-balloon guest-provided memory status information.
 ///
 #[qapi(added = "8.2.0")]
@@ -9466,6 +9939,7 @@ pub struct HvBalloonInfo {
     /// offline, etc.)
     pub committed: u64,
 }
+
 #[qapi(event)]
 #[qapi(name = "HV_BALLOON_STATUS_REPORT")]
 #[qapi(added = "8.2.0")]
@@ -9478,6 +9952,7 @@ pub struct HvBalloonStatusReportEvent {
     /// offline, etc.)
     pub committed: u64,
 }
+
 /// Properties common to objects that handle IGVM files.
 ///
 #[qapi(condition = "CONFIG_IGVM")]
@@ -9486,6 +9961,7 @@ pub struct IgvmCfgProperties {
     /// IGVM file to use to configure guest
     pub file: String,
 }
+
 /// Information about a QEMU image file check
 ///
 #[qapi(added = "1.5.0")]
@@ -9529,6 +10005,7 @@ pub struct ImageCheck {
     #[qapi(name = "total-clusters")]
     pub total_clusters: Option<i64>,
 }
+
 /// Supported image format types.
 ///
 #[qapi(added = "7.1.0")]
@@ -9540,6 +10017,7 @@ pub enum ImageFormat {
     #[qapi(name = "ppm")]
     Ppm,
 }
+
 /// Information about a QEMU image file, and potentially its backing
 /// image
 ///
@@ -9590,6 +10068,7 @@ pub struct ImageInfo {
     #[qapi(name = "virtual-size")]
     pub virtual_size: i64,
 }
+
 /// A discriminated record of image format specific information
 /// structures.
 ///
@@ -9606,6 +10085,7 @@ pub struct ImageInfoSpecific {
     #[qapi(union)]
     pub u: Option<Box<ImageInfoSpecificBranch>>,
 }
+
 #[qapi(added = "1.7.0")]
 pub enum ImageInfoSpecificBranch {
     #[qapi(name = "file")]
@@ -9622,17 +10102,20 @@ pub enum ImageInfoSpecificBranch {
     #[qapi(name = "vmdk")]
     Vmdk(ImageInfoSpecificVmdk),
 }
+
 #[qapi(added = "8.0.0")]
 pub struct ImageInfoSpecificFile {
     /// Extent size hint (if available)
     #[qapi(name = "extent-size-hint")]
     pub extent_size_hint: Option<u64>,
 }
+
 #[qapi(added = "8.0.0")]
 pub struct ImageInfoSpecificFileWrapper {
     /// image information specific to files
     pub data: ImageInfoSpecificFile,
 }
+
 #[qapi(added = "6.2.0")]
 pub enum ImageInfoSpecificKind {
     /// Since 8.0
@@ -9650,12 +10133,14 @@ pub enum ImageInfoSpecificKind {
     #[qapi(name = "vmdk")]
     Vmdk,
 }
+
 #[qapi(name = "ImageInfoSpecificLUKSWrapper")]
 #[qapi(added = "6.2.0")]
 pub struct ImageInfoSpecificLuksWrapper {
     /// image information specific to LUKS
     pub data: QCryptoBlockInfoLuks,
 }
+
 #[qapi(added = "1.7.0")]
 pub struct ImageInfoSpecificQCow2 {
     /// A list of qcow2 bitmap details (since 4.0)
@@ -9700,6 +10185,7 @@ pub struct ImageInfoSpecificQCow2 {
     #[qapi(added = "2.3.0")]
     pub refcount_bits: Option<i64>,
 }
+
 #[qapi(added = "2.10.0")]
 pub struct ImageInfoSpecificQCow2Encryption {
     /// The encryption format
@@ -9708,11 +10194,13 @@ pub struct ImageInfoSpecificQCow2Encryption {
     #[qapi(union)]
     pub u: Option<ImageInfoSpecificQCow2EncryptionBranch>,
 }
+
 #[qapi(added = "2.10.0")]
 pub struct ImageInfoSpecificQCow2EncryptionBase {
     /// The encryption format
     pub format: BlockdevQcow2EncryptionFormat,
 }
+
 #[qapi(added = "2.10.0")]
 pub enum ImageInfoSpecificQCow2EncryptionBranch {
     #[qapi(name = "aes")]
@@ -9721,11 +10209,13 @@ pub enum ImageInfoSpecificQCow2EncryptionBranch {
     #[qapi(name = "luks")]
     Luks(QCryptoBlockInfoLuks),
 }
+
 #[qapi(added = "6.2.0")]
 pub struct ImageInfoSpecificQCow2Wrapper {
     /// image information specific to QCOW2
     pub data: ImageInfoSpecificQCow2,
 }
+
 #[qapi(added = "6.1.0")]
 pub struct ImageInfoSpecificRbd {
     /// Image encryption format.  If encryption is
@@ -9740,11 +10230,13 @@ pub struct ImageInfoSpecificRbd {
     #[qapi(name = "encryption-format")]
     pub encryption_format: Option<RbdImageEncryptionFormat>,
 }
+
 #[qapi(added = "6.2.0")]
 pub struct ImageInfoSpecificRbdWrapper {
     /// image information specific to RBD
     pub data: ImageInfoSpecificRbd,
 }
+
 #[qapi(added = "1.7.0")]
 #[qapi(removed = "6.2.0")]
 pub enum ImageInfoSpecificType {
@@ -9759,6 +10251,7 @@ pub enum ImageInfoSpecificType {
     #[qapi(name = "vmdk")]
     Vmdk,
 }
+
 #[qapi(added = "1.7.0")]
 pub struct ImageInfoSpecificVmdk {
     /// Content id of image
@@ -9772,11 +10265,13 @@ pub struct ImageInfoSpecificVmdk {
     #[qapi(name = "parent-cid")]
     pub parent_cid: i64,
 }
+
 #[qapi(added = "6.2.0")]
 pub struct ImageInfoSpecificVmdkWrapper {
     /// image information specific to VMDK
     pub data: ImageInfoSpecificVmdk,
 }
+
 /// Captures a socket address or address range in the Internet
 /// namespace.
 ///
@@ -9837,16 +10332,19 @@ pub struct InetSocketAddress {
     /// between @port and @to.
     pub to: Option<u16>,
 }
+
 #[qapi(added = "2.9.0")]
 pub struct InetSocketAddressBase {
     pub host: String,
     pub port: String,
 }
+
 #[qapi(added = "6.2.0")]
 pub struct InetSocketAddressWrapper {
     /// internet domain socket address
     pub data: InetSocketAddress,
 }
+
 #[qapi(command)]
 #[qapi(name = "inject-ghes-v2-error")]
 #[qapi(feature = "unstable")]
@@ -9855,11 +10353,13 @@ pub struct InetSocketAddressWrapper {
 pub struct InjectGhesV2Error {
     pub cper: String,
 }
+
 #[qapi(command)]
 #[qapi(name = "inject-nmi")]
 #[qapi(returns = "()")]
 #[qapi(added = "1.1.0")]
 pub struct InjectNmi {}
+
 /// Position axis of a pointer input device (mouse, tablet).
 ///
 #[qapi(added = "2.0.0")]
@@ -9869,6 +10369,7 @@ pub enum InputAxis {
     #[qapi(name = "y")]
     Y,
 }
+
 /// Properties for input-barrier objects.
 ///
 #[qapi(added = "6.0.0")]
@@ -9893,6 +10394,7 @@ pub struct InputBarrierProperties {
     #[qapi(name = "y-origin")]
     pub y_origin: Option<String>,
 }
+
 /// Pointer button input event.
 ///
 #[qapi(added = "2.0.0")]
@@ -9902,11 +10404,13 @@ pub struct InputBtnEvent {
     /// True for key-down and false for key-up events.
     pub down: bool,
 }
+
 #[qapi(added = "6.2.0")]
 pub struct InputBtnEventWrapper {
     /// Pointer button input event
     pub data: InputBtnEvent,
 }
+
 /// Button of a pointer input device (mouse, tablet).
 ///
 #[qapi(added = "2.0.0")]
@@ -9940,6 +10444,7 @@ pub enum InputButton {
     #[qapi(name = "wheel-up")]
     WheelUp,
 }
+
 /// Input event union.
 ///
 #[qapi(added = "2.0.0")]
@@ -9955,6 +10460,7 @@ pub struct InputEvent {
     #[qapi(union)]
     pub u: Option<InputEventBranch>,
 }
+
 #[qapi(added = "2.0.0")]
 pub enum InputEventBranch {
     #[qapi(name = "abs")]
@@ -9969,6 +10475,7 @@ pub enum InputEventBranch {
     #[qapi(name = "rel")]
     Rel(InputMoveEvent),
 }
+
 #[qapi(added = "6.2.0")]
 pub enum InputEventKind {
     /// an absolute pointer motion input event
@@ -9988,6 +10495,7 @@ pub enum InputEventKind {
     #[qapi(name = "rel")]
     Rel,
 }
+
 #[qapi(added = "2.0.0")]
 #[qapi(removed = "6.2.0")]
 pub enum InputEventType {
@@ -10000,6 +10508,7 @@ pub enum InputEventType {
     #[qapi(name = "rel")]
     Rel,
 }
+
 /// Keyboard input event.
 ///
 #[qapi(added = "2.0.0")]
@@ -10009,11 +10518,13 @@ pub struct InputKeyEvent {
     /// Which key this event is for.
     pub key: KeyValue,
 }
+
 #[qapi(added = "6.2.0")]
 pub struct InputKeyEventWrapper {
     /// Keyboard input event
     pub data: InputKeyEvent,
 }
+
 /// Properties for input-linux objects.
 ///
 #[qapi(added = "6.0.0")]
@@ -10030,6 +10541,7 @@ pub struct InputLinuxProperties {
     /// enables auto-repeat events (default: false)
     pub repeat: Option<bool>,
 }
+
 /// Pointer motion input event.
 ///
 #[qapi(added = "2.0.0")]
@@ -10040,11 +10552,13 @@ pub struct InputMoveEvent {
     /// is 0 to 0x7fff.
     pub value: i64,
 }
+
 #[qapi(added = "6.2.0")]
 pub struct InputMoveEventWrapper {
     /// Pointer motion input event
     pub data: InputMoveEvent,
 }
+
 /// MultiTouch input event.
 ///
 #[qapi(added = "8.1.0")]
@@ -10062,11 +10576,13 @@ pub struct InputMultiTouchEvent {
     /// Contact position.
     pub value: i64,
 }
+
 #[qapi(added = "8.1.0")]
 pub struct InputMultiTouchEventWrapper {
     /// MultiTouch input event
     pub data: InputMultiTouchEvent,
 }
+
 /// Type of a multi-touch event.
 ///
 #[qapi(added = "8.1.0")]
@@ -10087,6 +10603,7 @@ pub enum InputMultiTouchType {
     #[qapi(name = "update")]
     Update,
 }
+
 #[qapi(command)]
 #[qapi(name = "input-send-event")]
 #[qapi(returns = "()")]
@@ -10096,11 +10613,13 @@ pub struct InputSendEvent {
     pub events: Vec<InputEvent>,
     pub head: Option<i64>,
 }
+
 #[qapi(added = "6.2.0")]
 pub struct IntWrapper {
     /// a numeric key code
     pub data: i64,
 }
+
 /// Properties for iommufd objects.
 ///
 #[qapi(name = "IOMMUFDProperties")]
@@ -10113,6 +10632,7 @@ pub struct IommufdProperties {
     /// process, e.g. DPDK.  (default: QEMU opens /dev/iommu by itself)
     pub fd: Option<String>,
 }
+
 /// An enumeration of the I/O operation types
 ///
 #[qapi(added = "2.1.0")]
@@ -10124,6 +10644,7 @@ pub enum IoOperationType {
     #[qapi(name = "write")]
     Write,
 }
+
 /// Information about an iothread
 ///
 #[qapi(name = "IOThreadInfo")]
@@ -10155,6 +10676,7 @@ pub struct IoThreadInfo {
     #[qapi(name = "thread-id")]
     pub thread_id: i64,
 }
+
 /// Properties for iothread objects.
 ///
 #[qapi(added = "6.0.0")]
@@ -10193,6 +10715,7 @@ pub struct IothreadProperties {
     #[qapi(added = "7.1.0")]
     pub thread_pool_min: Option<i64>,
 }
+
 /// Describes the subset of virtqueues assigned to an IOThread.
 ///
 #[qapi(name = "IOThreadVirtQueueMapping")]
@@ -10207,6 +10730,7 @@ pub struct IoThreadVirtQueueMapping {
     /// have it.
     pub vqs: Option<Vec<u16>>,
 }
+
 /// An enumeration of header digests supported by libiscsi
 ///
 #[qapi(added = "2.9.0")]
@@ -10220,6 +10744,7 @@ pub enum IscsiHeaderDigest {
     #[qapi(name = "none-crc32c")]
     NoneCrc32c,
 }
+
 /// An enumeration of libiscsi transport types
 ///
 #[qapi(added = "2.9.0")]
@@ -10229,6 +10754,7 @@ pub enum IscsiTransport {
     #[qapi(name = "tcp")]
     Tcp,
 }
+
 /// Instruct an active background job to cancel at the next opportunity.
 /// This command returns immediately after marking the active job for
 /// cancellation.
@@ -10247,6 +10773,7 @@ pub struct JobCancel {
     /// The job identifier.
     pub id: String,
 }
+
 /// Manually trigger completion of an active job in the READY or STANDBY
 /// state.  Completing the job in any other state is an error.
 ///
@@ -10273,6 +10800,7 @@ pub struct JobComplete {
     /// The job identifier.
     pub id: String,
 }
+
 /// Deletes a job that is in the CONCLUDED state.  This command only
 /// needs to be run explicitly for jobs that don't have automatic
 /// dismiss enabled.  In turn, automatic dismiss may be enabled only for
@@ -10294,6 +10822,7 @@ pub struct JobDismiss {
     /// The job identifier.
     pub id: String,
 }
+
 /// Instructs all jobs in a transaction (or a single job if it is not
 /// part of any transaction) to finalize any graph changes and do any
 /// necessary cleanup.  This command requires that all involved jobs are
@@ -10315,6 +10844,7 @@ pub struct JobFinalize {
     /// is not part of any transaction.
     pub id: String,
 }
+
 /// Information about a job.
 ///
 #[qapi(added = "3.0.0")]
@@ -10343,6 +10873,7 @@ pub struct JobInfo {
     /// The kind of job that is being performed
     pub r#type: JobType,
 }
+
 /// Pause an active job.
 ///
 /// This command returns immediately after marking the active job for
@@ -10362,6 +10893,7 @@ pub struct JobPause {
     /// The job identifier.
     pub id: String,
 }
+
 /// Resume a paused job.
 ///
 /// This command returns immediately after resuming a paused job.
@@ -10378,6 +10910,7 @@ pub struct JobResume {
     /// The job identifier.
     pub id: String,
 }
+
 /// Indicates the present state of a given job in its lifetime.
 ///
 #[qapi(added = "3.0.0")]
@@ -10430,6 +10963,7 @@ pub enum JobStatus {
     #[qapi(name = "waiting")]
     Waiting,
 }
+
 /// Emitted when a job transitions to a different status.
 ///
 #[qapi(event)]
@@ -10441,6 +10975,7 @@ pub struct JobStatusChangeEvent {
     /// The new job status
     pub status: JobStatus,
 }
+
 /// Type of a background job.
 ///
 #[qapi(added = "3.0.0")]
@@ -10481,6 +11016,7 @@ pub enum JobType {
     #[qapi(name = "stream")]
     Stream,
 }
+
 /// Represents command verbs that can be applied to a job.
 ///
 #[qapi(added = "3.0.0")]
@@ -10511,6 +11047,7 @@ pub enum JobVerb {
     #[qapi(name = "set-speed")]
     SetSpeed,
 }
+
 /// The four primitive and two structured types according to RFC 8259
 /// section 1, plus 'int' (split off 'number'), plus the obvious top
 /// type 'value'.
@@ -10543,6 +11080,7 @@ pub enum JsonType {
     #[qapi(name = "value")]
     Value,
 }
+
 /// Represents a keyboard key.
 ///
 #[qapi(added = "1.3.0")]
@@ -10558,6 +11096,7 @@ pub struct KeyValue {
     #[qapi(union)]
     pub u: Option<KeyValueBranch>,
 }
+
 #[qapi(added = "1.3.0")]
 pub enum KeyValueBranch {
     #[qapi(name = "number")]
@@ -10565,6 +11104,7 @@ pub enum KeyValueBranch {
     #[qapi(name = "qcode")]
     Qcode(QKeyCode),
 }
+
 #[qapi(added = "6.2.0")]
 pub enum KeyValueKind {
     #[qapi(name = "number")]
@@ -10572,6 +11112,7 @@ pub enum KeyValueKind {
     #[qapi(name = "qcode")]
     Qcode,
 }
+
 #[qapi(added = "1.3.0")]
 #[qapi(removed = "6.2.0")]
 pub enum KeyValueType {
@@ -10580,6 +11121,7 @@ pub enum KeyValueType {
     #[qapi(name = "qcode")]
     Qcode,
 }
+
 /// Information about support for KVM acceleration
 ///
 #[qapi(added = "1.0.0")]
@@ -10589,6 +11131,7 @@ pub struct KvmInfo {
     /// true if KVM acceleration is built into this executable
     pub present: bool,
 }
+
 /// Policy for handling lost ticks in timer devices.  Ticks end up
 /// getting lost when, for example, the guest is paused.
 ///
@@ -10625,6 +11168,7 @@ pub enum LostTickPolicy {
     #[qapi(name = "slew")]
     Slew,
 }
+
 /// Information describing a machine.
 ///
 #[qapi(added = "1.2.0")]
@@ -10673,6 +11217,7 @@ pub struct MachineInfo {
     #[qapi(added = "4.1.0")]
     pub numa_mem_supported: Option<bool>,
 }
+
 /// Properties for the main-loop object.
 ///
 #[qapi(added = "7.1.0")]
@@ -10691,6 +11236,7 @@ pub struct MainLoopProperties {
     #[qapi(name = "thread-pool-min")]
     pub thread_pool_min: Option<i64>,
 }
+
 /// Mapping information from a virtual block range to a host file range
 ///
 #[qapi(added = "2.6.0")]
@@ -10725,6 +11271,7 @@ pub struct MapEntry {
     /// whether the virtual blocks read as zeroes
     pub zero: bool,
 }
+
 /// Information about memory backend
 ///
 #[qapi(added = "2.1.0")]
@@ -10756,6 +11303,7 @@ pub struct Memdev {
     /// memory backend size
     pub size: u64,
 }
+
 /// Properties for memory-backend-epc objects.
 ///
 /// The @merge boolean option is false by default with epc
@@ -10809,6 +11357,7 @@ pub struct MemoryBackendEpcProperties {
     #[qapi(name = "x-use-canonical-path-for-ramblock-id")]
     pub x_use_canonical_path_for_ramblock_id: Option<bool>,
 }
+
 /// Properties for memory-backend-file objects.
 ///
 #[qapi(added = "6.0.0")]
@@ -10888,6 +11437,7 @@ pub struct MemoryBackendFileProperties {
     #[qapi(name = "x-use-canonical-path-for-ramblock-id")]
     pub x_use_canonical_path_for_ramblock_id: Option<bool>,
 }
+
 /// Properties for memory-backend-memfd objects.
 ///
 #[qapi(added = "6.0.0")]
@@ -10949,6 +11499,7 @@ pub struct MemoryBackendMemfdProperties {
     #[qapi(name = "x-use-canonical-path-for-ramblock-id")]
     pub x_use_canonical_path_for_ramblock_id: Option<bool>,
 }
+
 /// Properties for objects of classes derived from memory-backend.
 ///
 #[qapi(added = "6.0.0")]
@@ -10999,6 +11550,7 @@ pub struct MemoryBackendProperties {
     #[qapi(name = "x-use-canonical-path-for-ramblock-id")]
     pub x_use_canonical_path_for_ramblock_id: Option<bool>,
 }
+
 /// Properties for memory-backend-shm objects.
 ///
 /// This memory backend supports only shared memory, which is the
@@ -11051,6 +11603,7 @@ pub struct MemoryBackendShmProperties {
     #[qapi(name = "x-use-canonical-path-for-ramblock-id")]
     pub x_use_canonical_path_for_ramblock_id: Option<bool>,
 }
+
 /// Union containing information about a memory device
 ///
 #[qapi(added = "2.1.0")]
@@ -11066,6 +11619,7 @@ pub struct MemoryDeviceInfo {
     #[qapi(union)]
     pub u: Option<MemoryDeviceInfoBranch>,
 }
+
 #[qapi(added = "2.1.0")]
 pub enum MemoryDeviceInfoBranch {
     #[qapi(name = "dimm")]
@@ -11086,6 +11640,7 @@ pub enum MemoryDeviceInfoBranch {
     #[qapi(added = "4.1.0")]
     VirtioPmem(VirtioPmemDeviceInfo),
 }
+
 #[qapi(added = "6.2.0")]
 pub enum MemoryDeviceInfoKind {
     #[qapi(name = "dimm")]
@@ -11107,6 +11662,7 @@ pub enum MemoryDeviceInfoKind {
     #[qapi(name = "virtio-pmem")]
     VirtioPmem,
 }
+
 #[qapi(added = "2.1.0")]
 #[qapi(removed = "6.2.0")]
 pub enum MemoryDeviceInfoType {
@@ -11122,6 +11678,7 @@ pub enum MemoryDeviceInfoType {
     #[qapi(added = "4.1.0")]
     VirtioPmem,
 }
+
 #[qapi(event)]
 #[qapi(name = "MEMORY_DEVICE_SIZE_CHANGE")]
 #[qapi(added = "5.1.0")]
@@ -11132,6 +11689,7 @@ pub struct MemoryDeviceSizeChangeEvent {
     pub qom_path: Option<String>,
     pub size: u64,
 }
+
 /// Actions taken by QEMU in response to a hardware memory failure.
 ///
 #[qapi(added = "5.2.0")]
@@ -11156,6 +11714,7 @@ pub enum MemoryFailureAction {
     #[qapi(name = "reset")]
     Reset,
 }
+
 #[qapi(event)]
 #[qapi(name = "MEMORY_FAILURE")]
 #[qapi(added = "5.2.0")]
@@ -11164,6 +11723,7 @@ pub struct MemoryFailureEvent {
     pub flags: MemoryFailureFlags,
     pub recipient: MemoryFailureRecipient,
 }
+
 /// Additional information on memory failures.
 ///
 #[qapi(added = "5.2.0")]
@@ -11176,6 +11736,7 @@ pub struct MemoryFailureFlags {
     /// was still in progress.
     pub recursive: bool,
 }
+
 /// Hardware memory failure occurs, handled by recipient.
 ///
 #[qapi(added = "5.2.0")]
@@ -11188,6 +11749,7 @@ pub enum MemoryFailureRecipient {
     #[qapi(name = "hypervisor")]
     Hypervisor,
 }
+
 /// Actual memory information in bytes.
 ///
 #[qapi(added = "2.11.0")]
@@ -11202,6 +11764,7 @@ pub struct MemoryInfo {
     #[qapi(name = "plugged-memory")]
     pub plugged_memory: Option<u64>,
 }
+
 /// Schema for memory size configuration.
 ///
 #[qapi(added = "7.1.0")]
@@ -11214,6 +11777,7 @@ pub struct MemorySizeConfiguration {
     /// number of available memory slots for hotplug
     pub slots: Option<u64>,
 }
+
 #[qapi(command)]
 #[qapi(name = "memsave")]
 #[qapi(returns = "()")]
@@ -11225,6 +11789,7 @@ pub struct Memsave {
     pub size: i64,
     pub val: i64,
 }
+
 /// Emitted when memory hot unplug error occurs.
 ///
 #[qapi(event)]
@@ -11238,6 +11803,7 @@ pub struct MemUnplugErrorEvent {
     /// Informative message
     pub msg: String,
 }
+
 #[qapi(added = "8.2.0")]
 pub enum MigMode {
     #[qapi(name = "cpr-exec")]
@@ -11251,6 +11817,7 @@ pub enum MigMode {
     #[qapi(name = "normal")]
     Normal,
 }
+
 #[qapi(command)]
 #[qapi(name = "migrate")]
 #[qapi(returns = "()")]
@@ -11270,11 +11837,13 @@ pub struct Migrate {
     pub resume: Option<bool>,
     pub uri: String,
 }
+
 #[qapi(command)]
 #[qapi(name = "migrate_cancel")]
 #[qapi(returns = "()")]
 #[qapi(added = "1.1.0")]
 pub struct MigrateCancel {}
+
 #[qapi(command)]
 #[qapi(name = "migrate-continue")]
 #[qapi(returns = "()")]
@@ -11282,6 +11851,7 @@ pub struct MigrateCancel {}
 pub struct MigrateContinue {
     pub state: MigrationStatus,
 }
+
 #[qapi(command)]
 #[qapi(name = "migrate-incoming")]
 #[qapi(returns = "()")]
@@ -11294,6 +11864,7 @@ pub struct MigrateIncoming {
     pub exit_on_error: Option<bool>,
     pub uri: String,
 }
+
 /// Pause a migration.  Currently it only supports postcopy.
 ///
 /// .. qmp-example::
@@ -11309,6 +11880,7 @@ pub struct MigrateIncoming {
 #[qapi(allow_oob)]
 #[qapi(added = "3.0.0")]
 pub struct MigratePause {}
+
 /// Provide a recovery migration stream URI.
 ///
 #[qapi(command)]
@@ -11326,6 +11898,7 @@ pub struct MigrateRecover {
     /// <- { "return": {} }
     pub uri: String,
 }
+
 #[qapi(command)]
 #[qapi(name = "migrate-set-cache-size")]
 #[qapi(returns = "()")]
@@ -11335,6 +11908,7 @@ pub struct MigrateRecover {
 pub struct MigrateSetCacheSize {
     pub value: i64,
 }
+
 /// Enable/Disable the following migration capabilities (like xbzrle)
 ///
 #[qapi(command)]
@@ -11345,6 +11919,7 @@ pub struct MigrateSetCapabilities {
     /// json array of capability modifications to make
     pub capabilities: Vec<MigrationCapabilityStatus>,
 }
+
 #[qapi(command)]
 #[qapi(name = "migrate_set_downtime")]
 #[qapi(returns = "()")]
@@ -11354,6 +11929,7 @@ pub struct MigrateSetCapabilities {
 pub struct MigrateSetDowntime {
     pub value: f64,
 }
+
 #[qapi(command)]
 #[qapi(returns = "()")]
 #[qapi(added = "2.10.0")]
@@ -11471,6 +12047,7 @@ pub struct MigrateSetParameters {
     #[qapi(added = "9.0.0")]
     pub zero_page_detection: Option<ZeroPageDetection>,
 }
+
 #[qapi(command)]
 #[qapi(name = "migrate_set_speed")]
 #[qapi(returns = "()")]
@@ -11480,6 +12057,7 @@ pub struct MigrateSetParameters {
 pub struct MigrateSetSpeed {
     pub value: i64,
 }
+
 /// Followup to a migration command to switch the migration to postcopy mode.
 /// The postcopy-ram capability must be set before the original migration
 /// command.
@@ -11489,6 +12067,7 @@ pub struct MigrateSetSpeed {
 #[qapi(returns = "()")]
 #[qapi(added = "2.5.0")]
 pub struct MigrateStartPostcopy {}
+
 /// Migration endpoint configuration.
 ///
 #[qapi(added = "8.2.0")]
@@ -11499,6 +12078,7 @@ pub struct MigrationAddress {
     #[qapi(union)]
     pub u: Option<MigrationAddressBranch>,
 }
+
 #[qapi(added = "8.2.0")]
 pub enum MigrationAddressBranch {
     #[qapi(name = "exec")]
@@ -11510,6 +12090,7 @@ pub enum MigrationAddressBranch {
     #[qapi(name = "socket")]
     Socket(SocketAddress),
 }
+
 /// The migration stream transport mechanisms.
 ///
 #[qapi(added = "8.2.0")]
@@ -11527,6 +12108,7 @@ pub enum MigrationAddressType {
     #[qapi(name = "socket")]
     Socket,
 }
+
 /// Migration capabilities enumeration
 ///
 #[qapi(added = "1.2.0")]
@@ -11685,6 +12267,7 @@ pub enum MigrationCapability {
     #[qapi(added = "7.1.0")]
     ZeroCopySend,
 }
+
 /// Migration capability information
 ///
 #[qapi(added = "1.2.0")]
@@ -11694,6 +12277,7 @@ pub struct MigrationCapabilityStatus {
     /// capability state bool
     pub state: bool,
 }
+
 /// Migration stream channel parameters.
 ///
 #[qapi(added = "8.2.0")]
@@ -11704,6 +12288,7 @@ pub struct MigrationChannel {
     #[qapi(name = "channel-type")]
     pub channel_type: MigrationChannelType,
 }
+
 /// The migration channel-type request options.
 ///
 #[qapi(added = "8.2.0")]
@@ -11716,6 +12301,7 @@ pub enum MigrationChannelType {
     #[qapi(name = "main")]
     Main,
 }
+
 /// Emitted when a migration event happens
 ///
 #[qapi(event)]
@@ -11725,11 +12311,13 @@ pub struct MigrationEvent {
     /// @MigrationStatus describing the current migration status.
     pub status: MigrationStatus,
 }
+
 #[qapi(added = "8.2.0")]
 pub struct MigrationExecCommand {
     /// command (list head) and arguments to execute.
     pub args: Vec<String>,
 }
+
 /// Information about current migration process.
 ///
 #[qapi(added = "1.0.0")]
@@ -11867,6 +12455,7 @@ pub struct MigrationInfo {
     #[qapi(added = "1.2.0")]
     pub xbzrle_cache: Option<XbzrleCacheStats>,
 }
+
 #[qapi(added = "2.4.0")]
 pub enum MigrationParameter {
     #[qapi(name = "announce-initial")]
@@ -11999,6 +12588,7 @@ pub enum MigrationParameter {
     #[qapi(added = "9.0.0")]
     ZeroPageDetection,
 }
+
 #[qapi(added = "2.4.0")]
 pub struct MigrationParameters {
     #[qapi(name = "announce-initial")]
@@ -12130,6 +12720,7 @@ pub struct MigrationParameters {
     #[qapi(added = "9.0.0")]
     pub zero_page_detection: Option<ZeroPageDetection>,
 }
+
 /// Emitted from the source side of a migration at the start of each pass
 /// (when it syncs the dirty bitmap)
 ///
@@ -12140,6 +12731,7 @@ pub struct MigrationPassEvent {
     /// An incrementing count (starting at 1 on the first pass)
     pub pass: i64,
 }
+
 /// Detailed migration status.
 ///
 #[qapi(added = "1.0.0")]
@@ -12221,6 +12813,7 @@ pub struct MigrationStats {
     /// amount of bytes already transferred to the target VM
     pub transferred: i64,
 }
+
 /// An enumeration of migration status.
 ///
 #[qapi(added = "2.3.0")]
@@ -12297,6 +12890,7 @@ pub enum MigrationStatus {
     #[qapi(added = "4.2.0")]
     WaitUnplug,
 }
+
 /// Information about migrationthreads
 ///
 #[qapi(added = "8.0.0")]
@@ -12307,6 +12901,7 @@ pub struct MigrationThreadInfo {
     #[qapi(name = "thread-id")]
     pub thread_id: i64,
 }
+
 /// An enumeration whose values tell the mirror block job when to
 /// trigger writes to the target.
 ///
@@ -12321,6 +12916,7 @@ pub enum MirrorCopyMode {
     #[qapi(name = "write-blocking")]
     WriteBlocking,
 }
+
 /// An enumeration of possible behaviors for the initial synchronization
 /// phase of storage mirroring.
 ///
@@ -12346,6 +12942,7 @@ pub enum MirrorSyncMode {
     #[qapi(name = "top")]
     Top,
 }
+
 /// An enumeration of monitor modes.
 ///
 #[qapi(added = "5.0.0")]
@@ -12357,6 +12954,7 @@ pub enum MonitorMode {
     #[qapi(name = "readline")]
     Readline,
 }
+
 /// Options to be used for adding a new monitor.
 ///
 #[qapi(added = "5.0.0")]
@@ -12371,6 +12969,7 @@ pub struct MonitorOptions {
     /// Enables pretty printing (QMP only)
     pub pretty: Option<bool>,
 }
+
 /// Information about a mouse device.
 ///
 #[qapi(added = "1.0.0")]
@@ -12385,6 +12984,7 @@ pub struct MouseInfo {
     /// the name of the mouse device
     pub name: String,
 }
+
 /// An enumeration of multifd compression methods.
 ///
 #[qapi(name = "MultiFDCompression")]
@@ -12419,6 +13019,7 @@ pub enum MultiFdCompression {
     #[qapi(condition = "defined(CONFIG_ZSTD)")]
     Zstd,
 }
+
 /// Guest name information.
 ///
 #[qapi(added = "1.0.0")]
@@ -12426,6 +13027,7 @@ pub struct NameInfo {
     /// The name of the guest
     pub name: Option<String>,
 }
+
 #[qapi(command)]
 #[qapi(name = "nbd-server-add")]
 #[qapi(returns = "()")]
@@ -12439,6 +13041,7 @@ pub struct NbdServerAdd {
     pub name: Option<String>,
     pub writable: Option<bool>,
 }
+
 /// An NBD block export, per legacy `nbd-server-add` command.
 ///
 #[qapi(command)]
@@ -12462,6 +13065,7 @@ pub struct NbdServerAddOptions {
     /// the NBD connection (default false).
     pub writable: Option<bool>,
 }
+
 /// Keep this type consistent with the nbd-server-start arguments.  The
 /// only intended difference is using SocketAddress instead of
 /// SocketAddressLegacy.
@@ -12491,6 +13095,7 @@ pub struct NbdServerOptions {
     #[qapi(name = "tls-creds")]
     pub tls_creds: Option<String>,
 }
+
 #[qapi(added = "10.0.0")]
 pub struct NbdServerOptionsBase {
     #[qapi(name = "handshake-max-seconds")]
@@ -12502,6 +13107,7 @@ pub struct NbdServerOptionsBase {
     #[qapi(name = "tls-creds")]
     pub tls_creds: Option<String>,
 }
+
 #[qapi(command)]
 #[qapi(returns = "()")]
 #[qapi(allow_preconfig)]
@@ -12517,6 +13123,7 @@ pub struct NbdServerOptionsLegacy {
     #[qapi(name = "tls-creds")]
     pub tls_creds: Option<String>,
 }
+
 #[qapi(command)]
 #[qapi(name = "nbd-server-remove")]
 #[qapi(returns = "()")]
@@ -12526,6 +13133,7 @@ pub struct NbdServerRemove {
     pub mode: Option<NbdServerRemoveMode>,
     pub name: String,
 }
+
 /// Mode for removing an NBD export.
 ///
 #[qapi(added = "2.12.0")]
@@ -12546,6 +13154,7 @@ pub enum NbdServerRemoveMode {
     #[qapi(name = "safe")]
     Safe,
 }
+
 #[qapi(command)]
 #[qapi(name = "nbd-server-start")]
 #[qapi(returns = "()")]
@@ -12563,6 +13172,7 @@ pub struct NbdServerStart {
     #[qapi(added = "2.6.0")]
     pub tls_creds: Option<String>,
 }
+
 /// Stop QEMU's embedded NBD server, and unregister all devices
 /// previously added via `nbd-server-add`.
 ///
@@ -12571,6 +13181,7 @@ pub struct NbdServerStart {
 #[qapi(returns = "()")]
 #[qapi(added = "1.3.0")]
 pub struct NbdServerStop {}
+
 /// Available netdev drivers.
 ///
 #[qapi(added = "2.7.0")]
@@ -12639,6 +13250,7 @@ pub enum NetClientDriver {
     #[qapi(added = "7.1.0")]
     VmnetShared,
 }
+
 /// A discriminated record of network device traits.
 ///
 #[qapi(added = "1.2.0")]
@@ -12650,6 +13262,7 @@ pub struct NetClientOptions {
     #[qapi(union)]
     pub u: Option<NetClientOptionsBranch>,
 }
+
 #[qapi(added = "1.2.0")]
 #[qapi(removed = "2.7.0")]
 pub enum NetClientOptionsBranch {
@@ -12681,6 +13294,7 @@ pub enum NetClientOptionsBranch {
     #[qapi(added = "2.1.0")]
     VhostUser(NetdevVhostUserOptions),
 }
+
 #[qapi(added = "1.2.0")]
 #[qapi(removed = "2.7.0")]
 pub enum NetClientOptionsType {
@@ -12712,6 +13326,7 @@ pub enum NetClientOptionsType {
     #[qapi(added = "2.1.0")]
     VhostUser,
 }
+
 /// Captures the configuration of a network device.
 ///
 #[qapi(added = "1.2.0")]
@@ -12729,6 +13344,7 @@ pub struct Netdev {
     #[qapi(added = "2.7.0")]
     pub u: Option<NetdevBranch>,
 }
+
 #[qapi(command)]
 #[qapi(name = "netdev_add")]
 #[qapi(returns = "()")]
@@ -12740,6 +13356,7 @@ pub struct NetdevAdd {
     pub props: Option<serde_json::Value>,
     pub r#type: String,
 }
+
 /// AF_XDP network backend
 ///
 #[qapi(name = "NetdevAFXDPOptions")]
@@ -12784,6 +13401,7 @@ pub struct NetdevAfxdpOptions {
     #[qapi(name = "start-queue")]
     pub start_queue: Option<i64>,
 }
+
 #[qapi(added = "2.7.0")]
 pub enum NetdevBranch {
     #[qapi(name = "af-xdp")]
@@ -12842,6 +13460,7 @@ pub enum NetdevBranch {
     #[qapi(added = "7.1.0")]
     VmnetShared(NetdevVmnetSharedOptions),
 }
+
 /// Connect a host TAP network interface to a host bridge device.
 ///
 #[qapi(added = "1.2.0")]
@@ -12851,6 +13470,7 @@ pub struct NetdevBridgeOptions {
     /// command to execute to configure bridge
     pub helper: Option<String>,
 }
+
 #[qapi(command)]
 #[qapi(name = "netdev_del")]
 #[qapi(returns = "()")]
@@ -12858,6 +13478,7 @@ pub struct NetdevBridgeOptions {
 pub struct NetdevDel {
     pub id: String,
 }
+
 /// Configuration info for datagram socket netdev.
 ///
 #[qapi(added = "7.2.0")]
@@ -12888,6 +13509,7 @@ pub struct NetdevDgramOptions {
     /// remote address
     pub remote: Option<SocketAddress>,
 }
+
 /// Dump VLAN network traffic to a file.
 ///
 #[qapi(added = "1.2.0")]
@@ -12899,6 +13521,7 @@ pub struct NetdevDumpOptions {
     /// suffixes.
     pub len: Option<u64>,
 }
+
 /// Connect two or more net clients through a software hub.
 ///
 #[qapi(added = "1.2.0")]
@@ -12910,6 +13533,7 @@ pub struct NetdevHubPortOptions {
     #[qapi(added = "2.12.0")]
     pub netdev: Option<String>,
 }
+
 /// Configure an Ethernet over L2TPv3 tunnel.
 ///
 #[qapi(name = "NetdevL2TPv3Options")]
@@ -12947,6 +13571,7 @@ pub struct NetdevL2tPv3Options {
     /// use the udp version of l2tpv3 encapsulation
     pub udp: Option<bool>,
 }
+
 /// Connect a client to a netmap-enabled NIC or to a VALE switch port
 ///
 #[qapi(added = "2.0.0")]
@@ -12961,11 +13586,13 @@ pub struct NetdevNetmapOptions {
     /// are therefore connected to the same switch.
     pub ifname: String,
 }
+
 /// Use it alone to have zero network devices.
 ///
 #[qapi(added = "1.2.0")]
 #[qapi(removed = "3.0.0")]
 pub struct NetdevNoneOptions {}
+
 /// Unprivileged user-mode network connectivity using passt
 ///
 #[qapi(condition = "CONFIG_PASST")]
@@ -13053,6 +13680,7 @@ pub struct NetDevPasstOptions {
     #[qapi(name = "vhost-user")]
     pub vhost_user: Option<bool>,
 }
+
 /// Socket netdevs are used to establish a network connection to another
 /// QEMU virtual machine via a TCP socket.
 ///
@@ -13071,6 +13699,7 @@ pub struct NetdevSocketOptions {
     /// UDP unicast address and port number
     pub udp: Option<String>,
 }
+
 #[qapi(event)]
 #[qapi(name = "NETDEV_STREAM_CONNECTED")]
 #[qapi(added = "7.2.0")]
@@ -13079,6 +13708,7 @@ pub struct NetdevStreamConnectedEvent {
     #[qapi(name = "netdev-id")]
     pub netdev_id: String,
 }
+
 #[qapi(event)]
 #[qapi(name = "NETDEV_STREAM_DISCONNECTED")]
 #[qapi(added = "7.2.0")]
@@ -13086,6 +13716,7 @@ pub struct NetdevStreamDisconnectedEvent {
     #[qapi(name = "netdev-id")]
     pub netdev_id: String,
 }
+
 /// Configuration info for stream socket netdev
 ///
 #[qapi(added = "7.2.0")]
@@ -13114,6 +13745,7 @@ pub struct NetdevStreamOptions {
     /// create server socket (default: false)
     pub server: Option<bool>,
 }
+
 /// Used to configure a host TAP network interface backend.
 ///
 #[qapi(added = "1.2.0")]
@@ -13158,6 +13790,7 @@ pub struct NetdevTapOptions {
     /// enable the IFF_VNET_HDR flag on the tap interface
     pub vnet_hdr: Option<bool>,
 }
+
 /// Use the user mode network stack which requires no administrator
 /// privilege to run.
 ///
@@ -13233,6 +13866,7 @@ pub struct NetdevUserOptions {
     #[qapi(added = "3.1.0")]
     pub tftp_server_name: Option<String>,
 }
+
 /// Connect to a vde switch running on the host.
 ///
 #[qapi(added = "1.2.0")]
@@ -13246,6 +13880,7 @@ pub struct NetdevVdeOptions {
     /// socket path
     pub sock: Option<String>,
 }
+
 #[qapi(event)]
 #[qapi(name = "NETDEV_VHOST_USER_CONNECTED")]
 #[qapi(added = "10.0.0")]
@@ -13255,6 +13890,7 @@ pub struct NetdevVhostUserConnectedEvent {
     #[qapi(name = "netdev-id")]
     pub netdev_id: String,
 }
+
 #[qapi(event)]
 #[qapi(name = "NETDEV_VHOST_USER_DISCONNECTED")]
 #[qapi(added = "10.0.0")]
@@ -13262,6 +13898,7 @@ pub struct NetdevVhostUserDisconnectedEvent {
     #[qapi(name = "netdev-id")]
     pub netdev_id: String,
 }
+
 /// Vhost-user network backend
 ///
 #[qapi(added = "2.1.0")]
@@ -13275,6 +13912,7 @@ pub struct NetdevVhostUserOptions {
     /// vhost on for non-MSIX virtio guests (default: false).
     pub vhostforce: Option<bool>,
 }
+
 /// Vhost-vdpa network backend
 ///
 /// vDPA device is a device that uses a datapath which complies with the virtio
@@ -13296,6 +13934,7 @@ pub struct NetdevVhostVdpaOptions {
     #[qapi(added = "7.1.0")]
     pub x_svq: Option<bool>,
 }
+
 /// vmnet (bridged mode) network backend.
 ///
 /// Bridges the vmnet interface with a physical network interface.
@@ -13311,6 +13950,7 @@ pub struct NetdevVmnetBridgedOptions {
     /// allowed.  Requires at least macOS Big Sur 11.0.
     pub isolated: Option<bool>,
 }
+
 /// vmnet (host mode) network backend.
 ///
 /// Allows the vmnet interface to communicate with other vmnet
@@ -13348,6 +13988,7 @@ pub struct NetdevVmnetHostOptions {
     #[qapi(name = "subnet-mask")]
     pub subnet_mask: Option<String>,
 }
+
 /// vmnet (shared mode) network backend.
 ///
 /// Allows traffic originating from the vmnet interface to reach the
@@ -13387,6 +14028,7 @@ pub struct NetdevVmnetSharedOptions {
     #[qapi(name = "subnet-mask")]
     pub subnet_mask: Option<String>,
 }
+
 /// Indicates whether a netfilter is attached to a netdev's transmit
 /// queue or receive queue or both.
 ///
@@ -13405,6 +14047,7 @@ pub enum NetFilterDirection {
     #[qapi(name = "tx")]
     Tx,
 }
+
 /// Indicates where to insert a netfilter relative to a given other
 /// filter.
 ///
@@ -13417,6 +14060,7 @@ pub enum NetfilterInsert {
     #[qapi(name = "behind")]
     Behind,
 }
+
 /// Properties for objects of classes derived from netfilter.
 ///
 #[qapi(added = "6.0.0")]
@@ -13441,6 +14085,7 @@ pub struct NetfilterProperties {
     /// ("off") (default: "on")
     pub status: Option<String>,
 }
+
 /// Captures the configuration of a network device; legacy.
 ///
 #[qapi(added = "1.2.0")]
@@ -13456,6 +14101,7 @@ pub struct NetLegacy {
     #[qapi(removed = "3.0.0")]
     pub vlan: Option<i32>,
 }
+
 /// Create a new Network Interface Card.
 ///
 #[qapi(added = "1.2.0")]
@@ -13471,6 +14117,7 @@ pub struct NetLegacyNicOptions {
     /// number of MSI-x vectors, 0 to disable MSI-X
     pub vectors: Option<u32>,
 }
+
 /// Like Netdev, but for use only by the legacy command line options
 ///
 #[qapi(added = "2.7.0")]
@@ -13486,6 +14133,7 @@ pub struct NetLegacyOptions {
     #[qapi(union)]
     pub u: Option<NetLegacyOptionsBranch>,
 }
+
 #[qapi(added = "2.7.0")]
 #[qapi(removed = "5.1.0")]
 pub enum NetLegacyOptionsBranch {
@@ -13514,6 +14162,7 @@ pub enum NetLegacyOptionsBranch {
     #[qapi(name = "vhost-user")]
     VhostUser(NetdevVhostUserOptions),
 }
+
 #[qapi(added = "2.7.0")]
 #[qapi(removed = "5.1.0")]
 pub enum NetLegacyOptionsType {
@@ -13541,6 +14190,7 @@ pub enum NetLegacyOptionsType {
     #[qapi(name = "vhost-user")]
     VhostUser,
 }
+
 /// The network address family
 ///
 #[qapi(added = "2.1.0")]
@@ -13562,6 +14212,7 @@ pub enum NetworkAddressFamily {
     #[qapi(added = "2.8.0")]
     Vsock,
 }
+
 /// An enumeration that tells QEMU how to set the backing file path in a
 /// new image file.
 ///
@@ -13576,6 +14227,7 @@ pub enum NewImageMode {
     #[qapi(name = "existing")]
     Existing,
 }
+
 /// Captures the address of the socket
 ///
 #[qapi(name = "NFSServer")]
@@ -13586,6 +14238,7 @@ pub struct NfsServer {
     /// transport type used for NFS (only TCP supported)
     pub r#type: NfsTransport,
 }
+
 /// An enumeration of NFS transport types
 ///
 #[qapi(name = "NFSTransport")]
@@ -13595,6 +14248,7 @@ pub enum NfsTransport {
     #[qapi(name = "inet")]
     Inet,
 }
+
 /// Emitted once until the 'query-rx-filter' command is executed, the first event
 /// will always be emitted
 ///
@@ -13607,6 +14261,7 @@ pub struct NicRxFilterChangedEvent {
     /// device path
     pub path: String,
 }
+
 /// An enumeration of the options specified when enabling notify VM exit
 ///
 #[qapi(added = "7.2.0")]
@@ -13623,6 +14278,7 @@ pub enum NotifyVmexitOption {
     #[qapi(name = "run")]
     Run,
 }
+
 /// Option "-numa cpu" overrides default cpu to node mapping.  It
 /// accepts the same set of cpu properties as returned by
 /// `query-hotpluggable-cpus[].props <query-hotpluggable-cpus>`, where
@@ -13668,6 +14324,7 @@ pub struct NumaCpuOptions {
     #[qapi(name = "thread-id")]
     pub thread_id: Option<i64>,
 }
+
 /// Set the distance between 2 NUMA nodes.
 ///
 #[qapi(added = "2.10.0")]
@@ -13681,6 +14338,7 @@ pub struct NumaDistOptions {
     /// them to 255.
     pub val: u8,
 }
+
 /// Set the memory side cache information for a given memory domain.
 ///
 /// For more information of `NumaHmatCacheOptions`, see chapter
@@ -13703,6 +14361,7 @@ pub struct NumaHmatCacheOptions {
     /// the size of memory side cache in bytes.
     pub size: u64,
 }
+
 /// Set the system locality latency and bandwidth information between
 /// Initiator and Target proximity Domains.
 ///
@@ -13730,6 +14389,7 @@ pub struct NumaHmatLbOptions {
     /// the Target Proximity Domain.
     pub target: u16,
 }
+
 /// Create a guest NUMA node.  (for OptsVisitor)
 ///
 #[qapi(added = "2.1.0")]
@@ -13754,6 +14414,7 @@ pub struct NumaNodeOptions {
     /// NUMA node ID (increase by 1 from 0 if omitted)
     pub nodeid: Option<u16>,
 }
+
 /// A discriminated record of NUMA options.  (for OptsVisitor)
 ///
 #[qapi(added = "2.1.0")]
@@ -13769,6 +14430,7 @@ pub struct NumaOptions {
     #[qapi(union)]
     pub u: Option<NumaOptionsBranch>,
 }
+
 #[qapi(added = "2.1.0")]
 pub enum NumaOptionsBranch {
     #[qapi(name = "cpu")]
@@ -13786,6 +14448,7 @@ pub enum NumaOptionsBranch {
     #[qapi(name = "node")]
     Node(NumaNodeOptions),
 }
+
 #[qapi(added = "2.1.0")]
 pub enum NumaOptionsType {
     /// property based CPU(s) to node mapping (Since: 2.10)
@@ -13808,6 +14471,7 @@ pub enum NumaOptionsType {
     #[qapi(name = "node")]
     Node,
 }
+
 #[qapi(command)]
 #[qapi(name = "object-add")]
 #[qapi(returns = "()")]
@@ -13819,6 +14483,7 @@ pub struct ObjectAdd {
     #[qapi(name = "qom-type")]
     pub qom_type: String,
 }
+
 #[qapi(command)]
 #[qapi(name = "object-del")]
 #[qapi(returns = "()")]
@@ -13826,6 +14491,7 @@ pub struct ObjectAdd {
 pub struct ObjectDel {
     pub id: String,
 }
+
 /// Describes the options of a user creatable QOM object.
 ///
 #[qapi(command)]
@@ -13841,6 +14507,7 @@ pub struct ObjectOptions {
     #[qapi(union)]
     pub u: Option<ObjectOptionsBranch>,
 }
+
 #[qapi(added = "6.0.0")]
 pub enum ObjectOptionsBranch {
     #[qapi(name = "acpi-generic-initiator")]
@@ -13958,11 +14625,13 @@ pub enum ObjectOptionsBranch {
     #[qapi(added = "7.1.0")]
     XVfioUserServer(VfioUserServerProperties),
 }
+
 #[qapi(added = "10.1.0")]
 pub struct ObjectPropertiesValues {
     /// a list of properties.
     pub properties: Vec<ObjectPropertyValue>,
 }
+
 #[qapi(added = "1.1.0")]
 pub struct ObjectPropertyInfo {
     /// the default value, if any (since 5.0)
@@ -13990,6 +14659,7 @@ pub struct ObjectPropertyInfo {
     /// graph.
     pub r#type: String,
 }
+
 #[qapi(added = "10.1.0")]
 pub struct ObjectPropertyValue {
     /// the name of the property.
@@ -14001,6 +14671,7 @@ pub struct ObjectPropertyValue {
     /// be read.
     pub value: Option<serde_json::Value>,
 }
+
 #[qapi(added = "6.0.0")]
 pub enum ObjectType {
     #[qapi(name = "acpi-generic-initiator")]
@@ -14125,6 +14796,7 @@ pub enum ObjectType {
     #[qapi(added = "7.1.0")]
     XVfioUserServer,
 }
+
 /// This structure describes a search result from `qom-list-types`
 ///
 #[qapi(added = "1.1.0")]
@@ -14139,6 +14811,7 @@ pub struct ObjectTypeInfo {
     #[qapi(added = "2.10.0")]
     pub parent: Option<String>,
 }
+
 /// An enumeration of options for specifying a PCI BAR
 ///
 #[qapi(name = "OffAutoPCIBAR")]
@@ -14169,6 +14842,7 @@ pub enum OffAutoPcibar {
     #[qapi(name = "off")]
     Off,
 }
+
 /// An enumeration of possible behaviors for copy-before-write operation
 /// failures.
 ///
@@ -14185,6 +14859,7 @@ pub enum OnCbwError {
     #[qapi(name = "break-snapshot")]
     BreakSnapshot,
 }
+
 /// An enumeration of three options: on, off, and auto
 ///
 #[qapi(added = "2.2.0")]
@@ -14199,6 +14874,7 @@ pub enum OnOffAuto {
     #[qapi(name = "on")]
     On,
 }
+
 /// An enumeration of three values: on, off, and split
 ///
 #[qapi(added = "2.6.0")]
@@ -14213,6 +14889,7 @@ pub enum OnOffSplit {
     #[qapi(name = "split")]
     Split,
 }
+
 #[qapi(added = "6.0.0")]
 pub enum PanicAction {
     /// Shutdown the VM and exit with nonzero status
@@ -14231,6 +14908,7 @@ pub enum PanicAction {
     #[qapi(name = "shutdown")]
     Shutdown,
 }
+
 /// PCDIMMDevice state information
 ///
 #[qapi(name = "PCDIMMDeviceInfo")]
@@ -14254,12 +14932,14 @@ pub struct PcdimmDeviceInfo {
     /// slot number at which device is plugged in
     pub slot: i64,
 }
+
 #[qapi(name = "PCDIMMDeviceInfoWrapper")]
 #[qapi(added = "6.2.0")]
 pub struct PcdimmDeviceInfoWrapper {
     /// PCDIMMDevice state information
     pub data: PcdimmDeviceInfo,
 }
+
 /// Information about a PCI Bridge device
 ///
 #[qapi(added = "1.0.0")]
@@ -14269,6 +14949,7 @@ pub struct PciBridgeInfo {
     /// a list of `PciDeviceInfo` for each device on this bridge
     pub devices: Option<Box<Vec<PciDeviceInfo>>>,
 }
+
 #[qapi(added = "1.0.0")]
 #[qapi(removed = "2.4.0")]
 pub struct PciBridgeInfoBus {
@@ -14279,6 +14960,7 @@ pub struct PciBridgeInfoBus {
     pub secondary: i64,
     pub subordinate: i64,
 }
+
 /// Information about a bus of a PCI Bridge device
 ///
 #[qapi(added = "2.4.0")]
@@ -14300,6 +14982,7 @@ pub struct PciBusInfo {
     /// bridge.
     pub subordinate: i64,
 }
+
 /// Information about the Class of a PCI device
 ///
 #[qapi(added = "2.4.0")]
@@ -14310,6 +14993,7 @@ pub struct PciDeviceClass {
     /// should only be treated as informational)
     pub desc: Option<String>,
 }
+
 /// Information about the Id of a PCI device
 ///
 #[qapi(added = "2.4.0")]
@@ -14326,6 +15010,7 @@ pub struct PciDeviceId {
     /// the PCI vendor id
     pub vendor: i64,
 }
+
 /// Information about a PCI device
 ///
 #[qapi(added = "1.0.0")]
@@ -14352,18 +15037,21 @@ pub struct PciDeviceInfo {
     /// the slot the device is located in
     pub slot: i64,
 }
+
 #[qapi(added = "1.0.0")]
 #[qapi(removed = "2.4.0")]
 pub struct PciDeviceInfoClassInfo {
     pub class: i64,
     pub desc: Option<String>,
 }
+
 #[qapi(added = "1.0.0")]
 #[qapi(removed = "2.4.0")]
 pub struct PciDeviceInfoId {
     pub device: i64,
     pub vendor: i64,
 }
+
 /// An enumeration of PCIe link speeds in units of GT/s
 ///
 #[qapi(name = "PCIELinkSpeed")]
@@ -14390,6 +15078,7 @@ pub enum PcieLinkSpeed {
     #[qapi(name = "8")]
     _8,
 }
+
 /// An enumeration of PCIe link width
 ///
 #[qapi(name = "PCIELinkWidth")]
@@ -14417,6 +15106,7 @@ pub enum PcieLinkWidth {
     #[qapi(name = "8")]
     _8,
 }
+
 /// Information about a PCI bus
 ///
 #[qapi(added = "1.0.0")]
@@ -14426,6 +15116,7 @@ pub struct PciInfo {
     /// a list of devices on this bus
     pub devices: Vec<PciDeviceInfo>,
 }
+
 /// A PCI device memory region
 ///
 #[qapi(added = "1.0.0")]
@@ -14435,6 +15126,7 @@ pub struct PciMemoryRange {
     /// the ending address (guest physical)
     pub limit: i64,
 }
+
 /// Information about a PCI device I/O region.
 ///
 #[qapi(added = "1.0.0")]
@@ -14453,6 +15145,7 @@ pub struct PciMemoryRegion {
     /// - 'memory' if the region is a MMIO region
     pub r#type: String,
 }
+
 #[qapi(command)]
 #[qapi(name = "pmemsave")]
 #[qapi(returns = "()")]
@@ -14462,6 +15155,7 @@ pub struct Pmemsave {
     pub size: i64,
     pub val: i64,
 }
+
 /// Emitted when the virtual machine is powered down through the power control
 /// system, such as via ACPI.
 ///
@@ -14469,6 +15163,7 @@ pub struct Pmemsave {
 #[qapi(name = "POWERDOWN")]
 #[qapi(added = "2.1.0")]
 pub struct PowerdownEvent {}
+
 /// Preallocation mode of QEMU image file
 ///
 #[qapi(added = "2.2.0")]
@@ -14490,6 +15185,7 @@ pub enum PreallocMode {
     #[qapi(name = "off")]
     Off,
 }
+
 /// Properties for pr-manager-helper objects.
 ///
 #[qapi(added = "6.0.0")]
@@ -14498,6 +15194,7 @@ pub struct PrManagerHelperProperties {
     /// external helper
     pub path: String,
 }
+
 /// Information about a persistent reservation manager
 ///
 #[qapi(name = "PRManagerInfo")]
@@ -14509,6 +15206,7 @@ pub struct PrManagerInfo {
     /// the identifier of the persistent reservation manager
     pub id: String,
 }
+
 #[qapi(event)]
 #[qapi(name = "PR_MANAGER_STATUS_CHANGED")]
 #[qapi(added = "3.0.0")]
@@ -14516,6 +15214,7 @@ pub struct PrManagerStatusChangedEvent {
     pub connected: bool,
     pub id: String,
 }
+
 /// QEMU error classes
 ///
 #[qapi(added = "2.6.0")]
@@ -14538,6 +15237,7 @@ pub enum QapiErrorClass {
     #[qapi(name = "KVMMissingCap")]
     KvmMissingCap,
 }
+
 /// A fat type wrapping 'str', to be embedded in lists.
 ///
 #[qapi(name = "String")]
@@ -14545,6 +15245,7 @@ pub enum QapiErrorClass {
 pub struct QapiString {
     pub str: String,
 }
+
 /// An enumeration of the VFIO device migration states.
 ///
 #[qapi(added = "9.2.0")]
@@ -14576,6 +15277,7 @@ pub enum QapiVfioMigrationState {
     #[qapi(name = "stop-copy")]
     StopCopy,
 }
+
 /// The authorization policy match format
 ///
 #[qapi(added = "4.0.0")]
@@ -14587,6 +15289,7 @@ pub enum QAuthZListFormat {
     #[qapi(name = "glob")]
     Glob,
 }
+
 /// The authorization policy result
 ///
 #[qapi(added = "4.0.0")]
@@ -14598,6 +15301,7 @@ pub enum QAuthZListPolicy {
     #[qapi(name = "deny")]
     Deny,
 }
+
 /// A single authorization rule.
 ///
 #[qapi(added = "4.0.0")]
@@ -14609,6 +15313,7 @@ pub struct QAuthZListRule {
     /// the result to return if @match evaluates to true
     pub policy: QAuthZListPolicy,
 }
+
 /// Not exposed via QMP; hack to generate QAuthZListRuleList
 /// for use internally by the code.
 ///
@@ -14617,6 +15322,7 @@ pub struct QAuthZListRule {
 pub struct QAuthZListRuleListHack {
     pub unused: Vec<QAuthZListRule>,
 }
+
 /// Qcow2 bitmap information.
 ///
 #[qapi(added = "4.0.0")]
@@ -14628,6 +15334,7 @@ pub struct Qcow2BitmapInfo {
     /// the name of the bitmap
     pub name: String,
 }
+
 /// An enumeration of flags that a bitmap can report to the user.
 ///
 #[qapi(added = "4.0.0")]
@@ -14644,6 +15351,7 @@ pub enum Qcow2BitmapInfoFlags {
     #[qapi(name = "in-use")]
     InUse,
 }
+
 /// Compression type used in qcow2 image file
 ///
 #[qapi(added = "5.1.0")]
@@ -14656,6 +15364,7 @@ pub enum Qcow2CompressionType {
     #[qapi(condition = "defined(CONFIG_ZSTD)")]
     Zstd,
 }
+
 /// Structure of flags for each metadata structure.  Setting a field to
 /// 'true' makes QEMU guard that Qcow2 format structure against
 /// unintended overwriting.  See Qcow2 format specification for detailed
@@ -14696,6 +15405,7 @@ pub struct Qcow2OverlapCheckFlags {
     /// other flags, defaults to 'cached'
     pub template: Option<Qcow2OverlapCheckMode>,
 }
+
 /// General overlap check modes.
 ///
 #[qapi(added = "2.2.0")]
@@ -14715,6 +15425,7 @@ pub enum Qcow2OverlapCheckMode {
     #[qapi(name = "none")]
     None,
 }
+
 /// Specifies which metadata structures should be guarded against
 /// unintended overwriting.
 ///
@@ -14728,6 +15439,7 @@ pub enum Qcow2OverlapChecks {
     #[qapi(name = "mode")]
     Mode(Qcow2OverlapCheckMode),
 }
+
 #[qapi(added = "2.2.0")]
 #[qapi(removed = "2.4.0")]
 pub enum Qcow2OverlapChecksBranch {
@@ -14736,6 +15448,7 @@ pub enum Qcow2OverlapChecksBranch {
     #[qapi(name = "mode")]
     Mode(Qcow2OverlapCheckMode),
 }
+
 #[qapi(added = "2.2.0")]
 #[qapi(removed = "2.4.0")]
 pub enum Qcow2OverlapChecksType {
@@ -14744,6 +15457,7 @@ pub enum Qcow2OverlapChecksType {
     #[qapi(name = "mode")]
     Mode,
 }
+
 /// The supported algorithms for asymmetric encryption ciphers
 ///
 #[qapi(added = "9.2.0")]
@@ -14752,6 +15466,7 @@ pub enum QCryptoAkCipherAlgo {
     #[qapi(name = "rsa")]
     Rsa,
 }
+
 /// The supported algorithms for asymmetric encryption ciphers
 ///
 #[qapi(added = "7.1.0")]
@@ -14761,6 +15476,7 @@ pub enum QCryptoAkCipherAlgorithm {
     #[qapi(name = "rsa")]
     Rsa,
 }
+
 /// The type of asymmetric keys.
 ///
 #[qapi(added = "7.1.0")]
@@ -14772,6 +15488,7 @@ pub enum QCryptoAkCipherKeyType {
     #[qapi(name = "public")]
     Public,
 }
+
 /// The options that are available for all asymmetric key algorithms
 /// when creating a new QCryptoAkCipher.
 ///
@@ -14783,11 +15500,13 @@ pub struct QCryptoAkCipherOptions {
     #[qapi(union)]
     pub u: Option<QCryptoAkCipherOptionsBranch>,
 }
+
 #[qapi(added = "7.1.0")]
 pub enum QCryptoAkCipherOptionsBranch {
     #[qapi(name = "rsa")]
     Rsa(QCryptoAkCipherOptionsRsa),
 }
+
 /// Specific parameters for RSA algorithm.
 ///
 #[qapi(name = "QCryptoAkCipherOptionsRSA")]
@@ -14800,6 +15519,7 @@ pub struct QCryptoAkCipherOptionsRsa {
     #[qapi(name = "padding-alg")]
     pub padding_alg: QCryptoRsaPaddingAlgorithm,
 }
+
 /// The options that are available for all encryption formats when
 /// amending encryption settings
 ///
@@ -14811,11 +15531,13 @@ pub struct QCryptoBlockAmendOptions {
     #[qapi(union)]
     pub u: Option<QCryptoBlockAmendOptionsBranch>,
 }
+
 #[qapi(added = "5.1.0")]
 pub enum QCryptoBlockAmendOptionsBranch {
     #[qapi(name = "luks")]
     Luks(QCryptoBlockAmendOptionsLuks),
 }
+
 /// This struct defines the update parameters that activate/de-activate
 /// set of keyslots
 ///
@@ -14852,6 +15574,7 @@ pub struct QCryptoBlockAmendOptionsLuks {
     /// the desired state of the keyslots
     pub state: QCryptoBlockLuksKeyslotState,
 }
+
 /// The options that are available for all encryption formats when
 /// initializing a new volume
 ///
@@ -14863,6 +15586,7 @@ pub struct QCryptoBlockCreateOptions {
     #[qapi(union)]
     pub u: Option<QCryptoBlockCreateOptionsBranch>,
 }
+
 #[qapi(added = "2.6.0")]
 pub enum QCryptoBlockCreateOptionsBranch {
     #[qapi(name = "luks")]
@@ -14870,6 +15594,7 @@ pub enum QCryptoBlockCreateOptionsBranch {
     #[qapi(name = "qcow")]
     Qcow(QCryptoBlockOptionsQCow),
 }
+
 /// The options that apply to LUKS encryption format initialization
 ///
 #[qapi(name = "QCryptoBlockCreateOptionsLUKS")]
@@ -14911,6 +15636,7 @@ pub struct QCryptoBlockCreateOptionsLuks {
     #[qapi(name = "key-secret")]
     pub key_secret: Option<String>,
 }
+
 /// The supported full disk encryption formats
 ///
 #[qapi(added = "2.6.0")]
@@ -14923,6 +15649,7 @@ pub enum QCryptoBlockFormat {
     #[qapi(name = "qcow")]
     Qcow,
 }
+
 /// Information about the block encryption options
 ///
 #[qapi(added = "2.7.0")]
@@ -14933,6 +15660,7 @@ pub struct QCryptoBlockInfo {
     #[qapi(union)]
     pub u: Option<QCryptoBlockInfoBranch>,
 }
+
 /// The common information that applies to all full disk encryption
 /// formats
 ///
@@ -14941,6 +15669,7 @@ pub struct QCryptoBlockInfoBase {
     /// the encryption format
     pub format: QCryptoBlockFormat,
 }
+
 #[qapi(added = "2.7.0")]
 pub enum QCryptoBlockInfoBranch {
     #[qapi(name = "luks")]
@@ -14949,6 +15678,7 @@ pub enum QCryptoBlockInfoBranch {
     #[qapi(removed = "3.0.0")]
     Qcow(QCryptoBlockInfoQCow),
 }
+
 /// Information about the LUKS block encryption options
 ///
 #[qapi(name = "QCryptoBlockInfoLUKS")]
@@ -14984,6 +15714,7 @@ pub struct QCryptoBlockInfoLuks {
     /// unique identifier for the volume
     pub uuid: String,
 }
+
 /// Information about the LUKS block encryption key slot options
 ///
 #[qapi(name = "QCryptoBlockInfoLUKSSlot")]
@@ -14999,11 +15730,13 @@ pub struct QCryptoBlockInfoLuksSlot {
     /// number of stripes for splitting key material
     pub stripes: Option<i64>,
 }
+
 /// Information about the QCow block encryption options
 ///
 #[qapi(added = "2.7.0")]
 #[qapi(removed = "3.0.0")]
 pub struct QCryptoBlockInfoQCow {}
+
 /// Defines state of keyslots that are affected by the update
 ///
 #[qapi(name = "QCryptoBlockLUKSKeyslotState")]
@@ -15017,6 +15750,7 @@ pub enum QCryptoBlockLuksKeyslotState {
     #[qapi(name = "inactive")]
     Inactive,
 }
+
 /// The options that are available for all encryption formats when
 /// opening an existing volume
 ///
@@ -15028,6 +15762,7 @@ pub struct QCryptoBlockOpenOptions {
     #[qapi(union)]
     pub u: Option<QCryptoBlockOpenOptionsBranch>,
 }
+
 #[qapi(added = "2.6.0")]
 pub enum QCryptoBlockOpenOptionsBranch {
     #[qapi(name = "luks")]
@@ -15035,6 +15770,7 @@ pub enum QCryptoBlockOpenOptionsBranch {
     #[qapi(name = "qcow")]
     Qcow(QCryptoBlockOptionsQCow),
 }
+
 /// The common options that apply to all full disk encryption formats
 ///
 #[qapi(added = "2.6.0")]
@@ -15042,6 +15778,7 @@ pub struct QCryptoBlockOptionsBase {
     /// the encryption format
     pub format: QCryptoBlockFormat,
 }
+
 /// The options that apply to LUKS encryption format
 ///
 #[qapi(name = "QCryptoBlockOptionsLUKS")]
@@ -15053,6 +15790,7 @@ pub struct QCryptoBlockOptionsLuks {
     #[qapi(name = "key-secret")]
     pub key_secret: Option<String>,
 }
+
 /// The options that apply to QCow/QCow2 AES-CBC encryption format
 ///
 #[qapi(added = "2.6.0")]
@@ -15063,6 +15801,7 @@ pub struct QCryptoBlockOptionsQCow {
     #[qapi(name = "key-secret")]
     pub key_secret: Option<String>,
 }
+
 /// The supported algorithms for content encryption ciphers
 ///
 #[qapi(added = "9.2.0")]
@@ -15108,6 +15847,7 @@ pub enum QCryptoCipherAlgo {
     #[qapi(name = "twofish-256")]
     Twofish256,
 }
+
 /// The supported algorithms for content encryption ciphers
 ///
 #[qapi(added = "2.6.0")]
@@ -15161,6 +15901,7 @@ pub enum QCryptoCipherAlgorithm {
     #[qapi(name = "twofish-256")]
     Twofish256,
 }
+
 /// The supported modes for content encryption ciphers
 ///
 #[qapi(added = "2.6.0")]
@@ -15179,6 +15920,7 @@ pub enum QCryptoCipherMode {
     #[qapi(name = "xts")]
     Xts,
 }
+
 /// The supported algorithm types of a crypto device.
 ///
 #[qapi(added = "9.2.0")]
@@ -15190,6 +15932,7 @@ pub enum QCryptodevBackendAlgoType {
     #[qapi(name = "sym")]
     Sym,
 }
+
 /// The supported algorithm types of a crypto device.
 ///
 #[qapi(added = "8.0.0")]
@@ -15202,6 +15945,7 @@ pub enum QCryptodevBackendAlgType {
     #[qapi(name = "sym")]
     Sym,
 }
+
 /// Information about a queue of crypto device.
 ///
 #[qapi(added = "8.0.0")]
@@ -15211,6 +15955,7 @@ pub struct QCryptodevBackendClient {
     /// the type of the crypto device
     pub r#type: QCryptodevBackendType,
 }
+
 /// The supported service types of a crypto device.
 ///
 #[qapi(added = "8.0.0")]
@@ -15231,6 +15976,7 @@ pub enum QCryptodevBackendServiceType {
     #[qapi(name = "mac")]
     Mac,
 }
+
 /// The crypto device backend type
 ///
 #[qapi(added = "8.0.0")]
@@ -15245,6 +15991,7 @@ pub enum QCryptodevBackendType {
     #[qapi(name = "vhost-user")]
     VhostUser,
 }
+
 /// Information about a crypto device.
 ///
 #[qapi(added = "8.0.0")]
@@ -15256,6 +16003,7 @@ pub struct QCryptodevInfo {
     /// supported service types of a crypto device
     pub service: Vec<QCryptodevBackendServiceType>,
 }
+
 /// The supported algorithms for computing content digests
 ///
 #[qapi(added = "9.2.0")]
@@ -15286,6 +16034,7 @@ pub enum QCryptoHashAlgo {
     #[qapi(name = "sm3")]
     Sm3,
 }
+
 /// The supported algorithms for computing content digests
 ///
 #[qapi(added = "2.6.0")]
@@ -15317,6 +16066,7 @@ pub enum QCryptoHashAlgorithm {
     #[qapi(added = "2.7.0")]
     Sha512,
 }
+
 /// The supported algorithms for generating initialization vectors for
 /// full disk encryption.  The 'plain' generator should not be used for
 /// disks with sector numbers larger than 2^32, except where
@@ -15336,6 +16086,7 @@ pub enum QCryptoIvGenAlgo {
     #[qapi(name = "plain64")]
     Plain64,
 }
+
 /// The supported algorithms for generating initialization vectors for
 /// full disk encryption.  The 'plain' generator should not be used for
 /// disks with sector numbers larger than 2^32, except where
@@ -15356,6 +16107,7 @@ pub enum QCryptoIvGenAlgorithm {
     #[qapi(name = "plain64")]
     Plain64,
 }
+
 /// The padding algorithm for RSA.
 ///
 #[qapi(name = "QCryptoRSAPaddingAlgo")]
@@ -15368,6 +16120,7 @@ pub enum QCryptoRsaPaddingAlgo {
     #[qapi(name = "raw")]
     Raw,
 }
+
 /// The padding algorithm for RSA.
 ///
 #[qapi(name = "QCryptoRSAPaddingAlgorithm")]
@@ -15381,6 +16134,7 @@ pub enum QCryptoRsaPaddingAlgorithm {
     #[qapi(name = "raw")]
     Raw,
 }
+
 /// The data format that the secret is provided in
 ///
 #[qapi(added = "2.6.0")]
@@ -15393,6 +16147,7 @@ pub enum QCryptoSecretFormat {
     #[qapi(name = "raw")]
     Raw,
 }
+
 /// The type of network endpoint that will be using the credentials.
 /// Most types of credential require different setup / structures
 /// depending on whether they will be used in a server versus a client.
@@ -15407,6 +16162,7 @@ pub enum QCryptoTlsCredsEndpoint {
     #[qapi(name = "server")]
     Server,
 }
+
 /// Information on the target configuration built into the QEMU binary.
 ///
 #[qapi(added = "10.1.0")]
@@ -15414,6 +16170,7 @@ pub struct QemuTargetInfo {
     /// the target architecture
     pub arch: SysEmuTarget,
 }
+
 /// An enumeration of key name.
 ///
 /// This is used by the `send-key` command.
@@ -15843,11 +16600,13 @@ pub enum QKeyCode {
     #[qapi(name = "z")]
     Z,
 }
+
 #[qapi(added = "6.2.0")]
 pub struct QKeyCodeWrapper {
     /// An enumeration of key name
     pub data: QKeyCode,
 }
+
 /// Enable QMP capabilities.
 ///
 #[qapi(command)]
@@ -15877,6 +16636,7 @@ pub struct QmpCapabilities {
     #[qapi(added = "2.12.0")]
     pub enable: Option<Vec<QmpCapability>>,
 }
+
 /// Enumeration of capabilities to be advertised during initial client
 /// connection, used for agreeing on particular QMP extension behaviors.
 ///
@@ -15888,6 +16648,7 @@ pub enum QmpCapability {
     #[qapi(name = "oob")]
     Oob,
 }
+
 #[qapi(command)]
 #[qapi(name = "qom-get")]
 #[qapi(returns = "serde_json::Value")]
@@ -15896,6 +16657,7 @@ pub struct QomGet {
     pub path: String,
     pub property: String,
 }
+
 #[qapi(command)]
 #[qapi(name = "qom-list")]
 #[qapi(returns = "Vec<ObjectPropertyInfo>")]
@@ -15903,6 +16665,7 @@ pub struct QomGet {
 pub struct QomList {
     pub path: String,
 }
+
 #[qapi(command)]
 #[qapi(name = "qom-list-get")]
 #[qapi(returns = "Vec<ObjectPropertiesValues>")]
@@ -15911,6 +16674,7 @@ pub struct QomList {
 pub struct QomListGet {
     pub paths: Vec<String>,
 }
+
 #[qapi(command)]
 #[qapi(name = "qom-list-properties")]
 #[qapi(returns = "Vec<ObjectPropertyInfo>")]
@@ -15918,6 +16682,7 @@ pub struct QomListGet {
 pub struct QomListProperties {
     pub typename: String,
 }
+
 #[qapi(command)]
 #[qapi(name = "qom-list-types")]
 #[qapi(returns = "Vec<ObjectTypeInfo>")]
@@ -15926,6 +16691,7 @@ pub struct QomListTypes {
     pub r#abstract: Option<bool>,
     pub implements: Option<String>,
 }
+
 /// This command will set a property from a object model path.
 ///
 #[qapi(command)]
@@ -15941,6 +16707,7 @@ pub struct QomSet {
     /// for a description of type mapping.
     pub value: serde_json::Value,
 }
+
 /// Properties for qtest objects.
 ///
 #[qapi(added = "6.1.0")]
@@ -15950,11 +16717,13 @@ pub struct QtestProperties {
     /// the path to a log file
     pub log: Option<String>,
 }
+
 #[qapi(command)]
 #[qapi(name = "query-accelerators")]
 #[qapi(returns = "AcceleratorInfo")]
 #[qapi(added = "10.2.0")]
 pub struct QueryAccelerators {}
+
 /// Lists ACPI OSPM status of ACPI device objects,
 /// which might be reported via _OST method
 ///
@@ -15963,6 +16732,7 @@ pub struct QueryAccelerators {}
 #[qapi(returns = "Vec<AcpiostInfo>")]
 #[qapi(added = "2.1.0")]
 pub struct QueryAcpiOspmStatus {}
+
 /// Return information about audiodev configuration
 ///
 #[qapi(command)]
@@ -15970,26 +16740,31 @@ pub struct QueryAcpiOspmStatus {}
 #[qapi(returns = "Vec<Audiodev>")]
 #[qapi(added = "8.0.0")]
 pub struct QueryAudiodevs {}
+
 #[qapi(command)]
 #[qapi(name = "query-balloon")]
 #[qapi(returns = "BalloonInfo")]
 #[qapi(added = "1.0.0")]
 pub struct QueryBalloon {}
+
 #[qapi(command)]
 #[qapi(name = "query-block")]
 #[qapi(returns = "Vec<BlockInfo>")]
 #[qapi(added = "1.0.0")]
 pub struct QueryBlock {}
+
 #[qapi(command)]
 #[qapi(name = "query-block-exports")]
 #[qapi(returns = "Vec<BlockExportInfo>")]
 #[qapi(added = "5.2.0")]
 pub struct QueryBlockExports {}
+
 #[qapi(command)]
 #[qapi(name = "query-block-jobs")]
 #[qapi(returns = "Vec<BlockJobInfo>")]
 #[qapi(added = "1.1.0")]
 pub struct QueryBlockJobs {}
+
 #[qapi(command)]
 #[qapi(name = "query-blockstats")]
 #[qapi(returns = "Vec<BlockStats>")]
@@ -15999,21 +16774,25 @@ pub struct QueryBlockstats {
     #[qapi(added = "2.3.0")]
     pub query_nodes: Option<bool>,
 }
+
 #[qapi(command)]
 #[qapi(name = "query-chardev")]
 #[qapi(returns = "Vec<ChardevInfo>")]
 #[qapi(added = "1.0.0")]
 pub struct QueryChardev {}
+
 #[qapi(command)]
 #[qapi(name = "query-chardev-backends")]
 #[qapi(returns = "Vec<ChardevBackendInfo>")]
 #[qapi(added = "2.0.0")]
 pub struct QueryChardevBackends {}
+
 #[qapi(command)]
 #[qapi(name = "query-colo-status")]
 #[qapi(returns = "ColoStatus")]
 #[qapi(added = "3.1.0")]
 pub struct QueryColoStatus {}
+
 #[qapi(command)]
 #[qapi(name = "query-command-line-options")]
 #[qapi(returns = "Vec<CommandLineOptionInfo>")]
@@ -16021,11 +16800,13 @@ pub struct QueryColoStatus {}
 pub struct QueryCommandLineOptions {
     pub option: Option<String>,
 }
+
 #[qapi(command)]
 #[qapi(name = "query-commands")]
 #[qapi(returns = "Vec<CommandInfo>")]
 #[qapi(added = "1.0.0")]
 pub struct QueryCommands {}
+
 /// Return a list of supported virtual CPU definitions
 ///
 #[qapi(command)]
@@ -16033,6 +16814,7 @@ pub struct QueryCommands {}
 #[qapi(returns = "Vec<CpuDefinitionInfo>")]
 #[qapi(added = "1.2.0")]
 pub struct QueryCpuDefinitions {}
+
 #[qapi(command)]
 #[qapi(name = "query-cpu-model-baseline")]
 #[qapi(returns = "CpuModelBaselineInfo")]
@@ -16041,6 +16823,7 @@ pub struct QueryCpuModelBaseline {
     pub modela: CpuModelInfo,
     pub modelb: CpuModelInfo,
 }
+
 #[qapi(command)]
 #[qapi(name = "query-cpu-model-comparison")]
 #[qapi(returns = "CpuModelCompareInfo")]
@@ -16049,6 +16832,7 @@ pub struct QueryCpuModelComparison {
     pub modela: CpuModelInfo,
     pub modelb: CpuModelInfo,
 }
+
 #[qapi(command)]
 #[qapi(name = "query-cpu-model-expansion")]
 #[qapi(returns = "CpuModelExpansionInfo")]
@@ -16057,6 +16841,7 @@ pub struct QueryCpuModelExpansion {
     pub model: CpuModelInfo,
     pub r#type: CpuModelExpansionType,
 }
+
 #[qapi(command)]
 #[qapi(name = "query-cpus")]
 #[qapi(returns = "Vec<CpuInfo>")]
@@ -16064,11 +16849,13 @@ pub struct QueryCpuModelExpansion {
 #[qapi(deprecated = "5.0.0")]
 #[qapi(removed = "6.0.0")]
 pub struct QueryCpus {}
+
 #[qapi(command)]
 #[qapi(name = "query-cpus-fast")]
 #[qapi(returns = "Vec<CpuInfoFast>")]
 #[qapi(added = "2.12.0")]
 pub struct QueryCpusFast {}
+
 /// Return information about current crypto devices.
 ///
 #[qapi(command)]
@@ -16076,6 +16863,7 @@ pub struct QueryCpusFast {}
 #[qapi(returns = "Vec<QCryptodevInfo>")]
 #[qapi(added = "8.0.0")]
 pub struct QueryCryptodev {}
+
 /// Return information on the current virtual machine.
 ///
 #[qapi(command)]
@@ -16083,6 +16871,7 @@ pub struct QueryCryptodev {}
 #[qapi(returns = "CurrentMachineParams")]
 #[qapi(added = "4.0.0")]
 pub struct QueryCurrentMachine {}
+
 /// query dirty page rate in units of MB/s for vm
 ///
 #[qapi(command)]
@@ -16094,6 +16883,7 @@ pub struct QueryDirtyRate {
     #[qapi(added = "8.2.0")]
     pub calc_time_unit: Option<TimeUnit>,
 }
+
 /// Return information about display configuration
 ///
 #[qapi(command)]
@@ -16101,16 +16891,19 @@ pub struct QueryDirtyRate {
 #[qapi(returns = "DisplayOptions")]
 #[qapi(added = "3.1.0")]
 pub struct QueryDisplayOptions {}
+
 #[qapi(command)]
 #[qapi(name = "query-dump")]
 #[qapi(returns = "DumpQueryResult")]
 #[qapi(added = "2.6.0")]
 pub struct QueryDump {}
+
 #[qapi(command)]
 #[qapi(name = "query-dump-guest-memory-capability")]
 #[qapi(returns = "DumpGuestMemoryCapability")]
 #[qapi(added = "2.0.0")]
 pub struct QueryDumpGuestMemoryCapability {}
+
 #[qapi(command)]
 #[qapi(name = "query-events")]
 #[qapi(returns = "Vec<EventInfo>")]
@@ -16118,11 +16911,13 @@ pub struct QueryDumpGuestMemoryCapability {}
 #[qapi(deprecated = "5.0.0")]
 #[qapi(removed = "6.0.0")]
 pub struct QueryEvents {}
+
 #[qapi(command)]
 #[qapi(name = "query-fdsets")]
 #[qapi(returns = "Vec<FdsetInfo>")]
 #[qapi(added = "1.2.0")]
 pub struct QueryFdsets {}
+
 /// Find firmware memory log buffer in guest memory, return content.
 ///
 #[qapi(command)]
@@ -16136,36 +16931,43 @@ pub struct QueryFirmwareLog {
     #[qapi(name = "max-size")]
     pub max_size: Option<u64>,
 }
+
 #[qapi(command)]
 #[qapi(name = "query-gic-capabilities")]
 #[qapi(returns = "Vec<GicCapability>")]
 #[qapi(added = "2.6.0")]
 pub struct QueryGicCapabilities {}
+
 #[qapi(command)]
 #[qapi(name = "query-hotpluggable-cpus")]
 #[qapi(returns = "Vec<HotpluggableCpu>")]
 #[qapi(added = "2.7.0")]
 pub struct QueryHotpluggableCpus {}
+
 #[qapi(command)]
 #[qapi(name = "query-hv-balloon-status-report")]
 #[qapi(returns = "HvBalloonInfo")]
 #[qapi(added = "8.2.0")]
 pub struct QueryHvBalloonStatusReport {}
+
 #[qapi(command)]
 #[qapi(name = "query-iothreads")]
 #[qapi(returns = "Vec<IoThreadInfo>")]
 #[qapi(added = "2.0.0")]
 pub struct QueryIothreads {}
+
 #[qapi(command)]
 #[qapi(name = "query-jobs")]
 #[qapi(returns = "Vec<JobInfo>")]
 #[qapi(added = "3.0.0")]
 pub struct QueryJobs {}
+
 #[qapi(command)]
 #[qapi(name = "query-kvm")]
 #[qapi(returns = "KvmInfo")]
 #[qapi(added = "1.0.0")]
 pub struct QueryKvm {}
+
 #[qapi(command)]
 #[qapi(name = "query-machines")]
 #[qapi(returns = "Vec<MachineInfo>")]
@@ -16176,11 +16978,13 @@ pub struct QueryMachines {
     #[qapi(added = "9.1.0")]
     pub compat_props: Option<bool>,
 }
+
 #[qapi(command)]
 #[qapi(name = "query-memdev")]
 #[qapi(returns = "Vec<Memdev>")]
 #[qapi(added = "2.1.0")]
 pub struct QueryMemdev {}
+
 /// Lists available memory devices and their state
 ///
 #[qapi(command)]
@@ -16188,6 +16992,7 @@ pub struct QueryMemdev {}
 #[qapi(returns = "Vec<MemoryDeviceInfo>")]
 #[qapi(added = "2.1.0")]
 pub struct QueryMemoryDevices {}
+
 /// Return the amount of initially allocated and present hotpluggable
 /// (if enabled) memory in bytes.
 ///
@@ -16203,16 +17008,19 @@ pub struct QueryMemoryDevices {}
 #[qapi(returns = "MemoryInfo")]
 #[qapi(added = "2.11.0")]
 pub struct QueryMemorySizeSummary {}
+
 #[qapi(command)]
 #[qapi(name = "query-mice")]
 #[qapi(returns = "Vec<MouseInfo>")]
 #[qapi(added = "1.0.0")]
 pub struct QueryMice {}
+
 #[qapi(command)]
 #[qapi(name = "query-migrate")]
 #[qapi(returns = "MigrationInfo")]
 #[qapi(added = "1.0.0")]
 pub struct QueryMigrate {}
+
 #[qapi(command)]
 #[qapi(name = "query-migrate-cache-size")]
 #[qapi(returns = "i64")]
@@ -16220,27 +17028,32 @@ pub struct QueryMigrate {}
 #[qapi(deprecated = "5.0.0")]
 #[qapi(removed = "6.0.0")]
 pub struct QueryMigrateCacheSize {}
+
 #[qapi(command)]
 #[qapi(name = "query-migrate-capabilities")]
 #[qapi(returns = "Vec<MigrationCapabilityStatus>")]
 #[qapi(added = "1.2.0")]
 pub struct QueryMigrateCapabilities {}
+
 #[qapi(command)]
 #[qapi(name = "query-migrate-parameters")]
 #[qapi(returns = "MigrationParameters")]
 #[qapi(added = "2.4.0")]
 pub struct QueryMigrateParameters {}
+
 #[qapi(command)]
 #[qapi(name = "query-migrationthreads")]
 #[qapi(returns = "Vec<MigrationThreadInfo>")]
 #[qapi(added = "8.0.0")]
 #[qapi(deprecated = "9.2.0")]
 pub struct QueryMigrationthreads {}
+
 #[qapi(command)]
 #[qapi(name = "query-name")]
 #[qapi(returns = "NameInfo")]
 #[qapi(added = "1.0.0")]
 pub struct QueryName {}
+
 #[qapi(command)]
 #[qapi(name = "query-named-block-nodes")]
 #[qapi(returns = "Vec<BlockDeviceInfo>")]
@@ -16249,27 +17062,32 @@ pub struct QueryNamedBlockNodes {
     #[qapi(added = "5.0.0")]
     pub flat: Option<bool>,
 }
+
 #[qapi(command)]
 #[qapi(name = "query-pci")]
 #[qapi(returns = "Vec<PciInfo>")]
 #[qapi(added = "1.0.0")]
 pub struct QueryPci {}
+
 #[qapi(command)]
 #[qapi(name = "query-pr-managers")]
 #[qapi(returns = "Vec<PrManagerInfo>")]
 #[qapi(allow_preconfig)]
 #[qapi(added = "3.0.0")]
 pub struct QueryPrManagers {}
+
 #[qapi(command)]
 #[qapi(name = "query-qmp-schema")]
 #[qapi(returns = "Vec<SchemaInfo>")]
 #[qapi(added = "2.5.0")]
 pub struct QueryQmpSchema {}
+
 #[qapi(command)]
 #[qapi(name = "query-replay")]
 #[qapi(returns = "ReplayInfo")]
 #[qapi(added = "5.2.0")]
 pub struct QueryReplay {}
+
 #[qapi(command)]
 #[qapi(name = "query-rocker")]
 #[qapi(returns = "RockerSwitch")]
@@ -16277,6 +17095,7 @@ pub struct QueryReplay {}
 pub struct QueryRocker {
     pub name: String,
 }
+
 #[qapi(command)]
 #[qapi(name = "query-rocker-of-dpa-flows")]
 #[qapi(returns = "Vec<RockerOfDpaFlow>")]
@@ -16286,6 +17105,7 @@ pub struct QueryRockerOfDpaFlows {
     #[qapi(name = "tbl-id")]
     pub tbl_id: Option<u32>,
 }
+
 #[qapi(command)]
 #[qapi(name = "query-rocker-of-dpa-groups")]
 #[qapi(returns = "Vec<RockerOfDpaGroup>")]
@@ -16294,6 +17114,7 @@ pub struct QueryRockerOfDpaGroups {
     pub name: String,
     pub r#type: Option<u8>,
 }
+
 #[qapi(command)]
 #[qapi(name = "query-rocker-ports")]
 #[qapi(returns = "Vec<RockerPort>")]
@@ -16301,6 +17122,7 @@ pub struct QueryRockerOfDpaGroups {
 pub struct QueryRockerPorts {
     pub name: String,
 }
+
 #[qapi(command)]
 #[qapi(name = "query-rx-filter")]
 #[qapi(returns = "Vec<RxFilterInfo>")]
@@ -16308,6 +17130,7 @@ pub struct QueryRockerPorts {
 pub struct QueryRxFilter {
     pub name: Option<String>,
 }
+
 #[qapi(command)]
 #[qapi(name = "query-s390x-cpu-polarization")]
 #[qapi(condition = "(TARGET_S390X && CONFIG_KVM)")]
@@ -16315,11 +17138,13 @@ pub struct QueryRxFilter {
 #[qapi(returns = "CpuPolarizationInfo")]
 #[qapi(added = "8.2.0")]
 pub struct QueryS390xCpuPolarization {}
+
 #[qapi(command)]
 #[qapi(name = "query-sev")]
 #[qapi(returns = "SevInfo")]
 #[qapi(added = "2.12.0")]
 pub struct QuerySev {}
+
 #[qapi(command)]
 #[qapi(name = "query-sev-attestation-report")]
 #[qapi(condition = "defined(TARGET_I386)")]
@@ -16328,33 +17153,39 @@ pub struct QuerySev {}
 pub struct QuerySevAttestationReport {
     pub mnonce: String,
 }
+
 #[qapi(command)]
 #[qapi(name = "query-sev-capabilities")]
 #[qapi(returns = "SevCapability")]
 #[qapi(added = "2.12.0")]
 pub struct QuerySevCapabilities {}
+
 #[qapi(command)]
 #[qapi(name = "query-sev-launch-measure")]
 #[qapi(returns = "SevLaunchMeasureInfo")]
 #[qapi(added = "2.12.0")]
 pub struct QuerySevLaunchMeasure {}
+
 #[qapi(command)]
 #[qapi(name = "query-sgx")]
 #[qapi(condition = "TARGET_I386")]
 #[qapi(returns = "SgxInfo")]
 #[qapi(added = "6.2.0")]
 pub struct QuerySgx {}
+
 #[qapi(command)]
 #[qapi(name = "query-sgx-capabilities")]
 #[qapi(condition = "TARGET_I386")]
 #[qapi(returns = "SgxInfo")]
 #[qapi(added = "6.2.0")]
 pub struct QuerySgxCapabilities {}
+
 #[qapi(command)]
 #[qapi(name = "query-spice")]
 #[qapi(returns = "SpiceInfo")]
 #[qapi(added = "1.0.0")]
 pub struct QuerySpice {}
+
 /// Return the schema for all available runtime-collected statistics.
 ///
 #[qapi(command)]
@@ -16377,11 +17208,13 @@ pub struct QueryStatsSchemas {
     /// however, are expected to be rare.
     pub provider: Option<StatsProvider>,
 }
+
 #[qapi(command)]
 #[qapi(name = "query-status")]
 #[qapi(returns = "StatusInfo")]
 #[qapi(added = "1.0.0")]
 pub struct QueryStatus {}
+
 /// Return information about the target for this QEMU
 ///
 #[qapi(command)]
@@ -16389,36 +17222,43 @@ pub struct QueryStatus {}
 #[qapi(returns = "TargetInfo")]
 #[qapi(added = "1.2.0")]
 pub struct QueryTarget {}
+
 #[qapi(command)]
 #[qapi(name = "query-tpm")]
 #[qapi(returns = "Vec<TpmInfo>")]
 #[qapi(added = "1.5.0")]
 pub struct QueryTpm {}
+
 #[qapi(command)]
 #[qapi(name = "query-tpm-models")]
 #[qapi(returns = "Vec<TpmModel>")]
 #[qapi(added = "1.5.0")]
 pub struct QueryTpmModels {}
+
 #[qapi(command)]
 #[qapi(name = "query-tpm-types")]
 #[qapi(returns = "Vec<TpmType>")]
 #[qapi(added = "1.5.0")]
 pub struct QueryTpmTypes {}
+
 #[qapi(command)]
 #[qapi(name = "query-uuid")]
 #[qapi(returns = "UuidInfo")]
 #[qapi(added = "1.0.0")]
 pub struct QueryUuid {}
+
 #[qapi(command)]
 #[qapi(name = "query-vcpu-dirty-limit")]
 #[qapi(returns = "Vec<DirtyLimitInfo>")]
 #[qapi(added = "7.1.0")]
 pub struct QueryVcpuDirtyLimit {}
+
 #[qapi(command)]
 #[qapi(name = "query-version")]
 #[qapi(returns = "VersionInfo")]
 #[qapi(added = "1.0.0")]
 pub struct QueryVersion {}
+
 /// Show Virtual Machine Generation ID
 ///
 #[qapi(command)]
@@ -16426,11 +17266,13 @@ pub struct QueryVersion {}
 #[qapi(returns = "GuidInfo")]
 #[qapi(added = "2.9.0")]
 pub struct QueryVmGenerationId {}
+
 #[qapi(command)]
 #[qapi(name = "query-vnc")]
 #[qapi(returns = "VncInfo")]
 #[qapi(added = "1.0.0")]
 pub struct QueryVnc {}
+
 /// Return a list of vnc servers.  The list can be empty.
 ///
 #[qapi(command)]
@@ -16438,17 +17280,20 @@ pub struct QueryVnc {}
 #[qapi(returns = "Vec<VncInfo2>")]
 #[qapi(added = "2.3.0")]
 pub struct QueryVncServers {}
+
 #[qapi(command)]
 #[qapi(name = "query-xen-replication-status")]
 #[qapi(returns = "ReplicationStatus")]
 #[qapi(added = "2.9.0")]
 pub struct QueryXenReplicationStatus {}
+
 #[qapi(command)]
 #[qapi(name = "query-yank")]
 #[qapi(returns = "Vec<YankInstance>")]
 #[qapi(allow_oob)]
 #[qapi(added = "6.0.0")]
 pub struct QueryYank {}
+
 /// This command will cause the QEMU process to exit gracefully.  While every
 /// attempt is made to send the QMP response before terminating, this is not
 /// guaranteed.  When using this interface, a premature EOF would not be
@@ -16459,6 +17304,7 @@ pub struct QueryYank {}
 #[qapi(returns = "()")]
 #[qapi(added = "1.0.0")]
 pub struct Quit {}
+
 /// Emitted by the Quorum block driver if it fails to establish a quorum
 ///
 #[qapi(event)]
@@ -16474,6 +17320,7 @@ pub struct QuorumFailureEvent {
     #[qapi(name = "sectors-count")]
     pub sectors_count: i64,
 }
+
 /// An enumeration of the quorum operation types
 ///
 #[qapi(added = "2.6.0")]
@@ -16488,6 +17335,7 @@ pub enum QuorumOpType {
     #[qapi(name = "write")]
     Write,
 }
+
 /// An enumeration of quorum read patterns.
 ///
 #[qapi(added = "2.2.0")]
@@ -16499,6 +17347,7 @@ pub enum QuorumReadPattern {
     #[qapi(name = "quorum")]
     Quorum,
 }
+
 /// Emitted to report a corruption of a Quorum file
 ///
 #[qapi(event)]
@@ -16523,6 +17372,7 @@ pub struct QuorumReportBadEvent {
     #[qapi(added = "2.6.0")]
     pub r#type: Option<QuorumOpType>,
 }
+
 #[qapi(added = "3.0.0")]
 pub enum RbdAuthMode {
     #[qapi(name = "cephx")]
@@ -16530,6 +17380,7 @@ pub enum RbdAuthMode {
     #[qapi(name = "none")]
     None,
 }
+
 #[qapi(added = "6.1.0")]
 pub struct RbdEncryptionCreateOptions {
     /// Encryption format.
@@ -16538,6 +17389,7 @@ pub struct RbdEncryptionCreateOptions {
     #[qapi(union)]
     pub u: Option<RbdEncryptionCreateOptionsBranch>,
 }
+
 #[qapi(added = "6.1.0")]
 pub enum RbdEncryptionCreateOptionsBranch {
     #[qapi(name = "luks")]
@@ -16545,6 +17397,7 @@ pub enum RbdEncryptionCreateOptionsBranch {
     #[qapi(name = "luks2")]
     Luks2(RbdEncryptionCreateOptionsLuks2),
 }
+
 #[qapi(name = "RbdEncryptionCreateOptionsLUKS")]
 #[qapi(added = "6.1.0")]
 pub struct RbdEncryptionCreateOptionsLuks {
@@ -16556,6 +17409,7 @@ pub struct RbdEncryptionCreateOptionsLuks {
     #[qapi(name = "key-secret")]
     pub key_secret: String,
 }
+
 #[qapi(name = "RbdEncryptionCreateOptionsLUKS2")]
 #[qapi(added = "6.1.0")]
 pub struct RbdEncryptionCreateOptionsLuks2 {
@@ -16567,6 +17421,7 @@ pub struct RbdEncryptionCreateOptionsLuks2 {
     #[qapi(name = "key-secret")]
     pub key_secret: String,
 }
+
 #[qapi(name = "RbdEncryptionCreateOptionsLUKSBase")]
 #[qapi(added = "6.1.0")]
 pub struct RbdEncryptionCreateOptionsLuksBase {
@@ -16578,6 +17433,7 @@ pub struct RbdEncryptionCreateOptionsLuksBase {
     #[qapi(name = "key-secret")]
     pub key_secret: String,
 }
+
 #[qapi(added = "6.1.0")]
 pub struct RbdEncryptionOptions {
     /// Encryption format.
@@ -16592,6 +17448,7 @@ pub struct RbdEncryptionOptions {
     #[qapi(union)]
     pub u: Option<RbdEncryptionOptionsBranch>,
 }
+
 #[qapi(added = "6.1.0")]
 pub enum RbdEncryptionOptionsBranch {
     #[qapi(name = "luks")]
@@ -16602,6 +17459,7 @@ pub enum RbdEncryptionOptionsBranch {
     #[qapi(name = "luks2")]
     Luks2(RbdEncryptionOptionsLuks2),
 }
+
 #[qapi(name = "RbdEncryptionOptionsLUKS")]
 #[qapi(added = "6.1.0")]
 pub struct RbdEncryptionOptionsLuks {
@@ -16610,6 +17468,7 @@ pub struct RbdEncryptionOptionsLuks {
     #[qapi(name = "key-secret")]
     pub key_secret: String,
 }
+
 #[qapi(name = "RbdEncryptionOptionsLUKS2")]
 #[qapi(added = "6.1.0")]
 pub struct RbdEncryptionOptionsLuks2 {
@@ -16618,6 +17477,7 @@ pub struct RbdEncryptionOptionsLuks2 {
     #[qapi(name = "key-secret")]
     pub key_secret: String,
 }
+
 #[qapi(name = "RbdEncryptionOptionsLUKSAny")]
 #[qapi(added = "8.0.0")]
 pub struct RbdEncryptionOptionsLuksAny {
@@ -16626,6 +17486,7 @@ pub struct RbdEncryptionOptionsLuksAny {
     #[qapi(name = "key-secret")]
     pub key_secret: String,
 }
+
 #[qapi(name = "RbdEncryptionOptionsLUKSBase")]
 #[qapi(added = "6.1.0")]
 pub struct RbdEncryptionOptionsLuksBase {
@@ -16634,6 +17495,7 @@ pub struct RbdEncryptionOptionsLuksBase {
     #[qapi(name = "key-secret")]
     pub key_secret: String,
 }
+
 #[qapi(added = "6.1.0")]
 pub enum RbdImageEncryptionFormat {
     #[qapi(name = "luks")]
@@ -16645,6 +17507,7 @@ pub enum RbdImageEncryptionFormat {
     #[qapi(name = "luks2")]
     Luks2,
 }
+
 #[qapi(event)]
 #[qapi(name = "RDMA_GID_STATUS_CHANGED")]
 #[qapi(added = "4.0.0")]
@@ -16658,6 +17521,7 @@ pub struct RdmaGidStatusChangedEvent {
     #[qapi(name = "subnet-prefix")]
     pub subnet_prefix: u64,
 }
+
 /// Possible QEMU actions upon guest reboot
 ///
 #[qapi(added = "6.0.0")]
@@ -16670,6 +17534,7 @@ pub enum RebootAction {
     #[qapi(name = "shutdown")]
     Shutdown,
 }
+
 /// Properties for x-remote-object objects.
 ///
 #[qapi(added = "6.0.0")]
@@ -16680,6 +17545,7 @@ pub struct RemoteObjectProperties {
     /// file descriptor name previously passed via `getfd` command
     pub fd: String,
 }
+
 #[qapi(command)]
 #[qapi(name = "remove-fd")]
 #[qapi(returns = "()")]
@@ -16689,6 +17555,7 @@ pub struct RemoveFd {
     #[qapi(name = "fdset-id")]
     pub fdset_id: i64,
 }
+
 #[qapi(command)]
 #[qapi(name = "replay-break")]
 #[qapi(returns = "()")]
@@ -16696,11 +17563,13 @@ pub struct RemoveFd {
 pub struct ReplayBreak {
     pub icount: i64,
 }
+
 #[qapi(command)]
 #[qapi(name = "replay-delete-break")]
 #[qapi(returns = "()")]
 #[qapi(added = "5.2.0")]
 pub struct ReplayDeleteBreak {}
+
 /// Record/replay information.
 ///
 #[qapi(added = "5.2.0")]
@@ -16713,6 +17582,7 @@ pub struct ReplayInfo {
     /// current mode.
     pub mode: ReplayMode,
 }
+
 /// Mode of the replay subsystem.
 ///
 #[qapi(added = "2.5.0")]
@@ -16729,6 +17599,7 @@ pub enum ReplayMode {
     #[qapi(name = "record")]
     Record,
 }
+
 #[qapi(command)]
 #[qapi(name = "replay-seek")]
 #[qapi(returns = "()")]
@@ -16736,6 +17607,7 @@ pub enum ReplayMode {
 pub struct ReplaySeek {
     pub icount: i64,
 }
+
 /// An enumeration of replication modes.
 ///
 #[qapi(added = "2.8.0")]
@@ -16749,6 +17621,7 @@ pub enum ReplicationMode {
     #[qapi(name = "secondary")]
     Secondary,
 }
+
 /// The result format for `query-xen-replication-status`.
 ///
 #[qapi(added = "2.9.0")]
@@ -16759,6 +17632,7 @@ pub struct ReplicationStatus {
     /// true if an error happened, false if replication is normal.
     pub error: bool,
 }
+
 #[qapi(command)]
 #[qapi(name = "request-ebpf")]
 #[qapi(condition = "CONFIG_EBPF")]
@@ -16767,6 +17641,7 @@ pub struct ReplicationStatus {
 pub struct RequestEbpf {
     pub id: EbpfProgramId,
 }
+
 /// Emitted when the virtual machine is reset
 ///
 #[qapi(event)]
@@ -16778,12 +17653,14 @@ pub struct ResetEvent {
     #[qapi(added = "4.0.0")]
     pub reason: Option<ShutdownCause>,
 }
+
 /// Emitted when the virtual machine resumes execution
 ///
 #[qapi(event)]
 #[qapi(name = "RESUME")]
 #[qapi(added = "2.1.0")]
 pub struct ResumeEvent {}
+
 #[qapi(command)]
 #[qapi(name = "ringbuf-read")]
 #[qapi(returns = "String")]
@@ -16793,6 +17670,7 @@ pub struct RingbufRead {
     pub format: Option<DataFormat>,
     pub size: i64,
 }
+
 #[qapi(command)]
 #[qapi(name = "ringbuf-write")]
 #[qapi(returns = "()")]
@@ -16802,6 +17680,7 @@ pub struct RingbufWrite {
     pub device: String,
     pub format: Option<DataFormat>,
 }
+
 /// Properties for rng-egd objects.
 ///
 #[qapi(added = "6.0.0")]
@@ -16813,12 +17692,14 @@ pub struct RngEgdProperties {
     #[qapi(deprecated = "6.1.0")]
     pub opened: Option<bool>,
 }
+
 #[qapi(added = "6.0.0")]
 pub struct RngProperties {
     #[qapi(feature = "deprecated")]
     #[qapi(deprecated = "6.1.0")]
     pub opened: Option<bool>,
 }
+
 /// Properties for rng-random objects.
 ///
 #[qapi(added = "6.0.0")]
@@ -16830,6 +17711,7 @@ pub struct RngRandomProperties {
     #[qapi(deprecated = "6.1.0")]
     pub opened: Option<bool>,
 }
+
 /// Rocker switch OF-DPA flow
 ///
 #[qapi(added = "2.4.0")]
@@ -16845,6 +17727,7 @@ pub struct RockerOfDpaFlow {
     /// flow mask
     pub mask: RockerOfDpaFlowMask,
 }
+
 /// Rocker switch OF-DPA flow action
 ///
 #[qapi(added = "2.4.0")]
@@ -16871,6 +17754,7 @@ pub struct RockerOfDpaFlowAction {
     #[qapi(name = "vlan-id")]
     pub vlan_id: Option<u16>,
 }
+
 /// Rocker switch OF-DPA flow key
 ///
 #[qapi(added = "2.4.0")]
@@ -16911,6 +17795,7 @@ pub struct RockerOfDpaFlowKey {
     #[qapi(name = "vlan-id")]
     pub vlan_id: Option<u16>,
 }
+
 /// Rocker switch OF-DPA flow mask
 ///
 #[qapi(added = "2.4.0")]
@@ -16940,6 +17825,7 @@ pub struct RockerOfDpaFlowMask {
     #[qapi(name = "vlan-id")]
     pub vlan_id: Option<u16>,
 }
+
 /// Rocker switch OF-DPA group
 ///
 #[qapi(added = "2.4.0")]
@@ -16983,6 +17869,7 @@ pub struct RockerOfDpaGroup {
     #[qapi(name = "vlan-id")]
     pub vlan_id: Option<u16>,
 }
+
 /// Rocker switch port information.
 ///
 #[qapi(added = "2.4.0")]
@@ -17001,6 +17888,7 @@ pub struct RockerPort {
     /// port link speed in Mbps
     pub speed: u32,
 }
+
 /// An enumeration of port autoneg states.
 ///
 #[qapi(added = "2.4.0")]
@@ -17012,6 +17900,7 @@ pub enum RockerPortAutoneg {
     #[qapi(name = "on")]
     On,
 }
+
 /// An enumeration of port duplex states.
 ///
 #[qapi(added = "2.4.0")]
@@ -17023,6 +17912,7 @@ pub enum RockerPortDuplex {
     #[qapi(name = "half")]
     Half,
 }
+
 /// Rocker switch information.
 ///
 #[qapi(added = "2.4.0")]
@@ -17034,6 +17924,7 @@ pub struct RockerSwitch {
     /// number of front-panel ports
     pub ports: u32,
 }
+
 /// Emitted when the guest changes the RTC time.
 ///
 #[qapi(event)]
@@ -17047,6 +17938,7 @@ pub struct RtcChangeEvent {
     #[qapi(added = "7.0.0")]
     pub qom_path: Option<String>,
 }
+
 /// This command will reset the RTC interrupt reinjection backlog.
 /// Can be used if another mechanism to synchronize guest time
 /// is in effect, for example QEMU guest agent's guest-set-time
@@ -17057,6 +17949,7 @@ pub struct RtcChangeEvent {
 #[qapi(returns = "()")]
 #[qapi(added = "2.1.0")]
 pub struct RtcResetReinjection {}
+
 /// An enumeration of VM run states.
 ///
 #[qapi(added = "1.0.0")]
@@ -17123,6 +18016,7 @@ pub enum RunState {
     #[qapi(name = "watchdog")]
     Watchdog,
 }
+
 /// Rx-filter information for a NIC.
 ///
 #[qapi(added = "1.6.0")]
@@ -17160,6 +18054,7 @@ pub struct RxFilterInfo {
     #[qapi(name = "vlan-table")]
     pub vlan_table: Vec<i64>,
 }
+
 /// Packets receiving state
 ///
 #[qapi(added = "1.6.0")]
@@ -17174,6 +18069,7 @@ pub enum RxState {
     #[qapi(name = "normal")]
     Normal,
 }
+
 /// An enumeration of CPU entitlements that can be assumed by a virtual
 /// S390 CPU
 ///
@@ -17188,6 +18084,7 @@ pub enum S390CpuEntitlement {
     #[qapi(name = "medium")]
     Medium,
 }
+
 /// An enumeration of CPU polarization that can be assumed by a virtual
 /// S390 CPU
 ///
@@ -17199,6 +18096,7 @@ pub enum S390CpuPolarization {
     #[qapi(name = "vertical")]
     Vertical,
 }
+
 /// An enumeration of cpu states that can be assumed by a virtual S390
 /// CPU
 ///
@@ -17215,6 +18113,7 @@ pub enum S390CpuState {
     #[qapi(name = "uninitialized")]
     Uninitialized,
 }
+
 /// Reason why the CPU is in a crashed state.
 ///
 #[qapi(added = "2.12.0")]
@@ -17237,6 +18136,7 @@ pub enum S390CrashReason {
     #[qapi(name = "unknown")]
     Unknown,
 }
+
 #[qapi(added = "2.5.0")]
 pub struct SchemaInfo {
     /// names of features associated with the entity, in no
@@ -17258,6 +18158,7 @@ pub struct SchemaInfo {
     #[qapi(union)]
     pub u: Option<SchemaInfoBranch>,
 }
+
 /// Additional `SchemaInfo` members for meta-type 'alternate'.
 ///
 #[qapi(added = "2.5.0")]
@@ -17269,6 +18170,7 @@ pub struct SchemaInfoAlternate {
     /// On the wire, this can be any of the members.
     pub members: Vec<SchemaInfoAlternateMember>,
 }
+
 /// An alternate member.
 ///
 #[qapi(added = "2.5.0")]
@@ -17276,6 +18178,7 @@ pub struct SchemaInfoAlternateMember {
     /// the name of the member's type.
     pub r#type: String,
 }
+
 /// Additional `SchemaInfo` members for meta-type 'array'.
 ///
 #[qapi(added = "2.5.0")]
@@ -17286,6 +18189,7 @@ pub struct SchemaInfoArray {
     #[qapi(name = "element-type")]
     pub element_type: String,
 }
+
 /// Members common to any @SchemaInfo.
 ///
 #[qapi(added = "2.5.0")]
@@ -17295,6 +18199,7 @@ pub struct SchemaInfoBase {
     pub meta_type: SchemaMetaType,
     pub name: String,
 }
+
 #[qapi(added = "2.5.0")]
 pub enum SchemaInfoBranch {
     #[qapi(name = "alternate")]
@@ -17312,6 +18217,7 @@ pub enum SchemaInfoBranch {
     #[qapi(name = "object")]
     Object(SchemaInfoObject),
 }
+
 /// Additional `SchemaInfo` members for meta-type 'builtin'.
 ///
 #[qapi(added = "2.5.0")]
@@ -17320,6 +18226,7 @@ pub struct SchemaInfoBuiltin {
     #[qapi(name = "json-type")]
     pub json_type: JsonType,
 }
+
 #[qapi(added = "2.5.0")]
 pub struct SchemaInfoCommand {
     #[qapi(name = "allow-oob")]
@@ -17333,6 +18240,7 @@ pub struct SchemaInfoCommand {
     #[qapi(name = "ret-type")]
     pub ret_type: String,
 }
+
 /// Additional SchemaInfo members for meta-type 'enum'.
 ///
 #[qapi(added = "2.5.0")]
@@ -17345,6 +18253,7 @@ pub struct SchemaInfoEnum {
     #[qapi(deprecated = "6.2.0")]
     pub values: Vec<String>,
 }
+
 /// An object member.
 ///
 #[qapi(added = "6.2.0")]
@@ -17355,6 +18264,7 @@ pub struct SchemaInfoEnumMember {
     /// the member's name, as defined in the QAPI schema.
     pub name: String,
 }
+
 /// Additional `SchemaInfo` members for meta-type 'event'.
 ///
 #[qapi(added = "2.5.0")]
@@ -17364,6 +18274,7 @@ pub struct SchemaInfoEvent {
     #[qapi(name = "arg-type")]
     pub arg_type: String,
 }
+
 /// Additional `SchemaInfo` members for meta-type 'object'.
 ///
 #[qapi(added = "2.5.0")]
@@ -17387,6 +18298,7 @@ pub struct SchemaInfoObject {
     /// Values of this type are JSON object on the wire.
     pub variants: Option<Vec<SchemaInfoObjectVariant>>,
 }
+
 /// An object member.
 ///
 #[qapi(added = "2.5.0")]
@@ -17406,6 +18318,7 @@ pub struct SchemaInfoObjectMember {
     /// the name of the member's type.
     pub r#type: String,
 }
+
 /// The variant members for a value of the type tag.
 ///
 #[qapi(added = "2.5.0")]
@@ -17416,6 +18329,7 @@ pub struct SchemaInfoObjectVariant {
     /// when the type tag has value @case.
     pub r#type: String,
 }
+
 /// This is a `SchemaInfo`'s meta type, i.e. the kind of entity it
 /// describes.
 ///
@@ -17443,11 +18357,13 @@ pub enum SchemaMetaType {
     #[qapi(name = "object")]
     Object,
 }
+
 #[qapi(event)]
 #[qapi(name = "SCLP_CPI_INFO_AVAILABLE")]
 #[qapi(feature = "unstable")]
 #[qapi(added = "10.2.0")]
 pub struct SclpCpiInfoAvailableEvent {}
+
 #[qapi(command)]
 #[qapi(name = "screendump")]
 #[qapi(returns = "()")]
@@ -17461,6 +18377,7 @@ pub struct Screendump {
     #[qapi(added = "2.12.0")]
     pub head: Option<i64>,
 }
+
 /// Properties for objects of classes derived from secret-common.
 ///
 #[qapi(added = "6.0.0")]
@@ -17482,6 +18399,7 @@ pub struct SecretCommonProperties {
     #[qapi(removed = "9.2.0")]
     pub loaded: Option<bool>,
 }
+
 /// Properties for secret_keyring objects.
 ///
 #[qapi(added = "6.0.0")]
@@ -17505,6 +18423,7 @@ pub struct SecretKeyringProperties {
     /// serial number that identifies a key to get from the kernel
     pub serial: i32,
 }
+
 /// Properties for secret objects.
 ///
 /// Either @data or @file must be provided, but not both.
@@ -17532,6 +18451,7 @@ pub struct SecretProperties {
     #[qapi(removed = "9.2.0")]
     pub loaded: Option<bool>,
 }
+
 #[qapi(command)]
 #[qapi(name = "send-key")]
 #[qapi(returns = "()")]
@@ -17541,6 +18461,7 @@ pub struct SendKey {
     pub hold_time: Option<i64>,
     pub keys: Vec<KeyValue>,
 }
+
 #[qapi(command)]
 #[qapi(name = "set-action")]
 #[qapi(returns = "()")]
@@ -17552,6 +18473,7 @@ pub struct SetAction {
     pub shutdown: Option<ShutdownAction>,
     pub watchdog: Option<WatchdogAction>,
 }
+
 #[qapi(command)]
 #[qapi(name = "set-cpu-topology")]
 #[qapi(condition = "(TARGET_S390X && CONFIG_KVM)")]
@@ -17570,6 +18492,7 @@ pub struct SetCpuTopology {
     #[qapi(name = "socket-id")]
     pub socket_id: Option<u16>,
 }
+
 #[qapi(command)]
 #[qapi(name = "set_link")]
 #[qapi(returns = "()")]
@@ -17578,6 +18501,7 @@ pub struct SetLink {
     pub name: String,
     pub up: bool,
 }
+
 #[qapi(command)]
 #[qapi(name = "set_password")]
 #[qapi(returns = "()")]
@@ -17588,6 +18512,7 @@ pub struct SetPassword {
     pub password: String,
     pub protocol: String,
 }
+
 /// An action to take on changing a password on a connection with active
 /// clients.
 ///
@@ -17603,6 +18528,7 @@ pub enum SetPasswordAction {
     #[qapi(name = "keep")]
     Keep,
 }
+
 /// Options for `set_password`.
 ///
 #[qapi(command)]
@@ -17622,11 +18548,13 @@ pub struct SetPasswordOptions {
     #[qapi(union)]
     pub u: Option<SetPasswordOptionsBranch>,
 }
+
 #[qapi(added = "7.0.0")]
 pub enum SetPasswordOptionsBranch {
     #[qapi(name = "vnc")]
     Vnc(SetPasswordOptionsVnc),
 }
+
 /// Options for `set_password` specific to the VNC protocol.
 ///
 #[qapi(added = "7.0.0")]
@@ -17635,6 +18563,7 @@ pub struct SetPasswordOptionsVnc {
     /// changed.  Defaults to the first.
     pub display: Option<String>,
 }
+
 #[qapi(command)]
 #[qapi(name = "set-vcpu-dirty-limit")]
 #[qapi(returns = "()")]
@@ -17645,6 +18574,7 @@ pub struct SetVcpuDirtyLimit {
     #[qapi(name = "dirty-rate")]
     pub dirty_rate: u64,
 }
+
 /// The struct describes attestation report for a Secure Encrypted
 /// Virtualization feature.
 ///
@@ -17654,6 +18584,7 @@ pub struct SevAttestationReport {
     /// guest attestation report (base64 encoded)
     pub data: String,
 }
+
 /// The struct describes capability for a Secure Encrypted
 /// Virtualization feature.
 ///
@@ -17675,6 +18606,7 @@ pub struct SevCapability {
     #[qapi(name = "reduced-phys-bits")]
     pub reduced_phys_bits: i64,
 }
+
 /// Properties common to objects that are derivatives of sev-common.
 ///
 #[qapi(added = "9.1.0")]
@@ -17694,6 +18626,7 @@ pub struct SevCommonProperties {
     #[qapi(name = "sev-device")]
     pub sev_device: Option<String>,
 }
+
 /// Information specific to legacy SEV/SEV-ES guests.
 ///
 #[qapi(condition = "TARGET_I386")]
@@ -17704,6 +18637,7 @@ pub struct SevGuestInfo {
     /// SEV policy value
     pub policy: u32,
 }
+
 /// Properties for sev-guest objects.
 ///
 #[qapi(added = "6.0.0")]
@@ -17747,6 +18681,7 @@ pub struct SevGuestProperties {
     #[qapi(name = "sev-device")]
     pub sev_device: Option<String>,
 }
+
 /// An enumeration indicating the type of SEV guest being run.
 ///
 #[qapi(condition = "TARGET_I386")]
@@ -17759,6 +18694,7 @@ pub enum SevGuestType {
     #[qapi(name = "sev-snp")]
     SevSnp,
 }
+
 /// Information about Secure Encrypted Virtualization (SEV) support
 ///
 #[qapi(added = "2.12.0")]
@@ -17791,6 +18727,7 @@ pub struct SevInfo {
     #[qapi(added = "9.1.0")]
     pub u: Option<SevInfoBranch>,
 }
+
 #[qapi(added = "9.1.0")]
 pub enum SevInfoBranch {
     #[qapi(name = "sev")]
@@ -17798,6 +18735,7 @@ pub enum SevInfoBranch {
     #[qapi(name = "sev-snp")]
     SevSnp(SevSnpGuestInfo),
 }
+
 /// This command injects a secret blob into memory of SEV guest.
 ///
 #[qapi(command)]
@@ -17814,6 +18752,7 @@ pub struct SevInjectLaunchSecret {
     /// the launch secret data to be injected encoded in base64
     pub secret: String,
 }
+
 /// SEV Guest Launch measurement information
 ///
 #[qapi(added = "2.12.0")]
@@ -17821,6 +18760,7 @@ pub struct SevLaunchMeasureInfo {
     /// the measurement value encoded in base64
     pub data: String,
 }
+
 /// Information specific to SEV-SNP guests.
 ///
 #[qapi(condition = "TARGET_I386")]
@@ -17830,6 +18770,7 @@ pub struct SevSnpGuestInfo {
     #[qapi(name = "snp-policy")]
     pub snp_policy: u64,
 }
+
 /// Properties for sev-snp-guest objects.  Most of these are direct
 /// arguments for the KVM_SNP_* interfaces documented in the Linux
 /// kernel source under
@@ -17893,6 +18834,7 @@ pub struct SevSnpGuestProperties {
     #[qapi(name = "vcek-disabled")]
     pub vcek_disabled: Option<bool>,
 }
+
 /// An enumeration of SEV state information used during `query-sev`.
 ///
 #[qapi(added = "2.12.0")]
@@ -17920,6 +18862,7 @@ pub enum SevState {
     #[qapi(name = "uninit")]
     Uninit,
 }
+
 /// Sgx EPC cmdline information
 ///
 #[qapi(name = "SgxEPC")]
@@ -17931,6 +18874,7 @@ pub struct SgxEpc {
     #[qapi(added = "7.0.0")]
     pub node: Option<i64>,
 }
+
 /// Sgx EPC state information
 ///
 #[qapi(name = "SgxEPCDeviceInfo")]
@@ -17948,12 +18892,14 @@ pub struct SgxEpcDeviceInfo {
     /// size of memory that the device provides
     pub size: u64,
 }
+
 #[qapi(name = "SgxEPCDeviceInfoWrapper")]
 #[qapi(added = "6.2.0")]
 pub struct SgxEpcDeviceInfoWrapper {
     /// Sgx EPC state information
     pub data: SgxEpcDeviceInfo,
 }
+
 /// SGX properties of machine types.
 ///
 #[qapi(name = "SgxEPCProperties")]
@@ -17963,6 +18909,7 @@ pub struct SgxEpcProperties {
     #[qapi(name = "sgx-epc")]
     pub sgx_epc: Vec<SgxEpc>,
 }
+
 /// Information about intel SGX EPC section info
 ///
 #[qapi(name = "SGXEPCSection")]
@@ -17974,6 +18921,7 @@ pub struct SgxepcSection {
     /// the size of EPC section
     pub size: u64,
 }
+
 /// Information about intel SGX EPC section
 ///
 #[qapi(added = "10.1.0")]
@@ -17983,6 +18931,7 @@ pub struct SgxEpcSection {
     /// the size of EPC section
     pub size: u64,
 }
+
 /// Information about intel Safe Guard eXtension (SGX) support
 ///
 #[qapi(name = "SGXInfo")]
@@ -18007,6 +18956,7 @@ pub struct SgxInfo {
     /// true if SGX2 is supported
     pub sgx2: bool,
 }
+
 #[qapi(added = "2.12.0")]
 #[qapi(removed = "6.1.0")]
 pub struct SheepdogRedundancy {
@@ -18015,6 +18965,7 @@ pub struct SheepdogRedundancy {
     #[qapi(union)]
     pub u: Option<SheepdogRedundancyBranch>,
 }
+
 #[qapi(added = "2.12.0")]
 #[qapi(removed = "6.1.0")]
 pub enum SheepdogRedundancyBranch {
@@ -18023,6 +18974,7 @@ pub enum SheepdogRedundancyBranch {
     #[qapi(name = "full")]
     Full(SheepdogRedundancyFull),
 }
+
 #[qapi(added = "2.12.0")]
 #[qapi(removed = "6.1.0")]
 pub struct SheepdogRedundancyErasureCoded {
@@ -18033,12 +18985,14 @@ pub struct SheepdogRedundancyErasureCoded {
     #[qapi(name = "parity-strips")]
     pub parity_strips: i64,
 }
+
 #[qapi(added = "2.12.0")]
 #[qapi(removed = "6.1.0")]
 pub struct SheepdogRedundancyFull {
     /// Number of copies to use (between 1 and 31)
     pub copies: i64,
 }
+
 #[qapi(added = "2.12.0")]
 #[qapi(removed = "6.1.0")]
 pub enum SheepdogRedundancyType {
@@ -18050,6 +19004,7 @@ pub enum SheepdogRedundancyType {
     #[qapi(name = "full")]
     Full,
 }
+
 /// Possible QEMU actions upon guest shutdown
 ///
 #[qapi(added = "6.0.0")]
@@ -18061,6 +19016,7 @@ pub enum ShutdownAction {
     #[qapi(name = "poweroff")]
     Poweroff,
 }
+
 #[qapi(added = "4.0.0")]
 pub enum ShutdownCause {
     #[qapi(name = "guest-panic")]
@@ -18087,6 +19043,7 @@ pub enum ShutdownCause {
     #[qapi(name = "subsystem-reset")]
     SubsystemReset,
 }
+
 #[qapi(event)]
 #[qapi(name = "SHUTDOWN")]
 #[qapi(added = "2.1.0")]
@@ -18096,6 +19053,7 @@ pub struct ShutdownEvent {
     #[qapi(added = "4.0.0")]
     pub reason: Option<ShutdownCause>,
 }
+
 #[qapi(added = "7.0.0")]
 pub enum SmbiosEntryPointType {
     /// SMBIOS version 2.1 (32-bit) Entry Point
@@ -18110,6 +19068,7 @@ pub enum SmbiosEntryPointType {
     #[qapi(added = "9.0.0")]
     Auto,
 }
+
 /// Cache information for SMP system.
 ///
 #[qapi(added = "9.2.0")]
@@ -18122,6 +19081,7 @@ pub struct SmpCacheProperties {
     /// topology container share the same cache.
     pub topology: CpuTopologyLevel,
 }
+
 /// List wrapper of `SmpCacheProperties`.
 ///
 #[qapi(added = "9.2.0")]
@@ -18129,6 +19089,7 @@ pub struct SmpCachePropertiesWrapper {
     /// the list of `SmpCacheProperties`.
     pub caches: Vec<SmpCacheProperties>,
 }
+
 /// Schema for CPU topology configuration.  A missing value lets QEMU
 /// figure out a suitable value based on the ones that are provided.
 ///
@@ -18165,6 +19126,7 @@ pub struct SmpConfiguration {
     /// number of threads per core
     pub threads: Option<i64>,
 }
+
 /// Delete a VM snapshot
 ///
 #[qapi(command)]
@@ -18217,6 +19179,7 @@ pub struct SnapshotDelete {
     /// name of the snapshot to delete.
     pub tag: String,
 }
+
 #[qapi(added = "1.3.0")]
 pub struct SnapshotInfo {
     /// fractional part in nano seconds to be used with date-sec
@@ -18247,6 +19210,7 @@ pub struct SnapshotInfo {
     #[qapi(name = "vm-state-size")]
     pub vm_state_size: i64,
 }
+
 #[qapi(command)]
 #[qapi(name = "snapshot-load")]
 #[qapi(returns = "()")]
@@ -18258,6 +19222,7 @@ pub struct SnapshotLoad {
     pub tag: String,
     pub vmstate: String,
 }
+
 #[qapi(command)]
 #[qapi(name = "snapshot-save")]
 #[qapi(returns = "()")]
@@ -18269,6 +19234,7 @@ pub struct SnapshotSave {
     pub tag: String,
     pub vmstate: String,
 }
+
 /// Captures the address of a socket, which could also be a socket file
 /// descriptor
 ///
@@ -18285,6 +19251,7 @@ pub struct SocketAddress {
     #[qapi(union)]
     pub u: Option<SocketAddressBranch>,
 }
+
 #[qapi(added = "1.3.0")]
 pub enum SocketAddressBranch {
     #[qapi(name = "fd")]
@@ -18297,6 +19264,7 @@ pub enum SocketAddressBranch {
     #[qapi(added = "2.8.0")]
     Vsock(VsockSocketAddress),
 }
+
 /// Captures the address of a socket
 ///
 #[qapi(added = "2.9.0")]
@@ -18312,6 +19280,7 @@ pub struct SocketAddressFlat {
     #[qapi(union)]
     pub u: Option<SocketAddressFlatBranch>,
 }
+
 #[qapi(added = "2.9.0")]
 #[qapi(removed = "2.10.0")]
 pub enum SocketAddressFlatBranch {
@@ -18324,6 +19293,7 @@ pub enum SocketAddressFlatBranch {
     #[qapi(name = "vsock")]
     Vsock(VsockSocketAddress),
 }
+
 /// Available SocketAddressFlat types
 ///
 #[qapi(added = "2.9.0")]
@@ -18340,6 +19310,7 @@ pub enum SocketAddressFlatType {
     #[qapi(name = "vsock")]
     Vsock,
 }
+
 /// Captures the address of a socket, which could also be a named file
 /// descriptor
 ///
@@ -18356,6 +19327,7 @@ pub struct SocketAddressLegacy {
     #[qapi(union)]
     pub u: Option<SocketAddressLegacyBranch>,
 }
+
 #[qapi(added = "2.10.0")]
 pub enum SocketAddressLegacyBranch {
     #[qapi(name = "fd")]
@@ -18367,6 +19339,7 @@ pub enum SocketAddressLegacyBranch {
     #[qapi(name = "vsock")]
     Vsock(VsockSocketAddress),
 }
+
 #[qapi(added = "2.10.0")]
 #[qapi(removed = "6.2.0")]
 pub enum SocketAddressLegacyType {
@@ -18379,6 +19352,7 @@ pub enum SocketAddressLegacyType {
     #[qapi(name = "vsock")]
     Vsock,
 }
+
 /// Available `SocketAddress` types
 ///
 #[qapi(added = "1.3.0")]
@@ -18397,6 +19371,7 @@ pub enum SocketAddressType {
     #[qapi(added = "2.8.0")]
     Vsock,
 }
+
 /// The basic information for SPICE network connection
 ///
 #[qapi(added = "2.1.0")]
@@ -18408,6 +19383,7 @@ pub struct SpiceBasicInfo {
     /// port number
     pub port: String,
 }
+
 /// Information about a SPICE client channel.
 ///
 #[qapi(added = "1.0.0")]
@@ -18435,6 +19411,7 @@ pub struct SpiceChannel {
     /// true if the channel is encrypted, false otherwise.
     pub tls: bool,
 }
+
 /// Emitted when a SPICE client establishes a connection
 ///
 #[qapi(event)]
@@ -18446,6 +19423,7 @@ pub struct SpiceConnectedEvent {
     /// server information
     pub server: SpiceBasicInfo,
 }
+
 /// Emitted when the SPICE connection is closed
 ///
 #[qapi(event)]
@@ -18457,6 +19435,7 @@ pub struct SpiceDisconnectedEvent {
     /// server information
     pub server: SpiceBasicInfo,
 }
+
 /// Information about the SPICE session.
 ///
 #[qapi(added = "1.0.0")]
@@ -18494,6 +19473,7 @@ pub struct SpiceInfo {
     #[qapi(name = "tls-port")]
     pub tls_port: Option<i64>,
 }
+
 /// Emitted after initial handshake and authentication takes place (if any)
 /// and the SPICE channel is up and running
 ///
@@ -18506,12 +19486,14 @@ pub struct SpiceInitializedEvent {
     /// server information
     pub server: SpiceServerInfo,
 }
+
 /// Emitted when SPICE migration has completed
 ///
 #[qapi(event)]
 #[qapi(name = "SPICE_MIGRATE_COMPLETED")]
 #[qapi(added = "2.1.0")]
 pub struct SpiceMigrateCompletedEvent {}
+
 /// An enumeration of Spice mouse states.
 ///
 #[qapi(added = "1.1.0")]
@@ -18527,6 +19509,7 @@ pub enum SpiceQueryMouseMode {
     #[qapi(name = "unknown")]
     Unknown,
 }
+
 /// Information about a SPICE server
 ///
 #[qapi(added = "2.1.0")]
@@ -18540,6 +19523,7 @@ pub struct SpiceServerInfo {
     /// port number
     pub port: String,
 }
+
 #[qapi(added = "2.12.0")]
 pub struct SshHostKeyCheck {
     /// How to check the host key
@@ -18548,6 +19532,7 @@ pub struct SshHostKeyCheck {
     #[qapi(union)]
     pub u: Option<SshHostKeyCheckBranch>,
 }
+
 #[qapi(added = "2.12.0")]
 pub enum SshHostKeyCheckBranch {
     #[qapi(name = "hash")]
@@ -18559,6 +19544,7 @@ pub enum SshHostKeyCheckBranch {
     #[qapi(removed = "3.0.0")]
     None(SshHostKeyDummy),
 }
+
 #[qapi(added = "2.12.0")]
 pub enum SshHostKeyCheckHashType {
     /// The given hash is an md5 hash
@@ -18572,6 +19558,7 @@ pub enum SshHostKeyCheckHashType {
     #[qapi(added = "6.1.0")]
     Sha256,
 }
+
 #[qapi(added = "2.12.0")]
 pub enum SshHostKeyCheckMode {
     /// Compare the host key with a given hash
@@ -18584,11 +19571,13 @@ pub enum SshHostKeyCheckMode {
     #[qapi(name = "none")]
     None,
 }
+
 /// For those union branches that don't need additional fields.
 ///
 #[qapi(added = "2.12.0")]
 #[qapi(removed = "3.0.0")]
 pub struct SshHostKeyDummy {}
+
 #[qapi(added = "2.12.0")]
 pub struct SshHostKeyHash {
     /// The expected hash value
@@ -18596,6 +19585,7 @@ pub struct SshHostKeyHash {
     /// The hash algorithm used for the hash
     pub r#type: SshHostKeyCheckHashType,
 }
+
 #[qapi(added = "7.1.0")]
 pub struct Stats {
     /// name of stat.
@@ -18603,6 +19593,7 @@ pub struct Stats {
     /// stat value.
     pub value: StatsValue,
 }
+
 /// The arguments to the `query-stats` command; specifies a target for
 /// which to request statistics and optionally the required subset of
 /// information for that target.
@@ -18621,11 +19612,13 @@ pub struct StatsFilter {
     #[qapi(union)]
     pub u: Option<StatsFilterBranch>,
 }
+
 #[qapi(added = "7.1.0")]
 pub enum StatsFilterBranch {
     #[qapi(name = "vcpu")]
     Vcpu(StatsVcpuFilter),
 }
+
 /// Enumeration of statistics providers.
 ///
 #[qapi(added = "7.1.0")]
@@ -18638,6 +19631,7 @@ pub enum StatsProvider {
     #[qapi(name = "kvm")]
     Kvm,
 }
+
 /// Indicates a set of statistics that should be returned by
 /// `query-stats`.
 ///
@@ -18648,6 +19642,7 @@ pub struct StatsRequest {
     /// provider for which to return statistics.
     pub provider: StatsProvider,
 }
+
 #[qapi(added = "7.1.0")]
 pub struct StatsResult {
     /// provider for this set of statistics.
@@ -18659,6 +19654,7 @@ pub struct StatsResult {
     /// list of statistics.
     pub stats: Vec<Stats>,
 }
+
 /// Schema for all available statistics for a provider and target.
 ///
 #[qapi(added = "7.1.0")]
@@ -18671,6 +19667,7 @@ pub struct StatsSchema {
     /// provider.
     pub target: StatsTarget,
 }
+
 /// Schema for a single statistic.
 ///
 #[qapi(added = "7.1.0")]
@@ -18695,6 +19692,7 @@ pub struct StatsSchemaValue {
     /// statistic is a simple number or counter.
     pub unit: Option<StatsUnit>,
 }
+
 /// The kinds of objects on which one can request statistics.
 ///
 #[qapi(added = "7.1.0")]
@@ -18711,6 +19709,7 @@ pub enum StatsTarget {
     #[qapi(name = "vm")]
     Vm,
 }
+
 /// Enumeration of statistics types
 ///
 #[qapi(added = "7.1.0")]
@@ -18732,6 +19731,7 @@ pub enum StatsType {
     #[qapi(name = "peak")]
     Peak,
 }
+
 /// Enumeration of unit of measurement for statistics
 ///
 #[qapi(added = "7.1.0")]
@@ -18749,6 +19749,7 @@ pub enum StatsUnit {
     #[qapi(name = "seconds")]
     Seconds,
 }
+
 #[qapi(added = "7.1.0")]
 pub enum StatsValue {
     /// single boolean value.
@@ -18761,12 +19762,14 @@ pub enum StatsValue {
     #[qapi(name = "scalar")]
     Scalar(u64),
 }
+
 #[qapi(name = "StatsVCPUFilter")]
 #[qapi(added = "7.1.0")]
 pub struct StatsVcpuFilter {
     /// list of QOM paths for the desired vCPU objects.
     pub vcpus: Option<Vec<String>>,
 }
+
 /// Information about VM run state
 ///
 #[qapi(added = "1.0.0")]
@@ -18779,22 +19782,26 @@ pub struct StatusInfo {
     /// the virtual machine `RunState`
     pub status: RunState,
 }
+
 #[qapi(command)]
 #[qapi(name = "stop")]
 #[qapi(returns = "()")]
 #[qapi(added = "1.0.0")]
 pub struct Stop {}
+
 /// Emitted when the virtual machine is stopped
 ///
 #[qapi(event)]
 #[qapi(name = "STOP")]
 #[qapi(added = "2.1.0")]
 pub struct StopEvent {}
+
 #[qapi(added = "6.2.0")]
 #[qapi(removed = "9.0.0")]
 pub struct StringWrapper {
     pub data: QapiString,
 }
+
 /// This is a string value or the explicit lack of a string (null
 /// pointer in C).  Intended for cases when 'optional absent' already
 /// has a different meaning.
@@ -18808,10 +19815,12 @@ pub enum StrOrNull {
     #[qapi(name = "s")]
     S(String),
 }
+
 #[qapi(event)]
 #[qapi(name = "SUSPEND_DISK")]
 #[qapi(added = "2.1.0")]
 pub struct SuspendDiskEvent {}
+
 /// Emitted when guest enters a hardware suspension state, for example, S3 state,
 /// which is sometimes called standby state
 ///
@@ -18819,6 +19828,7 @@ pub struct SuspendDiskEvent {}
 #[qapi(name = "SUSPEND")]
 #[qapi(added = "2.1.0")]
 pub struct SuspendEvent {}
+
 /// The comprehensive enumeration of QEMU system emulation ("softmmu")
 /// targets.  Run "./configure --help" in the project root directory,
 /// and look for the \*-softmmu targets near the "--target-list" option.
@@ -18914,11 +19924,13 @@ pub enum SysEmuTarget {
     #[qapi(name = "xtensaeb")]
     Xtensaeb,
 }
+
 #[qapi(command)]
 #[qapi(name = "system_powerdown")]
 #[qapi(returns = "()")]
 #[qapi(added = "1.0.0")]
 pub struct SystemPowerdown {}
+
 /// Performs a hard reset of a guest.
 ///
 #[qapi(command)]
@@ -18926,11 +19938,13 @@ pub struct SystemPowerdown {}
 #[qapi(returns = "()")]
 #[qapi(added = "1.0.0")]
 pub struct SystemReset {}
+
 #[qapi(command)]
 #[qapi(name = "system_wakeup")]
 #[qapi(returns = "()")]
 #[qapi(added = "1.1.0")]
 pub struct SystemWakeup {}
+
 /// Information describing the QEMU target.
 ///
 #[qapi(added = "1.2.0")]
@@ -18939,6 +19953,7 @@ pub struct TargetInfo {
     /// the target architecture
     pub arch: TargetType,
 }
+
 /// Target CPU emulation type
 ///
 /// These parameters correspond to the softmmu binary CPU name that is currently
@@ -19001,6 +20016,7 @@ pub enum TargetType {
     #[qapi(name = "xtensaeb")]
     Xtensaeb,
 }
+
 /// Properties for tdx-guest objects.
 ///
 #[qapi(added = "10.1.0")]
@@ -19032,6 +20048,7 @@ pub struct TdxGuestProperties {
     #[qapi(name = "sept-ve-disable")]
     pub sept_ve_disable: Option<bool>,
 }
+
 /// Properties for thread context objects.
 ///
 #[qapi(added = "7.2.0")]
@@ -19049,6 +20066,7 @@ pub struct ThreadContextProperties {
     #[qapi(name = "node-affinity")]
     pub node_affinity: Option<Vec<u16>>,
 }
+
 /// Properties for throttle-group objects.
 ///
 /// The options starting with x- are aliases for the same key without x- in
@@ -19097,6 +20115,7 @@ pub struct ThrottleGroupProperties {
     #[qapi(name = "x-iops-write-max-length")]
     pub x_iops_write_max_length: Option<i64>,
 }
+
 /// Limit parameters for throttling.  Since some limit combinations are
 /// illegal, limits should always be set in one transaction.  All fields
 /// are optional.  When setting limits, if a field is missing the
@@ -19170,6 +20189,7 @@ pub struct ThrottleLimits {
     #[qapi(name = "iops-write-max-length")]
     pub iops_write_max_length: Option<i64>,
 }
+
 /// Specifies unit in which time-related value is specified.
 ///
 #[qapi(added = "8.2.0")]
@@ -19181,6 +20201,7 @@ pub enum TimeUnit {
     #[qapi(name = "second")]
     Second,
 }
+
 /// Properties for tls-creds-anon objects.
 ///
 #[qapi(added = "6.0.0")]
@@ -19204,6 +20225,7 @@ pub struct TlsCredsAnonProperties {
     #[qapi(name = "verify-peer")]
     pub verify_peer: Option<bool>,
 }
+
 /// Properties for objects of classes derived from tls-creds.
 ///
 #[qapi(added = "6.0.0")]
@@ -19223,6 +20245,7 @@ pub struct TlsCredsProperties {
     #[qapi(name = "verify-peer")]
     pub verify_peer: Option<bool>,
 }
+
 /// Properties for tls-creds-psk objects.
 ///
 #[qapi(added = "6.0.0")]
@@ -19250,6 +20273,7 @@ pub struct TlsCredsPskProperties {
     #[qapi(name = "verify-peer")]
     pub verify_peer: Option<bool>,
 }
+
 /// Properties for tls-creds-x509 objects.
 ///
 #[qapi(added = "6.0.0")]
@@ -19283,6 +20307,7 @@ pub struct TlsCredsX509Properties {
     #[qapi(name = "verify-peer")]
     pub verify_peer: Option<bool>,
 }
+
 /// Information about the TPM emulator type
 ///
 #[qapi(name = "TPMEmulatorOptions")]
@@ -19291,6 +20316,7 @@ pub struct TpmEmulatorOptions {
     /// Name of a unix socket chardev
     pub chardev: String,
 }
+
 #[qapi(name = "TPMEmulatorOptionsWrapper")]
 #[qapi(condition = "CONFIG_TPM")]
 #[qapi(added = "6.2.0")]
@@ -19298,6 +20324,7 @@ pub struct TpmEmulatorOptionsWrapper {
     /// Information about the TPM emulator type
     pub data: TpmEmulatorOptions,
 }
+
 /// Information about the TPM
 ///
 #[qapi(name = "TPMInfo")]
@@ -19310,6 +20337,7 @@ pub struct TpmInfo {
     /// The TPM (backend) type configuration options
     pub options: TpmTypeOptions,
 }
+
 /// An enumeration of TPM models
 ///
 #[qapi(added = "1.5.0")]
@@ -19326,6 +20354,7 @@ pub enum TpmModel {
     #[qapi(name = "tpm-tis")]
     TpmTis,
 }
+
 /// Information about the TPM passthrough type
 ///
 #[qapi(name = "TPMPassthroughOptions")]
@@ -19338,6 +20367,7 @@ pub struct TpmPassthroughOptions {
     /// string describing the path used for accessing the TPM device
     pub path: Option<String>,
 }
+
 #[qapi(name = "TPMPassthroughOptionsWrapper")]
 #[qapi(condition = "CONFIG_TPM")]
 #[qapi(added = "6.2.0")]
@@ -19345,6 +20375,7 @@ pub struct TpmPassthroughOptionsWrapper {
     /// Information about the TPM passthrough type
     pub data: TpmPassthroughOptions,
 }
+
 /// An enumeration of TPM types
 ///
 #[qapi(added = "1.5.0")]
@@ -19357,6 +20388,7 @@ pub enum TpmType {
     #[qapi(name = "passthrough")]
     Passthrough,
 }
+
 /// A union referencing different TPM backend types' configuration
 /// options
 ///
@@ -19376,6 +20408,7 @@ pub struct TpmTypeOptions {
     #[qapi(union)]
     pub u: Option<TpmTypeOptionsBranch>,
 }
+
 #[qapi(added = "1.5.0")]
 pub enum TpmTypeOptionsBranch {
     #[qapi(name = "emulator")]
@@ -19384,6 +20417,7 @@ pub enum TpmTypeOptionsBranch {
     #[qapi(name = "passthrough")]
     Passthrough(TpmPassthroughOptions),
 }
+
 #[qapi(added = "1.5.0")]
 #[qapi(removed = "6.2.0")]
 pub enum TpmTypeOptionsType {
@@ -19393,6 +20427,7 @@ pub enum TpmTypeOptionsType {
     #[qapi(name = "passthrough")]
     Passthrough,
 }
+
 #[qapi(command)]
 #[qapi(name = "trace-event-get-state")]
 #[qapi(returns = "Vec<TraceEventInfo>")]
@@ -19404,6 +20439,7 @@ pub struct TraceEventGetState {
     #[qapi(removed = "9.1.0")]
     pub vcpu: Option<i64>,
 }
+
 /// Information of a tracing event.
 ///
 #[qapi(added = "2.2.0")]
@@ -19421,6 +20457,7 @@ pub struct TraceEventInfo {
     #[qapi(removed = "9.1.0")]
     pub vcpu: Option<bool>,
 }
+
 /// Set the dynamic tracing state of events.
 ///
 #[qapi(command)]
@@ -19450,6 +20487,7 @@ pub struct TraceEventSetState {
     #[qapi(removed = "9.1.0")]
     pub vcpu: Option<i64>,
 }
+
 /// State of a tracing event.
 ///
 #[qapi(added = "2.2.0")]
@@ -19464,6 +20502,7 @@ pub enum TraceEventState {
     #[qapi(name = "unavailable")]
     Unavailable,
 }
+
 #[qapi(command)]
 #[qapi(name = "transaction")]
 #[qapi(returns = "()")]
@@ -19473,6 +20512,7 @@ pub struct Transaction {
     #[qapi(added = "2.5.0")]
     pub properties: Option<TransactionProperties>,
 }
+
 /// A discriminated record of operations that can be performed with
 /// `transaction`.
 ///
@@ -19489,6 +20529,7 @@ pub struct TransactionAction {
     #[qapi(union)]
     pub u: Option<TransactionActionBranch>,
 }
+
 #[qapi(added = "1.6.0")]
 pub enum TransactionActionBranch {
     #[qapi(name = "abort")]
@@ -19537,6 +20578,7 @@ pub enum TransactionActionBranch {
     #[qapi(removed = "4.0.0")]
     XBlockDirtyBitmapMerge(BlockDirtyBitmapMerge),
 }
+
 #[qapi(added = "6.2.0")]
 pub enum TransactionActionKind {
     #[qapi(name = "abort")]
@@ -19566,6 +20608,7 @@ pub enum TransactionActionKind {
     #[qapi(deprecated = "7.0.0")]
     DriveBackup,
 }
+
 #[qapi(added = "1.6.0")]
 #[qapi(removed = "6.2.0")]
 pub enum TransactionActionType {
@@ -19615,6 +20658,7 @@ pub enum TransactionActionType {
     #[qapi(removed = "4.0.0")]
     XBlockDirtyBitmapMerge,
 }
+
 /// Optional arguments to modify the behavior of a Transaction.
 ///
 #[qapi(added = "2.5.0")]
@@ -19625,6 +20669,7 @@ pub struct TransactionProperties {
     #[qapi(name = "completion-mode")]
     pub completion_mode: Option<ActionCompletionMode>,
 }
+
 /// UEFI Variable.  Check the UEFI specifification for more detailed
 /// information on the fields.
 ///
@@ -19652,6 +20697,7 @@ pub struct UefiVariable {
     /// is set.
     pub time: Option<String>,
 }
+
 #[qapi(added = "10.0.0")]
 pub struct UefiVarStore {
     /// list of UEFI variables
@@ -19659,6 +20705,7 @@ pub struct UefiVarStore {
     /// currently always 2
     pub version: i64,
 }
+
 /// Captures a socket address in the local ("Unix socket") namespace.
 ///
 #[qapi(added = "1.3.0")]
@@ -19676,11 +20723,13 @@ pub struct UnixSocketAddress {
     #[qapi(added = "5.1.0")]
     pub tight: Option<bool>,
 }
+
 #[qapi(added = "6.2.0")]
 pub struct UnixSocketAddressWrapper {
     /// UNIX domain socket address
     pub data: UnixSocketAddress,
 }
+
 #[qapi(event)]
 #[qapi(name = "UNPLUG_PRIMARY")]
 #[qapi(added = "4.2.0")]
@@ -19688,11 +20737,13 @@ pub struct UnplugPrimaryEvent {
     #[qapi(name = "device-id")]
     pub device_id: String,
 }
+
 #[qapi(added = "1.0.0")]
 pub struct UuidInfo {
     #[qapi(name = "UUID")]
     pub uuid: String,
 }
+
 /// A description of QEMU's version.
 ///
 #[qapi(added = "1.0.0")]
@@ -19709,6 +20760,7 @@ pub struct VersionInfo {
     /// stable release.
     pub qemu: VersionInfoQemu,
 }
+
 #[qapi(added = "1.0.0")]
 #[qapi(removed = "2.4.0")]
 pub struct VersionInfoQemu {
@@ -19716,6 +20768,7 @@ pub struct VersionInfoQemu {
     pub micro: i64,
     pub minor: i64,
 }
+
 /// A three-part version number.
 ///
 #[qapi(added = "2.4.0")]
@@ -19727,6 +20780,7 @@ pub struct VersionTriple {
     /// The minor version number.
     pub minor: i64,
 }
+
 #[qapi(event)]
 #[qapi(name = "VFIO_MIGRATION")]
 #[qapi(added = "9.1.0")]
@@ -19738,6 +20792,7 @@ pub struct VfioMigrationEvent {
     #[qapi(name = "qom-path")]
     pub qom_path: String,
 }
+
 /// An enumeration of the VFIO device migration states.
 ///
 #[qapi(added = "9.1.0")]
@@ -19770,6 +20825,7 @@ pub enum VfioMigrationState {
     #[qapi(name = "stop-copy")]
     StopCopy,
 }
+
 /// Detailed VFIO devices migration statistics
 ///
 #[qapi(added = "5.2.0")]
@@ -19778,6 +20834,7 @@ pub struct VfioStats {
     /// devices
     pub transferred: i64,
 }
+
 /// Properties for x-vfio-user-server objects.
 ///
 #[qapi(added = "7.1.0")]
@@ -19787,6 +20844,7 @@ pub struct VfioUserServerProperties {
     /// socket to be used by the libvfio-user library
     pub socket: SocketAddress,
 }
+
 #[qapi(event)]
 #[qapi(name = "VFU_CLIENT_HANGUP")]
 #[qapi(added = "7.1.0")]
@@ -19800,6 +20858,7 @@ pub struct VfuClientHangupEvent {
     #[qapi(name = "vfu-qom-path")]
     pub vfu_qom_path: String,
 }
+
 /// A structure defined to list the vhost user protocol features of a
 /// Vhost User device
 ///
@@ -19813,6 +20872,7 @@ pub struct VhostDeviceProtocols {
     #[qapi(name = "unknown-protocols")]
     pub unknown_protocols: Option<u64>,
 }
+
 /// Information about a vhost device.  This information will only be
 /// displayed if the vhost device is active.
 ///
@@ -19853,6 +20913,7 @@ pub struct VhostStatus {
     #[qapi(name = "vq-index")]
     pub vq_index: i64,
 }
+
 /// The common fields that apply to most Virtio devices.  Some devices
 /// may not have their own device-specific features (e.g. virtio-rng).
 ///
@@ -19874,6 +20935,7 @@ pub struct VirtioDeviceFeatures {
     #[qapi(added = "10.2.0")]
     pub unknown_dev_features2: Option<u64>,
 }
+
 /// A structure defined to list the configuration statuses of a virtio
 /// device
 ///
@@ -19887,6 +20949,7 @@ pub struct VirtioDeviceStatus {
     #[qapi(name = "unknown-statuses")]
     pub unknown_statuses: Option<u8>,
 }
+
 /// Describes configuration of a VirtIO GPU output.
 ///
 #[qapi(name = "VirtIOGPUOutput")]
@@ -19895,6 +20958,7 @@ pub struct VirtIogpuOutput {
     /// the name of the output
     pub name: String,
 }
+
 /// Basic information about a given VirtIODevice
 ///
 #[qapi(added = "7.2.0")]
@@ -19904,6 +20968,7 @@ pub struct VirtioInfo {
     /// The VirtIODevice's canonical QOM path
     pub path: String,
 }
+
 /// VirtioMEMDevice state information
 ///
 #[qapi(name = "VirtioMEMDeviceInfo")]
@@ -19929,12 +20994,14 @@ pub struct VirtioMemDeviceInfo {
     /// the (current) size of memory that the device provides
     pub size: u64,
 }
+
 #[qapi(name = "VirtioMEMDeviceInfoWrapper")]
 #[qapi(added = "6.2.0")]
 pub struct VirtioMemDeviceInfoWrapper {
     /// VirtioMEMDevice state information
     pub data: VirtioMemDeviceInfo,
 }
+
 /// VirtioPMEM state information
 ///
 #[qapi(name = "VirtioPMEMDeviceInfo")]
@@ -19949,12 +21016,14 @@ pub struct VirtioPmemDeviceInfo {
     /// size of memory that the device provides
     pub size: u64,
 }
+
 #[qapi(name = "VirtioPMEMDeviceInfoWrapper")]
 #[qapi(added = "6.2.0")]
 pub struct VirtioPmemDeviceInfoWrapper {
     /// VirtioPMEM state information
     pub data: VirtioPmemDeviceInfo,
 }
+
 /// Information regarding a VirtQueue's VirtQueueElement including
 /// descriptor, driver, and device areas
 ///
@@ -19971,6 +21040,7 @@ pub struct VirtioQueueElement {
     /// VRingUsed info
     pub used: VirtioRingUsed,
 }
+
 /// Information regarding the avail vring (a.k.a. driver area)
 ///
 #[qapi(added = "7.2.0")]
@@ -19982,6 +21052,7 @@ pub struct VirtioRingAvail {
     /// VRingAvail ring[] entry at provided index
     pub ring: u16,
 }
+
 /// Information regarding the vring descriptor area
 ///
 #[qapi(added = "7.2.0")]
@@ -19993,6 +21064,7 @@ pub struct VirtioRingDesc {
     /// Length of the descriptor area
     pub len: u32,
 }
+
 /// Information regarding the used vring (a.k.a. device area)
 ///
 #[qapi(added = "7.2.0")]
@@ -20002,6 +21074,7 @@ pub struct VirtioRingUsed {
     /// VRingUsed index
     pub idx: u16,
 }
+
 /// Full status of the virtio device with most VirtIODevice members.
 /// Also includes the full status of the corresponding vhost device if
 /// the vhost device is active.
@@ -20069,6 +21142,7 @@ pub struct VirtioStatus {
     #[qapi(name = "vm-running")]
     pub vm_running: bool,
 }
+
 /// Information of a VirtIODevice VirtQueue, including most members of
 /// the VirtQueue data structure.
 ///
@@ -20116,6 +21190,7 @@ pub struct VirtQueueStatus {
     #[qapi(name = "vring-used")]
     pub vring_used: u64,
 }
+
 /// Information of a vhost device's vhost_virtqueue, including most
 /// members of the vhost_dev vhost_virtqueue data structure.
 ///
@@ -20156,6 +21231,7 @@ pub struct VirtVhostQueueStatus {
     #[qapi(name = "used-size")]
     pub used_size: u32,
 }
+
 #[qapi(name = "VMAppleVirtioBlkVariant")]
 #[qapi(added = "10.0.0")]
 pub enum VmAppleVirtioBlkVariant {
@@ -20169,6 +21245,7 @@ pub enum VmAppleVirtioBlkVariant {
     #[qapi(name = "unspecified")]
     Unspecified,
 }
+
 /// Information about a VMDK extent file
 ///
 #[qapi(added = "8.0.0")]
@@ -20186,6 +21263,7 @@ pub struct VmdkExtentInfo {
     #[qapi(name = "virtual-size")]
     pub virtual_size: i64,
 }
+
 /// The basic information for vnc network connection
 ///
 #[qapi(added = "2.1.0")]
@@ -20202,6 +21280,7 @@ pub struct VncBasicInfo {
     #[qapi(added = "2.3.0")]
     pub websocket: Option<bool>,
 }
+
 /// Information about a connected VNC client.
 ///
 #[qapi(added = "1.0.0")]
@@ -20224,6 +21303,7 @@ pub struct VncClientInfo {
     /// Name of the client.
     pub x509_dname: Option<String>,
 }
+
 #[qapi(event)]
 #[qapi(name = "VNC_CONNECTED")]
 #[qapi(added = "2.1.0")]
@@ -20231,6 +21311,7 @@ pub struct VncConnectedEvent {
     pub client: VncBasicInfo,
     pub server: VncServerInfo,
 }
+
 /// Emitted when the connection is closed
 ///
 #[qapi(event)]
@@ -20242,6 +21323,7 @@ pub struct VncDisconnectedEvent {
     /// server information
     pub server: VncServerInfo,
 }
+
 /// Information about the VNC session.
 ///
 #[qapi(added = "1.0.0")]
@@ -20284,6 +21366,7 @@ pub struct VncInfo {
     /// not be relied on.
     pub service: Option<String>,
 }
+
 /// Information about a vnc server
 ///
 #[qapi(added = "2.3.0")]
@@ -20307,6 +21390,7 @@ pub struct VncInfo2 {
     /// only specified in case auth == vencrypt.
     pub vencrypt: Option<VncVencryptSubAuth>,
 }
+
 /// Emitted after authentication takes place (if any) and the VNC session is
 /// made active
 ///
@@ -20319,6 +21403,7 @@ pub struct VncInitializedEvent {
     /// server information
     pub server: VncServerInfo,
 }
+
 /// vnc primary authentication method.
 ///
 #[qapi(added = "2.3.0")]
@@ -20342,6 +21427,7 @@ pub enum VncPrimaryAuth {
     #[qapi(name = "vnc")]
     Vnc,
 }
+
 /// The network connection information for server
 ///
 #[qapi(added = "2.1.0")]
@@ -20361,6 +21447,7 @@ pub struct VncServerInfo {
     #[qapi(added = "2.3.0")]
     pub websocket: Option<bool>,
 }
+
 /// The network connection information for server
 ///
 #[qapi(added = "2.9.0")]
@@ -20381,6 +21468,7 @@ pub struct VncServerInfo2 {
     /// true in case the socket is a websocket (since 2.3).
     pub websocket: bool,
 }
+
 /// vnc sub authentication method with vencrypt.
 ///
 #[qapi(added = "2.3.0")]
@@ -20404,6 +21492,7 @@ pub enum VncVencryptSubAuth {
     #[qapi(name = "x509-vnc")]
     X509Vnc,
 }
+
 /// Emitted when the guest opens or closes a virtio-serial port.
 ///
 #[qapi(event)]
@@ -20415,6 +21504,7 @@ pub struct VserportChangeEvent {
     /// true if the guest has opened the virtio-serial port
     pub open: bool,
 }
+
 /// Captures a socket address in the vsock namespace.
 ///
 #[qapi(added = "2.8.0")]
@@ -20427,17 +21517,20 @@ pub struct VsockSocketAddress {
     /// hostname or service resolution support.
     pub port: String,
 }
+
 #[qapi(added = "6.2.0")]
 pub struct VsockSocketAddressWrapper {
     /// VSOCK domain socket address
     pub data: VsockSocketAddress,
 }
+
 /// Emitted when the guest has woken up from suspend state and is running
 ///
 #[qapi(event)]
 #[qapi(name = "WAKEUP")]
 #[qapi(added = "2.1.0")]
 pub struct WakeupEvent {}
+
 /// An enumeration of the actions taken when the watchdog device's timer
 /// is expired
 ///
@@ -20467,12 +21560,14 @@ pub enum WatchdogAction {
     #[qapi(name = "shutdown")]
     Shutdown,
 }
+
 #[qapi(event)]
 #[qapi(name = "WATCHDOG")]
 #[qapi(added = "2.1.0")]
 pub struct WatchdogEvent {
     pub action: WatchdogExpirationAction,
 }
+
 /// An enumeration of the actions taken when the watchdog device's timer is
 /// expired
 ///
@@ -20504,6 +21599,7 @@ pub enum WatchdogExpirationAction {
     #[qapi(name = "shutdown")]
     Shutdown,
 }
+
 /// Set watchdog action
 ///
 #[qapi(command)]
@@ -20513,6 +21609,7 @@ pub enum WatchdogExpirationAction {
 pub struct WatchdogSetAction {
     pub action: WatchdogAction,
 }
+
 /// Information about a X86 CPU feature word
 ///
 #[qapi(name = "X86CPUFeatureWordInfo")]
@@ -20532,6 +21629,7 @@ pub struct X86cpuFeatureWordInfo {
     /// value of output register, containing the feature bits
     pub features: i64,
 }
+
 /// A X86 32-bit register
 ///
 #[qapi(name = "X86CPURegister32")]
@@ -20554,12 +21652,14 @@ pub enum X86cpuRegister32 {
     #[qapi(name = "ESP")]
     Esp,
 }
+
 #[qapi(command)]
 #[qapi(name = "x-accel-stats")]
 #[qapi(feature = "unstable")]
 #[qapi(returns = "HumanReadableText")]
 #[qapi(added = "10.1.0")]
 pub struct XAccelStats {}
+
 /// Starts a job to amend format specific options of an existing open block device
 /// The job is automatically finalized, but a manual job-dismiss is required.
 ///
@@ -20583,6 +21683,7 @@ pub struct XBlockdevAmend {
     /// Options (driver specific)
     pub options: BlockdevAmendOptions,
 }
+
 #[qapi(command)]
 #[qapi(name = "x-blockdev-change")]
 #[qapi(returns = "()")]
@@ -20592,6 +21693,7 @@ pub struct XBlockdevChange {
     pub node: Option<String>,
     pub parent: String,
 }
+
 /// Deletes a block device that has been added using blockdev-add.
 /// The command will fail if the node is attached to a device or is
 /// otherwise being used.
@@ -20613,6 +21715,7 @@ pub struct XBlockdevDel {
     #[qapi(name = "node-name")]
     pub node_name: Option<String>,
 }
+
 /// Inserts a medium (a block driver state tree) into a block device. That block
 /// device's tray must currently be open (unless there is no attached guest
 /// device) and there must be no medium inserted already.
@@ -20635,6 +21738,7 @@ pub struct XBlockdevInsertMedium {
     #[qapi(name = "node-name")]
     pub node_name: String,
 }
+
 /// Removes a medium (a block driver state tree) from a block device. That block
 /// device's tray must currently be open (unless there is no attached guest
 /// device).
@@ -20656,6 +21760,7 @@ pub struct XBlockdevRemoveMedium {
     #[qapi(added = "2.8.0")]
     pub id: Option<String>,
 }
+
 #[qapi(command)]
 #[qapi(name = "x-blockdev-set-iothread")]
 #[qapi(returns = "()")]
@@ -20666,6 +21771,7 @@ pub struct XBlockdevSetIothread {
     #[qapi(name = "node-name")]
     pub node_name: String,
 }
+
 #[qapi(command)]
 #[qapi(name = "x-block-latency-histogram-set")]
 #[qapi(returns = "()")]
@@ -20681,6 +21787,7 @@ pub struct XBlockLatencyHistogramSet {
     pub boundaries_write: Option<Vec<u64>>,
     pub device: String,
 }
+
 /// Detailed XBZRLE migration cache statistics
 ///
 #[qapi(name = "XBZRLECacheStats")]
@@ -20707,6 +21814,7 @@ pub struct XbzrleCacheStats {
     /// amount of pages transferred to the target VM
     pub pages: i64,
 }
+
 /// Tell qemu that heartbeat is lost, request it to do takeover procedures.
 /// If this command is sent to the PVM, the Primary side will exit COLO mode.
 /// If sent to the Secondary, the Secondary side will run failover work,
@@ -20717,6 +21825,7 @@ pub struct XbzrleCacheStats {
 #[qapi(returns = "()")]
 #[qapi(added = "2.8.0")]
 pub struct XColoLostHeartbeat {}
+
 /// Block Graph - list of nodes and list of edges.
 ///
 #[qapi(added = "4.0.0")]
@@ -20724,6 +21833,7 @@ pub struct XDbgBlockGraph {
     pub edges: Vec<XDbgBlockGraphEdge>,
     pub nodes: Vec<XDbgBlockGraphNode>,
 }
+
 /// Block Graph edge description for `x-debug-query-block-graph`.
 ///
 #[qapi(added = "4.0.0")]
@@ -20741,6 +21851,7 @@ pub struct XDbgBlockGraphEdge {
     #[qapi(name = "shared-perm")]
     pub shared_perm: Vec<BlockPermission>,
 }
+
 #[qapi(added = "4.0.0")]
 pub struct XDbgBlockGraphNode {
     /// Block graph node identifier.  This @id is generated only for
@@ -20755,6 +21866,7 @@ pub struct XDbgBlockGraphNode {
     /// or block-driver-state.
     pub r#type: XDbgBlockGraphNodeType,
 }
+
 #[qapi(added = "4.0.0")]
 pub enum XDbgBlockGraphNodeType {
     /// corresponds to BlockBackend
@@ -20767,6 +21879,7 @@ pub enum XDbgBlockGraphNodeType {
     #[qapi(name = "block-job")]
     BlockJob,
 }
+
 /// Get the block graph.
 ///
 #[qapi(command)]
@@ -20774,6 +21887,7 @@ pub enum XDbgBlockGraphNodeType {
 #[qapi(returns = "XDbgBlockGraph")]
 #[qapi(added = "4.0.0")]
 pub struct XDebugQueryBlockGraph {}
+
 /// Xen uses this command to notify replication to trigger a checkpoint.
 ///
 /// .. qmp-example::
@@ -20788,6 +21902,7 @@ pub struct XDebugQueryBlockGraph {}
 #[qapi(returns = "()")]
 #[qapi(added = "2.9.0")]
 pub struct XenColoDoCheckpoint {}
+
 #[qapi(command)]
 #[qapi(name = "xen-event-inject")]
 #[qapi(condition = "TARGET_I386")]
@@ -20796,12 +21911,14 @@ pub struct XenColoDoCheckpoint {}
 pub struct XenEventInject {
     pub port: u32,
 }
+
 #[qapi(command)]
 #[qapi(name = "xen-event-list")]
 #[qapi(condition = "TARGET_I386")]
 #[qapi(returns = "Vec<EvtchnInfo>")]
 #[qapi(added = "8.0.0")]
 pub struct XenEventList {}
+
 /// Load the state of all devices from file. The RAM and the block devices
 /// of the VM are not loaded by this command.
 ///
@@ -20815,6 +21932,7 @@ pub struct XenLoadDevicesState {
     /// format.
     pub filename: String,
 }
+
 #[qapi(command)]
 #[qapi(name = "xen-save-devices-state")]
 #[qapi(returns = "()")]
@@ -20824,6 +21942,7 @@ pub struct XenSaveDevicesState {
     #[qapi(added = "2.11.0")]
     pub live: Option<bool>,
 }
+
 #[qapi(command)]
 #[qapi(name = "xen-set-global-dirty-log")]
 #[qapi(returns = "()")]
@@ -20831,6 +21950,7 @@ pub struct XenSaveDevicesState {
 pub struct XenSetGlobalDirtyLog {
     pub enable: bool,
 }
+
 /// Enable or disable replication.
 ///
 #[qapi(command)]
@@ -20852,12 +21972,14 @@ pub struct XenSetReplication {
     /// true for primary or false for secondary.
     pub primary: bool,
 }
+
 #[qapi(command)]
 #[qapi(name = "x-exit-preconfig")]
 #[qapi(returns = "()")]
 #[qapi(allow_preconfig)]
 #[qapi(added = "3.0.0")]
 pub struct XExitPreconfig {}
+
 #[qapi(command)]
 #[qapi(name = "x-input-send-event")]
 #[qapi(returns = "()")]
@@ -20867,6 +21989,7 @@ pub struct XInputSendEvent {
     pub console: Option<i64>,
     pub events: Vec<InputEvent>,
 }
+
 #[qapi(command)]
 #[qapi(name = "x-nbd-server-add-bitmap")]
 #[qapi(returns = "()")]
@@ -20878,6 +22001,7 @@ pub struct XNbdServerAddBitmap {
     pub bitmap_export_name: Option<String>,
     pub name: String,
 }
+
 #[qapi(command)]
 #[qapi(name = "x-oob-test")]
 #[qapi(returns = "()")]
@@ -20887,18 +22011,21 @@ pub struct XNbdServerAddBitmap {
 pub struct XOobTest {
     pub lock: bool,
 }
+
 #[qapi(command)]
 #[qapi(name = "x-query-interrupt-controllers")]
 #[qapi(feature = "unstable")]
 #[qapi(returns = "HumanReadableText")]
 #[qapi(added = "9.1.0")]
 pub struct XQueryInterruptControllers {}
+
 #[qapi(command)]
 #[qapi(name = "x-query-irq")]
 #[qapi(feature = "unstable")]
 #[qapi(returns = "HumanReadableText")]
 #[qapi(added = "6.2.0")]
 pub struct XQueryIrq {}
+
 #[qapi(command)]
 #[qapi(name = "x-query-jit")]
 #[qapi(condition = "CONFIG_TCG")]
@@ -20906,12 +22033,14 @@ pub struct XQueryIrq {}
 #[qapi(returns = "HumanReadableText")]
 #[qapi(added = "6.2.0")]
 pub struct XQueryJit {}
+
 #[qapi(command)]
 #[qapi(name = "x-query-numa")]
 #[qapi(feature = "unstable")]
 #[qapi(returns = "HumanReadableText")]
 #[qapi(added = "6.2.0")]
 pub struct XQueryNuma {}
+
 #[qapi(command)]
 #[qapi(name = "x-query-opcount")]
 #[qapi(condition = "CONFIG_TCG")]
@@ -20920,6 +22049,7 @@ pub struct XQueryNuma {}
 #[qapi(added = "6.2.0")]
 #[qapi(removed = "10.1.0")]
 pub struct XQueryOpcount {}
+
 #[qapi(command)]
 #[qapi(name = "x-query-profile")]
 #[qapi(feature = "unstable")]
@@ -20927,12 +22057,14 @@ pub struct XQueryOpcount {}
 #[qapi(added = "6.2.0")]
 #[qapi(removed = "8.1.0")]
 pub struct XQueryProfile {}
+
 #[qapi(command)]
 #[qapi(name = "x-query-ramblock")]
 #[qapi(feature = "unstable")]
 #[qapi(returns = "HumanReadableText")]
 #[qapi(added = "6.2.0")]
 pub struct XQueryRamblock {}
+
 #[qapi(command)]
 #[qapi(name = "x-query-rdma")]
 #[qapi(feature = "unstable")]
@@ -20940,24 +22072,28 @@ pub struct XQueryRamblock {}
 #[qapi(added = "6.2.0")]
 #[qapi(removed = "9.1.0")]
 pub struct XQueryRdma {}
+
 #[qapi(command)]
 #[qapi(name = "x-query-roms")]
 #[qapi(feature = "unstable")]
 #[qapi(returns = "HumanReadableText")]
 #[qapi(added = "6.2.0")]
 pub struct XQueryRoms {}
+
 #[qapi(command)]
 #[qapi(name = "x-query-usb")]
 #[qapi(feature = "unstable")]
 #[qapi(returns = "HumanReadableText")]
 #[qapi(added = "6.2.0")]
 pub struct XQueryUsb {}
+
 #[qapi(command)]
 #[qapi(name = "x-query-virtio")]
 #[qapi(feature = "unstable")]
 #[qapi(returns = "Vec<VirtioInfo>")]
 #[qapi(added = "7.2.0")]
 pub struct XQueryVirtio {}
+
 #[qapi(command)]
 #[qapi(name = "x-query-virtio-queue-element")]
 #[qapi(feature = "unstable")]
@@ -20968,6 +22104,7 @@ pub struct XQueryVirtioQueueElement {
     pub path: String,
     pub queue: u16,
 }
+
 #[qapi(command)]
 #[qapi(name = "x-query-virtio-queue-status")]
 #[qapi(feature = "unstable")]
@@ -20977,6 +22114,7 @@ pub struct XQueryVirtioQueueStatus {
     pub path: String,
     pub queue: u16,
 }
+
 #[qapi(command)]
 #[qapi(name = "x-query-virtio-status")]
 #[qapi(feature = "unstable")]
@@ -20985,6 +22123,7 @@ pub struct XQueryVirtioQueueStatus {
 pub struct XQueryVirtioStatus {
     pub path: String,
 }
+
 #[qapi(command)]
 #[qapi(name = "x-query-virtio-vhost-queue-status")]
 #[qapi(feature = "unstable")]
@@ -20994,6 +22133,7 @@ pub struct XQueryVirtioVhostQueueStatus {
     pub path: String,
     pub queue: u16,
 }
+
 #[qapi(command)]
 #[qapi(name = "yank")]
 #[qapi(returns = "()")]
@@ -21002,6 +22142,7 @@ pub struct XQueryVirtioVhostQueueStatus {
 pub struct Yank {
     pub instances: Vec<YankInstance>,
 }
+
 /// A yank instance can be yanked with the `yank` qmp command to recover
 /// from a hanging QEMU.
 ///
@@ -21023,6 +22164,7 @@ pub struct YankInstance {
     #[qapi(union)]
     pub u: Option<YankInstanceBranch>,
 }
+
 /// Specifies which block graph node to yank.  See `YankInstance` for
 /// more information.
 ///
@@ -21032,6 +22174,7 @@ pub struct YankInstanceBlockNode {
     #[qapi(name = "node-name")]
     pub node_name: String,
 }
+
 #[qapi(added = "6.0.0")]
 pub enum YankInstanceBranch {
     #[qapi(name = "block-node")]
@@ -21039,6 +22182,7 @@ pub enum YankInstanceBranch {
     #[qapi(name = "chardev")]
     Chardev(YankInstanceChardev),
 }
+
 /// Specifies which character device to yank.  See `YankInstance` for
 /// more information.
 ///
@@ -21047,6 +22191,7 @@ pub struct YankInstanceChardev {
     /// the chardev's ID
     pub id: String,
 }
+
 /// An enumeration of yank instance types.  See `YankInstance` for more
 /// information.
 ///
@@ -21059,6 +22204,7 @@ pub enum YankInstanceType {
     #[qapi(name = "migration")]
     Migration,
 }
+
 #[qapi(added = "9.0.0")]
 pub enum ZeroPageDetection {
     /// Perform zero page checking in main migration thread.

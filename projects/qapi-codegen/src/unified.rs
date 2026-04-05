@@ -785,7 +785,7 @@ pub fn generate_unified_code(
             let pp_start = Instant::now();
             let formatted = prettyplease::unparse(&syntree);
             eprintln!("  prettyplease: {:.1}s", pp_start.elapsed().as_secs_f64());
-            Ok(formatted)
+            Ok(separate_items(&formatted))
         }
         Err(e) => {
             eprintln!("WARNING: Failed to parse combined output: {}", e);
@@ -793,6 +793,24 @@ pub fn generate_unified_code(
         }
     };
     eprintln!("  Codegen total: {:.1}s", codegen_start.elapsed().as_secs_f64());
+    result
+}
+
+
+/// Insert a blank line between top-level items for readability.
+fn separate_items(code: &str) -> String {
+    let mut result = String::with_capacity(code.len() + code.len() / 20);
+    let mut prev_line = "";
+    for line in code.lines() {
+        // Insert blank line after a top-level item ends (line is or ends with `}`)
+        let prev_ends_item = prev_line == "}" || prev_line.ends_with(" {}");
+        if prev_ends_item && !line.is_empty() {
+            result.push('\n');
+        }
+        result.push_str(line);
+        result.push('\n');
+        prev_line = line;
+    }
     result
 }
 
@@ -1031,7 +1049,7 @@ pub fn generate_qga_code(
     match syn::parse_file(&combined) {
         Ok(syntree) => {
             eprintln!("  QGA codegen: {:.1}s", codegen_start.elapsed().as_secs_f64());
-            Ok(prettyplease::unparse(&syntree))
+            Ok(separate_items(&prettyplease::unparse(&syntree)))
         }
         Err(e) => {
             eprintln!("WARNING: Failed to parse QGA output: {}", e);

@@ -16,6 +16,7 @@ pub struct GuestAgentCommandInfo {
     #[qapi(added = "1.7.0")]
     pub success_response: Option<bool>,
 }
+
 /// Information about guest agent.
 ///
 #[qapi(added = "1.4.0")]
@@ -25,12 +26,14 @@ pub struct GuestAgentInfo {
     /// guest agent version
     pub version: String,
 }
+
 #[qapi(condition = "defined(CONFIG_POSIX)")]
 #[qapi(added = "5.2.0")]
 pub struct GuestAuthorizedKeys {
     /// public keys (in OpenSSH/sshd(8) authorized_keys format)
     pub keys: Vec<String>,
 }
+
 #[qapi(name = "GuestCCWAddress")]
 #[qapi(added = "6.0.0")]
 pub struct GuestCcwAddress {
@@ -43,6 +46,7 @@ pub struct GuestCcwAddress {
     /// subchannel number
     pub subchno: i64,
 }
+
 /// Get statistics of each CPU in millisecond.
 ///
 #[qapi(added = "7.1.0")]
@@ -53,11 +57,13 @@ pub struct GuestCpuStats {
     #[qapi(union)]
     pub u: Option<GuestCpuStatsBranch>,
 }
+
 #[qapi(added = "7.1.0")]
 pub enum GuestCpuStatsBranch {
     #[qapi(name = "linux")]
     Linux(GuestLinuxCpuStats),
 }
+
 /// Guest operating systems supporting CPU statistics
 ///
 #[qapi(added = "7.1.0")]
@@ -66,6 +72,7 @@ pub enum GuestCpuStatsType {
     #[qapi(name = "linux")]
     Linux,
 }
+
 /// Id of the device
 ///
 #[qapi(added = "5.2.0")]
@@ -76,11 +83,13 @@ pub struct GuestDeviceId {
     #[qapi(union)]
     pub u: Option<GuestDeviceIdBranch>,
 }
+
 #[qapi(added = "5.2.0")]
 pub enum GuestDeviceIdBranch {
     #[qapi(name = "pci")]
     Pci(GuestDeviceIdPci),
 }
+
 #[qapi(name = "GuestDeviceIdPCI")]
 #[qapi(added = "5.2.0")]
 pub struct GuestDeviceIdPci {
@@ -91,6 +100,7 @@ pub struct GuestDeviceIdPci {
     #[qapi(name = "vendor-id")]
     pub vendor_id: u16,
 }
+
 #[qapi(added = "5.2.0")]
 pub struct GuestDeviceInfo {
     /// driver release date, in nanoseconds since the epoch
@@ -105,11 +115,13 @@ pub struct GuestDeviceInfo {
     /// device ID
     pub id: Option<GuestDeviceId>,
 }
+
 #[qapi(added = "5.2.0")]
 pub enum GuestDeviceType {
     #[qapi(name = "pci")]
     Pci,
 }
+
 #[qapi(added = "2.2.0")]
 pub struct GuestDiskAddress {
     /// bus id
@@ -136,6 +148,7 @@ pub struct GuestDiskAddress {
     /// unit id
     pub unit: i64,
 }
+
 /// An enumeration of bus type of disks
 ///
 #[qapi(added = "2.2.0")]
@@ -212,6 +225,7 @@ pub enum GuestDiskBusType {
     #[qapi(name = "xen")]
     Xen,
 }
+
 #[qapi(added = "5.2.0")]
 pub struct GuestDiskInfo {
     /// disk address information (only for non-virtual devices)
@@ -231,6 +245,7 @@ pub struct GuestDiskInfo {
     #[qapi(added = "7.1.0")]
     pub smart: Option<GuestDiskSmart>,
 }
+
 /// Disk type related smart information.
 ///
 #[qapi(added = "7.1.0")]
@@ -241,11 +256,13 @@ pub struct GuestDiskSmart {
     #[qapi(union)]
     pub u: Option<GuestDiskSmartBranch>,
 }
+
 #[qapi(added = "7.1.0")]
 pub enum GuestDiskSmartBranch {
     #[qapi(name = "nvme")]
     Nvme(GuestNvMeSmart),
 }
+
 #[qapi(added = "7.1.0")]
 pub struct GuestDiskStats {
     /// discards completed successfully
@@ -301,6 +318,7 @@ pub struct GuestDiskStats {
     #[qapi(name = "write-ticks")]
     pub write_ticks: Option<u64>,
 }
+
 #[qapi(added = "7.1.0")]
 pub struct GuestDiskStatsInfo {
     pub major: u64,
@@ -308,11 +326,13 @@ pub struct GuestDiskStatsInfo {
     pub name: String,
     pub stats: GuestDiskStats,
 }
+
 #[qapi(added = "2.5.0")]
 pub struct GuestExec {
     /// pid of child process in guest OS
     pub pid: i64,
 }
+
 /// Controls what `guest-exec` output gets captures.
 ///
 #[qapi(added = "8.1.0")]
@@ -325,6 +345,7 @@ pub enum GuestExecCaptureOutput {
     #[qapi(name = "mode")]
     Mode(GuestExecCaptureOutputMode),
 }
+
 /// An enumeration of `guest-exec` capture modes.
 ///
 #[qapi(added = "8.1.0")]
@@ -348,6 +369,7 @@ pub enum GuestExecCaptureOutputMode {
     #[qapi(name = "stdout")]
     Stdout,
 }
+
 #[qapi(added = "2.5.0")]
 pub struct GuestExecStatus {
     /// base64-encoded stderr of the process.  Note: @out-data
@@ -376,6 +398,7 @@ pub struct GuestExecStatus {
     /// if the process was abnormally terminated.
     pub signal: Option<i64>,
 }
+
 /// Close an open file in the guest
 ///
 #[qapi(command)]
@@ -386,6 +409,7 @@ pub struct GuestFileClose {
     /// filehandle returned by `guest-file-open`
     pub handle: i64,
 }
+
 /// Write file changes buffered in userspace to disk/kernel buffers
 ///
 #[qapi(command)]
@@ -396,6 +420,7 @@ pub struct GuestFileFlush {
     /// filehandle returned by `guest-file-open`
     pub handle: i64,
 }
+
 #[qapi(command)]
 #[qapi(name = "guest-file-open")]
 #[qapi(returns = "i64")]
@@ -404,6 +429,7 @@ pub struct GuestFileOpen {
     pub mode: Option<String>,
     pub path: String,
 }
+
 /// Result of guest agent file-read operation
 ///
 #[qapi(added = "1.4.0")]
@@ -417,6 +443,7 @@ pub struct GuestFileRead {
     /// whether EOF was encountered during read operation.
     pub eof: bool,
 }
+
 /// Result of guest agent file-seek operation
 ///
 #[qapi(added = "1.4.0")]
@@ -426,6 +453,7 @@ pub struct GuestFileSeek {
     /// current file position
     pub position: i64,
 }
+
 #[qapi(added = "2.2.0")]
 pub struct GuestFilesystemInfo {
     /// an array of disk hardware information that the volume lies
@@ -452,12 +480,14 @@ pub struct GuestFilesystemInfo {
     #[qapi(added = "3.0.0")]
     pub used_bytes: Option<u64>,
 }
+
 #[qapi(added = "2.4.0")]
 pub struct GuestFilesystemTrimResponse {
     /// list of `GuestFilesystemTrimResult` per path that was
     /// trimmed
     pub paths: Vec<GuestFilesystemTrimResult>,
 }
+
 #[qapi(added = "2.4.0")]
 pub struct GuestFilesystemTrimResult {
     /// an error message when trim failed
@@ -469,6 +499,7 @@ pub struct GuestFilesystemTrimResult {
     /// bytes trimmed for this path
     pub trimmed: Option<i64>,
 }
+
 /// Controls the meaning of offset to `guest-file-seek`.
 ///
 #[qapi(added = "2.6.0")]
@@ -482,6 +513,7 @@ pub enum GuestFileWhence {
     #[qapi(name = "value")]
     Value(i64),
 }
+
 /// Result of guest agent file-write operation
 ///
 #[qapi(added = "1.4.0")]
@@ -492,11 +524,13 @@ pub struct GuestFileWrite {
     /// whether EOF was encountered during write operation.
     pub eof: bool,
 }
+
 #[qapi(command)]
 #[qapi(name = "guest-fsfreeze-freeze")]
 #[qapi(returns = "i64")]
 #[qapi(added = "1.4.0")]
 pub struct GuestFsfreezeFreeze {}
+
 #[qapi(command)]
 #[qapi(name = "guest-fsfreeze-freeze-list")]
 #[qapi(returns = "i64")]
@@ -504,6 +538,7 @@ pub struct GuestFsfreezeFreeze {}
 pub struct GuestFsfreezeFreezeList {
     pub mountpoints: Option<Vec<String>>,
 }
+
 /// An enumeration of filesystem freeze states
 ///
 #[qapi(added = "1.4.0")]
@@ -515,11 +550,13 @@ pub enum GuestFsfreezeStatus {
     #[qapi(name = "thawed")]
     Thawed,
 }
+
 #[qapi(command)]
 #[qapi(name = "guest-fsfreeze-thaw")]
 #[qapi(returns = "i64")]
 #[qapi(added = "1.4.0")]
 pub struct GuestFsfreezeThaw {}
+
 #[qapi(command)]
 #[qapi(name = "guest-fstrim")]
 #[qapi(returns = "()")]
@@ -527,11 +564,13 @@ pub struct GuestFsfreezeThaw {}
 pub struct GuestFstrim {
     pub minimum: Option<i64>,
 }
+
 #[qapi(command)]
 #[qapi(name = "guest-get-cpustats")]
 #[qapi(returns = "Vec<GuestCpuStats>")]
 #[qapi(added = "7.1.0")]
 pub struct GuestGetCpustats {}
+
 /// Retrieve information about device drivers in Windows guest
 ///
 #[qapi(command)]
@@ -539,32 +578,38 @@ pub struct GuestGetCpustats {}
 #[qapi(returns = "Vec<GuestDeviceInfo>")]
 #[qapi(added = "5.2.0")]
 pub struct GuestGetDevices {}
+
 #[qapi(command)]
 #[qapi(name = "guest-get-disks")]
 #[qapi(returns = "Vec<GuestDiskInfo>")]
 #[qapi(added = "5.2.0")]
 pub struct GuestGetDisks {}
+
 #[qapi(command)]
 #[qapi(name = "guest-get-diskstats")]
 #[qapi(returns = "Vec<GuestDiskStatsInfo>")]
 #[qapi(added = "7.1.0")]
 pub struct GuestGetDiskstats {}
+
 #[qapi(command)]
 #[qapi(name = "guest-get-fsinfo")]
 #[qapi(returns = "Vec<GuestFilesystemInfo>")]
 #[qapi(added = "2.2.0")]
 pub struct GuestGetFsinfo {}
+
 #[qapi(command)]
 #[qapi(name = "guest-get-host-name")]
 #[qapi(returns = "GuestHostName")]
 #[qapi(added = "2.10.0")]
 pub struct GuestGetHostName {}
+
 #[qapi(command)]
 #[qapi(name = "guest-get-load")]
 #[qapi(condition = "CONFIG_GETLOADAVG")]
 #[qapi(returns = "GuestLoadAverage")]
 #[qapi(added = "10.0.0")]
 pub struct GuestGetLoad {}
+
 /// Get information relating to guest memory blocks.
 ///
 #[qapi(command)]
@@ -572,11 +617,13 @@ pub struct GuestGetLoad {}
 #[qapi(returns = "GuestMemoryBlockInfo")]
 #[qapi(added = "2.3.0")]
 pub struct GuestGetMemoryBlockInfo {}
+
 #[qapi(command)]
 #[qapi(name = "guest-get-memory-blocks")]
 #[qapi(returns = "Vec<GuestMemoryBlock>")]
 #[qapi(added = "2.3.0")]
 pub struct GuestGetMemoryBlocks {}
+
 /// Retrieve guest operating system information
 ///
 #[qapi(command)]
@@ -584,11 +631,13 @@ pub struct GuestGetMemoryBlocks {}
 #[qapi(returns = "GuestOsInfo")]
 #[qapi(added = "2.10.0")]
 pub struct GuestGetOsinfo {}
+
 #[qapi(command)]
 #[qapi(name = "guest-get-time")]
 #[qapi(returns = "i64")]
 #[qapi(added = "1.5.0")]
 pub struct GuestGetTime {}
+
 /// Retrieves the timezone information from the guest.
 ///
 #[qapi(command)]
@@ -596,22 +645,26 @@ pub struct GuestGetTime {}
 #[qapi(returns = "GuestTimezone")]
 #[qapi(added = "2.10.0")]
 pub struct GuestGetTimezone {}
+
 #[qapi(command)]
 #[qapi(name = "guest-get-users")]
 #[qapi(returns = "Vec<GuestUser>")]
 #[qapi(added = "2.10.0")]
 pub struct GuestGetUsers {}
+
 #[qapi(command)]
 #[qapi(name = "guest-get-vcpus")]
 #[qapi(returns = "Vec<GuestLogicalProcessor>")]
 #[qapi(added = "1.5.0")]
 pub struct GuestGetVcpus {}
+
 #[qapi(added = "2.10.0")]
 pub struct GuestHostName {
     /// Fully qualified domain name of the guest OS
     #[qapi(name = "host-name")]
     pub host_name: String,
 }
+
 /// Get some information about the guest agent.
 ///
 #[qapi(command)]
@@ -619,6 +672,7 @@ pub struct GuestHostName {
 #[qapi(returns = "GuestAgentInfo")]
 #[qapi(added = "1.4.0")]
 pub struct GuestInfo {}
+
 #[qapi(added = "1.4.0")]
 pub struct GuestIpAddress {
     /// IP address
@@ -630,6 +684,7 @@ pub struct GuestIpAddress {
     /// Network prefix length of @ip-address
     pub prefix: i64,
 }
+
 /// An enumeration of supported IP address types
 ///
 #[qapi(added = "1.4.0")]
@@ -641,6 +696,7 @@ pub enum GuestIpAddressType {
     #[qapi(name = "ipv6")]
     Ipv6,
 }
+
 /// CPU statistics of Linux
 ///
 #[qapi(added = "7.1.0")]
@@ -669,6 +725,7 @@ pub struct GuestLinuxCpuStats {
     /// Time spent in user mode
     pub user: u64,
 }
+
 /// Statistics about process load information
 ///
 #[qapi(condition = "CONFIG_GETLOADAVG")]
@@ -681,6 +738,7 @@ pub struct GuestLoadAverage {
     /// 5-minute load avage
     pub load5m: f64,
 }
+
 #[qapi(added = "1.5.0")]
 pub struct GuestLogicalProcessor {
     /// Whether offlining the VCPU is possible.  This member
@@ -695,6 +753,7 @@ pub struct GuestLogicalProcessor {
     /// Whether the VCPU is enabled.
     pub online: bool,
 }
+
 #[qapi(added = "2.3.0")]
 pub struct GuestMemoryBlock {
     /// Whether offlining the MEMORY BLOCK is possible.  This
@@ -710,6 +769,7 @@ pub struct GuestMemoryBlock {
     #[qapi(name = "phys-index")]
     pub phys_index: u64,
 }
+
 #[qapi(added = "2.3.0")]
 pub struct GuestMemoryBlockInfo {
     /// the size (in bytes) of the guest memory blocks, which are the
@@ -717,6 +777,7 @@ pub struct GuestMemoryBlockInfo {
     /// called Logical Memory Hotplug).
     pub size: u64,
 }
+
 #[qapi(added = "2.3.0")]
 pub struct GuestMemoryBlockResponse {
     /// the error number.  When memory block operation fails,
@@ -731,6 +792,7 @@ pub struct GuestMemoryBlockResponse {
     /// the result of memory block operation.
     pub response: GuestMemoryBlockResponseType,
 }
+
 /// An enumeration of memory block operation result.
 ///
 #[qapi(added = "2.3.0")]
@@ -752,6 +814,7 @@ pub enum GuestMemoryBlockResponseType {
     #[qapi(name = "success")]
     Success,
 }
+
 /// Get list of guest IP addresses, MAC addresses and netmasks.
 ///
 #[qapi(command)]
@@ -759,12 +822,14 @@ pub enum GuestMemoryBlockResponseType {
 #[qapi(returns = "Vec<GuestNetworkInterface>")]
 #[qapi(added = "1.4.0")]
 pub struct GuestNetworkGetInterfaces {}
+
 #[qapi(command)]
 #[qapi(name = "guest-network-get-route")]
 #[qapi(condition = "CONFIG_LINUX")]
 #[qapi(returns = "Vec<GuestNetworkRoute>")]
 #[qapi(added = "9.1.0")]
 pub struct GuestNetworkGetRoute {}
+
 #[qapi(added = "1.4.0")]
 pub struct GuestNetworkInterface {
     /// Hardware address of @name
@@ -780,6 +845,7 @@ pub struct GuestNetworkInterface {
     #[qapi(added = "2.11.0")]
     pub statistics: Option<GuestNetworkInterfaceStat>,
 }
+
 #[qapi(added = "2.11.0")]
 pub struct GuestNetworkInterfaceStat {
     /// total bytes received
@@ -807,6 +873,7 @@ pub struct GuestNetworkInterfaceStat {
     #[qapi(name = "tx-packets")]
     pub tx_packets: u64,
 }
+
 /// Route information, currently, only linux supported.
 ///
 #[qapi(condition = "CONFIG_LINUX")]
@@ -848,6 +915,7 @@ pub struct GuestNetworkRoute {
     /// IPv4 only)
     pub window: Option<i64>,
 }
+
 /// NVMe smart information, based on NVMe specification, section
 /// <SMART / Health Information (Log Identifier 02h)>
 ///
@@ -904,6 +972,7 @@ pub struct GuestNvMeSmart {
     #[qapi(name = "unsafe-shutdowns-lo")]
     pub unsafe_shutdowns_lo: u64,
 }
+
 #[qapi(name = "GuestOSInfo")]
 #[qapi(added = "2.10.0")]
 pub struct GuestOsInfo {
@@ -952,6 +1021,7 @@ pub struct GuestOsInfo {
     #[qapi(name = "version-id")]
     pub version_id: Option<String>,
 }
+
 #[qapi(name = "GuestPCIAddress")]
 #[qapi(added = "2.2.0")]
 pub struct GuestPciAddress {
@@ -964,6 +1034,7 @@ pub struct GuestPciAddress {
     /// slot id
     pub slot: i64,
 }
+
 /// Ping the guest agent, a non-error return implies success
 ///
 #[qapi(command)]
@@ -971,6 +1042,7 @@ pub struct GuestPciAddress {
 #[qapi(returns = "()")]
 #[qapi(added = "1.4.0")]
 pub struct GuestPing {}
+
 #[qapi(command)]
 #[qapi(name = "guest-set-memory-blocks")]
 #[qapi(returns = "Vec<GuestMemoryBlockResponse>")]
@@ -979,6 +1051,7 @@ pub struct GuestSetMemoryBlocks {
     #[qapi(name = "mem-blks")]
     pub mem_blks: Vec<GuestMemoryBlock>,
 }
+
 /// Set guest time.
 ///
 /// When a guest is paused or migrated to a file then loaded from that
@@ -1003,6 +1076,7 @@ pub struct GuestSetTime {
     /// UTC.
     pub time: i64,
 }
+
 #[qapi(command)]
 #[qapi(name = "guest-set-user-password")]
 #[qapi(returns = "()")]
@@ -1028,6 +1102,7 @@ pub struct GuestSetUserPassword {
     /// the user account whose password to change
     pub username: String,
 }
+
 #[qapi(command)]
 #[qapi(name = "guest-set-vcpus")]
 #[qapi(returns = "i64")]
@@ -1035,6 +1110,7 @@ pub struct GuestSetUserPassword {
 pub struct GuestSetVcpus {
     pub vcpus: Vec<GuestLogicalProcessor>,
 }
+
 /// Initiate guest-activated shutdown.  Note: this is an asynchronous
 /// shutdown request, with no guarantee of successful shutdown.
 ///
@@ -1051,6 +1127,7 @@ pub struct GuestShutdown {
     /// command to confirm the VM status is "shutdown".
     pub mode: Option<String>,
 }
+
 /// Append public keys to user .ssh/authorized_keys on Unix systems (not
 /// implemented for other systems).
 ///
@@ -1068,6 +1145,7 @@ pub struct GuestSshAddAuthorizedKeys {
     /// the user account to add the authorized keys
     pub username: String,
 }
+
 /// Return the public keys from user .ssh/authorized_keys on Unix
 /// systems (not implemented for other systems).
 ///
@@ -1080,6 +1158,7 @@ pub struct GuestSshGetAuthorizedKeys {
     /// the user account to add the authorized keys
     pub username: String,
 }
+
 /// Remove public keys from the user .ssh/authorized_keys on Unix
 /// systems (not implemented for other systems).  It's not an error if
 /// the key is already missing.
@@ -1096,21 +1175,25 @@ pub struct GuestSshRemoveAuthorizedKeys {
     /// the user account to remove the authorized keys
     pub username: String,
 }
+
 #[qapi(command)]
 #[qapi(name = "guest-suspend-disk")]
 #[qapi(returns = "()")]
 #[qapi(added = "1.4.0")]
 pub struct GuestSuspendDisk {}
+
 #[qapi(command)]
 #[qapi(name = "guest-suspend-hybrid")]
 #[qapi(returns = "()")]
 #[qapi(added = "1.4.0")]
 pub struct GuestSuspendHybrid {}
+
 #[qapi(command)]
 #[qapi(name = "guest-suspend-ram")]
 #[qapi(returns = "()")]
 #[qapi(added = "1.4.0")]
 pub struct GuestSuspendRam {}
+
 #[qapi(command)]
 #[qapi(name = "guest-sync")]
 #[qapi(returns = "i64")]
@@ -1118,6 +1201,7 @@ pub struct GuestSuspendRam {}
 pub struct GuestSync {
     pub id: i64,
 }
+
 #[qapi(command)]
 #[qapi(name = "guest-sync-delimited")]
 #[qapi(returns = "i64")]
@@ -1125,6 +1209,7 @@ pub struct GuestSync {
 pub struct GuestSyncDelimited {
     pub id: i64,
 }
+
 #[qapi(added = "2.10.0")]
 pub struct GuestTimezone {
     /// Offset to UTC in seconds, negative numbers for time zones
@@ -1134,6 +1219,7 @@ pub struct GuestTimezone {
     /// and should only be used for informational purposes.
     pub zone: Option<String>,
 }
+
 #[qapi(added = "2.10.0")]
 pub struct GuestUser {
     /// Logon domain (windows only)
@@ -1147,6 +1233,7 @@ pub struct GuestUser {
     /// Username
     pub user: String,
 }
+
 /// Symbolic names for use in `guest-file-seek`
 ///
 #[qapi(name = "QGASeek")]
