@@ -24,30 +24,26 @@ fn version_str(v: Version) -> String {
 /// The since/until metadata is already captured in #[qapi(since/until)] attributes,
 /// so it should not appear in the generated Rust doc comments.
 fn strip_doc_since(doc: &str) -> Option<String> {
-    // Version number pattern: X.Y or X.Y.Z, with optional trailing period
-    // Strip parenthetical "(since X.Y.Z)" or "(since: X.Y.Z)" patterns, including trailing period
-    let re_paren = regex::Regex::new(r"(?i)\s*\(since:?\s+\d+\.\d+(?:\.\d+)?\.?\)\.?").unwrap();
+    use std::sync::OnceLock;
+
+    static RE_PAREN: OnceLock<regex::Regex> = OnceLock::new();
+    static RE_SEMI: OnceLock<regex::Regex> = OnceLock::new();
+    static RE_STANDALONE: OnceLock<regex::Regex> = OnceLock::new();
+    static RE_TRAILING: OnceLock<regex::Regex> = OnceLock::new();
+    static RE_DEP_FULL: OnceLock<regex::Regex> = OnceLock::new();
+
+    let re_paren = RE_PAREN.get_or_init(|| regex::Regex::new(r"(?i)\s*\(since:?\s+\d+\.\d+(?:\.\d+)?\.?\)\.?").unwrap());
+    let re_semi = RE_SEMI.get_or_init(|| regex::Regex::new(r"(?i);\s*since:?\s+\d+\.\d+(?:\.\d+)?\.?").unwrap());
+    let re_standalone = RE_STANDALONE.get_or_init(|| regex::Regex::new(r"(?im)^\s*since:?\s+\d+\.\d+(?:\.\d+)?\.?\s*$").unwrap());
+    let re_trailing = RE_TRAILING.get_or_init(|| regex::Regex::new(r"(?i)\s+since:?\s+\d+\.\d+(?:\.\d+)?\.?\s*$").unwrap());
+    let re_dep_full = RE_DEP_FULL.get_or_init(|| regex::Regex::new(r"(?i)(deprecated)\s+since:?\s+\d+\.\d+(?:\.\d+)?\.?").unwrap());
+
     let doc = re_paren.replace_all(doc, "").to_string();
-
-    // Strip "; since X.Y.Z" inside parenthetical like "(all by default; since 2.7)"
-    let re_semi = regex::Regex::new(r"(?i);\s*since:?\s+\d+\.\d+(?:\.\d+)?\.?").unwrap();
     let doc = re_semi.replace_all(&doc, "").to_string();
-
-    // Strip standalone "Since X.Y.Z" or "since X.Y." (entire line)
-    let re_standalone = regex::Regex::new(r"(?im)^\s*since:?\s+\d+\.\d+(?:\.\d+)?\.?\s*$").unwrap();
     let doc = re_standalone.replace_all(&doc, "").to_string();
-
-    // Strip "since X.Y.Z" at end of text (trailing)
-    let re_trailing = regex::Regex::new(r"(?i)\s+since:?\s+\d+\.\d+(?:\.\d+)?\.?\s*$").unwrap();
     let doc = re_trailing.replace_all(&doc, "").to_string();
-
-    // Strip "deprecated since X.Y" → keep "deprecated"
-    let re_dep = regex::Regex::new(r"(?i)\s+since:?\s+\d+\.\d+(?:\.\d+)?\.?").unwrap();
-    // Only apply if preceded by "deprecated"
-    let re_dep_full = regex::Regex::new(r"(?i)(deprecated)\s+since:?\s+\d+\.\d+(?:\.\d+)?\.?").unwrap();
     let doc = re_dep_full.replace_all(&doc, "$1").to_string();
 
-    // Clean up: trim, remove empty lines
     let doc: String = doc.lines()
         .map(|l| l.trim_end())
         .collect::<Vec<_>>()
@@ -180,97 +176,117 @@ fn process_version_schema(
     Ok((enums_lookup, structs_lookup))
 }
 
+/// Result of extracting and parsing a single version's schema.
+struct VersionResult {
+    tag: String,
+    version: Version,
+    enums: HashMap<String, Enum>,
+    structs: HashMap<String, Struct>,
+}
+
+/// Extract, parse, and process IR for a single version.
+/// This is the work done per-thread in parallel.
+fn process_single_version(qemu_repo: &Path, tag: &str) -> Result<VersionResult> {
+    let version = parse_version_tag(tag)
+        .with_context(|| format!("Invalid version tag: {}", tag))?;
+
+    let tmpdir = extract_schema_from_tag(qemu_repo, tag)
+        .with_context(|| format!("Failed to extract schema for {}", tag))?;
+
+    let schema_entry = find_extracted_schema_entry(tmpdir.path())
+        .with_context(|| format!("No schema entry point found for {}", tag))?;
+
+    // Parser version is thread-local, safe to set per-thread
+    crate::set_parser_version(version);
+
+    let sources = crate::read_schema_with_version(&schema_entry, Some(version))
+        .with_context(|| format!("Failed to read schema for {}", tag))?;
+
+    let (enums, structs) = process_version_schema(&sources)
+        .with_context(|| format!("Failed to process IR for {}", tag))?;
+
+    Ok(VersionResult {
+        tag: tag.to_string(),
+        version,
+        enums,
+        structs,
+    })
+}
+
 /// Parse schemas from multiple versions and build a unified registry.
+/// Extraction and parsing run in parallel across versions; merging is sequential.
 pub fn build_unified_registry(
     qemu_repo: &Path,
     version_tags: &[&str],
 ) -> Result<UnifiedRegistry> {
+    use std::time::Instant;
+    let start = Instant::now();
+
+    // Phase 1: Extract + parse all versions in parallel
+    eprintln!("Extracting and parsing {} versions in parallel...", version_tags.len());
+    let results: Vec<Result<VersionResult>> = std::thread::scope(|scope| {
+        let handles: Vec<_> = version_tags.iter().map(|tag| {
+            scope.spawn(move || process_single_version(qemu_repo, tag))
+        }).collect();
+
+        handles.into_iter().map(|h| h.join().unwrap()).collect()
+    });
+
+    eprintln!("  Extraction + parsing: {:.1}s", start.elapsed().as_secs_f64());
+
+    // Collect results, maintaining the original tag order
+    let mut version_results: Vec<VersionResult> = Vec::with_capacity(version_tags.len());
+    for result in results {
+        version_results.push(result?);
+    }
+
+    // Sort by version to ensure deterministic merge order
+    version_results.sort_by_key(|r| r.version);
+
+    // Phase 2: Merge sequentially in version order
+    let merge_start = Instant::now();
     let mut registry = UnifiedRegistry::default();
 
-    let mut prev_schema_hash: Option<u64> = None;
+    for vr in &version_results {
+        registry.versions.push(vr.version);
 
-    for tag in version_tags {
-        let version = parse_version_tag(tag)
-            .with_context(|| format!("Invalid version tag: {}", tag))?;
-        registry.versions.push(version);
-
-        eprintln!("Processing {}...", tag);
-
-        let tmpdir = extract_schema_from_tag(qemu_repo, tag)
-            .with_context(|| format!("Failed to extract schema for {}", tag))?;
-
-        let schema_entry = find_extracted_schema_entry(tmpdir.path())
-            .with_context(|| format!("No schema entry point found for {}", tag))?;
-
-        // Hash schema files to detect identical schemas (patch versions)
-        let schema_hash = {
-            use std::hash::{Hash, Hasher};
-            let mut hasher = std::collections::hash_map::DefaultHasher::new();
-            let mut files: Vec<_> = walkdir::WalkDir::new(tmpdir.path())
-                .into_iter()
-                .filter_map(|e| e.ok())
-                .filter(|e| e.path().extension().is_some_and(|ext| ext == "json"))
-                .collect();
-            files.sort_by_key(|f| f.path().to_path_buf());
-            for f in &files {
-                if let Ok(content) = std::fs::read(f.path()) {
-                    f.path().strip_prefix(tmpdir.path()).unwrap_or(f.path()).hash(&mut hasher);
-                    content.hash(&mut hasher);
-                }
-            }
-            hasher.finish()
-        };
-
-        if prev_schema_hash == Some(schema_hash) {
-            eprintln!("  Skipping {} (schema identical to previous version)", tag);
-            continue;
-        }
-        prev_schema_hash = Some(schema_hash);
-
-        let sources = read_schema_with_version(&schema_entry, Some(version))
-            .with_context(|| format!("Failed to read schema for {}", tag))?;
-
-        let (enums, structs) = process_version_schema(&sources)
-            .with_context(|| format!("Failed to process IR for {}", tag))?;
-
-        // Track which type names appear in this version
         let mut seen_types = BTreeSet::new();
 
-        // Merge enums
-        for (name, e) in &enums {
+        for (name, e) in &vr.enums {
             seen_types.insert(name.clone());
-            merge_enum(&mut registry, name, e, version);
+            merge_enum(&mut registry, name, e, vr.version);
         }
 
-        // Merge structs
-        for (name, s) in &structs {
+        for (name, s) in &vr.structs {
             seen_types.insert(name.clone());
-            merge_struct(&mut registry, name, s, version);
+            merge_struct(&mut registry, name, s, vr.version);
         }
 
-        // Mark types NOT seen in this version as removed
         for (name, ut) in registry.types.iter_mut() {
             if !seen_types.contains(name) {
-                let vr = match ut {
+                let vr_inner = match ut {
                     UnifiedType::Enum(e) => &mut e.versions,
                     UnifiedType::Struct(s) => &mut s.versions,
                 };
-                if vr.until.is_none() && vr.since < version {
-                    vr.until = Some(version);
+                if vr_inner.until.is_none() && vr_inner.since < vr.version {
+                    vr_inner.until = Some(vr.version);
                 }
             }
         }
     }
 
-    // Post-process: detect and fix recursive types by adding Box wrapping
+    eprintln!("  Merge loop: {:.1}s", merge_start.elapsed().as_secs_f64());
+    let fix_start = Instant::now();
     fix_recursive_types(&mut registry);
+    eprintln!("  fix_recursive_types: {:.1}s", fix_start.elapsed().as_secs_f64());
 
     let total = registry.types.len();
     let removed = registry.types.values().filter(|t| match t {
         UnifiedType::Enum(e) => e.versions.until.is_some(),
         UnifiedType::Struct(s) => s.versions.until.is_some(),
     }).count();
-    eprintln!("Unified registry: {} types total, {} removed across versions", total, removed);
+    eprintln!("  Merge: {:.1}s", merge_start.elapsed().as_secs_f64());
+    eprintln!("  Total: {:.1}s — {} types, {} removed", start.elapsed().as_secs_f64(), total, removed);
 
     Ok(registry)
 }
@@ -548,7 +564,9 @@ pub fn generate_unified_code(
     qemu_repo: &Path,
     version_tags: &[&str],
 ) -> Result<String> {
+    use std::time::Instant;
     let registry = build_unified_registry(qemu_repo, version_tags)?;
+    let codegen_start = Instant::now();
 
     let mut output = String::new();
     output.push_str("#![allow(unused_imports, non_camel_case_types, dead_code)]\n");
@@ -584,6 +602,9 @@ pub fn generate_unified_code(
         }
     });
 
+    // Collect all generated token streams, then format once
+    let mut all_tokens = proc_macro2::TokenStream::new();
+
     for (name, ut) in enum_entries.iter().chain(struct_entries.iter()) {
         let rust_name = match ut {
             UnifiedType::Enum(ue) => rustify_name(&ue.ir.name),
@@ -595,31 +616,33 @@ pub fn generate_unified_code(
             continue;
         }
 
-        match ut {
-            UnifiedType::Enum(ue) => {
-                let code = generate_unified_enum(ue, &registry);
-                match syn::parse2::<syn::File>(code.clone()) {
-                    Ok(syntree) => output.push_str(&prettyplease::unparse(&syntree)),
-                    Err(e) => {
-                        eprintln!("WARNING: Failed to parse generated enum '{}': {}", name, e);
-                        output.push_str(&format!("// ERROR generating {}: {}\n", name, e));
-                    }
-                }
-            }
-            UnifiedType::Struct(us) => {
-                let code = generate_unified_struct(us, &registry);
-                match syn::parse2::<syn::File>(code.clone()) {
-                    Ok(syntree) => output.push_str(&prettyplease::unparse(&syntree)),
-                    Err(e) => {
-                        eprintln!("WARNING: Failed to parse generated struct '{}': {}", name, e);
-                        output.push_str(&format!("// ERROR generating {}: {}\n", name, e));
-                    }
-                }
-            }
-        }
+        let code = match ut {
+            UnifiedType::Enum(ue) => generate_unified_enum(ue, &registry),
+            UnifiedType::Struct(us) => generate_unified_struct(us, &registry),
+        };
+        all_tokens.extend(code);
     }
 
-    Ok(output)
+    eprintln!("  Token generation: {:.1}s", codegen_start.elapsed().as_secs_f64());
+
+    // Parse and format the entire output at once
+    let fmt_start = Instant::now();
+    let combined = format!("{}{}", output, all_tokens);
+    let result = match syn::parse_file(&combined) {
+        Ok(syntree) => {
+            eprintln!("  syn::parse_file: {:.1}s", fmt_start.elapsed().as_secs_f64());
+            let pp_start = Instant::now();
+            let formatted = prettyplease::unparse(&syntree);
+            eprintln!("  prettyplease: {:.1}s", pp_start.elapsed().as_secs_f64());
+            Ok(formatted)
+        }
+        Err(e) => {
+            eprintln!("WARNING: Failed to parse combined output: {}", e);
+            Ok(combined)
+        }
+    };
+    eprintln!("  Codegen total: {:.1}s", codegen_start.elapsed().as_secs_f64());
+    result
 }
 
 /// Generate code for a unified enum, adding since/until attributes from the registry.

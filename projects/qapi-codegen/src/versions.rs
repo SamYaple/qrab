@@ -3,7 +3,6 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 /// Given a QEMU source root, find the schema entry point.
-/// Tries `qapi/qapi-schema.json` first (v4.0+), then falls back to root `qapi-schema.json`.
 pub fn find_schema_entry(qemu_root: &Path) -> Option<PathBuf> {
     let qapi_dir = qemu_root.join("qapi").join("qapi-schema.json");
     if qapi_dir.exists() {
@@ -31,44 +30,65 @@ pub fn parse_version_tag(tag: &str) -> Option<(u32, u32, u32)> {
     }
 }
 
-/// Extract schema files from a git tag into a temporary directory and return the path.
-/// The caller is responsible for cleaning up the temp directory.
+/// Extract schema files from a git tag into a temporary directory.
+/// Uses `git archive` for a single subprocess per version.
 pub fn extract_schema_from_tag(qemu_repo: &Path, tag: &str) -> Result<tempfile::TempDir> {
     let tmpdir = tempfile::tempdir().context("Failed to create temp directory")?;
 
-    // List all .json files in the tag
+    // Use git archive to extract all schema files in one shot.
+    // Try both root qapi-schema.json and qapi/ directory.
     let output = Command::new("git")
-        .args(["ls-tree", "-r", "--name-only", tag])
+        .args(["archive", tag, "--", "qapi-schema.json", "qapi/"])
         .current_dir(qemu_repo)
         .output()
-        .context("Failed to run git ls-tree")?;
+        .context("Failed to run git archive")?;
 
-    let file_list = String::from_utf8(output.stdout).context("Invalid UTF-8 in git output")?;
-
-    for path in file_list.lines() {
-        if !path.ends_with(".json") {
-            continue;
-        }
-        // Only extract qapi schema files
-        if !path.starts_with("qapi/") && !path.starts_with("qapi-schema") {
-            continue;
-        }
-
-        let file_output = Command::new("git")
-            .args(["show", &format!("{}:{}", tag, path)])
+    // git archive may fail if one of the paths doesn't exist (e.g., v1.0 has no qapi/ dir).
+    // Try individual paths as fallback.
+    let tar_data = if output.status.success() {
+        output.stdout
+    } else {
+        // Try just qapi-schema.json (v1.0-v2.11.0)
+        let output = Command::new("git")
+            .args(["archive", tag, "--", "qapi-schema.json"])
             .current_dir(qemu_repo)
             .output()
-            .with_context(|| format!("Failed to extract {}:{}", tag, path))?;
+            .context("Failed to run git archive for root schema")?;
+        if output.status.success() {
+            output.stdout
+        } else {
+            // Try just qapi/ (v2.12.0+)
+            let output = Command::new("git")
+                .args(["archive", tag, "--", "qapi/"])
+                .current_dir(qemu_repo)
+                .output()
+                .context("Failed to run git archive for qapi dir")?;
+            anyhow::ensure!(output.status.success(), "git archive failed for tag {}", tag);
+            output.stdout
+        }
+    };
 
-        if !file_output.status.success() {
+    // Extract tar to tmpdir, filtering to .json files only
+    let mut archive = tar::Archive::new(&tar_data[..]);
+    for entry in archive.entries().context("Failed to read tar entries")? {
+        let mut entry = entry.context("Failed to read tar entry")?;
+        let path = entry.path().context("Failed to get entry path")?.into_owned();
+        let path_str = path.to_string_lossy();
+
+        // Only extract .json files (skip .c, .h, Makefile, etc.)
+        if !path_str.ends_with(".json") {
+            continue;
+        }
+        // Skip non-schema json files
+        if !path_str.starts_with("qapi") {
             continue;
         }
 
-        let dest = tmpdir.path().join(path);
+        let dest = tmpdir.path().join(&path);
         if let Some(parent) = dest.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        std::fs::write(&dest, &file_output.stdout)?;
+        entry.unpack(&dest).with_context(|| format!("Failed to unpack {}", path_str))?;
     }
 
     Ok(tmpdir)
@@ -76,12 +96,10 @@ pub fn extract_schema_from_tag(qemu_repo: &Path, tag: &str) -> Result<tempfile::
 
 /// Find the schema entry point in an extracted temp directory.
 pub fn find_extracted_schema_entry(dir: &Path) -> Option<PathBuf> {
-    // Try qapi/qapi-schema.json first (v2.12.0+)
     let qapi_dir = dir.join("qapi").join("qapi-schema.json");
     if qapi_dir.exists() {
         return Some(qapi_dir);
     }
-    // Fall back to root qapi-schema.json (v1.x - v2.11.x)
     let root = dir.join("qapi-schema.json");
     if root.exists() {
         return Some(root);
@@ -89,44 +107,31 @@ pub fn find_extracted_schema_entry(dir: &Path) -> Option<PathBuf> {
     None
 }
 
-/// Discover all QEMU version tags from v1.0 to v10.2.0 (including patch versions)
-/// by querying the git repository.
+/// Discover all QEMU version tags in a git repository.
+/// Returns only .0 release tags (patch releases have identical schemas), sorted by version.
 pub fn discover_version_tags(qemu_repo: &Path) -> Result<Vec<String>> {
     let output = Command::new("git")
-        .args(["tag", "-l", "v[0-9]*"])
+        .args(["tag", "--list", "v*"])
         .current_dir(qemu_repo)
         .output()
         .context("Failed to run git tag")?;
 
-    anyhow::ensure!(output.status.success(), "git tag failed");
-
-    let tag_list = String::from_utf8(output.stdout).context("Invalid UTF-8 in git output")?;
-
-    let mut tags: Vec<String> = tag_list
+    let tags_str = String::from_utf8(output.stdout).context("Invalid UTF-8 in git tag output")?;
+    let mut tags: Vec<String> = tags_str
         .lines()
-        .filter(|tag| {
-            // Skip release candidates
-            if tag.contains("rc") {
+        .filter(|t| {
+            let t = t.trim();
+            if t.is_empty() || t.contains("rc") {
                 return false;
             }
-            // Parse version and filter to v1.0+
-            if let Some((major, _, _)) = parse_version_tag(tag) {
-                major >= 1
-            } else {
-                false
-            }
+            // Only .0 releases
+            let parts: Vec<&str> = t.trim_start_matches('v').split('.').collect();
+            (parts.len() == 2 || (parts.len() == 3 && parts[2] == "0"))
+                && parse_version_tag(t).is_some_and(|v| v >= (1, 0, 0))
         })
-        .map(|s| s.to_string())
+        .map(|s| s.trim().to_string())
         .collect();
 
-    // Sort by version
-    tags.sort_by(|a, b| {
-        let va = parse_version_tag(a).unwrap_or((0, 0, 0));
-        let vb = parse_version_tag(b).unwrap_or((0, 0, 0));
-        va.cmp(&vb)
-    });
-
-    anyhow::ensure!(!tags.is_empty(), "No version tags found in {}", qemu_repo.display());
-
+    tags.sort_by_key(|t| parse_version_tag(t).unwrap_or((0, 0, 0)));
     Ok(tags)
 }
