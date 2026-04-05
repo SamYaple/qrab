@@ -154,12 +154,34 @@ pub struct Metadata {
 
 /// Convert a doc string into `#[doc = "..."]` token stream.
 /// Each line gets its own `#[doc]` attribute so `prettyplease` renders them as `///`.
+/// Indented blocks (4+ spaces) are fenced with ` ```text` to prevent Rust doctests.
 pub fn doc_to_tokens(doc: &str) -> proc_macro2::TokenStream {
-    let lines: Vec<proc_macro2::TokenStream> = doc.lines().map(|line| {
+    let mut result_lines: Vec<String> = Vec::new();
+    let mut in_code_block = false;
+
+    for line in doc.lines() {
         // Strip leading `# ` (QAPI comment prefix) if present
         let line = line.strip_prefix("# ").or_else(|| line.strip_prefix("#")).unwrap_or(line);
-        let line = format!(" {}", line); // leading space for `/// text` formatting
+
+        let is_indented = line.starts_with("    ") && !line.trim().is_empty();
+
+        if is_indented && !in_code_block {
+            result_lines.push(" ```text".to_string());
+            in_code_block = true;
+        } else if !is_indented && in_code_block {
+            result_lines.push(" ```".to_string());
+            in_code_block = false;
+        }
+
+        result_lines.push(format!(" {}", line));
+    }
+
+    if in_code_block {
+        result_lines.push(" ```".to_string());
+    }
+
+    let tokens: Vec<proc_macro2::TokenStream> = result_lines.iter().map(|line| {
         quote! { #[doc = #line] }
     }).collect();
-    quote! { #(#lines)* }
+    quote! { #(#tokens)* }
 }

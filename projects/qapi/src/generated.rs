@@ -18871,13 +18871,19 @@ pub struct BlockdevRemoveMedium {
 /// this command depends on the value:
 ///
 ///  1) A set of options (`BlockdevOptions`): the child is reopened with
+/// ```text
 ///     the specified set of options.
+/// ```
 ///
 ///  2) A reference to the current child: the child is reopened using
+/// ```text
 ///     its existing set of options.
+/// ```
 ///
 ///  3) A reference to a different node: the current child is replaced
+/// ```text
 ///     with the specified one.
+/// ```
 ///
 ///  4) null: the current child (if any) is detached.
 ///
@@ -19605,8 +19611,10 @@ pub struct MigrateIncoming {
 ///
 /// .. qmp-example::
 ///
+/// ```text
 ///     -> { "execute": "migrate-pause" }
 ///     <- { "return": {} }
+/// ```
 ///
 #[qapi(command)]
 #[qapi(name = "migrate-pause")]
@@ -20114,8 +20122,10 @@ pub struct QueryMemoryDevices {}
 ///
 /// .. qmp-example::
 ///
+/// ```text
 ///     -> { "execute": "query-memory-size-summary" }
 ///     <- { "return": { "base-memory": 4294967296, "plugged-memory": 0 } }
+/// ```
 ///
 #[qapi(command)]
 #[qapi(name = "query-memory-size-summary")]
@@ -20881,13 +20891,19 @@ pub struct XBlockdevRemoveMedium {
 /// this command depends on the value:
 ///
 ///  1) A set of options (BlockdevOptions): the child is reopened with
+/// ```text
 ///     the specified set of options.
+/// ```
 ///
 ///  2) A reference to the current child: the child is reopened using
+/// ```text
 ///     its existing set of options.
+/// ```
 ///
 ///  3) A reference to a different node: the current child is replaced
+/// ```text
 ///     with the specified one.
+/// ```
 ///
 ///  4) NULL: the current child (if any) is detached.
 ///
@@ -21089,8 +21105,10 @@ pub struct XQueryVirtioVhostQueueStatus {
 ///
 /// .. qmp-example::
 ///
+/// ```text
 ///     -> { "execute": "xen-colo-do-checkpoint" }
 ///     <- { "return": {} }
+/// ```
 ///
 #[qapi(command)]
 #[qapi(name = "xen-colo-do-checkpoint")]
