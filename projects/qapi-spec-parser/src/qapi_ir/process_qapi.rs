@@ -15,6 +15,22 @@ use crate::{
 };
 use std::collections::HashMap;
 
+/// Normalize a since version string to always include patch: "1.2" → "1.2.0"
+/// Also handles: trailing dots ("2.9." → "2.9.0"), extra text after version.
+fn normalize_since_version(s: &str) -> String {
+    let s = s.trim();
+    // Extract just the version number part (digits and dots)
+    let version_part: String = s.chars().take_while(|c| c.is_ascii_digit() || *c == '.').collect();
+    // Strip trailing dots
+    let version_part = version_part.trim_end_matches('.');
+    let parts: Vec<&str> = version_part.split('.').collect();
+    match parts.len() {
+        2 => format!("{}.{}.0", parts[0], parts[1]),
+        3 => format!("{}.{}.{}", parts[0], parts[1], parts[2]),
+        _ => format!("{}.0.0", version_part), // best effort
+    }
+}
+
 macro_rules! add_feat {
     ($meta:expr, $feat:expr) => {
         if let Some(features) = $feat {
@@ -40,7 +56,7 @@ macro_rules! add_docs {
                 $meta.doc = Some(doc.description.join("\n"));
             }
             if let Some(since) = doc.since {
-                $meta.attributes.push(Attribute::with_value("since", since));
+                $meta.attributes.push(Attribute::with_value("since", normalize_since_version(since)));
             }
             'outer_loop: for (name, desc) in &doc.fields {
                 for value in $variants {
@@ -51,7 +67,7 @@ macro_rules! add_docs {
                             value
                                 .meta
                                 .attributes
-                                .push(Attribute::with_value("since", since));
+                                .push(Attribute::with_value("since", normalize_since_version(&since)));
                         }
                         continue 'outer_loop;
                     }

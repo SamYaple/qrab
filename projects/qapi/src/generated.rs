@@ -10,7 +10,7 @@ pub enum AcpiSlotType {
 */
     #[qapi(name = "DIMM")]
     Dimm,
-    ///logical CPU slot (since 2.7)
+    ///logical CPU slot (since 2.7.0)
     #[qapi(name = "CPU")]
     #[qapi(since = "2.7.0")]
     Cpu,
@@ -115,7 +115,7 @@ pub enum AudioFormat {
 */
     #[qapi(name = "s32")]
     S32,
-    /**single precision floating-point (since 5.0)
+    /**single precision floating-point (since 5.0.0)
 */
     #[qapi(name = "f32")]
     #[qapi(since = "5.0.0")]
@@ -177,7 +177,7 @@ pub enum AudiodevDriver {
     Spice,
     #[qapi(name = "wav")]
     Wav,
-    /**JACK audio backend (since 5.1)
+    /**JACK audio backend (since 5.1.0)
 */
     #[qapi(name = "jack")]
     #[qapi(since = "5.1.0")]
@@ -353,28 +353,28 @@ pub enum BlkdebugEvent {
     #[qapi(since = "2.2.0")]
     EmptyImagePrepare,
     /**write zeros to the l1 table to shrink image.
-(since 2.11)
+(since 2.11.0)
 */
     #[qapi(name = "l1_shrink_write_table")]
     #[qapi(since = "2.11.0")]
     L1ShrinkWriteTable,
-    /**discard the l2 tables.  (since 2.11)
+    /**discard the l2 tables.  (since 2.11.0)
 */
     #[qapi(name = "l1_shrink_free_l2_clusters")]
     #[qapi(since = "2.11.0")]
     L1ShrinkFreeL2Clusters,
-    /**a write due to copy-on-read (since 2.11)
+    /**a write due to copy-on-read (since 2.11.0)
 */
     #[qapi(name = "cor_write")]
     #[qapi(since = "2.11.0")]
     CorWrite,
     /**an allocation of file space for a cluster
-(since 4.1)
+(since 4.1.0)
 */
     #[qapi(name = "cluster_alloc_space")]
     #[qapi(since = "4.1.0")]
     ClusterAllocSpace,
-    /**triggers once at creation of the blkdebug node (since 4.1)
+    /**triggers once at creation of the blkdebug node (since 4.1.0)
 */
     #[qapi(name = "none")]
     #[qapi(since = "4.1.0")]
@@ -521,18 +521,18 @@ pub enum BlockExportType {
 */
     #[qapi(name = "nbd")]
     Nbd,
-    /**vhost-user-blk export (since 5.2)
+    /**vhost-user-blk export (since 5.2.0)
 */
     #[qapi(name = "vhost-user-blk")]
     #[qapi(since = "5.2.0")]
     VhostUserBlk,
-    /**FUSE export (since: 6.0)
+    /**FUSE export (since: 6.0.0)
 */
     #[qapi(name = "fuse")]
     #[qapi(condition = "defined(CONFIG_FUSE)")]
     #[qapi(since = "6.0.0")]
     Fuse,
-    /**vduse-blk export (since 7.1)
+    /**vduse-blk export (since 7.1.0)
 */
     #[qapi(name = "vduse-blk")]
     #[qapi(condition = "CONFIG_VDUSE_BLK_EXPORT")]
@@ -742,7 +742,7 @@ pub enum BlockdevAioOptions {
 */
     #[qapi(name = "native")]
     Native,
-    /**Use linux io_uring (since 5.0)
+    /**Use linux io_uring (since 5.0.0)
 */
     #[qapi(name = "io_uring")]
     #[qapi(condition = "defined(CONFIG_LINUX_IO_URING)")]
@@ -960,15 +960,15 @@ pub enum BlockdevDriver {
     Vpc,
     #[qapi(name = "quorum")]
     Quorum,
-    ///Since 2.1
+    ///Since 2.1.0
     #[qapi(name = "host_device")]
     #[qapi(since = "2.1.0")]
     HostDevice,
-    ///Since 2.1
+    ///Since 2.1.0
     #[qapi(name = "host_cdrom")]
     #[qapi(since = "2.1.0")]
     HostCdrom,
-    /**deprecated since 2.3
+    /**deprecated since 2.3.0
 */
     #[qapi(name = "host_floppy")]
     #[qapi(since = "2.1.0")]
@@ -987,23 +987,23 @@ pub enum BlockdevDriver {
     #[qapi(name = "luks")]
     #[qapi(since = "2.6.0")]
     Luks,
-    ///Since 2.7
+    ///Since 2.7.0
     #[qapi(name = "gluster")]
     #[qapi(since = "2.7.0")]
     Gluster,
-    ///Since 2.8
+    ///Since 2.8.0
     #[qapi(name = "nbd")]
     #[qapi(since = "2.8.0")]
     Nbd,
-    ///Since 2.8
+    ///Since 2.8.0
     #[qapi(name = "nfs")]
     #[qapi(since = "2.8.0")]
     Nfs,
-    ///Since 2.8
+    ///Since 2.8.0
     #[qapi(name = "replication")]
     #[qapi(since = "2.8.0")]
     Replication,
-    /**Since 2.8
+    /**Since 2.8.0
 */
     #[qapi(name = "ssh")]
     #[qapi(since = "2.8.0")]
@@ -1018,37 +1018,37 @@ pub enum BlockdevDriver {
     #[qapi(since = "2.9.0")]
     #[qapi(until = "6.1.0")]
     Sheepdog,
-    ///Since 2.10
+    ///Since 2.10.0
     #[qapi(name = "vxhs")]
     #[qapi(since = "2.10.0")]
     #[qapi(until = "5.1.0")]
     Vxhs,
-    /**Since 2.11
+    /**Since 2.11.0
 */
     #[qapi(name = "throttle")]
     #[qapi(since = "2.11.0")]
     Throttle,
-    /**Since 2.12
+    /**Since 2.12.0
 */
     #[qapi(name = "nvme")]
     #[qapi(since = "2.12.0")]
     Nvme,
-    /**Since 3.0
+    /**Since 3.0.0
 */
     #[qapi(name = "blklogwrites")]
     #[qapi(since = "3.0.0")]
     Blklogwrites,
-    /**Since 3.0
+    /**Since 3.0.0
 */
     #[qapi(name = "copy-on-read")]
     #[qapi(since = "3.0.0")]
     CopyOnRead,
-    /**Since 4.2
+    /**Since 4.2.0
 */
     #[qapi(name = "blkreplay")]
     #[qapi(since = "4.2.0")]
     Blkreplay,
-    /**Since 5.0
+    /**Since 5.0.0
 */
     #[qapi(name = "compress")]
     #[qapi(since = "5.0.0")]
@@ -1056,12 +1056,12 @@ pub enum BlockdevDriver {
     #[qapi(name = "preallocate")]
     #[qapi(since = "6.0.0")]
     Preallocate,
-    /**Since 6.2
+    /**Since 6.2.0
 */
     #[qapi(name = "copy-before-write")]
     #[qapi(since = "6.2.0")]
     CopyBeforeWrite,
-    /**Since 7.0
+    /**Since 7.0.0
 */
     #[qapi(name = "snapshot-access")]
     #[qapi(since = "7.0.0")]
@@ -1115,7 +1115,7 @@ pause the job
 */
     #[qapi(name = "stop")]
     Stop,
-    /**inherit the error handling policy of the backend (since: 2.7)
+    /**inherit the error handling policy of the backend (since: 2.7.0)
 */
     #[qapi(name = "auto")]
     #[qapi(since = "2.7.0")]
@@ -1349,7 +1349,7 @@ Deprecated; use null instead.
 */
     #[qapi(name = "reference")]
     Reference(String),
-    /**No block device should be referenced (since 2.10)
+    /**No block device should be referenced (since 2.10.0)
 */
     #[qapi(name = "null")]
     Null(()),
@@ -1444,7 +1444,7 @@ the `COLO_EXIT` event, and is only visible in the result of
 */
     #[qapi(name = "error")]
     Error,
-    /**COLO is currently handling a failover (since 4.0).
+    /**COLO is currently handling a failover (since 4.0.0).
 */
     #[qapi(name = "processing")]
     #[qapi(since = "4.0.0")]
@@ -1613,7 +1613,7 @@ pub enum ChardevBackendKind {
 */
     #[qapi(name = "parallel")]
     Parallel,
-    /**pipes (since 1.5)
+    /**pipes (since 1.5.0)
 */
     #[qapi(name = "pipe")]
     Pipe,
@@ -1621,7 +1621,7 @@ pub enum ChardevBackendKind {
 */
     #[qapi(name = "socket")]
     Socket,
-    /**datagram socket (since 1.5)
+    /**datagram socket (since 1.5.0)
 */
     #[qapi(name = "udp")]
     Udp,
@@ -1633,68 +1633,68 @@ pub enum ChardevBackendKind {
 */
     #[qapi(name = "null")]
     Null,
-    /**(since 1.5)
+    /**(since 1.5.0)
 */
     #[qapi(name = "mux")]
     Mux,
-    /**emulated Microsoft serial mouse (since 1.5)
+    /**emulated Microsoft serial mouse (since 1.5.0)
 */
     #[qapi(name = "msmouse")]
     Msmouse,
-    /**emulated Wacom Penpartner serial tablet (since 2.9)
+    /**emulated Wacom Penpartner serial tablet (since 2.9.0)
 */
     #[qapi(name = "wctablet")]
     Wctablet,
-    /**Baum Braille device (since 1.5)
+    /**Baum Braille device (since 1.5.0)
 */
     #[qapi(name = "braille")]
     Braille,
-    /**device for test-suite control (since 2.2)
+    /**device for test-suite control (since 2.2.0)
 */
     #[qapi(name = "testdev")]
     Testdev,
-    /**standard I/O (since 1.5)
+    /**standard I/O (since 1.5.0)
 */
     #[qapi(name = "stdio")]
     Stdio,
-    /**Windows console (since 1.5)
+    /**Windows console (since 1.5.0)
 */
     #[qapi(name = "console")]
     Console,
-    /**spice vm channel (since 1.5)
+    /**spice vm channel (since 1.5.0)
 */
     #[qapi(name = "spicevmc")]
     #[qapi(condition = "CONFIG_SPICE")]
     Spicevmc,
-    /**Spice port channel (since 1.5)
+    /**Spice port channel (since 1.5.0)
 */
     #[qapi(name = "spiceport")]
     #[qapi(condition = "CONFIG_SPICE")]
     Spiceport,
-    /**Spice vdagent (since 6.1)
+    /**Spice vdagent (since 6.1.0)
 */
     #[qapi(name = "qemu-vdagent")]
     #[qapi(condition = "CONFIG_SPICE_PROTOCOL")]
     QemuVdagent,
-    /**virtual console (since 1.5)
+    /**virtual console (since 1.5.0)
 */
     #[qapi(name = "vc")]
     Vc,
-    /**memory ring buffer (since 1.6)
+    /**memory ring buffer (since 1.6.0)
 */
     #[qapi(name = "ringbuf")]
     Ringbuf,
-    /**synonym for @ringbuf (since 1.5)
+    /**synonym for @ringbuf (since 1.5.0)
 */
     #[qapi(name = "memory")]
     Memory,
-    /**D-Bus channel (since 7.0)
+    /**D-Bus channel (since 7.0.0)
 */
     #[qapi(name = "dbus")]
     #[qapi(condition = "CONFIG_DBUS_DISPLAY")]
     #[qapi(since = "7.0.0")]
     Dbus,
-    /**(since 10.0)
+    /**(since 10.0.0)
 */
     #[qapi(name = "hub")]
     #[qapi(since = "10.0.0")]
@@ -1844,12 +1844,12 @@ pub enum CpuInfoArch {
     Tricore,
     #[qapi(name = "other")]
     Other,
-    /**since 2.12
+    /**since 2.12.0
 */
     #[qapi(name = "s390")]
     #[qapi(since = "2.12.0")]
     S390,
-    /**since 2.12
+    /**since 2.12.0
 */
     #[qapi(name = "riscv")]
     #[qapi(since = "2.12.0")]
@@ -2288,7 +2288,7 @@ See also @blockdev-backup, @drive-backup.
     /**The bitmap is currently in-use by some operation and is immutable.
 If the bitmap was @active prior to the operation, it is still
 recording new writes. If the bitmap was @disabled, it is not
-recording new writes. (Since 2.12)
+recording new writes. (Since 2.12.0)
 */
     #[qapi(name = "locked")]
     #[qapi(since = "2.12.0")]
@@ -2296,7 +2296,7 @@ recording new writes. (Since 2.12)
     /**This is a persistent dirty bitmap that was marked in-use on
 disk, and is unusable by QEMU. It can only be deleted.
 Please rely on the inconsistent field in @BlockDirtyInfo
-instead, as the status field is deprecated. (Since 4.0)
+instead, as the status field is deprecated. (Since 4.0.0)
 */
     #[qapi(name = "inconsistent")]
     #[qapi(since = "4.0.0")]
@@ -2432,7 +2432,7 @@ displayed to the QEMU user.
     Sdl,
     /**No user interface, offload GL operations to a local
 DRI device.  Graphical display need to be paired with VNC or
-Spice.  (Since 3.1)
+Spice.  (Since 3.1.0)
 */
     #[qapi(name = "egl-headless")]
     EglHeadless,
@@ -2451,12 +2451,12 @@ models support text mode.
     Cocoa,
     /**Set up a Spice server and run the default associated
 application to connect to it.  The server will redirect the
-serial console and QEMU monitors.  (Since 4.0)
+serial console and QEMU monitors.  (Since 4.0.0)
 */
     #[qapi(name = "spice-app")]
     #[qapi(since = "4.0.0")]
     SpiceApp,
-    /**Start a D-Bus service for the display.  (Since 7.0)
+    /**Start a D-Bus service for the display.  (Since 7.0.0)
 */
     #[qapi(name = "dbus")]
     #[qapi(condition = "CONFIG_DBUS_DISPLAY")]
@@ -2501,25 +2501,25 @@ snappy compression
     #[qapi(name = "kdump-snappy")]
     KdumpSnappy,
     /**Windows full crashdump format, can be used instead of ELF
-converting (since 2.13)
+converting (since 2.13.0)
 */
     #[qapi(name = "win-dmp")]
     #[qapi(since = "3.0.0")]
     WinDmp,
     /**raw assembled kdump-compressed format with zlib
-compression (since 8.2)
+compression (since 8.2.0)
 */
     #[qapi(name = "kdump-raw-zlib")]
     #[qapi(since = "8.2.0")]
     KdumpRawZlib,
     /**raw assembled kdump-compressed format with lzo
-compression (since 8.2)
+compression (since 8.2.0)
 */
     #[qapi(name = "kdump-raw-lzo")]
     #[qapi(since = "8.2.0")]
     KdumpRawLzo,
     /**raw assembled kdump-compressed format with snappy
-compression (since 8.2)
+compression (since 8.2.0)
 */
     #[qapi(name = "kdump-raw-snappy")]
     #[qapi(since = "8.2.0")]
@@ -2664,7 +2664,7 @@ pub enum FailoverStatus {
     #[qapi(name = "completed")]
     Completed,
     /**restart the failover process, from 'none' -> 'completed'
-(Since 2.9)
+(Since 2.9.0)
 */
     #[qapi(name = "relaunch")]
     #[qapi(since = "2.9.0")]
@@ -2796,12 +2796,12 @@ pub enum GuestPanicAction {
 */
     #[qapi(name = "pause")]
     Pause,
-    /**system powers off (since 2.8)
+    /**system powers off (since 2.8.0)
 */
     #[qapi(name = "poweroff")]
     #[qapi(since = "2.8.0")]
     Poweroff,
-    /**system continues to run (since 5.0)
+    /**system continues to run (since 5.0.0)
 */
     #[qapi(name = "run")]
     #[qapi(since = "5.0.0")]
@@ -2826,12 +2826,12 @@ pub enum GuestPanicInformationType {
 */
     #[qapi(name = "hyper-v")]
     HyperV,
-    /**s390 guest panic information type (Since: 2.12)
+    /**s390 guest panic information type (Since: 2.12.0)
 */
     #[qapi(name = "s390")]
     #[qapi(since = "2.12.0")]
     S390,
-    /**tdx guest panic information type (Since: 10.1)
+    /**tdx guest panic information type (Since: 10.1.0)
 */
     #[qapi(name = "tdx")]
     #[qapi(since = "10.1.0")]
@@ -3010,15 +3010,15 @@ pub enum ImageInfoSpecificKind {
     Qcow2,
     #[qapi(name = "vmdk")]
     Vmdk,
-    /**Since 2.7
+    /**Since 2.7.0
 */
     #[qapi(name = "luks")]
     Luks,
-    /**Since 6.1
+    /**Since 6.1.0
 */
     #[qapi(name = "rbd")]
     Rbd,
-    /**Since 8.0
+    /**Since 8.0.0
 */
     #[qapi(name = "file")]
     #[qapi(since = "8.0.0")]
@@ -3069,12 +3069,12 @@ pub enum InputButton {
     WheelUp,
     #[qapi(name = "wheel-down")]
     WheelDown,
-    /**front side button of a 5-button mouse (since 2.9)
+    /**front side button of a 5-button mouse (since 2.9.0)
 */
     #[qapi(name = "side")]
     #[qapi(since = "2.9.0")]
     Side,
-    /**rear side button of a 5-button mouse (since 2.9)
+    /**rear side button of a 5-button mouse (since 2.9.0)
 */
     #[qapi(name = "extra")]
     #[qapi(since = "2.9.0")]
@@ -3085,7 +3085,7 @@ pub enum InputButton {
     #[qapi(name = "wheel-right")]
     #[qapi(since = "7.0.0")]
     WheelRight,
-    /**screen contact on a multi-touch device (since 8.1)
+    /**screen contact on a multi-touch device (since 8.1.0)
 */
     #[qapi(name = "touch")]
     #[qapi(since = "8.1.0")]
@@ -3325,30 +3325,30 @@ pub enum JobType {
 */
     #[qapi(name = "backup")]
     Backup,
-    /**image creation job type, see `blockdev-create` (since 3.0)
+    /**image creation job type, see `blockdev-create` (since 3.0.0)
 */
     #[qapi(name = "create")]
     Create,
     /**image options amend job type, see `x-blockdev-amend`
-(since 5.1)
+(since 5.1.0)
 */
     #[qapi(name = "amend")]
     #[qapi(since = "5.1.0")]
     Amend,
     /**snapshot load job type, see `snapshot-load`
-(since 6.0)
+(since 6.0.0)
 */
     #[qapi(name = "snapshot-load")]
     #[qapi(since = "6.0.0")]
     SnapshotLoad,
     /**snapshot save job type, see `snapshot-save`
-(since 6.0)
+(since 6.0.0)
 */
     #[qapi(name = "snapshot-save")]
     #[qapi(since = "6.0.0")]
     SnapshotSave,
     /**snapshot delete job type, see `snapshot-delete`
-(since 6.0)
+(since 6.0.0)
 */
     #[qapi(name = "snapshot-delete")]
     #[qapi(since = "6.0.0")]
@@ -3386,7 +3386,7 @@ pub enum JobVerb {
 */
     #[qapi(name = "finalize")]
     Finalize,
-    /**see `block-job-change` (since 8.2)
+    /**see `block-job-change` (since 8.2.0)
 */
     #[qapi(name = "change")]
     #[qapi(since = "8.2.0")]
@@ -3478,23 +3478,23 @@ pub enum MemoryDeviceInfoBranch {
 pub enum MemoryDeviceInfoKind {
     #[qapi(name = "dimm")]
     Dimm,
-    /**since 2.12
+    /**since 2.12.0
 */
     #[qapi(name = "nvdimm")]
     Nvdimm,
-    /**since 4.1
+    /**since 4.1.0
 */
     #[qapi(name = "virtio-pmem")]
     VirtioPmem,
-    /**since 5.1
+    /**since 5.1.0
 */
     #[qapi(name = "virtio-mem")]
     VirtioMem,
-    /**since 6.2.
+    /**since 6.2.0.
 */
     #[qapi(name = "sgx-epc")]
     SgxEpc,
-    /**since 8.2.
+    /**since 8.2.0.
 */
     #[qapi(name = "hv-balloon")]
     #[qapi(since = "8.2.0")]
@@ -3559,7 +3559,7 @@ guest memory, but used by QEMU itself).
 }
 #[qapi(since = "8.2.0")]
 pub enum MigMode {
-    /**the original form of migration.  (since 8.2)
+    /**the original form of migration.  (since 8.2.0)
 */
     #[qapi(name = "normal")]
     Normal,
@@ -3588,7 +3588,7 @@ reboot, such as by backing it with a dax device.
 @cpr-reboot may not be used with postcopy, background-snapshot,
 or COLO.
 
-(since 8.2)
+(since 8.2.0)
 */
     #[qapi(name = "cpr-reboot")]
     CprReboot,
@@ -3597,7 +3597,7 @@ new QEMU instance on the same host with minimal guest pause
 time by preserving guest RAM in place.
 
 Devices and their pinned pages are also preserved for VFIO and
-IOMMUFD.  (since 10.1)
+IOMMUFD.  (since 10.1.0)
 
 The user starts new QEMU on the same host as old QEMU, with
 command-line arguments to create the same machine, plus the
@@ -3631,7 +3631,7 @@ to old QEMU before issuing any monitor commands to new QEMU.
 However, new QEMU does not open and read the migration stream
 until you issue the `migrate-incoming` command.
 
-(since 10.0)
+(since 10.0.0)
 */
     #[qapi(name = "cpr-transfer")]
     #[qapi(since = "10.0.0")]
@@ -3657,7 +3657,7 @@ Memory-backend objects must have the share=on attribute, but
 memory-backend-epc is not supported.  The VM must be started
 with the '-machine aux-ram-share=on' option.
 
-(since 10.2)*/
+(since 10.2.0)*/
     #[qapi(name = "cpr-exec")]
     #[qapi(since = "10.2.0")]
     CprExec,
@@ -3708,14 +3708,14 @@ pages
     /**Controls whether or not the entire VM memory footprint is
 mlock()'d on demand or all at once. Refer to docs/rdma.txt for usage.
 Disabled by default. Experimental: may (or may not) be renamed after
-further testing is complete. (since 1.6)
+further testing is complete. (since 1.6.0)
 */
     #[qapi(name = "x-rdma-pin-all")]
     #[qapi(since = "1.6.0")]
     #[qapi(until = "2.0.0")]
     XRdmaPinAll,
     /**If enabled, QEMU will automatically throttle down
-the guest to speed up convergence of RAM migration.  (since 1.6)
+the guest to speed up convergence of RAM migration.  (since 1.6.0)
 */
     #[qapi(name = "auto-converge")]
     #[qapi(since = "1.6.0")]
@@ -3725,14 +3725,14 @@ efficiently.  This essentially saves 1MB of zeroes per block on
 the wire.  Enabling requires source and target VM to support
 this feature.  To enable it is sufficient to enable the
 capability on the source VM.  The feature is disabled by
-default.  (since 1.6)
+default.  (since 1.6.0)
 */
     #[qapi(name = "zero-blocks")]
     #[qapi(since = "1.6.0")]
     ZeroBlocks,
     /**Controls whether or not the entire VM memory
 footprint is mlock()'d on demand or all at once.  Refer to
-docs/rdma.txt for usage.  Disabled by default.  (since 2.0)
+docs/rdma.txt for usage.  Disabled by default.  (since 2.0.0)
 */
     #[qapi(name = "rdma-pin-all")]
     #[qapi(since = "2.0.0")]
@@ -3743,13 +3743,13 @@ traffic, by sending compressed pages.  Please note that if
 compress and xbzrle are both on, compress only takes effect in
 the ram bulk stage, after that, it will be disabled and only
 xbzrle takes effect, this can help to minimize migration
-traffic.  The feature is disabled by default.  (since 2.4)
+traffic.  The feature is disabled by default.  (since 2.4.0)
 */
     #[qapi(name = "compress")]
     #[qapi(since = "2.4.0")]
     #[qapi(until = "9.1.0")]
     Compress,
-    /**generate events for each migration state change (since 2.4)
+    /**generate events for each migration state change (since 2.4.0)
 */
     #[qapi(name = "events")]
     #[qapi(since = "2.4.0")]
@@ -3762,7 +3762,7 @@ traffic.  The feature is disabled by default.  (since 2.4)
 RAM has been migrated, pulling the remaining pages along as
 needed.  The capacity must have the same setting on both source
 and target or migration will not even start.  **Note:** if the
-migration fails during postcopy the VM will fail.  (since 2.6)
+migration fails during postcopy the VM will fail.  (since 2.6.0)
 */
     #[qapi(name = "postcopy-ram")]
     #[qapi(since = "2.6.0")]
@@ -3770,13 +3770,13 @@ migration fails during postcopy the VM will fail.  (since 2.6)
     /**If enabled, migration will never end, and the state of the
 VM on the primary side will be migrated continuously to the VM
 on secondary side, this process is called COarse-Grain LOck
-Stepping (COLO) for Non-stop Service.  (since 2.8)
+Stepping (COLO) for Non-stop Service.  (since 2.8.0)
 */
     #[qapi(name = "x-colo")]
     #[qapi(since = "2.8.0")]
     XColo,
     /**if enabled, QEMU will free the migrated ram pages on
-the source during postcopy-ram migration.  (since 2.9)
+the source during postcopy-ram migration.  (since 2.9.0)
 */
     #[qapi(name = "release-ram")]
     #[qapi(since = "2.9.0")]
@@ -3784,63 +3784,63 @@ the source during postcopy-ram migration.  (since 2.9)
     /**If enabled, QEMU will also migrate the contents of all block
 devices.  Default is disabled.  A possible alternative uses
 mirror jobs to a builtin NBD server on the destination, which
-offers more flexibility.  (Since 2.10)
+offers more flexibility.  (Since 2.10.0)
 */
     #[qapi(name = "block")]
     #[qapi(since = "2.10.0")]
     #[qapi(until = "9.1.0")]
     Block,
     /**If enabled, migration will use the return path even
-for precopy.  (since 2.10)
+for precopy.  (since 2.10.0)
 */
     #[qapi(name = "return-path")]
     #[qapi(since = "2.10.0")]
     ReturnPath,
     /**Pause outgoing migration before
 serialising device state and before disabling block IO
-(since 2.11)
+(since 2.11.0)
 */
     #[qapi(name = "pause-before-switchover")]
     #[qapi(since = "2.11.0")]
     PauseBeforeSwitchover,
-    /**Use more than one fd for migration (since 2.11)
+    /**Use more than one fd for migration (since 2.11.0)
 */
     #[qapi(name = "x-multifd")]
     #[qapi(since = "2.11.0")]
     #[qapi(until = "4.0.0")]
     XMultifd,
     /**If enabled, QEMU will migrate named dirty bitmaps.
-(since 2.12)
+(since 2.12.0)
 */
     #[qapi(name = "dirty-bitmaps")]
     #[qapi(since = "2.12.0")]
     DirtyBitmaps,
     /**Calculate downtime for postcopy live migration
-(since 3.0)
+(since 3.0.0)
 */
     #[qapi(name = "postcopy-blocktime")]
     #[qapi(since = "3.0.0")]
     PostcopyBlocktime,
     /**If enabled, the destination will not activate
 block devices (and thus take locks) immediately at the end of
-migration.  (since 3.0)
+migration.  (since 3.0.0)
 */
     #[qapi(name = "late-block-activate")]
     #[qapi(since = "3.0.0")]
     LateBlockActivate,
-    /**Use more than one fd for migration (since 4.0)
+    /**Use more than one fd for migration (since 4.0.0)
 */
     #[qapi(name = "multifd")]
     #[qapi(since = "4.0.0")]
     Multifd,
     /**If enabled, QEMU will not migrate shared memory
-that is accessible on the destination machine.  (since 4.0)
+that is accessible on the destination machine.  (since 4.0.0)
 */
     #[qapi(name = "x-ignore-shared")]
     #[qapi(since = "4.0.0")]
     XIgnoreShared,
     /**Send the UUID of the source to allow the destination
-to ensure it is the same.  (since 4.2)
+to ensure it is the same.  (since 4.2.0)
 */
     #[qapi(name = "validate-uuid")]
     #[qapi(since = "4.2.0")]
@@ -3848,7 +3848,7 @@ to ensure it is the same.  (since 4.2)
     /**If enabled, the migration stream will be a
 snapshot of the VM exactly at the point when the migration
 procedure starts.  The VM RAM is saved with running VM.
-(since 6.0)
+(since 6.0.0)
 */
     #[qapi(name = "background-snapshot")]
     #[qapi(since = "6.0.0")]
@@ -3856,7 +3856,7 @@ procedure starts.  The VM RAM is saved with running VM.
     /**Controls behavior on sending memory pages on
 migration.  When true, enables a zero-copy mechanism for sending
 memory pages, if host supports it.  Requires that QEMU be
-permitted to use locked memory for guest RAM pages.  (since 7.1)
+permitted to use locked memory for guest RAM pages.  (since 7.1.0)
 */
     #[qapi(name = "zero-copy-send")]
     #[qapi(since = "7.1.0")]
@@ -3865,7 +3865,7 @@ permitted to use locked memory for guest RAM pages.  (since 7.1)
 postcopy requests to preempt precopy stream, so postcopy
 requests will be handled faster.  This is a performance feature
 and should not affect the correctness of postcopy migration.
-(since 7.1)
+(since 7.1.0)
 */
     #[qapi(name = "postcopy-preempt")]
     #[qapi(since = "7.1.0")]
@@ -3878,7 +3878,7 @@ example, a device can use it to make sure some of its data is
 sent and loaded in the destination before doing switchover.
 This can reduce downtime if devices that support this capability
 are present.  'return-path' capability must be enabled to use
-it.  (since 8.1)
+it.  (since 8.1.0)
 */
     #[qapi(name = "switchover-ack")]
     #[qapi(since = "8.1.0")]
@@ -3887,14 +3887,14 @@ it.  (since 8.1)
 keep their dirty page rate within @vcpu-dirty-limit.  This can
 improve responsiveness of large guests during live migration,
 and can result in more stable read performance.  Requires KVM
-with accelerator property "dirty-ring-size" set.  (Since 8.1)
+with accelerator property "dirty-ring-size" set.  (Since 8.1.0)
 */
     #[qapi(name = "dirty-limit")]
     #[qapi(since = "8.1.0")]
     DirtyLimit,
     /**Migrate using fixed offsets in the migration file for
 each RAM page.  Requires a migration URI that supports seeking,
-such as a file.  (since 9.0)
+such as a file.  (since 9.0.0)
 */
     #[qapi(name = "mapped-ram")]
     #[qapi(since = "9.0.0")]
@@ -3953,14 +3953,14 @@ about 1/4 of compress-threads is adequate.
     XCpuThrottleIncrement,
     /**Initial percentage of time guest cpus are
 throttled when migration auto-converge is activated.  The
-default value is 20.  (Since 2.7)
+default value is 20.  (Since 2.7.0)
 */
     #[qapi(name = "cpu-throttle-initial")]
     #[qapi(since = "2.7.0")]
     CpuThrottleInitial,
     /**throttle percentage increase each time
 auto-converge detects that migration is not making progress.
-The default value is 10.  (Since 2.7)
+The default value is 10.  (Since 2.7.0)
 */
     #[qapi(name = "cpu-throttle-increment")]
     #[qapi(since = "2.7.0")]
@@ -3972,7 +3972,7 @@ must be for a 'client' endpoint, while for the incoming side the
 credentials must be for a 'server' endpoint.  Setting this to a
 non-empty string enables TLS for all migrations.  An empty
 string means that QEMU will use plain text mode for migration,
-rather than TLS.  (Since 2.7)
+rather than TLS.  (Since 2.7.0)
 */
     #[qapi(name = "tls-creds")]
     #[qapi(since = "2.7.0")]
@@ -3982,27 +3982,27 @@ server's x509 certificate identity.  If empty, QEMU will use the
 hostname from the migration URI, if any.  A non-empty value is
 required when using x509 based TLS credentials and the migration
 URI does not include a hostname, such as fd: or exec: based
-migration.  (Since 2.7)
+migration.  (Since 2.7.0)
 
-Note: empty value works only since 2.9.
+Note: empty value works only since 2.9.0.
 */
     #[qapi(name = "tls-hostname")]
     #[qapi(since = "2.7.0")]
     TlsHostname,
     /**maximum speed for migration, in bytes per second.
-(Since 2.8)
+(Since 2.8.0)
 */
     #[qapi(name = "max-bandwidth")]
     #[qapi(since = "2.8.0")]
     MaxBandwidth,
     /**set maximum tolerated downtime for migration.
-maximum downtime in milliseconds (Since 2.8)
+maximum downtime in milliseconds (Since 2.8.0)
 */
     #[qapi(name = "downtime-limit")]
     #[qapi(since = "2.8.0")]
     DowntimeLimit,
     /**The delay time (in ms) between two COLO
-checkpoints in periodic mode.  (Since 2.8)
+checkpoints in periodic mode.  (Since 2.8.0)
 */
     #[qapi(name = "x-checkpoint-delay")]
     #[qapi(since = "2.8.0")]
@@ -4012,7 +4012,7 @@ block migration capability is enabled.  When false, the entire
 storage backing chain is migrated into a flattened image at the
 destination; when true, only the active qcow2 layer is migrated
 and the destination must already have access to the same backing
-chain as was used on the source.  (since 2.10)
+chain as was used on the source.  (since 2.10.0)
 */
     #[qapi(name = "block-incremental")]
     #[qapi(since = "2.10.0")]
@@ -4021,14 +4021,14 @@ chain as was used on the source.  (since 2.10)
     /**Number of channels used to migrate data in
 parallel. This is the same number that the
 number of sockets used for migration.  The
-default value is 2 (since 2.11)
+default value is 2 (since 2.11.0)
 */
     #[qapi(name = "x-multifd-channels")]
     #[qapi(since = "2.11.0")]
     #[qapi(until = "4.0.0")]
     XMultifdChannels,
     /**Number of pages sent together to a thread.
-The default value is 16 (since 2.11)
+The default value is 16 (since 2.11.0)
 */
     #[qapi(name = "x-multifd-page-count")]
     #[qapi(since = "2.11.0")]
@@ -4036,14 +4036,14 @@ The default value is 16 (since 2.11)
     XMultifdPageCount,
     /**cache size to be used by XBZRLE migration.  It
 needs to be a multiple of the target page size and a power of 2
-(Since 2.11)
+(Since 2.11.0)
 */
     #[qapi(name = "xbzrle-cache-size")]
     #[qapi(since = "2.11.0")]
     XbzrleCacheSize,
     /**Background transfer bandwidth during
 postcopy.  Defaults to 0 (unlimited).  In bytes per second.
-(Since 3.0)
+(Since 3.0.0)
 */
     #[qapi(name = "max-postcopy-bandwidth")]
     #[qapi(since = "3.0.0")]
@@ -4051,38 +4051,38 @@ postcopy.  Defaults to 0 (unlimited).  In bytes per second.
     /**Controls behavior when all compression
 threads are currently busy.  If true (default), wait for a free
 compression thread to become available; otherwise, send the page
-uncompressed.  (Since 3.1)
+uncompressed.  (Since 3.1.0)
 */
     #[qapi(name = "compress-wait-thread")]
     #[qapi(since = "3.1.0")]
     #[qapi(until = "9.1.0")]
     CompressWaitThread,
     /**maximum cpu throttle percentage.  Defaults to 99.
-(Since 3.1)
+(Since 3.1.0)
 */
     #[qapi(name = "max-cpu-throttle")]
     #[qapi(since = "3.1.0")]
     MaxCpuThrottle,
     /**Initial delay (in milliseconds) before sending
-the first announce (Since 4.0)
+the first announce (Since 4.0.0)
 */
     #[qapi(name = "announce-initial")]
     #[qapi(since = "4.0.0")]
     AnnounceInitial,
     /**Maximum delay (in milliseconds) between packets in
-the announcement (Since 4.0)
+the announcement (Since 4.0.0)
 */
     #[qapi(name = "announce-max")]
     #[qapi(since = "4.0.0")]
     AnnounceMax,
     /**Number of self-announce packets sent after
-migration (Since 4.0)
+migration (Since 4.0.0)
 */
     #[qapi(name = "announce-rounds")]
     #[qapi(since = "4.0.0")]
     AnnounceRounds,
     /**Increase in delay (in milliseconds) between
-subsequent packets in the announcement (Since 4.0)
+subsequent packets in the announcement (Since 4.0.0)
 */
     #[qapi(name = "announce-step")]
     #[qapi(since = "4.0.0")]
@@ -4091,27 +4091,27 @@ subsequent packets in the announcement (Since 4.0)
 control checking of the TLS x509 certificate distinguished name.
 This object is only resolved at time of use, so can be deleted
 and recreated on the fly while the migration server is active.
-If missing, it will default to denying access (Since 4.0)
+If missing, it will default to denying access (Since 4.0.0)
 */
     #[qapi(name = "tls-authz")]
     #[qapi(since = "4.0.0")]
     TlsAuthz,
     /**Number of channels used to migrate data in
 parallel.  This is the same number that the number of sockets
-used for migration.  The default value is 2 (since 4.0)
+used for migration.  The default value is 2 (since 4.0.0)
 */
     #[qapi(name = "multifd-channels")]
     #[qapi(since = "4.0.0")]
     MultifdChannels,
     /**The ratio of bytes_dirty_period and
 bytes_xfer_period to trigger throttling.  It is expressed as
-percentage.  The default value is 50.  (Since 5.0)
+percentage.  The default value is 50.  (Since 5.0.0)
 */
     #[qapi(name = "throttle-trigger-threshold")]
     #[qapi(since = "5.0.0")]
     ThrottleTriggerThreshold,
     /**Which compression method to use.  Defaults to
-none.  (Since 5.0)
+none.  (Since 5.0.0)
 */
     #[qapi(name = "multifd-compression")]
     #[qapi(since = "5.0.0")]
@@ -4120,7 +4120,7 @@ none.  (Since 5.0)
 migration, the compression level is an integer between 0 and 9,
 where 0 means no compression, 1 means the best compression
 speed, and 9 means best compression ratio which will consume
-more CPU.  Defaults to 1.  (Since 5.0)
+more CPU.  Defaults to 1.  (Since 5.0.0)
 */
     #[qapi(name = "multifd-zlib-level")]
     #[qapi(since = "5.0.0")]
@@ -4129,7 +4129,7 @@ more CPU.  Defaults to 1.  (Since 5.0)
 migration, the compression level is an integer between 0 and 20,
 where 0 means no compression, 1 means the best compression
 speed, and 20 means best compression ratio which will consume
-more CPU.  Defaults to 1.  (Since 5.0)
+more CPU.  Defaults to 1.  (Since 5.0.0)
 */
     #[qapi(name = "multifd-zstd-level")]
     #[qapi(since = "5.0.0")]
@@ -4145,7 +4145,7 @@ specified by @cpu-throttle-increment and the one generated by
 ideal CPU percentage.  Therefore, it is compatible to
 traditional throttling, meanwhile the throttle increment won't
 be excessive at tail stage.  The default value is false.
-(Since 5.1)
+(Since 5.1.0)
 */
     #[qapi(name = "cpu-throttle-tailslow")]
     #[qapi(since = "5.1.0")]
@@ -4164,21 +4164,21 @@ the number of bitmaps received, or how they are named, or on
 which nodes they are placed.  By default (when this parameter
 has never been set), bitmap names are mapped to themselves.
 Nodes are mapped to their block device name if there is one, and
-to their node name otherwise.  (Since 5.2)
+to their node name otherwise.  (Since 5.2.0)
 */
     #[qapi(name = "block-bitmap-mapping")]
     #[qapi(since = "5.2.0")]
     BlockBitmapMapping,
     /**Periodic time (in milliseconds) of dirty
 limit during live migration.  Should be in the range 1 to
-1000ms.  Defaults to 1000ms.  (Since 8.1)
+1000ms.  Defaults to 1000ms.  (Since 8.1.0)
 */
     #[qapi(name = "x-vcpu-dirty-limit-period")]
     #[qapi(feature = "unstable")]
     #[qapi(since = "8.1.0")]
     XVcpuDirtyLimitPeriod,
     /**Dirtyrate limit (MB/s) during live migration.
-Defaults to 1.  (Since 8.1)
+Defaults to 1.  (Since 8.1.0)
 */
     #[qapi(name = "vcpu-dirty-limit")]
     #[qapi(since = "8.1.0")]
@@ -4192,27 +4192,27 @@ automatically.  This can be set when the estimated value is not
 accurate, while the user is able to guarantee such bandwidth is
 available when switching over.  When specified correctly, this
 can make the switchover decision much more accurate.
-(Since 8.2)
+(Since 8.2.0)
 */
     #[qapi(name = "avail-switchover-bandwidth")]
     #[qapi(since = "8.2.0")]
     AvailSwitchoverBandwidth,
     /**Migration mode.  See description in `MigMode`.  Default is
-'normal'.  (Since 8.2)
+'normal'.  (Since 8.2.0)
 */
     #[qapi(name = "mode")]
     #[qapi(since = "8.2.0")]
     Mode,
     /**Whether and how to detect zero pages.  See
 description in `ZeroPageDetection`.  Default is 'multifd'.
-(since 9.0)
+(since 9.0.0)
 */
     #[qapi(name = "zero-page-detection")]
     #[qapi(since = "9.0.0")]
     ZeroPageDetection,
     /**Open migration files with O_DIRECT when possible.  This
 only has effect if the @mapped-ram capability is enabled.
-(Since 9.1)
+(Since 9.1.0)
 */
     #[qapi(name = "direct-io")]
     #[qapi(since = "9.1.0")]
@@ -4221,14 +4221,14 @@ only has effect if the @mapped-ram capability is enabled.
 migration.  The level is an integer between 1 and 9, where 1
 means the best compression speed, and 9 means the best
 compression ratio which will consume more CPU.  Defaults to 1.
-(Since 9.2)
+(Since 9.2.0)
 */
     #[qapi(name = "multifd-qatzip-level")]
     #[qapi(since = "9.2.0")]
     MultifdQatzipLevel,
     /**Command to start the new QEMU process when @mode
 is @cpr-exec.  The first list element is the program's filename,
-the remainder its arguments.  (Since 10.2)
+the remainder its arguments.  (Since 10.2.0)
 */
     #[qapi(name = "cpr-exec-command")]
     #[qapi(since = "10.2.0")]
@@ -4267,19 +4267,19 @@ pub enum MigrationStatus {
     #[qapi(name = "failed")]
     Failed,
     /**like active, but now in postcopy mode.
-(since 2.5)
+(since 2.5.0)
 */
     #[qapi(name = "postcopy-active")]
     #[qapi(since = "2.5.0")]
     PostcopyActive,
     /**VM is in the process of fault tolerance, VM can not get into
 this state unless colo capability is enabled for migration.
-(since 2.8)
+(since 2.8.0)
 */
     #[qapi(name = "colo")]
     #[qapi(since = "2.8.0")]
     Colo,
-    /**Paused before device serialisation.  (since 2.11)
+    /**Paused before device serialisation.  (since 2.11.0)
 */
     #[qapi(name = "pre-switchover")]
     #[qapi(since = "2.11.0")]
@@ -4288,30 +4288,30 @@ this state unless colo capability is enabled for migration.
 phase).  Before 9.2, this is only used when (1) in precopy, and
 (2) when pre-switchover capability is enabled.  After 10.0, this
 state will always be present for every migration procedure as
-the switchover phase.  (since 2.11)
+the switchover phase.  (since 2.11.0)
 */
     #[qapi(name = "device")]
     #[qapi(since = "2.11.0")]
     Device,
-    /**during postcopy but paused.  (since 3.0)
+    /**during postcopy but paused.  (since 3.0.0)
 */
     #[qapi(name = "postcopy-paused")]
     #[qapi(since = "3.0.0")]
     PostcopyPaused,
     /**trying to recover from a paused postcopy.
-(since 3.0)
+(since 3.0.0)
 */
     #[qapi(name = "postcopy-recover")]
     #[qapi(since = "3.0.0")]
     PostcopyRecover,
     /**wait for device unplug request by guest OS to be
-completed.  (since 4.2)
+completed.  (since 4.2.0)
 */
     #[qapi(name = "wait-unplug")]
     #[qapi(since = "4.2.0")]
     WaitUnplug,
     /**setup phase for a postcopy recovery
-process, preparing for a recovery phase to start.  (since 9.1)
+process, preparing for a recovery phase to start.  (since 9.1.0)
 */
     #[qapi(name = "postcopy-recover-setup")]
     #[qapi(since = "9.1.0")]
@@ -4320,7 +4320,7 @@ process, preparing for a recovery phase to start.  (since 9.1)
 loading device state and is not running yet.  If migration fails
 during this state, the source side will resume.  If there is no
 return-path from destination to source, this state is skipped.
-(since 10.2)
+(since 10.2.0)
 */
     #[qapi(name = "postcopy-device")]
     #[qapi(since = "10.2.0")]
@@ -4360,13 +4360,13 @@ pub enum MirrorSyncMode {
     #[qapi(name = "none")]
     None,
     /**only copy data described by the dirty bitmap.
-(since: 2.4)
+(since: 2.4.0)
 */
     #[qapi(name = "incremental")]
     #[qapi(since = "2.4.0")]
     Incremental,
     /**only copy data described by the dirty bitmap.  Behavior on
-completion is determined by the `BitmapSyncMode`.  (since: 4.2)
+completion is determined by the `BitmapSyncMode`.  (since: 4.2.0)
 */
     #[qapi(name = "bitmap")]
     #[qapi(since = "4.2.0")]
@@ -4406,19 +4406,19 @@ pub enum MultiFdCompression {
     /**use qpl compression method.  Query Processing Library(qpl) is
 based on the deflate compression algorithm and use the Intel
 In-Memory Analytics Accelerator(IAA) accelerated compression and
-decompression.  (Since 9.1)
+decompression.  (Since 9.1.0)
 */
     #[qapi(name = "qpl")]
     #[qapi(condition = "CONFIG_QPL")]
     #[qapi(since = "9.1.0")]
     Qpl,
-    /**use UADK library compression method.  (Since 9.1)
+    /**use UADK library compression method.  (Since 9.1.0)
 */
     #[qapi(name = "uadk")]
     #[qapi(condition = "CONFIG_UADK")]
     #[qapi(since = "9.1.0")]
     Uadk,
-    /**use qatzip compression method.  (Since 9.2)
+    /**use qatzip compression method.  (Since 9.2.0)
 */
     #[qapi(name = "qatzip")]
     #[qapi(condition = "CONFIG_QATZIP")]
@@ -4469,7 +4469,7 @@ pub enum NetClientDriver {
     User,
     #[qapi(name = "tap")]
     Tap,
-    /**since 2.1
+    /**since 2.1.0
 */
     #[qapi(name = "l2tpv3")]
     L2tpv3,
@@ -4488,46 +4488,46 @@ pub enum NetClientDriver {
     Netmap,
     #[qapi(name = "vhost-user")]
     VhostUser,
-    /**since 5.1
+    /**since 5.1.0
 */
     #[qapi(name = "vhost-vdpa")]
     #[qapi(since = "5.1.0")]
     VhostVdpa,
-    /**since 7.1
+    /**since 7.1.0
 */
     #[qapi(name = "vmnet-host")]
     #[qapi(condition = "CONFIG_VMNET")]
     #[qapi(since = "7.1.0")]
     VmnetHost,
-    /**since 7.1
+    /**since 7.1.0
 */
     #[qapi(name = "vmnet-shared")]
     #[qapi(condition = "CONFIG_VMNET")]
     #[qapi(since = "7.1.0")]
     VmnetShared,
-    /**since 7.1
+    /**since 7.1.0
 */
     #[qapi(name = "vmnet-bridged")]
     #[qapi(condition = "CONFIG_VMNET")]
     #[qapi(since = "7.1.0")]
     VmnetBridged,
-    /**since 7.2
+    /**since 7.2.0
 */
     #[qapi(name = "stream")]
     #[qapi(since = "7.2.0")]
     Stream,
-    /**since 7.2
+    /**since 7.2.0
 */
     #[qapi(name = "dgram")]
     #[qapi(since = "7.2.0")]
     Dgram,
-    /**since 8.2
+    /**since 8.2.0
 */
     #[qapi(name = "af-xdp")]
     #[qapi(condition = "CONFIG_AF_XDP")]
     #[qapi(since = "8.2.0")]
     AfXdp,
-    /**since 10.1
+    /**since 10.1.0
 */
     #[qapi(name = "passt")]
     #[qapi(condition = "CONFIG_PASST")]
@@ -4764,7 +4764,7 @@ pub enum NetworkAddressFamily {
 */
     #[qapi(name = "unknown")]
     Unknown,
-    /**vsock family (since 2.8)
+    /**vsock family (since 2.8.0)
 */
     #[qapi(name = "vsock")]
     #[qapi(since = "2.8.0")]
@@ -4828,22 +4828,22 @@ pub enum NumaOptionsType {
 */
     #[qapi(name = "node")]
     Node,
-    /**NUMA distance configuration (since 2.10)
+    /**NUMA distance configuration (since 2.10.0)
 */
     #[qapi(name = "dist")]
     #[qapi(since = "2.10.0")]
     Dist,
-    /**property based CPU(s) to node mapping (Since: 2.10)
+    /**property based CPU(s) to node mapping (Since: 2.10.0)
 */
     #[qapi(name = "cpu")]
     #[qapi(since = "2.10.0")]
     Cpu,
-    /**memory latency and bandwidth information (Since: 5.0)
+    /**memory latency and bandwidth information (Since: 5.0.0)
 */
     #[qapi(name = "hmat-lb")]
     #[qapi(since = "5.0.0")]
     HmatLb,
-    /**memory side cache information (Since: 5.0)
+    /**memory side cache information (Since: 5.0.0)
 */
     #[qapi(name = "hmat-cache")]
     #[qapi(since = "5.0.0")]
@@ -5201,12 +5201,12 @@ pub enum PcieLinkSpeed {
 */
     #[qapi(name = "16")]
     _16,
-    /**32.0GT/s (since 9.0)
+    /**32.0GT/s (since 9.0.0)
 */
     #[qapi(name = "32")]
     #[qapi(since = "9.0.0")]
     _32,
-    /**64.0GT/s (since 9.0)
+    /**64.0GT/s (since 9.0.0)
 */
     #[qapi(name = "64")]
     #[qapi(since = "9.0.0")]
@@ -5262,7 +5262,7 @@ action
     #[qapi(name = "none")]
     None,
     /**Shutdown the VM and exit with nonzero status
-(since 7.1)
+(since 7.1.0)
 */
     #[qapi(name = "exit-failure")]
     #[qapi(since = "7.1.0")]
@@ -5429,11 +5429,11 @@ pub enum QCryptoCipherAlgo {
     #[qapi(name = "aes-256")]
     Aes256,
     /**DES with 56 bit / 8 byte keys.  Do not use except in VNC.
-(since 6.1)
+(since 6.1.0)
 */
     #[qapi(name = "des")]
     Des,
-    /**3DES(EDE) with 192 bit / 24 byte keys (since 2.9)
+    /**3DES(EDE) with 192 bit / 24 byte keys (since 2.9.0)
 */
     #[qapi(name = "3des")]
     _3des,
@@ -5465,7 +5465,7 @@ pub enum QCryptoCipherAlgo {
 */
     #[qapi(name = "twofish-256")]
     Twofish256,
-    /**SM4 with 128 bit / 16 byte keys (since 9.0)
+    /**SM4 with 128 bit / 16 byte keys (since 9.0.0)
 */
     #[qapi(name = "sm4")]
     Sm4,
@@ -5519,18 +5519,18 @@ pub enum QCryptoCipherAlgorithm {
 */
     #[qapi(name = "twofish-256")]
     Twofish256,
-    /**3DES(EDE) with 192 bit / 24 byte keys (since 2.9)
+    /**3DES(EDE) with 192 bit / 24 byte keys (since 2.9.0)
 */
     #[qapi(name = "3des")]
     #[qapi(since = "2.9.0")]
     _3des,
     /**DES with 56 bit / 8 byte keys.  Do not use except in VNC.
-(since 6.1)
+(since 6.1.0)
 */
     #[qapi(name = "des")]
     #[qapi(since = "6.1.0")]
     Des,
-    /**SM4 with 128 bit / 16 byte keys (since 9.0)
+    /**SM4 with 128 bit / 16 byte keys (since 9.0.0)
 */
     #[qapi(name = "sm4")]
     #[qapi(since = "9.0.0")]
@@ -5552,7 +5552,7 @@ pub enum QCryptoCipherMode {
 */
     #[qapi(name = "xts")]
     Xts,
-    /**Counter (Since 2.8)
+    /**Counter (Since 2.8.0)
 */
     #[qapi(name = "ctr")]
     #[qapi(since = "2.8.0")]
@@ -5571,7 +5571,7 @@ only
 */
     #[qapi(name = "sha1")]
     Sha1,
-    /**SHA-224.  (since 2.7)
+    /**SHA-224.  (since 2.7.0)
 */
     #[qapi(name = "sha224")]
     Sha224,
@@ -5579,15 +5579,15 @@ only
 */
     #[qapi(name = "sha256")]
     Sha256,
-    /**SHA-384.  (since 2.7)
+    /**SHA-384.  (since 2.7.0)
 */
     #[qapi(name = "sha384")]
     Sha384,
-    /**SHA-512.  (since 2.7)
+    /**SHA-512.  (since 2.7.0)
 */
     #[qapi(name = "sha512")]
     Sha512,
-    /**RIPEMD-160.  (since 2.7)
+    /**RIPEMD-160.  (since 2.7.0)
 */
     #[qapi(name = "ripemd160")]
     Ripemd160,
@@ -5613,22 +5613,22 @@ pub enum QCryptoHashAlgorithm {
 */
     #[qapi(name = "sha256")]
     Sha256,
-    /**SHA-224.  (since 2.7)
+    /**SHA-224.  (since 2.7.0)
 */
     #[qapi(name = "sha224")]
     #[qapi(since = "2.7.0")]
     Sha224,
-    /**SHA-384.  (since 2.7)
+    /**SHA-384.  (since 2.7.0)
 */
     #[qapi(name = "sha384")]
     #[qapi(since = "2.7.0")]
     Sha384,
-    /**SHA-512.  (since 2.7)
+    /**SHA-512.  (since 2.7.0)
 */
     #[qapi(name = "sha512")]
     #[qapi(since = "2.7.0")]
     Sha512,
-    /**RIPEMD-160.  (since 2.7)
+    /**RIPEMD-160.  (since 2.7.0)
 */
     #[qapi(name = "ripemd160")]
     #[qapi(since = "2.7.0")]
@@ -6057,217 +6057,217 @@ pub enum QKeyCode {
     MetaR,
     #[qapi(name = "compose")]
     Compose,
-    /**since 2.0
+    /**since 2.0.0
 */
     #[qapi(name = "unmapped")]
     #[qapi(since = "2.0.0")]
     Unmapped,
-    /**since 2.0
+    /**since 2.0.0
 */
     #[qapi(name = "pause")]
     #[qapi(since = "2.0.0")]
     Pause,
-    /**since 2.4
+    /**since 2.4.0
 */
     #[qapi(name = "ro")]
     #[qapi(since = "2.4.0")]
     Ro,
-    /**since 2.4
+    /**since 2.4.0
 */
     #[qapi(name = "kp_comma")]
     #[qapi(since = "2.4.0")]
     KpComma,
-    /**since 2.6
+    /**since 2.6.0
 */
     #[qapi(name = "kp_equals")]
     #[qapi(since = "2.6.0")]
     KpEquals,
-    /**since 2.6
+    /**since 2.6.0
 */
     #[qapi(name = "power")]
     #[qapi(since = "2.6.0")]
     Power,
-    /**since 2.9
+    /**since 2.9.0
 */
     #[qapi(name = "hiragana")]
     #[qapi(since = "2.9.0")]
     Hiragana,
-    /**since 2.9
+    /**since 2.9.0
 */
     #[qapi(name = "henkan")]
     #[qapi(since = "2.9.0")]
     Henkan,
-    /**since 2.9
+    /**since 2.9.0
 */
     #[qapi(name = "yen")]
     #[qapi(since = "2.9.0")]
     Yen,
-    /**since 2.10
+    /**since 2.10.0
 */
     #[qapi(name = "sleep")]
     #[qapi(since = "2.10.0")]
     Sleep,
-    /**since 2.10
+    /**since 2.10.0
 */
     #[qapi(name = "wake")]
     #[qapi(since = "2.10.0")]
     Wake,
-    /**since 2.10
+    /**since 2.10.0
 */
     #[qapi(name = "audionext")]
     #[qapi(since = "2.10.0")]
     Audionext,
-    /**since 2.10
+    /**since 2.10.0
 */
     #[qapi(name = "audioprev")]
     #[qapi(since = "2.10.0")]
     Audioprev,
-    /**since 2.10
+    /**since 2.10.0
 */
     #[qapi(name = "audiostop")]
     #[qapi(since = "2.10.0")]
     Audiostop,
-    /**since 2.10
+    /**since 2.10.0
 */
     #[qapi(name = "audioplay")]
     #[qapi(since = "2.10.0")]
     Audioplay,
-    /**since 2.10
+    /**since 2.10.0
 */
     #[qapi(name = "audiomute")]
     #[qapi(since = "2.10.0")]
     Audiomute,
-    /**since 2.10
+    /**since 2.10.0
 */
     #[qapi(name = "volumeup")]
     #[qapi(since = "2.10.0")]
     Volumeup,
-    /**since 2.10
+    /**since 2.10.0
 */
     #[qapi(name = "volumedown")]
     #[qapi(since = "2.10.0")]
     Volumedown,
-    /**since 2.10
+    /**since 2.10.0
 */
     #[qapi(name = "mediaselect")]
     #[qapi(since = "2.10.0")]
     Mediaselect,
-    /**since 2.10
+    /**since 2.10.0
 */
     #[qapi(name = "mail")]
     #[qapi(since = "2.10.0")]
     Mail,
-    /**since 2.10
+    /**since 2.10.0
 */
     #[qapi(name = "calculator")]
     #[qapi(since = "2.10.0")]
     Calculator,
-    /**since 2.10
+    /**since 2.10.0
 */
     #[qapi(name = "computer")]
     #[qapi(since = "2.10.0")]
     Computer,
-    /**since 2.10
+    /**since 2.10.0
 */
     #[qapi(name = "ac_home")]
     #[qapi(since = "2.10.0")]
     AcHome,
-    /**since 2.10
+    /**since 2.10.0
 */
     #[qapi(name = "ac_back")]
     #[qapi(since = "2.10.0")]
     AcBack,
-    /**since 2.10
+    /**since 2.10.0
 */
     #[qapi(name = "ac_forward")]
     #[qapi(since = "2.10.0")]
     AcForward,
-    /**since 2.10
+    /**since 2.10.0
 */
     #[qapi(name = "ac_refresh")]
     #[qapi(since = "2.10.0")]
     AcRefresh,
-    /**since 2.10
+    /**since 2.10.0
 */
     #[qapi(name = "ac_bookmarks")]
     #[qapi(since = "2.10.0")]
     AcBookmarks,
-    /**since 2.12
+    /**since 2.12.0
 */
     #[qapi(name = "muhenkan")]
     #[qapi(since = "2.12.0")]
     Muhenkan,
-    /**since 2.12
+    /**since 2.12.0
 */
     #[qapi(name = "katakanahiragana")]
     #[qapi(since = "2.12.0")]
     Katakanahiragana,
-    /**since 6.1
+    /**since 6.1.0
 */
     #[qapi(name = "lang1")]
     #[qapi(since = "6.1.0")]
     Lang1,
-    /**since 6.1
+    /**since 6.1.0
 */
     #[qapi(name = "lang2")]
     #[qapi(since = "6.1.0")]
     Lang2,
-    /**since 8.0
+    /**since 8.0.0
 */
     #[qapi(name = "f13")]
     #[qapi(since = "8.0.0")]
     F13,
-    /**since 8.0
+    /**since 8.0.0
 */
     #[qapi(name = "f14")]
     #[qapi(since = "8.0.0")]
     F14,
-    /**since 8.0
+    /**since 8.0.0
 */
     #[qapi(name = "f15")]
     #[qapi(since = "8.0.0")]
     F15,
-    /**since 8.0
+    /**since 8.0.0
 */
     #[qapi(name = "f16")]
     #[qapi(since = "8.0.0")]
     F16,
-    /**since 8.0
+    /**since 8.0.0
 */
     #[qapi(name = "f17")]
     #[qapi(since = "8.0.0")]
     F17,
-    /**since 8.0
+    /**since 8.0.0
 */
     #[qapi(name = "f18")]
     #[qapi(since = "8.0.0")]
     F18,
-    /**since 8.0
+    /**since 8.0.0
 */
     #[qapi(name = "f19")]
     #[qapi(since = "8.0.0")]
     F19,
-    /**since 8.0
+    /**since 8.0.0
 */
     #[qapi(name = "f20")]
     #[qapi(since = "8.0.0")]
     F20,
-    /**since 8.0
+    /**since 8.0.0
 */
     #[qapi(name = "f21")]
     #[qapi(since = "8.0.0")]
     F21,
-    /**since 8.0
+    /**since 8.0.0
 */
     #[qapi(name = "f22")]
     #[qapi(since = "8.0.0")]
     F22,
-    /**since 8.0
+    /**since 8.0.0
 */
     #[qapi(name = "f23")]
     #[qapi(since = "8.0.0")]
     F23,
-    /**since 8.0
+    /**since 8.0.0
 
 'sysrq' was mistakenly added to hack around the fact that the ps2
 driver was not generating correct scancodes sequences when
@@ -6503,7 +6503,7 @@ pub enum RbdImageEncryptionFormat {
     Luks,
     #[qapi(name = "luks2")]
     Luks2,
-    /**Used for opening either luks or luks2 (Since 8.0)
+    /**Used for opening either luks or luks2 (Since 8.0.0)
 */
     #[qapi(name = "luks-any")]
     #[qapi(since = "8.0.0")]
@@ -6658,13 +6658,13 @@ panic
     GuestPanicked,
     /**guest is paused to save/restore VM state under colo
 checkpoint, VM can not get into this state unless colo
-capability is enabled for migration.  (since 2.8)*/
+capability is enabled for migration.  (since 2.8.0)*/
     #[qapi(name = "colo")]
     #[qapi(since = "2.8.0")]
     Colo,
     /**QEMU is paused before board specific init callback is executed.
 The state is reachable only if the --preconfig CLI option is used.
-(Since 3.0)*/
+(Since 3.0.0)*/
     #[qapi(name = "preconfig")]
     #[qapi(since = "3.0.0")]
     #[qapi(until = "6.0.0")]
@@ -6971,7 +6971,7 @@ hypercalls on s390 that are used during kexec/kdump/boot
     SubsystemReset,
     /**A snapshot is being loaded by the record & replay
 subsystem.  This value is used only within QEMU.  It doesn't
-occur in QMP.  (since 7.2)*/
+occur in QMP.  (since 7.2.0)*/
     #[qapi(name = "snapshot-load")]
     #[qapi(since = "7.2.0")]
     SnapshotLoad,
@@ -6987,7 +6987,7 @@ pub enum SmbiosEntryPointType {
     #[qapi(name = "64")]
     _64,
     /**Either 2.x or 3.x SMBIOS version, 2.x if configuration can be
-described by it and 3.x otherwise (since: 9.0)
+described by it and 3.x otherwise (since: 9.0.0)
 */
     #[qapi(name = "auto")]
     #[qapi(since = "9.0.0")]
@@ -7156,11 +7156,11 @@ pub enum StatsFilterBranch {
 */
 #[qapi(since = "7.1.0")]
 pub enum StatsProvider {
-    /**since 7.1
+    /**since 7.1.0
 */
     #[qapi(name = "kvm")]
     Kvm,
-    /**since 8.0
+    /**since 8.0.0
 */
     #[qapi(name = "cryptodev")]
     #[qapi(since = "8.0.0")]
@@ -7179,7 +7179,7 @@ entire QEMU process.
 */
     #[qapi(name = "vcpu")]
     Vcpu,
-    /**statistics that apply to a crypto device (since 8.0)
+    /**statistics that apply to a crypto device (since 8.0.0)
 */
     #[qapi(name = "cryptodev")]
     #[qapi(since = "8.0.0")]
@@ -7340,17 +7340,17 @@ pub enum SysEmuTarget {
     Xtensa,
     #[qapi(name = "xtensaeb")]
     Xtensaeb,
-    /**since 5.0
+    /**since 5.0.0
 */
     #[qapi(name = "rx")]
     #[qapi(since = "5.0.0")]
     Rx,
-    /**since 5.1
+    /**since 5.1.0
 */
     #[qapi(name = "avr")]
     #[qapi(since = "5.1.0")]
     Avr,
-    /**since 7.1
+    /**since 7.1.0
 */
     #[qapi(name = "loongarch64")]
     #[qapi(since = "7.1.0")]
@@ -7439,12 +7439,12 @@ pub enum TpmModel {
 */
     #[qapi(name = "tpm-tis")]
     TpmTis,
-    /**TPM CRB model (since 2.12)
+    /**TPM CRB model (since 2.12.0)
 */
     #[qapi(name = "tpm-crb")]
     #[qapi(since = "2.12.0")]
     TpmCrb,
-    /**TPM SPAPR model (since 5.0)
+    /**TPM SPAPR model (since 5.0.0)
 */
     #[qapi(name = "tpm-spapr")]
     #[qapi(since = "5.0.0")]
@@ -7458,7 +7458,7 @@ pub enum TpmType {
 */
     #[qapi(name = "passthrough")]
     Passthrough,
-    /**Software Emulator TPM type (since 2.11)
+    /**Software Emulator TPM type (since 2.11.0)
 */
     #[qapi(name = "emulator")]
     #[qapi(since = "2.11.0")]
@@ -7548,51 +7548,51 @@ pub enum TransactionActionBranch {
 }
 #[qapi(since = "6.2.0")]
 pub enum TransactionActionKind {
-    /**Since 1.6
+    /**Since 1.6.0
 */
     #[qapi(name = "abort")]
     Abort,
-    /**Since 2.5
+    /**Since 2.5.0
 */
     #[qapi(name = "block-dirty-bitmap-add")]
     BlockDirtyBitmapAdd,
-    /**Since 4.2
+    /**Since 4.2.0
 */
     #[qapi(name = "block-dirty-bitmap-remove")]
     BlockDirtyBitmapRemove,
-    /**Since 2.5
+    /**Since 2.5.0
 */
     #[qapi(name = "block-dirty-bitmap-clear")]
     BlockDirtyBitmapClear,
-    /**Since 4.0
+    /**Since 4.0.0
 */
     #[qapi(name = "block-dirty-bitmap-enable")]
     BlockDirtyBitmapEnable,
-    /**Since 4.0
+    /**Since 4.0.0
 */
     #[qapi(name = "block-dirty-bitmap-disable")]
     BlockDirtyBitmapDisable,
-    /**Since 4.0
+    /**Since 4.0.0
 */
     #[qapi(name = "block-dirty-bitmap-merge")]
     BlockDirtyBitmapMerge,
-    /**Since 2.3
+    /**Since 2.3.0
 */
     #[qapi(name = "blockdev-backup")]
     BlockdevBackup,
-    /**Since 2.5
+    /**Since 2.5.0
 */
     #[qapi(name = "blockdev-snapshot")]
     BlockdevSnapshot,
-    /**Since 1.7
+    /**Since 1.7.0
 */
     #[qapi(name = "blockdev-snapshot-internal-sync")]
     BlockdevSnapshotInternalSync,
-    /**since 1.1
+    /**since 1.1.0
 */
     #[qapi(name = "blockdev-snapshot-sync")]
     BlockdevSnapshotSync,
-    /**Since 1.6
+    /**Since 1.6.0
 */
     #[qapi(name = "drive-backup")]
     #[qapi(feature = "deprecated")]
@@ -7779,7 +7779,7 @@ which tries to set to system status and notify guest
     #[qapi(name = "none")]
     None,
     /**a non-maskable interrupt is injected into the first
-VCPU (all VCPUS on x86) (since 2.4)
+VCPU (all VCPUS on x86) (since 2.4.0)
 */
     #[qapi(name = "inject-nmi")]
     InjectNmi,
@@ -7816,7 +7816,7 @@ tries to set to system status and notify guest
     #[qapi(name = "none")]
     None,
     /**a non-maskable interrupt is injected into the first VCPU (all
-VCPUS on x86) (since 2.4)
+VCPUS on x86) (since 2.4.0)
 */
     #[qapi(name = "inject-nmi")]
     #[qapi(since = "2.4.0")]
@@ -8082,13 +8082,13 @@ announcement
 */
     pub step: i64,
     /**An optional list of interface names, which restricts
-the announcement to the listed interfaces.  (Since 4.1)
+the announcement to the listed interfaces.  (Since 4.1.0)
 */
     #[qapi(since = "4.1.0")]
     pub interfaces: Option<Vec<String>>,
     /**A name to be used to identify an instance of announce-timers
 and to allow it to modified later.  Not for use as part of the
-migration parameters.  (Since 4.1)
+migration parameters.  (Since 4.1.0)
 */
     #[qapi(since = "4.1.0")]
     pub id: Option<String>,
@@ -8170,7 +8170,7 @@ access on failure (default false)
     /**use QEMU's mixing engine to mix all streams inside
 QEMU and convert audio formats when not supported by the
 backend.  When set to off, fixed-settings must be also off
-(default on, since 4.2)
+(default on, since 4.2.0)
 */
     #[qapi(name = "mixing-engine")]
     #[qapi(since = "4.2.0")]
@@ -8223,7 +8223,7 @@ s16)
     /**use QEMU's mixing engine to mix all streams inside
 QEMU and convert audio formats when not supported by the
 backend.  When set to off, fixed-settings must be also off
-(default on, since 4.2)
+(default on, since 4.2.0)
 */
     #[qapi(name = "mixing-engine")]
     #[qapi(since = "4.2.0")]
@@ -8289,7 +8289,7 @@ pub struct AudiodevJackPerDirectionOptions {
     /**use QEMU's mixing engine to mix all streams inside
 QEMU and convert audio formats when not supported by the
 backend.  When set to off, fixed-settings must be also off
-(default on, since 4.2)
+(default on, since 4.2.0)
 */
     #[qapi(name = "mixing-engine")]
     pub mixing_engine: Option<bool>,
@@ -8416,7 +8416,7 @@ access on failure (default true)
     /**use QEMU's mixing engine to mix all streams inside
 QEMU and convert audio formats when not supported by the
 backend.  When set to off, fixed-settings must be also off
-(default on, since 4.2)
+(default on, since 4.2.0)
 */
     #[qapi(name = "mixing-engine")]
     #[qapi(since = "4.2.0")]
@@ -8475,7 +8475,7 @@ s16)
     /**use QEMU's mixing engine to mix all streams inside
 QEMU and convert audio formats when not supported by the
 backend.  When set to off, fixed-settings must be also off
-(default on, since 4.2)
+(default on, since 4.2.0)
 */
     #[qapi(name = "mixing-engine")]
     #[qapi(since = "4.2.0")]
@@ -8483,7 +8483,7 @@ backend.  When set to off, fixed-settings must be also off
     /**name of the PulseAudio stream created by QEMU.  Can be
 used to identify the stream in PulseAudio when you create
 multiple PulseAudio devices or run multiple QEMU instances
-(default: audiodev's id, since 4.2)
+(default: audiodev's id, since 4.2.0)
 */
     #[qapi(name = "stream-name")]
     #[qapi(since = "4.2.0")]
@@ -8521,7 +8521,7 @@ s16)
     /**use QEMU's mixing engine to mix all streams inside
 QEMU and convert audio formats when not supported by the
 backend.  When set to off, fixed-settings must be also off
-(default on, since 4.2)
+(default on, since 4.2.0)
 */
     #[qapi(name = "mixing-engine")]
     #[qapi(since = "4.2.0")]
@@ -8546,7 +8546,7 @@ pub struct AudiodevPipewirePerDirectionOptions {
     /**use QEMU's mixing engine to mix all streams inside
 QEMU and convert audio formats when not supported by the
 backend.  When set to off, fixed-settings must be also off
-(default on, since 4.2)
+(default on, since 4.2.0)
 */
     #[qapi(name = "mixing-engine")]
     pub mixing_engine: Option<bool>,
@@ -8608,7 +8608,7 @@ pub struct AudiodevSdlPerDirectionOptions {
     /**use QEMU's mixing engine to mix all streams inside
 QEMU and convert audio formats when not supported by the
 backend.  When set to off, fixed-settings must be also off
-(default on, since 4.2)
+(default on, since 4.2.0)
 */
     #[qapi(name = "mixing-engine")]
     pub mixing_engine: Option<bool>,
@@ -8771,12 +8771,12 @@ access size
 */
     pub size: Option<i64>,
     /**if set, the image is marked corrupt and therefore unusable
-after this event and must be repaired (Since 2.2; before, every
+after this event and must be repaired (Since 2.2.0; before, every
 `BLOCK_IMAGE_CORRUPTED` event was fatal)
 */
     #[qapi(since = "2.2.0")]
     pub fatal: Option<bool>,
-    /**node name (Since: 2.4)
+    /**node name (Since: 2.4.0)
 */
     #[qapi(name = "node-name")]
     #[qapi(since = "2.4.0")]
@@ -8802,25 +8802,25 @@ device name associated.
     /**true if I/O error was caused due to a no-space condition.
 This key is only present if query-block's io-status is present,
 please see `query-block` documentation for more information
-(since: 2.2)
+(since: 2.2.0)
 */
     #[qapi(since = "2.2.0")]
     pub nospace: Option<bool>,
     /**human readable string describing the error cause.  (This
 field is a debugging aid for humans, it should not be parsed by
-applications) (since: 2.2)
+applications) (since: 2.2.0)
 */
     #[qapi(since = "2.2.0")]
     pub reason: Option<String>,
     /**node name.  Note that errors may be reported for the
 root node that is directly attached to a guest device rather
 than for the node where the error occurred.  The node name is
-not present if the drive is empty.  (Since: 2.8)
+not present if the drive is empty.  (Since: 2.8.0)
 */
     #[qapi(name = "node-name")]
     #[qapi(since = "2.8.0")]
     pub node_name: Option<String>,
-    /**path to the device object in the QOM tree (since 9.2)
+    /**path to the device object in the QOM tree (since 9.2.0)
 */
     #[qapi(name = "qom-path")]
     #[qapi(since = "9.2.0")]
@@ -8964,7 +8964,7 @@ bytes.
 #[qapi(since = "4.2.0")]
 pub struct BackupCommon {
     /**identifier for the newly-created block job.  If omitted,
-the device name will be used.  (Since 2.7)
+the device name will be used.  (Since 2.7.0)
 */
     #[qapi(name = "job-id")]
     pub job_id: Option<String>,
@@ -8984,17 +8984,17 @@ for unlimited.
     /**The name of a dirty bitmap to use.  Must be present if sync
 is "bitmap" or "incremental".  Can be present if sync is "full"
 or "top".  Must not be present otherwise.
-(Since 2.4 (`drive-backup`), 3.1 (`blockdev-backup`))
+(Since 2.4.0 (`drive-backup`), 3.1 (`blockdev-backup`))
 */
     pub bitmap: Option<String>,
     /**Specifies the type of data the bitmap should contain
 after the operation concludes.  Must be present if a bitmap was
-provided, must **not** be present otherwise.  (Since 4.2)
+provided, must **not** be present otherwise.  (Since 4.2.0)
 */
     #[qapi(name = "bitmap-mode")]
     pub bitmap_mode: Option<BitmapSyncMode>,
     /**true to compress data, if the target format supports it.
-(default: false) (since 2.8)
+(default: false) (since 2.8.0)
 */
     pub compress: Option<bool>,
     /**the action to take on an error on the source,
@@ -9013,38 +9013,38 @@ different block device than @device).
 after it has finished its work, waiting for `job-finalize`
 before making any block graph changes.  When true, this job will
 automatically perform its abort or commit actions.  Defaults to
-true.  (Since 2.12)
+true.  (Since 2.12.0)
 */
     #[qapi(name = "auto-finalize")]
     pub auto_finalize: Option<bool>,
     /**When false, this job will wait in a CONCLUDED state
 after it has completely ceased all work, and awaits
 `job-dismiss`.  When true, this job will automatically disappear
-without user intervention.  Defaults to true.  (Since 2.12)
+without user intervention.  Defaults to true.  (Since 2.12.0)
 */
     #[qapi(name = "auto-dismiss")]
     pub auto_dismiss: Option<bool>,
     /**the node name that should be assigned to the
 filter driver that the backup job inserts into the graph above
 node specified by @drive.  If this option is not given, a node
-name is autogenerated.  (Since: 4.2)
+name is autogenerated.  (Since: 4.2.0)
 */
     #[qapi(name = "filter-node-name")]
     pub filter_node_name: Option<String>,
-    /**Performance options.  (Since 6.0)
+    /**Performance options.  (Since 6.0.0)
 */
     #[qapi(name = "x-perf")]
     #[qapi(since = "6.0.0")]
     pub x_perf: Option<BackupPerf>,
     /**Discard blocks on source which have already been
-copied to the target.  (Since 9.1)
+copied to the target.  (Since 9.1.0)
 */
     #[qapi(name = "discard-source")]
     #[qapi(since = "9.1.0")]
     pub discard_source: Option<bool>,
     /**policy defining behavior on I/O errors in
 copy-before-write jobs; defaults to break-guest-write.
-(Since 10.1)
+(Since 10.1.0)
 */
     #[qapi(name = "on-cbw-error")]
     #[qapi(since = "10.1.0")]
@@ -9076,7 +9076,7 @@ as maximum of target image cluster size and 64k.  Default 0.
     /**Minimum size of blocks used by copy-before-write
 and background copy operations.  Has to be a power of 2.  No
 effect if smaller than the maximum of the target's cluster size
-and 64 KiB.  Default 0.  (Since 9.2)
+and 64 KiB.  Default 0.  (Since 9.2.0)
 */
     #[qapi(name = "min-cluster-size")]
     #[qapi(since = "9.2.0")]
@@ -9125,7 +9125,7 @@ the opposite site).
 */
     pub alias: String,
     /**Allows the modification of the migrated bitmap.
-(since 6.0)
+(since 6.0.0)
 */
     #[qapi(since = "6.0.0")]
     pub transform: Option<BitmapMigrationBitmapAliasTransform>,
@@ -9181,7 +9181,7 @@ defaults to false
     pub immediately: Option<bool>,
     /**the type of I/O operations on which this error should be
 injected; defaults to "all read, write, write-zeroes, discard,
-and flush operations" (since: 4.1)
+and flush operations" (since: 4.1.0)
 */
     #[qapi(since = "4.1.0")]
     pub iotype: Option<BlkdebugIoType>,
@@ -9261,7 +9261,7 @@ added, 'tftp' dropped 2.9: 'archipelago' dropped
 */
     pub iops_wr: i64,
     /**number of files in the backing file chain
-(since: 1.2)
+(since: 1.2.0)
 */
     #[qapi(since = "1.2.0")]
     pub backing_file_depth: Option<i64>,
@@ -9270,97 +9270,97 @@ added, 'tftp' dropped 2.9: 'archipelago' dropped
     #[qapi(since = "1.2.0")]
     #[qapi(until = "6.0.0")]
     pub encryption_key_missing: Option<bool>,
-    /**the info of image used (since: 1.6)
+    /**the info of image used (since: 1.6.0)
 */
     #[qapi(since = "1.6.0")]
     pub image: Option<ImageInfo>,
-    /**total throughput limit during bursts, in bytes (Since 1.7)
+    /**total throughput limit during bursts, in bytes (Since 1.7.0)
 */
     #[qapi(since = "1.7.0")]
     pub bps_max: Option<i64>,
     /**read throughput limit during bursts, in bytes
-(Since 1.7)
+(Since 1.7.0)
 */
     #[qapi(since = "1.7.0")]
     pub bps_rd_max: Option<i64>,
     /**write throughput limit during bursts, in bytes
-(Since 1.7)
+(Since 1.7.0)
 */
     #[qapi(since = "1.7.0")]
     pub bps_wr_max: Option<i64>,
     /**total I/O operations per second during bursts, in bytes
-(Since 1.7)
+(Since 1.7.0)
 */
     #[qapi(since = "1.7.0")]
     pub iops_max: Option<i64>,
     /**read I/O operations per second during bursts, in bytes
-(Since 1.7)
+(Since 1.7.0)
 */
     #[qapi(since = "1.7.0")]
     pub iops_rd_max: Option<i64>,
     /**write I/O operations per second during bursts, in
-bytes (Since 1.7)
+bytes (Since 1.7.0)
 */
     #[qapi(since = "1.7.0")]
     pub iops_wr_max: Option<i64>,
-    /**an I/O size in bytes (Since 1.7)
+    /**an I/O size in bytes (Since 1.7.0)
 */
     #[qapi(since = "1.7.0")]
     pub iops_size: Option<i64>,
-    /**the name of the block driver node (Since 2.0)
+    /**the name of the block driver node (Since 2.0.0)
 */
     #[qapi(name = "node-name")]
     #[qapi(since = "2.0.0")]
     pub node_name: Option<String>,
-    /**detect and optimize zero writes (Since 2.1)
+    /**detect and optimize zero writes (Since 2.1.0)
 */
     #[qapi(since = "2.1.0")]
     pub detect_zeroes: Option<BlockdevDetectZeroesOptions>,
-    /**the cache mode used for the block device (since: 2.3)
+    /**the cache mode used for the block device (since: 2.3.0)
 */
     #[qapi(since = "2.3.0")]
     pub cache: Option<BlockdevCacheInfo>,
     /**configured write threshold for the device.  0 if
-disabled.  (Since 2.3)
+disabled.  (Since 2.3.0)
 */
     #[qapi(since = "2.3.0")]
     pub write_threshold: Option<i64>,
-    /**throttle group name (Since 2.4)
+    /**throttle group name (Since 2.4.0)
 */
     #[qapi(since = "2.4.0")]
     pub group: Option<String>,
     /**maximum length of the @bps_max burst period, in
-seconds.  (Since 2.6)
+seconds.  (Since 2.6.0)
 */
     #[qapi(since = "2.6.0")]
     pub bps_max_length: Option<i64>,
     /**maximum length of the @bps_rd_max burst period,
-in seconds.  (Since 2.6)
+in seconds.  (Since 2.6.0)
 */
     #[qapi(since = "2.6.0")]
     pub bps_rd_max_length: Option<i64>,
     /**maximum length of the @bps_wr_max burst period,
-in seconds.  (Since 2.6)
+in seconds.  (Since 2.6.0)
 */
     #[qapi(since = "2.6.0")]
     pub bps_wr_max_length: Option<i64>,
     /**maximum length of the @iops burst period, in
-seconds.  (Since 2.6)
+seconds.  (Since 2.6.0)
 */
     #[qapi(since = "2.6.0")]
     pub iops_max_length: Option<i64>,
     /**maximum length of the @iops_rd_max burst
-period, in seconds.  (Since 2.6)
+period, in seconds.  (Since 2.6.0)
 */
     #[qapi(since = "2.6.0")]
     pub iops_rd_max_length: Option<i64>,
     /**maximum length of the @iops_wr_max burst
-period, in seconds.  (Since 2.6)
+period, in seconds.  (Since 2.6.0)
 */
     #[qapi(since = "2.6.0")]
     pub iops_wr_max_length: Option<i64>,
     /**dirty bitmaps information (only present if node has
-one or more dirty bitmaps) (Since 4.2)
+one or more dirty bitmaps) (Since 4.2.0)
 */
     #[qapi(name = "dirty-bitmaps")]
     #[qapi(since = "4.2.0")]
@@ -9368,11 +9368,11 @@ one or more dirty bitmaps) (Since 4.2)
     /**true if the backend is active; typical cases for inactive
 backends are on the migration source instance after migration
 completes and on the destination before it completes.
-(since: 10.0)
+(since: 10.0.0)
 */
     #[qapi(since = "10.0.0")]
     pub active: Option<bool>,
-    /**Information about child block nodes.  (since: 10.1)
+    /**Information about child block nodes.  (since: 10.1.0)
 */
     #[qapi(since = "10.1.0")]
     pub children: Option<Vec<BlockdevChild>>,
@@ -9426,19 +9426,19 @@ device.
 */
     pub wr_operations: i64,
     /**The number of cache flush operations performed by
-the device (since 0.15)
+the device (since 0.15.0)
 */
     pub flush_operations: i64,
     /**Total time spent on cache flushes in
-nanoseconds (since 0.15).
+nanoseconds (since 0.15.0).
 */
     pub flush_total_time_ns: i64,
     /**Total time spent on writes in nanoseconds
-(since 0.15)
+(since 0.15.0)
 */
     pub wr_total_time_ns: i64,
     /**Total time spent on reads in nanoseconds
-(since 0.15)
+(since 0.15.0)
 */
     pub rd_total_time_ns: i64,
     /**The offset after the greatest byte written to
@@ -9448,154 +9448,154 @@ physical device.
 */
     pub wr_highest_offset: i64,
     /**Number of read requests that have been merged into
-another request (Since 2.3).
+another request (Since 2.3.0).
 */
     #[qapi(since = "2.3.0")]
     pub rd_merged: Option<i64>,
     /**Number of write requests that have been merged into
-another request (Since 2.3).
+another request (Since 2.3.0).
 */
     #[qapi(since = "2.3.0")]
     pub wr_merged: Option<i64>,
     /**Time since the last I/O operation, in nanoseconds.
 If the field is absent it means that there haven't been any
-operations yet (Since 2.5).
+operations yet (Since 2.5.0).
 */
     #[qapi(since = "2.5.0")]
     pub idle_time_ns: Option<i64>,
     /**The number of failed read operations
-performed by the device (Since 2.5)
+performed by the device (Since 2.5.0)
 */
     #[qapi(since = "2.5.0")]
     pub failed_rd_operations: Option<i64>,
     /**The number of failed write operations
-performed by the device (Since 2.5)
+performed by the device (Since 2.5.0)
 */
     #[qapi(since = "2.5.0")]
     pub failed_wr_operations: Option<i64>,
     /**The number of failed flush operations
-performed by the device (Since 2.5)
+performed by the device (Since 2.5.0)
 */
     #[qapi(since = "2.5.0")]
     pub failed_flush_operations: Option<i64>,
     /**The number of invalid read operations
-performed by the device (Since 2.5)
+performed by the device (Since 2.5.0)
 */
     #[qapi(since = "2.5.0")]
     pub invalid_rd_operations: Option<i64>,
     /**The number of invalid write operations
-performed by the device (Since 2.5)
+performed by the device (Since 2.5.0)
 */
     #[qapi(since = "2.5.0")]
     pub invalid_wr_operations: Option<i64>,
     /**The number of invalid flush operations
-performed by the device (Since 2.5)
+performed by the device (Since 2.5.0)
 */
     #[qapi(since = "2.5.0")]
     pub invalid_flush_operations: Option<i64>,
     /**Whether invalid operations are included in the
-last access statistics (Since 2.5)
+last access statistics (Since 2.5.0)
 */
     #[qapi(since = "2.5.0")]
     pub account_invalid: Option<bool>,
     /**Whether failed operations are included in the
-latency and last access statistics (Since 2.5)
+latency and last access statistics (Since 2.5.0)
 */
     #[qapi(since = "2.5.0")]
     pub account_failed: Option<bool>,
     /**Statistics specific to the set of previously defined
-intervals of time (Since 2.5)
+intervals of time (Since 2.5.0)
 */
     #[qapi(since = "2.5.0")]
     pub timed_stats: Option<Vec<BlockDeviceTimedStats>>,
-    /**@BlockLatencyHistogramInfo. (Since 2.12)
+    /**@BlockLatencyHistogramInfo. (Since 2.12.0)
 */
     #[qapi(since = "2.12.0")]
     #[qapi(until = "4.0.0")]
     pub x_rd_latency_histogram: Option<BlockLatencyHistogramInfo>,
-    /**@BlockLatencyHistogramInfo. (Since 2.12)
+    /**@BlockLatencyHistogramInfo. (Since 2.12.0)
 */
     #[qapi(since = "2.12.0")]
     #[qapi(until = "4.0.0")]
     pub x_wr_latency_histogram: Option<BlockLatencyHistogramInfo>,
-    /**@BlockLatencyHistogramInfo. (Since 2.12)
+    /**@BlockLatencyHistogramInfo. (Since 2.12.0)
 */
     #[qapi(since = "2.12.0")]
     #[qapi(until = "4.0.0")]
     pub x_flush_latency_histogram: Option<BlockLatencyHistogramInfo>,
-    /**`BlockLatencyHistogramInfo`.  (Since 4.0)
+    /**`BlockLatencyHistogramInfo`.  (Since 4.0.0)
 */
     #[qapi(since = "4.0.0")]
     pub rd_latency_histogram: Option<BlockLatencyHistogramInfo>,
-    /**`BlockLatencyHistogramInfo`.  (Since 4.0)
+    /**`BlockLatencyHistogramInfo`.  (Since 4.0.0)
 */
     #[qapi(since = "4.0.0")]
     pub wr_latency_histogram: Option<BlockLatencyHistogramInfo>,
-    /**`BlockLatencyHistogramInfo`.  (Since 4.0)
+    /**`BlockLatencyHistogramInfo`.  (Since 4.0.0)
 */
     #[qapi(since = "4.0.0")]
     pub flush_latency_histogram: Option<BlockLatencyHistogramInfo>,
-    /**The number of bytes unmapped by the device (Since 4.2)
+    /**The number of bytes unmapped by the device (Since 4.2.0)
 */
     #[qapi(since = "4.2.0")]
     pub unmap_bytes: Option<i64>,
     /**The number of unmap operations performed by the
-device (Since 4.2)
+device (Since 4.2.0)
 */
     #[qapi(since = "4.2.0")]
     pub unmap_operations: Option<i64>,
     /**Total time spent on unmap operations in
-nanoseconds (Since 4.2)
+nanoseconds (Since 4.2.0)
 */
     #[qapi(since = "4.2.0")]
     pub unmap_total_time_ns: Option<i64>,
     /**Number of unmap requests that have been merged into
-another request (Since 4.2)
+another request (Since 4.2.0)
 */
     #[qapi(since = "4.2.0")]
     pub unmap_merged: Option<i64>,
     /**The number of failed unmap operations
-performed by the device (Since 4.2)
+performed by the device (Since 4.2.0)
 */
     #[qapi(since = "4.2.0")]
     pub failed_unmap_operations: Option<i64>,
     /**The number of invalid unmap operations
-performed by the device (Since 4.2)
+performed by the device (Since 4.2.0)
 */
     #[qapi(since = "4.2.0")]
     pub invalid_unmap_operations: Option<i64>,
     /**The number of bytes appended by the zoned
-devices (since 8.1)
+devices (since 8.1.0)
 */
     #[qapi(since = "8.1.0")]
     pub zone_append_bytes: Option<i64>,
     /**The number of zone append operations
-performed by the zoned devices (since 8.1)
+performed by the zoned devices (since 8.1.0)
 */
     #[qapi(since = "8.1.0")]
     pub zone_append_operations: Option<i64>,
     /**Total time spent on zone append writes
-in nanoseconds (since 8.1)
+in nanoseconds (since 8.1.0)
 */
     #[qapi(since = "8.1.0")]
     pub zone_append_total_time_ns: Option<i64>,
     /**Number of zone append requests that have been
-merged into another request (since 8.1)
+merged into another request (since 8.1.0)
 */
     #[qapi(since = "8.1.0")]
     pub zone_append_merged: Option<i64>,
     /**The number of failed zone append
-write operations performed by the zoned devices (since 8.1)
+write operations performed by the zoned devices (since 8.1.0)
 */
     #[qapi(since = "8.1.0")]
     pub failed_zone_append_operations: Option<i64>,
     /**The number of invalid zone append
-operations performed by the zoned device (since 8.1)
+operations performed by the zoned device (since 8.1.0)
 */
     #[qapi(since = "8.1.0")]
     pub invalid_zone_append_operations: Option<i64>,
     /**`BlockLatencyHistogramInfo`.
-(since 8.1)
+(since 8.1.0)
 */
     #[qapi(since = "8.1.0")]
     pub zone_append_latency_histogram: Option<BlockLatencyHistogramInfo>,
@@ -9653,22 +9653,22 @@ the defined interval.
 */
     pub avg_wr_queue_depth: f64,
     /**Minimum latency of zone append
-operations in the defined interval, in nanoseconds (since 8.1)
+operations in the defined interval, in nanoseconds (since 8.1.0)
 */
     #[qapi(since = "8.1.0")]
     pub min_zone_append_latency_ns: Option<i64>,
     /**Maximum latency of zone append
-operations in the defined interval, in nanoseconds (since 8.1)
+operations in the defined interval, in nanoseconds (since 8.1.0)
 */
     #[qapi(since = "8.1.0")]
     pub max_zone_append_latency_ns: Option<i64>,
     /**Average latency of zone append
-operations in the defined interval, in nanoseconds (since 8.1)
+operations in the defined interval, in nanoseconds (since 8.1.0)
 */
     #[qapi(since = "8.1.0")]
     pub avg_zone_append_latency_ns: Option<i64>,
     /**Average number of pending zone append
-operations in the defined interval (since 8.1).
+operations in the defined interval (since 8.1.0).
 */
     #[qapi(since = "8.1.0")]
     pub avg_zone_append_queue_depth: Option<f64>,
@@ -9697,11 +9697,11 @@ pub struct BlockDirtyBitmapAdd {
     /**the bitmap is persistent, i.e. it will be saved to the
 corresponding block device image file on its close.  For now
 only Qcow2 disks support persistent bitmaps.  Default is false
-for `block-dirty-bitmap-add`.  (Since: 2.10)
+for `block-dirty-bitmap-add`.  (Since: 2.10.0)
 */
     #[qapi(since = "2.10.0")]
     pub persistent: Option<bool>,
-    /**ignored and deprecated since 2.12.
+    /**ignored and deprecated since 2.12.0.
 Currently, all dirty tracking bitmaps are loaded from Qcow2 on
 open.
 */
@@ -9710,7 +9710,7 @@ open.
     pub autoload: Option<bool>,
     /**the bitmap is created in the disabled state, which means that
 it will not track drive changes. The bitmap may be enabled with
-x-block-dirty-bitmap-enable. Default is false. (Since: 3.0)
+x-block-dirty-bitmap-enable. Default is false. (Since: 3.0.0)
 */
     #[qapi(name = "x-disabled")]
     #[qapi(since = "3.0.0")]
@@ -9719,7 +9719,7 @@ x-block-dirty-bitmap-enable. Default is false. (Since: 3.0)
     /**the bitmap is created in the disabled state, which means
 that it will not track drive changes.  The bitmap may be enabled
 with `block-dirty-bitmap-enable`.  Default is false.
-(Since: 4.0)
+(Since: 4.0.0)
 */
     #[qapi(since = "4.0.0")]
     pub disabled: Option<bool>,
@@ -9747,7 +9747,7 @@ pub struct BlockDirtyBitmapMerge {
     pub target: Option<String>,
     /**name(s) of the source dirty bitmap(s) at @node and/or
 fully specified `BlockDirtyBitmap` elements.  The latter are
-supported since 4.1.
+supported since 4.1.0.
 */
     #[qapi(since = "4.0.0")]
     pub bitmaps: Option<Vec<String>>,
@@ -9775,39 +9775,39 @@ pub struct BlockDirtyInfo {
     /**number of dirty bytes according to the dirty bitmap
 */
     pub count: i64,
-    /**granularity of the dirty bitmap in bytes (since 1.4)
+    /**granularity of the dirty bitmap in bytes (since 1.4.0)
 */
     #[qapi(since = "1.4.0")]
     pub granularity: Option<i64>,
-    /**the name of the dirty bitmap (Since 2.4)
+    /**the name of the dirty bitmap (Since 2.4.0)
 */
     #[qapi(since = "2.4.0")]
     pub name: Option<String>,
-    /**current status of the dirty bitmap (since 2.4)
+    /**current status of the dirty bitmap (since 2.4.0)
 */
     #[qapi(since = "2.4.0")]
     #[qapi(until = "6.0.0")]
     pub status: Option<DirtyBitmapStatus>,
     /**true if the bitmap is recording new writes from the
-guest.  (since 4.0)
+guest.  (since 4.0.0)
 */
     #[qapi(since = "4.0.0")]
     pub recording: Option<bool>,
     /**true if the bitmap is in-use by some operation (NBD or jobs)
 and cannot be modified via QMP or used by another operation.
-(since 4.0)
+(since 4.0.0)
 */
     #[qapi(since = "4.0.0")]
     pub busy: Option<bool>,
     /**true if the bitmap was stored on disk, is scheduled to
-be stored on disk, or both.  (since 4.0)
+be stored on disk, or both.  (since 4.0.0)
 */
     #[qapi(since = "4.0.0")]
     pub persistent: Option<bool>,
     /**true if this is a persistent bitmap that was
 improperly stored.  Implies @persistent to be true; @recording
 and @busy to be false.  This bitmap cannot be used.  To remove
-it, use `block-dirty-bitmap-remove`.  (Since 4.0)
+it, use `block-dirty-bitmap-remove`.  (Since 4.0.0)
 */
     #[qapi(since = "4.0.0")]
     pub inconsistent: Option<bool>,
@@ -9853,11 +9853,11 @@ pub struct BlockExportNbd {
 */
     pub device: String,
     /**Export name. If unspecified, the @device parameter is used as the
-export name. (Since 2.12)
+export name. (Since 2.12.0)
 */
     pub name: Option<String>,
     /**Free-form description of the export, up to 4096 bytes.
-(Since 5.0)
+(Since 5.0.0)
 */
     pub description: Option<String>,
     /**Whether clients should be able to write to the device via the
@@ -9866,7 +9866,7 @@ NBD connection (default false).
     pub writable: Option<bool>,
     /**Also export the dirty bitmap reachable from @device, so the
 NBD client can use NBD_OPT_SET_META_CONTEXT with
-"qemu:dirty-bitmap:NAME" to inspect the bitmap. (since 4.0)
+"qemu:dirty-bitmap:NAME" to inspect the bitmap. (since 4.0.0)
 */
     pub bitmap: Option<String>,
 }
@@ -9887,17 +9887,17 @@ types)
 another thread while the export is active.  If true and
 @iothread is given, export creation fails if the block node
 cannot be moved to the iothread.  The default is false.
-(since: 5.2)
+(since: 5.2.0)
 */
     #[qapi(name = "fixed-iothread")]
     pub fixed_iothread: Option<bool>,
     /**The name of the iothread object where the export will
 run.  The default is to use the thread currently associated with
-the block node.  (since: 5.2)
+the block node.  (since: 5.2.0)
 */
     pub iothread: Option<String>,
     /**The node name of the block node to be exported
-(since: 5.2)
+(since: 5.2.0)
 */
     #[qapi(name = "node-name")]
     pub node_name: String,
@@ -9906,7 +9906,7 @@ the block node.  (since: 5.2)
 */
     pub writable: Option<bool>,
     /**If true, caches are flushed after every write request
-to the export before completion is signalled.  (since: 5.2;
+to the export before completion is signalled.  (since: 5.2.0;
 default: false)
 */
     pub writethrough: Option<bool>,
@@ -9918,7 +9918,7 @@ remains inactive.  If the export type doesn't support running on
 an inactive node, an error is returned.  If false, inactive
 block nodes are automatically activated before creating the
 export and trying to inactivate them later fails.
-(since: 10.0; default: false)
+(since: 10.0.0; default: false)
 */
     #[qapi(name = "allow-inactive")]
     #[qapi(since = "10.0.0")]
@@ -9946,7 +9946,7 @@ allow_other as a non-root user requires user_allow_other to be
 enabled in the global fuse.conf configuration file.  In auto
 mode (the default), the FUSE export driver will first attempt to
 mount the export with allow_other, and if that fails, try again
-without.  (since 6.1; default: auto)
+without.  (since 6.1.0; default: auto)
 */
     #[qapi(name = "allow-other")]
     #[qapi(since = "6.1.0")]
@@ -9958,24 +9958,24 @@ without.  (since 6.1; default: auto)
 #[qapi(since = "5.2.0")]
 pub struct BlockExportOptionsNbd {
     /**Export name.  If unspecified, the @device parameter is used
-as the export name.  (Since 2.12)
+as the export name.  (Since 2.12.0)
 */
     pub name: Option<String>,
     /**Free-form description of the export, up to 4096 bytes.
-(Since 5.0)
+(Since 5.0.0)
 */
     pub description: Option<String>,
     /**Also export each of the named dirty bitmaps reachable from
 @device, so the NBD client can use NBD_OPT_SET_META_CONTEXT with
 the metadata context name "qemu:dirty-bitmap:BITMAP" to inspect
-each bitmap.  Since 7.1 bitmap may be specified by node/name
+each bitmap.  Since 7.1.0 bitmap may be specified by node/name
 pair.
 */
     pub bitmaps: Option<Vec<String>>,
     /**Also export the allocation depth map for @device,
 so the NBD client can use NBD_OPT_SET_META_CONTEXT with the
 metadata context name "qemu:allocation-depth" to inspect
-allocation details.  (since 5.2)
+allocation details.  (since 5.2.0)
 */
     #[qapi(name = "allocation-depth")]
     pub allocation_depth: Option<bool>,
@@ -9986,11 +9986,11 @@ and the NBD branch of `block-export-add`).
 #[qapi(since = "5.2.0")]
 pub struct BlockExportOptionsNbdBase {
     /**Export name.  If unspecified, the @device parameter is used
-as the export name.  (Since 2.12)
+as the export name.  (Since 2.12.0)
 */
     pub name: Option<String>,
     /**Free-form description of the export, up to 4096 bytes.
-(Since 5.0)
+(Since 5.0.0)
 */
     pub description: Option<String>,
 }
@@ -10070,7 +10070,7 @@ pub struct BlockGraphInfo {
     /**true if the image is encrypted
 */
     pub encrypted: Option<bool>,
-    /**true if the image is compressed (Since 1.7)
+    /**true if the image is compressed (Since 1.7.0)
 */
     pub compressed: Option<bool>,
     /**name of the backing file
@@ -10089,7 +10089,7 @@ pub struct BlockGraphInfo {
 */
     pub snapshots: Option<Vec<SnapshotInfo>>,
     /**structure supplying additional format-specific
-information (since 1.7)
+information (since 1.7.0)
 */
     #[qapi(name = "format-specific")]
     pub format_specific: Option<ImageInfoSpecific>,
@@ -10127,66 +10127,66 @@ pub struct BlockIoThrottle {
     /**write I/O operations per second
 */
     pub iops_wr: i64,
-    /**total throughput limit during bursts, in bytes (Since 1.7)
+    /**total throughput limit during bursts, in bytes (Since 1.7.0)
 */
     pub bps_max: Option<i64>,
     /**read throughput limit during bursts, in bytes
-(Since 1.7)
+(Since 1.7.0)
 */
     pub bps_rd_max: Option<i64>,
     /**write throughput limit during bursts, in bytes
-(Since 1.7)
+(Since 1.7.0)
 */
     pub bps_wr_max: Option<i64>,
     /**total I/O operations per second during bursts, in bytes
-(Since 1.7)
+(Since 1.7.0)
 */
     pub iops_max: Option<i64>,
     /**read I/O operations per second during bursts, in bytes
-(Since 1.7)
+(Since 1.7.0)
 */
     pub iops_rd_max: Option<i64>,
     /**write I/O operations per second during bursts, in
-bytes (Since 1.7)
+bytes (Since 1.7.0)
 */
     pub iops_wr_max: Option<i64>,
     /**maximum length of the @bps_max burst period, in
 seconds.  It must only be set if @bps_max is set as well.
-Defaults to 1.  (Since 2.6)
+Defaults to 1.  (Since 2.6.0)
 */
     pub bps_max_length: Option<i64>,
     /**maximum length of the @bps_rd_max burst period,
 in seconds.  It must only be set if @bps_rd_max is set as well.
-Defaults to 1.  (Since 2.6)
+Defaults to 1.  (Since 2.6.0)
 */
     pub bps_rd_max_length: Option<i64>,
     /**maximum length of the @bps_wr_max burst period,
 in seconds.  It must only be set if @bps_wr_max is set as well.
-Defaults to 1.  (Since 2.6)
+Defaults to 1.  (Since 2.6.0)
 */
     pub bps_wr_max_length: Option<i64>,
     /**maximum length of the @iops burst period, in
 seconds.  It must only be set if @iops_max is set as well.
-Defaults to 1.  (Since 2.6)
+Defaults to 1.  (Since 2.6.0)
 */
     pub iops_max_length: Option<i64>,
     /**maximum length of the @iops_rd_max burst
 period, in seconds.  It must only be set if @iops_rd_max is set
-as well.  Defaults to 1.  (Since 2.6)
+as well.  Defaults to 1.  (Since 2.6.0)
 */
     pub iops_rd_max_length: Option<i64>,
     /**maximum length of the @iops_wr_max burst
 period, in seconds.  It must only be set if @iops_wr_max is set
-as well.  Defaults to 1.  (Since 2.6)
+as well.  Defaults to 1.  (Since 2.6.0)
 */
     pub iops_wr_max_length: Option<i64>,
-    /**an I/O size in bytes (Since 1.7)
+    /**an I/O size in bytes (Since 1.7.0)
 */
     pub iops_size: Option<i64>,
-    /**throttle group name (Since 2.4)
+    /**throttle group name (Since 2.4.0)
 */
     pub group: Option<String>,
-    /**The name or QOM path of the guest device (since: 2.8)
+    /**The name or QOM path of the guest device (since: 2.8.0)
 */
     #[qapi(since = "2.8.0")]
     pub id: Option<String>,
@@ -10232,14 +10232,14 @@ bitmap is enabled)
     #[qapi(until = "2.0.0")]
     pub dirty: Option<BlockDirtyInfo>,
     /**dirty bitmaps information (only present if the
-driver has one or more dirty bitmaps) (Since 2.0)
+driver has one or more dirty bitmaps) (Since 2.0.0)
 */
     #[qapi(name = "dirty-bitmaps")]
     #[qapi(since = "2.0.0")]
     #[qapi(until = "6.0.0")]
     pub dirty_bitmaps: Option<Vec<BlockDirtyInfo>>,
     /**The qdev ID, or if no ID is assigned, the QOM path of the
-block device.  (since 2.10)
+block device.  (since 2.10.0)
 */
     #[qapi(since = "2.10.0")]
     pub qdev: Option<String>,
@@ -10291,36 +10291,36 @@ value can only meaningfully be used for the ratio of @offset to
 */
     pub speed: i64,
     /**false if the job is known to be in a quiescent state, with no
-pending I/O.  (Since 1.3)
+pending I/O.  (Since 1.3.0)
 */
     #[qapi(since = "1.3.0")]
     pub busy: Option<bool>,
     /**whether the job is paused or, if @busy is true, will pause
-itself as soon as possible.  (Since 1.3)
+itself as soon as possible.  (Since 1.3.0)
 */
     #[qapi(since = "1.3.0")]
     pub paused: Option<bool>,
-    /**the status of the job (since 1.3)
+    /**the status of the job (since 1.3.0)
 */
     #[qapi(name = "io-status")]
     #[qapi(since = "1.3.0")]
     pub io_status: Option<BlockDeviceIoStatus>,
-    /**true if the job may be completed (since 2.2)
+    /**true if the job may be completed (since 2.2.0)
 */
     #[qapi(since = "2.2.0")]
     pub ready: Option<bool>,
-    /**Current job state/status (since 2.12)
+    /**Current job state/status (since 2.12.0)
 */
     #[qapi(since = "2.12.0")]
     pub status: Option<BlockJobStatus>,
     /**Job will finalize itself when PENDING, moving to the
-CONCLUDED state.  (since 2.12)
+CONCLUDED state.  (since 2.12.0)
 */
     #[qapi(name = "auto-finalize")]
     #[qapi(since = "2.12.0")]
     pub auto_finalize: Option<bool>,
     /**Job will dismiss itself when CONCLUDED, and
-disappear.  (since 2.12)
+disappear.  (since 2.12.0)
 */
     #[qapi(name = "auto-dismiss")]
     #[qapi(since = "2.12.0")]
@@ -10471,7 +10471,7 @@ contents.
     /**Additional size required if all the top-level bitmap
 metadata in the source image were to be copied to the
 destination, present only when source and destination both
-support persistent bitmaps.  (since 5.1)
+support persistent bitmaps.  (since 5.1.0)
 */
     #[qapi(since = "5.1.0")]
     pub bitmaps: Option<i64>,
@@ -10505,7 +10505,7 @@ pub struct BlockNodeInfo {
     /**true if the image is encrypted
 */
     pub encrypted: Option<bool>,
-    /**true if the image is compressed (Since 1.7)
+    /**true if the image is compressed (Since 1.7.0)
 */
     pub compressed: Option<bool>,
     /**name of the backing file
@@ -10524,7 +10524,7 @@ pub struct BlockNodeInfo {
 */
     pub snapshots: Option<Vec<SnapshotInfo>>,
     /**structure supplying additional format-specific
-information (since 1.7)
+information (since 1.7.0)
 */
     #[qapi(name = "format-specific")]
     pub format_specific: Option<ImageInfoSpecific>,
@@ -10551,21 +10551,21 @@ underlying protocol, this field is omitted
 */
     pub parent: Option<Box<BlockStats>>,
     /**This describes the backing block device if it has one.
-(Since 2.0)
+(Since 2.0.0)
 */
     #[qapi(since = "2.0.0")]
     pub backing: Option<Box<BlockStats>>,
-    /**The node name of the device.  (Since 2.3)
+    /**The node name of the device.  (Since 2.3.0)
 */
     #[qapi(name = "node-name")]
     #[qapi(since = "2.3.0")]
     pub node_name: Option<String>,
     /**The qdev ID, or if no ID is assigned, the QOM path of the
-block device.  (since 3.0)
+block device.  (since 3.0.0)
 */
     #[qapi(since = "3.0.0")]
     pub qdev: Option<String>,
-    /**Optional driver-specific stats.  (Since 4.2)
+    /**Optional driver-specific stats.  (Since 4.2.0)
 */
     #[qapi(name = "driver-specific")]
     #[qapi(since = "4.2.0")]
@@ -10722,13 +10722,13 @@ different block device than @device).
     #[qapi(name = "on-target-error")]
     pub on_target_error: Option<BlockdevOnError>,
     /**identifier for the newly-created block job.  If omitted,
-the device name will be used.  (Since 2.7)
+the device name will be used.  (Since 2.7.0)
 */
     #[qapi(name = "job-id")]
     #[qapi(since = "2.7.0")]
     pub job_id: Option<String>,
     /**true to compress data, if the target format supports it.
-(default: false) (since 2.8)
+(default: false) (since 2.8.0)
 */
     #[qapi(since = "2.8.0")]
     pub compress: Option<bool>,
@@ -10736,7 +10736,7 @@ the device name will be used.  (Since 2.7)
 after it has finished its work, waiting for `job-finalize`
 before making any block graph changes.  When true, this job will
 automatically perform its abort or commit actions.  Defaults to
-true.  (Since 2.12)
+true.  (Since 2.12.0)
 */
     #[qapi(name = "auto-finalize")]
     #[qapi(since = "2.12.0")]
@@ -10744,7 +10744,7 @@ true.  (Since 2.12)
     /**When false, this job will wait in a CONCLUDED state
 after it has completely ceased all work, and awaits
 `job-dismiss`.  When true, this job will automatically disappear
-without user intervention.  Defaults to true.  (Since 2.12)
+without user intervention.  Defaults to true.  (Since 2.12.0)
 */
     #[qapi(name = "auto-dismiss")]
     #[qapi(since = "2.12.0")]
@@ -10752,13 +10752,13 @@ without user intervention.  Defaults to true.  (Since 2.12)
     /**The name of a dirty bitmap to use.  Must be present if sync
 is "bitmap" or "incremental".  Can be present if sync is "full"
 or "top".  Must not be present otherwise.
-(Since 2.4 (`drive-backup`), 3.1 (`blockdev-backup`))
+(Since 2.4.0 (`drive-backup`), 3.1 (`blockdev-backup`))
 */
     #[qapi(since = "3.1.0")]
     pub bitmap: Option<String>,
     /**Specifies the type of data the bitmap should contain
 after the operation concludes.  Must be present if a bitmap was
-provided, must **not** be present otherwise.  (Since 4.2)
+provided, must **not** be present otherwise.  (Since 4.2.0)
 */
     #[qapi(name = "bitmap-mode")]
     #[qapi(since = "4.2.0")]
@@ -10766,25 +10766,25 @@ provided, must **not** be present otherwise.  (Since 4.2)
     /**the node name that should be assigned to the
 filter driver that the backup job inserts into the graph above
 node specified by @drive.  If this option is not given, a node
-name is autogenerated.  (Since: 4.2)
+name is autogenerated.  (Since: 4.2.0)
 */
     #[qapi(name = "filter-node-name")]
     #[qapi(since = "4.2.0")]
     pub filter_node_name: Option<String>,
-    /**Performance options.  (Since 6.0)
+    /**Performance options.  (Since 6.0.0)
 */
     #[qapi(name = "x-perf")]
     #[qapi(since = "6.0.0")]
     pub x_perf: Option<BackupPerf>,
     /**Discard blocks on source which have already been
-copied to the target.  (Since 9.1)
+copied to the target.  (Since 9.1.0)
 */
     #[qapi(name = "discard-source")]
     #[qapi(since = "9.1.0")]
     pub discard_source: Option<bool>,
     /**policy defining behavior on I/O errors in
 copy-before-write jobs; defaults to break-guest-write.
-(Since 10.1)
+(Since 10.1.0)
 */
     #[qapi(name = "on-cbw-error")]
     #[qapi(since = "10.1.0")]
@@ -10870,7 +10870,7 @@ allowed values: off, falloc (if CONFIG_POSIX_FALLOCATE), full
 */
     pub nocow: Option<bool>,
     /**Extent size hint to add to the image file; 0 for
-not adding an extent size hint (default: 1 MB, since 5.1)
+not adding an extent size hint (default: 1 MB, since 5.1.0)
 */
     #[qapi(name = "extent-size-hint")]
     #[qapi(since = "5.1.0")]
@@ -10929,7 +10929,7 @@ Currently defaults to 'sha256'
     #[qapi(name = "hash-alg")]
     pub hash_alg: Option<QCryptoHashAlgorithm>,
     /**number of milliseconds to spend in PBKDF passphrase
-processing.  Currently defaults to 2000.  (since 2.8)
+processing.  Currently defaults to 2000.  (since 2.8.0)
 */
     #[qapi(name = "iter-time")]
     pub iter_time: Option<i64>,
@@ -10940,7 +10940,7 @@ processing.  Currently defaults to 2000.  (since 2.8)
     /**Size of the virtual disk in bytes
 */
     pub size: u64,
-    /**Preallocation mode for the new image (since: 4.2)
+    /**Preallocation mode for the new image (since: 4.2.0)
 (default: off; allowed values: off, metadata, falloc, full)
 */
     #[qapi(since = "4.2.0")]
@@ -10951,7 +10951,7 @@ processing.  Currently defaults to 2000.  (since 2.8)
     #[qapi(since = "9.0.0")]
     #[qapi(until = "9.1.0")]
     pub detached_header: Option<bool>,
-    /**Block device holding a detached LUKS header.  (since 9.0)
+    /**Block device holding a detached LUKS header.  (since 9.0.0)
 */
     #[qapi(since = "9.0.0")]
     pub header: Option<BlockdevRef>,
@@ -11045,26 +11045,26 @@ allowed values: off, falloc, full, metadata)
     pub refcount_bits: Option<i64>,
     /**Node to use as an external data file in which all guest
 data is stored so that only metadata remains in the qcow2 file
-(since: 4.0)
+(since: 4.0.0)
 */
     #[qapi(name = "data-file")]
     #[qapi(since = "4.0.0")]
     pub data_file: Option<BlockdevRef>,
     /**True if the external data file must stay valid as a
 standalone (read-only) raw image without looking at qcow2
-metadata (default: false; since: 4.0)
+metadata (default: false; since: 4.0.0)
 */
     #[qapi(name = "data-file-raw")]
     #[qapi(since = "4.0.0")]
     pub data_file_raw: Option<bool>,
     /**The image cluster compression method
-(default: zlib, since 5.1)
+(default: zlib, since 5.1.0)
 */
     #[qapi(name = "compression-type")]
     #[qapi(since = "5.1.0")]
     pub compression_type: Option<Qcow2CompressionType>,
     /**True to make the image have extended L2 entries
-(default: false; since 5.2)
+(default: false; since 5.2.0)
 */
     #[qapi(name = "extended-l2")]
     #[qapi(since = "5.2.0")]
@@ -11113,7 +11113,7 @@ point to a snapshot.
 */
     #[qapi(name = "cluster-size")]
     pub cluster_size: Option<u64>,
-    /**Image encryption options.  (Since 6.1)
+    /**Image encryption options.  (Since 6.1.0)
 */
     #[qapi(since = "6.1.0")]
     pub encrypt: Option<RbdEncryptionCreateOptions>,
@@ -11241,7 +11241,7 @@ subformats.  Default: false.
     #[qapi(name = "zeroed-grain")]
     pub zeroed_grain: Option<bool>,
     /**VMware guest tools version.  Default: "2147483647"
-(Since 6.2)
+(Since 6.2.0)
 */
     #[qapi(since = "6.2.0")]
     pub toolsversion: Option<String>,
@@ -11311,12 +11311,12 @@ specified explicitly.
 on the top level of `blockdev-add`.  Valid node names start with
 an alphabetic character and may contain only alphanumeric
 characters, '-', '.' and '_'.  Their maximum length is 31
-characters.  (Since 2.0)
+characters.  (Since 2.0.0)
 */
     #[qapi(name = "node-name")]
     #[qapi(since = "2.0.0")]
     pub node_name: Option<String>,
-    /**detect and optimize zero writes (Since 2.1)
+    /**detect and optimize zero writes (Since 2.1.0)
 (default: off)
 */
     #[qapi(name = "detect-zeroes")]
@@ -11335,7 +11335,7 @@ characters.  (Since 2.0)
     #[qapi(until = "2.7.0")]
     pub stats_intervals: Option<Vec<i64>>,
     /**force share all permission on added nodes.  Requires
-read-only=true.  (Since 2.10)
+read-only=true.  (Since 2.10.0)
 */
     #[qapi(name = "force-share")]
     #[qapi(since = "2.10.0")]
@@ -11345,7 +11345,7 @@ automatically decide not to open the image read-write as
 requested, but fall back to read-only instead (and switch
 between the modes later), e.g. depending on whether the image
 file is writable or whether a writing user is attached to the
-node (default: false, since 3.1)
+node (default: false, since 3.1.0)
 */
     #[qapi(name = "auto-read-only")]
     #[qapi(since = "3.1.0")]
@@ -11353,7 +11353,7 @@ node (default: false, since 3.1)
     /**whether the block node should be activated (default: true).
 Having inactive block nodes is useful primarily for migration
 because it allows opening an image on the destination while the
-source is still holding locks for it.  (Since 10.0)
+source is still holding locks for it.  (Since 10.0.0)
 */
     #[qapi(since = "10.0.0")]
     pub active: Option<bool>,
@@ -11412,11 +11412,11 @@ currently not allowed on any other level.*/
 (default: false)*/
     #[qapi(name = "read-only")]
     pub read_only: Option<bool>,
-    ///optional the name of a block driver state node (Since 2.0)
+    ///optional the name of a block driver state node (Since 2.0.0)
     #[qapi(name = "node-name")]
     #[qapi(since = "2.0.0")]
     pub node_name: Option<String>,
-    /**optional detect and optimize zero writes (Since 2.1)
+    /**optional detect and optimize zero writes (Since 2.1.0)
 (default: off)
 */
     #[qapi(name = "detect-zeroes")]
@@ -11457,7 +11457,7 @@ power of 2, or 0 for default
     /**maximum size for I/O transfers in bytes, must be
 positive multiple of @align and of the underlying file's request
 alignment (but need not be a power of 2), or 0 for default
-(since 2.10)
+(since 2.10.0)
 */
     #[qapi(name = "max-transfer")]
     #[qapi(since = "2.10.0")]
@@ -11465,7 +11465,7 @@ alignment (but need not be a power of 2), or 0 for default
     /**preferred alignment for write zero requests in
 bytes, must be positive multiple of @align and of the underlying
 file's request alignment (but need not be a power of 2), or 0
-for default (since 2.10)
+for default (since 2.10.0)
 */
     #[qapi(name = "opt-write-zero")]
     #[qapi(since = "2.10.0")]
@@ -11473,7 +11473,7 @@ for default (since 2.10)
     /**maximum size for write zero requests in bytes, must
 be positive multiple of @align, of @opt-write-zero, and of the
 underlying file's request alignment (but need not be a power of
-2), or 0 for default (since 2.10)
+2), or 0 for default (since 2.10.0)
 */
     #[qapi(name = "max-write-zero")]
     #[qapi(since = "2.10.0")]
@@ -11481,7 +11481,7 @@ underlying file's request alignment (but need not be a power of
     /**preferred alignment for discard requests in bytes,
 must be positive multiple of @align and of the underlying file's
 request alignment (but need not be a power of 2), or 0 for
-default (since 2.10)
+default (since 2.10.0)
 */
     #[qapi(name = "opt-discard")]
     #[qapi(since = "2.10.0")]
@@ -11489,21 +11489,21 @@ default (since 2.10)
     /**maximum size for discard requests in bytes, must be
 positive multiple of @align, of @opt-discard, and of the
 underlying file's request alignment (but need not be a power of
-2), or 0 for default (since 2.10)
+2), or 0 for default (since 2.10.0)
 */
     #[qapi(name = "max-discard")]
     #[qapi(since = "2.10.0")]
     pub max_discard: Option<i32>,
     /**Permissions to take on @image in addition to what
 is necessary anyway (which depends on how the blkdebug node is
-used).  Defaults to none.  (since 5.0)
+used).  Defaults to none.  (since 5.0.0)
 */
     #[qapi(name = "take-child-perms")]
     #[qapi(since = "5.0.0")]
     pub take_child_perms: Option<Vec<BlockPermission>>,
     /**Permissions not to share on @image in addition
 to what cannot be shared anyway (which depends on how the
-blkdebug node is used).  Defaults to none.  (since 5.0)
+blkdebug node is used).  Defaults to none.  (since 5.0.0)
 */
     #[qapi(name = "unshare-child-perms")]
     #[qapi(since = "5.0.0")]
@@ -11576,12 +11576,12 @@ bitmap.  Bitmap size must be equal to length of file and target
 child of the filter.  Note also, that bitmap is used only to
 initialize internal bitmap of the process, so further
 modifications (or removing) of specified bitmap doesn't
-influence the filter.  (Since 7.0)
+influence the filter.  (Since 7.0.0)
 */
     #[qapi(since = "7.0.0")]
     pub bitmap: Option<BlockDirtyBitmap>,
     /**Behavior on failure of copy-before-write operation.
-Default is @break-guest-write.  (Since 7.1)
+Default is @break-guest-write.  (Since 7.1.0)
 */
     #[qapi(name = "on-cbw-error")]
     #[qapi(since = "7.1.0")]
@@ -11590,7 +11590,7 @@ Default is @break-guest-write.  (Since 7.1)
 seconds for copy-before-write operation.  When a timeout occurs,
 the respective copy-before-write operation will fail, and the
 @on-cbw-error parameter will decide how this failure is handled.
-Default 0.  (Since 7.1)
+Default 0.  (Since 7.1.0)
 */
     #[qapi(name = "cbw-timeout")]
     #[qapi(since = "7.1.0")]
@@ -11598,7 +11598,7 @@ Default 0.  (Since 7.1)
     /**Minimum size of blocks used by copy-before-write
 operations.  Has to be a power of 2.  No effect if smaller than
 the maximum of the target's cluster size and 64 KiB.  Default 0.
-(Since 9.2)
+(Since 9.2.0)
 */
     #[qapi(name = "min-cluster-size")]
     #[qapi(since = "9.2.0")]
@@ -11773,7 +11773,7 @@ no cookies.
 */
     pub cookie: Option<String>,
     /**ID of a QCryptoSecret object providing the cookie
-data in a secure way.  See @cookie for the format.  (since 2.10)
+data in a secure way.  See @cookie for the format.  (since 2.10.0)
 */
     #[qapi(name = "cookie-secret")]
     #[qapi(since = "2.10.0")]
@@ -11822,7 +11822,7 @@ no cookies.
 */
     pub sslverify: Option<bool>,
     /**ID of a QCryptoSecret object providing the cookie
-data in a secure way.  See @cookie for the format.  (since 2.10)
+data in a secure way.  See @cookie for the format.  (since 2.10.0)
 */
     #[qapi(name = "cookie-secret")]
     #[qapi(since = "2.10.0")]
@@ -11835,19 +11835,19 @@ pub struct BlockdevOptionsFile {
     /**path to the image file
 */
     pub filename: String,
-    /**AIO backend (default: threads) (since: 2.8)
+    /**AIO backend (default: threads) (since: 2.8.0)
 */
     #[qapi(since = "2.8.0")]
     pub aio: Option<BlockdevAioOptions>,
     /**whether to enable file locking.  If set to 'auto', only
 enable when Open File Descriptor (OFD) locking API is available
-(default: auto, since 2.10)
+(default: auto, since 2.10.0)
 */
     #[qapi(since = "2.10.0")]
     pub locking: Option<OnOffAuto>,
     /**the id for the object that will handle persistent
 reservations for this device (default: none, forward the
-commands via SG_IO; since 2.11)
+commands via SG_IO; since 2.11.0)
 */
     #[qapi(name = "pr-manager")]
     #[qapi(since = "2.11.0")]
@@ -11855,7 +11855,7 @@ commands via SG_IO; since 2.11)
     /**whether to check that page cache was dropped
 on live migration.  May cause noticeable delays if the image
 file is large, do not use in production.  (default: off)
-(since: 3.0)
+(since: 3.0.0)
 */
     #[qapi(name = "x-check-cache-dropped")]
     #[qapi(since = "3.0.0")]
@@ -11863,7 +11863,7 @@ file is large, do not use in production.  (default: off)
     /**invalidate page cache during live migration.  This
 prevents stale data on the migration destination with
 cache.direct=off.  Currently only supported on Linux hosts.
-(default: on, since: 4.0)
+(default: on, since: 4.0.0)
 */
     #[qapi(name = "drop-cache")]
     #[qapi(condition = "defined(CONFIG_LINUX)")]
@@ -11873,7 +11873,7 @@ cache.direct=off.  Currently only supported on Linux hosts.
 single submission in the AIO backend.  The smallest value
 between this and the aio-max-batch value of the IOThread object
 is chosen.  0 means that the AIO backend will handle it
-automatically.  (default: 0, since 6.2)
+automatically.  (default: 0, since 6.2.0)
 */
     #[qapi(name = "aio-max-batch")]
     #[qapi(since = "6.2.0")]
@@ -11919,11 +11919,11 @@ pub struct BlockdevOptionsGluster {
     #[qapi(name = "debug-level")]
     #[qapi(until = "2.8.0")]
     pub debug_level: Option<i64>,
-    /**libgfapi log level (default '4' which is Error) (Since 2.8)
+    /**libgfapi log level (default '4' which is Error) (Since 2.8.0)
 */
     #[qapi(since = "2.8.0")]
     pub debug: Option<i64>,
-    /**libgfapi log file (default /dev/stderr) (Since 2.8)
+    /**libgfapi log file (default /dev/stderr) (Since 2.8.0)
 */
     #[qapi(since = "2.8.0")]
     pub logfile: Option<String>,
@@ -11988,11 +11988,11 @@ pub struct BlockdevOptionsLuks {
     pub file: Box<BlockdevRef>,
     /**the ID of a QCryptoSecret object providing the
 decryption key.  Mandatory except when doing a metadata-only
-probe of the image.  (since 2.6)
+probe of the image.  (since 2.6.0)
 */
     #[qapi(name = "key-secret")]
     pub key_secret: Option<String>,
-    /**block device holding a detached LUKS header.  (since 9.0)
+    /**block device holding a detached LUKS header.  (since 9.0.0)
 */
     #[qapi(since = "9.0.0")]
     pub header: Option<Box<BlockdevRef>>,
@@ -12031,7 +12031,7 @@ pub struct BlockdevOptionsNbd {
 "qemu:dirty-bitmap:NAME" or "qemu:allocation-depth" to query in
 place of the traditional "base:allocation" block status (see
 NBD_OPT_LIST_META_CONTEXT in the NBD protocol; and yes, naming
-this option x-context would have made more sense) (since 3.0)
+this option x-context would have made more sense) (since 3.0.0)
 */
     #[qapi(name = "x-dirty-bitmap")]
     #[qapi(since = "3.0.0")]
@@ -12042,13 +12042,13 @@ error.  During the first @reconnect-delay seconds, all requests
 are paused and will be rerun on a successful reconnect.  After
 that time, any delayed requests and all future requests before a
 successful reconnect will immediately fail.  Default 0
-(Since 4.2)
+(Since 4.2.0)
 */
     #[qapi(name = "reconnect-delay")]
     #[qapi(since = "4.2.0")]
     pub reconnect_delay: Option<u32>,
     /**TLS hostname override for certificate validation
-(Since 7.0)
+(Since 7.0.0)
 */
     #[qapi(name = "tls-hostname")]
     #[qapi(since = "7.0.0")]
@@ -12057,7 +12057,7 @@ successful reconnect will immediately fail.  Default 0
 connection only once, and fails to open if the connection fails.
 If non-zero, the nbd driver will repeat connection attempts
 until successful or until @open-timeout seconds have elapsed.
-Default 0 (Since 7.0)
+Default 0 (Since 7.0.0)
 */
     #[qapi(name = "open-timeout")]
     #[qapi(since = "7.0.0")]
@@ -12109,14 +12109,14 @@ pub struct BlockdevOptionsNull {
     pub size: Option<i64>,
     /**emulated latency (in nanoseconds) in processing
 requests.  Default to zero which completes requests immediately.
-(Since 2.4)
+(Since 2.4.0)
 */
     #[qapi(name = "latency-ns")]
     #[qapi(since = "2.4.0")]
     pub latency_ns: Option<u64>,
     /**if true, reads from the device produce zeroes; if
 false, the buffer is left unchanged.
-(default: false; since: 4.1)
+(default: false; since: 4.1.0)
 */
     #[qapi(name = "read-zeroes")]
     #[qapi(since = "4.1.0")]
@@ -12201,25 +12201,25 @@ should be issued on other occasions where a cluster gets freed
     #[qapi(name = "pass-discard-other")]
     pub pass_discard_other: Option<bool>,
     /**which overlap checks to perform for writes to the
-image, defaults to 'cached' (since 2.2)
+image, defaults to 'cached' (since 2.2.0)
 */
     #[qapi(name = "overlap-check")]
     #[qapi(since = "2.2.0")]
     pub overlap_check: Option<Qcow2OverlapChecks>,
     /**the maximum total size of the L2 table and refcount
-block caches in bytes (since 2.2)
+block caches in bytes (since 2.2.0)
 */
     #[qapi(name = "cache-size")]
     #[qapi(since = "2.2.0")]
     pub cache_size: Option<i64>,
     /**the maximum size of the L2 table cache in bytes
-(since 2.2)
+(since 2.2.0)
 */
     #[qapi(name = "l2-cache-size")]
     #[qapi(since = "2.2.0")]
     pub l2_cache_size: Option<i64>,
     /**the maximum size of the refcount block cache
-in bytes (since 2.2)
+in bytes (since 2.2.0)
 */
     #[qapi(name = "refcount-cache-size")]
     #[qapi(since = "2.2.0")]
@@ -12227,20 +12227,20 @@ in bytes (since 2.2)
     /**clean unused entries in the L2 and refcount
 caches.  The interval is in seconds.  The default value is 600
 on supporting platforms, and 0 on other platforms.  0 disables
-this feature.  (since 2.5)
+this feature.  (since 2.5.0)
 */
     #[qapi(name = "cache-clean-interval")]
     #[qapi(since = "2.5.0")]
     pub cache_clean_interval: Option<i64>,
     /**Image decryption options.  Mandatory for encrypted images,
 except when doing a metadata-only probe of the image.
-(since 2.10)
+(since 2.10.0)
 */
     #[qapi(since = "2.10.0")]
     pub encrypt: Option<BlockdevQcow2Encryption>,
     /**the size of each entry in the L2 cache in
 bytes.  It must be a power of two between 512 and the cluster
-size.  The default value is the cluster size (since 2.12)
+size.  The default value is the cluster size (since 2.12.0)
 */
     #[qapi(name = "l2-cache-entry-size")]
     #[qapi(since = "2.12.0")]
@@ -12248,7 +12248,7 @@ size.  The default value is the cluster size (since 2.12)
     /**reference to or definition of the external data file.
 This may only be specified for images that require an external
 data file.  If it is not specified for such an image, the data
-file name is loaded from the image file.  (since 4.0)
+file name is loaded from the image file.  (since 4.0.0)
 */
     #[qapi(name = "data-file")]
     #[qapi(since = "4.0.0")]
@@ -12266,7 +12266,7 @@ of clusters past the end of the image file, resulting in image
 files whose file length can grow much larger than their guest
 disk size would suggest.  If image file length is of concern
 (e.g. when storing qcow2 images directly on block devices), you
-should consider enabling this option.  (since 8.1)
+should consider enabling this option.  (since 8.1.0)
 */
     #[qapi(name = "discard-no-unref")]
     #[qapi(since = "8.1.0")]
@@ -12288,13 +12288,13 @@ false by default
     #[qapi(name = "vote-threshold")]
     pub vote_threshold: i64,
     /**rewrite corrupted data when quorum is reached
-(Since 2.1)
+(Since 2.1.0)
 */
     #[qapi(name = "rewrite-corrupted")]
     #[qapi(since = "2.1.0")]
     pub rewrite_corrupted: Option<bool>,
     /**choose read pattern and set to quorum by default
-(Since 2.2)
+(Since 2.2.0)
 */
     #[qapi(name = "read-pattern")]
     #[qapi(since = "2.2.0")]
@@ -12338,23 +12338,23 @@ Ceph option.
     pub server: Option<Vec<InetSocketAddressBase>>,
     /**Acceptable authentication modes.  This maps
 to Ceph configuration option "auth_client_required".
-(Since 3.0)
+(Since 3.0.0)
 */
     #[qapi(name = "auth-client-required")]
     #[qapi(since = "3.0.0")]
     pub auth_client_required: Option<Vec<RbdAuthMode>>,
     /**ID of a QCryptoSecret object providing a key for cephx
 authentication.  This maps to Ceph configuration option "key".
-(Since 3.0)
+(Since 3.0.0)
 */
     #[qapi(name = "key-secret")]
     #[qapi(since = "3.0.0")]
     pub key_secret: Option<String>,
-    /**Rados namespace name in the Ceph pool.  (Since 5.0)
+    /**Rados namespace name in the Ceph pool.  (Since 5.0.0)
 */
     #[qapi(since = "5.0.0")]
     pub namespace: Option<String>,
-    /**Image encryption options.  (Since 6.1)
+    /**Image encryption options.  (Since 6.1.0)
 */
     #[qapi(since = "6.1.0")]
     pub encrypt: Option<RbdEncryptionOptions>,
@@ -12447,7 +12447,7 @@ disk (false; default)
     /**set the volume label, limited to 11 bytes.  FAT16 and FAT32
 traditionally have some restrictions on labels, which are
 ignored by most operating systems.  Defaults to "QEMU VVFAT".
-(since 2.4)
+(since 2.4.0)
 */
     #[qapi(since = "2.4.0")]
     pub label: Option<String>,
@@ -12538,13 +12538,13 @@ pub struct BlockdevSnapshot {
 'absolute-paths'.*/
     #[qapi(until = "2.5.0")]
     pub mode: Option<NewImageMode>,
-    /**optional graph node name to generate the snapshot from (Since 2.0)
+    /**optional graph node name to generate the snapshot from (Since 2.0.0)
 */
     #[qapi(name = "node-name")]
     #[qapi(since = "2.0.0")]
     #[qapi(until = "2.5.0")]
     pub node_name: Option<String>,
-    /**optional the graph node name of the new image (Since 2.0)
+    /**optional the graph node name of the new image (Since 2.0.0)
 */
     #[qapi(name = "snapshot-node-name")]
     #[qapi(since = "2.0.0")]
@@ -12584,7 +12584,7 @@ pub struct BlockdevSnapshotSync {
 */
     pub device: Option<String>,
     /**graph node name to generate the snapshot from
-(Since 2.0)
+(Since 2.0.0)
 */
     #[qapi(name = "node-name")]
     pub node_name: Option<String>,
@@ -12595,7 +12595,7 @@ existing file/device.  Otherwise, a new file will be created.
     #[qapi(name = "snapshot-file")]
     pub snapshot_file: String,
     /**the graph node name of the new image
-(Since 2.0)
+(Since 2.0.0)
 */
     #[qapi(name = "snapshot-node-name")]
     pub snapshot_node_name: Option<String>,
@@ -12658,7 +12658,7 @@ return 'primary' or 'secondary'.
     pub reason: ColoExitReason,
     /**COLO last running mode.  If COLO is running, this field
 will return same like mode field, after failover we can use this
-field to get last colo mode.  (since 4.0)
+field to get last colo mode.  (since 4.0.0)
 */
     #[qapi(name = "last-mode")]
     #[qapi(since = "4.0.0")]
@@ -12863,7 +12863,7 @@ truncate)
     #[qapi(since = "2.6.0")]
     pub logappend: Option<bool>,
     /**Open the file in append mode (default false to truncate)
-(Since 2.6)
+(Since 2.6.0)
 */
     #[qapi(since = "2.6.0")]
     pub append: Option<bool>,
@@ -12931,7 +12931,7 @@ pub struct ChardevInfo {
     pub filename: String,
     /**shows whether the frontend device attached to this
 backend (e.g. with the chardev=... option) is in open or closed
-state (since 2.1)
+state (since 2.1.0)
 */
     #[qapi(name = "frontend-open")]
     #[qapi(since = "2.1.0")]
@@ -13067,7 +13067,7 @@ deprecated.
     /**For a client socket, if a socket is disconnected, then
 attempt a reconnect after the given number of seconds.  Setting
 this to zero disables this function.  The use of this member is
-deprecated, use @reconnect-ms instead.  (default: 0) (Since: 2.2)
+deprecated, use @reconnect-ms instead.  (default: 0) (Since: 2.2.0)
 */
     #[qapi(since = "2.2.0")]
     #[qapi(until = "10.2.0")]
@@ -13081,18 +13081,18 @@ truncate)
 */
     #[qapi(since = "2.6.0")]
     pub logappend: Option<bool>,
-    /**the ID of the TLS credentials object (since 2.6)
+    /**the ID of the TLS credentials object (since 2.6.0)
 */
     #[qapi(name = "tls-creds")]
     #[qapi(since = "2.6.0")]
     pub tls_creds: Option<String>,
     /**enable tn3270 protocol on server sockets (default: false)
-(Since: 2.10)
+(Since: 2.10.0)
 */
     #[qapi(since = "2.10.0")]
     pub tn3270: Option<bool>,
     /**enable websocket protocol on server sockets
-(default: false) (Since: 3.1)
+(default: false) (Since: 3.1.0)
 */
     #[qapi(since = "3.1.0")]
     pub websocket: Option<bool>,
@@ -13100,7 +13100,7 @@ truncate)
 the client's x509 distinguished name will be validated.  This
 object is only resolved at time of use, so can be deleted and
 recreated on the fly while the chardev server is active.  If
-missing, it will default to denying access (since 4.0)
+missing, it will default to denying access (since 4.0.0)
 */
     #[qapi(name = "tls-authz")]
     #[qapi(since = "4.0.0")]
@@ -13108,7 +13108,7 @@ missing, it will default to denying access (since 4.0)
     /**For a client socket, if a socket is disconnected,
 then attempt a reconnect after the given number of milliseconds.
 Setting this to zero disables this function.
-(default: 0) (Since: 9.2)
+(default: 0) (Since: 9.2.0)
 */
     #[qapi(name = "reconnect-ms")]
     #[qapi(since = "9.2.0")]
@@ -13329,7 +13329,7 @@ pub struct CommandLineParameterInfo {
     /**human readable text string, not suitable for parsing.
 */
     pub help: Option<String>,
-    /**default value string (since 2.1)
+    /**default value string (since 2.1.0)
 */
     #[qapi(since = "2.1.0")]
     pub default: Option<String>,
@@ -13357,13 +13357,13 @@ pub struct CompatPolicy {
     #[qapi(name = "deprecated-output")]
     pub deprecated_output: Option<CompatPolicyOutput>,
     /**how to handle unstable input (default 'accept')
-(since 6.2)
+(since 6.2.0)
 */
     #[qapi(name = "unstable-input")]
     #[qapi(since = "6.2.0")]
     pub unstable_input: Option<CompatPolicyInput>,
     /**how to handle unstable output (default 'accept')
-(since 6.2)
+(since 6.2.0)
 */
     #[qapi(name = "unstable-output")]
     #[qapi(since = "6.2.0")]
@@ -13422,7 +13422,7 @@ migration in combination with a QEMU compatibility machine when
 migrating between different QEMU versions and between hosts with
 different sets of (hardware or software) capabilities.  If not
 provided, information is not available and callers should not
-assume the CPU definition to be migration-safe.  (since 2.8)
+assume the CPU definition to be migration-safe.  (since 2.8.0)
 */
     #[qapi(name = "migration-safe")]
     #[qapi(since = "2.8.0")]
@@ -13430,19 +13430,19 @@ assume the CPU definition to be migration-safe.  (since 2.8)
     /**whether a CPU definition is static and will not change
 depending on QEMU version, machine type, machine options and
 accelerator options.  A static model is always migration-safe.
-(since 2.8)
+(since 2.8.0)
 */
     #[qapi(since = "2.8.0")]
     pub r#static: Option<bool>,
     /**List of properties that prevent the CPU model
-from running in the current host.  (since 2.8)
+from running in the current host.  (since 2.8.0)
 */
     #[qapi(name = "unavailable-features")]
     #[qapi(since = "2.8.0")]
     pub unavailable_features: Option<Vec<String>>,
     /**Type name that can be used as argument to
 `device-list-properties`, to introspect properties configurable
-using -cpu or -global.  (since 2.9)
+using -cpu or -global.  (since 2.9.0)
 */
     #[qapi(since = "2.9.0")]
     pub typename: Option<String>,
@@ -13450,14 +13450,14 @@ using -cpu or -global.  (since 2.9)
 of the CPU model alias may change depending on the machine type.
 Management software is supposed to translate CPU model aliases
 in the VM configuration, because aliases may stop being
-migration-safe in the future (since 4.1)
+migration-safe in the future (since 4.1.0)
 */
     #[qapi(name = "alias-of")]
     #[qapi(since = "4.1.0")]
     pub alias_of: Option<String>,
     /**If true, this CPU model is deprecated and may be
 removed in some future version of QEMU according to the QEMU
-deprecation policy.  (since 5.2)
+deprecation policy.  (since 5.2.0)
 
 @unavailable-features is a list of QOM property names that represent
 CPU model attributes that prevent the CPU from running.  If the QOM
@@ -13515,12 +13515,12 @@ pointer
     /**ID of the underlying host thread
 */
     pub thread_id: i64,
-    /**path to the CPU object in the QOM tree (since 2.4)
+    /**path to the CPU object in the QOM tree (since 2.4.0)
 */
     #[qapi(since = "2.4.0")]
     pub qom_path: Option<String>,
     /**architecture of the cpu, which determines which additional fields
-will be listed (since 2.6)
+will be listed (since 2.6.0)
 */
     #[qapi(discriminator)]
     #[qapi(since = "2.6.0")]
@@ -13529,7 +13529,7 @@ will be listed (since 2.6)
     #[qapi(since = "2.6.0")]
     pub u: Option<CpuInfoBranch>,
     /**properties describing to which node/socket/core/thread
-virtual CPU belongs to, provided if supported by board (since 2.10)
+virtual CPU belongs to, provided if supported by board (since 2.10.0)
 */
     #[qapi(since = "2.10.0")]
     pub props: Option<CpuInstanceProperties>,
@@ -13561,12 +13561,12 @@ pub struct CpuInfoFast {
     #[qapi(union)]
     pub u: Option<CpuInfoFastBranch>,
     /**the QEMU system emulation target, which determines which
-additional fields will be listed (since 3.0)
+additional fields will be listed (since 3.0.0)
 */
     #[qapi(discriminator)]
     #[qapi(since = "3.0.0")]
     pub target: Option<SysEmuTarget>,
-    /**QOM type name of the CPU (since 10.1)
+    /**QOM type name of the CPU (since 10.1.0)
 */
     #[qapi(name = "qom-type")]
     #[qapi(since = "10.1.0")]
@@ -13606,7 +13606,7 @@ pub struct CpuInfoPpc {
 pub struct CpuInfoRiscv {
     /**the instruction pointer
 
-Since 2.12*/
+Since 2.12.0*/
     pub pc: i64,
 }
 /**Additional information about a virtual S390 CPU
@@ -13617,11 +13617,11 @@ pub struct CpuInfoS390 {
 */
     #[qapi(name = "cpu-state")]
     pub cpu_state: CpuS390State,
-    /**the virtual CPU's dedication (since 8.2)
+    /**the virtual CPU's dedication (since 8.2.0)
 */
     #[qapi(since = "8.2.0")]
     pub dedicated: Option<bool>,
-    /**the virtual CPU's entitlement (since 8.2)
+    /**the virtual CPU's entitlement (since 8.2.0)
 */
     #[qapi(since = "8.2.0")]
     pub entitlement: Option<CpuS390Entitlement>,
@@ -13688,31 +13688,31 @@ pub struct CpuInstanceProperties {
     #[qapi(name = "thread-id")]
     pub thread_id: Option<i64>,
     /**die number within the parent container the CPU belongs to
-(since 4.1)
+(since 4.1.0)
 */
     #[qapi(name = "die-id")]
     #[qapi(since = "4.1.0")]
     pub die_id: Option<i64>,
     /**cluster number within the parent container the CPU
-belongs to (since 7.1)
+belongs to (since 7.1.0)
 */
     #[qapi(name = "cluster-id")]
     #[qapi(since = "7.1.0")]
     pub cluster_id: Option<i64>,
     /**drawer number within CPU topology the CPU belongs to
-(since 8.2)
+(since 8.2.0)
 */
     #[qapi(name = "drawer-id")]
     #[qapi(since = "8.2.0")]
     pub drawer_id: Option<i64>,
     /**book number within parent container the CPU belongs to
-(since 8.2)
+(since 8.2.0)
 */
     #[qapi(name = "book-id")]
     #[qapi(since = "8.2.0")]
     pub book_id: Option<i64>,
     /**module number within the parent container the CPU
-belongs to (since 9.1)
+belongs to (since 9.1.0)
 */
     #[qapi(name = "module-id")]
     #[qapi(since = "9.1.0")]
@@ -13758,7 +13758,7 @@ as deprecated by the CPU vendor.  The list depends on the
 `CpuModelExpansionType`: "static" properties are a subset of the
 enabled-properties for the expanded model; "full" properties are
 a set of properties that are deprecated across all models for
-the architecture.  (since: 10.1 -- since 9.1 on s390x --).
+the architecture.  (since: 10.1.0 -- since 9.1.0 on s390x --).
 */
     #[qapi(name = "deprecated-props")]
     #[qapi(condition = "TARGET_S390X")]
@@ -13801,12 +13801,12 @@ for cryptodev-backend and must be 1 for
 cryptodev-backend-builtin.  (default: 1)
 */
     pub queues: Option<u32>,
-    /**limit total bytes per second (Since 8.0)
+    /**limit total bytes per second (Since 8.0.0)
 */
     #[qapi(name = "throttle-bps")]
     #[qapi(since = "8.0.0")]
     pub throttle_bps: Option<u64>,
-    /**limit total operations per second (Since 8.0)
+    /**limit total operations per second (Since 8.0.0)
 */
     #[qapi(name = "throttle-ops")]
     #[qapi(since = "8.0.0")]
@@ -13825,12 +13825,12 @@ cryptodev-backend-builtin.  (default: 1)
 connects to the vhost-user server
 */
     pub chardev: String,
-    /**limit total bytes per second (Since 8.0)
+    /**limit total bytes per second (Since 8.0.0)
 */
     #[qapi(name = "throttle-bps")]
     #[qapi(since = "8.0.0")]
     pub throttle_bps: Option<u64>,
-    /**limit total operations per second (Since 8.0)
+    /**limit total operations per second (Since 8.0.0)
 */
     #[qapi(name = "throttle-ops")]
     #[qapi(since = "8.0.0")]
@@ -13907,7 +13907,7 @@ closed
 */
     #[qapi(name = "tray-open")]
     pub tray_open: bool,
-    /**The name or QOM path of the guest device (since 2.8)
+    /**The name or QOM path of the guest device (since 2.8.0)
 */
     #[qapi(since = "2.8.0")]
     pub id: Option<String>,
@@ -13951,7 +13951,7 @@ pub struct DevicePropertyInfo {
     ///the typename of the property
     pub r#type: String,
     /**if specified, the description of the property.
-(since 2.2)
+(since 2.2.0)
 */
     #[qapi(since = "2.2.0")]
     pub description: Option<String>,
@@ -13996,22 +13996,22 @@ expressed and rounded down to @calc-time-unit.
     #[qapi(name = "calc-time")]
     pub calc_time: i64,
     /**number of sampled pages per GiB of guest memory.
-Valid only in page-sampling mode (Since 6.1)
+Valid only in page-sampling mode (Since 6.1.0)
 */
     #[qapi(name = "sample-pages")]
     #[qapi(since = "6.1.0")]
     pub sample_pages: Option<u64>,
-    /**mode that was used to measure dirty page rate (Since 6.2)
+    /**mode that was used to measure dirty page rate (Since 6.2.0)
 */
     #[qapi(since = "6.2.0")]
     pub mode: Option<DirtyRateMeasureMode>,
     /**dirty rate for each vCPU if dirty-ring mode was
-specified (Since 6.2)
+specified (Since 6.2.0)
 */
     #[qapi(name = "vcpu-dirty-rate")]
     #[qapi(since = "6.2.0")]
     pub vcpu_dirty_rate: Option<Vec<DirtyRateVcpu>>,
-    /**time unit of @calc-time  (Since 8.2)
+    /**time unit of @calc-time  (Since 8.2.0)
 */
     #[qapi(name = "calc-time-unit")]
     #[qapi(since = "8.2.0")]
@@ -14054,13 +14054,13 @@ Meta/Super and Alt where you expect them.  (default: off)
     pub swap_opt_cmd: Option<bool>,
     /**Zoom guest display to fit into the host window.  When
 turned off the host window will be resized instead.  Defaults to
-"off".  (Since 8.2)
+"off".  (Since 8.2.0)
 */
     #[qapi(name = "zoom-to-fit")]
     #[qapi(since = "8.2.0")]
     pub zoom_to_fit: Option<bool>,
     /**Apply interpolation to smooth output when
-zoom-to-fit is enabled.  Defaults to "off".  (Since 9.0)
+zoom-to-fit is enabled.  Defaults to "off".  (Since 9.0.0)
 */
     #[qapi(name = "zoom-interpolation")]
     #[qapi(since = "9.0.0")]
@@ -14117,32 +14117,32 @@ turned off the host window will be resized instead.  In case the
 display device can notify the guest on window resizes
 (virtio-gpu) this will default to "on", assuming the guest will
 resize the display to match the window size then.  Otherwise it
-defaults to "off".  (Since 3.1)
+defaults to "off".  (Since 3.1.0)
 */
     #[qapi(name = "zoom-to-fit")]
     #[qapi(since = "3.1.0")]
     pub zoom_to_fit: Option<bool>,
     /**Display the tab bar for switching between the various
 graphical interfaces (e.g. VGA and virtual console character
-devices) by default.  (Since 7.1)
+devices) by default.  (Since 7.1.0)
 */
     #[qapi(name = "show-tabs")]
     #[qapi(since = "7.1.0")]
     pub show_tabs: Option<bool>,
     /**Display the main window menubar.  Defaults to "on".
-(Since 8.0)
+(Since 8.0.0)
 */
     #[qapi(name = "show-menubar")]
     #[qapi(since = "7.2.0")]
     pub show_menubar: Option<bool>,
     /**Keep width/height aspect ratio of guest content
-when resizing host window.  Defaults to "on".  (Since 10.1)
+when resizing host window.  Defaults to "on".  (Since 10.1.0)
 */
     #[qapi(name = "keep-aspect-ratio")]
     #[qapi(since = "10.1.0")]
     pub keep_aspect_ratio: Option<bool>,
     /**Set preferred scale of the display.  Defaults to 1.0.
-(Since 10.1)
+(Since 10.1.0)
 */
     #[qapi(since = "10.1.0")]
     pub scale: Option<f64>,
@@ -14176,7 +14176,7 @@ pub struct DisplayOptions {
     #[qapi(union)]
     pub u: Option<DisplayOptionsBranch>,
     /**Force showing the mouse cursor (default: off).
-(since: 5.0)
+(since: 5.0.0)
 */
     #[qapi(name = "show-cursor")]
     #[qapi(since = "5.0.0")]
@@ -14279,18 +14279,18 @@ different block device than @device).
     /**The name of a dirty bitmap to use.  Must be present if sync
 is "bitmap" or "incremental".  Can be present if sync is "full"
 or "top".  Must not be present otherwise.
-(Since 2.4 (`drive-backup`), 3.1 (`blockdev-backup`))
+(Since 2.4.0 (`drive-backup`), 3.1 (`blockdev-backup`))
 */
     #[qapi(since = "2.4.0")]
     pub bitmap: Option<String>,
     /**identifier for the newly-created block job.  If omitted,
-the device name will be used.  (Since 2.7)
+the device name will be used.  (Since 2.7.0)
 */
     #[qapi(name = "job-id")]
     #[qapi(since = "2.7.0")]
     pub job_id: Option<String>,
     /**true to compress data, if the target format supports it.
-(default: false) (since 2.8)
+(default: false) (since 2.8.0)
 */
     #[qapi(since = "2.8.0")]
     pub compress: Option<bool>,
@@ -14298,7 +14298,7 @@ the device name will be used.  (Since 2.7)
 after it has finished its work, waiting for `job-finalize`
 before making any block graph changes.  When true, this job will
 automatically perform its abort or commit actions.  Defaults to
-true.  (Since 2.12)
+true.  (Since 2.12.0)
 */
     #[qapi(name = "auto-finalize")]
     #[qapi(since = "2.12.0")]
@@ -14306,14 +14306,14 @@ true.  (Since 2.12)
     /**When false, this job will wait in a CONCLUDED state
 after it has completely ceased all work, and awaits
 `job-dismiss`.  When true, this job will automatically disappear
-without user intervention.  Defaults to true.  (Since 2.12)
+without user intervention.  Defaults to true.  (Since 2.12.0)
 */
     #[qapi(name = "auto-dismiss")]
     #[qapi(since = "2.12.0")]
     pub auto_dismiss: Option<bool>,
     /**Specifies the type of data the bitmap should contain
 after the operation concludes.  Must be present if a bitmap was
-provided, must **not** be present otherwise.  (Since 4.2)
+provided, must **not** be present otherwise.  (Since 4.2.0)
 */
     #[qapi(name = "bitmap-mode")]
     #[qapi(since = "4.2.0")]
@@ -14321,25 +14321,25 @@ provided, must **not** be present otherwise.  (Since 4.2)
     /**the node name that should be assigned to the
 filter driver that the backup job inserts into the graph above
 node specified by @drive.  If this option is not given, a node
-name is autogenerated.  (Since: 4.2)
+name is autogenerated.  (Since: 4.2.0)
 */
     #[qapi(name = "filter-node-name")]
     #[qapi(since = "4.2.0")]
     pub filter_node_name: Option<String>,
-    /**Performance options.  (Since 6.0)
+    /**Performance options.  (Since 6.0.0)
 */
     #[qapi(name = "x-perf")]
     #[qapi(since = "6.0.0")]
     pub x_perf: Option<BackupPerf>,
     /**Discard blocks on source which have already been
-copied to the target.  (Since 9.1)
+copied to the target.  (Since 9.1.0)
 */
     #[qapi(name = "discard-source")]
     #[qapi(since = "9.1.0")]
     pub discard_source: Option<bool>,
     /**policy defining behavior on I/O errors in
 copy-before-write jobs; defaults to break-guest-write.
-(Since 10.1)
+(Since 10.1.0)
 */
     #[qapi(name = "on-cbw-error")]
     #[qapi(since = "10.1.0")]
@@ -14354,7 +14354,7 @@ pub struct DriveBackupWrapper {
 #[qapi(since = "2.7.0")]
 pub struct DriveMirror {
     /**identifier for the newly-created block job.  If omitted,
-the device name will be used.  (Since 2.7)
+the device name will be used.  (Since 2.7.0)
 */
     #[qapi(name = "job-id")]
     pub job_id: Option<String>,
@@ -14372,14 +14372,14 @@ destination.  If it does not exist, a new file will be created.
 */
     pub format: Option<String>,
     /**the new block driver state node name in the graph
-(Since 2.1)
+(Since 2.1.0)
 */
     #[qapi(name = "node-name")]
     pub node_name: Option<String>,
     /**with sync=full graph node name to be replaced by the new
 image when a whole image copy is done.  This can be used to
 repair broken Quorum files.  By default, @device is replaced,
-although implicitly created filters on it are kept.  (Since 2.1)
+although implicitly created filters on it are kept.  (Since 2.1.0)
 */
     pub replaces: Option<String>,
     /**what parts of the disk image should be copied to the
@@ -14397,11 +14397,11 @@ topmost image, or only new I/O).
     /**granularity of the dirty bitmap, default is 64K if the
 image format doesn't have clusters, 4K if the clusters are
 smaller than that, else the cluster size.  Must be a power of 2
-between 512 and 64M (since 1.4).
+between 512 and 64M (since 1.4.0).
 */
     pub granularity: Option<u32>,
     /**maximum amount of data in flight from source to target
-(since 1.4).
+(since 1.4.0).
 */
     #[qapi(name = "buf-size")]
     pub buf_size: Option<i64>,
@@ -14421,11 +14421,11 @@ different block device than @device).
 zero.  If true, and target unallocated sectors will read as
 zero, target image sectors will be unmapped; otherwise, zeroes
 will be written.  Both will result in identical contents.
-Default is true.  (Since 2.4)
+Default is true.  (Since 2.4.0)
 */
     pub unmap: Option<bool>,
     /**when to copy data to the destination; defaults to
-'background' (Since: 3.0)
+'background' (Since: 3.0.0)
 */
     #[qapi(name = "copy-mode")]
     #[qapi(since = "3.0.0")]
@@ -14434,7 +14434,7 @@ Default is true.  (Since 2.4)
 after it has finished its work, waiting for `job-finalize`
 before making any block graph changes.  When true, this job will
 automatically perform its abort or commit actions.  Defaults to
-true.  (Since 3.1)
+true.  (Since 3.1.0)
 */
     #[qapi(name = "auto-finalize")]
     #[qapi(since = "3.1.0")]
@@ -14442,7 +14442,7 @@ true.  (Since 3.1)
     /**When false, this job will wait in a CONCLUDED state
 after it has completely ceased all work, and awaits
 `job-dismiss`.  When true, this job will automatically disappear
-without user intervention.  Defaults to true.  (Since 3.1)
+without user intervention.  Defaults to true.  (Since 3.1.0)
 */
     #[qapi(name = "auto-dismiss")]
     #[qapi(since = "3.1.0")]
@@ -14893,7 +14893,7 @@ pub struct GuestPanickedEvent {
     /**action that has been taken, currently always "pause"
 */
     pub action: GuestPanicAction,
-    /**information about a panic (since 2.9)
+    /**information about a panic (since 2.9.0)
 */
     #[qapi(since = "2.9.0")]
     pub info: Option<GuestPanicInformation>,
@@ -15123,25 +15123,25 @@ pub struct IoThreadInfo {
     #[qapi(name = "thread-id")]
     pub thread_id: i64,
     /**maximum polling time in ns, 0 means polling is
-disabled (since 2.9)
+disabled (since 2.9.0)
 */
     #[qapi(name = "poll-max-ns")]
     #[qapi(since = "2.9.0")]
     pub poll_max_ns: Option<i64>,
     /**how many ns will be added to polling time, 0 means that
-it's not configured (since 2.9)
+it's not configured (since 2.9.0)
 */
     #[qapi(name = "poll-grow")]
     #[qapi(since = "2.9.0")]
     pub poll_grow: Option<i64>,
     /**how many ns will be removed from polling time, 0 means
-that it's not configured (since 2.9)
+that it's not configured (since 2.9.0)
 */
     #[qapi(name = "poll-shrink")]
     #[qapi(since = "2.9.0")]
     pub poll_shrink: Option<i64>,
     /**maximum number of requests in a batch for the AIO
-engine, 0 means that the engine will use its default (since 6.1)
+engine, 0 means that the engine will use its default (since 6.1.0)
 */
     #[qapi(name = "aio-max-batch")]
     #[qapi(since = "6.1.0")]
@@ -15277,12 +15277,12 @@ pub struct ImageInfo {
     #[qapi(name = "backing-image")]
     #[qapi(since = "1.6.0")]
     pub backing_image: Option<Box<ImageInfo>>,
-    /**true if the image is compressed (Since 1.7)
+    /**true if the image is compressed (Since 1.7.0)
 */
     #[qapi(since = "1.7.0")]
     pub compressed: Option<bool>,
     /**structure supplying additional format-specific
-information (since 1.7)
+information (since 1.7.0)
 */
     #[qapi(name = "format-specific")]
     #[qapi(since = "1.7.0")]
@@ -15339,45 +15339,45 @@ pub struct ImageInfoSpecificQCow2 {
     #[qapi(name = "lazy-refcounts")]
     pub lazy_refcounts: Option<bool>,
     /**true if the image has been marked corrupt; only valid for
-compat >= 1.1 (since 2.2)
+compat >= 1.1 (since 2.2.0)
 */
     #[qapi(since = "2.2.0")]
     pub corrupt: Option<bool>,
-    /**width of a refcount entry in bits (since 2.3)
+    /**width of a refcount entry in bits (since 2.3.0)
 */
     #[qapi(name = "refcount-bits")]
     #[qapi(since = "2.3.0")]
     pub refcount_bits: Option<i64>,
     /**details about encryption parameters; only set if image is
-encrypted (since 2.10)
+encrypted (since 2.10.0)
 */
     #[qapi(since = "2.10.0")]
     pub encrypt: Option<ImageInfoSpecificQCow2Encryption>,
     /**the filename of the external data file that is stored in
 the image and used as a default for opening the image
-(since: 4.0)
+(since: 4.0.0)
 */
     #[qapi(name = "data-file")]
     #[qapi(since = "4.0.0")]
     pub data_file: Option<String>,
     /**True if the external data file must stay valid as a
 standalone (read-only) raw image without looking at qcow2
-metadata (since: 4.0)
+metadata (since: 4.0.0)
 */
     #[qapi(name = "data-file-raw")]
     #[qapi(since = "4.0.0")]
     pub data_file_raw: Option<bool>,
-    /**A list of qcow2 bitmap details (since 4.0)
+    /**A list of qcow2 bitmap details (since 4.0.0)
 */
     #[qapi(since = "4.0.0")]
     pub bitmaps: Option<Vec<Qcow2BitmapInfo>>,
-    /**the image cluster compression method (since 5.1)
+    /**the image cluster compression method (since 5.1.0)
 */
     #[qapi(name = "compression-type")]
     #[qapi(since = "5.1.0")]
     pub compression_type: Option<Qcow2CompressionType>,
     /**true if the image has extended L2 entries; only valid
-for compat >= 1.1 (since 5.2)
+for compat >= 1.1 (since 5.2.0)
 */
     #[qapi(name = "extended-l2")]
     #[qapi(since = "5.2.0")]
@@ -15472,18 +15472,18 @@ IPv6
     pub ipv6: Option<bool>,
     /**true if the host/port are guaranteed to be numeric, false
 if name resolution should be attempted.  Defaults to false.
-(Since 2.9)
+(Since 2.9.0)
 */
     #[qapi(since = "2.9.0")]
     pub numeric: Option<bool>,
     /**enable keep-alive when connecting to/listening on this
 socket.
-(Since 4.2, not supported for listening sockets until 10.1)
+(Since 4.2.0, not supported for listening sockets until 10.1)
 */
     #[qapi(name = "keep-alive")]
     #[qapi(since = "4.2.0")]
     pub keep_alive: Option<bool>,
-    /**enable multi-path TCP.  (Since 6.1)
+    /**enable multi-path TCP.  (Since 6.1.0)
 */
     #[qapi(condition = "defined(IPPROTO_MPTCP)")]
     #[qapi(since = "6.1.0")]
@@ -15492,7 +15492,7 @@ socket.
 connection is closed.  Only supported for TCP sockets on systems
 where TCP_KEEPCNT socket option is defined (this includes Linux,
 Windows, macOS, FreeBSD, but not OpenBSD).  When set to 0,
-system setting is used.  (Since 10.1)
+system setting is used.  (Since 10.1.0)
 */
     #[qapi(name = "keep-alive-count")]
     #[qapi(condition = "HAVE_TCP_KEEPCNT")]
@@ -15502,7 +15502,7 @@ system setting is used.  (Since 10.1)
 before sending a keepalive packet.  Only supported for TCP
 sockets on systems where TCP_KEEPIDLE socket option is defined
 (this includes Linux, Windows, macOS, FreeBSD, but not OpenBSD).
-When set to 0, system setting is used.  (Since 10.1)
+When set to 0, system setting is used.  (Since 10.1.0)
 */
     #[qapi(name = "keep-alive-idle")]
     #[qapi(condition = "HAVE_TCP_KEEPIDLE")]
@@ -15511,7 +15511,7 @@ When set to 0, system setting is used.  (Since 10.1)
     /**time in seconds between keep-alive packets.
 Only supported for TCP sockets on systems where TCP_KEEPINTVL is
 defined (this includes Linux, Windows, macOS, FreeBSD, but not
-OpenBSD).  When set to 0, system setting is used.  (Since 10.1)
+OpenBSD).  When set to 0, system setting is used.  (Since 10.1.0)
 */
     #[qapi(name = "keep-alive-interval")]
     #[qapi(condition = "HAVE_TCP_KEEPINTVL")]
@@ -15705,7 +15705,7 @@ long enough.  0 selects a default behaviour (default: 0)
 algorithm detects it is spending too long polling without
 encountering events.  0 selects a default behaviour (default: 0)
 
-The @aio-max-batch option is available since 6.1.
+The @aio-max-batch option is available since 6.1.0.
 */
     #[qapi(name = "poll-shrink")]
     pub poll_shrink: Option<i64>,
@@ -15819,7 +15819,7 @@ pub struct MemoryDeviceSizeChangeEvent {
     /**the new size of memory that the device provides
 */
     pub size: u64,
-    /**path to the device object in the QOM tree (since 6.2)
+    /**path to the device object in the QOM tree (since 6.2.0)
 */
     #[qapi(name = "qom-path")]
     #[qapi(since = "6.2.0")]
@@ -15891,47 +15891,47 @@ pub struct MachineInfo {
     #[qapi(name = "is-default")]
     pub is_default: Option<bool>,
     /**maximum number of CPUs supported by the machine type
-(since 1.5)
+(since 1.5.0)
 */
     #[qapi(name = "cpu-max")]
     #[qapi(since = "1.5.0")]
     pub cpu_max: Option<i64>,
-    /**cpu hotplug via -device is supported (since 2.7)
+    /**cpu hotplug via -device is supported (since 2.7.0)
 */
     #[qapi(name = "hotpluggable-cpus")]
     #[qapi(since = "2.7.0")]
     pub hotpluggable_cpus: Option<bool>,
     /**true if '-numa node,mem' option is supported by
-the machine type and false otherwise (since 4.1)
+the machine type and false otherwise (since 4.1.0)
 */
     #[qapi(name = "numa-mem-supported")]
     #[qapi(since = "4.1.0")]
     pub numa_mem_supported: Option<bool>,
     /**if true, the machine type is deprecated and may be
 removed in future versions of QEMU according to the QEMU
-deprecation policy (since 4.1)
+deprecation policy (since 4.1.0)
 */
     #[qapi(since = "4.1.0")]
     pub deprecated: Option<bool>,
     /**default CPU model typename if none is requested
-via the -cpu argument.  (since 4.2)
+via the -cpu argument.  (since 4.2.0)
 */
     #[qapi(name = "default-cpu-type")]
     #[qapi(since = "4.2.0")]
     pub default_cpu_type: Option<String>,
     /**the default ID of initial RAM memory backend
-(since 5.2)
+(since 5.2.0)
 */
     #[qapi(name = "default-ram-id")]
     #[qapi(since = "5.2.0")]
     pub default_ram_id: Option<String>,
-    /**machine type supports ACPI (since 8.0)
+    /**machine type supports ACPI (since 8.0.0)
 */
     #[qapi(since = "8.0.0")]
     pub acpi: Option<bool>,
     /**The machine type's compatibility properties.  Only
 present when `query-machines` argument @compat-props is true.
-(since 9.1)
+(since 9.1.0)
 */
     #[qapi(name = "compat-props")]
     #[qapi(feature = "unstable")]
@@ -15993,11 +15993,11 @@ in raw format at the given (host) offset
 */
     pub filename: Option<String>,
     /**true if this layer provides the data, false if adding a
-backing layer could impact this region (since 6.1)
+backing layer could impact this region (since 6.1.0)
 */
     #[qapi(since = "6.1.0")]
     pub present: Option<bool>,
-    /**true if the data is stored compressed (since 8.2)
+    /**true if the data is stored compressed (since 8.2.0)
 */
     #[qapi(since = "8.2.0")]
     pub compressed: Option<bool>,
@@ -16025,11 +16025,11 @@ pub struct Memdev {
     /**memory policy of memory backend
 */
     pub policy: HostMemPolicy,
-    /**backend's ID if backend has 'id' property (since 2.9)
+    /**backend's ID if backend has 'id' property (since 2.9.0)
 */
     #[qapi(since = "2.9.0")]
     pub id: Option<String>,
-    /**whether memory is private to QEMU or shared (since 6.1)
+    /**whether memory is private to QEMU or shared (since 6.1.0)
 */
     #[qapi(since = "6.1.0")]
     pub share: Option<bool>,
@@ -16037,7 +16037,7 @@ pub struct Memdev {
 applicable.  This corresponds to the user configuration and not
 the actual behavior implemented in the OS to perform the
 reservation.  For example, Linux will never reserve swap space
-for shared file mappings.  (since 6.1)
+for shared file mappings.  (since 6.1.0)
 */
     #[qapi(since = "6.1.0")]
     pub reserve: Option<bool>,
@@ -16080,7 +16080,7 @@ memory-backend-memfd, and memory-backend-shm)
 */
     pub share: Option<bool>,
     /**if true, reserve swap space (or huge pages) if applicable
-(default: true) (since 6.1)
+(default: true) (since 6.1.0)
 */
     pub reserve: Option<bool>,
     /**size of the memory region in bytes
@@ -16094,7 +16094,7 @@ older to allow migration with newer QEMU versions.
     #[qapi(name = "x-use-canonical-path-for-ramblock-id")]
     pub x_use_canonical_path_for_ramblock_id: Option<bool>,
     /**thread context to use for creation of
-preallocation threads (default: none) (since 7.2)
+preallocation threads (default: none) (since 7.2.0)
 */
     #[qapi(name = "prealloc-context")]
     #[qapi(since = "7.2.0")]
@@ -16176,12 +16176,12 @@ it is opened read-write.  (default: false)
 */
     pub readonly: Option<bool>,
     /**if true, reserve swap space (or huge pages) if applicable
-(default: true) (since 6.1)
+(default: true) (since 6.1.0)
 */
     #[qapi(since = "6.1.0")]
     pub reserve: Option<bool>,
     /**thread context to use for creation of
-preallocation threads (default: none) (since 7.2)
+preallocation threads (default: none) (since 7.2.0)
 */
     #[qapi(name = "prealloc-context")]
     #[qapi(since = "7.2.0")]
@@ -16189,7 +16189,7 @@ preallocation threads (default: none) (since 7.2)
     /**the offset into the target file that the region starts at.
 You can use this option to back multiple regions with a single
 file.  Must be a multiple of the page size.
-(default: 0) (since 8.1)
+(default: 0) (since 8.1.0)
 */
     #[qapi(since = "8.1.0")]
     pub offset: Option<u64>,
@@ -16206,7 +16206,7 @@ templating, where we want to open a file readonly (@readonly set
 to true) and mark the memory to be private for QEMU (@share set
 to false).  For this use case, we need writable RAM instead of
 ROM, and want to set this property to 'off'.  (default: auto,
-since 8.2)
+since 8.2.0)
 */
     #[qapi(since = "8.2.0")]
     pub rom: Option<OnOffAuto>,
@@ -16269,12 +16269,12 @@ resizing of the memory (default: true)
 */
     pub seal: Option<bool>,
     /**if true, reserve swap space (or huge pages) if applicable
-(default: true) (since 6.1)
+(default: true) (since 6.1.0)
 */
     #[qapi(since = "6.1.0")]
     pub reserve: Option<bool>,
     /**thread context to use for creation of
-preallocation threads (default: none) (since 7.2)
+preallocation threads (default: none) (since 7.2.0)
 */
     #[qapi(name = "prealloc-context")]
     #[qapi(since = "7.2.0")]
@@ -16324,12 +16324,12 @@ older to allow migration with newer QEMU versions.
     #[qapi(name = "x-use-canonical-path-for-ramblock-id")]
     pub x_use_canonical_path_for_ramblock_id: Option<bool>,
     /**if true, reserve swap space (or huge pages) if applicable
-(default: true) (since 6.1)
+(default: true) (since 6.1.0)
 */
     #[qapi(since = "6.1.0")]
     pub reserve: Option<bool>,
     /**thread context to use for creation of
-preallocation threads (default: none) (since 7.2)
+preallocation threads (default: none) (since 7.2.0)
 */
     #[qapi(name = "prealloc-context")]
     #[qapi(since = "7.2.0")]
@@ -16367,7 +16367,7 @@ the machine type)
     #[qapi(name = "prealloc-threads")]
     pub prealloc_threads: Option<u32>,
     /**thread context to use for creation of
-preallocation threads (default: none) (since 7.2)
+preallocation threads (default: none) (since 7.2.0)
 */
     #[qapi(name = "prealloc-context")]
     pub prealloc_context: Option<String>,
@@ -16378,7 +16378,7 @@ memory-backend-memfd, and memory-backend-shm)
 */
     pub share: Option<bool>,
     /**if true, reserve swap space (or huge pages) if applicable
-(default: true) (since 6.1)
+(default: true) (since 6.1.0)
 */
     pub reserve: Option<bool>,
     /**size of the memory region in bytes
@@ -16482,13 +16482,13 @@ about 1/4 of compress-threads is adequate.
     pub decompress_threads: Option<i64>,
     /**Initial percentage of time guest cpus are
 throttled when migration auto-converge is activated.  The
-default value is 20.  (Since 2.7)
+default value is 20.  (Since 2.7.0)
 */
     #[qapi(name = "cpu-throttle-initial")]
     pub cpu_throttle_initial: Option<i64>,
     /**throttle percentage increase each time
 auto-converge detects that migration is not making progress.
-The default value is 10.  (Since 2.7)
+The default value is 10.  (Since 2.7.0)
 */
     #[qapi(name = "cpu-throttle-increment")]
     pub cpu_throttle_increment: Option<i64>,
@@ -16499,7 +16499,7 @@ must be for a 'client' endpoint, while for the incoming side the
 credentials must be for a 'server' endpoint.  Setting this to a
 non-empty string enables TLS for all migrations.  An empty
 string means that QEMU will use plain text mode for migration,
-rather than TLS.  This is the default.  (Since 2.7)
+rather than TLS.  This is the default.  (Since 2.7.0)
 */
     #[qapi(name = "tls-creds")]
     pub tls_creds: Option<StrOrNull>,
@@ -16508,24 +16508,24 @@ server's x509 certificate identity.  If empty, QEMU will use the
 hostname from the migration URI, if any.  A non-empty value is
 required when using x509 based TLS credentials and the migration
 URI does not include a hostname, such as fd: or exec: based
-migration.  (Since 2.7)
+migration.  (Since 2.7.0)
 
-Note: empty value works only since 2.9.
+Note: empty value works only since 2.9.0.
 */
     #[qapi(name = "tls-hostname")]
     pub tls_hostname: Option<StrOrNull>,
     /**maximum speed for migration, in bytes per second.
-(Since 2.8)
+(Since 2.8.0)
 */
     #[qapi(name = "max-bandwidth")]
     pub max_bandwidth: Option<i64>,
     /**set maximum tolerated downtime for migration.
-maximum downtime in milliseconds (Since 2.8)
+maximum downtime in milliseconds (Since 2.8.0)
 */
     #[qapi(name = "downtime-limit")]
     pub downtime_limit: Option<i64>,
     /**The delay time (in ms) between two COLO
-checkpoints in periodic mode.  (Since 2.8)
+checkpoints in periodic mode.  (Since 2.8.0)
 */
     #[qapi(name = "x-checkpoint-delay")]
     pub x_checkpoint_delay: Option<i64>,
@@ -16534,7 +16534,7 @@ block migration capability is enabled.  When false, the entire
 storage backing chain is migrated into a flattened image at the
 destination; when true, only the active qcow2 layer is migrated
 and the destination must already have access to the same backing
-chain as was used on the source.  (since 2.10)
+chain as was used on the source.  (since 2.10.0)
 */
     #[qapi(name = "block-incremental")]
     #[qapi(until = "9.1.0")]
@@ -16542,14 +16542,14 @@ chain as was used on the source.  (since 2.10)
     /**Number of channels used to migrate data in
 parallel. This is the same number that the
 number of sockets used for migration.  The
-default value is 2 (since 2.11)
+default value is 2 (since 2.11.0)
 */
     #[qapi(name = "x-multifd-channels")]
     #[qapi(since = "2.11.0")]
     #[qapi(until = "4.0.0")]
     pub x_multifd_channels: Option<i64>,
     /**Number of pages sent together to a thread.
-The default value is 16 (since 2.11)
+The default value is 16 (since 2.11.0)
 */
     #[qapi(name = "x-multifd-page-count")]
     #[qapi(since = "2.11.0")]
@@ -16557,14 +16557,14 @@ The default value is 16 (since 2.11)
     pub x_multifd_page_count: Option<i64>,
     /**cache size to be used by XBZRLE migration.  It
 needs to be a multiple of the target page size and a power of 2
-(Since 2.11)
+(Since 2.11.0)
 */
     #[qapi(name = "xbzrle-cache-size")]
     #[qapi(since = "2.11.0")]
     pub xbzrle_cache_size: Option<u64>,
     /**Background transfer bandwidth during
 postcopy.  Defaults to 0 (unlimited).  In bytes per second.
-(Since 3.0)
+(Since 3.0.0)
 */
     #[qapi(name = "max-postcopy-bandwidth")]
     #[qapi(since = "3.0.0")]
@@ -16572,38 +16572,38 @@ postcopy.  Defaults to 0 (unlimited).  In bytes per second.
     /**Controls behavior when all compression
 threads are currently busy.  If true (default), wait for a free
 compression thread to become available; otherwise, send the page
-uncompressed.  (Since 3.1)
+uncompressed.  (Since 3.1.0)
 */
     #[qapi(name = "compress-wait-thread")]
     #[qapi(since = "3.1.0")]
     #[qapi(until = "9.1.0")]
     pub compress_wait_thread: Option<bool>,
     /**maximum cpu throttle percentage.  Defaults to 99.
-(Since 3.1)
+(Since 3.1.0)
 */
     #[qapi(name = "max-cpu-throttle")]
     #[qapi(since = "3.1.0")]
     pub max_cpu_throttle: Option<i64>,
     /**Initial delay (in milliseconds) before sending
-the first announce (Since 4.0)
+the first announce (Since 4.0.0)
 */
     #[qapi(name = "announce-initial")]
     #[qapi(since = "4.0.0")]
     pub announce_initial: Option<u64>,
     /**Maximum delay (in milliseconds) between packets in
-the announcement (Since 4.0)
+the announcement (Since 4.0.0)
 */
     #[qapi(name = "announce-max")]
     #[qapi(since = "4.0.0")]
     pub announce_max: Option<u64>,
     /**Number of self-announce packets sent after
-migration (Since 4.0)
+migration (Since 4.0.0)
 */
     #[qapi(name = "announce-rounds")]
     #[qapi(since = "4.0.0")]
     pub announce_rounds: Option<u64>,
     /**Increase in delay (in milliseconds) between
-subsequent packets in the announcement (Since 4.0)
+subsequent packets in the announcement (Since 4.0.0)
 */
     #[qapi(name = "announce-step")]
     #[qapi(since = "4.0.0")]
@@ -16612,27 +16612,27 @@ subsequent packets in the announcement (Since 4.0)
 control checking of the TLS x509 certificate distinguished name.
 This object is only resolved at time of use, so can be deleted
 and recreated on the fly while the migration server is active.
-If missing, it will default to denying access (Since 4.0)
+If missing, it will default to denying access (Since 4.0.0)
 */
     #[qapi(name = "tls-authz")]
     #[qapi(since = "4.0.0")]
     pub tls_authz: Option<StrOrNull>,
     /**Number of channels used to migrate data in
 parallel.  This is the same number that the number of sockets
-used for migration.  The default value is 2 (since 4.0)
+used for migration.  The default value is 2 (since 4.0.0)
 */
     #[qapi(name = "multifd-channels")]
     #[qapi(since = "4.0.0")]
     pub multifd_channels: Option<i64>,
     /**The ratio of bytes_dirty_period and
 bytes_xfer_period to trigger throttling.  It is expressed as
-percentage.  The default value is 50.  (Since 5.0)
+percentage.  The default value is 50.  (Since 5.0.0)
 */
     #[qapi(name = "throttle-trigger-threshold")]
     #[qapi(since = "5.0.0")]
     pub throttle_trigger_threshold: Option<i64>,
     /**Which compression method to use.  Defaults to
-none.  (Since 5.0)
+none.  (Since 5.0.0)
 */
     #[qapi(name = "multifd-compression")]
     #[qapi(since = "5.0.0")]
@@ -16641,7 +16641,7 @@ none.  (Since 5.0)
 migration, the compression level is an integer between 0 and 9,
 where 0 means no compression, 1 means the best compression
 speed, and 9 means best compression ratio which will consume
-more CPU.  Defaults to 1.  (Since 5.0)
+more CPU.  Defaults to 1.  (Since 5.0.0)
 */
     #[qapi(name = "multifd-zlib-level")]
     #[qapi(since = "5.0.0")]
@@ -16650,7 +16650,7 @@ more CPU.  Defaults to 1.  (Since 5.0)
 migration, the compression level is an integer between 0 and 20,
 where 0 means no compression, 1 means the best compression
 speed, and 20 means best compression ratio which will consume
-more CPU.  Defaults to 1.  (Since 5.0)
+more CPU.  Defaults to 1.  (Since 5.0.0)
 */
     #[qapi(name = "multifd-zstd-level")]
     #[qapi(since = "5.0.0")]
@@ -16666,7 +16666,7 @@ specified by @cpu-throttle-increment and the one generated by
 ideal CPU percentage.  Therefore, it is compatible to
 traditional throttling, meanwhile the throttle increment won't
 be excessive at tail stage.  The default value is false.
-(Since 5.1)
+(Since 5.1.0)
 */
     #[qapi(name = "cpu-throttle-tailslow")]
     #[qapi(since = "5.1.0")]
@@ -16685,21 +16685,21 @@ the number of bitmaps received, or how they are named, or on
 which nodes they are placed.  By default (when this parameter
 has never been set), bitmap names are mapped to themselves.
 Nodes are mapped to their block device name if there is one, and
-to their node name otherwise.  (Since 5.2)
+to their node name otherwise.  (Since 5.2.0)
 */
     #[qapi(name = "block-bitmap-mapping")]
     #[qapi(since = "5.2.0")]
     pub block_bitmap_mapping: Option<Vec<BitmapMigrationNodeAlias>>,
     /**Periodic time (in milliseconds) of dirty
 limit during live migration.  Should be in the range 1 to
-1000ms.  Defaults to 1000ms.  (Since 8.1)
+1000ms.  Defaults to 1000ms.  (Since 8.1.0)
 */
     #[qapi(name = "x-vcpu-dirty-limit-period")]
     #[qapi(feature = "unstable")]
     #[qapi(since = "8.1.0")]
     pub x_vcpu_dirty_limit_period: Option<u64>,
     /**Dirtyrate limit (MB/s) during live migration.
-Defaults to 1.  (Since 8.1)
+Defaults to 1.  (Since 8.1.0)
 */
     #[qapi(name = "vcpu-dirty-limit")]
     #[qapi(since = "8.1.0")]
@@ -16713,26 +16713,26 @@ automatically.  This can be set when the estimated value is not
 accurate, while the user is able to guarantee such bandwidth is
 available when switching over.  When specified correctly, this
 can make the switchover decision much more accurate.
-(Since 8.2)
+(Since 8.2.0)
 */
     #[qapi(name = "avail-switchover-bandwidth")]
     #[qapi(since = "8.2.0")]
     pub avail_switchover_bandwidth: Option<u64>,
     /**Migration mode.  See description in `MigMode`.  Default is
-'normal'.  (Since 8.2)
+'normal'.  (Since 8.2.0)
 */
     #[qapi(since = "8.2.0")]
     pub mode: Option<MigMode>,
     /**Whether and how to detect zero pages.  See
 description in `ZeroPageDetection`.  Default is 'multifd'.
-(since 9.0)
+(since 9.0.0)
 */
     #[qapi(name = "zero-page-detection")]
     #[qapi(since = "9.0.0")]
     pub zero_page_detection: Option<ZeroPageDetection>,
     /**Open migration files with O_DIRECT when possible.  This
 only has effect if the @mapped-ram capability is enabled.
-(Since 9.1)
+(Since 9.1.0)
 */
     #[qapi(name = "direct-io")]
     #[qapi(since = "9.1.0")]
@@ -16741,7 +16741,7 @@ only has effect if the @mapped-ram capability is enabled.
 migration.  The level is an integer between 1 and 9, where 1
 means the best compression speed, and 9 means the best
 compression ratio which will consume more CPU.  Defaults to 1.
-(Since 9.2)
+(Since 9.2.0)
 */
     #[qapi(name = "multifd-qatzip-level")]
     #[qapi(since = "9.2.0")]
@@ -16804,7 +16804,7 @@ initiated
 */
     pub status: Option<String>,
     /**`MigrationStats` containing detailed migration status, only
-returned if status is 'active' or 'completed'(since 1.2)
+returned if status is 'active' or 'completed'(since 1.2.0)
 */
     pub ram: Option<MigrationStats>,
     /**@MigrationStats containing detailed disk migration status,
@@ -16814,27 +16814,27 @@ only returned if status is 'active' and it is a block migration
     pub disk: Option<MigrationStats>,
     /**`XBZRLECacheStats` containing detailed XBZRLE
 migration statistics, only returned if XBZRLE feature is on and
-status is 'active' or 'completed' (since 1.2)
+status is 'active' or 'completed' (since 1.2.0)
 */
     #[qapi(name = "xbzrle-cache")]
     #[qapi(since = "1.2.0")]
     pub xbzrle_cache: Option<XbzrleCacheStats>,
     /**total amount of milliseconds since migration started.
 If migration has ended, it returns the total migration time.
-(since 1.2)
+(since 1.2.0)
 */
     #[qapi(name = "total-time")]
     #[qapi(since = "1.2.0")]
     pub total_time: Option<i64>,
     /**only present while migration is active expected
 downtime in milliseconds for the guest in last walk of the dirty
-bitmap.  (since 1.3)
+bitmap.  (since 1.3.0)
 */
     #[qapi(name = "expected-downtime")]
     #[qapi(since = "1.3.0")]
     pub expected_downtime: Option<i64>,
     /**only present when migration finishes correctly total
-downtime in milliseconds for the guest.  (since 1.3)
+downtime in milliseconds for the guest.  (since 1.3.0)
 */
     #[qapi(since = "1.3.0")]
     pub downtime: Option<i64>,
@@ -16842,7 +16842,7 @@ downtime in milliseconds for the guest.  (since 1.3)
 iterations begin but *after* the QMP command is issued.  This is
 designed to provide an accounting of any activities (such as
 RDMA pinning) which may be expensive, but do not actually occur
-during the iterative migration rounds themselves.  (since 1.6)
+during the iterative migration rounds themselves.  (since 1.6.0)
 */
     #[qapi(name = "setup-time")]
     #[qapi(since = "1.6.0")]
@@ -16853,40 +16853,40 @@ during the iterative migration rounds themselves.  (since 1.6)
     pub x_cpu_throttle_percentage: Option<i64>,
     /**percentage of time guest cpus are being
 throttled during auto-converge.  This is only present when
-auto-converge has started throttling guest cpus.  (Since 2.7)
+auto-converge has started throttling guest cpus.  (Since 2.7.0)
 */
     #[qapi(name = "cpu-throttle-percentage")]
     #[qapi(since = "2.7.0")]
     pub cpu_throttle_percentage: Option<i64>,
     /**the human readable error description string.  Clients
-should not attempt to parse the error strings.  (Since 2.7)
+should not attempt to parse the error strings.  (Since 2.7.0)
 */
     #[qapi(name = "error-desc")]
     #[qapi(since = "2.7.0")]
     pub error_desc: Option<String>,
     /**total time when all vCPU were blocked during
 postcopy live migration.  This is only present when the
-postcopy-blocktime migration capability is enabled.  (Since 3.0)
+postcopy-blocktime migration capability is enabled.  (Since 3.0.0)
 */
     #[qapi(name = "postcopy-blocktime")]
     #[qapi(since = "3.0.0")]
     pub postcopy_blocktime: Option<u32>,
     /**list of the postcopy blocktime per vCPU.
 This is only present when the postcopy-blocktime migration
-capability is enabled.  (Since 3.0)
+capability is enabled.  (Since 3.0.0)
 */
     #[qapi(name = "postcopy-vcpu-blocktime")]
     #[qapi(since = "3.0.0")]
     pub postcopy_vcpu_blocktime: Option<Vec<u32>>,
     /**migration compression statistics, only returned if
 compression feature is on and status is 'active' or 'completed'
-(Since 3.1)
+(Since 3.1.0)
 */
     #[qapi(since = "3.1.0")]
     #[qapi(until = "9.1.0")]
     pub compression: Option<CompressionStats>,
     /**Only used for tcp, to know what the real port is
-(Since 4.0)
+(Since 4.0.0)
 */
     #[qapi(name = "socket-address")]
     #[qapi(since = "4.0.0")]
@@ -16894,7 +16894,7 @@ compression feature is on and status is 'active' or 'completed'
     /**`VfioStats` containing detailed VFIO devices migration
 statistics, only returned if VFIO device is present, migration
 is supported by all VFIO devices and status is 'active' or
-'completed' (since 5.2)
+'completed' (since 5.2.0)
 */
     #[qapi(since = "5.2.0")]
     pub vfio: Option<VfioStats>,
@@ -16906,7 +16906,7 @@ is supported by all VFIO devices and status is 'active' or
     pub blocked: Option<bool>,
     /**A list of reasons an outgoing migration is
 blocked.  Present and non-empty when migration is blocked.
-(since 6.0)
+(since 6.0.0)
 */
     #[qapi(name = "blocked-reasons")]
     #[qapi(since = "6.0.0")]
@@ -16914,7 +16914,7 @@ blocked.  Present and non-empty when migration is blocked.
     /**Maximum throttle time (in
 microseconds) of virtual CPUs each dirty ring full round, which
 shows how `MigrationCapability` dirty-limit affects the guest
-during live migration.  (Since 8.1)
+during live migration.  (Since 8.1.0)
 */
     #[qapi(name = "dirty-limit-throttle-time-per-round")]
     #[qapi(since = "8.1.0")]
@@ -16924,7 +16924,7 @@ during live migration.  (Since 8.1)
 equals the dirty ring memory size divided by the average dirty
 page rate of the virtual CPU, which can be used to observe the
 average memory load of the virtual CPU indirectly.  Note that
-zero means guest doesn't dirty memory.  (Since 8.1)
+zero means guest doesn't dirty memory.  (Since 8.1.0)
 */
     #[qapi(name = "dirty-limit-ring-full-time")]
     #[qapi(since = "8.1.0")]
@@ -16934,7 +16934,7 @@ that this doesn't include all faults, but only the ones that
 require a remote page request.  So it should be always bigger
 than the real average page fault latency.  This is only present
 when the postcopy-blocktime migration capability is enabled.
-(Since 10.1)
+(Since 10.1.0)
 */
     #[qapi(name = "postcopy-latency")]
     #[qapi(feature = "unstable")]
@@ -16946,7 +16946,7 @@ the bucket period.  For the N-th bucket (N>=0), the latency
 window is [2^Nus, 2^(N+1)us).  For example, the 8th element
 stores how many remote faults got resolved within [256us, 512us)
 window.  This is only present when the postcopy-blocktime
-migration capability is enabled.  (Since 10.1)
+migration capability is enabled.  (Since 10.1.0)
 */
     #[qapi(name = "postcopy-latency-dist")]
     #[qapi(feature = "unstable")]
@@ -16956,7 +16956,7 @@ migration capability is enabled.  (Since 10.1)
 (in ns).  It has the same definition of @postcopy-latency, but
 instead this is the per-vCPU statistics.  This is only present
 when the postcopy-blocktime migration capability is enabled.
-(Since 10.1)
+(Since 10.1.0)
 */
     #[qapi(name = "postcopy-vcpu-latency")]
     #[qapi(feature = "unstable")]
@@ -16967,7 +16967,7 @@ all faults happend in non-vCPU threads (in ns).  It has the same
 definition of @postcopy-latency but this only provides
 statistics to non-vCPU faults.  This is only present when the
 postcopy-blocktime migration capability is enabled.
-(Since 10.1)
+(Since 10.1.0)
 */
     #[qapi(name = "postcopy-non-vcpu-latency")]
     #[qapi(feature = "unstable")]
@@ -17003,14 +17003,14 @@ pub struct MigrationParameters {
     pub x_cpu_throttle_increment: Option<i64>,
     /**Initial percentage of time guest cpus are
 throttled when migration auto-converge is activated.
-(Since 2.7)
+(Since 2.7.0)
 */
     #[qapi(name = "cpu-throttle-initial")]
     #[qapi(since = "2.7.0")]
     pub cpu_throttle_initial: Option<i64>,
     /**throttle percentage increase each time
 auto-converge detects that migration is not making progress.
-(Since 2.7)
+(Since 2.7.0)
 */
     #[qapi(name = "cpu-throttle-increment")]
     #[qapi(since = "2.7.0")]
@@ -17021,7 +17021,7 @@ channel.  On the outgoing side of the migration, the credentials
 must be for a 'client' endpoint, while for the incoming side the
 credentials must be for a 'server' endpoint.  An empty string
 means that QEMU will use plain text mode for migration, rather
-than TLS.  (Since 2.7)
+than TLS.  (Since 2.7.0)
 
 Note: 2.8 omits empty @tls-creds instead.
 */
@@ -17030,7 +17030,7 @@ Note: 2.8 omits empty @tls-creds instead.
     pub tls_creds: Option<String>,
     /**migration target's hostname for validating the
 server's x509 certificate identity.  If empty, QEMU will use the
-hostname from the migration URI, if any.  (Since 2.7)
+hostname from the migration URI, if any.  (Since 2.7.0)
 
 Note: 2.8 omits empty @tls-hostname instead.
 */
@@ -17038,19 +17038,19 @@ Note: 2.8 omits empty @tls-hostname instead.
     #[qapi(since = "2.7.0")]
     pub tls_hostname: Option<String>,
     /**maximum speed for migration, in bytes per second.
-(Since 2.8)
+(Since 2.8.0)
 */
     #[qapi(name = "max-bandwidth")]
     #[qapi(since = "2.8.0")]
     pub max_bandwidth: Option<i64>,
     /**set maximum tolerated downtime for migration.
-maximum downtime in milliseconds (Since 2.8)
+maximum downtime in milliseconds (Since 2.8.0)
 */
     #[qapi(name = "downtime-limit")]
     #[qapi(since = "2.8.0")]
     pub downtime_limit: Option<i64>,
     /**the delay time between two COLO checkpoints.
-(Since 2.8)
+(Since 2.8.0)
 */
     #[qapi(name = "x-checkpoint-delay")]
     #[qapi(since = "2.8.0")]
@@ -17060,7 +17060,7 @@ block migration capability is enabled.  When false, the entire
 storage backing chain is migrated into a flattened image at the
 destination; when true, only the active qcow2 layer is migrated
 and the destination must already have access to the same backing
-chain as was used on the source.  (since 2.10)
+chain as was used on the source.  (since 2.10.0)
 */
     #[qapi(name = "block-incremental")]
     #[qapi(since = "2.10.0")]
@@ -17069,14 +17069,14 @@ chain as was used on the source.  (since 2.10)
     /**Number of channels used to migrate data in
 parallel. This is the same number that the
 number of sockets used for migration.
-The default value is 2 (since 2.11)
+The default value is 2 (since 2.11.0)
 */
     #[qapi(name = "x-multifd-channels")]
     #[qapi(since = "2.11.0")]
     #[qapi(until = "4.0.0")]
     pub x_multifd_channels: Option<i64>,
     /**Number of pages sent together to a thread.
-The default value is 16 (since 2.11)
+The default value is 16 (since 2.11.0)
 */
     #[qapi(name = "x-multifd-page-count")]
     #[qapi(since = "2.11.0")]
@@ -17084,14 +17084,14 @@ The default value is 16 (since 2.11)
     pub x_multifd_page_count: Option<i64>,
     /**cache size to be used by XBZRLE migration.  It
 needs to be a multiple of the target page size and a power of 2
-(Since 2.11)
+(Since 2.11.0)
 */
     #[qapi(name = "xbzrle-cache-size")]
     #[qapi(since = "2.11.0")]
     pub xbzrle_cache_size: Option<u64>,
     /**Background transfer bandwidth during
 postcopy.  Defaults to 0 (unlimited).  In bytes per second.
-(Since 3.0)
+(Since 3.0.0)
 */
     #[qapi(name = "max-postcopy-bandwidth")]
     #[qapi(since = "3.0.0")]
@@ -17099,65 +17099,65 @@ postcopy.  Defaults to 0 (unlimited).  In bytes per second.
     /**Controls behavior when all compression
 threads are currently busy.  If true (default), wait for a free
 compression thread to become available; otherwise, send the page
-uncompressed.  (Since 3.1)
+uncompressed.  (Since 3.1.0)
 */
     #[qapi(name = "compress-wait-thread")]
     #[qapi(since = "3.1.0")]
     #[qapi(until = "9.1.0")]
     pub compress_wait_thread: Option<bool>,
     /**maximum cpu throttle percentage.  Defaults to 99.
-(Since 3.1)
+(Since 3.1.0)
 */
     #[qapi(name = "max-cpu-throttle")]
     #[qapi(since = "3.1.0")]
     pub max_cpu_throttle: Option<u8>,
     /**Initial delay (in milliseconds) before sending
-the first announce (Since 4.0)
+the first announce (Since 4.0.0)
 */
     #[qapi(name = "announce-initial")]
     #[qapi(since = "4.0.0")]
     pub announce_initial: Option<u64>,
     /**Maximum delay (in milliseconds) between packets in
-the announcement (Since 4.0)
+the announcement (Since 4.0.0)
 */
     #[qapi(name = "announce-max")]
     #[qapi(since = "4.0.0")]
     pub announce_max: Option<u64>,
     /**Number of self-announce packets sent after
-migration (Since 4.0)
+migration (Since 4.0.0)
 */
     #[qapi(name = "announce-rounds")]
     #[qapi(since = "4.0.0")]
     pub announce_rounds: Option<u64>,
     /**Increase in delay (in milliseconds) between
-subsequent packets in the announcement (Since 4.0)
+subsequent packets in the announcement (Since 4.0.0)
 */
     #[qapi(name = "announce-step")]
     #[qapi(since = "4.0.0")]
     pub announce_step: Option<u64>,
     /**ID of the 'authz' object subclass that provides access
 control checking of the TLS x509 certificate distinguished name.
-(Since 4.0)
+(Since 4.0.0)
 */
     #[qapi(name = "tls-authz")]
     #[qapi(since = "4.0.0")]
     pub tls_authz: Option<String>,
     /**Number of channels used to migrate data in
 parallel.  This is the same number that the number of sockets
-used for migration.  The default value is 2 (since 4.0)
+used for migration.  The default value is 2 (since 4.0.0)
 */
     #[qapi(name = "multifd-channels")]
     #[qapi(since = "4.0.0")]
     pub multifd_channels: Option<u8>,
     /**The ratio of bytes_dirty_period and
 bytes_xfer_period to trigger throttling.  It is expressed as
-percentage.  The default value is 50.  (Since 5.0)
+percentage.  The default value is 50.  (Since 5.0.0)
 */
     #[qapi(name = "throttle-trigger-threshold")]
     #[qapi(since = "5.0.0")]
     pub throttle_trigger_threshold: Option<u8>,
     /**Which compression method to use.  Defaults to
-none.  (Since 5.0)
+none.  (Since 5.0.0)
 */
     #[qapi(name = "multifd-compression")]
     #[qapi(since = "5.0.0")]
@@ -17166,7 +17166,7 @@ none.  (Since 5.0)
 migration, the compression level is an integer between 0 and 9,
 where 0 means no compression, 1 means the best compression
 speed, and 9 means best compression ratio which will consume
-more CPU.  Defaults to 1.  (Since 5.0)
+more CPU.  Defaults to 1.  (Since 5.0.0)
 */
     #[qapi(name = "multifd-zlib-level")]
     #[qapi(since = "5.0.0")]
@@ -17175,7 +17175,7 @@ more CPU.  Defaults to 1.  (Since 5.0)
 migration, the compression level is an integer between 0 and 20,
 where 0 means no compression, 1 means the best compression
 speed, and 20 means best compression ratio which will consume
-more CPU.  Defaults to 1.  (Since 5.0)
+more CPU.  Defaults to 1.  (Since 5.0.0)
 */
     #[qapi(name = "multifd-zstd-level")]
     #[qapi(since = "5.0.0")]
@@ -17191,7 +17191,7 @@ specified by @cpu-throttle-increment and the one generated by
 ideal CPU percentage.  Therefore, it is compatible to
 traditional throttling, meanwhile the throttle increment won't
 be excessive at tail stage.  The default value is false.
-(Since 5.1)
+(Since 5.1.0)
 */
     #[qapi(name = "cpu-throttle-tailslow")]
     #[qapi(since = "5.1.0")]
@@ -17210,21 +17210,21 @@ the number of bitmaps received, or how they are named, or on
 which nodes they are placed.  By default (when this parameter
 has never been set), bitmap names are mapped to themselves.
 Nodes are mapped to their block device name if there is one, and
-to their node name otherwise.  (Since 5.2)
+to their node name otherwise.  (Since 5.2.0)
 */
     #[qapi(name = "block-bitmap-mapping")]
     #[qapi(since = "5.2.0")]
     pub block_bitmap_mapping: Option<Vec<BitmapMigrationNodeAlias>>,
     /**Periodic time (in milliseconds) of dirty
 limit during live migration.  Should be in the range 1 to
-1000ms.  Defaults to 1000ms.  (Since 8.1)
+1000ms.  Defaults to 1000ms.  (Since 8.1.0)
 */
     #[qapi(name = "x-vcpu-dirty-limit-period")]
     #[qapi(feature = "unstable")]
     #[qapi(since = "8.1.0")]
     pub x_vcpu_dirty_limit_period: Option<u64>,
     /**Dirtyrate limit (MB/s) during live migration.
-Defaults to 1.  (Since 8.1)
+Defaults to 1.  (Since 8.1.0)
 */
     #[qapi(name = "vcpu-dirty-limit")]
     #[qapi(since = "8.1.0")]
@@ -17238,26 +17238,26 @@ automatically.  This can be set when the estimated value is not
 accurate, while the user is able to guarantee such bandwidth is
 available when switching over.  When specified correctly, this
 can make the switchover decision much more accurate.
-(Since 8.2)
+(Since 8.2.0)
 */
     #[qapi(name = "avail-switchover-bandwidth")]
     #[qapi(since = "8.2.0")]
     pub avail_switchover_bandwidth: Option<u64>,
     /**Migration mode.  See description in `MigMode`.  Default is
-'normal'.  (Since 8.2)
+'normal'.  (Since 8.2.0)
 */
     #[qapi(since = "8.2.0")]
     pub mode: Option<MigMode>,
     /**Whether and how to detect zero pages.  See
 description in `ZeroPageDetection`.  Default is 'multifd'.
-(since 9.0)
+(since 9.0.0)
 */
     #[qapi(name = "zero-page-detection")]
     #[qapi(since = "9.0.0")]
     pub zero_page_detection: Option<ZeroPageDetection>,
     /**Open migration files with O_DIRECT when possible.  This
 only has effect if the @mapped-ram capability is enabled.
-(Since 9.1)
+(Since 9.1.0)
 */
     #[qapi(name = "direct-io")]
     #[qapi(since = "9.1.0")]
@@ -17266,7 +17266,7 @@ only has effect if the @mapped-ram capability is enabled.
 migration.  The level is an integer between 1 and 9, where 1
 means the best compression speed, and 9 means the best
 compression ratio which will consume more CPU.  Defaults to 1.
-(Since 9.2)
+(Since 9.2.0)
 */
     #[qapi(name = "multifd-qatzip-level")]
     #[qapi(since = "9.2.0")]
@@ -17293,78 +17293,78 @@ target VM
     /**total amount of bytes involved in the migration process
 */
     pub total: i64,
-    /**number of duplicate (zero) pages (since 1.2)
+    /**number of duplicate (zero) pages (since 1.2.0)
 */
     #[qapi(since = "1.2.0")]
     pub duplicate: Option<i64>,
-    /**number of normal pages (since 1.2)
+    /**number of normal pages (since 1.2.0)
 */
     #[qapi(since = "1.2.0")]
     pub normal: Option<i64>,
-    /**number of normal bytes sent (since 1.2)
+    /**number of normal bytes sent (since 1.2.0)
 */
     #[qapi(name = "normal-bytes")]
     #[qapi(since = "1.2.0")]
     pub normal_bytes: Option<i64>,
     /**number of pages dirtied by second by the guest
-(since 1.3)
+(since 1.3.0)
 */
     #[qapi(name = "dirty-pages-rate")]
     #[qapi(since = "1.3.0")]
     pub dirty_pages_rate: Option<i64>,
     /**number of skipped zero pages.  Always zero, only provided
-for compatibility (since 1.5)
+for compatibility (since 1.5.0)
 */
     #[qapi(since = "1.5.0")]
     #[qapi(until = "9.1.0")]
     pub skipped: Option<i64>,
-    /**throughput in megabits/sec.  (since 1.6)
+    /**throughput in megabits/sec.  (since 1.6.0)
 */
     #[qapi(since = "1.6.0")]
     pub mbps: Option<f64>,
     /**number of times that dirty ram was synchronized
-(since 2.1)
+(since 2.1.0)
 */
     #[qapi(name = "dirty-sync-count")]
     #[qapi(since = "2.1.0")]
     pub dirty_sync_count: Option<i64>,
     /**The number of page requests received from the
-destination (since 2.7)
+destination (since 2.7.0)
 */
     #[qapi(name = "postcopy-requests")]
     #[qapi(since = "2.7.0")]
     pub postcopy_requests: Option<i64>,
     /**The number of bytes per page for the various page-based
-statistics (since 2.10)
+statistics (since 2.10.0)
 */
     #[qapi(name = "page-size")]
     #[qapi(since = "2.10.0")]
     pub page_size: Option<i64>,
-    /**The number of bytes sent through multifd (since 3.0)
+    /**The number of bytes sent through multifd (since 3.0.0)
 */
     #[qapi(name = "multifd-bytes")]
     #[qapi(since = "3.0.0")]
     pub multifd_bytes: Option<u64>,
     /**the number of memory pages transferred per second
-(Since 4.0)
+(Since 4.0.0)
 */
     #[qapi(name = "pages-per-second")]
     #[qapi(since = "4.0.0")]
     pub pages_per_second: Option<u64>,
     /**The number of bytes sent in the pre-copy phase
-(since 7.0).
+(since 7.0.0).
 */
     #[qapi(name = "precopy-bytes")]
     #[qapi(since = "7.0.0")]
     pub precopy_bytes: Option<u64>,
     /**The number of bytes sent while the guest is paused
-(since 7.0).
+(since 7.0.0).
 */
     #[qapi(name = "downtime-bytes")]
     #[qapi(since = "7.0.0")]
     pub downtime_bytes: Option<u64>,
     /**The number of bytes sent during the post-copy phase
-(since 7.0).
+(since 7.0.0).
 */
     #[qapi(name = "postcopy-bytes")]
     #[qapi(since = "7.0.0")]
@@ -17372,7 +17372,7 @@ statistics (since 2.10)
     /**Number of times dirty RAM
 synchronization could not avoid copying dirty pages.  This is
 between 0 and @dirty-sync-count * @multifd-channels.
-(since 7.1)
+(since 7.1.0)
 */
     #[qapi(name = "dirty-sync-missed-zero-copy")]
     #[qapi(since = "7.1.0")]
@@ -17516,11 +17516,11 @@ pub struct NameInfo {
 #[qapi(since = "5.2.0")]
 pub struct NbdServerAddOptions {
     /**Export name.  If unspecified, the @device parameter is used
-as the export name.  (Since 2.12)
+as the export name.  (Since 2.12.0)
 */
     pub name: Option<String>,
     /**Free-form description of the export, up to 4096 bytes.
-(Since 5.0)
+(Since 5.0.0)
 */
     pub description: Option<String>,
     /**The device name or node name of the node to be exported
@@ -17533,7 +17533,7 @@ the NBD connection (default false).
     /**Also export a single dirty bitmap reachable from @device,
 so the NBD client can use NBD_OPT_SET_META_CONTEXT with the
 metadata context name "qemu:dirty-bitmap:BITMAP" to inspect the
-bitmap (since 4.0).
+bitmap (since 4.0.0).
 */
     pub bitmap: Option<String>,
 }
@@ -17543,9 +17543,9 @@ The only intended difference is using `SocketAddress` instead of
 */
 #[qapi(since = "5.0.0")]
 pub struct NbdServerOptions {
-    ///Address on which to listen (since 4.2).
+    ///Address on which to listen (since 4.2.0).
     pub addr: SocketAddress,
-    /**ID of the TLS credentials object (since 2.6).
+    /**ID of the TLS credentials object (since 2.6.0).
 */
     #[qapi(name = "tls-creds")]
     pub tls_creds: Option<String>,
@@ -17553,20 +17553,20 @@ pub struct NbdServerOptions {
 the client's x509 distinguished name.  This object is is only
 resolved at time of use, so can be deleted and recreated on the
 fly while the NBD server is active.  If missing, it will default
-to denying access (since 4.0).
+to denying access (since 4.0.0).
 */
     #[qapi(name = "tls-authz")]
     pub tls_authz: Option<String>,
     /**The maximum number of connections to allow at the
 same time, 0 for unlimited.  Setting this to 1 also stops the
-server from advertising multiple client support (since 5.2;
+server from advertising multiple client support (since 5.2.0;
 default: 100).*/
     #[qapi(name = "max-connections")]
     #[qapi(since = "5.2.0")]
     pub max_connections: Option<u32>,
     /**Time limit, in seconds, at which a client
 that has not completed the negotiation handshake will be
-disconnected, or 0 for no limit (since 10.0; default: 10).
+disconnected, or 0 for no limit (since 10.0.0; default: 10).
 */
     #[qapi(name = "handshake-max-seconds")]
     #[qapi(since = "10.0.0")]
@@ -17576,11 +17576,11 @@ disconnected, or 0 for no limit (since 10.0; default: 10).
 pub struct NbdServerOptionsBase {
     /**Time limit, in seconds, at which a client
 that has not completed the negotiation handshake will be
-disconnected, or 0 for no limit (since 10.0; default: 10).
+disconnected, or 0 for no limit (since 10.0.0; default: 10).
 */
     #[qapi(name = "handshake-max-seconds")]
     pub handshake_max_seconds: Option<u32>,
-    /**ID of the TLS credentials object (since 2.6).
+    /**ID of the TLS credentials object (since 2.6.0).
 */
     #[qapi(name = "tls-creds")]
     pub tls_creds: Option<String>,
@@ -17588,13 +17588,13 @@ disconnected, or 0 for no limit (since 10.0; default: 10).
 the client's x509 distinguished name.  This object is is only
 resolved at time of use, so can be deleted and recreated on the
 fly while the NBD server is active.  If missing, it will default
-to denying access (since 4.0).
+to denying access (since 4.0.0).
 */
     #[qapi(name = "tls-authz")]
     pub tls_authz: Option<String>,
     /**The maximum number of connections to allow at the
 same time, 0 for unlimited.  Setting this to 1 also stops the
-server from advertising multiple client support (since 5.2;
+server from advertising multiple client support (since 5.2.0;
 default: 100).*/
     #[qapi(name = "max-connections")]
     pub max_connections: Option<u32>,
@@ -17607,11 +17607,11 @@ only intended difference is using `SocketAddressLegacy` instead of
 pub struct NbdServerOptionsLegacy {
     /**Time limit, in seconds, at which a client
 that has not completed the negotiation handshake will be
-disconnected, or 0 for no limit (since 10.0; default: 10).
+disconnected, or 0 for no limit (since 10.0.0; default: 10).
 */
     #[qapi(name = "handshake-max-seconds")]
     pub handshake_max_seconds: Option<u32>,
-    /**ID of the TLS credentials object (since 2.6).
+    /**ID of the TLS credentials object (since 2.6.0).
 */
     #[qapi(name = "tls-creds")]
     pub tls_creds: Option<String>,
@@ -17619,17 +17619,17 @@ disconnected, or 0 for no limit (since 10.0; default: 10).
 the client's x509 distinguished name.  This object is is only
 resolved at time of use, so can be deleted and recreated on the
 fly while the NBD server is active.  If missing, it will default
-to denying access (since 4.0).
+to denying access (since 4.0.0).
 */
     #[qapi(name = "tls-authz")]
     pub tls_authz: Option<String>,
     /**The maximum number of connections to allow at the
 same time, 0 for unlimited.  Setting this to 1 also stops the
-server from advertising multiple client support (since 5.2;
+server from advertising multiple client support (since 5.2.0;
 default: 100).*/
     #[qapi(name = "max-connections")]
     pub max_connections: Option<u32>,
-    ///Address on which to listen (since 1.3).
+    ///Address on which to listen (since 1.3.0).
     pub addr: SocketAddressLegacy,
 }
 /**A discriminated record of network device traits.
@@ -17880,14 +17880,14 @@ into XDP socket map for corresponding queues.  @sock-fds and
     pub sock_fds: Option<String>,
     /**The path to a pinned xsk map to push file descriptors
 for bound AF_XDP sockets into.  @map-path and @sock-fds are
-mutually exclusive.  Requires @inhibit.  (Since 10.1)
+mutually exclusive.  Requires @inhibit.  (Since 10.1.0)
 */
     #[qapi(name = "map-path")]
     #[qapi(since = "10.1.0")]
     pub map_path: Option<String>,
     /**Use @map-path to insert xsk sockets starting from
 this index number (default: 0).  Requires @map-path.
-(Since 10.1)
+(Since 10.1.0)
 */
     #[qapi(name = "map-start-index")]
     #[qapi(since = "10.1.0")]
@@ -17942,7 +17942,7 @@ pub struct NetdevHubPortOptions {
 */
     pub hubid: i32,
     /**used to connect hub to a netdev instead of a device
-(since 2.12)
+(since 2.12.0)
 */
     #[qapi(since = "2.12.0")]
     pub netdev: Option<String>,
@@ -18056,7 +18056,7 @@ pub struct NetdevStreamOptions {
     pub server: Option<bool>,
     /**For a client socket, if a socket is disconnected, then
 attempt a reconnect after the given number of seconds.  Setting
-this to zero disables this function.  (default: 0) (since 8.0)
+this to zero disables this function.  (default: 0) (since 8.0.0)
 */
     #[qapi(since = "8.0.0")]
     #[qapi(until = "10.2.0")]
@@ -18064,7 +18064,7 @@ this to zero disables this function.  (default: 0) (since 8.0)
     /**For a client socket, if a socket is disconnected,
 then attempt a reconnect after the given number of milliseconds.
 Setting this to zero disables this function.
-(default: 0) (Since: 9.2)
+(default: 0) (Since: 9.2.0)
 
 Only `SocketAddress` types 'unix', 'inet' and 'fd' are supported.
 */
@@ -18121,12 +18121,12 @@ devices
     #[qapi(since = "1.4.0")]
     pub queues: Option<u32>,
     /**maximum number of microseconds that could be spent on busy
-polling for tap (since 2.7)
+polling for tap (since 2.7.0)
 */
     #[qapi(name = "poll-us")]
     #[qapi(since = "2.7.0")]
     pub poll_us: Option<u32>,
-    /**bridge name (since 2.8)
+    /**bridge name (since 2.8.0)
 */
     #[qapi(since = "2.8.0")]
     pub br: Option<String>,
@@ -18185,44 +18185,44 @@ the guest
 */
     #[qapi(since = "1.3.0")]
     pub dnssearch: Option<Vec<String>>,
-    /**whether to support IPv4, default true for enabled (since 2.6)
+    /**whether to support IPv4, default true for enabled (since 2.6.0)
 */
     #[qapi(since = "2.6.0")]
     pub ipv4: Option<bool>,
-    /**whether to support IPv6, default true for enabled (since 2.6)
+    /**whether to support IPv6, default true for enabled (since 2.6.0)
 */
     #[qapi(since = "2.6.0")]
     pub ipv6: Option<bool>,
     /**IPv6 network prefix (default is fec0::).  The network
 prefix is given in the usual hexadecimal IPv6 address notation.
-(since 2.6)
+(since 2.6.0)
 */
     #[qapi(name = "ipv6-prefix")]
     #[qapi(since = "2.6.0")]
     pub ipv6_prefix: Option<String>,
     /**IPv6 network prefix length (default is 64)
-(since 2.6)
+(since 2.6.0)
 */
     #[qapi(name = "ipv6-prefixlen")]
     #[qapi(since = "2.6.0")]
     pub ipv6_prefixlen: Option<i64>,
-    /**guest-visible IPv6 address of the host (since 2.6)
+    /**guest-visible IPv6 address of the host (since 2.6.0)
 */
     #[qapi(name = "ipv6-host")]
     #[qapi(since = "2.6.0")]
     pub ipv6_host: Option<String>,
     /**guest-visible IPv6 address of the virtual nameserver
-(since 2.6)
+(since 2.6.0)
 */
     #[qapi(name = "ipv6-dns")]
     #[qapi(since = "2.6.0")]
     pub ipv6_dns: Option<String>,
     /**guest-visible domain name of the virtual nameserver
-(since 3.0)
+(since 3.0.0)
 */
     #[qapi(since = "3.0.0")]
     pub domainname: Option<String>,
-    /**RFC2132 "TFTP server name" string (Since 3.1)
+    /**RFC2132 "TFTP server name" string (Since 3.1.0)
 */
     #[qapi(name = "tftp-server-name")]
     #[qapi(since = "3.1.0")]
@@ -18256,7 +18256,7 @@ pub struct NetdevVhostUserOptions {
 */
     pub vhostforce: Option<bool>,
     /**number of queues to be created for multiqueue vhost-user
-(default: 1) (Since 2.5)
+(default: 1) (Since 2.5.0)
 */
     #[qapi(since = "2.5.0")]
     pub queues: Option<i64>,
@@ -18277,7 +18277,7 @@ pub struct NetdevVhostVdpaOptions {
 */
     pub queues: Option<i64>,
     /**Start device with (experimental) shadow virtqueue.
-(Since 7.1) (default: false)
+(Since 7.1.0) (default: false)
 */
     #[qapi(name = "x-svq")]
     #[qapi(feature = "unstable")]
@@ -18444,31 +18444,31 @@ pub struct NumaCpuOptions {
     #[qapi(name = "thread-id")]
     pub thread_id: Option<i64>,
     /**die number within the parent container the CPU belongs to
-(since 4.1)
+(since 4.1.0)
 */
     #[qapi(name = "die-id")]
     #[qapi(since = "4.1.0")]
     pub die_id: Option<i64>,
     /**cluster number within the parent container the CPU
-belongs to (since 7.1)
+belongs to (since 7.1.0)
 */
     #[qapi(name = "cluster-id")]
     #[qapi(since = "7.1.0")]
     pub cluster_id: Option<i64>,
     /**drawer number within CPU topology the CPU belongs to
-(since 8.2)
+(since 8.2.0)
 */
     #[qapi(name = "drawer-id")]
     #[qapi(since = "8.2.0")]
     pub drawer_id: Option<i64>,
     /**book number within parent container the CPU belongs to
-(since 8.2)
+(since 8.2.0)
 */
     #[qapi(name = "book-id")]
     #[qapi(since = "8.2.0")]
     pub book_id: Option<i64>,
     /**module number within the parent container the CPU
-belongs to (since 9.1)
+belongs to (since 9.1.0)
 */
     #[qapi(name = "module-id")]
     #[qapi(since = "9.1.0")]
@@ -18575,7 +18575,7 @@ be specified for all nodes.
 to the nodeid which has the memory controller responsible for
 this NUMA node.  This field provides additional information as
 to the initiator node that is closest (as in directly attached)
-to this node, and therefore has the best performance (since 5.0)
+to this node, and therefore has the best performance (since 5.0.0)
 */
     #[qapi(since = "5.0.0")]
     pub initiator: Option<u16>,
@@ -18615,7 +18615,7 @@ pub struct ObjectOptions {
 pub struct ObjectPropertiesValues {
     /**a list of properties.
 
-Since 10.1*/
+Since 10.1.0*/
     pub properties: Vec<ObjectPropertyValue>,
 }
 #[qapi(since = "1.1.0")]
@@ -18643,7 +18643,7 @@ graph.
 */
     #[qapi(since = "2.12.0")]
     pub description: Option<String>,
-    /**the default value, if any (since 5.0)
+    /**the default value, if any (since 5.0.0)
 */
     #[qapi(name = "default-value")]
     #[qapi(since = "5.0.0")]
@@ -18661,7 +18661,7 @@ pub struct ObjectPropertyValue {
     /**the value of the property.  Absent when the property cannot
 be read.
 
-Since 10.1*/
+Since 10.1.0*/
     pub value: Option<serde_json::Value>,
 }
 /**This structure describes a search result from `qom-list-types`
@@ -18672,11 +18672,11 @@ pub struct ObjectTypeInfo {
 */
     pub name: String,
     /**the type is abstract and can't be directly instantiated.
-Omitted if false.  (since 2.10)
+Omitted if false.  (since 2.10.0)
 */
     #[qapi(since = "2.10.0")]
     pub r#abstract: Option<bool>,
-    /**Name of parent type, if any (since 2.10)
+    /**Name of parent type, if any (since 2.10.0)
 */
     #[qapi(since = "2.10.0")]
     pub parent: Option<String>,
@@ -18823,11 +18823,11 @@ pub struct PciDeviceId {
     /**the PCI vendor id
 */
     pub vendor: i64,
-    /**the PCI subsystem id (since 3.1)
+    /**the PCI subsystem id (since 3.1.0)
 */
     #[qapi(since = "3.1.0")]
     pub subsystem: Option<i64>,
-    /**the PCI subsystem vendor id (since 3.1)
+    /**the PCI subsystem vendor id (since 3.1.0)
 */
     #[qapi(name = "subsystem-vendor")]
     #[qapi(since = "3.1.0")]
@@ -18864,7 +18864,7 @@ pub struct PciDeviceInfo {
     /**a list of the PCI I/O regions associated with the device
 */
     pub regions: Vec<PciMemoryRegion>,
-    /**the IRQ pin, zero means no IRQ (since 5.1)
+    /**the IRQ pin, zero means no IRQ (since 5.1.0)
 */
     #[qapi(since = "5.1.0")]
     pub irq_pin: Option<i64>,
@@ -19088,7 +19088,7 @@ Currently defaults to 'sha256'
     #[qapi(name = "hash-alg")]
     pub hash_alg: Option<QCryptoHashAlgorithm>,
     /**number of milliseconds to spend in PBKDF passphrase
-processing.  Currently defaults to 2000.  (since 2.8)
+processing.  Currently defaults to 2000.  (since 2.8.0)
 */
     #[qapi(name = "iter-time")]
     #[qapi(since = "2.8.0")]
@@ -19159,7 +19159,7 @@ pub struct QCryptoBlockInfoLuks {
     /**information about each key slot
 */
     pub slots: Vec<QCryptoBlockInfoLuksSlot>,
-    /**whether the LUKS header is detached (Since 9.0)
+    /**whether the LUKS header is detached (Since 9.0.0)
 */
     #[qapi(name = "detached-header")]
     #[qapi(since = "9.0.0")]
@@ -19305,7 +19305,7 @@ should not try to interpret the error string.
 */
     #[qapi(name = "sectors-count")]
     pub sectors_count: i64,
-    /**quorum operation type (Since 2.6)
+    /**quorum operation type (Since 2.6.0)
 */
     #[qapi(since = "2.6.0")]
     pub r#type: Option<QuorumOpType>,
@@ -19368,7 +19368,7 @@ other flags, defaults to 'cached'
 */
     #[qapi(name = "inactive-l2")]
     pub inactive_l2: Option<bool>,
-    /**Qcow2 bitmap directory (since 3.0)
+    /**Qcow2 bitmap directory (since 3.0.0)
 */
     #[qapi(name = "bitmap-directory")]
     #[qapi(since = "3.0.0")]
@@ -19425,11 +19425,11 @@ pub struct ResetEvent {
     /**If true, the reset was triggered by a guest request (such as
 a guest-initiated ACPI reboot request or other hardware-specific
 action) rather than a host request (such as the QMP command
-`system_reset`).  (since 2.10)
+`system_reset`).  (since 2.10.0)
 */
     #[qapi(since = "2.10.0")]
     pub guest: Option<bool>,
-    /**The `ShutdownCause` of the `RESET`.  (since 4.0)
+    /**The `ShutdownCause` of the `RESET`.  (since 4.0.0)
 */
     #[qapi(since = "4.0.0")]
     pub reason: Option<ShutdownCause>,
@@ -19515,7 +19515,7 @@ pub struct RbdEncryptionOptions {
     /**Parent image encryption options (for cloned images).  Can
 be left unspecified if this cloned image is encrypted using the
 same format and secret as its parent image (i.e. not explicitly
-formatted) or if its parent image is not encrypted.  (Since 8.0)
+formatted) or if its parent image is not encrypted.  (Since 8.0.0)
 */
     #[qapi(since = "8.0.0")]
     pub parent: Option<Box<RbdEncryptionOptions>>,
@@ -19904,7 +19904,7 @@ pub struct RxFilterInfo {
 */
     #[qapi(name = "multicast-table")]
     pub multicast_table: Vec<String>,
-    /**vlan receive state (Since 2.0)
+    /**vlan receive state (Since 2.0.0)
 */
     #[qapi(since = "2.0.0")]
     pub vlan: Option<RxState>,
@@ -19955,7 +19955,7 @@ Redundant with @sections.  Just for backward compatibility.
     #[qapi(name = "section-size")]
     #[qapi(until = "8.0.0")]
     pub section_size: Option<u64>,
-    /**The EPC sections info for guest (Since: 7.0)
+    /**The EPC sections info for guest (Since: 7.0.0)
 */
     #[qapi(since = "7.0.0")]
     pub sections: Option<Vec<SgxepcSection>>,
@@ -19970,12 +19970,12 @@ pub struct ShutdownEvent {
     /**If true, the shutdown was triggered by a guest request (such
 as a guest-initiated ACPI shutdown request or other
 hardware-specific action) rather than a host request (such as
-sending QEMU a SIGINT).  (since 2.10)
+sending QEMU a SIGINT).  (since 2.10.0)
 */
     #[qapi(since = "2.10.0")]
     pub guest: Option<bool>,
     /**The `ShutdownCause` which resulted in the `SHUTDOWN`.
-(since 4.0)
+(since 4.0.0)
 */
     #[qapi(since = "4.0.0")]
     pub reason: Option<ShutdownCause>,
@@ -20017,19 +20017,19 @@ pub struct SmpConfiguration {
 machine
 */
     pub maxcpus: Option<i64>,
-    /**number of clusters per parent container (since 7.0)
+    /**number of clusters per parent container (since 7.0.0)
 */
     #[qapi(since = "7.0.0")]
     pub clusters: Option<i64>,
-    /**number of drawers in the CPU topology (since 8.2)
+    /**number of drawers in the CPU topology (since 8.2.0)
 */
     #[qapi(since = "8.2.0")]
     pub drawers: Option<i64>,
-    /**number of books in the CPU topology (since 8.2)
+    /**number of books in the CPU topology (since 8.2.0)
 */
     #[qapi(since = "8.2.0")]
     pub books: Option<i64>,
-    /**number of modules per parent container (since 9.1)
+    /**number of modules per parent container (since 9.1.0)
 */
     #[qapi(since = "9.1.0")]
     pub modules: Option<i64>,
@@ -20119,7 +20119,7 @@ guaranteed unique regardless of @meta-type.
     #[qapi(union)]
     pub u: Option<SchemaInfoBranch>,
     /**names of features associated with the entity, in no
-particular order.  (since 4.1 for object types, 4.2 for
+particular order.  (since 4.1.0 for object types, 4.2 for
 commands, 5.0 for the rest)
 */
     #[qapi(since = "5.0.0")]
@@ -20186,7 +20186,7 @@ parameters.
     #[qapi(name = "ret-type")]
     pub ret_type: String,
     /**whether the command allows out-of-band execution,
-defaults to false (Since: 2.12)
+defaults to false (Since: 2.12.0)
 
 TODO: @success-response (currently irrelevant, because it's QGA, not
 QMP)
@@ -20213,7 +20213,7 @@ compatibility.
 */
     pub values: Vec<String>,
     /**the enum type's members, in no particular order.
-(since 6.2)
+(since 6.2.0)
 */
     #[qapi(since = "6.2.0")]
     pub members: Option<Vec<SchemaInfoEnumMember>>,
@@ -20261,7 +20261,7 @@ Values of this type are JSON object on the wire.
 */
     pub variants: Option<Vec<SchemaInfoObjectVariant>>,
     /**names of features associated with the type, in no particular
-order. (since: 4.1)
+order. (since: 4.1.0)
 
 Values of this type are JSON object on the wire.
 */
@@ -20287,7 +20287,7 @@ parameter is optional, and defaults to this value.
 */
     pub default: Option<serde_json::Value>,
     /**names of features associated with the member, in no
-particular order.  (since 5.0)
+particular order.  (since 5.0.0)
 */
     #[qapi(since = "5.0.0")]
     pub features: Option<Vec<String>>,
@@ -20459,7 +20459,7 @@ SEV is enabled
 */
     #[qapi(name = "reduced-phys-bits")]
     pub reduced_phys_bits: i64,
-    /**Unique ID of CPU0 (base64 encoded) (since 7.1)
+    /**Unique ID of CPU0 (base64 encoded) (since 7.1.0)
 */
     #[qapi(name = "cpu0-id")]
     #[qapi(since = "7.1.0")]
@@ -20483,7 +20483,7 @@ unavailable when SEV is enabled
     pub reduced_phys_bits: u32,
     /**if true, add hashes of kernel/initrd/cmdline to a
 designated guest firmware page for measured boot with -kernel
-(default: false) (since 6.2)
+(default: false) (since 6.2.0)
 */
     #[qapi(name = "kernel-hashes")]
     pub kernel_hashes: Option<bool>,
@@ -20532,7 +20532,7 @@ unavailable when SEV is enabled
     pub reduced_phys_bits: u32,
     /**if true, add hashes of kernel/initrd/cmdline to a
 designated guest firmware page for measured boot with -kernel
-(default: false) (since 6.2)
+(default: false) (since 6.2.0)
 */
     #[qapi(name = "kernel-hashes")]
     #[qapi(since = "6.2.0")]
@@ -20546,7 +20546,7 @@ versions that rely on legacy KVM_SEV_INIT behavior.  'auto' will
 behave identically to 'on', but will automatically switch to
 using KVM_SEV_INIT2 if the user specifies any additional options
 that require it.  If set to 'off', QEMU will require
-KVM_SEV_INIT2 unconditionally.  (default: off) (since 9.1)
+KVM_SEV_INIT2 unconditionally.  (default: off) (since 9.1.0)
 */
     #[qapi(name = "legacy-vm-type")]
     #[qapi(since = "9.1.0")]
@@ -20636,7 +20636,7 @@ unavailable when SEV is enabled
     pub reduced_phys_bits: u32,
     /**if true, add hashes of kernel/initrd/cmdline to a
 designated guest firmware page for measured boot with -kernel
-(default: false) (since 6.2)
+(default: false) (since 6.2.0)
 */
     #[qapi(name = "kernel-hashes")]
     pub kernel_hashes: Option<bool>,
@@ -20679,7 +20679,7 @@ all-zero)
 (Versioned Loaded Endorsement Key) or VCEK (Versioned Chip
 Endorsement Key) when requesting attestation reports from
 firmware.  Set this to true to disable the use of VCEK.
-(default: false) (since: 9.1)
+(default: false) (since: 9.1.0)
 */
     #[qapi(name = "vcek-disabled")]
     pub vcek_disabled: Option<bool>,
@@ -20692,7 +20692,7 @@ pub struct SgxEpc {
     /**memory backend linked with device
 */
     pub memdev: String,
-    /**the numa node (Since: 7.0)
+    /**the numa node (Since: 7.0.0)
 */
     #[qapi(since = "7.0.0")]
     pub node: Option<i64>,
@@ -20714,7 +20714,7 @@ pub struct SgxEpcDeviceInfo {
     /**memory backend linked with device
 */
     pub memdev: String,
-    /**the numa node (Since: 7.0)
+    /**the numa node (Since: 7.0.0)
 */
     #[qapi(since = "7.0.0")]
     pub node: Option<i64>,
@@ -20798,7 +20798,7 @@ topology container share the same cache.
 pub struct SmpCachePropertiesWrapper {
     /**the list of `SmpCacheProperties`.
 
-Since 9.2*/
+Since 9.2.0*/
     pub caches: Vec<SmpCacheProperties>,
 }
 #[qapi(since = "1.3.0")]
@@ -20834,7 +20834,7 @@ vm-clock-sec
 record/replay is enabled.  Used for "time-traveling" to match
 the moment in the recorded execution with the snapshots.  This
 counter may be obtained through `query-replay` command
-(since 5.2)
+(since 5.2.0)
 */
     #[qapi(since = "5.2.0")]
     pub icount: Option<i64>,
@@ -20969,7 +20969,7 @@ command line options
     /**The mode in which the mouse cursor is displayed
 currently.  Can be determined by the client or the server, or
 unknown if spice server doesn't provide this information.
-(since: 1.1)
+(since: 1.1.0)
 */
     #[qapi(name = "mouse-mode")]
     pub mouse_mode: SpiceQueryMouseMode,
@@ -20977,7 +20977,7 @@ unknown if spice server doesn't provide this information.
 */
     pub channels: Option<Vec<SpiceChannel>>,
     /**true if the last guest migration completed and spice
-migration had completed as well, false otherwise (since 1.4)
+migration had completed as well, false otherwise (since 1.4.0)
 */
     #[qapi(since = "1.3.0")]
     pub migrated: Option<bool>,
@@ -21575,7 +21575,7 @@ pub struct TraceEventInfo {
     /**Tracing state.
 */
     pub state: TraceEventState,
-    /**Whether this is a per-vCPU event (since 2.7).
+    /**Whether this is a per-vCPU event (since 2.7.0).
 */
     #[qapi(since = "2.7.0")]
     #[qapi(until = "9.1.0")]
@@ -21674,13 +21674,13 @@ pub struct UnixSocketAddress {
     pub path: String,
     /**if false, pad an abstract socket address with enough null
 bytes to make it fill struct sockaddr_un member sun_path.
-Defaults to true.  (Since 5.1)
+Defaults to true.  (Since 5.1.0)
 */
     #[qapi(since = "5.1.0")]
     pub tight: Option<bool>,
     /**if true, this is a Linux abstract socket address.  @path
 will be prefixed by a null byte, and optionally padded with null
-bytes.  Defaults to false.  (Since 5.1)
+bytes.  Defaults to false.  (Since 5.1.0)
 */
     #[qapi(since = "5.1.0")]
     pub r#abstract: Option<bool>,
@@ -22348,7 +22348,7 @@ relied on.
     /**address family
 */
     pub family: NetworkAddressFamily,
-    /**true in case the socket is a websocket (since 2.3).
+    /**true in case the socket is a websocket (since 2.3.0).
 */
     #[qapi(since = "2.3.0")]
     pub websocket: Option<bool>,
@@ -22376,7 +22376,7 @@ Name of the client.
 used for authentication.
 */
     pub sasl_username: Option<String>,
-    /**true in case the socket is a websocket (since 2.3).
+    /**true in case the socket is a websocket (since 2.3.0).
 */
     #[qapi(since = "2.3.0")]
     pub websocket: Option<bool>,
@@ -22478,7 +22478,7 @@ relied on.
 server
 */
     pub auth: Option<String>,
-    /**true in case the socket is a websocket (since 2.3).
+    /**true in case the socket is a websocket (since 2.3.0).
 */
     #[qapi(since = "2.3.0")]
     pub websocket: Option<bool>,
@@ -22498,7 +22498,7 @@ relied on.
     /**address family
 */
     pub family: NetworkAddressFamily,
-    /**true in case the socket is a websocket (since 2.3).
+    /**true in case the socket is a websocket (since 2.3.0).
 */
     pub websocket: bool,
     /**The current authentication type used by the servers
@@ -22588,12 +22588,12 @@ pub struct XbzrleCacheStats {
     /**number of overflows
 */
     pub overflow: i64,
-    /**rate of cache miss (since 2.1)
+    /**rate of cache miss (since 2.1.0)
 */
     #[qapi(name = "cache-miss-rate")]
     #[qapi(since = "2.1.0")]
     pub cache_miss_rate: Option<f64>,
-    /**rate of encoded bytes (since 5.1)
+    /**rate of encoded bytes (since 5.1.0)
 */
     #[qapi(name = "encoding-rate")]
     #[qapi(since = "5.1.0")]
@@ -22764,7 +22764,7 @@ i.e., writes data between 'top' and 'base' into 'base'.
 If top == base, that is an error.  If top has no overlays on top of
 it, or if it is in use by a writer, the job will not be completed by
 itself.  The user needs to complete the job with the `job-complete`
-command after getting the ready event.  (Since 2.0)
+command after getting the ready event.  (Since 2.0.0)
 
 If the base image is smaller than top, then the base image will be
 resized to be the same size as top.  If top is smaller than the base
@@ -22808,13 +22808,13 @@ question, as filename lookup methods will fail.
 If not specified, QEMU will automatically determine the backing
 file string to use, or error out if there is no obvious choice.
 Care should be taken when specifying the string, to specify a
-valid filename or protocol.  (Since 2.1)
+valid filename or protocol.  (Since 2.1.0)
 */
     #[qapi(name = "backing-file")]
     #[qapi(since = "2.1.0")]
     pub backing_file: Option<String>,
     /**identifier for the newly-created block job.  If omitted,
-the device name will be used.  (Since 2.7)
+the device name will be used.  (Since 2.7.0)
 */
     #[qapi(name = "job-id")]
     #[qapi(since = "2.7.0")]
@@ -22822,21 +22822,21 @@ the device name will be used.  (Since 2.7)
     /**the node name that should be assigned to the
 filter driver that the commit job inserts into the graph above
 @top.  If this option is not given, a node name is
-autogenerated.  (Since: 2.9)
+autogenerated.  (Since: 2.9.0)
 */
     #[qapi(name = "filter-node-name")]
     #[qapi(since = "2.9.0")]
     pub filter_node_name: Option<String>,
     /**The node name of the backing image to write data into.
 If not specified, this is the deepest backing image.
-(since: 3.1)
+(since: 3.1.0)
 */
     #[qapi(name = "base-node")]
     #[qapi(since = "3.1.0")]
     pub base_node: Option<String>,
     /**The node name of the backing image within the image chain
 which contains the topmost data to be committed down.  If not
-specified, this is the active layer.  (since: 3.1)
+specified, this is the active layer.  (since: 3.1.0)
 */
     #[qapi(name = "top-node")]
     #[qapi(since = "3.1.0")]
@@ -22845,7 +22845,7 @@ specified, this is the active layer.  (since: 3.1)
 after it has finished its work, waiting for `job-finalize`
 before making any block graph changes.  When true, this job will
 automatically perform its abort or commit actions.  Defaults to
-true.  (Since 3.1)
+true.  (Since 3.1.0)
 */
     #[qapi(name = "auto-finalize")]
     #[qapi(since = "3.1.0")]
@@ -22853,13 +22853,13 @@ true.  (Since 3.1)
     /**When false, this job will wait in a CONCLUDED state
 after it has completely ceased all work, and awaits
 `job-dismiss`.  When true, this job will automatically disappear
-without user intervention.  Defaults to true.  (Since 3.1)
+without user intervention.  Defaults to true.  (Since 3.1.0)
 */
     #[qapi(name = "auto-dismiss")]
     #[qapi(since = "3.1.0")]
     pub auto_dismiss: Option<bool>,
     /**the action to take on an error.  'ignore' means that the
-request should be retried.  (default: report; since: 5.0)
+request should be retried.  (default: report; since: 5.0.0)
 */
     #[qapi(name = "on-error")]
     #[qapi(since = "5.0.0")]
@@ -22867,7 +22867,7 @@ request should be retried.  (default: report; since: 5.0)
     /**If true, replace any protocol mentioned in
 the 'backing file format' with 'raw', rather than storing the
 protocol name as the backing format.  Can be used even when no
-image header will be updated (default false; since 9.0).
+image header will be updated (default false; since 9.0.0).
 */
     #[qapi(name = "backing-mask-protocol")]
     #[qapi(since = "9.0.0")]
@@ -22979,7 +22979,7 @@ values.
     /**If true, and the job has already emitted the event
 `BLOCK_JOB_READY`, abandon the job immediately (even if it is
 paused) instead of waiting for the destination to complete its
-final synchronization (since 1.3)
+final synchronization (since 1.3.0)
 */
     #[qapi(since = "1.3.0")]
     pub force: Option<bool>,
@@ -23247,7 +23247,7 @@ or @bottom is also set.
     pub speed: Option<i64>,
     /**the action to take on an error (default report).  'stop'
 and 'enospc' can only be used if the block device supports
-io-status (see `BlockInfo`).  (Since 1.3)
+io-status (see `BlockInfo`).  (Since 1.3.0)
 */
     #[qapi(name = "on-error")]
     #[qapi(since = "1.3.0")]
@@ -23263,19 +23263,19 @@ will fail.
 If not specified, QEMU will automatically determine the backing
 file string to use, or error out if there is no obvious choice.
 Care should be taken when specifying the string, to specify a
-valid filename or protocol.  (Since 2.1)
+valid filename or protocol.  (Since 2.1.0)
 */
     #[qapi(name = "backing-file")]
     #[qapi(since = "2.1.0")]
     pub backing_file: Option<String>,
     /**identifier for the newly-created block job.  If omitted,
-the device name will be used.  (Since 2.7)
+the device name will be used.  (Since 2.7.0)
 */
     #[qapi(name = "job-id")]
     #[qapi(since = "2.7.0")]
     pub job_id: Option<String>,
     /**the node name of the backing file.  It cannot be set if
-@base or @bottom is also set.  (Since 2.8)
+@base or @bottom is also set.  (Since 2.8.0)
 */
     #[qapi(name = "base-node")]
     #[qapi(since = "2.8.0")]
@@ -23284,7 +23284,7 @@ the device name will be used.  (Since 2.7)
 after it has finished its work, waiting for `job-finalize`
 before making any block graph changes.  When true, this job will
 automatically perform its abort or commit actions.  Defaults to
-true.  (Since 3.1)
+true.  (Since 3.1.0)
 */
     #[qapi(name = "auto-finalize")]
     #[qapi(since = "3.1.0")]
@@ -23292,21 +23292,21 @@ true.  (Since 3.1)
     /**When false, this job will wait in a CONCLUDED state
 after it has completely ceased all work, and awaits
 `job-dismiss`.  When true, this job will automatically disappear
-without user intervention.  Defaults to true.  (Since 3.1)
+without user intervention.  Defaults to true.  (Since 3.1.0)
 */
     #[qapi(name = "auto-dismiss")]
     #[qapi(since = "3.1.0")]
     pub auto_dismiss: Option<bool>,
     /**the last node in the chain that should be streamed into
 top.  It cannot be set if @base or @base-node is also set.  It
-cannot be filter node.  (Since 6.0)
+cannot be filter node.  (Since 6.0.0)
 */
     #[qapi(since = "6.0.0")]
     pub bottom: Option<String>,
     /**the node name that should be assigned to the
 filter driver that the stream job inserts into the graph above
 @device.  If this option is not given, a node name is
-autogenerated.  (Since: 6.0)
+autogenerated.  (Since: 6.0.0)
 */
     #[qapi(name = "filter-node-name")]
     #[qapi(since = "6.0.0")]
@@ -23314,7 +23314,7 @@ autogenerated.  (Since: 6.0)
     /**If true, replace any protocol mentioned in
 the 'backing file format' with 'raw', rather than storing the
 protocol name as the backing format.  Can be used even when no
-image header will be updated (default false; since 9.0).
+image header will be updated (default false; since 9.0.0).
 */
     #[qapi(name = "backing-mask-protocol")]
     #[qapi(since = "9.0.0")]
@@ -23323,7 +23323,7 @@ image header will be updated (default false; since 9.0).
 /**This command sets the password of a block device that has not been open
 with a password and requires one.
 
-This command is now obsolete and will always return an error since 2.10
+This command is now obsolete and will always return an error since 2.10.0
 */
 #[qapi(command)]
 #[qapi(name = "block_passwd")]
@@ -23337,7 +23337,7 @@ pub struct BlockPasswd {
     /**the password to use for the device
 */
     pub password: String,
-    /**graph node name to set the password on (Since 2.0)
+    /**graph node name to set the password on (Since 2.0.0)
 */
     #[qapi(name = "node-name")]
     #[qapi(since = "2.0.0")]
@@ -23358,7 +23358,7 @@ pub struct BlockResize {
     /**new image size in bytes
 */
     pub size: i64,
-    /**graph node name to get the image resized (Since 2.0)
+    /**graph node name to get the image resized (Since 2.0.0)
 */
     #[qapi(name = "node-name")]
     #[qapi(since = "2.0.0")]
@@ -23421,47 +23421,47 @@ pub struct BlockSetIoThrottle {
     #[qapi(until = "2.7.0")]
     pub iops_wr: Option<i64>,
     /**optional total throughput limit during bursts,
-in bytes (Since 1.7)
+in bytes (Since 1.7.0)
 */
     #[qapi(since = "1.7.0")]
     #[qapi(until = "2.7.0")]
     pub bps_max: Option<i64>,
     /**optional read throughput limit during bursts,
-in bytes (Since 1.7)
+in bytes (Since 1.7.0)
 */
     #[qapi(since = "1.7.0")]
     #[qapi(until = "2.7.0")]
     pub bps_rd_max: Option<i64>,
     /**optional write throughput limit during bursts,
-in bytes (Since 1.7)
+in bytes (Since 1.7.0)
 */
     #[qapi(since = "1.7.0")]
     #[qapi(until = "2.7.0")]
     pub bps_wr_max: Option<i64>,
     /**optional total I/O operations per second during bursts,
-in bytes (Since 1.7)
+in bytes (Since 1.7.0)
 */
     #[qapi(since = "1.7.0")]
     #[qapi(until = "2.7.0")]
     pub iops_max: Option<i64>,
     /**optional read I/O operations per second during bursts,
-in bytes (Since 1.7)
+in bytes (Since 1.7.0)
 */
     #[qapi(since = "1.7.0")]
     #[qapi(until = "2.7.0")]
     pub iops_rd_max: Option<i64>,
     /**optional write I/O operations per second during bursts,
-in bytes (Since 1.7)
+in bytes (Since 1.7.0)
 */
     #[qapi(since = "1.7.0")]
     #[qapi(until = "2.7.0")]
     pub iops_wr_max: Option<i64>,
-    /**optional an I/O size in bytes (Since 1.7)
+    /**optional an I/O size in bytes (Since 1.7.0)
 */
     #[qapi(since = "1.7.0")]
     #[qapi(until = "2.7.0")]
     pub iops_size: Option<i64>,
-    /**optional throttle group name (Since 2.4)
+    /**optional throttle group name (Since 2.4.0)
 */
     #[qapi(since = "2.4.0")]
     #[qapi(until = "2.7.0")]
@@ -23559,7 +23559,7 @@ to 'retain'
 */
     #[qapi(name = "read-only-mode")]
     pub read_only_mode: Option<BlockdevChangeReadOnlyMode>,
-    /**The name or QOM path of the guest device (since: 2.8)
+    /**The name or QOM path of the guest device (since: 2.8.0)
 */
     #[qapi(since = "2.8.0")]
     pub id: Option<String>,
@@ -23567,7 +23567,7 @@ to 'retain'
 `blockdev-open-tray` will be sent to the guest if it has locked
 the tray (and the tray will not be opened immediately); if true,
 the tray will be opened regardless of whether it is locked.
-(since 7.1)
+(since 7.1.0)
 */
     #[qapi(since = "7.1.0")]
     pub force: Option<bool>,
@@ -23586,7 +23586,7 @@ pub struct BlockdevCloseTray {
     /**Block device name
 */
     pub device: String,
-    /**The name or QOM path of the guest device (since: 2.8)
+    /**The name or QOM path of the guest device (since: 2.8.0)
 */
     #[qapi(since = "2.8.0")]
     pub id: Option<String>,
@@ -23690,7 +23690,7 @@ different block device than @device).
     #[qapi(name = "on-target-error")]
     pub on_target_error: Option<BlockdevOnError>,
     /**identifier for the newly-created block job.  If omitted,
-the device name will be used.  (Since 2.7)
+the device name will be used.  (Since 2.7.0)
 */
     #[qapi(name = "job-id")]
     #[qapi(since = "2.7.0")]
@@ -23698,13 +23698,13 @@ the device name will be used.  (Since 2.7)
     /**the node name that should be assigned to the
 filter driver that the mirror job inserts into the graph above
 @device.  If this option is not given, a node name is
-autogenerated.  (Since: 2.9)
+autogenerated.  (Since: 2.9.0)
 */
     #[qapi(name = "filter-node-name")]
     #[qapi(since = "2.9.0")]
     pub filter_node_name: Option<String>,
     /**when to copy data to the destination; defaults to
-'background' (Since: 3.0)
+'background' (Since: 3.0.0)
 */
     #[qapi(name = "copy-mode")]
     #[qapi(since = "3.0.0")]
@@ -23713,7 +23713,7 @@ autogenerated.  (Since: 2.9)
 after it has finished its work, waiting for `job-finalize`
 before making any block graph changes.  When true, this job will
 automatically perform its abort or commit actions.  Defaults to
-true.  (Since 3.1)
+true.  (Since 3.1.0)
 */
     #[qapi(name = "auto-finalize")]
     #[qapi(since = "3.1.0")]
@@ -23721,7 +23721,7 @@ true.  (Since 3.1)
     /**When false, this job will wait in a CONCLUDED state
 after it has completely ceased all work, and awaits
 `job-dismiss`.  When true, this job will automatically disappear
-without user intervention.  Defaults to true.  (Since 3.1)
+without user intervention.  Defaults to true.  (Since 3.1.0)
 */
     #[qapi(name = "auto-dismiss")]
     #[qapi(since = "3.1.0")]
@@ -23729,7 +23729,7 @@ without user intervention.  Defaults to true.  (Since 3.1)
     /**Assume the destination reads as all zeroes before
 the mirror started.  Setting this to true can speed up the
 mirror.  Setting this to true when the destination is not
-actually all zero can corrupt the destination.  (Since 10.1)
+actually all zero can corrupt the destination.  (Since 10.1.0)
 */
     #[qapi(name = "target-is-zero")]
     #[qapi(since = "10.1.0")]
@@ -23765,7 +23765,7 @@ immediately); if true, the tray will be opened regardless of
 whether it is locked
 */
     pub force: Option<bool>,
-    /**The name or QOM path of the guest device (since: 2.8)
+    /**The name or QOM path of the guest device (since: 2.8.0)
 */
     #[qapi(since = "2.8.0")]
     pub id: Option<String>,
@@ -23934,19 +23934,19 @@ not increase dirty page rate anymore.
     /**number of sampled pages per each GiB of guest memory.
 Default value is 512.  For 4KiB guest pages this corresponds to
 sampling ratio of 0.2%.  This argument is used only in page
-sampling mode.  (Since 6.1)
+sampling mode.  (Since 6.1.0)
 */
     #[qapi(name = "sample-pages")]
     #[qapi(since = "6.1.0")]
     pub sample_pages: Option<i64>,
     /**mechanism for tracking dirty pages.  Default value is
 'page-sampling'.  Others are 'dirty-bitmap' and 'dirty-ring'.
-(Since 6.1)
+(Since 6.1.0)
 */
     #[qapi(since = "6.2.0")]
     pub mode: Option<DirtyRateMeasureMode>,
     /**time unit in which @calc-time is specified.  By
-default it is seconds.  (Since 8.2)
+default it is seconds.  (Since 8.2.0)
 */
     #[qapi(name = "calc-time-unit")]
     #[qapi(since = "8.2.0")]
@@ -24620,13 +24620,13 @@ to dump all guest's memory, please specify the start @begin and
     /**if specified, the format of guest memory dump.  But non-elf
 format is conflict with paging and filter, ie.  @paging, @begin
 and @length is not allowed to be specified with non-elf @format
-at the same time (since 2.0)
+at the same time (since 2.0.0)
 */
     #[qapi(since = "2.0.0")]
     pub format: Option<DumpGuestMemoryFormat>,
     /**if true, QMP will return immediately rather than waiting
 for the dump to finish.  The user can track progress using
-`query-dump`.  (since 2.6).
+`query-dump`.  (since 2.6.0).
 */
     #[qapi(since = "2.6.0")]
     pub detach: Option<bool>,
@@ -24668,7 +24668,7 @@ pub struct Eject {
 If not specified, the default value is false.
 */
     pub force: Option<bool>,
-    /**The name or QOM path of the guest device (since: 2.8)
+    /**The name or QOM path of the guest device (since: 2.8.0)
 */
     #[qapi(since = "2.8.0")]
     pub id: Option<String>,
@@ -24970,7 +24970,7 @@ ignored by QEMU
 paused postcopy migration.  This flag should only be used if
 the previous postcopy migration was interrupted.  The command
 will fail unless migration is in "postcopy-paused" state.
-(default: false, since 3.0)
+(default: false, since 3.0.0)
 */
     #[qapi(since = "3.0.0")]
     pub resume: Option<bool>,
@@ -25011,7 +25011,7 @@ list connected to a destination interface endpoint.
     /**Exit on incoming migration failure.  Default true.
 When set to false, the failure triggers a
 :qapi:event:`MIGRATION` event, and error details could be
-retrieved with `query-migrate`.  (since 9.1)
+retrieved with `query-migrate`.  (since 9.1.0)
 */
     #[qapi(name = "exit-on-error")]
     #[qapi(since = "9.1.0")]
@@ -25122,7 +25122,7 @@ NBD connection (default false).
     #[qapi(until = "5.0.0")]
     pub writable: Option<bool>,
     /**Export name. If unspecified, the @device parameter is used as the
-export name. (Since 2.12)
+export name. (Since 2.12.0)
 */
     #[qapi(since = "2.12.0")]
     #[qapi(until = "5.0.0")]
@@ -25163,7 +25163,7 @@ pub struct NbdServerStart {
 */
     #[qapi(until = "10.0.0")]
     pub addr: Option<SocketAddress>,
-    /**ID of the TLS credentials object (since 2.6).
+    /**ID of the TLS credentials object (since 2.6.0).
 */
     #[qapi(name = "tls-creds")]
     #[qapi(since = "2.6.0")]
@@ -25173,7 +25173,7 @@ pub struct NbdServerStart {
 the client's x509 distinguished name.  This object is is only
 resolved at time of use, so can be deleted and recreated on the
 fly while the NBD server is active.  If missing, it will default
-to denying access (since 4.0).
+to denying access (since 4.0.0).
 */
     #[qapi(name = "tls-authz")]
     #[qapi(since = "4.0.0")]
@@ -25181,7 +25181,7 @@ to denying access (since 4.0).
     pub tls_authz: Option<String>,
     /**The maximum number of connections to allow at the
 same time, 0 for unlimited.  Setting this to 1 also stops the
-server from advertising multiple client support (since 5.2;
+server from advertising multiple client support (since 5.2.0;
 default: 100).
 */
     #[qapi(name = "max-connections")]
@@ -25265,7 +25265,7 @@ pub struct ObjectAdd {
     #[qapi(until = "6.0.0")]
     pub id: Option<String>,
     /**a dictionary of properties to be passed to the backend. Deprecated
-since 5.0, specify the properties on the top level instead. It is an
+since 5.0.0, specify the properties on the top level instead. It is an
 error to specify the same option both on the top level and in @props.
 
 Additional arguments depend on qom-type and are passed to the backend
@@ -25315,7 +25315,7 @@ pub struct QmpCapabilities {
     /**An optional list of `QMPCapability` values to enable.  The
 client must not enable any capability that is not mentioned in
 the QMP greeting message.  If the field is not provided, it
-means no QMP capabilities will be enabled.  (since 2.12)
+means no QMP capabilities will be enabled.  (since 2.12.0)
 */
     #[qapi(since = "2.12.0")]
     pub enable: Option<Vec<QmpCapability>>,
@@ -25480,7 +25480,7 @@ information, but not "backing".  If false or omitted, the
 behavior is as before - query all the device backends,
 recursively including their "parent" and "backing".  Filter
 nodes that were created implicitly are skipped over in this
-mode.  (Since 2.3)
+mode.  (Since 2.3.0)
 */
     #[qapi(name = "query-nodes")]
     #[qapi(since = "2.3.0")]
@@ -25703,7 +25703,7 @@ pub struct QueryCurrentMachine {}
 #[qapi(since = "5.2.0")]
 pub struct QueryDirtyRate {
     /**time unit in which to report calculation time.
-By default it is reported in seconds.  (Since 8.2)
+By default it is reported in seconds.  (Since 8.2.0)
 */
     #[qapi(name = "calc-time-unit")]
     #[qapi(since = "8.2.0")]
@@ -25814,7 +25814,7 @@ pub struct QueryKvm {}
 #[qapi(since = "1.2.0")]
 pub struct QueryMachines {
     /**if true, also return compatibility properties.
-(default: false) (since 9.1)
+(default: false) (since 9.1.0)
 */
     #[qapi(name = "compat-props")]
     #[qapi(feature = "unstable")]
@@ -25904,7 +25904,7 @@ pub struct QueryName {}
 #[qapi(since = "2.0.0")]
 pub struct QueryNamedBlockNodes {
     /**Omit the nested data about backing image ("backing-image"
-key) if true.  Default is false (Since 5.0)
+key) if true.  Default is false (Since 5.0.0)
 */
     #[qapi(since = "5.0.0")]
     pub flat: Option<bool>,
@@ -26373,18 +26373,18 @@ pub struct Screendump {
     pub filename: String,
     /**ID of the display device that should be dumped.  If this
 parameter is missing, the primary display will be used.
-(Since 2.12)
+(Since 2.12.0)
 */
     #[qapi(since = "2.12.0")]
     pub device: Option<String>,
     /**head to use in case the device supports multiple heads.  If
 this parameter is missing, head #0 will be used.  Also note that
 the head can only be specified in conjunction with the device
-ID.  (Since 2.12)
+ID.  (Since 2.12.0)
 */
     #[qapi(since = "2.12.0")]
     pub head: Option<i64>,
-    /**image format for `screendump`.  (default: ppm) (Since 7.1)
+    /**image format for `screendump`.  (default: ppm) (Since 7.1.0)
 */
     #[qapi(since = "7.1.0")]
     pub format: Option<ImageFormat>,
@@ -26695,7 +26695,7 @@ pub struct TraceEventGetState {
     /**Event name pattern (case-sensitive glob).
 */
     pub name: String,
-    /**The vCPU to query (since 2.7).
+    /**The vCPU to query (since 2.7.0).
 */
     #[qapi(since = "2.7.0")]
     #[qapi(until = "9.1.0")]
@@ -26718,7 +26718,7 @@ pub struct TraceEventSetState {
 */
     #[qapi(name = "ignore-unavailable")]
     pub ignore_unavailable: Option<bool>,
-    /**The vCPU to act upon (all by default; since 2.7).
+    /**The vCPU to act upon (all by default; since 2.7.0).
 */
     #[qapi(since = "2.7.0")]
     #[qapi(until = "9.1.0")]
@@ -26970,7 +26970,7 @@ Stay away from it unless you want to help with its development.
 */
     #[qapi(name = "node-name")]
     pub node_name: String,
-    /**The name or QOM path of the guest device (since: 2.8)
+    /**The name or QOM path of the guest device (since: 2.8.0)
 */
     #[qapi(since = "2.8.0")]
     pub id: Option<String>,
@@ -26990,7 +26990,7 @@ pub struct XBlockdevRemoveMedium {
     /**Block device name (deprecated, use @id instead)
 */
     pub device: String,
-    /**The name or QOM path of the guest device (since: 2.8)
+    /**The name or QOM path of the guest device (since: 2.8.0)
 
 Note: This command is still a work in progress and is considered experimental.
 Stay away from it unless you want to help with its development.
@@ -27369,7 +27369,7 @@ binary format.
 */
     pub filename: String,
     /**Optional argument to ask QEMU to treat this command as part
-of a live migration.  Default to true.  (since 2.11)
+of a live migration.  Default to true.  (since 2.11.0)
 */
     #[qapi(since = "2.11.0")]
     pub live: Option<bool>,

@@ -19,6 +19,21 @@ fn version_str(v: Version) -> String {
     format!("{}.{}.{}", v.0, v.1, v.2)
 }
 
+/// Normalize "Since X.Y" patterns in doc strings to "Since X.Y.0"
+fn normalize_doc_versions(doc: &str) -> String {
+    let re = regex::Regex::new(r"(?i)((?:since|Since):?\s+)(\d+\.\d+)(\.\d+)?").unwrap();
+    re.replace_all(doc, |caps: &regex::Captures| {
+        let prefix = &caps[1];
+        let major_minor = &caps[2];
+        if caps.get(3).is_some() {
+            // Already has patch version, keep as-is
+            caps[0].to_string()
+        } else {
+            format!("{}{}.0", prefix, major_minor)
+        }
+    }).to_string()
+}
+
 #[derive(Debug, Clone)]
 pub struct VersionRange {
     pub since: Version,
@@ -218,7 +233,7 @@ fn merge_enum(registry: &mut UnifiedRegistry, name: &str, e: &Enum, version: Ver
         existing.versions.until = None;
         // Update doc from latest version (latest has best docs)
         if e.meta.doc.is_some() {
-            existing.ir.meta.doc = e.meta.doc.clone();
+            existing.ir.meta.doc = e.meta.doc.as_ref().map(|d| normalize_doc_versions(d));
         }
 
         let mut seen_variants = BTreeSet::new();
@@ -228,7 +243,7 @@ fn merge_enum(registry: &mut UnifiedRegistry, name: &str, e: &Enum, version: Ver
                 // Variant still exists — clear until, update doc from latest version
                 existing.variant_versions.get_mut(&variant.name).unwrap().until = None;
                 if let (Some(ev), true) = (existing.ir.variants.iter_mut().find(|v| v.name == variant.name), variant.meta.doc.is_some()) {
-                    ev.meta.doc = variant.meta.doc.clone();
+                    ev.meta.doc = variant.meta.doc.as_ref().map(|d| normalize_doc_versions(d));
                 }
             } else {
                 // Check if this is a rename (same Rust name, different QAPI name)
@@ -242,7 +257,11 @@ fn merge_enum(registry: &mut UnifiedRegistry, name: &str, e: &Enum, version: Ver
                     let old_name = existing.ir.variants[old_idx].name.clone();
                     let old_vr = existing.variant_versions.remove(&old_name).unwrap();
                     // Replace old variant IR with new one, keeping the old version range
-                    existing.ir.variants[old_idx] = variant.clone();
+                    let mut v = variant.clone();
+                    if let Some(doc) = &v.meta.doc {
+                        v.meta.doc = Some(normalize_doc_versions(doc));
+                    }
+                    existing.ir.variants[old_idx] = v;
                     existing.variant_versions.insert(variant.name.clone(), old_vr);
                     // Also mark the old QAPI name as seen so it doesn't get marked as removed
                     seen_variants.insert(old_name);
@@ -253,7 +272,11 @@ fn merge_enum(registry: &mut UnifiedRegistry, name: &str, e: &Enum, version: Ver
                         VersionRange::new(version),
                     );
                     if !existing.ir.variants.iter().any(|v| v.name == variant.name) {
-                        existing.ir.variants.push(variant.clone());
+                        let mut v = variant.clone();
+                        if let Some(doc) = &v.meta.doc {
+                            v.meta.doc = Some(normalize_doc_versions(doc));
+                        }
+                        existing.ir.variants.push(v);
                     }
                 }
             }
@@ -269,8 +292,17 @@ fn merge_enum(registry: &mut UnifiedRegistry, name: &str, e: &Enum, version: Ver
         let variant_versions: BTreeMap<String, VersionRange> = e.variants.iter()
             .map(|v| (v.name.clone(), VersionRange::new(version)))
             .collect();
+        let mut ir = e.clone();
+        if let Some(doc) = &ir.meta.doc {
+            ir.meta.doc = Some(normalize_doc_versions(doc));
+        }
+        for v in &mut ir.variants {
+            if let Some(doc) = &v.meta.doc {
+                v.meta.doc = Some(normalize_doc_versions(doc));
+            }
+        }
         registry.types.insert(name.to_string(), UnifiedType::Enum(UnifiedEnum {
-            ir: e.clone(),
+            ir,
             versions: VersionRange::new(version),
             variant_versions,
         }));
@@ -286,7 +318,7 @@ fn merge_struct(registry: &mut UnifiedRegistry, name: &str, s: &Struct, version:
         existing.versions.until = None;
         // Update doc from latest version (latest has best docs)
         if s.meta.doc.is_some() {
-            existing.ir.meta.doc = s.meta.doc.clone();
+            existing.ir.meta.doc = s.meta.doc.as_ref().map(|d| normalize_doc_versions(d));
         }
 
         let mut seen_fields = BTreeSet::new();
@@ -296,7 +328,7 @@ fn merge_struct(registry: &mut UnifiedRegistry, name: &str, s: &Struct, version:
                 // Field still exists — clear until, update doc from latest version
                 existing.field_versions.get_mut(&field.name).unwrap().until = None;
                 if let (Some(ef), true) = (existing.ir.fields.iter_mut().find(|f| f.name == field.name), field.meta.doc.is_some()) {
-                    ef.meta.doc = field.meta.doc.clone();
+                    ef.meta.doc = field.meta.doc.as_ref().map(|d| normalize_doc_versions(d));
                 }
             } else {
                 // Check for rename (same Rust field name, different QAPI name)
@@ -353,9 +385,15 @@ fn merge_struct(registry: &mut UnifiedRegistry, name: &str, s: &Struct, version:
     } else {
         // Detect field name collisions within the initial version
         let mut ir = s.clone();
+        if let Some(doc) = &ir.meta.doc {
+            ir.meta.doc = Some(normalize_doc_versions(doc));
+        }
         let mut field_versions = BTreeMap::new();
         let mut seen_rust_names: BTreeSet<String> = BTreeSet::new();
         for field in &mut ir.fields {
+            if let Some(doc) = &field.meta.doc {
+                field.meta.doc = Some(normalize_doc_versions(doc));
+            }
             let rust_name = field_rust_name(field);
             if !seen_rust_names.insert(rust_name.clone()) {
                 let new_name = format!("{}_alt", field.name);
@@ -559,6 +597,16 @@ fn generate_unified_enum(ue: &UnifiedEnum, _registry: &UnifiedRegistry) -> proc_
             if let Some(until) = vr.until {
                 variant.meta.attributes.push(Attribute::with_value("until", version_str(until)));
             }
+        }
+    }
+
+    // Final pass: normalize all doc version strings to major.minor.patch
+    if let Some(doc) = &ir.meta.doc {
+        ir.meta.doc = Some(normalize_doc_versions(doc));
+    }
+    for variant in &mut ir.variants {
+        if let Some(doc) = &variant.meta.doc {
+            variant.meta.doc = Some(normalize_doc_versions(doc));
         }
     }
 
