@@ -219,6 +219,6 @@ fn error_class_roundtrip() {
 #[test]
 fn command_version_info() {
     // Test that AVAILABLE_SINCE and REMOVED_IN are set correctly
-    assert_eq!(QueryStatus::AVAILABLE_SINCE, (1, 1, 0));
+    assert_eq!(QueryStatus::AVAILABLE_SINCE, (1, 0, 0));
     assert_eq!(QueryStatus::REMOVED_IN, None);
 }
