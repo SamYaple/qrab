@@ -23,36 +23,14 @@ fn version_str(v: Version) -> String {
 /// Strip "since" version information from doc strings.
 /// The since/until metadata is already captured in #[qapi(since/until)] attributes,
 /// so it should not appear in the generated Rust doc comments.
-fn strip_doc_since(doc: &str) -> Option<String> {
-    use std::sync::OnceLock;
-
-    static RE_PAREN: OnceLock<regex::Regex> = OnceLock::new();
-    static RE_SEMI: OnceLock<regex::Regex> = OnceLock::new();
-    static RE_STANDALONE: OnceLock<regex::Regex> = OnceLock::new();
-    static RE_TRAILING: OnceLock<regex::Regex> = OnceLock::new();
-    static RE_DEP_FULL: OnceLock<regex::Regex> = OnceLock::new();
-
-    let re_paren = RE_PAREN.get_or_init(|| regex::Regex::new(r"(?i)\s*\(since:?\s+\d+\.\d+(?:\.\d+)?\.?\)\.?").unwrap());
-    let re_semi = RE_SEMI.get_or_init(|| regex::Regex::new(r"(?i);\s*since:?\s+\d+\.\d+(?:\.\d+)?\.?").unwrap());
-    let re_standalone = RE_STANDALONE.get_or_init(|| regex::Regex::new(r"(?im)^\s*since:?\s+\d+\.\d+(?:\.\d+)?\.?\s*$").unwrap());
-    let re_trailing = RE_TRAILING.get_or_init(|| regex::Regex::new(r"(?i)\s+since:?\s+\d+\.\d+(?:\.\d+)?\.?\s*$").unwrap());
-    let re_dep_full = RE_DEP_FULL.get_or_init(|| regex::Regex::new(r"(?i)(deprecated)\s+since:?\s+\d+\.\d+(?:\.\d+)?\.?").unwrap());
-
-    let doc = re_paren.replace_all(doc, "").to_string();
-    let doc = re_semi.replace_all(&doc, "").to_string();
-    let doc = re_standalone.replace_all(&doc, "").to_string();
-    let doc = re_trailing.replace_all(&doc, "").to_string();
-    let doc = re_dep_full.replace_all(&doc, "$1").to_string();
-
-    let doc: String = doc.lines()
-        .map(|l| l.trim_end())
-        .collect::<Vec<_>>()
-        .join("\n");
-    let doc = doc.trim().to_string();
+/// Clean a doc string: strip leading `# ` from each line (QAPI comment syntax)
+/// but preserve whitespace structure and all content.
+fn clean_doc(doc: &str) -> Option<String> {
+    let doc = doc.trim();
     if doc.is_empty() {
         return None;
     }
-    Some(doc)
+    Some(doc.to_string())
 }
 
 #[derive(Debug, Clone)]
@@ -301,7 +279,7 @@ fn merge_enum(registry: &mut UnifiedRegistry, name: &str, e: &Enum, version: Ver
         existing.versions.until = None;
         // Update doc from latest version (latest has best docs)
         if e.meta.doc.is_some() {
-            existing.ir.meta.doc = e.meta.doc.as_deref().and_then(strip_doc_since);
+            existing.ir.meta.doc = e.meta.doc.as_deref().and_then(clean_doc);
         }
 
         let mut seen_variants = BTreeSet::new();
@@ -311,7 +289,7 @@ fn merge_enum(registry: &mut UnifiedRegistry, name: &str, e: &Enum, version: Ver
                 // Variant still exists — clear until, update doc from latest version
                 existing.variant_versions.get_mut(&variant.name).unwrap().until = None;
                 if let (Some(ev), true) = (existing.ir.variants.iter_mut().find(|v| v.name == variant.name), variant.meta.doc.is_some()) {
-                    ev.meta.doc = variant.meta.doc.as_deref().and_then(strip_doc_since);
+                    ev.meta.doc = variant.meta.doc.as_deref().and_then(clean_doc);
                 }
             } else {
                 // Check if this is a rename (same Rust name, different QAPI name)
@@ -327,7 +305,7 @@ fn merge_enum(registry: &mut UnifiedRegistry, name: &str, e: &Enum, version: Ver
                     // Replace old variant IR with new one, keeping the old version range
                     let mut v = variant.clone();
                     if let Some(doc) = &v.meta.doc {
-                        v.meta.doc = strip_doc_since(doc);
+                        v.meta.doc = clean_doc(doc);
                     }
                     existing.ir.variants[old_idx] = v;
                     existing.variant_versions.insert(variant.name.clone(), old_vr);
@@ -342,7 +320,7 @@ fn merge_enum(registry: &mut UnifiedRegistry, name: &str, e: &Enum, version: Ver
                     if !existing.ir.variants.iter().any(|v| v.name == variant.name) {
                         let mut v = variant.clone();
                         if let Some(doc) = &v.meta.doc {
-                            v.meta.doc = strip_doc_since(doc);
+                            v.meta.doc = clean_doc(doc);
                         }
                         existing.ir.variants.push(v);
                     }
@@ -362,11 +340,11 @@ fn merge_enum(registry: &mut UnifiedRegistry, name: &str, e: &Enum, version: Ver
             .collect();
         let mut ir = e.clone();
         if let Some(doc) = &ir.meta.doc {
-            ir.meta.doc = strip_doc_since(doc);
+            ir.meta.doc = clean_doc(doc);
         }
         for v in &mut ir.variants {
             if let Some(doc) = &v.meta.doc {
-                v.meta.doc = strip_doc_since(doc);
+                v.meta.doc = clean_doc(doc);
             }
         }
         registry.types.insert(name.to_string(), UnifiedType::Enum(UnifiedEnum {
@@ -386,7 +364,7 @@ fn merge_struct(registry: &mut UnifiedRegistry, name: &str, s: &Struct, version:
         existing.versions.until = None;
         // Update doc from latest version (latest has best docs)
         if s.meta.doc.is_some() {
-            existing.ir.meta.doc = s.meta.doc.as_deref().and_then(strip_doc_since);
+            existing.ir.meta.doc = s.meta.doc.as_deref().and_then(clean_doc);
         }
 
         let mut seen_fields = BTreeSet::new();
@@ -396,7 +374,7 @@ fn merge_struct(registry: &mut UnifiedRegistry, name: &str, s: &Struct, version:
                 // Field still exists — clear until, update doc from latest version
                 existing.field_versions.get_mut(&field.name).unwrap().until = None;
                 if let (Some(ef), true) = (existing.ir.fields.iter_mut().find(|f| f.name == field.name), field.meta.doc.is_some()) {
-                    ef.meta.doc = field.meta.doc.as_deref().and_then(strip_doc_since);
+                    ef.meta.doc = field.meta.doc.as_deref().and_then(clean_doc);
                 }
             } else {
                 // Check for rename (same Rust field name, different QAPI name)
@@ -454,13 +432,13 @@ fn merge_struct(registry: &mut UnifiedRegistry, name: &str, s: &Struct, version:
         // Detect field name collisions within the initial version
         let mut ir = s.clone();
         if let Some(doc) = &ir.meta.doc {
-            ir.meta.doc = strip_doc_since(doc);
+            ir.meta.doc = clean_doc(doc);
         }
         let mut field_versions = BTreeMap::new();
         let mut seen_rust_names: BTreeSet<String> = BTreeSet::new();
         for field in &mut ir.fields {
             if let Some(doc) = &field.meta.doc {
-                field.meta.doc = strip_doc_since(doc);
+                field.meta.doc = clean_doc(doc);
             }
             let rust_name = field_rust_name(field);
             if !seen_rust_names.insert(rust_name.clone()) {
@@ -677,11 +655,11 @@ fn generate_unified_enum(ue: &UnifiedEnum, _registry: &UnifiedRegistry) -> proc_
 
     // Final pass: normalize all doc version strings to major.minor.patch
     if let Some(doc) = &ir.meta.doc {
-        ir.meta.doc = strip_doc_since(doc);
+        ir.meta.doc = clean_doc(doc);
     }
     for variant in &mut ir.variants {
         if let Some(doc) = &variant.meta.doc {
-            variant.meta.doc = strip_doc_since(doc);
+            variant.meta.doc = clean_doc(doc);
         }
     }
 
@@ -726,11 +704,11 @@ fn generate_unified_struct(us: &UnifiedStruct, _registry: &UnifiedRegistry) -> p
 
     // Final pass: normalize all doc version strings to major.minor.patch
     if let Some(doc) = &ir.meta.doc {
-        ir.meta.doc = strip_doc_since(doc);
+        ir.meta.doc = clean_doc(doc);
     }
     for field in &mut ir.fields {
         if let Some(doc) = &field.meta.doc {
-            field.meta.doc = strip_doc_since(doc);
+            field.meta.doc = clean_doc(doc);
         }
     }
 
