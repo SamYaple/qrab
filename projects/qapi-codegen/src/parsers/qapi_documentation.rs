@@ -149,17 +149,26 @@ impl<'i> QapiDocumentation<'i> {
     }
 
     /// v1 (QEMU v1.0–v2.7.0): `# @Name` with optional colon, standard `##...##` blocks.
+    /// Also handles `## @Name` shorthand (v2.3.0–v2.7.0).
     pub fn parse_v1(input: &'i str) -> IResult<&'i str, Self> {
-        // Try ## opening, or shorthand ## @Name on same line
-        let input = if let Ok((input, _)) = space0::<&str, Error<&str>>(input) {
-            input
+        let (input, _) = tag("##").parse(input)?;
+        // Check if @Name follows on the same line (shorthand: `## @ACPISlotType`)
+        let (input, name) = if let Ok((input, name)) = preceded(
+            space0::<&str, Error<&str>>,
+            preceded(
+                tag("@"),
+                terminated(take_while1(not_name_break), (opt(tag(":")), take_line_end)),
+            ),
+        ).parse(input) {
+            // Shorthand: ## @Name on same line
+            (input, name)
         } else {
-            input
+            // Standard: ##\n then # @Name on next line
+            let (input, _) = take_line_end(input)?;
+            let (input, _) = many0(take_empty_line).parse(input)?;
+            let (input, name) = terminated(take_name_optional_colon, (opt(tag(":")), take_line_end)).parse(input)?;
+            (input, name)
         };
-        let (input, _) = terminated(tag("##"), take_line_end).parse(input)?;
-        let (input, _) = many0(take_empty_line).parse(input)?;
-        // Name with optional colon
-        let (input, name) = terminated(take_name_optional_colon, (opt(tag(":")), take_line_end)).parse(input)?;
         let (input, _) = many0(take_empty_line).parse(input)?;
         let (input, description_str) = opt(take_multiline_text).parse(input)?;
         let (input, _) = many0(take_empty_line).parse(input)?;
@@ -533,6 +542,21 @@ mod tests {
                 assert_eq!(doc.name, "ErrorClass");
             }
             Err(e) => panic!("Doc v1 parse failed: {}", e),
+        }
+    }
+
+    #[test]
+    fn test_doc_v1_shorthand() {
+        set_parser_version((2, 5, 0));
+        let input = "## @ACPISlotType\n#\n# @DIMM: memory slot\n#\n# Since: 2.1\n##";
+        let result = QapiDocumentation::parse(input);
+        match result {
+            Ok((rem, doc)) => {
+                assert_eq!(rem, "");
+                assert_eq!(doc.name, "ACPISlotType");
+                assert!(!doc.fields.is_empty(), "Should have field @DIMM");
+            }
+            Err(e) => panic!("Doc v1 shorthand parse failed: {}", e),
         }
     }
 
