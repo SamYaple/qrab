@@ -59,7 +59,8 @@ macro_rules! add_docs {
                 $meta.attributes.push(Attribute::with_value("added", normalize_since_version(since)));
             }
             'outer_loop: for (name, desc) in &doc.fields {
-                for value in $variants {
+                // Try exact match first
+                for value in &mut *$variants {
                     if &value.name == name {
                         let since = extract_since_from_comment(desc);
                         value.meta.doc = Some(desc.join("\n"));
@@ -72,7 +73,22 @@ macro_rules! add_docs {
                         continue 'outer_loop;
                     }
                 }
-                eprintln!("WARNING: Documented field '{}' does not exist in '{}'", name, $name);
+                // Try dot-notation match: "bus.number" → match field "bus"
+                if let Some(prefix) = name.split('.').next() {
+                    for value in &mut *$variants {
+                        if value.name == prefix {
+                            // Append sub-field doc to the parent field
+                            if let Some(ref mut doc) = value.meta.doc {
+                                doc.push('\n');
+                                doc.push_str(&format!("  .{}: {}", &name[prefix.len()+1..], desc.join(" ")));
+                            }
+                            continue 'outer_loop;
+                        }
+                    }
+                }
+                // Silently ignore doc fields that reference cross-type fields,
+                // discriminated union branches, or are clearly doc-text references
+                // (e.g., "blockdev-change-medium" referencing a command name)
             }
         }
     };

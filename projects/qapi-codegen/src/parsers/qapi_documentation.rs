@@ -12,7 +12,7 @@ use nom::Parser;
 // ─── Shared helpers ────────────────────────────────────────────────
 
 fn not_name_break(c: char) -> bool {
-    c != ':' && c != '\n' && c != '\r' && c != ' '
+    c.is_alphanumeric() || c == '-' || c == '_' || c == '.'
 }
 
 fn take_line_start(input: &str) -> IResult<&str, &str> {

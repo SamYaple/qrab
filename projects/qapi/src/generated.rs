@@ -2892,6 +2892,8 @@ pub enum JobStatus {
     Running,
     /// The job is running, but paused.  The pause may be requested
     /// by either the QMP user or by internal processes.
+    ///
+    ///   .: The job may return to @ready or otherwise be canceled.
     #[qapi(name = "paused")]
     Paused,
     /// The job is running, but is ready for the user to signal
@@ -5902,7 +5904,7 @@ pub enum SocketAddressBranch {
     #[qapi(name = "unix")]
     Unix(UnixSocketAddress),
     #[qapi(name = "fd")]
-    Fd(String),
+    Fd(QapiString),
     #[qapi(name = "vsock")]
     #[qapi(added = "2.8.0")]
     Vsock(VsockSocketAddress),
@@ -5917,7 +5919,7 @@ pub enum SocketAddressFlatBranch {
     #[qapi(name = "vsock")]
     Vsock(VsockSocketAddress),
     #[qapi(name = "fd")]
-    Fd(String),
+    Fd(QapiString),
 }
 /// Available SocketAddressFlat types
 ///
@@ -5944,7 +5946,7 @@ pub enum SocketAddressLegacyBranch {
     #[qapi(name = "vsock")]
     Vsock(VsockSocketAddress),
     #[qapi(name = "fd")]
-    Fd(String),
+    Fd(QapiString),
 }
 #[qapi(added = "2.10.0")]
 #[qapi(removed = "6.2.0")]
@@ -6840,29 +6842,6 @@ pub struct AddfdInfo {
     /// The file descriptor that was received via SCM rights and added
     /// to the fd set.
     pub fd: i64,
-}
-/// Parameters for self-announce timers
-///
-#[qapi(added = "4.0.0")]
-pub struct AnnounceParameters {
-    /// Initial delay (in ms) before sending the first GARP/RARP
-    /// announcement
-    pub initial: i64,
-    /// Maximum delay (in ms) between GARP/RARP announcement packets
-    pub max: i64,
-    /// Number of self-announcement attempts
-    pub rounds: i64,
-    /// Delay increase (in ms) after each self-announcement attempt
-    pub step: i64,
-    /// An optional list of interface names, which restricts
-    /// the announcement to the listed interfaces.  (Since 4.1)
-    #[qapi(added = "4.1.0")]
-    pub interfaces: Option<Vec<String>>,
-    /// A name to be used to identify an instance of announce-timers
-    /// and to allow it to modified later.  Not for use as part of the
-    /// migration parameters.  (Since 4.1)
-    #[qapi(added = "4.1.0")]
-    pub id: Option<String>,
 }
 /// Options of an audio backend.
 ///
@@ -8076,70 +8055,9 @@ pub struct BlockDeviceTimedStats {
     #[qapi(added = "8.1.0")]
     pub avg_zone_append_queue_depth: Option<f64>,
 }
-#[qapi(added = "2.4.0")]
-pub struct BlockDirtyBitmap {
-    /// name of device/node which the bitmap is tracking
-    pub node: String,
-    /// name of the dirty bitmap
-    pub name: String,
-}
-#[qapi(added = "2.4.0")]
-pub struct BlockDirtyBitmapAdd {
-    /// name of device/node which the bitmap is tracking
-    pub node: String,
-    /// name of the dirty bitmap (must be less than 1024 bytes)
-    pub name: String,
-    /// the bitmap granularity, default is 64k for
-    /// `block-dirty-bitmap-add`
-    pub granularity: Option<u32>,
-    /// the bitmap is persistent, i.e. it will be saved to the
-    /// corresponding block device image file on its close.  For now
-    /// only Qcow2 disks support persistent bitmaps.  Default is false
-    /// for `block-dirty-bitmap-add`.  (Since: 2.10)
-    #[qapi(added = "2.10.0")]
-    pub persistent: Option<bool>,
-    /// ignored and deprecated since 2.12.
-    /// Currently, all dirty tracking bitmaps are loaded from Qcow2 on
-    /// open.
-    #[qapi(added = "2.10.0")]
-    #[qapi(removed = "4.2.0")]
-    pub autoload: Option<bool>,
-    /// the bitmap is created in the disabled state, which means that
-    /// it will not track drive changes. The bitmap may be enabled with
-    /// x-block-dirty-bitmap-enable. Default is false. (Since: 3.0)
-    #[qapi(name = "x-disabled")]
-    #[qapi(added = "3.0.0")]
-    #[qapi(removed = "4.0.0")]
-    pub x_disabled: Option<bool>,
-    /// the bitmap is created in the disabled state, which means
-    /// that it will not track drive changes.  The bitmap may be enabled
-    /// with `block-dirty-bitmap-enable`.  Default is false.
-    /// (Since: 4.0)
-    #[qapi(added = "4.0.0")]
-    pub disabled: Option<bool>,
-}
 #[qapi(added = "6.2.0")]
 pub struct BlockDirtyBitmapAddWrapper {
     pub data: BlockDirtyBitmapAdd,
-}
-#[qapi(added = "3.0.0")]
-pub struct BlockDirtyBitmapMerge {
-    /// name of device/node which the @target bitmap is tracking
-    pub node: String,
-    /// name of the destination dirty bitmap
-    #[qapi(removed = "4.0.0")]
-    pub dst_name: Option<String>,
-    /// name of the source dirty bitmap
-    #[qapi(removed = "4.0.0")]
-    pub src_name: Option<String>,
-    /// name of the destination dirty bitmap
-    #[qapi(added = "4.0.0")]
-    pub target: Option<String>,
-    /// name(s) of the source dirty bitmap(s) at @node and/or
-    /// fully specified `BlockDirtyBitmap` elements.  The latter are
-    /// supported since 4.1.
-    #[qapi(added = "4.0.0")]
-    pub bitmaps: Option<Vec<String>>,
 }
 #[qapi(added = "6.2.0")]
 pub struct BlockDirtyBitmapMergeWrapper {
@@ -8220,70 +8138,6 @@ pub struct BlockExportInfo {
     /// completed)
     #[qapi(name = "shutting-down")]
     pub shutting_down: bool,
-}
-/// An NBD block export.
-///
-#[qapi(added = "5.0.0")]
-#[qapi(removed = "5.2.0")]
-pub struct BlockExportNbd {
-    /// The device name or node name of the node to be exported
-    pub device: String,
-    /// Export name. If unspecified, the @device parameter is used as the
-    /// export name. (Since 2.12)
-    pub name: Option<String>,
-    /// Free-form description of the export, up to 4096 bytes.
-    /// (Since 5.0)
-    pub description: Option<String>,
-    /// Whether clients should be able to write to the device via the
-    /// NBD connection (default false).
-    pub writable: Option<bool>,
-    /// Also export the dirty bitmap reachable from @device, so the
-    /// NBD client can use NBD_OPT_SET_META_CONTEXT with
-    /// "qemu:dirty-bitmap:NAME" to inspect the bitmap. (since 4.0)
-    pub bitmap: Option<String>,
-}
-/// Describes a block export, i.e. how single node should be exported on
-/// an external interface.
-///
-#[qapi(added = "5.2.0")]
-pub struct BlockExportOptions {
-    /// Block export type
-    #[qapi(discriminator)]
-    pub r#type: BlockExportType,
-    /// A unique identifier for the block export (across all export
-    /// types)
-    pub id: String,
-    /// True prevents the block node from being moved to
-    /// another thread while the export is active.  If true and
-    #[qapi(name = "fixed-iothread")]
-    pub fixed_iothread: Option<bool>,
-    /// is given, export creation fails if the block node
-    /// cannot be moved to the iothread.  The default is false.
-    /// (since: 5.2)
-    pub iothread: Option<String>,
-    /// The node name of the block node to be exported
-    /// (since: 5.2)
-    #[qapi(name = "node-name")]
-    pub node_name: String,
-    /// True if clients should be able to write to the export
-    /// (default false)
-    pub writable: Option<bool>,
-    /// If true, caches are flushed after every write request
-    /// to the export before completion is signalled.  (since: 5.2;
-    /// default: false)
-    pub writethrough: Option<bool>,
-    #[qapi(union)]
-    pub u: Option<BlockExportOptionsBranch>,
-    /// If true, the export allows the exported node to be
-    /// inactive.  If it is created for an inactive block node, the node
-    /// remains inactive.  If the export type doesn't support running on
-    /// an inactive node, an error is returned.  If false, inactive
-    /// block nodes are automatically activated before creating the
-    /// export and trying to inactivate them later fails.
-    /// (since: 10.0; default: false)
-    #[qapi(name = "allow-inactive")]
-    #[qapi(added = "10.0.0")]
-    pub allow_inactive: Option<bool>,
 }
 /// Options for exporting a block graph node on some (file) mountpoint
 /// as a raw image.
@@ -8426,82 +8280,6 @@ pub struct BlockGraphInfo {
     #[qapi(added = "10.2.0")]
     pub limits: Option<BlockLimitsInfo>,
 }
-/// A set of parameters describing block throttling.
-///
-#[qapi(name = "BlockIOThrottle")]
-#[qapi(added = "2.7.0")]
-pub struct BlockIoThrottle {
-    /// Block device name (deprecated, use @id instead)
-    #[qapi(deprecated = "5.0.0")]
-    pub device: String,
-    /// total throughput limit in bytes per second
-    pub bps: i64,
-    /// read throughput limit in bytes per second
-    pub bps_rd: i64,
-    /// write throughput limit in bytes per second
-    pub bps_wr: i64,
-    /// total I/O operations per second
-    pub iops: i64,
-    /// read I/O operations per second
-    pub iops_rd: i64,
-    /// write I/O operations per second
-    pub iops_wr: i64,
-    /// total throughput limit during bursts,
-    /// in bytes (Since 1.7)
-    pub bps_max: Option<i64>,
-    /// read throughput limit during bursts,
-    /// in bytes (Since 1.7)
-    pub bps_rd_max: Option<i64>,
-    /// write throughput limit during bursts,
-    /// in bytes (Since 1.7)
-    pub bps_wr_max: Option<i64>,
-    /// total I/O operations per second during bursts,
-    /// in bytes (Since 1.7)
-    pub iops_max: Option<i64>,
-    /// read I/O operations per second during bursts,
-    /// in bytes (Since 1.7)
-    pub iops_rd_max: Option<i64>,
-    /// write I/O operations per second during bursts,
-    /// in bytes (Since 1.7)
-    pub iops_wr_max: Option<i64>,
-    /// maximum length of the @bps_max burst
-    /// period, in seconds. It must only
-    /// be set if @bps_max is set as well.
-    /// Defaults to 1. (Since 2.6)
-    pub bps_max_length: Option<i64>,
-    /// maximum length of the @bps_rd_max
-    /// burst period, in seconds. It must only
-    /// be set if @bps_rd_max is set as well.
-    /// Defaults to 1. (Since 2.6)
-    pub bps_rd_max_length: Option<i64>,
-    /// maximum length of the @bps_wr_max
-    /// burst period, in seconds. It must only
-    /// be set if @bps_wr_max is set as well.
-    /// Defaults to 1. (Since 2.6)
-    pub bps_wr_max_length: Option<i64>,
-    /// maximum length of the @iops burst
-    /// period, in seconds. It must only
-    /// be set if @iops_max is set as well.
-    /// Defaults to 1. (Since 2.6)
-    pub iops_max_length: Option<i64>,
-    /// maximum length of the @iops_rd_max
-    /// burst period, in seconds. It must only
-    /// be set if @iops_rd_max is set as well.
-    /// Defaults to 1. (Since 2.6)
-    pub iops_rd_max_length: Option<i64>,
-    /// maximum length of the @iops_wr_max
-    /// burst period, in seconds. It must only
-    /// be set if @iops_wr_max is set as well.
-    /// Defaults to 1. (Since 2.6)
-    pub iops_wr_max_length: Option<i64>,
-    /// an I/O size in bytes (Since 1.7)
-    pub iops_size: Option<i64>,
-    /// throttle group name (Since 2.4)
-    pub group: Option<String>,
-    /// The name or QOM path of the guest device (since: 2.8)
-    #[qapi(added = "2.8.0")]
-    pub id: Option<String>,
-}
 /// Block device information.  This structure describes a virtual device
 /// and the backing device associated with it.
 ///
@@ -8547,18 +8325,6 @@ pub struct BlockInfo {
     #[qapi(added = "2.10.0")]
     pub qdev: Option<String>,
 }
-/// Block job options that can be changed after job creation.
-///
-#[qapi(added = "8.2.0")]
-pub struct BlockJobChangeOptions {
-    /// The job identifier
-    pub id: String,
-    /// The job type
-    #[qapi(discriminator)]
-    pub r#type: JobType,
-    #[qapi(union)]
-    pub u: Option<BlockJobChangeOptionsBranch>,
-}
 #[qapi(added = "8.2.0")]
 pub struct BlockJobChangeOptionsMirror {
     /// Switch to this copy mode.  Currently, only the switch
@@ -8578,6 +8344,8 @@ pub struct BlockJobInfo {
     /// Estimated @offset value at the completion of the job.  This
     /// value can arbitrarily change while the job is running, in both
     /// directions.
+    ///
+    ///   .: The value is monotonically increasing.
     pub len: i64,
     /// Progress made until now.  The unit is arbitrary and the
     /// value can only meaningfully be used for the ratio of @offset to
@@ -8892,46 +8660,6 @@ pub struct BlockdevAmendOptionsQcow2 {
     /// Encryption options to be amended
     pub encrypt: Option<QCryptoBlockAmendOptions>,
 }
-#[qapi(added = "2.3.0")]
-pub struct BlockdevBackup {
-    pub device: String,
-    /// the device name or node-name of the backup target node.
-    pub target: String,
-    pub sync: MirrorSyncMode,
-    pub speed: Option<i64>,
-    #[qapi(name = "on-source-error")]
-    pub on_source_error: Option<BlockdevOnError>,
-    #[qapi(name = "on-target-error")]
-    pub on_target_error: Option<BlockdevOnError>,
-    #[qapi(name = "job-id")]
-    #[qapi(added = "2.7.0")]
-    pub job_id: Option<String>,
-    #[qapi(added = "2.8.0")]
-    pub compress: Option<bool>,
-    #[qapi(name = "auto-finalize")]
-    #[qapi(added = "2.12.0")]
-    pub auto_finalize: Option<bool>,
-    #[qapi(name = "auto-dismiss")]
-    #[qapi(added = "2.12.0")]
-    pub auto_dismiss: Option<bool>,
-    #[qapi(added = "3.1.0")]
-    pub bitmap: Option<String>,
-    #[qapi(name = "bitmap-mode")]
-    #[qapi(added = "4.2.0")]
-    pub bitmap_mode: Option<BitmapSyncMode>,
-    #[qapi(name = "filter-node-name")]
-    #[qapi(added = "4.2.0")]
-    pub filter_node_name: Option<String>,
-    #[qapi(name = "x-perf")]
-    #[qapi(added = "6.0.0")]
-    pub x_perf: Option<BackupPerf>,
-    #[qapi(name = "discard-source")]
-    #[qapi(added = "9.1.0")]
-    pub discard_source: Option<bool>,
-    #[qapi(name = "on-cbw-error")]
-    #[qapi(added = "10.1.0")]
-    pub on_cbw_error: Option<OnCbwError>,
-}
 #[qapi(added = "6.2.0")]
 pub struct BlockdevBackupWrapper {
     pub data: BlockdevBackup,
@@ -8975,16 +8703,6 @@ pub struct BlockdevChild {
 #[qapi(added = "2.12.0")]
 #[qapi(removed = "3.0.0")]
 pub struct BlockdevCreateNotSupported {}
-/// Options for creating an image format on a given node.
-///
-#[qapi(added = "2.12.0")]
-pub struct BlockdevCreateOptions {
-    /// block driver to create the image format
-    #[qapi(discriminator)]
-    pub driver: BlockdevDriver,
-    #[qapi(union)]
-    pub u: Option<BlockdevCreateOptionsBranch>,
-}
 /// Driver specific image creation options for file.
 ///
 #[qapi(added = "2.12.0")]
@@ -10422,39 +10140,9 @@ pub struct BlockdevSnapshot {
     #[qapi(added = "2.5.0")]
     pub overlay: Option<String>,
 }
-#[qapi(added = "1.7.0")]
-pub struct BlockdevSnapshotInternal {
-    /// the device name or node-name of a root node to generate the
-    /// snapshot from
-    pub device: String,
-    /// the name of the internal snapshot to be created
-    pub name: String,
-}
 #[qapi(added = "6.2.0")]
 pub struct BlockdevSnapshotInternalWrapper {
     pub data: BlockdevSnapshotInternal,
-}
-/// Either @device or @node-name must be set but not both.
-///
-#[qapi(added = "2.5.0")]
-pub struct BlockdevSnapshotSync {
-    /// optional the name of the device to generate the snapshot from.
-    pub device: Option<String>,
-    /// optional graph node name to generate the snapshot from (Since 2.0)
-    #[qapi(name = "node-name")]
-    pub node_name: Option<String>,
-    /// the target of the new image. A new file will be created.
-    #[qapi(name = "snapshot-file")]
-    pub snapshot_file: String,
-    /// optional the graph node name of the new image (Since 2.0)
-    #[qapi(name = "snapshot-node-name")]
-    pub snapshot_node_name: Option<String>,
-    /// optional the format of the snapshot image, default is 'qcow2'.
-    pub format: Option<String>,
-    /// optional whether and how QEMU should create a new image, default is
-    /// 'absolute-paths'.
-    ///
-    pub mode: Option<NewImageMode>,
 }
 #[qapi(added = "6.2.0")]
 pub struct BlockdevSnapshotSyncWrapper {
@@ -11731,16 +11419,6 @@ pub struct DisplayOptions {
     #[qapi(added = "5.0.0")]
     pub show_cursor: Option<bool>,
 }
-/// Options of the display configuration reload.
-///
-#[qapi(added = "6.0.0")]
-pub struct DisplayReloadOptions {
-    /// Specify the display type.
-    #[qapi(discriminator)]
-    pub r#type: DisplayReloadType,
-    #[qapi(union)]
-    pub u: Option<DisplayReloadOptionsBranch>,
-}
 /// Specify the VNC reload options.
 ///
 #[qapi(name = "DisplayReloadOptionsVNC")]
@@ -11760,16 +11438,6 @@ pub struct DisplaySdl {
     #[qapi(name = "grab-mod")]
     pub grab_mod: Option<HotKeyMod>,
 }
-/// Options of the display configuration reload.
-///
-#[qapi(added = "7.1.0")]
-pub struct DisplayUpdateOptions {
-    /// Specify the display type.
-    #[qapi(discriminator)]
-    pub r#type: DisplayUpdateType,
-    #[qapi(union)]
-    pub u: Option<DisplayUpdateOptionsBranch>,
-}
 /// Specify the VNC reload options.
 ///
 #[qapi(name = "DisplayUpdateOptionsVNC")]
@@ -11780,137 +11448,9 @@ pub struct DisplayUpdateOptionsVnc {
     /// touched.
     pub addresses: Option<Vec<SocketAddress>>,
 }
-#[qapi(added = "1.6.0")]
-pub struct DriveBackup {
-    pub device: String,
-    /// the target of the new image.  If the file exists, or if it
-    /// is a device, the existing file/device will be used as the new
-    /// destination.  If it does not exist, a new file will be created.
-    pub target: String,
-    /// the format of the new destination, default is to probe if
-    pub format: Option<String>,
-    pub sync: MirrorSyncMode,
-    /// whether and how QEMU should create a new image, default is
-    /// 'absolute-paths'.
-    pub mode: Option<NewImageMode>,
-    pub speed: Option<i64>,
-    #[qapi(name = "on-source-error")]
-    pub on_source_error: Option<BlockdevOnError>,
-    #[qapi(name = "on-target-error")]
-    pub on_target_error: Option<BlockdevOnError>,
-    #[qapi(added = "2.4.0")]
-    pub bitmap: Option<String>,
-    #[qapi(name = "job-id")]
-    #[qapi(added = "2.7.0")]
-    pub job_id: Option<String>,
-    #[qapi(added = "2.8.0")]
-    pub compress: Option<bool>,
-    #[qapi(name = "auto-finalize")]
-    #[qapi(added = "2.12.0")]
-    pub auto_finalize: Option<bool>,
-    #[qapi(name = "auto-dismiss")]
-    #[qapi(added = "2.12.0")]
-    pub auto_dismiss: Option<bool>,
-    #[qapi(name = "bitmap-mode")]
-    #[qapi(added = "4.2.0")]
-    pub bitmap_mode: Option<BitmapSyncMode>,
-    #[qapi(name = "filter-node-name")]
-    #[qapi(added = "4.2.0")]
-    pub filter_node_name: Option<String>,
-    #[qapi(name = "x-perf")]
-    #[qapi(added = "6.0.0")]
-    pub x_perf: Option<BackupPerf>,
-    #[qapi(name = "discard-source")]
-    #[qapi(added = "9.1.0")]
-    pub discard_source: Option<bool>,
-    #[qapi(name = "on-cbw-error")]
-    #[qapi(added = "10.1.0")]
-    pub on_cbw_error: Option<OnCbwError>,
-}
 #[qapi(added = "6.2.0")]
 pub struct DriveBackupWrapper {
     pub data: DriveBackup,
-}
-/// A set of parameters describing drive mirror setup.
-///
-#[qapi(added = "2.7.0")]
-pub struct DriveMirror {
-    /// identifier for the newly-created block job.  If omitted,
-    /// the device name will be used.  (Since 2.7)
-    #[qapi(name = "job-id")]
-    pub job_id: Option<String>,
-    /// the device name or node-name of a root node whose writes
-    /// should be mirrored.
-    pub device: String,
-    /// the target of the new image.  If the file exists, or if it
-    /// is a device, the existing file/device will be used as the new
-    /// destination.  If it does not exist, a new file will be created.
-    pub target: String,
-    /// the format of the new destination, default is to probe if
-    pub format: Option<String>,
-    /// the new block driver state node name in the graph
-    /// (Since 2.1)
-    #[qapi(name = "node-name")]
-    pub node_name: Option<String>,
-    /// with sync=full graph node name to be replaced by the new
-    /// image when a whole image copy is done.  This can be used to
-    /// repair broken Quorum files.  By default, @device is replaced,
-    /// although implicitly created filters on it are kept.  (Since 2.1)
-    pub replaces: Option<String>,
-    /// what parts of the disk image should be copied to the
-    /// destination (all the disk, only the sectors allocated in the
-    /// topmost image, or only new I/O).
-    pub sync: MirrorSyncMode,
-    /// whether and how QEMU should create a new image, default is
-    /// 'absolute-paths'.
-    pub mode: Option<NewImageMode>,
-    /// the maximum speed, in bytes per second
-    pub speed: Option<i64>,
-    /// granularity of the dirty bitmap, default is 64K if the
-    /// image format doesn't have clusters, 4K if the clusters are
-    /// smaller than that, else the cluster size.  Must be a power of 2
-    /// between 512 and 64M (since 1.4).
-    pub granularity: Option<u32>,
-    /// maximum amount of data in flight from source to target
-    /// (since 1.4).
-    #[qapi(name = "buf-size")]
-    pub buf_size: Option<i64>,
-    /// the action to take on an error on the source,
-    /// default 'report'.  'stop' and 'enospc' can only be used if the
-    /// block device supports io-status (see `BlockInfo`).
-    #[qapi(name = "on-source-error")]
-    pub on_source_error: Option<BlockdevOnError>,
-    /// the action to take on an error on the target,
-    /// default 'report' (no limitations, since this applies to a
-    /// different block device than @device).
-    #[qapi(name = "on-target-error")]
-    pub on_target_error: Option<BlockdevOnError>,
-    /// Whether to try to unmap target sectors where source has only
-    /// zero.  If true, and target unallocated sectors will read as
-    /// zero, target image sectors will be unmapped; otherwise, zeroes
-    /// will be written.  Both will result in identical contents.
-    /// Default is true.  (Since 2.4)
-    pub unmap: Option<bool>,
-    /// when to copy data to the destination; defaults to
-    /// 'background' (Since: 3.0)
-    #[qapi(name = "copy-mode")]
-    #[qapi(added = "3.0.0")]
-    pub copy_mode: Option<MirrorCopyMode>,
-    /// When false, this job will wait in a PENDING state
-    /// after it has finished its work, waiting for `job-finalize`
-    /// before making any block graph changes.  When true, this job will
-    /// automatically perform its abort or commit actions.  Defaults to
-    /// true.  (Since 3.1)
-    #[qapi(name = "auto-finalize")]
-    #[qapi(added = "3.1.0")]
-    pub auto_finalize: Option<bool>,
-    /// When false, this job will wait in a CONCLUDED state
-    /// after it has completely ceased all work, and awaits
-    /// `job-dismiss`.  When true, this job will automatically disappear
-    /// without user intervention.  Defaults to true.  (Since 3.1)
-    #[qapi(name = "auto-dismiss")]
-    #[qapi(added = "3.1.0")]
-    pub auto_dismiss: Option<bool>,
 }
 /// Not used by QMP; hack to let us use BlockGraphInfoList internally
 ///
@@ -12010,30 +11550,6 @@ pub struct EvtchnInfo {
     /// port is masked
     pub masked: bool,
 }
-/// General options for `expire_password`.
-///
-#[qapi(added = "7.0.0")]
-pub struct ExpirePasswordOptions {
-    /// - 'vnc' to modify the VNC server expiration
-    /// - 'spice' to modify the Spice server expiration
-    #[qapi(discriminator)]
-    pub protocol: DisplayProtocol,
-    /// when to expire the password.
-    ///
-    /// - 'now' to expire the password immediately
-    /// - 'never' to cancel password expiration
-    /// - '+INT' where INT is the number of seconds from now (integer)
-    /// - 'INT' where INT is the absolute time in seconds
-    ///
-    /// .. note:: Time is relative to the server and currently there is no
-    /// way to coordinate server time with client time.  It is not
-    /// recommended to use the absolute time version of the @time
-    /// parameter unless you're sure you are on the same machine as the
-    /// QEMU instance.
-    pub time: String,
-    #[qapi(union)]
-    pub u: Option<ExpirePasswordOptionsBranch>,
-}
 /// Options for `expire_password` specific to the VNC protocol.
 ///
 #[qapi(added = "7.0.0")]
@@ -12109,6 +11625,8 @@ pub struct FilterBufferProperties {
     /// existing filters (default).  "id=<id>" means the filter is
     /// inserted before or behind the filter specified by <id>,
     /// depending on the @insert property.  (default: "tail")
+    ///
+    ///   .: Ignored if @position is "head" or "tail". (default: behind)
     pub position: Option<String>,
     /// where to insert the filter relative to the filter given in
     pub insert: Option<NetfilterInsert>,
@@ -12135,6 +11653,8 @@ pub struct FilterDumpProperties {
     /// existing filters (default).  "id=<id>" means the filter is
     /// inserted before or behind the filter specified by <id>,
     /// depending on the @insert property.  (default: "tail")
+    ///
+    ///   .: Ignored if @position is "head" or "tail". (default: behind)
     pub position: Option<String>,
     /// where to insert the filter relative to the filter given in
     pub insert: Option<NetfilterInsert>,
@@ -12162,6 +11682,8 @@ pub struct FilterMirrorProperties {
     /// existing filters (default).  "id=<id>" means the filter is
     /// inserted before or behind the filter specified by <id>,
     /// depending on the @insert property.  (default: "tail")
+    ///
+    ///   .: Ignored if @position is "head" or "tail". (default: behind)
     pub position: Option<String>,
     /// where to insert the filter relative to the filter given in
     pub insert: Option<NetfilterInsert>,
@@ -12193,6 +11715,8 @@ pub struct FilterRedirectorProperties {
     /// existing filters (default).  "id=<id>" means the filter is
     /// inserted before or behind the filter specified by <id>,
     /// depending on the @insert property.  (default: "tail")
+    ///
+    ///   .: Ignored if @position is "head" or "tail". (default: behind)
     pub position: Option<String>,
     /// where to insert the filter relative to the filter given in
     pub insert: Option<NetfilterInsert>,
@@ -12224,6 +11748,8 @@ pub struct FilterRewriterProperties {
     /// existing filters (default).  "id=<id>" means the filter is
     /// inserted before or behind the filter specified by <id>,
     /// depending on the @insert property.  (default: "tail")
+    ///
+    ///   .: Ignored if @position is "head" or "tail". (default: behind)
     pub position: Option<String>,
     /// where to insert the filter relative to the filter given in
     pub insert: Option<NetfilterInsert>,
@@ -13558,121 +13084,6 @@ pub struct MemorySizeConfiguration {
     /// number of available memory slots for hotplug
     pub slots: Option<u64>,
 }
-#[qapi(added = "2.10.0")]
-pub struct MigrateSetParameters {
-    #[qapi(name = "compress-level")]
-    #[qapi(deprecated = "8.2.0")]
-    #[qapi(removed = "9.1.0")]
-    pub compress_level: Option<i64>,
-    #[qapi(name = "compress-threads")]
-    #[qapi(deprecated = "8.2.0")]
-    #[qapi(removed = "9.1.0")]
-    pub compress_threads: Option<i64>,
-    #[qapi(name = "decompress-threads")]
-    #[qapi(deprecated = "8.2.0")]
-    #[qapi(removed = "9.1.0")]
-    pub decompress_threads: Option<i64>,
-    #[qapi(name = "cpu-throttle-initial")]
-    pub cpu_throttle_initial: Option<i64>,
-    #[qapi(name = "cpu-throttle-increment")]
-    pub cpu_throttle_increment: Option<i64>,
-    #[qapi(name = "tls-creds")]
-    pub tls_creds: Option<StrOrNull>,
-    #[qapi(name = "tls-hostname")]
-    pub tls_hostname: Option<StrOrNull>,
-    #[qapi(name = "max-bandwidth")]
-    pub max_bandwidth: Option<i64>,
-    #[qapi(name = "downtime-limit")]
-    pub downtime_limit: Option<i64>,
-    #[qapi(name = "x-checkpoint-delay")]
-    pub x_checkpoint_delay: Option<i64>,
-    #[qapi(name = "block-incremental")]
-    #[qapi(deprecated = "8.2.0")]
-    #[qapi(removed = "9.1.0")]
-    pub block_incremental: Option<bool>,
-    #[qapi(name = "x-multifd-channels")]
-    #[qapi(added = "2.11.0")]
-    #[qapi(removed = "4.0.0")]
-    pub x_multifd_channels: Option<i64>,
-    #[qapi(name = "x-multifd-page-count")]
-    #[qapi(added = "2.11.0")]
-    #[qapi(removed = "4.0.0")]
-    pub x_multifd_page_count: Option<i64>,
-    #[qapi(name = "xbzrle-cache-size")]
-    #[qapi(added = "2.11.0")]
-    pub xbzrle_cache_size: Option<u64>,
-    #[qapi(name = "max-postcopy-bandwidth")]
-    #[qapi(added = "3.0.0")]
-    pub max_postcopy_bandwidth: Option<u64>,
-    #[qapi(name = "compress-wait-thread")]
-    #[qapi(added = "3.1.0")]
-    #[qapi(deprecated = "8.2.0")]
-    #[qapi(removed = "9.1.0")]
-    pub compress_wait_thread: Option<bool>,
-    #[qapi(name = "max-cpu-throttle")]
-    #[qapi(added = "3.1.0")]
-    pub max_cpu_throttle: Option<i64>,
-    #[qapi(name = "announce-initial")]
-    #[qapi(added = "4.0.0")]
-    pub announce_initial: Option<u64>,
-    #[qapi(name = "announce-max")]
-    #[qapi(added = "4.0.0")]
-    pub announce_max: Option<u64>,
-    #[qapi(name = "announce-rounds")]
-    #[qapi(added = "4.0.0")]
-    pub announce_rounds: Option<u64>,
-    #[qapi(name = "announce-step")]
-    #[qapi(added = "4.0.0")]
-    pub announce_step: Option<u64>,
-    #[qapi(name = "tls-authz")]
-    #[qapi(added = "4.0.0")]
-    pub tls_authz: Option<StrOrNull>,
-    #[qapi(name = "multifd-channels")]
-    #[qapi(added = "4.0.0")]
-    pub multifd_channels: Option<i64>,
-    #[qapi(name = "throttle-trigger-threshold")]
-    #[qapi(added = "5.0.0")]
-    pub throttle_trigger_threshold: Option<i64>,
-    #[qapi(name = "multifd-compression")]
-    #[qapi(added = "5.0.0")]
-    pub multifd_compression: Option<MultiFdCompression>,
-    #[qapi(name = "multifd-zlib-level")]
-    #[qapi(added = "5.0.0")]
-    pub multifd_zlib_level: Option<i64>,
-    #[qapi(name = "multifd-zstd-level")]
-    #[qapi(added = "5.0.0")]
-    pub multifd_zstd_level: Option<i64>,
-    #[qapi(name = "cpu-throttle-tailslow")]
-    #[qapi(added = "5.1.0")]
-    pub cpu_throttle_tailslow: Option<bool>,
-    #[qapi(name = "block-bitmap-mapping")]
-    #[qapi(added = "5.2.0")]
-    pub block_bitmap_mapping: Option<Vec<BitmapMigrationNodeAlias>>,
-    #[qapi(name = "x-vcpu-dirty-limit-period")]
-    #[qapi(feature = "unstable")]
-    #[qapi(added = "8.1.0")]
-    pub x_vcpu_dirty_limit_period: Option<u64>,
-    #[qapi(name = "vcpu-dirty-limit")]
-    #[qapi(added = "8.1.0")]
-    pub vcpu_dirty_limit: Option<u64>,
-    #[qapi(name = "avail-switchover-bandwidth")]
-    #[qapi(added = "8.2.0")]
-    pub avail_switchover_bandwidth: Option<u64>,
-    #[qapi(added = "8.2.0")]
-    pub mode: Option<MigMode>,
-    #[qapi(name = "zero-page-detection")]
-    #[qapi(added = "9.0.0")]
-    pub zero_page_detection: Option<ZeroPageDetection>,
-    #[qapi(name = "direct-io")]
-    #[qapi(added = "9.1.0")]
-    pub direct_io: Option<bool>,
-    #[qapi(name = "multifd-qatzip-level")]
-    #[qapi(added = "9.2.0")]
-    pub multifd_qatzip_level: Option<u8>,
-    #[qapi(name = "cpr-exec-command")]
-    #[qapi(added = "10.2.0")]
-    pub cpr_exec_command: Option<Vec<String>>,
-}
 /// Migration endpoint configuration.
 ///
 #[qapi(added = "8.2.0")]
@@ -14154,27 +13565,6 @@ pub struct NameInfo {
     /// The name of the guest
     pub name: Option<String>,
 }
-/// An NBD block export, per legacy `nbd-server-add` command.
-///
-#[qapi(added = "5.2.0")]
-pub struct NbdServerAddOptions {
-    /// Export name.  If unspecified, the @device parameter is used
-    /// as the export name.  (Since 2.12)
-    pub name: Option<String>,
-    /// Free-form description of the export, up to 4096 bytes.
-    /// (Since 5.0)
-    pub description: Option<String>,
-    /// The device name or node name of the node to be exported
-    pub device: String,
-    /// Whether clients should be able to write to the device via
-    /// the NBD connection (default false).
-    pub writable: Option<bool>,
-    /// Also export a single dirty bitmap reachable from @device,
-    /// so the NBD client can use NBD_OPT_SET_META_CONTEXT with the
-    /// metadata context name "qemu:dirty-bitmap:BITMAP" to inspect the
-    /// bitmap (since 4.0).
-    pub bitmap: Option<String>,
-}
 /// Keep this type consistent with the nbd-server-start arguments.  The
 /// only intended difference is using SocketAddress instead of
 /// SocketAddressLegacy.
@@ -14214,18 +13604,6 @@ pub struct NbdServerOptionsBase {
     pub tls_authz: Option<String>,
     #[qapi(name = "max-connections")]
     pub max_connections: Option<u32>,
-}
-#[qapi(added = "10.0.0")]
-pub struct NbdServerOptionsLegacy {
-    #[qapi(name = "handshake-max-seconds")]
-    pub handshake_max_seconds: Option<u32>,
-    #[qapi(name = "tls-creds")]
-    pub tls_creds: Option<String>,
-    #[qapi(name = "tls-authz")]
-    pub tls_authz: Option<String>,
-    #[qapi(name = "max-connections")]
-    pub max_connections: Option<u32>,
-    pub addr: SocketAddressLegacy,
 }
 /// A discriminated record of network device traits.
 ///
@@ -14275,7 +13653,7 @@ pub struct NetDevPasstOptions {
     /// IPv4 or IPv6 address as DNS
     pub dns: Option<String>,
     /// search domains
-    pub search: Option<Vec<String>>,
+    pub search: Option<Vec<QapiString>>,
     /// FQDN to configure client with
     pub fqdn: Option<String>,
     /// enable/disable DNS list in DHCP/DHCPv6/NDP
@@ -14318,12 +13696,12 @@ pub struct NetDevPasstOptions {
     pub ipv6: Option<bool>,
     /// TCP ports to forward
     #[qapi(name = "tcp-ports")]
-    pub tcp_ports: Option<Vec<String>>,
+    pub tcp_ports: Option<Vec<QapiString>>,
     /// UDP ports to forward
     #[qapi(name = "udp-ports")]
-    pub udp_ports: Option<Vec<String>>,
+    pub udp_ports: Option<Vec<QapiString>>,
     /// parameter to pass to passt command
-    pub param: Option<Vec<String>>,
+    pub param: Option<Vec<QapiString>>,
 }
 /// Captures the configuration of a network device; legacy.
 ///
@@ -14671,13 +14049,13 @@ pub struct NetdevUserOptions {
     pub smbserver: Option<String>,
     /// redirect incoming TCP, UDP or UNIX host connections to
     /// guest endpoints
-    pub hostfwd: Option<Vec<String>>,
+    pub hostfwd: Option<Vec<QapiString>>,
     /// forward guest TCP connections
-    pub guestfwd: Option<Vec<String>>,
+    pub guestfwd: Option<Vec<QapiString>>,
     /// list of DNS suffixes to search, passed as DHCP option to
     /// the guest
     #[qapi(added = "1.3.0")]
-    pub dnssearch: Option<Vec<String>>,
+    pub dnssearch: Option<Vec<QapiString>>,
     /// whether to support IPv4, default true for enabled (since 2.6)
     #[qapi(added = "2.6.0")]
     pub ipv4: Option<bool>,
@@ -14869,6 +14247,8 @@ pub struct NetfilterProperties {
     /// existing filters (default).  "id=<id>" means the filter is
     /// inserted before or behind the filter specified by <id>,
     /// depending on the @insert property.  (default: "tail")
+    ///
+    ///   .: Ignored if @position is "head" or "tail". (default: behind)
     pub position: Option<String>,
     /// where to insert the filter relative to the filter given in
     pub insert: Option<NetfilterInsert>,
@@ -15018,19 +14398,6 @@ pub struct NumaOptions {
     #[qapi(discriminator)]
     #[qapi(added = "2.9.0")]
     pub r#type: Option<NumaOptionsType>,
-}
-/// Describes the options of a user creatable QOM object.
-///
-#[qapi(added = "6.0.0")]
-pub struct ObjectOptions {
-    /// the class name for the object to be created
-    #[qapi(name = "qom-type")]
-    #[qapi(discriminator)]
-    pub qom_type: ObjectType,
-    /// the name of the new object
-    pub id: String,
-    #[qapi(union)]
-    pub u: Option<ObjectOptionsBranch>,
 }
 #[qapi(added = "10.1.0")]
 pub struct ObjectPropertiesValues {
@@ -16459,23 +15826,6 @@ pub struct SecretProperties {
     /// the filename to load the data associated with the secret from
     pub file: Option<String>,
 }
-/// Options for `set_password`.
-///
-#[qapi(added = "7.0.0")]
-pub struct SetPasswordOptions {
-    /// - 'vnc' to modify the VNC server password
-    /// - 'spice' to modify the Spice server password
-    #[qapi(discriminator)]
-    pub protocol: DisplayProtocol,
-    /// the new password
-    pub password: String,
-    /// How to handle existing clients when changing the
-    /// password.  If nothing is specified, defaults to 'keep'.  For
-    /// VNC, only 'keep' is currently implemented.
-    pub connected: Option<SetPasswordAction>,
-    #[qapi(union)]
-    pub u: Option<SetPasswordOptionsBranch>,
-}
 /// Options for `set_password` specific to the VNC protocol.
 ///
 #[qapi(added = "7.0.0")]
@@ -16984,22 +16334,6 @@ pub struct Stats {
     /// stat value.
     pub value: StatsValue,
 }
-/// The arguments to the `query-stats` command; specifies a target for
-/// which to request statistics and optionally the required subset of
-/// information for that target.
-///
-#[qapi(added = "7.1.0")]
-pub struct StatsFilter {
-    /// the kind of objects to query.  Note that each possible
-    /// target may enable additional filtering options
-    #[qapi(discriminator)]
-    pub target: StatsTarget,
-    /// which providers to request statistics from, and
-    /// optionally which named values to return within each provider
-    pub providers: Option<Vec<StatsRequest>>,
-    #[qapi(union)]
-    pub u: Option<StatsFilterBranch>,
-}
 /// Indicates a set of statistics that should be returned by
 /// `query-stats`.
 ///
@@ -17075,10 +16409,17 @@ pub struct StatusInfo {
     /// the virtual machine `RunState`
     pub status: RunState,
 }
+/// A fat type wrapping 'str', to be embedded in lists.
+///
+#[qapi(name = "String")]
+#[qapi(added = "1.2.0")]
+pub struct QapiString {
+    pub str: String,
+}
 #[qapi(added = "6.2.0")]
 #[qapi(removed = "9.0.0")]
 pub struct StringWrapper {
-    pub data: String,
+    pub data: QapiString,
 }
 /// Information about the TPM emulator type
 ///
@@ -18316,6 +17657,735 @@ pub struct YankInstanceChardev {
     /// the chardev's ID
     pub id: String,
 }
+/// Parameters for self-announce timers
+///
+#[qapi(command)]
+#[qapi(returns = "()")]
+#[qapi(added = "4.0.0")]
+pub struct AnnounceParameters {
+    /// Initial delay (in ms) before sending the first GARP/RARP
+    /// announcement
+    pub initial: i64,
+    /// Maximum delay (in ms) between GARP/RARP announcement packets
+    pub max: i64,
+    /// Number of self-announcement attempts
+    pub rounds: i64,
+    /// Delay increase (in ms) after each self-announcement attempt
+    pub step: i64,
+    /// An optional list of interface names, which restricts
+    /// the announcement to the listed interfaces.  (Since 4.1)
+    #[qapi(added = "4.1.0")]
+    pub interfaces: Option<Vec<String>>,
+    /// A name to be used to identify an instance of announce-timers
+    /// and to allow it to modified later.  Not for use as part of the
+    /// migration parameters.  (Since 4.1)
+    #[qapi(added = "4.1.0")]
+    pub id: Option<String>,
+}
+#[qapi(command)]
+#[qapi(returns = "()")]
+#[qapi(added = "2.4.0")]
+pub struct BlockDirtyBitmap {
+    /// name of device/node which the bitmap is tracking
+    pub node: String,
+    /// name of the dirty bitmap
+    pub name: String,
+}
+#[qapi(command)]
+#[qapi(returns = "()")]
+#[qapi(added = "2.4.0")]
+pub struct BlockDirtyBitmapAdd {
+    /// name of device/node which the bitmap is tracking
+    pub node: String,
+    /// name of the dirty bitmap (must be less than 1024 bytes)
+    pub name: String,
+    /// the bitmap granularity, default is 64k for
+    /// `block-dirty-bitmap-add`
+    pub granularity: Option<u32>,
+    /// the bitmap is persistent, i.e. it will be saved to the
+    /// corresponding block device image file on its close.  For now
+    /// only Qcow2 disks support persistent bitmaps.  Default is false
+    /// for `block-dirty-bitmap-add`.  (Since: 2.10)
+    #[qapi(added = "2.10.0")]
+    pub persistent: Option<bool>,
+    /// ignored and deprecated since 2.12.
+    /// Currently, all dirty tracking bitmaps are loaded from Qcow2 on
+    /// open.
+    #[qapi(added = "2.10.0")]
+    #[qapi(removed = "4.2.0")]
+    pub autoload: Option<bool>,
+    /// the bitmap is created in the disabled state, which means that
+    /// it will not track drive changes. The bitmap may be enabled with
+    /// x-block-dirty-bitmap-enable. Default is false. (Since: 3.0)
+    #[qapi(name = "x-disabled")]
+    #[qapi(added = "3.0.0")]
+    #[qapi(removed = "4.0.0")]
+    pub x_disabled: Option<bool>,
+    /// the bitmap is created in the disabled state, which means
+    /// that it will not track drive changes.  The bitmap may be enabled
+    /// with `block-dirty-bitmap-enable`.  Default is false.
+    /// (Since: 4.0)
+    #[qapi(added = "4.0.0")]
+    pub disabled: Option<bool>,
+}
+#[qapi(command)]
+#[qapi(returns = "()")]
+#[qapi(added = "3.0.0")]
+pub struct BlockDirtyBitmapMerge {
+    /// name of device/node which the @target bitmap is tracking
+    pub node: String,
+    /// name of the destination dirty bitmap
+    #[qapi(removed = "4.0.0")]
+    pub dst_name: Option<String>,
+    /// name of the source dirty bitmap
+    #[qapi(removed = "4.0.0")]
+    pub src_name: Option<String>,
+    /// name of the destination dirty bitmap
+    #[qapi(added = "4.0.0")]
+    pub target: Option<String>,
+    /// name(s) of the source dirty bitmap(s) at @node and/or
+    /// fully specified `BlockDirtyBitmap` elements.  The latter are
+    /// supported since 4.1.
+    #[qapi(added = "4.0.0")]
+    pub bitmaps: Option<Vec<String>>,
+}
+/// An NBD block export.
+///
+#[qapi(command)]
+#[qapi(returns = "()")]
+#[qapi(added = "5.0.0")]
+#[qapi(removed = "5.2.0")]
+pub struct BlockExportNbd {
+    /// The device name or node name of the node to be exported
+    pub device: String,
+    /// Export name. If unspecified, the @device parameter is used as the
+    /// export name. (Since 2.12)
+    pub name: Option<String>,
+    /// Free-form description of the export, up to 4096 bytes.
+    /// (Since 5.0)
+    pub description: Option<String>,
+    /// Whether clients should be able to write to the device via the
+    /// NBD connection (default false).
+    pub writable: Option<bool>,
+    /// Also export the dirty bitmap reachable from @device, so the
+    /// NBD client can use NBD_OPT_SET_META_CONTEXT with
+    /// "qemu:dirty-bitmap:NAME" to inspect the bitmap. (since 4.0)
+    pub bitmap: Option<String>,
+}
+/// Describes a block export, i.e. how single node should be exported on
+/// an external interface.
+///
+#[qapi(command)]
+#[qapi(returns = "()")]
+#[qapi(added = "5.2.0")]
+pub struct BlockExportOptions {
+    /// Block export type
+    #[qapi(discriminator)]
+    pub r#type: BlockExportType,
+    /// A unique identifier for the block export (across all export
+    /// types)
+    pub id: String,
+    /// True prevents the block node from being moved to
+    /// another thread while the export is active.  If true and
+    #[qapi(name = "fixed-iothread")]
+    pub fixed_iothread: Option<bool>,
+    /// is given, export creation fails if the block node
+    /// cannot be moved to the iothread.  The default is false.
+    /// (since: 5.2)
+    pub iothread: Option<String>,
+    /// The node name of the block node to be exported
+    /// (since: 5.2)
+    #[qapi(name = "node-name")]
+    pub node_name: String,
+    /// True if clients should be able to write to the export
+    /// (default false)
+    pub writable: Option<bool>,
+    /// If true, caches are flushed after every write request
+    /// to the export before completion is signalled.  (since: 5.2;
+    /// default: false)
+    pub writethrough: Option<bool>,
+    #[qapi(union)]
+    pub u: Option<BlockExportOptionsBranch>,
+    /// If true, the export allows the exported node to be
+    /// inactive.  If it is created for an inactive block node, the node
+    /// remains inactive.  If the export type doesn't support running on
+    /// an inactive node, an error is returned.  If false, inactive
+    /// block nodes are automatically activated before creating the
+    /// export and trying to inactivate them later fails.
+    /// (since: 10.0; default: false)
+    #[qapi(name = "allow-inactive")]
+    #[qapi(added = "10.0.0")]
+    pub allow_inactive: Option<bool>,
+}
+/// A set of parameters describing block throttling.
+///
+#[qapi(name = "BlockIOThrottle")]
+#[qapi(command)]
+#[qapi(returns = "()")]
+#[qapi(added = "2.7.0")]
+pub struct BlockIoThrottle {
+    /// Block device name (deprecated, use @id instead)
+    #[qapi(deprecated = "5.0.0")]
+    pub device: String,
+    /// total throughput limit in bytes per second
+    pub bps: i64,
+    /// read throughput limit in bytes per second
+    pub bps_rd: i64,
+    /// write throughput limit in bytes per second
+    pub bps_wr: i64,
+    /// total I/O operations per second
+    pub iops: i64,
+    /// read I/O operations per second
+    pub iops_rd: i64,
+    /// write I/O operations per second
+    pub iops_wr: i64,
+    /// total throughput limit during bursts,
+    /// in bytes (Since 1.7)
+    pub bps_max: Option<i64>,
+    /// read throughput limit during bursts,
+    /// in bytes (Since 1.7)
+    pub bps_rd_max: Option<i64>,
+    /// write throughput limit during bursts,
+    /// in bytes (Since 1.7)
+    pub bps_wr_max: Option<i64>,
+    /// total I/O operations per second during bursts,
+    /// in bytes (Since 1.7)
+    pub iops_max: Option<i64>,
+    /// read I/O operations per second during bursts,
+    /// in bytes (Since 1.7)
+    pub iops_rd_max: Option<i64>,
+    /// write I/O operations per second during bursts,
+    /// in bytes (Since 1.7)
+    pub iops_wr_max: Option<i64>,
+    /// maximum length of the @bps_max burst
+    /// period, in seconds. It must only
+    /// be set if @bps_max is set as well.
+    /// Defaults to 1. (Since 2.6)
+    pub bps_max_length: Option<i64>,
+    /// maximum length of the @bps_rd_max
+    /// burst period, in seconds. It must only
+    /// be set if @bps_rd_max is set as well.
+    /// Defaults to 1. (Since 2.6)
+    pub bps_rd_max_length: Option<i64>,
+    /// maximum length of the @bps_wr_max
+    /// burst period, in seconds. It must only
+    /// be set if @bps_wr_max is set as well.
+    /// Defaults to 1. (Since 2.6)
+    pub bps_wr_max_length: Option<i64>,
+    /// maximum length of the @iops burst
+    /// period, in seconds. It must only
+    /// be set if @iops_max is set as well.
+    /// Defaults to 1. (Since 2.6)
+    pub iops_max_length: Option<i64>,
+    /// maximum length of the @iops_rd_max
+    /// burst period, in seconds. It must only
+    /// be set if @iops_rd_max is set as well.
+    /// Defaults to 1. (Since 2.6)
+    pub iops_rd_max_length: Option<i64>,
+    /// maximum length of the @iops_wr_max
+    /// burst period, in seconds. It must only
+    /// be set if @iops_wr_max is set as well.
+    /// Defaults to 1. (Since 2.6)
+    pub iops_wr_max_length: Option<i64>,
+    /// an I/O size in bytes (Since 1.7)
+    pub iops_size: Option<i64>,
+    /// throttle group name (Since 2.4)
+    pub group: Option<String>,
+    /// The name or QOM path of the guest device (since: 2.8)
+    #[qapi(added = "2.8.0")]
+    pub id: Option<String>,
+}
+/// Block job options that can be changed after job creation.
+///
+#[qapi(command)]
+#[qapi(returns = "()")]
+#[qapi(added = "8.2.0")]
+pub struct BlockJobChangeOptions {
+    /// The job identifier
+    pub id: String,
+    /// The job type
+    #[qapi(discriminator)]
+    pub r#type: JobType,
+    #[qapi(union)]
+    pub u: Option<BlockJobChangeOptionsBranch>,
+}
+#[qapi(command)]
+#[qapi(returns = "()")]
+#[qapi(added = "2.3.0")]
+pub struct BlockdevBackup {
+    pub device: String,
+    /// the device name or node-name of the backup target node.
+    pub target: String,
+    pub sync: MirrorSyncMode,
+    pub speed: Option<i64>,
+    #[qapi(name = "on-source-error")]
+    pub on_source_error: Option<BlockdevOnError>,
+    #[qapi(name = "on-target-error")]
+    pub on_target_error: Option<BlockdevOnError>,
+    #[qapi(name = "job-id")]
+    #[qapi(added = "2.7.0")]
+    pub job_id: Option<String>,
+    #[qapi(added = "2.8.0")]
+    pub compress: Option<bool>,
+    #[qapi(name = "auto-finalize")]
+    #[qapi(added = "2.12.0")]
+    pub auto_finalize: Option<bool>,
+    #[qapi(name = "auto-dismiss")]
+    #[qapi(added = "2.12.0")]
+    pub auto_dismiss: Option<bool>,
+    #[qapi(added = "3.1.0")]
+    pub bitmap: Option<String>,
+    #[qapi(name = "bitmap-mode")]
+    #[qapi(added = "4.2.0")]
+    pub bitmap_mode: Option<BitmapSyncMode>,
+    #[qapi(name = "filter-node-name")]
+    #[qapi(added = "4.2.0")]
+    pub filter_node_name: Option<String>,
+    #[qapi(name = "x-perf")]
+    #[qapi(added = "6.0.0")]
+    pub x_perf: Option<BackupPerf>,
+    #[qapi(name = "discard-source")]
+    #[qapi(added = "9.1.0")]
+    pub discard_source: Option<bool>,
+    #[qapi(name = "on-cbw-error")]
+    #[qapi(added = "10.1.0")]
+    pub on_cbw_error: Option<OnCbwError>,
+}
+/// Options for creating an image format on a given node.
+///
+#[qapi(command)]
+#[qapi(returns = "()")]
+#[qapi(added = "2.12.0")]
+pub struct BlockdevCreateOptions {
+    /// block driver to create the image format
+    #[qapi(discriminator)]
+    pub driver: BlockdevDriver,
+    #[qapi(union)]
+    pub u: Option<BlockdevCreateOptionsBranch>,
+}
+#[qapi(command)]
+#[qapi(returns = "()")]
+#[qapi(added = "1.7.0")]
+pub struct BlockdevSnapshotInternal {
+    /// the device name or node-name of a root node to generate the
+    /// snapshot from
+    pub device: String,
+    /// the name of the internal snapshot to be created
+    pub name: String,
+}
+/// Either @device or @node-name must be set but not both.
+///
+#[qapi(command)]
+#[qapi(returns = "()")]
+#[qapi(added = "2.5.0")]
+pub struct BlockdevSnapshotSync {
+    /// optional the name of the device to generate the snapshot from.
+    pub device: Option<String>,
+    /// optional graph node name to generate the snapshot from (Since 2.0)
+    #[qapi(name = "node-name")]
+    pub node_name: Option<String>,
+    /// the target of the new image. A new file will be created.
+    #[qapi(name = "snapshot-file")]
+    pub snapshot_file: String,
+    /// optional the graph node name of the new image (Since 2.0)
+    #[qapi(name = "snapshot-node-name")]
+    pub snapshot_node_name: Option<String>,
+    /// optional the format of the snapshot image, default is 'qcow2'.
+    pub format: Option<String>,
+    /// optional whether and how QEMU should create a new image, default is
+    /// 'absolute-paths'.
+    ///
+    pub mode: Option<NewImageMode>,
+}
+/// Options of the display configuration reload.
+///
+#[qapi(command)]
+#[qapi(returns = "()")]
+#[qapi(added = "6.0.0")]
+pub struct DisplayReloadOptions {
+    /// Specify the display type.
+    #[qapi(discriminator)]
+    pub r#type: DisplayReloadType,
+    #[qapi(union)]
+    pub u: Option<DisplayReloadOptionsBranch>,
+}
+/// Options of the display configuration reload.
+///
+#[qapi(command)]
+#[qapi(returns = "()")]
+#[qapi(added = "7.1.0")]
+pub struct DisplayUpdateOptions {
+    /// Specify the display type.
+    #[qapi(discriminator)]
+    pub r#type: DisplayUpdateType,
+    #[qapi(union)]
+    pub u: Option<DisplayUpdateOptionsBranch>,
+}
+#[qapi(command)]
+#[qapi(returns = "()")]
+#[qapi(added = "1.6.0")]
+pub struct DriveBackup {
+    pub device: String,
+    /// the target of the new image.  If the file exists, or if it
+    /// is a device, the existing file/device will be used as the new
+    /// destination.  If it does not exist, a new file will be created.
+    pub target: String,
+    /// the format of the new destination, default is to probe if
+    pub format: Option<String>,
+    pub sync: MirrorSyncMode,
+    /// whether and how QEMU should create a new image, default is
+    /// 'absolute-paths'.
+    pub mode: Option<NewImageMode>,
+    pub speed: Option<i64>,
+    #[qapi(name = "on-source-error")]
+    pub on_source_error: Option<BlockdevOnError>,
+    #[qapi(name = "on-target-error")]
+    pub on_target_error: Option<BlockdevOnError>,
+    #[qapi(added = "2.4.0")]
+    pub bitmap: Option<String>,
+    #[qapi(name = "job-id")]
+    #[qapi(added = "2.7.0")]
+    pub job_id: Option<String>,
+    #[qapi(added = "2.8.0")]
+    pub compress: Option<bool>,
+    #[qapi(name = "auto-finalize")]
+    #[qapi(added = "2.12.0")]
+    pub auto_finalize: Option<bool>,
+    #[qapi(name = "auto-dismiss")]
+    #[qapi(added = "2.12.0")]
+    pub auto_dismiss: Option<bool>,
+    #[qapi(name = "bitmap-mode")]
+    #[qapi(added = "4.2.0")]
+    pub bitmap_mode: Option<BitmapSyncMode>,
+    #[qapi(name = "filter-node-name")]
+    #[qapi(added = "4.2.0")]
+    pub filter_node_name: Option<String>,
+    #[qapi(name = "x-perf")]
+    #[qapi(added = "6.0.0")]
+    pub x_perf: Option<BackupPerf>,
+    #[qapi(name = "discard-source")]
+    #[qapi(added = "9.1.0")]
+    pub discard_source: Option<bool>,
+    #[qapi(name = "on-cbw-error")]
+    #[qapi(added = "10.1.0")]
+    pub on_cbw_error: Option<OnCbwError>,
+}
+/// A set of parameters describing drive mirror setup.
+///
+#[qapi(command)]
+#[qapi(returns = "()")]
+#[qapi(added = "2.7.0")]
+pub struct DriveMirror {
+    /// identifier for the newly-created block job.  If omitted,
+    /// the device name will be used.  (Since 2.7)
+    #[qapi(name = "job-id")]
+    pub job_id: Option<String>,
+    /// the device name or node-name of a root node whose writes
+    /// should be mirrored.
+    pub device: String,
+    /// the target of the new image.  If the file exists, or if it
+    /// is a device, the existing file/device will be used as the new
+    /// destination.  If it does not exist, a new file will be created.
+    pub target: String,
+    /// the format of the new destination, default is to probe if
+    pub format: Option<String>,
+    /// the new block driver state node name in the graph
+    /// (Since 2.1)
+    #[qapi(name = "node-name")]
+    pub node_name: Option<String>,
+    /// with sync=full graph node name to be replaced by the new
+    /// image when a whole image copy is done.  This can be used to
+    /// repair broken Quorum files.  By default, @device is replaced,
+    /// although implicitly created filters on it are kept.  (Since 2.1)
+    pub replaces: Option<String>,
+    /// what parts of the disk image should be copied to the
+    /// destination (all the disk, only the sectors allocated in the
+    /// topmost image, or only new I/O).
+    pub sync: MirrorSyncMode,
+    /// whether and how QEMU should create a new image, default is
+    /// 'absolute-paths'.
+    pub mode: Option<NewImageMode>,
+    /// the maximum speed, in bytes per second
+    pub speed: Option<i64>,
+    /// granularity of the dirty bitmap, default is 64K if the
+    /// image format doesn't have clusters, 4K if the clusters are
+    /// smaller than that, else the cluster size.  Must be a power of 2
+    /// between 512 and 64M (since 1.4).
+    pub granularity: Option<u32>,
+    /// maximum amount of data in flight from source to target
+    /// (since 1.4).
+    #[qapi(name = "buf-size")]
+    pub buf_size: Option<i64>,
+    /// the action to take on an error on the source,
+    /// default 'report'.  'stop' and 'enospc' can only be used if the
+    /// block device supports io-status (see `BlockInfo`).
+    #[qapi(name = "on-source-error")]
+    pub on_source_error: Option<BlockdevOnError>,
+    /// the action to take on an error on the target,
+    /// default 'report' (no limitations, since this applies to a
+    /// different block device than @device).
+    #[qapi(name = "on-target-error")]
+    pub on_target_error: Option<BlockdevOnError>,
+    /// Whether to try to unmap target sectors where source has only
+    /// zero.  If true, and target unallocated sectors will read as
+    /// zero, target image sectors will be unmapped; otherwise, zeroes
+    /// will be written.  Both will result in identical contents.
+    /// Default is true.  (Since 2.4)
+    pub unmap: Option<bool>,
+    /// when to copy data to the destination; defaults to
+    /// 'background' (Since: 3.0)
+    #[qapi(name = "copy-mode")]
+    #[qapi(added = "3.0.0")]
+    pub copy_mode: Option<MirrorCopyMode>,
+    /// When false, this job will wait in a PENDING state
+    /// after it has finished its work, waiting for `job-finalize`
+    /// before making any block graph changes.  When true, this job will
+    /// automatically perform its abort or commit actions.  Defaults to
+    /// true.  (Since 3.1)
+    #[qapi(name = "auto-finalize")]
+    #[qapi(added = "3.1.0")]
+    pub auto_finalize: Option<bool>,
+    /// When false, this job will wait in a CONCLUDED state
+    /// after it has completely ceased all work, and awaits
+    /// `job-dismiss`.  When true, this job will automatically disappear
+    /// without user intervention.  Defaults to true.  (Since 3.1)
+    #[qapi(name = "auto-dismiss")]
+    #[qapi(added = "3.1.0")]
+    pub auto_dismiss: Option<bool>,
+}
+/// General options for `expire_password`.
+///
+#[qapi(command)]
+#[qapi(returns = "()")]
+#[qapi(added = "7.0.0")]
+pub struct ExpirePasswordOptions {
+    /// - 'vnc' to modify the VNC server expiration
+    /// - 'spice' to modify the Spice server expiration
+    #[qapi(discriminator)]
+    pub protocol: DisplayProtocol,
+    /// when to expire the password.
+    ///
+    /// - 'now' to expire the password immediately
+    /// - 'never' to cancel password expiration
+    /// - '+INT' where INT is the number of seconds from now (integer)
+    /// - 'INT' where INT is the absolute time in seconds
+    ///
+    /// .. note:: Time is relative to the server and currently there is no
+    /// way to coordinate server time with client time.  It is not
+    /// recommended to use the absolute time version of the @time
+    /// parameter unless you're sure you are on the same machine as the
+    /// QEMU instance.
+    pub time: String,
+    #[qapi(union)]
+    pub u: Option<ExpirePasswordOptionsBranch>,
+}
+#[qapi(command)]
+#[qapi(returns = "()")]
+#[qapi(added = "2.10.0")]
+pub struct MigrateSetParameters {
+    #[qapi(name = "compress-level")]
+    #[qapi(deprecated = "8.2.0")]
+    #[qapi(removed = "9.1.0")]
+    pub compress_level: Option<i64>,
+    #[qapi(name = "compress-threads")]
+    #[qapi(deprecated = "8.2.0")]
+    #[qapi(removed = "9.1.0")]
+    pub compress_threads: Option<i64>,
+    #[qapi(name = "decompress-threads")]
+    #[qapi(deprecated = "8.2.0")]
+    #[qapi(removed = "9.1.0")]
+    pub decompress_threads: Option<i64>,
+    #[qapi(name = "cpu-throttle-initial")]
+    pub cpu_throttle_initial: Option<i64>,
+    #[qapi(name = "cpu-throttle-increment")]
+    pub cpu_throttle_increment: Option<i64>,
+    #[qapi(name = "tls-creds")]
+    pub tls_creds: Option<StrOrNull>,
+    #[qapi(name = "tls-hostname")]
+    pub tls_hostname: Option<StrOrNull>,
+    #[qapi(name = "max-bandwidth")]
+    pub max_bandwidth: Option<i64>,
+    #[qapi(name = "downtime-limit")]
+    pub downtime_limit: Option<i64>,
+    #[qapi(name = "x-checkpoint-delay")]
+    pub x_checkpoint_delay: Option<i64>,
+    #[qapi(name = "block-incremental")]
+    #[qapi(deprecated = "8.2.0")]
+    #[qapi(removed = "9.1.0")]
+    pub block_incremental: Option<bool>,
+    #[qapi(name = "x-multifd-channels")]
+    #[qapi(added = "2.11.0")]
+    #[qapi(removed = "4.0.0")]
+    pub x_multifd_channels: Option<i64>,
+    #[qapi(name = "x-multifd-page-count")]
+    #[qapi(added = "2.11.0")]
+    #[qapi(removed = "4.0.0")]
+    pub x_multifd_page_count: Option<i64>,
+    #[qapi(name = "xbzrle-cache-size")]
+    #[qapi(added = "2.11.0")]
+    pub xbzrle_cache_size: Option<u64>,
+    #[qapi(name = "max-postcopy-bandwidth")]
+    #[qapi(added = "3.0.0")]
+    pub max_postcopy_bandwidth: Option<u64>,
+    #[qapi(name = "compress-wait-thread")]
+    #[qapi(added = "3.1.0")]
+    #[qapi(deprecated = "8.2.0")]
+    #[qapi(removed = "9.1.0")]
+    pub compress_wait_thread: Option<bool>,
+    #[qapi(name = "max-cpu-throttle")]
+    #[qapi(added = "3.1.0")]
+    pub max_cpu_throttle: Option<i64>,
+    #[qapi(name = "announce-initial")]
+    #[qapi(added = "4.0.0")]
+    pub announce_initial: Option<u64>,
+    #[qapi(name = "announce-max")]
+    #[qapi(added = "4.0.0")]
+    pub announce_max: Option<u64>,
+    #[qapi(name = "announce-rounds")]
+    #[qapi(added = "4.0.0")]
+    pub announce_rounds: Option<u64>,
+    #[qapi(name = "announce-step")]
+    #[qapi(added = "4.0.0")]
+    pub announce_step: Option<u64>,
+    #[qapi(name = "tls-authz")]
+    #[qapi(added = "4.0.0")]
+    pub tls_authz: Option<StrOrNull>,
+    #[qapi(name = "multifd-channels")]
+    #[qapi(added = "4.0.0")]
+    pub multifd_channels: Option<i64>,
+    #[qapi(name = "throttle-trigger-threshold")]
+    #[qapi(added = "5.0.0")]
+    pub throttle_trigger_threshold: Option<i64>,
+    #[qapi(name = "multifd-compression")]
+    #[qapi(added = "5.0.0")]
+    pub multifd_compression: Option<MultiFdCompression>,
+    #[qapi(name = "multifd-zlib-level")]
+    #[qapi(added = "5.0.0")]
+    pub multifd_zlib_level: Option<i64>,
+    #[qapi(name = "multifd-zstd-level")]
+    #[qapi(added = "5.0.0")]
+    pub multifd_zstd_level: Option<i64>,
+    #[qapi(name = "cpu-throttle-tailslow")]
+    #[qapi(added = "5.1.0")]
+    pub cpu_throttle_tailslow: Option<bool>,
+    #[qapi(name = "block-bitmap-mapping")]
+    #[qapi(added = "5.2.0")]
+    pub block_bitmap_mapping: Option<Vec<BitmapMigrationNodeAlias>>,
+    #[qapi(name = "x-vcpu-dirty-limit-period")]
+    #[qapi(feature = "unstable")]
+    #[qapi(added = "8.1.0")]
+    pub x_vcpu_dirty_limit_period: Option<u64>,
+    #[qapi(name = "vcpu-dirty-limit")]
+    #[qapi(added = "8.1.0")]
+    pub vcpu_dirty_limit: Option<u64>,
+    #[qapi(name = "avail-switchover-bandwidth")]
+    #[qapi(added = "8.2.0")]
+    pub avail_switchover_bandwidth: Option<u64>,
+    #[qapi(added = "8.2.0")]
+    pub mode: Option<MigMode>,
+    #[qapi(name = "zero-page-detection")]
+    #[qapi(added = "9.0.0")]
+    pub zero_page_detection: Option<ZeroPageDetection>,
+    #[qapi(name = "direct-io")]
+    #[qapi(added = "9.1.0")]
+    pub direct_io: Option<bool>,
+    #[qapi(name = "multifd-qatzip-level")]
+    #[qapi(added = "9.2.0")]
+    pub multifd_qatzip_level: Option<u8>,
+    #[qapi(name = "cpr-exec-command")]
+    #[qapi(added = "10.2.0")]
+    pub cpr_exec_command: Option<Vec<String>>,
+}
+/// An NBD block export, per legacy `nbd-server-add` command.
+///
+#[qapi(command)]
+#[qapi(returns = "()")]
+#[qapi(added = "5.2.0")]
+pub struct NbdServerAddOptions {
+    /// Export name.  If unspecified, the @device parameter is used
+    /// as the export name.  (Since 2.12)
+    pub name: Option<String>,
+    /// Free-form description of the export, up to 4096 bytes.
+    /// (Since 5.0)
+    pub description: Option<String>,
+    /// The device name or node name of the node to be exported
+    pub device: String,
+    /// Whether clients should be able to write to the device via
+    /// the NBD connection (default false).
+    pub writable: Option<bool>,
+    /// Also export a single dirty bitmap reachable from @device,
+    /// so the NBD client can use NBD_OPT_SET_META_CONTEXT with the
+    /// metadata context name "qemu:dirty-bitmap:BITMAP" to inspect the
+    /// bitmap (since 4.0).
+    pub bitmap: Option<String>,
+}
+#[qapi(command)]
+#[qapi(returns = "()")]
+#[qapi(allow_preconfig)]
+#[qapi(added = "10.0.0")]
+pub struct NbdServerOptionsLegacy {
+    #[qapi(name = "handshake-max-seconds")]
+    pub handshake_max_seconds: Option<u32>,
+    #[qapi(name = "tls-creds")]
+    pub tls_creds: Option<String>,
+    #[qapi(name = "tls-authz")]
+    pub tls_authz: Option<String>,
+    #[qapi(name = "max-connections")]
+    pub max_connections: Option<u32>,
+    pub addr: SocketAddressLegacy,
+}
+/// Describes the options of a user creatable QOM object.
+///
+#[qapi(command)]
+#[qapi(returns = "()")]
+#[qapi(added = "6.0.0")]
+pub struct ObjectOptions {
+    /// the class name for the object to be created
+    #[qapi(name = "qom-type")]
+    #[qapi(discriminator)]
+    pub qom_type: ObjectType,
+    /// the name of the new object
+    pub id: String,
+    #[qapi(union)]
+    pub u: Option<ObjectOptionsBranch>,
+}
+/// Options for `set_password`.
+///
+#[qapi(command)]
+#[qapi(returns = "()")]
+#[qapi(added = "7.0.0")]
+pub struct SetPasswordOptions {
+    /// - 'vnc' to modify the VNC server password
+    /// - 'spice' to modify the Spice server password
+    #[qapi(discriminator)]
+    pub protocol: DisplayProtocol,
+    /// the new password
+    pub password: String,
+    /// How to handle existing clients when changing the
+    /// password.  If nothing is specified, defaults to 'keep'.  For
+    /// VNC, only 'keep' is currently implemented.
+    pub connected: Option<SetPasswordAction>,
+    #[qapi(union)]
+    pub u: Option<SetPasswordOptionsBranch>,
+}
+/// The arguments to the `query-stats` command; specifies a target for
+/// which to request statistics and optionally the required subset of
+/// information for that target.
+///
+#[qapi(command)]
+#[qapi(returns = "Vec<StatsResult>")]
+#[qapi(added = "7.1.0")]
+pub struct StatsFilter {
+    /// the kind of objects to query.  Note that each possible
+    /// target may enable additional filtering options
+    #[qapi(discriminator)]
+    pub target: StatsTarget,
+    /// which providers to request statistics from, and
+    /// optionally which named values to return within each provider
+    pub providers: Option<Vec<StatsRequest>>,
+    #[qapi(union)]
+    pub u: Option<StatsFilterBranch>,
+}
 #[qapi(command)]
 #[qapi(name = "add-fd")]
 #[qapi(returns = "AddfdInfo")]
@@ -18334,14 +18404,6 @@ pub struct AddClient {
     pub fdname: String,
     pub skipauth: Option<bool>,
     pub tls: Option<bool>,
-}
-#[qapi(command)]
-#[qapi(name = "announce-self")]
-#[qapi(returns = "()")]
-#[qapi(added = "4.0.0")]
-pub struct AnnounceSelf {
-    #[qapi(flatten)]
-    pub data: AnnounceParameters,
 }
 #[qapi(command)]
 #[qapi(name = "balloon")]
@@ -18390,48 +18452,6 @@ pub struct BlockCommit {
     pub backing_mask_protocol: Option<bool>,
 }
 #[qapi(command)]
-#[qapi(name = "block-dirty-bitmap-clear")]
-#[qapi(returns = "()")]
-#[qapi(added = "2.4.0")]
-pub struct BlockDirtyBitmapClear {
-    #[qapi(flatten)]
-    pub data: BlockDirtyBitmap,
-}
-#[qapi(command)]
-#[qapi(name = "block-dirty-bitmap-disable")]
-#[qapi(returns = "()")]
-#[qapi(added = "4.0.0")]
-pub struct BlockDirtyBitmapDisable {
-    #[qapi(flatten)]
-    pub data: BlockDirtyBitmap,
-}
-#[qapi(command)]
-#[qapi(name = "block-dirty-bitmap-enable")]
-#[qapi(returns = "()")]
-#[qapi(added = "4.0.0")]
-pub struct BlockDirtyBitmapEnable {
-    #[qapi(flatten)]
-    pub data: BlockDirtyBitmap,
-}
-#[qapi(command)]
-#[qapi(name = "block-dirty-bitmap-remove")]
-#[qapi(returns = "()")]
-#[qapi(added = "2.4.0")]
-pub struct BlockDirtyBitmapRemove {
-    #[qapi(flatten)]
-    pub data: BlockDirtyBitmap,
-}
-/// Creates a new block export.
-///
-#[qapi(command)]
-#[qapi(name = "block-export-add")]
-#[qapi(returns = "()")]
-#[qapi(added = "5.2.0")]
-pub struct BlockExportAdd {
-    #[qapi(flatten)]
-    pub data: BlockExportOptions,
-}
-#[qapi(command)]
 #[qapi(name = "block-export-del")]
 #[qapi(returns = "()")]
 #[qapi(added = "5.2.0")]
@@ -18447,16 +18467,6 @@ pub struct BlockJobCancel {
     pub device: String,
     #[qapi(added = "1.3.0")]
     pub force: Option<bool>,
-}
-/// Change the block job's options.
-///
-#[qapi(command)]
-#[qapi(name = "block-job-change")]
-#[qapi(returns = "()")]
-#[qapi(added = "8.2.0")]
-pub struct BlockJobChange {
-    #[qapi(flatten)]
-    pub data: BlockJobChangeOptions,
 }
 #[qapi(command)]
 #[qapi(name = "block-job-complete")]
@@ -18670,66 +18680,43 @@ pub struct BlockResize {
 #[qapi(name = "block_set_io_throttle")]
 #[qapi(returns = "()")]
 #[qapi(added = "1.1.0")]
+#[qapi(removed = "2.7.0")]
 pub struct BlockSetIoThrottle {
-    #[qapi(removed = "2.7.0")]
-    pub device: Option<String>,
-    #[qapi(removed = "2.7.0")]
-    pub bps: Option<i64>,
-    #[qapi(removed = "2.7.0")]
-    pub bps_rd: Option<i64>,
-    #[qapi(removed = "2.7.0")]
-    pub bps_wr: Option<i64>,
-    #[qapi(removed = "2.7.0")]
-    pub iops: Option<i64>,
-    #[qapi(removed = "2.7.0")]
-    pub iops_rd: Option<i64>,
-    #[qapi(removed = "2.7.0")]
-    pub iops_wr: Option<i64>,
+    pub device: String,
+    pub bps: i64,
+    pub bps_rd: i64,
+    pub bps_wr: i64,
+    pub iops: i64,
+    pub iops_rd: i64,
+    pub iops_wr: i64,
     #[qapi(added = "1.7.0")]
-    #[qapi(removed = "2.7.0")]
     pub bps_max: Option<i64>,
     #[qapi(added = "1.7.0")]
-    #[qapi(removed = "2.7.0")]
     pub bps_rd_max: Option<i64>,
     #[qapi(added = "1.7.0")]
-    #[qapi(removed = "2.7.0")]
     pub bps_wr_max: Option<i64>,
     #[qapi(added = "1.7.0")]
-    #[qapi(removed = "2.7.0")]
     pub iops_max: Option<i64>,
     #[qapi(added = "1.7.0")]
-    #[qapi(removed = "2.7.0")]
     pub iops_rd_max: Option<i64>,
     #[qapi(added = "1.7.0")]
-    #[qapi(removed = "2.7.0")]
     pub iops_wr_max: Option<i64>,
     #[qapi(added = "1.7.0")]
-    #[qapi(removed = "2.7.0")]
     pub iops_size: Option<i64>,
     #[qapi(added = "2.4.0")]
-    #[qapi(removed = "2.7.0")]
     pub group: Option<String>,
     #[qapi(added = "2.6.0")]
-    #[qapi(removed = "2.7.0")]
     pub bps_max_length: Option<i64>,
     #[qapi(added = "2.6.0")]
-    #[qapi(removed = "2.7.0")]
     pub bps_rd_max_length: Option<i64>,
     #[qapi(added = "2.6.0")]
-    #[qapi(removed = "2.7.0")]
     pub bps_wr_max_length: Option<i64>,
     #[qapi(added = "2.6.0")]
-    #[qapi(removed = "2.7.0")]
     pub iops_max_length: Option<i64>,
     #[qapi(added = "2.6.0")]
-    #[qapi(removed = "2.7.0")]
     pub iops_rd_max_length: Option<i64>,
     #[qapi(added = "2.6.0")]
-    #[qapi(removed = "2.7.0")]
     pub iops_wr_max_length: Option<i64>,
-    #[qapi(flatten)]
-    #[qapi(added = "2.7.0")]
-    pub data: Option<BlockIoThrottle>,
 }
 /// Creates a new block device. If the @id option is given at the top level, a
 /// BlockBackend will be created; otherwise, @node-name is mandatory at the top
@@ -18739,19 +18726,14 @@ pub struct BlockSetIoThrottle {
 /// block drivers among other things.  Stay away from it unless you want
 /// to help with its development.
 ///
-/// For the arguments, see the documentation of BlockdevOptions.
-///
 #[qapi(command)]
 #[qapi(name = "blockdev-add")]
 #[qapi(returns = "()")]
 #[qapi(added = "1.7.0")]
+#[qapi(removed = "2.8.0")]
 pub struct BlockdevAdd {
     /// block device options for the new device
-    #[qapi(removed = "2.8.0")]
-    pub options: Option<BlockdevOptions>,
-    #[qapi(flatten)]
-    #[qapi(added = "2.8.0")]
-    pub data: Option<BlockdevOptions>,
+    pub options: BlockdevOptions,
 }
 /// Changes the medium inserted into a block device by ejecting the current medium
 /// and loading a new image file which is inserted as the new medium (this command
@@ -18975,14 +18957,6 @@ pub struct BlockdevSnapshotDeleteInternalSync {
     pub device: String,
     pub id: Option<String>,
     pub name: Option<String>,
-}
-#[qapi(command)]
-#[qapi(name = "blockdev-snapshot-internal-sync")]
-#[qapi(returns = "()")]
-#[qapi(added = "1.7.0")]
-pub struct BlockdevSnapshotInternalSync {
-    #[qapi(flatten)]
-    pub data: BlockdevSnapshotInternal,
 }
 #[qapi(command)]
 #[qapi(name = "calc-dirty-rate")]
@@ -19377,22 +19351,6 @@ pub struct DeviceDel {
     pub id: String,
 }
 #[qapi(command)]
-#[qapi(name = "display-reload")]
-#[qapi(returns = "()")]
-#[qapi(added = "6.0.0")]
-pub struct DisplayReload {
-    #[qapi(flatten)]
-    pub data: DisplayReloadOptions,
-}
-#[qapi(command)]
-#[qapi(name = "display-update")]
-#[qapi(returns = "()")]
-#[qapi(added = "7.1.0")]
-pub struct DisplayUpdate {
-    #[qapi(flatten)]
-    pub data: DisplayUpdateOptions,
-}
-#[qapi(command)]
 #[qapi(name = "dump-guest-memory")]
 #[qapi(returns = "()")]
 #[qapi(added = "1.2.0")]
@@ -19441,14 +19399,10 @@ pub struct Eject {
 #[qapi(name = "expire_password")]
 #[qapi(returns = "()")]
 #[qapi(added = "1.1.0")]
+#[qapi(removed = "7.0.0")]
 pub struct ExpirePassword {
-    #[qapi(removed = "7.0.0")]
-    pub protocol: Option<String>,
-    #[qapi(removed = "7.0.0")]
-    pub time: Option<String>,
-    #[qapi(flatten)]
-    #[qapi(added = "7.0.0")]
-    pub data: Option<ExpirePasswordOptions>,
+    pub protocol: String,
+    pub time: String,
 }
 #[qapi(command)]
 #[qapi(name = "get-win32-socket")]
@@ -19755,21 +19709,14 @@ pub struct MigrateSetSpeed {
 #[qapi(name = "nbd-server-add")]
 #[qapi(returns = "()")]
 #[qapi(added = "1.3.0")]
-#[qapi(deprecated = "5.2.0")]
+#[qapi(removed = "5.0.0")]
 pub struct NbdServerAdd {
-    #[qapi(removed = "5.0.0")]
-    pub device: Option<String>,
-    #[qapi(removed = "5.0.0")]
+    pub device: String,
     pub writable: Option<bool>,
     #[qapi(added = "2.12.0")]
-    #[qapi(removed = "5.0.0")]
     pub name: Option<String>,
     #[qapi(added = "4.0.0")]
-    #[qapi(removed = "5.0.0")]
     pub bitmap: Option<String>,
-    #[qapi(flatten)]
-    #[qapi(added = "5.0.0")]
-    pub data: Option<BlockExportNbd>,
 }
 #[qapi(command)]
 #[qapi(name = "nbd-server-remove")]
@@ -19784,24 +19731,18 @@ pub struct NbdServerRemove {
 #[qapi(name = "nbd-server-start")]
 #[qapi(returns = "()")]
 #[qapi(added = "1.3.0")]
+#[qapi(removed = "10.0.0")]
 pub struct NbdServerStart {
-    #[qapi(removed = "10.0.0")]
-    pub addr: Option<SocketAddress>,
+    pub addr: SocketAddress,
     #[qapi(name = "tls-creds")]
     #[qapi(added = "2.6.0")]
-    #[qapi(removed = "10.0.0")]
     pub tls_creds: Option<String>,
     #[qapi(name = "tls-authz")]
     #[qapi(added = "4.0.0")]
-    #[qapi(removed = "10.0.0")]
     pub tls_authz: Option<String>,
     #[qapi(name = "max-connections")]
     #[qapi(added = "5.2.0")]
-    #[qapi(removed = "10.0.0")]
     pub max_connections: Option<u32>,
-    #[qapi(flatten)]
-    #[qapi(added = "10.0.0")]
-    pub data: Option<NbdServerOptionsLegacy>,
 }
 /// Stop QEMU's embedded NBD server, and unregister all devices
 /// previously added via `nbd-server-add`.
@@ -19815,16 +19756,12 @@ pub struct NbdServerStop {}
 #[qapi(name = "netdev_add")]
 #[qapi(returns = "()")]
 #[qapi(added = "1.2.0")]
+#[qapi(removed = "5.0.0")]
 pub struct NetdevAdd {
-    #[qapi(removed = "5.0.0")]
-    pub r#type: Option<String>,
-    #[qapi(removed = "5.0.0")]
-    pub id: Option<String>,
+    pub r#type: String,
+    pub id: String,
     #[qapi(removed = "2.5.0")]
     pub props: Option<serde_json::Value>,
-    #[qapi(flatten)]
-    #[qapi(added = "5.0.0")]
-    pub data: Option<Netdev>,
 }
 #[qapi(command)]
 #[qapi(name = "netdev_del")]
@@ -19837,17 +19774,12 @@ pub struct NetdevDel {
 #[qapi(name = "object-add")]
 #[qapi(returns = "()")]
 #[qapi(added = "2.0.0")]
+#[qapi(removed = "6.0.0")]
 pub struct ObjectAdd {
     #[qapi(name = "qom-type")]
-    #[qapi(removed = "6.0.0")]
-    pub qom_type: Option<String>,
-    #[qapi(removed = "6.0.0")]
-    pub id: Option<String>,
-    #[qapi(removed = "6.0.0")]
+    pub qom_type: String,
+    pub id: String,
     pub props: Option<serde_json::Value>,
-    #[qapi(flatten)]
-    #[qapi(added = "6.0.0")]
-    pub data: Option<ObjectOptions>,
 }
 #[qapi(command)]
 #[qapi(name = "object-del")]
@@ -20352,14 +20284,6 @@ pub struct QuerySgxCapabilities {}
 #[qapi(returns = "SpiceInfo")]
 #[qapi(added = "1.0.0")]
 pub struct QuerySpice {}
-#[qapi(command)]
-#[qapi(name = "query-stats")]
-#[qapi(returns = "Vec<StatsResult>")]
-#[qapi(added = "7.1.0")]
-pub struct QueryStats {
-    #[qapi(flatten)]
-    pub data: StatsFilter,
-}
 /// Return the schema for all available runtime-collected statistics.
 ///
 #[qapi(command)]
@@ -20579,18 +20503,6 @@ pub struct SetCpuTopology {
     pub entitlement: Option<CpuS390Entitlement>,
     pub dedicated: Option<bool>,
 }
-/// Runtime equivalent of '-numa' CLI option, available at preconfigure
-/// stage to configure numa mapping before initializing machine.
-///
-#[qapi(command)]
-#[qapi(name = "set-numa-node")]
-#[qapi(returns = "()")]
-#[qapi(allow_preconfig)]
-#[qapi(added = "3.0.0")]
-pub struct SetNumaNode {
-    #[qapi(flatten)]
-    pub data: NumaOptions,
-}
 #[qapi(command)]
 #[qapi(name = "set-vcpu-dirty-limit")]
 #[qapi(returns = "()")]
@@ -20613,16 +20525,11 @@ pub struct SetLink {
 #[qapi(name = "set_password")]
 #[qapi(returns = "()")]
 #[qapi(added = "1.1.0")]
+#[qapi(removed = "7.0.0")]
 pub struct SetPassword {
-    #[qapi(removed = "7.0.0")]
-    pub protocol: Option<String>,
-    #[qapi(removed = "7.0.0")]
-    pub password: Option<String>,
-    #[qapi(removed = "7.0.0")]
+    pub protocol: String,
+    pub password: String,
     pub connected: Option<String>,
-    #[qapi(flatten)]
-    #[qapi(added = "7.0.0")]
-    pub data: Option<SetPasswordOptions>,
 }
 /// This command injects a secret blob into memory of SEV guest.
 ///
@@ -20801,33 +20708,6 @@ pub struct WatchdogSetAction {
 #[qapi(added = "10.1.0")]
 pub struct XAccelStats {}
 #[qapi(command)]
-#[qapi(name = "x-block-dirty-bitmap-disable")]
-#[qapi(returns = "()")]
-#[qapi(added = "3.0.0")]
-#[qapi(removed = "4.0.0")]
-pub struct XBlockDirtyBitmapDisable {
-    #[qapi(flatten)]
-    pub data: BlockDirtyBitmap,
-}
-#[qapi(command)]
-#[qapi(name = "x-block-dirty-bitmap-enable")]
-#[qapi(returns = "()")]
-#[qapi(added = "3.0.0")]
-#[qapi(removed = "4.0.0")]
-pub struct XBlockDirtyBitmapEnable {
-    #[qapi(flatten)]
-    pub data: BlockDirtyBitmap,
-}
-#[qapi(command)]
-#[qapi(name = "x-block-dirty-bitmap-merge")]
-#[qapi(returns = "()")]
-#[qapi(added = "3.0.0")]
-#[qapi(removed = "4.0.0")]
-pub struct XBlockDirtyBitmapMerge {
-    #[qapi(flatten)]
-    pub data: BlockDirtyBitmapMerge,
-}
-#[qapi(command)]
 #[qapi(name = "x-block-latency-histogram-set")]
 #[qapi(returns = "()")]
 #[qapi(added = "2.12.0")]
@@ -20873,15 +20753,6 @@ pub struct XBlockdevChange {
     pub parent: String,
     pub child: Option<String>,
     pub node: Option<String>,
-}
-#[qapi(command)]
-#[qapi(name = "x-blockdev-create")]
-#[qapi(returns = "()")]
-#[qapi(added = "2.12.0")]
-#[qapi(removed = "3.0.0")]
-pub struct XBlockdevCreate {
-    #[qapi(flatten)]
-    pub data: BlockdevCreateOptions,
 }
 /// Deletes a block device that has been added using blockdev-add.
 /// The command will fail if the node is attached to a device or is
@@ -20947,55 +20818,6 @@ pub struct XBlockdevRemoveMedium {
     #[qapi(added = "2.8.0")]
     pub id: Option<String>,
 }
-/// Reopens a block device using the given set of options. Any option
-/// not specified will be reset to its default value regardless of its
-/// previous status. If an option cannot be changed or a particular
-/// driver does not support reopening then the command will return an
-/// error.
-///
-/// The top-level @node-name option (from BlockdevOptions) must be
-/// specified and is used to select the block device to be reopened.
-/// Other @node-name options must be either omitted or set to the
-/// current name of the appropriate node. This command won't change any
-/// node name and any attempt to do it will result in an error.
-///
-/// In the case of options that refer to child nodes, the behavior of
-/// this command depends on the value:
-///
-///  1) A set of options (BlockdevOptions): the child is reopened with
-/// ```text
-///     the specified set of options.
-/// ```
-///
-///  2) A reference to the current child: the child is reopened using
-/// ```text
-///     its existing set of options.
-/// ```
-///
-///  3) A reference to a different node: the current child is replaced
-/// ```text
-///     with the specified one.
-/// ```
-///
-///  4) NULL: the current child (if any) is detached.
-///
-/// Options (1) and (2) are supported in all cases, but at the moment
-/// only @backing allows replacing or detaching an existing child.
-///
-/// Unlike with blockdev-add, the @backing option must always be present
-/// unless the node being reopened does not have a backing file and its
-/// image does not have a default backing file name as part of its
-/// metadata.
-///
-#[qapi(command)]
-#[qapi(name = "x-blockdev-reopen")]
-#[qapi(returns = "()")]
-#[qapi(added = "4.0.0")]
-#[qapi(removed = "6.1.0")]
-pub struct XBlockdevReopen {
-    #[qapi(flatten)]
-    pub data: BlockdevOptions,
-}
 #[qapi(command)]
 #[qapi(name = "x-blockdev-set-iothread")]
 #[qapi(returns = "()")]
@@ -21016,14 +20838,6 @@ pub struct XBlockdevSetIothread {
 #[qapi(returns = "()")]
 #[qapi(added = "2.8.0")]
 pub struct XColoLostHeartbeat {}
-#[qapi(command)]
-#[qapi(name = "x-debug-block-dirty-bitmap-sha256")]
-#[qapi(returns = "BlockDirtyBitmapSha256")]
-#[qapi(added = "2.10.0")]
-pub struct XDebugBlockDirtyBitmapSha256 {
-    #[qapi(flatten)]
-    pub data: BlockDirtyBitmap,
-}
 /// Get the block graph.
 ///
 #[qapi(command)]

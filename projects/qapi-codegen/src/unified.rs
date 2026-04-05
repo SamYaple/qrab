@@ -146,9 +146,43 @@ fn process_version_schema(
         structs_lookup.insert(processed.name.clone(), processed);
     }
     for v in unprocessed_commands {
-        let processed = process_command(v);
-        // Commands may collide with structs of the same name (e.g., block-dirty-bitmap-add
-        // command uses BlockDirtyBitmapAdd struct as its data). The command wins.
+        // Check if this command references an existing struct via data
+        let data_ref_name = match &v.data {
+            Some(crate::MembersOrRef::Ref(name)) => Some(name.to_string()),
+            _ => None,
+        };
+
+        let processed = process_command(v.clone());
+
+        if let Some(ref ref_name) = data_ref_name {
+            if let Some(existing) = structs_lookup.get_mut(ref_name.as_str()) {
+                // Command references an existing struct — merge command attributes onto it.
+                for attr in &processed.meta.attributes {
+                    match attr {
+                        Attribute::Unit(n) if n == "command" || n == "allow_oob" || n == "allow_preconfig" || n == "no_success_response" => {
+                            if !existing.meta.attributes.contains(attr) {
+                                existing.meta.attributes.push(attr.clone());
+                            }
+                        }
+                        Attribute::Item { name, .. } if name == "returns" => {
+                            if !existing.meta.attributes.iter().any(|a| matches!(a, Attribute::Item { name: n, .. } if n == "returns")) {
+                                existing.meta.attributes.push(attr.clone());
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                // Set the command wire name
+                if !existing.meta.attributes.iter().any(|a| matches!(a, Attribute::Unit(n) if n == "command")) {
+                    existing.meta.attributes.push(Attribute::new("command"));
+                }
+                // Remove old command entry that was created from inline data in earlier versions
+                let old_cmd_name = processed.name.clone();
+                structs_lookup.remove(&old_cmd_name);
+                continue;
+            }
+        }
+
         structs_lookup.insert(processed.name.clone(), processed);
     }
 
@@ -249,6 +283,56 @@ pub fn build_unified_registry(
                 };
                 if vr_inner.until.is_none() && vr_inner.since < vr.version {
                     vr_inner.until = Some(vr.version);
+                }
+            }
+        }
+    }
+
+    // Deduplicate types that have the same Rust name (e.g., command 'drive-mirror'
+    // and struct 'DriveMirror' both rustify to DriveMirror).
+    // Keep the one with more fields (the data struct), discard the command wrapper.
+    let mut rust_to_qapi: HashMap<String, Vec<String>> = HashMap::new();
+    for name in registry.types.keys() {
+        let rust_name = rustify_name(name);
+        rust_to_qapi.entry(rust_name).or_default().push(name.clone());
+    }
+    for (rust_name, qapi_names) in &rust_to_qapi {
+        if qapi_names.len() > 1 {
+            // Find the best one to keep (most fields, or the non-command one)
+            let best = qapi_names.iter().max_by_key(|name| {
+                match registry.types.get(name.as_str()) {
+                    Some(UnifiedType::Struct(s)) => {
+                        let is_cmd_only = s.ir.meta.attributes.iter().any(|a| matches!(a, Attribute::Unit(n) if n == "command"))
+                            && s.ir.fields.is_empty();
+                        if is_cmd_only { 0 } else { s.ir.fields.len() + 100 }
+                    }
+                    Some(UnifiedType::Enum(e)) => e.ir.variants.len() + 100,
+                    None => 0,
+                }
+            }).unwrap().clone();
+
+            // Merge command attributes from duplicates into the best one
+            for name in qapi_names {
+                if *name == best { continue; }
+                if let Some(dup) = registry.types.remove(name) {
+                    if let (UnifiedType::Struct(dup_s), Some(UnifiedType::Struct(best_s))) = (dup, registry.types.get_mut(&best)) {
+                        for attr in &dup_s.ir.meta.attributes {
+                            match attr {
+                                Attribute::Unit(n) if n == "command" || n == "allow_oob" || n == "allow_preconfig" || n == "no_success_response" => {
+                                    if !best_s.ir.meta.attributes.contains(attr) {
+                                        best_s.ir.meta.attributes.push(attr.clone());
+                                    }
+                                }
+                                Attribute::Item { name: n, .. } if n == "returns" => {
+                                    if !best_s.ir.meta.attributes.iter().any(|a| matches!(a, Attribute::Item { name: n2, .. } if n2 == "returns")) {
+                                        best_s.ir.meta.attributes.push(attr.clone());
+                                    }
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
+                    eprintln!("INFO: Merged duplicate '{}' into '{}' (Rust name: {})", name, best, rust_name);
                 }
             }
         }
