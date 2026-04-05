@@ -672,31 +672,24 @@ pub fn generate_unified_code(
         .iter().map(|s| s.to_string()).collect();
 
     // Generate types in a stable order.
-    // First pass: enums (types often reference enums).
-    // Second pass: structs (including commands/events).
-    // Within each pass, prefer non-command types over command types for collisions.
-    let enum_entries: Vec<_> = registry.types.iter()
-        .filter(|(_, ut)| matches!(ut, UnifiedType::Enum(_)))
-        .collect();
-    let mut struct_entries: Vec<_> = registry.types.iter()
-        .filter(|(_, ut)| matches!(ut, UnifiedType::Struct(_)))
-        .collect();
-
-    // Sort structs: non-commands first, then commands. This means if a struct
-    // and a command have the same Rust name, the struct wins.
-    struct_entries.sort_by_key(|(_, ut)| {
-        if let UnifiedType::Struct(us) = ut {
-            let is_cmd = us.ir.meta.attributes.iter().any(|a| matches!(a, Attribute::Unit(n) if n == "command"));
-            if is_cmd { 1 } else { 0 }
-        } else {
-            0
-        }
+    // Sort all types by Rust name (case-insensitive) for deterministic, readable output.
+    let mut all_entries: Vec<_> = registry.types.iter().collect();
+    all_entries.sort_by(|(_, a), (_, b)| {
+        let name_a = match a {
+            UnifiedType::Enum(ue) => rustify_name(&ue.ir.name),
+            UnifiedType::Struct(us) => rustify_name(&us.ir.name),
+        };
+        let name_b = match b {
+            UnifiedType::Enum(ue) => rustify_name(&ue.ir.name),
+            UnifiedType::Struct(us) => rustify_name(&us.ir.name),
+        };
+        name_a.to_lowercase().cmp(&name_b.to_lowercase())
     });
 
     // Collect all generated token streams, then format once
     let mut all_tokens = proc_macro2::TokenStream::new();
 
-    for (name, ut) in enum_entries.iter().chain(struct_entries.iter()) {
+    for (name, ut) in &all_entries {
         let rust_name = match ut {
             UnifiedType::Enum(ue) => rustify_name(&ue.ir.name),
             UnifiedType::Struct(us) => rustify_name(&us.ir.name),
@@ -767,7 +760,7 @@ fn generate_unified_enum(ue: &UnifiedEnum, _registry: &UnifiedRegistry) -> proc_
         }
     }
 
-    // Final pass: normalize all doc version strings to major.minor.patch
+    // Clean docs
     if let Some(doc) = &ir.meta.doc {
         ir.meta.doc = clean_doc(doc);
     }
@@ -776,6 +769,9 @@ fn generate_unified_enum(ue: &UnifiedEnum, _registry: &UnifiedRegistry) -> proc_
             variant.meta.doc = clean_doc(doc);
         }
     }
+
+    // Sort variants alphabetically by name
+    ir.variants.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
 
     ir.generate()
 }
@@ -817,7 +813,7 @@ fn generate_unified_struct(us: &UnifiedStruct, _registry: &UnifiedRegistry) -> p
         }
     }
 
-    // Final pass: normalize all doc version strings to major.minor.patch
+    // Clean docs
     if let Some(doc) = &ir.meta.doc {
         ir.meta.doc = clean_doc(doc);
     }
@@ -826,6 +822,9 @@ fn generate_unified_struct(us: &UnifiedStruct, _registry: &UnifiedRegistry) -> p
             field.meta.doc = clean_doc(doc);
         }
     }
+
+    // Sort fields alphabetically by name
+    ir.fields.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
 
     ir.generate()
 }
