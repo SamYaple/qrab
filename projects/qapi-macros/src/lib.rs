@@ -611,6 +611,7 @@ fn gen_unit_enum_ser(name: &syn::Ident, variants: &[VariantInfo], ta: &TypeAttrs
     };
 
     quote! {
+        #[allow(deprecated)]
         impl serde::Serialize for #name {
             fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
             where S: serde::Serializer {
@@ -640,6 +641,7 @@ fn gen_unit_enum_de(name: &syn::Ident, variants: &[VariantInfo]) -> TokenStream2
         .collect();
 
     quote! {
+        #[allow(deprecated)]
         impl<'de> serde::Deserialize<'de> for #name {
             fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
             where D: serde::Deserializer<'de> {
@@ -668,6 +670,7 @@ fn gen_alt_ser(name: &syn::Ident, variants: &[VariantInfo]) -> TokenStream2 {
     }).collect();
 
     quote! {
+        #[allow(deprecated)]
         impl serde::Serialize for #name {
             fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
             where S: serde::Serializer {
@@ -705,6 +708,7 @@ fn gen_alt_de(name: &syn::Ident, variants: &[VariantInfo]) -> TokenStream2 {
         .collect();
 
     quote! {
+        #[allow(deprecated)]
         impl<'de> serde::Deserialize<'de> for #name {
             fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
             where D: serde::Deserializer<'de> {
@@ -903,6 +907,7 @@ fn gen_struct_ser(
     };
 
     quote! {
+        #[allow(deprecated)]
         impl serde::Serialize for #name {
             fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
             where S: serde::Serializer { #body }
@@ -1020,6 +1025,7 @@ fn gen_struct_ser_flatten(name: &syn::Ident, fields: &[FieldInfo], ta: &TypeAttr
     };
 
     quote! {
+        #[allow(deprecated)]
         impl serde::Serialize for #name {
             fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
             where S: serde::Serializer { #body }
@@ -1070,6 +1076,7 @@ fn gen_struct_de(name: &syn::Ident, fields: &[FieldInfo]) -> TokenStream2 {
         .collect();
 
     quote! {
+        #[allow(deprecated)]
         impl<'de> serde::Deserialize<'de> for #name {
             fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
             where D: serde::Deserializer<'de> {
@@ -1134,6 +1141,7 @@ fn gen_struct_de_flatten(name: &syn::Ident, fields: &[FieldInfo]) -> TokenStream
     let all_ids: Vec<&syn::Ident> = fields.iter().map(|f| &f.ident).collect();
 
     quote! {
+        #[allow(deprecated)]
         impl<'de> serde::Deserialize<'de> for #name {
             fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
             where D: serde::Deserializer<'de> {
@@ -1191,6 +1199,7 @@ fn gen_command_impl(name: &syn::Ident, wn: &str, ta: &TypeAttrs) -> TokenStream2
 
     let preconfig_impl = if preconfig {
         quote! {
+            #[allow(deprecated)]
             impl qapi::PreconfigSafe for #name {}
         }
     } else {
@@ -1198,6 +1207,7 @@ fn gen_command_impl(name: &syn::Ident, wn: &str, ta: &TypeAttrs) -> TokenStream2
     };
 
     quote! {
+        #[allow(deprecated)]
         impl qapi::QapiCommand for #name {
             type Returns = #returns;
             const NAME: &'static str = #wn;
@@ -1216,6 +1226,7 @@ fn gen_command_impl(name: &syn::Ident, wn: &str, ta: &TypeAttrs) -> TokenStream2
 
 fn gen_event_impl(name: &syn::Ident, wn: &str) -> TokenStream2 {
     quote! {
+        #[allow(deprecated)]
         impl qapi::QapiEvent for #name {
             const NAME: &'static str = #wn;
         }
