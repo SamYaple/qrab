@@ -53,14 +53,7 @@ async fn drain_events(vm: &mut manager::Vm, timeout: Duration) {
     loop {
         match tokio::time::timeout_at(deadline, vm.events.recv()).await {
             Ok(Some(evt)) => {
-                print!("    EVENT: {:<12}", evt.event);
-                if !evt.data.is_null() && evt.data != serde_json::json!({}) {
-                    print!("  data={}", evt.data);
-                }
-                println!(
-                    "  (ts={}.{})",
-                    evt.timestamp.seconds, evt.timestamp.microseconds
-                );
+                println!("    {evt:?}");
             }
             _ => break,
         }

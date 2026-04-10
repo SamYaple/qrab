@@ -69,41 +69,43 @@ async fn main() -> Result<()> {
     // ── Introspection queries (all preconfig-safe) ───────────────────────
 
     let ver: qapi::VersionInfo = preconfig.execute(&qapi::QueryVersion {}).await?;
-    println!(
-        "query-version: {}.{}.{}",
-        ver.qemu.major, ver.qemu.minor, ver.qemu.micro
-    );
+    println!("query-version: {ver:?}");
 
     let status: qapi::StatusInfo = preconfig.execute(&qapi::QueryStatus {}).await?;
-    println!("query-status: running={}", status.running);
+    println!("query-status: {status:?}");
 
     let name: qapi::NameInfo = preconfig.execute(&qapi::QueryName {}).await?;
-    println!("query-name: {:?}", name.name);
+    println!("query-name: {name:?}");
 
     let uuid: qapi::UuidInfo = preconfig.execute(&qapi::QueryUuid {}).await?;
-    println!("query-uuid: {}", uuid.uuid);
+    println!("query-uuid: {uuid:?}");
 
     let cmds: Vec<qapi::CommandInfo> = preconfig.execute(&qapi::QueryCommands {}).await?;
     println!("query-commands: {} commands available", cmds.len());
+    for cmd in cmds.iter() {
+        println!("  {cmd:?}");
+    }
 
     let chardevs: Vec<qapi::ChardevInfo> = preconfig.execute(&qapi::QueryChardev {}).await?;
-    println!("query-chardev: {} chardevs", chardevs.len());
+    println!("query-chardev: {chardevs:?}");
 
     let iothreads: Vec<qapi::IoThreadInfo> = preconfig.execute(&qapi::QueryIothreads {}).await?;
-    println!("query-iothreads: {} iothreads", iothreads.len());
+    println!("query-iothreads: {iothreads:?}");
 
     let memdevs: Vec<qapi::Memdev> = preconfig.execute(&qapi::QueryMemdev {}).await?;
-    println!("query-memdev: {} memdevs", memdevs.len());
+    println!("query-memdev: {memdevs:?}");
 
     let cpus: Vec<qapi::HotpluggableCpu> =
         preconfig.execute(&qapi::QueryHotpluggableCpus {}).await?;
-    println!("query-hotpluggable-cpus: {} cpus", cpus.len());
+    println!("query-hotpluggable-cpus: {cpus:?}");
 
     let opts: Vec<qapi::CommandLineOptionInfo> = preconfig
         .execute(&qapi::QueryCommandLineOptions { option: None })
         .await?;
     println!("query-command-line-options: {} option groups", opts.len());
-    println!();
+    for opt in opts.iter() {
+        println!("  {opt:?}");
+    }
 
     // ── QOM introspection (preconfig-safe) ───────────────────────────────
 
@@ -114,6 +116,9 @@ async fn main() -> Result<()> {
         })
         .await?;
     println!("qom-list-types: {} types available", types.len());
+    for r#type in types.iter() {
+        println!("  {type:?}");
+    }
 
     let root_props: Vec<qapi::ObjectPropertyInfo> = preconfig
         .execute(&qapi::QomList {
@@ -121,11 +126,8 @@ async fn main() -> Result<()> {
         })
         .await?;
     println!("qom-list /: {} properties", root_props.len());
-    for prop in root_props.iter().take(5) {
+    for prop in root_props.iter() {
         println!("  /{} ({})", prop.name, prop.r#type);
-    }
-    if root_props.len() > 5 {
-        println!("  ... and {} more", root_props.len() - 5);
     }
 
     // List properties of the q35 machine type
@@ -138,15 +140,9 @@ async fn main() -> Result<()> {
         "qom-list-properties machine: {} properties",
         machine_props.len()
     );
-
-    // Show a few interesting machine properties
-    let interesting = ["type", "kernel", "memory-backend", "firmware"];
-    for prop in &machine_props {
-        if interesting.contains(&prop.name.as_str()) {
-            println!("  {} ({})", prop.name, prop.r#type);
-        }
+    for machine_prop in machine_props.iter() {
+        println!("  {machine_prop:?}");
     }
-    println!();
 
     // ── Block layer queries (preconfig-safe since 7.1.0) ─────────────────
 
@@ -172,11 +168,7 @@ async fn main() -> Result<()> {
         Ok(nodes) => {
             println!("query-named-block-nodes: {} nodes", nodes.len());
             for node in &nodes {
-                println!(
-                    "  {} (drv={})",
-                    node.node_name.as_deref().unwrap_or("?"),
-                    node.drv
-                );
+                println!("  {node:?}");
             }
         }
         Err(e) => {
@@ -194,7 +186,7 @@ async fn main() -> Result<()> {
     while let Ok(Some(evt)) =
         tokio::time::timeout(Duration::from_millis(200), preconfig.events.recv()).await
     {
-        println!("  EVENT: {} data={}", evt.event, evt.data);
+        println!("  {evt:?}");
         event_count += 1;
     }
     if event_count == 0 {
@@ -236,24 +228,20 @@ async fn main() -> Result<()> {
     // ── Post-start verification ──────────────────────────────────────────
 
     let status: qapi::StatusInfo = vm.execute(&qapi::QueryStatus {}).await?;
-    println!("query-status: running={}", status.running);
+    println!("query-status: {status:?}");
 
     // After start, hotpluggable CPUs should be populated
     let cpus: Vec<qapi::HotpluggableCpu> = vm.execute(&qapi::QueryHotpluggableCpus {}).await?;
     println!("query-hotpluggable-cpus: {} cpus", cpus.len());
     for cpu in &cpus {
-        println!(
-            "  cpu type={} realized={}",
-            cpu.r#type,
-            cpu.qom_path.is_some()
-        );
+        println!("  {cpu:?}");
     }
 
     // Query PCI devices (available after machine init with q35)
     let pci: Vec<qapi::PciInfo> = vm.execute(&qapi::QueryPci {}).await?;
     println!("query-pci: {} PCI buses", pci.len());
     for bus in &pci {
-        println!("  bus {} ({} devices)", bus.bus, bus.devices.len());
+        println!("  {bus:?}");
     }
 
     // Drain post-start events
@@ -263,7 +251,7 @@ async fn main() -> Result<()> {
     while let Ok(Some(evt)) =
         tokio::time::timeout(Duration::from_millis(200), vm.events.recv()).await
     {
-        println!("  EVENT: {}", evt.event);
+        println!("  {evt:?}");
         post_events += 1;
     }
     if post_events == 0 {

@@ -11,7 +11,7 @@ async fn main() -> Result<()> {
         .await?;
 
     let status: qapi::StatusInfo = vm.execute(&qapi::QueryStatus {}).await?;
-    println!("running={}", status.running);
+    println!("status: {status:?}");
 
     let version = qapi::qemu_version();
     println!(

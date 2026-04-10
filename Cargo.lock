@@ -67,7 +67,6 @@ dependencies = [
  "anyhow",
  "manager",
  "qapi",
- "serde_json",
  "tokio",
 ]
 

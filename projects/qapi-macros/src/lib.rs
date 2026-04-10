@@ -471,6 +471,11 @@ pub fn qapi(args: TokenStream, input: TokenStream) -> TokenStream {
         input_ast.attrs.push(syn::parse_quote! { #[doc = #msg] });
     }
 
+    // Inject derive(Debug, Clone) on all QAPI types
+    input_ast
+        .attrs
+        .push(syn::parse_quote! { #[derive(Debug, Clone)] });
+
     let output = match input_ast.data {
         syn::Data::Enum(_) => gen_enum(&mut input_ast, &ta, &bounds),
         syn::Data::Struct(_) => gen_struct(&mut input_ast, &ta, &bounds),
@@ -562,6 +567,33 @@ fn gen_enum(input_ast: &mut DeriveInput, ta: &TypeAttrs, bounds: &VersionBounds)
         gen_alt_de(&enum_name, &variants)
     };
 
+    // Generate Display impl for unit enums (prints the QAPI wire name)
+    let display = if all_unit {
+        let display_arms: Vec<TokenStream2> = variants
+            .iter()
+            .map(|v| {
+                let ident = &v.ident;
+                let wn = wire_name(&v.attrs.name, &v.ident);
+                let cond = v.attrs.condition.as_ref().map(|c| condition_cfg(c));
+                quote! {
+                    #cond
+                    #enum_name::#ident => f.write_str(#wn),
+                }
+            })
+            .collect();
+        quote! {
+            #cond
+            #[allow(deprecated)]
+            impl std::fmt::Display for #enum_name {
+                fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                    match self { #(#display_arms)* }
+                }
+            }
+        }
+    } else {
+        TokenStream2::new()
+    };
+
     quote! {
         #cond
         #input_ast
@@ -569,6 +601,7 @@ fn gen_enum(input_ast: &mut DeriveInput, ta: &TypeAttrs, bounds: &VersionBounds)
         #ser
         #cond
         #de
+        #display
     }
 }
 
@@ -812,6 +845,20 @@ fn gen_struct(input_ast: &mut DeriveInput, ta: &TypeAttrs, bounds: &VersionBound
         TokenStream2::new()
     };
 
+    // Generate Display impl for command structs (prints the QAPI wire name)
+    let display = if ta.is_command {
+        quote! {
+            #cond
+            impl std::fmt::Display for #struct_name {
+                fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                    f.write_str(#wn)
+                }
+            }
+        }
+    } else {
+        TokenStream2::new()
+    };
+
     quote! {
         #cond
         #input_ast
@@ -821,6 +868,7 @@ fn gen_struct(input_ast: &mut DeriveInput, ta: &TypeAttrs, bounds: &VersionBound
         #de
         #cmd
         #evt
+        #display
     }
 }
 
