@@ -79,7 +79,11 @@ fn enum_run_state_all_variants() {
     ];
     for (expected_json, variant) in variants {
         let json = serde_json::to_string(&variant).unwrap();
-        assert_eq!(json, expected_json, "RunState serialized wrong for {}", expected_json);
+        assert_eq!(
+            json, expected_json,
+            "RunState serialized wrong for {}",
+            expected_json
+        );
         let back: RunState = serde_json::from_str(&json).unwrap();
         assert_eq!(serde_json::to_string(&back).unwrap(), expected_json);
     }
@@ -88,7 +92,11 @@ fn enum_run_state_all_variants() {
 #[test]
 fn enum_on_off_auto() {
     ensure_version_set();
-    for (expected, variant) in [("\"auto\"", OnOffAuto::Auto), ("\"on\"", OnOffAuto::On), ("\"off\"", OnOffAuto::Off)] {
+    for (expected, variant) in [
+        ("\"auto\"", OnOffAuto::Auto),
+        ("\"on\"", OnOffAuto::On),
+        ("\"off\"", OnOffAuto::Off),
+    ] {
         let json = serde_json::to_string(&variant).unwrap();
         assert_eq!(json, expected);
         let back: OnOffAuto = serde_json::from_str(&json).unwrap();
@@ -99,8 +107,14 @@ fn enum_on_off_auto() {
 #[test]
 fn enum_io_operation_type() {
     ensure_version_set();
-    assert_eq!(serde_json::to_string(&IoOperationType::Read).unwrap(), "\"read\"");
-    assert_eq!(serde_json::to_string(&IoOperationType::Write).unwrap(), "\"write\"");
+    assert_eq!(
+        serde_json::to_string(&IoOperationType::Read).unwrap(),
+        "\"read\""
+    );
+    assert_eq!(
+        serde_json::to_string(&IoOperationType::Write).unwrap(),
+        "\"write\""
+    );
 }
 
 #[test]
@@ -116,18 +130,38 @@ fn enum_error_class() {
 fn enum_migration_capability_all_variants() {
     ensure_version_set();
     let variants = [
-        "xbzrle", "rdma-pin-all", "auto-converge", "zero-blocks", "events",
-        "postcopy-ram", "x-colo", "release-ram", "return-path", "pause-before-switchover",
-        "multifd", "dirty-bitmaps", "postcopy-blocktime", "late-block-activate",
-        "x-ignore-shared", "validate-uuid", "background-snapshot",
-        "zero-copy-send", "postcopy-preempt", "switchover-ack",
-        "dirty-limit", "mapped-ram",
+        "xbzrle",
+        "rdma-pin-all",
+        "auto-converge",
+        "zero-blocks",
+        "events",
+        "postcopy-ram",
+        "x-colo",
+        "release-ram",
+        "return-path",
+        "pause-before-switchover",
+        "multifd",
+        "dirty-bitmaps",
+        "postcopy-blocktime",
+        "late-block-activate",
+        "x-ignore-shared",
+        "validate-uuid",
+        "background-snapshot",
+        "zero-copy-send",
+        "postcopy-preempt",
+        "switchover-ack",
+        "dirty-limit",
+        "mapped-ram",
     ];
     for name in &variants {
         let json_str = format!("\"{}\"", name);
         if let Ok(cap) = serde_json::from_str::<MigrationCapability>(&json_str) {
             let back = serde_json::to_string(&cap).unwrap();
-            assert_eq!(back, json_str, "Roundtrip failed for MigrationCapability '{}'", name);
+            assert_eq!(
+                back, json_str,
+                "Roundtrip failed for MigrationCapability '{}'",
+                name
+            );
         }
     }
 }
@@ -135,8 +169,16 @@ fn enum_migration_capability_all_variants() {
 #[test]
 fn enum_dump_guest_memory_format() {
     ensure_version_set();
-    for name in &["elf", "kdump-zlib", "kdump-lzo", "kdump-snappy", "kdump-raw-zlib",
-                  "kdump-raw-lzo", "kdump-raw-snappy", "win-dmp"] {
+    for name in &[
+        "elf",
+        "kdump-zlib",
+        "kdump-lzo",
+        "kdump-snappy",
+        "kdump-raw-zlib",
+        "kdump-raw-lzo",
+        "kdump-raw-snappy",
+        "win-dmp",
+    ] {
         let json_str = format!("\"{}\"", name);
         if let Ok(fmt) = serde_json::from_str::<DumpGuestMemoryFormat>(&json_str) {
             let back = serde_json::to_string(&fmt).unwrap();
@@ -168,12 +210,19 @@ fn alternate_str_or_null() {
 #[test]
 fn struct_field_renames() {
     ensure_version_set();
-    let val = HumanReadableText { human_readable_text: "test".to_string() };
+    let val = HumanReadableText {
+        human_readable_text: "test".to_string(),
+    };
     let json = serde_json::to_string(&val).unwrap();
     let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
-    assert!(parsed.get("human-readable-text").is_some(), "Expected 'human-readable-text' key");
+    assert!(
+        parsed.get("human-readable-text").is_some(),
+        "Expected 'human-readable-text' key"
+    );
 
-    let val = UuidInfo { uuid: "abc".to_string() };
+    let val = UuidInfo {
+        uuid: "abc".to_string(),
+    };
     let json = serde_json::to_string(&val).unwrap();
     let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
     assert!(parsed.get("UUID").is_some(), "Expected 'UUID' key");
@@ -182,9 +231,19 @@ fn struct_field_renames() {
 // ── QMP schema introspection (needs QEMU) ────────────────────────────────────
 
 arch_tests!(query_qmp_schema, [X86_64], |arch: Arch| async move {
-    let t = VmBuilder::new(arch, MachineConfig::None).spawn().await.unwrap().start().await.unwrap();
+    let t = VmBuilder::new(arch, MachineConfig::None)
+        .spawn()
+        .await
+        .unwrap()
+        .start()
+        .await
+        .unwrap();
     let schema: Vec<SchemaInfo> = t.execute(&QueryQmpSchema {}).await.unwrap();
-    assert!(schema.len() > 100, "QMP schema should have >100 entries, got {}", schema.len());
+    assert!(
+        schema.len() > 100,
+        "QMP schema should have >100 entries, got {}",
+        schema.len()
+    );
 
     let mut commands = 0u32;
     let mut objects = 0u32;

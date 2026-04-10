@@ -7,8 +7,10 @@ static FIXTURE_COUNTER: AtomicU64 = AtomicU64::new(0);
 /// Cache directory for test fixtures.
 fn fixtures_dir() -> PathBuf {
     let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .parent().unwrap()
-        .parent().unwrap()
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
         .join("target")
         .join("test-fixtures");
     std::fs::create_dir_all(&dir).expect("Failed to create test-fixtures directory");
@@ -44,7 +46,11 @@ pub async fn cirros_image(arch: Arch) -> PathBuf {
         String::from_utf8_lossy(&output.stderr)
     );
 
-    assert!(path.exists(), "Downloaded file not found: {}", path.display());
+    assert!(
+        path.exists(),
+        "Downloaded file not found: {}",
+        path.display()
+    );
     eprintln!("Downloaded to {}", path.display());
     path
 }
@@ -60,7 +66,8 @@ pub async fn cirros_image_copy(arch: Arch) -> PathBuf {
         std::process::id(),
         id
     ));
-    tokio::fs::copy(&source, &dest).await
+    tokio::fs::copy(&source, &dest)
+        .await
         .expect("Failed to copy cirros image");
     dest
 }
@@ -97,8 +104,12 @@ async fn download_cirros_file(filename: &str) -> PathBuf {
         .output()
         .await
         .expect("Failed to run curl");
-    assert!(output.status.success(), "Failed to download {}: {}",
-            filename, String::from_utf8_lossy(&output.stderr));
+    assert!(
+        output.status.success(),
+        "Failed to download {}: {}",
+        filename,
+        String::from_utf8_lossy(&output.stderr)
+    );
     path
 }
 
@@ -113,7 +124,12 @@ pub async fn nocloud_cidata() -> PathBuf {
 
     // Create a 1MB FAT image with mkfs.vfat, then add files
     let output = tokio::process::Command::new("dd")
-        .args(["if=/dev/zero", &format!("of={}", path.display()), "bs=1M", "count=1"])
+        .args([
+            "if=/dev/zero",
+            &format!("of={}", path.display()),
+            "bs=1M",
+            "count=1",
+        ])
         .output()
         .await
         .expect("Failed to run dd");
@@ -124,12 +140,16 @@ pub async fn nocloud_cidata() -> PathBuf {
         .output()
         .await
         .expect("Failed to run mkfs.vfat");
-    assert!(output.status.success(), "mkfs.vfat failed: {}",
-            String::from_utf8_lossy(&output.stderr));
+    assert!(
+        output.status.success(),
+        "mkfs.vfat failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
 
     // Add meta-data and user-data files to the FAT image
     let meta_data = "instance-id: qrab-test\nlocal-hostname: qrab-test\n";
-    let user_data = "#cloud-config\npassword: test\nchpasswd: { expire: False }\nssh_pwauth: False\n";
+    let user_data =
+        "#cloud-config\npassword: test\nchpasswd: { expire: False }\nssh_pwauth: False\n";
     add_files_to_fat(&path, &[("META-DAT", meta_data), ("USER-DAT", user_data)]);
 
     path
@@ -171,7 +191,9 @@ fn add_files_to_fat(img_path: &std::path::Path, files: &[(&str, &str)]) {
         } else {
             ((data[fo] as u16 | ((data[fo + 1] as u16) << 8)) >> 4) & 0xFFF
         };
-        if val == 0 { break; }
+        if val == 0 {
+            break;
+        }
         next_cluster += 1;
     }
 
@@ -219,7 +241,13 @@ pub async fn blank_qcow2(name: &str, size_mb: u64) -> PathBuf {
     }
 
     let output = tokio::process::Command::new("qemu-img")
-        .args(["create", "-f", "qcow2", &path.display().to_string(), &format!("{}M", size_mb)])
+        .args([
+            "create",
+            "-f",
+            "qcow2",
+            &path.display().to_string(),
+            &format!("{}M", size_mb),
+        ])
         .output()
         .await
         .expect("Failed to run qemu-img");
@@ -265,15 +293,9 @@ pub fn find_firmware(arch: Arch) -> Option<PathBuf> {
             "/usr/share/OVMF/OVMF_CODE.fd",
             "/usr/share/qemu/edk2-x86_64-code.fd",
         ],
-        Arch::I386 => &[
-            "/usr/share/qemu/edk2-i386-code.fd",
-        ],
-        Arch::Aarch64 => &[
-            "/usr/share/qemu/edk2-aarch64-code.fd",
-        ],
-        Arch::Arm => &[
-            "/usr/share/qemu/edk2-arm-code.fd",
-        ],
+        Arch::I386 => &["/usr/share/qemu/edk2-i386-code.fd"],
+        Arch::Aarch64 => &["/usr/share/qemu/edk2-aarch64-code.fd"],
+        Arch::Arm => &["/usr/share/qemu/edk2-arm-code.fd"],
     };
 
     for path in candidates {

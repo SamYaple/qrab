@@ -1,7 +1,7 @@
 use super::common::{take_dict, take_kv};
-use super::vec_newtype;
-use super::qapi_alternative::take_alternative;
 use super::qapi_alternative::QapiAlternative;
+use super::qapi_alternative::take_alternative;
+use super::vec_newtype;
 use nom::IResult;
 use nom::Parser;
 

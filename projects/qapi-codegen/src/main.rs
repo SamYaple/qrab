@@ -21,7 +21,8 @@ fn main() -> Result<()> {
     );
 
     let tags = discover_version_tags(repo_path)?;
-    eprintln!("Discovered {} version tags ({} to {})",
+    eprintln!(
+        "Discovered {} version tags ({} to {})",
         tags.len(),
         tags.first().unwrap(),
         tags.last().unwrap(),

@@ -1,16 +1,16 @@
 use super::common::{qstring, take_dict, take_kv};
-use super::qapi_alternatives::take_alternatives;
-use super::qapi_cond::take_cond;
-use super::qapi_features::take_features;
 use super::qapi_alternatives::QapiAlternatives;
+use super::qapi_alternatives::take_alternatives;
 use super::qapi_cond::QapiCond;
+use super::qapi_cond::take_cond;
 use super::qapi_documentation::QapiDocumentation;
 use super::qapi_features::QapiFeatures;
+use super::qapi_features::take_features;
+use nom::IResult;
+use nom::Parser;
 use nom::branch::alt;
 use nom::combinator::opt;
 use nom::error::{Error, ErrorKind};
-use nom::IResult;
-use nom::Parser;
 
 pub fn take_alternate(input: &str) -> IResult<&str, QapiAlternate<'_>> {
     QapiAlternate::parse(input)

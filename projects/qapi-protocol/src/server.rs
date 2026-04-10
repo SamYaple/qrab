@@ -44,7 +44,9 @@ impl QmpSession {
                 "capabilities": ["oob"]
             }
         });
-        self.writer.write_all(serde_json::to_string(&greeting)?.as_bytes()).await?;
+        self.writer
+            .write_all(serde_json::to_string(&greeting)?.as_bytes())
+            .await?;
         self.writer.write_all(b"\n").await?;
         self.writer.flush().await?;
         Ok(())
@@ -77,14 +79,19 @@ impl QmpSession {
             .as_str()
             .ok_or_else(|| anyhow::anyhow!("Missing 'execute' field"))?
             .to_string();
-        let args = cmd.get("arguments").cloned().unwrap_or(serde_json::json!({}));
+        let args = cmd
+            .get("arguments")
+            .cloned()
+            .unwrap_or(serde_json::json!({}));
         Ok((name, args))
     }
 
     /// Send a success response.
     pub async fn send_return(&mut self, value: serde_json::Value) -> Result<()> {
         let resp = serde_json::json!({"return": value});
-        self.writer.write_all(serde_json::to_string(&resp)?.as_bytes()).await?;
+        self.writer
+            .write_all(serde_json::to_string(&resp)?.as_bytes())
+            .await?;
         self.writer.write_all(b"\n").await?;
         self.writer.flush().await?;
         Ok(())
@@ -93,7 +100,9 @@ impl QmpSession {
     /// Send an error response.
     pub async fn send_error(&mut self, class: &str, desc: &str) -> Result<()> {
         let resp = serde_json::json!({"error": {"class": class, "desc": desc}});
-        self.writer.write_all(serde_json::to_string(&resp)?.as_bytes()).await?;
+        self.writer
+            .write_all(serde_json::to_string(&resp)?.as_bytes())
+            .await?;
         self.writer.write_all(b"\n").await?;
         self.writer.flush().await?;
         Ok(())
@@ -106,7 +115,9 @@ impl QmpSession {
             "data": data,
             "timestamp": {"seconds": 0, "microseconds": 0}
         });
-        self.writer.write_all(serde_json::to_string(&evt)?.as_bytes()).await?;
+        self.writer
+            .write_all(serde_json::to_string(&evt)?.as_bytes())
+            .await?;
         self.writer.write_all(b"\n").await?;
         self.writer.flush().await?;
         Ok(())
@@ -147,13 +158,16 @@ impl QgaSession {
         let mut line = String::new();
         self.reader.read_line(&mut line).await?;
         let cmd: serde_json::Value = serde_json::from_str(line.trim())?;
-        let sync_id = cmd["arguments"]["id"].as_i64()
+        let sync_id = cmd["arguments"]["id"]
+            .as_i64()
             .ok_or_else(|| anyhow::anyhow!("Missing sync id"))?;
 
         // Send 0xFF sentinel + response
         self.writer.write_all(&[0xFF]).await?;
         let resp = serde_json::json!({"return": sync_id});
-        self.writer.write_all(serde_json::to_string(&resp)?.as_bytes()).await?;
+        self.writer
+            .write_all(serde_json::to_string(&resp)?.as_bytes())
+            .await?;
         self.writer.write_all(b"\n").await?;
         self.writer.flush().await?;
 
@@ -172,14 +186,19 @@ impl QgaSession {
             .as_str()
             .ok_or_else(|| anyhow::anyhow!("Missing 'execute' field"))?
             .to_string();
-        let args = cmd.get("arguments").cloned().unwrap_or(serde_json::json!({}));
+        let args = cmd
+            .get("arguments")
+            .cloned()
+            .unwrap_or(serde_json::json!({}));
         Ok((name, args))
     }
 
     /// Send a success response.
     pub async fn send_return(&mut self, value: serde_json::Value) -> Result<()> {
         let resp = serde_json::json!({"return": value});
-        self.writer.write_all(serde_json::to_string(&resp)?.as_bytes()).await?;
+        self.writer
+            .write_all(serde_json::to_string(&resp)?.as_bytes())
+            .await?;
         self.writer.write_all(b"\n").await?;
         self.writer.flush().await?;
         Ok(())
@@ -188,7 +207,9 @@ impl QgaSession {
     /// Send an error response.
     pub async fn send_error(&mut self, class: &str, desc: &str) -> Result<()> {
         let resp = serde_json::json!({"error": {"class": class, "desc": desc}});
-        self.writer.write_all(serde_json::to_string(&resp)?.as_bytes()).await?;
+        self.writer
+            .write_all(serde_json::to_string(&resp)?.as_bytes())
+            .await?;
         self.writer.write_all(b"\n").await?;
         self.writer.flush().await?;
         Ok(())

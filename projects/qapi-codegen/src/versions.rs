@@ -39,12 +39,12 @@ pub fn extract_schema_from_tag(qemu_repo: &Path, tag: &str) -> Result<tempfile::
     // Try: qapi-schema.json + qapi/ + qga/ (covers all versions and QGA).
     // git archive fails if ANY path doesn't exist, so try progressively.
     let paths_to_try: &[&[&str]] = &[
-        &["qapi-schema.json", "qapi/", "qga/"],   // root schema + qapi dir + qga
-        &["qapi-schema.json", "qapi/"],            // root schema + qapi dir (no qga)
-        &["qapi/", "qga/"],                        // qapi dir + qga (v2.12.0+)
-        &["qapi-schema.json", "qga/"],             // root schema + qga
-        &["qapi-schema.json"],                     // root schema only (v1.0-v1.4.0)
-        &["qapi/"],                                // qapi dir only
+        &["qapi-schema.json", "qapi/", "qga/"], // root schema + qapi dir + qga
+        &["qapi-schema.json", "qapi/"],         // root schema + qapi dir (no qga)
+        &["qapi/", "qga/"],                     // qapi dir + qga (v2.12.0+)
+        &["qapi-schema.json", "qga/"],          // root schema + qga
+        &["qapi-schema.json"],                  // root schema only (v1.0-v1.4.0)
+        &["qapi/"],                             // qapi dir only
     ];
 
     let mut tar_data = None;
@@ -61,13 +61,17 @@ pub fn extract_schema_from_tag(qemu_repo: &Path, tag: &str) -> Result<tempfile::
             break;
         }
     }
-    let tar_data = tar_data.with_context(|| format!("git archive failed for all path combos on tag {}", tag))?;
+    let tar_data = tar_data
+        .with_context(|| format!("git archive failed for all path combos on tag {}", tag))?;
 
     // Extract tar to tmpdir, filtering to .json files only
     let mut archive = tar::Archive::new(&tar_data[..]);
     for entry in archive.entries().context("Failed to read tar entries")? {
         let mut entry = entry.context("Failed to read tar entry")?;
-        let path = entry.path().context("Failed to get entry path")?.into_owned();
+        let path = entry
+            .path()
+            .context("Failed to get entry path")?
+            .into_owned();
         let path_str = path.to_string_lossy();
 
         // Only extract .json files (skip .c, .h, Makefile, etc.)
@@ -83,7 +87,9 @@ pub fn extract_schema_from_tag(qemu_repo: &Path, tag: &str) -> Result<tempfile::
         if let Some(parent) = dest.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        entry.unpack(&dest).with_context(|| format!("Failed to unpack {}", path_str))?;
+        entry
+            .unpack(&dest)
+            .with_context(|| format!("Failed to unpack {}", path_str))?;
     }
 
     Ok(tmpdir)
@@ -125,7 +131,8 @@ pub fn discover_version_tags(qemu_repo: &Path) -> Result<Vec<String>> {
         .lines()
         .filter(|t| {
             let t = t.trim();
-            !t.is_empty() && !t.contains("rc")
+            !t.is_empty()
+                && !t.contains("rc")
                 && parse_version_tag(t).is_some_and(|v| v >= (1, 0, 0))
         })
         .map(|s| s.trim().to_string())

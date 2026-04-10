@@ -50,12 +50,15 @@ async fn main() -> Result<()> {
     // The machine is NOT initialized yet -- UEFI firmware has not loaded.
     // PreconfigVm::execute() enforces PreconfigSafe at compile time.
 
-    let mut preconfig = VmBuilder::new(Arch::X86_64, MachineConfig::Uefi {
+    let mut preconfig = VmBuilder::new(
+        Arch::X86_64,
+        MachineConfig::Uefi {
             memory: "256M".into(),
-        })
-        .firmware(ovmf)
-        .spawn()
-        .await?;
+        },
+    )
+    .firmware(ovmf)
+    .spawn()
+    .await?;
 
     let version = qapi::qemu_version();
     println!(
@@ -83,12 +86,10 @@ async fn main() -> Result<()> {
     let cmds: Vec<qapi::CommandInfo> = preconfig.execute(&qapi::QueryCommands {}).await?;
     println!("query-commands: {} commands available", cmds.len());
 
-    let chardevs: Vec<qapi::ChardevInfo> =
-        preconfig.execute(&qapi::QueryChardev {}).await?;
+    let chardevs: Vec<qapi::ChardevInfo> = preconfig.execute(&qapi::QueryChardev {}).await?;
     println!("query-chardev: {} chardevs", chardevs.len());
 
-    let iothreads: Vec<qapi::IoThreadInfo> =
-        preconfig.execute(&qapi::QueryIothreads {}).await?;
+    let iothreads: Vec<qapi::IoThreadInfo> = preconfig.execute(&qapi::QueryIothreads {}).await?;
     println!("query-iothreads: {} iothreads", iothreads.len());
 
     let memdevs: Vec<qapi::Memdev> = preconfig.execute(&qapi::QueryMemdev {}).await?;
@@ -101,10 +102,7 @@ async fn main() -> Result<()> {
     let opts: Vec<qapi::CommandLineOptionInfo> = preconfig
         .execute(&qapi::QueryCommandLineOptions { option: None })
         .await?;
-    println!(
-        "query-command-line-options: {} option groups",
-        opts.len()
-    );
+    println!("query-command-line-options: {} option groups", opts.len());
     println!();
 
     // ── QOM introspection (preconfig-safe) ───────────────────────────────
@@ -158,8 +156,7 @@ async fn main() -> Result<()> {
         blocks.len()
     );
 
-    let block_jobs: Vec<qapi::BlockJobInfo> =
-        preconfig.execute(&qapi::QueryBlockJobs {}).await?;
+    let block_jobs: Vec<qapi::BlockJobInfo> = preconfig.execute(&qapi::QueryBlockJobs {}).await?;
     println!("query-block-jobs: {} jobs", block_jobs.len());
 
     let blockstats: Vec<qapi::BlockStats> = preconfig
@@ -168,8 +165,9 @@ async fn main() -> Result<()> {
     println!("query-blockstats: {} entries", blockstats.len());
 
     // query-named-block-nodes: should show the OVMF pflash node
-    let named_result: Result<Vec<qapi::BlockDeviceInfo>> =
-        preconfig.execute(&qapi::QueryNamedBlockNodes { flat: None }).await;
+    let named_result: Result<Vec<qapi::BlockDeviceInfo>> = preconfig
+        .execute(&qapi::QueryNamedBlockNodes { flat: None })
+        .await;
     match named_result {
         Ok(nodes) => {
             println!("query-named-block-nodes: {} nodes", nodes.len());
@@ -193,11 +191,8 @@ async fn main() -> Result<()> {
     println!("Checking for events during preconfig...");
     sleep(Duration::from_millis(100)).await;
     let mut event_count = 0;
-    while let Ok(Some(evt)) = tokio::time::timeout(
-        Duration::from_millis(200),
-        preconfig.events().recv(),
-    )
-    .await
+    while let Ok(Some(evt)) =
+        tokio::time::timeout(Duration::from_millis(200), preconfig.events().recv()).await
     {
         println!("  EVENT: {} data={}", evt.event, evt.data);
         event_count += 1;
@@ -209,8 +204,7 @@ async fn main() -> Result<()> {
 
     // ── Schema introspection ─────────────────────────────────────────────
 
-    let schema: Vec<qapi::SchemaInfo> =
-        preconfig.execute(&qapi::QueryQmpSchema {}).await?;
+    let schema: Vec<qapi::SchemaInfo> = preconfig.execute(&qapi::QueryQmpSchema {}).await?;
     let cmd_count = schema
         .iter()
         .filter(|s| matches!(s.meta_type, qapi::SchemaMetaType::Command))
@@ -245,8 +239,7 @@ async fn main() -> Result<()> {
     println!("query-status: running={}", status.running);
 
     // After start, hotpluggable CPUs should be populated
-    let cpus: Vec<qapi::HotpluggableCpu> =
-        vm.execute(&qapi::QueryHotpluggableCpus {}).await?;
+    let cpus: Vec<qapi::HotpluggableCpu> = vm.execute(&qapi::QueryHotpluggableCpus {}).await?;
     println!("query-hotpluggable-cpus: {} cpus", cpus.len());
     for cpu in &cpus {
         println!(
@@ -260,22 +253,15 @@ async fn main() -> Result<()> {
     let pci: Vec<qapi::PciInfo> = vm.execute(&qapi::QueryPci {}).await?;
     println!("query-pci: {} PCI buses", pci.len());
     for bus in &pci {
-        println!(
-            "  bus {} ({} devices)",
-            bus.bus,
-            bus.devices.len()
-        );
+        println!("  bus {} ({} devices)", bus.bus, bus.devices.len());
     }
 
     // Drain post-start events
     sleep(Duration::from_millis(200)).await;
     println!("\nPost-start events:");
     let mut post_events = 0;
-    while let Ok(Some(evt)) = tokio::time::timeout(
-        Duration::from_millis(200),
-        vm.events().recv(),
-    )
-    .await
+    while let Ok(Some(evt)) =
+        tokio::time::timeout(Duration::from_millis(200), vm.events().recv()).await
     {
         println!("  EVENT: {}", evt.event);
         post_events += 1;

@@ -225,7 +225,10 @@ pub(crate) async fn spawn_namespaced_process(
                 if buf[0] != b'R' {
                     return Err(std::io::Error::new(
                         std::io::ErrorKind::Other,
-                        format!("namespace setup failed: parent sent {:?} instead of 'R'", buf[0] as char),
+                        format!(
+                            "namespace setup failed: parent sent {:?} instead of 'R'",
+                            buf[0] as char
+                        ),
                     ));
                 }
             }

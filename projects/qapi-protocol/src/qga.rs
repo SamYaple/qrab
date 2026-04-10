@@ -31,7 +31,8 @@ impl Qga {
         qga.sync().await?;
 
         // Query guest-info to get the QGA version
-        let info: qapi::qga::GuestAgentInfo = qga.execute_raw("guest-info", serde_json::json!({})).await?;
+        let info: qapi::qga::GuestAgentInfo =
+            qga.execute_raw("guest-info", serde_json::json!({})).await?;
         qapi::set_qga_version(info.version);
 
         Ok(qga)
@@ -50,7 +51,9 @@ impl Qga {
             "execute": "guest-sync-delimited",
             "arguments": {"id": sync_id}
         });
-        self.writer.write_all(serde_json::to_string(&cmd)?.as_bytes()).await?;
+        self.writer
+            .write_all(serde_json::to_string(&cmd)?.as_bytes())
+            .await?;
         self.writer.write_all(b"\n").await?;
         self.writer.flush().await?;
 
@@ -70,7 +73,11 @@ impl Qga {
         if let Some(ret) = resp.get("return") {
             let returned_id = ret.as_i64().unwrap_or(0);
             if returned_id != sync_id {
-                anyhow::bail!("guest-sync-delimited: id mismatch (sent {}, got {})", sync_id, returned_id);
+                anyhow::bail!(
+                    "guest-sync-delimited: id mismatch (sent {}, got {})",
+                    sync_id,
+                    returned_id
+                );
             }
         } else if let Some(error) = resp.get("error") {
             anyhow::bail!("guest-sync-delimited failed: {}", error);
@@ -97,7 +104,9 @@ impl Qga {
             serde_json::json!({ "execute": name, "arguments": args })
         };
 
-        self.writer.write_all(serde_json::to_string(&request)?.as_bytes()).await?;
+        self.writer
+            .write_all(serde_json::to_string(&request)?.as_bytes())
+            .await?;
         self.writer.write_all(b"\n").await?;
         self.writer.flush().await?;
 

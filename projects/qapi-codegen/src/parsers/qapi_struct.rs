@@ -1,14 +1,14 @@
 use super::common::{qstring, take_dict, take_kv};
-use super::qapi_cond::{take_cond, QapiCond};
-use super::qapi_documentation::QapiDocumentation;
-use super::qapi_features::{take_features, QapiFeatures};
-use super::qapi_members::{take_members, QapiMembers};
 use super::parser_version;
+use super::qapi_cond::{QapiCond, take_cond};
+use super::qapi_documentation::QapiDocumentation;
+use super::qapi_features::{QapiFeatures, take_features};
+use super::qapi_members::{QapiMembers, take_members};
+use nom::IResult;
+use nom::Parser;
 use nom::branch::alt;
 use nom::combinator::opt;
 use nom::error::{Error, ErrorKind};
-use nom::IResult;
-use nom::Parser;
 
 pub fn take_struct(input: &str) -> IResult<&str, QapiStruct<'_>> {
     QapiStruct::parse(input)
@@ -43,10 +43,7 @@ impl<'i> QapiStruct<'i> {
             ..Default::default()
         };
         let start = input;
-        let take_name = alt((
-            take_kv("struct", qstring),
-            take_kv("type", qstring),
-        ));
+        let take_name = alt((take_kv("struct", qstring), take_kv("type", qstring)));
         let (input, _) = take_dict(alt((
             take_name.map(|v| s.name = v),
             take_kv("base", qstring).map(|v| s.base = Some(v)),

@@ -10,8 +10,8 @@
 use super::{Attribute, Enum, EnumVariant, EnumVariantKind, Metadata, Struct, StructField};
 use crate::qapi_ir::{rustify_field_name, rustify_name};
 use crate::{
-    extract_since_from_comment, MembersOrRef, QapiAlternate, QapiAlternative, QapiCommand,
-    QapiEnum, QapiEnumValue, QapiEvent, QapiMember, QapiStruct, QapiTypeRef, QapiUnion,
+    MembersOrRef, QapiAlternate, QapiAlternative, QapiCommand, QapiEnum, QapiEnumValue, QapiEvent,
+    QapiMember, QapiStruct, QapiTypeRef, QapiUnion, extract_since_from_comment,
 };
 use std::collections::HashMap;
 
@@ -131,7 +131,9 @@ fn process_type_ref<'a>(q: &'a QapiTypeRef<'a>) -> (&'a str, bool) {
         QapiTypeRef::Ref(v) => (v, false),
         QapiTypeRef::ArrayRef(v) => (v, true),
         QapiTypeRef::InlineStruct(_) => {
-            panic!("InlineStruct should be handled by process_member_with_inline, not process_type_ref")
+            panic!(
+                "InlineStruct should be handled by process_member_with_inline, not process_type_ref"
+            )
         }
     }
 }

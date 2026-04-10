@@ -1,9 +1,4 @@
 use super::common::qcomment;
-use super::vec_newtype;
-use nom::bytes::complete::tag;
-use nom::character::complete::{line_ending, space0};
-use nom::combinator::recognize;
-use nom::sequence::terminated;
 use super::qapi_alternate::QapiAlternate;
 use super::qapi_command::QapiCommand;
 use super::qapi_documentation::{QapiFreeformDoc, QapiSectionDocumentation};
@@ -13,11 +8,16 @@ use super::qapi_include::QapiInclude;
 use super::qapi_pragma::QapiPragma;
 use super::qapi_struct::QapiStruct;
 use super::qapi_union::QapiUnion;
-use nom::branch::alt;
-use nom::character::complete::multispace1;
-use nom::multi::many0;
+use super::vec_newtype;
 use nom::IResult;
 use nom::Parser;
+use nom::branch::alt;
+use nom::bytes::complete::tag;
+use nom::character::complete::multispace1;
+use nom::character::complete::{line_ending, space0};
+use nom::combinator::recognize;
+use nom::multi::many0;
+use nom::sequence::terminated;
 
 pub fn take_schema(input: &str) -> IResult<&str, QapiSchema<'_>> {
     QapiSchema::parse(input)
@@ -144,7 +144,10 @@ mod tests {
         );
         let (rem, s) = QapiSchema::parse(input).unwrap();
         assert_eq!(rem, "");
-        let type_count = s.iter().filter(|t| !matches!(t, QapiSchemaToken::EmptyLines | QapiSchemaToken::Comment(_))).count();
+        let type_count = s
+            .iter()
+            .filter(|t| !matches!(t, QapiSchemaToken::EmptyLines | QapiSchemaToken::Comment(_)))
+            .count();
         assert_eq!(type_count, 4);
     }
 }
@@ -160,7 +163,11 @@ mod freeform_schema_tests {
         // Test QapiFreeformDoc directly on the input
         let input = "##\n# title\n# body\n##\n";
         let result = QapiFreeformDoc::parse(input);
-        assert!(result.is_ok(), "Direct FreeformDoc parse failed: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "Direct FreeformDoc parse failed: {:?}",
+            result.err()
+        );
     }
 
     #[test]
@@ -168,8 +175,15 @@ mod freeform_schema_tests {
         set_parser_version((99, 0, 0));
         let input = "##\n# title\n# body\n##\n{ 'include': 'other.json' }\n";
         let (rem, s) = QapiSchema::parse(input).unwrap();
-        assert_eq!(rem, "", "Unparsed: {:?}", &rem[..std::cmp::min(rem.len(), 100)]);
-        let has_freeform = s.iter().any(|t| matches!(t, QapiSchemaToken::FreeformDoc(_)));
+        assert_eq!(
+            rem,
+            "",
+            "Unparsed: {:?}",
+            &rem[..std::cmp::min(rem.len(), 100)]
+        );
+        let has_freeform = s
+            .iter()
+            .any(|t| matches!(t, QapiSchemaToken::FreeformDoc(_)));
         assert!(has_freeform, "Should have freeform doc");
         let has_include = s.iter().any(|t| matches!(t, QapiSchemaToken::Include(_)));
         assert!(has_include, "Should have include");

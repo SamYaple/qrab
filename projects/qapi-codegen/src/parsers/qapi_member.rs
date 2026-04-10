@@ -1,15 +1,15 @@
 use super::common::{qstring, qtag, take_dict};
-use super::qapi_cond::take_cond;
-use super::qapi_features::take_features;
-use super::qapi_type_ref::take_type_ref;
 use super::qapi_cond::QapiCond;
+use super::qapi_cond::take_cond;
 use super::qapi_features::QapiFeatures;
+use super::qapi_features::take_features;
 use super::qapi_type_ref::QapiTypeRef;
+use super::qapi_type_ref::take_type_ref;
+use nom::IResult;
+use nom::Parser;
 use nom::branch::alt;
 use nom::error::{Error, ErrorKind};
 use nom::sequence::terminated;
-use nom::IResult;
-use nom::Parser;
 
 pub fn take_member(input: &str) -> IResult<&str, QapiMember<'_>> {
     QapiMember::parse(input)

@@ -1,10 +1,10 @@
 use super::common::{qbool, qstring, qtag, take_kv, take_list};
 use super::parser_version;
+use nom::IResult;
+use nom::Parser;
 use nom::branch::alt;
 use nom::multi::separated_list1;
 use nom::sequence::delimited;
-use nom::IResult;
-use nom::Parser;
 
 pub fn take_pragma(input: &str) -> IResult<&str, QapiPragma<'_>> {
     QapiPragma::parse(input)
@@ -48,53 +48,56 @@ impl<'i> QapiPragma<'i> {
     }
 
     fn parse_common(input: &'i str, old_keys: bool) -> IResult<&'i str, Self> {
-        let doc_required_parser = take_kv("doc-required", qbool)
-            .map(ParserToken::DocRequired);
-        let command_name_exceptions_parser =
-            take_kv("command-name-exceptions", take_list(qstring))
-                .map(ParserToken::CommandNameExceptions);
+        let doc_required_parser = take_kv("doc-required", qbool).map(ParserToken::DocRequired);
+        let command_name_exceptions_parser = take_kv("command-name-exceptions", take_list(qstring))
+            .map(ParserToken::CommandNameExceptions);
         let command_returns_exceptions_parser =
             take_kv("command-returns-exceptions", take_list(qstring))
                 .map(ParserToken::CommandReturnsExceptions);
         let documentation_exceptions_parser =
             take_kv("documentation-exceptions", take_list(qstring))
                 .map(ParserToken::DocumentationExceptions);
-        let member_name_exceptions_parser =
-            take_kv("member-name-exceptions", take_list(qstring))
-                .map(ParserToken::MemberNameExceptions);
+        let member_name_exceptions_parser = take_kv("member-name-exceptions", take_list(qstring))
+            .map(ParserToken::MemberNameExceptions);
 
         if old_keys {
-            let returns_whitelist_parser =
-                take_kv("returns-whitelist", take_list(qstring))
-                    .map(ParserToken::CommandReturnsExceptions);
-            let name_case_whitelist_parser =
-                take_kv("name-case-whitelist", take_list(qstring))
-                    .map(ParserToken::MemberNameExceptions);
+            let returns_whitelist_parser = take_kv("returns-whitelist", take_list(qstring))
+                .map(ParserToken::CommandReturnsExceptions);
+            let name_case_whitelist_parser = take_kv("name-case-whitelist", take_list(qstring))
+                .map(ParserToken::MemberNameExceptions);
 
             delimited(
                 (qtag("{"), qtag("'pragma'"), qtag(":"), qtag("{")),
-                separated_list1(qtag(","), alt((
-                    doc_required_parser,
-                    command_name_exceptions_parser,
-                    command_returns_exceptions_parser,
-                    documentation_exceptions_parser,
-                    member_name_exceptions_parser,
-                    returns_whitelist_parser,
-                    name_case_whitelist_parser,
-                ))).map(Self::from_tokens),
+                separated_list1(
+                    qtag(","),
+                    alt((
+                        doc_required_parser,
+                        command_name_exceptions_parser,
+                        command_returns_exceptions_parser,
+                        documentation_exceptions_parser,
+                        member_name_exceptions_parser,
+                        returns_whitelist_parser,
+                        name_case_whitelist_parser,
+                    )),
+                )
+                .map(Self::from_tokens),
                 (qtag("}"), qtag("}")),
             )
             .parse(input)
         } else {
             delimited(
                 (qtag("{"), qtag("'pragma'"), qtag(":"), qtag("{")),
-                separated_list1(qtag(","), alt((
-                    doc_required_parser,
-                    command_name_exceptions_parser,
-                    command_returns_exceptions_parser,
-                    documentation_exceptions_parser,
-                    member_name_exceptions_parser,
-                ))).map(Self::from_tokens),
+                separated_list1(
+                    qtag(","),
+                    alt((
+                        doc_required_parser,
+                        command_name_exceptions_parser,
+                        command_returns_exceptions_parser,
+                        documentation_exceptions_parser,
+                        member_name_exceptions_parser,
+                    )),
+                )
+                .map(Self::from_tokens),
                 (qtag("}"), qtag("}")),
             )
             .parse(input)

@@ -9,7 +9,7 @@ use crate::versions::{
     extract_schema_from_tag, find_extracted_qga_schema_entry, find_extracted_schema_entry,
     parse_version_tag,
 };
-use crate::{parse_schema, read_schema_with_version, QapiSchemaToken};
+use crate::{QapiSchemaToken, parse_schema, read_schema_with_version};
 use anyhow::{Context, Result};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::Path;

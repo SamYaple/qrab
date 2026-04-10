@@ -14,7 +14,10 @@ async fn main() -> Result<()> {
     println!("running={}", status.running);
 
     let version = qapi::qemu_version();
-    println!("connected to QEMU {}.{}.{}", version.0, version.1, version.2);
+    println!(
+        "connected to QEMU {}.{}.{}",
+        version.0, version.1, version.2
+    );
 
     vm.shutdown().await;
     Ok(())

@@ -1,13 +1,13 @@
-use super::common::{qtag};
+use super::common::qtag;
 use super::parser_version;
+use nom::IResult;
+use nom::Parser;
 use nom::bytes::complete::{is_a, tag, tag_no_case, take_until, take_while1};
 use nom::character::complete::{line_ending, multispace0, not_line_ending, space0};
 use nom::combinator::{not, opt, peek, recognize};
 use nom::error::{Error, ErrorKind};
 use nom::multi::{many0, many1};
 use nom::sequence::{delimited, preceded, terminated};
-use nom::IResult;
-use nom::Parser;
 
 // ─── Shared helpers ────────────────────────────────────────────────
 
@@ -43,8 +43,11 @@ fn take_name_ws(input: &str) -> IResult<&str, &str> {
 }
 
 fn take_value(input: &str) -> IResult<&str, Vec<&str>> {
-    many1(preceded(take_line_start, terminated(not_line_ending, line_ending)))
-        .parse(input)
+    many1(preceded(
+        take_line_start,
+        terminated(not_line_ending, line_ending),
+    ))
+    .parse(input)
 }
 
 fn take_line_continuation(input: &str) -> IResult<&str, &str> {
@@ -90,20 +93,13 @@ fn take_name(input: &str) -> IResult<&str, &str> {
 }
 
 fn take_name_optional_colon(input: &str) -> IResult<&str, &str> {
-    preceded(
-        (take_line_start, tag("@")),
-        take_while1(not_name_break),
-    )
-    .parse(input)
+    preceded((take_line_start, tag("@")), take_while1(not_name_break)).parse(input)
 }
 
 fn take_namedkv<'i>(
     key: &'static str,
 ) -> impl Parser<&'i str, Output = Vec<&'i str>, Error = Error<&'i str>> {
-    preceded(
-        (take_line_start, tag("@"), tag(key), tag(":")),
-        take_value,
-    )
+    preceded((take_line_start, tag("@"), tag(key), tag(":")), take_value)
 }
 
 fn take_namedkey<'i>(
@@ -174,14 +170,18 @@ impl<'i> QapiDocumentation<'i> {
                 tag("@"),
                 terminated(take_while1(not_name_break), (opt(tag(":")), take_line_end)),
             ),
-        ).parse(input) {
+        )
+        .parse(input)
+        {
             // Shorthand: ## @Name on same line
             (input, name)
         } else {
             // Standard: ##\n then # @Name on next line
             let (input, _) = take_line_end(input)?;
             let (input, _) = many0(take_empty_line).parse(input)?;
-            let (input, name) = terminated(take_name_optional_colon, (opt(tag(":")), take_line_end)).parse(input)?;
+            let (input, name) =
+                terminated(take_name_optional_colon, (opt(tag(":")), take_line_end))
+                    .parse(input)?;
             (input, name)
         };
         let (input, _) = many0(take_empty_line).parse(input)?;
@@ -306,7 +306,9 @@ impl<'i> QapiDocumentation<'i> {
                 let (input, first_line) = not_line_ending.parse(input)?;
                 let (input, _) = line_ending.parse(input)?;
                 Ok((input, (name, first_line)))
-            }).parse(input) {
+            })
+            .parse(input)
+            {
                 let mut field_vals: Vec<&str> = Vec::new();
                 if !first_line.trim().is_empty() {
                     field_vals.push(first_line);
@@ -435,17 +437,22 @@ impl<'i> QapiSectionDocumentation<'i> {
                 preceded(tag("="), preceded(space0, not_line_ending)),
                 line_ending,
             ),
-        ).parse(input)?;
+        )
+        .parse(input)?;
         let (input, _) = many0(take_empty_line).parse(input)?;
         let (input, desc_str) = opt(take_multiline_text).parse(input)?;
         let (input, _) = many0(take_empty_line).parse(input)?;
         let (input, _) = preceded(space0, tag("##")).parse(input)?;
 
-        let description = desc_str
-            .map(|s| s.lines().collect())
-            .unwrap_or_default();
+        let description = desc_str.map(|s| s.lines().collect()).unwrap_or_default();
 
-        Ok((input, Self { name: name.trim(), description }))
+        Ok((
+            input,
+            Self {
+                name: name.trim(),
+                description,
+            },
+        ))
     }
 }
 
@@ -497,13 +504,21 @@ impl<'i> QapiFreeformDoc<'i> {
             }
             tmp
         };
-        if check_input.trim_start_matches(|c: char| c == '#' || c == ' ').starts_with('@') {
+        if check_input
+            .trim_start_matches(|c: char| c == '#' || c == ' ')
+            .starts_with('@')
+        {
             return Err(nom::Err::Error(Error::new(start, ErrorKind::Tag)));
         }
         // Consume lines starting with # until ##
         let mut input = input;
         loop {
-            if let Ok((next, _)) = preceded(space0::<&str, Error<&str>>, tag::<&str, &str, Error<&str>>("##")).parse(input) {
+            if let Ok((next, _)) = preceded(
+                space0::<&str, Error<&str>>,
+                tag::<&str, &str, Error<&str>>("##"),
+            )
+            .parse(input)
+            {
                 let consumed = &start[..start.len() - next.len()];
                 return Ok((next, Self { text: consumed }));
             }
@@ -511,7 +526,9 @@ impl<'i> QapiFreeformDoc<'i> {
                 input = next;
                 continue;
             }
-            if let Ok((next, _)) = preceded(take_line_start, terminated(not_line_ending, line_ending)).parse(input) {
+            if let Ok((next, _)) =
+                preceded(take_line_start, terminated(not_line_ending, line_ending)).parse(input)
+            {
                 input = next;
                 continue;
             }

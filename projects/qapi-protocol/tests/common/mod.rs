@@ -2,8 +2,8 @@ pub mod fixtures;
 pub mod serial;
 
 // Re-export from manager for test convenience
-pub use manager::{Arch, MachineConfig, Vm, VmBuilder};
 pub use manager::arch::detect_version;
+pub use manager::{Arch, MachineConfig, Vm, VmBuilder};
 
 use qapi_protocol::QmpEvent;
 use std::time::Duration;

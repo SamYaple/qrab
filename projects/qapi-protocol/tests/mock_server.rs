@@ -1,10 +1,10 @@
 mod common;
 
-use qapi_protocol::server::{QmpSession, QgaSession};
-use qapi_protocol::Qmp;
 use qapi_protocol::qga::Qga;
-use tokio::net::UnixListener;
+use qapi_protocol::server::{QgaSession, QmpSession};
+use qapi_protocol::Qmp;
 use std::sync::atomic::{AtomicU64, Ordering};
+use tokio::net::UnixListener;
 
 static COUNTER: AtomicU64 = AtomicU64::new(0);
 fn unique_socket() -> String {
@@ -27,10 +27,13 @@ async fn mock_qmp_negotiate() {
         // Receive query-status
         let (name, _args) = session.recv_command().await.unwrap();
         assert_eq!(name, "query-status");
-        session.send_return(serde_json::json!({
-            "running": true,
-            "status": "running"
-        })).await.unwrap();
+        session
+            .send_return(serde_json::json!({
+                "running": true,
+                "status": "running"
+            }))
+            .await
+            .unwrap();
     });
 
     // Give server a moment to bind
@@ -59,7 +62,10 @@ async fn mock_qmp_error_response() {
 
         let (name, _args) = session.recv_command().await.unwrap();
         assert_eq!(name, "query-status");
-        session.send_error("GenericError", "something went wrong").await.unwrap();
+        session
+            .send_error("GenericError", "something went wrong")
+            .await
+            .unwrap();
     });
 
     tokio::time::sleep(std::time::Duration::from_millis(50)).await;
@@ -87,11 +93,17 @@ async fn mock_qmp_event() {
         session.negotiate().await.unwrap();
 
         // Send an event then a command response
-        session.send_event("STOP", serde_json::json!({})).await.unwrap();
+        session
+            .send_event("STOP", serde_json::json!({}))
+            .await
+            .unwrap();
 
         let (name, _) = session.recv_command().await.unwrap();
         assert_eq!(name, "query-status");
-        session.send_return(serde_json::json!({"running": false, "status": "paused"})).await.unwrap();
+        session
+            .send_return(serde_json::json!({"running": false, "status": "paused"}))
+            .await
+            .unwrap();
     });
 
     tokio::time::sleep(std::time::Duration::from_millis(50)).await;
@@ -102,10 +114,10 @@ async fn mock_qmp_event() {
     assert!(!status.running);
 
     // The event should have been received
-    let evt = tokio::time::timeout(
-        std::time::Duration::from_secs(2),
-        events.recv(),
-    ).await.unwrap().unwrap();
+    let evt = tokio::time::timeout(std::time::Duration::from_secs(2), events.recv())
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(evt.event, "STOP");
 
     qmp.shutdown().await;
@@ -128,13 +140,16 @@ async fn mock_qga_sync_and_ping() {
         // Expect guest-info (auto-sent by Qga::new)
         let (name, _args) = session.recv_command().await.unwrap();
         assert_eq!(name, "guest-info");
-        session.send_return(serde_json::json!({
-            "version": "10.2.0",
-            "supported_commands": [
-                {"name": "guest-ping", "enabled": true, "success-response": true},
-                {"name": "guest-info", "enabled": true, "success-response": true}
-            ]
-        })).await.unwrap();
+        session
+            .send_return(serde_json::json!({
+                "version": "10.2.0",
+                "supported_commands": [
+                    {"name": "guest-ping", "enabled": true, "success-response": true},
+                    {"name": "guest-info", "enabled": true, "success-response": true}
+                ]
+            }))
+            .await
+            .unwrap();
 
         // Expect guest-ping
         let (name, _args) = session.recv_command().await.unwrap();

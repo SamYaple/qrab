@@ -1,9 +1,9 @@
 use super::common::{qstring, take_dict, take_kv};
 use super::qapi_cond::{QapiCond, take_cond};
-use nom::branch::alt;
-use nom::error::{Error, ErrorKind};
 use nom::IResult;
 use nom::Parser;
+use nom::branch::alt;
+use nom::error::{Error, ErrorKind};
 
 /// Convenience wrapper around the QapiFeature parser
 pub fn take_feature(input: &str) -> IResult<&str, QapiFeature<'_>> {

@@ -1,16 +1,16 @@
 use super::common::{qstring, qtag, take_dict, take_kv};
-use super::qapi_branches::{take_branches, QapiBranches};
-use super::qapi_cond::{take_cond, QapiCond};
-use super::qapi_documentation::QapiDocumentation;
-use super::qapi_features::{take_features, QapiFeatures};
-use super::qapi_members::{take_members_or_ref, MembersOrRef};
 use super::parser_version;
+use super::qapi_branches::{QapiBranches, take_branches};
+use super::qapi_cond::{QapiCond, take_cond};
+use super::qapi_documentation::QapiDocumentation;
+use super::qapi_features::{QapiFeatures, take_features};
+use super::qapi_members::{MembersOrRef, take_members_or_ref};
+use nom::IResult;
+use nom::Parser;
 use nom::branch::alt;
 use nom::combinator::opt;
 use nom::error::{Error, ErrorKind};
 use nom::sequence::delimited;
-use nom::IResult;
-use nom::Parser;
 
 pub fn take_union(input: &str) -> IResult<&str, QapiUnion<'_>> {
     QapiUnion::parse(input)
@@ -43,13 +43,20 @@ impl<'i> QapiUnion<'i> {
     /// v1 (QEMU v1.0–v1.6.0): simple unions only, `'discriminator': {}` for alternates.
     pub fn parse_v1(input: &'i str) -> IResult<&'i str, Self> {
         let (input, doc) = opt(QapiDocumentation::parse).parse(input)?;
-        let mut s = Self { doc, ..Default::default() };
+        let mut s = Self {
+            doc,
+            ..Default::default()
+        };
         let start = input;
         let (input, _) = take_dict(alt((
             take_kv("union", qstring).map(|v| s.name = v),
             take_kv("data", take_branches).map(|v| s.data = v),
             // 'discriminator': {} — alternate syntax (treated as no discriminator)
-            take_kv("discriminator", delimited(qtag("{"), opt(qstring), qtag("}"))).map(|_| ()),
+            take_kv(
+                "discriminator",
+                delimited(qtag("{"), opt(qstring), qtag("}")),
+            )
+            .map(|_| ()),
             take_cond.map(|v| s.r#if = Some(v)),
             take_features.map(|v| s.features = Some(v)),
             take_kv("base", take_members_or_ref).map(|v| s.base = v),
@@ -65,14 +72,21 @@ impl<'i> QapiUnion<'i> {
     /// v2 (QEMU v1.7.0–v6.1.0): simple unions + discriminated unions coexist.
     pub fn parse_v2(input: &'i str) -> IResult<&'i str, Self> {
         let (input, doc) = opt(QapiDocumentation::parse).parse(input)?;
-        let mut s = Self { doc, ..Default::default() };
+        let mut s = Self {
+            doc,
+            ..Default::default()
+        };
         let start = input;
         let (input, _) = take_dict(alt((
             take_kv("union", qstring).map(|v| s.name = v),
             take_kv("data", take_branches).map(|v| s.data = v),
             take_kv("discriminator", qstring).map(|v| s.discriminator = Some(v)),
             // 'discriminator': {} — alternate syntax (v1.7.0–v2.0.0), treated as no discriminator
-            take_kv("discriminator", delimited(qtag("{"), opt(qstring), qtag("}"))).map(|_| ()),
+            take_kv(
+                "discriminator",
+                delimited(qtag("{"), opt(qstring), qtag("}")),
+            )
+            .map(|_| ()),
             take_cond.map(|v| s.r#if = Some(v)),
             take_features.map(|v| s.features = Some(v)),
             take_kv("base", take_members_or_ref).map(|v| s.base = v),
@@ -88,7 +102,10 @@ impl<'i> QapiUnion<'i> {
     /// v3 (QEMU v6.2.0+): discriminated (flat) unions only — base + discriminator required.
     pub fn parse_v3(input: &'i str) -> IResult<&'i str, Self> {
         let (input, doc) = opt(QapiDocumentation::parse).parse(input)?;
-        let mut s = Self { doc, ..Default::default() };
+        let mut s = Self {
+            doc,
+            ..Default::default()
+        };
         let start = input;
         let (input, _) = take_dict(alt((
             take_kv("union", qstring).map(|v| s.name = v),

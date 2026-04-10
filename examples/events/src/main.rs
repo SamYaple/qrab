@@ -11,7 +11,8 @@ async fn main() -> Result<()> {
         .start()
         .await?;
 
-    println!("VM started (QEMU {}.{}.{})\n",
+    println!(
+        "VM started (QEMU {}.{}.{})\n",
         qapi::qemu_version().0,
         qapi::qemu_version().1,
         qapi::qemu_version().2,
@@ -56,7 +57,10 @@ async fn drain_events(vm: &mut manager::Vm, timeout: Duration) {
                 if !evt.data.is_null() && evt.data != serde_json::json!({}) {
                     print!("  data={}", evt.data);
                 }
-                println!("  (ts={}.{})", evt.timestamp.seconds, evt.timestamp.microseconds);
+                println!(
+                    "  (ts={}.{})",
+                    evt.timestamp.seconds, evt.timestamp.microseconds
+                );
             }
             _ => break,
         }

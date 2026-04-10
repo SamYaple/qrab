@@ -1,5 +1,5 @@
-use manager::{Arch, MachineConfig, VmBuilder, PRECONFIG_MIN_VERSION};
 use manager::arch::detect_version;
+use manager::{Arch, MachineConfig, VmBuilder, PRECONFIG_MIN_VERSION};
 
 fn require_x86_64() -> bool {
     if !Arch::X86_64.is_available() {
@@ -11,7 +11,9 @@ fn require_x86_64() -> bool {
 
 #[tokio::test]
 async fn spawn_preconfig_and_start() {
-    if !require_x86_64() { return; }
+    if !require_x86_64() {
+        return;
+    }
     let preconfig = VmBuilder::new(Arch::X86_64, MachineConfig::None)
         .spawn()
         .await
@@ -19,7 +21,10 @@ async fn spawn_preconfig_and_start() {
 
     // In preconfig state, query-status is allowed (PreconfigSafe)
     let status: qapi::StatusInfo = preconfig.execute(&qapi::QueryStatus {}).await.unwrap();
-    assert!(!status.running, "VM should not be running in preconfig state");
+    assert!(
+        !status.running,
+        "VM should not be running in preconfig state"
+    );
 
     // Transition to running
     let vm = preconfig.start().await.unwrap();
@@ -31,7 +36,9 @@ async fn spawn_preconfig_and_start() {
 
 #[tokio::test]
 async fn preconfig_shutdown_without_start() {
-    if !require_x86_64() { return; }
+    if !require_x86_64() {
+        return;
+    }
     let preconfig = VmBuilder::new(Arch::X86_64, MachineConfig::None)
         .spawn()
         .await
@@ -43,7 +50,9 @@ async fn preconfig_shutdown_without_start() {
 
 #[tokio::test]
 async fn preconfig_query_commands() {
-    if !require_x86_64() { return; }
+    if !require_x86_64() {
+        return;
+    }
     let preconfig = VmBuilder::new(Arch::X86_64, MachineConfig::None)
         .spawn()
         .await
@@ -59,7 +68,9 @@ async fn preconfig_query_commands() {
 
 #[tokio::test]
 async fn execute_multiple_commands_after_start() {
-    if !require_x86_64() { return; }
+    if !require_x86_64() {
+        return;
+    }
     let preconfig = VmBuilder::new(Arch::X86_64, MachineConfig::None)
         .spawn()
         .await
@@ -76,7 +87,9 @@ async fn execute_multiple_commands_after_start() {
 
 #[tokio::test]
 async fn events_received_on_stop() {
-    if !require_x86_64() { return; }
+    if !require_x86_64() {
+        return;
+    }
     let preconfig = VmBuilder::new(Arch::X86_64, MachineConfig::None)
         .no_shutdown()
         .spawn()
@@ -107,7 +120,9 @@ async fn events_received_on_stop() {
 
 #[tokio::test]
 async fn detect_qemu_version() {
-    if !require_x86_64() { return; }
+    if !require_x86_64() {
+        return;
+    }
     let version = detect_version(Arch::X86_64);
     assert!(version.is_some(), "Should detect QEMU version");
     let (major, minor, _patch) = version.unwrap();
@@ -119,7 +134,10 @@ async fn arch_availability() {
     // X86_64 should be available in our test environment
     assert!(Arch::X86_64.is_available());
     let binary = Arch::X86_64.binary();
-    assert!(!binary.as_os_str().is_empty(), "Binary path should not be empty");
+    assert!(
+        !binary.as_os_str().is_empty(),
+        "Binary path should not be empty"
+    );
 }
 
 #[tokio::test]

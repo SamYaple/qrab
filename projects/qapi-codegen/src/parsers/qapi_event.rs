@@ -1,16 +1,16 @@
 use super::common::{qbool, qstring, take_dict, take_kv};
-use super::qapi_cond::take_cond;
-use super::qapi_features::take_features;
-use super::qapi_members::take_members_or_ref;
 use super::qapi_cond::QapiCond;
+use super::qapi_cond::take_cond;
 use super::qapi_documentation::QapiDocumentation;
 use super::qapi_features::QapiFeatures;
+use super::qapi_features::take_features;
 use super::qapi_members::MembersOrRef;
+use super::qapi_members::take_members_or_ref;
+use nom::IResult;
+use nom::Parser;
 use nom::branch::alt;
 use nom::combinator::opt;
 use nom::error::{Error, ErrorKind};
-use nom::IResult;
-use nom::Parser;
 
 pub fn take_event(input: &str) -> IResult<&str, QapiEvent<'_>> {
     QapiEvent::parse(input)

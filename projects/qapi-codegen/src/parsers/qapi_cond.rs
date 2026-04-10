@@ -1,8 +1,8 @@
 use super::common::{qstring, qtag, take_kv, take_list};
-use nom::branch::alt;
-use nom::sequence::delimited;
 use nom::IResult;
 use nom::Parser;
+use nom::branch::alt;
+use nom::sequence::delimited;
 
 /// Convenience wrapper for taking a condition keypair.
 /// Examples:

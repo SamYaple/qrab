@@ -1,15 +1,15 @@
 use super::common::{qbool, qstring, take_dict, take_kv};
-use super::qapi_cond::{take_cond, QapiCond};
-use super::qapi_documentation::QapiDocumentation;
-use super::qapi_features::{take_features, QapiFeatures};
-use super::qapi_members::{take_members_or_ref, MembersOrRef};
-use super::qapi_type_ref::QapiTypeRef;
 use super::parser_version;
+use super::qapi_cond::{QapiCond, take_cond};
+use super::qapi_documentation::QapiDocumentation;
+use super::qapi_features::{QapiFeatures, take_features};
+use super::qapi_members::{MembersOrRef, take_members_or_ref};
+use super::qapi_type_ref::QapiTypeRef;
+use nom::IResult;
+use nom::Parser;
 use nom::branch::alt;
 use nom::combinator::opt;
 use nom::error::{Error, ErrorKind};
-use nom::IResult;
-use nom::Parser;
 
 pub fn take_command(input: &str) -> IResult<&str, QapiCommand<'_>> {
     QapiCommand::parse(input)
@@ -70,14 +70,16 @@ impl<'i> QapiCommand<'i> {
                 } else {
                     qbool(input)
                 }
-            }).map(|v| s.success_response = Some(v)),
+            })
+            .map(|v| s.success_response = Some(v)),
             take_kv("gen", move |input| {
                 if gen_string_as_bool {
                     alt((qbool, qstring)).parse(input)
                 } else {
                     qbool(input)
                 }
-            }).map(|v| s.r#gen = Some(v)),
+            })
+            .map(|v| s.r#gen = Some(v)),
             take_kv("allow-oob", qbool).map(|v| s.allow_oob = Some(v)),
             take_kv("coroutine", qbool).map(|v| s.coroutine = Some(v)),
             take_kv("allow-preconfig", qbool).map(|v| s.allow_preconfig = Some(v)),

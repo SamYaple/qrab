@@ -30,11 +30,7 @@ fn unit_enum_deserialize() {
 #[test]
 fn unit_enum_roundtrip() {
     init_version();
-    let variants = vec![
-        OnOffAuto::Auto,
-        OnOffAuto::On,
-        OnOffAuto::Off,
-    ];
+    let variants = vec![OnOffAuto::Auto, OnOffAuto::On, OnOffAuto::Off];
     for v in variants {
         let json = serde_json::to_string(&v).unwrap();
         let back: OnOffAuto = serde_json::from_str(&json).unwrap();

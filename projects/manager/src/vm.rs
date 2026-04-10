@@ -149,11 +149,7 @@ impl VmBuilder {
         let tmpdir = std::env::temp_dir();
         let qmp_sock = tmpdir.join(format!("qrab-qmp-{}-{}.sock", std::process::id(), id));
         let serial_log = if self.serial {
-            Some(tmpdir.join(format!(
-                "qrab-serial-{}-{}.log",
-                std::process::id(),
-                id,
-            )))
+            Some(tmpdir.join(format!("qrab-serial-{}-{}.log", std::process::id(), id,)))
         } else {
             None
         };
@@ -193,10 +189,7 @@ impl VmBuilder {
                         Arch::Aarch64 | Arch::Arm => {
                             args.extend([
                                 "-drive".into(),
-                                format!(
-                                    "if=pflash,format=raw,readonly=on,file={}",
-                                    fw.display()
-                                ),
+                                format!("if=pflash,format=raw,readonly=on,file={}", fw.display()),
                             ]);
                         }
                     }
@@ -264,8 +257,12 @@ impl VmBuilder {
         if version < PRECONFIG_MIN_VERSION {
             anyhow::bail!(
                 "QEMU {}.{}.{} does not support --preconfig (requires >= {}.{}.{})",
-                version.0, version.1, version.2,
-                PRECONFIG_MIN_VERSION.0, PRECONFIG_MIN_VERSION.1, PRECONFIG_MIN_VERSION.2,
+                version.0,
+                version.1,
+                version.2,
+                PRECONFIG_MIN_VERSION.0,
+                PRECONFIG_MIN_VERSION.1,
+                PRECONFIG_MIN_VERSION.2,
             );
         }
 
@@ -319,7 +316,10 @@ impl PreconfigVm {
     /// Only commands implementing [`PreconfigSafe`] can be used here. This
     /// provides compile-time enforcement that non-preconfig commands cannot
     /// be issued before the machine is initialized.
-    pub async fn execute<C: QapiCommand + qapi::PreconfigSafe>(&self, cmd: &C) -> Result<C::Returns> {
+    pub async fn execute<C: QapiCommand + qapi::PreconfigSafe>(
+        &self,
+        cmd: &C,
+    ) -> Result<C::Returns> {
         Ok(self.inner.qmp.execute(cmd).await?)
     }
 

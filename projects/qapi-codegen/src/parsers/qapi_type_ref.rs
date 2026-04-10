@@ -1,10 +1,10 @@
 use super::common::{qstring, qtag};
-use super::qapi_members::QapiMembers;
 use super::parser_version;
-use nom::branch::alt;
-use nom::sequence::delimited;
+use super::qapi_members::QapiMembers;
 use nom::IResult;
 use nom::Parser;
+use nom::branch::alt;
+use nom::sequence::delimited;
 
 pub fn take_type_ref(input: &str) -> IResult<&str, QapiTypeRef<'_>> {
     use super::common::take_kv;
@@ -52,11 +52,7 @@ impl<'i> QapiTypeRef<'i> {
     /// v2 (QEMU v2.4.0+): only string or array refs.
     pub fn parse_v2(input: &'i str) -> IResult<&'i str, Self> {
         let array_parser = delimited(qtag("["), qstring, qtag("]"));
-        alt((
-            qstring.map(Self::Ref),
-            array_parser.map(Self::ArrayRef),
-        ))
-        .parse(input)
+        alt((qstring.map(Self::Ref), array_parser.map(Self::ArrayRef))).parse(input)
     }
 }
 

@@ -1,6 +1,6 @@
 use super::common::{take_kv, take_list};
-use super::vec_newtype;
 use super::qapi_feature::QapiFeature;
+use super::vec_newtype;
 use nom::IResult;
 use nom::Parser;
 
@@ -123,13 +123,13 @@ mod tests {
     #[test]
     fn test_parse_features_invalid() {
         let invalid_inputs = [
-            "",                                              // Empty input
-            "[",                                             // Incomplete list
-            "[{'name':'deprecated'}",                        // Missing closing bracket
-            "['deprecated'",                                 // Missing closing quote
-            "[{'name':'deprecated','if':}]",                 // Missing condition value
-            "[{'name':'deprecated','unknown':'value'}]",     // Unknown field
-            "[{'if':'CONFIG_OPTION'}]",                      // Missing 'name' field
+            "",                                          // Empty input
+            "[",                                         // Incomplete list
+            "[{'name':'deprecated'}",                    // Missing closing bracket
+            "['deprecated'",                             // Missing closing quote
+            "[{'name':'deprecated','if':}]",             // Missing condition value
+            "[{'name':'deprecated','unknown':'value'}]", // Unknown field
+            "[{'if':'CONFIG_OPTION'}]",                  // Missing 'name' field
         ];
         for input in invalid_inputs.iter() {
             let result = QapiFeatures::parse(input);
@@ -144,12 +144,12 @@ mod tests {
     #[test]
     fn test_parse_feature_invalid() {
         let invalid_inputs = [
-            "",                                            // Empty input
-            "{'name':'deprecated'",                        // Missing closing brace
-            "'deprecated",                                 // Missing closing quote
-            "{'name':'deprecated','if':}",                 // Missing condition value
-            "{'name':'deprecated','unknown':'value'}",     // Unknown field
-            "{'if':'CONFIG_OPTION'}",                      // Missing 'name' field
+            "",                                        // Empty input
+            "{'name':'deprecated'",                    // Missing closing brace
+            "'deprecated",                             // Missing closing quote
+            "{'name':'deprecated','if':}",             // Missing condition value
+            "{'name':'deprecated','unknown':'value'}", // Unknown field
+            "{'if':'CONFIG_OPTION'}",                  // Missing 'name' field
         ];
         for input in invalid_inputs.iter() {
             let result = QapiFeature::parse(input);

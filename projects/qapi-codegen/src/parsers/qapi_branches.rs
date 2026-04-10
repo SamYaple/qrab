@@ -1,6 +1,6 @@
 use super::common::take_dict;
-use super::vec_newtype;
 use super::qapi_branch::QapiBranch;
+use super::vec_newtype;
 use nom::IResult;
 use nom::Parser;
 

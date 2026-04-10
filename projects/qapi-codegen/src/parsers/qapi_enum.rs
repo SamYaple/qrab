@@ -1,16 +1,16 @@
 use super::common::{qstring, take_dict, take_kv, take_list};
-use super::qapi_cond::take_cond;
-use super::qapi_enum_value::take_enum_value;
-use super::qapi_features::take_features;
 use super::qapi_cond::QapiCond;
+use super::qapi_cond::take_cond;
 use super::qapi_documentation::QapiDocumentation;
 use super::qapi_enum_value::QapiEnumValue;
+use super::qapi_enum_value::take_enum_value;
 use super::qapi_features::QapiFeatures;
+use super::qapi_features::take_features;
+use nom::IResult;
+use nom::Parser;
 use nom::branch::alt;
 use nom::combinator::opt;
 use nom::error::{Error, ErrorKind};
-use nom::IResult;
-use nom::Parser;
 
 pub fn take_enum(input: &str) -> IResult<&str, QapiEnum<'_>> {
     QapiEnum::parse(input)

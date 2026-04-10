@@ -24,7 +24,9 @@ impl SerialConsole {
             if tokio::time::Instant::now() >= deadline {
                 anyhow::bail!(
                     "Timeout ({:?}) waiting for '{}' in serial log {}",
-                    timeout, pattern, self.log_path.display()
+                    timeout,
+                    pattern,
+                    self.log_path.display()
                 );
             }
 

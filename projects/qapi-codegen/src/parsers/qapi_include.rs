@@ -1,7 +1,7 @@
 use super::common::{qstring, qtag, take_kv};
-use nom::sequence::delimited;
 use nom::IResult;
 use nom::Parser;
+use nom::sequence::delimited;
 
 pub fn take_include(input: &str) -> IResult<&str, QapiInclude<'_>> {
     QapiInclude::parse(input)
@@ -16,12 +16,7 @@ impl<'i> QapiInclude<'i> {
     }
 
     pub fn parse_v1(input: &'i str) -> IResult<&'i str, Self> {
-        delimited(
-            qtag("{"),
-            take_kv("include", qstring).map(Self),
-            qtag("}"),
-        )
-        .parse(input)
+        delimited(qtag("{"), take_kv("include", qstring).map(Self), qtag("}")).parse(input)
     }
 }
 

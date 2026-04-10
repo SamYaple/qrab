@@ -1,11 +1,11 @@
 use std::path::Path;
 
-use qapi_codegen::{parse_schema, read_schema_with_version, QapiSchemaToken};
-use qapi_codegen::versions::{
-    discover_version_tags, extract_schema_from_tag, find_extracted_schema_entry,
-    find_schema_entry, parse_version_tag,
-};
 use qapi_codegen::unified::build_unified_registry;
+use qapi_codegen::versions::{
+    discover_version_tags, extract_schema_from_tag, find_extracted_schema_entry, find_schema_entry,
+    parse_version_tag,
+};
+use qapi_codegen::{QapiSchemaToken, parse_schema, read_schema_with_version};
 
 fn qemu_root() -> &'static Path {
     let workspace_root = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -20,12 +20,12 @@ fn qemu_root() -> &'static Path {
 /// Used for integration tests to keep runtime reasonable.
 fn representative_tags() -> Vec<String> {
     vec![
-        "v1.0", "v1.1.0", "v1.7.0",
-        "v2.0.0", "v2.1.0", "v2.5.0",
-        "v2.8.0", "v2.12.0",
-        "v3.0.0", "v5.0.0",
-        "v7.0.0", "v9.0.0", "v10.2.0",
-    ].into_iter().map(String::from).collect()
+        "v1.0", "v1.1.0", "v1.7.0", "v2.0.0", "v2.1.0", "v2.5.0", "v2.8.0", "v2.12.0", "v3.0.0",
+        "v5.0.0", "v7.0.0", "v9.0.0", "v10.2.0",
+    ]
+    .into_iter()
+    .map(String::from)
+    .collect()
 }
 
 // ── Basic schema parsing tests (using latest vendored QEMU) ──
@@ -43,11 +43,14 @@ fn test_parse_all_schema_files() {
     let root = qemu_root();
     let entry = find_schema_entry(root).unwrap();
     let sources = read_schema_with_version(&entry, None).expect("read_schema failed");
-    assert!(sources.len() > 10, "expected >10 schema files, got {}", sources.len());
+    assert!(
+        sources.len() > 10,
+        "expected >10 schema files, got {}",
+        sources.len()
+    );
 
     for (path, content) in &sources {
-        parse_schema(content)
-            .unwrap_or_else(|e| panic!("failed to parse {}: {e}", path.display()));
+        parse_schema(content).unwrap_or_else(|e| panic!("failed to parse {}: {e}", path.display()));
     }
 }
 
@@ -57,11 +60,15 @@ fn test_parse_schema_returns_types() {
     let entry = find_schema_entry(root).unwrap();
     let sources = read_schema_with_version(&entry, None).unwrap();
 
-    let total_tokens: usize = sources.iter().map(|(_, content)| {
-        parse_schema(content).unwrap().0.len()
-    }).sum();
+    let total_tokens: usize = sources
+        .iter()
+        .map(|(_, content)| parse_schema(content).unwrap().0.len())
+        .sum();
 
-    assert!(total_tokens > 100, "expected >100 schema tokens total, got {total_tokens}");
+    assert!(
+        total_tokens > 100,
+        "expected >100 schema tokens total, got {total_tokens}"
+    );
 }
 
 // ── Version discovery ──
@@ -72,7 +79,11 @@ fn test_discover_version_tags() {
     let tags = discover_version_tags(repo).expect("discover_version_tags failed");
 
     // Should find all release tags (v1.0 through v10.2.x)
-    assert!(tags.len() > 100, "expected >100 version tags, got {}", tags.len());
+    assert!(
+        tags.len() > 100,
+        "expected >100 version tags, got {}",
+        tags.len()
+    );
 
     // First tag should be v1.0
     assert_eq!(tags[0], "v1.0", "First tag should be v1.0, got {}", tags[0]);
@@ -90,7 +101,12 @@ fn test_discover_version_tags() {
         assert!(major >= 1, "Should not include pre-v1.0 tags, got {}", tag);
     }
 
-    eprintln!("  Discovered {} tags ({} to {})", tags.len(), tags[0], tags.last().unwrap());
+    eprintln!(
+        "  Discovered {} tags ({} to {})",
+        tags.len(),
+        tags[0],
+        tags.last().unwrap()
+    );
 }
 
 // ── Multi-version parser compatibility ──
@@ -99,13 +115,16 @@ fn test_parse_all_discovered_versions() {
     let repo = qemu_root();
     // Representative versions covering all parser eras
     let tags: Vec<String> = vec![
-        "v1.0", "v1.1.0", "v1.4.0", "v1.7.0",     // era A: type keyword, simple unions
-        "v2.0.0", "v2.1.0", "v2.3.0", "v2.5.0",    // era A/B: includes, alternates
-        "v2.7.0", "v2.8.0", "v2.10.0", "v2.12.0",  // era C/D: struct keyword, pragmas
-        "v3.0.0", "v4.0.0", "v5.0.0",               // era D: conditions, features
-        "v6.0.0", "v7.0.0", "v8.0.0",               // era E: modern format
-        "v9.0.0", "v10.2.0",                         // latest
-    ].into_iter().map(String::from).collect();
+        "v1.0", "v1.1.0", "v1.4.0", "v1.7.0", // era A: type keyword, simple unions
+        "v2.0.0", "v2.1.0", "v2.3.0", "v2.5.0", // era A/B: includes, alternates
+        "v2.7.0", "v2.8.0", "v2.10.0", "v2.12.0", // era C/D: struct keyword, pragmas
+        "v3.0.0", "v4.0.0", "v5.0.0", // era D: conditions, features
+        "v6.0.0", "v7.0.0", "v8.0.0", // era E: modern format
+        "v9.0.0", "v10.2.0", // latest
+    ]
+    .into_iter()
+    .map(String::from)
+    .collect();
     let mut failures = Vec::new();
 
     for tag in &tags {
@@ -129,8 +148,8 @@ fn test_parse_all_discovered_versions() {
 
 fn try_parse_version(tag: &str, repo: &Path) -> Result<usize, String> {
     let version = parse_version_tag(tag).ok_or_else(|| format!("bad tag: {}", tag))?;
-    let tmpdir = extract_schema_from_tag(repo, tag)
-        .map_err(|e| format!("extract failed: {}", e))?;
+    let tmpdir =
+        extract_schema_from_tag(repo, tag).map_err(|e| format!("extract failed: {}", e))?;
 
     let entry = find_extracted_schema_entry(tmpdir.path())
         .ok_or_else(|| "no schema entry point found".to_string())?;
@@ -156,20 +175,34 @@ fn test_build_unified_registry() {
     let tags = representative_tags();
     let tag_refs: Vec<&str> = tags.iter().map(|s| s.as_str()).collect();
 
-    let registry = build_unified_registry(repo, &tag_refs)
-        .expect("build_unified_registry failed");
+    let registry = build_unified_registry(repo, &tag_refs).expect("build_unified_registry failed");
 
-    assert!(registry.types.len() > 100, "expected >100 unified types, got {}", registry.types.len());
+    assert!(
+        registry.types.len() > 100,
+        "expected >100 unified types, got {}",
+        registry.types.len()
+    );
     assert_eq!(registry.versions.len(), tags.len());
 
-    let removed_count = registry.types.values().filter(|t| match t {
-        qapi_codegen::unified::UnifiedType::Enum(e) => e.versions.until.is_some(),
-        qapi_codegen::unified::UnifiedType::Struct(s) => s.versions.until.is_some(),
-    }).count();
+    let removed_count = registry
+        .types
+        .values()
+        .filter(|t| match t {
+            qapi_codegen::unified::UnifiedType::Enum(e) => e.versions.until.is_some(),
+            qapi_codegen::unified::UnifiedType::Struct(s) => s.versions.until.is_some(),
+        })
+        .count();
 
-    eprintln!("  Unified registry: {} types, {} removed, {} versions",
-        registry.types.len(), removed_count, registry.versions.len());
-    assert!(removed_count > 0, "expected some removed types across versions");
+    eprintln!(
+        "  Unified registry: {} types, {} removed, {} versions",
+        registry.types.len(),
+        removed_count,
+        registry.versions.len()
+    );
+    assert!(
+        removed_count > 0,
+        "expected some removed types across versions"
+    );
 }
 
 #[test]
@@ -181,13 +214,25 @@ fn test_unified_codegen_produces_valid_rust() {
     let code = qapi_codegen::unified::generate_unified_code(repo, &tag_refs)
         .expect("generate_unified_code failed");
 
-    assert!(code.len() > 10000, "unified code suspiciously short: {} bytes", code.len());
+    assert!(
+        code.len() > 10000,
+        "unified code suspiciously short: {} bytes",
+        code.len()
+    );
 
-    let parsed: syn::File = syn::parse_str(&code)
-        .expect("unified generated code is not valid Rust");
+    let parsed: syn::File =
+        syn::parse_str(&code).expect("unified generated code is not valid Rust");
 
-    eprintln!("  Unified code: {} items, {} bytes", parsed.items.len(), code.len());
-    assert!(parsed.items.len() > 100, "expected >100 items, got {}", parsed.items.len());
+    eprintln!(
+        "  Unified code: {} items, {} bytes",
+        parsed.items.len(),
+        code.len()
+    );
+    assert!(
+        parsed.items.len() > 100,
+        "expected >100 items, got {}",
+        parsed.items.len()
+    );
 }
 
 #[test]
@@ -200,7 +245,11 @@ fn test_unified_codegen_has_doc_comments() {
         .expect("Failed to generate unified code");
 
     let doc_count = code.matches("/**").count() + code.matches("///").count();
-    assert!(doc_count > 100, "expected >100 doc comments, got {}", doc_count);
+    assert!(
+        doc_count > 100,
+        "expected >100 doc comments, got {}",
+        doc_count
+    );
 }
 
 #[test]
@@ -212,8 +261,14 @@ fn test_spice_types_from_v2_1() {
     let code = qapi_codegen::unified::generate_unified_code(repo, &tag_refs)
         .expect("Failed to generate unified code");
 
-    assert!(code.contains("SpiceServerInfo"), "Should contain SpiceServerInfo");
-    assert!(code.contains("SpiceBasicInfo"), "Should contain SpiceBasicInfo");
+    assert!(
+        code.contains("SpiceServerInfo"),
+        "Should contain SpiceServerInfo"
+    );
+    assert!(
+        code.contains("SpiceBasicInfo"),
+        "Should contain SpiceBasicInfo"
+    );
 }
 
 // ── Era-specific parser tests ──
@@ -226,13 +281,29 @@ fn test_era_a_v1_1_type_keyword() {
     let entry = find_extracted_schema_entry(tmpdir.path()).expect("find entry v1.1.0");
     let sources = read_schema_with_version(&entry, Some(version)).expect("read v1.1.0");
 
-    let total: usize = sources.iter().map(|(_, c)| {
-        parse_schema(c).unwrap().iter().filter(|t| matches!(t,
-            QapiSchemaToken::Struct(_) | QapiSchemaToken::Enum(_) |
-            QapiSchemaToken::Command(_) | QapiSchemaToken::Union(_)
-        )).count()
-    }).sum();
-    assert!(total > 30, "v1.1.0 should have >30 type definitions, got {}", total);
+    let total: usize = sources
+        .iter()
+        .map(|(_, c)| {
+            parse_schema(c)
+                .unwrap()
+                .iter()
+                .filter(|t| {
+                    matches!(
+                        t,
+                        QapiSchemaToken::Struct(_)
+                            | QapiSchemaToken::Enum(_)
+                            | QapiSchemaToken::Command(_)
+                            | QapiSchemaToken::Union(_)
+                    )
+                })
+                .count()
+        })
+        .sum();
+    assert!(
+        total > 30,
+        "v1.1.0 should have >30 type definitions, got {}",
+        total
+    );
 }
 
 #[test]
@@ -244,10 +315,16 @@ fn test_era_b_v2_1_includes_and_events() {
     let sources = read_schema_with_version(&entry, Some(version)).expect("read v2.1.0");
 
     let has_events = sources.iter().any(|(_, c)| {
-        parse_schema(c).unwrap().iter().any(|t| matches!(t, QapiSchemaToken::Event(_)))
+        parse_schema(c)
+            .unwrap()
+            .iter()
+            .any(|t| matches!(t, QapiSchemaToken::Event(_)))
     });
     assert!(has_events, "v2.1.0 should have events");
-    assert!(sources.len() > 1, "v2.1.0 should have multiple schema files");
+    assert!(
+        sources.len() > 1,
+        "v2.1.0 should have multiple schema files"
+    );
 }
 
 #[test]
@@ -259,7 +336,10 @@ fn test_era_c_v2_5_struct_and_alternate() {
     let sources = read_schema_with_version(&entry, Some(version)).expect("read v2.5.0");
 
     let has_alternates = sources.iter().any(|(_, c)| {
-        parse_schema(c).unwrap().iter().any(|t| matches!(t, QapiSchemaToken::Alternate(_)))
+        parse_schema(c)
+            .unwrap()
+            .iter()
+            .any(|t| matches!(t, QapiSchemaToken::Alternate(_)))
     });
     assert!(has_alternates, "v2.5.0 should have alternates");
 }
@@ -273,7 +353,10 @@ fn test_era_d_v4_0_conditions_and_features() {
     let sources = read_schema_with_version(&entry, Some(version)).expect("read v4.0.0");
 
     let has_pragma = sources.iter().any(|(_, c)| {
-        parse_schema(c).unwrap().iter().any(|t| matches!(t, QapiSchemaToken::Pragma(_)))
+        parse_schema(c)
+            .unwrap()
+            .iter()
+            .any(|t| matches!(t, QapiSchemaToken::Pragma(_)))
     });
     assert!(has_pragma, "v4.0.0 should have pragma");
 
@@ -303,13 +386,26 @@ fn test_era_e_v10_2_modern_format() {
     });
     assert!(all_flat, "v10.2.0 should have no simple unions");
 
-    let total: usize = sources.iter().map(|(_, c)| {
-        parse_schema(c).unwrap().iter().filter(|t| matches!(t,
-            QapiSchemaToken::Struct(_) | QapiSchemaToken::Enum(_) |
-            QapiSchemaToken::Command(_) | QapiSchemaToken::Union(_) |
-            QapiSchemaToken::Event(_) | QapiSchemaToken::Alternate(_)
-        )).count()
-    }).sum();
+    let total: usize = sources
+        .iter()
+        .map(|(_, c)| {
+            parse_schema(c)
+                .unwrap()
+                .iter()
+                .filter(|t| {
+                    matches!(
+                        t,
+                        QapiSchemaToken::Struct(_)
+                            | QapiSchemaToken::Enum(_)
+                            | QapiSchemaToken::Command(_)
+                            | QapiSchemaToken::Union(_)
+                            | QapiSchemaToken::Event(_)
+                            | QapiSchemaToken::Alternate(_)
+                    )
+                })
+                .count()
+        })
+        .sum();
     assert!(total > 500, "v10.2.0 should have >500 types, got {}", total);
 }
 

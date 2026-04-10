@@ -1,9 +1,9 @@
 use super::common::{qstring, take_dict};
-use super::vec_newtype;
 use super::qapi_member::QapiMember;
-use nom::branch::alt;
+use super::vec_newtype;
 use nom::IResult;
 use nom::Parser;
+use nom::branch::alt;
 
 pub fn take_members(input: &str) -> IResult<&str, QapiMembers<'_>> {
     QapiMembers::parse(input)
@@ -27,8 +27,7 @@ pub fn take_members_or_ref(input: &str) -> IResult<&str, MembersOrRef<'_>> {
     MembersOrRef::parse(input)
 }
 
-#[derive(Debug, Clone, PartialEq)]
-#[derive(Default)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub enum MembersOrRef<'i> {
     #[default]
     Unset,
@@ -43,14 +42,9 @@ impl<'i> MembersOrRef<'i> {
     }
 
     pub fn parse_v1(input: &'i str) -> IResult<&'i str, Self> {
-        alt((
-            qstring.map(Self::Ref),
-            take_members.map(Self::Members),
-        ))
-        .parse(input)
+        alt((qstring.map(Self::Ref), take_members.map(Self::Members))).parse(input)
     }
 }
-
 
 #[cfg(test)]
 mod tests {

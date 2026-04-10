@@ -102,15 +102,13 @@ pub fn detect_version(arch: Arch) -> Option<(u32, u32, u32)> {
         .output()
         .ok()?;
     let stdout = String::from_utf8_lossy(&output.stdout);
-    let version_str = stdout
-        .split_whitespace()
-        .find(|s| {
-            s.chars()
-                .next()
-                .map(|c| c.is_ascii_digit())
-                .unwrap_or(false)
-                && s.contains('.')
-        })?;
+    let version_str = stdout.split_whitespace().find(|s| {
+        s.chars()
+            .next()
+            .map(|c| c.is_ascii_digit())
+            .unwrap_or(false)
+            && s.contains('.')
+    })?;
     let parts: Vec<&str> = version_str.split('.').collect();
     let major = parts.first()?.parse().ok()?;
     let minor = parts.get(1)?.parse().ok()?;
