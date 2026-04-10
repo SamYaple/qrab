@@ -314,13 +314,21 @@ impl PreconfigVm {
         &mut self.inner.events
     }
 
-    /// Execute a QMP command during the preconfig phase.
+    /// Execute a preconfig-safe QMP command.
     ///
-    /// Any command can be submitted, but QEMU will reject commands that are
-    /// not marked `allow-preconfig` in the schema with a "CommandNotFound"
-    /// error. See the QEMU documentation for the list of preconfig-safe
-    /// commands.
-    pub async fn execute<C: QapiCommand>(&self, cmd: &C) -> Result<C::Returns> {
+    /// Only commands implementing [`PreconfigSafe`] can be used here. This
+    /// provides compile-time enforcement that non-preconfig commands cannot
+    /// be issued before the machine is initialized.
+    pub async fn execute<C: QapiCommand + qapi::PreconfigSafe>(&self, cmd: &C) -> Result<C::Returns> {
+        Ok(self.inner.qmp.execute(cmd).await?)
+    }
+
+    /// Execute any QMP command without preconfig safety checks.
+    ///
+    /// Use this escape hatch when you know a command is safe in preconfig
+    /// mode but the type system doesn't reflect it (e.g., vendor extensions
+    /// or commands added after the generated code was produced).
+    pub async fn execute_unchecked<C: QapiCommand>(&self, cmd: &C) -> Result<C::Returns> {
         Ok(self.inner.qmp.execute(cmd).await?)
     }
 
