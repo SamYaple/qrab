@@ -8,20 +8,38 @@ use syn::{
 
 // ─── Attribute structs ───
 
+/// A version-ranged attribute: tracks whether it's present and optionally
+/// when it was added/removed. Supports both bare `#[qapi(attr)]` and nested
+/// `#[qapi(attr(added = "X", removed = "Y"))]` syntax.
+#[derive(Default, Clone)]
+struct AttrRange {
+    present: bool,
+    added: Option<String>,
+    removed: Option<String>,
+}
+
+impl AttrRange {
+    fn bare() -> Self {
+        Self {
+            present: true,
+            added: None,
+            removed: None,
+        }
+    }
+}
+
 #[derive(Default)]
 struct TypeAttrs {
     name: Option<String>,
     since: Option<String>,
     until: Option<String>,
-    deprecated: Option<String>,
-    unstable: Option<String>,
+    deprecated: AttrRange,
+    unstable: AttrRange,
     condition: Option<String>,
     returns: Option<String>,
     allow_oob: bool,
-    allow_preconfig: bool,
-    allow_preconfig_since: Option<String>,
-    allow_preconfig_until: Option<String>,
-    no_success_response: bool,
+    allow_preconfig: AttrRange,
+    no_success_response: AttrRange,
     is_command: bool,
     is_event: bool,
 }
@@ -103,6 +121,31 @@ fn rust_deprecated_by_bounds(bounds: &VersionBounds, deprecated: Option<&str>) -
 
 // ─── Parsing ───
 
+/// Parse a nested `Meta::List` into an `AttrRange`.
+/// Handles: `attr(added = "X")`, `attr(added = "X", removed = "Y")`.
+fn parse_attr_range(
+    nested: &syn::punctuated::Punctuated<NestedMeta, syn::token::Comma>,
+) -> AttrRange {
+    let mut range = AttrRange {
+        present: true,
+        added: None,
+        removed: None,
+    };
+    for item in nested {
+        if let NestedMeta::Meta(Meta::NameValue(nv)) = item {
+            if let Lit::Str(lit_str) = &nv.lit {
+                let val = lit_str.value();
+                if nv.path.is_ident("added") || nv.path.is_ident("since") {
+                    range.added = Some(val);
+                } else if nv.path.is_ident("removed") || nv.path.is_ident("until") {
+                    range.removed = Some(val);
+                }
+            }
+        }
+    }
+    range
+}
+
 fn parse_type_attrs(args: &[NestedMeta]) -> TypeAttrs {
     let mut attrs = TypeAttrs::default();
     for arg in args {
@@ -117,22 +160,39 @@ fn parse_type_attrs(args: &[NestedMeta]) -> TypeAttrs {
                     } else if nv.path.is_ident("until") || nv.path.is_ident("removed") {
                         attrs.until = Some(val);
                     } else if nv.path.is_ident("deprecated") {
-                        attrs.deprecated = Some(val);
+                        // Backward compat: deprecated = "X" → AttrRange with added
+                        attrs.deprecated = AttrRange {
+                            present: true,
+                            added: Some(val),
+                            removed: None,
+                        };
                     } else if nv.path.is_ident("condition") {
                         attrs.condition = Some(val);
                     } else if nv.path.is_ident("returns") {
                         attrs.returns = Some(val);
                         attrs.is_command = true;
                     } else if nv.path.is_ident("unstable") {
-                        attrs.unstable = Some(val);
-                    } else if nv.path.is_ident("allow_preconfig_since") {
-                        attrs.allow_preconfig_since = Some(val);
-                        attrs.allow_preconfig = true;
-                        attrs.is_command = true;
-                    } else if nv.path.is_ident("allow_preconfig_until") {
-                        attrs.allow_preconfig_until = Some(val);
-                        attrs.is_command = true;
+                        // Backward compat: unstable = "X" → AttrRange with added
+                        attrs.unstable = AttrRange {
+                            present: true,
+                            added: Some(val),
+                            removed: None,
+                        };
                     }
+                }
+            }
+            NestedMeta::Meta(Meta::List(list)) => {
+                // Nested syntax: attr(added = "X", removed = "Y")
+                if list.path.is_ident("allow_preconfig") {
+                    attrs.allow_preconfig = parse_attr_range(&list.nested);
+                    attrs.is_command = true;
+                } else if list.path.is_ident("unstable") {
+                    attrs.unstable = parse_attr_range(&list.nested);
+                } else if list.path.is_ident("deprecated") {
+                    attrs.deprecated = parse_attr_range(&list.nested);
+                } else if list.path.is_ident("no_success_response") {
+                    attrs.no_success_response = parse_attr_range(&list.nested);
+                    attrs.is_command = true;
                 }
             }
             NestedMeta::Meta(Meta::Path(path)) => {
@@ -140,10 +200,10 @@ fn parse_type_attrs(args: &[NestedMeta]) -> TypeAttrs {
                     attrs.allow_oob = true;
                     attrs.is_command = true;
                 } else if path.is_ident("allow_preconfig") {
-                    attrs.allow_preconfig = true;
+                    attrs.allow_preconfig = AttrRange::bare();
                     attrs.is_command = true;
                 } else if path.is_ident("no_success_response") {
-                    attrs.no_success_response = true;
+                    attrs.no_success_response = AttrRange::bare();
                     attrs.is_command = true;
                 } else if path.is_ident("command") {
                     attrs.is_command = true;
@@ -360,15 +420,21 @@ pub fn qapi(args: TokenStream, input: TokenStream) -> TokenStream {
                 ta.name = ta.name.or(extra.name);
                 ta.since = ta.since.or(extra.since);
                 ta.until = ta.until.or(extra.until);
-                ta.deprecated = ta.deprecated.or(extra.deprecated);
+                if extra.deprecated.present {
+                    ta.deprecated = extra.deprecated;
+                }
                 ta.condition = ta.condition.or(extra.condition);
                 ta.returns = ta.returns.or(extra.returns);
-                ta.unstable = ta.unstable.or(extra.unstable);
+                if extra.unstable.present {
+                    ta.unstable = extra.unstable;
+                }
                 ta.allow_oob = ta.allow_oob || extra.allow_oob;
-                ta.allow_preconfig = ta.allow_preconfig || extra.allow_preconfig;
-                ta.allow_preconfig_since = ta.allow_preconfig_since.or(extra.allow_preconfig_since);
-                ta.allow_preconfig_until = ta.allow_preconfig_until.or(extra.allow_preconfig_until);
-                ta.no_success_response = ta.no_success_response || extra.no_success_response;
+                if extra.allow_preconfig.present {
+                    ta.allow_preconfig = extra.allow_preconfig;
+                }
+                if extra.no_success_response.present {
+                    ta.no_success_response = extra.no_success_response;
+                }
                 ta.is_command = ta.is_command || extra.is_command;
                 ta.is_event = ta.is_event || extra.is_event;
             }
@@ -384,23 +450,25 @@ pub fn qapi(args: TokenStream, input: TokenStream) -> TokenStream {
     }
 
     // Add Rust #[deprecated] attribute if the type is deprecated and bounds are set
-    if rust_deprecated_by_bounds(&bounds, ta.deprecated.as_deref()) {
-        let dep_ver = ta.deprecated.as_deref().unwrap();
+    if rust_deprecated_by_bounds(&bounds, ta.deprecated.added.as_deref()) {
+        let dep_ver = ta.deprecated.added.as_deref().unwrap();
         let msg = format!("deprecated since QEMU {}", dep_ver);
         input_ast
             .attrs
             .push(syn::parse_quote! { #[deprecated(note = #msg)] });
     }
 
-    // Mark unstable types so users get a compiler warning
-    if let Some(ref unstable_ver) = ta.unstable {
-        let msg = format!(
-            "unstable QAPI interface since QEMU {} — may change without notice",
-            unstable_ver
-        );
-        input_ast
-            .attrs
-            .push(syn::parse_quote! { #[deprecated(note = #msg)] });
+    // Mark unstable types with a doc comment (not #[deprecated] — wrong semantics)
+    if ta.unstable.present && ta.unstable.removed.is_none() {
+        let msg = if let Some(ref ver) = ta.unstable.added {
+            format!(
+                " **Unstable** since QEMU {} — this interface may change without notice.",
+                ver
+            )
+        } else {
+            " **Unstable** — this interface may change without notice.".to_string()
+        };
+        input_ast.attrs.push(syn::parse_quote! { #[doc = #msg] });
     }
 
     let output = match input_ast.data {
@@ -457,11 +525,10 @@ fn gen_enum(input_ast: &mut DeriveInput, ta: &TypeAttrs, bounds: &VersionBounds)
                 .push(syn::parse_quote! { #[deprecated(note = #msg)] });
         }
 
-        // Mark unstable variants so users get a compiler warning
+        // Mark unstable variants with a doc comment (not #[deprecated])
         if attrs.feature.as_deref() == Some("unstable") {
-            let msg = "unstable QAPI variant — may change without notice";
-            v.attrs
-                .push(syn::parse_quote! { #[deprecated(note = #msg)] });
+            let msg = " **Unstable** — this variant may change without notice.";
+            v.attrs.push(syn::parse_quote! { #[doc = #msg] });
         }
 
         let kind = match &v.fields {
@@ -524,6 +591,7 @@ fn gen_unit_enum_ser(name: &syn::Ident, variants: &[VariantInfo], ta: &TypeAttrs
     // Type-level deprecation warning
     let dep_warn = ta
         .deprecated
+        .added
         .as_deref()
         .map(|dep_ver| deprecation_warning(&type_name_str, None, dep_ver));
 
@@ -689,23 +757,16 @@ fn gen_struct(input_ast: &mut DeriveInput, ta: &TypeAttrs, bounds: &VersionBound
                 let msg = format!("deprecated since QEMU {}", dep_ver);
                 f.attrs
                     .push(syn::parse_quote! { #[deprecated(note = #msg)] });
+            } else if attrs.feature.as_deref() == Some("deprecated") && attrs.deprecated.is_none() {
+                let msg = "deprecated QAPI field";
+                f.attrs
+                    .push(syn::parse_quote! { #[deprecated(note = #msg)] });
             }
 
-            // Wire up feature = "deprecated" / "unstable" as Rust warnings
-            if let Some(ref feat) = attrs.feature {
-                match feat.as_str() {
-                    "deprecated" if attrs.deprecated.is_none() => {
-                        let msg = "deprecated QAPI field";
-                        f.attrs
-                            .push(syn::parse_quote! { #[deprecated(note = #msg)] });
-                    }
-                    "unstable" => {
-                        let msg = "unstable QAPI field — may change without notice";
-                        f.attrs
-                            .push(syn::parse_quote! { #[deprecated(note = #msg)] });
-                    }
-                    _ => {}
-                }
+            // Mark unstable fields with a doc comment (not #[deprecated])
+            if attrs.feature.as_deref() == Some("unstable") {
+                let msg = " **Unstable** — this field may change without notice.";
+                f.attrs.push(syn::parse_quote! { #[doc = #msg] });
             }
 
             fields.push(FieldInfo {
@@ -822,6 +883,7 @@ fn gen_struct_ser(
     // Type-level deprecation warning
     let dep_warn = ta
         .deprecated
+        .added
         .as_deref()
         .map(|dep_ver| deprecation_warning(&type_name_str, None, dep_ver));
 
@@ -938,6 +1000,7 @@ fn gen_struct_ser_flatten(name: &syn::Ident, fields: &[FieldInfo], ta: &TypeAttr
     // Type-level deprecation warning
     let dep_warn = ta
         .deprecated
+        .added
         .as_deref()
         .map(|dep_ver| deprecation_warning(&type_name_str, None, dep_ver));
 
@@ -1090,9 +1153,9 @@ fn gen_struct_de_flatten(name: &syn::Ident, fields: &[FieldInfo]) -> TokenStream
 fn gen_command_impl(name: &syn::Ident, wn: &str, ta: &TypeAttrs) -> TokenStream2 {
     let returns: TokenStream2 = ta.returns.as_deref().unwrap_or("()").parse().unwrap();
     let oob = ta.allow_oob;
-    let preconfig = ta.allow_preconfig;
-    let success = !ta.no_success_response;
-    let unstable = ta.unstable.is_some();
+    let preconfig = ta.allow_preconfig.present;
+    let success = !ta.no_success_response.present;
+    let unstable = ta.unstable.present && ta.unstable.removed.is_none();
 
     let since_const = if let Some(ref s) = ta.since {
         let (maj, min, pat) = parse_version(s);
@@ -1108,7 +1171,10 @@ fn gen_command_impl(name: &syn::Ident, wn: &str, ta: &TypeAttrs) -> TokenStream2
         quote! { const REMOVED_IN: Option<(u32, u32, u32)> = None; }
     };
 
-    let preconfig_since_const = if let Some(ref s) = ta.allow_preconfig_since {
+    // PRECONFIG_SINCE: version when allow-preconfig was added for this command.
+    // Uses the explicit added version from the range, or falls back to the
+    // command's own since version if preconfig was present from the start.
+    let preconfig_since_const = if let Some(ref s) = ta.allow_preconfig.added {
         let (maj, min, pat) = parse_version(s);
         quote! { const PRECONFIG_SINCE: Option<(u32, u32, u32)> = Some((#maj, #min, #pat)); }
     } else if preconfig {

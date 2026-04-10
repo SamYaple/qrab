@@ -1032,19 +1032,39 @@ fn generate_unified_enum(
 
     // Strip any existing since from doc comments — always use registry version
     ir.meta.attributes.retain(|a| !matches!(a, Attribute::Item { name, .. } if name == "added" || name == "since" || name == "removed" || name == "until" || name == "deprecated"));
+    ir.meta.attributes.retain(|a| !matches!(a, Attribute::Nested { name, .. } if name == "deprecated" || name == "unstable"));
     ir.meta.attributes.push(Attribute::with_value(
         "added",
         version_str(ue.versions.since),
     ));
     if let Some(dep) = ue.versions.deprecated {
-        ir.meta
-            .attributes
-            .push(Attribute::with_value("deprecated", version_str(dep)));
+        ir.meta.attributes.push(Attribute::nested(
+            "deprecated",
+            vec![Attribute::with_value("added", version_str(dep))],
+        ));
     }
     if let Some(unstable) = ue.versions.unstable {
+        ir.meta.attributes.push(Attribute::nested(
+            "unstable",
+            vec![Attribute::with_value("added", version_str(unstable))],
+        ));
+        // Remove redundant feature = "unstable" since unstable(added=...) covers it
+        ir.meta.attributes.retain(|a| {
+            !matches!(a,
+                Attribute::Item { name, value } if name == "feature" && value == "unstable"
+            )
+        });
+    }
+    if let Some(until) = ue.versions.until {
         ir.meta
             .attributes
-            .push(Attribute::with_value("unstable", version_str(unstable)));
+            .push(Attribute::with_value("removed", version_str(until)));
+    }
+    if let Some(unstable) = ue.versions.unstable {
+        ir.meta.attributes.push(Attribute::nested(
+            "unstable",
+            vec![Attribute::with_value("added", version_str(unstable))],
+        ));
     }
     if let Some(until) = ue.versions.until {
         ir.meta
@@ -1063,10 +1083,10 @@ fn generate_unified_enum(
                     .push(Attribute::with_value("added", version_str(vr.since)));
             }
             if let Some(dep) = vr.deprecated {
-                variant
-                    .meta
-                    .attributes
-                    .push(Attribute::with_value("deprecated", version_str(dep)));
+                variant.meta.attributes.push(Attribute::nested(
+                    "deprecated",
+                    vec![Attribute::with_value("added", version_str(dep))],
+                ));
             }
             if let Some(until) = vr.until {
                 variant
@@ -1103,19 +1123,64 @@ fn generate_unified_struct(
 
     // Strip existing since from doc comments — always use registry version
     ir.meta.attributes.retain(|a| !matches!(a, Attribute::Item { name, .. } if name == "added" || name == "since" || name == "removed" || name == "until" || name == "deprecated"));
+    ir.meta.attributes.retain(|a| !matches!(a, Attribute::Nested { name, .. } if name == "deprecated" || name == "unstable"));
     ir.meta.attributes.push(Attribute::with_value(
         "added",
         version_str(us.versions.since),
     ));
     if let Some(dep) = us.versions.deprecated {
-        ir.meta
-            .attributes
-            .push(Attribute::with_value("deprecated", version_str(dep)));
+        ir.meta.attributes.push(Attribute::nested(
+            "deprecated",
+            vec![Attribute::with_value("added", version_str(dep))],
+        ));
     }
     if let Some(unstable) = us.versions.unstable {
+        ir.meta.attributes.push(Attribute::nested(
+            "unstable",
+            vec![Attribute::with_value("added", version_str(unstable))],
+        ));
+        // Remove redundant feature = "unstable" since unstable(added=...) covers it
+        ir.meta.attributes.retain(|a| {
+            !matches!(a,
+                Attribute::Item { name, value } if name == "feature" && value == "unstable"
+            )
+        });
+    }
+    if let Some(until) = us.versions.until {
         ir.meta
             .attributes
-            .push(Attribute::with_value("unstable", version_str(unstable)));
+            .push(Attribute::with_value("removed", version_str(until)));
+    }
+
+    // Add version-tracked boolean command attributes using nested syntax.
+    // E.g. allow_preconfig(added = "7.1.0") or allow_preconfig(added = "7.1.0", removed = "9.0.0")
+    for (attr_name, vr) in &us.attr_versions {
+        let mut inner = Vec::new();
+        if vr.since > us.versions.since {
+            inner.push(Attribute::with_value("added", version_str(vr.since)));
+        }
+        if let Some(until) = vr.until {
+            inner.push(Attribute::with_value("removed", version_str(until)));
+        }
+        if inner.is_empty() {
+            // Present from the start, no version bounds needed — bare attribute
+            let attr = Attribute::new(attr_name);
+            if !ir.meta.attributes.contains(&attr) {
+                ir.meta.attributes.push(attr);
+            }
+        } else {
+            // Remove any bare version of this attribute first
+            ir.meta
+                .attributes
+                .retain(|a| !matches!(a, Attribute::Unit(n) if n == attr_name));
+            ir.meta.attributes.push(Attribute::nested(attr_name, inner));
+        }
+    }
+    if let Some(unstable) = us.versions.unstable {
+        ir.meta.attributes.push(Attribute::nested(
+            "unstable",
+            vec![Attribute::with_value("added", version_str(unstable))],
+        ));
     }
     if let Some(until) = us.versions.until {
         ir.meta
@@ -1124,27 +1189,72 @@ fn generate_unified_struct(
     }
 
     // Add version-tracked boolean command attributes with their since versions.
-    // This ensures attributes like allow_preconfig that appeared in later versions
-    // get proper version annotations (e.g. allow_preconfig_since = "3.0.0").
+    // Uses nested attribute syntax: #[qapi(allow_preconfig(added = "7.1.0"))]
     for (attr_name, vr) in &us.attr_versions {
-        // Ensure the attribute itself is present
-        let attr = Attribute::new(attr_name);
-        if !ir.meta.attributes.contains(&attr) {
-            ir.meta.attributes.push(attr);
-        }
-        // Add _since version if it appeared after the type was introduced
+        // Remove any old-style flat attributes for this attr
+        let bare = Attribute::new(attr_name);
+        ir.meta.attributes.retain(|a| a != &bare);
+        ir.meta.attributes.retain(|a| !matches!(a, Attribute::Item { name, .. } if name == &format!("{}_since", attr_name) || name == &format!("{}_until", attr_name)));
+        ir.meta
+            .attributes
+            .retain(|a| !matches!(a, Attribute::Nested { name, .. } if name == attr_name));
+
+        let mut children = Vec::new();
         if vr.since > us.versions.since {
-            ir.meta.attributes.push(Attribute::with_value(
-                format!("{}_since", attr_name),
-                version_str(vr.since),
-            ));
+            children.push(Attribute::with_value("added", version_str(vr.since)));
         }
-        // Add _until version if the attribute was later removed
         if let Some(until) = vr.until {
-            ir.meta.attributes.push(Attribute::with_value(
-                format!("{}_until", attr_name),
-                version_str(until),
-            ));
+            children.push(Attribute::with_value("removed", version_str(until)));
+        }
+        if children.is_empty() {
+            ir.meta.attributes.push(Attribute::new(attr_name));
+        } else {
+            ir.meta
+                .attributes
+                .push(Attribute::nested(attr_name, children));
+        }
+    }
+    if let Some(unstable) = us.versions.unstable {
+        let mut inner = vec![Attribute::with_value("added", version_str(unstable))];
+        // Check if unstable was removed (stabilized) via attr_versions
+        if let Some(uvr) = us.attr_versions.get("unstable") {
+            if let Some(until) = uvr.until {
+                inner.push(Attribute::with_value("removed", version_str(until)));
+            }
+        }
+        ir.meta
+            .attributes
+            .push(Attribute::nested("unstable", inner));
+    }
+    if let Some(until) = us.versions.until {
+        ir.meta
+            .attributes
+            .push(Attribute::with_value("removed", version_str(until)));
+    }
+
+    // Add version-tracked boolean command attributes with nested version ranges.
+    // e.g. allow_preconfig(added = "7.1.0") or allow_preconfig(added = "7.1.0", removed = "9.0.0")
+    for (attr_name, vr) in &us.attr_versions {
+        // Skip "unstable" here — handled above as a top-level attribute
+        if attr_name == "unstable" {
+            continue;
+        }
+        let mut inner = Vec::new();
+        if vr.since > us.versions.since {
+            inner.push(Attribute::with_value("added", version_str(vr.since)));
+        }
+        if let Some(until) = vr.until {
+            inner.push(Attribute::with_value("removed", version_str(until)));
+        }
+        if inner.is_empty() {
+            // Present from the start, no version range needed — emit as simple unit
+            let attr = Attribute::new(attr_name);
+            if !ir.meta.attributes.contains(&attr) {
+                ir.meta.attributes.push(attr);
+            }
+        } else {
+            // Emit as nested attribute with version range
+            ir.meta.attributes.push(Attribute::nested(attr_name, inner));
         }
     }
 
@@ -1162,10 +1272,10 @@ fn generate_unified_struct(
                 }
             }
             if let Some(dep) = fr.deprecated {
-                field
-                    .meta
-                    .attributes
-                    .push(Attribute::with_value("deprecated", version_str(dep)));
+                field.meta.attributes.push(Attribute::nested(
+                    "deprecated",
+                    vec![Attribute::with_value("added", version_str(dep))],
+                ));
             }
             if let Some(until) = fr.until {
                 field

@@ -109,14 +109,27 @@ pub fn generate_options(attribute: &Attribute) -> Vec<TokenStream> {
             vec![quote! { #name }]
         }
         Attribute::List(attributes) => attributes.iter().flat_map(generate_options).collect(),
+        Attribute::Nested { name, inner } => {
+            let name = format_ident!("{}", name);
+            let inner_opts: Vec<TokenStream> = inner.iter().flat_map(generate_options).collect();
+            vec![quote! { #name(#(#inner_opts),*) }]
+        }
     }
 }
 
 #[derive(Debug, Eq, PartialEq, Clone)]
 pub enum Attribute {
-    Item { name: String, value: String },
+    Item {
+        name: String,
+        value: String,
+    },
     List(Vec<Attribute>),
     Unit(String),
+    /// Nested attribute: `name(key = "value", ...)` e.g. `allow_preconfig(added = "7.1.0")`
+    Nested {
+        name: String,
+        inner: Vec<Attribute>,
+    },
 }
 
 impl Attribute {
@@ -148,6 +161,14 @@ impl Attribute {
             .collect();
         Self::List(attrs)
     }
+
+    /// Create a nested attribute like `name(added = "1.0.0", removed = "2.0.0")`.
+    pub fn nested<N: ToString>(name: N, inner: Vec<Attribute>) -> Self {
+        Self::Nested {
+            name: name.to_string(),
+            inner,
+        }
+    }
 }
 
 #[derive(Debug, Default, Eq, PartialEq, Clone)]
@@ -165,7 +186,10 @@ pub fn doc_to_tokens(doc: &str) -> proc_macro2::TokenStream {
 
     for line in doc.lines() {
         // Strip leading `# ` (QAPI comment prefix) if present
-        let line = line.strip_prefix("# ").or_else(|| line.strip_prefix("#")).unwrap_or(line);
+        let line = line
+            .strip_prefix("# ")
+            .or_else(|| line.strip_prefix("#"))
+            .unwrap_or(line);
 
         let is_indented = line.starts_with("    ") && !line.trim().is_empty();
 
@@ -184,8 +208,11 @@ pub fn doc_to_tokens(doc: &str) -> proc_macro2::TokenStream {
         result_lines.push(" ```".to_string());
     }
 
-    let tokens: Vec<proc_macro2::TokenStream> = result_lines.iter().map(|line| {
-        quote! { #[doc = #line] }
-    }).collect();
+    let tokens: Vec<proc_macro2::TokenStream> = result_lines
+        .iter()
+        .map(|line| {
+            quote! { #[doc = #line] }
+        })
+        .collect();
     quote! { #(#tokens)* }
 }

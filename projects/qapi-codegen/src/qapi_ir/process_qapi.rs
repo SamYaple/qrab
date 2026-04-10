@@ -20,7 +20,10 @@ use std::collections::HashMap;
 fn normalize_since_version(s: &str) -> String {
     let s = s.trim();
     // Extract just the version number part (digits and dots)
-    let version_part: String = s.chars().take_while(|c| c.is_ascii_digit() || *c == '.').collect();
+    let version_part: String = s
+        .chars()
+        .take_while(|c| c.is_ascii_digit() || *c == '.')
+        .collect();
     // Strip trailing dots
     let version_part = version_part.trim_end_matches('.');
     let parts: Vec<&str> = version_part.split('.').collect();
@@ -50,13 +53,19 @@ macro_rules! add_docs {
     ($meta:expr, $docs:expr, $name:expr, $variants:expr) => {
         if let Some(doc) = $docs {
             if doc.name != $name {
-                eprintln!("WARNING: Doc section name '{}' does not match '{}'", doc.name, $name);
+                eprintln!(
+                    "WARNING: Doc section name '{}' does not match '{}'",
+                    doc.name, $name
+                );
             }
             if !doc.description.is_empty() {
                 $meta.doc = Some(doc.description.join("\n"));
             }
             if let Some(since) = doc.since {
-                $meta.attributes.push(Attribute::with_value("added", normalize_since_version(since)));
+                $meta.attributes.push(Attribute::with_value(
+                    "added",
+                    normalize_since_version(since),
+                ));
             }
             'outer_loop: for (name, desc) in &doc.fields {
                 // Try exact match first
@@ -65,10 +74,10 @@ macro_rules! add_docs {
                         let since = extract_since_from_comment(desc);
                         value.meta.doc = Some(desc.join("\n"));
                         if let Some(since) = since {
-                            value
-                                .meta
-                                .attributes
-                                .push(Attribute::with_value("added", normalize_since_version(&since)));
+                            value.meta.attributes.push(Attribute::with_value(
+                                "added",
+                                normalize_since_version(&since),
+                            ));
                         }
                         continue 'outer_loop;
                     }
@@ -80,7 +89,11 @@ macro_rules! add_docs {
                             // Append sub-field doc to the parent field
                             if let Some(ref mut doc) = value.meta.doc {
                                 doc.push('\n');
-                                doc.push_str(&format!("  .{}: {}", &name[prefix.len()+1..], desc.join(" ")));
+                                doc.push_str(&format!(
+                                    "  .{}: {}",
+                                    &name[prefix.len() + 1..],
+                                    desc.join(" ")
+                                ));
                             }
                             continue 'outer_loop;
                         }
@@ -274,14 +287,16 @@ fn process_member_with_inline(q: QapiMember, parent_name: &str) -> (StructField,
 }
 
 /// Process a struct, returning the struct and any inline structs extracted from its members.
-pub fn process_struct(q: QapiStruct, structs_lookup: &HashMap<String, Struct>) -> (Struct, Vec<Struct>) {
+pub fn process_struct(
+    q: QapiStruct,
+    structs_lookup: &HashMap<String, Struct>,
+) -> (Struct, Vec<Struct>) {
     let mut fields = Vec::new();
     let mut extracted = Vec::new();
     if let Some(base) = q.base {
-        let struct_ref = structs_lookup.get(base).unwrap_or_else(|| panic!(
-            "base struct not found for {} with base {}",
-            q.name, base
-        ));
+        let struct_ref = structs_lookup
+            .get(base)
+            .unwrap_or_else(|| panic!("base struct not found for {} with base {}", q.name, base));
         fields.extend(struct_ref.fields.clone());
     }
     for member in q.data {
@@ -302,11 +317,14 @@ pub fn process_struct(q: QapiStruct, structs_lookup: &HashMap<String, Struct>) -
     add_feat! {meta, q.r#features};
     add_docs! {meta, q.doc, q.name, &mut fields};
 
-    (Struct {
-        name: q.name.into(),
-        fields,
-        meta,
-    }, extracted)
+    (
+        Struct {
+            name: q.name.into(),
+            fields,
+            meta,
+        },
+        extracted,
+    )
 }
 
 pub fn process_union(
@@ -334,7 +352,10 @@ pub fn process_union(
         }
         let discriminator = discriminator_opt.expect("discriminator field not found");
         if enums_lookup.get(&discriminator).is_none() {
-            eprintln!("WARNING: {} discriminator type '{}' is not an enum", q.name, discriminator);
+            eprintln!(
+                "WARNING: {} discriminator type '{}' is not an enum",
+                q.name, discriminator
+            );
         }
     } else {
         // Simple union: synthesize a 'type' discriminator field
@@ -402,18 +423,22 @@ pub fn process_union(
     };
     // For simple unions, generate a discriminator type enum with unit variants
     let disc_enum = if is_simple {
-        let disc_variants = e.variants.iter().map(|v| {
-            let mut meta = Metadata::default();
-            if let Some(attr) = name_attr(&v.name) {
-                meta.attributes.push(attr);
-            }
-            EnumVariant {
-                name: v.name.clone(),
-                kind: EnumVariantKind::Unit,
-                meta,
-                array: false,
-            }
-        }).collect();
+        let disc_variants = e
+            .variants
+            .iter()
+            .map(|v| {
+                let mut meta = Metadata::default();
+                if let Some(attr) = name_attr(&v.name) {
+                    meta.attributes.push(attr);
+                }
+                EnumVariant {
+                    name: v.name.clone(),
+                    kind: EnumVariantKind::Unit,
+                    meta,
+                    array: false,
+                }
+            })
+            .collect();
         Some(Enum {
             name: format!("{}Type", rustify_name(&q_name)),
             variants: disc_variants,
@@ -466,13 +491,15 @@ fn process_members_or_ref(q: MembersOrRef, strategy: RefStrategy<'_>) -> Vec<Str
 pub fn process_event(q: QapiEvent, structs_lookup: &HashMap<String, Struct>) -> Struct {
     let mut fields = Vec::new();
     if let Some(data) = q.data {
-        fields.extend(process_members_or_ref(data, RefStrategy::InlineFields(structs_lookup)));
+        fields.extend(process_members_or_ref(
+            data,
+            RefStrategy::InlineFields(structs_lookup),
+        ));
     }
     let mut meta = Metadata::default();
     meta.attributes.push(Attribute::new("event"));
     // Always store the original wire name for events
-    meta.attributes
-        .push(Attribute::with_value("name", q.name));
+    meta.attributes.push(Attribute::with_value("name", q.name));
     if let Some(condition) = q.r#if {
         meta.attributes
             .push(Attribute::with_value("condition", condition));
@@ -492,9 +519,7 @@ pub fn process_event(q: QapiEvent, structs_lookup: &HashMap<String, Struct>) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        QapiEnumValue, QapiFeature, QapiFeatures, QapiMembers, QapiTypeRef,
-    };
+    use crate::{QapiEnumValue, QapiFeature, QapiFeatures, QapiMembers, QapiTypeRef};
 
     fn make_enum_value(name: &str) -> QapiEnumValue<'_> {
         QapiEnumValue {

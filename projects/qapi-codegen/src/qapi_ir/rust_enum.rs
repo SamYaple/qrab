@@ -1,4 +1,7 @@
-use super::{doc_to_tokens, generate_attribute, rustify_field, rustify_name, rustify_type, Metadata, StructField};
+use super::{
+    doc_to_tokens, generate_attribute, rustify_field, rustify_name, rustify_type, Metadata,
+    StructField,
+};
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 use std::cmp::Ordering;
@@ -57,11 +60,13 @@ impl Enum {
         let enum_attrs: Vec<TokenStream> = if self.meta.attributes.is_empty() {
             vec![quote! { #[qapi] }]
         } else {
-            self.meta.attributes.iter().map(generate_attribute).collect()
+            self.meta
+                .attributes
+                .iter()
+                .map(generate_attribute)
+                .collect()
         };
-        let enum_doc = self.meta.doc.as_ref().map(|doc| {
-            doc_to_tokens(doc)
-        });
+        let enum_doc = self.meta.doc.as_ref().map(|doc| doc_to_tokens(doc));
 
         let variants = self.variants.iter().map(|variant| {
             let variant_name = format_ident!("{}", rustify_name(&variant.name));

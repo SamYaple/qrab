@@ -49,7 +49,11 @@ impl Struct {
         let struct_attrs: Vec<TokenStream> = if self.meta.attributes.is_empty() {
             vec![quote! { #[qapi] }]
         } else {
-            self.meta.attributes.iter().map(generate_attribute).collect()
+            self.meta
+                .attributes
+                .iter()
+                .map(generate_attribute)
+                .collect()
         };
         let struct_doc = self.meta.doc.as_ref().map(|doc| doc_to_tokens(doc));
 
@@ -60,9 +64,11 @@ impl Struct {
                 field_type = quote!( Vec<#field_type> );
             }
             // Check if field needs Box wrapping (recursive types)
-            let is_boxed = field.meta.attributes.iter().any(|a| {
-                matches!(a, super::Attribute::Unit(n) if n == "boxed")
-            });
+            let is_boxed = field
+                .meta
+                .attributes
+                .iter()
+                .any(|a| matches!(a, super::Attribute::Unit(n) if n == "boxed"));
             if is_boxed {
                 field_type = quote!( Box<#field_type> );
             }
@@ -71,7 +77,10 @@ impl Struct {
             }
 
             // Filter out the "boxed" attribute — it's internal, not a qapi attr
-            let field_attrs = field.meta.attributes.iter()
+            let field_attrs = field
+                .meta
+                .attributes
+                .iter()
                 .filter(|a| !matches!(a, super::Attribute::Unit(n) if n == "boxed"))
                 .map(generate_attribute);
             let field_doc = field.meta.doc.as_ref().map(|doc| doc_to_tokens(doc));
