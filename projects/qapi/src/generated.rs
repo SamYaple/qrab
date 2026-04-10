@@ -1309,7 +1309,9 @@ pub struct BlockChildInfo {
 #[qapi(command)]
 #[qapi(name = "block-commit")]
 #[qapi(returns = "()")]
+#[qapi(allow_preconfig)]
 #[qapi(added = "1.3.0")]
+#[qapi(allow_preconfig_since = "7.1.0")]
 pub struct BlockCommit {
     #[qapi(name = "auto-dismiss")]
     #[qapi(added = "3.1.0")]
@@ -1472,7 +1474,9 @@ pub struct BlockdevAmendOptionsQcow2 {
 
 #[qapi(command)]
 #[qapi(returns = "()")]
+#[qapi(allow_preconfig)]
 #[qapi(added = "2.3.0")]
+#[qapi(allow_preconfig_since = "7.1.0")]
 pub struct BlockdevBackup {
     #[qapi(name = "auto-dismiss")]
     #[qapi(added = "2.12.0")]
@@ -1626,7 +1630,9 @@ pub struct BlockdevCloseTray {
 #[qapi(command)]
 #[qapi(name = "blockdev-create")]
 #[qapi(returns = "()")]
+#[qapi(allow_preconfig)]
 #[qapi(added = "3.0.0")]
+#[qapi(allow_preconfig_since = "7.1.0")]
 pub struct BlockdevCreate {
     /// Identifier for the newly created job.
     #[qapi(name = "job-id")]
@@ -2110,7 +2116,9 @@ pub struct BlockdevCreateOptionsVpc {
 #[qapi(command)]
 #[qapi(name = "blockdev-del")]
 #[qapi(returns = "()")]
+#[qapi(allow_preconfig)]
 #[qapi(added = "2.9.0")]
+#[qapi(allow_preconfig_since = "7.1.0")]
 pub struct BlockdevDel {
     #[qapi(name = "node-name")]
     pub node_name: String,
@@ -2718,7 +2726,9 @@ pub struct BlockdevInsertMedium {
 #[qapi(command)]
 #[qapi(name = "blockdev-mirror")]
 #[qapi(returns = "()")]
+#[qapi(allow_preconfig)]
 #[qapi(added = "2.6.0")]
+#[qapi(allow_preconfig_since = "7.1.0")]
 pub struct BlockdevMirror {
     #[qapi(name = "auto-dismiss")]
     #[qapi(added = "3.1.0")]
@@ -2818,7 +2828,9 @@ pub struct BlockdevOpenTray {
 /// Options for creating a block device.  Many options are available for
 /// all block devices, independent of the block driver:
 ///
+#[qapi(allow_preconfig)]
 #[qapi(added = "1.7.0")]
+#[qapi(allow_preconfig_since = "7.1.0")]
 pub struct BlockdevOptions {
     /// whether the block node should be activated (default: true).
     /// Having inactive block nodes is useful primarily for migration
@@ -4217,7 +4229,9 @@ pub struct BlockdevRemoveMedium {
 #[qapi(command)]
 #[qapi(name = "blockdev-reopen")]
 #[qapi(returns = "()")]
+#[qapi(allow_preconfig)]
 #[qapi(added = "6.1.0")]
+#[qapi(allow_preconfig_since = "7.1.0")]
 pub struct BlockdevReopen {
     pub options: Vec<BlockdevOptions>,
 }
@@ -4235,7 +4249,9 @@ pub struct BlockdevSetActive {
 
 /// Either @device or @node-name must be set but not both.
 ///
+#[qapi(allow_preconfig)]
 #[qapi(added = "1.1.0")]
+#[qapi(allow_preconfig_since = "7.1.0")]
 pub struct BlockdevSnapshot {
     /// optional the name of the device to generate the snapshot from.
     #[qapi(removed = "2.5.0")]
@@ -4276,7 +4292,9 @@ pub struct BlockdevSnapshot {
 #[qapi(command)]
 #[qapi(name = "blockdev-snapshot-delete-internal-sync")]
 #[qapi(returns = "SnapshotInfo")]
+#[qapi(allow_preconfig)]
 #[qapi(added = "1.7.0")]
+#[qapi(allow_preconfig_since = "7.1.0")]
 pub struct BlockdevSnapshotDeleteInternalSync {
     pub device: String,
     pub id: Option<String>,
@@ -4285,7 +4303,9 @@ pub struct BlockdevSnapshotDeleteInternalSync {
 
 #[qapi(command)]
 #[qapi(returns = "()")]
+#[qapi(allow_preconfig)]
 #[qapi(added = "1.7.0")]
+#[qapi(allow_preconfig_since = "7.1.0")]
 pub struct BlockdevSnapshotInternal {
     /// the device name or node-name of a root node to generate the
     /// snapshot from
@@ -4303,7 +4323,9 @@ pub struct BlockdevSnapshotInternalWrapper {
 ///
 #[qapi(command)]
 #[qapi(returns = "()")]
+#[qapi(allow_preconfig)]
 #[qapi(added = "2.5.0")]
+#[qapi(allow_preconfig_since = "7.1.0")]
 pub struct BlockdevSnapshotSync {
     /// optional the name of the device to generate the snapshot from.
     pub device: Option<String>,
@@ -4394,7 +4416,9 @@ pub enum BlockdevVpcSubformat {
 
 #[qapi(command)]
 #[qapi(returns = "()")]
+#[qapi(allow_preconfig)]
 #[qapi(added = "2.4.0")]
+#[qapi(allow_preconfig_since = "7.1.0")]
 pub struct BlockDirtyBitmap {
     /// name of the dirty bitmap
     pub name: String,
@@ -4404,7 +4428,9 @@ pub struct BlockDirtyBitmap {
 
 #[qapi(command)]
 #[qapi(returns = "()")]
+#[qapi(allow_preconfig)]
 #[qapi(added = "2.4.0")]
+#[qapi(allow_preconfig_since = "7.1.0")]
 pub struct BlockDirtyBitmapAdd {
     /// ignored and deprecated since 2.12.
     /// Currently, all dirty tracking bitmaps are loaded from Qcow2 on
@@ -4447,7 +4473,9 @@ pub struct BlockDirtyBitmapAddWrapper {
 
 #[qapi(command)]
 #[qapi(returns = "()")]
+#[qapi(allow_preconfig)]
 #[qapi(added = "3.0.0")]
+#[qapi(allow_preconfig_since = "7.1.0")]
 pub struct BlockDirtyBitmapMerge {
     /// name(s) of the source dirty bitmap(s) at @node and/or
     /// fully specified `BlockDirtyBitmap` elements.  The latter are
@@ -4582,7 +4610,9 @@ pub enum BlockExportBranch {
 #[qapi(command)]
 #[qapi(name = "block-export-del")]
 #[qapi(returns = "()")]
+#[qapi(allow_preconfig)]
 #[qapi(added = "5.2.0")]
+#[qapi(allow_preconfig_since = "7.1.0")]
 pub struct BlockExportDel {
     pub id: String,
     pub mode: Option<BlockExportRemoveMode>,
@@ -4645,7 +4675,9 @@ pub struct BlockExportNbd {
 ///
 #[qapi(command)]
 #[qapi(returns = "()")]
+#[qapi(allow_preconfig)]
 #[qapi(added = "5.2.0")]
+#[qapi(allow_preconfig_since = "7.1.0")]
 pub struct BlockExportOptions {
     /// If true, the export allows the exported node to be
     /// inactive.  If it is created for an inactive block node, the node
@@ -5007,7 +5039,9 @@ pub struct BlockIoErrorEvent {
 #[qapi(name = "BlockIOThrottle")]
 #[qapi(command)]
 #[qapi(returns = "()")]
+#[qapi(allow_preconfig)]
 #[qapi(added = "2.7.0")]
+#[qapi(allow_preconfig_since = "7.1.0")]
 pub struct BlockIoThrottle {
     /// total throughput limit in bytes per second
     pub bps: i64,
@@ -5084,7 +5118,9 @@ pub struct BlockIoThrottle {
 #[qapi(command)]
 #[qapi(name = "block-job-cancel")]
 #[qapi(returns = "()")]
+#[qapi(allow_preconfig)]
 #[qapi(added = "1.1.0")]
+#[qapi(allow_preconfig_since = "7.1.0")]
 pub struct BlockJobCancel {
     pub device: String,
     #[qapi(added = "1.3.0")]
@@ -5143,8 +5179,10 @@ pub struct BlockJobChangeOptionsMirror {
 #[qapi(command)]
 #[qapi(name = "block-job-complete")]
 #[qapi(returns = "()")]
+#[qapi(allow_preconfig)]
 #[qapi(added = "1.3.0")]
 #[qapi(deprecated = "10.1.0")]
+#[qapi(allow_preconfig_since = "7.1.0")]
 pub struct BlockJobComplete {
     pub device: String,
 }
@@ -5187,8 +5225,10 @@ pub struct BlockJobCompletedEvent {
 #[qapi(command)]
 #[qapi(name = "block-job-dismiss")]
 #[qapi(returns = "()")]
+#[qapi(allow_preconfig)]
 #[qapi(added = "2.12.0")]
 #[qapi(deprecated = "10.1.0")]
+#[qapi(allow_preconfig_since = "7.1.0")]
 pub struct BlockJobDismiss {
     /// The job identifier.
     pub id: String,
@@ -5219,8 +5259,10 @@ pub struct BlockJobErrorEvent {
 #[qapi(command)]
 #[qapi(name = "block-job-finalize")]
 #[qapi(returns = "()")]
+#[qapi(allow_preconfig)]
 #[qapi(added = "2.12.0")]
 #[qapi(deprecated = "10.1.0")]
+#[qapi(allow_preconfig_since = "7.1.0")]
 pub struct BlockJobFinalize {
     /// The job identifier.
     pub id: String,
@@ -5303,8 +5345,10 @@ pub struct BlockJobInfoMirror {
 #[qapi(command)]
 #[qapi(name = "block-job-pause")]
 #[qapi(returns = "()")]
+#[qapi(allow_preconfig)]
 #[qapi(added = "1.3.0")]
 #[qapi(deprecated = "10.1.0")]
+#[qapi(allow_preconfig_since = "7.1.0")]
 pub struct BlockJobPause {
     pub device: String,
 }
@@ -5331,8 +5375,10 @@ pub struct BlockJobReadyEvent {
 #[qapi(command)]
 #[qapi(name = "block-job-resume")]
 #[qapi(returns = "()")]
+#[qapi(allow_preconfig)]
 #[qapi(added = "1.3.0")]
 #[qapi(deprecated = "10.1.0")]
+#[qapi(allow_preconfig_since = "7.1.0")]
 pub struct BlockJobResume {
     pub device: String,
 }
@@ -5340,7 +5386,9 @@ pub struct BlockJobResume {
 #[qapi(command)]
 #[qapi(name = "block-job-set-speed")]
 #[qapi(returns = "()")]
+#[qapi(allow_preconfig)]
 #[qapi(added = "1.1.0")]
+#[qapi(allow_preconfig_since = "7.1.0")]
 pub struct BlockJobSetSpeed {
     pub device: String,
     pub speed: i64,
@@ -5475,7 +5523,9 @@ pub struct BlockLatencyHistogramInfo {
 #[qapi(command)]
 #[qapi(name = "block-latency-histogram-set")]
 #[qapi(returns = "()")]
+#[qapi(allow_preconfig)]
 #[qapi(added = "4.0.0")]
+#[qapi(allow_preconfig_since = "7.1.0")]
 pub struct BlockLatencyHistogramSet {
     pub boundaries: Option<Vec<u64>>,
     #[qapi(name = "boundaries-flush")]
@@ -5646,7 +5696,9 @@ pub enum BlockPermission {
 #[qapi(command)]
 #[qapi(name = "block_resize")]
 #[qapi(returns = "()")]
+#[qapi(allow_preconfig)]
 #[qapi(added = "1.1.0")]
+#[qapi(allow_preconfig_since = "7.1.0")]
 pub struct BlockResize {
     pub device: String,
     #[qapi(name = "node-name")]
@@ -5706,7 +5758,9 @@ pub struct BlockSetIoThrottle {
 #[qapi(command)]
 #[qapi(name = "block-set-write-threshold")]
 #[qapi(returns = "()")]
+#[qapi(allow_preconfig)]
 #[qapi(added = "2.3.0")]
+#[qapi(allow_preconfig_since = "7.1.0")]
 pub struct BlockSetWriteThreshold {
     /// graph node name on which the threshold must be set.
     #[qapi(name = "node-name")]
@@ -5831,7 +5885,9 @@ pub struct BlockStatsSpecificNvme {
 #[qapi(command)]
 #[qapi(name = "block-stream")]
 #[qapi(returns = "()")]
+#[qapi(allow_preconfig)]
 #[qapi(added = "1.1.0")]
+#[qapi(allow_preconfig_since = "7.1.0")]
 pub struct BlockStream {
     #[qapi(name = "auto-dismiss")]
     #[qapi(added = "3.1.0")]
@@ -6013,7 +6069,9 @@ pub struct Change {
 #[qapi(command)]
 #[qapi(name = "change-backing-file")]
 #[qapi(returns = "()")]
+#[qapi(allow_preconfig)]
 #[qapi(added = "2.1.0")]
+#[qapi(allow_preconfig_since = "7.1.0")]
 pub struct ChangeBackingFile {
     /// The string to write as the backing file.  This
     /// string is not validated, so care should be taken
@@ -7521,6 +7579,7 @@ pub struct CpuModelInfo {
 #[qapi(condition = "(TARGET_S390X && CONFIG_KVM)")]
 #[qapi(feature = "unstable")]
 #[qapi(added = "8.2.0")]
+#[qapi(unstable = "8.2.0")]
 pub struct CpuPolarizationChangeEvent {
     pub polarization: CpuS390Polarization,
 }
@@ -7682,6 +7741,7 @@ pub struct CurrentMachineParams {
 #[qapi(feature = "unstable")]
 #[qapi(returns = "()")]
 #[qapi(added = "9.1.0")]
+#[qapi(unstable = "9.1.0")]
 pub struct CxlAddDynamicCapacity {
     pub extents: Vec<CxlDynamicCapacityExtent>,
     #[qapi(name = "host-id")]
@@ -8023,6 +8083,7 @@ pub struct CxlInjectUncorrectableErrors {
 #[qapi(feature = "unstable")]
 #[qapi(returns = "()")]
 #[qapi(added = "9.1.0")]
+#[qapi(unstable = "9.1.0")]
 pub struct CxlReleaseDynamicCapacity {
     pub extents: Vec<CxlDynamicCapacityExtent>,
     #[qapi(name = "forced-removal")]
@@ -8195,6 +8256,7 @@ pub struct DevicePropertyInfo {
 #[qapi(feature = "unstable")]
 #[qapi(returns = "()")]
 #[qapi(added = "9.2.0")]
+#[qapi(unstable = "9.2.0")]
 pub struct DeviceSyncConfig {
     pub id: String,
 }
@@ -8692,7 +8754,9 @@ pub enum DisplayUpdateType {
 
 #[qapi(command)]
 #[qapi(returns = "()")]
+#[qapi(allow_preconfig)]
 #[qapi(added = "1.6.0")]
+#[qapi(allow_preconfig_since = "7.1.0")]
 pub struct DriveBackup {
     #[qapi(name = "auto-dismiss")]
     #[qapi(added = "2.12.0")]
@@ -8749,7 +8813,9 @@ pub struct DriveBackupWrapper {
 ///
 #[qapi(command)]
 #[qapi(returns = "()")]
+#[qapi(allow_preconfig)]
 #[qapi(added = "2.7.0")]
+#[qapi(allow_preconfig_since = "7.1.0")]
 pub struct DriveMirror {
     /// When false, this job will wait in a CONCLUDED state
     /// after it has completely ceased all work, and awaits
@@ -10350,6 +10416,7 @@ pub struct InetSocketAddressWrapper {
 #[qapi(feature = "unstable")]
 #[qapi(returns = "()")]
 #[qapi(added = "10.2.0")]
+#[qapi(unstable = "10.2.0")]
 pub struct InjectGhesV2Error {
     pub cper: String,
 }
@@ -13046,7 +13113,9 @@ pub struct NbdServerAdd {
 ///
 #[qapi(command)]
 #[qapi(returns = "()")]
+#[qapi(allow_preconfig)]
 #[qapi(added = "5.2.0")]
+#[qapi(allow_preconfig_since = "7.1.0")]
 pub struct NbdServerAddOptions {
     /// Also export a single dirty bitmap reachable from @device,
     /// so the NBD client can use NBD_OPT_SET_META_CONTEXT with the
@@ -13127,8 +13196,10 @@ pub struct NbdServerOptionsLegacy {
 #[qapi(command)]
 #[qapi(name = "nbd-server-remove")]
 #[qapi(returns = "()")]
+#[qapi(allow_preconfig)]
 #[qapi(added = "2.12.0")]
 #[qapi(deprecated = "5.2.0")]
+#[qapi(allow_preconfig_since = "7.1.0")]
 pub struct NbdServerRemove {
     pub mode: Option<NbdServerRemoveMode>,
     pub name: String,
@@ -13158,8 +13229,10 @@ pub enum NbdServerRemoveMode {
 #[qapi(command)]
 #[qapi(name = "nbd-server-start")]
 #[qapi(returns = "()")]
+#[qapi(allow_preconfig)]
 #[qapi(added = "1.3.0")]
 #[qapi(removed = "10.0.0")]
+#[qapi(allow_preconfig_since = "7.1.0")]
 pub struct NbdServerStart {
     pub addr: SocketAddress,
     #[qapi(name = "max-connections")]
@@ -13179,7 +13252,9 @@ pub struct NbdServerStart {
 #[qapi(command)]
 #[qapi(name = "nbd-server-stop")]
 #[qapi(returns = "()")]
+#[qapi(allow_preconfig)]
 #[qapi(added = "1.3.0")]
+#[qapi(allow_preconfig_since = "7.1.0")]
 pub struct NbdServerStop {}
 
 /// Available netdev drivers.
@@ -13329,7 +13404,9 @@ pub enum NetClientOptionsType {
 
 /// Captures the configuration of a network device.
 ///
+#[qapi(allow_preconfig)]
 #[qapi(added = "1.2.0")]
+#[qapi(allow_preconfig_since = "6.1.0")]
 pub struct Netdev {
     /// identifier for monitor commands.
     pub id: String,
@@ -13474,7 +13551,9 @@ pub struct NetdevBridgeOptions {
 #[qapi(command)]
 #[qapi(name = "netdev_del")]
 #[qapi(returns = "()")]
+#[qapi(allow_preconfig)]
 #[qapi(added = "1.2.0")]
+#[qapi(allow_preconfig_since = "6.1.0")]
 pub struct NetdevDel {
     pub id: String,
 }
@@ -14417,7 +14496,9 @@ pub struct NumaNodeOptions {
 
 /// A discriminated record of NUMA options.  (for OptsVisitor)
 ///
+#[qapi(allow_preconfig)]
 #[qapi(added = "2.1.0")]
+#[qapi(allow_preconfig_since = "3.0.0")]
 pub struct NumaOptions {
     #[qapi(discriminator)]
     #[qapi(name = "type")]
@@ -14487,7 +14568,9 @@ pub struct ObjectAdd {
 #[qapi(command)]
 #[qapi(name = "object-del")]
 #[qapi(returns = "()")]
+#[qapi(allow_preconfig)]
 #[qapi(added = "2.0.0")]
+#[qapi(allow_preconfig_since = "6.1.0")]
 pub struct ObjectDel {
     pub id: String,
 }
@@ -14496,7 +14579,9 @@ pub struct ObjectDel {
 ///
 #[qapi(command)]
 #[qapi(returns = "()")]
+#[qapi(allow_preconfig)]
 #[qapi(added = "6.0.0")]
+#[qapi(allow_preconfig_since = "6.1.0")]
 pub struct ObjectOptions {
     /// the name of the new object
     pub id: String,
@@ -16612,7 +16697,9 @@ pub struct QKeyCodeWrapper {
 #[qapi(command)]
 #[qapi(name = "qmp_capabilities")]
 #[qapi(returns = "()")]
+#[qapi(allow_preconfig)]
 #[qapi(added = "2.8.0")]
+#[qapi(allow_preconfig_since = "3.0.0")]
 pub struct QmpCapabilities {
     /// An optional list of `QMPCapability` values to enable.  The
     /// client must not enable any capability that is not mentioned in
@@ -16652,7 +16739,9 @@ pub enum QmpCapability {
 #[qapi(command)]
 #[qapi(name = "qom-get")]
 #[qapi(returns = "serde_json::Value")]
+#[qapi(allow_preconfig)]
 #[qapi(added = "1.1.0")]
+#[qapi(allow_preconfig_since = "3.0.0")]
 pub struct QomGet {
     pub path: String,
     pub property: String,
@@ -16661,7 +16750,9 @@ pub struct QomGet {
 #[qapi(command)]
 #[qapi(name = "qom-list")]
 #[qapi(returns = "Vec<ObjectPropertyInfo>")]
+#[qapi(allow_preconfig)]
 #[qapi(added = "1.1.0")]
+#[qapi(allow_preconfig_since = "3.0.0")]
 pub struct QomList {
     pub path: String,
 }
@@ -16678,7 +16769,9 @@ pub struct QomListGet {
 #[qapi(command)]
 #[qapi(name = "qom-list-properties")]
 #[qapi(returns = "Vec<ObjectPropertyInfo>")]
+#[qapi(allow_preconfig)]
 #[qapi(added = "2.12.0")]
+#[qapi(allow_preconfig_since = "3.0.0")]
 pub struct QomListProperties {
     pub typename: String,
 }
@@ -16686,7 +16779,9 @@ pub struct QomListProperties {
 #[qapi(command)]
 #[qapi(name = "qom-list-types")]
 #[qapi(returns = "Vec<ObjectTypeInfo>")]
+#[qapi(allow_preconfig)]
 #[qapi(added = "1.1.0")]
+#[qapi(allow_preconfig_since = "3.0.0")]
 pub struct QomListTypes {
     pub r#abstract: Option<bool>,
     pub implements: Option<String>,
@@ -16697,7 +16792,9 @@ pub struct QomListTypes {
 #[qapi(command)]
 #[qapi(name = "qom-set")]
 #[qapi(returns = "()")]
+#[qapi(allow_preconfig)]
 #[qapi(added = "1.1.0")]
+#[qapi(allow_preconfig_since = "3.0.0")]
 pub struct QomSet {
     /// see @qom-get for a description of this parameter
     pub path: String,
@@ -16750,25 +16847,33 @@ pub struct QueryBalloon {}
 #[qapi(command)]
 #[qapi(name = "query-block")]
 #[qapi(returns = "Vec<BlockInfo>")]
+#[qapi(allow_preconfig)]
 #[qapi(added = "1.0.0")]
+#[qapi(allow_preconfig_since = "7.1.0")]
 pub struct QueryBlock {}
 
 #[qapi(command)]
 #[qapi(name = "query-block-exports")]
 #[qapi(returns = "Vec<BlockExportInfo>")]
+#[qapi(allow_preconfig)]
 #[qapi(added = "5.2.0")]
+#[qapi(allow_preconfig_since = "7.1.0")]
 pub struct QueryBlockExports {}
 
 #[qapi(command)]
 #[qapi(name = "query-block-jobs")]
 #[qapi(returns = "Vec<BlockJobInfo>")]
+#[qapi(allow_preconfig)]
 #[qapi(added = "1.1.0")]
+#[qapi(allow_preconfig_since = "7.1.0")]
 pub struct QueryBlockJobs {}
 
 #[qapi(command)]
 #[qapi(name = "query-blockstats")]
 #[qapi(returns = "Vec<BlockStats>")]
+#[qapi(allow_preconfig)]
 #[qapi(added = "1.0.0")]
+#[qapi(allow_preconfig_since = "7.1.0")]
 pub struct QueryBlockstats {
     #[qapi(name = "query-nodes")]
     #[qapi(added = "2.3.0")]
@@ -16778,7 +16883,9 @@ pub struct QueryBlockstats {
 #[qapi(command)]
 #[qapi(name = "query-chardev")]
 #[qapi(returns = "Vec<ChardevInfo>")]
+#[qapi(allow_preconfig)]
 #[qapi(added = "1.0.0")]
+#[qapi(allow_preconfig_since = "3.0.0")]
 pub struct QueryChardev {}
 
 #[qapi(command)]
@@ -16796,7 +16903,9 @@ pub struct QueryColoStatus {}
 #[qapi(command)]
 #[qapi(name = "query-command-line-options")]
 #[qapi(returns = "Vec<CommandLineOptionInfo>")]
+#[qapi(allow_preconfig)]
 #[qapi(added = "1.5.0")]
+#[qapi(allow_preconfig_since = "3.0.0")]
 pub struct QueryCommandLineOptions {
     pub option: Option<String>,
 }
@@ -16804,7 +16913,9 @@ pub struct QueryCommandLineOptions {
 #[qapi(command)]
 #[qapi(name = "query-commands")]
 #[qapi(returns = "Vec<CommandInfo>")]
+#[qapi(allow_preconfig)]
 #[qapi(added = "1.0.0")]
+#[qapi(allow_preconfig_since = "3.0.0")]
 pub struct QueryCommands {}
 
 /// Return a list of supported virtual CPU definitions
@@ -16941,7 +17052,9 @@ pub struct QueryGicCapabilities {}
 #[qapi(command)]
 #[qapi(name = "query-hotpluggable-cpus")]
 #[qapi(returns = "Vec<HotpluggableCpu>")]
+#[qapi(allow_preconfig)]
 #[qapi(added = "2.7.0")]
+#[qapi(allow_preconfig_since = "3.0.0")]
 pub struct QueryHotpluggableCpus {}
 
 #[qapi(command)]
@@ -16953,7 +17066,9 @@ pub struct QueryHvBalloonStatusReport {}
 #[qapi(command)]
 #[qapi(name = "query-iothreads")]
 #[qapi(returns = "Vec<IoThreadInfo>")]
+#[qapi(allow_preconfig)]
 #[qapi(added = "2.0.0")]
+#[qapi(allow_preconfig_since = "3.0.0")]
 pub struct QueryIothreads {}
 
 #[qapi(command)]
@@ -16982,7 +17097,9 @@ pub struct QueryMachines {
 #[qapi(command)]
 #[qapi(name = "query-memdev")]
 #[qapi(returns = "Vec<Memdev>")]
+#[qapi(allow_preconfig)]
 #[qapi(added = "2.1.0")]
+#[qapi(allow_preconfig_since = "3.0.0")]
 pub struct QueryMemdev {}
 
 /// Lists available memory devices and their state
@@ -17051,13 +17168,17 @@ pub struct QueryMigrationthreads {}
 #[qapi(command)]
 #[qapi(name = "query-name")]
 #[qapi(returns = "NameInfo")]
+#[qapi(allow_preconfig)]
 #[qapi(added = "1.0.0")]
+#[qapi(allow_preconfig_since = "3.0.0")]
 pub struct QueryName {}
 
 #[qapi(command)]
 #[qapi(name = "query-named-block-nodes")]
 #[qapi(returns = "Vec<BlockDeviceInfo>")]
+#[qapi(allow_preconfig)]
 #[qapi(added = "2.0.0")]
+#[qapi(allow_preconfig_since = "7.1.0")]
 pub struct QueryNamedBlockNodes {
     #[qapi(added = "5.0.0")]
     pub flat: Option<bool>,
@@ -17079,7 +17200,9 @@ pub struct QueryPrManagers {}
 #[qapi(command)]
 #[qapi(name = "query-qmp-schema")]
 #[qapi(returns = "Vec<SchemaInfo>")]
+#[qapi(allow_preconfig)]
 #[qapi(added = "2.5.0")]
+#[qapi(allow_preconfig_since = "6.0.0")]
 pub struct QueryQmpSchema {}
 
 #[qapi(command)]
@@ -17137,6 +17260,7 @@ pub struct QueryRxFilter {
 #[qapi(feature = "unstable")]
 #[qapi(returns = "CpuPolarizationInfo")]
 #[qapi(added = "8.2.0")]
+#[qapi(unstable = "8.2.0")]
 pub struct QueryS390xCpuPolarization {}
 
 #[qapi(command)]
@@ -17212,7 +17336,9 @@ pub struct QueryStatsSchemas {
 #[qapi(command)]
 #[qapi(name = "query-status")]
 #[qapi(returns = "StatusInfo")]
+#[qapi(allow_preconfig)]
 #[qapi(added = "1.0.0")]
+#[qapi(allow_preconfig_since = "3.0.0")]
 pub struct QueryStatus {}
 
 /// Return information about the target for this QEMU
@@ -17244,7 +17370,9 @@ pub struct QueryTpmTypes {}
 #[qapi(command)]
 #[qapi(name = "query-uuid")]
 #[qapi(returns = "UuidInfo")]
+#[qapi(allow_preconfig)]
 #[qapi(added = "1.0.0")]
+#[qapi(allow_preconfig_since = "3.0.0")]
 pub struct QueryUuid {}
 
 #[qapi(command)]
@@ -17256,7 +17384,9 @@ pub struct QueryVcpuDirtyLimit {}
 #[qapi(command)]
 #[qapi(name = "query-version")]
 #[qapi(returns = "VersionInfo")]
+#[qapi(allow_preconfig)]
 #[qapi(added = "1.0.0")]
+#[qapi(allow_preconfig_since = "3.0.0")]
 pub struct QueryVersion {}
 
 /// Show Virtual Machine Generation ID
@@ -17302,7 +17432,9 @@ pub struct QueryYank {}
 #[qapi(command)]
 #[qapi(name = "quit")]
 #[qapi(returns = "()")]
+#[qapi(allow_preconfig)]
 #[qapi(added = "1.0.0")]
+#[qapi(allow_preconfig_since = "6.0.0")]
 pub struct Quit {}
 
 /// Emitted by the Quorum block driver if it fails to establish a quorum
@@ -18362,6 +18494,7 @@ pub enum SchemaMetaType {
 #[qapi(name = "SCLP_CPI_INFO_AVAILABLE")]
 #[qapi(feature = "unstable")]
 #[qapi(added = "10.2.0")]
+#[qapi(unstable = "10.2.0")]
 pub struct SclpCpiInfoAvailableEvent {}
 
 #[qapi(command)]
@@ -18480,6 +18613,7 @@ pub struct SetAction {
 #[qapi(feature = "unstable")]
 #[qapi(returns = "()")]
 #[qapi(added = "8.2.0")]
+#[qapi(unstable = "8.2.0")]
 pub struct SetCpuTopology {
     #[qapi(name = "book-id")]
     pub book_id: Option<u16>,
@@ -21658,6 +21792,7 @@ pub enum X86cpuRegister32 {
 #[qapi(feature = "unstable")]
 #[qapi(returns = "HumanReadableText")]
 #[qapi(added = "10.1.0")]
+#[qapi(unstable = "10.1.0")]
 pub struct XAccelStats {}
 
 /// Starts a job to amend format specific options of an existing open block device
@@ -21666,7 +21801,10 @@ pub struct XAccelStats {}
 #[qapi(command)]
 #[qapi(name = "x-blockdev-amend")]
 #[qapi(returns = "()")]
+#[qapi(allow_preconfig)]
 #[qapi(added = "5.1.0")]
+#[qapi(unstable = "6.2.0")]
+#[qapi(allow_preconfig_since = "7.1.0")]
 pub struct XBlockdevAmend {
     /// Allow unsafe operations, format specific
     /// For luks that allows erase of the last active keyslot
@@ -21687,7 +21825,10 @@ pub struct XBlockdevAmend {
 #[qapi(command)]
 #[qapi(name = "x-blockdev-change")]
 #[qapi(returns = "()")]
+#[qapi(allow_preconfig)]
 #[qapi(added = "2.7.0")]
+#[qapi(unstable = "6.2.0")]
+#[qapi(allow_preconfig_since = "7.1.0")]
 pub struct XBlockdevChange {
     pub child: Option<String>,
     pub node: Option<String>,
@@ -21764,7 +21905,10 @@ pub struct XBlockdevRemoveMedium {
 #[qapi(command)]
 #[qapi(name = "x-blockdev-set-iothread")]
 #[qapi(returns = "()")]
+#[qapi(allow_preconfig)]
 #[qapi(added = "2.12.0")]
+#[qapi(unstable = "6.2.0")]
+#[qapi(allow_preconfig_since = "7.1.0")]
 pub struct XBlockdevSetIothread {
     pub force: Option<bool>,
     pub iothread: StrOrNull,
@@ -21824,6 +21968,7 @@ pub struct XbzrleCacheStats {
 #[qapi(name = "x-colo-lost-heartbeat")]
 #[qapi(returns = "()")]
 #[qapi(added = "2.8.0")]
+#[qapi(unstable = "6.2.0")]
 pub struct XColoLostHeartbeat {}
 
 /// Block Graph - list of nodes and list of edges.
@@ -21885,7 +22030,10 @@ pub enum XDbgBlockGraphNodeType {
 #[qapi(command)]
 #[qapi(name = "x-debug-query-block-graph")]
 #[qapi(returns = "XDbgBlockGraph")]
+#[qapi(allow_preconfig)]
 #[qapi(added = "4.0.0")]
+#[qapi(unstable = "6.2.0")]
+#[qapi(allow_preconfig_since = "7.1.0")]
 pub struct XDebugQueryBlockGraph {}
 
 /// Xen uses this command to notify replication to trigger a checkpoint.
@@ -21978,6 +22126,7 @@ pub struct XenSetReplication {
 #[qapi(returns = "()")]
 #[qapi(allow_preconfig)]
 #[qapi(added = "3.0.0")]
+#[qapi(unstable = "6.2.0")]
 pub struct XExitPreconfig {}
 
 #[qapi(command)]
@@ -22017,6 +22166,7 @@ pub struct XOobTest {
 #[qapi(feature = "unstable")]
 #[qapi(returns = "HumanReadableText")]
 #[qapi(added = "9.1.0")]
+#[qapi(unstable = "9.1.0")]
 pub struct XQueryInterruptControllers {}
 
 #[qapi(command)]
@@ -22024,6 +22174,7 @@ pub struct XQueryInterruptControllers {}
 #[qapi(feature = "unstable")]
 #[qapi(returns = "HumanReadableText")]
 #[qapi(added = "6.2.0")]
+#[qapi(unstable = "6.2.0")]
 pub struct XQueryIrq {}
 
 #[qapi(command)]
@@ -22032,6 +22183,7 @@ pub struct XQueryIrq {}
 #[qapi(feature = "unstable")]
 #[qapi(returns = "HumanReadableText")]
 #[qapi(added = "6.2.0")]
+#[qapi(unstable = "6.2.0")]
 pub struct XQueryJit {}
 
 #[qapi(command)]
@@ -22039,6 +22191,7 @@ pub struct XQueryJit {}
 #[qapi(feature = "unstable")]
 #[qapi(returns = "HumanReadableText")]
 #[qapi(added = "6.2.0")]
+#[qapi(unstable = "6.2.0")]
 pub struct XQueryNuma {}
 
 #[qapi(command)]
@@ -22047,6 +22200,7 @@ pub struct XQueryNuma {}
 #[qapi(feature = "unstable")]
 #[qapi(returns = "HumanReadableText")]
 #[qapi(added = "6.2.0")]
+#[qapi(unstable = "6.2.0")]
 #[qapi(removed = "10.1.0")]
 pub struct XQueryOpcount {}
 
@@ -22055,6 +22209,7 @@ pub struct XQueryOpcount {}
 #[qapi(feature = "unstable")]
 #[qapi(returns = "HumanReadableText")]
 #[qapi(added = "6.2.0")]
+#[qapi(unstable = "6.2.0")]
 #[qapi(removed = "8.1.0")]
 pub struct XQueryProfile {}
 
@@ -22063,6 +22218,7 @@ pub struct XQueryProfile {}
 #[qapi(feature = "unstable")]
 #[qapi(returns = "HumanReadableText")]
 #[qapi(added = "6.2.0")]
+#[qapi(unstable = "6.2.0")]
 pub struct XQueryRamblock {}
 
 #[qapi(command)]
@@ -22070,6 +22226,7 @@ pub struct XQueryRamblock {}
 #[qapi(feature = "unstable")]
 #[qapi(returns = "HumanReadableText")]
 #[qapi(added = "6.2.0")]
+#[qapi(unstable = "6.2.0")]
 #[qapi(removed = "9.1.0")]
 pub struct XQueryRdma {}
 
@@ -22078,6 +22235,7 @@ pub struct XQueryRdma {}
 #[qapi(feature = "unstable")]
 #[qapi(returns = "HumanReadableText")]
 #[qapi(added = "6.2.0")]
+#[qapi(unstable = "6.2.0")]
 pub struct XQueryRoms {}
 
 #[qapi(command)]
@@ -22085,6 +22243,7 @@ pub struct XQueryRoms {}
 #[qapi(feature = "unstable")]
 #[qapi(returns = "HumanReadableText")]
 #[qapi(added = "6.2.0")]
+#[qapi(unstable = "6.2.0")]
 pub struct XQueryUsb {}
 
 #[qapi(command)]
@@ -22092,6 +22251,7 @@ pub struct XQueryUsb {}
 #[qapi(feature = "unstable")]
 #[qapi(returns = "Vec<VirtioInfo>")]
 #[qapi(added = "7.2.0")]
+#[qapi(unstable = "7.2.0")]
 pub struct XQueryVirtio {}
 
 #[qapi(command)]
@@ -22099,6 +22259,7 @@ pub struct XQueryVirtio {}
 #[qapi(feature = "unstable")]
 #[qapi(returns = "VirtioQueueElement")]
 #[qapi(added = "7.2.0")]
+#[qapi(unstable = "7.2.0")]
 pub struct XQueryVirtioQueueElement {
     pub index: Option<u16>,
     pub path: String,
@@ -22110,6 +22271,7 @@ pub struct XQueryVirtioQueueElement {
 #[qapi(feature = "unstable")]
 #[qapi(returns = "VirtQueueStatus")]
 #[qapi(added = "7.2.0")]
+#[qapi(unstable = "7.2.0")]
 pub struct XQueryVirtioQueueStatus {
     pub path: String,
     pub queue: u16,
@@ -22120,6 +22282,7 @@ pub struct XQueryVirtioQueueStatus {
 #[qapi(feature = "unstable")]
 #[qapi(returns = "VirtioStatus")]
 #[qapi(added = "7.2.0")]
+#[qapi(unstable = "7.2.0")]
 pub struct XQueryVirtioStatus {
     pub path: String,
 }
@@ -22129,6 +22292,7 @@ pub struct XQueryVirtioStatus {
 #[qapi(feature = "unstable")]
 #[qapi(returns = "VirtVhostQueueStatus")]
 #[qapi(added = "7.2.0")]
+#[qapi(unstable = "7.2.0")]
 pub struct XQueryVirtioVhostQueueStatus {
     pub path: String,
     pub queue: u16,

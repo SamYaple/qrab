@@ -1117,7 +1117,9 @@ pub struct GuestSetVcpus {
 #[qapi(command)]
 #[qapi(name = "guest-shutdown")]
 #[qapi(returns = "()")]
+#[qapi(no_success_response)]
 #[qapi(added = "1.4.0")]
+#[qapi(no_success_response_since = "2.4.0")]
 pub struct GuestShutdown {
     /// "halt", "powerdown" (default), or "reboot"
     ///
@@ -1179,19 +1181,25 @@ pub struct GuestSshRemoveAuthorizedKeys {
 #[qapi(command)]
 #[qapi(name = "guest-suspend-disk")]
 #[qapi(returns = "()")]
+#[qapi(no_success_response)]
 #[qapi(added = "1.4.0")]
+#[qapi(no_success_response_since = "2.4.0")]
 pub struct GuestSuspendDisk {}
 
 #[qapi(command)]
 #[qapi(name = "guest-suspend-hybrid")]
 #[qapi(returns = "()")]
+#[qapi(no_success_response)]
 #[qapi(added = "1.4.0")]
+#[qapi(no_success_response_since = "2.4.0")]
 pub struct GuestSuspendHybrid {}
 
 #[qapi(command)]
 #[qapi(name = "guest-suspend-ram")]
 #[qapi(returns = "()")]
+#[qapi(no_success_response)]
 #[qapi(added = "1.4.0")]
+#[qapi(no_success_response_since = "2.4.0")]
 pub struct GuestSuspendRam {}
 
 #[qapi(command)]
