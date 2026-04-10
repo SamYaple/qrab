@@ -4,9 +4,12 @@
 //! unified type registry where each type, field, and variant has version range
 //! annotations (since/until).
 
-use crate::versions::{extract_schema_from_tag, find_extracted_schema_entry, find_extracted_qga_schema_entry, parse_version_tag};
-use crate::{read_schema_with_version, parse_schema, QapiSchemaToken};
 use crate::qapi_ir::*;
+use crate::versions::{
+    extract_schema_from_tag, find_extracted_qga_schema_entry, find_extracted_schema_entry,
+    parse_version_tag,
+};
+use crate::{parse_schema, read_schema_with_version, QapiSchemaToken};
 use anyhow::{Context, Result};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::Path;
@@ -38,11 +41,17 @@ pub struct VersionRange {
     pub since: Version,
     pub until: Option<Version>,
     pub deprecated: Option<Version>,
+    pub unstable: Option<Version>,
 }
 
 impl VersionRange {
     pub fn new(since: Version) -> Self {
-        Self { since, until: None, deprecated: None }
+        Self {
+            since,
+            until: None,
+            deprecated: None,
+            unstable: None,
+        }
     }
 }
 
@@ -62,6 +71,9 @@ pub struct UnifiedStruct {
     pub versions: VersionRange,
     /// Per-field version ranges (keyed by field name)
     pub field_versions: BTreeMap<String, VersionRange>,
+    /// Per-attribute version ranges for command/event flags that can appear/disappear
+    /// across versions (e.g. allow_preconfig, allow_oob, no_success_response, unstable).
+    pub attr_versions: BTreeMap<String, VersionRange>,
 }
 
 #[derive(Debug, Clone)]
@@ -159,13 +171,20 @@ fn process_version_schema(
                 // Command references an existing struct — merge command attributes onto it.
                 for attr in &processed.meta.attributes {
                     match attr {
-                        Attribute::Unit(n) if n == "command" || n == "allow_oob" || n == "allow_preconfig" || n == "no_success_response" => {
+                        Attribute::Unit(n)
+                            if n == "command"
+                                || n == "allow_oob"
+                                || n == "allow_preconfig"
+                                || n == "no_success_response" =>
+                        {
                             if !existing.meta.attributes.contains(attr) {
                                 existing.meta.attributes.push(attr.clone());
                             }
                         }
                         Attribute::Item { name, .. } if name == "returns" => {
-                            if !existing.meta.attributes.iter().any(|a| matches!(a, Attribute::Item { name: n, .. } if n == "returns")) {
+                            if !existing.meta.attributes.iter().any(
+                                |a| matches!(a, Attribute::Item { name: n, .. } if n == "returns"),
+                            ) {
                                 existing.meta.attributes.push(attr.clone());
                             }
                         }
@@ -173,7 +192,12 @@ fn process_version_schema(
                     }
                 }
                 // Set the command wire name
-                if !existing.meta.attributes.iter().any(|a| matches!(a, Attribute::Unit(n) if n == "command")) {
+                if !existing
+                    .meta
+                    .attributes
+                    .iter()
+                    .any(|a| matches!(a, Attribute::Unit(n) if n == "command"))
+                {
                     existing.meta.attributes.push(Attribute::new("command"));
                 }
                 // Remove old command entry that was created from inline data in earlier versions
@@ -202,8 +226,8 @@ struct VersionResult {
 /// Extract, parse, and process IR for a single version.
 /// This is the work done per-thread in parallel.
 fn process_single_version(qemu_repo: &Path, tag: &str) -> Result<VersionResult> {
-    let version = parse_version_tag(tag)
-        .with_context(|| format!("Invalid version tag: {}", tag))?;
+    let version =
+        parse_version_tag(tag).with_context(|| format!("Invalid version tag: {}", tag))?;
 
     let tmpdir = extract_schema_from_tag(qemu_repo, tag)
         .with_context(|| format!("Failed to extract schema for {}", tag))?;
@@ -242,8 +266,8 @@ fn process_single_version(qemu_repo: &Path, tag: &str) -> Result<VersionResult> 
 
 /// Extract, parse, and process IR for a single version's QGA schema.
 fn process_single_version_qga(qemu_repo: &Path, tag: &str) -> Result<Option<VersionResult>> {
-    let version = parse_version_tag(tag)
-        .with_context(|| format!("Invalid version tag: {}", tag))?;
+    let version =
+        parse_version_tag(tag).with_context(|| format!("Invalid version tag: {}", tag))?;
 
     let tmpdir = extract_schema_from_tag(qemu_repo, tag)
         .with_context(|| format!("Failed to extract schema for {}", tag))?;
@@ -283,24 +307,28 @@ fn process_single_version_qga(qemu_repo: &Path, tag: &str) -> Result<Option<Vers
 
 /// Parse schemas from multiple versions and build a unified registry.
 /// Extraction and parsing run in parallel across versions; merging is sequential.
-pub fn build_unified_registry(
-    qemu_repo: &Path,
-    version_tags: &[&str],
-) -> Result<UnifiedRegistry> {
+pub fn build_unified_registry(qemu_repo: &Path, version_tags: &[&str]) -> Result<UnifiedRegistry> {
     use std::time::Instant;
     let start = Instant::now();
 
     // Phase 1: Extract + parse all versions in parallel
-    eprintln!("Extracting and parsing {} versions in parallel...", version_tags.len());
+    eprintln!(
+        "Extracting and parsing {} versions in parallel...",
+        version_tags.len()
+    );
     let results: Vec<Result<VersionResult>> = std::thread::scope(|scope| {
-        let handles: Vec<_> = version_tags.iter().map(|tag| {
-            scope.spawn(move || process_single_version(qemu_repo, tag))
-        }).collect();
+        let handles: Vec<_> = version_tags
+            .iter()
+            .map(|tag| scope.spawn(move || process_single_version(qemu_repo, tag)))
+            .collect();
 
         handles.into_iter().map(|h| h.join().unwrap()).collect()
     });
 
-    eprintln!("  Extraction + parsing: {:.1}s", start.elapsed().as_secs_f64());
+    eprintln!(
+        "  Extraction + parsing: {:.1}s",
+        start.elapsed().as_secs_f64()
+    );
 
     // Collect results, maintaining the original tag order
     let mut version_results: Vec<VersionResult> = Vec::with_capacity(version_tags.len());
@@ -358,28 +386,45 @@ pub fn build_unified_registry(
     let mut rust_to_qapi: HashMap<String, Vec<String>> = HashMap::new();
     for name in registry.types.keys() {
         let rust_name = rustify_name(name);
-        rust_to_qapi.entry(rust_name).or_default().push(name.clone());
+        rust_to_qapi
+            .entry(rust_name)
+            .or_default()
+            .push(name.clone());
     }
     for (rust_name, qapi_names) in &rust_to_qapi {
         if qapi_names.len() > 1 {
             // Find the best one to keep (most fields, or the non-command one)
-            let best = qapi_names.iter().max_by_key(|name| {
-                match registry.types.get(name.as_str()) {
+            let best = qapi_names
+                .iter()
+                .max_by_key(|name| match registry.types.get(name.as_str()) {
                     Some(UnifiedType::Struct(s)) => {
-                        let is_cmd_only = s.ir.meta.attributes.iter().any(|a| matches!(a, Attribute::Unit(n) if n == "command"))
-                            && s.ir.fields.is_empty();
-                        if is_cmd_only { 0 } else { s.ir.fields.len() + 100 }
+                        let is_cmd_only =
+                            s.ir.meta
+                                .attributes
+                                .iter()
+                                .any(|a| matches!(a, Attribute::Unit(n) if n == "command"))
+                                && s.ir.fields.is_empty();
+                        if is_cmd_only {
+                            0
+                        } else {
+                            s.ir.fields.len() + 100
+                        }
                     }
                     Some(UnifiedType::Enum(e)) => e.ir.variants.len() + 100,
                     None => 0,
-                }
-            }).unwrap().clone();
+                })
+                .unwrap()
+                .clone();
 
             // Merge command attributes from duplicates into the best one
             for name in qapi_names {
-                if *name == best { continue; }
+                if *name == best {
+                    continue;
+                }
                 if let Some(dup) = registry.types.remove(name) {
-                    if let (UnifiedType::Struct(dup_s), Some(UnifiedType::Struct(best_s))) = (dup, registry.types.get_mut(&best)) {
+                    if let (UnifiedType::Struct(dup_s), Some(UnifiedType::Struct(best_s))) =
+                        (dup, registry.types.get_mut(&best))
+                    {
                         for attr in &dup_s.ir.meta.attributes {
                             match attr {
                                 Attribute::Unit(n) if n == "command" || n == "allow_oob" || n == "allow_preconfig" || n == "no_success_response" => {
@@ -396,7 +441,10 @@ pub fn build_unified_registry(
                             }
                         }
                     }
-                    eprintln!("INFO: Merged duplicate '{}' into '{}' (Rust name: {})", name, best, rust_name);
+                    eprintln!(
+                        "INFO: Merged duplicate '{}' into '{}' (Rust name: {})",
+                        name, best, rust_name
+                    );
                 }
             }
         }
@@ -408,15 +456,27 @@ pub fn build_unified_registry(
     eprintln!("  Merge loop: {:.1}s", merge_start.elapsed().as_secs_f64());
     let fix_start = Instant::now();
     fix_recursive_types(&mut registry);
-    eprintln!("  fix_recursive_types: {:.1}s", fix_start.elapsed().as_secs_f64());
+    eprintln!(
+        "  fix_recursive_types: {:.1}s",
+        fix_start.elapsed().as_secs_f64()
+    );
 
     let total = registry.types.len();
-    let removed = registry.types.values().filter(|t| match t {
-        UnifiedType::Enum(e) => e.versions.until.is_some(),
-        UnifiedType::Struct(s) => s.versions.until.is_some(),
-    }).count();
+    let removed = registry
+        .types
+        .values()
+        .filter(|t| match t {
+            UnifiedType::Enum(e) => e.versions.until.is_some(),
+            UnifiedType::Struct(s) => s.versions.until.is_some(),
+        })
+        .count();
     eprintln!("  Merge: {:.1}s", merge_start.elapsed().as_secs_f64());
-    eprintln!("  Total: {:.1}s — {} types, {} removed", start.elapsed().as_secs_f64(), total, removed);
+    eprintln!(
+        "  Total: {:.1}s — {} types, {} removed",
+        start.elapsed().as_secs_f64(),
+        total,
+        removed
+    );
 
     Ok(registry)
 }
@@ -424,11 +484,75 @@ pub fn build_unified_registry(
 /// Check if an IR node has the 'deprecated' feature.
 fn has_deprecated_feature(meta: &Metadata) -> bool {
     meta.attributes.iter().any(|a| match a {
-        Attribute::List(items) => items.iter().any(|item| matches!(item,
-            Attribute::Item { name, value } if name == "feature" && value == "deprecated"
-        )),
+        Attribute::List(items) => items.iter().any(|item| {
+            matches!(item,
+                Attribute::Item { name, value } if name == "feature" && value == "deprecated"
+            )
+        }),
         _ => false,
     })
+}
+
+/// Check if an IR node has the 'unstable' feature.
+fn has_unstable_feature(meta: &Metadata) -> bool {
+    meta.attributes.iter().any(|a| match a {
+        Attribute::List(items) => items.iter().any(|item| {
+            matches!(item,
+                Attribute::Item { name, value } if name == "feature" && value == "unstable"
+            )
+        }),
+        _ => false,
+    })
+}
+
+/// The set of boolean Unit attributes on commands/events that must be version-tracked.
+const TRACKED_BOOL_ATTRS: &[&str] = &["allow_preconfig", "allow_oob", "no_success_response"];
+
+/// Extract version ranges for boolean command attributes present in metadata.
+fn extract_bool_attr_versions(meta: &Metadata, version: Version) -> BTreeMap<String, VersionRange> {
+    let mut map = BTreeMap::new();
+    for attr_name in TRACKED_BOOL_ATTRS {
+        if meta
+            .attributes
+            .iter()
+            .any(|a| matches!(a, Attribute::Unit(n) if n == *attr_name))
+        {
+            map.insert(attr_name.to_string(), VersionRange::new(version));
+        }
+    }
+    map
+}
+
+/// Merge boolean command attributes from a new version's struct into an existing UnifiedStruct.
+/// Adds newly-appearing attributes, marks removed ones with `until`.
+fn merge_bool_attrs(existing: &mut UnifiedStruct, new_meta: &Metadata, version: Version) {
+    for attr_name in TRACKED_BOOL_ATTRS {
+        let present_in_new = new_meta
+            .attributes
+            .iter()
+            .any(|a| matches!(a, Attribute::Unit(n) if n == *attr_name));
+
+        if present_in_new {
+            if existing.attr_versions.contains_key(*attr_name) {
+                // Already tracked — clear until (it's still present)
+                existing.attr_versions.get_mut(*attr_name).unwrap().until = None;
+            } else {
+                // Newly appeared in this version — add to IR and track
+                existing
+                    .attr_versions
+                    .insert(attr_name.to_string(), VersionRange::new(version));
+                let attr = Attribute::new(attr_name);
+                if !existing.ir.meta.attributes.contains(&attr) {
+                    existing.ir.meta.attributes.push(attr);
+                }
+            }
+        } else if let Some(vr) = existing.attr_versions.get_mut(*attr_name) {
+            // Was present before but not in this version — mark removed
+            if vr.until.is_none() && vr.since < version {
+                vr.until = Some(version);
+            }
+        }
+    }
 }
 
 /// Map from QAPI variant name to its Rust name (for detecting renames).
@@ -442,6 +566,10 @@ fn merge_enum(registry: &mut UnifiedRegistry, name: &str, e: &Enum, version: Ver
         // Track type-level deprecation
         if has_deprecated_feature(&e.meta) && existing.versions.deprecated.is_none() {
             existing.versions.deprecated = Some(version);
+        }
+        // Track type-level unstable
+        if has_unstable_feature(&e.meta) && existing.versions.unstable.is_none() {
+            existing.versions.unstable = Some(version);
         }
         // Update doc from latest version (latest has best docs)
         if e.meta.doc.is_some() {
@@ -459,15 +587,24 @@ fn merge_enum(registry: &mut UnifiedRegistry, name: &str, e: &Enum, version: Ver
                 if has_deprecated_feature(&variant.meta) && vr.deprecated.is_none() {
                     vr.deprecated = Some(version);
                 }
-                if let (Some(ev), true) = (existing.ir.variants.iter_mut().find(|v| v.name == variant.name), variant.meta.doc.is_some()) {
+                if let (Some(ev), true) = (
+                    existing
+                        .ir
+                        .variants
+                        .iter_mut()
+                        .find(|v| v.name == variant.name),
+                    variant.meta.doc.is_some(),
+                ) {
                     ev.meta.doc = variant.meta.doc.as_deref().and_then(clean_doc);
                 }
             } else {
                 // Check if this is a rename (same Rust name, different QAPI name)
                 let rust_name = variant_rust_name(variant);
-                let renamed_from = existing.ir.variants.iter().position(|v| {
-                    variant_rust_name(v) == rust_name && v.name != variant.name
-                });
+                let renamed_from = existing
+                    .ir
+                    .variants
+                    .iter()
+                    .position(|v| variant_rust_name(v) == rust_name && v.name != variant.name);
 
                 if let Some(old_idx) = renamed_from {
                     // It's a rename: update the old variant's wire name to the new one
@@ -479,15 +616,16 @@ fn merge_enum(registry: &mut UnifiedRegistry, name: &str, e: &Enum, version: Ver
                         v.meta.doc = clean_doc(doc);
                     }
                     existing.ir.variants[old_idx] = v;
-                    existing.variant_versions.insert(variant.name.clone(), old_vr);
+                    existing
+                        .variant_versions
+                        .insert(variant.name.clone(), old_vr);
                     // Also mark the old QAPI name as seen so it doesn't get marked as removed
                     seen_variants.insert(old_name);
                 } else {
                     // Genuinely new variant
-                    existing.variant_versions.insert(
-                        variant.name.clone(),
-                        VersionRange::new(version),
-                    );
+                    existing
+                        .variant_versions
+                        .insert(variant.name.clone(), VersionRange::new(version));
                     if !existing.ir.variants.iter().any(|v| v.name == variant.name) {
                         let mut v = variant.clone();
                         if let Some(doc) = &v.meta.doc {
@@ -506,7 +644,9 @@ fn merge_enum(registry: &mut UnifiedRegistry, name: &str, e: &Enum, version: Ver
             }
         }
     } else {
-        let variant_versions: BTreeMap<String, VersionRange> = e.variants.iter()
+        let variant_versions: BTreeMap<String, VersionRange> = e
+            .variants
+            .iter()
             .map(|v| (v.name.clone(), VersionRange::new(version)))
             .collect();
         let mut ir = e.clone();
@@ -518,11 +658,21 @@ fn merge_enum(registry: &mut UnifiedRegistry, name: &str, e: &Enum, version: Ver
                 v.meta.doc = clean_doc(doc);
             }
         }
-        registry.types.insert(name.to_string(), UnifiedType::Enum(UnifiedEnum {
-            ir,
-            versions: VersionRange::new(version),
-            variant_versions,
-        }));
+        let mut versions = VersionRange::new(version);
+        if has_unstable_feature(&ir.meta) {
+            versions.unstable = Some(version);
+        }
+        if has_deprecated_feature(&ir.meta) {
+            versions.deprecated = Some(version);
+        }
+        registry.types.insert(
+            name.to_string(),
+            UnifiedType::Enum(UnifiedEnum {
+                ir,
+                versions,
+                variant_versions,
+            }),
+        );
     }
 }
 
@@ -537,10 +687,16 @@ fn merge_struct(registry: &mut UnifiedRegistry, name: &str, s: &Struct, version:
         if has_deprecated_feature(&s.meta) && existing.versions.deprecated.is_none() {
             existing.versions.deprecated = Some(version);
         }
+        // Track type-level unstable
+        if has_unstable_feature(&s.meta) && existing.versions.unstable.is_none() {
+            existing.versions.unstable = Some(version);
+        }
         // Update doc from latest version (latest has best docs)
         if s.meta.doc.is_some() {
             existing.ir.meta.doc = s.meta.doc.as_deref().and_then(clean_doc);
         }
+        // Merge version-tracked boolean command attributes (allow_preconfig, allow_oob, etc.)
+        merge_bool_attrs(existing, &s.meta, version);
 
         let mut seen_fields = BTreeSet::new();
         for field in &s.fields {
@@ -553,15 +709,20 @@ fn merge_struct(registry: &mut UnifiedRegistry, name: &str, s: &Struct, version:
                 if has_deprecated_feature(&field.meta) && fr.deprecated.is_none() {
                     fr.deprecated = Some(version);
                 }
-                if let (Some(ef), true) = (existing.ir.fields.iter_mut().find(|f| f.name == field.name), field.meta.doc.is_some()) {
+                if let (Some(ef), true) = (
+                    existing.ir.fields.iter_mut().find(|f| f.name == field.name),
+                    field.meta.doc.is_some(),
+                ) {
                     ef.meta.doc = field.meta.doc.as_deref().and_then(clean_doc);
                 }
             } else {
                 // Check for rename (same Rust field name, different QAPI name)
                 let rust_name = field_rust_name(field);
-                let renamed_from = existing.ir.fields.iter().position(|f| {
-                    field_rust_name(f) == rust_name && f.name != field.name
-                });
+                let renamed_from = existing
+                    .ir
+                    .fields
+                    .iter()
+                    .position(|f| field_rust_name(f) == rust_name && f.name != field.name);
 
                 if let Some(old_idx) = renamed_from {
                     let old_name = existing.ir.fields[old_idx].name.clone();
@@ -572,29 +733,40 @@ fn merge_struct(registry: &mut UnifiedRegistry, name: &str, s: &Struct, version:
                 } else {
                     // Check for Rust name collision with existing fields
                     let rust_name = field_rust_name(field);
-                    let has_collision = existing.ir.fields.iter().any(|f| {
-                        field_rust_name(f) == rust_name && f.name != field.name
-                    });
+                    let has_collision = existing
+                        .ir
+                        .fields
+                        .iter()
+                        .any(|f| field_rust_name(f) == rust_name && f.name != field.name);
 
                     let mut field = field.clone();
                     if has_collision {
                         // Append a suffix to disambiguate
                         let new_name = format!("{}_alt", field.name);
-                        eprintln!("WARNING: Renaming field '{}' to '{}' in '{}' to avoid collision", field.name, new_name, name);
+                        eprintln!(
+                            "WARNING: Renaming field '{}' to '{}' in '{}' to avoid collision",
+                            field.name, new_name, name
+                        );
                         // Store original QAPI name in the name attribute
-                        if !field.meta.attributes.iter().any(|a| matches!(a, Attribute::Item { name, .. } if name == "name")) {
-                            field.meta.attributes.push(Attribute::with_value("name", &field.name));
+                        if !field
+                            .meta
+                            .attributes
+                            .iter()
+                            .any(|a| matches!(a, Attribute::Item { name, .. } if name == "name"))
+                        {
+                            field
+                                .meta
+                                .attributes
+                                .push(Attribute::with_value("name", &field.name));
                         }
                         field.name = new_name.clone();
-                        existing.field_versions.insert(
-                            new_name,
-                            VersionRange::new(version),
-                        );
+                        existing
+                            .field_versions
+                            .insert(new_name, VersionRange::new(version));
                     } else {
-                        existing.field_versions.insert(
-                            field.name.clone(),
-                            VersionRange::new(version),
-                        );
+                        existing
+                            .field_versions
+                            .insert(field.name.clone(), VersionRange::new(version));
                     }
                     if !existing.ir.fields.iter().any(|f| f.name == field.name) {
                         existing.ir.fields.push(field);
@@ -623,9 +795,20 @@ fn merge_struct(registry: &mut UnifiedRegistry, name: &str, s: &Struct, version:
             let rust_name = field_rust_name(field);
             if !seen_rust_names.insert(rust_name.clone()) {
                 let new_name = format!("{}_alt", field.name);
-                eprintln!("WARNING: Renaming field '{}' to '{}' in '{}' to avoid collision", field.name, new_name, name);
-                if !field.meta.attributes.iter().any(|a| matches!(a, Attribute::Item { name, .. } if name == "name")) {
-                    field.meta.attributes.push(Attribute::with_value("name", &field.name));
+                eprintln!(
+                    "WARNING: Renaming field '{}' to '{}' in '{}' to avoid collision",
+                    field.name, new_name, name
+                );
+                if !field
+                    .meta
+                    .attributes
+                    .iter()
+                    .any(|a| matches!(a, Attribute::Item { name, .. } if name == "name"))
+                {
+                    field
+                        .meta
+                        .attributes
+                        .push(Attribute::with_value("name", &field.name));
                 }
                 field.name = new_name.clone();
                 field_versions.insert(new_name, VersionRange::new(version));
@@ -633,11 +816,24 @@ fn merge_struct(registry: &mut UnifiedRegistry, name: &str, s: &Struct, version:
                 field_versions.insert(field.name.clone(), VersionRange::new(version));
             }
         }
-        registry.types.insert(name.to_string(), UnifiedType::Struct(UnifiedStruct {
-            ir,
-            versions: VersionRange::new(version),
-            field_versions,
-        }));
+        // Track version-sensitive boolean attributes from initial version
+        let attr_versions = extract_bool_attr_versions(&ir.meta, version);
+        let mut versions = VersionRange::new(version);
+        if has_unstable_feature(&ir.meta) {
+            versions.unstable = Some(version);
+        }
+        if has_deprecated_feature(&ir.meta) {
+            versions.deprecated = Some(version);
+        }
+        registry.types.insert(
+            name.to_string(),
+            UnifiedType::Struct(UnifiedStruct {
+                ir,
+                versions,
+                field_versions,
+                attr_versions,
+            }),
+        );
     }
 }
 
@@ -684,7 +880,10 @@ fn fix_recursive_types(registry: &mut UnifiedRegistry) {
         if let Some(UnifiedType::Struct(us)) = registry.types.get_mut(type_name) {
             for field in &mut us.ir.fields {
                 if field.name == *field_name {
-                    eprintln!("INFO: Boxing field '{}.{}' to break recursive type", type_name, field_name);
+                    eprintln!(
+                        "INFO: Boxing field '{}.{}' to break recursive type",
+                        type_name, field_name
+                    );
                     // Use a special marker that the codegen will detect.
                     // The codegen checks field.meta for "boxed" and wraps in Box<>.
                     field.meta.attributes.push(Attribute::new("boxed"));
@@ -718,10 +917,7 @@ fn is_reachable(
 }
 
 /// Generate unified code from the registry.
-pub fn generate_unified_code(
-    qemu_repo: &Path,
-    version_tags: &[&str],
-) -> Result<String> {
+pub fn generate_unified_code(qemu_repo: &Path, version_tags: &[&str]) -> Result<String> {
     use std::time::Instant;
     let registry = build_unified_registry(qemu_repo, version_tags)?;
     let codegen_start = Instant::now();
@@ -736,7 +932,9 @@ pub fn generate_unified_code(
     // command block-dirty-bitmap-add both produce the same Rust name).
     // Pre-populate with Rust reserved/builtin type names that should never be shadowed.
     let mut seen_rust_names: BTreeSet<String> = ["String", "Option", "Vec", "Box", "Result"]
-        .iter().map(|s| s.to_string()).collect();
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
 
     // Generate types in a stable order.
     // Sort all types by Rust name (case-insensitive) for deterministic, readable output.
@@ -763,7 +961,10 @@ pub fn generate_unified_code(
         };
 
         if !seen_rust_names.insert(rust_name.clone()) {
-            eprintln!("WARNING: Skipping duplicate Rust name '{}' (QAPI name: '{}')", rust_name, name);
+            eprintln!(
+                "WARNING: Skipping duplicate Rust name '{}' (QAPI name: '{}')",
+                rust_name, name
+            );
             continue;
         }
 
@@ -774,14 +975,20 @@ pub fn generate_unified_code(
         all_tokens.extend(code);
     }
 
-    eprintln!("  Token generation: {:.1}s", codegen_start.elapsed().as_secs_f64());
+    eprintln!(
+        "  Token generation: {:.1}s",
+        codegen_start.elapsed().as_secs_f64()
+    );
 
     // Parse and format the entire output at once
     let fmt_start = Instant::now();
     let combined = format!("{}{}", output, all_tokens);
     let result = match syn::parse_file(&combined) {
         Ok(syntree) => {
-            eprintln!("  syn::parse_file: {:.1}s", fmt_start.elapsed().as_secs_f64());
+            eprintln!(
+                "  syn::parse_file: {:.1}s",
+                fmt_start.elapsed().as_secs_f64()
+            );
             let pp_start = Instant::now();
             let formatted = prettyplease::unparse(&syntree);
             eprintln!("  prettyplease: {:.1}s", pp_start.elapsed().as_secs_f64());
@@ -792,10 +999,12 @@ pub fn generate_unified_code(
             Ok(combined)
         }
     };
-    eprintln!("  Codegen total: {:.1}s", codegen_start.elapsed().as_secs_f64());
+    eprintln!(
+        "  Codegen total: {:.1}s",
+        codegen_start.elapsed().as_secs_f64()
+    );
     result
 }
-
 
 /// Insert a blank line between top-level items for readability.
 fn separate_items(code: &str) -> String {
@@ -815,18 +1024,32 @@ fn separate_items(code: &str) -> String {
 }
 
 /// Generate code for a unified enum, adding since/until attributes from the registry.
-fn generate_unified_enum(ue: &UnifiedEnum, _registry: &UnifiedRegistry) -> proc_macro2::TokenStream {
-
+fn generate_unified_enum(
+    ue: &UnifiedEnum,
+    _registry: &UnifiedRegistry,
+) -> proc_macro2::TokenStream {
     let mut ir = ue.ir.clone();
 
     // Strip any existing since from doc comments — always use registry version
     ir.meta.attributes.retain(|a| !matches!(a, Attribute::Item { name, .. } if name == "added" || name == "since" || name == "removed" || name == "until" || name == "deprecated"));
-    ir.meta.attributes.push(Attribute::with_value("added", version_str(ue.versions.since)));
+    ir.meta.attributes.push(Attribute::with_value(
+        "added",
+        version_str(ue.versions.since),
+    ));
     if let Some(dep) = ue.versions.deprecated {
-        ir.meta.attributes.push(Attribute::with_value("deprecated", version_str(dep)));
+        ir.meta
+            .attributes
+            .push(Attribute::with_value("deprecated", version_str(dep)));
+    }
+    if let Some(unstable) = ue.versions.unstable {
+        ir.meta
+            .attributes
+            .push(Attribute::with_value("unstable", version_str(unstable)));
     }
     if let Some(until) = ue.versions.until {
-        ir.meta.attributes.push(Attribute::with_value("removed", version_str(until)));
+        ir.meta
+            .attributes
+            .push(Attribute::with_value("removed", version_str(until)));
     }
 
     // Add per-variant added/deprecated/removed
@@ -834,13 +1057,22 @@ fn generate_unified_enum(ue: &UnifiedEnum, _registry: &UnifiedRegistry) -> proc_
         variant.meta.attributes.retain(|a| !matches!(a, Attribute::Item { name, .. } if name == "added" || name == "since" || name == "removed" || name == "until" || name == "deprecated"));
         if let Some(vr) = ue.variant_versions.get(&variant.name) {
             if vr.since > ue.versions.since {
-                variant.meta.attributes.push(Attribute::with_value("added", version_str(vr.since)));
+                variant
+                    .meta
+                    .attributes
+                    .push(Attribute::with_value("added", version_str(vr.since)));
             }
             if let Some(dep) = vr.deprecated {
-                variant.meta.attributes.push(Attribute::with_value("deprecated", version_str(dep)));
+                variant
+                    .meta
+                    .attributes
+                    .push(Attribute::with_value("deprecated", version_str(dep)));
             }
             if let Some(until) = vr.until {
-                variant.meta.attributes.push(Attribute::with_value("removed", version_str(until)));
+                variant
+                    .meta
+                    .attributes
+                    .push(Attribute::with_value("removed", version_str(until)));
             }
         }
     }
@@ -856,24 +1088,64 @@ fn generate_unified_enum(ue: &UnifiedEnum, _registry: &UnifiedRegistry) -> proc_
     }
 
     // Sort variants alphabetically by name
-    ir.variants.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    ir.variants
+        .sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
 
     ir.generate()
 }
 
 /// Generate code for a unified struct, adding since/until and making removed/added fields optional.
-fn generate_unified_struct(us: &UnifiedStruct, _registry: &UnifiedRegistry) -> proc_macro2::TokenStream {
-
+fn generate_unified_struct(
+    us: &UnifiedStruct,
+    _registry: &UnifiedRegistry,
+) -> proc_macro2::TokenStream {
     let mut ir = us.ir.clone();
 
     // Strip existing since from doc comments — always use registry version
     ir.meta.attributes.retain(|a| !matches!(a, Attribute::Item { name, .. } if name == "added" || name == "since" || name == "removed" || name == "until" || name == "deprecated"));
-    ir.meta.attributes.push(Attribute::with_value("added", version_str(us.versions.since)));
+    ir.meta.attributes.push(Attribute::with_value(
+        "added",
+        version_str(us.versions.since),
+    ));
     if let Some(dep) = us.versions.deprecated {
-        ir.meta.attributes.push(Attribute::with_value("deprecated", version_str(dep)));
+        ir.meta
+            .attributes
+            .push(Attribute::with_value("deprecated", version_str(dep)));
+    }
+    if let Some(unstable) = us.versions.unstable {
+        ir.meta
+            .attributes
+            .push(Attribute::with_value("unstable", version_str(unstable)));
     }
     if let Some(until) = us.versions.until {
-        ir.meta.attributes.push(Attribute::with_value("removed", version_str(until)));
+        ir.meta
+            .attributes
+            .push(Attribute::with_value("removed", version_str(until)));
+    }
+
+    // Add version-tracked boolean command attributes with their since versions.
+    // This ensures attributes like allow_preconfig that appeared in later versions
+    // get proper version annotations (e.g. allow_preconfig_since = "3.0.0").
+    for (attr_name, vr) in &us.attr_versions {
+        // Ensure the attribute itself is present
+        let attr = Attribute::new(attr_name);
+        if !ir.meta.attributes.contains(&attr) {
+            ir.meta.attributes.push(attr);
+        }
+        // Add _since version if it appeared after the type was introduced
+        if vr.since > us.versions.since {
+            ir.meta.attributes.push(Attribute::with_value(
+                format!("{}_since", attr_name),
+                version_str(vr.since),
+            ));
+        }
+        // Add _until version if the attribute was later removed
+        if let Some(until) = vr.until {
+            ir.meta.attributes.push(Attribute::with_value(
+                format!("{}_until", attr_name),
+                version_str(until),
+            ));
+        }
     }
 
     // Add per-field added/deprecated/removed and make fields optional if needed
@@ -881,16 +1153,25 @@ fn generate_unified_struct(us: &UnifiedStruct, _registry: &UnifiedRegistry) -> p
         field.meta.attributes.retain(|a| !matches!(a, Attribute::Item { name, .. } if name == "added" || name == "since" || name == "removed" || name == "until" || name == "deprecated"));
         if let Some(fr) = us.field_versions.get(&field.name) {
             if fr.since > us.versions.since {
-                field.meta.attributes.push(Attribute::with_value("added", version_str(fr.since)));
+                field
+                    .meta
+                    .attributes
+                    .push(Attribute::with_value("added", version_str(fr.since)));
                 if !field.optional {
                     field.optional = true;
                 }
             }
             if let Some(dep) = fr.deprecated {
-                field.meta.attributes.push(Attribute::with_value("deprecated", version_str(dep)));
+                field
+                    .meta
+                    .attributes
+                    .push(Attribute::with_value("deprecated", version_str(dep)));
             }
             if let Some(until) = fr.until {
-                field.meta.attributes.push(Attribute::with_value("removed", version_str(until)));
+                field
+                    .meta
+                    .attributes
+                    .push(Attribute::with_value("removed", version_str(until)));
                 if !field.optional {
                     field.optional = true;
                 }
@@ -909,28 +1190,33 @@ fn generate_unified_struct(us: &UnifiedStruct, _registry: &UnifiedRegistry) -> p
     }
 
     // Sort fields alphabetically by name
-    ir.fields.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    ir.fields
+        .sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
 
     ir.generate()
 }
 
 /// Build a unified registry from QGA schemas across versions.
-pub fn build_qga_registry(
-    qemu_repo: &Path,
-    version_tags: &[&str],
-) -> Result<UnifiedRegistry> {
+pub fn build_qga_registry(qemu_repo: &Path, version_tags: &[&str]) -> Result<UnifiedRegistry> {
     use std::time::Instant;
     let start = Instant::now();
 
-    eprintln!("Extracting and parsing QGA schemas from {} versions...", version_tags.len());
+    eprintln!(
+        "Extracting and parsing QGA schemas from {} versions...",
+        version_tags.len()
+    );
     let results: Vec<Result<Option<VersionResult>>> = std::thread::scope(|scope| {
-        let handles: Vec<_> = version_tags.iter().map(|tag| {
-            scope.spawn(move || process_single_version_qga(qemu_repo, tag))
-        }).collect();
+        let handles: Vec<_> = version_tags
+            .iter()
+            .map(|tag| scope.spawn(move || process_single_version_qga(qemu_repo, tag)))
+            .collect();
         handles.into_iter().map(|h| h.join().unwrap()).collect()
     });
 
-    eprintln!("  QGA extraction + parsing: {:.1}s", start.elapsed().as_secs_f64());
+    eprintln!(
+        "  QGA extraction + parsing: {:.1}s",
+        start.elapsed().as_secs_f64()
+    );
 
     let mut version_results: Vec<VersionResult> = Vec::new();
     let mut parse_failures = 0;
@@ -950,7 +1236,11 @@ pub fn build_qga_registry(
         eprintln!("  ... and {} more QGA parse errors", parse_failures - 3);
     }
     version_results.sort_by_key(|r| r.version);
-    eprintln!("  QGA: {} versions parsed, {} skipped (no schema or parse error)", version_results.len(), parse_failures);
+    eprintln!(
+        "  QGA: {} versions parsed, {} skipped (no schema or parse error)",
+        version_results.len(),
+        parse_failures
+    );
 
     let merge_start = Instant::now();
     let mut registry = UnifiedRegistry::default();
@@ -991,16 +1281,17 @@ pub fn build_qga_registry(
         eprintln!("  QGA skipped {} identical schemas", skipped);
     }
     fix_recursive_types(&mut registry);
-    eprintln!("  QGA merge: {:.1}s — {} types", merge_start.elapsed().as_secs_f64(), registry.types.len());
+    eprintln!(
+        "  QGA merge: {:.1}s — {} types",
+        merge_start.elapsed().as_secs_f64(),
+        registry.types.len()
+    );
 
     Ok(registry)
 }
 
 /// Generate unified QGA code from the registry.
-pub fn generate_qga_code(
-    qemu_repo: &Path,
-    version_tags: &[&str],
-) -> Result<String> {
+pub fn generate_qga_code(qemu_repo: &Path, version_tags: &[&str]) -> Result<String> {
     use std::time::Instant;
     let registry = build_qga_registry(qemu_repo, version_tags)?;
     let codegen_start = Instant::now();
@@ -1012,7 +1303,9 @@ pub fn generate_qga_code(
     output.push_str("use std::collections::HashMap;\n\n");
 
     let mut seen_rust_names: BTreeSet<String> = ["String", "Option", "Vec", "Box", "Result"]
-        .iter().map(|s| s.to_string()).collect();
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
 
     let mut all_entries: Vec<_> = registry.types.iter().collect();
     all_entries.sort_by(|(_, a), (_, b)| {
@@ -1048,7 +1341,10 @@ pub fn generate_qga_code(
     let combined = format!("{}{}", output, all_tokens);
     match syn::parse_file(&combined) {
         Ok(syntree) => {
-            eprintln!("  QGA codegen: {:.1}s", codegen_start.elapsed().as_secs_f64());
+            eprintln!(
+                "  QGA codegen: {:.1}s",
+                codegen_start.elapsed().as_secs_f64()
+            );
             Ok(separate_items(&prettyplease::unparse(&syntree)))
         }
         Err(e) => {
