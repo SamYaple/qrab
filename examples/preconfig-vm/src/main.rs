@@ -192,7 +192,7 @@ async fn main() -> Result<()> {
     sleep(Duration::from_millis(100)).await;
     let mut event_count = 0;
     while let Ok(Some(evt)) =
-        tokio::time::timeout(Duration::from_millis(200), preconfig.events().recv()).await
+        tokio::time::timeout(Duration::from_millis(200), preconfig.events.recv()).await
     {
         println!("  EVENT: {} data={}", evt.event, evt.data);
         event_count += 1;
@@ -261,7 +261,7 @@ async fn main() -> Result<()> {
     println!("\nPost-start events:");
     let mut post_events = 0;
     while let Ok(Some(evt)) =
-        tokio::time::timeout(Duration::from_millis(200), vm.events().recv()).await
+        tokio::time::timeout(Duration::from_millis(200), vm.events.recv()).await
     {
         println!("  EVENT: {}", evt.event);
         post_events += 1;

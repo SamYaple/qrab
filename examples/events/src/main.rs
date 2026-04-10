@@ -40,7 +40,7 @@ async fn main() -> Result<()> {
 
     // Quit -- triggers SHUTDOWN event, then QEMU exits
     println!(">>> Sending 'quit'");
-    let _ = vm.qmp().execute(&qapi::Quit {}).await;
+    let _ = vm.qmp.execute(&qapi::Quit {}).await;
     drain_events(&mut vm, Duration::from_secs(1)).await;
 
     println!("\nDone.");
@@ -51,7 +51,7 @@ async fn drain_events(vm: &mut manager::Vm, timeout: Duration) {
     sleep(Duration::from_millis(50)).await; // let events arrive
     let deadline = tokio::time::Instant::now() + timeout;
     loop {
-        match tokio::time::timeout_at(deadline, vm.events().recv()).await {
+        match tokio::time::timeout_at(deadline, vm.events.recv()).await {
             Ok(Some(evt)) => {
                 print!("    EVENT: {:<12}", evt.event);
                 if !evt.data.is_null() && evt.data != serde_json::json!({}) {

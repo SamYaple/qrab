@@ -104,7 +104,7 @@ async fn events_received_on_stop() {
     let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
     let mut got_stop = false;
     loop {
-        match tokio::time::timeout_at(deadline, vm.events().recv()).await {
+        match tokio::time::timeout_at(deadline, vm.events.recv()).await {
             Ok(Some(evt)) if evt.event == "STOP" => {
                 got_stop = true;
                 break;

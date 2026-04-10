@@ -1,5 +1,4 @@
 use anyhow::Result;
-use std::mem::ManuallyDrop;
 use std::path::PathBuf;
 use std::process::Stdio;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -13,37 +12,43 @@ use qapi_protocol::{Qmp, QmpEvent};
 use crate::arch::{Arch, MachineConfig};
 
 /// Minimum QEMU version required for `--preconfig` support.
-///
-/// The `--preconfig` flag and `x-exit-preconfig` command were introduced in
-/// QEMU 3.0.0 (August 2018). The `RunState::Preconfig` enum variant existed
-/// from 3.0.0 to 5.2.x and was removed in 6.0.0 (the preconfig *mode* still
-/// works, but QEMU no longer reports a distinct "preconfig" run state).
 pub const PRECONFIG_MIN_VERSION: (u32, u32, u32) = (3, 0, 0);
 
 static SOCKET_COUNTER: AtomicU64 = AtomicU64::new(0);
 
-/// Shared state for a QEMU process with a QMP connection.
-struct VmInner {
-    qmp: Qmp,
-    events: mpsc::Receiver<QmpEvent>,
-    serial_log: Option<PathBuf>,
-    child: Child,
+/// QEMU process handle with cleanup logic.
+///
+/// Implements `Drop` to ensure the QEMU process is killed and temp files
+/// are removed even if the owning `PreconfigVm` or `Vm` is dropped without
+/// calling `shutdown()`. The `cleanup()` method provides async cleanup;
+/// `Drop` provides best-effort sync cleanup as a safety net.
+struct VmProcess {
+    child: Option<Child>,
     qmp_sock: PathBuf,
+    serial_log: Option<PathBuf>,
 }
 
-impl VmInner {
-    async fn shutdown(&mut self) {
-        self.qmp.shutdown().await;
-        let _ = self.child.start_kill();
-        let _ = self.child.wait().await;
+impl VmProcess {
+    /// Async cleanup: kill the process, wait for exit, remove temp files.
+    /// Safe to call multiple times (idempotent).
+    async fn cleanup(&mut self) {
+        if let Some(ref mut child) = self.child {
+            let _ = child.start_kill();
+            let _ = child.wait().await;
+        }
+        self.child = None;
         let _ = tokio::fs::remove_file(&self.qmp_sock).await;
         if let Some(ref s) = self.serial_log {
             let _ = tokio::fs::remove_file(s).await;
         }
     }
+}
 
-    fn drop_cleanup(&mut self) {
-        let _ = self.child.start_kill();
+impl Drop for VmProcess {
+    fn drop(&mut self) {
+        if let Some(ref mut child) = self.child {
+            let _ = child.start_kill();
+        }
         let _ = std::fs::remove_file(&self.qmp_sock);
         if let Some(ref s) = self.serial_log {
             let _ = std::fs::remove_file(s);
@@ -60,24 +65,6 @@ impl VmInner {
 ///
 /// Requires QEMU >= 3.0.0. The version is checked after connecting and the
 /// spawn will fail with an error if the QEMU binary is too old.
-///
-/// # Example
-///
-/// ```no_run
-/// # use manager::{Arch, MachineConfig, VmBuilder};
-/// # async fn example() -> anyhow::Result<()> {
-/// let preconfig = VmBuilder::new(Arch::X86_64, MachineConfig::None)
-///     .spawn()
-///     .await?;
-///
-/// // Issue preconfig-safe QMP commands here (object-add, blockdev-add, etc.)
-///
-/// let vm = preconfig.start().await?;
-/// // VM is now running -- full QMP access
-/// vm.shutdown().await;
-/// # Ok(())
-/// # }
-/// ```
 pub struct VmBuilder {
     arch: Arch,
     config: MachineConfig,
@@ -142,8 +129,6 @@ impl VmBuilder {
     /// Returns a [`PreconfigVm`] handle for issuing configuration commands
     /// before guest execution. Call [`PreconfigVm::start()`] to begin
     /// execution.
-    ///
-    /// Requires QEMU >= 3.0.0 for `--preconfig` support.
     pub async fn spawn(self) -> Result<PreconfigVm> {
         let id = SOCKET_COUNTER.fetch_add(1, Ordering::SeqCst);
         let tmpdir = std::env::temp_dir();
@@ -160,11 +145,8 @@ impl VmBuilder {
         }
 
         let mut args: Vec<String> = Vec::new();
-
-        // Always start in preconfig mode
         args.push("--preconfig".into());
 
-        // Machine
         match &self.config {
             MachineConfig::None => {
                 args.extend(["-machine".into(), "none".into()]);
@@ -197,25 +179,21 @@ impl VmBuilder {
             }
         }
 
-        // CPU
         if let Some(cpu) = self.arch.cpu() {
             args.extend(["-cpu".into(), cpu.into()]);
         }
 
         args.extend(["-nographic".into(), "-nodefaults".into()]);
 
-        // QMP
         args.extend([
             "-qmp".into(),
             format!("unix:{},server=on,wait=off", qmp_sock.display()),
         ]);
 
-        // Serial
         if let Some(ref log) = serial_log {
             args.extend(["-serial".into(), format!("file:{}", log.display())]);
         }
 
-        // Direct kernel boot
         if let Some(ref kernel) = self.kernel {
             args.extend(["-kernel".into(), kernel.display().to_string()]);
         }
@@ -238,7 +216,6 @@ impl VmBuilder {
             .stderr(Stdio::null())
             .spawn()?;
 
-        // Wait for QMP socket
         for _ in 0..50 {
             if qmp_sock.exists() {
                 break;
@@ -252,7 +229,6 @@ impl VmBuilder {
 
         let (qmp, events) = Qmp::new(&qmp_sock).await?;
 
-        // Verify QEMU version supports preconfig
         let version = qapi::qemu_version();
         if version < PRECONFIG_MIN_VERSION {
             anyhow::bail!(
@@ -267,13 +243,13 @@ impl VmBuilder {
         }
 
         Ok(PreconfigVm {
-            inner: ManuallyDrop::new(VmInner {
-                qmp,
-                events,
-                serial_log,
-                child,
+            qmp,
+            events,
+            process: VmProcess {
+                child: Some(child),
                 qmp_sock,
-            }),
+                serial_log,
+            },
         })
     }
 }
@@ -281,89 +257,57 @@ impl VmBuilder {
 /// A QEMU VM in preconfig state, before guest execution.
 ///
 /// In this state, only commands marked `allow-preconfig` in the QEMU schema
-/// are accepted by QEMU. Non-preconfig commands will be rejected by QEMU
-/// with a "CommandNotFound" error.
+/// are accepted by QEMU. Non-preconfig commands will be rejected with a
+/// "CommandNotFound" error.
 ///
-/// The type-level separation between `PreconfigVm` and [`Vm`] communicates
-/// the lifecycle phase clearly: use `PreconfigVm` to configure, then call
-/// [`start()`](PreconfigVm::start) to transition to a running [`Vm`].
+/// Use the `qmp` field for direct QMP access, or [`execute()`](Self::execute)
+/// for compile-time preconfig safety enforcement.
 ///
-/// Typical preconfig commands include:
-/// - `object-add` / `object-del` -- create/destroy backend objects
-/// - `blockdev-add` / `blockdev-del` -- configure block devices
-/// - `set-numa-node` -- configure NUMA topology
-/// - `query-status`, `query-name`, `query-commands` -- introspection
-///
-/// Call [`start()`](PreconfigVm::start) to send `x-exit-preconfig` and
-/// transition to a running [`Vm`].
+/// Call [`start()`](Self::start) to send `x-exit-preconfig` and transition
+/// to a running [`Vm`].
 pub struct PreconfigVm {
-    inner: ManuallyDrop<VmInner>,
+    /// QMP protocol client for sending commands to QEMU.
+    pub qmp: Qmp,
+    /// Channel for receiving asynchronous QMP events from QEMU.
+    pub events: mpsc::Receiver<QmpEvent>,
+    process: VmProcess,
 }
 
 impl PreconfigVm {
-    /// Access the QMP handle directly.
-    pub fn qmp(&self) -> &Qmp {
-        &self.inner.qmp
-    }
-
-    /// Access the event receiver.
-    pub fn events(&mut self) -> &mut mpsc::Receiver<QmpEvent> {
-        &mut self.inner.events
+    /// Path to the serial log file, if serial was enabled.
+    pub fn serial_log(&self) -> Option<&PathBuf> {
+        self.process.serial_log.as_ref()
     }
 
     /// Execute a preconfig-safe QMP command.
     ///
-    /// Only commands implementing [`PreconfigSafe`] can be used here. This
-    /// provides compile-time enforcement that non-preconfig commands cannot
-    /// be issued before the machine is initialized.
+    /// Only commands implementing [`PreconfigSafe`](qapi::PreconfigSafe) can be
+    /// used here. For raw QMP access without the trait bound, use
+    /// `self.qmp.execute()` directly.
     pub async fn execute<C: QapiCommand + qapi::PreconfigSafe>(
         &self,
         cmd: &C,
     ) -> Result<C::Returns> {
-        Ok(self.inner.qmp.execute(cmd).await?)
-    }
-
-    /// Execute any QMP command without preconfig safety checks.
-    ///
-    /// Use this escape hatch when you know a command is safe in preconfig
-    /// mode but the type system doesn't reflect it (e.g., vendor extensions
-    /// or commands added after the generated code was produced).
-    pub async fn execute_unchecked<C: QapiCommand>(&self, cmd: &C) -> Result<C::Returns> {
-        Ok(self.inner.qmp.execute(cmd).await?)
+        Ok(self.qmp.execute(cmd).await?)
     }
 
     /// Exit preconfig mode and start guest execution.
     ///
-    /// Sends `x-exit-preconfig` to QEMU, which transitions the VM from the
-    /// preconfig state to running. Returns a [`Vm`] handle with full QMP
-    /// access.
-    pub async fn start(mut self) -> Result<Vm> {
-        self.inner.qmp.execute(&qapi::XExitPreconfig {}).await?;
-
-        // SAFETY: we take ownership of inner and forget self so Drop doesn't run.
-        let inner = unsafe { ManuallyDrop::take(&mut self.inner) };
-        std::mem::forget(self);
-
+    /// Sends `x-exit-preconfig` to QEMU, which initializes the machine and
+    /// begins guest execution. Returns a [`Vm`] handle with full QMP access.
+    pub async fn start(self) -> Result<Vm> {
+        self.qmp.execute(&qapi::XExitPreconfig {}).await?;
         Ok(Vm {
-            inner: ManuallyDrop::new(inner),
+            qmp: self.qmp,
+            events: self.events,
+            process: self.process,
         })
     }
 
     /// Shut down without starting guest execution.
-    ///
-    /// Disconnects QMP and kills the QEMU process. Use this if configuration
-    /// fails and you need to abort.
     pub async fn shutdown(mut self) {
-        self.inner.shutdown().await;
-        // SAFETY: we consumed inner above; prevent Drop from double-cleaning.
-        unsafe { ManuallyDrop::drop(&mut self.inner) };
-        std::mem::forget(self);
-    }
-}
-
-impl Drop for PreconfigVm {
-    fn drop(&mut self) {
-        self.inner.drop_cleanup();
+        self.qmp.shutdown().await;
+        self.process.cleanup().await;
     }
 }
 
@@ -371,42 +315,63 @@ impl Drop for PreconfigVm {
 ///
 /// Created by calling [`PreconfigVm::start()`] after completing preconfig
 /// setup. All QMP commands are available in this state.
+///
+/// Use the `qmp` field for direct QMP access, or the ergonomic methods
+/// (`stop`, `cont`, `reset`, etc.) for common operations.
 pub struct Vm {
-    inner: ManuallyDrop<VmInner>,
+    /// QMP protocol client for sending commands to QEMU.
+    pub qmp: Qmp,
+    /// Channel for receiving asynchronous QMP events from QEMU.
+    pub events: mpsc::Receiver<QmpEvent>,
+    process: VmProcess,
 }
 
 impl Vm {
-    /// Access the QMP handle directly.
-    pub fn qmp(&self) -> &Qmp {
-        &self.inner.qmp
-    }
-
-    /// Access the event receiver.
-    pub fn events(&mut self) -> &mut mpsc::Receiver<QmpEvent> {
-        &mut self.inner.events
-    }
-
     /// Path to the serial log file, if serial was enabled.
     pub fn serial_log(&self) -> Option<&PathBuf> {
-        self.inner.serial_log.as_ref()
+        self.process.serial_log.as_ref()
     }
 
     /// Execute any QMP command and return the typed response.
     pub async fn execute<C: QapiCommand>(&self, cmd: &C) -> Result<C::Returns> {
-        Ok(self.inner.qmp.execute(cmd).await?)
+        Ok(self.qmp.execute(cmd).await?)
     }
 
-    /// Graceful shutdown: disconnect QMP, then kill the process.
+    // -- Ergonomic lifecycle methods --
+
+    /// Pause guest execution (sends `stop`).
+    pub async fn stop(&self) -> Result<()> {
+        self.qmp.execute(&qapi::Stop {}).await?;
+        Ok(())
+    }
+
+    /// Resume guest execution (sends `cont`).
+    pub async fn cont(&self) -> Result<()> {
+        self.qmp.execute(&qapi::Cont {}).await?;
+        Ok(())
+    }
+
+    /// Reset the guest (sends `system_reset`).
+    pub async fn reset(&self) -> Result<()> {
+        self.qmp.execute(&qapi::SystemReset {}).await?;
+        Ok(())
+    }
+
+    /// Request guest powerdown via ACPI (sends `system_powerdown`).
+    pub async fn powerdown(&self) -> Result<()> {
+        self.qmp.execute(&qapi::SystemPowerdown {}).await?;
+        Ok(())
+    }
+
+    /// Send `quit` to QEMU, requesting the process to exit.
+    pub async fn quit(&self) -> Result<()> {
+        self.qmp.execute(&qapi::Quit {}).await?;
+        Ok(())
+    }
+
+    /// Graceful shutdown: disconnect QMP, kill the process, clean up temp files.
     pub async fn shutdown(mut self) {
-        self.inner.shutdown().await;
-        // SAFETY: we consumed inner above; prevent Drop from double-cleaning.
-        unsafe { ManuallyDrop::drop(&mut self.inner) };
-        std::mem::forget(self);
-    }
-}
-
-impl Drop for Vm {
-    fn drop(&mut self) {
-        self.inner.drop_cleanup();
+        self.qmp.shutdown().await;
+        self.process.cleanup().await;
     }
 }

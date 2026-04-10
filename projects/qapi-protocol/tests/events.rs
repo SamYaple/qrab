@@ -23,7 +23,7 @@ arch_tests!(
             .await
             .unwrap();
         t.execute(&Stop {}).await.unwrap();
-        let evt = wait_for_event(t.events(), "STOP", event_timeout()).await;
+        let evt = wait_for_event(&mut t.events, "STOP", event_timeout()).await;
         assert!(evt.is_some(), "Expected STOP event");
         t.shutdown().await;
     }
@@ -41,9 +41,9 @@ arch_tests!(
             .await
             .unwrap();
         t.execute(&Stop {}).await.unwrap();
-        wait_for_event(t.events(), "STOP", event_timeout()).await;
+        wait_for_event(&mut t.events, "STOP", event_timeout()).await;
         t.execute(&Cont {}).await.unwrap();
-        let evt = wait_for_event(t.events(), "RESUME", event_timeout()).await;
+        let evt = wait_for_event(&mut t.events, "RESUME", event_timeout()).await;
         assert!(evt.is_some(), "Expected RESUME event");
         t.shutdown().await;
     }
@@ -61,7 +61,7 @@ arch_tests!(
             .await
             .unwrap();
         t.execute(&SystemReset {}).await.unwrap();
-        let evt = wait_for_event(t.events(), "RESET", event_timeout()).await;
+        let evt = wait_for_event(&mut t.events, "RESET", event_timeout()).await;
         assert!(evt.is_some(), "Expected RESET event");
         t.shutdown().await;
     }
@@ -82,7 +82,7 @@ arch_tests!(
 
         // quit triggers SHUTDOWN event. With -no-shutdown, QEMU doesn't exit immediately.
         t.execute(&Quit {}).await.unwrap();
-        let evt = wait_for_typed_event::<ShutdownEvent>(t.events(), event_timeout()).await;
+        let evt = wait_for_typed_event::<ShutdownEvent>(&mut t.events, event_timeout()).await;
         assert!(evt.is_some(), "Expected SHUTDOWN event");
         let shutdown = evt.unwrap();
         // Host-initiated shutdown (via quit)
@@ -110,7 +110,7 @@ arch_tests!(event_powerdown, [X86_64], |arch: Arch| async move {
     .unwrap();
 
     t.execute(&SystemPowerdown {}).await.unwrap();
-    let evt = wait_for_event(t.events(), "POWERDOWN", event_timeout()).await;
+    let evt = wait_for_event(&mut t.events, "POWERDOWN", event_timeout()).await;
     assert!(evt.is_some(), "Expected POWERDOWN event");
     t.shutdown().await;
 });
@@ -131,7 +131,7 @@ arch_tests!(
             .await
             .unwrap();
         t.execute(&Stop {}).await.unwrap();
-        let evt = wait_for_typed_event::<StopEvent>(t.events(), event_timeout()).await;
+        let evt = wait_for_typed_event::<StopEvent>(&mut t.events, event_timeout()).await;
         assert!(evt.is_some(), "Expected typed STOP event");
         t.shutdown().await;
     }
@@ -149,9 +149,9 @@ arch_tests!(
             .await
             .unwrap();
         t.execute(&Stop {}).await.unwrap();
-        wait_for_event(t.events(), "STOP", event_timeout()).await;
+        wait_for_event(&mut t.events, "STOP", event_timeout()).await;
         t.execute(&Cont {}).await.unwrap();
-        let evt = wait_for_typed_event::<ResumeEvent>(t.events(), event_timeout()).await;
+        let evt = wait_for_typed_event::<ResumeEvent>(&mut t.events, event_timeout()).await;
         assert!(evt.is_some(), "Expected typed RESUME event");
         t.shutdown().await;
     }
@@ -169,7 +169,7 @@ arch_tests!(
             .await
             .unwrap();
         t.execute(&SystemReset {}).await.unwrap();
-        let evt = wait_for_typed_event::<ResetEvent>(t.events(), event_timeout()).await;
+        let evt = wait_for_typed_event::<ResetEvent>(&mut t.events, event_timeout()).await;
         assert!(evt.is_some(), "Expected typed RESET event");
         let reset = evt.unwrap();
         // Reset should indicate not guest-initiated
