@@ -1,0 +1,26 @@
+ARG BASE_IMAGE=debian:bookworm
+FROM ${BASE_IMAGE}
+
+ARG ARCHIVE=0
+ARG DISTRO_NAME=""
+
+# For archived Debian releases, switch to archive.debian.org
+RUN if [ "${ARCHIVE}" = "1" ] && [ -n "${DISTRO_NAME}" ]; then \
+        sed -i "s|deb.debian.org|archive.debian.org|g" /etc/apt/sources.list && \
+        sed -i "/${DISTRO_NAME}-updates/d" /etc/apt/sources.list && \
+        sed -i "/security.debian.org/d" /etc/apt/sources.list; \
+    fi
+
+# Disable GPG checks for very old archived repos
+RUN if [ "${ARCHIVE}" = "1" ]; then \
+        echo 'Acquire::Check-Valid-Until "false";' > /etc/apt/apt.conf.d/99nocheck && \
+        echo 'APT::Get::AllowUnauthenticated "true";' >> /etc/apt/apt.conf.d/99nocheck; \
+    fi
+
+RUN apt-get update && \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        qemu-system-x86 && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+ENTRYPOINT ["qemu-system-x86_64"]
