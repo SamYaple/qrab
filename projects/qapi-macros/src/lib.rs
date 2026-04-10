@@ -845,18 +845,79 @@ fn gen_struct(input_ast: &mut DeriveInput, ta: &TypeAttrs, bounds: &VersionBound
         TokenStream2::new()
     };
 
-    // Generate Display impl for command structs (prints the QAPI wire name)
-    let display = if ta.is_command {
-        quote! {
-            #cond
-            impl std::fmt::Display for #struct_name {
-                fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                    f.write_str(#wn)
+    // Generate Display impl for all structs
+    let display = {
+        let display_fields: Vec<TokenStream2> = fields
+            .iter()
+            .enumerate()
+            .map(|(i, f)| {
+                let ident = &f.ident;
+                let fwn = wire_name(&f.attrs.name, &f.ident);
+                let is_opt = is_option_type(&f.ty);
+                let cond = f.attrs.condition.as_ref().map(|c| condition_cfg(c));
+                let sep = if i == 0 {
+                    quote! {}
+                } else {
+                    quote! { if !first { f.write_str(", ")?; } }
+                };
+
+                if is_opt {
+                    quote! {
+                        #cond
+                        if let Some(ref value) = self.#ident {
+                            #sep
+                            write!(f, concat!(#fwn, "={:?}"), value)?;
+                            first = false;
+                        }
+                    }
+                } else {
+                    quote! {
+                        #cond
+                        #sep
+                        write!(f, concat!(#fwn, "={:?}"), self.#ident)?;
+                        first = false;
+                    }
+                }
+            })
+            .collect();
+
+        if ta.is_command {
+            // Command structs: just print the wire name
+            quote! {
+                #cond
+                impl std::fmt::Display for #struct_name {
+                    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        f.write_str(#wn)
+                    }
+                }
+            }
+        } else if fields.is_empty() {
+            // Empty structs: just print the wire name
+            quote! {
+                #cond
+                #[allow(deprecated)]
+                impl std::fmt::Display for #struct_name {
+                    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        f.write_str(#wn)
+                    }
+                }
+            }
+        } else {
+            // Data structs: wire_name(field=value, field2=value2)
+            quote! {
+                #cond
+                #[allow(deprecated, unused_mut, unused_assignments)]
+                impl std::fmt::Display for #struct_name {
+                    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        f.write_str(#wn)?;
+                        f.write_str("(")?;
+                        let mut first = true;
+                        #(#display_fields)*
+                        f.write_str(")")
+                    }
                 }
             }
         }
-    } else {
-        TokenStream2::new()
     };
 
     quote! {
