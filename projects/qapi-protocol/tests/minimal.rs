@@ -76,13 +76,13 @@ arch_tests!(query_display_options, [X86_64, I386, Aarch64, Arm], |arch: Arch| as
     t.shutdown().await;
 });
 
-arch_tests!(query_current_machine, [X86_64, I386, Aarch64, Arm], |arch: Arch| async move {
+arch_version_tests!(query_current_machine, [X86_64, I386, Aarch64, Arm], >= (4, 0), |arch: Arch| async move {
     let t = VmBuilder::new(arch, MachineConfig::None).spawn().await.unwrap();
     let _: CurrentMachineParams = t.execute(&QueryCurrentMachine {}).await.unwrap();
     t.shutdown().await;
 });
 
-arch_tests!(query_replay, [X86_64, I386, Aarch64, Arm], |arch: Arch| async move {
+arch_version_tests!(query_replay, [X86_64, I386, Aarch64, Arm], >= (5, 2), |arch: Arch| async move {
     let t = VmBuilder::new(arch, MachineConfig::None).spawn().await.unwrap();
     let replay: ReplayInfo = t.execute(&QueryReplay {}).await.unwrap();
     assert_eq!(serde_json::to_string(&replay.mode).unwrap(), "\"none\"");
@@ -265,14 +265,14 @@ arch_tests!(query_named_block_nodes_empty, [X86_64, I386, Aarch64, Arm], |arch: 
     t.shutdown().await;
 });
 
-arch_tests!(query_block_exports_empty, [X86_64, I386, Aarch64, Arm], |arch: Arch| async move {
+arch_version_tests!(query_block_exports_empty, [X86_64, I386, Aarch64, Arm], >= (5, 2), |arch: Arch| async move {
     let t = VmBuilder::new(arch, MachineConfig::None).spawn().await.unwrap();
     let exports: Vec<BlockExportInfo> = t.execute(&QueryBlockExports {}).await.unwrap();
     assert!(exports.is_empty());
     t.shutdown().await;
 });
 
-arch_tests!(query_cryptodev_empty, [X86_64, I386, Aarch64, Arm], |arch: Arch| async move {
+arch_version_tests!(query_cryptodev_empty, [X86_64, I386, Aarch64, Arm], >= (8, 0), |arch: Arch| async move {
     let t = VmBuilder::new(arch, MachineConfig::None).spawn().await.unwrap();
     let devs: Vec<QCryptodevInfo> = t.execute(&QueryCryptodev {}).await.unwrap();
     assert!(devs.is_empty());
@@ -286,14 +286,14 @@ arch_tests!(query_vnc_servers_empty, [X86_64, I386, Aarch64, Arm], |arch: Arch| 
     t.shutdown().await;
 });
 
-arch_tests!(query_migrationthreads_empty, [X86_64, I386, Aarch64, Arm], |arch: Arch| async move {
+arch_version_tests!(query_migrationthreads_empty, [X86_64, I386, Aarch64, Arm], >= (8, 0), |arch: Arch| async move {
     let t = VmBuilder::new(arch, MachineConfig::None).spawn().await.unwrap();
     let threads: Vec<MigrationThreadInfo> = t.execute(&QueryMigrationthreads {}).await.unwrap();
     assert!(threads.is_empty());
     t.shutdown().await;
 });
 
-arch_tests!(query_yank, [X86_64, I386, Aarch64, Arm], |arch: Arch| async move {
+arch_version_tests!(query_yank, [X86_64, I386, Aarch64, Arm], >= (6, 0), |arch: Arch| async move {
     let t = VmBuilder::new(arch, MachineConfig::None).spawn().await.unwrap();
     let instances: Vec<YankInstance> = t.execute(&QueryYank {}).await.unwrap();
     for inst in &instances {
@@ -302,7 +302,7 @@ arch_tests!(query_yank, [X86_64, I386, Aarch64, Arm], |arch: Arch| async move {
     t.shutdown().await;
 });
 
-arch_tests!(query_audiodevs_empty, [X86_64, I386, Aarch64, Arm], |arch: Arch| async move {
+arch_version_tests!(query_audiodevs_empty, [X86_64, I386, Aarch64, Arm], >= (8, 0), |arch: Arch| async move {
     let t = VmBuilder::new(arch, MachineConfig::None).spawn().await.unwrap();
     let devs: Vec<Audiodev> = t.execute(&QueryAudiodevs {}).await.unwrap();
     assert!(devs.is_empty());

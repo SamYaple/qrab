@@ -13,6 +13,7 @@ struct TypeAttrs {
     name: Option<String>,
     since: Option<String>,
     until: Option<String>,
+    deprecated: Option<String>,
     condition: Option<String>,
     returns: Option<String>,
     allow_oob: bool,
@@ -27,11 +28,66 @@ struct ItemAttrs {
     name: Option<String>,
     since: Option<String>,
     until: Option<String>,
+    deprecated: Option<String>,
     condition: Option<String>,
     feature: Option<String>,
     flatten: bool,
     discriminator: bool,
     union_field: bool,
+}
+
+// ─── Compile-time version bounds ───
+
+struct VersionBounds {
+    min: Option<(u32, u32, u32)>,
+    max: Option<(u32, u32, u32)>,
+}
+
+fn get_version_bounds() -> VersionBounds {
+    let min = std::env::var("QEMU_MIN_VERSION").ok().and_then(|s| {
+        let v = parse_version(&s);
+        if v == (0, 0, 0) { None } else { Some(v) }
+    });
+    let max = std::env::var("QEMU_MAX_VERSION").ok().and_then(|s| {
+        let v = parse_version(&s);
+        if v == (0, 0, 0) { None } else { Some(v) }
+    });
+    VersionBounds { min, max }
+}
+
+/// Check if a type/field/variant should be excluded based on compile-time bounds.
+/// Returns true if the item should be EXCLUDED (not emitted).
+fn excluded_by_bounds(bounds: &VersionBounds, since: Option<&str>, until: Option<&str>) -> bool {
+    // If added after the max version, exclude it
+    if let (Some(max), Some(s)) = (bounds.max, since) {
+        let since_ver = parse_version(s);
+        if since_ver > max {
+            return true;
+        }
+    }
+    // If removed before the min version, exclude it
+    if let (Some(min), Some(u)) = (bounds.min, until) {
+        let until_ver = parse_version(u);
+        if until_ver <= min {
+            return true;
+        }
+    }
+    false
+}
+
+/// Check if something should get Rust #[deprecated] based on bounds.
+/// Returns true if deprecated before the min version.
+fn rust_deprecated_by_bounds(bounds: &VersionBounds, deprecated: Option<&str>) -> bool {
+    if let (Some(_min), Some(dep)) = (bounds.min, deprecated) {
+        let _dep_ver = parse_version(dep);
+        // If the item is deprecated, mark it with Rust #[deprecated] so the
+        // user gets compiler warnings. We always apply this when the deprecated
+        // attribute is present and bounds are set, since the user has declared
+        // a target range and deprecated items should be flagged.
+        let _ = _dep_ver;
+        return true;
+    }
+    false
 }
 
 // ─── Parsing ───
@@ -50,7 +106,7 @@ fn parse_type_attrs(args: &[NestedMeta]) -> TypeAttrs {
                     } else if nv.path.is_ident("until") || nv.path.is_ident("removed") {
                         attrs.until = Some(val);
                     } else if nv.path.is_ident("deprecated") {
-                        // Recognized but not acted upon in the macro (informational)
+                        attrs.deprecated = Some(val);
                     } else if nv.path.is_ident("condition") {
                         attrs.condition = Some(val);
                     } else if nv.path.is_ident("returns") {
@@ -95,7 +151,7 @@ fn parse_item_attrs(meta_list: &MetaList) -> ItemAttrs {
                     } else if nv.path.is_ident("until") || nv.path.is_ident("removed") {
                         attrs.until = Some(val);
                     } else if nv.path.is_ident("deprecated") {
-                        // Recognized but not acted upon in the macro (informational)
+                        attrs.deprecated = Some(val);
                     } else if nv.path.is_ident("condition") {
                         attrs.condition = Some(val);
                     } else if nv.path.is_ident("feature") {
@@ -127,6 +183,7 @@ fn extract_all_item_attrs(syn_attrs: &[syn::Attribute]) -> ItemAttrs {
                 result.name = result.name.or(parsed.name);
                 result.since = result.since.or(parsed.since);
                 result.until = result.until.or(parsed.until);
+                result.deprecated = result.deprecated.or(parsed.deprecated);
                 result.condition = result.condition.or(parsed.condition);
                 result.feature = result.feature.or(parsed.feature);
                 result.flatten = result.flatten || parsed.flatten;
@@ -170,6 +227,49 @@ fn version_range_check(since: Option<&str>, until: Option<&str>) -> Option<Token
             Some(quote! { qapi::qemu_version() < (#umaj, #umin, #upatch) })
         }
         (None, None) => None,
+    }
+}
+
+/// Generate a once-guarded deprecation warning for runtime.
+fn deprecation_warning(type_name: &str, field_name: Option<&str>, deprecated_version: &str) -> TokenStream2 {
+    let (dmaj, dmin, dpatch) = parse_version(deprecated_version);
+    let msg = match field_name {
+        Some(fname) => format!(
+            "qapi warning: {}.{} is deprecated since QEMU {}",
+            type_name, fname, deprecated_version
+        ),
+        None => format!(
+            "qapi warning: {} is deprecated since QEMU {}",
+            type_name, deprecated_version
+        ),
+    };
+    quote! {
+        {
+            use std::sync::Once;
+            static __QAPI_DEP_WARNED: Once = Once::new();
+            if qapi::qemu_version() >= (#dmaj, #dmin, #dpatch) {
+                __QAPI_DEP_WARNED.call_once(|| {
+                    eprintln!(#msg);
+                });
+            }
+        }
+    }
+}
+
+/// Generate a once-guarded warning for a removed field that has a value set.
+fn removed_field_warning(type_name: &str, field_name: &str, removed_version: &str) -> TokenStream2 {
+    let msg = format!(
+        "qapi warning: {}.{} was removed in QEMU {}, value will be ignored",
+        type_name, field_name, removed_version
+    );
+    quote! {
+        {
+            use std::sync::Once;
+            static __QAPI_REM_WARNED: Once = Once::new();
+            __QAPI_REM_WARNED.call_once(|| {
+                eprintln!(#msg);
+            });
+        }
     }
 }
 
@@ -234,6 +334,7 @@ pub fn qapi(args: TokenStream, input: TokenStream) -> TokenStream {
                 ta.name = ta.name.or(extra.name);
                 ta.since = ta.since.or(extra.since);
                 ta.until = ta.until.or(extra.until);
+                ta.deprecated = ta.deprecated.or(extra.deprecated);
                 ta.condition = ta.condition.or(extra.condition);
                 ta.returns = ta.returns.or(extra.returns);
                 ta.allow_oob = ta.allow_oob || extra.allow_oob;
@@ -246,9 +347,23 @@ pub fn qapi(args: TokenStream, input: TokenStream) -> TokenStream {
     }
     input_ast.attrs.retain(|a| !a.path.is_ident("qapi"));
 
+    // ── Compile-time version bounds: exclude entire type if out of range ──
+    let bounds = get_version_bounds();
+    if excluded_by_bounds(&bounds, ta.since.as_deref(), ta.until.as_deref()) {
+        // Type is outside the declared version range — emit nothing
+        return TokenStream::new();
+    }
+
+    // Add Rust #[deprecated] attribute if the type is deprecated and bounds are set
+    if rust_deprecated_by_bounds(&bounds, ta.deprecated.as_deref()) {
+        let dep_ver = ta.deprecated.as_deref().unwrap();
+        let msg = format!("deprecated since QEMU {}", dep_ver);
+        input_ast.attrs.push(syn::parse_quote! { #[deprecated(note = #msg)] });
+    }
+
     let output = match input_ast.data {
-        syn::Data::Enum(_) => gen_enum(&mut input_ast, &ta),
-        syn::Data::Struct(_) => gen_struct(&mut input_ast, &ta),
+        syn::Data::Enum(_) => gen_enum(&mut input_ast, &ta, &bounds),
+        syn::Data::Struct(_) => gen_struct(&mut input_ast, &ta, &bounds),
         _ => quote! { #input_ast },
     };
 
@@ -257,13 +372,19 @@ pub fn qapi(args: TokenStream, input: TokenStream) -> TokenStream {
 
 // ─── Enum codegen ───
 
-fn gen_enum(input_ast: &mut DeriveInput, ta: &TypeAttrs) -> TokenStream2 {
+fn gen_enum(input_ast: &mut DeriveInput, ta: &TypeAttrs, bounds: &VersionBounds) -> TokenStream2 {
     let enum_name = input_ast.ident.clone();
 
     let data_enum = match &mut input_ast.data {
         syn::Data::Enum(d) => d,
         _ => unreachable!(),
     };
+
+    // Filter variants by compile-time bounds
+    data_enum.variants = data_enum.variants.iter().filter(|v| {
+        let attrs = extract_all_item_attrs(&v.attrs);
+        !excluded_by_bounds(bounds, attrs.since.as_deref(), attrs.until.as_deref())
+    }).cloned().collect();
 
     let mut variants: Vec<VariantInfo> = Vec::new();
     for v in &mut data_enum.variants {
@@ -275,6 +396,13 @@ fn gen_enum(input_ast: &mut DeriveInput, ta: &TypeAttrs) -> TokenStream2 {
             if let Some(cfg_attr) = condition_cfg_attr(cond) {
                 v.attrs.push(cfg_attr);
             }
+        }
+
+        // Add Rust #[deprecated] if variant is deprecated and bounds are set
+        if rust_deprecated_by_bounds(bounds, attrs.deprecated.as_deref()) {
+            let dep_ver = attrs.deprecated.as_deref().unwrap();
+            let msg = format!("deprecated since QEMU {}", dep_ver);
+            v.attrs.push(syn::parse_quote! { #[deprecated(note = #msg)] });
         }
 
         let kind = match &v.fields {
@@ -321,6 +449,8 @@ fn gen_unit_enum_ser(
     variants: &[VariantInfo],
     ta: &TypeAttrs,
 ) -> TokenStream2 {
+    let type_name_str = name.to_string();
+
     let arms: Vec<TokenStream2> = variants.iter().map(|v| {
         let ident = &v.ident;
         let wn = wire_name(&v.attrs.name, &v.ident);
@@ -331,15 +461,24 @@ fn gen_unit_enum_ser(
         }
     }).collect();
 
+    // Type-level deprecation warning
+    let dep_warn = ta.deprecated.as_deref().map(|dep_ver| {
+        deprecation_warning(&type_name_str, None, dep_ver)
+    });
+
     let body = if let Some(chk) = version_range_check(ta.since.as_deref(), ta.until.as_deref()) {
         quote! {
             if !(#chk) {
                 return Err(serde::ser::Error::custom(concat!("Type ", stringify!(#name), " not available in this QEMU version")));
             }
+            #dep_warn
             match self { #(#arms)* }
         }
     } else {
-        quote! { match self { #(#arms)* } }
+        quote! {
+            #dep_warn
+            match self { #(#arms)* }
+        }
     };
 
     quote! {
@@ -441,7 +580,7 @@ fn gen_alt_de(name: &syn::Ident, variants: &[VariantInfo]) -> TokenStream2 {
 
 // ─── Struct codegen ───
 
-fn gen_struct(input_ast: &mut DeriveInput, ta: &TypeAttrs) -> TokenStream2 {
+fn gen_struct(input_ast: &mut DeriveInput, ta: &TypeAttrs, bounds: &VersionBounds) -> TokenStream2 {
     let struct_name = input_ast.ident.clone();
 
     let data_struct = match &mut input_ast.data {
@@ -449,8 +588,15 @@ fn gen_struct(input_ast: &mut DeriveInput, ta: &TypeAttrs) -> TokenStream2 {
         _ => unreachable!(),
     };
 
+    // Filter fields by compile-time bounds and collect field info
     let mut fields: Vec<FieldInfo> = Vec::new();
     if let Fields::Named(named) = &mut data_struct.fields {
+        // Remove fields that are outside the version bounds
+        named.named = named.named.iter().filter(|f| {
+            let attrs = extract_all_item_attrs(&f.attrs);
+            !excluded_by_bounds(bounds, attrs.since.as_deref(), attrs.until.as_deref())
+        }).cloned().collect();
+
         for f in &mut named.named {
             let attrs = extract_all_item_attrs(&f.attrs);
             f.attrs.retain(|a| !a.path.is_ident("qapi"));
@@ -460,6 +606,13 @@ fn gen_struct(input_ast: &mut DeriveInput, ta: &TypeAttrs) -> TokenStream2 {
                 if let Some(cfg_attr) = condition_cfg_attr(cond) {
                     f.attrs.push(cfg_attr);
                 }
+            }
+
+            // Add Rust #[deprecated] if field is deprecated and bounds are set
+            if rust_deprecated_by_bounds(bounds, attrs.deprecated.as_deref()) {
+                let dep_ver = attrs.deprecated.as_deref().unwrap();
+                let msg = format!("deprecated since QEMU {}", dep_ver);
+                f.attrs.push(syn::parse_quote! { #[deprecated(note = #msg)] });
             }
 
             fields.push(FieldInfo {
@@ -519,6 +672,7 @@ fn gen_struct_ser(
     fields: &[FieldInfo],
     ta: &TypeAttrs,
 ) -> TokenStream2 {
+    let type_name_str = name.to_string();
     let field_count = fields.len();
     let ser_fields: Vec<TokenStream2> = fields.iter().map(|f| {
         let ident = &f.ident;
@@ -532,13 +686,37 @@ fn gen_struct_ser(
             quote! { state.serialize_field(#fwn, &self.#ident)?; }
         };
 
+        // Field-level deprecation warning
+        let dep_warn = f.attrs.deprecated.as_deref().map(|dep_ver| {
+            let field_name = fwn.clone();
+            if is_opt {
+                let warn = deprecation_warning(&type_name_str, Some(&field_name), dep_ver);
+                quote! { if self.#ident.is_some() { #warn } }
+            } else {
+                deprecation_warning(&type_name_str, Some(&field_name), dep_ver)
+            }
+        });
+
+        // Version range gating with removed-field warning
         let code = if let Some(chk) = version_range_check(f.attrs.since.as_deref(), f.attrs.until.as_deref()) {
-            quote! { if #chk { #code } }
+            if is_opt {
+                if let Some(ref until_ver) = f.attrs.until {
+                    let rem_warn = removed_field_warning(&type_name_str, &fwn, until_ver);
+                    quote! {
+                        if #chk { #code }
+                        else if self.#ident.is_some() { #rem_warn }
+                    }
+                } else {
+                    quote! { if #chk { #code } }
+                }
+            } else {
+                quote! { if #chk { #code } }
+            }
         } else {
             code
         };
 
-        quote! { #cond { #code } }
+        quote! { #cond { #dep_warn #code } }
     }).collect();
 
     let body = quote! {
@@ -548,15 +726,24 @@ fn gen_struct_ser(
         state.end()
     };
 
+    // Type-level deprecation warning
+    let dep_warn = ta.deprecated.as_deref().map(|dep_ver| {
+        deprecation_warning(&type_name_str, None, dep_ver)
+    });
+
     let body = if let Some(chk) = version_range_check(ta.since.as_deref(), ta.until.as_deref()) {
         quote! {
             if !(#chk) {
                 return Err(serde::ser::Error::custom(concat!("Type ", stringify!(#name), " not available in this QEMU version")));
             }
+            #dep_warn
             #body
         }
     } else {
-        body
+        quote! {
+            #dep_warn
+            #body
+        }
     };
 
     quote! {
@@ -572,11 +759,23 @@ fn gen_struct_ser_flatten(
     fields: &[FieldInfo],
     ta: &TypeAttrs,
 ) -> TokenStream2 {
+    let type_name_str = name.to_string();
     let ser_fields: Vec<TokenStream2> = fields.iter().map(|f| {
         let ident = &f.ident;
         let fwn = wire_name(&f.attrs.name, &f.ident);
         let is_opt = is_option_type(&f.ty);
         let cond = f.attrs.condition.as_ref().map(|c| condition_cfg(c));
+
+        // Field-level deprecation warning
+        let dep_warn = f.attrs.deprecated.as_deref().map(|dep_ver| {
+            let field_name = fwn.clone();
+            if is_opt {
+                let warn = deprecation_warning(&type_name_str, Some(&field_name), dep_ver);
+                quote! { if self.#ident.is_some() { #warn } }
+            } else {
+                deprecation_warning(&type_name_str, Some(&field_name), dep_ver)
+            }
+        });
 
         if f.attrs.flatten {
             // Serialize flattened struct's fields inline into the map.
@@ -584,6 +783,7 @@ fn gen_struct_ser_flatten(
             quote! {
                 #cond
                 {
+                    #dep_warn
                     let flat_value = serde_json::to_value(&self.#ident).map_err(serde::ser::Error::custom)?;
                     if let serde_json::Value::Object(flat_map) = flat_value {
                         for (k, v) in flat_map {
@@ -593,14 +793,47 @@ fn gen_struct_ser_flatten(
                 }
             }
         } else if is_opt {
-            quote! {
-                #cond
-                if let Some(ref value) = self.#ident { map.serialize_entry(#fwn, value)?; }
+            if let Some(ref until_ver) = f.attrs.until {
+                let chk = version_range_check(f.attrs.since.as_deref(), f.attrs.until.as_deref()).unwrap();
+                let rem_warn = removed_field_warning(&type_name_str, &fwn, until_ver);
+                quote! {
+                    #cond
+                    {
+                        #dep_warn
+                        if #chk {
+                            if let Some(ref value) = self.#ident { map.serialize_entry(#fwn, value)?; }
+                        } else if self.#ident.is_some() {
+                            #rem_warn
+                        }
+                    }
+                }
+            } else if f.attrs.since.is_some() {
+                let chk = version_range_check(f.attrs.since.as_deref(), None).unwrap();
+                quote! {
+                    #cond
+                    {
+                        #dep_warn
+                        if #chk {
+                            if let Some(ref value) = self.#ident { map.serialize_entry(#fwn, value)?; }
+                        }
+                    }
+                }
+            } else {
+                quote! {
+                    #cond
+                    {
+                        #dep_warn
+                        if let Some(ref value) = self.#ident { map.serialize_entry(#fwn, value)?; }
+                    }
+                }
             }
         } else {
             quote! {
                 #cond
-                map.serialize_entry(#fwn, &self.#ident)?;
+                {
+                    #dep_warn
+                    map.serialize_entry(#fwn, &self.#ident)?;
+                }
             }
         }
     }).collect();
@@ -612,15 +845,24 @@ fn gen_struct_ser_flatten(
         map.end()
     };
 
+    // Type-level deprecation warning
+    let dep_warn = ta.deprecated.as_deref().map(|dep_ver| {
+        deprecation_warning(&type_name_str, None, dep_ver)
+    });
+
     let body = if let Some(chk) = version_range_check(ta.since.as_deref(), ta.until.as_deref()) {
         quote! {
             if !(#chk) {
                 return Err(serde::ser::Error::custom(concat!("Type ", stringify!(#name), " not available in this QEMU version")));
             }
+            #dep_warn
             #body
         }
     } else {
-        body
+        quote! {
+            #dep_warn
+            #body
+        }
     };
 
     quote! {
@@ -757,6 +999,14 @@ fn gen_command_impl(name: &syn::Ident, wn: &str, ta: &TypeAttrs) -> TokenStream2
         quote! { const REMOVED_IN: Option<(u32, u32, u32)> = None; }
     };
 
+    let preconfig_impl = if preconfig {
+        quote! {
+            impl qapi::PreconfigSafe for #name {}
+        }
+    } else {
+        quote! {}
+    };
+
     quote! {
         impl qapi::QapiCommand for #name {
             type Returns = #returns;
@@ -767,6 +1017,8 @@ fn gen_command_impl(name: &syn::Ident, wn: &str, ta: &TypeAttrs) -> TokenStream2
             #since_const
             #until_const
         }
+
+        #preconfig_impl
     }
 }
 

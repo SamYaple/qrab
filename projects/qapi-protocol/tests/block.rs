@@ -30,8 +30,13 @@ async fn query_block_empty() {
     let stats: Vec<BlockStats> = t.execute(&QueryBlockstats { query_nodes: None }).await.unwrap();
     assert!(stats.is_empty());
 
-    let exports: Vec<BlockExportInfo> = t.execute(&QueryBlockExports {}).await.unwrap();
-    assert!(exports.is_empty());
+    // query-block-exports was added in QEMU 5.2
+    if let Some(v) = detect_version(Arch::X86_64) {
+        if v >= (5, 2, 0) {
+            let exports: Vec<BlockExportInfo> = t.execute(&QueryBlockExports {}).await.unwrap();
+            assert!(exports.is_empty());
+        }
+    }
 
     let jobs: Vec<BlockJobInfo> = t.execute(&QueryBlockJobs {}).await.unwrap();
     assert!(jobs.is_empty());
