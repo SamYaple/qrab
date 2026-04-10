@@ -22,7 +22,7 @@ async fn query_block_empty() {
     }
 
     let t = VmBuilder::new(Arch::X86_64, MachineConfig::None)
-        .spawn().await.unwrap();
+        .spawn().await.unwrap().start().await.unwrap();
 
     let blocks: Vec<BlockInfo> = t.execute(&QueryBlock {}).await.unwrap();
     assert!(blocks.is_empty());
@@ -61,7 +61,7 @@ async fn blockdev_add_via_cli_and_query() {
         .arg(format!("driver=file,node-name=test-file,filename={}", image.display()))
         .arg("-blockdev")
         .arg("driver=qcow2,node-name=test-qcow2,file=test-file")
-        .spawn().await.unwrap();
+        .spawn().await.unwrap().start().await.unwrap();
 
     // query-block won't show -blockdev nodes (they aren't attached to devices)
     // but query-named-block-nodes should show them.
@@ -102,7 +102,7 @@ async fn blockdev_del_typed() {
     let t = VmBuilder::new(Arch::X86_64, MachineConfig::None)
         .arg("-blockdev")
         .arg(format!("driver=file,node-name=test-file,filename={}", image.display()))
-        .spawn().await.unwrap();
+        .spawn().await.unwrap().start().await.unwrap();
 
     // Delete the node
     t.execute(&BlockdevDel { node_name: "test-file".to_string() }).await.unwrap();
@@ -128,8 +128,9 @@ async fn drive_arg_queries() {
     let image = fixtures::blank_qcow2("block-test-drive", 64).await;
     // Use -machine pc to have a virtio bus for the drive
     let t = VmBuilder::new(Arch::X86_64, MachineConfig::Bios { memory: "64M".into() })
-        .drive(image, "qcow2")
-        .spawn().await.unwrap();
+        .arg("-drive")
+        .arg(format!("if=virtio,format=qcow2,file={}", image.display()))
+        .spawn().await.unwrap().start().await.unwrap();
 
     // query-block should show the drive
     let blocks: Vec<BlockInfo> = t.execute(&QueryBlock {}).await.unwrap();
@@ -172,12 +173,14 @@ async fn block_roundtrip_after_boot() {
     let cidata = fixtures::nocloud_cidata().await;
     let t = VmBuilder::new(Arch::X86_64, MachineConfig::Bios { memory: "128M".into() })
         .kernel(kernel, initrd, "console=ttyS0 root=/dev/vda1 dslist=nocloud")
-        .drive(image, "qcow2")
-        .raw_drive_ro(cidata)
+        .arg("-drive")
+        .arg(format!("if=virtio,format=qcow2,file={}", image.display()))
+        .arg("-drive")
+        .arg(format!("if=virtio,format=raw,file={},readonly=on", cidata.display()))
         .serial()
-        .spawn().await.unwrap();
+        .spawn().await.unwrap().start().await.unwrap();
 
-    SerialConsole::new(t.serial_log.as_ref().unwrap().clone()).wait_for_boot(boot_timeout()).await
+    SerialConsole::new(t.serial_log().unwrap().clone()).wait_for_boot(boot_timeout()).await
         .expect("cirros did not boot");
 
     // After boot, block devices have real I/O stats

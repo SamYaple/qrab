@@ -3,8 +3,11 @@ use manager::{Arch, MachineConfig, VmBuilder};
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    // Spawn returns a PreconfigVm; call start() to begin execution.
     let vm = VmBuilder::new(Arch::X86_64, MachineConfig::None)
         .spawn()
+        .await?
+        .start()
         .await?;
 
     let status: qapi::StatusInfo = vm.execute(&qapi::QueryStatus {}).await?;

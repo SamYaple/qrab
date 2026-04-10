@@ -7,6 +7,8 @@ async fn main() -> Result<()> {
     let mut vm = VmBuilder::new(Arch::X86_64, MachineConfig::None)
         .no_shutdown()
         .spawn()
+        .await?
+        .start()
         .await?;
 
     println!("VM started (QEMU {}.{}.{})\n",
@@ -15,30 +17,29 @@ async fn main() -> Result<()> {
         qapi::qemu_version().2,
     );
 
-    // Stop the VM — triggers STOP event
+    // Stop the VM -- triggers STOP event
     println!(">>> Sending 'stop'");
     vm.execute(&qapi::Stop {}).await?;
     drain_events(&mut vm, Duration::from_millis(500)).await;
 
-    // Resume — triggers RESUME event
+    // Resume -- triggers RESUME event
     println!(">>> Sending 'cont'");
     vm.execute(&qapi::Cont {}).await?;
     drain_events(&mut vm, Duration::from_millis(500)).await;
 
-    // Reset — triggers RESET event
+    // Reset -- triggers RESET event
     println!(">>> Sending 'system_reset'");
     vm.execute(&qapi::SystemReset {}).await?;
     drain_events(&mut vm, Duration::from_millis(500)).await;
 
-    // Powerdown — triggers POWERDOWN event (may not fire with -machine none)
+    // Powerdown -- triggers POWERDOWN event (may not fire with -machine none)
     println!(">>> Sending 'system_powerdown'");
     vm.execute(&qapi::SystemPowerdown {}).await?;
     drain_events(&mut vm, Duration::from_millis(500)).await;
 
-    // Quit — triggers SHUTDOWN event, then QEMU exits
+    // Quit -- triggers SHUTDOWN event, then QEMU exits
     println!(">>> Sending 'quit'");
-    // quit returns before the process dies, so we can still read events briefly
-    let _ = vm.qmp.execute(&qapi::Quit {}).await;
+    let _ = vm.qmp().execute(&qapi::Quit {}).await;
     drain_events(&mut vm, Duration::from_secs(1)).await;
 
     println!("\nDone.");
@@ -49,7 +50,7 @@ async fn drain_events(vm: &mut manager::Vm, timeout: Duration) {
     sleep(Duration::from_millis(50)).await; // let events arrive
     let deadline = tokio::time::Instant::now() + timeout;
     loop {
-        match tokio::time::timeout_at(deadline, vm.events.recv()).await {
+        match tokio::time::timeout_at(deadline, vm.events().recv()).await {
             Ok(Some(evt)) => {
                 print!("    EVENT: {:<12}", evt.event);
                 if !evt.data.is_null() && evt.data != serde_json::json!({}) {
