@@ -11,9 +11,24 @@ pub trait QapiCommand: serde::Serialize {
     const ALLOW_OOB: bool;
     const ALLOW_PRECONFIG: bool;
     const SUCCESS_RESPONSE: bool;
+    const UNSTABLE: bool;
     const AVAILABLE_SINCE: (u32, u32, u32);
     const REMOVED_IN: Option<(u32, u32, u32)>;
+    /// The QEMU version when `allow-preconfig` was added for this command.
+    /// `None` if the command never supports preconfig.
+    const PRECONFIG_SINCE: Option<(u32, u32, u32)>;
 }
+
+/// Marker trait for commands that are safe to execute during QEMU's preconfig
+/// state (before `x-exit-preconfig`). Automatically implemented by the `#[qapi]`
+/// macro for commands with `allow-preconfig: true` in the QEMU schema.
+///
+/// This enables compile-time enforcement: `PreconfigVm::execute()` requires
+/// `C: QapiCommand + PreconfigSafe`, preventing non-preconfig commands from
+/// being issued before the VM is started.
+///
+/// The `--preconfig` flag was introduced in QEMU 3.0.0.
+pub trait PreconfigSafe: QapiCommand {}
 
 /// Trait implemented by QAPI event types.
 pub trait QapiEvent: serde::de::DeserializeOwned {

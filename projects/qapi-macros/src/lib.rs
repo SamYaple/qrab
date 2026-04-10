@@ -2,8 +2,8 @@ use proc_macro::TokenStream;
 use proc_macro2::TokenStream as TokenStream2;
 use quote::{format_ident, quote};
 use syn::{
-    ext::IdentExt,
-    parse_macro_input, AttributeArgs, DeriveInput, Fields, Lit, Meta, MetaList, NestedMeta, Type,
+    ext::IdentExt, parse_macro_input, AttributeArgs, DeriveInput, Fields, Lit, Meta, MetaList,
+    NestedMeta, Type,
 };
 
 // ─── Attribute structs ───
@@ -14,10 +14,13 @@ struct TypeAttrs {
     since: Option<String>,
     until: Option<String>,
     deprecated: Option<String>,
+    unstable: Option<String>,
     condition: Option<String>,
     returns: Option<String>,
     allow_oob: bool,
     allow_preconfig: bool,
+    allow_preconfig_since: Option<String>,
+    allow_preconfig_until: Option<String>,
     no_success_response: bool,
     is_command: bool,
     is_event: bool,
@@ -46,11 +49,19 @@ struct VersionBounds {
 fn get_version_bounds() -> VersionBounds {
     let min = std::env::var("QEMU_MIN_VERSION").ok().and_then(|s| {
         let v = parse_version(&s);
-        if v == (0, 0, 0) { None } else { Some(v) }
+        if v == (0, 0, 0) {
+            None
+        } else {
+            Some(v)
+        }
     });
     let max = std::env::var("QEMU_MAX_VERSION").ok().and_then(|s| {
         let v = parse_version(&s);
-        if v == (0, 0, 0) { None } else { Some(v) }
+        if v == (0, 0, 0) {
+            None
+        } else {
+            Some(v)
+        }
     });
     VersionBounds { min, max }
 }
@@ -111,6 +122,15 @@ fn parse_type_attrs(args: &[NestedMeta]) -> TypeAttrs {
                         attrs.condition = Some(val);
                     } else if nv.path.is_ident("returns") {
                         attrs.returns = Some(val);
+                        attrs.is_command = true;
+                    } else if nv.path.is_ident("unstable") {
+                        attrs.unstable = Some(val);
+                    } else if nv.path.is_ident("allow_preconfig_since") {
+                        attrs.allow_preconfig_since = Some(val);
+                        attrs.allow_preconfig = true;
+                        attrs.is_command = true;
+                    } else if nv.path.is_ident("allow_preconfig_until") {
+                        attrs.allow_preconfig_until = Some(val);
                         attrs.is_command = true;
                     }
                 }
@@ -198,7 +218,9 @@ fn extract_all_item_attrs(syn_attrs: &[syn::Attribute]) -> ItemAttrs {
 // ─── Helpers ───
 
 fn wire_name(attrs_name: &Option<String>, ident: &syn::Ident) -> String {
-    attrs_name.clone().unwrap_or_else(|| ident.unraw().to_string())
+    attrs_name
+        .clone()
+        .unwrap_or_else(|| ident.unraw().to_string())
 }
 
 fn parse_version(version: &str) -> (u32, u32, u32) {
@@ -231,7 +253,11 @@ fn version_range_check(since: Option<&str>, until: Option<&str>) -> Option<Token
 }
 
 /// Generate a once-guarded deprecation warning for runtime.
-fn deprecation_warning(type_name: &str, field_name: Option<&str>, deprecated_version: &str) -> TokenStream2 {
+fn deprecation_warning(
+    type_name: &str,
+    field_name: Option<&str>,
+    deprecated_version: &str,
+) -> TokenStream2 {
     let (dmaj, dmin, dpatch) = parse_version(deprecated_version);
     let msg = match field_name {
         Some(fname) => format!(
@@ -337,8 +363,11 @@ pub fn qapi(args: TokenStream, input: TokenStream) -> TokenStream {
                 ta.deprecated = ta.deprecated.or(extra.deprecated);
                 ta.condition = ta.condition.or(extra.condition);
                 ta.returns = ta.returns.or(extra.returns);
+                ta.unstable = ta.unstable.or(extra.unstable);
                 ta.allow_oob = ta.allow_oob || extra.allow_oob;
                 ta.allow_preconfig = ta.allow_preconfig || extra.allow_preconfig;
+                ta.allow_preconfig_since = ta.allow_preconfig_since.or(extra.allow_preconfig_since);
+                ta.allow_preconfig_until = ta.allow_preconfig_until.or(extra.allow_preconfig_until);
                 ta.no_success_response = ta.no_success_response || extra.no_success_response;
                 ta.is_command = ta.is_command || extra.is_command;
                 ta.is_event = ta.is_event || extra.is_event;
@@ -358,7 +387,20 @@ pub fn qapi(args: TokenStream, input: TokenStream) -> TokenStream {
     if rust_deprecated_by_bounds(&bounds, ta.deprecated.as_deref()) {
         let dep_ver = ta.deprecated.as_deref().unwrap();
         let msg = format!("deprecated since QEMU {}", dep_ver);
-        input_ast.attrs.push(syn::parse_quote! { #[deprecated(note = #msg)] });
+        input_ast
+            .attrs
+            .push(syn::parse_quote! { #[deprecated(note = #msg)] });
+    }
+
+    // Mark unstable types so users get a compiler warning
+    if let Some(ref unstable_ver) = ta.unstable {
+        let msg = format!(
+            "unstable QAPI interface since QEMU {} — may change without notice",
+            unstable_ver
+        );
+        input_ast
+            .attrs
+            .push(syn::parse_quote! { #[deprecated(note = #msg)] });
     }
 
     let output = match input_ast.data {
@@ -381,10 +423,15 @@ fn gen_enum(input_ast: &mut DeriveInput, ta: &TypeAttrs, bounds: &VersionBounds)
     };
 
     // Filter variants by compile-time bounds
-    data_enum.variants = data_enum.variants.iter().filter(|v| {
-        let attrs = extract_all_item_attrs(&v.attrs);
-        !excluded_by_bounds(bounds, attrs.since.as_deref(), attrs.until.as_deref())
-    }).cloned().collect();
+    data_enum.variants = data_enum
+        .variants
+        .iter()
+        .filter(|v| {
+            let attrs = extract_all_item_attrs(&v.attrs);
+            !excluded_by_bounds(bounds, attrs.since.as_deref(), attrs.until.as_deref())
+        })
+        .cloned()
+        .collect();
 
     let mut variants: Vec<VariantInfo> = Vec::new();
     for v in &mut data_enum.variants {
@@ -402,12 +449,26 @@ fn gen_enum(input_ast: &mut DeriveInput, ta: &TypeAttrs, bounds: &VersionBounds)
         if rust_deprecated_by_bounds(bounds, attrs.deprecated.as_deref()) {
             let dep_ver = attrs.deprecated.as_deref().unwrap();
             let msg = format!("deprecated since QEMU {}", dep_ver);
-            v.attrs.push(syn::parse_quote! { #[deprecated(note = #msg)] });
+            v.attrs
+                .push(syn::parse_quote! { #[deprecated(note = #msg)] });
+        } else if attrs.feature.as_deref() == Some("deprecated") {
+            let msg = "deprecated QAPI variant";
+            v.attrs
+                .push(syn::parse_quote! { #[deprecated(note = #msg)] });
+        }
+
+        // Mark unstable variants so users get a compiler warning
+        if attrs.feature.as_deref() == Some("unstable") {
+            let msg = "unstable QAPI variant — may change without notice";
+            v.attrs
+                .push(syn::parse_quote! { #[deprecated(note = #msg)] });
         }
 
         let kind = match &v.fields {
             Fields::Unit => VariantKind::Unit,
-            Fields::Unnamed(f) => VariantKind::Tuple(Box::new(f.unnamed.first().unwrap().ty.clone())),
+            Fields::Unnamed(f) => {
+                VariantKind::Tuple(Box::new(f.unnamed.first().unwrap().ty.clone()))
+            }
             _ => VariantKind::Unit, // shouldn't happen for our codegen
         };
 
@@ -444,27 +505,27 @@ fn gen_enum(input_ast: &mut DeriveInput, ta: &TypeAttrs, bounds: &VersionBounds)
     }
 }
 
-fn gen_unit_enum_ser(
-    name: &syn::Ident,
-    variants: &[VariantInfo],
-    ta: &TypeAttrs,
-) -> TokenStream2 {
+fn gen_unit_enum_ser(name: &syn::Ident, variants: &[VariantInfo], ta: &TypeAttrs) -> TokenStream2 {
     let type_name_str = name.to_string();
 
-    let arms: Vec<TokenStream2> = variants.iter().map(|v| {
-        let ident = &v.ident;
-        let wn = wire_name(&v.attrs.name, &v.ident);
-        let cond = v.attrs.condition.as_ref().map(|c| condition_cfg(c));
-        quote! {
-            #cond
-            #name::#ident => serializer.serialize_str(#wn),
-        }
-    }).collect();
+    let arms: Vec<TokenStream2> = variants
+        .iter()
+        .map(|v| {
+            let ident = &v.ident;
+            let wn = wire_name(&v.attrs.name, &v.ident);
+            let cond = v.attrs.condition.as_ref().map(|c| condition_cfg(c));
+            quote! {
+                #cond
+                #name::#ident => serializer.serialize_str(#wn),
+            }
+        })
+        .collect();
 
     // Type-level deprecation warning
-    let dep_warn = ta.deprecated.as_deref().map(|dep_ver| {
-        deprecation_warning(&type_name_str, None, dep_ver)
-    });
+    let dep_warn = ta
+        .deprecated
+        .as_deref()
+        .map(|dep_ver| deprecation_warning(&type_name_str, None, dep_ver));
 
     let body = if let Some(chk) = version_range_check(ta.since.as_deref(), ta.until.as_deref()) {
         quote! {
@@ -492,17 +553,23 @@ fn gen_unit_enum_ser(
 }
 
 fn gen_unit_enum_de(name: &syn::Ident, variants: &[VariantInfo]) -> TokenStream2 {
-    let arms: Vec<TokenStream2> = variants.iter().map(|v| {
-        let ident = &v.ident;
-        let wn = wire_name(&v.attrs.name, &v.ident);
-        let cond = v.attrs.condition.as_ref().map(|c| condition_cfg(c));
-        quote! {
-            #cond
-            #wn => Ok(#name::#ident),
-        }
-    }).collect();
+    let arms: Vec<TokenStream2> = variants
+        .iter()
+        .map(|v| {
+            let ident = &v.ident;
+            let wn = wire_name(&v.attrs.name, &v.ident);
+            let cond = v.attrs.condition.as_ref().map(|c| condition_cfg(c));
+            quote! {
+                #cond
+                #wn => Ok(#name::#ident),
+            }
+        })
+        .collect();
 
-    let wn_strs: Vec<String> = variants.iter().map(|v| wire_name(&v.attrs.name, &v.ident)).collect();
+    let wn_strs: Vec<String> = variants
+        .iter()
+        .map(|v| wire_name(&v.attrs.name, &v.ident))
+        .collect();
 
     quote! {
         impl<'de> serde::Deserialize<'de> for #name {
@@ -543,28 +610,31 @@ fn gen_alt_ser(name: &syn::Ident, variants: &[VariantInfo]) -> TokenStream2 {
 }
 
 fn gen_alt_de(name: &syn::Ident, variants: &[VariantInfo]) -> TokenStream2 {
-    let try_arms: Vec<TokenStream2> = variants.iter().map(|v| {
-        let ident = &v.ident;
-        let cond = v.attrs.condition.as_ref().map(|c| condition_cfg(c));
-        match &v.kind {
-            VariantKind::Tuple(ty) => {
-                quote! {
-                    #cond
-                    if let Ok(v) = serde_json::from_value::<#ty>(value.clone()) {
-                        return Ok(#name::#ident(v));
+    let try_arms: Vec<TokenStream2> = variants
+        .iter()
+        .map(|v| {
+            let ident = &v.ident;
+            let cond = v.attrs.condition.as_ref().map(|c| condition_cfg(c));
+            match &v.kind {
+                VariantKind::Tuple(ty) => {
+                    quote! {
+                        #cond
+                        if let Ok(v) = serde_json::from_value::<#ty>(value.clone()) {
+                            return Ok(#name::#ident(v));
+                        }
+                    }
+                }
+                VariantKind::Unit => {
+                    quote! {
+                        #cond
+                        if value.is_null() {
+                            return Ok(#name::#ident);
+                        }
                     }
                 }
             }
-            VariantKind::Unit => {
-                quote! {
-                    #cond
-                    if value.is_null() {
-                        return Ok(#name::#ident);
-                    }
-                }
-            }
-        }
-    }).collect();
+        })
+        .collect();
 
     quote! {
         impl<'de> serde::Deserialize<'de> for #name {
@@ -592,10 +662,15 @@ fn gen_struct(input_ast: &mut DeriveInput, ta: &TypeAttrs, bounds: &VersionBound
     let mut fields: Vec<FieldInfo> = Vec::new();
     if let Fields::Named(named) = &mut data_struct.fields {
         // Remove fields that are outside the version bounds
-        named.named = named.named.iter().filter(|f| {
-            let attrs = extract_all_item_attrs(&f.attrs);
-            !excluded_by_bounds(bounds, attrs.since.as_deref(), attrs.until.as_deref())
-        }).cloned().collect();
+        named.named = named
+            .named
+            .iter()
+            .filter(|f| {
+                let attrs = extract_all_item_attrs(&f.attrs);
+                !excluded_by_bounds(bounds, attrs.since.as_deref(), attrs.until.as_deref())
+            })
+            .cloned()
+            .collect();
 
         for f in &mut named.named {
             let attrs = extract_all_item_attrs(&f.attrs);
@@ -612,7 +687,25 @@ fn gen_struct(input_ast: &mut DeriveInput, ta: &TypeAttrs, bounds: &VersionBound
             if rust_deprecated_by_bounds(bounds, attrs.deprecated.as_deref()) {
                 let dep_ver = attrs.deprecated.as_deref().unwrap();
                 let msg = format!("deprecated since QEMU {}", dep_ver);
-                f.attrs.push(syn::parse_quote! { #[deprecated(note = #msg)] });
+                f.attrs
+                    .push(syn::parse_quote! { #[deprecated(note = #msg)] });
+            }
+
+            // Wire up feature = "deprecated" / "unstable" as Rust warnings
+            if let Some(ref feat) = attrs.feature {
+                match feat.as_str() {
+                    "deprecated" if attrs.deprecated.is_none() => {
+                        let msg = "deprecated QAPI field";
+                        f.attrs
+                            .push(syn::parse_quote! { #[deprecated(note = #msg)] });
+                    }
+                    "unstable" => {
+                        let msg = "unstable QAPI field — may change without notice";
+                        f.attrs
+                            .push(syn::parse_quote! { #[deprecated(note = #msg)] });
+                    }
+                    _ => {}
+                }
             }
 
             fields.push(FieldInfo {
@@ -727,9 +820,10 @@ fn gen_struct_ser(
     };
 
     // Type-level deprecation warning
-    let dep_warn = ta.deprecated.as_deref().map(|dep_ver| {
-        deprecation_warning(&type_name_str, None, dep_ver)
-    });
+    let dep_warn = ta
+        .deprecated
+        .as_deref()
+        .map(|dep_ver| deprecation_warning(&type_name_str, None, dep_ver));
 
     let body = if let Some(chk) = version_range_check(ta.since.as_deref(), ta.until.as_deref()) {
         quote! {
@@ -754,11 +848,7 @@ fn gen_struct_ser(
     }
 }
 
-fn gen_struct_ser_flatten(
-    name: &syn::Ident,
-    fields: &[FieldInfo],
-    ta: &TypeAttrs,
-) -> TokenStream2 {
+fn gen_struct_ser_flatten(name: &syn::Ident, fields: &[FieldInfo], ta: &TypeAttrs) -> TokenStream2 {
     let type_name_str = name.to_string();
     let ser_fields: Vec<TokenStream2> = fields.iter().map(|f| {
         let ident = &f.ident;
@@ -846,9 +936,10 @@ fn gen_struct_ser_flatten(
     };
 
     // Type-level deprecation warning
-    let dep_warn = ta.deprecated.as_deref().map(|dep_ver| {
-        deprecation_warning(&type_name_str, None, dep_ver)
-    });
+    let dep_warn = ta
+        .deprecated
+        .as_deref()
+        .map(|dep_ver| deprecation_warning(&type_name_str, None, dep_ver));
 
     let body = if let Some(chk) = version_range_check(ta.since.as_deref(), ta.until.as_deref()) {
         quote! {
@@ -875,28 +966,45 @@ fn gen_struct_ser_flatten(
 
 fn gen_struct_de(name: &syn::Ident, fields: &[FieldInfo]) -> TokenStream2 {
     let field_idents: Vec<&syn::Ident> = fields.iter().map(|f| &f.ident).collect();
-    let field_wires: Vec<String> = fields.iter().map(|f| wire_name(&f.attrs.name, &f.ident)).collect();
-    let field_vars: Vec<syn::Ident> = fields.iter().map(|f| format_ident!("__field_{}", f.ident)).collect();
+    let field_wires: Vec<String> = fields
+        .iter()
+        .map(|f| wire_name(&f.attrs.name, &f.ident))
+        .collect();
+    let field_vars: Vec<syn::Ident> = fields
+        .iter()
+        .map(|f| format_ident!("__field_{}", f.ident))
+        .collect();
 
-    let none_inits: Vec<TokenStream2> = field_vars.iter().map(|v| quote! { let mut #v = None; }).collect();
+    let none_inits: Vec<TokenStream2> = field_vars
+        .iter()
+        .map(|v| quote! { let mut #v = None; })
+        .collect();
 
-    let match_arms: Vec<TokenStream2> = fields.iter().enumerate().map(|(i, f)| {
-        let w = &field_wires[i];
-        let v = &field_vars[i];
-        let cond = f.attrs.condition.as_ref().map(|c| condition_cfg(c));
-        quote! { #cond #w => { #v = Some(map.next_value()?); } }
-    }).collect();
+    let match_arms: Vec<TokenStream2> = fields
+        .iter()
+        .enumerate()
+        .map(|(i, f)| {
+            let w = &field_wires[i];
+            let v = &field_vars[i];
+            let cond = f.attrs.condition.as_ref().map(|c| condition_cfg(c));
+            quote! { #cond #w => { #v = Some(map.next_value()?); } }
+        })
+        .collect();
 
-    let inits: Vec<TokenStream2> = fields.iter().enumerate().map(|(i, f)| {
-        let v = &field_vars[i];
-        let id = &f.ident;
-        let w = &field_wires[i];
-        if is_option_type(&f.ty) {
-            quote! { let #id = #v.unwrap_or(None); }
-        } else {
-            quote! { let #id = #v.ok_or_else(|| serde::de::Error::missing_field(#w))?; }
-        }
-    }).collect();
+    let inits: Vec<TokenStream2> = fields
+        .iter()
+        .enumerate()
+        .map(|(i, f)| {
+            let v = &field_vars[i];
+            let id = &f.ident;
+            let w = &field_wires[i];
+            if is_option_type(&f.ty) {
+                quote! { let #id = #v.unwrap_or(None); }
+            } else {
+                quote! { let #id = #v.ok_or_else(|| serde::de::Error::missing_field(#w))?; }
+            }
+        })
+        .collect();
 
     quote! {
         impl<'de> serde::Deserialize<'de> for #name {
@@ -984,6 +1092,7 @@ fn gen_command_impl(name: &syn::Ident, wn: &str, ta: &TypeAttrs) -> TokenStream2
     let oob = ta.allow_oob;
     let preconfig = ta.allow_preconfig;
     let success = !ta.no_success_response;
+    let unstable = ta.unstable.is_some();
 
     let since_const = if let Some(ref s) = ta.since {
         let (maj, min, pat) = parse_version(s);
@@ -997,6 +1106,21 @@ fn gen_command_impl(name: &syn::Ident, wn: &str, ta: &TypeAttrs) -> TokenStream2
         quote! { const REMOVED_IN: Option<(u32, u32, u32)> = Some((#maj, #min, #pat)); }
     } else {
         quote! { const REMOVED_IN: Option<(u32, u32, u32)> = None; }
+    };
+
+    let preconfig_since_const = if let Some(ref s) = ta.allow_preconfig_since {
+        let (maj, min, pat) = parse_version(s);
+        quote! { const PRECONFIG_SINCE: Option<(u32, u32, u32)> = Some((#maj, #min, #pat)); }
+    } else if preconfig {
+        // Present from the start — use the command's own since version
+        if let Some(ref s) = ta.since {
+            let (maj, min, pat) = parse_version(s);
+            quote! { const PRECONFIG_SINCE: Option<(u32, u32, u32)> = Some((#maj, #min, #pat)); }
+        } else {
+            quote! { const PRECONFIG_SINCE: Option<(u32, u32, u32)> = Some((0, 0, 0)); }
+        }
+    } else {
+        quote! { const PRECONFIG_SINCE: Option<(u32, u32, u32)> = None; }
     };
 
     let preconfig_impl = if preconfig {
@@ -1014,8 +1138,10 @@ fn gen_command_impl(name: &syn::Ident, wn: &str, ta: &TypeAttrs) -> TokenStream2
             const ALLOW_OOB: bool = #oob;
             const ALLOW_PRECONFIG: bool = #preconfig;
             const SUCCESS_RESPONSE: bool = #success;
+            const UNSTABLE: bool = #unstable;
             #since_const
             #until_const
+            #preconfig_since_const
         }
 
         #preconfig_impl
