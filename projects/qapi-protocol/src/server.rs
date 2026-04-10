@@ -3,7 +3,6 @@
 //! These allow testing clients by simulating a QEMU or guest agent endpoint.
 
 use anyhow::Result;
-use std::path::Path;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{UnixListener, UnixStream};
 

@@ -1,13 +1,12 @@
-use super::common::qtag;
 use super::parser_version;
 use nom::IResult;
 use nom::Parser;
-use nom::bytes::complete::{is_a, tag, tag_no_case, take_until, take_while1};
-use nom::character::complete::{line_ending, multispace0, not_line_ending, space0};
+use nom::bytes::complete::{is_a, tag, tag_no_case, take_while1};
+use nom::character::complete::{line_ending, not_line_ending, space0};
 use nom::combinator::{not, opt, peek, recognize};
 use nom::error::{Error, ErrorKind};
 use nom::multi::{many0, many1};
-use nom::sequence::{delimited, preceded, terminated};
+use nom::sequence::{preceded, terminated};
 
 // ─── Shared helpers ────────────────────────────────────────────────
 
@@ -96,12 +95,6 @@ fn take_name_optional_colon(input: &str) -> IResult<&str, &str> {
     preceded((take_line_start, tag("@")), take_while1(not_name_break)).parse(input)
 }
 
-fn take_namedkv<'i>(
-    key: &'static str,
-) -> impl Parser<&'i str, Output = Vec<&'i str>, Error = Error<&'i str>> {
-    preceded((take_line_start, tag("@"), tag(key), tag(":")), take_value)
-}
-
 fn take_namedkey<'i>(
     key: &'static str,
 ) -> impl Parser<&'i str, Output = Vec<&'i str>, Error = Error<&'i str>> {
@@ -188,8 +181,6 @@ impl<'i> QapiDocumentation<'i> {
         let (input, description_str) = opt(take_multiline_text).parse(input)?;
         let (input, _) = many0(take_empty_line).parse(input)?;
 
-        let mut fields: Vec<(&str, Vec<&str>)> = Vec::new();
-        let mut features: Vec<(&str, Vec<&str>)> = Vec::new();
         let mut doc = Self {
             name,
             description: Vec::new(),

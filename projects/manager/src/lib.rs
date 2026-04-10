@@ -1,5 +1,3 @@
-mod namespace;
-
 pub mod arch;
 pub mod vm;
 

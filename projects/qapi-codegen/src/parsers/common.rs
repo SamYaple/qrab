@@ -7,7 +7,7 @@ use nom::bytes::complete::{tag, take_until};
 use nom::character::complete::{line_ending, multispace0, not_line_ending, space0};
 use nom::combinator::{not, opt, peek, recognize};
 use nom::error::Error;
-use nom::multi::{many0, many1};
+use nom::multi::many1;
 use nom::sequence::{delimited, preceded};
 
 pub fn qcomment(input: &str) -> IResult<&str, &str> {

@@ -9,7 +9,7 @@ use crate::versions::{
     extract_schema_from_tag, find_extracted_qga_schema_entry, find_extracted_schema_entry,
     parse_version_tag,
 };
-use crate::{QapiSchemaToken, parse_schema, read_schema_with_version};
+use crate::{QapiSchemaToken, parse_schema};
 use anyhow::{Context, Result};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::Path;
@@ -215,7 +215,7 @@ fn process_version_schema(
 
 /// Result of extracting and parsing a single version's schema.
 struct VersionResult {
-    tag: String,
+    _tag: String,
     version: Version,
     /// Hash of the raw schema content (for dedup of identical patch releases).
     schema_hash: u64,
@@ -256,7 +256,7 @@ fn process_single_version(qemu_repo: &Path, tag: &str) -> Result<VersionResult> 
         .with_context(|| format!("Failed to process IR for {}", tag))?;
 
     Ok(VersionResult {
-        tag: tag.to_string(),
+        _tag: tag.to_string(),
         version,
         schema_hash,
         enums,
@@ -297,7 +297,7 @@ fn process_single_version_qga(qemu_repo: &Path, tag: &str) -> Result<Option<Vers
         .with_context(|| format!("Failed to process QGA IR for {}", tag))?;
 
     Ok(Some(VersionResult {
-        tag: tag.to_string(),
+        _tag: tag.to_string(),
         version,
         schema_hash,
         enums,
@@ -1432,7 +1432,7 @@ pub fn generate_qga_code(qemu_repo: &Path, version_tags: &[&str]) -> Result<Stri
 
     let mut all_tokens = proc_macro2::TokenStream::new();
 
-    for (name, ut) in &all_entries {
+    for (_name, ut) in &all_entries {
         let rust_name = match ut {
             UnifiedType::Enum(ue) => rustify_name(&ue.ir.name),
             UnifiedType::Struct(us) => rustify_name(&us.ir.name),
