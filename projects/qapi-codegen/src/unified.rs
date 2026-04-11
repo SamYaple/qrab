@@ -113,6 +113,22 @@ pub struct UnifiedRegistry {
     pub versions: Vec<Version>,
 }
 
+/// Return true when two attributes represent the "same" directive. For
+/// directive attributes that can only appear once per item (`Unit`, `Item`,
+/// `Nested`) same means "same name/key". For `List` attributes we compare by
+/// structural equality since a list may carry multiple semantically distinct
+/// bundles (e.g. multiple feature markers). Used to dedupe attribute sets
+/// while merging struct metadata across versions.
+fn attrs_equivalent(a: &Attribute, b: &Attribute) -> bool {
+    match (a, b) {
+        (Attribute::Unit(a), Attribute::Unit(b)) => a == b,
+        (Attribute::Item { name: a, .. }, Attribute::Item { name: b, .. }) => a == b,
+        (Attribute::Nested { name: a, .. }, Attribute::Nested { name: b, .. }) => a == b,
+        (Attribute::List(a), Attribute::List(b)) => a == b,
+        _ => false,
+    }
+}
+
 /// Merge command-specific attributes (command, returns, allow_oob, etc.) from
 /// a processed command struct onto an existing data struct.
 fn merge_command_attrs_onto(source: &Struct, target: &mut Struct) {
@@ -163,17 +179,20 @@ fn process_version_schema(
     let mut unprocessed_commands = Vec::new();
     let mut unprocessed_events = Vec::new();
 
+    // All types are keyed by their rustified form so that cross-version renames
+    // (e.g. SGXInfo → SgxInfo in v10.1) and command/data-struct pairs that
+    // happen to rustify to the same identifier land in a single entry.
     for (_path, content) in sources {
         let schema = parse_schema(content)?;
         for token in &schema.0 {
             match token {
                 QapiSchemaToken::Enum(v) => {
                     let processed = process_enum(v.clone());
-                    enums_lookup.insert(processed.name.clone(), processed);
+                    enums_lookup.insert(rustify_name(&processed.name), processed);
                 }
                 QapiSchemaToken::Alternate(v) => {
                     let processed = process_alternate(v.clone());
-                    enums_lookup.insert(processed.name.clone(), processed);
+                    enums_lookup.insert(rustify_name(&processed.name), processed);
                 }
                 QapiSchemaToken::Struct(v) => {
                     if v.base.is_some() {
@@ -181,9 +200,9 @@ fn process_version_schema(
                         continue;
                     }
                     let (processed, extracted) = process_struct(v.clone(), &structs_lookup);
-                    structs_lookup.insert(processed.name.clone(), processed);
+                    structs_lookup.insert(rustify_name(&processed.name), processed);
                     for e in extracted {
-                        structs_lookup.insert(e.name.clone(), e);
+                        structs_lookup.insert(rustify_name(&e.name), e);
                     }
                 }
                 QapiSchemaToken::Union(v) => {
@@ -202,22 +221,22 @@ fn process_version_schema(
 
     for v in unprocessed_structs {
         let (processed, extracted) = process_struct(v, &structs_lookup);
-        structs_lookup.insert(processed.name.clone(), processed);
+        structs_lookup.insert(rustify_name(&processed.name), processed);
         for e in extracted {
-            structs_lookup.insert(e.name.clone(), e);
+            structs_lookup.insert(rustify_name(&e.name), e);
         }
     }
     for v in unprocessed_unions {
         let (s, e, disc_enum) = process_union(v, &structs_lookup, &enums_lookup);
         if let Some(de) = disc_enum {
-            enums_lookup.insert(de.name.clone(), de);
+            enums_lookup.insert(rustify_name(&de.name), de);
         }
-        enums_lookup.insert(e.name.clone(), e);
-        structs_lookup.insert(s.name.clone(), s);
+        enums_lookup.insert(rustify_name(&e.name), e);
+        structs_lookup.insert(rustify_name(&s.name), s);
     }
     for v in unprocessed_events {
         let processed = process_event(v, &structs_lookup);
-        structs_lookup.insert(processed.name.clone(), processed);
+        structs_lookup.insert(rustify_name(&processed.name), processed);
     }
     for v in unprocessed_commands {
         // Check if this command references an existing struct via data
@@ -226,33 +245,27 @@ fn process_version_schema(
             _ => None,
         };
 
-        let processed = process_command(v.clone());
+        let processed = process_command(v.clone(), &structs_lookup);
+        let cmd_key = rustify_name(&processed.name);
 
         if let Some(ref ref_name) = data_ref_name {
-            if structs_lookup.contains_key(ref_name.as_str()) {
-                let cmd_rust_name = rustify_name(&processed.name);
-                let ref_rust_name = rustify_name(ref_name);
-
-                if cmd_rust_name == ref_rust_name {
-                    // Same Rust name (e.g., drive-mirror -> DriveMirror, DriveMirror -> DriveMirror).
-                    // Merge command attributes onto the existing data struct and remove the
-                    // command wrapper -- the dedup pass will handle them.
-                    let existing = structs_lookup.get_mut(ref_name.as_str()).unwrap();
+            let ref_key = rustify_name(ref_name);
+            if cmd_key == ref_key {
+                // Command and its data ref share the same rustified name
+                // (e.g. command `blockdev-snapshot-sync` → struct
+                // `BlockdevSnapshotSync`). Merge command attributes onto the
+                // existing data struct -- a single entry represents both.
+                if let Some(existing) = structs_lookup.get_mut(&ref_key) {
                     merge_command_attrs_onto(&processed, existing);
-                    let old_cmd_name = processed.name.clone();
-                    structs_lookup.remove(&old_cmd_name);
-                } else {
-                    // Different Rust names (e.g., netdev_add -> NetdevAdd, Netdev -> Netdev).
-                    // Keep the command struct (which has a flatten field pointing to the
-                    // data type) under its own name. Don't merge onto the data struct --
-                    // it would get the wrong wire name and the command entry would be lost.
-                    structs_lookup.insert(processed.name.clone(), processed);
+                    continue;
                 }
-                continue;
             }
+            // Different rustified names (e.g. `netdev_add` → `NetdevAdd`,
+            // data ref `Netdev` → `Netdev`): the command gets its own entry
+            // under its rustified key. The data struct stays under its key.
         }
 
-        structs_lookup.insert(processed.name.clone(), processed);
+        structs_lookup.insert(cmd_key, processed);
     }
 
     Ok((enums_lookup, structs_lookup))
@@ -425,76 +438,6 @@ pub fn build_unified_registry(qemu_repo: &Path, version_tags: &[&str]) -> Result
         }
     }
 
-    // Deduplicate types that have the same Rust name (e.g., command 'drive-mirror'
-    // and struct 'DriveMirror' both rustify to DriveMirror).
-    // Keep the one with more fields (the data struct), discard the command wrapper.
-    let mut rust_to_qapi: HashMap<String, Vec<String>> = HashMap::new();
-    for name in registry.types.keys() {
-        let rust_name = rustify_name(name);
-        rust_to_qapi
-            .entry(rust_name)
-            .or_default()
-            .push(name.clone());
-    }
-    for (rust_name, qapi_names) in &rust_to_qapi {
-        if qapi_names.len() > 1 {
-            // Find the best one to keep (most fields, or the non-command one)
-            let best = qapi_names
-                .iter()
-                .max_by_key(|name| match registry.types.get(name.as_str()) {
-                    Some(UnifiedType::Struct(s)) => {
-                        let is_cmd_only =
-                            s.ir.meta
-                                .attributes
-                                .iter()
-                                .any(|a| matches!(a, Attribute::Unit(n) if n == "command"))
-                                && s.ir.fields.is_empty();
-                        if is_cmd_only {
-                            0
-                        } else {
-                            s.ir.fields.len() + 100
-                        }
-                    }
-                    Some(UnifiedType::Enum(e)) => e.ir.variants.len() + 100,
-                    None => 0,
-                })
-                .unwrap()
-                .clone();
-
-            // Merge command attributes from duplicates into the best one
-            for name in qapi_names {
-                if *name == best {
-                    continue;
-                }
-                if let Some(dup) = registry.types.remove(name) {
-                    if let (UnifiedType::Struct(dup_s), Some(UnifiedType::Struct(best_s))) =
-                        (dup, registry.types.get_mut(&best))
-                    {
-                        for attr in &dup_s.ir.meta.attributes {
-                            match attr {
-                                Attribute::Unit(n) if n == "command" || n == "allow_oob" || n == "allow_preconfig" || n == "no_success_response" => {
-                                    if !best_s.ir.meta.attributes.contains(attr) {
-                                        best_s.ir.meta.attributes.push(attr.clone());
-                                    }
-                                }
-                                Attribute::Item { name: n, .. } if n == "returns" => {
-                                    if !best_s.ir.meta.attributes.iter().any(|a| matches!(a, Attribute::Item { name: n2, .. } if n2 == "returns")) {
-                                        best_s.ir.meta.attributes.push(attr.clone());
-                                    }
-                                }
-                                _ => {}
-                            }
-                        }
-                    }
-                    eprintln!(
-                        "INFO: Merged duplicate '{}' into '{}' (Rust name: {})",
-                        name, best, rust_name
-                    );
-                }
-            }
-        }
-    }
-
     if skipped > 0 {
         eprintln!("  Skipped {} versions with identical schemas", skipped);
     }
@@ -620,27 +563,54 @@ fn merge_enum(registry: &mut UnifiedRegistry, name: &str, e: &Enum, version: Ver
         if e.meta.doc.is_some() {
             existing.ir.meta.doc = e.meta.doc.as_deref().and_then(clean_doc);
         }
+        // Union enum-level attributes across versions.
+        for new_attr in &e.meta.attributes {
+            if !existing
+                .ir
+                .meta
+                .attributes
+                .iter()
+                .any(|a| attrs_equivalent(a, new_attr))
+            {
+                existing.ir.meta.attributes.push(new_attr.clone());
+            }
+        }
 
         let mut seen_variants = BTreeSet::new();
         for variant in &e.variants {
             seen_variants.insert(variant.name.clone());
             if existing.variant_versions.contains_key(&variant.name) {
-                // Variant still exists — clear until, update doc from latest version
+                // Variant still exists — clear until, track deprecation.
                 let vr = existing.variant_versions.get_mut(&variant.name).unwrap();
                 vr.until = None;
-                // Track variant deprecation
                 if has_deprecated_feature(&variant.meta) && vr.deprecated.is_none() {
                     vr.deprecated = Some(version);
                 }
-                if let (Some(ev), true) = (
-                    existing
-                        .ir
-                        .variants
-                        .iter_mut()
-                        .find(|v| v.name == variant.name),
-                    variant.meta.doc.is_some(),
-                ) {
-                    ev.meta.doc = variant.meta.doc.as_deref().and_then(clean_doc);
+                // Promote the variant to the latest version's definition:
+                // tuple payload type and array marker track the newest
+                // schema; attributes are unioned with the existing set;
+                // doc keeps existing unless newer has one.
+                if let Some(existing_variant) = existing
+                    .ir
+                    .variants
+                    .iter_mut()
+                    .find(|v| v.name == variant.name)
+                {
+                    existing_variant.kind = variant.kind.clone();
+                    existing_variant.array = variant.array;
+                    if let Some(doc) = &variant.meta.doc {
+                        existing_variant.meta.doc = clean_doc(doc);
+                    }
+                    for new_attr in &variant.meta.attributes {
+                        if !existing_variant
+                            .meta
+                            .attributes
+                            .iter()
+                            .any(|a| attrs_equivalent(a, new_attr))
+                        {
+                            existing_variant.meta.attributes.push(new_attr.clone());
+                        }
+                    }
                 }
             } else {
                 // Check if this is a rename (same Rust name, different QAPI name)
@@ -742,23 +712,62 @@ fn merge_struct(registry: &mut UnifiedRegistry, name: &str, s: &Struct, version:
         }
         // Merge version-tracked boolean command attributes (allow_preconfig, allow_oob, etc.)
         merge_bool_attrs(existing, &s.meta, version);
+        // Union struct-level attributes across versions. We preserve the
+        // older version's attributes (e.g. `name = "SGXInfo"` wire override
+        // from pre-10.1) and add any new attributes the newer version
+        // introduced. Version-tracked attrs and bool attrs are handled
+        // separately above.
+        for new_attr in &s.meta.attributes {
+            if !existing
+                .ir
+                .meta
+                .attributes
+                .iter()
+                .any(|a| attrs_equivalent(a, new_attr))
+            {
+                existing.ir.meta.attributes.push(new_attr.clone());
+            }
+        }
 
         let mut seen_fields = BTreeSet::new();
         for field in &s.fields {
             seen_fields.insert(field.name.clone());
             if existing.field_versions.contains_key(&field.name) {
-                // Field still exists — clear until, update doc from latest version
+                // Field still exists — clear until, track deprecation.
                 let fr = existing.field_versions.get_mut(&field.name).unwrap();
                 fr.until = None;
-                // Track field deprecation
                 if has_deprecated_feature(&field.meta) && fr.deprecated.is_none() {
                     fr.deprecated = Some(version);
                 }
-                if let (Some(ef), true) = (
-                    existing.ir.fields.iter_mut().find(|f| f.name == field.name),
-                    field.meta.doc.is_some(),
-                ) {
-                    ef.meta.doc = field.meta.doc.as_deref().and_then(clean_doc);
+                // Promote the field to the latest version's definition.
+                // Type / optional / array always use the newer value (the
+                // latest schema is authoritative for the field shape).
+                // Attributes get unioned with the existing set so version-
+                // specific directives (e.g. deprecated feature) survive.
+                // Doc falls through: newer version wins if it has one,
+                // otherwise the older doc is preserved.
+                if let Some(existing_field) = existing
+                    .ir
+                    .fields
+                    .iter_mut()
+                    .find(|f| f.name == field.name)
+                {
+                    existing_field.r#type = field.r#type.clone();
+                    existing_field.optional = field.optional;
+                    existing_field.array = field.array;
+                    if let Some(doc) = &field.meta.doc {
+                        existing_field.meta.doc = clean_doc(doc);
+                    }
+                    for new_attr in &field.meta.attributes {
+                        if !existing_field
+                            .meta
+                            .attributes
+                            .iter()
+                            .any(|a| attrs_equivalent(a, new_attr))
+                        {
+                            existing_field.meta.attributes.push(new_attr.clone());
+                        }
+                    }
                 }
             } else {
                 // Check for rename (same Rust field name, different QAPI name)

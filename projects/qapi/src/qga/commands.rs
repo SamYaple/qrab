@@ -10,7 +10,7 @@ use super::*;
 pub struct GuestExec {
     pub arg: Option<Vec<String>>,
     #[qapi(name = "capture-output")]
-    pub capture_output: Option<bool>,
+    pub capture_output: Option<GuestExecCaptureOutput>,
     pub env: Option<Vec<String>>,
     #[qapi(name = "input-data")]
     pub input_data: Option<String>,
@@ -91,7 +91,7 @@ pub struct GuestFileSeek {
     /// bytes to skip over in the file stream
     pub offset: i64,
     /// Symbolic or numeric code for interpreting offset
-    pub whence: i64,
+    pub whence: GuestFileWhence,
 }
 
 /// Write to an open file in the guest.
@@ -114,12 +114,14 @@ pub struct GuestFileWrite {
 #[qapi(command)]
 #[qapi(name = "guest-fsfreeze-freeze")]
 #[qapi(returns = "i64")]
+#[qapi(condition = "(CONFIG_WIN32 || CONFIG_FSFREEZE)")]
 #[qapi(added = "1.4.0")]
 pub struct GuestFsfreezeFreeze {}
 
 #[qapi(command)]
 #[qapi(name = "guest-fsfreeze-freeze-list")]
 #[qapi(returns = "i64")]
+#[qapi(condition = "(CONFIG_WIN32 || CONFIG_FSFREEZE)")]
 #[qapi(added = "2.2.0")]
 pub struct GuestFsfreezeFreezeList {
     pub mountpoints: Option<Vec<String>>,
@@ -133,19 +135,22 @@ pub struct GuestFsfreezeFreezeList {
 ///
 #[qapi(command)]
 #[qapi(name = "guest-fsfreeze-status")]
+#[qapi(condition = "(CONFIG_WIN32 || CONFIG_FSFREEZE)")]
 #[qapi(returns = "GuestFsfreezeStatus")]
-#[qapi(added = "1.4.0")]
+#[qapi(added = "10.2.0")]
 pub struct GuestFsfreezeStatus {}
 
 #[qapi(command)]
 #[qapi(name = "guest-fsfreeze-thaw")]
 #[qapi(returns = "i64")]
+#[qapi(condition = "(CONFIG_WIN32 || CONFIG_FSFREEZE)")]
 #[qapi(added = "1.4.0")]
 pub struct GuestFsfreezeThaw {}
 
 #[qapi(command)]
 #[qapi(name = "guest-fstrim")]
 #[qapi(returns = "()")]
+#[qapi(condition = "(CONFIG_WIN32 || CONFIG_FSTRIM)")]
 #[qapi(added = "1.4.0")]
 pub struct GuestFstrim {
     pub minimum: Option<i64>,
@@ -154,6 +159,7 @@ pub struct GuestFstrim {
 #[qapi(command)]
 #[qapi(name = "guest-get-cpustats")]
 #[qapi(returns = "Vec<GuestCpuStats>")]
+#[qapi(condition = "CONFIG_LINUX")]
 #[qapi(added = "7.1.0")]
 pub struct GuestGetCpustats {}
 
@@ -162,24 +168,28 @@ pub struct GuestGetCpustats {}
 #[qapi(command)]
 #[qapi(name = "guest-get-devices")]
 #[qapi(returns = "Vec<GuestDeviceInfo>")]
+#[qapi(condition = "CONFIG_WIN32")]
 #[qapi(added = "5.2.0")]
 pub struct GuestGetDevices {}
 
 #[qapi(command)]
 #[qapi(name = "guest-get-disks")]
 #[qapi(returns = "Vec<GuestDiskInfo>")]
+#[qapi(condition = "(CONFIG_WIN32 || CONFIG_LIBUDEV)")]
 #[qapi(added = "5.2.0")]
 pub struct GuestGetDisks {}
 
 #[qapi(command)]
 #[qapi(name = "guest-get-diskstats")]
 #[qapi(returns = "Vec<GuestDiskStatsInfo>")]
+#[qapi(condition = "CONFIG_LINUX")]
 #[qapi(added = "7.1.0")]
 pub struct GuestGetDiskstats {}
 
 #[qapi(command)]
 #[qapi(name = "guest-get-fsinfo")]
 #[qapi(returns = "Vec<GuestFilesystemInfo>")]
+#[qapi(condition = "(CONFIG_WIN32 || CONFIG_LINUX)")]
 #[qapi(added = "2.2.0")]
 pub struct GuestGetFsinfo {}
 
@@ -201,12 +211,14 @@ pub struct GuestGetLoad {}
 #[qapi(command)]
 #[qapi(name = "guest-get-memory-block-info")]
 #[qapi(returns = "GuestMemoryBlockInfo")]
+#[qapi(condition = "CONFIG_LINUX")]
 #[qapi(added = "2.3.0")]
 pub struct GuestGetMemoryBlockInfo {}
 
 #[qapi(command)]
 #[qapi(name = "guest-get-memory-blocks")]
 #[qapi(returns = "Vec<GuestMemoryBlock>")]
+#[qapi(condition = "CONFIG_LINUX")]
 #[qapi(added = "2.3.0")]
 pub struct GuestGetMemoryBlocks {}
 
@@ -235,12 +247,14 @@ pub struct GuestGetTimezone {}
 #[qapi(command)]
 #[qapi(name = "guest-get-users")]
 #[qapi(returns = "Vec<GuestUser>")]
+#[qapi(condition = "(CONFIG_WIN32 || HAVE_UTMPX)")]
 #[qapi(added = "2.10.0")]
 pub struct GuestGetUsers {}
 
 #[qapi(command)]
 #[qapi(name = "guest-get-vcpus")]
 #[qapi(returns = "Vec<GuestLogicalProcessor>")]
+#[qapi(condition = "(CONFIG_LINUX || CONFIG_WIN32)")]
 #[qapi(added = "1.5.0")]
 pub struct GuestGetVcpus {}
 
@@ -257,6 +271,7 @@ pub struct GuestInfo {}
 #[qapi(command)]
 #[qapi(name = "guest-network-get-interfaces")]
 #[qapi(returns = "Vec<GuestNetworkInterface>")]
+#[qapi(condition = "(CONFIG_WIN32 || HAVE_GETIFADDRS)")]
 #[qapi(added = "1.4.0")]
 pub struct GuestNetworkGetInterfaces {}
 
@@ -278,6 +293,7 @@ pub struct GuestPing {}
 #[qapi(command)]
 #[qapi(name = "guest-set-memory-blocks")]
 #[qapi(returns = "Vec<GuestMemoryBlockResponse>")]
+#[qapi(condition = "CONFIG_LINUX")]
 #[qapi(added = "2.3.0")]
 pub struct GuestSetMemoryBlocks {
     #[qapi(name = "mem-blks")]
@@ -306,12 +322,13 @@ pub struct GuestSetMemoryBlocks {
 pub struct GuestSetTime {
     /// time of nanoseconds, relative to the Epoch of 1970-01-01 in
     /// UTC.
-    pub time: i64,
+    pub time: Option<i64>,
 }
 
 #[qapi(command)]
 #[qapi(name = "guest-set-user-password")]
 #[qapi(returns = "()")]
+#[qapi(condition = "(CONFIG_WIN32 || CONFIG_LINUX || CONFIG_FREEBSD)")]
 #[qapi(added = "2.3.0")]
 pub struct GuestSetUserPassword {
     /// true if password is already crypt()d, false if raw
@@ -338,6 +355,7 @@ pub struct GuestSetUserPassword {
 #[qapi(command)]
 #[qapi(name = "guest-set-vcpus")]
 #[qapi(returns = "i64")]
+#[qapi(condition = "CONFIG_LINUX")]
 #[qapi(added = "1.5.0")]
 pub struct GuestSetVcpus {
     pub vcpus: Vec<GuestLogicalProcessor>,
@@ -412,6 +430,7 @@ pub struct GuestSshRemoveAuthorizedKeys {
 #[qapi(command)]
 #[qapi(name = "guest-suspend-disk")]
 #[qapi(returns = "()")]
+#[qapi(condition = "(CONFIG_LINUX || CONFIG_WIN32)")]
 #[qapi(added = "1.4.0")]
 #[qapi(no_success_response(added = "2.4.0"))]
 pub struct GuestSuspendDisk {}
@@ -419,6 +438,7 @@ pub struct GuestSuspendDisk {}
 #[qapi(command)]
 #[qapi(name = "guest-suspend-hybrid")]
 #[qapi(returns = "()")]
+#[qapi(condition = "CONFIG_LINUX")]
 #[qapi(added = "1.4.0")]
 #[qapi(no_success_response(added = "2.4.0"))]
 pub struct GuestSuspendHybrid {}
@@ -426,6 +446,7 @@ pub struct GuestSuspendHybrid {}
 #[qapi(command)]
 #[qapi(name = "guest-suspend-ram")]
 #[qapi(returns = "()")]
+#[qapi(condition = "(CONFIG_LINUX || CONFIG_WIN32)")]
 #[qapi(added = "1.4.0")]
 #[qapi(no_success_response(added = "2.4.0"))]
 pub struct GuestSuspendRam {}

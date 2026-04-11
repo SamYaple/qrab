@@ -115,7 +115,7 @@ pub struct BlockJobCancelledEvent {
     /// rate limit, bytes per second
     pub speed: i64,
     /// job type
-    pub r#type: BlockJobType,
+    pub r#type: JobType,
 }
 
 /// Emitted when a block job has completed
@@ -140,7 +140,7 @@ pub struct BlockJobCompletedEvent {
     /// rate limit, bytes per second
     pub speed: i64,
     /// job type
-    pub r#type: BlockJobType,
+    pub r#type: JobType,
 }
 
 /// Emitted when a block job encounters an error
@@ -163,7 +163,7 @@ pub struct BlockJobErrorEvent {
 #[qapi(added = "2.12.0")]
 pub struct BlockJobPendingEvent {
     pub id: String,
-    pub r#type: BlockJobType,
+    pub r#type: JobType,
 }
 
 #[qapi(event)]
@@ -174,7 +174,7 @@ pub struct BlockJobReadyEvent {
     pub len: i64,
     pub offset: i64,
     pub speed: i64,
-    pub r#type: BlockJobType,
+    pub r#type: JobType,
 }
 
 /// Emitted when writes on block device reaches or exceeds the
@@ -223,7 +223,7 @@ pub struct CommandDroppedEvent {
 #[qapi(added = "8.2.0")]
 #[qapi(unstable(added = "8.2.0"))]
 pub struct CpuPolarizationChangeEvent {
-    pub polarization: CpuS390Polarization,
+    pub polarization: S390CpuPolarization,
 }
 
 /// Emitted whenever the device removal completion is acknowledged by the guest.
@@ -363,6 +363,7 @@ pub struct MemoryFailureEvent {
 ///
 #[qapi(event)]
 #[qapi(name = "MEM_UNPLUG_ERROR")]
+#[qapi(feature = "deprecated")]
 #[qapi(added = "2.4.0")]
 #[qapi(deprecated(added = "6.2.0"))]
 #[qapi(removed = "9.1.0")]
@@ -536,6 +537,9 @@ pub struct ResumeEvent {}
 ///
 #[qapi(event)]
 #[qapi(name = "RTC_CHANGE")]
+#[qapi(
+    condition = "defined(TARGET_ALPHA) || defined(TARGET_ARM) || defined(TARGET_HPPA) || defined(TARGET_I386) || defined(TARGET_MIPS) || defined(TARGET_MIPS64) || defined(TARGET_MOXIE) || defined(TARGET_PPC) || defined(TARGET_PPC64) || defined(TARGET_S390X) || defined(TARGET_SH4) || defined(TARGET_SPARC)"
+)]
 #[qapi(added = "2.1.0")]
 pub struct RtcChangeEvent {
     /// offset between base RTC clock (as specified by -rtc base), and
@@ -567,6 +571,7 @@ pub struct ShutdownEvent {
 ///
 #[qapi(event)]
 #[qapi(name = "SPICE_CONNECTED")]
+#[qapi(condition = "defined(CONFIG_SPICE)")]
 #[qapi(added = "2.1.0")]
 pub struct SpiceConnectedEvent {
     /// client information
@@ -579,6 +584,7 @@ pub struct SpiceConnectedEvent {
 ///
 #[qapi(event)]
 #[qapi(name = "SPICE_DISCONNECTED")]
+#[qapi(condition = "defined(CONFIG_SPICE)")]
 #[qapi(added = "2.1.0")]
 pub struct SpiceDisconnectedEvent {
     /// client information
@@ -592,6 +598,7 @@ pub struct SpiceDisconnectedEvent {
 ///
 #[qapi(event)]
 #[qapi(name = "SPICE_INITIALIZED")]
+#[qapi(condition = "defined(CONFIG_SPICE)")]
 #[qapi(added = "2.1.0")]
 pub struct SpiceInitializedEvent {
     /// client information
@@ -604,6 +611,7 @@ pub struct SpiceInitializedEvent {
 ///
 #[qapi(event)]
 #[qapi(name = "SPICE_MIGRATE_COMPLETED")]
+#[qapi(condition = "defined(CONFIG_SPICE)")]
 #[qapi(added = "2.1.0")]
 pub struct SpiceMigrateCompletedEvent {}
 
@@ -642,7 +650,7 @@ pub struct VfioMigrationEvent {
     #[qapi(name = "device-id")]
     pub device_id: String,
     #[qapi(name = "device-state")]
-    pub device_state: VfioMigrationState,
+    pub device_state: QapiVfioMigrationState,
     #[qapi(name = "qom-path")]
     pub qom_path: String,
 }
@@ -663,6 +671,7 @@ pub struct VfuClientHangupEvent {
 
 #[qapi(event)]
 #[qapi(name = "VNC_CONNECTED")]
+#[qapi(condition = "defined(CONFIG_VNC)")]
 #[qapi(added = "2.1.0")]
 pub struct VncConnectedEvent {
     pub client: VncBasicInfo,
@@ -673,6 +682,7 @@ pub struct VncConnectedEvent {
 ///
 #[qapi(event)]
 #[qapi(name = "VNC_DISCONNECTED")]
+#[qapi(condition = "defined(CONFIG_VNC)")]
 #[qapi(added = "2.1.0")]
 pub struct VncDisconnectedEvent {
     /// client information
@@ -686,6 +696,7 @@ pub struct VncDisconnectedEvent {
 ///
 #[qapi(event)]
 #[qapi(name = "VNC_INITIALIZED")]
+#[qapi(condition = "defined(CONFIG_VNC)")]
 #[qapi(added = "2.1.0")]
 pub struct VncInitializedEvent {
     /// client information
@@ -717,5 +728,5 @@ pub struct WakeupEvent {}
 #[qapi(name = "WATCHDOG")]
 #[qapi(added = "2.1.0")]
 pub struct WatchdogEvent {
-    pub action: WatchdogExpirationAction,
+    pub action: WatchdogAction,
 }

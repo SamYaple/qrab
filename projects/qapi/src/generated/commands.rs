@@ -29,8 +29,24 @@ pub struct AddFd {
 #[qapi(returns = "()")]
 #[qapi(added = "4.0.0")]
 pub struct AnnounceSelf {
-    #[qapi(flatten)]
-    pub data: AnnounceParameters,
+    /// A name to be used to identify an instance of announce-timers
+    /// and to allow it to modified later.  Not for use as part of the
+    /// migration parameters.  (Since 4.1)
+    #[qapi(added = "4.1.0")]
+    pub id: Option<String>,
+    /// Initial delay (in ms) before sending the first GARP/RARP
+    /// announcement
+    pub initial: i64,
+    /// An optional list of interface names, which restricts
+    /// the announcement to the listed interfaces.  (Since 4.1)
+    #[qapi(added = "4.1.0")]
+    pub interfaces: Option<Vec<String>>,
+    /// Maximum delay (in ms) between GARP/RARP announcement packets
+    pub max: i64,
+    /// Number of self-announcement attempts
+    pub rounds: i64,
+    /// Delay increase (in ms) after each self-announcement attempt
+    pub step: i64,
 }
 
 #[qapi(command)]
@@ -59,6 +75,7 @@ pub struct BlockCommit {
     #[qapi(name = "backing-mask-protocol")]
     #[qapi(added = "9.0.0")]
     pub backing_mask_protocol: Option<bool>,
+    #[qapi(feature = "deprecated")]
     #[qapi(deprecated(added = "5.0.0"))]
     pub base: Option<String>,
     #[qapi(name = "base-node")]
@@ -75,8 +92,9 @@ pub struct BlockCommit {
     #[qapi(added = "5.0.0")]
     pub on_error: Option<BlockdevOnError>,
     pub speed: Option<i64>,
+    #[qapi(feature = "deprecated")]
     #[qapi(deprecated(added = "5.0.0"))]
-    pub top: String,
+    pub top: Option<String>,
     #[qapi(name = "top-node")]
     #[qapi(added = "3.1.0")]
     pub top_node: Option<String>,
@@ -98,12 +116,63 @@ pub struct BlockCommit {
 #[qapi(added = "1.7.0")]
 #[qapi(allow_preconfig(added = "7.1.0"))]
 pub struct BlockdevAdd {
-    #[qapi(flatten)]
+    /// whether the block node should be activated (default: true).
+    /// Having inactive block nodes is useful primarily for migration
+    /// because it allows opening an image on the destination while the
+    /// source is still holding locks for it.  (Since 10.0)
+    #[qapi(added = "10.0.0")]
+    pub active: Option<bool>,
+    /// if true and @read-only is false, QEMU may
+    /// automatically decide not to open the image read-write as
+    /// requested, but fall back to read-only instead (and switch
+    /// between the modes later), e.g. depending on whether the image
+    /// file is writable or whether a writing user is attached to the
+    /// node (default: false, since 3.1)
+    #[qapi(name = "auto-read-only")]
+    #[qapi(added = "3.1.0")]
+    pub auto_read_only: Option<bool>,
+    /// cache-related options
     #[qapi(added = "2.8.0")]
-    pub data: Option<BlockdevOptions>,
+    pub cache: Option<BlockdevCacheOptions>,
+    /// detect and optimize zero writes (Since 2.1)
+    /// (default: off)
+    #[qapi(name = "detect-zeroes")]
+    #[qapi(added = "2.8.0")]
+    pub detect_zeroes: Option<BlockdevDetectZeroesOptions>,
+    /// discard-related options (default: ignore)
+    #[qapi(added = "2.8.0")]
+    pub discard: Option<BlockdevDiscardOptions>,
+    /// block driver name
+    #[qapi(discriminator)]
+    #[qapi(added = "2.8.0")]
+    pub driver: Option<BlockdevDriver>,
+    /// force share all permission on added nodes.  Requires
+    /// read-only=true.  (Since 2.10)
+    #[qapi(name = "force-share")]
+    #[qapi(added = "2.10.0")]
+    pub force_share: Option<bool>,
+    /// the node name of the new node.  This option is required
+    /// on the top level of `blockdev-add`.  Valid node names start with
+    /// an alphabetic character and may contain only alphanumeric
+    /// characters, '-', '.' and '_'.  Their maximum length is 31
+    /// characters.  (Since 2.0)
+    #[qapi(name = "node-name")]
+    #[qapi(added = "2.8.0")]
+    pub node_name: Option<String>,
     /// block device options for the new device
     #[qapi(removed = "2.8.0")]
     pub options: Option<BlockdevOptions>,
+    /// whether the block device should be read-only (default:
+    /// false).  Note that some block drivers support only read-only
+    /// access, either generally or in certain configurations.  In this
+    /// case, the default value does not work and the option must be
+    /// specified explicitly.
+    #[qapi(name = "read-only")]
+    #[qapi(added = "2.8.0")]
+    pub read_only: Option<bool>,
+    #[qapi(union)]
+    #[qapi(added = "2.8.0")]
+    pub u: Option<BlockdevOptionsBranch>,
 }
 
 /// Changes the medium inserted into a block device by ejecting the current medium
@@ -117,8 +186,9 @@ pub struct BlockdevAdd {
 #[qapi(added = "2.5.0")]
 pub struct BlockdevChangeMedium {
     /// optional Block device name (deprecated, use @id instead)
+    #[qapi(feature = "deprecated")]
     #[qapi(deprecated(added = "5.0.0"))]
-    pub device: String,
+    pub device: Option<String>,
     /// filename of the new image to be loaded
     pub filename: String,
     #[qapi(added = "7.1.0")]
@@ -148,8 +218,9 @@ pub struct BlockdevChangeMedium {
 #[qapi(added = "2.5.0")]
 pub struct BlockdevCloseTray {
     /// optional Block device name (deprecated, use @id instead)
+    #[qapi(feature = "deprecated")]
     #[qapi(deprecated(added = "5.0.0"))]
-    pub device: String,
+    pub device: Option<String>,
     /// optional The name or QOM path of the guest device (since: 2.8)
     #[qapi(added = "2.8.0")]
     pub id: Option<String>,
@@ -250,8 +321,9 @@ pub struct BlockdevMirror {
 #[qapi(added = "2.5.0")]
 pub struct BlockdevOpenTray {
     /// optional Block device name (deprecated, use @id instead)
+    #[qapi(feature = "deprecated")]
     #[qapi(deprecated(added = "5.0.0"))]
-    pub device: String,
+    pub device: Option<String>,
     /// optional if false (the default), an eject request will be sent to
     /// the guest if it has locked the tray (and the tray will not be opened
     /// immediately); if true, the tray will be opened regardless of whether
@@ -351,8 +423,11 @@ pub struct BlockdevSnapshotDeleteInternalSync {
 #[qapi(added = "1.7.0")]
 #[qapi(allow_preconfig(added = "7.1.0"))]
 pub struct BlockdevSnapshotInternalSync {
-    #[qapi(flatten)]
-    pub data: BlockdevSnapshotInternal,
+    /// the device name or node-name of a root node to generate the
+    /// snapshot from
+    pub device: String,
+    /// the name of the internal snapshot to be created
+    pub name: String,
 }
 
 #[qapi(command)]
@@ -361,8 +436,10 @@ pub struct BlockdevSnapshotInternalSync {
 #[qapi(added = "2.4.0")]
 #[qapi(allow_preconfig(added = "7.1.0"))]
 pub struct BlockDirtyBitmapClear {
-    #[qapi(flatten)]
-    pub data: BlockDirtyBitmap,
+    /// name of the dirty bitmap
+    pub name: String,
+    /// name of device/node which the bitmap is tracking
+    pub node: String,
 }
 
 #[qapi(command)]
@@ -371,8 +448,10 @@ pub struct BlockDirtyBitmapClear {
 #[qapi(added = "4.0.0")]
 #[qapi(allow_preconfig(added = "7.1.0"))]
 pub struct BlockDirtyBitmapDisable {
-    #[qapi(flatten)]
-    pub data: BlockDirtyBitmap,
+    /// name of the dirty bitmap
+    pub name: String,
+    /// name of device/node which the bitmap is tracking
+    pub node: String,
 }
 
 #[qapi(command)]
@@ -381,8 +460,10 @@ pub struct BlockDirtyBitmapDisable {
 #[qapi(added = "4.0.0")]
 #[qapi(allow_preconfig(added = "7.1.0"))]
 pub struct BlockDirtyBitmapEnable {
-    #[qapi(flatten)]
-    pub data: BlockDirtyBitmap,
+    /// name of the dirty bitmap
+    pub name: String,
+    /// name of device/node which the bitmap is tracking
+    pub node: String,
 }
 
 #[qapi(command)]
@@ -391,8 +472,10 @@ pub struct BlockDirtyBitmapEnable {
 #[qapi(added = "2.4.0")]
 #[qapi(allow_preconfig(added = "7.1.0"))]
 pub struct BlockDirtyBitmapRemove {
-    #[qapi(flatten)]
-    pub data: BlockDirtyBitmap,
+    /// name of the dirty bitmap
+    pub name: String,
+    /// name of device/node which the bitmap is tracking
+    pub node: String,
 }
 
 /// Creates a new block export.
@@ -403,8 +486,43 @@ pub struct BlockDirtyBitmapRemove {
 #[qapi(added = "5.2.0")]
 #[qapi(allow_preconfig(added = "7.1.0"))]
 pub struct BlockExportAdd {
-    #[qapi(flatten)]
-    pub data: BlockExportOptions,
+    /// If true, the export allows the exported node to be
+    /// inactive.  If it is created for an inactive block node, the node
+    /// remains inactive.  If the export type doesn't support running on
+    /// an inactive node, an error is returned.  If false, inactive
+    /// block nodes are automatically activated before creating the
+    /// export and trying to inactivate them later fails.
+    /// (since: 10.0; default: false)
+    #[qapi(name = "allow-inactive")]
+    #[qapi(added = "10.0.0")]
+    pub allow_inactive: Option<bool>,
+    /// True prevents the block node from being moved to
+    /// another thread while the export is active.  If true and
+    #[qapi(name = "fixed-iothread")]
+    pub fixed_iothread: Option<bool>,
+    /// A unique identifier for the block export (across all export
+    /// types)
+    pub id: String,
+    /// is given, export creation fails if the block node
+    /// cannot be moved to the iothread.  The default is false.
+    /// (since: 5.2)
+    pub iothread: Option<String>,
+    /// The node name of the block node to be exported
+    /// (since: 5.2)
+    #[qapi(name = "node-name")]
+    pub node_name: String,
+    /// Block export type
+    #[qapi(discriminator)]
+    pub r#type: BlockExportType,
+    #[qapi(union)]
+    pub u: Option<BlockExportOptionsBranch>,
+    /// True if clients should be able to write to the export
+    /// (default false)
+    pub writable: Option<bool>,
+    /// If true, caches are flushed after every write request
+    /// to the export before completion is signalled.  (since: 5.2;
+    /// default: false)
+    pub writethrough: Option<bool>,
 }
 
 #[qapi(command)]
@@ -435,13 +553,19 @@ pub struct BlockJobCancel {
 #[qapi(returns = "()")]
 #[qapi(added = "8.2.0")]
 pub struct BlockJobChange {
-    #[qapi(flatten)]
-    pub data: BlockJobChangeOptions,
+    /// The job identifier
+    pub id: String,
+    /// The job type
+    #[qapi(discriminator)]
+    pub r#type: JobType,
+    #[qapi(union)]
+    pub u: Option<BlockJobChangeOptionsBranch>,
 }
 
 #[qapi(command)]
 #[qapi(name = "block-job-complete")]
 #[qapi(returns = "()")]
+#[qapi(feature = "deprecated")]
 #[qapi(added = "1.3.0")]
 #[qapi(deprecated(added = "10.1.0"))]
 #[qapi(allow_preconfig(added = "7.1.0"))]
@@ -462,6 +586,7 @@ pub struct BlockJobComplete {
 #[qapi(command)]
 #[qapi(name = "block-job-dismiss")]
 #[qapi(returns = "()")]
+#[qapi(feature = "deprecated")]
 #[qapi(added = "2.12.0")]
 #[qapi(deprecated(added = "10.1.0"))]
 #[qapi(allow_preconfig(added = "7.1.0"))]
@@ -480,6 +605,7 @@ pub struct BlockJobDismiss {
 #[qapi(command)]
 #[qapi(name = "block-job-finalize")]
 #[qapi(returns = "()")]
+#[qapi(feature = "deprecated")]
 #[qapi(added = "2.12.0")]
 #[qapi(deprecated(added = "10.1.0"))]
 #[qapi(allow_preconfig(added = "7.1.0"))]
@@ -491,6 +617,7 @@ pub struct BlockJobFinalize {
 #[qapi(command)]
 #[qapi(name = "block-job-pause")]
 #[qapi(returns = "()")]
+#[qapi(feature = "deprecated")]
 #[qapi(added = "1.3.0")]
 #[qapi(deprecated(added = "10.1.0"))]
 #[qapi(allow_preconfig(added = "7.1.0"))]
@@ -501,6 +628,7 @@ pub struct BlockJobPause {
 #[qapi(command)]
 #[qapi(name = "block-job-resume")]
 #[qapi(returns = "()")]
+#[qapi(feature = "deprecated")]
 #[qapi(added = "1.3.0")]
 #[qapi(deprecated(added = "10.1.0"))]
 #[qapi(allow_preconfig(added = "7.1.0"))]
@@ -543,7 +671,7 @@ pub struct BlockLatencyHistogramSet {
 #[qapi(added = "1.1.0")]
 #[qapi(removed = "6.0.0")]
 pub struct BlockPasswd {
-    pub device: String,
+    pub device: Option<String>,
     #[qapi(name = "node-name")]
     #[qapi(added = "2.0.0")]
     pub node_name: Option<String>,
@@ -556,7 +684,7 @@ pub struct BlockPasswd {
 #[qapi(added = "1.1.0")]
 #[qapi(allow_preconfig(added = "7.1.0"))]
 pub struct BlockResize {
-    pub device: String,
+    pub device: Option<String>,
     #[qapi(name = "node-name")]
     #[qapi(added = "2.0.0")]
     pub node_name: Option<String>,
@@ -569,64 +697,90 @@ pub struct BlockResize {
 #[qapi(added = "1.1.0")]
 #[qapi(allow_preconfig(added = "7.1.0"))]
 pub struct BlockSetIoThrottle {
-    #[qapi(removed = "2.7.0")]
-    pub bps: Option<i64>,
+    /// total throughput limit in bytes per second
+    pub bps: i64,
+    /// total throughput limit during bursts,
+    /// in bytes (Since 1.7)
     #[qapi(added = "1.7.0")]
-    #[qapi(removed = "2.7.0")]
     pub bps_max: Option<i64>,
+    /// maximum length of the @bps_max burst
+    /// period, in seconds. It must only
+    /// be set if @bps_max is set as well.
+    /// Defaults to 1. (Since 2.6)
     #[qapi(added = "2.6.0")]
-    #[qapi(removed = "2.7.0")]
     pub bps_max_length: Option<i64>,
-    #[qapi(removed = "2.7.0")]
-    pub bps_rd: Option<i64>,
+    /// read throughput limit in bytes per second
+    pub bps_rd: i64,
+    /// read throughput limit during bursts,
+    /// in bytes (Since 1.7)
     #[qapi(added = "1.7.0")]
-    #[qapi(removed = "2.7.0")]
     pub bps_rd_max: Option<i64>,
+    /// maximum length of the @bps_rd_max
+    /// burst period, in seconds. It must only
+    /// be set if @bps_rd_max is set as well.
+    /// Defaults to 1. (Since 2.6)
     #[qapi(added = "2.6.0")]
-    #[qapi(removed = "2.7.0")]
     pub bps_rd_max_length: Option<i64>,
-    #[qapi(removed = "2.7.0")]
-    pub bps_wr: Option<i64>,
+    /// write throughput limit in bytes per second
+    pub bps_wr: i64,
+    /// write throughput limit during bursts,
+    /// in bytes (Since 1.7)
     #[qapi(added = "1.7.0")]
-    #[qapi(removed = "2.7.0")]
     pub bps_wr_max: Option<i64>,
+    /// maximum length of the @bps_wr_max
+    /// burst period, in seconds. It must only
+    /// be set if @bps_wr_max is set as well.
+    /// Defaults to 1. (Since 2.6)
     #[qapi(added = "2.6.0")]
-    #[qapi(removed = "2.7.0")]
     pub bps_wr_max_length: Option<i64>,
-    #[qapi(flatten)]
-    #[qapi(added = "2.7.0")]
-    pub data: Option<BlockIoThrottle>,
-    #[qapi(removed = "2.7.0")]
+    /// Block device name (deprecated, use @id instead)
+    #[qapi(feature = "deprecated")]
+    #[qapi(deprecated(added = "5.0.0"))]
     pub device: Option<String>,
+    /// throttle group name (Since 2.4)
     #[qapi(added = "2.4.0")]
-    #[qapi(removed = "2.7.0")]
     pub group: Option<String>,
-    #[qapi(removed = "2.7.0")]
-    pub iops: Option<i64>,
+    /// The name or QOM path of the guest device (since: 2.8)
+    #[qapi(added = "2.8.0")]
+    pub id: Option<String>,
+    /// total I/O operations per second
+    pub iops: i64,
+    /// total I/O operations per second during bursts,
+    /// in bytes (Since 1.7)
     #[qapi(added = "1.7.0")]
-    #[qapi(removed = "2.7.0")]
     pub iops_max: Option<i64>,
+    /// maximum length of the @iops burst
+    /// period, in seconds. It must only
+    /// be set if @iops_max is set as well.
+    /// Defaults to 1. (Since 2.6)
     #[qapi(added = "2.6.0")]
-    #[qapi(removed = "2.7.0")]
     pub iops_max_length: Option<i64>,
-    #[qapi(removed = "2.7.0")]
-    pub iops_rd: Option<i64>,
+    /// read I/O operations per second
+    pub iops_rd: i64,
+    /// read I/O operations per second during bursts,
+    /// in bytes (Since 1.7)
     #[qapi(added = "1.7.0")]
-    #[qapi(removed = "2.7.0")]
     pub iops_rd_max: Option<i64>,
+    /// maximum length of the @iops_rd_max
+    /// burst period, in seconds. It must only
+    /// be set if @iops_rd_max is set as well.
+    /// Defaults to 1. (Since 2.6)
     #[qapi(added = "2.6.0")]
-    #[qapi(removed = "2.7.0")]
     pub iops_rd_max_length: Option<i64>,
+    /// an I/O size in bytes (Since 1.7)
     #[qapi(added = "1.7.0")]
-    #[qapi(removed = "2.7.0")]
     pub iops_size: Option<i64>,
-    #[qapi(removed = "2.7.0")]
-    pub iops_wr: Option<i64>,
+    /// write I/O operations per second
+    pub iops_wr: i64,
+    /// write I/O operations per second during bursts,
+    /// in bytes (Since 1.7)
     #[qapi(added = "1.7.0")]
-    #[qapi(removed = "2.7.0")]
     pub iops_wr_max: Option<i64>,
+    /// maximum length of the @iops_wr_max
+    /// burst period, in seconds. It must only
+    /// be set if @iops_wr_max is set as well.
+    /// Defaults to 1. (Since 2.6)
     #[qapi(added = "2.6.0")]
-    #[qapi(removed = "2.7.0")]
     pub iops_wr_max_length: Option<i64>,
 }
 
@@ -764,6 +918,7 @@ pub struct CancelVcpuDirtyLimit {
 #[qapi(command)]
 #[qapi(name = "change")]
 #[qapi(returns = "()")]
+#[qapi(feature = "deprecated")]
 #[qapi(added = "1.1.0")]
 #[qapi(deprecated(added = "5.0.0"))]
 #[qapi(removed = "6.0.0")]
@@ -804,6 +959,7 @@ pub struct ChangeBackingFile {
 #[qapi(command)]
 #[qapi(name = "change-vnc-password")]
 #[qapi(returns = "()")]
+#[qapi(condition = "defined(CONFIG_VNC)")]
 #[qapi(added = "1.1.0")]
 pub struct ChangeVncPassword {
     pub password: String,
@@ -892,6 +1048,7 @@ pub struct Cpu {
 #[qapi(command)]
 #[qapi(name = "cpu-add")]
 #[qapi(returns = "()")]
+#[qapi(feature = "deprecated")]
 #[qapi(added = "1.5.0")]
 #[qapi(deprecated(added = "5.0.0"))]
 #[qapi(removed = "5.2.0")]
@@ -1123,6 +1280,8 @@ pub struct CxlReleaseDynamicCapacity {
 #[qapi(command)]
 #[qapi(name = "device_add")]
 #[qapi(returns = "()")]
+#[qapi(feature = "json-cli")]
+#[qapi(feature = "json-cli-hotplug")]
 #[qapi(added = "2.8.0")]
 pub struct DeviceAdd {
     /// Additional device-specific properties.
@@ -1131,7 +1290,7 @@ pub struct DeviceAdd {
     #[qapi(added = "2.9.0")]
     pub bus: Option<String>,
     pub driver: String,
-    pub id: String,
+    pub id: Option<String>,
 }
 
 #[qapi(command)]
@@ -1165,8 +1324,11 @@ pub struct DeviceSyncConfig {
 #[qapi(returns = "()")]
 #[qapi(added = "6.0.0")]
 pub struct DisplayReload {
-    #[qapi(flatten)]
-    pub data: DisplayReloadOptions,
+    /// Specify the display type.
+    #[qapi(discriminator)]
+    pub r#type: DisplayReloadType,
+    #[qapi(union)]
+    pub u: Option<DisplayReloadOptionsBranch>,
 }
 
 #[qapi(command)]
@@ -1174,15 +1336,19 @@ pub struct DisplayReload {
 #[qapi(returns = "()")]
 #[qapi(added = "7.1.0")]
 pub struct DisplayUpdate {
-    #[qapi(flatten)]
-    pub data: DisplayUpdateOptions,
+    /// Specify the display type.
+    #[qapi(discriminator)]
+    pub r#type: DisplayUpdateType,
+    #[qapi(union)]
+    pub u: Option<DisplayUpdateOptionsBranch>,
 }
 
 /// A set of parameters describing drive mirror setup.
 ///
 #[qapi(command)]
+#[qapi(name = "drive-mirror")]
 #[qapi(returns = "()")]
-#[qapi(added = "2.7.0")]
+#[qapi(added = "1.3.0")]
 #[qapi(allow_preconfig(added = "7.1.0"))]
 pub struct DriveMirror {
     /// When false, this job will wait in a CONCLUDED state
@@ -1203,6 +1369,7 @@ pub struct DriveMirror {
     /// maximum amount of data in flight from source to target
     /// (since 1.4).
     #[qapi(name = "buf-size")]
+    #[qapi(added = "1.4.0")]
     pub buf_size: Option<i64>,
     /// when to copy data to the destination; defaults to
     /// 'background' (Since: 3.0)
@@ -1218,10 +1385,12 @@ pub struct DriveMirror {
     /// image format doesn't have clusters, 4K if the clusters are
     /// smaller than that, else the cluster size.  Must be a power of 2
     /// between 512 and 64M (since 1.4).
+    #[qapi(added = "1.4.0")]
     pub granularity: Option<u32>,
     /// identifier for the newly-created block job.  If omitted,
     /// the device name will be used.  (Since 2.7)
     #[qapi(name = "job-id")]
+    #[qapi(added = "2.7.0")]
     pub job_id: Option<String>,
     /// whether and how QEMU should create a new image, default is
     /// 'absolute-paths'.
@@ -1229,6 +1398,7 @@ pub struct DriveMirror {
     /// the new block driver state node name in the graph
     /// (Since 2.1)
     #[qapi(name = "node-name")]
+    #[qapi(added = "2.1.0")]
     pub node_name: Option<String>,
     /// the action to take on an error on the source,
     /// default 'report'.  'stop' and 'enospc' can only be used if the
@@ -1244,6 +1414,7 @@ pub struct DriveMirror {
     /// image when a whole image copy is done.  This can be used to
     /// repair broken Quorum files.  By default, @device is replaced,
     /// although implicitly created filters on it are kept.  (Since 2.1)
+    #[qapi(added = "2.1.0")]
     pub replaces: Option<String>,
     /// the maximum speed, in bytes per second
     pub speed: Option<i64>,
@@ -1260,6 +1431,7 @@ pub struct DriveMirror {
     /// zero, target image sectors will be unmapped; otherwise, zeroes
     /// will be written.  Both will result in identical contents.
     /// Default is true.  (Since 2.4)
+    #[qapi(added = "2.3.1")]
     pub unmap: Option<bool>,
 }
 
@@ -1292,6 +1464,7 @@ pub struct DumpGuestMemory {
 #[qapi(command)]
 #[qapi(name = "dump-skeys")]
 #[qapi(returns = "()")]
+#[qapi(condition = "defined(TARGET_S390X)")]
 #[qapi(added = "2.5.0")]
 pub struct DumpSkeys {
     /// the path to the file to dump to
@@ -1305,8 +1478,9 @@ pub struct DumpSkeys {
 #[qapi(returns = "()")]
 #[qapi(added = "1.1.0")]
 pub struct Eject {
+    #[qapi(feature = "deprecated")]
     #[qapi(deprecated(added = "5.0.0"))]
-    pub device: String,
+    pub device: Option<String>,
     pub force: Option<bool>,
     #[qapi(added = "2.8.0")]
     pub id: Option<String>,
@@ -1317,18 +1491,32 @@ pub struct Eject {
 #[qapi(returns = "()")]
 #[qapi(added = "1.1.0")]
 pub struct ExpirePassword {
-    #[qapi(flatten)]
+    /// - 'vnc' to modify the VNC server expiration
+    /// - 'spice' to modify the Spice server expiration
+    #[qapi(discriminator)]
+    pub protocol: DisplayProtocol,
+    /// when to expire the password.
+    ///
+    /// - 'now' to expire the password immediately
+    /// - 'never' to cancel password expiration
+    /// - '+INT' where INT is the number of seconds from now (integer)
+    /// - 'INT' where INT is the absolute time in seconds
+    ///
+    /// .. note:: Time is relative to the server and currently there is no
+    /// way to coordinate server time with client time.  It is not
+    /// recommended to use the absolute time version of the @time
+    /// parameter unless you're sure you are on the same machine as the
+    /// QEMU instance.
+    pub time: String,
+    #[qapi(union)]
     #[qapi(added = "7.0.0")]
-    pub data: Option<ExpirePasswordOptions>,
-    #[qapi(removed = "7.0.0")]
-    pub protocol: Option<String>,
-    #[qapi(removed = "7.0.0")]
-    pub time: Option<String>,
+    pub u: Option<ExpirePasswordOptionsBranch>,
 }
 
 #[qapi(command)]
 #[qapi(name = "getfd")]
 #[qapi(returns = "()")]
+#[qapi(condition = "CONFIG_POSIX")]
 #[qapi(added = "1.2.0")]
 pub struct Getfd {
     pub fdname: String,
@@ -1347,6 +1535,7 @@ pub struct GetWin32Socket {
 #[qapi(command)]
 #[qapi(name = "human-monitor-command")]
 #[qapi(returns = "String")]
+#[qapi(feature = "savevm-monitor-nodes")]
 #[qapi(added = "1.1.0")]
 pub struct HumanMonitorCommand {
     #[qapi(name = "command-line")]
@@ -1516,8 +1705,8 @@ pub struct Memsave {
     #[qapi(name = "cpu-index")]
     pub cpu_index: Option<i64>,
     pub filename: String,
-    pub size: i64,
-    pub val: i64,
+    pub size: u64,
+    pub val: u64,
 }
 
 #[qapi(command)]
@@ -1525,19 +1714,22 @@ pub struct Memsave {
 #[qapi(returns = "()")]
 #[qapi(added = "1.1.0")]
 pub struct Migrate {
+    #[qapi(feature = "deprecated")]
     #[qapi(deprecated(added = "8.2.0"))]
     #[qapi(removed = "9.1.0")]
     pub blk: Option<bool>,
     #[qapi(added = "8.2.0")]
     pub channels: Option<Vec<MigrationChannel>>,
+    #[qapi(feature = "deprecated")]
     #[qapi(deprecated(added = "10.1.0"))]
     pub detach: Option<bool>,
+    #[qapi(feature = "deprecated")]
     #[qapi(deprecated(added = "8.2.0"))]
     #[qapi(removed = "9.1.0")]
     pub inc: Option<bool>,
     #[qapi(added = "3.0.0")]
     pub resume: Option<bool>,
-    pub uri: String,
+    pub uri: Option<String>,
 }
 
 #[qapi(command)]
@@ -1564,7 +1756,7 @@ pub struct MigrateIncoming {
     #[qapi(name = "exit-on-error")]
     #[qapi(added = "9.1.0")]
     pub exit_on_error: Option<bool>,
-    pub uri: String,
+    pub uri: Option<String>,
 }
 
 /// Pause a migration.  Currently it only supports postcopy.
@@ -1604,6 +1796,7 @@ pub struct MigrateRecover {
 #[qapi(command)]
 #[qapi(name = "migrate-set-cache-size")]
 #[qapi(returns = "()")]
+#[qapi(feature = "deprecated")]
 #[qapi(added = "1.2.0")]
 #[qapi(deprecated(added = "5.0.0"))]
 #[qapi(removed = "6.0.0")]
@@ -1625,6 +1818,7 @@ pub struct MigrateSetCapabilities {
 #[qapi(command)]
 #[qapi(name = "migrate_set_downtime")]
 #[qapi(returns = "()")]
+#[qapi(feature = "deprecated")]
 #[qapi(added = "1.1.0")]
 #[qapi(deprecated(added = "5.0.0"))]
 #[qapi(removed = "6.0.0")]
@@ -1632,9 +1826,12 @@ pub struct MigrateSetDowntime {
     pub value: f64,
 }
 
+/// Set various migration parameters.  See MigrationParameters for details.
+///
 #[qapi(command)]
+#[qapi(name = "migrate-set-parameters")]
 #[qapi(returns = "()")]
-#[qapi(added = "2.10.0")]
+#[qapi(added = "2.4.0")]
 pub struct MigrateSetParameters {
     #[qapi(name = "announce-initial")]
     #[qapi(added = "4.0.0")]
@@ -1655,18 +1852,23 @@ pub struct MigrateSetParameters {
     #[qapi(added = "5.2.0")]
     pub block_bitmap_mapping: Option<Vec<BitmapMigrationNodeAlias>>,
     #[qapi(name = "block-incremental")]
+    #[qapi(feature = "deprecated")]
+    #[qapi(added = "2.10.0")]
     #[qapi(deprecated(added = "8.2.0"))]
     #[qapi(removed = "9.1.0")]
     pub block_incremental: Option<bool>,
     #[qapi(name = "compress-level")]
+    #[qapi(feature = "deprecated")]
     #[qapi(deprecated(added = "8.2.0"))]
     #[qapi(removed = "9.1.0")]
-    pub compress_level: Option<i64>,
+    pub compress_level: Option<u8>,
     #[qapi(name = "compress-threads")]
+    #[qapi(feature = "deprecated")]
     #[qapi(deprecated(added = "8.2.0"))]
     #[qapi(removed = "9.1.0")]
-    pub compress_threads: Option<i64>,
+    pub compress_threads: Option<u8>,
     #[qapi(name = "compress-wait-thread")]
+    #[qapi(feature = "deprecated")]
     #[qapi(added = "3.1.0")]
     #[qapi(deprecated(added = "8.2.0"))]
     #[qapi(removed = "9.1.0")]
@@ -1675,26 +1877,31 @@ pub struct MigrateSetParameters {
     #[qapi(added = "10.2.0")]
     pub cpr_exec_command: Option<Vec<String>>,
     #[qapi(name = "cpu-throttle-increment")]
-    pub cpu_throttle_increment: Option<i64>,
+    #[qapi(added = "2.7.0")]
+    pub cpu_throttle_increment: Option<u8>,
     #[qapi(name = "cpu-throttle-initial")]
-    pub cpu_throttle_initial: Option<i64>,
+    #[qapi(added = "2.7.0")]
+    pub cpu_throttle_initial: Option<u8>,
     #[qapi(name = "cpu-throttle-tailslow")]
     #[qapi(added = "5.1.0")]
     pub cpu_throttle_tailslow: Option<bool>,
     #[qapi(name = "decompress-threads")]
+    #[qapi(feature = "deprecated")]
     #[qapi(deprecated(added = "8.2.0"))]
     #[qapi(removed = "9.1.0")]
-    pub decompress_threads: Option<i64>,
+    pub decompress_threads: Option<u8>,
     #[qapi(name = "direct-io")]
     #[qapi(added = "9.1.0")]
     pub direct_io: Option<bool>,
     #[qapi(name = "downtime-limit")]
-    pub downtime_limit: Option<i64>,
+    #[qapi(added = "2.8.0")]
+    pub downtime_limit: Option<u64>,
     #[qapi(name = "max-bandwidth")]
-    pub max_bandwidth: Option<i64>,
+    #[qapi(added = "2.8.0")]
+    pub max_bandwidth: Option<u64>,
     #[qapi(name = "max-cpu-throttle")]
     #[qapi(added = "3.1.0")]
-    pub max_cpu_throttle: Option<i64>,
+    pub max_cpu_throttle: Option<u8>,
     #[qapi(name = "max-postcopy-bandwidth")]
     #[qapi(added = "3.0.0")]
     pub max_postcopy_bandwidth: Option<u64>,
@@ -1702,7 +1909,7 @@ pub struct MigrateSetParameters {
     pub mode: Option<MigMode>,
     #[qapi(name = "multifd-channels")]
     #[qapi(added = "4.0.0")]
-    pub multifd_channels: Option<i64>,
+    pub multifd_channels: Option<u8>,
     #[qapi(name = "multifd-compression")]
     #[qapi(added = "5.0.0")]
     pub multifd_compression: Option<MultiFdCompression>,
@@ -1711,25 +1918,37 @@ pub struct MigrateSetParameters {
     pub multifd_qatzip_level: Option<u8>,
     #[qapi(name = "multifd-zlib-level")]
     #[qapi(added = "5.0.0")]
-    pub multifd_zlib_level: Option<i64>,
+    pub multifd_zlib_level: Option<u8>,
     #[qapi(name = "multifd-zstd-level")]
     #[qapi(added = "5.0.0")]
-    pub multifd_zstd_level: Option<i64>,
+    pub multifd_zstd_level: Option<u8>,
     #[qapi(name = "throttle-trigger-threshold")]
     #[qapi(added = "5.0.0")]
-    pub throttle_trigger_threshold: Option<i64>,
+    pub throttle_trigger_threshold: Option<u8>,
     #[qapi(name = "tls-authz")]
     #[qapi(added = "4.0.0")]
     pub tls_authz: Option<StrOrNull>,
     #[qapi(name = "tls-creds")]
+    #[qapi(added = "2.7.0")]
     pub tls_creds: Option<StrOrNull>,
     #[qapi(name = "tls-hostname")]
+    #[qapi(added = "2.7.0")]
     pub tls_hostname: Option<StrOrNull>,
     #[qapi(name = "vcpu-dirty-limit")]
     #[qapi(added = "8.1.0")]
     pub vcpu_dirty_limit: Option<u64>,
     #[qapi(name = "x-checkpoint-delay")]
-    pub x_checkpoint_delay: Option<i64>,
+    #[qapi(feature = "unstable")]
+    #[qapi(added = "2.8.0")]
+    pub x_checkpoint_delay: Option<u32>,
+    #[qapi(name = "x-cpu-throttle-increment")]
+    #[qapi(added = "2.5.0")]
+    #[qapi(removed = "2.7.0")]
+    pub x_cpu_throttle_increment: Option<i64>,
+    #[qapi(name = "x-cpu-throttle-initial")]
+    #[qapi(added = "2.5.0")]
+    #[qapi(removed = "2.7.0")]
+    pub x_cpu_throttle_initial: Option<i64>,
     #[qapi(name = "x-multifd-channels")]
     #[qapi(added = "2.11.0")]
     #[qapi(removed = "4.0.0")]
@@ -1753,6 +1972,7 @@ pub struct MigrateSetParameters {
 #[qapi(command)]
 #[qapi(name = "migrate_set_speed")]
 #[qapi(returns = "()")]
+#[qapi(feature = "deprecated")]
 #[qapi(added = "1.1.0")]
 #[qapi(deprecated(added = "5.0.0"))]
 #[qapi(removed = "6.0.0")]
@@ -1773,33 +1993,41 @@ pub struct MigrateStartPostcopy {}
 #[qapi(command)]
 #[qapi(name = "nbd-server-add")]
 #[qapi(returns = "()")]
+#[qapi(feature = "deprecated")]
 #[qapi(added = "1.3.0")]
 #[qapi(deprecated(added = "5.2.0"))]
 #[qapi(allow_preconfig(added = "7.1.0"))]
 pub struct NbdServerAdd {
+    /// Also export a single dirty bitmap reachable from @device,
+    /// so the NBD client can use NBD_OPT_SET_META_CONTEXT with the
+    /// metadata context name "qemu:dirty-bitmap:BITMAP" to inspect the
+    /// bitmap (since 4.0).
     #[qapi(added = "4.0.0")]
-    #[qapi(removed = "5.0.0")]
     pub bitmap: Option<String>,
-    #[qapi(flatten)]
+    /// Free-form description of the export, up to 4096 bytes.
+    /// (Since 5.0)
     #[qapi(added = "5.0.0")]
-    pub data: Option<BlockExportNbd>,
-    #[qapi(removed = "5.0.0")]
-    pub device: Option<String>,
+    pub description: Option<String>,
+    /// The device name or node name of the node to be exported
+    pub device: String,
+    /// Export name.  If unspecified, the @device parameter is used
+    /// as the export name.  (Since 2.12)
     #[qapi(added = "2.12.0")]
-    #[qapi(removed = "5.0.0")]
     pub name: Option<String>,
-    #[qapi(removed = "5.0.0")]
+    /// Whether clients should be able to write to the device via
+    /// the NBD connection (default false).
     pub writable: Option<bool>,
 }
 
 #[qapi(command)]
 #[qapi(name = "nbd-server-remove")]
 #[qapi(returns = "()")]
+#[qapi(feature = "deprecated")]
 #[qapi(added = "2.12.0")]
 #[qapi(deprecated(added = "5.2.0"))]
 #[qapi(allow_preconfig(added = "7.1.0"))]
 pub struct NbdServerRemove {
-    pub mode: Option<NbdServerRemoveMode>,
+    pub mode: Option<BlockExportRemoveMode>,
     pub name: String,
 }
 
@@ -1809,22 +2037,18 @@ pub struct NbdServerRemove {
 #[qapi(added = "1.3.0")]
 #[qapi(allow_preconfig(added = "7.1.0"))]
 pub struct NbdServerStart {
-    #[qapi(removed = "10.0.0")]
-    pub addr: Option<SocketAddress>,
-    #[qapi(flatten)]
+    pub addr: SocketAddressLegacy,
+    #[qapi(name = "handshake-max-seconds")]
     #[qapi(added = "10.0.0")]
-    pub data: Option<NbdServerOptionsLegacy>,
+    pub handshake_max_seconds: Option<u32>,
     #[qapi(name = "max-connections")]
     #[qapi(added = "5.2.0")]
-    #[qapi(removed = "10.0.0")]
     pub max_connections: Option<u32>,
     #[qapi(name = "tls-authz")]
     #[qapi(added = "4.0.0")]
-    #[qapi(removed = "10.0.0")]
     pub tls_authz: Option<String>,
     #[qapi(name = "tls-creds")]
     #[qapi(added = "2.6.0")]
-    #[qapi(removed = "10.0.0")]
     pub tls_creds: Option<String>,
 }
 
@@ -1848,15 +2072,16 @@ pub struct NetdevAdd {
     #[qapi(flatten)]
     #[qapi(removed = "5.0.0")]
     pub arguments: Option<HashMap<String, serde_json::Value>>,
-    #[qapi(flatten)]
-    #[qapi(added = "5.0.0")]
-    pub data: Option<Netdev>,
-    #[qapi(removed = "5.0.0")]
-    pub id: Option<String>,
+    /// identifier for monitor commands.
+    pub id: String,
     #[qapi(removed = "2.5.0")]
     pub props: Option<serde_json::Value>,
-    #[qapi(removed = "5.0.0")]
-    pub r#type: Option<String>,
+    /// Specify the driver used for interpreting remaining arguments.
+    #[qapi(discriminator)]
+    pub r#type: NetClientDriver,
+    #[qapi(union)]
+    #[qapi(added = "5.0.0")]
+    pub u: Option<NetdevBranch>,
 }
 
 #[qapi(command)]
@@ -1878,16 +2103,17 @@ pub struct ObjectAdd {
     #[qapi(flatten)]
     #[qapi(removed = "6.0.0")]
     pub arguments: Option<HashMap<String, serde_json::Value>>,
-    #[qapi(flatten)]
-    #[qapi(added = "6.0.0")]
-    pub data: Option<ObjectOptions>,
-    #[qapi(removed = "6.0.0")]
-    pub id: Option<String>,
+    /// the name of the new object
+    pub id: String,
     #[qapi(removed = "6.0.0")]
     pub props: Option<serde_json::Value>,
+    /// the class name for the object to be created
     #[qapi(name = "qom-type")]
-    #[qapi(removed = "6.0.0")]
-    pub qom_type: Option<String>,
+    #[qapi(discriminator)]
+    pub qom_type: ObjectType,
+    #[qapi(union)]
+    #[qapi(added = "6.0.0")]
+    pub u: Option<ObjectOptionsBranch>,
 }
 
 #[qapi(command)]
@@ -1905,8 +2131,8 @@ pub struct ObjectDel {
 #[qapi(added = "1.1.0")]
 pub struct Pmemsave {
     pub filename: String,
-    pub size: i64,
-    pub val: i64,
+    pub size: u64,
+    pub val: u64,
 }
 
 /// Enable QMP capabilities.
@@ -2089,6 +2315,7 @@ pub struct QueryChardevBackends {}
 #[qapi(command)]
 #[qapi(name = "query-colo-status")]
 #[qapi(returns = "ColoStatus")]
+#[qapi(condition = "CONFIG_REPLICATION")]
 #[qapi(added = "3.1.0")]
 pub struct QueryColoStatus {}
 
@@ -2113,12 +2340,16 @@ pub struct QueryCommands {}
 #[qapi(command)]
 #[qapi(name = "query-cpu-definitions")]
 #[qapi(returns = "Vec<CpuDefinitionInfo>")]
+#[qapi(
+    condition = "defined(TARGET_PPC) || defined(TARGET_ARM) || defined(TARGET_I386) || defined(TARGET_S390X) || defined(TARGET_MIPS)"
+)]
 #[qapi(added = "1.2.0")]
 pub struct QueryCpuDefinitions {}
 
 #[qapi(command)]
 #[qapi(name = "query-cpu-model-baseline")]
 #[qapi(returns = "CpuModelBaselineInfo")]
+#[qapi(condition = "defined(TARGET_S390X)")]
 #[qapi(added = "2.8.0")]
 pub struct QueryCpuModelBaseline {
     pub modela: CpuModelInfo,
@@ -2128,6 +2359,7 @@ pub struct QueryCpuModelBaseline {
 #[qapi(command)]
 #[qapi(name = "query-cpu-model-comparison")]
 #[qapi(returns = "CpuModelCompareInfo")]
+#[qapi(condition = "defined(TARGET_S390X)")]
 #[qapi(added = "2.8.0")]
 pub struct QueryCpuModelComparison {
     pub modela: CpuModelInfo,
@@ -2137,6 +2369,7 @@ pub struct QueryCpuModelComparison {
 #[qapi(command)]
 #[qapi(name = "query-cpu-model-expansion")]
 #[qapi(returns = "CpuModelExpansionInfo")]
+#[qapi(condition = "defined(TARGET_S390X) || defined(TARGET_I386)")]
 #[qapi(added = "2.8.0")]
 pub struct QueryCpuModelExpansion {
     pub model: CpuModelInfo,
@@ -2146,6 +2379,7 @@ pub struct QueryCpuModelExpansion {
 #[qapi(command)]
 #[qapi(name = "query-cpus")]
 #[qapi(returns = "Vec<CpuInfo>")]
+#[qapi(feature = "deprecated")]
 #[qapi(added = "1.0.0")]
 #[qapi(deprecated(added = "5.0.0"))]
 #[qapi(removed = "6.0.0")]
@@ -2208,6 +2442,7 @@ pub struct QueryDumpGuestMemoryCapability {}
 #[qapi(command)]
 #[qapi(name = "query-events")]
 #[qapi(returns = "Vec<EventInfo>")]
+#[qapi(feature = "deprecated")]
 #[qapi(added = "1.2.0")]
 #[qapi(deprecated(added = "5.0.0"))]
 #[qapi(removed = "6.0.0")]
@@ -2236,6 +2471,7 @@ pub struct QueryFirmwareLog {
 #[qapi(command)]
 #[qapi(name = "query-gic-capabilities")]
 #[qapi(returns = "Vec<GicCapability>")]
+#[qapi(condition = "defined(TARGET_ARM)")]
 #[qapi(added = "2.6.0")]
 pub struct QueryGicCapabilities {}
 
@@ -2328,6 +2564,7 @@ pub struct QueryMigrate {}
 #[qapi(command)]
 #[qapi(name = "query-migrate-cache-size")]
 #[qapi(returns = "i64")]
+#[qapi(feature = "deprecated")]
 #[qapi(added = "1.2.0")]
 #[qapi(deprecated(added = "5.0.0"))]
 #[qapi(removed = "6.0.0")]
@@ -2348,6 +2585,7 @@ pub struct QueryMigrateParameters {}
 #[qapi(command)]
 #[qapi(name = "query-migrationthreads")]
 #[qapi(returns = "Vec<MigrationThreadInfo>")]
+#[qapi(feature = "deprecated")]
 #[qapi(added = "8.0.0")]
 #[qapi(deprecated(added = "9.2.0"))]
 pub struct QueryMigrationthreads {}
@@ -2455,6 +2693,7 @@ pub struct QueryS390xCpuPolarization {}
 #[qapi(command)]
 #[qapi(name = "query-sev")]
 #[qapi(returns = "SevInfo")]
+#[qapi(condition = "defined(TARGET_I386)")]
 #[qapi(added = "2.12.0")]
 pub struct QuerySev {}
 
@@ -2470,12 +2709,14 @@ pub struct QuerySevAttestationReport {
 #[qapi(command)]
 #[qapi(name = "query-sev-capabilities")]
 #[qapi(returns = "SevCapability")]
+#[qapi(condition = "defined(TARGET_I386)")]
 #[qapi(added = "2.12.0")]
 pub struct QuerySevCapabilities {}
 
 #[qapi(command)]
 #[qapi(name = "query-sev-launch-measure")]
 #[qapi(returns = "SevLaunchMeasureInfo")]
+#[qapi(condition = "defined(TARGET_I386)")]
 #[qapi(added = "2.12.0")]
 pub struct QuerySevLaunchMeasure {}
 
@@ -2496,6 +2737,7 @@ pub struct QuerySgxCapabilities {}
 #[qapi(command)]
 #[qapi(name = "query-spice")]
 #[qapi(returns = "SpiceInfo")]
+#[qapi(condition = "defined(CONFIG_SPICE)")]
 #[qapi(added = "1.0.0")]
 pub struct QuerySpice {}
 
@@ -2504,8 +2746,15 @@ pub struct QuerySpice {}
 #[qapi(returns = "Vec<StatsResult>")]
 #[qapi(added = "7.1.0")]
 pub struct QueryStats {
-    #[qapi(flatten)]
-    pub data: StatsFilter,
+    /// which providers to request statistics from, and
+    /// optionally which named values to return within each provider
+    pub providers: Option<Vec<StatsRequest>>,
+    /// the kind of objects to query.  Note that each possible
+    /// target may enable additional filtering options
+    #[qapi(discriminator)]
+    pub target: StatsTarget,
+    #[qapi(union)]
+    pub u: Option<StatsFilterBranch>,
 }
 
 /// Return the schema for all available runtime-collected statistics.
@@ -2549,18 +2798,21 @@ pub struct QueryTarget {}
 #[qapi(command)]
 #[qapi(name = "query-tpm")]
 #[qapi(returns = "Vec<TpmInfo>")]
+#[qapi(condition = "defined(CONFIG_TPM)")]
 #[qapi(added = "1.5.0")]
 pub struct QueryTpm {}
 
 #[qapi(command)]
 #[qapi(name = "query-tpm-models")]
 #[qapi(returns = "Vec<TpmModel>")]
+#[qapi(condition = "defined(CONFIG_TPM)")]
 #[qapi(added = "1.5.0")]
 pub struct QueryTpmModels {}
 
 #[qapi(command)]
 #[qapi(name = "query-tpm-types")]
 #[qapi(returns = "Vec<TpmType>")]
+#[qapi(condition = "defined(CONFIG_TPM)")]
 #[qapi(added = "1.5.0")]
 pub struct QueryTpmTypes {}
 
@@ -2595,6 +2847,7 @@ pub struct QueryVmGenerationId {}
 #[qapi(command)]
 #[qapi(name = "query-vnc")]
 #[qapi(returns = "VncInfo")]
+#[qapi(condition = "defined(CONFIG_VNC)")]
 #[qapi(added = "1.0.0")]
 pub struct QueryVnc {}
 
@@ -2603,12 +2856,14 @@ pub struct QueryVnc {}
 #[qapi(command)]
 #[qapi(name = "query-vnc-servers")]
 #[qapi(returns = "Vec<VncInfo2>")]
+#[qapi(condition = "defined(CONFIG_VNC)")]
 #[qapi(added = "2.3.0")]
 pub struct QueryVncServers {}
 
 #[qapi(command)]
 #[qapi(name = "query-xen-replication-status")]
 #[qapi(returns = "ReplicationStatus")]
+#[qapi(condition = "defined(CONFIG_REPLICATION)")]
 #[qapi(added = "2.9.0")]
 pub struct QueryXenReplicationStatus {}
 
@@ -2700,12 +2955,14 @@ pub struct RingbufWrite {
 #[qapi(command)]
 #[qapi(name = "rtc-reset-reinjection")]
 #[qapi(returns = "()")]
+#[qapi(condition = "defined(TARGET_I386)")]
 #[qapi(added = "2.1.0")]
 pub struct RtcResetReinjection {}
 
 #[qapi(command)]
 #[qapi(name = "screendump")]
 #[qapi(returns = "()")]
+#[qapi(condition = "CONFIG_PIXMAN")]
 #[qapi(added = "1.3.0")]
 pub struct Screendump {
     #[qapi(added = "2.12.0")]
@@ -2754,7 +3011,7 @@ pub struct SetCpuTopology {
     pub dedicated: Option<bool>,
     #[qapi(name = "drawer-id")]
     pub drawer_id: Option<u16>,
-    pub entitlement: Option<CpuS390Entitlement>,
+    pub entitlement: Option<S390CpuEntitlement>,
     #[qapi(name = "socket-id")]
     pub socket_id: Option<u16>,
 }
@@ -2777,8 +3034,11 @@ pub struct SetLink {
 #[qapi(added = "3.0.0")]
 #[qapi(allow_preconfig)]
 pub struct SetNumaNode {
-    #[qapi(flatten)]
-    pub data: NumaOptions,
+    /// NUMA option type
+    #[qapi(discriminator)]
+    pub r#type: NumaOptionsType,
+    #[qapi(union)]
+    pub u: Option<NumaOptionsBranch>,
 }
 
 #[qapi(command)]
@@ -2786,15 +3046,19 @@ pub struct SetNumaNode {
 #[qapi(returns = "()")]
 #[qapi(added = "1.1.0")]
 pub struct SetPassword {
-    #[qapi(removed = "7.0.0")]
-    pub connected: Option<String>,
-    #[qapi(flatten)]
+    /// How to handle existing clients when changing the
+    /// password.  If nothing is specified, defaults to 'keep'.  For
+    /// VNC, only 'keep' is currently implemented.
+    pub connected: Option<SetPasswordAction>,
+    /// the new password
+    pub password: String,
+    /// - 'vnc' to modify the VNC server password
+    /// - 'spice' to modify the Spice server password
+    #[qapi(discriminator)]
+    pub protocol: DisplayProtocol,
+    #[qapi(union)]
     #[qapi(added = "7.0.0")]
-    pub data: Option<SetPasswordOptions>,
-    #[qapi(removed = "7.0.0")]
-    pub password: Option<String>,
-    #[qapi(removed = "7.0.0")]
-    pub protocol: Option<String>,
+    pub u: Option<SetPasswordOptionsBranch>,
 }
 
 #[qapi(command)]
@@ -2934,6 +3198,7 @@ pub struct SystemWakeup {}
 #[qapi(added = "2.2.0")]
 pub struct TraceEventGetState {
     pub name: String,
+    #[qapi(feature = "deprecated")]
     #[qapi(added = "2.7.0")]
     #[qapi(deprecated(added = "8.1.0"))]
     #[qapi(removed = "9.1.0")]
@@ -2964,6 +3229,7 @@ pub struct TraceEventSetState {
     /// setting their state on the specified vCPU. Special case: if @name is an exact
     /// match, @vcpu is given and the event does not have the "vcpu" property, an
     /// error is returned.
+    #[qapi(feature = "deprecated")]
     #[qapi(added = "2.7.0")]
     #[qapi(deprecated(added = "8.1.0"))]
     #[qapi(removed = "9.1.0")]
@@ -2975,7 +3241,7 @@ pub struct TraceEventSetState {
 #[qapi(returns = "()")]
 #[qapi(added = "1.1.0")]
 pub struct Transaction {
-    pub actions: Vec<BlockdevAction>,
+    pub actions: Vec<TransactionAction>,
     #[qapi(added = "2.5.0")]
     pub properties: Option<TransactionProperties>,
 }
@@ -3004,6 +3270,7 @@ pub struct XAccelStats {}
 #[qapi(command)]
 #[qapi(name = "x-blockdev-amend")]
 #[qapi(returns = "()")]
+#[qapi(feature = "unstable")]
 #[qapi(added = "5.1.0")]
 #[qapi(unstable(added = "6.2.0"))]
 #[qapi(allow_preconfig(added = "7.1.0"))]
@@ -3027,6 +3294,7 @@ pub struct XBlockdevAmend {
 #[qapi(command)]
 #[qapi(name = "x-blockdev-change")]
 #[qapi(returns = "()")]
+#[qapi(feature = "unstable")]
 #[qapi(added = "2.7.0")]
 #[qapi(unstable(added = "6.2.0"))]
 #[qapi(allow_preconfig(added = "7.1.0"))]
@@ -3042,8 +3310,11 @@ pub struct XBlockdevChange {
 #[qapi(added = "2.12.0")]
 #[qapi(removed = "3.0.0")]
 pub struct XBlockdevCreate {
-    #[qapi(flatten)]
-    pub data: BlockdevCreateOptions,
+    /// block driver to create the image format
+    #[qapi(discriminator)]
+    pub driver: BlockdevDriver,
+    #[qapi(union)]
+    pub u: Option<BlockdevCreateOptionsBranch>,
 }
 
 /// Deletes a block device that has been added using blockdev-add.
@@ -3065,7 +3336,7 @@ pub struct XBlockdevDel {
     pub id: Option<String>,
     /// Name of the graph node to delete.
     #[qapi(name = "node-name")]
-    pub node_name: Option<String>,
+    pub node_name: String,
 }
 
 /// Inserts a medium (a block driver state tree) into a block device. That block
@@ -3082,7 +3353,7 @@ pub struct XBlockdevDel {
 #[qapi(removed = "2.12.0")]
 pub struct XBlockdevInsertMedium {
     /// optional Block device name (deprecated, use @id instead)
-    pub device: String,
+    pub device: Option<String>,
     /// optional The name or QOM path of the guest device (since: 2.8)
     #[qapi(added = "2.8.0")]
     pub id: Option<String>,
@@ -3107,7 +3378,7 @@ pub struct XBlockdevInsertMedium {
 #[qapi(removed = "2.12.0")]
 pub struct XBlockdevRemoveMedium {
     /// optional Block device name (deprecated, use @id instead)
-    pub device: String,
+    pub device: Option<String>,
     /// optional The name or QOM path of the guest device (since: 2.8)
     #[qapi(added = "2.8.0")]
     pub id: Option<String>,
@@ -3159,13 +3430,28 @@ pub struct XBlockdevRemoveMedium {
 #[qapi(added = "4.0.0")]
 #[qapi(removed = "6.1.0")]
 pub struct XBlockdevReopen {
-    #[qapi(flatten)]
-    pub data: BlockdevOptions,
+    #[qapi(name = "auto-read-only")]
+    pub auto_read_only: Option<bool>,
+    pub cache: Option<BlockdevCacheOptions>,
+    #[qapi(name = "detect-zeroes")]
+    pub detect_zeroes: Option<BlockdevDetectZeroesOptions>,
+    pub discard: Option<BlockdevDiscardOptions>,
+    #[qapi(discriminator)]
+    pub driver: BlockdevDriver,
+    #[qapi(name = "force-share")]
+    pub force_share: Option<bool>,
+    #[qapi(name = "node-name")]
+    pub node_name: Option<String>,
+    #[qapi(name = "read-only")]
+    pub read_only: Option<bool>,
+    #[qapi(union)]
+    pub u: Option<BlockdevOptionsBranch>,
 }
 
 #[qapi(command)]
 #[qapi(name = "x-blockdev-set-iothread")]
 #[qapi(returns = "()")]
+#[qapi(feature = "unstable")]
 #[qapi(added = "2.12.0")]
 #[qapi(unstable(added = "6.2.0"))]
 #[qapi(allow_preconfig(added = "7.1.0"))]
@@ -3182,8 +3468,10 @@ pub struct XBlockdevSetIothread {
 #[qapi(added = "3.0.0")]
 #[qapi(removed = "4.0.0")]
 pub struct XBlockDirtyBitmapDisable {
-    #[qapi(flatten)]
-    pub data: BlockDirtyBitmap,
+    /// name of the dirty bitmap
+    pub name: String,
+    /// name of device/node which the bitmap is tracking
+    pub node: String,
 }
 
 #[qapi(command)]
@@ -3192,8 +3480,10 @@ pub struct XBlockDirtyBitmapDisable {
 #[qapi(added = "3.0.0")]
 #[qapi(removed = "4.0.0")]
 pub struct XBlockDirtyBitmapEnable {
-    #[qapi(flatten)]
-    pub data: BlockDirtyBitmap,
+    /// name of the dirty bitmap
+    pub name: String,
+    /// name of device/node which the bitmap is tracking
+    pub node: String,
 }
 
 #[qapi(command)]
@@ -3202,8 +3492,12 @@ pub struct XBlockDirtyBitmapEnable {
 #[qapi(added = "3.0.0")]
 #[qapi(removed = "4.0.0")]
 pub struct XBlockDirtyBitmapMerge {
-    #[qapi(flatten)]
-    pub data: BlockDirtyBitmapMerge,
+    /// name of the destination dirty bitmap
+    pub dst_name: String,
+    /// name of device/node which the bitmap is tracking
+    pub node: String,
+    /// name of the source dirty bitmap
+    pub src_name: String,
 }
 
 #[qapi(command)]
@@ -3230,6 +3524,8 @@ pub struct XBlockLatencyHistogramSet {
 #[qapi(command)]
 #[qapi(name = "x-colo-lost-heartbeat")]
 #[qapi(returns = "()")]
+#[qapi(feature = "unstable")]
+#[qapi(condition = "CONFIG_REPLICATION")]
 #[qapi(added = "2.8.0")]
 #[qapi(unstable(added = "6.2.0"))]
 pub struct XColoLostHeartbeat {}
@@ -3237,12 +3533,15 @@ pub struct XColoLostHeartbeat {}
 #[qapi(command)]
 #[qapi(name = "x-debug-block-dirty-bitmap-sha256")]
 #[qapi(returns = "BlockDirtyBitmapSha256")]
+#[qapi(feature = "unstable")]
 #[qapi(added = "2.10.0")]
 #[qapi(unstable(added = "6.2.0"))]
 #[qapi(allow_preconfig(added = "7.1.0"))]
 pub struct XDebugBlockDirtyBitmapSha256 {
-    #[qapi(flatten)]
-    pub data: BlockDirtyBitmap,
+    /// name of the dirty bitmap
+    pub name: String,
+    /// name of device/node which the bitmap is tracking
+    pub node: String,
 }
 
 /// Get the block graph.
@@ -3250,6 +3549,7 @@ pub struct XDebugBlockDirtyBitmapSha256 {
 #[qapi(command)]
 #[qapi(name = "x-debug-query-block-graph")]
 #[qapi(returns = "XDbgBlockGraph")]
+#[qapi(feature = "unstable")]
 #[qapi(added = "4.0.0")]
 #[qapi(unstable(added = "6.2.0"))]
 #[qapi(allow_preconfig(added = "7.1.0"))]
@@ -3267,6 +3567,7 @@ pub struct XDebugQueryBlockGraph {}
 #[qapi(command)]
 #[qapi(name = "xen-colo-do-checkpoint")]
 #[qapi(returns = "()")]
+#[qapi(condition = "defined(CONFIG_REPLICATION)")]
 #[qapi(added = "2.9.0")]
 pub struct XenColoDoCheckpoint {}
 
@@ -3323,6 +3624,7 @@ pub struct XenSetGlobalDirtyLog {
 #[qapi(command)]
 #[qapi(name = "xen-set-replication")]
 #[qapi(returns = "()")]
+#[qapi(condition = "defined(CONFIG_REPLICATION)")]
 #[qapi(added = "2.9.0")]
 pub struct XenSetReplication {
     /// true to enable, false to disable.
@@ -3343,6 +3645,7 @@ pub struct XenSetReplication {
 #[qapi(command)]
 #[qapi(name = "x-exit-preconfig")]
 #[qapi(returns = "()")]
+#[qapi(feature = "unstable")]
 #[qapi(added = "3.0.0")]
 #[qapi(unstable(added = "6.2.0"))]
 #[qapi(allow_preconfig)]
@@ -3427,6 +3730,7 @@ pub struct XQueryOpcount {}
 #[qapi(name = "x-query-profile")]
 #[qapi(feature = "unstable")]
 #[qapi(returns = "HumanReadableText")]
+#[qapi(condition = "CONFIG_TCG")]
 #[qapi(added = "6.2.0")]
 #[qapi(unstable(added = "6.2.0"))]
 #[qapi(removed = "8.1.0")]

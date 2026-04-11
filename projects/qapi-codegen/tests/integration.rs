@@ -1,11 +1,26 @@
 use std::path::Path;
 
+use qapi_codegen::qapi_ir::rustify_name;
 use qapi_codegen::unified::build_unified_registry;
 use qapi_codegen::versions::{
     discover_version_tags, extract_schema_from_tag, find_extracted_schema_entry, find_schema_entry,
     parse_version_tag,
 };
 use qapi_codegen::{parse_schema, read_schema_with_version, QapiSchemaToken};
+
+/// Shorthand for looking up a type in the unified registry. Registry keys are
+/// always the rustified form, so callers that know the raw QAPI name go
+/// through this helper.
+fn lookup<'r>(
+    registry: &'r qapi_codegen::unified::UnifiedRegistry,
+    raw_name: &str,
+) -> Option<&'r qapi_codegen::unified::UnifiedType> {
+    registry.types.get(&rustify_name(raw_name))
+}
+
+fn has_key(registry: &qapi_codegen::unified::UnifiedRegistry, raw_name: &str) -> bool {
+    registry.types.contains_key(&rustify_name(raw_name))
+}
 
 fn qemu_root() -> &'static Path {
     let workspace_root = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -474,14 +489,13 @@ fn test_boxed_command_different_name_not_lost() {
     for (cmd_name, data_ref) in &boxed_commands {
         // The command entry must exist
         assert!(
-            registry.types.contains_key(*cmd_name),
+            has_key(&registry, cmd_name),
             "Command '{}' should exist in registry (was lost during boxed merge)",
             cmd_name,
         );
 
         // The command must be a struct with the command attribute
-        if let Some(qapi_codegen::unified::UnifiedType::Struct(us)) = registry.types.get(*cmd_name)
-        {
+        if let Some(qapi_codegen::unified::UnifiedType::Struct(us)) = lookup(&registry, cmd_name) {
             let has_command =
                 us.ir.meta.attributes.iter().any(
                     |a| matches!(a, qapi_codegen::qapi_ir::Attribute::Unit(n) if n == "command"),
@@ -503,28 +517,35 @@ fn test_boxed_command_different_name_not_lost() {
             panic!(
                 "Command '{}' should be a Struct in the registry, got {:?}",
                 cmd_name,
-                registry.types.get(*cmd_name).map(|t| match t {
+                lookup(&registry, cmd_name).map(|t| match t {
                     qapi_codegen::unified::UnifiedType::Enum(_) => "Enum",
                     qapi_codegen::unified::UnifiedType::Struct(_) => "Struct",
                 }),
             );
         }
 
-        // The data type must NOT have the command attribute — it's the payload, not the command
-        if let Some(ut) = registry.types.get(*data_ref) {
-            let has_command = match ut {
-                qapi_codegen::unified::UnifiedType::Struct(us) => us.ir.meta.attributes.iter().any(
-                    |a| matches!(a, qapi_codegen::qapi_ir::Attribute::Unit(n) if n == "command"),
-                ),
-                qapi_codegen::unified::UnifiedType::Enum(ue) => ue.ir.meta.attributes.iter().any(
-                    |a| matches!(a, qapi_codegen::qapi_ir::Attribute::Unit(n) if n == "command"),
-                ),
-            };
-            assert!(
-                !has_command,
-                "Data type '{}' should NOT have #[qapi(command)] (command is '{}')",
-                data_ref, cmd_name,
-            );
+        // With key normalization, command and data ref collapse to the same
+        // entry when their rustified names match. We only assert the data
+        // struct doesn't carry the command attribute when it's a separate
+        // entry — i.e., when their rustified names differ.
+        if rustify_name(cmd_name) != rustify_name(data_ref) {
+            if let Some(ut) = lookup(&registry, data_ref) {
+                let has_command = match ut {
+                    qapi_codegen::unified::UnifiedType::Struct(us) =>
+                        us.ir.meta.attributes.iter().any(
+                            |a| matches!(a, qapi_codegen::qapi_ir::Attribute::Unit(n) if n == "command"),
+                        ),
+                    qapi_codegen::unified::UnifiedType::Enum(ue) =>
+                        ue.ir.meta.attributes.iter().any(
+                            |a| matches!(a, qapi_codegen::qapi_ir::Attribute::Unit(n) if n == "command"),
+                        ),
+                };
+                assert!(
+                    !has_command,
+                    "Data type '{}' should NOT have #[qapi(command)] (command is '{}')",
+                    data_ref, cmd_name,
+                );
+            }
         }
     }
 }
@@ -549,16 +570,16 @@ fn test_boxed_command_same_name_still_merges() {
     ];
 
     for (cmd_name, data_ref) in &same_name_commands {
-        // The data struct should exist and have the command attribute
+        // The data struct should exist and have the command attribute.
+        // Command and data ref share the same rustified key.
         assert!(
-            registry.types.contains_key(*data_ref),
+            has_key(&registry, data_ref),
             "Data struct '{}' should exist for command '{}'",
             data_ref,
             cmd_name,
         );
 
-        if let Some(qapi_codegen::unified::UnifiedType::Struct(us)) = registry.types.get(*data_ref)
-        {
+        if let Some(qapi_codegen::unified::UnifiedType::Struct(us)) = lookup(&registry, data_ref) {
             let has_command =
                 us.ir.meta.attributes.iter().any(
                     |a| matches!(a, qapi_codegen::qapi_ir::Attribute::Unit(n) if n == "command"),
@@ -570,12 +591,12 @@ fn test_boxed_command_same_name_still_merges() {
             );
         }
 
-        // The command-name entry should NOT exist separately (it was merged)
-        assert!(
-            !registry.types.contains_key(*cmd_name),
-            "Command '{}' should have been merged into '{}', not exist separately",
-            cmd_name,
-            data_ref,
+        // Command and data ref both rustify to the same key — they share a
+        // single entry. There is no separate "command-name" entry.
+        assert_eq!(
+            rustify_name(cmd_name),
+            rustify_name(data_ref),
+            "test setup expects command and data ref to rustify to the same name",
         );
     }
 }
@@ -637,8 +658,7 @@ fn test_boxed_command_preserves_allow_preconfig() {
     ];
 
     for cmd_name in &preconfig_commands {
-        if let Some(qapi_codegen::unified::UnifiedType::Struct(us)) = registry.types.get(*cmd_name)
-        {
+        if let Some(qapi_codegen::unified::UnifiedType::Struct(us)) = lookup(&registry, cmd_name) {
             let has_preconfig = us.ir.meta.attributes.iter().any(
                 |a| matches!(a, qapi_codegen::qapi_ir::Attribute::Unit(n) if n == "allow_preconfig"),
             );
@@ -663,8 +683,7 @@ fn test_boxed_command_preserves_returns() {
     let registry = build_unified_registry(repo, &tag_refs).expect("build_unified_registry failed");
 
     // query-stats returns Vec<StatsResult>
-    if let Some(qapi_codegen::unified::UnifiedType::Struct(us)) = registry.types.get("query-stats")
-    {
+    if let Some(qapi_codegen::unified::UnifiedType::Struct(us)) = lookup(&registry, "query-stats") {
         let returns_attr = us.ir.meta.attributes.iter().find(
             |a| matches!(a, qapi_codegen::qapi_ir::Attribute::Item { name, .. } if name == "returns"),
         );
@@ -685,8 +704,7 @@ fn test_boxed_command_preserves_returns() {
 
     // Commands returning () should also have the attribute
     for cmd_name in &["netdev_add", "announce-self", "block-export-add"] {
-        if let Some(qapi_codegen::unified::UnifiedType::Struct(us)) = registry.types.get(*cmd_name)
-        {
+        if let Some(qapi_codegen::unified::UnifiedType::Struct(us)) = lookup(&registry, cmd_name) {
             let has_returns = us.ir.meta.attributes.iter().any(
                 |a| matches!(a, qapi_codegen::qapi_ir::Attribute::Item { name, .. } if name == "returns"),
             );
@@ -726,8 +744,7 @@ fn test_transitioned_commands_version_ranges() {
     ];
 
     for (cmd_name, max_since) in &transitioned {
-        if let Some(qapi_codegen::unified::UnifiedType::Struct(us)) = registry.types.get(*cmd_name)
-        {
+        if let Some(qapi_codegen::unified::UnifiedType::Struct(us)) = lookup(&registry, cmd_name) {
             assert!(
                 us.versions.since <= *max_since,
                 "Command '{}' should have since<={:?}, got {:?}",
@@ -767,8 +784,7 @@ fn test_always_boxed_commands_version_ranges() {
     ];
 
     for cmd_name in &always_boxed {
-        if let Some(qapi_codegen::unified::UnifiedType::Struct(us)) = registry.types.get(*cmd_name)
-        {
+        if let Some(qapi_codegen::unified::UnifiedType::Struct(us)) = lookup(&registry, cmd_name) {
             assert!(
                 us.versions.until.is_none(),
                 "Always-boxed command '{}' should NOT be marked as removed (got until={:?})",
@@ -791,7 +807,8 @@ fn test_always_boxed_commands_version_ranges() {
 // ── Field evolution tests ──
 
 /// When a command transitions from inline data to boxed, the old inline fields
-/// should get `until` annotations and a new flatten field should appear.
+/// should get `until` annotations and the new boxed type's fields should be
+/// inlined (duplicated) directly into the command struct.
 #[test]
 fn test_field_evolution_inline_to_boxed() {
     let repo = qemu_root();
@@ -800,33 +817,43 @@ fn test_field_evolution_inline_to_boxed() {
 
     let registry = build_unified_registry(repo, &tag_refs).expect("build_unified_registry failed");
 
-    // netdev_add: had inline {id, type, props} pre-5.0, then boxed {data: Netdev} from 5.0
-    if let Some(qapi_codegen::unified::UnifiedType::Struct(us)) = registry.types.get("netdev_add") {
-        // Should have a "data" field (the flatten field for Netdev)
+    // netdev_add: had inline {id, type, props} pre-5.0, then boxed 'Netdev' from 5.0.
+    // With flatten-inlining, Netdev's fields are duplicated directly into netdev_add,
+    // and no synthetic "data" field is emitted.
+    if let Some(qapi_codegen::unified::UnifiedType::Struct(us)) = lookup(&registry, "netdev_add") {
+        // No synthetic "data" field should exist -- fields are inlined directly.
         let has_data_field = us.ir.fields.iter().any(|f| f.name == "data");
         assert!(
-            has_data_field,
-            "netdev_add should have a 'data' field (flatten to Netdev) after boxed transition",
+            !has_data_field,
+            "netdev_add should not have a synthetic 'data' field after flatten-inlining",
         );
 
-        // The data field should have a flatten attribute
-        if let Some(data_field) = us.ir.fields.iter().find(|f| f.name == "data") {
-            let has_flatten =
-                data_field.meta.attributes.iter().any(
-                    |a| matches!(a, qapi_codegen::qapi_ir::Attribute::Unit(n) if n == "flatten"),
-                );
-            assert!(
-                has_flatten,
-                "netdev_add's data field should have #[qapi(flatten)]",
+        // No synthetic-ref flatten field should exist. The only flatten allowed
+        // is the `HashMap` catch-all left over from pre-5.0 `gen: false`
+        // behavior, which is a distinct mechanism from data-ref inlining.
+        let bad_flatten = us.ir.fields.iter().any(|f| {
+            let is_flatten = f.meta.attributes.iter().any(
+                |a| matches!(a, qapi_codegen::qapi_ir::Attribute::Unit(n) if n == "flatten"),
             );
-        }
+            is_flatten && !f.r#type.starts_with("HashMap<")
+        });
+        assert!(
+            !bad_flatten,
+            "netdev_add should not carry any non-HashMap #[qapi(flatten)] fields after inlining",
+        );
 
-        // Old inline fields (id, type) should have until versions set
+        // Netdev's discriminator field `type` should now appear directly on netdev_add.
+        let has_type_field = us.ir.fields.iter().any(|f| f.name == "type");
+        assert!(
+            has_type_field,
+            "netdev_add should expose Netdev's discriminator `type` field after inlining",
+        );
+
+        // Some of the pre-boxed inline fields should still appear with `until` set.
         let old_fields_with_until: Vec<_> = us
             .ir
             .fields
             .iter()
-            .filter(|f| f.name != "data")
             .filter(|f| {
                 us.field_versions
                     .get(&f.name)
@@ -872,7 +899,7 @@ fn test_data_types_no_command_leakage() {
     ];
 
     for type_name in &data_types {
-        if let Some(ut) = registry.types.get(*type_name) {
+        if let Some(ut) = lookup(&registry, type_name) {
             let attrs = match ut {
                 qapi_codegen::unified::UnifiedType::Struct(us) => &us.ir.meta.attributes,
                 qapi_codegen::unified::UnifiedType::Enum(ue) => &ue.ir.meta.attributes,
@@ -989,17 +1016,16 @@ fn test_all_latest_commands_in_registry() {
         for token in schema.iter() {
             if let QapiSchemaToken::Command(cmd) = token {
                 let cmd_name = cmd.name;
-                // Check if the command exists either under its own name or
-                // merged into its data ref
+                // Registry is keyed by rustified name. Either the command
+                // name itself or its data ref (if they rustify to the same
+                // thing, they're the same entry) must resolve.
                 let data_ref = match &cmd.data {
                     Some(qapi_codegen::MembersOrRef::Ref(name)) => Some(name.to_string()),
                     _ => None,
                 };
 
-                let found = registry.types.contains_key(cmd_name)
-                    || data_ref
-                        .as_ref()
-                        .map_or(false, |r| registry.types.contains_key(r.as_str()));
+                let found = has_key(&registry, cmd_name)
+                    || data_ref.as_ref().map_or(false, |r| has_key(&registry, r));
 
                 if !found {
                     missing.push(cmd_name.to_string());
@@ -1067,9 +1093,9 @@ fn test_all_latest_events_in_registry() {
         let schema = parse_schema(content).unwrap();
         for token in schema.iter() {
             if let QapiSchemaToken::Event(evt) = token {
-                // Events are stored with "Event" suffix in the registry
-                let event_key = format!("{}Event", evt.name);
-                if !registry.types.contains_key(event_key.as_str()) {
+                // Events are stored with "Event" suffix, keyed by rustified name.
+                let event_key = rustify_name(&format!("{}Event", evt.name));
+                if !registry.types.contains_key(&event_key) {
                     missing.push(evt.name.to_string());
                 }
             }
@@ -1092,7 +1118,8 @@ fn test_events_have_event_attribute() {
 
     let registry = build_unified_registry(repo, &tag_refs).expect("build_unified_registry failed");
 
-    // Events are stored with "Event" suffix in the registry
+    // Events are stored with "Event" suffix in the registry, keyed by
+    // rustified name (e.g. "SHUTDOWN" → "ShutdownEvent").
     let events = [
         "SHUTDOWNEvent",
         "RESETEvent",
@@ -1102,8 +1129,7 @@ fn test_events_have_event_attribute() {
     ];
 
     for event_name in &events {
-        if let Some(qapi_codegen::unified::UnifiedType::Struct(us)) =
-            registry.types.get(*event_name)
+        if let Some(qapi_codegen::unified::UnifiedType::Struct(us)) = lookup(&registry, event_name)
         {
             let has_event =
                 us.ir.meta.attributes.iter().any(
@@ -1211,7 +1237,7 @@ fn test_alternates_are_enums() {
     let alternates = ["BlockdevRef", "StrOrNull"];
 
     for alt_name in &alternates {
-        match registry.types.get(*alt_name) {
+        match lookup(&registry, alt_name) {
             Some(qapi_codegen::unified::UnifiedType::Enum(ue)) => {
                 assert!(
                     ue.ir.variants.len() >= 2,
@@ -1265,10 +1291,11 @@ fn test_condition_attributes_preserved() {
 
 // ── Flatten field tests ──
 
-/// Boxed commands with different names should produce flatten fields
-/// in the generated code.
+/// Boxed commands with different names should have their data type's fields
+/// inlined (duplicated) directly into the command struct, rather than emitting
+/// a synthetic `data` field annotated with `#[qapi(flatten)]`.
 #[test]
-fn test_generated_code_has_flatten_for_boxed_commands() {
+fn test_generated_code_inlines_boxed_command_data() {
     let repo = qemu_root();
     let tags = discover_version_tags(repo).expect("discover_version_tags failed");
     let tag_refs: Vec<&str> = tags.iter().map(|s| s.as_str()).collect();
@@ -1277,26 +1304,60 @@ fn test_generated_code_has_flatten_for_boxed_commands() {
         .expect("generate_unified_code failed");
     let code = output.combined();
 
-    // The generated code should contain flatten attributes for boxed commands
-    // that have different names from their data types
-    let flatten_count = code.matches("#[qapi(flatten)]").count();
-    assert!(
-        flatten_count > 0,
-        "Generated code should contain #[qapi(flatten)] attributes for boxed commands, got 0",
-    );
-
-    // Specifically, NetdevAdd should have a flatten field
+    // NetdevAdd should inline Netdev's discriminator (`type`) directly and must
+    // not contain a synthetic `data: Netdev` flatten field.
     let netdev_pos = code
         .find("pub struct NetdevAdd")
         .expect("NetdevAdd not found");
     let end = code[netdev_pos..].find("\n}\n").unwrap_or(500);
     let netdev_body = &code[netdev_pos..netdev_pos + end];
     assert!(
-        netdev_body.contains("flatten")
-            || code[netdev_pos.saturating_sub(200)..netdev_pos + end].contains("flatten"),
-        "NetdevAdd should have a flatten field for Netdev.\nBody: {}",
+        !netdev_body.contains("pub data: Netdev"),
+        "NetdevAdd should not contain a `data: Netdev` flatten field.\nBody: {}",
         netdev_body,
     );
+    assert!(
+        netdev_body.contains("pub r#type:") || netdev_body.contains("pub type_:"),
+        "NetdevAdd should inline Netdev's `type` discriminator field.\nBody: {}",
+        netdev_body,
+    );
+
+    // BlockdevAdd should not contain a `data: BlockdevOptions` flatten field
+    // -- BlockdevOptions' base fields should be inlined directly.
+    let ba_pos = code
+        .find("pub struct BlockdevAdd")
+        .expect("BlockdevAdd not found");
+    let ba_end = code[ba_pos..].find("\n}\n").unwrap_or(2000);
+    let ba_body = &code[ba_pos..ba_pos + ba_end];
+    assert!(
+        !ba_body.contains("pub data: BlockdevOptions")
+            && !ba_body.contains("pub data: Option<BlockdevOptions>"),
+        "BlockdevAdd should not contain a `data: BlockdevOptions` flatten field.\nBody: {}",
+        ba_body,
+    );
+    assert!(
+        ba_body.contains("pub driver"),
+        "BlockdevAdd should inline BlockdevOptions' `driver` field.\nBody: {}",
+        ba_body,
+    );
+
+    // The only remaining `#[qapi(flatten)]` occurrences should be catch-all
+    // HashMap `arguments` fields on `gen: false` commands.
+    for line in code.lines().enumerate().collect::<Vec<_>>().windows(6) {
+        if line[0].1.trim() == "#[qapi(flatten)]" {
+            // Look ahead for the field type on the next few lines.
+            let ahead: String = line[1..]
+                .iter()
+                .map(|(_, l)| l.trim_start())
+                .collect::<Vec<_>>()
+                .join(" ");
+            assert!(
+                ahead.contains("HashMap") && ahead.contains("arguments"),
+                "Unexpected #[qapi(flatten)] usage -- only HashMap `arguments` catch-alls should remain.\nContext: {}",
+                ahead,
+            );
+        }
+    }
 }
 
 // ── Generated code structural tests ──

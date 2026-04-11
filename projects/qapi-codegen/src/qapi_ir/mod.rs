@@ -58,7 +58,7 @@ fn fix_leading_digit(input: &str) -> String {
     }
 }
 
-pub(crate) fn rustify_name(input: &str) -> String {
+pub fn rustify_name(input: &str) -> String {
     // Avoid collision with Rust built-in types
     if input == "String" {
         return "QapiString".to_string();

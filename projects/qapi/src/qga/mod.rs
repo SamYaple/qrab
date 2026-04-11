@@ -35,6 +35,7 @@ pub struct GuestAuthorizedKeys {
 }
 
 #[qapi(name = "GuestCCWAddress")]
+#[qapi(condition = "(CONFIG_WIN32 || CONFIG_LINUX)")]
 #[qapi(added = "6.0.0")]
 pub struct GuestCcwAddress {
     /// channel subsystem image id
@@ -49,6 +50,7 @@ pub struct GuestCcwAddress {
 
 /// Get statistics of each CPU in millisecond.
 ///
+#[qapi(condition = "CONFIG_LINUX")]
 #[qapi(added = "7.1.0")]
 pub struct GuestCpuStats {
     /// guest operating system
@@ -58,6 +60,7 @@ pub struct GuestCpuStats {
     pub u: Option<GuestCpuStatsBranch>,
 }
 
+#[qapi(condition = "CONFIG_LINUX")]
 #[qapi(added = "7.1.0")]
 pub enum GuestCpuStatsBranch {
     #[qapi(name = "linux")]
@@ -66,6 +69,7 @@ pub enum GuestCpuStatsBranch {
 
 /// Guest operating systems supporting CPU statistics
 ///
+#[qapi(condition = "CONFIG_LINUX")]
 #[qapi(added = "7.1.0")]
 pub enum GuestCpuStatsType {
     /// Linux
@@ -75,6 +79,7 @@ pub enum GuestCpuStatsType {
 
 /// Id of the device
 ///
+#[qapi(condition = "CONFIG_WIN32")]
 #[qapi(added = "5.2.0")]
 pub struct GuestDeviceId {
     /// device type
@@ -84,6 +89,7 @@ pub struct GuestDeviceId {
     pub u: Option<GuestDeviceIdBranch>,
 }
 
+#[qapi(condition = "CONFIG_WIN32")]
 #[qapi(added = "5.2.0")]
 pub enum GuestDeviceIdBranch {
     #[qapi(name = "pci")]
@@ -91,6 +97,7 @@ pub enum GuestDeviceIdBranch {
 }
 
 #[qapi(name = "GuestDeviceIdPCI")]
+#[qapi(condition = "CONFIG_WIN32")]
 #[qapi(added = "5.2.0")]
 pub struct GuestDeviceIdPci {
     /// device ID
@@ -101,6 +108,7 @@ pub struct GuestDeviceIdPci {
     pub vendor_id: u16,
 }
 
+#[qapi(condition = "CONFIG_WIN32")]
 #[qapi(added = "5.2.0")]
 pub struct GuestDeviceInfo {
     /// driver release date, in nanoseconds since the epoch
@@ -116,12 +124,14 @@ pub struct GuestDeviceInfo {
     pub id: Option<GuestDeviceId>,
 }
 
+#[qapi(condition = "CONFIG_WIN32")]
 #[qapi(added = "5.2.0")]
 pub enum GuestDeviceType {
     #[qapi(name = "pci")]
     Pci,
 }
 
+#[qapi(condition = "(CONFIG_WIN32 || CONFIG_LINUX)")]
 #[qapi(added = "2.2.0")]
 pub struct GuestDiskAddress {
     /// bus id
@@ -151,6 +161,7 @@ pub struct GuestDiskAddress {
 
 /// An enumeration of bus type of disks
 ///
+#[qapi(condition = "(CONFIG_WIN32 || CONFIG_LINUX)")]
 #[qapi(added = "2.2.0")]
 pub enum GuestDiskBusType {
     /// floppy disks
@@ -226,6 +237,7 @@ pub enum GuestDiskBusType {
     Xen,
 }
 
+#[qapi(condition = "(CONFIG_WIN32 || CONFIG_LIBUDEV)")]
 #[qapi(added = "5.2.0")]
 pub struct GuestDiskInfo {
     /// disk address information (only for non-virtual devices)
@@ -248,6 +260,7 @@ pub struct GuestDiskInfo {
 
 /// Disk type related smart information.
 ///
+#[qapi(condition = "(CONFIG_WIN32 || CONFIG_LIBUDEV)")]
 #[qapi(added = "7.1.0")]
 pub struct GuestDiskSmart {
     /// disk bus type
@@ -257,12 +270,14 @@ pub struct GuestDiskSmart {
     pub u: Option<GuestDiskSmartBranch>,
 }
 
+#[qapi(condition = "(CONFIG_WIN32 || CONFIG_LIBUDEV)")]
 #[qapi(added = "7.1.0")]
 pub enum GuestDiskSmartBranch {
     #[qapi(name = "nvme")]
     Nvme(GuestNvMeSmart),
 }
 
+#[qapi(condition = "CONFIG_LINUX")]
 #[qapi(added = "7.1.0")]
 pub struct GuestDiskStats {
     /// discards completed successfully
@@ -319,18 +334,13 @@ pub struct GuestDiskStats {
     pub write_ticks: Option<u64>,
 }
 
+#[qapi(condition = "CONFIG_LINUX")]
 #[qapi(added = "7.1.0")]
 pub struct GuestDiskStatsInfo {
     pub major: u64,
     pub minor: u64,
     pub name: String,
     pub stats: GuestDiskStats,
-}
-
-#[qapi(added = "2.5.0")]
-pub struct GuestExec {
-    /// pid of child process in guest OS
-    pub pid: i64,
 }
 
 /// Controls what `guest-exec` output gets captures.
@@ -370,59 +380,7 @@ pub enum GuestExecCaptureOutputMode {
     Stdout,
 }
 
-#[qapi(added = "2.5.0")]
-pub struct GuestExecStatus {
-    /// base64-encoded stderr of the process.  Note: @out-data
-    /// and @err-data are present only if 'capture-output' was specified
-    /// for `guest-exec`.  This field will only be populated after the
-    /// process exits.
-    #[qapi(name = "err-data")]
-    pub err_data: Option<String>,
-    /// true if stderr was not fully captured due to size
-    /// limitation.
-    #[qapi(name = "err-truncated")]
-    pub err_truncated: Option<bool>,
-    /// process exit code if it was normally terminated.
-    pub exitcode: Option<i64>,
-    /// true if process has already terminated.
-    pub exited: bool,
-    /// base64-encoded stdout of the process.  This field will
-    /// only be populated after the process exits.
-    #[qapi(name = "out-data")]
-    pub out_data: Option<String>,
-    /// true if stdout was not fully captured due to size
-    /// limitation.
-    #[qapi(name = "out-truncated")]
-    pub out_truncated: Option<bool>,
-    /// signal number (linux) or unhandled exception code (windows)
-    /// if the process was abnormally terminated.
-    pub signal: Option<i64>,
-}
-
-/// Result of guest agent file-read operation
-///
-#[qapi(added = "1.4.0")]
-pub struct GuestFileRead {
-    /// base64-encoded bytes read
-    #[qapi(name = "buf-b64")]
-    pub buf_b64: String,
-    /// number of bytes read (note: count is *before*
-    /// base64-encoding is applied)
-    pub count: i64,
-    /// whether EOF was encountered during read operation.
-    pub eof: bool,
-}
-
-/// Result of guest agent file-seek operation
-///
-#[qapi(added = "1.4.0")]
-pub struct GuestFileSeek {
-    /// whether EOF was encountered during file seek
-    pub eof: bool,
-    /// current file position
-    pub position: i64,
-}
-
+#[qapi(condition = "(CONFIG_WIN32 || CONFIG_LINUX)")]
 #[qapi(added = "2.2.0")]
 pub struct GuestFilesystemInfo {
     /// an array of disk hardware information that the volume lies
@@ -450,6 +408,7 @@ pub struct GuestFilesystemInfo {
     pub used_bytes: Option<u64>,
 }
 
+#[qapi(condition = "(CONFIG_WIN32 || CONFIG_FSTRIM)")]
 #[qapi(added = "2.4.0")]
 pub struct GuestFilesystemTrimResponse {
     /// list of `GuestFilesystemTrimResult` per path that was
@@ -457,6 +416,7 @@ pub struct GuestFilesystemTrimResponse {
     pub paths: Vec<GuestFilesystemTrimResult>,
 }
 
+#[qapi(condition = "(CONFIG_WIN32 || CONFIG_FSTRIM)")]
 #[qapi(added = "2.4.0")]
 pub struct GuestFilesystemTrimResult {
     /// an error message when trim failed
@@ -483,29 +443,6 @@ pub enum GuestFileWhence {
     Value(i64),
 }
 
-/// Result of guest agent file-write operation
-///
-#[qapi(added = "1.4.0")]
-pub struct GuestFileWrite {
-    /// number of bytes written (note: count is actual bytes
-    /// written, after base64-decoding of provided buffer)
-    pub count: i64,
-    /// whether EOF was encountered during write operation.
-    pub eof: bool,
-}
-
-/// An enumeration of filesystem freeze states
-///
-#[qapi(added = "1.4.0")]
-pub enum GuestFsfreezeStatus {
-    /// all non-network guest filesystems frozen
-    #[qapi(name = "frozen")]
-    Frozen,
-    /// filesystems thawed/unfrozen
-    #[qapi(name = "thawed")]
-    Thawed,
-}
-
 #[qapi(added = "2.10.0")]
 pub struct GuestHostName {
     /// Fully qualified domain name of the guest OS
@@ -513,6 +450,7 @@ pub struct GuestHostName {
     pub host_name: String,
 }
 
+#[qapi(condition = "(CONFIG_WIN32 || HAVE_GETIFADDRS)")]
 #[qapi(added = "1.4.0")]
 pub struct GuestIpAddress {
     /// IP address
@@ -527,6 +465,7 @@ pub struct GuestIpAddress {
 
 /// An enumeration of supported IP address types
 ///
+#[qapi(condition = "(CONFIG_WIN32 || HAVE_GETIFADDRS)")]
 #[qapi(added = "1.4.0")]
 pub enum GuestIpAddressType {
     /// IP version 4
@@ -539,6 +478,7 @@ pub enum GuestIpAddressType {
 
 /// CPU statistics of Linux
 ///
+#[qapi(condition = "CONFIG_LINUX")]
 #[qapi(added = "7.1.0")]
 pub struct GuestLinuxCpuStats {
     /// CPU index in guest OS
@@ -579,6 +519,7 @@ pub struct GuestLoadAverage {
     pub load5m: f64,
 }
 
+#[qapi(condition = "(CONFIG_LINUX || CONFIG_WIN32)")]
 #[qapi(added = "1.5.0")]
 pub struct GuestLogicalProcessor {
     /// Whether offlining the VCPU is possible.  This member
@@ -594,6 +535,7 @@ pub struct GuestLogicalProcessor {
     pub online: bool,
 }
 
+#[qapi(condition = "CONFIG_LINUX")]
 #[qapi(added = "2.3.0")]
 pub struct GuestMemoryBlock {
     /// Whether offlining the MEMORY BLOCK is possible.  This
@@ -610,6 +552,7 @@ pub struct GuestMemoryBlock {
     pub phys_index: u64,
 }
 
+#[qapi(condition = "CONFIG_LINUX")]
 #[qapi(added = "2.3.0")]
 pub struct GuestMemoryBlockInfo {
     /// the size (in bytes) of the guest memory blocks, which are the
@@ -618,6 +561,7 @@ pub struct GuestMemoryBlockInfo {
     pub size: u64,
 }
 
+#[qapi(condition = "CONFIG_LINUX")]
 #[qapi(added = "2.3.0")]
 pub struct GuestMemoryBlockResponse {
     /// the error number.  When memory block operation fails,
@@ -635,6 +579,7 @@ pub struct GuestMemoryBlockResponse {
 
 /// An enumeration of memory block operation result.
 ///
+#[qapi(condition = "CONFIG_LINUX")]
 #[qapi(added = "2.3.0")]
 pub enum GuestMemoryBlockResponseType {
     /// can't find the corresponding memoryXXX directory in
@@ -655,6 +600,7 @@ pub enum GuestMemoryBlockResponseType {
     Success,
 }
 
+#[qapi(condition = "(CONFIG_WIN32 || HAVE_GETIFADDRS)")]
 #[qapi(added = "1.4.0")]
 pub struct GuestNetworkInterface {
     /// Hardware address of @name
@@ -671,6 +617,7 @@ pub struct GuestNetworkInterface {
     pub statistics: Option<GuestNetworkInterfaceStat>,
 }
 
+#[qapi(condition = "(CONFIG_WIN32 || HAVE_GETIFADDRS)")]
 #[qapi(added = "2.11.0")]
 pub struct GuestNetworkInterfaceStat {
     /// total bytes received
@@ -745,6 +692,7 @@ pub struct GuestNetworkRoute {
 /// <SMART / Health Information (Log Identifier 02h)>
 ///
 #[qapi(name = "GuestNVMeSmart")]
+#[qapi(condition = "(CONFIG_WIN32 || CONFIG_LIBUDEV)")]
 #[qapi(added = "7.1.0")]
 pub struct GuestNvMeSmart {
     #[qapi(name = "available-spare")]
@@ -848,6 +796,7 @@ pub struct GuestOsInfo {
 }
 
 #[qapi(name = "GuestPCIAddress")]
+#[qapi(condition = "(CONFIG_WIN32 || CONFIG_LINUX)")]
 #[qapi(added = "2.2.0")]
 pub struct GuestPciAddress {
     /// bus id
@@ -870,6 +819,7 @@ pub struct GuestTimezone {
     pub zone: Option<String>,
 }
 
+#[qapi(condition = "(CONFIG_WIN32 || HAVE_UTMPX)")]
 #[qapi(added = "2.10.0")]
 pub struct GuestUser {
     /// Logon domain (windows only)

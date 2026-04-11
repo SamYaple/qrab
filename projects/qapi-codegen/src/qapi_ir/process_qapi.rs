@@ -297,7 +297,7 @@ pub fn process_struct(
     let mut extracted = Vec::new();
     if let Some(base) = q.base {
         let struct_ref = structs_lookup
-            .get(base)
+            .get(&rustify_name(base))
             .unwrap_or_else(|| panic!("base struct not found for {} with base {}", q.name, base));
         fields.extend(struct_ref.fields.clone());
     }
@@ -353,7 +353,7 @@ pub fn process_union(
             }
         }
         let discriminator = discriminator_opt.expect("discriminator field not found");
-        if enums_lookup.get(&discriminator).is_none() {
+        if enums_lookup.get(&rustify_name(&discriminator)).is_none() {
             eprintln!(
                 "WARNING: {} discriminator type '{}' is not an enum",
                 q.name, discriminator
@@ -393,10 +393,20 @@ pub fn process_union(
             array: false,
         });
     }
+    // The branch enum inherits the union's `if` condition. Without this, the
+    // synthesized branch type would compile on targets where the union (and
+    // its variant payload structs) are cfg-gated away, leaving dangling type
+    // references.
+    let mut branch_meta = Metadata::default();
+    if let Some(condition) = &q.r#if {
+        branch_meta
+            .attributes
+            .push(Attribute::with_value("condition", condition));
+    }
     let e = Enum {
         name: q.name.to_owned() + "Branch",
         variants,
-        meta: Metadata::default(),
+        meta: branch_meta,
     };
 
     let mut meta = Metadata::default();
@@ -412,7 +422,7 @@ pub fn process_union(
     if let Some(attr) = name_attr(q.name) {
         meta.attributes.push(attr);
     }
-    if let Some(condition) = q.r#if {
+    if let Some(condition) = &q.r#if {
         meta.attributes
             .push(Attribute::with_value("condition", condition));
     }
@@ -441,10 +451,16 @@ pub fn process_union(
                 }
             })
             .collect();
+        let mut disc_meta = Metadata::default();
+        if let Some(condition) = &q.r#if {
+            disc_meta
+                .attributes
+                .push(Attribute::with_value("condition", condition));
+        }
         Some(Enum {
             name: format!("{}Type", rustify_name(&q_name)),
             variants: disc_variants,
-            meta: Metadata::default(),
+            meta: disc_meta,
         })
     } else {
         None
@@ -453,9 +469,12 @@ pub fn process_union(
     (s, e, disc_enum)
 }
 
+/// Strategy for resolving a `MembersOrRef::Ref(name)` to fields on the
+/// containing struct. We always inline (duplicate) the referenced struct's
+/// fields directly into the parent so that QMP wire serialization produces a
+/// flat object without needing serde-flatten indirection.
 enum RefStrategy<'a> {
     InlineFields(&'a HashMap<String, Struct>),
-    Flatten,
 }
 
 fn process_members_or_ref(q: MembersOrRef, strategy: RefStrategy<'_>) -> Vec<StructField> {
@@ -470,20 +489,9 @@ fn process_members_or_ref(q: MembersOrRef, strategy: RefStrategy<'_>) -> Vec<Str
         MembersOrRef::Ref(v) => match strategy {
             RefStrategy::InlineFields(structs_lookup) => {
                 let struct_ref = structs_lookup
-                    .get(v)
+                    .get(&rustify_name(v))
                     .unwrap_or_else(|| panic!("failed to lookup base ref for {}", v));
                 fields.extend(struct_ref.fields.clone());
-            }
-            RefStrategy::Flatten => {
-                let mut meta = Metadata::default();
-                meta.attributes.push(Attribute::new("flatten"));
-                fields.push(StructField {
-                    name: "data".into(),
-                    r#type: v.into(),
-                    meta,
-                    optional: false,
-                    array: false,
-                });
             }
         },
     }
@@ -740,7 +748,7 @@ mod tests {
             allow_preconfig: None,
             coroutine: None,
         };
-        let s = process_command(q);
+        let s = process_command(q, &HashMap::new());
         assert_eq!(s.name, "query-status");
         let returns_attr = s
             .meta
@@ -766,7 +774,7 @@ mod tests {
             allow_preconfig: Some("true"),
             coroutine: None,
         };
-        let s = process_command(q);
+        let s = process_command(q, &HashMap::new());
         let attr_names: Vec<_> = s
             .meta
             .attributes
@@ -864,10 +872,13 @@ mod tests {
     }
 }
 
-pub fn process_command(q: QapiCommand) -> Struct {
+pub fn process_command(q: QapiCommand, structs_lookup: &HashMap<String, Struct>) -> Struct {
     let mut fields = Vec::new();
     if let Some(data) = q.data {
-        fields.extend(process_members_or_ref(data, RefStrategy::Flatten));
+        fields.extend(process_members_or_ref(
+            data,
+            RefStrategy::InlineFields(structs_lookup),
+        ));
     }
     let mut meta = Metadata::default();
     meta.attributes.push(Attribute::new("command"));

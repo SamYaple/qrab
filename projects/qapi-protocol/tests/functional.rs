@@ -196,7 +196,7 @@ arch_tests!(hotplug_virtio_net, [X86_64], |arch: Arch| async move {
     // Hotplug a virtio-net device via typed device_add
     vm.execute(&DeviceAdd {
         driver: "virtio-net-pci".into(),
-        id: "hotnic0".into(),
+        id: Some("hotnic0".into()),
         bus: None,
         arguments: Some(HashMap::from([("netdev".to_string(), serde_json::Value::String("hotnet0".to_string()))])),
     }).await.unwrap();
@@ -236,7 +236,7 @@ arch_tests!(cirros_device_unplug, [X86_64], |arch: Arch| async move {
     // The VM has a virtio-net from cirros_with_net(). Add a balloon device.
     vm.execute(&DeviceAdd {
         driver: "virtio-balloon-pci".into(),
-        id: "testballoon0".into(),
+        id: Some("testballoon0".into()),
         bus: None,
         arguments: None,
     }).await.unwrap();
@@ -264,7 +264,7 @@ arch_tests!(hotplug_virtio_balloon, [X86_64], |arch: Arch| async move {
     // Hotplug a balloon device
     vm.execute(&DeviceAdd {
         driver: "virtio-balloon-pci".into(),
-        id: "balloon0".into(),
+        id: Some("balloon0".into()),
         bus: None,
         arguments: None,
     }).await.unwrap();
@@ -371,23 +371,58 @@ arch_tests!(cirros_network_dhcp, [X86_64], |arch: Arch| async move {
 arch_tests!(hotplug_virtio_blk, [X86_64], |arch: Arch| async move {
     let disk = fixtures::blank_qcow2("hotplug-test", 64).await;
 
-    // Add block device at spawn via CLI (the typed BlockdevAdd requires complex BlockdevOptions)
     let vm = VmBuilder::new(arch, MachineConfig::Bios { memory: "128M".into() })
-        .arg("-blockdev")
-        .arg(format!(
-            "driver=qcow2,node-name=testdisk0,file.driver=file,file.filename={}",
-            disk.display()
-        ))
-        .arg("-device")
-        .arg("virtio-blk-pci,drive=testdisk0,id=testblk0")
         .spawn().await.unwrap()
         .start().await.unwrap();
+
+    // Step 1: Add the file backend via blockdev-add
+    vm.execute(&BlockdevAdd {
+        driver: Some(BlockdevDriver::File),
+        node_name: Some("testfile0".into()),
+        u: Some(BlockdevOptionsBranch::File(BlockdevOptionsFile {
+            filename: disk.display().to_string(),
+            aio: None, aio_max_batch: None, drop_cache: None,
+            locking: None, pr_manager: None, x_check_cache_dropped: None,
+        })),
+        active: None, auto_read_only: None, cache: None,
+        detect_zeroes: None, discard: None, force_share: None,
+        read_only: None, options: None,
+    }).await.unwrap();
+
+    // Step 2: Add the qcow2 layer referencing the file backend by node-name
+    vm.execute(&BlockdevAdd {
+        driver: Some(BlockdevDriver::Qcow2),
+        node_name: Some("testdisk0".into()),
+        u: Some(BlockdevOptionsBranch::Qcow2(BlockdevOptionsQcow2 {
+            file: Box::new(BlockdevRef::Reference("testfile0".into())),
+            backing: None, cache_clean_interval: None, cache_size: None,
+            data_file: None, discard_no_unref: None, encrypt: None,
+            l2_cache_entry_size: None, l2_cache_size: None, lazy_refcounts: None,
+            overlap_check: None, pass_discard_other: None, pass_discard_request: None,
+            pass_discard_snapshot: None, refcount_cache_size: None,
+        })),
+        active: None, auto_read_only: None, cache: None,
+        detect_zeroes: None, discard: None, force_share: None,
+        read_only: None, options: None,
+    }).await.unwrap();
+
+    // Attach as virtio-blk-pci device
+    vm.execute(&DeviceAdd {
+        driver: "virtio-blk-pci".into(),
+        id: Some("testblk0".into()),
+        bus: None,
+        arguments: Some(HashMap::from([
+            ("drive".to_string(), serde_json::Value::String("testdisk0".to_string())),
+        ])),
+    }).await.unwrap();
+
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
 
     // Verify block device is present
     let blocks: Vec<BlockInfo> = vm.execute(&QueryBlock {}).await.unwrap();
     assert!(!blocks.is_empty(), "Should have block devices");
 
-    // Verify via blockstats — should show the virtio-blk device
+    // Verify via blockstats
     let stats: Vec<BlockStats> = vm.execute(&QueryBlockstats { query_nodes: None }).await.unwrap();
     assert!(!stats.is_empty(), "Should have block stats for the device");
 
