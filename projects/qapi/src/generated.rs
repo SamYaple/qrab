@@ -1363,6 +1363,51 @@ pub struct BlockdevAmendOptionsQcow2 {
     pub encrypt: Option<QCryptoBlockAmendOptions>,
 }
 
+#[qapi(command)]
+#[qapi(returns = "()")]
+#[qapi(added = "2.3.0")]
+#[qapi(allow_preconfig(added = "7.1.0"))]
+#[qapi(allow_preconfig(added = "7.1.0"))]
+pub struct BlockdevBackup {
+    #[qapi(name = "auto-dismiss")]
+    #[qapi(added = "2.12.0")]
+    pub auto_dismiss: Option<bool>,
+    #[qapi(name = "auto-finalize")]
+    #[qapi(added = "2.12.0")]
+    pub auto_finalize: Option<bool>,
+    #[qapi(added = "3.1.0")]
+    pub bitmap: Option<String>,
+    #[qapi(name = "bitmap-mode")]
+    #[qapi(added = "4.2.0")]
+    pub bitmap_mode: Option<BitmapSyncMode>,
+    #[qapi(added = "2.8.0")]
+    pub compress: Option<bool>,
+    pub device: String,
+    #[qapi(name = "discard-source")]
+    #[qapi(added = "9.1.0")]
+    pub discard_source: Option<bool>,
+    #[qapi(name = "filter-node-name")]
+    #[qapi(added = "4.2.0")]
+    pub filter_node_name: Option<String>,
+    #[qapi(name = "job-id")]
+    #[qapi(added = "2.7.0")]
+    pub job_id: Option<String>,
+    #[qapi(name = "on-cbw-error")]
+    #[qapi(added = "10.1.0")]
+    pub on_cbw_error: Option<OnCbwError>,
+    #[qapi(name = "on-source-error")]
+    pub on_source_error: Option<BlockdevOnError>,
+    #[qapi(name = "on-target-error")]
+    pub on_target_error: Option<BlockdevOnError>,
+    pub speed: Option<i64>,
+    pub sync: MirrorSyncMode,
+    /// the device name or node-name of the backup target node.
+    pub target: String,
+    #[qapi(name = "x-perf")]
+    #[qapi(added = "6.0.0")]
+    pub x_perf: Option<BackupPerf>,
+}
+
 #[qapi(added = "6.2.0")]
 pub struct BlockdevBackupWrapper {
     pub data: BlockdevBackup,
@@ -3931,6 +3976,33 @@ pub struct BlockdevSnapshotInternalWrapper {
     pub data: BlockdevSnapshotInternal,
 }
 
+/// Either @device or @node-name must be set but not both.
+///
+#[qapi(command)]
+#[qapi(returns = "()")]
+#[qapi(added = "2.5.0")]
+#[qapi(allow_preconfig(added = "7.1.0"))]
+#[qapi(allow_preconfig(added = "7.1.0"))]
+pub struct BlockdevSnapshotSync {
+    /// optional the name of the device to generate the snapshot from.
+    pub device: Option<String>,
+    /// optional the format of the snapshot image, default is 'qcow2'.
+    pub format: Option<String>,
+    /// optional whether and how QEMU should create a new image, default is
+    /// 'absolute-paths'.
+    ///
+    pub mode: Option<NewImageMode>,
+    /// optional graph node name to generate the snapshot from (Since 2.0)
+    #[qapi(name = "node-name")]
+    pub node_name: Option<String>,
+    /// the target of the new image. A new file will be created.
+    #[qapi(name = "snapshot-file")]
+    pub snapshot_file: String,
+    /// optional the graph node name of the new image (Since 2.0)
+    #[qapi(name = "snapshot-node-name")]
+    pub snapshot_node_name: Option<String>,
+}
+
 #[qapi(added = "6.2.0")]
 pub struct BlockdevSnapshotSyncWrapper {
     pub data: BlockdevSnapshotSync,
@@ -4005,6 +4077,46 @@ pub struct BlockDirtyBitmap {
     pub name: String,
     /// name of device/node which the bitmap is tracking
     pub node: String,
+}
+
+#[qapi(command)]
+#[qapi(returns = "()")]
+#[qapi(added = "2.4.0")]
+#[qapi(allow_preconfig(added = "7.1.0"))]
+#[qapi(allow_preconfig(added = "7.1.0"))]
+pub struct BlockDirtyBitmapAdd {
+    /// ignored and deprecated since 2.12.
+    /// Currently, all dirty tracking bitmaps are loaded from Qcow2 on
+    /// open.
+    #[qapi(added = "2.10.0")]
+    #[qapi(removed = "4.2.0")]
+    pub autoload: Option<bool>,
+    /// the bitmap is created in the disabled state, which means
+    /// that it will not track drive changes.  The bitmap may be enabled
+    /// with `block-dirty-bitmap-enable`.  Default is false.
+    /// (Since: 4.0)
+    #[qapi(added = "4.0.0")]
+    pub disabled: Option<bool>,
+    /// the bitmap granularity, default is 64k for
+    /// `block-dirty-bitmap-add`
+    pub granularity: Option<u32>,
+    /// name of the dirty bitmap (must be less than 1024 bytes)
+    pub name: String,
+    /// name of device/node which the bitmap is tracking
+    pub node: String,
+    /// the bitmap is persistent, i.e. it will be saved to the
+    /// corresponding block device image file on its close.  For now
+    /// only Qcow2 disks support persistent bitmaps.  Default is false
+    /// for `block-dirty-bitmap-add`.  (Since: 2.10)
+    #[qapi(added = "2.10.0")]
+    pub persistent: Option<bool>,
+    /// the bitmap is created in the disabled state, which means that
+    /// it will not track drive changes. The bitmap may be enabled with
+    /// x-block-dirty-bitmap-enable. Default is false. (Since: 3.0)
+    #[qapi(name = "x-disabled")]
+    #[qapi(added = "3.0.0")]
+    #[qapi(removed = "4.0.0")]
+    pub x_disabled: Option<bool>,
 }
 
 #[qapi(added = "6.2.0")]
@@ -7342,6 +7454,58 @@ pub enum DisplayUpdateType {
     /// VNC display
     #[qapi(name = "vnc")]
     Vnc,
+}
+
+#[qapi(command)]
+#[qapi(returns = "()")]
+#[qapi(added = "1.6.0")]
+#[qapi(allow_preconfig(added = "7.1.0"))]
+#[qapi(allow_preconfig(added = "7.1.0"))]
+pub struct DriveBackup {
+    #[qapi(name = "auto-dismiss")]
+    #[qapi(added = "2.12.0")]
+    pub auto_dismiss: Option<bool>,
+    #[qapi(name = "auto-finalize")]
+    #[qapi(added = "2.12.0")]
+    pub auto_finalize: Option<bool>,
+    #[qapi(added = "2.4.0")]
+    pub bitmap: Option<String>,
+    #[qapi(name = "bitmap-mode")]
+    #[qapi(added = "4.2.0")]
+    pub bitmap_mode: Option<BitmapSyncMode>,
+    #[qapi(added = "2.8.0")]
+    pub compress: Option<bool>,
+    pub device: String,
+    #[qapi(name = "discard-source")]
+    #[qapi(added = "9.1.0")]
+    pub discard_source: Option<bool>,
+    #[qapi(name = "filter-node-name")]
+    #[qapi(added = "4.2.0")]
+    pub filter_node_name: Option<String>,
+    /// the format of the new destination, default is to probe if
+    pub format: Option<String>,
+    #[qapi(name = "job-id")]
+    #[qapi(added = "2.7.0")]
+    pub job_id: Option<String>,
+    /// whether and how QEMU should create a new image, default is
+    /// 'absolute-paths'.
+    pub mode: Option<NewImageMode>,
+    #[qapi(name = "on-cbw-error")]
+    #[qapi(added = "10.1.0")]
+    pub on_cbw_error: Option<OnCbwError>,
+    #[qapi(name = "on-source-error")]
+    pub on_source_error: Option<BlockdevOnError>,
+    #[qapi(name = "on-target-error")]
+    pub on_target_error: Option<BlockdevOnError>,
+    pub speed: Option<i64>,
+    pub sync: MirrorSyncMode,
+    /// the target of the new image.  If the file exists, or if it
+    /// is a device, the existing file/device will be used as the new
+    /// destination.  If it does not exist, a new file will be created.
+    pub target: String,
+    #[qapi(name = "x-perf")]
+    #[qapi(added = "6.0.0")]
+    pub x_perf: Option<BackupPerf>,
 }
 
 #[qapi(added = "6.2.0")]
@@ -18424,50 +18588,6 @@ pub mod commands {
         #[qapi(removed = "2.8.0")]
         pub options: Option<BlockdevOptions>,
     }
-    #[qapi(command)]
-    #[qapi(returns = "()")]
-    #[qapi(added = "2.3.0")]
-    #[qapi(allow_preconfig(added = "7.1.0"))]
-    #[qapi(allow_preconfig(added = "7.1.0"))]
-    pub struct BlockdevBackup {
-        #[qapi(name = "auto-dismiss")]
-        #[qapi(added = "2.12.0")]
-        pub auto_dismiss: Option<bool>,
-        #[qapi(name = "auto-finalize")]
-        #[qapi(added = "2.12.0")]
-        pub auto_finalize: Option<bool>,
-        #[qapi(added = "3.1.0")]
-        pub bitmap: Option<String>,
-        #[qapi(name = "bitmap-mode")]
-        #[qapi(added = "4.2.0")]
-        pub bitmap_mode: Option<BitmapSyncMode>,
-        #[qapi(added = "2.8.0")]
-        pub compress: Option<bool>,
-        pub device: String,
-        #[qapi(name = "discard-source")]
-        #[qapi(added = "9.1.0")]
-        pub discard_source: Option<bool>,
-        #[qapi(name = "filter-node-name")]
-        #[qapi(added = "4.2.0")]
-        pub filter_node_name: Option<String>,
-        #[qapi(name = "job-id")]
-        #[qapi(added = "2.7.0")]
-        pub job_id: Option<String>,
-        #[qapi(name = "on-cbw-error")]
-        #[qapi(added = "10.1.0")]
-        pub on_cbw_error: Option<OnCbwError>,
-        #[qapi(name = "on-source-error")]
-        pub on_source_error: Option<BlockdevOnError>,
-        #[qapi(name = "on-target-error")]
-        pub on_target_error: Option<BlockdevOnError>,
-        pub speed: Option<i64>,
-        pub sync: MirrorSyncMode,
-        /// the device name or node-name of the backup target node.
-        pub target: String,
-        #[qapi(name = "x-perf")]
-        #[qapi(added = "6.0.0")]
-        pub x_perf: Option<BackupPerf>,
-    }
     /// Changes the medium inserted into a block device by ejecting the current medium
     /// and loading a new image file which is inserted as the new medium (this command
     /// combines blockdev-open-tray, x-blockdev-remove-medium,
@@ -18710,71 +18830,6 @@ pub mod commands {
     pub struct BlockdevSnapshotInternalSync {
         #[qapi(flatten)]
         pub data: BlockdevSnapshotInternal,
-    }
-    /// Either @device or @node-name must be set but not both.
-    ///
-    #[qapi(command)]
-    #[qapi(returns = "()")]
-    #[qapi(added = "2.5.0")]
-    #[qapi(allow_preconfig(added = "7.1.0"))]
-    #[qapi(allow_preconfig(added = "7.1.0"))]
-    pub struct BlockdevSnapshotSync {
-        /// optional the name of the device to generate the snapshot from.
-        pub device: Option<String>,
-        /// optional the format of the snapshot image, default is 'qcow2'.
-        pub format: Option<String>,
-        /// optional whether and how QEMU should create a new image, default is
-        /// 'absolute-paths'.
-        ///
-        pub mode: Option<NewImageMode>,
-        /// optional graph node name to generate the snapshot from (Since 2.0)
-        #[qapi(name = "node-name")]
-        pub node_name: Option<String>,
-        /// the target of the new image. A new file will be created.
-        #[qapi(name = "snapshot-file")]
-        pub snapshot_file: String,
-        /// optional the graph node name of the new image (Since 2.0)
-        #[qapi(name = "snapshot-node-name")]
-        pub snapshot_node_name: Option<String>,
-    }
-    #[qapi(command)]
-    #[qapi(returns = "()")]
-    #[qapi(added = "2.4.0")]
-    #[qapi(allow_preconfig(added = "7.1.0"))]
-    #[qapi(allow_preconfig(added = "7.1.0"))]
-    pub struct BlockDirtyBitmapAdd {
-        /// ignored and deprecated since 2.12.
-        /// Currently, all dirty tracking bitmaps are loaded from Qcow2 on
-        /// open.
-        #[qapi(added = "2.10.0")]
-        #[qapi(removed = "4.2.0")]
-        pub autoload: Option<bool>,
-        /// the bitmap is created in the disabled state, which means
-        /// that it will not track drive changes.  The bitmap may be enabled
-        /// with `block-dirty-bitmap-enable`.  Default is false.
-        /// (Since: 4.0)
-        #[qapi(added = "4.0.0")]
-        pub disabled: Option<bool>,
-        /// the bitmap granularity, default is 64k for
-        /// `block-dirty-bitmap-add`
-        pub granularity: Option<u32>,
-        /// name of the dirty bitmap (must be less than 1024 bytes)
-        pub name: String,
-        /// name of device/node which the bitmap is tracking
-        pub node: String,
-        /// the bitmap is persistent, i.e. it will be saved to the
-        /// corresponding block device image file on its close.  For now
-        /// only Qcow2 disks support persistent bitmaps.  Default is false
-        /// for `block-dirty-bitmap-add`.  (Since: 2.10)
-        #[qapi(added = "2.10.0")]
-        pub persistent: Option<bool>,
-        /// the bitmap is created in the disabled state, which means that
-        /// it will not track drive changes. The bitmap may be enabled with
-        /// x-block-dirty-bitmap-enable. Default is false. (Since: 3.0)
-        #[qapi(name = "x-disabled")]
-        #[qapi(added = "3.0.0")]
-        #[qapi(removed = "4.0.0")]
-        pub x_disabled: Option<bool>,
     }
     #[qapi(command)]
     #[qapi(name = "block-dirty-bitmap-clear")]
@@ -19581,57 +19636,6 @@ pub mod commands {
     pub struct DisplayUpdate {
         #[qapi(flatten)]
         pub data: DisplayUpdateOptions,
-    }
-    #[qapi(command)]
-    #[qapi(returns = "()")]
-    #[qapi(added = "1.6.0")]
-    #[qapi(allow_preconfig(added = "7.1.0"))]
-    #[qapi(allow_preconfig(added = "7.1.0"))]
-    pub struct DriveBackup {
-        #[qapi(name = "auto-dismiss")]
-        #[qapi(added = "2.12.0")]
-        pub auto_dismiss: Option<bool>,
-        #[qapi(name = "auto-finalize")]
-        #[qapi(added = "2.12.0")]
-        pub auto_finalize: Option<bool>,
-        #[qapi(added = "2.4.0")]
-        pub bitmap: Option<String>,
-        #[qapi(name = "bitmap-mode")]
-        #[qapi(added = "4.2.0")]
-        pub bitmap_mode: Option<BitmapSyncMode>,
-        #[qapi(added = "2.8.0")]
-        pub compress: Option<bool>,
-        pub device: String,
-        #[qapi(name = "discard-source")]
-        #[qapi(added = "9.1.0")]
-        pub discard_source: Option<bool>,
-        #[qapi(name = "filter-node-name")]
-        #[qapi(added = "4.2.0")]
-        pub filter_node_name: Option<String>,
-        /// the format of the new destination, default is to probe if
-        pub format: Option<String>,
-        #[qapi(name = "job-id")]
-        #[qapi(added = "2.7.0")]
-        pub job_id: Option<String>,
-        /// whether and how QEMU should create a new image, default is
-        /// 'absolute-paths'.
-        pub mode: Option<NewImageMode>,
-        #[qapi(name = "on-cbw-error")]
-        #[qapi(added = "10.1.0")]
-        pub on_cbw_error: Option<OnCbwError>,
-        #[qapi(name = "on-source-error")]
-        pub on_source_error: Option<BlockdevOnError>,
-        #[qapi(name = "on-target-error")]
-        pub on_target_error: Option<BlockdevOnError>,
-        pub speed: Option<i64>,
-        pub sync: MirrorSyncMode,
-        /// the target of the new image.  If the file exists, or if it
-        /// is a device, the existing file/device will be used as the new
-        /// destination.  If it does not exist, a new file will be created.
-        pub target: String,
-        #[qapi(name = "x-perf")]
-        #[qapi(added = "6.0.0")]
-        pub x_perf: Option<BackupPerf>,
     }
     /// A set of parameters describing drive mirror setup.
     ///
@@ -22665,6 +22669,3 @@ pub mod events {
         pub action: WatchdogExpirationAction,
     }
 }
-
-pub use commands::*;
-pub use events::*;

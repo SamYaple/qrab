@@ -296,7 +296,7 @@ impl PreconfigVm {
     /// Sends `x-exit-preconfig` to QEMU, which initializes the machine and
     /// begins guest execution. Returns a [`Vm`] handle with full QMP access.
     pub async fn start(self) -> Result<Vm> {
-        self.qmp.execute(&qapi::XExitPreconfig {}).await?;
+        self.qmp.execute(&qapi::commands::XExitPreconfig {}).await?;
         Ok(Vm {
             qmp: self.qmp,
             events: self.events,
@@ -341,31 +341,31 @@ impl Vm {
 
     /// Pause guest execution (sends `stop`).
     pub async fn stop(&self) -> Result<()> {
-        self.qmp.execute(&qapi::Stop {}).await?;
+        self.qmp.execute(&qapi::commands::Stop {}).await?;
         Ok(())
     }
 
     /// Resume guest execution (sends `cont`).
     pub async fn cont(&self) -> Result<()> {
-        self.qmp.execute(&qapi::Cont {}).await?;
+        self.qmp.execute(&qapi::commands::Cont {}).await?;
         Ok(())
     }
 
     /// Reset the guest (sends `system_reset`).
     pub async fn reset(&self) -> Result<()> {
-        self.qmp.execute(&qapi::SystemReset {}).await?;
+        self.qmp.execute(&qapi::commands::SystemReset {}).await?;
         Ok(())
     }
 
     /// Request guest powerdown via ACPI (sends `system_powerdown`).
     pub async fn powerdown(&self) -> Result<()> {
-        self.qmp.execute(&qapi::SystemPowerdown {}).await?;
+        self.qmp.execute(&qapi::commands::SystemPowerdown {}).await?;
         Ok(())
     }
 
     /// Send `quit` to QEMU, requesting the process to exit.
     pub async fn quit(&self) -> Result<()> {
-        self.qmp.execute(&qapi::Quit {}).await?;
+        self.qmp.execute(&qapi::commands::Quit {}).await?;
         Ok(())
     }
 

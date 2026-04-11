@@ -9,6 +9,7 @@ use common::serial::SerialConsole;
 #[allow(unused_imports)]
 use common::*;
 use qapi::*;
+use qapi::commands::*;
 
 // ══════════════════════════════════════════════════════════════════════════════
 // Empty state queries

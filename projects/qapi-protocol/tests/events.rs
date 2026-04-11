@@ -6,6 +6,8 @@ mod common;
 #[allow(unused_imports)]
 use common::*;
 use qapi::*;
+use qapi::commands::*;
+use qapi::events::*;
 
 // ══════════════════════════════════════════════════════════════════════════════
 // Lifecycle events — work with -machine none on all architectures

@@ -8,6 +8,7 @@ mod common;
 #[allow(unused_imports)]
 use common::*;
 use qapi::*;
+use qapi::commands::*;
 
 // ══════════════════════════════════════════════════════════════════════════════
 // Version and connectivity

@@ -996,12 +996,64 @@ pub fn generate_unified_code(qemu_repo: &Path, version_tags: &[&str]) -> Result<
         name_a.to_lowercase().cmp(&name_b.to_lowercase())
     });
 
-    // Collect generated token streams partitioned by category
+    // Pass 1: Classify types and build a set of command/event Rust names.
+    // Then find which command/event types are referenced by data types' fields
+    // or enum variants — those must stay in the data types module.
+    let mut command_names: BTreeSet<String> = BTreeSet::new();
+    let mut event_names: BTreeSet<String> = BTreeSet::new();
+    for (_, ut) in &all_entries {
+        let rust_name = match ut {
+            UnifiedType::Enum(ue) => rustify_name(&ue.ir.name),
+            UnifiedType::Struct(us) => rustify_name(&us.ir.name),
+        };
+        match classify_type(ut) {
+            TypeCategory::Command => { command_names.insert(rust_name); }
+            TypeCategory::Event => { event_names.insert(rust_name); }
+            TypeCategory::DataType => {}
+        }
+    }
+
+    // Find command/event types referenced by data type fields or enum variants
+    let mut referenced_by_data: BTreeSet<String> = BTreeSet::new();
+    for (_, ut) in &all_entries {
+        if classify_type(ut) != TypeCategory::DataType {
+            continue;
+        }
+        match ut {
+            UnifiedType::Struct(us) => {
+                for field in &us.ir.fields {
+                    let rust_type = rustify_name(&field.r#type);
+                    if command_names.contains(&rust_type) || event_names.contains(&rust_type) {
+                        referenced_by_data.insert(rust_type);
+                    }
+                }
+            }
+            UnifiedType::Enum(ue) => {
+                for variant in &ue.ir.variants {
+                    if let crate::qapi_ir::EnumVariantKind::Tuple(ref type_name) = variant.kind {
+                        let rust_type = rustify_name(type_name);
+                        if command_names.contains(&rust_type) || event_names.contains(&rust_type) {
+                            referenced_by_data.insert(rust_type);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    if !referenced_by_data.is_empty() {
+        eprintln!(
+            "  {} command/event types also referenced by data types (kept in types module): {:?}",
+            referenced_by_data.len(),
+            referenced_by_data
+        );
+    }
+
+    // Pass 2: Emit into partitioned token streams, overriding classification
+    // for types that are cross-referenced by data types.
     let mut types_tokens = proc_macro2::TokenStream::new();
     let mut commands_tokens = proc_macro2::TokenStream::new();
     let mut events_tokens = proc_macro2::TokenStream::new();
 
-    // Track seen names per category to allow same Rust name in different modules
     let mut seen_type_names = seen_rust_names.clone();
     let mut seen_command_names = seen_rust_names.clone();
     let mut seen_event_names = seen_rust_names.clone();
@@ -1012,7 +1064,13 @@ pub fn generate_unified_code(qemu_repo: &Path, version_tags: &[&str]) -> Result<
             UnifiedType::Struct(us) => rustify_name(&us.ir.name),
         };
 
-        let category = classify_type(ut);
+        let mut category = classify_type(ut);
+        // Override: if a command/event type is referenced by data types, keep it
+        // in the data types module so cross-references resolve.
+        if referenced_by_data.contains(&rust_name) {
+            category = TypeCategory::DataType;
+        }
+
         let (tokens, seen) = match category {
             TypeCategory::DataType => (&mut types_tokens, &mut seen_type_names),
             TypeCategory::Command => (&mut commands_tokens, &mut seen_command_names),
@@ -1039,7 +1097,7 @@ pub fn generate_unified_code(qemu_repo: &Path, version_tags: &[&str]) -> Result<
         codegen_start.elapsed().as_secs_f64()
     );
 
-    // Wrap commands and events in submodules, with re-exports for backward compat
+    // Wrap commands and events in submodules
     let module_tokens = quote::quote! {
         #types_tokens
 
@@ -1052,10 +1110,6 @@ pub fn generate_unified_code(qemu_repo: &Path, version_tags: &[&str]) -> Result<
             use super::*;
             #events_tokens
         }
-
-        // Backward compatibility: re-export commands and events at top level
-        pub use commands::*;
-        pub use events::*;
     };
 
     // Parse and format the entire output at once
@@ -1508,7 +1562,48 @@ pub fn generate_qga_code(qemu_repo: &Path, version_tags: &[&str]) -> Result<Stri
         name_a.to_lowercase().cmp(&name_b.to_lowercase())
     });
 
-    // Collect generated token streams partitioned by category
+    // Pass 1: Find command/event types referenced by data types
+    let mut command_names: BTreeSet<String> = BTreeSet::new();
+    let mut event_names: BTreeSet<String> = BTreeSet::new();
+    for (_, ut) in &all_entries {
+        let rust_name = match ut {
+            UnifiedType::Enum(ue) => rustify_name(&ue.ir.name),
+            UnifiedType::Struct(us) => rustify_name(&us.ir.name),
+        };
+        match classify_type(ut) {
+            TypeCategory::Command => { command_names.insert(rust_name); }
+            TypeCategory::Event => { event_names.insert(rust_name); }
+            TypeCategory::DataType => {}
+        }
+    }
+    let mut referenced_by_data: BTreeSet<String> = BTreeSet::new();
+    for (_, ut) in &all_entries {
+        if classify_type(ut) != TypeCategory::DataType {
+            continue;
+        }
+        match ut {
+            UnifiedType::Struct(us) => {
+                for field in &us.ir.fields {
+                    let rust_type = rustify_name(&field.r#type);
+                    if command_names.contains(&rust_type) || event_names.contains(&rust_type) {
+                        referenced_by_data.insert(rust_type);
+                    }
+                }
+            }
+            UnifiedType::Enum(ue) => {
+                for variant in &ue.ir.variants {
+                    if let crate::qapi_ir::EnumVariantKind::Tuple(ref type_name) = variant.kind {
+                        let rust_type = rustify_name(type_name);
+                        if command_names.contains(&rust_type) || event_names.contains(&rust_type) {
+                            referenced_by_data.insert(rust_type);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Pass 2: Emit into partitioned token streams
     let mut types_tokens = proc_macro2::TokenStream::new();
     let mut commands_tokens = proc_macro2::TokenStream::new();
     let mut events_tokens = proc_macro2::TokenStream::new();
@@ -1523,7 +1618,10 @@ pub fn generate_qga_code(qemu_repo: &Path, version_tags: &[&str]) -> Result<Stri
             UnifiedType::Struct(us) => rustify_name(&us.ir.name),
         };
 
-        let category = classify_type(ut);
+        let mut category = classify_type(ut);
+        if referenced_by_data.contains(&rust_name) {
+            category = TypeCategory::DataType;
+        }
         let (tokens, seen) = match category {
             TypeCategory::DataType => (&mut types_tokens, &mut seen_type_names),
             TypeCategory::Command => (&mut commands_tokens, &mut seen_command_names),
@@ -1541,7 +1639,7 @@ pub fn generate_qga_code(qemu_repo: &Path, version_tags: &[&str]) -> Result<Stri
         tokens.extend(code);
     }
 
-    // Wrap commands and events in submodules, with re-exports for backward compat
+    // Wrap commands and events in submodules
     let module_tokens = quote::quote! {
         #types_tokens
 
@@ -1554,10 +1652,6 @@ pub fn generate_qga_code(qemu_repo: &Path, version_tags: &[&str]) -> Result<Stri
             use super::*;
             #events_tokens
         }
-
-        // Backward compatibility: re-export commands and events at top level
-        pub use commands::*;
-        pub use events::*;
     };
 
     let combined = format!("{}{}", output, module_tokens);

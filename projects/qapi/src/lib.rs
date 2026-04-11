@@ -49,12 +49,13 @@ pub fn qemu_version() -> (u32, u32, u32) {
 }
 
 mod generated;
+/// QMP data types (structs, enums, unions) re-exported at the crate root.
 pub use generated::*;
 
-/// QMP command types, also re-exported at the crate root for backward compatibility.
+/// QMP command types — access via `qapi::commands::QueryStatus`, etc.
 pub use generated::commands;
 
-/// QMP event types, also re-exported at the crate root for backward compatibility.
+/// QMP event types — access via `qapi::events::ShutdownEvent`, etc.
 pub use generated::events;
 
 /// QEMU Guest Agent (QGA) types.

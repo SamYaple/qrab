@@ -42,7 +42,7 @@ async fn mock_qmp_negotiate() {
     let (mut qmp, _events) = Qmp::new(std::path::Path::new(&sock)).await.unwrap();
     assert_eq!(qapi::qemu_version(), (10, 2, 0));
 
-    let status: qapi::StatusInfo = qmp.execute(&qapi::QueryStatus {}).await.unwrap();
+    let status: qapi::StatusInfo = qmp.execute(&qapi::commands::QueryStatus {}).await.unwrap();
     assert!(status.running);
 
     qmp.shutdown().await;
@@ -71,7 +71,7 @@ async fn mock_qmp_error_response() {
     tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
     let (mut qmp, _events) = Qmp::new(std::path::Path::new(&sock)).await.unwrap();
-    let result: Result<qapi::StatusInfo, _> = qmp.execute(&qapi::QueryStatus {}).await;
+    let result: Result<qapi::StatusInfo, _> = qmp.execute(&qapi::commands::QueryStatus {}).await;
     match result {
         Err(e) => assert!(e.to_string().contains("something went wrong"), "Got: {}", e),
         Ok(_) => panic!("Expected error"),
@@ -110,7 +110,7 @@ async fn mock_qmp_event() {
 
     let (mut qmp, mut events) = Qmp::new(std::path::Path::new(&sock)).await.unwrap();
 
-    let status: qapi::StatusInfo = qmp.execute(&qapi::QueryStatus {}).await.unwrap();
+    let status: qapi::StatusInfo = qmp.execute(&qapi::commands::QueryStatus {}).await.unwrap();
     assert!(!status.running);
 
     // The event should have been received
@@ -163,7 +163,7 @@ async fn mock_qga_sync_and_ping() {
     assert_eq!(qapi::qga_version(), "10.2.0");
 
     // Execute guest-ping
-    qga.execute(&qapi::qga::GuestPing {}).await.unwrap();
+    qga.execute(&qapi::qga::commands::GuestPing {}).await.unwrap();
 
     server.await.unwrap();
     let _ = std::fs::remove_file(&sock);

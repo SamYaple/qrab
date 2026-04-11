@@ -7,6 +7,8 @@ mod common;
 #[allow(unused_imports)]
 use common::*;
 use qapi::*;
+use qapi::commands::*;
+use qapi::events::*;
 
 // ── Command trait metadata ───────────────────────────────────────────────────
 

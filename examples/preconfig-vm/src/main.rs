@@ -68,44 +68,44 @@ async fn main() -> Result<()> {
 
     // ── Introspection queries (all preconfig-safe) ───────────────────────
 
-    let ver: qapi::VersionInfo = preconfig.execute(&qapi::QueryVersion {}).await?;
+    let ver: qapi::VersionInfo = preconfig.execute(&qapi::commands::QueryVersion {}).await?;
     println!("query-version: {ver}");
 
-    let status: qapi::StatusInfo = preconfig.execute(&qapi::QueryStatus {}).await?;
+    let status: qapi::StatusInfo = preconfig.execute(&qapi::commands::QueryStatus {}).await?;
     println!("query-status: {status}");
 
-    let name: qapi::NameInfo = preconfig.execute(&qapi::QueryName {}).await?;
+    let name: qapi::NameInfo = preconfig.execute(&qapi::commands::QueryName {}).await?;
     println!("query-name: {name}");
 
-    let uuid: qapi::UuidInfo = preconfig.execute(&qapi::QueryUuid {}).await?;
+    let uuid: qapi::UuidInfo = preconfig.execute(&qapi::commands::QueryUuid {}).await?;
     println!("query-uuid: {uuid}");
 
-    let cmds: Vec<qapi::CommandInfo> = preconfig.execute(&qapi::QueryCommands {}).await?;
+    let cmds: Vec<qapi::CommandInfo> = preconfig.execute(&qapi::commands::QueryCommands {}).await?;
     println!("query-commands: {} commands available", cmds.len());
     for cmd in cmds.iter() {
         println!("  {cmd}");
     }
 
-    let chardevs: Vec<qapi::ChardevInfo> = preconfig.execute(&qapi::QueryChardev {}).await?;
+    let chardevs: Vec<qapi::ChardevInfo> = preconfig.execute(&qapi::commands::QueryChardev {}).await?;
     println!("query-chardev: {} chardevs", chardevs.len());
     for chardev in &chardevs {
         println!("  {chardev}");
     }
 
-    let iothreads: Vec<qapi::IoThreadInfo> = preconfig.execute(&qapi::QueryIothreads {}).await?;
+    let iothreads: Vec<qapi::IoThreadInfo> = preconfig.execute(&qapi::commands::QueryIothreads {}).await?;
     println!("query-iothreads: {} iothreads", iothreads.len());
     for iothread in &iothreads {
         println!("  {iothread}");
     }
 
-    let memdevs: Vec<qapi::Memdev> = preconfig.execute(&qapi::QueryMemdev {}).await?;
+    let memdevs: Vec<qapi::Memdev> = preconfig.execute(&qapi::commands::QueryMemdev {}).await?;
     println!("query-memdev: {} memdevs", memdevs.len());
     for memdev in &memdevs {
         println!("  {memdev}");
     }
 
     let cpus: Vec<qapi::HotpluggableCpu> =
-        preconfig.execute(&qapi::QueryHotpluggableCpus {}).await?;
+        preconfig.execute(&qapi::commands::QueryHotpluggableCpus {}).await?;
     println!("query-hotpluggable-cpus: {} cpus", cpus.len());
     for cpu in &cpus {
         println!("  {cpu}");
@@ -114,7 +114,7 @@ async fn main() -> Result<()> {
     // ── QOM introspection (preconfig-safe) ───────────────────────────────
 
     let types: Vec<qapi::ObjectTypeInfo> = preconfig
-        .execute(&qapi::QomListTypes {
+        .execute(&qapi::commands::QomListTypes {
             r#abstract: None,
             implements: None,
         })
@@ -125,7 +125,7 @@ async fn main() -> Result<()> {
     }
 
     let root_props: Vec<qapi::ObjectPropertyInfo> = preconfig
-        .execute(&qapi::QomList {
+        .execute(&qapi::commands::QomList {
             path: "/".to_string(),
         })
         .await?;
@@ -136,7 +136,7 @@ async fn main() -> Result<()> {
 
     // List properties of the q35 machine type
     let machine_props: Vec<qapi::ObjectPropertyInfo> = preconfig
-        .execute(&qapi::QomListProperties {
+        .execute(&qapi::commands::QomListProperties {
             typename: "machine".to_string(),
         })
         .await?;
@@ -150,20 +150,20 @@ async fn main() -> Result<()> {
 
     // ── Block layer queries (preconfig-safe since 7.1.0) ─────────────────
 
-    let blocks: Vec<qapi::BlockInfo> = preconfig.execute(&qapi::QueryBlock {}).await?;
+    let blocks: Vec<qapi::BlockInfo> = preconfig.execute(&qapi::commands::QueryBlock {}).await?;
     println!("query-block: {} devices", blocks.len());
     for block in &blocks {
         println!("  {block}");
     }
 
-    let block_jobs: Vec<qapi::BlockJobInfo> = preconfig.execute(&qapi::QueryBlockJobs {}).await?;
+    let block_jobs: Vec<qapi::BlockJobInfo> = preconfig.execute(&qapi::commands::QueryBlockJobs {}).await?;
     println!("query-block-jobs: {} jobs", block_jobs.len());
     for job in &block_jobs {
         println!("  {job}");
     }
 
     let blockstats: Vec<qapi::BlockStats> = preconfig
-        .execute(&qapi::QueryBlockstats { query_nodes: None })
+        .execute(&qapi::commands::QueryBlockstats { query_nodes: None })
         .await?;
     println!("query-blockstats: {} entries", blockstats.len());
     for stat in &blockstats {
@@ -172,7 +172,7 @@ async fn main() -> Result<()> {
 
     // query-named-block-nodes: should show the OVMF pflash node
     let block_nodes: Vec<qapi::BlockDeviceInfo> = preconfig
-        .execute(&qapi::QueryNamedBlockNodes { flat: None })
+        .execute(&qapi::commands::QueryNamedBlockNodes { flat: None })
         .await?;
     println!("query-named-block-nodes: {} nodes", block_nodes.len());
     for node in &block_nodes {
@@ -191,18 +191,18 @@ async fn main() -> Result<()> {
 
     // ── Post-start verification ──────────────────────────────────────────
 
-    let status: qapi::StatusInfo = vm.execute(&qapi::QueryStatus {}).await?;
+    let status: qapi::StatusInfo = vm.execute(&qapi::commands::QueryStatus {}).await?;
     println!("query-status: {status}");
 
     // After start, hotpluggable CPUs should be populated
-    let cpus: Vec<qapi::HotpluggableCpu> = vm.execute(&qapi::QueryHotpluggableCpus {}).await?;
+    let cpus: Vec<qapi::HotpluggableCpu> = vm.execute(&qapi::commands::QueryHotpluggableCpus {}).await?;
     println!("query-hotpluggable-cpus: {} cpus", cpus.len());
     for cpu in &cpus {
         println!("  {cpu}");
     }
 
     // Query PCI devices (available after machine init with q35)
-    let pci: Vec<qapi::PciInfo> = vm.execute(&qapi::QueryPci {}).await?;
+    let pci: Vec<qapi::PciInfo> = vm.execute(&qapi::commands::QueryPci {}).await?;
     println!("query-pci: {} PCI buses", pci.len());
     for bus in &pci {
         println!("  {bus}");

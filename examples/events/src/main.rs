@@ -20,27 +20,27 @@ async fn main() -> Result<()> {
 
     // Stop the VM -- triggers STOP event
     println!(">>> Sending 'stop'");
-    vm.execute(&qapi::Stop {}).await?;
+    vm.execute(&qapi::commands::Stop {}).await?;
     drain_events(&mut vm, Duration::from_millis(500)).await;
 
     // Resume -- triggers RESUME event
     println!(">>> Sending 'cont'");
-    vm.execute(&qapi::Cont {}).await?;
+    vm.execute(&qapi::commands::Cont {}).await?;
     drain_events(&mut vm, Duration::from_millis(500)).await;
 
     // Reset -- triggers RESET event
     println!(">>> Sending 'system_reset'");
-    vm.execute(&qapi::SystemReset {}).await?;
+    vm.execute(&qapi::commands::SystemReset {}).await?;
     drain_events(&mut vm, Duration::from_millis(500)).await;
 
     // Powerdown -- triggers POWERDOWN event (may not fire with -machine none)
     println!(">>> Sending 'system_powerdown'");
-    vm.execute(&qapi::SystemPowerdown {}).await?;
+    vm.execute(&qapi::commands::SystemPowerdown {}).await?;
     drain_events(&mut vm, Duration::from_millis(500)).await;
 
     // Quit -- triggers SHUTDOWN event, then QEMU exits
     println!(">>> Sending 'quit'");
-    let _ = vm.qmp.execute(&qapi::Quit {}).await;
+    let _ = vm.qmp.execute(&qapi::commands::Quit {}).await;
     drain_events(&mut vm, Duration::from_secs(1)).await;
 
     println!("\nDone.");

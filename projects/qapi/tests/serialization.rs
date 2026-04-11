@@ -1,3 +1,5 @@
+use qapi::commands::*;
+use qapi::events::*;
 use qapi::*;
 
 /// Set a high version so all since-gated fields are included.

@@ -20,7 +20,7 @@ async fn spawn_preconfig_and_start() {
         .unwrap();
 
     // In preconfig state, query-status is allowed (PreconfigSafe)
-    let status: qapi::StatusInfo = preconfig.execute(&qapi::QueryStatus {}).await.unwrap();
+    let status: qapi::StatusInfo = preconfig.execute(&qapi::commands::QueryStatus {}).await.unwrap();
     assert!(
         !status.running,
         "VM should not be running in preconfig state"
@@ -28,7 +28,7 @@ async fn spawn_preconfig_and_start() {
 
     // Transition to running
     let vm = preconfig.start().await.unwrap();
-    let status: qapi::StatusInfo = vm.execute(&qapi::QueryStatus {}).await.unwrap();
+    let status: qapi::StatusInfo = vm.execute(&qapi::commands::QueryStatus {}).await.unwrap();
     assert!(status.running, "VM should be running after start()");
 
     vm.shutdown().await;
@@ -59,8 +59,8 @@ async fn preconfig_query_commands() {
         .unwrap();
 
     // These are all preconfig-safe commands
-    let _status: qapi::StatusInfo = preconfig.execute(&qapi::QueryStatus {}).await.unwrap();
-    let _name: qapi::NameInfo = preconfig.execute(&qapi::QueryName {}).await.unwrap();
+    let _status: qapi::StatusInfo = preconfig.execute(&qapi::commands::QueryStatus {}).await.unwrap();
+    let _name: qapi::NameInfo = preconfig.execute(&qapi::commands::QueryName {}).await.unwrap();
 
     let vm = preconfig.start().await.unwrap();
     vm.shutdown().await;
@@ -77,10 +77,10 @@ async fn execute_multiple_commands_after_start() {
         .unwrap();
     let vm = preconfig.start().await.unwrap();
 
-    let _status: qapi::StatusInfo = vm.execute(&qapi::QueryStatus {}).await.unwrap();
-    let _name: qapi::NameInfo = vm.execute(&qapi::QueryName {}).await.unwrap();
-    let _kvm: qapi::KvmInfo = vm.execute(&qapi::QueryKvm {}).await.unwrap();
-    let _uuid: qapi::UuidInfo = vm.execute(&qapi::QueryUuid {}).await.unwrap();
+    let _status: qapi::StatusInfo = vm.execute(&qapi::commands::QueryStatus {}).await.unwrap();
+    let _name: qapi::NameInfo = vm.execute(&qapi::commands::QueryName {}).await.unwrap();
+    let _kvm: qapi::KvmInfo = vm.execute(&qapi::commands::QueryKvm {}).await.unwrap();
+    let _uuid: qapi::UuidInfo = vm.execute(&qapi::commands::QueryUuid {}).await.unwrap();
 
     vm.shutdown().await;
 }
@@ -98,7 +98,7 @@ async fn events_received_on_stop() {
     let mut vm = preconfig.start().await.unwrap();
 
     // Send stop command
-    vm.execute(&qapi::Stop {}).await.unwrap();
+    vm.execute(&qapi::commands::Stop {}).await.unwrap();
 
     // Wait for the STOP event
     let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(5);

@@ -10,6 +10,7 @@ use common::serial::SerialConsole;
 #[allow(unused_imports)]
 use common::*;
 use qapi::*;
+use qapi::commands::*;
 
 /// Create a VmBuilder configured for fast cirros boot (x86, SeaBIOS).
 /// Uses direct kernel boot + dslist=nocloud to skip metadata retries (~10s boot).
