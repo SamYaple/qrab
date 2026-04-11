@@ -1,6 +1,6 @@
 use super::{
-    Metadata, StructField, doc_to_tokens, generate_attribute, rustify_field, rustify_name,
-    rustify_type,
+    doc_to_tokens, generate_attribute, rustify_field, rustify_name, rustify_type, Metadata,
+    StructField,
 };
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};

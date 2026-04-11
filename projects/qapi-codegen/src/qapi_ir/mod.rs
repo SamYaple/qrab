@@ -39,6 +39,8 @@ fn qapi_to_rust_type(qapi_type: &str) -> String {
         "Dict" | "dict" => "serde_json::Value".into(),
         // Wildcard type used in older versions (e.g., netdev_add '*props': '**')
         "**" => "serde_json::Value".into(),
+        // Catch-all map for commands with 'gen': false (e.g., device_add)
+        "HashMap<String, serde_json::Value>" => "HashMap<String, serde_json::Value>".into(),
         _ => rustify_name(qapi_type),
     }
 }

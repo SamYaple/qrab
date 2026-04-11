@@ -240,7 +240,7 @@ arch_tests!(query_qmp_schema, [X86_64], |arch: Arch| async move {
         .start()
         .await
         .unwrap();
-    let schema: Vec<SchemaInfo> = t.execute(&QueryQmpSchema {}).await.unwrap();
+    let schema: Vec<SchemaInfo> = t.execute(&QueryQmpSchema { arguments: None }).await.unwrap();
     assert!(
         schema.len() > 100,
         "QMP schema should have >100 entries, got {}",

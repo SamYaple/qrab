@@ -1125,6 +1125,9 @@ pub struct CxlReleaseDynamicCapacity {
 #[qapi(returns = "()")]
 #[qapi(added = "2.8.0")]
 pub struct DeviceAdd {
+    /// Additional device-specific properties.
+    #[qapi(flatten)]
+    pub arguments: Option<HashMap<String, serde_json::Value>>,
     #[qapi(added = "2.9.0")]
     pub bus: Option<String>,
     pub driver: String,
@@ -1841,6 +1844,10 @@ pub struct NbdServerStop {}
 #[qapi(added = "1.2.0")]
 #[qapi(allow_preconfig(added = "6.1.0"))]
 pub struct NetdevAdd {
+    /// Additional device-specific properties.
+    #[qapi(flatten)]
+    #[qapi(removed = "5.0.0")]
+    pub arguments: Option<HashMap<String, serde_json::Value>>,
     #[qapi(flatten)]
     #[qapi(added = "5.0.0")]
     pub data: Option<Netdev>,
@@ -1867,6 +1874,10 @@ pub struct NetdevDel {
 #[qapi(added = "2.0.0")]
 #[qapi(allow_preconfig(added = "6.1.0"))]
 pub struct ObjectAdd {
+    /// Additional device-specific properties.
+    #[qapi(flatten)]
+    #[qapi(removed = "6.0.0")]
+    pub arguments: Option<HashMap<String, serde_json::Value>>,
     #[qapi(flatten)]
     #[qapi(added = "6.0.0")]
     pub data: Option<ObjectOptions>,
@@ -1935,6 +1946,10 @@ pub struct QmpCapabilities {
 #[qapi(added = "1.1.0")]
 #[qapi(allow_preconfig(added = "3.0.0"))]
 pub struct QomGet {
+    /// Additional device-specific properties.
+    #[qapi(flatten)]
+    #[qapi(removed = "2.5.0")]
+    pub arguments: Option<HashMap<String, serde_json::Value>>,
     pub path: String,
     pub property: String,
 }
@@ -1984,6 +1999,10 @@ pub struct QomListTypes {
 #[qapi(added = "1.1.0")]
 #[qapi(allow_preconfig(added = "3.0.0"))]
 pub struct QomSet {
+    /// Additional device-specific properties.
+    #[qapi(flatten)]
+    #[qapi(removed = "2.5.0")]
+    pub arguments: Option<HashMap<String, serde_json::Value>>,
     /// see @qom-get for a description of this parameter
     pub path: String,
     /// the property name to set
@@ -2368,7 +2387,12 @@ pub struct QueryPrManagers {}
 #[qapi(returns = "Vec<SchemaInfo>")]
 #[qapi(added = "2.5.0")]
 #[qapi(allow_preconfig(added = "6.0.0"))]
-pub struct QueryQmpSchema {}
+pub struct QueryQmpSchema {
+    /// Additional device-specific properties.
+    #[qapi(flatten)]
+    #[qapi(removed = "6.0.0")]
+    pub arguments: Option<HashMap<String, serde_json::Value>>,
+}
 
 #[qapi(command)]
 #[qapi(name = "query-replay")]

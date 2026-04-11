@@ -10,8 +10,8 @@
 use super::{Attribute, Enum, EnumVariant, EnumVariantKind, Metadata, Struct, StructField};
 use crate::qapi_ir::{rustify_field_name, rustify_name};
 use crate::{
-    MembersOrRef, QapiAlternate, QapiAlternative, QapiCommand, QapiEnum, QapiEnumValue, QapiEvent,
-    QapiMember, QapiStruct, QapiTypeRef, QapiUnion, extract_since_from_comment,
+    extract_since_from_comment, MembersOrRef, QapiAlternate, QapiAlternative, QapiCommand,
+    QapiEnum, QapiEnumValue, QapiEvent, QapiMember, QapiStruct, QapiTypeRef, QapiUnion,
 };
 use std::collections::HashMap;
 
@@ -901,6 +901,25 @@ pub fn process_command(q: QapiCommand) -> Struct {
     }
     if q.success_response == Some("false") {
         meta.attributes.push(Attribute::new("no_success_response"));
+    }
+
+    // Commands with 'gen': false accept arbitrary additional properties
+    // beyond the declared fields (e.g., device_add takes device-specific props).
+    // Add a flattened HashMap catch-all field to support this.
+    // The field defaults to an empty map so callers don't need to specify it.
+    if q.r#gen == Some("false") || q.r#gen == Some("no") {
+        fields.push(StructField {
+            name: "arguments".into(),
+            r#type: "HashMap<String, serde_json::Value>".into(),
+            optional: true,
+            array: false,
+            meta: {
+                let mut m = Metadata::default();
+                m.doc = Some("Additional device-specific properties.".into());
+                m.attributes.push(Attribute::new("flatten"));
+                m
+            },
+        });
     }
 
     Struct {
