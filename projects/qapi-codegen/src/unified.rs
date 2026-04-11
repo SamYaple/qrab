@@ -89,6 +89,44 @@ pub struct UnifiedRegistry {
     pub versions: Vec<Version>,
 }
 
+/// Merge command-specific attributes (command, returns, allow_oob, etc.) from
+/// a processed command struct onto an existing data struct.
+fn merge_command_attrs_onto(source: &Struct, target: &mut Struct) {
+    for attr in &source.meta.attributes {
+        match attr {
+            Attribute::Unit(n)
+                if n == "command"
+                    || n == "allow_oob"
+                    || n == "allow_preconfig"
+                    || n == "no_success_response" =>
+            {
+                if !target.meta.attributes.contains(attr) {
+                    target.meta.attributes.push(attr.clone());
+                }
+            }
+            Attribute::Item { name, .. } if name == "returns" => {
+                if !target
+                    .meta
+                    .attributes
+                    .iter()
+                    .any(|a| matches!(a, Attribute::Item { name: n, .. } if n == "returns"))
+                {
+                    target.meta.attributes.push(attr.clone());
+                }
+            }
+            _ => {}
+        }
+    }
+    if !target
+        .meta
+        .attributes
+        .iter()
+        .any(|a| matches!(a, Attribute::Unit(n) if n == "command"))
+    {
+        target.meta.attributes.push(Attribute::new("command"));
+    }
+}
+
 /// Process a single version's schema through the IR pipeline.
 /// Returns maps of enum name → Enum IR and struct name → Struct IR.
 fn process_version_schema(
@@ -166,45 +204,28 @@ fn process_version_schema(
 
         let processed = process_command(v.clone());
 
-        if let Some(ref ref_name) = data_ref_name
-            && let Some(existing) = structs_lookup.get_mut(ref_name.as_str())
-        {
-                // Command references an existing struct — merge command attributes onto it.
-                for attr in &processed.meta.attributes {
-                    match attr {
-                        Attribute::Unit(n)
-                            if n == "command"
-                                || n == "allow_oob"
-                                || n == "allow_preconfig"
-                                || n == "no_success_response" =>
-                        {
-                            if !existing.meta.attributes.contains(attr) {
-                                existing.meta.attributes.push(attr.clone());
-                            }
-                        }
-                        Attribute::Item { name, .. } if name == "returns" => {
-                            if !existing.meta.attributes.iter().any(
-                                |a| matches!(a, Attribute::Item { name: n, .. } if n == "returns"),
-                            ) {
-                                existing.meta.attributes.push(attr.clone());
-                            }
-                        }
-                        _ => {}
-                    }
+        if let Some(ref ref_name) = data_ref_name {
+            if structs_lookup.contains_key(ref_name.as_str()) {
+                let cmd_rust_name = rustify_name(&processed.name);
+                let ref_rust_name = rustify_name(ref_name);
+
+                if cmd_rust_name == ref_rust_name {
+                    // Same Rust name (e.g., drive-mirror -> DriveMirror, DriveMirror -> DriveMirror).
+                    // Merge command attributes onto the existing data struct and remove the
+                    // command wrapper -- the dedup pass will handle them.
+                    let existing = structs_lookup.get_mut(ref_name.as_str()).unwrap();
+                    merge_command_attrs_onto(&processed, existing);
+                    let old_cmd_name = processed.name.clone();
+                    structs_lookup.remove(&old_cmd_name);
+                } else {
+                    // Different Rust names (e.g., netdev_add -> NetdevAdd, Netdev -> Netdev).
+                    // Keep the command struct (which has a flatten field pointing to the
+                    // data type) under its own name. Don't merge onto the data struct --
+                    // it would get the wrong wire name and the command entry would be lost.
+                    structs_lookup.insert(processed.name.clone(), processed);
                 }
-                // Set the command wire name
-                if !existing
-                    .meta
-                    .attributes
-                    .iter()
-                    .any(|a| matches!(a, Attribute::Unit(n) if n == "command"))
-                {
-                    existing.meta.attributes.push(Attribute::new("command"));
-                }
-                // Remove old command entry that was created from inline data in earlier versions
-                let old_cmd_name = processed.name.clone();
-                structs_lookup.remove(&old_cmd_name);
                 continue;
+            }
         }
 
         structs_lookup.insert(processed.name.clone(), processed);
