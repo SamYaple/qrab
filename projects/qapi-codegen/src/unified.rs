@@ -166,8 +166,9 @@ fn process_version_schema(
 
         let processed = process_command(v.clone());
 
-        if let Some(ref ref_name) = data_ref_name {
-            if let Some(existing) = structs_lookup.get_mut(ref_name.as_str()) {
+        if let Some(ref ref_name) = data_ref_name
+            && let Some(existing) = structs_lookup.get_mut(ref_name.as_str())
+        {
                 // Command references an existing struct — merge command attributes onto it.
                 for attr in &processed.meta.attributes {
                     match attr {
@@ -204,7 +205,6 @@ fn process_version_schema(
                 let old_cmd_name = processed.name.clone();
                 structs_lookup.remove(&old_cmd_name);
                 continue;
-            }
         }
 
         structs_lookup.insert(processed.name.clone(), processed);
@@ -1217,10 +1217,10 @@ fn generate_unified_struct(
     if let Some(unstable) = us.versions.unstable {
         let mut inner = vec![Attribute::with_value("added", version_str(unstable))];
         // Check if unstable was removed (stabilized) via attr_versions
-        if let Some(uvr) = us.attr_versions.get("unstable") {
-            if let Some(until) = uvr.until {
-                inner.push(Attribute::with_value("removed", version_str(until)));
-            }
+        if let Some(uvr) = us.attr_versions.get("unstable")
+            && let Some(until) = uvr.until
+        {
+            inner.push(Attribute::with_value("removed", version_str(until)));
         }
         ir.meta
             .attributes

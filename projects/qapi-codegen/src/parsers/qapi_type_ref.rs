@@ -1,29 +1,24 @@
 use super::common::{qstring, qtag};
 use super::parser_version;
 use super::qapi_members::QapiMembers;
-use nom::IResult;
-use nom::Parser;
 use nom::branch::alt;
 use nom::sequence::delimited;
+use nom::IResult;
+use nom::Parser;
 
 pub fn take_type_ref(input: &str) -> IResult<&str, QapiTypeRef<'_>> {
     use super::common::take_kv;
     take_kv("type", QapiTypeRef::parse).parse(input)
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub enum QapiTypeRef<'i> {
+    #[default]
     Unset,
     Ref(&'i str),
     ArrayRef(&'i str),
     /// Inline anonymous struct definition (v1.0–v2.3.0)
     InlineStruct(QapiMembers<'i>),
-}
-
-impl Default for QapiTypeRef<'_> {
-    fn default() -> Self {
-        Self::Unset
-    }
 }
 
 impl<'i> QapiTypeRef<'i> {

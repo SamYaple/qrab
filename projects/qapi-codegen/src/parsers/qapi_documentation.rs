@@ -1,12 +1,12 @@
 use super::parser_version;
-use nom::IResult;
-use nom::Parser;
 use nom::bytes::complete::{is_a, tag, tag_no_case, take_while1};
 use nom::character::complete::{line_ending, not_line_ending, space0};
 use nom::combinator::{not, opt, peek, recognize};
 use nom::error::{Error, ErrorKind};
 use nom::multi::{many0, many1};
 use nom::sequence::{preceded, terminated};
+use nom::IResult;
+use nom::Parser;
 
 // ─── Shared helpers ────────────────────────────────────────────────
 
@@ -306,13 +306,9 @@ impl<'i> QapiDocumentation<'i> {
                 }
                 // Consume continuation lines (indented, not starting with @, not a section keyword)
                 let mut next = next;
-                loop {
-                    if let Ok((n, line)) = take_line_continuation(next) {
-                        field_vals.push(line);
-                        next = n;
-                    } else {
-                        break;
-                    }
+                while let Ok((n, line)) = take_line_continuation(next) {
+                    field_vals.push(line);
+                    next = n;
                 }
                 // Skip trailing empty lines
                 while let Ok((n, _)) = take_empty_line(next) {
@@ -495,10 +491,7 @@ impl<'i> QapiFreeformDoc<'i> {
             }
             tmp
         };
-        if check_input
-            .trim_start_matches(|c: char| c == '#' || c == ' ')
-            .starts_with('@')
-        {
+        if check_input.trim_start_matches(['#', ' ']).starts_with('@') {
             return Err(nom::Err::Error(Error::new(start, ErrorKind::Tag)));
         }
         // Consume lines starting with # until ##

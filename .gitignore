@@ -1,1 +1,6 @@
 /target
+.worktrees
+.agent-memory/findings/*/[0-9]*.md
+!.agent-memory/context/
+!.agent-memory/coordination/
+!.agent-memory/findings/*/latest.md

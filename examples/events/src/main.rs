@@ -50,12 +50,7 @@ async fn main() -> Result<()> {
 async fn drain_events(vm: &mut manager::Vm, timeout: Duration) {
     sleep(Duration::from_millis(50)).await; // let events arrive
     let deadline = tokio::time::Instant::now() + timeout;
-    loop {
-        match tokio::time::timeout_at(deadline, vm.events.recv()).await {
-            Ok(Some(evt)) => {
-                println!("    {evt:?}");
-            }
-            _ => break,
-        }
+    while let Ok(Some(evt)) = tokio::time::timeout_at(deadline, vm.events.recv()).await {
+        println!("    {evt:?}");
     }
 }

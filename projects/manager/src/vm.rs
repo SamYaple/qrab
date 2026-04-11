@@ -288,7 +288,7 @@ impl PreconfigVm {
         &self,
         cmd: &C,
     ) -> Result<C::Returns> {
-        Ok(self.qmp.execute(cmd).await?)
+        self.qmp.execute(cmd).await
     }
 
     /// Exit preconfig mode and start guest execution.
@@ -334,7 +334,7 @@ impl Vm {
 
     /// Execute any QMP command and return the typed response.
     pub async fn execute<C: QapiCommand>(&self, cmd: &C) -> Result<C::Returns> {
-        Ok(self.qmp.execute(cmd).await?)
+        self.qmp.execute(cmd).await
     }
 
     // -- Ergonomic lifecycle methods --
