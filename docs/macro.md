@@ -10,11 +10,19 @@ Single-file crate: `projects/qapi-macros/src/lib.rs` (~1343 lines).
 
 ## Type-Level Attributes
 
+The macro accepts two naming conventions for version attributes — both are
+equivalent aliases in the parser:
+
+| Canonical | Alias | Meaning |
+|---|---|---|
+| `since` | `added` | First version where this exists (lower bound) |
+| `until` | `removed` | Version where this was removed (upper bound) |
+
 | Attribute | Type | Effect |
 |---|---|---|
 | `name = "wire-name"` | string | Sets the QMP wire name for serde |
-| `since = "X.Y.Z"` | version | Runtime version gating (lower bound) |
-| `until = "X.Y.Z"` | version | Runtime version gating (upper bound) |
+| `since = "X.Y.Z"` (or `added`) | version | Runtime version gating (lower bound) |
+| `until = "X.Y.Z"` (or `removed`) | version | Runtime version gating (upper bound) |
 | `deprecated` | flag | Marks type as deprecated |
 | `unstable` | flag | Marks as unstable, generates `#[deprecated]` warning |
 | `condition = "CONFIG_*"` | string | Maps to `#[cfg]`; CONFIG_LINUX/WIN32/POSIX are real, others are no-op |
@@ -32,8 +40,8 @@ Single-file crate: `projects/qapi-macros/src/lib.rs` (~1343 lines).
 | Attribute | Type | Effect |
 |---|---|---|
 | `name = "wire-name"` | string | Serde field rename |
-| `since = "X.Y.Z"` | version | Skip field if runtime version is below |
-| `until = "X.Y.Z"` | version | Skip field if runtime version is at or above |
+| `since = "X.Y.Z"` (or `added`) | version | Skip field if runtime version is below |
+| `until = "X.Y.Z"` (or `removed`) | version | Skip field if runtime version is at or above |
 | `deprecated` | flag | Field deprecated |
 | `condition = "CONFIG_*"` | string | Conditional compilation |
 | `feature = "deprecated"` | string | Generates `#[deprecated]` warning on use |

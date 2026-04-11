@@ -24,6 +24,10 @@ cargo test -p manager
 | `projects/qapi-protocol/tests/events.rs` | Async event handling |
 | `projects/qapi-protocol/tests/schema.rs` | Schema-level validation |
 | `projects/qapi-codegen/tests/integration.rs` | Codegen integration tests |
+| `projects/manager/tests/integration.rs` | Manager lifecycle integration tests |
+| `projects/qapi-protocol/tests/common/mod.rs` | Shared test helpers module |
+| `projects/qapi-protocol/tests/common/fixtures.rs` | Test fixture management (image downloads, caching) |
+| `projects/qapi-protocol/tests/common/serial.rs` | Serial console test utilities |
 
 ## Integration Tests Requiring QEMU
 

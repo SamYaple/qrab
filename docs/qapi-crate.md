@@ -79,12 +79,3 @@ compile time. Common patterns:
 - `#[qapi(discriminator)]` / `#[qapi(union)]` — flat union encoding
 - `#[qapi(condition = "CONFIG_LINUX")]` — conditional compilation
 
-## Consumer Model
-
-The crate is designed to be non-prescriptive. You can:
-
-1. Use it directly with a raw socket — serialize commands, deserialize responses
-2. Use it via `qapi-protocol` for a managed async QMP/QGA client
-3. Use it via `manager` for high-level VM orchestration
-
-All three approaches use the same types and traits.

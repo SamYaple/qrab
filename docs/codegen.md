@@ -36,17 +36,17 @@ metadata.
 | `src/parsers/qapi_union.rs` | 3 | Union definition parser |
 | `src/parsers/qapi_documentation.rs` | 3 | `##`-doc comment parser |
 | `src/qapi_ir/mod.rs` | 4 | Type mapping (`qapi_to_rust_type()`), name mangling |
-| `src/qapi_ir/process_qapi.rs` | 4 | AST to IR conversion (911 lines) |
+| `src/qapi_ir/process_qapi.rs` | 4 | AST to IR conversion (~910 lines) |
 | `src/qapi_ir/rust_struct.rs` | 6 | Struct `TokenStream` generation |
 | `src/qapi_ir/rust_enum.rs` | 6 | Enum `TokenStream` generation |
-| `src/unified.rs` | 5-6 | `generate_unified_code()` — merge + emit (1465 lines) |
+| `src/unified.rs` | 5-6 | `generate_unified_code()` — merge + emit (~1465 lines) |
 
 ## Parser Architecture
 
 One parser file per QAPI construct, each exporting a type and `take_*`
 function. The parsers directory also contains files for sub-elements:
 `qapi_member.rs`, `qapi_members.rs`, `qapi_branch.rs`, `qapi_branches.rs`,
-`qapi_variant.rs`, `qapi_alternative.rs`, `qapi_alternatives.rs`,
+`qapi_variant.rs`, `qapi_alternate.rs`, `qapi_alternative.rs`, `qapi_alternatives.rs`,
 `qapi_cond.rs`, `qapi_feature.rs`, `qapi_features.rs`, `qapi_type_ref.rs`,
 `qapi_include.rs`, `qapi_pragma.rs`.
 
@@ -77,3 +77,6 @@ cargo run -p qapi-codegen -- vendor/qemu --qga > projects/qapi/src/qga.rs
 
 The `vendor/qemu` submodule must point to a QEMU git repository with full
 tag history.
+
+See also: [KNOWN_ISSUES.md](../projects/qapi-codegen/KNOWN_ISSUES.md) for
+documented parser warnings, recursive boxing, and type merge edge cases.

@@ -30,7 +30,6 @@ Vm
 | `src/lib.rs` | Re-exports: `Arch`, `MachineConfig`, `VmBuilder`, `PreconfigVm`, `Vm`, `PRECONFIG_MIN_VERSION` |
 | `src/vm.rs` | Core typestate implementation (VmBuilder, PreconfigVm, Vm, VmProcess) |
 | `src/arch.rs` | `Arch` enum, `MachineConfig`, `detect_version()` |
-| `src/namespace.rs` | User namespace utilities (reserved for future use) |
 
 ## VmBuilder
 
