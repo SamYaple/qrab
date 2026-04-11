@@ -50,7 +50,7 @@ async fn main() -> Result<()> {
     // The machine is NOT initialized yet -- UEFI firmware has not loaded.
     // PreconfigVm::execute() enforces PreconfigSafe at compile time.
 
-    let mut preconfig = VmBuilder::new(
+    let preconfig = VmBuilder::new(
         Arch::X86_64,
         MachineConfig::Uefi {
             memory: "256M".into(),
@@ -109,14 +109,6 @@ async fn main() -> Result<()> {
     println!("query-hotpluggable-cpus: {} cpus", cpus.len());
     for cpu in &cpus {
         println!("  {cpu}");
-    }
-
-    let opts: Vec<qapi::CommandLineOptionInfo> = preconfig
-        .execute(&qapi::QueryCommandLineOptions { option: None })
-        .await?;
-    println!("query-command-line-options: {} option groups", opts.len());
-    for opt in opts.iter() {
-        println!("  {opt}");
     }
 
     // ── QOM introspection (preconfig-safe) ───────────────────────────────
@@ -179,65 +171,13 @@ async fn main() -> Result<()> {
     }
 
     // query-named-block-nodes: should show the OVMF pflash node
-    let named_result: Result<Vec<qapi::BlockDeviceInfo>> = preconfig
+    let block_nodes: Vec<qapi::BlockDeviceInfo> = preconfig
         .execute(&qapi::QueryNamedBlockNodes { flat: None })
-        .await;
-    match named_result {
-        Ok(nodes) => {
-            println!("query-named-block-nodes: {} nodes", nodes.len());
-            for node in &nodes {
-                println!("  {node}");
-            }
-        }
-        Err(e) => {
-            // May fail on older QEMU or deserialization issues
-            println!("query-named-block-nodes: skipped ({})", e);
-        }
+        .await?;
+    println!("query-named-block-nodes: {} nodes", block_nodes.len());
+    for node in &block_nodes {
+        println!("  {node}");
     }
-    println!();
-
-    // ── Drain events during preconfig ────────────────────────────────────
-
-    println!("Checking for events during preconfig...");
-    sleep(Duration::from_millis(100)).await;
-    let mut event_count = 0;
-    while let Ok(Some(evt)) =
-        tokio::time::timeout(Duration::from_millis(200), preconfig.events.recv()).await
-    {
-        println!("  {evt:?}");
-        event_count += 1;
-    }
-    if event_count == 0 {
-        println!("  (no events -- expected in preconfig)");
-    }
-    println!();
-
-    // ── Schema introspection ─────────────────────────────────────────────
-
-    let schema: Vec<qapi::SchemaInfo> = preconfig.execute(&qapi::QueryQmpSchema {}).await?;
-    let cmd_count = schema
-        .iter()
-        .filter(|s| matches!(s.meta_type, qapi::SchemaMetaType::Command))
-        .count();
-    let evt_count = schema
-        .iter()
-        .filter(|s| matches!(s.meta_type, qapi::SchemaMetaType::Event))
-        .count();
-    let type_count = schema.len() - cmd_count - evt_count;
-    println!(
-        "query-qmp-schema: {} entries ({} commands, {} events, {} types)",
-        schema.len(),
-        cmd_count,
-        evt_count,
-        type_count
-    );
-    for entry in schema.iter().take(5) {
-        println!("  {entry}");
-    }
-    if schema.len() > 5 {
-        println!("  ... and {} more", schema.len() - 5);
-    }
-    println!();
 
     // ── Exit preconfig and start the UEFI VM ─────────────────────────────
     //
@@ -252,20 +192,20 @@ async fn main() -> Result<()> {
     // ── Post-start verification ──────────────────────────────────────────
 
     let status: qapi::StatusInfo = vm.execute(&qapi::QueryStatus {}).await?;
-    println!("query-status: {status:?}");
+    println!("query-status: {status}");
 
     // After start, hotpluggable CPUs should be populated
     let cpus: Vec<qapi::HotpluggableCpu> = vm.execute(&qapi::QueryHotpluggableCpus {}).await?;
     println!("query-hotpluggable-cpus: {} cpus", cpus.len());
     for cpu in &cpus {
-        println!("  {cpu:?}");
+        println!("  {cpu}");
     }
 
     // Query PCI devices (available after machine init with q35)
     let pci: Vec<qapi::PciInfo> = vm.execute(&qapi::QueryPci {}).await?;
     println!("query-pci: {} PCI buses", pci.len());
     for bus in &pci {
-        println!("  {bus:?}");
+        println!("  {bus}");
     }
 
     // Drain post-start events
