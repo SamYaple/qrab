@@ -51,6 +51,12 @@ pub fn qemu_version() -> (u32, u32, u32) {
 mod generated;
 pub use generated::*;
 
+/// QMP command types, also re-exported at the crate root for backward compatibility.
+pub use generated::commands;
+
+/// QMP event types, also re-exported at the crate root for backward compatibility.
+pub use generated::events;
+
 /// QEMU Guest Agent (QGA) types.
 pub mod qga;
 

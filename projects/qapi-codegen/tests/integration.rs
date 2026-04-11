@@ -1310,18 +1310,23 @@ fn test_generated_code_valid_rust_with_fix() {
     let parsed: syn::File =
         syn::parse_str(&code).expect("generated code with boxed command fix is not valid Rust");
 
-    // All 12 boxed commands should appear as structs
-    let struct_names: Vec<String> = parsed
-        .items
-        .iter()
-        .filter_map(|item| {
-            if let syn::Item::Struct(s) = item {
-                Some(s.ident.to_string())
-            } else {
-                None
+    // All 12 boxed commands should appear as structs (possibly inside submodules)
+    let mut struct_names: Vec<String> = Vec::new();
+    for item in &parsed.items {
+        match item {
+            syn::Item::Struct(s) => {
+                struct_names.push(s.ident.to_string());
             }
-        })
-        .collect();
+            syn::Item::Mod(m) if m.content.is_some() => {
+                for inner in &m.content.as_ref().unwrap().1 {
+                    if let syn::Item::Struct(s) = inner {
+                        struct_names.push(s.ident.to_string());
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
 
     let expected_structs = [
         "NetdevAdd",

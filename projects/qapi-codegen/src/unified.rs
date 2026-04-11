@@ -28,6 +28,30 @@ fn version_str(v: Version) -> String {
 /// so it should not appear in the generated Rust doc comments.
 /// Clean a doc string: strip leading `# ` from each line (QAPI comment syntax)
 /// but preserve whitespace structure and all content.
+/// Classify a unified type as a command, event, or plain data type.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TypeCategory {
+    Command,
+    Event,
+    DataType,
+}
+
+/// Determine the category of a unified type by inspecting its IR attributes.
+fn classify_type(ut: &UnifiedType) -> TypeCategory {
+    let attrs = match ut {
+        UnifiedType::Struct(us) => &us.ir.meta.attributes,
+        UnifiedType::Enum(_) => return TypeCategory::DataType,
+    };
+    for attr in attrs {
+        match attr {
+            Attribute::Unit(n) if n == "command" => return TypeCategory::Command,
+            Attribute::Unit(n) if n == "event" => return TypeCategory::Event,
+            _ => {}
+        }
+    }
+    TypeCategory::DataType
+}
+
 fn clean_doc(doc: &str) -> Option<String> {
     let doc = doc.trim();
     if doc.is_empty() {
@@ -952,7 +976,7 @@ pub fn generate_unified_code(qemu_repo: &Path, version_tags: &[&str]) -> Result<
     // Track Rust names to detect collisions (e.g., struct BlockDirtyBitmapAdd vs
     // command block-dirty-bitmap-add both produce the same Rust name).
     // Pre-populate with Rust reserved/builtin type names that should never be shadowed.
-    let mut seen_rust_names: BTreeSet<String> = ["String", "Option", "Vec", "Box", "Result"]
+    let seen_rust_names: BTreeSet<String> = ["String", "Option", "Vec", "Box", "Result"]
         .iter()
         .map(|s| s.to_string())
         .collect();
@@ -972,8 +996,15 @@ pub fn generate_unified_code(qemu_repo: &Path, version_tags: &[&str]) -> Result<
         name_a.to_lowercase().cmp(&name_b.to_lowercase())
     });
 
-    // Collect all generated token streams, then format once
-    let mut all_tokens = proc_macro2::TokenStream::new();
+    // Collect generated token streams partitioned by category
+    let mut types_tokens = proc_macro2::TokenStream::new();
+    let mut commands_tokens = proc_macro2::TokenStream::new();
+    let mut events_tokens = proc_macro2::TokenStream::new();
+
+    // Track seen names per category to allow same Rust name in different modules
+    let mut seen_type_names = seen_rust_names.clone();
+    let mut seen_command_names = seen_rust_names.clone();
+    let mut seen_event_names = seen_rust_names.clone();
 
     for (name, ut) in &all_entries {
         let rust_name = match ut {
@@ -981,10 +1012,17 @@ pub fn generate_unified_code(qemu_repo: &Path, version_tags: &[&str]) -> Result<
             UnifiedType::Struct(us) => rustify_name(&us.ir.name),
         };
 
-        if !seen_rust_names.insert(rust_name.clone()) {
+        let category = classify_type(ut);
+        let (tokens, seen) = match category {
+            TypeCategory::DataType => (&mut types_tokens, &mut seen_type_names),
+            TypeCategory::Command => (&mut commands_tokens, &mut seen_command_names),
+            TypeCategory::Event => (&mut events_tokens, &mut seen_event_names),
+        };
+
+        if !seen.insert(rust_name.clone()) {
             eprintln!(
-                "WARNING: Skipping duplicate Rust name '{}' (QAPI name: '{}')",
-                rust_name, name
+                "WARNING: Skipping duplicate Rust name '{}' (QAPI name: '{}', category: {:?})",
+                rust_name, name, category
             );
             continue;
         }
@@ -993,7 +1031,7 @@ pub fn generate_unified_code(qemu_repo: &Path, version_tags: &[&str]) -> Result<
             UnifiedType::Enum(ue) => generate_unified_enum(ue, &registry),
             UnifiedType::Struct(us) => generate_unified_struct(us, &registry),
         };
-        all_tokens.extend(code);
+        tokens.extend(code);
     }
 
     eprintln!(
@@ -1001,9 +1039,28 @@ pub fn generate_unified_code(qemu_repo: &Path, version_tags: &[&str]) -> Result<
         codegen_start.elapsed().as_secs_f64()
     );
 
+    // Wrap commands and events in submodules, with re-exports for backward compat
+    let module_tokens = quote::quote! {
+        #types_tokens
+
+        pub mod commands {
+            use super::*;
+            #commands_tokens
+        }
+
+        pub mod events {
+            use super::*;
+            #events_tokens
+        }
+
+        // Backward compatibility: re-export commands and events at top level
+        pub use commands::*;
+        pub use events::*;
+    };
+
     // Parse and format the entire output at once
     let fmt_start = Instant::now();
-    let combined = format!("{}{}", output, all_tokens);
+    let combined = format!("{}{}", output, module_tokens);
     let result = match syn::parse_file(&combined) {
         Ok(syntree) => {
             eprintln!(
@@ -1433,7 +1490,7 @@ pub fn generate_qga_code(qemu_repo: &Path, version_tags: &[&str]) -> Result<Stri
     output.push_str("use qapi_macros::qapi;\n");
     output.push_str("use std::collections::HashMap;\n\n");
 
-    let mut seen_rust_names: BTreeSet<String> = ["String", "Option", "Vec", "Box", "Result"]
+    let seen_rust_names: BTreeSet<String> = ["String", "Option", "Vec", "Box", "Result"]
         .iter()
         .map(|s| s.to_string())
         .collect();
@@ -1451,14 +1508,29 @@ pub fn generate_qga_code(qemu_repo: &Path, version_tags: &[&str]) -> Result<Stri
         name_a.to_lowercase().cmp(&name_b.to_lowercase())
     });
 
-    let mut all_tokens = proc_macro2::TokenStream::new();
+    // Collect generated token streams partitioned by category
+    let mut types_tokens = proc_macro2::TokenStream::new();
+    let mut commands_tokens = proc_macro2::TokenStream::new();
+    let mut events_tokens = proc_macro2::TokenStream::new();
+
+    let mut seen_type_names = seen_rust_names.clone();
+    let mut seen_command_names = seen_rust_names.clone();
+    let mut seen_event_names = seen_rust_names.clone();
 
     for (_name, ut) in &all_entries {
         let rust_name = match ut {
             UnifiedType::Enum(ue) => rustify_name(&ue.ir.name),
             UnifiedType::Struct(us) => rustify_name(&us.ir.name),
         };
-        if !seen_rust_names.insert(rust_name.clone()) {
+
+        let category = classify_type(ut);
+        let (tokens, seen) = match category {
+            TypeCategory::DataType => (&mut types_tokens, &mut seen_type_names),
+            TypeCategory::Command => (&mut commands_tokens, &mut seen_command_names),
+            TypeCategory::Event => (&mut events_tokens, &mut seen_event_names),
+        };
+
+        if !seen.insert(rust_name.clone()) {
             eprintln!("WARNING: QGA skipping duplicate '{}'", rust_name);
             continue;
         }
@@ -1466,10 +1538,29 @@ pub fn generate_qga_code(qemu_repo: &Path, version_tags: &[&str]) -> Result<Stri
             UnifiedType::Enum(ue) => generate_unified_enum(ue, &registry),
             UnifiedType::Struct(us) => generate_unified_struct(us, &registry),
         };
-        all_tokens.extend(code);
+        tokens.extend(code);
     }
 
-    let combined = format!("{}{}", output, all_tokens);
+    // Wrap commands and events in submodules, with re-exports for backward compat
+    let module_tokens = quote::quote! {
+        #types_tokens
+
+        pub mod commands {
+            use super::*;
+            #commands_tokens
+        }
+
+        pub mod events {
+            use super::*;
+            #events_tokens
+        }
+
+        // Backward compatibility: re-export commands and events at top level
+        pub use commands::*;
+        pub use events::*;
+    };
+
+    let combined = format!("{}{}", output, module_tokens);
     match syn::parse_file(&combined) {
         Ok(syntree) => {
             eprintln!(
