@@ -1425,3 +1425,103 @@ fn test_name_attributes_preserved() {
         types_with_name_attr,
     );
 }
+
+/// Verify generated code has proper module structure: commands and events
+/// in submodules, data types at top level.
+#[test]
+fn test_module_separation_structure() {
+    let repo = qemu_root();
+    let tags = representative_tags();
+    let tag_refs: Vec<&str> = tags.iter().map(|s| s.as_str()).collect();
+
+    let code = qapi_codegen::unified::generate_unified_code(repo, &tag_refs)
+        .expect("generate_unified_code failed");
+
+    let parsed: syn::File = syn::parse_str(&code).expect("generated code is not valid Rust");
+
+    // Count top-level items by kind
+    let mut top_structs = 0;
+    let mut top_enums = 0;
+    let mut has_commands_mod = false;
+    let mut has_events_mod = false;
+    let mut commands_count = 0;
+    let mut events_count = 0;
+
+    for item in &parsed.items {
+        match item {
+            syn::Item::Struct(_) => top_structs += 1,
+            syn::Item::Enum(_) => top_enums += 1,
+            syn::Item::Mod(m) => {
+                let name = m.ident.to_string();
+                if let Some((_, items)) = &m.content {
+                    match name.as_str() {
+                        "commands" => {
+                            has_commands_mod = true;
+                            commands_count = items
+                                .iter()
+                                .filter(|i| matches!(i, syn::Item::Struct(_)))
+                                .count();
+                        }
+                        "events" => {
+                            has_events_mod = true;
+                            events_count = items
+                                .iter()
+                                .filter(|i| matches!(i, syn::Item::Struct(_)))
+                                .count();
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    assert!(
+        has_commands_mod,
+        "generated code should have a 'commands' module"
+    );
+    assert!(
+        has_events_mod,
+        "generated code should have an 'events' module"
+    );
+    assert!(
+        commands_count > 200,
+        "expected >200 commands, got {}",
+        commands_count
+    );
+    assert!(
+        events_count > 30,
+        "expected >30 events, got {}",
+        events_count
+    );
+    assert!(
+        top_structs > 100,
+        "expected >100 top-level data type structs, got {}",
+        top_structs
+    );
+    assert!(
+        top_enums > 50,
+        "expected >50 top-level enums, got {}",
+        top_enums
+    );
+
+    // No re-exports of commands/events at top level
+    let has_reexport = parsed.items.iter().any(|item| {
+        if let syn::Item::Use(u) = item {
+            let s = quote::quote!(#u).to_string();
+            s.contains("commands") || s.contains("events")
+        } else {
+            false
+        }
+    });
+    assert!(
+        !has_reexport,
+        "generated code should NOT re-export commands::* or events::* at top level"
+    );
+
+    eprintln!(
+        "  Module structure: {} top-level structs, {} enums, {} commands, {} events",
+        top_structs, top_enums, commands_count, events_count
+    );
+}

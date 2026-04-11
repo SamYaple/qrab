@@ -220,3 +220,76 @@ fn command_version_info() {
     assert_eq!(QueryStatus::AVAILABLE_SINCE, (1, 0, 0));
     assert_eq!(QueryStatus::REMOVED_IN, None);
 }
+
+// ── Module separation tests ──
+
+/// Commands must live in qapi::commands, not the crate root.
+#[test]
+fn commands_in_commands_module() {
+    // These are commands — they implement QapiCommand
+    assert_eq!(qapi::commands::QueryStatus::NAME, "query-status");
+    assert_eq!(qapi::commands::QueryVersion::NAME, "query-version");
+    assert_eq!(qapi::commands::Stop::NAME, "stop");
+    assert_eq!(qapi::commands::Cont::NAME, "cont");
+    assert_eq!(qapi::commands::Quit::NAME, "quit");
+    assert_eq!(qapi::commands::SystemReset::NAME, "system_reset");
+    assert_eq!(qapi::commands::SystemPowerdown::NAME, "system_powerdown");
+}
+
+/// Events must live in qapi::events, not the crate root.
+#[test]
+fn events_in_events_module() {
+    use qapi::QapiEvent;
+    assert_eq!(qapi::events::ShutdownEvent::NAME, "SHUTDOWN");
+    assert_eq!(qapi::events::StopEvent::NAME, "STOP");
+    assert_eq!(qapi::events::ResumeEvent::NAME, "RESUME");
+    assert_eq!(qapi::events::ResetEvent::NAME, "RESET");
+    assert_eq!(qapi::events::PowerdownEvent::NAME, "POWERDOWN");
+}
+
+/// Data types must live at the crate root, not in commands or events.
+#[test]
+fn data_types_at_crate_root() {
+    // These are data types (return values, not commands)
+    let _: qapi::StatusInfo =
+        serde_json::from_str(r#"{"running":true,"status":"running"}"#).unwrap();
+
+    // ErrorClass is an enum data type
+    let _: qapi::ErrorClass = serde_json::from_str(r#""GenericError""#).unwrap();
+}
+
+/// QGA commands must live in qapi::qga::commands.
+#[test]
+fn qga_commands_in_module() {
+    assert_eq!(qapi::qga::commands::GuestPing::NAME, "guest-ping");
+    assert_eq!(qapi::qga::commands::GuestInfo::NAME, "guest-info");
+    assert_eq!(qapi::qga::commands::GuestSync::NAME, "guest-sync");
+}
+
+/// QGA data types must live at qapi::qga root.
+#[test]
+fn qga_data_types_at_module_root() {
+    // GuestAgentInfo is a data type, not a command
+    let _info: Option<qapi::qga::GuestAgentInfo> = None;
+}
+
+/// Commands implement QapiCommand trait with correct metadata.
+#[test]
+fn command_trait_metadata() {
+    init_version();
+    // QueryStatus is a well-known command available since early QEMU
+    assert_eq!(qapi::commands::QueryStatus::NAME, "query-status");
+    assert!(qapi::commands::QueryStatus::SUCCESS_RESPONSE);
+
+    // Yank has specific version bounds
+    assert_eq!(qapi::commands::Yank::NAME, "yank");
+}
+
+/// Cross-referenced command types are accessible from data types module.
+/// Some commands like BlockdevBackup are used by TransactionAction variants.
+#[test]
+fn cross_referenced_command_types_accessible() {
+    // BlockdevBackup is a command that's also referenced by TransactionAction.
+    // It should be accessible from the root module (where data types live).
+    let _: Option<qapi::BlockdevBackup> = None;
+}
