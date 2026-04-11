@@ -9,7 +9,7 @@ use crate::versions::{
     extract_schema_from_tag, find_extracted_qga_schema_entry, find_extracted_schema_entry,
     parse_version_tag,
 };
-use crate::{QapiSchemaToken, parse_schema};
+use crate::{parse_schema, QapiSchemaToken};
 use anyhow::{Context, Result};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::Path;
@@ -1001,8 +1001,12 @@ pub fn generate_unified_code(qemu_repo: &Path, version_tags: &[&str]) -> Result<
             UnifiedType::Struct(us) => rustify_name(&us.ir.name),
         };
         match classify_type(ut) {
-            TypeCategory::Command => { command_names.insert(rust_name); }
-            TypeCategory::Event => { event_names.insert(rust_name); }
+            TypeCategory::Command => {
+                command_names.insert(rust_name);
+            }
+            TypeCategory::Event => {
+                event_names.insert(rust_name);
+            }
             TypeCategory::DataType => {}
         }
     }
@@ -1109,10 +1113,7 @@ pub fn generate_unified_code(qemu_repo: &Path, version_tags: &[&str]) -> Result<
     // events.rs: event types with super::* import
     let events_file = format_rust_file(events_tokens, "use super::*;\n");
 
-    eprintln!(
-        "  Formatting: {:.1}s",
-        fmt_start.elapsed().as_secs_f64()
-    );
+    eprintln!("  Formatting: {:.1}s", fmt_start.elapsed().as_secs_f64());
     eprintln!(
         "  Codegen total: {:.1}s",
         codegen_start.elapsed().as_secs_f64()
@@ -1237,17 +1238,6 @@ fn generate_unified_enum(
             .attributes
             .push(Attribute::with_value("removed", version_str(until)));
     }
-    if let Some(unstable) = ue.versions.unstable {
-        ir.meta.attributes.push(Attribute::nested(
-            "unstable",
-            vec![Attribute::with_value("added", version_str(unstable))],
-        ));
-    }
-    if let Some(until) = ue.versions.until {
-        ir.meta
-            .attributes
-            .push(Attribute::with_value("removed", version_str(until)));
-    }
 
     // Add per-variant added/deprecated/removed
     for variant in &mut ir.variants {
@@ -1312,10 +1302,14 @@ fn generate_unified_struct(
         ));
     }
     if let Some(unstable) = us.versions.unstable {
-        ir.meta.attributes.push(Attribute::nested(
-            "unstable",
-            vec![Attribute::with_value("added", version_str(unstable))],
-        ));
+        let mut inner = vec![Attribute::with_value("added", version_str(unstable))];
+        // Check if unstable was removed (stabilized) via attr_versions
+        if let Some(uvr) = us.attr_versions.get("unstable")
+            && let Some(until) = uvr.until
+        {
+            inner.push(Attribute::with_value("removed", version_str(until)));
+        }
+        ir.meta.attributes.push(Attribute::nested("unstable", inner));
         // Remove redundant feature = "unstable" since unstable(added=...) covers it
         ir.meta.attributes.retain(|a| {
             !matches!(a,
@@ -1329,93 +1323,23 @@ fn generate_unified_struct(
             .push(Attribute::with_value("removed", version_str(until)));
     }
 
-    // Add version-tracked boolean command attributes using nested syntax.
-    // E.g. allow_preconfig(added = "7.1.0") or allow_preconfig(added = "7.1.0", removed = "9.0.0")
+    // Add version-tracked boolean command attributes (allow_preconfig, allow_oob, etc.)
+    // using nested syntax: #[qapi(allow_preconfig(added = "7.1.0", removed = "9.0.0"))]
+    // "unstable" is handled specially since it's also a top-level version attribute.
     for (attr_name, vr) in &us.attr_versions {
-        let mut inner = Vec::new();
-        if vr.since > us.versions.since {
-            inner.push(Attribute::with_value("added", version_str(vr.since)));
+        // Skip "unstable" — already handled above as a top-level attribute
+        if attr_name == "unstable" {
+            continue;
         }
-        if let Some(until) = vr.until {
-            inner.push(Attribute::with_value("removed", version_str(until)));
-        }
-        if inner.is_empty() {
-            // Present from the start, no version bounds needed — bare attribute
-            let attr = Attribute::new(attr_name);
-            if !ir.meta.attributes.contains(&attr) {
-                ir.meta.attributes.push(attr);
-            }
-        } else {
-            // Remove any bare version of this attribute first
-            ir.meta
-                .attributes
-                .retain(|a| !matches!(a, Attribute::Unit(n) if n == attr_name));
-            ir.meta.attributes.push(Attribute::nested(attr_name, inner));
-        }
-    }
-    if let Some(unstable) = us.versions.unstable {
-        ir.meta.attributes.push(Attribute::nested(
-            "unstable",
-            vec![Attribute::with_value("added", version_str(unstable))],
-        ));
-    }
-    if let Some(until) = us.versions.until {
+        // Remove any existing forms of this attribute (bare, old-style, nested)
         ir.meta
             .attributes
-            .push(Attribute::with_value("removed", version_str(until)));
-    }
-
-    // Add version-tracked boolean command attributes with their since versions.
-    // Uses nested attribute syntax: #[qapi(allow_preconfig(added = "7.1.0"))]
-    for (attr_name, vr) in &us.attr_versions {
-        // Remove any old-style flat attributes for this attr
-        let bare = Attribute::new(attr_name);
-        ir.meta.attributes.retain(|a| a != &bare);
+            .retain(|a| !matches!(a, Attribute::Unit(n) if n == attr_name));
         ir.meta.attributes.retain(|a| !matches!(a, Attribute::Item { name, .. } if name == &format!("{}_since", attr_name) || name == &format!("{}_until", attr_name)));
         ir.meta
             .attributes
             .retain(|a| !matches!(a, Attribute::Nested { name, .. } if name == attr_name));
 
-        let mut children = Vec::new();
-        if vr.since > us.versions.since {
-            children.push(Attribute::with_value("added", version_str(vr.since)));
-        }
-        if let Some(until) = vr.until {
-            children.push(Attribute::with_value("removed", version_str(until)));
-        }
-        if children.is_empty() {
-            ir.meta.attributes.push(Attribute::new(attr_name));
-        } else {
-            ir.meta
-                .attributes
-                .push(Attribute::nested(attr_name, children));
-        }
-    }
-    if let Some(unstable) = us.versions.unstable {
-        let mut inner = vec![Attribute::with_value("added", version_str(unstable))];
-        // Check if unstable was removed (stabilized) via attr_versions
-        if let Some(uvr) = us.attr_versions.get("unstable")
-            && let Some(until) = uvr.until
-        {
-            inner.push(Attribute::with_value("removed", version_str(until)));
-        }
-        ir.meta
-            .attributes
-            .push(Attribute::nested("unstable", inner));
-    }
-    if let Some(until) = us.versions.until {
-        ir.meta
-            .attributes
-            .push(Attribute::with_value("removed", version_str(until)));
-    }
-
-    // Add version-tracked boolean command attributes with nested version ranges.
-    // e.g. allow_preconfig(added = "7.1.0") or allow_preconfig(added = "7.1.0", removed = "9.0.0")
-    for (attr_name, vr) in &us.attr_versions {
-        // Skip "unstable" here — handled above as a top-level attribute
-        if attr_name == "unstable" {
-            continue;
-        }
         let mut inner = Vec::new();
         if vr.since > us.versions.since {
             inner.push(Attribute::with_value("added", version_str(vr.since)));
@@ -1424,13 +1348,8 @@ fn generate_unified_struct(
             inner.push(Attribute::with_value("removed", version_str(until)));
         }
         if inner.is_empty() {
-            // Present from the start, no version range needed — emit as simple unit
-            let attr = Attribute::new(attr_name);
-            if !ir.meta.attributes.contains(&attr) {
-                ir.meta.attributes.push(attr);
-            }
+            ir.meta.attributes.push(Attribute::new(attr_name));
         } else {
-            // Emit as nested attribute with version range
             ir.meta.attributes.push(Attribute::nested(attr_name, inner));
         }
     }
@@ -1609,8 +1528,12 @@ pub fn generate_qga_code(qemu_repo: &Path, version_tags: &[&str]) -> Result<Gene
             UnifiedType::Struct(us) => rustify_name(&us.ir.name),
         };
         match classify_type(ut) {
-            TypeCategory::Command => { command_names.insert(rust_name); }
-            TypeCategory::Event => { event_names.insert(rust_name); }
+            TypeCategory::Command => {
+                command_names.insert(rust_name);
+            }
+            TypeCategory::Event => {
+                event_names.insert(rust_name);
+            }
             TypeCategory::DataType => {}
         }
     }
@@ -1690,10 +1613,7 @@ pub fn generate_qga_code(qemu_repo: &Path, version_tags: &[&str]) -> Result<Gene
     let commands_file = format_rust_file(commands_tokens, "use super::*;\n");
     let events_file = format_rust_file(events_tokens, "use super::*;\n");
 
-    eprintln!(
-        "  QGA codegen: {:.1}s",
-        fmt_start.elapsed().as_secs_f64()
-    );
+    eprintln!("  QGA codegen: {:.1}s", fmt_start.elapsed().as_secs_f64());
     Ok(GeneratedOutput {
         types: types_file,
         commands: commands_file,

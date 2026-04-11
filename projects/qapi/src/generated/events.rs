@@ -211,8 +211,6 @@ pub struct ColoExitEvent {
 #[qapi(name = "COMMAND_DROPPED")]
 #[qapi(added = "2.12.0")]
 #[qapi(removed = "4.0.0")]
-#[qapi(removed = "4.0.0")]
-#[qapi(removed = "4.0.0")]
 pub struct CommandDroppedEvent {
     pub id: serde_json::Value,
     pub reason: CommandDropReason,
@@ -223,8 +221,6 @@ pub struct CommandDroppedEvent {
 #[qapi(condition = "(TARGET_S390X && CONFIG_KVM)")]
 #[qapi(feature = "unstable")]
 #[qapi(added = "8.2.0")]
-#[qapi(unstable(added = "8.2.0"))]
-#[qapi(unstable(added = "8.2.0"))]
 #[qapi(unstable(added = "8.2.0"))]
 pub struct CpuPolarizationChangeEvent {
     pub polarization: CpuS390Polarization,
@@ -370,8 +366,6 @@ pub struct MemoryFailureEvent {
 #[qapi(added = "2.4.0")]
 #[qapi(deprecated(added = "6.2.0"))]
 #[qapi(removed = "9.1.0")]
-#[qapi(removed = "9.1.0")]
-#[qapi(removed = "9.1.0")]
 pub struct MemUnplugErrorEvent {
     /// device name
     pub device: String,
@@ -509,8 +503,6 @@ pub struct QuorumReportBadEvent {
 #[qapi(name = "RDMA_GID_STATUS_CHANGED")]
 #[qapi(added = "4.0.0")]
 #[qapi(removed = "9.1.0")]
-#[qapi(removed = "9.1.0")]
-#[qapi(removed = "9.1.0")]
 pub struct RdmaGidStatusChangedEvent {
     #[qapi(name = "gid-status")]
     pub gid_status: bool,
@@ -558,8 +550,6 @@ pub struct RtcChangeEvent {
 #[qapi(name = "SCLP_CPI_INFO_AVAILABLE")]
 #[qapi(feature = "unstable")]
 #[qapi(added = "10.2.0")]
-#[qapi(unstable(added = "10.2.0"))]
-#[qapi(unstable(added = "10.2.0"))]
 #[qapi(unstable(added = "10.2.0"))]
 pub struct SclpCpiInfoAvailableEvent {}
 
