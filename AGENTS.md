@@ -25,7 +25,8 @@ unified type system carries version lifecycle metadata (`since`, `until`,
 
 - **Source schemas are golden.** Never preprocess, strip, or transform QEMU
   schema files. Parsers handle the raw format.
-- **Generated files are outputs.** `generated.rs` and `qga.rs` are produced by
+- **Generated files are outputs.** `generated/` and `qga/` directories (each
+  containing `mod.rs`, `commands.rs`, `events.rs`) are produced by
   `qapi-codegen`. Edit the codegen, never the generated files.
 - **All QEMU release tags are processed.** Tag discovery is automatic. Do not
   hardcode version lists.
@@ -53,9 +54,9 @@ Full rationale: [docs/design-constraints.md](docs/design-constraints.md)
 ```sh
 cargo test --workspace
 
-# Regenerate QMP types
-cargo run -p qapi-codegen -- vendor/qemu > projects/qapi/src/generated.rs
+# Regenerate QMP types (mod.rs, commands.rs, events.rs)
+cargo run -p qapi-codegen -- vendor/qemu --output-dir projects/qapi/src/generated
 
-# Regenerate QGA types
-cargo run -p qapi-codegen -- vendor/qemu --qga > projects/qapi/src/qga.rs
+# Regenerate QGA types (mod.rs, commands.rs, events.rs)
+cargo run -p qapi-codegen -- vendor/qemu --qga --output-dir projects/qapi/src/qga
 ```

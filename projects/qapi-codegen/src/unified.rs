@@ -962,16 +962,10 @@ fn is_reachable(
 }
 
 /// Generate unified code from the registry.
-pub fn generate_unified_code(qemu_repo: &Path, version_tags: &[&str]) -> Result<String> {
+pub fn generate_unified_code(qemu_repo: &Path, version_tags: &[&str]) -> Result<GeneratedOutput> {
     use std::time::Instant;
     let registry = build_unified_registry(qemu_repo, version_tags)?;
     let codegen_start = Instant::now();
-
-    let mut output = String::new();
-    output.push_str("#![allow(unused_imports, non_camel_case_types, dead_code)]\n");
-    output.push_str("use crate as qapi;\n");
-    output.push_str("use qapi_macros::qapi;\n");
-    output.push_str("use std::collections::HashMap;\n\n");
 
     // Track Rust names to detect collisions (e.g., struct BlockDirtyBitmapAdd vs
     // command block-dirty-bitmap-add both produce the same Rust name).
@@ -1097,45 +1091,96 @@ pub fn generate_unified_code(qemu_repo: &Path, version_tags: &[&str]) -> Result<
         codegen_start.elapsed().as_secs_f64()
     );
 
-    // Wrap commands and events in submodules
-    let module_tokens = quote::quote! {
+    // Format each part as a separate file
+    let fmt_start = Instant::now();
+
+    // mod.rs: data types + module declarations
+    let mod_tokens = quote::quote! {
         #types_tokens
 
-        pub mod commands {
-            use super::*;
-            #commands_tokens
-        }
-
-        pub mod events {
-            use super::*;
-            #events_tokens
-        }
+        pub mod commands;
+        pub mod events;
     };
+    let types_file = format_rust_file(mod_tokens, "");
 
-    // Parse and format the entire output at once
-    let fmt_start = Instant::now();
-    let combined = format!("{}{}", output, module_tokens);
-    let result = match syn::parse_file(&combined) {
-        Ok(syntree) => {
-            eprintln!(
-                "  syn::parse_file: {:.1}s",
-                fmt_start.elapsed().as_secs_f64()
-            );
-            let pp_start = Instant::now();
-            let formatted = prettyplease::unparse(&syntree);
-            eprintln!("  prettyplease: {:.1}s", pp_start.elapsed().as_secs_f64());
-            Ok(separate_items(&formatted))
-        }
-        Err(e) => {
-            eprintln!("WARNING: Failed to parse combined output: {}", e);
-            Ok(combined)
-        }
-    };
+    // commands.rs: command types with super::* import
+    let commands_file = format_rust_file(commands_tokens, "use super::*;\n");
+
+    // events.rs: event types with super::* import
+    let events_file = format_rust_file(events_tokens, "use super::*;\n");
+
+    eprintln!(
+        "  Formatting: {:.1}s",
+        fmt_start.elapsed().as_secs_f64()
+    );
     eprintln!(
         "  Codegen total: {:.1}s",
         codegen_start.elapsed().as_secs_f64()
     );
-    result
+    Ok(GeneratedOutput {
+        types: types_file,
+        commands: commands_file,
+        events: events_file,
+    })
+}
+
+/// The three files produced by code generation.
+pub struct GeneratedOutput {
+    /// Data types (structs, enums, unions) — goes into `mod.rs`.
+    pub types: String,
+    /// Command types — goes into `commands.rs`.
+    pub commands: String,
+    /// Event types — goes into `events.rs`.
+    pub events: String,
+}
+
+impl GeneratedOutput {
+    /// Concatenate all three parts into a single string.
+    /// Useful for tests that search across all generated code.
+    /// Strips inner attributes (`#![...]`) and duplicate headers from
+    /// commands/events so the result is valid as a single Rust file.
+    pub fn combined(&self) -> String {
+        let mut result = self.types.clone();
+        // Append commands and events, stripping file-level headers
+        for part in [&self.commands, &self.events] {
+            for line in part.lines() {
+                // Skip inner attributes, use/crate lines that duplicate the header
+                if line.starts_with("#![")
+                    || line.starts_with("use crate as qapi;")
+                    || line.starts_with("use qapi_macros::qapi;")
+                    || line.starts_with("use std::collections::HashMap;")
+                    || line.starts_with("use super::*;")
+                {
+                    continue;
+                }
+                result.push_str(line);
+                result.push('\n');
+            }
+        }
+        result
+    }
+}
+
+/// Format a token stream as a complete Rust file with the standard header.
+fn format_rust_file(tokens: proc_macro2::TokenStream, extra_imports: &str) -> String {
+    let mut output = String::new();
+    output.push_str("#![allow(unused_imports, non_camel_case_types, dead_code)]\n");
+    output.push_str("use crate as qapi;\n");
+    output.push_str("use qapi_macros::qapi;\n");
+    output.push_str("use std::collections::HashMap;\n");
+    if !extra_imports.is_empty() {
+        output.push_str(extra_imports);
+    }
+    output.push('\n');
+
+    let combined = format!("{}{}", output, tokens);
+    match syn::parse_file(&combined) {
+        Ok(syntree) => separate_items(&prettyplease::unparse(&syntree)),
+        Err(e) => {
+            eprintln!("WARNING: Failed to parse output: {}", e);
+            combined
+        }
+    }
 }
 
 /// Insert a blank line between top-level items for readability.
@@ -1533,16 +1578,9 @@ pub fn build_qga_registry(qemu_repo: &Path, version_tags: &[&str]) -> Result<Uni
 }
 
 /// Generate unified QGA code from the registry.
-pub fn generate_qga_code(qemu_repo: &Path, version_tags: &[&str]) -> Result<String> {
+pub fn generate_qga_code(qemu_repo: &Path, version_tags: &[&str]) -> Result<GeneratedOutput> {
     use std::time::Instant;
     let registry = build_qga_registry(qemu_repo, version_tags)?;
-    let codegen_start = Instant::now();
-
-    let mut output = String::new();
-    output.push_str("#![allow(unused_imports, non_camel_case_types, dead_code)]\n");
-    output.push_str("use crate as qapi;\n");
-    output.push_str("use qapi_macros::qapi;\n");
-    output.push_str("use std::collections::HashMap;\n\n");
 
     let seen_rust_names: BTreeSet<String> = ["String", "Option", "Vec", "Box", "Result"]
         .iter()
@@ -1639,33 +1677,26 @@ pub fn generate_qga_code(qemu_repo: &Path, version_tags: &[&str]) -> Result<Stri
         tokens.extend(code);
     }
 
-    // Wrap commands and events in submodules
-    let module_tokens = quote::quote! {
+    // Format each part as a separate file
+    let fmt_start = Instant::now();
+
+    let mod_tokens = quote::quote! {
         #types_tokens
 
-        pub mod commands {
-            use super::*;
-            #commands_tokens
-        }
-
-        pub mod events {
-            use super::*;
-            #events_tokens
-        }
+        pub mod commands;
+        pub mod events;
     };
+    let types_file = format_rust_file(mod_tokens, "");
+    let commands_file = format_rust_file(commands_tokens, "use super::*;\n");
+    let events_file = format_rust_file(events_tokens, "use super::*;\n");
 
-    let combined = format!("{}{}", output, module_tokens);
-    match syn::parse_file(&combined) {
-        Ok(syntree) => {
-            eprintln!(
-                "  QGA codegen: {:.1}s",
-                codegen_start.elapsed().as_secs_f64()
-            );
-            Ok(separate_items(&prettyplease::unparse(&syntree)))
-        }
-        Err(e) => {
-            eprintln!("WARNING: Failed to parse QGA output: {}", e);
-            Ok(combined)
-        }
-    }
+    eprintln!(
+        "  QGA codegen: {:.1}s",
+        fmt_start.elapsed().as_secs_f64()
+    );
+    Ok(GeneratedOutput {
+        types: types_file,
+        commands: commands_file,
+        events: events_file,
+    })
 }

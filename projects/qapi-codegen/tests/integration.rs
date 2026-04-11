@@ -211,8 +211,9 @@ fn test_unified_codegen_produces_valid_rust() {
     let tags = discover_version_tags(repo).expect("discover_version_tags failed");
     let tag_refs: Vec<&str> = tags.iter().map(|s| s.as_str()).collect();
 
-    let code = qapi_codegen::unified::generate_unified_code(repo, &tag_refs)
+    let output = qapi_codegen::unified::generate_unified_code(repo, &tag_refs)
         .expect("generate_unified_code failed");
+    let code = output.combined();
 
     assert!(
         code.len() > 10000,
@@ -241,8 +242,9 @@ fn test_unified_codegen_has_doc_comments() {
     let tags = discover_version_tags(repo).expect("discover_version_tags failed");
     let tag_refs: Vec<&str> = tags.iter().map(|s| s.as_str()).collect();
 
-    let code = qapi_codegen::unified::generate_unified_code(repo, &tag_refs)
+    let output = qapi_codegen::unified::generate_unified_code(repo, &tag_refs)
         .expect("Failed to generate unified code");
+    let code = output.combined();
 
     let doc_count = code.matches("/**").count() + code.matches("///").count();
     assert!(
@@ -258,8 +260,9 @@ fn test_spice_types_from_v2_1() {
     let tags = discover_version_tags(repo).expect("discover_version_tags failed");
     let tag_refs: Vec<&str> = tags.iter().map(|s| s.as_str()).collect();
 
-    let code = qapi_codegen::unified::generate_unified_code(repo, &tag_refs)
+    let output = qapi_codegen::unified::generate_unified_code(repo, &tag_refs)
         .expect("Failed to generate unified code");
+    let code = output.combined();
 
     assert!(
         code.contains("SpiceServerInfo"),
@@ -584,8 +587,9 @@ fn test_generated_code_netdev_add_is_current() {
     let tags = discover_version_tags(repo).expect("discover_version_tags failed");
     let tag_refs: Vec<&str> = tags.iter().map(|s| s.as_str()).collect();
 
-    let code = qapi_codegen::unified::generate_unified_code(repo, &tag_refs)
+    let output = qapi_codegen::unified::generate_unified_code(repo, &tag_refs)
         .expect("generate_unified_code failed");
+    let code = output.commands;
 
     // NetdevAdd should exist
     assert!(
@@ -1269,8 +1273,9 @@ fn test_generated_code_has_flatten_for_boxed_commands() {
     let tags = discover_version_tags(repo).expect("discover_version_tags failed");
     let tag_refs: Vec<&str> = tags.iter().map(|s| s.as_str()).collect();
 
-    let code = qapi_codegen::unified::generate_unified_code(repo, &tag_refs)
+    let output = qapi_codegen::unified::generate_unified_code(repo, &tag_refs)
         .expect("generate_unified_code failed");
+    let code = output.combined();
 
     // The generated code should contain flatten attributes for boxed commands
     // that have different names from their data types
@@ -1304,8 +1309,9 @@ fn test_generated_code_valid_rust_with_fix() {
     let tags = representative_tags();
     let tag_refs: Vec<&str> = tags.iter().map(|s| s.as_str()).collect();
 
-    let code = qapi_codegen::unified::generate_unified_code(repo, &tag_refs)
+    let output = qapi_codegen::unified::generate_unified_code(repo, &tag_refs)
         .expect("generate_unified_code failed");
+    let code = output.combined();
 
     let parsed: syn::File =
         syn::parse_str(&code).expect("generated code with boxed command fix is not valid Rust");
@@ -1427,50 +1433,37 @@ fn test_name_attributes_preserved() {
 }
 
 /// Verify generated code has proper module structure: commands and events
-/// in submodules, data types at top level.
+/// in separate files, data types in mod.rs.
 #[test]
 fn test_module_separation_structure() {
     let repo = qemu_root();
     let tags = representative_tags();
     let tag_refs: Vec<&str> = tags.iter().map(|s| s.as_str()).collect();
 
-    let code = qapi_codegen::unified::generate_unified_code(repo, &tag_refs)
+    let output = qapi_codegen::unified::generate_unified_code(repo, &tag_refs)
         .expect("generate_unified_code failed");
 
-    let parsed: syn::File = syn::parse_str(&code).expect("generated code is not valid Rust");
+    // Parse the types file (mod.rs)
+    let types_parsed: syn::File =
+        syn::parse_str(&output.types).expect("types file is not valid Rust");
 
-    // Count top-level items by kind
+    // Count top-level items in types file
     let mut top_structs = 0;
     let mut top_enums = 0;
     let mut has_commands_mod = false;
     let mut has_events_mod = false;
-    let mut commands_count = 0;
-    let mut events_count = 0;
 
-    for item in &parsed.items {
+    for item in &types_parsed.items {
         match item {
             syn::Item::Struct(_) => top_structs += 1,
             syn::Item::Enum(_) => top_enums += 1,
             syn::Item::Mod(m) => {
                 let name = m.ident.to_string();
-                if let Some((_, items)) = &m.content {
-                    match name.as_str() {
-                        "commands" => {
-                            has_commands_mod = true;
-                            commands_count = items
-                                .iter()
-                                .filter(|i| matches!(i, syn::Item::Struct(_)))
-                                .count();
-                        }
-                        "events" => {
-                            has_events_mod = true;
-                            events_count = items
-                                .iter()
-                                .filter(|i| matches!(i, syn::Item::Struct(_)))
-                                .count();
-                        }
-                        _ => {}
-                    }
+                // External module declarations have content: None
+                match name.as_str() {
+                    "commands" => has_commands_mod = true,
+                    "events" => has_events_mod = true,
+                    _ => {}
                 }
             }
             _ => {}
@@ -1479,21 +1472,11 @@ fn test_module_separation_structure() {
 
     assert!(
         has_commands_mod,
-        "generated code should have a 'commands' module"
+        "types file should declare 'pub mod commands;'"
     );
     assert!(
         has_events_mod,
-        "generated code should have an 'events' module"
-    );
-    assert!(
-        commands_count > 200,
-        "expected >200 commands, got {}",
-        commands_count
-    );
-    assert!(
-        events_count > 30,
-        "expected >30 events, got {}",
-        events_count
+        "types file should declare 'pub mod events;'"
     );
     assert!(
         top_structs > 100,
@@ -1506,8 +1489,36 @@ fn test_module_separation_structure() {
         top_enums
     );
 
-    // No re-exports of commands/events at top level
-    let has_reexport = parsed.items.iter().any(|item| {
+    // Parse commands file
+    let cmds_parsed: syn::File =
+        syn::parse_str(&output.commands).expect("commands file is not valid Rust");
+    let commands_count = cmds_parsed
+        .items
+        .iter()
+        .filter(|i| matches!(i, syn::Item::Struct(_)))
+        .count();
+    assert!(
+        commands_count > 200,
+        "expected >200 commands, got {}",
+        commands_count
+    );
+
+    // Parse events file
+    let evts_parsed: syn::File =
+        syn::parse_str(&output.events).expect("events file is not valid Rust");
+    let events_count = evts_parsed
+        .items
+        .iter()
+        .filter(|i| matches!(i, syn::Item::Struct(_)))
+        .count();
+    assert!(
+        events_count > 30,
+        "expected >30 events, got {}",
+        events_count
+    );
+
+    // No re-exports in types file
+    let has_reexport = types_parsed.items.iter().any(|item| {
         if let syn::Item::Use(u) = item {
             let s = quote::quote!(#u).to_string();
             s.contains("commands") || s.contains("events")
@@ -1517,7 +1528,7 @@ fn test_module_separation_structure() {
     });
     assert!(
         !has_reexport,
-        "generated code should NOT re-export commands::* or events::* at top level"
+        "types file should NOT re-export commands::* or events::*"
     );
 
     eprintln!(
