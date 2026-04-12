@@ -125,6 +125,19 @@ pub struct BmcEvent {
     pub data: serde_json::Value,
 }
 
+/// Combined dashboard state DTO. One server round-trip gathers every slice
+/// the dashboard needs, under a single `state.vm` lock acquisition, so the
+/// rendered snapshot is internally consistent.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DashboardState {
+    pub status: VmStatusResponse,
+    pub cpu_info: CpuInfoResponse,
+    pub kvm_info: KvmInfoResponse,
+    pub console_available: bool,
+    pub serial_tail: String,
+    pub events: Vec<BmcEvent>,
+}
+
 impl Default for BmcConfig {
     fn default() -> Self {
         Self {

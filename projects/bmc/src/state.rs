@@ -76,6 +76,11 @@ impl BmcState {
     }
 
     /// Spawn a VM with the current config. Transitions Off -> Preconfig.
+    ///
+    /// Note: holds the `vm` lock for the entire spawn (~hundreds of ms).
+    /// Concurrent `phase()` reads will block. Acceptable for single-user
+    /// BMC; if this becomes a multi-tenant concern, add a `VmState::Initializing`
+    /// placeholder that lets reads see a busy state without blocking.
     pub async fn power_on(self: &Arc<Self>) -> Result<()> {
         let mut vm_guard = self.vm.lock().await;
         if !matches!(*vm_guard, VmState::Off) {
@@ -416,16 +421,20 @@ async fn attach_disks(preconfig: &PreconfigVm, disks: &[DiskConfig]) -> Result<(
 
         // 3. Wire to a virtio-blk-pci device. Requires paused (-S) mode;
         //    device_add is not preconfig-safe.
+        //    Sets boot-index so the firmware boots disks in declaration order.
         preconfig
             .qmp
             .execute(&DeviceAdd {
                 driver: "virtio-blk-pci".into(),
                 id: Some(device_id),
                 bus: None,
-                arguments: Some(HashMap::from([(
-                    "drive".to_string(),
-                    serde_json::Value::String(fmt_node),
-                )])),
+                arguments: Some(HashMap::from([
+                    ("drive".to_string(), serde_json::Value::String(fmt_node)),
+                    (
+                        "bootindex".to_string(),
+                        serde_json::Value::Number((idx as i64).into()),
+                    ),
+                ])),
             })
             .await
             .context("device_add virtio-blk-pci")?;

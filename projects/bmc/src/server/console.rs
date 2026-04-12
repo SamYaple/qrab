@@ -51,18 +51,31 @@ async fn handle_socket(ws: WebSocket, state: Arc<BmcState>) {
     let (vnc_read, vnc_write) = tokio::io::split(vnc_stream);
     let (ws_tx, ws_rx) = ws.split();
 
-    let mut ws_to_vnc = tokio::spawn(copy_ws_to_vnc(ws_rx, vnc_write));
-    let mut vnc_to_ws = tokio::spawn(copy_vnc_to_ws(vnc_read, ws_tx));
+    // AbortOnDrop ensures both tasks die if the handler future itself is
+    // cancelled (Axum drops the upgrade), not just when the select! arm
+    // completes normally.
+    let mut ws_to_vnc = AbortOnDrop(tokio::spawn(copy_ws_to_vnc(ws_rx, vnc_write)));
+    let mut vnc_to_ws = AbortOnDrop(tokio::spawn(copy_vnc_to_ws(vnc_read, ws_tx)));
 
     tokio::select! {
-        _ = &mut ws_to_vnc => {
-            vnc_to_ws.abort();
-            let _ = vnc_to_ws.await;
+        _ = &mut ws_to_vnc.0 => {
+            vnc_to_ws.0.abort();
+            let _ = (&mut vnc_to_ws.0).await;
         }
-        _ = &mut vnc_to_ws => {
-            ws_to_vnc.abort();
-            let _ = ws_to_vnc.await;
+        _ = &mut vnc_to_ws.0 => {
+            ws_to_vnc.0.abort();
+            let _ = (&mut ws_to_vnc.0).await;
         }
+    }
+}
+
+/// Abort the wrapped JoinHandle when dropped. Prevents leaked background
+/// tasks if the owning future is cancelled before reaching cleanup code.
+struct AbortOnDrop<T>(tokio::task::JoinHandle<T>);
+
+impl<T> Drop for AbortOnDrop<T> {
+    fn drop(&mut self) {
+        self.0.abort();
     }
 }
 

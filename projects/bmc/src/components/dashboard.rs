@@ -1,7 +1,9 @@
 use dioxus::prelude::*;
 
-use bmc::server::vm_status::get_status;
-use bmc::types::{VmPhase, VmStatusResponse};
+use bmc::server::vm_status::get_dashboard_state;
+use bmc::types::{
+    BmcEvent, CpuInfoResponse, DashboardState, KvmInfoResponse, VmPhase, VmStatusResponse,
+};
 
 use super::console::Console;
 use super::cpu_info::CpuInfo;
@@ -11,41 +13,71 @@ use super::serial::SerialConsole;
 use super::status_panel::StatusPanel;
 use super::util::sleep_ms;
 
+/// Default DashboardState used before the first fetch resolves (or if a
+/// fetch fails). Matches an Off VM with no history.
+fn empty_dashboard_state() -> DashboardState {
+    DashboardState {
+        status: VmStatusResponse {
+            phase: VmPhase::Off,
+            running: None,
+            status: None,
+            qemu_version: None,
+        },
+        cpu_info: CpuInfoResponse {
+            guest_cpus: Vec::new(),
+            host_threads: 0,
+        },
+        kvm_info: KvmInfoResponse {
+            enabled: false,
+            present: false,
+        },
+        console_available: false,
+        serial_tail: String::new(),
+        events: Vec::<BmcEvent>::new(),
+    }
+}
+
 #[component]
 pub fn Dashboard() -> Element {
-    let default_status = VmStatusResponse {
-        phase: VmPhase::Off,
-        running: None,
-        status: None,
-        qemu_version: None,
-    };
     let mut refresh_tick = use_signal(|| 0u64);
     let mut poll_tick = use_signal(|| 0u64);
 
-    // Drive periodic polling. Task is tied to this component's scope and is
-    // dropped automatically when the component unmounts.
+    // Single poll loop at 1s — the tightest of the original per-component
+    // rates (serial output was 1s). Task is tied to this component's scope
+    // and is dropped automatically when the component unmounts.
     use_future(move || async move {
         loop {
-            sleep_ms(2000).await;
+            sleep_ms(1000).await;
             poll_tick += 1;
         }
     });
 
-    // use_resource cancels any in-flight future when its dependencies change
-    // and is cancelled on unmount, so there's no orphaned polling.
-    let status_resource = use_resource(move || async move {
+    // One use_resource drives every dashboard slice. use_resource cancels any
+    // in-flight future when its dependencies change and is cancelled on
+    // unmount, so there's no orphaned polling.
+    let state_resource = use_resource(move || async move {
         // Subscribe to both the polling tick and any manual refresh bumps.
         let _ = poll_tick();
         let _ = refresh_tick();
-        get_status().await.ok()
+        get_dashboard_state().await.ok()
     });
 
-    let status_value = status_resource
+    let state_value = state_resource
         .read()
         .clone()
         .flatten()
-        .unwrap_or(default_status);
-    let current_phase = status_value.phase.clone();
+        .unwrap_or_else(empty_dashboard_state);
+
+    let DashboardState {
+        status,
+        cpu_info,
+        kvm_info,
+        console_available,
+        serial_tail,
+        events,
+    } = state_value;
+
+    let current_phase = status.phase.clone();
 
     rsx! {
         div { class: "bmc-dashboard",
@@ -59,7 +91,7 @@ pub fn Dashboard() -> Element {
 
             // Top section: 3-column — status | controls | system
             div { class: "top-section",
-                StatusPanel { status: status_value.clone() }
+                StatusPanel { status: status.clone() }
                 PowerControls {
                     current_phase: current_phase.clone(),
                     on_action: move |_| {
@@ -68,16 +100,20 @@ pub fn Dashboard() -> Element {
                 }
                 CpuInfo {
                     current_phase: current_phase.clone(),
-                    refresh_tick: refresh_tick(),
+                    cpu_info: cpu_info.clone(),
+                    kvm_info: kvm_info.clone(),
                 }
             }
 
             // Consoles
-            Console {}
-            SerialConsole { current_phase: current_phase.clone() }
+            Console { console_available }
+            SerialConsole {
+                current_phase: current_phase.clone(),
+                serial_tail: serial_tail.clone(),
+            }
 
             // Bottom section: full-width events
-            EventLog { refresh_tick: refresh_tick() }
+            EventLog { events: events.clone() }
         }
     }
 }

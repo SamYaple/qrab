@@ -1,35 +1,12 @@
 use dioxus::prelude::*;
 
-use bmc::server::vm_status::get_event_history;
 use bmc::types::BmcEvent;
 
-use super::util::sleep_ms;
-
+/// Event log panel. Pure props-driven: the parent Dashboard polls
+/// `get_dashboard_state()` and passes the event slice down.
 #[component]
-pub fn EventLog(refresh_tick: u64) -> Element {
-    let mut poll_tick = use_signal(|| 0u64);
-    let mut events = use_signal(Vec::<BmcEvent>::new);
-
-    // Periodic ticker (every 1.5s). Task is scope-bound and auto-cancels on unmount.
-    use_future(move || async move {
-        loop {
-            sleep_ms(1500).await;
-            poll_tick += 1;
-        }
-    });
-
-    // use_resource writes into `events` only on successful fetches so a
-    // transient failure doesn't wipe the previous list.
-    let _events_resource = use_resource(use_reactive!(|refresh_tick| async move {
-        let _ = poll_tick();
-        let _ = refresh_tick;
-        if let Ok(new_events) = get_event_history().await {
-            events.set(new_events);
-        }
-    }));
-
-    let event_list = events.read();
-    let count = event_list.len();
+pub fn EventLog(events: Vec<BmcEvent>) -> Element {
+    let count = events.len();
 
     rsx! {
         div { class: "panel event-panel",
@@ -40,7 +17,7 @@ pub fn EventLog(refresh_tick: u64) -> Element {
                 }
             }
 
-            if event_list.is_empty() {
+            if events.is_empty() {
                 div { class: "empty-state", "Waiting for events..." }
             } else {
                 div { class: "event-table-wrap",
@@ -53,7 +30,7 @@ pub fn EventLog(refresh_tick: u64) -> Element {
                             }
                         }
                         tbody {
-                            for (i, event) in event_list.iter().rev().enumerate() {
+                            for (i, event) in events.iter().rev().enumerate() {
                                 EventRow {
                                     key: "{event.timestamp_secs}-{event.timestamp_usecs}-{event.event}",
                                     event: event.clone(),

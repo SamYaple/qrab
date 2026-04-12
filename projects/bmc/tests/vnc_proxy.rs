@@ -8,15 +8,30 @@ use bmc::state::BmcState;
 use bmc::types::{DiskConfig, DiskFormat, DiskInterface};
 use manager::Arch;
 
+/// RAII wrapper around a per-test cirros image copy. Removes the temp file
+/// when dropped so parallel tests don't accumulate gigabytes in /tmp.
+struct TestDisk {
+    pub config: DiskConfig,
+}
+
+impl Drop for TestDisk {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.config.file);
+    }
+}
+
 /// Make a per-test copy of the cirros image to avoid qcow2 write-lock
-/// contention when tests run in parallel.
-async fn test_disk(label: &str) -> DiskConfig {
+/// contention when tests run in parallel. Path uniqueness uses a process-wide
+/// atomic counter so tests in the same binary don't collide on `process::id()`.
+async fn test_disk(label: &str) -> TestDisk {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+
     let cache_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .parent().unwrap().parent().unwrap()
         .join("target/test-fixtures");
     let src = cache_dir.join("cirros-0.6.2-x86_64-disk.img");
     if !src.exists() {
-        // Lazily download via the same path BmcState uses
         let url = "https://download.cirros-cloud.net/0.6.2/cirros-0.6.2-x86_64-disk.img";
         let _ = tokio::fs::create_dir_all(&cache_dir).await;
         let out = tokio::process::Command::new("curl")
@@ -24,16 +39,20 @@ async fn test_disk(label: &str) -> DiskConfig {
             .output().await.expect("curl");
         assert!(out.status.success(), "cirros download failed");
     }
+    let id = COUNTER.fetch_add(1, Ordering::SeqCst);
     let dest = std::env::temp_dir().join(format!(
-        "qrab-vnc-proxy-{label}-{}.qcow2",
-        std::process::id()
+        "qrab-vnc-proxy-{label}-{}-{}.qcow2",
+        std::process::id(),
+        id
     ));
     tokio::fs::copy(&src, &dest).await.expect("copy cirros");
-    DiskConfig {
-        file: dest,
-        format: DiskFormat::Qcow2,
-        interface: DiskInterface::Virtio,
-        read_only: false,
+    TestDisk {
+        config: DiskConfig {
+            file: dest,
+            format: DiskFormat::Qcow2,
+            interface: DiskInterface::Virtio,
+            read_only: false,
+        },
     }
 }
 
@@ -48,9 +67,11 @@ async fn websocket_proxy_relays_vnc_handshake() {
     // Use the full BmcState power-on path so vnc_sock comes from the VM handle.
     let state = BmcState::new();
     // Per-test cirros copy avoids file-lock contention with parallel tests.
+    // Keep `_disk` bound to function scope so its Drop runs after force_off.
+    let _disk = test_disk("vnc-proxy-test").await;
     {
         let mut config = state.config.lock().await;
-        config.disks = vec![test_disk("vnc-proxy-test").await];
+        config.disks = vec![_disk.config.clone()];
     }
     state.power_on().await.expect("power_on");
     state.start_vm().await.expect("start_vm");
@@ -189,9 +210,10 @@ async fn vnc_proxy_client_disconnect_releases_vnc() {
     qapi::set_qemu_version(9, 0, 0);
 
     let state = BmcState::new();
+    let _disk = test_disk("vnc-proxy-disconnect").await;
     {
         let mut config = state.config.lock().await;
-        config.disks = vec![test_disk("vnc-proxy-disconnect").await];
+        config.disks = vec![_disk.config.clone()];
     }
     state.power_on().await.expect("power_on");
     state.start_vm().await.expect("start_vm");

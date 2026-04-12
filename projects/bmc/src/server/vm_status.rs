@@ -1,6 +1,6 @@
 use dioxus::prelude::*;
 
-use crate::types::{BmcEvent, CpuInfoResponse, KvmInfoResponse, VmStatusResponse};
+use crate::types::{BmcEvent, CpuInfoResponse, DashboardState, KvmInfoResponse, VmStatusResponse};
 #[cfg(feature = "server")]
 use crate::types::VmPhase;
 
@@ -183,4 +183,216 @@ pub async fn get_event_history() -> Result<Vec<BmcEvent>, ServerFnError> {
             data: e.data.clone(),
         })
         .collect())
+}
+
+/// Combined dashboard fetch.
+///
+/// Acquires `state.vm.lock()` ONCE and extracts every slice of VM state the
+/// dashboard needs (status, cpu info, kvm info, vnc availability, serial log
+/// path) atomically. The lock is dropped before the (potentially slow) serial
+/// log file I/O and the separate `event_history` lock. The result is a
+/// self-consistent snapshot of the running VM — there's no observable window
+/// where the UI sees "running but no CPUs" or similar races between calls.
+#[server]
+pub async fn get_dashboard_state() -> Result<DashboardState, ServerFnError> {
+    use crate::state::{bmc, VmState};
+    use crate::types::GuestCpu;
+    use std::path::PathBuf;
+
+    let state = bmc();
+
+    // -- Phase 1: everything that needs the vm lock. One acquisition. --
+    let (status, cpu_info, kvm_info, console_available, serial_log_path): (
+        VmStatusResponse,
+        CpuInfoResponse,
+        KvmInfoResponse,
+        bool,
+        Option<PathBuf>,
+    ) = {
+        let vm_guard = state.vm.lock().await;
+
+        // host_threads doesn't depend on VM state but is part of CpuInfoResponse.
+        let host_threads = std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(1);
+
+        match &*vm_guard {
+            VmState::Off => (
+                VmStatusResponse {
+                    phase: VmPhase::Off,
+                    running: None,
+                    status: None,
+                    qemu_version: None,
+                },
+                CpuInfoResponse {
+                    guest_cpus: Vec::new(),
+                    host_threads,
+                },
+                KvmInfoResponse {
+                    enabled: false,
+                    present: false,
+                },
+                false,
+                None,
+            ),
+            VmState::Preconfig(pvm) => {
+                let status_reply = pvm
+                    .execute(&qapi::commands::QueryStatus {})
+                    .await
+                    .map_err(|e| ServerFnError::new(e.to_string()))?;
+                (
+                    VmStatusResponse {
+                        phase: VmPhase::Preconfig,
+                        running: Some(status_reply.running),
+                        status: Some(format!("{:?}", status_reply.status)),
+                        qemu_version: None,
+                    },
+                    CpuInfoResponse {
+                        guest_cpus: Vec::new(),
+                        host_threads,
+                    },
+                    KvmInfoResponse {
+                        enabled: false,
+                        present: false,
+                    },
+                    // Console panel only connects once the VM is Running, so
+                    // Preconfig reports unavailable even if a vnc sock exists.
+                    false,
+                    pvm.serial_log().cloned(),
+                )
+            }
+            VmState::Running(vm) => {
+                let status_reply = vm
+                    .execute(&qapi::commands::QueryStatus {})
+                    .await
+                    .map_err(|e| ServerFnError::new(e.to_string()))?;
+                let phase = if status_reply.running {
+                    VmPhase::Running
+                } else {
+                    VmPhase::Paused
+                };
+                let status = VmStatusResponse {
+                    phase,
+                    running: Some(status_reply.running),
+                    status: Some(format!("{:?}", status_reply.status)),
+                    qemu_version: None,
+                };
+
+                let cpus: Vec<qapi::CpuInfoFast> = vm
+                    .execute(&qapi::commands::QueryCpusFast {})
+                    .await
+                    .map_err(|e| ServerFnError::new(e.to_string()))?;
+                let guest_cpus = cpus
+                    .iter()
+                    .map(|c| GuestCpu {
+                        index: c.cpu_index,
+                        thread_id: c.thread_id,
+                        qom_path: c.qom_path.clone(),
+                    })
+                    .collect();
+                let cpu_info = CpuInfoResponse {
+                    guest_cpus,
+                    host_threads,
+                };
+
+                let kvm: qapi::KvmInfo = vm
+                    .execute(&qapi::commands::QueryKvm {})
+                    .await
+                    .map_err(|e| ServerFnError::new(e.to_string()))?;
+                let kvm_info = KvmInfoResponse {
+                    enabled: kvm.enabled,
+                    present: kvm.present,
+                };
+
+                let console_available = vm.vnc_sock().is_some();
+                let serial_log_path = vm.serial_log().cloned();
+
+                (status, cpu_info, kvm_info, console_available, serial_log_path)
+            }
+            VmState::ShuttingDown => (
+                VmStatusResponse {
+                    phase: VmPhase::ShuttingDown,
+                    running: None,
+                    status: None,
+                    qemu_version: None,
+                },
+                CpuInfoResponse {
+                    guest_cpus: Vec::new(),
+                    host_threads,
+                },
+                KvmInfoResponse {
+                    enabled: false,
+                    present: false,
+                },
+                false,
+                None,
+            ),
+        }
+        // vm_guard drops here.
+    };
+
+    // -- Phase 2: slower I/O and the event_history lock, vm lock released. --
+    let serial_tail = read_serial_tail(serial_log_path.as_deref()).await;
+
+    let events = {
+        let history = state.event_history.lock().await;
+        history
+            .iter()
+            .map(|e| BmcEvent {
+                event: e.event.clone(),
+                timestamp_secs: e.timestamp.seconds,
+                timestamp_usecs: e.timestamp.microseconds,
+                data: e.data.clone(),
+            })
+            .collect()
+    };
+
+    Ok(DashboardState {
+        status,
+        cpu_info,
+        kvm_info,
+        console_available,
+        serial_tail,
+        events,
+    })
+}
+
+/// Read the tail of a serial log file. Mirrors `get_serial_output` but takes
+/// an explicit path so the caller can capture it under the vm lock and then
+/// do the (potentially slow) I/O without holding it.
+#[cfg(feature = "server")]
+async fn read_serial_tail(path: Option<&std::path::Path>) -> String {
+    use tokio::io::{AsyncReadExt, AsyncSeekExt};
+
+    /// Tail the last N bytes of the log on each poll. Bounds memory for
+    /// long-running VMs that produce gigabytes of serial output.
+    const TAIL_BYTES: u64 = 64 * 1024;
+
+    let Some(path) = path else {
+        return String::new();
+    };
+
+    let mut file = match tokio::fs::File::open(path).await {
+        Ok(f) => f,
+        Err(_) => return String::new(),
+    };
+    let len = match file.metadata().await {
+        Ok(m) => m.len(),
+        Err(_) => return String::new(),
+    };
+    let start = len.saturating_sub(TAIL_BYTES);
+    if start > 0 {
+        let _ = file.seek(std::io::SeekFrom::Start(start)).await;
+    }
+    let mut buf = String::new();
+    let _ = file.read_to_string(&mut buf).await;
+
+    // If we truncated mid-line, drop the leading partial line so output
+    // doesn't start in the middle of a word.
+    if start > 0 {
+        if let Some(nl) = buf.find('\n') {
+            buf = buf[nl + 1..].to_string();
+        }
+    }
+    buf
 }

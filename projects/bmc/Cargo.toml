@@ -8,6 +8,7 @@ anyhow = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"], optional = true }
 
 [dependencies.dioxus]
 version = "0.7"
@@ -69,6 +70,7 @@ server = [
     "dep:async-stream",
     "dep:futures",
     "dep:tower-http",
+    "dep:tracing-subscriber",
 ]
 web = ["dioxus/web"]
 
