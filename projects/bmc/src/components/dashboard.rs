@@ -34,34 +34,35 @@ pub fn Dashboard() -> Element {
     rsx! {
         div { class: "bmc-dashboard",
             header { class: "bmc-header",
-                h1 { "qrab" }
-                span { class: "bmc-subtitle", "Virtual BMC" }
+                div { class: "header-left",
+                    h1 { "qrab" }
+                    span { class: "header-sep", "/" }
+                    span { class: "header-subtitle", "Virtual BMC" }
+                }
             }
 
-            div { class: "bmc-grid",
-                div { class: "bmc-top-row",
-                    StatusPanel { status: status.read().clone() }
-                    PowerControls {
-                        current_phase: current_phase.clone(),
-                        on_action: move |_| {
-                            // Trigger immediate refresh
-                            spawn(async move {
-                                if let Ok(s) = get_status().await {
-                                    status.set(s);
-                                }
-                                refresh_tick += 1;
-                            });
-                        },
-                    }
+            // Top section: 3-column — status | controls | system
+            div { class: "top-section",
+                StatusPanel { status: status.read().clone() }
+                PowerControls {
+                    current_phase: current_phase.clone(),
+                    on_action: move |_| {
+                        spawn(async move {
+                            if let Ok(s) = get_status().await {
+                                status.set(s);
+                            }
+                            refresh_tick += 1;
+                        });
+                    },
                 }
-                div { class: "bmc-bottom-row",
-                    CpuInfo {
-                        current_phase: current_phase.clone(),
-                        refresh_tick: refresh_tick(),
-                    }
-                    EventLog { refresh_tick: refresh_tick() }
+                CpuInfo {
+                    current_phase: current_phase.clone(),
+                    refresh_tick: refresh_tick(),
                 }
             }
+
+            // Bottom section: full-width events
+            EventLog { refresh_tick: refresh_tick() }
         }
     }
 }

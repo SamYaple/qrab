@@ -8,15 +8,12 @@ use super::util::sleep_ms;
 #[component]
 pub fn EventLog(refresh_tick: u64) -> Element {
     let mut events = use_signal(Vec::<BmcEvent>::new);
-    let mut event_count = use_signal(|| 0usize);
 
     // Poll events every 1.5s
     use_future(move || async move {
         loop {
             if let Ok(new_events) = get_event_history().await {
-                let new_count = new_events.len();
                 events.set(new_events);
-                event_count.set(new_count);
             }
             sleep_ms(1500).await;
         }
@@ -36,22 +33,34 @@ pub fn EventLog(refresh_tick: u64) -> Element {
     let count = event_list.len();
 
     rsx! {
-        div { class: "panel event-log",
+        div { class: "panel event-panel",
             div { class: "panel-header",
-                h2 { "Events" }
+                h2 { "Event Log" }
                 if count > 0 {
                     span { class: "badge", "{count}" }
                 }
             }
-            div { class: "event-list",
-                if event_list.is_empty() {
-                    div { class: "empty-state", "No events yet" }
-                } else {
-                    for (i, event) in event_list.iter().rev().enumerate() {
-                        EventEntry {
-                            key: "{event.timestamp_secs}-{event.timestamp_usecs}-{event.event}",
-                            event: event.clone(),
-                            is_new: i == 0,
+
+            if event_list.is_empty() {
+                div { class: "empty-state", "Waiting for events..." }
+            } else {
+                div { class: "event-table-wrap",
+                    table { class: "event-table",
+                        thead {
+                            tr {
+                                th { class: "col-time", "Timestamp" }
+                                th { class: "col-event", "Event" }
+                                th { class: "col-data", "Data" }
+                            }
+                        }
+                        tbody {
+                            for (i, event) in event_list.iter().rev().enumerate() {
+                                EventRow {
+                                    key: "{event.timestamp_secs}-{event.timestamp_usecs}-{event.event}",
+                                    event: event.clone(),
+                                    is_newest: i == 0,
+                                }
+                            }
                         }
                     }
                 }
@@ -61,22 +70,30 @@ pub fn EventLog(refresh_tick: u64) -> Element {
 }
 
 #[component]
-fn EventEntry(event: BmcEvent, is_new: bool) -> Element {
+fn EventRow(event: BmcEvent, is_newest: bool) -> Element {
     let has_data = !event.data.is_null()
         && event.data != serde_json::Value::Object(serde_json::Map::new());
-    let new_class = if is_new { " event-new" } else { "" };
+    let row_class = if is_newest { "event-row newest" } else { "event-row" };
+
+    let data_str = if has_data {
+        serde_json::to_string_pretty(&event.data).unwrap_or_default()
+    } else {
+        String::new()
+    };
 
     rsx! {
-        div { class: "event-entry{new_class}",
-            div { class: "event-header",
-                span { class: "event-name", "{event.event}" }
-                span { class: "event-time",
-                    "{event.timestamp_secs}.{event.timestamp_usecs:06}"
-                }
+        tr { class: row_class,
+            td { class: "cell-time",
+                "{event.timestamp_secs}.{event.timestamp_usecs:06}"
             }
-            if has_data {
-                pre { class: "event-data",
-                    "{event.data}"
+            td { class: "cell-event",
+                span { class: "event-tag", "{event.event}" }
+            }
+            td { class: "cell-data",
+                if has_data {
+                    code { "{data_str}" }
+                } else {
+                    span { class: "no-data", "—" }
                 }
             }
         }
