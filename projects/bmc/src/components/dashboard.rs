@@ -3,9 +3,11 @@ use dioxus::prelude::*;
 use bmc::server::vm_status::get_status;
 use bmc::types::{VmPhase, VmStatusResponse};
 
+use super::console::Console;
 use super::cpu_info::CpuInfo;
 use super::event_log::EventLog;
 use super::power_controls::PowerControls;
+use super::serial::SerialConsole;
 use super::status_panel::StatusPanel;
 use super::util::sleep_ms;
 
@@ -60,6 +62,10 @@ pub fn Dashboard() -> Element {
                     refresh_tick: refresh_tick(),
                 }
             }
+
+            // Consoles
+            Console {}
+            SerialConsole { current_phase: current_phase.clone() }
 
             // Bottom section: full-width events
             EventLog { refresh_tick: refresh_tick() }

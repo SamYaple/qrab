@@ -26,6 +26,7 @@ struct VmProcess {
     child: Option<Child>,
     qmp_sock: PathBuf,
     serial_log: Option<PathBuf>,
+    vnc_sock: Option<PathBuf>,
 }
 
 impl VmProcess {
@@ -41,6 +42,9 @@ impl VmProcess {
         if let Some(ref s) = self.serial_log {
             let _ = tokio::fs::remove_file(s).await;
         }
+        if let Some(ref s) = self.vnc_sock {
+            let _ = tokio::fs::remove_file(s).await;
+        }
     }
 }
 
@@ -51,6 +55,9 @@ impl Drop for VmProcess {
         }
         let _ = std::fs::remove_file(&self.qmp_sock);
         if let Some(ref s) = self.serial_log {
+            let _ = std::fs::remove_file(s);
+        }
+        if let Some(ref s) = self.vnc_sock {
             let _ = std::fs::remove_file(s);
         }
     }
@@ -72,6 +79,7 @@ pub struct VmBuilder {
     initrd: Option<PathBuf>,
     append: Option<String>,
     serial: bool,
+    display: bool,
     no_shutdown: bool,
     firmware: Option<PathBuf>,
     extra_args: Vec<String>,
@@ -86,6 +94,7 @@ impl VmBuilder {
             initrd: None,
             append: None,
             serial: false,
+            display: false,
             no_shutdown: false,
             firmware: None,
             extra_args: Vec::new(),
@@ -103,6 +112,12 @@ impl VmBuilder {
     /// Enable serial output to a log file.
     pub fn serial(mut self) -> Self {
         self.serial = true;
+        self
+    }
+
+    /// Enable VGA display with a VNC server on a Unix socket.
+    pub fn display(mut self) -> Self {
+        self.display = true;
         self
     }
 
@@ -183,7 +198,20 @@ impl VmBuilder {
             args.extend(["-cpu".into(), cpu.into()]);
         }
 
-        args.extend(["-nographic".into(), "-nodefaults".into()]);
+        let vnc_sock = if self.display {
+            let sock = tmpdir.join(format!("qrab-vnc-{}-{}.sock", std::process::id(), id));
+            let _ = tokio::fs::remove_file(&sock).await;
+            args.push("-nodefaults".into());
+            args.extend([
+                "-display".into(),
+                format!("vnc=unix:{}", sock.display()),
+            ]);
+            args.extend(["-vga".into(), "std".into()]);
+            Some(sock)
+        } else {
+            args.extend(["-nographic".into(), "-nodefaults".into()]);
+            None
+        };
 
         args.extend([
             "-qmp".into(),
@@ -249,6 +277,7 @@ impl VmBuilder {
                 child: Some(child),
                 qmp_sock,
                 serial_log,
+                vnc_sock,
             },
         })
     }
@@ -277,6 +306,11 @@ impl PreconfigVm {
     /// Path to the serial log file, if serial was enabled.
     pub fn serial_log(&self) -> Option<&PathBuf> {
         self.process.serial_log.as_ref()
+    }
+
+    /// Path to the VNC Unix socket, if display was enabled.
+    pub fn vnc_sock(&self) -> Option<&PathBuf> {
+        self.process.vnc_sock.as_ref()
     }
 
     /// Execute a preconfig-safe QMP command.
@@ -330,6 +364,11 @@ impl Vm {
     /// Path to the serial log file, if serial was enabled.
     pub fn serial_log(&self) -> Option<&PathBuf> {
         self.process.serial_log.as_ref()
+    }
+
+    /// Path to the VNC Unix socket, if display was enabled.
+    pub fn vnc_sock(&self) -> Option<&PathBuf> {
+        self.process.vnc_sock.as_ref()
     }
 
     /// Execute any QMP command and return the typed response.

@@ -30,11 +30,17 @@ path = "../qapi-protocol"
 optional = true
 
 [dependencies.axum]
-version = "0.7"
+version = "0.8"
+features = ["ws"]
 optional = true
 
 [dependencies.async-stream]
 version = "0.3"
+optional = true
+
+[dependencies.tower-http]
+version = "0.6"
+features = ["fs"]
 optional = true
 
 [dependencies.futures]
@@ -54,12 +60,15 @@ server = [
     "tokio/macros",
     "tokio/process",
     "tokio/fs",
+    "tokio/net",
+    "tokio/io-util",
     "dep:manager",
     "dep:qapi",
     "dep:qapi-protocol",
     "dep:axum",
     "dep:async-stream",
     "dep:futures",
+    "dep:tower-http",
 ]
 web = ["dioxus/web"]
 

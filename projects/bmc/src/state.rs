@@ -1,4 +1,5 @@
 use std::collections::VecDeque;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
 
 use anyhow::{bail, Result};
@@ -34,6 +35,8 @@ pub struct BmcState {
     pub event_tx: broadcast::Sender<QmpEvent>,
     pub event_history: Arc<Mutex<VecDeque<QmpEvent>>>,
     pub config: Mutex<BmcConfig>,
+    pub vnc_sock: Mutex<Option<PathBuf>>,
+    pub serial_log: Mutex<Option<PathBuf>>,
     event_forwarder: Mutex<Option<JoinHandle<()>>>,
 }
 
@@ -45,6 +48,8 @@ impl BmcState {
             event_tx,
             event_history: Arc::new(Mutex::new(VecDeque::with_capacity(EVENT_HISTORY_CAP))),
             config: Mutex::new(BmcConfig::default()),
+            vnc_sock: Mutex::new(None),
+            serial_log: Mutex::new(None),
             event_forwarder: Mutex::new(None),
         })
     }
@@ -60,7 +65,25 @@ impl BmcState {
         let arch = parse_arch(&config.arch)?;
         let machine_config = parse_machine(&config)?;
 
-        let mut preconfig = VmBuilder::new(arch, machine_config).spawn().await?;
+        let mut builder = VmBuilder::new(arch, machine_config).serial();
+        if config.display {
+            builder = builder.display();
+        }
+
+        // TODO: make firmware/disk configurable via preconfig UI
+        if !matches!(config.machine.as_str(), "none") {
+            if matches!(config.machine.as_str(), "uefi") {
+                if let Some(fw) = find_ovmf() {
+                    builder = builder.firmware(fw);
+                }
+            }
+            let cirros = ensure_cirros_image().await?;
+            builder = builder
+                .arg("-drive")
+                .arg(format!("file={},format=qcow2,if=virtio", cirros.display()));
+        }
+
+        let mut preconfig = builder.spawn().await?;
 
         // Extract the real event receiver and replace with a dummy.
         let (dummy_tx, dummy_rx) = mpsc::channel(1);
@@ -77,6 +100,8 @@ impl BmcState {
         let mut fwd = self.event_forwarder.lock().await;
         *fwd = Some(handle);
 
+        *self.vnc_sock.lock().await = preconfig.vnc_sock().cloned();
+        *self.serial_log.lock().await = preconfig.serial_log().cloned();
         *vm_guard = VmState::Preconfig(preconfig);
         Ok(())
     }
@@ -167,6 +192,8 @@ impl BmcState {
             }
         }
         self.stop_forwarder().await;
+        *self.vnc_sock.lock().await = None;
+        *self.serial_log.lock().await = None;
         *vm_guard = VmState::Off;
         Ok(())
     }
@@ -231,4 +258,46 @@ fn parse_machine(config: &BmcConfig) -> Result<MachineConfig> {
         }),
         _ => bail!("Unknown machine type: {}", config.machine),
     }
+}
+
+/// Search common system paths for OVMF firmware.
+fn find_ovmf() -> Option<PathBuf> {
+    let candidates = [
+        "/usr/share/edk2-ovmf/OVMF_CODE.fd",
+        "/usr/share/OVMF/OVMF_CODE.fd",
+        "/usr/share/qemu/edk2-x86_64-code.fd",
+    ];
+    candidates.iter().map(Path::new).find(|p| p.exists()).map(PathBuf::from)
+}
+
+/// Download cirros disk image if not cached.
+async fn ensure_cirros_image() -> Result<PathBuf> {
+    let cache_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .join("target")
+        .join("test-fixtures");
+    tokio::fs::create_dir_all(&cache_dir).await?;
+
+    let filename = "cirros-0.6.2-x86_64-disk.img";
+    let path = cache_dir.join(filename);
+    if path.exists() {
+        return Ok(path);
+    }
+
+    let url = format!("https://download.cirros-cloud.net/0.6.2/{filename}");
+    let output = tokio::process::Command::new("curl")
+        .args(["-fSL", "-o", &path.display().to_string(), &url])
+        .output()
+        .await?;
+
+    if !output.status.success() {
+        bail!(
+            "Failed to download cirros: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+    Ok(path)
 }

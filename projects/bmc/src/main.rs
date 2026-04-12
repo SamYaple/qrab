@@ -15,6 +15,20 @@ enum Route {
 }
 
 fn main() {
+    #[cfg(feature = "server")]
+    dioxus::serve(|| async move {
+        let state = bmc::state::bmc();
+
+        Ok(dioxus::server::router(App)
+            .nest_service(
+                "/novnc",
+                tower_http::services::ServeDir::new("assets/novnc"),
+            )
+            .merge(bmc::server::events::events_router(state.clone()))
+            .merge(bmc::server::console::console_router(state)))
+    });
+
+    #[cfg(not(feature = "server"))]
     dioxus::launch(App);
 }
 

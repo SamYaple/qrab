@@ -37,6 +37,7 @@ pub struct BmcConfig {
     pub arch: String,
     pub machine: String,
     pub memory: String,
+    pub display: bool,
 }
 
 /// CPU information response DTO.
@@ -74,8 +75,9 @@ impl Default for BmcConfig {
     fn default() -> Self {
         Self {
             arch: "x86_64".into(),
-            machine: "none".into(),
+            machine: "uefi".into(),
             memory: "256M".into(),
+            display: true,
         }
     }
 }

@@ -117,6 +117,30 @@ pub async fn get_kvm_info() -> Result<KvmInfoResponse, ServerFnError> {
 }
 
 #[server]
+pub async fn get_serial_output() -> Result<String, ServerFnError> {
+    use crate::state::bmc;
+
+    let state = bmc();
+    let guard = state.serial_log.lock().await;
+    match guard.as_ref() {
+        Some(path) => match tokio::fs::read_to_string(path).await {
+            Ok(contents) => Ok(contents),
+            Err(_) => Ok(String::new()),
+        },
+        None => Ok(String::new()),
+    }
+}
+
+#[server]
+pub async fn get_console_available() -> Result<bool, ServerFnError> {
+    use crate::state::bmc;
+
+    let state = bmc();
+    let guard = state.vnc_sock.lock().await;
+    Ok(guard.is_some())
+}
+
+#[server]
 pub async fn get_event_history() -> Result<Vec<BmcEvent>, ServerFnError> {
     use crate::state::bmc;
 

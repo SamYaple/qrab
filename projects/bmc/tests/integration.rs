@@ -12,6 +12,19 @@ fn require_x86_64() -> bool {
     true
 }
 
+/// Create BmcState with machine=none config for lightweight tests.
+async fn test_state() -> std::sync::Arc<BmcState> {
+    let state = BmcState::new();
+    // Override default (uefi+display) with lightweight none machine for tests
+    *state.config.lock().await = BmcConfig {
+        arch: "x86_64".into(),
+        machine: "none".into(),
+        memory: "256M".into(),
+        display: false,
+    };
+    state
+}
+
 // --- Phase 1 tests ---
 
 #[tokio::test]
@@ -21,7 +34,7 @@ async fn bmc_power_on_and_phase() {
     }
     qapi::set_qemu_version(9, 0, 0);
 
-    let state = BmcState::new();
+    let state = test_state().await;
     assert_eq!(state.phase().await, VmPhase::Off);
 
     state.power_on().await.unwrap();
@@ -38,7 +51,7 @@ async fn bmc_full_lifecycle() {
     }
     qapi::set_qemu_version(9, 0, 0);
 
-    let state = BmcState::new();
+    let state = test_state().await;
 
     state.power_on().await.unwrap();
     assert_eq!(state.phase().await, VmPhase::Preconfig);
@@ -57,7 +70,7 @@ async fn bmc_pause_resume() {
     }
     qapi::set_qemu_version(9, 0, 0);
 
-    let state = BmcState::new();
+    let state = test_state().await;
     state.power_on().await.unwrap();
     state.start_vm().await.unwrap();
 
@@ -79,7 +92,7 @@ async fn bmc_invalid_transitions() {
     }
     qapi::set_qemu_version(9, 0, 0);
 
-    let state = BmcState::new();
+    let state = test_state().await;
 
     assert!(state.pause().await.is_err());
     assert!(state.resume().await.is_err());
@@ -99,7 +112,7 @@ async fn bmc_event_forwarding() {
     }
     qapi::set_qemu_version(9, 0, 0);
 
-    let state = BmcState::new();
+    let state = test_state().await;
     let mut event_rx = state.event_tx.subscribe();
 
     state.power_on().await.unwrap();
@@ -138,13 +151,7 @@ async fn bmc_config_change() {
     }
     qapi::set_qemu_version(9, 0, 0);
 
-    let state = BmcState::new();
-
-    {
-        let config = state.config.lock().await;
-        assert_eq!(config.arch, "x86_64");
-        assert_eq!(config.machine, "none");
-    }
+    let state = test_state().await;
 
     {
         let mut config = state.config.lock().await;
@@ -152,6 +159,7 @@ async fn bmc_config_change() {
             arch: "x86_64".into(),
             machine: "none".into(),
             memory: "512M".into(),
+            display: false,
         };
     }
 
@@ -169,7 +177,7 @@ async fn bmc_query_status_running() {
     }
     qapi::set_qemu_version(9, 0, 0);
 
-    let state = BmcState::new();
+    let state = test_state().await;
     state.power_on().await.unwrap();
     state.start_vm().await.unwrap();
 
@@ -195,7 +203,7 @@ async fn bmc_query_cpu_info() {
     }
     qapi::set_qemu_version(9, 0, 0);
 
-    let state = BmcState::new();
+    let state = test_state().await;
     state.power_on().await.unwrap();
     state.start_vm().await.unwrap();
 
@@ -222,7 +230,7 @@ async fn bmc_pause_resume_with_events() {
     }
     qapi::set_qemu_version(9, 0, 0);
 
-    let state = BmcState::new();
+    let state = test_state().await;
     let mut event_rx = state.event_tx.subscribe();
 
     state.power_on().await.unwrap();
@@ -270,7 +278,7 @@ async fn bmc_event_history_accumulates() {
     }
     qapi::set_qemu_version(9, 0, 0);
 
-    let state = BmcState::new();
+    let state = test_state().await;
     state.power_on().await.unwrap();
     state.start_vm().await.unwrap();
 

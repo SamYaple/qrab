@@ -391,6 +391,50 @@ code, .mono {
     color: var(--text-dim);
 }
 
+/* ── Console panel ─────────────────────────────────────── */
+.console-panel {
+    width: 100%;
+}
+
+.vnc-container {
+    background: #000;
+    min-height: 480px;
+    border-radius: var(--radius);
+    overflow: hidden;
+    position: relative;
+}
+
+.vnc-container canvas {
+    width: 100% !important;
+    height: auto !important;
+    display: block;
+}
+
+/* ── Serial console ────────────────────────────────────── */
+.serial-panel {
+    width: 100%;
+}
+
+.serial-output {
+    background: #000;
+    color: #0f0;
+    font-family: "SF Mono", "Cascadia Code", "Fira Code", "JetBrains Mono", Consolas, monospace;
+    font-size: 12px;
+    line-height: 1.4;
+    padding: 12px;
+    border-radius: var(--radius);
+    max-height: 400px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    word-break: break-all;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border-subtle) transparent;
+}
+
+.serial-output::-webkit-scrollbar { width: 5px; }
+.serial-output::-webkit-scrollbar-track { background: transparent; }
+.serial-output::-webkit-scrollbar-thumb { background: var(--border-subtle); border-radius: 3px; }
+
 /* ── Badge ──────────────────────────────────────────────── */
 .badge {
     font-size: 11px;
