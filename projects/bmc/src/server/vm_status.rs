@@ -4,6 +4,20 @@ use crate::types::{BmcEvent, CpuInfoResponse, DashboardState, KvmInfoResponse, V
 #[cfg(feature = "server")]
 use crate::types::VmPhase;
 
+/// Cached host CPU count. `std::thread::available_parallelism()` is a
+/// syscall (reads /proc/self/status on Linux) and the value never changes
+/// for a process — cache it once.
+#[cfg(feature = "server")]
+fn host_threads() -> usize {
+    use std::sync::OnceLock;
+    static CACHED: OnceLock<usize> = OnceLock::new();
+    *CACHED.get_or_init(|| {
+        std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(1)
+    })
+}
+
 #[server]
 pub async fn get_status() -> Result<VmStatusResponse, ServerFnError> {
     use crate::state::{bmc, VmState};
@@ -81,9 +95,7 @@ pub async fn get_cpu_info() -> Result<CpuInfoResponse, ServerFnError> {
         _ => Vec::new(),
     };
 
-    let host_threads = std::thread::available_parallelism()
-        .map(|n| n.get())
-        .unwrap_or(1);
+    let host_threads = host_threads();
 
     Ok(CpuInfoResponse {
         guest_cpus,
@@ -193,6 +205,15 @@ pub async fn get_event_history() -> Result<Vec<BmcEvent>, ServerFnError> {
 /// log file I/O and the separate `event_history` lock. The result is a
 /// self-consistent snapshot of the running VM — there's no observable window
 /// where the UI sees "running but no CPUs" or similar races between calls.
+///
+/// Holds `vm_guard` across multiple sequential QMP awaits. This is acceptable
+/// because QMP runs over a local Unix socket (sub-millisecond per command);
+/// if QMP ever becomes remote, the awaits should move out of the lock or
+/// run concurrently via `tokio::join!`.
+///
+/// CPU and KVM info are cached in `state.cached_static` for the lifetime of
+/// each Running session — the QueryCpusFast / QueryKvm round-trips happen
+/// once per power-on, not once per poll.
 #[server]
 pub async fn get_dashboard_state() -> Result<DashboardState, ServerFnError> {
     use crate::state::{bmc, VmState};
@@ -212,9 +233,7 @@ pub async fn get_dashboard_state() -> Result<DashboardState, ServerFnError> {
         let vm_guard = state.vm.lock().await;
 
         // host_threads doesn't depend on VM state but is part of CpuInfoResponse.
-        let host_threads = std::thread::available_parallelism()
-            .map(|n| n.get())
-            .unwrap_or(1);
+        let host_threads = host_threads();
 
         match &*vm_guard {
             VmState::Off => (
@@ -262,6 +281,9 @@ pub async fn get_dashboard_state() -> Result<DashboardState, ServerFnError> {
                 )
             }
             VmState::Running(vm) => {
+                // QueryStatus is the only QMP command we issue every poll;
+                // it's the cheapest and tells us whether the guest is paused
+                // or running.
                 let status_reply = vm
                     .execute(&qapi::commands::QueryStatus {})
                     .await
@@ -278,31 +300,41 @@ pub async fn get_dashboard_state() -> Result<DashboardState, ServerFnError> {
                     qemu_version: None,
                 };
 
-                let cpus: Vec<qapi::CpuInfoFast> = vm
-                    .execute(&qapi::commands::QueryCpusFast {})
-                    .await
-                    .map_err(|e| ServerFnError::new(e.to_string()))?;
-                let guest_cpus = cpus
-                    .iter()
-                    .map(|c| GuestCpu {
-                        index: c.cpu_index,
-                        thread_id: c.thread_id,
-                        qom_path: c.qom_path.clone(),
-                    })
-                    .collect();
-                let cpu_info = CpuInfoResponse {
-                    guest_cpus,
-                    host_threads,
+                // CPU/KVM are static for the lifetime of the QEMU process,
+                // so query them once per Running session and reuse the
+                // cached value. cached_static is cleared on every transition
+                // out of Running.
+                let mut cache_guard = state.cached_static.lock().await;
+                let (cpu_info, kvm_info) = if let Some(cached) = cache_guard.as_ref() {
+                    cached.clone()
+                } else {
+                    let cpus: Vec<qapi::CpuInfoFast> = vm
+                        .execute(&qapi::commands::QueryCpusFast {})
+                        .await
+                        .map_err(|e| ServerFnError::new(e.to_string()))?;
+                    let cpu_info = CpuInfoResponse {
+                        guest_cpus: cpus
+                            .iter()
+                            .map(|c| GuestCpu {
+                                index: c.cpu_index,
+                                thread_id: c.thread_id,
+                                qom_path: c.qom_path.clone(),
+                            })
+                            .collect(),
+                        host_threads,
+                    };
+                    let kvm: qapi::KvmInfo = vm
+                        .execute(&qapi::commands::QueryKvm {})
+                        .await
+                        .map_err(|e| ServerFnError::new(e.to_string()))?;
+                    let kvm_info = KvmInfoResponse {
+                        enabled: kvm.enabled,
+                        present: kvm.present,
+                    };
+                    *cache_guard = Some((cpu_info.clone(), kvm_info.clone()));
+                    (cpu_info, kvm_info)
                 };
-
-                let kvm: qapi::KvmInfo = vm
-                    .execute(&qapi::commands::QueryKvm {})
-                    .await
-                    .map_err(|e| ServerFnError::new(e.to_string()))?;
-                let kvm_info = KvmInfoResponse {
-                    enabled: kvm.enabled,
-                    present: kvm.present,
-                };
+                drop(cache_guard);
 
                 let console_available = vm.vnc_sock().is_some();
                 let serial_log_path = vm.serial_log().cloned();
@@ -331,21 +363,11 @@ pub async fn get_dashboard_state() -> Result<DashboardState, ServerFnError> {
         // vm_guard drops here.
     };
 
-    // -- Phase 2: slower I/O and the event_history lock, vm lock released. --
+    // -- Phase 2: slower I/O, vm lock released. --
+    // Events are NOT collected here — they flow through the `/api/events`
+    // SSE endpoint straight into the EventLog component. The dashboard
+    // state only carries slices that are polled.
     let serial_tail = read_serial_tail(serial_log_path.as_deref()).await;
-
-    let events = {
-        let history = state.event_history.lock().await;
-        history
-            .iter()
-            .map(|e| BmcEvent {
-                event: e.event.clone(),
-                timestamp_secs: e.timestamp.seconds,
-                timestamp_usecs: e.timestamp.microseconds,
-                data: e.data.clone(),
-            })
-            .collect()
-    };
 
     Ok(DashboardState {
         status,
@@ -353,7 +375,6 @@ pub async fn get_dashboard_state() -> Result<DashboardState, ServerFnError> {
         kvm_info,
         console_available,
         serial_tail,
-        events,
     })
 }
 

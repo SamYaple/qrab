@@ -127,7 +127,9 @@ pub struct BmcEvent {
 
 /// Combined dashboard state DTO. One server round-trip gathers every slice
 /// the dashboard needs, under a single `state.vm` lock acquisition, so the
-/// rendered snapshot is internally consistent.
+/// rendered snapshot is internally consistent. Events are NOT included —
+/// they flow through the `/api/events` SSE endpoint directly to the
+/// EventLog component and are not part of the polled dashboard state.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DashboardState {
     pub status: VmStatusResponse,
@@ -135,7 +137,31 @@ pub struct DashboardState {
     pub kvm_info: KvmInfoResponse,
     pub console_available: bool,
     pub serial_tail: String,
-    pub events: Vec<BmcEvent>,
+}
+
+impl Default for DashboardState {
+    /// The "Off VM, no data" placeholder used by the frontend before the
+    /// first fetch resolves and on transient fetch errors.
+    fn default() -> Self {
+        Self {
+            status: VmStatusResponse {
+                phase: VmPhase::Off,
+                running: None,
+                status: None,
+                qemu_version: None,
+            },
+            cpu_info: CpuInfoResponse {
+                guest_cpus: Vec::new(),
+                host_threads: 0,
+            },
+            kvm_info: KvmInfoResponse {
+                enabled: false,
+                present: false,
+            },
+            console_available: false,
+            serial_tail: String::new(),
+        }
+    }
 }
 
 impl Default for BmcConfig {

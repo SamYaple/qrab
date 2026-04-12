@@ -1,12 +1,96 @@
+use std::collections::VecDeque;
+
 use dioxus::prelude::*;
 
+use bmc::server::vm_status::get_event_history;
 use bmc::types::BmcEvent;
 
-/// Event log panel. Pure props-driven: the parent Dashboard polls
-/// `get_dashboard_state()` and passes the event slice down.
+/// Maximum number of events to retain in the client-side ring buffer.
+/// Mirrors the server-side `EVENT_HISTORY_CAP` in state.rs so the UI can
+/// never hold more history than the server would have emitted.
+const EVENT_HISTORY_CAP: usize = 1000;
+
+/// Event log panel. Self-managed: fetches the current history on mount via
+/// `get_event_history()` to seed the UI, then opens an EventSource on
+/// `/api/events` and appends new events as they arrive. No polling, no
+/// props — the dashboard renders `EventLog {}` with no arguments.
 #[component]
-pub fn EventLog(events: Vec<BmcEvent>) -> Element {
-    let count = events.len();
+pub fn EventLog() -> Element {
+    // VecDeque bounded at EVENT_HISTORY_CAP. Rendering walks it in reverse
+    // (newest first), matching the previous behavior.
+    let mut events = use_signal(VecDeque::<BmcEvent>::new);
+
+    // Seed with existing history on mount. Done exactly once via use_future
+    // (no deps → runs to completion; the spawned task for SSE is separate).
+    use_future(move || async move {
+        if let Ok(history) = get_event_history().await {
+            let mut buf = VecDeque::with_capacity(history.len().min(EVENT_HISTORY_CAP));
+            for ev in history.into_iter().rev().take(EVENT_HISTORY_CAP).rev() {
+                buf.push_back(ev);
+            }
+            events.set(buf);
+        }
+
+        // Open the SSE stream. JS parses each event frame as JSON and pushes
+        // it back to Rust via dioxus.send(); Rust receives it as a serde_json
+        // Value and deserializes to BmcEvent. Typing on the JS side would
+        // require stringifying again, so we keep it as a raw Value and let
+        // serde handle the conversion in Rust.
+        //
+        // Dioxus 0.7 `Eval` is Copy + !Send. `recv::<T>()` takes &mut self
+        // and deserializes the JSON pushed via `dioxus.send(...)`. The eval
+        // handle is kept alive for the lifetime of this task; when the
+        // component unmounts, the task is cancelled and the EventSource
+        // closes via the `beforeunload`/page lifecycle.
+        let mut eval_handle = document::eval(
+            r#"
+            (function() {
+                if (window._bmcEventSource) {
+                    try { window._bmcEventSource.close(); } catch (e) {}
+                    window._bmcEventSource = null;
+                }
+                const es = new EventSource('/api/events');
+                window._bmcEventSource = es;
+                es.onmessage = (e) => {
+                    try {
+                        const obj = JSON.parse(e.data);
+                        dioxus.send(obj);
+                    } catch (err) {
+                        console.error('SSE parse error:', err);
+                    }
+                };
+                es.onerror = (err) => {
+                    console.warn('SSE error (browser will auto-reconnect):', err);
+                };
+            })();
+            "#,
+        );
+
+        loop {
+            match eval_handle.recv::<BmcEvent>().await {
+                Ok(event) => {
+                    // Scope the write guard so it's dropped before the next
+                    // await. Dioxus signals are RefCell-backed; holding the
+                    // write across an await would panic if the render path
+                    // tries to read concurrently.
+                    {
+                        let mut buf = events.write();
+                        buf.push_back(event);
+                        while buf.len() > EVENT_HISTORY_CAP {
+                            buf.pop_front();
+                        }
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!("SSE recv error: {e}");
+                    break;
+                }
+            }
+        }
+    });
+
+    let events_ref = events.read();
+    let count = events_ref.len();
 
     rsx! {
         div { class: "panel event-panel",
@@ -17,7 +101,7 @@ pub fn EventLog(events: Vec<BmcEvent>) -> Element {
                 }
             }
 
-            if events.is_empty() {
+            if events_ref.is_empty() {
                 div { class: "empty-state", "Waiting for events..." }
             } else {
                 div { class: "event-table-wrap",
@@ -30,7 +114,7 @@ pub fn EventLog(events: Vec<BmcEvent>) -> Element {
                             }
                         }
                         tbody {
-                            for (i, event) in events.iter().rev().enumerate() {
+                            for (i, event) in events_ref.iter().rev().enumerate() {
                                 EventRow {
                                     key: "{event.timestamp_secs}-{event.timestamp_usecs}-{event.event}",
                                     event: event.clone(),

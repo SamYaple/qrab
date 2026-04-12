@@ -11,7 +11,10 @@ use manager::arch::{Arch, MachineConfig};
 use manager::vm::{PreconfigVm, Vm, VmBuilder};
 use qapi_protocol::QmpEvent;
 
-use crate::types::{BmcArch, BmcConfig, BmcMachine, DiskConfig, DiskFormat, VmPhase};
+use crate::types::{
+    BmcArch, BmcConfig, BmcMachine, CpuInfoResponse, DiskConfig, DiskFormat, KvmInfoResponse,
+    VmPhase,
+};
 
 const EVENT_HISTORY_CAP: usize = 1000;
 
@@ -41,6 +44,12 @@ pub struct BmcState {
     pub event_tx: broadcast::Sender<QmpEvent>,
     pub event_history: Arc<Mutex<VecDeque<QmpEvent>>>,
     pub config: Mutex<BmcConfig>,
+    /// Cached CPU/KVM info for the currently running VM. CPU topology and
+    /// KVM module status don't change for the lifetime of a QEMU process,
+    /// so the dashboard polling path queries them once per Running session
+    /// and reuses the cached values until the next force_off transition.
+    /// `None` while Off / Preconfig / ShuttingDown.
+    pub cached_static: Mutex<Option<(CpuInfoResponse, KvmInfoResponse)>>,
     event_forwarder: Mutex<Option<JoinHandle<()>>>,
 }
 
@@ -52,6 +61,7 @@ impl BmcState {
             event_tx,
             event_history: Arc::new(Mutex::new(VecDeque::with_capacity(EVENT_HISTORY_CAP))),
             config: Mutex::new(BmcConfig::default()),
+            cached_static: Mutex::new(None),
             event_forwarder: Mutex::new(None),
         })
     }
@@ -87,8 +97,9 @@ impl BmcState {
             bail!("VM is not off");
         }
 
-        // Defensive: clear any stale events from a prior power cycle.
+        // Defensive: clear any stale state from a prior power cycle.
         self.event_history.lock().await.clear();
+        *self.cached_static.lock().await = None;
 
         let config = self.config.lock().await.clone();
         let arch = arch_to_manager(config.arch);
@@ -178,6 +189,7 @@ impl BmcState {
                 drop(vm_guard);
                 self.stop_forwarder().await;
                 self.event_history.lock().await.clear();
+                *self.cached_static.lock().await = None;
                 *self.vm.lock().await = VmState::Off;
                 Err(e).context("start_vm: PreconfigVm::start failed; transitioned to Off")
             }
@@ -254,6 +266,7 @@ impl BmcState {
         }
         self.stop_forwarder().await;
         self.event_history.lock().await.clear();
+        *self.cached_static.lock().await = None;
         *vm_guard = VmState::Off;
         Ok(())
     }

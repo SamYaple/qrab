@@ -8,6 +8,18 @@ use components::dashboard::Dashboard;
 
 static MAIN_CSS: Asset = asset!("/assets/main.css");
 
+/// Default tracing filter applied when neither `BMC_LOG` nor `RUST_LOG` is
+/// set. Lets the BMC and manager crates log at info, silences the rest of
+/// the framework stack at warn — Dioxus/Axum/hyper/tower would otherwise
+/// log per request, which gets noisy under dashboard polling load.
+#[cfg(feature = "server")]
+const DEFAULT_LOG_FILTER: &str = "bmc=info,manager=info,\
+                                  dioxus=warn,dioxus_server=warn,\
+                                  dioxus_fullstack=warn,dioxus_cli=warn,\
+                                  hyper=warn,hyper_util=warn,\
+                                  axum=warn,tower=warn,tower_http=warn,\
+                                  tokio=warn";
+
 #[derive(Routable, Clone, PartialEq)]
 enum Route {
     #[route("/")]
@@ -18,12 +30,13 @@ fn main() {
     #[cfg(feature = "server")]
     dioxus::serve(|| async move {
         // Initialize tracing subscriber so log calls in the BMC and manager
-        // crates actually emit. Honors RUST_LOG / BMC_LOG env vars.
+        // crates actually emit. Honors BMC_LOG, then RUST_LOG, then the
+        // baked-in DEFAULT_LOG_FILTER.
         let _ = tracing_subscriber::fmt()
             .with_env_filter(
                 tracing_subscriber::EnvFilter::try_from_env("BMC_LOG")
                     .or_else(|_| tracing_subscriber::EnvFilter::try_from_default_env())
-                    .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("bmc=info,manager=info")),
+                    .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new(DEFAULT_LOG_FILTER)),
             )
             .with_writer(std::io::stderr)
             .try_init();

@@ -1,9 +1,7 @@
 use dioxus::prelude::*;
 
 use bmc::server::vm_status::get_dashboard_state;
-use bmc::types::{
-    BmcEvent, CpuInfoResponse, DashboardState, KvmInfoResponse, VmPhase, VmStatusResponse,
-};
+use bmc::types::DashboardState;
 
 use super::console::Console;
 use super::cpu_info::CpuInfo;
@@ -13,41 +11,24 @@ use super::serial::SerialConsole;
 use super::status_panel::StatusPanel;
 use super::util::sleep_ms;
 
-/// Default DashboardState used before the first fetch resolves (or if a
-/// fetch fails). Matches an Off VM with no history.
-fn empty_dashboard_state() -> DashboardState {
-    DashboardState {
-        status: VmStatusResponse {
-            phase: VmPhase::Off,
-            running: None,
-            status: None,
-            qemu_version: None,
-        },
-        cpu_info: CpuInfoResponse {
-            guest_cpus: Vec::new(),
-            host_threads: 0,
-        },
-        kvm_info: KvmInfoResponse {
-            enabled: false,
-            present: false,
-        },
-        console_available: false,
-        serial_tail: String::new(),
-        events: Vec::<BmcEvent>::new(),
-    }
-}
+/// Dashboard polling interval. Was 1s after Phase 2C consolidation —
+/// too aggressive given that the combined endpoint issues a QMP
+/// `query-status` and a 64 KiB serial-tail read each tick. Serial output
+/// stays roughly live at 3s and the dashboard feels responsive. Manual
+/// refresh via `PowerControls` bumps `refresh_tick` to force an immediate
+/// refetch outside the periodic cycle.
+const POLL_INTERVAL_MS: u64 = 3000;
 
 #[component]
 pub fn Dashboard() -> Element {
     let mut refresh_tick = use_signal(|| 0u64);
     let mut poll_tick = use_signal(|| 0u64);
 
-    // Single poll loop at 1s — the tightest of the original per-component
-    // rates (serial output was 1s). Task is tied to this component's scope
-    // and is dropped automatically when the component unmounts.
+    // Single poll loop at POLL_INTERVAL_MS. Task is tied to this component's
+    // scope and is dropped automatically when the component unmounts.
     use_future(move || async move {
         loop {
-            sleep_ms(1000).await;
+            sleep_ms(POLL_INTERVAL_MS).await;
             poll_tick += 1;
         }
     });
@@ -66,7 +47,7 @@ pub fn Dashboard() -> Element {
         .read()
         .clone()
         .flatten()
-        .unwrap_or_else(empty_dashboard_state);
+        .unwrap_or_default();
 
     let DashboardState {
         status,
@@ -74,7 +55,6 @@ pub fn Dashboard() -> Element {
         kvm_info,
         console_available,
         serial_tail,
-        events,
     } = state_value;
 
     let current_phase = status.phase.clone();
@@ -112,8 +92,10 @@ pub fn Dashboard() -> Element {
                 serial_tail: serial_tail.clone(),
             }
 
-            // Bottom section: full-width events
-            EventLog { events: events.clone() }
+            // Bottom section: full-width events. EventLog is self-managed:
+            // it fetches initial history via `get_event_history()` and then
+            // streams new events over SSE (`/api/events`). No props needed.
+            EventLog {}
         }
     }
 }
