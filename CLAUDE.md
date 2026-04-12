@@ -35,6 +35,7 @@ Full rationale: [docs/design-constraints.md](docs/design-constraints.md)
 | [docs/manager.md](docs/manager.md) | VM lifecycle manager |
 | [docs/design-constraints.md](docs/design-constraints.md) | What invariants to preserve |
 | [docs/testing.md](docs/testing.md) | Writing tests or CI |
+| [docs/audit-agents.md](docs/audit-agents.md) | Multi-perspective cleanup / refactor passes via parallel review agents |
 
 ## Quick Commands
 
