@@ -12,7 +12,7 @@ use tokio::sync::{mpsc, oneshot, watch};
 use tokio::task::{spawn, JoinHandle};
 
 /// A raw QMP event as received from QEMU.
-#[derive(Debug, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct QmpEvent {
     pub event: String,
     pub timestamp: Timestamp,
@@ -21,7 +21,7 @@ pub struct QmpEvent {
 }
 
 /// QMP event timestamp.
-#[derive(Debug, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Timestamp {
     pub seconds: i64,
     pub microseconds: u32,
