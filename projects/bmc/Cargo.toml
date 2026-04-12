@@ -74,11 +74,18 @@ web = ["dioxus/web"]
 
 [dev-dependencies]
 tokio = { version = "1", features = ["full"] }
+tokio-tungstenite = "0.24"
+futures = "0.3"
 paste = "1"
 which = "7"
 manager = { path = "../manager" }
 qapi = { path = "../qapi" }
 qapi-protocol = { path = "../qapi-protocol" }
+axum = { version = "0.8", features = ["ws"] }
+
+[[test]]
+name = "vnc_proxy"
+required-features = ["server"]
 
 [[test]]
 name = "integration"

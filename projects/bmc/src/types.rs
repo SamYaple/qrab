@@ -75,7 +75,7 @@ impl Default for BmcConfig {
     fn default() -> Self {
         Self {
             arch: "x86_64".into(),
-            machine: "uefi".into(),
+            machine: "bios".into(),
             memory: "256M".into(),
             display: true,
         }

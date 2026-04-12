@@ -160,7 +160,14 @@ impl VmBuilder {
         }
 
         let mut args: Vec<String> = Vec::new();
-        args.push("--preconfig".into());
+        if self.display {
+            // With display, skip --preconfig: VNC must see VGA during machine
+            // init to register the graphic console. Use -S (start paused) so
+            // the caller can still configure before guest execution.
+            args.push("-S".into());
+        } else {
+            args.push("--preconfig".into());
+        }
 
         match &self.config {
             MachineConfig::None => {
@@ -238,6 +245,12 @@ impl VmBuilder {
 
         args.extend(self.extra_args);
 
+        eprintln!(
+            "QEMU spawn: {} {}",
+            self.arch.binary().display(),
+            args.join(" ")
+        );
+
         let child = Command::new(self.arch.binary())
             .args(&args)
             .stdout(Stdio::null())
@@ -257,17 +270,19 @@ impl VmBuilder {
 
         let (qmp, events) = Qmp::new(&qmp_sock).await?;
 
-        let version = qapi::qemu_version();
-        if version < PRECONFIG_MIN_VERSION {
-            anyhow::bail!(
-                "QEMU {}.{}.{} does not support --preconfig (requires >= {}.{}.{})",
-                version.0,
-                version.1,
-                version.2,
-                PRECONFIG_MIN_VERSION.0,
-                PRECONFIG_MIN_VERSION.1,
-                PRECONFIG_MIN_VERSION.2,
-            );
+        if !self.display {
+            let version = qapi::qemu_version();
+            if version < PRECONFIG_MIN_VERSION {
+                anyhow::bail!(
+                    "QEMU {}.{}.{} does not support --preconfig (requires >= {}.{}.{})",
+                    version.0,
+                    version.1,
+                    version.2,
+                    PRECONFIG_MIN_VERSION.0,
+                    PRECONFIG_MIN_VERSION.1,
+                    PRECONFIG_MIN_VERSION.2,
+                );
+            }
         }
 
         Ok(PreconfigVm {
@@ -279,6 +294,7 @@ impl VmBuilder {
                 serial_log,
                 vnc_sock,
             },
+            paused_mode: self.display,
         })
     }
 }
@@ -300,6 +316,8 @@ pub struct PreconfigVm {
     /// Channel for receiving asynchronous QMP events from QEMU.
     pub events: mpsc::Receiver<QmpEvent>,
     process: VmProcess,
+    /// True when started with `-S` (paused) instead of `--preconfig`.
+    paused_mode: bool,
 }
 
 impl PreconfigVm {
@@ -325,12 +343,16 @@ impl PreconfigVm {
         self.qmp.execute(cmd).await
     }
 
-    /// Exit preconfig mode and start guest execution.
+    /// Exit preconfig/paused mode and start guest execution.
     ///
-    /// Sends `x-exit-preconfig` to QEMU, which initializes the machine and
-    /// begins guest execution. Returns a [`Vm`] handle with full QMP access.
+    /// Sends `x-exit-preconfig` or `cont` depending on how the VM was
+    /// started. Returns a [`Vm`] handle with full QMP access.
     pub async fn start(self) -> Result<Vm> {
-        self.qmp.execute(&qapi::commands::XExitPreconfig {}).await?;
+        if self.paused_mode {
+            self.qmp.execute(&qapi::commands::Cont {}).await?;
+        } else {
+            self.qmp.execute(&qapi::commands::XExitPreconfig {}).await?;
+        }
         Ok(Vm {
             qmp: self.qmp,
             events: self.events,

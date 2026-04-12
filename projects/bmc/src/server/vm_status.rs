@@ -131,13 +131,70 @@ pub async fn get_serial_output() -> Result<String, ServerFnError> {
     }
 }
 
+/// Diagnostic: connect directly to VNC socket, do handshake, return display info.
 #[server]
-pub async fn get_console_available() -> Result<bool, ServerFnError> {
+pub async fn probe_vnc_socket() -> Result<String, ServerFnError> {
     use crate::state::bmc;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::UnixStream;
 
     let state = bmc();
-    let guard = state.vnc_sock.lock().await;
-    Ok(guard.is_some())
+    let path = state.vnc_sock.lock().await.clone();
+    let path = match path {
+        Some(p) => p,
+        None => return Ok("no vnc socket".into()),
+    };
+
+    if !path.exists() {
+        return Ok(format!("socket file missing: {}", path.display()));
+    }
+
+    let mut stream = UnixStream::connect(&path)
+        .await
+        .map_err(|e| ServerFnError::new(format!("connect: {e}")))?;
+
+    // Read server version
+    let mut ver = [0u8; 12];
+    stream.read_exact(&mut ver).await.map_err(|e| ServerFnError::new(format!("ver: {e}")))?;
+    stream.write_all(&ver).await.map_err(|e| ServerFnError::new(format!("ver w: {e}")))?;
+
+    // Security types
+    let mut n = [0u8; 1];
+    stream.read_exact(&mut n).await.map_err(|e| ServerFnError::new(format!("sec: {e}")))?;
+    let mut types = vec![0u8; n[0] as usize];
+    stream.read_exact(&mut types).await.map_err(|e| ServerFnError::new(format!("types: {e}")))?;
+    stream.write_all(&[1]).await.map_err(|e| ServerFnError::new(format!("auth: {e}")))?;
+
+    // Security result
+    let mut result = [0u8; 4];
+    stream.read_exact(&mut result).await.map_err(|e| ServerFnError::new(format!("result: {e}")))?;
+
+    // ClientInit
+    stream.write_all(&[1]).await.map_err(|e| ServerFnError::new(format!("init: {e}")))?;
+
+    // ServerInit
+    let mut header = [0u8; 24];
+    stream.read_exact(&mut header).await.map_err(|e| ServerFnError::new(format!("sinit: {e}")))?;
+    let w = u16::from_be_bytes([header[0], header[1]]);
+    let h = u16::from_be_bytes([header[2], header[3]]);
+    let name_len = u32::from_be_bytes([header[20], header[21], header[22], header[23]]) as usize;
+    let mut name_buf = vec![0u8; name_len];
+    stream.read_exact(&mut name_buf).await.map_err(|e| ServerFnError::new(format!("name: {e}")))?;
+    let name = String::from_utf8_lossy(&name_buf);
+
+    Ok(format!("{w}x{h} name={name:?}"))
+}
+
+#[server]
+pub async fn get_console_available() -> Result<bool, ServerFnError> {
+    use crate::state::{bmc, VmState};
+
+    let state = bmc();
+    let vm_guard = state.vm.lock().await;
+    let running = matches!(&*vm_guard, VmState::Running(_));
+    drop(vm_guard);
+    let has_sock = state.vnc_sock.lock().await.is_some();
+    Ok(running && has_sock)
 }
 
 #[server]
