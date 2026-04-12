@@ -1,51 +1,74 @@
 use dioxus::prelude::*;
 
 use bmc::server::vm_status::{get_cpu_info, get_kvm_info};
-use bmc::types::VmPhase;
+use bmc::types::{CpuInfoResponse, KvmInfoResponse, VmPhase};
+
+use super::util::sleep_ms;
 
 #[component]
-pub fn CpuInfo(current_phase: VmPhase) -> Element {
-    let cpu_info = use_resource(get_cpu_info);
-    let kvm_info = use_resource(get_kvm_info);
+pub fn CpuInfo(current_phase: VmPhase, refresh_tick: u64) -> Element {
+    let mut cpu_info = use_signal(|| None::<CpuInfoResponse>);
+    let mut kvm_info = use_signal(|| None::<KvmInfoResponse>);
+
+    // Poll every 5s
+    use_future(move || async move {
+        loop {
+            if let Ok(info) = get_cpu_info().await {
+                cpu_info.set(Some(info));
+            }
+            if let Ok(info) = get_kvm_info().await {
+                kvm_info.set(Some(info));
+            }
+            sleep_ms(5000).await;
+        }
+    });
+
+    // Refresh on tick
+    use_effect(move || {
+        let _tick = refresh_tick;
+        spawn(async move {
+            if let Ok(info) = get_cpu_info().await {
+                cpu_info.set(Some(info));
+            }
+            if let Ok(info) = get_kvm_info().await {
+                kvm_info.set(Some(info));
+            }
+        });
+    });
 
     rsx! {
-        div { class: "cpu-info",
-            h2 { "CPU Information" }
+        div { class: "panel cpu-info",
+            div { class: "panel-header",
+                h2 { "System" }
+            }
 
-            // Host info
-            match cpu_info.read().as_ref() {
-                Some(Ok(info)) => rsx! {
+            div { class: "status-info",
+                if let Some(ref info) = *cpu_info.read() {
                     div { class: "status-row",
-                        span { class: "label", "Host Threads:" }
+                        span { class: "label", "Host Threads" }
                         span { class: "value", "{info.host_threads}" }
                     }
-                },
-                _ => rsx! {},
-            }
+                }
 
-            // KVM info
-            match kvm_info.read().as_ref() {
-                Some(Ok(kvm)) => rsx! {
+                if let Some(ref kvm) = *kvm_info.read() {
                     div { class: "status-row",
-                        span { class: "label", "KVM:" }
+                        span { class: "label", "KVM" }
                         span { class: "value",
-                            if kvm.enabled { "Enabled" } else if kvm.present { "Present (disabled)" } else { "Not available" }
+                            if kvm.enabled { "Enabled" } else if kvm.present { "Present" } else { "Unavailable" }
                         }
                     }
-                },
-                _ => rsx! {},
+                }
             }
 
-            // Guest vCPUs table
             if current_phase == VmPhase::Running || current_phase == VmPhase::Paused {
-                match cpu_info.read().as_ref() {
-                    Some(Ok(info)) if !info.guest_cpus.is_empty() => rsx! {
+                if let Some(ref info) = *cpu_info.read() {
+                    if !info.guest_cpus.is_empty() {
                         h3 { "Guest vCPUs" }
                         table { class: "cpu-table",
                             thead {
                                 tr {
-                                    th { "Index" }
-                                    th { "Thread ID" }
+                                    th { "#" }
+                                    th { "TID" }
                                     th { "QOM Path" }
                                 }
                             }
@@ -53,22 +76,13 @@ pub fn CpuInfo(current_phase: VmPhase) -> Element {
                                 for cpu in info.guest_cpus.iter() {
                                     tr {
                                         td { "{cpu.index}" }
-                                        td { "{cpu.thread_id}" }
-                                        td { "{cpu.qom_path}" }
+                                        td { class: "mono", "{cpu.thread_id}" }
+                                        td { class: "mono", "{cpu.qom_path}" }
                                     }
                                 }
                             }
                         }
-                    },
-                    Some(Ok(_)) => rsx! {
-                        p { class: "muted", "No vCPUs reported." }
-                    },
-                    Some(Err(e)) => rsx! {
-                        p { class: "error", "Error: {e}" }
-                    },
-                    None => rsx! {
-                        p { "Loading..." }
-                    },
+                    }
                 }
             }
         }

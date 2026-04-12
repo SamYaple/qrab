@@ -11,8 +11,10 @@ pub fn PowerControls(
     let error_msg = use_signal(|| Option::<String>::None);
 
     rsx! {
-        div { class: "power-controls",
-            h2 { "Controls" }
+        div { class: "panel power-controls",
+            div { class: "panel-header",
+                h2 { "Controls" }
+            }
 
             if let Some(err) = error_msg() {
                 div { class: "error-banner",
@@ -20,56 +22,68 @@ pub fn PowerControls(
                 }
             }
 
-            div { class: "button-row",
-                ActionButton {
-                    label: "Power On",
-                    disabled: current_phase != VmPhase::Off,
-                    action: "power_on",
-                    error_msg,
-                    on_action,
+            div { class: "button-group",
+                if current_phase == VmPhase::Off {
+                    ActionButton {
+                        label: "Power On",
+                        icon: "power",
+                        action: "power_on",
+                        error_msg,
+                        on_action,
+                    }
                 }
-                ActionButton {
-                    label: "Start VM",
-                    disabled: current_phase != VmPhase::Preconfig,
-                    action: "start_vm",
-                    error_msg,
-                    on_action,
+                if current_phase == VmPhase::Preconfig {
+                    ActionButton {
+                        label: "Start VM",
+                        icon: "play",
+                        action: "start_vm",
+                        error_msg,
+                        on_action,
+                    }
                 }
-                ActionButton {
-                    label: "Pause",
-                    disabled: current_phase != VmPhase::Running,
-                    action: "pause",
-                    error_msg,
-                    on_action,
+                if current_phase == VmPhase::Running {
+                    ActionButton {
+                        label: "Pause",
+                        icon: "pause",
+                        action: "pause",
+                        error_msg,
+                        on_action,
+                    }
                 }
-                ActionButton {
-                    label: "Resume",
-                    disabled: current_phase != VmPhase::Paused,
-                    action: "resume",
-                    error_msg,
-                    on_action,
+                if current_phase == VmPhase::Paused {
+                    ActionButton {
+                        label: "Resume",
+                        icon: "play",
+                        action: "resume",
+                        error_msg,
+                        on_action,
+                    }
                 }
-                ActionButton {
-                    label: "Reset",
-                    disabled: current_phase != VmPhase::Running && current_phase != VmPhase::Paused,
-                    action: "reset",
-                    error_msg,
-                    on_action,
+                if current_phase == VmPhase::Running || current_phase == VmPhase::Paused {
+                    ActionButton {
+                        label: "Reset",
+                        icon: "reset",
+                        action: "reset",
+                        error_msg,
+                        on_action,
+                    }
+                    ActionButton {
+                        label: "Shutdown",
+                        icon: "shutdown",
+                        action: "power_off",
+                        error_msg,
+                        on_action,
+                    }
                 }
-                ActionButton {
-                    label: "ACPI Powerdown",
-                    disabled: current_phase != VmPhase::Running,
-                    action: "power_off",
-                    error_msg,
-                    on_action,
-                }
-                ActionButton {
-                    label: "Force Off",
-                    disabled: current_phase == VmPhase::Off,
-                    danger: true,
-                    action: "force_off",
-                    error_msg,
-                    on_action,
+                if current_phase != VmPhase::Off {
+                    ActionButton {
+                        label: "Force Off",
+                        icon: "danger",
+                        danger: true,
+                        action: "force_off",
+                        error_msg,
+                        on_action,
+                    }
                 }
             }
         }
@@ -79,17 +93,16 @@ pub fn PowerControls(
 #[component]
 fn ActionButton(
     label: &'static str,
-    disabled: bool,
+    icon: &'static str,
     #[props(default = false)] danger: bool,
     action: &'static str,
     error_msg: Signal<Option<String>>,
     on_action: EventHandler<()>,
 ) -> Element {
-    let class = if danger { "danger" } else { "" };
+    let btn_class = if danger { "btn btn-danger" } else { "btn btn-action" };
     rsx! {
         button {
-            class,
-            disabled,
+            class: btn_class,
             onclick: move |_| async move {
                 error_msg.set(None);
                 let result: Result<VmPhase, ServerFnError> = match action {

@@ -1,26 +1,9 @@
 use dioxus::prelude::*;
 
-use bmc::server::vm_status::get_status;
 use bmc::types::{VmPhase, VmStatusResponse};
 
 #[component]
-pub fn StatusPanel() -> Element {
-    let status = use_resource(get_status);
-
-    rsx! {
-        div { class: "status-panel",
-            h2 { "VM Status" }
-            match status.read().as_ref() {
-                Some(Ok(s)) => rsx! { StatusInfo { status: s.clone() } },
-                Some(Err(e)) => rsx! { p { class: "error", "Error: {e}" } },
-                None => rsx! { p { "Loading..." } },
-            }
-        }
-    }
-}
-
-#[component]
-fn StatusInfo(status: VmStatusResponse) -> Element {
+pub fn StatusPanel(status: VmStatusResponse) -> Element {
     let phase_class = match &status.phase {
         VmPhase::Off => "phase-off",
         VmPhase::Preconfig => "phase-preconfig",
@@ -30,27 +13,36 @@ fn StatusInfo(status: VmStatusResponse) -> Element {
     };
 
     rsx! {
-        div { class: "status-info",
-            div { class: "status-row",
-                span { class: "label", "Phase:" }
-                span { class: "value {phase_class}", "{status.phase}" }
+        div { class: "panel status-panel",
+            div { class: "panel-header",
+                h2 { "Status" }
+                span { class: "status-dot {phase_class}" }
             }
-            if let Some(running) = status.running {
+
+            div { class: "status-info",
                 div { class: "status-row",
-                    span { class: "label", "Running:" }
-                    span { class: "value", "{running}" }
+                    span { class: "label", "Phase" }
+                    span { class: "value {phase_class}", "{status.phase}" }
                 }
-            }
-            if let Some(ref run_state) = status.status {
-                div { class: "status-row",
-                    span { class: "label", "Run State:" }
-                    span { class: "value", "{run_state}" }
+                if let Some(running) = status.running {
+                    div { class: "status-row",
+                        span { class: "label", "Running" }
+                        span { class: "value",
+                            if running { "Yes" } else { "No" }
+                        }
+                    }
                 }
-            }
-            if let Some(ref version) = status.qemu_version {
-                div { class: "status-row",
-                    span { class: "label", "QEMU Version:" }
-                    span { class: "value", "{version}" }
+                if let Some(ref run_state) = status.status {
+                    div { class: "status-row",
+                        span { class: "label", "Run State" }
+                        span { class: "value", "{run_state}" }
+                    }
+                }
+                if let Some(ref version) = status.qemu_version {
+                    div { class: "status-row",
+                        span { class: "label", "QEMU" }
+                        span { class: "value", "{version}" }
+                    }
                 }
             }
         }
