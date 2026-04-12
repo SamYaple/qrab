@@ -1,8 +1,9 @@
 use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
+use std::time::Duration;
 
-use anyhow::{bail, Result};
+use anyhow::{bail, Context, Result};
 use tokio::sync::{broadcast, mpsc, Mutex};
 use tokio::task::JoinHandle;
 
@@ -10,7 +11,7 @@ use manager::arch::{Arch, MachineConfig};
 use manager::vm::{PreconfigVm, Vm, VmBuilder};
 use qapi_protocol::QmpEvent;
 
-use crate::types::{BmcConfig, VmPhase};
+use crate::types::{BmcArch, BmcConfig, BmcMachine, DiskConfig, DiskFormat, VmPhase};
 
 const EVENT_HISTORY_CAP: usize = 1000;
 
@@ -18,7 +19,7 @@ static BMC: OnceLock<Arc<BmcState>> = OnceLock::new();
 
 /// Get the global BmcState, initializing with defaults if needed.
 pub fn bmc() -> Arc<BmcState> {
-    BMC.get_or_init(|| BmcState::new()).clone()
+    BMC.get_or_init(BmcState::new).clone()
 }
 
 /// Internal VM state. Not serializable — holds owned QEMU handles.
@@ -30,13 +31,16 @@ pub enum VmState {
 }
 
 /// Central BMC state shared across server functions.
+///
+/// VNC socket and serial log paths are NOT stored here separately. They live
+/// inside the `VmState` (via `PreconfigVm` / `Vm` accessors). Reading them
+/// requires holding the `vm` lock, which makes "is the VM running and does
+/// it have a VNC socket?" an atomic question by construction.
 pub struct BmcState {
     pub vm: Mutex<VmState>,
     pub event_tx: broadcast::Sender<QmpEvent>,
     pub event_history: Arc<Mutex<VecDeque<QmpEvent>>>,
     pub config: Mutex<BmcConfig>,
-    pub vnc_sock: Mutex<Option<PathBuf>>,
-    pub serial_log: Mutex<Option<PathBuf>>,
     event_forwarder: Mutex<Option<JoinHandle<()>>>,
 }
 
@@ -48,10 +52,27 @@ impl BmcState {
             event_tx,
             event_history: Arc::new(Mutex::new(VecDeque::with_capacity(EVENT_HISTORY_CAP))),
             config: Mutex::new(BmcConfig::default()),
-            vnc_sock: Mutex::new(None),
-            serial_log: Mutex::new(None),
             event_forwarder: Mutex::new(None),
         })
+    }
+
+    /// Read the VNC socket path while holding the vm lock. Returns Some only
+    /// when a display-enabled VM is currently in Preconfig or Running.
+    pub async fn vnc_sock(&self) -> Option<PathBuf> {
+        match &*self.vm.lock().await {
+            VmState::Preconfig(pvm) => pvm.vnc_sock().cloned(),
+            VmState::Running(vm) => vm.vnc_sock().cloned(),
+            _ => None,
+        }
+    }
+
+    /// Read the serial log path while holding the vm lock.
+    pub async fn serial_log(&self) -> Option<PathBuf> {
+        match &*self.vm.lock().await {
+            VmState::Preconfig(pvm) => pvm.serial_log().cloned(),
+            VmState::Running(vm) => vm.serial_log().cloned(),
+            _ => None,
+        }
     }
 
     /// Spawn a VM with the current config. Transitions Off -> Preconfig.
@@ -61,29 +82,51 @@ impl BmcState {
             bail!("VM is not off");
         }
 
+        // Defensive: clear any stale events from a prior power cycle.
+        self.event_history.lock().await.clear();
+
         let config = self.config.lock().await.clone();
-        let arch = parse_arch(&config.arch)?;
-        let machine_config = parse_machine(&config)?;
+        let arch = arch_to_manager(config.arch);
+        let machine_config = machine_to_manager(config.machine, config.memory.clone());
 
         let mut builder = VmBuilder::new(arch, machine_config).serial();
         if config.display {
             builder = builder.display();
         }
 
-        // TODO: make firmware/disk configurable via preconfig UI
-        if !matches!(config.machine.as_str(), "none") {
-            if matches!(config.machine.as_str(), "uefi") {
-                if let Some(fw) = find_ovmf() {
-                    builder = builder.firmware(fw);
-                }
+        if matches!(config.machine, BmcMachine::Uefi) {
+            if let Some(fw) = find_ovmf() {
+                builder = builder.firmware(fw);
             }
-            let cirros = ensure_cirros_image().await?;
-            builder = builder
-                .arg("-drive")
-                .arg(format!("file={},format=qcow2,if=virtio", cirros.display()));
         }
 
         let mut preconfig = builder.spawn().await?;
+
+        // Resolve disk list. Demo fallback: if no disks configured and the
+        // machine has a PCI bus, attach cirros so power_on yields a bootable
+        // VM out of the box. Long term this should be configured via UI.
+        let disks = if !matches!(config.machine, BmcMachine::None) && config.disks.is_empty() {
+            let cirros = ensure_cirros_image().await?;
+            vec![DiskConfig {
+                file: cirros,
+                format: DiskFormat::Qcow2,
+                interface: crate::types::DiskInterface::Virtio,
+                read_only: false,
+            }]
+        } else {
+            config.disks.clone()
+        };
+
+        // Add disks via QMP. blockdev-add is preconfig-safe (since 7.1.0);
+        // device_add is not, so it requires the paused-mode (-S) path used
+        // when display is enabled. With machine=none there's no PCI bus, so
+        // skip disk attachment entirely.
+        if !matches!(config.machine, BmcMachine::None) {
+            if let Err(e) = attach_disks(&preconfig, &disks).await {
+                preconfig.shutdown().await;
+                return Err(e);
+            }
+        }
 
         // Extract the real event receiver and replace with a dummy.
         let (dummy_tx, dummy_rx) = mpsc::channel(1);
@@ -100,25 +143,38 @@ impl BmcState {
         let mut fwd = self.event_forwarder.lock().await;
         *fwd = Some(handle);
 
-        *self.vnc_sock.lock().await = preconfig.vnc_sock().cloned();
-        *self.serial_log.lock().await = preconfig.serial_log().cloned();
         *vm_guard = VmState::Preconfig(preconfig);
         Ok(())
     }
 
     /// Exit preconfig and start guest execution. Transitions Preconfig -> Running.
-    pub async fn start_vm(&self) -> Result<()> {
+    ///
+    /// On error, the VM is forced off (forwarder stopped, vnc/serial cleared,
+    /// state transitioned to `Off`). Caller must `power_on` again to retry.
+    pub async fn start_vm(self: &Arc<Self>) -> Result<()> {
         let mut vm_guard = self.vm.lock().await;
         let state = std::mem::replace(&mut *vm_guard, VmState::ShuttingDown);
-        match state {
-            VmState::Preconfig(pvm) => {
-                let vm = pvm.start().await?;
-                *vm_guard = VmState::Running(vm);
-                Ok(())
-            }
+        let pvm = match state {
+            VmState::Preconfig(pvm) => pvm,
             other => {
                 *vm_guard = other;
                 bail!("VM is not in preconfig state");
+            }
+        };
+        match pvm.start().await {
+            Ok(vm) => {
+                *vm_guard = VmState::Running(vm);
+                Ok(())
+            }
+            Err(e) => {
+                // pvm was consumed by start(). Tear down everything else and
+                // force the state to Off. Drop the vm guard first since
+                // stop_forwarder takes its own lock.
+                drop(vm_guard);
+                self.stop_forwarder().await;
+                self.event_history.lock().await.clear();
+                *self.vm.lock().await = VmState::Off;
+                Err(e).context("start_vm: PreconfigVm::start failed; transitioned to Off")
             }
         }
     }
@@ -192,8 +248,7 @@ impl BmcState {
             }
         }
         self.stop_forwarder().await;
-        *self.vnc_sock.lock().await = None;
-        *self.serial_log.lock().await = None;
+        self.event_history.lock().await.clear();
         *vm_guard = VmState::Off;
         Ok(())
     }
@@ -214,10 +269,19 @@ impl BmcState {
         }
     }
 
+    /// Wait for the event forwarder task to finish, with a bounded grace
+    /// period. The forwarder exits naturally when its mpsc rx closes (which
+    /// happens after the QEMU child is killed and the QMP background task
+    /// drops its sender). If it doesn't exit within 500ms, abort it as a
+    /// safety net.
     async fn stop_forwarder(&self) {
-        let mut fwd = self.event_forwarder.lock().await;
-        if let Some(handle) = fwd.take() {
-            handle.abort();
+        let handle = self.event_forwarder.lock().await.take();
+        if let Some(handle) = handle {
+            match tokio::time::timeout(Duration::from_millis(500), handle).await {
+                Ok(Ok(())) => {}
+                Ok(Err(e)) => tracing::warn!("forwarder join error: {e}"),
+                Err(_) => tracing::warn!("forwarder did not exit within 500ms"),
+            }
         }
     }
 }
@@ -237,27 +301,137 @@ async fn event_forwarder(
     }
 }
 
-fn parse_arch(s: &str) -> Result<Arch> {
-    match s {
-        "x86_64" => Ok(Arch::X86_64),
-        "i386" => Ok(Arch::I386),
-        "aarch64" => Ok(Arch::Aarch64),
-        "arm" => Ok(Arch::Arm),
-        _ => bail!("Unknown architecture: {s}"),
+fn arch_to_manager(arch: BmcArch) -> Arch {
+    match arch {
+        BmcArch::X86_64 => Arch::X86_64,
+        BmcArch::I386 => Arch::I386,
+        BmcArch::Aarch64 => Arch::Aarch64,
+        BmcArch::Arm => Arch::Arm,
     }
 }
 
-fn parse_machine(config: &BmcConfig) -> Result<MachineConfig> {
-    match config.machine.as_str() {
-        "none" => Ok(MachineConfig::None),
-        "bios" => Ok(MachineConfig::Bios {
-            memory: config.memory.clone(),
-        }),
-        "uefi" => Ok(MachineConfig::Uefi {
-            memory: config.memory.clone(),
-        }),
-        _ => bail!("Unknown machine type: {}", config.machine),
+fn machine_to_manager(machine: BmcMachine, memory: String) -> MachineConfig {
+    match machine {
+        BmcMachine::None => MachineConfig::None,
+        BmcMachine::Bios => MachineConfig::Bios { memory },
+        BmcMachine::Uefi => MachineConfig::Uefi { memory },
     }
+}
+
+/// Attach a list of disks to a paused (or preconfig) VM via QMP.
+///
+/// For each disk: blockdev-add (file backend) → blockdev-add (format layer)
+/// → device_add (virtio-blk-pci). The device_add command requires the VM
+/// to be in -S paused mode (machine initialized but CPU paused), not in
+/// `--preconfig` mode, since device_add is not preconfig-safe.
+async fn attach_disks(preconfig: &PreconfigVm, disks: &[DiskConfig]) -> Result<()> {
+    use qapi::commands::{BlockdevAdd, DeviceAdd};
+    use qapi::{
+        BlockdevDriver, BlockdevOptionsBranch, BlockdevOptionsFile, BlockdevOptionsQcow2,
+        BlockdevRef,
+    };
+    use std::collections::HashMap;
+
+    for (idx, disk) in disks.iter().enumerate() {
+        let file_node = format!("disk{idx}-file");
+        let fmt_node = format!("disk{idx}");
+        let device_id = format!("blk{idx}");
+
+        // 1. File backend
+        preconfig
+            .qmp
+            .execute(&BlockdevAdd {
+                driver: Some(BlockdevDriver::File),
+                node_name: Some(file_node.clone()),
+                read_only: Some(disk.read_only),
+                u: Some(BlockdevOptionsBranch::File(BlockdevOptionsFile {
+                    filename: disk.file.display().to_string(),
+                    aio: None,
+                    aio_max_batch: None,
+                    drop_cache: None,
+                    locking: None,
+                    pr_manager: None,
+                    x_check_cache_dropped: None,
+                })),
+                active: None,
+                auto_read_only: None,
+                cache: None,
+                detect_zeroes: None,
+                discard: None,
+                force_share: None,
+                options: None,
+            })
+            .await
+            .context("blockdev-add file backend")?;
+
+        // 2. Format layer
+        let fmt_branch = match disk.format {
+            DiskFormat::Qcow2 => BlockdevOptionsBranch::Qcow2(BlockdevOptionsQcow2 {
+                file: Box::new(BlockdevRef::Reference(file_node.clone())),
+                backing: None,
+                cache_clean_interval: None,
+                cache_size: None,
+                data_file: None,
+                discard_no_unref: None,
+                encrypt: None,
+                l2_cache_entry_size: None,
+                l2_cache_size: None,
+                lazy_refcounts: None,
+                overlap_check: None,
+                pass_discard_other: None,
+                pass_discard_request: None,
+                pass_discard_snapshot: None,
+                refcount_cache_size: None,
+            }),
+            DiskFormat::Raw => {
+                // raw uses BlockdevOptionsRaw which wraps a BlockdevRef
+                BlockdevOptionsBranch::Raw(qapi::BlockdevOptionsRaw {
+                    file: Box::new(BlockdevRef::Reference(file_node.clone())),
+                    offset: None,
+                    size: None,
+                })
+            }
+        };
+        let fmt_driver = match disk.format {
+            DiskFormat::Qcow2 => BlockdevDriver::Qcow2,
+            DiskFormat::Raw => BlockdevDriver::Raw,
+        };
+        preconfig
+            .qmp
+            .execute(&BlockdevAdd {
+                driver: Some(fmt_driver),
+                node_name: Some(fmt_node.clone()),
+                read_only: Some(disk.read_only),
+                u: Some(fmt_branch),
+                active: None,
+                auto_read_only: None,
+                cache: None,
+                detect_zeroes: None,
+                discard: None,
+                force_share: None,
+                options: None,
+            })
+            .await
+            .context("blockdev-add format layer")?;
+
+        // 3. Wire to a virtio-blk-pci device. Requires paused (-S) mode;
+        //    device_add is not preconfig-safe.
+        preconfig
+            .qmp
+            .execute(&DeviceAdd {
+                driver: "virtio-blk-pci".into(),
+                id: Some(device_id),
+                bus: None,
+                arguments: Some(HashMap::from([(
+                    "drive".to_string(),
+                    serde_json::Value::String(fmt_node),
+                )])),
+            })
+            .await
+            .context("device_add virtio-blk-pci")?;
+    }
+
+    Ok(())
 }
 
 /// Search common system paths for OVMF firmware.

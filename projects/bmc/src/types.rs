@@ -1,4 +1,9 @@
+use std::path::PathBuf;
+
 use serde::{Deserialize, Serialize};
+
+// Note: BmcArch / BmcMachine -> manager type conversions live in state.rs
+// because the manager crate is server-only and types.rs is shared with WASM.
 
 /// VM lifecycle phases visible to the frontend.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -31,13 +36,62 @@ pub struct VmStatusResponse {
     pub qemu_version: Option<String>,
 }
 
+/// QEMU target architecture.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum BmcArch {
+    X86_64,
+    I386,
+    Aarch64,
+    Arm,
+}
+
+/// Machine type / firmware mode.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum BmcMachine {
+    /// `-machine none`. No PCI bus, no devices.
+    None,
+    /// SeaBIOS legacy boot (`-machine pc`).
+    Bios,
+    /// UEFI boot via OVMF (`-machine q35`).
+    Uefi,
+}
+
+/// Disk image format.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum DiskFormat {
+    Qcow2,
+    Raw,
+}
+
+/// Disk attachment interface (currently virtio-blk only).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum DiskInterface {
+    Virtio,
+}
+
+/// A single virtual disk attached to the VM.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DiskConfig {
+    pub file: PathBuf,
+    pub format: DiskFormat,
+    pub interface: DiskInterface,
+    #[serde(default)]
+    pub read_only: bool,
+}
+
 /// VM configuration for spawning.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BmcConfig {
-    pub arch: String,
-    pub machine: String,
+    pub arch: BmcArch,
+    pub machine: BmcMachine,
     pub memory: String,
     pub display: bool,
+    #[serde(default)]
+    pub disks: Vec<DiskConfig>,
 }
 
 /// CPU information response DTO.
@@ -74,10 +128,12 @@ pub struct BmcEvent {
 impl Default for BmcConfig {
     fn default() -> Self {
         Self {
-            arch: "x86_64".into(),
-            machine: "bios".into(),
+            arch: BmcArch::X86_64,
+            machine: BmcMachine::Bios,
             memory: "256M".into(),
             display: true,
+            disks: Vec::new(),
         }
     }
 }
+

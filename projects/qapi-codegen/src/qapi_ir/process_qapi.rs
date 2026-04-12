@@ -411,6 +411,10 @@ pub fn process_union(
 
     let mut meta = Metadata::default();
     meta.attributes.push(Attribute::new("union"));
+    // Discriminated union variant payloads must be serialized inline at the
+    // same JSON level as the discriminator. Without `flatten`, the variant
+    // would nest under "u" and QEMU rejects with "Parameter X is missing".
+    meta.attributes.push(Attribute::new("flatten"));
     fields.push(StructField {
         name: "u".into(),
         meta,

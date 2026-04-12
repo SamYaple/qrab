@@ -119,70 +119,41 @@ pub async fn get_kvm_info() -> Result<KvmInfoResponse, ServerFnError> {
 #[server]
 pub async fn get_serial_output() -> Result<String, ServerFnError> {
     use crate::state::bmc;
+    use tokio::io::{AsyncReadExt, AsyncSeekExt};
+
+    /// Tail the last N bytes of the log on each poll. Bounds memory for
+    /// long-running VMs that produce gigabytes of serial output.
+    const TAIL_BYTES: u64 = 64 * 1024;
 
     let state = bmc();
-    let guard = state.serial_log.lock().await;
-    match guard.as_ref() {
-        Some(path) => match tokio::fs::read_to_string(path).await {
-            Ok(contents) => Ok(contents),
-            Err(_) => Ok(String::new()),
-        },
-        None => Ok(String::new()),
-    }
-}
-
-/// Diagnostic: connect directly to VNC socket, do handshake, return display info.
-#[server]
-pub async fn probe_vnc_socket() -> Result<String, ServerFnError> {
-    use crate::state::bmc;
-    use tokio::io::{AsyncReadExt, AsyncWriteExt};
-    use tokio::net::UnixStream;
-
-    let state = bmc();
-    let path = state.vnc_sock.lock().await.clone();
-    let path = match path {
+    let path = match state.serial_log().await {
         Some(p) => p,
-        None => return Ok("no vnc socket".into()),
+        None => return Ok(String::new()),
     };
 
-    if !path.exists() {
-        return Ok(format!("socket file missing: {}", path.display()));
+    let mut file = match tokio::fs::File::open(&path).await {
+        Ok(f) => f,
+        Err(_) => return Ok(String::new()),
+    };
+    let len = match file.metadata().await {
+        Ok(m) => m.len(),
+        Err(_) => return Ok(String::new()),
+    };
+    let start = len.saturating_sub(TAIL_BYTES);
+    if start > 0 {
+        let _ = file.seek(std::io::SeekFrom::Start(start)).await;
     }
+    let mut buf = String::new();
+    let _ = file.read_to_string(&mut buf).await;
 
-    let mut stream = UnixStream::connect(&path)
-        .await
-        .map_err(|e| ServerFnError::new(format!("connect: {e}")))?;
-
-    // Read server version
-    let mut ver = [0u8; 12];
-    stream.read_exact(&mut ver).await.map_err(|e| ServerFnError::new(format!("ver: {e}")))?;
-    stream.write_all(&ver).await.map_err(|e| ServerFnError::new(format!("ver w: {e}")))?;
-
-    // Security types
-    let mut n = [0u8; 1];
-    stream.read_exact(&mut n).await.map_err(|e| ServerFnError::new(format!("sec: {e}")))?;
-    let mut types = vec![0u8; n[0] as usize];
-    stream.read_exact(&mut types).await.map_err(|e| ServerFnError::new(format!("types: {e}")))?;
-    stream.write_all(&[1]).await.map_err(|e| ServerFnError::new(format!("auth: {e}")))?;
-
-    // Security result
-    let mut result = [0u8; 4];
-    stream.read_exact(&mut result).await.map_err(|e| ServerFnError::new(format!("result: {e}")))?;
-
-    // ClientInit
-    stream.write_all(&[1]).await.map_err(|e| ServerFnError::new(format!("init: {e}")))?;
-
-    // ServerInit
-    let mut header = [0u8; 24];
-    stream.read_exact(&mut header).await.map_err(|e| ServerFnError::new(format!("sinit: {e}")))?;
-    let w = u16::from_be_bytes([header[0], header[1]]);
-    let h = u16::from_be_bytes([header[2], header[3]]);
-    let name_len = u32::from_be_bytes([header[20], header[21], header[22], header[23]]) as usize;
-    let mut name_buf = vec![0u8; name_len];
-    stream.read_exact(&mut name_buf).await.map_err(|e| ServerFnError::new(format!("name: {e}")))?;
-    let name = String::from_utf8_lossy(&name_buf);
-
-    Ok(format!("{w}x{h} name={name:?}"))
+    // If we truncated mid-line, drop the leading partial line so output
+    // doesn't start in the middle of a word.
+    if start > 0 {
+        if let Some(nl) = buf.find('\n') {
+            buf = buf[nl + 1..].to_string();
+        }
+    }
+    Ok(buf)
 }
 
 #[server]
@@ -191,10 +162,10 @@ pub async fn get_console_available() -> Result<bool, ServerFnError> {
 
     let state = bmc();
     let vm_guard = state.vm.lock().await;
-    let running = matches!(&*vm_guard, VmState::Running(_));
-    drop(vm_guard);
-    let has_sock = state.vnc_sock.lock().await.is_some();
-    Ok(running && has_sock)
+    // Single lock acquisition: VNC socket is read from the VM handle while
+    // holding vm_guard, so the (running, has_sock) tuple is consistent.
+    let available = matches!(&*vm_guard, VmState::Running(vm) if vm.vnc_sock().is_some());
+    Ok(available)
 }
 
 #[server]

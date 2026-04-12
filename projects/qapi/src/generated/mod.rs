@@ -260,6 +260,7 @@ pub struct Audiodev {
     #[qapi(name = "timer-period")]
     pub timer_period: Option<u32>,
     #[qapi(union)]
+    #[qapi(flatten)]
     pub u: Option<AudiodevBranch>,
 }
 
@@ -1282,6 +1283,7 @@ pub struct BlockdevAction {
     #[qapi(name = "type")]
     pub r_type: BlockdevActionType,
     #[qapi(union)]
+    #[qapi(flatten)]
     pub u: Option<BlockdevActionBranch>,
 }
 
@@ -1324,6 +1326,7 @@ pub struct BlockdevAmendOptions {
     #[qapi(discriminator)]
     pub driver: BlockdevDriver,
     #[qapi(union)]
+    #[qapi(flatten)]
     pub u: Option<BlockdevAmendOptionsBranch>,
 }
 
@@ -1497,6 +1500,7 @@ pub struct BlockdevCreateOptions {
     #[qapi(discriminator)]
     pub driver: BlockdevDriver,
     #[qapi(union)]
+    #[qapi(flatten)]
     pub u: Option<BlockdevCreateOptionsBranch>,
 }
 
@@ -2663,6 +2667,7 @@ pub struct BlockdevOptions {
     #[qapi(removed = "2.7.0")]
     pub stats_intervals: Option<Vec<i64>>,
     #[qapi(union)]
+    #[qapi(flatten)]
     pub u: Option<Box<BlockdevOptionsBranch>>,
     /// optional how to handle write errors on the device
     /// (default: enospc)
@@ -3833,6 +3838,7 @@ pub struct BlockdevQcow2Encryption {
     #[qapi(discriminator)]
     pub format: BlockdevQcow2EncryptionFormat,
     #[qapi(union)]
+    #[qapi(flatten)]
     pub u: Option<BlockdevQcow2EncryptionBranch>,
 }
 
@@ -3870,6 +3876,7 @@ pub struct BlockdevQcowEncryption {
     #[qapi(discriminator)]
     pub format: BlockdevQcowEncryptionFormat,
     #[qapi(union)]
+    #[qapi(flatten)]
     pub u: Option<BlockdevQcowEncryptionBranch>,
 }
 
@@ -4265,6 +4272,7 @@ pub struct BlockExport {
     #[qapi(discriminator)]
     pub r#type: BlockExportType,
     #[qapi(union)]
+    #[qapi(flatten)]
     pub u: Option<BlockExportBranch>,
 }
 
@@ -4349,6 +4357,7 @@ pub struct BlockExportOptions {
     #[qapi(discriminator)]
     pub r#type: BlockExportType,
     #[qapi(union)]
+    #[qapi(flatten)]
     pub u: Option<BlockExportOptionsBranch>,
     /// True if clients should be able to write to the export
     /// (default false)
@@ -4703,6 +4712,7 @@ pub struct BlockJobChangeOptions {
     #[qapi(discriminator)]
     pub r#type: JobType,
     #[qapi(union)]
+    #[qapi(flatten)]
     pub u: Option<BlockJobChangeOptionsBranch>,
 }
 
@@ -4774,6 +4784,7 @@ pub struct BlockJobInfo {
     #[qapi(discriminator)]
     pub r#type: JobType,
     #[qapi(union)]
+    #[qapi(flatten)]
     #[qapi(added = "8.2.0")]
     pub u: Option<BlockJobInfoBranch>,
 }
@@ -5101,6 +5112,7 @@ pub struct BlockStatsSpecific {
     #[qapi(discriminator)]
     pub driver: BlockdevDriver,
     #[qapi(union)]
+    #[qapi(flatten)]
     pub u: Option<BlockStatsSpecificBranch>,
 }
 
@@ -5218,6 +5230,7 @@ pub struct ChardevBackend {
     #[qapi(added = "6.2.0")]
     pub r#type: Option<ChardevBackendKind>,
     #[qapi(union)]
+    #[qapi(flatten)]
     pub u: Option<ChardevBackendBranch>,
 }
 
@@ -6226,6 +6239,7 @@ pub struct CpuInfo {
     pub qom_path: Option<String>,
     pub thread_id: i64,
     #[qapi(union)]
+    #[qapi(flatten)]
     #[qapi(added = "2.6.0")]
     pub u: Option<CpuInfoBranch>,
 }
@@ -6312,6 +6326,7 @@ pub struct CpuInfoFast {
     #[qapi(name = "thread-id")]
     pub thread_id: i64,
     #[qapi(union)]
+    #[qapi(flatten)]
     pub u: Option<CpuInfoFastBranch>,
 }
 
@@ -7291,6 +7306,7 @@ pub struct DisplayOptions {
     #[qapi(discriminator)]
     pub r#type: DisplayType,
     #[qapi(union)]
+    #[qapi(flatten)]
     pub u: Option<DisplayOptionsBranch>,
     /// Allow to quit QEMU with window close button
     /// (default: on).
@@ -7345,6 +7361,7 @@ pub struct DisplayReloadOptions {
     #[qapi(discriminator)]
     pub r#type: DisplayReloadType,
     #[qapi(union)]
+    #[qapi(flatten)]
     pub u: Option<DisplayReloadOptionsBranch>,
 }
 
@@ -7446,6 +7463,7 @@ pub struct DisplayUpdateOptions {
     #[qapi(discriminator)]
     pub r#type: DisplayUpdateType,
     #[qapi(union)]
+    #[qapi(flatten)]
     pub u: Option<DisplayUpdateOptionsBranch>,
 }
 
@@ -7799,6 +7817,7 @@ pub struct ExpirePasswordOptions {
     /// QEMU instance.
     pub time: String,
     #[qapi(union)]
+    #[qapi(flatten)]
     pub u: Option<ExpirePasswordOptionsBranch>,
 }
 
@@ -8131,6 +8150,7 @@ pub struct GlusterServer {
     #[qapi(discriminator)]
     pub r#type: GlusterTransport,
     #[qapi(union)]
+    #[qapi(flatten)]
     pub u: Option<GlusterServerBranch>,
 }
 
@@ -8225,6 +8245,7 @@ pub struct GuestPanicInformation {
     #[qapi(discriminator)]
     pub r#type: GuestPanicInformationType,
     #[qapi(union)]
+    #[qapi(flatten)]
     pub u: Option<GuestPanicInformationBranch>,
 }
 
@@ -8637,6 +8658,7 @@ pub struct ImageInfoSpecific {
     #[qapi(added = "6.2.0")]
     pub r#type: Option<ImageInfoSpecificKind>,
     #[qapi(union)]
+    #[qapi(flatten)]
     pub u: Option<ImageInfoSpecificBranch>,
 }
 
@@ -8746,6 +8768,7 @@ pub struct ImageInfoSpecificQCow2Encryption {
     #[qapi(discriminator)]
     pub format: BlockdevQcow2EncryptionFormat,
     #[qapi(union)]
+    #[qapi(flatten)]
     pub u: Option<ImageInfoSpecificQCow2EncryptionBranch>,
 }
 
@@ -8997,6 +9020,7 @@ pub struct InputEvent {
     #[qapi(added = "6.2.0")]
     pub r#type: Option<InputEventKind>,
     #[qapi(union)]
+    #[qapi(flatten)]
     pub u: Option<InputEventBranch>,
 }
 
@@ -9485,6 +9509,7 @@ pub struct KeyValue {
     #[qapi(added = "6.2.0")]
     pub r#type: Option<KeyValueKind>,
     #[qapi(union)]
+    #[qapi(flatten)]
     pub u: Option<KeyValueBranch>,
 }
 
@@ -10010,6 +10035,7 @@ pub struct MemoryDeviceInfo {
     #[qapi(added = "6.2.0")]
     pub r#type: Option<MemoryDeviceInfoKind>,
     #[qapi(union)]
+    #[qapi(flatten)]
     pub u: Option<MemoryDeviceInfoBranch>,
 }
 
@@ -10173,6 +10199,7 @@ pub struct MigrationAddress {
     #[qapi(discriminator)]
     pub transport: MigrationAddressType,
     #[qapi(union)]
+    #[qapi(flatten)]
     pub u: Option<MigrationAddressBranch>,
 }
 
@@ -11300,6 +11327,7 @@ pub struct NetClientOptions {
     #[qapi(name = "type")]
     pub r_type: NetClientOptionsType,
     #[qapi(union)]
+    #[qapi(flatten)]
     pub u: Option<NetClientOptionsBranch>,
 }
 
@@ -11381,6 +11409,7 @@ pub struct Netdev {
     #[qapi(added = "2.7.0")]
     pub r#type: Option<NetClientDriver>,
     #[qapi(union)]
+    #[qapi(flatten)]
     #[qapi(added = "2.7.0")]
     pub u: Option<NetdevBranch>,
 }
@@ -12117,6 +12146,7 @@ pub struct NetLegacyOptions {
     #[qapi(added = "2.9.0")]
     pub r#type: Option<NetLegacyOptionsType>,
     #[qapi(union)]
+    #[qapi(flatten)]
     pub u: Option<NetLegacyOptionsBranch>,
 }
 
@@ -12401,6 +12431,7 @@ pub struct NumaOptions {
     #[qapi(added = "2.9.0")]
     pub r#type: Option<NumaOptionsType>,
     #[qapi(union)]
+    #[qapi(flatten)]
     pub u: Option<NumaOptionsBranch>,
 }
 
@@ -12456,6 +12487,7 @@ pub struct ObjectOptions {
     #[qapi(discriminator)]
     pub qom_type: ObjectType,
     #[qapi(union)]
+    #[qapi(flatten)]
     pub u: Option<ObjectOptionsBranch>,
 }
 
@@ -13435,6 +13467,7 @@ pub struct QCryptoAkCipherOptions {
     #[qapi(discriminator)]
     pub alg: QCryptoAkCipherAlgo,
     #[qapi(union)]
+    #[qapi(flatten)]
     pub u: Option<QCryptoAkCipherOptionsBranch>,
 }
 
@@ -13466,6 +13499,7 @@ pub struct QCryptoBlockAmendOptions {
     #[qapi(discriminator)]
     pub format: QCryptoBlockFormat,
     #[qapi(union)]
+    #[qapi(flatten)]
     pub u: Option<QCryptoBlockAmendOptionsBranch>,
 }
 
@@ -13521,6 +13555,7 @@ pub struct QCryptoBlockCreateOptions {
     #[qapi(discriminator)]
     pub format: QCryptoBlockFormat,
     #[qapi(union)]
+    #[qapi(flatten)]
     pub u: Option<QCryptoBlockCreateOptionsBranch>,
 }
 
@@ -13595,6 +13630,7 @@ pub struct QCryptoBlockInfo {
     #[qapi(discriminator)]
     pub format: QCryptoBlockFormat,
     #[qapi(union)]
+    #[qapi(flatten)]
     pub u: Option<QCryptoBlockInfoBranch>,
 }
 
@@ -13697,6 +13733,7 @@ pub struct QCryptoBlockOpenOptions {
     #[qapi(discriminator)]
     pub format: QCryptoBlockFormat,
     #[qapi(union)]
+    #[qapi(flatten)]
     pub u: Option<QCryptoBlockOpenOptionsBranch>,
 }
 
@@ -14607,6 +14644,7 @@ pub struct RbdEncryptionCreateOptions {
     #[qapi(discriminator)]
     pub format: RbdImageEncryptionFormat,
     #[qapi(union)]
+    #[qapi(flatten)]
     pub u: Option<RbdEncryptionCreateOptionsBranch>,
 }
 
@@ -14666,6 +14704,7 @@ pub struct RbdEncryptionOptions {
     #[qapi(added = "8.0.0")]
     pub parent: Option<Box<RbdEncryptionOptions>>,
     #[qapi(union)]
+    #[qapi(flatten)]
     pub u: Option<RbdEncryptionOptionsBranch>,
 }
 
@@ -15260,6 +15299,7 @@ pub struct SchemaInfo {
     /// guaranteed unique regardless of @meta-type.
     pub name: String,
     #[qapi(union)]
+    #[qapi(flatten)]
     pub u: Option<SchemaInfoBranch>,
 }
 
@@ -15569,6 +15609,7 @@ pub struct SetPasswordOptions {
     #[qapi(discriminator)]
     pub protocol: DisplayProtocol,
     #[qapi(union)]
+    #[qapi(flatten)]
     pub u: Option<SetPasswordOptionsBranch>,
 }
 
@@ -15738,6 +15779,7 @@ pub struct SevInfo {
     /// SEV guest state
     pub state: SevState,
     #[qapi(union)]
+    #[qapi(flatten)]
     #[qapi(added = "9.1.0")]
     pub u: Option<SevInfoBranch>,
 }
@@ -15963,6 +16005,7 @@ pub struct SheepdogRedundancy {
     #[qapi(discriminator)]
     pub r#type: SheepdogRedundancyType,
     #[qapi(union)]
+    #[qapi(flatten)]
     pub u: Option<SheepdogRedundancyBranch>,
 }
 
@@ -16162,6 +16205,7 @@ pub struct SocketAddress {
     #[qapi(added = "2.10.0")]
     pub r#type: Option<SocketAddressType>,
     #[qapi(union)]
+    #[qapi(flatten)]
     pub u: Option<SocketAddressBranch>,
 }
 
@@ -16191,6 +16235,7 @@ pub struct SocketAddressFlat {
     #[qapi(discriminator)]
     pub r#type: SocketAddressFlatType,
     #[qapi(union)]
+    #[qapi(flatten)]
     pub u: Option<SocketAddressFlatBranch>,
 }
 
@@ -16238,6 +16283,7 @@ pub struct SocketAddressLegacy {
     #[qapi(added = "6.2.0")]
     pub r#type: Option<SocketAddressType>,
     #[qapi(union)]
+    #[qapi(flatten)]
     pub u: Option<SocketAddressLegacyBranch>,
 }
 
@@ -16404,6 +16450,7 @@ pub struct SshHostKeyCheck {
     #[qapi(discriminator)]
     pub mode: SshHostKeyCheckMode,
     #[qapi(union)]
+    #[qapi(flatten)]
     pub u: Option<SshHostKeyCheckBranch>,
 }
 
@@ -16482,6 +16529,7 @@ pub struct StatsFilter {
     #[qapi(discriminator)]
     pub target: StatsTarget,
     #[qapi(union)]
+    #[qapi(flatten)]
     pub u: Option<StatsFilterBranch>,
 }
 
@@ -17258,6 +17306,7 @@ pub struct TpmTypeOptions {
     #[qapi(added = "6.2.0")]
     pub r#type: Option<TpmType>,
     #[qapi(union)]
+    #[qapi(flatten)]
     pub u: Option<TpmTypeOptionsBranch>,
 }
 
@@ -17330,6 +17379,7 @@ pub struct TransactionAction {
     #[qapi(added = "6.2.0")]
     pub r#type: Option<TransactionActionKind>,
     #[qapi(union)]
+    #[qapi(flatten)]
     pub u: Option<TransactionActionBranch>,
 }
 
@@ -18463,6 +18513,7 @@ pub struct YankInstance {
     #[qapi(discriminator)]
     pub r#type: YankInstanceType,
     #[qapi(union)]
+    #[qapi(flatten)]
     pub u: Option<YankInstanceBranch>,
 }
 

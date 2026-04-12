@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use bmc::state::BmcState;
-use bmc::types::{BmcConfig, VmPhase};
+use bmc::types::{BmcArch, BmcConfig, BmcMachine, VmPhase};
 use manager::Arch;
 
 fn require_x86_64() -> bool {
@@ -15,12 +15,13 @@ fn require_x86_64() -> bool {
 /// Create BmcState with machine=none config for lightweight tests.
 async fn test_state() -> std::sync::Arc<BmcState> {
     let state = BmcState::new();
-    // Override default (uefi+display) with lightweight none machine for tests
+    // Override default (bios+display) with lightweight none machine for tests
     *state.config.lock().await = BmcConfig {
-        arch: "x86_64".into(),
-        machine: "none".into(),
+        arch: BmcArch::X86_64,
+        machine: BmcMachine::None,
         memory: "256M".into(),
         display: false,
+        disks: Vec::new(),
     };
     state
 }
@@ -156,10 +157,11 @@ async fn bmc_config_change() {
     {
         let mut config = state.config.lock().await;
         *config = BmcConfig {
-            arch: "x86_64".into(),
-            machine: "none".into(),
+            arch: BmcArch::X86_64,
+            machine: BmcMachine::None,
             memory: "512M".into(),
             display: false,
+            disks: Vec::new(),
         };
     }
 
@@ -307,4 +309,376 @@ async fn bmc_event_history_accumulates() {
     drop(history);
 
     state.force_off().await.unwrap();
+}
+
+// --- Phase 1 correctness tests ---
+
+/// Verify start_vm transitions to Off (not stuck in ShuttingDown) when
+/// PreconfigVm::start fails. Failure is induced by shutting down the QMP
+/// connection before calling start_vm.
+#[tokio::test]
+async fn start_vm_error_transitions_to_off() {
+    if !require_x86_64() {
+        return;
+    }
+    qapi::set_qemu_version(9, 0, 0);
+
+    let state = test_state().await;
+    state.power_on().await.unwrap();
+    assert_eq!(state.phase().await, VmPhase::Preconfig);
+
+    // Force the QMP connection down so start_vm's QMP command fails.
+    {
+        let mut vm_guard = state.vm.lock().await;
+        if let bmc::state::VmState::Preconfig(pvm) = &mut *vm_guard {
+            pvm.qmp.shutdown().await;
+        } else {
+            panic!("Expected Preconfig state");
+        }
+    }
+
+    let result = state.start_vm().await;
+    assert!(result.is_err(), "start_vm should fail with broken QMP");
+
+    // Critical: must reach Off, not stuck in ShuttingDown
+    assert_eq!(state.phase().await, VmPhase::Off);
+    assert!(state.vnc_sock().await.is_none());
+    assert!(state.serial_log().await.is_none());
+    assert!(state.event_history.lock().await.is_empty());
+}
+
+#[tokio::test]
+async fn force_off_clears_event_history() {
+    if !require_x86_64() {
+        return;
+    }
+    qapi::set_qemu_version(9, 0, 0);
+
+    let state = test_state().await;
+    state.power_on().await.unwrap();
+    state.start_vm().await.unwrap();
+
+    state.pause().await.unwrap();
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    state.resume().await.unwrap();
+    tokio::time::sleep(Duration::from_millis(200)).await;
+
+    assert!(
+        !state.event_history.lock().await.is_empty(),
+        "Should have events before force_off"
+    );
+
+    state.force_off().await.unwrap();
+
+    assert!(
+        state.event_history.lock().await.is_empty(),
+        "Event history should be cleared after force_off"
+    );
+}
+
+#[tokio::test]
+async fn power_on_clears_prior_event_history() {
+    if !require_x86_64() {
+        return;
+    }
+    qapi::set_qemu_version(9, 0, 0);
+
+    let state = test_state().await;
+
+    // Pre-populate history with a fake event
+    {
+        let mut history = state.event_history.lock().await;
+        history.push_back(qapi_protocol::QmpEvent {
+            event: "FAKE".into(),
+            timestamp: qapi_protocol::Timestamp {
+                seconds: 0,
+                microseconds: 0,
+            },
+            data: serde_json::Value::Null,
+        });
+    }
+
+    state.power_on().await.unwrap();
+    assert!(
+        state.event_history.lock().await.is_empty(),
+        "Power on should defensively clear stale events"
+    );
+
+    state.force_off().await.unwrap();
+}
+
+// --- Phase 4 server hardening tests ---
+
+#[tokio::test]
+async fn get_console_available_atomic() {
+    if !require_x86_64() {
+        return;
+    }
+    qapi::set_qemu_version(9, 0, 0);
+
+    use bmc::server::vm_status::get_console_available;
+
+    let state = test_state().await;
+    // Off → not available
+    assert_eq!(get_console_available().await.unwrap(), false);
+
+    // Preconfig (machine=none, no display) → not available
+    state.power_on().await.unwrap();
+    assert_eq!(get_console_available().await.unwrap(), false);
+
+    // Running but no display → not available (vnc_sock is None)
+    state.start_vm().await.unwrap();
+    assert_eq!(get_console_available().await.unwrap(), false);
+
+    state.force_off().await.unwrap();
+    assert_eq!(get_console_available().await.unwrap(), false);
+}
+
+#[tokio::test]
+async fn get_serial_output_bounded() {
+    if !require_x86_64() {
+        return;
+    }
+    qapi::set_qemu_version(9, 0, 0);
+
+    let state = test_state().await;
+    state.power_on().await.unwrap();
+
+    // serial_log() reads from VmState now
+    let serial_path = state.serial_log().await.expect("serial_log set");
+
+    // Append a 200KB blob to the serial log behind QEMU's back to simulate
+    // a long-running VM with lots of output.
+    let blob = "X".repeat(200 * 1024);
+    tokio::fs::write(&serial_path, &blob).await.unwrap();
+
+    let output = bmc::server::vm_status::get_serial_output().await.unwrap();
+    // Bounded to 64 KiB tail
+    assert!(
+        output.len() <= 64 * 1024,
+        "Serial output should be bounded to 64KiB, got {} bytes",
+        output.len()
+    );
+
+    state.force_off().await.unwrap();
+}
+
+// --- Phase 3 QMP dynamic config tests ---
+
+#[tokio::test]
+async fn bmc_power_on_with_disk_via_qmp() {
+    if !require_x86_64() {
+        return;
+    }
+    qapi::set_qemu_version(9, 0, 0);
+
+    let state = BmcState::new();
+    // Default config has bios+display+empty disks → cirros fallback kicks in
+    state.power_on().await.unwrap();
+    assert_eq!(state.phase().await, VmPhase::Preconfig);
+    state.start_vm().await.unwrap();
+    assert_eq!(state.phase().await, VmPhase::Running);
+
+    // Verify the disk was actually wired by querying block info
+    {
+        let vm_guard = state.vm.lock().await;
+        if let bmc::state::VmState::Running(vm) = &*vm_guard {
+            let blocks: Vec<qapi::BlockInfo> =
+                vm.execute(&qapi::commands::QueryBlock {}).await.unwrap();
+            // virtio-blk-pci device should appear in the block list
+            assert!(
+                blocks.iter().any(|b| b.device.starts_with("blk")
+                    || b.qdev.as_deref().map(|q| q.contains("blk")).unwrap_or(false)),
+                "Expected blk device, got: {blocks:?}"
+            );
+        } else {
+            panic!("Expected Running");
+        }
+    }
+
+    state.force_off().await.unwrap();
+}
+
+#[tokio::test]
+async fn bmc_config_enum_serde_roundtrip() {
+    let config = BmcConfig {
+        arch: BmcArch::X86_64,
+        machine: BmcMachine::Bios,
+        memory: "512M".into(),
+        display: true,
+        disks: vec![bmc::types::DiskConfig {
+            file: "/tmp/test.qcow2".into(),
+            format: bmc::types::DiskFormat::Qcow2,
+            interface: bmc::types::DiskInterface::Virtio,
+            read_only: false,
+        }],
+    };
+    let json = serde_json::to_string(&config).unwrap();
+    let parsed: BmcConfig = serde_json::from_str(&json).unwrap();
+    assert_eq!(parsed.arch, BmcArch::X86_64);
+    assert_eq!(parsed.machine, BmcMachine::Bios);
+    assert_eq!(parsed.memory, "512M");
+    assert!(parsed.display);
+    assert_eq!(parsed.disks.len(), 1);
+    assert_eq!(parsed.disks[0].file, std::path::PathBuf::from("/tmp/test.qcow2"));
+    assert_eq!(parsed.disks[0].format, bmc::types::DiskFormat::Qcow2);
+}
+
+#[tokio::test]
+async fn bmc_machine_uefi_serializes_lowercase() {
+    let json = serde_json::to_string(&BmcMachine::Uefi).unwrap();
+    assert_eq!(json, "\"uefi\"");
+    let json = serde_json::to_string(&BmcMachine::None).unwrap();
+    assert_eq!(json, "\"none\"");
+    let json = serde_json::to_string(&BmcArch::Aarch64).unwrap();
+    assert_eq!(json, "\"aarch64\"");
+}
+
+#[tokio::test]
+async fn forwarder_joins_cleanly_on_force_off() {
+    if !require_x86_64() {
+        return;
+    }
+    qapi::set_qemu_version(9, 0, 0);
+
+    let state = test_state().await;
+    state.power_on().await.unwrap();
+    state.start_vm().await.unwrap();
+
+    state.pause().await.unwrap();
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    state.resume().await.unwrap();
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    let start = std::time::Instant::now();
+    state.force_off().await.unwrap();
+    let elapsed = start.elapsed();
+
+    assert!(
+        elapsed < Duration::from_secs(2),
+        "force_off should complete quickly, took {elapsed:?}"
+    );
+    assert_eq!(state.phase().await, VmPhase::Off);
+}
+
+// --- Phase 6 event forwarder lifecycle tests ---
+
+/// After `force_off`, the forwarder task has exited: no new events arrive
+/// on the broadcast channel. (The broadcast sender itself stays alive
+/// because it lives in `BmcState`, so we can't rely on a `Closed` error —
+/// instead we verify silence on the channel after teardown.)
+#[tokio::test]
+async fn forwarder_exits_on_force_off() {
+    if !require_x86_64() {
+        return;
+    }
+    qapi::set_qemu_version(9, 0, 0);
+
+    let state = test_state().await;
+    let mut event_rx = state.event_tx.subscribe();
+
+    state.power_on().await.unwrap();
+    state.start_vm().await.unwrap();
+
+    // Generate some events so we know the forwarder is alive.
+    state.pause().await.unwrap();
+    state.resume().await.unwrap();
+
+    // Drain any pending events delivered before force_off.
+    while tokio::time::timeout(Duration::from_millis(100), event_rx.recv())
+        .await
+        .is_ok()
+    {}
+
+    state.force_off().await.unwrap();
+
+    // After force_off: any events still queued from the kill should drain
+    // quickly. Give it a short grace, then verify no new events arrive
+    // within 500ms (forwarder exited, QEMU is gone).
+    while tokio::time::timeout(Duration::from_millis(100), event_rx.recv())
+        .await
+        .is_ok()
+    {}
+
+    let deadline = tokio::time::Instant::now() + Duration::from_millis(500);
+    let res = tokio::time::timeout_at(deadline, event_rx.recv()).await;
+    assert!(
+        res.is_err(),
+        "no new events should arrive after force_off; got {res:?}"
+    );
+}
+
+/// A second `power_on` after `force_off` must spin up a fresh forwarder
+/// task so that events from the second QEMU instance are observable.
+#[tokio::test]
+async fn forwarder_restarted_on_second_power_on() {
+    if !require_x86_64() {
+        return;
+    }
+    qapi::set_qemu_version(9, 0, 0);
+
+    let state = test_state().await;
+
+    // First lifecycle.
+    state.power_on().await.unwrap();
+    state.force_off().await.unwrap();
+
+    // Second lifecycle. Subscribe *after* force_off so we don't see stale
+    // events from round one.
+    let mut event_rx = state.event_tx.subscribe();
+
+    state.power_on().await.unwrap();
+    state.start_vm().await.unwrap();
+    state.pause().await.unwrap();
+
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    let mut got_stop = false;
+    loop {
+        match tokio::time::timeout_at(deadline, event_rx.recv()).await {
+            Ok(Ok(evt)) if evt.event == "STOP" => {
+                got_stop = true;
+                break;
+            }
+            Ok(Ok(_)) => continue,
+            _ => break,
+        }
+    }
+    assert!(
+        got_stop,
+        "second power_on did not restart the forwarder; no STOP event observed"
+    );
+
+    state.force_off().await.unwrap();
+}
+
+/// Repeated power_on/start_vm/force_off cycles must not leak tasks or slow
+/// down over time.
+///
+/// Note: `tokio::runtime::Handle::metrics()` is unstable and behind the
+/// `tokio_unstable` cfg flag, so we can't query active_tasks_count directly
+/// here. Instead we verify via a wall-clock heuristic: ten full cycles must
+/// complete in well under the per-cycle worst-case budget — a task leak
+/// would accumulate polling cost and eventually blow this budget.
+/// Lacking direct task metrics; verifying via wall-clock heuristic.
+#[tokio::test]
+async fn forwarder_does_not_leak_tasks() {
+    if !require_x86_64() {
+        return;
+    }
+    qapi::set_qemu_version(9, 0, 0);
+
+    let state = test_state().await;
+
+    for iter in 0..10 {
+        let start = std::time::Instant::now();
+        state.power_on().await.unwrap();
+        state.start_vm().await.unwrap();
+        state.force_off().await.unwrap();
+        let elapsed = start.elapsed();
+        assert!(
+            elapsed < Duration::from_secs(5),
+            "iter {iter}: cycle took {elapsed:?}; possible task leak"
+        );
+        assert_eq!(state.phase().await, VmPhase::Off);
+    }
 }

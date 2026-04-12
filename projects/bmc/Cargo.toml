@@ -92,4 +92,8 @@ name = "integration"
 required-features = ["server"]
 
 [[test]]
+name = "concurrency"
+required-features = ["server"]
+
+[[test]]
 name = "mock_bmc"

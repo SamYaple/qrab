@@ -11,8 +11,10 @@ use qapi_protocol::{Qmp, QmpEvent};
 
 use crate::arch::{Arch, MachineConfig};
 
-/// Minimum QEMU version required for `--preconfig` support.
-pub const PRECONFIG_MIN_VERSION: (u32, u32, u32) = (3, 0, 0);
+/// Minimum QEMU version. 7.1.0 added `allow_preconfig` to `blockdev-add`,
+/// which qrab requires for QMP-driven dynamic block device configuration
+/// during preconfig instead of using `-drive` CLI args.
+pub const PRECONFIG_MIN_VERSION: (u32, u32, u32) = (7, 1, 0);
 
 static SOCKET_COUNTER: AtomicU64 = AtomicU64::new(0);
 
@@ -245,10 +247,10 @@ impl VmBuilder {
 
         args.extend(self.extra_args);
 
-        eprintln!(
-            "QEMU spawn: {} {}",
-            self.arch.binary().display(),
-            args.join(" ")
+        tracing::debug!(
+            binary = %self.arch.binary().display(),
+            args = %args.join(" "),
+            "spawning QEMU"
         );
 
         let child = Command::new(self.arch.binary())

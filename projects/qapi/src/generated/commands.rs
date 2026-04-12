@@ -171,6 +171,7 @@ pub struct BlockdevAdd {
     #[qapi(added = "2.8.0")]
     pub read_only: Option<bool>,
     #[qapi(union)]
+    #[qapi(flatten)]
     #[qapi(added = "2.8.0")]
     pub u: Option<BlockdevOptionsBranch>,
 }
@@ -515,6 +516,7 @@ pub struct BlockExportAdd {
     #[qapi(discriminator)]
     pub r#type: BlockExportType,
     #[qapi(union)]
+    #[qapi(flatten)]
     pub u: Option<BlockExportOptionsBranch>,
     /// True if clients should be able to write to the export
     /// (default false)
@@ -559,6 +561,7 @@ pub struct BlockJobChange {
     #[qapi(discriminator)]
     pub r#type: JobType,
     #[qapi(union)]
+    #[qapi(flatten)]
     pub u: Option<BlockJobChangeOptionsBranch>,
 }
 
@@ -1328,6 +1331,7 @@ pub struct DisplayReload {
     #[qapi(discriminator)]
     pub r#type: DisplayReloadType,
     #[qapi(union)]
+    #[qapi(flatten)]
     pub u: Option<DisplayReloadOptionsBranch>,
 }
 
@@ -1340,6 +1344,7 @@ pub struct DisplayUpdate {
     #[qapi(discriminator)]
     pub r#type: DisplayUpdateType,
     #[qapi(union)]
+    #[qapi(flatten)]
     pub u: Option<DisplayUpdateOptionsBranch>,
 }
 
@@ -1509,6 +1514,7 @@ pub struct ExpirePassword {
     /// QEMU instance.
     pub time: String,
     #[qapi(union)]
+    #[qapi(flatten)]
     #[qapi(added = "7.0.0")]
     pub u: Option<ExpirePasswordOptionsBranch>,
 }
@@ -2080,6 +2086,7 @@ pub struct NetdevAdd {
     #[qapi(discriminator)]
     pub r#type: NetClientDriver,
     #[qapi(union)]
+    #[qapi(flatten)]
     #[qapi(added = "5.0.0")]
     pub u: Option<NetdevBranch>,
 }
@@ -2112,6 +2119,7 @@ pub struct ObjectAdd {
     #[qapi(discriminator)]
     pub qom_type: ObjectType,
     #[qapi(union)]
+    #[qapi(flatten)]
     #[qapi(added = "6.0.0")]
     pub u: Option<ObjectOptionsBranch>,
 }
@@ -2754,6 +2762,7 @@ pub struct QueryStats {
     #[qapi(discriminator)]
     pub target: StatsTarget,
     #[qapi(union)]
+    #[qapi(flatten)]
     pub u: Option<StatsFilterBranch>,
 }
 
@@ -3038,6 +3047,7 @@ pub struct SetNumaNode {
     #[qapi(discriminator)]
     pub r#type: NumaOptionsType,
     #[qapi(union)]
+    #[qapi(flatten)]
     pub u: Option<NumaOptionsBranch>,
 }
 
@@ -3057,6 +3067,7 @@ pub struct SetPassword {
     #[qapi(discriminator)]
     pub protocol: DisplayProtocol,
     #[qapi(union)]
+    #[qapi(flatten)]
     #[qapi(added = "7.0.0")]
     pub u: Option<SetPasswordOptionsBranch>,
 }
@@ -3314,6 +3325,7 @@ pub struct XBlockdevCreate {
     #[qapi(discriminator)]
     pub driver: BlockdevDriver,
     #[qapi(union)]
+    #[qapi(flatten)]
     pub u: Option<BlockdevCreateOptionsBranch>,
 }
 
@@ -3445,6 +3457,7 @@ pub struct XBlockdevReopen {
     #[qapi(name = "read-only")]
     pub read_only: Option<bool>,
     #[qapi(union)]
+    #[qapi(flatten)]
     pub u: Option<BlockdevOptionsBranch>,
 }
 

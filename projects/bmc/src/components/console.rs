@@ -1,79 +1,77 @@
 use dioxus::prelude::*;
 
-use bmc::server::vm_status::{get_console_available, probe_vnc_socket};
+use bmc::server::vm_status::get_console_available;
 
 use super::util::sleep_ms;
+
+// Small loader that ensures /static/js/novnc-init.js is fetched and then
+// invokes window._novncInit(). The real noVNC wiring lives in that JS file.
+const NOVNC_LOADER_JS: &str = r#"
+(async () => {
+    try {
+        if (typeof window._novncInit !== 'function') {
+            console.log('noVNC: loading novnc-init.js');
+            await new Promise((resolve, reject) => {
+                const existing = document.getElementById('novnc-init-script');
+                if (existing) { existing.addEventListener('load', resolve); existing.addEventListener('error', reject); return; }
+                const s = document.createElement('script');
+                s.id = 'novnc-init-script';
+                s.type = 'module';
+                s.src = '/static/js/novnc-init.js';
+                s.addEventListener('load', resolve);
+                s.addEventListener('error', reject);
+                document.head.appendChild(s);
+            });
+        }
+        if (typeof window._novncInit === 'function') {
+            window._novncInit();
+        } else {
+            console.error('noVNC: _novncInit not defined after load');
+        }
+    } catch (e) {
+        console.error('noVNC: loader EXCEPTION:', e.message, e.stack);
+    }
+})();
+"#;
+
+const NOVNC_DISCONNECT_JS: &str = r#"
+if (window._rfb) {
+    window._rfb.disconnect();
+    window._rfb = null;
+}
+"#;
 
 #[component]
 pub fn Console() -> Element {
     let mut console_available = use_signal(|| false);
-    let mut vnc_probe = use_signal(|| String::new());
+    let mut poll_tick = use_signal(|| 0u64);
 
-    // Poll console availability
+    // Periodic ticker (every 2s). Task is scope-bound and auto-cancels on unmount.
     use_future(move || async move {
         loop {
-            if let Ok(available) = get_console_available().await {
-                // Probe VNC socket when available
-                if available {
-                    if let Ok(info) = probe_vnc_socket().await {
-                        vnc_probe.set(info);
-                    }
-                }
-                let prev = console_available();
-                console_available.set(available);
-
-                // Disconnect noVNC when console goes away
-                if prev && !available {
-                    let _ = document::eval(
-                        r#"
-                        if (window._rfb) {
-                            window._rfb.disconnect();
-                            window._rfb = null;
-                        }
-                        "#,
-                    );
-                }
-            }
             sleep_ms(2000).await;
+            poll_tick += 1;
         }
     });
 
-    // Connect noVNC when console becomes available
+    // Poll console availability via use_resource. Writes into the
+    // console_available signal, and disconnects noVNC on transitions to false.
+    let _availability = use_resource(move || async move {
+        let _ = poll_tick();
+        if let Ok(available) = get_console_available().await {
+            let prev = console_available();
+            console_available.set(available);
+            if prev && !available {
+                let _ = document::eval(NOVNC_DISCONNECT_JS);
+            }
+        }
+    });
+
+    // Connect noVNC when console becomes available.
     use_effect(move || {
         if console_available() {
             spawn(async move {
-                let _ = document::eval(
-                    r#"
-                    (async () => {
-                        try {
-                            if (window._rfb) { console.log('noVNC: already connected'); return; }
-                            const container = document.getElementById('vnc-container');
-                            if (!container) { console.error('noVNC: #vnc-container not in DOM'); return; }
-                            console.log('noVNC: importing rfb.js...');
-                            const { default: RFB } = await import('/novnc/core/rfb.js');
-                            console.log('noVNC: import OK');
-                            const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-                            const url = `${proto}//${window.location.hostname}:9090/api/console`;
-                            console.log('noVNC: connecting to', url);
-                            const rfb = new RFB(container, url, { scaleViewport: true });
-                            window._rfb = rfb;
-                            rfb.addEventListener('connect', () => {
-                                console.log('noVNC: connected, resolution', rfb._fbWidth + 'x' + rfb._fbHeight);
-                            });
-                            rfb.addEventListener('disconnect', (e) => {
-                                console.log('noVNC: disconnect', e.detail);
-                                window._rfb = null;
-                            });
-                            rfb.addEventListener('securityfailure', (e) => {
-                                console.error('noVNC: security failure', e.detail);
-                            });
-                            console.log('noVNC: RFB created, waiting for connect event...');
-                        } catch (e) {
-                            console.error('noVNC: EXCEPTION:', e.message, e.stack);
-                        }
-                    })();
-                    "#,
-                );
+                let _ = document::eval(NOVNC_LOADER_JS);
             });
         }
     });
@@ -84,9 +82,6 @@ pub fn Console() -> Element {
         div { class: "panel console-panel",
             div { class: "panel-header",
                 h2 { "Console" }
-                if !vnc_probe.read().is_empty() {
-                    span { class: "badge", "{vnc_probe}" }
-                }
             }
             if available {
                 div { id: "vnc-container", class: "vnc-container" }

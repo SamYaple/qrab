@@ -13,25 +13,39 @@ use super::util::sleep_ms;
 
 #[component]
 pub fn Dashboard() -> Element {
-    let mut status = use_signal(|| VmStatusResponse {
+    let default_status = VmStatusResponse {
         phase: VmPhase::Off,
         running: None,
         status: None,
         qemu_version: None,
-    });
+    };
     let mut refresh_tick = use_signal(|| 0u64);
+    let mut poll_tick = use_signal(|| 0u64);
 
-    // Poll status every 2s
+    // Drive periodic polling. Task is tied to this component's scope and is
+    // dropped automatically when the component unmounts.
     use_future(move || async move {
         loop {
-            if let Ok(s) = get_status().await {
-                status.set(s);
-            }
             sleep_ms(2000).await;
+            poll_tick += 1;
         }
     });
 
-    let current_phase = status.read().phase.clone();
+    // use_resource cancels any in-flight future when its dependencies change
+    // and is cancelled on unmount, so there's no orphaned polling.
+    let status_resource = use_resource(move || async move {
+        // Subscribe to both the polling tick and any manual refresh bumps.
+        let _ = poll_tick();
+        let _ = refresh_tick();
+        get_status().await.ok()
+    });
+
+    let status_value = status_resource
+        .read()
+        .clone()
+        .flatten()
+        .unwrap_or(default_status);
+    let current_phase = status_value.phase.clone();
 
     rsx! {
         div { class: "bmc-dashboard",
@@ -45,16 +59,11 @@ pub fn Dashboard() -> Element {
 
             // Top section: 3-column — status | controls | system
             div { class: "top-section",
-                StatusPanel { status: status.read().clone() }
+                StatusPanel { status: status_value.clone() }
                 PowerControls {
                     current_phase: current_phase.clone(),
                     on_action: move |_| {
-                        spawn(async move {
-                            if let Ok(s) = get_status().await {
-                                status.set(s);
-                            }
-                            refresh_tick += 1;
-                        });
+                        refresh_tick += 1;
                     },
                 }
                 CpuInfo {

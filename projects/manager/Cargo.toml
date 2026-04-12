@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1"
+tracing = "0.1"
 which = "7"
 
 [dependencies.qapi]

@@ -7,27 +7,26 @@ use super::util::sleep_ms;
 
 #[component]
 pub fn EventLog(refresh_tick: u64) -> Element {
+    let mut poll_tick = use_signal(|| 0u64);
     let mut events = use_signal(Vec::<BmcEvent>::new);
 
-    // Poll events every 1.5s
+    // Periodic ticker (every 1.5s). Task is scope-bound and auto-cancels on unmount.
     use_future(move || async move {
         loop {
-            if let Ok(new_events) = get_event_history().await {
-                events.set(new_events);
-            }
             sleep_ms(1500).await;
+            poll_tick += 1;
         }
     });
 
-    // Also refresh on tick
-    use_effect(move || {
-        let _tick = refresh_tick;
-        spawn(async move {
-            if let Ok(new_events) = get_event_history().await {
-                events.set(new_events);
-            }
-        });
-    });
+    // use_resource writes into `events` only on successful fetches so a
+    // transient failure doesn't wipe the previous list.
+    let _events_resource = use_resource(use_reactive!(|refresh_tick| async move {
+        let _ = poll_tick();
+        let _ = refresh_tick;
+        if let Ok(new_events) = get_event_history().await {
+            events.set(new_events);
+        }
+    }));
 
     let event_list = events.read();
     let count = event_list.len();

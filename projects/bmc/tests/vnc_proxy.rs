@@ -1,13 +1,41 @@
 //! End-to-end test: QEMU VNC → Unix socket → WebSocket proxy → WS client.
 //! Verifies the proxy actually relays VNC protocol correctly.
 
-use std::sync::Arc;
+use std::path::PathBuf;
 use std::time::Duration;
 
 use bmc::state::BmcState;
-use manager::arch::{Arch, MachineConfig};
-use manager::vm::VmBuilder;
-use tokio::sync::Mutex;
+use bmc::types::{DiskConfig, DiskFormat, DiskInterface};
+use manager::Arch;
+
+/// Make a per-test copy of the cirros image to avoid qcow2 write-lock
+/// contention when tests run in parallel.
+async fn test_disk(label: &str) -> DiskConfig {
+    let cache_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent().unwrap().parent().unwrap()
+        .join("target/test-fixtures");
+    let src = cache_dir.join("cirros-0.6.2-x86_64-disk.img");
+    if !src.exists() {
+        // Lazily download via the same path BmcState uses
+        let url = "https://download.cirros-cloud.net/0.6.2/cirros-0.6.2-x86_64-disk.img";
+        let _ = tokio::fs::create_dir_all(&cache_dir).await;
+        let out = tokio::process::Command::new("curl")
+            .args(["-fSL", "-o", &src.display().to_string(), url])
+            .output().await.expect("curl");
+        assert!(out.status.success(), "cirros download failed");
+    }
+    let dest = std::env::temp_dir().join(format!(
+        "qrab-vnc-proxy-{label}-{}.qcow2",
+        std::process::id()
+    ));
+    tokio::fs::copy(&src, &dest).await.expect("copy cirros");
+    DiskConfig {
+        file: dest,
+        format: DiskFormat::Qcow2,
+        interface: DiskInterface::Virtio,
+        read_only: false,
+    }
+}
 
 #[tokio::test]
 async fn websocket_proxy_relays_vnc_handshake() {
@@ -17,28 +45,18 @@ async fn websocket_proxy_relays_vnc_handshake() {
     }
     qapi::set_qemu_version(9, 0, 0);
 
-    // 1. Spawn QEMU with VNC display directly via VmBuilder
-    let preconfig = VmBuilder::new(
-        Arch::X86_64,
-        MachineConfig::Bios { memory: "256M".into() },
-    )
-    .display()
-    .spawn()
-    .await
-    .expect("spawn");
-
-    let vnc_sock = preconfig.vnc_sock().expect("vnc_sock").clone();
-    eprintln!("VNC socket: {}", vnc_sock.display());
-
-    // Start machine so VGA device is fully initialized
-    let vm = preconfig.start().await.expect("start");
+    // Use the full BmcState power-on path so vnc_sock comes from the VM handle.
+    let state = BmcState::new();
+    // Per-test cirros copy avoids file-lock contention with parallel tests.
+    {
+        let mut config = state.config.lock().await;
+        config.disks = vec![test_disk("vnc-proxy-test").await];
+    }
+    state.power_on().await.expect("power_on");
+    state.start_vm().await.expect("start_vm");
     tokio::time::sleep(Duration::from_millis(500)).await;
 
-    // 2. Set up BmcState with the VNC socket path
-    let state = BmcState::new();
-    *state.vnc_sock.lock().await = Some(vnc_sock.clone());
-
-    // 3. Start minimal Axum server with just the console router
+    // Start minimal Axum server with just the console router
     let router = bmc::server::console::console_router(state.clone());
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
         .await
@@ -122,9 +140,80 @@ async fn websocket_proxy_relays_vnc_handshake() {
     eprintln!("  Name: {name:?}");
 
     assert_eq!(name, "QEMU", "Should show graphic console");
-    assert_eq!(height, 480, "640x480 = VGA graphic console (not 384 = text console)");
+    // 720x400 = VGA text mode 3 (SeaBIOS POST output via real VGA framebuffer).
+    // 640x480 = VNC's "no graphic display device" placeholder (failure mode).
+    assert_eq!(width, 720, "Should be 720x400 VGA text mode, not 640x480 placeholder");
+    assert_eq!(height, 400, "Should be 720x400 VGA text mode, not 640x480 placeholder");
 
     // Cleanup
     let _ = ws.close(None).await;
-    vm.shutdown().await;
+    state.force_off().await.expect("force_off");
+}
+
+/// Verify the proxy closes the WebSocket immediately when no VM is running
+/// (so vnc_sock() returns None).
+#[tokio::test]
+async fn vnc_proxy_no_sock_returns_immediately() {
+    let state = BmcState::new();
+    // VmState::Off → vnc_sock() returns None
+    assert!(state.vnc_sock().await.is_none());
+
+    let router = bmc::server::console::console_router(state);
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move { axum::serve(listener, router).await.ok() });
+
+    let ws_url = format!("ws://{addr}/api/console");
+    let (mut ws, _) = tokio_tungstenite::connect_async(&ws_url).await.unwrap();
+
+    use futures::StreamExt;
+    // Server should close the connection immediately
+    let result = tokio::time::timeout(Duration::from_secs(2), ws.next()).await;
+    match result {
+        Ok(None) => {} // clean close
+        Ok(Some(Ok(tokio_tungstenite::tungstenite::Message::Close(_)))) => {} // close frame
+        Ok(Some(Err(_))) => {} // error is fine
+        Ok(Some(Ok(other))) => panic!("expected close, got: {other:?}"),
+        Err(_) => panic!("server did not close WS within 2s"),
+    }
+}
+
+/// Verify that closing the client WebSocket releases the underlying VNC
+/// stream so the VM can be force-shut-down quickly.
+#[tokio::test]
+async fn vnc_proxy_client_disconnect_releases_vnc() {
+    if !Arch::X86_64.is_available() {
+        eprintln!("SKIP: qemu-system-x86_64 not available");
+        return;
+    }
+    qapi::set_qemu_version(9, 0, 0);
+
+    let state = BmcState::new();
+    {
+        let mut config = state.config.lock().await;
+        config.disks = vec![test_disk("vnc-proxy-disconnect").await];
+    }
+    state.power_on().await.expect("power_on");
+    state.start_vm().await.expect("start_vm");
+    tokio::time::sleep(Duration::from_millis(300)).await;
+
+    let router = bmc::server::console::console_router(state.clone());
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move { axum::serve(listener, router).await.ok() });
+
+    let ws_url = format!("ws://{addr}/api/console");
+    let (ws, _) = tokio_tungstenite::connect_async(&ws_url).await.unwrap();
+
+    // Drop the WS without doing the handshake — proxy should clean up
+    drop(ws);
+
+    // force_off should complete quickly (proxy held no lingering refs)
+    let shutdown_start = std::time::Instant::now();
+    state.force_off().await.expect("force_off");
+    let elapsed = shutdown_start.elapsed();
+    assert!(
+        elapsed < Duration::from_secs(3),
+        "force_off took {elapsed:?} — proxy may be holding the socket"
+    );
 }
