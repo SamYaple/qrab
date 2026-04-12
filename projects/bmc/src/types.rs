@@ -39,6 +39,37 @@ pub struct BmcConfig {
     pub memory: String,
 }
 
+/// CPU information response DTO.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CpuInfoResponse {
+    pub guest_cpus: Vec<GuestCpu>,
+    pub host_threads: usize,
+}
+
+/// A single guest vCPU entry.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GuestCpu {
+    pub index: i64,
+    pub thread_id: i64,
+    pub qom_path: String,
+}
+
+/// KVM status response DTO.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct KvmInfoResponse {
+    pub enabled: bool,
+    pub present: bool,
+}
+
+/// QMP event DTO for the frontend (serializable, owned).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BmcEvent {
+    pub event: String,
+    pub timestamp_secs: i64,
+    pub timestamp_usecs: u32,
+    pub data: serde_json::Value,
+}
+
 impl Default for BmcConfig {
     fn default() -> Self {
         Self {
