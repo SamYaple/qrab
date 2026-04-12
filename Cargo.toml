@@ -6,6 +6,7 @@ members = [
     "projects/qapi",
     "projects/qapi-protocol",
     "projects/manager",
+    "projects/bmc",
     "examples/simple-vm",
     "examples/preconfig-vm",
     "examples/events",

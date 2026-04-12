@@ -1,0 +1,125 @@
+:root {
+    --color-bg: #1a1a2e;
+    --color-surface: #16213e;
+    --color-text: #e0e0e0;
+    --color-text-muted: #8888aa;
+    --color-accent: #0f3460;
+    --color-running: #4ecca3;
+    --color-paused: #f0c040;
+    --color-off: #e74c3c;
+    --color-preconfig: #3498db;
+    --color-danger: #c0392b;
+}
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: monospace;
+    background: var(--color-bg);
+    color: var(--color-text);
+    line-height: 1.5;
+}
+
+.bmc-dashboard {
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 1rem;
+}
+
+.bmc-header h1 {
+    font-size: 1.5rem;
+    margin-bottom: 1rem;
+    border-bottom: 1px solid var(--color-accent);
+    padding-bottom: 0.5rem;
+}
+
+.error-banner {
+    background: var(--color-danger);
+    color: white;
+    padding: 0.5rem 1rem;
+    border-radius: 4px;
+    margin-bottom: 1rem;
+}
+
+.status-panel,
+.power-controls {
+    background: var(--color-surface);
+    border: 1px solid var(--color-accent);
+    border-radius: 4px;
+    padding: 1rem;
+    margin-bottom: 1rem;
+}
+
+.status-panel h2,
+.power-controls h2 {
+    font-size: 1.1rem;
+    margin-bottom: 0.75rem;
+    color: var(--color-text-muted);
+}
+
+.status-info .status-row {
+    display: flex;
+    gap: 1rem;
+    padding: 0.25rem 0;
+}
+
+.status-row .label {
+    color: var(--color-text-muted);
+    min-width: 120px;
+}
+
+.phase-running { color: var(--color-running); font-weight: bold; }
+.phase-paused { color: var(--color-paused); font-weight: bold; }
+.phase-off { color: var(--color-off); font-weight: bold; }
+.phase-preconfig { color: var(--color-preconfig); font-weight: bold; }
+.phase-shutting-down { color: var(--color-danger); font-weight: bold; }
+
+.power-controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    align-items: center;
+}
+
+.power-controls h2 {
+    width: 100%;
+}
+
+button {
+    font-family: monospace;
+    font-size: 0.9rem;
+    padding: 0.4rem 1rem;
+    border: 1px solid var(--color-accent);
+    border-radius: 4px;
+    background: var(--color-surface);
+    color: var(--color-text);
+    cursor: pointer;
+    transition: background 0.15s;
+}
+
+button:hover:not(:disabled) {
+    background: var(--color-accent);
+}
+
+button:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+}
+
+button.danger {
+    border-color: var(--color-danger);
+    color: var(--color-danger);
+}
+
+button.danger:hover:not(:disabled) {
+    background: var(--color-danger);
+    color: white;
+}
+
+.error {
+    color: var(--color-danger);
+}

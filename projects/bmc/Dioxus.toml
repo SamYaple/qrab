@@ -1,0 +1,11 @@
+[application]
+name = "bmc"
+default_platform = "fullstack"
+asset_dir = "assets"
+
+[web.app]
+title = "qrab BMC"
+
+[web.watcher]
+reload_html = true
+watch_path = ["src", "assets"]
