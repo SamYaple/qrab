@@ -25,7 +25,7 @@ body {
 }
 
 .bmc-dashboard {
-    max-width: 900px;
+    max-width: 1100px;
     margin: 0 auto;
     padding: 1rem;
 }
@@ -37,31 +37,58 @@ body {
     padding-bottom: 0.5rem;
 }
 
-.error-banner {
-    background: var(--color-danger);
-    color: white;
-    padding: 0.5rem 1rem;
-    border-radius: 4px;
-    margin-bottom: 1rem;
+.bmc-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
 }
 
+.bmc-top-row,
+.bmc-bottom-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+}
+
+@media (max-width: 768px) {
+    .bmc-top-row,
+    .bmc-bottom-row {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* Panels */
+
 .status-panel,
-.power-controls {
+.power-controls,
+.cpu-info,
+.event-log {
     background: var(--color-surface);
     border: 1px solid var(--color-accent);
     border-radius: 4px;
     padding: 1rem;
-    margin-bottom: 1rem;
 }
 
 .status-panel h2,
-.power-controls h2 {
+.power-controls h2,
+.cpu-info h2,
+.event-log h2 {
     font-size: 1.1rem;
     margin-bottom: 0.75rem;
     color: var(--color-text-muted);
 }
 
-.status-info .status-row {
+.cpu-info h3 {
+    font-size: 0.95rem;
+    margin-top: 0.75rem;
+    margin-bottom: 0.5rem;
+    color: var(--color-text-muted);
+}
+
+/* Status */
+
+.status-info .status-row,
+.cpu-info .status-row {
     display: flex;
     gap: 1rem;
     padding: 0.25rem 0;
@@ -78,15 +105,20 @@ body {
 .phase-preconfig { color: var(--color-preconfig); font-weight: bold; }
 .phase-shutting-down { color: var(--color-danger); font-weight: bold; }
 
-.power-controls {
+/* Buttons */
+
+.error-banner {
+    background: var(--color-danger);
+    color: white;
+    padding: 0.5rem 1rem;
+    border-radius: 4px;
+    margin-bottom: 0.75rem;
+}
+
+.button-row {
     display: flex;
     flex-wrap: wrap;
     gap: 0.5rem;
-    align-items: center;
-}
-
-.power-controls h2 {
-    width: 100%;
 }
 
 button {
@@ -118,6 +150,68 @@ button.danger {
 button.danger:hover:not(:disabled) {
     background: var(--color-danger);
     color: white;
+}
+
+/* CPU table */
+
+.cpu-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.85rem;
+}
+
+.cpu-table th,
+.cpu-table td {
+    text-align: left;
+    padding: 0.3rem 0.5rem;
+    border-bottom: 1px solid var(--color-accent);
+}
+
+.cpu-table th {
+    color: var(--color-text-muted);
+}
+
+/* Event log */
+
+.event-list {
+    max-height: 400px;
+    overflow-y: auto;
+}
+
+.event-entry {
+    border-bottom: 1px solid var(--color-accent);
+    padding: 0.4rem 0;
+}
+
+.event-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.event-name {
+    font-weight: bold;
+    color: var(--color-preconfig);
+}
+
+.event-time {
+    font-size: 0.8rem;
+    color: var(--color-text-muted);
+}
+
+.event-data {
+    font-size: 0.8rem;
+    margin-top: 0.25rem;
+    padding: 0.25rem 0.5rem;
+    background: var(--color-bg);
+    border-radius: 2px;
+    overflow-x: auto;
+    color: var(--color-text-muted);
+}
+
+.muted {
+    color: var(--color-text-muted);
+    font-style: italic;
 }
 
 .error {

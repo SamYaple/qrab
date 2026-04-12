@@ -12,6 +12,8 @@ fn require_x86_64() -> bool {
     true
 }
 
+// --- Phase 1 tests ---
+
 #[tokio::test]
 async fn bmc_power_on_and_phase() {
     if !require_x86_64() {
@@ -20,15 +22,11 @@ async fn bmc_power_on_and_phase() {
     qapi::set_qemu_version(9, 0, 0);
 
     let state = BmcState::new();
-
-    // Should start off
     assert_eq!(state.phase().await, VmPhase::Off);
 
-    // Power on -> preconfig
     state.power_on().await.unwrap();
     assert_eq!(state.phase().await, VmPhase::Preconfig);
 
-    // Clean up
     state.force_off().await.unwrap();
     assert_eq!(state.phase().await, VmPhase::Off);
 }
@@ -42,7 +40,6 @@ async fn bmc_full_lifecycle() {
 
     let state = BmcState::new();
 
-    // Off -> Preconfig -> Running -> Off
     state.power_on().await.unwrap();
     assert_eq!(state.phase().await, VmPhase::Preconfig);
 
@@ -64,13 +61,10 @@ async fn bmc_pause_resume() {
     state.power_on().await.unwrap();
     state.start_vm().await.unwrap();
 
-    // Pause
     state.pause().await.unwrap();
-    // Give QEMU a moment to process
     tokio::time::sleep(Duration::from_millis(100)).await;
     assert_eq!(state.phase().await, VmPhase::Paused);
 
-    // Resume
     state.resume().await.unwrap();
     tokio::time::sleep(Duration::from_millis(100)).await;
     assert_eq!(state.phase().await, VmPhase::Running);
@@ -87,18 +81,12 @@ async fn bmc_invalid_transitions() {
 
     let state = BmcState::new();
 
-    // Can't pause when off
     assert!(state.pause().await.is_err());
-    // Can't resume when off
     assert!(state.resume().await.is_err());
-    // Can't start_vm when off
     assert!(state.start_vm().await.is_err());
 
     state.power_on().await.unwrap();
-
-    // Can't power_on again
     assert!(state.power_on().await.is_err());
-    // Can't pause in preconfig
     assert!(state.pause().await.is_err());
 
     state.force_off().await.unwrap();
@@ -117,7 +105,6 @@ async fn bmc_event_forwarding() {
     state.power_on().await.unwrap();
     state.start_vm().await.unwrap();
 
-    // Pause should generate a STOP event
     state.pause().await.unwrap();
 
     let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
@@ -134,7 +121,6 @@ async fn bmc_event_forwarding() {
     }
     assert!(got_stop, "Expected STOP event via broadcast channel");
 
-    // Verify event is also in history
     let history = state.event_history.lock().await;
     assert!(
         history.iter().any(|e| e.event == "STOP"),
@@ -154,14 +140,12 @@ async fn bmc_config_change() {
 
     let state = BmcState::new();
 
-    // Default config
     {
         let config = state.config.lock().await;
         assert_eq!(config.arch, "x86_64");
         assert_eq!(config.machine, "none");
     }
 
-    // Change config
     {
         let mut config = state.config.lock().await;
         *config = BmcConfig {
@@ -171,9 +155,148 @@ async fn bmc_config_change() {
         };
     }
 
-    // Power on with new config
     state.power_on().await.unwrap();
     assert_eq!(state.phase().await, VmPhase::Preconfig);
+    state.force_off().await.unwrap();
+}
+
+// --- Phase 2 tests ---
+
+#[tokio::test]
+async fn bmc_query_status_running() {
+    if !require_x86_64() {
+        return;
+    }
+    qapi::set_qemu_version(9, 0, 0);
+
+    let state = BmcState::new();
+    state.power_on().await.unwrap();
+    state.start_vm().await.unwrap();
+
+    // Query status directly on the VM
+    {
+        let vm_guard = state.vm.lock().await;
+        if let bmc::state::VmState::Running(vm) = &*vm_guard {
+            let status: qapi::StatusInfo =
+                vm.execute(&qapi::commands::QueryStatus {}).await.unwrap();
+            assert!(status.running, "VM should be running");
+        } else {
+            panic!("Expected Running state");
+        }
+    }
+
+    state.force_off().await.unwrap();
+}
+
+#[tokio::test]
+async fn bmc_query_cpu_info() {
+    if !require_x86_64() {
+        return;
+    }
+    qapi::set_qemu_version(9, 0, 0);
+
+    let state = BmcState::new();
+    state.power_on().await.unwrap();
+    state.start_vm().await.unwrap();
+
+    // Query CPUs (machine=none has no vCPUs, just verify the command succeeds)
+    {
+        let vm_guard = state.vm.lock().await;
+        if let bmc::state::VmState::Running(vm) = &*vm_guard {
+            let cpus: Vec<qapi::CpuInfoFast> =
+                vm.execute(&qapi::commands::QueryCpusFast {}).await.unwrap();
+            // machine=none typically has no vCPUs, but the command should succeed
+            let _ = cpus;
+        } else {
+            panic!("Expected Running state");
+        }
+    }
+
+    state.force_off().await.unwrap();
+}
+
+#[tokio::test]
+async fn bmc_pause_resume_with_events() {
+    if !require_x86_64() {
+        return;
+    }
+    qapi::set_qemu_version(9, 0, 0);
+
+    let state = BmcState::new();
+    let mut event_rx = state.event_tx.subscribe();
+
+    state.power_on().await.unwrap();
+    state.start_vm().await.unwrap();
+
+    // Pause and wait for STOP event
+    state.pause().await.unwrap();
+    let mut got_stop = false;
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    loop {
+        match tokio::time::timeout_at(deadline, event_rx.recv()).await {
+            Ok(Ok(evt)) if evt.event == "STOP" => {
+                got_stop = true;
+                break;
+            }
+            Ok(Ok(_)) => continue,
+            _ => break,
+        }
+    }
+    assert!(got_stop, "Expected STOP event after pause");
+
+    // Resume and wait for RESUME event
+    state.resume().await.unwrap();
+    let mut got_resume = false;
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    loop {
+        match tokio::time::timeout_at(deadline, event_rx.recv()).await {
+            Ok(Ok(evt)) if evt.event == "RESUME" => {
+                got_resume = true;
+                break;
+            }
+            Ok(Ok(_)) => continue,
+            _ => break,
+        }
+    }
+    assert!(got_resume, "Expected RESUME event after resume");
+
+    state.force_off().await.unwrap();
+}
+
+#[tokio::test]
+async fn bmc_event_history_accumulates() {
+    if !require_x86_64() {
+        return;
+    }
+    qapi::set_qemu_version(9, 0, 0);
+
+    let state = BmcState::new();
+    state.power_on().await.unwrap();
+    state.start_vm().await.unwrap();
+
+    // Pause/resume to generate events
+    state.pause().await.unwrap();
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    state.resume().await.unwrap();
+    tokio::time::sleep(Duration::from_millis(200)).await;
+
+    let history = state.event_history.lock().await;
+    assert!(
+        history.len() >= 2,
+        "Expected at least 2 events in history, got {}",
+        history.len()
+    );
+
+    let event_names: Vec<&str> = history.iter().map(|e| e.event.as_str()).collect();
+    assert!(
+        event_names.contains(&"STOP"),
+        "Expected STOP in history, got: {event_names:?}"
+    );
+    assert!(
+        event_names.contains(&"RESUME"),
+        "Expected RESUME in history, got: {event_names:?}"
+    );
+    drop(history);
 
     state.force_off().await.unwrap();
 }
