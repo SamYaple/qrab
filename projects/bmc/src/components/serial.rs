@@ -9,11 +9,13 @@ pub fn SerialConsole(current_phase: VmPhase, serial_tail: String) -> Element {
     let is_on = current_phase != VmPhase::Off;
     let has_text = !serial_tail.is_empty();
 
-    // Auto-scroll to bottom whenever the serial tail changes. use_effect
-    // re-runs when any signal it reads changes; here we read the prop via
-    // a simple clone check so the effect fires each render with new text.
-    use_effect(move || {
-        if has_text {
+    // Auto-scroll to bottom whenever the serial tail changes. `serial_tail`
+    // is a non-reactive prop — without `use_reactive!` the effect would
+    // only fire on the initial render (see Dioxus 0.7 "non-reactive
+    // dependencies" docs; same regression category that blanked the VNC
+    // console in round 2).
+    use_effect(use_reactive!(|serial_tail| {
+        if !serial_tail.is_empty() {
             spawn(async move {
                 let _ = document::eval(
                     r#"
@@ -23,7 +25,7 @@ pub fn SerialConsole(current_phase: VmPhase, serial_tail: String) -> Element {
                 );
             });
         }
-    });
+    }));
 
     rsx! {
         div { class: "panel serial-panel",

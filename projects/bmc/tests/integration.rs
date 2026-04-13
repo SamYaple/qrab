@@ -682,3 +682,50 @@ async fn forwarder_does_not_leak_tasks() {
         assert_eq!(state.phase().await, VmPhase::Off);
     }
 }
+
+// --- Frontend use_reactive! regression guards ------------------------------
+//
+// Round 2 cleanup consolidated polling into Dashboard and made child
+// components props-driven. `console_available` (Console) and `serial_tail`
+// (SerialConsole) are non-reactive props — a plain `use_effect(move || {})`
+// that reads them captures the value once and *never re-runs* on prop
+// updates. The fix is to wrap the closure in `use_reactive!(|prop| ...)`
+// which explicitly registers the prop as a dependency.
+//
+// The VNC console went completely blank on 2026-04-13 because this wrapper
+// was missing: the noVNC loader only ran with the initial `false` value, so
+// the canvas never attached. These text-level regression guards make sure
+// the wrapper can't be silently removed by a future refactor.
+//
+// They are deliberately text-based because:
+//   1. Dioxus component effects only run under a VirtualDom runtime, and
+//      setting one up in a unit test is substantial plumbing for a single
+//      regression class.
+//   2. The unit tests in `components::console::tests` already cover the
+//      pure transition logic. These guards cover the wiring.
+
+#[test]
+fn console_effect_wires_use_reactive() {
+    let src = include_str!("../src/components/console.rs");
+    assert!(
+        src.contains("use_effect(use_reactive!(|console_available|"),
+        "REGRESSION: Console component's use_effect must wrap the closure \
+         in `use_reactive!(|console_available| ...)`. Without it, the \
+         non-reactive `console_available` prop does not trigger effect \
+         re-runs, the noVNC loader never fires on the Running transition, \
+         and the VNC panel renders completely blank. See the 2026-04-13 \
+         regression and Dioxus 0.7 non-reactive-dependencies docs."
+    );
+}
+
+#[test]
+fn serial_effect_wires_use_reactive() {
+    let src = include_str!("../src/components/serial.rs");
+    assert!(
+        src.contains("use_effect(use_reactive!(|serial_tail|"),
+        "REGRESSION: SerialConsole's auto-scroll use_effect must wrap the \
+         closure in `use_reactive!(|serial_tail| ...)`. Without it, the \
+         non-reactive `serial_tail` prop does not trigger re-runs, \
+         auto-scroll-to-bottom stops working as new output arrives."
+    );
+}
