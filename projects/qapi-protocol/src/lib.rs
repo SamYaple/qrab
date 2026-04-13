@@ -254,3 +254,21 @@ impl Qmp {
         }
     }
 }
+
+impl Drop for Qmp {
+    fn drop(&mut self) {
+        // Signal shutdown first so well-behaved loops exit cleanly, then
+        // abort() as a fallback. Drop can't await, so abort() is the only
+        // way to guarantee spawned tasks don't leak.
+        let _ = self.shutdown_signal.send(());
+        if let Some(h) = self.read_handle.take() {
+            h.abort();
+        }
+        if let Some(h) = self.write_handle.take() {
+            h.abort();
+        }
+        if let Some(h) = self.event_handle.take() {
+            h.abort();
+        }
+    }
+}
