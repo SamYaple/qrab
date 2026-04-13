@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use std::process::Stdio;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
+use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::{Child, Command};
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
@@ -300,12 +301,31 @@ impl VmBuilder {
             "spawning QEMU"
         );
 
-        let child = Command::new(self.arch.binary())
+        let mut child = Command::new(self.arch.binary())
             .args(&args)
             .stdout(Stdio::null())
-            .stderr(Stdio::null())
+            .stderr(Stdio::piped())
             .kill_on_drop(true)
             .spawn()?;
+
+        // Forward QEMU stderr to tracing. Without this, security warnings,
+        // missing-firmware messages, and KVM init failures are silently
+        // dropped. Best-effort: if the forwarder hits an I/O error we simply
+        // stop; the task exits naturally when QEMU closes stderr on exit.
+        if let Some(stderr) = child.stderr.take() {
+            tokio::spawn(async move {
+                let mut lines = BufReader::new(stderr).lines();
+                loop {
+                    match lines.next_line().await {
+                        Ok(Some(line)) => {
+                            tracing::warn!(target: "qemu", "{}", line);
+                        }
+                        Ok(None) => break,
+                        Err(_) => break,
+                    }
+                }
+            });
+        }
 
         for _ in 0..50 {
             if qmp_sock.exists() {
