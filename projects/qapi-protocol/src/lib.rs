@@ -71,9 +71,15 @@ impl Qmp {
             .write_all(b"{\"execute\":\"qmp_capabilities\"}\n")
             .await?;
 
-        let mut caps_line = String::new();
-        reader.read_line(&mut caps_line).await?;
-        let caps_resp: serde_json::Value = serde_json::from_str(&caps_line)?;
+        let caps_resp: serde_json::Value = loop {
+            let mut caps_line = String::new();
+            reader.read_line(&mut caps_line).await?;
+            let parsed: serde_json::Value = serde_json::from_str(&caps_line)?;
+            if parsed.get("event").is_some() {
+                continue;
+            }
+            break parsed;
+        };
         if let Some(error) = caps_resp.get("error") {
             anyhow::bail!(
                 "qmp_capabilities failed: {}",
