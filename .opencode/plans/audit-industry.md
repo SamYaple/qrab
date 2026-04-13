@@ -1,57 +1,54 @@
 # Industry Standard Features Audit
 
-Generated: 2026-04-13 | Re-audited: 2026-04-13
+Generated: 2026-04-13 | Re-audited: 2026-04-13 (x3)
 
 Compared against: libvirt, proxmox-ve, cloud-hypervisor
 
 ## Prior Gaps Status
 
-| # | Feature | Prior Status | Current Status |
-|---|---------|-------------|----------------|
-| 1 | VM Lifecycle | PARTIAL | **IMPROVED** — BMC adds VmState enum, VmPhase. Still missing graceful shutdown escalation |
-| 2 | Storage Management | MISSING | **IMPROVED** — BMC has attach_disks() with blockdev-add chain. Not in manager crate |
-| 3 | Network Management | MISSING | STILL MISSING — zero progress |
-| 4 | Monitoring / Health | PARTIAL | **IMPROVED** — typed events generated (732 lines), BMC broadcasts events. wait_for_event exists but test-only |
-| 5 | Migration | MISSING | STILL MISSING |
-| 6 | Snapshots | MISSING | STILL MISSING |
-| 7 | Device Management | MISSING | **PARTIAL** — device_add used in attach_disks. No typed device builders |
-| 8 | Guest Agent | PARTIAL | STILL PARTIAL — QGA client exists, no manager integration |
-| 9 | Configuration | PARTIAL | **MINOR PROGRESS** — memory config as string. Still no SMP/NUMA/CPU model |
-| 10 | Observability | MINIMAL | STILL MINIMAL — few tracing calls |
-| 11 | Connection Pooling | MISSING | N/A (correctly scoped as single-VM) |
-| 12 | Retry / Reconnect | MISSING | STILL MISSING (CRITICAL) |
+| # | Feature | Status |
+|---|---------|--------|
+| 1 | VM Lifecycle | IMPROVED — typestate + VmState enum. Missing graceful shutdown escalation |
+| 2 | Storage Management | IMPROVED — BMC has attach_disks(). Not in manager crate. No hot-unplug |
+| 3 | Network Management | STILL MISSING |
+| 4 | Monitoring / Health | IMPROVED — typed events generated, broadcast channel. wait_for_event test-only |
+| 5 | Migration | STILL MISSING |
+| 6 | Snapshots | STILL MISSING |
+| 7 | Device Management | PARTIAL — device_add used, no typed builders |
+| 8 | Guest Agent | STILL PARTIAL — client works, no manager integration |
+| 9 | Configuration | STILL MINIMAL — memory exists, no SMP/NUMA/CPU |
+| 10 | Observability | STILL MINIMAL |
+| 11 | Connection Pooling | N/A |
+| 12 | Retry / Reconnect | STILL MISSING (CRITICAL) |
+| 13 | BMC Docs | STILL MISSING |
+| 14 | Graceful Shutdown | STILL MISSING |
+| 15 | OOB Commands | STILL NOT NEGOTIATED |
+| 16 | Command Timeout | STILL MISSING (CRITICAL) |
+| 17 | Serial Console | STILL MISSING |
+| 18 | Process Monitoring | STILL MISSING (CRITICAL) |
+| 19 | Socket Permissions | STILL MISSING |
+| 20 | Multi-disk Interfaces | STILL MISSING |
 
-## NEW Gaps Identified
+## NEW Gaps (Round 3)
 
-### 13. BMC Crate Not Documented (LOW)
-`projects/bmc/` exists but not in CLAUDE.md workspace table.
-
-### 14. Graceful Shutdown Escalation (HIGH)
-No `shutdown_with_timeout(Duration)` that does ACPI powerdown → wait → force kill. User must orchestrate manually.
-
-### 15. QMP Out-of-Band Commands (MEDIUM)
-`QapiCommand::ALLOW_OOB` exists. Negotiation doesn't enable OOB. Needed for non-blocking queries during migration.
-
-### 16. QMP Command Timeout (CRITICAL)
-`execute()` blocks indefinitely on hung QEMU. No per-command timeout.
-
-### 17. Chardev / Serial Console (MEDIUM)
-VNC console exists (BMC). No interactive serial console access.
-
-### 18. QEMU Process Monitoring (CRITICAL)
-No monitoring of child process exit. If QEMU crashes, state stays Running. Need task watching `child.wait()`.
-
-### 19. Socket Permissions (MEDIUM)
-QMP socket in `/tmp` with default perms. Any local user can connect.
-
-### 20. Multi-disk Interface Support (LOW)
-Only `virtio-blk-pci`. Need scsi, ide, sata for guest compatibility.
+| # | Feature | Priority |
+|---|---------|----------|
+| 21 | Hot-plug / Hot-unplug | HIGH |
+| 22 | Resource Limits / cgroups | MEDIUM |
+| 23 | UEFI Secure Boot / TPM | LOW |
+| 24 | Cloud-Init / Config Drive | MEDIUM |
+| 25 | SPICE/VNC Authentication | MEDIUM |
+| 26 | QEMU Feature Detection (query-qmp-schema) | HIGH |
+| 27 | Firmware / Machine Type Versioning | MEDIUM |
+| 28 | Event-Driven State Machine | HIGH |
+| 29 | Graceful QMP Disconnect Detection | HIGH |
+| 30 | Multi-VM Support in Manager | MEDIUM |
 
 ## Priority Summary
 
 | Priority | Features |
 |----------|----------|
-| **CRITICAL** | Retry/reconnect (#12), QMP command timeout (#16), QEMU process death detection (#18) |
-| **HIGH** | Graceful shutdown escalation (#14), Migration (#5), Snapshots (#6), Network (#3), DiskBuilder in manager (not BMC-only), Guest agent integration (#8), Promote wait_for_event to public API |
-| **MEDIUM** | OOB commands (#15), Socket security (#19), Serial console (#17), SMP/NUMA/CPU (#9), Observability (#10), Typed device builders (#7) |
-| **LOW** | Multi-disk interfaces (#20), BMC docs (#13), Connection pooling (#11) |
+| **CRITICAL** | Retry/reconnect (#12), Command timeout (#16), Process death detection (#18) |
+| **HIGH** | Shutdown escalation (#14), Migration (#5), Snapshots (#6), Network (#3), Hot-plug (#21), Feature detection (#26), Event-driven state (#28), Disconnect detection (#29) |
+| **MEDIUM** | Storage in manager (#2), Device builders (#7), QGA integration (#8), SMP/NUMA (#9), Observability (#10), OOB (#15), Serial console (#17), Socket perms (#19), Resource limits (#22), Cloud-init (#24), VNC auth (#25), Machine versioning (#27), Multi-VM (#30) |
+| **LOW** | BMC docs (#13), Multi-disk (#20), UEFI/TPM (#23) |

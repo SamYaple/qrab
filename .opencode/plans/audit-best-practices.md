@@ -1,61 +1,50 @@
 # Best Practices Audit Report
 
-Generated: 2026-04-13 | Re-audited: 2026-04-13
+Generated: 2026-04-13 | Re-audited: 2026-04-13 (x3)
 
-## Prior Issues Status
-
-### HIGH
+## HIGH
 | # | Issue | Status |
 |---|-------|--------|
-| 1 | No `thiserror` — anyhow in public APIs | STILL PRESENT |
-| 2 | Cancellation safety in `tokio::select!` | **CORRECTED: NOT A BUG** — `Lines::next_line()` is cancellation-safe per tokio docs |
-| 3 | syn v1 unmaintained in qapi-macros | STILL PRESENT |
+| 1 | No thiserror — anyhow in public APIs | STILL PRESENT |
+| 2 | Cancellation safety | CONFIRMED NOT A BUG |
+| 3 | syn v1 in qapi-macros | STILL PRESENT |
 | 4 | No CI pipeline | STILL PRESENT |
+| N1 | unwrap in library code (qga.rs:45) | STILL PRESENT |
+| N2 | No `#[must_use]` anywhere | STILL PRESENT |
+| N3 | Duplicated execute logic (Qmp/Qga) | STILL PRESENT |
 
-### MEDIUM
+## MEDIUM
 | # | Issue | Status |
 |---|-------|--------|
-| 5 | No `[workspace.dependencies]` | STILL PRESENT |
+| 5 | No `[workspace.dependencies]` | STILL PRESENT (anyhow version inconsistent: "1.0.102" vs "1") |
 | 6 | Inconsistent editions (codegen=2024, rest=2021) | STILL PRESENT |
 | 7 | No `[workspace.lints]` | STILL PRESENT |
-| 8 | Missing C-COMMON traits | STILL PRESENT |
+| 8 | Missing C-COMMON traits (Qga no Debug) | STILL PRESENT |
 | 9 | Version = raw tuple | STILL PRESENT |
-| 10 | No `Drop` on `Qmp` | STILL PRESENT |
+| 10 | No Drop on Qmp | STILL PRESENT |
 | 11 | Public fields bypass typestate | STILL PRESENT |
-| 12 | No unit tests in library crates | PARTIALLY FIXED (codegen has 24 test modules; protocol/manager still zero) |
+| 12 | No unit tests in library crates (only integration) | PARTIALLY FIXED |
 | 13 | No connection timeout | STILL PRESENT |
 | 14 | No cargo-deny | STILL PRESENT |
+| N5 | No Send/Sync assertions | STILL PRESENT |
+| N10 | No Drop on Qga | NEW |
+| N11 | Event channel backpressure (bounded 100, silent drop) | NEW |
+| N12 | Blocking `exists()` in async context (vm.rs:266) | NEW |
+| N13 | anyhow version inconsistency across crates | NEW |
 
-### LOW
+## LOW
 | # | Issue | Status |
 |---|-------|--------|
 | 15 | Silent `.ok()` on OnceLock | STILL PRESENT |
-| 16 | Tracing inconsistent | STILL PRESENT (codegen: 29 eprintln! calls) |
+| 16 | Tracing inconsistent (35 eprintln in codegen) | STILL PRESENT |
 | 17 | No property-based tests | STILL PRESENT |
+| N4 | `pub use generated::*` glob re-export | STILL PRESENT |
+| N7 | Dead code allows in generated code | DOWNGRADED to LOW |
+| N8 | No Debug on Qga | STILL PRESENT |
+| N9 | No doc-tests | STILL PRESENT |
+| N14 | BMC crate not in CLAUDE.md | STILL PRESENT |
 
-## NEW Issues Found
-
-### HIGH
-- **N1: `unwrap()` in library code** — `qga.rs:45` `.unwrap()` on `duration_since(UNIX_EPOCH)` panics if clock before epoch
-- **N2: No `#[must_use]` anywhere** — `qemu_version()`, `execute()` return values silently discardable
-
-### MEDIUM
-- **N3: Duplicated execute logic** — `Qmp::execute()` and `Qga::execute_raw()` nearly identical JSON-RPC handling
-- **N4: `pub use generated::*` glob re-export** — dumps ~500+ types into crate root namespace
-- **N5: No `Send`/`Sync` assertions** — async types need compile-time verification
-- **N6: `resolver = "3"` but edition 2021** — inconsistent
-- **N7: Dead code allows in generated code too broad** — could mask real issues
-
-### LOW
-- **N8: No `Debug` on `Qga`** — `Qmp` has Debug derive, `Qga` doesn't
-- **N9: No doc-tests** — zero runnable examples in rustdoc
-
-## Priority Summary
-
-| Priority | Issues |
-|----------|--------|
-| **High** | anyhow public APIs, syn v1, no CI, unwrap in lib, no must_use |
-| **Medium** | workspace.deps, lints, traits, version type, Drop, typestate bypass, timeout, cargo-deny, execute dedup, glob re-export, Send/Sync |
-| **Low** | OnceLock, tracing, property tests, Qga Debug, doc-tests |
-
-**Top 3 actions:** Add CI (catches half these), replace anyhow with thiserror, upgrade syn v1→v2.
+## Top 3 Actions
+1. **Add CI** — catches half these automatically
+2. **Replace anyhow with thiserror** in library crate public APIs
+3. **Upgrade qapi-macros to syn 2**

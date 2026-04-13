@@ -1,120 +1,73 @@
 # Bug Audit Report
 
-Generated: 2026-04-13 | Re-audited: 2026-04-13
+Generated: 2026-04-13 | Re-audited: 2026-04-13 (x3)
 
 ## Prior Bugs Status
 
 | # | Bug | Severity | Status |
 |---|-----|----------|--------|
-| 1 | QMP response/event interleave race | Critical | STILL PRESENT |
-| 2 | No Drop on Qmp — task leak | High | STILL PRESENT |
-| 3 | `as i64` nanos truncation | High | STILL PRESENT |
-| 4 | OnceLock silently drops multi-VM version | High | STILL PRESENT |
-| 5 | Zombie processes | Medium | STILL PRESENT |
-| 6 | `.expect()` panic on ARM+BIOS | Medium | STILL PRESENT |
-| 7 | No early-exit on QEMU crash | Medium | STILL PRESENT |
-| 8 | QEMU orphaned on version mismatch | Medium | STILL PRESENT |
-| 9 | Empty tags unwrap | Low | STILL PRESENT |
-| 10 | `parent().unwrap()` | — | **FALSE POSITIVE** (`.parent()` returns `Some("")` for bare filenames) |
-| 11 | panic! in IR processing | Low | STILL PRESENT |
-| 12 | thread join masks panics | Low | STILL PRESENT |
-| 13 | Alternate deser order-dependent | Medium | STILL PRESENT |
-| 14 | deprecated_by_bounds broken | Low | STILL PRESENT |
+| 1 | QMP response/event interleave race | Critical | OPEN (partially mitigated — commands serialized, but unexpected JSON misrouted) |
+| 2 | No Drop on Qmp — task leak | High | OPEN |
+| 3 | `as i64` nanos truncation | High | OPEN |
+| 4 | OnceLock silently drops multi-VM version | High | OPEN |
+| 5 | Zombie processes | Medium | OPEN |
+| 6 | `.expect()` panic on ARM+BIOS | Medium | **FIXED** — now `ok_or_else` with `?` |
+| 7 | No early-exit on QEMU crash | Medium | OPEN |
+| 8 | QEMU orphaned on version mismatch | Medium | **PARTIAL** — `kill_on_drop(true)` kills child, but Qmp tasks leak |
+| 9 | Empty tags unwrap | Low | OPEN |
+| 10 | `parent().unwrap()` | — | FALSE POSITIVE |
+| 11 | panic! in IR processing | Low | OPEN |
+| 12 | thread join masks panics | Low | OPEN |
+| 13 | Alternate deser order-dependent | Medium | OPEN |
+| 14 | deprecated_by_bounds broken | Low | OPEN |
+| 15 | shutdown may not interrupt read_loop | Medium | OPEN (lower severity — eventually wins) |
+| 16 | write_loop blocks forever on hung QEMU | High | OPEN |
+| 17 | Greeting parse failure silent | Medium | **FIXED** — now `map_err` + `?` with descriptive error |
+| 18 | Event before caps misrouted | Medium | **FIXED** — now loops skipping events |
+| 19 | Empty line in mock server | Low | **PARTIAL** — QMP fixed (`trim().is_empty()`), QGA still broken |
+| 20 | version_str clamps major to 1 | Low | **FIXED** — clean pass-through |
+| 21 | QMP task leak on panic | Low | OPEN |
 
-## NEW Bugs Found (Re-audit)
+## NEW Bugs (Round 3)
 
-### BUG 15 — shutdown may not interrupt read_loop
+### BUG 22 — Silent data loss on malformed JSON/events
 
-**Severity: MEDIUM** | `projects/qapi-protocol/src/lib.rs:169-180`
+**Severity: LOW** | `projects/qapi-protocol/src/lib.rs:200,248`
 
-`shutdown()` sends on `shutdown_signal`, then awaits handles sequentially. If QEMU flooding events, `tokio::select!` may pick `next_line()` branch over shutdown. Shutdown delayed indefinitely.
+Two `if let Ok(parsed)` silently drop malformed JSON from QEMU. No logging.
 
-**Fix:** After sending shutdown signal, abort `read_handle` with timeout.
+**Fix:** Add `tracing::warn!` on parse failures.
 
----
+### BUG 23 — Partial command write on newline failure
 
-### BUG 16 — write_loop blocks forever if QEMU hangs
+**Severity: MEDIUM** | `projects/qapi-protocol/src/lib.rs:225-228`
 
-**Severity: HIGH** | `projects/qapi-protocol/src/lib.rs:223`
+Command body write checked, but newline write error ignored with `let _ =`. Protocol corruption if newline fails.
 
-After writing command, `write_loop` waits on `response_rx.recv()` outside any `select!`. If QEMU never responds, blocks forever. No timeout. Blocks all subsequent commands.
+**Fix:** Check newline write result; break on error.
 
-**Fix:** Wrap `response_rx.recv()` in `tokio::select!` with shutdown + timeout.
+### BUG 24 — Qga::sync() unwrap on SystemTime
 
----
+**Severity: LOW** | `projects/qapi-protocol/src/qga.rs:43-46`
 
-### BUG 17 — Greeting parse failure silently ignored
+`.duration_since(UNIX_EPOCH).unwrap()` panics if clock before epoch.
 
-**Severity: MEDIUM** | `projects/qapi-protocol/src/lib.rs:54-65`
+**Fix:** `.unwrap_or_default()` or random i64.
 
-`if let Ok(parsed)` silently proceeds on corrupt greeting. Version stays `(0,0,0)`. Confusing downstream errors.
+### BUG 25 — Qmp::execute has no timeout
 
-**Fix:** Bail on greeting parse failure with descriptive error.
+**Severity: MEDIUM** | `projects/qapi-protocol/src/lib.rs:140-145`
 
----
+`reply_rx.await?` blocks forever. No way for caller to bound execution time.
 
-### BUG 18 — Event before caps response misrouted
-
-**Severity: MEDIUM** | `projects/qapi-protocol/src/lib.rs:73-81`
-
-QEMU can emit events between greeting and capabilities response. If event arrives first, parsed as caps response. Negotiation appears to succeed but caps response never consumed.
-
-**Fix:** Loop reading lines, skip events (those with `"event"` key), until response received.
-
----
-
-### BUG 19 — Empty line vs disconnect in mock server
-
-**Severity: LOW** | `projects/qapi-protocol/src/server.rs:71-76`
-
-Client sends `"\n"` → `from_str("")` → confusing serde error instead of "client disconnected".
-
-**Fix:** Check `line.trim().is_empty()` after read.
-
----
-
-### BUG 20 — version_str clamps major to minimum 1
-
-**Severity: LOW** | `projects/qapi-codegen/src/unified.rs:21-23`
-
-Version `(0, x, y)` silently becomes `(1, x, y)`. Corrupts pre-1.0 version annotations.
-
-**Fix:** Remove `.max(1)` or document why needed.
-
----
-
-### BUG 21 — Vm/PreconfigVm QMP task leak on panic
-
-**Severity: LOW** | `projects/manager/src/vm.rs:315-370,379-440`
-
-If user code panics holding Vm, VmProcess::Drop kills child (good), but Qmp tasks leak (ties to BUG 2).
-
----
+**Fix:** Accept optional `Duration` timeout, wrap in `tokio::time::timeout`.
 
 ## Summary
 
-| # | Bug | Severity | Crate | Status |
-|---|-----|----------|-------|--------|
-| 1 | QMP response/event interleave race | Critical | qapi-protocol | OPEN |
-| 2 | No Drop on Qmp — task leak | High | qapi-protocol | OPEN |
-| 3 | `as i64` nanos truncation | High | qapi-protocol | OPEN |
-| 4 | OnceLock silently drops multi-VM version | High | qapi | OPEN |
-| 5 | Zombie processes | Medium | manager | OPEN |
-| 6 | `.expect()` panic on ARM+BIOS | Medium | manager | OPEN |
-| 7 | No early-exit on QEMU crash | Medium | manager | OPEN |
-| 8 | QEMU orphaned on version mismatch | Medium | manager | OPEN |
-| 9 | Empty tags unwrap | Low | qapi-codegen | OPEN |
-| 10 | parent().unwrap() | — | qapi-codegen | FALSE POSITIVE |
-| 11 | panic! in IR processing | Low | qapi-codegen | OPEN |
-| 12 | thread join masks panics | Low | qapi-codegen | OPEN |
-| 13 | Alternate deser order-dependent | Medium | qapi-macros | OPEN |
-| 14 | deprecated_by_bounds broken | Low | qapi-macros | OPEN |
-| 15 | shutdown may not interrupt read_loop | Medium | qapi-protocol | NEW |
-| 16 | write_loop blocks forever on hung QEMU | High | qapi-protocol | NEW |
-| 17 | Greeting parse failure silent | Medium | qapi-protocol | NEW |
-| 18 | Event before caps misrouted | Medium | qapi-protocol | NEW |
-| 19 | Empty line in mock server | Low | qapi-protocol | NEW |
-| 20 | version_str clamps major to 1 | Low | qapi-codegen | NEW |
-| 21 | QMP task leak on panic | Low | manager | NEW |
-
-**Totals:** 1 critical, 4 high, 7 medium, 8 low, 1 false positive. 7 new since first audit. Zero fixed.
+| Severity | Open | Fixed |
+|----------|------|-------|
+| Critical | 1 | 0 |
+| High | 4 | 0 |
+| Medium | 6 | 3 |
+| Low | 7 | 1 |
+| **Total** | **18** | **4** |
