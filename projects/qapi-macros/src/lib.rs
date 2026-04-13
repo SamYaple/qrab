@@ -344,6 +344,22 @@ fn deprecation_warning(
     }
 }
 
+/// Field-level deprecation warning generator used by both the plain and
+/// flattened struct serializers. Returns `None` when the field is not
+/// marked deprecated. For `Option<_>` fields the warning fires only when a
+/// value is actually present, matching the behavior of the serializer.
+fn field_deprecation_warn(type_name: &str, f: &FieldInfo) -> Option<TokenStream2> {
+    let dep_ver = f.attrs.deprecated.as_deref()?;
+    let field_name = wire_name(&f.attrs.name, &f.ident);
+    let ident = &f.ident;
+    let warn = deprecation_warning(type_name, Some(&field_name), dep_ver);
+    Some(if is_option_type(&f.ty) {
+        quote! { if self.#ident.is_some() { #warn } }
+    } else {
+        warn
+    })
+}
+
 /// Generate a once-guarded warning for a removed field that has a value set.
 fn removed_field_warning(type_name: &str, field_name: &str, removed_version: &str) -> TokenStream2 {
     let msg = format!(
@@ -1005,15 +1021,7 @@ fn gen_struct_ser(
         };
 
         // Field-level deprecation warning
-        let dep_warn = f.attrs.deprecated.as_deref().map(|dep_ver| {
-            let field_name = fwn.clone();
-            if is_opt {
-                let warn = deprecation_warning(&type_name_str, Some(&field_name), dep_ver);
-                quote! { if self.#ident.is_some() { #warn } }
-            } else {
-                deprecation_warning(&type_name_str, Some(&field_name), dep_ver)
-            }
-        });
+        let dep_warn = field_deprecation_warn(&type_name_str, f);
 
         // Version range gating with removed-field warning
         let code = if let Some(chk) = version_range_check(f.attrs.since.as_deref(), f.attrs.until.as_deref()) {
@@ -1084,15 +1092,7 @@ fn gen_struct_ser_flatten(name: &syn::Ident, fields: &[FieldInfo], ta: &TypeAttr
         let cond = f.attrs.condition.as_ref().map(|c| condition_cfg(c));
 
         // Field-level deprecation warning
-        let dep_warn = f.attrs.deprecated.as_deref().map(|dep_ver| {
-            let field_name = fwn.clone();
-            if is_opt {
-                let warn = deprecation_warning(&type_name_str, Some(&field_name), dep_ver);
-                quote! { if self.#ident.is_some() { #warn } }
-            } else {
-                deprecation_warning(&type_name_str, Some(&field_name), dep_ver)
-            }
-        });
+        let dep_warn = field_deprecation_warn(&type_name_str, f);
 
         if f.attrs.flatten {
             // Serialize flattened struct's fields inline into the map.
