@@ -6,8 +6,13 @@
 use anyhow::Result;
 use qapi::QapiCommand;
 use std::path::Path;
+use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::UnixStream;
+
+/// Maximum time to wait for a QGA response before giving up. A wedged guest
+/// agent must not block the caller forever.
+const QGA_RESPONSE_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Async QGA client connected to a QEMU guest agent.
 pub struct Qga {
@@ -120,7 +125,12 @@ impl Qga {
         self.writer.flush().await?;
 
         let mut line = String::new();
-        self.reader.read_line(&mut line).await?;
+        tokio::time::timeout(
+            QGA_RESPONSE_TIMEOUT,
+            self.reader.read_line(&mut line),
+        )
+        .await
+        .map_err(|_| anyhow::anyhow!("QGA command timed out"))??;
         let resp: serde_json::Value = serde_json::from_str(line.trim())?;
 
         if let Some(error) = resp.get("error") {
