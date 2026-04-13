@@ -40,9 +40,13 @@ impl Qga {
 
     /// Perform the guest-sync-delimited handshake.
     async fn sync(&mut self) -> Result<()> {
+        // If the system clock is before UNIX_EPOCH (embedded boards with no
+        // RTC, severe clock skew, etc.) duration_since returns Err. For a
+        // sync-id any value will do, so fall back to a zero-valued Duration
+        // instead of panicking.
         let sync_id: i64 = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
+            .unwrap_or_default()
             .as_nanos() as i64;
 
         // Send 0xFF sentinel byte followed by the sync command
