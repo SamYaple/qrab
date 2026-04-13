@@ -1,11 +1,13 @@
 # Refactoring Audit Report
 
-Generated: 2026-04-13 | Re-audited: 2026-04-13 (x3)
+Generated: 2026-04-13 | Round 4
 
 **Non-generated source:** ~18,358 lines / 77 files
-**Largest:** unified.rs (1629), integration.rs (1599), qapi-macros/lib.rs (1343), process_qapi.rs (945), bmc/state.rs (499), vm.rs (443)
+**Largest:** unified.rs (1647), qapi-macros/lib.rs (1394), process_qapi.rs (945)
 
-## All 17 prior opportunities STILL OPEN. Zero resolved.
+## All 21 prior opportunities STILL OPEN. Zero resolved.
+
+## 9 NEW opportunities found.
 
 | # | Opportunity | Lines | Risk | Status |
 |---|---|---:|---|---|
@@ -26,22 +28,26 @@ Generated: 2026-04-13 | Re-audited: 2026-04-13 (x3)
 | 15 | Accessor dedup | 10 | safe | OPEN |
 | 16 | Deprecation warn gen | 15 | safe | OPEN |
 | 17 | Nested attr retain | 5 | safe | OPEN |
-
-## NEW Opportunities (Round 3)
-
-| # | Opportunity | Lines | Risk |
-|---|---|---:|---|
-| 18 | Version-annotation boilerplate (enum/struct generators) | 40 | safe |
-| 19 | Clean-doc loop dedup (6 copies in unified.rs) | 10 | safe |
-| 20 | BMC accessor match dedup (vnc_sock/serial_log) | 10 | safe |
-| 21 | condition_cfg micro-pattern (13 occurrences) | 10 | safe |
+| 18 | Version-annotation boilerplate | 40 | safe | OPEN |
+| 19 | Clean-doc loop dedup | 10 | safe | OPEN |
+| 20 | BMC accessor match dedup | 10 | safe | OPEN |
+| 21 | condition_cfg micro-pattern | 10 | safe | OPEN |
+| 22 | UnifiedType::rust_name() method | 30 | safe | NEW |
+| 23 | process_single_version unification | 35 | safe | NEW |
+| 24 | Shutdown handle timeout+abort dedup | 20 | safe | NEW |
+| 25 | "mark unseen as removed" loop dedup | 15 | safe | NEW |
+| 26 | Thread-scope panic-handling dedup | 10 | safe | NEW |
+| 27 | Schema hash computation dedup | 10 | safe | NEW |
+| 28 | Tracked attr name matching | 10 | safe | NEW |
+| 29 | Variant/field rename detection | 40 | moderate | NEW |
+| 30 | Drop cleanup pattern | 10 | safe | NEW |
 
 ## Summary
 
 | Category | Count | Lines |
 |----------|-------|-------|
-| Prior (still open) | 17 | ~565 |
-| New | 4 | ~70 |
-| **Total** | **21** | **~635** |
+| Prior | 21 | ~635 |
+| New | 9 | ~180 |
+| **Total** | **30** | **~815** |
 
-**Biggest wins:** #1 (200 lines), #12 (60 lines), #10+#18 (80 lines combined).
+**Cluster wins:** #1+#12+#23+#8 = ~315 lines (QMP/QGA unification). #29+#13+#25 = ~85 lines (merge logic). #9+#18+#19 = ~70 lines (version annotation).
