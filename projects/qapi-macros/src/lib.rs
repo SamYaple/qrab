@@ -497,20 +497,29 @@ pub fn qapi(args: TokenStream, input: TokenStream) -> TokenStream {
     let output = match input_ast.data {
         syn::Data::Enum(_) => gen_enum(&mut input_ast, &ta, &bounds),
         syn::Data::Struct(_) => gen_struct(&mut input_ast, &ta, &bounds),
-        _ => quote! { #input_ast },
+        _ => Ok(quote! { #input_ast }),
     };
 
-    TokenStream::from(output)
+    match output {
+        Ok(ts) => TokenStream::from(ts),
+        Err(e) => TokenStream::from(e.to_compile_error()),
+    }
 }
 
 // ─── Enum codegen ───
 
-fn gen_enum(input_ast: &mut DeriveInput, ta: &TypeAttrs, bounds: &VersionBounds) -> TokenStream2 {
+fn gen_enum(
+    input_ast: &mut DeriveInput,
+    ta: &TypeAttrs,
+    bounds: &VersionBounds,
+) -> syn::Result<TokenStream2> {
     let enum_name = input_ast.ident.clone();
 
+    // Entry-point dispatches on the same `input_ast.data` variant, so this
+    // branch is an internal invariant, not user-reachable.
     let data_enum = match &mut input_ast.data {
         syn::Data::Enum(d) => d,
-        _ => unreachable!(),
+        _ => unreachable!("gen_enum called with non-enum DeriveInput"),
     };
 
     // Filter variants by compile-time bounds
@@ -557,7 +566,13 @@ fn gen_enum(input_ast: &mut DeriveInput, ta: &TypeAttrs, bounds: &VersionBounds)
         let kind = match &v.fields {
             Fields::Unit => VariantKind::Unit,
             Fields::Unnamed(f) => {
-                VariantKind::Tuple(Box::new(f.unnamed.first().unwrap().ty.clone()))
+                let first = f.unnamed.first().ok_or_else(|| {
+                    syn::Error::new_spanned(
+                        f,
+                        "qapi: tuple enum variants must wrap exactly one type",
+                    )
+                })?;
+                VariantKind::Tuple(Box::new(first.ty.clone()))
             }
             _ => VariantKind::Unit, // shouldn't happen for our codegen
         };
@@ -612,7 +627,7 @@ fn gen_enum(input_ast: &mut DeriveInput, ta: &TypeAttrs, bounds: &VersionBounds)
         TokenStream2::new()
     };
 
-    quote! {
+    Ok(quote! {
         #cond
         #input_ast
         #cond
@@ -620,7 +635,7 @@ fn gen_enum(input_ast: &mut DeriveInput, ta: &TypeAttrs, bounds: &VersionBounds)
         #cond
         #de
         #display
-    }
+    })
 }
 
 fn gen_unit_enum_ser(name: &syn::Ident, variants: &[VariantInfo], ta: &TypeAttrs) -> TokenStream2 {
@@ -822,12 +837,18 @@ fn gen_alt_de(name: &syn::Ident, variants: &[VariantInfo]) -> TokenStream2 {
 
 // ─── Struct codegen ───
 
-fn gen_struct(input_ast: &mut DeriveInput, ta: &TypeAttrs, bounds: &VersionBounds) -> TokenStream2 {
+fn gen_struct(
+    input_ast: &mut DeriveInput,
+    ta: &TypeAttrs,
+    bounds: &VersionBounds,
+) -> syn::Result<TokenStream2> {
     let struct_name = input_ast.ident.clone();
 
+    // Entry-point dispatches on the same `input_ast.data` variant, so this
+    // branch is an internal invariant, not user-reachable.
     let data_struct = match &mut input_ast.data {
         syn::Data::Struct(d) => d,
-        _ => unreachable!(),
+        _ => unreachable!("gen_struct called with non-struct DeriveInput"),
     };
 
     // Filter fields by compile-time bounds and collect field info
@@ -873,6 +894,8 @@ fn gen_struct(input_ast: &mut DeriveInput, ta: &TypeAttrs, bounds: &VersionBound
                 f.attrs.push(syn::parse_quote! { #[doc = #msg] });
             }
 
+            // Every field of a `Fields::Named` is required by syn to carry
+            // an identifier — this unwrap is an internal invariant.
             fields.push(FieldInfo {
                 ident: f.ident.clone().unwrap(),
                 ty: f.ty.clone(),
@@ -899,7 +922,7 @@ fn gen_struct(input_ast: &mut DeriveInput, ta: &TypeAttrs, bounds: &VersionBound
     };
 
     let cmd = if ta.is_command {
-        let impl_tokens = gen_command_impl(&struct_name, &wn, ta);
+        let impl_tokens = gen_command_impl(&struct_name, &wn, ta)?;
         quote! { #cond #impl_tokens }
     } else {
         TokenStream2::new()
@@ -987,7 +1010,7 @@ fn gen_struct(input_ast: &mut DeriveInput, ta: &TypeAttrs, bounds: &VersionBound
         }
     };
 
-    quote! {
+    Ok(quote! {
         #cond
         #input_ast
         #cond
@@ -997,7 +1020,7 @@ fn gen_struct(input_ast: &mut DeriveInput, ta: &TypeAttrs, bounds: &VersionBound
         #cmd
         #evt
         #display
-    }
+    })
 }
 
 fn gen_struct_ser(
@@ -1318,8 +1341,25 @@ fn gen_struct_de_flatten(name: &syn::Ident, fields: &[FieldInfo]) -> TokenStream
     }
 }
 
-fn gen_command_impl(name: &syn::Ident, wn: &str, ta: &TypeAttrs) -> TokenStream2 {
-    let returns: TokenStream2 = ta.returns.as_deref().unwrap_or("()").parse().unwrap();
+fn gen_command_impl(
+    name: &syn::Ident,
+    wn: &str,
+    ta: &TypeAttrs,
+) -> syn::Result<TokenStream2> {
+    // Validate the user-supplied `returns = "…"` value as a Rust type.
+    // Raw `str::parse` panics on malformed input; parse through `syn` so a
+    // bad attribute becomes a compile_error pointing at the struct ident
+    // instead of an ICE.
+    let returns_src = ta.returns.as_deref().unwrap_or("()");
+    let returns: Type = syn::parse_str(returns_src).map_err(|e| {
+        syn::Error::new(
+            name.span(),
+            format!(
+                "qapi: `returns = \"{}\"` is not a valid Rust type: {}",
+                returns_src, e
+            ),
+        )
+    })?;
     let oob = ta.allow_oob;
     let preconfig = ta.allow_preconfig.present;
     let success = !ta.no_success_response.present;
@@ -1366,7 +1406,7 @@ fn gen_command_impl(name: &syn::Ident, wn: &str, ta: &TypeAttrs) -> TokenStream2
         quote! {}
     };
 
-    quote! {
+    Ok(quote! {
         #[allow(deprecated)]
         impl qapi::QapiCommand for #name {
             type Returns = #returns;
@@ -1381,7 +1421,7 @@ fn gen_command_impl(name: &syn::Ident, wn: &str, ta: &TypeAttrs) -> TokenStream2
         }
 
         #preconfig_impl
-    }
+    })
 }
 
 fn gen_event_impl(name: &syn::Ident, wn: &str) -> TokenStream2 {
