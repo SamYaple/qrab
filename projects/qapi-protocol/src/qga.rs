@@ -44,10 +44,15 @@ impl Qga {
         // RTC, severe clock skew, etc.) duration_since returns Err. For a
         // sync-id any value will do, so fall back to a zero-valued Duration
         // instead of panicking.
+        //
+        // `as_nanos()` returns u128; narrow to u64 first (which wraps around
+        // every ~584 years) and then reinterpret as i64. A negative sync id
+        // is harmless — the guest echoes it verbatim — and this preserves all
+        // 64 bits of entropy instead of silently truncating to i64::MAX.
         let sync_id: i64 = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
-            .as_nanos() as i64;
+            .as_nanos() as u64 as i64;
 
         // Send 0xFF sentinel byte followed by the sync command
         self.writer.write_all(&[0xFF]).await?;
