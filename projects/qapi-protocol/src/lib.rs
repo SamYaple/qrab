@@ -224,11 +224,17 @@ impl Qmp {
                 result = lines.next_line() => {
                     match result {
                         Ok(Some(line)) => {
-                            if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&line) {
-                                if parsed.get("event").is_some() {
-                                    let _ = event_tx.send(line).await;
-                                } else {
-                                    let _ = response_tx.send(parsed).await;
+                            match serde_json::from_str::<serde_json::Value>(&line) {
+                                Ok(parsed) => {
+                                    if parsed.get("event").is_some() {
+                                        let _ = event_tx.send(line).await;
+                                    } else {
+                                        let _ = response_tx.send(parsed).await;
+                                    }
+                                }
+                                Err(e) => {
+                                    tracing::warn!(error = %e, line = %line, "failed to parse QMP JSON line");
+                                    continue;
                                 }
                             }
                         }
@@ -285,8 +291,14 @@ impl Qmp {
         loop {
             tokio::select! {
                 Some(raw) = raw_event_rx.recv() => {
-                    if let Ok(event) = serde_json::from_str::<QmpEvent>(&raw) {
-                        let _ = event_tx.send(event).await;
+                    match serde_json::from_str::<QmpEvent>(&raw) {
+                        Ok(event) => {
+                            let _ = event_tx.send(event).await;
+                        }
+                        Err(e) => {
+                            tracing::warn!(error = %e, line = %raw, "failed to parse QMP event");
+                            continue;
+                        }
                     }
                 }
                 _ = shutdown_rx.changed() => break,
