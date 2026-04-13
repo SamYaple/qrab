@@ -25,10 +25,61 @@ Full rationale: [docs/design-constraints.md](docs/design-constraints.md)
 
 ## Worktree Workflow
 
-- **Always work in worktrees.** Spawn agents with `isolation: "worktree"`. Multiple agents run parallel — shared checkout causes conflicts.
-- **Merge back to working branch.** When agent done, merge its branch into current working branch. Do not leave work stranded in worktree.
-- **Cleanup after merge.** Remove worktree (`git worktree remove`) and delete agent branch once merged. No orphan worktrees, no stale branches.
-- **Verify clean state.** After cleanup run `git worktree list` — only main checkout should remain.
+**Main checkout is sacred.** Never let agents write directly to it. All work happens in worktrees.
+
+### Rules
+
+1. **Every writing agent gets a worktree.** Before spawning any agent that creates/edits files or commits, create a dedicated worktree:
+   ```sh
+   git worktree add ../qrab-<agent-name> -b agent/<agent-name>
+   ```
+   The agent works entirely inside that worktree. Main checkout stays clean.
+
+2. **Read-only agents can read main checkout.** Explore/audit agents that only read files (no writes, no commits) may use the main checkout directly. If an agent needs to write reports or results, it gets a worktree.
+
+3. **One worktree per agent.** Never share a worktree between parallel agents. Each agent gets its own branch and directory.
+
+4. **Merge back sequentially.** When an agent finishes, merge its branch into the current working branch from the main checkout:
+   ```sh
+   # From main checkout
+   git merge agent/<agent-name> --no-ff -m "Merge <agent-name> work"
+   ```
+   Resolve conflicts before merging the next agent.
+
+5. **Cleanup immediately after merge.** Remove worktree and delete branch:
+   ```sh
+   git worktree remove ../qrab-<agent-name>
+   git branch -d agent/<agent-name>
+   ```
+
+6. **Verify clean state.** After all merges:
+   ```sh
+   git worktree list  # Only main checkout should remain
+   git branch | grep agent/  # Should return nothing
+   ```
+
+### When spawning parallel agents
+
+```
+# Before spawning
+for each agent:
+  git worktree add ../qrab-{name} -b agent/{name}
+
+# Spawn agents, each pointed at its worktree path
+
+# After all agents complete
+for each agent (sequentially):
+  git merge agent/{name} --no-ff
+  git worktree remove ../qrab-{name}
+  git branch -d agent/{name}
+```
+
+### Never do
+
+- Write files in main checkout from a sub-agent
+- Run two writing agents against same worktree
+- Leave orphan worktrees or stale `agent/*` branches
+- Commit directly to main checkout from a parallel agent
 
 ## Docs
 
