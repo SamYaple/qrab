@@ -104,17 +104,19 @@ fn excluded_by_bounds(bounds: &VersionBounds, since: Option<&str>, until: Option
     false
 }
 
-/// Check if something should get Rust #[deprecated] based on bounds.
-/// Returns true if deprecated before the min version.
+/// Check if something should get Rust `#[deprecated]` based on bounds.
+/// Returns true if the item was deprecated at or before the minimum
+/// targeted QEMU version — i.e. it is deprecated across the entire
+/// supported range, so the user should be warned at compile time.
 fn rust_deprecated_by_bounds(bounds: &VersionBounds, deprecated: Option<&str>) -> bool {
-    if let (Some(_min), Some(dep)) = (bounds.min, deprecated) {
-        let _dep_ver = parse_version(dep);
-        // If the item is deprecated, mark it with Rust #[deprecated] so the
-        // user gets compiler warnings. We always apply this when the deprecated
-        // attribute is present and bounds are set, since the user has declared
-        // a target range and deprecated items should be flagged.
-        let _ = _dep_ver;
-        return true;
+    if let (Some(min), Some(dep)) = (bounds.min, deprecated) {
+        let dep_ver = parse_version(dep);
+        // Symmetric with `excluded_by_bounds`'s `until <= min` rule: an
+        // item deprecated at or before our minimum target is deprecated
+        // for every supported version, so flag it. Items deprecated only
+        // in newer versions are still valid for older targets and must
+        // not get a blanket `#[deprecated]` attribute.
+        return dep_ver <= min;
     }
     false
 }
