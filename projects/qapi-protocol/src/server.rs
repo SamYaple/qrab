@@ -70,7 +70,7 @@ impl QmpSession {
     pub async fn recv_command(&mut self) -> Result<(String, serde_json::Value)> {
         let mut line = String::new();
         self.reader.read_line(&mut line).await?;
-        if line.is_empty() {
+        if line.trim().is_empty() {
             anyhow::bail!("Client disconnected");
         }
         let cmd: serde_json::Value = serde_json::from_str(line.trim())?;
