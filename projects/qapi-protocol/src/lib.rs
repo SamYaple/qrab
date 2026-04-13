@@ -258,7 +258,9 @@ impl Qmp {
                     if write_half.write_all(command.as_bytes()).await.is_err() {
                         break;
                     }
-                    let _ = write_half.write_all(b"\n").await;
+                    if write_half.write_all(b"\n").await.is_err() {
+                        break;
+                    }
 
                     // Bound the response wait: a hung QEMU would otherwise
                     // block this task forever. On timeout, drop reply_tx
