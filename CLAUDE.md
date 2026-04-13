@@ -23,6 +23,13 @@ Examples: `examples/simple-vm/`, `examples/preconfig-vm/`, `examples/events/`
 
 Full rationale: [docs/design-constraints.md](docs/design-constraints.md)
 
+## Worktree Workflow
+
+- **Always work in worktrees.** Spawn agents with `isolation: "worktree"`. Multiple agents run parallel — shared checkout causes conflicts.
+- **Merge back to working branch.** When agent done, merge its branch into current working branch. Do not leave work stranded in worktree.
+- **Cleanup after merge.** Remove worktree (`git worktree remove`) and delete agent branch once merged. No orphan worktrees, no stale branches.
+- **Verify clean state.** After cleanup run `git worktree list` — only main checkout should remain.
+
 ## Docs
 
 | Doc | When |
