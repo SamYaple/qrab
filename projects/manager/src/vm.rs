@@ -52,8 +52,19 @@ impl VmProcess {
 
 impl Drop for VmProcess {
     fn drop(&mut self) {
-        if let Some(ref mut child) = self.child {
+        if let Some(mut child) = self.child.take() {
             let _ = child.start_kill();
+            // Spawn a reaper onto the current tokio runtime if one is active,
+            // so the child is waited on and does not linger as a zombie. If
+            // Drop happens outside a runtime (e.g. sync test panic unwinding),
+            // we fall back to `kill_on_drop(true)` which tokio set on spawn —
+            // that's best-effort only and may leave a zombie until the parent
+            // exits.
+            if let Ok(handle) = tokio::runtime::Handle::try_current() {
+                handle.spawn(async move {
+                    let _ = child.wait().await;
+                });
+            }
         }
         let _ = std::fs::remove_file(&self.qmp_sock);
         if let Some(ref s) = self.serial_log {
