@@ -176,10 +176,12 @@ impl VmBuilder {
                 args.extend(["-machine".into(), "none".into()]);
             }
             MachineConfig::Bios { memory } => {
-                let machine = self
-                    .arch
-                    .bios_machine()
-                    .expect("BIOS boot not supported for this architecture");
+                let machine = self.arch.bios_machine().ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "BIOS boot not supported for architecture {:?}",
+                        self.arch
+                    )
+                })?;
                 args.extend(["-machine".into(), machine.into()]);
                 args.extend(["-m".into(), memory.clone()]);
             }
@@ -257,6 +259,7 @@ impl VmBuilder {
             .args(&args)
             .stdout(Stdio::null())
             .stderr(Stdio::null())
+            .kill_on_drop(true)
             .spawn()?;
 
         for _ in 0..50 {
