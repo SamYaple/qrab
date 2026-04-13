@@ -254,9 +254,22 @@ impl Qmp {
                     }
                     let _ = write_half.write_all(b"\n").await;
 
-                    match response_rx.recv().await {
-                        Some(response) => { let _ = reply_tx.send(response); }
-                        None => break,
+                    // Bound the response wait: a hung QEMU would otherwise
+                    // block this task forever. On timeout, drop reply_tx
+                    // (client sees "channel closed") and keep going. On
+                    // shutdown, break out of the loop entirely.
+                    tokio::select! {
+                        response = response_rx.recv() => {
+                            match response {
+                                Some(response) => { let _ = reply_tx.send(response); }
+                                None => break,
+                            }
+                        }
+                        _ = shutdown_rx.changed() => break,
+                        _ = tokio::time::sleep(Duration::from_secs(30)) => {
+                            drop(reply_tx);
+                            continue;
+                        }
                     }
                 }
                 _ = shutdown_rx.changed() => break,
