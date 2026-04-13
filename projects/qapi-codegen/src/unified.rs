@@ -378,7 +378,16 @@ pub fn build_unified_registry(qemu_repo: &Path, version_tags: &[&str]) -> Result
             .map(|tag| scope.spawn(move || process_single_version(qemu_repo, tag)))
             .collect();
 
-        handles.into_iter().map(|h| h.join().unwrap()).collect()
+        // Propagate worker panics as errors instead of silently unwrapping,
+        // which would abort the process and obscure which tag failed.
+        handles
+            .into_iter()
+            .map(|h| {
+                h.join().unwrap_or_else(|e| {
+                    Err(anyhow::anyhow!("worker thread panicked: {:?}", e))
+                })
+            })
+            .collect()
     });
 
     eprintln!(
@@ -1423,7 +1432,16 @@ pub fn build_qga_registry(qemu_repo: &Path, version_tags: &[&str]) -> Result<Uni
             .iter()
             .map(|tag| scope.spawn(move || process_single_version_qga(qemu_repo, tag)))
             .collect();
-        handles.into_iter().map(|h| h.join().unwrap()).collect()
+        // Propagate worker panics as errors instead of silently unwrapping,
+        // which would abort the process and obscure which tag failed.
+        handles
+            .into_iter()
+            .map(|h| {
+                h.join().unwrap_or_else(|e| {
+                    Err(anyhow::anyhow!("worker thread panicked: {:?}", e))
+                })
+            })
+            .collect()
     });
 
     eprintln!(
