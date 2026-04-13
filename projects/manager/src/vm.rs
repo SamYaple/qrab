@@ -4,7 +4,8 @@ use std::process::Stdio;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 use tokio::process::{Child, Command};
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
+use tokio::task::JoinHandle;
 
 use qapi::QapiCommand;
 use qapi_protocol::{Qmp, QmpEvent};
@@ -20,26 +21,60 @@ static SOCKET_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 /// QEMU process handle with cleanup logic.
 ///
-/// Implements `Drop` to ensure the QEMU process is killed and temp files
-/// are removed even if the owning `PreconfigVm` or `Vm` is dropped without
-/// calling `shutdown()`. The `cleanup()` method provides async cleanup;
-/// `Drop` provides best-effort sync cleanup as a safety net.
+/// The `Child` is owned by a monitor task spawned at construction time;
+/// that task awaits `child.wait()` and logs an error via `tracing` if the
+/// process exits unexpectedly. `cleanup()` signals the monitor to kill the
+/// child and waits for it to finish. `Drop` is a best-effort fallback that
+/// triggers the same shutdown signal without blocking.
 struct VmProcess {
-    child: Option<Child>,
+    shutdown: Option<oneshot::Sender<()>>,
+    monitor: Option<JoinHandle<()>>,
     qmp_sock: PathBuf,
     serial_log: Option<PathBuf>,
     vnc_sock: Option<PathBuf>,
 }
 
 impl VmProcess {
-    /// Async cleanup: kill the process, wait for exit, remove temp files.
-    /// Safe to call multiple times (idempotent).
+    /// Spawn a monitor task that owns the `Child` and waits for it to exit.
+    ///
+    /// The task races `child.wait()` against a shutdown oneshot: if the
+    /// oneshot fires first, the task kills the child and reaps it; if the
+    /// child exits on its own, the task logs the exit status as an error
+    /// so the user is not left hanging on a dead QMP connection.
+    fn spawn_monitor(mut child: Child) -> (oneshot::Sender<()>, JoinHandle<()>) {
+        let (tx, rx) = oneshot::channel::<()>();
+        let handle = tokio::spawn(async move {
+            tokio::select! {
+                _ = rx => {
+                    let _ = child.start_kill();
+                    let _ = child.wait().await;
+                }
+                res = child.wait() => {
+                    match res {
+                        Ok(status) => tracing::error!(
+                            "QEMU process exited unexpectedly: {:?}",
+                            status
+                        ),
+                        Err(e) => tracing::error!(
+                            "failed to wait on QEMU process: {}",
+                            e
+                        ),
+                    }
+                }
+            }
+        });
+        (tx, handle)
+    }
+
+    /// Async cleanup: signal monitor to kill the child, wait for exit,
+    /// remove temp files. Safe to call multiple times (idempotent).
     async fn cleanup(&mut self) {
-        if let Some(ref mut child) = self.child {
-            let _ = child.start_kill();
-            let _ = child.wait().await;
+        if let Some(tx) = self.shutdown.take() {
+            let _ = tx.send(());
         }
-        self.child = None;
+        if let Some(h) = self.monitor.take() {
+            let _ = h.await;
+        }
         let _ = tokio::fs::remove_file(&self.qmp_sock).await;
         if let Some(ref s) = self.serial_log {
             let _ = tokio::fs::remove_file(s).await;
@@ -52,18 +87,17 @@ impl VmProcess {
 
 impl Drop for VmProcess {
     fn drop(&mut self) {
-        if let Some(mut child) = self.child.take() {
-            let _ = child.start_kill();
-            // Spawn a reaper onto the current tokio runtime if one is active,
-            // so the child is waited on and does not linger as a zombie. If
-            // Drop happens outside a runtime (e.g. sync test panic unwinding),
-            // we fall back to `kill_on_drop(true)` which tokio set on spawn —
-            // that's best-effort only and may leave a zombie until the parent
-            // exits.
-            if let Ok(handle) = tokio::runtime::Handle::try_current() {
-                handle.spawn(async move {
-                    let _ = child.wait().await;
-                });
+        // Signal the monitor task to kill + reap the child. If we're inside
+        // a tokio runtime the monitor task will continue running (detached)
+        // and reap properly. If not, abort the handle — this drops the
+        // `Child` inside the task which triggers `kill_on_drop(true)`, at
+        // best effort with no reaper if there is no runtime.
+        if let Some(tx) = self.shutdown.take() {
+            let _ = tx.send(());
+        }
+        if let Some(h) = self.monitor.take() {
+            if tokio::runtime::Handle::try_current().is_err() {
+                h.abort();
             }
         }
         let _ = std::fs::remove_file(&self.qmp_sock);
@@ -301,11 +335,14 @@ impl VmBuilder {
             }
         }
 
+        let (shutdown, monitor) = VmProcess::spawn_monitor(child);
+
         Ok(PreconfigVm {
             qmp,
             events,
             process: VmProcess {
-                child: Some(child),
+                shutdown: Some(shutdown),
+                monitor: Some(monitor),
                 qmp_sock,
                 serial_log,
                 vnc_sock,
