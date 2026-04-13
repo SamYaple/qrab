@@ -51,18 +51,19 @@ impl Qmp {
         // Read greeting synchronously before spawning workers
         let mut greeting_line = String::new();
         reader.read_line(&mut greeting_line).await?;
-        if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&greeting_line) {
-            if let Some(qemu) = parsed
-                .get("QMP")
-                .and_then(|q| q.get("version"))
-                .and_then(|v| v.get("qemu"))
-            {
-                let major = qemu["major"].as_u64().unwrap_or(0) as u32;
-                let minor = qemu["minor"].as_u64().unwrap_or(0) as u32;
-                let micro = qemu["micro"].as_u64().unwrap_or(0) as u32;
-                qapi::set_qemu_version(major, minor, micro);
-            }
-        }
+        let parsed: serde_json::Value = serde_json::from_str(&greeting_line)
+            .map_err(|e| anyhow::anyhow!("failed to parse QMP greeting: {}", e))?;
+        let qemu = parsed
+            .get("QMP")
+            .and_then(|q| q.get("version"))
+            .and_then(|v| v.get("qemu"))
+            .ok_or_else(|| {
+                anyhow::anyhow!("QMP greeting missing QMP.version.qemu: {}", parsed)
+            })?;
+        let major = qemu["major"].as_u64().unwrap_or(0) as u32;
+        let minor = qemu["minor"].as_u64().unwrap_or(0) as u32;
+        let micro = qemu["micro"].as_u64().unwrap_or(0) as u32;
+        qapi::set_qemu_version(major, minor, micro);
 
         // Send qmp_capabilities and read the response
         let mut write_half = write_half;
