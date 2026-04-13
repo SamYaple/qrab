@@ -131,6 +131,13 @@ impl Qga {
         )
         .await
         .map_err(|_| anyhow::anyhow!("QGA command timed out"))??;
+        // `read_line` returns Ok(0) at EOF, leaving the buffer untouched;
+        // a well-behaved server also sends full JSON lines so any blank
+        // payload indicates the peer hung up. Bail with a meaningful
+        // message instead of feeding the empty string into serde_json.
+        if line.trim().is_empty() {
+            anyhow::bail!("QGA connection closed");
+        }
         let resp: serde_json::Value = serde_json::from_str(line.trim())?;
 
         if let Some(error) = resp.get("error") {
