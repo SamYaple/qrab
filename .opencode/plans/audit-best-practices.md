@@ -1,52 +1,61 @@
 # Best Practices Audit Report
 
-Generated: 2026-04-13
+Generated: 2026-04-13 | Re-audited: 2026-04-13
 
-## 1. Workspace Structure
+## Prior Issues Status
 
-- **No `[workspace.dependencies]`** (Medium) — Duplicated dep versions across crates
-- **Inconsistent editions** (Low) — codegen=2024, rest=2021
-- **No `[workspace.lints]`** (Medium) — No clippy/lint enforcement
+### HIGH
+| # | Issue | Status |
+|---|-------|--------|
+| 1 | No `thiserror` — anyhow in public APIs | STILL PRESENT |
+| 2 | Cancellation safety in `tokio::select!` | **CORRECTED: NOT A BUG** — `Lines::next_line()` is cancellation-safe per tokio docs |
+| 3 | syn v1 unmaintained in qapi-macros | STILL PRESENT |
+| 4 | No CI pipeline | STILL PRESENT |
 
-## 2. Error Handling
+### MEDIUM
+| # | Issue | Status |
+|---|-------|--------|
+| 5 | No `[workspace.dependencies]` | STILL PRESENT |
+| 6 | Inconsistent editions (codegen=2024, rest=2021) | STILL PRESENT |
+| 7 | No `[workspace.lints]` | STILL PRESENT |
+| 8 | Missing C-COMMON traits | STILL PRESENT |
+| 9 | Version = raw tuple | STILL PRESENT |
+| 10 | No `Drop` on `Qmp` | STILL PRESENT |
+| 11 | Public fields bypass typestate | STILL PRESENT |
+| 12 | No unit tests in library crates | PARTIALLY FIXED (codegen has 24 test modules; protocol/manager still zero) |
+| 13 | No connection timeout | STILL PRESENT |
+| 14 | No cargo-deny | STILL PRESENT |
 
-- **No `thiserror`** (High) — Library crates expose `anyhow::Error` in public APIs
-- **Silent `.ok()` on OnceLock** (Low) — `set_qemu_version` drops errors silently
+### LOW
+| # | Issue | Status |
+|---|-------|--------|
+| 15 | Silent `.ok()` on OnceLock | STILL PRESENT |
+| 16 | Tracing inconsistent | STILL PRESENT (codegen: 29 eprintln! calls) |
+| 17 | No property-based tests | STILL PRESENT |
 
-## 3. API Design
+## NEW Issues Found
 
-- **Missing C-COMMON traits** (Medium) — QmpEvent missing PartialEq/Eq, Timestamp missing Ord/Hash
-- **Version = raw tuple** (Medium) — Should be `QemuVersion` struct
-- **No `Drop` on `Qmp`** (Medium) — Background tasks leak
-- **Public fields bypass typestate** (Low) — `pub qmp` on PreconfigVm/Vm
+### HIGH
+- **N1: `unwrap()` in library code** — `qga.rs:45` `.unwrap()` on `duration_since(UNIX_EPOCH)` panics if clock before epoch
+- **N2: No `#[must_use]` anywhere** — `qemu_version()`, `execute()` return values silently discardable
 
-## 4. CI/CD
+### MEDIUM
+- **N3: Duplicated execute logic** — `Qmp::execute()` and `Qga::execute_raw()` nearly identical JSON-RPC handling
+- **N4: `pub use generated::*` glob re-export** — dumps ~500+ types into crate root namespace
+- **N5: No `Send`/`Sync` assertions** — async types need compile-time verification
+- **N6: `resolver = "3"` but edition 2021** — inconsistent
+- **N7: Dead code allows in generated code too broad** — could mask real issues
 
-- **No CI pipeline** (High) — No clippy, fmt, or test automation
-
-## 5. Tracing
-
-- **Inconsistent** (Low) — manager uses tracing, protocol has none, codegen uses eprintln
-
-## 6. Testing
-
-- **No unit tests in library crates** (Medium) — Only codegen has #[cfg(test)]
-- **No property-based tests** (Low)
-
-## 7. Async
-
-- **Cancellation safety** (High) — `Lines::next_line()` not cancellation-safe in `tokio::select!`
-- **No connection timeout** (Medium) — `Qmp::new()` blocks forever if QEMU hangs
-
-## 8. Dependencies
-
-- **No cargo-deny** (Medium) — No license/advisory auditing
-- **syn v1 unmaintained** (High) — qapi-macros still on syn 1
+### LOW
+- **N8: No `Debug` on `Qga`** — `Qmp` has Debug derive, `Qga` doesn't
+- **N9: No doc-tests** — zero runnable examples in rustdoc
 
 ## Priority Summary
 
 | Priority | Issues |
 |----------|--------|
-| **High** | No typed errors, cancellation safety, syn v1, no CI |
-| **Medium** | workspace.dependencies, lints, traits, version type, Drop, unit tests, timeout, cargo-deny |
-| **Low** | Editions, OnceLock, public fields, tracing, property tests |
+| **High** | anyhow public APIs, syn v1, no CI, unwrap in lib, no must_use |
+| **Medium** | workspace.deps, lints, traits, version type, Drop, typestate bypass, timeout, cargo-deny, execute dedup, glob re-export, Send/Sync |
+| **Low** | OnceLock, tracing, property tests, Qga Debug, doc-tests |
+
+**Top 3 actions:** Add CI (catches half these), replace anyhow with thiserror, upgrade syn v1→v2.

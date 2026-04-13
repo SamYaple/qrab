@@ -1,154 +1,120 @@
 # Bug Audit Report
 
-Generated: 2026-04-13
+Generated: 2026-04-13 | Re-audited: 2026-04-13
 
-## BUG 1 — Race condition: QMP event interleaving with command responses
+## Prior Bugs Status
 
-**Severity: CRITICAL**
+| # | Bug | Severity | Status |
+|---|-----|----------|--------|
+| 1 | QMP response/event interleave race | Critical | STILL PRESENT |
+| 2 | No Drop on Qmp — task leak | High | STILL PRESENT |
+| 3 | `as i64` nanos truncation | High | STILL PRESENT |
+| 4 | OnceLock silently drops multi-VM version | High | STILL PRESENT |
+| 5 | Zombie processes | Medium | STILL PRESENT |
+| 6 | `.expect()` panic on ARM+BIOS | Medium | STILL PRESENT |
+| 7 | No early-exit on QEMU crash | Medium | STILL PRESENT |
+| 8 | QEMU orphaned on version mismatch | Medium | STILL PRESENT |
+| 9 | Empty tags unwrap | Low | STILL PRESENT |
+| 10 | `parent().unwrap()` | — | **FALSE POSITIVE** (`.parent()` returns `Some("")` for bare filenames) |
+| 11 | panic! in IR processing | Low | STILL PRESENT |
+| 12 | thread join masks panics | Low | STILL PRESENT |
+| 13 | Alternate deser order-dependent | Medium | STILL PRESENT |
+| 14 | deprecated_by_bounds broken | Low | STILL PRESENT |
 
-`projects/qapi-protocol/src/lib.rs:182-230`
+## NEW Bugs Found (Re-audit)
 
-`read_loop` classifies messages as events (has `"event"` key) or responses (everything else). If unsolicited non-event message arrives, it gets routed as response, pairing with wrong command's reply_tx. Response ordering can break with interleaved events.
+### BUG 15 — shutdown may not interrupt read_loop
 
-**Fix:** Tag requests with IDs (`"id"` field in QMP). Match responses to requests by ID.
+**Severity: MEDIUM** | `projects/qapi-protocol/src/lib.rs:169-180`
 
----
+`shutdown()` sends on `shutdown_signal`, then awaits handles sequentially. If QEMU flooding events, `tokio::select!` may pick `next_line()` branch over shutdown. Shutdown delayed indefinitely.
 
-## BUG 2 — `Qmp::Drop` missing — background tasks leak
-
-**Severity: HIGH**
-
-`projects/qapi-protocol/src/lib.rs:30-38`
-
-`Qmp` stores `JoinHandle`s but has no `Drop` impl. `tokio::select!` is random by default — task could be stuck in `lines.next_line()` indefinitely.
-
-**Fix:** Impl `Drop` for `Qmp` that aborts handles on drop.
-
----
-
-## BUG 3 — `as i64` truncation in QGA sync ID
-
-**Severity: HIGH**
-
-`projects/qapi-protocol/src/qga.rs:43-46`
-
-`as_nanos()` returns `u128`, cast to `i64` truncates. `unwrap()` panics if clock before epoch.
-
-**Fix:** Use `as_millis() as i64` or `as_secs() as i64`.
+**Fix:** After sending shutdown signal, abort `read_handle` with timeout.
 
 ---
 
-## BUG 4 — `OnceLock` silently drops second `set_qemu_version` call
+### BUG 16 — write_loop blocks forever if QEMU hangs
 
-**Severity: HIGH**
+**Severity: HIGH** | `projects/qapi-protocol/src/lib.rs:223`
 
-`projects/qapi/src/lib.rs:42-44`
+After writing command, `write_loop` waits on `response_rx.recv()` outside any `select!`. If QEMU never responds, blocks forever. No timeout. Blocks all subsequent commands.
 
-`.ok()` silently discards failure. Multi-VM same process = second version silently wrong.
-
-**Fix:** Use `AtomicU32` or `Mutex`. Or store version per-`Qmp` instance.
+**Fix:** Wrap `response_rx.recv()` in `tokio::select!` with shutdown + timeout.
 
 ---
 
-## BUG 5 — `VmProcess::Drop` doesn't wait for child — zombie processes
+### BUG 17 — Greeting parse failure silently ignored
 
-**Severity: MEDIUM**
+**Severity: MEDIUM** | `projects/qapi-protocol/src/lib.rs:54-65`
 
-`projects/manager/src/vm.rs:53-66`
+`if let Ok(parsed)` silently proceeds on corrupt greeting. Version stays `(0,0,0)`. Confusing downstream errors.
 
-`Drop` calls `child.start_kill()` but never `child.wait()`. Zombie accumulation.
-
-**Fix:** Add `child.try_wait()` loop or blocking `child.wait()` in Drop.
+**Fix:** Bail on greeting parse failure with descriptive error.
 
 ---
 
-## BUG 6 — `.expect()` panic in `MachineConfig::Bios` on ARM
+### BUG 18 — Event before caps response misrouted
 
-**Severity: MEDIUM** | `projects/manager/src/vm.rs:182`
+**Severity: MEDIUM** | `projects/qapi-protocol/src/lib.rs:73-81`
 
-**Fix:** Return `Result` from `spawn()`.
+QEMU can emit events between greeting and capabilities response. If event arrives first, parsed as caps response. Negotiation appears to succeed but caps response never consumed.
 
----
-
-## BUG 7 — Socket poll loop: no early exit on QEMU crash
-
-**Severity: MEDIUM** | `projects/manager/src/vm.rs:262-267`
-
-**Fix:** Poll `child.try_wait()` in loop. Bail if child exited.
+**Fix:** Loop reading lines, skip events (those with `"event"` key), until response received.
 
 ---
 
-## BUG 8 — QEMU orphaned on version check failure
+### BUG 19 — Empty line vs disconnect in mock server
 
-**Severity: MEDIUM** | `projects/manager/src/vm.rs:275-288`
+**Severity: LOW** | `projects/qapi-protocol/src/server.rs:71-76`
 
-**Fix:** Kill child before bailing or wrap in VmProcess earlier.
+Client sends `"\n"` → `from_str("")` → confusing serde error instead of "client disconnected".
 
----
-
-## BUG 9 — Empty tag list panics
-
-**Severity: LOW** | `projects/qapi-codegen/src/main.rs:33-34`
-
-**Fix:** Check `tags.is_empty()` and bail.
+**Fix:** Check `line.trim().is_empty()` after read.
 
 ---
 
-## BUG 10 — `schema_file.parent().unwrap()` panic
+### BUG 20 — version_str clamps major to minimum 1
 
-**Severity: LOW** | `projects/qapi-codegen/src/lib.rs:100`
+**Severity: LOW** | `projects/qapi-codegen/src/unified.rs:21-23`
 
----
+Version `(0, x, y)` silently becomes `(1, x, y)`. Corrupts pre-1.0 version annotations.
 
-## BUG 11 — `unreachable!`/`panic!` in IR processing
-
-**Severity: LOW** | `projects/qapi-codegen/src/qapi_ir/process_qapi.rs` (multiple lines)
-
-**Fix:** Return `Result` with context.
+**Fix:** Remove `.max(1)` or document why needed.
 
 ---
 
-## BUG 12 — Thread join masks panics
+### BUG 21 — Vm/PreconfigVm QMP task leak on panic
 
-**Severity: LOW** | `projects/qapi-codegen/src/unified.rs:383, 1428`
+**Severity: LOW** | `projects/manager/src/vm.rs:315-370,379-440`
 
-**Fix:** `h.join().unwrap_or_else(|e| std::panic::resume_unwind(e))`
-
----
-
-## BUG 13 — Alternate enum deser order-dependent
-
-**Severity: MEDIUM** | `projects/qapi-macros/src/lib.rs:716-754`
-
-**Fix:** Match on JSON type (`is_string()`, `is_number()`) before trying variants.
-
----
-
-## BUG 14 — `rust_deprecated_by_bounds` always returns true
-
-**Severity: LOW** | `projects/qapi-macros/src/lib.rs:109-120`
-
-`_dep_ver` computed but unused. Always returns `true`.
-
-**Fix:** `return dep_ver <= min;`
+If user code panics holding Vm, VmProcess::Drop kills child (good), but Qmp tasks leak (ties to BUG 2).
 
 ---
 
 ## Summary
 
-| # | Bug | Severity | Crate |
-|---|-----|----------|-------|
-| 1 | QMP response/event interleave race | Critical | qapi-protocol |
-| 2 | No Drop on Qmp — task leak | High | qapi-protocol |
-| 3 | `as i64` nanos truncation | High | qapi-protocol |
-| 4 | OnceLock silently drops multi-VM version | High | qapi |
-| 5 | Zombie processes | Medium | manager |
-| 6 | `.expect()` panic on ARM+BIOS | Medium | manager |
-| 7 | No early-exit on QEMU crash | Medium | manager |
-| 8 | QEMU orphaned on version mismatch | Medium | manager |
-| 9 | Empty tags unwrap | Low | qapi-codegen |
-| 10 | parent().unwrap() | Low | qapi-codegen |
-| 11 | panic! in IR processing | Low | qapi-codegen |
-| 12 | thread join masks panics | Low | qapi-codegen |
-| 13 | Alternate deser order-dependent | Medium | qapi-macros |
-| 14 | deprecated_by_bounds broken | Low | qapi-macros |
+| # | Bug | Severity | Crate | Status |
+|---|-----|----------|-------|--------|
+| 1 | QMP response/event interleave race | Critical | qapi-protocol | OPEN |
+| 2 | No Drop on Qmp — task leak | High | qapi-protocol | OPEN |
+| 3 | `as i64` nanos truncation | High | qapi-protocol | OPEN |
+| 4 | OnceLock silently drops multi-VM version | High | qapi | OPEN |
+| 5 | Zombie processes | Medium | manager | OPEN |
+| 6 | `.expect()` panic on ARM+BIOS | Medium | manager | OPEN |
+| 7 | No early-exit on QEMU crash | Medium | manager | OPEN |
+| 8 | QEMU orphaned on version mismatch | Medium | manager | OPEN |
+| 9 | Empty tags unwrap | Low | qapi-codegen | OPEN |
+| 10 | parent().unwrap() | — | qapi-codegen | FALSE POSITIVE |
+| 11 | panic! in IR processing | Low | qapi-codegen | OPEN |
+| 12 | thread join masks panics | Low | qapi-codegen | OPEN |
+| 13 | Alternate deser order-dependent | Medium | qapi-macros | OPEN |
+| 14 | deprecated_by_bounds broken | Low | qapi-macros | OPEN |
+| 15 | shutdown may not interrupt read_loop | Medium | qapi-protocol | NEW |
+| 16 | write_loop blocks forever on hung QEMU | High | qapi-protocol | NEW |
+| 17 | Greeting parse failure silent | Medium | qapi-protocol | NEW |
+| 18 | Event before caps misrouted | Medium | qapi-protocol | NEW |
+| 19 | Empty line in mock server | Low | qapi-protocol | NEW |
+| 20 | version_str clamps major to 1 | Low | qapi-codegen | NEW |
+| 21 | QMP task leak on panic | Low | manager | NEW |
+
+**Totals:** 1 critical, 4 high, 7 medium, 8 low, 1 false positive. 7 new since first audit. Zero fixed.

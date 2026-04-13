@@ -1,72 +1,76 @@
 # Refactoring Audit Report
 
-Generated: 2026-04-13
+Generated: 2026-04-13 | Re-audited: 2026-04-13
 
 **Non-generated source:** ~18,343 lines / 75 files
-**Largest:** unified.rs (1631), integration.rs (1599), qapi-macros/lib.rs (1343), process_qapi.rs (945)
+**Largest:** unified.rs (1631), integration.rs (1599), qapi-macros/lib.rs (1343), process_qapi.rs (945), vm.rs (440)
 
-## 1. QMP/QGA codegen duplication — ~200 lines (safe)
+## Prior Opportunities Status
 
-`unified.rs`: `generate_unified_code` / `generate_qga_code` 90% identical. Same for `build_*_registry` and `process_single_version*`.
+All 10 prior opportunities STILL APPLICABLE. Zero resolved.
 
-**Approach:** Extract shared functions. Pass `SchemaKind` enum.
+| # | Opportunity | Lines | Risk | Status |
+|---|---|---:|---|---|
+| 1 | QMP/QGA codegen unification | 200 | safe | STILL OPEN |
+| 2 | Session dedup | 40 | safe | STILL OPEN |
+| 3 | Response parsing | 25 | safe | STILL OPEN |
+| 4 | has_feature generic | 15 | safe | STILL OPEN |
+| 5 | Remove RefStrategy | 10 | safe | STILL OPEN |
+| 6 | Remove dead variant | 20 | safe | STILL OPEN |
+| 7 | condition_cfg merge | 10 | safe | STILL OPEN |
+| 8 | Ord dedup | 30 | safe | STILL OPEN |
+| 9 | Version attr helper | 20 | safe | STILL OPEN |
+| 10 | Ser overlap | 40 | moderate | STILL OPEN |
 
-## 2. QmpSession/QgaSession dedup — ~40 lines (safe)
+## NEW Opportunities
 
-`server.rs`: `recv_command`, `send_return`, `send_error` identical between both.
+### 11. Sort key extraction — ~20 lines (safe)
 
-**Approach:** Extract `JsonRpcSession` base struct.
+`unified.rs` L990-999 and L1519-1528: identical sort closure for `UnifiedType` rust name. Extract `fn unified_type_rust_name()`.
 
-## 3. Response parsing dedup — ~25 lines (safe)
+### 12. Classify+partition codegen pattern — ~60 lines (safe)
 
-`lib.rs` + `qga.rs`: empty-object-to-null logic duplicated.
+`generate_unified_code` L1002-1056 and `generate_qga_code` L1531-1574: identical 2-pass pattern building command/event name sets. Sub-opportunity of #1.
 
-**Approach:** `fn parse_qmp_response<T: DeserializeOwned>(resp: Value) -> Result<T>`
+### 13. attrs_equivalent union loop — ~30 lines (safe)
 
-## 4. has_deprecated/unstable → has_feature — ~15 lines (safe)
+Same attribute-unioning loop in `merge_enum` L567-576, variant merge L604-613, `merge_struct` L720-730, field merge L761-769. Four copies. Extract `fn union_attrs(target, source)`.
 
-**Approach:** `fn has_feature(meta: &Metadata, name: &str) -> bool`
+### 14. VmProcess cleanup sync/async duplication — ~15 lines (safe)
 
-## 5. RefStrategy single-variant enum — ~10 lines (safe)
+`vm.rs` L37-50 (`cleanup()`) vs L54-65 (`Drop`): same file removal logic.
 
-Dead abstraction. Remove enum, pass HashMap directly.
+### 15. Accessor duplication — ~10 lines (safe)
 
-## 6. EnumVariantKind::Struct dead variant — ~20 lines (safe)
+`PreconfigVm::serial_log` L327-329 identical to `Vm::serial_log` L389-391. Same for `vnc_sock`. Could expose via trait.
 
-Never constructed. Remove variant + match arm.
+### 16. Deprecation warning gen pattern — ~15 lines (safe)
 
-## 7. condition_cfg duplication — ~10 lines (safe)
+`qapi-macros/lib.rs`: field-level deprecation warning at L957-965 duplicated at L1036-1044. Extract helper.
 
-**Approach:** `condition_cfg_attr` calls `condition_cfg` internally.
+### 17. Nested attr retain — ~5 lines (safe)
 
-## 8. Ord/PartialOrd boilerplate — ~30 lines (safe)
-
-Four identical impls delegating to `name.cmp()`. Reorder fields + derive, or macro.
-
-## 9. Version attr stripping repeated — ~20 lines (safe)
-
-Same `.retain()` filter 4+ times.
-
-**Approach:** `fn strip_version_attrs(attrs: &mut Vec<Attribute>)`
-
-## 10. Ser codegen overlap — ~40 lines (moderate)
-
-`gen_struct_ser` / `gen_struct_ser_flatten` share boilerplate.
-
-**Approach:** Extract `wrap_ser_body()`.
+`unified.rs` L1222 and L1302: identical `.retain()` for nested deprecated/unstable attrs. Fold into `strip_version_attrs`.
 
 ## Summary
 
-| # | Opportunity | Lines | Risk |
-|---|---|---:|---|
-| 1 | QMP/QGA codegen unification | 200 | safe |
-| 2 | Session dedup | 40 | safe |
-| 3 | Response parsing | 25 | safe |
-| 4 | has_feature generic | 15 | safe |
-| 5 | Remove RefStrategy | 10 | safe |
-| 6 | Remove dead variant | 20 | safe |
-| 7 | condition_cfg merge | 10 | safe |
-| 8 | Ord dedup | 30 | safe |
-| 9 | Version attr helper | 20 | safe |
-| 10 | Ser overlap | 40 | moderate |
-| | **Total** | **~410** | |
+| # | Opportunity | Lines | Risk | Status |
+|---|---|---:|---|---|
+| 1 | QMP/QGA codegen unification | 200 | safe | OPEN |
+| 2 | Session dedup | 40 | safe | OPEN |
+| 3 | Response parsing | 25 | safe | OPEN |
+| 4 | has_feature generic | 15 | safe | OPEN |
+| 5 | Remove RefStrategy | 10 | safe | OPEN |
+| 6 | Remove dead variant | 20 | safe | OPEN |
+| 7 | condition_cfg merge | 10 | safe | OPEN |
+| 8 | Ord dedup | 30 | safe | OPEN |
+| 9 | Version attr helper | 20 | safe | OPEN |
+| 10 | Ser overlap | 40 | moderate | OPEN |
+| 11 | Sort key extraction | 20 | safe | NEW |
+| 12 | Classify+partition | 60 | safe | NEW |
+| 13 | attrs union loop | 30 | safe | NEW |
+| 14 | VmProcess cleanup | 15 | safe | NEW |
+| 15 | Accessor dedup | 10 | safe | NEW |
+| 16 | Deprecation warn | 15 | safe | NEW |
+| 17 | Nested attr retain | 5 | safe | NEW |
+| | **Total** | **~565** | | |

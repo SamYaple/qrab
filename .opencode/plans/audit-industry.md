@@ -1,60 +1,57 @@
 # Industry Standard Features Audit
 
-Generated: 2026-04-13 | Compared against: libvirt, proxmox-ve, cloud-hypervisor
+Generated: 2026-04-13 | Re-audited: 2026-04-13
 
-## 1. VM Lifecycle — PARTIAL (CRITICAL)
+Compared against: libvirt, proxmox-ve, cloud-hypervisor
 
-Missing: graceful shutdown with timeout+fallback, state machine tracking, wait-for-event helpers.
+## Prior Gaps Status
 
-## 2. Storage Management — MISSING (CRITICAL)
+| # | Feature | Prior Status | Current Status |
+|---|---------|-------------|----------------|
+| 1 | VM Lifecycle | PARTIAL | **IMPROVED** — BMC adds VmState enum, VmPhase. Still missing graceful shutdown escalation |
+| 2 | Storage Management | MISSING | **IMPROVED** — BMC has attach_disks() with blockdev-add chain. Not in manager crate |
+| 3 | Network Management | MISSING | STILL MISSING — zero progress |
+| 4 | Monitoring / Health | PARTIAL | **IMPROVED** — typed events generated (732 lines), BMC broadcasts events. wait_for_event exists but test-only |
+| 5 | Migration | MISSING | STILL MISSING |
+| 6 | Snapshots | MISSING | STILL MISSING |
+| 7 | Device Management | MISSING | **PARTIAL** — device_add used in attach_disks. No typed device builders |
+| 8 | Guest Agent | PARTIAL | STILL PARTIAL — QGA client exists, no manager integration |
+| 9 | Configuration | PARTIAL | **MINOR PROGRESS** — memory config as string. Still no SMP/NUMA/CPU model |
+| 10 | Observability | MINIMAL | STILL MINIMAL — few tracing calls |
+| 11 | Connection Pooling | MISSING | N/A (correctly scoped as single-VM) |
+| 12 | Retry / Reconnect | MISSING | STILL MISSING (CRITICAL) |
 
-Raw QMP commands exist. Manager has zero storage abstractions. Need `DiskBuilder`, `vm.attach_disk()`.
+## NEW Gaps Identified
 
-## 3. Network Management — MISSING (HIGH)
+### 13. BMC Crate Not Documented (LOW)
+`projects/bmc/` exists but not in CLAUDE.md workspace table.
 
-Need `NetBuilder` wrapping `netdev_add` + `device_add` for tap/user/bridge.
+### 14. Graceful Shutdown Escalation (HIGH)
+No `shutdown_with_timeout(Duration)` that does ACPI powerdown → wait → force kill. User must orchestrate manually.
 
-## 4. Monitoring / Health — PARTIAL (CRITICAL)
+### 15. QMP Out-of-Band Commands (MEDIUM)
+`QapiCommand::ALLOW_OOB` exists. Negotiation doesn't enable OOB. Needed for non-blocking queries during migration.
 
-Have raw event channel. Missing: typed event deser, filtering, health checks, resource queries.
+### 16. QMP Command Timeout (CRITICAL)
+`execute()` blocks indefinitely on hung QEMU. No per-command timeout.
 
-## 5. Migration — MISSING (HIGH)
+### 17. Chardev / Serial Console (MEDIUM)
+VNC console exists (BMC). No interactive serial console access.
 
-Need `MigrationBuilder` with progress polling, postcopy, cancel, event-driven completion.
+### 18. QEMU Process Monitoring (CRITICAL)
+No monitoring of child process exit. If QEMU crashes, state stays Running. Need task watching `child.wait()`.
 
-## 6. Snapshots — MISSING (HIGH)
+### 19. Socket Permissions (MEDIUM)
+QMP socket in `/tmp` with default perms. Any local user can connect.
 
-Need `vm.snapshot(name)` wrapping `savevm`. External disk-only via `transaction`. QGA freeze/thaw coordination.
-
-## 7. Device Management — MISSING (MEDIUM)
-
-Need typed device configs: VfioDevice, UsbDevice, VirtioDevice. `vm.add_device()` / `vm.remove_device()`.
-
-## 8. Guest Agent — PARTIAL (HIGH)
-
-Have Qga client + 44 commands. Missing: manager integration, file transfer helpers, freeze/thaw coordination.
-
-## 9. Configuration — PARTIAL (MEDIUM)
-
-Missing: SMP config, NUMA topology, CPU model selection, memory backend (hugepages, shared).
-
-## 10. Observability — MINIMAL (MEDIUM)
-
-Single `tracing::debug!`. Need spans for QMP commands, events, lifecycle, migration. Optional metrics.
-
-## 11. Connection Pooling — MISSING (LOW)
-
-Single-VM per Vm correct. Optional VmRegistry for orchestration.
-
-## 12. Retry / Reconnect — MISSING (CRITICAL)
-
-Connection drops = dead. Need `QmpReconnect` with exponential backoff, re-negotiate, health ping.
+### 20. Multi-disk Interface Support (LOW)
+Only `virtio-blk-pci`. Need scsi, ide, sata for guest compatibility.
 
 ## Priority Summary
 
 | Priority | Features |
 |----------|----------|
-| **CRITICAL** | Lifecycle state, Event typing, Storage, Retry/reconnect |
-| **HIGH** | Migration, Snapshots, Network, Guest agent integration |
-| **MEDIUM** | Device mgmt, Config (SMP/NUMA), Observability |
-| **LOW** | Connection pooling |
+| **CRITICAL** | Retry/reconnect (#12), QMP command timeout (#16), QEMU process death detection (#18) |
+| **HIGH** | Graceful shutdown escalation (#14), Migration (#5), Snapshots (#6), Network (#3), DiskBuilder in manager (not BMC-only), Guest agent integration (#8), Promote wait_for_event to public API |
+| **MEDIUM** | OOB commands (#15), Socket security (#19), Serial console (#17), SMP/NUMA/CPU (#9), Observability (#10), Typed device builders (#7) |
+| **LOW** | Multi-disk interfaces (#20), BMC docs (#13), Connection pooling (#11) |

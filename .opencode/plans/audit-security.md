@@ -1,79 +1,66 @@
 # Security Audit Report
 
-Generated: 2026-04-13
+Generated: 2026-04-13 | Re-audited: 2026-04-13
 
-## FINDING 1: Unbounded `read_line` — DoS (HIGH, CWE-400)
+## Prior Findings Status
 
-No size limit on `BufReader::read_line()`. OOM via endless line without `\n`.
+| # | Finding | Severity | Status |
+|---|---------|----------|--------|
+| 1 | Unbounded `read_line` — DoS | HIGH (CWE-400) | STILL VULNERABLE |
+| 2 | No socket permission control | HIGH (CWE-732) | STILL VULNERABLE |
+| 3 | Predictable socket paths — TOCTOU | MEDIUM (CWE-377/367) | STILL VULNERABLE |
+| 4 | No auth on BMC web interface | HIGH (CWE-306) | STILL VULNERABLE |
+| 5 | Passwords not zeroized | MEDIUM (CWE-316) | STILL VULNERABLE |
+| 6 | QGA sync ID truncation | LOW (CWE-330) | STILL VULNERABLE |
+| 7 | Env var controls binary path | MEDIUM (CWE-426) | STILL VULNERABLE |
+| 8 | Arbitrary QEMU args | MEDIUM (CWE-78) | STILL VULNERABLE |
+| 9 | Firmware path not validated | LOW (CWE-22) | STILL VULNERABLE |
+| 10 | Advisory deps | LOW (CWE-1395) | INDETERMINATE |
+| 11 | No `unsafe` | POSITIVE | CONFIRMED STILL POSITIVE |
+| 12 | Silent error swallowing | LOW (CWE-754) | STILL VULNERABLE |
 
-Locations: `lib.rs:53,74,190`, `qga.rs:70,114`, `server.rs:57,72,158,179`
+**Zero mitigated.**
 
-**Mitigation:** `take()` to enforce max 16MB line length.
+## NEW Vulnerabilities
 
-## FINDING 2: No Socket Permission Control (HIGH, CWE-732)
+### NEW-1: VNC WebSocket — No Origin Validation (HIGH, CWE-346)
 
-QMP Unix sockets in `/tmp` with default umask. Any local user can connect.
+`bmc/src/server/console.rs:20-24` — No `Origin` header check on WebSocket upgrade. Cross-site WebSocket hijacking gives any browser tab full VNC access. Combined with #4 (no auth) + `0.0.0.0` default bind = network-accessible unauthenticated VM control from any website.
 
-`projects/manager/src/vm.rs:152`
+### NEW-2: Unrestricted Static File Serving (MEDIUM, CWE-22)
 
-**Mitigation:** Restrictive umask or private 0700 directory.
+`bmc/src/main.rs:47-53` — `ServeDir` uses relative paths. Wrong working directory = unexpected content served. `tower_http::ServeDir` prevents `../` but relative base fragile.
 
-## FINDING 3: Predictable Socket Paths — TOCTOU (MEDIUM, CWE-377/367)
+### NEW-3: Disk Path Injection via BmcConfig (HIGH, CWE-22/73)
 
-`vm.rs:152-159` — PID + counter path. Symlink attack possible.
+`bmc/src/types.rs:79`, `state.rs:366` — `DiskConfig.file` is `PathBuf`, no validation. `BmcConfig` is `Deserialize`. If ever user-settable, attacker controls file path to `blockdev-add` → arbitrary file read/write through QEMU block layer.
 
-**Mitigation:** `tempfile::TempDir` with random names.
+### NEW-4: curl Subprocess — No TLS Pinning (MEDIUM, CWE-78)
 
-## FINDING 4: No Auth on BMC Web Interface (HIGH, CWE-306)
+`bmc/src/state.rs:487-489` — `curl` invoked without `--proto =https`. MITM could serve malicious disk image. No checksum verification.
 
-`projects/bmc/src/server/vm_actions.rs` — Zero auth on VM control + VNC proxy.
+### NEW-5: QEMU stderr Suppressed (LOW, CWE-223)
 
-**Mitigation:** Auth middleware. At minimum bind 127.0.0.1 only.
+`manager/src/vm.rs:258-259` — `Stdio::null()` for stdout+stderr. Security warnings invisible.
 
-## FINDING 5: Passwords Not Zeroized (MEDIUM, CWE-316)
+### NEW-6: No Rate Limiting on VM Control (MEDIUM, CWE-799)
 
-Generated types have `pub password: String`. Memory dumps leak secrets.
+`bmc/src/server/vm_actions.rs` — No throttling. Rapid power_on/force_off causes resource exhaustion.
 
-**Mitigation:** `secrecy::SecretString` or `zeroize::Zeroizing<String>` in codegen.
+### NEW-7: Event History Unbounded Size (LOW, CWE-400)
 
-## FINDING 6: QGA Sync ID Truncation (LOW, CWE-330)
+`bmc/src/state.rs:19,315-318` — 1000 cap but each entry size unchecked. Large event payloads grow memory.
 
-`qga.rs:43-46` — `as_nanos() as i64` truncates.
+### NEW-8: `nix` Crate Unused but in Deps (LOW, CWE-1395)
 
-**Mitigation:** `rand::random::<i64>()`.
-
-## FINDING 7: Env Var Controls Binary Path (MEDIUM, CWE-426)
-
-`arch.rs:26-28` — `QEMU_TEST_BIN_*` env vars control spawned binary.
-
-**Mitigation:** Validate path. Document as dev/test only.
-
-## FINDING 8: Arbitrary QEMU Args (MEDIUM, CWE-78 indirect)
-
-`vm.rs:139-141` — `VmBuilder::arg()` accepts anything. QEMU arg injection possible.
-
-**Mitigation:** Typed builder methods instead of raw `arg()`.
-
-## FINDING 9: Firmware Path Not Validated (LOW, CWE-22)
-
-`vm.rs:133-135` — Firmware path passed to QEMU unchecked.
-
-## FINDING 10: Advisory Deps (LOW, CWE-1395)
-
-`paste 1.0.15` unmaintained. `rand 0.8.5` unsound with custom logger.
-
-## FINDING 11: No `unsafe` (Positive)
-
-Zero unsafe blocks in runtime crates.
-
-## FINDING 12: Silent Error Swallowing (LOW, CWE-754)
-
-`lib.rs:193` — Malformed JSON silently dropped. Can desync command/response.
+`manager/Cargo.toml:17-19` — `nix` pulled with 5 features but no `use nix` in source. Unnecessary attack surface.
 
 ## Summary
 
-| Severity | Findings |
-|----------|----------|
-| **HIGH** | #1 unbounded read, #2 socket perms, #4 no BMC auth |
-| **MEDIUM** | #3 TOCTOU, #5 secrets, #7 env binary, #8 arg injection |
-| **LOW** | #6 weak nonce, #9 path traversal, #10 deps, #12 silent errors |
+| Severity | Prior (still vulnerable) | New |
+|----------|------------------------|-----|
+| **HIGH** | #1 unbounded read, #2 socket perms, #4 no BMC auth | NEW-1 CSWSH, NEW-3 disk path injection |
+| **MEDIUM** | #3 TOCTOU, #5 secrets, #7 env binary, #8 arg injection | NEW-2 static files, NEW-4 curl no TLS, NEW-6 no rate limit |
+| **LOW** | #6 weak nonce, #9 path traversal, #12 silent errors | NEW-5 stderr, NEW-7 event memory, NEW-8 unused dep |
+
+**Critical combo:** #4 + NEW-1 = unauthenticated remote VM control from any browser on network.
