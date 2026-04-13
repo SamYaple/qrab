@@ -13,7 +13,7 @@ path = "../qapi"
 
 [dependencies.tokio]
 version = "1"
-features = ["net", "io-util", "sync", "rt", "macros"]
+features = ["net", "io-util", "sync", "rt", "macros", "time"]
 
 [dev-dependencies]
 paste = "1"

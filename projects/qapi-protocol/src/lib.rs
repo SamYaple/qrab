@@ -5,6 +5,7 @@ use anyhow::Result;
 use qapi::QapiCommand;
 
 use std::path::Path;
+use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, Lines};
 use tokio::net::unix::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::net::UnixStream;
@@ -175,14 +176,40 @@ impl Qmp {
     /// Gracefully shut down all background tasks.
     pub async fn shutdown(&mut self) {
         let _ = self.shutdown_signal.send(());
-        if let Some(handle) = self.write_handle.take() {
-            let _ = handle.await;
+        // Bound each handle wait: read_loop in particular may keep picking
+        // next_line() under heavy event traffic and never observe the
+        // shutdown_rx.changed() branch. Timeout → abort → await (ignoring
+        // errors) guarantees forward progress. We pass `&mut handle` to
+        // `timeout` so the handle survives the timeout and can be aborted.
+        if let Some(mut handle) = self.write_handle.take() {
+            let handle_ref: &mut JoinHandle<()> = &mut handle;
+            if tokio::time::timeout(Duration::from_millis(500), handle_ref)
+                .await
+                .is_err()
+            {
+                handle.abort();
+                let _ = handle.await;
+            }
         }
-        if let Some(handle) = self.event_handle.take() {
-            let _ = handle.await;
+        if let Some(mut handle) = self.event_handle.take() {
+            let handle_ref: &mut JoinHandle<()> = &mut handle;
+            if tokio::time::timeout(Duration::from_millis(500), handle_ref)
+                .await
+                .is_err()
+            {
+                handle.abort();
+                let _ = handle.await;
+            }
         }
-        if let Some(handle) = self.read_handle.take() {
-            let _ = handle.await;
+        if let Some(mut handle) = self.read_handle.take() {
+            let handle_ref: &mut JoinHandle<()> = &mut handle;
+            if tokio::time::timeout(Duration::from_millis(500), handle_ref)
+                .await
+                .is_err()
+            {
+                handle.abort();
+                let _ = handle.await;
+            }
         }
     }
 
