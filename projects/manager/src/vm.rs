@@ -96,17 +96,37 @@ impl Drop for VmProcess {
         if let Some(tx) = self.shutdown.take() {
             let _ = tx.send(());
         }
+        let runtime = tokio::runtime::Handle::try_current().ok();
         if let Some(h) = self.monitor.take() {
-            if tokio::runtime::Handle::try_current().is_err() {
+            if runtime.is_none() {
                 h.abort();
             }
         }
-        let _ = std::fs::remove_file(&self.qmp_sock);
-        if let Some(ref s) = self.serial_log {
-            let _ = std::fs::remove_file(s);
-        }
-        if let Some(ref s) = self.vnc_sock {
-            let _ = std::fs::remove_file(s);
+        // Prefer async file removal when a runtime is available: blocking on
+        // `std::fs::remove_file` from within a Drop that fires inside an
+        // async context would stall the tokio runtime thread. Fall back to
+        // the sync path only when there is no runtime to dispatch to.
+        if let Some(handle) = runtime {
+            let qmp_sock = self.qmp_sock.clone();
+            let serial_log = self.serial_log.clone();
+            let vnc_sock = self.vnc_sock.clone();
+            handle.spawn(async move {
+                let _ = tokio::fs::remove_file(qmp_sock).await;
+                if let Some(s) = serial_log {
+                    let _ = tokio::fs::remove_file(s).await;
+                }
+                if let Some(s) = vnc_sock {
+                    let _ = tokio::fs::remove_file(s).await;
+                }
+            });
+        } else {
+            let _ = std::fs::remove_file(&self.qmp_sock);
+            if let Some(ref s) = self.serial_log {
+                let _ = std::fs::remove_file(s);
+            }
+            if let Some(ref s) = self.vnc_sock {
+                let _ = std::fs::remove_file(s);
+            }
         }
     }
 }
