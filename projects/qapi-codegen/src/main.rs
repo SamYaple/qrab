@@ -27,6 +27,11 @@ fn main() -> Result<()> {
     );
 
     let tags = discover_version_tags(repo_path)?;
+    anyhow::ensure!(
+        !tags.is_empty(),
+        "No QEMU version tags found in {}",
+        repo
+    );
     eprintln!(
         "Discovered {} version tags ({} to {})",
         tags.len(),
