@@ -713,9 +713,58 @@ fn gen_alt_ser(name: &syn::Ident, variants: &[VariantInfo]) -> TokenStream2 {
     }
 }
 
+/// Classify a variant's inner type into a specificity bucket used to order
+/// alternate deserialization attempts. Lower numbers are tried first.
+///
+/// QAPI alternate types accept one of several shapes. Trying variants in
+/// declaration order is wrong when variants overlap (e.g. a struct with all
+/// optional fields would happily accept any object, including one intended
+/// for a later variant). We try the least ambiguous shapes first:
+///
+///   0: null-matching variants (unit enum variants, or tuples wrapping `()`)
+///   1: primitive JSON scalars (bool / number / string)
+///   2: JSON arrays (`Vec<_>`, `[_; N]`)
+///   3: everything else (object-like / unknown — highest ambiguity risk)
+fn alt_variant_priority(kind: &VariantKind) -> u8 {
+    let ty = match kind {
+        VariantKind::Unit => return 0,
+        VariantKind::Tuple(ty) => ty.as_ref(),
+    };
+    match ty {
+        // `Null(())` — empty tuple type, matches only JSON null
+        Type::Tuple(t) if t.elems.is_empty() => 0,
+        Type::Array(_) | Type::Slice(_) => 2,
+        Type::Path(tp) => {
+            let name = match tp.path.segments.last() {
+                Some(seg) => seg.ident.to_string(),
+                None => return 3,
+            };
+            match name.as_str() {
+                // Rust primitives that map to JSON scalars
+                "bool" | "char" | "String" | "str"
+                | "i8" | "i16" | "i32" | "i64" | "i128" | "isize"
+                | "u8" | "u16" | "u32" | "u64" | "u128" | "usize"
+                | "f32" | "f64" => 1,
+                // Array-like
+                "Vec" => 2,
+                // Everything else is object-like (structs, tagged unions, …)
+                _ => 3,
+            }
+        }
+        _ => 3,
+    }
+}
+
 fn gen_alt_de(name: &syn::Ident, variants: &[VariantInfo]) -> TokenStream2 {
-    let try_arms: Vec<TokenStream2> = variants
-        .iter()
+    // Stable-sort variants by specificity so overlapping shapes (e.g. a
+    // primitive vs an all-optional-fields struct) resolve to the least
+    // ambiguous match instead of silently picking whichever happens to
+    // come first in declaration order.
+    let mut ordered: Vec<&VariantInfo> = variants.iter().collect();
+    ordered.sort_by_key(|v| alt_variant_priority(&v.kind));
+
+    let try_arms: Vec<TokenStream2> = ordered
+        .into_iter()
         .map(|v| {
             let ident = &v.ident;
             let cond = v.attrs.condition.as_ref().map(|c| condition_cfg(c));
