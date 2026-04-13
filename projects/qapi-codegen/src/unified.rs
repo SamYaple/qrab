@@ -17,8 +17,6 @@ use std::path::Path;
 pub type Version = (u32, u32, u32);
 
 fn version_str(v: Version) -> String {
-    // Always use major.minor.patch format, minimum 1.0.0
-    let v = (v.0.max(1), v.1, v.2);
     format!("{}.{}.{}", v.0, v.1, v.2)
 }
 
