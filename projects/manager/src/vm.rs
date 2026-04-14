@@ -23,6 +23,66 @@ pub const PRECONFIG_MIN_VERSION: (u32, u32, u32) = (7, 1, 0);
 
 static SOCKET_COUNTER: AtomicU64 = AtomicU64::new(0);
 
+/// Validate a memory size string for QEMU's `-m` option.
+///
+/// QEMU accepts decimal integers optionally followed by a single unit
+/// suffix (`K`/`M`/`G`/`T`, case-insensitive) and an optional trailing
+/// `B` (e.g. `"512M"`, `"2GB"`, `"1024"`). A bare integer is treated by
+/// QEMU as MiB, which matches `-m`'s historical default.
+///
+/// This check catches common typos such as `"512MB "` with trailing
+/// whitespace, `"2 G"` with internal whitespace, `"abc"`, and empty
+/// strings, which would otherwise only surface as a late QEMU failure
+/// after we have already created temp files and started spawning.
+///
+/// Intentionally permissive about suffixes `T`/`t`: QEMU's parser
+/// accepts terabytes, so we do too.
+fn validate_memory(mem: &str) -> Result<()> {
+    if mem.is_empty() {
+        anyhow::bail!("memory size is empty");
+    }
+
+    let bytes = mem.as_bytes();
+    let mut i = 0;
+
+    // Leading decimal digits are required.
+    let digit_start = i;
+    while i < bytes.len() && bytes[i].is_ascii_digit() {
+        i += 1;
+    }
+    if i == digit_start {
+        anyhow::bail!(
+            "memory size {:?} must start with a decimal digit",
+            mem
+        );
+    }
+
+    // Optional single unit suffix.
+    if i < bytes.len() {
+        match bytes[i] {
+            b'K' | b'k' | b'M' | b'm' | b'G' | b'g' | b'T' | b't' => i += 1,
+            _ => anyhow::bail!(
+                "memory size {:?} has invalid unit suffix (expected one of K/M/G/T)",
+                mem
+            ),
+        }
+    }
+
+    // Optional trailing `B`/`b`.
+    if i < bytes.len() && (bytes[i] == b'B' || bytes[i] == b'b') {
+        i += 1;
+    }
+
+    if i != bytes.len() {
+        anyhow::bail!(
+            "memory size {:?} has trailing characters after valid prefix",
+            mem
+        );
+    }
+
+    Ok(())
+}
+
 /// Best-effort async removal of the three temp files qrab creates per VM.
 /// Used by `VmProcess::cleanup`, by `VmProcess::Drop` when a tokio runtime
 /// is available, and by `VmBuilder::spawn` pre-bail cleanup paths where
@@ -338,6 +398,7 @@ impl VmBuilder {
                 args.extend(["-machine".into(), "none".into()]);
             }
             MachineConfig::Bios { memory } => {
+                validate_memory(memory)?;
                 let machine = self.arch.bios_machine().ok_or_else(|| {
                     anyhow::anyhow!(
                         "BIOS boot not supported for architecture {:?}",
@@ -348,6 +409,7 @@ impl VmBuilder {
                 args.extend(["-m".into(), memory.clone()]);
             }
             MachineConfig::Uefi { memory } => {
+                validate_memory(memory)?;
                 let machine = self.arch.uefi_machine();
                 args.extend(["-machine".into(), machine.into()]);
                 args.extend(["-m".into(), memory.clone()]);
@@ -734,5 +796,84 @@ impl Vm {
     pub async fn shutdown(mut self) {
         self.qmp.shutdown().await;
         self.process.cleanup().await;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::validate_memory;
+
+    #[test]
+    fn validate_memory_accepts_bare_integer() {
+        assert!(validate_memory("1024").is_ok());
+        assert!(validate_memory("0").is_ok());
+        assert!(validate_memory("4294967296").is_ok());
+    }
+
+    #[test]
+    fn validate_memory_accepts_unit_suffix() {
+        assert!(validate_memory("512K").is_ok());
+        assert!(validate_memory("512M").is_ok());
+        assert!(validate_memory("2G").is_ok());
+        assert!(validate_memory("1T").is_ok());
+    }
+
+    #[test]
+    fn validate_memory_accepts_lowercase_unit() {
+        assert!(validate_memory("512k").is_ok());
+        assert!(validate_memory("512m").is_ok());
+        assert!(validate_memory("2g").is_ok());
+        assert!(validate_memory("1t").is_ok());
+    }
+
+    #[test]
+    fn validate_memory_accepts_b_suffix() {
+        assert!(validate_memory("512MB").is_ok());
+        assert!(validate_memory("2GB").is_ok());
+        assert!(validate_memory("1024KB").is_ok());
+        assert!(validate_memory("1TB").is_ok());
+    }
+
+    #[test]
+    fn validate_memory_rejects_empty() {
+        assert!(validate_memory("").is_err());
+    }
+
+    #[test]
+    fn validate_memory_rejects_non_numeric() {
+        assert!(validate_memory("abc").is_err());
+        assert!(validate_memory("M").is_err());
+        assert!(validate_memory("GB").is_err());
+    }
+
+    #[test]
+    fn validate_memory_rejects_bad_unit() {
+        // 'X' is not a valid unit suffix.
+        assert!(validate_memory("512X").is_err());
+        // 'P' (petabyte) is also not accepted by this validator. QEMU's
+        // own parser allows it but no realistic VM uses it today.
+        assert!(validate_memory("2P").is_err());
+    }
+
+    #[test]
+    fn validate_memory_rejects_trailing_garbage() {
+        assert!(validate_memory("512MiB").is_err());
+        assert!(validate_memory("2Gibi").is_err());
+        assert!(validate_memory("512M ").is_err());
+        assert!(validate_memory("2GBB").is_err());
+    }
+
+    #[test]
+    fn validate_memory_rejects_internal_whitespace() {
+        assert!(validate_memory("2 G").is_err());
+        assert!(validate_memory(" 2G").is_err());
+    }
+
+    #[test]
+    fn validate_memory_rejects_fractional() {
+        // QEMU does accept fractional sizes in some contexts, but the
+        // manager's validator deliberately requires integer input to
+        // match the type used in `MachineConfig::{Bios,Uefi}`.
+        assert!(validate_memory("1.5G").is_err());
     }
 }
