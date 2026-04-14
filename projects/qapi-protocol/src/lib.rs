@@ -48,45 +48,55 @@ impl Qmp {
         let (read_half, write_half) = stream.into_split();
 
         let mut reader = BufReader::new(read_half);
-
-        // Read greeting synchronously before spawning workers
-        let mut greeting_line = String::new();
-        reader.read_line(&mut greeting_line).await?;
-        let parsed: serde_json::Value = serde_json::from_str(&greeting_line)
-            .map_err(|e| anyhow::anyhow!("failed to parse QMP greeting: {}", e))?;
-        let qemu = parsed
-            .get("QMP")
-            .and_then(|q| q.get("version"))
-            .and_then(|v| v.get("qemu"))
-            .ok_or_else(|| {
-                anyhow::anyhow!("QMP greeting missing QMP.version.qemu: {}", parsed)
-            })?;
-        let major = qemu["major"].as_u64().unwrap_or(0) as u32;
-        let minor = qemu["minor"].as_u64().unwrap_or(0) as u32;
-        let micro = qemu["micro"].as_u64().unwrap_or(0) as u32;
-        qapi::set_qemu_version(major, minor, micro);
-
-        // Send qmp_capabilities and read the response
         let mut write_half = write_half;
-        write_half
-            .write_all(b"{\"execute\":\"qmp_capabilities\"}\n")
-            .await?;
 
-        let caps_resp: serde_json::Value = loop {
-            let mut caps_line = String::new();
-            reader.read_line(&mut caps_line).await?;
-            let parsed: serde_json::Value = serde_json::from_str(&caps_line)?;
-            if parsed.get("event").is_some() {
-                continue;
+        // Bound the full greeting + qmp_capabilities handshake. All reads
+        // below are otherwise unbounded — if QEMU accepts the connect(2)
+        // but hangs before writing the greeting (or mid-handshake) we'd
+        // block `Qmp::new()` forever. 10s is plenty for a healthy peer.
+        tokio::time::timeout(Duration::from_secs(10), async {
+            // Read greeting synchronously before spawning workers
+            let mut greeting_line = String::new();
+            reader.read_line(&mut greeting_line).await?;
+            let parsed: serde_json::Value = serde_json::from_str(&greeting_line)
+                .map_err(|e| anyhow::anyhow!("failed to parse QMP greeting: {}", e))?;
+            let qemu = parsed
+                .get("QMP")
+                .and_then(|q| q.get("version"))
+                .and_then(|v| v.get("qemu"))
+                .ok_or_else(|| {
+                    anyhow::anyhow!("QMP greeting missing QMP.version.qemu: {}", parsed)
+                })?;
+            let major = qemu["major"].as_u64().unwrap_or(0) as u32;
+            let minor = qemu["minor"].as_u64().unwrap_or(0) as u32;
+            let micro = qemu["micro"].as_u64().unwrap_or(0) as u32;
+            qapi::set_qemu_version(major, minor, micro);
+
+            // Send qmp_capabilities and read the response
+            write_half
+                .write_all(b"{\"execute\":\"qmp_capabilities\"}\n")
+                .await?;
+
+            let caps_resp: serde_json::Value = loop {
+                let mut caps_line = String::new();
+                reader.read_line(&mut caps_line).await?;
+                let parsed: serde_json::Value = serde_json::from_str(&caps_line)?;
+                if parsed.get("event").is_some() {
+                    continue;
+                }
+                break parsed;
+            };
+            if let Some(error) = caps_resp.get("error") {
+                anyhow::bail!(
+                    "qmp_capabilities failed: {}",
+                    error["desc"].as_str().unwrap_or("unknown")
+                );
             }
-            break parsed;
-        };
-        if let Some(error) = caps_resp.get("error") {
-            anyhow::bail!(
-                "qmp_capabilities failed: {}",
-                error["desc"].as_str().unwrap_or("unknown")
-            );
-        }
+
+            Ok::<(), anyhow::Error>(())
+        })
+        .await
+        .map_err(|_| anyhow::anyhow!("QMP handshake timed out"))??;
 
         // Now spawn the background workers
         let lines = reader.lines();
