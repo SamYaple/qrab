@@ -386,6 +386,13 @@ impl VmBuilder {
             if qmp_sock.exists() {
                 break;
             }
+            // If QEMU exits immediately (bad arg, missing binary, OOM), the
+            // socket will never appear. Poll the child so we bail fast with
+            // a useful exit status instead of waiting out the full 5s loop.
+            if let Ok(Some(status)) = child.try_wait() {
+                cleanup_temp_files_async(&qmp_sock, &serial_log, &vnc_sock).await;
+                anyhow::bail!("QEMU exited before QMP socket appeared: {status}");
+            }
             tokio::time::sleep(Duration::from_millis(100)).await;
         }
 
