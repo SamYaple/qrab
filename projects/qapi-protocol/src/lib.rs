@@ -299,6 +299,49 @@ impl Qmp {
         Ok(serde_json::from_value(ret)?)
     }
 
+    /// Execute an arbitrary QMP command from a raw JSON request and
+    /// return the raw `return` payload.
+    ///
+    /// Mirrors `Qga::execute_raw` for callers that need to issue
+    /// commands which aren't yet in the typed schema (e.g. a brand new
+    /// QEMU release, an out-of-tree fork, or an internal monitor verb)
+    /// without dropping down to the channel machinery directly.
+    ///
+    /// The `raw` argument should be a full QMP request object, e.g.
+    /// `json!({"execute": "some-command", "arguments": {...}})`. The
+    /// `id` field is injected by `write_loop` for correlation and must
+    /// not be set by the caller — see BUG 42. On success the returned
+    /// value is the contents of the `return` field (an empty object
+    /// `{}` if the command has no payload).
+    pub async fn execute_raw(
+        &self,
+        raw: serde_json::Value,
+    ) -> Result<serde_json::Value> {
+        let request_str = serde_json::to_string(&raw)?;
+        let (reply_tx, reply_rx) = oneshot::channel();
+        self.command_tx
+            .send((request_str, reply_tx))
+            .await
+            .map_err(|_| anyhow::anyhow!("command channel closed"))?;
+
+        let response = reply_rx.await.map_err(|_| {
+            anyhow::anyhow!("QMP command channel closed — likely timed out or connection lost")
+        })?;
+
+        if let Some(error) = response.get("error") {
+            anyhow::bail!(
+                "QMP error {}: {}",
+                error["class"].as_str().unwrap_or("unknown"),
+                error["desc"].as_str().unwrap_or("unknown error")
+            );
+        }
+
+        Ok(response
+            .get("return")
+            .cloned()
+            .unwrap_or(serde_json::Value::Object(serde_json::Map::new())))
+    }
+
     /// Gracefully shut down all background tasks.
     pub async fn shutdown(&mut self) {
         let _ = self.shutdown_signal.send(());
