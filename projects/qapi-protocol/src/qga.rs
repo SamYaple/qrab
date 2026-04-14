@@ -3,7 +3,7 @@
 //! The QGA protocol uses the same JSON-RPC wire format as QMP, but with
 //! a different handshake (guest-sync-delimited instead of qmp_capabilities).
 
-use crate::{read_line_bounded, LineRead, MAX_LINE_BYTES};
+use crate::{build_qmp_error, read_line_bounded, LineRead, MAX_LINE_BYTES};
 use anyhow::Result;
 use qapi::QapiCommand;
 use std::path::Path;
@@ -203,11 +203,10 @@ impl Qga {
         let resp: serde_json::Value = serde_json::from_str(line.trim())?;
 
         if let Some(error) = resp.get("error") {
-            anyhow::bail!(
-                "QGA error {}: {}",
-                error["class"].as_str().unwrap_or("unknown"),
-                error["desc"].as_str().unwrap_or("unknown error")
-            );
+            // QGA uses the same `{class, desc}` shape as QMP — reuse the
+            // typed `QmpError` wrapper so callers can `downcast_ref` on a
+            // single error type regardless of which protocol surfaced it.
+            return Err(anyhow::Error::new(build_qmp_error(error)));
         }
 
         let ret = resp

@@ -103,6 +103,61 @@ pub struct Timestamp {
     pub microseconds: u32,
 }
 
+/// A typed QMP/QGA error response.
+///
+/// When `Qmp::execute` (and friends) receive an `{"error": {...}}`
+/// response from QEMU, they wrap it in this type and return it via
+/// `anyhow::Error::new(QmpError { .. })`. Callers that need to branch
+/// on the error class (e.g. retry on `CommandNotFound` but bail on
+/// `GenericError`) can recover the typed value with
+/// [`anyhow::Error::downcast_ref::<QmpError>`][anyhow::Error::downcast_ref].
+///
+/// `class` is `Some` when QEMU reported a known [`qapi::QapiErrorClass`]
+/// variant and `None` when the wire string did not match any known
+/// class (older/forked QEMU, or a malformed response — we still
+/// preserve `desc` either way so no information is lost).
+#[derive(Debug, Clone)]
+pub struct QmpError {
+    /// The QMP error class, if it parsed as a known variant.
+    pub class: Option<qapi::QapiErrorClass>,
+    /// The free-form human-readable error description.
+    pub desc: String,
+}
+
+impl std::fmt::Display for QmpError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match &self.class {
+            Some(class) => write!(f, "QMP error {}: {}", class, self.desc),
+            None => write!(f, "QMP error: {}", self.desc),
+        }
+    }
+}
+
+impl std::error::Error for QmpError {}
+
+/// Build a [`QmpError`] from the `error` sub-object of a QMP response.
+///
+/// Falls back to `class = None` when the wire class string is absent or
+/// does not match any known [`qapi::QapiErrorClass`] variant, so
+/// forward-compatible error propagation is always possible.
+pub(crate) fn build_qmp_error(error: &serde_json::Value) -> QmpError {
+    let class_str = error.get("class").and_then(|v| v.as_str()).unwrap_or("");
+    let class = if class_str.is_empty() {
+        None
+    } else {
+        serde_json::from_value::<qapi::QapiErrorClass>(serde_json::Value::String(
+            class_str.to_string(),
+        ))
+        .ok()
+    };
+    let desc = error
+        .get("desc")
+        .and_then(|v| v.as_str())
+        .unwrap_or("unknown error")
+        .to_string();
+    QmpError { class, desc }
+}
+
 /// Async QMP client connected to a QEMU instance.
 #[derive(Debug)]
 pub struct Qmp {
@@ -272,11 +327,7 @@ impl Qmp {
             })?;
 
         if let Some(error) = response.get("error") {
-            anyhow::bail!(
-                "QMP error {}: {}",
-                error["class"].as_str().unwrap_or("unknown"),
-                error["desc"].as_str().unwrap_or("unknown error")
-            );
+            return Err(anyhow::Error::new(build_qmp_error(error)));
         }
 
         let ret = response
@@ -353,11 +404,7 @@ impl Qmp {
             })?;
 
         if let Some(error) = response.get("error") {
-            anyhow::bail!(
-                "QMP error {}: {}",
-                error["class"].as_str().unwrap_or("unknown"),
-                error["desc"].as_str().unwrap_or("unknown error")
-            );
+            return Err(anyhow::Error::new(build_qmp_error(error)));
         }
 
         let ret = response
@@ -409,11 +456,7 @@ impl Qmp {
         })?;
 
         if let Some(error) = response.get("error") {
-            anyhow::bail!(
-                "QMP error {}: {}",
-                error["class"].as_str().unwrap_or("unknown"),
-                error["desc"].as_str().unwrap_or("unknown error")
-            );
+            return Err(anyhow::Error::new(build_qmp_error(error)));
         }
 
         Ok(response
