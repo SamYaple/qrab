@@ -26,6 +26,14 @@ const QGA_SYNC_TIMEOUT: Duration = Duration::from_secs(10);
 /// should still return promptly on a live system; 5s matches `Qmp::new`.
 const QGA_CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 
+/// Maximum serialized size of a QGA request. Real QGA commands cap out
+/// at a few KiB (file writes go through `guest-file-write` which itself
+/// base64-encodes payloads in chunks, so even a large push arrives as
+/// many small requests). 256 KiB is comfortably above any expected
+/// command and catches accidental unbounded growth — e.g. a caller
+/// shipping a multi-megabyte argument blob — before it hits the wire.
+const MAX_REQUEST_BYTES: usize = 256 * 1024;
+
 /// Async QGA client connected to a QEMU guest agent.
 pub struct Qga {
     reader: BufReader<tokio::net::unix::OwnedReadHalf>,
@@ -155,9 +163,20 @@ impl Qga {
             serde_json::json!({ "execute": name, "arguments": args })
         };
 
-        self.writer
-            .write_all(serde_json::to_string(&request)?.as_bytes())
-            .await?;
+        // Guard the serialized request size. A caller passing an
+        // oversized argument blob (or a protocol bug producing one)
+        // would otherwise write it straight to the guest socket, where
+        // it hits the peer's own line limits and could hang a
+        // ring-buffered virtio-serial channel.
+        let request_str = serde_json::to_string(&request)?;
+        anyhow::ensure!(
+            request_str.len() <= MAX_REQUEST_BYTES,
+            "QGA request too large: {} bytes (limit {})",
+            request_str.len(),
+            MAX_REQUEST_BYTES
+        );
+
+        self.writer.write_all(request_str.as_bytes()).await?;
         self.writer.write_all(b"\n").await?;
         self.writer.flush().await?;
 
