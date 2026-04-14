@@ -25,26 +25,26 @@ Full rationale: [docs/design-constraints.md](docs/design-constraints.md)
 
 ## Worktree Workflow
 
-**Main checkout is sacred.** Never let agents write directly to it. All work happens in worktrees.
+**Main checkout sacred.** Never let agents write directly. All work in worktrees.
 
 ### Rules
 
-1. **Every writing agent gets a worktree.** Before spawning any agent that creates/edits files or commits, create a dedicated worktree:
+1. **Every writing agent gets worktree.** Before spawning agent that creates/edits/commits, create dedicated worktree:
    ```sh
    git worktree add ../qrab-<agent-name> -b agent/<agent-name>
    ```
-   The agent works entirely inside that worktree. Main checkout stays clean.
+   Agent works entirely inside worktree. Main checkout stays clean.
 
-2. **Read-only agents can read main checkout.** Explore/audit agents that only read files (no writes, no commits) may use the main checkout directly. If an agent needs to write reports or results, it gets a worktree.
+2. **Read-only agents can read main checkout.** Explore/audit agents that only read (no writes, no commits) may use main checkout. If agent needs write reports/results, gets worktree.
 
-3. **One worktree per agent.** Never share a worktree between parallel agents. Each agent gets its own branch and directory.
+3. **One worktree per agent.** Never share worktree between parallel agents. Each agent gets own branch and directory.
 
-4. **Merge back sequentially.** When an agent finishes, merge its branch into the current working branch from the main checkout:
+4. **Merge back sequentially.** When agent finishes, merge branch into current working branch from main checkout:
    ```sh
    # From main checkout
    git merge agent/<agent-name> --no-ff -m "Merge <agent-name> work"
    ```
-   Resolve conflicts before merging the next agent.
+   Resolve conflicts before merging next agent.
 
 5. **Cleanup immediately after merge.** Remove worktree and delete branch:
    ```sh
@@ -76,10 +76,10 @@ for each agent (sequentially):
 
 ### Never do
 
-- Write files in main checkout from a sub-agent
+- Write files in main checkout from sub-agent
 - Run two writing agents against same worktree
 - Leave orphan worktrees or stale `agent/*` branches
-- Commit directly to main checkout from a parallel agent
+- Commit directly to main checkout from parallel agent
 
 ## Docs
 
@@ -93,7 +93,7 @@ for each agent (sequentially):
 | [docs/manager.md](docs/manager.md) | VM lifecycle manager |
 | [docs/design-constraints.md](docs/design-constraints.md) | Invariants to preserve |
 | [docs/testing.md](docs/testing.md) | Write tests or CI |
-| [docs/audit-agents.md](docs/audit-agents.md) | Multi-perspective cleanup / refactor passes via parallel review agents |
+| [docs/audit-agents.md](docs/audit-agents.md) | Multi-perspective cleanup/refactor passes via parallel review agents |
 
 ## Quick Commands
 

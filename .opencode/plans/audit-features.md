@@ -6,7 +6,7 @@ Generated: 2026-04-13 | Round 10
 - N38 execute_raw — ADDRESSED (QMP + QGA)
 - N39 QmpError struct — ADDRESSED
 - N40 execute_with_timeout — ADDRESSED
-- N17/N2 #[must_use] — ADDRESSED (24 annotations)
+- N17/N2 `#[must_use]` — ADDRESSED (24 annotations)
 - N23 SMP builder — ADDRESSED
 - N24 Accel builder — ADDRESSED
 - N34 is_available — ADDRESSED
@@ -17,9 +17,9 @@ Generated: 2026-04-13 | Round 10
 
 | # | Gap | Priority |
 |---|-----|----------|
-| N42 | No TryFrom<QmpEvent> for typed events | should-have |
+| N42 | No `TryFrom<QmpEvent>` for typed events | should-have |
 | N43 | execute_raw API inconsistency QMP vs QGA | nice-to-have |
-| N44 | No Qmp::subscribe<E: QapiEvent>() filtered channel | nice-to-have |
+| N44 | No `Qmp::subscribe<E: QapiEvent>()` filtered channel | nice-to-have |
 
 ## Priority Matrix
 

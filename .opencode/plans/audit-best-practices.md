@@ -29,6 +29,6 @@ Generated: 2026-04-13 | Round 10
 - N34 bmc not in CLAUDE.md
 
 ## Top 3 Actions
-1. Replace anyhow with thiserror in library APIs
+1. Replace anyhow w/ thiserror in library APIs
 2. Add CI + workspace.lints
 3. workspace.dependencies + workspace.package.edition = "2024"

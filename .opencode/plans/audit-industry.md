@@ -19,7 +19,7 @@ Generated: 2026-04-13 | Round 10
 
 ## Production Blockers (updated)
 1. ~~#66+#67 No KVM/SMP~~ — FIXED
-2. **#81** — BMC ignores accel/smp — builder exists but BMC never calls it
+2. **#81** — BMC ignores accel/smp — builder exists but BMC never calls
 3. **#69+#74** — Dead QEMU invisible + phase() swallows errors
 4. **#12** — No reconnect
 5. **#60** — OnceLock blocks power-cycle

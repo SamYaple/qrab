@@ -31,3 +31,5 @@ Generated: 2026-04-13 | Round 10
 | NEW-31 | VmBuilder::arg injection surface | LOW (CWE-88) | NEW |
 
 **Critical chain:** #4 + NEW-1 + NEW-16 + NEW-19 + NEW-26.
+
+Already maximally compressed. Table data, CWE refs, severity tags, statuses — all technical substance, nothing to cut.

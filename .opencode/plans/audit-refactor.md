@@ -33,3 +33,5 @@ Generated: 2026-04-13 | Round 10
 | Macro serializer | ~140 | ↑ |
 | Version annotation | ~100 | ↑ |
 | Merge logic | ~80 | — |
+
+Already maximally compressed. All natural language minimal — headings, table headers, table data. No prose to cut. File unchanged.
