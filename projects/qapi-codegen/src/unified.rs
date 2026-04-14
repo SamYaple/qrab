@@ -550,6 +550,15 @@ fn merge_bool_attrs(existing: &mut UnifiedStruct, new_meta: &Metadata, version: 
     }
 }
 
+/// Return the Rust name for a `UnifiedType`, regardless of whether it's an
+/// enum or struct. Used as a sort key and for other name-based lookups.
+fn unified_type_rust_name(ut: &UnifiedType) -> String {
+    match ut {
+        UnifiedType::Enum(ue) => rustify_name(&ue.ir.name),
+        UnifiedType::Struct(us) => rustify_name(&us.ir.name),
+    }
+}
+
 /// Map from QAPI variant name to its Rust name (for detecting renames).
 fn variant_rust_name(v: &EnumVariant) -> String {
     crate::qapi_ir::rustify_name(&v.name)
@@ -995,15 +1004,9 @@ pub fn generate_unified_code(qemu_repo: &Path, version_tags: &[&str]) -> Result<
     // Sort all types by Rust name (case-insensitive) for deterministic, readable output.
     let mut all_entries: Vec<_> = registry.types.iter().collect();
     all_entries.sort_by(|(_, a), (_, b)| {
-        let name_a = match a {
-            UnifiedType::Enum(ue) => rustify_name(&ue.ir.name),
-            UnifiedType::Struct(us) => rustify_name(&us.ir.name),
-        };
-        let name_b = match b {
-            UnifiedType::Enum(ue) => rustify_name(&ue.ir.name),
-            UnifiedType::Struct(us) => rustify_name(&us.ir.name),
-        };
-        name_a.to_lowercase().cmp(&name_b.to_lowercase())
+        unified_type_rust_name(a)
+            .to_lowercase()
+            .cmp(&unified_type_rust_name(b).to_lowercase())
     });
 
     // Pass 1: Classify types and build a set of command/event Rust names.
@@ -1533,15 +1536,9 @@ pub fn generate_qga_code(qemu_repo: &Path, version_tags: &[&str]) -> Result<Gene
 
     let mut all_entries: Vec<_> = registry.types.iter().collect();
     all_entries.sort_by(|(_, a), (_, b)| {
-        let name_a = match a {
-            UnifiedType::Enum(ue) => rustify_name(&ue.ir.name),
-            UnifiedType::Struct(us) => rustify_name(&us.ir.name),
-        };
-        let name_b = match b {
-            UnifiedType::Enum(ue) => rustify_name(&ue.ir.name),
-            UnifiedType::Struct(us) => rustify_name(&us.ir.name),
-        };
-        name_a.to_lowercase().cmp(&name_b.to_lowercase())
+        unified_type_rust_name(a)
+            .to_lowercase()
+            .cmp(&unified_type_rust_name(b).to_lowercase())
     });
 
     // Pass 1: Find command/event types referenced by data types
