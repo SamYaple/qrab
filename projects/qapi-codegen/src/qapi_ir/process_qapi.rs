@@ -340,7 +340,7 @@ pub fn process_union(
     let mut fields = if q.base == MembersOrRef::Unset {
         Vec::new()
     } else {
-        process_members_or_ref(q.base, RefStrategy::InlineFields(structs_lookup))
+        process_members_or_ref(q.base, structs_lookup)
     };
 
     if !is_simple {
@@ -473,15 +473,14 @@ pub fn process_union(
     (s, e, disc_enum)
 }
 
-/// Strategy for resolving a `MembersOrRef::Ref(name)` to fields on the
-/// containing struct. We always inline (duplicate) the referenced struct's
-/// fields directly into the parent so that QMP wire serialization produces a
-/// flat object without needing serde-flatten indirection.
-enum RefStrategy<'a> {
-    InlineFields(&'a HashMap<String, Struct>),
-}
-
-fn process_members_or_ref(q: MembersOrRef, strategy: RefStrategy<'_>) -> Vec<StructField> {
+/// Resolve a `MembersOrRef` to a flat list of struct fields. When the source
+/// is a `Ref(name)`, the referenced struct's fields are inlined (duplicated)
+/// directly into the parent so that QMP wire serialization produces a flat
+/// object without needing serde-flatten indirection.
+fn process_members_or_ref(
+    q: MembersOrRef,
+    structs_lookup: &HashMap<String, Struct>,
+) -> Vec<StructField> {
     let mut fields = Vec::new();
     match q {
         MembersOrRef::Unset => unreachable!("this should have failed the parser"),
@@ -490,14 +489,12 @@ fn process_members_or_ref(q: MembersOrRef, strategy: RefStrategy<'_>) -> Vec<Str
                 fields.push(process_member(field));
             }
         }
-        MembersOrRef::Ref(v) => match strategy {
-            RefStrategy::InlineFields(structs_lookup) => {
-                let struct_ref = structs_lookup
-                    .get(&rustify_name(v))
-                    .unwrap_or_else(|| panic!("failed to lookup base ref for {}", v));
-                fields.extend(struct_ref.fields.clone());
-            }
-        },
+        MembersOrRef::Ref(v) => {
+            let struct_ref = structs_lookup
+                .get(&rustify_name(v))
+                .unwrap_or_else(|| panic!("failed to lookup base ref for {}", v));
+            fields.extend(struct_ref.fields.clone());
+        }
     }
     fields
 }
@@ -505,10 +502,7 @@ fn process_members_or_ref(q: MembersOrRef, strategy: RefStrategy<'_>) -> Vec<Str
 pub fn process_event(q: QapiEvent, structs_lookup: &HashMap<String, Struct>) -> Struct {
     let mut fields = Vec::new();
     if let Some(data) = q.data {
-        fields.extend(process_members_or_ref(
-            data,
-            RefStrategy::InlineFields(structs_lookup),
-        ));
+        fields.extend(process_members_or_ref(data, structs_lookup));
     }
     let mut meta = Metadata::default();
     meta.attributes.push(Attribute::new("event"));
@@ -879,10 +873,7 @@ mod tests {
 pub fn process_command(q: QapiCommand, structs_lookup: &HashMap<String, Struct>) -> Struct {
     let mut fields = Vec::new();
     if let Some(data) = q.data {
-        fields.extend(process_members_or_ref(
-            data,
-            RefStrategy::InlineFields(structs_lookup),
-        ));
+        fields.extend(process_members_or_ref(data, structs_lookup));
     }
     let mut meta = Metadata::default();
     meta.attributes.push(Attribute::new("command"));
