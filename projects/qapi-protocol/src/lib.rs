@@ -119,7 +119,17 @@ impl Qmp {
     /// Returns the `Qmp` handle and a receiver for QMP events.
     /// Also sets the global QEMU version via `qapi::set_qemu_version()`.
     pub async fn new(socket_path: &Path) -> Result<(Self, mpsc::Receiver<QmpEvent>)> {
-        let stream = UnixStream::connect(socket_path).await?;
+        // Bound `connect(2)` itself. A present-but-unserved socket —
+        // e.g. bound without `listen()`, stuck in socket activation, or
+        // living on a hung FUSE mount — would otherwise leave the
+        // caller blocked indefinitely. 5s comfortably covers a healthy
+        // local connect while still surfacing a dead peer quickly.
+        let stream = tokio::time::timeout(
+            Duration::from_secs(5),
+            UnixStream::connect(socket_path),
+        )
+        .await
+        .map_err(|_| anyhow::anyhow!("QMP connect timed out after 5s"))??;
         let (read_half, write_half) = stream.into_split();
 
         let mut reader = BufReader::new(read_half);

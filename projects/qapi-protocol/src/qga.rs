@@ -21,6 +21,11 @@ const QGA_RESPONSE_TIMEOUT: Duration = Duration::from_secs(30);
 /// and the caller should not wait the full command budget.
 const QGA_SYNC_TIMEOUT: Duration = Duration::from_secs(10);
 
+/// Maximum time to wait for `connect(2)` on the QGA socket. Unlike a hot
+/// QMP monitor, a guest agent may be quiescent but the connect itself
+/// should still return promptly on a live system; 5s matches `Qmp::new`.
+const QGA_CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
+
 /// Async QGA client connected to a QEMU guest agent.
 pub struct Qga {
     reader: BufReader<tokio::net::unix::OwnedReadHalf>,
@@ -30,7 +35,15 @@ pub struct Qga {
 impl Qga {
     /// Connect to a QGA socket and perform the sync-delimited handshake.
     pub async fn new(socket_path: &Path) -> Result<Self> {
-        let stream = UnixStream::connect(socket_path).await?;
+        // Bound `connect(2)` itself so a bound-but-unserved socket or
+        // a hung filesystem can't wedge the caller indefinitely. See
+        // `Qmp::new` for the same pattern.
+        let stream = tokio::time::timeout(
+            QGA_CONNECT_TIMEOUT,
+            UnixStream::connect(socket_path),
+        )
+        .await
+        .map_err(|_| anyhow::anyhow!("QGA connect timed out after 5s"))??;
         let (read_half, write_half) = stream.into_split();
         let reader = BufReader::new(read_half);
 
