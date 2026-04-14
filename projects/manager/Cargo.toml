@@ -16,7 +16,17 @@ path = "../qapi-protocol"
 
 [dependencies.nix]
 version = "0.29"
-features = ["fs", "process", "sched", "signal", "user"]
+features = ["fs", "mount", "process", "sched", "signal", "user"]
+
+[dependencies.serde]
+version = "1"
+features = ["derive"]
+
+[dependencies.serde_json]
+version = "1"
+
+[dependencies.tempfile]
+version = "3"
 
 [dependencies.tokio]
 version = "1"
