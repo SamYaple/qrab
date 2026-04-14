@@ -198,35 +198,35 @@ fn process_version_schema(
     // happen to rustify to the same identifier land in a single entry.
     for (_path, content) in sources {
         let schema = parse_schema(content)?;
-        for token in &schema.0 {
+        for token in schema.0 {
             match token {
                 QapiSchemaToken::Enum(v) => {
-                    let processed = process_enum(v.clone());
+                    let processed = process_enum(v);
                     enums_lookup.insert(rustify_name(&processed.name), processed);
                 }
                 QapiSchemaToken::Alternate(v) => {
-                    let processed = process_alternate(v.clone());
+                    let processed = process_alternate(v);
                     enums_lookup.insert(rustify_name(&processed.name), processed);
                 }
                 QapiSchemaToken::Struct(v) => {
                     if v.base.is_some() {
-                        unprocessed_structs.push(v.clone());
+                        unprocessed_structs.push(v);
                         continue;
                     }
-                    let (processed, extracted) = process_struct(v.clone(), &structs_lookup);
+                    let (processed, extracted) = process_struct(v, &structs_lookup);
                     structs_lookup.insert(rustify_name(&processed.name), processed);
                     for e in extracted {
                         structs_lookup.insert(rustify_name(&e.name), e);
                     }
                 }
                 QapiSchemaToken::Union(v) => {
-                    unprocessed_unions.push(v.clone());
+                    unprocessed_unions.push(v);
                 }
                 QapiSchemaToken::Command(v) => {
-                    unprocessed_commands.push(v.clone());
+                    unprocessed_commands.push(v);
                 }
                 QapiSchemaToken::Event(v) => {
-                    unprocessed_events.push(v.clone());
+                    unprocessed_events.push(v);
                 }
                 _ => continue,
             }
@@ -259,7 +259,7 @@ fn process_version_schema(
             _ => None,
         };
 
-        let processed = process_command(v.clone(), &structs_lookup);
+        let processed = process_command(v, &structs_lookup);
         let cmd_key = rustify_name(&processed.name);
 
         if let Some(ref ref_name) = data_ref_name {
@@ -436,20 +436,20 @@ pub fn build_unified_registry(qemu_repo: &Path, version_tags: &[&str]) -> Result
         }
         prev_hash = Some(vr.schema_hash);
 
-        let mut seen_types = BTreeSet::new();
+        let mut seen_types: BTreeSet<&str> = BTreeSet::new();
 
         for (name, e) in &vr.enums {
-            seen_types.insert(name.clone());
+            seen_types.insert(name.as_str());
             merge_enum(&mut registry, name, e, vr.version);
         }
 
         for (name, s) in &vr.structs {
-            seen_types.insert(name.clone());
+            seen_types.insert(name.as_str());
             merge_struct(&mut registry, name, s, vr.version);
         }
 
         for (name, ut) in registry.types.iter_mut() {
-            if !seen_types.contains(name) {
+            if !seen_types.contains(name.as_str()) {
                 let vr_inner = match ut {
                     UnifiedType::Enum(e) => &mut e.versions,
                     UnifiedType::Struct(s) => &mut s.versions,
@@ -848,7 +848,7 @@ fn merge_struct(registry: &mut UnifiedRegistry, name: &str, s: &Struct, version:
         for field in &mut ir.fields {
             clean_doc_in_place(&mut field.meta.doc);
             let rust_name = field_rust_name(field);
-            if !seen_rust_names.insert(rust_name.clone()) {
+            if !seen_rust_names.insert(rust_name) {
                 let new_name = format!("{}_alt", field.name);
                 eprintln!(
                     "WARNING: Renaming field '{}' to '{}' in '{}' to avoid collision",
@@ -896,39 +896,43 @@ fn merge_struct(registry: &mut UnifiedRegistry, name: &str, s: &Struct, version:
 /// A field is recursive if its type (directly or through an enum) refers back to the
 /// containing struct.
 fn fix_recursive_types(registry: &mut UnifiedRegistry) {
-    // Build a dependency graph: type name → set of types it references
-    let mut deps: HashMap<String, BTreeSet<String>> = HashMap::new();
-    for (name, ut) in &registry.types {
-        let mut referenced = BTreeSet::new();
-        match ut {
-            UnifiedType::Struct(us) => {
-                for field in &us.ir.fields {
-                    referenced.insert(field.r#type.clone());
+    // Collect (type_name, field_name) pairs that need Box wrapping, then
+    // apply mutations after releasing the immutable borrow on registry.
+    let needs_box: BTreeSet<(String, String)> = {
+        // Build a dependency graph borrowing type names from registry.
+        let mut deps: HashMap<&str, BTreeSet<&str>> = HashMap::new();
+        for (name, ut) in &registry.types {
+            let mut referenced = BTreeSet::new();
+            match ut {
+                UnifiedType::Struct(us) => {
+                    for field in &us.ir.fields {
+                        referenced.insert(field.r#type.as_str());
+                    }
+                }
+                UnifiedType::Enum(ue) => {
+                    for variant in &ue.ir.variants {
+                        if let EnumVariantKind::Tuple(t) = &variant.kind {
+                            referenced.insert(t.as_str());
+                        }
+                    }
                 }
             }
-            UnifiedType::Enum(ue) => {
-                for variant in &ue.ir.variants {
-                    if let EnumVariantKind::Tuple(t) = &variant.kind {
-                        referenced.insert(t.clone());
+            deps.insert(name.as_str(), referenced);
+        }
+
+        // Find types that are part of a cycle
+        let mut result: BTreeSet<(String, String)> = BTreeSet::new();
+        for (name, ut) in &registry.types {
+            if let UnifiedType::Struct(us) = ut {
+                for field in &us.ir.fields {
+                    if is_reachable(&field.r#type, name, &deps, &mut BTreeSet::new()) {
+                        result.insert((name.clone(), field.name.clone()));
                     }
                 }
             }
         }
-        deps.insert(name.clone(), referenced);
-    }
-
-    // Find types that are part of a cycle
-    let mut needs_box: BTreeSet<(String, String)> = BTreeSet::new(); // (struct_name, field_name)
-
-    for (name, ut) in &registry.types {
-        if let UnifiedType::Struct(us) = ut {
-            for field in &us.ir.fields {
-                if is_reachable(&field.r#type, name, &deps, &mut BTreeSet::new()) {
-                    needs_box.insert((name.clone(), field.name.clone()));
-                }
-            }
-        }
-    }
+        result
+    };
 
     // Apply Box wrapping by setting a flag on the field
     for (type_name, field_name) in &needs_box {
@@ -949,16 +953,16 @@ fn fix_recursive_types(registry: &mut UnifiedRegistry) {
 }
 
 /// Check if `target` is reachable from `start` through the dependency graph.
-fn is_reachable(
-    start: &str,
+fn is_reachable<'a>(
+    start: &'a str,
     target: &str,
-    deps: &HashMap<String, BTreeSet<String>>,
-    visited: &mut BTreeSet<String>,
+    deps: &HashMap<&'a str, BTreeSet<&'a str>>,
+    visited: &mut BTreeSet<&'a str>,
 ) -> bool {
     if start == target {
         return true;
     }
-    if !visited.insert(start.to_string()) {
+    if !visited.insert(start) {
         return false;
     }
     if let Some(refs) = deps.get(start) {
@@ -1058,7 +1062,7 @@ pub fn generate_unified_code(qemu_repo: &Path, version_tags: &[&str]) -> Result<
 
     let mut seen_type_names = seen_rust_names.clone();
     let mut seen_command_names = seen_rust_names.clone();
-    let mut seen_event_names = seen_rust_names.clone();
+    let mut seen_event_names = seen_rust_names;
 
     for (name, ut) in &all_entries {
         let rust_name = match ut {
@@ -1079,13 +1083,14 @@ pub fn generate_unified_code(qemu_repo: &Path, version_tags: &[&str]) -> Result<
             TypeCategory::Event => (&mut events_tokens, &mut seen_event_names),
         };
 
-        if !seen.insert(rust_name.clone()) {
+        if seen.contains(&rust_name) {
             eprintln!(
                 "WARNING: Skipping duplicate Rust name '{}' (QAPI name: '{}', category: {:?})",
                 rust_name, name, category
             );
             continue;
         }
+        seen.insert(rust_name);
 
         let code = match ut {
             UnifiedType::Enum(ue) => generate_unified_enum(ue, &registry),
@@ -1145,7 +1150,9 @@ impl GeneratedOutput {
     /// Strips inner attributes (`#![...]`) and duplicate headers from
     /// commands/events so the result is valid as a single Rust file.
     pub fn combined(&self) -> String {
-        let mut result = self.types.clone();
+        let mut result =
+            String::with_capacity(self.types.len() + self.commands.len() + self.events.len());
+        result.push_str(&self.types);
         // Append commands and events, stripping file-level headers
         for part in [&self.commands, &self.events] {
             for line in part.lines() {
@@ -1477,17 +1484,17 @@ pub fn build_qga_registry(qemu_repo: &Path, version_tags: &[&str]) -> Result<Uni
         }
         prev_hash = Some(vr.schema_hash);
 
-        let mut seen_types = BTreeSet::new();
+        let mut seen_types: BTreeSet<&str> = BTreeSet::new();
         for (name, e) in &vr.enums {
-            seen_types.insert(name.clone());
+            seen_types.insert(name.as_str());
             merge_enum(&mut registry, name, e, vr.version);
         }
         for (name, s) in &vr.structs {
-            seen_types.insert(name.clone());
+            seen_types.insert(name.as_str());
             merge_struct(&mut registry, name, s, vr.version);
         }
         for (name, ut) in registry.types.iter_mut() {
-            if !seen_types.contains(name) {
+            if !seen_types.contains(name.as_str()) {
                 let vr_inner = match ut {
                     UnifiedType::Enum(e) => &mut e.versions,
                     UnifiedType::Struct(s) => &mut s.versions,
@@ -1581,7 +1588,7 @@ pub fn generate_qga_code(qemu_repo: &Path, version_tags: &[&str]) -> Result<Gene
 
     let mut seen_type_names = seen_rust_names.clone();
     let mut seen_command_names = seen_rust_names.clone();
-    let mut seen_event_names = seen_rust_names.clone();
+    let mut seen_event_names = seen_rust_names;
 
     for (_name, ut) in &all_entries {
         let rust_name = match ut {
@@ -1599,10 +1606,11 @@ pub fn generate_qga_code(qemu_repo: &Path, version_tags: &[&str]) -> Result<Gene
             TypeCategory::Event => (&mut events_tokens, &mut seen_event_names),
         };
 
-        if !seen.insert(rust_name.clone()) {
+        if seen.contains(&rust_name) {
             eprintln!("WARNING: QGA skipping duplicate '{}'", rust_name);
             continue;
         }
+        seen.insert(rust_name);
         let code = match ut {
             UnifiedType::Enum(ue) => generate_unified_enum(ue, &registry),
             UnifiedType::Struct(us) => generate_unified_struct(us, &registry),
