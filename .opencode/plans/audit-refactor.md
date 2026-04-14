@@ -1,37 +1,35 @@
 # Refactoring Audit Report
 
-Generated: 2026-04-13 | Round 9
+Generated: 2026-04-13 | Round 10
 
 **Non-generated source:** ~19,418 lines / 77 files
 
-## Changes This Round
-- Clone reduction in unified.rs PARTIALLY RESOLVED (~30 lines)
-- Protocol dedup cluster GREW: 95→165 lines (3 execute variants copy-paste)
+## Changes: Protocol dedup grew to ~175 lines. 5 new opportunities.
 
-## 3 NEW opportunities
+## 5 NEW opportunities
 
 | # | Opportunity | Lines | Risk |
 |---|---|---:|---|
-| 55 | QMP response helper (error-check + return-extraction 3x) | 50 | safe |
-| 56 | QMP request-send helper (args→JSON + channel send 3x) | 40 | safe |
-| 57 | "command channel closed" error constant (6x) | 10 | safe |
+| 58 | write_json_line helper (5 sites in server.rs) | 20 | safe |
+| 59 | QmpSession/QgaSession identical methods (recv/send/error) | 60 | safe |
+| 60 | Version-attr emission helper (enum/struct generators) | 25 | safe |
+| 61 | Response-parsing dedup across QMP+QGA (4 sites) | 70 | moderate |
+| 62 | Serialize body version-check wrapper (3 fns) | 45 | safe |
 
 ## Summary
 
 | Category | Count | Lines |
 |----------|-------|-------|
 | Total resolved | ~11 | ~165 |
-| **Total open** | **46** | **~1,120** |
+| **Total open** | **51** | **~1,350** |
 
 ## Cluster Wins
 
 | Cluster | Lines | Trend |
 |---------|-------|-------|
 | Registry unification | ~545 | — |
-| **Protocol dedup** | **~165** | **↑** |
-| BMC server dedup | ~125 | — |
-| Macro serializer | ~95 | — |
+| BMC server dedup | ~205 | ↑↑ |
+| Protocol dedup | ~175 | ↑ |
+| Macro serializer | ~140 | ↑ |
+| Version annotation | ~100 | ↑ |
 | Merge logic | ~80 | — |
-| Version annotation | ~75 | — |
-
-**#55+#56 = ~90 lines safe refactor = highest-value next targets.**

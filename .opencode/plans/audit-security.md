@@ -1,20 +1,18 @@
 # Security Audit Report
 
-Generated: 2026-04-13 | Round 9
+Generated: 2026-04-13 | Round 10
 
-## Changes This Round
-- 3 new mitigations: QGA request cap 256KB, QMP/QGA 5s connect timeout, execute_with_timeout
-- 1 new LOW: NEW-29 (execute_raw accepts arbitrary command name)
+## Changes: New mitigations confirmed (id correlation, memory validation, early-exit). 2 new LOW.
 
-## Summary: 3 HIGH open, 7 MEDIUM, 5 LOW. 7 MITIGATED, 2 RESOLVED.
+## Summary: 3 HIGH open, 7 MEDIUM, 7 LOW. 7 MITIGATED, 2 RESOLVED.
 
 | # | Finding | Severity | Status |
 |---|---------|----------|--------|
-| 1 | Unbounded read_line | HIGH (CWE-400) | MITIGATED (1 MiB cap) |
-| 2 | Socket permissions | HIGH (CWE-732) | MITIGATED (chmod 0o600) |
+| 1 | Unbounded read_line | HIGH | MITIGATED (1 MiB cap) |
+| 2 | Socket permissions | HIGH | MITIGATED (chmod 0o600) |
 | 4 | No auth on BMC web | HIGH (CWE-306) | STILL VULNERABLE |
 | 11 | No unsafe | POSITIVE | CONFIRMED |
-| NEW-1 | VNC WebSocket no Origin (CSWSH) | HIGH (CWE-346) | STILL VULNERABLE |
+| NEW-1 | VNC WebSocket no Origin | HIGH (CWE-346) | STILL VULNERABLE |
 | NEW-3 | Disk path injection | MEDIUM (CWE-22/73) | STILL VULNERABLE |
 | NEW-4 | curl no TLS pinning | MEDIUM (CWE-295) | STILL VULNERABLE |
 | NEW-6 | No rate limiting | MEDIUM (CWE-799) | STILL VULNERABLE |
@@ -28,7 +26,8 @@ Generated: 2026-04-13 | Round 9
 | NEW-26 | Config mutation chain | HIGH (CWE-306) | STILL VULNERABLE |
 | NEW-27 | Mock server unbounded reads | LOW (CWE-400) | CONFIRMED |
 | NEW-28 | Static asset integrity | LOW (CWE-367) | STILL VULNERABLE |
-| NEW-29 | execute_raw arbitrary commands | LOW (CWE-20) | NEW |
+| NEW-29 | execute_raw arbitrary commands | LOW (CWE-20) | STILL PRESENT |
+| NEW-30 | QEMU stderr unbounded line | LOW (CWE-400) | NEW |
+| NEW-31 | VmBuilder::arg injection surface | LOW (CWE-88) | NEW |
 
 **Critical chain:** #4 + NEW-1 + NEW-16 + NEW-19 + NEW-26.
-**Top 3:** BMC auth + CSRF, TLS, WebSocket frame limits.

@@ -1,35 +1,34 @@
 # Best Practices Audit Report
 
-Generated: 2026-04-13 | Round 9
+Generated: 2026-04-13 | Round 10
 
-## Changes This Round
-- N33 edition mismatch WORSENED — 5/6 crates still 2021 with resolver=3
-- NEW: N34 (bmc not documented), N35 (no deny(unsafe_code)), N36 (no workspace.package.edition)
+## Changes: N2 (#[must_use]) IMPROVED (manager has ~10). N37 (pub use serde_json leaks) NEW.
 
-## HIGH (unchanged)
+## HIGH
 | # | Issue |
 |---|-------|
-| 1 | No thiserror — anyhow in all 6 public APIs |
+| 1 | No thiserror — anyhow in 4 crates |
 | 3 | syn v1 in qapi-macros |
 | 4 | No CI pipeline |
-| N2 | No `#[must_use]` |
 | N3 | Duplicated execute logic |
 | N23 | No error taxonomy |
 
 ## MEDIUM
-- #5 No workspace.dependencies (6 crates)
+- #5 No workspace.dependencies
 - #8 Qga no Debug
 - #11 Public fields bypass typestate
-- N29 pub use serde leaks impl deps
+- N29 pub use serde leaks impl dep
 - N30 No `#[non_exhaustive]`
-- N33 Edition mismatch (worsened)
-- N35 No deny(unsafe_code) (NEW)
-- N36 No workspace.package.edition (NEW)
+- N33 Edition mismatch (5/6 still 2021)
+- N35 No deny(unsafe_code)
+- N36 No workspace.package.edition
+- N37 pub use serde_json also leaks (NEW)
 
 ## LOW
-- N34 bmc not in CLAUDE.md (NEW)
+- N2 `#[must_use]` partial (manager only)
+- N34 bmc not in CLAUDE.md
 
 ## Top 3 Actions
 1. Replace anyhow with thiserror in library APIs
 2. Add CI + workspace.lints
-3. Add workspace.dependencies + workspace.package.edition = "2024"
+3. workspace.dependencies + workspace.package.edition = "2024"
