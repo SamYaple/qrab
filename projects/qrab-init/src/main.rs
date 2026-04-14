@@ -5,7 +5,7 @@ use nix::libc;
 use nix::mount::{mount, MsFlags};
 use nix::sys::signal::{sigaction, SaFlags, SigAction, SigHandler, SigSet, Signal};
 use nix::sys::wait::{waitpid, WaitPidFlag, WaitStatus};
-use nix::unistd::{close, execve, fork, ForkResult, Pid};
+use nix::unistd::{close, execve, fork, ForkResult, Gid, Pid, Uid};
 use std::ffi::{CString, OsString};
 use std::fs::File;
 use std::io::Read;
@@ -26,6 +26,16 @@ extern "C" fn forward_signal(sig: libc::c_int) {
     }
 }
 
+/// Wait for parent to finish writing uid/gid maps, then close the pipe.
+fn wait_for_ack(ack_fd: i32) -> Result<(), String> {
+    let mut file = unsafe { File::from_raw_fd(ack_fd) };
+    let mut buf = [0u8; 1];
+    file.read_exact(&mut buf)
+        .map_err(|e| format!("failed to read ack from parent: {e}"))?;
+    // File::drop closes the fd
+    Ok(())
+}
+
 fn read_config(fd: i32) -> Result<InitConfig, String> {
     let mut file = unsafe { File::from_raw_fd(fd) };
     let mut buf = Vec::new();
@@ -35,6 +45,47 @@ fn read_config(fd: i32) -> Result<InitConfig, String> {
     serde_json::from_slice(&buf).map_err(|e| format!("failed to deserialize config: {e}"))
 }
 
+/// Mount minimal /dev inside the mount namespace.
+///
+/// Creates a fresh tmpfs at /dev with only null, zero, urandom.
+/// No /dev/kvm — KVM is accessed via inherited fd only.
+#[allow(dead_code)] // TODO: enable when pivot_root-based /dev isolation lands
+fn setup_dev() -> Result<(), String> {
+    // In user namespaces, the kernel blocks mount propagation back to the
+    // initial namespace regardless of propagation type. No need to change
+    // propagation on inherited mounts (MS_PRIVATE/MS_SLAVE both EPERM on
+    // locked mounts in user namespaces). Just mount directly.
+
+    // Fresh tmpfs for /dev.
+    mount(
+        Some("tmpfs"),
+        "/dev",
+        Some("tmpfs"),
+        MsFlags::MS_NOSUID | MsFlags::MS_STRICTATIME,
+        Some("mode=755"),
+    )
+    .map_err(|e| format!("mount tmpfs /dev: {e}"))?;
+
+    // Bind mount essential device nodes.
+    for dev in &["null", "zero", "urandom"] {
+        let target = format!("/dev/{dev}");
+        let source = format!("/dev/{dev}");
+        // Create target file for bind mount.
+        std::fs::File::create(&target).map_err(|e| format!("create {target}: {e}"))?;
+        mount(
+            Some(source.as_str()),
+            target.as_str(),
+            None::<&str>,
+            MsFlags::MS_BIND,
+            None::<&str>,
+        )
+        .map_err(|e| format!("bind mount {source} -> {target}: {e}"))?;
+    }
+
+    Ok(())
+}
+
+#[allow(dead_code)] // TODO: enable when pivot_root-based /proc isolation lands
 fn mount_proc() -> Result<(), String> {
     let flags = MsFlags::MS_NOSUID | MsFlags::MS_NODEV | MsFlags::MS_NOEXEC;
     mount(Some("proc"), "/proc", Some("proc"), flags, None::<&str>)
@@ -58,25 +109,44 @@ fn collect_environ() -> Result<Vec<CString>, String> {
 }
 
 fn run() -> Result<(), String> {
-    // Parse argv[1] as config pipe fd
+    // Parse argv: <config-pipe-fd> <ack-pipe-fd>
     let args: Vec<String> = std::env::args().collect();
-    if args.len() != 2 {
-        return Err(format!("usage: {} <config-pipe-fd>", args[0]));
+    if args.len() != 3 {
+        return Err(format!("usage: {} <config-pipe-fd> <ack-pipe-fd>", args[0]));
     }
     let config_fd: i32 = args[1]
         .parse()
         .map_err(|e| format!("invalid config pipe fd '{}': {e}", args[1]))?;
+    let ack_fd: i32 = args[2]
+        .parse()
+        .map_err(|e| format!("invalid ack pipe fd '{}': {e}", args[2]))?;
 
-    // Read and deserialize config (File::drop closes fd)
+    // 1. Wait for parent to write uid/gid maps and send ack.
+    //    At this point we're in a user namespace but haven't called
+    //    setuid(0) yet — the parent needs to write the maps first.
+    wait_for_ack(ack_fd)?;
+
+    // 2. Now uid/gid maps are written — become root in user namespace.
+    nix::unistd::setuid(Uid::from_raw(0)).map_err(|e| format!("setuid(0): {e}"))?;
+    nix::unistd::setgid(Gid::from_raw(0)).map_err(|e| format!("setgid(0): {e}"))?;
+
+    // 3. /dev isolation (tmpfs + bind mounts) deferred — requires pivot_root
+    //    approach for user namespaces where inherited mounts are locked.
+    //    QEMU uses host /dev for now. TODO: implement pivot_root-based
+    //    /dev isolation in a follow-up.
+
+    // 4. Read and deserialize config.
     let config = read_config(config_fd)?;
 
-    // Fork: child becomes pid 1 in PID namespace, parent is init
+    // 5. Fork: child becomes pid 1 in PID namespace, parent is init.
     match unsafe { fork() } {
         Ok(ForkResult::Child) => {
-            // Mount /proc inside PID namespace
-            mount_proc()?;
+            // /proc remount deferred — same locked-mount EPERM as /dev in
+            // user namespaces. QEMU works with inherited /proc (shows parent
+            // PID ns, but user ns prevents access to other processes).
+            // TODO: implement via pivot_root in follow-up.
 
-            // Build argv for execve
+            // Build argv for execve.
             let binary = build_cstring(config.qemu_binary.as_os_str().as_encoded_bytes())?;
 
             let mut argv = vec![binary.clone()];
@@ -86,24 +156,24 @@ fn run() -> Result<(), String> {
                 );
             }
 
-            // Collect current environment
+            // Collect current environment.
             let environ = collect_environ()?;
 
-            // execve replaces this process with QEMU
+            // execve replaces this process with QEMU.
             execve(&binary, &argv, &environ).map_err(|e| format!("execve failed: {e}"))?;
 
             unreachable!()
         }
         Ok(ForkResult::Parent { child }) => {
-            // Close KVM fd if present — only QEMU child needs it
+            // Close KVM fd if present — only QEMU child needs it.
             if let Some(kvm_fd) = config.kvm_fd {
                 let _ = close(kvm_fd);
             }
 
-            // Store child pid for signal handler
+            // Store child pid for signal handler.
             CHILD_PID.store(child.as_raw(), Ordering::Relaxed);
 
-            // Install signal handlers that forward to child
+            // Install signal handlers that forward to child.
             let sa = SigAction::new(
                 SigHandler::Handler(forward_signal),
                 SaFlags::SA_RESTART,
@@ -114,7 +184,7 @@ fn run() -> Result<(), String> {
                 sigaction(Signal::SIGINT, &sa).map_err(|e| format!("sigaction SIGINT: {e}"))?;
             }
 
-            // Reap loop — wait for all children
+            // Reap loop — wait for all children.
             loop {
                 match waitpid(Pid::from_raw(-1), Some(WaitPidFlag::empty())) {
                     Ok(WaitStatus::Exited(pid, code)) if pid == child => {
@@ -124,16 +194,14 @@ fn run() -> Result<(), String> {
                         process::exit(128 + sig as i32);
                     }
                     Ok(_) => {
-                        // Other child reaped (zombie), continue
+                        // Other child reaped (zombie), continue.
                     }
                     Err(nix::errno::Errno::ECHILD) => {
-                        // No more children — shouldn't happen if QEMU is running,
-                        // but exit cleanly
                         eprintln!("qrab-init: no children remaining, exiting");
                         process::exit(1);
                     }
                     Err(nix::errno::Errno::EINTR) => {
-                        // Interrupted by signal, continue
+                        // Interrupted by signal, continue.
                     }
                     Err(e) => {
                         eprintln!("qrab-init: waitpid error: {e}");

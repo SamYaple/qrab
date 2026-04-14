@@ -142,6 +142,6 @@ async fn arch_availability() {
 
 #[tokio::test]
 async fn preconfig_min_version_constant() {
-    // Verify the constant matches expected QEMU 3.0.0
-    assert_eq!(PRECONFIG_MIN_VERSION, (3, 0, 0));
+    // Verify the constant matches expected QEMU 7.2.0 (KVM fd passing + blockdev preconfig)
+    assert_eq!(PRECONFIG_MIN_VERSION, (7, 2, 0));
 }

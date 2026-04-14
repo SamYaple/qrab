@@ -2153,6 +2153,7 @@ dependencies = [
  "qapi-protocol",
  "serde",
  "serde_json",
+ "tempfile",
  "tokio",
  "tracing",
  "which",
@@ -2606,6 +2607,15 @@ dependencies = [
  "tokio",
  "tracing",
  "which",
+]
+
+[[package]]
+name = "qrab-init"
+version = "0.1.0"
+dependencies = [
+ "nix",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

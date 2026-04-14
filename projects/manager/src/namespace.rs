@@ -8,7 +8,6 @@ use std::os::fd::{AsRawFd, BorrowedFd, FromRawFd, OwnedFd, RawFd};
 use std::path::PathBuf;
 
 use nix::fcntl::{FcntlArg, FdFlag, OFlag};
-use nix::mount::{mount, MsFlags};
 use nix::sched::CloneFlags;
 use nix::sys::stat::Mode;
 use nix::unistd::{Gid, Uid};
@@ -27,6 +26,40 @@ pub struct InitConfig {
     pub qemu_args: Vec<String>,
     /// Raw fd number for pre-opened `/dev/kvm`, if KVM is enabled.
     pub kvm_fd: Option<i32>,
+}
+
+/// Resolve the path to the `qrab-init` binary.
+///
+/// Resolution order:
+/// 1. `QRAB_INIT_BIN` env var (explicit override)
+/// 2. Sibling of the current executable (same directory as the running binary)
+/// 3. `qrab-init` on `PATH` via `which`
+pub fn qrab_init_binary() -> anyhow::Result<PathBuf> {
+    if let Ok(p) = std::env::var("QRAB_INIT_BIN") {
+        let path = PathBuf::from(p);
+        anyhow::ensure!(path.is_file(), "QRAB_INIT_BIN={} is not a file", path.display());
+        return Ok(path);
+    }
+
+    if let Ok(exe) = std::env::current_exe() {
+        // Check same directory as running binary
+        if let Some(dir) = exe.parent() {
+            let sibling = dir.join("qrab-init");
+            if sibling.is_file() {
+                return Ok(sibling);
+            }
+            // Test binaries live in target/debug/deps/ — check parent too
+            if let Some(parent) = dir.parent() {
+                let sibling = parent.join("qrab-init");
+                if sibling.is_file() {
+                    return Ok(sibling);
+                }
+            }
+        }
+    }
+
+    which::which("qrab-init")
+        .map_err(|_| anyhow::anyhow!("qrab-init not found — install it or set QRAB_INIT_BIN"))
 }
 
 /// Wrapper around a pre-opened `/dev/kvm` file descriptor.
@@ -115,58 +148,6 @@ impl NsHelper {
     }
 }
 
-/// Mount a minimal `/dev` inside the mount namespace.
-///
-/// Called from `pre_exec` after `setuid(0)` in the user namespace, which
-/// grants `CAP_SYS_ADMIN` for mount operations. Creates:
-/// - tmpfs at `/dev` (replaces host `/dev`)
-/// - bind mounts for `/dev/null`, `/dev/zero`, `/dev/urandom`
-///
-/// No `/dev/kvm` — KVM is accessed exclusively via inherited fd.
-pub fn setup_dev() -> Result<(), nix::Error> {
-    // Prevent mount propagation to host.
-    mount(
-        None::<&str>,
-        "/",
-        None::<&str>,
-        MsFlags::MS_REC | MsFlags::MS_PRIVATE,
-        None::<&str>,
-    )?;
-
-    // Fresh tmpfs for /dev.
-    mount(
-        Some("tmpfs"),
-        "/dev",
-        Some("tmpfs"),
-        MsFlags::MS_NOSUID | MsFlags::MS_STRICTATIME,
-        Some("mode=755"),
-    )?;
-
-    // Bind mount essential device nodes.
-    bind_mount_dev("/dev/null")?;
-    bind_mount_dev("/dev/zero")?;
-    bind_mount_dev("/dev/urandom")?;
-
-    Ok(())
-}
-
-/// Create a file at `path` inside the new `/dev` tmpfs and bind-mount
-/// the host device node onto it.
-fn bind_mount_dev(path: &str) -> Result<(), nix::Error> {
-    // The target file must exist for bind mount. Create it in the tmpfs.
-    // We're in a mount namespace with a fresh tmpfs /dev, so this creates
-    // in the namespace-local tmpfs.
-    std::fs::File::create(path).map_err(|_| nix::Error::ENOENT)?;
-    mount(
-        Some(path),
-        path,
-        None::<&str>,
-        MsFlags::MS_BIND,
-        None::<&str>,
-    )?;
-    Ok(())
-}
-
 fn nix_to_io(e: nix::Error) -> std::io::Error {
     std::io::Error::from_raw_os_error(e as i32)
 }
@@ -175,10 +156,12 @@ fn nix_to_io(e: nix::Error) -> std::io::Error {
 ///
 /// This closure runs in the forked child between `fork()` and `exec()`.
 /// Everything here must be async-signal-safe (no allocations, no locks).
+/// **Must not block** — `Command::spawn()` waits for exec to complete,
+/// so blocking here deadlocks with the parent.
 ///
 /// # Arguments
 /// - `sync_w`: write end of sync-to-parent pipe (send PID)
-/// - `sync_r`: read end of sync-from-parent pipe (receive ack)
+/// - `ack_r`: read end of ack-from-parent pipe (passed to qrab-init, not read here)
 /// - `kvm_fd`: optional raw fd for `/dev/kvm`
 /// - `cfg_r`: read end of config pipe (passed to qrab-init as argv[1])
 ///
@@ -187,7 +170,7 @@ fn nix_to_io(e: nix::Error) -> std::io::Error {
 /// requires `unsafe`. The closure itself performs only POSIX syscalls.
 pub fn make_pre_exec(
     sync_w: RawFd,
-    sync_r: RawFd,
+    ack_r: RawFd,
     kvm_fd: Option<RawFd>,
     cfg_r: RawFd,
 ) -> impl FnMut() -> std::io::Result<()> {
@@ -208,29 +191,20 @@ pub fn make_pre_exec(
         // 3. Write our PID to parent so it can set up uid/gid maps.
         let pid = nix::unistd::getpid();
         let pid_bytes = pid.to_string();
-        // SAFETY: sync_w is a valid fd inherited from parent, not owned
-        // by any other object in this post-fork context.
         let sync_w_fd = unsafe { BorrowedFd::borrow_raw(sync_w) };
         nix::unistd::write(sync_w_fd, pid_bytes.as_bytes()).map_err(nix_to_io)?;
         nix::unistd::close(sync_w).map_err(nix_to_io)?;
 
-        // 4. Wait for parent ack (uid/gid maps written).
-        let mut ack = [0u8; 1];
-        nix::unistd::read(sync_r, &mut ack).map_err(nix_to_io)?;
-        nix::unistd::close(sync_r).map_err(nix_to_io)?;
-
-        // 5. Now root in user namespace — set uid/gid.
-        nix::unistd::setuid(Uid::from_raw(0)).map_err(nix_to_io)?;
-        nix::unistd::setgid(Gid::from_raw(0)).map_err(nix_to_io)?;
-
-        // 6. Mount minimal /dev.
-        setup_dev().map_err(nix_to_io)?;
-
-        // 7. Clear CLOEXEC on fds that must survive exec to qrab-init.
+        // 4. Clear CLOEXEC on fds that must survive exec to qrab-init.
+        //    qrab-init will: read ack, setuid/setgid, setup_dev, read config.
+        KvmFd::clear_cloexec(ack_r).map_err(nix_to_io)?;
+        KvmFd::clear_cloexec(cfg_r).map_err(nix_to_io)?;
         if let Some(fd) = kvm_fd {
             KvmFd::clear_cloexec(fd).map_err(nix_to_io)?;
         }
-        KvmFd::clear_cloexec(cfg_r).map_err(nix_to_io)?;
+
+        // NOTE: setuid/setgid/setup_dev moved to qrab-init (after ack).
+        // Cannot block here — spawn() waits for exec to complete.
 
         Ok(())
     }

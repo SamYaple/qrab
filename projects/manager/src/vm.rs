@@ -1,6 +1,6 @@
 use anyhow::Result;
 use std::os::fd::{AsRawFd, IntoRawFd};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{ExitStatus, Stdio};
 use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, BufReader};
@@ -15,7 +15,7 @@ use qapi::QapiCommand;
 use qapi_protocol::{Qmp, QmpEvent};
 
 use crate::arch::{Arch, MachineConfig};
-use crate::namespace::{InitConfig, KvmFd, NsHelper};
+use crate::namespace::{InitConfig, NsHelper};
 
 /// Minimum QEMU version. 7.2.0 added `-accel kvm,device=` support for KVM
 /// fd passing, which qrab requires for namespace-isolated KVM access. Also
@@ -476,11 +476,30 @@ impl VmBuilder {
         let (cfg_r, cfg_w) = nix::unistd::pipe()
             .map_err(|e| anyhow::anyhow!("config pipe: {e}"))?;
 
+        // Set CLOEXEC on parent-side pipe ends so they're closed in child
+        // on exec. Without this, the child inherits the write end of the
+        // config pipe and read_to_end() never sees EOF.
+        use crate::namespace::KvmFd; // reuse clear_cloexec helper
+        fn set_cloexec(fd: std::os::fd::RawFd) -> anyhow::Result<()> {
+            let flags = nix::fcntl::fcntl(fd, nix::fcntl::FcntlArg::F_GETFD)?;
+            let mut fd_flags = nix::fcntl::FdFlag::from_bits_truncate(flags);
+            fd_flags.insert(nix::fcntl::FdFlag::FD_CLOEXEC);
+            nix::fcntl::fcntl(fd, nix::fcntl::FcntlArg::F_SETFD(fd_flags))?;
+            Ok(())
+        }
+        set_cloexec(sync_parent_r.as_raw_fd())?;
+        set_cloexec(ack_parent_w.as_raw_fd())?;
+        set_cloexec(cfg_w.as_raw_fd())?;
+
         let cfg_r_raw = cfg_r.as_raw_fd();
 
         // --- Serialize InitConfig ---
+        // Resolve QEMU binary to absolute path — execve in qrab-init
+        // does not do PATH lookup.
+        let qemu_binary = which::which(self.arch.binary())
+            .map_err(|_| anyhow::anyhow!("QEMU binary not found: {}", self.arch.binary().display()))?;
         let config = InitConfig {
-            qemu_binary: self.arch.binary(),
+            qemu_binary,
             qemu_args: args.clone(),
             kvm_fd: kvm_fd.as_ref().map(|f| f.raw_fd() as i32),
         };
@@ -501,9 +520,12 @@ impl VmBuilder {
         );
 
         // --- Spawn qrab-init ---
+        let init_bin = crate::namespace::qrab_init_binary()?;
+        let ack_r_raw = ack_child_r.as_raw_fd();
         let mut child = unsafe {
-            Command::new("qrab-init")
+            Command::new(&init_bin)
                 .arg(cfg_r_raw.to_string())
+                .arg(ack_r_raw.to_string())
                 .stdout(Stdio::null())
                 .stderr(Stdio::piped())
                 .kill_on_drop(true)
@@ -643,6 +665,12 @@ pub struct PreconfigVm {
 }
 
 impl PreconfigVm {
+    /// Path to the QMP Unix socket.
+    #[must_use]
+    pub fn qmp_sock(&self) -> &Path {
+        &self.process.qmp_sock
+    }
+
     /// Path to the serial log file, if serial was enabled.
     #[must_use]
     pub fn serial_log(&self) -> Option<&PathBuf> {
@@ -721,6 +749,12 @@ pub struct Vm {
 }
 
 impl Vm {
+    /// Path to the QMP Unix socket.
+    #[must_use]
+    pub fn qmp_sock(&self) -> &Path {
+        &self.process.qmp_sock
+    }
+
     /// Path to the serial log file, if serial was enabled.
     #[must_use]
     pub fn serial_log(&self) -> Option<&PathBuf> {
