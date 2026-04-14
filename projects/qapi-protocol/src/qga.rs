@@ -44,7 +44,7 @@ impl Qga {
         // Query guest-info to get the QGA version
         let info: qapi::qga::GuestAgentInfo =
             qga.execute_raw("guest-info", serde_json::json!({})).await?;
-        qapi::set_qga_version(info.version);
+        qapi::set_qga_version(normalize_qga_version(&info.version));
 
         Ok(qga)
     }
@@ -182,5 +182,78 @@ impl Qga {
         };
 
         Ok(serde_json::from_value(ret)?)
+    }
+}
+
+/// Normalize a `guest-info` version string before handing it to
+/// `qapi::set_qga_version`, which does a strict `split('.')` parse.
+///
+/// Every released `qemu-ga` emits `"major.minor.patch"`, but real-world
+/// inputs have included leading/trailing whitespace, a vendor `"v"`
+/// prefix, or fewer than three components. `set_qga_version` falls back
+/// to `(0, 0, 0)` on any parse failure, so these "almost-valid" strings
+/// silently lost all version info. Trim whitespace and strip a leading
+/// `v`/`V` here so `"v1"`, `" 1.0.0 "`, `"1.0"` and friends parse as
+/// expected; truly malformed input still falls through to `(0, 0, 0)`
+/// in `set_qga_version`, matching `qemu_version`'s missing-greeting
+/// behavior.
+fn normalize_qga_version(raw: &str) -> String {
+    let trimmed = raw.trim();
+    let stripped = trimmed
+        .strip_prefix('v')
+        .or_else(|| trimmed.strip_prefix('V'))
+        .unwrap_or(trimmed);
+    stripped.to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::normalize_qga_version;
+
+    #[test]
+    fn normalize_empty() {
+        assert_eq!(normalize_qga_version(""), "");
+    }
+
+    #[test]
+    fn normalize_single_number() {
+        assert_eq!(normalize_qga_version("1"), "1");
+    }
+
+    #[test]
+    fn normalize_two_components() {
+        assert_eq!(normalize_qga_version("1.0"), "1.0");
+    }
+
+    #[test]
+    fn normalize_triple() {
+        assert_eq!(normalize_qga_version("1.0.0"), "1.0.0");
+    }
+
+    #[test]
+    fn normalize_prerelease_suffix() {
+        assert_eq!(normalize_qga_version("1.0.0rc1"), "1.0.0rc1");
+    }
+
+    #[test]
+    fn normalize_leading_v() {
+        assert_eq!(normalize_qga_version("v1"), "1");
+        assert_eq!(normalize_qga_version("v1.2.3"), "1.2.3");
+    }
+
+    #[test]
+    fn normalize_uppercase_v() {
+        assert_eq!(normalize_qga_version("V2.0"), "2.0");
+    }
+
+    #[test]
+    fn normalize_whitespace() {
+        assert_eq!(normalize_qga_version(" 1.0.0 "), "1.0.0");
+        assert_eq!(normalize_qga_version("\t1.2.3\n"), "1.2.3");
+    }
+
+    #[test]
+    fn normalize_whitespace_and_v() {
+        assert_eq!(normalize_qga_version("  v3.1.4  "), "3.1.4");
     }
 }
