@@ -331,9 +331,30 @@ impl Qmp {
                             match serde_json::from_str::<serde_json::Value>(&line) {
                                 Ok(parsed) => {
                                     if parsed.get("event").is_some() {
-                                        let _ = event_tx.send(line).await;
-                                    } else {
-                                        let _ = response_tx.send(parsed).await;
+                                        // BUG 43 fix: event channel backpressure
+                                        // must not stall the read loop. The raw
+                                        // `event_tx` has a bounded capacity (100)
+                                        // and a stuck `event_worker` (or a caller
+                                        // that isn't draining events) would
+                                        // otherwise suspend `send().await` here,
+                                        // blocking QMP command responses too.
+                                        // Drop events on overflow instead — we
+                                        // prefer command liveness over event
+                                        // completeness.
+                                        use tokio::sync::mpsc::error::TrySendError;
+                                        match event_tx.try_send(line) {
+                                            Ok(()) => {}
+                                            Err(TrySendError::Full(_)) => {
+                                                tracing::warn!(
+                                                    "QMP event channel full, dropping event"
+                                                );
+                                            }
+                                            Err(TrySendError::Closed(_)) => break,
+                                        }
+                                    } else if response_tx.send(parsed).await.is_err() {
+                                        // Response channel closed — write_loop
+                                        // is gone; no point continuing to read.
+                                        break;
                                     }
                                 }
                                 Err(e) => {
@@ -360,10 +381,42 @@ impl Qmp {
         mut response_rx: mpsc::Receiver<serde_json::Value>,
         mut shutdown_rx: watch::Receiver<()>,
     ) {
+        // BUG 42 fix: command correlation via QMP `id` field.
+        //
+        // Previously, a per-command 30s response-wait in an inner select!
+        // dropped `reply_tx` on timeout and fell through to the outer loop.
+        // If QEMU then produced the late response, `read_loop` pushed it
+        // into `response_rx` and the NEXT command's `recv()` collected the
+        // stale response as its own reply — cross-command desync.
+        //
+        // The QMP spec lets clients tag each request with an `id` field
+        // and guarantees the server echoes it verbatim on the matching
+        // response. We now inject a monotonic counter before writing the
+        // command, and the response-matching loop below discards any
+        // reply whose `id` does not match the expected one. Responses
+        // without any `id` field are accepted as a fallback to keep mock
+        // servers and pre-`id` peers working — real QEMU always echoes.
+        let mut id_counter: u64 = 0;
         loop {
             tokio::select! {
                 Some((command, reply_tx)) = command_rx.recv() => {
-                    if write_half.write_all(command.as_bytes()).await.is_err() {
+                    id_counter = id_counter.wrapping_add(1);
+                    let expected_id = id_counter;
+
+                    // Inject `id` into the command JSON. If the payload
+                    // is not a JSON object we still try to send it raw —
+                    // correlation is best-effort, not a hard requirement.
+                    let tagged = match serde_json::from_str::<serde_json::Value>(&command) {
+                        Ok(mut value) => {
+                            if let Some(obj) = value.as_object_mut() {
+                                obj.insert("id".to_string(), serde_json::json!(expected_id));
+                            }
+                            serde_json::to_string(&value).unwrap_or(command)
+                        }
+                        Err(_) => command,
+                    };
+
+                    if write_half.write_all(tagged.as_bytes()).await.is_err() {
                         break;
                     }
                     if write_half.write_all(b"\n").await.is_err() {
@@ -373,19 +426,58 @@ impl Qmp {
                     // Bound the response wait: a hung QEMU would otherwise
                     // block this task forever. On timeout, drop reply_tx
                     // (client sees "channel closed") and keep going. On
-                    // shutdown, break out of the loop entirely.
-                    tokio::select! {
-                        response = response_rx.recv() => {
-                            match response {
-                                Some(response) => { let _ = reply_tx.send(response); }
-                                None => break,
+                    // shutdown, break out of the loop entirely. Inside the
+                    // select we loop on stale responses — a late reply from
+                    // a previously-timed-out command carries the old `id`
+                    // and must be discarded rather than delivered to the
+                    // current caller.
+                    let deadline = tokio::time::sleep(Duration::from_secs(30));
+                    tokio::pin!(deadline);
+
+                    enum Outcome {
+                        Delivered,
+                        TimedOut,
+                        Shutdown,
+                        Closed,
+                    }
+                    let mut reply_tx = Some(reply_tx);
+                    let outcome = loop {
+                        tokio::select! {
+                            response = response_rx.recv() => {
+                                match response {
+                                    Some(response) => {
+                                        let resp_id = response
+                                            .get("id")
+                                            .and_then(|v| v.as_u64());
+                                        if resp_id.is_some() && resp_id != Some(expected_id) {
+                                            tracing::warn!(
+                                                got = ?resp_id,
+                                                expected = expected_id,
+                                                "discarding stale QMP response (late reply from prior command)"
+                                            );
+                                            continue;
+                                        }
+                                        if let Some(tx) = reply_tx.take() {
+                                            let _ = tx.send(response);
+                                        }
+                                        break Outcome::Delivered;
+                                    }
+                                    None => break Outcome::Closed,
+                                }
                             }
+                            _ = shutdown_rx.changed() => break Outcome::Shutdown,
+                            _ = &mut deadline => break Outcome::TimedOut,
                         }
-                        _ = shutdown_rx.changed() => break,
-                        _ = tokio::time::sleep(Duration::from_secs(30)) => {
+                    };
+                    match outcome {
+                        Outcome::Delivered => continue,
+                        Outcome::TimedOut => {
+                            // reply_tx still in the Option — dropping here
+                            // signals "channel closed" to the waiting caller.
                             drop(reply_tx);
                             continue;
                         }
+                        Outcome::Shutdown | Outcome::Closed => break,
                     }
                 }
                 _ = shutdown_rx.changed() => break,
