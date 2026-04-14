@@ -173,6 +173,7 @@ impl Qmp {
     ///
     /// Returns the `Qmp` handle and a receiver for QMP events.
     /// Also sets the global QEMU version via `qapi::set_qemu_version()`.
+    #[must_use = "dropping the Qmp handle immediately tears the connection down; bind it to keep the QMP session alive"]
     pub async fn new(socket_path: &Path) -> Result<(Self, mpsc::Receiver<QmpEvent>)> {
         // Bound `connect(2)` itself. A present-but-unserved socket —
         // e.g. bound without `listen()`, stuck in socket activation, or
@@ -294,6 +295,7 @@ impl Qmp {
     }
 
     /// Execute a typed QMP command and deserialize the response.
+    #[must_use = "QMP commands can fail with a QmpError; ignoring the Result hides protocol errors"]
     pub async fn execute<C: QapiCommand>(&self, cmd: &C) -> Result<C::Returns> {
         let args = serde_json::to_value(cmd)?;
         let request = if args.as_object().is_some_and(|o| o.is_empty()) {
@@ -364,6 +366,7 @@ impl Qmp {
     /// chaining a 60s outer timeout on top of the 30s write_loop guard
     /// would just add a redundant layer that never actually fires, so
     /// `execute()` keeps its original direct-await shape.
+    #[must_use = "QMP commands can fail with a QmpError or time out; ignoring the Result hides protocol errors"]
     pub async fn execute_with_timeout<C: QapiCommand>(
         &self,
         cmd: &C,
@@ -440,6 +443,7 @@ impl Qmp {
     /// not be set by the caller — see BUG 42. On success the returned
     /// value is the contents of the `return` field (an empty object
     /// `{}` if the command has no payload).
+    #[must_use = "QMP commands can fail with a QmpError; ignoring the Result hides protocol errors"]
     pub async fn execute_raw(
         &self,
         raw: serde_json::Value,

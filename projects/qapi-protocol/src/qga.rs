@@ -42,6 +42,7 @@ pub struct Qga {
 
 impl Qga {
     /// Connect to a QGA socket and perform the sync-delimited handshake.
+    #[must_use = "dropping the Qga handle immediately closes the connection; bind it to keep the session alive"]
     pub async fn new(socket_path: &Path) -> Result<Self> {
         // Bound `connect(2)` itself so a bound-but-unserved socket or
         // a hung filesystem can't wedge the caller indefinitely. See
@@ -146,6 +147,7 @@ impl Qga {
     }
 
     /// Execute a typed QGA command.
+    #[must_use = "QGA commands can fail with a QmpError or time out; ignoring the Result hides protocol errors"]
     pub async fn execute<C: QapiCommand>(&mut self, cmd: &C) -> Result<C::Returns> {
         let args = serde_json::to_value(cmd)?;
         self.execute_raw(C::NAME, args).await
