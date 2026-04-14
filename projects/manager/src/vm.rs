@@ -187,6 +187,7 @@ pub struct VmBuilder {
     no_shutdown: bool,
     firmware: Option<PathBuf>,
     accel: Option<Accel>,
+    smp: Option<u32>,
     extra_args: Vec<String>,
 }
 
@@ -218,6 +219,7 @@ impl VmBuilder {
             no_shutdown: false,
             firmware: None,
             accel: None,
+            smp: None,
             extra_args: Vec::new(),
         }
     }
@@ -261,6 +263,14 @@ impl VmBuilder {
     /// [`Accel::KvmOrTcg`].
     pub fn accel(mut self, accel: Accel) -> Self {
         self.accel = Some(accel);
+        self
+    }
+
+    /// Set the number of guest CPUs (`-smp cpus=N`).
+    ///
+    /// When not set, QEMU's own default (1) applies.
+    pub fn smp(mut self, cpus: u32) -> Self {
+        self.smp = Some(cpus);
         self
     }
 
@@ -359,6 +369,13 @@ impl VmBuilder {
             None => "tcg",
         };
         args.extend(["-accel".into(), accel_arg.into()]);
+
+        // `-smp` is omitted entirely when unset so QEMU applies its own
+        // default (1 CPU) rather than having qrab hardcode it. The full
+        // `cpus=N` form is emitted for clarity over the bare integer.
+        if let Some(cpus) = self.smp {
+            args.extend(["-smp".into(), format!("cpus={}", cpus)]);
+        }
 
         if let Some(cpu) = self.arch.cpu() {
             args.extend(["-cpu".into(), cpu.into()]);
