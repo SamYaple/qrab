@@ -61,14 +61,29 @@ pub use generated::events;
 /// QEMU Guest Agent (QGA) types.
 pub mod qga;
 
-static QGA_VERSION: OnceLock<String> = OnceLock::new();
+static QGA_VERSION: OnceLock<(u32, u32, u32)> = OnceLock::new();
 
-/// Set the QGA version string (from guest-info response).
+/// Set the QGA version from the `guest-info` response string.
+///
+/// The schema declares `GuestAgentInfo.version` as an opaque `String`, but in
+/// every released `qemu-ga` it is formatted as `"major.minor.patch"`. We parse
+/// that eagerly so callers see the same `(u32, u32, u32)` shape as
+/// [`qemu_version`], making the two APIs interchangeable. Non-numeric segments
+/// silently become `0`, matching the behaviour of the codegen's own
+/// `parse_version` helper.
 pub fn set_qga_version(version: String) {
-    QGA_VERSION.set(version).ok();
+    let parts: Vec<&str> = version.split('.').collect();
+    let major = parts.first().and_then(|s| s.parse().ok()).unwrap_or(0);
+    let minor = parts.get(1).and_then(|s| s.parse().ok()).unwrap_or(0);
+    let patch = parts
+        .get(2)
+        .and_then(|s| s.split(|c: char| !c.is_ascii_digit()).next())
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0);
+    QGA_VERSION.set((major, minor, patch)).ok();
 }
 
-/// Get the QGA version. Returns empty string if not yet set.
-pub fn qga_version() -> &'static str {
-    QGA_VERSION.get().map(|s| s.as_str()).unwrap_or("")
+/// Get the QGA version. Returns `(0, 0, 0)` if not yet set.
+pub fn qga_version() -> (u32, u32, u32) {
+    *QGA_VERSION.get().unwrap_or(&(0, 0, 0))
 }

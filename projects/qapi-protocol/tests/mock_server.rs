@@ -160,7 +160,7 @@ async fn mock_qga_sync_and_ping() {
     tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
     let mut qga = Qga::new(std::path::Path::new(&sock)).await.unwrap();
-    assert_eq!(qapi::qga_version(), "10.2.0");
+    assert_eq!(qapi::qga_version(), (10, 2, 0));
 
     // Execute guest-ping
     qga.execute(&qapi::qga::commands::GuestPing {}).await.unwrap();
