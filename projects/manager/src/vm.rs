@@ -363,6 +363,17 @@ impl VmBuilder {
         if !self.display {
             let version = qapi::qemu_version();
             if version < PRECONFIG_MIN_VERSION {
+                // VmProcess is not yet constructed, so its Drop will not
+                // sweep the temp files QEMU has already created. Remove
+                // them explicitly before bailing so we do not leak sockets
+                // and logs in /tmp.
+                let _ = tokio::fs::remove_file(&qmp_sock).await;
+                if let Some(ref s) = serial_log {
+                    let _ = tokio::fs::remove_file(s).await;
+                }
+                if let Some(ref s) = vnc_sock {
+                    let _ = tokio::fs::remove_file(s).await;
+                }
                 anyhow::bail!(
                     "QEMU {}.{}.{} is below required {}.{}.{} for blockdev preconfig support",
                     version.0,
