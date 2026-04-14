@@ -364,7 +364,7 @@ impl VmBuilder {
             let version = qapi::qemu_version();
             if version < PRECONFIG_MIN_VERSION {
                 anyhow::bail!(
-                    "QEMU {}.{}.{} does not support --preconfig (requires >= {}.{}.{})",
+                    "QEMU {}.{}.{} is below required {}.{}.{} for blockdev preconfig support",
                     version.0,
                     version.1,
                     version.2,
