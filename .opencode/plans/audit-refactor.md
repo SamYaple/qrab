@@ -1,49 +1,41 @@
 # Refactoring Audit Report
 
-Generated: 2026-04-13 | Round 7
+Generated: 2026-04-13 | Round 8
 
-**Non-generated source:** ~18,931 lines / 77 files
-**Largest:** unified.rs (1644), qapi-macros/lib.rs (1434), process_qapi.rs (936)
+**Non-generated source:** ~19,129 lines / 77 files
 
-## 8 opportunities RESOLVED this round
+## 2 more resolved this round (10 total)
 
 | Resolved | Detail |
 |----------|--------|
-| has_feature generalization | Extracted helper |
-| Qmp::shutdown handle-abort 3x | Extracted handle-wait helper |
-| strip_version_attrs inline reuse | Folded into helper |
-| VmProcess file cleanup dedup | Extracted cleanup_temp_files |
-| RefStrategy single-variant enum | Removed entirely |
-| UnifiedType::rust_name() | Extracted helper |
-| field deprecation warn | Extracted helper |
-| Version type unification | Unified qga/qemu version returns |
+| Display impl 3-branch dedup (#48) | `gen_display_impl` helper extracted |
+| clean_doc consolidation (#49) | `clean_doc_in_place` wrapper, 15 call sites unified |
 
-## 5 NEW opportunities
+## 4 NEW opportunities (BMC crate)
 
 | # | Opportunity | Lines | Risk |
 |---|---|---:|---|
-| 46 | build_unified/qga_registry dedup | 80 | medium |
-| 47 | generate_unified/qga_code dedup | 60 | medium |
-| 48 | Display impl 3-branch dedup in macros | 15 | safe |
-| 49 | clean_doc consolidation (15 calls) | 20 | safe |
-| 50 | Clone reduction in unified.rs (54 clones) | 25 | medium |
+| 51 | vm_actions boilerplate macro (7 identical server fns) | 50 | safe |
+| 52 | ServerFnError map_err trait (15 instances) | 15 | safe |
+| 53 | VmState match dedup (9 match arms across 7 query fns) | 40 | medium |
+| 54 | bmc() singleton + vm lock pattern | 20 | medium |
 
 ## Summary
 
 | Category | Count | Lines |
 |----------|-------|-------|
-| Resolved | 8 | ~100 |
-| Still open | 37 | ~885 |
-| New | 5 | ~200 |
-| **Total open** | **42** | **~1,085** |
+| Total resolved | 10 | ~135 |
+| Still open | 40 | ~1,050 |
+| New (BMC) | 4 | ~125 |
+| **Total open** | **44** | **~1,175** |
 
 ## Cluster Wins
 
-| Cluster | Items | Lines |
-|---------|-------|-------|
-| Registry unification | #1,12,23,25,26,27,31,38,40,46,47 | ~545 |
-| Macro serializer | #10,16,33,41,42,48 | ~110 |
-| Protocol dedup | #2,3,24,30 | ~95 |
-| Merge logic | #4,13,29,37 | ~80 |
-| Version annotation | #9,17,18,19 | ~75 |
-| Codegen hygiene | 49,50 | ~45 |
+| Cluster | Lines |
+|---------|-------|
+| Registry unification | ~545 |
+| BMC server dedup (NEW) | ~125 |
+| Macro serializer | ~95 |
+| Protocol dedup | ~95 |
+| Merge logic | ~80 |
+| Version annotation | ~75 |

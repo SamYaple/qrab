@@ -1,29 +1,24 @@
 # Feature Gaps Audit Report
 
-Generated: 2026-04-13 | Round 7
+Generated: 2026-04-13 | Round 8
 
 ## Changes This Round
-- N31 (socket collision) → DEMOTED to nice-to-have (pid+id sufficient)
-- N14 (structured QMP error) → PARTIAL (QapiErrorClass enum exists in generated, not wired to protocol)
+- N35 (execute_raw) → CLOSED for QGA, still open for QMP
+- N36 (Vm::events accessor) → CLOSED (pub field access works)
 
-## Still Missing (key must-have items)
-- #2 — No typed errors (anyhow everywhere, 42 occurrences)
-- N4 — Global version lock (OnceLock)
-- N11/N19 — Typed event dispatch test-only
-- N29 — Per-command timeout hardcoded 30s
-
-## NEW Gaps (Round 7)
+## NEW Gaps
 
 | # | Gap | Priority |
 |---|-----|----------|
-| N35 | No `Qmp::execute_raw` — can't send arbitrary JSON | should-have |
-| N36 | No `Vm::events()` accessor — can't subscribe post-construction | should-have |
-| N37 | Duplicate ErrorClass vs QapiErrorClass in generated types | nice-to-have |
+| N38 | `Qmp::execute_raw` missing — QGA has it, QMP doesn't | should-have |
+| N39 | QMP error not parsed into QapiErrorClass — blocks typed errors | must-have |
+| N40 | No `execute_with_timeout` — 30s hardcoded, no override | should-have |
+| N41 | Timeout vs disconnect indistinguishable (acknowledged in code) | should-have |
 
 ## Priority Matrix
 
 | Priority | Items |
 |----------|-------|
-| **Must-have** | Typed errors (#2, N9, N14), per-command timeout (N29), version lock (N4/N21) |
-| **Should-have** | Typed events public (N11/N19), OOB (N6), QmpBuilder (N20), TCP (N28), execute_raw (N35), events accessor (N36), SMP/accel (N23/N24), is_available (N34), wait_shutdown (N30) |
-| **Nice-to-have** | Feature flags (#7), rustdoc (#8), ErrorClass dedup (N37), socket collision (N31), must_use (N17), dedup (N25), health check (N26) |
+| **Must-have** | Typed errors (#2, N9, N39), per-command timeout (N29), version lock (N4/N21) |
+| **Should-have** | execute_raw (N38), execute_with_timeout (N40), timeout disambiguation (N41), typed events public (N11/N19), OOB (N6), TCP (N28), SMP/accel (N23/N24), is_available (N34), wait_shutdown (N30) |
+| **Nice-to-have** | ErrorClass dedup (N37), feature flags (#7), rustdoc (#8), must_use (N17), health check (N26) |

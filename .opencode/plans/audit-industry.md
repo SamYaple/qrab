@@ -1,36 +1,25 @@
 # Industry Standard Features Audit
 
-Generated: 2026-04-13 | Round 7
-
-Compared against: libvirt, proxmox-ve, cloud-hypervisor
+Generated: 2026-04-13 | Round 8
 
 ## Changes This Round
-- #34 Connection timeout → PARTIAL (handshake 10s, connect() itself unguarded)
-- #16 Command timeout → PARTIAL (30s hardcoded, not configurable)
-- #50 Event forwarder orphan → MITIGATED (500ms bounded wait, no abort)
+- **#34+#59 Connection timeout → FIXED** (5s connect + 10s handshake)
+- **#18 Process death → PARTIAL** (exit_watch exists, BMC doesn't consume it)
 
-## 65 Total Gaps (7 new this round)
+## NEW Gaps
 
-### CRITICAL (2)
-- #12 Retry/reconnect — STILL MISSING
-- #18 Process death → state — STILL MISSING
+| # | Gap | Priority |
+|---|-----|----------|
+| 66 | No `-accel` builder method — can't enable KVM | HIGH |
+| 67 | No `-smp` builder method — all VMs single-core | HIGH |
+| 68 | phase() holds mutex during QMP round-trip | MEDIUM |
+| 69 | exit_watch not consumed by BMC — dead VM invisible | MEDIUM |
+| 70 | set_qemu_version test inconsistency (OnceLock) | LOW |
 
-### HIGH (18, +1 new)
-All prior HIGH items unchanged. New:
-- #59 No connect() timeout on UnixStream — HIGH
+## Production Blockers
+1. **#66+#67** — No KVM, no SMP. TCG single-core = unusable. Trivial fix (~15 lines).
+2. **#69+#18** — Dead QEMU invisible. exit_watch exists but BMC ignores it.
+3. **#12** — No reconnect. Any QMP drop = permanent failure.
+4. **#60** — OnceLock blocks power-cycle correctness.
 
-### MEDIUM (22, +3 new)
-New:
-- #61 Forwarder not aborted on timeout — MEDIUM
-- #62 No disk removal from BMC — MEDIUM
-- #64 No graceful BMC shutdown (SIGTERM) — MEDIUM
-
-### LOW (10, +2 new)
-New:
-- #63 Dashboard polls phase() redundantly — LOW
-- #65 SSE stream silent on broadcast lag — LOW
-
-Also:
-- #60 OnceLock blocks power-cycle correctness — HIGH (refinement of #32)
-
-**Production blockers:** #39+#49 (no KVM) + #38 (no SMP). Then #18 (dead VM shows Running).
+**Total: 70 gaps tracked, ~65 open.**

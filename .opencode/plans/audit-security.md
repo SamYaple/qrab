@@ -1,17 +1,16 @@
 # Security Audit Report
 
-Generated: 2026-04-13 | Round 7
+Generated: 2026-04-13 | Round 8
 
 ## Changes This Round
-- **#1 (unbounded read_line) → PARTIALLY MITIGATED** — handshake has 10s timeout. read_loop still unbounded per-line.
-- **NEW-14 (QMP connect timeout) → MITIGATED** — 10s handshake timeout covers greeting/caps.
-- **NEW-8 (nix unused) → RESOLVED** — dependency removed.
+- **#1 (unbounded read_line) → MITIGATED** — `read_line_bounded` with 1 MiB cap in handshake AND read_loop
+- **NEW-25 (read_loop unbounded) → RESOLVED** — same fix
 
 ## Findings
 
 | # | Finding | Severity | Status |
 |---|---------|----------|--------|
-| 1 | Unbounded read_line — DoS | HIGH (CWE-400) | PARTIALLY MITIGATED (read_loop still unbounded) |
+| 1 | Unbounded read_line | HIGH (CWE-400) | **MITIGATED** (1 MiB cap) |
 | 2 | Socket permissions | HIGH (CWE-732) | MITIGATED (chmod 0o600) |
 | 4 | No auth on BMC web | HIGH (CWE-306) | STILL VULNERABLE |
 | 11 | No unsafe | POSITIVE | CONFIRMED |
@@ -28,17 +27,19 @@ Generated: 2026-04-13 | Round 7
 | NEW-19 | No CSRF on server fns | MEDIUM (CWE-352) | STILL VULNERABLE |
 | NEW-20 | Cirros no checksum | MEDIUM (CWE-494) | STILL VULNERABLE |
 | NEW-24 | No CSP headers | LOW (CWE-16) | STILL VULNERABLE |
-| NEW-25 | read_loop unbounded line length | MEDIUM (CWE-400) | NEW |
-| NEW-26 | Config mutation chain (auth+path) | HIGH (CWE-306) | NEW |
+| NEW-26 | Config mutation chain | HIGH (CWE-306) | STILL VULNERABLE |
+| NEW-27 | Mock server unbounded reads | LOW (CWE-400) | NEW |
+| NEW-28 | Static asset integrity | LOW (CWE-367) | NEW |
 
 ## Summary
 
 | Severity | Count |
 |----------|-------|
-| HIGH | 4 (#1 partial, #4, NEW-1, NEW-16) |
-| MEDIUM | 8 |
-| LOW | 2 |
-| MITIGATED | 5 (#2, #12, NEW-5, NEW-14, NEW-15) |
-| RESOLVED | 1 (NEW-8) |
+| HIGH | 3 (#4, NEW-1, NEW-16) |
+| MEDIUM | 7 |
+| LOW | 4 |
+| MITIGATED | 6 (#1, #2, #12, NEW-5, NEW-14, NEW-15) |
+| RESOLVED | 2 (NEW-8, NEW-25) |
 
-**Critical chain:** #4 + NEW-1 + NEW-16 + NEW-19 + NEW-26 = unauthenticated CSRF VM takeover + host file read over cleartext.
+**Critical chain:** #4 + NEW-1 + NEW-16 + NEW-19 + NEW-26 = unauthenticated CSRF VM takeover over cleartext.
+**Top 3:** BMC auth + CSRF, TLS, WebSocket frame limits.
