@@ -58,6 +58,22 @@ fn clean_doc(doc: &str) -> Option<String> {
     Some(doc.to_string())
 }
 
+/// Clean a doc string field in place. If `doc` is `Some`, replaces it with
+/// the cleaned value (which may become `None` when only whitespace remained).
+/// `None` inputs stay `None`.
+fn clean_doc_in_place(doc: &mut Option<String>) {
+    *doc = doc.as_deref().and_then(clean_doc);
+}
+
+/// Update `dst` from `src` when `src` has a doc, applying [`clean_doc`].
+/// If `src` is `None`, leaves `dst` unchanged (lets older docs survive
+/// version merges where the newer schema dropped the documentation).
+fn merge_doc_from(dst: &mut Option<String>, src: Option<&str>) {
+    if let Some(s) = src {
+        *dst = clean_doc(s);
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct VersionRange {
     pub since: Version,
@@ -565,9 +581,7 @@ fn merge_enum(registry: &mut UnifiedRegistry, name: &str, e: &Enum, version: Ver
             existing.versions.unstable = Some(version);
         }
         // Update doc from latest version (latest has best docs)
-        if e.meta.doc.is_some() {
-            existing.ir.meta.doc = e.meta.doc.as_deref().and_then(clean_doc);
-        }
+        merge_doc_from(&mut existing.ir.meta.doc, e.meta.doc.as_deref());
         // Union enum-level attributes across versions.
         for new_attr in &e.meta.attributes {
             if !existing
@@ -603,9 +617,7 @@ fn merge_enum(registry: &mut UnifiedRegistry, name: &str, e: &Enum, version: Ver
                 {
                     existing_variant.kind = variant.kind.clone();
                     existing_variant.array = variant.array;
-                    if let Some(doc) = &variant.meta.doc {
-                        existing_variant.meta.doc = clean_doc(doc);
-                    }
+                    merge_doc_from(&mut existing_variant.meta.doc, variant.meta.doc.as_deref());
                     for new_attr in &variant.meta.attributes {
                         if !existing_variant
                             .meta
@@ -632,9 +644,7 @@ fn merge_enum(registry: &mut UnifiedRegistry, name: &str, e: &Enum, version: Ver
                     let old_vr = existing.variant_versions.remove(&old_name).unwrap();
                     // Replace old variant IR with new one, keeping the old version range
                     let mut v = variant.clone();
-                    if let Some(doc) = &v.meta.doc {
-                        v.meta.doc = clean_doc(doc);
-                    }
+                    clean_doc_in_place(&mut v.meta.doc);
                     existing.ir.variants[old_idx] = v;
                     existing
                         .variant_versions
@@ -648,9 +658,7 @@ fn merge_enum(registry: &mut UnifiedRegistry, name: &str, e: &Enum, version: Ver
                         .insert(variant.name.clone(), VersionRange::new(version));
                     if !existing.ir.variants.iter().any(|v| v.name == variant.name) {
                         let mut v = variant.clone();
-                        if let Some(doc) = &v.meta.doc {
-                            v.meta.doc = clean_doc(doc);
-                        }
+                        clean_doc_in_place(&mut v.meta.doc);
                         existing.ir.variants.push(v);
                     }
                 }
@@ -670,13 +678,9 @@ fn merge_enum(registry: &mut UnifiedRegistry, name: &str, e: &Enum, version: Ver
             .map(|v| (v.name.clone(), VersionRange::new(version)))
             .collect();
         let mut ir = e.clone();
-        if let Some(doc) = &ir.meta.doc {
-            ir.meta.doc = clean_doc(doc);
-        }
+        clean_doc_in_place(&mut ir.meta.doc);
         for v in &mut ir.variants {
-            if let Some(doc) = &v.meta.doc {
-                v.meta.doc = clean_doc(doc);
-            }
+            clean_doc_in_place(&mut v.meta.doc);
         }
         let mut versions = VersionRange::new(version);
         if has_feature(&ir.meta, "unstable") {
@@ -712,9 +716,7 @@ fn merge_struct(registry: &mut UnifiedRegistry, name: &str, s: &Struct, version:
             existing.versions.unstable = Some(version);
         }
         // Update doc from latest version (latest has best docs)
-        if s.meta.doc.is_some() {
-            existing.ir.meta.doc = s.meta.doc.as_deref().and_then(clean_doc);
-        }
+        merge_doc_from(&mut existing.ir.meta.doc, s.meta.doc.as_deref());
         // Merge version-tracked boolean command attributes (allow_preconfig, allow_oob, etc.)
         merge_bool_attrs(existing, &s.meta, version);
         // Union struct-level attributes across versions. We preserve the
@@ -760,9 +762,7 @@ fn merge_struct(registry: &mut UnifiedRegistry, name: &str, s: &Struct, version:
                     existing_field.r#type = field.r#type.clone();
                     existing_field.optional = field.optional;
                     existing_field.array = field.array;
-                    if let Some(doc) = &field.meta.doc {
-                        existing_field.meta.doc = clean_doc(doc);
-                    }
+                    merge_doc_from(&mut existing_field.meta.doc, field.meta.doc.as_deref());
                     for new_attr in &field.meta.attributes {
                         if !existing_field
                             .meta
@@ -842,15 +842,11 @@ fn merge_struct(registry: &mut UnifiedRegistry, name: &str, s: &Struct, version:
     } else {
         // Detect field name collisions within the initial version
         let mut ir = s.clone();
-        if let Some(doc) = &ir.meta.doc {
-            ir.meta.doc = clean_doc(doc);
-        }
+        clean_doc_in_place(&mut ir.meta.doc);
         let mut field_versions = BTreeMap::new();
         let mut seen_rust_names: BTreeSet<String> = BTreeSet::new();
         for field in &mut ir.fields {
-            if let Some(doc) = &field.meta.doc {
-                field.meta.doc = clean_doc(doc);
-            }
+            clean_doc_in_place(&mut field.meta.doc);
             let rust_name = field_rust_name(field);
             if !seen_rust_names.insert(rust_name.clone()) {
                 let new_name = format!("{}_alt", field.name);
@@ -1285,13 +1281,9 @@ fn generate_unified_enum(
     }
 
     // Clean docs
-    if let Some(doc) = &ir.meta.doc {
-        ir.meta.doc = clean_doc(doc);
-    }
+    clean_doc_in_place(&mut ir.meta.doc);
     for variant in &mut ir.variants {
-        if let Some(doc) = &variant.meta.doc {
-            variant.meta.doc = clean_doc(doc);
-        }
+        clean_doc_in_place(&mut variant.meta.doc);
     }
 
     // Sort variants alphabetically by name
@@ -1405,13 +1397,9 @@ fn generate_unified_struct(
     }
 
     // Clean docs
-    if let Some(doc) = &ir.meta.doc {
-        ir.meta.doc = clean_doc(doc);
-    }
+    clean_doc_in_place(&mut ir.meta.doc);
     for field in &mut ir.fields {
-        if let Some(doc) = &field.meta.doc {
-            field.meta.doc = clean_doc(doc);
-        }
+        clean_doc_in_place(&mut field.meta.doc);
     }
 
     // Sort fields alphabetically by name
