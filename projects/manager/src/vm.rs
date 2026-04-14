@@ -1,7 +1,7 @@
 use anyhow::Result;
-use std::path::{Path, PathBuf};
+use std::os::fd::{AsRawFd, IntoRawFd};
+use std::path::PathBuf;
 use std::process::{ExitStatus, Stdio};
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::{Child, Command};
@@ -15,13 +15,12 @@ use qapi::QapiCommand;
 use qapi_protocol::{Qmp, QmpEvent};
 
 use crate::arch::{Arch, MachineConfig};
+use crate::namespace::{InitConfig, KvmFd, NsHelper};
 
-/// Minimum QEMU version. 7.1.0 added `allow_preconfig` to `blockdev-add`,
-/// which qrab requires for QMP-driven dynamic block device configuration
-/// during preconfig instead of using `-drive` CLI args.
-pub const PRECONFIG_MIN_VERSION: (u32, u32, u32) = (7, 1, 0);
-
-static SOCKET_COUNTER: AtomicU64 = AtomicU64::new(0);
+/// Minimum QEMU version. 7.2.0 added `-accel kvm,device=` support for KVM
+/// fd passing, which qrab requires for namespace-isolated KVM access. Also
+/// required for `allow_preconfig` on `blockdev-add`.
+pub const PRECONFIG_MIN_VERSION: (u32, u32, u32) = (7, 2, 0);
 
 /// Validate a memory size string for QEMU's `-m` option.
 ///
@@ -83,43 +82,6 @@ fn validate_memory(mem: &str) -> Result<()> {
     Ok(())
 }
 
-/// Best-effort async removal of the three temp files qrab creates per VM.
-/// Used by `VmProcess::cleanup`, by `VmProcess::Drop` when a tokio runtime
-/// is available, and by `VmBuilder::spawn` pre-bail cleanup paths where
-/// VmProcess has not yet been constructed.
-async fn cleanup_temp_files_async(
-    qmp_sock: &Path,
-    serial_log: &Option<PathBuf>,
-    vnc_sock: &Option<PathBuf>,
-) {
-    let _ = tokio::fs::remove_file(qmp_sock).await;
-    if let Some(s) = serial_log {
-        let _ = tokio::fs::remove_file(s).await;
-    }
-    if let Some(s) = vnc_sock {
-        let _ = tokio::fs::remove_file(s).await;
-    }
-}
-
-/// Best-effort sync removal of the three temp files qrab creates per VM.
-/// Used only by `VmProcess::Drop` when no tokio runtime is available; the
-/// async variant is preferred inside a runtime because blocking
-/// `std::fs::remove_file` from a Drop firing in an async context would
-/// stall the runtime thread.
-fn cleanup_temp_files_sync(
-    qmp_sock: &Path,
-    serial_log: &Option<PathBuf>,
-    vnc_sock: &Option<PathBuf>,
-) {
-    let _ = std::fs::remove_file(qmp_sock);
-    if let Some(s) = serial_log {
-        let _ = std::fs::remove_file(s);
-    }
-    if let Some(s) = vnc_sock {
-        let _ = std::fs::remove_file(s);
-    }
-}
-
 /// QEMU process handle with cleanup logic.
 ///
 /// The `Child` is owned by a monitor task spawned at construction time;
@@ -129,10 +91,15 @@ fn cleanup_temp_files_sync(
 /// cryptically. `cleanup()` signals the monitor to kill the child and
 /// waits for it to finish. `Drop` is a best-effort fallback that triggers
 /// the same shutdown signal without blocking.
+///
+/// The `_tmpdir` field holds the private temporary directory. It is never
+/// read directly — `TempDir::drop` removes the directory and all contents
+/// (QMP socket, VNC socket, serial log) automatically.
 struct VmProcess {
     shutdown: Option<oneshot::Sender<()>>,
     monitor: Option<JoinHandle<()>>,
     exit_watch: watch::Receiver<Option<ExitStatus>>,
+    _tmpdir: tempfile::TempDir,
     qmp_sock: PathBuf,
     serial_log: Option<PathBuf>,
     vnc_sock: Option<PathBuf>,
@@ -181,8 +148,9 @@ impl VmProcess {
         (tx, handle, exit_rx)
     }
 
-    /// Async cleanup: signal monitor to kill the child, wait for exit,
-    /// remove temp files. Safe to call multiple times (idempotent).
+    /// Async cleanup: signal monitor to kill the child, wait for exit.
+    /// Temp files cleaned up automatically when `_tmpdir` drops.
+    /// Safe to call multiple times (idempotent).
     async fn cleanup(&mut self) {
         if let Some(tx) = self.shutdown.take() {
             let _ = tx.send(());
@@ -190,7 +158,6 @@ impl VmProcess {
         if let Some(h) = self.monitor.take() {
             let _ = h.await;
         }
-        cleanup_temp_files_async(&self.qmp_sock, &self.serial_log, &self.vnc_sock).await;
     }
 }
 
@@ -204,26 +171,12 @@ impl Drop for VmProcess {
         if let Some(tx) = self.shutdown.take() {
             let _ = tx.send(());
         }
-        let runtime = tokio::runtime::Handle::try_current().ok();
         if let Some(h) = self.monitor.take() {
-            if runtime.is_none() {
+            if tokio::runtime::Handle::try_current().is_err() {
                 h.abort();
             }
         }
-        // Prefer async file removal when a runtime is available: blocking on
-        // `std::fs::remove_file` from within a Drop that fires inside an
-        // async context would stall the tokio runtime thread. Fall back to
-        // the sync path only when there is no runtime to dispatch to.
-        if let Some(handle) = runtime {
-            let qmp_sock = self.qmp_sock.clone();
-            let serial_log = self.serial_log.clone();
-            let vnc_sock = self.vnc_sock.clone();
-            handle.spawn(async move {
-                cleanup_temp_files_async(&qmp_sock, &serial_log, &vnc_sock).await;
-            });
-        } else {
-            cleanup_temp_files_sync(&self.qmp_sock, &self.serial_log, &self.vnc_sock);
-        }
+        // _tmpdir drops here, removing the directory and all contents.
     }
 }
 
@@ -349,18 +302,26 @@ impl VmBuilder {
         self
     }
 
-    /// Spawn the QEMU process in preconfig mode and connect QMP.
+    /// Spawn QEMU inside namespace isolation via `qrab-init` and connect QMP.
     ///
     /// Returns a [`PreconfigVm`] handle for issuing configuration commands
     /// before guest execution. Call [`PreconfigVm::start()`] to begin
     /// execution.
+    ///
+    /// The spawn sequence:
+    /// 1. Create private tmpdir for sockets/logs
+    /// 2. Open `/dev/kvm` fd (based on accel mode)
+    /// 3. Build QEMU args with KVM fd passing
+    /// 4. Create sync + config pipes
+    /// 5. Spawn `qrab-init` with `pre_exec` namespace setup
+    /// 6. Write config JSON over pipe
+    /// 7. Run `NsHelper` to set up uid/gid maps
+    /// 8. Wait for QMP socket, connect, check version
     #[must_use = "spawning a VM without using the returned handle immediately kills it on drop"]
     pub async fn spawn(self) -> Result<PreconfigVm> {
         // Validate the firmware path before touching any temp files or
         // spawning QEMU. Without this check a missing or directory path
-        // only surfaces as a cryptic late failure from QEMU itself. The
-        // check deliberately does not police relative or `..` components:
-        // rejecting those is policy, not safety.
+        // only surfaces as a cryptic late failure from QEMU itself.
         if let Some(ref fw) = self.firmware {
             anyhow::ensure!(
                 fw.is_file(),
@@ -369,20 +330,35 @@ impl VmBuilder {
             );
         }
 
-        let id = SOCKET_COUNTER.fetch_add(1, Ordering::SeqCst);
-        let tmpdir = std::env::temp_dir();
-        let qmp_sock = tmpdir.join(format!("qrab-qmp-{}-{}.sock", std::process::id(), id));
+        // --- Private tmpdir (Security #3 — no predictable socket paths) ---
+        let tmpdir = tempfile::TempDir::new_in(std::env::temp_dir())?;
+        let qmp_sock = tmpdir.path().join("qmp.sock");
         let serial_log = if self.serial {
-            Some(tmpdir.join(format!("qrab-serial-{}-{}.log", std::process::id(), id,)))
+            Some(tmpdir.path().join("serial.log"))
         } else {
             None
         };
 
-        let _ = tokio::fs::remove_file(&qmp_sock).await;
-        if let Some(ref s) = serial_log {
-            let _ = tokio::fs::remove_file(s).await;
-        }
+        // --- KVM fd (Industry #49 — auto-detect) ---
+        let kvm_fd = match self.accel {
+            Some(Accel::Kvm) => Some(
+                KvmFd::open()
+                    .map_err(|e| anyhow::anyhow!("{e} — is process in kvm group?"))?,
+            ),
+            Some(Accel::Tcg) | None => None,
+            Some(Accel::KvmOrTcg) => match KvmFd::open() {
+                Ok(fd) => {
+                    tracing::info!("KVM available, using hardware acceleration");
+                    Some(fd)
+                }
+                Err(e) => {
+                    tracing::warn!("KVM unavailable ({e}), falling back to TCG");
+                    None
+                }
+            },
+        };
 
+        // --- Build QEMU args ---
         let mut args: Vec<String> = Vec::new();
         if self.display {
             // With display, skip --preconfig: VNC must see VGA during machine
@@ -421,7 +397,10 @@ impl VmBuilder {
                         Arch::Aarch64 | Arch::Arm => {
                             args.extend([
                                 "-drive".into(),
-                                format!("if=pflash,format=raw,readonly=on,file={}", fw.display()),
+                                format!(
+                                    "if=pflash,format=raw,readonly=on,file={}",
+                                    fw.display()
+                                ),
                             ]);
                         }
                     }
@@ -429,22 +408,19 @@ impl VmBuilder {
             }
         }
 
-        // Render `-accel` immediately after `-machine`: QEMU parses them
-        // independently but keeping them adjacent on the command line
-        // matches idiomatic usage in docs and libvirt-generated args.
-        // Default (None) is TCG so existing callers keep their current
-        // behavior until they opt into KVM.
-        let accel_arg = match self.accel {
-            Some(Accel::Kvm) => "kvm",
-            Some(Accel::Tcg) => "tcg",
-            Some(Accel::KvmOrTcg) => "kvm:tcg",
-            None => "tcg",
-        };
-        args.extend(["-accel".into(), accel_arg.into()]);
+        // KVM fd passing via -add-fd + -accel kvm,device=/dev/fdset/1
+        // or plain -accel tcg when no KVM fd.
+        if let Some(ref fd) = kvm_fd {
+            args.extend([
+                "-add-fd".into(),
+                format!("fd={},set=1", fd.raw_fd()),
+                "-accel".into(),
+                "kvm,device=/dev/fdset/1".into(),
+            ]);
+        } else {
+            args.extend(["-accel".into(), "tcg".into()]);
+        }
 
-        // `-smp` is omitted entirely when unset so QEMU applies its own
-        // default (1 CPU) rather than having qrab hardcode it. The full
-        // `cpus=N` form is emitted for clarity over the bare integer.
         if let Some(cpus) = self.smp {
             args.extend(["-smp".into(), format!("cpus={}", cpus)]);
         }
@@ -454,8 +430,7 @@ impl VmBuilder {
         }
 
         let vnc_sock = if self.display {
-            let sock = tmpdir.join(format!("qrab-vnc-{}-{}.sock", std::process::id(), id));
-            let _ = tokio::fs::remove_file(&sock).await;
+            let sock = tmpdir.path().join("vnc.sock");
             args.push("-nodefaults".into());
             args.extend([
                 "-display".into(),
@@ -493,23 +468,71 @@ impl VmBuilder {
 
         args.extend(self.extra_args);
 
+        // --- Pipes for namespace sync + config transport ---
+        let (sync_parent_r, sync_child_w) = nix::unistd::pipe()
+            .map_err(|e| anyhow::anyhow!("sync pipe (to parent): {e}"))?;
+        let (ack_child_r, ack_parent_w) = nix::unistd::pipe()
+            .map_err(|e| anyhow::anyhow!("ack pipe (to child): {e}"))?;
+        let (cfg_r, cfg_w) = nix::unistd::pipe()
+            .map_err(|e| anyhow::anyhow!("config pipe: {e}"))?;
+
+        let cfg_r_raw = cfg_r.as_raw_fd();
+
+        // --- Serialize InitConfig ---
+        let config = InitConfig {
+            qemu_binary: self.arch.binary(),
+            qemu_args: args.clone(),
+            kvm_fd: kvm_fd.as_ref().map(|f| f.raw_fd() as i32),
+        };
+
         tracing::debug!(
             binary = %self.arch.binary().display(),
             args = %args.join(" "),
-            "spawning QEMU"
+            kvm = kvm_fd.is_some(),
+            "spawning QEMU via qrab-init"
         );
 
-        let mut child = Command::new(self.arch.binary())
-            .args(&args)
-            .stdout(Stdio::null())
-            .stderr(Stdio::piped())
-            .kill_on_drop(true)
-            .spawn()?;
+        // --- Build pre_exec closure ---
+        let pre_exec_fn = crate::namespace::make_pre_exec(
+            sync_child_w.as_raw_fd(),
+            ack_child_r.as_raw_fd(),
+            kvm_fd.as_ref().map(|f| f.raw_fd()),
+            cfg_r_raw,
+        );
 
-        // Forward QEMU stderr to tracing. Without this, security warnings,
-        // missing-firmware messages, and KVM init failures are silently
-        // dropped. Best-effort: if the forwarder hits an I/O error we simply
-        // stop; the task exits naturally when QEMU closes stderr on exit.
+        // --- Spawn qrab-init ---
+        let mut child = unsafe {
+            Command::new("qrab-init")
+                .arg(cfg_r_raw.to_string())
+                .stdout(Stdio::null())
+                .stderr(Stdio::piped())
+                .kill_on_drop(true)
+                .pre_exec(pre_exec_fn)
+                .spawn()?
+        };
+
+        // Close child-side pipe ends in parent.
+        drop(sync_child_w);
+        drop(ack_child_r);
+        drop(cfg_r);
+
+        // --- Write config JSON to pipe ---
+        let config_json = serde_json::to_vec(&config)?;
+        nix::unistd::write(&cfg_w, &config_json)
+            .map_err(|e| anyhow::anyhow!("write config pipe: {e}"))?;
+        drop(cfg_w);
+
+        // --- NsHelper: uid/gid map setup ---
+        // NsHelper takes ownership via from_raw_fd internally, so pass raw fds
+        // and leak the OwnedFds to avoid double-close.
+        let sync_parent_r_raw = sync_parent_r.into_raw_fd();
+        let ack_parent_w_raw = ack_parent_w.into_raw_fd();
+        NsHelper::run(sync_parent_r_raw, ack_parent_w_raw).await?;
+
+        // --- Drop parent's KVM fd copy ---
+        drop(kvm_fd);
+
+        // Forward qrab-init stderr to tracing (QEMU stderr flows through).
         if let Some(stderr) = child.stderr.take() {
             tokio::spawn(async move {
                 let mut lines = BufReader::new(stderr).lines();
@@ -525,38 +548,23 @@ impl VmBuilder {
             });
         }
 
+        // --- Wait for QMP socket ---
         for _ in 0..50 {
-            // `Path::exists` is a blocking `stat(2)` on the runtime thread;
-            // inside this async loop we prefer `tokio::fs::try_exists` which
-            // dispatches the syscall to the blocking pool. On error (e.g.
-            // EACCES) treat the socket as absent and keep polling.
             if tokio::fs::try_exists(&qmp_sock).await.unwrap_or(false) {
                 break;
             }
-            // If QEMU exits immediately (bad arg, missing binary, OOM), the
-            // socket will never appear. Poll the child so we bail fast with
-            // a useful exit status instead of waiting out the full 5s loop.
             if let Ok(Some(status)) = child.try_wait() {
-                cleanup_temp_files_async(&qmp_sock, &serial_log, &vnc_sock).await;
-                anyhow::bail!("QEMU exited before QMP socket appeared: {status}");
+                // tmpdir drops on return, cleaning up.
+                anyhow::bail!("qrab-init exited before QMP socket appeared: {status}");
             }
             tokio::time::sleep(Duration::from_millis(100)).await;
         }
 
         if !tokio::fs::try_exists(&qmp_sock).await.unwrap_or(false) {
-            // Mirror the pre-bail cleanup at the other `spawn` failure sites:
-            // VmProcess is not yet constructed, so its Drop will not sweep the
-            // temp files QEMU may have created. Remove them explicitly before
-            // bailing so we do not leak sockets and logs in /tmp.
-            cleanup_temp_files_async(&qmp_sock, &serial_log, &vnc_sock).await;
             anyhow::bail!("QMP socket did not appear: {}", qmp_sock.display());
         }
 
-        // Restrict socket permissions to the current user: QEMU creates the
-        // QMP socket with umask-dependent permissions, which on typical
-        // systems leave it readable/writable by other local users. Tighten
-        // to 0600 so only the owning user can connect. Same for the VNC
-        // socket when a display was requested.
+        // Restrict socket permissions to owner only.
         #[cfg(unix)]
         {
             tokio::fs::set_permissions(
@@ -575,28 +583,15 @@ impl VmBuilder {
             }
         }
 
-        // Connect QMP. On failure, VmProcess has not yet been constructed,
-        // so its Drop will not sweep the temp files QEMU has already created.
-        // Remove them explicitly before propagating the error so we do not
-        // leak sockets and logs in /tmp.
-        let (qmp, events) = match Qmp::new(&qmp_sock).await {
-            Ok(pair) => pair,
-            Err(e) => {
-                cleanup_temp_files_async(&qmp_sock, &serial_log, &vnc_sock).await;
-                return Err(e);
-            }
-        };
+        // --- Connect QMP ---
+        let (qmp, events) = Qmp::new(&qmp_sock).await?;
 
         if !self.display {
             let version = qapi::qemu_version();
             if version < PRECONFIG_MIN_VERSION {
-                // VmProcess is not yet constructed, so its Drop will not
-                // sweep the temp files QEMU has already created. Remove
-                // them explicitly before bailing so we do not leak sockets
-                // and logs in /tmp.
-                cleanup_temp_files_async(&qmp_sock, &serial_log, &vnc_sock).await;
                 anyhow::bail!(
-                    "QEMU {}.{}.{} is below required {}.{}.{} for blockdev preconfig support",
+                    "QEMU {}.{}.{} is below required {}.{}.{} \
+                     (-accel kvm,device= and blockdev preconfig support)",
                     version.0,
                     version.1,
                     version.2,
@@ -616,6 +611,7 @@ impl VmBuilder {
                 shutdown: Some(shutdown),
                 monitor: Some(monitor),
                 exit_watch,
+                _tmpdir: tmpdir,
                 qmp_sock,
                 serial_log,
                 vnc_sock,
