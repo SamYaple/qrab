@@ -1210,12 +1210,16 @@ fn separate_items(code: &str) -> String {
 }
 
 /// Drop any version-lifecycle attrs already attached to a type so the
-/// registry-derived values are the single source of truth. Removes
-/// `added`/`since`/`removed`/`until`/`deprecated` items and any nested
-/// `deprecated`/`unstable` bundles.
-fn strip_version_attrs(attrs: &mut Vec<Attribute>) {
+/// registry-derived values are the single source of truth. Always removes
+/// `added`/`since`/`removed`/`until`/`deprecated` items; when
+/// `strip_nested_bundles` is true, also removes nested `deprecated`/`unstable`
+/// bundles (only relevant at the type level — variants and fields never carry
+/// these nested forms).
+fn strip_version_attrs(attrs: &mut Vec<Attribute>, strip_nested_bundles: bool) {
     attrs.retain(|a| !matches!(a, Attribute::Item { name, .. } if name == "added" || name == "since" || name == "removed" || name == "until" || name == "deprecated"));
-    attrs.retain(|a| !matches!(a, Attribute::Nested { name, .. } if name == "deprecated" || name == "unstable"));
+    if strip_nested_bundles {
+        attrs.retain(|a| !matches!(a, Attribute::Nested { name, .. } if name == "deprecated" || name == "unstable"));
+    }
 }
 
 /// Generate code for a unified enum, adding since/until attributes from the registry.
@@ -1226,7 +1230,7 @@ fn generate_unified_enum(
     let mut ir = ue.ir.clone();
 
     // Strip any existing since from doc comments — always use registry version
-    strip_version_attrs(&mut ir.meta.attributes);
+    strip_version_attrs(&mut ir.meta.attributes, true);
     ir.meta.attributes.push(Attribute::with_value(
         "added",
         version_str(ue.versions.since),
@@ -1257,7 +1261,7 @@ fn generate_unified_enum(
 
     // Add per-variant added/deprecated/removed
     for variant in &mut ir.variants {
-        variant.meta.attributes.retain(|a| !matches!(a, Attribute::Item { name, .. } if name == "added" || name == "since" || name == "removed" || name == "until" || name == "deprecated"));
+        strip_version_attrs(&mut variant.meta.attributes, false);
         if let Some(vr) = ue.variant_versions.get(&variant.name) {
             if vr.since > ue.versions.since {
                 variant
@@ -1305,7 +1309,7 @@ fn generate_unified_struct(
     let mut ir = us.ir.clone();
 
     // Strip existing since from doc comments — always use registry version
-    strip_version_attrs(&mut ir.meta.attributes);
+    strip_version_attrs(&mut ir.meta.attributes, true);
     ir.meta.attributes.push(Attribute::with_value(
         "added",
         version_str(us.versions.since),
@@ -1371,7 +1375,7 @@ fn generate_unified_struct(
 
     // Add per-field added/deprecated/removed and make fields optional if needed
     for field in &mut ir.fields {
-        field.meta.attributes.retain(|a| !matches!(a, Attribute::Item { name, .. } if name == "added" || name == "since" || name == "removed" || name == "until" || name == "deprecated"));
+        strip_version_attrs(&mut field.meta.attributes, false);
         if let Some(fr) = us.field_versions.get(&field.name) {
             if fr.since > us.versions.since {
                 field
