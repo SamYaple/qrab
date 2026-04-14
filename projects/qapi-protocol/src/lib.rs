@@ -130,7 +130,7 @@ impl Qmp {
     /// Execute a typed QMP command and deserialize the response.
     pub async fn execute<C: QapiCommand>(&self, cmd: &C) -> Result<C::Returns> {
         let args = serde_json::to_value(cmd)?;
-        let request = if args.is_object() && args.as_object().unwrap().is_empty() {
+        let request = if args.as_object().is_some_and(|o| o.is_empty()) {
             serde_json::json!({ "execute": C::NAME })
         } else {
             serde_json::json!({ "execute": C::NAME, "arguments": args })
@@ -160,7 +160,7 @@ impl Qmp {
 
         // Handle commands that return () — QMP returns {"return":{}} which
         // can't deserialize as (). Treat empty objects as null for unit types.
-        let ret = if ret.is_object() && ret.as_object().unwrap().is_empty() {
+        let ret = if ret.as_object().is_some_and(|o| o.is_empty()) {
             // Try deserializing as-is first; fall back to null for unit return types.
             match serde_json::from_value::<C::Returns>(ret.clone()) {
                 Ok(v) => return Ok(v),

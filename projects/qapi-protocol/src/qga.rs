@@ -130,7 +130,7 @@ impl Qga {
         name: &str,
         args: serde_json::Value,
     ) -> Result<T> {
-        let request = if args.is_object() && args.as_object().unwrap().is_empty() {
+        let request = if args.as_object().is_some_and(|o| o.is_empty()) {
             serde_json::json!({ "execute": name })
         } else {
             serde_json::json!({ "execute": name, "arguments": args })
@@ -172,7 +172,7 @@ impl Qga {
             .unwrap_or(serde_json::Value::Object(serde_json::Map::new()));
 
         // Handle () returns
-        let ret = if ret.is_object() && ret.as_object().unwrap().is_empty() {
+        let ret = if ret.as_object().is_some_and(|o| o.is_empty()) {
             match serde_json::from_value::<T>(ret.clone()) {
                 Ok(v) => return Ok(v),
                 Err(_) => serde_json::Value::Null,
