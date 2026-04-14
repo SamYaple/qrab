@@ -975,10 +975,21 @@ fn is_reachable<'a>(
     false
 }
 
-/// Generate unified code from the registry.
-pub fn generate_unified_code(qemu_repo: &Path, version_tags: &[&str]) -> Result<GeneratedOutput> {
+/// Knobs that differ between the QMP and QGA code-emission paths.
+struct CodegenFlavor {
+    /// Prefix in log messages, e.g. "" for QMP and "QGA " for QGA.
+    label: &'static str,
+    /// Emit verbose timing output (Token generation / Formatting / Codegen total).
+    /// When false, a single aggregated timing line is emitted instead.
+    verbose_timing: bool,
+}
+
+/// Shared code-emission core used by both QMP (`generate_unified_code`) and
+/// QGA (`generate_qga_code`). Classifies each type, partitions into
+/// types/commands/events token streams, formats each as a Rust file, and
+/// returns the three-file output.
+fn emit_unified_output(registry: &UnifiedRegistry, flavor: &CodegenFlavor) -> GeneratedOutput {
     use std::time::Instant;
-    let registry = build_unified_registry(qemu_repo, version_tags)?;
     let codegen_start = Instant::now();
 
     // Track Rust names to detect collisions (e.g., struct BlockDirtyBitmapAdd vs
@@ -1046,7 +1057,7 @@ pub fn generate_unified_code(qemu_repo: &Path, version_tags: &[&str]) -> Result<
             }
         }
     }
-    if !referenced_by_data.is_empty() {
+    if flavor.verbose_timing && !referenced_by_data.is_empty() {
         eprintln!(
             "  {} command/event types also referenced by data types (kept in types module): {:?}",
             referenced_by_data.len(),
@@ -1085,24 +1096,26 @@ pub fn generate_unified_code(qemu_repo: &Path, version_tags: &[&str]) -> Result<
 
         if seen.contains(&rust_name) {
             eprintln!(
-                "WARNING: Skipping duplicate Rust name '{}' (QAPI name: '{}', category: {:?})",
-                rust_name, name, category
+                "WARNING: {}skipping duplicate Rust name '{}' (QAPI name: '{}', category: {:?})",
+                flavor.label, rust_name, name, category
             );
             continue;
         }
         seen.insert(rust_name);
 
         let code = match ut {
-            UnifiedType::Enum(ue) => generate_unified_enum(ue, &registry),
-            UnifiedType::Struct(us) => generate_unified_struct(us, &registry),
+            UnifiedType::Enum(ue) => generate_unified_enum(ue, registry),
+            UnifiedType::Struct(us) => generate_unified_struct(us, registry),
         };
         tokens.extend(code);
     }
 
-    eprintln!(
-        "  Token generation: {:.1}s",
-        codegen_start.elapsed().as_secs_f64()
-    );
+    if flavor.verbose_timing {
+        eprintln!(
+            "  Token generation: {:.1}s",
+            codegen_start.elapsed().as_secs_f64()
+        );
+    }
 
     // Format each part as a separate file
     let fmt_start = Instant::now();
@@ -1122,16 +1135,36 @@ pub fn generate_unified_code(qemu_repo: &Path, version_tags: &[&str]) -> Result<
     // events.rs: event types with super::* import
     let events_file = format_rust_file(events_tokens, "use super::*;\n");
 
-    eprintln!("  Formatting: {:.1}s", fmt_start.elapsed().as_secs_f64());
-    eprintln!(
-        "  Codegen total: {:.1}s",
-        codegen_start.elapsed().as_secs_f64()
-    );
-    Ok(GeneratedOutput {
+    if flavor.verbose_timing {
+        eprintln!("  Formatting: {:.1}s", fmt_start.elapsed().as_secs_f64());
+        eprintln!(
+            "  Codegen total: {:.1}s",
+            codegen_start.elapsed().as_secs_f64()
+        );
+    } else {
+        eprintln!(
+            "  {}codegen: {:.1}s",
+            flavor.label,
+            codegen_start.elapsed().as_secs_f64()
+        );
+    }
+
+    GeneratedOutput {
         types: types_file,
         commands: commands_file,
         events: events_file,
-    })
+    }
+}
+
+pub fn generate_unified_code(qemu_repo: &Path, version_tags: &[&str]) -> Result<GeneratedOutput> {
+    let registry = build_unified_registry(qemu_repo, version_tags)?;
+    Ok(emit_unified_output(
+        &registry,
+        &CodegenFlavor {
+            label: "",
+            verbose_timing: true,
+        },
+    ))
 }
 
 /// The three files produced by code generation.
@@ -1521,120 +1554,12 @@ pub fn build_qga_registry(qemu_repo: &Path, version_tags: &[&str]) -> Result<Uni
 
 /// Generate unified QGA code from the registry.
 pub fn generate_qga_code(qemu_repo: &Path, version_tags: &[&str]) -> Result<GeneratedOutput> {
-    use std::time::Instant;
     let registry = build_qga_registry(qemu_repo, version_tags)?;
-
-    let seen_rust_names: BTreeSet<String> = ["String", "Option", "Vec", "Box", "Result"]
-        .iter()
-        .map(|s| s.to_string())
-        .collect();
-
-    let mut all_entries: Vec<_> = registry.types.iter().collect();
-    all_entries.sort_by(|(_, a), (_, b)| {
-        unified_type_rust_name(a)
-            .to_lowercase()
-            .cmp(&unified_type_rust_name(b).to_lowercase())
-    });
-
-    // Pass 1: Find command/event types referenced by data types
-    let mut command_names: BTreeSet<String> = BTreeSet::new();
-    let mut event_names: BTreeSet<String> = BTreeSet::new();
-    for (_, ut) in &all_entries {
-        let rust_name = match ut {
-            UnifiedType::Enum(ue) => rustify_name(&ue.ir.name),
-            UnifiedType::Struct(us) => rustify_name(&us.ir.name),
-        };
-        match classify_type(ut) {
-            TypeCategory::Command => {
-                command_names.insert(rust_name);
-            }
-            TypeCategory::Event => {
-                event_names.insert(rust_name);
-            }
-            TypeCategory::DataType => {}
-        }
-    }
-    let mut referenced_by_data: BTreeSet<String> = BTreeSet::new();
-    for (_, ut) in &all_entries {
-        if classify_type(ut) != TypeCategory::DataType {
-            continue;
-        }
-        match ut {
-            UnifiedType::Struct(us) => {
-                for field in &us.ir.fields {
-                    let rust_type = rustify_name(&field.r#type);
-                    if command_names.contains(&rust_type) || event_names.contains(&rust_type) {
-                        referenced_by_data.insert(rust_type);
-                    }
-                }
-            }
-            UnifiedType::Enum(ue) => {
-                for variant in &ue.ir.variants {
-                    if let crate::qapi_ir::EnumVariantKind::Tuple(ref type_name) = variant.kind {
-                        let rust_type = rustify_name(type_name);
-                        if command_names.contains(&rust_type) || event_names.contains(&rust_type) {
-                            referenced_by_data.insert(rust_type);
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    // Pass 2: Emit into partitioned token streams
-    let mut types_tokens = proc_macro2::TokenStream::new();
-    let mut commands_tokens = proc_macro2::TokenStream::new();
-    let mut events_tokens = proc_macro2::TokenStream::new();
-
-    let mut seen_type_names = seen_rust_names.clone();
-    let mut seen_command_names = seen_rust_names.clone();
-    let mut seen_event_names = seen_rust_names;
-
-    for (_name, ut) in &all_entries {
-        let rust_name = match ut {
-            UnifiedType::Enum(ue) => rustify_name(&ue.ir.name),
-            UnifiedType::Struct(us) => rustify_name(&us.ir.name),
-        };
-
-        let mut category = classify_type(ut);
-        if referenced_by_data.contains(&rust_name) {
-            category = TypeCategory::DataType;
-        }
-        let (tokens, seen) = match category {
-            TypeCategory::DataType => (&mut types_tokens, &mut seen_type_names),
-            TypeCategory::Command => (&mut commands_tokens, &mut seen_command_names),
-            TypeCategory::Event => (&mut events_tokens, &mut seen_event_names),
-        };
-
-        if seen.contains(&rust_name) {
-            eprintln!("WARNING: QGA skipping duplicate '{}'", rust_name);
-            continue;
-        }
-        seen.insert(rust_name);
-        let code = match ut {
-            UnifiedType::Enum(ue) => generate_unified_enum(ue, &registry),
-            UnifiedType::Struct(us) => generate_unified_struct(us, &registry),
-        };
-        tokens.extend(code);
-    }
-
-    // Format each part as a separate file
-    let fmt_start = Instant::now();
-
-    let mod_tokens = quote::quote! {
-        #types_tokens
-
-        pub mod commands;
-        pub mod events;
-    };
-    let types_file = format_rust_file(mod_tokens, "");
-    let commands_file = format_rust_file(commands_tokens, "use super::*;\n");
-    let events_file = format_rust_file(events_tokens, "use super::*;\n");
-
-    eprintln!("  QGA codegen: {:.1}s", fmt_start.elapsed().as_secs_f64());
-    Ok(GeneratedOutput {
-        types: types_file,
-        commands: commands_file,
-        events: events_file,
-    })
+    Ok(emit_unified_output(
+        &registry,
+        &CodegenFlavor {
+            label: "QGA ",
+            verbose_timing: false,
+        },
+    ))
 }
