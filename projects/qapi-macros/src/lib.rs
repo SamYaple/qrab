@@ -398,6 +398,27 @@ fn condition_cfg_attr(condition: &str) -> Option<syn::Attribute> {
     }
 }
 
+/// Build an `impl std::fmt::Display` block for `name`. The wrapping boilerplate
+/// (fn signature, optional outer `#cond` cfg, optional `#[allow(...)]` on the
+/// impl) is identical across all call sites; only the `body` (the contents of
+/// `fn fmt`) varies per type shape.
+fn gen_display_impl(
+    name: &syn::Ident,
+    cond: &Option<TokenStream2>,
+    allows: TokenStream2,
+    body: TokenStream2,
+) -> TokenStream2 {
+    quote! {
+        #cond
+        #allows
+        impl std::fmt::Display for #name {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                #body
+            }
+        }
+    }
+}
+
 fn is_option_type(ty: &Type) -> bool {
     matches!(ty, Type::Path(tp) if tp.path.segments.last().map(|s| s.ident == "Option").unwrap_or(false))
 }
@@ -614,15 +635,12 @@ fn gen_enum(
                 }
             })
             .collect();
-        quote! {
-            #cond
-            #[allow(deprecated)]
-            impl std::fmt::Display for #enum_name {
-                fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                    match self { #(#display_arms)* }
-                }
-            }
-        }
+        gen_display_impl(
+            &enum_name,
+            &cond,
+            quote! { #[allow(deprecated)] },
+            quote! { match self { #(#display_arms)* } },
+        )
     } else {
         TokenStream2::new()
     };
@@ -973,40 +991,34 @@ fn gen_struct(
 
         if ta.is_command {
             // Command structs: just print the wire name
-            quote! {
-                #cond
-                impl std::fmt::Display for #struct_name {
-                    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                        f.write_str(#wn)
-                    }
-                }
-            }
+            gen_display_impl(
+                &struct_name,
+                &cond,
+                TokenStream2::new(),
+                quote! { f.write_str(#wn) },
+            )
         } else if fields.is_empty() {
             // Empty structs: just print the wire name
-            quote! {
-                #cond
-                #[allow(deprecated)]
-                impl std::fmt::Display for #struct_name {
-                    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                        f.write_str(#wn)
-                    }
-                }
-            }
+            gen_display_impl(
+                &struct_name,
+                &cond,
+                quote! { #[allow(deprecated)] },
+                quote! { f.write_str(#wn) },
+            )
         } else {
             // Data structs: wire_name(field=value, field2=value2)
-            quote! {
-                #cond
-                #[allow(deprecated, unused_mut, unused_assignments)]
-                impl std::fmt::Display for #struct_name {
-                    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                        f.write_str(#wn)?;
-                        f.write_str("(")?;
-                        let mut first = true;
-                        #(#display_fields)*
-                        f.write_str(")")
-                    }
-                }
-            }
+            gen_display_impl(
+                &struct_name,
+                &cond,
+                quote! { #[allow(deprecated, unused_mut, unused_assignments)] },
+                quote! {
+                    f.write_str(#wn)?;
+                    f.write_str("(")?;
+                    let mut first = true;
+                    #(#display_fields)*
+                    f.write_str(")")
+                },
+            )
         }
     };
 
