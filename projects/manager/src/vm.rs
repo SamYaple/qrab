@@ -397,7 +397,11 @@ impl VmBuilder {
         }
 
         for _ in 0..50 {
-            if qmp_sock.exists() {
+            // `Path::exists` is a blocking `stat(2)` on the runtime thread;
+            // inside this async loop we prefer `tokio::fs::try_exists` which
+            // dispatches the syscall to the blocking pool. On error (e.g.
+            // EACCES) treat the socket as absent and keep polling.
+            if tokio::fs::try_exists(&qmp_sock).await.unwrap_or(false) {
                 break;
             }
             // If QEMU exits immediately (bad arg, missing binary, OOM), the
@@ -410,7 +414,7 @@ impl VmBuilder {
             tokio::time::sleep(Duration::from_millis(100)).await;
         }
 
-        if !qmp_sock.exists() {
+        if !tokio::fs::try_exists(&qmp_sock).await.unwrap_or(false) {
             // Mirror the pre-bail cleanup at the other `spawn` failure sites:
             // VmProcess is not yet constructed, so its Drop will not sweep the
             // temp files QEMU may have created. Remove them explicitly before
@@ -432,7 +436,7 @@ impl VmBuilder {
             )
             .await?;
             if let Some(ref sock) = vnc_sock {
-                if sock.exists() {
+                if tokio::fs::try_exists(sock).await.unwrap_or(false) {
                     tokio::fs::set_permissions(
                         sock,
                         std::fs::Permissions::from_mode(0o600),
