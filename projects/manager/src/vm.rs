@@ -1,5 +1,5 @@
 use anyhow::Result;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
@@ -22,6 +22,43 @@ use crate::arch::{Arch, MachineConfig};
 pub const PRECONFIG_MIN_VERSION: (u32, u32, u32) = (7, 1, 0);
 
 static SOCKET_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+/// Best-effort async removal of the three temp files qrab creates per VM.
+/// Used by `VmProcess::cleanup`, by `VmProcess::Drop` when a tokio runtime
+/// is available, and by `VmBuilder::spawn` pre-bail cleanup paths where
+/// VmProcess has not yet been constructed.
+async fn cleanup_temp_files_async(
+    qmp_sock: &Path,
+    serial_log: &Option<PathBuf>,
+    vnc_sock: &Option<PathBuf>,
+) {
+    let _ = tokio::fs::remove_file(qmp_sock).await;
+    if let Some(s) = serial_log {
+        let _ = tokio::fs::remove_file(s).await;
+    }
+    if let Some(s) = vnc_sock {
+        let _ = tokio::fs::remove_file(s).await;
+    }
+}
+
+/// Best-effort sync removal of the three temp files qrab creates per VM.
+/// Used only by `VmProcess::Drop` when no tokio runtime is available; the
+/// async variant is preferred inside a runtime because blocking
+/// `std::fs::remove_file` from a Drop firing in an async context would
+/// stall the runtime thread.
+fn cleanup_temp_files_sync(
+    qmp_sock: &Path,
+    serial_log: &Option<PathBuf>,
+    vnc_sock: &Option<PathBuf>,
+) {
+    let _ = std::fs::remove_file(qmp_sock);
+    if let Some(s) = serial_log {
+        let _ = std::fs::remove_file(s);
+    }
+    if let Some(s) = vnc_sock {
+        let _ = std::fs::remove_file(s);
+    }
+}
 
 /// QEMU process handle with cleanup logic.
 ///
@@ -79,13 +116,7 @@ impl VmProcess {
         if let Some(h) = self.monitor.take() {
             let _ = h.await;
         }
-        let _ = tokio::fs::remove_file(&self.qmp_sock).await;
-        if let Some(ref s) = self.serial_log {
-            let _ = tokio::fs::remove_file(s).await;
-        }
-        if let Some(ref s) = self.vnc_sock {
-            let _ = tokio::fs::remove_file(s).await;
-        }
+        cleanup_temp_files_async(&self.qmp_sock, &self.serial_log, &self.vnc_sock).await;
     }
 }
 
@@ -114,22 +145,10 @@ impl Drop for VmProcess {
             let serial_log = self.serial_log.clone();
             let vnc_sock = self.vnc_sock.clone();
             handle.spawn(async move {
-                let _ = tokio::fs::remove_file(qmp_sock).await;
-                if let Some(s) = serial_log {
-                    let _ = tokio::fs::remove_file(s).await;
-                }
-                if let Some(s) = vnc_sock {
-                    let _ = tokio::fs::remove_file(s).await;
-                }
+                cleanup_temp_files_async(&qmp_sock, &serial_log, &vnc_sock).await;
             });
         } else {
-            let _ = std::fs::remove_file(&self.qmp_sock);
-            if let Some(ref s) = self.serial_log {
-                let _ = std::fs::remove_file(s);
-            }
-            if let Some(ref s) = self.vnc_sock {
-                let _ = std::fs::remove_file(s);
-            }
+            cleanup_temp_files_sync(&self.qmp_sock, &self.serial_log, &self.vnc_sock);
         }
     }
 }
@@ -404,14 +423,8 @@ impl VmBuilder {
         let (qmp, events) = match Qmp::new(&qmp_sock).await {
             Ok(pair) => pair,
             Err(e) => {
-                let _ = tokio::fs::remove_file(&qmp_sock).await;
-                if let Some(ref s) = serial_log {
-                    let _ = tokio::fs::remove_file(s).await;
-                }
-                if let Some(ref s) = vnc_sock {
-                    let _ = tokio::fs::remove_file(s).await;
-                }
-                return Err(e.into());
+                cleanup_temp_files_async(&qmp_sock, &serial_log, &vnc_sock).await;
+                return Err(e);
             }
         };
 
@@ -422,13 +435,7 @@ impl VmBuilder {
                 // sweep the temp files QEMU has already created. Remove
                 // them explicitly before bailing so we do not leak sockets
                 // and logs in /tmp.
-                let _ = tokio::fs::remove_file(&qmp_sock).await;
-                if let Some(ref s) = serial_log {
-                    let _ = tokio::fs::remove_file(s).await;
-                }
-                if let Some(ref s) = vnc_sock {
-                    let _ = tokio::fs::remove_file(s).await;
-                }
+                cleanup_temp_files_async(&qmp_sock, &serial_log, &vnc_sock).await;
                 anyhow::bail!(
                     "QEMU {}.{}.{} is below required {}.{}.{} for blockdev preconfig support",
                     version.0,
