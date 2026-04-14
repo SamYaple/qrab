@@ -411,6 +411,11 @@ impl VmBuilder {
         }
 
         if !qmp_sock.exists() {
+            // Mirror the pre-bail cleanup at the other `spawn` failure sites:
+            // VmProcess is not yet constructed, so its Drop will not sweep the
+            // temp files QEMU may have created. Remove them explicitly before
+            // bailing so we do not leak sockets and logs in /tmp.
+            cleanup_temp_files_async(&qmp_sock, &serial_log, &vnc_sock).await;
             anyhow::bail!("QMP socket did not appear: {}", qmp_sock.display());
         }
 
