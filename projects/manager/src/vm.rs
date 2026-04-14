@@ -186,7 +186,23 @@ pub struct VmBuilder {
     display: bool,
     no_shutdown: bool,
     firmware: Option<PathBuf>,
+    accel: Option<Accel>,
     extra_args: Vec<String>,
+}
+
+/// QEMU accelerator selection for [`VmBuilder::accel`].
+///
+/// Maps to the `-accel` CLI flag. The default when no accelerator is
+/// configured is TCG, matching qrab's pre-existing behavior; callers
+/// that want host-CPU speed must opt in with `Kvm` or `KvmOrTcg`.
+#[derive(Debug, Clone, Copy)]
+pub enum Accel {
+    /// Require KVM. Spawn fails if KVM is unavailable.
+    Kvm,
+    /// Use TCG (QEMU's software emulator). Slow but always available.
+    Tcg,
+    /// Prefer KVM, fall back to TCG if KVM is unavailable.
+    KvmOrTcg,
 }
 
 impl VmBuilder {
@@ -201,6 +217,7 @@ impl VmBuilder {
             display: false,
             no_shutdown: false,
             firmware: None,
+            accel: None,
             extra_args: Vec::new(),
         }
     }
@@ -234,6 +251,16 @@ impl VmBuilder {
     /// Override firmware path for UEFI boot.
     pub fn firmware(mut self, path: PathBuf) -> Self {
         self.firmware = Some(path);
+        self
+    }
+
+    /// Select the QEMU accelerator (`-accel`).
+    ///
+    /// Defaults to TCG (software emulation) when not set. Callers that
+    /// want host-speed execution must opt in via [`Accel::Kvm`] or
+    /// [`Accel::KvmOrTcg`].
+    pub fn accel(mut self, accel: Accel) -> Self {
+        self.accel = Some(accel);
         self
     }
 
@@ -319,6 +346,19 @@ impl VmBuilder {
                 }
             }
         }
+
+        // Render `-accel` immediately after `-machine`: QEMU parses them
+        // independently but keeping them adjacent on the command line
+        // matches idiomatic usage in docs and libvirt-generated args.
+        // Default (None) is TCG so existing callers keep their current
+        // behavior until they opt into KVM.
+        let accel_arg = match self.accel {
+            Some(Accel::Kvm) => "kvm",
+            Some(Accel::Tcg) => "tcg",
+            Some(Accel::KvmOrTcg) => "kvm:tcg",
+            None => "tcg",
+        };
+        args.extend(["-accel".into(), accel_arg.into()]);
 
         if let Some(cpu) = self.arch.cpu() {
             args.extend(["-cpu".into(), cpu.into()]);
