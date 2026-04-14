@@ -207,6 +207,7 @@ pub enum Accel {
 }
 
 impl VmBuilder {
+    #[must_use]
     pub fn new(arch: Arch, config: MachineConfig) -> Self {
         Self {
             arch,
@@ -225,6 +226,7 @@ impl VmBuilder {
     }
 
     /// Use direct kernel boot (bypasses bootloader).
+    #[must_use]
     pub fn kernel(mut self, kernel: PathBuf, initrd: PathBuf, append: &str) -> Self {
         self.kernel = Some(kernel);
         self.initrd = Some(initrd);
@@ -233,24 +235,28 @@ impl VmBuilder {
     }
 
     /// Enable serial output to a log file.
+    #[must_use]
     pub fn serial(mut self) -> Self {
         self.serial = true;
         self
     }
 
     /// Enable VGA display with a VNC server on a Unix socket.
+    #[must_use]
     pub fn display(mut self) -> Self {
         self.display = true;
         self
     }
 
     /// Don't exit QEMU on guest shutdown.
+    #[must_use]
     pub fn no_shutdown(mut self) -> Self {
         self.no_shutdown = true;
         self
     }
 
     /// Override firmware path for UEFI boot.
+    #[must_use]
     pub fn firmware(mut self, path: PathBuf) -> Self {
         self.firmware = Some(path);
         self
@@ -261,6 +267,7 @@ impl VmBuilder {
     /// Defaults to TCG (software emulation) when not set. Callers that
     /// want host-speed execution must opt in via [`Accel::Kvm`] or
     /// [`Accel::KvmOrTcg`].
+    #[must_use]
     pub fn accel(mut self, accel: Accel) -> Self {
         self.accel = Some(accel);
         self
@@ -269,12 +276,14 @@ impl VmBuilder {
     /// Set the number of guest CPUs (`-smp cpus=N`).
     ///
     /// When not set, QEMU's own default (1) applies.
+    #[must_use]
     pub fn smp(mut self, cpus: u32) -> Self {
         self.smp = Some(cpus);
         self
     }
 
     /// Add an extra QEMU argument.
+    #[must_use]
     pub fn arg(mut self, a: impl Into<String>) -> Self {
         self.extra_args.push(a.into());
         self
@@ -285,6 +294,7 @@ impl VmBuilder {
     /// Returns a [`PreconfigVm`] handle for issuing configuration commands
     /// before guest execution. Call [`PreconfigVm::start()`] to begin
     /// execution.
+    #[must_use = "spawning a VM without using the returned handle immediately kills it on drop"]
     pub async fn spawn(self) -> Result<PreconfigVm> {
         // Validate the firmware path before touching any temp files or
         // spawning QEMU. Without this check a missing or directory path
@@ -576,11 +586,13 @@ pub struct PreconfigVm {
 
 impl PreconfigVm {
     /// Path to the serial log file, if serial was enabled.
+    #[must_use]
     pub fn serial_log(&self) -> Option<&PathBuf> {
         self.process.serial_log.as_ref()
     }
 
     /// Path to the VNC Unix socket, if display was enabled.
+    #[must_use]
     pub fn vnc_sock(&self) -> Option<&PathBuf> {
         self.process.vnc_sock.as_ref()
     }
@@ -592,6 +604,7 @@ impl PreconfigVm {
     /// returning. Callers can `.await` `changed()` or poll
     /// `.has_changed()` to detect an unexpected QEMU crash without
     /// waiting for a cryptic QMP command failure.
+    #[must_use]
     pub fn exit_watch(&self) -> watch::Receiver<Option<ExitStatus>> {
         self.process.exit_watch.clone()
     }
@@ -601,6 +614,7 @@ impl PreconfigVm {
     /// Only commands implementing [`PreconfigSafe`](qapi::PreconfigSafe) can be
     /// used here. For raw QMP access without the trait bound, use
     /// `self.qmp.execute()` directly.
+    #[must_use = "QMP command results should be checked for errors"]
     pub async fn execute<C: QapiCommand + qapi::PreconfigSafe>(
         &self,
         cmd: &C,
@@ -612,6 +626,7 @@ impl PreconfigVm {
     ///
     /// Sends `x-exit-preconfig` or `cont` depending on how the VM was
     /// started. Returns a [`Vm`] handle with full QMP access.
+    #[must_use = "dropping the returned Vm immediately kills the guest"]
     pub async fn start(self) -> Result<Vm> {
         if self.paused_mode {
             self.qmp.execute(&qapi::commands::Cont {}).await?;
@@ -649,11 +664,13 @@ pub struct Vm {
 
 impl Vm {
     /// Path to the serial log file, if serial was enabled.
+    #[must_use]
     pub fn serial_log(&self) -> Option<&PathBuf> {
         self.process.serial_log.as_ref()
     }
 
     /// Path to the VNC Unix socket, if display was enabled.
+    #[must_use]
     pub fn vnc_sock(&self) -> Option<&PathBuf> {
         self.process.vnc_sock.as_ref()
     }
@@ -665,11 +682,13 @@ impl Vm {
     /// returning. Callers can `.await` `changed()` or poll
     /// `.has_changed()` to detect an unexpected QEMU crash without
     /// waiting for a cryptic QMP command failure.
+    #[must_use]
     pub fn exit_watch(&self) -> watch::Receiver<Option<ExitStatus>> {
         self.process.exit_watch.clone()
     }
 
     /// Execute any QMP command and return the typed response.
+    #[must_use = "QMP command results should be checked for errors"]
     pub async fn execute<C: QapiCommand>(&self, cmd: &C) -> Result<C::Returns> {
         self.qmp.execute(cmd).await
     }
@@ -677,30 +696,35 @@ impl Vm {
     // -- Ergonomic lifecycle methods --
 
     /// Pause guest execution (sends `stop`).
+    #[must_use = "QMP command results should be checked for errors"]
     pub async fn stop(&self) -> Result<()> {
         self.qmp.execute(&qapi::commands::Stop {}).await?;
         Ok(())
     }
 
     /// Resume guest execution (sends `cont`).
+    #[must_use = "QMP command results should be checked for errors"]
     pub async fn cont(&self) -> Result<()> {
         self.qmp.execute(&qapi::commands::Cont {}).await?;
         Ok(())
     }
 
     /// Reset the guest (sends `system_reset`).
+    #[must_use = "QMP command results should be checked for errors"]
     pub async fn reset(&self) -> Result<()> {
         self.qmp.execute(&qapi::commands::SystemReset {}).await?;
         Ok(())
     }
 
     /// Request guest powerdown via ACPI (sends `system_powerdown`).
+    #[must_use = "QMP command results should be checked for errors"]
     pub async fn powerdown(&self) -> Result<()> {
         self.qmp.execute(&qapi::commands::SystemPowerdown {}).await?;
         Ok(())
     }
 
     /// Send `quit` to QEMU, requesting the process to exit.
+    #[must_use = "QMP command results should be checked for errors"]
     pub async fn quit(&self) -> Result<()> {
         self.qmp.execute(&qapi::commands::Quit {}).await?;
         Ok(())
