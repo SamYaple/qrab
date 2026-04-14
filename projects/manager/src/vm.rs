@@ -216,6 +216,19 @@ impl VmBuilder {
     /// before guest execution. Call [`PreconfigVm::start()`] to begin
     /// execution.
     pub async fn spawn(self) -> Result<PreconfigVm> {
+        // Validate the firmware path before touching any temp files or
+        // spawning QEMU. Without this check a missing or directory path
+        // only surfaces as a cryptic late failure from QEMU itself. The
+        // check deliberately does not police relative or `..` components:
+        // rejecting those is policy, not safety.
+        if let Some(ref fw) = self.firmware {
+            anyhow::ensure!(
+                fw.is_file(),
+                "firmware path {} is not a regular file",
+                fw.display()
+            );
+        }
+
         let id = SOCKET_COUNTER.fetch_add(1, Ordering::SeqCst);
         let tmpdir = std::env::temp_dir();
         let qmp_sock = tmpdir.join(format!("qrab-qmp-{}-{}.sock", std::process::id(), id));
