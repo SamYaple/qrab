@@ -14,6 +14,12 @@ use tokio::net::UnixStream;
 /// agent must not block the caller forever.
 const QGA_RESPONSE_TIMEOUT: Duration = Duration::from_secs(30);
 
+/// Maximum time to wait for the `guest-sync-delimited` handshake to complete.
+/// Separate from — and shorter than — `QGA_RESPONSE_TIMEOUT`: sync is a
+/// zero-work ping, so any QGA that can't echo it in 10s is effectively dead
+/// and the caller should not wait the full command budget.
+const QGA_SYNC_TIMEOUT: Duration = Duration::from_secs(10);
+
 /// Async QGA client connected to a QEMU guest agent.
 pub struct Qga {
     reader: BufReader<tokio::net::unix::OwnedReadHalf>,
@@ -59,43 +65,55 @@ impl Qga {
             .unwrap_or_default()
             .as_nanos() as u64 as i64;
 
-        // Send 0xFF sentinel byte followed by the sync command
-        self.writer.write_all(&[0xFF]).await?;
-        let cmd = serde_json::json!({
-            "execute": "guest-sync-delimited",
-            "arguments": {"id": sync_id}
-        });
-        self.writer
-            .write_all(serde_json::to_string(&cmd)?.as_bytes())
-            .await?;
-        self.writer.write_all(b"\n").await?;
-        self.writer.flush().await?;
+        // Wrap the entire handshake in a timeout. A wedged QGA (or one
+        // flushing a long backlog of stale lines ahead of the 0xFF sentinel)
+        // would otherwise block `Qga::new()` forever. We use a dedicated
+        // `QGA_SYNC_TIMEOUT` rather than reusing the 30s response budget:
+        // sync is a trivial echo, so 10s is more than enough and gives the
+        // caller faster feedback on a dead agent.
+        tokio::time::timeout(QGA_SYNC_TIMEOUT, async {
+            // Send 0xFF sentinel byte followed by the sync command
+            self.writer.write_all(&[0xFF]).await?;
+            let cmd = serde_json::json!({
+                "execute": "guest-sync-delimited",
+                "arguments": {"id": sync_id}
+            });
+            self.writer
+                .write_all(serde_json::to_string(&cmd)?.as_bytes())
+                .await?;
+            self.writer.write_all(b"\n").await?;
+            self.writer.flush().await?;
 
-        // Read until we find 0xFF sentinel, then read the response
-        loop {
-            let byte = self.reader.read_u8().await?;
-            if byte == 0xFF {
-                break;
+            // Read until we find 0xFF sentinel, then read the response
+            loop {
+                let byte = self.reader.read_u8().await?;
+                if byte == 0xFF {
+                    break;
+                }
             }
-        }
 
-        // Read the sync response
-        let mut line = String::new();
-        self.reader.read_line(&mut line).await?;
-        let resp: serde_json::Value = serde_json::from_str(line.trim())?;
+            // Read the sync response
+            let mut line = String::new();
+            self.reader.read_line(&mut line).await?;
+            let resp: serde_json::Value = serde_json::from_str(line.trim())?;
 
-        if let Some(ret) = resp.get("return") {
-            let returned_id = ret.as_i64().unwrap_or(0);
-            if returned_id != sync_id {
-                anyhow::bail!(
-                    "guest-sync-delimited: id mismatch (sent {}, got {})",
-                    sync_id,
-                    returned_id
-                );
+            if let Some(ret) = resp.get("return") {
+                let returned_id = ret.as_i64().unwrap_or(0);
+                if returned_id != sync_id {
+                    anyhow::bail!(
+                        "guest-sync-delimited: id mismatch (sent {}, got {})",
+                        sync_id,
+                        returned_id
+                    );
+                }
+            } else if let Some(error) = resp.get("error") {
+                anyhow::bail!("guest-sync-delimited failed: {}", error);
             }
-        } else if let Some(error) = resp.get("error") {
-            anyhow::bail!("guest-sync-delimited failed: {}", error);
-        }
+
+            Ok::<(), anyhow::Error>(())
+        })
+        .await
+        .map_err(|_| anyhow::anyhow!("QGA sync handshake timed out"))??;
 
         Ok(())
     }
