@@ -204,38 +204,11 @@ impl Qmp {
         // Bound each handle wait: read_loop in particular may keep picking
         // next_line() under heavy event traffic and never observe the
         // shutdown_rx.changed() branch. Timeout → abort → await (ignoring
-        // errors) guarantees forward progress. We pass `&mut handle` to
-        // `timeout` so the handle survives the timeout and can be aborted.
-        if let Some(mut handle) = self.write_handle.take() {
-            let handle_ref: &mut JoinHandle<()> = &mut handle;
-            if tokio::time::timeout(Duration::from_millis(500), handle_ref)
-                .await
-                .is_err()
-            {
-                handle.abort();
-                let _ = handle.await;
-            }
-        }
-        if let Some(mut handle) = self.event_handle.take() {
-            let handle_ref: &mut JoinHandle<()> = &mut handle;
-            if tokio::time::timeout(Duration::from_millis(500), handle_ref)
-                .await
-                .is_err()
-            {
-                handle.abort();
-                let _ = handle.await;
-            }
-        }
-        if let Some(mut handle) = self.read_handle.take() {
-            let handle_ref: &mut JoinHandle<()> = &mut handle;
-            if tokio::time::timeout(Duration::from_millis(500), handle_ref)
-                .await
-                .is_err()
-            {
-                handle.abort();
-                let _ = handle.await;
-            }
-        }
+        // errors) guarantees forward progress. Order matters less than
+        // completeness — every live handle gets the same bounded wait.
+        shutdown_handle(self.write_handle.take()).await;
+        shutdown_handle(self.event_handle.take()).await;
+        shutdown_handle(self.read_handle.take()).await;
     }
 
     async fn read_loop(
@@ -330,6 +303,28 @@ impl Qmp {
                 }
                 _ = shutdown_rx.changed() => break,
             }
+        }
+    }
+}
+
+/// Drive a background task handle to completion with a bounded wait.
+///
+/// Factored out of `Qmp::shutdown` where the same pattern was repeated
+/// once per spawned worker: give the task a short grace period to exit
+/// cleanly on the shutdown signal, fall back to `abort()` + `await` if
+/// it's stuck. Taking `&mut handle` inside `timeout` lets us recover
+/// the owned handle after the timeout fires so we can still `abort()`
+/// it — the alternative `timeout(500ms, handle)` consumes the handle
+/// on elapsed and there's nothing left to abort.
+async fn shutdown_handle(handle: Option<JoinHandle<()>>) {
+    if let Some(mut handle) = handle {
+        let handle_ref: &mut JoinHandle<()> = &mut handle;
+        if tokio::time::timeout(Duration::from_millis(500), handle_ref)
+            .await
+            .is_err()
+        {
+            handle.abort();
+            let _ = handle.await;
         }
     }
 }
