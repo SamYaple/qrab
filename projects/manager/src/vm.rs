@@ -8,6 +8,9 @@ use tokio::process::{Child, Command};
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
 
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
+
 use qapi::QapiCommand;
 use qapi_protocol::{Qmp, QmpEvent};
 
@@ -356,6 +359,29 @@ impl VmBuilder {
 
         if !qmp_sock.exists() {
             anyhow::bail!("QMP socket did not appear: {}", qmp_sock.display());
+        }
+
+        // Restrict socket permissions to the current user: QEMU creates the
+        // QMP socket with umask-dependent permissions, which on typical
+        // systems leave it readable/writable by other local users. Tighten
+        // to 0600 so only the owning user can connect. Same for the VNC
+        // socket when a display was requested.
+        #[cfg(unix)]
+        {
+            tokio::fs::set_permissions(
+                &qmp_sock,
+                std::fs::Permissions::from_mode(0o600),
+            )
+            .await?;
+            if let Some(ref sock) = vnc_sock {
+                if sock.exists() {
+                    tokio::fs::set_permissions(
+                        sock,
+                        std::fs::Permissions::from_mode(0o600),
+                    )
+                    .await?;
+                }
+            }
         }
 
         let (qmp, events) = Qmp::new(&qmp_sock).await?;
