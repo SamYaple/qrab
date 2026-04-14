@@ -3,11 +3,12 @@
 //! The QGA protocol uses the same JSON-RPC wire format as QMP, but with
 //! a different handshake (guest-sync-delimited instead of qmp_capabilities).
 
+use crate::{read_line_bounded, LineRead, MAX_LINE_BYTES};
 use anyhow::Result;
 use qapi::QapiCommand;
 use std::path::Path;
 use std::time::Duration;
-use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::UnixStream;
 
 /// Maximum time to wait for a QGA response before giving up. A wedged guest
@@ -93,8 +94,13 @@ impl Qga {
             }
 
             // Read the sync response
-            let mut line = String::new();
-            self.reader.read_line(&mut line).await?;
+            let line = match read_line_bounded(&mut self.reader).await? {
+                LineRead::Line(line) => line,
+                LineRead::Eof => anyhow::bail!("QGA peer closed during sync"),
+                LineRead::TooLong => {
+                    anyhow::bail!("QGA sync response exceeded {} bytes", MAX_LINE_BYTES)
+                }
+            };
             let resp: serde_json::Value = serde_json::from_str(line.trim())?;
 
             if let Some(ret) = resp.get("return") {
@@ -142,17 +148,23 @@ impl Qga {
         self.writer.write_all(b"\n").await?;
         self.writer.flush().await?;
 
-        let mut line = String::new();
-        tokio::time::timeout(
+        let line = tokio::time::timeout(
             QGA_RESPONSE_TIMEOUT,
-            self.reader.read_line(&mut line),
+            read_line_bounded(&mut self.reader),
         )
         .await
         .map_err(|_| anyhow::anyhow!("QGA command timed out"))??;
-        // `read_line` returns Ok(0) at EOF, leaving the buffer untouched;
-        // a well-behaved server also sends full JSON lines so any blank
-        // payload indicates the peer hung up. Bail with a meaningful
-        // message instead of feeding the empty string into serde_json.
+        let line = match line {
+            LineRead::Line(line) => line,
+            // `read_line_bounded` returns `Eof` at stream close, mirroring
+            // the previous `read_line` Ok(0) handling — either way the
+            // peer hung up and we bail with a meaningful message instead
+            // of feeding an empty string into serde_json.
+            LineRead::Eof => anyhow::bail!("QGA connection closed"),
+            LineRead::TooLong => {
+                anyhow::bail!("QGA response exceeded {} bytes", MAX_LINE_BYTES)
+            }
+        };
         if line.trim().is_empty() {
             anyhow::bail!("QGA connection closed");
         }

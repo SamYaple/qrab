@@ -6,11 +6,86 @@ use qapi::QapiCommand;
 
 use std::path::Path;
 use std::time::Duration;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, Lines};
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::unix::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::net::UnixStream;
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio::task::{spawn, JoinHandle};
+
+/// Maximum bytes we will buffer for a single JSON line from the peer.
+///
+/// `AsyncBufReadExt::read_line` has no built-in bound: a broken or
+/// malicious QEMU/QGA that sends an endless line (or omits newlines
+/// entirely) would otherwise grow the buffer without limit and OOM
+/// the process. 1 MiB is comfortably above any real QMP/QGA response
+/// — query-machines on a huge host still clocks in well under 100 KiB
+/// — and matches the order of magnitude used by libvirt/proxmox for
+/// their JSON monitor handling.
+pub(crate) const MAX_LINE_BYTES: usize = 1_024 * 1_024;
+
+/// Result of a bounded line read.
+///
+/// Separating the overflow case from true I/O errors lets callers that
+/// want to stay alive after a rogue oversize line (the read loop) keep
+/// going, while callers that treat *any* anomaly as fatal (the
+/// handshake) collapse everything into an error.
+#[derive(Debug)]
+pub(crate) enum LineRead {
+    /// Full line, including trailing newline.
+    Line(String),
+    /// Clean EOF before any data.
+    Eof,
+    /// Peer sent `>= MAX_LINE_BYTES` without a newline. The oversize
+    /// bytes have already been drained up to the next newline (or EOF)
+    /// so the stream is resynced.
+    TooLong,
+}
+
+/// Read a single newline-terminated line from `reader` with a hard
+/// byte cap of `MAX_LINE_BYTES`.
+///
+/// The `take()` adapter enforces the byte cap at the I/O layer so the
+/// buffer never grows past the limit even for a pathological peer. On
+/// overflow we drain the remainder of the oversize line (again using
+/// `take()` each iteration) so subsequent calls resume on a line
+/// boundary; the overflow is reported as `LineRead::TooLong` rather
+/// than an I/O error so callers can choose whether to bail or resync.
+pub(crate) async fn read_line_bounded<R>(reader: &mut R) -> Result<LineRead>
+where
+    R: AsyncBufReadExt + Unpin,
+{
+    let mut line = String::new();
+    let n = reader
+        .take(MAX_LINE_BYTES as u64)
+        .read_line(&mut line)
+        .await?;
+    if n == 0 {
+        return Ok(LineRead::Eof);
+    }
+    // If we hit the cap without seeing a newline, `line` is the leading
+    // `MAX_LINE_BYTES` of an oversize line. Drain the rest of it so the
+    // next call starts on a clean boundary.
+    if line.len() >= MAX_LINE_BYTES && !line.ends_with('\n') {
+        tracing::warn!(
+            len = line.len(),
+            cap = MAX_LINE_BYTES,
+            "line exceeded MAX_LINE_BYTES, dropping and resyncing"
+        );
+        let mut sink = String::new();
+        loop {
+            sink.clear();
+            let m = reader
+                .take(MAX_LINE_BYTES as u64)
+                .read_line(&mut sink)
+                .await?;
+            if m == 0 || sink.ends_with('\n') {
+                break;
+            }
+        }
+        return Ok(LineRead::TooLong);
+    }
+    Ok(LineRead::Line(line))
+}
 
 /// A raw QMP event as received from QEMU.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -56,8 +131,15 @@ impl Qmp {
         // block `Qmp::new()` forever. 10s is plenty for a healthy peer.
         tokio::time::timeout(Duration::from_secs(10), async {
             // Read greeting synchronously before spawning workers
-            let mut greeting_line = String::new();
-            reader.read_line(&mut greeting_line).await?;
+            let greeting_line = match read_line_bounded(&mut reader).await? {
+                LineRead::Line(line) => line,
+                LineRead::Eof => {
+                    anyhow::bail!("QMP peer closed before sending greeting")
+                }
+                LineRead::TooLong => {
+                    anyhow::bail!("QMP greeting exceeded {} bytes", MAX_LINE_BYTES)
+                }
+            };
             let parsed: serde_json::Value = serde_json::from_str(&greeting_line)
                 .map_err(|e| anyhow::anyhow!("failed to parse QMP greeting: {}", e))?;
             let qemu = parsed
@@ -78,8 +160,18 @@ impl Qmp {
                 .await?;
 
             let caps_resp: serde_json::Value = loop {
-                let mut caps_line = String::new();
-                reader.read_line(&mut caps_line).await?;
+                let caps_line = match read_line_bounded(&mut reader).await? {
+                    LineRead::Line(line) => line,
+                    LineRead::Eof => {
+                        anyhow::bail!("QMP peer closed before qmp_capabilities reply")
+                    }
+                    LineRead::TooLong => {
+                        anyhow::bail!(
+                            "qmp_capabilities reply exceeded {} bytes",
+                            MAX_LINE_BYTES
+                        )
+                    }
+                };
                 let parsed: serde_json::Value = serde_json::from_str(&caps_line)?;
                 if parsed.get("event").is_some() {
                     continue;
@@ -99,7 +191,6 @@ impl Qmp {
         .map_err(|_| anyhow::anyhow!("QMP handshake timed out"))??;
 
         // Now spawn the background workers
-        let lines = reader.lines();
         let (command_tx, command_rx) = mpsc::channel(1);
         let (response_tx, response_rx) = mpsc::channel(1);
         let (raw_event_tx, raw_event_rx) = mpsc::channel(100);
@@ -107,7 +198,7 @@ impl Qmp {
         let (shutdown_tx, shutdown_rx) = watch::channel(());
 
         let read_handle = spawn(Self::read_loop(
-            lines,
+            reader,
             response_tx,
             raw_event_tx,
             shutdown_rx.clone(),
@@ -212,16 +303,21 @@ impl Qmp {
     }
 
     async fn read_loop(
-        mut lines: Lines<BufReader<OwnedReadHalf>>,
+        mut reader: BufReader<OwnedReadHalf>,
         response_tx: mpsc::Sender<serde_json::Value>,
         event_tx: mpsc::Sender<String>,
         mut shutdown_rx: watch::Receiver<()>,
     ) {
+        // We read one line at a time with a hard byte cap
+        // (`read_line_bounded`) so a malicious or broken peer sending an
+        // unterminated line cannot exhaust process memory. On `TooLong`
+        // we've already resynced to the next newline and just log;
+        // `Eof`/real I/O errors end the loop so we don't spin.
         loop {
             tokio::select! {
-                result = lines.next_line() => {
+                result = read_line_bounded(&mut reader) => {
                     match result {
-                        Ok(Some(line)) => {
+                        Ok(LineRead::Line(line)) => {
                             match serde_json::from_str::<serde_json::Value>(&line) {
                                 Ok(parsed) => {
                                     if parsed.get("event").is_some() {
@@ -236,7 +332,11 @@ impl Qmp {
                                 }
                             }
                         }
-                        Ok(None) | Err(_) => break,
+                        Ok(LineRead::TooLong) => {
+                            tracing::warn!("dropped oversize QMP line");
+                            continue;
+                        }
+                        Ok(LineRead::Eof) | Err(_) => break,
                     }
                 }
                 _ = shutdown_rx.changed() => break,
