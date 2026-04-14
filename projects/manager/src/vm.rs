@@ -1,11 +1,11 @@
 use anyhow::Result;
 use std::path::{Path, PathBuf};
-use std::process::Stdio;
+use std::process::{ExitStatus, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::{Child, Command};
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::{mpsc, oneshot, watch};
 use tokio::task::JoinHandle;
 
 #[cfg(unix)]
@@ -63,13 +63,16 @@ fn cleanup_temp_files_sync(
 /// QEMU process handle with cleanup logic.
 ///
 /// The `Child` is owned by a monitor task spawned at construction time;
-/// that task awaits `child.wait()` and logs an error via `tracing` if the
-/// process exits unexpectedly. `cleanup()` signals the monitor to kill the
-/// child and waits for it to finish. `Drop` is a best-effort fallback that
-/// triggers the same shutdown signal without blocking.
+/// that task awaits `child.wait()` and publishes the exit status on a
+/// `watch` channel so callers can observe unexpected QEMU death
+/// programmatically instead of waiting for the next QMP command to fail
+/// cryptically. `cleanup()` signals the monitor to kill the child and
+/// waits for it to finish. `Drop` is a best-effort fallback that triggers
+/// the same shutdown signal without blocking.
 struct VmProcess {
     shutdown: Option<oneshot::Sender<()>>,
     monitor: Option<JoinHandle<()>>,
+    exit_watch: watch::Receiver<Option<ExitStatus>>,
     qmp_sock: PathBuf,
     serial_log: Option<PathBuf>,
     vnc_sock: Option<PathBuf>,
@@ -81,9 +84,17 @@ impl VmProcess {
     /// The task races `child.wait()` against a shutdown oneshot: if the
     /// oneshot fires first, the task kills the child and reaps it; if the
     /// child exits on its own, the task logs the exit status as an error
-    /// so the user is not left hanging on a dead QMP connection.
-    fn spawn_monitor(mut child: Child) -> (oneshot::Sender<()>, JoinHandle<()>) {
+    /// and publishes it on the returned `watch::Receiver` so the user is
+    /// not left hanging on a dead QMP connection.
+    fn spawn_monitor(
+        mut child: Child,
+    ) -> (
+        oneshot::Sender<()>,
+        JoinHandle<()>,
+        watch::Receiver<Option<ExitStatus>>,
+    ) {
         let (tx, rx) = oneshot::channel::<()>();
+        let (exit_tx, exit_rx) = watch::channel(None);
         let handle = tokio::spawn(async move {
             tokio::select! {
                 _ = rx => {
@@ -92,10 +103,13 @@ impl VmProcess {
                 }
                 res = child.wait() => {
                     match res {
-                        Ok(status) => tracing::error!(
-                            "QEMU process exited unexpectedly: {:?}",
-                            status
-                        ),
+                        Ok(status) => {
+                            tracing::error!(
+                                "QEMU process exited unexpectedly: {:?}",
+                                status
+                            );
+                            let _ = exit_tx.send(Some(status));
+                        }
                         Err(e) => tracing::error!(
                             "failed to wait on QEMU process: {}",
                             e
@@ -104,7 +118,7 @@ impl VmProcess {
                 }
             }
         });
-        (tx, handle)
+        (tx, handle, exit_rx)
     }
 
     /// Async cleanup: signal monitor to kill the child, wait for exit,
@@ -455,7 +469,7 @@ impl VmBuilder {
             }
         }
 
-        let (shutdown, monitor) = VmProcess::spawn_monitor(child);
+        let (shutdown, monitor, exit_watch) = VmProcess::spawn_monitor(child);
 
         Ok(PreconfigVm {
             qmp,
@@ -463,6 +477,7 @@ impl VmBuilder {
             process: VmProcess {
                 shutdown: Some(shutdown),
                 monitor: Some(monitor),
+                exit_watch,
                 qmp_sock,
                 serial_log,
                 vnc_sock,
@@ -502,6 +517,17 @@ impl PreconfigVm {
     /// Path to the VNC Unix socket, if display was enabled.
     pub fn vnc_sock(&self) -> Option<&PathBuf> {
         self.process.vnc_sock.as_ref()
+    }
+
+    /// Watch channel observing the QEMU process exit status.
+    ///
+    /// The receiver starts with `None` and transitions to `Some(status)`
+    /// exactly once, when the monitor task observes `child.wait()`
+    /// returning. Callers can `.await` `changed()` or poll
+    /// `.has_changed()` to detect an unexpected QEMU crash without
+    /// waiting for a cryptic QMP command failure.
+    pub fn exit_watch(&self) -> watch::Receiver<Option<ExitStatus>> {
+        self.process.exit_watch.clone()
     }
 
     /// Execute a preconfig-safe QMP command.
@@ -564,6 +590,17 @@ impl Vm {
     /// Path to the VNC Unix socket, if display was enabled.
     pub fn vnc_sock(&self) -> Option<&PathBuf> {
         self.process.vnc_sock.as_ref()
+    }
+
+    /// Watch channel observing the QEMU process exit status.
+    ///
+    /// The receiver starts with `None` and transitions to `Some(status)`
+    /// exactly once, when the monitor task observes `child.wait()`
+    /// returning. Callers can `.await` `changed()` or poll
+    /// `.has_changed()` to detect an unexpected QEMU crash without
+    /// waiting for a cryptic QMP command failure.
+    pub fn exit_watch(&self) -> watch::Receiver<Option<ExitStatus>> {
+        self.process.exit_watch.clone()
     }
 
     /// Execute any QMP command and return the typed response.
