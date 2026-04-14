@@ -476,24 +476,13 @@ pub fn build_unified_registry(qemu_repo: &Path, version_tags: &[&str]) -> Result
     Ok(registry)
 }
 
-/// Check if an IR node has the 'deprecated' feature.
-fn has_deprecated_feature(meta: &Metadata) -> bool {
+/// Check if an IR node has a named feature (e.g. `deprecated`, `unstable`)
+/// in its QAPI `features` list.
+fn has_feature(meta: &Metadata, feature_name: &str) -> bool {
     meta.attributes.iter().any(|a| match a {
         Attribute::List(items) => items.iter().any(|item| {
             matches!(item,
-                Attribute::Item { name, value } if name == "feature" && value == "deprecated"
-            )
-        }),
-        _ => false,
-    })
-}
-
-/// Check if an IR node has the 'unstable' feature.
-fn has_unstable_feature(meta: &Metadata) -> bool {
-    meta.attributes.iter().any(|a| match a {
-        Attribute::List(items) => items.iter().any(|item| {
-            matches!(item,
-                Attribute::Item { name, value } if name == "feature" && value == "unstable"
+                Attribute::Item { name, value } if name == "feature" && value == feature_name
             )
         }),
         _ => false,
@@ -568,11 +557,11 @@ fn merge_enum(registry: &mut UnifiedRegistry, name: &str, e: &Enum, version: Ver
     if let Some(UnifiedType::Enum(existing)) = registry.types.get_mut(name) {
         existing.versions.until = None;
         // Track type-level deprecation
-        if has_deprecated_feature(&e.meta) && existing.versions.deprecated.is_none() {
+        if has_feature(&e.meta, "deprecated") && existing.versions.deprecated.is_none() {
             existing.versions.deprecated = Some(version);
         }
         // Track type-level unstable
-        if has_unstable_feature(&e.meta) && existing.versions.unstable.is_none() {
+        if has_feature(&e.meta, "unstable") && existing.versions.unstable.is_none() {
             existing.versions.unstable = Some(version);
         }
         // Update doc from latest version (latest has best docs)
@@ -599,7 +588,7 @@ fn merge_enum(registry: &mut UnifiedRegistry, name: &str, e: &Enum, version: Ver
                 // Variant still exists — clear until, track deprecation.
                 let vr = existing.variant_versions.get_mut(&variant.name).unwrap();
                 vr.until = None;
-                if has_deprecated_feature(&variant.meta) && vr.deprecated.is_none() {
+                if has_feature(&variant.meta, "deprecated") && vr.deprecated.is_none() {
                     vr.deprecated = Some(version);
                 }
                 // Promote the variant to the latest version's definition:
@@ -690,10 +679,10 @@ fn merge_enum(registry: &mut UnifiedRegistry, name: &str, e: &Enum, version: Ver
             }
         }
         let mut versions = VersionRange::new(version);
-        if has_unstable_feature(&ir.meta) {
+        if has_feature(&ir.meta, "unstable") {
             versions.unstable = Some(version);
         }
-        if has_deprecated_feature(&ir.meta) {
+        if has_feature(&ir.meta, "deprecated") {
             versions.deprecated = Some(version);
         }
         registry.types.insert(
@@ -715,11 +704,11 @@ fn merge_struct(registry: &mut UnifiedRegistry, name: &str, s: &Struct, version:
     if let Some(UnifiedType::Struct(existing)) = registry.types.get_mut(name) {
         existing.versions.until = None;
         // Track type-level deprecation
-        if has_deprecated_feature(&s.meta) && existing.versions.deprecated.is_none() {
+        if has_feature(&s.meta, "deprecated") && existing.versions.deprecated.is_none() {
             existing.versions.deprecated = Some(version);
         }
         // Track type-level unstable
-        if has_unstable_feature(&s.meta) && existing.versions.unstable.is_none() {
+        if has_feature(&s.meta, "unstable") && existing.versions.unstable.is_none() {
             existing.versions.unstable = Some(version);
         }
         // Update doc from latest version (latest has best docs)
@@ -752,7 +741,7 @@ fn merge_struct(registry: &mut UnifiedRegistry, name: &str, s: &Struct, version:
                 // Field still exists — clear until, track deprecation.
                 let fr = existing.field_versions.get_mut(&field.name).unwrap();
                 fr.until = None;
-                if has_deprecated_feature(&field.meta) && fr.deprecated.is_none() {
+                if has_feature(&field.meta, "deprecated") && fr.deprecated.is_none() {
                     fr.deprecated = Some(version);
                 }
                 // Promote the field to the latest version's definition.
@@ -889,10 +878,10 @@ fn merge_struct(registry: &mut UnifiedRegistry, name: &str, s: &Struct, version:
         // Track version-sensitive boolean attributes from initial version
         let attr_versions = extract_bool_attr_versions(&ir.meta, version);
         let mut versions = VersionRange::new(version);
-        if has_unstable_feature(&ir.meta) {
+        if has_feature(&ir.meta, "unstable") {
             versions.unstable = Some(version);
         }
-        if has_deprecated_feature(&ir.meta) {
+        if has_feature(&ir.meta, "deprecated") {
             versions.deprecated = Some(version);
         }
         registry.types.insert(
