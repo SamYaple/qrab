@@ -1220,6 +1220,15 @@ fn separate_items(code: &str) -> String {
     result
 }
 
+/// Drop any version-lifecycle attrs already attached to a type so the
+/// registry-derived values are the single source of truth. Removes
+/// `added`/`since`/`removed`/`until`/`deprecated` items and any nested
+/// `deprecated`/`unstable` bundles.
+fn strip_version_attrs(attrs: &mut Vec<Attribute>) {
+    attrs.retain(|a| !matches!(a, Attribute::Item { name, .. } if name == "added" || name == "since" || name == "removed" || name == "until" || name == "deprecated"));
+    attrs.retain(|a| !matches!(a, Attribute::Nested { name, .. } if name == "deprecated" || name == "unstable"));
+}
+
 /// Generate code for a unified enum, adding since/until attributes from the registry.
 fn generate_unified_enum(
     ue: &UnifiedEnum,
@@ -1228,8 +1237,7 @@ fn generate_unified_enum(
     let mut ir = ue.ir.clone();
 
     // Strip any existing since from doc comments — always use registry version
-    ir.meta.attributes.retain(|a| !matches!(a, Attribute::Item { name, .. } if name == "added" || name == "since" || name == "removed" || name == "until" || name == "deprecated"));
-    ir.meta.attributes.retain(|a| !matches!(a, Attribute::Nested { name, .. } if name == "deprecated" || name == "unstable"));
+    strip_version_attrs(&mut ir.meta.attributes);
     ir.meta.attributes.push(Attribute::with_value(
         "added",
         version_str(ue.versions.since),
@@ -1308,8 +1316,7 @@ fn generate_unified_struct(
     let mut ir = us.ir.clone();
 
     // Strip existing since from doc comments — always use registry version
-    ir.meta.attributes.retain(|a| !matches!(a, Attribute::Item { name, .. } if name == "added" || name == "since" || name == "removed" || name == "until" || name == "deprecated"));
-    ir.meta.attributes.retain(|a| !matches!(a, Attribute::Nested { name, .. } if name == "deprecated" || name == "unstable"));
+    strip_version_attrs(&mut ir.meta.attributes);
     ir.meta.attributes.push(Attribute::with_value(
         "added",
         version_str(us.versions.since),
