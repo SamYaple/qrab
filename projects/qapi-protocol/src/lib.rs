@@ -153,7 +153,22 @@ impl Qmp {
             .await
             .map_err(|_| anyhow::anyhow!("command channel closed"))?;
 
-        let response = reply_rx.await?;
+        // NOTE: the `write_loop` drops `reply_tx` in two cases that are
+        // indistinguishable from the client's perspective — the 30s
+        // per-command response timeout (see `write_loop`'s inner select!)
+        // and a natural shutdown/broken pipe. The `RecvError` from
+        // `reply_rx.await` collapses both into a single "sender dropped"
+        // signal. We surface a combined message so callers at least know
+        // that a timeout is one of the plausible causes; distinguishing
+        // them cleanly would require a second channel or a sentinel value
+        // and is tracked as a follow-up (BUG 34).
+        let response = reply_rx
+            .await
+            .map_err(|_| {
+                anyhow::anyhow!(
+                    "QMP command channel closed — likely timed out or connection lost"
+                )
+            })?;
 
         if let Some(error) = response.get("error") {
             anyhow::bail!(
