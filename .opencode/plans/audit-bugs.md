@@ -1,6 +1,6 @@
 # Bug Audit Report
 
-Generated: 2026-04-13 | Round 6
+Generated: 2026-04-13 | Round 7
 
 ## Status
 
@@ -36,20 +36,22 @@ Generated: 2026-04-13 | Round 6
 | 28 | qapi-macros returns parse panics | Low | FIXED (r5) |
 | 29 | QEMU crash not propagated to events | Medium | OPEN |
 | 30 | VmProcess Drop sync I/O | Low | FIXED (r5) |
-| 31 | QGA sync() no timeout on 0xFF loop | Medium | **FIXED** (r6) |
+| 31 | QGA sync() no timeout on 0xFF loop | Medium | FIXED (r6) |
 | 32 | Misleading version error message | Low | OPEN |
-| 33 | Temp file leak on version bail | Low | **FIXED** (r6) |
+| 33 | Temp file leak on version bail | Low | FIXED (r6) |
 | 34 | Timeout vs channel-close indistinguishable | Low | OPEN |
-| 35 | QGA sync() read_line no timeout | Low | **FIXED** (r6) |
-| 36 | No timeout on QMP greeting/caps | Medium | NEW |
-| 37 | Temp file leak on Qmp::new() failure | Low | NEW |
-| 38 | detect_version parses dev builds oddly | Low | NEW |
-| 39 | QGA version string edge cases | Low | NEW |
+| 35 | QGA sync() read_line no timeout | Low | FIXED (r6) |
+| 36 | No timeout on QMP greeting/caps | Medium | **FIXED** (r7) |
+| 37 | Temp file leak on Qmp::new() failure | Low | **FIXED** (r7) |
+| 38 | detect_version parses dev builds oddly | Low | **FIXED** (r7) |
+| 39 | QGA version string edge cases | Low | **FIXED** (r7) |
+| 40 | QGA execute_raw writes unbounded | Low | NEW |
+| 41 | VmBuilder::spawn waits 5s on dead QEMU | Low | NEW |
 
 ## Totals
 
 | | Count |
 |---|---|
-| Fixed | 23 |
+| Fixed | 27 |
 | False Positive | 3 |
-| Open | 13 (1 high, 4 medium, 8 low) |
+| Open | 11 (1 high, 4 medium, 6 low) |
