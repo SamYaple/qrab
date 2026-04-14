@@ -102,16 +102,107 @@ pub fn detect_version(arch: Arch) -> Option<(u32, u32, u32)> {
         .output()
         .ok()?;
     let stdout = String::from_utf8_lossy(&output.stdout);
-    let version_str = stdout.split_whitespace().find(|s| {
-        s.chars()
-            .next()
-            .map(|c| c.is_ascii_digit())
-            .unwrap_or(false)
-            && s.contains('.')
+    parse_version_string(&stdout)
+}
+
+/// Parse a QEMU `--version` output (or any containing string) into
+/// `(major, minor, patch)`. Designed to be resilient against the various
+/// forms QEMU prints: release strings (`"9.1.0"`), dev-build strings with
+/// suffixes (`"9.1.50-dev"`, `"9.1.50-dirty"`), strings with git info
+/// appended in parentheses (`"9.1.50 (v9.1.0-123-gabcdef)"`), and the
+/// full preamble (`"QEMU emulator version 9.1.0"`).
+///
+/// Strategy: locate the first whitespace-separated token that starts with
+/// a digit and contains a `.`, then walk it by `.`-separated components,
+/// taking only the leading digit run of each component. Missing patch
+/// defaults to 0. Returns `None` only when no usable major version can be
+/// extracted.
+fn parse_version_string(s: &str) -> Option<(u32, u32, u32)> {
+    let token = s.split_whitespace().find(|w| {
+        w.chars().next().map(|c| c.is_ascii_digit()).unwrap_or(false)
+            && w.contains('.')
     })?;
-    let parts: Vec<&str> = version_str.split('.').collect();
-    let major = parts.first()?.parse().ok()?;
-    let minor = parts.get(1)?.parse().ok()?;
-    let patch = parts.get(2).and_then(|s| s.parse().ok()).unwrap_or(0);
+    let mut parts = token.split('.');
+    let major = parse_leading_digits(parts.next()?)?;
+    let minor = parts.next().and_then(parse_leading_digits).unwrap_or(0);
+    let patch = parts.next().and_then(parse_leading_digits).unwrap_or(0);
     Some((major, minor, patch))
+}
+
+/// Parse the leading run of ASCII digits from `s` as a `u32`. Returns
+/// `None` if `s` does not start with a digit. Stops at the first
+/// non-digit, so inputs like `"50-dev"` become `50` and `"0-rc1"`
+/// becomes `0`.
+fn parse_leading_digits(s: &str) -> Option<u32> {
+    let end = s.find(|c: char| !c.is_ascii_digit()).unwrap_or(s.len());
+    if end == 0 {
+        return None;
+    }
+    s[..end].parse().ok()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_version_string;
+
+    #[test]
+    fn parse_release_string() {
+        assert_eq!(parse_version_string("9.1.0"), Some((9, 1, 0)));
+        assert_eq!(parse_version_string("9.1.50"), Some((9, 1, 50)));
+    }
+
+    #[test]
+    fn parse_rc_suffix() {
+        assert_eq!(parse_version_string("9.2.0-rc1"), Some((9, 2, 0)));
+    }
+
+    #[test]
+    fn parse_with_preamble() {
+        assert_eq!(
+            parse_version_string("QEMU emulator version 9.1.0"),
+            Some((9, 1, 0))
+        );
+    }
+
+    #[test]
+    fn parse_dev_suffix() {
+        assert_eq!(parse_version_string("9.1.50-dev"), Some((9, 1, 50)));
+        assert_eq!(
+            parse_version_string("9.1.50-dirty"),
+            Some((9, 1, 50))
+        );
+    }
+
+    #[test]
+    fn parse_with_git_info() {
+        assert_eq!(
+            parse_version_string("9.1.50 (v9.1.0-123-gabcdef)"),
+            Some((9, 1, 50))
+        );
+        assert_eq!(
+            parse_version_string("9.1.0 (v9.1.0-dirty)"),
+            Some((9, 1, 0))
+        );
+    }
+
+    #[test]
+    fn parse_full_qemu_preamble() {
+        assert_eq!(
+            parse_version_string(
+                "QEMU emulator version 9.1.50 (v9.1.0-123-gabcdef)\nCopyright ...",
+            ),
+            Some((9, 1, 50))
+        );
+    }
+
+    #[test]
+    fn parse_missing_patch() {
+        assert_eq!(parse_version_string("9.1"), Some((9, 1, 0)));
+    }
+
+    #[test]
+    fn parse_no_version() {
+        assert_eq!(parse_version_string("no version here"), None);
+        assert_eq!(parse_version_string(""), None);
+    }
 }
