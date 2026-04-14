@@ -1,6 +1,6 @@
-# KVM + Namespace Isolation — Implementation Plan v2
+# KVM + Namespace Isolation — Implementation Plan v3
 
-Supersedes v1. All open questions resolved.
+Supersedes v2. Revised based on 6 rounds of automated audit findings (see `.opencode/plans/audit-*.md`).
 
 ## Decisions
 
@@ -12,12 +12,21 @@ Supersedes v1. All open questions resolved.
 | UTS namespace (`CLONE_NEWUTS`) | ✅ Include |
 | PID namespace (`CLONE_NEWPID`) | ✅ Custom `qrab-init` binary as init process |
 | KVM fd passing | ✅ `-add-fd fd=N,set=M` + `-accel kvm,device=/dev/fdset/M` |
-| KVM group membership | ✅ Hard requirement, no fallback |
+| KVM group membership | ✅ Hard requirement, no fallback (auto-detect: try KVM first, fall back to TCG) |
 | CI KVM access | ✅ Available — real integration tests |
 | QEMU min version | ✅ Bump to 7.2.0 (`-accel kvm,device=` support) |
 | Namespace isolation | ✅ Always-on — no opt-out |
 | Signal forwarding | ✅ `qrab-init` forwards SIGTERM/SIGINT to QEMU |
 | Config transport | ✅ Pipe fd + serde\_json |
+| Socket paths | ✅ Private tmpdir per VM (`mkdtemp`) — fixes audit Security #3 |
+| Socket permissions | ✅ chmod 0o600 on QMP/VNC sockets — audit Security #2 (already implemented) |
+| QMP connect timeout | ✅ 10s timeout on greeting/caps — audit BUG #36 (already fixed) |
+| Crash propagation | ✅ qrab-init exit code → synthetic event on events channel — audit BUG #7/#29 |
+| KVM auto-detect | ✅ Try `/dev/kvm` open, fall back to `-accel tcg` — audit Industry #49 |
+| SMP config | ✅ Add `.smp()` builder method as companion change — audit Industry #38 |
+| Graceful shutdown | ✅ ACPI powerdown → timeout → SIGTERM → SIGKILL chain — audit Industry #14 |
+| Temp file cleanup | ✅ Cleanup on all failure paths including Qmp::new() — audit BUG #37 (already fixed) |
+| Version error msg | ✅ Update to reference `-accel kvm,device=` (7.2.0) — audit BUG #32 |
 
 ---
 
@@ -51,7 +60,13 @@ manager:
   7. write JSON config to cfg_w, close cfg_w
   8. run NsHelper async task (read sync pipe, write uid/gid map, ack)
   9. close parent's copy of kvm_fd
-  10. wait for QMP socket, connect (existing logic)
+  10. create private tmpdir via mkdtemp (fixes Security #3 — predictable paths)
+  11. place QMP/VNC/serial sockets inside private tmpdir
+  12. chmod 0o600 on sockets after creation (Security #2 — already implemented)
+  13. wait for QMP socket with tokio::time::timeout (BUG #36 — already fixed, 10s)
+  14. connect QMP, negotiate caps with timeout
+  15. on ANY failure in steps 10-14: cleanup tmpdir + sockets + kill child (BUG #37)
+  16. spawn_monitor watches qrab-init exit → send synthetic crash event (BUG #7/#29)
 
 pre_exec (runs in forked child before exec of qrab-init):
   1. setsid()
@@ -83,6 +98,20 @@ Parent opens `/dev/kvm` before fork. fd inherited through:
 parent fork → pre\_exec child → exec qrab-init → qrab-init fork → child → exec QEMU.
 
 QEMU receives fd via `-add-fd fd=N,set=1` and accesses KVM through `/dev/fdset/1`.
+
+**Auto-detection (audit Industry #49):**
+
+```
+try open("/dev/kvm") → Ok(fd):
+    use KVM via fd passing
+    args += -add-fd fd=N,set=1 -accel kvm,device=/dev/fdset/1
+try open("/dev/kvm") → Err(ENOENT | EACCES):
+    log warning, fall back to TCG
+    args += -accel tcg
+```
+
+No hard failure on missing KVM. `.kvm(true)` forces KVM (error if unavailable).
+`.kvm(false)` forces TCG. Default: auto-detect.
 
 **Security properties:**
 - Permission check happens once in parent (kvm group required)
@@ -130,19 +159,83 @@ qrab-init parent process:
 Manager sends SIGTERM to qrab-init → qrab-init forwards to QEMU → graceful shutdown.
 Manager sends SIGKILL to qrab-init → qrab-init dies → kernel kills pid 1 → all PID ns processes die.
 
+### Crash Propagation (audit BUG #7, #29, Industry #18)
+
+v2 gap: QEMU crash logged by `spawn_monitor` but never propagated to event channel
+or state machine. User discovers crash only when next QMP command fails.
+
+v3 fix: `spawn_monitor` detects qrab-init exit → sends synthetic event:
+
+```
+spawn_monitor:
+  child.wait() → exit_status
+  if exit_status != expected_shutdown:
+      event_tx.send(SyntheticEvent::ProcessDeath { exit_status })
+      // Qmp read_loop detects EOF → tasks shut down
+      // VmProcess::Drop cleans up tmpdir
+```
+
+This addresses:
+- BUG #7: No early-exit on QEMU crash — monitor now signals immediately
+- BUG #29: Crash not propagated to events — synthetic event sent
+- Industry #18: Process death → state transition — event triggers state update
+
+### Graceful Shutdown Escalation (audit Industry #14)
+
+v2 gap: Only SIGTERM forwarding. No timeout-based escalation.
+
+v3 fix: `Vm::shutdown()` implements escalation chain:
+
+```
+1. system_powerdown (ACPI) via QMP
+2. wait for SHUTDOWN event (timeout: caller-specified, default 30s)
+3. if timeout: send quit QMP command
+4. wait 5s for qrab-init exit
+5. if still alive: SIGKILL to qrab-init (kills entire PID namespace)
+```
+
+### Socket Path Security (audit Security #3)
+
+v2 gap: Sockets in `/tmp` with predictable `qrab-qmp-{pid}-{counter}.sock` paths.
+TOCTOU symlink attack possible.
+
+v3 fix: Private tmpdir per VM:
+
+```rust
+let tmpdir = tempfile::TempDir::new_in(std::env::temp_dir())?;
+// tmpdir has random name, 0o700 permissions
+let qmp_sock = tmpdir.path().join("qmp.sock");
+let vnc_sock = tmpdir.path().join("vnc.sock");
+let serial_log = tmpdir.path().join("serial.log");
+// chmod 0o600 on sockets after QEMU creates them (Security #2)
+```
+
+Sockets live OUTSIDE namespace (manager connects from host). tmpdir cleaned up
+by `VmProcess::Drop` (already handles cleanup on all paths including Qmp::new()
+failure — BUG #37 fixed).
+
 ---
 
 ## Background
 
-### Current State
+### Current State (post-audit fixes)
 
 Manager crate (`projects/manager/src/vm.rs`) spawns QEMU via
-`tokio::process::Command` with no isolation. `nix` crate is a dependency
-with features `fs, process, sched, signal, user` — none currently used.
+`tokio::process::Command` with no isolation. `nix` crate was removed
+(audit Security NEW-8 — unused dependency). Will be re-added with
+actual usage for namespace operations.
 
-`VmProcess` owns a `tokio::process::Child` via a monitor task + oneshot
-shutdown channel. This architecture is preserved — `qrab-init` is spawned
-as the child process.
+`VmProcess` owns a `tokio::process::Child` via `spawn_monitor` task +
+oneshot shutdown channel. Recent fixes (audit rounds 3-7):
+- `impl Drop for Qmp` aborts background tasks (BUG #2 — r4)
+- `spawn_monitor` with `kill_on_drop(true)` eliminates zombies (BUG #5 — r4)
+- VmProcess::Drop uses runtime detection for async/sync cleanup (BUG #30 — r5)
+- Temp files cleaned on all failure paths (BUG #33, #37 — r6, r7)
+- Socket permissions chmod 0o600 (Security #2 — r6)
+- stderr piped to `tracing::warn` (Security NEW-5 — r5)
+- QMP greeting/caps has 10s timeout (BUG #36 — r7)
+
+This architecture preserved — `qrab-init` replaces direct QEMU spawn as child process.
 
 ### Prior Art
 
@@ -301,17 +394,31 @@ bind_mount("/dev/urandom")
 
 ### Step 3 — `vm.rs` modifications
 
-**Bump version:**
+**Bump version (audit BUG #32 — misleading error message):**
 ```rust
 pub const PRECONFIG_MIN_VERSION: (u32, u32, u32) = (7, 2, 0);
+// Error message must reference: "QEMU >= 7.2.0 required for KVM fd passing
+// via -accel kvm,device= and blockdev-add preconfig support"
 ```
 
-**Add `kvm` field to `VmBuilder`:**
+**Add `KvmMode` and `kvm` field to `VmBuilder`:**
 ```rust
-pub fn kvm(mut self, enabled: bool) -> Self {
-    self.kvm = enabled;
+pub enum KvmMode { Auto, Force, Disable }
+
+pub fn kvm(mut self, mode: KvmMode) -> Self {
+    self.kvm = mode;
     self
 }
+// Default: KvmMode::Auto
+```
+
+**Add `smp` field to `VmBuilder` (audit Industry #38):**
+```rust
+pub fn smp(mut self, cpus: u32) -> Self {
+    self.smp = cpus;
+    self
+}
+// Default: 1. Emits -smp N when N > 1.
 ```
 
 **Rework `spawn()`:**
@@ -319,14 +426,30 @@ pub fn kvm(mut self, enabled: bool) -> Self {
 Replace direct `Command::new(self.arch.binary())` with namespaced spawn:
 
 ```rust
-// 1. Open KVM fd
-let kvm_fd = if self.kvm {
-    Some(KvmFd::open().context("/dev/kvm open failed — is process in kvm group?")?)
-} else {
-    None
+// 0. Create private tmpdir (Security #3 — predictable socket paths)
+let tmpdir = tempfile::TempDir::new_in(std::env::temp_dir())?;
+let qmp_sock = tmpdir.path().join("qmp.sock");
+let vnc_sock = tmpdir.path().join("vnc.sock");
+let serial_log = tmpdir.path().join("serial.log");
+
+// 1. Open KVM fd — auto-detect by default (Industry #49)
+let kvm_fd = match self.kvm {
+    KvmMode::Force => Some(KvmFd::open()
+        .context("/dev/kvm open failed — is process in kvm group?")?),
+    KvmMode::Disable => None,
+    KvmMode::Auto => match KvmFd::open() {
+        Ok(fd) => {
+            tracing::info!("KVM available, using hardware acceleration");
+            Some(fd)
+        }
+        Err(e) => {
+            tracing::warn!("KVM unavailable ({e}), falling back to TCG");
+            None
+        }
+    },
 };
 
-// 2. Add KVM fd passing args
+// 2. Add accel args — KVM fd passing or TCG fallback
 if let Some(ref fd) = kvm_fd {
     args.extend([
         "-add-fd".into(),
@@ -334,6 +457,13 @@ if let Some(ref fd) = kvm_fd {
         "-accel".into(),
         "kvm,device=/dev/fdset/1".into(),
     ]);
+} else {
+    args.extend(["-accel".into(), "tcg".into()]);
+}
+
+// 2b. SMP (Industry #38)
+if self.smp > 1 {
+    args.extend(["-smp".into(), self.smp.to_string()]);
 }
 
 // 3. Create pipes
@@ -373,8 +503,15 @@ drop(kvm_fd);
 // 10. QMP socket wait + connect (existing logic)
 ```
 
-**Stderr forwarding stays** — pipe qrab-init's stderr to tracing (QEMU's stderr
-flows through qrab-init to manager).
+**Stderr forwarding stays** — pipe qrab-init's stderr to `tracing::warn`
+(QEMU's stderr flows through qrab-init to manager). Already implemented
+(audit Security NEW-5 — r5).
+
+**Temp file cleanup on failure (audit BUG #37):**
+All paths between tmpdir creation and VmProcess construction must clean up
+on error. Use `scopeguard::defer!` or manual cleanup in each `?` path.
+`VmProcess::Drop` handles cleanup after construction. Already fixed in
+current code — preserve behavior when adding namespace spawn.
 
 ### Step 4 — `Cargo.toml` changes
 
@@ -390,7 +527,13 @@ features = ["derive"]
 
 [dependencies.serde_json]
 version = "1"
+
+[dependencies.tempfile]
+version = "3"
 ```
+
+Note: `nix` was previously removed as unused dependency (audit Security NEW-8).
+Re-adding with actual namespace usage resolves that finding.
 
 **Root `Cargo.toml` workspace members:** add `projects/qrab-init`.
 
@@ -513,6 +656,12 @@ async fn kvm_open_failure_clear_error() {
 - gVisor NOT needed — user namespace + seccomp + IOMMU sufficient for threat model
 - IOMMU required for safe VFIO device passthrough (future work)
 - Seccomp filter (future work) should restrict to `KVM_*`, `VFIO_*`, standard I/O ioctls
+- **Socket paths use private tmpdir** with random name + 0o700 perms (audit Security #3)
+- **Sockets chmod 0o600** after QEMU creates them (audit Security #2)
+- **`QEMU_TEST_BIN_*` env vars** control binary path — dev/test only, do NOT trust in production (audit Security #7). `InitConfig.qemu_binary` must be validated by caller
+- **`VmBuilder::arg()` allows arbitrary QEMU args** — same trust boundary as direct QEMU invocation, namespace doesn't change this (audit Security #8)
+- **`kill_on_drop(true)` race** — between spawn and monitor task ownership, early `?` drops child and kills it. Acceptable: fail-closed behavior (audit NEW-15)
+- **OnceLock version** — `set_qemu_version()` is global, second call silently dropped. Namespace isolation doesn't fix this. Architectural debt tracked separately (audit BUG #4, Industry #60)
 
 ## Host Requirements
 
@@ -521,6 +670,23 @@ async fn kvm_open_failure_clear_error() {
 - `qrab-init` binary in PATH (built from workspace)
 - Process owner in `kvm` group (for KVM acceleration)
 - `/proc/sys/kernel/unprivileged_userns_clone = 1` (on Debian/Ubuntu)
+
+## Changes from v2
+
+| Area | v2 | v3 |
+|---|---|---|
+| KVM mode | `.kvm(true/false)` opt-in | `KvmMode::Auto/Force/Disable` — auto-detect by default (Industry #49) |
+| SMP | Not addressed | `.smp(N)` builder method (Industry #38) |
+| Socket paths | Predictable `/tmp/qrab-qmp-{pid}-{counter}.sock` | Private `mkdtemp` tmpdir per VM (Security #3) |
+| Socket perms | Not addressed | chmod 0o600 (Security #2 — already implemented) |
+| Crash detection | QEMU crash logged, not propagated | Synthetic event on crash via spawn\_monitor (BUG #7/#29, Industry #18) |
+| Shutdown | SIGTERM forwarding only | ACPI → quit → SIGTERM → SIGKILL escalation chain (Industry #14) |
+| QMP connect | No timeout | 10s timeout on greeting/caps (BUG #36 — already fixed) |
+| Temp cleanup | Leak on Qmp::new() failure | All failure paths clean up (BUG #37 — already fixed) |
+| Stderr | Piped to null | Piped to `tracing::warn` (Security NEW-5 — already fixed) |
+| nix dep | Listed but unused (Security NEW-8) | Re-added with actual namespace usage |
+| Version error | "does not support --preconfig" | References `-accel kvm,device=` and 7.2.0 (BUG #32) |
+| Security notes | Basic namespace properties | Audit-informed: env var trust, arg injection, OnceLock, kill\_on\_drop race |
 
 ## Changes from v1
 
