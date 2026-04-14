@@ -299,6 +299,86 @@ impl Qmp {
         Ok(serde_json::from_value(ret)?)
     }
 
+    /// Execute a typed QMP command with a caller-supplied timeout.
+    ///
+    /// The timeout bounds the wait on the reply oneshot. `write_loop`
+    /// still enforces its own 30s per-command guard internally, so in
+    /// practice the effective timeout is `min(timeout, 30s)` — passing
+    /// a longer duration will never wait longer than 30s because the
+    /// write_loop will have already dropped the reply sender. Use this
+    /// method when you want a *tighter* timeout than the internal
+    /// default (e.g. a 2s deadline for a health probe).
+    ///
+    /// `execute()` is intentionally NOT routed through this method —
+    /// chaining a 60s outer timeout on top of the 30s write_loop guard
+    /// would just add a redundant layer that never actually fires, so
+    /// `execute()` keeps its original direct-await shape.
+    pub async fn execute_with_timeout<C: QapiCommand>(
+        &self,
+        cmd: &C,
+        timeout: Duration,
+    ) -> Result<C::Returns> {
+        let args = serde_json::to_value(cmd)?;
+        let request = if args.as_object().is_some_and(|o| o.is_empty()) {
+            serde_json::json!({ "execute": C::NAME })
+        } else {
+            serde_json::json!({ "execute": C::NAME, "arguments": args })
+        };
+
+        let request_str = serde_json::to_string(&request)?;
+        let (reply_tx, reply_rx) = oneshot::channel();
+        self.command_tx
+            .send((request_str, reply_tx))
+            .await
+            .map_err(|_| anyhow::anyhow!("command channel closed"))?;
+
+        // Wrap the reply wait in the caller's timeout. The `??` unwraps
+        // first the Elapsed error (our outer timeout) and then the
+        // RecvError (reply_tx dropped — write_loop timed out or the
+        // connection died). We translate Elapsed into an explicit
+        // command-name timeout message for observability.
+        let response = tokio::time::timeout(timeout, reply_rx)
+            .await
+            .map_err(|_| {
+                anyhow::anyhow!(
+                    "QMP command {} timed out after {:?}",
+                    C::NAME,
+                    timeout
+                )
+            })?
+            .map_err(|_| {
+                anyhow::anyhow!(
+                    "QMP command channel closed — likely timed out or connection lost"
+                )
+            })?;
+
+        if let Some(error) = response.get("error") {
+            anyhow::bail!(
+                "QMP error {}: {}",
+                error["class"].as_str().unwrap_or("unknown"),
+                error["desc"].as_str().unwrap_or("unknown error")
+            );
+        }
+
+        let ret = response
+            .get("return")
+            .cloned()
+            .unwrap_or(serde_json::Value::Object(serde_json::Map::new()));
+
+        // Mirror execute()'s empty-object → unit handling for commands
+        // that return ().
+        let ret = if ret.as_object().is_some_and(|o| o.is_empty()) {
+            match serde_json::from_value::<C::Returns>(ret.clone()) {
+                Ok(v) => return Ok(v),
+                Err(_) => serde_json::Value::Null,
+            }
+        } else {
+            ret
+        };
+
+        Ok(serde_json::from_value(ret)?)
+    }
+
     /// Execute an arbitrary QMP command from a raw JSON request and
     /// return the raw `return` payload.
     ///
