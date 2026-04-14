@@ -397,7 +397,23 @@ impl VmBuilder {
             }
         }
 
-        let (qmp, events) = Qmp::new(&qmp_sock).await?;
+        // Connect QMP. On failure, VmProcess has not yet been constructed,
+        // so its Drop will not sweep the temp files QEMU has already created.
+        // Remove them explicitly before propagating the error so we do not
+        // leak sockets and logs in /tmp.
+        let (qmp, events) = match Qmp::new(&qmp_sock).await {
+            Ok(pair) => pair,
+            Err(e) => {
+                let _ = tokio::fs::remove_file(&qmp_sock).await;
+                if let Some(ref s) = serial_log {
+                    let _ = tokio::fs::remove_file(s).await;
+                }
+                if let Some(ref s) = vnc_sock {
+                    let _ = tokio::fs::remove_file(s).await;
+                }
+                return Err(e.into());
+            }
+        };
 
         if !self.display {
             let version = qapi::qemu_version();
