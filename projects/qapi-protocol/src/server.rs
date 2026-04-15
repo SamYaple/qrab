@@ -10,6 +10,9 @@ use tokio::net::{UnixListener, UnixStream};
 pub struct QmpSession {
     reader: BufReader<tokio::net::unix::OwnedReadHalf>,
     writer: tokio::net::unix::OwnedWriteHalf,
+    /// The `id` from the most recently received command, echoed back in responses
+    /// per the QMP spec.
+    last_id: Option<serde_json::Value>,
 }
 
 impl QmpSession {
@@ -20,6 +23,7 @@ impl QmpSession {
         Ok(Self {
             reader: BufReader::new(read_half),
             writer: write_half,
+            last_id: None,
         })
     }
 
@@ -29,6 +33,7 @@ impl QmpSession {
         Self {
             reader: BufReader::new(read_half),
             writer: write_half,
+            last_id: None,
         }
     }
 
@@ -61,12 +66,14 @@ impl QmpSession {
             "Expected qmp_capabilities, got: {}",
             cmd
         );
+        self.last_id = cmd.get("id").cloned();
         self.send_return(serde_json::json!({})).await?;
         Ok(())
     }
 
     /// Read the next command from the client.
-    /// Returns (command_name, arguments).
+    /// Returns (command_name, arguments). Stores the `id` field (if any)
+    /// so subsequent `send_return`/`send_error` echo it back per QMP spec.
     pub async fn recv_command(&mut self) -> Result<(String, serde_json::Value)> {
         let mut line = String::new();
         self.reader.read_line(&mut line).await?;
@@ -82,6 +89,7 @@ impl QmpSession {
             .get("arguments")
             .cloned()
             .unwrap_or(serde_json::json!({}));
+        self.last_id = cmd.get("id").cloned();
         Ok((name, args))
     }
 
