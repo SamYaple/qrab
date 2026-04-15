@@ -1,28 +1,28 @@
 # Feature Gaps Audit Report
 
-Generated: 2026-04-13 | Round 11
+Generated: 2026-04-13 | Round 6
 
-## New Functionality Landed (not closing prior gaps)
-- Namespace isolation (user/PID/net/mount)
-- Graceful shutdown escalation (ACPI→quit→SIGKILL)
-- CPU model builder
-- qrab-init crate
+## Changes This Round
 
-## 0 prior gaps closed this round.
+| # | Gap | Change |
+|---|-----|--------|
+| N45 | Graceful shutdown | **CLOSED** — ACPI→quit→SIGKILL chain implemented |
+| N13 | Graceful Qmp shutdown | ADDRESSED — `shutdown()` method exists |
 
-## NEW Gaps
+## NEW Gaps (Round 6)
 
 | # | Gap | Priority |
 |---|-----|----------|
-| N45 | PreconfigVm::graceful_shutdown is stub (ignores timeout) | should-have |
-| N46 | No VmBuilder::disk() / VmBuilder::net() | should-have |
-| N47 | No QMP reconnect on socket drop | nice-to-have |
-| N48 | Namespace isolation not optional (breaks macOS/non-root) | nice-to-have |
+| N49 | OnceLock blocks power-cycle version tracking | should-have |
+| N50 | No VmBuilder::memory() (buried in MachineConfig) | nice-to-have |
+| N51 | Runtime version guard missing (AVAILABLE_SINCE not checked before send) | should-have |
+| N52 | No event dispatch enum (80+ event structs, no match-based dispatch) | should-have |
+| N53 | build.rs reads QEMU_MIN/MAX_VERSION but emits zero cfg flags — compile-time gating INERT | **must-have** |
 
 ## Priority Matrix
 
 | Priority | Items |
 |----------|-------|
-| **Must-have** | Typed error enums (#2), compile-time version gating (N4/N21) |
-| **Should-have** | OOB (N6), TCP (N28), typed events (N11/N19/N42), per-command timeout defaults (N29), timeout disambiguation (N41), preconfig graceful_shutdown (N45), disk/net builders (N46) |
-| **Nice-to-have** | ErrorClass dedup (N37), feature flags (#7), rustdoc (#8), health check (N26), reconnect (N47), optional namespaces (N48), subscribe helper (N44) |
+| **Must-have** | Typed errors (#2, N9, N14), compile-time gating fix (N53), typed event dispatch (N52) |
+| **Should-have** | OOB (N6), per-connection version (N4/N49), SMP/accel builders (N23/N24), runtime version guard (N51), QmpBuilder (N20), Send/Sync (N8), syn 2 (N16) |
+| **Nice-to-have** | Feature flags (#7), rustdoc (#8), memory builder (N50), must_use (N17), health check (N26) |

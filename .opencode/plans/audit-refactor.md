@@ -1,38 +1,43 @@
 # Refactoring Audit Report
 
-Generated: 2026-04-13 | Round 11
+Generated: 2026-04-13 | Round 6
 
-**Non-generated source:** ~19,418+ lines / 77+ files
+**Non-generated source:** ~20,465 lines / 80 files (grew from ~18,358)
+**Largest:** unified.rs (1647), qapi-macros/lib.rs (1394), process_qapi.rs (945)
 
-## 7 NEW opportunities
+## Status: All 38 prior STILL OPEN. Zero resolved. Codebase grew.
+
+## 9 NEW Opportunities (Round 6)
 
 | # | Opportunity | Lines | Risk |
 |---|---|---:|---|
-| 63 | build_unified/qga_registry merge-loop dedup | 100 | moderate |
-| 64 | process_single_version extraction dedup | 30 | safe |
-| 65 | Serial tail logic duplicated (bmc) | 30 | safe |
-| 66 | PreconfigVm/Vm accessor dedup | 25 | moderate |
-| 67 | BMC state action pattern (pause/resume/reset/power_off) | 40 | safe |
-| 68 | execute/execute_with_timeout request construction | 15 | safe |
-| 69 | Process IR metadata init repeated 8+ times | 20 | safe |
+| 70 | Response deserialization 4x duplicate (lib.rs + qga.rs) | 50 | safe |
+| 71 | Version attr injection shared enum/struct codegen | 40 | safe |
+| 72 | Attribute-union loop 4x in unified.rs | 32 | safe |
+| 73 | Ser body wrapping (version check + dep_warn) 3x in macros | 30 | safe |
+| 74 | condition_cfg / condition_cfg_attr dual functions | 20 | safe |
+| 75 | BMC cleanup pattern duplicated | 15 | safe |
+| 76 | VmProcess Drop/cleanup overlap | 15 | safe |
+| 77 | Qmp::new + Qga::new connect-with-timeout pattern | 10 | safe |
+| 78 | has_feature + deprecated/unstable check per merge | 10 | safe |
 
 ## Summary
 
 | Category | Count | Lines |
 |----------|-------|-------|
-| Total resolved | ~12 | ~175 |
-| **Total open** | **58** | **~1,610** |
+| Prior (still open) | 38 | ~985 |
+| New | 9 | ~222 |
+| **Total** | **47** | **~1,207** |
 
-## Cluster Wins
+Note: Agent also found deeper analysis showing ~67 opportunities / ~1,832 lines when counting sub-patterns within clusters. Conservative estimate above.
 
-| Cluster | Lines |
-|---------|-------|
-| Registry unification | ~675 |
-| BMC server dedup | ~275 |
-| Protocol dedup | ~220 |
-| Macro serializer | ~185 |
-| Version annotation | ~125 |
-| Merge logic | ~80 |
-| Manager typestate | ~25 |
+## Top Safe Wins
 
-**Top safe wins:** #59 (60 lines), #62 (45 lines), #67 (40 lines), #65 (30 lines), #64 (30 lines).
+| Cluster | Items | Lines |
+|---------|-------|-------|
+| Registry unification | #1,12,23,25,26,27,31,38 | ~380 |
+| Response deser extract | #70 | ~50 |
+| Version annotation | #9,17,18,19,71 | ~115 |
+| Merge logic | #4,13,29,37,72,78 | ~135 |
+| Protocol dedup | #2,3,24,30,77 | ~105 |
+| Macro serializer | #10,16,33,73,74 | ~90 |
