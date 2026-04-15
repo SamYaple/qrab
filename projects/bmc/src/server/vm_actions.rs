@@ -13,16 +13,6 @@ pub async fn power_on() -> Result<VmPhase, ServerFnError> {
 }
 
 #[server]
-pub async fn start_vm() -> Result<VmPhase, ServerFnError> {
-    let state = crate::state::bmc();
-    state
-        .start_vm()
-        .await
-        .map_err(|e| ServerFnError::new(e.to_string()))?;
-    Ok(state.phase().await)
-}
-
-#[server]
 pub async fn pause() -> Result<VmPhase, ServerFnError> {
     let state = crate::state::bmc();
     state

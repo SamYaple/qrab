@@ -101,71 +101,9 @@ async fn force_off_during_power_on() {
     }
 }
 
-/// `force_off` racing against `start_vm` must settle cleanly in `Off`.
-#[tokio::test]
-async fn force_off_during_start_vm() {
-    if !require_x86_64() {
-        return;
-    }
-    qapi::set_qemu_version(9, 0, 0);
-
-    for iter in 0..5 {
-        let state = test_state().await;
-        state.power_on().await.unwrap();
-
-        let s1 = state.clone();
-        let start_handle = tokio::spawn(async move { s1.start_vm().await });
-
-        // Race force_off against the in-flight start_vm. Either ordering is
-        // allowed; the final state must be Off.
-        let _ = state.force_off().await;
-
-        // Drain start_vm so we don't leak a Running VM.
-        let _ = start_handle.await.unwrap();
-
-        // If start_vm beat force_off and left a Running VM behind, tear it down.
-        let _ = state.force_off().await;
-
-        assert_eq!(
-            state.phase().await,
-            VmPhase::Off,
-            "iter {iter}: final phase must be Off"
-        );
-    }
-}
-
-/// `pause` racing against `start_vm` should either succeed or error cleanly
-/// (no deadlock, no panic).
-#[tokio::test]
-async fn pause_during_start_vm() {
-    if !require_x86_64() {
-        return;
-    }
-    qapi::set_qemu_version(9, 0, 0);
-
-    let state = test_state().await;
-    state.power_on().await.unwrap();
-
-    let s1 = state.clone();
-    let start_handle = tokio::spawn(async move { s1.start_vm().await });
-
-    // Pause may succeed (if start_vm already finished) or fail (VM not
-    // yet Running). Either is fine — the invariant is no deadlock.
-    let pause_result = tokio::time::timeout(Duration::from_secs(10), state.pause()).await;
-    assert!(
-        pause_result.is_ok(),
-        "pause deadlocked waiting for vm lock"
-    );
-
-    let start_result = tokio::time::timeout(Duration::from_secs(10), start_handle)
-        .await
-        .expect("start_vm deadlocked")
-        .unwrap();
-    let _ = start_result;
-
-    state.force_off().await.unwrap();
-    assert_eq!(state.phase().await, VmPhase::Off);
-}
+// Tests for racing force_off/pause against start_vm removed —
+// power_on is now atomic (spawn + disks + start in one call).
+// The original race conditions no longer exist.
 
 /// 100 concurrent `phase()` reads must not panic and must each return a
 /// valid `VmPhase` variant.
@@ -178,7 +116,6 @@ async fn concurrent_status_reads() {
 
     let state = test_state().await;
     state.power_on().await.unwrap();
-    state.start_vm().await.unwrap();
 
     let mut handles = Vec::with_capacity(100);
     for _ in 0..100 {
@@ -193,7 +130,7 @@ async fn concurrent_status_reads() {
         // is exhaustive, so compilation enforces the variant set.
         match phase {
             VmPhase::Off
-            | VmPhase::Preconfig
+            | VmPhase::Running
             | VmPhase::Running
             | VmPhase::Paused
             | VmPhase::ShuttingDown => {}

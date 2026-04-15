@@ -63,15 +63,6 @@ pub fn PowerControls(
                         on_action,
                     }
                 }
-                if current_phase == VmPhase::Preconfig {
-                    ActionButton {
-                        label: "Start VM",
-                        icon: "play",
-                        action: "start_vm",
-                        error_msg,
-                        on_action,
-                    }
-                }
                 if current_phase == VmPhase::Running {
                     ActionButton {
                         label: "Pause",
@@ -138,7 +129,6 @@ fn ActionButton(
                 error_msg.set(None);
                 let result: Result<VmPhase, ServerFnError> = match action {
                     "power_on" => vm_actions::power_on().await,
-                    "start_vm" => vm_actions::start_vm().await,
                     "pause" => vm_actions::pause().await,
                     "resume" => vm_actions::resume().await,
                     "reset" => vm_actions::reset().await,

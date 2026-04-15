@@ -6,7 +6,6 @@ use bmc::types::{VmPhase, VmStatusResponse};
 pub fn StatusPanel(status: VmStatusResponse) -> Element {
     let phase_class = match &status.phase {
         VmPhase::Off => "phase-off",
-        VmPhase::Preconfig => "phase-preconfig",
         VmPhase::Running => "phase-running",
         VmPhase::Paused => "phase-paused",
         VmPhase::ShuttingDown => "phase-shutting-down",

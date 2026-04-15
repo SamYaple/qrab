@@ -74,7 +74,6 @@ async fn websocket_proxy_relays_vnc_handshake() {
         config.disks = vec![_disk.config.clone()];
     }
     state.power_on().await.expect("power_on");
-    state.start_vm().await.expect("start_vm");
     tokio::time::sleep(Duration::from_millis(500)).await;
 
     // Start minimal Axum server with just the console router
@@ -216,7 +215,6 @@ async fn vnc_proxy_client_disconnect_releases_vnc() {
         config.disks = vec![_disk.config.clone()];
     }
     state.power_on().await.expect("power_on");
-    state.start_vm().await.expect("start_vm");
     tokio::time::sleep(Duration::from_millis(300)).await;
 
     let router = bmc::server::console::console_router(state.clone());

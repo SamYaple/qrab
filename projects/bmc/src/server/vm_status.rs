@@ -32,18 +32,6 @@ pub async fn get_status() -> Result<VmStatusResponse, ServerFnError> {
             status: None,
             qemu_version: None,
         }),
-        VmState::Preconfig(pvm) => {
-            let status = pvm
-                .execute(&qapi::commands::QueryStatus {})
-                .await
-                .map_err(|e| ServerFnError::new(e.to_string()))?;
-            Ok(VmStatusResponse {
-                phase: VmPhase::Preconfig,
-                running: Some(status.running),
-                status: Some(format!("{:?}", status.status)),
-                qemu_version: None,
-            })
-        }
         VmState::Running(vm) => {
             let status = vm
                 .execute(&qapi::commands::QueryStatus {})
@@ -254,32 +242,6 @@ pub async fn get_dashboard_state() -> Result<DashboardState, ServerFnError> {
                 false,
                 None,
             ),
-            VmState::Preconfig(pvm) => {
-                let status_reply = pvm
-                    .execute(&qapi::commands::QueryStatus {})
-                    .await
-                    .map_err(|e| ServerFnError::new(e.to_string()))?;
-                (
-                    VmStatusResponse {
-                        phase: VmPhase::Preconfig,
-                        running: Some(status_reply.running),
-                        status: Some(format!("{:?}", status_reply.status)),
-                        qemu_version: None,
-                    },
-                    CpuInfoResponse {
-                        guest_cpus: Vec::new(),
-                        host_threads,
-                    },
-                    KvmInfoResponse {
-                        enabled: false,
-                        present: false,
-                    },
-                    // Console panel only connects once the VM is Running, so
-                    // Preconfig reports unavailable even if a vnc sock exists.
-                    false,
-                    pvm.serial_log().cloned(),
-                )
-            }
             VmState::Running(vm) => {
                 // QueryStatus is the only QMP command we issue every poll;
                 // it's the cheapest and tells us whether the guest is paused
