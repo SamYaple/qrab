@@ -107,7 +107,9 @@ impl BmcState {
 
         let mut builder = VmBuilder::new(arch, machine_config).serial();
         if config.kvm {
-            builder = builder.accel(manager::vm::Accel::Kvm);
+            builder = builder
+                .accel(manager::vm::Accel::Kvm)
+                .cpu("host");
         }
         if config.display {
             builder = builder.display();

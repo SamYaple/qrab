@@ -201,6 +201,7 @@ pub struct VmBuilder {
     firmware: Option<PathBuf>,
     accel: Option<Accel>,
     smp: Option<u32>,
+    cpu: Option<String>,
     extra_args: Vec<String>,
 }
 
@@ -234,6 +235,7 @@ impl VmBuilder {
             firmware: None,
             accel: None,
             smp: None,
+            cpu: None,
             extra_args: Vec::new(),
         }
     }
@@ -292,6 +294,17 @@ impl VmBuilder {
     #[must_use]
     pub fn smp(mut self, cpus: u32) -> Self {
         self.smp = Some(cpus);
+        self
+    }
+
+    /// Override the CPU model (`-cpu`).
+    ///
+    /// Common values: `"host"` (passthrough, requires KVM), `"max"`,
+    /// `"qemu64"`. When not set, the architecture default applies
+    /// (e.g. `"max"` for aarch64, none/qemu-default for x86).
+    #[must_use]
+    pub fn cpu(mut self, model: impl Into<String>) -> Self {
+        self.cpu = Some(model.into());
         self
     }
 
@@ -425,7 +438,9 @@ impl VmBuilder {
             args.extend(["-smp".into(), format!("cpus={}", cpus)]);
         }
 
-        if let Some(cpu) = self.arch.cpu() {
+        // CPU model: explicit override > arch default > QEMU default.
+        let cpu_model = self.cpu.as_deref().or_else(|| self.arch.cpu());
+        if let Some(cpu) = cpu_model {
             args.extend(["-cpu".into(), cpu.into()]);
         }
 

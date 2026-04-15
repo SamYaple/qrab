@@ -173,7 +173,7 @@ impl Default for BmcConfig {
     fn default() -> Self {
         Self {
             arch: BmcArch::X86_64,
-            machine: BmcMachine::Bios,
+            machine: BmcMachine::Uefi,
             memory: "256M".into(),
             display: true,
             kvm: false,
