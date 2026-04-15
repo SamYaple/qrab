@@ -86,12 +86,21 @@ impl KvmFd {
     ///
     /// Must be called inside `pre_exec` (after fork, before exec).
     pub fn clear_cloexec(fd: RawFd) -> Result<(), nix::Error> {
-        let flags = nix::fcntl::fcntl(fd, FcntlArg::F_GETFD)?;
-        let mut fd_flags = FdFlag::from_bits_truncate(flags);
-        fd_flags.remove(FdFlag::FD_CLOEXEC);
-        nix::fcntl::fcntl(fd, FcntlArg::F_SETFD(fd_flags))?;
-        Ok(())
+        set_fd_cloexec(fd, false)
     }
+}
+
+/// Set or clear `FD_CLOEXEC` on a raw file descriptor.
+pub fn set_fd_cloexec(fd: RawFd, cloexec: bool) -> Result<(), nix::Error> {
+    let flags = nix::fcntl::fcntl(fd, FcntlArg::F_GETFD)?;
+    let mut fd_flags = FdFlag::from_bits_truncate(flags);
+    if cloexec {
+        fd_flags.insert(FdFlag::FD_CLOEXEC);
+    } else {
+        fd_flags.remove(FdFlag::FD_CLOEXEC);
+    }
+    nix::fcntl::fcntl(fd, FcntlArg::F_SETFD(fd_flags))?;
+    Ok(())
 }
 
 /// Parent-side async helper that writes uid/gid maps for the child's user

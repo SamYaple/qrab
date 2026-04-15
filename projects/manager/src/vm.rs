@@ -15,7 +15,7 @@ use qapi::QapiCommand;
 use qapi_protocol::{Qmp, QmpEvent};
 
 use crate::arch::{Arch, MachineConfig};
-use crate::namespace::{InitConfig, NsHelper};
+use crate::namespace::{InitConfig, KvmFd, NsHelper};
 
 /// Minimum QEMU version. 7.2.0 added `-accel kvm,device=` support for KVM
 /// fd passing, which qrab requires for namespace-isolated KVM access. Also
@@ -479,17 +479,13 @@ impl VmBuilder {
         // Set CLOEXEC on parent-side pipe ends so they're closed in child
         // on exec. Without this, the child inherits the write end of the
         // config pipe and read_to_end() never sees EOF.
-        use crate::namespace::KvmFd; // reuse clear_cloexec helper
-        fn set_cloexec(fd: std::os::fd::RawFd) -> anyhow::Result<()> {
-            let flags = nix::fcntl::fcntl(fd, nix::fcntl::FcntlArg::F_GETFD)?;
-            let mut fd_flags = nix::fcntl::FdFlag::from_bits_truncate(flags);
-            fd_flags.insert(nix::fcntl::FdFlag::FD_CLOEXEC);
-            nix::fcntl::fcntl(fd, nix::fcntl::FcntlArg::F_SETFD(fd_flags))?;
-            Ok(())
-        }
-        set_cloexec(sync_parent_r.as_raw_fd())?;
-        set_cloexec(ack_parent_w.as_raw_fd())?;
-        set_cloexec(cfg_w.as_raw_fd())?;
+        use crate::namespace::set_fd_cloexec;
+        set_fd_cloexec(sync_parent_r.as_raw_fd(), true)
+            .map_err(|e| anyhow::anyhow!("set CLOEXEC sync_parent_r: {e}"))?;
+        set_fd_cloexec(ack_parent_w.as_raw_fd(), true)
+            .map_err(|e| anyhow::anyhow!("set CLOEXEC ack_parent_w: {e}"))?;
+        set_fd_cloexec(cfg_w.as_raw_fd(), true)
+            .map_err(|e| anyhow::anyhow!("set CLOEXEC cfg_w: {e}"))?;
 
         let cfg_r_raw = cfg_r.as_raw_fd();
 
