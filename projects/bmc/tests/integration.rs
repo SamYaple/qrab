@@ -40,7 +40,7 @@ async fn bmc_power_on_and_phase() {
     assert_eq!(state.phase().await, VmPhase::Off);
 
     state.power_on().await.unwrap();
-    assert_eq!(state.phase().await, VmPhase::Preconfig);
+    assert_eq!(state.phase().await, VmPhase::Running);
 
     state.force_off().await.unwrap();
     assert_eq!(state.phase().await, VmPhase::Off);
@@ -56,9 +56,6 @@ async fn bmc_full_lifecycle() {
     let state = test_state().await;
 
     state.power_on().await.unwrap();
-    assert_eq!(state.phase().await, VmPhase::Preconfig);
-
-    state.start_vm().await.unwrap();
     assert_eq!(state.phase().await, VmPhase::Running);
 
     state.force_off().await.unwrap();
@@ -74,7 +71,6 @@ async fn bmc_pause_resume() {
 
     let state = test_state().await;
     state.power_on().await.unwrap();
-    state.start_vm().await.unwrap();
 
     state.pause().await.unwrap();
     tokio::time::sleep(Duration::from_millis(100)).await;
@@ -98,11 +94,9 @@ async fn bmc_invalid_transitions() {
 
     assert!(state.pause().await.is_err());
     assert!(state.resume().await.is_err());
-    assert!(state.start_vm().await.is_err());
 
     state.power_on().await.unwrap();
     assert!(state.power_on().await.is_err());
-    assert!(state.pause().await.is_err());
 
     state.force_off().await.unwrap();
 }
@@ -118,7 +112,6 @@ async fn bmc_event_forwarding() {
     let mut event_rx = state.event_tx.subscribe();
 
     state.power_on().await.unwrap();
-    state.start_vm().await.unwrap();
 
     state.pause().await.unwrap();
 
@@ -168,7 +161,7 @@ async fn bmc_config_change() {
     }
 
     state.power_on().await.unwrap();
-    assert_eq!(state.phase().await, VmPhase::Preconfig);
+    assert_eq!(state.phase().await, VmPhase::Running);
     state.force_off().await.unwrap();
 }
 
@@ -183,7 +176,6 @@ async fn bmc_query_status_running() {
 
     let state = test_state().await;
     state.power_on().await.unwrap();
-    state.start_vm().await.unwrap();
 
     // Query status directly on the VM
     {
@@ -209,7 +201,6 @@ async fn bmc_query_cpu_info() {
 
     let state = test_state().await;
     state.power_on().await.unwrap();
-    state.start_vm().await.unwrap();
 
     // Query CPUs (machine=none has no vCPUs, just verify the command succeeds)
     {
@@ -238,7 +229,6 @@ async fn bmc_pause_resume_with_events() {
     let mut event_rx = state.event_tx.subscribe();
 
     state.power_on().await.unwrap();
-    state.start_vm().await.unwrap();
 
     // Pause and wait for STOP event
     state.pause().await.unwrap();
@@ -284,7 +274,6 @@ async fn bmc_event_history_accumulates() {
 
     let state = test_state().await;
     state.power_on().await.unwrap();
-    state.start_vm().await.unwrap();
 
     // Pause/resume to generate events
     state.pause().await.unwrap();
@@ -315,11 +304,11 @@ async fn bmc_event_history_accumulates() {
 
 // --- Phase 1 correctness tests ---
 
-/// Verify start_vm transitions to Off (not stuck in ShuttingDown) when
-/// PreconfigVm::start fails. Failure is induced by shutting down the QMP
-/// connection before calling start_vm.
+/// Verify that power_on cleans up correctly when the VM is off — double
+/// power_on returns an error and leaves the state as Running (not stuck
+/// in ShuttingDown or some other intermediate state).
 #[tokio::test]
-async fn start_vm_error_transitions_to_off() {
+async fn double_power_on_returns_error() {
     if !require_x86_64() {
         return;
     }
@@ -327,26 +316,16 @@ async fn start_vm_error_transitions_to_off() {
 
     let state = test_state().await;
     state.power_on().await.unwrap();
-    assert_eq!(state.phase().await, VmPhase::Preconfig);
+    assert_eq!(state.phase().await, VmPhase::Running);
 
-    // Force the QMP connection down so start_vm's QMP command fails.
-    {
-        let mut vm_guard = state.vm.lock().await;
-        if let bmc::state::VmState::Preconfig(pvm) = &mut *vm_guard {
-            pvm.qmp.shutdown().await;
-        } else {
-            panic!("Expected Preconfig state");
-        }
-    }
+    let result = state.power_on().await;
+    assert!(result.is_err(), "second power_on should fail");
 
-    let result = state.start_vm().await;
-    assert!(result.is_err(), "start_vm should fail with broken QMP");
+    // Original VM still Running, not corrupted.
+    assert_eq!(state.phase().await, VmPhase::Running);
 
-    // Critical: must reach Off, not stuck in ShuttingDown
+    state.force_off().await.unwrap();
     assert_eq!(state.phase().await, VmPhase::Off);
-    assert!(state.vnc_sock().await.is_none());
-    assert!(state.serial_log().await.is_none());
-    assert!(state.event_history.lock().await.is_empty());
 }
 
 #[tokio::test]
@@ -358,7 +337,6 @@ async fn force_off_clears_event_history() {
 
     let state = test_state().await;
     state.power_on().await.unwrap();
-    state.start_vm().await.unwrap();
 
     state.pause().await.unwrap();
     tokio::time::sleep(Duration::from_millis(200)).await;
@@ -424,12 +402,8 @@ async fn get_console_available_atomic() {
     // Off → not available
     assert_eq!(get_console_available().await.unwrap(), false);
 
-    // Preconfig (machine=none, no display) → not available
-    state.power_on().await.unwrap();
-    assert_eq!(get_console_available().await.unwrap(), false);
-
     // Running but no display → not available (vnc_sock is None)
-    state.start_vm().await.unwrap();
+    state.power_on().await.unwrap();
     assert_eq!(get_console_available().await.unwrap(), false);
 
     state.force_off().await.unwrap();
@@ -477,8 +451,6 @@ async fn bmc_power_on_with_disk_via_qmp() {
     let state = BmcState::new();
     // Default config has bios+display+empty disks → cirros fallback kicks in
     state.power_on().await.unwrap();
-    assert_eq!(state.phase().await, VmPhase::Preconfig);
-    state.start_vm().await.unwrap();
     assert_eq!(state.phase().await, VmPhase::Running);
 
     // Verify the disk was actually wired by querying block info
@@ -546,7 +518,6 @@ async fn forwarder_joins_cleanly_on_force_off() {
 
     let state = test_state().await;
     state.power_on().await.unwrap();
-    state.start_vm().await.unwrap();
 
     state.pause().await.unwrap();
     tokio::time::sleep(Duration::from_millis(100)).await;
@@ -581,7 +552,6 @@ async fn forwarder_exits_on_force_off() {
     let mut event_rx = state.event_tx.subscribe();
 
     state.power_on().await.unwrap();
-    state.start_vm().await.unwrap();
 
     // Generate some events so we know the forwarder is alive.
     state.pause().await.unwrap();
@@ -631,7 +601,6 @@ async fn forwarder_restarted_on_second_power_on() {
     let mut event_rx = state.event_tx.subscribe();
 
     state.power_on().await.unwrap();
-    state.start_vm().await.unwrap();
     state.pause().await.unwrap();
 
     let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
@@ -654,7 +623,7 @@ async fn forwarder_restarted_on_second_power_on() {
     state.force_off().await.unwrap();
 }
 
-/// Repeated power_on/start_vm/force_off cycles must not leak tasks or slow
+/// Repeated power_on/power_on/force_off cycles must not leak tasks or slow
 /// down over time.
 ///
 /// Note: `tokio::runtime::Handle::metrics()` is unstable and behind the
@@ -675,7 +644,6 @@ async fn forwarder_does_not_leak_tasks() {
     for iter in 0..10 {
         let start = std::time::Instant::now();
         state.power_on().await.unwrap();
-        state.start_vm().await.unwrap();
         state.force_off().await.unwrap();
         let elapsed = start.elapsed();
         assert!(

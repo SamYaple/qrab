@@ -28,7 +28,6 @@ pub fn bmc() -> Arc<BmcState> {
 /// Internal VM state. Not serializable — holds owned QEMU handles.
 pub enum VmState {
     Off,
-    Preconfig(PreconfigVm),
     Running(Vm),
     ShuttingDown,
 }
@@ -36,9 +35,9 @@ pub enum VmState {
 /// Central BMC state shared across server functions.
 ///
 /// VNC socket and serial log paths are NOT stored here separately. They live
-/// inside the `VmState` (via `PreconfigVm` / `Vm` accessors). Reading them
-/// requires holding the `vm` lock, which makes "is the VM running and does
-/// it have a VNC socket?" an atomic question by construction.
+/// inside the `VmState` (via `Vm` accessors). Reading them requires holding
+/// the `vm` lock, which makes "is the VM running and does it have a VNC
+/// socket?" an atomic question by construction.
 pub struct BmcState {
     pub vm: Mutex<VmState>,
     pub event_tx: broadcast::Sender<QmpEvent>,
@@ -48,7 +47,7 @@ pub struct BmcState {
     /// KVM module status don't change for the lifetime of a QEMU process,
     /// so the dashboard polling path queries them once per Running session
     /// and reuses the cached values until the next force_off transition.
-    /// `None` while Off / Preconfig / ShuttingDown.
+    /// `None` while Off / ShuttingDown.
     pub cached_static: Mutex<Option<(CpuInfoResponse, KvmInfoResponse)>>,
     event_forwarder: Mutex<Option<JoinHandle<()>>>,
 }
@@ -67,10 +66,9 @@ impl BmcState {
     }
 
     /// Read the VNC socket path while holding the vm lock. Returns Some only
-    /// when a display-enabled VM is currently in Preconfig or Running.
+    /// when a display-enabled VM is currently Running.
     pub async fn vnc_sock(&self) -> Option<PathBuf> {
         match &*self.vm.lock().await {
-            VmState::Preconfig(pvm) => pvm.vnc_sock().cloned(),
             VmState::Running(vm) => vm.vnc_sock().cloned(),
             _ => None,
         }
@@ -79,15 +77,18 @@ impl BmcState {
     /// Read the serial log path while holding the vm lock.
     pub async fn serial_log(&self) -> Option<PathBuf> {
         match &*self.vm.lock().await {
-            VmState::Preconfig(pvm) => pvm.serial_log().cloned(),
             VmState::Running(vm) => vm.serial_log().cloned(),
             _ => None,
         }
     }
 
-    /// Spawn a VM with the current config. Transitions Off -> Preconfig.
+    /// Spawn a VM, attach disks, and start execution. Transitions Off -> Running.
     ///
-    /// Note: holds the `vm` lock for the entire spawn (~hundreds of ms).
+    /// Internally the VM goes through a paused (-S) state where QMP commands
+    /// like blockdev-add and device_add are issued, then `cont` is sent.
+    /// This intermediate state is never exposed to callers.
+    ///
+    /// Note: holds the `vm` lock for the entire spawn + start (~hundreds of ms).
     /// Concurrent `phase()` reads will block. Acceptable for single-user
     /// BMC; if this becomes a multi-tenant concern, add a `VmState::Initializing`
     /// placeholder that lets reads see a busy state without blocking.
@@ -121,7 +122,7 @@ impl BmcState {
             }
         }
 
-        let mut preconfig = builder.spawn().await?;
+        let mut paused_vm = builder.spawn().await?;
 
         // Resolve disk list. Demo fallback: if no disks configured and the
         // machine has a PCI bus, attach cirros so power_on yields a bootable
@@ -141,13 +142,12 @@ impl BmcState {
             config.disks.clone()
         };
 
-        // Add disks via QMP. blockdev-add is preconfig-safe (since 7.1.0);
-        // device_add is not, so it requires the paused-mode (-S) path used
-        // when display is enabled. With machine=none there's no PCI bus, so
-        // skip disk attachment entirely.
+        // Add disks via QMP while paused (-S). blockdev-add and device_add
+        // both work in paused mode. With machine=none there's no PCI bus,
+        // so skip disk attachment entirely.
         if !matches!(config.machine, BmcMachine::None) {
-            if let Err(e) = attach_disks(&preconfig, &disks).await {
-                preconfig.shutdown().await;
+            if let Err(e) = attach_disks(&paused_vm, &disks).await {
+                paused_vm.shutdown().await;
                 return Err(e);
             }
         }
@@ -155,7 +155,7 @@ impl BmcState {
         // Extract the real event receiver and replace with a dummy.
         let (dummy_tx, dummy_rx) = mpsc::channel(1);
         drop(dummy_tx);
-        let real_rx = std::mem::replace(&mut preconfig.events, dummy_rx);
+        let real_rx = std::mem::replace(&mut paused_vm.events, dummy_rx);
 
         // Spawn event forwarder task.
         let tx = self.event_tx.clone();
@@ -167,41 +167,23 @@ impl BmcState {
         let mut fwd = self.event_forwarder.lock().await;
         *fwd = Some(handle);
 
-        *vm_guard = VmState::Preconfig(preconfig);
-        Ok(())
-    }
-
-    /// Exit preconfig and start guest execution. Transitions Preconfig -> Running.
-    ///
-    /// On error, the VM is forced off (forwarder stopped, vnc/serial cleared,
-    /// state transitioned to `Off`). Caller must `power_on` again to retry.
-    pub async fn start_vm(self: &Arc<Self>) -> Result<()> {
-        let mut vm_guard = self.vm.lock().await;
-        let state = std::mem::replace(&mut *vm_guard, VmState::ShuttingDown);
-        let pvm = match state {
-            VmState::Preconfig(pvm) => pvm,
-            other => {
-                *vm_guard = other;
-                bail!("VM is not in preconfig state");
-            }
-        };
-        match pvm.start().await {
-            Ok(vm) => {
-                *vm_guard = VmState::Running(vm);
-                Ok(())
-            }
+        // Start execution (sends `cont` in -S paused mode).
+        let vm = match paused_vm.start().await {
+            Ok(vm) => vm,
             Err(e) => {
-                // pvm was consumed by start(). Tear down everything else and
-                // force the state to Off. Drop the vm guard first since
-                // stop_forwarder takes its own lock.
-                drop(vm_guard);
+                // paused_vm was consumed by start(). Tear down everything
+                // else and force the state to Off.
+                drop(fwd);
                 self.stop_forwarder().await;
                 self.event_history.lock().await.clear();
                 *self.cached_static.lock().await = None;
-                *self.vm.lock().await = VmState::Off;
-                Err(e).context("start_vm: PreconfigVm::start failed; transitioned to Off")
+                *vm_guard = VmState::Off;
+                return Err(e.context("power_on: PreconfigVm::start failed; transitioned to Off"));
             }
-        }
+        };
+
+        *vm_guard = VmState::Running(vm);
+        Ok(())
     }
 
     /// Pause guest execution.
@@ -257,9 +239,6 @@ impl BmcState {
         let mut vm_guard = self.vm.lock().await;
         let state = std::mem::replace(&mut *vm_guard, VmState::ShuttingDown);
         match state {
-            VmState::Preconfig(pvm) => {
-                pvm.shutdown().await;
-            }
             VmState::Running(vm) => {
                 vm.shutdown().await;
             }
@@ -284,7 +263,6 @@ impl BmcState {
         let vm_guard = self.vm.lock().await;
         match &*vm_guard {
             VmState::Off => VmPhase::Off,
-            VmState::Preconfig(_) => VmPhase::Preconfig,
             VmState::Running(vm) => {
                 match vm.execute(&qapi::commands::QueryStatus {}).await {
                     Ok(status) if !status.running => VmPhase::Paused,
@@ -344,12 +322,11 @@ fn machine_to_manager(machine: BmcMachine, memory: String) -> MachineConfig {
     }
 }
 
-/// Attach a list of disks to a paused (or preconfig) VM via QMP.
+/// Attach a list of disks to a paused (-S) VM via QMP.
 ///
 /// For each disk: blockdev-add (file backend) → blockdev-add (format layer)
-/// → device_add (virtio-blk-pci). The device_add command requires the VM
-/// to be in -S paused mode (machine initialized but CPU paused), not in
-/// `--preconfig` mode, since device_add is not preconfig-safe.
+/// → device_add (virtio-blk-pci). The VM must be in -S paused mode
+/// (machine initialized but CPU paused) for device_add to work.
 async fn attach_disks(preconfig: &PreconfigVm, disks: &[DiskConfig]) -> Result<()> {
     use qapi::commands::{BlockdevAdd, DeviceAdd};
     use qapi::{
@@ -440,8 +417,7 @@ async fn attach_disks(preconfig: &PreconfigVm, disks: &[DiskConfig]) -> Result<(
             .await
             .context("blockdev-add format layer")?;
 
-        // 3. Wire to a virtio-blk-pci device. Requires paused (-S) mode;
-        //    device_add is not preconfig-safe.
+        // 3. Wire to a virtio-blk-pci device. Requires paused (-S) mode.
         //    Sets boot-index so the firmware boots disks in declaration order.
         preconfig
             .qmp

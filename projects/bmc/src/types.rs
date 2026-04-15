@@ -9,7 +9,6 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum VmPhase {
     Off,
-    Preconfig,
     Running,
     Paused,
     ShuttingDown,
@@ -19,7 +18,6 @@ impl std::fmt::Display for VmPhase {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             VmPhase::Off => write!(f, "Off"),
-            VmPhase::Preconfig => write!(f, "Preconfig"),
             VmPhase::Running => write!(f, "Running"),
             VmPhase::Paused => write!(f, "Paused"),
             VmPhase::ShuttingDown => write!(f, "Shutting Down"),
