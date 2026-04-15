@@ -1,27 +1,27 @@
 # Industry Standard Features Audit
 
-Generated: 2026-04-13 | Round 10
+Generated: 2026-04-13 | Round 11
 
-## Changes: #72 reclassified by-design. #74 confirmed HIGH. 8 new gaps.
+## Changes
+- #81 PARTIAL — BMC calls `.accel(Kvm).cpu("host")` but never `.smp()`
+- #77 reclassified LOW (lock ordering serialized)
+- #72 reclassified BY-DESIGN (intentional event clear)
 
 ## NEW Gaps
 
 | # | Gap | Priority |
 |---|-----|----------|
-| 76 | BMC OnceLock singleton (test isolation) | LOW |
-| 77 | Nested lock ordering in dashboard (deadlock risk) | MEDIUM |
-| 78 | Mock QmpSession unbounded read_line | LOW |
-| 79 | Mock QgaSession unbounded read_line | LOW |
-| 80 | Qmp::shutdown races with Drop | MEDIUM |
-| 81 | BMC ignores accel/smp builder methods | MEDIUM |
-| 82 | event_worker backpressure (send not try_send) | LOW |
-| 83 | bmc not in CLAUDE.md | LOW |
+| 84 | Temp overlay leaked on force_off | MEDIUM |
+| 85 | NsHelper single read() for PID (may split) | MEDIUM |
+| 86 | Pre-exec RawFd capture race | LOW |
+| 87 | ensure_cirros uses CARGO_MANIFEST_DIR at compile time | LOW |
+| 88 | graceful_shutdown silent error drops | LOW |
 
-## Production Blockers (updated)
-1. ~~#66+#67 No KVM/SMP~~ — FIXED
-2. **#81** — BMC ignores accel/smp — builder exists but BMC never calls
-3. **#69+#74** — Dead QEMU invisible + phase() swallows errors
-4. **#12** — No reconnect
-5. **#60** — OnceLock blocks power-cycle
+## Production Blockers
+1. **#69+#74** — Dead QEMU invisible + phase() swallows errors
+2. **#81** — BMC ignores smp (single-CPU VMs)
+3. **#84** — Overlay leak fills /tmp over power cycles
+4. **#60** — OnceLock blocks power-cycle correctness
+5. **#12** — No reconnect
 
-**Total: 83 gaps, ~74 open.**
+**Total: 88 gaps, ~76 open.**

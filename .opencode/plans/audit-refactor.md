@@ -1,37 +1,38 @@
 # Refactoring Audit Report
 
-Generated: 2026-04-13 | Round 10
+Generated: 2026-04-13 | Round 11
 
-**Non-generated source:** ~19,418 lines / 77 files
+**Non-generated source:** ~19,418+ lines / 77+ files
 
-## Changes: Protocol dedup grew to ~175 lines. 5 new opportunities.
-
-## 5 NEW opportunities
+## 7 NEW opportunities
 
 | # | Opportunity | Lines | Risk |
 |---|---|---:|---|
-| 58 | write_json_line helper (5 sites in server.rs) | 20 | safe |
-| 59 | QmpSession/QgaSession identical methods (recv/send/error) | 60 | safe |
-| 60 | Version-attr emission helper (enum/struct generators) | 25 | safe |
-| 61 | Response-parsing dedup across QMP+QGA (4 sites) | 70 | moderate |
-| 62 | Serialize body version-check wrapper (3 fns) | 45 | safe |
+| 63 | build_unified/qga_registry merge-loop dedup | 100 | moderate |
+| 64 | process_single_version extraction dedup | 30 | safe |
+| 65 | Serial tail logic duplicated (bmc) | 30 | safe |
+| 66 | PreconfigVm/Vm accessor dedup | 25 | moderate |
+| 67 | BMC state action pattern (pause/resume/reset/power_off) | 40 | safe |
+| 68 | execute/execute_with_timeout request construction | 15 | safe |
+| 69 | Process IR metadata init repeated 8+ times | 20 | safe |
 
 ## Summary
 
 | Category | Count | Lines |
 |----------|-------|-------|
-| Total resolved | ~11 | ~165 |
-| **Total open** | **51** | **~1,350** |
+| Total resolved | ~12 | ~175 |
+| **Total open** | **58** | **~1,610** |
 
 ## Cluster Wins
 
-| Cluster | Lines | Trend |
-|---------|-------|-------|
-| Registry unification | ~545 | — |
-| BMC server dedup | ~205 | ↑↑ |
-| Protocol dedup | ~175 | ↑ |
-| Macro serializer | ~140 | ↑ |
-| Version annotation | ~100 | ↑ |
-| Merge logic | ~80 | — |
+| Cluster | Lines |
+|---------|-------|
+| Registry unification | ~675 |
+| BMC server dedup | ~275 |
+| Protocol dedup | ~220 |
+| Macro serializer | ~185 |
+| Version annotation | ~125 |
+| Merge logic | ~80 |
+| Manager typestate | ~25 |
 
-Already maximally compressed. All natural language minimal — headings, table headers, table data. No prose to cut. File unchanged.
+**Top safe wins:** #59 (60 lines), #62 (45 lines), #67 (40 lines), #65 (30 lines), #64 (30 lines).
