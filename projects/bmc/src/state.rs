@@ -126,8 +126,11 @@ impl BmcState {
         // VM out of the box. Long term this should be configured via UI.
         let disks = if !matches!(config.machine, BmcMachine::None) && config.disks.is_empty() {
             let cirros = ensure_cirros_image().await?;
+            // Create a temporary overlay so the base image is never modified.
+            // Each VM gets a fresh writable snapshot; force_off discards it.
+            let overlay = create_temp_overlay(&cirros).await?;
             vec![DiskConfig {
-                file: cirros,
+                file: overlay,
                 format: DiskFormat::Qcow2,
                 interface: crate::types::DiskInterface::Virtio,
                 read_only: false,
@@ -467,6 +470,44 @@ fn find_ovmf() -> Option<PathBuf> {
         "/usr/share/qemu/edk2-x86_64-code.fd",
     ];
     candidates.iter().map(Path::new).find(|p| p.exists()).map(PathBuf::from)
+}
+
+/// Create a temporary qcow2 overlay backed by the given base image.
+///
+/// The overlay is a thin qcow2 that stores writes in a temp file while
+/// reading unchanged sectors from the base. This keeps the base image
+/// pristine across VM restarts — an unclean kill only dirties the
+/// disposable overlay, not the downloaded cirros image.
+async fn create_temp_overlay(base: &Path) -> Result<PathBuf> {
+    let overlay = std::env::temp_dir().join(format!(
+        "qrab-overlay-{}-{}.qcow2",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis()
+    ));
+
+    let output = tokio::process::Command::new("qemu-img")
+        .args([
+            "create",
+            "-f", "qcow2",
+            "-b", &base.display().to_string(),
+            "-F", "qcow2",
+            &overlay.display().to_string(),
+        ])
+        .output()
+        .await
+        .context("failed to run qemu-img for overlay creation")?;
+
+    if !output.status.success() {
+        bail!(
+            "qemu-img create overlay failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    Ok(overlay)
 }
 
 /// Download cirros disk image if not cached.
