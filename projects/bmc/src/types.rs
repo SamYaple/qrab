@@ -90,6 +90,11 @@ pub struct BmcConfig {
     pub machine: BmcMachine,
     pub memory: String,
     pub display: bool,
+    /// Enable KVM hardware acceleration. When true, requires host KVM
+    /// support and process membership in the `kvm` group. When false,
+    /// QEMU uses TCG software emulation.
+    #[serde(default)]
+    pub kvm: bool,
     #[serde(default)]
     pub disks: Vec<DiskConfig>,
 }
@@ -171,8 +176,8 @@ impl Default for BmcConfig {
             machine: BmcMachine::Bios,
             memory: "256M".into(),
             display: true,
+            kvm: false,
             disks: Vec::new(),
         }
     }
 }
-

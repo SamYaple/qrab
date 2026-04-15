@@ -27,6 +27,7 @@ async fn test_state() -> std::sync::Arc<BmcState> {
         machine: BmcMachine::None,
         memory: "256M".into(),
         display: false,
+        kvm: false,
         disks: Vec::new(),
     };
     state

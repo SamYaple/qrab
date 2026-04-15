@@ -21,6 +21,7 @@ async fn test_state() -> std::sync::Arc<BmcState> {
         machine: BmcMachine::None,
         memory: "256M".into(),
         display: false,
+        kvm: false,
         disks: Vec::new(),
     };
     state
@@ -161,6 +162,7 @@ async fn bmc_config_change() {
             machine: BmcMachine::None,
             memory: "512M".into(),
             display: false,
+            kvm: false,
             disks: Vec::new(),
         };
     }
@@ -506,6 +508,7 @@ async fn bmc_config_enum_serde_roundtrip() {
         machine: BmcMachine::Bios,
         memory: "512M".into(),
         display: true,
+        kvm: false,
         disks: vec![bmc::types::DiskConfig {
             file: "/tmp/test.qcow2".into(),
             format: bmc::types::DiskFormat::Qcow2,

@@ -106,6 +106,9 @@ impl BmcState {
         let machine_config = machine_to_manager(config.machine, config.memory.clone());
 
         let mut builder = VmBuilder::new(arch, machine_config).serial();
+        if config.kvm {
+            builder = builder.accel(manager::vm::Accel::Kvm);
+        }
         if config.display {
             builder = builder.display();
         }
