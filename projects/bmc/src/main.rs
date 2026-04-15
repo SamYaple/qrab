@@ -46,11 +46,15 @@ fn main() {
         Ok(dioxus::server::router(App)
             .nest_service(
                 "/novnc",
-                tower_http::services::ServeDir::new("assets/novnc"),
+                tower_http::services::ServeDir::new(
+                    std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("assets/novnc"),
+                ),
             )
             .nest_service(
                 "/static/js",
-                tower_http::services::ServeDir::new("assets/js"),
+                tower_http::services::ServeDir::new(
+                    std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("assets/js"),
+                ),
             )
             .merge(bmc::server::events::events_router(state.clone()))
             .merge(bmc::server::console::console_router(state)))
