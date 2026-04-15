@@ -137,10 +137,15 @@ impl VmProcess {
                             );
                             let _ = exit_tx.send(Some(status));
                         }
-                        Err(e) => tracing::error!(
-                            "failed to wait on QEMU process: {}",
-                            e
-                        ),
+                        Err(e) => {
+                            tracing::error!(
+                                "failed to wait on QEMU process: {}",
+                                e
+                            );
+                            // Publish a synthetic "unknown exit" so exit_watch
+                            // subscribers don't hang forever.
+                            let _ = exit_tx.send(None);
+                        }
                     }
                 }
             }

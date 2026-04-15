@@ -67,7 +67,8 @@ impl Qga {
         // Query guest-info to get the QGA version
         let info: qapi::qga::GuestAgentInfo =
             qga.execute_raw("guest-info", serde_json::json!({})).await?;
-        qapi::set_qga_version(normalize_qga_version(&info.version));
+        // Log but don't fail if version was already set (multi-agent process).
+        let _ = qapi::set_qga_version(normalize_qga_version(&info.version));
 
         Ok(qga)
     }

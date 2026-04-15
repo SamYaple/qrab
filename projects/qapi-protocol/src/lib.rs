@@ -218,7 +218,8 @@ impl Qmp {
             let major = qemu["major"].as_u64().unwrap_or(0) as u32;
             let minor = qemu["minor"].as_u64().unwrap_or(0) as u32;
             let micro = qemu["micro"].as_u64().unwrap_or(0) as u32;
-            qapi::set_qemu_version(major, minor, micro);
+            // Log but don't fail if version was already set (multi-VM process).
+            let _ = qapi::set_qemu_version(major, minor, micro);
 
             // Send qmp_capabilities and read the response
             write_half
@@ -665,7 +666,11 @@ impl Qmp {
                 Some(raw) = raw_event_rx.recv() => {
                     match serde_json::from_str::<QmpEvent>(&raw) {
                         Ok(event) => {
-                            let _ = event_tx.send(event).await;
+                            // Break if consumer dropped the receiver —
+                            // otherwise this worker spins forever.
+                            if event_tx.send(event).await.is_err() {
+                                break;
+                            }
                         }
                         Err(e) => {
                             tracing::warn!(error = %e, line = %raw, "failed to parse QMP event");
