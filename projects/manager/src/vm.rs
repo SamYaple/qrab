@@ -641,10 +641,15 @@ impl VmBuilder {
 
         if !self.display {
             let version = qapi::qemu_version();
-            if version < PRECONFIG_MIN_VERSION {
+            if version == (0, 0, 0) {
+                tracing::warn!(
+                    "QEMU version not yet set (OnceLock uninitialized); \
+                     skipping preconfig version check"
+                );
+            } else if version < PRECONFIG_MIN_VERSION {
                 anyhow::bail!(
-                    "QEMU {}.{}.{} is below required {}.{}.{} \
-                     (-accel kvm,device= and blockdev preconfig support)",
+                    "QEMU {}.{}.{} does not support --preconfig mode \
+                     (requires {}.{}.{} or later)",
                     version.0,
                     version.1,
                     version.2,
