@@ -322,6 +322,47 @@ fn machine_to_manager(machine: BmcMachine, memory: String) -> MachineConfig {
     }
 }
 
+/// Validate that a disk path is safe to pass to QEMU.
+///
+/// Canonicalizes the path and rejects traversal attempts (symlinks that
+/// escape, `..` components, non-regular files). This prevents CWE-22
+/// path traversal where an attacker could read arbitrary host files via
+/// the QEMU block layer.
+fn validate_disk_path(path: &Path) -> Result<PathBuf> {
+    // Canonicalize resolves symlinks and `..` components.
+    let canonical = path.canonicalize().map_err(|e| {
+        anyhow::anyhow!(
+            "disk path {:?} cannot be resolved: {e}",
+            path
+        )
+    })?;
+
+    // Reject non-regular files (block devices, pipes, /dev/*, etc.)
+    let meta = std::fs::metadata(&canonical).map_err(|e| {
+        anyhow::anyhow!("cannot stat disk path {:?}: {e}", canonical)
+    })?;
+    if !meta.is_file() {
+        anyhow::bail!(
+            "disk path {:?} is not a regular file",
+            canonical
+        );
+    }
+
+    // Reject paths under sensitive directories
+    let sensitive = ["/proc", "/sys", "/dev", "/etc/shadow", "/etc/passwd"];
+    let canonical_str = canonical.to_string_lossy();
+    for prefix in &sensitive {
+        if canonical_str.starts_with(prefix) {
+            anyhow::bail!(
+                "disk path {:?} is under restricted directory {:?}",
+                canonical, prefix
+            );
+        }
+    }
+
+    Ok(canonical)
+}
+
 /// Attach a list of disks to a paused (-S) VM via QMP.
 ///
 /// For each disk: blockdev-add (file backend) → blockdev-add (format layer)
@@ -336,6 +377,8 @@ async fn attach_disks(preconfig: &PreconfigVm, disks: &[DiskConfig]) -> Result<(
     use std::collections::HashMap;
 
     for (idx, disk) in disks.iter().enumerate() {
+        let validated_path = validate_disk_path(&disk.file)
+            .map_err(|e| anyhow::anyhow!("disk {idx}: {e}"))?;
         let file_node = format!("disk{idx}-file");
         let fmt_node = format!("disk{idx}");
         let device_id = format!("blk{idx}");
@@ -348,7 +391,7 @@ async fn attach_disks(preconfig: &PreconfigVm, disks: &[DiskConfig]) -> Result<(
                 node_name: Some(file_node.clone()),
                 read_only: Some(disk.read_only),
                 u: Some(BlockdevOptionsBranch::File(BlockdevOptionsFile {
-                    filename: disk.file.display().to_string(),
+                    filename: validated_path.display().to_string(),
                     aio: None,
                     aio_max_batch: None,
                     drop_cache: None,
