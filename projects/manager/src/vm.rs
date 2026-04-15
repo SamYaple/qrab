@@ -722,8 +722,19 @@ impl PreconfigVm {
         })
     }
 
-    /// Shut down without starting guest execution.
+    /// Shut down without starting guest execution (force-kill).
+    ///
+    /// For graceful shutdown, use [`graceful_shutdown()`](Self::graceful_shutdown).
     pub async fn shutdown(mut self) {
+        self.qmp.shutdown().await;
+        self.process.cleanup().await;
+    }
+
+    /// Graceful shutdown for preconfig state.
+    ///
+    /// In preconfig, no guest is running so there is no ACPI to signal.
+    /// This just cleanly disconnects QMP and stops the process.
+    pub async fn graceful_shutdown(mut self, _timeout: Duration) {
         self.qmp.shutdown().await;
         self.process.cleanup().await;
     }
@@ -818,8 +829,69 @@ impl Vm {
         Ok(())
     }
 
-    /// Graceful shutdown: disconnect QMP, kill the process, clean up temp files.
+    /// Force-kill shutdown: disconnect QMP, kill the process immediately.
+    ///
+    /// For graceful shutdown with ACPI powerdown, use [`graceful_shutdown()`](Self::graceful_shutdown).
     pub async fn shutdown(mut self) {
+        self.qmp.shutdown().await;
+        self.process.cleanup().await;
+    }
+
+    /// Graceful shutdown with escalation chain.
+    ///
+    /// 1. Send `system_powerdown` (ACPI power button) via QMP
+    /// 2. Wait for SHUTDOWN event (up to `timeout`)
+    /// 3. If timeout: send `quit` QMP command
+    /// 4. Wait 5s for qrab-init to exit
+    /// 5. If still alive: kill qrab-init (SIGKILL kills entire PID namespace)
+    ///
+    /// The existing `shutdown()` method remains as the immediate/forced variant.
+    pub async fn graceful_shutdown(mut self, timeout: Duration) {
+        // Step 1: ACPI powerdown
+        let _ = self.qmp.execute(&qapi::commands::SystemPowerdown {}).await;
+
+        // Step 2: Wait for SHUTDOWN event or timeout
+        let deadline = tokio::time::Instant::now() + timeout;
+        let mut got_shutdown = false;
+        loop {
+            match tokio::time::timeout_at(deadline, self.events.recv()).await {
+                Ok(Some(evt)) if evt.event == "SHUTDOWN" => {
+                    got_shutdown = true;
+                    break;
+                }
+                Ok(Some(_)) => continue, // other event, keep waiting
+                Ok(None) => break,        // channel closed
+                Err(_) => break,          // timeout
+            }
+        }
+
+        if got_shutdown {
+            // Guest shut down gracefully — wait for process exit + cleanup
+            self.qmp.shutdown().await;
+            self.process.cleanup().await;
+            return;
+        }
+
+        // Step 3: Send quit
+        let _ = self.qmp.execute(&qapi::commands::Quit {}).await;
+
+        // Step 4: Wait 5s for exit
+        let quit_deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+        loop {
+            match tokio::time::timeout_at(quit_deadline, self.process.exit_watch.changed()).await {
+                Ok(Ok(())) => {
+                    if self.process.exit_watch.borrow().is_some() {
+                        // Process exited
+                        self.qmp.shutdown().await;
+                        self.process.cleanup().await;
+                        return;
+                    }
+                }
+                _ => break, // timeout or channel closed
+            }
+        }
+
+        // Step 5: Force kill
         self.qmp.shutdown().await;
         self.process.cleanup().await;
     }
