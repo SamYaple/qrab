@@ -71,3 +71,17 @@ pub async fn force_off() -> Result<VmPhase, ServerFnError> {
         .map_err(|e| ServerFnError::new(e.to_string()))?;
     Ok(state.phase().await)
 }
+
+#[server]
+pub async fn set_kvm(enabled: bool) -> Result<bool, ServerFnError> {
+    let state = crate::state::bmc();
+    state.config.lock().await.kvm = enabled;
+    Ok(enabled)
+}
+
+#[server]
+pub async fn get_kvm() -> Result<bool, ServerFnError> {
+    let state = crate::state::bmc();
+    let kvm = state.config.lock().await.kvm;
+    Ok(kvm)
+}
