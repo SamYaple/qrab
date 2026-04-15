@@ -402,6 +402,21 @@ impl VmBuilder {
                 let machine = self.arch.uefi_machine();
                 args.extend(["-machine".into(), machine.into()]);
                 args.extend(["-m".into(), memory.clone()]);
+
+                // q35 (x86) uses PCIe root complex — pcie.0 doesn't support
+                // hotplug. Add root ports so device_add works for disks/NICs.
+                // aarch64 virt machine handles this differently (no root ports needed).
+                if matches!(self.arch, Arch::X86_64 | Arch::I386) {
+                    for i in 0..4 {
+                        args.extend([
+                            "-device".into(),
+                            format!(
+                                "pcie-root-port,id=rp{i},slot={i},chassis={i},bus=pcie.0"
+                            ),
+                        ]);
+                    }
+                }
+
                 if let Some(ref fw) = self.firmware {
                     match self.arch {
                         Arch::X86_64 | Arch::I386 => {

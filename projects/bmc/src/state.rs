@@ -365,7 +365,7 @@ async fn attach_disks(preconfig: &PreconfigVm, disks: &[DiskConfig]) -> Result<(
                 options: None,
             })
             .await
-            .context("blockdev-add file backend")?;
+            .map_err(|e| anyhow::anyhow!("blockdev-add file backend (disk{idx}): {e:#}"))?;
 
         // 2. Format layer
         let fmt_branch = match disk.format {
@@ -415,7 +415,7 @@ async fn attach_disks(preconfig: &PreconfigVm, disks: &[DiskConfig]) -> Result<(
                 options: None,
             })
             .await
-            .context("blockdev-add format layer")?;
+            .map_err(|e| anyhow::anyhow!("blockdev-add format layer (disk{idx}): {e:#}"))?;
 
         // 3. Wire to a virtio-blk-pci device. Requires paused (-S) mode.
         //    Sets boot-index so the firmware boots disks in declaration order.
@@ -423,8 +423,8 @@ async fn attach_disks(preconfig: &PreconfigVm, disks: &[DiskConfig]) -> Result<(
             .qmp
             .execute(&DeviceAdd {
                 driver: "virtio-blk-pci".into(),
-                id: Some(device_id),
-                bus: None,
+                id: Some(device_id.clone()),
+                bus: Some(format!("rp{idx}")),
                 arguments: Some(HashMap::from([
                     ("drive".to_string(), serde_json::Value::String(fmt_node)),
                     (
@@ -434,7 +434,7 @@ async fn attach_disks(preconfig: &PreconfigVm, disks: &[DiskConfig]) -> Result<(
                 ])),
             })
             .await
-            .context("device_add virtio-blk-pci")?;
+            .map_err(|e| anyhow::anyhow!("device_add {device_id} virtio-blk-pci: {e:#}"))?;
     }
 
     Ok(())
