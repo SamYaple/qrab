@@ -93,6 +93,18 @@ pub enum MachineConfig {
     Bios { memory: String },
     /// UEFI boot: `-machine q35/virt` + firmware
     Uefi { memory: String },
+    /// UEFI Secure Boot: q35 + SMM + secure pflash (x86 only)
+    SecureBoot { memory: String },
+}
+
+impl Arch {
+    /// Machine type for Secure Boot. Only x86 supports this (q35 + SMM).
+    pub fn secure_boot_machine(&self) -> Option<&'static str> {
+        match self {
+            Arch::X86_64 | Arch::I386 => Some("q35"),
+            Arch::Aarch64 | Arch::Arm => None,
+        }
+    }
 }
 
 /// Detect the QEMU version for a given architecture by running `--version`.
@@ -119,7 +131,10 @@ pub fn detect_version(arch: Arch) -> Option<(u32, u32, u32)> {
 /// extracted.
 fn parse_version_string(s: &str) -> Option<(u32, u32, u32)> {
     let token = s.split_whitespace().find(|w| {
-        w.chars().next().map(|c| c.is_ascii_digit()).unwrap_or(false)
+        w.chars()
+            .next()
+            .map(|c| c.is_ascii_digit())
+            .unwrap_or(false)
             && w.contains('.')
     })?;
     let mut parts = token.split('.');
@@ -167,10 +182,7 @@ mod tests {
     #[test]
     fn parse_dev_suffix() {
         assert_eq!(parse_version_string("9.1.50-dev"), Some((9, 1, 50)));
-        assert_eq!(
-            parse_version_string("9.1.50-dirty"),
-            Some((9, 1, 50))
-        );
+        assert_eq!(parse_version_string("9.1.50-dirty"), Some((9, 1, 50)));
     }
 
     #[test]

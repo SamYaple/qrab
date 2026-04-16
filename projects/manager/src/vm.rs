@@ -22,6 +22,45 @@ use crate::namespace::{InitConfig, KvmFd, NsHelper};
 /// required for `allow_preconfig` on `blockdev-add`.
 pub const PRECONFIG_MIN_VERSION: (u32, u32, u32) = (7, 2, 0);
 
+/// SEV-SNP confidential VM configuration.
+#[derive(Debug, Clone)]
+pub struct SevSnpConfig {
+    /// SEV device path (default: "/dev/sev")
+    pub sev_device: Option<PathBuf>,
+    /// SNP policy (default: 0x30000)
+    pub policy: Option<u64>,
+    /// Reduced physical address bits (default: 1)
+    pub reduced_phys_bits: u32,
+    /// Optional ID block for attestation (base64)
+    pub id_block: Option<String>,
+    /// Optional ID auth structure (base64)
+    pub id_auth: Option<String>,
+    /// Author key enabled in id_auth
+    pub author_key_enabled: Option<bool>,
+    /// Kernel hashes for measured boot with -kernel
+    pub kernel_hashes: Option<bool>,
+    /// Host-provided data blob (base64)
+    pub host_data: Option<String>,
+    /// Disable VCEK usage
+    pub vcek_disabled: Option<bool>,
+}
+
+impl Default for SevSnpConfig {
+    fn default() -> Self {
+        Self {
+            sev_device: None,
+            policy: None, // QEMU default: 0x30000
+            reduced_phys_bits: 1,
+            id_block: None,
+            id_auth: None,
+            author_key_enabled: None,
+            kernel_hashes: None,
+            host_data: None,
+            vcek_disabled: None,
+        }
+    }
+}
+
 /// Validate a memory size string for QEMU's `-m` option.
 ///
 /// QEMU accepts decimal integers optionally followed by a single unit
@@ -207,6 +246,7 @@ pub struct VmBuilder {
     accel: Option<Accel>,
     smp: Option<u32>,
     cpu: Option<String>,
+    sev_snp: Option<SevSnpConfig>,
     extra_args: Vec<String>,
 }
 
@@ -241,8 +281,19 @@ impl VmBuilder {
             accel: None,
             smp: None,
             cpu: None,
+            sev_snp: None,
             extra_args: Vec::new(),
         }
+    }
+
+    /// Configure AMD SEV-SNP confidential computing.
+    ///
+    /// Requires KVM acceleration, UEFI or SecureBoot machine config,
+    /// and x86_64 architecture. Validated at spawn time.
+    #[must_use]
+    pub fn sev_snp(mut self, config: SevSnpConfig) -> Self {
+        self.sev_snp = Some(config);
+        self
     }
 
     /// Use direct kernel boot (bypasses bootloader).
@@ -320,72 +371,14 @@ impl VmBuilder {
         self
     }
 
-    /// Spawn QEMU inside namespace isolation via `qrab-init` and connect QMP.
+    /// Build machine-type arguments: `-machine`, `-m`, root ports, firmware.
     ///
-    /// Returns a [`PreconfigVm`] handle for issuing configuration commands
-    /// before guest execution. Call [`PreconfigVm::start()`] to begin
-    /// execution.
-    ///
-    /// The spawn sequence:
-    /// 1. Create private tmpdir for sockets/logs
-    /// 2. Open `/dev/kvm` fd (based on accel mode)
-    /// 3. Build QEMU args with KVM fd passing
-    /// 4. Create sync + config pipes
-    /// 5. Spawn `qrab-init` with `pre_exec` namespace setup
-    /// 6. Write config JSON over pipe
-    /// 7. Run `NsHelper` to set up uid/gid maps
-    /// 8. Wait for QMP socket, connect, check version
-    #[must_use = "spawning a VM without using the returned handle immediately kills it on drop"]
-    pub async fn spawn(self) -> Result<PreconfigVm> {
-        // Validate the firmware path before touching any temp files or
-        // spawning QEMU. Without this check a missing or directory path
-        // only surfaces as a cryptic late failure from QEMU itself.
-        if let Some(ref fw) = self.firmware {
-            anyhow::ensure!(
-                fw.is_file(),
-                "firmware path {} is not a regular file",
-                fw.display()
-            );
-        }
-
-        // --- Private tmpdir (Security #3 — no predictable socket paths) ---
-        let tmpdir = tempfile::TempDir::new_in(std::env::temp_dir())?;
-        let qmp_sock = tmpdir.path().join("qmp.sock");
-        let serial_log = if self.serial {
-            Some(tmpdir.path().join("serial.log"))
-        } else {
-            None
-        };
-
-        // --- KVM fd (Industry #49 — auto-detect) ---
-        let kvm_fd = match self.accel {
-            Some(Accel::Kvm) => Some(
-                KvmFd::open()
-                    .map_err(|e| anyhow::anyhow!("{e} — is process in kvm group?"))?,
-            ),
-            Some(Accel::Tcg) | None => None,
-            Some(Accel::KvmOrTcg) => match KvmFd::open() {
-                Ok(fd) => {
-                    tracing::info!("KVM available, using hardware acceleration");
-                    Some(fd)
-                }
-                Err(e) => {
-                    tracing::warn!("KVM unavailable ({e}), falling back to TCG");
-                    None
-                }
-            },
-        };
-
-        // --- Build QEMU args ---
+    /// Returns `(args, machine_arg_index)` where `machine_arg_index` is
+    /// the index of the machine type value in `args` (for later SEV
+    /// modification).
+    fn build_machine_args(&self) -> Result<(Vec<String>, Option<usize>)> {
         let mut args: Vec<String> = Vec::new();
-        if self.display {
-            // With display, skip --preconfig: VNC must see VGA during machine
-            // init to register the graphic console. Use -S (start paused) so
-            // the caller can still configure before guest execution.
-            args.push("-S".into());
-        } else {
-            args.push("--preconfig".into());
-        }
+        let mut machine_idx = None;
 
         match &self.config {
             MachineConfig::None => {
@@ -399,13 +392,27 @@ impl VmBuilder {
                         self.arch
                     )
                 })?;
-                args.extend(["-machine".into(), machine.into()]);
+                args.push("-machine".into());
+                machine_idx = Some(args.len());
+                args.push(machine.into());
                 args.extend(["-m".into(), memory.clone()]);
             }
-            MachineConfig::Uefi { memory } => {
+            MachineConfig::Uefi { memory } | MachineConfig::SecureBoot { memory } => {
                 validate_memory(memory)?;
-                let machine = self.arch.uefi_machine();
-                args.extend(["-machine".into(), machine.into()]);
+                let machine = match &self.config {
+                    MachineConfig::SecureBoot { .. } => {
+                        self.arch.secure_boot_machine().ok_or_else(|| {
+                            anyhow::anyhow!(
+                                "Secure Boot not supported for architecture {:?}",
+                                self.arch
+                            )
+                        })?
+                    }
+                    _ => self.arch.uefi_machine(),
+                };
+                args.push("-machine".into());
+                machine_idx = Some(args.len());
+                args.push(machine.into());
                 args.extend(["-m".into(), memory.clone()]);
 
                 // q35 (x86) uses PCIe root complex — pcie.0 doesn't support
@@ -441,8 +448,12 @@ impl VmBuilder {
             }
         }
 
-        // KVM fd passing via -add-fd + -accel kvm,device=/dev/fdset/1
-        // or plain -accel tcg when no KVM fd.
+        Ok((args, machine_idx))
+    }
+
+    /// Build accelerator arguments: KVM fd passing or TCG fallback.
+    fn build_accel_args(&self, kvm_fd: &Option<KvmFd>) -> Vec<String> {
+        let mut args = Vec::new();
         if let Some(ref fd) = kvm_fd {
             args.extend([
                 "-add-fd".into(),
@@ -453,7 +464,236 @@ impl VmBuilder {
         } else {
             args.extend(["-accel".into(), "tcg".into()]);
         }
+        args
+    }
 
+    /// Build SEV-SNP arguments: sev-snp-guest object + memory backend.
+    ///
+    /// Returns `(args, machine_suffix)` where `machine_suffix` is a string
+    /// to append to the `-machine` argument value (e.g.
+    /// `,confidential-guest-support=sev0,memory-backend=mem0`).
+    fn build_sev_args(&self) -> Result<(Vec<String>, Option<String>)> {
+        let sev = match &self.sev_snp {
+            Some(s) => s,
+            None => return Ok((Vec::new(), None)),
+        };
+
+        let memory_size = match &self.config {
+            MachineConfig::Uefi { memory } | MachineConfig::SecureBoot { memory } => memory,
+            _ => anyhow::bail!("SEV-SNP requires UEFI or SecureBoot machine config"),
+        };
+
+        // Build -object sev-snp-guest,id=sev0,...
+        let mut obj = format!(
+            "sev-snp-guest,id=sev0,reduced-phys-bits={}",
+            sev.reduced_phys_bits
+        );
+        if let Some(ref dev) = sev.sev_device {
+            obj.push_str(&format!(",sev-device={}", dev.display()));
+        }
+        if let Some(policy) = sev.policy {
+            obj.push_str(&format!(",policy={policy}"));
+        }
+        if let Some(ref id_block) = sev.id_block {
+            obj.push_str(&format!(",id-block={id_block}"));
+        }
+        if let Some(ref id_auth) = sev.id_auth {
+            obj.push_str(&format!(",id-auth={id_auth}"));
+        }
+        if let Some(true) = sev.author_key_enabled {
+            obj.push_str(",author-key-enabled=on");
+        }
+        if let Some(true) = sev.kernel_hashes {
+            obj.push_str(",kernel-hashes=on");
+        }
+        if let Some(ref host_data) = sev.host_data {
+            obj.push_str(&format!(",host-data={host_data}"));
+        }
+        if let Some(true) = sev.vcek_disabled {
+            obj.push_str(",vcek-disabled=on");
+        }
+
+        let mut args = vec!["-object".into(), obj];
+
+        // Memory backend: SEV-SNP needs memfd with share=on
+        let mem_obj = format!(
+            "memory-backend-memfd,id=mem0,size={memory_size},share=on"
+        );
+        args.extend(["-object".into(), mem_obj]);
+
+        // Append to -machine: confidential-guest-support + memory-backend
+        let suffix = ",confidential-guest-support=sev0,memory-backend=mem0".to_string();
+
+        Ok((args, Some(suffix)))
+    }
+
+    /// Build display arguments: VNC socket or nographic.
+    fn build_display_args(&self, tmpdir: &Path) -> (Vec<String>, Option<PathBuf>) {
+        let mut args = Vec::new();
+        if self.display {
+            let sock = tmpdir.join("vnc.sock");
+            args.push("-nodefaults".into());
+            args.extend([
+                "-display".into(),
+                format!("vnc=unix:{}", sock.display()),
+            ]);
+            args.extend(["-vga".into(), "std".into()]);
+            (args, Some(sock))
+        } else {
+            args.extend(["-nographic".into(), "-nodefaults".into()]);
+            (args, None)
+        }
+    }
+
+    /// Build boot arguments: kernel, initrd, append.
+    fn build_boot_args(&self) -> Vec<String> {
+        let mut args = Vec::new();
+        if let Some(ref kernel) = self.kernel {
+            args.extend(["-kernel".into(), kernel.display().to_string()]);
+        }
+        if let Some(ref initrd) = self.initrd {
+            args.extend(["-initrd".into(), initrd.display().to_string()]);
+        }
+        if let Some(ref append) = self.append {
+            args.extend(["-append".into(), append.clone()]);
+        }
+        args
+    }
+
+    /// Validate SEV-SNP prerequisites before spawning.
+    fn validate_sev(&self) -> Result<()> {
+        if self.sev_snp.is_none() {
+            return Ok(());
+        }
+
+        // Must be x86_64
+        if !matches!(self.arch, Arch::X86_64) {
+            anyhow::bail!("SEV-SNP requires x86_64 architecture (got {:?})", self.arch);
+        }
+
+        // Must use KVM
+        match self.accel {
+            Some(Accel::Kvm) => {}
+            Some(Accel::KvmOrTcg) => {}
+            _ => anyhow::bail!("SEV-SNP requires KVM acceleration"),
+        }
+
+        // Must be UEFI or SecureBoot
+        match &self.config {
+            MachineConfig::Uefi { .. } | MachineConfig::SecureBoot { .. } => {}
+            _ => anyhow::bail!("SEV-SNP requires UEFI or SecureBoot machine config"),
+        }
+
+        // CPU must be host or EPYC variant
+        let cpu = self.cpu.as_deref().or_else(|| self.arch.cpu());
+        if let Some(model) = cpu {
+            let m = model.to_lowercase();
+            if m != "host" && !m.starts_with("epyc") {
+                anyhow::bail!(
+                    "SEV-SNP requires CPU model 'host' or EPYC variant (got '{model}')"
+                );
+            }
+        }
+        // No explicit CPU set + x86_64 arch default is None → QEMU default,
+        // which won't work for SEV-SNP. Require explicit CPU.
+        if cpu.is_none() {
+            anyhow::bail!(
+                "SEV-SNP requires explicit CPU model ('host' or EPYC variant)"
+            );
+        }
+
+        // Check /dev/sev exists
+        let sev_path = self.sev_snp.as_ref()
+            .and_then(|s| s.sev_device.as_ref())
+            .map(|p| p.as_path())
+            .unwrap_or(Path::new("/dev/sev"));
+        if !sev_path.exists() {
+            anyhow::bail!(
+                "SEV device {} not found — is AMD SEV enabled in BIOS and kernel?",
+                sev_path.display()
+            );
+        }
+
+        Ok(())
+    }
+
+    /// Spawn QEMU inside namespace isolation via `qrab-init` and connect QMP.
+    ///
+    /// Returns a [`PreconfigVm`] handle for issuing configuration commands
+    /// before guest execution. Call [`PreconfigVm::start()`] to begin
+    /// execution.
+    ///
+    /// The spawn sequence:
+    /// 1. Validate config (firmware, SEV-SNP prerequisites)
+    /// 2. Create private tmpdir for sockets/logs
+    /// 3. Open `/dev/kvm` fd (based on accel mode)
+    /// 4. Build QEMU args via helper methods
+    /// 5. Create sync + config pipes
+    /// 6. Spawn `qrab-init` with `pre_exec` namespace setup
+    /// 7. Write config JSON over pipe
+    /// 8. Run `NsHelper` to set up uid/gid maps
+    /// 9. Wait for QMP socket, connect, check version
+    #[must_use = "spawning a VM without using the returned handle immediately kills it on drop"]
+    pub async fn spawn(self) -> Result<PreconfigVm> {
+        // Validate the firmware path before touching any temp files or
+        // spawning QEMU. Without this check a missing or directory path
+        // only surfaces as a cryptic late failure from QEMU itself.
+        if let Some(ref fw) = self.firmware {
+            anyhow::ensure!(
+                fw.is_file(),
+                "firmware path {} is not a regular file",
+                fw.display()
+            );
+        }
+
+        // Validate SEV-SNP prerequisites.
+        self.validate_sev()?;
+
+        // --- Private tmpdir (Security #3 — no predictable socket paths) ---
+        let tmpdir = tempfile::TempDir::new_in(std::env::temp_dir())?;
+        let qmp_sock = tmpdir.path().join("qmp.sock");
+        let serial_log = if self.serial {
+            Some(tmpdir.path().join("serial.log"))
+        } else {
+            None
+        };
+
+        // --- KVM fd (Industry #49 — auto-detect) ---
+        let kvm_fd = match self.accel {
+            Some(Accel::Kvm) => Some(
+                KvmFd::open()
+                    .map_err(|e| anyhow::anyhow!("{e} — is process in kvm group?"))?,
+            ),
+            Some(Accel::Tcg) | None => None,
+            Some(Accel::KvmOrTcg) => match KvmFd::open() {
+                Ok(fd) => {
+                    tracing::info!("KVM available, using hardware acceleration");
+                    Some(fd)
+                }
+                Err(e) => {
+                    tracing::warn!("KVM unavailable ({e}), falling back to TCG");
+                    None
+                }
+            },
+        };
+
+        // --- Build QEMU args via helpers ---
+        let mut args: Vec<String> = Vec::new();
+        if self.display {
+            args.push("-S".into());
+        } else {
+            args.push("--preconfig".into());
+        }
+
+        // Machine args (with tracked index for SEV suffix)
+        let (machine_args, machine_idx) = self.build_machine_args()?;
+        let machine_idx_offset = args.len();
+        args.extend(machine_args);
+
+        // Accel args
+        args.extend(self.build_accel_args(&kvm_fd));
+
+        // SMP
         if let Some(cpus) = self.smp {
             args.extend(["-smp".into(), format!("cpus={}", cpus)]);
         }
@@ -464,38 +704,33 @@ impl VmBuilder {
             args.extend(["-cpu".into(), cpu.into()]);
         }
 
-        let vnc_sock = if self.display {
-            let sock = tmpdir.path().join("vnc.sock");
-            args.push("-nodefaults".into());
-            args.extend([
-                "-display".into(),
-                format!("vnc=unix:{}", sock.display()),
-            ]);
-            args.extend(["-vga".into(), "std".into()]);
-            Some(sock)
-        } else {
-            args.extend(["-nographic".into(), "-nodefaults".into()]);
-            None
-        };
+        // SEV-SNP args (may modify machine arg)
+        let (sev_args, machine_suffix) = self.build_sev_args()?;
+        if let Some(suffix) = machine_suffix {
+            if let Some(idx) = machine_idx {
+                let abs_idx = machine_idx_offset + idx;
+                args[abs_idx].push_str(&suffix);
+            }
+        }
+        args.extend(sev_args);
 
+        // Display args
+        let (display_args, vnc_sock) = self.build_display_args(tmpdir.path());
+        args.extend(display_args);
+
+        // QMP socket
         args.extend([
             "-qmp".into(),
             format!("unix:{},server=on,wait=off", qmp_sock.display()),
         ]);
 
+        // Serial
         if let Some(ref log) = serial_log {
             args.extend(["-serial".into(), format!("file:{}", log.display())]);
         }
 
-        if let Some(ref kernel) = self.kernel {
-            args.extend(["-kernel".into(), kernel.display().to_string()]);
-        }
-        if let Some(ref initrd) = self.initrd {
-            args.extend(["-initrd".into(), initrd.display().to_string()]);
-        }
-        if let Some(ref append) = self.append {
-            args.extend(["-append".into(), append.clone()]);
-        }
+        // Boot args
+        args.extend(self.build_boot_args());
 
         if self.no_shutdown {
             args.push("-no-shutdown".into());
