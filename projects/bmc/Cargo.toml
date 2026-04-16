@@ -35,6 +35,10 @@ version = "0.8"
 features = ["ws"]
 optional = true
 
+[dependencies.which]
+version = "7"
+optional = true
+
 [dependencies.async-stream]
 version = "0.3"
 optional = true
@@ -71,6 +75,7 @@ server = [
     "dep:futures",
     "dep:tower-http",
     "dep:tracing-subscriber",
+    "dep:which",
 ]
 web = ["dioxus/web"]
 

@@ -55,6 +55,8 @@ pub fn Dashboard() -> Element {
         kvm_info,
         console_available,
         serial_tail,
+        sev_status: _,
+        tpm_status: _,
     } = state_value;
 
     let current_phase = status.phase.clone();

@@ -1,6 +1,8 @@
 use dioxus::prelude::*;
 
-use crate::types::{BmcEvent, CpuInfoResponse, DashboardState, KvmInfoResponse, VmStatusResponse};
+use crate::types::{
+    BmcCapabilities, BmcEvent, CpuInfoResponse, DashboardState, KvmInfoResponse, VmStatusResponse,
+};
 #[cfg(feature = "server")]
 use crate::types::VmPhase;
 
@@ -337,6 +339,8 @@ pub async fn get_dashboard_state() -> Result<DashboardState, ServerFnError> {
         kvm_info,
         console_available,
         serial_tail,
+        sev_status: None,
+        tpm_status: None,
     })
 }
 
@@ -378,4 +382,10 @@ async fn read_serial_tail(path: Option<&std::path::Path>) -> String {
         }
     }
     buf
+}
+
+/// Query host capabilities (SEV, TPM, OVMF availability).
+#[server]
+pub async fn get_capabilities() -> Result<BmcCapabilities, ServerFnError> {
+    Ok(crate::state::query_capabilities())
 }
