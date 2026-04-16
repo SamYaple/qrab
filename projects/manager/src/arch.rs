@@ -59,6 +59,14 @@ impl Arch {
         }
     }
 
+    /// Machine type string for SecureBoot (same as UEFI but with SMM).
+    pub fn secure_boot_machine(&self) -> Option<&'static str> {
+        match self {
+            Arch::X86_64 | Arch::I386 => Some("q35"),
+            _ => None, // SecureBoot only on x86
+        }
+    }
+
     /// CPU model for this architecture, if one must be specified.
     pub fn cpu(&self) -> Option<&'static str> {
         match self {
@@ -95,16 +103,6 @@ pub enum MachineConfig {
     Uefi { memory: String },
     /// UEFI Secure Boot: q35 + SMM + secure pflash (x86 only)
     SecureBoot { memory: String },
-}
-
-impl Arch {
-    /// Machine type for Secure Boot. Only x86 supports this (q35 + SMM).
-    pub fn secure_boot_machine(&self) -> Option<&'static str> {
-        match self {
-            Arch::X86_64 | Arch::I386 => Some("q35"),
-            Arch::Aarch64 | Arch::Arm => None,
-        }
-    }
 }
 
 /// Detect the QEMU version for a given architecture by running `--version`.

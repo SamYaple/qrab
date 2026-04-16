@@ -15,6 +15,7 @@ use qapi::QapiCommand;
 use qapi_protocol::{Qmp, QmpEvent};
 
 use crate::arch::{Arch, MachineConfig};
+use crate::firmware::{self, OvmfFirmware};
 use crate::namespace::{InitConfig, KvmFd, NsHelper};
 use crate::swtpm::SwtpmProcess;
 
@@ -248,6 +249,10 @@ pub struct VmBuilder {
     display: bool,
     no_shutdown: bool,
     firmware: Option<PathBuf>,
+    /// Discovered OVMF firmware (auto-detected or from explicit paths)
+    ovmf: Option<OvmfFirmware>,
+    /// Use SecureBoot pflash mode
+    secure_boot: bool,
     accel: Option<Accel>,
     smp: Option<u32>,
     cpu: Option<String>,
@@ -357,6 +362,8 @@ impl VmBuilder {
             display: false,
             no_shutdown: false,
             firmware: None,
+            ovmf: None,
+            secure_boot: false,
             accel: None,
             smp: None,
             cpu: None,
@@ -413,6 +420,23 @@ impl VmBuilder {
         self
     }
 
+    /// Set discovered OVMF firmware for split pflash mode.
+    #[must_use]
+    pub fn ovmf(mut self, fw: OvmfFirmware) -> Self {
+        self.ovmf = Some(fw);
+        self
+    }
+
+    /// Enable SecureBoot pflash mode (x86 only).
+    ///
+    /// Requires OVMF secure firmware. If no `ovmf()` was set explicitly,
+    /// `find_ovmf(true)` is called automatically during spawn.
+    #[must_use]
+    pub fn secure_boot(mut self) -> Self {
+        self.secure_boot = true;
+        self
+    }
+
     /// Select the QEMU accelerator (`-accel`).
     ///
     /// Defaults to TCG (software emulation) when not set. Callers that
@@ -463,7 +487,7 @@ impl VmBuilder {
     /// Returns `(args, machine_arg_index)` where `machine_arg_index` is
     /// the index of the machine type value in `args` (for later SEV
     /// modification).
-    fn build_machine_args(&self) -> Result<(Vec<String>, Option<usize>)> {
+    fn build_machine_args(&self, tmpdir: &tempfile::TempDir) -> Result<(Vec<String>, Option<usize>)> {
         let mut args: Vec<String> = Vec::new();
         let mut machine_idx = None;
 
@@ -516,7 +540,27 @@ impl VmBuilder {
                     }
                 }
 
-                if let Some(ref fw) = self.firmware {
+                // Prefer split pflash (ovmf) over -bios when available.
+                if let Some(ref ovmf) = self.ovmf {
+                    let vars_copy = firmware::prepare_vars_copy(
+                        &ovmf.vars_template,
+                        tmpdir.path(),
+                    )?;
+                    args.extend([
+                        "-drive".into(),
+                        format!(
+                            "if=pflash,format=raw,readonly=on,file={}",
+                            ovmf.code.display()
+                        ),
+                    ]);
+                    args.extend([
+                        "-drive".into(),
+                        format!(
+                            "if=pflash,format=raw,file={}",
+                            vars_copy.display()
+                        ),
+                    ]);
+                } else if let Some(ref fw) = self.firmware {
                     match self.arch {
                         Arch::X86_64 | Arch::I386 => {
                             args.extend(["-bios".into(), fw.display().to_string()]);
@@ -532,6 +576,60 @@ impl VmBuilder {
                         }
                     }
                 }
+            }
+            MachineConfig::SecureBoot { memory } => {
+                validate_memory(memory)?;
+                let machine = self.arch.secure_boot_machine().ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "SecureBoot not supported for architecture {:?}",
+                        self.arch
+                    )
+                })?;
+                args.extend(["-machine".into(), format!("{machine},smm=on")]);
+                args.extend([
+                    "-global".into(),
+                    "driver=cfi.pflash01,property=secure,value=on".into(),
+                ]);
+                args.extend(["-m".into(), memory.clone()]);
+
+                // PCIe root ports for q35.
+                for i in 0..4 {
+                    args.extend([
+                        "-device".into(),
+                        format!(
+                            "pcie-root-port,id=rp{i},slot={i},chassis={i},bus=pcie.0"
+                        ),
+                    ]);
+                }
+
+                // Resolve OVMF firmware: explicit ovmf > auto-detect > error.
+                let ovmf = match self.ovmf {
+                    Some(ref fw) => fw.clone(),
+                    None => firmware::find_ovmf(true).ok_or_else(|| {
+                        anyhow::anyhow!(
+                            "SecureBoot requires OVMF firmware but none found on system"
+                        )
+                    })?,
+                };
+
+                let vars_copy = firmware::prepare_vars_copy(
+                    &ovmf.vars_template,
+                    tmpdir.path(),
+                )?;
+                args.extend([
+                    "-drive".into(),
+                    format!(
+                        "if=pflash,format=raw,readonly=on,file={}",
+                        ovmf.code.display()
+                    ),
+                ]);
+                args.extend([
+                    "-drive".into(),
+                    format!(
+                        "if=pflash,format=raw,file={}",
+                        vars_copy.display()
+                    ),
+                ]);
             }
         }
 
@@ -773,7 +871,7 @@ impl VmBuilder {
         }
 
         // Machine args (with tracked index for SEV suffix)
-        let (machine_args, machine_idx) = self.build_machine_args()?;
+        let (machine_args, machine_idx) = self.build_machine_args(&tmpdir)?;
         let machine_idx_offset = args.len();
         args.extend(machine_args);
 
