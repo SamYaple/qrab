@@ -95,6 +95,18 @@ pub struct BmcConfig {
     pub kvm: bool,
     #[serde(default)]
     pub disks: Vec<DiskConfig>,
+    /// Enable UEFI SecureBoot (requires UEFI machine, OVMF secure firmware).
+    #[serde(default)]
+    pub secure_boot: bool,
+    /// SEV-SNP configuration (None = disabled).
+    #[serde(default)]
+    pub sev_snp: Option<BmcSevSnpConfig>,
+    /// TPM configuration (None = disabled).
+    #[serde(default)]
+    pub tpm: Option<BmcTpmConfig>,
+    /// Custom firmware path override.
+    #[serde(default)]
+    pub firmware_path: Option<PathBuf>,
 }
 
 /// CPU information response DTO.
@@ -140,6 +152,8 @@ pub struct DashboardState {
     pub kvm_info: KvmInfoResponse,
     pub console_available: bool,
     pub serial_tail: String,
+    pub sev_status: Option<SevStatusResponse>,
+    pub tpm_status: Option<TpmStatusResponse>,
 }
 
 impl Default for DashboardState {
@@ -163,6 +177,8 @@ impl Default for DashboardState {
             },
             console_available: false,
             serial_tail: String::new(),
+            sev_status: None,
+            tpm_status: None,
         }
     }
 }
@@ -176,6 +192,88 @@ impl Default for BmcConfig {
             display: true,
             kvm: true,
             disks: Vec::new(),
+            secure_boot: false,
+            sev_snp: None,
+            tpm: None,
+            firmware_path: None,
         }
     }
+}
+
+/// SEV-SNP configuration for BMC.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BmcSevSnpConfig {
+    /// SNP policy (default: 0x30000).
+    #[serde(default)]
+    pub policy: Option<u64>,
+    /// Reduced physical address bits (default: 1).
+    #[serde(default = "default_reduced_phys_bits")]
+    pub reduced_phys_bits: u32,
+    /// ID block for attestation (base64).
+    #[serde(default)]
+    pub id_block: Option<String>,
+    /// Host-provided data blob (base64).
+    #[serde(default)]
+    pub host_data: Option<String>,
+}
+
+fn default_reduced_phys_bits() -> u32 {
+    1
+}
+
+impl Default for BmcSevSnpConfig {
+    fn default() -> Self {
+        Self {
+            policy: None,
+            reduced_phys_bits: 1,
+            id_block: None,
+            host_data: None,
+        }
+    }
+}
+
+/// TPM configuration for BMC.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BmcTpmConfig {
+    pub backend: BmcTpmBackend,
+    /// Persist vTPM state across reboots.
+    #[serde(default)]
+    pub persistent: bool,
+}
+
+/// TPM backend selection.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum BmcTpmBackend {
+    Emulated,
+    Passthrough,
+}
+
+/// Host capability detection result.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BmcCapabilities {
+    pub kvm_available: bool,
+    pub sev_available: bool,
+    pub sev_snp_available: bool,
+    pub tpm_passthrough_available: bool,
+    pub swtpm_available: bool,
+    pub ovmf_found: bool,
+    pub ovmf_secure_found: bool,
+}
+
+/// SEV status from a running VM.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SevStatusResponse {
+    pub enabled: bool,
+    pub sev_type: Option<String>,
+    pub state: Option<String>,
+    pub api_version: Option<String>,
+}
+
+/// TPM status from a running VM.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TpmStatusResponse {
+    pub present: bool,
+    pub model: Option<String>,
+    pub backend_type: Option<String>,
 }

@@ -12,8 +12,8 @@ use manager::vm::{PreconfigVm, Vm, VmBuilder};
 use qapi_protocol::QmpEvent;
 
 use crate::types::{
-    BmcArch, BmcConfig, BmcMachine, CpuInfoResponse, DiskConfig, DiskFormat, KvmInfoResponse,
-    VmPhase,
+    BmcArch, BmcCapabilities, BmcConfig, BmcMachine, BmcTpmBackend, CpuInfoResponse, DiskConfig,
+    DiskFormat, KvmInfoResponse, VmPhase,
 };
 
 const EVENT_HISTORY_CAP: usize = 1000;
@@ -103,8 +103,40 @@ impl BmcState {
         *self.cached_static.lock().await = None;
 
         let config = self.config.lock().await.clone();
+
+        // --- Validation ---
+        if config.secure_boot && config.machine != BmcMachine::Uefi {
+            bail!("SecureBoot requires UEFI machine type");
+        }
+        if config.sev_snp.is_some() {
+            if !config.kvm {
+                bail!("SEV-SNP requires KVM acceleration");
+            }
+            if config.machine != BmcMachine::Uefi {
+                bail!("SEV-SNP requires UEFI machine type");
+            }
+            if config.arch != BmcArch::X86_64 {
+                bail!("SEV-SNP requires x86_64 architecture");
+            }
+        }
+        if let Some(ref tpm) = config.tpm {
+            match tpm.backend {
+                BmcTpmBackend::Emulated => {
+                    if which::which("swtpm").is_err() {
+                        bail!("TPM emulated backend requires swtpm but it was not found in PATH");
+                    }
+                }
+                BmcTpmBackend::Passthrough => {
+                    if !std::path::Path::new("/dev/tpm0").exists() {
+                        tracing::warn!("/dev/tpm0 not found; TPM passthrough may fail");
+                    }
+                }
+            }
+        }
+
         let arch = arch_to_manager(config.arch);
-        let machine_config = machine_to_manager(config.machine, config.memory.clone());
+        let machine_config =
+            machine_to_manager(config.machine, config.memory.clone(), config.secure_boot);
 
         let mut builder = VmBuilder::new(arch, machine_config).serial();
         if config.kvm {
@@ -116,10 +148,56 @@ impl BmcState {
             builder = builder.display();
         }
 
-        if matches!(config.machine, BmcMachine::Uefi) {
-            if let Some(fw) = find_ovmf() {
-                builder = builder.firmware(fw);
+        // Firmware: custom path, or auto-discover OVMF for UEFI/SecureBoot.
+        if let Some(ref fw_path) = config.firmware_path {
+            builder = builder.firmware(fw_path.clone());
+        } else if matches!(config.machine, BmcMachine::Uefi) {
+            if let Some(fw) = manager::firmware::find_ovmf(config.secure_boot) {
+                builder = builder.ovmf(fw);
             }
+        }
+
+        // SecureBoot flag on builder (enables SMM, pflash secure mode).
+        if config.secure_boot {
+            builder = builder.secure_boot();
+        }
+
+        // SEV-SNP
+        if let Some(ref sev) = config.sev_snp {
+            let sev_config = manager::vm::SevSnpConfig {
+                sev_device: None,
+                policy: sev.policy,
+                reduced_phys_bits: sev.reduced_phys_bits,
+                id_block: sev.id_block.clone(),
+                id_auth: None,
+                author_key_enabled: None,
+                kernel_hashes: None,
+                host_data: sev.host_data.clone(),
+                vcek_disabled: None,
+            };
+            builder = builder.sev_snp(sev_config);
+        }
+
+        // TPM
+        if let Some(ref tpm) = config.tpm {
+            let tpm_config = match tpm.backend {
+                BmcTpmBackend::Emulated => manager::vm::TpmConfig {
+                    backend: manager::vm::TpmBackend::Emulated {
+                        swtpm_binary: None,
+                        state_dir: if tpm.persistent {
+                            Some(tpm_state_dir())
+                        } else {
+                            None
+                        },
+                    },
+                    model: None,
+                },
+                BmcTpmBackend::Passthrough => manager::vm::TpmConfig {
+                    backend: manager::vm::TpmBackend::Passthrough { path: None },
+                    model: None,
+                },
+            };
+            builder = builder.tpm(tpm_config);
         }
 
         let mut paused_vm = builder.spawn().await?;
@@ -314,11 +392,17 @@ fn arch_to_manager(arch: BmcArch) -> Arch {
     }
 }
 
-fn machine_to_manager(machine: BmcMachine, memory: String) -> MachineConfig {
+fn machine_to_manager(machine: BmcMachine, memory: String, secure_boot: bool) -> MachineConfig {
     match machine {
         BmcMachine::None => MachineConfig::None,
         BmcMachine::Bios => MachineConfig::Bios { memory },
-        BmcMachine::Uefi => MachineConfig::Uefi { memory },
+        BmcMachine::Uefi => {
+            if secure_boot {
+                MachineConfig::SecureBoot { memory }
+            } else {
+                MachineConfig::Uefi { memory }
+            }
+        }
     }
 }
 
@@ -483,14 +567,33 @@ async fn attach_disks(preconfig: &PreconfigVm, disks: &[DiskConfig]) -> Result<(
     Ok(())
 }
 
-/// Search common system paths for OVMF firmware.
-fn find_ovmf() -> Option<PathBuf> {
-    let candidates = [
-        "/usr/share/edk2-ovmf/OVMF_CODE.fd",
-        "/usr/share/OVMF/OVMF_CODE.fd",
-        "/usr/share/qemu/edk2-x86_64-code.fd",
-    ];
-    candidates.iter().map(Path::new).find(|p| p.exists()).map(PathBuf::from)
+/// Probe host capabilities for SEV, TPM, OVMF.
+pub fn query_capabilities() -> BmcCapabilities {
+    BmcCapabilities {
+        kvm_available: std::path::Path::new("/dev/kvm").exists(),
+        sev_available: std::path::Path::new("/dev/sev").exists(),
+        sev_snp_available: std::fs::read_to_string("/sys/module/kvm_amd/parameters/sev_snp")
+            .map(|s| s.trim() == "Y")
+            .unwrap_or(false),
+        tpm_passthrough_available: std::path::Path::new("/dev/tpm0").exists(),
+        swtpm_available: which::which("swtpm").is_ok(),
+        ovmf_found: manager::firmware::find_ovmf(false).is_some(),
+        ovmf_secure_found: manager::firmware::find_ovmf(true).is_some(),
+    }
+}
+
+/// Persistent TPM state directory. Created under the project target dir
+/// so vTPM state survives VM reboots but is cleaned up with `cargo clean`.
+fn tpm_state_dir() -> PathBuf {
+    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .join("target")
+        .join("tpm-state");
+    let _ = std::fs::create_dir_all(&dir);
+    dir
 }
 
 /// Create a temporary qcow2 overlay backed by the given base image.
