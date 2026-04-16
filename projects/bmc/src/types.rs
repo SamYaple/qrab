@@ -174,7 +174,7 @@ impl Default for BmcConfig {
             machine: BmcMachine::Uefi,
             memory: "256M".into(),
             display: true,
-            kvm: false,
+            kvm: true,
             disks: Vec::new(),
         }
     }

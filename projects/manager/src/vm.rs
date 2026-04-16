@@ -16,6 +16,7 @@ use qapi_protocol::{Qmp, QmpEvent};
 
 use crate::arch::{Arch, MachineConfig};
 use crate::namespace::{InitConfig, KvmFd, NsHelper};
+use crate::swtpm::SwtpmProcess;
 
 /// Minimum QEMU version. 7.2.0 added `-accel kvm,device=` support for KVM
 /// fd passing, which qrab requires for namespace-isolated KVM access. Also
@@ -142,6 +143,7 @@ struct VmProcess {
     qmp_sock: PathBuf,
     serial_log: Option<PathBuf>,
     vnc_sock: Option<PathBuf>,
+    swtpm: Option<SwtpmProcess>,
 }
 
 impl VmProcess {
@@ -202,6 +204,9 @@ impl VmProcess {
         if let Some(h) = self.monitor.take() {
             let _ = h.await;
         }
+        if let Some(ref mut swtpm) = self.swtpm {
+            swtpm.cleanup().await;
+        }
     }
 }
 
@@ -247,6 +252,7 @@ pub struct VmBuilder {
     smp: Option<u32>,
     cpu: Option<String>,
     sev_snp: Option<SevSnpConfig>,
+    tpm: Option<TpmConfig>,
     extra_args: Vec<String>,
 }
 
@@ -263,6 +269,79 @@ pub enum Accel {
     Tcg,
     /// Prefer KVM, fall back to TCG if KVM is unavailable.
     KvmOrTcg,
+}
+
+/// TPM backend selection.
+#[derive(Debug, Clone)]
+pub enum TpmBackend {
+    /// Passthrough host TPM device.
+    Passthrough {
+        /// Device path (default: "/dev/tpm0").
+        path: Option<PathBuf>,
+    },
+    /// Software TPM via swtpm.
+    Emulated {
+        /// swtpm binary path (auto-discovered if None).
+        swtpm_binary: Option<PathBuf>,
+        /// State directory for persistent TPM state.
+        /// If None, uses ephemeral dir in VM's tmpdir (lost on shutdown).
+        state_dir: Option<PathBuf>,
+    },
+}
+
+/// TPM configuration for a VM.
+#[derive(Debug, Clone)]
+pub struct TpmConfig {
+    pub backend: TpmBackend,
+    /// TPM frontend model. Default: CRB (recommended for q35/UEFI).
+    /// Use TIS for legacy BIOS machines.
+    pub model: Option<TpmModel>,
+}
+
+/// TPM frontend model selection.
+#[derive(Debug, Clone, Copy)]
+pub enum TpmModel {
+    /// TPM CRB (Command Response Buffer) — modern, for UEFI/q35.
+    Crb,
+    /// TPM TIS (TPM Interface Specification) — legacy, for pc/BIOS.
+    Tis,
+}
+
+/// Build QEMU CLI args for TPM passthrough or emulated backend.
+fn build_tpm_args(config: &TpmConfig, swtpm_sock: Option<&Path>, is_bios: bool) -> Vec<String> {
+    let mut args = Vec::new();
+
+    match &config.backend {
+        TpmBackend::Passthrough { path } => {
+            let dev_path = path
+                .as_deref()
+                .unwrap_or(Path::new("/dev/tpm0"));
+            args.extend([
+                "-tpmdev".into(),
+                format!("passthrough,id=tpm0,path={}", dev_path.display()),
+            ]);
+        }
+        TpmBackend::Emulated { .. } => {
+            let sock = swtpm_sock.expect("swtpm_sock required for emulated TPM");
+            args.extend([
+                "-chardev".into(),
+                format!("socket,id=chrtpm,path={}", sock.display()),
+                "-tpmdev".into(),
+                "emulator,id=tpm0,chardev=chrtpm".into(),
+            ]);
+        }
+    }
+
+    // Model: explicit override > BIOS heuristic > CRB default.
+    let model = match config.model {
+        Some(TpmModel::Tis) => "tpm-tis",
+        Some(TpmModel::Crb) => "tpm-crb",
+        None if is_bios => "tpm-tis",
+        None => "tpm-crb",
+    };
+    args.extend(["-device".into(), format!("{model},tpmdev=tpm0")]);
+
+    args
 }
 
 impl VmBuilder {
@@ -282,6 +361,7 @@ impl VmBuilder {
             smp: None,
             cpu: None,
             sev_snp: None,
+            tpm: None,
             extra_args: Vec::new(),
         }
     }
@@ -361,6 +441,13 @@ impl VmBuilder {
     #[must_use]
     pub fn cpu(mut self, model: impl Into<String>) -> Self {
         self.cpu = Some(model.into());
+        self
+    }
+
+    /// Configure a TPM device (passthrough or emulated via swtpm).
+    #[must_use]
+    pub fn tpm(mut self, config: TpmConfig) -> Self {
+        self.tpm = Some(config);
         self
     }
 
@@ -736,6 +823,48 @@ impl VmBuilder {
             args.push("-no-shutdown".into());
         }
 
+        // --- TPM ---
+        let is_bios = matches!(self.config, MachineConfig::Bios { .. });
+        let mut swtpm_process: Option<SwtpmProcess> = None;
+
+        if let Some(ref tpm_config) = self.tpm {
+            match &tpm_config.backend {
+                TpmBackend::Passthrough { path } => {
+                    let dev_path = path
+                        .as_deref()
+                        .unwrap_or(Path::new("/dev/tpm0"));
+                    anyhow::ensure!(
+                        dev_path.exists(),
+                        "TPM passthrough device {} does not exist",
+                        dev_path.display()
+                    );
+                    let meta = std::fs::metadata(dev_path)?;
+                    use std::os::unix::fs::FileTypeExt;
+                    anyhow::ensure!(
+                        meta.file_type().is_char_device(),
+                        "TPM passthrough path {} is not a character device",
+                        dev_path.display()
+                    );
+                }
+                TpmBackend::Emulated {
+                    swtpm_binary,
+                    state_dir,
+                } => {
+                    let swtpm = SwtpmProcess::spawn(
+                        tmpdir.path(),
+                        state_dir.clone(),
+                        swtpm_binary.as_deref(),
+                    )
+                    .await?;
+                    swtpm_process = Some(swtpm);
+                }
+            }
+
+            let swtpm_sock = swtpm_process.as_ref().map(|s| s.sock());
+            let tpm_args = build_tpm_args(tpm_config, swtpm_sock, is_bios);
+            args.extend(tpm_args);
+        }
+
         args.extend(self.extra_args);
 
         // --- Pipes for namespace sync + config transport ---
@@ -908,6 +1037,7 @@ impl VmBuilder {
                 qmp_sock,
                 serial_log,
                 vnc_sock,
+                swtpm: swtpm_process,
             },
             paused_mode: self.display,
         })
