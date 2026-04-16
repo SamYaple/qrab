@@ -508,19 +508,9 @@ impl VmBuilder {
                 args.push(machine.into());
                 args.extend(["-m".into(), memory.clone()]);
             }
-            MachineConfig::Uefi { memory } | MachineConfig::SecureBoot { memory } => {
+            MachineConfig::Uefi { memory } => {
                 validate_memory(memory)?;
-                let machine = match &self.config {
-                    MachineConfig::SecureBoot { .. } => {
-                        self.arch.secure_boot_machine().ok_or_else(|| {
-                            anyhow::anyhow!(
-                                "Secure Boot not supported for architecture {:?}",
-                                self.arch
-                            )
-                        })?
-                    }
-                    _ => self.arch.uefi_machine(),
-                };
+                let machine = self.arch.uefi_machine();
                 args.push("-machine".into());
                 machine_idx = Some(args.len());
                 args.push(machine.into());
