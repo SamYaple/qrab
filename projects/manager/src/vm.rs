@@ -534,14 +534,26 @@ impl VmBuilder {
                     }
                 }
 
-                // SEV-SNP: pflash is incompatible with KVM encrypted
-                // memory regions. Fall back to -bios which loads firmware
-                // into RAM instead.
+                // SEV uses AmdSev OVMF as a single readonly pflash
+                // (combined CODE, no separate VARS). Non-SEV uses split
+                // pflash with writable VARS for UEFI variable persistence.
                 if self.sev_snp.is_some() {
-                    if let Some(ref ovmf) = self.ovmf {
-                        args.extend(["-bios".into(), ovmf.code.display().to_string()]);
-                    } else if let Some(ref fw) = self.firmware {
-                        args.extend(["-bios".into(), fw.display().to_string()]);
+                    if let Some(ref fw) = self.firmware {
+                        args.extend([
+                            "-drive".into(),
+                            format!(
+                                "if=pflash,format=raw,readonly=on,file={}",
+                                fw.display()
+                            ),
+                        ]);
+                    } else if let Some(ref ovmf) = self.ovmf {
+                        args.extend([
+                            "-drive".into(),
+                            format!(
+                                "if=pflash,format=raw,readonly=on,file={}",
+                                ovmf.code.display()
+                            ),
+                        ]);
                     }
                 } else if let Some(ref ovmf) = self.ovmf {
                     // Normal (non-SEV): split pflash for UEFI vars persistence.
@@ -616,8 +628,14 @@ impl VmBuilder {
                 };
 
                 if self.sev_snp.is_some() {
-                    // SEV-SNP: pflash incompatible, use -bios.
-                    args.extend(["-bios".into(), ovmf.code.display().to_string()]);
+                    // SEV: single readonly pflash (AmdSev OVMF, no VARS).
+                    args.extend([
+                        "-drive".into(),
+                        format!(
+                            "if=pflash,format=raw,readonly=on,file={}",
+                            ovmf.code.display()
+                        ),
+                    ]);
                 } else {
                     let vars_copy = firmware::prepare_vars_copy(
                         &ovmf.vars_template,
@@ -678,25 +696,28 @@ impl VmBuilder {
         None
     }
 
-    /// Build SEV-SNP arguments: sev-snp-guest object + memory backend.
+    /// Build SEV arguments: sev-guest or sev-snp-guest object.
+    ///
+    /// Uses `sev-guest` (SEV without SNP) by default. SNP requires kernel
+    /// support for readonly memory slots in confidential VMs which is not
+    /// yet available in all kernels — `sev-guest` works on any kernel with
+    /// SEV enabled.
     ///
     /// Returns `(args, machine_suffix)` where `machine_suffix` is a string
     /// to append to the `-machine` argument value (e.g.
-    /// `,confidential-guest-support=sev0,memory-backend=mem0`).
+    /// `,confidential-guest-support=sev0`).
     fn build_sev_args(&self) -> Result<(Vec<String>, Option<String>)> {
         let sev = match &self.sev_snp {
             Some(s) => s,
             None => return Ok((Vec::new(), None)),
         };
 
-        let memory_size = match &self.config {
-            MachineConfig::Uefi { memory } | MachineConfig::SecureBoot { memory } => memory,
-            _ => anyhow::bail!("SEV-SNP requires UEFI or SecureBoot machine config"),
-        };
-
-        // Build -object sev-snp-guest,id=sev0,...
+        // Build -object sev-guest,id=sev0,...
+        // Using sev-guest (not sev-snp-guest) for compatibility — SNP
+        // VMs lack KVM_CAP_READONLY_MEM on current kernels, which
+        // prevents pflash from working.
         let mut obj = format!(
-            "sev-snp-guest,id=sev0,reduced-phys-bits={}",
+            "sev-guest,id=sev0,reduced-phys-bits={}",
             sev.reduced_phys_bits
         );
 
@@ -713,35 +734,14 @@ impl VmBuilder {
         if let Some(policy) = sev.policy {
             obj.push_str(&format!(",policy={policy}"));
         }
-        if let Some(ref id_block) = sev.id_block {
-            obj.push_str(&format!(",id-block={id_block}"));
-        }
-        if let Some(ref id_auth) = sev.id_auth {
-            obj.push_str(&format!(",id-auth={id_auth}"));
-        }
-        if let Some(true) = sev.author_key_enabled {
-            obj.push_str(",author-key-enabled=on");
-        }
         if let Some(true) = sev.kernel_hashes {
             obj.push_str(",kernel-hashes=on");
         }
-        if let Some(ref host_data) = sev.host_data {
-            obj.push_str(&format!(",host-data={host_data}"));
-        }
-        if let Some(true) = sev.vcek_disabled {
-            obj.push_str(",vcek-disabled=on");
-        }
 
-        let mut args = vec!["-object".into(), obj];
+        let args = vec!["-object".into(), obj];
 
-        // Memory backend: SEV-SNP needs memfd with share=on
-        let mem_obj = format!(
-            "memory-backend-memfd,id=mem0,size={memory_size},share=on"
-        );
-        args.extend(["-object".into(), mem_obj]);
-
-        // Append to -machine: confidential-guest-support + memory-backend
-        let suffix = ",confidential-guest-support=sev0,memory-backend=mem0".to_string();
+        // Append to -machine: confidential-guest-support
+        let suffix = ",confidential-guest-support=sev0".to_string();
 
         Ok((args, Some(suffix)))
     }
