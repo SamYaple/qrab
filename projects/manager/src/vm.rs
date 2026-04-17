@@ -48,6 +48,8 @@ pub struct SevSnpConfig {
     pub host_data: Option<String>,
     /// Disable VCEK usage
     pub vcek_disabled: Option<bool>,
+    /// Guest-visible workarounds blob (base64, 16 bytes decoded)
+    pub guest_visible_workarounds: Option<String>,
 }
 
 impl Default for SevSnpConfig {
@@ -63,7 +65,93 @@ impl Default for SevSnpConfig {
             kernel_hashes: None,
             host_data: None,
             vcek_disabled: None,
+            guest_visible_workarounds: None,
         }
+    }
+}
+
+impl SevSnpConfig {
+    /// Create a new `SevSnpConfig` with default values.
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Set the SNP policy value.
+    #[must_use]
+    pub fn policy(mut self, p: u64) -> Self {
+        self.policy = Some(p);
+        self
+    }
+
+    /// Set the ID block (base64-encoded, 96 bytes decoded).
+    #[must_use]
+    pub fn id_block(mut self, b: String) -> Self {
+        self.id_block = Some(b);
+        self
+    }
+
+    /// Set the ID auth structure (base64-encoded, 4096 bytes decoded).
+    #[must_use]
+    pub fn id_auth(mut self, a: String) -> Self {
+        self.id_auth = Some(a);
+        self
+    }
+
+    /// Set the host-provided data blob (base64-encoded, 32 bytes decoded).
+    #[must_use]
+    pub fn host_data(mut self, h: String) -> Self {
+        self.host_data = Some(h);
+        self
+    }
+
+    /// Enable or disable the author key in the ID auth structure.
+    #[must_use]
+    pub fn author_key_enabled(mut self, enabled: bool) -> Self {
+        self.author_key_enabled = Some(enabled);
+        self
+    }
+
+    /// Enable or disable VCEK usage.
+    #[must_use]
+    pub fn vcek_disabled(mut self, disabled: bool) -> Self {
+        self.vcek_disabled = Some(disabled);
+        self
+    }
+
+    /// Enable or disable kernel hashes for measured boot with -kernel.
+    #[must_use]
+    pub fn kernel_hashes(mut self, enabled: bool) -> Self {
+        self.kernel_hashes = Some(enabled);
+        self
+    }
+
+    /// Set the guest-visible workarounds blob (base64-encoded, 16 bytes decoded).
+    #[must_use]
+    pub fn guest_visible_workarounds(mut self, w: String) -> Self {
+        self.guest_visible_workarounds = Some(w);
+        self
+    }
+
+    /// Set the SEV device path (default: "/dev/sev").
+    #[must_use]
+    pub fn sev_device(mut self, path: PathBuf) -> Self {
+        self.sev_device = Some(path);
+        self
+    }
+
+    /// Set the C-bit position. Auto-detected from CPUID when not set.
+    #[must_use]
+    pub fn cbitpos(mut self, pos: u32) -> Self {
+        self.cbitpos = Some(pos);
+        self
+    }
+
+    /// Set the reduced physical address bits (default: 1).
+    #[must_use]
+    pub fn reduced_phys_bits(mut self, bits: u32) -> Self {
+        self.reduced_phys_bits = bits;
+        self
     }
 }
 
@@ -696,12 +784,7 @@ impl VmBuilder {
         None
     }
 
-    /// Build SEV arguments: sev-guest or sev-snp-guest object.
-    ///
-    /// Uses `sev-guest` (SEV without SNP) by default. SNP requires kernel
-    /// support for readonly memory slots in confidential VMs which is not
-    /// yet available in all kernels — `sev-guest` works on any kernel with
-    /// SEV enabled.
+    /// Build SEV-SNP arguments: `-object sev-snp-guest,...`.
     ///
     /// Returns `(args, machine_suffix)` where `machine_suffix` is a string
     /// to append to the `-machine` argument value (e.g.
@@ -712,17 +795,13 @@ impl VmBuilder {
             None => return Ok((Vec::new(), None)),
         };
 
-        // Build -object sev-guest,id=sev0,...
-        // Using sev-guest (not sev-snp-guest) for compatibility — SNP
-        // VMs lack KVM_CAP_READONLY_MEM on current kernels, which
-        // prevents pflash from working.
         let mut obj = format!(
-            "sev-guest,id=sev0,reduced-phys-bits={}",
+            "sev-snp-guest,id=sev0,reduced-phys-bits={}",
             sev.reduced_phys_bits
         );
 
         // C-bit position: use explicit value, auto-detect from CPUID, or
-        // bail. QEMU versions that don't auto-detect will fail without it.
+        // let QEMU auto-detect (newer QEMU versions handle this).
         let cbitpos = sev.cbitpos.or_else(Self::detect_cbitpos);
         if let Some(pos) = cbitpos {
             obj.push_str(&format!(",cbitpos={pos}"));
@@ -736,6 +815,24 @@ impl VmBuilder {
         }
         if let Some(true) = sev.kernel_hashes {
             obj.push_str(",kernel-hashes=on");
+        }
+        if let Some(ref id_block) = sev.id_block {
+            obj.push_str(&format!(",id-block={id_block}"));
+        }
+        if let Some(ref id_auth) = sev.id_auth {
+            obj.push_str(&format!(",id-auth={id_auth}"));
+        }
+        if let Some(ref host_data) = sev.host_data {
+            obj.push_str(&format!(",host-data={host_data}"));
+        }
+        if let Some(true) = sev.author_key_enabled {
+            obj.push_str(",author-key-enabled=on");
+        }
+        if let Some(true) = sev.vcek_disabled {
+            obj.push_str(",vcek-disabled=on");
+        }
+        if let Some(ref gvw) = sev.guest_visible_workarounds {
+            obj.push_str(&format!(",guest-visible-workarounds={gvw}"));
         }
 
         let args = vec!["-object".into(), obj];
@@ -821,16 +918,51 @@ impl VmBuilder {
             );
         }
 
-        // Check /dev/sev exists
-        let sev_path = self.sev_snp.as_ref()
-            .and_then(|s| s.sev_device.as_ref())
-            .map(|p| p.as_path())
-            .unwrap_or(Path::new("/dev/sev"));
-        if !sev_path.exists() {
+        // Check /dev/sev or /dev/sev-guest exists
+        let explicit_dev = self.sev_snp.as_ref().and_then(|s| s.sev_device.as_ref());
+        if let Some(dev) = explicit_dev {
+            if !dev.exists() {
+                anyhow::bail!(
+                    "SEV device {} not found — is AMD SEV enabled in BIOS and kernel?",
+                    dev.display()
+                );
+            }
+        } else if !Path::new("/dev/sev").exists() && !Path::new("/dev/sev-guest").exists() {
             anyhow::bail!(
-                "SEV device {} not found — is AMD SEV enabled in BIOS and kernel?",
-                sev_path.display()
+                "SEV device not found (tried /dev/sev and /dev/sev-guest) \
+                 — is AMD SEV enabled in BIOS and kernel?"
             );
+        }
+
+        // Verify SNP support in kernel module
+        let snp_param = Path::new("/sys/module/kvm_amd/parameters/sev_snp");
+        if snp_param.exists() {
+            if let Ok(val) = std::fs::read_to_string(snp_param) {
+                let val = val.trim();
+                if val != "1" && val != "Y" && val != "y" {
+                    anyhow::bail!(
+                        "SEV-SNP not enabled in kernel (kvm_amd.sev_snp={val})"
+                    );
+                }
+            }
+        }
+
+        // Verify firmware is AmdSev OVMF variant when SEV-SNP enabled
+        if let Some(ref fw) = self.firmware {
+            let name = fw.file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("");
+            let path_str = fw.display().to_string().to_lowercase();
+            if !name.to_lowercase().contains("amdsev")
+                && !path_str.contains("amdsev")
+                && !path_str.contains("amd-sev")
+                && !path_str.contains("amd_sev")
+            {
+                tracing::warn!(
+                    "SEV-SNP firmware path {} may not be an AmdSev OVMF variant",
+                    fw.display()
+                );
+            }
         }
 
         Ok(())
@@ -1365,6 +1497,35 @@ impl Vm {
         Ok(())
     }
 
+    // -- SEV-SNP attestation queries --
+
+    /// Query SEV status information.
+    #[must_use = "QMP command results should be checked for errors"]
+    pub async fn query_sev(&self) -> Result<qapi::SevInfo> {
+        self.execute(&qapi::commands::QuerySev {}).await
+    }
+
+    /// Query SEV capabilities (PDH, cert chain, C-bit position).
+    #[must_use = "QMP command results should be checked for errors"]
+    pub async fn query_sev_capabilities(&self) -> Result<qapi::SevCapability> {
+        self.execute(&qapi::commands::QuerySevCapabilities {}).await
+    }
+
+    /// Query SEV launch measurement for attestation.
+    #[must_use = "QMP command results should be checked for errors"]
+    pub async fn query_sev_launch_measure(&self) -> Result<qapi::SevLaunchMeasureInfo> {
+        self.execute(&qapi::commands::QuerySevLaunchMeasure {}).await
+    }
+
+    /// Query SEV attestation report with a nonce.
+    #[must_use = "QMP command results should be checked for errors"]
+    pub async fn query_sev_attestation_report(
+        &self,
+        mnonce: String,
+    ) -> Result<qapi::SevAttestationReport> {
+        self.execute(&qapi::commands::QuerySevAttestationReport { mnonce }).await
+    }
+
     /// Force-kill shutdown: disconnect QMP, kill the process immediately.
     ///
     /// For graceful shutdown with ACPI powerdown, use [`graceful_shutdown()`](Self::graceful_shutdown).
@@ -1436,6 +1597,9 @@ impl Vm {
 #[cfg(test)]
 mod tests {
     use super::validate_memory;
+    use super::SevSnpConfig;
+    use super::{Accel, VmBuilder};
+    use crate::arch::{Arch, MachineConfig};
 
     #[test]
     fn validate_memory_accepts_bare_integer() {
@@ -1509,5 +1673,148 @@ mod tests {
         // manager's validator deliberately requires integer input to
         // match the type used in `MachineConfig::{Bios,Uefi}`.
         assert!(validate_memory("1.5G").is_err());
+    }
+
+    // -- SevSnpConfig builder tests --
+
+    #[test]
+    fn sev_snp_config_builder_defaults() {
+        let cfg = SevSnpConfig::new();
+        assert_eq!(cfg.reduced_phys_bits, 1);
+        assert!(cfg.policy.is_none());
+        assert!(cfg.id_block.is_none());
+        assert!(cfg.id_auth.is_none());
+        assert!(cfg.host_data.is_none());
+        assert!(cfg.author_key_enabled.is_none());
+        assert!(cfg.vcek_disabled.is_none());
+        assert!(cfg.kernel_hashes.is_none());
+        assert!(cfg.guest_visible_workarounds.is_none());
+        assert!(cfg.sev_device.is_none());
+        assert!(cfg.cbitpos.is_none());
+    }
+
+    #[test]
+    fn sev_snp_config_builder_chained() {
+        let cfg = SevSnpConfig::new()
+            .policy(0x30000)
+            .id_block("aWRibG9jaw==".into())
+            .id_auth("aWRhdXRo".into())
+            .host_data("aG9zdGRhdGE=".into())
+            .author_key_enabled(true)
+            .vcek_disabled(true)
+            .kernel_hashes(true)
+            .guest_visible_workarounds("d29ya2Fyb3VuZHM=".into())
+            .reduced_phys_bits(2)
+            .cbitpos(51);
+
+        assert_eq!(cfg.policy, Some(0x30000));
+        assert_eq!(cfg.id_block.as_deref(), Some("aWRibG9jaw=="));
+        assert_eq!(cfg.id_auth.as_deref(), Some("aWRhdXRo"));
+        assert_eq!(cfg.host_data.as_deref(), Some("aG9zdGRhdGE="));
+        assert_eq!(cfg.author_key_enabled, Some(true));
+        assert_eq!(cfg.vcek_disabled, Some(true));
+        assert_eq!(cfg.kernel_hashes, Some(true));
+        assert_eq!(cfg.guest_visible_workarounds.as_deref(), Some("d29ya2Fyb3VuZHM="));
+        assert_eq!(cfg.reduced_phys_bits, 2);
+        assert_eq!(cfg.cbitpos, Some(51));
+    }
+
+    // -- build_sev_args tests --
+
+    fn make_sev_builder(sev: SevSnpConfig) -> VmBuilder {
+        VmBuilder::new(
+            Arch::X86_64,
+            MachineConfig::Uefi { memory: "4G".into() },
+        )
+        .accel(Accel::Kvm)
+        .cpu("EPYC-v4")
+        .sev_snp(sev)
+    }
+
+    #[test]
+    fn build_sev_args_minimal() {
+        let builder = make_sev_builder(SevSnpConfig::new());
+        let (args, suffix) = builder.build_sev_args().unwrap();
+
+        assert_eq!(args.len(), 2);
+        assert_eq!(args[0], "-object");
+        assert!(args[1].starts_with("sev-snp-guest,id=sev0,reduced-phys-bits=1"));
+        assert!(!args[1].contains("sev-guest,"));
+        assert_eq!(suffix, Some(",confidential-guest-support=sev0".into()));
+    }
+
+    #[test]
+    fn build_sev_args_no_sev() {
+        let builder = VmBuilder::new(
+            Arch::X86_64,
+            MachineConfig::Uefi { memory: "4G".into() },
+        );
+        let (args, suffix) = builder.build_sev_args().unwrap();
+        assert!(args.is_empty());
+        assert!(suffix.is_none());
+    }
+
+    #[test]
+    fn build_sev_args_full_snp_config() {
+        let sev = SevSnpConfig::new()
+            .policy(0x30000)
+            .id_block("aWRibG9jaw==".into())
+            .id_auth("aWRhdXRo".into())
+            .host_data("aG9zdGRhdGE=".into())
+            .author_key_enabled(true)
+            .vcek_disabled(true)
+            .kernel_hashes(true)
+            .guest_visible_workarounds("d29ya2Fyb3VuZHM=".into())
+            .cbitpos(51);
+
+        let builder = make_sev_builder(sev);
+        let (args, _) = builder.build_sev_args().unwrap();
+
+        let obj = &args[1];
+        assert!(obj.starts_with("sev-snp-guest,id=sev0,"));
+        assert!(obj.contains("reduced-phys-bits=1"));
+        assert!(obj.contains(",cbitpos=51"));
+        assert!(obj.contains(",policy=196608")); // 0x30000
+        assert!(obj.contains(",kernel-hashes=on"));
+        assert!(obj.contains(",id-block=aWRibG9jaw=="));
+        assert!(obj.contains(",id-auth=aWRhdXRo"));
+        assert!(obj.contains(",host-data=aG9zdGRhdGE="));
+        assert!(obj.contains(",author-key-enabled=on"));
+        assert!(obj.contains(",vcek-disabled=on"));
+        assert!(obj.contains(",guest-visible-workarounds=d29ya2Fyb3VuZHM="));
+    }
+
+    #[test]
+    fn build_sev_args_optional_fields_omitted_when_none() {
+        let sev = SevSnpConfig::new();
+        let builder = make_sev_builder(sev);
+        let (args, _) = builder.build_sev_args().unwrap();
+
+        let obj = &args[1];
+        assert!(!obj.contains("id-block="));
+        assert!(!obj.contains("id-auth="));
+        assert!(!obj.contains("host-data="));
+        assert!(!obj.contains("author-key-enabled="));
+        assert!(!obj.contains("vcek-disabled="));
+        assert!(!obj.contains("kernel-hashes="));
+        assert!(!obj.contains("guest-visible-workarounds="));
+        assert!(!obj.contains("policy="));
+    }
+
+    #[test]
+    fn build_sev_args_bool_false_not_emitted() {
+        let sev = SevSnpConfig {
+            author_key_enabled: Some(false),
+            vcek_disabled: Some(false),
+            kernel_hashes: Some(false),
+            ..SevSnpConfig::default()
+        };
+        let builder = make_sev_builder(sev);
+        let (args, _) = builder.build_sev_args().unwrap();
+
+        let obj = &args[1];
+        assert!(!obj.contains("author-key-enabled="));
+        assert!(!obj.contains("vcek-disabled="));
+        assert!(!obj.contains("kernel-hashes="));
     }
 }
