@@ -13,7 +13,7 @@ use qapi_protocol::QmpEvent;
 
 use crate::types::{
     BmcArch, BmcCapabilities, BmcConfig, BmcMachine, BmcTpmBackend, CpuInfoResponse, DiskConfig,
-    DiskFormat, KvmInfoResponse, VmPhase,
+    DiskFormat, KvmInfoResponse, SevStatusResponse, TpmStatusResponse, VmPhase,
 };
 
 const EVENT_HISTORY_CAP: usize = 1000;
@@ -32,6 +32,15 @@ pub enum VmState {
     ShuttingDown,
 }
 
+/// Static info cached once per Running VM session.
+#[derive(Clone)]
+pub struct CachedStaticInfo {
+    pub cpu_info: CpuInfoResponse,
+    pub kvm_info: KvmInfoResponse,
+    pub sev_status: Option<SevStatusResponse>,
+    pub tpm_status: Option<TpmStatusResponse>,
+}
+
 /// Central BMC state shared across server functions.
 ///
 /// VNC socket and serial log paths are NOT stored here separately. They live
@@ -43,12 +52,12 @@ pub struct BmcState {
     pub event_tx: broadcast::Sender<QmpEvent>,
     pub event_history: Arc<Mutex<VecDeque<QmpEvent>>>,
     pub config: Mutex<BmcConfig>,
-    /// Cached CPU/KVM info for the currently running VM. CPU topology and
-    /// KVM module status don't change for the lifetime of a QEMU process,
-    /// so the dashboard polling path queries them once per Running session
-    /// and reuses the cached values until the next force_off transition.
+    /// Cached CPU/KVM/security info for the currently running VM. These
+    /// don't change for the lifetime of a QEMU process, so the dashboard
+    /// polling path queries them once per Running session and reuses the
+    /// cached values until the next force_off transition.
     /// `None` while Off / ShuttingDown.
-    pub cached_static: Mutex<Option<(CpuInfoResponse, KvmInfoResponse)>>,
+    pub cached_static: Mutex<Option<CachedStaticInfo>>,
     event_forwarder: Mutex<Option<JoinHandle<()>>>,
 }
 
