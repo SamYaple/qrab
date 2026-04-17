@@ -373,6 +373,9 @@ pub async fn get_dashboard_state() -> Result<DashboardState, ServerFnError> {
     // state only carries slices that are polled.
     let serial_tail = read_serial_tail(serial_log_path.as_deref()).await;
 
+    // Capabilities are host-level — no VM lock needed, cheap syscalls.
+    let capabilities = crate::state::query_capabilities();
+
     Ok(DashboardState {
         status,
         cpu_info,
@@ -381,6 +384,7 @@ pub async fn get_dashboard_state() -> Result<DashboardState, ServerFnError> {
         serial_tail,
         sev_status,
         tpm_status,
+        capabilities,
     })
 }
 
