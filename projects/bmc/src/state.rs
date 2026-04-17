@@ -167,9 +167,20 @@ impl BmcState {
             builder = builder.display();
         }
 
-        // Firmware: custom path, or auto-discover OVMF for UEFI/SecureBoot.
+        // Firmware: custom path > SEV-SNP AmdSev OVMF > standard OVMF.
         if let Some(ref fw_path) = config.firmware_path {
             builder = builder.firmware(fw_path.clone());
+        } else if config.sev_snp.is_some() {
+            // SEV-SNP needs the AmdSev OVMF variant (contains SEV metadata
+            // GUID table for SNP_LAUNCH_UPDATE). Standard OVMF won't work.
+            if let Some(fw) = manager::firmware::find_amdsev_ovmf() {
+                builder = builder.firmware(fw);
+            } else {
+                bail!(
+                    "SEV-SNP requires AmdSev OVMF firmware but none found. \
+                     Install edk2-amdsev or set firmware_path manually."
+                );
+            }
         } else if matches!(config.machine, BmcMachine::Uefi) {
             if let Some(fw) = manager::firmware::find_ovmf(config.secure_boot) {
                 builder = builder.ovmf(fw);

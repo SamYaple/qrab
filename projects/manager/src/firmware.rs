@@ -44,6 +44,35 @@ pub fn find_ovmf(secure: bool) -> Option<OvmfFirmware> {
     None
 }
 
+/// Search system paths for AMD SEV-SNP OVMF firmware.
+///
+/// The AmdSev OVMF variant is a single combined firmware image (no
+/// separate CODE/VARS split) built from `OvmfPkg/AmdSev/AmdSevX64.dsc`.
+/// It contains the SEV metadata GUID table required for SNP launch.
+/// Returns the path to the combined OVMF.fd if found.
+pub fn find_amdsev_ovmf() -> Option<PathBuf> {
+    for &path in AMDSEV_OVMF_PATHS {
+        let p = Path::new(path);
+        if p.is_file() {
+            return Some(p.to_path_buf());
+        }
+    }
+    None
+}
+
+/// AMD SEV-SNP OVMF firmware search paths.
+const AMDSEV_OVMF_PATHS: &[&str] = &[
+    // Gentoo (edk2-amdsev package)
+    "/usr/share/edk2/AmdSev/OVMF.fd",
+    // Fedora/RHEL
+    "/usr/share/edk2/ovmf/OVMF.amdsev.fd",
+    "/usr/share/OVMF/OVMF.amdsev.fd",
+    // Ubuntu/Debian
+    "/usr/share/OVMF/OVMF_CODE.amdsev.fd",
+    // Common build output location
+    "/usr/share/qemu/OVMF.amdsev.fd",
+];
+
 /// Common OVMF code image search paths (non-SecureBoot).
 const OVMF_CODE_PATHS: &[&str] = &[
     // Gentoo
