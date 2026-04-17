@@ -4,21 +4,8 @@ use bmc::server::vm_actions;
 use bmc::types::VmPhase;
 
 #[component]
-pub fn PowerControls(
-    current_phase: VmPhase,
-    on_action: EventHandler<()>,
-) -> Element {
+pub fn PowerControls(current_phase: VmPhase, on_action: EventHandler<()>) -> Element {
     let error_msg = use_signal(|| Option::<String>::None);
-    let mut kvm_enabled = use_signal(|| false);
-
-    // Fetch KVM state on mount.
-    use_effect(move || {
-        spawn(async move {
-            if let Ok(val) = vm_actions::get_kvm().await {
-                kvm_enabled.set(val);
-            }
-        });
-    });
 
     rsx! {
         div { class: "panel power-controls",
@@ -29,27 +16,6 @@ pub fn PowerControls(
             if let Some(err) = error_msg() {
                 div { class: "error-banner",
                     "{err}"
-                }
-            }
-
-            // KVM toggle — only editable when VM is off.
-            if current_phase == VmPhase::Off {
-                div { class: "config-toggle",
-                    label {
-                        input {
-                            r#type: "checkbox",
-                            checked: kvm_enabled(),
-                            onchange: move |evt: Event<FormData>| {
-                                let checked = evt.checked();
-                                spawn(async move {
-                                    if let Ok(val) = vm_actions::set_kvm(checked).await {
-                                        kvm_enabled.set(val);
-                                    }
-                                });
-                            },
-                        }
-                        " KVM acceleration"
-                    }
                 }
             }
 
@@ -121,7 +87,11 @@ fn ActionButton(
     error_msg: Signal<Option<String>>,
     on_action: EventHandler<()>,
 ) -> Element {
-    let btn_class = if danger { "btn btn-danger" } else { "btn btn-action" };
+    let btn_class = if danger {
+        "btn btn-danger"
+    } else {
+        "btn btn-action"
+    };
     rsx! {
         button {
             class: btn_class,
