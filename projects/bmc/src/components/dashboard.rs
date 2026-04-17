@@ -7,6 +7,7 @@ use super::console::Console;
 use super::cpu_info::CpuInfo;
 use super::event_log::EventLog;
 use super::power_controls::PowerControls;
+use super::security_panel::SecurityPanel;
 use super::serial::SerialConsole;
 use super::status_panel::StatusPanel;
 use super::util::sleep_ms;
@@ -55,8 +56,8 @@ pub fn Dashboard() -> Element {
         kvm_info,
         console_available,
         serial_tail,
-        sev_status: _,
-        tpm_status: _,
+        sev_status,
+        tpm_status,
     } = state_value;
 
     let current_phase = status.phase.clone();
@@ -84,6 +85,10 @@ pub fn Dashboard() -> Element {
                     current_phase: current_phase.clone(),
                     cpu_info: cpu_info.clone(),
                     kvm_info: kvm_info.clone(),
+                }
+                SecurityPanel {
+                    sev_status: sev_status.clone(),
+                    tpm_status: tpm_status.clone(),
                 }
             }
 
