@@ -406,3 +406,33 @@ fn sev_info_roundtrip_snp() {
         other => panic!("expected SevSnp, got {:?}", other),
     }
 }
+
+#[test]
+fn sev_info_discriminator_selects_variant() {
+    init_version();
+    // Verify discriminator-based selection: even when both branch structs'
+    // fields are present, the discriminator value picks the correct variant.
+    // With brute-force deserialization this would incorrectly pick Sev
+    // (tried first) even though sev-type says sev-snp.
+    let json = r#"{"api-major":1,"api-minor":55,"build-id":49,"enabled":true,"sev-type":"sev-snp","state":"running","handle":1,"policy":1,"snp-policy":196608}"#;
+    let info: SevInfo = serde_json::from_str(json).unwrap();
+    assert!(matches!(info.sev_type, Some(SevGuestType::SevSnp)));
+    match &info.u {
+        Some(SevInfoBranch::SevSnp(g)) => assert_eq!(g.snp_policy, 196608),
+        other => panic!("discriminator says sev-snp but got {:?}", other),
+    }
+}
+
+#[test]
+fn sev_info_unknown_discriminator_errors() {
+    init_version();
+    let json = r#"{"api-major":1,"api-minor":55,"build-id":49,"enabled":true,"sev-type":"sev-tdx","state":"running"}"#;
+    let result = serde_json::from_str::<SevInfo>(json);
+    assert!(result.is_err(), "unknown discriminator should fail");
+    let err = result.unwrap_err().to_string();
+    assert!(
+        err.contains("sev-tdx"),
+        "error should mention unknown value: {}",
+        err
+    );
+}

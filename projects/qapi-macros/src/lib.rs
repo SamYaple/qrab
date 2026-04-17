@@ -423,6 +423,23 @@ fn is_option_type(ty: &Type) -> bool {
     matches!(ty, Type::Path(tp) if tp.path.segments.last().map(|s| s.ident == "Option").unwrap_or(false))
 }
 
+/// Extract the inner type `T` from `Option<T>`. Returns `None` if the type
+/// is not `Option`.
+fn inner_option_type(ty: &Type) -> Option<&Type> {
+    if let Type::Path(tp) = ty {
+        if let Some(seg) = tp.path.segments.last() {
+            if seg.ident == "Option" {
+                if let syn::PathArguments::AngleBracketed(args) = &seg.arguments {
+                    if let Some(syn::GenericArgument::Type(inner)) = args.args.first() {
+                        return Some(inner);
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
 // ─── Variant / Field info ───
 
 struct VariantInfo {
@@ -645,6 +662,14 @@ fn gen_enum(
         TokenStream2::new()
     };
 
+    // Generate QapiFlatUnion impl for non-unit enums (union branch enums)
+    let flat_union = if !all_unit {
+        let fu = gen_flat_union_impl(&enum_name, &variants);
+        quote! { #cond #fu }
+    } else {
+        TokenStream2::new()
+    };
+
     Ok(quote! {
         #cond
         #input_ast
@@ -653,6 +678,7 @@ fn gen_enum(
         #cond
         #de
         #display
+        #flat_union
     })
 }
 
@@ -846,6 +872,59 @@ fn gen_alt_de(name: &syn::Ident, variants: &[VariantInfo]) -> TokenStream2 {
                 let value = <serde_json::Value as serde::Deserialize>::deserialize(deserializer)?;
                 #(#try_arms)*
                 Err(serde::de::Error::custom(concat!("no matching variant for ", stringify!(#name))))
+            }
+        }
+    }
+}
+
+/// Generate a `QapiFlatUnion` impl for non-unit enums (union branch enums).
+///
+/// Maps discriminator wire values to specific variant constructors, enabling
+/// deterministic variant selection instead of brute-force trial deserialization.
+fn gen_flat_union_impl(name: &syn::Ident, variants: &[VariantInfo]) -> TokenStream2 {
+    let arms: Vec<TokenStream2> = variants
+        .iter()
+        .filter_map(|v| {
+            let ident = &v.ident;
+            let wn = wire_name(&v.attrs.name, &v.ident);
+            let cond = v.attrs.condition.as_ref().map(|c| condition_cfg(c));
+            match &v.kind {
+                VariantKind::Tuple(_) => Some(quote! {
+                    #cond
+                    #wn => Ok(#name::#ident(
+                        serde_json::from_value(serde_json::Value::Object(map))
+                            .map_err(|e| serde_json::Error::custom(format!(
+                                "deserializing {} variant '{}': {}",
+                                stringify!(#name), discriminator, e
+                            )))?
+                    )),
+                }),
+                VariantKind::Unit => Some(quote! {
+                    #cond
+                    #wn => Ok(#name::#ident),
+                }),
+            }
+        })
+        .collect();
+
+    if arms.is_empty() {
+        return TokenStream2::new();
+    }
+
+    quote! {
+        #[allow(deprecated)]
+        impl qapi::QapiFlatUnion for #name {
+            fn deserialize_variant(
+                discriminator: &str,
+                map: serde_json::Map<String, serde_json::Value>,
+            ) -> Result<Self, serde_json::Error> {
+                use serde::de::Error as _;
+                match discriminator {
+                    #(#arms)*
+                    other => Err(serde_json::Error::custom(format!(
+                        "unknown {} discriminator '{}'", stringify!(#name), other
+                    ))),
+                }
             }
         }
     }
@@ -1334,18 +1413,37 @@ fn gen_struct_de_flatten(name: &syn::Ident, fields: &[FieldInfo]) -> TokenStream
                 let disc_id = &disc_f.ident;
                 if is_option_type(&disc_f.ty) {
                     // Optional discriminator (e.g. added in later version):
-                    // when None, union is None; when Some, deserialize from full map.
+                    // when None, union is None; when Some, use discriminator to
+                    // select the correct variant via QapiFlatUnion trait.
+                    let inner_ty = inner_option_type(ty)
+                        .expect("union field with optional discriminator must be Option<T>");
                     quote! {
-                        let #id: #ty = if #disc_id.is_some() {
-                            serde_json::from_value(serde_json::Value::Object(full_map.clone())).map_err(serde::de::Error::custom)?
+                        let #id: #ty = if let Some(ref __disc_val) = #disc_id {
+                            Some(<#inner_ty as qapi::QapiFlatUnion>::deserialize_variant(
+                                &__disc_val.to_string(),
+                                full_map.clone(),
+                            ).map_err(serde::de::Error::custom)?)
                         } else {
                             None
                         };
                     }
                 } else {
-                    // Required discriminator: always deserialize union from full map.
-                    quote! {
-                        let #id: #ty = serde_json::from_value(serde_json::Value::Object(full_map.clone())).map_err(serde::de::Error::custom)?;
+                    // Required discriminator: use discriminator value to select variant.
+                    if is_option_type(ty) {
+                        let inner_ty = inner_option_type(ty).unwrap();
+                        quote! {
+                            let #id: #ty = Some(<#inner_ty as qapi::QapiFlatUnion>::deserialize_variant(
+                                &#disc_id.to_string(),
+                                full_map.clone(),
+                            ).map_err(serde::de::Error::custom)?);
+                        }
+                    } else {
+                        quote! {
+                            let #id: #ty = <#ty as qapi::QapiFlatUnion>::deserialize_variant(
+                                &#disc_id.to_string(),
+                                full_map.clone(),
+                            ).map_err(serde::de::Error::custom)?;
+                        }
                     }
                 }
             } else {
