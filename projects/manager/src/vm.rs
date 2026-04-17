@@ -547,10 +547,19 @@ impl VmBuilder {
                             ovmf.code.display()
                         ),
                     ]);
+                    // SEV requires both pflash drives to be readonly —
+                    // KVM cannot map writable pflash into encrypted guest
+                    // memory. UEFI variable persistence is lost but that's
+                    // an inherent SEV constraint.
+                    let vars_readonly = if self.sev_snp.is_some() {
+                        ",readonly=on"
+                    } else {
+                        ""
+                    };
                     args.extend([
                         "-drive".into(),
                         format!(
-                            "if=pflash,format=raw,file={}",
+                            "if=pflash,format=raw{vars_readonly},file={}",
                             vars_copy.display()
                         ),
                     ]);
@@ -617,10 +626,15 @@ impl VmBuilder {
                         ovmf.code.display()
                     ),
                 ]);
+                let vars_readonly = if self.sev_snp.is_some() {
+                    ",readonly=on"
+                } else {
+                    ""
+                };
                 args.extend([
                     "-drive".into(),
                     format!(
-                        "if=pflash,format=raw,file={}",
+                        "if=pflash,format=raw{vars_readonly},file={}",
                         vars_copy.display()
                     ),
                 ]);
