@@ -4,7 +4,7 @@ use crate::types::{
     BmcCapabilities, BmcEvent, CpuInfoResponse, DashboardState, KvmInfoResponse, VmStatusResponse,
 };
 #[cfg(feature = "server")]
-use crate::types::VmPhase;
+use crate::types::{SevStatusResponse, TpmStatusResponse, VmPhase};
 
 /// Cached host CPU count. `std::thread::available_parallelism()` is a
 /// syscall (reads /proc/self/status on Linux) and the value never changes
@@ -213,12 +213,14 @@ pub async fn get_dashboard_state() -> Result<DashboardState, ServerFnError> {
     let state = bmc();
 
     // -- Phase 1: everything that needs the vm lock. One acquisition. --
-    let (status, cpu_info, kvm_info, console_available, serial_log_path): (
+    let (status, cpu_info, kvm_info, console_available, serial_log_path, sev_status, tpm_status): (
         VmStatusResponse,
         CpuInfoResponse,
         KvmInfoResponse,
         bool,
         Option<PathBuf>,
+        Option<SevStatusResponse>,
+        Option<TpmStatusResponse>,
     ) = {
         let vm_guard = state.vm.lock().await;
 
@@ -243,6 +245,8 @@ pub async fn get_dashboard_state() -> Result<DashboardState, ServerFnError> {
                 },
                 false,
                 None,
+                None,
+                None,
             ),
             VmState::Running(vm) => {
                 // QueryStatus is the only QMP command we issue every poll;
@@ -264,12 +268,12 @@ pub async fn get_dashboard_state() -> Result<DashboardState, ServerFnError> {
                     qemu_version: None,
                 };
 
-                // CPU/KVM are static for the lifetime of the QEMU process,
-                // so query them once per Running session and reuse the
-                // cached value. cached_static is cleared on every transition
-                // out of Running.
+                // CPU/KVM/security info are static for the lifetime of the
+                // QEMU process, so query them once per Running session and
+                // reuse the cached value. cached_static is cleared on every
+                // transition out of Running.
                 let mut cache_guard = state.cached_static.lock().await;
-                let (cpu_info, kvm_info) = if let Some(cached) = cache_guard.as_ref() {
+                let cached = if let Some(cached) = cache_guard.as_ref() {
                     cached.clone()
                 } else {
                     let cpus: Vec<qapi::CpuInfoFast> = vm
@@ -295,15 +299,49 @@ pub async fn get_dashboard_state() -> Result<DashboardState, ServerFnError> {
                         enabled: kvm.enabled,
                         present: kvm.present,
                     };
-                    *cache_guard = Some((cpu_info.clone(), kvm_info.clone()));
-                    (cpu_info, kvm_info)
+
+                    // SEV: query-sev fails on VMs without SEV — treat
+                    // errors as "not available".
+                    let sev_status = vm
+                        .execute(&qapi::commands::QuerySev {})
+                        .await
+                        .ok()
+                        .map(|info| SevStatusResponse {
+                            enabled: info.enabled,
+                            sev_type: info.sev_type.map(|t| format!("{t:?}")),
+                            state: Some(format!("{:?}", info.state)),
+                            api_version: Some(format!("{}.{}", info.api_major, info.api_minor)),
+                        });
+
+                    // TPM: query-tpm returns empty vec when no TPM
+                    // configured. Errors mean TPM support not compiled in.
+                    let tpm_status = vm
+                        .execute(&qapi::commands::QueryTpm {})
+                        .await
+                        .ok()
+                        .and_then(|tpms| {
+                            tpms.into_iter().next().map(|tpm| TpmStatusResponse {
+                                present: true,
+                                model: Some(format!("{:?}", tpm.model)),
+                                backend_type: Some(format!("{:?}", tpm.options)),
+                            })
+                        });
+
+                    let cached = crate::state::CachedStaticInfo {
+                        cpu_info,
+                        kvm_info,
+                        sev_status,
+                        tpm_status,
+                    };
+                    *cache_guard = Some(cached.clone());
+                    cached
                 };
                 drop(cache_guard);
 
                 let console_available = vm.vnc_sock().is_some();
                 let serial_log_path = vm.serial_log().cloned();
 
-                (status, cpu_info, kvm_info, console_available, serial_log_path)
+                (status, cached.cpu_info, cached.kvm_info, console_available, serial_log_path, cached.sev_status, cached.tpm_status)
             }
             VmState::ShuttingDown => (
                 VmStatusResponse {
@@ -322,6 +360,8 @@ pub async fn get_dashboard_state() -> Result<DashboardState, ServerFnError> {
                 },
                 false,
                 None,
+                None,
+                None,
             ),
         }
         // vm_guard drops here.
@@ -339,8 +379,8 @@ pub async fn get_dashboard_state() -> Result<DashboardState, ServerFnError> {
         kvm_info,
         console_available,
         serial_tail,
-        sev_status: None,
-        tpm_status: None,
+        sev_status,
+        tpm_status,
     })
 }
 
