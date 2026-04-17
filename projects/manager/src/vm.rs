@@ -534,8 +534,17 @@ impl VmBuilder {
                     }
                 }
 
-                // Prefer split pflash (ovmf) over -bios when available.
-                if let Some(ref ovmf) = self.ovmf {
+                // SEV-SNP: pflash is incompatible with KVM encrypted
+                // memory regions. Fall back to -bios which loads firmware
+                // into RAM instead.
+                if self.sev_snp.is_some() {
+                    if let Some(ref ovmf) = self.ovmf {
+                        args.extend(["-bios".into(), ovmf.code.display().to_string()]);
+                    } else if let Some(ref fw) = self.firmware {
+                        args.extend(["-bios".into(), fw.display().to_string()]);
+                    }
+                } else if let Some(ref ovmf) = self.ovmf {
+                    // Normal (non-SEV): split pflash for UEFI vars persistence.
                     let vars_copy = firmware::prepare_vars_copy(
                         &ovmf.vars_template,
                         tmpdir.path(),
@@ -547,19 +556,10 @@ impl VmBuilder {
                             ovmf.code.display()
                         ),
                     ]);
-                    // SEV requires both pflash drives to be readonly —
-                    // KVM cannot map writable pflash into encrypted guest
-                    // memory. UEFI variable persistence is lost but that's
-                    // an inherent SEV constraint.
-                    let vars_readonly = if self.sev_snp.is_some() {
-                        ",readonly=on"
-                    } else {
-                        ""
-                    };
                     args.extend([
                         "-drive".into(),
                         format!(
-                            "if=pflash,format=raw{vars_readonly},file={}",
+                            "if=pflash,format=raw,file={}",
                             vars_copy.display()
                         ),
                     ]);
@@ -615,29 +615,29 @@ impl VmBuilder {
                     })?,
                 };
 
-                let vars_copy = firmware::prepare_vars_copy(
-                    &ovmf.vars_template,
-                    tmpdir.path(),
-                )?;
-                args.extend([
-                    "-drive".into(),
-                    format!(
-                        "if=pflash,format=raw,readonly=on,file={}",
-                        ovmf.code.display()
-                    ),
-                ]);
-                let vars_readonly = if self.sev_snp.is_some() {
-                    ",readonly=on"
+                if self.sev_snp.is_some() {
+                    // SEV-SNP: pflash incompatible, use -bios.
+                    args.extend(["-bios".into(), ovmf.code.display().to_string()]);
                 } else {
-                    ""
-                };
-                args.extend([
-                    "-drive".into(),
-                    format!(
-                        "if=pflash,format=raw{vars_readonly},file={}",
-                        vars_copy.display()
-                    ),
-                ]);
+                    let vars_copy = firmware::prepare_vars_copy(
+                        &ovmf.vars_template,
+                        tmpdir.path(),
+                    )?;
+                    args.extend([
+                        "-drive".into(),
+                        format!(
+                            "if=pflash,format=raw,readonly=on,file={}",
+                            ovmf.code.display()
+                        ),
+                    ]);
+                    args.extend([
+                        "-drive".into(),
+                        format!(
+                            "if=pflash,format=raw,file={}",
+                            vars_copy.display()
+                        ),
+                    ]);
+                }
             }
         }
 
