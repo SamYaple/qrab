@@ -33,6 +33,9 @@ pub struct SevSnpConfig {
     pub policy: Option<u64>,
     /// Reduced physical address bits (default: 1)
     pub reduced_phys_bits: u32,
+    /// C-bit position in physical address. Auto-detected from CPUID
+    /// 0x8000001F[EBX\[5:0\]] when None.
+    pub cbitpos: Option<u32>,
     /// Optional ID block for attestation (base64)
     pub id_block: Option<String>,
     /// Optional ID auth structure (base64)
@@ -53,6 +56,7 @@ impl Default for SevSnpConfig {
             sev_device: None,
             policy: None, // QEMU default: 0x30000
             reduced_phys_bits: 1,
+            cbitpos: None, // auto-detect from CPUID
             id_block: None,
             id_auth: None,
             author_key_enabled: None,
@@ -642,6 +646,24 @@ impl VmBuilder {
         args
     }
 
+    /// Detect C-bit position from CPUID leaf 0x8000001F.
+    ///
+    /// On AMD SEV-capable CPUs, CPUID fn 0x8000001F returns:
+    ///   EBX[5:0] = C-bit position in physical address
+    ///
+    /// Returns `None` on non-AMD or non-SEV hosts.
+    #[cfg(target_arch = "x86_64")]
+    fn detect_cbitpos() -> Option<u32> {
+        let result = std::arch::x86_64::__cpuid(0x8000001F);
+        let cbitpos = result.ebx & 0x3F;
+        if cbitpos > 0 { Some(cbitpos) } else { None }
+    }
+
+    #[cfg(not(target_arch = "x86_64"))]
+    fn detect_cbitpos() -> Option<u32> {
+        None
+    }
+
     /// Build SEV-SNP arguments: sev-snp-guest object + memory backend.
     ///
     /// Returns `(args, machine_suffix)` where `machine_suffix` is a string
@@ -663,6 +685,14 @@ impl VmBuilder {
             "sev-snp-guest,id=sev0,reduced-phys-bits={}",
             sev.reduced_phys_bits
         );
+
+        // C-bit position: use explicit value, auto-detect from CPUID, or
+        // bail. QEMU versions that don't auto-detect will fail without it.
+        let cbitpos = sev.cbitpos.or_else(Self::detect_cbitpos);
+        if let Some(pos) = cbitpos {
+            obj.push_str(&format!(",cbitpos={pos}"));
+        }
+
         if let Some(ref dev) = sev.sev_device {
             obj.push_str(&format!(",sev-device={}", dev.display()));
         }

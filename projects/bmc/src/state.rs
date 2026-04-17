@@ -180,6 +180,7 @@ impl BmcState {
                 sev_device: None,
                 policy: sev.policy,
                 reduced_phys_bits: sev.reduced_phys_bits,
+                cbitpos: None, // auto-detect from CPUID
                 id_block: sev.id_block.clone(),
                 id_auth: None,
                 author_key_enabled: None,
