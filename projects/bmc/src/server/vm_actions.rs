@@ -2,7 +2,7 @@ use dioxus::prelude::*;
 
 use crate::types::{BmcConfig, VmPhase};
 #[cfg(feature = "server")]
-use crate::types::{BmcSevSnpConfig, BmcTpmBackend, BmcTpmConfig};
+use crate::types::{BmcSevSnpConfig, BmcTpmConfig};
 
 #[server]
 pub async fn power_on() -> Result<VmPhase, ServerFnError> {
@@ -99,25 +99,13 @@ pub async fn set_sev_snp(enabled: bool) -> Result<(), ServerFnError> {
     Ok(())
 }
 
-/// Set TPM enabled/disabled. When enabled, picks best available backend.
+/// Set TPM enabled/disabled. Uses swtpm when enabled.
 #[server]
 pub async fn set_tpm(enabled: bool) -> Result<(), ServerFnError> {
     let state = crate::state::bmc();
     let mut config = state.config.lock().await;
     config.tpm = if enabled {
-        // Prefer software TPM (swtpm) for isolation; fall back to
-        // passthrough only when swtpm is not available.
-        let backend = if which::which("swtpm").is_ok() {
-            BmcTpmBackend::Emulated
-        } else if std::path::Path::new("/dev/tpm0").exists() {
-            BmcTpmBackend::Passthrough
-        } else {
-            BmcTpmBackend::Emulated
-        };
-        Some(BmcTpmConfig {
-            backend,
-            persistent: true,
-        })
+        Some(BmcTpmConfig { persistent: true })
     } else {
         None
     };

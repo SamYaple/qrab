@@ -12,7 +12,7 @@ use manager::vm::{PreconfigVm, Vm, VmBuilder};
 use qapi_protocol::QmpEvent;
 
 use crate::types::{
-    BmcArch, BmcCapabilities, BmcConfig, BmcMachine, BmcTpmBackend, CpuInfoResponse, DiskConfig,
+    BmcArch, BmcCapabilities, BmcConfig, BmcMachine, CpuInfoResponse, DiskConfig,
     DiskFormat, KvmInfoResponse, SevStatusResponse, TpmStatusResponse, VmPhase,
 };
 
@@ -128,18 +128,9 @@ impl BmcState {
                 bail!("SEV-SNP requires x86_64 architecture");
             }
         }
-        if let Some(ref tpm) = config.tpm {
-            match tpm.backend {
-                BmcTpmBackend::Emulated => {
-                    if which::which("swtpm").is_err() {
-                        bail!("TPM emulated backend requires swtpm but it was not found in PATH");
-                    }
-                }
-                BmcTpmBackend::Passthrough => {
-                    if !std::path::Path::new("/dev/tpm0").exists() {
-                        tracing::warn!("/dev/tpm0 not found; TPM passthrough may fail");
-                    }
-                }
+        if config.tpm.is_some() {
+            if which::which("swtpm").is_err() {
+                bail!("TPM requires swtpm but it was not found in PATH");
             }
         }
 
@@ -209,23 +200,13 @@ impl BmcState {
             builder = builder.sev_snp(sev_config);
         }
 
-        // TPM
+        // TPM (swtpm only)
         if let Some(ref tpm) = config.tpm {
-            let tpm_config = match tpm.backend {
-                BmcTpmBackend::Emulated => manager::vm::TpmConfig {
-                    backend: manager::vm::TpmBackend::Emulated {
-                        swtpm_binary: None,
-                        state_dir: if tpm.persistent {
-                            Some(tpm_state_dir())
-                        } else {
-                            None
-                        },
-                    },
-                    model: None,
-                },
-                BmcTpmBackend::Passthrough => manager::vm::TpmConfig {
-                    backend: manager::vm::TpmBackend::Passthrough { path: None },
-                    model: None,
+            let tpm_config = manager::vm::TpmConfig {
+                state_dir: if tpm.persistent {
+                    Some(tpm_state_dir())
+                } else {
+                    None
                 },
             };
             builder = builder.tpm(tpm_config);
@@ -606,7 +587,6 @@ pub fn query_capabilities() -> BmcCapabilities {
         sev_snp_available: std::fs::read_to_string("/sys/module/kvm_amd/parameters/sev_snp")
             .map(|s| s.trim() == "Y")
             .unwrap_or(false),
-        tpm_passthrough_available: std::path::Path::new("/dev/tpm0").exists(),
         swtpm_available: which::which("swtpm").is_ok(),
         ovmf_found: manager::firmware::find_ovmf(false).is_some(),
         ovmf_secure_found: manager::firmware::find_ovmf(true).is_some(),

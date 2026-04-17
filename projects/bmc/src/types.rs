@@ -187,7 +187,6 @@ impl Default for DashboardState {
                 kvm_available: false,
                 sev_available: false,
                 sev_snp_available: false,
-                tpm_passthrough_available: false,
                 swtpm_available: false,
                 ovmf_found: false,
                 ovmf_secure_found: false,
@@ -246,21 +245,12 @@ impl Default for BmcSevSnpConfig {
     }
 }
 
-/// TPM configuration for BMC.
+/// TPM configuration for BMC (swtpm only).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BmcTpmConfig {
-    pub backend: BmcTpmBackend,
     /// Persist vTPM state across reboots.
     #[serde(default)]
     pub persistent: bool,
-}
-
-/// TPM backend selection.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum BmcTpmBackend {
-    Emulated,
-    Passthrough,
 }
 
 /// Host capability detection result.
@@ -269,7 +259,6 @@ pub struct BmcCapabilities {
     pub kvm_available: bool,
     pub sev_available: bool,
     pub sev_snp_available: bool,
-    pub tpm_passthrough_available: bool,
     pub swtpm_available: bool,
     pub ovmf_found: bool,
     pub ovmf_secure_found: bool,

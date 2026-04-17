@@ -7,4 +7,4 @@ pub mod vm;
 pub use arch::{Arch, MachineConfig};
 pub use firmware::OvmfFirmware;
 pub use namespace::{InitConfig, KvmFd};
-pub use vm::{Accel, PreconfigVm, SevSnpConfig, TpmBackend, TpmConfig, TpmModel, Vm, VmBuilder, PRECONFIG_MIN_VERSION};
+pub use vm::{Accel, PreconfigVm, SevSnpConfig, TpmConfig, Vm, VmBuilder, PRECONFIG_MIN_VERSION};
