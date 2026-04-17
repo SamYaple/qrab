@@ -1,3 +1,4 @@
+#![allow(unsafe_code)]
 //! Namespace isolation primitives for sandboxed QEMU execution.
 //!
 //! Provides the pre-fork, pre-exec, and parent-side helpers that establish
@@ -34,10 +35,14 @@ pub struct InitConfig {
 /// 1. `QRAB_INIT_BIN` env var (explicit override)
 /// 2. Sibling of the current executable (same directory as the running binary)
 /// 3. `qrab-init` on `PATH` via `which`
-pub fn qrab_init_binary() -> anyhow::Result<PathBuf> {
+pub fn qrab_init_binary() -> crate::Result<PathBuf> {
     if let Ok(p) = std::env::var("QRAB_INIT_BIN") {
         let path = PathBuf::from(p);
-        anyhow::ensure!(path.is_file(), "QRAB_INIT_BIN={} is not a file", path.display());
+        if !path.is_file() {
+            return Err(crate::Error::Binary(format!(
+                "QRAB_INIT_BIN={} is not a file", path.display()
+            )));
+        }
         return Ok(path);
     }
 
@@ -59,7 +64,7 @@ pub fn qrab_init_binary() -> anyhow::Result<PathBuf> {
     }
 
     which::which("qrab-init")
-        .map_err(|_| anyhow::anyhow!("qrab-init not found — install it or set QRAB_INIT_BIN"))
+        .map_err(|_| crate::Error::Binary("qrab-init not found — install it or set QRAB_INIT_BIN".into()))
 }
 
 /// Wrapper around a pre-opened `/dev/kvm` file descriptor.
@@ -70,9 +75,9 @@ pub struct KvmFd(OwnedFd);
 
 impl KvmFd {
     /// Open `/dev/kvm` with `O_RDWR` and no `O_CLOEXEC`.
-    pub fn open() -> anyhow::Result<Self> {
+    pub fn open() -> crate::Result<Self> {
         let fd = nix::fcntl::open("/dev/kvm", OFlag::O_RDWR, Mode::empty())
-            .map_err(|e| anyhow::anyhow!("failed to open /dev/kvm: {e}"))?;
+            .map_err(|e| crate::Error::Spawn(format!("failed to open /dev/kvm: {e}")))?;
         // SAFETY: `nix::fcntl::open` returns a valid fd on success.
         Ok(KvmFd(unsafe { OwnedFd::from_raw_fd(fd) }))
     }
@@ -116,15 +121,18 @@ pub struct NsHelper;
 
 impl NsHelper {
     /// Run the uid/gid map writer. Consumes the pipe fds.
-    pub async fn run(sync_r: RawFd, ack_w: RawFd) -> anyhow::Result<()> {
+    pub async fn run(sync_r: RawFd, ack_w: RawFd) -> crate::Result<()> {
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
         // Read child PID (written as decimal string bytes).
         let mut sync_file = unsafe { tokio_fd::tokio_file_from_raw_fd(sync_r) };
         let mut pid_buf = vec![0u8; 32];
         let n = sync_file.read(&mut pid_buf).await?;
-        let pid_str = std::str::from_utf8(&pid_buf[..n])?.trim();
-        let pid: u32 = pid_str.parse()?;
+        let pid_str = std::str::from_utf8(&pid_buf[..n])
+            .map_err(|e| crate::Error::Namespace(format!("invalid PID from child: {e}")))?
+            .trim();
+        let pid: u32 = pid_str.parse()
+            .map_err(|e| crate::Error::Namespace(format!("invalid PID from child: {e}")))?;
 
         let real_uid = Uid::current().as_raw();
         let real_gid = Gid::current().as_raw();

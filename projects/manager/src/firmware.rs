@@ -1,4 +1,4 @@
-use anyhow::Result;
+use crate::Result;
 use std::path::{Path, PathBuf};
 
 /// Discovered OVMF firmware paths.

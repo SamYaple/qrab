@@ -2146,7 +2146,6 @@ dependencies = [
 name = "manager"
 version = "0.1.0"
 dependencies = [
- "anyhow",
  "nix",
  "paste",
  "qapi",
@@ -2154,6 +2153,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
+ "thiserror 2.0.18",
  "tokio",
  "tracing",
  "which",
@@ -2604,6 +2604,7 @@ dependencies = [
  "qapi",
  "serde",
  "serde_json",
+ "thiserror 2.0.18",
  "tokio",
  "tracing",
  "which",
