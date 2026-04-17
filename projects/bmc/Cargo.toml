@@ -103,4 +103,8 @@ name = "concurrency"
 required-features = ["server"]
 
 [[test]]
+name = "capabilities"
+required-features = ["server"]
+
+[[test]]
 name = "mock_bmc"
