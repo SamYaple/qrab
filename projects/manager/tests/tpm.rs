@@ -1,8 +1,8 @@
-//! TPM integration tests.
+//! TPM integration tests (swtpm only).
 
 use manager::arch::{Arch, MachineConfig};
 use manager::swtpm::SwtpmProcess;
-use manager::vm::{Accel, TpmBackend, TpmConfig, TpmModel, VmBuilder};
+use manager::vm::{Accel, TpmConfig, VmBuilder};
 
 /// Test swtpm process spawn and cleanup.
 #[tokio::test]
@@ -40,34 +40,35 @@ async fn swtpm_custom_state_dir() {
     swtpm.cleanup().await;
 }
 
-/// Test TpmConfig construction with emulated backend.
+/// Test TpmConfig construction.
 #[test]
-fn tpm_config_emulated() {
-    let config = TpmConfig {
-        backend: TpmBackend::Emulated {
-            swtpm_binary: None,
-            state_dir: None,
-        },
-        model: None,
+fn tpm_config_defaults() {
+    let config = TpmConfig { state_dir: None };
+    assert!(config.state_dir.is_none());
+
+    let config_persistent = TpmConfig {
+        state_dir: Some("/tmp/tpm-state".into()),
     };
-    assert!(matches!(config.backend, TpmBackend::Emulated { .. }));
-    assert!(config.model.is_none());
+    assert_eq!(
+        config_persistent.state_dir.as_deref(),
+        Some(std::path::Path::new("/tmp/tpm-state"))
+    );
 }
 
-/// Test TpmConfig construction with passthrough backend.
+/// Test VM builder accepts TpmConfig.
 #[test]
-fn tpm_config_passthrough() {
-    let config = TpmConfig {
-        backend: TpmBackend::Passthrough { path: None },
-        model: Some(TpmModel::Tis),
-    };
-    assert!(matches!(config.backend, TpmBackend::Passthrough { .. }));
-    assert!(matches!(config.model, Some(TpmModel::Tis)));
+fn vm_builder_accepts_tpm() {
+    let tpm_config = TpmConfig { state_dir: None };
+
+    // Builder should accept config without error
+    let _builder = VmBuilder::new(Arch::X86_64, MachineConfig::Uefi { memory: "256M".into() })
+        .accel(Accel::Kvm)
+        .tpm(tpm_config);
 }
 
 /// Test VM with emulated TPM via swtpm.
 #[tokio::test]
-async fn vm_with_emulated_tpm() {
+async fn vm_with_swtpm() {
     if which::which("swtpm").is_err() {
         eprintln!("SKIP: swtpm not installed");
         return;
@@ -77,13 +78,7 @@ async fn vm_with_emulated_tpm() {
         return;
     }
 
-    let tpm_config = TpmConfig {
-        backend: TpmBackend::Emulated {
-            swtpm_binary: None,
-            state_dir: None,
-        },
-        model: None, // default CRB
-    };
+    let tpm_config = TpmConfig { state_dir: None };
 
     let fw = match manager::firmware::find_ovmf(false) {
         Some(fw) => fw,
@@ -102,7 +97,6 @@ async fn vm_with_emulated_tpm() {
 
     match builder.spawn().await {
         Ok(preconfig) => {
-            // Start VM so we can query TPM
             match preconfig.start().await {
                 Ok(vm) => {
                     let tpm_info = vm.qmp.execute(&qapi::commands::QueryTpm {}).await;
@@ -120,29 +114,4 @@ async fn vm_with_emulated_tpm() {
             eprintln!("TPM VM spawn failed: {e}");
         }
     }
-}
-
-/// Test VM with passthrough TPM (requires /dev/tpm0).
-/// Only tests builder acceptance — doesn't spawn since passthrough locks device.
-#[test]
-fn vm_builder_accepts_passthrough_tpm() {
-    let tpm_config = TpmConfig {
-        backend: TpmBackend::Passthrough { path: None },
-        model: None,
-    };
-
-    // Builder should accept config without error
-    let _builder = VmBuilder::new(Arch::X86_64, MachineConfig::Uefi { memory: "256M".into() })
-        .accel(Accel::Kvm)
-        .tpm(tpm_config);
-}
-
-/// Test TpmModel variants.
-#[test]
-fn tpm_model_variants() {
-    let crb = TpmModel::Crb;
-    let tis = TpmModel::Tis;
-    // Verify Debug is implemented (compile-time check via format)
-    let _ = format!("{crb:?}");
-    let _ = format!("{tis:?}");
 }

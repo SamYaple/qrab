@@ -67,7 +67,7 @@ pub fn SecurityPanel(
             }
 
             div { class: "status-info",
-                h3 { "TPM" }
+                h3 { "TPM (swtpm)" }
                 match tpm_status {
                     Some(ref tpm) => rsx! {
                         div { class: "status-row",
@@ -76,33 +76,19 @@ pub fn SecurityPanel(
                                 if tpm.present { "Yes" } else { "No" }
                             }
                         }
-                        if let Some(ref model) = tpm.model {
-                            div { class: "status-row",
-                                span { class: "label", "Model" }
-                                span { class: "value", "{model}" }
-                            }
-                        }
-                        if let Some(ref backend_type) = tpm.backend_type {
-                            div { class: "status-row",
-                                span { class: "label", "Backend" }
-                                span { class: "value", "{backend_type}" }
-                            }
-                        }
                     },
                     None => rsx! {
                         div { class: "status-row",
                             span { class: "label", "Host Support" }
                             span { class: "value",
-                                if capabilities.tpm_passthrough_available {
-                                    "Passthrough (/dev/tpm0)"
-                                } else if capabilities.swtpm_available {
-                                    "Emulated (swtpm)"
+                                if capabilities.swtpm_available {
+                                    "Available (swtpm)"
                                 } else {
                                     "Not available"
                                 }
                             }
                         }
-                        if capabilities.tpm_passthrough_available || capabilities.swtpm_available {
+                        if capabilities.swtpm_available {
                             div { class: "status-row",
                                 span { class: "label", "VM Status" }
                                 span { class: "value", "Not enabled" }

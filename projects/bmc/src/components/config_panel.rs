@@ -102,7 +102,7 @@ pub fn ConfigPanel(
                         input {
                             r#type: "checkbox",
                             checked: tpm_enabled,
-                            disabled: !is_off || (!capabilities.tpm_passthrough_available && !capabilities.swtpm_available),
+                            disabled: !is_off || !capabilities.swtpm_available,
                             onchange: move |evt: Event<FormData>| {
                                 let checked = evt.checked();
                                 spawn(async move {
@@ -114,8 +114,8 @@ pub fn ConfigPanel(
                                 });
                             },
                         }
-                        " TPM"
-                        if !capabilities.tpm_passthrough_available && !capabilities.swtpm_available {
+                        " TPM (swtpm)"
+                        if !capabilities.swtpm_available {
                             span { class: "config-hint", " (not available)" }
                         }
                     }

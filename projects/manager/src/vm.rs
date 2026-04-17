@@ -280,77 +280,24 @@ pub enum Accel {
     KvmOrTcg,
 }
 
-/// TPM backend selection.
-#[derive(Debug, Clone)]
-pub enum TpmBackend {
-    /// Passthrough host TPM device.
-    Passthrough {
-        /// Device path (default: "/dev/tpm0").
-        path: Option<PathBuf>,
-    },
-    /// Software TPM via swtpm.
-    Emulated {
-        /// swtpm binary path (auto-discovered if None).
-        swtpm_binary: Option<PathBuf>,
-        /// State directory for persistent TPM state.
-        /// If None, uses ephemeral dir in VM's tmpdir (lost on shutdown).
-        state_dir: Option<PathBuf>,
-    },
-}
-
-/// TPM configuration for a VM.
+/// TPM configuration for a VM (swtpm only, CRB frontend).
 #[derive(Debug, Clone)]
 pub struct TpmConfig {
-    pub backend: TpmBackend,
-    /// TPM frontend model. Default: CRB (recommended for q35/UEFI).
-    /// Use TIS for legacy BIOS machines.
-    pub model: Option<TpmModel>,
+    /// swtpm state directory for persistent TPM state.
+    /// If None, uses ephemeral dir in VM's tmpdir (lost on shutdown).
+    pub state_dir: Option<PathBuf>,
 }
 
-/// TPM frontend model selection.
-#[derive(Debug, Clone, Copy)]
-pub enum TpmModel {
-    /// TPM CRB (Command Response Buffer) — modern, for UEFI/q35.
-    Crb,
-    /// TPM TIS (TPM Interface Specification) — legacy, for pc/BIOS.
-    Tis,
-}
-
-/// Build QEMU CLI args for TPM passthrough or emulated backend.
-fn build_tpm_args(config: &TpmConfig, swtpm_sock: Option<&Path>, is_bios: bool) -> Vec<String> {
-    let mut args = Vec::new();
-
-    match &config.backend {
-        TpmBackend::Passthrough { path } => {
-            let dev_path = path
-                .as_deref()
-                .unwrap_or(Path::new("/dev/tpm0"));
-            args.extend([
-                "-tpmdev".into(),
-                format!("passthrough,id=tpm0,path={}", dev_path.display()),
-            ]);
-        }
-        TpmBackend::Emulated { .. } => {
-            let sock = swtpm_sock.expect("swtpm_sock required for emulated TPM");
-            args.extend([
-                "-chardev".into(),
-                format!("socket,id=chrtpm,path={}", sock.display()),
-                "-tpmdev".into(),
-                "emulator,id=tpm0,chardev=chrtpm".into(),
-            ]);
-        }
-    }
-
-    // Model: explicit override > BIOS heuristic > CRB default.
-    let model = match config.model {
-        Some(TpmModel::Tis) => "tpm-tis",
-        Some(TpmModel::Crb) => "tpm-crb",
-        None if is_bios => "tpm-tis",
-        None => "tpm-crb",
-    };
-    args.extend(["-device".into(), format!("{model},tpmdev=tpm0")]);
-
-    args
+/// Build QEMU CLI args for swtpm emulated TPM with CRB frontend.
+fn build_tpm_args(swtpm_sock: &Path) -> Vec<String> {
+    vec![
+        "-chardev".into(),
+        format!("socket,id=chrtpm,path={}", swtpm_sock.display()),
+        "-tpmdev".into(),
+        "emulator,id=tpm0,chardev=chrtpm".into(),
+        "-device".into(),
+        "tpm-crb,tpmdev=tpm0".into(),
+    ]
 }
 
 impl VmBuilder {
@@ -472,7 +419,7 @@ impl VmBuilder {
         self
     }
 
-    /// Configure a TPM device (passthrough or emulated via swtpm).
+    /// Configure a TPM device (swtpm emulated, CRB frontend).
     #[must_use]
     pub fn tpm(mut self, config: TpmConfig) -> Self {
         self.tpm = Some(config);
@@ -955,45 +902,18 @@ impl VmBuilder {
             args.push("-no-shutdown".into());
         }
 
-        // --- TPM ---
-        let is_bios = matches!(self.config, MachineConfig::Bios { .. });
+        // --- TPM (swtpm only, CRB frontend) ---
         let mut swtpm_process: Option<SwtpmProcess> = None;
 
         if let Some(ref tpm_config) = self.tpm {
-            match &tpm_config.backend {
-                TpmBackend::Passthrough { path } => {
-                    let dev_path = path
-                        .as_deref()
-                        .unwrap_or(Path::new("/dev/tpm0"));
-                    anyhow::ensure!(
-                        dev_path.exists(),
-                        "TPM passthrough device {} does not exist",
-                        dev_path.display()
-                    );
-                    let meta = std::fs::metadata(dev_path)?;
-                    use std::os::unix::fs::FileTypeExt;
-                    anyhow::ensure!(
-                        meta.file_type().is_char_device(),
-                        "TPM passthrough path {} is not a character device",
-                        dev_path.display()
-                    );
-                }
-                TpmBackend::Emulated {
-                    swtpm_binary,
-                    state_dir,
-                } => {
-                    let swtpm = SwtpmProcess::spawn(
-                        tmpdir.path(),
-                        state_dir.clone(),
-                        swtpm_binary.as_deref(),
-                    )
-                    .await?;
-                    swtpm_process = Some(swtpm);
-                }
-            }
-
-            let swtpm_sock = swtpm_process.as_ref().map(|s| s.sock());
-            let tpm_args = build_tpm_args(tpm_config, swtpm_sock, is_bios);
+            let swtpm = SwtpmProcess::spawn(
+                tmpdir.path(),
+                tpm_config.state_dir.clone(),
+                None,
+            )
+            .await?;
+            let tpm_args = build_tpm_args(swtpm.sock());
+            swtpm_process = Some(swtpm);
             args.extend(tpm_args);
         }
 
