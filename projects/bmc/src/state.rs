@@ -152,9 +152,16 @@ impl BmcState {
             builder = builder.smp(cpus);
         }
         if config.kvm {
+            // SEV-SNP requires EPYC CPU model — `-cpu host` exposes
+            // CPUID features that fail SNP firmware validation.
+            let cpu_model = if config.sev_snp.is_some() {
+                "EPYC-v4"
+            } else {
+                "host"
+            };
             builder = builder
                 .accel(manager::vm::Accel::Kvm)
-                .cpu("host");
+                .cpu(cpu_model);
         }
         if config.display {
             builder = builder.display();
