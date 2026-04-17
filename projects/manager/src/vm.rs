@@ -1034,7 +1034,6 @@ impl VmBuilder {
         tracing::debug!(
             binary = %self.arch.binary().display(),
             args = %args.join(" "),
-            kvm = kvm_fd.is_some(),
             "spawning QEMU via qrab-init"
         );
 
