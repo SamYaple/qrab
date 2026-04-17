@@ -82,7 +82,8 @@ pub async fn get_kvm() -> Result<bool, ServerFnError> {
 #[server]
 pub async fn get_config() -> Result<BmcConfig, ServerFnError> {
     let state = crate::state::bmc();
-    Ok(state.config.lock().await.clone())
+    let state = state.config.lock().await.clone();
+    Ok(state)
 }
 
 /// Set SEV-SNP enabled/disabled. When enabled, uses default config.
@@ -104,8 +105,11 @@ pub async fn set_tpm(enabled: bool) -> Result<(), ServerFnError> {
     let state = crate::state::bmc();
     let mut config = state.config.lock().await;
     config.tpm = if enabled {
-        // Prefer passthrough if /dev/tpm0 exists, else emulated.
-        let backend = if std::path::Path::new("/dev/tpm0").exists() {
+        // Prefer software TPM (swtpm) for isolation; fall back to
+        // passthrough only when swtpm is not available.
+        let backend = if which::which("swtpm").is_ok() {
+            BmcTpmBackend::Emulated
+        } else if std::path::Path::new("/dev/tpm0").exists() {
             BmcTpmBackend::Passthrough
         } else {
             BmcTpmBackend::Emulated
