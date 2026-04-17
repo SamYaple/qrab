@@ -302,9 +302,13 @@ pub async fn get_dashboard_state() -> Result<DashboardState, ServerFnError> {
 
                     // SEV: query-sev fails on VMs without SEV — treat
                     // errors as "not available".
-                    let sev_status = vm
+                    let sev_result = vm
                         .execute(&qapi::commands::QuerySev {})
-                        .await
+                        .await;
+                    if let Err(ref e) = sev_result {
+                        tracing::debug!("query-sev failed: {e}");
+                    }
+                    let sev_status = sev_result
                         .ok()
                         .map(|info| SevStatusResponse {
                             enabled: info.enabled,
