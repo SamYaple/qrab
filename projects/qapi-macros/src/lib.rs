@@ -792,10 +792,8 @@ fn alt_variant_priority(kind: &VariantKind) -> u8 {
             };
             match name.as_str() {
                 // Rust primitives that map to JSON scalars
-                "bool" | "char" | "String" | "str"
-                | "i8" | "i16" | "i32" | "i64" | "i128" | "isize"
-                | "u8" | "u16" | "u32" | "u64" | "u128" | "usize"
-                | "f32" | "f64" => 1,
+                "bool" | "char" | "String" | "str" | "i8" | "i16" | "i32" | "i64" | "i128"
+                | "isize" | "u8" | "u16" | "u32" | "u64" | "u128" | "usize" | "f32" | "f64" => 1,
                 // Array-like
                 "Vec" => 2,
                 // Everything else is object-like (structs, tagged unions, …)
@@ -1325,11 +1323,41 @@ fn gen_struct_de_flatten(name: &syn::Ident, fields: &[FieldInfo]) -> TokenStream
         }
     }).collect();
 
+    // Find discriminator field (if any) for gating union deserialization
+    let discriminator_field: Option<&FieldInfo> = fields.iter().find(|f| f.attrs.discriminator);
+
     let flat_extractions: Vec<TokenStream2> = flat.iter().map(|f| {
         let id = &f.ident;
         let ty = &f.ty;
-        quote! {
-            let #id: #ty = serde_json::from_value(serde_json::Value::Object(map.clone())).map_err(serde::de::Error::custom)?;
+        if f.attrs.union_field {
+            if let Some(disc_f) = discriminator_field {
+                let disc_id = &disc_f.ident;
+                if is_option_type(&disc_f.ty) {
+                    // Optional discriminator (e.g. added in later version):
+                    // when None, union is None; when Some, deserialize from full map.
+                    quote! {
+                        let #id: #ty = if #disc_id.is_some() {
+                            serde_json::from_value(serde_json::Value::Object(full_map.clone())).map_err(serde::de::Error::custom)?
+                        } else {
+                            None
+                        };
+                    }
+                } else {
+                    // Required discriminator: always deserialize union from full map.
+                    quote! {
+                        let #id: #ty = serde_json::from_value(serde_json::Value::Object(full_map.clone())).map_err(serde::de::Error::custom)?;
+                    }
+                }
+            } else {
+                // Union field without discriminator — fall back to full map deser
+                quote! {
+                    let #id: #ty = serde_json::from_value(serde_json::Value::Object(full_map.clone())).map_err(serde::de::Error::custom)?;
+                }
+            }
+        } else {
+            quote! {
+                let #id: #ty = serde_json::from_value(serde_json::Value::Object(full_map.clone())).map_err(serde::de::Error::custom)?;
+            }
         }
     }).collect();
 
@@ -1345,6 +1373,7 @@ fn gen_struct_de_flatten(name: &syn::Ident, fields: &[FieldInfo]) -> TokenStream
                     serde_json::Value::Object(m) => m,
                     _ => return Err(serde::de::Error::custom("expected object")),
                 };
+                let full_map = map.clone();
                 #(#extractions)*
                 #(#flat_extractions)*
                 Ok(#name { #(#all_ids),* })
@@ -1353,11 +1382,7 @@ fn gen_struct_de_flatten(name: &syn::Ident, fields: &[FieldInfo]) -> TokenStream
     }
 }
 
-fn gen_command_impl(
-    name: &syn::Ident,
-    wn: &str,
-    ta: &TypeAttrs,
-) -> syn::Result<TokenStream2> {
+fn gen_command_impl(name: &syn::Ident, wn: &str, ta: &TypeAttrs) -> syn::Result<TokenStream2> {
     // Validate the user-supplied `returns = "…"` value as a Rust type.
     // Raw `str::parse` panics on malformed input; parse through `syn` so a
     // bad attribute becomes a compile_error pointing at the struct ident
