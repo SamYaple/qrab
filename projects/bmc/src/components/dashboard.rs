@@ -58,6 +58,7 @@ pub fn Dashboard() -> Element {
         serial_tail,
         sev_status,
         tpm_status,
+        capabilities,
     } = state_value;
 
     let current_phase = status.phase.clone();
@@ -89,6 +90,7 @@ pub fn Dashboard() -> Element {
                 SecurityPanel {
                     sev_status: sev_status.clone(),
                     tpm_status: tpm_status.clone(),
+                    capabilities: capabilities.clone(),
                 }
             }
 

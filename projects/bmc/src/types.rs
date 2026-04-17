@@ -154,6 +154,7 @@ pub struct DashboardState {
     pub serial_tail: String,
     pub sev_status: Option<SevStatusResponse>,
     pub tpm_status: Option<TpmStatusResponse>,
+    pub capabilities: BmcCapabilities,
 }
 
 impl Default for DashboardState {
@@ -179,6 +180,15 @@ impl Default for DashboardState {
             serial_tail: String::new(),
             sev_status: None,
             tpm_status: None,
+            capabilities: BmcCapabilities {
+                kvm_available: false,
+                sev_available: false,
+                sev_snp_available: false,
+                tpm_passthrough_available: false,
+                swtpm_available: false,
+                ovmf_found: false,
+                ovmf_secure_found: false,
+            },
         }
     }
 }

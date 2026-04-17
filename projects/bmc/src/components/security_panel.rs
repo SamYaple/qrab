@@ -1,11 +1,12 @@
 use dioxus::prelude::*;
 
-use bmc::types::{SevStatusResponse, TpmStatusResponse};
+use bmc::types::{BmcCapabilities, SevStatusResponse, TpmStatusResponse};
 
 #[component]
 pub fn SecurityPanel(
     sev_status: Option<SevStatusResponse>,
     tpm_status: Option<TpmStatusResponse>,
+    capabilities: BmcCapabilities,
 ) -> Element {
     rsx! {
         div { class: "panel security-panel",
@@ -44,8 +45,22 @@ pub fn SecurityPanel(
                     },
                     None => rsx! {
                         div { class: "status-row",
-                            span { class: "label", "Status" }
-                            span { class: "value", "Not available" }
+                            span { class: "label", "Host Support" }
+                            span { class: "value",
+                                if capabilities.sev_snp_available {
+                                    "Available"
+                                } else if capabilities.sev_available {
+                                    "SEV only (no SNP)"
+                                } else {
+                                    "Not available"
+                                }
+                            }
+                        }
+                        if capabilities.sev_available {
+                            div { class: "status-row",
+                                span { class: "label", "VM Status" }
+                                span { class: "value", "Not enabled" }
+                            }
                         }
                     },
                 }
@@ -76,8 +91,22 @@ pub fn SecurityPanel(
                     },
                     None => rsx! {
                         div { class: "status-row",
-                            span { class: "label", "Status" }
-                            span { class: "value", "Not available" }
+                            span { class: "label", "Host Support" }
+                            span { class: "value",
+                                if capabilities.tpm_passthrough_available {
+                                    "Passthrough (/dev/tpm0)"
+                                } else if capabilities.swtpm_available {
+                                    "Emulated (swtpm)"
+                                } else {
+                                    "Not available"
+                                }
+                            }
+                        }
+                        if capabilities.tpm_passthrough_available || capabilities.swtpm_available {
+                            div { class: "status-row",
+                                span { class: "label", "VM Status" }
+                                span { class: "value", "Not enabled" }
+                            }
                         }
                     },
                 }
