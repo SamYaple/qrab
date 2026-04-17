@@ -35,6 +35,29 @@ pub trait QapiEvent: serde::de::DeserializeOwned {
     const NAME: &'static str;
 }
 
+/// Trait for discriminator-based flat union deserialization.
+///
+/// QAPI flat unions embed the discriminator and branch-specific fields in the
+/// same JSON object. The `#[qapi]` proc macro generates an impl for each union
+/// branch enum so that the containing struct's deserializer can select the
+/// correct variant by discriminator value instead of brute-force trial
+/// deserialization.
+pub trait QapiFlatUnion: Sized {
+    fn deserialize_variant(
+        discriminator: &str,
+        map: serde_json::Map<String, serde_json::Value>,
+    ) -> Result<Self, serde_json::Error>;
+}
+
+impl<T: QapiFlatUnion> QapiFlatUnion for Box<T> {
+    fn deserialize_variant(
+        discriminator: &str,
+        map: serde_json::Map<String, serde_json::Value>,
+    ) -> Result<Self, serde_json::Error> {
+        T::deserialize_variant(discriminator, map).map(Box::new)
+    }
+}
+
 static QEMU_VERSION: OnceLock<(u32, u32, u32)> = OnceLock::new();
 
 /// Set the QEMU version for runtime version gating.
