@@ -52,6 +52,13 @@ impl SwtpmProcess {
             )
         })?;
 
+        // Initialize TPM state if the state directory is empty (first use).
+        // Without this, OVMF hangs waiting for a valid TPM2_Startup response.
+        let needs_setup = Self::state_dir_empty(&state_dir).await;
+        if needs_setup {
+            Self::run_setup(&binary, &state_dir).await?;
+        }
+
         let sock = tmpdir.join("swtpm.sock");
 
         let child = tokio::process::Command::new(&binary)
@@ -97,6 +104,58 @@ impl SwtpmProcess {
             sock,
             state_dir,
         })
+    }
+
+    /// Check if state directory has no TPM state files.
+    async fn state_dir_empty(state_dir: &Path) -> bool {
+        let mut entries = match tokio::fs::read_dir(state_dir).await {
+            Ok(e) => e,
+            Err(_) => return true,
+        };
+        // Any file means state already exists (e.g. tpm2-00.permall).
+        entries.next_entry().await.ok().flatten().is_none()
+    }
+
+    /// Run `swtpm_setup` to create initial TPM 2.0 state (EK, platform
+    /// certificates). Uses the same binary directory as the swtpm binary
+    /// to find `swtpm_setup`.
+    async fn run_setup(swtpm_binary: &Path, state_dir: &Path) -> Result<()> {
+        // swtpm_setup is typically installed alongside swtpm.
+        let setup_binary = swtpm_binary
+            .parent()
+            .map(|p| p.join("swtpm_setup"))
+            .unwrap_or_else(|| PathBuf::from("swtpm_setup"));
+
+        tracing::debug!(
+            state_dir = %state_dir.display(),
+            "initializing swtpm state (first use)"
+        );
+
+        let output = tokio::process::Command::new(&setup_binary)
+            .arg("--tpmstate")
+            .arg(format!("dir={}", state_dir.display()))
+            .arg("--tpm2")
+            .arg("--createek")
+            .output()
+            .await
+            .map_err(|e| {
+                anyhow::anyhow!(
+                    "failed to run swtpm_setup at {}: {e}",
+                    setup_binary.display()
+                )
+            })?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            anyhow::bail!(
+                "swtpm_setup failed (exit {}): {}",
+                output.status,
+                stderr.trim()
+            );
+        }
+
+        tracing::debug!("swtpm_setup completed successfully");
+        Ok(())
     }
 
     /// Path to the swtpm control socket (for QEMU chardev).
