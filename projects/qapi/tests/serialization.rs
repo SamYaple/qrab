@@ -293,3 +293,116 @@ fn cross_referenced_command_types_accessible() {
     // It should be accessible from the root module (where data types live).
     let _: Option<qapi::BlockdevBackup> = None;
 }
+
+// ─── Discriminated union (flat) tests ───
+
+#[test]
+fn sev_info_deser_sev_variant() {
+    init_version();
+    // QEMU 10.2 response with sev-type discriminator
+    let json = r#"{"api-major":1,"api-minor":55,"build-id":49,"enabled":true,"sev-type":"sev","state":"running","handle":1,"policy":1}"#;
+    let info: SevInfo = serde_json::from_str(json).unwrap();
+    assert_eq!(info.api_major, 1);
+    assert_eq!(info.api_minor, 55);
+    assert!(info.enabled);
+    assert!(matches!(info.sev_type, Some(SevGuestType::Sev)));
+    assert!(matches!(info.state, SevState::Running));
+    match &info.u {
+        Some(SevInfoBranch::Sev(guest)) => {
+            assert_eq!(guest.handle, 1);
+            assert_eq!(guest.policy, 1);
+        }
+        other => panic!("expected SevInfoBranch::Sev, got {:?}", other),
+    }
+}
+
+#[test]
+fn sev_info_deser_snp_variant() {
+    init_version();
+    let json = r#"{"api-major":1,"api-minor":55,"build-id":49,"enabled":true,"sev-type":"sev-snp","state":"running","snp-policy":196608}"#;
+    let info: SevInfo = serde_json::from_str(json).unwrap();
+    assert!(matches!(info.sev_type, Some(SevGuestType::SevSnp)));
+    match &info.u {
+        Some(SevInfoBranch::SevSnp(guest)) => {
+            assert_eq!(guest.snp_policy, 196608);
+        }
+        other => panic!("expected SevInfoBranch::SevSnp, got {:?}", other),
+    }
+}
+
+#[test]
+fn sev_info_deser_pre_91() {
+    init_version();
+    // Pre-9.1.0 QEMU: no sev-type, no union branch, has handle/policy as direct fields
+    let json = r#"{"api-major":1,"api-minor":55,"build-id":49,"enabled":true,"state":"running","handle":1,"policy":1}"#;
+    let info: SevInfo = serde_json::from_str(json).unwrap();
+    assert!(info.enabled);
+    assert!(info.sev_type.is_none());
+    assert!(info.u.is_none());
+    // handle/policy should be captured in the removed fields
+    assert_eq!(info.handle, Some(1));
+    assert_eq!(info.policy, Some(1));
+}
+
+#[test]
+fn sev_info_roundtrip_sev() {
+    init_version();
+    let info = SevInfo {
+        api_major: 1,
+        api_minor: 55,
+        build_id: 49,
+        enabled: true,
+        handle: None,
+        policy: None,
+        sev_type: Some(SevGuestType::Sev),
+        state: SevState::Running,
+        u: Some(SevInfoBranch::Sev(SevGuestInfo {
+            handle: 1,
+            policy: 1,
+        })),
+    };
+    let json = serde_json::to_string(&info).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+    // Verify flat structure: handle/policy at top level, not nested
+    assert_eq!(parsed["handle"], 1);
+    assert_eq!(parsed["policy"], 1);
+    assert_eq!(parsed["sev-type"], "sev");
+    // Round-trip
+    let back: SevInfo = serde_json::from_str(&json).unwrap();
+    assert!(matches!(back.sev_type, Some(SevGuestType::Sev)));
+    match &back.u {
+        Some(SevInfoBranch::Sev(g)) => {
+            assert_eq!(g.handle, 1);
+            assert_eq!(g.policy, 1);
+        }
+        other => panic!("expected Sev, got {:?}", other),
+    }
+}
+
+#[test]
+fn sev_info_roundtrip_snp() {
+    init_version();
+    let info = SevInfo {
+        api_major: 1,
+        api_minor: 55,
+        build_id: 49,
+        enabled: true,
+        handle: None,
+        policy: None,
+        sev_type: Some(SevGuestType::SevSnp),
+        state: SevState::Running,
+        u: Some(SevInfoBranch::SevSnp(SevSnpGuestInfo {
+            snp_policy: 196608,
+        })),
+    };
+    let json = serde_json::to_string(&info).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+    assert_eq!(parsed["sev-type"], "sev-snp");
+    assert_eq!(parsed["snp-policy"], 196608);
+    let back: SevInfo = serde_json::from_str(&json).unwrap();
+    assert!(matches!(back.sev_type, Some(SevGuestType::SevSnp)));
+    match &back.u {
+        Some(SevInfoBranch::SevSnp(g)) => assert_eq!(g.snp_policy, 196608),
+        other => panic!("expected SevSnp, got {:?}", other),
+    }
+}
