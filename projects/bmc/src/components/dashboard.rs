@@ -3,6 +3,7 @@ use dioxus::prelude::*;
 use bmc::server::vm_status::get_dashboard_state;
 use bmc::types::DashboardState;
 
+use super::config_panel::ConfigPanel;
 use super::console::Console;
 use super::cpu_info::CpuInfo;
 use super::event_log::EventLog;
@@ -90,6 +91,10 @@ pub fn Dashboard() -> Element {
                 SecurityPanel {
                     sev_status: sev_status.clone(),
                     tpm_status: tpm_status.clone(),
+                    capabilities: capabilities.clone(),
+                }
+                ConfigPanel {
+                    current_phase: current_phase.clone(),
                     capabilities: capabilities.clone(),
                 }
             }

@@ -1,3 +1,4 @@
+pub mod config_panel;
 pub mod console;
 pub mod cpu_info;
 pub mod dashboard;

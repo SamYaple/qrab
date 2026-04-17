@@ -87,6 +87,9 @@ pub struct BmcConfig {
     pub arch: BmcArch,
     pub machine: BmcMachine,
     pub memory: String,
+    /// Number of guest vCPUs (`-smp cpus=N`). None = QEMU default (1).
+    #[serde(default)]
+    pub cpus: Option<u32>,
     pub display: bool,
     /// Enable KVM hardware acceleration. When true, requires host KVM
     /// support and process membership in the `kvm` group. When false,
@@ -199,6 +202,7 @@ impl Default for BmcConfig {
             arch: BmcArch::X86_64,
             machine: BmcMachine::Uefi,
             memory: "256M".into(),
+            cpus: None,
             display: true,
             kvm: true,
             disks: Vec::new(),
