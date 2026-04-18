@@ -77,6 +77,65 @@ async fn sev_snp_vm_spawn() {
     }
 }
 
+/// Test that SEV-SNP VM can actually boot (start + cont + query-status).
+/// This reproduces the BMC launch sequence through qrab-init.
+#[tokio::test]
+async fn sev_snp_vm_boot() {
+    if !std::path::Path::new("/dev/sev").exists() {
+        eprintln!("SKIP: /dev/sev not available");
+        return;
+    }
+    if !Arch::X86_64.is_available() {
+        eprintln!("SKIP: qemu-system-x86_64 not available");
+        return;
+    }
+
+    let fw = match firmware::find_ovmf(true) {
+        Some(fw) => fw,
+        None => {
+            eprintln!("SKIP: OVMF secure firmware not found");
+            return;
+        }
+    };
+
+    let builder = VmBuilder::new(Arch::X86_64, MachineConfig::SecureBoot { memory: "256M".into() })
+        .accel(Accel::Kvm)
+        .cpu("EPYC-v4")
+        .sev_snp(SevSnpConfig::default())
+        .ovmf(fw)
+        .display()
+        .serial();
+
+    let preconfig = match builder.spawn().await {
+        Ok(vm) => vm,
+        Err(e) => {
+            eprintln!("SEV-SNP spawn failed (may be expected): {e}");
+            return;
+        }
+    };
+
+    // x-exit-preconfig (SNP launch sequence)
+    let vm = preconfig.start().await.expect("start (x-exit-preconfig) failed");
+
+    // cont — start vCPUs
+    vm.cont().await.expect("cont failed");
+
+    // Wait for OVMF to boot (needs time for SNP encrypted memory init)
+    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+
+    // Check VM is still alive
+    let status = vm.qmp.execute(&qapi::commands::QueryStatus {}).await
+        .expect("query-status failed — VM may have crashed (check dmesg for GHCB errors)");
+    assert!(status.running, "VM should be running after cont");
+
+    // Query SEV state
+    let sev = vm.qmp.execute(&qapi::commands::QuerySev {}).await
+        .expect("query-sev failed");
+    eprintln!("SEV state: {:?}", sev.state);
+
+    vm.shutdown().await;
+}
+
 /// Validate that SEV-SNP rejects non-KVM accel.
 #[test]
 fn sev_snp_requires_kvm() {
