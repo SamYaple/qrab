@@ -54,5 +54,22 @@ if sbverify --cert "$KEYDIR/db.crt" "$FIXTURES/uki-tampered.efi" >/dev/null 2>&1
     die "uki-tampered.efi still verifies — tamper offset did not land in signed region"
 fi
 
+# Phase 2b adds parallel detached RSA-PKCS#1 v1.5 SHA-256 signatures, used
+# by the bootloader-side `qrab-boot-verify` crate. Each UKI gets a `.sig`
+# covering the *same* bytes it contains; we also publish the DER-encoded
+# SubjectPublicKeyInfo so the crate's tests (and future firmware builds)
+# can load it verbatim without having to re-parse the X.509 cert.
+bash "$ROOT/contrib/sign-detached.sh" "$FIXTURES/uki-unsigned.efi" "$FIXTURES/uki-unsigned.efi.sig"
+bash "$ROOT/contrib/sign-detached.sh" "$FIXTURES/uki-valid.efi"    "$FIXTURES/uki-valid.efi.sig"
+
+# We deliberately do NOT resign the tampered image: the whole point of
+# the negative fixture is that its existing signature no longer matches
+# its bytes. Use `uki-valid.efi.sig` to verify `uki-tampered.efi` — that
+# pair must fail.
+
+openssl x509 -in "$KEYDIR/db.crt" -pubkey -noout \
+    | openssl pkey -pubin -outform DER -out "$FIXTURES/db.pubkey.der"
+echo "build-test-ukis.sh: embedded SPKI → $FIXTURES/db.pubkey.der ($(stat -c'%s bytes' "$FIXTURES/db.pubkey.der"))"
+
 echo "build-test-ukis.sh: fixtures at $FIXTURES:"
 ls -la "$FIXTURES"
