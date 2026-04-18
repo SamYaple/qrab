@@ -24,9 +24,9 @@ use uefi::boot;
 use uefi::proto::pci::root_bridge::PciRootBridgeIo;
 use uefi_raw::protocol::pci::root_bridge::PciRootBridgeIoProtocol;
 use virtio_drivers::device::socket::{VirtIOSocket, VsockConnectionManager};
-use virtio_drivers::transport::pci::PciTransport;
 
 use crate::pci_dma;
+use crate::volatile_transport::VolatilePciTransport;
 use crate::vsock::Status;
 use crate::vsock_hal::UefiHal;
 use crate::vsock_pci::build_transport;
@@ -47,7 +47,7 @@ pub struct VsockDriver {
     /// The connection manager. Phase 3b.4+ will `connect` / `send` /
     /// `poll` / `recv` through this to reach the host attestation
     /// endpoint.
-    pub manager: VsockConnectionManager<UefiHal, PciTransport, RX_BUFFER_SIZE>,
+    pub manager: VsockConnectionManager<UefiHal, VolatilePciTransport, RX_BUFFER_SIZE>,
 }
 
 /// Distinguished errors from [`init`]. The log tokens at call sites
@@ -113,8 +113,16 @@ pub fn init(status: Status) -> Result<VsockDriver, InitError> {
         log::warn!("QRAB_VSOCK_DRIVER_TRANSPORT_ERR {e:?}");
         InitError::Transport(e)
     })?;
+    // Wrap the raw `PciTransport` in `VolatilePciTransport` so every
+    // `config_generation` sample is fenced through `black_box` before
+    // LLVM can fold it into a `cmp r/m, r` instruction that OVMF's
+    // #VC MMIO decoder cannot handle under SEV-SNP. See
+    // `volatile_transport` module docs for the full story and
+    // `issues/qrab-boot-snp-high-mmio-gp.md` for the upstream
+    // tracking ticket.
+    let transport = VolatilePciTransport::new(transport);
 
-    let driver: VirtIOSocket<UefiHal, PciTransport, RX_BUFFER_SIZE> =
+    let driver: VirtIOSocket<UefiHal, VolatilePciTransport, RX_BUFFER_SIZE> =
         VirtIOSocket::new(transport).map_err(|e| {
             log::warn!("QRAB_VSOCK_DRIVER_SOCKET_ERR {e:?}");
             InitError::Driver(e)
