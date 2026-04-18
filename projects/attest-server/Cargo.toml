@@ -5,6 +5,10 @@ edition = "2024"
 description = "qrab-boot attestation server — AF_VSOCK stub speaking the qrab-boot-proto postcard dialect"
 publish = false
 
+[lib]
+name = "attest_server"
+path = "src/lib.rs"
+
 [[bin]]
 name = "attest-server"
 path = "src/main.rs"
