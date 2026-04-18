@@ -1126,6 +1126,7 @@ fn emit_unified_output(registry: &UnifiedRegistry, flavor: &CodegenFlavor) -> Ge
 
         pub mod commands;
         pub mod events;
+        pub mod metadata;
     };
     let types_file = format_rust_file(mod_tokens, "");
 
@@ -1149,10 +1150,13 @@ fn emit_unified_output(registry: &UnifiedRegistry, flavor: &CodegenFlavor) -> Ge
         );
     }
 
+    let metadata_file = crate::metadata_emit::emit(registry);
+
     GeneratedOutput {
         types: types_file,
         commands: commands_file,
         events: events_file,
+        metadata: metadata_file,
     }
 }
 
@@ -1167,7 +1171,7 @@ pub fn generate_unified_code(qemu_repo: &Path, version_tags: &[&str]) -> Result<
     ))
 }
 
-/// The three files produced by code generation.
+/// The four files produced by code generation.
 pub struct GeneratedOutput {
     /// Data types (structs, enums, unions) — goes into `mod.rs`.
     pub types: String,
@@ -1175,13 +1179,17 @@ pub struct GeneratedOutput {
     pub commands: String,
     /// Event types — goes into `events.rs`.
     pub events: String,
+    /// Compile-time schema metadata — goes into `metadata.rs`.
+    pub metadata: String,
 }
 
 impl GeneratedOutput {
-    /// Concatenate all three parts into a single string.
+    /// Concatenate the three code parts into a single string.
     /// Useful for tests that search across all generated code.
     /// Strips inner attributes (`#![...]`) and duplicate headers from
     /// commands/events so the result is valid as a single Rust file.
+    /// The `metadata` part is excluded — it lives in its own module and
+    /// uses an entirely separate type system.
     pub fn combined(&self) -> String {
         let mut result =
             String::with_capacity(self.types.len() + self.commands.len() + self.events.len());
