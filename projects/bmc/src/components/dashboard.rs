@@ -10,6 +10,7 @@ use super::cpu_info::CpuInfo;
 use super::event_log::EventLog;
 use super::layout::{DashboardLayout, PanelType};
 use super::power_controls::PowerControls;
+use super::qmp_console::QmpConsole;
 use super::security_hero::SecurityHero;
 use super::serial::SerialConsole;
 use super::status_panel::StatusPanel;
@@ -129,6 +130,9 @@ pub fn Dashboard() -> Element {
                                 },
                                 PanelType::Events => rsx! {
                                     EventLog {}
+                                },
+                                PanelType::QmpConsole => rsx! {
+                                    QmpConsole {}
                                 },
                             }
                         }
