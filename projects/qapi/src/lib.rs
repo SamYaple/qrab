@@ -113,6 +113,11 @@ pub use generated::commands;
 /// QMP event types — access via `qapi::events::ShutdownEvent`, etc.
 pub use generated::events;
 
+/// Compile-time schema metadata — access via `qapi::metadata::COMMANDS`,
+/// `qapi::metadata::STRUCTS`, etc. Used by tooling that needs to render
+/// QAPI schema information at runtime (e.g. the BMC web UI).
+pub use generated::metadata;
+
 /// QEMU Guest Agent (QGA) types.
 pub mod qga;
 
