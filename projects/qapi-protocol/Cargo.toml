@@ -18,6 +18,7 @@ features = ["net", "io-util", "sync", "rt", "macros", "time"]
 
 [dev-dependencies]
 anyhow = { workspace = true }
+futures = { workspace = true }
 paste = { workspace = true }
 which = { workspace = true }
 
