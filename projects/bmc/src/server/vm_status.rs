@@ -1,10 +1,11 @@
 use dioxus::prelude::*;
 
 use crate::types::{
-    BmcCapabilities, BmcEvent, CpuInfoResponse, DashboardState, KvmInfoResponse, VmStatusResponse,
+    AttestationReportResponse, AttestationState, BmcCapabilities, BmcEvent, CpuInfoResponse,
+    DashboardState, KvmInfoResponse, SevCapabilitiesResponse, VmStatusResponse,
 };
 #[cfg(feature = "server")]
-use crate::types::{SevStatusResponse, TpmStatusResponse, VmPhase};
+use crate::types::{AttestationStatus, SevStatusResponse, TpmStatusResponse, VmPhase};
 
 /// Cached host CPU count. `std::thread::available_parallelism()` is a
 /// syscall (reads /proc/self/status on Linux) and the value never changes
@@ -380,6 +381,16 @@ pub async fn get_dashboard_state() -> Result<DashboardState, ServerFnError> {
     // Capabilities are host-level — no VM lock needed, cheap syscalls.
     let capabilities = crate::state::query_capabilities();
 
+    // Attestation state — separate lock, not under vm_guard.
+    let attestation = {
+        let att = state.attestation.lock().await;
+        if att.status != AttestationStatus::NotAvailable {
+            Some(att.clone())
+        } else {
+            None
+        }
+    };
+
     Ok(DashboardState {
         status,
         cpu_info,
@@ -388,6 +399,7 @@ pub async fn get_dashboard_state() -> Result<DashboardState, ServerFnError> {
         serial_tail,
         sev_status,
         tpm_status,
+        attestation,
         capabilities,
     })
 }
@@ -430,6 +442,77 @@ async fn read_serial_tail(path: Option<&std::path::Path>) -> String {
         }
     }
     buf
+}
+
+/// Get current attestation state.
+#[server]
+pub async fn get_attestation_state() -> Result<AttestationState, ServerFnError> {
+    use crate::state::bmc;
+
+    let state = bmc();
+    let att = state.attestation.lock().await;
+    Ok(att.clone())
+}
+
+/// Request a fresh attestation report with the given nonce.
+///
+/// Calls `query_sev_attestation_report(mnonce)` on the running VM, stores
+/// the result in `BmcState.attestation`, and returns it.
+#[server]
+pub async fn request_attestation_report(
+    mnonce: String,
+) -> Result<AttestationReportResponse, ServerFnError> {
+    use crate::state::{bmc, VmState};
+
+    let state = bmc();
+    let vm_guard = state.vm.lock().await;
+
+    match &*vm_guard {
+        VmState::Running(vm) => {
+            let report = vm
+                .query_sev_attestation_report(mnonce.clone())
+                .await
+                .map_err(|e| ServerFnError::new(format!("attestation report failed: {e}")))?;
+
+            let timestamp = chrono_now_iso8601();
+            let response = AttestationReportResponse {
+                data: report.data,
+                mnonce,
+                timestamp,
+            };
+
+            // Store in attestation state
+            drop(vm_guard);
+            let mut att = state.attestation.lock().await;
+            att.last_attestation_report = Some(response.clone());
+            att.status = AttestationStatus::Verified;
+
+            Ok(response)
+        }
+        _ => Err(ServerFnError::new("VM is not running")),
+    }
+}
+
+/// Get SEV capabilities from cached attestation state.
+#[server]
+pub async fn get_sev_capabilities() -> Result<Option<SevCapabilitiesResponse>, ServerFnError> {
+    use crate::state::bmc;
+
+    let state = bmc();
+    let att = state.attestation.lock().await;
+    Ok(att.sev_capabilities.clone())
+}
+
+/// ISO 8601 timestamp without pulling in chrono crate.
+#[cfg(feature = "server")]
+fn chrono_now_iso8601() -> String {
+    use std::time::SystemTime;
+    let now = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap_or_default();
+    // Simple UTC timestamp: seconds since epoch as string.
+    // Full ISO 8601 would need chrono — keep deps minimal.
+    format!("{}Z", now.as_secs())
 }
 
 /// Query host capabilities (SEV, TPM, OVMF availability).

@@ -157,6 +157,7 @@ pub struct DashboardState {
     pub serial_tail: String,
     pub sev_status: Option<SevStatusResponse>,
     pub tpm_status: Option<TpmStatusResponse>,
+    pub attestation: Option<AttestationState>,
     pub capabilities: BmcCapabilities,
 }
 
@@ -183,6 +184,7 @@ impl Default for DashboardState {
             serial_tail: String::new(),
             sev_status: None,
             tpm_status: None,
+            attestation: None,
             capabilities: BmcCapabilities {
                 kvm_available: false,
                 sev_available: false,
@@ -279,4 +281,67 @@ pub struct TpmStatusResponse {
     pub present: bool,
     pub model: Option<String>,
     pub backend_type: Option<String>,
+}
+
+/// Attestation lifecycle status.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum AttestationStatus {
+    /// No SEV configured or available.
+    NotAvailable,
+    /// SEV active, not yet measured.
+    Pending,
+    /// Launch measurement captured.
+    Measured,
+    /// Attestation report verified.
+    Verified,
+    /// Verification failed.
+    Failed(String),
+}
+
+/// SEV capabilities response DTO.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SevCapabilitiesResponse {
+    /// Platform Diffie-Hellman key (base64).
+    pub pdh: String,
+    /// Certificate chain (base64).
+    pub cert_chain: String,
+    /// C-bit position in page table entry.
+    pub cbitpos: i64,
+    /// Number of physical address bits reduced when SEV enabled.
+    pub reduced_phys_bits: i64,
+}
+
+/// Attestation report response DTO.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AttestationReportResponse {
+    /// Base64-encoded attestation report data.
+    pub data: String,
+    /// Nonce used for this report.
+    pub mnonce: String,
+    /// ISO 8601 timestamp when report was captured.
+    pub timestamp: String,
+}
+
+/// Combined attestation state for the frontend.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AttestationState {
+    /// Base64-encoded launch measurement.
+    pub launch_measure: Option<String>,
+    /// SEV capabilities (PDH, cert chain, etc.).
+    pub sev_capabilities: Option<SevCapabilitiesResponse>,
+    /// Most recent attestation report.
+    pub last_attestation_report: Option<AttestationReportResponse>,
+    /// Current attestation lifecycle status.
+    pub status: AttestationStatus,
+}
+
+impl Default for AttestationState {
+    fn default() -> Self {
+        Self {
+            launch_measure: None,
+            sev_capabilities: None,
+            last_attestation_report: None,
+            status: AttestationStatus::NotAvailable,
+        }
+    }
 }

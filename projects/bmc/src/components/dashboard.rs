@@ -59,6 +59,7 @@ pub fn Dashboard() -> Element {
         serial_tail,
         sev_status,
         tpm_status,
+        attestation: _attestation,
         capabilities,
     } = state_value;
 
