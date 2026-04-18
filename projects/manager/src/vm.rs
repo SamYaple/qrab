@@ -1039,28 +1039,14 @@ impl VmBuilder {
                 args[abs_idx].push_str(&format!(",firmware={}", fw_path.display()));
             }
         }
-        // Register SEV fd with -add-fd so QEMU preserves it during its
-        // close-all-fds startup phase. Without this, QEMU closes unregistered
-        // high-numbered fds before the SEV init code opens /proc/self/fd/N.
-        // This only manifests when the parent process has many open fds
-        // (e.g., Dioxus server with sockets, event loops) pushing the SEV fd
-        // to a high number like 269 — low fd numbers (3, 4) in test binaries
-        // survive because QEMU's close threshold is above them.
-        //
-        // Note: sev-device= doesn't support /dev/fdset/N (QEMU's SEV code
-        // uses open() not the fdset monitor), so we use /proc/self/fd/N.
-        // -add-fd just prevents QEMU from closing the fd.
+        // SEV fd is passed to QEMU via sev-device=/proc/self/fd/N.
+        // qrab-init dup2's it to a low fd (4) before execve to survive
+        // QEMU's close-all-high-fds startup phase. The /proc/self/fd/N
+        // reference in args will be rewritten by qrab-init to match.
         let mut sev_args = sev_args;
         if let Some(ref sev) = sev_fd {
-            let sev_raw = sev.raw_fd();
-            // Register fd with -add-fd to prevent QEMU from closing it.
-            // Use fdset 2 (fdset 1 is KVM).
-            args.extend([
-                "-add-fd".into(),
-                format!("fd={sev_raw},set=2"),
-            ]);
             if let Some(obj_str) = sev_args.get_mut(1) {
-                obj_str.push_str(&format!(",sev-device=/proc/self/fd/{sev_raw}"));
+                obj_str.push_str(&format!(",sev-device=/proc/self/fd/{}", sev.raw_fd()));
             }
         }
         args.extend(sev_args);

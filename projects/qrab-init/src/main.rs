@@ -146,11 +146,36 @@ fn run() -> Result<(), String> {
             // PID ns, but user ns prevents access to other processes).
             // TODO: implement via pivot_root in follow-up.
 
+            // Dup SEV fd to a low number before execve. QEMU closes all
+            // high-numbered fds during startup (close-all-open-fd). Only
+            // low fds and -add-fd registered fds survive. The SEV fd gets
+            // a high number (269+) when the parent has many open fds
+            // (Dioxus server). sev-device=/proc/self/fd/N won't work if
+            // QEMU already closed fd N. Duping to a low fd (4) ensures
+            // it survives. We also rewrite the QEMU arg that references it.
+            const SEV_DUP_FD: i32 = 4;
+            let mut args_rewritten = config.qemu_args.clone();
+            if let Some(sev_fd) = config.sev_fd {
+                if sev_fd != SEV_DUP_FD {
+                    nix::unistd::dup2(sev_fd, SEV_DUP_FD)
+                        .map_err(|e| format!("dup2 sev_fd {sev_fd} -> {SEV_DUP_FD}: {e}"))?;
+                    let _ = close(sev_fd);
+                }
+                // Rewrite /proc/self/fd/{old} -> /proc/self/fd/4 in args
+                let old_ref = format!("/proc/self/fd/{sev_fd}");
+                let new_ref = format!("/proc/self/fd/{SEV_DUP_FD}");
+                for arg in &mut args_rewritten {
+                    if arg.contains(&old_ref) {
+                        *arg = arg.replace(&old_ref, &new_ref);
+                    }
+                }
+            }
+
             // Build argv for execve.
             let binary = build_cstring(config.qemu_binary.as_os_str().as_encoded_bytes())?;
 
             let mut argv = vec![binary.clone()];
-            for arg in &config.qemu_args {
+            for arg in &args_rewritten {
                 argv.push(
                     CString::new(arg.as_bytes()).map_err(|e| format!("invalid qemu arg: {e}"))?,
                 );
