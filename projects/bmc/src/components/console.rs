@@ -56,25 +56,29 @@ if (window._rfb) {
 /// asserts that the wrapper is still present below.
 #[component]
 pub fn Console(console_available: bool) -> Element {
-    // Track the previous availability across renders so we can react to
-    // true->false transitions (disconnect) and false->true transitions
-    // (connect) without re-running the loader on every re-render.
+    // Manual connect — user must click "Connect" to start VNC.
+    // Auto-connect during SNP boot causes GHCB faults: the VNC client
+    // triggers VGA MMIO reads before the guest firmware has registered
+    // GHCB pages with the PSP.
     let mut was_available = use_signal(|| false);
+    let mut user_wants_vnc = use_signal(|| false);
 
+    // Disconnect when console becomes unavailable (VM shutdown).
     use_effect(use_reactive!(|console_available| {
-        let prev = was_available();
-        match console_transition(prev, console_available) {
-            ConsoleTransition::Connect => {
-                was_available.set(true);
-                spawn(async move {
-                    let _ = document::eval(NOVNC_LOADER_JS);
-                });
-            }
-            ConsoleTransition::Disconnect => {
-                was_available.set(false);
-                let _ = document::eval(NOVNC_DISCONNECT_JS);
-            }
-            ConsoleTransition::Idle => {}
+        if !console_available && was_available() {
+            was_available.set(false);
+            user_wants_vnc.set(false);
+            let _ = document::eval(NOVNC_DISCONNECT_JS);
+        }
+    }));
+
+    // Connect only when user clicks and console is available.
+    use_effect(use_reactive!(|console_available| {
+        if console_available && user_wants_vnc() && !was_available() {
+            was_available.set(true);
+            spawn(async move {
+                let _ = document::eval(NOVNC_LOADER_JS);
+            });
         }
     }));
 
@@ -83,8 +87,18 @@ pub fn Console(console_available: bool) -> Element {
             div { class: "panel-header",
                 h2 { "Console" }
             }
-            if console_available {
+            if console_available && was_available() {
                 div { id: "vnc-container", class: "vnc-container" }
+            } else if console_available {
+                div { class: "empty-state",
+                    button {
+                        class: "btn",
+                        onclick: move |_| {
+                            user_wants_vnc.set(true);
+                        },
+                        "Connect Console"
+                    }
+                }
             } else {
                 div { class: "empty-state",
                     "Power on the VM to access the console"
@@ -138,6 +152,9 @@ mod tests {
 
     #[test]
     fn transition_disconnect_on_availability_falling_edge() {
-        assert_eq!(console_transition(true, false), ConsoleTransition::Disconnect);
+        assert_eq!(
+            console_transition(true, false),
+            ConsoleTransition::Disconnect
+        );
     }
 }
