@@ -16,6 +16,7 @@ extern crate alloc;
 
 mod panic;
 mod vsock;
+mod vsock_connect;
 mod vsock_driver;
 mod vsock_hal;
 mod vsock_pci;
