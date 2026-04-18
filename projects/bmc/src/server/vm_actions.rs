@@ -1,8 +1,6 @@
 use dioxus::prelude::*;
 
 use crate::types::{BmcConfig, VmPhase};
-#[cfg(feature = "server")]
-use crate::types::{BmcSevSnpConfig, BmcTpmConfig};
 
 #[server]
 pub async fn power_on() -> Result<VmPhase, ServerFnError> {
@@ -64,52 +62,12 @@ pub async fn force_off() -> Result<VmPhase, ServerFnError> {
     Ok(state.phase().await)
 }
 
-#[server]
-pub async fn set_kvm(enabled: bool) -> Result<bool, ServerFnError> {
-    let state = crate::state::bmc();
-    state.config.lock().await.kvm = enabled;
-    Ok(enabled)
-}
-
-#[server]
-pub async fn get_kvm() -> Result<bool, ServerFnError> {
-    let state = crate::state::bmc();
-    let kvm = state.config.lock().await.kvm;
-    Ok(kvm)
-}
-
 /// Get the full VM configuration.
 #[server]
 pub async fn get_config() -> Result<BmcConfig, ServerFnError> {
     let state = crate::state::bmc();
     let state = state.config.lock().await.clone();
     Ok(state)
-}
-
-/// Set SEV-SNP enabled/disabled. When enabled, uses default config.
-#[server]
-pub async fn set_sev_snp(enabled: bool) -> Result<(), ServerFnError> {
-    let state = crate::state::bmc();
-    let mut config = state.config.lock().await;
-    config.sev_snp = if enabled {
-        Some(BmcSevSnpConfig::default())
-    } else {
-        None
-    };
-    Ok(())
-}
-
-/// Set TPM enabled/disabled. Uses swtpm when enabled.
-#[server]
-pub async fn set_tpm(enabled: bool) -> Result<(), ServerFnError> {
-    let state = crate::state::bmc();
-    let mut config = state.config.lock().await;
-    config.tpm = if enabled {
-        Some(BmcTpmConfig { persistent: true })
-    } else {
-        None
-    };
-    Ok(())
 }
 
 /// Set guest vCPU count. 0 or None = QEMU default (1).
@@ -145,10 +103,9 @@ pub async fn send_challenge_to_guest(nonce: String) -> Result<String, ServerFnEr
     }
 
     let state = crate::state::bmc();
-    let attest_sock = state
-        .attest_sock()
-        .await
-        .ok_or_else(|| ServerFnError::new("no attestation channel (VM not running or SEV-SNP not enabled)"))?;
+    let attest_sock = state.attest_sock().await.ok_or_else(|| {
+        ServerFnError::new("no attestation channel (VM not running or SEV-SNP not enabled)")
+    })?;
 
     // Connect to the virtio-serial socket and write the nonce.
     // Then read the response (attestation evidence) with a timeout.
@@ -167,13 +124,10 @@ pub async fn send_challenge_to_guest(nonce: String) -> Result<String, ServerFnEr
 
     // Read response with 30s timeout.
     let mut buf = vec![0u8; 16384];
-    let n = tokio::time::timeout(
-        std::time::Duration::from_secs(30),
-        stream.read(&mut buf),
-    )
-    .await
-    .map_err(|_| ServerFnError::new("attestation response timed out (30s)"))?
-    .map_err(|e| ServerFnError::new(format!("read attestation response: {e}")))?;
+    let n = tokio::time::timeout(std::time::Duration::from_secs(30), stream.read(&mut buf))
+        .await
+        .map_err(|_| ServerFnError::new("attestation response timed out (30s)"))?
+        .map_err(|e| ServerFnError::new(format!("read attestation response: {e}")))?;
 
     let response = String::from_utf8_lossy(&buf[..n]).to_string();
     Ok(response)
