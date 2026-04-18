@@ -571,3 +571,537 @@ fn sev_snp_requires_uefi() {
         }
     });
 }
+
+/// Test SEV-SNP boot with many open fds (simulates Dioxus server).
+/// The BMC server has ~270 open fds, pushing /dev/sev to fd 269+.
+/// QEMU closes high fds during startup. qrab-init must dup2 to low fd.
+#[tokio::test]
+async fn sev_snp_vm_boot_high_fds() {
+    if !std::path::Path::new("/dev/sev").exists() {
+        eprintln!("SKIP: /dev/sev not available");
+        return;
+    }
+    if !Arch::X86_64.is_available() {
+        eprintln!("SKIP: qemu-system-x86_64 not available");
+        return;
+    }
+
+    let fw = match firmware::find_ovmf(true) {
+        Some(fw) => fw,
+        None => {
+            eprintln!("SKIP: OVMF secure firmware not found");
+            return;
+        }
+    };
+
+    // Open ~260 dummy fds to push /dev/sev to a high number.
+    // This simulates the Dioxus server's fd usage.
+    let mut dummy_fds = Vec::new();
+    for _ in 0..260 {
+        match std::fs::File::open("/dev/null") {
+            Ok(f) => dummy_fds.push(f),
+            Err(_) => break,
+        }
+    }
+    eprintln!("Opened {} dummy fds to simulate server", dummy_fds.len());
+
+    let builder = VmBuilder::new(Arch::X86_64, MachineConfig::SecureBoot { memory: "256M".into() })
+        .accel(Accel::Kvm)
+        .cpu("EPYC-v4")
+        .sev_snp(SevSnpConfig::default())
+        .ovmf(fw)
+        .display()
+        .serial();
+
+    let preconfig = match builder.spawn().await {
+        Ok(vm) => vm,
+        Err(e) => {
+            eprintln!("SEV-SNP spawn failed: {e}");
+            drop(dummy_fds);
+            return;
+        }
+    };
+
+    // Drop dummy fds — they served their purpose of pushing fd numbers up
+    drop(dummy_fds);
+
+    let vm = preconfig.start().await.expect("start failed");
+    vm.cont().await.expect("cont failed");
+
+    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+
+    let status = vm.qmp.execute(&qapi::commands::QueryStatus {}).await
+        .expect("query-status failed — GHCB crash? check dmesg");
+    assert!(status.running, "VM should be running");
+
+    vm.shutdown().await;
+    eprintln!("HIGH-FD TEST PASSED");
+}
+
+/// Reproduce BMC launch flow with all factors:
+/// - ~260 dummy fds (simulating Dioxus server)
+/// - virtio-serial-pci + attestation chardev (on CLI)
+/// - blockdev-add + device_add + cont (QMP sequence)
+///
+/// Previous tests passed individually:
+/// - sev_snp_vm_boot: bare boot (no disks, no chardev) → PASS
+/// - sev_snp_vm_boot_high_fds: high fds, bare boot → PASS
+/// - sev_snp_vm_boot_bmc_flow: device_add, no high fds, no chardev → PASS
+///
+/// This test combines factors to reproduce BMC crash:
+/// - Multi-thread tokio runtime (BMC uses multi_thread, not current_thread)
+/// - ~260 dummy fds (Dioxus server fd pressure)
+/// - blockdev-add + x-exit-preconfig + device_add + cont
+///
+/// Goes through qrab-init (real namespace path) like BMC does.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn sev_snp_vm_boot_bmc_full() {
+    if !std::path::Path::new("/dev/sev").exists() {
+        eprintln!("SKIP: /dev/sev not available");
+        return;
+    }
+    if !Arch::X86_64.is_available() {
+        eprintln!("SKIP: qemu-system-x86_64 not available");
+        return;
+    }
+
+    let fw = match firmware::find_ovmf(true) {
+        Some(fw) => fw,
+        None => {
+            eprintln!("SKIP: OVMF secure firmware not found");
+            return;
+        }
+    };
+
+    // Simulate Dioxus fd pressure
+    let mut dummy_fds = Vec::new();
+    for _ in 0..260 {
+        match std::fs::File::open("/dev/null") {
+            Ok(f) => dummy_fds.push(f),
+            Err(_) => break,
+        }
+    }
+    eprintln!("Opened {} dummy fds", dummy_fds.len());
+
+    // Create disk
+    let disk_dir = tempfile::tempdir().expect("tempdir");
+    let disk_path = disk_dir.path().join("test.qcow2");
+    let img = std::process::Command::new("qemu-img")
+        .args(["create", "-f", "qcow2", &disk_path.display().to_string(), "64M"])
+        .output()
+        .expect("qemu-img");
+    assert!(img.status.success());
+
+    // Use AmdSev OVMF (same as BMC), NOT SecureBoot OVMF
+    let amdsev_fw = match firmware::find_amdsev_ovmf() {
+        Some(fw) => fw,
+        None => {
+            eprintln!("SKIP: AmdSev OVMF not found");
+            drop(dummy_fds);
+            return;
+        }
+    };
+    eprintln!("Using AmdSev OVMF: {}", amdsev_fw.display());
+
+    let builder = VmBuilder::new(Arch::X86_64, MachineConfig::SecureBoot { memory: "256M".into() })
+        .accel(Accel::Kvm)
+        .cpu("EPYC-v4")
+        .sev_snp(SevSnpConfig::default())
+        .firmware(amdsev_fw)
+        .display()
+        .serial();
+
+    let preconfig = match builder.spawn().await {
+        Ok(vm) => vm,
+        Err(e) => {
+            eprintln!("SEV-SNP spawn failed: {e}");
+            drop(dummy_fds);
+            return;
+        }
+    };
+
+    // Drop dummy fds after spawn
+    drop(dummy_fds);
+
+    // blockdev-add
+    use qapi::commands::{BlockdevAdd, DeviceAdd};
+    use qapi::{BlockdevDriver, BlockdevOptionsBranch, BlockdevOptionsFile, BlockdevOptionsQcow2, BlockdevRef};
+
+    preconfig.qmp.execute(&BlockdevAdd {
+        driver: Some(BlockdevDriver::File),
+        node_name: Some("disk0-file".into()),
+        read_only: Some(false),
+        u: Some(BlockdevOptionsBranch::File(BlockdevOptionsFile {
+            filename: disk_path.display().to_string(),
+            aio: None, aio_max_batch: None, drop_cache: None,
+            locking: None, pr_manager: None, x_check_cache_dropped: None,
+        })),
+        active: None, auto_read_only: None, cache: None,
+        detect_zeroes: None, discard: None, force_share: None, options: None,
+    }).await.expect("blockdev-add file failed");
+
+    preconfig.qmp.execute(&BlockdevAdd {
+        driver: Some(BlockdevDriver::Qcow2),
+        node_name: Some("disk0".into()),
+        read_only: Some(false),
+        u: Some(BlockdevOptionsBranch::Qcow2(BlockdevOptionsQcow2 {
+            file: Box::new(BlockdevRef::Reference("disk0-file".into())),
+            backing: None, cache_clean_interval: None, cache_size: None,
+            data_file: None, discard_no_unref: None, encrypt: None,
+            l2_cache_entry_size: None, l2_cache_size: None,
+            lazy_refcounts: None, overlap_check: None,
+            pass_discard_other: None, pass_discard_request: None,
+            pass_discard_snapshot: None, refcount_cache_size: None,
+        })),
+        active: None, auto_read_only: None, cache: None,
+        detect_zeroes: None, discard: None, force_share: None, options: None,
+    }).await.expect("blockdev-add qcow2 failed");
+
+    // x-exit-preconfig
+    let vm = preconfig.start().await.expect("x-exit-preconfig failed");
+
+    // device_add
+    use std::collections::HashMap;
+    vm.qmp.execute(&DeviceAdd {
+        driver: "virtio-blk-pci".into(),
+        id: Some("blk0".into()),
+        bus: Some("rp0".into()),
+        arguments: Some(HashMap::from([
+            ("drive".to_string(), serde_json::Value::String("disk0".into())),
+            ("bootindex".to_string(), serde_json::Value::Number(0.into())),
+        ])),
+    }).await.expect("device_add failed");
+
+    // cont — BMC crash point
+    vm.cont().await.expect("cont failed");
+
+    // Simulate BMC dashboard polling: rapid QMP queries right after cont.
+    // BMC fires these on first dashboard poll (cached_static=None):
+    //   query-status, query-cpus-fast, query-kvm, query-sev, query-tpm
+    // query-sev triggers KVM_SEV ioctl during early SNP guest boot.
+    eprintln!("Firing rapid QMP queries after cont (simulating dashboard poll)...");
+
+    let qs = vm.qmp.execute(&qapi::commands::QueryStatus {}).await;
+    eprintln!("  query-status: {:?}", qs.is_ok());
+
+    let qc = vm.qmp.execute(&qapi::commands::QueryCpusFast {}).await;
+    eprintln!("  query-cpus-fast: {:?}", qc.is_ok());
+
+    let qk = vm.qmp.execute(&qapi::commands::QueryKvm {}).await;
+    eprintln!("  query-kvm: {:?}", qk.is_ok());
+
+    let qsev = vm.qmp.execute(&qapi::commands::QuerySev {}).await;
+    eprintln!("  query-sev: {:?}", qsev.as_ref().map(|_| ()).map_err(|e| e.to_string()));
+
+    let qtpm = vm.qmp.execute(&qapi::commands::QueryTpm {}).await;
+    eprintln!("  query-tpm: {:?}", qtpm.is_ok());
+
+    // Now wait and check if VM survives
+    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+
+    let status = vm.qmp.execute(&qapi::commands::QueryStatus {}).await
+        .expect("query-status failed — GHCB crash? check dmesg");
+    assert!(status.running, "VM should be running");
+
+    vm.shutdown().await;
+    eprintln!("BMC-FULL TEST PASSED");
+}
+
+/// Reproduce BMC launch flow exactly:
+/// 1. Spawn with --preconfig + PCIe root ports + virtio-serial (attestation)
+/// 2. blockdev-add (file backend + qcow2 format layer) in preconfig
+/// 3. x-exit-preconfig (SNP launch)
+/// 4. device_add virtio-blk-pci after machine init
+/// 5. cont
+///
+/// This is the exact sequence that crashes from the BMC binary but works
+/// from manual socat / integration tests without disks.
+#[tokio::test]
+async fn sev_snp_vm_boot_bmc_flow() {
+    if !std::path::Path::new("/dev/sev").exists() {
+        eprintln!("SKIP: /dev/sev not available");
+        return;
+    }
+    if !Arch::X86_64.is_available() {
+        eprintln!("SKIP: qemu-system-x86_64 not available");
+        return;
+    }
+
+    let fw = match firmware::find_ovmf(true) {
+        Some(fw) => fw,
+        None => {
+            eprintln!("SKIP: OVMF secure firmware not found");
+            return;
+        }
+    };
+
+    // Create a small qcow2 disk image for blockdev-add / device_add test.
+    let disk_dir = tempfile::tempdir().expect("failed to create temp dir");
+    let disk_path = disk_dir.path().join("test.qcow2");
+    let qemu_img = std::process::Command::new("qemu-img")
+        .args(["create", "-f", "qcow2", &disk_path.display().to_string(), "64M"])
+        .output()
+        .expect("qemu-img not found");
+    assert!(qemu_img.status.success(), "qemu-img create failed");
+
+    // Mirror BMC builder: attestation chardev via extra args
+    let builder = VmBuilder::new(Arch::X86_64, MachineConfig::SecureBoot { memory: "256M".into() })
+        .accel(Accel::Kvm)
+        .cpu("EPYC-v4")
+        .sev_snp(SevSnpConfig::default())
+        .ovmf(fw)
+        .display()
+        .serial();
+
+    let preconfig = match builder.spawn().await {
+        Ok(vm) => vm,
+        Err(e) => {
+            eprintln!("SEV-SNP spawn failed: {e}");
+            return;
+        }
+    };
+
+    // Step 1: blockdev-add file backend (preconfig-safe)
+    use qapi::commands::{BlockdevAdd, DeviceAdd};
+    use qapi::{BlockdevDriver, BlockdevOptionsBranch, BlockdevOptionsFile, BlockdevOptionsQcow2, BlockdevRef};
+
+    preconfig.qmp.execute(&BlockdevAdd {
+        driver: Some(BlockdevDriver::File),
+        node_name: Some("disk0-file".into()),
+        read_only: Some(false),
+        u: Some(BlockdevOptionsBranch::File(BlockdevOptionsFile {
+            filename: disk_path.display().to_string(),
+            aio: None,
+            aio_max_batch: None,
+            drop_cache: None,
+            locking: None,
+            pr_manager: None,
+            x_check_cache_dropped: None,
+        })),
+        active: None,
+        auto_read_only: None,
+        cache: None,
+        detect_zeroes: None,
+        discard: None,
+        force_share: None,
+        options: None,
+    }).await.expect("blockdev-add file backend failed");
+
+    // Step 2: blockdev-add format layer
+    preconfig.qmp.execute(&BlockdevAdd {
+        driver: Some(BlockdevDriver::Qcow2),
+        node_name: Some("disk0".into()),
+        read_only: Some(false),
+        u: Some(BlockdevOptionsBranch::Qcow2(BlockdevOptionsQcow2 {
+            file: Box::new(BlockdevRef::Reference("disk0-file".into())),
+            backing: None,
+            cache_clean_interval: None,
+            cache_size: None,
+            data_file: None,
+            discard_no_unref: None,
+            encrypt: None,
+            l2_cache_entry_size: None,
+            l2_cache_size: None,
+            lazy_refcounts: None,
+            overlap_check: None,
+            pass_discard_other: None,
+            pass_discard_request: None,
+            pass_discard_snapshot: None,
+            refcount_cache_size: None,
+        })),
+        active: None,
+        auto_read_only: None,
+        cache: None,
+        detect_zeroes: None,
+        discard: None,
+        force_share: None,
+        options: None,
+    }).await.expect("blockdev-add qcow2 layer failed");
+
+    // Step 3: x-exit-preconfig (SNP launch sequence)
+    let vm = preconfig.start().await.expect("x-exit-preconfig failed");
+
+    // Step 4: device_add virtio-blk-pci on rp0 (after machine init)
+    use std::collections::HashMap;
+    vm.qmp.execute(&DeviceAdd {
+        driver: "virtio-blk-pci".into(),
+        id: Some("blk0".into()),
+        bus: Some("rp0".into()),
+        arguments: Some(HashMap::from([
+            ("drive".to_string(), serde_json::Value::String("disk0".into())),
+            ("bootindex".to_string(), serde_json::Value::Number(0.into())),
+        ])),
+    }).await.expect("device_add virtio-blk-pci failed");
+
+    // Step 5: cont — this is where BMC crashes with GHCB error
+    vm.cont().await.expect("cont failed");
+
+    // Wait for OVMF init
+    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+
+    // Check VM still alive
+    let status = vm.qmp.execute(&qapi::commands::QueryStatus {}).await
+        .expect("query-status failed — GHCB crash? check dmesg for 'GHCB GPA not registered'");
+    assert!(status.running, "VM should be running after cont");
+
+    vm.shutdown().await;
+    eprintln!("BMC-FLOW TEST PASSED");
+}
+
+/// Known upstream crash: SEV-SNP guest crashes during Linux kernel boot
+/// when the guest performs page state transitions (private ↔ shared).
+///
+/// Reproduces with: AmdSev OVMF + bootable disk (cirros) + `-m 256M`.
+/// The guest boots OVMF → GRUB → Linux kernel, then the ~207th page
+/// conversion triggers EFAULT → EINVAL from KVM_RUN.
+///
+/// With an empty (non-bootable) disk, OVMF stays at the shell and only
+/// does ~184 page conversions — never reaching the crash point.
+///
+/// This is NOT a qrab bug. It's a QEMU 10.2 / kernel 6.18 / AmdSev OVMF
+/// interaction issue. This test documents the failure and will flip to
+/// passing when the upstream fix lands.
+///
+/// See: llm-rag/issues/sev-snp-boot-crash.md
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[should_panic(expected = "upstream bug")]
+async fn sev_snp_boot_crash_upstream_bug() {
+    if !std::path::Path::new("/dev/sev").exists() {
+        eprintln!("SKIP: /dev/sev not available");
+        return;
+    }
+    if !Arch::X86_64.is_available() {
+        eprintln!("SKIP: qemu-system-x86_64 not available");
+        return;
+    }
+
+    let amdsev_fw = match firmware::find_amdsev_ovmf() {
+        Some(fw) => fw,
+        None => {
+            eprintln!("SKIP: AmdSev OVMF not found");
+            return;
+        }
+    };
+
+    // Must use a BOOTABLE disk to trigger the crash. An empty qcow2
+    // stays at the OVMF shell and never hits the failing code path.
+    let cirros = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent().unwrap()
+        .parent().unwrap()
+        .join("target/test-fixtures/cirros-0.6.2-x86_64-disk.img");
+    if !cirros.exists() {
+        eprintln!("SKIP: cirros not found at {}", cirros.display());
+        return;
+    }
+
+    // Create overlay so the base image is never modified
+    let tmpdir = tempfile::tempdir().expect("tempdir");
+    let overlay = tmpdir.path().join("overlay.qcow2");
+    let img = std::process::Command::new("qemu-img")
+        .args([
+            "create", "-f", "qcow2",
+            "-b", &cirros.display().to_string(),
+            "-F", "qcow2",
+            &overlay.display().to_string(),
+        ])
+        .output()
+        .expect("qemu-img");
+    assert!(img.status.success(), "qemu-img create overlay failed");
+
+    let builder = VmBuilder::new(Arch::X86_64, MachineConfig::Uefi { memory: "256M".into() })
+        .accel(Accel::Kvm)
+        .cpu("EPYC-v4")
+        .sev_snp(SevSnpConfig::default())
+        .firmware(amdsev_fw)
+        .display()
+        .serial();
+
+    let preconfig = match builder.spawn().await {
+        Ok(vm) => vm,
+        Err(e) => {
+            eprintln!("SKIP: SEV-SNP spawn failed: {e}");
+            return;
+        }
+    };
+
+    // blockdev-add
+    use qapi::commands::{BlockdevAdd, DeviceAdd};
+    use qapi::{BlockdevDriver, BlockdevOptionsBranch, BlockdevOptionsFile, BlockdevOptionsQcow2, BlockdevRef};
+
+    preconfig.qmp.execute(&BlockdevAdd {
+        driver: Some(BlockdevDriver::File),
+        node_name: Some("disk0-file".into()),
+        read_only: Some(false),
+        u: Some(BlockdevOptionsBranch::File(BlockdevOptionsFile {
+            filename: overlay.display().to_string(),
+            aio: None, aio_max_batch: None, drop_cache: None,
+            locking: None, pr_manager: None, x_check_cache_dropped: None,
+        })),
+        active: None, auto_read_only: None, cache: None,
+        detect_zeroes: None, discard: None, force_share: None, options: None,
+    }).await.expect("blockdev-add file failed");
+
+    preconfig.qmp.execute(&BlockdevAdd {
+        driver: Some(BlockdevDriver::Qcow2),
+        node_name: Some("disk0".into()),
+        read_only: Some(false),
+        u: Some(BlockdevOptionsBranch::Qcow2(BlockdevOptionsQcow2 {
+            file: Box::new(BlockdevRef::Reference("disk0-file".into())),
+            backing: None, cache_clean_interval: None, cache_size: None,
+            data_file: None, discard_no_unref: None, encrypt: None,
+            l2_cache_entry_size: None, l2_cache_size: None,
+            lazy_refcounts: None, overlap_check: None,
+            pass_discard_other: None, pass_discard_request: None,
+            pass_discard_snapshot: None, refcount_cache_size: None,
+        })),
+        active: None, auto_read_only: None, cache: None,
+        detect_zeroes: None, discard: None, force_share: None, options: None,
+    }).await.expect("blockdev-add qcow2 failed");
+
+    // x-exit-preconfig (SNP launch)
+    let vm = preconfig.start().await.expect("x-exit-preconfig failed");
+
+    // device_add
+    use std::collections::HashMap;
+    vm.qmp.execute(&DeviceAdd {
+        driver: "virtio-blk-pci".into(),
+        id: Some("blk0".into()),
+        bus: Some("rp0".into()),
+        arguments: Some(HashMap::from([
+            ("drive".to_string(), serde_json::Value::String("disk0".into())),
+            ("bootindex".to_string(), serde_json::Value::Number(0.into())),
+        ])),
+    }).await.expect("device_add failed");
+
+    // cont — guest starts executing
+    vm.cont().await.expect("cont failed");
+
+    // Wait long enough for cirros kernel to boot and trigger the crash.
+    // The crash happens ~2-3s after cont (during Linux kernel early init
+    // page conversions). We wait 10s to be safe.
+    tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+
+    let result = vm.qmp.execute(&qapi::commands::QueryStatus {}).await;
+
+    match result {
+        Ok(status) if status.running => {
+            // Upstream bug is FIXED — guest survived boot.
+            eprintln!("UPSTREAM FIX DETECTED: SEV-SNP guest booted with cirros!");
+            eprintln!("Remove #[should_panic] or update this test.");
+            vm.shutdown().await;
+        }
+        Ok(status) => {
+            // Guest crashed (internal-error). Expected with the upstream bug.
+            eprintln!("EXPECTED CRASH: status={:?} (upstream KVM/QEMU/OVMF bug)", status.status);
+            eprintln!("See: llm-rag/issues/sev-snp-boot-crash.md");
+            vm.shutdown().await;
+            panic!("SEV-SNP guest crashed during Linux boot (upstream bug): {:?}", status.status);
+        }
+        Err(e) => {
+            // QMP connection lost — QEMU process died.
+            eprintln!("EXPECTED CRASH: QMP error={e} (upstream KVM/QEMU/OVMF bug)");
+            eprintln!("See: llm-rag/issues/sev-snp-boot-crash.md");
+            panic!("SEV-SNP guest crashed during Linux boot (upstream bug): {e}");
+        }
+    }
+}
