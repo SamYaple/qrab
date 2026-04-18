@@ -31,7 +31,7 @@ use uefi::prelude::*;
 const BANNER: &str = concat!(
     "QRAB BOOT v",
     env!("CARGO_PKG_VERSION"),
-    " phase3a (build ",
+    " phase3b (build ",
     env!("CARGO_PKG_NAME"),
     ")",
 );
@@ -52,11 +52,11 @@ fn efi_main() -> Status {
 
     log::info!("{BANNER}");
 
-    let _vsock_status = vsock::probe();
+    run_vsock_demo();
 
     run_verify_demo();
 
-    log::info!("QRAB_PHASE3A_OK");
+    log::info!("QRAB_PHASE3B_OK");
 
     // Intentionally do not return control to firmware. Per plan: fail-closed,
     // hang on any terminal state including "phase not complete".
@@ -91,6 +91,40 @@ fn run_verify_demo() {
 #[cfg(qrab_no_fixtures)]
 fn run_verify_demo() {
     log::info!("QRAB_VERIFY_FIXTURES_ABSENT: run contrib/build-test-ukis.sh and rebuild to exercise qrab-boot-verify at boot");
+}
+
+/// Default vsock port the host attestation mock listens on. Matches
+/// `contrib/mock-vsock-server.py` + `contrib/smoke-vsock-qemu.sh`.
+const VSOCK_HOST_PORT: u32 = 1337;
+
+/// Source-side port used when opening the attestation stream. Picked
+/// from the ephemeral-ish high range; the host side does not care.
+const VSOCK_GUEST_SRC_PORT: u32 = 40042;
+
+/// Host CID for vhost-vsock, per the virtio-vsock spec.
+const VSOCK_CID_HOST: u64 = 2;
+
+/// Boot-time driver for the 3a→3b.3→3b.4 chain:
+///
+///   probe → init driver → connect to host attestation endpoint.
+///
+/// No data transfer on this commit. Phase 3b.6+ will layer the postcard
+/// attest wire protocol on top. A missing device / timeout / handshake
+/// failure is logged but does *not* yet panic the boot so the verify
+/// demo still has a chance to run in test environments where vsock is
+/// unavailable (e.g. the plain-TCG smoke path).
+fn run_vsock_demo() {
+    let status = vsock::probe();
+    let mut driver = match vsock_driver::init(status) {
+        Ok(d) => d,
+        Err(_) => return, // init logged its own QRAB_* token.
+    };
+    let _ = vsock_connect::connect_and_wait(
+        &mut driver,
+        VSOCK_CID_HOST,
+        VSOCK_HOST_PORT,
+        VSOCK_GUEST_SRC_PORT,
+    );
 }
 
 /// Disable interrupts and halt the CPU indefinitely.
