@@ -4,18 +4,18 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-anyhow = "1"
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"], optional = true }
+anyhow = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true, optional = true }
 
 [dependencies.dioxus]
 version = "0.7"
 features = ["fullstack", "router"]
 
 [dependencies.tokio]
-version = "1"
+workspace = true
 features = ["time"]
 
 [dependencies.manager]
@@ -36,7 +36,7 @@ features = ["ws"]
 optional = true
 
 [dependencies.which]
-version = "7"
+workspace = true
 optional = true
 
 [dependencies.async-stream]
@@ -49,7 +49,7 @@ features = ["fs"]
 optional = true
 
 [dependencies.futures]
-version = "0.3"
+workspace = true
 optional = true
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
@@ -80,11 +80,11 @@ server = [
 web = ["dioxus/web"]
 
 [dev-dependencies]
-tokio = { version = "1", features = ["full"] }
+tokio = { workspace = true, features = ["full"] }
 tokio-tungstenite = "0.24"
-futures = "0.3"
-paste = "1"
-which = "7"
+futures = { workspace = true }
+paste = { workspace = true }
+which = { workspace = true }
 manager = { path = "../manager" }
 qapi = { path = "../qapi" }
 qapi-protocol = { path = "../qapi-protocol" }

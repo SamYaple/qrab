@@ -1,3 +1,5 @@
+#![deny(unsafe_code)]
+
 pub mod parsers;
 pub mod qapi_ir;
 pub mod unified;

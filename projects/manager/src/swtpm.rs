@@ -1,4 +1,4 @@
-use anyhow::Result;
+use crate::{Error, Result};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 use tokio::process::Child;
@@ -37,19 +37,19 @@ impl SwtpmProcess {
         let binary = match swtpm_binary {
             Some(p) => p.to_path_buf(),
             None => which::which("swtpm").map_err(|_| {
-                anyhow::anyhow!(
+                Error::Binary(
                     "swtpm binary not found in PATH — install swtpm \
-                     (e.g. `apt install swtpm` or `dnf install swtpm`)"
+                     (e.g. `apt install swtpm` or `dnf install swtpm`)".into()
                 )
             })?,
         };
 
         let state_dir = state_dir.unwrap_or_else(|| tmpdir.join("tpm-state"));
         tokio::fs::create_dir_all(&state_dir).await.map_err(|e| {
-            anyhow::anyhow!(
+            Error::Spawn(format!(
                 "failed to create swtpm state directory {}: {e}",
                 state_dir.display()
-            )
+            ))
         })?;
 
         // Initialize TPM state if the state directory is empty (first use).
@@ -73,7 +73,7 @@ impl SwtpmProcess {
             .kill_on_drop(true)
             .spawn()
             .map_err(|e| {
-                anyhow::anyhow!("failed to spawn swtpm at {}: {e}", binary.display())
+                Error::Spawn(format!("failed to spawn swtpm at {}: {e}", binary.display()))
             })?;
 
         // Wait for socket to appear (poll up to 5s).
@@ -87,10 +87,10 @@ impl SwtpmProcess {
         }
 
         if !appeared {
-            anyhow::bail!(
+            return Err(Error::Spawn(format!(
                 "swtpm socket did not appear at {} within 5s",
                 sock.display()
-            );
+            )));
         }
 
         tracing::debug!(
@@ -139,19 +139,19 @@ impl SwtpmProcess {
             .output()
             .await
             .map_err(|e| {
-                anyhow::anyhow!(
+                Error::Spawn(format!(
                     "failed to run swtpm_setup at {}: {e}",
                     setup_binary.display()
-                )
+                ))
             })?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            anyhow::bail!(
+            return Err(Error::Spawn(format!(
                 "swtpm_setup failed (exit {}): {}",
                 output.status,
                 stderr.trim()
-            );
+            )));
         }
 
         tracing::debug!("swtpm_setup completed successfully");

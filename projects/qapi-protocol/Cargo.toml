@@ -4,25 +4,26 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-anyhow = "1"
-serde = "1"
-serde_json = "1"
-tracing = "0.1"
+thiserror = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
 
 [dependencies.qapi]
 path = "../qapi"
 
 [dependencies.tokio]
-version = "1"
+workspace = true
 features = ["net", "io-util", "sync", "rt", "macros", "time"]
 
 [dev-dependencies]
-paste = "1"
-which = "7"
+anyhow = { workspace = true }
+paste = { workspace = true }
+which = { workspace = true }
 
 [dev-dependencies.manager]
 path = "../manager"
 
 [dev-dependencies.tokio]
-version = "1"
+workspace = true
 features = ["net", "io-util", "sync", "rt", "macros", "rt-multi-thread", "process", "time", "fs"]

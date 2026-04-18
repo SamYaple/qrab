@@ -3,7 +3,6 @@
 pub mod qga;
 pub mod server;
 
-use anyhow::Result;
 use qapi::QapiCommand;
 
 use std::path::Path;
@@ -13,6 +12,32 @@ use tokio::net::unix::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::net::UnixStream;
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio::task::{spawn, JoinHandle};
+
+/// Crate-level error type for qapi-protocol.
+#[derive(Debug, thiserror::Error)]
+pub enum Error {
+    /// A QMP/QGA error response from the server.
+    #[error(transparent)]
+    Qmp(#[from] QmpError),
+    /// I/O error on the Unix socket.
+    #[error(transparent)]
+    Io(#[from] std::io::Error),
+    /// JSON serialization/deserialization error.
+    #[error(transparent)]
+    Json(#[from] serde_json::Error),
+    /// Connection or handshake timeout.
+    #[error("{0}")]
+    Timeout(String),
+    /// Protocol-level error (peer closed, oversized message, handshake failure).
+    #[error("{0}")]
+    Protocol(String),
+    /// Internal channel closed unexpectedly.
+    #[error("{0}")]
+    Channel(String),
+}
+
+/// Crate-level Result alias.
+pub type Result<T> = std::result::Result<T, Error>;
 
 /// Maximum bytes we will buffer for a single JSON line from the peer.
 ///
@@ -108,11 +133,10 @@ pub struct Timestamp {
 /// A typed QMP/QGA error response.
 ///
 /// When `Qmp::execute` (and friends) receive an `{"error": {...}}`
-/// response from QEMU, they wrap it in this type and return it via
-/// `anyhow::Error::new(QmpError { .. })`. Callers that need to branch
-/// on the error class (e.g. retry on `CommandNotFound` but bail on
-/// `GenericError`) can recover the typed value with
-/// [`anyhow::Error::downcast_ref::<QmpError>`][anyhow::Error::downcast_ref].
+/// response from QEMU, they wrap it in `Error::Qmp(QmpError { .. })`.
+/// Callers that need to branch on the error class (e.g. retry on
+/// `CommandNotFound` but bail on `GenericError`) can match on
+/// `Error::Qmp(ref e)` to recover the typed value.
 ///
 /// `class` is `Some` when QEMU reported a known [`qapi::QapiErrorClass`]
 /// variant and `None` when the wire string did not match any known
@@ -187,7 +211,7 @@ impl Qmp {
             UnixStream::connect(socket_path),
         )
         .await
-        .map_err(|_| anyhow::anyhow!("QMP connect timed out after 5s"))??;
+        .map_err(|_| Error::Timeout("QMP connect timed out after 5s".into()))??;
         let (read_half, write_half) = stream.into_split();
 
         let mut reader = BufReader::new(read_half);
@@ -202,20 +226,22 @@ impl Qmp {
             let greeting_line = match read_line_bounded(&mut reader).await? {
                 LineRead::Line(line) => line,
                 LineRead::Eof => {
-                    anyhow::bail!("QMP peer closed before sending greeting")
+                    return Err(Error::Protocol("QMP peer closed before sending greeting".into()));
                 }
                 LineRead::TooLong => {
-                    anyhow::bail!("QMP greeting exceeded {} bytes", MAX_LINE_BYTES)
+                    return Err(Error::Protocol(format!(
+                        "QMP greeting exceeded {} bytes", MAX_LINE_BYTES
+                    )));
                 }
             };
             let parsed: serde_json::Value = serde_json::from_str(&greeting_line)
-                .map_err(|e| anyhow::anyhow!("failed to parse QMP greeting: {}", e))?;
+                .map_err(|e| Error::Protocol(format!("failed to parse QMP greeting: {}", e)))?;
             let qemu = parsed
                 .get("QMP")
                 .and_then(|q| q.get("version"))
                 .and_then(|v| v.get("qemu"))
                 .ok_or_else(|| {
-                    anyhow::anyhow!("QMP greeting missing QMP.version.qemu: {}", parsed)
+                    Error::Protocol(format!("QMP greeting missing QMP.version.qemu: {}", parsed))
                 })?;
             let major = qemu["major"].as_u64().unwrap_or(0) as u32;
             let minor = qemu["minor"].as_u64().unwrap_or(0) as u32;
@@ -232,13 +258,15 @@ impl Qmp {
                 let caps_line = match read_line_bounded(&mut reader).await? {
                     LineRead::Line(line) => line,
                     LineRead::Eof => {
-                        anyhow::bail!("QMP peer closed before qmp_capabilities reply")
+                        return Err(Error::Protocol(
+                            "QMP peer closed before qmp_capabilities reply".into(),
+                        ));
                     }
                     LineRead::TooLong => {
-                        anyhow::bail!(
+                        return Err(Error::Protocol(format!(
                             "qmp_capabilities reply exceeded {} bytes",
                             MAX_LINE_BYTES
-                        )
+                        )));
                     }
                 };
                 let parsed: serde_json::Value = serde_json::from_str(&caps_line)?;
@@ -248,16 +276,16 @@ impl Qmp {
                 break parsed;
             };
             if let Some(error) = caps_resp.get("error") {
-                anyhow::bail!(
+                return Err(Error::Protocol(format!(
                     "qmp_capabilities failed: {}",
                     error["desc"].as_str().unwrap_or("unknown")
-                );
+                )));
             }
 
-            Ok::<(), anyhow::Error>(())
+            Ok::<(), Error>(())
         })
         .await
-        .map_err(|_| anyhow::anyhow!("QMP handshake timed out"))??;
+        .map_err(|_| Error::Timeout("QMP handshake timed out".into()))??;
 
         // Now spawn the background workers
         let (command_tx, command_rx) = mpsc::channel(1);
@@ -312,7 +340,7 @@ impl Qmp {
         self.command_tx
             .send((request_str, reply_tx))
             .await
-            .map_err(|_| anyhow::anyhow!("command channel closed"))?;
+            .map_err(|_| Error::Channel("command channel closed".into()))?;
 
         // NOTE: the `write_loop` drops `reply_tx` in two cases that are
         // indistinguishable from the client's perspective — the 30s
@@ -326,13 +354,13 @@ impl Qmp {
         let response = reply_rx
             .await
             .map_err(|_| {
-                anyhow::anyhow!(
-                    "QMP command channel closed — likely timed out or connection lost"
+                Error::Channel(
+                    "QMP command channel closed \u{2014} likely timed out or connection lost".into(),
                 )
             })?;
 
         if let Some(error) = response.get("error") {
-            return Err(anyhow::Error::new(build_qmp_error(error)));
+            return Err(Error::Qmp(build_qmp_error(error)));
         }
 
         let ret = response
@@ -387,7 +415,7 @@ impl Qmp {
         self.command_tx
             .send((request_str, reply_tx))
             .await
-            .map_err(|_| anyhow::anyhow!("command channel closed"))?;
+            .map_err(|_| Error::Channel("command channel closed".into()))?;
 
         // Wrap the reply wait in the caller's timeout. The `??` unwraps
         // first the Elapsed error (our outer timeout) and then the
@@ -397,20 +425,20 @@ impl Qmp {
         let response = tokio::time::timeout(timeout, reply_rx)
             .await
             .map_err(|_| {
-                anyhow::anyhow!(
+                Error::Timeout(format!(
                     "QMP command {} timed out after {:?}",
                     C::NAME,
                     timeout
-                )
+                ))
             })?
             .map_err(|_| {
-                anyhow::anyhow!(
-                    "QMP command channel closed — likely timed out or connection lost"
+                Error::Channel(
+                    "QMP command channel closed \u{2014} likely timed out or connection lost".into(),
                 )
             })?;
 
         if let Some(error) = response.get("error") {
-            return Err(anyhow::Error::new(build_qmp_error(error)));
+            return Err(Error::Qmp(build_qmp_error(error)));
         }
 
         let ret = response
@@ -456,14 +484,16 @@ impl Qmp {
         self.command_tx
             .send((request_str, reply_tx))
             .await
-            .map_err(|_| anyhow::anyhow!("command channel closed"))?;
+            .map_err(|_| Error::Channel("command channel closed".into()))?;
 
         let response = reply_rx.await.map_err(|_| {
-            anyhow::anyhow!("QMP command channel closed — likely timed out or connection lost")
+            Error::Channel(
+                "QMP command channel closed \u{2014} likely timed out or connection lost".into(),
+            )
         })?;
 
         if let Some(error) = response.get("error") {
-            return Err(anyhow::Error::new(build_qmp_error(error)));
+            return Err(Error::Qmp(build_qmp_error(error)));
         }
 
         Ok(response

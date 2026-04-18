@@ -1,4 +1,5 @@
-use anyhow::Result;
+#![allow(unsafe_code)]
+use crate::{Error, Result};
 use std::os::fd::{AsRawFd, IntoRawFd};
 use std::path::{Path, PathBuf};
 use std::process::{ExitStatus, Stdio};
@@ -171,7 +172,7 @@ impl SevSnpConfig {
 /// accepts terabytes, so we do too.
 fn validate_memory(mem: &str) -> Result<()> {
     if mem.is_empty() {
-        anyhow::bail!("memory size is empty");
+        return Err(Error::Config("memory size is empty".into()));
     }
 
     let bytes = mem.as_bytes();
@@ -183,20 +184,20 @@ fn validate_memory(mem: &str) -> Result<()> {
         i += 1;
     }
     if i == digit_start {
-        anyhow::bail!(
+        return Err(Error::Config(format!(
             "memory size {:?} must start with a decimal digit",
             mem
-        );
+        )));
     }
 
     // Optional single unit suffix.
     if i < bytes.len() {
         match bytes[i] {
             b'K' | b'k' | b'M' | b'm' | b'G' | b'g' | b'T' | b't' => i += 1,
-            _ => anyhow::bail!(
+            _ => return Err(Error::Config(format!(
                 "memory size {:?} has invalid unit suffix (expected one of K/M/G/T)",
                 mem
-            ),
+            ))),
         }
     }
 
@@ -206,10 +207,10 @@ fn validate_memory(mem: &str) -> Result<()> {
     }
 
     if i != bytes.len() {
-        anyhow::bail!(
+        return Err(Error::Config(format!(
             "memory size {:?} has trailing characters after valid prefix",
             mem
-        );
+        )));
     }
 
     Ok(())
@@ -537,10 +538,10 @@ impl VmBuilder {
             MachineConfig::Bios { memory } => {
                 validate_memory(memory)?;
                 let machine = self.arch.bios_machine().ok_or_else(|| {
-                    anyhow::anyhow!(
+                    Error::Config(format!(
                         "BIOS boot not supported for architecture {:?}",
                         self.arch
-                    )
+                    ))
                 })?;
                 args.push("-machine".into());
                 machine_idx = Some(args.len());
@@ -630,10 +631,10 @@ impl VmBuilder {
             MachineConfig::SecureBoot { memory } => {
                 validate_memory(memory)?;
                 let machine = self.arch.secure_boot_machine().ok_or_else(|| {
-                    anyhow::anyhow!(
+                    Error::Config(format!(
                         "SecureBoot not supported for architecture {:?}",
                         self.arch
-                    )
+                    ))
                 })?;
                 args.extend(["-machine".into(), format!("{machine},smm=on")]);
                 args.extend([
@@ -656,8 +657,8 @@ impl VmBuilder {
                 let ovmf = match self.ovmf {
                     Some(ref fw) => fw.clone(),
                     None => firmware::find_ovmf(true).ok_or_else(|| {
-                        anyhow::anyhow!(
-                            "SecureBoot requires OVMF firmware but none found on system"
+                        Error::Config(
+                            "SecureBoot requires OVMF firmware but none found on system".into()
                         )
                     })?,
                 };
@@ -831,20 +832,20 @@ impl VmBuilder {
 
         // Must be x86_64
         if !matches!(self.arch, Arch::X86_64) {
-            anyhow::bail!("SEV-SNP requires x86_64 architecture (got {:?})", self.arch);
+            return Err(Error::Config(format!("SEV-SNP requires x86_64 architecture (got {:?})", self.arch)));
         }
 
         // Must use KVM
         match self.accel {
             Some(Accel::Kvm) => {}
             Some(Accel::KvmOrTcg) => {}
-            _ => anyhow::bail!("SEV-SNP requires KVM acceleration"),
+            _ => return Err(Error::Config("SEV-SNP requires KVM acceleration".into())),
         }
 
         // Must be UEFI or SecureBoot
         match &self.config {
             MachineConfig::Uefi { .. } | MachineConfig::SecureBoot { .. } => {}
-            _ => anyhow::bail!("SEV-SNP requires UEFI or SecureBoot machine config"),
+            _ => return Err(Error::Config("SEV-SNP requires UEFI or SecureBoot machine config".into())),
         }
 
         // CPU must be host or EPYC variant
@@ -852,33 +853,33 @@ impl VmBuilder {
         if let Some(model) = cpu {
             let m = model.to_lowercase();
             if m != "host" && !m.starts_with("epyc") {
-                anyhow::bail!(
+                return Err(Error::Config(format!(
                     "SEV-SNP requires CPU model 'host' or EPYC variant (got '{model}')"
-                );
+                )));
             }
         }
         // No explicit CPU set + x86_64 arch default is None → QEMU default,
         // which won't work for SEV-SNP. Require explicit CPU.
         if cpu.is_none() {
-            anyhow::bail!(
-                "SEV-SNP requires explicit CPU model ('host' or EPYC variant)"
-            );
+            return Err(Error::Config(
+                "SEV-SNP requires explicit CPU model ('host' or EPYC variant)".into()
+            ));
         }
 
         // Check /dev/sev or /dev/sev-guest exists
         let explicit_dev = self.sev_snp.as_ref().and_then(|s| s.sev_device.as_ref());
         if let Some(dev) = explicit_dev {
             if !dev.exists() {
-                anyhow::bail!(
+                return Err(Error::Config(format!(
                     "SEV device {} not found — is AMD SEV enabled in BIOS and kernel?",
                     dev.display()
-                );
+                )));
             }
         } else if !Path::new("/dev/sev").exists() && !Path::new("/dev/sev-guest").exists() {
-            anyhow::bail!(
+            return Err(Error::Config(
                 "SEV device not found (tried /dev/sev and /dev/sev-guest) \
-                 — is AMD SEV enabled in BIOS and kernel?"
-            );
+                 — is AMD SEV enabled in BIOS and kernel?".into()
+            ));
         }
 
         // Verify SNP support in kernel module
@@ -887,9 +888,9 @@ impl VmBuilder {
             if let Ok(val) = std::fs::read_to_string(snp_param) {
                 let val = val.trim();
                 if val != "1" && val != "Y" && val != "y" {
-                    anyhow::bail!(
+                    return Err(Error::Config(format!(
                         "SEV-SNP not enabled in kernel (kvm_amd.sev_snp={val})"
-                    );
+                    )));
                 }
             }
         }
@@ -937,11 +938,12 @@ impl VmBuilder {
         // spawning QEMU. Without this check a missing or directory path
         // only surfaces as a cryptic late failure from QEMU itself.
         if let Some(ref fw) = self.firmware {
-            anyhow::ensure!(
-                fw.is_file(),
-                "firmware path {} is not a regular file",
-                fw.display()
-            );
+            if !fw.is_file() {
+                return Err(Error::Config(format!(
+                    "firmware path {} is not a regular file",
+                    fw.display()
+                )));
+            }
         }
 
         // Validate SEV-SNP prerequisites.
@@ -960,7 +962,7 @@ impl VmBuilder {
         let kvm_fd = match self.accel {
             Some(Accel::Kvm) => Some(
                 KvmFd::open()
-                    .map_err(|e| anyhow::anyhow!("{e} — is process in kvm group?"))?,
+                    .map_err(|e| Error::Spawn(format!("{e} — is process in kvm group?")))?,
             ),
             Some(Accel::Tcg) | None => None,
             Some(Accel::KvmOrTcg) => match KvmFd::open() {
@@ -1053,22 +1055,22 @@ impl VmBuilder {
 
         // --- Pipes for namespace sync + config transport ---
         let (sync_parent_r, sync_child_w) = nix::unistd::pipe()
-            .map_err(|e| anyhow::anyhow!("sync pipe (to parent): {e}"))?;
+            .map_err(|e| Error::Spawn(format!("sync pipe (to parent): {e}")))?;
         let (ack_child_r, ack_parent_w) = nix::unistd::pipe()
-            .map_err(|e| anyhow::anyhow!("ack pipe (to child): {e}"))?;
+            .map_err(|e| Error::Spawn(format!("ack pipe (to child): {e}")))?;
         let (cfg_r, cfg_w) = nix::unistd::pipe()
-            .map_err(|e| anyhow::anyhow!("config pipe: {e}"))?;
+            .map_err(|e| Error::Spawn(format!("config pipe: {e}")))?;
 
         // Set CLOEXEC on parent-side pipe ends so they're closed in child
         // on exec. Without this, the child inherits the write end of the
         // config pipe and read_to_end() never sees EOF.
         use crate::namespace::set_fd_cloexec;
         set_fd_cloexec(sync_parent_r.as_raw_fd(), true)
-            .map_err(|e| anyhow::anyhow!("set CLOEXEC sync_parent_r: {e}"))?;
+            .map_err(|e| Error::Spawn(format!("set CLOEXEC sync_parent_r: {e}")))?;
         set_fd_cloexec(ack_parent_w.as_raw_fd(), true)
-            .map_err(|e| anyhow::anyhow!("set CLOEXEC ack_parent_w: {e}"))?;
+            .map_err(|e| Error::Spawn(format!("set CLOEXEC ack_parent_w: {e}")))?;
         set_fd_cloexec(cfg_w.as_raw_fd(), true)
-            .map_err(|e| anyhow::anyhow!("set CLOEXEC cfg_w: {e}"))?;
+            .map_err(|e| Error::Spawn(format!("set CLOEXEC cfg_w: {e}")))?;
 
         let cfg_r_raw = cfg_r.as_raw_fd();
 
@@ -1076,7 +1078,7 @@ impl VmBuilder {
         // Resolve QEMU binary to absolute path — execve in qrab-init
         // does not do PATH lookup.
         let qemu_binary = which::which(self.arch.binary())
-            .map_err(|_| anyhow::anyhow!("QEMU binary not found: {}", self.arch.binary().display()))?;
+            .map_err(|_| Error::Binary(format!("QEMU binary not found: {}", self.arch.binary().display())))?;
         let config = InitConfig {
             qemu_binary,
             qemu_args: args.clone(),
@@ -1119,7 +1121,7 @@ impl VmBuilder {
         // --- Write config JSON to pipe ---
         let config_json = serde_json::to_vec(&config)?;
         nix::unistd::write(&cfg_w, &config_json)
-            .map_err(|e| anyhow::anyhow!("write config pipe: {e}"))?;
+            .map_err(|e| Error::Spawn(format!("write config pipe: {e}")))?;
         drop(cfg_w);
 
         // --- NsHelper: uid/gid map setup ---
@@ -1155,13 +1157,13 @@ impl VmBuilder {
             }
             if let Ok(Some(status)) = child.try_wait() {
                 // tmpdir drops on return, cleaning up.
-                anyhow::bail!("qrab-init exited before QMP socket appeared: {status}");
+                return Err(Error::Spawn(format!("qrab-init exited before QMP socket appeared: {status}")));
             }
             tokio::time::sleep(Duration::from_millis(100)).await;
         }
 
         if !tokio::fs::try_exists(&qmp_sock).await.unwrap_or(false) {
-            anyhow::bail!("QMP socket did not appear: {}", qmp_sock.display());
+            return Err(Error::Spawn(format!("QMP socket did not appear: {}", qmp_sock.display())));
         }
 
         // Restrict socket permissions to owner only.
@@ -1194,7 +1196,7 @@ impl VmBuilder {
                      skipping preconfig version check"
                 );
             } else if version < PRECONFIG_MIN_VERSION {
-                anyhow::bail!(
+                return Err(Error::Config(format!(
                     "QEMU {}.{}.{} does not support --preconfig mode \
                      (requires {}.{}.{} or later)",
                     version.0,
@@ -1203,7 +1205,7 @@ impl VmBuilder {
                     PRECONFIG_MIN_VERSION.0,
                     PRECONFIG_MIN_VERSION.1,
                     PRECONFIG_MIN_VERSION.2,
-                );
+                )));
             }
         }
 
@@ -1289,7 +1291,7 @@ impl PreconfigVm {
         &self,
         cmd: &C,
     ) -> Result<C::Returns> {
-        self.qmp.execute(cmd).await
+        Ok(self.qmp.execute(cmd).await?)
     }
 
     /// Exit preconfig/paused mode and start guest execution.
@@ -1377,7 +1379,7 @@ impl Vm {
     /// Execute any QMP command and return the typed response.
     #[must_use = "QMP command results should be checked for errors"]
     pub async fn execute<C: QapiCommand>(&self, cmd: &C) -> Result<C::Returns> {
-        self.qmp.execute(cmd).await
+        Ok(self.qmp.execute(cmd).await?)
     }
 
     // -- Ergonomic lifecycle methods --

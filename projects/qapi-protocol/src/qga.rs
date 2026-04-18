@@ -3,8 +3,7 @@
 //! The QGA protocol uses the same JSON-RPC wire format as QMP, but with
 //! a different handshake (guest-sync-delimited instead of qmp_capabilities).
 
-use crate::{build_qmp_error, read_line_bounded, LineRead, MAX_LINE_BYTES};
-use anyhow::Result;
+use crate::{build_qmp_error, read_line_bounded, Error, LineRead, Result, MAX_LINE_BYTES};
 use qapi::QapiCommand;
 use std::path::Path;
 use std::time::Duration;
@@ -52,7 +51,7 @@ impl Qga {
             UnixStream::connect(socket_path),
         )
         .await
-        .map_err(|_| anyhow::anyhow!("QGA connect timed out after 5s"))??;
+        .map_err(|_| Error::Timeout("QGA connect timed out after 5s".into()))??;
         let (read_half, write_half) = stream.into_split();
         let reader = BufReader::new(read_half);
 
@@ -119,9 +118,13 @@ impl Qga {
             // Read the sync response
             let line = match read_line_bounded(&mut self.reader).await? {
                 LineRead::Line(line) => line,
-                LineRead::Eof => anyhow::bail!("QGA peer closed during sync"),
+                LineRead::Eof => {
+                    return Err(Error::Protocol("QGA peer closed during sync".into()));
+                }
                 LineRead::TooLong => {
-                    anyhow::bail!("QGA sync response exceeded {} bytes", MAX_LINE_BYTES)
+                    return Err(Error::Protocol(format!(
+                        "QGA sync response exceeded {} bytes", MAX_LINE_BYTES
+                    )));
                 }
             };
             let resp: serde_json::Value = serde_json::from_str(line.trim())?;
@@ -129,20 +132,21 @@ impl Qga {
             if let Some(ret) = resp.get("return") {
                 let returned_id = ret.as_i64().unwrap_or(0);
                 if returned_id != sync_id {
-                    anyhow::bail!(
+                    return Err(Error::Protocol(format!(
                         "guest-sync-delimited: id mismatch (sent {}, got {})",
-                        sync_id,
-                        returned_id
-                    );
+                        sync_id, returned_id
+                    )));
                 }
             } else if let Some(error) = resp.get("error") {
-                anyhow::bail!("guest-sync-delimited failed: {}", error);
+                return Err(Error::Protocol(format!(
+                    "guest-sync-delimited failed: {}", error
+                )));
             }
 
-            Ok::<(), anyhow::Error>(())
+            Ok::<(), Error>(())
         })
         .await
-        .map_err(|_| anyhow::anyhow!("QGA sync handshake timed out"))??;
+        .map_err(|_| Error::Timeout("QGA sync handshake timed out".into()))??;
 
         Ok(())
     }
@@ -172,12 +176,13 @@ impl Qga {
         // it hits the peer's own line limits and could hang a
         // ring-buffered virtio-serial channel.
         let request_str = serde_json::to_string(&request)?;
-        anyhow::ensure!(
-            request_str.len() <= MAX_REQUEST_BYTES,
-            "QGA request too large: {} bytes (limit {})",
-            request_str.len(),
-            MAX_REQUEST_BYTES
-        );
+        if request_str.len() > MAX_REQUEST_BYTES {
+            return Err(Error::Protocol(format!(
+                "QGA request too large: {} bytes (limit {})",
+                request_str.len(),
+                MAX_REQUEST_BYTES
+            )));
+        }
 
         self.writer.write_all(request_str.as_bytes()).await?;
         self.writer.write_all(b"\n").await?;
@@ -188,28 +193,32 @@ impl Qga {
             read_line_bounded(&mut self.reader),
         )
         .await
-        .map_err(|_| anyhow::anyhow!("QGA command timed out"))??;
+        .map_err(|_| Error::Timeout("QGA command timed out".into()))??;
         let line = match line {
             LineRead::Line(line) => line,
             // `read_line_bounded` returns `Eof` at stream close, mirroring
             // the previous `read_line` Ok(0) handling — either way the
             // peer hung up and we bail with a meaningful message instead
             // of feeding an empty string into serde_json.
-            LineRead::Eof => anyhow::bail!("QGA connection closed"),
+            LineRead::Eof => {
+                return Err(Error::Protocol("QGA connection closed".into()));
+            }
             LineRead::TooLong => {
-                anyhow::bail!("QGA response exceeded {} bytes", MAX_LINE_BYTES)
+                return Err(Error::Protocol(format!(
+                    "QGA response exceeded {} bytes", MAX_LINE_BYTES
+                )));
             }
         };
         if line.trim().is_empty() {
-            anyhow::bail!("QGA connection closed");
+            return Err(Error::Protocol("QGA connection closed".into()));
         }
         let resp: serde_json::Value = serde_json::from_str(line.trim())?;
 
         if let Some(error) = resp.get("error") {
             // QGA uses the same `{class, desc}` shape as QMP — reuse the
-            // typed `QmpError` wrapper so callers can `downcast_ref` on a
-            // single error type regardless of which protocol surfaced it.
-            return Err(anyhow::Error::new(build_qmp_error(error)));
+            // typed `QmpError` wrapper so callers can match on a single
+            // error type regardless of which protocol surfaced it.
+            return Err(Error::Qmp(build_qmp_error(error)));
         }
 
         let ret = resp

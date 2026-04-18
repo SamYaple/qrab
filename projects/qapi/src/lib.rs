@@ -1,3 +1,5 @@
+#![deny(unsafe_code)]
+
 use std::sync::OnceLock;
 
 pub use qapi_macros::qapi;

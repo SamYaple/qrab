@@ -12,15 +12,14 @@ name = "qapi-codegen"
 path = "src/main.rs"
 
 [dependencies]
-anyhow = "1.0.102"
+anyhow = { workspace = true }
+tempfile = { workspace = true }
+proc-macro2 = { workspace = true }
+quote = { workspace = true }
 tar = "0.4"
-tempfile = "3"
 heck = "0.5.0"
 nom = "8.0.0"
 prettyplease = "0.2.37"
-proc-macro2 = "1.0.106"
-quote = "1.0.45"
-
 
 [dependencies.syn]
 version = "2.0.117"

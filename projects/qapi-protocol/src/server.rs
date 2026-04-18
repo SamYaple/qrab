@@ -2,7 +2,7 @@
 //!
 //! These allow testing clients by simulating a QEMU or guest agent endpoint.
 
-use anyhow::Result;
+use crate::{Error, Result};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{UnixListener, UnixStream};
 
@@ -61,11 +61,11 @@ impl QmpSession {
         let mut line = String::new();
         self.reader.read_line(&mut line).await?;
         let cmd: serde_json::Value = serde_json::from_str(line.trim())?;
-        anyhow::ensure!(
-            cmd["execute"].as_str() == Some("qmp_capabilities"),
-            "Expected qmp_capabilities, got: {}",
-            cmd
-        );
+        if cmd["execute"].as_str() != Some("qmp_capabilities") {
+            return Err(Error::Protocol(format!(
+                "Expected qmp_capabilities, got: {}", cmd
+            )));
+        }
         self.last_id = cmd.get("id").cloned();
         self.send_return(serde_json::json!({})).await?;
         Ok(())
@@ -78,12 +78,12 @@ impl QmpSession {
         let mut line = String::new();
         self.reader.read_line(&mut line).await?;
         if line.trim().is_empty() {
-            anyhow::bail!("Client disconnected");
+            return Err(Error::Protocol("Client disconnected".into()));
         }
         let cmd: serde_json::Value = serde_json::from_str(line.trim())?;
         let name = cmd["execute"]
             .as_str()
-            .ok_or_else(|| anyhow::anyhow!("Missing 'execute' field"))?
+            .ok_or_else(|| Error::Protocol("Missing 'execute' field".into()))?
             .to_string();
         let args = cmd
             .get("arguments")
@@ -167,7 +167,7 @@ impl QgaSession {
         let cmd: serde_json::Value = serde_json::from_str(line.trim())?;
         let sync_id = cmd["arguments"]["id"]
             .as_i64()
-            .ok_or_else(|| anyhow::anyhow!("Missing sync id"))?;
+            .ok_or_else(|| Error::Protocol("Missing sync id".into()))?;
 
         // Send 0xFF sentinel + response
         self.writer.write_all(&[0xFF]).await?;
@@ -186,12 +186,12 @@ impl QgaSession {
         let mut line = String::new();
         self.reader.read_line(&mut line).await?;
         if line.trim().is_empty() {
-            anyhow::bail!("Client disconnected");
+            return Err(Error::Protocol("Client disconnected".into()));
         }
         let cmd: serde_json::Value = serde_json::from_str(line.trim())?;
         let name = cmd["execute"]
             .as_str()
-            .ok_or_else(|| anyhow::anyhow!("Missing 'execute' field"))?
+            .ok_or_else(|| Error::Protocol("Missing 'execute' field".into()))?
             .to_string();
         let args = cmd
             .get("arguments")

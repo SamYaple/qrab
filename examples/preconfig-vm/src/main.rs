@@ -1,3 +1,5 @@
+#![deny(unsafe_code)]
+
 use anyhow::{bail, Result};
 use manager::{Arch, MachineConfig, VmBuilder};
 use std::path::PathBuf;

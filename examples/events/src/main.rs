@@ -1,3 +1,5 @@
+#![deny(unsafe_code)]
+
 use anyhow::Result;
 use manager::{Arch, MachineConfig, VmBuilder};
 use tokio::time::{sleep, Duration};
