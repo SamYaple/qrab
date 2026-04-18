@@ -133,7 +133,7 @@ impl SwtpmProcess {
 
         let output = tokio::process::Command::new(&setup_binary)
             .arg("--tpmstate")
-            .arg(format!("dir={}", state_dir.display()))
+            .arg(state_dir)
             .arg("--tpm2")
             .arg("--createek")
             .output()
