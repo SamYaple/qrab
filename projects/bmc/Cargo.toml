@@ -39,6 +39,14 @@ optional = true
 workspace = true
 optional = true
 
+[dependencies.qrencode]
+version = "0.14"
+optional = true
+
+[dependencies.base64]
+version = "0.22"
+optional = true
+
 [dependencies.async-stream]
 version = "0.3"
 optional = true
@@ -76,6 +84,8 @@ server = [
     "dep:tower-http",
     "dep:tracing-subscriber",
     "dep:which",
+    "dep:qrencode",
+    "dep:base64",
 ]
 web = ["dioxus/web"]
 

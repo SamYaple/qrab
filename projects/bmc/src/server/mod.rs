@@ -4,3 +4,5 @@ pub mod vm_status;
 pub mod events;
 #[cfg(feature = "server")]
 pub mod console;
+#[cfg(feature = "server")]
+pub mod qrcode;
