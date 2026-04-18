@@ -322,6 +322,19 @@ pub struct AttestationReportResponse {
     pub timestamp: String,
 }
 
+/// QR code generation response DTO.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AttestationQrResponse {
+    /// ASCII art or SVG content.
+    pub qr_data: String,
+    /// "ascii" or "svg".
+    pub format: String,
+    /// Raw JSON payload encoded in QR.
+    pub payload: String,
+    /// ISO 8601 timestamp.
+    pub timestamp: String,
+}
+
 /// Combined attestation state for the frontend.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AttestationState {

@@ -1,8 +1,8 @@
 use dioxus::prelude::*;
 
 use crate::types::{
-    AttestationReportResponse, AttestationState, BmcCapabilities, BmcEvent, CpuInfoResponse,
-    DashboardState, KvmInfoResponse, SevCapabilitiesResponse, VmStatusResponse,
+    AttestationQrResponse, AttestationReportResponse, AttestationState, BmcCapabilities, BmcEvent,
+    CpuInfoResponse, DashboardState, KvmInfoResponse, SevCapabilitiesResponse, VmStatusResponse,
 };
 #[cfg(feature = "server")]
 use crate::types::{AttestationStatus, SevStatusResponse, TpmStatusResponse, VmPhase};
@@ -519,4 +519,131 @@ fn chrono_now_iso8601() -> String {
 #[server]
 pub async fn get_capabilities() -> Result<BmcCapabilities, ServerFnError> {
     Ok(crate::state::query_capabilities())
+}
+
+/// Build attestation JSON payload from current state.
+#[cfg(feature = "server")]
+fn build_attestation_payload(att: &AttestationState) -> String {
+    serde_json::json!({
+        "launch_measure": att.launch_measure,
+        "status": format!("{:?}", att.status),
+        "report": att.last_attestation_report.as_ref().map(|r| {
+            serde_json::json!({
+                "data": r.data,
+                "mnonce": r.mnonce,
+                "timestamp": r.timestamp,
+            })
+        }),
+        "capabilities": att.sev_capabilities.as_ref().map(|c| {
+            serde_json::json!({
+                "pdh": c.pdh,
+                "cbitpos": c.cbitpos,
+                "reduced_phys_bits": c.reduced_phys_bits,
+            })
+        }),
+    })
+    .to_string()
+}
+
+/// Generate QR code from current attestation data.
+///
+/// `format` must be `"ascii"` or `"svg"`.
+#[server]
+pub async fn generate_attestation_qr(
+    format: String,
+) -> Result<AttestationQrResponse, ServerFnError> {
+    use crate::state::bmc;
+
+    let state = bmc();
+    let att = state.attestation.lock().await;
+
+    if att.launch_measure.is_none() && att.last_attestation_report.is_none() {
+        return Err(ServerFnError::new(
+            "No attestation data available — request a report first",
+        ));
+    }
+
+    let payload = build_attestation_payload(&att);
+    drop(att);
+
+    let qr_data = match format.as_str() {
+        "ascii" => crate::server::qrcode::generate_qr_ascii(&payload)
+            .map_err(|e| ServerFnError::new(e))?,
+        "svg" => crate::server::qrcode::generate_qr_svg(&payload)
+            .map_err(|e| ServerFnError::new(e))?,
+        _ => return Err(ServerFnError::new("format must be 'ascii' or 'svg'")),
+    };
+
+    Ok(AttestationQrResponse {
+        qr_data,
+        format,
+        payload,
+        timestamp: chrono_now_iso8601(),
+    })
+}
+
+/// Append attestation QR code (ASCII) to serial log file.
+///
+/// Serial is configured as `file:` chardev so we append directly to the
+/// log file. The BMC serial output panel reads the same file — the QR
+/// will appear in the serial console view on next poll.
+#[server]
+pub async fn send_attestation_to_serial() -> Result<(), ServerFnError> {
+    use crate::state::{bmc, VmState};
+    use tokio::io::AsyncWriteExt;
+
+    let state = bmc();
+
+    // Get serial log path under vm lock
+    let serial_path = {
+        let vm_guard = state.vm.lock().await;
+        match &*vm_guard {
+            VmState::Running(vm) => vm.serial_log().cloned(),
+            _ => None,
+        }
+    };
+
+    let serial_path = serial_path
+        .ok_or_else(|| ServerFnError::new("No serial log available — VM not running or serial not enabled"))?;
+
+    // Build attestation payload + ASCII QR
+    let att = state.attestation.lock().await;
+    if att.launch_measure.is_none() && att.last_attestation_report.is_none() {
+        return Err(ServerFnError::new("No attestation data available"));
+    }
+    let payload = build_attestation_payload(&att);
+    let launch_measure = att.launch_measure.clone().unwrap_or_default();
+    let mnonce = att
+        .last_attestation_report
+        .as_ref()
+        .map(|r| r.mnonce.clone())
+        .unwrap_or_default();
+    drop(att);
+
+    let qr_ascii = crate::server::qrcode::generate_qr_ascii(&payload)
+        .map_err(|e| ServerFnError::new(e))?;
+
+    // Build serial output block
+    let output = format!(
+        "\n\
+         === SEV-SNP ATTESTATION ===\n\
+         Launch Measure: {launch_measure}\n\
+         Nonce: {mnonce}\n\
+         \n\
+         {qr_ascii}\
+         ===========================\n"
+    );
+
+    // Append to serial log file
+    let mut file = tokio::fs::OpenOptions::new()
+        .append(true)
+        .open(&serial_path)
+        .await
+        .map_err(|e| ServerFnError::new(format!("Failed to open serial log: {e}")))?;
+
+    file.write_all(output.as_bytes())
+        .await
+        .map_err(|e| ServerFnError::new(format!("Failed to write to serial log: {e}")))?;
+
+    Ok(())
 }
