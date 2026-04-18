@@ -30,13 +30,14 @@ use core::arch::asm;
 
 #[cfg(not(qrab_no_fixtures))]
 use qrab_boot_verify::{VerifyError, verify_detached};
+use sha2::Digest as _;
 use uefi::prelude::*;
 
 /// Banner printed on every boot. Test harness greps for this.
 const BANNER: &str = concat!(
     "QRAB BOOT v",
     env!("CARGO_PKG_VERSION"),
-    " phase4+secret+pcr9 (build ",
+    " phase4+secret+pcr9+uki (build ",
     env!("CARGO_PKG_NAME"),
     ")",
 );
@@ -167,21 +168,32 @@ fn run_vsock_demo() {
         }
     };
 
-    let mut reply = [0u8; 2048];
-    let n = match vsock_connect::send_and_recv(
+    if let Err(_) = vsock_connect::send_one(
         &mut driver,
         VSOCK_CID_HOST,
         VSOCK_HOST_PORT,
         VSOCK_GUEST_SRC_PORT,
         &request_bytes,
-        &mut reply,
     ) {
-        Ok(n) => n,
-        Err(_) => return, // send_and_recv logged the specific failure.
+        return; // send_one logged the specific failure.
+    }
+
+    let mut stream = vsock_connect::FramedStream::new();
+    let response_frame = match stream.recv_frame(
+        &mut driver,
+        VSOCK_CID_HOST,
+        VSOCK_HOST_PORT,
+        VSOCK_GUEST_SRC_PORT,
+    ) {
+        Ok(b) => b,
+        Err(_) => return, // recv_frame logged the specific failure.
     };
 
+    // The AttestResponse frame's body is straight postcard — skip the
+    // outer 4-byte framing (already stripped by FramedStream) and
+    // just decode.
     let response: qrab_boot_proto::AttestResponse =
-        match qrab_boot_proto::decode_framed(&reply[..n]) {
+        match qrab_boot_proto::decode(&response_frame) {
             Ok(r) => r,
             Err(e) => {
                 log::warn!("QRAB_ATTEST_DECODE_ERR {e}");
@@ -234,6 +246,57 @@ fn run_vsock_demo() {
     // still lets a post-boot verifier confirm the expected value.
     let report_data = qrab_boot_proto::report_data(&client_nonce, &response);
     ghcb::record_intended_report_data(&report_data);
+
+    // Second framed payload from attest-server is the UKI bytes. The
+    // `AttestResponse.uki_sha256` field was already signed by the
+    // server, so matching that digest against sha256(received bytes)
+    // confirms server + transport + client all agree. A hash mismatch
+    // means a man-in-the-middle tampered with the UKI stream (unlikely
+    // over vsock, but cheap to assert).
+    let uki_bytes = match stream.recv_frame(
+        &mut driver,
+        VSOCK_CID_HOST,
+        VSOCK_HOST_PORT,
+        VSOCK_GUEST_SRC_PORT,
+    ) {
+        Ok(b) => b,
+        Err(_) => {
+            log::warn!("QRAB_UKI_FETCH_ERR");
+            return;
+        }
+    };
+    let actual_uki_hash: [u8; 32] = sha2::Sha256::digest(&uki_bytes).into();
+    if actual_uki_hash != response.uki_sha256 {
+        log::warn!(
+            "QRAB_FAIL_HASH uki_len={} actual_prefix={:02x}{:02x}{:02x}{:02x} expected_prefix={:02x}{:02x}{:02x}{:02x}",
+            uki_bytes.len(),
+            actual_uki_hash[0], actual_uki_hash[1],
+            actual_uki_hash[2], actual_uki_hash[3],
+            response.uki_sha256[0], response.uki_sha256[1],
+            response.uki_sha256[2], response.uki_sha256[3],
+        );
+        return;
+    }
+    log::info!(
+        "QRAB_UKI_OK len={} sha256_prefix={:02x}{:02x}{:02x}{:02x}",
+        uki_bytes.len(),
+        actual_uki_hash[0], actual_uki_hash[1],
+        actual_uki_hash[2], actual_uki_hash[3],
+    );
+
+    // Extend PCR 8 with the UKI bytes themselves — TCG2 hashes
+    // internally. Missing TCG2 is still non-fatal (same rationale as
+    // the PCR 9 call below).
+    match measure::extend_uki(&uki_bytes) {
+        Ok(()) => {}
+        Err(measure::MeasureError::Tcg2Absent) => {
+            log::info!("QRAB_TCG2_ABSENT");
+        }
+        Err(e) => {
+            log::warn!("QRAB_PCR8_ERR {e}");
+            return;
+        }
+    }
 
     // Extend PCR 9 with sha256(secret_sha256 || server_nonce) on any
     // firmware that has a TCG2 protocol. A missing TCG2 is non-fatal

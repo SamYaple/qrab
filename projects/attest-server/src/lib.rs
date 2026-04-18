@@ -107,21 +107,31 @@ impl Signer {
 }
 
 /// Decode a framed [`AttestRequest`], produce the canonical stub
-/// [`AttestResponse`] signed by `signer`, and return the framed
-/// reply bytes.
-pub fn handle_request_bytes(bytes: &[u8], signer: &Signer) -> Result<Vec<u8>, HandleError> {
+/// [`AttestResponse`] signed by `signer` (with `uki_sha256` pointing
+/// at `sha256(uki_bytes)`), and return the framed reply bytes.
+pub fn handle_request_bytes(
+    bytes: &[u8],
+    signer: &Signer,
+    uki_bytes: &[u8],
+) -> Result<Vec<u8>, HandleError> {
     let request: AttestRequest = decode_framed(bytes).map_err(HandleError::Decode)?;
     validate_request(&request).map_err(HandleError::Validate)?;
-    let response = build_signed_response(&request, signer);
+    let response = build_signed_response(&request, signer, uki_bytes);
     encode_framed(&response).map_err(HandleError::Encode)
 }
 
 /// Build the canonical stub [`AttestResponse`] for `req`, signed with
 /// `signer`. The server inverts each byte of the client's nonce so
 /// the guest can distinguish a real reply from a loopback echo
-/// (`server_nonce[0] = 0xaa` when the client sent `0x55`).
-pub fn build_signed_response(req: &AttestRequest, signer: &Signer) -> AttestResponse {
-    let mut response = build_body(req);
+/// (`server_nonce[0] = 0xaa` when the client sent `0x55`). The
+/// response's `uki_sha256` field commits to the bytes the caller
+/// will transmit as the second framed payload.
+pub fn build_signed_response(
+    req: &AttestRequest,
+    signer: &Signer,
+    uki_bytes: &[u8],
+) -> AttestResponse {
+    let mut response = build_body(req, uki_bytes);
     let sig = signer.sign_response(&response);
     response.sig = sig.to_vec();
     response
@@ -131,22 +141,38 @@ pub fn build_signed_response(req: &AttestRequest, signer: &Signer) -> AttestResp
 /// filled with zero bytes of the correct length so
 /// [`qrab_boot_proto::response_signing_digest`] produces a stable
 /// value before signing.
-fn build_body(req: &AttestRequest) -> AttestResponse {
+fn build_body(req: &AttestRequest, uki_bytes: &[u8]) -> AttestResponse {
     let mut server_nonce = [0u8; 32];
     for (dst, src) in server_nonce.iter_mut().zip(req.client_nonce.iter()) {
         *dst = !*src;
     }
     let secret = b"QRAB_STUB_SECRET_v0".to_vec();
     let secret_sha256: [u8; 32] = sha2::Sha256::digest(&secret).into();
+    let uki_sha256: [u8; 32] = sha2::Sha256::digest(uki_bytes).into();
     AttestResponse {
         server_nonce,
         uki_url: String::from("vsock://2:1337/stub-uki"),
-        uki_sha256: [0xAA; 32],
+        uki_sha256,
         secret,
         secret_sha256,
         sig: vec![0u8; SIG_LEN],
     }
 }
+
+/// Convenience: the built-in stub UKI payload. 512 bytes of a repeating
+/// magic string is enough to exercise the two-frame wire path without
+/// bloating the boot-time log or stressing the vsock ring. Operators
+/// point `$QRAB_ATTEST_UKI_PATH` at a real signed UKI to replace this.
+pub const STUB_UKI: &[u8; 512] = &{
+    let mut out = [0u8; 512];
+    let tag = b"QRAB_STUB_UKI_v0\n";
+    let mut i = 0;
+    while i < out.len() {
+        out[i] = tag[i % tag.len()];
+        i += 1;
+    }
+    out
+};
 
 #[cfg(test)]
 mod tests {
@@ -170,7 +196,7 @@ mod tests {
     #[test]
     fn build_signed_response_inverts_nonce() {
         let req = new_request([0x55; 32]);
-        let resp = build_signed_response(&req, &fixed_signer());
+        let resp = build_signed_response(&req, &fixed_signer(), STUB_UKI);
         assert!(resp.server_nonce.iter().all(|&b| b == 0xAA));
         assert_eq!(resp.sig.len(), SIG_LEN);
         qrab_boot_proto::validate_response(&resp).expect("stub response must validate");
@@ -181,7 +207,7 @@ mod tests {
     fn sig_verifies_against_matching_pubkey() {
         let signer = fixed_signer();
         let req = new_request([0x77; 32]);
-        let resp = build_signed_response(&req, &signer);
+        let resp = build_signed_response(&req, &signer, STUB_UKI);
 
         let sec1 = signer.pubkey_sec1();
         let vk = VerifyingKey::from_sec1_bytes(&sec1).expect("valid SEC1 pubkey");
@@ -194,7 +220,7 @@ mod tests {
     fn sig_rejects_tampered_response() {
         let signer = fixed_signer();
         let req = new_request([0x88; 32]);
-        let mut resp = build_signed_response(&req, &signer);
+        let mut resp = build_signed_response(&req, &signer, STUB_UKI);
         // Flip a bit in a signed field.
         resp.uki_sha256[0] ^= 1;
 
@@ -209,7 +235,7 @@ mod tests {
         let signer = fixed_signer();
         let req = new_request([0x77; 32]);
         let wire = qrab_boot_proto::encode_framed(&req).unwrap();
-        let reply = handle_request_bytes(&wire, &signer).expect("handle must succeed");
+        let reply = handle_request_bytes(&wire, &signer, STUB_UKI).expect("handle must succeed");
 
         let response: AttestResponse =
             qrab_boot_proto::decode_framed(&reply).expect("reply must decode");
@@ -231,7 +257,7 @@ mod tests {
         let mut req = new_request([0; 32]);
         req.proto = *b"XXX-v99";
         let wire = qrab_boot_proto::encode_framed(&req).unwrap();
-        let err = handle_request_bytes(&wire, &fixed_signer()).unwrap_err();
+        let err = handle_request_bytes(&wire, &fixed_signer(), STUB_UKI).unwrap_err();
         match err {
             HandleError::Validate(ProtoError::WrongTag) => {}
             other => panic!("expected Validate(WrongTag), got {other:?}"),
@@ -240,7 +266,7 @@ mod tests {
 
     #[test]
     fn rejects_garbage_bytes() {
-        let err = handle_request_bytes(&[0, 0, 0, 0], &fixed_signer()).unwrap_err();
+        let err = handle_request_bytes(&[0, 0, 0, 0], &fixed_signer(), STUB_UKI).unwrap_err();
         assert!(matches!(err, HandleError::Decode(_)));
     }
 
