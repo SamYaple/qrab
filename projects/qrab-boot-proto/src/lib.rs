@@ -124,6 +124,11 @@ pub enum ProtoError {
     SecretTooLarge,
     /// `AttestResponse::sig` was not exactly [`SIG_LEN`] bytes.
     SigLen(usize),
+    /// A framed payload declared a length past [`MAX_FRAMED_PAYLOAD`].
+    FrameTooLarge(usize),
+    /// A framed payload was cut short (fewer bytes on the wire than
+    /// the length prefix declared).
+    FrameTruncated,
 }
 
 impl core::fmt::Display for ProtoError {
@@ -133,6 +138,10 @@ impl core::fmt::Display for ProtoError {
             Self::WrongTag => f.write_str("wrong protocol tag (expected `qrab-v1`)"),
             Self::SecretTooLarge => f.write_str("secret larger than MAX_SECRET_LEN"),
             Self::SigLen(n) => write!(f, "sig length {n} != expected {SIG_LEN}"),
+            Self::FrameTooLarge(n) => {
+                write!(f, "framed payload {n}B exceeds MAX_FRAMED_PAYLOAD")
+            }
+            Self::FrameTruncated => f.write_str("framed payload truncated on the wire"),
         }
     }
 }
@@ -150,6 +159,73 @@ pub fn encode<T: Serialize>(value: &T) -> Result<Vec<u8>, ProtoError> {
 /// Deserialise a `T: Deserialize` from a byte slice.
 pub fn decode<'a, T: Deserialize<'a>>(bytes: &'a [u8]) -> Result<T, ProtoError> {
     postcard::from_bytes(bytes).map_err(ProtoError::Postcard)
+}
+
+// ---------------------------------------------------------------------------
+// Framed (length-prefixed) encoding.
+//
+// virtio-vsock is a stream transport — it preserves byte order but not
+// message boundaries. Postcard writes variable-length primitives and
+// does not self-delimit at the top level, so both peers need a framing
+// layer. We use the simplest possible shape: 4-byte little-endian
+// `u32` length prefix followed by the postcard payload. Matches what
+// the attestation-server crate will expect.
+// ---------------------------------------------------------------------------
+
+/// Length of the framing prefix in bytes.
+pub const FRAME_PREFIX_LEN: usize = 4;
+
+/// Hard upper bound on a single framed message payload. 128 KiB
+/// covers an `AttestResponse` with a maxed-out [`MAX_SECRET_LEN`]
+/// secret plus URL/signatures with generous headroom; it keeps us
+/// safe from denial-of-service allocations on the bootloader side.
+pub const MAX_FRAMED_PAYLOAD: usize = 128 * 1024;
+
+/// Serialise `value` and prepend a 4-byte little-endian length
+/// header. The returned buffer can be written straight to a stream
+/// and read back with [`split_framed`].
+pub fn encode_framed<T: Serialize>(value: &T) -> Result<Vec<u8>, ProtoError> {
+    let body = encode(value)?;
+    if body.len() > MAX_FRAMED_PAYLOAD {
+        return Err(ProtoError::FrameTooLarge(body.len()));
+    }
+    let mut out = Vec::with_capacity(FRAME_PREFIX_LEN + body.len());
+    out.extend_from_slice(&(body.len() as u32).to_le_bytes());
+    out.extend_from_slice(&body);
+    Ok(out)
+}
+
+/// Parse the length prefix from the front of `bytes` and return
+/// `(payload_len, &payload_bytes)`. Requires `bytes` to already hold
+/// at least `FRAME_PREFIX_LEN + payload_len` bytes; callers driving a
+/// stream are responsible for reading until that much is buffered.
+///
+/// Rejects frames whose declared length exceeds [`MAX_FRAMED_PAYLOAD`]
+/// *before* slicing so a bogus header cannot trigger a large
+/// allocation.
+pub fn split_framed(bytes: &[u8]) -> Result<(usize, &[u8]), ProtoError> {
+    if bytes.len() < FRAME_PREFIX_LEN {
+        return Err(ProtoError::FrameTruncated);
+    }
+    let prefix: [u8; FRAME_PREFIX_LEN] = bytes[..FRAME_PREFIX_LEN]
+        .try_into()
+        .expect("slice length matches array");
+    let len = u32::from_le_bytes(prefix) as usize;
+    if len > MAX_FRAMED_PAYLOAD {
+        return Err(ProtoError::FrameTooLarge(len));
+    }
+    let rest = &bytes[FRAME_PREFIX_LEN..];
+    if rest.len() < len {
+        return Err(ProtoError::FrameTruncated);
+    }
+    Ok((len, &rest[..len]))
+}
+
+/// One-shot helper: split the frame off `bytes` and postcard-decode
+/// the payload in a single call.
+pub fn decode_framed<'a, T: Deserialize<'a>>(bytes: &'a [u8]) -> Result<T, ProtoError> {
+    let (_, body) = split_framed(bytes)?;
+    decode(body)
 }
 
 /// Convenience: construct a fresh [`AttestRequest`] with [`PROTO_TAG`]
@@ -225,6 +301,48 @@ mod tests {
             validate_response(&resp),
             Err(ProtoError::SecretTooLarge)
         ));
+    }
+
+    #[test]
+    fn roundtrip_framed() {
+        let req = new_request([0xAA; 32]);
+        let bytes = encode_framed(&req).unwrap();
+        assert!(bytes.len() > FRAME_PREFIX_LEN);
+        let (len, body) = split_framed(&bytes).unwrap();
+        assert_eq!(len + FRAME_PREFIX_LEN, bytes.len());
+        assert_eq!(body.len(), len);
+        let back: AttestRequest = decode_framed(&bytes).unwrap();
+        assert_eq!(req, back);
+    }
+
+    #[test]
+    fn split_framed_truncated_prefix_fails() {
+        let err = split_framed(&[1, 2]).unwrap_err();
+        assert!(matches!(err, ProtoError::FrameTruncated));
+    }
+
+    #[test]
+    fn split_framed_truncated_body_fails() {
+        // Declare 64-byte payload but supply only 3 bytes of it.
+        let bytes = {
+            let mut v = Vec::new();
+            v.extend_from_slice(&64u32.to_le_bytes());
+            v.extend_from_slice(&[0; 3]);
+            v
+        };
+        let err = split_framed(&bytes).unwrap_err();
+        assert!(matches!(err, ProtoError::FrameTruncated));
+    }
+
+    #[test]
+    fn split_framed_rejects_oversize_prefix() {
+        let bytes = {
+            let mut v = Vec::new();
+            v.extend_from_slice(&((MAX_FRAMED_PAYLOAD + 1) as u32).to_le_bytes());
+            v
+        };
+        let err = split_framed(&bytes).unwrap_err();
+        assert!(matches!(err, ProtoError::FrameTooLarge(n) if n == MAX_FRAMED_PAYLOAD + 1));
     }
 
     #[test]
