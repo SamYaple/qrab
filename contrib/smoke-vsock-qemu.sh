@@ -84,6 +84,15 @@ ATTEST_BIN="$ROOT/target/release/attest-server"
 [[ -x "$ATTEST_BIN" ]] || die "attest-server binary not produced"
 
 log "launching attest-server (port $PORT)"
+# Point attest-server at the same signing key whose public half was
+# embedded into qrab-boot.efi at build time, so the bootloader's
+# `p256` verify succeeds. Fall back to an ephemeral key if the dev
+# keypair is absent (the bootloader will log QRAB_ATTEST_NO_PUBKEY
+# in that case and the smoke still at least exercises the wire).
+KEY_PATH="$ROOT/contrib/attest-keys/server.pem"
+if [[ -s "$KEY_PATH" ]]; then
+    export QRAB_ATTEST_KEY_PATH="$KEY_PATH"
+fi
 "$ATTEST_BIN" "$PORT" >"$MOCKLOG" 2>&1 &
 MOCK_PID=$!
 cleanup() {
@@ -99,6 +108,7 @@ log "launching qemu (guest_cid=$GUEST_CID, ~${BOOT_TIMEOUT_SECS}s)"
 set +e
 timeout "$BOOT_TIMEOUT_SECS" qemu-system-x86_64 \
     -machine q35,accel=tcg -m 512M -display none -no-reboot \
+    -cpu max \
     -bios "$OVMF" \
     -drive if=virtio,format=raw,file="$ESP" \
     -device vhost-vsock-pci,guest-cid="$GUEST_CID" \
@@ -119,7 +129,7 @@ echo "--- mock log ---"
 tail -5 "$MOCKLOG" || true
 
 # Success requires all three of these tokens on the guest serial.
-required=(QRAB_VSOCK_FOUND QRAB_VSOCK_DRIVER_OK QRAB_VSOCK_CONNECT_OK QRAB_ATTEST_OK)
+required=(QRAB_VSOCK_FOUND QRAB_VSOCK_DRIVER_OK QRAB_VSOCK_CONNECT_OK QRAB_ATTEST_SIG_OK QRAB_REPORT_DATA_HEX QRAB_ATTEST_OK)
 missing=()
 for tok in "${required[@]}"; do
     grep -a -q "$tok" "$SERIAL" || missing+=("$tok")

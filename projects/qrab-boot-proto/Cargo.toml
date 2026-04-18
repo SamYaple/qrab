@@ -8,6 +8,10 @@ publish = false
 [dependencies]
 serde = { version = "1", default-features = false, features = ["derive", "alloc"] }
 postcard = { version = "1", default-features = false, features = ["alloc"] }
+# SHA-256 over the canonical signing domain for `AttestResponse`. Both
+# the bootloader and the host server compute the same digest byte-for-
+# byte so the signature verifies in lockstep.
+sha2 = { version = "0.10", default-features = false }
 
 [features]
 default = []

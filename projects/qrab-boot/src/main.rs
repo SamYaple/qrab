@@ -14,7 +14,10 @@
 
 extern crate alloc;
 
+mod attest;
+mod ghcb;
 mod panic;
+mod rng;
 mod vsock;
 mod vsock_connect;
 mod vsock_driver;
@@ -31,7 +34,7 @@ use uefi::prelude::*;
 const BANNER: &str = concat!(
     "QRAB BOOT v",
     env!("CARGO_PKG_VERSION"),
-    " phase3b (build ",
+    " phase4 (build ",
     env!("CARGO_PKG_NAME"),
     ")",
 );
@@ -52,11 +55,14 @@ fn efi_main() -> Status {
 
     log::info!("{BANNER}");
 
+    let features = ghcb::detect();
+    ghcb::log_features(&features);
+
     run_vsock_demo();
 
     run_verify_demo();
 
-    log::info!("QRAB_PHASE3B_OK");
+    log::info!("QRAB_PHASE4_OK");
 
     // Intentionally do not return control to firmware. Per plan: fail-closed,
     // hang on any terminal state including "phase not complete".
@@ -130,13 +136,27 @@ fn run_vsock_demo() {
         return; // connect_and_wait logged the specific failure.
     }
 
-    // Phase 3b.9: speak the postcard + length-prefix dialect from
-    // `qrab-boot-proto` against the `attest-server` binary. Real
-    // randomness lands in a later commit; a build-time fixed nonce
-    // is still enough to tell the response apart from a loopback
-    // echo (attest-server inverts the bits when constructing
-    // `server_nonce`).
-    let request = qrab_boot_proto::new_request(CLIENT_NONCE);
+    // Phase 4: every boot picks a fresh 32-byte nonce via RDRAND.
+    // A CPU without RDRAND (vanishingly rare on anything new enough
+    // to run SEV-SNP, but possible under weird TCG configs) fails
+    // closed — the attestation flow is strictly worse with a
+    // predictable nonce, and the rest of the boot hangs anyway.
+    let client_nonce = match rng::fresh_nonce() {
+        Ok(n) => n,
+        Err(e) => {
+            log::warn!("QRAB_ATTEST_RNG_ERR {e}");
+            return;
+        }
+    };
+    log::info!(
+        "QRAB_ATTEST_NONCE prefix={:02x}{:02x}{:02x}{:02x}",
+        client_nonce[0],
+        client_nonce[1],
+        client_nonce[2],
+        client_nonce[3],
+    );
+
+    let request = qrab_boot_proto::new_request(client_nonce);
     let request_bytes = match qrab_boot_proto::encode_framed(&request) {
         Ok(b) => b,
         Err(e) => {
@@ -171,6 +191,48 @@ fn run_vsock_demo() {
         return;
     }
 
+    // Verify the server's signature before *anything* downstream is
+    // allowed to consume the response. An unverified attestation
+    // response is strictly more dangerous than no response at all,
+    // because the bootloader would otherwise inject an
+    // attacker-chosen secret into the guest kernel.
+    if !attest::has_embedded_pubkey() {
+        log::warn!(
+            "QRAB_ATTEST_NO_PUBKEY (build without contrib/attest-keys/server.sec1; skipping verify)"
+        );
+    } else {
+        match attest::verify(&response) {
+            Ok(()) => log::info!("QRAB_ATTEST_SIG_OK"),
+            Err(attest::VerifyError::NoPubkey) => {
+                log::warn!("QRAB_ATTEST_NO_PUBKEY");
+                return;
+            }
+            Err(attest::VerifyError::MalformedPubkey) => {
+                log::warn!("QRAB_ATTEST_MALFORMED_PUBKEY");
+                return;
+            }
+            Err(attest::VerifyError::MalformedSig) => {
+                log::warn!("QRAB_ATTEST_MALFORMED_SIG");
+                return;
+            }
+            Err(attest::VerifyError::BadSignature) => {
+                log::warn!("QRAB_ATTEST_BAD_SIG");
+                return;
+            }
+            Err(attest::VerifyError::SecretHashMismatch) => {
+                log::warn!("QRAB_ATTEST_SECRET_HASH_MISMATCH");
+                return;
+            }
+        }
+    }
+
+    // Compute + log the SNP `report_data` the bootloader would feed
+    // to `MSG_REPORT_REQ`. Issuance of the real request is gated on
+    // the DMA fix tracked in issues/qrab-boot-snp-dma.md; the log
+    // still lets a post-boot verifier confirm the expected value.
+    let report_data = qrab_boot_proto::report_data(&client_nonce, &response);
+    ghcb::record_intended_report_data(&report_data);
+
     log::info!(
         "QRAB_ATTEST_OK server_nonce0={:#04x} secret_len={} sig_len={} uki_url_len={}",
         response.server_nonce[0],
@@ -179,13 +241,6 @@ fn run_vsock_demo() {
         response.uki_url.len(),
     );
 }
-
-/// Hard-coded attestation-client nonce used until a real PRNG lands.
-/// The server inverts the bits of this value to produce
-/// `server_nonce`, so the bootloader's log should print
-/// `server_nonce0=0xaa` when it is talking to `attest-server` (and
-/// the original `0x55` if it sees an echo or a misconfigured peer).
-const CLIENT_NONCE: [u8; 32] = [0x55; 32];
 
 /// Disable interrupts and halt the CPU indefinitely.
 ///

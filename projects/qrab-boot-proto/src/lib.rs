@@ -34,6 +34,7 @@ use alloc::string::String;
 use alloc::vec::Vec;
 
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 
 /// Magic prefix every [`AttestRequest`] begins with. Bumped only on
 /// breaking wire-format changes. The bootloader refuses any response
@@ -247,10 +248,11 @@ pub fn validate_request(req: &AttestRequest) -> Result<(), ProtoError> {
     Ok(())
 }
 
-/// Convenience: validate a deserialised [`AttestResponse`]. Currently
-/// only bounds-checks the secret length; sig verification lives in
-/// qrab-boot-verify (not here — this crate intentionally has no
-/// cryptographic dependencies).
+/// Convenience: validate a deserialised [`AttestResponse`]. Bounds-
+/// checks the secret length and the ECDSA signature length; the
+/// actual ECDSA-P256 verification lives in the bootloader / server
+/// (pulls in `p256`, which this protocol crate deliberately does not
+/// depend on).
 pub fn validate_response(resp: &AttestResponse) -> Result<(), ProtoError> {
     if resp.secret.len() > MAX_SECRET_LEN {
         return Err(ProtoError::SecretTooLarge);
@@ -259,6 +261,98 @@ pub fn validate_response(resp: &AttestResponse) -> Result<(), ProtoError> {
         return Err(ProtoError::SigLen(resp.sig.len()));
     }
     Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Signing domain.
+//
+// We sign a 32-byte SHA-256 digest computed over the canonical byte
+// sequence below. The server owns an ECDSA-P256 long-term key, the
+// bootloader embeds the matching public key at build time, and both
+// sides recompute the digest identically before signing / verifying.
+//
+// Each length-prefixed field uses a little-endian `u32` to keep the
+// domain compact and endian-stable across host and UEFI targets.
+// ---------------------------------------------------------------------------
+
+/// Domain-separation tag for [`response_signing_digest`]. Bumping the
+/// tag invalidates every pre-existing signed response.
+pub const SIG_DOMAIN_TAG: &[u8] = b"qrab-v1-attest-resp";
+
+/// Compute the 32-byte SHA-256 digest that the attestation server
+/// signs and the bootloader verifies. Domain-separated by
+/// [`SIG_DOMAIN_TAG`] so an identical field layout can never be
+/// mistaken for another protocol.
+///
+/// The digest commits to:
+///   * the server nonce,
+///   * the UKI URL (length-prefixed),
+///   * the UKI SHA-256,
+///   * the secret SHA-256 (committing to the secret transitively
+///     through [`AttestResponse::secret_sha256`] rather than rehashing
+///     the whole secret body).
+pub fn response_signing_digest(resp: &AttestResponse) -> [u8; 32] {
+    let mut hasher = Sha256::new();
+    hasher.update(SIG_DOMAIN_TAG);
+    hasher.update([SIG_DOMAIN_TAG.len() as u8]); // cheap ambiguity break
+    hasher.update(resp.server_nonce);
+    let url_bytes = resp.uki_url.as_bytes();
+    hasher.update((url_bytes.len() as u32).to_le_bytes());
+    hasher.update(url_bytes);
+    hasher.update(resp.uki_sha256);
+    hasher.update(resp.secret_sha256);
+    let out = hasher.finalize();
+    let mut digest = [0u8; 32];
+    digest.copy_from_slice(&out);
+    digest
+}
+
+/// Recompute [`AttestResponse::secret_sha256`] from [`AttestResponse::secret`]
+/// and compare constant-time. Callers use this to make sure the
+/// (signed) digest actually matches the transported bytes; a server
+/// that lies about one or the other will be rejected before the
+/// secret is handed to the guest kernel.
+pub fn verify_secret_hash(resp: &AttestResponse) -> bool {
+    let computed = Sha256::digest(&resp.secret);
+    // Short constant-time compare — `secret_sha256` is 32 bytes so
+    // branchless XOR-accumulate is cheap and avoids timing leaks on
+    // the hash itself.
+    let mut diff = 0u8;
+    for i in 0..32 {
+        diff |= computed[i] ^ resp.secret_sha256[i];
+    }
+    diff == 0
+}
+
+/// Compute the `report_data` field the bootloader feeds to
+/// `SNP_GUEST_REQUEST MSG_REPORT_REQ`. Architecture §"Report data"
+/// in `reference/qrab-boot-plan.md`:
+///
+/// ```text
+/// report_data = sha256(PROTO_TAG || client_nonce || server_nonce ||
+///                      uki_sha256 || secret_sha256)
+/// ```
+///
+/// The PSP signs the resulting SNP attestation report; a verifier
+/// that knows the wire-level nonces + hashes can recompute
+/// `report_data` and confirm the guest both observed the same
+/// attestation flow and booted the measured UKI.
+pub fn report_data(
+    client_nonce: &[u8; 32],
+    resp: &AttestResponse,
+) -> [u8; 64] {
+    let mut hasher = Sha256::new();
+    hasher.update(PROTO_TAG);
+    hasher.update(client_nonce);
+    hasher.update(resp.server_nonce);
+    hasher.update(resp.uki_sha256);
+    hasher.update(resp.secret_sha256);
+    let digest = hasher.finalize();
+    // `report_data` is a 64-byte field in the SNP report; pad the
+    // 32-byte SHA-256 with zeros so the unused tail is deterministic.
+    let mut out = [0u8; 64];
+    out[..32].copy_from_slice(&digest);
+    out
 }
 
 #[cfg(test)]
@@ -359,5 +453,81 @@ mod tests {
             validate_response(&resp),
             Err(ProtoError::SigLen(n)) if n == SIG_LEN - 1
         ));
+    }
+
+    fn sample_response() -> AttestResponse {
+        AttestResponse {
+            server_nonce: [0xAA; 32],
+            uki_url: String::from("vsock://2:1337/uki"),
+            uki_sha256: [0x11; 32],
+            secret: b"hello".to_vec(),
+            secret_sha256: sha2::Sha256::digest(b"hello").into(),
+            sig: vec![0u8; SIG_LEN],
+        }
+    }
+
+    #[test]
+    fn signing_digest_stable_for_equal_responses() {
+        let a = sample_response();
+        let b = sample_response();
+        assert_eq!(response_signing_digest(&a), response_signing_digest(&b));
+    }
+
+    #[test]
+    fn signing_digest_changes_with_server_nonce() {
+        let a = sample_response();
+        let mut b = sample_response();
+        b.server_nonce[0] ^= 0xFF;
+        assert_ne!(response_signing_digest(&a), response_signing_digest(&b));
+    }
+
+    #[test]
+    fn signing_digest_changes_with_uki_url() {
+        let a = sample_response();
+        let mut b = sample_response();
+        b.uki_url = String::from("vsock://2:1337/uki2");
+        assert_ne!(response_signing_digest(&a), response_signing_digest(&b));
+    }
+
+    #[test]
+    fn signing_digest_ignores_signature_bytes() {
+        let a = sample_response();
+        let mut b = sample_response();
+        b.sig[0] ^= 0xAA;
+        // sig itself is not part of the signing domain — flipping it
+        // must not move the digest.
+        assert_eq!(response_signing_digest(&a), response_signing_digest(&b));
+    }
+
+    #[test]
+    fn verify_secret_hash_accepts_matching() {
+        let r = sample_response();
+        assert!(verify_secret_hash(&r));
+    }
+
+    #[test]
+    fn verify_secret_hash_rejects_wrong() {
+        let mut r = sample_response();
+        r.secret_sha256[0] ^= 1;
+        assert!(!verify_secret_hash(&r));
+    }
+
+    #[test]
+    fn report_data_is_stable() {
+        let nonce = [0x55u8; 32];
+        let r = sample_response();
+        let a = report_data(&nonce, &r);
+        let b = report_data(&nonce, &r);
+        assert_eq!(a, b);
+        // Tail after SHA-256 is padded with zeros.
+        assert!(a[32..].iter().all(|&b| b == 0));
+    }
+
+    #[test]
+    fn report_data_changes_with_nonce() {
+        let r = sample_response();
+        let a = report_data(&[0x00; 32], &r);
+        let b = report_data(&[0x01; 32], &r);
+        assert_ne!(a, b);
     }
 }
