@@ -3,12 +3,14 @@ use dioxus::prelude::*;
 use bmc::server::vm_status::get_dashboard_state;
 use bmc::types::DashboardState;
 
+use super::attestation_panel::AttestationPanel;
 use super::config_panel::ConfigPanel;
 use super::console::Console;
 use super::cpu_info::CpuInfo;
 use super::event_log::EventLog;
+use super::layout::{DashboardLayout, PanelType};
 use super::power_controls::PowerControls;
-use super::security_panel::SecurityPanel;
+use super::security_hero::SecurityHero;
 use super::serial::SerialConsole;
 use super::status_panel::StatusPanel;
 use super::util::sleep_ms;
@@ -25,6 +27,7 @@ const POLL_INTERVAL_MS: u64 = 3000;
 pub fn Dashboard() -> Element {
     let mut refresh_tick = use_signal(|| 0u64);
     let mut poll_tick = use_signal(|| 0u64);
+    let layout = use_signal(DashboardLayout::default);
 
     // Single poll loop at POLL_INTERVAL_MS. Task is tied to this component's
     // scope and is dropped automatically when the component unmounts.
@@ -64,6 +67,7 @@ pub fn Dashboard() -> Element {
     } = state_value;
 
     let current_phase = status.phase.clone();
+    let layout_panels = layout.read().panels.clone();
 
     rsx! {
         div { class: "bmc-dashboard",
@@ -75,42 +79,66 @@ pub fn Dashboard() -> Element {
                 }
             }
 
-            // Top section: 3-column — status | controls | system
-            div { class: "top-section",
-                StatusPanel { status: status.clone() }
-                PowerControls {
-                    current_phase: current_phase.clone(),
-                    on_action: move |_| {
-                        refresh_tick += 1;
-                    },
-                }
-                CpuInfo {
-                    current_phase: current_phase.clone(),
-                    cpu_info: cpu_info.clone(),
-                    kvm_info: kvm_info.clone(),
-                }
-                SecurityPanel {
-                    sev_status: sev_status.clone(),
-                    tpm_status: tpm_status.clone(),
-                    capabilities: capabilities.clone(),
-                }
-                ConfigPanel {
-                    current_phase: current_phase.clone(),
-                    capabilities: capabilities.clone(),
+            // Layout-driven panel rendering
+            div { class: "dashboard-grid",
+                for panel_cfg in layout_panels.iter() {
+                    if !panel_cfg.collapsed {
+                        div { class: "{panel_cfg.width.css_class()}",
+                            match panel_cfg.panel {
+                                PanelType::SecurityHero => rsx! {
+                                    SecurityHero {
+                                        sev_status: sev_status.clone(),
+                                        tpm_status: tpm_status.clone(),
+                                        capabilities: capabilities.clone(),
+                                    }
+                                },
+                                PanelType::Attestation => rsx! {
+                                    AttestationPanel {
+                                        sev_status: sev_status.clone(),
+                                        capabilities: capabilities.clone(),
+                                    }
+                                },
+                                PanelType::PowerControls => rsx! {
+                                    PowerControls {
+                                        current_phase: current_phase.clone(),
+                                        on_action: move |_| {
+                                            refresh_tick += 1;
+                                        },
+                                    }
+                                },
+                                PanelType::Status => rsx! {
+                                    StatusPanel { status: status.clone() }
+                                },
+                                PanelType::CpuInfo => rsx! {
+                                    CpuInfo {
+                                        current_phase: current_phase.clone(),
+                                        cpu_info: cpu_info.clone(),
+                                        kvm_info: kvm_info.clone(),
+                                    }
+                                },
+                                PanelType::Config => rsx! {
+                                    ConfigPanel {
+                                        current_phase: current_phase.clone(),
+                                        capabilities: capabilities.clone(),
+                                    }
+                                },
+                                PanelType::Console => rsx! {
+                                    Console { console_available }
+                                },
+                                PanelType::Serial => rsx! {
+                                    SerialConsole {
+                                        current_phase: current_phase.clone(),
+                                        serial_tail: serial_tail.clone(),
+                                    }
+                                },
+                                PanelType::Events => rsx! {
+                                    EventLog {}
+                                },
+                            }
+                        }
+                    }
                 }
             }
-
-            // Consoles
-            Console { console_available }
-            SerialConsole {
-                current_phase: current_phase.clone(),
-                serial_tail: serial_tail.clone(),
-            }
-
-            // Bottom section: full-width events. EventLog is self-managed:
-            // it fetches initial history via `get_event_history()` and then
-            // streams new events over SSE (`/api/events`). No props needed.
-            EventLog {}
         }
     }
 }
