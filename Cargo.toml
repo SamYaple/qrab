@@ -8,6 +8,7 @@ members = [
     "projects/manager",
     "projects/qrab-init",
     "projects/bmc",
+    "projects/attest-server",
     "projects/qrab-boot-proto",
     "projects/qrab-boot-verify",
     "examples/simple-vm",
