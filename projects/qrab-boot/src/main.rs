@@ -15,9 +15,11 @@
 extern crate alloc;
 
 mod panic;
+mod vsock;
 
 use core::arch::asm;
 
+#[cfg(not(qrab_no_fixtures))]
 use qrab_boot_verify::{VerifyError, verify_detached};
 use uefi::prelude::*;
 
@@ -25,7 +27,7 @@ use uefi::prelude::*;
 const BANNER: &str = concat!(
     "QRAB BOOT v",
     env!("CARGO_PKG_VERSION"),
-    " phase2b (build ",
+    " phase3a (build ",
     env!("CARGO_PKG_NAME"),
     ")",
 );
@@ -46,9 +48,11 @@ fn efi_main() -> Status {
 
     log::info!("{BANNER}");
 
+    let _vsock_status = vsock::probe();
+
     run_verify_demo();
 
-    log::info!("QRAB_PHASE2B_OK");
+    log::info!("QRAB_PHASE3A_OK");
 
     // Intentionally do not return control to firmware. Per plan: fail-closed,
     // hang on any terminal state including "phase not complete".
