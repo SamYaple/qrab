@@ -3,14 +3,18 @@
 #
 # Same shape as `contrib/smoke-vsock-qemu.sh` but launches the guest
 # with `--preconfig -machine confidential-guest-support=sev0` and the
-# AmdSev OVMF image at `target/ovmf/OVMF.fd`. Designed to reproduce
-# the DMA correctness gap tracked in
-# `~/workspace/llm-rag/issues/qrab-boot-snp-dma.md`: the bootloader's
-# identity-map `UefiHal::share` hands the device the private-encrypted
-# guest PA, which SNP cannot decrypt for DMA, so virtio handshake or
-# the first `send` hangs / errors.
+# AmdSev OVMF image at `target/ovmf/OVMF.fd`. Originally filed as the
+# reproducer for the DMA correctness gap in
+# `~/workspace/llm-rag/issues/qrab-boot-snp-dma.md`; that rework
+# shipped on 2026-04-18 (PciRootBridgeIo Map/Unmap HAL) but the
+# smoke is still expected-fail because a separate blocker surfaced:
+# `~/workspace/llm-rag/issues/qrab-boot-snp-high-mmio-gp.md`. The
+# current failure signature is a `#GP - General Protection` on the
+# first virtio common-config MMIO read (64-bit BAR at ~0xC000000000),
+# not the `QRAB_VSOCK_DRIVER_SOCKET_ERR` that the first ticket
+# guessed.
 #
-# Until that ticket is fixed this script is **expected to fail**.
+# Until the high-MMIO ticket closes this script is **expected to fail**.
 # Exit codes:
 #   0  — ALL required tokens present *and* we are running on a
 #        bootloader that has closed the SNP DMA ticket. Unexpected
