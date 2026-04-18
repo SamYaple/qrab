@@ -96,6 +96,15 @@ impl BmcState {
         }
     }
 
+    /// Read the attestation socket path while holding the vm lock.
+    /// Returns Some only when a SEV-SNP-enabled VM is currently Running.
+    pub async fn attest_sock(&self) -> Option<PathBuf> {
+        match &*self.vm.lock().await {
+            VmState::Running(vm) => vm.attest_sock().cloned(),
+            _ => None,
+        }
+    }
+
     /// Spawn a VM, attach disks, and start execution. Transitions Off -> Running.
     ///
     /// Internally the VM goes through a paused (-S) state where QMP commands
