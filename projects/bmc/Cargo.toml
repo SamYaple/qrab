@@ -95,3 +95,7 @@ qapi-protocol = { path = "../qapi-protocol" }
 
 [[test]]
 name = "mock_bmc"
+
+[[test]]
+name = "qmp_console"
+required-features = ["server"]
