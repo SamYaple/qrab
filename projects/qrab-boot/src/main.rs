@@ -21,6 +21,7 @@ mod panic;
 mod pci_dma;
 mod rng;
 mod secret;
+mod volatile_transport;
 mod vsock;
 mod vsock_connect;
 mod vsock_driver;
