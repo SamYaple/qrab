@@ -1,9 +1,9 @@
 use dioxus::prelude::*;
 
-use bmc::types::{BmcCapabilities, SevStatusResponse, TpmStatusResponse};
+use bmc::types::{SevStatusResponse, TpmStatusResponse};
 
 /// Determine the SEV status level for CSS badge coloring.
-fn sev_badge_class(sev: &Option<SevStatusResponse>, caps: &BmcCapabilities) -> &'static str {
+fn sev_badge_class(sev: &Option<SevStatusResponse>) -> &'static str {
     match sev {
         Some(s) if s.enabled => {
             // Check state for measured vs pending
@@ -15,35 +15,29 @@ fn sev_badge_class(sev: &Option<SevStatusResponse>, caps: &BmcCapabilities) -> &
             }
         }
         Some(_) => "badge-red", // present but not enabled = failed
-        None => {
-            if caps.sev_snp_available {
-                "badge-grey" // available but VM off
-            } else {
-                "badge-grey"
-            }
-        }
+        None => "badge-grey",   // VM off
     }
 }
 
-fn sev_status_text(sev: &Option<SevStatusResponse>, caps: &BmcCapabilities) -> &'static str {
+fn sev_status_text(sev: &Option<SevStatusResponse>) -> &'static str {
     match sev {
         Some(s) if s.enabled => "Active",
         Some(_) => "Failed",
-        None if caps.sev_snp_available => "Available",
-        None if caps.sev_available => "SEV Only",
-        None => "Unavailable",
+        None => "Inactive",
     }
 }
 
 /// Full-width security hero panel. SEV-SNP status is the centerpiece.
+/// Shows the live state of the running VM only — no host-capability
+/// conditionals (the hardcoded BMC profile is SEV-SNP + TPM unconditionally,
+/// so capability detection would just be noise).
 #[component]
 pub fn SecurityHero(
     sev_status: Option<SevStatusResponse>,
     tpm_status: Option<TpmStatusResponse>,
-    capabilities: BmcCapabilities,
 ) -> Element {
-    let badge_class = sev_badge_class(&sev_status, &capabilities);
-    let status_text = sev_status_text(&sev_status, &capabilities);
+    let badge_class = sev_badge_class(&sev_status);
+    let status_text = sev_status_text(&sev_status);
     rsx! {
         div { class: "panel security-hero",
             div { class: "hero-content",
@@ -78,18 +72,9 @@ pub fn SecurityHero(
                             }
                         }
                     } else {
-                        // Host capability summary when VM off
                         div { class: "hero-detail",
-                            span { class: "hero-detail-label", "Host SEV" }
-                            span { class: "hero-detail-value",
-                                if capabilities.sev_snp_available {
-                                    "SNP Available"
-                                } else if capabilities.sev_available {
-                                    "SEV Only"
-                                } else {
-                                    "Not Available"
-                                }
-                            }
+                            span { class: "hero-detail-label", "Status" }
+                            span { class: "hero-detail-value", "VM Off" }
                         }
                     }
                 }
@@ -110,12 +95,8 @@ pub fn SecurityHero(
                         },
                         None => rsx! {
                             div { class: "hero-tpm-status",
-                                span { class: if capabilities.swtpm_available { "badge-pill badge-pill-grey" } else { "badge-pill badge-pill-red" },
-                                    if capabilities.swtpm_available {
-                                        "Available"
-                                    } else {
-                                        "Unavailable"
-                                    }
+                                span { class: "badge-pill badge-pill-grey",
+                                    "Inactive"
                                 }
                             }
                         },

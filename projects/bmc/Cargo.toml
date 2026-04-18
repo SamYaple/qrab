@@ -91,30 +91,7 @@ web = ["dioxus/web"]
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["full"] }
-tokio-tungstenite = "0.24"
-futures = { workspace = true }
-paste = { workspace = true }
-which = { workspace = true }
-manager = { path = "../manager" }
-qapi = { path = "../qapi" }
 qapi-protocol = { path = "../qapi-protocol" }
-axum = { version = "0.8", features = ["ws"] }
-
-[[test]]
-name = "vnc_proxy"
-required-features = ["server"]
-
-[[test]]
-name = "integration"
-required-features = ["server"]
-
-[[test]]
-name = "concurrency"
-required-features = ["server"]
-
-[[test]]
-name = "capabilities"
-required-features = ["server"]
 
 [[test]]
 name = "mock_bmc"

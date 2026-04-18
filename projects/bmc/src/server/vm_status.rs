@@ -1,8 +1,8 @@
 use dioxus::prelude::*;
 
 use crate::types::{
-    AttestationQrResponse, AttestationReportResponse, AttestationState, BmcCapabilities, BmcEvent,
-    CpuInfoResponse, DashboardState, KvmInfoResponse, SevCapabilitiesResponse, VmStatusResponse,
+    AttestationQrResponse, AttestationReportResponse, AttestationState, BmcEvent, CpuInfoResponse,
+    DashboardState, KvmInfoResponse, SevCapabilitiesResponse, VmStatusResponse,
 };
 #[cfg(feature = "server")]
 use crate::types::{AttestationStatus, SevStatusResponse, TpmStatusResponse, VmPhase};
@@ -378,9 +378,6 @@ pub async fn get_dashboard_state() -> Result<DashboardState, ServerFnError> {
     // state only carries slices that are polled.
     let serial_tail = read_serial_tail(serial_log_path.as_deref()).await;
 
-    // Capabilities are host-level — no VM lock needed, cheap syscalls.
-    let capabilities = crate::state::query_capabilities();
-
     // Attestation state — separate lock, not under vm_guard.
     let attestation = {
         let att = state.attestation.lock().await;
@@ -400,7 +397,6 @@ pub async fn get_dashboard_state() -> Result<DashboardState, ServerFnError> {
         sev_status,
         tpm_status,
         attestation,
-        capabilities,
     })
 }
 
@@ -513,12 +509,6 @@ fn chrono_now_iso8601() -> String {
     // Simple UTC timestamp: seconds since epoch as string.
     // Full ISO 8601 would need chrono — keep deps minimal.
     format!("{}Z", now.as_secs())
-}
-
-/// Query host capabilities (SEV, TPM, OVMF availability).
-#[server]
-pub async fn get_capabilities() -> Result<BmcCapabilities, ServerFnError> {
-    Ok(crate::state::query_capabilities())
 }
 
 /// Build attestation JSON payload from current state.

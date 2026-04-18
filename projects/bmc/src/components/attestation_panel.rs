@@ -3,7 +3,7 @@ use dioxus::prelude::*;
 use bmc::server::vm_status::{
     generate_attestation_qr, request_attestation_report, send_attestation_to_serial,
 };
-use bmc::types::{AttestationQrResponse, BmcCapabilities, SevStatusResponse};
+use bmc::types::{AttestationQrResponse, SevStatusResponse};
 
 /// Attestation timeline stages.
 const TIMELINE_STAGES: &[&str] = &["Boot", "Measured", "Challenge", "Verified"];
@@ -23,12 +23,9 @@ fn timeline_progress(sev: &Option<SevStatusResponse>) -> usize {
 
 /// Dedicated attestation panel below the hero. Shows launch measurement,
 /// attestation report controls, QR code generation, serial output,
-/// SEV capabilities, and status timeline.
+/// and status timeline.
 #[component]
-pub fn AttestationPanel(
-    sev_status: Option<SevStatusResponse>,
-    capabilities: BmcCapabilities,
-) -> Element {
+pub fn AttestationPanel(sev_status: Option<SevStatusResponse>) -> Element {
     let progress = timeline_progress(&sev_status);
     let has_sev = sev_status.is_some();
 
@@ -214,48 +211,6 @@ pub fn AttestationPanel(
                     }
                 }
 
-                // Host capabilities
-                div { class: "attestation-section",
-                    h3 { "Host Capabilities" }
-                    div { class: "capabilities-grid",
-                        div { class: "cap-item",
-                            span { class: "cap-label", "SEV" }
-                            span { class: if capabilities.sev_available { "cap-value cap-yes" } else { "cap-value cap-no" },
-                                if capabilities.sev_available { "Yes" } else { "No" }
-                            }
-                        }
-                        div { class: "cap-item",
-                            span { class: "cap-label", "SEV-SNP" }
-                            span { class: if capabilities.sev_snp_available { "cap-value cap-yes" } else { "cap-value cap-no" },
-                                if capabilities.sev_snp_available { "Yes" } else { "No" }
-                            }
-                        }
-                        div { class: "cap-item",
-                            span { class: "cap-label", "KVM" }
-                            span { class: if capabilities.kvm_available { "cap-value cap-yes" } else { "cap-value cap-no" },
-                                if capabilities.kvm_available { "Yes" } else { "No" }
-                            }
-                        }
-                        div { class: "cap-item",
-                            span { class: "cap-label", "OVMF" }
-                            span { class: if capabilities.ovmf_found { "cap-value cap-yes" } else { "cap-value cap-no" },
-                                if capabilities.ovmf_found { "Yes" } else { "No" }
-                            }
-                        }
-                        div { class: "cap-item",
-                            span { class: "cap-label", "Secure Boot FW" }
-                            span { class: if capabilities.ovmf_secure_found { "cap-value cap-yes" } else { "cap-value cap-no" },
-                                if capabilities.ovmf_secure_found { "Yes" } else { "No" }
-                            }
-                        }
-                        div { class: "cap-item",
-                            span { class: "cap-label", "swtpm" }
-                            span { class: if capabilities.swtpm_available { "cap-value cap-yes" } else { "cap-value cap-no" },
-                                if capabilities.swtpm_available { "Yes" } else { "No" }
-                            }
-                        }
-                    }
-                }
             }
         }
     }

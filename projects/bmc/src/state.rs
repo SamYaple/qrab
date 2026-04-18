@@ -8,13 +8,12 @@ use tokio::sync::{broadcast, mpsc, Mutex};
 use tokio::task::JoinHandle;
 
 use manager::arch::{Arch, MachineConfig};
-use manager::vm::{PreconfigVm, Vm, VmBuilder};
+use manager::vm::{Vm, VmBuilder};
 use qapi_protocol::QmpEvent;
 
 use crate::types::{
-    AttestationState, AttestationStatus, BmcArch, BmcCapabilities, BmcConfig, BmcMachine,
-    CpuInfoResponse, DiskConfig, DiskFormat, KvmInfoResponse, SevCapabilitiesResponse,
-    SevStatusResponse, TpmStatusResponse, VmPhase,
+    AttestationState, BmcConfig, CpuInfoResponse, KvmInfoResponse, SevStatusResponse,
+    TpmStatusResponse, VmPhase,
 };
 
 const EVENT_HISTORY_CAP: usize = 1000;
@@ -24,6 +23,24 @@ static BMC: OnceLock<Arc<BmcState>> = OnceLock::new();
 /// Get the global BmcState, initializing with defaults if needed.
 pub fn bmc() -> Arc<BmcState> {
     BMC.get_or_init(BmcState::new).clone()
+}
+
+/// Internal disk descriptor used by `attach_blockdevs` / `attach_devices`.
+///
+/// The user-facing `BmcConfig` no longer exposes disk knobs — every VM gets
+/// the SNP Ubuntu overlay + cloud-init seed by default. This struct is the
+/// internal handoff between the resolver and the QMP attach helpers.
+#[derive(Clone)]
+struct InternalDisk {
+    file: PathBuf,
+    format: InternalDiskFormat,
+    read_only: bool,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum InternalDiskFormat {
+    Qcow2,
+    Raw,
 }
 
 /// Internal VM state. Not serializable — holds owned QEMU handles.
@@ -105,11 +122,17 @@ impl BmcState {
         }
     }
 
-    /// Spawn a VM, attach disks, and start execution. Transitions Off -> Running.
+    /// Spawn the hardcoded SEV-SNP + TPM + KVM + UEFI x86_64 VM with the
+    /// Ubuntu SNP cloud image and cloud-init seed. Transitions Off -> Running.
     ///
-    /// Internally the VM goes through a paused (-S) state where QMP commands
-    /// like blockdev-add and device_add are issued, then `cont` is sent.
-    /// This intermediate state is never exposed to callers.
+    /// The only knobs that come from `BmcConfig` are `memory` and `cpus`.
+    /// Everything else is fixed: SEV-SNP, TPM (ephemeral swtpm), KVM with
+    /// EPYC-v4 CPU, UEFI via the AmdSev OVMF, display enabled, Ubuntu SNP
+    /// cloud image as the boot disk, cloud-init seed as the secondary disk.
+    ///
+    /// Internally the VM goes through a paused (--preconfig) state where
+    /// QMP commands like blockdev-add and device_add are issued, then `cont`
+    /// is sent. This intermediate state is never exposed to callers.
     ///
     /// Note: holds the `vm` lock for the entire spawn + start (~hundreds of ms).
     /// Concurrent `phase()` reads will block. Acceptable for single-user
@@ -128,179 +151,80 @@ impl BmcState {
 
         let config = self.config.lock().await.clone();
 
-        // --- Validation ---
-        if config.secure_boot && config.machine != BmcMachine::Uefi {
-            bail!("SecureBoot requires UEFI machine type");
-        }
-        if config.sev_snp.is_some() {
-            if !config.kvm {
-                bail!("SEV-SNP requires KVM acceleration");
-            }
-            if config.machine != BmcMachine::Uefi {
-                bail!("SEV-SNP requires UEFI machine type");
-            }
-            if config.arch != BmcArch::X86_64 {
-                bail!("SEV-SNP requires x86_64 architecture");
-            }
-        }
-        if config.tpm.is_some() {
-            if which::which("swtpm").is_err() {
-                bail!("TPM requires swtpm but it was not found in PATH");
-            }
+        // --- Hardcoded prerequisites ---
+        if which::which("swtpm").is_err() {
+            bail!("hardcoded TPM profile requires swtpm in PATH but it was not found");
         }
 
-        let arch = arch_to_manager(config.arch);
         // SEV-SNP with Ubuntu needs ≥1G RAM (256M crashes during kernel
         // page conversions, 512M OOMs during cloud-init).
-        let memory = if config.sev_snp.is_some() {
+        let memory = {
             let mem = &config.memory;
             let needs_bump = mem.ends_with('M')
                 && mem.trim_end_matches('M').parse::<u32>().unwrap_or(0) < 1024;
             if needs_bump {
-                tracing::warn!("SEV-SNP: bumping memory from {} to 1G (minimum for Ubuntu guest)", mem);
+                tracing::warn!(
+                    "SEV-SNP: bumping memory from {} to 1G (minimum for Ubuntu guest)",
+                    mem
+                );
                 "1G".to_string()
             } else {
                 config.memory.clone()
             }
-        } else {
-            config.memory.clone()
         };
-        let machine_config =
-            machine_to_manager(config.machine, memory, config.secure_boot);
 
-        let mut builder = VmBuilder::new(arch, machine_config).serial();
+        // SEV-SNP needs the AmdSev OVMF variant (contains SEV metadata
+        // GUID table for SNP_LAUNCH_UPDATE). Standard OVMF won't work.
+        let amdsev_fw = manager::firmware::find_amdsev_ovmf().ok_or_else(|| {
+            anyhow::anyhow!(
+                "SEV-SNP requires AmdSev OVMF firmware but none found. \
+                 Install edk2-amdsev or build the AmdSev variant of OVMF."
+            )
+        })?;
+
+        let machine_config = MachineConfig::Uefi { memory };
+        let mut builder = VmBuilder::new(Arch::X86_64, machine_config).serial();
         if let Some(cpus) = config.cpus {
             builder = builder.smp(cpus);
         }
-        if config.kvm {
-            // SEV-SNP requires EPYC CPU model — `-cpu host` exposes
-            // CPUID features that fail SNP firmware validation.
-            let cpu_model = if config.sev_snp.is_some() {
-                "EPYC-v4"
-            } else {
-                "host"
-            };
-            builder = builder
-                .accel(manager::vm::Accel::Kvm)
-                .cpu(cpu_model);
-        }
-        if config.display {
-            builder = builder.display();
-        }
-
-        // Firmware: custom path > SEV-SNP AmdSev OVMF > standard OVMF.
-        if let Some(ref fw_path) = config.firmware_path {
-            builder = builder.firmware(fw_path.clone());
-        } else if config.sev_snp.is_some() {
-            // SEV-SNP needs the AmdSev OVMF variant (contains SEV metadata
-            // GUID table for SNP_LAUNCH_UPDATE). Standard OVMF won't work.
-            if let Some(fw) = manager::firmware::find_amdsev_ovmf() {
-                builder = builder.firmware(fw);
-            } else {
-                bail!(
-                    "SEV-SNP requires AmdSev OVMF firmware but none found. \
-                     Install edk2-amdsev or set firmware_path manually."
-                );
-            }
-        } else if matches!(config.machine, BmcMachine::Uefi) {
-            if let Some(fw) = manager::firmware::find_ovmf(config.secure_boot) {
-                builder = builder.ovmf(fw);
-            }
-        }
-
-        // SecureBoot flag on builder (enables SMM, pflash secure mode).
-        if config.secure_boot {
-            builder = builder.secure_boot();
-        }
-
-        // SEV-SNP
-        if let Some(ref sev) = config.sev_snp {
-            let sev_config = manager::vm::SevSnpConfig {
-                sev_device: None,
-                policy: sev.policy,
-                reduced_phys_bits: sev.reduced_phys_bits,
-                cbitpos: None, // auto-detect from CPUID
-                id_block: sev.id_block.clone(),
-                id_auth: None,
-                author_key_enabled: None,
-                kernel_hashes: None,
-                host_data: sev.host_data.clone(),
-                vcek_disabled: None,
-                guest_visible_workarounds: None,
-            };
-            builder = builder.sev_snp(sev_config);
-        }
-
-        // TPM (swtpm only)
-        if let Some(ref tpm) = config.tpm {
-            let tpm_config = manager::vm::TpmConfig {
-                state_dir: if tpm.persistent {
-                    Some(tpm_state_dir())
-                } else {
-                    None
-                },
-            };
-            builder = builder.tpm(tpm_config);
-        }
+        // SEV-SNP requires EPYC CPU model — `-cpu host` exposes
+        // CPUID features that fail SNP firmware validation.
+        builder = builder
+            .accel(manager::vm::Accel::Kvm)
+            .cpu("EPYC-v4")
+            .display()
+            .firmware(amdsev_fw)
+            .sev_snp(manager::vm::SevSnpConfig::new())
+            .tpm(manager::vm::TpmConfig { state_dir: None });
 
         let mut paused_vm = builder.spawn().await?;
 
-        // Resolve disk list. Demo fallback: if no disks configured and the
-        // machine has a PCI bus, attach a bootable image so power_on yields a
-        // working VM out of the box. SEV-SNP VMs use the SNP boot image
-        // (host kernel UKI) because CirrosOS lacks CONFIG_AMD_MEM_ENCRYPT
-        // and crashes during SNP page state transitions.
-        let disks = if !matches!(config.machine, BmcMachine::None) && config.disks.is_empty() {
-            let base_image = if config.sev_snp.is_some() {
-                ensure_ubuntu_snp_image().await?
-            } else {
-                ensure_cirros_image().await?
-            };
-            // Create a temporary overlay so the base image is never modified.
-            // Each VM gets a fresh writable snapshot; force_off discards it.
-            let overlay = create_temp_overlay(&base_image).await?;
-            let mut disk_list = vec![DiskConfig {
+        // Resolve disks: SNP overlay + cloud-init seed. Always present —
+        // there is no "no disks" code path anymore.
+        let base_image = ensure_ubuntu_snp_image().await?;
+        let overlay = create_temp_overlay(&base_image).await?;
+        let seed = ensure_cloud_init_seed().await?;
+        let disks = vec![
+            InternalDisk {
                 file: overlay,
-                format: DiskFormat::Qcow2,
-                interface: crate::types::DiskInterface::Virtio,
+                format: InternalDiskFormat::Qcow2,
                 read_only: false,
-            }];
-            // For SEV-SNP Ubuntu image: attach cloud-init seed as second disk.
-            // cloud-init reads user-data/meta-data from FAT disk labeled "cidata".
-            if config.sev_snp.is_some() {
-                let seed = ensure_cloud_init_seed().await?;
-                disk_list.push(DiskConfig {
-                    file: seed,
-                    format: DiskFormat::Raw,
-                    interface: crate::types::DiskInterface::Virtio,
-                    read_only: true,
-                });
-            }
-            disk_list
-        } else {
-            config.disks.clone()
-        };
+            },
+            InternalDisk {
+                file: seed,
+                format: InternalDiskFormat::Raw,
+                read_only: true,
+            },
+        ];
 
         // Add block backends via QMP (preconfig-safe since QEMU 7.1.0).
-        // With machine=none there's no PCI bus, so skip disk attachment entirely.
-        let has_disks = !matches!(config.machine, BmcMachine::None) && !disks.is_empty();
-        if has_disks {
-            if let Err(e) = attach_blockdevs(&paused_vm.qmp, &disks).await {
-                paused_vm.shutdown().await;
-                return Err(e);
-            }
+        if let Err(e) = attach_blockdevs(&paused_vm.qmp, &disks).await {
+            paused_vm.shutdown().await;
+            return Err(e);
         }
 
-        // For non-SEV with -S (paused mode), device_add works before start().
-        // For SEV-SNP with --preconfig, device_add must wait until after
+        // SEV-SNP uses --preconfig: device_add must wait until after
         // x-exit-preconfig completes machine init.
-        let sev_mode = config.sev_snp.is_some();
-        if has_disks && !sev_mode {
-            if let Err(e) = attach_devices(&paused_vm.qmp, &disks).await {
-                paused_vm.shutdown().await;
-                return Err(e);
-            }
-        }
 
         // Extract the real event receiver and replace with a dummy.
         let (dummy_tx, dummy_rx) = mpsc::channel(1);
@@ -317,8 +241,8 @@ impl BmcState {
         let mut fwd = self.event_forwarder.lock().await;
         *fwd = Some(handle);
 
-        // Start: sends x-exit-preconfig (--preconfig) or cont (-S paused).
-        tracing::info!(sev_mode, has_disks, "calling PreconfigVm::start()");
+        // Start: sends x-exit-preconfig.
+        tracing::info!("calling PreconfigVm::start()");
         let vm = match paused_vm.start().await {
             Ok(vm) => {
                 tracing::info!("PreconfigVm::start() succeeded");
@@ -332,72 +256,79 @@ impl BmcState {
                 self.event_history.lock().await.clear();
                 *self.cached_static.lock().await = None;
                 *vm_guard = VmState::Off;
-                return Err(anyhow::anyhow!("power_on: PreconfigVm::start failed; transitioned to Off: {e}"));
+                return Err(anyhow::anyhow!(
+                    "power_on: PreconfigVm::start failed; transitioned to Off: {e}"
+                ));
             }
         };
 
-        // SEV-SNP: x-exit-preconfig completed machine init + SNP launch.
+        // x-exit-preconfig completed machine init + SNP launch.
         // QEMU is now paused. Attach devices (needs machine init), then cont.
-        // Non-SEV with -S: start() already sent cont.
-        if sev_mode {
-            if has_disks {
-                if let Err(e) = attach_devices(&vm.qmp, &disks).await {
-                    tracing::error!("device_add failed after x-exit-preconfig: {e}");
+        if let Err(e) = attach_devices(&vm.qmp, &disks).await {
+            tracing::error!("device_add failed after x-exit-preconfig: {e}");
+            vm.shutdown().await;
+            drop(fwd);
+            self.stop_forwarder().await;
+            self.event_history.lock().await.clear();
+            *self.cached_static.lock().await = None;
+            *vm_guard = VmState::Off;
+            return Err(anyhow::anyhow!("device_add failed: {e}"));
+        }
+
+        // Always send cont — x-exit-preconfig leaves QEMU paused.
+        tracing::info!("SEV-SNP: sending cont after x-exit-preconfig");
+        if let Err(e) = vm.cont().await {
+            tracing::error!("cont after x-exit-preconfig failed: {e}");
+            vm.shutdown().await;
+            drop(fwd);
+            self.stop_forwarder().await;
+            self.event_history.lock().await.clear();
+            *self.cached_static.lock().await = None;
+            *vm_guard = VmState::Off;
+            return Err(anyhow::anyhow!("cont failed: {e}"));
+        }
+
+        // SEV-SNP: wait for guest to survive early encrypted boot.
+        // OVMF needs time for PSP validation, GHCB setup, encrypted
+        // memory init. Dashboard polls fire query-sev immediately on
+        // transition to Running — validate boot first so early crashes
+        // are caught here instead of surprising dashboard polls.
+        tracing::info!("SEV-SNP: waiting for guest to survive early boot...");
+        tokio::time::sleep(Duration::from_secs(3)).await;
+        match vm.qmp.execute(&qapi::commands::QueryStatus {}).await {
+            Ok(status) => {
+                if !status.running {
+                    tracing::error!(
+                        "SEV-SNP: guest not running after cont (status: {:?})",
+                        status.status
+                    );
                     vm.shutdown().await;
                     drop(fwd);
                     self.stop_forwarder().await;
                     self.event_history.lock().await.clear();
                     *self.cached_static.lock().await = None;
                     *vm_guard = VmState::Off;
-                    return Err(anyhow::anyhow!("device_add failed: {e}"));
+                    return Err(anyhow::anyhow!(
+                        "SEV-SNP guest failed to boot — not running after cont"
+                    ));
                 }
+                tracing::info!(
+                    "SEV-SNP: guest survived early boot (status: {:?})",
+                    status.status
+                );
             }
-            // Always send cont for SEV-SNP — x-exit-preconfig leaves
-            // QEMU paused, unlike -S where start() sends cont.
-            tracing::info!("SEV-SNP: sending cont after x-exit-preconfig");
-            if let Err(e) = vm.cont().await {
-                tracing::error!("cont after x-exit-preconfig failed: {e}");
+            Err(e) => {
+                tracing::error!("SEV-SNP: query-status failed after cont: {e}");
+                tracing::error!(
+                    "SEV-SNP: guest likely crashed during early boot — check dmesg for GHCB errors"
+                );
                 vm.shutdown().await;
                 drop(fwd);
                 self.stop_forwarder().await;
                 self.event_history.lock().await.clear();
                 *self.cached_static.lock().await = None;
                 *vm_guard = VmState::Off;
-                return Err(anyhow::anyhow!("cont failed: {e}"));
-            }
-
-            // SEV-SNP: wait for guest to survive early encrypted boot.
-            // OVMF needs time for PSP validation, GHCB setup, encrypted
-            // memory init. Dashboard polls fire query-sev immediately on
-            // transition to Running — validate boot first so early crashes
-            // are caught here instead of surprising dashboard polls.
-            tracing::info!("SEV-SNP: waiting for guest to survive early boot...");
-            tokio::time::sleep(Duration::from_secs(3)).await;
-            match vm.qmp.execute(&qapi::commands::QueryStatus {}).await {
-                Ok(status) => {
-                    if !status.running {
-                        tracing::error!("SEV-SNP: guest not running after cont (status: {:?})", status.status);
-                        vm.shutdown().await;
-                        drop(fwd);
-                        self.stop_forwarder().await;
-                        self.event_history.lock().await.clear();
-                        *self.cached_static.lock().await = None;
-                        *vm_guard = VmState::Off;
-                        return Err(anyhow::anyhow!("SEV-SNP guest failed to boot — not running after cont"));
-                    }
-                    tracing::info!("SEV-SNP: guest survived early boot (status: {:?})", status.status);
-                }
-                Err(e) => {
-                    tracing::error!("SEV-SNP: query-status failed after cont: {e}");
-                    tracing::error!("SEV-SNP: guest likely crashed during early boot — check dmesg for GHCB errors");
-                    vm.shutdown().await;
-                    drop(fwd);
-                    self.stop_forwarder().await;
-                    self.event_history.lock().await.clear();
-                    *self.cached_static.lock().await = None;
-                    *vm_guard = VmState::Off;
-                    return Err(anyhow::anyhow!("SEV-SNP boot failed: {e}"));
-                }
+                return Err(anyhow::anyhow!("SEV-SNP boot failed: {e}"));
             }
         }
 
@@ -490,12 +421,10 @@ impl BmcState {
         let vm_guard = self.vm.lock().await;
         match &*vm_guard {
             VmState::Off => VmPhase::Off,
-            VmState::Running(vm) => {
-                match vm.execute(&qapi::commands::QueryStatus {}).await {
-                    Ok(status) if !status.running => VmPhase::Paused,
-                    _ => VmPhase::Running,
-                }
-            }
+            VmState::Running(vm) => match vm.execute(&qapi::commands::QueryStatus {}).await {
+                Ok(status) if !status.running => VmPhase::Paused,
+                _ => VmPhase::Running,
+            },
             VmState::ShuttingDown => VmPhase::ShuttingDown,
         }
     }
@@ -532,29 +461,6 @@ async fn event_forwarder(
     }
 }
 
-fn arch_to_manager(arch: BmcArch) -> Arch {
-    match arch {
-        BmcArch::X86_64 => Arch::X86_64,
-        BmcArch::I386 => Arch::I386,
-        BmcArch::Aarch64 => Arch::Aarch64,
-        BmcArch::Arm => Arch::Arm,
-    }
-}
-
-fn machine_to_manager(machine: BmcMachine, memory: String, secure_boot: bool) -> MachineConfig {
-    match machine {
-        BmcMachine::None => MachineConfig::None,
-        BmcMachine::Bios => MachineConfig::Bios { memory },
-        BmcMachine::Uefi => {
-            if secure_boot {
-                MachineConfig::SecureBoot { memory }
-            } else {
-                MachineConfig::Uefi { memory }
-            }
-        }
-    }
-}
-
 /// Validate that a disk path is safe to pass to QEMU.
 ///
 /// Canonicalizes the path and rejects traversal attempts (symlinks that
@@ -563,22 +469,15 @@ fn machine_to_manager(machine: BmcMachine, memory: String, secure_boot: bool) ->
 /// the QEMU block layer.
 fn validate_disk_path(path: &Path) -> Result<PathBuf> {
     // Canonicalize resolves symlinks and `..` components.
-    let canonical = path.canonicalize().map_err(|e| {
-        anyhow::anyhow!(
-            "disk path {:?} cannot be resolved: {e}",
-            path
-        )
-    })?;
+    let canonical = path
+        .canonicalize()
+        .map_err(|e| anyhow::anyhow!("disk path {:?} cannot be resolved: {e}", path))?;
 
     // Reject non-regular files (block devices, pipes, /dev/*, etc.)
-    let meta = std::fs::metadata(&canonical).map_err(|e| {
-        anyhow::anyhow!("cannot stat disk path {:?}: {e}", canonical)
-    })?;
+    let meta = std::fs::metadata(&canonical)
+        .map_err(|e| anyhow::anyhow!("cannot stat disk path {:?}: {e}", canonical))?;
     if !meta.is_file() {
-        anyhow::bail!(
-            "disk path {:?} is not a regular file",
-            canonical
-        );
+        anyhow::bail!("disk path {:?} is not a regular file", canonical);
     }
 
     // Reject paths under sensitive directories
@@ -588,7 +487,8 @@ fn validate_disk_path(path: &Path) -> Result<PathBuf> {
         if canonical_str.starts_with(prefix) {
             anyhow::bail!(
                 "disk path {:?} is under restricted directory {:?}",
-                canonical, prefix
+                canonical,
+                prefix
             );
         }
     }
@@ -596,11 +496,11 @@ fn validate_disk_path(path: &Path) -> Result<PathBuf> {
     Ok(canonical)
 }
 
-/// Attach a list of disks to a paused (-S) VM via QMP.
+/// Attach a list of disks to a paused (--preconfig) VM via QMP.
 ///
 /// Add block backends for each disk: blockdev-add (file) + blockdev-add (format).
 /// Preconfig-safe (blockdev-add has allow_preconfig since QEMU 7.1.0).
-async fn attach_blockdevs(qmp: &qapi_protocol::Qmp, disks: &[DiskConfig]) -> Result<()> {
+async fn attach_blockdevs(qmp: &qapi_protocol::Qmp, disks: &[InternalDisk]) -> Result<()> {
     use qapi::commands::BlockdevAdd;
     use qapi::{
         BlockdevDriver, BlockdevOptionsBranch, BlockdevOptionsFile, BlockdevOptionsQcow2,
@@ -608,40 +508,39 @@ async fn attach_blockdevs(qmp: &qapi_protocol::Qmp, disks: &[DiskConfig]) -> Res
     };
 
     for (idx, disk) in disks.iter().enumerate() {
-        let validated_path = validate_disk_path(&disk.file)
-            .map_err(|e| anyhow::anyhow!("disk {idx}: {e}"))?;
+        let validated_path =
+            validate_disk_path(&disk.file).map_err(|e| anyhow::anyhow!("disk {idx}: {e}"))?;
         let file_node = format!("disk{idx}-file");
         let fmt_node = format!("disk{idx}");
 
         // 1. File backend
-        qmp
-            .execute(&BlockdevAdd {
-                driver: Some(BlockdevDriver::File),
-                node_name: Some(file_node.clone()),
-                read_only: Some(disk.read_only),
-                u: Some(BlockdevOptionsBranch::File(BlockdevOptionsFile {
-                    filename: validated_path.display().to_string(),
-                    aio: None,
-                    aio_max_batch: None,
-                    drop_cache: None,
-                    locking: None,
-                    pr_manager: None,
-                    x_check_cache_dropped: None,
-                })),
-                active: None,
-                auto_read_only: None,
-                cache: None,
-                detect_zeroes: None,
-                discard: None,
-                force_share: None,
-                options: None,
-            })
-            .await
-            .map_err(|e| anyhow::anyhow!("blockdev-add file backend (disk{idx}): {e:#}"))?;
+        qmp.execute(&BlockdevAdd {
+            driver: Some(BlockdevDriver::File),
+            node_name: Some(file_node.clone()),
+            read_only: Some(disk.read_only),
+            u: Some(BlockdevOptionsBranch::File(BlockdevOptionsFile {
+                filename: validated_path.display().to_string(),
+                aio: None,
+                aio_max_batch: None,
+                drop_cache: None,
+                locking: None,
+                pr_manager: None,
+                x_check_cache_dropped: None,
+            })),
+            active: None,
+            auto_read_only: None,
+            cache: None,
+            detect_zeroes: None,
+            discard: None,
+            force_share: None,
+            options: None,
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("blockdev-add file backend (disk{idx}): {e:#}"))?;
 
         // 2. Format layer
         let fmt_branch = match disk.format {
-            DiskFormat::Qcow2 => BlockdevOptionsBranch::Qcow2(BlockdevOptionsQcow2 {
+            InternalDiskFormat::Qcow2 => BlockdevOptionsBranch::Qcow2(BlockdevOptionsQcow2 {
                 file: Box::new(BlockdevRef::Reference(file_node.clone())),
                 backing: None,
                 cache_clean_interval: None,
@@ -658,34 +557,31 @@ async fn attach_blockdevs(qmp: &qapi_protocol::Qmp, disks: &[DiskConfig]) -> Res
                 pass_discard_snapshot: None,
                 refcount_cache_size: None,
             }),
-            DiskFormat::Raw => {
-                BlockdevOptionsBranch::Raw(qapi::BlockdevOptionsRaw {
-                    file: Box::new(BlockdevRef::Reference(file_node.clone())),
-                    offset: None,
-                    size: None,
-                })
-            }
+            InternalDiskFormat::Raw => BlockdevOptionsBranch::Raw(qapi::BlockdevOptionsRaw {
+                file: Box::new(BlockdevRef::Reference(file_node.clone())),
+                offset: None,
+                size: None,
+            }),
         };
         let fmt_driver = match disk.format {
-            DiskFormat::Qcow2 => BlockdevDriver::Qcow2,
-            DiskFormat::Raw => BlockdevDriver::Raw,
+            InternalDiskFormat::Qcow2 => BlockdevDriver::Qcow2,
+            InternalDiskFormat::Raw => BlockdevDriver::Raw,
         };
-        qmp
-            .execute(&BlockdevAdd {
-                driver: Some(fmt_driver),
-                node_name: Some(fmt_node.clone()),
-                read_only: Some(disk.read_only),
-                u: Some(fmt_branch),
-                active: None,
-                auto_read_only: None,
-                cache: None,
-                detect_zeroes: None,
-                discard: None,
-                force_share: None,
-                options: None,
-            })
-            .await
-            .map_err(|e| anyhow::anyhow!("blockdev-add format layer (disk{idx}): {e:#}"))?;
+        qmp.execute(&BlockdevAdd {
+            driver: Some(fmt_driver),
+            node_name: Some(fmt_node.clone()),
+            read_only: Some(disk.read_only),
+            u: Some(fmt_branch),
+            active: None,
+            auto_read_only: None,
+            cache: None,
+            detect_zeroes: None,
+            discard: None,
+            force_share: None,
+            options: None,
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("blockdev-add format layer (disk{idx}): {e:#}"))?;
     }
 
     Ok(())
@@ -694,7 +590,7 @@ async fn attach_blockdevs(qmp: &qapi_protocol::Qmp, disks: &[DiskConfig]) -> Res
 /// Attach virtio-blk-pci devices for previously-added blockdevs.
 /// Requires machine to be initialized (NOT preconfig-safe).
 /// Call after x-exit-preconfig or in -S paused mode.
-async fn attach_devices(qmp: &qapi_protocol::Qmp, disks: &[DiskConfig]) -> Result<()> {
+async fn attach_devices(qmp: &qapi_protocol::Qmp, disks: &[InternalDisk]) -> Result<()> {
     use qapi::commands::DeviceAdd;
     use std::collections::HashMap;
 
@@ -702,52 +598,23 @@ async fn attach_devices(qmp: &qapi_protocol::Qmp, disks: &[DiskConfig]) -> Resul
         let fmt_node = format!("disk{idx}");
         let device_id = format!("blk{idx}");
 
-        qmp
-            .execute(&DeviceAdd {
-                driver: "virtio-blk-pci".into(),
-                id: Some(device_id.clone()),
-                bus: Some(format!("rp{idx}")),
-                arguments: Some(HashMap::from([
-                    ("drive".to_string(), serde_json::Value::String(fmt_node)),
-                    (
-                        "bootindex".to_string(),
-                        serde_json::Value::Number((idx as i64).into()),
-                    ),
-                ])),
-            })
-            .await
-            .map_err(|e| anyhow::anyhow!("device_add {device_id} virtio-blk-pci: {e:#}"))?;
+        qmp.execute(&DeviceAdd {
+            driver: "virtio-blk-pci".into(),
+            id: Some(device_id.clone()),
+            bus: Some(format!("rp{idx}")),
+            arguments: Some(HashMap::from([
+                ("drive".to_string(), serde_json::Value::String(fmt_node)),
+                (
+                    "bootindex".to_string(),
+                    serde_json::Value::Number((idx as i64).into()),
+                ),
+            ])),
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("device_add {device_id} virtio-blk-pci: {e:#}"))?;
     }
 
     Ok(())
-}
-
-/// Probe host capabilities for SEV, TPM, OVMF.
-pub fn query_capabilities() -> BmcCapabilities {
-    BmcCapabilities {
-        kvm_available: std::path::Path::new("/dev/kvm").exists(),
-        sev_available: std::path::Path::new("/dev/sev").exists(),
-        sev_snp_available: std::fs::read_to_string("/sys/module/kvm_amd/parameters/sev_snp")
-            .map(|s| s.trim() == "Y")
-            .unwrap_or(false),
-        swtpm_available: which::which("swtpm").is_ok(),
-        ovmf_found: manager::firmware::find_ovmf(false).is_some(),
-        ovmf_secure_found: manager::firmware::find_ovmf(true).is_some(),
-    }
-}
-
-/// Persistent TPM state directory. Created under the project target dir
-/// so vTPM state survives VM reboots but is cleaned up with `cargo clean`.
-fn tpm_state_dir() -> PathBuf {
-    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .unwrap()
-        .parent()
-        .unwrap()
-        .join("target")
-        .join("tpm-state");
-    let _ = std::fs::create_dir_all(&dir);
-    dir
 }
 
 /// Create a temporary qcow2 overlay backed by the given base image.
@@ -755,7 +622,7 @@ fn tpm_state_dir() -> PathBuf {
 /// The overlay is a thin qcow2 that stores writes in a temp file while
 /// reading unchanged sectors from the base. This keeps the base image
 /// pristine across VM restarts — an unclean kill only dirties the
-/// disposable overlay, not the downloaded cirros image.
+/// disposable overlay, not the downloaded SNP image.
 async fn create_temp_overlay(base: &Path) -> Result<PathBuf> {
     let overlay = std::env::temp_dir().join(format!(
         "qrab-overlay-{}-{}.qcow2",
@@ -769,9 +636,12 @@ async fn create_temp_overlay(base: &Path) -> Result<PathBuf> {
     let output = tokio::process::Command::new("qemu-img")
         .args([
             "create",
-            "-f", "qcow2",
-            "-b", &base.display().to_string(),
-            "-F", "qcow2",
+            "-f",
+            "qcow2",
+            "-b",
+            &base.display().to_string(),
+            "-F",
+            "qcow2",
             &overlay.display().to_string(),
         ])
         .output()
@@ -830,7 +700,10 @@ async fn ensure_ubuntu_snp_image() -> Result<PathBuf> {
         .output()
         .await?;
     if !resize.status.success() {
-        tracing::warn!("qemu-img resize failed (non-fatal): {}", String::from_utf8_lossy(&resize.stderr));
+        tracing::warn!(
+            "qemu-img resize failed (non-fatal): {}",
+            String::from_utf8_lossy(&resize.stderr)
+        );
     }
 
     Ok(path)
@@ -860,7 +733,9 @@ async fn ensure_cloud_init_seed() -> Result<PathBuf> {
 
     // user-data
     let user_data = tmpdir.join("user-data");
-    tokio::fs::write(&user_data, r#"#cloud-config
+    tokio::fs::write(
+        &user_data,
+        r#"#cloud-config
 password: snp
 chpasswd:
   expire: false
@@ -877,59 +752,47 @@ users:
 runcmd:
   - echo "===== SNP BOOT OK =====" > /dev/ttyS0
   - echo "===== SNP BOOT OK =====" > /dev/tty0 || true
-"#).await?;
+"#,
+    )
+    .await?;
 
     // meta-data
     let meta_data = tmpdir.join("meta-data");
-    tokio::fs::write(&meta_data, "instance-id: snp-test-1\nlocal-hostname: snp-guest\n").await?;
+    tokio::fs::write(
+        &meta_data,
+        "instance-id: snp-test-1\nlocal-hostname: snp-guest\n",
+    )
+    .await?;
 
     // Build FAT image with label "cidata"
     let img = tmpdir.join("seed.img");
     tokio::process::Command::new("truncate")
         .args(["-s", "1M", &img.display().to_string()])
-        .output().await?;
+        .output()
+        .await?;
     tokio::process::Command::new("mkfs.fat")
         .args(["-n", "cidata", &img.display().to_string()])
-        .output().await?;
+        .output()
+        .await?;
     tokio::process::Command::new("mcopy")
-        .args(["-i", &img.display().to_string(), &user_data.display().to_string(), "::user-data"])
-        .output().await?;
+        .args([
+            "-i",
+            &img.display().to_string(),
+            &user_data.display().to_string(),
+            "::user-data",
+        ])
+        .output()
+        .await?;
     tokio::process::Command::new("mcopy")
-        .args(["-i", &img.display().to_string(), &meta_data.display().to_string(), "::meta-data"])
-        .output().await?;
-
-    tokio::fs::copy(&img, &path).await?;
-    Ok(path)
-}
-
-/// Download cirros disk image if not cached.
-async fn ensure_cirros_image() -> Result<PathBuf> {
-    let cache_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .unwrap()
-        .parent()
-        .unwrap()
-        .join("target")
-        .join("test-fixtures");
-    tokio::fs::create_dir_all(&cache_dir).await?;
-
-    let filename = "cirros-0.6.2-x86_64-disk.img";
-    let path = cache_dir.join(filename);
-    if path.exists() {
-        return Ok(path);
-    }
-
-    let url = format!("https://download.cirros-cloud.net/0.6.2/{filename}");
-    let output = tokio::process::Command::new("curl")
-        .args(["-fSL", "-o", &path.display().to_string(), &url])
+        .args([
+            "-i",
+            &img.display().to_string(),
+            &meta_data.display().to_string(),
+            "::meta-data",
+        ])
         .output()
         .await?;
 
-    if !output.status.success() {
-        bail!(
-            "Failed to download cirros: {}",
-            String::from_utf8_lossy(&output.stderr)
-        );
-    }
+    tokio::fs::copy(&img, &path).await?;
     Ok(path)
 }
