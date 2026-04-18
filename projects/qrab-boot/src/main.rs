@@ -119,12 +119,42 @@ fn run_vsock_demo() {
         Ok(d) => d,
         Err(_) => return, // init logged its own QRAB_* token.
     };
-    let _ = vsock_connect::connect_and_wait(
+    if vsock_connect::connect_and_wait(
         &mut driver,
         VSOCK_CID_HOST,
         VSOCK_HOST_PORT,
         VSOCK_GUEST_SRC_PORT,
-    );
+    )
+    .is_err()
+    {
+        return; // connect_and_wait logged the specific failure.
+    }
+
+    // Phase 3b.6: prove the data path both ways. A single small
+    // request + reply exchange is enough — the attestation wire
+    // protocol lands in 3b.7 and will replace this payload.
+    const HELLO: &[u8] = b"QRAB_HELLO v0\n";
+    let mut reply = [0u8; 64];
+    if let Ok(n) = vsock_connect::send_and_recv(
+        &mut driver,
+        VSOCK_CID_HOST,
+        VSOCK_HOST_PORT,
+        VSOCK_GUEST_SRC_PORT,
+        HELLO,
+        &mut reply,
+    ) {
+        // Only the leading bytes are interesting; strip the trailing
+        // newline that the mock appends so the log line stays tidy.
+        let trimmed = reply[..n]
+            .iter()
+            .position(|&b| b == b'\n')
+            .map_or(&reply[..n], |idx| &reply[..idx]);
+        if let Ok(text) = core::str::from_utf8(trimmed) {
+            log::info!("QRAB_VSOCK_REPLY_TEXT len={n} body={text}");
+        } else {
+            log::info!("QRAB_VSOCK_REPLY_RAW len={n}");
+        }
+    }
 }
 
 /// Disable interrupts and halt the CPU indefinitely.
