@@ -104,7 +104,26 @@ impl Transport for VolatilePciTransport {
     }
 
     fn write_driver_features(&mut self, driver_features: u64) {
-        self.0.write_driver_features(driver_features);
+        // virtio 1.1 §3.1.1 step 6: when the device offers
+        // `VIRTIO_F_ACCESS_PLATFORM` (bit 33), the driver is
+        // required to acknowledge it by writing the bit back
+        // verbatim as part of the negotiated feature set. QEMU turns
+        // ACCESS_PLATFORM on implicitly for every virtio-pci device
+        // behind a SEV-SNP guest (and for iommu-platform=on
+        // generally); if the driver clears the bit, the device may
+        // stall silently without setting FAILED.
+        //
+        // `virtio-drivers` 0.13's `SUPPORTED_FEATURES` for vsock
+        // does not list `ACCESS_PLATFORM`, so the
+        // `negotiated_features` handed to `begin_init` never carries
+        // it. We OR the bit back in at the write boundary. Our
+        // `UefiHal` always goes through `pci_dma::map` (i.e.
+        // `PciRootBridgeIo::Map`) so the platform-mediated DMA
+        // contract is honoured regardless of whether virtio-drivers
+        // knows we accepted the bit.
+        const VIRTIO_F_ACCESS_PLATFORM: u64 = 1 << 33;
+        self.0
+            .write_driver_features(driver_features | VIRTIO_F_ACCESS_PLATFORM);
     }
 
     fn max_queue_size(&mut self, queue: u16) -> u32 {
@@ -166,7 +185,19 @@ impl Transport for VolatilePciTransport {
     }
 
     fn read_config_space<T: FromBytes + IntoBytes>(&self, offset: usize) -> Result<T> {
-        self.0.read_config_space(offset)
+        // Same fence rationale as `read_config_generation` above. The
+        // inner `PciTransport::read_config_space` bottoms out in
+        // `safe_mmio::Field::<T>::read_unsafe` → `read_volatile`, but
+        // LLVM's x86 backend is allowed to fuse a volatile load into
+        // whatever follows; observed on SEV-SNP with `read_config!`
+        // macro-sites where an inlined u32 load was mis-decoded by
+        // OVMF's `#VC` handler and returned silent garbage for the
+        // vhost-vsock `guest_cid` field. Feeding the value through
+        // `black_box` forces it to be materialised in a GPR before
+        // any subsequent use, so the volatile read stays a plain
+        // `MOV r, r/m` that OVMF does decode correctly.
+        let value = self.0.read_config_space::<T>(offset)?;
+        Ok(black_box(value))
     }
 
     fn write_config_space<T: IntoBytes + Immutable>(
