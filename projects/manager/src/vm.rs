@@ -17,7 +17,7 @@ use qapi_protocol::{Qmp, QmpEvent};
 
 use crate::arch::{Arch, MachineConfig};
 use crate::firmware::{self, OvmfFirmware};
-use crate::namespace::{InitConfig, KvmFd, NsHelper};
+use crate::namespace::{InitConfig, KvmFd, NsHelper, SevFd};
 use crate::swtpm::SwtpmProcess;
 
 /// Minimum QEMU version. 7.2.0 added `-accel kvm,device=` support for KVM
@@ -738,9 +738,10 @@ impl VmBuilder {
             obj.push_str(&format!(",cbitpos={pos}"));
         }
 
-        if let Some(ref dev) = sev.sev_device {
-            obj.push_str(&format!(",sev-device={}", dev.display()));
-        }
+        // sev-device is set in spawn() via fd passing (/proc/self/fd/N).
+        // Not emitted here — the SevFd is opened in the parent process
+        // before entering the user namespace, and the fd number isn't
+        // known until spawn time.
         if let Some(policy) = sev.policy {
             obj.push_str(&format!(",policy={policy}"));
         }
@@ -942,6 +943,16 @@ impl VmBuilder {
         // Validate SEV-SNP prerequisites.
         self.validate_sev()?;
 
+        // --- SEV fd (open before namespace — needs real credentials) ---
+        let sev_fd = if self.sev_snp.is_some() {
+            let dev_path = self.sev_snp.as_ref()
+                .and_then(|s| s.sev_device.as_ref())
+                .map(|p| p.as_path());
+            Some(SevFd::open(dev_path)?)
+        } else {
+            None
+        };
+
         // --- Private tmpdir (Security #3 — no predictable socket paths) ---
         let tmpdir = tempfile::TempDir::new_in(std::env::temp_dir())?;
         let qmp_sock = tmpdir.path().join("qmp.sock");
@@ -1019,6 +1030,15 @@ impl VmBuilder {
                     ));
                 };
                 args[abs_idx].push_str(&format!(",firmware={}", fw_path.display()));
+            }
+        }
+        // Inject sev-device=/proc/self/fd/N into the -object sev-snp-guest string.
+        // The fd is opened in parent before namespace; QEMU opens /proc/self/fd/N
+        // which resolves to the inherited fd. SEV ioctls use opener's real credentials.
+        let mut sev_args = sev_args;
+        if let Some(ref sev) = sev_fd {
+            if let Some(obj_str) = sev_args.get_mut(1) {
+                obj_str.push_str(&format!(",sev-device=/proc/self/fd/{}", sev.raw_fd()));
             }
         }
         args.extend(sev_args);
@@ -1109,10 +1129,21 @@ impl VmBuilder {
         // does not do PATH lookup.
         let qemu_binary = which::which(self.arch.binary())
             .map_err(|_| Error::Binary(format!("QEMU binary not found: {}", self.arch.binary().display())))?;
+        // SEV-SNP needs /dev/sev in the namespace for PSP communication.
+        let extra_dev_nodes = if self.sev_snp.is_some() {
+            let sev_dev = self.sev_snp.as_ref()
+                .and_then(|s| s.sev_device.clone())
+                .unwrap_or_else(|| PathBuf::from("/dev/sev"));
+            vec![sev_dev]
+        } else {
+            Vec::new()
+        };
         let config = InitConfig {
             qemu_binary,
             qemu_args: args.clone(),
             kvm_fd: kvm_fd.as_ref().map(|f| f.raw_fd() as i32),
+            sev_fd: sev_fd.as_ref().map(|f: &SevFd| f.raw_fd() as i32),
+            extra_dev_nodes,
         };
 
         tracing::debug!(
@@ -1126,6 +1157,7 @@ impl VmBuilder {
             sync_child_w.as_raw_fd(),
             ack_child_r.as_raw_fd(),
             kvm_fd.as_ref().map(|f| f.raw_fd()),
+            sev_fd.as_ref().map(|f: &SevFd| f.raw_fd()),
             cfg_r_raw,
         );
 
@@ -1163,6 +1195,7 @@ impl VmBuilder {
 
         // --- Drop parent's KVM fd copy ---
         drop(kvm_fd);
+        drop(sev_fd);
 
         // Forward qrab-init stderr to tracing (QEMU stderr flows through).
         if let Some(stderr) = child.stderr.take() {

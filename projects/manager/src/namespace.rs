@@ -27,6 +27,12 @@ pub struct InitConfig {
     pub qemu_args: Vec<String>,
     /// Raw fd number for pre-opened `/dev/kvm`, if KVM is enabled.
     pub kvm_fd: Option<i32>,
+    /// Raw fd number for pre-opened `/dev/sev`, if SEV-SNP is enabled.
+    /// QEMU accesses it via `sev-device=/proc/self/fd/N`.
+    pub sev_fd: Option<i32>,
+    /// Extra device nodes to bind-mount into `/dev` (e.g. `/dev/sev` for SEV-SNP).
+    #[serde(default)]
+    pub extra_dev_nodes: Vec<PathBuf>,
 }
 
 /// Resolve the path to the `qrab-init` binary.
@@ -73,6 +79,18 @@ pub fn qrab_init_binary() -> crate::Result<PathBuf> {
 /// (manager fork → qrab-init exec → qrab-init fork → QEMU exec).
 pub struct KvmFd(OwnedFd);
 
+/// Wrapper around a pre-opened `/dev/sev` file descriptor.
+///
+/// Same pattern as [`KvmFd`]: opened in the parent process (which has
+/// real credentials and device group membership) before entering the
+/// user namespace. The fd is passed through to QEMU via
+/// `sev-device=/proc/self/fd/N`.
+///
+/// SEV ioctls (`SNP_LAUNCH_START`, etc.) require the opener's real
+/// credentials. Opening `/dev/sev` inside a user namespace fails because
+/// the mapped uid 0 doesn't have real permission for PSP operations.
+pub struct SevFd(OwnedFd);
+
 impl KvmFd {
     /// Open `/dev/kvm` with `O_RDWR` and no `O_CLOEXEC`.
     pub fn open() -> crate::Result<Self> {
@@ -92,6 +110,22 @@ impl KvmFd {
     /// Must be called inside `pre_exec` (after fork, before exec).
     pub fn clear_cloexec(fd: RawFd) -> Result<(), nix::Error> {
         set_fd_cloexec(fd, false)
+    }
+}
+
+impl SevFd {
+    /// Open `/dev/sev` (or custom path) with `O_RDWR` and no `O_CLOEXEC`.
+    pub fn open(path: Option<&std::path::Path>) -> crate::Result<Self> {
+        let dev = path.unwrap_or(std::path::Path::new("/dev/sev"));
+        let fd = nix::fcntl::open(dev, OFlag::O_RDWR, Mode::empty())
+            .map_err(|e| crate::Error::Spawn(format!("failed to open {}: {e}", dev.display())))?;
+        // SAFETY: `nix::fcntl::open` returns a valid fd on success.
+        Ok(SevFd(unsafe { OwnedFd::from_raw_fd(fd) }))
+    }
+
+    /// Raw file descriptor number.
+    pub fn raw_fd(&self) -> RawFd {
+        self.0.as_raw_fd()
     }
 }
 
@@ -189,6 +223,7 @@ pub fn make_pre_exec(
     sync_w: RawFd,
     ack_r: RawFd,
     kvm_fd: Option<RawFd>,
+    sev_fd: Option<RawFd>,
     cfg_r: RawFd,
 ) -> impl FnMut() -> std::io::Result<()> {
     move || {
@@ -218,6 +253,9 @@ pub fn make_pre_exec(
         KvmFd::clear_cloexec(cfg_r).map_err(nix_to_io)?;
         if let Some(fd) = kvm_fd {
             KvmFd::clear_cloexec(fd).map_err(nix_to_io)?;
+        }
+        if let Some(fd) = sev_fd {
+            set_fd_cloexec(fd, false).map_err(nix_to_io)?;
         }
 
         // NOTE: setuid/setgid/setup_dev moved to qrab-init (after ack).

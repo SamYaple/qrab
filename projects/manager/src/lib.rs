@@ -8,7 +8,7 @@ pub mod vm;
 
 pub use arch::{Arch, MachineConfig};
 pub use firmware::OvmfFirmware;
-pub use namespace::{InitConfig, KvmFd};
+pub use namespace::{InitConfig, KvmFd, SevFd};
 pub use vm::{Accel, PreconfigVm, SevSnpConfig, TpmConfig, Vm, VmBuilder, PRECONFIG_MIN_VERSION};
 
 /// Crate-level error type for manager.

@@ -165,9 +165,12 @@ fn run() -> Result<(), String> {
             unreachable!()
         }
         Ok(ForkResult::Parent { child }) => {
-            // Close KVM fd if present — only QEMU child needs it.
+            // Close device fds if present — only QEMU child needs them.
             if let Some(kvm_fd) = config.kvm_fd {
                 let _ = close(kvm_fd);
+            }
+            if let Some(sev_fd) = config.sev_fd {
+                let _ = close(sev_fd);
             }
 
             // Store child pid for signal handler.
