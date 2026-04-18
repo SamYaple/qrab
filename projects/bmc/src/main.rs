@@ -43,6 +43,26 @@ fn main() {
 
         let state = bmc::state::bmc();
 
+        // Auto-enable SEV-SNP and power on for debugging.
+        if std::env::var("QRAB_AUTO_SEV").is_ok() {
+            let s = state.clone();
+            tokio::spawn(async move {
+                tracing::info!("QRAB_AUTO_SEV: auto-enabling SEV-SNP and powering on");
+                {
+                    let mut config = s.config.lock().await;
+                    config.kvm = true;
+                    config.sev_snp = Some(Default::default());
+                    config.display = true;
+                    config.machine = bmc::types::BmcMachine::Uefi;
+                }
+                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                match s.power_on().await {
+                    Ok(()) => tracing::info!("QRAB_AUTO_SEV: power_on succeeded"),
+                    Err(e) => tracing::error!("QRAB_AUTO_SEV: power_on failed: {e}"),
+                }
+            });
+        }
+
         Ok(dioxus::server::router(App)
             .nest_service(
                 "/novnc",
