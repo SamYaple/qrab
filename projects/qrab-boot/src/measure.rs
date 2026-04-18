@@ -32,10 +32,8 @@ use uefi::proto::tcg::v2::{HashLogExtendEventFlags, PcrEventInputs, Tcg};
 /// PCR index for the secret+server-nonce binding digest. Plan phase 5.2.
 const PCR_SECRET_BINDING: PcrIndex = PcrIndex(9);
 
-/// PCR index reserved for UKI measurement. Unused until UKI bytes are
-/// actually fetched, but the constant lives here so both extend sites
-/// agree on the PCR numbering.
-#[allow(dead_code)]
+/// PCR index for UKI measurement. The bootloader extends with the UKI
+/// bytes; TCG2 hashes on all active banks internally.
 const PCR_UKI: PcrIndex = PcrIndex(8);
 
 /// Distinguished errors from [`extend_secret_binding`].
@@ -95,5 +93,37 @@ pub fn extend_secret_binding(
         .map_err(MeasureError::Extend)?;
 
     log::info!("QRAB_PCR9_OK");
+    Ok(())
+}
+
+/// Extend PCR 8 with the raw UKI bytes. TCG2 applies SHA-256 (and any
+/// other active bank) internally; we log the SHA-256 alongside so a
+/// post-boot verifier can reproduce `tpm2_pcrread sha256:8` from the
+/// signed `uki_sha256`.
+///
+/// Logs `QRAB_PCR8_EXPECTED_DIGEST <first 8 hex chars>` before the
+/// extend and `QRAB_PCR8_OK` on success. Returns the same error
+/// variants as [`extend_secret_binding`], with `Tcg2Absent` being
+/// the non-fatal case the caller logs as `QRAB_TCG2_ABSENT`.
+pub fn extend_uki(uki_bytes: &[u8]) -> Result<(), MeasureError> {
+    let expected = Sha256::digest(uki_bytes);
+    log::info!(
+        "QRAB_PCR8_EXPECTED_DIGEST {:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
+        expected[0], expected[1], expected[2], expected[3],
+        expected[4], expected[5], expected[6], expected[7],
+    );
+
+    let handle = boot::get_handle_for_protocol::<Tcg>().map_err(|_| MeasureError::Tcg2Absent)?;
+    let mut tcg = boot::open_protocol_exclusive::<Tcg>(handle)
+        .map_err(|_| MeasureError::Tcg2Absent)?;
+
+    let event: Box<PcrEventInputs> =
+        PcrEventInputs::new_in_box(PCR_UKI, EventType::IPL, b"QrabUki")
+            .map_err(|_| MeasureError::EventInput)?;
+
+    tcg.hash_log_extend_event(HashLogExtendEventFlags::empty(), uki_bytes, &event)
+        .map_err(MeasureError::Extend)?;
+
+    log::info!("QRAB_PCR8_OK");
     Ok(())
 }
