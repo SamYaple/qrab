@@ -571,27 +571,29 @@ impl VmBuilder {
                     }
                 }
 
-                // SEV uses AmdSev OVMF as a single readonly pflash
-                // (combined CODE, no separate VARS). Non-SEV uses split
-                // pflash with writable VARS for UEFI variable persistence.
+                // SEV uses AmdSev OVMF as a single combined pflash
+                // (CODE+VARS in one image). Each VM gets its own copy
+                // for isolation. No readonly — KVM+SEV doesn't support
+                // readonly pflash memory regions.
                 if self.sev_snp.is_some() {
-                    if let Some(ref fw) = self.firmware {
-                        args.extend([
-                            "-drive".into(),
-                            format!(
-                                "if=pflash,format=raw,readonly=on,file={}",
-                                fw.display()
-                            ),
-                        ]);
+                    let fw_src = if let Some(ref fw) = self.firmware {
+                        fw.clone()
                     } else if let Some(ref ovmf) = self.ovmf {
-                        args.extend([
-                            "-drive".into(),
-                            format!(
-                                "if=pflash,format=raw,readonly=on,file={}",
-                                ovmf.code.display()
-                            ),
-                        ]);
-                    }
+                        ovmf.code.clone()
+                    } else {
+                        return Err(Error::Config(
+                            "SEV-SNP requires firmware (AmdSev OVMF) but none configured".into()
+                        ));
+                    };
+                    let fw_copy = tmpdir.path().join("ovmf-sev.fd");
+                    std::fs::copy(&fw_src, &fw_copy)?;
+                    args.extend([
+                        "-drive".into(),
+                        format!(
+                            "if=pflash,format=raw,file={}",
+                            fw_copy.display()
+                        ),
+                    ]);
                 } else if let Some(ref ovmf) = self.ovmf {
                     // Normal (non-SEV): split pflash for UEFI vars persistence.
                     let vars_copy = firmware::prepare_vars_copy(
@@ -665,12 +667,16 @@ impl VmBuilder {
                 };
 
                 if self.sev_snp.is_some() {
-                    // SEV: single readonly pflash (AmdSev OVMF, no VARS).
+                    // SEV: single combined pflash (AmdSev OVMF, CODE+VARS).
+                    // Copy per-VM for isolation. No readonly — KVM+SEV
+                    // doesn't support readonly pflash memory regions.
+                    let fw_copy = tmpdir.path().join("ovmf-sev.fd");
+                    std::fs::copy(&ovmf.code, &fw_copy)?;
                     args.extend([
                         "-drive".into(),
                         format!(
-                            "if=pflash,format=raw,readonly=on,file={}",
-                            ovmf.code.display()
+                            "if=pflash,format=raw,file={}",
+                            fw_copy.display()
                         ),
                     ]);
                 } else {
