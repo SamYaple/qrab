@@ -15,12 +15,12 @@ use super::search::score;
 
 #[component]
 pub fn CommandPicker(
-    commands: Signal<Vec<CommandDto>>,
+    commands: Vec<CommandDto>,
     selected: Signal<Option<usize>>,
     query: Signal<String>,
 ) -> Element {
     let query_value = query.read().clone();
-    let commands_value = commands.read().clone();
+    let commands_value = commands;
 
     let filtered: Vec<(usize, i32)> = if query_value.is_empty() {
         (0..commands_value.len()).map(|i| (i, 0)).collect()

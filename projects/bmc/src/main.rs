@@ -6,7 +6,12 @@ use dioxus::prelude::*;
 
 use components::dashboard::Dashboard;
 
-static MAIN_CSS: Asset = asset!("/assets/main.css");
+/// Static stylesheet path. The `asset!` macro works under `dx serve` but
+/// bakes a compile-time filesystem path into the URL under a plain
+/// `cargo run`, 404-ing every load. Serve it via a predictable
+/// `/styles/*` ServeDir mount instead (the Dioxus fullstack router
+/// already reserves `/assets`). Both run modes resolve this path.
+const MAIN_CSS_HREF: &str = "/styles/main.css";
 
 /// Default tracing filter applied when neither `BMC_LOG` nor `RUST_LOG` is
 /// set. Lets the BMC and manager crates log at info, silences the rest of
@@ -60,6 +65,12 @@ fn main() {
 
         Ok(dioxus::server::router(App)
             .nest_service(
+                "/styles",
+                tower_http::services::ServeDir::new(
+                    std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("assets"),
+                ),
+            )
+            .nest_service(
                 "/novnc",
                 tower_http::services::ServeDir::new(
                     std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("assets/novnc"),
@@ -82,7 +93,7 @@ fn main() {
 #[component]
 fn App() -> Element {
     rsx! {
-        document::Stylesheet { href: MAIN_CSS }
+        document::Stylesheet { href: MAIN_CSS_HREF }
         Router::<Route> {}
     }
 }

@@ -23,29 +23,30 @@ pub fn ConfigPanel(
     tpm_status: Option<TpmStatusResponse>,
     kvm_info: KvmInfoResponse,
 ) -> Element {
-    let mut config = use_signal(|| Option::<BmcConfig>::None);
     let is_off = current_phase == VmPhase::Off;
     let is_running = matches!(
         current_phase,
         VmPhase::Running | VmPhase::Paused | VmPhase::ShuttingDown
     );
 
-    use_effect(move || {
-        spawn(async move {
-            if let Ok(cfg) = vm_actions::get_config().await {
-                config.set(Some(cfg));
-            }
-        });
+    // `use_resource` re-fires its future whenever anything it reads changes.
+    // Keying it to `is_off` lets `set_memory`/`set_cpus` actions trigger a
+    // refetch implicitly via phase transitions without hand-rolling a
+    // refresh_tick signal.
+    let mut config_resource = use_resource(move || async move {
+        let _ = is_off;
+        vm_actions::get_config().await.ok()
     });
-
-    let Some(cfg) = config() else {
-        return rsx! {
-            div { class: "panel config-panel",
-                div { class: "panel-header", h2 { "Configuration" } }
-                div { class: "status-info", "Loading..." }
-            }
-        };
-    };
+    // Mirror the dashboard pattern: always render the same outer tree and
+    // fall back to `BmcConfig::default()` while the resource is pending.
+    // This keeps the client-side re-render from getting stuck on an SSR
+    // early-return ("Loading...") that never transitions.
+    let cfg = config_resource
+        .read()
+        .clone()
+        .flatten()
+        .unwrap_or_default();
+    let cfg: BmcConfig = cfg;
 
     let cpus = cfg.cpus.unwrap_or(1);
     let memory = cfg.memory.clone();
@@ -68,11 +69,8 @@ pub fn ConfigPanel(
                             onchange: move |evt: Event<FormData>| {
                                 let val = evt.value().clone();
                                 spawn(async move {
-                                    if vm_actions::set_memory(val.clone()).await.is_ok() {
-                                        if let Some(ref mut cfg) = *config.write() {
-                                            cfg.memory = val;
-                                        }
-                                    }
+                                    let _ = vm_actions::set_memory(val).await;
+                                    config_resource.restart();
                                 });
                             },
                         }
@@ -88,11 +86,8 @@ pub fn ConfigPanel(
                             onchange: move |evt: Event<FormData>| {
                                 if let Ok(val) = evt.value().parse::<u32>() {
                                     spawn(async move {
-                                        if vm_actions::set_cpus(val).await.is_ok() {
-                                            if let Some(ref mut cfg) = *config.write() {
-                                                cfg.cpus = if val <= 1 { None } else { Some(val) };
-                                            }
-                                        }
+                                        let _ = vm_actions::set_cpus(val).await;
+                                        config_resource.restart();
                                     });
                                 }
                             },

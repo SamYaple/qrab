@@ -40,9 +40,7 @@ use command_picker::CommandPicker;
 use queue_badge::QueueBadge;
 
 #[component]
-pub fn QmpConsole() -> Element {
-    let mut commands = use_signal(Vec::<CommandDto>::new);
-    let mut load_error = use_signal(String::new);
+pub fn QmpConsole(commands: Vec<CommandDto>) -> Element {
     let selected = use_signal(|| None::<usize>);
     let query = use_signal(String::new);
     let form_state = use_signal(|| Value::Object(serde_json::Map::new()));
@@ -50,27 +48,28 @@ pub fn QmpConsole() -> Element {
     let response = use_signal(|| None::<Result<Value, String>>);
     let oob_toggle = use_signal(|| false);
 
-    // Fetch the command list once on mount.
-    use_future(move || async move {
-        match list_commands().await {
-            Ok(v) => commands.set(v),
-            Err(e) => load_error.set(e.to_string()),
-        }
-    });
-
-    // Separately poll queue status for `oob_supported` so the Execute OOB
-    // checkbox can enable/disable immediately when the VM powers on.
+    // Queue status: poll every 500ms from the parent's scope indirectly via
+    // a manual spawn. Fetching from a prop-less no-hooks-firing component
+    // was unreliable under Dioxus 0.7 fullstack — commands now arrive as
+    // a prop from Dashboard and the queue status uses a simple resource.
     let mut queue_now = use_signal(QueueStatus::default);
+    let mut queue_tick = use_signal(|| 0u64);
     use_future(move || async move {
         loop {
-            if let Ok(s) = qmp_queue_status().await {
-                queue_now.set(s);
-            }
             crate::components::util::sleep_ms(500).await;
+            queue_tick += 1;
         }
     });
+    let queue_resource = use_resource(move || async move {
+        let _ = queue_tick();
+        qmp_queue_status().await.unwrap_or_default()
+    });
+    if let Some(s) = queue_resource.read().clone() {
+        queue_now.set(s);
+    }
 
-    let commands_value = commands.read().clone();
+    let commands_value = commands;
+    let load_error_value = String::new();
     let selected_idx = *selected.read();
     let selected_cmd = selected_idx.and_then(|i| commands_value.get(i).cloned());
     let total = commands_value.len();
@@ -83,8 +82,8 @@ pub fn QmpConsole() -> Element {
                 QueueBadge {}
             }
 
-            if !load_error.read().is_empty() {
-                div { class: "empty-state", "Failed to load commands: {load_error}" }
+            if !load_error_value.is_empty() {
+                div { class: "empty-state", "Failed to load commands: {load_error_value}" }
             } else if total == 0 {
                 div { class: "empty-state", "Loading commands…" }
             } else {
@@ -94,7 +93,7 @@ pub fn QmpConsole() -> Element {
                             "{total} commands"
                         }
                         CommandPicker {
-                            commands: commands,
+                            commands: commands_value.clone(),
                             selected: selected,
                             query: query,
                         }

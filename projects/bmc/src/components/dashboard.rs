@@ -1,7 +1,8 @@
 use dioxus::prelude::*;
 
+use bmc::server::qmp_exec::list_commands;
 use bmc::server::vm_status::get_dashboard_state;
-use bmc::types::DashboardState;
+use bmc::types::{CommandDto, DashboardState};
 
 use super::attestation_panel::AttestationPanel;
 use super::config_panel::ConfigPanel;
@@ -54,6 +55,15 @@ pub fn Dashboard() -> Element {
         .clone()
         .flatten()
         .unwrap_or_default();
+
+    // Fetch the schema-driven QMP command list once. Piggy-back on Dashboard's
+    // working `use_resource` pattern — fetching it from QmpConsole directly
+    // never fired on client under Dioxus 0.7 fullstack hydration.
+    let commands_resource = use_resource(move || async move {
+        let _ = refresh_tick();
+        list_commands().await.ok().unwrap_or_default()
+    });
+    let commands: Vec<CommandDto> = commands_resource.read().clone().unwrap_or_default();
 
     let DashboardState {
         status,
@@ -137,7 +147,7 @@ pub fn Dashboard() -> Element {
                                     EventLog {}
                                 },
                                 PanelType::QmpConsole => rsx! {
-                                    QmpConsole {}
+                                    QmpConsole { commands: commands.clone() }
                                 },
                             }
                         }
