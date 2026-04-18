@@ -248,11 +248,22 @@ impl BmcState {
             config.disks.clone()
         };
 
-        // Add disks via QMP while paused (-S). blockdev-add and device_add
-        // both work in paused mode. With machine=none there's no PCI bus,
-        // so skip disk attachment entirely.
-        if !matches!(config.machine, BmcMachine::None) {
-            if let Err(e) = attach_disks(&paused_vm, &disks).await {
+        // Add block backends via QMP (preconfig-safe since QEMU 7.1.0).
+        // With machine=none there's no PCI bus, so skip disk attachment entirely.
+        let has_disks = !matches!(config.machine, BmcMachine::None) && !disks.is_empty();
+        if has_disks {
+            if let Err(e) = attach_blockdevs(&paused_vm.qmp, &disks).await {
+                paused_vm.shutdown().await;
+                return Err(e);
+            }
+        }
+
+        // For non-SEV with -S (paused mode), device_add works before start().
+        // For SEV-SNP with --preconfig, device_add must wait until after
+        // x-exit-preconfig completes machine init.
+        let sev_mode = config.sev_snp.is_some();
+        if has_disks && !sev_mode {
+            if let Err(e) = attach_devices(&paused_vm.qmp, &disks).await {
                 paused_vm.shutdown().await;
                 return Err(e);
             }
@@ -273,7 +284,7 @@ impl BmcState {
         let mut fwd = self.event_forwarder.lock().await;
         *fwd = Some(handle);
 
-        // Start execution (sends `cont` in -S paused mode).
+        // Start: sends x-exit-preconfig (--preconfig) or cont (-S paused).
         let vm = match paused_vm.start().await {
             Ok(vm) => vm,
             Err(e) => {
@@ -287,6 +298,33 @@ impl BmcState {
                 return Err(anyhow::anyhow!("power_on: PreconfigVm::start failed; transitioned to Off: {e}"));
             }
         };
+
+        // SEV-SNP: device_add after x-exit-preconfig (machine now initialized),
+        // then cont to start vCPUs. Non-SEV already has devices attached and
+        // start() sent cont.
+        if sev_mode && has_disks {
+            if let Err(e) = attach_devices(&vm.qmp, &disks).await {
+                tracing::error!("device_add failed after x-exit-preconfig: {e}");
+                vm.shutdown().await;
+                drop(fwd);
+                self.stop_forwarder().await;
+                self.event_history.lock().await.clear();
+                *self.cached_static.lock().await = None;
+                *vm_guard = VmState::Off;
+                return Err(anyhow::anyhow!("device_add failed: {e}"));
+            }
+            // Now start guest execution.
+            if let Err(e) = vm.cont().await {
+                tracing::error!("cont after device_add failed: {e}");
+                vm.shutdown().await;
+                drop(fwd);
+                self.stop_forwarder().await;
+                self.event_history.lock().await.clear();
+                *self.cached_static.lock().await = None;
+                *vm_guard = VmState::Off;
+                return Err(anyhow::anyhow!("cont failed: {e}"));
+            }
+        }
 
         *vm_guard = VmState::Running(vm);
 
@@ -515,27 +553,23 @@ fn validate_disk_path(path: &Path) -> Result<PathBuf> {
 
 /// Attach a list of disks to a paused (-S) VM via QMP.
 ///
-/// For each disk: blockdev-add (file backend) → blockdev-add (format layer)
-/// → device_add (virtio-blk-pci). The VM must be in -S paused mode
-/// (machine initialized but CPU paused) for device_add to work.
-async fn attach_disks(preconfig: &PreconfigVm, disks: &[DiskConfig]) -> Result<()> {
-    use qapi::commands::{BlockdevAdd, DeviceAdd};
+/// Add block backends for each disk: blockdev-add (file) + blockdev-add (format).
+/// Preconfig-safe (blockdev-add has allow_preconfig since QEMU 7.1.0).
+async fn attach_blockdevs(qmp: &qapi_protocol::Qmp, disks: &[DiskConfig]) -> Result<()> {
+    use qapi::commands::BlockdevAdd;
     use qapi::{
         BlockdevDriver, BlockdevOptionsBranch, BlockdevOptionsFile, BlockdevOptionsQcow2,
         BlockdevRef,
     };
-    use std::collections::HashMap;
 
     for (idx, disk) in disks.iter().enumerate() {
         let validated_path = validate_disk_path(&disk.file)
             .map_err(|e| anyhow::anyhow!("disk {idx}: {e}"))?;
         let file_node = format!("disk{idx}-file");
         let fmt_node = format!("disk{idx}");
-        let device_id = format!("blk{idx}");
 
         // 1. File backend
-        preconfig
-            .qmp
+        qmp
             .execute(&BlockdevAdd {
                 driver: Some(BlockdevDriver::File),
                 node_name: Some(file_node.clone()),
@@ -580,7 +614,6 @@ async fn attach_disks(preconfig: &PreconfigVm, disks: &[DiskConfig]) -> Result<(
                 refcount_cache_size: None,
             }),
             DiskFormat::Raw => {
-                // raw uses BlockdevOptionsRaw which wraps a BlockdevRef
                 BlockdevOptionsBranch::Raw(qapi::BlockdevOptionsRaw {
                     file: Box::new(BlockdevRef::Reference(file_node.clone())),
                     offset: None,
@@ -592,8 +625,7 @@ async fn attach_disks(preconfig: &PreconfigVm, disks: &[DiskConfig]) -> Result<(
             DiskFormat::Qcow2 => BlockdevDriver::Qcow2,
             DiskFormat::Raw => BlockdevDriver::Raw,
         };
-        preconfig
-            .qmp
+        qmp
             .execute(&BlockdevAdd {
                 driver: Some(fmt_driver),
                 node_name: Some(fmt_node.clone()),
@@ -609,11 +641,23 @@ async fn attach_disks(preconfig: &PreconfigVm, disks: &[DiskConfig]) -> Result<(
             })
             .await
             .map_err(|e| anyhow::anyhow!("blockdev-add format layer (disk{idx}): {e:#}"))?;
+    }
 
-        // 3. Wire to a virtio-blk-pci device. Requires paused (-S) mode.
-        //    Sets boot-index so the firmware boots disks in declaration order.
-        preconfig
-            .qmp
+    Ok(())
+}
+
+/// Attach virtio-blk-pci devices for previously-added blockdevs.
+/// Requires machine to be initialized (NOT preconfig-safe).
+/// Call after x-exit-preconfig or in -S paused mode.
+async fn attach_devices(qmp: &qapi_protocol::Qmp, disks: &[DiskConfig]) -> Result<()> {
+    use qapi::commands::DeviceAdd;
+    use std::collections::HashMap;
+
+    for (idx, _disk) in disks.iter().enumerate() {
+        let fmt_node = format!("disk{idx}");
+        let device_id = format!("blk{idx}");
+
+        qmp
             .execute(&DeviceAdd {
                 driver: "virtio-blk-pci".into(),
                 id: Some(device_id.clone()),
