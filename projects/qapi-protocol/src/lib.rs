@@ -5,12 +5,15 @@ pub mod server;
 
 use qapi::QapiCommand;
 
+use std::collections::HashMap;
 use std::path::Path;
-use std::time::Duration;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::Arc;
+use std::time::{Duration, Instant};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::unix::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::net::UnixStream;
-use tokio::sync::{mpsc, oneshot, watch};
+use tokio::sync::{mpsc, oneshot, watch, Mutex, OwnedSemaphorePermit, Semaphore};
 use tokio::task::{spawn, JoinHandle};
 
 /// Crate-level error type for qapi-protocol.
@@ -49,6 +52,23 @@ pub type Result<T> = std::result::Result<T, Error>;
 /// — and matches the order of magnitude used by libvirt/proxmox for
 /// their JSON monitor handling.
 pub(crate) const MAX_LINE_BYTES: usize = 1_024 * 1_024;
+
+/// Maximum number of non-OOB QMP commands the server will accept in
+/// flight concurrently. Mirrors `QMP_REQ_QUEUE_LEN_MAX` in upstream
+/// `monitor/qmp.c`. Sending more than this would have QEMU drop the
+/// connection with a "Command queue full" error, so the client refuses
+/// to dispatch beyond this depth (callers block on the semaphore).
+pub const QMP_QUEUE_CAPACITY: usize = 8;
+
+/// How long an in-flight command may sit unanswered before the reaper
+/// considers it dead and drops the reply oneshot. Matches the previous
+/// per-command guard from the sequential write_loop.
+const COMMAND_STALL_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// How often the reaper task walks the in-flight map looking for stale
+/// entries. 5s gives a small bound on extra wait beyond the
+/// `COMMAND_STALL_TIMEOUT` while keeping wakeups cheap.
+const REAPER_TICK: Duration = Duration::from_secs(5);
 
 /// Result of a bounded line read.
 ///
@@ -184,14 +204,63 @@ pub(crate) fn build_qmp_error(error: &serde_json::Value) -> QmpError {
     QmpError { class, desc }
 }
 
+/// One in-flight QMP command awaiting its response.
+///
+/// `reply_tx` is the oneshot the caller is parked on. `sent_at` lets
+/// the reaper task evict entries whose response never arrives (BUG 34
+/// follow-up — a stuck QEMU otherwise wedges the caller forever). `oob`
+/// is recorded for diagnostics and to keep the depth metric honest.
+#[derive(Debug)]
+struct PendingCmd {
+    reply_tx: oneshot::Sender<serde_json::Value>,
+    sent_at: Instant,
+    /// Recorded for diagnostics and future routing decisions; not yet
+    /// read on a hot path.
+    #[allow(dead_code)]
+    oob: bool,
+}
+
+/// What the public `execute*` methods queue onto the writer task.
+///
+/// Sent across the `command_tx` mpsc channel; the writer adds the `id`
+/// (which the caller has already inserted into `in_flight`), serializes
+/// to a single JSON line, and writes to the socket. The writer no
+/// longer waits for a reply — id-based dispatch happens entirely in the
+/// reader task.
+struct Outbound {
+    id: u64,
+    json: serde_json::Value,
+}
+
 /// Async QMP client connected to a QEMU instance.
+///
+/// The client is concurrent: up to `QMP_QUEUE_CAPACITY` non-OOB
+/// commands may be in flight at once (matching QEMU's monitor queue
+/// depth), with response routing performed by id. Out-of-band commands
+/// — those whose schema declares `allow-oob` and which QEMU has
+/// negotiated as supported in the greeting — bypass the queue
+/// semaphore entirely and are answered immediately by the monitor.
 #[derive(Debug)]
 pub struct Qmp {
-    command_tx: mpsc::Sender<(String, oneshot::Sender<serde_json::Value>)>,
+    command_tx: mpsc::Sender<Outbound>,
+    in_flight: Arc<Mutex<HashMap<u64, PendingCmd>>>,
+    queue_permits: Arc<Semaphore>,
+    queue_depth_tx: watch::Sender<usize>,
+    id_counter: Arc<AtomicU64>,
+    oob_available: Arc<AtomicBool>,
+    /// Set to `true` while the connection is healthy, flipped to
+    /// `false` by either the read_loop on EOF/I/O-error or by
+    /// `shutdown()`. Used by `dispatch` to short-circuit new commands
+    /// after the underlying socket has died — without this, a late
+    /// `execute()` could insert into `in_flight` *after* the read_loop
+    /// has already cleared it on exit, leaving the entry to be
+    /// reaped 30s later instead of failing fast.
+    connection_alive: Arc<AtomicBool>,
     shutdown_signal: watch::Sender<()>,
     read_handle: Option<JoinHandle<()>>,
     write_handle: Option<JoinHandle<()>>,
     event_handle: Option<JoinHandle<()>>,
+    reaper_handle: Option<JoinHandle<()>>,
 }
 
 impl Qmp {
@@ -199,6 +268,12 @@ impl Qmp {
     ///
     /// Returns the `Qmp` handle and a receiver for QMP events.
     /// Also sets the global QEMU version via `qapi::set_qemu_version()`.
+    ///
+    /// If the server's greeting advertises `"oob"` in `QMP.capabilities`,
+    /// the handshake enables it via `{"execute":"qmp_capabilities",
+    /// "arguments":{"enable":["oob"]}}`. Otherwise the client falls back
+    /// to the bare capability handshake for backward compatibility with
+    /// older QEMU/mock peers that don't speak OOB.
     #[must_use = "dropping the Qmp handle immediately tears the connection down; bind it to keep the QMP session alive"]
     pub async fn new(socket_path: &Path) -> Result<(Self, mpsc::Receiver<QmpEvent>)> {
         // Bound `connect(2)` itself. A present-but-unserved socket —
@@ -216,6 +291,7 @@ impl Qmp {
 
         let mut reader = BufReader::new(read_half);
         let mut write_half = write_half;
+        let mut oob_supported = false;
 
         // Bound the full greeting + qmp_capabilities handshake. All reads
         // below are otherwise unbounded — if QEMU accepts the connect(2)
@@ -249,10 +325,28 @@ impl Qmp {
             // Log but don't fail if version was already set (multi-VM process).
             let _ = qapi::set_qemu_version(major, minor, micro);
 
-            // Send qmp_capabilities and read the response
-            write_half
-                .write_all(b"{\"execute\":\"qmp_capabilities\"}\n")
-                .await?;
+            // Detect OOB support from greeting capabilities array. QEMU
+            // 2.12+ advertises "oob" here when the monitor was built with
+            // out-of-band command support; absence on older builds means
+            // we must use the bare capability enable below.
+            oob_supported = parsed
+                .get("QMP")
+                .and_then(|q| q.get("capabilities"))
+                .and_then(|c| c.as_array())
+                .map(|arr| arr.iter().any(|v| v.as_str() == Some("oob")))
+                .unwrap_or(false);
+
+            // Send qmp_capabilities and read the response. We only ask
+            // the server to enable "oob" if it told us it was available
+            // — sending `enable: ["oob"]` to a peer that didn't advertise
+            // it would error out the handshake.
+            let caps_request = if oob_supported {
+                br#"{"execute":"qmp_capabilities","arguments":{"enable":["oob"]}}"#.as_slice()
+            } else {
+                br#"{"execute":"qmp_capabilities"}"#.as_slice()
+            };
+            write_half.write_all(caps_request).await?;
+            write_half.write_all(b"\n").await?;
 
             let caps_resp: serde_json::Value = loop {
                 let caps_line = match read_line_bounded(&mut reader).await? {
@@ -287,24 +381,36 @@ impl Qmp {
         .await
         .map_err(|_| Error::Timeout("QMP handshake timed out".into()))??;
 
-        // Now spawn the background workers
-        let (command_tx, command_rx) = mpsc::channel(1);
-        let (response_tx, response_rx) = mpsc::channel(1);
+        // Build shared state. Channels are sized for the queue depth so
+        // a burst of `QMP_QUEUE_CAPACITY` concurrent submitters never
+        // blocks in the mpsc send (the semaphore is the real backpressure).
+        let (command_tx, command_rx) = mpsc::channel::<Outbound>(QMP_QUEUE_CAPACITY * 2);
         let (raw_event_tx, raw_event_rx) = mpsc::channel(100);
         let (event_tx, event_rx) = mpsc::channel(100);
         let (shutdown_tx, shutdown_rx) = watch::channel(());
+        let (queue_depth_tx, _queue_depth_rx) = watch::channel(0usize);
+        let in_flight: Arc<Mutex<HashMap<u64, PendingCmd>>> =
+            Arc::new(Mutex::new(HashMap::new()));
+        let queue_permits = Arc::new(Semaphore::new(QMP_QUEUE_CAPACITY));
+        let oob_available = Arc::new(AtomicBool::new(oob_supported));
+        let connection_alive = Arc::new(AtomicBool::new(true));
+        let id_counter = Arc::new(AtomicU64::new(1));
 
         let read_handle = spawn(Self::read_loop(
             reader,
-            response_tx,
+            in_flight.clone(),
+            queue_depth_tx.clone(),
             raw_event_tx,
+            connection_alive.clone(),
             shutdown_rx.clone(),
         ));
 
         let write_handle = spawn(Self::write_loop(
             write_half,
             command_rx,
-            response_rx,
+            in_flight.clone(),
+            queue_depth_tx.clone(),
+            connection_alive.clone(),
             shutdown_rx.clone(),
         ));
 
@@ -314,150 +420,86 @@ impl Qmp {
             event_tx,
         ));
 
+        let reaper_handle = spawn(Self::reaper_loop(
+            in_flight.clone(),
+            queue_depth_tx.clone(),
+            shutdown_rx.clone(),
+        ));
+
         let qmp = Self {
             command_tx,
+            in_flight,
+            queue_permits,
+            queue_depth_tx,
+            id_counter,
+            oob_available,
+            connection_alive,
             shutdown_signal: shutdown_tx,
             read_handle: Some(read_handle),
             write_handle: Some(write_handle),
             event_handle: Some(event_handle),
+            reaper_handle: Some(reaper_handle),
         };
 
         Ok((qmp, event_rx))
     }
 
+    /// Maximum number of non-OOB commands that may be in flight at once.
+    pub fn queue_capacity(&self) -> usize {
+        QMP_QUEUE_CAPACITY
+    }
+
+    /// Number of commands currently awaiting a response (OOB included).
+    pub fn queue_depth(&self) -> usize {
+        *self.queue_depth_tx.borrow()
+    }
+
+    /// Subscribe to live updates of the in-flight queue depth.
+    ///
+    /// The watch sender is updated on every insert/remove from the
+    /// in-flight map, so a UI can render the current load without
+    /// polling.
+    pub fn subscribe_queue(&self) -> watch::Receiver<usize> {
+        self.queue_depth_tx.subscribe()
+    }
+
+    /// Whether the server advertised `"oob"` in its greeting and the
+    /// client successfully negotiated it during handshake.
+    pub fn oob_supported(&self) -> bool {
+        self.oob_available.load(Ordering::Acquire)
+    }
+
     /// Execute a typed QMP command and deserialize the response.
+    ///
+    /// Acquires one of [`queue_capacity()`](Self::queue_capacity)
+    /// permits; if all permits are taken the call awaits until one
+    /// becomes available, mirroring QEMU's `QMP_REQ_QUEUE_LEN_MAX`
+    /// flow-control. Concurrent calls multiplex over the same socket;
+    /// responses are routed by the QMP `id` field.
     #[must_use = "QMP commands can fail with a QmpError; ignoring the Result hides protocol errors"]
     pub async fn execute<C: QapiCommand>(&self, cmd: &C) -> Result<C::Returns> {
-        let args = serde_json::to_value(cmd)?;
-        let request = if args.as_object().is_some_and(|o| o.is_empty()) {
-            serde_json::json!({ "execute": C::NAME })
-        } else {
-            serde_json::json!({ "execute": C::NAME, "arguments": args })
-        };
-
-        let request_str = serde_json::to_string(&request)?;
-        let (reply_tx, reply_rx) = oneshot::channel();
-        self.command_tx
-            .send((request_str, reply_tx))
-            .await
-            .map_err(|_| Error::Channel("command channel closed".into()))?;
-
-        // NOTE: the `write_loop` drops `reply_tx` in two cases that are
-        // indistinguishable from the client's perspective — the 30s
-        // per-command response timeout (see `write_loop`'s inner select!)
-        // and a natural shutdown/broken pipe. The `RecvError` from
-        // `reply_rx.await` collapses both into a single "sender dropped"
-        // signal. We surface a combined message so callers at least know
-        // that a timeout is one of the plausible causes; distinguishing
-        // them cleanly would require a second channel or a sentinel value
-        // and is tracked as a follow-up (BUG 34).
-        let response = reply_rx
-            .await
-            .map_err(|_| {
-                Error::Channel(
-                    "QMP command channel closed \u{2014} likely timed out or connection lost".into(),
-                )
-            })?;
-
-        if let Some(error) = response.get("error") {
-            return Err(Error::Qmp(build_qmp_error(error)));
-        }
-
-        let ret = response
-            .get("return")
-            .cloned()
-            .unwrap_or(serde_json::Value::Object(serde_json::Map::new()));
-
-        // Handle commands that return () — QMP returns {"return":{}} which
-        // can't deserialize as (). Treat empty objects as null for unit types.
-        let ret = if ret.as_object().is_some_and(|o| o.is_empty()) {
-            // Try deserializing as-is first; fall back to null for unit return types.
-            match serde_json::from_value::<C::Returns>(ret.clone()) {
-                Ok(v) => return Ok(v),
-                Err(_) => serde_json::Value::Null,
-            }
-        } else {
-            ret
-        };
-
-        Ok(serde_json::from_value(ret)?)
+        let request = build_request(cmd, false)?;
+        let response = self.dispatch(request, false).await?;
+        decode_response::<C>(response)
     }
 
     /// Execute a typed QMP command with a caller-supplied timeout.
     ///
-    /// The timeout bounds the wait on the reply oneshot. `write_loop`
-    /// still enforces its own 30s per-command guard internally, so in
-    /// practice the effective timeout is `min(timeout, 30s)` — passing
-    /// a longer duration will never wait longer than 30s because the
-    /// write_loop will have already dropped the reply sender. Use this
-    /// method when you want a *tighter* timeout than the internal
-    /// default (e.g. a 2s deadline for a health probe).
-    ///
-    /// `execute()` is intentionally NOT routed through this method —
-    /// chaining a 60s outer timeout on top of the 30s write_loop guard
-    /// would just add a redundant layer that never actually fires, so
-    /// `execute()` keeps its original direct-await shape.
+    /// The timeout bounds the wait on the reply oneshot. The
+    /// background reaper still enforces its own
+    /// [`COMMAND_STALL_TIMEOUT`] guard; passing a value larger than
+    /// that won't extend the wait — the reaper will drop the reply
+    /// sender first. Use this method when you want a *tighter*
+    /// deadline than the global default.
     #[must_use = "QMP commands can fail with a QmpError or time out; ignoring the Result hides protocol errors"]
     pub async fn execute_with_timeout<C: QapiCommand>(
         &self,
         cmd: &C,
         timeout: Duration,
     ) -> Result<C::Returns> {
-        let args = serde_json::to_value(cmd)?;
-        let request = if args.as_object().is_some_and(|o| o.is_empty()) {
-            serde_json::json!({ "execute": C::NAME })
-        } else {
-            serde_json::json!({ "execute": C::NAME, "arguments": args })
-        };
-
-        let request_str = serde_json::to_string(&request)?;
-        let (reply_tx, reply_rx) = oneshot::channel();
-        self.command_tx
-            .send((request_str, reply_tx))
-            .await
-            .map_err(|_| Error::Channel("command channel closed".into()))?;
-
-        // Wrap the reply wait in the caller's timeout. The `??` unwraps
-        // first the Elapsed error (our outer timeout) and then the
-        // RecvError (reply_tx dropped — write_loop timed out or the
-        // connection died). We translate Elapsed into an explicit
-        // command-name timeout message for observability.
-        let response = tokio::time::timeout(timeout, reply_rx)
-            .await
-            .map_err(|_| {
-                Error::Timeout(format!(
-                    "QMP command {} timed out after {:?}",
-                    C::NAME,
-                    timeout
-                ))
-            })?
-            .map_err(|_| {
-                Error::Channel(
-                    "QMP command channel closed \u{2014} likely timed out or connection lost".into(),
-                )
-            })?;
-
-        if let Some(error) = response.get("error") {
-            return Err(Error::Qmp(build_qmp_error(error)));
-        }
-
-        let ret = response
-            .get("return")
-            .cloned()
-            .unwrap_or(serde_json::Value::Object(serde_json::Map::new()));
-
-        // Mirror execute()'s empty-object → unit handling for commands
-        // that return ().
-        let ret = if ret.as_object().is_some_and(|o| o.is_empty()) {
-            match serde_json::from_value::<C::Returns>(ret.clone()) {
-                Ok(v) => return Ok(v),
-                Err(_) => serde_json::Value::Null,
-            }
-        } else {
-            ret
-        };
-
-        Ok(serde_json::from_value(ret)?)
+        let request = build_request(cmd, false)?;
+        let response = self.dispatch_with_timeout(request, false, Some((C::NAME, timeout))).await?;
+        decode_response::<C>(response)
     }
 
     /// Execute an arbitrary QMP command from a raw JSON request and
@@ -470,8 +512,8 @@ impl Qmp {
     ///
     /// The `raw` argument should be a full QMP request object, e.g.
     /// `json!({"execute": "some-command", "arguments": {...}})`. The
-    /// `id` field is injected by `write_loop` for correlation and must
-    /// not be set by the caller — see BUG 42. On success the returned
+    /// `id` field is injected internally for correlation and must not
+    /// be set by the caller — see BUG 42. On success the returned
     /// value is the contents of the `return` field (an empty object
     /// `{}` if the command has no payload).
     #[must_use = "QMP commands can fail with a QmpError; ignoring the Result hides protocol errors"]
@@ -479,46 +521,237 @@ impl Qmp {
         &self,
         raw: serde_json::Value,
     ) -> Result<serde_json::Value> {
-        let request_str = serde_json::to_string(&raw)?;
-        let (reply_tx, reply_rx) = oneshot::channel();
-        self.command_tx
-            .send((request_str, reply_tx))
-            .await
-            .map_err(|_| Error::Channel("command channel closed".into()))?;
+        let response = self.dispatch(raw, false).await?;
+        decode_raw(response)
+    }
 
-        let response = reply_rx.await.map_err(|_| {
-            Error::Channel(
-                "QMP command channel closed \u{2014} likely timed out or connection lost".into(),
+    /// Execute a typed QMP command out-of-band.
+    ///
+    /// OOB commands bypass the monitor's command queue: the envelope
+    /// uses `"exec-oob"` rather than `"execute"`, and QEMU answers
+    /// from the I/O thread directly without queueing behind in-flight
+    /// non-OOB work. Only commands whose schema declares
+    /// `allow-oob = true` may be issued here; the bound is enforced
+    /// at compile time via `const { assert!(C::ALLOW_OOB) }`.
+    ///
+    /// At runtime the handshake must also have negotiated OOB support
+    /// (see [`oob_supported`](Self::oob_supported)); if the peer does
+    /// not advertise OOB in its greeting this call returns
+    /// `Error::Protocol`.
+    #[must_use = "QMP commands can fail with a QmpError; ignoring the Result hides protocol errors"]
+    pub async fn execute_oob<C: QapiCommand>(&self, cmd: &C) -> Result<C::Returns> {
+        // Compile-time guard: the schema-generated trait constant
+        // forces this assertion to succeed for OOB-allowed commands and
+        // fail at compile time for everything else, eliminating the
+        // possibility of a runtime "command not allowed OOB" surprise.
+        const { assert!(C::ALLOW_OOB, "execute_oob requires C::ALLOW_OOB == true") };
+
+        if !self.oob_supported() {
+            return Err(Error::Protocol(
+                "OOB not negotiated with peer (server did not advertise \"oob\" in greeting)"
+                    .into(),
+            ));
+        }
+        let request = build_request(cmd, true)?;
+        let response = self.dispatch(request, true).await?;
+        decode_response::<C>(response)
+    }
+
+    /// Execute an arbitrary OOB command from a raw JSON request and
+    /// return the raw `return` payload.
+    ///
+    /// Mirrors [`execute_raw`](Self::execute_raw) but emits the
+    /// `"exec-oob"` envelope and skips the queue semaphore. Because
+    /// raw requests carry no compile-time schema info, OOB-eligibility
+    /// is checked only at runtime: a peer that never advertised OOB
+    /// will receive `Error::Protocol`.
+    #[must_use = "QMP commands can fail with a QmpError; ignoring the Result hides protocol errors"]
+    pub async fn execute_raw_oob(
+        &self,
+        raw: serde_json::Value,
+    ) -> Result<serde_json::Value> {
+        if !self.oob_supported() {
+            return Err(Error::Protocol(
+                "OOB not negotiated with peer (server did not advertise \"oob\" in greeting)"
+                    .into(),
+            ));
+        }
+        let response = self.dispatch(raw, true).await?;
+        decode_raw(response)
+    }
+
+    /// Submit `request` and await the matching reply with no extra
+    /// timeout. The reaper still enforces a global stall guard.
+    async fn dispatch(
+        &self,
+        request: serde_json::Value,
+        oob: bool,
+    ) -> Result<serde_json::Value> {
+        self.dispatch_with_timeout(request, oob, None).await
+    }
+
+    /// Submit `request`, await the matching reply, optionally bounded
+    /// by a per-call timeout (used by `execute_with_timeout`).
+    async fn dispatch_with_timeout(
+        &self,
+        mut request: serde_json::Value,
+        oob: bool,
+        timeout: Option<(&'static str, Duration)>,
+    ) -> Result<serde_json::Value> {
+        // Non-OOB commands respect QEMU's monitor queue: hold a permit
+        // for the entire round-trip so the in-flight count never exceeds
+        // QMP_QUEUE_CAPACITY. OOB commands bypass this entirely — the
+        // monitor handles them on the I/O thread without queueing.
+        let _permit: Option<OwnedSemaphorePermit> = if oob {
+            None
+        } else {
+            Some(
+                self.queue_permits
+                    .clone()
+                    .acquire_owned()
+                    .await
+                    .map_err(|_| Error::Channel("QMP queue semaphore closed".into()))?,
             )
-        })?;
+        };
 
-        if let Some(error) = response.get("error") {
-            return Err(Error::Qmp(build_qmp_error(error)));
+        // Fast-fail when the connection has already died — without this
+        // a late `execute()` could insert into `in_flight` *after*
+        // `read_loop` has cleared it on EOF, leaving the entry to be
+        // reaped 30s later instead of failing fast.
+        if !self.connection_alive.load(Ordering::Acquire) {
+            return Err(Error::Channel("QMP connection closed".into()));
         }
 
-        Ok(response
-            .get("return")
-            .cloned()
-            .unwrap_or(serde_json::Value::Object(serde_json::Map::new())))
+        let id = self.id_counter.fetch_add(1, Ordering::Relaxed);
+        if let Some(obj) = request.as_object_mut() {
+            obj.insert("id".to_string(), serde_json::json!(id));
+        }
+
+        let (reply_tx, reply_rx) = oneshot::channel();
+        // Insert the pending entry *before* sending the request so that a
+        // very fast reply (mock server, in-process) cannot race ahead of
+        // the reader looking up the id. Briefly publish the new depth to
+        // any subscribed UI. We use `send_replace` rather than `send`
+        // because the latter discards the value when there are no live
+        // receivers — and we always want the gauge to be observable via
+        // `queue_depth()` even before any subscriber attaches.
+        //
+        // Re-check `connection_alive` *while holding the lock* to close
+        // the race with `read_loop`'s exit clearing the map: either we
+        // see the flag false (and bail without inserting), or we insert
+        // and read_loop's subsequent clear will drop our reply_tx.
+        {
+            let mut guard = self.in_flight.lock().await;
+            if !self.connection_alive.load(Ordering::Acquire) {
+                return Err(Error::Channel("QMP connection closed".into()));
+            }
+            guard.insert(
+                id,
+                PendingCmd {
+                    reply_tx,
+                    sent_at: Instant::now(),
+                    oob,
+                },
+            );
+            self.queue_depth_tx.send_replace(guard.len());
+        }
+
+        // Send envelope to writer. If the writer is gone, the in-flight
+        // entry will never be answered — clean it up before returning.
+        if self
+            .command_tx
+            .send(Outbound { id, json: request })
+            .await
+            .is_err()
+        {
+            self.evict(id).await;
+            return Err(Error::Channel("command channel closed".into()));
+        }
+
+        // Await the reply with optional per-call timeout. On any error
+        // path we evict the in-flight entry so a late response can't
+        // accumulate forever.
+        let response = match timeout {
+            Some((name, dur)) => match tokio::time::timeout(dur, reply_rx).await {
+                Ok(Ok(resp)) => resp,
+                Ok(Err(_)) => {
+                    self.evict(id).await;
+                    return Err(Error::Channel(
+                        "QMP command channel closed \u{2014} likely timed out or connection lost"
+                            .into(),
+                    ));
+                }
+                Err(_) => {
+                    self.evict(id).await;
+                    return Err(Error::Timeout(format!(
+                        "QMP command {} timed out after {:?}",
+                        name, dur
+                    )));
+                }
+            },
+            None => match reply_rx.await {
+                Ok(resp) => resp,
+                Err(_) => {
+                    self.evict(id).await;
+                    return Err(Error::Channel(
+                        "QMP command channel closed \u{2014} likely timed out or connection lost"
+                            .into(),
+                    ));
+                }
+            },
+        };
+
+        Ok(response)
+    }
+
+    /// Remove an id from `in_flight` and publish the new depth.
+    async fn evict(&self, id: u64) {
+        let mut guard = self.in_flight.lock().await;
+        guard.remove(&id);
+        self.queue_depth_tx.send_replace(guard.len());
     }
 
     /// Gracefully shut down all background tasks.
+    ///
+    /// Drops every pending in-flight reply oneshot first so that any
+    /// caller currently parked on `reply_rx.await` wakes immediately
+    /// with `Error::Channel` rather than waiting for the per-task
+    /// timeout. Then the worker handles are joined with a 500ms cap
+    /// before falling back to abort.
     pub async fn shutdown(&mut self) {
+        // Mark connection dead first so any concurrent dispatch fails
+        // fast on its `connection_alive` check.
+        self.connection_alive.store(false, Ordering::Release);
         let _ = self.shutdown_signal.send(());
-        // Bound each handle wait: read_loop in particular may keep picking
-        // next_line() under heavy event traffic and never observe the
-        // shutdown_rx.changed() branch. Timeout → abort → await (ignoring
-        // errors) guarantees forward progress. Order matters less than
-        // completeness — every live handle gets the same bounded wait.
+
+        // Wake all parked callers. Dropping the senders translates to
+        // `RecvError` on each `reply_rx.await`, which `dispatch` maps
+        // to `Error::Channel`. Doing this here (rather than relying on
+        // the worker tasks to drop them on exit) guarantees fast
+        // wakeup even if a worker is wedged.
+        {
+            let mut guard = self.in_flight.lock().await;
+            guard.clear();
+            self.queue_depth_tx.send_replace(0);
+        }
+
+        // Bound each handle wait. Order matters less than completeness:
+        // every live handle gets the same bounded join-or-abort.
         shutdown_handle(self.write_handle.take()).await;
         shutdown_handle(self.event_handle.take()).await;
         shutdown_handle(self.read_handle.take()).await;
+        shutdown_handle(self.reaper_handle.take()).await;
     }
 
+    /// Read-side of the QMP socket: parses each line, dispatches
+    /// responses to the matching in-flight oneshot via `id`, and
+    /// forwards events to the event worker.
     async fn read_loop(
         mut reader: BufReader<OwnedReadHalf>,
-        response_tx: mpsc::Sender<serde_json::Value>,
+        in_flight: Arc<Mutex<HashMap<u64, PendingCmd>>>,
+        queue_depth_tx: watch::Sender<usize>,
         event_tx: mpsc::Sender<String>,
+        connection_alive: Arc<AtomicBool>,
         mut shutdown_rx: watch::Receiver<()>,
     ) {
         // We read one line at a time with a hard byte cap
@@ -554,10 +787,33 @@ impl Qmp {
                                             }
                                             Err(TrySendError::Closed(_)) => break,
                                         }
-                                    } else if response_tx.send(parsed).await.is_err() {
-                                        // Response channel closed — write_loop
-                                        // is gone; no point continuing to read.
-                                        break;
+                                    } else {
+                                        // Response: route by id. Take the
+                                        // oneshot out of the in-flight map and
+                                        // hand the parsed value over. Drops the
+                                        // permit (held inside `dispatch`) when
+                                        // the caller's future resumes.
+                                        let resp_id = parsed
+                                            .get("id")
+                                            .and_then(|v| v.as_u64());
+                                        if let Some(id) = resp_id {
+                                            let mut guard = in_flight.lock().await;
+                                            if let Some(pending) = guard.remove(&id) {
+                                                queue_depth_tx.send_replace(guard.len());
+                                                drop(guard);
+                                                let _ = pending.reply_tx.send(parsed);
+                                            } else {
+                                                tracing::warn!(
+                                                    id = id,
+                                                    "received QMP response for unknown id (likely reaper-evicted)"
+                                                );
+                                            }
+                                        } else {
+                                            tracing::warn!(
+                                                ?parsed,
+                                                "received QMP response without id, dropping"
+                                            );
+                                        }
                                     }
                                 }
                                 Err(e) => {
@@ -576,111 +832,93 @@ impl Qmp {
                 _ = shutdown_rx.changed() => break,
             }
         }
+        // Connection going away: signal that new dispatches should fail
+        // fast (so they don't insert into a map that will never be
+        // drained), then wake every existing waiter.
+        connection_alive.store(false, Ordering::Release);
+        let mut guard = in_flight.lock().await;
+        guard.clear();
+        queue_depth_tx.send_replace(0);
     }
 
+    /// Write-side of the QMP socket: pulls envelopes off the command
+    /// channel, serializes, and writes. No longer waits inline for a
+    /// reply — concurrency is the whole point of this rewrite.
     async fn write_loop(
         mut write_half: OwnedWriteHalf,
-        mut command_rx: mpsc::Receiver<(String, oneshot::Sender<serde_json::Value>)>,
-        mut response_rx: mpsc::Receiver<serde_json::Value>,
+        mut command_rx: mpsc::Receiver<Outbound>,
+        in_flight: Arc<Mutex<HashMap<u64, PendingCmd>>>,
+        queue_depth_tx: watch::Sender<usize>,
+        connection_alive: Arc<AtomicBool>,
         mut shutdown_rx: watch::Receiver<()>,
     ) {
-        // BUG 42 fix: command correlation via QMP `id` field.
-        //
-        // Previously, a per-command 30s response-wait in an inner select!
-        // dropped `reply_tx` on timeout and fell through to the outer loop.
-        // If QEMU then produced the late response, `read_loop` pushed it
-        // into `response_rx` and the NEXT command's `recv()` collected the
-        // stale response as its own reply — cross-command desync.
-        //
-        // The QMP spec lets clients tag each request with an `id` field
-        // and guarantees the server echoes it verbatim on the matching
-        // response. We now inject a monotonic counter before writing the
-        // command, and the response-matching loop below discards any
-        // reply whose `id` does not match the expected one. Responses
-        // without any `id` field are accepted as a fallback to keep mock
-        // servers and pre-`id` peers working — real QEMU always echoes.
-        let mut id_counter: u64 = 0;
         loop {
             tokio::select! {
-                Some((command, reply_tx)) = command_rx.recv() => {
-                    id_counter = id_counter.wrapping_add(1);
-                    let expected_id = id_counter;
-
-                    // Inject `id` into the command JSON. If the payload
-                    // is not a JSON object we still try to send it raw —
-                    // correlation is best-effort, not a hard requirement.
-                    let tagged = match serde_json::from_str::<serde_json::Value>(&command) {
-                        Ok(mut value) => {
-                            if let Some(obj) = value.as_object_mut() {
-                                obj.insert("id".to_string(), serde_json::json!(expected_id));
-                            }
-                            serde_json::to_string(&value).unwrap_or(command)
+                next = command_rx.recv() => {
+                    let Some(out) = next else { break };
+                    // Re-serialize to a single line. The id was already
+                    // injected inside `dispatch_with_timeout`.
+                    let serialized = match serde_json::to_string(&out.json) {
+                        Ok(s) => s,
+                        Err(e) => {
+                            tracing::error!(error = %e, "failed to serialize QMP command");
+                            // Drop the in-flight entry so caller wakes
+                            // up with Error::Channel.
+                            let mut guard = in_flight.lock().await;
+                            guard.remove(&out.id);
+                            queue_depth_tx.send_replace(guard.len());
+                            continue;
                         }
-                        Err(_) => command,
                     };
-
-                    if write_half.write_all(tagged.as_bytes()).await.is_err() {
+                    if write_half.write_all(serialized.as_bytes()).await.is_err() {
                         break;
                     }
                     if write_half.write_all(b"\n").await.is_err() {
                         break;
                     }
+                }
+                _ = shutdown_rx.changed() => break,
+            }
+        }
+        // I/O dead: wake every waiter. The read_loop does this too on
+        // its own exit, but doing it here as well covers the case where
+        // the writer dies first (e.g. SIGPIPE on a broken pipe).
+        connection_alive.store(false, Ordering::Release);
+        let mut guard = in_flight.lock().await;
+        guard.clear();
+        queue_depth_tx.send_replace(0);
+    }
 
-                    // Bound the response wait: a hung QEMU would otherwise
-                    // block this task forever. On timeout, drop reply_tx
-                    // (client sees "channel closed") and keep going. On
-                    // shutdown, break out of the loop entirely. Inside the
-                    // select we loop on stale responses — a late reply from
-                    // a previously-timed-out command carries the old `id`
-                    // and must be discarded rather than delivered to the
-                    // current caller.
-                    let deadline = tokio::time::sleep(Duration::from_secs(30));
-                    tokio::pin!(deadline);
-
-                    enum Outcome {
-                        Delivered,
-                        TimedOut,
-                        Shutdown,
-                        Closed,
-                    }
-                    let mut reply_tx = Some(reply_tx);
-                    let outcome = loop {
-                        tokio::select! {
-                            response = response_rx.recv() => {
-                                match response {
-                                    Some(response) => {
-                                        let resp_id = response
-                                            .get("id")
-                                            .and_then(|v| v.as_u64());
-                                        if resp_id.is_some() && resp_id != Some(expected_id) {
-                                            tracing::warn!(
-                                                got = ?resp_id,
-                                                expected = expected_id,
-                                                "discarding stale QMP response (late reply from prior command)"
-                                            );
-                                            continue;
-                                        }
-                                        if let Some(tx) = reply_tx.take() {
-                                            let _ = tx.send(response);
-                                        }
-                                        break Outcome::Delivered;
-                                    }
-                                    None => break Outcome::Closed,
-                                }
-                            }
-                            _ = shutdown_rx.changed() => break Outcome::Shutdown,
-                            _ = &mut deadline => break Outcome::TimedOut,
+    /// Background reaper: every `REAPER_TICK` seconds, evict in-flight
+    /// entries older than `COMMAND_STALL_TIMEOUT`. Dropping the
+    /// oneshot wakes the parked caller with `Error::Channel`.
+    async fn reaper_loop(
+        in_flight: Arc<Mutex<HashMap<u64, PendingCmd>>>,
+        queue_depth_tx: watch::Sender<usize>,
+        mut shutdown_rx: watch::Receiver<()>,
+    ) {
+        let mut ticker = tokio::time::interval(REAPER_TICK);
+        ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        loop {
+            tokio::select! {
+                _ = ticker.tick() => {
+                    let now = Instant::now();
+                    let mut guard = in_flight.lock().await;
+                    let stale: Vec<u64> = guard
+                        .iter()
+                        .filter(|(_, p)| now.duration_since(p.sent_at) >= COMMAND_STALL_TIMEOUT)
+                        .map(|(id, _)| *id)
+                        .collect();
+                    if !stale.is_empty() {
+                        for id in stale {
+                            tracing::warn!(
+                                id,
+                                "evicting stale QMP command (>{:?} without response)",
+                                COMMAND_STALL_TIMEOUT
+                            );
+                            guard.remove(&id);
                         }
-                    };
-                    match outcome {
-                        Outcome::Delivered => continue,
-                        Outcome::TimedOut => {
-                            // reply_tx still in the Option — dropping here
-                            // signals "channel closed" to the waiting caller.
-                            drop(reply_tx);
-                            continue;
-                        }
-                        Outcome::Shutdown | Outcome::Closed => break,
+                        queue_depth_tx.send_replace(guard.len());
                     }
                 }
                 _ = shutdown_rx.changed() => break,
@@ -716,6 +954,62 @@ impl Qmp {
     }
 }
 
+/// Build a QMP request envelope from a typed command and OOB flag.
+///
+/// Factored out so `execute`, `execute_with_timeout`, `execute_oob`
+/// share the exact same shape — empty-arguments objects collapse to
+/// the bare `{"execute":"NAME"}` (or `{"exec-oob":"NAME"}`) form to
+/// match the wire format QEMU's docs use.
+fn build_request<C: QapiCommand>(cmd: &C, oob: bool) -> Result<serde_json::Value> {
+    let args = serde_json::to_value(cmd)?;
+    let verb = if oob { "exec-oob" } else { "execute" };
+    let request = if args.as_object().is_some_and(|o| o.is_empty()) {
+        serde_json::json!({ verb: C::NAME })
+    } else {
+        serde_json::json!({ verb: C::NAME, "arguments": args })
+    };
+    Ok(request)
+}
+
+/// Decode a typed command's response, surfacing QMP errors and
+/// handling the special-case empty `{}` payload for unit returns.
+fn decode_response<C: QapiCommand>(response: serde_json::Value) -> Result<C::Returns> {
+    if let Some(error) = response.get("error") {
+        return Err(Error::Qmp(build_qmp_error(error)));
+    }
+
+    let ret = response
+        .get("return")
+        .cloned()
+        .unwrap_or(serde_json::Value::Object(serde_json::Map::new()));
+
+    // Handle commands that return () — QMP returns {"return":{}} which
+    // can't deserialize as (). Treat empty objects as null for unit types.
+    let ret = if ret.as_object().is_some_and(|o| o.is_empty()) {
+        // Try deserializing as-is first; fall back to null for unit return types.
+        match serde_json::from_value::<C::Returns>(ret.clone()) {
+            Ok(v) => return Ok(v),
+            Err(_) => serde_json::Value::Null,
+        }
+    } else {
+        ret
+    };
+
+    Ok(serde_json::from_value(ret)?)
+}
+
+/// Decode a raw command's response: returns the contents of `return`
+/// (an empty object for unit responses) or the typed `QmpError`.
+fn decode_raw(response: serde_json::Value) -> Result<serde_json::Value> {
+    if let Some(error) = response.get("error") {
+        return Err(Error::Qmp(build_qmp_error(error)));
+    }
+    Ok(response
+        .get("return")
+        .cloned()
+        .unwrap_or(serde_json::Value::Object(serde_json::Map::new())))
+}
+
 /// Drive a background task handle to completion with a bounded wait.
 ///
 /// Factored out of `Qmp::shutdown` where the same pattern was repeated
@@ -742,7 +1036,10 @@ impl Drop for Qmp {
     fn drop(&mut self) {
         // Signal shutdown first so well-behaved loops exit cleanly, then
         // abort() as a fallback. Drop can't await, so abort() is the only
-        // way to guarantee spawned tasks don't leak.
+        // way to guarantee spawned tasks don't leak. The Mutex<HashMap>
+        // is held in an Arc; once every clone goes out of scope the
+        // pending senders inside it are dropped, waking every parked
+        // caller with Error::Channel.
         let _ = self.shutdown_signal.send(());
         if let Some(h) = self.read_handle.take() {
             h.abort();
@@ -751,6 +1048,9 @@ impl Drop for Qmp {
             h.abort();
         }
         if let Some(h) = self.event_handle.take() {
+            h.abort();
+        }
+        if let Some(h) = self.reaper_handle.take() {
             h.abort();
         }
     }

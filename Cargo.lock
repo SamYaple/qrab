@@ -2631,6 +2631,7 @@ name = "qapi-protocol"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "futures",
  "manager",
  "paste",
  "qapi",
