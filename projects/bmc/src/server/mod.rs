@@ -1,5 +1,6 @@
 pub mod vm_actions;
 pub mod vm_status;
+pub mod qmp_exec;
 #[cfg(feature = "server")]
 pub mod events;
 #[cfg(feature = "server")]

@@ -12,6 +12,7 @@ pub enum PanelType {
     Events,
     CpuInfo,
     Status,
+    QmpConsole,
 }
 
 /// Panel width in the grid layout.
@@ -92,6 +93,15 @@ impl Default for DashboardLayout {
                 },
                 PanelConfig {
                     panel: PanelType::Events,
+                    width: PanelWidth::Full,
+                    collapsed: false,
+                },
+                // Schema-driven QMP console sits below the event log:
+                // it's a power-user panel and event stream context is
+                // the most useful thing to pair with an arbitrary QMP
+                // command submission.
+                PanelConfig {
+                    panel: PanelType::QmpConsole,
                     width: PanelWidth::Full,
                     collapsed: false,
                 },

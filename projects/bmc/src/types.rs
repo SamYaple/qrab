@@ -193,6 +193,148 @@ pub struct AttestationQrResponse {
     pub timestamp: String,
 }
 
+/// Live QMP queue status for the schema-driven QMP console.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct QueueStatus {
+    /// Current in-flight command count (includes OOB).
+    pub depth: usize,
+    /// Maximum concurrent commands the client negotiated with QEMU.
+    pub capacity: usize,
+    /// Whether the mock / QEMU peer advertised OOB in its greeting and the
+    /// handshake negotiated it successfully.
+    pub oob_supported: bool,
+}
+
+impl Default for QueueStatus {
+    fn default() -> Self {
+        Self {
+            depth: 0,
+            capacity: 8,
+            oob_supported: false,
+        }
+    }
+}
+
+/// Mirror of `qapi::metadata::TypeKind`. Carried in `TypeDto` so the UI can
+/// dispatch field inputs without peeking at the other fields.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TypeKindDto {
+    Primitive,
+    Enum,
+    Struct,
+    List,
+}
+
+/// Mirror of `qapi::metadata::Prim`. Kept as a string on the wire so the
+/// client doesn't have to carry an exhaustive enum the server might grow
+/// between deploys.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PrimDto {
+    Str,
+    Bool,
+    I8,
+    I16,
+    I32,
+    I64,
+    U8,
+    U16,
+    U32,
+    U64,
+    F64,
+    Null,
+    Any,
+}
+
+/// Inlined type information. `List` recurses via `inner`; `Enum` / `Struct`
+/// carry the owning type's name for the UI to look up on demand.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TypeDto {
+    pub kind: TypeKindDto,
+    pub name: String,
+    pub prim: Option<PrimDto>,
+    pub inner: Option<Box<TypeDto>>,
+}
+
+/// Mirror of `qapi::metadata::EnumKind`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum EnumKindDto {
+    Unit,
+    Alternate,
+    FlatUnionBranch,
+}
+
+/// Mirror of `qapi::metadata::FieldMeta`, owned.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FieldDto {
+    pub name: String,
+    pub wire_name: String,
+    pub ty: TypeDto,
+    pub optional: bool,
+    pub is_discriminator: bool,
+    pub recursive: bool,
+    pub since: (u32, u32, u32),
+    pub until: Option<(u32, u32, u32)>,
+    pub deprecated: bool,
+    pub unstable: bool,
+    pub doc: String,
+}
+
+/// Mirror of `qapi::metadata::EnumVariantMeta`, owned.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct EnumVariantDto {
+    pub name: String,
+    pub wire_name: String,
+    pub payload_struct: Option<String>,
+    pub since: (u32, u32, u32),
+    pub until: Option<(u32, u32, u32)>,
+    pub deprecated: bool,
+    pub unstable: bool,
+    pub doc: String,
+}
+
+/// Mirror of `qapi::metadata::EnumMeta`, owned.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct EnumDto {
+    pub name: String,
+    pub doc: String,
+    pub variants: Vec<EnumVariantDto>,
+    pub kind: EnumKindDto,
+    pub since: (u32, u32, u32),
+    pub until: Option<(u32, u32, u32)>,
+}
+
+/// Mirror of `qapi::metadata::StructMeta`, owned.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct StructDto {
+    pub name: String,
+    pub doc: String,
+    pub fields: Vec<FieldDto>,
+    pub is_union: bool,
+    pub discriminator_field: Option<String>,
+    pub branch_enum: Option<String>,
+    pub free_form: bool,
+    pub since: (u32, u32, u32),
+    pub until: Option<(u32, u32, u32)>,
+}
+
+/// Mirror of `qapi::metadata::CommandMeta`, owned. `args` inlines the
+/// argument struct so one round-trip surfaces everything the picker needs.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CommandDto {
+    pub wire_name: String,
+    pub rust_name: String,
+    pub args: StructDto,
+    pub allow_oob: bool,
+    pub allow_preconfig: bool,
+    pub success_response: bool,
+    pub since: (u32, u32, u32),
+    pub until: Option<(u32, u32, u32)>,
+    pub deprecated: bool,
+    pub unstable: bool,
+    pub doc: String,
+    pub category: String,
+}
+
 /// Combined attestation state for the frontend.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AttestationState {
