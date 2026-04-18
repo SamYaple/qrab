@@ -237,6 +237,7 @@ struct VmProcess {
     qmp_sock: PathBuf,
     serial_log: Option<PathBuf>,
     vnc_sock: Option<PathBuf>,
+    attest_sock: Option<PathBuf>,
     swtpm: Option<SwtpmProcess>,
 }
 
@@ -825,7 +826,7 @@ impl VmBuilder {
     }
 
     /// Validate SEV-SNP prerequisites before spawning.
-    fn validate_sev(&self) -> Result<()> {
+    fn validate_sev(&mut self) -> Result<()> {
         if self.sev_snp.is_none() {
             return Ok(());
         }
@@ -842,9 +843,19 @@ impl VmBuilder {
             _ => return Err(Error::Config("SEV-SNP requires KVM acceleration".into())),
         }
 
-        // Must be UEFI or SecureBoot
+        // Must be UEFI or SecureBoot — auto-enable secure_boot when SEV-SNP
+        // is configured with UEFI machine type. SEV-SNP + SecureBoot ensures
+        // the firmware measurement chain is anchored to a trusted root.
         match &self.config {
-            MachineConfig::Uefi { .. } | MachineConfig::SecureBoot { .. } => {}
+            MachineConfig::SecureBoot { .. } => {
+                self.secure_boot = true;
+            }
+            MachineConfig::Uefi { .. } => {
+                if !self.secure_boot {
+                    tracing::info!("auto-enabling secure boot for SEV-SNP");
+                    self.secure_boot = true;
+                }
+            }
             _ => return Err(Error::Config("SEV-SNP requires UEFI or SecureBoot machine config".into())),
         }
 
@@ -933,7 +944,7 @@ impl VmBuilder {
     /// 8. Run `NsHelper` to set up uid/gid maps
     /// 9. Wait for QMP socket, connect, check version
     #[must_use = "spawning a VM without using the returned handle immediately kills it on drop"]
-    pub async fn spawn(self) -> Result<PreconfigVm> {
+    pub async fn spawn(mut self) -> Result<PreconfigVm> {
         // Validate the firmware path before touching any temp files or
         // spawning QEMU. Without this check a missing or directory path
         // only surfaces as a cryptic late failure from QEMU itself.
@@ -1028,6 +1039,27 @@ impl VmBuilder {
         if let Some(ref log) = serial_log {
             args.extend(["-serial".into(), format!("file:{}", log.display())]);
         }
+
+        // Virtio-serial attestation channel for SEV-SNP guests.
+        // Creates a Unix socket the host can connect to, and a virtio-serial
+        // port visible inside the guest as /dev/virtio-ports/org.qrab.attestation.
+        let attest_sock = if self.sev_snp.is_some() {
+            let sock = tmpdir.path().join("attest.sock");
+            args.extend([
+                "-device".into(),
+                "virtio-serial-pci,id=virtio-serial-attest".into(),
+                "-chardev".into(),
+                format!(
+                    "socket,id=attest-chardev,path={},server=on,wait=off",
+                    sock.display()
+                ),
+                "-device".into(),
+                "virtserialport,chardev=attest-chardev,name=org.qrab.attestation".into(),
+            ]);
+            Some(sock)
+        } else {
+            None
+        };
 
         // Boot args
         args.extend(self.build_boot_args());
@@ -1222,6 +1254,7 @@ impl VmBuilder {
                 qmp_sock,
                 serial_log,
                 vnc_sock,
+                attest_sock,
                 swtpm: swtpm_process,
             },
             paused_mode: self.display,
@@ -1267,6 +1300,16 @@ impl PreconfigVm {
     #[must_use]
     pub fn vnc_sock(&self) -> Option<&PathBuf> {
         self.process.vnc_sock.as_ref()
+    }
+
+    /// Path to the virtio-serial attestation socket, if SEV-SNP was configured.
+    ///
+    /// The guest sees this as `/dev/virtio-ports/org.qrab.attestation`.
+    /// The host connects to this Unix socket to exchange attestation
+    /// challenge/response data with the guest.
+    #[must_use]
+    pub fn attest_sock(&self) -> Option<&PathBuf> {
+        self.process.attest_sock.as_ref()
     }
 
     /// Watch channel observing the QEMU process exit status.
@@ -1362,6 +1405,12 @@ impl Vm {
     #[must_use]
     pub fn vnc_sock(&self) -> Option<&PathBuf> {
         self.process.vnc_sock.as_ref()
+    }
+
+    /// Path to the virtio-serial attestation socket, if SEV-SNP was configured.
+    #[must_use]
+    pub fn attest_sock(&self) -> Option<&PathBuf> {
+        self.process.attest_sock.as_ref()
     }
 
     /// Watch channel observing the QEMU process exit status.
