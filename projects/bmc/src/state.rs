@@ -299,23 +299,26 @@ impl BmcState {
             }
         };
 
-        // SEV-SNP: device_add after x-exit-preconfig (machine now initialized),
-        // then cont to start vCPUs. Non-SEV already has devices attached and
-        // start() sent cont.
-        if sev_mode && has_disks {
-            if let Err(e) = attach_devices(&vm.qmp, &disks).await {
-                tracing::error!("device_add failed after x-exit-preconfig: {e}");
-                vm.shutdown().await;
-                drop(fwd);
-                self.stop_forwarder().await;
-                self.event_history.lock().await.clear();
-                *self.cached_static.lock().await = None;
-                *vm_guard = VmState::Off;
-                return Err(anyhow::anyhow!("device_add failed: {e}"));
+        // SEV-SNP: x-exit-preconfig completed machine init + SNP launch.
+        // QEMU is now paused. Attach devices (needs machine init), then cont.
+        // Non-SEV with -S: start() already sent cont.
+        if sev_mode {
+            if has_disks {
+                if let Err(e) = attach_devices(&vm.qmp, &disks).await {
+                    tracing::error!("device_add failed after x-exit-preconfig: {e}");
+                    vm.shutdown().await;
+                    drop(fwd);
+                    self.stop_forwarder().await;
+                    self.event_history.lock().await.clear();
+                    *self.cached_static.lock().await = None;
+                    *vm_guard = VmState::Off;
+                    return Err(anyhow::anyhow!("device_add failed: {e}"));
+                }
             }
-            // Now start guest execution.
+            // Always send cont for SEV-SNP — x-exit-preconfig leaves
+            // QEMU paused, unlike -S where start() sends cont.
             if let Err(e) = vm.cont().await {
-                tracing::error!("cont after device_add failed: {e}");
+                tracing::error!("cont after x-exit-preconfig failed: {e}");
                 vm.shutdown().await;
                 drop(fwd);
                 self.stop_forwarder().await;
