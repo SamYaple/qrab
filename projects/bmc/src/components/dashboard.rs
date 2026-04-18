@@ -63,7 +63,6 @@ pub fn Dashboard() -> Element {
         sev_status,
         tpm_status,
         attestation: _attestation,
-        capabilities,
     } = state_value;
 
     let current_phase = status.phase.clone();
@@ -89,13 +88,11 @@ pub fn Dashboard() -> Element {
                                     SecurityHero {
                                         sev_status: sev_status.clone(),
                                         tpm_status: tpm_status.clone(),
-                                        capabilities: capabilities.clone(),
                                     }
                                 },
                                 PanelType::Attestation => rsx! {
                                     AttestationPanel {
                                         sev_status: sev_status.clone(),
-                                        capabilities: capabilities.clone(),
                                     }
                                 },
                                 PanelType::PowerControls => rsx! {
@@ -119,7 +116,6 @@ pub fn Dashboard() -> Element {
                                 PanelType::Config => rsx! {
                                     ConfigPanel {
                                         current_phase: current_phase.clone(),
-                                        capabilities: capabilities.clone(),
                                     }
                                 },
                                 PanelType::Console => rsx! {
