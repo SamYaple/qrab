@@ -3,34 +3,40 @@
 #
 # Same shape as `contrib/smoke-vsock-qemu.sh` but launches the guest
 # with `--preconfig -machine confidential-guest-support=sev0` and the
-# AmdSev OVMF image at `target/ovmf/OVMF.fd`. Originally filed as the
-# reproducer for the DMA correctness gap in
-# `~/workspace/llm-rag/issues/qrab-boot-snp-dma.md`; that rework
-# shipped on 2026-04-18 (PciRootBridgeIo Map/Unmap HAL) but the
-# smoke is still expected-fail because a separate blocker surfaced:
-# `~/workspace/llm-rag/issues/qrab-boot-snp-high-mmio-gp.md`. The
-# current failure signature is a `#GP - General Protection` on the
-# first virtio common-config MMIO read (64-bit BAR at ~0xC000000000),
-# not the `QRAB_VSOCK_DRIVER_SOCKET_ERR` that the first ticket
-# guessed.
+# AmdSev OVMF image at `target/ovmf/OVMF.fd`.
 #
-# Until the high-MMIO ticket closes this script is **expected to fail**.
+# History:
+#
+# * Originally filed as the reproducer for the DMA gap in
+#   `~/workspace/llm-rag/issues/qrab-boot-snp-dma.md`; the
+#   PciRootBridgeIo Map/Unmap HAL shipped 2026-04-18.
+# * A second blocker surfaced immediately after — OVMF's
+#   `CcExitLib::MmioExit` decodes only MOV-family opcodes, and
+#   LLVM happily folded `safe_mmio::ReadPure<u8>::read() == x`
+#   into `cmp r/m8, r8`. Tracked in
+#   `~/workspace/llm-rag/issues/qrab-boot-snp-high-mmio-gp.md` +
+#   worked around via `projects/qrab-boot/src/volatile_transport.rs`
+#   (qrab-boot-local `black_box` shim) and by forcing
+#   `VIRTIO_F_ACCESS_PLATFORM` acknowledgement in
+#   `write_driver_features`.
+# * As of 2026-04-18 the full flow is green on EPYC 9354 + SEV-SNP
+#   and this script defaults to `QRAB_SNP_SMOKE_EXPECT=pass`.
+#
+# The upstream OVMF decoder patch is still the right long-term fix;
+# the shim lives on until that lands.
 # Exit codes:
-#   0  — ALL required tokens present *and* we are running on a
-#        bootloader that has closed the SNP DMA ticket. Unexpected
-#        until ticket is resolved; the script exits 1 in that case
-#        so the ticket-close regression lights up loudly.
-#   1  — Either the tokens failed to appear (the current expected
-#        outcome, but treated as a test failure here because the
-#        real goal is closing the ticket), or the flow fully
-#        succeeded while the ticket remains open (regression
-#        detection).
+#   0  — ALL required tokens present under SEV-SNP. This is the
+#        default expectation (`QRAB_SNP_SMOKE_EXPECT=pass`) now
+#        that the DMA rework + the OVMF #VC decoder shim +
+#        ACCESS_PLATFORM force-ack have landed.
+#   1  — Any required token missing (regression), or a known-fail
+#        probe run succeeded unexpectedly (regression detection).
 #  77  — Skipped because the host lacks SNP support or
 #        `target/ovmf/OVMF.fd` is missing.
 #
-# Set `QRAB_SNP_SMOKE_EXPECT=pass` after closing the SNP DMA ticket to
-# flip the polarity; by default the script runs with
-# `QRAB_SNP_SMOKE_EXPECT=fail` and exits 0 on the expected failure.
+# Override with `QRAB_SNP_SMOKE_EXPECT=fail` when probing a new
+# regression that is expected to fail (e.g. reverting one of the
+# workarounds) so the script exits 0 on the missing-tokens path.
 set -euo pipefail
 
 ROOT="$(git -C "$(dirname "${BASH_SOURCE[0]}")" rev-parse --show-toplevel)"
@@ -44,7 +50,7 @@ MOCKLOG="$OUT/mock.log"
 GUEST_CID="${QRAB_VSOCK_GUEST_CID:-4243}"
 PORT="${QRAB_VSOCK_PORT:-1337}"
 BOOT_TIMEOUT_SECS="${QRAB_VSOCK_BOOT_TIMEOUT:-30}"
-EXPECT="${QRAB_SNP_SMOKE_EXPECT:-fail}"
+EXPECT="${QRAB_SNP_SMOKE_EXPECT:-pass}"
 
 log() { echo "smoke-snp-attest: $*" >&2; }
 die() { log "error: $*"; exit 1; }
@@ -121,7 +127,7 @@ tr -d '\r' < "$SERIAL" | grep -aE 'QRAB|phase' | head -30 || true
 echo "--- mock log ---"
 tail -5 "$MOCKLOG" || true
 
-required=(QRAB_VSOCK_FOUND QRAB_VSOCK_DRIVER_OK QRAB_VSOCK_CONNECT_OK QRAB_ATTEST_OK)
+required=(QRAB_VSOCK_FOUND QRAB_VSOCK_DRIVER_OK QRAB_VSOCK_CONNECT_OK QRAB_ATTEST_SIG_OK QRAB_REPORT_DATA_HEX QRAB_UKI_OK QRAB_PCR8_EXPECTED_DIGEST QRAB_PCR9_EXPECTED_DIGEST QRAB_SECRET_OK QRAB_ATTEST_OK)
 missing=()
 for tok in "${required[@]}"; do
     grep -a -q "$tok" "$SERIAL" || missing+=("$tok")
@@ -130,10 +136,10 @@ done
 case "$EXPECT" in
     fail)
         if [[ ${#missing[@]} -eq 0 ]]; then
-            log "unexpected PASS — issues/qrab-boot-snp-dma.md should be closed; flip QRAB_SNP_SMOKE_EXPECT=pass"
+            log "unexpected PASS — the regression you were probing did not reproduce; unset QRAB_SNP_SMOKE_EXPECT or set it to 'pass'"
             exit 1
         fi
-        log "expected FAIL observed (missing: ${missing[*]}); ticket issues/qrab-boot-snp-dma.md still open"
+        log "expected FAIL observed (missing: ${missing[*]})"
         exit 0
         ;;
     pass)
