@@ -2,3 +2,7 @@
 .worktrees
 .agent-memory/
 *.original.md
+
+# attest-server dev keypair (generated; regenerate via contrib/gen-attest-keys.sh)
+contrib/attest-keys/server.pem
+contrib/attest-keys/server.sec1
