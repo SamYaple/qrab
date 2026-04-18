@@ -37,6 +37,25 @@ impl QmpSession {
         }
     }
 
+    /// Consume the session and return separate read and write halves.
+    ///
+    /// Concurrency-test mocks need this: a reader task can pump
+    /// commands off the wire while spawned responder tasks dispatch
+    /// replies through a shared writer (typically wrapped in
+    /// `Arc<Mutex<…>>`). Without splitting, holding the session
+    /// `&mut` across an `await` for `read_line` blocks every
+    /// would-be writer.
+    pub fn split(self) -> (QmpReader, QmpWriter) {
+        (
+            QmpReader {
+                reader: self.reader,
+            },
+            QmpWriter {
+                writer: self.writer,
+            },
+        )
+    }
+
     /// Send the QMP greeting (server → client).
     pub async fn send_greeting(&mut self, major: u32, minor: u32, micro: u32) -> Result<()> {
         let greeting = serde_json::json!({
@@ -57,6 +76,11 @@ impl QmpSession {
     }
 
     /// Wait for qmp_capabilities from the client and send success response.
+    ///
+    /// Accepts the bare `qmp_capabilities` form *and* the
+    /// `arguments: {"enable": ["oob", ...]}` form the concurrent client
+    /// emits when the greeting advertised OOB support — both are
+    /// silently treated as "OK" by this mock.
     pub async fn negotiate(&mut self) -> Result<()> {
         let mut line = String::new();
         self.reader.read_line(&mut line).await?;
@@ -66,6 +90,10 @@ impl QmpSession {
                 "Expected qmp_capabilities, got: {}", cmd
             )));
         }
+        // Accept arguments.enable arrays without inspecting them; real
+        // QEMU validates each entry against the supported caps list, but
+        // the mock simply echoes success so concurrent-client OOB
+        // negotiation tests work out of the box.
         self.last_id = cmd.get("id").cloned();
         self.send_return(serde_json::json!({})).await?;
         Ok(())
@@ -74,28 +102,84 @@ impl QmpSession {
     /// Read the next command from the client.
     /// Returns (command_name, arguments). Stores the `id` field (if any)
     /// so subsequent `send_return`/`send_error` echo it back per QMP spec.
+    ///
+    /// Recognizes both `"execute"` (regular) and `"exec-oob"` (out-of-band)
+    /// envelopes; the OOB-ness is preserved on the parsed command via
+    /// [`recv_command_full`] when callers need it.
     pub async fn recv_command(&mut self) -> Result<(String, serde_json::Value)> {
+        let parsed = self.recv_command_full().await?;
+        Ok((parsed.name, parsed.arguments))
+    }
+
+    /// Read the next command from the client, returning the verb (OOB
+    /// or not), the command name, the arguments, and the raw `id`.
+    ///
+    /// The structured form is what concurrency tests need: they
+    /// inspect `oob` to decide whether to apply the artificial delay,
+    /// and they queue the `id` so multiple commands can be answered in
+    /// arbitrary order.
+    pub async fn recv_command_full(&mut self) -> Result<ParsedCommand> {
         let mut line = String::new();
         self.reader.read_line(&mut line).await?;
         if line.trim().is_empty() {
             return Err(Error::Protocol("Client disconnected".into()));
         }
         let cmd: serde_json::Value = serde_json::from_str(line.trim())?;
-        let name = cmd["execute"]
-            .as_str()
-            .ok_or_else(|| Error::Protocol("Missing 'execute' field".into()))?
-            .to_string();
-        let args = cmd
+        let (name, oob) = if let Some(s) = cmd["execute"].as_str() {
+            (s.to_string(), false)
+        } else if let Some(s) = cmd["exec-oob"].as_str() {
+            (s.to_string(), true)
+        } else {
+            return Err(Error::Protocol(
+                "Missing 'execute' or 'exec-oob' field".into(),
+            ));
+        };
+        let arguments = cmd
             .get("arguments")
             .cloned()
             .unwrap_or(serde_json::json!({}));
-        self.last_id = cmd.get("id").cloned();
-        Ok((name, args))
+        let id = cmd.get("id").cloned();
+        // For backward compat with `recv_command`, the most recent id
+        // is also stashed on the session so `send_return`/`send_error`
+        // (which take no id) keep echoing the right one.
+        self.last_id = id.clone();
+        Ok(ParsedCommand {
+            name,
+            arguments,
+            oob,
+            id,
+        })
     }
 
     /// Send a success response.
+    ///
+    /// Echoes the `id` of the most recently received command (per QMP
+    /// spec). For concurrent dispatch where multiple commands are
+    /// pending, use [`send_return_with_id`] instead.
     pub async fn send_return(&mut self, value: serde_json::Value) -> Result<()> {
-        let resp = serde_json::json!({"return": value});
+        let mut resp = serde_json::json!({"return": value});
+        if let Some(id) = self.last_id.clone() {
+            resp["id"] = id;
+        }
+        self.writer
+            .write_all(serde_json::to_string(&resp)?.as_bytes())
+            .await?;
+        self.writer.write_all(b"\n").await?;
+        self.writer.flush().await?;
+        Ok(())
+    }
+
+    /// Send a success response with an explicit `id`. Use this when
+    /// answering pipelined commands out of order.
+    pub async fn send_return_with_id(
+        &mut self,
+        value: serde_json::Value,
+        id: Option<serde_json::Value>,
+    ) -> Result<()> {
+        let mut resp = serde_json::json!({"return": value});
+        if let Some(id) = id {
+            resp["id"] = id;
+        }
         self.writer
             .write_all(serde_json::to_string(&resp)?.as_bytes())
             .await?;
@@ -106,7 +190,10 @@ impl QmpSession {
 
     /// Send an error response.
     pub async fn send_error(&mut self, class: &str, desc: &str) -> Result<()> {
-        let resp = serde_json::json!({"error": {"class": class, "desc": desc}});
+        let mut resp = serde_json::json!({"error": {"class": class, "desc": desc}});
+        if let Some(id) = self.last_id.clone() {
+            resp["id"] = id;
+        }
         self.writer
             .write_all(serde_json::to_string(&resp)?.as_bytes())
             .await?;
@@ -129,6 +216,102 @@ impl QmpSession {
         self.writer.flush().await?;
         Ok(())
     }
+}
+
+/// Read half of a split [`QmpSession`].
+pub struct QmpReader {
+    reader: BufReader<tokio::net::unix::OwnedReadHalf>,
+}
+
+impl QmpReader {
+    /// Read the next command from the wire, returning the structured
+    /// form. Mirrors [`QmpSession::recv_command_full`].
+    pub async fn recv_command_full(&mut self) -> Result<ParsedCommand> {
+        let mut line = String::new();
+        self.reader.read_line(&mut line).await?;
+        if line.trim().is_empty() {
+            return Err(Error::Protocol("Client disconnected".into()));
+        }
+        let cmd: serde_json::Value = serde_json::from_str(line.trim())?;
+        let (name, oob) = if let Some(s) = cmd["execute"].as_str() {
+            (s.to_string(), false)
+        } else if let Some(s) = cmd["exec-oob"].as_str() {
+            (s.to_string(), true)
+        } else {
+            return Err(Error::Protocol(
+                "Missing 'execute' or 'exec-oob' field".into(),
+            ));
+        };
+        let arguments = cmd
+            .get("arguments")
+            .cloned()
+            .unwrap_or(serde_json::json!({}));
+        let id = cmd.get("id").cloned();
+        Ok(ParsedCommand {
+            name,
+            arguments,
+            oob,
+            id,
+        })
+    }
+}
+
+/// Write half of a split [`QmpSession`].
+pub struct QmpWriter {
+    writer: tokio::net::unix::OwnedWriteHalf,
+}
+
+impl QmpWriter {
+    /// Send a success response with an explicit `id`. Mirrors
+    /// [`QmpSession::send_return_with_id`].
+    pub async fn send_return_with_id(
+        &mut self,
+        value: serde_json::Value,
+        id: Option<serde_json::Value>,
+    ) -> Result<()> {
+        let mut resp = serde_json::json!({"return": value});
+        if let Some(id) = id {
+            resp["id"] = id;
+        }
+        self.writer
+            .write_all(serde_json::to_string(&resp)?.as_bytes())
+            .await?;
+        self.writer.write_all(b"\n").await?;
+        self.writer.flush().await?;
+        Ok(())
+    }
+
+    /// Send an error response with an explicit `id`.
+    pub async fn send_error_with_id(
+        &mut self,
+        class: &str,
+        desc: &str,
+        id: Option<serde_json::Value>,
+    ) -> Result<()> {
+        let mut resp = serde_json::json!({"error": {"class": class, "desc": desc}});
+        if let Some(id) = id {
+            resp["id"] = id;
+        }
+        self.writer
+            .write_all(serde_json::to_string(&resp)?.as_bytes())
+            .await?;
+        self.writer.write_all(b"\n").await?;
+        self.writer.flush().await?;
+        Ok(())
+    }
+}
+
+/// One command received by [`QmpSession::recv_command_full`].
+///
+/// Carries the `oob` flag so concurrency tests can decide whether to
+/// apply a fake delay before responding, plus the raw `id` for
+/// out-of-order pipelined replies.
+#[derive(Debug, Clone)]
+pub struct ParsedCommand {
+    pub name: String,
+    pub arguments: serde_json::Value,
+    pub oob: bool,
+    pub id: Option<serde_json::Value>,
 }
 
 /// A mock QGA server session (one connected client).
