@@ -23,12 +23,32 @@ die() { echo "build-ovmf.sh: error: $*" >&2; exit 1; }
 log() { echo "build-ovmf.sh: $*"; }
 
 ROOT="$(git -C "$(dirname "${BASH_SOURCE[0]}")" rev-parse --show-toplevel)"
-VENDOR_EDK2="$ROOT/vendor/edk2"
-BUILD_ROOT="$ROOT/target/edk2-build"
+# Anchor heavy build artefacts (edk2 clone + transitive submodules) to the
+# MAIN checkout's `target/edk2-build`, not the current worktree's. This is
+# shared across every `../qrab-<agent>` worktree so agents don't re-clone
+# edk2 or re-fetch openssl/brotli/libspdm from the network. OUT_DIR stays
+# per-worktree because the final OVMF.fd is a worktree-scoped artifact.
+GIT_COMMON_DIR="$(git -C "$ROOT" rev-parse --git-common-dir)"
+# git-common-dir is either an absolute path or `.git` (relative to $ROOT).
+case "$GIT_COMMON_DIR" in
+    /*) : ;;
+    *)  GIT_COMMON_DIR="$ROOT/$GIT_COMMON_DIR" ;;
+esac
+MAIN_CHECKOUT="$(dirname "$GIT_COMMON_DIR")"
+VENDOR_EDK2="$MAIN_CHECKOUT/vendor/edk2"
+BUILD_ROOT="${QRAB_EDK2_BUILD_ROOT:-$MAIN_CHECKOUT/target/edk2-build}"
 BUILD_EDK2="$BUILD_ROOT/edk2"
 OUT_DIR="$ROOT/target/ovmf"
 BOOT_CRATE="$ROOT/projects/qrab-boot"
 BOOT_EFI="$BOOT_CRATE/target/x86_64-unknown-uefi/release/qrab-boot.efi"
+
+# Refuse to race: two concurrent builds would clobber embed-efi.py's
+# output. flock on a lockfile under BUILD_ROOT. Release on script exit.
+mkdir -p "$BUILD_ROOT"
+exec 9>"$BUILD_ROOT/.build.lock"
+if ! flock -n 9; then
+    die "another build-ovmf.sh is using $BUILD_ROOT — wait for it to finish or set QRAB_EDK2_BUILD_ROOT"
+fi
 
 EDK2_STABLE_TAG="${QRAB_EDK2_TAG:-edk2-stable202602}"
 EDK2_TOOLCHAIN="${QRAB_EDK2_TOOLCHAIN:-GCC5}"
