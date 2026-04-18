@@ -207,12 +207,26 @@ pub async fn get_event_history() -> Result<Vec<BmcEvent>, ServerFnError> {
 /// once per power-on, not once per poll.
 #[server]
 pub async fn get_dashboard_state() -> Result<DashboardState, ServerFnError> {
-    use crate::state::{bmc, VmState};
+    let state = crate::state::bmc();
+    Ok(build_dashboard(&state).await)
+}
+
+/// Core dashboard builder used by both `get_dashboard_state` (on-demand
+/// client fetch) and `BmcState::push_dashboard` (server-initiated push).
+///
+/// Errors from individual QMP probes collapse to `Default::default()`
+/// fields — the push path must not fail silently, and the client already
+/// treats missing slices as "not available".
+#[cfg(feature = "server")]
+pub async fn build_dashboard(state: &std::sync::Arc<crate::state::BmcState>) -> DashboardState {
+    use crate::state::VmState;
     use crate::types::GuestCpu;
     use std::path::PathBuf;
 
-    let state = bmc();
-
+    // Inner fallible closure keeps the `?` style. Any QMP probe failure
+    // collapses the whole snapshot to the `Off` default — the UI already
+    // renders that case sensibly while the client resyncs.
+    let inner: Result<DashboardState, ServerFnError> = async {
     // -- Phase 1: everything that needs the vm lock. One acquisition. --
     let (
         status,
@@ -456,6 +470,12 @@ pub async fn get_dashboard_state() -> Result<DashboardState, ServerFnError> {
         sev_capabilities,
         tpm_status,
         attestation,
+    })
+    }
+    .await;
+    inner.unwrap_or_else(|e| {
+        tracing::warn!("build_dashboard failed: {e}");
+        DashboardState::default()
     })
 }
 

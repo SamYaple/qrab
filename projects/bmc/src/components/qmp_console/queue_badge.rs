@@ -1,34 +1,24 @@
 //! Live queue-depth + OOB-availability badge.
 //!
-//! Self-contained: polls `qmp_queue_status` every 500ms so the dashboard
-//! shows queue pressure even when no command has been submitted recently.
+//! Reads from the central SSE-backed store. No self-polling — before
+//! this refactor the badge had its own 500 ms `qmp_queue_status` loop
+//! that ran in parallel to the parent `QmpConsole`'s identical loop,
+//! doubling HTTP load. Now both read the same `store.queue` signal.
 
 use dioxus::prelude::*;
 
-use bmc::server::qmp_exec::qmp_queue_status;
 use bmc::types::QueueStatus;
 
-use crate::components::util::sleep_ms;
-
-const POLL_INTERVAL_MS: u64 = 500;
+use crate::components::store::use_bmc_store;
 
 #[component]
 pub fn QueueBadge() -> Element {
-    let mut status = use_signal(QueueStatus::default);
-    use_future(move || async move {
-        loop {
-            if let Ok(s) = qmp_queue_status().await {
-                status.set(s);
-            }
-            sleep_ms(POLL_INTERVAL_MS).await;
-        }
-    });
-
+    let store = use_bmc_store();
     let QueueStatus {
         depth,
         capacity,
         oob_supported,
-    } = status.read().clone();
+    } = store.queue.read().clone();
 
     // Color by depth: green <4, yellow 4-6, red 7-8.
     let depth_class = if depth >= 7 {
@@ -55,7 +45,7 @@ pub fn QueueBadge() -> Element {
             span { class: "queue-depth {depth_class}",
                 "Queue {depth}/{capacity}"
             }
-            span { class: "queue-oob {oob_class}", " · {oob_label}" }
+            span { class: "queue-oob {oob_class}", " \u{00b7} {oob_label}" }
         }
     }
 }

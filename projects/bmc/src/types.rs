@@ -32,7 +32,7 @@ pub struct VmStatusResponse {
 /// VM configuration for spawning. The hardcoded BMC profile only exposes
 /// memory and cpu count; arch / machine / SEV-SNP / TPM / KVM / display /
 /// firmware are all implicit (SEV-SNP + TPM + KVM + UEFI + x86_64 + display).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BmcConfig {
     pub memory: String,
     #[serde(default)]
@@ -374,4 +374,38 @@ impl Default for AttestationState {
             status: AttestationStatus::NotAvailable,
         }
     }
+}
+
+/// Initial snapshot sent as the first SSE frame on connect. Replaces the
+/// old multi-fetch seed pattern — one frame carries everything the
+/// dashboard, QMP console, config panel and event log need to render.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BmcSnapshot {
+    pub dashboard: DashboardState,
+    pub queue: QueueStatus,
+    pub config: BmcConfig,
+    pub events: Vec<BmcEvent>,
+}
+
+/// Server -> client push over `/api/events` SSE. Replaces per-component
+/// polling: the client keeps a single SSE connection open and updates its
+/// central store as frames arrive.
+///
+/// `kind` tags the variant; `data` carries the variant payload. Heartbeat
+/// frames have no payload.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "data", rename_all = "snake_case")]
+pub enum BmcPush {
+    /// Full initial state. First frame after connect.
+    Snapshot(BmcSnapshot),
+    /// Dashboard slice changed — power-state / SEV / status flip.
+    Dashboard(DashboardState),
+    /// QMP queue depth / OOB availability changed.
+    Queue(QueueStatus),
+    /// VM configuration changed (memory / cpus).
+    Config(BmcConfig),
+    /// Single QMP event emitted by QEMU.
+    QmpEvent(BmcEvent),
+    /// Liveness heartbeat every 15s. No payload.
+    Heartbeat,
 }

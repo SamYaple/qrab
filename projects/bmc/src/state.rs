@@ -12,11 +12,17 @@ use manager::vm::{Vm, VmBuilder};
 use qapi_protocol::QmpEvent;
 
 use crate::types::{
-    AttestationState, BmcConfig, CpuInfoResponse, KvmInfoResponse, SevCapabilitiesResponse,
-    SevStatusResponse, TpmStatusResponse, VmPhase,
+    AttestationState, BmcConfig, BmcEvent, BmcPush, BmcSnapshot, CpuInfoResponse, KvmInfoResponse,
+    SevCapabilitiesResponse, SevStatusResponse, TpmStatusResponse, VmPhase,
 };
 
 const EVENT_HISTORY_CAP: usize = 1000;
+
+/// Interval between server-side liveness frames on the SSE stream.
+/// Browsers auto-reconnect an `EventSource` after a few seconds of
+/// silence; 15s is comfortably under that while not flooding idle
+/// connections.
+const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(15);
 
 static BMC: OnceLock<Arc<BmcState>> = OnceLock::new();
 
@@ -68,7 +74,12 @@ pub struct CachedStaticInfo {
 /// socket?" an atomic question by construction.
 pub struct BmcState {
     pub vm: Mutex<VmState>,
-    pub event_tx: broadcast::Sender<QmpEvent>,
+    /// Broadcast channel for every server-to-client push (SSE). Replaces
+    /// the old `event_tx` which only carried raw `QmpEvent`s — now every
+    /// frame is a typed `BmcPush` variant (dashboard slice, queue status,
+    /// config change, QMP event, heartbeat). The SSE handler subscribes
+    /// here; client-side polling loops are gone.
+    pub push_tx: broadcast::Sender<BmcPush>,
     pub event_history: Arc<Mutex<VecDeque<QmpEvent>>>,
     pub config: Mutex<BmcConfig>,
     /// Cached CPU/KVM/security info for the currently running VM. These
@@ -85,10 +96,32 @@ pub struct BmcState {
 
 impl BmcState {
     pub fn new() -> Arc<Self> {
-        let (event_tx, _) = broadcast::channel(256);
+        let (push_tx, _) = broadcast::channel(256);
+
+        // Heartbeat task: emit a `BmcPush::Heartbeat` every
+        // `HEARTBEAT_INTERVAL` so idle SSE clients can detect dead
+        // connections without any server-side state change.
+        //
+        // The task owns its own `push_tx` clone and runs detached for the
+        // lifetime of the process. `send` is infallible-noop when there
+        // are no subscribers.
+        {
+            let tx = push_tx.clone();
+            tokio::spawn(async move {
+                let mut ticker = tokio::time::interval(HEARTBEAT_INTERVAL);
+                // First tick fires immediately; skip it so the Snapshot
+                // frame is always the first thing a new SSE sees.
+                ticker.tick().await;
+                loop {
+                    ticker.tick().await;
+                    let _ = tx.send(BmcPush::Heartbeat);
+                }
+            });
+        }
+
         Arc::new(Self {
             vm: Mutex::new(VmState::Off),
-            event_tx,
+            push_tx,
             event_history: Arc::new(Mutex::new(VecDeque::with_capacity(EVENT_HISTORY_CAP))),
             config: Mutex::new(BmcConfig::default()),
             cached_static: Mutex::new(None),
@@ -232,11 +265,13 @@ impl BmcState {
         drop(dummy_tx);
         let real_rx = std::mem::replace(&mut paused_vm.events, dummy_rx);
 
-        // Spawn event forwarder task.
-        let tx = self.event_tx.clone();
+        // Spawn event forwarder task. Forwarder wraps each QmpEvent in a
+        // BmcPush::QmpEvent before rebroadcasting, and re-pushes dashboard
+        // state on life-cycle-significant events.
+        let state_clone = self.clone();
         let history = self.event_history.clone();
         let handle = tokio::spawn(async move {
-            event_forwarder(real_rx, tx, history).await;
+            event_forwarder(real_rx, state_clone, history).await;
         });
 
         let mut fwd = self.event_forwarder.lock().await;
@@ -394,7 +429,7 @@ impl BmcState {
         // Subscribe BEFORE sending powerdown so the SHUTDOWN event is never
         // missed due to a race between sending the command and receiving
         // the event.
-        let mut events = self.event_tx.subscribe();
+        let mut events = self.push_tx.subscribe();
 
         let vm = match self.take_running_vm().await? {
             Some(vm) => vm,
@@ -410,7 +445,7 @@ impl BmcState {
         let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
         loop {
             match tokio::time::timeout_at(deadline, events.recv()).await {
-                Ok(Ok(ev)) if ev.event == "SHUTDOWN" => break,
+                Ok(Ok(BmcPush::QmpEvent(ev))) if ev.event == "SHUTDOWN" => break,
                 Ok(Ok(_)) => continue,
                 _ => break,
             }
@@ -504,19 +539,98 @@ impl BmcState {
             }
         }
     }
+
+    // ---------------------------------------------------------------
+    // Push helpers
+    //
+    // Called by server fns and the event forwarder after any state
+    // mutation. Broadcast is infallible when there are no subscribers —
+    // heartbeat + any active SSE clients keep the channel alive.
+    // ---------------------------------------------------------------
+
+    /// Build a full `BmcSnapshot` — the first frame every new SSE client
+    /// receives. Encapsulates the three slice builds so the SSE handler
+    /// doesn't reach into internals.
+    pub async fn snapshot(self: &Arc<Self>) -> BmcSnapshot {
+        BmcSnapshot {
+            dashboard: crate::server::vm_status::build_dashboard(self).await,
+            queue: crate::server::qmp_exec::build_queue(self).await,
+            config: self.config.lock().await.clone(),
+            events: self.event_history_dto().await,
+        }
+    }
+
+    /// Snapshot the QMP event history as serializable `BmcEvent` DTOs.
+    pub async fn event_history_dto(&self) -> Vec<BmcEvent> {
+        let history = self.event_history.lock().await;
+        history
+            .iter()
+            .map(|e| BmcEvent {
+                event: e.event.clone(),
+                timestamp_secs: e.timestamp.seconds,
+                timestamp_usecs: e.timestamp.microseconds,
+                data: e.data.clone(),
+            })
+            .collect()
+    }
+
+    /// Rebuild the dashboard slice and broadcast it. Idempotent — safe
+    /// to call after any mutation that might flip a field.
+    pub async fn push_dashboard(self: &Arc<Self>) {
+        let dash = crate::server::vm_status::build_dashboard(self).await;
+        let _ = self.push_tx.send(BmcPush::Dashboard(dash));
+    }
+
+    /// Rebuild the QMP queue slice and broadcast it.
+    pub async fn push_queue(self: &Arc<Self>) {
+        let q = crate::server::qmp_exec::build_queue(self).await;
+        let _ = self.push_tx.send(BmcPush::Queue(q));
+    }
+
+    /// Broadcast the current VM configuration.
+    pub async fn push_config(&self) {
+        let cfg = self.config.lock().await.clone();
+        let _ = self.push_tx.send(BmcPush::Config(cfg));
+    }
 }
 
+/// Forwarder: drains QMP events from the manager's mpsc, records them in
+/// history, and republishes each as a `BmcPush::QmpEvent` so the SSE
+/// stream stays push-only. Life-cycle-significant events (`STOP`,
+/// `RESUME`, `RESET`, `SHUTDOWN`) also trigger a dashboard re-push so
+/// the status badge flips without a poll.
 async fn event_forwarder(
     mut rx: mpsc::Receiver<QmpEvent>,
-    tx: broadcast::Sender<QmpEvent>,
+    state: Arc<BmcState>,
     history: Arc<Mutex<VecDeque<QmpEvent>>>,
 ) {
     while let Some(event) = rx.recv().await {
-        let _ = tx.send(event.clone());
-        let mut h = history.lock().await;
-        h.push_back(event);
-        if h.len() > EVENT_HISTORY_CAP {
-            h.pop_front();
+        // Record in history first so anything reading it sees the event
+        // even if the broadcast has no live subscribers.
+        {
+            let mut h = history.lock().await;
+            h.push_back(event.clone());
+            if h.len() > EVENT_HISTORY_CAP {
+                h.pop_front();
+            }
+        }
+
+        let dto = BmcEvent {
+            event: event.event.clone(),
+            timestamp_secs: event.timestamp.seconds,
+            timestamp_usecs: event.timestamp.microseconds,
+            data: event.data.clone(),
+        };
+        let _ = state.push_tx.send(BmcPush::QmpEvent(dto));
+
+        // STOP/RESUME/RESET/SHUTDOWN flip the VM phase or clear guest
+        // state the dashboard surfaces. Re-broadcast dashboard so the UI
+        // flips immediately instead of on the next poll.
+        if matches!(
+            event.event.as_str(),
+            "STOP" | "RESUME" | "RESET" | "SHUTDOWN" | "POWERDOWN"
+        ) {
+            state.push_dashboard().await;
         }
     }
 }

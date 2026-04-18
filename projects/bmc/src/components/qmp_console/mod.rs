@@ -32,12 +32,13 @@ use std::collections::HashMap;
 use dioxus::prelude::*;
 use serde_json::Value;
 
-use bmc::server::qmp_exec::{list_commands, qmp_queue_status};
-use bmc::types::{CommandDto, QueueStatus};
+use bmc::types::CommandDto;
 
 use command_form::CommandForm;
 use command_picker::CommandPicker;
 use queue_badge::QueueBadge;
+
+use crate::components::store::use_bmc_store;
 
 #[component]
 pub fn QmpConsole(commands: Vec<CommandDto>) -> Element {
@@ -48,25 +49,10 @@ pub fn QmpConsole(commands: Vec<CommandDto>) -> Element {
     let response = use_signal(|| None::<Result<Value, String>>);
     let oob_toggle = use_signal(|| false);
 
-    // Queue status: poll every 500ms from the parent's scope indirectly via
-    // a manual spawn. Fetching from a prop-less no-hooks-firing component
-    // was unreliable under Dioxus 0.7 fullstack — commands now arrive as
-    // a prop from Dashboard and the queue status uses a simple resource.
-    let mut queue_now = use_signal(QueueStatus::default);
-    let mut queue_tick = use_signal(|| 0u64);
-    use_future(move || async move {
-        loop {
-            crate::components::util::sleep_ms(500).await;
-            queue_tick += 1;
-        }
-    });
-    let queue_resource = use_resource(move || async move {
-        let _ = queue_tick();
-        qmp_queue_status().await.unwrap_or_default()
-    });
-    if let Some(s) = queue_resource.read().clone() {
-        queue_now.set(s);
-    }
+    // Queue status flows from the SSE-backed store. No polling — the
+    // server broadcasts a `Queue` frame after every `execute_qmp` call.
+    let store = use_bmc_store();
+    let queue_now = store.queue;
 
     let commands_value = commands;
     let load_error_value = String::new();

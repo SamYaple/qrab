@@ -309,3 +309,98 @@ async fn event_history_ordering() {
     let names: Vec<&str> = h.iter().map(|e| e.event.as_str()).collect();
     assert_eq!(names, events);
 }
+
+// --- BmcPush SSE envelope tests ---
+//
+// These exercise the serde representation only; the runtime
+// broadcast/snapshot wiring is covered by the compile and by the
+// state-level unit tests that run under `--features server`.
+
+/// Adjacent tagging (tag="kind", content="data") must round-trip every
+/// variant. The client SSE dispatcher matches on `kind`, so if this
+/// format ever changes the browser silently drops frames.
+#[test]
+fn bmc_push_snapshot_roundtrip() {
+    use bmc::types::{BmcPush, BmcSnapshot, BmcConfig, DashboardState, QueueStatus};
+
+    let orig = BmcPush::Snapshot(BmcSnapshot {
+        dashboard: DashboardState::default(),
+        queue: QueueStatus::default(),
+        config: BmcConfig::default(),
+        events: Vec::new(),
+    });
+    let json = serde_json::to_string(&orig).unwrap();
+    assert!(json.contains("\"kind\":\"snapshot\""), "tag missing: {json}");
+    assert!(json.contains("\"data\""), "content missing: {json}");
+    let back: BmcPush = serde_json::from_str(&json).unwrap();
+    assert_eq!(back, orig);
+}
+
+#[test]
+fn bmc_push_heartbeat_roundtrip() {
+    use bmc::types::BmcPush;
+    let json = serde_json::to_string(&BmcPush::Heartbeat).unwrap();
+    assert!(
+        json.contains("\"kind\":\"heartbeat\""),
+        "heartbeat tag: {json}"
+    );
+    let back: BmcPush = serde_json::from_str(&json).unwrap();
+    assert_eq!(back, BmcPush::Heartbeat);
+}
+
+#[test]
+fn bmc_push_config_roundtrip() {
+    use bmc::types::{BmcConfig, BmcPush};
+    let cfg = BmcConfig {
+        memory: "2G".into(),
+        cpus: Some(4),
+    };
+    let orig = BmcPush::Config(cfg.clone());
+    let json = serde_json::to_string(&orig).unwrap();
+    assert!(json.contains("\"kind\":\"config\""));
+    assert!(json.contains("\"2G\""));
+    let back: BmcPush = serde_json::from_str(&json).unwrap();
+    assert_eq!(back, BmcPush::Config(cfg));
+}
+
+#[test]
+fn bmc_push_queue_roundtrip() {
+    use bmc::types::{BmcPush, QueueStatus};
+    let q = QueueStatus {
+        depth: 3,
+        capacity: 8,
+        oob_supported: true,
+    };
+    let orig = BmcPush::Queue(q.clone());
+    let json = serde_json::to_string(&orig).unwrap();
+    assert!(json.contains("\"kind\":\"queue\""));
+    let back: BmcPush = serde_json::from_str(&json).unwrap();
+    assert_eq!(back, BmcPush::Queue(q));
+}
+
+#[test]
+fn bmc_push_qmp_event_roundtrip() {
+    use bmc::types::{BmcEvent, BmcPush};
+    let ev = BmcEvent {
+        event: "STOP".into(),
+        timestamp_secs: 100,
+        timestamp_usecs: 5,
+        data: serde_json::json!({"foo": "bar"}),
+    };
+    let orig = BmcPush::QmpEvent(ev.clone());
+    let json = serde_json::to_string(&orig).unwrap();
+    assert!(json.contains("\"kind\":\"qmp_event\""));
+    let back: BmcPush = serde_json::from_str(&json).unwrap();
+    assert_eq!(back, BmcPush::QmpEvent(ev));
+}
+
+#[test]
+fn bmc_push_dashboard_roundtrip() {
+    use bmc::types::{BmcPush, DashboardState};
+    let d = DashboardState::default();
+    let orig = BmcPush::Dashboard(d.clone());
+    let json = serde_json::to_string(&orig).unwrap();
+    assert!(json.contains("\"kind\":\"dashboard\""));
+    let back: BmcPush = serde_json::from_str(&json).unwrap();
+    assert_eq!(back, BmcPush::Dashboard(d));
+}
