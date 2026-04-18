@@ -1039,22 +1039,15 @@ impl VmBuilder {
                 args[abs_idx].push_str(&format!(",firmware={}", fw_path.display()));
             }
         }
-        // SEV device path: since qrab-init currently defers /dev isolation
-        // (host /dev is visible), pass the device path directly. The SevFd
-        // opened in the parent provides credential checking at open() time;
-        // QEMU re-opens the path inside the namespace but the KVM ioctls
-        // use the KVM fd (which was opened with real credentials).
-        //
-        // When /dev isolation lands, switch to fd passing via dup2 in
-        // qrab-init + sev-device=/proc/self/fd/N.
+        // SEV fd is passed to QEMU via sev-device=/proc/self/fd/N. qrab-init
+        // dup2's the fd to SEV_DUP_FD (4) before execve — QEMU's close-all-
+        // high-fds pass would otherwise close high-numbered inherited fds
+        // before reading sev-device — and rewrites the /proc/self/fd/N
+        // reference in this arg accordingly.
         let mut sev_args = sev_args;
-        if self.sev_snp.is_some() {
-            let dev_path = self.sev_snp.as_ref()
-                .and_then(|s| s.sev_device.as_ref())
-                .map(|p| p.display().to_string())
-                .unwrap_or_else(|| "/dev/sev".to_string());
+        if let Some(ref sev) = sev_fd {
             if let Some(obj_str) = sev_args.get_mut(1) {
-                obj_str.push_str(&format!(",sev-device={dev_path}"));
+                obj_str.push_str(&format!(",sev-device=/proc/self/fd/{}", sev.raw_fd()));
             }
         }
         args.extend(sev_args);
@@ -1169,167 +1162,6 @@ impl VmBuilder {
             args = %args.join(" "),
             "spawning QEMU via qrab-init"
         );
-
-        // --- DEBUG: Direct QEMU spawn bypass (no namespace) ---
-        if std::env::var("QRAB_NO_NAMESPACE").is_ok() {
-            tracing::warn!("QRAB_NO_NAMESPACE set — spawning QEMU directly, no isolation");
-
-            // Strip fd-passing args: QEMU can access /dev/kvm directly
-            // without namespace isolation. Replace -add-fd + fdset accel
-            // with plain -accel kvm. The fd-passing args reference parent
-            // fd numbers that may not survive to the child correctly.
-            let mut patched_args: Vec<String> = Vec::new();
-            let mut skip_next = false;
-            for arg in &args {
-                if skip_next {
-                    skip_next = false;
-                    continue;
-                }
-                if arg.starts_with("fd=") && arg.contains(",set=") {
-                    // This is the value after -add-fd, already skipped
-                    continue;
-                }
-                if arg == "-add-fd" {
-                    skip_next = true; // skip the fd=N,set=M value
-                    continue;
-                }
-                if arg == "-accel" {
-                    // Check if next arg is fdset-based
-                    let idx = patched_args.len();
-                    patched_args.push(arg.clone());
-                    continue;
-                }
-                if arg.starts_with("kvm,device=/dev/fdset/") {
-                    // Replace fdset accel with plain kvm
-                    patched_args.push("kvm".into());
-                    continue;
-                }
-                patched_args.push(arg.clone());
-            }
-            let args = patched_args;
-            tracing::debug!(args = %args.join(" "), "patched args for direct spawn");
-
-            // --- Diagnostic: dump process environment before QEMU spawn ---
-            if std::env::var("QRAB_DIAG").is_ok() {
-                let diag_path = std::path::Path::new("/tmp/qrab-diag.txt");
-                let mut diag = String::new();
-                diag.push_str("=== QRAB PRE-SPAWN DIAGNOSTICS ===\n");
-                diag.push_str(&format!("PID: {}\n", std::process::id()));
-                diag.push_str(&format!("args: {}\n", args.join(" ")));
-
-                // Resource limits
-                if let Ok(limits) = std::fs::read_to_string("/proc/self/limits") {
-                    diag.push_str("\n--- /proc/self/limits ---\n");
-                    diag.push_str(&limits);
-                }
-
-                // Open fds
-                diag.push_str("\n--- open fds ---\n");
-                if let Ok(entries) = std::fs::read_dir("/proc/self/fd") {
-                    let mut fds: Vec<_> = entries.filter_map(|e| e.ok()).collect();
-                    fds.sort_by_key(|e| e.file_name());
-                    for entry in fds {
-                        let fd = entry.file_name();
-                        let target = std::fs::read_link(entry.path())
-                            .map(|p| p.display().to_string())
-                            .unwrap_or_else(|_| "?".into());
-                        diag.push_str(&format!("  fd {} -> {}\n", fd.to_string_lossy(), target));
-                    }
-                }
-
-                // Env vars
-                diag.push_str("\n--- environment ---\n");
-                for (k, v) in std::env::vars() {
-                    diag.push_str(&format!("  {}={}\n", k, v));
-                }
-
-                let _ = std::fs::write(diag_path, &diag);
-                tracing::info!("Diagnostic dump written to {}", diag_path.display());
-            }
-
-            // Close /dev/kvm and /dev/sev fds BEFORE spawn so QEMU doesn't
-            // inherit them. QEMU opens these itself via -accel kvm and
-            // sev-device=/dev/sev. If inherited fds survive exec, QEMU's
-            // fd cleanup closes them during startup, destroying the kernel
-            // SEV context — which may corrupt PSP state for QEMU's own
-            // SEV session opened moments later.
-            drop(kvm_fd);
-            drop(sev_fd);
-
-            let qemu_binary = which::which(self.arch.binary())
-                .map_err(|_| Error::Binary(format!("QEMU not found: {}", self.arch.binary().display())))?;
-
-            // If QRAB_STRACE is set, wrap QEMU in strace to capture ioctls
-            let mut child = if std::env::var("QRAB_STRACE").is_ok() {
-                let strace_out = "/tmp/qemu-strace.txt";
-                tracing::warn!("QRAB_STRACE: wrapping QEMU in strace → {strace_out}");
-                Command::new("strace")
-                    .args(["-f", "-e", "trace=ioctl", "-o", strace_out])
-                    .arg(&qemu_binary)
-                    .args(&args)
-                    .stdout(Stdio::null())
-                    .stderr(Stdio::piped())
-                    .kill_on_drop(true)
-                    .spawn()?
-            } else {
-                Command::new(&qemu_binary)
-                    .args(&args)
-                    .stdout(Stdio::null())
-                    .stderr(Stdio::piped())
-                    .kill_on_drop(true)
-                    .spawn()?
-            };
-
-            // stderr forwarder
-            if let Some(stderr) = child.stderr.take() {
-                tokio::spawn(async move {
-                    use tokio::io::{AsyncBufReadExt, BufReader};
-                    let mut lines = BufReader::new(stderr).lines();
-                    while let Ok(Some(line)) = lines.next_line().await {
-                        tracing::warn!(target: "qemu", "{}", line);
-                    }
-                });
-            }
-
-            // Wait for QMP socket
-            let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(30);
-            while !qmp_sock.exists() {
-                if tokio::time::Instant::now() > deadline {
-                    return Err(Error::Spawn("QMP socket timeout".into()));
-                }
-                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-            }
-            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-
-            let (qmp, event_rx) = qapi_protocol::Qmp::new(&qmp_sock).await?;
-            let (shutdown_tx, shutdown_rx) = oneshot::channel();
-            let (exit_tx, exit_rx) = watch::channel(None);
-
-            // Spawn monitor task for direct child
-            let monitor = tokio::spawn(async move {
-                let _ = child.wait().await;
-                let _ = exit_tx.send(Some(std::process::ExitStatus::default()));
-            });
-
-            let process = VmProcess {
-                shutdown: Some(shutdown_tx),
-                monitor: Some(monitor),
-                exit_watch: exit_rx,
-                _tmpdir: tmpdir,
-                qmp_sock: qmp_sock.clone(),
-                serial_log: serial_log.clone(),
-                vnc_sock: vnc_sock.clone(),
-                attest_sock: attest_sock.clone(),
-                swtpm: swtpm_process,
-            };
-
-            return Ok(PreconfigVm {
-                qmp,
-                events: event_rx,
-                process,
-                paused_mode: self.display && self.sev_snp.is_none(),
-            });
-        }
 
         // --- Build pre_exec closure ---
         let pre_exec_fn = crate::namespace::make_pre_exec(

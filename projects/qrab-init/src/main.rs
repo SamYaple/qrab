@@ -184,31 +184,6 @@ fn run() -> Result<(), String> {
             // Collect current environment.
             let environ = collect_environ()?;
 
-            // Debug: dump dup2 result
-            eprintln!(
-                "qrab-init: CHILD pid={} sev_fd={:?} after dup2",
-                std::process::id(),
-                config.sev_fd
-            );
-
-            // Debug: dump open fds before execve
-            if let Ok(entries) = std::fs::read_dir("/proc/self/fd") {
-                let mut fds: Vec<i32> = entries
-                    .filter_map(|e| e.ok())
-                    .filter_map(|e| e.file_name().to_str().and_then(|s| s.parse().ok()))
-                    .collect();
-                fds.sort();
-                eprintln!("qrab-init: open fds before execve: {:?}", fds);
-                if let Some(sev_fd) = config.sev_fd {
-                    let dup_fd = 4;
-                    let orig_exists =
-                        std::path::Path::new(&format!("/proc/self/fd/{sev_fd}")).exists();
-                    let dup_exists =
-                        std::path::Path::new(&format!("/proc/self/fd/{dup_fd}")).exists();
-                    eprintln!("qrab-init: sev_fd={sev_fd} exists={orig_exists} dup_fd={dup_fd} exists={dup_exists}");
-                }
-            }
-
             // execve replaces this process with QEMU.
             execve(&binary, &argv, &environ).map_err(|e| format!("execve failed: {e}"))?;
 
