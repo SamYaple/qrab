@@ -343,75 +343,96 @@ async fn sev_snp_boot_with_snp_kernel() {
     vm.shutdown().await;
 }
 
-/// Test SEV-SNP boot across different memory sizes.
-/// Original crash report used 256M — verify all sizes work with SNP kernel.
+/// SEV-SNP launch sequence across the full (memory size) x (reduced-phys-bits) matrix.
+///
+/// Pins the `llm-rag/issues/sev-snp-boot-crash.md` coverage table:
+/// memsizes 256M/512M/1G/2G x phys-bits 1/2. Scope is **SNP launch, not
+/// guest boot** — we spawn, `x-exit-preconfig`, `cont`, then query-status.
+/// The VM must report `running = true`. Whether the guest image (or any
+/// GRUB/UKI inside it) actually reaches userspace is intentionally out
+/// of scope here; the original memory-size claim was about the SNP
+/// launch sequence, not userspace liveness.
+///
+/// No guest disk is attached — firmware boots to the UEFI shell and the
+/// test returns as soon as query-status confirms the VM is running.
+/// This keeps the matrix fast (~8 × 4s) and isolates it from fixture
+/// drift (e.g. AmdSev OVMF's embedded GRUB expecting `sevsecret`).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn sev_snp_boot_memory_sizes() {
+async fn sev_snp_launch_memory_matrix() {
     if sev_skip_check() { return; }
 
     let amdsev_fw = match firmware::find_amdsev_ovmf() {
         Some(fw) => fw,
         None => { eprintln!("SKIP: AmdSev OVMF not found"); return; }
     };
-    let snp_image = match find_snp_boot_image() {
-        Some(img) => img,
-        None => { eprintln!("SKIP: SNP boot image not found"); return; }
-    };
 
-    for mem in &["256M", "512M", "1G"] {
-        eprintln!("Testing SEV-SNP boot with -m {mem}...");
+    let mut failures: Vec<String> = Vec::new();
 
-        let tmpdir = tempfile::tempdir().expect("tempdir");
-        let overlay = tmpdir.path().join("overlay.qcow2");
-        let img = std::process::Command::new("qemu-img")
-            .args([
-                "create", "-f", "qcow2",
-                "-b", &snp_image.display().to_string(),
-                "-F", "qcow2",
-                &overlay.display().to_string(),
-            ])
-            .output()
-            .expect("qemu-img");
-        assert!(img.status.success());
+    for mem in &["256M", "512M", "1G", "2G"] {
+        for phys_bits in [1u32, 2u32] {
+            let label = format!("mem={mem} reduced_phys_bits={phys_bits}");
+            eprintln!("Testing SEV-SNP launch {label}...");
 
-        let builder = VmBuilder::new(
-            Arch::X86_64,
-            MachineConfig::Uefi { memory: (*mem).into() },
-        )
-            .accel(Accel::Kvm)
-            .cpu("EPYC-v4")
-            .sev_snp(SevSnpConfig::default())
-            .firmware(amdsev_fw.clone())
-            .arg("-drive")
-            .arg(format!("if=virtio,file={},format=qcow2", overlay.display()))
-            .serial();
+            let sev = SevSnpConfig::new().reduced_phys_bits(phys_bits);
+            let builder = VmBuilder::new(
+                Arch::X86_64,
+                MachineConfig::Uefi { memory: (*mem).into() },
+            )
+                .accel(Accel::Kvm)
+                .cpu("EPYC-v4")
+                .sev_snp(sev)
+                .firmware(amdsev_fw.clone())
+                .serial();
 
-        let preconfig = match builder.spawn().await {
-            Ok(vm) => vm,
-            Err(e) => {
-                eprintln!("  {mem}: spawn failed: {e}");
+            let preconfig = match builder.spawn().await {
+                Ok(vm) => vm,
+                Err(e) => {
+                    failures.push(format!("{label}: spawn failed: {e}"));
+                    continue;
+                }
+            };
+
+            let vm = match preconfig.start().await {
+                Ok(v) => v,
+                Err(e) => {
+                    failures.push(format!("{label}: x-exit-preconfig failed: {e}"));
+                    continue;
+                }
+            };
+            if let Err(e) = vm.cont().await {
+                failures.push(format!("{label}: cont failed: {e}"));
+                vm.shutdown().await;
                 continue;
             }
-        };
 
-        let serial_log = preconfig.serial_log().cloned();
-        let vm = preconfig.start().await.expect("x-exit-preconfig failed");
-        vm.cont().await.expect("cont failed");
+            // Brief settle so SNP_LAUNCH_FINISH and the first VMGEXITs complete.
+            tokio::time::sleep(std::time::Duration::from_secs(3)).await;
 
-        // Use -drive on CLI for simplicity (no blockdev-add dance)
-        tokio::time::sleep(std::time::Duration::from_secs(10)).await;
-
-        if let Some(ref log_path) = serial_log {
-            let serial = std::fs::read_to_string(log_path).unwrap_or_default();
-            if serial.contains("SNP BOOT OK") {
-                eprintln!("  {mem}: PASS");
-            } else {
-                eprintln!("  {mem}: FAIL — no SNP BOOT OK in serial");
-                eprintln!("  serial tail: {}", serial.chars().rev().take(200).collect::<String>().chars().rev().collect::<String>());
+            match vm.qmp.execute(&qapi::commands::QueryStatus {}).await {
+                Ok(status) if status.running => {
+                    eprintln!("  {label}: running = true (launch OK)");
+                }
+                Ok(status) => {
+                    failures.push(format!(
+                        "{label}: query-status returned running=false, status={:?}",
+                        status.status
+                    ));
+                }
+                Err(e) => {
+                    failures.push(format!("{label}: query-status failed: {e}"));
+                }
             }
-        }
 
-        vm.shutdown().await;
+            vm.shutdown().await;
+        }
+    }
+
+    if !failures.is_empty() {
+        panic!(
+            "SEV-SNP launch matrix had {} failure(s):\n  {}",
+            failures.len(),
+            failures.join("\n  ")
+        );
     }
 }
 

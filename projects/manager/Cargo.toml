@@ -29,3 +29,4 @@ features = ["net", "io-util", "sync", "rt", "macros", "rt-multi-thread", "proces
 paste = { workspace = true }
 serde_json = { workspace = true }
 serde = { workspace = true }
+nix = { workspace = true, features = ["ioctl"] }
