@@ -1117,6 +1117,8 @@ impl VmBuilder {
             args.extend(tpm_args);
         }
 
+        args.extend(["-run-with".into(), "async-teardown=on".into()]);
+
         args.extend(self.extra_args);
 
         // --- Pipes for namespace sync + config transport ---
