@@ -24,6 +24,12 @@ qrab-boot-proto = { path = "../qrab-boot-proto" }
 # force any edk2 DSC/FDF changes, which is the main reason for the
 # pivot. `alloc` is the only feature we need at runtime.
 virtio-drivers = { version = "0.13", default-features = false, features = ["alloc"] }
+# ECDSA-P256 verification of the signed `AttestResponse` from
+# `attest-server`. `ecdsa` pulls in sha2 transitively; we re-declare
+# sha2 at the top level with matching features because the SNP
+# `report_data` helper in qrab-boot-proto also builds a SHA-256.
+p256 = { version = "0.13", default-features = false, features = ["ecdsa"] }
+sha2 = { version = "0.10", default-features = false }
 
 [profile.release]
 opt-level = "s"
