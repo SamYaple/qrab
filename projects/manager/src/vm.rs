@@ -571,25 +571,15 @@ impl VmBuilder {
                     }
                 }
 
-                // SEV uses -bios instead of pflash. KVM+SEV doesn't
-                // support pflash memory regions at all (readonly or not).
-                // -bios loads firmware into RAM at reset vector — works
-                // with SEV memory encryption. No UEFI variable persistence
-                // (AmdSev OVMF is combined CODE+VARS, stateless).
+                // SEV-SNP: firmware loaded via -machine firmware= property.
+                // pflash incompatible (KVM_CAP_READONLY_MEM=0 for SNP VMs).
+                // -bios loads at reset vector without PSP validation (crashes).
+                // -machine firmware= goes through machine firmware loader which
+                // the PSP validates before vCPU start.
                 if self.sev_snp.is_some() {
-                    let fw_path = if let Some(ref fw) = self.firmware {
-                        fw.clone()
-                    } else if let Some(ref ovmf) = self.ovmf {
-                        ovmf.code.clone()
-                    } else {
-                        return Err(Error::Config(
-                            "SEV-SNP requires firmware (AmdSev OVMF) but none configured".into()
-                        ));
-                    };
-                    args.extend([
-                        "-bios".into(),
-                        fw_path.display().to_string(),
-                    ]);
+                    // Firmware path resolved here, appended to -machine arg
+                    // via sev_firmware_path later (after build_sev_args).
+                    // Don't emit any firmware args here.
                 } else if let Some(ref ovmf) = self.ovmf {
                     // Normal (non-SEV): split pflash for UEFI vars persistence.
                     let vars_copy = firmware::prepare_vars_copy(
@@ -663,12 +653,8 @@ impl VmBuilder {
                 };
 
                 if self.sev_snp.is_some() {
-                    // SEV: use -bios instead of pflash. KVM+SEV doesn't
-                    // support pflash memory regions at all.
-                    args.extend([
-                        "-bios".into(),
-                        ovmf.code.display().to_string(),
-                    ]);
+                    // SEV-SNP: firmware via -machine firmware= (same as UEFI path).
+                    // Don't emit anything here — handled via machine suffix.
                 } else {
                     let vars_copy = firmware::prepare_vars_copy(
                         &ovmf.vars_template,
@@ -1017,6 +1003,22 @@ impl VmBuilder {
             if let Some(idx) = machine_idx {
                 let abs_idx = machine_idx_offset + idx;
                 args[abs_idx].push_str(&suffix);
+
+                // SEV-SNP firmware via -machine firmware= property.
+                // pflash is incompatible (KVM_CAP_READONLY_MEM=0 for SNP VMs type 3).
+                // -bios loads at reset vector without PSP validation (crashes).
+                // -machine firmware= uses the machine firmware loader which the
+                // PSP validates and measures before vCPU start.
+                let fw_path = if let Some(ref fw) = self.firmware {
+                    fw.clone()
+                } else if let Some(ref ovmf) = self.ovmf {
+                    ovmf.code.clone()
+                } else {
+                    return Err(Error::Config(
+                        "SEV-SNP requires firmware (AmdSev OVMF) but none configured".into()
+                    ));
+                };
+                args[abs_idx].push_str(&format!(",firmware={}", fw_path.display()));
             }
         }
         args.extend(sev_args);
