@@ -97,3 +97,93 @@ pub fn connect_and_wait(
     log::warn!("QRAB_VSOCK_CONNECT_TIMEOUT cid={cid} port={port}");
     Err(ConnectError::Timeout)
 }
+
+/// How many poll iterations to spend waiting for inbound bytes after
+/// a `send`. Same tuning constraints as connect, plus a small multiplier
+/// because the host may take a few roundtrips to produce the reply.
+const MAX_RECV_ITERATIONS: usize = 32_000;
+
+/// Distinguished errors from [`send_and_recv`].
+#[allow(dead_code)]
+#[derive(Debug)]
+pub enum IoError {
+    /// `VsockConnectionManager::send` rejected the write.
+    Send(virtio_drivers::Error),
+    /// `VsockConnectionManager::recv` rejected the read.
+    Recv(virtio_drivers::Error),
+    /// `poll` surfaced an error while waiting for the reply.
+    Poll(virtio_drivers::Error),
+    /// Nothing came back within [`MAX_RECV_ITERATIONS`].
+    Timeout,
+    /// The peer reported `VsockEventType::Disconnected` instead of
+    /// a data event.
+    Disconnected,
+}
+
+/// Send `payload` to `(cid, port)` and block for the first chunk of
+/// reply bytes. The reply is copied into the caller's `reply` slice
+/// and the number of bytes read is returned.
+///
+/// Logs:
+///   QRAB_VSOCK_SENT bytes=<n>
+///   QRAB_VSOCK_RECV bytes=<n>
+///   QRAB_VSOCK_RECV_DISCONNECT
+///   QRAB_VSOCK_RECV_TIMEOUT
+///
+/// The caller is responsible for having run [`connect_and_wait`]
+/// against the same `(cid, port, src_port)` triple first; we do not
+/// re-validate here to keep the helper composable.
+#[allow(dead_code)]
+pub fn send_and_recv(
+    driver: &mut VsockDriver,
+    cid: u64,
+    port: u32,
+    src_port: u32,
+    payload: &[u8],
+    reply: &mut [u8],
+) -> Result<usize, IoError> {
+    let dst = VsockAddr { cid, port };
+
+    driver.manager.send(dst, src_port, payload).map_err(|e| {
+        log::warn!("QRAB_VSOCK_SEND_ERR {e:?}");
+        IoError::Send(e)
+    })?;
+    log::info!("QRAB_VSOCK_SENT bytes={}", payload.len());
+
+    for _ in 0..MAX_RECV_ITERATIONS {
+        match driver.manager.poll() {
+            Ok(Some(event)) => {
+                if event.source != dst {
+                    continue;
+                }
+                match event.event_type {
+                    VsockEventType::Received { length: _ } => {
+                        let n = driver.manager.recv(dst, src_port, reply).map_err(|e| {
+                            log::warn!("QRAB_VSOCK_RECV_ERR {e:?}");
+                            IoError::Recv(e)
+                        })?;
+                        log::info!("QRAB_VSOCK_RECV bytes={n}");
+                        return Ok(n);
+                    }
+                    VsockEventType::Disconnected { reason } => {
+                        log::warn!("QRAB_VSOCK_RECV_DISCONNECT reason={reason:?}");
+                        return Err(IoError::Disconnected);
+                    }
+                    _ => {}
+                }
+            }
+            Ok(None) => {}
+            Err(e) => {
+                log::warn!("QRAB_VSOCK_RECV_POLL_ERR {e:?}");
+                return Err(IoError::Poll(e));
+            }
+        }
+        // SAFETY: `pause` is always legal at any privilege level.
+        unsafe {
+            asm!("pause", options(nomem, nostack, preserves_flags));
+        }
+    }
+
+    log::warn!("QRAB_VSOCK_RECV_TIMEOUT cid={cid} port={port}");
+    Err(IoError::Timeout)
+}
