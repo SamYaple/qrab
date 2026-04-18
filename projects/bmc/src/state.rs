@@ -150,8 +150,23 @@ impl BmcState {
         }
 
         let arch = arch_to_manager(config.arch);
+        // SEV-SNP with Ubuntu needs ≥1G RAM (256M crashes during kernel
+        // page conversions, 512M OOMs during cloud-init).
+        let memory = if config.sev_snp.is_some() {
+            let mem = &config.memory;
+            let needs_bump = mem.ends_with('M')
+                && mem.trim_end_matches('M').parse::<u32>().unwrap_or(0) < 1024;
+            if needs_bump {
+                tracing::warn!("SEV-SNP: bumping memory from {} to 1G (minimum for Ubuntu guest)", mem);
+                "1G".to_string()
+            } else {
+                config.memory.clone()
+            }
+        } else {
+            config.memory.clone()
+        };
         let machine_config =
-            machine_to_manager(config.machine, config.memory.clone(), config.secure_boot);
+            machine_to_manager(config.machine, memory, config.secure_boot);
 
         let mut builder = VmBuilder::new(arch, machine_config).serial();
         if let Some(cpus) = config.cpus {
@@ -237,19 +252,31 @@ impl BmcState {
         // and crashes during SNP page state transitions.
         let disks = if !matches!(config.machine, BmcMachine::None) && config.disks.is_empty() {
             let base_image = if config.sev_snp.is_some() {
-                ensure_snp_boot_image().await?
+                ensure_ubuntu_snp_image().await?
             } else {
                 ensure_cirros_image().await?
             };
             // Create a temporary overlay so the base image is never modified.
             // Each VM gets a fresh writable snapshot; force_off discards it.
             let overlay = create_temp_overlay(&base_image).await?;
-            vec![DiskConfig {
+            let mut disk_list = vec![DiskConfig {
                 file: overlay,
                 format: DiskFormat::Qcow2,
                 interface: crate::types::DiskInterface::Virtio,
                 read_only: false,
-            }]
+            }];
+            // For SEV-SNP Ubuntu image: attach cloud-init seed as second disk.
+            // cloud-init reads user-data/meta-data from FAT disk labeled "cidata".
+            if config.sev_snp.is_some() {
+                let seed = ensure_cloud_init_seed().await?;
+                disk_list.push(DiskConfig {
+                    file: seed,
+                    format: DiskFormat::Raw,
+                    interface: crate::types::DiskInterface::Virtio,
+                    read_only: true,
+                });
+            }
+            disk_list
         } else {
             config.disks.clone()
         };
@@ -761,13 +788,14 @@ async fn create_temp_overlay(base: &Path) -> Result<PathBuf> {
     Ok(overlay)
 }
 
-/// Ensure SNP-capable boot image exists (built by contrib/snp-test-image/build.sh).
+/// Download Ubuntu 24.04 cloud image for SEV-SNP VMs.
 ///
 /// CirrosOS cannot be used for SEV-SNP because its kernel lacks
 /// CONFIG_AMD_MEM_ENCRYPT and crashes during page state transitions.
-/// The SNP boot image uses the host kernel (with SEV-SNP support) and a
-/// minimal init that prints "SNP BOOT OK" to serial, then powers off.
-async fn ensure_snp_boot_image() -> Result<PathBuf> {
+/// Ubuntu 24.04 ships kernel 6.8+ with full SEV-SNP guest support.
+///
+/// Login: ubuntu/snp (set via cloud-init seed disk).
+async fn ensure_ubuntu_snp_image() -> Result<PathBuf> {
     let cache_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .unwrap()
@@ -777,41 +805,101 @@ async fn ensure_snp_boot_image() -> Result<PathBuf> {
         .join("test-fixtures");
     tokio::fs::create_dir_all(&cache_dir).await?;
 
-    let path = cache_dir.join("snp-boot.qcow2");
+    let path = cache_dir.join("noble-server-cloudimg-amd64.img");
     if path.exists() {
         return Ok(path);
     }
 
-    // Try to build via contrib script
-    let build_script = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .unwrap()
-        .parent()
-        .unwrap()
-        .join("contrib/snp-test-image/build.sh");
+    tracing::info!("Downloading Ubuntu 24.04 cloud image (~600MB)...");
+    let url = "https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img";
+    let output = tokio::process::Command::new("curl")
+        .args(["-fSL", "-o", &path.display().to_string(), url])
+        .output()
+        .await?;
 
-    if build_script.exists() {
-        tracing::info!("Building SNP boot image via {}", build_script.display());
-        let output = tokio::process::Command::new(&build_script)
-            .output()
-            .await?;
-
-        if !output.status.success() {
-            bail!(
-                "SNP boot image build failed: {}",
-                String::from_utf8_lossy(&output.stderr)
-            );
-        }
-
-        if path.exists() {
-            return Ok(path);
-        }
+    if !output.status.success() {
+        bail!(
+            "Failed to download Ubuntu cloud image: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
     }
 
-    bail!(
-        "SNP boot image not found at {} — run contrib/snp-test-image/build.sh",
-        path.display()
-    )
+    // Resize to 4G (default ~2.2G is tight for cloud-init + packages)
+    let resize = tokio::process::Command::new("qemu-img")
+        .args(["resize", &path.display().to_string(), "4G"])
+        .output()
+        .await?;
+    if !resize.status.success() {
+        tracing::warn!("qemu-img resize failed (non-fatal): {}", String::from_utf8_lossy(&resize.stderr));
+    }
+
+    Ok(path)
+}
+
+/// Create cloud-init NoCloud seed disk (FAT image labeled "cidata").
+///
+/// Sets up user `ubuntu` with password `snp`, enables serial + VGA console.
+async fn ensure_cloud_init_seed() -> Result<PathBuf> {
+    let cache_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .join("target")
+        .join("test-fixtures");
+    tokio::fs::create_dir_all(&cache_dir).await?;
+
+    let path = cache_dir.join("cloud-init-seed.img");
+    if path.exists() {
+        return Ok(path);
+    }
+
+    let tmpdir = std::env::temp_dir().join("qrab-cloud-init-build");
+    let _ = tokio::fs::remove_dir_all(&tmpdir).await;
+    tokio::fs::create_dir_all(&tmpdir).await?;
+
+    // user-data
+    let user_data = tmpdir.join("user-data");
+    tokio::fs::write(&user_data, r#"#cloud-config
+password: snp
+chpasswd:
+  expire: false
+ssh_pwauth: true
+users:
+  - name: ubuntu
+    plain_text_passwd: snp
+    lock_passwd: false
+    shell: /bin/bash
+    sudo: ALL=(ALL) NOPASSWD:ALL
+  - name: root
+    plain_text_passwd: snp
+    lock_passwd: false
+runcmd:
+  - echo "===== SNP BOOT OK =====" > /dev/ttyS0
+  - echo "===== SNP BOOT OK =====" > /dev/tty0 || true
+"#).await?;
+
+    // meta-data
+    let meta_data = tmpdir.join("meta-data");
+    tokio::fs::write(&meta_data, "instance-id: snp-test-1\nlocal-hostname: snp-guest\n").await?;
+
+    // Build FAT image with label "cidata"
+    let img = tmpdir.join("seed.img");
+    tokio::process::Command::new("truncate")
+        .args(["-s", "1M", &img.display().to_string()])
+        .output().await?;
+    tokio::process::Command::new("mkfs.fat")
+        .args(["-n", "cidata", &img.display().to_string()])
+        .output().await?;
+    tokio::process::Command::new("mcopy")
+        .args(["-i", &img.display().to_string(), &user_data.display().to_string(), "::user-data"])
+        .output().await?;
+    tokio::process::Command::new("mcopy")
+        .args(["-i", &img.display().to_string(), &meta_data.display().to_string(), "::meta-data"])
+        .output().await?;
+
+    tokio::fs::copy(&img, &path).await?;
+    Ok(path)
 }
 
 /// Download cirros disk image if not cached.
