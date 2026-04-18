@@ -6,11 +6,22 @@ AmdSev OVMF firmware volume. See the full plan in
 
 ## Status
 
-Phase 1 — embedded into an AmdSev OVMF build via edk2 submodule at
-`vendor/edk2` (pinned to `edk2-stable202602`). The built firmware at
-`target/ovmf/OVMF.fd` boots under SEV-SNP and BdsDxe hands control
-straight to qrab-boot via the `gGrubFileGuid` FV file. Still no
-attestation, no networking, no UKI load — those land in later phases.
+Phase 3b — postcard attestation round-trip over virtio-vsock. The
+built firmware at `target/ovmf/OVMF.fd` still boots under SEV-SNP via
+the `gGrubFileGuid` FV file (phase 1); on top of that the bootloader
+now:
+
+- reads PE Authenticode / RSA-PKCS#1 signature logic from
+  `qrab-boot-verify` (phase 2b),
+- discovers the virtio-vsock PCI device (phase 3a),
+- initialises the virtio transport + `VsockConnectionManager`
+  against the MCH-reported PCIe ECAM window (phase 3b.1–3b.5),
+- and exchanges a framed `AttestRequest` / `AttestResponse`
+  (`qrab-boot-proto`, phase 3b.7–3b.9) with the host-side
+  `attest-server` binary.
+
+Still missing from the plan: real randomness on the client nonce,
+SNP-aware DMA mapping, UKI fetch, measurement, secret injection.
 
 ## Workspace note
 
