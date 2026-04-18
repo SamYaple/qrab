@@ -17,6 +17,7 @@ extern crate alloc;
 mod panic;
 mod vsock;
 mod vsock_hal;
+mod vsock_pci;
 
 use core::arch::asm;
 
