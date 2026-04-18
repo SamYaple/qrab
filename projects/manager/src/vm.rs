@@ -51,6 +51,15 @@ pub struct SevSnpConfig {
     pub vcek_disabled: Option<bool>,
     /// Guest-visible workarounds blob (base64, 16 bytes decoded)
     pub guest_visible_workarounds: Option<String>,
+    /// qrab-boot attestation endpoint, e.g. `vsock://2:1337/attest`.
+    ///
+    /// Not plumbed into the QEMU command line — the bootloader
+    /// picks the endpoint up at build time via the SEC1 pubkey +
+    /// hardcoded port. This field is purely metadata so the BMC
+    /// and launch logs can report which attestation server the
+    /// guest is expected to reach. Leave `None` for SNP guests
+    /// that do not run qrab-boot.
+    pub attest_server_url: Option<String>,
 }
 
 impl Default for SevSnpConfig {
@@ -67,6 +76,7 @@ impl Default for SevSnpConfig {
             host_data: None,
             vcek_disabled: None,
             guest_visible_workarounds: None,
+            attest_server_url: None,
         }
     }
 }
@@ -124,6 +134,15 @@ impl SevSnpConfig {
     #[must_use]
     pub fn kernel_hashes(mut self, enabled: bool) -> Self {
         self.kernel_hashes = Some(enabled);
+        self
+    }
+
+    /// Record the qrab-boot attestation endpoint the guest is expected
+    /// to reach. Metadata only — see `attest_server_url` on the
+    /// struct field for details.
+    #[must_use]
+    pub fn attest_server_url(mut self, url: impl Into<String>) -> Self {
+        self.attest_server_url = Some(url.into());
         self
     }
 
@@ -1829,5 +1848,31 @@ mod tests {
         assert!(!obj.contains("author-key-enabled="));
         assert!(!obj.contains("vcek-disabled="));
         assert!(!obj.contains("kernel-hashes="));
+    }
+
+    /// `attest_server_url` is metadata only — setting it must not
+    /// change the QEMU command line. The builder's `-object sev-snp-guest`
+    /// argument should be byte-for-byte identical with and without
+    /// the URL set.
+    #[test]
+    fn attest_server_url_does_not_leak_into_qemu_args() {
+        let without = make_sev_builder(SevSnpConfig::default())
+            .build_sev_args()
+            .unwrap();
+        let with = make_sev_builder(
+            SevSnpConfig::default()
+                .attest_server_url("vsock://2:1337/attest"),
+        )
+        .build_sev_args()
+        .unwrap();
+        assert_eq!(without.0, with.0);
+    }
+
+    #[test]
+    fn attest_server_url_builder_roundtrips() {
+        let cfg = SevSnpConfig::default().attest_server_url("vsock://2:9999/attest");
+        assert_eq!(cfg.attest_server_url.as_deref(), Some("vsock://2:9999/attest"));
+        // Default is still None.
+        assert!(SevSnpConfig::default().attest_server_url.is_none());
     }
 }
