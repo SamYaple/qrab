@@ -75,14 +75,28 @@ pub fn connect_and_wait(
 ) -> Result<(), ConnectError> {
     let dst = VsockAddr { cid, port };
 
+    log::info!("QRAB_VSOCK_CONNECT_ENTER cid={cid} port={port} src_port={src_port}");
     driver.manager.connect(dst, src_port).map_err(|e| {
         log::warn!("QRAB_VSOCK_CONNECT_REQ_ERR {e:?}");
         ConnectError::Request(e)
     })?;
+    log::info!("QRAB_VSOCK_CONNECT_REQ_SENT cid={cid} port={port}");
 
-    for _ in 0..MAX_POLL_ITERATIONS {
+    for i in 0..MAX_POLL_ITERATIONS {
+        // Heartbeat every 1000 polls so the smoke harness can tell
+        // a hung polling loop apart from a silent crash.
+        if i % 1000 == 0 {
+            log::info!("QRAB_VSOCK_CONNECT_POLL i={i}");
+        }
         match driver.manager.poll() {
             Ok(Some(event)) => {
+                log::info!(
+                    "QRAB_VSOCK_CONNECT_EVENT i={i} src_cid={} src_port={} dst_port={} type={:?}",
+                    event.source.cid,
+                    event.source.port,
+                    event.destination.port,
+                    event.event_type,
+                );
                 if event.source == dst
                     && event.destination.port == src_port
                     && matches!(event.event_type, VsockEventType::Connected)
