@@ -983,10 +983,17 @@ impl VmBuilder {
 
         // --- Build QEMU args via helpers ---
         let mut args: Vec<String> = Vec::new();
-        if self.display {
-            args.push("-S".into());
-        } else {
+        // SEV-SNP MUST use --preconfig, not -S. With -S, machine init runs
+        // but SNP_LAUNCH_FINISH is deferred — GHCB pages aren't registered,
+        // causing "kvm run failed Invalid argument" on first VMGEXIT.
+        // --preconfig defers machine init entirely; x-exit-preconfig runs
+        // the full init + SNP launch sequence to completion.
+        // VNC works with --preconfig: VNC server is created during CLI
+        // parsing, VGA device during x-exit-preconfig's machine init.
+        if self.sev_snp.is_some() || !self.display {
             args.push("--preconfig".into());
+        } else {
+            args.push("-S".into());
         }
 
         // Machine args (with tracked index for SEV suffix)
@@ -1288,7 +1295,8 @@ impl VmBuilder {
                 attest_sock,
                 swtpm: swtpm_process,
             },
-            paused_mode: self.display,
+            // SEV-SNP forces --preconfig even with display (see arg selection above).
+            paused_mode: self.display && self.sev_snp.is_none(),
         })
     }
 }
