@@ -17,6 +17,7 @@ uefi = { version = "0.36", default-features = false, features = [
     "log-debugcon",
 ] }
 log = { version = "0.4", default-features = false }
+qrab-boot-verify = { path = "../qrab-boot-verify" }
 
 [profile.release]
 opt-level = "s"

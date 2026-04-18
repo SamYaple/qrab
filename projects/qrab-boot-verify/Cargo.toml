@@ -1,0 +1,20 @@
+[package]
+name = "qrab-boot-verify"
+version = "0.1.0"
+edition = "2024"
+description = "RSA-SHA256 signature verification for qrab-boot UKI payloads"
+publish = false
+
+[dependencies]
+rsa = { version = "0.9", default-features = false, features = ["sha2", "pkcs5"] }
+sha2 = { version = "0.10", default-features = false, features = ["oid"] }
+spki = { version = "0.7", default-features = false, features = ["alloc"] }
+pkcs1 = { version = "0.7", default-features = false, features = ["alloc"] }
+
+[dev-dependencies]
+# Host tests use std for file I/O and assertions.
+
+[features]
+default = []
+# Add std error impls for ergonomic host-side use; runtime builds stay no_std.
+std = []
