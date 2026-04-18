@@ -18,6 +18,7 @@ uefi = { version = "0.36", default-features = false, features = [
 ] }
 log = { version = "0.4", default-features = false }
 qrab-boot-verify = { path = "../qrab-boot-verify" }
+qrab-boot-proto = { path = "../qrab-boot-proto" }
 # Phase 3 uses virtio-drivers for virtio-vsock transport instead of the
 # UEFI NetworkPkg stack. The crate is no_std + alloc-only and does not
 # force any edk2 DSC/FDF changes, which is the main reason for the

@@ -130,32 +130,62 @@ fn run_vsock_demo() {
         return; // connect_and_wait logged the specific failure.
     }
 
-    // Phase 3b.6: prove the data path both ways. A single small
-    // request + reply exchange is enough — the attestation wire
-    // protocol lands in 3b.7 and will replace this payload.
-    const HELLO: &[u8] = b"QRAB_HELLO v0\n";
-    let mut reply = [0u8; 64];
-    if let Ok(n) = vsock_connect::send_and_recv(
+    // Phase 3b.9: speak the postcard + length-prefix dialect from
+    // `qrab-boot-proto` against the `attest-server` binary. Real
+    // randomness lands in a later commit; a build-time fixed nonce
+    // is still enough to tell the response apart from a loopback
+    // echo (attest-server inverts the bits when constructing
+    // `server_nonce`).
+    let request = qrab_boot_proto::new_request(CLIENT_NONCE);
+    let request_bytes = match qrab_boot_proto::encode_framed(&request) {
+        Ok(b) => b,
+        Err(e) => {
+            log::warn!("QRAB_ATTEST_ENCODE_ERR {e}");
+            return;
+        }
+    };
+
+    let mut reply = [0u8; 2048];
+    let n = match vsock_connect::send_and_recv(
         &mut driver,
         VSOCK_CID_HOST,
         VSOCK_HOST_PORT,
         VSOCK_GUEST_SRC_PORT,
-        HELLO,
+        &request_bytes,
         &mut reply,
     ) {
-        // Only the leading bytes are interesting; strip the trailing
-        // newline that the mock appends so the log line stays tidy.
-        let trimmed = reply[..n]
-            .iter()
-            .position(|&b| b == b'\n')
-            .map_or(&reply[..n], |idx| &reply[..idx]);
-        if let Ok(text) = core::str::from_utf8(trimmed) {
-            log::info!("QRAB_VSOCK_REPLY_TEXT len={n} body={text}");
-        } else {
-            log::info!("QRAB_VSOCK_REPLY_RAW len={n}");
-        }
+        Ok(n) => n,
+        Err(_) => return, // send_and_recv logged the specific failure.
+    };
+
+    let response: qrab_boot_proto::AttestResponse =
+        match qrab_boot_proto::decode_framed(&reply[..n]) {
+            Ok(r) => r,
+            Err(e) => {
+                log::warn!("QRAB_ATTEST_DECODE_ERR {e}");
+                return;
+            }
+        };
+    if let Err(e) = qrab_boot_proto::validate_response(&response) {
+        log::warn!("QRAB_ATTEST_VALIDATE_ERR {e}");
+        return;
     }
+
+    log::info!(
+        "QRAB_ATTEST_OK server_nonce0={:#04x} secret_len={} sig_len={} uki_url_len={}",
+        response.server_nonce[0],
+        response.secret.len(),
+        response.sig.len(),
+        response.uki_url.len(),
+    );
 }
+
+/// Hard-coded attestation-client nonce used until a real PRNG lands.
+/// The server inverts the bits of this value to produce
+/// `server_nonce`, so the bootloader's log should print
+/// `server_nonce0=0xaa` when it is talking to `attest-server` (and
+/// the original `0x55` if it sees an echo or a misconfigured peer).
+const CLIENT_NONCE: [u8; 32] = [0x55; 32];
 
 /// Disable interrupts and halt the CPU indefinitely.
 ///

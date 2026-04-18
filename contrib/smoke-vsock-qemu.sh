@@ -73,9 +73,18 @@ mcopy -i "$ESP" "$EFI" ::/EFI/BOOT/BOOTX64.EFI
 : > "$SERIAL"
 : > "$MOCKLOG"
 
-# ---- mock server ---------------------------------------------------------
-log "launching mock-vsock-server.py (port $PORT)"
-python3 "$ROOT/contrib/mock-vsock-server.py" --port "$PORT" >"$MOCKLOG" 2>&1 &
+# ---- attest-server -------------------------------------------------------
+# Build the Rust attestation server up front so the bind-time log line
+# below is deterministic (and so a compile error fails fast instead of
+# mid-handshake).
+log "building attest-server"
+(cd "$ROOT" && cargo build -p attest-server --release >/dev/null 2>&1) \
+    || die "attest-server build failed"
+ATTEST_BIN="$ROOT/target/release/attest-server"
+[[ -x "$ATTEST_BIN" ]] || die "attest-server binary not produced"
+
+log "launching attest-server (port $PORT)"
+"$ATTEST_BIN" "$PORT" >"$MOCKLOG" 2>&1 &
 MOCK_PID=$!
 cleanup() {
     kill -TERM "$MOCK_PID" 2>/dev/null || true
@@ -110,7 +119,7 @@ echo "--- mock log ---"
 tail -5 "$MOCKLOG" || true
 
 # Success requires all three of these tokens on the guest serial.
-required=(QRAB_VSOCK_FOUND QRAB_VSOCK_DRIVER_OK QRAB_VSOCK_CONNECT_OK)
+required=(QRAB_VSOCK_FOUND QRAB_VSOCK_DRIVER_OK QRAB_VSOCK_CONNECT_OK QRAB_ATTEST_OK)
 missing=()
 for tok in "${required[@]}"; do
     grep -a -q "$tok" "$SERIAL" || missing+=("$tok")
