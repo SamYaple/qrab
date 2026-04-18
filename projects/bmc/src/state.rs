@@ -336,41 +336,11 @@ impl BmcState {
 
         *vm_guard = VmState::Running(vm);
 
-        // If SEV-SNP enabled, query launch measurement and capabilities.
-        // Errors are non-fatal — attestation degrades gracefully.
-        if config.sev_snp.is_some() {
-            if let VmState::Running(ref vm) = *vm_guard {
-                let mut att = self.attestation.lock().await;
-                att.status = AttestationStatus::Pending;
-
-                // Launch measurement
-                match vm.query_sev_launch_measure().await {
-                    Ok(measure) => {
-                        att.launch_measure = Some(measure.data);
-                        att.status = AttestationStatus::Measured;
-                    }
-                    Err(e) => {
-                        tracing::warn!("query-sev-launch-measure failed: {e}");
-                        att.status = AttestationStatus::Failed(e.to_string());
-                    }
-                }
-
-                // SEV capabilities (PDH, cert chain)
-                match vm.query_sev_capabilities().await {
-                    Ok(caps) => {
-                        att.sev_capabilities = Some(SevCapabilitiesResponse {
-                            pdh: caps.pdh,
-                            cert_chain: caps.cert_chain,
-                            cbitpos: caps.cbitpos,
-                            reduced_phys_bits: caps.reduced_phys_bits,
-                        });
-                    }
-                    Err(e) => {
-                        tracing::warn!("query-sev-capabilities failed: {e}");
-                    }
-                }
-            }
-        }
+        // SEV-SNP attestation queries (query-sev-launch-measure,
+        // query-sev-capabilities) removed from power_on path.
+        // query-sev-launch-measure is a legacy SEV command not supported
+        // by SNP. These queries are available on-demand via the BMC
+        // attestation panel server functions instead.
 
         Ok(())
     }
