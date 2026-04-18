@@ -1,10 +1,12 @@
+pub mod attestation_panel;
 pub mod config_panel;
 pub mod console;
 pub mod cpu_info;
 pub mod dashboard;
 pub mod event_log;
+pub mod layout;
 pub mod power_controls;
-pub mod security_panel;
+pub mod security_hero;
 pub mod serial;
 pub mod status_panel;
 mod util;
