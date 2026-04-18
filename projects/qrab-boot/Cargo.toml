@@ -16,6 +16,13 @@ uefi = { version = "0.36", default-features = false, features = [
     "logger",
     "log-debugcon",
 ] }
+# The `uefi` crate's `PciRootBridgeIo` wrapper stubs Map / Unmap /
+# AllocateBuffer / FreeBuffer with a TODO (see
+# uefi-0.36.1/src/proto/pci/root_bridge.rs). qrab-boot's virtio-vsock
+# DMA needs those entry points to work under SEV-SNP, so we drop to
+# the raw FFI bindings in `uefi-raw`, which declare the full
+# PciRootBridgeIoProtocol layout.
+uefi-raw = { version = "0.13", default-features = false }
 log = { version = "0.4", default-features = false }
 qrab-boot-verify = { path = "../qrab-boot-verify" }
 qrab-boot-proto = { path = "../qrab-boot-proto" }
