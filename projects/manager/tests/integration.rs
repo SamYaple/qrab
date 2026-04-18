@@ -91,7 +91,6 @@ async fn events_received_on_stop() {
         return;
     }
     let preconfig = VmBuilder::new(Arch::X86_64, MachineConfig::None)
-        .no_shutdown()
         .spawn()
         .await
         .unwrap();

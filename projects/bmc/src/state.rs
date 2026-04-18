@@ -12,8 +12,8 @@ use manager::vm::{Vm, VmBuilder};
 use qapi_protocol::QmpEvent;
 
 use crate::types::{
-    AttestationState, BmcConfig, CpuInfoResponse, KvmInfoResponse, SevStatusResponse,
-    TpmStatusResponse, VmPhase,
+    AttestationState, BmcConfig, CpuInfoResponse, KvmInfoResponse, SevCapabilitiesResponse,
+    SevStatusResponse, TpmStatusResponse, VmPhase,
 };
 
 const EVENT_HISTORY_CAP: usize = 1000;
@@ -56,6 +56,7 @@ pub struct CachedStaticInfo {
     pub cpu_info: CpuInfoResponse,
     pub kvm_info: KvmInfoResponse,
     pub sev_status: Option<SevStatusResponse>,
+    pub sev_capabilities: Option<SevCapabilitiesResponse>,
     pub tpm_status: Option<TpmStatusResponse>,
 }
 
@@ -379,41 +380,100 @@ impl BmcState {
         }
     }
 
-    /// Request guest powerdown via ACPI.
+    /// Graceful power-off:
+    ///
+    /// 1. Send ACPI `system_powerdown` so the guest can quiesce.
+    /// 2. Wait up to 5s for a `SHUTDOWN` event (QEMU stays alive thanks to
+    ///    the always-on `-no-shutdown` CLI flag).
+    /// 3. Final `stop` via QMP, short drain window for trailing events,
+    ///    then kill the QEMU process and transition to Off.
+    ///
+    /// Every power cycle yields a fresh QEMU process — the BMC never
+    /// "reuses" a stopped VM; the next `power_on` builds a new one.
     pub async fn power_off(&self) -> Result<()> {
-        let vm_guard = self.vm.lock().await;
-        match &*vm_guard {
-            VmState::Running(vm) => {
-                vm.powerdown().await?;
-                Ok(())
+        // Subscribe BEFORE sending powerdown so the SHUTDOWN event is never
+        // missed due to a race between sending the command and receiving
+        // the event.
+        let mut events = self.event_tx.subscribe();
+
+        let vm = match self.take_running_vm().await? {
+            Some(vm) => vm,
+            None => return Ok(()),
+        };
+
+        // ACPI powerdown — non-fatal on QMP failure; we still tear down.
+        let _ = vm.powerdown().await;
+
+        // Wait up to 5s for SHUTDOWN. With `-no-shutdown` the guest can
+        // quiesce without killing QEMU; once we see SHUTDOWN (or time out)
+        // we proceed to the forced stop + kill.
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+        loop {
+            match tokio::time::timeout_at(deadline, events.recv()).await {
+                Ok(Ok(ev)) if ev.event == "SHUTDOWN" => break,
+                Ok(Ok(_)) => continue,
+                _ => break,
             }
-            _ => bail!("VM is not running"),
         }
+
+        self.final_stop_and_teardown(vm).await;
+        *self.vm.lock().await = VmState::Off;
+        Ok(())
     }
 
-    /// Force quit the QEMU process.
+    /// Immediate power-off: skip ACPI and go straight to the final-stop +
+    /// teardown sequence.
     pub async fn force_off(&self) -> Result<()> {
+        let vm = match self.take_running_vm().await? {
+            Some(vm) => vm,
+            None => return Ok(()),
+        };
+        self.final_stop_and_teardown(vm).await;
+        *self.vm.lock().await = VmState::Off;
+        Ok(())
+    }
+
+    /// Atomically take the running `Vm` out of state, transitioning to
+    /// `ShuttingDown`. Returns `None` if state was `Off`; errors if state
+    /// was already `ShuttingDown`.
+    async fn take_running_vm(&self) -> Result<Option<Vm>> {
         let mut vm_guard = self.vm.lock().await;
-        let state = std::mem::replace(&mut *vm_guard, VmState::ShuttingDown);
-        match state {
-            VmState::Running(vm) => {
-                vm.shutdown().await;
-            }
+        match std::mem::replace(&mut *vm_guard, VmState::ShuttingDown) {
+            VmState::Running(vm) => Ok(Some(vm)),
             VmState::Off => {
                 *vm_guard = VmState::Off;
-                return Ok(());
+                Ok(None)
             }
             VmState::ShuttingDown => {
                 *vm_guard = VmState::ShuttingDown;
                 bail!("VM is already shutting down");
             }
         }
+    }
+
+    /// Issue QMP `stop` to halt vCPUs, wait briefly for trailing events to
+    /// drain through the QMP event channel, then kill the QEMU process and
+    /// reset BMC-side state. Does NOT flip the VmState back to Off — the
+    /// caller must do so after acquiring the lock.
+    async fn final_stop_and_teardown(&self, vm: Vm) {
+        // Final stop via QMP — halts vCPUs so the guest can't emit further
+        // events past this point. Best-effort; a dead QEMU just returns an
+        // error and we continue to the kill.
+        let _ = vm.execute(&qapi::commands::Stop {}).await;
+
+        // Drain window: the read-loop is still alive and the event
+        // forwarder is still pushing into history — give it a moment to
+        // propagate anything queued before we rip the socket down.
+        tokio::time::sleep(Duration::from_millis(250)).await;
+
+        // Kill QEMU and tear down the QMP connection.
+        vm.shutdown().await;
+
+        // BMC-side cleanup.
         self.stop_forwarder().await;
         self.event_history.lock().await.clear();
         *self.cached_static.lock().await = None;
         *self.attestation.lock().await = AttestationState::default();
-        *vm_guard = VmState::Off;
-        Ok(())
     }
 
     /// Get the current VM phase.

@@ -7,7 +7,6 @@ use tokio::time::{sleep, Duration};
 #[tokio::main]
 async fn main() -> Result<()> {
     let mut vm = VmBuilder::new(Arch::X86_64, MachineConfig::None)
-        .no_shutdown()
         .spawn()
         .await?
         .start()

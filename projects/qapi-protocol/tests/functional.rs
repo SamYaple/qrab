@@ -225,7 +225,6 @@ arch_tests!(hotplug_virtio_net, [X86_64], |arch: Arch| async move {
 arch_tests!(cirros_device_unplug, [X86_64], |arch: Arch| async move {
     let builder = cirros_with_net(arch).await;
     let mut vm = builder
-        .no_shutdown()
         .spawn().await.unwrap()
         .start().await.unwrap();
 
@@ -493,7 +492,6 @@ arch_tests!(uefi_boot_and_query, [X86_64], |arch: Arch| async move {
 
 arch_tests!(lifecycle_stop_cont_with_bios, [X86_64], |arch: Arch| async move {
     let mut vm = VmBuilder::new(arch, MachineConfig::Bios { memory: "128M".into() })
-        .no_shutdown()
         .spawn().await.unwrap()
         .start().await.unwrap();
 

@@ -92,6 +92,7 @@ pub struct DashboardState {
     pub console_available: bool,
     pub serial_tail: String,
     pub sev_status: Option<SevStatusResponse>,
+    pub sev_capabilities: Option<SevCapabilitiesResponse>,
     pub tpm_status: Option<TpmStatusResponse>,
     pub attestation: Option<AttestationState>,
 }
@@ -118,6 +119,7 @@ impl Default for DashboardState {
             console_available: false,
             serial_tail: String::new(),
             sev_status: None,
+            sev_capabilities: None,
             tpm_status: None,
             attestation: None,
         }
@@ -125,12 +127,27 @@ impl Default for DashboardState {
 }
 
 /// SEV status from a running VM.
+///
+/// Covers the `query-sev` QMP return plus its flat-union branches
+/// (`sev` and `sev-snp`). Fields may be absent when the QMP peer is
+/// older or the field was removed between versions (e.g. `handle` and
+/// `policy` are removed in QEMU 9.1+).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SevStatusResponse {
     pub enabled: bool,
     pub sev_type: Option<String>,
     pub state: Option<String>,
+    /// Convenience `api_major.api_minor` rendering for the hero badge.
     pub api_version: Option<String>,
+    pub api_major: Option<u8>,
+    pub api_minor: Option<u8>,
+    pub build_id: Option<u8>,
+    /// Legacy SEV firmware handle (removed in 9.1).
+    pub handle: Option<u32>,
+    /// Legacy SEV policy (removed in 9.1) — rendered as hex string.
+    pub policy: Option<String>,
+    /// SEV-SNP policy (from the `sev-snp` branch) — rendered as hex.
+    pub snp_policy: Option<String>,
 }
 
 /// TPM status from a running VM.

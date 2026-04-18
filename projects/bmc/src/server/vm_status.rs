@@ -214,13 +214,23 @@ pub async fn get_dashboard_state() -> Result<DashboardState, ServerFnError> {
     let state = bmc();
 
     // -- Phase 1: everything that needs the vm lock. One acquisition. --
-    let (status, cpu_info, kvm_info, console_available, serial_log_path, sev_status, tpm_status): (
+    let (
+        status,
+        cpu_info,
+        kvm_info,
+        console_available,
+        serial_log_path,
+        sev_status,
+        sev_capabilities,
+        tpm_status,
+    ): (
         VmStatusResponse,
         CpuInfoResponse,
         KvmInfoResponse,
         bool,
         Option<PathBuf>,
         Option<SevStatusResponse>,
+        Option<SevCapabilitiesResponse>,
         Option<TpmStatusResponse>,
     ) = {
         let vm_guard = state.vm.lock().await;
@@ -245,6 +255,7 @@ pub async fn get_dashboard_state() -> Result<DashboardState, ServerFnError> {
                     present: false,
                 },
                 false,
+                None,
                 None,
                 None,
                 None,
@@ -302,21 +313,57 @@ pub async fn get_dashboard_state() -> Result<DashboardState, ServerFnError> {
                     };
 
                     // SEV: query-sev fails on VMs without SEV — treat
-                    // errors as "not available".
-                    let sev_result = vm
-                        .execute(&qapi::commands::QuerySev {})
-                        .await;
+                    // errors as "not available". Pull every branch-specific
+                    // field we can surface (policy / handle for legacy SEV,
+                    // snp_policy for SEV-SNP) so the config panel has the
+                    // full picture in one place.
+                    let sev_result = vm.execute(&qapi::commands::QuerySev {}).await;
                     if let Err(ref e) = sev_result {
                         tracing::debug!("query-sev failed: {e}");
                     }
-                    let sev_status = sev_result
-                        .ok()
-                        .map(|info| SevStatusResponse {
+                    let sev_status = sev_result.ok().map(|info| {
+                        let (legacy_policy, snp_policy) = match info.u {
+                            Some(qapi::SevInfoBranch::Sev(g)) => (
+                                Some(format!("0x{:x}", g.policy)),
+                                None,
+                            ),
+                            Some(qapi::SevInfoBranch::SevSnp(g)) => (
+                                None,
+                                Some(format!("0x{:x}", g.snp_policy)),
+                            ),
+                            None => (
+                                info.policy.map(|p| format!("0x{p:x}")),
+                                None,
+                            ),
+                        };
+                        SevStatusResponse {
                             enabled: info.enabled,
                             sev_type: info.sev_type.map(|t| format!("{t:?}")),
                             state: Some(format!("{:?}", info.state)),
                             api_version: Some(format!("{}.{}", info.api_major, info.api_minor)),
-                        });
+                            api_major: Some(info.api_major),
+                            api_minor: Some(info.api_minor),
+                            build_id: Some(info.build_id),
+                            handle: info.handle,
+                            policy: legacy_policy,
+                            snp_policy,
+                        }
+                    });
+
+                    // query-sev-capabilities: static per host/platform.
+                    // Failures mean either no SEV on the host or the QEMU
+                    // target doesn't support it — treat as absent.
+                    let sev_cap_result =
+                        vm.execute(&qapi::commands::QuerySevCapabilities {}).await;
+                    if let Err(ref e) = sev_cap_result {
+                        tracing::debug!("query-sev-capabilities failed: {e}");
+                    }
+                    let sev_capabilities = sev_cap_result.ok().map(|c| SevCapabilitiesResponse {
+                        pdh: c.pdh,
+                        cert_chain: c.cert_chain,
+                        cbitpos: c.cbitpos,
+                        reduced_phys_bits: c.reduced_phys_bits,
+                    });
 
                     // TPM: query-tpm returns empty vec when no TPM
                     // configured. Errors mean TPM support not compiled in.
@@ -336,6 +383,7 @@ pub async fn get_dashboard_state() -> Result<DashboardState, ServerFnError> {
                         cpu_info,
                         kvm_info,
                         sev_status,
+                        sev_capabilities,
                         tpm_status,
                     };
                     *cache_guard = Some(cached.clone());
@@ -346,7 +394,16 @@ pub async fn get_dashboard_state() -> Result<DashboardState, ServerFnError> {
                 let console_available = vm.vnc_sock().is_some();
                 let serial_log_path = vm.serial_log().cloned();
 
-                (status, cached.cpu_info, cached.kvm_info, console_available, serial_log_path, cached.sev_status, cached.tpm_status)
+                (
+                    status,
+                    cached.cpu_info,
+                    cached.kvm_info,
+                    console_available,
+                    serial_log_path,
+                    cached.sev_status,
+                    cached.sev_capabilities,
+                    cached.tpm_status,
+                )
             }
             VmState::ShuttingDown => (
                 VmStatusResponse {
@@ -364,6 +421,7 @@ pub async fn get_dashboard_state() -> Result<DashboardState, ServerFnError> {
                     present: false,
                 },
                 false,
+                None,
                 None,
                 None,
                 None,
@@ -395,6 +453,7 @@ pub async fn get_dashboard_state() -> Result<DashboardState, ServerFnError> {
         console_available,
         serial_tail,
         sev_status,
+        sev_capabilities,
         tpm_status,
         attestation,
     })

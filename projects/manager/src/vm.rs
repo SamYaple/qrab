@@ -341,7 +341,6 @@ pub struct VmBuilder {
     append: Option<String>,
     serial: bool,
     display: bool,
-    no_shutdown: bool,
     firmware: Option<PathBuf>,
     /// Discovered OVMF firmware (auto-detected or from explicit paths)
     ovmf: Option<OvmfFirmware>,
@@ -401,7 +400,6 @@ impl VmBuilder {
             append: None,
             serial: false,
             display: false,
-            no_shutdown: false,
             firmware: None,
             ovmf: None,
             secure_boot: false,
@@ -444,13 +442,6 @@ impl VmBuilder {
     #[must_use]
     pub fn display(mut self) -> Self {
         self.display = true;
-        self
-    }
-
-    /// Don't exit QEMU on guest shutdown.
-    #[must_use]
-    pub fn no_shutdown(mut self) -> Self {
-        self.no_shutdown = true;
         self
     }
 
@@ -1091,9 +1082,11 @@ impl VmBuilder {
         // Boot args
         args.extend(self.build_boot_args());
 
-        if self.no_shutdown {
-            args.push("-no-shutdown".into());
-        }
+        // `-no-shutdown` always on. Keeps QEMU alive after a guest ACPI
+        // powerdown so pending QMP events drain cleanly; BMC/manager force
+        // final teardown via QMP `stop` + process kill on every power-off,
+        // guaranteeing a fresh QEMU process on the next power_on.
+        args.push("-no-shutdown".into());
 
         // --- TPM (swtpm only, CRB frontend) ---
         let mut swtpm_process: Option<SwtpmProcess> = None;

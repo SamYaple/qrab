@@ -62,6 +62,7 @@ pub fn Dashboard() -> Element {
         console_available,
         serial_tail,
         sev_status,
+        sev_capabilities,
         tpm_status,
         attestation: _attestation,
     } = state_value;
@@ -117,6 +118,10 @@ pub fn Dashboard() -> Element {
                                 PanelType::Config => rsx! {
                                     ConfigPanel {
                                         current_phase: current_phase.clone(),
+                                        sev_status: sev_status.clone(),
+                                        sev_capabilities: sev_capabilities.clone(),
+                                        tpm_status: tpm_status.clone(),
+                                        kvm_info: kvm_info.clone(),
                                     }
                                 },
                                 PanelType::Console => rsx! {

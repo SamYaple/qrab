@@ -74,7 +74,6 @@ arch_tests!(
     [X86_64, I386, Aarch64, Arm],
     |arch: Arch| async move {
         let mut t = VmBuilder::new(arch, MachineConfig::None)
-            .no_shutdown()
             .spawn()
             .await
             .unwrap()
@@ -103,7 +102,6 @@ arch_tests!(event_powerdown, [X86_64], |arch: Arch| async move {
             memory: "64M".into(),
         },
     )
-    .no_shutdown()
     .spawn()
     .await
     .unwrap()
