@@ -285,8 +285,12 @@ impl BmcState {
         *fwd = Some(handle);
 
         // Start: sends x-exit-preconfig (--preconfig) or cont (-S paused).
+        tracing::info!(sev_mode, has_disks, "calling PreconfigVm::start()");
         let vm = match paused_vm.start().await {
-            Ok(vm) => vm,
+            Ok(vm) => {
+                tracing::info!("PreconfigVm::start() succeeded");
+                vm
+            }
             Err(e) => {
                 // paused_vm was consumed by start(). Tear down everything
                 // else and force the state to Off.
@@ -317,6 +321,7 @@ impl BmcState {
             }
             // Always send cont for SEV-SNP — x-exit-preconfig leaves
             // QEMU paused, unlike -S where start() sends cont.
+            tracing::info!("SEV-SNP: sending cont after x-exit-preconfig");
             if let Err(e) = vm.cont().await {
                 tracing::error!("cont after x-exit-preconfig failed: {e}");
                 vm.shutdown().await;
