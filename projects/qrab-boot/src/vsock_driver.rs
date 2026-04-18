@@ -20,9 +20,13 @@
 //! [`VsockConnectionManager`]: virtio_drivers::device::socket::VsockConnectionManager
 //! [`connect`]: virtio_drivers::device::socket::VsockConnectionManager::connect
 
+use uefi::boot;
+use uefi::proto::pci::root_bridge::PciRootBridgeIo;
+use uefi_raw::protocol::pci::root_bridge::PciRootBridgeIoProtocol;
 use virtio_drivers::device::socket::{VirtIOSocket, VsockConnectionManager};
 use virtio_drivers::transport::pci::PciTransport;
 
+use crate::pci_dma;
 use crate::vsock::Status;
 use crate::vsock_hal::UefiHal;
 use crate::vsock_pci::build_transport;
@@ -53,6 +57,11 @@ pub struct VsockDriver {
 pub enum InitError {
     /// Phase-3a probe did not find a virtio-vsock device.
     DeviceMissing,
+    /// Firmware did not surface any `PciRootBridgeIo` handles, or
+    /// the open-protocol call failed. Without the bridge the DMA
+    /// HAL cannot reach `IoMmuDxe`'s Map/Unmap entry points under
+    /// SNP, so we bail before starting the virtio handshake.
+    NoBridge,
     /// `virtio-drivers` failed to build a PCI transport (no caps,
     /// unknown device type, etc).
     Transport(crate::vsock_pci::BuildError),
@@ -83,6 +92,23 @@ pub fn init(status: Status) -> Result<VsockDriver, InitError> {
         }
     };
 
+    // Open PciRootBridgeIo for the DMA HAL's lifetime. Under AmdSev
+    // OVMF this protocol routes `Map`/`Unmap`/`AllocateBuffer`/
+    // `FreeBuffer` through `IoMmuDxe`, which clears the C-bit on
+    // allocated pages and bounce-buffers plaintext through shared
+    // memory. On plain TCG OVMF the same calls short-circuit to
+    // identity-mapping inside `PciHostBridgeDxe`, so TCG and SNP
+    // share a single code path downstream.
+    //
+    // We deliberately leak the `ScopedProtocol` once we have the raw
+    // pointer: `close_protocol` at Drop would invalidate the HAL's
+    // stashed pointer, and qrab-boot never returns to firmware
+    // (halt_forever on all paths), so the "leak" is the correct
+    // choice here. `build_transport` still opens its own short-lived
+    // handle for the MCH PCIEXBAR read; concurrent `GetProtocol`
+    // opens are ref-counted by firmware and incur no interference.
+    hal_bridge_init()?;
+
     let transport = build_transport(bus, device, function).map_err(|e| {
         log::warn!("QRAB_VSOCK_DRIVER_TRANSPORT_ERR {e:?}");
         InitError::Transport(e)
@@ -103,4 +129,72 @@ pub fn init(status: Status) -> Result<VsockDriver, InitError> {
         guest_cid,
         manager,
     })
+}
+
+/// Open the first available `PciRootBridgeIo` handle, hand its raw
+/// FFI pointer to [`pci_dma::init`], and `mem::forget` the
+/// `ScopedProtocol` so the firmware keeps the interface alive for
+/// the remainder of boot.
+///
+/// The `PciRootBridgeIo` wrapper is `#[repr(transparent)]` around
+/// `PciRootBridgeIoProtocol` (see
+/// `uefi-0.36.1/src/proto/pci/root_bridge.rs`), so casting
+/// `&mut PciRootBridgeIo` to `*mut PciRootBridgeIoProtocol` is
+/// layout-stable. After casting, the `ScopedProtocol` is leaked with
+/// `mem::forget` so its `Drop` impl (which would call
+/// `close_protocol` and invalidate the raw pointer) never runs.
+///
+/// `pci_dma::init` must precede `build_transport` *and*
+/// `VirtIOSocket::new`, because `virtio-drivers` calls `dma_alloc` /
+/// `share` during virtqueue setup and those will fault with
+/// `QRAB_DMA_NOT_READY` if the bridge pointer is still null.
+fn hal_bridge_init() -> Result<(), InitError> {
+    let handles =
+        boot::locate_handle_buffer(boot::SearchType::from_proto::<PciRootBridgeIo>())
+            .map_err(|e| {
+                log::warn!("QRAB_VSOCK_DRIVER_NO_BRIDGE locate={e:?}");
+                InitError::NoBridge
+            })?;
+    let Some(&handle) = handles.first() else {
+        log::warn!("QRAB_VSOCK_DRIVER_NO_BRIDGE handles=empty");
+        return Err(InitError::NoBridge);
+    };
+    // SAFETY: `handle` was returned by `locate_handle_buffer` for
+    // `PciRootBridgeIo`; `image_handle` is qrab-boot's own loaded
+    // image; `GetProtocol` attribute asks for a non-exclusive
+    // handle that does not perturb the firmware-side PCI bus
+    // driver's hold.
+    let mut bridge = unsafe {
+        boot::open_protocol::<PciRootBridgeIo>(
+            boot::OpenProtocolParams {
+                handle,
+                agent: boot::image_handle(),
+                controller: None,
+            },
+            boot::OpenProtocolAttributes::GetProtocol,
+        )
+    }
+    .map_err(|e| {
+        log::warn!("QRAB_VSOCK_DRIVER_NO_BRIDGE open={e:?}");
+        InitError::NoBridge
+    })?;
+
+    // `PciRootBridgeIo` is `#[repr(transparent)]` around
+    // `PciRootBridgeIoProtocol`, so `&mut PciRootBridgeIo` (obtained
+    // here via `ScopedProtocol`'s `DerefMut`) is layout-compatible
+    // with `*mut PciRootBridgeIoProtocol`.
+    let raw: *mut PciRootBridgeIoProtocol =
+        core::ptr::from_mut::<PciRootBridgeIo>(&mut *bridge).cast();
+
+    // Hand the pointer to the HAL *before* leaking the
+    // ScopedProtocol: once leaked we no longer have a Rust-visible
+    // alias, which sidesteps any further aliasing concern with
+    // `pci_dma`'s static.
+    pci_dma::init(raw);
+
+    // Leak the ScopedProtocol: its Drop would close_protocol, which
+    // would invalidate the pointer `pci_dma` just stashed. qrab-boot
+    // never exits boot services, so no resource leaks in practice.
+    core::mem::forget(bridge);
+    Ok(())
 }

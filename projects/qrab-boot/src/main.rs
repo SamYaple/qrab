@@ -18,6 +18,7 @@ mod attest;
 mod ghcb;
 mod measure;
 mod panic;
+mod pci_dma;
 mod rng;
 mod secret;
 mod vsock;
