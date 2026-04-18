@@ -18574,3 +18574,4 @@ pub enum ZeroPageDetection {
 
 pub mod commands;
 pub mod events;
+pub mod metadata;

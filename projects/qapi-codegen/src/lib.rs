@@ -1,5 +1,6 @@
 #![deny(unsafe_code)]
 
+pub mod metadata_emit;
 pub mod parsers;
 pub mod qapi_ir;
 pub mod unified;

@@ -58,8 +58,10 @@ fn main() -> Result<()> {
             .with_context(|| format!("Failed to write {}/commands.rs", dir))?;
         std::fs::write(dir_path.join("events.rs"), &output.events)
             .with_context(|| format!("Failed to write {}/events.rs", dir))?;
+        std::fs::write(dir_path.join("metadata.rs"), &output.metadata)
+            .with_context(|| format!("Failed to write {}/metadata.rs", dir))?;
 
-        eprintln!("Wrote {}/mod.rs, commands.rs, events.rs", dir);
+        eprintln!("Wrote {}/mod.rs, commands.rs, events.rs, metadata.rs", dir);
     } else {
         // Legacy mode: print all three parts concatenated (for backward compat with tests)
         print!("{}", output.types);
