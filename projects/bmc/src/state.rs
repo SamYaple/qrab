@@ -231,13 +231,19 @@ impl BmcState {
         let mut paused_vm = builder.spawn().await?;
 
         // Resolve disk list. Demo fallback: if no disks configured and the
-        // machine has a PCI bus, attach cirros so power_on yields a bootable
-        // VM out of the box. Long term this should be configured via UI.
+        // machine has a PCI bus, attach a bootable image so power_on yields a
+        // working VM out of the box. SEV-SNP VMs use the SNP boot image
+        // (host kernel UKI) because CirrosOS lacks CONFIG_AMD_MEM_ENCRYPT
+        // and crashes during SNP page state transitions.
         let disks = if !matches!(config.machine, BmcMachine::None) && config.disks.is_empty() {
-            let cirros = ensure_cirros_image().await?;
+            let base_image = if config.sev_snp.is_some() {
+                ensure_snp_boot_image().await?
+            } else {
+                ensure_cirros_image().await?
+            };
             // Create a temporary overlay so the base image is never modified.
             // Each VM gets a fresh writable snapshot; force_off discards it.
-            let overlay = create_temp_overlay(&cirros).await?;
+            let overlay = create_temp_overlay(&base_image).await?;
             vec![DiskConfig {
                 file: overlay,
                 format: DiskFormat::Qcow2,
@@ -331,6 +337,40 @@ impl BmcState {
                 *self.cached_static.lock().await = None;
                 *vm_guard = VmState::Off;
                 return Err(anyhow::anyhow!("cont failed: {e}"));
+            }
+
+            // SEV-SNP: wait for guest to survive early encrypted boot.
+            // OVMF needs time for PSP validation, GHCB setup, encrypted
+            // memory init. Dashboard polls fire query-sev immediately on
+            // transition to Running — validate boot first so early crashes
+            // are caught here instead of surprising dashboard polls.
+            tracing::info!("SEV-SNP: waiting for guest to survive early boot...");
+            tokio::time::sleep(Duration::from_secs(3)).await;
+            match vm.qmp.execute(&qapi::commands::QueryStatus {}).await {
+                Ok(status) => {
+                    if !status.running {
+                        tracing::error!("SEV-SNP: guest not running after cont (status: {:?})", status.status);
+                        vm.shutdown().await;
+                        drop(fwd);
+                        self.stop_forwarder().await;
+                        self.event_history.lock().await.clear();
+                        *self.cached_static.lock().await = None;
+                        *vm_guard = VmState::Off;
+                        return Err(anyhow::anyhow!("SEV-SNP guest failed to boot — not running after cont"));
+                    }
+                    tracing::info!("SEV-SNP: guest survived early boot (status: {:?})", status.status);
+                }
+                Err(e) => {
+                    tracing::error!("SEV-SNP: query-status failed after cont: {e}");
+                    tracing::error!("SEV-SNP: guest likely crashed during early boot — check dmesg for GHCB errors");
+                    vm.shutdown().await;
+                    drop(fwd);
+                    self.stop_forwarder().await;
+                    self.event_history.lock().await.clear();
+                    *self.cached_static.lock().await = None;
+                    *vm_guard = VmState::Off;
+                    return Err(anyhow::anyhow!("SEV-SNP boot failed: {e}"));
+                }
             }
         }
 
@@ -719,6 +759,59 @@ async fn create_temp_overlay(base: &Path) -> Result<PathBuf> {
     }
 
     Ok(overlay)
+}
+
+/// Ensure SNP-capable boot image exists (built by contrib/snp-test-image/build.sh).
+///
+/// CirrosOS cannot be used for SEV-SNP because its kernel lacks
+/// CONFIG_AMD_MEM_ENCRYPT and crashes during page state transitions.
+/// The SNP boot image uses the host kernel (with SEV-SNP support) and a
+/// minimal init that prints "SNP BOOT OK" to serial, then powers off.
+async fn ensure_snp_boot_image() -> Result<PathBuf> {
+    let cache_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .join("target")
+        .join("test-fixtures");
+    tokio::fs::create_dir_all(&cache_dir).await?;
+
+    let path = cache_dir.join("snp-boot.qcow2");
+    if path.exists() {
+        return Ok(path);
+    }
+
+    // Try to build via contrib script
+    let build_script = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .join("contrib/snp-test-image/build.sh");
+
+    if build_script.exists() {
+        tracing::info!("Building SNP boot image via {}", build_script.display());
+        let output = tokio::process::Command::new(&build_script)
+            .output()
+            .await?;
+
+        if !output.status.success() {
+            bail!(
+                "SNP boot image build failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+
+        if path.exists() {
+            return Ok(path);
+        }
+    }
+
+    bail!(
+        "SNP boot image not found at {} — run contrib/snp-test-image/build.sh",
+        path.display()
+    )
 }
 
 /// Download cirros disk image if not cached.
