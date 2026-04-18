@@ -6,9 +6,11 @@ AmdSev OVMF firmware volume. See the full plan in
 
 ## Status
 
-Phase 0 — skeleton. Prints a banner and halts. No attestation, no
-networking, no UKI load yet. Subsequent phases land behind their own
-`agent/qrab-boot-phase<N>` worktrees.
+Phase 1 — embedded into an AmdSev OVMF build via edk2 submodule at
+`vendor/edk2` (pinned to `edk2-stable202602`). The built firmware at
+`target/ovmf/OVMF.fd` boots under SEV-SNP and BdsDxe hands control
+straight to qrab-boot via the `gGrubFileGuid` FV file. Still no
+attestation, no networking, no UKI load — those land in later phases.
 
 ## Workspace note
 
@@ -30,26 +32,43 @@ The `rust-toolchain.toml` pins a nightly snapshot and requests the
 `x86_64-unknown-uefi` target. `rustup` will install both automatically on
 first `cargo` invocation.
 
-## Smoke test (Phase 0)
+## Smoke tests
 
-From the qrab repository root (worktree or main checkout):
+Run from the qrab repository root (worktree or main checkout).
+
+**Phase 0 (vanilla OVMF, no SEV):**
 
 ```sh
 contrib/run-qrab-boot-qemu.sh
 ```
 
-The script boots the built EFI under QEMU q35 with vanilla OVMF (non-SEV)
-and streams the QEMU `debugcon` (port `0x402`) and serial to stdout. Look
-for:
+Boots the built EFI under QEMU q35 with distro-provided `OVMF_CODE.fd`
+(override via `QRAB_BOOT_OVMF_CODE`). Writes `target/qrab-boot-smoke/serial.log`.
+
+**Phase 1 (AmdSev OVMF, SEV-SNP):**
+
+```sh
+contrib/build-ovmf.sh          # ~7 min first time, ~1 min incremental
+contrib/smoke-snp-ovmf.sh       # requires /dev/sev + kvm_amd.sev_snp=Y
+```
+
+`build-ovmf.sh` clones the pinned edk2 submodule into
+`target/edk2-build/edk2/` (never mutating `vendor/edk2`), substitutes
+`qrab-boot.efi` for `OvmfPkg/AmdSev/Grub/grub.efi`, disables the upstream
+`PREBUILD` hook, and runs the standard edk2 build tool. `smoke-snp-ovmf.sh`
+launches the firmware under SEV-SNP and greps serial for the banner.
+
+Expected serial tail in both cases:
 
 ```
-QRAB BOOT v0.1.0 phase0 (build qrab-boot)
-QRAB_PHASE0_OK
+BdsDxe: starting Boot0002 "Grub Bootloader" from Fv(...)/FvFile(B5AE312C-BC8A-43B1-9C62-EBB826DD5D07)
+[ INFO]:  src/main.rs@032: QRAB BOOT v0.1.0 phase0 (build qrab-boot)
+[ INFO]:  src/main.rs@033: QRAB_PHASE0_OK
 ```
 
-The VM will hang forever after printing — this is the intended fail-closed
-behaviour for every qrab-boot phase. Kill QEMU with `Ctrl-A X` (or
-whatever monitor channel you have open).
+The FvFile GUID `B5AE312C-...` is `gGrubFileGuid` — reused unchanged so
+BDS does not need patching. The VM hangs forever; this is the intended
+fail-closed behaviour for every qrab-boot phase.
 
 ## Layout
 
