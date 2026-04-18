@@ -1,0 +1,29 @@
+[package]
+name = "qrab-boot"
+version = "0.1.0"
+edition = "2024"
+description = "Rust UEFI bootloader for SEV-SNP guests (replaces GRUB in AmdSev OVMF)"
+publish = false
+
+[[bin]]
+name = "qrab-boot"
+path = "src/main.rs"
+
+[dependencies]
+uefi = { version = "0.36", default-features = false, features = [
+    "alloc",
+    "global_allocator",
+    "logger",
+    "log-debugcon",
+] }
+log = { version = "0.4", default-features = false }
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = "symbols"
+
+[profile.dev]
+panic = "abort"

@@ -12,6 +12,12 @@ members = [
     "examples/preconfig-vm",
     "examples/events",
 ]
+# qrab-boot targets `x86_64-unknown-uefi`, incompatible with the rest of the
+# workspace. Build it separately from `projects/qrab-boot/`. See
+# `~/workspace/llm-rag/reference/qrab-boot-plan.md`.
+exclude = [
+    "projects/qrab-boot",
+]
 
 [workspace.dependencies]
 anyhow = "1"
