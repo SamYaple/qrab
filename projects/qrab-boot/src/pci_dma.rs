@@ -45,13 +45,6 @@
 //! [`PciRootBridgeIoProtocol`]:
 //!     uefi_raw::protocol::pci::root_bridge::PciRootBridgeIoProtocol
 
-// Every fn lives without a caller in this commit; phase-follow-up
-// commits wire the module into `vsock_driver::init` and
-// `vsock_hal`. Rather than sprinkle `#[allow(dead_code)]` on each
-// symbol only to peel them off in the next commit, allow dead code
-// for the whole file.
-#![allow(dead_code)]
-
 use core::cell::Cell;
 use core::ffi::c_void;
 use core::ptr;
@@ -76,11 +69,18 @@ unsafe impl Sync for BridgeSlot {}
 
 static BRIDGE: BridgeSlot = BridgeSlot(Cell::new(ptr::null_mut()));
 
-/// Memory type requested of [`allocate_buffer`]. `LOADER_DATA` keeps
-/// firmware bookkeeping consistent with the rest of qrab-boot's own
-/// allocations (`UefiHal::dma_alloc` previously used `LOADER_DATA`
-/// via `boot::allocate_pages`).
-const DMA_MEM_TYPE: MemoryType = MemoryType::LOADER_DATA;
+/// Memory type requested of [`allocate_buffer`].
+///
+/// `PciHostBridgeDxe`'s `RootBridgeIoAllocateBuffer` only accepts
+/// `EfiBootServicesData` or `EfiRuntimeServicesData` (see
+/// `MdeModulePkg/Bus/Pci/PciHostBridgeDxe/PciRootBridgeIo.c`, the
+/// "The only valid memory types are EfiBootServicesData and
+/// EfiRuntimeServicesData" check that rejects anything else with
+/// `EFI_INVALID_PARAMETER`). We pick `BOOT_SERVICES_DATA`: the
+/// allocation is a virtqueue that only lives until qrab-boot halts;
+/// the bootloader never exits boot services, so the firmware bucket
+/// and the OS bucket never need to differ.
+const DMA_MEM_TYPE: MemoryType = MemoryType::BOOT_SERVICES_DATA;
 
 /// Record the `PciRootBridgeIoProtocol` pointer for subsequent DMA
 /// calls. Must be called exactly once, before any other fn in this
