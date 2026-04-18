@@ -173,6 +173,120 @@ async fn vm_status_response_all_phases() {
     }
 }
 
+// --- Attestation tests ---
+
+/// Test AttestationState default is NotAvailable.
+#[tokio::test]
+async fn attestation_state_default_not_available() {
+    use bmc::types::{AttestationState, AttestationStatus};
+
+    let state = AttestationState::default();
+    assert_eq!(state.status, AttestationStatus::NotAvailable);
+    assert!(state.launch_measure.is_none());
+    assert!(state.sev_capabilities.is_none());
+    assert!(state.last_attestation_report.is_none());
+}
+
+/// Test AttestationState lifecycle: Pending -> Measured -> Verified.
+#[tokio::test]
+async fn attestation_state_lifecycle() {
+    use bmc::types::{
+        AttestationReportResponse, AttestationState, AttestationStatus, SevCapabilitiesResponse,
+    };
+
+    let mut state = AttestationState::default();
+
+    // Start: not available
+    assert_eq!(state.status, AttestationStatus::NotAvailable);
+
+    // SEV detected -> Pending
+    state.status = AttestationStatus::Pending;
+    assert_eq!(state.status, AttestationStatus::Pending);
+
+    // Launch measurement captured -> Measured
+    state.launch_measure = Some("dGVzdC1tZWFzdXJlbWVudA==".into());
+    state.sev_capabilities = Some(SevCapabilitiesResponse {
+        pdh: "cGRoLWtleQ==".into(),
+        cert_chain: "Y2VydC1jaGFpbg==".into(),
+        cbitpos: 51,
+        reduced_phys_bits: 1,
+    });
+    state.status = AttestationStatus::Measured;
+    assert_eq!(state.status, AttestationStatus::Measured);
+    assert!(state.launch_measure.is_some());
+    assert!(state.sev_capabilities.is_some());
+
+    // Attestation report requested -> Verified
+    state.last_attestation_report = Some(AttestationReportResponse {
+        data: "cmVwb3J0LWRhdGE=".into(),
+        mnonce: "bm9uY2U=".into(),
+        timestamp: "1713400000Z".into(),
+    });
+    state.status = AttestationStatus::Verified;
+    assert_eq!(state.status, AttestationStatus::Verified);
+    assert!(state.last_attestation_report.is_some());
+
+    // Serialize round-trip
+    let json = serde_json::to_string(&state).unwrap();
+    let deserialized: AttestationState = serde_json::from_str(&json).unwrap();
+    assert_eq!(deserialized.status, AttestationStatus::Verified);
+    assert_eq!(
+        deserialized.launch_measure.as_deref(),
+        Some("dGVzdC1tZWFzdXJlbWVudA==")
+    );
+    assert_eq!(deserialized.sev_capabilities.unwrap().cbitpos, 51);
+    assert_eq!(
+        deserialized.last_attestation_report.unwrap().mnonce,
+        "bm9uY2U="
+    );
+}
+
+/// Test AttestationStatus::Failed carries error message.
+#[tokio::test]
+async fn attestation_status_failed_carries_message() {
+    use bmc::types::AttestationStatus;
+
+    let status = AttestationStatus::Failed("SEV not initialized".into());
+    let json = serde_json::to_string(&status).unwrap();
+    let deserialized: AttestationStatus = serde_json::from_str(&json).unwrap();
+    assert_eq!(deserialized, AttestationStatus::Failed("SEV not initialized".into()));
+}
+
+/// Test SevCapabilitiesResponse serialization round-trip.
+#[tokio::test]
+async fn sev_capabilities_response_roundtrip() {
+    use bmc::types::SevCapabilitiesResponse;
+
+    let caps = SevCapabilitiesResponse {
+        pdh: "cGRo".into(),
+        cert_chain: "Y2VydA==".into(),
+        cbitpos: 51,
+        reduced_phys_bits: 1,
+    };
+    let json = serde_json::to_string(&caps).unwrap();
+    let deserialized: SevCapabilitiesResponse = serde_json::from_str(&json).unwrap();
+    assert_eq!(deserialized.pdh, "cGRo");
+    assert_eq!(deserialized.cbitpos, 51);
+    assert_eq!(deserialized.reduced_phys_bits, 1);
+}
+
+/// Test AttestationReportResponse serialization round-trip.
+#[tokio::test]
+async fn attestation_report_response_roundtrip() {
+    use bmc::types::AttestationReportResponse;
+
+    let report = AttestationReportResponse {
+        data: "cmVwb3J0".into(),
+        mnonce: "bm9uY2U=".into(),
+        timestamp: "1713400000Z".into(),
+    };
+    let json = serde_json::to_string(&report).unwrap();
+    let deserialized: AttestationReportResponse = serde_json::from_str(&json).unwrap();
+    assert_eq!(deserialized.data, "cmVwb3J0");
+    assert_eq!(deserialized.mnonce, "bm9uY2U=");
+    assert_eq!(deserialized.timestamp, "1713400000Z");
+}
+
 /// Test that event history preserves ordering.
 #[tokio::test]
 async fn event_history_ordering() {

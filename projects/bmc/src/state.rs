@@ -12,8 +12,9 @@ use manager::vm::{PreconfigVm, Vm, VmBuilder};
 use qapi_protocol::QmpEvent;
 
 use crate::types::{
-    BmcArch, BmcCapabilities, BmcConfig, BmcMachine, CpuInfoResponse, DiskConfig,
-    DiskFormat, KvmInfoResponse, SevStatusResponse, TpmStatusResponse, VmPhase,
+    AttestationState, AttestationStatus, BmcArch, BmcCapabilities, BmcConfig, BmcMachine,
+    CpuInfoResponse, DiskConfig, DiskFormat, KvmInfoResponse, SevCapabilitiesResponse,
+    SevStatusResponse, TpmStatusResponse, VmPhase,
 };
 
 const EVENT_HISTORY_CAP: usize = 1000;
@@ -58,6 +59,9 @@ pub struct BmcState {
     /// cached values until the next force_off transition.
     /// `None` while Off / ShuttingDown.
     pub cached_static: Mutex<Option<CachedStaticInfo>>,
+    /// Attestation state — populated after power_on when SEV-SNP is enabled.
+    /// Mutable: `request_attestation_report` updates it at runtime.
+    pub attestation: Mutex<AttestationState>,
     event_forwarder: Mutex<Option<JoinHandle<()>>>,
 }
 
@@ -70,6 +74,7 @@ impl BmcState {
             event_history: Arc::new(Mutex::new(VecDeque::with_capacity(EVENT_HISTORY_CAP))),
             config: Mutex::new(BmcConfig::default()),
             cached_static: Mutex::new(None),
+            attestation: Mutex::new(AttestationState::default()),
             event_forwarder: Mutex::new(None),
         })
     }
@@ -110,6 +115,7 @@ impl BmcState {
         // Defensive: clear any stale state from a prior power cycle.
         self.event_history.lock().await.clear();
         *self.cached_static.lock().await = None;
+        *self.attestation.lock().await = AttestationState::default();
 
         let config = self.config.lock().await.clone();
 
@@ -196,6 +202,7 @@ impl BmcState {
                 kernel_hashes: None,
                 host_data: sev.host_data.clone(),
                 vcek_disabled: None,
+                guest_visible_workarounds: None,
             };
             builder = builder.sev_snp(sev_config);
         }
@@ -268,11 +275,48 @@ impl BmcState {
                 self.event_history.lock().await.clear();
                 *self.cached_static.lock().await = None;
                 *vm_guard = VmState::Off;
-                return Err(e.context("power_on: PreconfigVm::start failed; transitioned to Off"));
+                return Err(anyhow::anyhow!("power_on: PreconfigVm::start failed; transitioned to Off: {e}"));
             }
         };
 
         *vm_guard = VmState::Running(vm);
+
+        // If SEV-SNP enabled, query launch measurement and capabilities.
+        // Errors are non-fatal — attestation degrades gracefully.
+        if config.sev_snp.is_some() {
+            if let VmState::Running(ref vm) = *vm_guard {
+                let mut att = self.attestation.lock().await;
+                att.status = AttestationStatus::Pending;
+
+                // Launch measurement
+                match vm.query_sev_launch_measure().await {
+                    Ok(measure) => {
+                        att.launch_measure = Some(measure.data);
+                        att.status = AttestationStatus::Measured;
+                    }
+                    Err(e) => {
+                        tracing::warn!("query-sev-launch-measure failed: {e}");
+                        att.status = AttestationStatus::Failed(e.to_string());
+                    }
+                }
+
+                // SEV capabilities (PDH, cert chain)
+                match vm.query_sev_capabilities().await {
+                    Ok(caps) => {
+                        att.sev_capabilities = Some(SevCapabilitiesResponse {
+                            pdh: caps.pdh,
+                            cert_chain: caps.cert_chain,
+                            cbitpos: caps.cbitpos,
+                            reduced_phys_bits: caps.reduced_phys_bits,
+                        });
+                    }
+                    Err(e) => {
+                        tracing::warn!("query-sev-capabilities failed: {e}");
+                    }
+                }
+            }
+        }
+
         Ok(())
     }
 
@@ -344,6 +388,7 @@ impl BmcState {
         self.stop_forwarder().await;
         self.event_history.lock().await.clear();
         *self.cached_static.lock().await = None;
+        *self.attestation.lock().await = AttestationState::default();
         *vm_guard = VmState::Off;
         Ok(())
     }
