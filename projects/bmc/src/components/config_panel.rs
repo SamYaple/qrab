@@ -6,6 +6,8 @@ use bmc::types::{
     VmPhase,
 };
 
+use crate::components::store::use_bmc_store;
+
 /// VM configuration panel.
 ///
 /// Two editable knobs — `memory` and `cpus` — gated by `current_phase == Off`.
@@ -29,24 +31,12 @@ pub fn ConfigPanel(
         VmPhase::Running | VmPhase::Paused | VmPhase::ShuttingDown
     );
 
-    // `use_resource` re-fires its future whenever anything it reads changes.
-    // Keying it to `is_off` lets `set_memory`/`set_cpus` actions trigger a
-    // refetch implicitly via phase transitions without hand-rolling a
-    // refresh_tick signal.
-    let mut config_resource = use_resource(move || async move {
-        let _ = is_off;
-        vm_actions::get_config().await.ok()
-    });
-    // Mirror the dashboard pattern: always render the same outer tree and
-    // fall back to `BmcConfig::default()` while the resource is pending.
-    // This keeps the client-side re-render from getting stuck on an SSR
-    // early-return ("Loading...") that never transitions.
-    let cfg = config_resource
-        .read()
-        .clone()
-        .flatten()
-        .unwrap_or_default();
-    let cfg: BmcConfig = cfg;
+    // Config is now pushed from the server over SSE. No use_resource,
+    // no manual refetch — `set_memory` / `set_cpus` trigger a
+    // `BmcPush::Config` frame server-side, and this component re-renders
+    // when the store signal updates.
+    let store = use_bmc_store();
+    let cfg: BmcConfig = store.config.read().clone();
 
     let cpus = cfg.cpus.unwrap_or(1);
     let memory = cfg.memory.clone();
@@ -70,7 +60,6 @@ pub fn ConfigPanel(
                                 let val = evt.value().clone();
                                 spawn(async move {
                                     let _ = vm_actions::set_memory(val).await;
-                                    config_resource.restart();
                                 });
                             },
                         }
@@ -87,7 +76,6 @@ pub fn ConfigPanel(
                                 if let Ok(val) = evt.value().parse::<u32>() {
                                     spawn(async move {
                                         let _ = vm_actions::set_cpus(val).await;
-                                        config_resource.restart();
                                     });
                                 }
                             },

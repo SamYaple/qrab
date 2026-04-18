@@ -175,3 +175,101 @@ async fn non_oob_envelope_reaches_mock() {
 // `components/qmp_console/search.rs`. Exposing it here would require making
 // `components` a public module of the `bmc` library, which is out of scope
 // for this feature.
+
+// --- Push helper tests ---
+//
+// BmcState's push_* helpers replace the per-component polling loops.
+// These tests verify that subscribers to push_tx see a frame after each
+// helper runs, which is the contract the SSE handler and client store
+// rely on. They do NOT require a running VM — with VmState::Off the
+// helpers emit default slices.
+
+/// `push_config` must broadcast the mutated config so every open SSE
+/// client re-renders without a refetch.
+#[tokio::test]
+async fn push_config_emits_frame() {
+    use bmc::state::BmcState;
+    use bmc::types::{BmcConfig, BmcPush};
+
+    let state = BmcState::new();
+    let mut rx = state.push_tx.subscribe();
+
+    // Mutate config, then push.
+    state.config.lock().await.memory = "2G".into();
+    state.push_config().await;
+
+    let frame = tokio::time::timeout(std::time::Duration::from_secs(1), rx.recv())
+        .await
+        .expect("push_config should broadcast within 1s")
+        .expect("broadcast recv");
+    match frame {
+        BmcPush::Config(BmcConfig { memory, .. }) => {
+            assert_eq!(memory, "2G", "pushed config should carry mutated memory");
+        }
+        other => panic!("expected Config frame, got {other:?}"),
+    }
+}
+
+/// `push_dashboard` must emit a Dashboard frame even when the VM is
+/// off — the client renders that as the "powered off" state.
+#[tokio::test]
+async fn push_dashboard_emits_frame_when_off() {
+    use bmc::state::BmcState;
+    use bmc::types::{BmcPush, VmPhase};
+
+    let state = BmcState::new();
+    let mut rx = state.push_tx.subscribe();
+
+    state.push_dashboard().await;
+
+    let frame = tokio::time::timeout(std::time::Duration::from_secs(1), rx.recv())
+        .await
+        .expect("push_dashboard should broadcast within 1s")
+        .expect("broadcast recv");
+    match frame {
+        BmcPush::Dashboard(d) => {
+            assert_eq!(d.status.phase, VmPhase::Off);
+        }
+        other => panic!("expected Dashboard frame, got {other:?}"),
+    }
+}
+
+/// `push_queue` broadcasts the current QMP queue depth. With the VM
+/// off the defaults flow through.
+#[tokio::test]
+async fn push_queue_emits_default_when_off() {
+    use bmc::state::BmcState;
+    use bmc::types::BmcPush;
+
+    let state = BmcState::new();
+    let mut rx = state.push_tx.subscribe();
+
+    state.push_queue().await;
+
+    let frame = tokio::time::timeout(std::time::Duration::from_secs(1), rx.recv())
+        .await
+        .expect("push_queue should broadcast within 1s")
+        .expect("broadcast recv");
+    match frame {
+        BmcPush::Queue(q) => {
+            assert_eq!(q.depth, 0);
+            assert!(!q.oob_supported);
+        }
+        other => panic!("expected Queue frame, got {other:?}"),
+    }
+}
+
+/// `snapshot` returns the first-frame seed that the SSE handler sends
+/// on connect. With an idle state every slice should be its default.
+#[tokio::test]
+async fn snapshot_returns_defaults_when_off() {
+    use bmc::state::BmcState;
+    use bmc::types::VmPhase;
+
+    let state = BmcState::new();
+    let snap = state.snapshot().await;
+    assert_eq!(snap.dashboard.status.phase, VmPhase::Off);
+    assert_eq!(snap.queue.depth, 0);
+    assert!(snap.events.is_empty());
+    assert_eq!(snap.config.memory, "1G");
+}

@@ -496,21 +496,31 @@ pub mod server_impl {
     }
 }
 
-/// Live QMP queue status. Polled by the QMP console panel to display
-/// a queue-depth badge and the OOB availability toggle.
+/// Live QMP queue status. Retained as a `#[server]` fallback so the
+/// client can reseed after reconnect without waiting for the next push,
+/// but the primary update path is `BmcState::push_queue` over SSE.
 #[server]
 pub async fn qmp_queue_status() -> Result<QueueStatus, ServerFnError> {
-    use crate::state::{bmc, VmState};
+    let state = crate::state::bmc();
+    Ok(build_queue(&state).await)
+}
 
-    let state = bmc();
+/// Core queue snapshot used by both `qmp_queue_status` and
+/// `BmcState::push_queue`. Mirrors `Qmp::queue_depth` / `queue_capacity`
+/// / `oob_supported` under the vm lock so the three fields are observed
+/// together.
+#[cfg(feature = "server")]
+pub async fn build_queue(state: &std::sync::Arc<crate::state::BmcState>) -> QueueStatus {
+    use crate::state::VmState;
+
     let vm_guard = state.vm.lock().await;
     match &*vm_guard {
-        VmState::Running(vm) => Ok(QueueStatus {
+        VmState::Running(vm) => QueueStatus {
             depth: vm.qmp.queue_depth(),
             capacity: vm.qmp.queue_capacity(),
             oob_supported: vm.qmp.oob_supported(),
-        }),
-        _ => Ok(QueueStatus::default()),
+        },
+        _ => QueueStatus::default(),
     }
 }
 
@@ -574,21 +584,30 @@ pub async fn execute_qmp(
 
     // Dispatch under the vm lock.
     let state = bmc();
-    let vm_guard = state.vm.lock().await;
-    match &*vm_guard {
-        VmState::Running(vm) => {
-            let req_value = server_impl::build_qmp_request(&envelope, oob);
-            let fut = async {
-                if oob {
-                    vm.qmp.execute_raw_oob(req_value).await
-                } else {
-                    vm.qmp.execute_raw(req_value).await
-                }
-            };
-            fut.await.map_err(|e| ServerFnError::new(e.to_string()))
+    let result = {
+        let vm_guard = state.vm.lock().await;
+        match &*vm_guard {
+            VmState::Running(vm) => {
+                let req_value = server_impl::build_qmp_request(&envelope, oob);
+                let fut = async {
+                    if oob {
+                        vm.qmp.execute_raw_oob(req_value).await
+                    } else {
+                        vm.qmp.execute_raw(req_value).await
+                    }
+                };
+                fut.await.map_err(|e| ServerFnError::new(e.to_string()))
+            }
+            _ => Err(ServerFnError::new("VM is not running")),
         }
-        _ => Err(ServerFnError::new("VM is not running")),
-    }
+    };
+
+    // Push the fresh queue depth so the client badge updates without
+    // polling. Runs outside the vm lock so the broadcast doesn't hold
+    // contention on the next enqueue.
+    state.push_queue().await;
+
+    result
 }
 
 #[cfg(all(test, feature = "server"))]

@@ -92,6 +92,11 @@ fn main() {
 
 #[component]
 fn App() -> Element {
+    // Install the central SSE-backed store before any child renders.
+    // Every dashboard panel reads its data from this store instead of
+    // running its own polling loop.
+    let _store = components::store::provide_bmc_store();
+
     rsx! {
         document::Stylesheet { href: MAIN_CSS_HREF }
         Router::<Route> {}

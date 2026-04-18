@@ -9,6 +9,8 @@ pub async fn power_on() -> Result<VmPhase, ServerFnError> {
         .power_on()
         .await
         .map_err(|e| ServerFnError::new(e.to_string()))?;
+    state.push_dashboard().await;
+    state.push_queue().await;
     Ok(state.phase().await)
 }
 
@@ -19,6 +21,10 @@ pub async fn pause() -> Result<VmPhase, ServerFnError> {
         .pause()
         .await
         .map_err(|e| ServerFnError::new(e.to_string()))?;
+    // The QMP `STOP` event already triggers a dashboard push from the
+    // forwarder; this explicit push covers the case where the event
+    // hasn't propagated yet and lets the client UI flip immediately.
+    state.push_dashboard().await;
     Ok(state.phase().await)
 }
 
@@ -29,6 +35,7 @@ pub async fn resume() -> Result<VmPhase, ServerFnError> {
         .resume()
         .await
         .map_err(|e| ServerFnError::new(e.to_string()))?;
+    state.push_dashboard().await;
     Ok(state.phase().await)
 }
 
@@ -39,6 +46,7 @@ pub async fn reset() -> Result<VmPhase, ServerFnError> {
         .reset()
         .await
         .map_err(|e| ServerFnError::new(e.to_string()))?;
+    state.push_dashboard().await;
     Ok(state.phase().await)
 }
 
@@ -49,6 +57,8 @@ pub async fn power_off() -> Result<VmPhase, ServerFnError> {
         .power_off()
         .await
         .map_err(|e| ServerFnError::new(e.to_string()))?;
+    state.push_dashboard().await;
+    state.push_queue().await;
     Ok(state.phase().await)
 }
 
@@ -59,6 +69,8 @@ pub async fn force_off() -> Result<VmPhase, ServerFnError> {
         .force_off()
         .await
         .map_err(|e| ServerFnError::new(e.to_string()))?;
+    state.push_dashboard().await;
+    state.push_queue().await;
     Ok(state.phase().await)
 }
 
@@ -74,8 +86,11 @@ pub async fn get_config() -> Result<BmcConfig, ServerFnError> {
 #[server]
 pub async fn set_cpus(cpus: u32) -> Result<(), ServerFnError> {
     let state = crate::state::bmc();
-    let mut config = state.config.lock().await;
-    config.cpus = if cpus == 0 { None } else { Some(cpus) };
+    {
+        let mut config = state.config.lock().await;
+        config.cpus = if cpus == 0 { None } else { Some(cpus) };
+    }
+    state.push_config().await;
     Ok(())
 }
 
@@ -84,6 +99,7 @@ pub async fn set_cpus(cpus: u32) -> Result<(), ServerFnError> {
 pub async fn set_memory(memory: String) -> Result<(), ServerFnError> {
     let state = crate::state::bmc();
     state.config.lock().await.memory = memory;
+    state.push_config().await;
     Ok(())
 }
 
