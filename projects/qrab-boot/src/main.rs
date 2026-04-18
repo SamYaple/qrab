@@ -16,8 +16,10 @@ extern crate alloc;
 
 mod attest;
 mod ghcb;
+mod measure;
 mod panic;
 mod rng;
+mod secret;
 mod vsock;
 mod vsock_connect;
 mod vsock_driver;
@@ -34,7 +36,7 @@ use uefi::prelude::*;
 const BANNER: &str = concat!(
     "QRAB BOOT v",
     env!("CARGO_PKG_VERSION"),
-    " phase4 (build ",
+    " phase4+secret+pcr9 (build ",
     env!("CARGO_PKG_NAME"),
     ")",
 );
@@ -232,6 +234,34 @@ fn run_vsock_demo() {
     // still lets a post-boot verifier confirm the expected value.
     let report_data = qrab_boot_proto::report_data(&client_nonce, &response);
     ghcb::record_intended_report_data(&report_data);
+
+    // Extend PCR 9 with sha256(secret_sha256 || server_nonce) on any
+    // firmware that has a TCG2 protocol. A missing TCG2 is non-fatal
+    // (AmdSev OVMF ships without Tcg2Dxe by default); the log token
+    // tells the smoke harness which leg of the branch ran.
+    match measure::extend_secret_binding(&response.secret_sha256, &response.server_nonce) {
+        Ok(()) => {}
+        Err(measure::MeasureError::Tcg2Absent) => {
+            log::info!("QRAB_TCG2_ABSENT");
+        }
+        Err(e) => {
+            log::warn!("QRAB_PCR9_ERR {e}");
+            return;
+        }
+    }
+
+    // Publish the secret as an EFI runtime variable (volatile, BS+RT).
+    // The initrd dracut module at contrib/qrab-boot-initrd-module/
+    // will read it out and wipe it during early userspace. Any failure
+    // here is terminal — without the secret the kernel has no material
+    // to mount the rootfs, so a silent skip would only postpone pain.
+    match secret::publish(&response.secret) {
+        Ok(()) => log::info!("QRAB_SECRET_OK len={}", response.secret.len()),
+        Err(e) => {
+            log::warn!("QRAB_SECRET_ERR {e}");
+            return;
+        }
+    }
 
     log::info!(
         "QRAB_ATTEST_OK server_nonce0={:#04x} secret_len={} sig_len={} uki_url_len={}",
