@@ -25,7 +25,7 @@ OUTPUT="${2:-${SCRIPT_DIR}/../../target/test-fixtures/snp-boot.qcow2}"
 
 KERNEL="${KERNEL:-/usr/src/linux/arch/x86/boot/bzImage}"
 STUB="${STUB:-/usr/lib/systemd/boot/efi/linuxx64.efi.stub}"
-CMDLINE="console=ttyS0,115200n8 earlyprintk=serial,ttyS0,115200"
+CMDLINE="console=tty0 console=ttyS0,115200n8 earlyprintk=serial,ttyS0,115200"
 
 # Validate prerequisites
 for cmd in gcc ukify sfdisk mkfs.fat mmd mcopy qemu-img; do
@@ -44,8 +44,22 @@ echo "  init: $(ls -lh "$BUILD_DIR/init" | awk '{print $5}')"
 
 echo "=== Building initramfs ==="
 rm -rf "$BUILD_DIR/initramfs"
-mkdir -p "$BUILD_DIR/initramfs"/{dev,proc,sys,tmp}
+mkdir -p "$BUILD_DIR/initramfs"/{dev,proc,sys,tmp,modules}
 cp "$BUILD_DIR/init" "$BUILD_DIR/initramfs/init"
+
+# Copy DRM/VGA modules for framebuffer console (VNC display)
+KVER="${KVER:-$(uname -r)}"
+MODDIR="/lib/modules/$KVER/kernel/drivers/gpu/drm"
+for mod in \
+    "$MODDIR/drm_kms_helper.ko" \
+    "$MODDIR/drm_shmem_helper.ko" \
+    "$MODDIR/clients/drm_client_lib.ko" \
+    "$MODDIR/tiny/bochs.ko"; do
+    if [ -f "$mod" ]; then
+        cp "$mod" "$BUILD_DIR/initramfs/modules/"
+        echo "  module: $(basename "$mod")"
+    fi
+done
 (cd "$BUILD_DIR/initramfs" && find . -print0 | cpio --null -o --format=newc) \
     > "$BUILD_DIR/initramfs.cpio" 2>/dev/null
 echo "  initramfs: $(ls -lh "$BUILD_DIR/initramfs.cpio" | awk '{print $5}')"

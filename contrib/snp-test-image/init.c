@@ -12,10 +12,17 @@
 #define __NR_uname 63
 #define __NR_read 0
 #define __NR_lseek 8
+#define __NR_nanosleep 35
+#define __NR_finit_module 313
 
 #define O_RDONLY 0
 #define O_WRONLY 1
 #define O_NONBLOCK 04000
+
+struct timespec {
+    long tv_sec;
+    long tv_nsec;
+};
 
 struct utsname {
     char sysname[65];
@@ -84,29 +91,48 @@ static int my_strstr(const char *hay, const char *needle) {
     return 0;
 }
 
+/* Load a kernel module via finit_module(fd, "", 0). */
+static void load_module(const char *path) {
+    int fd = my_open(path, O_RDONLY);
+    if (fd >= 0) {
+        syscall3(__NR_finit_module, fd, (long)"", 0);
+        my_close(fd);
+    }
+}
+
 void _start(void) {
     /* Mount virtual filesystems */
     syscall5(__NR_mount, (long)"proc", (long)"/proc", (long)"proc", 0, 0);
     syscall5(__NR_mount, (long)"sysfs", (long)"/sys", (long)"sysfs", 0, 0);
     syscall5(__NR_mount, (long)"devtmpfs", (long)"/dev", (long)"devtmpfs", 0, 0);
 
-    /* Open serial console */
+    /* Load VGA/DRM modules for framebuffer console (VNC display) */
+    load_module("/modules/drm_kms_helper.ko");
+    load_module("/modules/drm_shmem_helper.ko");
+    load_module("/modules/drm_client_lib.ko");
+    load_module("/modules/bochs.ko");
+
+    /* Open consoles — serial for tests, tty0 for VNC framebuffer */
     int serial = my_open("/dev/ttyS0", O_WRONLY);
+    int vga = my_open("/dev/tty0", O_WRONLY);
 
     my_write(1, "===== SNP BOOT OK =====\n");
     if (serial >= 0) my_write(serial, "===== SNP BOOT OK =====\n");
+    if (vga >= 0) my_write(vga, "===== SNP BOOT OK =====\n");
+
+    /* Write to all consoles: stdout, serial, VGA */
+    #define emit(msg) do { \
+        my_write(1, msg); \
+        if (serial >= 0) my_write(serial, msg); \
+        if (vga >= 0) my_write(vga, msg); \
+    } while(0)
 
     /* Get kernel version */
     struct utsname uts;
     if (syscall1(__NR_uname, (long)&uts) == 0) {
-        my_write(1, "Kernel: ");
-        my_write(1, uts.release);
-        my_write(1, "\n");
-        if (serial >= 0) {
-            my_write(serial, "Kernel: ");
-            my_write(serial, uts.release);
-            my_write(serial, "\n");
-        }
+        emit("Kernel: ");
+        emit(uts.release);
+        emit("\n");
     }
 
     /* Read kmsg to check SEV status */
@@ -122,19 +148,22 @@ void _start(void) {
         }
         my_close(kmsg);
         if (found_snp) {
-            my_write(1, "SEV-SNP: active\n");
-            if (serial >= 0) my_write(serial, "SEV-SNP: active\n");
+            emit("SEV-SNP: active\n");
         } else if (found_sev) {
-            my_write(1, "SEV: active (non-SNP)\n");
-            if (serial >= 0) my_write(serial, "SEV: active (non-SNP)\n");
+            emit("SEV: active (non-SNP)\n");
         }
     }
 
-    my_write(1, "===== BOOT COMPLETE =====\n");
-    if (serial >= 0) {
-        my_write(serial, "===== BOOT COMPLETE =====\n");
-        my_close(serial);
-    }
+    emit("===== BOOT COMPLETE =====\n");
+
+    /* Sleep 5 minutes so VM stays alive for QMP queries / health checks */
+    emit("Sleeping 300s before poweroff...\n");
+    static struct timespec ts = { .tv_sec = 300, .tv_nsec = 0 };
+    syscall2(__NR_nanosleep, (long)&ts, 0);
+
+    emit("Sleep done, powering off.\n");
+    if (serial >= 0) my_close(serial);
+    if (vga >= 0) my_close(vga);
 
     /* Sync and power off */
     syscall1(__NR_sync, 0);
