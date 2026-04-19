@@ -31,6 +31,9 @@
 #[cfg(any(feature = "std", test))]
 extern crate std;
 
+#[cfg(feature = "alloc")]
+extern crate alloc;
+
 mod envelope;
 pub mod ghcb;
 
@@ -43,8 +46,9 @@ pub mod verify;
 /// `snp_cert_table` parser for the VCEK / ASK / ARK blob that the
 /// hypervisor returns via `SVM_VMGEXIT_EXT_GUEST_REQUEST` (A02) or
 /// that AMD KDS ships in `/vcek/…/ask-ark.bin` responses. Needs a
-/// `Vec` allocator so it rides on the `verify` feature's `std`.
-#[cfg(feature = "verify")]
+/// `Vec` allocator; gated on the `alloc` feature so the no_std
+/// qrab-boot build can opt in while keeping `std` off.
+#[cfg(feature = "alloc")]
 pub mod cert_table;
 pub use envelope::{
     EnvelopeError, REPORT_REQ_PLAINTEXT_SIZE, decrypt_guest_msg, encrypt_guest_msg,

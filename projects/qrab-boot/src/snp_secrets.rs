@@ -44,6 +44,7 @@
 //!     integer so the smoke harness can assert the Secrets page is
 //!     present without leaking key material.
 
+use alloc::vec::Vec;
 use core::ptr;
 
 pub use qrab_snp_proto::SecretsValidateError;
@@ -58,6 +59,25 @@ use zerocopy::{FromBytes, IntoBytes};
 use uefi_raw::protocol::pci::root_bridge::PciRootBridgeIoProtocolOperation;
 
 use crate::{ghcb_vmgexit, pci_dma};
+
+/// 4 KiB page size used throughout `pci_dma` / OVMF `IoMmu` ops.
+const PAGE_SIZE: usize = 4096;
+
+/// Starting cert-chain data-page allocation for the extended
+/// guest-request path. Real AMD chains on a Genoa / Bergamo host
+/// are ~3 KiB (ARK 1036 B + ASK 916 B + VCEK 1355 B in DER), so one
+/// page suffices in practice. Starting at 4 leaves headroom and
+/// matches the Linux kernel's `SNP_EXT_GUEST_REQ_INIT_PAGES`
+/// starting value. A `SNP_GUEST_VMM_ERR_INVALID_LEN` retry still
+/// catches up to hypervisors that stash additional PSP metadata.
+const CERT_PAGES_INITIAL: u64 = 4;
+
+/// Upper bound on cert-chain data pages we will ever allocate.
+/// Stops a hostile hypervisor from asking us to allocate arbitrarily
+/// large runs of RMP-shared memory. 16 pages = 64 KiB — large enough
+/// for an ARK + ASK + VCEK + VLEK chain with AMD's spec-max cert
+/// sizes plus a cert-table header, and still trivial to zero.
+const CERT_PAGES_MAX: u64 = 16;
 
 /// Hard-coded physical address of the SNP Secrets page for the
 /// `OvmfPkg/AmdSev/AmdSevX64.fdf` build this tree produces.
@@ -120,6 +140,16 @@ pub enum ReportReqError {
     /// [`MsgReportResp`] — should not happen in practice because
     /// `MsgReportResp` is a `FromBytes` POD with fixed 1280 B size.
     Decode,
+    /// Hypervisor asked for more cert-chain data pages than
+    /// [`CERT_PAGES_MAX`]. Treated as hostile — we refuse to allocate
+    /// arbitrary runs of RMP-shared memory.
+    CertTooLarge {
+        /// Page count the hypervisor requested via RBX.
+        required_pages: u64,
+    },
+    /// `cert_table::parse_cert_table` rejected the blob the
+    /// hypervisor returned.
+    CertParse(qrab_snp_proto::cert_table::CertTableError),
 }
 
 /// Full round-trip: encrypt a `MSG_REPORT_REQ` with `report_data`
@@ -303,4 +333,186 @@ fn decode_response(
         return Err(ReportReqError::PspStatus(status));
     }
     Ok(resp.report)
+}
+
+/// Extended-variant of [`request_report`] (A02): issues
+/// `SVM_VMGEXIT_EXT_GUEST_REQUEST` so the hypervisor also fills a
+/// caller-supplied cert-chain data buffer. Returns the signed
+/// attestation report **plus** the raw cert-table blob the
+/// hypervisor wrote back. The caller is expected to run the blob
+/// through [`qrab_snp_proto::cert_table::parse_cert_table`] to split
+/// it into ARK / ASK / VCEK (or VLEK) DER certs.
+///
+/// Retry discipline: on the first `SNP_GUEST_VMM_ERR_INVALID_LEN`
+/// from the hypervisor we realloc the data pages to the page count
+/// the hypervisor wrote back into RBX, then re-issue the VMGEXIT
+/// *once*. A second INVALID_LEN (or any other error) bubbles up.
+/// Anything larger than [`CERT_PAGES_MAX`] is treated as hostile
+/// and surfaced as [`ReportReqError::CertTooLarge`].
+pub fn request_report_with_certs(
+    vmpck0: &[u8; VMPCK_LEN],
+    msg_seqno: u64,
+    report_data: [u8; 64],
+) -> Result<(SnpAttestationReport, Vec<u8>), ReportReqError> {
+    // The request / response envelope handling is identical to
+    // `request_report`. Inline the full prologue so this fn stays
+    // self-contained — the duplication is ~50 lines and means
+    // `request_report`'s well-tested code path is untouched by the
+    // A02 addition.
+    let req_host = pci_dma::allocate_buffer(1).map_err(|_| ReportReqError::AllocFailed)?;
+    let resp_host = pci_dma::allocate_buffer(1).map_err(|err| {
+        let _ = pci_dma::free_buffer(req_host, 1);
+        let _ = err;
+        ReportReqError::AllocFailed
+    })?;
+
+    let req_msg: &mut SnpGuestMsg = unsafe { &mut *(req_host as *mut SnpGuestMsg) };
+    let zeros = &[0u8; SNP_GUEST_MSG_SIZE];
+    *req_msg = SnpGuestMsg::read_from_bytes(zeros)
+        .expect("4 KiB decodes into SnpGuestMsg");
+    let req = MsgReportReq::new(report_data, 0);
+    let plaintext = <MsgReportReq as IntoBytes>::as_bytes(&req);
+    if let Err(e) = encrypt_guest_msg(
+        req_msg,
+        vmpck0,
+        msg_seqno,
+        SnpMsgType::ReportReq,
+        0,
+        plaintext,
+    ) {
+        let _ = pci_dma::free_buffer(req_host, 1);
+        let _ = pci_dma::free_buffer(resp_host, 1);
+        return Err(ReportReqError::Envelope(e));
+    }
+    let resp_msg: &mut SnpGuestMsg = unsafe { &mut *(resp_host as *mut SnpGuestMsg) };
+    *resp_msg = SnpGuestMsg::read_from_bytes(zeros)
+        .expect("4 KiB decodes into SnpGuestMsg");
+
+    let op = PciRootBridgeIoProtocolOperation::BUS_MASTER_COMMON_BUFFER64;
+    let req_map = match pci_dma::map(op, req_host, SNP_GUEST_MSG_SIZE) {
+        Ok(m) => m,
+        Err(_) => {
+            let _ = pci_dma::free_buffer(req_host, 1);
+            let _ = pci_dma::free_buffer(resp_host, 1);
+            return Err(ReportReqError::AllocFailed);
+        }
+    };
+    let resp_map = match pci_dma::map(op, resp_host, SNP_GUEST_MSG_SIZE) {
+        Ok(m) => m,
+        Err(_) => {
+            let _ = pci_dma::unmap(req_map.cookie);
+            let _ = pci_dma::free_buffer(req_host, 1);
+            let _ = pci_dma::free_buffer(resp_host, 1);
+            return Err(ReportReqError::AllocFailed);
+        }
+    };
+
+    // Cert-chain data pages. Start with `CERT_PAGES_INITIAL`; if the
+    // hypervisor says we need more, retry once with the requested
+    // size (capped at `CERT_PAGES_MAX`).
+    let mut data_pages = CERT_PAGES_INITIAL;
+    let mut attempt = 0u32;
+    let result: Result<(SnpAttestationReport, Vec<u8>), ReportReqError> = loop {
+        attempt += 1;
+        let data_host = match pci_dma::allocate_buffer(data_pages as usize) {
+            Ok(p) => p,
+            Err(_) => break Err(ReportReqError::AllocFailed),
+        };
+        // Zero so stale host bytes don't leak into the bounce or
+        // confuse the parser if the hypervisor writes less than a
+        // full buffer.
+        // SAFETY: data_host covers `data_pages * PAGE_SIZE` bytes we
+        // just allocated; no aliases.
+        unsafe {
+            core::ptr::write_bytes(
+                data_host,
+                0,
+                (data_pages as usize) * PAGE_SIZE,
+            );
+        }
+        let data_map = match pci_dma::map(op, data_host, (data_pages as usize) * PAGE_SIZE) {
+            Ok(m) => m,
+            Err(_) => {
+                let _ = pci_dma::free_buffer(data_host, data_pages as usize);
+                break Err(ReportReqError::AllocFailed);
+            }
+        };
+
+        log::info!(
+            "QRAB_SNP_RR_EXT_PRE attempt={attempt} data_pages={data_pages} data_bus={:#x}",
+            data_map.device_addr,
+        );
+        let ext_rr = ghcb_vmgexit::guest_request_extended(
+            req_map.device_addr,
+            resp_map.device_addr,
+            data_map.device_addr,
+            data_pages,
+        );
+
+        // Unmap ordering matches the basic request_report path: the
+        // IoMmu's CommonBuffer Unmap copies bounce -> host for write
+        // ops, which is what we need so the CPU reads see the
+        // cert-chain bytes + PSP response.
+        let _ = pci_dma::unmap(data_map.cookie);
+
+        match ext_rr {
+            Ok(()) => {
+                // Copy cert bytes before freeing the page.
+                // SAFETY: data_host points at `data_pages * PAGE_SIZE`
+                // bytes we own, just populated by the hypervisor via
+                // the Unmap bounce copy.
+                let cert_bytes = unsafe {
+                    core::slice::from_raw_parts(
+                        data_host,
+                        (data_pages as usize) * PAGE_SIZE,
+                    )
+                    .to_vec()
+                };
+                let _ = pci_dma::free_buffer(data_host, data_pages as usize);
+
+                // Response envelope handling identical to the basic path.
+                let _ = pci_dma::unmap(resp_map.cookie);
+                let _ = pci_dma::unmap(req_map.cookie);
+                match decode_response(resp_host, vmpck0, msg_seqno) {
+                    Ok(report) => {
+                        let _ = pci_dma::free_buffer(req_host, 1);
+                        let _ = pci_dma::free_buffer(resp_host, 1);
+                        return Ok((report, cert_bytes));
+                    }
+                    Err(e) => {
+                        let _ = pci_dma::free_buffer(req_host, 1);
+                        let _ = pci_dma::free_buffer(resp_host, 1);
+                        return Err(e);
+                    }
+                }
+            }
+            Err(GhcbError::InvalidLen { required_pages }) => {
+                let _ = pci_dma::free_buffer(data_host, data_pages as usize);
+                if required_pages > CERT_PAGES_MAX {
+                    break Err(ReportReqError::CertTooLarge { required_pages });
+                }
+                if required_pages <= data_pages || attempt >= 2 {
+                    // Either hypervisor lied (asked for same-or-less
+                    // than what we already passed) or we already
+                    // retried once — bail instead of looping.
+                    break Err(ReportReqError::Ghcb(GhcbError::InvalidLen { required_pages }));
+                }
+                data_pages = required_pages;
+                continue;
+            }
+            Err(e) => {
+                let _ = pci_dma::free_buffer(data_host, data_pages as usize);
+                break Err(ReportReqError::Ghcb(e));
+            }
+        }
+    };
+
+    // Any exit from the loop *that did not already return* still
+    // needs to release req/resp mappings. Successful return paths
+    // handled those above.
+    let _ = pci_dma::unmap(resp_map.cookie);
+    let _ = pci_dma::unmap(req_map.cookie);
+    let _ = pci_dma::free_buffer(req_host, 1);
+    let _ = pci_dma::free_buffer(resp_host, 1);
+    result
 }

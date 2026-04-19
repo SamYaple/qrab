@@ -349,8 +349,16 @@ fn run_vsock_demo() -> Result<VsockSession, ()> {
                 // field before handing off to us gets the correct
                 // next-seqno without re-coding.
                 let initial_seqno = (page.msg_seqno_0 as u64).wrapping_add(1);
-                match snp_secrets::request_report(&page.vmpck0, initial_seqno, report_data) {
-                    Ok(report) => {
+                // A02: use the extended guest-request so the
+                // hypervisor also hands us the VCEK / ASK / ARK
+                // chain, and we can log + downstream-verify the
+                // full trust path in one round-trip.
+                match snp_secrets::request_report_with_certs(
+                    &page.vmpck0,
+                    initial_seqno,
+                    report_data,
+                ) {
+                    Ok((report, cert_bytes)) => {
                         // Copy out of the #[repr(C, packed)] struct so the
                         // 2024-edition `unaligned_references` rule is happy.
                         let m = { report.measurement };
@@ -363,6 +371,35 @@ fn run_vsock_demo() -> Result<VsockSession, ()> {
                             m[0], m[1], m[2], m[3], m[4], m[5], m[6], m[7],
                             version, vmpl, policy, initial_seqno,
                         );
+
+                        // Parse the cert-table blob. A non-fatal
+                        // parse failure still gets the PSP report
+                        // logged above — the attest chain itself
+                        // is cryptographically bound, and the
+                        // cert chain is a convenience for host-side
+                        // verification (A03).
+                        match qrab_snp_proto::cert_table::parse_cert_table(&cert_bytes) {
+                            Ok(entries) => {
+                                let mut vcek_der_len = 0usize;
+                                let mut vlek_der_len = 0usize;
+                                for e in &entries {
+                                    use qrab_snp_proto::cert_table::CertKind;
+                                    match e.kind {
+                                        CertKind::Vcek => vcek_der_len = e.der.len(),
+                                        CertKind::Vlek => vlek_der_len = e.der.len(),
+                                        _ => {}
+                                    }
+                                }
+                                log::info!(
+                                    "QRAB_SNP_CERT_CHAIN entries={} vcek_der_len={} vlek_der_len={} blob_len={}",
+                                    entries.len(),
+                                    vcek_der_len,
+                                    vlek_der_len,
+                                    cert_bytes.len(),
+                                );
+                            }
+                            Err(e) => log::warn!("QRAB_SNP_CERT_PARSE_ERR {e}"),
+                        }
                     }
                     Err(e) => log::warn!("QRAB_SNP_REPORT_ERR {e:?}"),
                 }

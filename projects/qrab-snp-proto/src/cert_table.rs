@@ -213,14 +213,13 @@ pub fn parse_cert_table(blob: &[u8]) -> Result<Vec<CertEntry<'_>>, CertTableErro
     Ok(out)
 }
 
-// Bring `Vec` into scope for no_std + alloc or std builds. We only
-// compile the parser under `std` (via the `verify` feature), so
-// the `use` below is tied to the same gate. Placed above the `mod
-// tests` so the macro `vec!` expands correctly inside the tests too.
-#[cfg(feature = "std")]
-use std::vec::Vec;
-#[cfg(all(test, feature = "std"))]
-use std::vec;
+// Bring `Vec` into scope. The module is gated on the `alloc`
+// feature (see `lib.rs`), and `std` implies `alloc`, so either
+// import is always available when this file compiles.
+#[cfg(feature = "alloc")]
+use alloc::vec::Vec;
+#[cfg(all(test, feature = "alloc"))]
+use alloc::vec;
 
 #[cfg(test)]
 mod tests {

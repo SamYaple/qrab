@@ -29,7 +29,12 @@ default = []
 # Enables `std::error::Error` impls + test helpers that need `std::`
 # APIs. Unset on the UEFI side (qrab-boot keeps `no_std`), enabled
 # transparently by `cargo test`.
-std = []
+std = ["alloc"]
+# Enables the `cert_table` parser. Needs a `Vec` allocator; pulls in
+# `extern crate alloc`. The UEFI side (qrab-boot) already runs with
+# `extern crate alloc` because the `uefi` crate's global allocator
+# is enabled, so turning this on there is free.
+alloc = []
 # Enables the `verify` module: ECDSA-P384 + SHA-384 signature check
 # for `SnpAttestationReport`. Pulls in `p384` + `sha2` — both
 # std-using on the RustCrypto defaults, so this feature is mutually

@@ -31,7 +31,7 @@ qrab-boot-proto = { path = "../qrab-boot-proto" }
 # `projects/qrab-snp-proto` so host-side unit tests can exercise the
 # layout assertions that `no_std` qrab-boot can only verify at
 # compile-time.
-qrab-snp-proto = { path = "../qrab-snp-proto" }
+qrab-snp-proto = { path = "../qrab-snp-proto", features = ["alloc"] }
 # Phase 3 uses virtio-drivers for virtio-vsock transport instead of the
 # UEFI NetworkPkg stack. The crate is no_std + alloc-only and does not
 # force any edk2 DSC/FDF changes, which is the main reason for the
