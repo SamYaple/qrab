@@ -10,6 +10,12 @@ publish = false
 # match the qrab-boot workspace's zerocopy version so both sides use
 # the same trait impls for the same struct definitions.
 zerocopy = { version = "0.8", default-features = false, features = ["derive"] }
+# AES-256-GCM for the `SNP_GUEST_REQUEST` envelope (AMD SEV-SNP ABI
+# §5.4.2). Needs `aes` for the block cipher + `aead` for the Nonce /
+# Tag type aliases. Explicitly turn OFF the default `alloc` feature
+# so qrab-boot can use it in-place; we work in fixed 4 KiB buffers
+# and never need heap allocations for the AEAD path.
+aes-gcm = { version = "0.10", default-features = false, features = ["aes"] }
 
 [features]
 default = []
