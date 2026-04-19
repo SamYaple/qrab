@@ -17,7 +17,7 @@ use qrab_boot_proto::{
     AttestRequest, AttestResponse, ProtoError, SIG_LEN, decode_framed, encode_framed,
     response_signing_digest, validate_request,
 };
-use rand_core::OsRng;
+use rand_core::{OsRng, RngCore};
 use sha2::Digest as _;
 
 /// Errors surfaced by [`handle_request_bytes`]. All variants map to
@@ -121,11 +121,12 @@ pub fn handle_request_bytes(
 }
 
 /// Build the canonical stub [`AttestResponse`] for `req`, signed with
-/// `signer`. The server inverts each byte of the client's nonce so
-/// the guest can distinguish a real reply from a loopback echo
-/// (`server_nonce[0] = 0xaa` when the client sent `0x55`). The
-/// response's `uki_sha256` field commits to the bytes the caller
-/// will transmit as the second framed payload.
+/// `signer`. The server fills `server_nonce` with OS-supplied random
+/// bytes so each response is fresh and unpredictable — mixing real
+/// entropy into the transcript defeats replay and guards against a
+/// downstream binding that treats `server_nonce` as a challenge. The
+/// response's `uki_sha256` field commits to the bytes the caller will
+/// transmit as the second framed payload.
 pub fn build_signed_response(
     req: &AttestRequest,
     signer: &Signer,
@@ -141,11 +142,14 @@ pub fn build_signed_response(
 /// filled with zero bytes of the correct length so
 /// [`qrab_boot_proto::response_signing_digest`] produces a stable
 /// value before signing.
-fn build_body(req: &AttestRequest, uki_bytes: &[u8]) -> AttestResponse {
+fn build_body(_req: &AttestRequest, uki_bytes: &[u8]) -> AttestResponse {
+    // Fresh random bytes per request. `rand_core::OsRng` reads from
+    // the kernel CSPRNG on every `fill_bytes` call, so two requests
+    // with identical `client_nonce`s still see distinct
+    // `server_nonce`s. The size mirrors `client_nonce`'s 32-byte
+    // array in `AttestRequest`.
     let mut server_nonce = [0u8; 32];
-    for (dst, src) in server_nonce.iter_mut().zip(req.client_nonce.iter()) {
-        *dst = !*src;
-    }
+    OsRng.fill_bytes(&mut server_nonce);
     let secret = b"QRAB_STUB_SECRET_v0".to_vec();
     let secret_sha256: [u8; 32] = sha2::Sha256::digest(&secret).into();
     let uki_sha256: [u8; 32] = sha2::Sha256::digest(uki_bytes).into();
@@ -182,7 +186,6 @@ mod tests {
         AttestResponse, PROTO_TAG, WIRE_VERSION, new_request, split_framed,
         verify_secret_hash,
     };
-    use sha2::Digest as _;
 
     fn fixed_signer() -> Signer {
         // Deterministic key for tests. P-256 scalar cannot be zero and
@@ -194,13 +197,25 @@ mod tests {
     }
 
     #[test]
-    fn build_signed_response_inverts_nonce() {
+    fn build_signed_response_has_fresh_random_nonce() {
+        // Two calls with the same input must produce distinct
+        // `server_nonce`s (the old `!client_nonce` rule was
+        // deterministic and leaked no entropy). We also reject the
+        // all-zero and all-inverted sentinels so a regression to a
+        // deterministic derivation trips this test.
         let req = new_request([0x55; 32]);
-        let resp = build_signed_response(&req, &fixed_signer(), STUB_UKI);
-        assert!(resp.server_nonce.iter().all(|&b| b == 0xAA));
-        assert_eq!(resp.sig.len(), SIG_LEN);
-        qrab_boot_proto::validate_response(&resp).expect("stub response must validate");
-        assert!(verify_secret_hash(&resp));
+        let signer = fixed_signer();
+        let a = build_signed_response(&req, &signer, STUB_UKI);
+        let b = build_signed_response(&req, &signer, STUB_UKI);
+        assert_ne!(a.server_nonce, b.server_nonce, "nonce must be random per call");
+        assert!(!a.server_nonce.iter().all(|&x| x == 0), "nonce must not be all-zero");
+        assert!(
+            !a.server_nonce.iter().all(|&x| x == 0xAA),
+            "nonce must not echo legacy !0x55 pattern"
+        );
+        assert_eq!(a.sig.len(), SIG_LEN);
+        qrab_boot_proto::validate_response(&a).expect("stub response must validate");
+        assert!(verify_secret_hash(&a));
     }
 
     #[test]
@@ -239,7 +254,11 @@ mod tests {
 
         let response: AttestResponse =
             qrab_boot_proto::decode_framed(&reply).expect("reply must decode");
-        assert!(response.server_nonce.iter().all(|&b| b == !0x77));
+        // `server_nonce` is fresh random bytes, not `!client_nonce`,
+        // so just check it isn't the legacy deterministic pattern and
+        // isn't all-zero.
+        assert!(!response.server_nonce.iter().all(|&b| b == !0x77));
+        assert!(!response.server_nonce.iter().all(|&b| b == 0));
         assert_eq!(response.secret, b"QRAB_STUB_SECRET_v0");
         // Sanity: hash commits to the transported bytes.
         assert_eq!(
