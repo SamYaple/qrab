@@ -32,6 +32,7 @@
 extern crate std;
 
 mod envelope;
+pub mod ghcb;
 pub use envelope::{
     EnvelopeError, REPORT_REQ_PLAINTEXT_SIZE, decrypt_guest_msg, encrypt_guest_msg,
 };
