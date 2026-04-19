@@ -81,6 +81,15 @@ mkdir -p "$OUT"
 
 # ---- attest-server -------------------------------------------------------
 log "launching attest-server (port $PORT)"
+# Point attest-server at the same signing key whose public half was
+# embedded into qrab-boot.efi at build time, so the bootloader's
+# `p256` verify succeeds. Fall back to an ephemeral key if the dev
+# keypair is absent (the bootloader will log QRAB_ATTEST_NO_PUBKEY
+# in that case and the smoke still at least exercises the wire).
+KEY_PATH="$ROOT/contrib/attest-keys/server.pem"
+if [[ -s "$KEY_PATH" ]]; then
+    export QRAB_ATTEST_KEY_PATH="$KEY_PATH"
+fi
 "$ATTEST_BIN" "$PORT" >"$MOCKLOG" 2>&1 &
 MOCK_PID=$!
 cleanup() {
@@ -127,7 +136,7 @@ tr -d '\r' < "$SERIAL" | grep -aE 'QRAB|phase' | head -30 || true
 echo "--- mock log ---"
 tail -5 "$MOCKLOG" || true
 
-required=(QRAB_VSOCK_FOUND QRAB_VSOCK_DRIVER_OK QRAB_VSOCK_CONNECT_OK QRAB_ATTEST_SIG_OK QRAB_REPORT_DATA_HEX QRAB_UKI_OK QRAB_PCR8_EXPECTED_DIGEST QRAB_PCR9_EXPECTED_DIGEST QRAB_SECRET_OK QRAB_ATTEST_OK)
+required=(QRAB_VSOCK_FOUND QRAB_VSOCK_DRIVER_OK QRAB_VSOCK_CONNECT_OK QRAB_ATTEST_SIG_OK QRAB_REPORT_DATA_HEX QRAB_SNP_REPORT_OK QRAB_UKI_OK QRAB_PCR8_EXPECTED_DIGEST QRAB_PCR9_EXPECTED_DIGEST QRAB_SECRET_OK QRAB_ATTEST_OK)
 missing=()
 for tok in "${required[@]}"; do
     grep -a -q "$tok" "$SERIAL" || missing+=("$tok")

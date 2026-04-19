@@ -47,7 +47,17 @@
 use core::ptr;
 
 pub use qrab_snp_proto::SecretsValidateError;
-use qrab_snp_proto::{SnpSecretsPage, validate_secrets_page};
+use qrab_snp_proto::{
+    EnvelopeError, MSG_REPORT_RESP_SIZE, MsgReportReq, MsgReportResp, SNP_GUEST_MSG_SIZE,
+    SnpAttestationReport, SnpGuestMsg, SnpMsgType, SnpSecretsPage, VMPCK_LEN,
+    decrypt_guest_msg, encrypt_guest_msg, ghcb::GhcbError, report_status,
+    validate_secrets_page,
+};
+use zerocopy::{FromBytes, IntoBytes};
+
+use uefi_raw::protocol::pci::root_bridge::PciRootBridgeIoProtocolOperation;
+
+use crate::{ghcb_vmgexit, pci_dma};
 
 /// Hard-coded physical address of the SNP Secrets page for the
 /// `OvmfPkg/AmdSev/AmdSevX64.fdf` build this tree produces.
@@ -86,4 +96,211 @@ pub fn load() -> Result<SnpSecretsPage, SecretsValidateError> {
     let page: SnpSecretsPage = unsafe { ptr::read_volatile(SNP_SECRETS_PA as *const SnpSecretsPage) };
     validate_secrets_page(&page)?;
     Ok(page)
+}
+
+/// Distinguished errors from [`request_report`].
+#[derive(Debug)]
+pub enum ReportReqError {
+    /// `pci_dma::allocate_buffer` failed — the PSP needs a pair of
+    /// 4 KiB shared pages and we could not get them (either the
+    /// bridge pointer was not set up or firmware refused the
+    /// allocation).
+    AllocFailed,
+    /// AES-256-GCM envelope build / verify failed. See
+    /// [`qrab_snp_proto::EnvelopeError`] for the variant.
+    Envelope(EnvelopeError),
+    /// GHCB VMGEXIT returned an error (result bit clear or PSP
+    /// status non-zero). See [`qrab_snp_proto::ghcb::GhcbError`].
+    Ghcb(GhcbError),
+    /// The PSP wrote a non-zero `MsgReportResp::status` (inside the
+    /// decrypted response). `0x16` = `INVALID_PARAMETER`,
+    /// `0x27` = `INVALID_KEY`, etc.
+    PspStatus(u32),
+    /// Decrypted response payload could not be reinterpreted as a
+    /// [`MsgReportResp`] — should not happen in practice because
+    /// `MsgReportResp` is a `FromBytes` POD with fixed 1280 B size.
+    Decode,
+}
+
+/// Full round-trip: encrypt a `MSG_REPORT_REQ` with `report_data`
+/// under `vmpck0` with `msg_seqno`, issue `SVM_VMGEXIT_GUEST_REQUEST`,
+/// decrypt the response under `msg_seqno + 1`, and return the signed
+/// 1184-byte [`SnpAttestationReport`].
+///
+/// Caller must:
+///
+///   * Have initialised `pci_dma` via `vsock_driver::init` (so
+///     `allocate_buffer` can route through `PciRootBridgeIo`).
+///   * Have verified the guest is SEV-SNP (`ghcb::detect`).
+///   * Have loaded the Secrets page ([`load`]) and passed the
+///     `vmpck0` + initial `msg_seqno` from it. The caller is
+///     responsible for tracking / incrementing `msg_seqno` across
+///     subsequent invocations — every `request_report` consumes
+///     two sequence numbers (one for the request envelope, one for
+///     the response envelope), so the next call must use
+///     `msg_seqno + 2`.
+pub fn request_report(
+    vmpck0: &[u8; VMPCK_LEN],
+    msg_seqno: u64,
+    report_data: [u8; 64],
+) -> Result<SnpAttestationReport, ReportReqError> {
+    // 1. Allocate two 4 KiB PSP-shared pages (IoMmuAllocateBuffer
+    //    clears the C-bit on SNP; identity-map on TCG).
+    let req_host = pci_dma::allocate_buffer(1).map_err(|_| ReportReqError::AllocFailed)?;
+    let resp_host = pci_dma::allocate_buffer(1).map_err(|err| {
+        // Free the first allocation before we bubble up.
+        let _ = pci_dma::free_buffer(req_host, 1);
+        let _ = err;
+        ReportReqError::AllocFailed
+    })?;
+
+    // 2. Encrypt the MSG_REPORT_REQ into `req_host` *before* Map'ing
+    //    the pages. OVMF's CcIoMmu Map(CommonBuffer) allocates a
+    //    fresh shared bounce buffer and snapshots `host -> bounce`
+    //    at Map time; anything written after Map lives only in the
+    //    private host page. So we populate `req_host` here, then
+    //    Map — and the encryption + Rust-visible bytes end up in
+    //    the bounce the PSP reads. See
+    //    OvmfPkg/IoMmuDxe/CcIoMmu.c `IoMmuMap` CommonBuffer path.
+    let req_msg: &mut SnpGuestMsg = unsafe { &mut *(req_host as *mut SnpGuestMsg) };
+    let resp_msg_zeros = &[0u8; SNP_GUEST_MSG_SIZE];
+    *req_msg = SnpGuestMsg::read_from_bytes(resp_msg_zeros)
+        .expect("4 KiB decodes into SnpGuestMsg");
+    let req = MsgReportReq::new(report_data, 0);
+    let plaintext = <MsgReportReq as IntoBytes>::as_bytes(&req);
+    if let Err(e) = encrypt_guest_msg(
+        req_msg,
+        vmpck0,
+        msg_seqno,
+        SnpMsgType::ReportReq,
+        0,
+        plaintext,
+    ) {
+        let _ = pci_dma::free_buffer(req_host, 1);
+        let _ = pci_dma::free_buffer(resp_host, 1);
+        return Err(ReportReqError::Envelope(e));
+    }
+    // Zero the response host buffer so its Map-time snapshot is
+    // all-zero in the bounce — otherwise OVMF copies stale encrypted
+    // bytes as pseudo-plaintext which can pass AEAD quickly-ish and
+    // hide a missing PSP reply.
+    let resp_msg: &mut SnpGuestMsg = unsafe { &mut *(resp_host as *mut SnpGuestMsg) };
+    *resp_msg = SnpGuestMsg::read_from_bytes(resp_msg_zeros)
+        .expect("4 KiB decodes into SnpGuestMsg");
+
+    // 3. Map both pages with BUS_MASTER_COMMON_BUFFER64. On SEV-SNP
+    //    OVMF's IoMmu clears the C-bit, PSC's a shared bounce
+    //    buffer, and copies `req_host -> bounce` at Map time. The
+    //    returned `device_addr` is the bounce GPA — that is what
+    //    the PSP will read (req) / write (resp).
+    let op = PciRootBridgeIoProtocolOperation::BUS_MASTER_COMMON_BUFFER64;
+    let req_map = match pci_dma::map(op, req_host, SNP_GUEST_MSG_SIZE) {
+        Ok(m) => m,
+        Err(_) => {
+            let _ = pci_dma::free_buffer(req_host, 1);
+            let _ = pci_dma::free_buffer(resp_host, 1);
+            return Err(ReportReqError::AllocFailed);
+        }
+    };
+    let resp_map = match pci_dma::map(op, resp_host, SNP_GUEST_MSG_SIZE) {
+        Ok(m) => m,
+        Err(_) => {
+            let _ = pci_dma::unmap(req_map.cookie);
+            let _ = pci_dma::free_buffer(req_host, 1);
+            let _ = pci_dma::free_buffer(resp_host, 1);
+            return Err(ReportReqError::AllocFailed);
+        }
+    };
+
+    // 4. Issue VMGEXIT against the bounce GPAs.
+    log::info!(
+        "QRAB_SNP_RR_PRE req_host={:p} req_bus={:#x} resp_host={:p} resp_bus={:#x}",
+        req_host, req_map.device_addr, resp_host, resp_map.device_addr,
+    );
+    let vmgexit_result = ghcb_vmgexit::guest_request(req_map.device_addr, resp_map.device_addr)
+        .map_err(ReportReqError::Ghcb);
+
+    // 5. Unmap the response mapping first. For CommonBuffer ops
+    //    OVMF's CcIoMmu Unmap copies `bounce -> resp_host`, which
+    //    is exactly the direction we need to see the PSP's reply
+    //    through the CPU's SEV AES on the following reads.
+    let _ = pci_dma::unmap(resp_map.cookie);
+    let _ = pci_dma::unmap(req_map.cookie);
+
+    // 6. Always dump first 8 bytes of the response host page so we
+    //    can distinguish "PSP wrote + OVMF copied back" from "PSP
+    //    never touched bounce" when diagnosing failures.
+    {
+        // SAFETY: resp_host points at a 4 KiB page we own.
+        let first: [u8; 8] = unsafe {
+            core::ptr::read_volatile(resp_host as *const [u8; 8])
+        };
+        log::info!(
+            "QRAB_SNP_RR_RESP first8={:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
+            first[0], first[1], first[2], first[3],
+            first[4], first[5], first[6], first[7],
+        );
+    }
+
+    let result = match vmgexit_result {
+        Ok(()) => decode_response(resp_host, vmpck0, msg_seqno),
+        Err(e) => Err(e),
+    };
+
+    // 7. Release pages.
+    let _ = pci_dma::free_buffer(req_host, 1);
+    let _ = pci_dma::free_buffer(resp_host, 1);
+    result
+}
+
+/// Decrypt the response-envelope page after Unmap has copied the
+/// PSP bounce bytes back into it, verify the AEAD tag, and pull out
+/// the 1184-byte attestation report on success.
+fn decode_response(
+    resp_host: *mut u8,
+    vmpck0: &[u8; VMPCK_LEN],
+    msg_seqno: u64,
+) -> Result<SnpAttestationReport, ReportReqError> {
+    // SAFETY: resp_host was allocated as a 4 KiB page owned by us
+    // and just Unmap'd back to RMP-PRIVATE; no other code holds
+    // aliases. CPU reads decrypt via SEV.
+    let resp_msg: &mut SnpGuestMsg = unsafe { &mut *(resp_host as *mut SnpGuestMsg) };
+
+    // `plain_buf` is sized to fit the full `MsgReportResp` (status +
+    // report_size + reserved + the 1184-byte report + padding). The
+    // PSP often emits `msg_size = 1216` (no trailing padding) — our
+    // pre-VMGEXIT zeroing of `resp_host` is what keeps the padding
+    // bytes zero and lets `MsgReportResp::read_from_bytes` succeed
+    // on the full 1280-byte slice.
+    let mut plain_buf = [0u8; MSG_REPORT_RESP_SIZE];
+    let n = decrypt_guest_msg(
+        resp_msg,
+        vmpck0,
+        msg_seqno.wrapping_add(1),
+        SnpMsgType::ReportResp,
+        0,
+        &mut plain_buf,
+    )
+    .map_err(ReportReqError::Envelope)?;
+
+    // Accept any PSP payload that is at least large enough to cover
+    // `status + report_size + reserved + report` (1216 B). The
+    // trailing 64 B of padding is optional in some firmware
+    // revisions; the rest of the resp buffer stays zero from the
+    // pre-VMGEXIT scrub, so parsing the fixed-size struct is safe.
+    const MSG_REPORT_RESP_MIN: usize = 4 + 4 + 24 + 1184;
+    if n < MSG_REPORT_RESP_MIN {
+        log::warn!(
+            "QRAB_SNP_RR_SHORT_PAYLOAD n={n} min={MSG_REPORT_RESP_MIN}"
+        );
+        return Err(ReportReqError::Decode);
+    }
+
+    let resp = MsgReportResp::read_from_bytes(&plain_buf)
+        .map_err(|_| ReportReqError::Decode)?;
+    let status = { resp.status };
+    if status != report_status::SUCCESS {
+        return Err(ReportReqError::PspStatus(status));
+    }
+    Ok(resp.report)
 }

@@ -16,6 +16,7 @@ extern crate alloc;
 
 mod attest;
 mod ghcb;
+mod ghcb_vmgexit;
 mod measure;
 mod panic;
 mod pci_dma;
@@ -269,12 +270,34 @@ fn run_vsock_demo() {
         }
     }
 
-    // Compute + log the SNP `report_data` the bootloader would feed
-    // to `MSG_REPORT_REQ`. Issuance of the real request is gated on
-    // the DMA fix tracked in issues/qrab-boot-snp-dma.md; the log
-    // still lets a post-boot verifier confirm the expected value.
+    // Compute the SNP `report_data` and, under SEV-SNP, fire off the
+    // full `SNP_GUEST_REQUEST MSG_REPORT_REQ` round-trip to the PSP
+    // via VMGEXIT. On plain-TCG we still log the intended value so a
+    // post-boot verifier can confirm the computation is right.
     let report_data = qrab_boot_proto::report_data(&client_nonce, &response);
     ghcb::record_intended_report_data(&report_data);
+    if ghcb::detect().sev_snp {
+        match snp_secrets::load() {
+            Ok(page) => match snp_secrets::request_report(&page.vmpck0, 1, report_data) {
+                Ok(report) => {
+                    // Copy out of the #[repr(C, packed)] struct so the
+                    // 2024-edition `unaligned_references` rule is happy.
+                    let m = { report.measurement };
+                    let version = { report.version };
+                    let vmpl = { report.vmpl };
+                    let policy = { report.policy };
+                    log::info!(
+                        "QRAB_SNP_REPORT_OK measurement_prefix={:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x} \
+                         version={} vmpl={} policy={:#x}",
+                        m[0], m[1], m[2], m[3], m[4], m[5], m[6], m[7],
+                        version, vmpl, policy,
+                    );
+                }
+                Err(e) => log::warn!("QRAB_SNP_REPORT_ERR {e:?}"),
+            },
+            Err(e) => log::warn!("QRAB_SNP_REPORT_ERR secrets:{e:?}"),
+        }
+    }
 
     // Second framed payload from attest-server is the UKI bytes. The
     // `AttestResponse.uki_sha256` field was already signed by the
