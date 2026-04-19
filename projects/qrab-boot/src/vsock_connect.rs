@@ -248,8 +248,13 @@ impl FramedStream {
                                 log::info!("QRAB_VSOCK_FRAME bytes={}", frame.len());
                                 return Ok(frame);
                             }
-                            // Reset the idle counter — we got bytes.
-                            idle = 0;
+                            // Reset the idle counter only when we actually
+                            // got bytes. A hostile/broken host that streams
+                            // zero-byte `Received` events must not pin this
+                            // loop forever — those still count as idle.
+                            if n > 0 {
+                                idle = 0;
+                            }
                         }
                         VsockEventType::Disconnected { reason } => {
                             log::warn!("QRAB_VSOCK_RECV_DISCONNECT reason={reason:?}");

@@ -39,22 +39,57 @@ impl core::fmt::Display for RngError {
     }
 }
 
+/// Outer retry budget around [`fill_random`]. Each attempt restarts
+/// the whole buffer fill; a single transient entropy shortage
+/// (RDRAND carry-clear streak exceeding the inner 10-try budget)
+/// must not fail the boot. 32 outer rounds × 10 inner tries per word
+/// matches the module docstring above and is far beyond what a
+/// healthy AMD RNG ever needs.
+const FILL_RANDOM_OUTER_RETRIES: usize = 32;
+
 /// Fill `out` with bytes from `RDRAND`. Returns an error if the CPU
 /// does not support RDRAND or if RDRAND never clears the carry flag
 /// across many retries (indicates a broken hardware RNG).
+///
+/// The inner [`rdrand_u64`] already retries up to 10 times per 64-bit
+/// read (per AMD APM). On top of that we retry the whole buffer fill
+/// up to [`FILL_RANDOM_OUTER_RETRIES`] times so one transient
+/// starvation in the middle of a nonce does not wedge the boot.
 pub fn fill_random(out: &mut [u8]) -> Result<(), RngError> {
     if !has_rdrand() {
         return Err(RngError::RdrandUnsupported);
     }
+    for _ in 0..FILL_RANDOM_OUTER_RETRIES {
+        if fill_random_once(out) {
+            return Ok(());
+        }
+        // Inner attempt hit a starvation streak. Hint the core to
+        // back off briefly before we try the whole fill again; the
+        // entropy pool often refills in well under a microsecond.
+        // SAFETY: `pause` is always legal at any privilege level and
+        // has no memory effects.
+        unsafe {
+            asm!("pause", options(nomem, nostack, preserves_flags));
+        }
+    }
+    Err(RngError::EntropyStarved)
+}
+
+/// Single pass over `out`. Returns `true` on success, `false` if any
+/// inner [`rdrand_u64`] exhausted its 10-try budget — the caller then
+/// decides whether to retry the whole fill.
+fn fill_random_once(out: &mut [u8]) -> bool {
     let mut i = 0;
     while i < out.len() {
-        let word = rdrand_u64().ok_or(RngError::EntropyStarved)?;
+        let Some(word) = rdrand_u64() else {
+            return false;
+        };
         let bytes = word.to_le_bytes();
         let take = core::cmp::min(8, out.len() - i);
         out[i..i + take].copy_from_slice(&bytes[..take]);
         i += take;
     }
-    Ok(())
+    true
 }
 
 /// Convenience: produce a fresh 32-byte nonce. Matches the
