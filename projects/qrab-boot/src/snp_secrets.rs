@@ -47,7 +47,15 @@
 use core::ptr;
 
 pub use qrab_snp_proto::SecretsValidateError;
-use qrab_snp_proto::{SnpSecretsPage, validate_secrets_page};
+use qrab_snp_proto::{
+    EnvelopeError, MSG_REPORT_RESP_SIZE, MsgReportReq, MsgReportResp, SNP_GUEST_MSG_SIZE,
+    SnpAttestationReport, SnpGuestMsg, SnpMsgType, SnpSecretsPage, VMPCK_LEN,
+    decrypt_guest_msg, encrypt_guest_msg, ghcb::GhcbError, report_status,
+    validate_secrets_page,
+};
+use zerocopy::{FromBytes, IntoBytes};
+
+use crate::{ghcb_vmgexit, pci_dma};
 
 /// Hard-coded physical address of the SNP Secrets page for the
 /// `OvmfPkg/AmdSev/AmdSevX64.fdf` build this tree produces.
@@ -86,4 +94,131 @@ pub fn load() -> Result<SnpSecretsPage, SecretsValidateError> {
     let page: SnpSecretsPage = unsafe { ptr::read_volatile(SNP_SECRETS_PA as *const SnpSecretsPage) };
     validate_secrets_page(&page)?;
     Ok(page)
+}
+
+/// Distinguished errors from [`request_report`].
+#[derive(Debug)]
+pub enum ReportReqError {
+    /// `pci_dma::allocate_buffer` failed — the PSP needs a pair of
+    /// 4 KiB shared pages and we could not get them (either the
+    /// bridge pointer was not set up or firmware refused the
+    /// allocation).
+    AllocFailed,
+    /// AES-256-GCM envelope build / verify failed. See
+    /// [`qrab_snp_proto::EnvelopeError`] for the variant.
+    Envelope(EnvelopeError),
+    /// GHCB VMGEXIT returned an error (result bit clear or PSP
+    /// status non-zero). See [`qrab_snp_proto::ghcb::GhcbError`].
+    Ghcb(GhcbError),
+    /// The PSP wrote a non-zero `MsgReportResp::status` (inside the
+    /// decrypted response). `0x16` = `INVALID_PARAMETER`,
+    /// `0x27` = `INVALID_KEY`, etc.
+    PspStatus(u32),
+    /// Decrypted response payload could not be reinterpreted as a
+    /// [`MsgReportResp`] — should not happen in practice because
+    /// `MsgReportResp` is a `FromBytes` POD with fixed 1280 B size.
+    Decode,
+}
+
+/// Full round-trip: encrypt a `MSG_REPORT_REQ` with `report_data`
+/// under `vmpck0` with `msg_seqno`, issue `SVM_VMGEXIT_GUEST_REQUEST`,
+/// decrypt the response under `msg_seqno + 1`, and return the signed
+/// 1184-byte [`SnpAttestationReport`].
+///
+/// Caller must:
+///
+///   * Have initialised `pci_dma` via `vsock_driver::init` (so
+///     `allocate_buffer` can route through `PciRootBridgeIo`).
+///   * Have verified the guest is SEV-SNP (`ghcb::detect`).
+///   * Have loaded the Secrets page ([`load`]) and passed the
+///     `vmpck0` + initial `msg_seqno` from it. The caller is
+///     responsible for tracking / incrementing `msg_seqno` across
+///     subsequent invocations — every `request_report` consumes
+///     two sequence numbers (one for the request envelope, one for
+///     the response envelope), so the next call must use
+///     `msg_seqno + 2`.
+pub fn request_report(
+    vmpck0: &[u8; VMPCK_LEN],
+    msg_seqno: u64,
+    report_data: [u8; 64],
+) -> Result<SnpAttestationReport, ReportReqError> {
+    // 1. Allocate two 4 KiB PSP-shared pages (IoMmuAllocateBuffer
+    //    clears the C-bit on SNP; identity-map on TCG).
+    let req_host = pci_dma::allocate_buffer(1).map_err(|_| ReportReqError::AllocFailed)?;
+    let resp_host = pci_dma::allocate_buffer(1).map_err(|err| {
+        // Free the first allocation before we bubble up.
+        let _ = pci_dma::free_buffer(req_host, 1);
+        let _ = err;
+        ReportReqError::AllocFailed
+    })?;
+
+    // Run the rest inside a helper so we can centralise cleanup.
+    let result = do_request(req_host, resp_host, vmpck0, msg_seqno, report_data);
+
+    // 3. Always free the two pages.
+    let _ = pci_dma::free_buffer(req_host, 1);
+    let _ = pci_dma::free_buffer(resp_host, 1);
+    result
+}
+
+fn do_request(
+    req_host: *mut u8,
+    resp_host: *mut u8,
+    vmpck0: &[u8; VMPCK_LEN],
+    msg_seqno: u64,
+    report_data: [u8; 64],
+) -> Result<SnpAttestationReport, ReportReqError> {
+    // SAFETY: pci_dma::allocate_buffer returned 4 KiB-aligned pages
+    // owned by us for the lifetime of this call; no other code in
+    // qrab-boot holds aliases.
+    let req_msg: &mut SnpGuestMsg = unsafe { &mut *(req_host as *mut SnpGuestMsg) };
+    let resp_msg: &mut SnpGuestMsg = unsafe { &mut *(resp_host as *mut SnpGuestMsg) };
+
+    // Zero the response buffer so any stale bytes cannot masquerade
+    // as a valid reply if the PSP fails to write it.
+    *resp_msg = SnpGuestMsg::read_from_bytes(&[0u8; SNP_GUEST_MSG_SIZE])
+        .expect("4 KiB decodes into SnpGuestMsg");
+
+    // Build the plaintext MSG_REPORT_REQ and encrypt into req_msg.
+    let req = MsgReportReq::new(report_data, 0);
+    let plaintext = <MsgReportReq as IntoBytes>::as_bytes(&req);
+    encrypt_guest_msg(
+        req_msg,
+        vmpck0,
+        msg_seqno,
+        SnpMsgType::ReportReq,
+        0,
+        plaintext,
+    )
+    .map_err(ReportReqError::Envelope)?;
+
+    // Issue VMGEXIT. PA of request / response pages matches their
+    // host-virtual addresses because UEFI identity-maps all
+    // AllocateBuffer-returned pages.
+    ghcb_vmgexit::guest_request(req_host as u64, resp_host as u64)
+        .map_err(ReportReqError::Ghcb)?;
+
+    // Decrypt response under seqno + 1 (PSP increments between
+    // request and response envelopes).
+    let mut plain_buf = [0u8; MSG_REPORT_RESP_SIZE];
+    let n = decrypt_guest_msg(
+        resp_msg,
+        vmpck0,
+        msg_seqno.wrapping_add(1),
+        SnpMsgType::ReportResp,
+        0,
+        &mut plain_buf,
+    )
+    .map_err(ReportReqError::Envelope)?;
+    if n < MSG_REPORT_RESP_SIZE {
+        return Err(ReportReqError::Decode);
+    }
+
+    let resp = MsgReportResp::read_from_bytes(&plain_buf)
+        .map_err(|_| ReportReqError::Decode)?;
+    let status = { resp.status };
+    if status != report_status::SUCCESS {
+        return Err(ReportReqError::PspStatus(status));
+    }
+    Ok(resp.report)
 }

@@ -16,6 +16,7 @@ extern crate alloc;
 
 mod attest;
 mod ghcb;
+mod ghcb_vmgexit;
 mod measure;
 mod panic;
 mod pci_dma;
