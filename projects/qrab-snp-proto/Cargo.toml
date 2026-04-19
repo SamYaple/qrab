@@ -1,0 +1,19 @@
+[package]
+name = "qrab-snp-proto"
+version = "0.1.0"
+edition = "2024"
+description = "On-wire types + AES-256-GCM envelope for SEV-SNP SNP_GUEST_REQUEST (shared between qrab-boot and host-side verifier tests)"
+publish = false
+
+[dependencies]
+# POD byte-layout derives for every `#[repr(C)]` SNP table. Pinned to
+# match the qrab-boot workspace's zerocopy version so both sides use
+# the same trait impls for the same struct definitions.
+zerocopy = { version = "0.8", default-features = false, features = ["derive"] }
+
+[features]
+default = []
+# Enables `std::error::Error` impls + test helpers that need `std::`
+# APIs. Unset on the UEFI side (qrab-boot keeps `no_std`), enabled
+# transparently by `cargo test`.
+std = []

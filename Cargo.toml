@@ -11,6 +11,7 @@ members = [
     "projects/attest-server",
     "projects/qrab-boot-proto",
     "projects/qrab-boot-verify",
+    "projects/qrab-snp-proto",
     "examples/simple-vm",
     "examples/preconfig-vm",
     "examples/events",
