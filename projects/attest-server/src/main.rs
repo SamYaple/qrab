@@ -96,13 +96,58 @@ fn hex(bytes: &[u8]) -> String {
     s
 }
 
+/// Fault-injection variants the matrix harness can dial in via
+/// `QRAB_ATTEST_FAULT`. Real deployments always set `Fault::None`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Fault {
+    /// Default: sign correctly, advertise the true UKI hash.
+    None,
+    /// Sign with a fresh ephemeral key instead of the loaded
+    /// `$QRAB_ATTEST_KEY_PATH` signer. The bootloader's embedded
+    /// SEC1 pubkey no longer matches, so `p256::verify` rejects.
+    /// Matrix scenario 5 (`bad_sig`).
+    BadSig,
+    /// Advertise a `uki_sha256` computed over a fake payload, but
+    /// stream the real UKI bytes on frame 2. Bootloader's
+    /// `sha256(uki_bytes) == response.uki_sha256` check fails.
+    /// Matrix scenario 4 (`wrong_hash`).
+    WrongHash,
+}
+
+fn parse_fault() -> Result<Fault> {
+    match std::env::var("QRAB_ATTEST_FAULT").as_deref() {
+        Ok("bad_sig") => Ok(Fault::BadSig),
+        Ok("wrong_hash") => Ok(Fault::WrongHash),
+        Ok("none") | Err(_) => Ok(Fault::None),
+        Ok(other) => bail!(
+            "QRAB_ATTEST_FAULT={other} — expected one of none|bad_sig|wrong_hash"
+        ),
+    }
+}
+
 fn main() -> Result<()> {
     let mode = parse_mode()?;
-    let signer = load_signer()?;
+    let mut signer = load_signer()?;
     let uki_bytes = load_uki_bytes()?;
+    let fault = parse_fault()?;
+
+    if fault == Fault::BadSig {
+        // Swap the loaded signer for a throwaway key. The real
+        // pubkey is still broadcast in the logs so a human reading
+        // the output can see the mismatch; the bootloader's
+        // embedded-key verify fails because the signing key no
+        // longer matches. Matrix scenario 5.
+        let fresh = Signer::generate();
+        eprintln!(
+            "attest-server: QRAB_ATTEST_FAULT=bad_sig — \
+             substituting ephemeral signer (pubkey {})",
+            hex(&fresh.pubkey_sec1())
+        );
+        signer = fresh;
+    }
 
     match mode {
-        Mode::Serve { port } => serve(port, signer, uki_bytes),
+        Mode::Serve { port } => serve(port, signer, uki_bytes, fault),
         Mode::PrintPubkey => {
             println!("{}", hex(&signer.pubkey_sec1()));
             Ok(())
@@ -135,7 +180,7 @@ fn load_uki_bytes() -> Result<Vec<u8>> {
     }
 }
 
-fn serve(port: u32, signer: Signer, uki_bytes: Vec<u8>) -> Result<()> {
+fn serve(port: u32, signer: Signer, uki_bytes: Vec<u8>, fault: Fault) -> Result<()> {
     let addr = VsockAddr::new(VMADDR_CID_ANY, port);
     let listener =
         VsockListener::bind(&addr).with_context(|| format!("binding to vsock port {port}"))?;
@@ -147,7 +192,10 @@ fn serve(port: u32, signer: Signer, uki_bytes: Vec<u8>) -> Result<()> {
         "attest-server: signing pubkey (SEC1): {}",
         hex(&signer.pubkey_sec1())
     );
-    eprintln!("attest-server: UKI body {} B ready to stream", uki_bytes.len());
+    eprintln!(
+        "attest-server: UKI body {} B ready to stream (fault={fault:?})",
+        uki_bytes.len()
+    );
 
     // Pre-build the second-frame wire image once at startup. Real
     // UKIs run ~50 MB; rebuilding `len_prefix || body` on every
@@ -160,6 +208,12 @@ fn serve(port: u32, signer: Signer, uki_bytes: Vec<u8>) -> Result<()> {
     // `uki_frame`, so a future threaded handler clones a refcount
     // rather than the body.
     let uki_bytes: Arc<[u8]> = uki_bytes.into();
+
+    // For `Fault::WrongHash` we sign a hash over this decoy payload
+    // while still streaming the real UKI on frame 2. Any bytes work
+    // — the bootloader compares SHA-256s, and `sha256(decoy) !=
+    // sha256(uki_bytes)` is all that matters.
+    let decoy_for_hash: Arc<[u8]> = b"QRAB_FAULT_WRONG_HASH_v1".to_vec().into();
 
     loop {
         let (stream, peer) = match listener.accept() {
@@ -174,7 +228,11 @@ fn serve(port: u32, signer: Signer, uki_bytes: Vec<u8>) -> Result<()> {
             peer.cid(),
             peer.port()
         );
-        if let Err(e) = handle(stream, &signer, &uki_bytes, &uki_frame) {
+        let hash_source: &[u8] = match fault {
+            Fault::WrongHash => &decoy_for_hash,
+            _ => &uki_bytes,
+        };
+        if let Err(e) = handle(stream, &signer, hash_source, &uki_frame) {
             eprintln!("attest-server: session error: {e:#}");
         }
     }
