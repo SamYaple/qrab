@@ -580,4 +580,72 @@ mod tests {
         v[17] = 0x01;
         assert!(is_vmpck_nonzero(&v));
     }
+
+    /// S7-2: `SnpSecretsPage` carries four 32-byte VMPCK keys. The
+    /// spec (AMD SEV-SNP ABI §5.4.3) treats these as high-value
+    /// secrets: they key the AES-GCM envelope used to talk to the
+    /// PSP, so leaking them to a swap file / core dump / heap reuse
+    /// is a total attest-channel break.
+    ///
+    /// The crate currently derives nothing from `zeroize` on
+    /// [`SnpSecretsPage`] and has no manual `Drop` impl — so dropping
+    /// the value leaves the VMPCK bytes readable in whatever backing
+    /// memory held it. `core::mem::needs_drop::<T>()` returns `false`
+    /// iff the type has no Drop glue (no `Drop` impl and no non-POD
+    /// field), so this assertion pins "no zeroization on drop".
+    ///
+    /// If a future change adds `impl Drop for SnpSecretsPage` (or
+    /// swaps a VMPCK field for a `zeroize::Zeroizing<[u8;32]>`),
+    /// `needs_drop` flips to `true` and this test fires — at which
+    /// point the author rewrites it into a positive test that checks
+    /// the backing memory really is zeroed.
+    ///
+    /// BUG: S7-2 open. This test documents the gap; it does not fix
+    /// it. Fix is a separate task (wrap VMPCK in a zeroizing
+    /// newtype, or add `#[derive(ZeroizeOnDrop)]` and a `zeroize`
+    /// dependency).
+    #[test]
+    fn secrets_page_has_no_drop_glue_bug() {
+        assert!(
+            !core::mem::needs_drop::<SnpSecretsPage>(),
+            "SnpSecretsPage now has drop glue — if this is because \
+             VMPCK zeroization was added, rewrite this test into a \
+             positive zeroization check and close S7-2 in \
+             llm-rag/audits/security.md.",
+        );
+        // Individual `[u8; 32]` VMPCK arrays are POD too; no
+        // wrapper type is intercepting drops for them.
+        assert!(!core::mem::needs_drop::<[u8; VMPCK_LEN]>());
+    }
+
+    /// S7-2 companion: the `vmpck` parameter accepted by
+    /// [`encrypt_guest_msg`] / [`decrypt_guest_msg`] is a bare
+    /// `&[u8; 32]` — there is no wrapper type whose lifetime or
+    /// destructor could scrub the caller's copy. Pinning that the
+    /// public API signature uses a plain array reference (not a
+    /// zeroizing newtype) means a future API change that introduces
+    /// a wrapper will fail to compile this test and force the
+    /// author to re-evaluate S7-2.
+    #[test]
+    fn envelope_api_uses_bare_vmpck_array_bug() {
+        // If this function pointer coercion stops compiling, the API
+        // signature changed — most likely someone wrapped the VMPCK
+        // in a zeroizing newtype. Update this test and S7-2.
+        let _: fn(
+            &mut SnpGuestMsg,
+            &[u8; VMPCK_LEN],
+            u64,
+            SnpMsgType,
+            u8,
+            &[u8],
+        ) -> Result<(), EnvelopeError> = encrypt_guest_msg;
+        let _: fn(
+            &SnpGuestMsg,
+            &[u8; VMPCK_LEN],
+            u64,
+            SnpMsgType,
+            u8,
+            &mut [u8],
+        ) -> Result<usize, EnvelopeError> = decrypt_guest_msg;
+    }
 }

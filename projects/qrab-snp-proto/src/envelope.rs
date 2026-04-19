@@ -405,6 +405,97 @@ mod tests {
         assert_eq!(&out, b"hello");
     }
 
+    /// S7-1: AES-GCM nonce diversification is entirely a function of
+    /// `msg_seqno` — `iv_from_seqno(n)` is pure and deterministic, and
+    /// `encrypt_guest_msg` holds no seen-seqno set. If a caller
+    /// accidentally calls `encrypt_guest_msg` twice with the same
+    /// `(vmpck, msg_seqno)` it DOES NOT get rejected; the two
+    /// envelopes produce bit-identical ciphertext + auth tag (given
+    /// the same plaintext + AAD-covered header fields), which is a
+    /// catastrophic AES-GCM nonce-reuse break.
+    ///
+    /// This test pins the current behaviour so that if a future
+    /// change adds a runtime seqno guard (rejecting reuse, or mixing
+    /// randomness into the IV) the assertion flips and the author has
+    /// to update this test. It is named `_bug` because the behaviour
+    /// pinned here is a bug: the crate is load-bearing for the
+    /// `SNP_GUEST_REQUEST` exchange and relies entirely on the caller
+    /// to monotonically bump `msg_seqno`.
+    #[test]
+    fn seqno_reuse_produces_identical_ciphertext_bug() {
+        let req = MsgReportReq::new([0x77; 64], 0);
+        let plaintext = <MsgReportReq as IntoBytes>::as_bytes(&req);
+
+        let mut env_a =
+            SnpGuestMsg::read_from_bytes(&[0u8; SNP_GUEST_MSG_SIZE]).unwrap();
+        let mut env_b =
+            SnpGuestMsg::read_from_bytes(&[0u8; SNP_GUEST_MSG_SIZE]).unwrap();
+
+        encrypt_guest_msg(&mut env_a, &TEST_VMPCK, 99, SnpMsgType::ReportReq, 0, plaintext)
+            .unwrap();
+        encrypt_guest_msg(&mut env_b, &TEST_VMPCK, 99, SnpMsgType::ReportReq, 0, plaintext)
+            .unwrap();
+
+        // Same (key, seqno, plaintext, AAD) -> identical ciphertext +
+        // identical auth tag. This is the AES-GCM nonce-reuse bug;
+        // we assert it so the crate ships a red-flag test instead of
+        // a silent footgun.
+        assert_eq!(
+            env_a.payload[..plaintext.len()],
+            env_b.payload[..plaintext.len()],
+            "ciphertext differs between two encrypts with the same seqno — \
+             either a runtime nonce guard was added or randomness was mixed \
+             into the IV. Update this test accordingly.",
+        );
+        assert_eq!(
+            env_a.hdr.auth_tag[..AEAD_TAG_LEN],
+            env_b.hdr.auth_tag[..AEAD_TAG_LEN],
+            "auth tag differs — same note as above",
+        );
+    }
+
+    /// S7-1 companion: the IV derivation itself is pure and returns
+    /// byte-identical output for the same `msg_seqno`. Pinning this
+    /// here means a future change that mixes randomness into the IV
+    /// has to update this test too (and therefore can't silently
+    /// regress callers that assume the IV equals the seqno).
+    #[test]
+    fn iv_derivation_is_pure_in_seqno() {
+        let a = SnpGuestMsg::iv_from_seqno(0xDEAD_BEEF_1234_5678);
+        let b = SnpGuestMsg::iv_from_seqno(0xDEAD_BEEF_1234_5678);
+        assert_eq!(a, b);
+        let c = SnpGuestMsg::iv_from_seqno(0xDEAD_BEEF_1234_5679);
+        assert_ne!(a, c, "different seqnos must yield different IVs");
+    }
+
+    /// S7-1 positive: if a caller _does_ monotonically bump the
+    /// seqno, the two envelopes diverge — ciphertext and tag both
+    /// differ. This is the happy path that the spec relies on.
+    #[test]
+    fn monotonic_seqno_diversifies_ciphertext() {
+        let req = MsgReportReq::new([0x33; 64], 0);
+        let plaintext = <MsgReportReq as IntoBytes>::as_bytes(&req);
+
+        let mut env_a =
+            SnpGuestMsg::read_from_bytes(&[0u8; SNP_GUEST_MSG_SIZE]).unwrap();
+        let mut env_b =
+            SnpGuestMsg::read_from_bytes(&[0u8; SNP_GUEST_MSG_SIZE]).unwrap();
+
+        encrypt_guest_msg(&mut env_a, &TEST_VMPCK, 100, SnpMsgType::ReportReq, 0, plaintext)
+            .unwrap();
+        encrypt_guest_msg(&mut env_b, &TEST_VMPCK, 101, SnpMsgType::ReportReq, 0, plaintext)
+            .unwrap();
+
+        assert_ne!(
+            env_a.payload[..plaintext.len()],
+            env_b.payload[..plaintext.len()],
+        );
+        assert_ne!(
+            env_a.hdr.auth_tag[..AEAD_TAG_LEN],
+            env_b.hdr.auth_tag[..AEAD_TAG_LEN],
+        );
+    }
+
     #[test]
     fn report_resp_round_trip() {
         // Build a synthetic MSG_REPORT_RESP plaintext, encrypt, then
