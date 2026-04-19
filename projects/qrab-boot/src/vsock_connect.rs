@@ -267,6 +267,41 @@ impl FramedStream {
                             }
                         }
                         VsockEventType::Disconnected { reason } => {
+                            // Peer closed the connection. The `virtio-drivers`
+                            // `VsockConnectionManager` holds any already-
+                            // delivered bytes in its per-connection ring
+                            // buffer even after Disconnected lands (see
+                            // connectionmanager.rs Disconnected arm:
+                            // "Wait until client reads all data before
+                            // removing connection"), so we can still drain
+                            // the tail via `recv` before giving up.
+                            // Scenario 11 relies on this — attest-server
+                            // drops the stream immediately after
+                            // `write_all(uki_frame)?`, so the Shutdown
+                            // event arrives while the last UKI bytes are
+                            // still parked in the buffer.
+                            log::info!("QRAB_VSOCK_RECV_DISCONNECT_DRAIN reason={reason:?}");
+                            loop {
+                                let mut chunk = [0u8; RECV_CHUNK_BYTES];
+                                let n = match driver.manager.recv(dst, src_port, &mut chunk) {
+                                    Ok(n) => n,
+                                    Err(e) => {
+                                        log::warn!("QRAB_VSOCK_RECV_DRAIN_ERR {e:?}");
+                                        break;
+                                    }
+                                };
+                                if n == 0 {
+                                    break;
+                                }
+                                self.carry.extend_from_slice(&chunk[..n]);
+                            }
+                            if let Some(frame) = self.try_extract()? {
+                                log::info!(
+                                    "QRAB_VSOCK_FRAME bytes={} (post-disconnect drain)",
+                                    frame.len()
+                                );
+                                return Ok(frame);
+                            }
                             log::warn!("QRAB_VSOCK_RECV_DISCONNECT reason={reason:?}");
                             return Err(IoError::Disconnected);
                         }
