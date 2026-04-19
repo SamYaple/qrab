@@ -45,13 +45,20 @@ pub const GHCB_MSR: u32 = 0xC001_0130;
 pub const GHCB_SAVE_AREA_SIZE: usize = 0x400;
 
 /// Offset of `SW_EXIT_CODE` within the save area.
-pub const GHCB_SW_EXIT_CODE_OFFSET: usize = 0x398;
+///
+/// Matches Linux kernel `arch/x86/include/asm/svm.h`
+/// `struct vmcb_save_area::sw_exit_code`. The previous value here
+/// was 0x398, which is actually `sw_exit_info_1` — the off-by-8
+/// silently swapped every field we wrote, causing KVM to see our
+/// SVM_VMGEXIT_GUEST_REQUEST exit-code in info_1 and its own
+/// `GHCB_ERR_MISSING_INPUT` reply landed where *we* read info_1.
+pub const GHCB_SW_EXIT_CODE_OFFSET: usize = 0x390;
 
 /// Offset of `SW_EXIT_INFO_1` within the save area.
-pub const GHCB_SW_EXIT_INFO_1_OFFSET: usize = 0x3A0;
+pub const GHCB_SW_EXIT_INFO_1_OFFSET: usize = 0x398;
 
 /// Offset of `SW_EXIT_INFO_2` within the save area.
-pub const GHCB_SW_EXIT_INFO_2_OFFSET: usize = 0x3A8;
+pub const GHCB_SW_EXIT_INFO_2_OFFSET: usize = 0x3A0;
 
 /// Offset of the VALID_BITMAP inside the save area (last 16 B).
 pub const GHCB_VALID_BITMAP_OFFSET: usize = 0x3F0;
@@ -121,11 +128,26 @@ pub fn prepare_guest_request(
     req_pa: u64,
     resp_pa: u64,
 ) {
+    // Zero the VALID_BITMAP entirely *before* setting our three
+    // bits — OVMF's `CcExitLib` reuses the same GHCB for every
+    // VMGEXIT it issues (IOIO, CPUID, etc.) and leaves those
+    // valid bits set in the bitmap. If we only flip our bits on
+    // top, the hypervisor sees a save area that claims to carry
+    // valid data in fields we never populated, and rejects the
+    // exit as malformed (VMM error / garbage return). This
+    // mirrors Linux 6.18's `vc_ghcb_invalidate` called from
+    // `snp_issue_guest_request` before `sev_es_ghcb_hv_call`.
+    let bitmap_slice = &mut save_area[GHCB_VALID_BITMAP_OFFSET..];
+    let bitmap: &mut [u8; GHCB_VALID_BITMAP_LEN] =
+        (&mut bitmap_slice[..GHCB_VALID_BITMAP_LEN]).try_into().unwrap();
+    *bitmap = [0u8; GHCB_VALID_BITMAP_LEN];
+
     write_u64_at(save_area, GHCB_SW_EXIT_CODE_OFFSET, SVM_VMGEXIT_GUEST_REQUEST);
     write_u64_at(save_area, GHCB_SW_EXIT_INFO_1_OFFSET, req_pa);
     write_u64_at(save_area, GHCB_SW_EXIT_INFO_2_OFFSET, resp_pa);
 
-    // VALID_BITMAP slice is the last 16 B of the save area.
+    // Re-borrow the bitmap for the per-bit sets (the bitmap
+    // slice borrow above ended with the assignment).
     let bitmap_slice = &mut save_area[GHCB_VALID_BITMAP_OFFSET..];
     let bitmap: &mut [u8; GHCB_VALID_BITMAP_LEN] =
         (&mut bitmap_slice[..GHCB_VALID_BITMAP_LEN]).try_into().unwrap();
@@ -185,27 +207,27 @@ mod tests {
         assert_eq!(SVM_VMGEXIT_GUEST_REQUEST, 0x8000_0011);
         assert_eq!(GHCB_MSR, 0xC001_0130);
         assert_eq!(GHCB_SAVE_AREA_SIZE, 0x400);
-        assert_eq!(GHCB_SW_EXIT_CODE_OFFSET, 0x398);
-        assert_eq!(GHCB_SW_EXIT_INFO_1_OFFSET, 0x3A0);
-        assert_eq!(GHCB_SW_EXIT_INFO_2_OFFSET, 0x3A8);
+        assert_eq!(GHCB_SW_EXIT_CODE_OFFSET, 0x390);
+        assert_eq!(GHCB_SW_EXIT_INFO_1_OFFSET, 0x398);
+        assert_eq!(GHCB_SW_EXIT_INFO_2_OFFSET, 0x3A0);
         assert_eq!(GHCB_VALID_BITMAP_OFFSET, 0x3F0);
         assert_eq!(GHCB_VALID_BITMAP_LEN, 0x10);
 
         // Bit indices derived from offsets.
-        assert_eq!(GHCB_BIT_SW_EXIT_CODE, 0x73);
-        assert_eq!(GHCB_BIT_SW_EXIT_INFO_1, 0x74);
-        assert_eq!(GHCB_BIT_SW_EXIT_INFO_2, 0x75);
+        assert_eq!(GHCB_BIT_SW_EXIT_CODE, 0x72);
+        assert_eq!(GHCB_BIT_SW_EXIT_INFO_1, 0x73);
+        assert_eq!(GHCB_BIT_SW_EXIT_INFO_2, 0x74);
     }
 
     #[test]
     fn bitmap_set_clear_query() {
         let mut bm = [0u8; GHCB_VALID_BITMAP_LEN];
-        set_valid_bit(&mut bm, 0x73);
-        assert!(is_valid_bit_set(&bm, 0x73));
-        assert!(!is_valid_bit_set(&bm, 0x72));
-        assert!(!is_valid_bit_set(&bm, 0x74));
-        clear_valid_bit(&mut bm, 0x73);
+        set_valid_bit(&mut bm, 0x72);
+        assert!(is_valid_bit_set(&bm, 0x72));
+        assert!(!is_valid_bit_set(&bm, 0x71));
         assert!(!is_valid_bit_set(&bm, 0x73));
+        clear_valid_bit(&mut bm, 0x72);
+        assert!(!is_valid_bit_set(&bm, 0x72));
     }
 
     #[test]
@@ -297,15 +319,20 @@ mod tests {
         let mut save_area = [0xAAu8; GHCB_SAVE_AREA_SIZE];
         prepare_guest_request(&mut save_area, 0xC0FFEE, 0xBABE);
 
-        // Bytes outside our four touched regions should still be 0xAA.
-        // Touched: 0x398..0x3A0, 0x3A0..0x3A8, 0x3A8..0x3B0,
-        //          and the three VALID_BITMAP bytes covering bits 0x73,0x74,0x75
-        //          (byte 0x0E of bitmap = save_area[0x3FE]).
+        // Bytes outside our touched regions should still be 0xAA.
+        // Touched:
+        //   * 0x390..0x398  (SW_EXIT_CODE)
+        //   * 0x398..0x3A0  (SW_EXIT_INFO_1)
+        //   * 0x3A0..0x3A8  (SW_EXIT_INFO_2)
+        //   * 0x3F0..0x400  (VALID_BITMAP — zeroed wholesale by
+        //     the `vc_ghcb_invalidate` equivalent in
+        //     `prepare_guest_request`, then the three relevant
+        //     bits re-set)
         assert_eq!(save_area[0x0000], 0xAA);
-        assert_eq!(save_area[0x0390], 0xAA);
         // byte before SW_EXIT_CODE is untouched:
         assert_eq!(save_area[GHCB_SW_EXIT_CODE_OFFSET - 1], 0xAA);
-        // gap between SW_EXIT_INFO_2 and VALID_BITMAP:
+        // gap between SW_EXIT_INFO_2 and VALID_BITMAP
+        // (SwScratch, reserved, XCR0) is untouched:
         assert_eq!(save_area[GHCB_SW_EXIT_INFO_2_OFFSET + 8], 0xAA);
         assert_eq!(save_area[GHCB_VALID_BITMAP_OFFSET - 1], 0xAA);
     }

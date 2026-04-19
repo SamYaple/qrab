@@ -266,6 +266,12 @@ fn decode_response(
     // aliases. CPU reads decrypt via SEV.
     let resp_msg: &mut SnpGuestMsg = unsafe { &mut *(resp_host as *mut SnpGuestMsg) };
 
+    // `plain_buf` is sized to fit the full `MsgReportResp` (status +
+    // report_size + reserved + the 1184-byte report + padding). The
+    // PSP often emits `msg_size = 1216` (no trailing padding) — our
+    // pre-VMGEXIT zeroing of `resp_host` is what keeps the padding
+    // bytes zero and lets `MsgReportResp::read_from_bytes` succeed
+    // on the full 1280-byte slice.
     let mut plain_buf = [0u8; MSG_REPORT_RESP_SIZE];
     let n = decrypt_guest_msg(
         resp_msg,
@@ -276,7 +282,17 @@ fn decode_response(
         &mut plain_buf,
     )
     .map_err(ReportReqError::Envelope)?;
-    if n < MSG_REPORT_RESP_SIZE {
+
+    // Accept any PSP payload that is at least large enough to cover
+    // `status + report_size + reserved + report` (1216 B). The
+    // trailing 64 B of padding is optional in some firmware
+    // revisions; the rest of the resp buffer stays zero from the
+    // pre-VMGEXIT scrub, so parsing the fixed-size struct is safe.
+    const MSG_REPORT_RESP_MIN: usize = 4 + 4 + 24 + 1184;
+    if n < MSG_REPORT_RESP_MIN {
+        log::warn!(
+            "QRAB_SNP_RR_SHORT_PAYLOAD n={n} min={MSG_REPORT_RESP_MIN}"
+        );
         return Err(ReportReqError::Decode);
     }
 

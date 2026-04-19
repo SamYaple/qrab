@@ -158,13 +158,31 @@ pub fn guest_request(req_pa: u64, resp_pa: u64) -> Result<(), GhcbError> {
 
     // SAFETY: `ghcb_pa` points at the 4 KiB GHCB page OVMF
     // registered during SEC; the first 0x400 bytes are the save
-    // area.  UEFI identity-maps this PA, and no other code in
+    // area. UEFI identity-maps this PA, and no other code in
     // qrab-boot touches the save area between the writes we emit
     // here and the `rep; vmmcall` that consumes them.
     let save_area = unsafe {
         &mut *(ghcb_pa as *mut [u8; GHCB_SAVE_AREA_SIZE])
     };
     prepare_guest_request(save_area, req_pa, resp_pa);
+
+    // GHCB footer: protocol_version (u16 @ 0xFFA) and ghcb_usage
+    // (u32 @ 0xFFC) must be set on every VMGEXIT. KVM's
+    // `sev_es_validate_vmgexit` checks `protocol_version` against
+    // the range it negotiated with the guest via the GHCB MSR
+    // info-request protocol; OVMF rewrites these every VMGEXIT via
+    // `CcExitLib`. We re-stamp so our exit is not at OVMF's mercy.
+    // `protocol_version = 2` is the SEV-SNP mandatory minimum
+    // (AMD GHCB spec v2); `ghcb_usage = 0` = `GHCB_DEFAULT_USAGE`
+    // ("use the save area, not a usage-specific protocol").
+    //
+    // SAFETY: raw writes via ghcb_pa to avoid the borrow-checker
+    // conflict with `save_area` (same underlying page, different
+    // non-overlapping byte ranges).
+    unsafe {
+        (ghcb_pa as *mut u16).byte_add(0xFFA).write_volatile(2);
+        (ghcb_pa as *mut u32).byte_add(0xFFC).write_volatile(0);
+    }
 
     // Re-point GHCB_MSR at our ghcb_pa immediately before vmgexit.
     // Intervening UEFI boot-service activity (serial writes, CPUID,
@@ -187,17 +205,17 @@ pub fn guest_request(req_pa: u64, resp_pa: u64) -> Result<(), GhcbError> {
     // OVMF VMGEXIT that slipped in and clobbered the page.
     let pre_code = {
         let mut b = [0u8; 8];
-        b.copy_from_slice(&save_area[0x398..0x3A0]);
+        b.copy_from_slice(&save_area[0x390..0x398]);
         u64::from_le_bytes(b)
     };
     let pre_info1 = {
         let mut b = [0u8; 8];
-        b.copy_from_slice(&save_area[0x3A0..0x3A8]);
+        b.copy_from_slice(&save_area[0x398..0x3A0]);
         u64::from_le_bytes(b)
     };
     let pre_info2 = {
         let mut b = [0u8; 8];
-        b.copy_from_slice(&save_area[0x3A8..0x3B0]);
+        b.copy_from_slice(&save_area[0x3A0..0x3A8]);
         u64::from_le_bytes(b)
     };
 
@@ -217,12 +235,12 @@ pub fn guest_request(req_pa: u64, resp_pa: u64) -> Result<(), GhcbError> {
     // followed by `Envelope::HeaderMismatch` downstream).
     let info1_after = {
         let mut b = [0u8; 8];
-        b.copy_from_slice(&save_area[0x3A0..0x3A8]);
+        b.copy_from_slice(&save_area[0x398..0x3A0]);
         u64::from_le_bytes(b)
     };
     let info2_after = {
         let mut b = [0u8; 8];
-        b.copy_from_slice(&save_area[0x3A8..0x3B0]);
+        b.copy_from_slice(&save_area[0x3A0..0x3A8]);
         u64::from_le_bytes(b)
     };
     let result = parse_guest_request_result(save_area);
