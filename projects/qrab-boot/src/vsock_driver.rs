@@ -31,10 +31,29 @@ use crate::vsock::Status;
 use crate::vsock_hal::UefiHal;
 use crate::vsock_pci::build_transport;
 
-/// Receive-ring buffer size for a single virtio-vsock packet. Matches
-/// the default used by `virtio-drivers` examples; big enough for the
-/// 40-byte VirtioVsockHdr + our small attestation payloads.
-const RX_BUFFER_SIZE: usize = 1024;
+/// Receive-ring buffer size for a single virtio-vsock packet (bytes).
+/// One rx-queue entry of this size holds the 40-byte VirtioVsockHdr +
+/// up to `RX_BUFFER_SIZE - 40` bytes of payload.
+///
+/// Upstream `virtio-drivers`' default is 1 KiB; we keep 4 KiB so larger
+/// DATA packets the host writes (e.g. the signed 64 KiB UKI from
+/// scenario 11) fit in fewer rx entries, cutting per-entry bookkeeping
+/// overhead roughly 4x.
+const RX_BUFFER_SIZE: usize = 4096;
+
+/// Per-connection ring-buffer capacity advertised to the host as
+/// `buf_alloc` in the VirtioVsockHdr. This is the ceiling on
+/// unacknowledged bytes the host can send us before it must wait for
+/// a `CreditUpdate` from the guest.
+///
+/// `virtio-drivers`' default of 1024 B deadlocks any payload larger
+/// than 1 KiB: `VsockConnectionManager::poll` only emits a
+/// `CreditUpdate` in response to an explicit `CreditRequest` from the
+/// peer — it does *not* proactively advertise fresh credit when the
+/// guest drains the ring buffer. 128 KiB matches
+/// `qrab_boot_proto::MAX_FRAMED_PAYLOAD`, so the full UKI frame fits
+/// in one credit window and the host never stalls.
+const PER_CONNECTION_BUFFER_CAPACITY: u32 = 128 * 1024;
 
 /// Handle returned by [`init`] — owns the transport, driver, and
 /// connection bookkeeping. Dropping it returns the virtio device to a
@@ -129,7 +148,10 @@ pub fn init(status: Status) -> Result<VsockDriver, InitError> {
         })?;
 
     let guest_cid = driver.guest_cid();
-    let manager = VsockConnectionManager::new(driver);
+    let manager = VsockConnectionManager::new_with_capacity(
+        driver,
+        PER_CONNECTION_BUFFER_CAPACITY,
+    );
 
     log::info!("QRAB_VSOCK_DRIVER_OK cid={guest_cid}");
 

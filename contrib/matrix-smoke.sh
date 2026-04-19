@@ -31,14 +31,7 @@ set -euo pipefail
 ROOT="$(git -C "$(dirname "${BASH_SOURCE[0]}")" rev-parse --show-toplevel)"
 SMOKE="$ROOT/contrib/smoke-vsock-qemu.sh"
 
-SCENARIOS="${SCENARIOS:-1 3 4 5 6 8 12a 12b 12c}"
-# Scenario 11 (64 KiB UKI) stays defined below but is off the
-# default list: under TCG the virtio-vsock rx path still hits
-# QRAB_VSOCK_RECV_TIMEOUT even with MAX_RECV_ITERATIONS bumped
-# to 320 000. Running `SCENARIOS=11 ...` keeps the fixture +
-# env wiring for manual diagnosis; a proper fix likely needs
-# surfacing the virtio-vsock credit window / rx-buffer count
-# rather than tuning poll timeouts.
+SCENARIOS="${SCENARIOS:-1 3 4 5 6 8 11 12a 12b 12c}"
 
 # Working dir for scenario-specific fixtures (e.g. the 64 KiB UKI for
 # scenario 11). Built once, reused by every matrix run that needs it.
@@ -54,12 +47,11 @@ scenario_env() {
         5)    echo "QRAB_ATTEST_FAULT=bad_sig" ;;
         6)    echo "QRAB_SMOKE_SKIP_ATTEST=1" ;;
         8)    echo "QRAB_SMOKE_NO_VSOCK=1" ;;
-        # Boot timeout bumped because TCG streams 64 KiB of vsock
-        # data markedly slower than the 512 B stub — 20 s isn't
-        # enough on most hosts. Attest-server's own frame copy is
-        # fine; the limiter is virtio-vsock rx polling inside the
-        # guest.
-        11)   echo "QRAB_SMOKE_UKI_PATH=$SCRATCH/large-uki.bin QRAB_VSOCK_BOOT_TIMEOUT=60" ;;
+        # 40 s boot budget keeps margin for slower TCG hosts while
+        # the in-guest vsock path drains the 64 KiB UKI. Regular
+        # 20 s is enough on a modern EPYC / Ryzen but not on all
+        # CI shapes.
+        11)   echo "QRAB_SMOKE_UKI_PATH=$SCRATCH/large-uki.bin QRAB_VSOCK_BOOT_TIMEOUT=40" ;;
         12a)  echo "QRAB_SMOKE_MEM=256M" ;;
         12b)  echo "QRAB_SMOKE_MEM=1G" ;;
         12c)  echo "QRAB_SMOKE_MEM=2G" ;;
