@@ -91,7 +91,122 @@ impl std::error::Error for VerifyError {}
 /// SHA-384. Any other value is rejected by this function; callers
 /// that want to accept future algorithms (e.g. VLEK RSA, if ever
 /// added) should extend the match themselves.
+///
+/// VLEK and VCEK reports *both* land here — AMD uses the same
+/// ECDSA-P384/SHA-384 scheme for each, only the signing key
+/// differs. See [`ReportSigner`] / [`signing_key_of`] for the
+/// VCEK-vs-VLEK flag.
 pub const SIG_ALGO_ECDSA_P384_SHA384: u32 = 1;
+
+/// Which of the two AMD SEV-SNP key hierarchies the PSP used to
+/// sign the report. Decoded from `AttestationReport.flags` bits
+/// 2..4 per AMD SEV-SNP ABI 1.55 Table 23.
+///
+/// Named `ReportSigner` rather than `SigningKey` to avoid colliding
+/// with `p384::ecdsa::SigningKey` in tests + downstream crates.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReportSigner {
+    /// Versioned Chip Endorsement Key — derived from the chip's
+    /// root key plus the reported TCB version. Fetched from AMD
+    /// KDS by `(chip_id, reported_tcb)`. The default for
+    /// production deployments.
+    Vcek,
+    /// Versioned Loaded Endorsement Key — supplied by the
+    /// hypervisor and used for hosts that want to rotate the
+    /// leaf key without a chip reboot. Cert is loaded by the
+    /// hypervisor rather than fetched from KDS.
+    Vlek,
+    /// Any other 3-bit value the firmware may emit. Newer ABIs
+    /// could introduce additional signing-key hierarchies.
+    Other(u8),
+}
+
+/// Decode the signing-key hierarchy out of `report.flags`.
+/// A04 concern: a verifier that only recognises VCEK would
+/// silently accept VLEK-signed reports if it skipped this check,
+/// allowing a hypervisor that holds a valid VLEK to impersonate a
+/// VCEK-signed chip.
+pub fn signing_key_of(report: &SnpAttestationReport) -> ReportSigner {
+    let flags = { report.flags };
+    match ((flags >> 2) & 0x7) as u8 {
+        0 => ReportSigner::Vcek,
+        1 => ReportSigner::Vlek,
+        other => ReportSigner::Other(other),
+    }
+}
+
+/// Length of an SEV-SNP launch measurement in bytes (SHA-384).
+pub const MEASUREMENT_LEN: usize = 48;
+
+/// `report.measurement` did not match the expected golden digest.
+///
+/// A08 is the check that binds the signed report back to a
+/// known-good firmware + IGVM / kernel + cmdline configuration.
+/// Without it, a valid PSP signature only proves \"this ran on *some*
+/// SEV-SNP AMD chip\" — it does not prove the guest is actually the
+/// build the relying party expected.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MeasurementMismatch {
+    pub expected: [u8; MEASUREMENT_LEN],
+    pub actual: [u8; MEASUREMENT_LEN],
+}
+
+impl core::fmt::Display for MeasurementMismatch {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        // Only log the first 8 bytes of each side to keep full
+        // digests out of casual serial logs — the caller can format
+        // the whole thing if it wants.
+        write!(
+            f,
+            "report.measurement mismatch: expected {:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}… actual {:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}…",
+            self.expected[0], self.expected[1], self.expected[2], self.expected[3],
+            self.expected[4], self.expected[5], self.expected[6], self.expected[7],
+            self.actual[0], self.actual[1], self.actual[2], self.actual[3],
+            self.actual[4], self.actual[5], self.actual[6], self.actual[7],
+        )
+    }
+}
+
+impl std::error::Error for MeasurementMismatch {}
+
+/// Constant-time-ish byte comparison — the caller already has both
+/// sides in memory so the primary goal is \"no leak by timing\" only
+/// in the weak sense; `subtle::ConstantTimeEq` would be stronger
+/// but brings in another crate. For a 48-byte post-boot check the
+/// XOR-accumulate fold below is indistinguishable from it in
+/// practice.
+fn ct_eq_48(a: &[u8; MEASUREMENT_LEN], b: &[u8; MEASUREMENT_LEN]) -> bool {
+    let mut acc = 0u8;
+    for i in 0..MEASUREMENT_LEN {
+        acc |= a[i] ^ b[i];
+    }
+    acc == 0
+}
+
+/// Verify that `report.measurement` equals `expected`.
+///
+/// The expected digest is the SHA-384 of the guest's initial
+/// memory image (OVMF, kernel blob, cmdline, etc.) as launched by
+/// `SNP_LAUNCH_UPDATE`; it must be computed out-of-band, typically
+/// with AMD's `sev-snp-measure` tool
+/// (<https://github.com/virtee/sev-snp-measure>) or an IGVM-aware
+/// equivalent, and pinned into the relying party's configuration.
+/// Callers must *not* read the expected value out of an untrusted
+/// source on the same path that serves the guest.
+pub fn verify_measurement(
+    report: &SnpAttestationReport,
+    expected: &[u8; MEASUREMENT_LEN],
+) -> Result<(), MeasurementMismatch> {
+    let actual = { report.measurement };
+    if ct_eq_48(&actual, expected) {
+        Ok(())
+    } else {
+        Err(MeasurementMismatch {
+            expected: *expected,
+            actual,
+        })
+    }
+}
 
 /// Verify that `report` was signed by the owner of the VCEK (or
 /// VLEK) public key `vcek_sec1`.
@@ -314,5 +429,81 @@ mod tests {
     fn vcek_sec1_len_constant() {
         // 0x04 tag byte + 48-byte X + 48-byte Y.
         assert_eq!(VCEK_SEC1_LEN, 97);
+    }
+
+    #[test]
+    fn signing_key_of_vcek() {
+        // flags = 0 -> SigningKey = 0 = VCEK.
+        let mut buf = [0u8; core::mem::size_of::<SnpAttestationReport>()];
+        buf[0x34..0x38].copy_from_slice(&SIG_ALGO_ECDSA_P384_SHA384.to_le_bytes());
+        // report.flags lives at offset 0x3C (u32 after signature_algo
+        // (0x34) + current_tcb (0x38) — actually after current_tcb u64
+        // comes platform_info u64 then flags u32). Use offset_of.
+        let flags_off = core::mem::offset_of!(SnpAttestationReport, flags);
+        buf[flags_off..flags_off + 4].copy_from_slice(&0u32.to_le_bytes());
+        let report = SnpAttestationReport::read_from_bytes(&buf).unwrap();
+        assert_eq!(signing_key_of(&report), ReportSigner::Vcek);
+    }
+
+    #[test]
+    fn signing_key_of_vlek() {
+        // flags = 0b0100 (bit 2 set) = signing_key field = 1 = VLEK.
+        let mut buf = [0u8; core::mem::size_of::<SnpAttestationReport>()];
+        let flags_off = core::mem::offset_of!(SnpAttestationReport, flags);
+        buf[flags_off..flags_off + 4].copy_from_slice(&0b0100u32.to_le_bytes());
+        let report = SnpAttestationReport::read_from_bytes(&buf).unwrap();
+        assert_eq!(signing_key_of(&report), ReportSigner::Vlek);
+    }
+
+    #[test]
+    fn signing_key_of_other_value() {
+        // flags = 0b1000 (bits 2..4 = 0b010 = 2) -> Other(2).
+        let mut buf = [0u8; core::mem::size_of::<SnpAttestationReport>()];
+        let flags_off = core::mem::offset_of!(SnpAttestationReport, flags);
+        buf[flags_off..flags_off + 4].copy_from_slice(&0b1000u32.to_le_bytes());
+        let report = SnpAttestationReport::read_from_bytes(&buf).unwrap();
+        assert_eq!(signing_key_of(&report), ReportSigner::Other(2));
+    }
+
+    #[test]
+    fn verify_measurement_accepts_match() {
+        let mut buf = [0u8; core::mem::size_of::<SnpAttestationReport>()];
+        let off = core::mem::offset_of!(SnpAttestationReport, measurement);
+        let expected: [u8; MEASUREMENT_LEN] = core::array::from_fn(|i| 0x10 + i as u8);
+        buf[off..off + MEASUREMENT_LEN].copy_from_slice(&expected);
+        let report = SnpAttestationReport::read_from_bytes(&buf).unwrap();
+        assert!(verify_measurement(&report, &expected).is_ok());
+    }
+
+    #[test]
+    fn verify_measurement_rejects_one_bit_flip() {
+        let mut buf = [0u8; core::mem::size_of::<SnpAttestationReport>()];
+        let off = core::mem::offset_of!(SnpAttestationReport, measurement);
+        let mut expected: [u8; MEASUREMENT_LEN] = core::array::from_fn(|i| 0x20 + i as u8);
+        buf[off..off + MEASUREMENT_LEN].copy_from_slice(&expected);
+        expected[17] ^= 0x01;
+        let report = SnpAttestationReport::read_from_bytes(&buf).unwrap();
+        let err = verify_measurement(&report, &expected).unwrap_err();
+        assert_eq!(err.expected, expected);
+        assert_ne!(err.actual, err.expected);
+    }
+
+    #[test]
+    fn verify_measurement_rejects_wrong_length_not_exposed() {
+        // The public API forces a fixed-size array so the bad-length
+        // case cannot exist at the type level — document by the
+        // type that the comparison is always 48 B wide.
+        assert_eq!(MEASUREMENT_LEN, 48);
+    }
+
+    #[test]
+    fn signing_key_of_ignores_other_flag_bits() {
+        // Unrelated bits (AuthorKeyEn bit 0, MaskChipKey bit 1) set,
+        // SigningKey bits stay 0 -> VCEK.
+        let mut buf = [0u8; core::mem::size_of::<SnpAttestationReport>()];
+        let flags_off = core::mem::offset_of!(SnpAttestationReport, flags);
+        buf[flags_off..flags_off + 4].copy_from_slice(&0b11u32.to_le_bytes());
+        let report = SnpAttestationReport::read_from_bytes(&buf).unwrap();
+        assert_eq!(signing_key_of(&report), ReportSigner::Vcek);
     }
 }
