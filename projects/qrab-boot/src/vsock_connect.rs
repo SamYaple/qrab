@@ -36,9 +36,14 @@ use crate::vsock_driver::VsockDriver;
 
 /// How many poll iterations to spend waiting for the host to accept
 /// the connection. Each iteration is one `VsockConnectionManager::poll`
-/// + a `pause`; under TCG that's a few tens of microseconds, so ~8000
-/// iterations caps us at roughly a quarter-second before giving up.
-const MAX_POLL_ITERATIONS: usize = 8_000;
+/// + a `pause`; under TCG that's a few tens of microseconds. 80 000
+/// iterations caps the wait at roughly 2.5 s, which is long enough
+/// for the `recv_frame` path to drain a 64 KiB payload off the
+/// virtio-vsock ring (Plan §scenario 11). The connect-and-wait +
+/// server-unreachable scenarios still fail fast because the bailout
+/// path hits the first few hundred polls; the extra ceiling only
+/// applies to payloads that genuinely take longer to arrive.
+const MAX_POLL_ITERATIONS: usize = 80_000;
 
 /// Distinguished errors from [`connect_and_wait`].
 #[allow(dead_code)]
@@ -122,10 +127,15 @@ pub fn connect_and_wait(
     Err(ConnectError::Timeout)
 }
 
-/// How many poll iterations to spend waiting for inbound bytes after
-/// a `send`. Same tuning constraints as connect, plus a small multiplier
-/// because the host may take a few roundtrips to produce the reply.
-const MAX_RECV_ITERATIONS: usize = 32_000;
+/// How many *idle* poll iterations (no bytes received) to tolerate
+/// between chunks of a framed payload before giving up. The counter
+/// resets to zero every time bytes actually arrive, so this limits
+/// the gap between host writes, not total transfer time. TCG under
+/// heavy load can stall for ~1 s between virtio-vsock rx bursts on
+/// large payloads (scenario 11's 64 KiB UKI), so 320 000 iterations
+/// buys ~10 s of tolerance while still failing fast when no payload
+/// is coming at all (scenarios 6 / attest-server absent).
+const MAX_RECV_ITERATIONS: usize = 320_000;
 
 /// Hard ceiling on a single framed payload. Matches
 /// `qrab_boot_proto::MAX_FRAMED_PAYLOAD` so an attack that lies

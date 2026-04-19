@@ -74,44 +74,77 @@ mcopy -i "$ESP" "$EFI" ::/EFI/BOOT/BOOTX64.EFI
 : > "$MOCKLOG"
 
 # ---- attest-server -------------------------------------------------------
-# Build the Rust attestation server up front so the bind-time log line
-# below is deterministic (and so a compile error fails fast instead of
-# mid-handshake).
-log "building attest-server"
-(cd "$ROOT" && cargo build -p attest-server --release >/dev/null 2>&1) \
-    || die "attest-server build failed"
-ATTEST_BIN="$ROOT/target/release/attest-server"
-[[ -x "$ATTEST_BIN" ]] || die "attest-server binary not produced"
-
-log "launching attest-server (port $PORT)"
-# Point attest-server at the same signing key whose public half was
-# embedded into qrab-boot.efi at build time, so the bootloader's
-# `p256` verify succeeds. Fall back to an ephemeral key if the dev
-# keypair is absent (the bootloader will log QRAB_ATTEST_NO_PUBKEY
-# in that case and the smoke still at least exercises the wire).
-KEY_PATH="$ROOT/contrib/attest-keys/server.pem"
-if [[ -s "$KEY_PATH" ]]; then
-    export QRAB_ATTEST_KEY_PATH="$KEY_PATH"
-fi
-"$ATTEST_BIN" "$PORT" >"$MOCKLOG" 2>&1 &
-MOCK_PID=$!
+# `QRAB_SMOKE_SKIP_ATTEST=1` lets the matrix harness launch QEMU
+# without any attest-server listening, which is the "server
+# unreachable" scenario (Plan §scenario 6). qrab-boot's vsock
+# connect will still find the PCI device but time out waiting
+# for a reply.
+MOCK_PID=""
 cleanup() {
-    kill -TERM "$MOCK_PID" 2>/dev/null || true
-    wait "$MOCK_PID" 2>/dev/null || true
+    if [[ -n "$MOCK_PID" ]]; then
+        kill -TERM "$MOCK_PID" 2>/dev/null || true
+        wait "$MOCK_PID" 2>/dev/null || true
+    fi
 }
 trap cleanup EXIT
-# Give the listener a moment to bind.
-sleep 0.3
+
+if [[ "${QRAB_SMOKE_SKIP_ATTEST:-0}" == "1" ]]; then
+    log "QRAB_SMOKE_SKIP_ATTEST=1 — not launching attest-server (server-unreachable scenario)"
+else
+    # Build the Rust attestation server up front so the bind-time log line
+    # below is deterministic (and so a compile error fails fast instead of
+    # mid-handshake).
+    log "building attest-server"
+    (cd "$ROOT" && cargo build -p attest-server --release >/dev/null 2>&1) \
+        || die "attest-server build failed"
+    ATTEST_BIN="$ROOT/target/release/attest-server"
+    [[ -x "$ATTEST_BIN" ]] || die "attest-server binary not produced"
+
+    log "launching attest-server (port $PORT)"
+    # Point attest-server at the same signing key whose public half was
+    # embedded into qrab-boot.efi at build time, so the bootloader's
+    # `p256` verify succeeds. Fall back to an ephemeral key if the dev
+    # keypair is absent (the bootloader will log QRAB_ATTEST_NO_PUBKEY
+    # in that case and the smoke still at least exercises the wire).
+    KEY_PATH="$ROOT/contrib/attest-keys/server.pem"
+    if [[ -s "$KEY_PATH" ]]; then
+        export QRAB_ATTEST_KEY_PATH="$KEY_PATH"
+    fi
+    # `QRAB_SMOKE_UKI_PATH=<path>` overrides the built-in 512-byte
+    # stub. Used by the matrix's scenario 11 (large UKI) via the
+    # attest-server's own `QRAB_ATTEST_UKI_PATH` env var.
+    if [[ -n "${QRAB_SMOKE_UKI_PATH:-}" && -f "$QRAB_SMOKE_UKI_PATH" ]]; then
+        export QRAB_ATTEST_UKI_PATH="$QRAB_SMOKE_UKI_PATH"
+    fi
+    "$ATTEST_BIN" "$PORT" >"$MOCKLOG" 2>&1 &
+    MOCK_PID=$!
+    # Give the listener a moment to bind.
+    sleep 0.3
+fi
 
 # ---- qemu ----------------------------------------------------------------
-log "launching qemu (guest_cid=$GUEST_CID, ~${BOOT_TIMEOUT_SECS}s)"
+# Scenario-driven cmdline tweaks:
+#   * QRAB_SMOKE_NO_VSOCK=1  — don't attach vhost-vsock-pci at all
+#     (qrab-boot's `vsock::probe` emits QRAB_VSOCK_MISSING). Plan
+#     §scenario 8.
+#   * QRAB_SMOKE_MEM=<qemu-mem-string> — override -m, e.g. 256M or 2G
+#     for the memsize matrix (Plan §scenario 12).
+MEM_FLAG="-m ${QRAB_SMOKE_MEM:-512M}"
+VSOCK_FLAG="-device vhost-vsock-pci,guest-cid=$GUEST_CID"
+if [[ "${QRAB_SMOKE_NO_VSOCK:-0}" == "1" ]]; then
+    log "QRAB_SMOKE_NO_VSOCK=1 — omitting vhost-vsock-pci device (no-NIC scenario)"
+    VSOCK_FLAG=""
+fi
+
+log "launching qemu (guest_cid=$GUEST_CID, mem=${QRAB_SMOKE_MEM:-512M}, ~${BOOT_TIMEOUT_SECS}s)"
 set +e
+# shellcheck disable=SC2086  # deliberate word-split of $VSOCK_FLAG / $MEM_FLAG.
 timeout "$BOOT_TIMEOUT_SECS" qemu-system-x86_64 \
-    -machine q35,accel=tcg -m 512M -display none -no-reboot \
+    -machine q35,accel=tcg $MEM_FLAG -display none -no-reboot \
     -cpu max \
     -bios "$OVMF" \
     -drive if=virtio,format=raw,file="$ESP" \
-    -device vhost-vsock-pci,guest-cid="$GUEST_CID" \
+    $VSOCK_FLAG \
     -serial file:"$SERIAL" >/dev/null 2>&1
 QEMU_RC=$?
 set -e
