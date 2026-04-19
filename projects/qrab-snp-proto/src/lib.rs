@@ -269,6 +269,48 @@ pub struct SnpSecretsPage {
     pub reserved_tail: [u8; 4096 - 0xa0],
 }
 
+/// Failure modes from [`validate_secrets_page`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SecretsValidateError {
+    /// The `SnpSecretsPage::version` field is zero, which the spec
+    /// disallows — the page has either not been populated by the
+    /// PSP or the caller is reading the wrong PA.
+    VersionZero,
+    /// All four VMPCK entries are zero. On a real SNP launch every
+    /// VMPCK is randomly generated, so seeing all-zero means the
+    /// page was either not populated or has already been wiped.
+    AllVmpcksZero,
+}
+
+/// Check that a [`SnpSecretsPage`] looks plausibly populated by the
+/// PSP. This is a cheap sanity check that catches the common
+/// "wrong PA" failure mode without being a substitute for the real
+/// RMP / attestation-report validation downstream of
+/// `MSG_REPORT_REQ`.
+pub fn validate_secrets_page(
+    page: &SnpSecretsPage,
+) -> Result<(), SecretsValidateError> {
+    if { page.version } == 0 {
+        return Err(SecretsValidateError::VersionZero);
+    }
+    let any_nonzero = page.vmpck0.iter().any(|&b| b != 0)
+        || page.vmpck1.iter().any(|&b| b != 0)
+        || page.vmpck2.iter().any(|&b| b != 0)
+        || page.vmpck3.iter().any(|&b| b != 0);
+    if !any_nonzero {
+        return Err(SecretsValidateError::AllVmpcksZero);
+    }
+    Ok(())
+}
+
+/// `true` if `vmpck` contains at least one non-zero byte. Exposed
+/// so callers can log a non-zeroness token without copying the
+/// VMPCK bytes themselves.
+#[inline]
+pub fn is_vmpck_nonzero(vmpck: &[u8]) -> bool {
+    vmpck.iter().any(|&b| b != 0)
+}
+
 // ---- compile-time size assertions ------------------------------------------
 //
 // These catch the kind of off-by-one layout bugs that would only
@@ -429,5 +471,55 @@ mod tests {
         assert_eq!(VMPCK_LEN, 32);
         assert_eq!(AEAD_TAG_LEN, 16);
         assert_eq!(AEAD_IV_LEN, 12);
+    }
+
+    /// Build an all-zero `SnpSecretsPage` to use as a starting point
+    /// for the validation tests.
+    fn zero_secrets_page() -> SnpSecretsPage {
+        let bytes = [0u8; 4096];
+        SnpSecretsPage::read_from_bytes(&bytes).expect("4096 B decodes")
+    }
+
+    #[test]
+    fn validate_secrets_page_rejects_version_zero() {
+        let page = zero_secrets_page();
+        assert_eq!(
+            validate_secrets_page(&page),
+            Err(SecretsValidateError::VersionZero)
+        );
+    }
+
+    #[test]
+    fn validate_secrets_page_rejects_all_zero_vmpcks() {
+        let mut page = zero_secrets_page();
+        page.version = 1;
+        assert_eq!(
+            validate_secrets_page(&page),
+            Err(SecretsValidateError::AllVmpcksZero)
+        );
+    }
+
+    #[test]
+    fn validate_secrets_page_accepts_vmpck0_only() {
+        let mut page = zero_secrets_page();
+        page.version = 1;
+        page.vmpck0[0] = 0x42;
+        assert_eq!(validate_secrets_page(&page), Ok(()));
+    }
+
+    #[test]
+    fn validate_secrets_page_accepts_vmpck3_only() {
+        let mut page = zero_secrets_page();
+        page.version = 3;
+        page.vmpck3[31] = 0xff;
+        assert_eq!(validate_secrets_page(&page), Ok(()));
+    }
+
+    #[test]
+    fn is_vmpck_nonzero_detects_set_bit() {
+        assert!(!is_vmpck_nonzero(&[0u8; 32]));
+        let mut v = [0u8; 32];
+        v[17] = 0x01;
+        assert!(is_vmpck_nonzero(&v));
     }
 }
