@@ -21,6 +21,7 @@ mod panic;
 mod pci_dma;
 mod rng;
 mod secret;
+mod snp_secrets;
 mod volatile_transport;
 mod vsock;
 mod vsock_connect;
@@ -62,6 +63,32 @@ fn efi_main() -> Status {
 
     let features = ghcb::detect();
     ghcb::log_features(&features);
+
+    // Phase 5b: load the SNP Secrets page under SEV-SNP so phase 5c
+    // has access to VMPCK0 when it eventually issues
+    // `SNP_GUEST_REQUEST MSG_REPORT_REQ`. Gating on `sev_snp` keeps
+    // non-SNP TCG boots from probing a PA that holds unrelated
+    // firmware data. The returned page is dropped at the end of
+    // this block — phase 5c will pass it through to the report
+    // request instead.
+    if features.sev_snp {
+        match snp_secrets::load() {
+            Ok(page) => {
+                log::info!(
+                    "QRAB_SNP_SECRETS_OK version={} vmpck0_nonzero={} \
+                     vmpck1_nonzero={} vmpck2_nonzero={} vmpck3_nonzero={}",
+                    { page.version },
+                    qrab_snp_proto::is_vmpck_nonzero(&page.vmpck0),
+                    qrab_snp_proto::is_vmpck_nonzero(&page.vmpck1),
+                    qrab_snp_proto::is_vmpck_nonzero(&page.vmpck2),
+                    qrab_snp_proto::is_vmpck_nonzero(&page.vmpck3),
+                );
+            }
+            Err(e) => {
+                log::warn!("QRAB_SNP_SECRETS_ERR {e:?}");
+            }
+        }
+    }
 
     run_vsock_demo();
 

@@ -26,6 +26,12 @@ uefi-raw = { version = "0.13", default-features = false }
 log = { version = "0.4", default-features = false }
 qrab-boot-verify = { path = "../qrab-boot-verify" }
 qrab-boot-proto = { path = "../qrab-boot-proto" }
+# SNP Guest-Request on-wire types (MsgReportReq / MsgReportResp /
+# SnpAttestationReport / SnpGuestMsg / SnpSecretsPage). Defined in
+# `projects/qrab-snp-proto` so host-side unit tests can exercise the
+# layout assertions that `no_std` qrab-boot can only verify at
+# compile-time.
+qrab-snp-proto = { path = "../qrab-snp-proto" }
 # Phase 3 uses virtio-drivers for virtio-vsock transport instead of the
 # UEFI NetworkPkg stack. The crate is no_std + alloc-only and does not
 # force any edk2 DSC/FDF changes, which is the main reason for the
