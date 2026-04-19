@@ -56,6 +56,48 @@ pub enum VmState {
     ShuttingDown,
 }
 
+/// RAII guard for the temporary qcow2 overlay created per power cycle.
+///
+/// `create_temp_overlay` writes a fresh `/tmp/qrab-overlay-<pid>-<ms>.qcow2`
+/// on every `power_on`. Without a cleanup hook, each power cycle leaks one
+/// file on disk. This guard tracks the path and removes it when dropped.
+///
+/// Removal is best-effort: if the file is already gone (user cleaned up,
+/// tmpfs reboot, etc.) the error is logged and swallowed — we do NOT fail
+/// teardown on a missing overlay.
+pub(crate) struct OverlayGuard {
+    path: PathBuf,
+}
+
+impl OverlayGuard {
+    pub(crate) fn new(path: PathBuf) -> Self {
+        Self { path }
+    }
+
+    pub(crate) fn path(&self) -> &Path {
+        &self.path
+    }
+}
+
+impl Drop for OverlayGuard {
+    fn drop(&mut self) {
+        match std::fs::remove_file(&self.path) {
+            Ok(()) => {
+                tracing::debug!("removed temp overlay {:?}", self.path);
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                // Already gone — fine.
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "failed to remove temp overlay {:?}: {e} (leaking)",
+                    self.path
+                );
+            }
+        }
+    }
+}
+
 /// Static info cached once per Running VM session.
 #[derive(Clone)]
 pub struct CachedStaticInfo {
@@ -92,6 +134,10 @@ pub struct BmcState {
     /// Mutable: `request_attestation_report` updates it at runtime.
     pub attestation: Mutex<AttestationState>,
     event_forwarder: Mutex<Option<JoinHandle<()>>>,
+    /// Tracks the temp qcow2 overlay created by `create_temp_overlay` for
+    /// the currently-running VM. `Some(_)` while Running; cleared (and the
+    /// file removed via `OverlayGuard::drop`) on transition back to Off.
+    overlay: Mutex<Option<OverlayGuard>>,
 }
 
 impl BmcState {
@@ -127,6 +173,7 @@ impl BmcState {
             cached_static: Mutex::new(None),
             attestation: Mutex::new(AttestationState::default()),
             event_forwarder: Mutex::new(None),
+            overlay: Mutex::new(None),
         })
     }
 
@@ -235,12 +282,18 @@ impl BmcState {
 
         // Resolve disks: SNP overlay + cloud-init seed. Always present —
         // there is no "no disks" code path anymore.
+        //
+        // The overlay is owned by an `OverlayGuard`: if power_on returns
+        // early (disk attach, start, cont, or boot-validation failure) the
+        // guard is dropped here and the temp file is removed. On the
+        // success path we hand ownership to `BmcState::overlay` and let
+        // the teardown path drop it at power_off/force_off time.
         let base_image = ensure_ubuntu_snp_image().await?;
-        let overlay = create_temp_overlay(&base_image).await?;
+        let overlay_guard = OverlayGuard::new(create_temp_overlay(&base_image).await?);
         let seed = ensure_cloud_init_seed().await?;
         let disks = vec![
             InternalDisk {
-                file: overlay,
+                file: overlay_guard.path().to_path_buf(),
                 format: InternalDiskFormat::Qcow2,
                 read_only: false,
             },
@@ -369,6 +422,9 @@ impl BmcState {
         }
 
         *vm_guard = VmState::Running(vm);
+        // Hand overlay ownership to BmcState. Dropped (and file removed)
+        // in `final_stop_and_teardown` when the VM transitions back to Off.
+        *self.overlay.lock().await = Some(overlay_guard);
 
         // SEV-SNP attestation queries (query-sev-launch-measure,
         // query-sev-capabilities) removed from power_on path.
@@ -509,6 +565,9 @@ impl BmcState {
         self.event_history.lock().await.clear();
         *self.cached_static.lock().await = None;
         *self.attestation.lock().await = AttestationState::default();
+        // Drop the overlay guard — removes the temp qcow2 file from disk.
+        // Best-effort: OverlayGuard::drop logs and swallows remove errors.
+        *self.overlay.lock().await = None;
     }
 
     /// Get the current VM phase.
@@ -969,4 +1028,57 @@ runcmd:
 
     tokio::fs::copy(&img, &path).await?;
     Ok(path)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Round-8 B8-S2 regression: dropping an `OverlayGuard` must remove
+    /// the tracked file from disk. Without this the temp qcow2 overlay
+    /// created per power cycle leaks one file on every `power_on`.
+    #[test]
+    fn overlay_guard_removes_file_on_drop() {
+        let path = std::env::temp_dir().join(format!(
+            "qrab-overlay-test-{}-{}.qcow2",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::write(&path, b"fake qcow2 contents").unwrap();
+        assert!(path.exists(), "precondition: test file created");
+
+        {
+            let guard = OverlayGuard::new(path.clone());
+            assert_eq!(guard.path(), path.as_path());
+            // guard dropped at end of this scope
+        }
+
+        assert!(
+            !path.exists(),
+            "OverlayGuard::drop must remove the tracked file"
+        );
+    }
+
+    /// Missing file on drop is non-fatal: `OverlayGuard::drop` must not
+    /// panic if the file is already gone (external cleanup, tmpfs reboot,
+    /// etc.). Teardown cannot be allowed to fail on a missing overlay.
+    #[test]
+    fn overlay_guard_drop_tolerates_missing_file() {
+        let path = std::env::temp_dir().join(format!(
+            "qrab-overlay-test-missing-{}-{}.qcow2",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        // Intentionally do NOT create the file.
+        assert!(!path.exists(), "precondition: file does not exist");
+
+        let guard = OverlayGuard::new(path.clone());
+        drop(guard); // must not panic
+    }
 }
