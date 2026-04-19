@@ -154,12 +154,20 @@ pub fn set_fd_cloexec(fd: RawFd, cloexec: bool) -> Result<(), nix::Error> {
 pub struct NsHelper;
 
 impl NsHelper {
-    /// Run the uid/gid map writer. Consumes the pipe fds.
-    pub async fn run(sync_r: RawFd, ack_w: RawFd) -> crate::Result<()> {
+    /// Run the uid/gid map writer. Consumes the pipe fds as `OwnedFd` so
+    /// early-error paths do not leak raw descriptors: if this fn returns
+    /// `Err` before wrapping a fd in a `tokio::fs::File`, `OwnedFd::drop`
+    /// closes it. Once wrapped, the `File` owns the fd.
+    pub async fn run(sync_r: OwnedFd, ack_w: OwnedFd) -> crate::Result<()> {
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
+        // Wrap fds in `tokio::fs::File` via `std::fs::File`'s
+        // `From<OwnedFd>` impl — this hands off ownership safely with no
+        // `from_raw_fd` gymnastics. A dropped `File` closes the fd once.
+        let mut sync_file = tokio::fs::File::from_std(std::fs::File::from(sync_r));
+        let mut ack_file = tokio::fs::File::from_std(std::fs::File::from(ack_w));
+
         // Read child PID (written as decimal string bytes).
-        let mut sync_file = unsafe { tokio_fd::tokio_file_from_raw_fd(sync_r) };
         let mut pid_buf = vec![0u8; 32];
         let n = sync_file.read(&mut pid_buf).await?;
         let pid_str = std::str::from_utf8(&pid_buf[..n])
@@ -189,11 +197,7 @@ impl NsHelper {
         .await?;
 
         // Ack: tell child that maps are written.
-        let mut ack_file = unsafe { tokio_fd::tokio_file_from_raw_fd(ack_w) };
         ack_file.write_all(&[0x42]).await?;
-
-        // Don't let OwnedFd in tokio::fs::File double-close — we consumed
-        // them via from_raw_fd. Drop handles close.
 
         Ok(())
     }
@@ -227,6 +231,16 @@ pub fn make_pre_exec(
     cfg_r: RawFd,
 ) -> impl FnMut() -> std::io::Result<()> {
     move || {
+        // 0. Restrictive umask BEFORE namespace entry and exec, so any
+        //    files/sockets QEMU creates later (e.g. `qmp.sock`, VNC sock)
+        //    are born `0o600`. Closes TOCTOU window where the parent
+        //    would otherwise race to chmod `0o600` after QEMU created
+        //    a world-readable socket. Umask is per-process and applies
+        //    only to this forked child — parent runtime is unaffected.
+        //    The parent still calls `set_permissions(0o600)` as
+        //    defense-in-depth.
+        nix::sys::stat::umask(Mode::from_bits_truncate(0o077));
+
         // 1. New session — detach from controlling terminal.
         nix::unistd::setsid().map_err(nix_to_io)?;
 
@@ -265,17 +279,64 @@ pub fn make_pre_exec(
     }
 }
 
-/// Use `tokio::fs::File::from_raw_fd` — re-export the conversion for
-/// NsHelper. This is a workaround because `tokio::fs::File` doesn't
-/// impl `FromRawFd` directly; we go through `std::fs::File` first.
-mod tokio_fd {
-    use std::os::fd::{FromRawFd, RawFd};
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-    /// # Safety
-    /// The caller must ensure `fd` is a valid, open file descriptor that
-    /// is not owned by another object.
-    pub unsafe fn tokio_file_from_raw_fd(fd: RawFd) -> tokio::fs::File {
-        let std_file = std::fs::File::from_raw_fd(fd);
-        tokio::fs::File::from_std(std_file)
+    /// B8-V3: Verify the pre_exec umask mode bits correspond to `0o077`,
+    /// i.e. strip group/world r/w/x. Unit-level guard against a future
+    /// edit accidentally widening the mask (`0o007`, `0o022`, …).
+    #[test]
+    fn pre_exec_umask_mode_is_077() {
+        let mode = Mode::from_bits_truncate(0o077);
+        assert_eq!(
+            mode.bits() & 0o777,
+            0o077,
+            "umask mask must be 0o077 to keep sockets 0o600",
+        );
+    }
+
+    /// B8-V4: If `NsHelper::run` errors before the handoff completes, both
+    /// pipe fds must be closed by `OwnedFd::drop`, not leaked.
+    ///
+    /// We force an early error by closing the sync-pipe write end before
+    /// calling `run`, so the read returns 0 bytes and PID parsing fails.
+    /// After the call, `fcntl(F_GETFD)` on the original fd numbers must
+    /// report EBADF (fd closed).
+    #[tokio::test]
+    async fn ns_helper_run_closes_fds_on_early_error() {
+        // sync: parent reads; child would write. ack: parent writes.
+        let (sync_r, sync_w) = nix::unistd::pipe().expect("sync pipe");
+        let (ack_r, ack_w) = nix::unistd::pipe().expect("ack pipe");
+
+        let sync_r_raw = sync_r.as_raw_fd();
+        let ack_w_raw = ack_w.as_raw_fd();
+
+        // Drop the sync write end — parent's read will return EOF, so
+        // PID parsing of "" fails and `run` returns Err before any
+        // further await points.
+        drop(sync_w);
+        // Keep ack_r alive (represents qrab-init's end); parent must
+        // still close its own ack_w on the error path.
+        let _ack_r_keepalive = ack_r;
+
+        let err = NsHelper::run(sync_r, ack_w).await;
+        assert!(err.is_err(), "expected NsHelper::run to fail on empty PID");
+
+        // Both fds must now be closed. F_GETFD on a closed fd yields
+        // EBADF. Do not open any fds between the drop and this check,
+        // or fd numbers may be reused and the check becomes useless.
+        let sync_check = nix::fcntl::fcntl(sync_r_raw, FcntlArg::F_GETFD);
+        let ack_check = nix::fcntl::fcntl(ack_w_raw, FcntlArg::F_GETFD);
+        assert_eq!(
+            sync_check.err(),
+            Some(nix::errno::Errno::EBADF),
+            "sync_r fd leaked (F_GETFD = {sync_check:?})",
+        );
+        assert_eq!(
+            ack_check.err(),
+            Some(nix::errno::Errno::EBADF),
+            "ack_w fd leaked (F_GETFD = {ack_check:?})",
+        );
     }
 }

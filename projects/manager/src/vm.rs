@@ -1,6 +1,6 @@
 #![allow(unsafe_code)]
 use crate::{Error, Result};
-use std::os::fd::{AsRawFd, IntoRawFd};
+use std::os::fd::AsRawFd;
 use std::path::{Path, PathBuf};
 use std::process::{ExitStatus, Stdio};
 use std::time::Duration;
@@ -1229,11 +1229,11 @@ impl VmBuilder {
         drop(cfg_w);
 
         // --- NsHelper: uid/gid map setup ---
-        // NsHelper takes ownership via from_raw_fd internally, so pass raw fds
-        // and leak the OwnedFds to avoid double-close.
-        let sync_parent_r_raw = sync_parent_r.into_raw_fd();
-        let ack_parent_w_raw = ack_parent_w.into_raw_fd();
-        NsHelper::run(sync_parent_r_raw, ack_parent_w_raw).await?;
+        // Hand off `OwnedFd` directly: NsHelper wraps them in
+        // `tokio::fs::File` internally. If NsHelper returns `Err` before
+        // the handoff (or on any await point thereafter), `OwnedFd::drop`
+        // closes the fd — no leak.
+        NsHelper::run(sync_parent_r, ack_parent_w).await?;
 
         // --- Drop parent's KVM fd copy ---
         drop(kvm_fd);
