@@ -81,6 +81,15 @@ mkdir -p "$OUT"
 
 # ---- attest-server -------------------------------------------------------
 log "launching attest-server (port $PORT)"
+# Point attest-server at the same signing key whose public half was
+# embedded into qrab-boot.efi at build time, so the bootloader's
+# `p256` verify succeeds. Fall back to an ephemeral key if the dev
+# keypair is absent (the bootloader will log QRAB_ATTEST_NO_PUBKEY
+# in that case and the smoke still at least exercises the wire).
+KEY_PATH="$ROOT/contrib/attest-keys/server.pem"
+if [[ -s "$KEY_PATH" ]]; then
+    export QRAB_ATTEST_KEY_PATH="$KEY_PATH"
+fi
 "$ATTEST_BIN" "$PORT" >"$MOCKLOG" 2>&1 &
 MOCK_PID=$!
 cleanup() {

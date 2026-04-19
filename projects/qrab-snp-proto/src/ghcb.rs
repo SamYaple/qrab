@@ -79,15 +79,16 @@ pub const GHCB_BIT_SW_EXIT_INFO_2: usize =
 /// [`parse_guest_request_result`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GhcbError {
+    /// Hypervisor returned a non-zero `SW_EXIT_INFO_1`. The VMM
+    /// rejected the exit before it reached the PSP (e.g. invalid
+    /// request GPA, request/response page not in RMP-Shared state,
+    /// GHCB version mismatch). Embedded `u64` is the VMM-defined
+    /// code — `0x4` on KVM 6.18 means the pages weren't shared.
+    VmmError(u64),
     /// Hypervisor returned a non-zero `SW_EXIT_INFO_2`. The embedded
     /// `u64` is the PSP-defined status code (0x16 =
     /// INVALID_PARAMETER, 0x27 = INVALID_KEY, etc.).
     PspError(u64),
-    /// Hypervisor did not set the `SW_EXIT_INFO_2` VALID_BITMAP bit
-    /// on return. Either the exit was rejected before reaching the
-    /// PSP or the VMM is misbehaving; caller should treat the
-    /// response envelope as invalid.
-    ResultBitNotSet,
 }
 
 /// Set bit `bit` in `bitmap` (little-endian within each byte).
@@ -133,19 +134,30 @@ pub fn prepare_guest_request(
     set_valid_bit(bitmap, GHCB_BIT_SW_EXIT_INFO_2);
 }
 
-/// After the VMGEXIT returns, read `SW_EXIT_INFO_2` + its
-/// VALID_BITMAP bit to decide whether the PSP successfully filled
-/// the response page.
+/// After the VMGEXIT returns, read `SW_EXIT_INFO_1` + `SW_EXIT_INFO_2`
+/// to decide whether the PSP successfully filled the response page.
+///
+/// We do *not* gate on the VALID_BITMAP bits because KVM's SEV-SNP
+/// VMGEXIT handler clears the bitmap on return rather than echoing
+/// it, and the Linux sev-guest driver also skips the bitmap check —
+/// a strict reading of AMD's GHCB spec says the hypervisor should
+/// set the bits for fields it wrote, but in practice KVM only does
+/// so for fields whose value is non-zero. Trusting the bitmap here
+/// causes false `ResultBitNotSet` errors on every successful
+/// `SNP_GUEST_REQUEST` (observed on EPYC 9354 + Linux 6.18).
+///
+/// The VMM-layer error (info1) takes precedence over the PSP error
+/// (info2) because a non-zero info1 means the VMM rejected the
+/// exit before it ever reached the PSP — reporting the PSP error
+/// in that case would be misleading.
 pub fn parse_guest_request_result(
     save_area: &[u8; GHCB_SAVE_AREA_SIZE],
 ) -> Result<(), GhcbError> {
-    let bitmap_slice = &save_area[GHCB_VALID_BITMAP_OFFSET..];
-    let bitmap: &[u8; GHCB_VALID_BITMAP_LEN] =
-        (&bitmap_slice[..GHCB_VALID_BITMAP_LEN]).try_into().unwrap();
-    if !is_valid_bit_set(bitmap, GHCB_BIT_SW_EXIT_INFO_2) {
-        return Err(GhcbError::ResultBitNotSet);
-    }
+    let info1 = read_u64_at(save_area, GHCB_SW_EXIT_INFO_1_OFFSET);
     let info2 = read_u64_at(save_area, GHCB_SW_EXIT_INFO_2_OFFSET);
+    if info1 != 0 {
+        return Err(GhcbError::VmmError(info1));
+    }
     if info2 != 0 {
         return Err(GhcbError::PspError(info2));
     }
@@ -238,16 +250,10 @@ mod tests {
 
     #[test]
     fn parse_success_returns_ok() {
-        let mut save_area = [0u8; GHCB_SAVE_AREA_SIZE];
-        // Simulate hypervisor fill: SW_EXIT_INFO_2 = 0 (success),
-        // SW_EXIT_INFO_2 bit set.
-        let bm_start = GHCB_VALID_BITMAP_OFFSET;
-        let bitmap: &mut [u8; GHCB_VALID_BITMAP_LEN] =
-            (&mut save_area[bm_start..bm_start + GHCB_VALID_BITMAP_LEN])
-                .try_into()
-                .unwrap();
-        set_valid_bit(bitmap, GHCB_BIT_SW_EXIT_INFO_2);
-
+        // Both info fields zero = success. VALID_BITMAP is
+        // intentionally left untouched because the real hypervisor
+        // clears it on return and we no longer check it.
+        let save_area = [0u8; GHCB_SAVE_AREA_SIZE];
         assert_eq!(parse_guest_request_result(&save_area), Ok(()));
     }
 
@@ -255,13 +261,6 @@ mod tests {
     fn parse_psp_error_reported() {
         let mut save_area = [0u8; GHCB_SAVE_AREA_SIZE];
         write_u64_at(&mut save_area, GHCB_SW_EXIT_INFO_2_OFFSET, 0x16); // INVALID_PARAMETER
-        let bm_start = GHCB_VALID_BITMAP_OFFSET;
-        let bitmap: &mut [u8; GHCB_VALID_BITMAP_LEN] =
-            (&mut save_area[bm_start..bm_start + GHCB_VALID_BITMAP_LEN])
-                .try_into()
-                .unwrap();
-        set_valid_bit(bitmap, GHCB_BIT_SW_EXIT_INFO_2);
-
         assert_eq!(
             parse_guest_request_result(&save_area),
             Err(GhcbError::PspError(0x16))
@@ -269,11 +268,27 @@ mod tests {
     }
 
     #[test]
-    fn parse_result_bit_not_set() {
-        let save_area = [0u8; GHCB_SAVE_AREA_SIZE];
+    fn parse_vmm_error_reported() {
+        // info1 = 0x4 = KVM's "pages not shared" rejection.
+        let mut save_area = [0u8; GHCB_SAVE_AREA_SIZE];
+        write_u64_at(&mut save_area, GHCB_SW_EXIT_INFO_1_OFFSET, 0x4);
         assert_eq!(
             parse_guest_request_result(&save_area),
-            Err(GhcbError::ResultBitNotSet)
+            Err(GhcbError::VmmError(0x4))
+        );
+    }
+
+    #[test]
+    fn parse_vmm_error_takes_priority_over_psp_error() {
+        // Both fields non-zero — the VMM-layer error wins because
+        // the exit never reached the PSP, so the info2 value is
+        // likely stale.
+        let mut save_area = [0u8; GHCB_SAVE_AREA_SIZE];
+        write_u64_at(&mut save_area, GHCB_SW_EXIT_INFO_1_OFFSET, 0x4);
+        write_u64_at(&mut save_area, GHCB_SW_EXIT_INFO_2_OFFSET, 0x16);
+        assert_eq!(
+            parse_guest_request_result(&save_area),
+            Err(GhcbError::VmmError(0x4))
         );
     }
 
