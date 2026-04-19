@@ -33,6 +33,12 @@ extern crate std;
 
 mod envelope;
 pub mod ghcb;
+
+/// ECDSA-P384 signature verification for [`SnpAttestationReport`].
+/// Host-side only; gated on the `verify` feature so the no_std
+/// qrab-boot build never pulls in `p384` + `sha2`.
+#[cfg(feature = "verify")]
+pub mod verify;
 pub use envelope::{
     EnvelopeError, REPORT_REQ_PLAINTEXT_SIZE, decrypt_guest_msg, encrypt_guest_msg,
 };
