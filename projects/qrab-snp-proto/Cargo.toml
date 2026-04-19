@@ -16,6 +16,13 @@ zerocopy = { version = "0.8", default-features = false, features = ["derive"] }
 # so qrab-boot can use it in-place; we work in fixed 4 KiB buffers
 # and never need heap allocations for the AEAD path.
 aes-gcm = { version = "0.10", default-features = false, features = ["aes"] }
+# ECDSA-P384 + SHA-384 for `verify_report` (A05 — verifies the PSP
+# signature over the 672-byte signed prefix of an
+# `SnpAttestationReport`). Host-side only; pulls in std
+# transitively via the `verify` feature so the no_std build used
+# by qrab-boot never sees them.
+p384 = { version = "0.13", default-features = false, features = ["ecdsa"], optional = true }
+sha2 = { version = "0.10", default-features = false, optional = true }
 
 [features]
 default = []
@@ -23,3 +30,8 @@ default = []
 # APIs. Unset on the UEFI side (qrab-boot keeps `no_std`), enabled
 # transparently by `cargo test`.
 std = []
+# Enables the `verify` module: ECDSA-P384 + SHA-384 signature check
+# for `SnpAttestationReport`. Pulls in `p384` + `sha2` — both
+# std-using on the RustCrypto defaults, so this feature is mutually
+# exclusive with the UEFI build.
+verify = ["dep:p384", "dep:sha2", "std"]
