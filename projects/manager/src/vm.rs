@@ -1016,7 +1016,7 @@ impl VmBuilder {
 
         // SMP
         if let Some(cpus) = self.smp {
-            args.extend(["-smp".into(), format!("cpus={}", cpus)]);
+            args.extend(["-smp".into(), format!("cpus={cpus}")]);
         }
 
         // CPU model: explicit override > arch default > QEMU default.
@@ -1210,9 +1210,22 @@ impl VmBuilder {
         drop(cfg_r);
 
         // --- Write config JSON to pipe ---
+        // Loop until all bytes written: a large InitConfig can exceed the
+        // pipe buffer (PIPE_BUF, typically 4 KiB for atomic writes but up to
+        // 64 KiB total capacity), so a single `write` may return a short
+        // count. Without this loop, qrab-init decodes truncated JSON.
         let config_json = serde_json::to_vec(&config)?;
-        nix::unistd::write(&cfg_w, &config_json)
-            .map_err(|e| Error::Spawn(format!("write config pipe: {e}")))?;
+        let mut written = 0;
+        while written < config_json.len() {
+            let n = nix::unistd::write(&cfg_w, &config_json[written..])
+                .map_err(|e| Error::Spawn(format!("write config pipe: {e}")))?;
+            if n == 0 {
+                return Err(Error::Spawn(
+                    "write config pipe: zero-length write".into(),
+                ));
+            }
+            written += n;
+        }
         drop(cfg_w);
 
         // --- NsHelper: uid/gid map setup ---
@@ -1280,25 +1293,23 @@ impl VmBuilder {
         // --- Connect QMP ---
         let (qmp, events) = Qmp::new(&qmp_sock).await?;
 
-        if !self.display {
-            let version = qapi::qemu_version();
-            if version == (0, 0, 0) {
-                tracing::warn!(
-                    "QEMU version not yet set (OnceLock uninitialized); \
-                     skipping preconfig version check"
-                );
-            } else if version < PRECONFIG_MIN_VERSION {
-                return Err(Error::Config(format!(
-                    "QEMU {}.{}.{} does not support --preconfig mode \
-                     (requires {}.{}.{} or later)",
-                    version.0,
-                    version.1,
-                    version.2,
-                    PRECONFIG_MIN_VERSION.0,
-                    PRECONFIG_MIN_VERSION.1,
-                    PRECONFIG_MIN_VERSION.2,
-                )));
-            }
+        let version = qapi::qemu_version();
+        if version == (0, 0, 0) {
+            tracing::warn!(
+                "QEMU version not yet set (OnceLock uninitialized); \
+                 skipping preconfig version check"
+            );
+        } else if version < PRECONFIG_MIN_VERSION {
+            return Err(Error::Config(format!(
+                "QEMU {}.{}.{} does not support --preconfig mode \
+                 (requires {}.{}.{} or later)",
+                version.0,
+                version.1,
+                version.2,
+                PRECONFIG_MIN_VERSION.0,
+                PRECONFIG_MIN_VERSION.1,
+                PRECONFIG_MIN_VERSION.2,
+            )));
         }
 
         let (shutdown, monitor, exit_watch) = VmProcess::spawn_monitor(child);
