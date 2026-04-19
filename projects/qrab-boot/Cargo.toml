@@ -43,7 +43,7 @@ sha2 = { version = "0.10", default-features = false }
 # via its default-enabled `alloc` feature; declaring it here pins the
 # identical build so the trait impl compiles against the same version
 # virtio-drivers picked up.
-zerocopy = { version = "0.8", default-features = false }
+zerocopy = { version = "0.8", default-features = false, features = ["derive"] }
 
 [profile.release]
 opt-level = "s"
