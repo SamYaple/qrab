@@ -86,16 +86,29 @@ fn efi_main() -> Status {
                 );
             }
             Err(e) => {
-                log::warn!("QRAB_SNP_SECRETS_ERR {e:?}");
+                // Fail-closed on SNP: without VMPCK0 the attestation flow
+                // cannot proceed, and continuing would mean signing an
+                // `SNP_GUEST_REQUEST` with zeroed key material or skipping
+                // attestation entirely. Either is strictly worse than a
+                // hang. CPUID-gated so non-SNP TCG boots are untouched.
+                log::warn!("QRAB_SNP_SECRETS_ERR {e:?} — halting (fail-closed)");
+                halt_forever();
             }
         }
     }
 
-    run_vsock_demo();
+    let vsock_ok = run_vsock_demo().is_ok();
+    let verify_ok = run_verify_demo().is_ok();
 
-    run_verify_demo();
-
-    log::info!("QRAB_PHASE4_OK");
+    if vsock_ok && verify_ok {
+        log::info!("QRAB_PHASE4_OK");
+    } else {
+        log::warn!(
+            "QRAB_PHASE4_PARTIAL vsock_ok={} verify_ok={}",
+            vsock_ok,
+            verify_ok,
+        );
+    }
 
     // Intentionally do not return control to firmware. Per plan: fail-closed,
     // hang on any terminal state including "phase not complete".
@@ -114,7 +127,7 @@ fn efi_main() -> Status {
 /// handler, because a bootloader that cannot tell a good payload from a
 /// tampered one is strictly worse than one that never boots.
 #[cfg(not(qrab_no_fixtures))]
-fn run_verify_demo() {
+fn run_verify_demo() -> Result<(), ()> {
     match verify_detached(UKI_VALID, UKI_VALID_SIG, DB_PUBKEY) {
         Ok(()) => log::info!("QRAB_VERIFY_VALID_OK"),
         Err(e) => panic!("valid fixture failed to verify: {e}"),
@@ -125,11 +138,16 @@ fn run_verify_demo() {
         Ok(()) => panic!("tampered fixture verified — verifier is broken"),
         Err(e) => panic!("tampered fixture wrong error: {e}"),
     }
+
+    Ok(())
 }
 
 #[cfg(qrab_no_fixtures)]
-fn run_verify_demo() {
+fn run_verify_demo() -> Result<(), ()> {
     log::info!("QRAB_VERIFY_FIXTURES_ABSENT: run contrib/build-test-ukis.sh and rebuild to exercise qrab-boot-verify at boot");
+    // Fixture-less builds are a build-time choice, not a runtime failure
+    // — return Ok so `QRAB_PHASE4_OK` can still gate on the vsock leg.
+    Ok(())
 }
 
 /// Default vsock port the host attestation mock listens on. Matches
@@ -152,11 +170,11 @@ const VSOCK_CID_HOST: u64 = 2;
 /// failure is logged but does *not* yet panic the boot so the verify
 /// demo still has a chance to run in test environments where vsock is
 /// unavailable (e.g. the plain-TCG smoke path).
-fn run_vsock_demo() {
+fn run_vsock_demo() -> Result<(), ()> {
     let status = vsock::probe();
     let mut driver = match vsock_driver::init(status) {
         Ok(d) => d,
-        Err(_) => return, // init logged its own QRAB_* token.
+        Err(_) => return Err(()), // init logged its own QRAB_* token.
     };
     if vsock_connect::connect_and_wait(
         &mut driver,
@@ -166,7 +184,7 @@ fn run_vsock_demo() {
     )
     .is_err()
     {
-        return; // connect_and_wait logged the specific failure.
+        return Err(()); // connect_and_wait logged the specific failure.
     }
 
     // Phase 4: every boot picks a fresh 32-byte nonce via RDRAND.
@@ -178,7 +196,7 @@ fn run_vsock_demo() {
         Ok(n) => n,
         Err(e) => {
             log::warn!("QRAB_ATTEST_RNG_ERR {e}");
-            return;
+            return Err(());
         }
     };
     log::info!(
@@ -194,18 +212,20 @@ fn run_vsock_demo() {
         Ok(b) => b,
         Err(e) => {
             log::warn!("QRAB_ATTEST_ENCODE_ERR {e}");
-            return;
+            return Err(());
         }
     };
 
-    if let Err(_) = vsock_connect::send_one(
+    if vsock_connect::send_one(
         &mut driver,
         VSOCK_CID_HOST,
         VSOCK_HOST_PORT,
         VSOCK_GUEST_SRC_PORT,
         &request_bytes,
-    ) {
-        return; // send_one logged the specific failure.
+    )
+    .is_err()
+    {
+        return Err(()); // send_one logged the specific failure.
     }
 
     let mut stream = vsock_connect::FramedStream::new();
@@ -216,7 +236,7 @@ fn run_vsock_demo() {
         VSOCK_GUEST_SRC_PORT,
     ) {
         Ok(b) => b,
-        Err(_) => return, // recv_frame logged the specific failure.
+        Err(_) => return Err(()), // recv_frame logged the specific failure.
     };
 
     // The AttestResponse frame's body is straight postcard — skip the
@@ -227,12 +247,12 @@ fn run_vsock_demo() {
             Ok(r) => r,
             Err(e) => {
                 log::warn!("QRAB_ATTEST_DECODE_ERR {e}");
-                return;
+                return Err(());
             }
         };
     if let Err(e) = qrab_boot_proto::validate_response(&response) {
         log::warn!("QRAB_ATTEST_VALIDATE_ERR {e}");
-        return;
+        return Err(());
     }
 
     // Verify the server's signature before *anything* downstream is
@@ -249,23 +269,23 @@ fn run_vsock_demo() {
             Ok(()) => log::info!("QRAB_ATTEST_SIG_OK"),
             Err(attest::VerifyError::NoPubkey) => {
                 log::warn!("QRAB_ATTEST_NO_PUBKEY");
-                return;
+                return Err(());
             }
             Err(attest::VerifyError::MalformedPubkey) => {
                 log::warn!("QRAB_ATTEST_MALFORMED_PUBKEY");
-                return;
+                return Err(());
             }
             Err(attest::VerifyError::MalformedSig) => {
                 log::warn!("QRAB_ATTEST_MALFORMED_SIG");
-                return;
+                return Err(());
             }
             Err(attest::VerifyError::BadSignature) => {
                 log::warn!("QRAB_ATTEST_BAD_SIG");
-                return;
+                return Err(());
             }
             Err(attest::VerifyError::SecretHashMismatch) => {
                 log::warn!("QRAB_ATTEST_SECRET_HASH_MISMATCH");
-                return;
+                return Err(());
             }
         }
     }
@@ -314,7 +334,7 @@ fn run_vsock_demo() {
         Ok(b) => b,
         Err(_) => {
             log::warn!("QRAB_UKI_FETCH_ERR");
-            return;
+            return Err(());
         }
     };
     let actual_uki_hash: [u8; 32] = sha2::Sha256::digest(&uki_bytes).into();
@@ -327,7 +347,7 @@ fn run_vsock_demo() {
             response.uki_sha256[0], response.uki_sha256[1],
             response.uki_sha256[2], response.uki_sha256[3],
         );
-        return;
+        return Err(());
     }
     log::info!(
         "QRAB_UKI_OK len={} sha256_prefix={:02x}{:02x}{:02x}{:02x}",
@@ -338,7 +358,11 @@ fn run_vsock_demo() {
 
     // Extend PCR 8 with the UKI bytes themselves — TCG2 hashes
     // internally. Missing TCG2 is still non-fatal (same rationale as
-    // the PCR 9 call below).
+    // the PCR 9 call below). Any *other* error is terminal: silently
+    // skipping a measurement would break the measured-boot chain
+    // without the smoke harness noticing — the token count would
+    // still add up, but the PCR value the verifier sees later would
+    // not match what the bootloader intended to extend.
     match measure::extend_uki(&uki_bytes) {
         Ok(()) => {}
         Err(measure::MeasureError::Tcg2Absent) => {
@@ -346,14 +370,15 @@ fn run_vsock_demo() {
         }
         Err(e) => {
             log::warn!("QRAB_PCR8_ERR {e}");
-            return;
+            panic!("PCR 8 extend failed with TCG2 present: {e}");
         }
     }
 
     // Extend PCR 9 with sha256(secret_sha256 || server_nonce) on any
     // firmware that has a TCG2 protocol. A missing TCG2 is non-fatal
     // (AmdSev OVMF ships without Tcg2Dxe by default); the log token
-    // tells the smoke harness which leg of the branch ran.
+    // tells the smoke harness which leg of the branch ran. Any other
+    // error is terminal for the same reason as the PCR 8 call above.
     match measure::extend_secret_binding(&response.secret_sha256, &response.server_nonce) {
         Ok(()) => {}
         Err(measure::MeasureError::Tcg2Absent) => {
@@ -361,7 +386,7 @@ fn run_vsock_demo() {
         }
         Err(e) => {
             log::warn!("QRAB_PCR9_ERR {e}");
-            return;
+            panic!("PCR 9 extend failed with TCG2 present: {e}");
         }
     }
 
@@ -374,7 +399,7 @@ fn run_vsock_demo() {
         Ok(()) => log::info!("QRAB_SECRET_OK len={}", response.secret.len()),
         Err(e) => {
             log::warn!("QRAB_SECRET_ERR {e}");
-            return;
+            return Err(());
         }
     }
 
@@ -385,6 +410,8 @@ fn run_vsock_demo() {
         response.sig.len(),
         response.uki_url.len(),
     );
+
+    Ok(())
 }
 
 /// Disable interrupts and halt the CPU indefinitely.
