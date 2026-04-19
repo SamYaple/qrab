@@ -34,6 +34,21 @@
 /// (AMD APM Vol. 3, §15.35.2).
 pub const SVM_VMGEXIT_GUEST_REQUEST: u64 = 0x8000_0011;
 
+/// `SW_EXIT_CODE` value for the *extended* SNP guest-request
+/// VMGEXIT (A02): same envelope as the basic variant, but the
+/// guest also hands the hypervisor a run of cert-chain data pages
+/// via RAX (starting GPA) and RBX (page count). The hypervisor
+/// fills those pages with an `snp_cert_table` blob (see the
+/// [`cert_table`](crate::cert_table) module) containing the VCEK
+/// or VLEK leaf + ASK + ARK DER certs it has cached.
+///
+/// If the hypervisor has no chain available, or the caller-supplied
+/// page count is too small, KVM returns
+/// `SNP_GUEST_VMM_ERR(SNP_GUEST_VMM_ERR_INVALID_LEN)` in
+/// `SW_EXIT_INFO_2` with the required page count in RBX on exit —
+/// the guest is expected to retry with a larger buffer.
+pub const SVM_VMGEXIT_EXT_GUEST_REQUEST: u64 = 0x8000_0012;
+
 /// MSR number for the GHCB's physical address on SEV-ES and
 /// SEV-SNP (`GHCB_MSR`). Hypervisor registers the PA here during
 /// boot; guests read it to locate the shared page.
