@@ -278,23 +278,32 @@ fn run_vsock_demo() {
     ghcb::record_intended_report_data(&report_data);
     if ghcb::detect().sev_snp {
         match snp_secrets::load() {
-            Ok(page) => match snp_secrets::request_report(&page.vmpck0, 1, report_data) {
-                Ok(report) => {
-                    // Copy out of the #[repr(C, packed)] struct so the
-                    // 2024-edition `unaligned_references` rule is happy.
-                    let m = { report.measurement };
-                    let version = { report.version };
-                    let vmpl = { report.vmpl };
-                    let policy = { report.policy };
-                    log::info!(
-                        "QRAB_SNP_REPORT_OK measurement_prefix={:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x} \
-                         version={} vmpl={} policy={:#x}",
-                        m[0], m[1], m[2], m[3], m[4], m[5], m[6], m[7],
-                        version, vmpl, policy,
-                    );
+            Ok(page) => {
+                // A14: initial seqno = Secrets.msg_seqno_0 + 1. On a
+                // fresh SNP_LAUNCH that field is zero so we send 1 —
+                // same as the hard-coded value we used before — but
+                // a kexec or chain-loaded guest that updated the
+                // field before handing off to us gets the correct
+                // next-seqno without re-coding.
+                let initial_seqno = (page.msg_seqno_0 as u64).wrapping_add(1);
+                match snp_secrets::request_report(&page.vmpck0, initial_seqno, report_data) {
+                    Ok(report) => {
+                        // Copy out of the #[repr(C, packed)] struct so the
+                        // 2024-edition `unaligned_references` rule is happy.
+                        let m = { report.measurement };
+                        let version = { report.version };
+                        let vmpl = { report.vmpl };
+                        let policy = { report.policy };
+                        log::info!(
+                            "QRAB_SNP_REPORT_OK measurement_prefix={:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x} \
+                             version={} vmpl={} policy={:#x} seqno={}",
+                            m[0], m[1], m[2], m[3], m[4], m[5], m[6], m[7],
+                            version, vmpl, policy, initial_seqno,
+                        );
+                    }
+                    Err(e) => log::warn!("QRAB_SNP_REPORT_ERR {e:?}"),
                 }
-                Err(e) => log::warn!("QRAB_SNP_REPORT_ERR {e:?}"),
-            },
+            }
             Err(e) => log::warn!("QRAB_SNP_REPORT_ERR secrets:{e:?}"),
         }
     }

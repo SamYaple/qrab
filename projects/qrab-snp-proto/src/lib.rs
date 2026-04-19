@@ -39,6 +39,13 @@ pub mod ghcb;
 /// qrab-boot build never pulls in `p384` + `sha2`.
 #[cfg(feature = "verify")]
 pub mod verify;
+
+/// `snp_cert_table` parser for the VCEK / ASK / ARK blob that the
+/// hypervisor returns via `SVM_VMGEXIT_EXT_GUEST_REQUEST` (A02) or
+/// that AMD KDS ships in `/vcek/…/ask-ark.bin` responses. Needs a
+/// `Vec` allocator so it rides on the `verify` feature's `std`.
+#[cfg(feature = "verify")]
+pub mod cert_table;
 pub use envelope::{
     EnvelopeError, REPORT_REQ_PLAINTEXT_SIZE, decrypt_guest_msg, encrypt_guest_msg,
 };
@@ -259,13 +266,29 @@ impl SnpGuestMsg {
 
 /// Subset of the SNP Secrets page layout that we actually read. The
 /// spec-defined on-wire layout is 4 KiB; we give names to the
-/// fields up through VMPCK3 + ignore the rest. Offsets match the
-/// AMD SEV-SNP ABI Spec §5.4.3 and edk2's
+/// fields up through the OS-area `msg_seqno_0..3` counters and
+/// absorb the rest into `reserved_tail`. Offsets match the AMD
+/// SEV-SNP ABI Spec §5.4.3 Table 7 and edk2's
 /// `OvmfPkg/Include/Library/PlatformInitLib.h`.
 ///
-/// `reserved_tail` absorbs everything past the four VMPCKs so the
-/// struct still totals 4096 B — keeps `size_of::<SnpSecretsPage>()
-/// == 4096`. Size = 4096 − 0xa0 (end of VMPCK3) = 3936.
+/// ### OS area semantics (A14)
+///
+/// `msg_seqno_0..3` live in the 0x60-byte "OS area" starting at
+/// offset 0xa0. These are **guest-maintained** counters: the PSP
+/// itself tracks its own per-VMPCK sequence numbers internally and
+/// never reads our copy. The guest bumps its `msg_seqno_N` by two
+/// on every round-trip (one for the request envelope, one for the
+/// response) and must pass `msg_seqno_N + 1` as the request seqno
+/// so the PSP's expected-next-seqno matches.
+///
+/// On a fresh `SNP_LAUNCH_UPDATE` the OS area is zeroed, so any
+/// first-boot guest can use `msg_seqno_N = 0` and pass `1` as the
+/// request seqno. Persistent boot chains (kexec, qrab-boot →
+/// kernel handoff) should update the field before transferring
+/// control so the downstream stage resumes at the correct seqno.
+///
+/// `reserved_tail` absorbs everything past the OS area so the
+/// struct still totals 4096 B.
 #[repr(C, packed)]
 #[derive(Copy, Clone, Debug, FromBytes, IntoBytes, Immutable, KnownLayout)]
 pub struct SnpSecretsPage {
@@ -278,7 +301,19 @@ pub struct SnpSecretsPage {
     pub vmpck1: [u8; VMPCK_LEN],
     pub vmpck2: [u8; VMPCK_LEN],
     pub vmpck3: [u8; VMPCK_LEN],
-    pub reserved_tail: [u8; 4096 - 0xa0],
+    /// Per-VMPCK message sequence counters. See the doc-comment on
+    /// [`SnpSecretsPage`]. Stored LE as native `u32`s.
+    pub msg_seqno_0: u32,
+    pub msg_seqno_1: u32,
+    pub msg_seqno_2: u32,
+    pub msg_seqno_3: u32,
+    /// Reserved OS-area bytes (0xb0..0xc0) — kept opaque.
+    pub os_reserved_1: [u8; 16],
+    /// Guest-written AP jump-table GPA. We don't use this in
+    /// qrab-boot (we're uniprocessor until early kernel) but name
+    /// the field so the spec-shaped struct stays inspectable.
+    pub ap_jump_table_pa: u64,
+    pub reserved_tail: [u8; 4096 - 0xc8],
 }
 
 /// Failure modes from [`validate_secrets_page`].
@@ -410,6 +445,13 @@ mod tests {
         assert_eq!(offset_of!(SnpSecretsPage, vmpck1), 0x040);
         assert_eq!(offset_of!(SnpSecretsPage, vmpck2), 0x060);
         assert_eq!(offset_of!(SnpSecretsPage, vmpck3), 0x080);
+        // OS area — per AMD SEV-SNP ABI 1.55 §5.4.3 Table 7.
+        assert_eq!(offset_of!(SnpSecretsPage, msg_seqno_0), 0x0a0);
+        assert_eq!(offset_of!(SnpSecretsPage, msg_seqno_1), 0x0a4);
+        assert_eq!(offset_of!(SnpSecretsPage, msg_seqno_2), 0x0a8);
+        assert_eq!(offset_of!(SnpSecretsPage, msg_seqno_3), 0x0ac);
+        assert_eq!(offset_of!(SnpSecretsPage, ap_jump_table_pa), 0x0c0);
+        assert_eq!(offset_of!(SnpSecretsPage, reserved_tail), 0x0c8);
     }
 
     #[test]
