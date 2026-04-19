@@ -21,8 +21,9 @@
 use core::arch::asm;
 
 use qrab_snp_proto::ghcb::{
-    GHCB_MSR, GHCB_SAVE_AREA_SIZE, GhcbError, parse_guest_request_result,
-    prepare_guest_request,
+    GHCB_MSR, GHCB_SAVE_AREA_SIZE, GhcbError, SNP_GUEST_VMM_ERR_INVALID_LEN,
+    parse_guest_request_result, prepare_ext_guest_request, prepare_guest_request,
+    read_rbx, unpack_ext_error,
 };
 
 /// Low 12 bits of `GHCB_MSR` hold a function code used during early
@@ -254,6 +255,99 @@ pub fn guest_request(req_pa: u64, resp_pa: u64) -> Result<(), GhcbError> {
     log::info!(
         "QRAB_SNP_GHCB_POST pre_code={:#x} pre_info1={:#x} pre_info2={:#x} info1={:#x} info2={:#x}",
         pre_code, pre_info1, pre_info2, info1_after, info2_after,
+    );
+
+    result
+}
+
+/// Extended variant of [`guest_request`]: issues
+/// `SVM_VMGEXIT_EXT_GUEST_REQUEST` (`0x8000_0012`) so the hypervisor
+/// also fills a caller-provided run of cert-chain data pages. On
+/// `SNP_GUEST_VMM_ERR_INVALID_LEN` the hypervisor writes the
+/// required page count back into RBX — we decode that and surface
+/// it as [`GhcbError::InvalidLen { required_pages }`]; the caller
+/// is expected to realloc and retry.
+pub fn guest_request_extended(
+    req_pa: u64,
+    resp_pa: u64,
+    data_pa: u64,
+    data_pages: u64,
+) -> Result<(), GhcbError> {
+    // SAFETY: same preconditions as `guest_request` — caller has
+    // gated on `SevFeatures::sev_snp`, so `rdmsr(GHCB_MSR)` is
+    // legal and the returned PA is a mapped 4 KiB page.
+    let ghcb_msr_raw = unsafe { read_msr(GHCB_MSR) };
+    let ghcb_pa = ghcb_msr_raw & GHCB_PA_MASK;
+
+    // SAFETY: `ghcb_pa` is the GHCB registered by OVMF at SEC; the
+    // first 0x400 B are the save area. See `guest_request` for the
+    // equivalent SAFETY argument. Re-borrow pattern mirrors the
+    // basic-variant fn.
+    let save_area = unsafe { &mut *(ghcb_pa as *mut [u8; GHCB_SAVE_AREA_SIZE]) };
+    prepare_ext_guest_request(save_area, req_pa, resp_pa, data_pa, data_pages);
+
+    // Footer / MSR restamp — identical rationale to `guest_request`.
+    unsafe {
+        (ghcb_pa as *mut u16).byte_add(0xFFA).write_volatile(2);
+        (ghcb_pa as *mut u32).byte_add(0xFFC).write_volatile(0);
+    }
+
+    let pre_code = {
+        let mut b = [0u8; 8];
+        b.copy_from_slice(&save_area[0x390..0x398]);
+        u64::from_le_bytes(b)
+    };
+
+    unsafe { write_msr(GHCB_MSR, ghcb_pa); }
+    unsafe { vmgexit(); }
+
+    // Snapshot the four interesting slots before any logging clobbers
+    // them via a piggybacking IOIO VMGEXIT.
+    let info1 = {
+        let mut b = [0u8; 8];
+        b.copy_from_slice(&save_area[0x398..0x3A0]);
+        u64::from_le_bytes(b)
+    };
+    let info2 = {
+        let mut b = [0u8; 8];
+        b.copy_from_slice(&save_area[0x3A0..0x3A8]);
+        u64::from_le_bytes(b)
+    };
+    let rbx_out = read_rbx(save_area);
+
+    let result = if info1 != 0 {
+        Err(GhcbError::VmmError(info1))
+    } else if info2 != 0 {
+        // Extended path packs `(vmm_err, fw_err)` into info2. A
+        // bare PSP error has vmm_err=0; an `INVALID_LEN` has
+        // vmm_err=1 and the required page count in RBX.
+        let (vmm_err, fw_err) = unpack_ext_error(info2);
+        if vmm_err as u64 == SNP_GUEST_VMM_ERR_INVALID_LEN {
+            Err(GhcbError::InvalidLen { required_pages: rbx_out })
+        } else if vmm_err != 0 {
+            // Surface other VMM errors (e.g. BUSY=2) as VmmError
+            // so the caller can distinguish; the 32-bit value is
+            // widened back for symmetry with the basic path.
+            Err(GhcbError::VmmError(vmm_err as u64))
+        } else {
+            Err(GhcbError::PspError(fw_err as u64))
+        }
+    } else {
+        // On success the hypervisor writes the actual bytes-filled
+        // count into RBX (in bytes, not pages). We do not surface
+        // that here because the caller already framed the data
+        // buffer in complete pages; the `cert_table` parser ignores
+        // trailing zeros past the terminator entry.
+        Ok(())
+    };
+
+    log::info!(
+        "QRAB_SNP_GHCB_EXT ghcb_pa={:#x} req_pa={:#x} resp_pa={:#x} data_pa={:#x} data_pages={}",
+        ghcb_pa, req_pa, resp_pa, data_pa, data_pages,
+    );
+    log::info!(
+        "QRAB_SNP_GHCB_EXT_POST pre_code={:#x} info1={:#x} info2={:#x} rbx_out={}",
+        pre_code, info1, info2, rbx_out,
     );
 
     result

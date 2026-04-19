@@ -75,6 +75,16 @@ pub const GHCB_SW_EXIT_INFO_1_OFFSET: usize = 0x398;
 /// Offset of `SW_EXIT_INFO_2` within the save area.
 pub const GHCB_SW_EXIT_INFO_2_OFFSET: usize = 0x3A0;
 
+/// Offset of `RAX` within the save area. Per the GHCB save-area
+/// layout (see `MdePkg/Include/Register/Amd/Ghcb.h` `GHCB_SAVE_AREA`
+/// — matches Linux's `struct vmcb_save_area`): 203 bytes reserved +
+/// 1 byte cpl + 300 bytes reserved = 0x1F8.
+pub const GHCB_RAX_OFFSET: usize = 0x1F8;
+
+/// Offset of `RBX` within the save area. Follows `RAX` + 264 B
+/// reserved + `RCX` + `RDX` = 0x1F8 + 8 + 264 + 8 + 8 = 0x318.
+pub const GHCB_RBX_OFFSET: usize = 0x318;
+
 /// Offset of the VALID_BITMAP inside the save area (last 16 B).
 pub const GHCB_VALID_BITMAP_OFFSET: usize = 0x3F0;
 
@@ -97,6 +107,31 @@ pub const GHCB_BIT_SW_EXIT_INFO_1: usize =
 pub const GHCB_BIT_SW_EXIT_INFO_2: usize =
     GHCB_SW_EXIT_INFO_2_OFFSET / GHCB_SLOT_STRIDE;
 
+/// Bit index within the VALID_BITMAP for `RAX`. Required by the
+/// extended guest-request VMGEXIT so the hypervisor knows the
+/// starting GPA of the cert-chain data pages.
+pub const GHCB_BIT_RAX: usize = GHCB_RAX_OFFSET / GHCB_SLOT_STRIDE;
+
+/// Bit index within the VALID_BITMAP for `RBX`. Required by the
+/// extended guest-request VMGEXIT so the hypervisor knows the
+/// page count.
+pub const GHCB_BIT_RBX: usize = GHCB_RBX_OFFSET / GHCB_SLOT_STRIDE;
+
+/// Shift the hypervisor uses to pack its own error code into the
+/// high 32 bits of `SW_EXIT_INFO_2` (AMD GHCB spec §4.1.8, Linux
+/// `arch/x86/include/asm/sev-common.h` `SNP_GUEST_VMM_ERR_SHIFT`).
+/// The low 32 bits carry the PSP firmware error.
+pub const SNP_GUEST_VMM_ERR_SHIFT: u64 = 32;
+
+/// `SNP_GUEST_VMM_ERR_INVALID_LEN = 1`. The only VMM-layer error
+/// the extended guest-request path can recover from: the cert-chain
+/// data buffer is too small; retry with the page count RBX now
+/// carries on return.
+pub const SNP_GUEST_VMM_ERR_INVALID_LEN: u64 = 1;
+
+/// `SNP_GUEST_VMM_ERR_BUSY = 2`. Transient; retry the full request.
+pub const SNP_GUEST_VMM_ERR_BUSY: u64 = 2;
+
 /// Distinguished errors from [`prepare_guest_request`] /
 /// [`parse_guest_request_result`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -111,6 +146,15 @@ pub enum GhcbError {
     /// `u64` is the PSP-defined status code (0x16 =
     /// INVALID_PARAMETER, 0x27 = INVALID_KEY, etc.).
     PspError(u64),
+    /// Extended guest-request only: VMM packed
+    /// `SNP_GUEST_VMM_ERR_INVALID_LEN = 1` into the high 32 bits
+    /// of `SW_EXIT_INFO_2`, meaning the cert-chain data pages the
+    /// caller passed were too small. The embedded `u64` is the
+    /// required page count the hypervisor wrote back into `RBX`
+    /// — caller should re-allocate that many pages and retry the
+    /// exit. Not produced by the basic [`SVM_VMGEXIT_GUEST_REQUEST`]
+    /// path.
+    InvalidLen { required_pages: u64 },
 }
 
 /// Set bit `bit` in `bitmap` (little-endian within each byte).
@@ -169,6 +213,57 @@ pub fn prepare_guest_request(
     set_valid_bit(bitmap, GHCB_BIT_SW_EXIT_CODE);
     set_valid_bit(bitmap, GHCB_BIT_SW_EXIT_INFO_1);
     set_valid_bit(bitmap, GHCB_BIT_SW_EXIT_INFO_2);
+}
+
+/// Extended-variant of [`prepare_guest_request`]. Same three save-
+/// area slots (SW_EXIT_CODE, SW_EXIT_INFO_1, SW_EXIT_INFO_2) plus
+/// RAX = starting GPA of cert-chain data pages and RBX = page count.
+/// Exit code is flipped to `SVM_VMGEXIT_EXT_GUEST_REQUEST`.
+pub fn prepare_ext_guest_request(
+    save_area: &mut [u8; GHCB_SAVE_AREA_SIZE],
+    req_pa: u64,
+    resp_pa: u64,
+    data_pa: u64,
+    data_pages: u64,
+) {
+    // Mirror the scrub-then-set discipline used by
+    // `prepare_guest_request`: zero the whole VALID_BITMAP first
+    // so left-over bits from any prior OVMF CcExitLib VMGEXIT
+    // don't confuse KVM's `sev_es_validate_vmgexit`.
+    let bitmap_slice = &mut save_area[GHCB_VALID_BITMAP_OFFSET..];
+    let bitmap: &mut [u8; GHCB_VALID_BITMAP_LEN] =
+        (&mut bitmap_slice[..GHCB_VALID_BITMAP_LEN]).try_into().unwrap();
+    *bitmap = [0u8; GHCB_VALID_BITMAP_LEN];
+
+    write_u64_at(save_area, GHCB_SW_EXIT_CODE_OFFSET, SVM_VMGEXIT_EXT_GUEST_REQUEST);
+    write_u64_at(save_area, GHCB_SW_EXIT_INFO_1_OFFSET, req_pa);
+    write_u64_at(save_area, GHCB_SW_EXIT_INFO_2_OFFSET, resp_pa);
+    write_u64_at(save_area, GHCB_RAX_OFFSET, data_pa);
+    write_u64_at(save_area, GHCB_RBX_OFFSET, data_pages);
+
+    let bitmap_slice = &mut save_area[GHCB_VALID_BITMAP_OFFSET..];
+    let bitmap: &mut [u8; GHCB_VALID_BITMAP_LEN] =
+        (&mut bitmap_slice[..GHCB_VALID_BITMAP_LEN]).try_into().unwrap();
+    set_valid_bit(bitmap, GHCB_BIT_SW_EXIT_CODE);
+    set_valid_bit(bitmap, GHCB_BIT_SW_EXIT_INFO_1);
+    set_valid_bit(bitmap, GHCB_BIT_SW_EXIT_INFO_2);
+    set_valid_bit(bitmap, GHCB_BIT_RAX);
+    set_valid_bit(bitmap, GHCB_BIT_RBX);
+}
+
+/// Read RBX out of the save area. Used by the extended guest-request
+/// retry path: on `SNP_GUEST_VMM_ERR_INVALID_LEN` the hypervisor
+/// writes the required page count back into RBX.
+pub fn read_rbx(save_area: &[u8; GHCB_SAVE_AREA_SIZE]) -> u64 {
+    read_u64_at(save_area, GHCB_RBX_OFFSET)
+}
+
+/// Interpret the packed `SW_EXIT_INFO_2` value the hypervisor writes
+/// on `SVM_VMGEXIT_EXT_GUEST_REQUEST` return. High 32 bits carry the
+/// VMM-layer error, low 32 bits carry the PSP firmware error.
+#[inline]
+pub fn unpack_ext_error(info2: u64) -> (u32, u32) {
+    ((info2 >> SNP_GUEST_VMM_ERR_SHIFT) as u32, info2 as u32)
 }
 
 /// After the VMGEXIT returns, read `SW_EXIT_INFO_1` + `SW_EXIT_INFO_2`
@@ -327,6 +422,57 @@ mod tests {
             parse_guest_request_result(&save_area),
             Err(GhcbError::VmmError(0x4))
         );
+    }
+
+    #[test]
+    fn ext_spec_constants() {
+        assert_eq!(SVM_VMGEXIT_EXT_GUEST_REQUEST, 0x8000_0012);
+        assert_eq!(GHCB_RAX_OFFSET, 0x1F8);
+        assert_eq!(GHCB_RBX_OFFSET, 0x318);
+        assert_eq!(GHCB_BIT_RAX, 0x3F);
+        assert_eq!(GHCB_BIT_RBX, 0x63);
+        assert_eq!(SNP_GUEST_VMM_ERR_SHIFT, 32);
+        assert_eq!(SNP_GUEST_VMM_ERR_INVALID_LEN, 1);
+    }
+
+    #[test]
+    fn prepare_ext_writes_rax_rbx_bits() {
+        let mut save_area = [0u8; GHCB_SAVE_AREA_SIZE];
+        prepare_ext_guest_request(
+            &mut save_area,
+            0x1111_2222_3333_4444,
+            0x5555_6666_7777_8888,
+            0xDEAD_BEEF_CAFE_0000,
+            4,
+        );
+
+        assert_eq!(
+            read_u64_at(&save_area, GHCB_SW_EXIT_CODE_OFFSET),
+            SVM_VMGEXIT_EXT_GUEST_REQUEST
+        );
+        assert_eq!(read_u64_at(&save_area, GHCB_RAX_OFFSET), 0xDEAD_BEEF_CAFE_0000);
+        assert_eq!(read_u64_at(&save_area, GHCB_RBX_OFFSET), 4);
+        assert_eq!(read_rbx(&save_area), 4);
+
+        let bm: &[u8; GHCB_VALID_BITMAP_LEN] = (&save_area
+            [GHCB_VALID_BITMAP_OFFSET..GHCB_VALID_BITMAP_OFFSET + GHCB_VALID_BITMAP_LEN])
+            .try_into()
+            .unwrap();
+        assert!(is_valid_bit_set(bm, GHCB_BIT_RAX));
+        assert!(is_valid_bit_set(bm, GHCB_BIT_RBX));
+        assert!(is_valid_bit_set(bm, GHCB_BIT_SW_EXIT_CODE));
+        assert!(is_valid_bit_set(bm, GHCB_BIT_SW_EXIT_INFO_1));
+        assert!(is_valid_bit_set(bm, GHCB_BIT_SW_EXIT_INFO_2));
+    }
+
+    #[test]
+    fn unpack_ext_error_splits_high_low() {
+        // vmm_err=1 (INVALID_LEN), fw_err=0
+        let packed = SNP_GUEST_VMM_ERR_INVALID_LEN << SNP_GUEST_VMM_ERR_SHIFT;
+        assert_eq!(unpack_ext_error(packed), (1, 0));
+        // vmm_err=2 (BUSY), fw_err=0x16 (PSP INVALID_PARAMETER)
+        let packed = (SNP_GUEST_VMM_ERR_BUSY << SNP_GUEST_VMM_ERR_SHIFT) | 0x16;
+        assert_eq!(unpack_ext_error(packed), (2, 0x16));
     }
 
     #[test]
