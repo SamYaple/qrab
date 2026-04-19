@@ -31,6 +31,11 @@
 #[cfg(any(feature = "std", test))]
 extern crate std;
 
+mod envelope;
+pub use envelope::{
+    EnvelopeError, REPORT_REQ_PLAINTEXT_SIZE, decrypt_guest_msg, encrypt_guest_msg,
+};
+
 use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 
 /// Message type octet that appears in `SnpGuestMsgHdr::msg_type`.
