@@ -31,15 +31,38 @@ set -euo pipefail
 ROOT="$(git -C "$(dirname "${BASH_SOURCE[0]}")" rev-parse --show-toplevel)"
 SMOKE="$ROOT/contrib/smoke-vsock-qemu.sh"
 
-SCENARIOS="${SCENARIOS:-1 3 4 5}"
+SCENARIOS="${SCENARIOS:-1 3 4 5 6 8 12a 12b 12c}"
+# Scenario 11 (64 KiB UKI) stays defined below but is off the
+# default list: under TCG the virtio-vsock rx path still hits
+# QRAB_VSOCK_RECV_TIMEOUT even with MAX_RECV_ITERATIONS bumped
+# to 320 000. Running `SCENARIOS=11 ...` keeps the fixture +
+# env wiring for manual diagnosis; a proper fix likely needs
+# surfacing the virtio-vsock credit window / rx-buffer count
+# rather than tuning poll timeouts.
+
+# Working dir for scenario-specific fixtures (e.g. the 64 KiB UKI for
+# scenario 11). Built once, reused by every matrix run that needs it.
+SCRATCH="$ROOT/target/matrix-smoke"
+mkdir -p "$SCRATCH"
 
 # Map scenario id -> (smoke env, expected serial token).
 scenario_env() {
     case "$1" in
-        1) echo "" ;;  # default build, no fault
-        3) echo "QRAB_UKI_BOOT=1" ;;
-        4) echo "QRAB_ATTEST_FAULT=wrong_hash" ;;
-        5) echo "QRAB_ATTEST_FAULT=bad_sig" ;;
+        1)    echo "" ;;  # default build, no fault
+        3)    echo "QRAB_UKI_BOOT=1" ;;
+        4)    echo "QRAB_ATTEST_FAULT=wrong_hash" ;;
+        5)    echo "QRAB_ATTEST_FAULT=bad_sig" ;;
+        6)    echo "QRAB_SMOKE_SKIP_ATTEST=1" ;;
+        8)    echo "QRAB_SMOKE_NO_VSOCK=1" ;;
+        # Boot timeout bumped because TCG streams 64 KiB of vsock
+        # data markedly slower than the 512 B stub — 20 s isn't
+        # enough on most hosts. Attest-server's own frame copy is
+        # fine; the limiter is virtio-vsock rx polling inside the
+        # guest.
+        11)   echo "QRAB_SMOKE_UKI_PATH=$SCRATCH/large-uki.bin QRAB_VSOCK_BOOT_TIMEOUT=60" ;;
+        12a)  echo "QRAB_SMOKE_MEM=256M" ;;
+        12b)  echo "QRAB_SMOKE_MEM=1G" ;;
+        12c)  echo "QRAB_SMOKE_MEM=2G" ;;
         *) echo "unknown scenario: $1" >&2; return 1 ;;
     esac
 }
@@ -49,10 +72,14 @@ scenario_env() {
 # terminal token and, where applicable, asserts an absence.
 scenario_expect_token() {
     case "$1" in
-        1) echo "QRAB_LOADIMAGE_STUB_SKIP" ;;
-        3) echo "QRAB_FAIL_LOAD" ;;
-        4) echo "QRAB_FAIL_HASH" ;;
-        5) echo "QRAB_ATTEST_BAD_SIG" ;;
+        1)    echo "QRAB_LOADIMAGE_STUB_SKIP" ;;
+        3)    echo "QRAB_FAIL_LOAD" ;;
+        4)    echo "QRAB_FAIL_HASH" ;;
+        5)    echo "QRAB_ATTEST_BAD_SIG" ;;
+        6)    echo "QRAB_VSOCK_CONNECT_TIMEOUT" ;;
+        8)    echo "QRAB_VSOCK_MISSING" ;;
+        11)   echo "QRAB_UKI_OK len=65536" ;;
+        12a|12b|12c) echo "QRAB_LOADIMAGE_STUB_SKIP" ;;
     esac
 }
 
@@ -60,13 +87,37 @@ scenario_expect_token() {
 # tokens the base smoke normally requires. The matrix runs against a
 # relaxed smoke profile via QRAB_SMOKE_REQUIRED_OVERRIDE="" so an
 # earlier-halt scenario doesn't falsely fail on missing downstream
-# tokens. Scenario 1 is the only one that traverses the full chain.
+# tokens. Scenarios 1, 11, 12* traverse the full chain.
 scenario_relaxed_required() {
     case "$1" in
-        1) echo "" ;;  # use smoke script's default full list
+        # Full chain must run — let smoke's default list gate.
+        1|11|12a|12b|12c) echo "" ;;
+        # Faults inside phase 4: only early tokens required.
         3|4|5) echo "QRAB_VSOCK_FOUND QRAB_VSOCK_CONNECT_OK" ;;
+        # Server unreachable: vsock PCI device found but connect
+        # never completes. Require only the probe-level tokens.
+        6) echo "QRAB_VSOCK_FOUND QRAB_VSOCK_DRIVER_OK" ;;
+        # No NIC: probe itself bails. Require nothing — the
+        # expected-token grep on QRAB_VSOCK_MISSING is the gate.
+        8) echo " " ;;
     esac
 }
+
+# Build scenario-specific fixtures once per matrix invocation.
+build_scratch_fixtures() {
+    local target="$SCRATCH/large-uki.bin"
+    # Scenario 11: 64 KiB UKI. qrab-boot-proto's MAX_FRAMED_PAYLOAD
+    # is 128 KiB; 64 KiB fits comfortably and still exercises a
+    # bigger-than-default payload path. Content is opaque to the
+    # smoke (stub-skip path doesn't parse it).
+    if [[ ! -s "$target" || "$(stat -c '%s' "$target")" != "65536" ]]; then
+        dd if=/dev/zero of="$target" bs=1024 count=64 status=none
+        # Sprinkle a magic tag at the start so a corrupted fixture
+        # is obvious in the qemu serial log.
+        printf 'QRAB_LARGE_UKI_FIXTURE_v1\n' | dd of="$target" bs=1 seek=0 conv=notrunc status=none
+    fi
+}
+build_scratch_fixtures
 
 total=0
 failed=()
@@ -106,12 +157,14 @@ for s in $SCENARIOS; do
     # the terminal happy-path token *for the stage it fails in*.
     # Scenario 3 faults in Phase 5 StartImage, so it reaches
     # `QRAB_PHASE4_OK` legitimately — the regression guard is the
-    # absence of `QRAB_LOADIMAGE_OK`. Scenarios 4/5 fault inside
-    # the Phase 4 attest chain so they must not reach PHASE4_OK.
+    # absence of `QRAB_LOADIMAGE_OK`. Scenarios 4/5/6/8 fault before
+    # Phase 4 completes and must not reach PHASE4_OK.
     must_not=""
     case "$s" in
-        3)   must_not="QRAB_LOADIMAGE_OK" ;;
-        4|5) must_not="QRAB_PHASE4_OK"    ;;
+        3)       must_not="QRAB_LOADIMAGE_OK" ;;
+        4|5|6|8) must_not="QRAB_PHASE4_OK"    ;;
+        # Happy-chain scenarios (1, 11, 12*) — no regression guard
+        # other than the expected-token grep above.
     esac
     if [[ -n "$must_not" ]] && grep -a -q "$must_not" "$serial_log"; then
         echo "--- FAIL: fault scenario $s reached '$must_not' (happy path)"
