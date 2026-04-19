@@ -23,6 +23,7 @@
 
 use std::io::{Read, Write};
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use anyhow::{Context, Result, bail};
 use attest_server::{STUB_UKI, Signer, handle_request_bytes};
@@ -148,6 +149,18 @@ fn serve(port: u32, signer: Signer, uki_bytes: Vec<u8>) -> Result<()> {
     );
     eprintln!("attest-server: UKI body {} B ready to stream", uki_bytes.len());
 
+    // Pre-build the second-frame wire image once at startup. Real
+    // UKIs run ~50 MB; rebuilding `len_prefix || body` on every
+    // accept would burn a per-request memcpy of the full payload.
+    // Wrapping in `Arc<[u8]>` keeps the hot path to an atomic refcount
+    // bump even if this handler is later moved behind a worker pool.
+    let uki_frame: Arc<[u8]> = build_uki_frame(&uki_bytes).into();
+    // Raw UKI bytes are only needed for the SHA-256 that gets signed
+    // into frame 1. Hoist into `Arc<[u8]>` for symmetry with
+    // `uki_frame`, so a future threaded handler clones a refcount
+    // rather than the body.
+    let uki_bytes: Arc<[u8]> = uki_bytes.into();
+
     loop {
         let (stream, peer) = match listener.accept() {
             Ok(pair) => pair,
@@ -161,16 +174,34 @@ fn serve(port: u32, signer: Signer, uki_bytes: Vec<u8>) -> Result<()> {
             peer.cid(),
             peer.port()
         );
-        if let Err(e) = handle(stream, &signer, &uki_bytes) {
+        if let Err(e) = handle(stream, &signer, &uki_bytes, &uki_frame) {
             eprintln!("attest-server: session error: {e:#}");
         }
     }
 }
 
+/// Produce the length-prefixed wire frame (`u32 LE len || body`)
+/// that the bootloader's second `FramedStream::read_frame` call
+/// consumes. Built once at startup so the accept loop never
+/// reallocates the payload.
+fn build_uki_frame(uki_bytes: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(FRAME_PREFIX_LEN + uki_bytes.len());
+    out.extend_from_slice(&(uki_bytes.len() as u32).to_le_bytes());
+    out.extend_from_slice(uki_bytes);
+    out
+}
+
 /// One request/reply cycle on the given stream: we read the framed
 /// `AttestRequest`, write the signed `AttestResponse` frame, then
-/// write a second framed payload containing the UKI body.
-fn handle(mut stream: VsockStream, signer: &Signer, uki_bytes: &[u8]) -> Result<()> {
+/// write the pre-built UKI frame. `uki_bytes` feeds the SHA-256 that
+/// is signed into frame 1; `uki_frame` is the already-framed wire
+/// image transmitted as frame 2.
+fn handle(
+    mut stream: VsockStream,
+    signer: &Signer,
+    uki_bytes: &[u8],
+    uki_frame: &[u8],
+) -> Result<()> {
     let request_bytes = read_framed(&mut stream).context("reading attestation request")?;
 
     let reply_bytes = handle_request_bytes(&request_bytes, signer, uki_bytes)
@@ -183,11 +214,8 @@ fn handle(mut stream: VsockStream, signer: &Signer, uki_bytes: &[u8]) -> Result<
     // Second frame: UKI body. The bootloader's `FramedStream` reads
     // frames back-to-back on the same connection and verifies the
     // hash against the signed `uki_sha256` from frame 1.
-    let mut uki_frame = Vec::with_capacity(FRAME_PREFIX_LEN + uki_bytes.len());
-    uki_frame.extend_from_slice(&(uki_bytes.len() as u32).to_le_bytes());
-    uki_frame.extend_from_slice(uki_bytes);
     stream
-        .write_all(&uki_frame)
+        .write_all(uki_frame)
         .context("writing UKI body")?;
 
     eprintln!(
