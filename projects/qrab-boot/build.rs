@@ -50,6 +50,7 @@ fn main() {
     // toolchain.
     println!("cargo::rustc-check-cfg=cfg(qrab_no_fixtures)");
     println!("cargo::rustc-check-cfg=cfg(qrab_no_server_pubkey)");
+    println!("cargo::rustc-check-cfg=cfg(qrab_uki_boot)");
 
     println!("cargo:rerun-if-changed=build.rs");
     for name in FIXTURES {
@@ -57,6 +58,17 @@ fn main() {
         println!("cargo:rerun-if-changed={}", path.display());
     }
     println!("cargo:rerun-if-env-changed=QRAB_ATTEST_PUBKEY_SEC1");
+    println!("cargo:rerun-if-env-changed=QRAB_UKI_BOOT");
+
+    // Phase 5 StartImage: the terminal `LoadImage` + `StartImage`
+    // path in `src/uki.rs` is gated on this cfg. Default builds (TCG
+    // smoke, plain `cargo build`) leave it off so the 512-byte stub
+    // UKI logs `QRAB_LOADIMAGE_STUB_SKIP` instead of trying to parse
+    // a non-PE buffer through `load_image`. Real-UKI integration runs
+    // (matrix tests, BMC boots) set `QRAB_UKI_BOOT=1`.
+    if env::var_os("QRAB_UKI_BOOT").map(|v| v == "1").unwrap_or(false) {
+        println!("cargo:rustc-cfg=qrab_uki_boot");
+    }
 
     let out = PathBuf::from(env::var_os("OUT_DIR").expect("OUT_DIR unset"));
 

@@ -128,8 +128,19 @@ tr -d '\r' < "$SERIAL" | grep -aE 'QRAB|phase' | head -20 || true
 echo "--- mock log ---"
 tail -5 "$MOCKLOG" || true
 
-# Success requires all three of these tokens on the guest serial.
-required=(QRAB_VSOCK_FOUND QRAB_VSOCK_DRIVER_OK QRAB_VSOCK_CONNECT_OK QRAB_ATTEST_SIG_OK QRAB_REPORT_DATA_HEX QRAB_UKI_OK QRAB_PCR8_EXPECTED_DIGEST QRAB_PCR9_EXPECTED_DIGEST QRAB_SECRET_OK QRAB_ATTEST_OK)
+# Success requires all of these tokens on the guest serial by default.
+# The matrix-smoke.sh harness overrides the list via
+# QRAB_SMOKE_REQUIRED_OVERRIDE for fault scenarios that intentionally
+# halt earlier (e.g. QRAB_FAIL_HASH fires before the secret/pcr/report
+# tail). Setting the override to an empty string disables this check
+# entirely and lets the matrix's own expected-token grep be
+# authoritative.
+if [[ -n "${QRAB_SMOKE_REQUIRED_OVERRIDE+x}" ]]; then
+    # shellcheck disable=SC2206  # deliberate word-split of override.
+    required=(${QRAB_SMOKE_REQUIRED_OVERRIDE})
+else
+    required=(QRAB_VSOCK_FOUND QRAB_VSOCK_DRIVER_OK QRAB_VSOCK_CONNECT_OK QRAB_ATTEST_SIG_OK QRAB_REPORT_DATA_HEX QRAB_UKI_OK QRAB_PCR8_EXPECTED_DIGEST QRAB_PCR9_EXPECTED_DIGEST QRAB_SECRET_OK QRAB_ATTEST_OK QRAB_REPORT_OK QRAB_LOADIMAGE_STUB_SKIP)
+fi
 missing=()
 for tok in "${required[@]}"; do
     grep -a -q "$tok" "$SERIAL" || missing+=("$tok")

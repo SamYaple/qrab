@@ -23,6 +23,7 @@ mod pci_dma;
 mod rng;
 mod secret;
 mod snp_secrets;
+mod uki;
 mod volatile_transport;
 mod vsock;
 mod vsock_connect;
@@ -41,7 +42,7 @@ use uefi::prelude::*;
 const BANNER: &str = concat!(
     "QRAB BOOT v",
     env!("CARGO_PKG_VERSION"),
-    " phase4+secret+pcr9+uki (build ",
+    " phase5-start (build ",
     env!("CARGO_PKG_NAME"),
     ")",
 );
@@ -97,22 +98,49 @@ fn efi_main() -> Status {
         }
     }
 
-    let vsock_ok = run_vsock_demo().is_ok();
+    let vsock_result = run_vsock_demo();
     let verify_ok = run_verify_demo().is_ok();
 
-    if vsock_ok && verify_ok {
-        log::info!("QRAB_PHASE4_OK");
-    } else {
-        log::warn!(
-            "QRAB_PHASE4_PARTIAL vsock_ok={} verify_ok={}",
-            vsock_ok,
-            verify_ok,
-        );
-    }
+    match (vsock_result, verify_ok) {
+        (Ok(session), true) => {
+            log::info!("QRAB_PHASE4_OK");
 
-    // Intentionally do not return control to firmware. Per plan: fail-closed,
-    // hang on any terminal state including "phase not complete".
-    halt_forever()
+            // Phase 5 StartImage: publish the `QrabReport` EFI runtime
+            // variable so post-boot userspace can surface last-boot
+            // attestation state, then hand the UKI off to the
+            // firmware via LoadImage + StartImage. Default builds
+            // stop at the stub-skip branch inside `load_and_start`;
+            // `QRAB_UKI_BOOT=1` at build time opens the real path.
+            match uki::publish_report(&session.report_data) {
+                Ok(()) => log::info!(
+                    "QRAB_REPORT_OK len={}",
+                    uki::QRAB_REPORT_MAGIC.len() + session.report_data.len()
+                ),
+                Err(e) => {
+                    // Publishing the report is best-effort: a failure
+                    // here does not invalidate the cryptographic
+                    // chain the bootloader already completed, so we
+                    // log and continue into StartImage. The smoke
+                    // harness can still detect regressions via the
+                    // absence of `QRAB_REPORT_OK`.
+                    log::warn!("QRAB_REPORT_ERR {e}");
+                }
+            }
+
+            uki::load_and_start(&session.uki_bytes);
+        }
+        (vsock_result, verify_ok) => {
+            log::warn!(
+                "QRAB_PHASE4_PARTIAL vsock_ok={} verify_ok={}",
+                vsock_result.is_ok(),
+                verify_ok,
+            );
+            // Intentionally do not return control to firmware. Per
+            // plan: fail-closed, hang on any terminal state
+            // including "phase not complete".
+            halt_forever()
+        }
+    }
 }
 
 /// Boot-time driver for [`qrab_boot_verify::verify_detached`].
@@ -161,16 +189,31 @@ const VSOCK_GUEST_SRC_PORT: u32 = 40042;
 /// Host CID for vhost-vsock, per the virtio-vsock spec.
 const VSOCK_CID_HOST: u64 = 2;
 
+/// Bound state carried out of [`run_vsock_demo`] for the phase-5
+/// StartImage tail in `efi_main`. The two fields are whatever the
+/// terminal `publish_report` + `load_and_start` calls need; keeping
+/// them in a struct keeps the signature stable when future phases
+/// add more (e.g. the full 1184-byte SNP attestation report body).
+pub struct VsockSession {
+    /// 64-byte SNP `report_data` binding client nonce, server nonce,
+    /// UKI hash, and secret hash — see
+    /// [`qrab_boot_proto::report_data`]. The SHA-256 digest occupies
+    /// the first 32 bytes; the remaining 32 are zero-padding.
+    pub report_data: [u8; 64],
+    /// UKI bytes fetched from the attestation server. Already
+    /// SHA-256-matched against the signed `uki_sha256` field.
+    pub uki_bytes: alloc::vec::Vec<u8>,
+}
+
 /// Boot-time driver for the 3a→3b.3→3b.4 chain:
 ///
 ///   probe → init driver → connect to host attestation endpoint.
 ///
-/// No data transfer on this commit. Phase 3b.6+ will layer the postcard
-/// attest wire protocol on top. A missing device / timeout / handshake
-/// failure is logged but does *not* yet panic the boot so the verify
-/// demo still has a chance to run in test environments where vsock is
-/// unavailable (e.g. the plain-TCG smoke path).
-fn run_vsock_demo() -> Result<(), ()> {
+/// On success returns a [`VsockSession`] with the fields the phase-5
+/// StartImage tail needs. On any failure logs a distinct `QRAB_*`
+/// token and returns `Err(())`; the caller decides whether that
+/// failure is terminal (phase-4 happy path is required for phase-5).
+fn run_vsock_demo() -> Result<VsockSession, ()> {
     let status = vsock::probe();
     let mut driver = match vsock_driver::init(status) {
         Ok(d) => d,
@@ -420,7 +463,10 @@ fn run_vsock_demo() -> Result<(), ()> {
         response.uki_url.len(),
     );
 
-    Ok(())
+    Ok(VsockSession {
+        report_data,
+        uki_bytes,
+    })
 }
 
 /// Disable interrupts and halt the CPU indefinitely.
