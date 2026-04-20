@@ -32,4 +32,19 @@ echo "fetch: VCEK → $OUT"
 snphost fetch vek pem "$OUT"
 
 ls -la "$OUT"
-echo "ok: cert chain ready at $OUT"
+
+# B12-9: snphost occasionally returns 0 without writing anything
+# (silent failure on a chip the KDS does not recognise, or a
+# transient network hiccup). QEMU then sees `certs-path=$OUT` as an
+# empty dir and hands the PSP an empty cert blob — the guest boots
+# but the host-side chain walker gets nothing to verify, which
+# surfaces as `QRAB_SNP_CERT_PARSE_ERR` two steps downstream with no
+# hint at the real cause. Assert enough PEM files to cover ARK + ASK
+# + VCEK before exiting green.
+PEM_COUNT=$(find "$OUT" -maxdepth 1 -name '*.pem' -type f | wc -l)
+if [ "$PEM_COUNT" -lt 3 ]; then
+    echo "error: expected >= 3 .pem files in $OUT, found $PEM_COUNT — \
+snphost fetch likely failed silently" >&2
+    exit 1
+fi
+echo "ok: cert chain ready at $OUT ($PEM_COUNT pem files)"

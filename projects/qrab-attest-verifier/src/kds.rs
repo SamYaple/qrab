@@ -24,6 +24,20 @@
 //! the VCEK endpoint (~5 req/min/IP as of 2026-04); a busy
 //! attest-server *must* cache or it will start seeing 429s within
 //! a handful of guest boots.
+//!
+//! ## attest-server integration status (B12-15)
+//!
+//! Currently `attest-server/src/verify.rs::handle_post_report_bytes`
+//! returns `PostReportError::AskMissing` / `VcekMissing` directly
+//! when the guest's `cert_blob` lacks an ASK/VCEK entry — it does
+//! NOT fall back to `fetch_vcek_from_kds` from this module. The
+//! fallback is deliberately deferred until a persistent cache is in
+//! place (the AMD KDS rate-limit would otherwise turn every cold
+//! boot of a chain-less guest into a 429 storm). Operators who need
+//! the fallback today point `QRAB_ATTEST_VERIFIER_ASK_PEM` /
+//! `..._VCEK_PEM` at a local PEM file. Wiring the in-process KDS
+//! call lives under `reference/followups.md` — do not remove this
+//! module assuming it is dead code.
 
 use std::time::Duration;
 

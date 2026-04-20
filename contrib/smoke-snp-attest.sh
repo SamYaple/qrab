@@ -162,6 +162,26 @@ echo "--- mock log ---"
 tail -5 "$MOCKLOG" || true
 
 required=(QRAB_VSOCK_FOUND QRAB_VSOCK_DRIVER_OK QRAB_VSOCK_CONNECT_OK QRAB_ATTEST_SIG_OK QRAB_REPORT_DATA_HEX QRAB_SNP_REPORT_OK QRAB_SNP_CERT_CHAIN QRAB_UKI_OK QRAB_PCR8_EXPECTED_DIGEST QRAB_PCR9_EXPECTED_DIGEST QRAB_SECRET_OK QRAB_ATTEST_OK)
+
+# B12-8: with cert chain enabled, the server also drives the full
+# ARK->ASK->VCEK+report chain walk and logs one of two green
+# tokens. Require at least one, and treat the _FAIL path as a hard
+# regression. Without this gate a chain-walker regression kept the
+# smoke green because earlier tokens fire before F2 runs.
+post_verify_regressed=0
+if [[ "${QRAB_SNP_USE_CERT_CHAIN:-0}" == "1" ]]; then
+    if grep -a -q "QRAB_SNP_POST_VERIFY_OK\b" "$SERIAL" \
+        || grep -a -q "QRAB_SNP_POST_VERIFY_OK_NO_MEASUREMENT" "$SERIAL"; then
+        :  # chain walk completed (green or amber)
+    else
+        required+=(QRAB_SNP_POST_VERIFY_OK)  # surfaces as missing
+    fi
+    if grep -a -q "QRAB_SNP_POST_VERIFY_FAIL" "$SERIAL" \
+        || grep -a -q "QRAB_SNP_POST_VERIFY_IO_ERR" "$SERIAL"; then
+        post_verify_regressed=1
+    fi
+fi
+
 missing=()
 for tok in "${required[@]}"; do
     grep -a -q "$tok" "$SERIAL" || missing+=("$tok")
@@ -179,6 +199,10 @@ case "$EXPECT" in
     pass)
         if [[ ${#missing[@]} -ne 0 ]]; then
             log "regression — missing tokens: ${missing[*]}"
+            exit 1
+        fi
+        if [[ "$post_verify_regressed" -eq 1 ]]; then
+            log "regression — QRAB_SNP_POST_VERIFY_FAIL / _IO_ERR present in serial"
             exit 1
         fi
         log "all required tokens present under SNP"
