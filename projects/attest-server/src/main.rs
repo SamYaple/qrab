@@ -213,6 +213,23 @@ fn serve(port: u32, signer: Signer, uki_bytes: Vec<u8>, fault: Fault) -> Result<
         uki_bytes.len()
     );
 
+    // Announce whether a golden measurement is configured. Operators
+    // forgetting `QRAB_ATTEST_VERIFIER_MEASUREMENT_HEX` otherwise
+    // silently get a weaker green — chain walks pass on any
+    // measurement value. Emitting this at startup makes the policy
+    // gap visible in one scroll.
+    match std::env::var(attest_server::verify::ENV_EXPECTED_MEASUREMENT_HEX) {
+        Ok(_) => eprintln!(
+            "attest-server: QRAB_ATTEST_MEASUREMENT_CHECK_ENABLED env={}",
+            attest_server::verify::ENV_EXPECTED_MEASUREMENT_HEX,
+        ),
+        Err(_) => eprintln!(
+            "attest-server: QRAB_ATTEST_MEASUREMENT_CHECK_SKIPPED env={}_unset — \
+             chain walks will succeed on any measurement value",
+            attest_server::verify::ENV_EXPECTED_MEASUREMENT_HEX,
+        ),
+    }
+
     // Pre-build the second-frame wire image once at startup. Real
     // UKIs run ~50 MB; rebuilding `len_prefix || body` on every
     // accept would burn a per-request memcpy of the full payload.
@@ -420,15 +437,26 @@ fn handle(
     // produces a clean no-op path.
     match read_framed(&mut stream) {
         Ok(post_bytes) => match handle_post_report_bytes(&post_bytes, None, None) {
-            Ok(v) => eprintln!(
-                "attest-server: QRAB_SNP_POST_VERIFY_OK chain=ark->ask->vcek \
-                 signer={:?} measurement_prefix={:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
-                v.signer,
-                v.report.measurement[0], v.report.measurement[1],
-                v.report.measurement[2], v.report.measurement[3],
-                v.report.measurement[4], v.report.measurement[5],
-                v.report.measurement[6], v.report.measurement[7],
-            ),
+            Ok(outcome) => {
+                let v = &outcome.verified;
+                // Distinct token when the chain walk succeeded but
+                // NO golden measurement was compared — downstream
+                // dashboards / smoke treat this as amber, not green.
+                let token = if outcome.measurement_enforced {
+                    "QRAB_SNP_POST_VERIFY_OK"
+                } else {
+                    "QRAB_SNP_POST_VERIFY_OK_NO_MEASUREMENT"
+                };
+                eprintln!(
+                    "attest-server: {token} chain=ark->ask->vcek \
+                     signer={:?} measurement_prefix={:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
+                    v.signer,
+                    v.report.measurement[0], v.report.measurement[1],
+                    v.report.measurement[2], v.report.measurement[3],
+                    v.report.measurement[4], v.report.measurement[5],
+                    v.report.measurement[6], v.report.measurement[7],
+                );
+            }
             Err(e) => eprintln!(
                 "attest-server: QRAB_SNP_POST_VERIFY_FAIL reason={} detail={}",
                 reason(&e), e

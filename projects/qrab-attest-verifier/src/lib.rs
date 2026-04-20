@@ -127,6 +127,22 @@ pub enum ChainError {
     /// cross-chip misbinding case.
     #[error("VCEK hwID extension does not match report.chip_id")]
     ChipIdMismatch,
+    /// A certificate was signed with `sha1WithRSAEncryption` but the
+    /// issuer DN does not equal the subject DN. SHA-1 RSA is a known
+    /// collision target (SHAmbles 2020) and is only tolerated on the
+    /// ARK self-signature for backwards compatibility with pre-2022
+    /// Milan KDS dumps. ASK / VCEK / other non-self-signed links
+    /// MUST use SHA-2 or stronger.
+    #[error("SHA-1 RSA signature on non-self-signed certificate")]
+    WeakHashOnNonSelfSig,
+    /// The VCEK did not carry the AMD `hwID` extension or did not
+    /// carry any of the four AMD SPL component extensions. Real
+    /// AMD-issued Genoa / Milan / Bergamo / Turin VCEKs always
+    /// include both. A VCEK missing them cannot be bound to the
+    /// chip / TCB values in the report, so the misbinding check
+    /// (`cross_check_vcek_bindings`) would be a silent no-op.
+    #[error("VCEK is missing required AMD TCB / hwID extensions")]
+    MissingTcbExt,
 }
 
 /// Default blocking timeout for [`fetch_vcek_from_kds`] — 15 s

@@ -40,3 +40,14 @@ alloc = []
 # std-using on the RustCrypto defaults, so this feature is mutually
 # exclusive with the UEFI build.
 verify = ["dep:p384", "dep:sha2", "std"]
+# Diagnostic escape hatch: accept attestation reports whose ECDSA
+# R/S slots have non-zero bytes in the reserved 24-byte tail (AMD
+# SEV-SNP ABI Table 138 requires zeros). Only intended for bringing
+# up against pre-release / misbehaving firmware. Compile-time only
+# so the feature cannot be flipped on at runtime via env var or
+# config, which matches the threat model — the padding canary is a
+# downgrade / tamper signal and must not be bypassable post-build.
+# Enabled builds still emit a loud stderr warning per accepted
+# report and flip the returned `Ok(())` call-site is expected to
+# log alongside.
+allow-nonzero-sig-padding = []
