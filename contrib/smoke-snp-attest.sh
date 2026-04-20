@@ -51,10 +51,13 @@ GUEST_CID="${QRAB_VSOCK_GUEST_CID:-4243}"
 PORT="${QRAB_VSOCK_PORT:-1337}"
 BOOT_TIMEOUT_SECS="${QRAB_VSOCK_BOOT_TIMEOUT:-30}"
 EXPECT="${QRAB_SNP_SMOKE_EXPECT:-pass}"
+RPB="${QRAB_SNP_REDUCED_PHYS_BITS:-1}"
 
 log() { echo "smoke-snp-attest: $*" >&2; }
 die() { log "error: $*"; exit 1; }
 skip() { log "skipped: $*"; exit 77; }
+
+log "reduced-phys-bits=$RPB (override via QRAB_SNP_REDUCED_PHYS_BITS)"
 
 # ---- prerequisites -------------------------------------------------------
 [[ -f "$FW" ]] || skip "no AmdSev OVMF at $FW — run contrib/build-ovmf.sh"
@@ -109,7 +112,7 @@ rm -f "$QMP"
 # `certs-path=` so the PSP hands the guest a non-empty cert blob
 # (ARK || ASK || VCEK DER entries). Default off keeps existing
 # smoke behaviour unchanged.
-SNP_OBJ="sev-snp-guest,id=sev0,reduced-phys-bits=1,cbitpos=51,sev-device=/dev/sev"
+SNP_OBJ="sev-snp-guest,id=sev0,reduced-phys-bits=$RPB,cbitpos=51,sev-device=/dev/sev"
 if [[ "${QRAB_SNP_USE_CERT_CHAIN:-0}" == "1" ]]; then
     CERT_DIR="${QRAB_SNP_CERT_CHAIN_DIR:-$ROOT/target/snp-cert-chain}"
     [[ -d "$CERT_DIR" ]] || die "QRAB_SNP_USE_CERT_CHAIN=1 but $CERT_DIR missing — run contrib/snp-fetch-host-cert-chain.sh"
