@@ -31,7 +31,7 @@ set -euo pipefail
 ROOT="$(git -C "$(dirname "${BASH_SOURCE[0]}")" rev-parse --show-toplevel)"
 SMOKE="$ROOT/contrib/smoke-vsock-qemu.sh"
 
-SCENARIOS="${SCENARIOS:-1 3 4 5 6 8 9 11 12a 12b 12c}"
+SCENARIOS="${SCENARIOS:-1 3 4 5 6 8 9 10 11 12a 12b 12c}"
 
 # Working dir for scenario-specific fixtures (e.g. the 64 KiB UKI for
 # scenario 11). Built once, reused by every matrix run that needs it.
@@ -48,6 +48,12 @@ scenario_env() {
         6)    echo "QRAB_SMOKE_SKIP_ATTEST=1" ;;
         8)    echo "QRAB_SMOKE_NO_VSOCK=1" ;;
         9)    echo "QRAB_REQUIRE_SNP=1" ;;
+        # Scenario 10 runs TWO back-to-back smokes; the replay
+        # cache path is shared between them so attest-server's
+        # second invocation serves identical bytes. Handled in the
+        # per-scenario special case below — the env here is just
+        # what both runs get.
+        10)   echo "QRAB_ATTEST_FAULT=replay QRAB_ATTEST_REPLAY_CACHE_PATH=$SCRATCH/replay-cache.bin" ;;
         # 40 s boot budget keeps margin for slower TCG hosts while
         # the in-guest vsock path drains the 64 KiB UKI. Regular
         # 20 s is enough on a modern EPYC / Ryzen but not on all
@@ -72,6 +78,11 @@ scenario_expect_token() {
         6)    echo "QRAB_VSOCK_CONNECT_TIMEOUT" ;;
         8)    echo "QRAB_VSOCK_MISSING" ;;
         9)    echo "QRAB_FAIL_NOSNP" ;;
+        # Scenario 10 each individual run must reach QRAB_ATTEST_OK
+        # (wire-level authenticity of the replayed frame holds).
+        # The cross-boot report_data comparison is asserted in the
+        # special-case block below.
+        10)   echo "QRAB_ATTEST_OK" ;;
         11)   echo "QRAB_UKI_OK len=65536" ;;
         12a|12b|12c) echo "QRAB_LOADIMAGE_STUB_SKIP" ;;
     esac
@@ -85,7 +96,9 @@ scenario_expect_token() {
 scenario_relaxed_required() {
     case "$1" in
         # Full chain must run — let smoke's default list gate.
-        1|11|12a|12b|12c) echo "" ;;
+        # Scenario 10 ships the replayed-but-valid AttestResponse;
+        # the bootloader reaches every happy token on both boots.
+        1|10|11|12a|12b|12c) echo "" ;;
         # Faults inside phase 4: only early tokens required.
         3|4|5) echo "QRAB_VSOCK_FOUND QRAB_VSOCK_CONNECT_OK" ;;
         # Server unreachable: vsock PCI device found but connect
@@ -121,6 +134,41 @@ total=0
 failed=()
 skipped=0
 
+# Scenario 10 helper: run the smoke once with the given run label,
+# copy serial.log aside so the second run does not clobber it, and
+# extract the QRAB_REPORT_DATA_HEX token. Echoes the hex value on
+# stdout; on failure echoes nothing and returns non-zero. Relies on
+# `QRAB_ATTEST_FAULT=replay QRAB_ATTEST_REPLAY_CACHE_PATH=…` being
+# in $env_line so attest-server persists bytes between runs.
+run_scenario10_boot() {
+    local label="$1"
+    local env_line="$2"
+    local required="$3"
+    local serial_log="$ROOT/target/qrab-boot-vsock-smoke/serial.log"
+    local snap="$ROOT/target/qrab-boot-vsock-smoke/serial-10-${label}.log"
+
+    local boot_out rc=0
+    boot_out="$(env ${env_line:-} QRAB_SMOKE_REQUIRED_OVERRIDE="$required" \
+                    "$SMOKE" 2>&1)" || rc=$?
+    cp -f "$serial_log" "$snap" 2>/dev/null || true
+    if [[ $rc -ne 0 ]]; then
+        echo "scenario 10/$label smoke failed rc=$rc" >&2
+        echo "$boot_out" | tail -15 >&2
+        return "$rc"
+    fi
+    # QRAB_REPORT_DATA_HEX <128 hex chars> — space-separated per
+    # projects/qrab-boot/src/ghcb.rs:140. Grab the first hex value
+    # each boot emits.
+    local hex
+    hex="$(grep -a -oE 'QRAB_REPORT_DATA_HEX [0-9a-f]{128}' "$snap" \
+            | head -1 | awk '{print $2}')"
+    if [[ -z "$hex" ]]; then
+        echo "scenario 10/$label missing QRAB_REPORT_DATA_HEX in $snap" >&2
+        return 1
+    fi
+    printf '%s\n' "$hex"
+}
+
 for s in $SCENARIOS; do
     total=$((total+1))
     env_line="$(scenario_env "$s")"
@@ -128,6 +176,42 @@ for s in $SCENARIOS; do
     required="$(scenario_relaxed_required "$s")"
 
     echo "=== scenario $s === env: ${env_line:-(none)} expect: $want"
+
+    # Scenario 10 (replay / stale response audit): wire-level
+    # authenticity of a replayed AttestResponse holds (sig verifies,
+    # report_data binds both nonces) — freshness is a policy layer
+    # concern. We run the smoke twice back-to-back with the same
+    # QRAB_ATTEST_REPLAY_CACHE_PATH; attest-server primes the cache
+    # on boot 1 and serves identical bytes on boot 2. Because the
+    # full AttestResponse (including server_nonce) is byte-identical
+    # and all other derivation inputs match, the guest's
+    # QRAB_REPORT_DATA_HEX must match across boots. Equality here =
+    # "replay succeeded" = the thing the audit layer would flag.
+    if [[ "$s" == "10" ]]; then
+        # Fresh cache file per matrix invocation: discard any
+        # leftover bytes from a prior run so boot 1 always primes.
+        rm -f "$SCRATCH/replay-cache.bin"
+
+        echo "--- scenario 10 boot 1/2 (primes replay cache)"
+        hex1="$(run_scenario10_boot boot1 "$env_line" "$required")" || {
+            failed+=("scenario-10-boot1")
+            continue
+        }
+        echo "--- scenario 10 boot 2/2 (serves cached bytes)"
+        hex2="$(run_scenario10_boot boot2 "$env_line" "$required")" || {
+            failed+=("scenario-10-boot2")
+            continue
+        }
+        if [[ "$hex1" != "$hex2" ]]; then
+            echo "--- FAIL: scenario 10 report_data differs between boots"
+            echo "    boot1=$hex1"
+            echo "    boot2=$hex2"
+            failed+=("scenario-10-report-data-drift")
+            continue
+        fi
+        echo "--- scenario 10 PASS report_data=$hex1 replay_detected=true"
+        continue
+    fi
 
     # Scenario 3 requires a different build of qrab-boot.efi; plumb
     # the env var through so build.rs picks it up. The smoke script
