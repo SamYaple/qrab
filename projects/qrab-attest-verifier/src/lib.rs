@@ -111,6 +111,22 @@ pub enum ChainError {
     /// VCEK SEC1 pubkey could not be extracted / was malformed.
     #[error("VCEK SEC1 pubkey: {0}")]
     VcekPubkey(String),
+    /// One of the VCEK's AMD TCB extension components
+    /// (`1.3.6.1.4.1.3704.1.{1,2,3,8}`) disagrees with the matching
+    /// byte of `report.reported_tcb`. A valid VCEK signature alone
+    /// does not prove the cert corresponds to the chip that issued
+    /// the report; this variant surfaces that misbinding.
+    #[error("TCB component {component} mismatch: cert={cert_value} report={report_value}")]
+    TcbMismatch {
+        component: &'static str,
+        cert_value: u8,
+        report_value: u8,
+    },
+    /// The VCEK's `hwID` extension does not equal `report.chip_id`,
+    /// i.e. the cert was issued for a different chip. Blocks the
+    /// cross-chip misbinding case.
+    #[error("VCEK hwID extension does not match report.chip_id")]
+    ChipIdMismatch,
 }
 
 /// Default blocking timeout for [`fetch_vcek_from_kds`] — 15 s

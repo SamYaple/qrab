@@ -46,3 +46,10 @@ rcgen = { version = "0.14", default-features = false, features = [
     "crypto", "pem", "aws_lc_rs",
 ] }
 hex = "0.4"
+# Randomised PSS signing in the F3 hand-DER cert fixtures. `OsRng`
+# lives behind the `getrandom` feature of `rand_core 0.6` (the
+# version `rsa 0.9` pins transitively). Dev-only.
+rand_core = { version = "0.6", features = ["getrandom"] }
+# PSS signing key wants `RsaPrivateKey::from_pkcs8_der`, which
+# lives under the `pkcs8` path `rsa` re-exports; no extra feature
+# flip needed beyond what `rsa 0.9`'s defaults already give us.

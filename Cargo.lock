@@ -3296,6 +3296,7 @@ dependencies = [
  "hex",
  "p384",
  "qrab-snp-proto",
+ "rand_core 0.6.4",
  "rcgen",
  "rsa",
  "sha1",
