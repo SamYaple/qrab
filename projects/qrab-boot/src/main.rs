@@ -79,14 +79,14 @@ fn efi_main() -> Status {
         halt_forever();
     }
 
-    // Phase 5b: load the SNP Secrets page under SEV-SNP so phase 5c
-    // has access to VMPCK0 when it eventually issues
-    // `SNP_GUEST_REQUEST MSG_REPORT_REQ`. Gating on `sev_snp` keeps
-    // non-SNP TCG boots from probing a PA that holds unrelated
-    // firmware data. The returned page is dropped at the end of
-    // this block — phase 5c will pass it through to the report
-    // request instead.
-    if features.sev_snp {
+    // B12-10 / R12-14: load the SNP Secrets page exactly once.
+    // Previously we loaded here for a sanity log and loaded again
+    // inside `run_vsock_demo` for the `MSG_REPORT_REQ` call — two
+    // stack frames held VMPCK0..3 simultaneously, compounding the
+    // key-residual surface that S7-2's Drop impl then has to scrub.
+    // Load once up front, fail-closed on SNP if the PSP page can't
+    // be read, and hand the owned page down to `run_vsock_demo`.
+    let snp_page: Option<qrab_snp_proto::SnpSecretsPage> = if features.sev_snp {
         match snp_secrets::load() {
             Ok(page) => {
                 log::info!(
@@ -98,6 +98,7 @@ fn efi_main() -> Status {
                     qrab_snp_proto::is_vmpck_nonzero(&page.vmpck2),
                     qrab_snp_proto::is_vmpck_nonzero(&page.vmpck3),
                 );
+                Some(page)
             }
             Err(e) => {
                 // Fail-closed on SNP: without VMPCK0 the attestation flow
@@ -109,9 +110,11 @@ fn efi_main() -> Status {
                 halt_forever();
             }
         }
-    }
+    } else {
+        None
+    };
 
-    let vsock_result = run_vsock_demo();
+    let vsock_result = run_vsock_demo(features, snp_page);
     let verify_ok = run_verify_demo().is_ok();
 
     match (vsock_result, verify_ok) {
@@ -226,7 +229,10 @@ pub struct VsockSession {
 /// StartImage tail needs. On any failure logs a distinct `QRAB_*`
 /// token and returns `Err(())`; the caller decides whether that
 /// failure is terminal (phase-4 happy path is required for phase-5).
-fn run_vsock_demo() -> Result<VsockSession, ()> {
+fn run_vsock_demo(
+    features: ghcb::SevFeatures,
+    snp_page: Option<qrab_snp_proto::SnpSecretsPage>,
+) -> Result<VsockSession, ()> {
     let status = vsock::probe();
     let mut driver = match vsock_driver::init(status) {
         Ok(d) => d,
@@ -360,9 +366,10 @@ fn run_vsock_demo() -> Result<VsockSession, ()> {
     // UKI write.
     let mut post_report_frame: Option<alloc::vec::Vec<u8>> = None;
 
-    if ghcb::detect().sev_snp {
-        match snp_secrets::load() {
-            Ok(page) => {
+    if features.sev_snp
+        && let Some(page) = snp_page.as_ref()
+    {
+        {
                 // A14: initial seqno = Secrets.msg_seqno_0 + 1. On a
                 // fresh SNP_LAUNCH that field is zero so we send 1 —
                 // same as the hard-coded value we used before — but
@@ -449,8 +456,6 @@ fn run_vsock_demo() -> Result<VsockSession, ()> {
                     }
                     Err(e) => log::warn!("QRAB_SNP_REPORT_ERR {e:?}"),
                 }
-            }
-            Err(e) => log::warn!("QRAB_SNP_REPORT_ERR secrets:{e:?}"),
         }
     }
 
