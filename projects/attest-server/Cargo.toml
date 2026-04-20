@@ -36,3 +36,19 @@ rand_core = { version = "0.6", default-features = false, features = [
 ] }
 # SHA-256 mirrors the digest used by `qrab-boot-proto::response_signing_digest`.
 sha2 = { version = "0.10", default-features = false }
+# B12-4: `pem_to_der_root_ca` parses each cert block of a multi-block
+# PEM (e.g. AMD KDS `cert_chain` is `ASK ‖ ARK`) and picks the
+# self-signed one. Only the DN-equality check needs x509; the
+# transitive dep is already pulled by qrab-attest-verifier so
+# declaring it here does not inflate the build graph.
+x509-cert = { version = "0.2", features = ["std"] }
+der = { version = "0.7", features = ["alloc"] }
+
+[dev-dependencies]
+# Synthesise two-cert PEM chains for the `pem_to_der_root_ca` tests:
+# self-signed ARK + CA-issued "ASK" so only one block satisfies the
+# issuer==subject selector. Matches qrab-attest-verifier's dev-dep
+# set so build graph stays cached.
+rcgen = { version = "0.14", default-features = false, features = [
+    "crypto", "pem", "aws_lc_rs",
+] }
