@@ -337,6 +337,17 @@ fn verify_rsa_cert_signature(
     cert: &Certificate,
     issuer_pub: &RsaPublicKey,
 ) -> Result<(), ChainError> {
+    // R14-X5: RFC 5280 §4.1.1.2 requires the inner
+    // `tbsCertificate.signature` AlgorithmIdentifier to match the
+    // outer `Certificate.signatureAlgorithm` exactly. Our OID
+    // dispatch below looks only at the outer copy; a cert whose
+    // inner copy claims a different (e.g. weaker) algorithm would
+    // slip through and split policy across any verifier that honors
+    // the inner instead. Gate up front — parser-differential hardens
+    // cheaply.
+    if cert.tbs_certificate.signature.oid != cert.signature_algorithm.oid {
+        return Err(ChainError::SignatureAlgorithmMismatch);
+    }
     let tbs = cert.tbs_certificate.to_der()
         .map_err(|e| ChainError::X509Parse(format!("tbs: {e}")))?;
     let sig_bits = cert.signature.as_bytes()
@@ -1128,6 +1139,45 @@ mod tests {
             ChainError::ReportSig(_) => {}
             other => panic!("expected ReportSig, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn sig_alg_inner_outer_mismatch_rejected() {
+        // R14-X5: build a cert with outer signatureAlgorithm SHA-256
+        // but inner tbsCertificate.signature SHA-384. `verify_rsa_cert_signature`
+        // must refuse the mismatch before it runs any hashing.
+        use rcgen::{
+            CertificateParams, DistinguishedName, DnType, KeyPair,
+            PKCS_RSA_SHA256,
+        };
+        fn dn(cn: &str) -> DistinguishedName {
+            let mut d = DistinguishedName::new();
+            d.push(DnType::CommonName, cn);
+            d
+        }
+        let kp = KeyPair::generate_for(&PKCS_RSA_SHA256).unwrap();
+        let mut params = CertificateParams::new(Vec::<String>::new()).unwrap();
+        params.distinguished_name = dn("qrab-test sig-alg");
+        params.is_ca = rcgen::IsCa::Ca(rcgen::BasicConstraints::Unconstrained);
+        let rcgen_cert = params.self_signed(&kp).unwrap();
+        let mut cert = Certificate::from_der(rcgen_cert.der()).unwrap();
+
+        // Rewrite the inner tbs.signature algorithm OID to SHA-384
+        // while leaving the outer signatureAlgorithm at SHA-256.
+        cert.tbs_certificate.signature = x509_cert::spki::AlgorithmIdentifierOwned {
+            oid: x509_cert::der::asn1::ObjectIdentifier::new_unwrap(OID_RSA_SHA384),
+            parameters: None,
+        };
+
+        let pub_rsa = {
+            let priv_der = kp.serialize_der();
+            RsaPrivateKey::from_pkcs8_der(&priv_der).unwrap().to_public_key()
+        };
+        let err = verify_rsa_cert_signature(&cert, &pub_rsa).unwrap_err();
+        assert!(
+            matches!(err, ChainError::SignatureAlgorithmMismatch),
+            "expected SignatureAlgorithmMismatch, got {err:?}"
+        );
     }
 
     #[test]

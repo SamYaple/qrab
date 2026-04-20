@@ -155,6 +155,14 @@ pub enum ChainError {
     /// R12-02 flagged.
     #[error("certificate expired: {which}")]
     CertExpired { which: &'static str },
+    /// `tbsCertificate.signature.algorithm` differs from
+    /// `Certificate.signatureAlgorithm.algorithm`. RFC 5280
+    /// §4.1.1.2 requires the two copies to be identical; any drift
+    /// is either cert tamper or parser-differential attack bait and
+    /// should be rejected before the signature-scheme dispatch
+    /// runs. R14-X5.
+    #[error("certificate signatureAlgorithm inner/outer OID mismatch (RFC 5280 §4.1.1.2)")]
+    SignatureAlgorithmMismatch,
 }
 
 /// Default blocking timeout for [`fetch_vcek_from_kds`] — 15 s

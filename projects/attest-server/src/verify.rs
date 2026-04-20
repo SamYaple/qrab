@@ -146,6 +146,11 @@ pub fn reason(err: &PostReportError) -> &'static str {
         PostReportError::Chain(ChainError::MeasurementMismatch) => "measurement",
         PostReportError::Chain(ChainError::TcbMismatch { .. }) => "tcb",
         PostReportError::Chain(ChainError::ChipIdMismatch) => "chip_id",
+        PostReportError::Chain(ChainError::WeakHashOnNonSelfSig) => "chain_weak_hash",
+        PostReportError::Chain(ChainError::MissingTcbExt) => "chain_missing_tcb_ext",
+        PostReportError::Chain(ChainError::CertNotYetValid { .. }) => "chain_cert_not_yet_valid",
+        PostReportError::Chain(ChainError::CertExpired { .. }) => "chain_cert_expired",
+        PostReportError::Chain(ChainError::SignatureAlgorithmMismatch) => "chain_sig_alg_mismatch",
         PostReportError::Chain(_) => "chain_other",
     }
 }
