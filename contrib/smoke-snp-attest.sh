@@ -51,10 +51,13 @@ GUEST_CID="${QRAB_VSOCK_GUEST_CID:-4243}"
 PORT="${QRAB_VSOCK_PORT:-1337}"
 BOOT_TIMEOUT_SECS="${QRAB_VSOCK_BOOT_TIMEOUT:-30}"
 EXPECT="${QRAB_SNP_SMOKE_EXPECT:-pass}"
+RPB="${QRAB_SNP_REDUCED_PHYS_BITS:-1}"
 
 log() { echo "smoke-snp-attest: $*" >&2; }
 die() { log "error: $*"; exit 1; }
 skip() { log "skipped: $*"; exit 77; }
+
+log "reduced-phys-bits=$RPB (override via QRAB_SNP_REDUCED_PHYS_BITS)"
 
 # ---- prerequisites -------------------------------------------------------
 [[ -f "$FW" ]] || skip "no AmdSev OVMF at $FW — run contrib/build-ovmf.sh"
@@ -108,7 +111,7 @@ set +e
 timeout "$BOOT_TIMEOUT_SECS" qemu-system-x86_64 --preconfig \
     -machine q35,confidential-guest-support=sev0,firmware="$FW" \
     -m 512M -accel kvm -cpu EPYC-v4 \
-    -object sev-snp-guest,id=sev0,reduced-phys-bits=1,cbitpos=51,sev-device=/dev/sev \
+    -object sev-snp-guest,id=sev0,reduced-phys-bits=$RPB,cbitpos=51,sev-device=/dev/sev \
     -device vhost-vsock-pci,guest-cid="$GUEST_CID" \
     -nodefaults -display none -no-reboot \
     -serial file:"$SERIAL" \
