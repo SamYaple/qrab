@@ -30,6 +30,7 @@
 //! [`crate::ChainError::UnsupportedAlgorithm`] so a hostile /
 //! future cert can't sneak a weaker alg through.
 
+use core::time::Duration;
 use der::Encode;
 use qrab_snp_proto::SnpAttestationReport;
 use qrab_snp_proto::verify::{ReportSigner, VerifyError, verify_report};
@@ -39,8 +40,16 @@ use rsa::pss::VerifyingKey as PssVerifyingKey;
 use rsa::signature::Verifier;
 use rsa::{BigUint, RsaPublicKey};
 use sha2::{Digest as _, Sha256, Sha384, Sha512};
+use std::time::SystemTime;
 use x509_cert::Certificate;
 use x509_cert::der::Decode;
+
+/// Default clock-skew tolerance applied to certificate validity
+/// checks. Five minutes covers real-world NTP drift and the gap
+/// between AMD's cert-issuance clock and an end-user's laptop
+/// without opening an actual revocation-window bypass. Callers that
+/// need a tighter bound call [`verify_chain_at`] directly.
+pub const DEFAULT_CERT_SKEW: Duration = Duration::from_secs(300);
 
 use crate::ChainError;
 use crate::kds::TcbParts;
@@ -115,9 +124,44 @@ pub fn verify_chain(
     report: &SnpAttestationReport,
     expected_measurement: Option<&[u8; 48]>,
 ) -> Result<VerifiedAttestation, ChainError> {
+    verify_chain_at(
+        ark_der,
+        ask_der,
+        vcek_der,
+        report,
+        expected_measurement,
+        SystemTime::now(),
+        DEFAULT_CERT_SKEW,
+    )
+}
+
+/// [`verify_chain`] with a caller-supplied clock. Testable: hermetic
+/// callers pin `now` so validity-window assertions are deterministic.
+/// Production callers should prefer [`verify_chain`] so
+/// `SystemTime::now()` is always used and clock skew stays bounded by
+/// [`DEFAULT_CERT_SKEW`].
+pub fn verify_chain_at(
+    ark_der: &[u8],
+    ask_der: &[u8],
+    vcek_der: &[u8],
+    report: &SnpAttestationReport,
+    expected_measurement: Option<&[u8; 48]>,
+    now: SystemTime,
+    skew: Duration,
+) -> Result<VerifiedAttestation, ChainError> {
     let ark = parse_cert(ark_der)?;
     let ask = parse_cert(ask_der)?;
     let vcek = parse_cert(vcek_der)?;
+
+    // Step 0: validity windows. Expired / future-dated certs must
+    // not ride on a valid chain signature. Run before structural
+    // link checks so the rejection path is cheap and consistent
+    // (no RSA math on a cert we're about to refuse). `skew` is
+    // applied symmetrically: `now + skew >= not_before` AND
+    // `now - skew <= not_after`. R12-02.
+    check_validity(&ark, "ARK", now, skew)?;
+    check_validity(&ask, "ASK", now, skew)?;
+    check_validity(&vcek, "VCEK", now, skew)?;
 
     // Step 1: structural link checks. These are cheap DER-level
     // byte comparisons; doing them before any signature math means
@@ -184,6 +228,43 @@ pub fn verify_chain(
 fn parse_cert(der: &[u8]) -> Result<Certificate, ChainError> {
     Certificate::from_der(der)
         .map_err(|e| ChainError::X509Parse(format!("{e}")))
+}
+
+/// Enforce the cert's `Validity` window against `now`, tolerating
+/// `skew` on either side. Uses `SystemTime` arithmetic so that
+/// clock-before-epoch / time-after-notAfter overflow behaviour
+/// stays explicit (no subtraction underflow). R12-02.
+fn check_validity(
+    cert: &Certificate,
+    which: &'static str,
+    now: SystemTime,
+    skew: Duration,
+) -> Result<(), ChainError> {
+    let v = &cert.tbs_certificate.validity;
+    let not_before = v.not_before.to_system_time();
+    let not_after = v.not_after.to_system_time();
+
+    // `now + skew < not_before` — the cert is not yet usable even
+    // accounting for a host clock that leads the issuance clock.
+    if now
+        .checked_add(skew)
+        .map(|lat| lat < not_before)
+        .unwrap_or(false)
+    {
+        return Err(ChainError::CertNotYetValid { which });
+    }
+
+    // `now - skew > not_after` — the cert has been expired longer
+    // than our tolerance. Use `checked_add` on the far side so
+    // comparison is safe near the UNIX epoch.
+    if not_after
+        .checked_add(skew)
+        .map(|lat| now > lat)
+        .unwrap_or(false)
+    {
+        return Err(ChainError::CertExpired { which });
+    }
+    Ok(())
 }
 
 fn link_check(link: &'static str, actual: Vec<u8>, expected: Vec<u8>) -> Result<(), ChainError> {
@@ -988,6 +1069,65 @@ mod tests {
             matches!(err, ChainError::MissingTcbExt),
             "expected MissingTcbExt, got {err:?}"
         );
+    }
+
+    // ------- R12-02: cert validity window -------
+
+    #[test]
+    fn verify_chain_rejects_future_dated_certs() {
+        use std::time::{Duration, UNIX_EPOCH};
+        let (ark, ask, vcek) = build_test_chain();
+        // 1970-01-01: well before any plausible rcgen-generated
+        // `notBefore`, so every link should surface as
+        // CertNotYetValid — ARK is checked first, so that's the
+        // expected variant.
+        let epoch = UNIX_EPOCH + Duration::from_secs(0);
+        let err = verify_chain_at(
+            &ark, &ask, &vcek, &bogus_report(),
+            None, epoch, Duration::from_secs(60),
+        ).unwrap_err();
+        assert!(
+            matches!(err, ChainError::CertNotYetValid { which: "ARK" }),
+            "expected CertNotYetValid(ARK), got {err:?}",
+        );
+    }
+
+    #[test]
+    fn verify_chain_rejects_expired_certs() {
+        use std::time::{Duration, UNIX_EPOCH};
+        let (ark, ask, vcek) = build_test_chain();
+        // rcgen's default `notAfter` is year 4096-01-01 (~6.7e10
+        // unix-secs). Pick a time past that so every link is
+        // expired. ARK is checked first.
+        let past_4096 = UNIX_EPOCH + Duration::from_secs(100_000_000_000);
+        let err = verify_chain_at(
+            &ark, &ask, &vcek, &bogus_report(),
+            None, past_4096, Duration::from_secs(60),
+        ).unwrap_err();
+        assert!(
+            matches!(err, ChainError::CertExpired { which: "ARK" }),
+            "expected CertExpired(ARK), got {err:?}",
+        );
+    }
+
+    #[test]
+    fn verify_chain_skew_tolerance_covers_small_drift() {
+        use std::time::{Duration, SystemTime};
+        let (ark, ask, vcek) = build_test_chain();
+        // `now` one hour into the future: well inside rcgen's
+        // default validity window but also a check that the skew
+        // arithmetic doesn't overshoot. Must not reject.
+        let now = SystemTime::now() + Duration::from_secs(3600);
+        let err = verify_chain_at(
+            &ark, &ask, &vcek, &bogus_report(),
+            None, now, Duration::from_secs(300),
+        ).unwrap_err();
+        // Still expect ReportSig (report is zeros), not a validity
+        // error.
+        match err {
+            ChainError::ReportSig(_) => {}
+            other => panic!("expected ReportSig, got {other:?}"),
+        }
     }
 
     #[test]
