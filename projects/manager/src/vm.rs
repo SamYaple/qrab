@@ -257,6 +257,7 @@ struct VmProcess {
     serial_log: Option<PathBuf>,
     vnc_sock: Option<PathBuf>,
     attest_sock: Option<PathBuf>,
+    qga_sock: Option<PathBuf>,
     swtpm: Option<SwtpmProcess>,
 }
 
@@ -359,6 +360,7 @@ pub struct VmBuilder {
     initrd: Option<PathBuf>,
     append: Option<String>,
     serial: bool,
+    qga: bool,
     display: bool,
     firmware: Option<PathBuf>,
     /// Discovered OVMF firmware (auto-detected or from explicit paths)
@@ -418,6 +420,7 @@ impl VmBuilder {
             initrd: None,
             append: None,
             serial: false,
+            qga: false,
             display: false,
             firmware: None,
             ovmf: None,
@@ -454,6 +457,21 @@ impl VmBuilder {
     #[must_use]
     pub fn serial(mut self) -> Self {
         self.serial = true;
+        self
+    }
+
+    /// Enable the QEMU Guest Agent (QGA) virtio-serial channel.
+    ///
+    /// Creates a Unix socket the host can connect to, exposed inside the
+    /// guest as `/dev/virtio-ports/org.qemu.guest_agent.0`. The guest
+    /// must run `qemu-guest-agent` for the channel to be useful.
+    ///
+    /// Reuses the existing `virtio-serial-pci` bus if SEV-SNP is also
+    /// enabled (the attest channel already creates one, and QEMU rejects
+    /// two PCI controllers with the same id).
+    #[must_use]
+    pub fn qga(mut self) -> Self {
+        self.qga = true;
         self
     }
 
@@ -1098,6 +1116,35 @@ impl VmBuilder {
             None
         };
 
+        // QEMU Guest Agent (QGA) virtio-serial channel.
+        // Creates a Unix socket the host can connect to, exposed inside the
+        // guest as /dev/virtio-ports/org.qemu.guest_agent.0. If SEV-SNP is
+        // also enabled the attest chardev above already created a
+        // virtio-serial-pci controller; adding another with the same id
+        // would be rejected by QEMU, so we only emit a new controller when
+        // the attest path did not.
+        let qga_sock = if self.qga {
+            let sock = tmpdir.path().join("qga.sock");
+            if attest_sock.is_none() {
+                args.extend([
+                    "-device".into(),
+                    "virtio-serial-pci,id=virtio-serial-qga".into(),
+                ]);
+            }
+            args.extend([
+                "-chardev".into(),
+                format!(
+                    "socket,id=qga-chardev,path={},server=on,wait=off",
+                    sock.display()
+                ),
+                "-device".into(),
+                "virtserialport,chardev=qga-chardev,name=org.qemu.guest_agent.0".into(),
+            ]);
+            Some(sock)
+        } else {
+            None
+        };
+
         // Boot args
         args.extend(self.build_boot_args());
 
@@ -1326,6 +1373,7 @@ impl VmBuilder {
                 serial_log,
                 vnc_sock,
                 attest_sock,
+                qga_sock,
                 swtpm: swtpm_process,
             },
             // SEV-SNP forces --preconfig even with display (see arg selection above).
@@ -1382,6 +1430,16 @@ impl PreconfigVm {
     #[must_use]
     pub fn attest_sock(&self) -> Option<&PathBuf> {
         self.process.attest_sock.as_ref()
+    }
+
+    /// Path to the QEMU Guest Agent (QGA) Unix socket, if QGA was enabled.
+    ///
+    /// The guest sees this as `/dev/virtio-ports/org.qemu.guest_agent.0`.
+    /// The host connects to this Unix socket to speak the QGA JSON-RPC
+    /// protocol with a `qemu-guest-agent` running in the guest.
+    #[must_use]
+    pub fn qga_sock(&self) -> Option<&PathBuf> {
+        self.process.qga_sock.as_ref()
     }
 
     /// Watch channel observing the QEMU process exit status.
@@ -1483,6 +1541,12 @@ impl Vm {
     #[must_use]
     pub fn attest_sock(&self) -> Option<&PathBuf> {
         self.process.attest_sock.as_ref()
+    }
+
+    /// Path to the QEMU Guest Agent (QGA) Unix socket, if QGA was enabled.
+    #[must_use]
+    pub fn qga_sock(&self) -> Option<&PathBuf> {
+        self.process.qga_sock.as_ref()
     }
 
     /// Watch channel observing the QEMU process exit status.
