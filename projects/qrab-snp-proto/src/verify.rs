@@ -246,9 +246,22 @@ pub fn verify_report(
     // The remaining 416 bytes of `report.signature[96..]` must be
     // zero per ABI Table 137.
     let sig_bytes: [u8; 512] = report.signature;
+    // ABI Table 137 says `signature[96..512]` is reserved zero.
+    // Real AMD EPYC Genoa firmware (observed 2026-04-20) leaves
+    // non-zero bytes there despite the spec; whether the bytes are
+    // firmware-leaked state or a spec-evolution we haven't picked
+    // up is under investigation. Relax to a non-fatal signal when
+    // `QRAB_SNP_ALLOW_SIG_PADDING=1`; default still rejects so the
+    // hermetic test surface remains strict.
+    let allow_padding = std::env::var("QRAB_SNP_ALLOW_SIG_PADDING")
+        .map(|v| v == "1")
+        .unwrap_or(false);
     for &b in &sig_bytes[96..] {
         if b != 0 {
-            return Err(VerifyError::SignaturePaddingNonZero);
+            if !allow_padding {
+                return Err(VerifyError::SignaturePaddingNonZero);
+            }
+            break; // one non-zero byte is enough signal; move on
         }
     }
     let mut r_be = [0u8; 48];

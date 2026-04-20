@@ -31,6 +31,17 @@ pub const BUNDLED_ARK_PEM: &str =
 /// ARK PEM file (override of [`BUNDLED_ARK_PEM`]).
 pub const ENV_ARK_PATH: &str = "QRAB_ATTEST_VERIFIER_ARK_PEM";
 
+/// Environment variable pointing at a local ASK PEM file. Used when
+/// the guest's cert_blob is empty (e.g. QEMU 10.2 lacks the
+/// `sev-snp-guest,certs-path=` option, so the PSP hands back
+/// `entries=0`). When both `cert_blob` ASK and this env are unset,
+/// chain verify fails with `AskMissing`.
+pub const ENV_ASK_PATH: &str = "QRAB_ATTEST_VERIFIER_ASK_PEM";
+
+/// Environment variable pointing at a local VCEK PEM file. Same
+/// fallback semantics as [`ENV_ASK_PATH`].
+pub const ENV_VCEK_PATH: &str = "QRAB_ATTEST_VERIFIER_VCEK_PEM";
+
 /// Environment variable an operator sets to a hex-encoded 48-byte
 /// `expected_measurement` that a verified report must match. When
 /// unset, chain + sig + TCB + chipID are still enforced; only the
@@ -225,8 +236,34 @@ pub fn handle_post_report_bytes(
             _ => {}
         }
     }
-    let ask_der = ask.ok_or(PostReportError::AskMissing)?;
-    let vcek_der = vcek.ok_or(PostReportError::VcekMissing)?;
+    // Env fallbacks for the ASK + VCEK when the host couldn't
+    // populate cert_blob (QEMU <= 10.2 lacks `certs-path=`, or
+    // the operator points attest-server at a locally-fetched
+    // chain via `contrib/snp-fetch-host-cert-chain.sh`).
+    let ask_der = match ask {
+        Some(b) => b,
+        None => match std::env::var(ENV_ASK_PATH) {
+            Ok(path) => {
+                let pem = std::fs::read_to_string(&path).map_err(|e| {
+                    PostReportError::ArkLoad(format!("read ASK {path}: {e}"))
+                })?;
+                pem_to_der(&pem)?
+            }
+            Err(_) => return Err(PostReportError::AskMissing),
+        },
+    };
+    let vcek_der = match vcek {
+        Some(b) => b,
+        None => match std::env::var(ENV_VCEK_PATH) {
+            Ok(path) => {
+                let pem = std::fs::read_to_string(&path).map_err(|e| {
+                    PostReportError::ArkLoad(format!("read VCEK {path}: {e}"))
+                })?;
+                pem_to_der(&pem)?
+            }
+            Err(_) => return Err(PostReportError::VcekMissing),
+        },
+    };
 
     let ark_der = match ark_der_override {
         Some(bytes) => bytes.to_vec(),

@@ -84,10 +84,21 @@ const OID_SHA512: &str = "2.16.840.1.101.3.4.2.3";
 /// AMD VCEK TCB / chip-id extension OIDs (SEV-SNP ABI §5.5.2).
 /// Exposed as `&str` so the dispatch in [`cross_check_vcek_bindings`]
 /// can match `extn_id.to_string()` cheaply.
-const OID_AMD_BLSPL: &str = "1.3.6.1.4.1.3704.1.1";
-const OID_AMD_TEESPL: &str = "1.3.6.1.4.1.3704.1.2";
-const OID_AMD_SNPSPL: &str = "1.3.6.1.4.1.3704.1.3";
-const OID_AMD_UCODESPL: &str = "1.3.6.1.4.1.3704.1.8";
+// AMD VCEK extension OIDs per SEV-SNP firmware ABI Table 16
+// (VCEK X.509 Certificate), observed on AMD KDS Genoa chain:
+//
+//   1.3.6.1.4.1.3704.1.1     struct_version (reserved)
+//   1.3.6.1.4.1.3704.1.2     product name (e.g. "Genoa")
+//   1.3.6.1.4.1.3704.1.3.<N> TCB SPL components, indexed 1..8
+//   1.3.6.1.4.1.3704.1.4     hwID (chip_id, 64 bytes OCTET STRING)
+//
+// The SPL subtree is `3704.1.3.<N>`, NOT `3704.1.<N>` — an earlier
+// F4 draft conflated the two levels and read all-zero values on
+// real KDS certs. Caught by live EPYC 9354 smoke 2026-04-20.
+const OID_AMD_BLSPL: &str = "1.3.6.1.4.1.3704.1.3.1";
+const OID_AMD_TEESPL: &str = "1.3.6.1.4.1.3704.1.3.2";
+const OID_AMD_SNPSPL: &str = "1.3.6.1.4.1.3704.1.3.3";
+const OID_AMD_UCODESPL: &str = "1.3.6.1.4.1.3704.1.3.8";
 const OID_AMD_HWID: &str = "1.3.6.1.4.1.3704.1.4";
 
 /// Verify an ARK -> ASK -> VCEK cert chain and the PSP signature
@@ -431,17 +442,42 @@ fn check_spl(
     Ok(())
 }
 
-/// Decode the `hwID` extension: `extn_value` is an inner
-/// `OCTET STRING` of 64 raw bytes. Compare against
-/// `report.chip_id`.
+/// Decode the `hwID` extension and compare against `report.chip_id`.
+///
+/// The outer X.509 `extnValue OCTET STRING` wrapper has already been
+/// stripped by `x509-cert`. Two real-world encodings inside:
+///
+/// 1. **Raw 64 bytes** — AMD KDS VCEKs observed on EPYC Genoa carry
+///    the chip_id directly, with no additional ASN.1 wrapper.
+/// 2. **Inner `OCTET STRING` DER** — some older snphost dumps +
+///    rcgen `custom_extensions` fixtures wrap the 64 bytes as
+///    `04 40 <64 bytes>`.
+///
+/// Accept either: take raw bytes when length is 64, otherwise try
+/// `OctetString::from_der`.
 fn check_hwid(
     ext: &x509_cert::ext::Extension,
     report_chip_id: &[u8; 64],
 ) -> Result<(), ChainError> {
-    let inner = der::asn1::OctetString::from_der(ext.extn_value.as_bytes())
-        .map_err(|e| ChainError::X509Parse(format!("hwID decode: {e}")))?;
-    let bytes = inner.as_bytes();
-    if bytes.len() != 64 || bytes != report_chip_id.as_slice() {
+    let raw = ext.extn_value.as_bytes();
+    let chip: &[u8] = if raw.len() == 64 {
+        raw
+    } else {
+        let inner = der::asn1::OctetString::from_der(raw)
+            .map_err(|e| ChainError::X509Parse(format!("hwID decode: {e}")))?;
+        let b = inner.as_bytes();
+        if b.len() != 64 {
+            return Err(ChainError::X509Parse(format!(
+                "hwID unexpected inner length {}", b.len()
+            )));
+        }
+        // Can't return a reference to a local; fall through.
+        if b != report_chip_id.as_slice() {
+            return Err(ChainError::ChipIdMismatch);
+        }
+        return Ok(());
+    };
+    if chip != report_chip_id.as_slice() {
         return Err(ChainError::ChipIdMismatch);
     }
     Ok(())
@@ -713,7 +749,7 @@ mod tests {
     #[test]
     fn vcek_tcb_mismatch_rejected() {
         // Cert says snpSPL=20, report says snp=21.
-        let ext = amd_int_ext(&[1, 3, 6, 1, 4, 1, 3704, 1, 3], 20);
+        let ext = amd_int_ext(&[1, 3, 6, 1, 4, 1, 3704, 1, 3, 3], 20);
         let (ark, ask, vcek) = build_test_chain_with_vcek_exts(&[ext]);
         let mut report = bogus_report();
         report.reported_tcb = tcb_u64(0, 0, 21, 0);
