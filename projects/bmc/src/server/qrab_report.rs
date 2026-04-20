@@ -141,28 +141,24 @@ fn fetched_at_now() -> String {
 #[server]
 pub async fn fetch_qrab_report() -> Result<QrabReportStatus, ServerFnError> {
     use base64::Engine;
-    use crate::state::{bmc, VmState};
+    use crate::state::{bmc, QgaSockProbe};
 
     let state = bmc();
 
-    // Gate on VmState::Running without holding the lock across QGA I/O.
-    // The guard is released before the first `.await` below so UI polls
-    // for other server fns (status, CPU info) are not blocked by a
-    // wedged guest agent.
-    {
-        let vm_guard = state.vm.lock().await;
-        if !matches!(&*vm_guard, VmState::Running(_)) {
-            return Ok(QrabReportStatus::Absent);
-        }
-    }
-
-    let qga_sock = match state.qga_sock().await {
-        Some(p) => p,
-        None => {
+    // B13-3: single atomic probe. Previously we did an "is Running?"
+    // lock-release followed by a "get qga_sock?" lock-release, which
+    // raced with shutdown and mis-reported a stale VM as
+    // "qga_sock not on VmProcess". The probe holds the lock across
+    // both checks and is released before any `.await` below so UI
+    // polls (status, CPU info) are not blocked by a wedged agent.
+    let qga_sock = match state.qga_sock_probe().await {
+        QgaSockProbe::NotRunning => return Ok(QrabReportStatus::Absent),
+        QgaSockProbe::NoQgaSocket => {
             return Ok(QrabReportStatus::Failed {
                 reason: "qga_sock not on VmProcess".into(),
             });
         }
+        QgaSockProbe::Ok(p) => p,
     };
 
     // B13-4: every QGA call needs a timeout. A wedged guest agent
