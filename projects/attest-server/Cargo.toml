@@ -15,6 +15,11 @@ path = "src/main.rs"
 
 [dependencies]
 qrab-boot-proto = { path = "../qrab-boot-proto", features = ["std"] }
+# F2: server-side chain walker + SnpAttestationReport byte cast.
+qrab-snp-proto = { path = "../qrab-snp-proto", features = ["std", "alloc"] }
+qrab-attest-verifier = { path = "../qrab-attest-verifier" }
+zerocopy = { version = "0.8", features = ["derive"] }
+base64 = "0.22"
 vsock = "0.5"
 anyhow = { workspace = true }
 # ECDSA-P256 signing of the attestation response. `pem` feature so an

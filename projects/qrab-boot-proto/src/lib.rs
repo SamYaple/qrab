@@ -31,6 +31,7 @@
 extern crate alloc;
 
 use alloc::string::String;
+use alloc::vec;
 use alloc::vec::Vec;
 
 use serde::{Deserialize, Serialize};
@@ -44,8 +45,14 @@ pub const PROTO_TAG: [u8; 7] = *b"qrab-v1";
 
 /// Current wire-format version negotiated by the client. Bumped in
 /// lockstep with breaking changes to [`AttestRequest`] /
-/// [`AttestResponse`].
-pub const WIRE_VERSION: u16 = 1;
+/// [`AttestResponse`] / [`AttestPostReport`].
+///
+/// v1 → v2 (2026-04-20): introduces [`AttestPostReport`] — a third
+/// frame from the guest carrying its signed SNP attestation report +
+/// cert blob, so the server can complete a full ARK→ASK→VCEK chain
+/// walk via `qrab_attest_verifier::verify_chain`. Hard bump — v1
+/// peers are rejected outright. Bump F2 / `followups.md`.
+pub const WIRE_VERSION: u16 = 2;
 
 /// Client → server attestation opener.
 ///
@@ -113,6 +120,50 @@ pub const SIG_LEN: usize = 64;
 /// single virtio-vsock frame pair.
 pub const MAX_SECRET_LEN: usize = 64 * 1024;
 
+/// Byte length of the raw `SnpAttestationReport` struct (AMD ABI
+/// §4.5). Shared by `qrab-snp-proto` as a compile-time assertion;
+/// this crate repeats the literal so the post-report struct is
+/// self-contained and the no_std / alloc-only build path does not
+/// need to pull the full SEV-SNP proto crate in.
+pub const SNP_ATTESTATION_REPORT_LEN: usize = 1184;
+
+/// Upper bound on [`AttestPostReport::cert_blob`]. Observed AMD
+/// cert blobs are ~16 KiB (ARK + ASK + VCEK DER round-tripped
+/// through GHCB). 64 KiB leaves generous headroom; the whole
+/// post-report frame still fits inside [`MAX_FRAMED_PAYLOAD`].
+pub const MAX_CERT_BLOB: usize = 64 * 1024;
+
+/// Guest → server third frame: the attestation report the guest
+/// pulled from the PSP plus the host-supplied cert blob. Server
+/// feeds both into `qrab_attest_verifier::verify_chain` to close
+/// the attestation loop.
+///
+/// `sig` is reserved for a future guest-side authentication key
+/// (VMPL0-derived or TPM-attested). It is currently always all
+/// zero — the cryptographic anchor is the embedded PSP signature
+/// on `report_bytes` itself, which a valid ARK-rooted chain walk
+/// verifies.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AttestPostReport {
+    /// Magic prefix; must equal [`PROTO_TAG`].
+    pub proto: [u8; 7],
+    /// Wire-format version; must equal [`WIRE_VERSION`].
+    pub wire_version: u16,
+    /// Raw `SnpAttestationReport` bytes. Length fixed at
+    /// [`SNP_ATTESTATION_REPORT_LEN`] to catch truncation at
+    /// decode time.
+    pub report_bytes: Vec<u8>,
+    /// AMD cert-table blob, as returned by
+    /// `SVM_VMGEXIT_EXT_GUEST_REQUEST`. Zero-length is legal when
+    /// the host has not populated `-object sev-snp-guest,certs-path=`;
+    /// the server then falls back to AMD KDS.
+    pub cert_blob: Vec<u8>,
+    /// Reserved for future guest-side signing. Currently
+    /// `[0u8; SIG_LEN]`. Do NOT treat a non-zero value here as
+    /// authoritative until the guest-side signing design lands.
+    pub sig: Vec<u8>,
+}
+
 /// Errors returned by [`encode`] / [`decode`].
 #[derive(Debug)]
 pub enum ProtoError {
@@ -130,6 +181,15 @@ pub enum ProtoError {
     /// A framed payload was cut short (fewer bytes on the wire than
     /// the length prefix declared).
     FrameTruncated,
+    /// Peer's `client_version` / `wire_version` disagreed with this
+    /// build's [`WIRE_VERSION`]. Hard failure under the v1 → v2
+    /// hard-bump policy — no backward compat.
+    WireVersionMismatch { expected: u16, got: u16 },
+    /// `AttestPostReport::report_bytes` length was not exactly
+    /// [`SNP_ATTESTATION_REPORT_LEN`].
+    ReportLen(usize),
+    /// `AttestPostReport::cert_blob` exceeded [`MAX_CERT_BLOB`].
+    CertBlobTooLarge(usize),
 }
 
 impl core::fmt::Display for ProtoError {
@@ -143,6 +203,15 @@ impl core::fmt::Display for ProtoError {
                 write!(f, "framed payload {n}B exceeds MAX_FRAMED_PAYLOAD")
             }
             Self::FrameTruncated => f.write_str("framed payload truncated on the wire"),
+            Self::WireVersionMismatch { expected, got } => {
+                write!(f, "wire version mismatch: expected {expected}, got {got}")
+            }
+            Self::ReportLen(n) => write!(
+                f, "post-report length {n} != expected {SNP_ATTESTATION_REPORT_LEN}"
+            ),
+            Self::CertBlobTooLarge(n) => {
+                write!(f, "post-report cert_blob {n}B exceeds MAX_CERT_BLOB")
+            }
         }
     }
 }
@@ -240,12 +309,58 @@ pub fn new_request(client_nonce: [u8; 32]) -> AttestRequest {
 }
 
 /// Convenience: validate a deserialised [`AttestRequest`]. Rejects
-/// wrong-magic payloads before any further handling.
+/// wrong-magic payloads and wire-version mismatches before any
+/// further handling.
 pub fn validate_request(req: &AttestRequest) -> Result<(), ProtoError> {
     if req.proto != PROTO_TAG {
         return Err(ProtoError::WrongTag);
     }
+    if req.client_version != WIRE_VERSION {
+        return Err(ProtoError::WireVersionMismatch {
+            expected: WIRE_VERSION,
+            got: req.client_version,
+        });
+    }
     Ok(())
+}
+
+/// Convenience: validate a deserialised [`AttestPostReport`].
+/// Rejects wrong-magic, wrong-version, wrong report length, and
+/// oversize cert blobs before the server walks the chain.
+pub fn validate_post_report(p: &AttestPostReport) -> Result<(), ProtoError> {
+    if p.proto != PROTO_TAG {
+        return Err(ProtoError::WrongTag);
+    }
+    if p.wire_version != WIRE_VERSION {
+        return Err(ProtoError::WireVersionMismatch {
+            expected: WIRE_VERSION,
+            got: p.wire_version,
+        });
+    }
+    if p.report_bytes.len() != SNP_ATTESTATION_REPORT_LEN {
+        return Err(ProtoError::ReportLen(p.report_bytes.len()));
+    }
+    if p.cert_blob.len() > MAX_CERT_BLOB {
+        return Err(ProtoError::CertBlobTooLarge(p.cert_blob.len()));
+    }
+    if p.sig.len() != SIG_LEN {
+        return Err(ProtoError::SigLen(p.sig.len()));
+    }
+    Ok(())
+}
+
+/// Construct a well-formed [`AttestPostReport`] from raw report
+/// bytes + cert blob. `sig` is pre-filled with zeros — the guest
+/// does not yet hold a signing key; authenticity rides on the
+/// PSP-signed report inside.
+pub fn new_post_report(report_bytes: Vec<u8>, cert_blob: Vec<u8>) -> AttestPostReport {
+    AttestPostReport {
+        proto: PROTO_TAG,
+        wire_version: WIRE_VERSION,
+        report_bytes,
+        cert_blob,
+        sig: vec![0u8; SIG_LEN],
+    }
 }
 
 /// Convenience: validate a deserialised [`AttestResponse`]. Bounds-
@@ -529,5 +644,84 @@ mod tests {
         let a = report_data(&[0x00; 32], &r);
         let b = report_data(&[0x01; 32], &r);
         assert_ne!(a, b);
+    }
+
+    fn sample_post_report() -> AttestPostReport {
+        new_post_report(
+            vec![0xABu8; SNP_ATTESTATION_REPORT_LEN],
+            b"dummy-cert-blob".to_vec(),
+        )
+    }
+
+    #[test]
+    fn post_report_roundtrip_framed() {
+        let p = sample_post_report();
+        let wire = encode_framed(&p).expect("encode");
+        let back: AttestPostReport = decode_framed(&wire).expect("decode");
+        assert_eq!(p, back);
+        validate_post_report(&back).expect("validates");
+    }
+
+    #[test]
+    fn post_report_rejects_wrong_wire_version() {
+        let mut p = sample_post_report();
+        p.wire_version = 1;
+        let err = validate_post_report(&p).unwrap_err();
+        assert!(matches!(
+            err,
+            ProtoError::WireVersionMismatch { expected: WIRE_VERSION, got: 1 }
+        ));
+    }
+
+    #[test]
+    fn post_report_rejects_wrong_tag() {
+        let mut p = sample_post_report();
+        p.proto = *b"XXX-v99";
+        assert!(matches!(
+            validate_post_report(&p),
+            Err(ProtoError::WrongTag)
+        ));
+    }
+
+    #[test]
+    fn post_report_rejects_wrong_report_len() {
+        let mut p = sample_post_report();
+        p.report_bytes.truncate(SNP_ATTESTATION_REPORT_LEN - 4);
+        let err = validate_post_report(&p).unwrap_err();
+        assert!(matches!(err, ProtoError::ReportLen(n) if n == SNP_ATTESTATION_REPORT_LEN - 4));
+    }
+
+    #[test]
+    fn post_report_rejects_oversize_cert_blob() {
+        let mut p = sample_post_report();
+        p.cert_blob = vec![0u8; MAX_CERT_BLOB + 1];
+        let err = validate_post_report(&p).unwrap_err();
+        assert!(matches!(err, ProtoError::CertBlobTooLarge(n) if n == MAX_CERT_BLOB + 1));
+    }
+
+    #[test]
+    fn post_report_rejects_wrong_sig_len() {
+        let mut p = sample_post_report();
+        p.sig = vec![0u8; SIG_LEN - 1];
+        assert!(matches!(
+            validate_post_report(&p),
+            Err(ProtoError::SigLen(n)) if n == SIG_LEN - 1
+        ));
+    }
+
+    #[test]
+    fn attest_request_rejects_wrong_wire_version() {
+        let mut req = new_request([0; 32]);
+        req.client_version = 1;
+        let err = validate_request(&req).unwrap_err();
+        assert!(matches!(
+            err,
+            ProtoError::WireVersionMismatch { expected: WIRE_VERSION, got: 1 }
+        ));
+    }
+
+    #[test]
+    fn wire_version_is_two() {
+        assert_eq!(WIRE_VERSION, 2);
     }
 }

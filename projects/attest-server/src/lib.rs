@@ -17,6 +17,8 @@ use qrab_boot_proto::{
     AttestRequest, AttestResponse, ProtoError, SIG_LEN, decode_framed, encode_framed,
     response_signing_digest, validate_request,
 };
+
+pub mod verify;
 use rand_core::{OsRng, RngCore};
 use sha2::Digest as _;
 

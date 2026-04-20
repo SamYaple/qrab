@@ -26,6 +26,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use anyhow::{Context, Result, bail};
+use attest_server::verify::{handle_post_report_bytes, reason};
 use attest_server::{STUB_UKI, Signer, handle_request_bytes};
 use qrab_boot_proto::{FRAME_PREFIX_LEN, MAX_FRAMED_PAYLOAD};
 use vsock::{VsockAddr, VsockListener, VsockStream, VMADDR_CID_ANY};
@@ -281,6 +282,35 @@ fn handle(
         reply_bytes.len(),
         uki_frame.len()
     );
+
+    // F2 — wire v2: guest sends AttestPostReport after consuming
+    // the UKI frame. Chain-walk via qrab_attest_verifier::verify_chain.
+    // Best-effort: a v1 guest or a host without `certs-path=` set
+    // produces a clean no-op path.
+    match read_framed(&mut stream) {
+        Ok(post_bytes) => match handle_post_report_bytes(&post_bytes, None, None) {
+            Ok(v) => eprintln!(
+                "attest-server: QRAB_SNP_POST_VERIFY_OK chain=ark->ask->vcek \
+                 signer={:?} measurement_prefix={:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
+                v.signer,
+                v.report.measurement[0], v.report.measurement[1],
+                v.report.measurement[2], v.report.measurement[3],
+                v.report.measurement[4], v.report.measurement[5],
+                v.report.measurement[6], v.report.measurement[7],
+            ),
+            Err(e) => eprintln!(
+                "attest-server: QRAB_SNP_POST_VERIFY_FAIL reason={} detail={}",
+                reason(&e), e
+            ),
+        },
+        Err(_) => {
+            // No post-report frame arrived — v1-shaped client, or
+            // the guest skipped the SNP branch on TCG. Not an
+            // error from the server's perspective.
+            eprintln!("attest-server: QRAB_SNP_POST_VERIFY_SKIP no_frame");
+        }
+    }
+
     drop(stream);
     Ok(())
 }
