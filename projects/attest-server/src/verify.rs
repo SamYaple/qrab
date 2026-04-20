@@ -22,6 +22,17 @@ use qrab_snp_proto::cert_table::{CertKind, parse_cert_table};
 use sha2::{Digest, Sha256};
 use zerocopy::FromBytes;
 
+// B12-14: qrab-boot-proto hard-codes SNP_ATTESTATION_REPORT_LEN
+// (1184 per AMD ABI §4.5) without depending on qrab-snp-proto. Both
+// crates are linked here, so pin the two constants against each
+// other at compile time. A future ABI rev that bumps the report
+// size must update both sides or fail to build.
+const _: () = assert!(
+    core::mem::size_of::<SnpAttestationReport>() == SNP_ATTESTATION_REPORT_LEN,
+    "qrab_snp_proto::SnpAttestationReport size drifted from \
+     qrab_boot_proto::SNP_ATTESTATION_REPORT_LEN — update both",
+);
+
 /// Built-in AMD ARK-Genoa cert (real, as of 2026-04-20). See
 /// `contrib/snp-cert-pins/README.md`. Operators may override via
 /// [`ENV_ARK_PATH`] if a newer ARK generation is in play.

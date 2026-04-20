@@ -362,7 +362,11 @@ fn handle(
     replay_cache: &Mutex<Option<Vec<u8>>>,
     replay_cache_path: Option<&str>,
 ) -> Result<()> {
-    let request_bytes = read_framed(&mut stream).context("reading attestation request")?;
+    // The first frame (AttestRequest) is required — a peer that
+    // closes before sending it is a protocol error, not a skip.
+    let request_bytes = read_framed(&mut stream)
+        .context("reading attestation request")?
+        .ok_or_else(|| anyhow::anyhow!("peer closed before sending AttestRequest"))?;
 
     let reply_bytes = if fault == Fault::Replay {
         // Cached? Serve verbatim. Else run real handler, store, serve.
@@ -436,7 +440,7 @@ fn handle(
     // Best-effort: a v1 guest or a host without `certs-path=` set
     // produces a clean no-op path.
     match read_framed(&mut stream) {
-        Ok(post_bytes) => match handle_post_report_bytes(&post_bytes, None, None) {
+        Ok(Some(post_bytes)) => match handle_post_report_bytes(&post_bytes, None, None) {
             Ok(outcome) => {
                 let v = &outcome.verified;
                 // Distinct token when the chain walk succeeded but
@@ -462,11 +466,19 @@ fn handle(
                 reason(&e), e
             ),
         },
-        Err(_) => {
-            // No post-report frame arrived — v1-shaped client, or
-            // the guest skipped the SNP branch on TCG. Not an
-            // error from the server's perspective.
+        Ok(None) => {
+            // Clean EOF: a v1-shaped client or a TCG guest that
+            // skipped the SNP branch. Not a server-side error.
             eprintln!("attest-server: QRAB_SNP_POST_VERIFY_SKIP no_frame");
+        }
+        Err(e) => {
+            // Mid-frame truncation or underlying IO failure.
+            // Distinct token from the clean-EOF skip so a fuzzer or
+            // a network regression cannot hide behind `no_frame`
+            // (B12-13).
+            eprintln!(
+                "attest-server: QRAB_SNP_POST_VERIFY_IO_ERR detail={e}"
+            );
         }
     }
 
@@ -477,11 +489,40 @@ fn handle(
 /// Read one length-prefixed frame off the stream, returning the
 /// full `prefix || body` buffer so the caller can feed it directly
 /// into `qrab_boot_proto::decode_framed`.
-fn read_framed(stream: &mut VsockStream) -> Result<Vec<u8>> {
+/// Read a length-prefixed frame off `stream`.
+///
+/// Returns:
+/// * `Ok(Some(bytes))` — full `prefix || body` frame.
+/// * `Ok(None)` — client cleanly closed the stream before sending
+///   any bytes, i.e. a v1-shaped client or a TCG guest that skipped
+///   the SNP post-report path. Treated as "no frame", not an error.
+/// * `Err(_)` — partial frame (prefix read, body short) or any
+///   other IO failure. Discriminated at the call site so the log
+///   token distinguishes a peer protocol mismatch from a network /
+///   read error that hides a real regression. B12-13.
+fn read_framed(stream: &mut VsockStream) -> Result<Option<Vec<u8>>> {
+    use std::io::{ErrorKind, Read as _};
     let mut prefix = [0u8; FRAME_PREFIX_LEN];
-    stream
-        .read_exact(&mut prefix)
-        .context("reading frame prefix")?;
+    let mut read = 0;
+    while read < FRAME_PREFIX_LEN {
+        let n = match stream.read(&mut prefix[read..]) {
+            Ok(0) => {
+                // Connection closed. If we got zero bytes up to this
+                // point, it's a clean EOF — signal via `Ok(None)`.
+                // If we got 1..=3 bytes and then EOF, that's a
+                // partial-frame error because the peer promised a
+                // length-prefix and truncated mid-way.
+                if read == 0 {
+                    return Ok(None);
+                }
+                bail!("read_framed: EOF after {read}/{FRAME_PREFIX_LEN} prefix bytes");
+            }
+            Ok(n) => n,
+            Err(e) if e.kind() == ErrorKind::Interrupted => continue,
+            Err(e) => return Err(anyhow::Error::new(e).context("reading frame prefix")),
+        };
+        read += n;
+    }
     let len = u32::from_le_bytes(prefix) as usize;
     if len > MAX_FRAMED_PAYLOAD {
         bail!("declared frame length {len} exceeds MAX_FRAMED_PAYLOAD");
@@ -495,5 +536,5 @@ fn read_framed(stream: &mut VsockStream) -> Result<Vec<u8>> {
     let mut full = Vec::with_capacity(FRAME_PREFIX_LEN + len);
     full.extend_from_slice(&prefix);
     full.extend_from_slice(&body);
-    Ok(full)
+    Ok(Some(full))
 }

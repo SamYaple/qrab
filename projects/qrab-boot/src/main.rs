@@ -398,7 +398,12 @@ fn run_vsock_demo() -> Result<VsockSession, ()> {
                         // logged above — the attest chain itself
                         // is cryptographically bound, and the
                         // cert chain is a convenience for host-side
-                        // verification (A03).
+                        // verification (A03). Log fields extracted
+                        // from the scan so we don't have to hold a
+                        // borrow of `cert_bytes` past the
+                        // `new_post_report` consume below (B12-11:
+                        // avoid an up-to-64 KiB clone).
+                        let cert_blob_len = cert_bytes.len();
                         match qrab_snp_proto::cert_table::parse_cert_table(&cert_bytes) {
                             Ok(entries) => {
                                 let mut vcek_der_len = 0usize;
@@ -416,7 +421,7 @@ fn run_vsock_demo() -> Result<VsockSession, ()> {
                                     entries.len(),
                                     vcek_der_len,
                                     vlek_der_len,
-                                    cert_bytes.len(),
+                                    cert_blob_len,
                                 );
                             }
                             Err(e) => log::warn!("QRAB_SNP_CERT_PARSE_ERR {e}"),
@@ -427,15 +432,15 @@ fn run_vsock_demo() -> Result<VsockSession, ()> {
                         // `#[repr(C, packed)]` with `FromBytes +
                         // IntoBytes` derives; turn it into a Vec
                         // via the zerocopy IntoBytes impl. The
-                        // cert_bytes blob is forwarded verbatim so
-                        // the host walker reuses its existing
-                        // cert-table parser.
+                        // cert_bytes blob is consumed verbatim
+                        // (B12-11: no clone — peak cert_blob is
+                        // ~64 KiB on extended guest-request).
                         use zerocopy::IntoBytes as _;
                         let report_vec: alloc::vec::Vec<u8> =
                             report.as_bytes().to_vec();
                         let post = qrab_boot_proto::new_post_report(
                             report_vec,
-                            cert_bytes.clone(),
+                            cert_bytes,
                         );
                         match qrab_boot_proto::encode_framed(&post) {
                             Ok(bytes) => post_report_frame = Some(bytes),
