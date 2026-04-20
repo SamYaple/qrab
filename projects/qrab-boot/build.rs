@@ -51,6 +51,7 @@ fn main() {
     println!("cargo::rustc-check-cfg=cfg(qrab_no_fixtures)");
     println!("cargo::rustc-check-cfg=cfg(qrab_no_server_pubkey)");
     println!("cargo::rustc-check-cfg=cfg(qrab_uki_boot)");
+    println!("cargo::rustc-check-cfg=cfg(qrab_require_snp)");
 
     println!("cargo:rerun-if-changed=build.rs");
     for name in FIXTURES {
@@ -59,6 +60,7 @@ fn main() {
     }
     println!("cargo:rerun-if-env-changed=QRAB_ATTEST_PUBKEY_SEC1");
     println!("cargo:rerun-if-env-changed=QRAB_UKI_BOOT");
+    println!("cargo:rerun-if-env-changed=QRAB_REQUIRE_SNP");
 
     // Phase 5 StartImage: the terminal `LoadImage` + `StartImage`
     // path in `src/uki.rs` is gated on this cfg. Default builds (TCG
@@ -68,6 +70,17 @@ fn main() {
     // (matrix tests, BMC boots) set `QRAB_UKI_BOOT=1`.
     if env::var_os("QRAB_UKI_BOOT").map(|v| v == "1").unwrap_or(false) {
         println!("cargo:rustc-cfg=qrab_uki_boot");
+    }
+
+    // F6 scenario 9: a build with `QRAB_REQUIRE_SNP=1` emits a cfg
+    // that makes `main.rs` hard-fail when `ghcb::detect()` reports
+    // no SEV-SNP. Lets the matrix prove an SNP-locked bootloader
+    // refuses to run on a non-SNP (TCG / plain-KVM) host.
+    if env::var_os("QRAB_REQUIRE_SNP")
+        .map(|v| v == "1")
+        .unwrap_or(false)
+    {
+        println!("cargo:rustc-cfg=qrab_require_snp");
     }
 
     let out = PathBuf::from(env::var_os("OUT_DIR").expect("OUT_DIR unset"));
