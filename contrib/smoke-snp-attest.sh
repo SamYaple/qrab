@@ -104,11 +104,24 @@ log "launching SNP guest (guest_cid=$GUEST_CID, ~${BOOT_TIMEOUT_SECS}s)"
 QMP="$OUT/qmp.sock"
 rm -f "$QMP"
 
+# F2: optional host cert-chain population. When
+# QRAB_SNP_USE_CERT_CHAIN=1, extend the sev-snp-guest object with
+# `certs-path=` so the PSP hands the guest a non-empty cert blob
+# (ARK || ASK || VCEK DER entries). Default off keeps existing
+# smoke behaviour unchanged.
+SNP_OBJ="sev-snp-guest,id=sev0,reduced-phys-bits=1,cbitpos=51,sev-device=/dev/sev"
+if [[ "${QRAB_SNP_USE_CERT_CHAIN:-0}" == "1" ]]; then
+    CERT_DIR="${QRAB_SNP_CERT_CHAIN_DIR:-$ROOT/target/snp-cert-chain}"
+    [[ -d "$CERT_DIR" ]] || die "QRAB_SNP_USE_CERT_CHAIN=1 but $CERT_DIR missing — run contrib/snp-fetch-host-cert-chain.sh"
+    SNP_OBJ="$SNP_OBJ,certs-path=$CERT_DIR"
+    log "cert chain: $CERT_DIR"
+fi
+
 set +e
 timeout "$BOOT_TIMEOUT_SECS" qemu-system-x86_64 --preconfig \
     -machine q35,confidential-guest-support=sev0,firmware="$FW" \
     -m 512M -accel kvm -cpu EPYC-v4 \
-    -object sev-snp-guest,id=sev0,reduced-phys-bits=1,cbitpos=51,sev-device=/dev/sev \
+    -object "$SNP_OBJ" \
     -device vhost-vsock-pci,guest-cid="$GUEST_CID" \
     -nodefaults -display none -no-reboot \
     -serial file:"$SERIAL" \

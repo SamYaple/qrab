@@ -352,6 +352,14 @@ fn run_vsock_demo() -> Result<VsockSession, ()> {
     // post-boot verifier can confirm the computation is right.
     let report_data = qrab_boot_proto::report_data(&client_nonce, &response);
     ghcb::record_intended_report_data(&report_data);
+
+    // F2: optional post-report frame the guest sends back to
+    // attest-server once the SNP report is obtained + UKI is
+    // received. Built inside the SNP branch, sent after the UKI
+    // recv so it does not interleave with the server's pending
+    // UKI write.
+    let mut post_report_frame: Option<alloc::vec::Vec<u8>> = None;
+
     if ghcb::detect().sev_snp {
         match snp_secrets::load() {
             Ok(page) => {
@@ -413,6 +421,26 @@ fn run_vsock_demo() -> Result<VsockSession, ()> {
                             }
                             Err(e) => log::warn!("QRAB_SNP_CERT_PARSE_ERR {e}"),
                         }
+
+                        // F2: assemble AttestPostReport frame for
+                        // the host attest-server. `report` is
+                        // `#[repr(C, packed)]` with `FromBytes +
+                        // IntoBytes` derives; turn it into a Vec
+                        // via the zerocopy IntoBytes impl. The
+                        // cert_bytes blob is forwarded verbatim so
+                        // the host walker reuses its existing
+                        // cert-table parser.
+                        use zerocopy::IntoBytes as _;
+                        let report_vec: alloc::vec::Vec<u8> =
+                            report.as_bytes().to_vec();
+                        let post = qrab_boot_proto::new_post_report(
+                            report_vec,
+                            cert_bytes.clone(),
+                        );
+                        match qrab_boot_proto::encode_framed(&post) {
+                            Ok(bytes) => post_report_frame = Some(bytes),
+                            Err(e) => log::warn!("QRAB_POST_REPORT_ENCODE_ERR {e}"),
+                        }
                     }
                     Err(e) => log::warn!("QRAB_SNP_REPORT_ERR {e:?}"),
                 }
@@ -457,6 +485,28 @@ fn run_vsock_demo() -> Result<VsockSession, ()> {
         actual_uki_hash[0], actual_uki_hash[1],
         actual_uki_hash[2], actual_uki_hash[3],
     );
+
+    // F2: best-effort send of the AttestPostReport frame back to
+    // the attest-server. Built during the SNP branch; only present
+    // when the PSP report was obtained successfully. Boot decision
+    // is already committed — a send failure does not halt.
+    if let Some(frame) = post_report_frame.as_ref() {
+        match vsock_connect::send_one(
+            &mut driver,
+            VSOCK_CID_HOST,
+            VSOCK_HOST_PORT,
+            VSOCK_GUEST_SRC_PORT,
+            frame,
+        ) {
+            Ok(()) => log::info!(
+                "QRAB_POST_REPORT_OK frame_len={}",
+                frame.len(),
+            ),
+            Err(e) => log::warn!("QRAB_POST_REPORT_SEND_ERR {e:?}"),
+        }
+    } else {
+        log::info!("QRAB_POST_REPORT_SKIP no_snp_or_no_report");
+    }
 
     // Extend PCR 8 with the UKI bytes themselves — TCG2 hashes
     // internally. Missing TCG2 is still non-fatal (same rationale as
