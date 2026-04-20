@@ -390,9 +390,19 @@ pub fn validate_response(resp: &AttestResponse) -> Result<(), ProtoError> {
 // domain compact and endian-stable across host and UEFI targets.
 // ---------------------------------------------------------------------------
 
-/// Domain-separation tag for [`response_signing_digest`]. Bumping the
-/// tag invalidates every pre-existing signed response.
-pub const SIG_DOMAIN_TAG: &[u8] = b"qrab-v1-attest-resp";
+/// Domain-separation tag for [`response_signing_digest`]. Bumping
+/// the tag invalidates every pre-existing signed response.
+///
+/// v1 → v2 transition (R12-07, 2026-04-20): the signed digest now
+/// binds the guest's `client_nonce` as well as the server's
+/// `server_nonce`. A v1 server signing over only `server_nonce`
+/// allowed replay of a session-A response to a session-B guest
+/// (different `client_nonce`, identical `server_nonce` + UKI +
+/// secret hashes). v2 seals `client_nonce` into the digest so the
+/// guest's freshness is proven by the signature itself. A bootloader
+/// built against v1 cannot verify a v2-signed response and vice
+/// versa — both sides must upgrade together.
+pub const SIG_DOMAIN_TAG: &[u8] = b"qrab-v2-attest-resp";
 
 /// Compute the 32-byte SHA-256 digest that the attestation server
 /// signs and the bootloader verifies. Domain-separated by
@@ -400,16 +410,22 @@ pub const SIG_DOMAIN_TAG: &[u8] = b"qrab-v1-attest-resp";
 /// mistaken for another protocol.
 ///
 /// The digest commits to:
+///   * the client nonce (R12-07; blocks response replay across
+///     freshly-issued guest sessions),
 ///   * the server nonce,
 ///   * the UKI URL (length-prefixed),
 ///   * the UKI SHA-256,
 ///   * the secret SHA-256 (committing to the secret transitively
 ///     through [`AttestResponse::secret_sha256`] rather than rehashing
 ///     the whole secret body).
-pub fn response_signing_digest(resp: &AttestResponse) -> [u8; 32] {
+pub fn response_signing_digest(
+    resp: &AttestResponse,
+    client_nonce: &[u8; 32],
+) -> [u8; 32] {
     let mut hasher = Sha256::new();
     hasher.update(SIG_DOMAIN_TAG);
     hasher.update([SIG_DOMAIN_TAG.len() as u8]); // cheap ambiguity break
+    hasher.update(client_nonce);
     hasher.update(resp.server_nonce);
     let url_bytes = resp.uki_url.as_bytes();
     hasher.update((url_bytes.len() as u32).to_le_bytes());
@@ -581,11 +597,16 @@ mod tests {
         }
     }
 
+    const TEST_CLIENT_NONCE: [u8; 32] = [0x42u8; 32];
+
     #[test]
     fn signing_digest_stable_for_equal_responses() {
         let a = sample_response();
         let b = sample_response();
-        assert_eq!(response_signing_digest(&a), response_signing_digest(&b));
+        assert_eq!(
+            response_signing_digest(&a, &TEST_CLIENT_NONCE),
+            response_signing_digest(&b, &TEST_CLIENT_NONCE),
+        );
     }
 
     #[test]
@@ -593,7 +614,31 @@ mod tests {
         let a = sample_response();
         let mut b = sample_response();
         b.server_nonce[0] ^= 0xFF;
-        assert_ne!(response_signing_digest(&a), response_signing_digest(&b));
+        assert_ne!(
+            response_signing_digest(&a, &TEST_CLIENT_NONCE),
+            response_signing_digest(&b, &TEST_CLIENT_NONCE),
+        );
+    }
+
+    #[test]
+    fn signing_digest_changes_with_client_nonce() {
+        // R12-07: flipping client_nonce alone must move the digest.
+        // Exercises the v1→v2 protocol bump.
+        let a = sample_response();
+        let mut other_nonce = TEST_CLIENT_NONCE;
+        other_nonce[0] ^= 0xFF;
+        assert_ne!(
+            response_signing_digest(&a, &TEST_CLIENT_NONCE),
+            response_signing_digest(&a, &other_nonce),
+        );
+    }
+
+    #[test]
+    fn sig_domain_tag_bumped_to_v2() {
+        // Lock the bump in so a future refactor that drops the
+        // client_nonce arg would also have to reset the tag — which
+        // would fail compile-pin tests downstream.
+        assert_eq!(SIG_DOMAIN_TAG, b"qrab-v2-attest-resp");
     }
 
     #[test]
@@ -601,7 +646,10 @@ mod tests {
         let a = sample_response();
         let mut b = sample_response();
         b.uki_url = String::from("vsock://2:1337/uki2");
-        assert_ne!(response_signing_digest(&a), response_signing_digest(&b));
+        assert_ne!(
+            response_signing_digest(&a, &TEST_CLIENT_NONCE),
+            response_signing_digest(&b, &TEST_CLIENT_NONCE),
+        );
     }
 
     #[test]
@@ -611,7 +659,10 @@ mod tests {
         b.sig[0] ^= 0xAA;
         // sig itself is not part of the signing domain — flipping it
         // must not move the digest.
-        assert_eq!(response_signing_digest(&a), response_signing_digest(&b));
+        assert_eq!(
+            response_signing_digest(&a, &TEST_CLIENT_NONCE),
+            response_signing_digest(&b, &TEST_CLIENT_NONCE),
+        );
     }
 
     #[test]

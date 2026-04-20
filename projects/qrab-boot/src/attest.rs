@@ -97,14 +97,19 @@ impl core::fmt::Display for VerifyError {
 /// signature verify; doing the hash afterwards means the cheap
 /// constant-time compare only runs on signatures that already
 /// verify, which simplifies error triage on the serial log.
-pub fn verify(resp: &AttestResponse) -> Result<(), VerifyError> {
+pub fn verify(
+    resp: &AttestResponse,
+    client_nonce: &[u8; 32],
+) -> Result<(), VerifyError> {
     if EMBEDDED_SERVER_PUBKEY_SEC1.iter().all(|&b| b == 0) {
         return Err(VerifyError::NoPubkey);
     }
     let vk = VerifyingKey::from_sec1_bytes(EMBEDDED_SERVER_PUBKEY_SEC1)
         .map_err(|_| VerifyError::MalformedPubkey)?;
     let sig = Signature::from_slice(&resp.sig).map_err(|_| VerifyError::MalformedSig)?;
-    let digest = response_signing_digest(resp);
+    // R12-07: client_nonce is part of the signed digest so a response
+    // signed for session A cannot be replayed to session B.
+    let digest = response_signing_digest(resp, client_nonce);
     vk.verify(&digest, &sig).map_err(|_| VerifyError::BadSignature)?;
     if !verify_secret_hash(resp) {
         return Err(VerifyError::SecretHashMismatch);
