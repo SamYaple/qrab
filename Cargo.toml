@@ -20,8 +20,14 @@ members = [
 # qrab-boot targets `x86_64-unknown-uefi`, incompatible with the rest of the
 # workspace. Build it separately from `projects/qrab-boot/`. See
 # `~/workspace/llm-rag/reference/qrab-boot-plan.md`.
+#
+# `qrab-real-uki-demo` is a standalone `x86_64-unknown-uefi` PE used
+# as a real UKI fixture for `contrib/matrix-smoke.sh` scenario 1r (see
+# `reference/followups.md` F10). Built out-of-band by
+# `contrib/build-test-uki.sh`.
 exclude = [
     "projects/qrab-boot",
+    "projects/qrab-real-uki-demo",
 ]
 
 [workspace.dependencies]
