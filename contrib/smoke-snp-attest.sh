@@ -70,6 +70,15 @@ command -v socat >/dev/null || die "socat not on PATH"
 command -v cargo >/dev/null || die "cargo not on PATH"
 
 # ---- build ---------------------------------------------------------------
+# Regen dev attest-server keypair if gitignored fixture is missing.
+# Idempotent (script early-exits when files already exist). Keeps
+# fresh worktrees / CI from hitting QRAB_ATTEST_NO_PUBKEY on scenarios
+# that depend on actual signature verification.
+if [[ ! -s "$ROOT/contrib/attest-keys/server.sec1" ]]; then
+    log "attest keys missing; regenerating via contrib/gen-attest-keys.sh"
+    bash "$ROOT/contrib/gen-attest-keys.sh" >/dev/null 2>&1 \
+        || die "gen-attest-keys.sh failed"
+fi
 log "building qrab-boot.efi + attest-server"
 (cd "$BOOT_CRATE" && cargo build --release >/dev/null)
 (cd "$ROOT" && cargo build -p attest-server --release >/dev/null 2>&1) \
