@@ -163,11 +163,19 @@ pub fn load_ark_der() -> Result<Vec<u8>, PostReportError> {
             let pem = std::fs::read_to_string(&path).map_err(|e| {
                 PostReportError::ArkLoad(format!("read {path}: {e}"))
             })?;
-            let der = pem_to_der(&pem)?;
+            // B12-4: env may point at a multi-cert file (AMD KDS
+            // `cert_chain` = ASK ‖ ARK). Picking the first block
+            // silently loads ASK as ARK → ArkSelfSig error with
+            // misleading reason. Pick by issuer==subject instead.
+            let der = pem_to_der_root_ca(&pem)?;
             ("env", der)
         }
         Err(_) => {
-            let der = pem_to_der(BUNDLED_ARK_PEM)?;
+            // Bundled ARK is always a single-block PEM; use the
+            // multi-block selector anyway so a future operator who
+            // swaps the bundle for a chain file gets the same
+            // fail-closed behaviour.
+            let der = pem_to_der_root_ca(BUNDLED_ARK_PEM)?;
             let digest: [u8; 32] = Sha256::digest(&der).into();
             if digest != BUNDLED_ARK_DER_SHA256 {
                 return Err(PostReportError::ArkLoad(format!(
@@ -216,24 +224,102 @@ fn hex_lower(bytes: &[u8]) -> String {
     out
 }
 
-/// PEM → DER converter. Rejects anything without a CERTIFICATE
-/// armor or with a base64 decode error.
+/// PEM → DER converter. Returns the DER of the **first**
+/// `-----BEGIN CERTIFICATE-----` block. Intended for files that
+/// carry exactly one certificate — ASK / VCEK fallback paths fit
+/// that shape. Multi-block PEMs (e.g. AMD KDS `cert_chain` =
+/// `ASK ‖ ARK`) pick up the ASK here, which is the wrong cert for
+/// the ARK trust anchor. Use [`pem_to_der_root_ca`] for the ARK
+/// path so the self-signed block wins. B12-4.
 pub fn pem_to_der(pem: &str) -> Result<Vec<u8>, PostReportError> {
+    let mut blocks = pem_blocks(pem);
+    blocks
+        .next()
+        .ok_or_else(|| {
+            PostReportError::ArkLoad("PEM missing BEGIN CERTIFICATE armor".into())
+        })?
+}
+
+/// PEM → DER for an ARK trust anchor. Scans every
+/// `-----BEGIN CERTIFICATE-----` block in `pem` and returns the one
+/// whose `issuer == subject` (self-signed). Handles the AMD KDS
+/// `cert_chain` endpoint shape — `ASK ‖ ARK` — which otherwise
+/// confuses [`pem_to_der`] into loading the ASK. Errors when zero
+/// or more than one self-signed blocks are present so an operator
+/// cannot accidentally ship two potential trust anchors through
+/// the same env override. B12-4.
+pub fn pem_to_der_root_ca(pem: &str) -> Result<Vec<u8>, PostReportError> {
+    use der::Encode;
+    use x509_cert::Certificate;
+    use x509_cert::der::Decode;
+
+    let mut self_signed: Vec<Vec<u8>> = Vec::new();
+    let mut total_blocks = 0usize;
+    for block in pem_blocks(pem) {
+        total_blocks += 1;
+        let der = block?;
+        let cert = Certificate::from_der(&der).map_err(|e| {
+            PostReportError::ArkLoad(format!(
+                "ARK PEM block {total_blocks} x509 parse: {e}"
+            ))
+        })?;
+        let issuer = cert
+            .tbs_certificate
+            .issuer
+            .to_der()
+            .map_err(|e| PostReportError::ArkLoad(format!("issuer DN: {e}")))?;
+        let subject = cert
+            .tbs_certificate
+            .subject
+            .to_der()
+            .map_err(|e| PostReportError::ArkLoad(format!("subject DN: {e}")))?;
+        if issuer == subject {
+            self_signed.push(der);
+        }
+    }
+
+    match self_signed.len() {
+        0 => Err(PostReportError::ArkLoad(format!(
+            "ARK PEM has {total_blocks} cert block(s) but none is \
+             self-signed (issuer == subject); a chain file such as \
+             AMD KDS `cert_chain` must be split to the ARK block \
+             first — see contrib/snp-cert-pins/README.md",
+        ))),
+        1 => Ok(self_signed.into_iter().next().unwrap()),
+        n => Err(PostReportError::ArkLoad(format!(
+            "ARK PEM has {n} self-signed cert blocks; refusing to \
+             pick one ambiguously. Split so the env points at a \
+             single ARK cert.",
+        ))),
+    }
+}
+
+/// Iterate the DER bytes of every `-----BEGIN CERTIFICATE-----`
+/// block in a PEM payload. Each yielded item is the base64-decoded
+/// body or a `PostReportError::ArkLoad` on decode failure.
+fn pem_blocks(pem: &str) -> impl Iterator<Item = Result<Vec<u8>, PostReportError>> + '_ {
     const BEGIN: &str = "-----BEGIN CERTIFICATE-----";
     const END: &str = "-----END CERTIFICATE-----";
-    let begin = pem.find(BEGIN).ok_or_else(|| {
-        PostReportError::ArkLoad("PEM missing BEGIN CERTIFICATE armor".into())
-    })?;
-    let after_begin = &pem[begin + BEGIN.len()..];
-    let end = after_begin.find(END).ok_or_else(|| {
-        PostReportError::ArkLoad("PEM missing END CERTIFICATE armor".into())
-    })?;
-    let body = &after_begin[..end];
-    let compact: String = body.chars().filter(|c| !c.is_whitespace()).collect();
-    use base64::Engine as _;
-    base64::engine::general_purpose::STANDARD
-        .decode(&compact)
-        .map_err(|e| PostReportError::ArkLoad(format!("base64: {e}")))
+
+    let mut cursor = pem;
+    core::iter::from_fn(move || {
+        let begin = cursor.find(BEGIN)?;
+        let after_begin = &cursor[begin + BEGIN.len()..];
+        let Some(end) = after_begin.find(END) else {
+            cursor = "";
+            return Some(Err(PostReportError::ArkLoad(
+                "PEM missing END CERTIFICATE armor after BEGIN".into(),
+            )));
+        };
+        let body = &after_begin[..end];
+        cursor = &after_begin[end + END.len()..];
+        let compact: String = body.chars().filter(|c| !c.is_whitespace()).collect();
+        use base64::Engine as _;
+        let decoded = base64::engine::general_purpose::STANDARD
+            .decode(&compact)
+            .map_err(|e| PostReportError::ArkLoad(format!("base64: {e}")));
+        Some(decoded)
+    })
 }
 
 /// Resolve the 48-byte expected measurement the verifier will
@@ -408,6 +494,115 @@ mod tests {
             hex_lower(&BUNDLED_ARK_DER_SHA256),
             hex_lower(&digest),
         );
+    }
+
+    #[test]
+    fn pem_to_der_root_ca_rejects_chain_with_no_self_signed() {
+        // Construct a fake two-block PEM where neither cert is
+        // self-signed. Minimal: wrap two dummy DER blobs that will
+        // parse but report different issuer/subject bytes. We reuse
+        // the real bundled ARK (self-signed) by mutating its subject
+        // DN inline — just use an arbitrary DER that x509 rejects.
+        let bogus = "-----BEGIN CERTIFICATE-----\nAAAA\n-----END CERTIFICATE-----\n";
+        let err = pem_to_der_root_ca(bogus).unwrap_err();
+        match err {
+            PostReportError::ArkLoad(msg) => {
+                assert!(
+                    msg.contains("x509 parse"),
+                    "expected parse complaint, got {msg}"
+                );
+            }
+            other => panic!("expected ArkLoad, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn pem_to_der_root_ca_picks_self_signed_from_ask_ark_chain() {
+        // Real-world shape: AMD KDS `cert_chain` endpoint returns
+        // ASK cert block followed by ARK cert block. Only the ARK is
+        // self-signed. The selector must return the ARK DER.
+        use base64::Engine as _;
+        use rcgen::{
+            BasicConstraints, CertificateParams, DistinguishedName, DnType,
+            IsCa, Issuer, KeyPair, PKCS_RSA_SHA384,
+        };
+
+        fn dn(cn: &str) -> DistinguishedName {
+            let mut d = DistinguishedName::new();
+            d.push(DnType::CommonName, cn);
+            d
+        }
+        fn mk_ca(cn: &str) -> CertificateParams {
+            let mut p = CertificateParams::new(Vec::<String>::new()).unwrap();
+            p.distinguished_name = dn(cn);
+            p.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
+            p
+        }
+
+        let ark_kp = KeyPair::generate_for(&PKCS_RSA_SHA384).unwrap();
+        let ark_cert = mk_ca("qrab-test ARK").self_signed(&ark_kp).unwrap();
+        let ark_der = ark_cert.der().to_vec();
+        let ark_issuer: Issuer<'static, _> =
+            Issuer::new(mk_ca("qrab-test ARK"), ark_kp);
+
+        let ask_kp = KeyPair::generate_for(&PKCS_RSA_SHA384).unwrap();
+        let ask_cert = mk_ca("qrab-test ASK")
+            .signed_by(&ask_kp, &ark_issuer)
+            .unwrap();
+        let ask_der = ask_cert.der().to_vec();
+
+        let ark_body = base64::engine::general_purpose::STANDARD.encode(&ark_der);
+        let ask_body = base64::engine::general_purpose::STANDARD.encode(&ask_der);
+
+        // Order ASK first to match KDS `cert_chain` wire format.
+        let chain_pem = format!(
+            "-----BEGIN CERTIFICATE-----\n{ask_body}\n-----END CERTIFICATE-----\n\
+             -----BEGIN CERTIFICATE-----\n{ark_body}\n-----END CERTIFICATE-----\n"
+        );
+        let selected = pem_to_der_root_ca(&chain_pem).expect("one self-signed block");
+        assert_eq!(selected, ark_der, "selector returned ASK instead of ARK");
+    }
+
+    #[test]
+    fn pem_to_der_root_ca_rejects_multiple_self_signed() {
+        // Two independent self-signed roots in the same file — an
+        // operator trying to "hedge" on trust anchors must instead
+        // pick one explicitly.
+        use base64::Engine as _;
+        use rcgen::{
+            BasicConstraints, CertificateParams, DistinguishedName, DnType,
+            IsCa, KeyPair, PKCS_RSA_SHA384,
+        };
+
+        fn dn(cn: &str) -> DistinguishedName {
+            let mut d = DistinguishedName::new();
+            d.push(DnType::CommonName, cn);
+            d
+        }
+        fn mk_self_signed(cn: &str) -> Vec<u8> {
+            let kp = KeyPair::generate_for(&PKCS_RSA_SHA384).unwrap();
+            let mut p = CertificateParams::new(Vec::<String>::new()).unwrap();
+            p.distinguished_name = dn(cn);
+            p.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
+            p.self_signed(&kp).unwrap().der().to_vec()
+        }
+
+        let a = base64::engine::general_purpose::STANDARD
+            .encode(mk_self_signed("root-A"));
+        let b = base64::engine::general_purpose::STANDARD
+            .encode(mk_self_signed("root-B"));
+        let pem = format!(
+            "-----BEGIN CERTIFICATE-----\n{a}\n-----END CERTIFICATE-----\n\
+             -----BEGIN CERTIFICATE-----\n{b}\n-----END CERTIFICATE-----\n"
+        );
+        let err = pem_to_der_root_ca(&pem).unwrap_err();
+        match err {
+            PostReportError::ArkLoad(msg) => assert!(
+                msg.contains("2 self-signed"),
+                "expected ambiguity complaint, got {msg}"
+            ),
+            other => panic!("expected ArkLoad, got {other:?}"),
+        }
     }
 
     #[test]
