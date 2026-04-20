@@ -1,3 +1,4 @@
+pub mod qrab_report;
 pub mod vm_actions;
 pub mod vm_status;
 pub mod qmp_exec;
