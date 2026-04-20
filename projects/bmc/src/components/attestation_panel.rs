@@ -1,9 +1,10 @@
 use dioxus::prelude::*;
 
+use bmc::server::qrab_report::fetch_qrab_report;
 use bmc::server::vm_status::{
     generate_attestation_qr, request_attestation_report, send_attestation_to_serial,
 };
-use bmc::types::{AttestationQrResponse, SevStatusResponse};
+use bmc::types::{AttestationQrResponse, QrabReportStatus, SevStatusResponse};
 
 /// Attestation timeline stages.
 const TIMELINE_STAGES: &[&str] = &["Boot", "Measured", "Challenge", "Verified"];
@@ -38,6 +39,8 @@ pub fn AttestationPanel(sev_status: Option<SevStatusResponse>) -> Element {
     let mut serial_status = use_signal(|| String::new());
     // Report data display
     let mut report_data = use_signal(|| None::<String>);
+    // Guest-side QrabReport EFI variable state.
+    let mut qrab_report = use_signal(|| QrabReportStatus::Pending);
 
     rsx! {
         div { class: "panel attestation-panel",
@@ -73,6 +76,87 @@ pub fn AttestationPanel(sev_status: Option<SevStatusResponse>) -> Element {
                         }
                     } else {
                         div { class: "empty-state", "Start a SEV-SNP VM to see launch measurement" }
+                    }
+                }
+
+                // SNP boot attestation report — guest-side QrabReport
+                // EFI variable (published by qrab-boot's UKI stub, fetched
+                // on demand via QGA guest-file-read on efivarfs).
+                div { class: "attestation-section",
+                    h3 { "SNP Boot Attestation Report" }
+                    p { class: "text-muted text-small",
+                        "Reads the per-boot QrabReport EFI variable from "
+                        "/sys/firmware/efi/efivars via QGA."
+                    }
+                    div { class: "attestation-buttons",
+                        button {
+                            class: "btn btn-action",
+                            disabled: !has_sev,
+                            onclick: move |_| {
+                                spawn(async move {
+                                    qrab_report.set(QrabReportStatus::Pending);
+                                    match fetch_qrab_report().await {
+                                        Ok(st) => qrab_report.set(st),
+                                        Err(e) => qrab_report.set(QrabReportStatus::Failed {
+                                            reason: format!("server error: {e}"),
+                                        }),
+                                    }
+                                });
+                            },
+                            "Fetch QrabReport"
+                        }
+                    }
+                    match qrab_report() {
+                        QrabReportStatus::Pending => rsx! {
+                            div { class: "attestation-status text-muted",
+                                "QrabReport not yet polled"
+                            }
+                        },
+                        QrabReportStatus::Absent => rsx! {
+                            div { class: "attestation-status",
+                                "No QrabReport variable (guest not qrab-boot, or variable wiped)"
+                            }
+                        },
+                        QrabReportStatus::Failed { reason } => rsx! {
+                            div { class: "attestation-status",
+                                strong { "QrabReport fetch failed: " }
+                                span { class: "mono", "{reason}" }
+                            }
+                        },
+                        QrabReportStatus::Ok(snap) => rsx! {
+                            div { class: "report-display",
+                                div { class: "qr-meta",
+                                    span {
+                                        class: if snap.magic_matched {
+                                            "text-small"
+                                        } else {
+                                            "text-small text-muted"
+                                        },
+                                        if snap.magic_matched {
+                                            "QRAB_REPORT_V1 magic OK"
+                                        } else {
+                                            "magic mismatch (raw bytes below)"
+                                        }
+                                    }
+                                    span { class: "text-muted text-small",
+                                        "payload_len: {snap.payload_len}B"
+                                    }
+                                    span { class: "text-muted text-small",
+                                        "fetched: {snap.fetched_at}"
+                                    }
+                                }
+                                h4 { "Payload (first 32 bytes, hex)" }
+                                pre { class: "mono report-data",
+                                    "{snap.payload_prefix_hex}"
+                                }
+                                details { class: "qr-payload-details",
+                                    summary { "EFI attribute flags" }
+                                    pre { class: "mono qr-payload",
+                                        "{snap.efi_attrs_hex}"
+                                    }
+                                }
+                            }
+                        },
                     }
                 }
 

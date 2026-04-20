@@ -352,6 +352,48 @@ pub struct CommandDto {
     pub category: String,
 }
 
+/// Parsed snapshot of the guest's `QrabReport` EFI variable.
+///
+/// The variable is published by qrab-boot in the UKI stub
+/// (`projects/qrab-boot/src/uki.rs`) with attrs `BS|RT` (volatile,
+/// per-boot) and GUID `6e6f1cba-b5ba-4e54-a3b3-2a7a8f3d9b00`.
+///
+/// efivarfs layout is a 4-byte LE `u32` attribute prefix followed by the
+/// variable body. The body starts with the 14-byte ASCII magic
+/// `QRAB_REPORT_V1`. Today the post-magic payload is the 32-byte
+/// `report_data` hash; the plan allows growing it to the full 1184-byte
+/// signed SNP attestation report.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct QrabReportSnapshot {
+    /// Hex-encoded EFI variable attribute flags (4 bytes LE).
+    pub efi_attrs_hex: String,
+    /// True when the 14-byte `QRAB_REPORT_V1` magic matched.
+    pub magic_matched: bool,
+    /// Post-magic payload length in bytes. 32 = raw `report_data`,
+    /// 1184 = full signed `SnpAttestationReport`.
+    pub payload_len: usize,
+    /// First 32 bytes of the post-magic payload, hex-encoded. For the
+    /// current `report_data` shape this is the full payload.
+    pub payload_prefix_hex: String,
+    /// UTC fetch timestamp (RFC3339-ish seconds-since-epoch).
+    pub fetched_at: String,
+}
+
+/// Lifecycle status of the `QrabReport` EFI-variable probe.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "detail", rename_all = "snake_case")]
+pub enum QrabReportStatus {
+    /// Guest has not been polled yet this session.
+    Pending,
+    /// QGA path attempted, efivar absent (guest pre-qrab-boot or the
+    /// variable was wiped before QGA polled).
+    Absent,
+    /// Fetched + parsed successfully.
+    Ok(QrabReportSnapshot),
+    /// QGA or parse error; `reason` is a short diagnostic.
+    Failed { reason: String },
+}
+
 /// Combined attestation state for the frontend.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AttestationState {
@@ -363,6 +405,9 @@ pub struct AttestationState {
     pub last_attestation_report: Option<AttestationReportResponse>,
     /// Current attestation lifecycle status.
     pub status: AttestationStatus,
+    /// Guest-side `QrabReport` EFI variable state (per-boot). `Pending`
+    /// until the UI triggers an on-demand fetch via QGA.
+    pub qrab_report: QrabReportStatus,
 }
 
 impl Default for AttestationState {
@@ -372,6 +417,7 @@ impl Default for AttestationState {
             sev_capabilities: None,
             last_attestation_report: None,
             status: AttestationStatus::NotAvailable,
+            qrab_report: QrabReportStatus::Pending,
         }
     }
 }
