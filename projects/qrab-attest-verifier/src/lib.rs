@@ -143,6 +143,18 @@ pub enum ChainError {
     /// (`cross_check_vcek_bindings`) would be a silent no-op.
     #[error("VCEK is missing required AMD TCB / hwID extensions")]
     MissingTcbExt,
+    /// A certificate in the chain has a `notBefore` later than the
+    /// caller-supplied clock (adjusted for skew tolerance). A chip
+    /// mis-configured with a clock in the past, or a chain issued
+    /// with future-dated certs, surfaces here.
+    #[error("certificate not yet valid: {which}")]
+    CertNotYetValid { which: &'static str },
+    /// A certificate in the chain has a `notAfter` earlier than the
+    /// caller-supplied clock (adjusted for skew tolerance). Blocks
+    /// the "expired ARK / ASK / VCEK still attests" window that
+    /// R12-02 flagged.
+    #[error("certificate expired: {which}")]
+    CertExpired { which: &'static str },
 }
 
 /// Default blocking timeout for [`fetch_vcek_from_kds`] — 15 s

@@ -294,7 +294,7 @@ impl SnpGuestMsg {
 /// `reserved_tail` absorbs everything past the OS area so the
 /// struct still totals 4096 B.
 #[repr(C, packed)]
-#[derive(Copy, Clone, Debug, FromBytes, IntoBytes, Immutable, KnownLayout)]
+#[derive(Clone, FromBytes, IntoBytes, Immutable, KnownLayout)]
 pub struct SnpSecretsPage {
     pub version: u32,
     pub imien: u32,
@@ -318,6 +318,63 @@ pub struct SnpSecretsPage {
     /// the field so the spec-shaped struct stays inspectable.
     pub ap_jump_table_pa: u64,
     pub reserved_tail: [u8; 4096 - 0xc8],
+}
+
+/// S7-2 / R12-12 / R12-13: zeroize the four VMPCK keys on drop so a
+/// `SnpSecretsPage` moved on the stack, cloned, or stored on the
+/// heap does not leave residual key material for a core-dump / swap
+/// / heap-reuse attacker to recover. Explicit `write_volatile`
+/// through `addr_of_mut!` because the struct is `#[repr(C, packed)]`
+/// — taking `&mut self.vmpckN` in safe code is UB on unaligned
+/// fields, and a plain assignment is likely to be DCE'd by the
+/// optimiser in release builds.
+impl Drop for SnpSecretsPage {
+    fn drop(&mut self) {
+        use core::ptr::{addr_of_mut, write_volatile};
+        // SAFETY: `addr_of_mut!` yields a raw pointer to each VMPCK
+        // field without taking a reference, which is sound even on a
+        // packed struct. The written value is a correctly-sized,
+        // well-aligned-for-`[u8; N]` (alignment 1) zero array. Four
+        // independent VMPCK slots are each 32 B — no overlap.
+        unsafe {
+            write_volatile(addr_of_mut!(self.vmpck0), [0u8; VMPCK_LEN]);
+            write_volatile(addr_of_mut!(self.vmpck1), [0u8; VMPCK_LEN]);
+            write_volatile(addr_of_mut!(self.vmpck2), [0u8; VMPCK_LEN]);
+            write_volatile(addr_of_mut!(self.vmpck3), [0u8; VMPCK_LEN]);
+        }
+    }
+}
+
+/// R12-13: `Debug` on `SnpSecretsPage` must NOT render the VMPCK
+/// bytes. A future `log::info!("{:?}", page)` or `dbg!(page)` would
+/// otherwise dump four 32-byte secrets into stderr / a log file.
+/// Custom impl names each sensitive field but prints `REDACTED` in
+/// place of its contents; non-secret fields render normally.
+impl core::fmt::Debug for SnpSecretsPage {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let version = { self.version };
+        let imien = { self.imien };
+        let fms = { self.fms };
+        let msg_seqno_0 = { self.msg_seqno_0 };
+        let msg_seqno_1 = { self.msg_seqno_1 };
+        let msg_seqno_2 = { self.msg_seqno_2 };
+        let msg_seqno_3 = { self.msg_seqno_3 };
+        let ap_jump_table_pa = { self.ap_jump_table_pa };
+        f.debug_struct("SnpSecretsPage")
+            .field("version", &version)
+            .field("imien", &imien)
+            .field("fms", &fms)
+            .field("vmpck0", &"REDACTED [u8; 32]")
+            .field("vmpck1", &"REDACTED [u8; 32]")
+            .field("vmpck2", &"REDACTED [u8; 32]")
+            .field("vmpck3", &"REDACTED [u8; 32]")
+            .field("msg_seqno_0", &msg_seqno_0)
+            .field("msg_seqno_1", &msg_seqno_1)
+            .field("msg_seqno_2", &msg_seqno_2)
+            .field("msg_seqno_3", &msg_seqno_3)
+            .field("ap_jump_table_pa", &ap_jump_table_pa)
+            .finish_non_exhaustive()
+    }
 }
 
 /// Failure modes from [`validate_secrets_page`].
@@ -581,56 +638,121 @@ mod tests {
         assert!(is_vmpck_nonzero(&v));
     }
 
-    /// S7-2: `SnpSecretsPage` carries four 32-byte VMPCK keys. The
-    /// spec (AMD SEV-SNP ABI §5.4.3) treats these as high-value
-    /// secrets: they key the AES-GCM envelope used to talk to the
-    /// PSP, so leaking them to a swap file / core dump / heap reuse
-    /// is a total attest-channel break.
-    ///
-    /// The crate currently derives nothing from `zeroize` on
-    /// [`SnpSecretsPage`] and has no manual `Drop` impl — so dropping
-    /// the value leaves the VMPCK bytes readable in whatever backing
-    /// memory held it. `core::mem::needs_drop::<T>()` returns `false`
-    /// iff the type has no Drop glue (no `Drop` impl and no non-POD
-    /// field), so this assertion pins "no zeroization on drop".
-    ///
-    /// If a future change adds `impl Drop for SnpSecretsPage` (or
-    /// swaps a VMPCK field for a `zeroize::Zeroizing<[u8;32]>`),
-    /// `needs_drop` flips to `true` and this test fires — at which
-    /// point the author rewrites it into a positive test that checks
-    /// the backing memory really is zeroed.
-    ///
-    /// BUG: S7-2 open. This test documents the gap; it does not fix
-    /// it. Fix is a separate task (wrap VMPCK in a zeroizing
-    /// newtype, or add `#[derive(ZeroizeOnDrop)]` and a `zeroize`
-    /// dependency).
+    /// S7-2 close-out: `SnpSecretsPage` now has an explicit `Drop`
+    /// impl that zeroizes the four VMPCKs. `needs_drop` must flip
+    /// to `true`. If a future refactor accidentally drops the
+    /// `impl Drop for SnpSecretsPage` or loses the
+    /// `#[derive]` conflict by re-adding `Copy`, this test fails.
     #[test]
-    fn secrets_page_has_no_drop_glue_bug() {
+    fn secrets_page_has_drop_glue() {
         assert!(
-            !core::mem::needs_drop::<SnpSecretsPage>(),
-            "SnpSecretsPage now has drop glue — if this is because \
-             VMPCK zeroization was added, rewrite this test into a \
-             positive zeroization check and close S7-2 in \
-             llm-rag/audits/security.md.",
+            core::mem::needs_drop::<SnpSecretsPage>(),
+            "SnpSecretsPage lost its Drop impl — S7-2 VMPCK \
+             zeroization regressed. Re-add `impl Drop for \
+             SnpSecretsPage` in qrab-snp-proto/src/lib.rs.",
         );
-        // Individual `[u8; 32]` VMPCK arrays are POD too; no
-        // wrapper type is intercepting drops for them.
-        assert!(!core::mem::needs_drop::<[u8; VMPCK_LEN]>());
     }
 
-    /// S7-2 companion: the `vmpck` parameter accepted by
-    /// [`encrypt_guest_msg`] / [`decrypt_guest_msg`] is a bare
-    /// `&[u8; 32]` — there is no wrapper type whose lifetime or
-    /// destructor could scrub the caller's copy. Pinning that the
-    /// public API signature uses a plain array reference (not a
-    /// zeroizing newtype) means a future API change that introduces
-    /// a wrapper will fail to compile this test and force the
-    /// author to re-evaluate S7-2.
+    /// Positive zeroization check: build a page with non-zero VMPCK
+    /// values inside a `core::mem::ManuallyDrop` so we can peek at
+    /// the same backing storage after manually invoking `drop_in_place`.
+    /// Proves the volatile writes actually land — not just that
+    /// `needs_drop` is true.
     #[test]
-    fn envelope_api_uses_bare_vmpck_array_bug() {
-        // If this function pointer coercion stops compiling, the API
-        // signature changed — most likely someone wrapped the VMPCK
-        // in a zeroizing newtype. Update this test and S7-2.
+    fn drop_zeroizes_vmpck_slots() {
+        use core::mem::ManuallyDrop;
+        use core::ptr;
+
+        let mut page = zero_secrets_page();
+        page.vmpck0 = [0xA1u8; VMPCK_LEN];
+        page.vmpck1 = [0xB2u8; VMPCK_LEN];
+        page.vmpck2 = [0xC3u8; VMPCK_LEN];
+        page.vmpck3 = [0xD4u8; VMPCK_LEN];
+
+        // Move into a `ManuallyDrop` so we can call `drop_in_place`
+        // explicitly and then inspect the backing bytes.
+        let mut wrapped = ManuallyDrop::new(page);
+        let raw: *mut SnpSecretsPage = &mut *wrapped as *mut SnpSecretsPage;
+        unsafe { ptr::drop_in_place(raw) };
+
+        // SAFETY: `drop_in_place` above has run the destructor. The
+        // struct is now logically dropped; we are only inspecting
+        // bytes to confirm zeroization, not using the fields through
+        // any trait that requires a valid value.
+        let bytes_view: &[u8] = unsafe {
+            core::slice::from_raw_parts(
+                raw as *const u8,
+                core::mem::size_of::<SnpSecretsPage>(),
+            )
+        };
+        // Offsets 0x20, 0x40, 0x60, 0x80 (four 32 B VMPCK slots).
+        for base in [0x20, 0x40, 0x60, 0x80] {
+            assert!(
+                bytes_view[base..base + VMPCK_LEN].iter().all(|&b| b == 0),
+                "VMPCK slot at offset {:#x} not zeroized: {:x?}",
+                base,
+                &bytes_view[base..base + VMPCK_LEN],
+            );
+        }
+    }
+
+    /// R12-12 close-out: `SnpSecretsPage` must NOT derive `Copy`.
+    /// Having `Copy` would mean every move / assignment silently
+    /// duplicates VMPCK0..3 on the stack, compounding the residual
+    /// key leak that S7-2's Drop impl is meant to clean up. This
+    /// test would compile-fail (cannot coerce to `fn(T) -> T` via
+    /// `Copy` requirement) if `Copy` were reintroduced.
+    #[test]
+    fn secrets_page_is_not_copy() {
+        // `Clone` is fine and required by zerocopy consumers.
+        fn assert_clone<T: Clone>() {}
+        assert_clone::<SnpSecretsPage>();
+
+        // `Copy` proof-by-compilation: the below line would pass
+        // only if SnpSecretsPage: Copy. We assert the NEGATIVE
+        // indirectly by checking that `needs_drop` is true — `Copy`
+        // requires `!needs_drop`.
+        assert!(core::mem::needs_drop::<SnpSecretsPage>());
+    }
+
+    /// R12-13 close-out: `Debug` for `SnpSecretsPage` must not
+    /// render the VMPCK bytes. Render one page and grep for the
+    /// `REDACTED` marker emitted by the custom impl. If someone
+    /// reverts to a derived `Debug`, each VMPCK would serialise as
+    /// `[0, 1, 2, ...]` and the marker disappears.
+    #[test]
+    fn debug_redacts_vmpck_bytes() {
+        let mut page = zero_secrets_page();
+        page.vmpck0 = [0x11u8; VMPCK_LEN];
+        page.vmpck1 = [0x22u8; VMPCK_LEN];
+        page.vmpck2 = [0x33u8; VMPCK_LEN];
+        page.vmpck3 = [0x44u8; VMPCK_LEN];
+
+        let rendered = std::format!("{:?}", page);
+        assert!(
+            rendered.contains("REDACTED"),
+            "Debug output missing REDACTED marker: {rendered}"
+        );
+        assert!(
+            !rendered.contains("0x11"),
+            "Debug leaks vmpck0 byte 0x11: {rendered}"
+        );
+        assert!(
+            !rendered.contains("0x22"),
+            "Debug leaks vmpck1 byte 0x22: {rendered}"
+        );
+    }
+
+    /// The `vmpck` parameter accepted by
+    /// [`encrypt_guest_msg`] / [`decrypt_guest_msg`] is still a
+    /// `&[u8; 32]` reference. We chose not to migrate the envelope
+    /// API to a zeroizing newtype because the caller owns the
+    /// `SnpSecretsPage` (whose Drop impl now zeroizes VMPCKs); the
+    /// envelope only borrows the key for a brief AES-GCM op and
+    /// does not retain it. Pin the signature so a future change
+    /// that would require additional zeroization shows up here.
+    #[test]
+    fn envelope_api_accepts_vmpck_reference() {
         let _: fn(
             &mut SnpGuestMsg,
             &[u8; VMPCK_LEN],
