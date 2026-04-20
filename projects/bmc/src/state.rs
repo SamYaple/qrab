@@ -981,8 +981,19 @@ async fn ensure_ubuntu_snp_image() -> Result<PathBuf> {
 
 /// Create cloud-init NoCloud seed disk (FAT image labeled "cidata").
 ///
-/// Sets up user `ubuntu` with password `snp`, enables serial + VGA console.
+/// R14-A6: generates a fresh random 32-hex-char password on every
+/// call. Previously the user-data YAML hard-coded `plain_text_passwd:
+/// snp` for both `ubuntu` and `root` on a cached seed reused across
+/// every BMC-spawned SNP VM on every qrab host — a known-bad default
+/// that moved from "dev-only" to production surface the moment
+/// `power_on` became a public BMC path. The new password is written
+/// to `$cache_dir/cloud-init-seed-qga.pwd` (0600) for the operator
+/// to read; the seed cache is never reused so every `power_on`
+/// brings up a guest with a fresh credential.
 async fn ensure_cloud_init_seed() -> Result<PathBuf> {
+    use std::os::unix::fs::PermissionsExt;
+    use tokio::io::AsyncReadExt;
+
     let cache_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .unwrap()
@@ -991,14 +1002,32 @@ async fn ensure_cloud_init_seed() -> Result<PathBuf> {
         .join("target")
         .join("test-fixtures");
     tokio::fs::create_dir_all(&cache_dir).await?;
-
-    // Filename is version-suffixed so a change in the embedded user-data
-    // (e.g. adding a new package or runcmd) invalidates stale cached
-    // seeds. Bump the suffix whenever the YAML below changes.
     let path = cache_dir.join("cloud-init-seed-qga.img");
-    if path.exists() {
-        return Ok(path);
-    }
+    let pwd_path = cache_dir.join("cloud-init-seed-qga.pwd");
+
+    // 16 bytes from /dev/urandom → 32-hex-char password. Crypto-
+    // grade entropy without pulling in a dedicated rand crate.
+    let mut pwd_bytes = [0u8; 16];
+    tokio::fs::File::open("/dev/urandom")
+        .await
+        .context("opening /dev/urandom")?
+        .read_exact(&mut pwd_bytes)
+        .await
+        .context("reading /dev/urandom")?;
+    let pwd = pwd_bytes.iter().map(|b| format!("{b:02x}")).collect::<String>();
+
+    // Store the password for the operator. Overwrite any previous
+    // pwd file — we never reuse a prior boot's credential.
+    tokio::fs::write(&pwd_path, format!("{pwd}\n")).await?;
+    tokio::fs::set_permissions(
+        &pwd_path,
+        std::fs::Permissions::from_mode(0o600),
+    ).await?;
+    tracing::info!(
+        path = %pwd_path.display(),
+        "cloud-init seed: wrote per-boot guest password (0600); \
+         previous seed invalidated"
+    );
 
     let tmpdir = std::env::temp_dir().join("qrab-cloud-init-build");
     let _ = tokio::fs::remove_dir_all(&tmpdir).await;
@@ -1008,19 +1037,19 @@ async fn ensure_cloud_init_seed() -> Result<PathBuf> {
     let user_data = tmpdir.join("user-data");
     tokio::fs::write(
         &user_data,
-        r#"#cloud-config
-password: snp
+        format!(r#"#cloud-config
+password: {pwd}
 chpasswd:
   expire: false
 ssh_pwauth: true
 users:
   - name: ubuntu
-    plain_text_passwd: snp
+    plain_text_passwd: {pwd}
     lock_passwd: false
     shell: /bin/bash
     sudo: ALL=(ALL) NOPASSWD:ALL
   - name: root
-    plain_text_passwd: snp
+    plain_text_passwd: {pwd}
     lock_passwd: false
 packages:
   - qemu-guest-agent
@@ -1028,7 +1057,7 @@ runcmd:
   - echo "===== SNP BOOT OK =====" > /dev/ttyS0
   - echo "===== SNP BOOT OK =====" > /dev/tty0 || true
   - systemctl enable --now qemu-guest-agent
-"#,
+"#),
     )
     .await?;
 
