@@ -319,10 +319,36 @@ fn serve(port: u32, signer: Signer, uki_bytes: Vec<u8>, fault: Fault) -> Result<
                 continue;
             }
         };
+        // R12-21 partial: cap how long a single slow client can
+        // wedge the single-thread accept loop. A full fix is
+        // thread-per-conn + a real timeout budget, but setting
+        // SO_RCVTIMEO / SO_SNDTIMEO on the accepted stream already
+        // bounds the pathological case ("client TCPs then never
+        // sends the prefix") to `SESSION_IO_TIMEOUT` rather than
+        // forever. The timeout is conservative enough that a slow
+        // ARM test target on a busy box still fits in it.
+        if let Err(e) = stream.set_read_timeout(Some(SESSION_IO_TIMEOUT)) {
+            eprintln!(
+                "attest-server: set_read_timeout failed ({e}) — \
+                 dropping session cid={} port={}",
+                peer.cid(), peer.port(),
+            );
+            continue;
+        }
+        if let Err(e) = stream.set_write_timeout(Some(SESSION_IO_TIMEOUT)) {
+            eprintln!(
+                "attest-server: set_write_timeout failed ({e}) — \
+                 dropping session cid={} port={}",
+                peer.cid(), peer.port(),
+            );
+            continue;
+        }
         eprintln!(
-            "attest-server: accepted cid={} port={}",
+            "attest-server: accepted cid={} port={} rcv_timeout={}s wr_timeout={}s",
             peer.cid(),
-            peer.port()
+            peer.port(),
+            SESSION_IO_TIMEOUT.as_secs(),
+            SESSION_IO_TIMEOUT.as_secs(),
         );
         let hash_source: &[u8] = match fault {
             Fault::WrongHash => &decoy_for_hash,
@@ -341,6 +367,14 @@ fn serve(port: u32, signer: Signer, uki_bytes: Vec<u8>, fault: Fault) -> Result<
         }
     }
 }
+
+/// Budget for a single session (per-op read / write). Chosen to
+/// comfortably cover real SNP boot — the slowest observed boot-time
+/// vsock exchange on an EPYC 9354 dev host is ~2 s end-to-end — but
+/// small enough that a slow / stuck client cannot wedge the single-
+/// thread accept loop indefinitely. R12-21 partial; the full fix
+/// is thread-per-conn.
+const SESSION_IO_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 
 /// Produce the length-prefixed wire frame (`u32 LE len || body`)
 /// that the bootloader's second `FramedStream::read_frame` call
