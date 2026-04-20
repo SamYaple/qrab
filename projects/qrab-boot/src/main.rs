@@ -321,7 +321,7 @@ fn run_vsock_demo() -> Result<VsockSession, ()> {
             "QRAB_ATTEST_NO_PUBKEY (build without contrib/attest-keys/server.sec1; skipping verify)"
         );
     } else {
-        match attest::verify(&response) {
+        match attest::verify(&response, &client_nonce) {
             Ok(()) => log::info!("QRAB_ATTEST_SIG_OK"),
             Err(attest::VerifyError::NoPubkey) => {
                 log::warn!("QRAB_ATTEST_NO_PUBKEY");

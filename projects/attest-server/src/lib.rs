@@ -96,10 +96,17 @@ impl Signer {
         out
     }
 
-    /// Sign the canonical digest for `response`, returning a 64-byte
-    /// raw-IEEE-P1363 (r || s) signature.
-    pub fn sign_response(&self, response: &AttestResponse) -> [u8; SIG_LEN] {
-        let digest = response_signing_digest(response);
+    /// Sign the canonical digest for `response` binding the client's
+    /// `client_nonce`, returning a 64-byte raw-IEEE-P1363 (r || s)
+    /// signature. R12-07: `client_nonce` is part of the signing
+    /// domain so a signed reply cannot be replayed to a different
+    /// guest session.
+    pub fn sign_response(
+        &self,
+        response: &AttestResponse,
+        client_nonce: &[u8; 32],
+    ) -> [u8; SIG_LEN] {
+        let digest = response_signing_digest(response, client_nonce);
         let sig: Signature = self.key.sign(&digest);
         let bytes = sig.to_bytes();
         let mut out = [0u8; SIG_LEN];
@@ -135,7 +142,7 @@ pub fn build_signed_response(
     uki_bytes: &[u8],
 ) -> AttestResponse {
     let mut response = build_body(req, uki_bytes);
-    let sig = signer.sign_response(&response);
+    let sig = signer.sign_response(&response, &req.client_nonce);
     response.sig = sig.to_vec();
     response
 }
@@ -228,7 +235,7 @@ mod tests {
 
         let sec1 = signer.pubkey_sec1();
         let vk = VerifyingKey::from_sec1_bytes(&sec1).expect("valid SEC1 pubkey");
-        let digest = qrab_boot_proto::response_signing_digest(&resp);
+        let digest = qrab_boot_proto::response_signing_digest(&resp, &req.client_nonce);
         let sig = P256Sig::from_slice(&resp.sig).expect("sig parses");
         vk.verify(&digest, &sig).expect("valid sig must verify");
     }
@@ -242,9 +249,27 @@ mod tests {
         resp.uki_sha256[0] ^= 1;
 
         let vk = VerifyingKey::from_sec1_bytes(&signer.pubkey_sec1()).unwrap();
-        let digest = qrab_boot_proto::response_signing_digest(&resp);
+        let digest = qrab_boot_proto::response_signing_digest(&resp, &req.client_nonce);
         let sig = P256Sig::from_slice(&resp.sig).unwrap();
         assert!(vk.verify(&digest, &sig).is_err());
+    }
+
+    #[test]
+    fn sig_rejects_mismatched_client_nonce() {
+        // R12-07: a response signed for session A's client_nonce must
+        // not verify when presented to session B.
+        let signer = fixed_signer();
+        let req_a = new_request([0x77; 32]);
+        let resp = build_signed_response(&req_a, &signer, STUB_UKI);
+
+        let wrong_nonce = [0x88u8; 32];
+        let vk = VerifyingKey::from_sec1_bytes(&signer.pubkey_sec1()).unwrap();
+        let digest = qrab_boot_proto::response_signing_digest(&resp, &wrong_nonce);
+        let sig = P256Sig::from_slice(&resp.sig).unwrap();
+        assert!(
+            vk.verify(&digest, &sig).is_err(),
+            "cross-session response must not verify with foreign client_nonce"
+        );
     }
 
     #[test]
