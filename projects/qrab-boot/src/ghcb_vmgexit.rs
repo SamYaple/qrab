@@ -114,11 +114,17 @@ unsafe fn vmgexit() {
     // `SVM_VMGEXIT_GUEST_REQUEST = 0x8000_0011` we *thought* we
     // wrote. Dropping `nomem` forces LLVM to flush the save-area
     // stores before the `rep; vmmcall` executes. `nostack` stays
-    // because we truly don't touch the stack; flags are not
-    // preserved across VMGEXIT so `preserves_flags` is dropped.
+    // because we truly don't touch the stack. `clobber_abi("C")`
+    // tells LLVM the call trashes every caller-save GPR + flags —
+    // the hypervisor (via KVM's `kvm_emulate_hypercall` path) may
+    // write back arbitrary register state, so `preserves_flags`
+    // is unsafe and a previously-live caller-save value would
+    // otherwise be mistakenly believed by LLVM to survive the
+    // exit. R12-15.
     unsafe {
         asm!(
             "rep; vmmcall",
+            clobber_abi("C"),
             options(nostack),
         );
     }
