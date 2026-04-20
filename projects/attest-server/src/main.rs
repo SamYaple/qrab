@@ -23,7 +23,7 @@
 
 use std::io::{Read, Write};
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use anyhow::{Context, Result, bail};
 use attest_server::verify::{handle_post_report_bytes, reason};
@@ -113,15 +113,30 @@ enum Fault {
     /// `sha256(uki_bytes) == response.uki_sha256` check fails.
     /// Matrix scenario 4 (`wrong_hash`).
     WrongHash,
+    /// Accept-and-audit: cache the first signed `AttestResponse`
+    /// wire frame and replay identical bytes (same `server_nonce`,
+    /// same signature, same `uki_sha256`) on every subsequent
+    /// accept. The bootloader does **not** reject a replay by
+    /// design — the response's ECDSA-P256 signature still verifies
+    /// against the embedded pubkey and `report_data` still binds
+    /// both nonces, so the wire-level authenticity check passes.
+    /// Freshness is a *policy* concern: a post-boot auditor
+    /// (matrix harness, BMC, external verifier) compares
+    /// `server_nonce` across boots and flags reuse. See matrix
+    /// scenario 10 in `contrib/matrix-smoke.sh` for the
+    /// double-boot audit that turns this fault into a detectable
+    /// signal.
+    Replay,
 }
 
 fn parse_fault() -> Result<Fault> {
     match std::env::var("QRAB_ATTEST_FAULT").as_deref() {
         Ok("bad_sig") => Ok(Fault::BadSig),
         Ok("wrong_hash") => Ok(Fault::WrongHash),
+        Ok("replay") => Ok(Fault::Replay),
         Ok("none") | Err(_) => Ok(Fault::None),
         Ok(other) => bail!(
-            "QRAB_ATTEST_FAULT={other} — expected one of none|bad_sig|wrong_hash"
+            "QRAB_ATTEST_FAULT={other} — expected one of none|bad_sig|wrong_hash|replay"
         ),
     }
 }
@@ -216,6 +231,54 @@ fn serve(port: u32, signer: Signer, uki_bytes: Vec<u8>, fault: Fault) -> Result<
     // sha256(uki_bytes)` is all that matters.
     let decoy_for_hash: Arc<[u8]> = b"QRAB_FAULT_WRONG_HASH_v1".to_vec().into();
 
+    // Fault::Replay cache: Option<Vec<u8>> keyed on "have we handled
+    // one request yet". First request runs real handle_request_bytes
+    // and stores its reply_bytes; every subsequent request skips the
+    // handler and writes the cached bytes verbatim. `Arc<Mutex<..>>`
+    // survives the design-level move to a threaded handler without
+    // reshaping the signature again.
+    //
+    // `QRAB_ATTEST_REPLAY_CACHE_PATH` optionally persists the cache
+    // to disk, so a matrix harness that spawns one attest-server
+    // process per boot still sees identical bytes on boot N>1. Scope
+    // narrow: only honoured when fault==Replay. Any error reading
+    // a pre-existing file is logged then ignored (treat as
+    // cold-start cache).
+    let replay_cache_path = std::env::var("QRAB_ATTEST_REPLAY_CACHE_PATH").ok();
+    let replay_cache: Arc<Mutex<Option<Vec<u8>>>> = Arc::new(Mutex::new(None));
+    if fault == Fault::Replay {
+        if let Some(ref path) = replay_cache_path {
+            match std::fs::read(path) {
+                Ok(bytes) if !bytes.is_empty() => {
+                    eprintln!(
+                        "attest-server: QRAB_ATTEST_REPLAY cache_loaded path={path} bytes_len={}",
+                        bytes.len()
+                    );
+                    *replay_cache.lock().unwrap() = Some(bytes);
+                }
+                Ok(_) => {
+                    eprintln!(
+                        "attest-server: QRAB_ATTEST_REPLAY cache_file_empty path={path} — will prime on first request"
+                    );
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                    eprintln!(
+                        "attest-server: QRAB_ATTEST_REPLAY cache_file_missing path={path} — will prime on first request"
+                    );
+                }
+                Err(e) => {
+                    eprintln!(
+                        "attest-server: QRAB_ATTEST_REPLAY cache_load_error path={path} err={e}"
+                    );
+                }
+            }
+        } else {
+            eprintln!(
+                "attest-server: QRAB_ATTEST_REPLAY in-memory only (set QRAB_ATTEST_REPLAY_CACHE_PATH to persist across processes)"
+            );
+        }
+    }
+
     loop {
         let (stream, peer) = match listener.accept() {
             Ok(pair) => pair,
@@ -233,7 +296,15 @@ fn serve(port: u32, signer: Signer, uki_bytes: Vec<u8>, fault: Fault) -> Result<
             Fault::WrongHash => &decoy_for_hash,
             _ => &uki_bytes,
         };
-        if let Err(e) = handle(stream, &signer, hash_source, &uki_frame) {
+        if let Err(e) = handle(
+            stream,
+            &signer,
+            hash_source,
+            &uki_frame,
+            fault,
+            &replay_cache,
+            replay_cache_path.as_deref(),
+        ) {
             eprintln!("attest-server: session error: {e:#}");
         }
     }
@@ -255,16 +326,76 @@ fn build_uki_frame(uki_bytes: &[u8]) -> Vec<u8> {
 /// write the pre-built UKI frame. `uki_bytes` feeds the SHA-256 that
 /// is signed into frame 1; `uki_frame` is the already-framed wire
 /// image transmitted as frame 2.
+///
+/// Under `Fault::Replay` the first accept populates `replay_cache`
+/// with the freshly-signed reply bytes; every subsequent accept
+/// skips `handle_request_bytes` and writes the cached frame
+/// verbatim so `server_nonce` / signature / `uki_sha256` all repeat
+/// byte-for-byte. The UKI frame is deterministic from `uki_bytes`,
+/// so writing the same `uki_frame` on both boots is automatic. The
+/// incoming request bytes are still consumed to keep the stream
+/// ordered for the (best-effort) post-report frame read that
+/// follows.
 fn handle(
     mut stream: VsockStream,
     signer: &Signer,
     uki_bytes: &[u8],
     uki_frame: &[u8],
+    fault: Fault,
+    replay_cache: &Mutex<Option<Vec<u8>>>,
+    replay_cache_path: Option<&str>,
 ) -> Result<()> {
     let request_bytes = read_framed(&mut stream).context("reading attestation request")?;
 
-    let reply_bytes = handle_request_bytes(&request_bytes, signer, uki_bytes)
-        .map_err(|e| anyhow::anyhow!("handle_request_bytes: {e:?}"))?;
+    let reply_bytes = if fault == Fault::Replay {
+        // Cached? Serve verbatim. Else run real handler, store, serve.
+        let mut guard = replay_cache
+            .lock()
+            .map_err(|_| anyhow::anyhow!("replay cache mutex poisoned"))?;
+        match guard.as_ref() {
+            Some(cached) => {
+                // `cache_age` logs every served replay so the smoke
+                // harness can grep `QRAB_ATTEST_REPLAY cache_age=`
+                // counts. Counter is process-local — under the
+                // disk-backed path each fresh attest-server process
+                // starts at 1 after loading from disk.
+                eprintln!(
+                    "attest-server: QRAB_ATTEST_REPLAY cache_age={} bytes_len={}",
+                    1,
+                    cached.len(),
+                );
+                cached.clone()
+            }
+            None => {
+                let fresh = handle_request_bytes(&request_bytes, signer, uki_bytes)
+                    .map_err(|e| anyhow::anyhow!("handle_request_bytes: {e:?}"))?;
+                eprintln!(
+                    "attest-server: QRAB_ATTEST_REPLAY cache_primed bytes_len={}",
+                    fresh.len()
+                );
+                // Persist to disk so the next attest-server process
+                // (next smoke invocation / next boot) serves identical
+                // bytes. Write-error is logged but not fatal — in-memory
+                // cache still serves correct replays inside this process.
+                if let Some(path) = replay_cache_path {
+                    match std::fs::write(path, &fresh) {
+                        Ok(()) => eprintln!(
+                            "attest-server: QRAB_ATTEST_REPLAY cache_persisted path={path} bytes_len={}",
+                            fresh.len()
+                        ),
+                        Err(e) => eprintln!(
+                            "attest-server: QRAB_ATTEST_REPLAY cache_persist_error path={path} err={e}"
+                        ),
+                    }
+                }
+                *guard = Some(fresh.clone());
+                fresh
+            }
+        }
+    } else {
+        handle_request_bytes(&request_bytes, signer, uki_bytes)
+            .map_err(|e| anyhow::anyhow!("handle_request_bytes: {e:?}"))?
+    };
 
     stream
         .write_all(&reply_bytes)
