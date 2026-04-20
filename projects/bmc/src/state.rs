@@ -56,6 +56,17 @@ pub enum VmState {
     ShuttingDown,
 }
 
+/// Result of [`BmcState::qga_sock_probe`]. Distinguishes three cases
+/// a caller otherwise had to reconstruct by correlating two separate
+/// lookups: VM not Running, VM Running but no QGA configured, and VM
+/// Running with a live QGA socket path. Single lock, single decision.
+#[derive(Debug)]
+pub enum QgaSockProbe {
+    NotRunning,
+    NoQgaSocket,
+    Ok(PathBuf),
+}
+
 /// RAII guard for the temporary qcow2 overlay created per power cycle.
 ///
 /// `create_temp_overlay` writes a fresh `/tmp/qrab-overlay-<pid>-<ms>.qcow2`
@@ -209,6 +220,23 @@ impl BmcState {
         match &*self.vm.lock().await {
             VmState::Running(vm) => vm.qga_sock().cloned(),
             _ => None,
+        }
+    }
+
+    /// Atomic probe that collapses "is the VM Running?" and "does it
+    /// have a QGA socket?" into a single `vm` lock acquisition.
+    /// Using two sequential lookups (Running check, then a separate
+    /// [`Self::qga_sock`] call) opens a race window during shutdown:
+    /// the first returns `Running`, the VM stops before the second,
+    /// and the caller surfaces a "qga_sock not on VmProcess" failure
+    /// even though the VM was fine half a ms earlier. B13-3.
+    pub async fn qga_sock_probe(&self) -> QgaSockProbe {
+        match &*self.vm.lock().await {
+            VmState::Running(vm) => match vm.qga_sock().cloned() {
+                Some(p) => QgaSockProbe::Ok(p),
+                None => QgaSockProbe::NoQgaSocket,
+            },
+            _ => QgaSockProbe::NotRunning,
         }
     }
 
