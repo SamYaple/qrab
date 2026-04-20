@@ -1,0 +1,44 @@
+[package]
+name = "qrab-real-uki-demo"
+version = "0.1.0"
+edition = "2024"
+description = "Minimal no_std UEFI app used as a real UKI fixture for matrix scenario 1r (F10)"
+publish = false
+
+[[bin]]
+name = "qrab-real-uki-demo"
+path = "src/main.rs"
+
+# This crate compiles for `x86_64-unknown-uefi` only and is excluded
+# from the top-level workspace (see `../../Cargo.toml`). It is built on
+# demand by `contrib/build-test-uki.sh`; no other crate depends on it.
+#
+# The binary is intended to stand in for a fully-formed UKI in
+# `contrib/matrix-smoke.sh` scenario 1r: qrab-boot pulls it over
+# vsock, feeds the bytes to `BootServices::load_image`, and hands
+# control to it via `start_image`. All we need at the destination is
+# a valid PE that, on execution, writes a distinctive marker token to
+# the QEMU debugcon port (0x402) so the smoke's `grep` on the serial
+# log can tell that `LoadImage` + `StartImage` really transferred
+# control (as opposed to silently skipping on a stub PE).
+#
+# We deliberately keep the runtime footprint tiny — no UEFI helpers
+# init, no allocator, no logger — because the binary must fit under
+# `qrab_boot_proto::MAX_FRAMED_PAYLOAD` (128 KiB) to traverse the
+# vsock wire in one framed payload.
+
+[dependencies]
+# Version kept in lockstep with `projects/qrab-boot/Cargo.toml` so a
+# future `cargo update` in qrab-boot can't drift the `#[entry]`
+# proc-macro ABI this crate depends on.
+uefi = { version = "0.36", default-features = false }
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = "symbols"
+
+[profile.dev]
+panic = "abort"

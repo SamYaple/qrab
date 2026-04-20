@@ -31,17 +31,35 @@ set -euo pipefail
 ROOT="$(git -C "$(dirname "${BASH_SOURCE[0]}")" rev-parse --show-toplevel)"
 SMOKE="$ROOT/contrib/smoke-vsock-qemu.sh"
 
-SCENARIOS="${SCENARIOS:-1 3 4 5 6 8 9 10 11 12a 12b 12c}"
+SCENARIOS="${SCENARIOS:-1 1r 3 4 5 6 8 9 10 11 12a 12b 12c}"
 
 # Working dir for scenario-specific fixtures (e.g. the 64 KiB UKI for
 # scenario 11). Built once, reused by every matrix run that needs it.
 SCRATCH="$ROOT/target/matrix-smoke"
 mkdir -p "$SCRATCH"
 
+# Scenario 1r (F10) needs a real PE to hand to
+# `BootServices::load_image` + `start_image` — see
+# `projects/qrab-real-uki-demo/`. The helper below builds it once per
+# matrix invocation; the staged fixture is idempotent so a warm
+# checkout is a near no-op. Keep the path in sync with
+# `contrib/build-test-uki.sh`.
+REAL_UKI_FIXTURE="$ROOT/projects/qrab-boot-tests/fixtures/uki-real.efi"
+
 # Map scenario id -> (smoke env, expected serial token).
 scenario_env() {
     case "$1" in
         1)    echo "" ;;  # default build, no fault
+        # Scenario 1r (F10): real-UKI variant of scenario 1. Rebuild
+        # qrab-boot with `QRAB_UKI_BOOT=1` so `uki::load_and_start`
+        # actually calls `BootServices::load_image` + `start_image`,
+        # and point attest-server at the 2-KiB fixture PE so the
+        # bytes qrab-boot hashes and hands to the firmware are a
+        # legal, executable image. On success the child PE writes
+        # `QRAB_REAL_UKI_BOOT_OK` to debugcon. See
+        # `projects/qrab-real-uki-demo/` and
+        # `contrib/build-test-uki.sh`.
+        1r)   echo "QRAB_UKI_BOOT=1 QRAB_SMOKE_UKI_PATH=$REAL_UKI_FIXTURE" ;;
         3)    echo "QRAB_UKI_BOOT=1" ;;
         4)    echo "QRAB_ATTEST_FAULT=wrong_hash" ;;
         5)    echo "QRAB_ATTEST_FAULT=bad_sig" ;;
@@ -72,6 +90,13 @@ scenario_env() {
 scenario_expect_token() {
     case "$1" in
         1)    echo "QRAB_LOADIMAGE_STUB_SKIP" ;;
+        # Scenario 1r terminal token: the child PE writes this to
+        # debugcon on entry. Seeing it proves `start_image` really
+        # transferred control (the parent never emits this string).
+        # The companion `QRAB_LOADIMAGE_OK` token is asserted via the
+        # relaxed-required override below so both sides of the hand-
+        # off are gated.
+        1r)   echo "QRAB_REAL_UKI_BOOT_OK" ;;
         3)    echo "QRAB_FAIL_LOAD" ;;
         4)    echo "QRAB_FAIL_HASH" ;;
         5)    echo "QRAB_ATTEST_BAD_SIG" ;;
@@ -99,6 +124,14 @@ scenario_relaxed_required() {
         # Scenario 10 ships the replayed-but-valid AttestResponse;
         # the bootloader reaches every happy token on both boots.
         1|10|11|12a|12b|12c) echo "" ;;
+        # Scenario 1r rebuilds with `QRAB_UKI_BOOT=1`, which gates
+        # out `QRAB_LOADIMAGE_STUB_SKIP` and substitutes the live
+        # `LoadImage` path. The required list is therefore the
+        # scenario-1 default with that one token swapped for
+        # `QRAB_LOADIMAGE_OK`. The scenario-unique
+        # `QRAB_REAL_UKI_BOOT_OK` is grep'd separately via
+        # `scenario_expect_token`.
+        1r)  echo "QRAB_VSOCK_FOUND QRAB_VSOCK_DRIVER_OK QRAB_VSOCK_CONNECT_OK QRAB_ATTEST_SIG_OK QRAB_REPORT_DATA_HEX QRAB_UKI_OK QRAB_PCR8_EXPECTED_DIGEST QRAB_PCR9_EXPECTED_DIGEST QRAB_SECRET_OK QRAB_ATTEST_OK QRAB_REPORT_OK QRAB_LOADIMAGE_OK" ;;
         # Faults inside phase 4: only early tokens required.
         3|4|5) echo "QRAB_VSOCK_FOUND QRAB_VSOCK_CONNECT_OK" ;;
         # Server unreachable: vsock PCI device found but connect
@@ -126,6 +159,16 @@ build_scratch_fixtures() {
         # Sprinkle a magic tag at the start so a corrupted fixture
         # is obvious in the qemu serial log.
         printf 'QRAB_LARGE_UKI_FIXTURE_v1\n' | dd of="$target" bs=1 seek=0 conv=notrunc status=none
+    fi
+
+    # Scenario 1r (F10): the real-UKI PE. Delegated to a dedicated
+    # script that also enforces the MAX_FRAMED_PAYLOAD size budget —
+    # catches a drift where a refactor of `qrab-real-uki-demo`
+    # accidentally pulls in enough dependencies to blow the 128 KiB
+    # cap. Idempotent; skipped on warm checkouts.
+    if [[ " $SCENARIOS " == *" 1r "* ]]; then
+        bash "$ROOT/contrib/build-test-uki.sh" \
+            || { echo "matrix: build-test-uki.sh failed" >&2; exit 1; }
     fi
 }
 build_scratch_fixtures
@@ -244,6 +287,14 @@ for s in $SCENARIOS; do
     must_not=""
     case "$s" in
         3)       must_not="QRAB_LOADIMAGE_OK" ;;
+        # Scenario 1r (F10) regression guard: a tampered-fixture or
+        # broken rebuild that drove `load_image` into its failure
+        # branches would leave `QRAB_FAIL_LOAD` / `QRAB_FAIL_SB` on
+        # the serial log despite the happy-path required-token list
+        # still passing (since scenario-1r's relaxed list only gates
+        # the stages up to `QRAB_LOADIMAGE_OK`). Assert their
+        # absence to make that class of regression loud.
+        1r)      must_not="QRAB_FAIL_LOAD\|QRAB_FAIL_SB" ;;
         4|5|6|8) must_not="QRAB_PHASE4_OK"    ;;
         # Scenario 9: SNP gate fires before any downstream token.
         # Enforce absence of every later stage's happy marker so a
