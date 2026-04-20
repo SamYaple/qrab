@@ -159,7 +159,15 @@ impl Qga {
     }
 
     /// Execute a command by name with raw JSON arguments.
-    async fn execute_raw<T: serde::de::DeserializeOwned>(
+    ///
+    /// Escape hatch for commands whose typed return shape in the
+    /// generated `qapi::qga` module does not match the actual QGA
+    /// response (e.g. `guest-file-read`, whose typed `Returns` is the
+    /// request struct rather than the `{count, buf-b64, eof}` body the
+    /// agent sends back). Callers pick their own deserialization target
+    /// `T` — a local struct, `serde_json::Value`, etc.
+    #[must_use = "QGA commands can fail with a QmpError or time out; ignoring the Result hides protocol errors"]
+    pub async fn execute_raw<T: serde::de::DeserializeOwned>(
         &mut self,
         name: &str,
         args: serde_json::Value,

@@ -203,6 +203,15 @@ impl BmcState {
         }
     }
 
+    /// Read the QGA (QEMU Guest Agent) socket path while holding the vm lock.
+    /// Returns Some only when a QGA-enabled VM is currently Running.
+    pub async fn qga_sock(&self) -> Option<PathBuf> {
+        match &*self.vm.lock().await {
+            VmState::Running(vm) => vm.qga_sock().cloned(),
+            _ => None,
+        }
+    }
+
     /// Spawn the hardcoded SEV-SNP + TPM + KVM + UEFI x86_64 VM with the
     /// Ubuntu SNP cloud image and cloud-init seed. Transitions Off -> Running.
     ///
@@ -264,7 +273,7 @@ impl BmcState {
         })?;
 
         let machine_config = MachineConfig::Uefi { memory };
-        let mut builder = VmBuilder::new(Arch::X86_64, machine_config).serial();
+        let mut builder = VmBuilder::new(Arch::X86_64, machine_config).serial().qga();
         if let Some(cpus) = config.cpus {
             builder = builder.smp(cpus);
         }
@@ -955,7 +964,10 @@ async fn ensure_cloud_init_seed() -> Result<PathBuf> {
         .join("test-fixtures");
     tokio::fs::create_dir_all(&cache_dir).await?;
 
-    let path = cache_dir.join("cloud-init-seed.img");
+    // Filename is version-suffixed so a change in the embedded user-data
+    // (e.g. adding a new package or runcmd) invalidates stale cached
+    // seeds. Bump the suffix whenever the YAML below changes.
+    let path = cache_dir.join("cloud-init-seed-qga.img");
     if path.exists() {
         return Ok(path);
     }
@@ -982,9 +994,12 @@ users:
   - name: root
     plain_text_passwd: snp
     lock_passwd: false
+packages:
+  - qemu-guest-agent
 runcmd:
   - echo "===== SNP BOOT OK =====" > /dev/ttyS0
   - echo "===== SNP BOOT OK =====" > /dev/tty0 || true
+  - systemctl enable --now qemu-guest-agent
 "#,
     )
     .await?;

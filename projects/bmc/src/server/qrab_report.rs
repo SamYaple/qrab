@@ -118,37 +118,112 @@ fn fetched_at_now() -> String {
 /// - `Ok(snapshot)` on a successful parse.
 /// - `Failed { reason }` on any other error.
 ///
-/// # Current limitation
-///
-/// The BMC's `manager::Vm` handle does not currently expose a QGA
-/// socket (see `projects/manager/src/vm.rs` — only `qmp_sock`,
-/// `serial_log`, `vnc_sock`, `attest_sock` are surfaced). Until
-/// `VmBuilder` grows a `.qga()` helper + virtio-serial chardev
-/// wiring, this server fn short-circuits to
-/// `Failed { reason: "qga socket not plumbed in VmBuilder; see \
-/// projects/manager/src/vm.rs" }` whenever the VM is Running.
-/// The parse path ([`parse_qrab_report`]) is fully covered by unit
-/// tests so the UI wiring can land first and the QGA plumbing can
-/// follow in a focused follow-up PR.
+/// Wire path: BMC opens the QGA Unix socket plumbed by `VmBuilder::qga()`
+/// (see `projects/manager/src/vm.rs`), issues `guest-file-open` on the
+/// efivarfs path, reads up to [`QRAB_REPORT_READ_MAX`] bytes via
+/// `guest-file-read`, base64-decodes the `buf-b64` field, then hands the
+/// raw efivarfs blob to [`parse_qrab_report`]. The file handle is closed
+/// best-effort — a failure there does not mask the parse result, since
+/// the guest agent will reap on disconnect anyway.
 #[server]
 pub async fn fetch_qrab_report() -> Result<QrabReportStatus, ServerFnError> {
+    use base64::Engine;
     use crate::state::{bmc, VmState};
 
     let state = bmc();
-    let vm_guard = state.vm.lock().await;
 
-    match &*vm_guard {
-        VmState::Running(_) => {
-            // Drop the guard before returning — nothing below touches it.
-            drop(vm_guard);
-            Ok(QrabReportStatus::Failed {
-                reason:
-                    "qga socket not plumbed in VmBuilder; see projects/manager/src/vm.rs"
-                        .into(),
-            })
+    // Gate on VmState::Running without holding the lock across QGA I/O.
+    // The guard is released before the first `.await` below so UI polls
+    // for other server fns (status, CPU info) are not blocked by a
+    // wedged guest agent.
+    {
+        let vm_guard = state.vm.lock().await;
+        if !matches!(&*vm_guard, VmState::Running(_)) {
+            return Ok(QrabReportStatus::Absent);
         }
-        _ => Ok(QrabReportStatus::Absent),
     }
+
+    let qga_sock = match state.qga_sock().await {
+        Some(p) => p,
+        None => {
+            return Ok(QrabReportStatus::Failed {
+                reason: "qga_sock not on VmProcess".into(),
+            });
+        }
+    };
+
+    let mut qga = match qapi_protocol::qga::Qga::new(&qga_sock).await {
+        Ok(q) => q,
+        Err(e) => {
+            return Ok(QrabReportStatus::Failed {
+                reason: format!("QGA connect failed: {e}"),
+            });
+        }
+    };
+
+    // `guest-file-open` in read mode.
+    let handle: i64 = match qga
+        .execute(&qapi::qga::commands::GuestFileOpen {
+            path: QRAB_REPORT_EFIVAR_PATH.into(),
+            mode: Some("r".into()),
+        })
+        .await
+    {
+        Ok(h) => h,
+        Err(e) => {
+            let msg = e.to_string();
+            // Absent-file is expected before the UKI publishes the
+            // variable — surface it as `Absent` rather than `Failed`.
+            if msg.contains("No such file or directory") {
+                return Ok(QrabReportStatus::Absent);
+            }
+            return Ok(QrabReportStatus::Failed {
+                reason: format!("guest-file-open: {msg}"),
+            });
+        }
+    };
+
+    // `guest-file-read` — typed return in qapi::qga aliases to the
+    // request struct (`{count, handle}`), not the response body. Use
+    // `execute_raw` with a local struct that matches the actual wire
+    // shape `{count, buf-b64, eof}`.
+    #[derive(serde::Deserialize)]
+    struct ReadReturn {
+        #[serde(rename = "buf-b64")]
+        buf_b64: String,
+    }
+    let req = serde_json::json!({
+        "handle": handle,
+        "count": QRAB_REPORT_READ_MAX,
+    });
+    let read_result: Result<ReadReturn, _> = qga.execute_raw("guest-file-read", req).await;
+
+    // Close the handle best-effort before returning — the agent reaps
+    // on disconnect, but explicit close keeps per-call fd usage tight
+    // and avoids surprising the operator with agent-side warnings.
+    let _ = qga
+        .execute(&qapi::qga::commands::GuestFileClose { handle })
+        .await;
+
+    let read = match read_result {
+        Ok(r) => r,
+        Err(e) => {
+            return Ok(QrabReportStatus::Failed {
+                reason: format!("guest-file-read: {e}"),
+            });
+        }
+    };
+
+    let bytes = match base64::engine::general_purpose::STANDARD.decode(&read.buf_b64) {
+        Ok(b) => b,
+        Err(e) => {
+            return Ok(QrabReportStatus::Failed {
+                reason: format!("base64 decode: {e}"),
+            });
+        }
+    };
+
+    Ok(parse_qrab_report(&bytes))
 }
 
 #[cfg(test)]
