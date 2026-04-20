@@ -31,7 +31,7 @@ set -euo pipefail
 ROOT="$(git -C "$(dirname "${BASH_SOURCE[0]}")" rev-parse --show-toplevel)"
 SMOKE="$ROOT/contrib/smoke-vsock-qemu.sh"
 
-SCENARIOS="${SCENARIOS:-1 3 4 5 6 8 11 12a 12b 12c}"
+SCENARIOS="${SCENARIOS:-1 3 4 5 6 8 9 11 12a 12b 12c}"
 
 # Working dir for scenario-specific fixtures (e.g. the 64 KiB UKI for
 # scenario 11). Built once, reused by every matrix run that needs it.
@@ -47,6 +47,7 @@ scenario_env() {
         5)    echo "QRAB_ATTEST_FAULT=bad_sig" ;;
         6)    echo "QRAB_SMOKE_SKIP_ATTEST=1" ;;
         8)    echo "QRAB_SMOKE_NO_VSOCK=1" ;;
+        9)    echo "QRAB_REQUIRE_SNP=1" ;;
         # 40 s boot budget keeps margin for slower TCG hosts while
         # the in-guest vsock path drains the 64 KiB UKI. Regular
         # 20 s is enough on a modern EPYC / Ryzen but not on all
@@ -70,6 +71,7 @@ scenario_expect_token() {
         5)    echo "QRAB_ATTEST_BAD_SIG" ;;
         6)    echo "QRAB_VSOCK_CONNECT_TIMEOUT" ;;
         8)    echo "QRAB_VSOCK_MISSING" ;;
+        9)    echo "QRAB_FAIL_NOSNP" ;;
         11)   echo "QRAB_UKI_OK len=65536" ;;
         12a|12b|12c) echo "QRAB_LOADIMAGE_STUB_SKIP" ;;
     esac
@@ -92,6 +94,10 @@ scenario_relaxed_required() {
         # No NIC: probe itself bails. Require nothing — the
         # expected-token grep on QRAB_VSOCK_MISSING is the gate.
         8) echo " " ;;
+        # F6 SNP-locked build on TCG: halts at the CPUID check
+        # before any vsock / attest token. Only QRAB_FAIL_NOSNP
+        # is required; the expected-token grep below is the gate.
+        9) echo "QRAB_FAIL_NOSNP" ;;
     esac
 }
 
@@ -155,6 +161,11 @@ for s in $SCENARIOS; do
     case "$s" in
         3)       must_not="QRAB_LOADIMAGE_OK" ;;
         4|5|6|8) must_not="QRAB_PHASE4_OK"    ;;
+        # Scenario 9: SNP gate fires before any downstream token.
+        # Enforce absence of every later stage's happy marker so a
+        # regression that lets the guest proceed past the gate
+        # cannot silently slip past.
+        9)       must_not="QRAB_LOADIMAGE_OK\|QRAB_PHASE4_OK\|QRAB_ATTEST_OK" ;;
         # Happy-chain scenarios (1, 11, 12*) — no regression guard
         # other than the expected-token grep above.
     esac
