@@ -246,29 +246,50 @@ pub fn verify_report(
     // The remaining 416 bytes of `report.signature[96..]` must be
     // zero per ABI Table 137.
     let sig_bytes: [u8; 512] = report.signature;
-    // ABI Table 137 says `signature[96..512]` is reserved zero.
-    // Real AMD EPYC Genoa firmware (observed 2026-04-20) leaves
-    // non-zero bytes there despite the spec; whether the bytes are
-    // firmware-leaked state or a spec-evolution we haven't picked
-    // up is under investigation. Relax to a non-fatal signal when
-    // `QRAB_SNP_ALLOW_SIG_PADDING=1`; default still rejects so the
-    // hermetic test surface remains strict.
+    // AMD SEV-SNP ABI Table 138 `SIG_ALGO_ECDSA_P384_SHA384`
+    // signature layout is three 72-byte slots with 368-byte tail:
+    //
+    //   bytes 0..72    R (scalar little-endian, first 48 used, top 24 zero)
+    //   bytes 72..144  S (same)
+    //   bytes 144..512 reserved (368 bytes)
+    //
+    // Earlier code collapsed R/S into back-to-back 48-byte slots
+    // at [0..48] + [48..96], which worked against our synthetic
+    // test signatures but mismatched real AMD firmware output —
+    // live EPYC 9354 surfaced this 2026-04-20 via F2 live validation.
+    // Reference: virtee/sev crate `certs/snp/ecdsa/mod.rs` Signature
+    // struct = `r: [u8; 72], s: [u8; 72]`.
+    const R_OFF: usize = 0;
+    const S_OFF: usize = 72;
+    const RESERVED_OFF: usize = 144;
+    // Top 24 bytes of each scalar slot plus the 368-byte tail must
+    // be zero. Relax via QRAB_SNP_ALLOW_SIG_PADDING=1 for diagnostic
+    // runs against AMD firmware that leaks non-zero state there.
     let allow_padding = std::env::var("QRAB_SNP_ALLOW_SIG_PADDING")
         .map(|v| v == "1")
         .unwrap_or(false);
-    for &b in &sig_bytes[96..] {
-        if b != 0 {
-            if !allow_padding {
-                return Err(VerifyError::SignaturePaddingNonZero);
-            }
-            break; // one non-zero byte is enough signal; move on
+    let mut padding_nonzero = false;
+    for &b in &sig_bytes[R_OFF + 48..R_OFF + 72] {
+        if b != 0 { padding_nonzero = true; break; }
+    }
+    if !padding_nonzero {
+        for &b in &sig_bytes[S_OFF + 48..S_OFF + 72] {
+            if b != 0 { padding_nonzero = true; break; }
         }
+    }
+    if !padding_nonzero {
+        for &b in &sig_bytes[RESERVED_OFF..] {
+            if b != 0 { padding_nonzero = true; break; }
+        }
+    }
+    if padding_nonzero && !allow_padding {
+        return Err(VerifyError::SignaturePaddingNonZero);
     }
     let mut r_be = [0u8; 48];
     let mut s_be = [0u8; 48];
     for i in 0..48 {
-        r_be[i] = sig_bytes[47 - i];
-        s_be[i] = sig_bytes[48 + 47 - i];
+        r_be[i] = sig_bytes[R_OFF + 47 - i];
+        s_be[i] = sig_bytes[S_OFF + 47 - i];
     }
     let signature = Signature::from_scalars(
         GenericArray::clone_from_slice(&r_be),
@@ -333,8 +354,11 @@ mod tests {
         let r_be = r.to_bytes();
         let s_be = s.to_bytes();
         for i in 0..48 {
+            // AMD SIG layout: 72-byte slots for R + S (ABI Table 138).
+            // First 48 bytes of each slot hold the P-384 scalar LE;
+            // trailing 24 bytes remain zero.
             buf[0x2A0 + i] = r_be[47 - i];
-            buf[0x2A0 + 48 + i] = s_be[47 - i];
+            buf[0x2A0 + 72 + i] = s_be[47 - i];
         }
         let report = SnpAttestationReport::read_from_bytes(&buf).expect("decode");
         let mut vcek = [0u8; VCEK_SEC1_LEN];
@@ -385,7 +409,11 @@ mod tests {
         let key = test_signing_key(0x05);
         let (mut report, vcek) = round_trip_fixture(&key, 0x55);
         let bytes = <SnpAttestationReport as IntoBytes>::as_mut_bytes(&mut report);
-        bytes[0x2A0 + 96] = 0x01; // first reserved byte non-zero
+        // 72-byte R + 72-byte S + reserved tail. First reserved byte
+        // sits at signature offset 144. Setting the old `96`
+        // collides with live S-scalar data under the new layout and
+        // would mean a different test (SignatureMismatch).
+        bytes[0x2A0 + 144] = 0x01;
         assert_eq!(
             verify_report(&report, &vcek),
             Err(VerifyError::SignaturePaddingNonZero)
