@@ -173,13 +173,16 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "base64",
+ "der",
  "p256",
  "qrab-attest-verifier",
  "qrab-boot-proto",
  "qrab-snp-proto",
  "rand_core 0.6.4",
+ "rcgen",
  "sha2",
  "vsock",
+ "x509-cert",
  "zerocopy",
 ]
 
