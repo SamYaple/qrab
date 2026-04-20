@@ -6,15 +6,24 @@ attestation report chain (F2). Reserve slots for `ARK-Milan.pem`,
 `ARK-Bergamo.pem`, `ARK-Turin.pem` will appear as the project
 tests on those generations.
 
-## DEV PLACEHOLDER WARNING
+## Current pin: AMD ARK-Genoa (real, 2026-04-20)
 
-`ARK-Genoa.pem` in this directory is **not** AMD's real ARK. It is a
-self-signed RSA-4096 SHA-384 cert generated at build time so
-`include_str!` has something parseable to compile against + so
-hermetic tests that override via `QRAB_ATTEST_VERIFIER_ARK_PEM` do
-not need to craft a PEM at runtime.
+`ARK-Genoa.pem` contains the genuine AMD Root Key for Genoa/Zen 4,
+fetched from `https://kdsintf.amd.com/vcek/v1/Genoa/cert_chain`
+(the second block; the first is the ASK).
 
-A real AMD ARK for Genoa is published at:
+Fingerprint (SHA-256):
+`4C:65:98:D1:9C:18:71:9C:5D:FD:4A:7D:33:5F:67:4E:5B:FE:1D:8F:80:0C:EA:2C:F2:70:C1:0D:10:3D:B2:F1`
+
+Subject = `CN=ARK-Genoa, O=Advanced Micro Devices, OU=Engineering`.
+Self-signed RSA-4096 PSS SHA-384.
+
+If this fingerprint drifts without a deliberate refresh commit,
+treat as a supply-chain incident — the ARK is the root of the
+`attest-server` trust chain when no `QRAB_ATTEST_VERIFIER_ARK_PEM`
+env override is set.
+
+Refresh URL (for when AMD rotates a future ARK generation):
 
 ```
 https://kdsintf.amd.com/vcek/v1/Genoa/cert_chain

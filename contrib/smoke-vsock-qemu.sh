@@ -94,6 +94,16 @@ else
     # Build the Rust attestation server up front so the bind-time log line
     # below is deterministic (and so a compile error fails fast instead of
     # mid-handshake).
+    # Auto-regen the dev attest-server keypair when missing. Gitignored
+    # fixture, so a fresh worktree / CI checkout would otherwise hit
+    # the QRAB_ATTEST_NO_PUBKEY path — fine for scenario wiring but
+    # breaks scenario 5 (bad_sig) which expects the verify to actually
+    # fire. Re-running gen-attest-keys.sh is a no-op when keys exist.
+    if [[ ! -s "$ROOT/contrib/attest-keys/server.sec1" ]]; then
+        log "attest keys missing; regenerating via contrib/gen-attest-keys.sh"
+        bash "$ROOT/contrib/gen-attest-keys.sh" >/dev/null 2>&1 \
+            || die "gen-attest-keys.sh failed"
+    fi
     log "building attest-server"
     (cd "$ROOT" && cargo build -p attest-server --release >/dev/null 2>&1) \
         || die "attest-server build failed"
