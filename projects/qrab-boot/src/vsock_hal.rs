@@ -166,8 +166,28 @@ unsafe impl Hal for UefiHal {
     unsafe fn dma_dealloc(paddr: PhysAddr, vaddr: NonNull<u8>, pages: usize) -> i32 {
         let host = vaddr.as_ptr();
         let cookie = ALLOC_MAP.0.borrow_mut().remove(&(host as usize));
+        let mut unmap_failed = false;
         if let Some(cookie) = cookie {
-            let _ = pci_dma::unmap(cookie);
+            // Unmap failure on SNP is an RMP invariant breach: the
+            // page is still shared with the hypervisor but we've
+            // forgotten the cookie, so a subsequent allocation may
+            // re-map the same page as private and trip a #VC. Fail
+            // closed on SNP; on TCG log + continue to `free_buffer`.
+            if let Err(status) = pci_dma::unmap(cookie) {
+                log::error!(
+                    "QRAB_DMA_UNMAP_FAIL op=dma_dealloc host={host:p} \
+                     paddr={paddr:#x} status={:#x}",
+                    status.0,
+                );
+                unmap_failed = true;
+                if crate::ghcb::detect().sev_snp {
+                    panic!(
+                        "QRAB_DMA_UNMAP_FAIL_SNP_PANIC op=dma_dealloc \
+                         status={:#x}; RMP invariant breach, halting",
+                        status.0,
+                    );
+                }
+            }
         } else {
             // Missing cookie means we never mapped this allocation
             // (previous dma_alloc took the error branch). Log and
@@ -179,7 +199,7 @@ unsafe impl Hal for UefiHal {
         // SAFETY: `host` originated from `pci_dma::allocate_buffer`
         // and has not been freed yet. Matching `pages` must be
         // supplied by the caller per the `Hal` trait contract.
-        if pci_dma::free_buffer(host, pages).is_err() {
+        if pci_dma::free_buffer(host, pages).is_err() || unmap_failed {
             return -1;
         }
         0
@@ -221,10 +241,25 @@ unsafe impl Hal for UefiHal {
                 // `Unmap` on a BusMasterWrite64 mapping copies the
                 // device-written bytes back into the caller's host
                 // buffer; on BusMasterRead64 it just drops the
-                // bounce copy. Errors are logged by `pci_dma` but
-                // we cannot meaningfully propagate them through the
-                // Hal trait.
-                let _ = pci_dma::unmap(cookie);
+                // bounce copy. The `Hal::unshare` return type is
+                // `()`, so on SNP — where leaving a shared page
+                // mapped is an RMP invariant breach — we have no
+                // choice but to fail closed via panic. On TCG we
+                // log + continue (no RMP).
+                if let Err(status) = pci_dma::unmap(cookie) {
+                    log::error!(
+                        "QRAB_DMA_UNMAP_FAIL op=unshare ptr={ptr:p} len={len} \
+                         status={:#x}",
+                        status.0,
+                    );
+                    if crate::ghcb::detect().sev_snp {
+                        panic!(
+                            "QRAB_DMA_UNMAP_FAIL_SNP_PANIC op=unshare \
+                             status={:#x}; shared page leaked, halting",
+                            status.0,
+                        );
+                    }
+                }
             }
             None => {
                 log::warn!(

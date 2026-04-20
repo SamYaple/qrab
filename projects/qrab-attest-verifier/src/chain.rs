@@ -264,8 +264,22 @@ fn verify_rsa_cert_signature(
 
     match oid.as_str() {
         OID_RSA_SHA1 => {
-            // Only accepted on the ARK self-signature; callers
-            // enforce by passing the issuer_pub == subject_pub.
+            // SHA-1 RSA is only tolerated on a self-signed cert
+            // (pre-2022 Milan ARK). Gate on issuer-DN == subject-DN
+            // so an ASK or VCEK carrying SHA-1 — forged via a
+            // SHAmbles-style chosen-prefix collision — cannot smuggle
+            // itself past the chain walk. A prior version of this
+            // branch relied on an unenforced comment "callers pass
+            // issuer_pub == subject_pub"; that promise had no code
+            // guard and silently held for ARK while accepting SHA-1
+            // on ASK / VCEK as well.
+            let issuer_dn = cert.tbs_certificate.issuer.to_der()
+                .map_err(|e| ChainError::X509Parse(format!("issuer DN: {e}")))?;
+            let subject_dn = cert.tbs_certificate.subject.to_der()
+                .map_err(|e| ChainError::X509Parse(format!("subject DN: {e}")))?;
+            if issuer_dn != subject_dn {
+                return Err(ChainError::WeakHashOnNonSelfSig);
+            }
             let digest = sha1::Sha1::digest(&tbs);
             let scheme = Pkcs1v15Sign::new::<sha1::Sha1>();
             issuer_pub.verify(scheme, &digest, sig_bits)
@@ -408,16 +422,42 @@ fn cross_check_vcek_bindings(
         .unwrap_or(&[]);
     let tcb = TcbParts::from_reported_tcb_le(report.reported_tcb);
 
+    let mut saw_hwid = false;
+    let mut saw_any_spl = false;
+
     for ext in exts {
         let oid = ext.extn_id.to_string();
         match oid.as_str() {
-            OID_AMD_BLSPL => check_spl(ext, "blSPL", tcb.bl)?,
-            OID_AMD_TEESPL => check_spl(ext, "teeSPL", tcb.tee)?,
-            OID_AMD_SNPSPL => check_spl(ext, "snpSPL", tcb.snp)?,
-            OID_AMD_UCODESPL => check_spl(ext, "ucodeSPL", tcb.ucode)?,
-            OID_AMD_HWID => check_hwid(ext, &report.chip_id)?,
+            OID_AMD_BLSPL => {
+                check_spl(ext, "blSPL", tcb.bl)?;
+                saw_any_spl = true;
+            }
+            OID_AMD_TEESPL => {
+                check_spl(ext, "teeSPL", tcb.tee)?;
+                saw_any_spl = true;
+            }
+            OID_AMD_SNPSPL => {
+                check_spl(ext, "snpSPL", tcb.snp)?;
+                saw_any_spl = true;
+            }
+            OID_AMD_UCODESPL => {
+                check_spl(ext, "ucodeSPL", tcb.ucode)?;
+                saw_any_spl = true;
+            }
+            OID_AMD_HWID => {
+                check_hwid(ext, &report.chip_id)?;
+                saw_hwid = true;
+            }
             _ => { /* non-AMD extension — ignore */ }
         }
+    }
+
+    // Fail closed: a VCEK missing hwID or all four SPL OIDs cannot
+    // be bound to the chip / TCB in the report. Silent tolerance
+    // turned the F4 cross-check into a no-op when a host stripped
+    // the AMD OIDs from a forwarded cert.
+    if !saw_hwid || !saw_any_spl {
+        return Err(ChainError::MissingTcbExt);
     }
     Ok(())
 }
@@ -430,8 +470,19 @@ fn check_spl(
     component: &'static str,
     report_value: u8,
 ) -> Result<(), ChainError> {
-    let cert_value = u8::from_der(ext.extn_value.as_bytes())
+    // AMD wraps the SPL component as ASN.1 `INTEGER`. Values >= 0x80
+    // DER-encode as two content bytes (`0x00 || 0xXX`) to avoid the
+    // sign bit; `u8::from_der` rejects that form. Decode as `u16`
+    // and range-check down. `u16` covers every single-octet unsigned
+    // value plus the zero-padded form.
+    let raw = u16::from_der(ext.extn_value.as_bytes())
         .map_err(|e| ChainError::X509Parse(format!("{component} decode: {e}")))?;
+    if raw > u8::MAX as u16 {
+        return Err(ChainError::X509Parse(format!(
+            "{component} out of u8 range: {raw}"
+        )));
+    }
+    let cert_value = raw as u8;
     if cert_value != report_value {
         return Err(ChainError::TcbMismatch {
             component,
@@ -506,8 +557,14 @@ mod tests {
     /// `rcgen` 0.14. The VCEK is an ECDSA-P384 cert signed by ASK.
     /// rcgen uses PKCS1-v1.5 SHA-384 for RSA, which lands on the
     /// `OID_RSA_SHA384` branch in our verifier.
+    ///
+    /// Populates hwID + snpSPL extensions so the chain passes the
+    /// F4 presence check. Tests exercising absence / mismatch call
+    /// [`build_test_chain_with_vcek_exts`] directly.
     fn build_test_chain() -> (Vec<u8>, Vec<u8>, Vec<u8>) {
-        build_test_chain_with_vcek_exts(&[])
+        let hwid = amd_hwid_ext(&[0u8; 64]);
+        let snp = amd_int_ext(&[1, 3, 6, 1, 4, 1, 3704, 1, 3, 3], 0);
+        build_test_chain_with_vcek_exts(&[hwid, snp])
     }
 
     /// Same as [`build_test_chain`] but allows the caller to attach
@@ -748,9 +805,11 @@ mod tests {
 
     #[test]
     fn vcek_tcb_mismatch_rejected() {
-        // Cert says snpSPL=20, report says snp=21.
-        let ext = amd_int_ext(&[1, 3, 6, 1, 4, 1, 3704, 1, 3, 3], 20);
-        let (ark, ask, vcek) = build_test_chain_with_vcek_exts(&[ext]);
+        // Cert says snpSPL=20, report says snp=21. hwID included so
+        // we land on the TCB mismatch path, not the presence check.
+        let snp = amd_int_ext(&[1, 3, 6, 1, 4, 1, 3704, 1, 3, 3], 20);
+        let hwid = amd_hwid_ext(&[0u8; 64]);
+        let (ark, ask, vcek) = build_test_chain_with_vcek_exts(&[snp, hwid]);
         let mut report = bogus_report();
         report.reported_tcb = tcb_u64(0, 0, 21, 0);
         let err = verify_chain(&ark, &ask, &vcek, &report, None).unwrap_err();
@@ -766,8 +825,12 @@ mod tests {
 
     #[test]
     fn vcek_chip_id_mismatch_rejected() {
-        let ext = amd_hwid_ext(&[0xAA; 64]);
-        let (ark, ask, vcek) = build_test_chain_with_vcek_exts(&[ext]);
+        // hwID + at least one SPL required for presence. We want to
+        // exercise the chip-id mismatch, so include snpSPL matching
+        // the (all-zero) report TCB.
+        let hwid = amd_hwid_ext(&[0xAA; 64]);
+        let snp = amd_int_ext(&[1, 3, 6, 1, 4, 1, 3704, 1, 3, 3], 0);
+        let (ark, ask, vcek) = build_test_chain_with_vcek_exts(&[hwid, snp]);
         let mut report = bogus_report();
         report.chip_id = [0xBB; 64];
         let err = verify_chain(&ark, &ask, &vcek, &report, None).unwrap_err();
@@ -775,5 +838,175 @@ mod tests {
             matches!(err, ChainError::ChipIdMismatch),
             "expected ChipIdMismatch, got {err:?}"
         );
+    }
+
+    // ------- R13: SHA-1 DN gate + required-ext presence -------
+
+    /// Hand-craft an ASK certificate whose outer signatureAlgorithm
+    /// claims `sha1WithRSAEncryption` and is correctly signed by
+    /// the ARK via SHA-1. Cannot happen with rcgen alone because
+    /// rcgen's PKCS_RSA_SHA1 scheme is not exposed, so we repurpose
+    /// the PKCS1 SHA-384 path and swap the OID + re-sign with SHA-1.
+    fn build_sha1_ask_under_ark() -> (Vec<u8>, Vec<u8>) {
+        use rcgen::{
+            CertificateParams, DistinguishedName, DnType, Issuer,
+            KeyPair, PKCS_RSA_SHA256,
+        };
+
+        fn dn(cn: &str) -> DistinguishedName {
+            let mut d = DistinguishedName::new();
+            d.push(DnType::CommonName, cn);
+            d
+        }
+        fn mk_ca(cn: &str) -> CertificateParams {
+            let mut p = CertificateParams::new(Vec::<String>::new()).unwrap();
+            p.distinguished_name = dn(cn);
+            p.is_ca = rcgen::IsCa::Ca(rcgen::BasicConstraints::Unconstrained);
+            p
+        }
+
+        // ARK with a real RSA key we control, self-signed via rcgen
+        // (SHA-256 flavour — the OID/hash we swap is the ASK one).
+        let ark_kp = KeyPair::generate_for(&PKCS_RSA_SHA256).unwrap();
+        let ark_priv_der = ark_kp.serialize_der();
+        let ark_priv = RsaPrivateKey::from_pkcs8_der(&ark_priv_der).unwrap();
+        let ark_rcgen = mk_ca("qrab-test ARK")
+            .self_signed(&ark_kp).unwrap();
+        let ark_der = ark_rcgen.der().to_vec();
+
+        // ASK signed by ARK via rcgen, then we rewrite its outer
+        // signatureAlgorithm to SHA-1 RSA and re-sign the TBS bytes
+        // with the ARK's private key using PKCS1-v1.5 SHA-1.
+        let ark_issuer: Issuer<'static, _> = Issuer::new(mk_ca("qrab-test ARK"), ark_kp);
+        let ask_kp = KeyPair::generate_for(&PKCS_RSA_SHA256).unwrap();
+        let ask_rcgen = mk_ca("qrab-test ASK")
+            .signed_by(&ask_kp, &ark_issuer).unwrap();
+        let mut ask = Certificate::from_der(ask_rcgen.der()).unwrap();
+
+        let sha1_alg = AlgorithmIdentifierOwned {
+            oid: ObjectIdentifier::new_unwrap(OID_RSA_SHA1),
+            parameters: Some(der::Any::null()),
+        };
+        ask.tbs_certificate.signature = sha1_alg.clone();
+        ask.signature_algorithm = sha1_alg;
+        let tbs_bytes = ask.tbs_certificate.to_der().unwrap();
+        let digest = sha1::Sha1::digest(&tbs_bytes);
+        let scheme = Pkcs1v15Sign::new::<sha1::Sha1>();
+        let sig = ark_priv.sign(scheme, &digest).unwrap();
+        ask.signature = BitString::from_bytes(&sig).unwrap();
+
+        let ask_der = ask.to_der().unwrap();
+        (ark_der, ask_der)
+    }
+
+    #[test]
+    fn sha1_on_ask_rejected_even_with_valid_sig() {
+        // Cert link-check runs first, so we assert by calling the
+        // low-level verifier directly: the SHA-1 ASK is well-formed
+        // and correctly signed, but issuer != subject, so must fail
+        // with WeakHashOnNonSelfSig.
+        let (ark_der, ask_der) = build_sha1_ask_under_ark();
+        let ark = Certificate::from_der(&ark_der).unwrap();
+        let ask = Certificate::from_der(&ask_der).unwrap();
+        let ark_pub = extract_rsa_pubkey(&ark).unwrap();
+        let err = verify_rsa_cert_signature(&ask, &ark_pub).unwrap_err();
+        assert!(
+            matches!(err, ChainError::WeakHashOnNonSelfSig),
+            "expected WeakHashOnNonSelfSig, got {err:?}"
+        );
+    }
+
+    #[test]
+    fn sha1_on_self_signed_cert_accepted() {
+        // Self-signed SHA-1 RSA cert (issuer == subject) must still
+        // verify so pre-2022 Milan ARKs continue to load.
+        use rcgen::{
+            CertificateParams, DistinguishedName, DnType, KeyPair,
+            PKCS_RSA_SHA256,
+        };
+        fn dn(cn: &str) -> DistinguishedName {
+            let mut d = DistinguishedName::new();
+            d.push(DnType::CommonName, cn);
+            d
+        }
+        let kp = KeyPair::generate_for(&PKCS_RSA_SHA256).unwrap();
+        let priv_der = kp.serialize_der();
+        let priv_rsa = RsaPrivateKey::from_pkcs8_der(&priv_der).unwrap();
+        let mut params = CertificateParams::new(Vec::<String>::new()).unwrap();
+        params.distinguished_name = dn("qrab-test legacy ARK");
+        params.is_ca = rcgen::IsCa::Ca(rcgen::BasicConstraints::Unconstrained);
+        let rcgen_cert = params.self_signed(&kp).unwrap();
+        let mut cert = Certificate::from_der(rcgen_cert.der()).unwrap();
+
+        let sha1_alg = AlgorithmIdentifierOwned {
+            oid: ObjectIdentifier::new_unwrap(OID_RSA_SHA1),
+            parameters: Some(der::Any::null()),
+        };
+        cert.tbs_certificate.signature = sha1_alg.clone();
+        cert.signature_algorithm = sha1_alg;
+        let tbs_bytes = cert.tbs_certificate.to_der().unwrap();
+        let digest = sha1::Sha1::digest(&tbs_bytes);
+        let scheme = Pkcs1v15Sign::new::<sha1::Sha1>();
+        let sig = priv_rsa.sign(scheme, &digest).unwrap();
+        cert.signature = BitString::from_bytes(&sig).unwrap();
+
+        let pub_key = priv_rsa.to_public_key();
+        verify_rsa_cert_signature(&cert, &pub_key)
+            .expect("SHA-1 self-signed cert must still verify");
+    }
+
+    #[test]
+    fn vcek_missing_amd_extensions_rejected() {
+        // No AMD extensions at all.
+        let (ark, ask, vcek) = build_test_chain_with_vcek_exts(&[]);
+        let err = verify_chain(&ark, &ask, &vcek, &bogus_report(), None).unwrap_err();
+        assert!(
+            matches!(err, ChainError::MissingTcbExt),
+            "expected MissingTcbExt, got {err:?}"
+        );
+    }
+
+    #[test]
+    fn vcek_hwid_without_spl_rejected() {
+        // hwID present but no SPL extensions — still misbinding risk.
+        let hwid = amd_hwid_ext(&[0u8; 64]);
+        let (ark, ask, vcek) = build_test_chain_with_vcek_exts(&[hwid]);
+        let err = verify_chain(&ark, &ask, &vcek, &bogus_report(), None).unwrap_err();
+        assert!(
+            matches!(err, ChainError::MissingTcbExt),
+            "expected MissingTcbExt, got {err:?}"
+        );
+    }
+
+    #[test]
+    fn vcek_spl_without_hwid_rejected() {
+        // Some SPL present but hwID missing.
+        let snp = amd_int_ext(&[1, 3, 6, 1, 4, 1, 3704, 1, 3, 3], 0);
+        let (ark, ask, vcek) = build_test_chain_with_vcek_exts(&[snp]);
+        let err = verify_chain(&ark, &ask, &vcek, &bogus_report(), None).unwrap_err();
+        assert!(
+            matches!(err, ChainError::MissingTcbExt),
+            "expected MissingTcbExt, got {err:?}"
+        );
+    }
+
+    #[test]
+    fn spl_high_value_decodes_via_u16() {
+        // u8::from_der rejected two-byte INTEGER form (value >= 0x80).
+        // Build a VCEK whose snpSPL is 200 and the report's snp=200.
+        // Must pass; before the fix, this surfaced as X509Parse.
+        let hwid = amd_hwid_ext(&[0u8; 64]);
+        let snp = amd_int_ext(&[1, 3, 6, 1, 4, 1, 3704, 1, 3, 3], 200);
+        let (ark, ask, vcek) = build_test_chain_with_vcek_exts(&[hwid, snp]);
+        let mut report = bogus_report();
+        report.reported_tcb = tcb_u64(0, 0, 200, 0);
+        let err = verify_chain(&ark, &ask, &vcek, &report, None).unwrap_err();
+        // Must NOT be X509Parse on the SPL decode and must NOT be a
+        // TCB mismatch — the cross-check should succeed past F4.
+        // We expect the report-sig step to reject the all-zero report.
+        match err {
+            ChainError::ReportSig(_) => { /* SPL decoded + matched */ }
+            other => panic!("expected ReportSig, got {other:?}"),
+        }
     }
 }

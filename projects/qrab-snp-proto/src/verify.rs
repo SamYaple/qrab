@@ -263,11 +263,14 @@ pub fn verify_report(
     const S_OFF: usize = 72;
     const RESERVED_OFF: usize = 144;
     // Top 24 bytes of each scalar slot plus the 368-byte tail must
-    // be zero. Relax via QRAB_SNP_ALLOW_SIG_PADDING=1 for diagnostic
-    // runs against AMD firmware that leaks non-zero state there.
-    let allow_padding = std::env::var("QRAB_SNP_ALLOW_SIG_PADDING")
-        .map(|v| v == "1")
-        .unwrap_or(false);
+    // be zero (AMD SEV-SNP ABI Table 138). A non-zero pad means
+    // either a spec-violating PSP firmware, a tampered report
+    // (padding bits repurposed as a side-channel), or a downgrade
+    // attempt. Accept only when the `allow-nonzero-sig-padding`
+    // cargo feature is compiled in — a runtime env-var escape
+    // hatch was dropped (R13) because it bled across containers
+    // and survived systemd restarts, silently destroying the
+    // downgrade-detection canary in production.
     let mut padding_nonzero = false;
     for &b in &sig_bytes[R_OFF + 48..R_OFF + 72] {
         if b != 0 { padding_nonzero = true; break; }
@@ -282,8 +285,21 @@ pub fn verify_report(
             if b != 0 { padding_nonzero = true; break; }
         }
     }
-    if padding_nonzero && !allow_padding {
-        return Err(VerifyError::SignaturePaddingNonZero);
+    if padding_nonzero {
+        #[cfg(feature = "allow-nonzero-sig-padding")]
+        {
+            std::eprintln!(
+                "QRAB_SNP_SIG_PADDING_IGNORED: SEV-SNP report ECDSA \
+                 R/S reserved tail is non-zero; accepted because the \
+                 `allow-nonzero-sig-padding` feature is enabled. Do \
+                 not run this build in production — downgrade / \
+                 tamper signal is suppressed."
+            );
+        }
+        #[cfg(not(feature = "allow-nonzero-sig-padding"))]
+        {
+            return Err(VerifyError::SignaturePaddingNonZero);
+        }
     }
     let mut r_be = [0u8; 48];
     let mut s_be = [0u8; 48];
@@ -405,6 +421,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(feature = "allow-nonzero-sig-padding"))]
     fn verify_rejects_non_zero_signature_padding() {
         let key = test_signing_key(0x05);
         let (mut report, vcek) = round_trip_fixture(&key, 0x55);
@@ -418,6 +435,20 @@ mod tests {
             verify_report(&report, &vcek),
             Err(VerifyError::SignaturePaddingNonZero)
         );
+    }
+
+    #[test]
+    #[cfg(feature = "allow-nonzero-sig-padding")]
+    fn verify_accepts_non_zero_padding_with_feature_gate() {
+        // With the diag feature compiled in, a non-zero reserved
+        // tail must not fail — but the signature itself still has
+        // to verify. Proves the feature only bypasses the padding
+        // canary, nothing else.
+        let key = test_signing_key(0x05);
+        let (mut report, vcek) = round_trip_fixture(&key, 0x55);
+        let bytes = <SnpAttestationReport as IntoBytes>::as_mut_bytes(&mut report);
+        bytes[0x2A0 + 144] = 0x01;
+        assert_eq!(verify_report(&report, &vcek), Ok(()));
     }
 
     #[test]

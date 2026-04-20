@@ -19,13 +19,34 @@ use qrab_boot_proto::{
 };
 use qrab_snp_proto::SnpAttestationReport;
 use qrab_snp_proto::cert_table::{CertKind, parse_cert_table};
+use sha2::{Digest, Sha256};
 use zerocopy::FromBytes;
 
-/// Built-in development ARK cert, loaded at compile time. **NOT**
-/// AMD's real ARK — see `contrib/snp-cert-pins/README.md`. Real
-/// deployments must override via [`ENV_ARK_PATH`].
+/// Built-in AMD ARK-Genoa cert (real, as of 2026-04-20). See
+/// `contrib/snp-cert-pins/README.md`. Operators may override via
+/// [`ENV_ARK_PATH`] if a newer ARK generation is in play.
 pub const BUNDLED_ARK_PEM: &str =
     include_str!("../../../contrib/snp-cert-pins/ARK-Genoa.pem");
+
+/// Expected SHA-256 of the DER-encoded [`BUNDLED_ARK_PEM`]. Matches
+/// the value documented in `contrib/snp-cert-pins/README.md`.
+/// [`load_ark_der`] fails closed if the computed digest of the
+/// decoded bundle deviates — accidental commit, CI artifact mixup,
+/// or supply-chain tamper all flip this pin and surface before any
+/// chain walk runs. Bump this constant and the README line in the
+/// same commit when AMD rotates the ARK.
+pub const BUNDLED_ARK_DER_SHA256: [u8; 32] = [
+    0x4c, 0x65, 0x98, 0xd1, 0x9c, 0x18, 0x71, 0x9c,
+    0x5d, 0xfd, 0x4a, 0x7d, 0x33, 0x5f, 0x67, 0x4e,
+    0x5b, 0xfe, 0x1d, 0x8f, 0x80, 0x0c, 0xea, 0x2c,
+    0xf2, 0x70, 0xc1, 0x0d, 0x10, 0x3d, 0xb2, 0xf1,
+];
+
+/// Environment override: set to `1` to load the bundled ARK even
+/// when its DN contains the `DEV-PLACEHOLDER` marker. Intended for
+/// bring-up on fresh dev images where only a synthetic root is
+/// available — never in production.
+pub const ENV_ALLOW_DEV_ARK: &str = "QRAB_ATTEST_ALLOW_DEV_ARK";
 
 /// Environment variable an operator sets to point at a real AMD
 /// ARK PEM file (override of [`BUNDLED_ARK_PEM`]).
@@ -122,18 +143,77 @@ pub fn reason(err: &PostReportError) -> &'static str {
 /// anchor, honouring the [`ENV_ARK_PATH`] override. Logs which
 /// source was chosen to stderr so operators can see bundle vs env
 /// at a glance.
+///
+/// Fail-closed invariants:
+/// * `bundle` source — DER SHA-256 must match
+///   [`BUNDLED_ARK_DER_SHA256`] exactly. A silent bundle swap is
+///   treated as a supply-chain incident.
+/// * `DEV-PLACEHOLDER` DN — refused unless [`ENV_ALLOW_DEV_ARK`] is
+///   `1`. Applies to both sources so a future regression (the
+///   bundle or an operator's env file being accidentally set to a
+///   synthetic root) is caught.
+///
+/// Startup log tokens:
+/// * `QRAB_ATTEST_ARK_SOURCE=bundle_pinned` — bundle loaded + pin OK.
+/// * `QRAB_ATTEST_ARK_SOURCE=env` — operator override in use.
+/// * `QRAB_ATTEST_ARK_SOURCE=dev_placeholder_allowed` — escape hatch.
 pub fn load_ark_der() -> Result<Vec<u8>, PostReportError> {
-    let (source, pem) = match std::env::var(ENV_ARK_PATH) {
+    let (source, der) = match std::env::var(ENV_ARK_PATH) {
         Ok(path) => {
             let pem = std::fs::read_to_string(&path).map_err(|e| {
                 PostReportError::ArkLoad(format!("read {path}: {e}"))
             })?;
-            ("env", pem)
+            let der = pem_to_der(&pem)?;
+            ("env", der)
         }
-        Err(_) => ("bundle", BUNDLED_ARK_PEM.to_string()),
+        Err(_) => {
+            let der = pem_to_der(BUNDLED_ARK_PEM)?;
+            let digest: [u8; 32] = Sha256::digest(&der).into();
+            if digest != BUNDLED_ARK_DER_SHA256 {
+                return Err(PostReportError::ArkLoad(format!(
+                    "bundled ARK DER SHA-256 mismatch (expected {}, got {})",
+                    hex_lower(&BUNDLED_ARK_DER_SHA256),
+                    hex_lower(&digest),
+                )));
+            }
+            ("bundle_pinned", der)
+        }
     };
+
+    // DEV-PLACEHOLDER substring scan on the DER bytes. A legitimate
+    // AMD DN never contains that marker; a future dev-only ARK that
+    // carries `CN=*DEV-PLACEHOLDER*` will, since DN RDN values are
+    // plain ASCII inside the DER. Cheap regression guard, no extra
+    // dep footprint (sha2 is already in).
+    if der_contains_ascii(&der, b"DEV-PLACEHOLDER") {
+        let allow = std::env::var(ENV_ALLOW_DEV_ARK)
+            .map(|v| v == "1")
+            .unwrap_or(false);
+        if !allow {
+            return Err(PostReportError::ArkLoad(
+                "ARK DN contains DEV-PLACEHOLDER; refusing. Set \
+                 QRAB_ATTEST_ALLOW_DEV_ARK=1 for bring-up only."
+                    .into(),
+            ));
+        }
+        eprintln!("attest-server: QRAB_ATTEST_ARK_SOURCE=dev_placeholder_allowed");
+        return Ok(der);
+    }
+
     eprintln!("attest-server: QRAB_ATTEST_ARK_SOURCE={source}");
-    pem_to_der(&pem)
+    Ok(der)
+}
+
+fn der_contains_ascii(der: &[u8], needle: &[u8]) -> bool {
+    der.windows(needle.len()).any(|w| w == needle)
+}
+
+fn hex_lower(bytes: &[u8]) -> String {
+    let mut out = String::with_capacity(bytes.len() * 2);
+    for b in bytes {
+        out.push_str(&format!("{:02x}", b));
+    }
+    out
 }
 
 /// PEM → DER converter. Rejects anything without a CERTIFICATE
@@ -199,8 +279,22 @@ fn hex_nibble(c: u8) -> Result<u8, String> {
     }
 }
 
+/// Outcome of a [`handle_post_report_bytes`] success, including
+/// whether the chain walk actually bound the attestation report to
+/// a golden measurement. When `measurement_enforced == false`, the
+/// chain + signature + TCB + chipID checks all ran, but the report
+/// was NOT compared against a caller-pinned
+/// `expected_measurement`. Callers should log a distinct token in
+/// that case so the operator can distinguish "pass on a policy-
+/// complete config" from "pass on a policy-gap config".
+#[derive(Debug)]
+pub struct PostReportOutcome {
+    pub verified: VerifiedAttestation,
+    pub measurement_enforced: bool,
+}
+
 /// Decode a framed `AttestPostReport` and walk the chain. Returns
-/// a `VerifiedAttestation` on full green, a `PostReportError`
+/// a [`PostReportOutcome`] on full green, a `PostReportError`
 /// otherwise. Caller is responsible for logging the outcome — this
 /// function is pure so hermetic tests can assert on the return
 /// without side-channel stdout parsing.
@@ -212,7 +306,7 @@ pub fn handle_post_report_bytes(
     bytes: &[u8],
     ark_der_override: Option<&[u8]>,
     expected_measurement_override: Option<[u8; 48]>,
-) -> Result<VerifiedAttestation, PostReportError> {
+) -> Result<PostReportOutcome, PostReportError> {
     let post: AttestPostReport =
         decode_framed(bytes).map_err(PostReportError::Proto)?;
     validate_post_report(&post).map_err(PostReportError::Proto)?;
@@ -274,9 +368,11 @@ pub fn handle_post_report_bytes(
         Some(m) => Some(m),
         None => expected_measurement_from_env()?,
     };
+    let measurement_enforced = expected.is_some();
 
-    verify_chain(&ark_der, &ask_der, &vcek_der, &report, expected.as_ref())
-        .map_err(PostReportError::Chain)
+    let verified = verify_chain(&ark_der, &ask_der, &vcek_der, &report, expected.as_ref())
+        .map_err(PostReportError::Chain)?;
+    Ok(PostReportOutcome { verified, measurement_enforced })
 }
 
 #[cfg(test)]
@@ -294,8 +390,35 @@ mod tests {
     #[test]
     fn load_ark_der_from_bundle_when_env_unset() {
         unsafe { std::env::remove_var(ENV_ARK_PATH) };
+        unsafe { std::env::remove_var(ENV_ALLOW_DEV_ARK) };
         let der = load_ark_der().expect("bundle loads");
         assert_eq!(der[0], 0x30);
+    }
+
+    #[test]
+    fn bundled_ark_der_matches_pinned_sha256() {
+        // Proves the pin constant tracks the bundle. If the bundle
+        // drifts this test fails before load_ark_der does, giving a
+        // cleaner diagnostic.
+        let der = pem_to_der(BUNDLED_ARK_PEM).unwrap();
+        let digest: [u8; 32] = Sha256::digest(&der).into();
+        assert_eq!(
+            digest, BUNDLED_ARK_DER_SHA256,
+            "bundled ARK DER SHA-256 drift: expected {}, got {}",
+            hex_lower(&BUNDLED_ARK_DER_SHA256),
+            hex_lower(&digest),
+        );
+    }
+
+    #[test]
+    fn dev_placeholder_substring_scan_works() {
+        // Exercise the scan directly so a real cert doesn't have to
+        // be synthesised. The bundled ARK must NOT match; a
+        // synthetic payload containing the marker must.
+        let real_der = pem_to_der(BUNDLED_ARK_PEM).unwrap();
+        assert!(!der_contains_ascii(&real_der, b"DEV-PLACEHOLDER"));
+        let synthetic: Vec<u8> = b"xxDEV-PLACEHOLDER-ARK-Genoayy".to_vec();
+        assert!(der_contains_ascii(&synthetic, b"DEV-PLACEHOLDER"));
     }
 
     #[test]
@@ -317,6 +440,26 @@ mod tests {
     fn handle_post_report_rejects_bad_frame() {
         let err = handle_post_report_bytes(&[0u8; 3], None, None).unwrap_err();
         assert_eq!(reason(&err), "proto");
+    }
+
+    #[test]
+    fn post_report_outcome_surfaces_measurement_state() {
+        // Assert the shape of `PostReportOutcome` so the caller side
+        // can pick `QRAB_SNP_POST_VERIFY_OK_NO_MEASUREMENT` vs
+        // `QRAB_SNP_POST_VERIFY_OK`. We can't drive a full chain walk
+        // from this unit test (no real AMD cert pair), but the struct
+        // layout itself is the contract the main.rs call site relies
+        // on — if a refactor drops the field, this test fails
+        // compilation rather than silently dropping the policy gate.
+        let dummy = PostReportOutcome {
+            verified: VerifiedAttestation {
+                report: unsafe { core::mem::zeroed() },
+                signer: qrab_snp_proto::verify::ReportSigner::Vcek,
+                vcek_sec1: vec![0u8; 97],
+            },
+            measurement_enforced: false,
+        };
+        assert!(!dummy.measurement_enforced);
     }
 
     #[test]
