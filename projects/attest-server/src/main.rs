@@ -16,10 +16,16 @@
 //!
 //! Key material is resolved in this order:
 //!
-//! 1. `QRAB_ATTEST_KEY_PEM` env — PKCS#8 PEM inline.
-//! 2. `QRAB_ATTEST_KEY_PATH` env — path to a PKCS#8 PEM file.
-//! 3. Else: ephemeral key is generated and its SEC1 pubkey is logged
+//! 1. `QRAB_ATTEST_KEY_PATH` env — path to a PKCS#8 PEM file.
+//! 2. Else: ephemeral key is generated and its SEC1 pubkey is logged
 //!    so the bootloader can be rebuilt against it for dev flows.
+//!
+//! R12-11: the previous `QRAB_ATTEST_KEY_PEM` mode (PKCS#8 bytes
+//! passed inline through the environment) was removed — env vars
+//! are world-readable via `/proc/PID/environ` on Linux and inherit
+//! into any child process the server spawns, so a sibling-process
+//! exfil could read the signing key. The path form keeps the bytes
+//! on disk where standard POSIX permissions (`chmod 0600`) apply.
 
 use std::io::{Read, Write};
 use std::path::PathBuf;
@@ -68,9 +74,19 @@ fn parse_mode() -> Result<Mode> {
 }
 
 fn load_signer() -> Result<Signer> {
-    if let Ok(pem) = std::env::var("QRAB_ATTEST_KEY_PEM") {
-        return Signer::from_pem(&pem)
-            .context("parsing QRAB_ATTEST_KEY_PEM as PKCS#8 PEM");
+    // R12-11: refuse the legacy inline-PEM env var with a loud
+    // error. Previous builds accepted it silently; we bail so an
+    // upgrade path lands correctly (operator re-provisions to
+    // `QRAB_ATTEST_KEY_PATH`). The env is probed but never read
+    // past the name so the actual PEM bytes cannot enter the
+    // process image via this code.
+    if std::env::var_os("QRAB_ATTEST_KEY_PEM").is_some() {
+        bail!(
+            "QRAB_ATTEST_KEY_PEM is no longer supported (R12-11 — \
+             env vars are readable via /proc/PID/environ and inherited \
+             by child processes). Write the PKCS#8 PEM to a 0600 file \
+             and set QRAB_ATTEST_KEY_PATH instead."
+        );
     }
     if let Ok(path) = std::env::var("QRAB_ATTEST_KEY_PATH") {
         let pem = std::fs::read_to_string(&path)
@@ -81,8 +97,7 @@ fn load_signer() -> Result<Signer> {
     let signer = Signer::generate();
     let sec1 = signer.pubkey_sec1();
     eprintln!(
-        "attest-server: no QRAB_ATTEST_KEY_PEM / QRAB_ATTEST_KEY_PATH set; \
-         using ephemeral key"
+        "attest-server: no QRAB_ATTEST_KEY_PATH set; using ephemeral key"
     );
     eprintln!("attest-server: ephemeral pubkey (SEC1): {}", hex(&sec1));
     Ok(signer)
