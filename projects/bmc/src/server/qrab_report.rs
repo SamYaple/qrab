@@ -35,6 +35,19 @@ pub const QRAB_REPORT_EFIVAR_PATH: &str =
 /// report = 1202.
 pub const QRAB_REPORT_READ_MAX: i64 = 2048;
 
+/// Cap on how long `fetch_qrab_report` will wait for QGA to accept a
+/// new connection. A live agent responds inside a few tens of ms;
+/// three seconds covers a slow ARM-under-KVM target without letting
+/// a wedged agent wedge the server fn.
+const QGA_CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
+
+/// Per-op timeout for QGA `guest-file-open` / `guest-file-read` /
+/// `guest-file-close`. Larger than the connect budget because a
+/// real `guest-file-read` on efivarfs takes a syscall round-trip
+/// inside the guest kernel and we'd rather absorb transient kernel
+/// stalls than fail the whole server fn.
+const QGA_OP_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+
 /// Parse an efivarfs blob into a [`QrabReportStatus`].
 ///
 /// `efivar_bytes` is the raw bytes QGA reads from efivarfs — no base64
@@ -152,25 +165,45 @@ pub async fn fetch_qrab_report() -> Result<QrabReportStatus, ServerFnError> {
         }
     };
 
-    let mut qga = match qapi_protocol::qga::Qga::new(&qga_sock).await {
-        Ok(q) => q,
-        Err(e) => {
+    // B13-4: every QGA call needs a timeout. A wedged guest agent
+    // (kernel stuck in a syscall, qrab-init panic, cloud-init
+    // crashloop) would otherwise leave the server fn awaiting
+    // indefinitely and wedge every subsequent BMC request that
+    // routes through the same Tokio task / handler.
+    let mut qga = match tokio::time::timeout(
+        QGA_CONNECT_TIMEOUT,
+        qapi_protocol::qga::Qga::new(&qga_sock),
+    )
+    .await
+    {
+        Ok(Ok(q)) => q,
+        Ok(Err(e)) => {
             return Ok(QrabReportStatus::Failed {
                 reason: format!("QGA connect failed: {e}"),
+            });
+        }
+        Err(_) => {
+            return Ok(QrabReportStatus::Failed {
+                reason: format!(
+                    "QGA connect timed out after {}s",
+                    QGA_CONNECT_TIMEOUT.as_secs()
+                ),
             });
         }
     };
 
     // `guest-file-open` in read mode.
-    let handle: i64 = match qga
-        .execute(&qapi::qga::commands::GuestFileOpen {
+    let handle: i64 = match tokio::time::timeout(
+        QGA_OP_TIMEOUT,
+        qga.execute(&qapi::qga::commands::GuestFileOpen {
             path: QRAB_REPORT_EFIVAR_PATH.into(),
             mode: Some("r".into()),
-        })
-        .await
+        }),
+    )
+    .await
     {
-        Ok(h) => h,
-        Err(e) => {
+        Ok(Ok(h)) => h,
+        Ok(Err(e)) => {
             let msg = e.to_string();
             // Absent-file is expected before the UKI publishes the
             // variable — surface it as `Absent` rather than `Failed`.
@@ -179,6 +212,14 @@ pub async fn fetch_qrab_report() -> Result<QrabReportStatus, ServerFnError> {
             }
             return Ok(QrabReportStatus::Failed {
                 reason: format!("guest-file-open: {msg}"),
+            });
+        }
+        Err(_) => {
+            return Ok(QrabReportStatus::Failed {
+                reason: format!(
+                    "guest-file-open timed out after {}s",
+                    QGA_OP_TIMEOUT.as_secs()
+                ),
             });
         }
     };
@@ -196,20 +237,34 @@ pub async fn fetch_qrab_report() -> Result<QrabReportStatus, ServerFnError> {
         "handle": handle,
         "count": QRAB_REPORT_READ_MAX,
     });
-    let read_result: Result<ReadReturn, _> = qga.execute_raw("guest-file-read", req).await;
+    let read_result: Result<Result<ReadReturn, _>, _> = tokio::time::timeout(
+        QGA_OP_TIMEOUT,
+        qga.execute_raw("guest-file-read", req),
+    )
+    .await;
 
     // Close the handle best-effort before returning — the agent reaps
     // on disconnect, but explicit close keeps per-call fd usage tight
     // and avoids surprising the operator with agent-side warnings.
-    let _ = qga
-        .execute(&qapi::qga::commands::GuestFileClose { handle })
-        .await;
+    let _ = tokio::time::timeout(
+        QGA_OP_TIMEOUT,
+        qga.execute(&qapi::qga::commands::GuestFileClose { handle }),
+    )
+    .await;
 
     let read = match read_result {
-        Ok(r) => r,
-        Err(e) => {
+        Ok(Ok(r)) => r,
+        Ok(Err(e)) => {
             return Ok(QrabReportStatus::Failed {
                 reason: format!("guest-file-read: {e}"),
+            });
+        }
+        Err(_) => {
+            return Ok(QrabReportStatus::Failed {
+                reason: format!(
+                    "guest-file-read timed out after {}s",
+                    QGA_OP_TIMEOUT.as_secs()
+                ),
             });
         }
     };
