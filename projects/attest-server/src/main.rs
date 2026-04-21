@@ -277,16 +277,29 @@ fn serve(port: u32, signer: Signer, uki_bytes: Vec<u8>, fault: Fault) -> Result<
     // a pre-existing file is logged then ignored (treat as
     // cold-start cache).
     let replay_cache_path = std::env::var("QRAB_ATTEST_REPLAY_CACHE_PATH").ok();
-    let replay_cache: Arc<Mutex<Option<Vec<u8>>>> = Arc::new(Mutex::new(None));
+    // R16-H22: cache stores both the pre-commit frame AND the
+    // held-back secret body so both halves round-trip identically
+    // across attest-server process restarts. Persisted on-disk
+    // layout: `u32 LE precommit_len || precommit_bytes || secret_bytes`.
+    let replay_cache: Arc<Mutex<Option<(Vec<u8>, Vec<u8>)>>> = Arc::new(Mutex::new(None));
     if fault == Fault::Replay {
         if let Some(ref path) = replay_cache_path {
             match std::fs::read(path) {
-                Ok(bytes) if !bytes.is_empty() => {
-                    eprintln!(
-                        "attest-server: QRAB_ATTEST_REPLAY cache_loaded path={path} bytes_len={}",
-                        bytes.len()
-                    );
-                    *replay_cache.lock().unwrap() = Some(bytes);
+                Ok(bytes) if bytes.len() >= 4 => {
+                    let prec_len = u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]) as usize;
+                    if bytes.len() >= 4 + prec_len {
+                        let precommit = bytes[4..4 + prec_len].to_vec();
+                        let secret = bytes[4 + prec_len..].to_vec();
+                        eprintln!(
+                            "attest-server: QRAB_ATTEST_REPLAY cache_loaded path={path} precommit_len={} secret_len={}",
+                            precommit.len(), secret.len(),
+                        );
+                        *replay_cache.lock().unwrap() = Some((precommit, secret));
+                    } else {
+                        eprintln!(
+                            "attest-server: QRAB_ATTEST_REPLAY cache_file_truncated path={path} — will prime on first request"
+                        );
+                    }
                 }
                 Ok(_) => {
                     eprintln!(
@@ -403,130 +416,203 @@ fn build_uki_frame(uki_bytes: &[u8]) -> Vec<u8> {
 /// ordered for the (best-effort) post-report frame read that
 /// follows.
 fn handle(
-    mut stream: VsockStream,
+    stream: VsockStream,
     signer: &Signer,
     uki_bytes: &[u8],
     uki_frame: &[u8],
     fault: Fault,
-    replay_cache: &Mutex<Option<Vec<u8>>>,
+    replay_cache: &Mutex<Option<(Vec<u8>, Vec<u8>)>>,
     replay_cache_path: Option<&str>,
 ) -> Result<()> {
+    handle_stream(
+        stream, signer, uki_bytes, uki_frame, fault,
+        replay_cache, replay_cache_path,
+    )
+}
+
+/// Stream-generic version of [`handle`]. Split out so integration
+/// tests can drive the attestation protocol over `UnixStream::pair`
+/// without bringing up a real vsock. The protocol flow (R16-H22:
+/// v3, secret gated behind post-report verify) is:
+///
+/// 1. Read `AttestRequest`.
+/// 2. Write `AttestResponse` precommit (no secret body).
+/// 3. Stream the UKI body.
+/// 4. Read `AttestPostReport`.
+/// 5. Run the chain walk.
+/// 6. **Only on chain-walk OK**, write `AttestRelease` with the
+///    secret body. On any failure path — chain walk fails, peer
+///    closes early, IO error — the secret is never written.
+///
+/// Protocol invariant enforced by test
+/// `server_does_not_leak_secret_before_post_report`.
+fn handle_stream<S: Read + Write>(
+    mut stream: S,
+    signer: &Signer,
+    uki_bytes: &[u8],
+    uki_frame: &[u8],
+    fault: Fault,
+    replay_cache: &Mutex<Option<(Vec<u8>, Vec<u8>)>>,
+    replay_cache_path: Option<&str>,
+) -> Result<()> {
+    // --- Frame 1 in: AttestRequest ---
     // The first frame (AttestRequest) is required — a peer that
     // closes before sending it is a protocol error, not a skip.
     let request_bytes = read_framed(&mut stream)
         .context("reading attestation request")?
         .ok_or_else(|| anyhow::anyhow!("peer closed before sending AttestRequest"))?;
 
-    let reply_bytes = if fault == Fault::Replay {
-        // Cached? Serve verbatim. Else run real handler, store, serve.
-        let mut guard = replay_cache
-            .lock()
-            .map_err(|_| anyhow::anyhow!("replay cache mutex poisoned"))?;
-        match guard.as_ref() {
-            Some(cached) => {
-                // `cache_age` logs every served replay so the smoke
-                // harness can grep `QRAB_ATTEST_REPLAY cache_age=`
-                // counts. Counter is process-local — under the
-                // disk-backed path each fresh attest-server process
-                // starts at 1 after loading from disk.
-                eprintln!(
-                    "attest-server: QRAB_ATTEST_REPLAY cache_age={} bytes_len={}",
-                    1,
-                    cached.len(),
-                );
-                cached.clone()
-            }
-            None => {
-                let fresh = handle_request_bytes(&request_bytes, signer, uki_bytes)
-                    .map_err(|e| anyhow::anyhow!("handle_request_bytes: {e:?}"))?;
-                eprintln!(
-                    "attest-server: QRAB_ATTEST_REPLAY cache_primed bytes_len={}",
-                    fresh.len()
-                );
-                // Persist to disk so the next attest-server process
-                // (next smoke invocation / next boot) serves identical
-                // bytes. Write-error is logged but not fatal — in-memory
-                // cache still serves correct replays inside this process.
-                if let Some(path) = replay_cache_path {
-                    match std::fs::write(path, &fresh) {
-                        Ok(()) => eprintln!(
-                            "attest-server: QRAB_ATTEST_REPLAY cache_persisted path={path} bytes_len={}",
-                            fresh.len()
-                        ),
-                        Err(e) => eprintln!(
-                            "attest-server: QRAB_ATTEST_REPLAY cache_persist_error path={path} err={e}"
-                        ),
-                    }
+    // Build a v3 session: the pre-commit frame bytes + the held-back
+    // secret. Under `Fault::Replay`, both halves are remembered so
+    // re-boots see identical pre-commit bytes AND identical secret
+    // material. Persisted to disk as `(precommit_len:u32 LE ||
+    // precommit_bytes || secret_bytes)` so a fresh attest-server
+    // process after a crash still replays correctly.
+    let (client_nonce, session, precommit_bytes): ([u8; 32], attest_server::ServerSession, Vec<u8>) =
+        if fault == Fault::Replay {
+            let mut guard = replay_cache
+                .lock()
+                .map_err(|_| anyhow::anyhow!("replay cache mutex poisoned"))?;
+            match guard.as_ref() {
+                Some((cached_precommit, cached_secret)) => {
+                    eprintln!(
+                        "attest-server: QRAB_ATTEST_REPLAY cache_age={} precommit_len={} secret_len={}",
+                        1, cached_precommit.len(), cached_secret.len(),
+                    );
+                    // Decode the request just to recover the
+                    // client_nonce so the release we eventually
+                    // sign still binds THIS session.
+                    let request: qrab_boot_proto::AttestRequest =
+                        qrab_boot_proto::decode_framed(&request_bytes)
+                            .map_err(|e| anyhow::anyhow!("decode replay request: {e:?}"))?;
+                    let pre: qrab_boot_proto::AttestResponse =
+                        qrab_boot_proto::decode_framed(cached_precommit)
+                            .map_err(|e| anyhow::anyhow!("decode cached precommit: {e:?}"))?;
+                    let sess = attest_server::ServerSession {
+                        response: pre,
+                        secret: cached_secret.clone(),
+                    };
+                    (request.client_nonce, sess, cached_precommit.clone())
                 }
-                *guard = Some(fresh.clone());
-                fresh
+                None => {
+                    let (nonce, sess, frame) = handle_request_bytes(
+                        &request_bytes, signer, uki_bytes,
+                    )
+                    .map_err(|e| anyhow::anyhow!("handle_request_bytes: {e:?}"))?;
+                    eprintln!(
+                        "attest-server: QRAB_ATTEST_REPLAY cache_primed precommit_len={} secret_len={}",
+                        frame.len(), sess.secret.len(),
+                    );
+                    if let Some(path) = replay_cache_path {
+                        let mut blob = Vec::with_capacity(4 + frame.len() + sess.secret.len());
+                        blob.extend_from_slice(&(frame.len() as u32).to_le_bytes());
+                        blob.extend_from_slice(&frame);
+                        blob.extend_from_slice(&sess.secret);
+                        match std::fs::write(path, &blob) {
+                            Ok(()) => eprintln!(
+                                "attest-server: QRAB_ATTEST_REPLAY cache_persisted path={path} bytes_len={}",
+                                blob.len()
+                            ),
+                            Err(e) => eprintln!(
+                                "attest-server: QRAB_ATTEST_REPLAY cache_persist_error path={path} err={e}"
+                            ),
+                        }
+                    }
+                    *guard = Some((frame.clone(), sess.secret.clone()));
+                    (nonce, sess, frame)
+                }
             }
-        }
-    } else {
-        handle_request_bytes(&request_bytes, signer, uki_bytes)
-            .map_err(|e| anyhow::anyhow!("handle_request_bytes: {e:?}"))?
-    };
+        } else {
+            handle_request_bytes(&request_bytes, signer, uki_bytes)
+                .map_err(|e| anyhow::anyhow!("handle_request_bytes: {e:?}"))?
+        };
 
+    // --- Frame 2 out: AttestResponse pre-commit (NO secret body) ---
     stream
-        .write_all(&reply_bytes)
-        .context("writing attestation response")?;
+        .write_all(&precommit_bytes)
+        .context("writing attestation pre-commit")?;
 
-    // Second frame: UKI body. The bootloader's `FramedStream` reads
-    // frames back-to-back on the same connection and verifies the
-    // hash against the signed `uki_sha256` from frame 1.
+    // --- Frame 3 out: UKI body ---
+    // Safe to ship pre-verify — the UKI is public material, signed
+    // separately. Only the secret needs gating.
     stream
         .write_all(uki_frame)
         .context("writing UKI body")?;
 
     eprintln!(
-        "attest-server: replied {} B (response) + {} B (UKI)",
-        reply_bytes.len(),
+        "attest-server: wrote pre-commit {} B + UKI {} B (secret held back pending post-report verify)",
+        precommit_bytes.len(),
         uki_frame.len()
     );
 
-    // F2 — wire v2: guest sends AttestPostReport after consuming
-    // the UKI frame. Chain-walk via qrab_attest_verifier::verify_chain.
-    // Best-effort: a v1 guest or a host without `certs-path=` set
-    // produces a clean no-op path.
-    match read_framed(&mut stream) {
-        Ok(Some(post_bytes)) => match handle_post_report_bytes(&post_bytes, None, None) {
-            Ok(outcome) => {
-                let v = &outcome.verified;
-                // Distinct token when the chain walk succeeded but
-                // NO golden measurement was compared — downstream
-                // dashboards / smoke treat this as amber, not green.
-                let token = if outcome.measurement_enforced {
-                    "QRAB_SNP_POST_VERIFY_OK"
-                } else {
-                    "QRAB_SNP_POST_VERIFY_OK_NO_MEASUREMENT"
-                };
-                eprintln!(
-                    "attest-server: {token} chain=ark->ask->vcek \
-                     signer={:?} measurement_prefix={:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
-                    v.signer,
-                    v.report.measurement[0], v.report.measurement[1],
-                    v.report.measurement[2], v.report.measurement[3],
-                    v.report.measurement[4], v.report.measurement[5],
-                    v.report.measurement[6], v.report.measurement[7],
-                );
-            }
-            Err(e) => eprintln!(
-                "attest-server: QRAB_SNP_POST_VERIFY_FAIL reason={} detail={}",
-                reason(&e), e
-            ),
-        },
+    // --- Frame 4 in: AttestPostReport ---
+    // Guest computes report_data from the pre-commit fields, asks
+    // the PSP for an attestation report, and sends it here. The
+    // server now decides whether to release the secret.
+    let post_bytes = match read_framed(&mut stream) {
+        Ok(Some(b)) => b,
         Ok(None) => {
-            // Clean EOF: a v1-shaped client or a TCG guest that
-            // skipped the SNP branch. Not a server-side error.
-            eprintln!("attest-server: QRAB_SNP_POST_VERIFY_SKIP no_frame");
+            // Clean EOF before post-report: peer either dropped or
+            // was a stale v2 client. Either way, the secret stays
+            // on the server. This is the R16-H22 close.
+            eprintln!(
+                "attest-server: QRAB_SNP_POST_VERIFY_SKIP no_frame \
+                 (secret NOT released — R16-H22 gate)"
+            );
+            drop(stream);
+            return Ok(());
         }
         Err(e) => {
-            // Mid-frame truncation or underlying IO failure.
-            // Distinct token from the clean-EOF skip so a fuzzer or
-            // a network regression cannot hide behind `no_frame`
-            // (B12-13).
             eprintln!(
-                "attest-server: QRAB_SNP_POST_VERIFY_IO_ERR detail={e}"
+                "attest-server: QRAB_SNP_POST_VERIFY_IO_ERR detail={e} \
+                 (secret NOT released — R16-H22 gate)"
+            );
+            drop(stream);
+            return Err(e.context("reading attestation post-report"));
+        }
+    };
+
+    // --- Chain walk ---
+    match handle_post_report_bytes(&post_bytes, None, None) {
+        Ok(outcome) => {
+            let v = &outcome.verified;
+            let token = if outcome.measurement_enforced {
+                "QRAB_SNP_POST_VERIFY_OK"
+            } else {
+                "QRAB_SNP_POST_VERIFY_OK_NO_MEASUREMENT"
+            };
+            eprintln!(
+                "attest-server: {token} chain=ark->ask->vcek \
+                 signer={:?} measurement_prefix={:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
+                v.signer,
+                v.report.measurement[0], v.report.measurement[1],
+                v.report.measurement[2], v.report.measurement[3],
+                v.report.measurement[4], v.report.measurement[5],
+                v.report.measurement[6], v.report.measurement[7],
+            );
+
+            // --- Frame 5 out: AttestRelease (secret body) ---
+            // Only reached on verify OK. Bind the release to this
+            // session's client_nonce + pre-committed secret_sha256
+            // via a domain-separated ECDSA-P256 signature.
+            let release = attest_server::build_signed_release(
+                signer, &client_nonce, &session,
+            );
+            let release_frame = qrab_boot_proto::encode_framed(&release)
+                .context("encoding AttestRelease")?;
+            stream
+                .write_all(&release_frame)
+                .context("writing AttestRelease")?;
+            eprintln!(
+                "attest-server: QRAB_SNP_SECRET_RELEASED bytes={} (post-verify)",
+                release_frame.len(),
+            );
+        }
+        Err(e) => {
+            eprintln!(
+                "attest-server: QRAB_SNP_POST_VERIFY_FAIL reason={} detail={} \
+                 (secret NOT released — R16-H22 gate)",
+                reason(&e), e
             );
         }
     }
@@ -549,8 +635,8 @@ fn handle(
 ///   other IO failure. Discriminated at the call site so the log
 ///   token distinguishes a peer protocol mismatch from a network /
 ///   read error that hides a real regression. B12-13.
-fn read_framed(stream: &mut VsockStream) -> Result<Option<Vec<u8>>> {
-    use std::io::{ErrorKind, Read as _};
+fn read_framed<S: Read>(stream: &mut S) -> Result<Option<Vec<u8>>> {
+    use std::io::ErrorKind;
     let mut prefix = [0u8; FRAME_PREFIX_LEN];
     let mut read = 0;
     while read < FRAME_PREFIX_LEN {
@@ -586,4 +672,189 @@ fn read_framed(stream: &mut VsockStream) -> Result<Option<Vec<u8>>> {
     full.extend_from_slice(&prefix);
     full.extend_from_slice(&body);
     Ok(Some(full))
+}
+
+#[cfg(test)]
+mod r16_h22_tests {
+    //! R16-H22 regression harness.
+    //!
+    //! `server_does_not_leak_secret_before_post_report` drives the
+    //! server over a `UnixStream::pair` and proves that no bytes of
+    //! the server-provisioned secret flow to the peer before the
+    //! server has read + verified `AttestPostReport`. Before the v3
+    //! protocol landed this test failed — the server wrote the
+    //! whole `AttestResponse` (secret body and all) up front, and
+    //! any malicious guest could grab the secret and drop the
+    //! connection. After the fix, the secret lives only inside an
+    //! `AttestRelease` frame that the server emits exclusively on
+    //! chain-walk OK.
+    use super::*;
+    use std::io::{Read, Write};
+    use std::os::unix::net::UnixStream;
+    use std::sync::{Arc, Mutex};
+    use std::thread;
+    use std::time::Duration;
+
+    /// A distinctive, rare-in-random-data byte sequence we embed in
+    /// the server's secret so the exploit test can spot any leakage
+    /// by window-scanning what the peer sees.
+    const SECRET_CANARY: &[u8] = b"QRAB_R16_H22_SECRET_CANARY_DO_NOT_LEAK_0123456789";
+
+    fn run_server_with_stream(stream: UnixStream) -> thread::JoinHandle<()> {
+        // Build a server-side signer + uki_frame + replay cache and
+        // spawn handle_stream on a thread. Uses a dev-generated
+        // signer so the bootloader's embedded pubkey does not need
+        // to match — the exploit test only cares about byte flow,
+        // not sig-verify outcomes on the peer.
+        let signer = Signer::generate();
+        let uki = STUB_UKI.to_vec();
+        let uki_frame: Vec<u8> = build_uki_frame(&uki);
+        let cache: Arc<Mutex<Option<(Vec<u8>, Vec<u8>)>>> = Arc::new(Mutex::new(None));
+        thread::spawn(move || {
+            // Ignore the Result — the test's job is to assert what
+            // bytes flow, not the function's return value.
+            let _ = handle_stream(
+                stream, &signer, &uki, &uki_frame, Fault::None,
+                &cache, None,
+            );
+        })
+    }
+
+    /// Drop-in swap of the default STUB_UKI secret injection: build
+    /// a signer whose `build_signed_response` / `build_body` paths
+    /// will install our canary as the secret. Requires that the
+    /// server calls `build_body` under the hood — today
+    /// `handle_request_bytes` hard-codes `STUB_SECRET` rather than
+    /// accepting an explicit secret. We mirror the existing API by
+    /// substituting `STUB_SECRET` for the duration of the test via
+    /// a `once_cell` / `Mutex` would be heavy; instead we rely on
+    /// the protocol-level invariant directly: the wire-format v3
+    /// `AttestResponse` carries NO secret body regardless of what
+    /// the server is configured to hand out. The canary is only
+    /// needed if we want to assert on a specific byte sequence;
+    /// use `STUB_SECRET` bytes as the canary instead.
+    fn secret_bytes_in_use() -> &'static [u8] {
+        attest_server::STUB_SECRET
+    }
+
+    #[test]
+    fn server_does_not_leak_secret_before_post_report() {
+        // Set up a UnixStream pair; the "server" end is handed to
+        // handle_stream, the "client" end drives the exploit.
+        let (mut client, server) = UnixStream::pair().expect("unix pair");
+        client
+            .set_read_timeout(Some(Duration::from_millis(250)))
+            .expect("set read timeout");
+        let join = run_server_with_stream(server);
+
+        // Send a valid AttestRequest.
+        let req = qrab_boot_proto::new_request([0x42u8; 32]);
+        let wire = qrab_boot_proto::encode_framed(&req).expect("encode");
+        client.write_all(&wire).expect("write request");
+        client.flush().ok();
+
+        // Pull everything the server writes BEFORE we send the
+        // post-report. Reads block on the timeout; after the server
+        // finishes writing its pre-verify frames it waits for our
+        // post-report, which we never send. The timeout fires and
+        // we assert on what we collected.
+        let mut collected = Vec::new();
+        let mut chunk = [0u8; 65536];
+        for _ in 0..64 {
+            match client.read(&mut chunk) {
+                Ok(0) => break,
+                Ok(n) => collected.extend_from_slice(&chunk[..n]),
+                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => break,
+                Err(e) if e.kind() == std::io::ErrorKind::TimedOut => break,
+                Err(_) => break,
+            }
+        }
+
+        // Drop the client before joining so the server unblocks.
+        drop(client);
+        let _ = join.join();
+
+        let secret = secret_bytes_in_use();
+        let leaked = collected
+            .windows(secret.len())
+            .any(|w| w == secret);
+        assert!(
+            !leaked,
+            "R16-H22 REGRESSION: secret bytes appeared on the \
+             wire ({} B read) before the peer sent any \
+             AttestPostReport frame. This is the protocol flaw the \
+             round-16 audit flagged; the v3 split (AttestPreCommit \
+             + AttestRelease) must NOT write any secret body until \
+             after the server verifies the post-report.",
+            collected.len(),
+        );
+    }
+
+    #[test]
+    fn server_does_not_leak_secret_on_malformed_post_report() {
+        // Send a valid AttestRequest, read the pre-commit + UKI,
+        // then send a garbage post-report frame. The server's chain
+        // walk must fail; AttestRelease must NOT be sent; the
+        // secret canary must not appear anywhere on the wire.
+        let (mut client, server) = UnixStream::pair().unwrap();
+        client.set_read_timeout(Some(Duration::from_millis(300))).unwrap();
+        let join = run_server_with_stream(server);
+
+        let req = qrab_boot_proto::new_request([0xABu8; 32]);
+        let wire = qrab_boot_proto::encode_framed(&req).unwrap();
+        client.write_all(&wire).expect("write request");
+
+        // Read until the server finishes its pre-commit + UKI write.
+        let mut pre_post = Vec::new();
+        let mut chunk = [0u8; 65536];
+        for _ in 0..32 {
+            match client.read(&mut chunk) {
+                Ok(0) => break,
+                Ok(n) => {
+                    pre_post.extend_from_slice(&chunk[..n]);
+                    // Heuristic: server writes ~200 B precommit + ~516 B UKI.
+                    // Once we've seen >= 700 B, move on to the post-report
+                    // step rather than blocking forever on the timeout.
+                    if pre_post.len() >= 700 {
+                        break;
+                    }
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => break,
+                Err(e) if e.kind() == std::io::ErrorKind::TimedOut => break,
+                Err(_) => break,
+            }
+        }
+
+        // Send a deliberately-malformed "post-report" frame: valid
+        // length prefix but junk body. The server will try to
+        // decode it, fail, and close the stream without emitting
+        // AttestRelease.
+        let junk = vec![0xFFu8; 64];
+        let len = (junk.len() as u32).to_le_bytes();
+        client.write_all(&len).ok();
+        client.write_all(&junk).ok();
+
+        // Drain any post-chain-walk bytes (should be empty).
+        let mut post_verify = Vec::new();
+        for _ in 0..32 {
+            match client.read(&mut chunk) {
+                Ok(0) => break,
+                Ok(n) => post_verify.extend_from_slice(&chunk[..n]),
+                Err(_) => break,
+            }
+        }
+
+        drop(client);
+        let _ = join.join();
+
+        let all: Vec<u8> = pre_post.into_iter().chain(post_verify).collect();
+        let secret = secret_bytes_in_use();
+        assert!(
+            !all.windows(secret.len()).any(|w| w == secret),
+            "R16-H22 REGRESSION: server wrote the secret after a \
+             malformed post-report (read {} B total). Chain-walk \
+             failure must NEVER emit AttestRelease.",
+            all.len(),
+        );
+    }
 }

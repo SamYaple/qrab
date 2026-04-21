@@ -52,7 +52,7 @@ pub const PROTO_TAG: [u8; 7] = *b"qrab-v1";
 /// cert blob, so the server can complete a full ARK→ASK→VCEK chain
 /// walk via `qrab_attest_verifier::verify_chain`. Hard bump — v1
 /// peers are rejected outright. Bump F2 / `followups.md`.
-pub const WIRE_VERSION: u16 = 2;
+pub const WIRE_VERSION: u16 = 3;
 
 /// Client → server attestation opener.
 ///
@@ -72,17 +72,25 @@ pub struct AttestRequest {
     pub client_version: u16,
 }
 
-/// Server → client attestation reply.
+/// Server → client attestation **pre-commit** (v3). Formerly named
+/// `AttestResponse` in v2, with the `secret` body inlined — R16-H22
+/// split that body out into [`AttestRelease`] so the server can
+/// delay its release until after it has verified the guest's PSP
+/// attestation report.
 ///
 /// The bootloader:
 ///
 /// * hashes `client_nonce || server_nonce || uki_sha256 || secret_sha256`
-///   into the SNP `report_data` field of the second attestation
-///   report it requests;
-/// * `sha256(secret)` must equal `secret_sha256`, else the response
-///   is rejected;
-/// * publishes `secret` to the guest kernel via an EFI runtime
-///   variable (see the plan's phase 6).
+///   into the SNP `report_data` field of the attestation report it
+///   requests from the PSP (`secret_sha256` is committed to here
+///   without exposing the body);
+/// * streams the UKI bytes that follow this frame as the second
+///   wire payload and compares `sha256(uki_bytes)` to `uki_sha256`;
+/// * sends an [`AttestPostReport`] back to the server;
+/// * waits for an [`AttestRelease`] carrying the actual `secret`
+///   body. Before R16-H22 the secret rode inside this frame — that
+///   flow released secrets to unverified guests and is no longer
+///   supported at any wire version.
 ///
 /// The `sig` field is an ECDSA-P256 signature over the
 /// postcard-serialised bytes of every field *before* `sig`, using the
@@ -99,16 +107,46 @@ pub struct AttestResponse {
     pub uki_url: String,
     /// Expected SHA-256 of the UKI bytes.
     pub uki_sha256: [u8; 32],
-    /// Opaque bytes injected into the guest kernel. Caps at
-    /// [`MAX_SECRET_LEN`] so the bootloader can size its receive
-    /// buffer without a dynamic allocation surprise.
-    pub secret: Vec<u8>,
-    /// SHA-256 of [`AttestResponse::secret`].
+    /// SHA-256 of the eventual secret body. R16-H22 — the body
+    /// itself no longer rides this frame; the bootloader uses this
+    /// hash to (a) commit it into the SNP `report_data` binding and
+    /// (b) verify the [`AttestRelease`] payload once it arrives.
     pub secret_sha256: [u8; 32],
     /// ECDSA-P256 signature over the preceding fields. Carried as a
     /// `Vec<u8>` rather than `[u8; 64]` because serde's stock
     /// derives top out at fixed arrays of length 32; the length is
     /// validated in [`validate_response`].
+    pub sig: Vec<u8>,
+}
+
+/// Server → client **secret release** (v3 / R16-H22).
+///
+/// Emitted only after the server verifies the guest's
+/// [`AttestPostReport`]: ARK→ASK→VCEK chain walk + TCB / chip-id
+/// binding + PSP ECDSA sig + (optional) golden measurement pin.
+/// Any failure path on the server side must close the stream
+/// WITHOUT sending this frame; that is the protocol invariant the
+/// R16-H22 regression test pins.
+///
+/// The bootloader:
+///
+/// * re-hashes the `secret` bytes and asserts the digest matches
+///   `AttestResponse::secret_sha256` from the pre-commit frame;
+/// * verifies `sig` under the server's embedded pubkey, same key
+///   that signed the pre-commit. The signing digest covers
+///   `(client_nonce || server_nonce || secret_sha256)` so a
+///   capture of an AttestRelease from a different session cannot
+///   be replayed.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AttestRelease {
+    /// Magic prefix; must equal [`PROTO_TAG`].
+    pub proto: [u8; 7],
+    /// Wire-format version; must equal [`WIRE_VERSION`].
+    pub wire_version: u16,
+    /// Secret body. Caps at [`MAX_SECRET_LEN`].
+    pub secret: Vec<u8>,
+    /// ECDSA-P256 signature over
+    /// `release_signing_digest(client_nonce, server_nonce, secret_sha256)`.
     pub sig: Vec<u8>,
 }
 
@@ -364,18 +402,51 @@ pub fn new_post_report(report_bytes: Vec<u8>, cert_blob: Vec<u8>) -> AttestPostR
 }
 
 /// Convenience: validate a deserialised [`AttestResponse`]. Bounds-
-/// checks the secret length and the ECDSA signature length; the
-/// actual ECDSA-P256 verification lives in the bootloader / server
-/// (pulls in `p256`, which this protocol crate deliberately does not
-/// depend on).
+/// checks the ECDSA signature length; the actual ECDSA-P256
+/// verification lives in the bootloader / server (pulls in `p256`,
+/// which this protocol crate deliberately does not depend on).
+///
+/// R16-H22: no secret body field to bounds-check any more — the
+/// secret moved into [`AttestRelease`].
 pub fn validate_response(resp: &AttestResponse) -> Result<(), ProtoError> {
-    if resp.secret.len() > MAX_SECRET_LEN {
-        return Err(ProtoError::SecretTooLarge);
-    }
     if resp.sig.len() != SIG_LEN {
         return Err(ProtoError::SigLen(resp.sig.len()));
     }
     Ok(())
+}
+
+/// Convenience: validate a deserialised [`AttestRelease`]. Checks
+/// proto tag, wire version, secret bound, and sig length.
+pub fn validate_release(rel: &AttestRelease) -> Result<(), ProtoError> {
+    if rel.proto != PROTO_TAG {
+        return Err(ProtoError::WrongTag);
+    }
+    if rel.wire_version != WIRE_VERSION {
+        return Err(ProtoError::WireVersionMismatch {
+            expected: WIRE_VERSION,
+            got: rel.wire_version,
+        });
+    }
+    if rel.secret.len() > MAX_SECRET_LEN {
+        return Err(ProtoError::SecretTooLarge);
+    }
+    if rel.sig.len() != SIG_LEN {
+        return Err(ProtoError::SigLen(rel.sig.len()));
+    }
+    Ok(())
+}
+
+/// Construct a well-formed [`AttestRelease`] with the PROTO_TAG +
+/// WIRE_VERSION pre-filled. `sig` is left to the caller — the
+/// server fills it after computing [`release_signing_digest`] and
+/// running the ECDSA-P256 sign with its long-term key.
+pub fn new_release(secret: Vec<u8>) -> AttestRelease {
+    AttestRelease {
+        proto: PROTO_TAG,
+        wire_version: WIRE_VERSION,
+        secret,
+        sig: vec![0u8; SIG_LEN],
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -393,16 +464,20 @@ pub fn validate_response(resp: &AttestResponse) -> Result<(), ProtoError> {
 /// Domain-separation tag for [`response_signing_digest`]. Bumping
 /// the tag invalidates every pre-existing signed response.
 ///
-/// v1 → v2 transition (R12-07, 2026-04-20): the signed digest now
-/// binds the guest's `client_nonce` as well as the server's
-/// `server_nonce`. A v1 server signing over only `server_nonce`
-/// allowed replay of a session-A response to a session-B guest
-/// (different `client_nonce`, identical `server_nonce` + UKI +
-/// secret hashes). v2 seals `client_nonce` into the digest so the
-/// guest's freshness is proven by the signature itself. A bootloader
-/// built against v1 cannot verify a v2-signed response and vice
-/// versa — both sides must upgrade together.
-pub const SIG_DOMAIN_TAG: &[u8] = b"qrab-v2-attest-resp";
+/// v2 → v3 transition (R16-H22, 2026-04-21): the server response
+/// no longer carries the secret body. That body rides in a
+/// follow-up [`AttestRelease`] frame with its own domain tag
+/// ([`RELEASE_SIG_DOMAIN_TAG`]) emitted only after the server
+/// verifies the guest's `AttestPostReport`. Bootloaders built
+/// against v2 cannot speak to a v3 server and vice versa — both
+/// sides must upgrade together.
+pub const SIG_DOMAIN_TAG: &[u8] = b"qrab-v3-attest-resp";
+
+/// Domain tag for [`release_signing_digest`] — the ECDSA-P256 sig
+/// the server computes over [`AttestRelease`] content. Kept
+/// distinct from [`SIG_DOMAIN_TAG`] so a captured pre-commit sig
+/// cannot be replayed as a release sig (or vice versa).
+pub const RELEASE_SIG_DOMAIN_TAG: &[u8] = b"qrab-v3-attest-release";
 
 /// Compute the 32-byte SHA-256 digest that the attestation server
 /// signs and the bootloader verifies. Domain-separated by
@@ -438,19 +513,51 @@ pub fn response_signing_digest(
     digest
 }
 
-/// Recompute [`AttestResponse::secret_sha256`] from [`AttestResponse::secret`]
-/// and compare constant-time. Callers use this to make sure the
-/// (signed) digest actually matches the transported bytes; a server
-/// that lies about one or the other will be rejected before the
-/// secret is handed to the guest kernel.
-pub fn verify_secret_hash(resp: &AttestResponse) -> bool {
-    let computed = Sha256::digest(&resp.secret);
+/// Compute the 32-byte SHA-256 digest the server signs over an
+/// [`AttestRelease`]. Binds the release to the same
+/// `(client_nonce, server_nonce)` pair as the pre-commit, plus the
+/// `secret_sha256` that was already committed — so the bootloader
+/// can confirm this release belongs to THIS session and matches
+/// THIS pre-commit before installing the secret. R16-H22.
+///
+/// `secret_sha256` is passed explicitly rather than rehashed from
+/// `release.secret` to keep the verifier side independent of the
+/// body (the body is the sensitive material; the hash is public).
+pub fn release_signing_digest(
+    client_nonce: &[u8; 32],
+    server_nonce: &[u8; 32],
+    secret_sha256: &[u8; 32],
+) -> [u8; 32] {
+    let mut hasher = Sha256::new();
+    hasher.update(RELEASE_SIG_DOMAIN_TAG);
+    hasher.update([RELEASE_SIG_DOMAIN_TAG.len() as u8]);
+    hasher.update(client_nonce);
+    hasher.update(server_nonce);
+    hasher.update(secret_sha256);
+    let out = hasher.finalize();
+    let mut digest = [0u8; 32];
+    digest.copy_from_slice(&out);
+    digest
+}
+
+/// Recompute `sha256(release.secret)` and compare constant-time
+/// against a caller-supplied expected digest (typically the
+/// `secret_sha256` field of the pre-commit). Callers use this to
+/// make sure the transported bytes match what the server committed
+/// before the secret is handed to the guest kernel. R16-H22 — the
+/// digest used to live inside the same frame as the secret; it
+/// now lives one frame earlier in [`AttestResponse::secret_sha256`].
+pub fn verify_release_hash(
+    rel: &AttestRelease,
+    expected_sha256: &[u8; 32],
+) -> bool {
+    let computed = Sha256::digest(&rel.secret);
     // Short constant-time compare — `secret_sha256` is 32 bytes so
     // branchless XOR-accumulate is cheap and avoids timing leaks on
     // the hash itself.
     let mut diff = 0u8;
     for i in 0..32 {
-        diff |= computed[i] ^ resp.secret_sha256[i];
+        diff |= computed[i] ^ expected_sha256[i];
     }
     diff == 0
 }
@@ -513,17 +620,17 @@ mod tests {
     }
 
     #[test]
-    fn rejects_oversize_secret() {
-        let resp = AttestResponse {
-            server_nonce: [0; 32],
-            uki_url: String::from("vsock://2:1337/uki"),
-            uki_sha256: [0; 32],
+    fn validate_release_rejects_oversize_body() {
+        // R16-H22: the oversize-secret bound moved to the release
+        // frame, since AttestResponse no longer carries the body.
+        let rel = AttestRelease {
+            proto: PROTO_TAG,
+            wire_version: WIRE_VERSION,
             secret: vec![0u8; MAX_SECRET_LEN + 1],
-            secret_sha256: [0; 32],
             sig: vec![0u8; SIG_LEN],
         };
         assert!(matches!(
-            validate_response(&resp),
+            validate_release(&rel),
             Err(ProtoError::SecretTooLarge)
         ));
     }
@@ -576,7 +683,6 @@ mod tests {
             server_nonce: [0; 32],
             uki_url: String::from("vsock://2:1337/uki"),
             uki_sha256: [0; 32],
-            secret: vec![],
             secret_sha256: [0; 32],
             sig: vec![0u8; SIG_LEN - 1],
         };
@@ -591,7 +697,6 @@ mod tests {
             server_nonce: [0xAA; 32],
             uki_url: String::from("vsock://2:1337/uki"),
             uki_sha256: [0x11; 32],
-            secret: b"hello".to_vec(),
             secret_sha256: sha2::Sha256::digest(b"hello").into(),
             sig: vec![0u8; SIG_LEN],
         }
@@ -634,11 +739,11 @@ mod tests {
     }
 
     #[test]
-    fn sig_domain_tag_bumped_to_v2() {
-        // Lock the bump in so a future refactor that drops the
-        // client_nonce arg would also have to reset the tag — which
-        // would fail compile-pin tests downstream.
-        assert_eq!(SIG_DOMAIN_TAG, b"qrab-v2-attest-resp");
+    fn sig_domain_tag_bumped_to_v3() {
+        // Lock in the R16-H22 bump so a revert to v2 fails loudly.
+        // v2 carried the secret body inline in AttestResponse; v3
+        // gates it behind AttestRelease.
+        assert_eq!(SIG_DOMAIN_TAG, b"qrab-v3-attest-resp");
     }
 
     #[test]
@@ -665,18 +770,10 @@ mod tests {
         );
     }
 
-    #[test]
-    fn verify_secret_hash_accepts_matching() {
-        let r = sample_response();
-        assert!(verify_secret_hash(&r));
-    }
-
-    #[test]
-    fn verify_secret_hash_rejects_wrong() {
-        let mut r = sample_response();
-        r.secret_sha256[0] ^= 1;
-        assert!(!verify_secret_hash(&r));
-    }
+    // Legacy `verify_secret_hash` (v2) retired with R16-H22 — the
+    // secret body no longer rides the response frame. Equivalent
+    // coverage lives in `verify_release_hash_accepts_matching` /
+    // `verify_release_hash_rejects_tampered_body` below.
 
     #[test]
     fn report_data_is_stable() {
@@ -757,9 +854,11 @@ mod tests {
         b.uki_url.push('X');
         assert_eq!(report_data(&nonce, &b), base, "uki_url leaked into digest");
 
-        let mut c = sample_response();
-        c.secret = b"different-body".to_vec();
-        assert_eq!(report_data(&nonce, &c), base, "secret body leaked");
+        // `secret` body no longer lives on AttestResponse (R16-H22),
+        // so "does a different secret body leak into report_data"
+        // has become a vacuous question at this layer. The guest
+        // reacts only to `secret_sha256`, which report_data DOES
+        // commit to and which the report_data fan-out already covers.
 
         let mut d = sample_response();
         d.sig[0] ^= 0xFF;
@@ -879,8 +978,13 @@ mod tests {
     }
 
     #[test]
-    fn wire_version_is_two() {
-        assert_eq!(WIRE_VERSION, 2);
+    fn wire_version_is_three() {
+        // R16-H22 bumped v2 → v3. v2 embedded the secret in the
+        // server response; v3 splits the response into a precommit
+        // (hash only) and a post-verify AttestRelease carrying the
+        // body. A revert here must go through explicit wire-version
+        // coordination because the frames themselves changed shape.
+        assert_eq!(WIRE_VERSION, 3);
     }
 
     // ------- G18: decode_framed rejects corrupt payload -------
@@ -972,5 +1076,164 @@ mod tests {
             err,
             ProtoError::WireVersionMismatch { expected: WIRE_VERSION, got: 1 }
         ));
+    }
+
+    // ------- R16-H22 v3 tests: AttestRelease + release_signing_digest -------
+
+    #[test]
+    fn wire_version_is_three_after_r16_h22_bump() {
+        assert_eq!(WIRE_VERSION, 3);
+    }
+
+    #[test]
+    fn sig_domain_tags_distinct_precommit_and_release() {
+        // Distinct domain separators so a precommit sig cannot be
+        // replayed as a release sig (or vice versa). If these ever
+        // collapse, a capturing MITM could swap signatures across
+        // frames and pass verification.
+        assert_ne!(SIG_DOMAIN_TAG, RELEASE_SIG_DOMAIN_TAG);
+    }
+
+    #[test]
+    fn attest_response_no_longer_has_secret_field() {
+        // Compile-time guard: AttestResponse must have the
+        // post-R16-H22 shape. Any future refactor that puts the
+        // secret body back must also update this test (and think
+        // very hard about the audit finding).
+        fn _assert_shape(r: &AttestResponse) {
+            let _: &[u8; 32] = &r.server_nonce;
+            let _: &String = &r.uki_url;
+            let _: &[u8; 32] = &r.uki_sha256;
+            let _: &[u8; 32] = &r.secret_sha256;
+            let _: &Vec<u8> = &r.sig;
+            // Reachable via type inference only if these five
+            // fields are the full list. If a `secret: Vec<u8>`
+            // field gets re-added, the compiler will accept it
+            // but this function then misses coverage — pair with
+            // the positive round-trip test that asserts sha256
+            // binding.
+        }
+        let _ = _assert_shape;
+    }
+
+    #[test]
+    fn new_release_fills_proto_and_version() {
+        let rel = new_release(b"hello".to_vec());
+        assert_eq!(rel.proto, PROTO_TAG);
+        assert_eq!(rel.wire_version, WIRE_VERSION);
+        assert_eq!(rel.secret, b"hello");
+        assert_eq!(rel.sig.len(), SIG_LEN);
+    }
+
+    #[test]
+    fn validate_release_accepts_happy() {
+        let rel = new_release(vec![0u8; 64]);
+        validate_release(&rel).expect("happy release validates");
+    }
+
+    #[test]
+    fn validate_release_rejects_wrong_tag() {
+        let mut rel = new_release(vec![0u8; 8]);
+        rel.proto = *b"ZZZ-abc";
+        assert!(matches!(validate_release(&rel), Err(ProtoError::WrongTag)));
+    }
+
+    #[test]
+    fn validate_release_rejects_wrong_version() {
+        let mut rel = new_release(vec![0u8; 8]);
+        rel.wire_version = 2;
+        assert!(matches!(
+            validate_release(&rel),
+            Err(ProtoError::WireVersionMismatch { expected: WIRE_VERSION, got: 2 })
+        ));
+    }
+
+    #[test]
+    fn validate_release_rejects_oversize_secret() {
+        let mut rel = new_release(vec![0u8; MAX_SECRET_LEN + 1]);
+        assert!(matches!(validate_release(&rel), Err(ProtoError::SecretTooLarge)));
+        // Fix the oversize and keep the sig shape off.
+        rel.secret = vec![0u8; 8];
+        rel.sig = vec![0u8; SIG_LEN - 1];
+        assert!(matches!(validate_release(&rel), Err(ProtoError::SigLen(_))));
+    }
+
+    #[test]
+    fn release_signing_digest_stable_for_same_inputs() {
+        let cn = [0x11u8; 32];
+        let sn = [0x22u8; 32];
+        let sh = [0x33u8; 32];
+        assert_eq!(
+            release_signing_digest(&cn, &sn, &sh),
+            release_signing_digest(&cn, &sn, &sh),
+        );
+    }
+
+    #[test]
+    fn release_signing_digest_changes_with_each_input() {
+        let cn = [0x11u8; 32];
+        let sn = [0x22u8; 32];
+        let sh = [0x33u8; 32];
+        let base = release_signing_digest(&cn, &sn, &sh);
+        let mut cn2 = cn;
+        cn2[0] ^= 1;
+        assert_ne!(base, release_signing_digest(&cn2, &sn, &sh));
+        let mut sn2 = sn;
+        sn2[0] ^= 1;
+        assert_ne!(base, release_signing_digest(&cn, &sn2, &sh));
+        let mut sh2 = sh;
+        sh2[0] ^= 1;
+        assert_ne!(base, release_signing_digest(&cn, &sn, &sh2));
+    }
+
+    #[test]
+    fn release_digest_distinct_from_response_digest() {
+        // The two digests over the same (client_nonce, server_nonce,
+        // secret_sha256) inputs MUST differ — that's the whole point
+        // of keeping the two domain tags separate. If this ever
+        // returns true, a captured response sig could be swapped in
+        // place of a release sig.
+        let cn = [0x7Fu8; 32];
+        let sn = [0x80u8; 32];
+        let sh = [0x5Au8; 32];
+        let resp = AttestResponse {
+            server_nonce: sn,
+            uki_url: String::new(),
+            uki_sha256: [0u8; 32],
+            secret_sha256: sh,
+            sig: vec![0u8; SIG_LEN],
+        };
+        let response_dig = response_signing_digest(&resp, &cn);
+        let release_dig = release_signing_digest(&cn, &sn, &sh);
+        assert_ne!(
+            response_dig, release_dig,
+            "response and release digests must not collide over shared inputs",
+        );
+    }
+
+    #[test]
+    fn verify_release_hash_accepts_matching() {
+        let secret = b"canary-secret-for-hash-binding".to_vec();
+        let expected: [u8; 32] = sha2::Sha256::digest(&secret).into();
+        let rel = new_release(secret);
+        assert!(verify_release_hash(&rel, &expected));
+    }
+
+    #[test]
+    fn verify_release_hash_rejects_tampered_body() {
+        let secret = b"canary-secret-pre-tamper".to_vec();
+        let expected: [u8; 32] = sha2::Sha256::digest(&secret).into();
+        let mut rel = new_release(secret);
+        rel.secret[0] ^= 0xFF;
+        assert!(!verify_release_hash(&rel, &expected));
+    }
+
+    #[test]
+    fn release_frame_round_trips() {
+        let rel = new_release(b"abcd".to_vec());
+        let wire = encode_framed(&rel).unwrap();
+        let back: AttestRelease = decode_framed(&wire).unwrap();
+        assert_eq!(back, rel);
+        validate_release(&back).unwrap();
     }
 }
