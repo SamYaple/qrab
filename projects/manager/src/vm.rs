@@ -25,6 +25,15 @@ use crate::swtpm::SwtpmProcess;
 /// required for `allow_preconfig` on `blockdev-add`.
 pub const PRECONFIG_MIN_VERSION: (u32, u32, u32) = (7, 2, 0);
 
+/// Base directory for the per-VM private tmpdir. Pinned to `/tmp` so a
+/// hostile `$TMPDIR` cannot redirect our sockets — any env-driven override
+/// would reintroduce the exact bug (B14-7) this helper fixes. `/tmp` is
+/// sticky (1777) on every Linux distro; `tempfile::TempDir` creates an
+/// unguessable 0700 leaf inside, closing the symlink-race window.
+fn private_tmp_base() -> PathBuf {
+    PathBuf::from("/tmp")
+}
+
 /// SEV-SNP confidential VM configuration.
 #[derive(Debug, Clone)]
 pub struct SevSnpConfig {
@@ -982,7 +991,13 @@ impl VmBuilder {
         };
 
         // --- Private tmpdir (Security #3 — no predictable socket paths) ---
-        let tmpdir = tempfile::TempDir::new_in(std::env::temp_dir())?;
+        // B14-7: pin base to `/tmp`, not `std::env::temp_dir()`. `temp_dir()`
+        // honours `$TMPDIR`, which a hostile caller can point at a shared,
+        // predictable dir to win a symlink race on the qmp/qga socket names.
+        // `/tmp` is a fixed mount (sticky 1777) and `tempfile::TempDir` picks
+        // an unguessable 0700 leaf inside it — the race window is closed
+        // regardless of caller environment.
+        let tmpdir = tempfile::TempDir::new_in(private_tmp_base())?;
         let qmp_sock = tmpdir.path().join("qmp.sock");
         let serial_log = if self.serial {
             Some(tmpdir.path().join("serial.log"))
