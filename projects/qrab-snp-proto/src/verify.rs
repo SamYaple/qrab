@@ -635,4 +635,90 @@ mod tests {
         let s = std::format!("{:?}", ReportSigner::Other(42));
         assert!(s.contains("42"), "debug: {s}");
     }
+
+    // ------- R13 round 15: functional fan-out on report verify -------
+
+    #[test]
+    fn verify_rejects_tampered_report_data_byte() {
+        // report_data lives in the signed prefix at offset 0x50..0x90.
+        // A single-bit flip must trip SignatureMismatch — attestation
+        // binding to user-supplied nonce is load-bearing.
+        let key = test_signing_key(0x50);
+        let (mut report, vcek) = round_trip_fixture(&key, 0x60);
+        let bytes = <SnpAttestationReport as IntoBytes>::as_mut_bytes(&mut report);
+        bytes[0x70] ^= 0x80;
+        assert_eq!(verify_report(&report, &vcek), Err(VerifyError::SignatureMismatch));
+    }
+
+    #[test]
+    fn verify_rejects_tampered_measurement_byte() {
+        // measurement lives at 0x90..0xC0. Flipping any byte must
+        // fail — this is the PCR-equivalent for launch integrity.
+        let key = test_signing_key(0x51);
+        let (mut report, vcek) = round_trip_fixture(&key, 0x61);
+        let bytes = <SnpAttestationReport as IntoBytes>::as_mut_bytes(&mut report);
+        bytes[0x9F] ^= 0xFF;
+        assert_eq!(verify_report(&report, &vcek), Err(VerifyError::SignatureMismatch));
+    }
+
+    #[test]
+    fn verify_rejects_tampered_reported_tcb_byte() {
+        // reported_tcb lives at 0x180..0x188.
+        let key = test_signing_key(0x52);
+        let (mut report, vcek) = round_trip_fixture(&key, 0x62);
+        let bytes = <SnpAttestationReport as IntoBytes>::as_mut_bytes(&mut report);
+        let tcb_off = core::mem::offset_of!(SnpAttestationReport, reported_tcb);
+        bytes[tcb_off + 6] ^= 0xFF; // snp byte
+        assert_eq!(verify_report(&report, &vcek), Err(VerifyError::SignatureMismatch));
+    }
+
+    #[test]
+    fn verify_rejects_tampered_chip_id_byte() {
+        // chip_id at 0x1A0..0x1E0. 64 bytes of chip identity.
+        let key = test_signing_key(0x53);
+        let (mut report, vcek) = round_trip_fixture(&key, 0x63);
+        let bytes = <SnpAttestationReport as IntoBytes>::as_mut_bytes(&mut report);
+        let cid_off = core::mem::offset_of!(SnpAttestationReport, chip_id);
+        bytes[cid_off + 30] ^= 0x55;
+        assert_eq!(verify_report(&report, &vcek), Err(VerifyError::SignatureMismatch));
+    }
+
+    #[test]
+    fn verify_round_trips_many_seeds() {
+        // Sweep a handful of distinct keys; each sign+verify cycle
+        // must complete. Guards against a non-determinism regression
+        // where only the initial test vector happens to work.
+        for tweak in 0..16u8 {
+            let key = test_signing_key(tweak ^ 0x80);
+            let (report, vcek) = round_trip_fixture(&key, tweak);
+            assert_eq!(
+                verify_report(&report, &vcek),
+                Ok(()),
+                "tweak {tweak}: round-trip failed",
+            );
+        }
+    }
+
+    #[test]
+    fn verify_measurement_accepts_range_of_values() {
+        // Drive verify_measurement across the full byte space so a
+        // future change that e.g. short-circuits on leading zeros
+        // cannot regress silently.
+        for lead in [0x00u8, 0x01, 0x80, 0xFE, 0xFF] {
+            let mut buf = [0u8; core::mem::size_of::<SnpAttestationReport>()];
+            let off = core::mem::offset_of!(SnpAttestationReport, measurement);
+            let expected: [u8; MEASUREMENT_LEN] =
+                core::array::from_fn(|i| lead.wrapping_add(i as u8));
+            buf[off..off + MEASUREMENT_LEN].copy_from_slice(&expected);
+            let report = SnpAttestationReport::read_from_bytes(&buf).unwrap();
+            assert!(
+                verify_measurement(&report, &expected).is_ok(),
+                "lead {lead} mismatch"
+            );
+            let mut bad = expected;
+            bad[0] = bad[0].wrapping_add(1);
+            let err = verify_measurement(&report, &bad).unwrap_err();
+            assert_ne!(err.actual, err.expected);
+        }
+    }
 }

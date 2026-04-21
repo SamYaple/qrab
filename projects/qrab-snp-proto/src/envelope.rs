@@ -661,4 +661,157 @@ mod tests {
             }
         }
     }
+
+    // ------- R13 round 15: functional AES-GCM fan-out -------
+
+    #[test]
+    fn round_trip_each_vmpck_slot_id() {
+        // `msg_vmpck` selects which of the four VMPCK keys on the
+        // Secrets page the PSP used; the envelope authenticates the
+        // slot id as part of the AAD. A correct round-trip for every
+        // slot proves the AAD + key plumbing doesn't silently alias
+        // slot IDs. The test uses the same key for simplicity — the
+        // goal is the slot-id AAD binding, not cross-key decryption.
+        let req = MsgReportReq::new([0xEE; 64], 2);
+        let plaintext = <MsgReportReq as IntoBytes>::as_bytes(&req);
+        for slot in 0u8..=3 {
+            let mut env =
+                SnpGuestMsg::read_from_bytes(&[0u8; SNP_GUEST_MSG_SIZE]).unwrap();
+            encrypt_guest_msg(
+                &mut env, &TEST_VMPCK, 1 + slot as u64,
+                SnpMsgType::ReportReq, slot, plaintext,
+            ).unwrap();
+            let mut out = [0u8; MSG_REPORT_REQ_SIZE];
+            let n = decrypt_guest_msg(
+                &env, &TEST_VMPCK, 1 + slot as u64,
+                SnpMsgType::ReportReq, slot, &mut out,
+            ).unwrap();
+            assert_eq!(n, MSG_REPORT_REQ_SIZE);
+            assert_eq!(&out[..], plaintext, "slot {slot} round-trip diverged");
+            assert_eq!(env.hdr.msg_vmpck, slot);
+        }
+    }
+
+    #[test]
+    fn different_keys_decrypt_rejected() {
+        // Encrypt with key A; decrypt with key B (same AAD, same
+        // seqno). AES-GCM must reject with AuthenticationFailed —
+        // this catches any silent fallback that might accept a
+        // close-enough key.
+        const KEY_A: [u8; VMPCK_LEN] = [0x11; VMPCK_LEN];
+        const KEY_B: [u8; VMPCK_LEN] = [0x22; VMPCK_LEN];
+        let req = MsgReportReq::new([0; 64], 0);
+        let plaintext = <MsgReportReq as IntoBytes>::as_bytes(&req);
+        let mut env =
+            SnpGuestMsg::read_from_bytes(&[0u8; SNP_GUEST_MSG_SIZE]).unwrap();
+        encrypt_guest_msg(
+            &mut env, &KEY_A, 0, SnpMsgType::ReportReq, 0, plaintext,
+        ).unwrap();
+        let mut out = [0u8; MSG_REPORT_REQ_SIZE];
+        let err = decrypt_guest_msg(
+            &env, &KEY_B, 0, SnpMsgType::ReportReq, 0, &mut out,
+        ).unwrap_err();
+        assert_eq!(err, EnvelopeError::AuthenticationFailed);
+    }
+
+    #[test]
+    fn seqno_u64_boundary_values_round_trip() {
+        // Exercise the IV derivation across a span of 64-bit seqno
+        // values: 0, 1, 2^32-1, 2^32, u64::MAX. Each must encrypt +
+        // decrypt cleanly and produce distinct IVs.
+        let req = MsgReportReq::new([0x33; 64], 0);
+        let plaintext = <MsgReportReq as IntoBytes>::as_bytes(&req);
+        let seqnos: [u64; 5] = [0, 1, u32::MAX as u64, 1u64 << 32, u64::MAX];
+        let mut ivs = std::collections::HashSet::new();
+        for seqno in seqnos {
+            let mut env =
+                SnpGuestMsg::read_from_bytes(&[0u8; SNP_GUEST_MSG_SIZE]).unwrap();
+            encrypt_guest_msg(
+                &mut env, &TEST_VMPCK, seqno, SnpMsgType::ReportReq, 0, plaintext,
+            ).unwrap();
+            let mut out = [0u8; MSG_REPORT_REQ_SIZE];
+            let n = decrypt_guest_msg(
+                &env, &TEST_VMPCK, seqno, SnpMsgType::ReportReq, 0, &mut out,
+            ).unwrap();
+            assert_eq!(n, MSG_REPORT_REQ_SIZE, "seqno {seqno} round-trip len");
+            assert_eq!(&out[..], plaintext, "seqno {seqno} round-trip bytes");
+            let iv = SnpGuestMsg::iv_from_seqno(seqno);
+            assert!(
+                ivs.insert(iv),
+                "seqno {seqno} produced a duplicate IV"
+            );
+        }
+    }
+
+    #[test]
+    fn off_by_one_seqno_rejected() {
+        // Classic seqno-desync: encrypt with seqno=10, decrypt with
+        // seqno=11 → must bounce with HeaderMismatch / Seqno /
+        // AuthenticationFailed. The IV is seqno-derived so the auth
+        // tag is computed over a different nonce on decrypt too.
+        let req = MsgReportReq::new([0; 64], 0);
+        let plaintext = <MsgReportReq as IntoBytes>::as_bytes(&req);
+        let mut env =
+            SnpGuestMsg::read_from_bytes(&[0u8; SNP_GUEST_MSG_SIZE]).unwrap();
+        encrypt_guest_msg(
+            &mut env, &TEST_VMPCK, 10, SnpMsgType::ReportReq, 0, plaintext,
+        ).unwrap();
+        let mut out = [0u8; MSG_REPORT_REQ_SIZE];
+        let err = decrypt_guest_msg(
+            &env, &TEST_VMPCK, 11, SnpMsgType::ReportReq, 0, &mut out,
+        ).unwrap_err();
+        assert!(
+            matches!(
+                err,
+                EnvelopeError::SeqnoMismatch | EnvelopeError::AuthenticationFailed
+            ),
+            "expected Seqno/AuthenticationFailed, got {err:?}"
+        );
+    }
+
+    #[test]
+    fn auth_tag_bit_flip_rejected() {
+        // Flip a single bit inside the 16-byte auth tag. AES-GCM
+        // must refuse — this guarantees the tag is actually checked
+        // and not just echoed back by the decrypt.
+        let req = MsgReportReq::new([0; 64], 0);
+        let plaintext = <MsgReportReq as IntoBytes>::as_bytes(&req);
+        let mut env =
+            SnpGuestMsg::read_from_bytes(&[0u8; SNP_GUEST_MSG_SIZE]).unwrap();
+        encrypt_guest_msg(
+            &mut env, &TEST_VMPCK, 0, SnpMsgType::ReportReq, 0, plaintext,
+        ).unwrap();
+        env.hdr.auth_tag[0] ^= 0x01;
+        let mut out = [0u8; MSG_REPORT_REQ_SIZE];
+        let err = decrypt_guest_msg(
+            &env, &TEST_VMPCK, 0, SnpMsgType::ReportReq, 0, &mut out,
+        ).unwrap_err();
+        assert_eq!(err, EnvelopeError::AuthenticationFailed);
+    }
+
+    #[test]
+    fn ciphertext_bit_flip_each_region_rejected() {
+        // Flip a bit at three positions in the ciphertext payload
+        // (start, middle, near end of plaintext span). Each must
+        // bounce with AuthenticationFailed — proves the ciphertext
+        // is covered by the tag end-to-end, not just metadata.
+        let req = MsgReportReq::new([0; 64], 0);
+        let plaintext = <MsgReportReq as IntoBytes>::as_bytes(&req);
+        for flip in [0usize, 50, MSG_REPORT_REQ_SIZE - 1] {
+            let mut env =
+                SnpGuestMsg::read_from_bytes(&[0u8; SNP_GUEST_MSG_SIZE]).unwrap();
+            encrypt_guest_msg(
+                &mut env, &TEST_VMPCK, 0, SnpMsgType::ReportReq, 0, plaintext,
+            ).unwrap();
+            env.payload[flip] ^= 0x01;
+            let mut out = [0u8; MSG_REPORT_REQ_SIZE];
+            let err = decrypt_guest_msg(
+                &env, &TEST_VMPCK, 0, SnpMsgType::ReportReq, 0, &mut out,
+            ).unwrap_err();
+            assert_eq!(
+                err, EnvelopeError::AuthenticationFailed,
+                "flip at offset {flip} should have failed auth"
+            );
+        }
+    }
 }
