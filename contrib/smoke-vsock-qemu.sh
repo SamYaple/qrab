@@ -59,7 +59,17 @@ command -v mcopy >/dev/null || die "mcopy not on PATH"
 command -v mmd >/dev/null || die "mmd not on PATH"
 
 # ---- build ---------------------------------------------------------------
-log "building qrab-boot.efi"
+# R16-H14 follow-up: bootloader fail-closes on non-SNP by default. This
+# smoke always drives `accel=tcg` (no SEV hardware required), so the
+# only sane default here is to compile the check out via
+# `QRAB_ALLOW_NON_SNP=1`. Scenario 9 (SNP-gate proof) intentionally
+# inverts this by exporting `QRAB_ALLOW_NON_SNP=0` before invoking the
+# smoke — we honour that opt-out so the TCG guest halts at
+# `QRAB_FAIL_NOSNP`. Any caller that wants SNP enforcement can set the
+# var to anything != 1 (empty string included).
+: "${QRAB_ALLOW_NON_SNP:=1}"
+export QRAB_ALLOW_NON_SNP
+log "building qrab-boot.efi (QRAB_ALLOW_NON_SNP=$QRAB_ALLOW_NON_SNP)"
 (cd "$BOOT_CRATE" && cargo build --release >/dev/null)
 [[ -f "$EFI" ]] || die "$EFI not produced"
 
