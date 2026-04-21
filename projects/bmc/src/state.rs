@@ -925,8 +925,31 @@ async fn create_temp_overlay(base: &Path) -> Result<PathBuf> {
         );
     }
 
+    // R14-A7: resize the overlay (not the base). Resizing mutates
+    // qcow2 metadata and would invalidate the base image's pinned
+    // SHA-256 on every run. Default Ubuntu cloud image is ~2.2 G
+    // virtual; 4 G leaves headroom for cloud-init + package installs
+    // without touching the verified base.
+    let resize = tokio::process::Command::new("qemu-img")
+        .args(["resize", &overlay.display().to_string(), "4G"])
+        .output()
+        .await?;
+    if !resize.status.success() {
+        tracing::warn!(
+            "qemu-img resize overlay failed (non-fatal): {}",
+            String::from_utf8_lossy(&resize.stderr)
+        );
+    }
+
     Ok(overlay)
 }
+
+/// Environment override for the expected SHA-256 of the Ubuntu
+/// cloud image. When set to 64 hex chars, `ensure_ubuntu_snp_image`
+/// fails closed on any mismatch (including a stale cached file).
+/// When unset we emit a loud warning per run and the actual hash
+/// so an operator can pin it back via this variable. R14-A7.
+pub const ENV_UBUNTU_IMAGE_SHA256: &str = "QRAB_UBUNTU_SNP_IMAGE_SHA256_HEX";
 
 /// Download Ubuntu 24.04 cloud image for SEV-SNP VMs.
 ///
@@ -934,7 +957,23 @@ async fn create_temp_overlay(base: &Path) -> Result<PathBuf> {
 /// CONFIG_AMD_MEM_ENCRYPT and crashes during page state transitions.
 /// Ubuntu 24.04 ships kernel 6.8+ with full SEV-SNP guest support.
 ///
-/// Login: ubuntu/snp (set via cloud-init seed disk).
+/// Login: ubuntu / (per-boot random pwd — see
+/// [`ensure_cloud_init_seed`]).
+///
+/// Supply-chain: the image bytes drive every BMC-spawned SNP guest.
+/// R14-A7: we pin SHA-256 via the [`ENV_UBUNTU_IMAGE_SHA256`] env
+/// var. When set, a mismatch (corrupt cache, MITM download, bucket
+/// drift) fails closed. When unset we log the hash of whatever we
+/// downloaded and keep booting — dev ergonomics — but the operator
+/// running this in a real BMC deployment is expected to set the
+/// pin. SNP measurement chain only covers guest launch, not the
+/// pre-boot image filesystem, so a swapped image == compromised
+/// guest kernel == full bypass of the attestation chain downstream.
+///
+/// The fetched file is NOT resized here: resizing rewrites qcow2
+/// metadata and invalidates the pinned SHA-256. The overlay path in
+/// [`create_temp_overlay`] does the 4G resize so the base stays
+/// verifiable across reboots.
 async fn ensure_ubuntu_snp_image() -> Result<PathBuf> {
     let cache_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .parent()
@@ -946,8 +985,40 @@ async fn ensure_ubuntu_snp_image() -> Result<PathBuf> {
     tokio::fs::create_dir_all(&cache_dir).await?;
 
     let path = cache_dir.join("noble-server-cloudimg-amd64.img");
+    let pinned = expected_ubuntu_image_sha256()?;
+
     if path.exists() {
-        return Ok(path);
+        let digest = sha256_hex_of_file(&path).await?;
+        match &pinned {
+            Some(expected) if expected != &digest => {
+                tracing::warn!(
+                    path = %path.display(),
+                    expected = %expected,
+                    actual = %digest,
+                    "ubuntu cloud image SHA-256 mismatch; deleting cache + redownloading"
+                );
+                tokio::fs::remove_file(&path).await.ok();
+            }
+            Some(_) => {
+                tracing::info!(
+                    path = %path.display(),
+                    sha256 = %digest,
+                    "ubuntu cloud image: cached copy matches pinned SHA-256"
+                );
+                return Ok(path);
+            }
+            None => {
+                tracing::warn!(
+                    path = %path.display(),
+                    sha256 = %digest,
+                    env = ENV_UBUNTU_IMAGE_SHA256,
+                    "ubuntu cloud image: using cached copy without a pinned \
+                     SHA-256 (set {env} to harden against supply-chain drift)",
+                    env = ENV_UBUNTU_IMAGE_SHA256,
+                );
+                return Ok(path);
+            }
+        }
     }
 
     tracing::info!("Downloading Ubuntu 24.04 cloud image (~600MB)...");
@@ -964,19 +1035,91 @@ async fn ensure_ubuntu_snp_image() -> Result<PathBuf> {
         );
     }
 
-    // Resize to 4G (default ~2.2G is tight for cloud-init + packages)
-    let resize = tokio::process::Command::new("qemu-img")
-        .args(["resize", &path.display().to_string(), "4G"])
-        .output()
-        .await?;
-    if !resize.status.success() {
-        tracing::warn!(
-            "qemu-img resize failed (non-fatal): {}",
-            String::from_utf8_lossy(&resize.stderr)
-        );
+    let digest = sha256_hex_of_file(&path).await?;
+    match &pinned {
+        Some(expected) if expected != &digest => {
+            // Delete the unpinned download so a retry doesn't
+            // succeed just by hitting the cache path above.
+            let _ = tokio::fs::remove_file(&path).await;
+            bail!(
+                "ubuntu cloud image SHA-256 mismatch after download: \
+                 expected {expected}, got {digest}. Supply-chain check \
+                 failed; file removed."
+            );
+        }
+        Some(_) => {
+            tracing::info!(
+                sha256 = %digest,
+                "ubuntu cloud image downloaded + pinned SHA-256 verified"
+            );
+        }
+        None => {
+            tracing::warn!(
+                sha256 = %digest,
+                env = ENV_UBUNTU_IMAGE_SHA256,
+                "ubuntu cloud image downloaded without a pinned SHA-256 \
+                 (set {env}={hash} for future runs to harden)",
+                env = ENV_UBUNTU_IMAGE_SHA256,
+                hash = digest.as_str(),
+            );
+        }
     }
 
     Ok(path)
+}
+
+/// Parse a 64-hex-char SHA-256 pin from [`ENV_UBUNTU_IMAGE_SHA256`].
+/// Returns `Ok(None)` when unset (ergonomic dev default), `Ok(Some)`
+/// when a valid pin is provided, or `Err` when the value is set but
+/// malformed — we refuse to run with an unparseable pin rather than
+/// silently skip the check.
+fn expected_ubuntu_image_sha256() -> Result<Option<String>> {
+    match std::env::var(ENV_UBUNTU_IMAGE_SHA256) {
+        Ok(v) => parse_ubuntu_image_sha256(&v).map(Some),
+        Err(_) => Ok(None),
+    }
+}
+
+/// Pure parser exercised by unit tests. Strips ASCII whitespace,
+/// requires exactly 64 hex chars, lowercases on return.
+fn parse_ubuntu_image_sha256(raw: &str) -> Result<String> {
+    let clean: String = raw.chars().filter(|c| !c.is_whitespace()).collect();
+    if clean.len() != 64 || !clean.chars().all(|c| c.is_ascii_hexdigit()) {
+        bail!(
+            "{ENV_UBUNTU_IMAGE_SHA256} must be 64 hex chars, got {} chars",
+            clean.len()
+        );
+    }
+    Ok(clean.to_ascii_lowercase())
+}
+
+/// Compute the SHA-256 hex digest of a file. Streams in 1 MiB
+/// chunks so a 600 MiB cloud image does not need to sit in RAM.
+async fn sha256_hex_of_file(path: &Path) -> Result<String> {
+    use sha2::{Digest, Sha256};
+    use tokio::io::AsyncReadExt;
+    let mut file = tokio::fs::File::open(path)
+        .await
+        .with_context(|| format!("opening {} for SHA-256", path.display()))?;
+    let mut hasher = Sha256::new();
+    let mut buf = vec![0u8; 1024 * 1024];
+    loop {
+        let n = file
+            .read(&mut buf)
+            .await
+            .with_context(|| format!("reading {}", path.display()))?;
+        if n == 0 {
+            break;
+        }
+        hasher.update(&buf[..n]);
+    }
+    let digest = hasher.finalize();
+    let mut out = String::with_capacity(64);
+    for b in digest.iter() {
+        use core::fmt::Write as _;
+        write!(&mut out, "{b:02x}").unwrap();
+    }
+    Ok(out)
 }
 
 /// Create cloud-init NoCloud seed disk (FAT image labeled "cidata").
@@ -1152,5 +1295,56 @@ mod tests {
 
         let guard = OverlayGuard::new(path.clone());
         drop(guard); // must not panic
+    }
+
+    // R14-A7: exercise the pin parser directly via the pure
+    // helper. The env-reading wrapper is a thin glue layer we
+    // avoid touching here because Rust 2024 made
+    // `std::env::set_var` unsafe and the bmc crate forbids unsafe
+    // blocks — the pure fn gives the same coverage.
+    #[test]
+    fn pin_valid_hex_parses_lowercase() {
+        assert_eq!(
+            parse_ubuntu_image_sha256(&"A".repeat(64)).unwrap(),
+            "a".repeat(64)
+        );
+    }
+
+    #[test]
+    fn pin_strips_whitespace() {
+        let raw = format!("  {}\n", "0".repeat(64));
+        assert_eq!(parse_ubuntu_image_sha256(&raw).unwrap(), "0".repeat(64));
+    }
+
+    #[test]
+    fn pin_wrong_length_errors() {
+        let err = parse_ubuntu_image_sha256("deadbeef").unwrap_err();
+        assert!(format!("{err}").contains("64 hex chars"));
+    }
+
+    #[test]
+    fn pin_non_hex_errors() {
+        let err = parse_ubuntu_image_sha256(&"z".repeat(64)).unwrap_err();
+        assert!(format!("{err}").contains("64 hex chars"));
+    }
+
+    #[tokio::test]
+    async fn sha256_hex_of_file_matches_known_vector() {
+        // SHA-256 of the empty string.
+        let path = std::env::temp_dir().join(format!(
+            "qrab-sha256-empty-{}-{}.bin",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::write(&path, b"").unwrap();
+        let got = sha256_hex_of_file(&path).await.unwrap();
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(
+            got,
+            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        );
     }
 }
