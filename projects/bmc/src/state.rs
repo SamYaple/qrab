@@ -1182,6 +1182,61 @@ async fn sha256_hex_of_file(path: &Path) -> Result<String> {
     Ok(out)
 }
 
+/// Atomically create `path` with mode `0o600` and write `pwd` + `\n`.
+///
+/// R15-1 / R15-7: the previous implementation did
+/// `tokio::fs::write(&path, ...)` followed by `set_permissions(0o600)`.
+/// That opens a microsecond-scale TOCTOU window: the file exists on
+/// disk at the umask-default mode (typically 0644) before the chmod
+/// lands, so any local reader of the parent dir can race the open
+/// and steal the per-boot guest credential.
+///
+/// Fix: unlink any stale file first (best-effort — `NotFound` is
+/// tolerated), then `O_CREAT | O_EXCL | O_WRONLY` with `mode=0o600`.
+/// `tokio::fs::OpenOptions::mode()` forwards to
+/// `std::os::unix::fs::OpenOptionsExt::mode`, so no std interop
+/// fallback is needed on tokio 1.x. `create_new` guarantees the
+/// file did not pre-exist under an attacker-controlled mode at the
+/// instant our fd is obtained — the kernel bakes 0o600 into the
+/// inode atomically. If a racing attacker re-creates the file
+/// between our `remove_file` and `open`, `create_new` fails loudly
+/// rather than silently inheriting their permissive mode.
+async fn write_pwd_file_0600(path: &Path, pwd: &str) -> Result<()> {
+    use tokio::io::AsyncWriteExt;
+
+    // Best-effort unlink of any previous pwd file. `NotFound` is
+    // expected on a cold cache; any other error means the parent
+    // dir is unwritable and `create_new` will fail anyway — bubble
+    // that up with context.
+    match tokio::fs::remove_file(path).await {
+        Ok(()) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => {
+            return Err(e).with_context(|| {
+                format!("removing stale pwd file at {}", path.display())
+            });
+        }
+    }
+
+    let mut file = tokio::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(path)
+        .await
+        .with_context(|| format!("opening {} for pwd write", path.display()))?;
+    file.write_all(pwd.as_bytes())
+        .await
+        .with_context(|| format!("writing pwd to {}", path.display()))?;
+    file.write_all(b"\n")
+        .await
+        .with_context(|| format!("writing pwd trailing newline to {}", path.display()))?;
+    file.flush()
+        .await
+        .with_context(|| format!("flushing pwd file {}", path.display()))?;
+    Ok(())
+}
+
 /// Create cloud-init NoCloud seed disk (FAT image labeled "cidata").
 ///
 /// R14-A6: generates a fresh random 32-hex-char password on every
@@ -1194,7 +1249,6 @@ async fn sha256_hex_of_file(path: &Path) -> Result<String> {
 /// to read; the seed cache is never reused so every `power_on`
 /// brings up a guest with a fresh credential.
 async fn ensure_cloud_init_seed() -> Result<PathBuf> {
-    use std::os::unix::fs::PermissionsExt;
     use tokio::io::AsyncReadExt;
 
     let cache_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -1221,11 +1275,7 @@ async fn ensure_cloud_init_seed() -> Result<PathBuf> {
 
     // Store the password for the operator. Overwrite any previous
     // pwd file — we never reuse a prior boot's credential.
-    tokio::fs::write(&pwd_path, format!("{pwd}\n")).await?;
-    tokio::fs::set_permissions(
-        &pwd_path,
-        std::fs::Permissions::from_mode(0o600),
-    ).await?;
+    write_pwd_file_0600(&pwd_path, &pwd).await?;
     tracing::info!(
         path = %pwd_path.display(),
         "cloud-init seed: wrote per-boot guest password (0600); \
@@ -1490,5 +1540,89 @@ mod tests {
         assert!(msg.contains("initializing"), "error was {msg}");
         // Lock must still hold Initializing — no partial transition.
         assert!(matches!(*state.vm.lock().await, VmState::Initializing));
+    }
+
+    /// R15-1 / R15-7 regression: `write_pwd_file_0600` must create the
+    /// file at mode 0o600 from `open(2)` time, with no umask-default
+    /// (0644) window between `write` and a follow-up `chmod`. The test
+    /// writes into a fresh temp path, then reads the mode bits back
+    /// from the filesystem and asserts the low 9 bits are exactly
+    /// rw- --- ---.
+    #[tokio::test]
+    async fn write_pwd_file_creates_0600_atomically() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let path = std::env::temp_dir().join(format!(
+            "qrab-pwd-mode-test-{}-{}.pwd",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        // Precondition: path does not exist.
+        let _ = std::fs::remove_file(&path);
+
+        write_pwd_file_0600(&path, "deadbeefcafebabe")
+            .await
+            .expect("write_pwd_file_0600 must succeed");
+
+        let meta = tokio::fs::metadata(&path)
+            .await
+            .expect("pwd file must exist after write");
+        let mode = meta.permissions().mode() & 0o777;
+        assert_eq!(
+            mode, 0o600,
+            "pwd file mode is {mode:o}, expected 600 — \
+             TOCTOU window would reopen if this regressed"
+        );
+
+        let body = tokio::fs::read_to_string(&path).await.unwrap();
+        assert_eq!(body, "deadbeefcafebabe\n");
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// R15-1 / R15-7: overwriting an existing pwd file must still
+    /// land at 0o600 — even if an operator or prior process left
+    /// the old file at 0o644. The production caller rotates the
+    /// credential on every `power_on`; without the unlink step,
+    /// `O_CREAT | O_TRUNC` would preserve the permissive mode and
+    /// the new credential would leak through the stale ACL.
+    #[tokio::test]
+    async fn write_pwd_file_overwrite_resets_to_0600() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let path = std::env::temp_dir().join(format!(
+            "qrab-pwd-mode-overwrite-{}-{}.pwd",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        // Plant a permissive existing file.
+        std::fs::write(&path, b"old-credential\n").unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+        assert_eq!(
+            std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+            0o644,
+            "precondition: file is 0644"
+        );
+
+        write_pwd_file_0600(&path, "new-credential")
+            .await
+            .expect("overwrite must succeed");
+
+        let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(
+            mode, 0o600,
+            "pwd file mode is {mode:o} after overwrite, expected 600 — \
+             stale 0644 must not survive the rotation"
+        );
+        let body = tokio::fs::read_to_string(&path).await.unwrap();
+        assert_eq!(body, "new-credential\n");
+
+        let _ = std::fs::remove_file(&path);
     }
 }
