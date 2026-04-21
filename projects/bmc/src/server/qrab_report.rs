@@ -14,7 +14,13 @@
 //! full 1184-byte signed SNP attestation report.
 //!
 //! The parse step is factored into [`parse_qrab_report`] so unit tests
-//! can exercise it without any QGA plumbing.
+//! can exercise it without any QGA plumbing. The absent-vs-failed
+//! classification for a `guest-file-open` error is factored into
+//! [`classify_open_error_desc`] for the same reason — the QGA wire
+//! error carries only `{class, desc}` (no numeric errno), so we must
+//! decide from `desc`, which is a locale-sensitive `strerror(errno)`
+//! suffix on top of QEMU's stable `"failed to open file '...': "`
+//! prefix.
 
 use dioxus::prelude::*;
 
@@ -47,6 +53,86 @@ const QGA_CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(
 /// inside the guest kernel and we'd rather absorb transient kernel
 /// stalls than fail the whole server fn.
 const QGA_OP_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// Classification of a QGA `guest-file-open` error's `desc` string.
+///
+/// The wire-level QGA error object is `{class: "GenericError", desc:
+/// "<msg>"}`. `desc` is the `error_setg_errno` output from
+/// `qga/commands-posix.c::safe_open_or_create`, which formats as:
+///
+/// ```text
+/// failed to open file '<path>' (mode: '<mode>'): <strerror(errno)>
+/// ```
+///
+/// Only `strerror(errno)` is locale-sensitive; everything before the
+/// final `": "` is literal C source. We therefore match against
+/// strerror translations for `ENOENT` from the locales most likely to
+/// appear on a qrab guest (systemd unit with LC_ALL=C, en_US.UTF-8,
+/// plus a handful of other common system locales) and fall back to
+/// [`OpenErrorClass::Unknown`] when none match — the caller then
+/// probes the guest via `guest-exec` for an authoritative answer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OpenErrorClass {
+    /// Desc matches a known `ENOENT` strerror translation.
+    Absent,
+    /// Desc does not match any known ENOENT pattern; caller should
+    /// probe the guest to disambiguate.
+    Unknown,
+}
+
+/// Classify the `desc` field of a QGA `guest-file-open` error.
+///
+/// Substring-matches against known `strerror(ENOENT)` translations
+/// from `glibc`'s common locales. A miss returns
+/// [`OpenErrorClass::Unknown`] so the caller can fall back to a
+/// locale-independent probe (see `probe_path_exists`).
+///
+/// Cases covered:
+/// - English / C / POSIX: `"No such file or directory"`
+/// - German: `"Datei oder Verzeichnis nicht gefunden"`
+/// - French: `"Aucun fichier ou dossier de ce nom"`
+/// - Spanish: `"No existe el archivo o el directorio"`
+/// - Italian: `"File o directory non esistente"`
+/// - Portuguese: `"Arquivo ou diretório inexistente"`
+/// - Russian: `"Нет такого файла или каталога"`
+/// - Japanese: `"そのようなファイルやディレクトリはありません"`
+/// - Simplified Chinese: `"没有那个文件或目录"`
+/// - Korean: `"그런 파일이나 디렉터리가 없습니다"`
+///
+/// Unicode substrings are matched as-is: `String::contains(&str)`
+/// operates on byte sequences, which is correct for UTF-8 input.
+#[must_use]
+pub fn classify_open_error_desc(desc: &str) -> OpenErrorClass {
+    // English / C / POSIX — the overwhelmingly common case on a
+    // systemd-managed guest (LANG=C or en_US.UTF-8).
+    const ENOENT_PATTERNS: &[&str] = &[
+        "No such file or directory",
+        // German
+        "Datei oder Verzeichnis nicht gefunden",
+        // French
+        "Aucun fichier ou dossier de ce nom",
+        // Spanish
+        "No existe el archivo o el directorio",
+        // Italian
+        "File o directory non esistente",
+        // Portuguese
+        "Arquivo ou diretório inexistente",
+        // Russian
+        "Нет такого файла или каталога",
+        // Japanese
+        "そのようなファイルやディレクトリはありません",
+        // Simplified Chinese
+        "没有那个文件或目录",
+        // Korean
+        "그런 파일이나 디렉터리가 없습니다",
+    ];
+    for pat in ENOENT_PATTERNS {
+        if desc.contains(pat) {
+            return OpenErrorClass::Absent;
+        }
+    }
+    OpenErrorClass::Unknown
+}
 
 /// Parse an efivarfs blob into a [`QrabReportStatus`].
 ///
@@ -200,15 +286,32 @@ pub async fn fetch_qrab_report() -> Result<QrabReportStatus, ServerFnError> {
     {
         Ok(Ok(h)) => h,
         Ok(Err(e)) => {
+            // B14-4: the QGA wire error is only `{class, desc}` — no
+            // numeric errno — so we can't distinguish ENOENT from
+            // EACCES/EIO directly. Try a locale-aware substring match
+            // first (covers the LANG=C / en_US / common-locale case
+            // cheaply); on miss, probe the guest with
+            // `guest-exec test -e` for an authoritative, locale-free
+            // answer. Anything inconclusive surfaces as `Failed` so
+            // operators don't silently confuse absent-file with a
+            // real agent/kernel failure.
             let msg = e.to_string();
-            // Absent-file is expected before the UKI publishes the
-            // variable — surface it as `Absent` rather than `Failed`.
-            if msg.contains("No such file or directory") {
-                return Ok(QrabReportStatus::Absent);
+            match classify_open_error_desc(&msg) {
+                OpenErrorClass::Absent => return Ok(QrabReportStatus::Absent),
+                OpenErrorClass::Unknown => match probe_path_exists(
+                    &mut qga,
+                    QRAB_REPORT_EFIVAR_PATH,
+                )
+                .await
+                {
+                    PathProbe::Absent => return Ok(QrabReportStatus::Absent),
+                    PathProbe::Present | PathProbe::Inconclusive => {
+                        return Ok(QrabReportStatus::Failed {
+                            reason: format!("guest-file-open: {msg}"),
+                        });
+                    }
+                },
             }
-            return Ok(QrabReportStatus::Failed {
-                reason: format!("guest-file-open: {msg}"),
-            });
         }
         Err(_) => {
             return Ok(QrabReportStatus::Failed {
@@ -275,6 +378,128 @@ pub async fn fetch_qrab_report() -> Result<QrabReportStatus, ServerFnError> {
     };
 
     Ok(parse_qrab_report(&bytes))
+}
+
+/// Outcome of a `guest-exec`-based path-existence probe.
+///
+/// Used by [`fetch_qrab_report`] to disambiguate a
+/// `guest-file-open` failure when [`classify_open_error_desc`] returns
+/// [`OpenErrorClass::Unknown`] (e.g. a non-en guest locale produced a
+/// `strerror(errno)` string we don't recognise).
+#[cfg(feature = "server")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PathProbe {
+    /// `test -e` returned exit code 0: the path exists.
+    Present,
+    /// `test -e` returned non-zero: the path does not exist.
+    Absent,
+    /// Probe could not be carried out (QGA error, missing `test`
+    /// binary, timeout, etc.). Caller should default to `Failed`.
+    Inconclusive,
+}
+
+/// Total wall-time budget for the `guest-exec` + `guest-exec-status`
+/// probe. Kept tight: the probe only runs on the error path, but a
+/// wedged guest agent must not tie up the BMC task longer than a few
+/// operator-visible seconds.
+#[cfg(feature = "server")]
+const QGA_PROBE_BUDGET: std::time::Duration = std::time::Duration::from_secs(3);
+
+/// How often to re-check `guest-exec-status` for a reaped pid. `test -e`
+/// is a fast execve + single `stat(2)` so in practice the first poll
+/// almost always sees `exited: true`.
+#[cfg(feature = "server")]
+const QGA_PROBE_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_millis(50);
+
+/// Probe whether `path` exists inside the guest, locale-free.
+///
+/// Spawns `/usr/bin/test -e <path>` via `guest-exec`, then polls
+/// `guest-exec-status` until the pid has been reaped (or the budget
+/// expires). Exit code 0 → present; non-zero → absent; any wire/
+/// timeout error → [`PathProbe::Inconclusive`].
+///
+/// This is the locale-independent counterpart to
+/// [`classify_open_error_desc`]: the caller tries the cheap substring
+/// match first and only falls back to this probe when the match is
+/// inconclusive, so a standard LANG=C guest pays no extra RTT.
+#[cfg(feature = "server")]
+async fn probe_path_exists(qga: &mut qapi_protocol::qga::Qga, path: &str) -> PathProbe {
+    let deadline = tokio::time::Instant::now() + QGA_PROBE_BUDGET;
+
+    // Kick off `test -e <path>`. We use the GNU coreutils path first —
+    // any Linux distro with a userland has either `/usr/bin/test` or
+    // `/bin/test`, and modern systemd-managed distros usermerge them.
+    // Capture is `none` so QGA doesn't allocate buffers for a silent
+    // exit-code-only check.
+    let exec_req = serde_json::json!({
+        "path": "/usr/bin/test",
+        "arg": ["-e", path],
+        "capture-output": { "mode": "none" },
+    });
+    #[derive(serde::Deserialize)]
+    struct ExecReturn {
+        pid: i64,
+    }
+    let Some(remaining) = deadline.checked_duration_since(tokio::time::Instant::now()) else {
+        return PathProbe::Inconclusive;
+    };
+    let pid: i64 = match tokio::time::timeout(
+        remaining,
+        qga.execute_raw::<ExecReturn>("guest-exec", exec_req),
+    )
+    .await
+    {
+        Ok(Ok(r)) => r.pid,
+        // Any error (binary not found, QGA wire fault, timeout) → we
+        // can't make an authoritative statement. Surface Inconclusive
+        // so the caller reports the original open error rather than
+        // mis-labelling as Absent.
+        _ => return PathProbe::Inconclusive,
+    };
+
+    // Poll `guest-exec-status` until `exited: true` or the budget
+    // runs out. `test -e` is a syscall away from a stat(2) so the
+    // first poll almost always sees the reaped status.
+    #[derive(serde::Deserialize)]
+    struct StatusReturn {
+        exited: bool,
+        #[serde(rename = "exitcode")]
+        exit_code: Option<i64>,
+    }
+    loop {
+        let Some(remaining) = deadline.checked_duration_since(tokio::time::Instant::now()) else {
+            return PathProbe::Inconclusive;
+        };
+        let status_req = serde_json::json!({ "pid": pid });
+        let status = match tokio::time::timeout(
+            remaining,
+            qga.execute_raw::<StatusReturn>("guest-exec-status", status_req),
+        )
+        .await
+        {
+            Ok(Ok(s)) => s,
+            _ => return PathProbe::Inconclusive,
+        };
+
+        if status.exited {
+            return match status.exit_code {
+                Some(0) => PathProbe::Present,
+                Some(_) => PathProbe::Absent,
+                // `exited: true` with no `exitcode` means `test` died
+                // on a signal — treat as Inconclusive rather than
+                // guessing.
+                None => PathProbe::Inconclusive,
+            };
+        }
+
+        // Don't spin: yield for a short interval before the next poll
+        // (or until the budget expires, whichever comes first).
+        let Some(remaining) = deadline.checked_duration_since(tokio::time::Instant::now()) else {
+            return PathProbe::Inconclusive;
+        };
+        let sleep_for = std::cmp::min(QGA_PROBE_POLL_INTERVAL, remaining);
+        tokio::time::sleep(sleep_for).await;
+    }
 }
 
 #[cfg(test)]
@@ -387,5 +612,105 @@ mod tests {
         assert_eq!(encode_hex(&[0x00]), "00");
         assert_eq!(encode_hex(&[0xde, 0xad, 0xbe, 0xef]), "deadbeef");
         assert_eq!(encode_hex(&[0x01, 0x0a]), "010a");
+    }
+
+    // --- B14-4: locale-aware ENOENT classification ---
+
+    /// QGA error string we want to classify — the underlying
+    /// `error_setg_errno` format is `"failed to open file '%s'
+    /// (mode: '%s'): <strerror(errno)>"`, and `Qmp::execute` wraps
+    /// the whole thing as `"QMP error <class>: <desc>"` before we see
+    /// it. The classifier operates on the full rendered string to
+    /// match what `fetch_qrab_report` hands in.
+    fn qga_msg(strerror: &str) -> String {
+        format!(
+            "QMP error GenericError: failed to open file \
+             '/sys/firmware/efi/efivars/QrabReport-...' (mode: 'r'): {strerror}"
+        )
+    }
+
+    /// English / C / POSIX is the overwhelmingly common guest locale
+    /// (systemd units run with LC_ALL=C or LANG=en_US.UTF-8 by
+    /// default). Regression guard for the pre-B14-4 substring.
+    #[test]
+    fn classify_english_enoent_is_absent() {
+        let msg = qga_msg("No such file or directory");
+        assert_eq!(classify_open_error_desc(&msg), OpenErrorClass::Absent);
+    }
+
+    /// Plain desc (without QMP error framing) must also classify — the
+    /// helper is format-agnostic and just substring-matches.
+    #[test]
+    fn classify_bare_english_enoent_is_absent() {
+        let desc = "failed to open file 'x' (mode: 'r'): No such file or directory";
+        assert_eq!(classify_open_error_desc(desc), OpenErrorClass::Absent);
+    }
+
+    /// Non-English locales must classify too — this is the whole
+    /// point of B14-4.
+    #[test]
+    fn classify_non_en_enoent_is_absent() {
+        let cases: &[&str] = &[
+            // German (de_DE)
+            "Datei oder Verzeichnis nicht gefunden",
+            // French (fr_FR)
+            "Aucun fichier ou dossier de ce nom",
+            // Spanish (es_ES)
+            "No existe el archivo o el directorio",
+            // Italian (it_IT)
+            "File o directory non esistente",
+            // Portuguese (pt_BR)
+            "Arquivo ou diretório inexistente",
+            // Russian (ru_RU)
+            "Нет такого файла или каталога",
+            // Japanese (ja_JP)
+            "そのようなファイルやディレクトリはありません",
+            // Simplified Chinese (zh_CN)
+            "没有那个文件或目录",
+            // Korean (ko_KR)
+            "그런 파일이나 디렉터리가 없습니다",
+        ];
+        for strerror in cases {
+            let msg = qga_msg(strerror);
+            assert_eq!(
+                classify_open_error_desc(&msg),
+                OpenErrorClass::Absent,
+                "strerror variant did not classify as Absent: {strerror}",
+            );
+        }
+    }
+
+    /// A non-ENOENT errno must NOT classify as Absent — we want the
+    /// caller to fall through to the probe (or, if that also fails,
+    /// to a plain `Failed`). Otherwise EACCES / EIO / ENOTDIR would
+    /// silently look like Absent and confuse operators.
+    #[test]
+    fn classify_non_enoent_is_unknown() {
+        let cases: &[&str] = &[
+            "Permission denied",
+            "Input/output error",
+            "Is a directory",
+            "Too many open files",
+            "Not a directory",
+        ];
+        for strerror in cases {
+            let msg = qga_msg(strerror);
+            assert_eq!(
+                classify_open_error_desc(&msg),
+                OpenErrorClass::Unknown,
+                "non-ENOENT strerror mis-classified: {strerror}",
+            );
+        }
+    }
+
+    /// Empty / noise input must not panic and must classify as
+    /// Unknown so the caller probes authoritatively.
+    #[test]
+    fn classify_empty_or_noise_is_unknown() {
+        assert_eq!(classify_open_error_desc(""), OpenErrorClass::Unknown);
+        assert_eq!(
+            classify_open_error_desc("some unrelated garbage"),
+            OpenErrorClass::Unknown,
+        );
     }
 }
