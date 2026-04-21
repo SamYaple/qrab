@@ -51,7 +51,7 @@ fn main() {
     println!("cargo::rustc-check-cfg=cfg(qrab_no_fixtures)");
     println!("cargo::rustc-check-cfg=cfg(qrab_no_server_pubkey)");
     println!("cargo::rustc-check-cfg=cfg(qrab_uki_boot)");
-    println!("cargo::rustc-check-cfg=cfg(qrab_require_snp)");
+    println!("cargo::rustc-check-cfg=cfg(qrab_allow_non_snp)");
 
     println!("cargo:rerun-if-changed=build.rs");
     for name in FIXTURES {
@@ -60,7 +60,7 @@ fn main() {
     }
     println!("cargo:rerun-if-env-changed=QRAB_ATTEST_PUBKEY_SEC1");
     println!("cargo:rerun-if-env-changed=QRAB_UKI_BOOT");
-    println!("cargo:rerun-if-env-changed=QRAB_REQUIRE_SNP");
+    println!("cargo:rerun-if-env-changed=QRAB_ALLOW_NON_SNP");
 
     // Phase 5 StartImage: the terminal `LoadImage` + `StartImage`
     // path in `src/uki.rs` is gated on this cfg. Default builds (TCG
@@ -72,15 +72,21 @@ fn main() {
         println!("cargo:rustc-cfg=qrab_uki_boot");
     }
 
-    // F6 scenario 9: a build with `QRAB_REQUIRE_SNP=1` emits a cfg
-    // that makes `main.rs` hard-fail when `ghcb::detect()` reports
-    // no SEV-SNP. Lets the matrix prove an SNP-locked bootloader
-    // refuses to run on a non-SNP (TCG / plain-KVM) host.
-    if env::var_os("QRAB_REQUIRE_SNP")
+    // R16-H14: fail-closed on non-SNP by default. `main.rs` hard-
+    // halts when `ghcb::detect()` reports no SEV-SNP unless this
+    // opt-out cfg is set. Only matrix scenario 9 (SNP-gate proof on
+    // TCG) should ever build with `QRAB_ALLOW_NON_SNP=1`; any other
+    // use ships a bootloader that'll boot on TCG / plain KVM, which
+    // defeats the attest chain's host-isolation guarantee.
+    if env::var_os("QRAB_ALLOW_NON_SNP")
         .map(|v| v == "1")
         .unwrap_or(false)
     {
-        println!("cargo:rustc-cfg=qrab_require_snp");
+        println!("cargo:rustc-cfg=qrab_allow_non_snp");
+        println!(
+            "cargo:warning=QRAB_ALLOW_NON_SNP=1 set — bootloader will NOT enforce SEV-SNP. \
+             Non-prod use only (matrix scenario 9)."
+        );
     }
 
     let out = PathBuf::from(env::var_os("OUT_DIR").expect("OUT_DIR unset"));

@@ -66,14 +66,14 @@ fn efi_main() -> Status {
     let features = ghcb::detect();
     ghcb::log_features(&features);
 
-    // F6 scenario 9: an `SNP-locked` build (compiled with
-    // `QRAB_REQUIRE_SNP=1`, which sets `cfg(qrab_require_snp)` via
-    // `build.rs`) refuses to run on a non-SNP host. `features.sev_snp`
-    // is false under TCG / plain-KVM, so emitting the terminal
-    // `QRAB_FAIL_NOSNP` token and halting makes the SNP-locked
-    // artefact detectable by the smoke harness. Default builds leave
-    // the cfg unset and keep the existing behaviour.
-    #[cfg(qrab_require_snp)]
+    // R16-H14: SNP enforcement is the default. `features.sev_snp` is
+    // false under TCG / plain-KVM; on those hosts the bootloader halts
+    // with `QRAB_FAIL_NOSNP` rather than fall through to a flow that
+    // trusts an unmeasured environment. Building with
+    // `QRAB_ALLOW_NON_SNP=1` sets `cfg(qrab_allow_non_snp)` and
+    // compiles this check out — the only supported opt-out, intended
+    // for the smoke matrix's scenario 9 (non-prod TCG boots).
+    #[cfg(not(qrab_allow_non_snp))]
     if !features.sev_snp {
         log::warn!("QRAB_FAIL_NOSNP");
         halt_forever();
