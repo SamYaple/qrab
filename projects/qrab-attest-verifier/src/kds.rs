@@ -311,4 +311,103 @@ mod tests {
             Err(e) => panic!("live KDS reachable but errored unexpectedly: {e:?}"),
         }
     }
+
+    // ------- R14 round 14 additions: KDS edges -------
+
+    #[test]
+    fn tcb_round_trips_through_reported_tcb_le() {
+        // Pack u8 components back into the u64 layout the parser
+        // consumes, then round-trip. Table-driven across a handful
+        // of boundary values to exercise the bit/byte positions.
+        let cases: &[(u8, u8, u8, u8)] = &[
+            (0, 0, 0, 0),
+            (255, 255, 255, 255),
+            (0x80, 0x01, 0x7F, 0xAA),
+            (1, 2, 3, 4),
+        ];
+        for (bl, tee, snp, ucode) in cases {
+            let mut b = [0u8; 8];
+            b[0] = *bl;
+            b[1] = *tee;
+            b[6] = *snp;
+            b[7] = *ucode;
+            let packed = u64::from_le_bytes(b);
+            let parts = TcbParts::from_reported_tcb_le(packed);
+            assert_eq!(parts.bl, *bl);
+            assert_eq!(parts.tee, *tee);
+            assert_eq!(parts.snp, *snp);
+            assert_eq!(parts.ucode, *ucode);
+        }
+    }
+
+    #[test]
+    fn kds_product_display_is_case_sensitive() {
+        // AMD's KDS endpoint 404s on lowercase. Pin the exact
+        // capitalization so a future refactor that Title-cases via
+        // `to_string` does not accidentally regress.
+        assert_eq!(KdsProduct::Milan.to_string(), "Milan");
+        assert_ne!(KdsProduct::Milan.to_string(), "milan");
+        assert_ne!(KdsProduct::Genoa.to_string(), "genoa");
+    }
+
+    #[test]
+    fn sanity_check_rejects_html_with_leading_newlines() {
+        // A server might return `\n\n<html>...` — still not DER.
+        let err = sanity_check_der(b"\n<html>oops</html>".to_vec()).unwrap_err();
+        assert!(matches!(err, KdsError::MalformedDer(_)));
+    }
+
+    #[test]
+    fn sanity_check_rejects_empty_body() {
+        let err = sanity_check_der(Vec::new()).unwrap_err();
+        match err {
+            KdsError::MalformedDer(n) => assert_eq!(n, 0),
+            other => panic!("expected MalformedDer(0), got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn sanity_check_accepts_single_0x30_byte() {
+        // Current contract: `sanity_check_der` only checks the first
+        // byte is 0x30 (X.509 SEQUENCE tag). A single 0x30 passes
+        // because X.509 parse downstream surfaces any truncation.
+        // Pin the behaviour so a tightened check here can't
+        // accidentally land without updating the DER fast-path.
+        assert_eq!(sanity_check_der(vec![0x30]).unwrap(), vec![0x30]);
+    }
+
+    #[test]
+    fn vcek_url_always_has_every_spl_component() {
+        // Regression bait: a refactor that dropped one of the four
+        // SPL fields would misroute KDS into a chip-level "any TCB"
+        // lookup. Assert all four always appear.
+        let chip_id = [0u8; 64];
+        for product in [
+            KdsProduct::Milan,
+            KdsProduct::Genoa,
+            KdsProduct::Bergamo,
+            KdsProduct::Turin,
+        ] {
+            let tcb = TcbParts { bl: 9, tee: 8, snp: 7, ucode: 6 };
+            let url = build_vcek_url("https://kdsintf.amd.com", product, &chip_id, tcb);
+            assert!(url.contains("blSPL="), "product={product:?} url={url}");
+            assert!(url.contains("teeSPL="), "product={product:?} url={url}");
+            assert!(url.contains("snpSPL="), "product={product:?} url={url}");
+            assert!(url.contains("ucodeSPL="), "product={product:?} url={url}");
+            // chip id appears as 128 hex chars between the product
+            // segment and the `?` query string.
+            assert!(url.contains(&"0".repeat(128)), "url: {url}");
+        }
+    }
+
+    #[test]
+    fn kds_error_debug_non_empty_and_distinct() {
+        use std::format;
+        let a = format!("{:?}", KdsError::Transport("timeout".into()));
+        let b = format!("{:?}", KdsError::HttpStatus { status: 404, body: String::new() });
+        let c = format!("{:?}", KdsError::MalformedDer(0));
+        assert_ne!(a, b);
+        assert_ne!(b, c);
+        assert_ne!(a, c);
+    }
 }

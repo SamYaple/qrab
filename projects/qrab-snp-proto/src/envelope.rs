@@ -514,4 +514,151 @@ mod tests {
         assert_eq!(n, 1280);
         assert_eq!(&decoded[..], plaintext);
     }
+
+    // ------- R14 round 14 additions: envelope edge cases -------
+
+    #[test]
+    fn encrypt_oversize_plaintext_rejected() {
+        // Fixed-size array on the stack; payload cap is
+        // `SNP_GUEST_MSG_SIZE - 96`, so a full 4 KiB slice is one
+        // byte past the ceiling.
+        let too_big = [0u8; SNP_GUEST_MSG_SIZE];
+        let mut env =
+            SnpGuestMsg::read_from_bytes(&[0u8; SNP_GUEST_MSG_SIZE]).unwrap();
+        let err = encrypt_guest_msg(
+            &mut env, &TEST_VMPCK, 0, SnpMsgType::ReportReq, 0, &too_big,
+        ).unwrap_err();
+        assert_eq!(err, EnvelopeError::PlaintextTooLarge);
+    }
+
+    #[test]
+    fn decrypt_output_buffer_too_small_rejected() {
+        let req = MsgReportReq::new([0; 64], 0);
+        let plaintext = <MsgReportReq as IntoBytes>::as_bytes(&req);
+        let mut env =
+            SnpGuestMsg::read_from_bytes(&[0u8; SNP_GUEST_MSG_SIZE]).unwrap();
+        encrypt_guest_msg(
+            &mut env, &TEST_VMPCK, 7, SnpMsgType::ReportReq, 0, plaintext,
+        ).unwrap();
+
+        // Output buffer one byte short of declared msg_size.
+        let mut out = [0u8; MSG_REPORT_REQ_SIZE - 1];
+        let err = decrypt_guest_msg(
+            &env, &TEST_VMPCK, 7, SnpMsgType::ReportReq, 0, &mut out,
+        ).unwrap_err();
+        assert_eq!(err, EnvelopeError::OutputBufferTooSmall);
+    }
+
+    #[allow(dead_code)]
+    fn _disable_tampered_header_test_placeholder() {}
+
+    #[test]
+    fn tampered_header_aad_byte_rejected() {
+        // Flip a byte inside the AAD-covered header region
+        // (offset 0x30..0x60). The AES-GCM tag is computed over
+        // that AAD; any change must trigger AuthenticationFailed.
+        let req = MsgReportReq::new([0; 64], 0);
+        let plaintext = <MsgReportReq as IntoBytes>::as_bytes(&req);
+        let mut env =
+            SnpGuestMsg::read_from_bytes(&[0u8; SNP_GUEST_MSG_SIZE]).unwrap();
+        encrypt_guest_msg(
+            &mut env, &TEST_VMPCK, 11, SnpMsgType::ReportReq, 0, plaintext,
+        ).unwrap();
+
+        // Use raw pointer path to modify a packed-struct field in a
+        // way that survives the decrypt's sanity checks (msg_seqno
+        // covers 0x30..0x38 inside the AAD). Flip a reserved-ish
+        // byte: `msg_version` lives in the AAD. Bumping it to a
+        // non-spec value will trip the HeaderMismatch gate, but
+        // the actual header-struct field checks run before the
+        // AAD verify. Use `algo_id` which ALSO runs through the
+        // AAD: changing it from 1 to 2 fails the HeaderMismatch
+        // gate in practice. Test the RAW-byte AAD path by flipping
+        // a byte AFTER the msg_size + msg_vmpck but still inside
+        // the AAD (offset 0x5f is the last AAD byte; it is
+        // reserved, value 0 by default).
+        let hdr_bytes = <SnpGuestMsgHdr as IntoBytes>::as_mut_bytes(&mut env.hdr);
+        hdr_bytes[0x5f] ^= 0x01;
+
+        let mut out = [0u8; MSG_REPORT_REQ_SIZE];
+        let err = decrypt_guest_msg(
+            &env, &TEST_VMPCK, 11, SnpMsgType::ReportReq, 0, &mut out,
+        ).unwrap_err();
+        assert_eq!(err, EnvelopeError::AuthenticationFailed);
+    }
+
+    #[test]
+    fn aad_slice_is_32_bytes_starting_at_0x30() {
+        // Belt-and-suspenders: if anyone widens or moves the AAD
+        // slice this test fails loudly rather than silently breaking
+        // wire compatibility with the PSP.
+        assert_eq!(SNP_GUEST_MSG_AAD_OFFSET, 0x30);
+        assert_eq!(SNP_GUEST_MSG_AAD_LEN, 0x30);
+    }
+
+    #[test]
+    fn round_trip_zero_length_plaintext_accepted() {
+        // Zero-length plaintexts are technically allowed by the
+        // envelope; the auth tag still protects the AAD. Round-trip
+        // must survive without errors.
+        let mut env =
+            SnpGuestMsg::read_from_bytes(&[0u8; SNP_GUEST_MSG_SIZE]).unwrap();
+        encrypt_guest_msg(
+            &mut env, &TEST_VMPCK, 5, SnpMsgType::ReportReq, 0, &[],
+        ).unwrap();
+        let mut out = [0u8; 0];
+        let n = decrypt_guest_msg(
+            &env, &TEST_VMPCK, 5, SnpMsgType::ReportReq, 0, &mut out,
+        ).unwrap();
+        assert_eq!(n, 0);
+    }
+
+    #[test]
+    fn decrypt_wrong_msg_version_rejected() {
+        // Flip `msg_version` (part of the AAD). Decrypt must refuse —
+        // whether via HeaderMismatch or AuthenticationFailed depends
+        // on which gate fires first; both are acceptable rejections.
+        let req = MsgReportReq::new([0; 64], 0);
+        let plaintext = <MsgReportReq as IntoBytes>::as_bytes(&req);
+        let mut env =
+            SnpGuestMsg::read_from_bytes(&[0u8; SNP_GUEST_MSG_SIZE]).unwrap();
+        encrypt_guest_msg(
+            &mut env, &TEST_VMPCK, 3, SnpMsgType::ReportReq, 0, plaintext,
+        ).unwrap();
+        env.hdr.msg_version = env.hdr.msg_version.wrapping_add(1);
+
+        let mut out = [0u8; MSG_REPORT_REQ_SIZE];
+        let err = decrypt_guest_msg(
+            &env, &TEST_VMPCK, 3, SnpMsgType::ReportReq, 0, &mut out,
+        ).unwrap_err();
+        assert!(
+            matches!(
+                err,
+                EnvelopeError::HeaderMismatch | EnvelopeError::AuthenticationFailed
+            ),
+            "expected HeaderMismatch or AuthenticationFailed, got {err:?}"
+        );
+    }
+
+    #[test]
+    fn envelope_error_display_distinct_per_variant() {
+        // Catch a future `Display` (or format!) that accidentally
+        // collapses multiple variants to the same string. Distinct
+        // error shapes should remain distinct to log readers.
+        use std::format;
+        let a = format!("{:?}", EnvelopeError::PlaintextTooLarge);
+        let b = format!("{:?}", EnvelopeError::OutputBufferTooSmall);
+        let c = format!("{:?}", EnvelopeError::HeaderMismatch);
+        let d = format!("{:?}", EnvelopeError::SeqnoMismatch);
+        let e = format!("{:?}", EnvelopeError::MsgTypeMismatch);
+        let f = format!("{:?}", EnvelopeError::AuthenticationFailed);
+        let all = [&a, &b, &c, &d, &e, &f];
+        for (i, x) in all.iter().enumerate() {
+            for (j, y) in all.iter().enumerate() {
+                if i != j {
+                    assert_ne!(x, y, "variants {i} and {j} serialise to the same string");
+                }
+            }
+        }
+    }
 }

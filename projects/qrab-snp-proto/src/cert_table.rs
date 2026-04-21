@@ -376,4 +376,105 @@ mod tests {
         // silently grow the entry size past 24 B.
         assert_eq!(core::mem::size_of::<CertTableEntryRaw>(), 24);
     }
+
+    // ------- R14 round 14 additions: cert_table edges -------
+
+    #[test]
+    fn reject_length_overflow_addition() {
+        // offset=0xFFFF_FFF0 + length=0x0000_0020 overflows u32
+        // addition. With `checked_add(len as usize)` on a 64-bit host
+        // the sum fits in usize, so the parser falls through to the
+        // "end > blob.len()" branch — still a rejection, just on a
+        // different arm. Either rejection is acceptable; the key
+        // invariant is "never read out of bounds".
+        let header_len = 2 * core::mem::size_of::<CertTableEntryRaw>();
+        let mut blob = vec![0u8; header_len];
+        blob[0..16].copy_from_slice(&CERT_GUID_VCEK);
+        blob[16..20].copy_from_slice(&0xFFFF_FFF0u32.to_le_bytes());
+        blob[20..24].copy_from_slice(&0x0000_0020u32.to_le_bytes());
+        // bytes [24..48] = terminator
+        let err = parse_cert_table(&blob).unwrap_err();
+        assert!(
+            matches!(err, CertTableError::EntryOverflowsBuffer { .. }),
+            "expected EntryOverflowsBuffer, got {err:?}"
+        );
+    }
+
+    #[test]
+    fn multiple_entries_same_guid_both_yielded() {
+        // Two VCEK entries back-to-back — spec doesn't forbid dup
+        // GUIDs (a chain could theoretically carry multiple VCEKs).
+        // Parser must surface both rather than dedup silently.
+        let body_a = b"AAAA";
+        let body_b = b"BBBB";
+        let header_len = 3 * core::mem::size_of::<CertTableEntryRaw>();
+        let a_off = header_len;
+        let b_off = a_off + body_a.len();
+        let total = b_off + body_b.len();
+        let mut blob = vec![0u8; total];
+        blob[0..16].copy_from_slice(&CERT_GUID_VCEK);
+        blob[16..20].copy_from_slice(&(a_off as u32).to_le_bytes());
+        blob[20..24].copy_from_slice(&(body_a.len() as u32).to_le_bytes());
+        blob[24..40].copy_from_slice(&CERT_GUID_VCEK);
+        blob[40..44].copy_from_slice(&(b_off as u32).to_le_bytes());
+        blob[44..48].copy_from_slice(&(body_b.len() as u32).to_le_bytes());
+        // bytes [48..72] = terminator
+        blob[a_off..b_off].copy_from_slice(body_a);
+        blob[b_off..total].copy_from_slice(body_b);
+        let entries = parse_cert_table(&blob).expect("parse");
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].der, body_a);
+        assert_eq!(entries[1].der, body_b);
+    }
+
+    #[test]
+    fn zero_length_entry_accepted() {
+        // An entry with length=0 is technically well-formed (empty
+        // DER body). Parser must yield it unchanged so the caller
+        // can reject the empty cert at the X.509 layer.
+        let header_len = 2 * core::mem::size_of::<CertTableEntryRaw>();
+        let mut blob = vec![0u8; header_len];
+        blob[0..16].copy_from_slice(&CERT_GUID_ASK);
+        blob[16..20].copy_from_slice(&(header_len as u32).to_le_bytes());
+        blob[20..24].copy_from_slice(&0u32.to_le_bytes());
+        // bytes [24..48] = terminator
+        let entries = parse_cert_table(&blob).expect("parse");
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].kind, CertKind::Ask);
+        assert!(entries[0].der.is_empty());
+    }
+
+    #[test]
+    fn cert_guid_constants_distinct() {
+        // A future refactor that accidentally duplicates a GUID
+        // value would route the wrong `CertKind` at parse. Pin the
+        // four known-good GUIDs as pairwise distinct.
+        let all = [CERT_GUID_VCEK, CERT_GUID_VLEK, CERT_GUID_ASK, CERT_GUID_ARK];
+        for i in 0..all.len() {
+            for j in 0..all.len() {
+                if i != j {
+                    assert_ne!(all[i], all[j], "GUIDs {i} and {j} collide");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn cert_table_error_display_non_empty() {
+        // `CertTableError` carries Display impls that callers log.
+        // If anyone removes the impl or leaves it empty, this test
+        // fails loudly.
+        use std::format;
+        let truncated = format!("{}", CertTableError::Truncated);
+        let missing = format!("{}", CertTableError::MissingTerminator);
+        let overflow = format!("{}", CertTableError::EntryOverflowsBuffer {
+            guid: [0; 16], offset: 1, length: 2,
+        });
+        assert!(!truncated.is_empty());
+        assert!(!missing.is_empty());
+        assert!(!overflow.is_empty());
+        assert_ne!(truncated, missing);
+        assert_ne!(truncated, overflow);
+        assert_ne!(missing, overflow);
+    }
 }
