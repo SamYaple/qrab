@@ -496,11 +496,15 @@ fn run_vsock_demo(
         actual_uki_hash[2], actual_uki_hash[3],
     );
 
-    // F2: best-effort send of the AttestPostReport frame back to
-    // the attest-server. Built during the SNP branch; only present
-    // when the PSP report was obtained successfully. Boot decision
-    // is already committed — a send failure does not halt.
-    if let Some(frame) = post_report_frame.as_ref() {
+    // F2 / R16-H22: send the AttestPostReport frame and wait for
+    // the server's AttestRelease (carrying the actual secret body).
+    // The boot decision is now gated on receiving + verifying that
+    // release — before v3 the secret rode inside the earlier
+    // AttestResponse, which meant a malicious guest could skip
+    // sending the post-report and still leave with a valid secret.
+    // Under v3 the server holds the secret back until chain-walk OK,
+    // so no post-report frame = no secret = boot halts.
+    let release_secret: alloc::vec::Vec<u8> = if let Some(frame) = post_report_frame.as_ref() {
         match vsock_connect::send_one(
             &mut driver,
             VSOCK_CID_HOST,
@@ -512,19 +516,60 @@ fn run_vsock_demo(
                 "QRAB_POST_REPORT_OK frame_len={}",
                 frame.len(),
             ),
-            Err(e) => log::warn!("QRAB_POST_REPORT_SEND_ERR {e:?}"),
+            Err(e) => {
+                log::warn!("QRAB_POST_REPORT_SEND_ERR {e:?}");
+                return Err(());
+            }
         }
-    } else {
-        log::info!("QRAB_POST_REPORT_SKIP no_snp_or_no_report");
-    }
 
-    // Extend PCR 8 with the UKI bytes themselves — TCG2 hashes
-    // internally. Missing TCG2 is still non-fatal (same rationale as
-    // the PCR 9 call below). Any *other* error is terminal: silently
-    // skipping a measurement would break the measured-boot chain
-    // without the smoke harness noticing — the token count would
-    // still add up, but the PCR value the verifier sees later would
-    // not match what the bootloader intended to extend.
+        let release_frame = match stream.recv_frame(
+            &mut driver,
+            VSOCK_CID_HOST,
+            VSOCK_HOST_PORT,
+            VSOCK_GUEST_SRC_PORT,
+        ) {
+            Ok(b) => b,
+            Err(_) => {
+                // Server closed without sending AttestRelease —
+                // either chain walk failed or the protocol was
+                // cut short. Fail closed: no secret published.
+                log::warn!("QRAB_ATTEST_RELEASE_TIMEOUT");
+                return Err(());
+            }
+        };
+        let release: qrab_boot_proto::AttestRelease =
+            match qrab_boot_proto::decode(&release_frame) {
+                Ok(r) => r,
+                Err(e) => {
+                    log::warn!("QRAB_ATTEST_RELEASE_DECODE_ERR {e}");
+                    return Err(());
+                }
+            };
+        if let Err(e) = qrab_boot_proto::validate_release(&release) {
+            log::warn!("QRAB_ATTEST_RELEASE_VALIDATE_ERR {e}");
+            return Err(());
+        }
+        match attest::verify_release(
+            &release,
+            &client_nonce,
+            &response.server_nonce,
+            &response.secret_sha256,
+        ) {
+            Ok(()) => log::info!("QRAB_ATTEST_RELEASE_OK len={}", release.secret.len()),
+            Err(e) => {
+                log::warn!("QRAB_ATTEST_RELEASE_SIG_ERR {e}");
+                return Err(());
+            }
+        }
+        release.secret
+    } else {
+        log::warn!("QRAB_POST_REPORT_SKIP no_snp_or_no_report — cannot request AttestRelease");
+        return Err(());
+    };
+
+    // Measurement + publish now run AFTER release verify so nothing
+    // touches the secret until the server has chain-walked this
+    // guest's post-report.
     match measure::extend_uki(&uki_bytes) {
         Ok(()) => {}
         Err(measure::MeasureError::Tcg2Absent) => {
@@ -536,11 +581,6 @@ fn run_vsock_demo(
         }
     }
 
-    // Extend PCR 9 with sha256(secret_sha256 || server_nonce) on any
-    // firmware that has a TCG2 protocol. A missing TCG2 is non-fatal
-    // (AmdSev OVMF ships without Tcg2Dxe by default); the log token
-    // tells the smoke harness which leg of the branch ran. Any other
-    // error is terminal for the same reason as the PCR 8 call above.
     match measure::extend_secret_binding(&response.secret_sha256, &response.server_nonce) {
         Ok(()) => {}
         Err(measure::MeasureError::Tcg2Absent) => {
@@ -552,13 +592,12 @@ fn run_vsock_demo(
         }
     }
 
-    // Publish the secret as an EFI runtime variable (volatile, BS+RT).
-    // The initrd dracut module at contrib/qrab-boot-initrd-module/
-    // will read it out and wipe it during early userspace. Any failure
-    // here is terminal — without the secret the kernel has no material
-    // to mount the rootfs, so a silent skip would only postpone pain.
-    match secret::publish(&response.secret) {
-        Ok(()) => log::info!("QRAB_SECRET_OK len={}", response.secret.len()),
+    // Publish the verified release secret as an EFI runtime variable
+    // (volatile, BS+RT). The initrd dracut module at
+    // contrib/qrab-boot-initrd-module/ will read it out and wipe it
+    // during early userspace.
+    match secret::publish(&release_secret) {
+        Ok(()) => log::info!("QRAB_SECRET_OK len={}", release_secret.len()),
         Err(e) => {
             log::warn!("QRAB_SECRET_ERR {e}");
             return Err(());
@@ -568,7 +607,7 @@ fn run_vsock_demo(
     log::info!(
         "QRAB_ATTEST_OK server_nonce0={:#04x} secret_len={} sig_len={} uki_url_len={}",
         response.server_nonce[0],
-        response.secret.len(),
+        release_secret.len(),
         response.sig.len(),
         response.uki_url.len(),
     );

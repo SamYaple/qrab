@@ -33,7 +33,8 @@
 
 use p256::ecdsa::{signature::Verifier, Signature, VerifyingKey};
 use qrab_boot_proto::{
-    AttestResponse, response_signing_digest, verify_secret_hash,
+    AttestRelease, AttestResponse, release_signing_digest,
+    response_signing_digest, verify_release_hash,
 };
 
 /// Server public key embedded at build time. Contents come from
@@ -81,22 +82,12 @@ impl core::fmt::Display for VerifyError {
     }
 }
 
-/// Fully verify a received [`AttestResponse`] against the embedded
-/// server pubkey.
-///
-/// Returns `Ok(())` only when every check below passes:
-///
-///   * the embedded SEC1 pubkey is a valid P-256 point;
-///   * the `sig` field parses as a 64-byte raw ECDSA signature;
-///   * that signature verifies the canonical signing digest;
-///   * the transported `secret` hashes to `secret_sha256`.
-///
-/// The secret-hash check is intentionally done *after* the signature
-/// check — any attacker that can flip the secret bytes without
-/// adjusting `secret_sha256` will already have been caught by the
-/// signature verify; doing the hash afterwards means the cheap
-/// constant-time compare only runs on signatures that already
-/// verify, which simplifies error triage on the serial log.
+/// Verify a received v3 [`AttestResponse`] pre-commit against the
+/// embedded server pubkey. R16-H22: the secret body no longer
+/// rides this frame, so the only things to check are the sig and
+/// the binding to `client_nonce`. The secret is confirmed later
+/// via [`verify_release`] once the server sends the release after
+/// post-report verify.
 pub fn verify(
     resp: &AttestResponse,
     client_nonce: &[u8; 32],
@@ -111,7 +102,37 @@ pub fn verify(
     // signed for session A cannot be replayed to session B.
     let digest = response_signing_digest(resp, client_nonce);
     vk.verify(&digest, &sig).map_err(|_| VerifyError::BadSignature)?;
-    if !verify_secret_hash(resp) {
+    Ok(())
+}
+
+/// Verify a received [`AttestRelease`] against the embedded server
+/// pubkey + the pre-commit this session already received. R16-H22:
+/// the release carries the actual secret body, arrives only after
+/// the server has chain-walked the guest's post-report, and must
+/// bind to (a) the session's `client_nonce` / `server_nonce` and
+/// (b) the `secret_sha256` from the pre-commit.
+///
+/// Returns `Ok(())` only when:
+///   * release.sig verifies under the server pubkey with the
+///     dedicated release signing digest (distinct domain tag);
+///   * `sha256(release.secret)` equals `expected_secret_sha256`,
+///     which the guest keeps from the pre-commit frame.
+pub fn verify_release(
+    release: &AttestRelease,
+    client_nonce: &[u8; 32],
+    server_nonce: &[u8; 32],
+    expected_secret_sha256: &[u8; 32],
+) -> Result<(), VerifyError> {
+    if EMBEDDED_SERVER_PUBKEY_SEC1.iter().all(|&b| b == 0) {
+        return Err(VerifyError::NoPubkey);
+    }
+    let vk = VerifyingKey::from_sec1_bytes(EMBEDDED_SERVER_PUBKEY_SEC1)
+        .map_err(|_| VerifyError::MalformedPubkey)?;
+    let sig = Signature::from_slice(&release.sig).map_err(|_| VerifyError::MalformedSig)?;
+    let digest =
+        release_signing_digest(client_nonce, server_nonce, expected_secret_sha256);
+    vk.verify(&digest, &sig).map_err(|_| VerifyError::BadSignature)?;
+    if !verify_release_hash(release, expected_secret_sha256) {
         return Err(VerifyError::SecretHashMismatch);
     }
     Ok(())
