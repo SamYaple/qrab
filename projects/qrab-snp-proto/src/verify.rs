@@ -578,4 +578,61 @@ mod tests {
         let report = SnpAttestationReport::read_from_bytes(&buf).unwrap();
         assert_eq!(signing_key_of(&report), ReportSigner::Vcek);
     }
+
+    // ------- R14 round 14 additions: VerifyError edges -------
+
+    #[test]
+    fn verify_error_variants_distinct_debug_strings() {
+        use std::format;
+        let a = format!("{:?}", VerifyError::BadPubkeyFormat);
+        let b = format!("{:?}", VerifyError::PubkeyNotOnCurve);
+        let c = format!("{:?}", VerifyError::SignatureMismatch);
+        let d = format!("{:?}", VerifyError::UnsupportedSignatureAlgo(1));
+        let e = format!("{:?}", VerifyError::SignaturePaddingNonZero);
+        let all = [&a, &b, &c, &d, &e];
+        for (i, x) in all.iter().enumerate() {
+            for (j, y) in all.iter().enumerate() {
+                if i != j {
+                    assert_ne!(x, y, "variants {i} {j} collapse");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn unsupported_sig_algo_preserves_original_value() {
+        // The error carries the wire value so log readers can map
+        // back to AMD's table. Forge a report with algo=0 (the
+        // "no signature" sentinel) and confirm the error payload.
+        let key = test_signing_key(0x20);
+        let (mut report, vcek) = round_trip_fixture(&key, 0x30);
+        let bytes = <SnpAttestationReport as IntoBytes>::as_mut_bytes(&mut report);
+        bytes[0x34..0x38].copy_from_slice(&0u32.to_le_bytes());
+        assert_eq!(
+            verify_report(&report, &vcek),
+            Err(VerifyError::UnsupportedSignatureAlgo(0))
+        );
+    }
+
+    #[test]
+    fn signing_key_high_bit_other() {
+        // flags bits 2..5 = 0b111 -> value 7, which is not VCEK/VLEK
+        // so the Other discriminant fires.
+        let mut buf = [0u8; core::mem::size_of::<SnpAttestationReport>()];
+        let flags_off = core::mem::offset_of!(SnpAttestationReport, flags);
+        buf[flags_off..flags_off + 4].copy_from_slice(&(0b111u32 << 2).to_le_bytes());
+        let report = SnpAttestationReport::read_from_bytes(&buf).unwrap();
+        assert_eq!(signing_key_of(&report), ReportSigner::Other(7));
+    }
+
+    #[test]
+    fn report_signer_eq_and_debug() {
+        // PartialEq + Debug on `ReportSigner` — minor but avoids a
+        // silent drift if someone removes derives.
+        assert_eq!(ReportSigner::Vcek, ReportSigner::Vcek);
+        assert_ne!(ReportSigner::Vcek, ReportSigner::Vlek);
+        assert_ne!(ReportSigner::Vcek, ReportSigner::Other(0));
+        let s = std::format!("{:?}", ReportSigner::Other(42));
+        assert!(s.contains("42"), "debug: {s}");
+    }
 }
