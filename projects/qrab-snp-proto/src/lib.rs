@@ -9,10 +9,15 @@
 //!
 //! ## Scope
 //!
-//! Phase 5a (this file) only lays out the types. AES-GCM encrypt /
-//! decrypt + IV/AAD helpers live alongside these definitions so
-//! both the UEFI bootloader and a host-side round-trip test can
-//! exercise the same code path. Phase 5c wires the actual VMGEXIT.
+//! The `envelope` module handles AES-256-GCM encrypt / decrypt with
+//! the spec IV/AAD rules; qrab-boot drives the full VMGEXIT from
+//! `ghcb.rs`'s opcode + save-area helpers and its own inline-asm
+//! `rep; vmmcall`. The `cert_table` module (feature `alloc`) parses
+//! the VCEK / ASK / ARK blob returned by
+//! `SVM_VMGEXIT_EXT_GUEST_REQUEST` or fetched from AMD KDS. The
+//! `verify` module (feature `verify`, host-only) performs the
+//! ECDSA-P384 signature check over the 672-byte signed prefix of
+//! an `SnpAttestationReport`.
 //!
 //! ## References (AMD SEV-SNP ABI Spec v1.55 / rev 2.03)
 //!

@@ -1,12 +1,20 @@
 //! qrab-boot — Rust UEFI bootloader for SEV-SNP guests.
 //!
-//! Phase 2b: the bootloader links `qrab-boot-verify` and, when test
-//! fixtures are available at build time, drives it against a signed
-//! and a tampered payload so that a QEMU boot serves as an end-to-end
-//! integration test for the verifier on the UEFI target.
+//! On an SNP host the bootloader loads the SNP Secrets page,
+//! builds a 64-byte `report_data` over `SHA-256(domain-tag ||
+//! client-nonce || server-nonce || uki-hash || secret-hash)`,
+//! issues `MSG_REPORT_REQ` through an `SVM_VMGEXIT_GUEST_REQUEST`,
+//! publishes the signed report to `attest-server` over virtio-vsock,
+//! verifies the ECDSA-P256 signed response, extends PCR 8/9 via
+//! the TCG2 EFI protocol, publishes the `QrabReport` EFI runtime
+//! variable, and hands the verified UKI to firmware via
+//! `LoadImage + StartImage`. On TCG / non-SNP hosts the same flow
+//! runs end-to-end modulo the PSP report (the request is built and
+//! logged, the vsock round-trip still exercises the server path).
 //!
-//! Still no networking or attestation. See
-//! `reference/qrab-boot-plan.md` in llm-rag for the remaining phases.
+//! Follow-ups F1–F7, F10, F11 and the wire-v2 `AttestPostReport`
+//! reshape have all landed; only F8/F9 (upstream-OVMF work tracked
+//! in `reference/upstream-ovmf-plan.md`) remain outside the crate.
 
 #![no_main]
 #![no_std]
