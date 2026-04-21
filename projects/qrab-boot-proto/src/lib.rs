@@ -275,13 +275,29 @@ pub fn decode<'a, T: Deserialize<'a>>(bytes: &'a [u8]) -> Result<T, ProtoError> 
 // virtio-vsock is a stream transport — it preserves byte order but not
 // message boundaries. Postcard writes variable-length primitives and
 // does not self-delimit at the top level, so both peers need a framing
-// layer. We use the simplest possible shape: 4-byte little-endian
-// `u32` length prefix followed by the postcard payload. Matches what
-// the attestation-server crate will expect.
+// layer. We use a 6-byte plaintext header: `u32 LE body_len ||
+// u16 LE WIRE_VERSION`. The version bytes sit OUTSIDE the postcard
+// body and are signed by neither side — peers read them, compare
+// against their own [`WIRE_VERSION`], and close the session with
+// [`ProtoError::WireVersionMismatch`] if the two differ.
+//
+// B14-5: before this header existed, a version-skewed peer (e.g. v2
+// bootloader vs v3 server) decoded the postcard body successfully
+// and only failed later inside the ECDSA verify — which is
+// indistinguishable from a MITM-tampered response. With the plaintext
+// version byte up front the failure is self-describing and emits the
+// distinct `QRAB_SNP_WIRE_VERSION_MISMATCH` log token on the server.
+// The inner `wire_version` fields on [`AttestPostReport`] /
+// [`AttestRelease`] stay as defence-in-depth; the outer header gates
+// early.
 // ---------------------------------------------------------------------------
 
-/// Length of the framing prefix in bytes.
-pub const FRAME_PREFIX_LEN: usize = 4;
+/// Length of the framing prefix in bytes. B14-5 bumped 4 → 6 to
+/// carry a plaintext [`WIRE_VERSION`] slot alongside the body length
+/// (`u32 LE body_len || u16 LE wire_version`). Hard bump — peers
+/// compiled against the 4-byte prefix cannot talk to peers on the
+/// 6-byte prefix.
+pub const FRAME_PREFIX_LEN: usize = 6;
 
 /// Hard upper bound on a single framed message payload. 128 KiB
 /// covers an `AttestResponse` with a maxed-out [`MAX_SECRET_LEN`]
@@ -289,9 +305,10 @@ pub const FRAME_PREFIX_LEN: usize = 4;
 /// safe from denial-of-service allocations on the bootloader side.
 pub const MAX_FRAMED_PAYLOAD: usize = 128 * 1024;
 
-/// Serialise `value` and prepend a 4-byte little-endian length
-/// header. The returned buffer can be written straight to a stream
-/// and read back with [`split_framed`].
+/// Serialise `value` and prepend the [`FRAME_PREFIX_LEN`]-byte
+/// plaintext header (`u32 LE body_len || u16 LE WIRE_VERSION`). The
+/// returned buffer can be written straight to a stream and read back
+/// with [`split_framed`].
 pub fn encode_framed<T: Serialize>(value: &T) -> Result<Vec<u8>, ProtoError> {
     let body = encode(value)?;
     if body.len() > MAX_FRAMED_PAYLOAD {
@@ -299,28 +316,44 @@ pub fn encode_framed<T: Serialize>(value: &T) -> Result<Vec<u8>, ProtoError> {
     }
     let mut out = Vec::with_capacity(FRAME_PREFIX_LEN + body.len());
     out.extend_from_slice(&(body.len() as u32).to_le_bytes());
+    out.extend_from_slice(&WIRE_VERSION.to_le_bytes());
     out.extend_from_slice(&body);
     Ok(out)
 }
 
-/// Parse the length prefix from the front of `bytes` and return
+/// Parse the 6-byte header from the front of `bytes` and return
 /// `(payload_len, &payload_bytes)`. Requires `bytes` to already hold
 /// at least `FRAME_PREFIX_LEN + payload_len` bytes; callers driving a
 /// stream are responsible for reading until that much is buffered.
 ///
-/// Rejects frames whose declared length exceeds [`MAX_FRAMED_PAYLOAD`]
-/// *before* slicing so a bogus header cannot trigger a large
-/// allocation.
+/// Rejects:
+/// * frames whose declared length exceeds [`MAX_FRAMED_PAYLOAD`]
+///   *before* slicing so a bogus header cannot trigger a large
+///   allocation;
+/// * frames whose declared wire version disagrees with
+///   [`WIRE_VERSION`] — returns [`ProtoError::WireVersionMismatch`]
+///   so the caller can log the mismatch as a protocol-level failure
+///   instead of an opaque `BadSignature` (B14-5).
 pub fn split_framed(bytes: &[u8]) -> Result<(usize, &[u8]), ProtoError> {
     if bytes.len() < FRAME_PREFIX_LEN {
         return Err(ProtoError::FrameTruncated);
     }
-    let prefix: [u8; FRAME_PREFIX_LEN] = bytes[..FRAME_PREFIX_LEN]
+    let len_bytes: [u8; 4] = bytes[..4]
         .try_into()
         .expect("slice length matches array");
-    let len = u32::from_le_bytes(prefix) as usize;
+    let ver_bytes: [u8; 2] = bytes[4..FRAME_PREFIX_LEN]
+        .try_into()
+        .expect("slice length matches array");
+    let len = u32::from_le_bytes(len_bytes) as usize;
+    let version = u16::from_le_bytes(ver_bytes);
     if len > MAX_FRAMED_PAYLOAD {
         return Err(ProtoError::FrameTooLarge(len));
+    }
+    if version != WIRE_VERSION {
+        return Err(ProtoError::WireVersionMismatch {
+            expected: WIRE_VERSION,
+            got: version,
+        });
     }
     let rest = &bytes[FRAME_PREFIX_LEN..];
     if rest.len() < len {
@@ -649,16 +682,20 @@ mod tests {
 
     #[test]
     fn split_framed_truncated_prefix_fails() {
-        let err = split_framed(&[1, 2]).unwrap_err();
+        // B14-5 bumped FRAME_PREFIX_LEN to 6 (u32 len || u16 version).
+        // 5 bytes is still truncated.
+        let err = split_framed(&[1, 2, 3, 4, 5]).unwrap_err();
         assert!(matches!(err, ProtoError::FrameTruncated));
     }
 
     #[test]
     fn split_framed_truncated_body_fails() {
-        // Declare 64-byte payload but supply only 3 bytes of it.
+        // Declare 64-byte payload with the matching wire-version
+        // header but supply only 3 bytes of it.
         let bytes = {
             let mut v = Vec::new();
             v.extend_from_slice(&64u32.to_le_bytes());
+            v.extend_from_slice(&WIRE_VERSION.to_le_bytes());
             v.extend_from_slice(&[0; 3]);
             v
         };
@@ -668,9 +705,13 @@ mod tests {
 
     #[test]
     fn split_framed_rejects_oversize_prefix() {
+        // FrameTooLarge fires before WireVersionMismatch — the length
+        // check guards allocation, so we don't have to attach a
+        // matching version to exercise it.
         let bytes = {
             let mut v = Vec::new();
             v.extend_from_slice(&((MAX_FRAMED_PAYLOAD + 1) as u32).to_le_bytes());
+            v.extend_from_slice(&WIRE_VERSION.to_le_bytes());
             v
         };
         let err = split_framed(&bytes).unwrap_err();
@@ -997,6 +1038,7 @@ mod tests {
         let bytes: Vec<u8> = {
             let mut v = Vec::new();
             v.extend_from_slice(&1u32.to_le_bytes());
+            v.extend_from_slice(&WIRE_VERSION.to_le_bytes());
             v.push(0xFF);
             v
         };
@@ -1029,6 +1071,7 @@ mod tests {
         let bytes: Vec<u8> = {
             let mut v = Vec::new();
             v.extend_from_slice(&0u32.to_le_bytes());
+            v.extend_from_slice(&WIRE_VERSION.to_le_bytes());
             v
         };
         let err = decode_framed::<AttestRequest>(&bytes).unwrap_err();
@@ -1043,7 +1086,9 @@ mod tests {
         // Well-formed frame with len=0 body. `split_framed` must
         // return Ok even though a downstream postcard decode may
         // reject; the framer only cares about the prefix arithmetic.
-        let bytes = 0u32.to_le_bytes().to_vec();
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&0u32.to_le_bytes());
+        bytes.extend_from_slice(&WIRE_VERSION.to_le_bytes());
         let (len, body) = split_framed(&bytes).unwrap();
         assert_eq!(len, 0);
         assert!(body.is_empty());
@@ -1056,6 +1101,7 @@ mod tests {
         // have the declared length.
         let mut bytes = Vec::with_capacity(FRAME_PREFIX_LEN + MAX_FRAMED_PAYLOAD);
         bytes.extend_from_slice(&(MAX_FRAMED_PAYLOAD as u32).to_le_bytes());
+        bytes.extend_from_slice(&WIRE_VERSION.to_le_bytes());
         bytes.resize(FRAME_PREFIX_LEN + MAX_FRAMED_PAYLOAD, 0);
         let (len, body) = split_framed(&bytes).unwrap();
         assert_eq!(len, MAX_FRAMED_PAYLOAD);
@@ -1235,5 +1281,82 @@ mod tests {
         let back: AttestRelease = decode_framed(&wire).unwrap();
         assert_eq!(back, rel);
         validate_release(&back).unwrap();
+    }
+
+    // ------- B14-5: outer wire-version header on framed payloads -------
+
+    #[test]
+    fn encode_framed_produces_outer_version_header() {
+        // Decode the first 6 bytes of an `encode_framed(AttestRequest)`
+        // result and assert the layout is `(body_len, WIRE_VERSION)`.
+        // Catches a regression where the version slot is dropped or
+        // mis-ordered.
+        let req = new_request([0x11; 32]);
+        let wire = encode_framed(&req).unwrap();
+        assert!(wire.len() > FRAME_PREFIX_LEN);
+        let len_bytes: [u8; 4] = wire[..4].try_into().unwrap();
+        let ver_bytes: [u8; 2] = wire[4..FRAME_PREFIX_LEN].try_into().unwrap();
+        let body_len = u32::from_le_bytes(len_bytes) as usize;
+        let version = u16::from_le_bytes(ver_bytes);
+        assert_eq!(body_len + FRAME_PREFIX_LEN, wire.len());
+        assert_eq!(version, WIRE_VERSION);
+    }
+
+    #[test]
+    fn split_framed_rejects_wrong_outer_version() {
+        // Hand-craft a frame with WIRE_VERSION-1 in the version slot
+        // and a plausible body length. `split_framed` must reject
+        // before touching the body — the whole point of B14-5 is
+        // making the v2/v3 skew distinguishable from a MITM.
+        let bogus_version: u16 = WIRE_VERSION - 1;
+        let body_len: u32 = 16;
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&body_len.to_le_bytes());
+        bytes.extend_from_slice(&bogus_version.to_le_bytes());
+        bytes.extend_from_slice(&[0u8; 16]);
+        let err = split_framed(&bytes).unwrap_err();
+        assert!(
+            matches!(
+                err,
+                ProtoError::WireVersionMismatch {
+                    expected: WIRE_VERSION,
+                    got: v,
+                } if v == bogus_version,
+            ),
+            "expected WireVersionMismatch, got {err:?}",
+        );
+    }
+
+    #[test]
+    fn round_trip_framed_preserves_body() {
+        // Belt-and-suspenders round-trip across all three postcard
+        // frame shapes so a future prefix change that breaks one
+        // shape but not another is caught at `cargo test` time.
+        let req = new_request([0xAB; 32]);
+        let wire = encode_framed(&req).unwrap();
+        let back: AttestRequest = decode_framed(&wire).unwrap();
+        assert_eq!(back, req);
+
+        let resp = sample_response();
+        let wire = encode_framed(&resp).unwrap();
+        let back: AttestResponse = decode_framed(&wire).unwrap();
+        assert_eq!(back, resp);
+
+        let rel = new_release(b"body-preserved".to_vec());
+        let wire = encode_framed(&rel).unwrap();
+        let back: AttestRelease = decode_framed(&wire).unwrap();
+        assert_eq!(back, rel);
+
+        let post = sample_post_report();
+        let wire = encode_framed(&post).unwrap();
+        let back: AttestPostReport = decode_framed(&wire).unwrap();
+        assert_eq!(back, post);
+    }
+
+    #[test]
+    fn frame_prefix_len_is_six_after_b14_5_bump() {
+        // Lock in the 4 → 6 bump. A revert must fail loudly because
+        // it silently reintroduces the v2/v3-vs-MITM ambiguity.
+        assert_eq!(FRAME_PREFIX_LEN, 6);
     }
 }

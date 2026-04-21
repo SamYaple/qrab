@@ -165,6 +165,11 @@ pub enum IoError {
     Disconnected,
     /// A frame length prefix exceeded [`MAX_FRAMED_PAYLOAD`].
     FrameTooLarge(usize),
+    /// The outer wire-version field in a frame header disagreed with
+    /// [`qrab_boot_proto::WIRE_VERSION`]. B14-5: surfaced separately
+    /// from a downstream `BadSignature` so a version-skewed peer is
+    /// self-describing instead of indistinguishable from an MITM.
+    WireVersionMismatch { expected: u16, got: u16 },
 }
 
 /// Transmit `payload` on the established stream. Emits
@@ -199,8 +204,11 @@ pub fn send_one(
 /// back-to-back and the device coalesces them into one ring slot).
 ///
 /// The reader's frame format matches `qrab_boot_proto::encode_framed`:
-/// a 4-byte little-endian `u32` length prefix followed by that many
-/// bytes of payload.
+/// a 6-byte plaintext header (`u32 LE body_len || u16 LE
+/// wire_version`) followed by that many bytes of payload. The
+/// wire-version slot is checked against
+/// [`qrab_boot_proto::WIRE_VERSION`] (B14-5) and a mismatch short-
+/// circuits with [`IoError::WireVersionMismatch`].
 #[allow(dead_code)]
 pub struct FramedStream {
     carry: Vec<u8>,
@@ -330,23 +338,42 @@ impl FramedStream {
     /// more bytes are needed (the common "carry too short" case), and
     /// `Err(FrameTooLarge)` when the declared length would force us
     /// to allocate past `MAX_FRAMED_PAYLOAD`.
+    ///
+    /// B14-5: reads the 6-byte outer header (`u32 LE body_len ||
+    /// u16 LE wire_version`) and short-circuits with
+    /// [`IoError::WireVersionMismatch`] when the version byte
+    /// disagrees with [`qrab_boot_proto::WIRE_VERSION`]. That makes a
+    /// v2 server vs v3 bootloader (or vice versa) show up as a
+    /// distinct log token instead of an opaque `BadSignature`
+    /// downstream of the decode path.
     fn try_extract(&mut self) -> Result<Option<Vec<u8>>, IoError> {
-        if self.carry.len() < 4 {
+        let prefix_len = qrab_boot_proto::FRAME_PREFIX_LEN;
+        if self.carry.len() < prefix_len {
             return Ok(None);
         }
         let len_bytes: [u8; 4] = self.carry[..4]
             .try_into()
             .expect("slice length matches array");
+        let ver_bytes: [u8; 2] = self.carry[4..prefix_len]
+            .try_into()
+            .expect("slice length matches array");
         let len = u32::from_le_bytes(len_bytes) as usize;
+        let peer_version = u16::from_le_bytes(ver_bytes);
         if len > MAX_FRAMED_PAYLOAD {
             return Err(IoError::FrameTooLarge(len));
         }
-        if self.carry.len() < 4 + len {
+        if peer_version != qrab_boot_proto::WIRE_VERSION {
+            return Err(IoError::WireVersionMismatch {
+                expected: qrab_boot_proto::WIRE_VERSION,
+                got: peer_version,
+            });
+        }
+        if self.carry.len() < prefix_len + len {
             return Ok(None);
         }
-        let body: Vec<u8> = self.carry[4..4 + len].to_vec();
+        let body: Vec<u8> = self.carry[prefix_len..prefix_len + len].to_vec();
         // Shift any remaining bytes down for the next call.
-        self.carry.drain(..4 + len);
+        self.carry.drain(..prefix_len + len);
         Ok(Some(body))
     }
 }
