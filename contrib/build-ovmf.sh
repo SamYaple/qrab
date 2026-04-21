@@ -66,6 +66,17 @@ for tool in rsync make gcc python3 iasl nasm; do
 done
 
 # ---- build qrab-boot.efi -------------------------------------------------
+# R16-H15: qrab-boot's build.rs requires either a real server pubkey
+# at contrib/attest-keys/server.sec1 (or $QRAB_ATTEST_PUBKEY_SEC1) or
+# the explicit QRAB_DEV_NO_PUBKEY=1 opt-in. Regen dev keys if missing
+# so a fresh checkout can produce a functional OVMF without extra
+# manual steps; production flows should set QRAB_ATTEST_PUBKEY_SEC1
+# to the real key path before calling this script.
+if [[ -z "${QRAB_ATTEST_PUBKEY_SEC1:-}" && ! -s "$ROOT/contrib/attest-keys/server.sec1" ]]; then
+    log "attest keys missing; regenerating via contrib/gen-attest-keys.sh"
+    bash "$ROOT/contrib/gen-attest-keys.sh" >/dev/null 2>&1 \
+        || die "gen-attest-keys.sh failed"
+fi
 log "building qrab-boot.efi"
 (cd "$BOOT_CRATE" && cargo build --release)
 [[ -f "$BOOT_EFI" ]] || die "qrab-boot.efi not produced at $BOOT_EFI"

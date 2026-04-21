@@ -323,8 +323,11 @@ fn run_vsock_demo(
     // because the bootloader would otherwise inject an
     // attacker-chosen secret into the guest kernel.
     if !attest::has_embedded_pubkey() {
+        // R16-H15: reachable only via explicit `QRAB_DEV_NO_PUBKEY=1`
+        // at build time. Shout about the unverified response so this
+        // mode is unmistakable in serial logs.
         log::warn!(
-            "QRAB_ATTEST_NO_PUBKEY (build without contrib/attest-keys/server.sec1; skipping verify)"
+            "QRAB_ATTEST_NO_PUBKEY (QRAB_DEV_NO_PUBKEY=1 build; signature verification SKIPPED — do not ship)"
         );
     } else {
         match attest::verify(&response, &client_nonce) {

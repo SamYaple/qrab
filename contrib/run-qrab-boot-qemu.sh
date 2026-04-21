@@ -42,7 +42,10 @@ if [[ -z "$OVMF_CODE" || ! -f "$OVMF_CODE" ]]; then
 fi
 
 echo ">>> building qrab-boot.efi"
-(cd "$BOOT_DIR" && cargo build --release)
+# R16-H15: phase-0 smoke is banner-only; no attest-server involved, so
+# the bootloader's embedded pubkey is irrelevant. Opt into the dev
+# build that refuses attest responses at runtime.
+(cd "$BOOT_DIR" && QRAB_DEV_NO_PUBKEY=1 cargo build --release)
 if [[ ! -f "$EFI" ]]; then
     echo "error: $EFI not produced" >&2
     exit 1

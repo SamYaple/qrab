@@ -42,10 +42,12 @@ use qrab_boot_proto::{
 /// from `contrib/attest-keys/server.sec1` or
 /// `$QRAB_ATTEST_PUBKEY_SEC1`.
 ///
-/// On a fresh clone with no key material on disk, `build.rs` writes
-/// 65 zero bytes and sets `qrab_no_server_pubkey`. We still include
-/// the placeholder so `include_bytes!` paths resolve; [`verify`]
-/// rejects a response in that case before reaching the crypto crate.
+/// R16-H15: `build.rs` fails the build outright when neither source
+/// is available. The only path that produces the 65-zero placeholder
+/// is the explicit `QRAB_DEV_NO_PUBKEY=1` opt-in, which also sets
+/// `qrab_no_server_pubkey` and emits a `cargo:warning=`. In that
+/// mode [`verify`] returns [`VerifyError::NoPubkey`] before reaching
+/// the crypto crate.
 pub const EMBEDDED_SERVER_PUBKEY_SEC1: &[u8; 65] =
     include_bytes!(concat!(env!("OUT_DIR"), "/attest-server-pubkey.sec1"));
 
