@@ -35,6 +35,12 @@ pub async fn get_status() -> Result<VmStatusResponse, ServerFnError> {
             status: None,
             qemu_version: None,
         }),
+        VmState::Initializing => Ok(VmStatusResponse {
+            phase: VmPhase::Initializing,
+            running: None,
+            status: None,
+            qemu_version: None,
+        }),
         VmState::Running(vm) => {
             let status = vm
                 .execute(&qapi::commands::QueryStatus {})
@@ -256,6 +262,27 @@ pub async fn build_dashboard(state: &std::sync::Arc<crate::state::BmcState>) -> 
             VmState::Off => (
                 VmStatusResponse {
                     phase: VmPhase::Off,
+                    running: None,
+                    status: None,
+                    qemu_version: None,
+                },
+                CpuInfoResponse {
+                    guest_cpus: Vec::new(),
+                    host_threads,
+                },
+                KvmInfoResponse {
+                    enabled: false,
+                    present: false,
+                },
+                false,
+                None,
+                None,
+                None,
+                None,
+            ),
+            VmState::Initializing => (
+                VmStatusResponse {
+                    phase: VmPhase::Initializing,
                     running: None,
                     status: None,
                     qemu_version: None,

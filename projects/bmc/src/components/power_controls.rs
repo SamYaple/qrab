@@ -63,7 +63,9 @@ pub fn PowerControls(current_phase: VmPhase, on_action: EventHandler<()>) -> Ele
                         on_action,
                     }
                 }
-                if current_phase != VmPhase::Off {
+                // Initializing has no user-actionable controls — force_off
+                // would race the in-flight power_on build (R15-3).
+                if current_phase != VmPhase::Off && current_phase != VmPhase::Initializing {
                     ActionButton {
                         label: "Force Off",
                         icon: "danger",

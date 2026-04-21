@@ -157,6 +157,7 @@ async fn vm_status_response_all_phases() {
 
     for phase in [
         VmPhase::Off,
+        VmPhase::Initializing,
         VmPhase::Running,
         VmPhase::Paused,
         VmPhase::ShuttingDown,
