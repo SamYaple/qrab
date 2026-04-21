@@ -5,7 +5,7 @@ use crate::types::{
     DashboardState, KvmInfoResponse, SevCapabilitiesResponse, VmStatusResponse,
 };
 #[cfg(feature = "server")]
-use crate::types::{AttestationStatus, SevStatusResponse, TpmStatusResponse, VmPhase};
+use crate::types::{AttestationStatus, SevStatusResponse, TpmStatusResponse, TrustedSvg, VmPhase};
 
 /// Cached host CPU count. `std::thread::available_parallelism()` is a
 /// syscall (reads /proc/self/status on Linux) and the value never changes
@@ -662,11 +662,19 @@ pub async fn generate_attestation_qr(
     let payload = build_attestation_payload(&att);
     drop(att);
 
+    // S7-22: `qrcode::generate_qr_*` takes a server-built payload (never
+    // a user-controlled string) and returns a static-shape SVG / ASCII
+    // string; wrap it in `TrustedSvg::new_trusted` here so the DTO field
+    // is typed-safe for `dangerous_inner_html`.
     let qr_data = match format.as_str() {
-        "ascii" => crate::server::qrcode::generate_qr_ascii(&payload)
-            .map_err(|e| ServerFnError::new(e))?,
-        "svg" => crate::server::qrcode::generate_qr_svg(&payload)
-            .map_err(|e| ServerFnError::new(e))?,
+        "ascii" => TrustedSvg::new_trusted(
+            crate::server::qrcode::generate_qr_ascii(&payload)
+                .map_err(|e| ServerFnError::new(e))?,
+        ),
+        "svg" => TrustedSvg::new_trusted(
+            crate::server::qrcode::generate_qr_svg(&payload)
+                .map_err(|e| ServerFnError::new(e))?,
+        ),
         _ => return Err(ServerFnError::new("format must be 'ascii' or 'svg'")),
     };
 
