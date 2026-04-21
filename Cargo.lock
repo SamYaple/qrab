@@ -3345,6 +3345,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "qrab-real-uki-demo-tests"
+version = "0.1.0"
+
+[[package]]
 name = "qrab-snp-proto"
 version = "0.1.0"
 dependencies = [

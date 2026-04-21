@@ -1,0 +1,25 @@
+[package]
+name = "qrab-real-uki-demo-tests"
+version = "0.1.0"
+edition = "2024"
+description = "Host-side invariant tests for the qrab-real-uki-demo UEFI PE fixture (B13-6)"
+publish = false
+
+# Host-target test harness for the sibling `qrab-real-uki-demo` crate.
+#
+# The sibling is `x86_64-unknown-uefi` only and is deliberately excluded
+# from the top-level workspace (see the `[workspace.exclude]` comment
+# in the root `Cargo.toml`). That exclusion means its byte-size budget
+# and PE invariants have historically only been enforced by a shell
+# check in `contrib/build-test-uki.sh` — any refactor that doubled the
+# PE binary size would go unnoticed until a smoke run.
+#
+# This crate lives in the workspace (host target, pure std) so
+# `cargo test -p qrab-real-uki-demo-tests` from the workspace root
+# exercises the invariants. It has no Cargo dependency on the UEFI
+# crate (that would pull a cross-target link). Tests instead read the
+# pre-built artefact from disk and skip cleanly when it is absent.
+
+[dependencies]
+
+[dev-dependencies]
