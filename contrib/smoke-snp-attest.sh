@@ -43,7 +43,14 @@ ROOT="$(git -C "$(dirname "${BASH_SOURCE[0]}")" rev-parse --show-toplevel)"
 BOOT_CRATE="$ROOT/projects/qrab-boot"
 EFI="$BOOT_CRATE/target/x86_64-unknown-uefi/release/qrab-boot.efi"
 FW="$ROOT/target/ovmf/OVMF.fd"
-OUT="$ROOT/target/qrab-boot-snp-attest"
+# Per-run output dir. `$OUT` overridable so `contrib/matrix-snp.sh`
+# (and any other caller that loops scenarios) can route each
+# invocation to its own log directory — otherwise scenarios 13a/13b
+# overwrite each other's `serial.log` / `mock.log` and post-mortem of
+# the first failure becomes impossible (B12-7). Standalone invocation
+# defaults to a per-PID suffix so back-to-back manual runs also stay
+# distinct; override via `OUT=/tmp/foo` for a stable path.
+OUT="${OUT:-$ROOT/target/qrab-boot-snp-attest/run-$$}"
 SERIAL="$OUT/serial.log"
 MOCKLOG="$OUT/mock.log"
 
