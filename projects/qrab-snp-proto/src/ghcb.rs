@@ -158,21 +158,56 @@ pub enum GhcbError {
 }
 
 /// Set bit `bit` in `bitmap` (little-endian within each byte).
+///
+/// The GHCB is a hypervisor-shared page, so the read-modify-write
+/// goes through `AtomicU8::fetch_or` with `Release` ordering — a
+/// future AP-concurrency refactor or hypervisor-side reader cannot
+/// observe a torn byte, and prior guest writes to save-area slots
+/// happen-before the hypervisor observes the valid bit.
 #[inline]
 pub fn set_valid_bit(bitmap: &mut [u8; GHCB_VALID_BITMAP_LEN], bit: usize) {
-    bitmap[bit / 8] |= 1 << (bit % 8);
+    use core::sync::atomic::{AtomicU8, Ordering};
+    // SAFETY: `AtomicU8` and `u8` share layout + alignment
+    // (guaranteed by `core::sync::atomic`). Callers are the sole
+    // guest-side holder of the `&mut [u8; _]` before VMGEXIT, so
+    // the only concurrent observer is the hypervisor reading via
+    // its own mapping of the shared page — aliasing by a second
+    // Rust reference is ruled out by the `&mut` we hold. We cast
+    // through a raw pointer rather than `AtomicU8::from_mut` only
+    // because the latter is still unstable on this toolchain.
+    let byte: &AtomicU8 =
+        unsafe { &*(&mut bitmap[bit / 8] as *mut u8 as *const AtomicU8) };
+    byte.fetch_or(1 << (bit % 8), Ordering::Release);
 }
 
-/// Clear bit `bit` in `bitmap`.
+/// Clear bit `bit` in `bitmap`. Atomic `fetch_and` with `Release`
+/// ordering — see [`set_valid_bit`] for why.
 #[inline]
 pub fn clear_valid_bit(bitmap: &mut [u8; GHCB_VALID_BITMAP_LEN], bit: usize) {
-    bitmap[bit / 8] &= !(1 << (bit % 8));
+    use core::sync::atomic::{AtomicU8, Ordering};
+    // SAFETY: see `set_valid_bit` — same aliasing + layout
+    // invariants apply to the clear path.
+    let byte: &AtomicU8 =
+        unsafe { &*(&mut bitmap[bit / 8] as *mut u8 as *const AtomicU8) };
+    byte.fetch_and(!(1 << (bit % 8)), Ordering::Release);
 }
 
-/// Return `true` if bit `bit` is set in `bitmap`.
+/// Return `true` if bit `bit` is set in `bitmap`. Atomic `load`
+/// with `Acquire` ordering pairs with [`set_valid_bit`]'s `Release`
+/// so a concurrent reader (hypervisor or future AP) sees the guest
+/// save-area writes that preceded the bit flip.
 #[inline]
 pub fn is_valid_bit_set(bitmap: &[u8; GHCB_VALID_BITMAP_LEN], bit: usize) -> bool {
-    (bitmap[bit / 8] >> (bit % 8)) & 1 == 1
+    use core::sync::atomic::{AtomicU8, Ordering};
+    // SAFETY: `AtomicU8` and `u8` share layout + alignment. The
+    // reference lives only for the `load` below; callers pass a
+    // `&[u8; _]` so no `&mut u8` aliases this byte on the Rust
+    // side. Going through an atomic load gives the hypervisor-
+    // concurrent reader the Acquire fence pairing even when this
+    // side holds only a shared reference.
+    let byte: &AtomicU8 =
+        unsafe { &*(&bitmap[bit / 8] as *const u8 as *const AtomicU8) };
+    (byte.load(Ordering::Acquire) >> (bit % 8)) & 1 == 1
 }
 
 /// Clear all relevant save-area slots and write the three fields
@@ -351,6 +386,22 @@ mod tests {
         assert_eq!(bm[0x0F], 0x80);
         assert!(is_valid_bit_set(&bm, 0));
         assert!(is_valid_bit_set(&bm, 0x7F));
+    }
+
+    #[test]
+    fn bitmap_set_preserves_neighbours_in_same_byte() {
+        // Atomic `fetch_or` must act as a read-modify-write, not a
+        // store: setting one bit in a byte that already has other
+        // bits set must leave the pre-existing bits untouched. A
+        // plain `|=` happens to do this too, but wire the assertion
+        // in explicitly so a future refactor to e.g. `store` is
+        // caught immediately.
+        let mut bm = [0u8; GHCB_VALID_BITMAP_LEN];
+        bm[0] = 0b1010_0101;
+        set_valid_bit(&mut bm, 1); // bit 1 within byte 0
+        assert_eq!(bm[0], 0b1010_0111);
+        clear_valid_bit(&mut bm, 0); // bit 0 within byte 0
+        assert_eq!(bm[0], 0b1010_0110);
     }
 
     #[test]
