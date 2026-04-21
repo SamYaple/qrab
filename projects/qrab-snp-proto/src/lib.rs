@@ -320,27 +320,39 @@ pub struct SnpSecretsPage {
     pub reserved_tail: [u8; 4096 - 0xc8],
 }
 
-/// S7-2 / R12-12 / R12-13: zeroize the four VMPCK keys on drop so a
-/// `SnpSecretsPage` moved on the stack, cloned, or stored on the
-/// heap does not leave residual key material for a core-dump / swap
-/// / heap-reuse attacker to recover. Explicit `write_volatile`
-/// through `addr_of_mut!` because the struct is `#[repr(C, packed)]`
-/// — taking `&mut self.vmpckN` in safe code is UB on unaligned
-/// fields, and a plain assignment is likely to be DCE'd by the
-/// optimiser in release builds.
+/// S7-2 / R12-12 / R12-13 / B14-8: zeroize every post-use-sensitive
+/// field on drop so a `SnpSecretsPage` moved on the stack, cloned,
+/// or stored on the heap does not leave residual material for a
+/// core-dump / swap / heap-reuse attacker to recover. VMPCK0..3 are
+/// the primary secrets. `msg_seqno_0..3` carry replay state — a
+/// post-drop read could desync a downstream stage or reveal how many
+/// guest-PSP round-trips happened. `gosv` and `ap_jump_table_pa`
+/// leak guest-OS identity / memory-map layout respectively. Explicit
+/// `write_volatile` through `addr_of_mut!` because the struct is
+/// `#[repr(C, packed)]` — taking `&mut self.fieldN` in safe code is
+/// UB on unaligned fields, and a plain assignment is likely to be
+/// DCE'd by the optimiser in release builds.
 impl Drop for SnpSecretsPage {
     fn drop(&mut self) {
         use core::ptr::{addr_of_mut, write_volatile};
-        // SAFETY: `addr_of_mut!` yields a raw pointer to each VMPCK
-        // field without taking a reference, which is sound even on a
-        // packed struct. The written value is a correctly-sized,
-        // well-aligned-for-`[u8; N]` (alignment 1) zero array. Four
-        // independent VMPCK slots are each 32 B — no overlap.
+        // SAFETY: `addr_of_mut!` yields a raw pointer to each field
+        // without taking a reference, which is sound even on a
+        // packed struct. Every write uses a `[u8; N]` of the field's
+        // exact size — byte arrays have alignment 1, so
+        // `write_volatile` is valid even when the underlying field is
+        // unaligned in the packed layout. Fields are disjoint so no
+        // overlap.
         unsafe {
             write_volatile(addr_of_mut!(self.vmpck0), [0u8; VMPCK_LEN]);
             write_volatile(addr_of_mut!(self.vmpck1), [0u8; VMPCK_LEN]);
             write_volatile(addr_of_mut!(self.vmpck2), [0u8; VMPCK_LEN]);
             write_volatile(addr_of_mut!(self.vmpck3), [0u8; VMPCK_LEN]);
+            write_volatile(addr_of_mut!(self.msg_seqno_0).cast::<[u8; 4]>(), [0u8; 4]);
+            write_volatile(addr_of_mut!(self.msg_seqno_1).cast::<[u8; 4]>(), [0u8; 4]);
+            write_volatile(addr_of_mut!(self.msg_seqno_2).cast::<[u8; 4]>(), [0u8; 4]);
+            write_volatile(addr_of_mut!(self.msg_seqno_3).cast::<[u8; 4]>(), [0u8; 4]);
+            write_volatile(addr_of_mut!(self.gosv), [0u8; 16]);
+            write_volatile(addr_of_mut!(self.ap_jump_table_pa).cast::<[u8; 8]>(), [0u8; 8]);
         }
     }
 }
@@ -653,13 +665,15 @@ mod tests {
         );
     }
 
-    /// Positive zeroization check: build a page with non-zero VMPCK
-    /// values inside a `core::mem::ManuallyDrop` so we can peek at
-    /// the same backing storage after manually invoking `drop_in_place`.
-    /// Proves the volatile writes actually land — not just that
-    /// `needs_drop` is true.
+    /// Positive zeroization check: build a page with non-zero values
+    /// in every sensitive field inside a `core::mem::ManuallyDrop` so
+    /// we can peek at the same backing storage after manually
+    /// invoking `drop_in_place`. Proves the volatile writes actually
+    /// land — not just that `needs_drop` is true. Covers VMPCK0..3
+    /// (S7-2), `msg_seqno_0..3` / `gosv` / `ap_jump_table_pa` (B14-8
+    /// — replay-state / layout-info leak).
     #[test]
-    fn drop_zeroizes_vmpck_slots() {
+    fn drop_zeroizes_secrets_and_seqno_slots() {
         use core::mem::ManuallyDrop;
         use core::ptr;
 
@@ -668,6 +682,12 @@ mod tests {
         page.vmpck1 = [0xB2u8; VMPCK_LEN];
         page.vmpck2 = [0xC3u8; VMPCK_LEN];
         page.vmpck3 = [0xD4u8; VMPCK_LEN];
+        page.msg_seqno_0 = 0x1111_1111;
+        page.msg_seqno_1 = 0x2222_2222;
+        page.msg_seqno_2 = 0x3333_3333;
+        page.msg_seqno_3 = 0x4444_4444;
+        page.gosv = [0x5au8; 16];
+        page.ap_jump_table_pa = 0xDEAD_BEEF_CAFE_F00D;
 
         // Move into a `ManuallyDrop` so we can call `drop_in_place`
         // explicitly and then inspect the backing bytes.
@@ -685,7 +705,7 @@ mod tests {
                 core::mem::size_of::<SnpSecretsPage>(),
             )
         };
-        // Offsets 0x20, 0x40, 0x60, 0x80 (four 32 B VMPCK slots).
+        // VMPCK slots: offsets 0x20, 0x40, 0x60, 0x80 (each 32 B).
         for base in [0x20, 0x40, 0x60, 0x80] {
             assert!(
                 bytes_view[base..base + VMPCK_LEN].iter().all(|&b| b == 0),
@@ -694,6 +714,24 @@ mod tests {
                 &bytes_view[base..base + VMPCK_LEN],
             );
         }
+        // gosv: offset 0x10, 16 B.
+        assert!(
+            bytes_view[0x10..0x20].iter().all(|&b| b == 0),
+            "gosv not zeroized: {:x?}",
+            &bytes_view[0x10..0x20],
+        );
+        // msg_seqno_0..3: offsets 0xa0..0xb0 (four u32s).
+        assert!(
+            bytes_view[0xa0..0xb0].iter().all(|&b| b == 0),
+            "msg_seqno_0..3 not zeroized: {:x?}",
+            &bytes_view[0xa0..0xb0],
+        );
+        // ap_jump_table_pa: offset 0xc0, 8 B.
+        assert!(
+            bytes_view[0xc0..0xc8].iter().all(|&b| b == 0),
+            "ap_jump_table_pa not zeroized: {:x?}",
+            &bytes_view[0xc0..0xc8],
+        );
     }
 
     /// R12-12 close-out: `SnpSecretsPage` must NOT derive `Copy`.
