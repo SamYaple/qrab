@@ -151,6 +151,21 @@ pub fn reason(err: &PostReportError) -> &'static str {
         PostReportError::Chain(ChainError::CertNotYetValid { .. }) => "chain_cert_not_yet_valid",
         PostReportError::Chain(ChainError::CertExpired { .. }) => "chain_cert_expired",
         PostReportError::Chain(ChainError::SignatureAlgorithmMismatch) => "chain_sig_alg_mismatch",
+        // R15-11: split out the five variants that previously collapsed
+        // to `chain_other` so smoke-log triage can distinguish a parse
+        // failure from a chain-link mismatch without reading `detail=`.
+        PostReportError::Chain(ChainError::X509Parse(_)) => "chain_x509_parse",
+        PostReportError::Chain(ChainError::PubKeyExtract(_)) => "chain_pubkey_extract",
+        PostReportError::Chain(ChainError::ChainLink { .. }) => "chain_link",
+        // `UnsupportedAlgorithm` carries an `oid:` detail already, but the
+        // failure class itself is distinct enough to warrant its own tag
+        // (it's the one variant a fresher ARK fetch might actually fix).
+        PostReportError::Chain(ChainError::UnsupportedAlgorithm { .. }) => "chain_unsupported_alg",
+        PostReportError::Chain(ChainError::VcekPubkey(_)) => "chain_vcek_pubkey",
+        // Safety net for future ChainError variants. The sentinel test
+        // `reason_covers_all_chain_variants` is expected to keep this
+        // wildcard from becoming a silent catch-all.
+        #[allow(unreachable_patterns)]
         PostReportError::Chain(_) => "chain_other",
     }
 }
@@ -776,7 +791,9 @@ mod tests {
         use qrab_attest_verifier::ChainError;
         // Exhaustive list: each variant must map to a distinct
         // machine-readable token so smoke / dashboards / alerts can
-        // triage without `detail=`.
+        // triage without `detail=`. R15-11 split out X509Parse,
+        // PubKeyExtract, ChainLink, UnsupportedAlgorithm, and
+        // VcekPubkey from the old `chain_other` catch-all.
         let mk = PostReportError::Chain;
         let cases: Vec<(PostReportError, &'static str)> = vec![
             (mk(ChainError::ArkSelfSig), "chain_ark_sig"),
@@ -795,6 +812,17 @@ mod tests {
             (mk(ChainError::CertNotYetValid { which: "ARK" }), "chain_cert_not_yet_valid"),
             (mk(ChainError::CertExpired { which: "VCEK" }), "chain_cert_expired"),
             (mk(ChainError::SignatureAlgorithmMismatch), "chain_sig_alg_mismatch"),
+            (mk(ChainError::X509Parse("bad der".into())), "chain_x509_parse"),
+            (mk(ChainError::PubKeyExtract("spki".into())), "chain_pubkey_extract"),
+            (mk(ChainError::ChainLink {
+                link: "ASK.issuer != ARK.subject",
+                expected: vec![0u8; 4],
+                actual: vec![1u8; 4],
+            }), "chain_link"),
+            (mk(ChainError::UnsupportedAlgorithm {
+                oid: "1.2.840.113549.1.1.13".into(),
+            }), "chain_unsupported_alg"),
+            (mk(ChainError::VcekPubkey("sec1 decode".into())), "chain_vcek_pubkey"),
         ];
         let mut seen = std::collections::HashSet::new();
         for (err, want) in &cases {
