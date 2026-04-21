@@ -30,6 +30,7 @@
 use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
+use std::time::Instant;
 
 use anyhow::{Context, Result, bail};
 use attest_server::verify::{handle_post_report_bytes, reason};
@@ -389,6 +390,18 @@ fn serve(port: u32, signer: Signer, uki_bytes: Vec<u8>, fault: Fault) -> Result<
 /// is thread-per-conn.
 const SESSION_IO_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 
+/// R15-5: wall-clock ceiling for an ENTIRE session, not just one
+/// syscall. A drip-feed peer that writes one byte every
+/// `SESSION_IO_TIMEOUT - epsilon` seconds resets the per-read clock
+/// on each call and can otherwise sit on an accept slot indefinitely
+/// (and slowly exhaust `MAX_FRAMED_PAYLOAD`). We check elapsed time
+/// after every read; once past the deadline the session is dropped
+/// with the `QRAB_SNP_SESSION_DEADLINE` log token. The deadline is a
+/// superset of `SESSION_IO_TIMEOUT` — the per-syscall timer still
+/// unblocks a truly-stuck syscall, the deadline catches the
+/// drip-feed case the per-syscall timer misses.
+const SESSION_TOTAL_DEADLINE: std::time::Duration = std::time::Duration::from_secs(60);
+
 /// Produce the length-prefixed wire frame (`u32 LE len || body`)
 /// that the bootloader's second `FramedStream::read_frame` call
 /// consumes. Built once at startup so the accept loop never
@@ -447,7 +460,7 @@ fn handle(
 /// Protocol invariant enforced by test
 /// `server_does_not_leak_secret_before_post_report`.
 fn handle_stream<S: Read + Write>(
-    mut stream: S,
+    stream: S,
     signer: &Signer,
     uki_bytes: &[u8],
     uki_frame: &[u8],
@@ -455,10 +468,37 @@ fn handle_stream<S: Read + Write>(
     replay_cache: &Mutex<Option<(Vec<u8>, Vec<u8>)>>,
     replay_cache_path: Option<&str>,
 ) -> Result<()> {
+    // R15-5: session-wide wall-clock ceiling computed at entry. Both
+    // reads and writes check against this so a drip-feed peer that
+    // keeps each syscall under `SESSION_IO_TIMEOUT` still gets
+    // evicted once cumulative elapsed exceeds the deadline.
+    let deadline = Instant::now()
+        .checked_add(SESSION_TOTAL_DEADLINE)
+        .expect("SESSION_TOTAL_DEADLINE within Instant range");
+    handle_stream_with_deadline(
+        stream, signer, uki_bytes, uki_frame, fault,
+        replay_cache, replay_cache_path, deadline,
+    )
+}
+
+/// Deadline-parameterised variant so the R15-5 regression test can
+/// dial in a short session ceiling without waiting 60s wall-clock.
+/// Production callers go through [`handle_stream`], which pins the
+/// deadline to [`SESSION_TOTAL_DEADLINE`].
+fn handle_stream_with_deadline<S: Read + Write>(
+    mut stream: S,
+    signer: &Signer,
+    uki_bytes: &[u8],
+    uki_frame: &[u8],
+    fault: Fault,
+    replay_cache: &Mutex<Option<(Vec<u8>, Vec<u8>)>>,
+    replay_cache_path: Option<&str>,
+    deadline: Instant,
+) -> Result<()> {
     // --- Frame 1 in: AttestRequest ---
     // The first frame (AttestRequest) is required — a peer that
     // closes before sending it is a protocol error, not a skip.
-    let request_bytes = read_framed(&mut stream)
+    let request_bytes = read_framed(&mut stream, deadline)
         .context("reading attestation request")?
         .ok_or_else(|| anyhow::anyhow!("peer closed before sending AttestRequest"))?;
 
@@ -531,6 +571,16 @@ fn handle_stream<S: Read + Write>(
     stream
         .write_all(&precommit_bytes)
         .context("writing attestation pre-commit")?;
+    // R15-5: check session deadline after the write in case a slow
+    // receiver dripped the send queue for the full budget.
+    if Instant::now() >= deadline {
+        eprintln!(
+            "attest-server: QRAB_SNP_SESSION_DEADLINE after_precommit_write \
+             (secret NOT released — R15-5 gate)"
+        );
+        drop(stream);
+        return Ok(());
+    }
 
     // --- Frame 3 out: UKI body ---
     // Safe to ship pre-verify — the UKI is public material, signed
@@ -538,6 +588,14 @@ fn handle_stream<S: Read + Write>(
     stream
         .write_all(uki_frame)
         .context("writing UKI body")?;
+    if Instant::now() >= deadline {
+        eprintln!(
+            "attest-server: QRAB_SNP_SESSION_DEADLINE after_uki_write \
+             (secret NOT released — R15-5 gate)"
+        );
+        drop(stream);
+        return Ok(());
+    }
 
     eprintln!(
         "attest-server: wrote pre-commit {} B + UKI {} B (secret held back pending post-report verify)",
@@ -549,7 +607,7 @@ fn handle_stream<S: Read + Write>(
     // Guest computes report_data from the pre-commit fields, asks
     // the PSP for an attestation report, and sends it here. The
     // server now decides whether to release the secret.
-    let post_bytes = match read_framed(&mut stream) {
+    let post_bytes = match read_framed(&mut stream, deadline) {
         Ok(Some(b)) => b,
         Ok(None) => {
             // Clean EOF before post-report: peer either dropped or
@@ -591,6 +649,20 @@ fn handle_stream<S: Read + Write>(
                 v.report.measurement[6], v.report.measurement[7],
             );
 
+            // R15-5: final deadline check before emitting the
+            // secret. If a malicious peer dragged the session past
+            // the total ceiling — e.g. the chain walk ran while the
+            // deadline was already expiring — drop rather than
+            // release. The chain walk is CPU-bound so this is a
+            // belt-and-braces gate, not the main defence.
+            if Instant::now() >= deadline {
+                eprintln!(
+                    "attest-server: QRAB_SNP_SESSION_DEADLINE pre_release \
+                     (secret NOT released — R15-5 gate)"
+                );
+                drop(stream);
+                return Ok(());
+            }
             // --- Frame 5 out: AttestRelease (secret body) ---
             // Only reached on verify OK. Bind the release to this
             // session's client_nonce + pre-committed secret_sha256
@@ -631,11 +703,17 @@ fn handle_stream<S: Read + Write>(
 /// * `Ok(None)` — client cleanly closed the stream before sending
 ///   any bytes, i.e. a v1-shaped client or a TCG guest that skipped
 ///   the SNP post-report path. Treated as "no frame", not an error.
-/// * `Err(_)` — partial frame (prefix read, body short) or any
-///   other IO failure. Discriminated at the call site so the log
-///   token distinguishes a peer protocol mismatch from a network /
-///   read error that hides a real regression. B12-13.
-fn read_framed<S: Read>(stream: &mut S) -> Result<Option<Vec<u8>>> {
+/// * `Err(_)` — partial frame (prefix read, body short), session
+///   deadline exceeded (R15-5), or any other IO failure.
+///   Discriminated at the call site so the log token distinguishes a
+///   peer protocol mismatch from a network / read error that hides a
+///   real regression. B12-13.
+///
+/// `deadline` is the session-wide wall-clock ceiling (R15-5). We
+/// check it after every `read()` return so a drip-feed peer cannot
+/// slowly exhaust `MAX_FRAMED_PAYLOAD` by staying under the
+/// per-syscall timeout on each individual call.
+fn read_framed<S: Read>(stream: &mut S, deadline: Instant) -> Result<Option<Vec<u8>>> {
     use std::io::ErrorKind;
     let mut prefix = [0u8; FRAME_PREFIX_LEN];
     let mut read = 0;
@@ -657,16 +735,40 @@ fn read_framed<S: Read>(stream: &mut S) -> Result<Option<Vec<u8>>> {
             Err(e) => return Err(anyhow::Error::new(e).context("reading frame prefix")),
         };
         read += n;
+        if Instant::now() >= deadline {
+            bail!(
+                "QRAB_SNP_SESSION_DEADLINE prefix_progress={read}/{FRAME_PREFIX_LEN}"
+            );
+        }
     }
     let len = u32::from_le_bytes(prefix) as usize;
     if len > MAX_FRAMED_PAYLOAD {
         bail!("declared frame length {len} exceeds MAX_FRAMED_PAYLOAD");
     }
 
+    // Body read loop is manual (not `read_exact`) so the session
+    // deadline applies per-syscall. `read_exact` would happily spin
+    // through hundreds of 1-byte reads as long as each one returned
+    // within `SESSION_IO_TIMEOUT` — the exact drip-feed shape R15-5
+    // closes.
     let mut body = vec![0u8; len];
-    stream
-        .read_exact(&mut body)
-        .context("reading frame body")?;
+    let mut filled = 0;
+    while filled < len {
+        let n = match stream.read(&mut body[filled..]) {
+            Ok(0) => bail!(
+                "read_framed: EOF after {filled}/{len} body bytes"
+            ),
+            Ok(n) => n,
+            Err(e) if e.kind() == ErrorKind::Interrupted => continue,
+            Err(e) => return Err(anyhow::Error::new(e).context("reading frame body")),
+        };
+        filled += n;
+        if Instant::now() >= deadline {
+            bail!(
+                "QRAB_SNP_SESSION_DEADLINE body_progress={filled}/{len}"
+            );
+        }
+    }
 
     let mut full = Vec::with_capacity(FRAME_PREFIX_LEN + len);
     full.extend_from_slice(&prefix);
@@ -855,6 +957,260 @@ mod r16_h22_tests {
              malformed post-report (read {} B total). Chain-walk \
              failure must NEVER emit AttestRelease.",
             all.len(),
+        );
+    }
+}
+
+#[cfg(test)]
+mod r15_5_tests {
+    //! R15-5 regression harness — slowloris drip-feed.
+    //!
+    //! Before this fix, `SESSION_IO_TIMEOUT` capped each individual
+    //! syscall at 30 s but placed no ceiling on total session
+    //! wall-clock. A peer that sent one byte every few seconds could
+    //! keep each `read()` syscall well inside the timeout and hold an
+    //! accept slot for arbitrarily long — enough to exhaust
+    //! `MAX_FRAMED_PAYLOAD` (16 MiB) at a trickle rate. The R15 audit
+    //! called this out as MED DOS.
+    //!
+    //! `slowloris_drip_feed_gets_evicted_before_secret_release`
+    //! drives the server over a `UnixStream::pair` with a dialed-down
+    //! deadline, sends the AttestRequest one byte at a time with
+    //! inter-byte sleeps that cumulatively exceed the deadline, and
+    //! asserts:
+    //!
+    //! 1. The server closes the session (peer-side read returns EOF).
+    //! 2. No secret bytes ever reach the wire.
+    //!
+    //! The deadline is dialed down via `handle_stream_with_deadline`
+    //! to keep the test under a second; production still uses the
+    //! 60 s `SESSION_TOTAL_DEADLINE`.
+    use super::*;
+    use std::io::{Read, Write};
+    use std::os::unix::net::UnixStream;
+    use std::sync::{Arc, Mutex};
+    use std::thread;
+    use std::time::{Duration, Instant};
+
+    fn secret_bytes() -> &'static [u8] {
+        attest_server::STUB_SECRET
+    }
+
+    /// Span the server-side `handle_stream_with_deadline` call and
+    /// return `(handle, start)` so the test can assert on total
+    /// wall-clock. The deadline is dialed down so the test completes
+    /// in under a second.
+    fn run_server_timed(
+        stream: UnixStream,
+        deadline_ms: u64,
+    ) -> (thread::JoinHandle<Instant>, Instant) {
+        let start = Instant::now();
+        let signer = Signer::generate();
+        let uki = STUB_UKI.to_vec();
+        let uki_frame: Vec<u8> = build_uki_frame(&uki);
+        let cache: Arc<Mutex<Option<(Vec<u8>, Vec<u8>)>>> = Arc::new(Mutex::new(None));
+        let deadline = start + Duration::from_millis(deadline_ms);
+        let join = thread::spawn(move || {
+            let _ = handle_stream_with_deadline(
+                stream, &signer, &uki, &uki_frame, Fault::None,
+                &cache, None, deadline,
+            );
+            // Return the Instant the handler exited so the test can
+            // measure elapsed and assert on deadline-obedience.
+            Instant::now()
+        });
+        (join, start)
+    }
+
+    /// Poll-join the server thread with a hard wall-clock cap. Used
+    /// by the drip-feed tests so a regression where
+    /// `SESSION_TOTAL_DEADLINE` is not enforced does not hang the
+    /// harness forever — we just detect that the thread is still
+    /// running past `cap` and fail the test.
+    fn join_before(join: thread::JoinHandle<Instant>, cap: Duration) -> Option<Instant> {
+        let start = Instant::now();
+        while start.elapsed() < cap {
+            if join.is_finished() {
+                return Some(join.join().expect("server thread panic"));
+            }
+            thread::sleep(Duration::from_millis(20));
+        }
+        None
+    }
+
+    /// Drip-feed writer: sends `bytes` one at a time with `interval`
+    /// inter-byte sleep until either the stream is ready for it,
+    /// OR the shared `stop` flag is set. Runs on a thread so the
+    /// test can continue to observe the server's exit timing while
+    /// the client side is still feeding. Abort via `stop` so the
+    /// test does not have to wait for the full wire to drip before
+    /// reaping the thread — important when a regression makes the
+    /// server hang instead of evicting.
+    fn spawn_drip_writer(
+        mut client: UnixStream,
+        bytes: Vec<u8>,
+        interval: Duration,
+        stop: Arc<std::sync::atomic::AtomicBool>,
+    ) -> thread::JoinHandle<UnixStream> {
+        thread::spawn(move || {
+            for b in bytes.iter() {
+                if stop.load(std::sync::atomic::Ordering::Relaxed) {
+                    break;
+                }
+                if client.write_all(std::slice::from_ref(b)).is_err() {
+                    break;
+                }
+                let _ = client.flush();
+                thread::sleep(interval);
+            }
+            client
+        })
+    }
+
+    #[test]
+    fn slowloris_drip_feed_gets_evicted_before_secret_release() {
+        // Dial the session deadline down to 300 ms. Client drips
+        // each byte of a valid AttestRequest one at a time with
+        // 80 ms inter-byte sleeps. The per-syscall
+        // `SESSION_IO_TIMEOUT` (30 s) never fires because every
+        // server-side `read()` returns within ~80 ms of being
+        // posted; only the cumulative session deadline gets us out
+        // before the full request is delivered (~3 s of feed).
+        //
+        // The critical assertion: the server thread exits within
+        // ~deadline + slop. Before the fix, the server would sit
+        // in the prefix/body read loop until the client closed —
+        // the client here keeps dripping through the whole test,
+        // so a missing deadline never bails.
+        let (client, server) = UnixStream::pair().expect("unix pair");
+        let (join, start) = run_server_timed(server, 300);
+
+        // 80 ms per byte. AttestRequest wire image is ~40 bytes so
+        // the drip runs ~3.2 s wall-clock — well over 10x the
+        // 300 ms deadline.
+        let req = qrab_boot_proto::new_request([0xA5u8; 32]);
+        let wire = qrab_boot_proto::encode_framed(&req).expect("encode");
+        let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let drip = spawn_drip_writer(
+            client, wire, Duration::from_millis(80), Arc::clone(&stop),
+        );
+
+        // Wait for server to exit. Cap 1500 ms = 5x deadline —
+        // tight enough that a missing deadline (server still
+        // reading bytes at 80 ms/byte) trips the cap, generous
+        // enough to survive CI scheduler jitter.
+        let exit_at = join_before(join, Duration::from_millis(1500));
+        stop.store(true, std::sync::atomic::Ordering::Relaxed);
+        let client = drip.join().expect("drip thread panic");
+
+        // Drain any bytes the server wrote (normally empty — the
+        // request never finished decoding, so `handle_stream`
+        // bails out of `read_framed` before the write phase). Use
+        // a short read timeout so a regression that left the
+        // server alive (no eviction, no precommit emitted) does
+        // not hang this drain — we just see 0 bytes.
+        client
+            .set_read_timeout(Some(Duration::from_millis(200)))
+            .expect("set read timeout");
+        let mut collected = Vec::new();
+        let mut chunk = [0u8; 4096];
+        for _ in 0..16 {
+            let mut c = &client;
+            match c.read(&mut chunk) {
+                Ok(0) => break,
+                Ok(n) => collected.extend_from_slice(&chunk[..n]),
+                Err(_) => break,
+            }
+        }
+        drop(client);
+
+        let exit_at = exit_at.expect(
+            "R15-5 REGRESSION: server thread still running 1500 ms \
+             into a drip-fed session with 300 ms deadline — \
+             `SESSION_TOTAL_DEADLINE` is not evicting the slowloris \
+             peer. Per-syscall `SESSION_IO_TIMEOUT` alone does not \
+             close this hole.",
+        );
+        let elapsed = exit_at.duration_since(start);
+        assert!(
+            elapsed < Duration::from_millis(1200),
+            "R15-5 REGRESSION: server ran {:?} on a slowloris \
+             session with 300 ms deadline.",
+            elapsed,
+        );
+
+        let secret = secret_bytes();
+        let leaked = collected.windows(secret.len()).any(|w| w == secret);
+        assert!(
+            !leaked,
+            "R15-5 REGRESSION: secret bytes on the wire during \
+             slowloris (read {} B total).",
+            collected.len(),
+        );
+    }
+
+    #[test]
+    fn drip_feed_body_phase_also_gets_evicted() {
+        // Variant: send a well-formed prefix declaring a large
+        // body, then drip body bytes at 80 ms intervals. Before
+        // the fix, the body read used `std::io::Read::read_exact`,
+        // which spins through drip-feed forever as long as each
+        // individual read stays inside the per-syscall timeout.
+        let (client, server) = UnixStream::pair().expect("unix pair");
+        let (join, start) = run_server_timed(server, 300);
+
+        // Declare a 4096-byte body; drip enough body bytes to keep
+        // the socket non-empty past the deadline.
+        let declared_len: u32 = 4096;
+        let mut wire = Vec::with_capacity(4 + 60);
+        wire.extend_from_slice(&declared_len.to_le_bytes());
+        wire.extend(std::iter::repeat_n(0u8, 60));
+        let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let drip = spawn_drip_writer(
+            client, wire, Duration::from_millis(80), Arc::clone(&stop),
+        );
+
+        let exit_at = join_before(join, Duration::from_millis(1500));
+        stop.store(true, std::sync::atomic::Ordering::Relaxed);
+        let client = drip.join().expect("drip thread panic");
+
+        client
+            .set_read_timeout(Some(Duration::from_millis(200)))
+            .expect("set read timeout");
+        let mut collected = Vec::new();
+        let mut chunk = [0u8; 4096];
+        for _ in 0..16 {
+            let mut c = &client;
+            match c.read(&mut chunk) {
+                Ok(0) => break,
+                Ok(n) => collected.extend_from_slice(&chunk[..n]),
+                Err(_) => break,
+            }
+        }
+        drop(client);
+
+        let exit_at = exit_at.expect(
+            "R15-5 REGRESSION (body phase): server thread still \
+             running 1500 ms into a drip-fed session — the \
+             frame-body read loop is not honouring \
+             `SESSION_TOTAL_DEADLINE`. A `read_exact`-shaped body \
+             loop cannot enforce a session-wide deadline.",
+        );
+        let elapsed = exit_at.duration_since(start);
+        assert!(
+            elapsed < Duration::from_millis(1200),
+            "R15-5 REGRESSION (body phase): server ran {:?} on a \
+             drip-fed frame body with 300 ms deadline.",
+            elapsed,
+        );
+
+        let secret = secret_bytes();
+        let leaked = collected.windows(secret.len()).any(|w| w == secret);
+        assert!(
+            !leaked,
+            "R15-5 REGRESSION (body phase): secret bytes on the \
+             wire during drip-feed of frame body (read {} B).",
+            collected.len(),
         );
     }
 }
