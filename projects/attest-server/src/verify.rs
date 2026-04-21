@@ -647,6 +647,77 @@ mod tests {
         assert!(hex_decode("abc").is_err());
     }
 
+    // ------- G20: hex_decode boundary cases -------
+
+    #[test]
+    fn hex_decode_empty_returns_empty_vec() {
+        assert_eq!(hex_decode("").unwrap(), Vec::<u8>::new());
+    }
+
+    #[test]
+    fn hex_decode_whitespace_only_returns_empty() {
+        // Whitespace is filtered before the length check; pure
+        // whitespace therefore shrinks to 0 and round-trips clean.
+        assert_eq!(hex_decode("   \n\t ").unwrap(), Vec::<u8>::new());
+    }
+
+    #[test]
+    fn hex_decode_mixed_case_works() {
+        // Ensure the upper-case lower-case mapping is symmetric and
+        // a mixed-case input does not split on a single byte.
+        assert_eq!(hex_decode("Af0B").unwrap(), vec![0xAF, 0x0B]);
+    }
+
+    #[test]
+    fn hex_decode_long_valid_96_chars() {
+        // 96 hex chars = 48 bytes; covers the measurement length.
+        let input: String = core::iter::repeat('a').take(96).collect();
+        let got = hex_decode(&input).unwrap();
+        assert_eq!(got.len(), 48);
+        assert!(got.iter().all(|&b| b == 0xAA));
+    }
+
+    #[test]
+    fn hex_decode_odd_length_after_whitespace_strip_errors() {
+        assert!(hex_decode("   abc   ").is_err());
+    }
+
+    #[test]
+    fn hex_decode_rejects_one_non_hex_byte_out_of_many() {
+        // 63 valid + one ill-formed at the end → must still reject,
+        // proves the loop exits early rather than silently
+        // truncating.
+        let mut input: String = core::iter::repeat('0').take(62).collect();
+        input.push('a');
+        input.push('G'); // not a hex nibble
+        assert!(hex_decode(&input).is_err());
+    }
+
+    #[test]
+    fn expected_measurement_rejects_wrong_byte_count() {
+        // 40 hex chars = 20 bytes != 48. The env is set, but parse
+        // maps to MeasurementHex.
+        unsafe { std::env::set_var(ENV_EXPECTED_MEASUREMENT_HEX, "a".repeat(40)) };
+        let err = expected_measurement_from_env().unwrap_err();
+        unsafe { std::env::remove_var(ENV_EXPECTED_MEASUREMENT_HEX) };
+        match err {
+            PostReportError::MeasurementHex(msg) => {
+                assert!(msg.contains("expected 48"), "msg: {msg}");
+            }
+            other => panic!("expected MeasurementHex, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn expected_measurement_happy_48_bytes() {
+        // 96 hex chars = 48 bytes. Must round-trip as Some.
+        unsafe { std::env::set_var(ENV_EXPECTED_MEASUREMENT_HEX, "ab".repeat(48)) };
+        let got = expected_measurement_from_env();
+        unsafe { std::env::remove_var(ENV_EXPECTED_MEASUREMENT_HEX) };
+        let arr = got.unwrap().unwrap();
+        assert_eq!(arr, [0xABu8; 48]);
+    }
+
     #[test]
     fn handle_post_report_rejects_bad_frame() {
         let err = handle_post_report_bytes(&[0u8; 3], None, None).unwrap_err();
@@ -696,5 +767,204 @@ mod tests {
         use qrab_attest_verifier::ChainError;
         let sample = ChainError::ArkSelfSig;
         let _ = reason(&PostReportError::Chain(sample));
+    }
+
+    // ------- G17: reason() table-driven discriminant coverage -------
+
+    #[test]
+    fn reason_distinct_per_chain_variant() {
+        use qrab_attest_verifier::ChainError;
+        // Exhaustive list: each variant must map to a distinct
+        // machine-readable token so smoke / dashboards / alerts can
+        // triage without `detail=`.
+        let mk = PostReportError::Chain;
+        let cases: Vec<(PostReportError, &'static str)> = vec![
+            (mk(ChainError::ArkSelfSig), "chain_ark_sig"),
+            (mk(ChainError::AskSig), "chain_ask_sig"),
+            (mk(ChainError::VcekSig), "chain_vcek_sig"),
+            (mk(ChainError::ReportSig("test".into())), "chain_report_sig"),
+            (mk(ChainError::MeasurementMismatch), "measurement"),
+            (mk(ChainError::TcbMismatch {
+                component: "blSPL",
+                cert_value: 0,
+                report_value: 1,
+            }), "tcb"),
+            (mk(ChainError::ChipIdMismatch), "chip_id"),
+            (mk(ChainError::WeakHashOnNonSelfSig), "chain_weak_hash"),
+            (mk(ChainError::MissingTcbExt), "chain_missing_tcb_ext"),
+            (mk(ChainError::CertNotYetValid { which: "ARK" }), "chain_cert_not_yet_valid"),
+            (mk(ChainError::CertExpired { which: "VCEK" }), "chain_cert_expired"),
+            (mk(ChainError::SignatureAlgorithmMismatch), "chain_sig_alg_mismatch"),
+        ];
+        let mut seen = std::collections::HashSet::new();
+        for (err, want) in &cases {
+            let got = reason(err);
+            assert_eq!(&got, want, "variant {err:?}");
+            assert!(
+                seen.insert(got),
+                "duplicate token {got} for variant {err:?}",
+            );
+        }
+        // Top-level (non-Chain) variants get their own tokens too.
+        assert_eq!(reason(&PostReportError::AskMissing), "ask_missing");
+        assert_eq!(reason(&PostReportError::VcekMissing), "vcek_missing");
+        assert_eq!(reason(&PostReportError::ReportCastFailed), "report_cast");
+        assert_eq!(
+            reason(&PostReportError::MeasurementHex("x".into())),
+            "measurement_hex"
+        );
+    }
+
+    // ------- G5: handle_post_report_bytes end-to-end past cert table -------
+
+    /// Build a 24-byte cert-table entry header (GUID ‖ offset ‖ len).
+    fn cert_hdr(guid: &[u8; 16], off: u32, len: u32) -> [u8; 24] {
+        let mut h = [0u8; 24];
+        h[..16].copy_from_slice(guid);
+        h[16..20].copy_from_slice(&off.to_le_bytes());
+        h[20..24].copy_from_slice(&len.to_le_bytes());
+        h
+    }
+
+    /// Pack an `ASK || VCEK` cert-table blob in the shape the PSP
+    /// emits via `SVM_VMGEXIT_EXT_GUEST_REQUEST`. Layout:
+    ///
+    ///   header[ASK] ‖ header[VCEK] ‖ terminator ‖ ASK_DER ‖ VCEK_DER
+    fn cert_table_ask_vcek(ask_der: &[u8], vcek_der: &[u8]) -> Vec<u8> {
+        use qrab_snp_proto::cert_table::{CERT_GUID_ASK, CERT_GUID_VCEK};
+        let header_len = 3 * 24;
+        let ask_off = header_len;
+        let vcek_off = ask_off + ask_der.len();
+        let total = vcek_off + vcek_der.len();
+        let mut blob = vec![0u8; total];
+        blob[0..24].copy_from_slice(&cert_hdr(
+            &CERT_GUID_ASK,
+            ask_off as u32,
+            ask_der.len() as u32,
+        ));
+        blob[24..48].copy_from_slice(&cert_hdr(
+            &CERT_GUID_VCEK,
+            vcek_off as u32,
+            vcek_der.len() as u32,
+        ));
+        // bytes 48..72 = terminator (all-zero already)
+        blob[ask_off..vcek_off].copy_from_slice(ask_der);
+        blob[vcek_off..].copy_from_slice(vcek_der);
+        blob
+    }
+
+    /// Synthetic ARK/ASK/VCEK chain via rcgen. ARK is RSA-SHA384
+    /// self-signed; ASK + VCEK share the same keypair chain as the
+    /// verifier's own test fixtures. VCEK is P384-ECDSA. Returns
+    /// `(ark_der, ask_der, vcek_der)`.
+    fn synth_chain() -> (Vec<u8>, Vec<u8>, Vec<u8>) {
+        use rcgen::{
+            BasicConstraints, CertificateParams, CustomExtension,
+            DistinguishedName, DnType, IsCa, Issuer, KeyPair,
+            PKCS_ECDSA_P384_SHA384, PKCS_RSA_SHA384,
+        };
+        fn dn(cn: &str) -> DistinguishedName {
+            let mut d = DistinguishedName::new();
+            d.push(DnType::CommonName, cn);
+            d
+        }
+        fn mk_ca(cn: &str) -> CertificateParams {
+            let mut p = CertificateParams::new(Vec::<String>::new()).unwrap();
+            p.distinguished_name = dn(cn);
+            p.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
+            p
+        }
+
+        let ark_kp = KeyPair::generate_for(&PKCS_RSA_SHA384).unwrap();
+        let ark = mk_ca("qrab-integration ARK").self_signed(&ark_kp).unwrap();
+        let ark_der = ark.der().to_vec();
+        let ark_issuer: Issuer<'static, _> =
+            Issuer::new(mk_ca("qrab-integration ARK"), ark_kp);
+
+        let ask_kp = KeyPair::generate_for(&PKCS_RSA_SHA384).unwrap();
+        let ask = mk_ca("qrab-integration ASK")
+            .signed_by(&ask_kp, &ark_issuer)
+            .unwrap();
+        let ask_der = ask.der().to_vec();
+        let ask_issuer: Issuer<'static, _> =
+            Issuer::new(mk_ca("qrab-integration ASK"), ask_kp);
+
+        // VCEK with all four AMD SPL extensions + hwID so the F4
+        // presence check succeeds.
+        let amd_ext = |oid: &[u64], content: Vec<u8>| {
+            CustomExtension::from_oid_content(oid, content)
+        };
+        use der::Encode;
+        let ext_bl = amd_ext(&[1, 3, 6, 1, 4, 1, 3704, 1, 3, 1], 0u8.to_der().unwrap());
+        let ext_tee = amd_ext(&[1, 3, 6, 1, 4, 1, 3704, 1, 3, 2], 0u8.to_der().unwrap());
+        let ext_snp = amd_ext(&[1, 3, 6, 1, 4, 1, 3704, 1, 3, 3], 0u8.to_der().unwrap());
+        let ext_ucode = amd_ext(&[1, 3, 6, 1, 4, 1, 3704, 1, 3, 8], 0u8.to_der().unwrap());
+        let ext_hwid = amd_ext(
+            &[1, 3, 6, 1, 4, 1, 3704, 1, 4],
+            der::asn1::OctetString::new(vec![0u8; 64])
+                .unwrap()
+                .to_der()
+                .unwrap(),
+        );
+
+        let vcek_kp = KeyPair::generate_for(&PKCS_ECDSA_P384_SHA384).unwrap();
+        let mut vcek_params =
+            CertificateParams::new(Vec::<String>::new()).unwrap();
+        vcek_params.distinguished_name = dn("qrab-integration VCEK");
+        for e in [ext_bl, ext_tee, ext_snp, ext_ucode, ext_hwid] {
+            vcek_params.custom_extensions.push(e);
+        }
+        let vcek = vcek_params.signed_by(&vcek_kp, &ask_issuer).unwrap();
+        let vcek_der = vcek.der().to_vec();
+        (ark_der, ask_der, vcek_der)
+    }
+
+    #[test]
+    fn handle_post_report_passes_chain_links_fails_at_report_sig() {
+        // Every stage before the PSP ECDSA report check must succeed
+        // with a synthetic chain: cert-table parse → ASK/VCEK
+        // extraction → ARK override → chain link → RSA sig → F4
+        // cross-check → ReportSig failure (VCEK is a test key, not
+        // AMD's).
+        let (ark_der, ask_der, vcek_der) = synth_chain();
+        let cert_blob = cert_table_ask_vcek(&ask_der, &vcek_der);
+        let post = qrab_boot_proto::new_post_report(
+            vec![0u8; SNP_ATTESTATION_REPORT_LEN],
+            cert_blob,
+        );
+        let frame = qrab_boot_proto::encode_framed(&post).unwrap();
+        let err =
+            handle_post_report_bytes(&frame, Some(&ark_der), None).unwrap_err();
+        assert_eq!(
+            reason(&err),
+            "chain_report_sig",
+            "expected chain_report_sig (PSP sig fail), got: {err:?}"
+        );
+    }
+
+    #[test]
+    fn handle_post_report_bad_ark_override_surfaces_arksig() {
+        // Swap the ARK override for a different freshly-generated
+        // ARK → ASK now signed by someone whose pubkey won't verify.
+        let (_ark, ask_der, vcek_der) = synth_chain();
+        let (wrong_ark, _, _) = synth_chain();
+        let cert_blob = cert_table_ask_vcek(&ask_der, &vcek_der);
+        let post = qrab_boot_proto::new_post_report(
+            vec![0u8; SNP_ATTESTATION_REPORT_LEN],
+            cert_blob,
+        );
+        let frame = qrab_boot_proto::encode_framed(&post).unwrap();
+        let err =
+            handle_post_report_bytes(&frame, Some(&wrong_ark), None).unwrap_err();
+        // Either ASK sig or a chain-link mismatch (distinct ARK
+        // means distinct subject DN too). Both are acceptable — we
+        // just need a non-Ok rejection. Use the reason token to
+        // confirm the failure is on the cryptographic path, not a
+        // setup artefact.
+        let r = reason(&err);
+        assert!(
+            r == "chain_ask_sig" || r.starts_with("chain_"),
+            "expected chain_ask_sig or related, got {r} / {err:?}"
+        );
     }
 }
