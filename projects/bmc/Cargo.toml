@@ -111,6 +111,9 @@ web = ["dioxus/web"]
 [dev-dependencies]
 tokio = { workspace = true, features = ["full"] }
 qapi-protocol = { path = "../qapi-protocol" }
+# S7-21: middleware-level tests feed axum Requests directly via
+# `ServiceExt::oneshot`, which lives in `tower::util`.
+tower = { version = "0.5", features = ["util"] }
 
 [[test]]
 name = "mock_bmc"
