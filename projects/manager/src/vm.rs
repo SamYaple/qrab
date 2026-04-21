@@ -16,6 +16,7 @@ use qapi::QapiCommand;
 use qapi_protocol::{Qmp, QmpEvent};
 
 use crate::arch::{Arch, MachineConfig};
+use crate::event::ManagerEvent;
 use crate::firmware::{self, OvmfFirmware};
 use crate::namespace::{InitConfig, KvmFd, NsHelper, SevFd};
 use crate::swtpm::SwtpmProcess;
@@ -248,11 +249,16 @@ fn validate_memory(mem: &str) -> Result<()> {
 ///
 /// The `Child` is owned by a monitor task spawned at construction time;
 /// that task awaits `child.wait()` and publishes the exit status on a
-/// `watch` channel so callers can observe unexpected QEMU death
+/// `watch` channel (`exit_watch`) plus a single terminal
+/// [`ManagerEvent::ProcessExited`] on a mpsc channel
+/// (`manager_event_rx`) so callers can observe unexpected QEMU death
 /// programmatically instead of waiting for the next QMP command to fail
-/// cryptically. `cleanup()` signals the monitor to kill the child and
-/// waits for it to finish. `Drop` is a best-effort fallback that triggers
-/// the same shutdown signal without blocking.
+/// cryptically. After publishing the terminal event the monitor drops its
+/// sender, giving `manager_events` subscribers a clean `None` on the
+/// next `recv()` rather than blocking forever (Bug #7 / #29).
+/// `cleanup()` signals the monitor to kill the child and waits for it to
+/// finish. `Drop` is a best-effort fallback that triggers the same
+/// shutdown signal without blocking.
 ///
 /// The `_tmpdir` field holds the private temporary directory. It is never
 /// read directly — `TempDir::drop` removes the directory and all contents
@@ -261,6 +267,9 @@ struct VmProcess {
     shutdown: Option<oneshot::Sender<()>>,
     monitor: Option<JoinHandle<()>>,
     exit_watch: watch::Receiver<Option<ExitStatus>>,
+    /// Held until `take_manager_events()` transfers ownership to the
+    /// caller. `Some` at construction, `None` after the first take.
+    manager_event_rx: Option<mpsc::Receiver<ManagerEvent>>,
     _tmpdir: tempfile::TempDir,
     qmp_sock: PathBuf,
     serial_log: Option<PathBuf>,
@@ -275,11 +284,17 @@ impl VmProcess {
     ///
     /// The task races `child.wait()` against a shutdown oneshot: if the
     /// oneshot fires first, the task kills the child and reaps it; if the
-    /// child exits on its own, the task logs the exit status as an error
-    /// and publishes it on the returned `watch::Receiver` so the user is
-    /// not left hanging on a dead QMP connection.
+    /// child exits on its own, the task logs the exit status as an error.
+    /// In both cases it publishes the exit status on the returned
+    /// [`watch::Receiver`] and pushes a single terminal
+    /// [`ManagerEvent::ProcessExited`] on the `manager_event_tx` mpsc,
+    /// then drops the sender so subscribers see a clean channel close.
+    /// Bug #7 / #29: before this, subscribers of the manager-event
+    /// channel could block forever after a QEMU `SIGSEGV` / aborted
+    /// assertion / OOM-kill — no final event was ever emitted.
     fn spawn_monitor(
         mut child: Child,
+        manager_event_tx: mpsc::Sender<ManagerEvent>,
     ) -> (
         oneshot::Sender<()>,
         JoinHandle<()>,
@@ -288,32 +303,43 @@ impl VmProcess {
         let (tx, rx) = oneshot::channel::<()>();
         let (exit_tx, exit_rx) = watch::channel(None);
         let handle = tokio::spawn(async move {
-            tokio::select! {
+            // Capture the wait-result so the post-select tail can publish
+            // a single ManagerEvent regardless of which branch fired.
+            let wait_result = tokio::select! {
                 _ = rx => {
                     let _ = child.start_kill();
-                    let _ = child.wait().await;
+                    child.wait().await
                 }
                 res = child.wait() => {
-                    match res {
-                        Ok(status) => {
-                            tracing::error!(
-                                "QEMU process exited unexpectedly: {:?}",
-                                status
-                            );
-                            let _ = exit_tx.send(Some(status));
-                        }
-                        Err(e) => {
-                            tracing::error!(
-                                "failed to wait on QEMU process: {}",
-                                e
-                            );
-                            // Publish a synthetic "unknown exit" so exit_watch
-                            // subscribers don't hang forever.
-                            let _ = exit_tx.send(None);
-                        }
+                    match &res {
+                        Ok(status) => tracing::error!(
+                            "QEMU process exited unexpectedly: {:?}",
+                            status
+                        ),
+                        Err(e) => tracing::error!(
+                            "failed to wait on QEMU process: {}",
+                            e
+                        ),
                     }
+                    res
                 }
-            }
+            };
+
+            // Mirror the wait-result onto the legacy `exit_watch`. `Err`
+            // maps to `None` so existing subscribers don't hang forever
+            // when the reaper itself fails — same contract as before.
+            let _ = match &wait_result {
+                Ok(status) => exit_tx.send(Some(*status)),
+                Err(_) => exit_tx.send(None),
+            };
+
+            // Build + publish the terminal `ManagerEvent`, then drop the
+            // sender. `try_send` covers the "receiver already dropped"
+            // case (the user dropped the `PreconfigVm`/`Vm` without ever
+            // draining it) without blocking the reaper.
+            let event = ManagerEvent::from_wait_result(wait_result);
+            let _ = manager_event_tx.try_send(event);
+            drop(manager_event_tx);
         });
         (tx, handle, exit_rx)
     }
@@ -1374,7 +1400,13 @@ impl VmBuilder {
             )));
         }
 
-        let (shutdown, monitor, exit_watch) = VmProcess::spawn_monitor(child);
+        // Manager-event channel: single-slot mpsc. Only one terminal
+        // `ProcessExited` is ever published, so capacity 1 is enough;
+        // the monitor uses `try_send` and then drops the sender so
+        // subscribers see a clean channel close.
+        let (manager_event_tx, manager_event_rx) = mpsc::channel::<ManagerEvent>(1);
+        let (shutdown, monitor, exit_watch) =
+            VmProcess::spawn_monitor(child, manager_event_tx);
 
         Ok(PreconfigVm {
             qmp,
@@ -1383,6 +1415,7 @@ impl VmBuilder {
                 shutdown: Some(shutdown),
                 monitor: Some(monitor),
                 exit_watch,
+                manager_event_rx: Some(manager_event_rx),
                 _tmpdir: tmpdir,
                 qmp_sock,
                 serial_log,
@@ -1467,6 +1500,19 @@ impl PreconfigVm {
     #[must_use]
     pub fn exit_watch(&self) -> watch::Receiver<Option<ExitStatus>> {
         self.process.exit_watch.clone()
+    }
+
+    /// Take the manager-synthesised lifecycle event stream.
+    ///
+    /// Returns `Some(..)` the first time it is called and `None` on
+    /// subsequent calls — the receiver is single-owner by design. The
+    /// stream yields one terminal [`ManagerEvent::ProcessExited`] when
+    /// the QEMU/qrab-init child exits (graceful or crash), then closes
+    /// cleanly so a `recv()` returns `None` instead of hanging (Bug
+    /// #7 / #29).
+    #[must_use]
+    pub fn take_manager_events(&mut self) -> Option<mpsc::Receiver<ManagerEvent>> {
+        self.process.manager_event_rx.take()
     }
 
     /// Execute a preconfig-safe QMP command.
@@ -1574,6 +1620,23 @@ impl Vm {
     #[must_use]
     pub fn exit_watch(&self) -> watch::Receiver<Option<ExitStatus>> {
         self.process.exit_watch.clone()
+    }
+
+    /// Take the manager-synthesised lifecycle event stream.
+    ///
+    /// Returns `Some(..)` the first time it is called and `None` on
+    /// subsequent calls — the receiver is single-owner by design. If
+    /// the receiver was already taken from the preceding [`PreconfigVm`]
+    /// before `start()` ran, that same handle is preserved here and
+    /// the second call from this `Vm` will return `None`.
+    ///
+    /// The stream yields one terminal [`ManagerEvent::ProcessExited`]
+    /// when the QEMU/qrab-init child exits (graceful or crash), then
+    /// closes cleanly so a `recv()` returns `None` instead of hanging
+    /// (Bug #7 / #29).
+    #[must_use]
+    pub fn take_manager_events(&mut self) -> Option<mpsc::Receiver<ManagerEvent>> {
+        self.process.manager_event_rx.take()
     }
 
     /// Execute any QMP command and return the typed response.
@@ -1964,5 +2027,38 @@ mod tests {
         assert_eq!(cfg.attest_server_url.as_deref(), Some("vsock://2:9999/attest"));
         // Default is still None.
         assert!(SevSnpConfig::default().attest_server_url.is_none());
+    }
+}
+
+// Test-only entry point for Bug #7 / #29 coverage. Lives outside the
+// `cfg(test)` mod so integration tests (run as separate binaries)
+// can exercise the reaper without needing a real QEMU child or
+// sharing a file-descriptor table with the `--lib` test binary — the
+// ns_helper flake on shared fd numbers otherwise blows up whenever
+// the in-crate subprocess churn happens to overlap. Hidden from
+// docs.
+#[doc(hidden)]
+pub mod test_support {
+    use super::{ManagerEvent, VmProcess};
+    use std::process::ExitStatus;
+    use tokio::process::Child;
+    use tokio::sync::{mpsc, oneshot, watch};
+    use tokio::task::JoinHandle;
+
+    /// Expose `VmProcess::spawn_monitor` to integration tests. Returns
+    /// the same `(shutdown, handle, exit_watch)` triple as the private
+    /// helper. Not intended for production use — the `ManagerEvent`
+    /// stream is normally taken off a `PreconfigVm`/`Vm` via
+    /// `take_manager_events()`.
+    #[must_use]
+    pub fn spawn_monitor_for_test(
+        child: Child,
+        manager_event_tx: mpsc::Sender<ManagerEvent>,
+    ) -> (
+        oneshot::Sender<()>,
+        JoinHandle<()>,
+        watch::Receiver<Option<ExitStatus>>,
+    ) {
+        VmProcess::spawn_monitor(child, manager_event_tx)
     }
 }
