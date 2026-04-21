@@ -310,8 +310,9 @@ fn run_vsock_demo(
     };
 
     // The AttestResponse frame's body is straight postcard — skip the
-    // outer 4-byte framing (already stripped by FramedStream) and
-    // just decode.
+    // outer 6-byte framing header (u32 len + u16 wire_version;
+    // B14-5), already stripped and version-checked by FramedStream,
+    // and just decode.
     let response: qrab_boot_proto::AttestResponse =
         match qrab_boot_proto::decode(&response_frame) {
             Ok(r) => r,

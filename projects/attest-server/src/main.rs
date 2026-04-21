@@ -35,7 +35,7 @@ use std::time::Instant;
 use anyhow::{Context, Result, bail};
 use attest_server::verify::{handle_post_report_bytes, reason};
 use attest_server::{STUB_UKI, Signer, handle_request_bytes};
-use qrab_boot_proto::{FRAME_PREFIX_LEN, MAX_FRAMED_PAYLOAD};
+use qrab_boot_proto::{FRAME_PREFIX_LEN, MAX_FRAMED_PAYLOAD, WIRE_VERSION};
 use vsock::{VsockAddr, VsockListener, VsockStream, VMADDR_CID_ANY};
 
 /// Default port the server listens on. Matches the bootloader's
@@ -402,13 +402,21 @@ const SESSION_IO_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3
 /// drip-feed case the per-syscall timer misses.
 const SESSION_TOTAL_DEADLINE: std::time::Duration = std::time::Duration::from_secs(60);
 
-/// Produce the length-prefixed wire frame (`u32 LE len || body`)
-/// that the bootloader's second `FramedStream::read_frame` call
-/// consumes. Built once at startup so the accept loop never
-/// reallocates the payload.
+/// Produce the length-prefixed wire frame (`u32 LE len || u16 LE
+/// WIRE_VERSION || body`) that the bootloader's second
+/// `FramedStream::read_frame` call consumes. Built once at startup so
+/// the accept loop never reallocates the payload.
+///
+/// B14-5: the UKI frame carries the same 6-byte outer header as every
+/// other framed payload even though the body is opaque public UKI
+/// bytes. Uniform framing keeps the bootloader's `FramedStream`
+/// reader version-checking every frame — a version-skewed peer fails
+/// on the pre-commit frame, so if execution reaches the UKI send path
+/// the version field is redundant but still emitted for consistency.
 fn build_uki_frame(uki_bytes: &[u8]) -> Vec<u8> {
     let mut out = Vec::with_capacity(FRAME_PREFIX_LEN + uki_bytes.len());
     out.extend_from_slice(&(uki_bytes.len() as u32).to_le_bytes());
+    out.extend_from_slice(&WIRE_VERSION.to_le_bytes());
     out.extend_from_slice(uki_bytes);
     out
 }
@@ -762,6 +770,11 @@ fn handle_stream_with_deadline<S: Read + Write>(
 /// per-syscall timeout on each individual call.
 fn read_framed<S: Read>(stream: &mut S, deadline: Instant) -> Result<Option<Vec<u8>>> {
     use std::io::ErrorKind;
+    // B14-5: the outer framing header is 6 bytes — `u32 LE body_len ||
+    // u16 LE wire_version`. We parse both fields and reject a version
+    // mismatch with a distinct log token so an operator can tell a
+    // version-skewed peer apart from a tampered / MITM'd payload
+    // (which used to surface as an opaque `BadSignature` downstream).
     let mut prefix = [0u8; FRAME_PREFIX_LEN];
     let mut read = 0;
     while read < FRAME_PREFIX_LEN {
@@ -769,7 +782,7 @@ fn read_framed<S: Read>(stream: &mut S, deadline: Instant) -> Result<Option<Vec<
             Ok(0) => {
                 // Connection closed. If we got zero bytes up to this
                 // point, it's a clean EOF — signal via `Ok(None)`.
-                // If we got 1..=3 bytes and then EOF, that's a
+                // If we got 1..=5 bytes and then EOF, that's a
                 // partial-frame error because the peer promised a
                 // length-prefix and truncated mid-way.
                 if read == 0 {
@@ -788,9 +801,22 @@ fn read_framed<S: Read>(stream: &mut S, deadline: Instant) -> Result<Option<Vec<
             );
         }
     }
-    let len = u32::from_le_bytes(prefix) as usize;
+    let len_bytes: [u8; 4] = prefix[..4].try_into().expect("slice length");
+    let ver_bytes: [u8; 2] = prefix[4..FRAME_PREFIX_LEN]
+        .try_into()
+        .expect("slice length");
+    let len = u32::from_le_bytes(len_bytes) as usize;
+    let peer_version = u16::from_le_bytes(ver_bytes);
     if len > MAX_FRAMED_PAYLOAD {
         bail!("declared frame length {len} exceeds MAX_FRAMED_PAYLOAD");
+    }
+    if peer_version != WIRE_VERSION {
+        // B14-5: distinct log token — operator can filter on this
+        // without false-positive against MITM / BadSignature rows.
+        bail!(
+            "QRAB_SNP_WIRE_VERSION_MISMATCH expected={WIRE_VERSION} got={peer_version} \
+             (peer compiled against a different qrab-boot-proto revision)"
+        );
     }
 
     // Body read loop is manual (not `read_exact`) so the session
@@ -1206,11 +1232,15 @@ mod r15_5_tests {
         let (client, server) = UnixStream::pair().expect("unix pair");
         let (join, start) = run_server_timed(server, 300);
 
-        // Declare a 4096-byte body; drip enough body bytes to keep
-        // the socket non-empty past the deadline.
+        // Declare a 4096-byte body with a MATCHING wire-version slot
+        // (B14-5 — prefix is now 6 bytes) so the prefix read succeeds
+        // and we actually exercise the body-read loop, not a fast
+        // bail on version mismatch. Then drip enough body bytes to
+        // keep the socket non-empty past the deadline.
         let declared_len: u32 = 4096;
-        let mut wire = Vec::with_capacity(4 + 60);
+        let mut wire = Vec::with_capacity(qrab_boot_proto::FRAME_PREFIX_LEN + 60);
         wire.extend_from_slice(&declared_len.to_le_bytes());
+        wire.extend_from_slice(&qrab_boot_proto::WIRE_VERSION.to_le_bytes());
         wire.extend(std::iter::repeat_n(0u8, 60));
         let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let drip = spawn_drip_writer(
