@@ -413,6 +413,53 @@ fn build_uki_frame(uki_bytes: &[u8]) -> Vec<u8> {
     out
 }
 
+/// Persist the `Fault::Replay` cache blob to `path` with 0o600
+/// permissions, atomically. R15-9: a plain `std::fs::write` creates
+/// the file under the process's umask (typically 0022 → 0644 on disk)
+/// which makes the persisted `(precommit, secret)` pair
+/// world-readable. A sibling user (or any local attacker who can
+/// read the cache path) would get the held-back secret body on the
+/// subsequent boot.
+///
+/// Strategy:
+///
+/// 1. Write the blob to `<path>.tmp` via `OpenOptions` with the mode
+///    bit set at create time — the file is never observable at 0644,
+///    unlike the `write()` + `set_permissions()` pattern which has a
+///    TOCTOU window where another process can open the still-0644
+///    file.
+/// 2. `sync_all` the tmp file so its bytes land on disk before we
+///    swing the pointer.
+/// 3. `rename` onto the final path. `rename(2)` is atomic on the
+///    same filesystem, so the load path at startup sees either the
+///    old valid blob, the new valid blob, or `ENOENT` — never a
+///    truncated mid-write blob.
+///
+/// If the process crashes between step 1 and step 3, a stray
+/// `<path>.tmp` is left behind. That is harmless — the load path
+/// only reads `path`, and the next successful persist overwrites
+/// the tmp file in place before renaming. A best-effort cleanup
+/// helps tidy operator logs but is not load-bearing.
+#[cfg(unix)]
+fn persist_replay_cache_0600(path: &str, blob: &[u8]) -> std::io::Result<()> {
+    use std::io::Write as _;
+    use std::os::unix::fs::OpenOptionsExt;
+
+    let tmp_path = format!("{path}.tmp");
+    {
+        let mut f = std::fs::OpenOptions::new()
+            .create(true)
+            .truncate(true)
+            .write(true)
+            .mode(0o600)
+            .open(&tmp_path)?;
+        f.write_all(blob)?;
+        f.sync_all()?;
+    }
+    // Atomic on same FS — the load path never sees a partial blob.
+    std::fs::rename(&tmp_path, path)
+}
+
 /// One request/reply cycle on the given stream: we read the framed
 /// `AttestRequest`, write the signed `AttestResponse` frame, then
 /// write the pre-built UKI frame. `uki_bytes` feeds the SHA-256 that
@@ -548,9 +595,9 @@ fn handle_stream_with_deadline<S: Read + Write>(
                         blob.extend_from_slice(&(frame.len() as u32).to_le_bytes());
                         blob.extend_from_slice(&frame);
                         blob.extend_from_slice(&sess.secret);
-                        match std::fs::write(path, &blob) {
+                        match persist_replay_cache_0600(path, &blob) {
                             Ok(()) => eprintln!(
-                                "attest-server: QRAB_ATTEST_REPLAY cache_persisted path={path} bytes_len={}",
+                                "attest-server: QRAB_ATTEST_REPLAY cache_persisted path={path} bytes_len={} mode=0600",
                                 blob.len()
                             ),
                             Err(e) => eprintln!(
@@ -1211,6 +1258,128 @@ mod r15_5_tests {
             "R15-5 REGRESSION (body phase): secret bytes on the \
              wire during drip-feed of frame body (read {} B).",
             collected.len(),
+        );
+    }
+}
+
+#[cfg(test)]
+#[cfg(unix)]
+mod r15_9_tests {
+    //! R15-9 regression harness.
+    //!
+    //! The `Fault::Replay` cache persists `(precommit, secret)` to
+    //! `QRAB_ATTEST_REPLAY_CACHE_PATH` so a multi-boot matrix run
+    //! replays identical wire bytes across attest-server process
+    //! restarts. Before the fix, the persist path used
+    //! `std::fs::write`, which creates the file under the process's
+    //! umask — typically 0o644 on disk, world-readable. A sibling
+    //! user on the host could read the file and recover the secret
+    //! body that the v3 protocol otherwise holds back until chain
+    //! walk passes. The fix opens the file with `mode(0o600)` at
+    //! create time (no TOCTOU window) and renames into place so the
+    //! load path never sees a truncated blob.
+    use super::*;
+    use std::os::unix::fs::PermissionsExt;
+
+    #[test]
+    fn persist_writes_0600_mode() {
+        let tmp = std::env::temp_dir().join(format!(
+            "qrab_r15_9_mode_{}_{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos(),
+        ));
+        let path = tmp.to_str().expect("utf8 tmp path").to_string();
+        let blob = b"QRAB_R15_9_FAKE_CACHE_BLOB_0123456789".to_vec();
+
+        persist_replay_cache_0600(&path, &blob).expect("persist ok");
+
+        let meta = std::fs::metadata(&path).expect("stat cache file");
+        let mode = meta.permissions().mode() & 0o777;
+        // Clean up before asserting so a failed run still tidies
+        // $TMPDIR.
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(format!("{path}.tmp"));
+
+        assert_eq!(
+            mode, 0o600,
+            "R15-9 REGRESSION: replay cache at {path} written with \
+             mode 0o{mode:o} — expected 0o600. Default umask would \
+             leave the persisted (precommit, secret) pair readable \
+             by any local user on the host."
+        );
+    }
+
+    #[test]
+    fn persist_overwrite_also_0600() {
+        // If the persist path is called more than once (e.g. the
+        // first boot loses its network and a later accept reprimes
+        // the cache), the file must still end up 0o600 — not
+        // whatever mode the pre-existing file happened to carry.
+        let tmp = std::env::temp_dir().join(format!(
+            "qrab_r15_9_overwrite_{}_{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos(),
+        ));
+        let path = tmp.to_str().expect("utf8 tmp path").to_string();
+
+        // Seed a world-readable file at `path` so we can prove the
+        // persist helper replaces it with a 0o600 file.
+        std::fs::write(&path, b"stale").expect("seed file");
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644))
+            .expect("set stale mode");
+
+        persist_replay_cache_0600(&path, b"fresh blob")
+            .expect("persist overwrites");
+
+        let meta = std::fs::metadata(&path).expect("stat cache file");
+        let mode = meta.permissions().mode() & 0o777;
+        let bytes = std::fs::read(&path).expect("read cache file");
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(format!("{path}.tmp"));
+
+        assert_eq!(
+            mode, 0o600,
+            "R15-9 REGRESSION (overwrite): cache file landed at 0o{mode:o} \
+             after overwriting a stale 0o644 file — must be 0o600."
+        );
+        assert_eq!(
+            bytes, b"fresh blob",
+            "overwrite produced stale contents",
+        );
+    }
+
+    #[test]
+    fn tmp_file_not_left_at_final_path_on_success() {
+        // With the write-then-rename scheme, `<path>` must hold the
+        // blob and `<path>.tmp` must not exist after a successful
+        // persist (the rename consumes it).
+        let tmp = std::env::temp_dir().join(format!(
+            "qrab_r15_9_notmp_{}_{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos(),
+        ));
+        let path = tmp.to_str().expect("utf8 tmp path").to_string();
+
+        persist_replay_cache_0600(&path, b"abc").expect("persist ok");
+
+        let tmp_path = format!("{path}.tmp");
+        let tmp_exists = std::fs::metadata(&tmp_path).is_ok();
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&tmp_path);
+
+        assert!(
+            !tmp_exists,
+            "R15-9: <path>.tmp sidecar still present after persist — \
+             rename(2) should have consumed it."
         );
     }
 }
