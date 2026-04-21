@@ -50,8 +50,14 @@ enum InternalDiskFormat {
 }
 
 /// Internal VM state. Not serializable — holds owned QEMU handles.
+///
+/// `Initializing` exists so `power_on` can release the `vm` mutex while
+/// doing slow IO (600 MiB SHA-256 hash of the Ubuntu cloud image,
+/// cloud-init seed generation, `qemu-img create`, QEMU spawn) without
+/// blocking read-only `phase()` / dashboard polls. R15-3.
 pub enum VmState {
     Off,
+    Initializing,
     Running(Vm),
     ShuttingDown,
 }
@@ -252,17 +258,48 @@ impl BmcState {
     /// QMP commands like blockdev-add and device_add are issued, then `cont`
     /// is sent. This intermediate state is never exposed to callers.
     ///
-    /// Note: holds the `vm` lock for the entire spawn + start (~hundreds of ms).
-    /// Concurrent `phase()` reads will block. Acceptable for single-user
-    /// BMC; if this becomes a multi-tenant concern, add a `VmState::Initializing`
-    /// placeholder that lets reads see a busy state without blocking.
+    /// Lock discipline (R15-3): the `vm` mutex is only held for the two
+    /// short critical sections that flip state (`Off → Initializing` and
+    /// `Initializing → Running`). All slow work in between — 600 MiB
+    /// SHA-256 of the Ubuntu cloud image, cloud-init seed gen, qemu-img
+    /// overlay creation, QEMU spawn, preconfig device attach, cont +
+    /// early-boot probe — runs with the lock released so concurrent
+    /// read-only paths (`phase`, dashboard polls, QMP queue status) see
+    /// `Initializing` without blocking for seconds.
     pub async fn power_on(self: &Arc<Self>) -> Result<()> {
-        let mut vm_guard = self.vm.lock().await;
-        if !matches!(*vm_guard, VmState::Off) {
-            bail!("VM is not off");
+        // Phase 1: flip Off → Initializing under the lock so concurrent
+        // power_on / power_off / shutdown bails cleanly. Hold briefly.
+        {
+            let mut vm_guard = self.vm.lock().await;
+            if !matches!(*vm_guard, VmState::Off) {
+                bail!("VM is not off");
+            }
+            *vm_guard = VmState::Initializing;
         }
 
+        // Phase 2: all the slow work runs with the vm lock released.
+        // `power_on_build` owns the Initializing → Running transition on
+        // success; on failure we flip back to Off here so state never
+        // stays stuck in Initializing after a returned error.
+        match self.power_on_build().await {
+            Ok(()) => Ok(()),
+            Err(e) => {
+                // Reacquire lock to clear Initializing. No other writer
+                // can race us: power_off / force_off / another power_on
+                // all refuse to transition out of Initializing.
+                *self.vm.lock().await = VmState::Off;
+                Err(e)
+            }
+        }
+    }
+
+    /// Build + start the VM with the `vm` lock RELEASED. Only reacquires it
+    /// for the final `Initializing → Running` flip. Split out of
+    /// [`Self::power_on`] so the error-path state reset is a single
+    /// top-level decision rather than repeated at every bail site. R15-3.
+    async fn power_on_build(self: &Arc<Self>) -> Result<()> {
         // Defensive: clear any stale state from a prior power cycle.
+        // These are independent locks, not the vm lock.
         self.event_history.lock().await.clear();
         *self.cached_static.lock().await = None;
         *self.attestation.lock().await = AttestationState::default();
@@ -300,6 +337,37 @@ impl BmcState {
             )
         })?;
 
+        // Resolve disks: SNP overlay + cloud-init seed. Always present —
+        // there is no "no disks" code path anymore.
+        //
+        // R15-3: the 600 MiB SHA-256 hash + qemu-img overlay create +
+        // cloud-init seed gen happen here, BEFORE the QEMU spawn and
+        // with the vm lock released. Prior to R15-3 the vm lock was held
+        // across these awaits and concurrent `phase()` / dashboard polls
+        // blocked for seconds waiting on the hash.
+        //
+        // The overlay is owned by an `OverlayGuard`: if power_on_build
+        // returns early (disk attach, start, cont, or boot-validation
+        // failure) the guard is dropped here and the temp file is
+        // removed. On the success path we hand ownership to
+        // `BmcState::overlay` and let the teardown path drop it at
+        // power_off/force_off time.
+        let base_image = ensure_ubuntu_snp_image().await?;
+        let overlay_guard = OverlayGuard::new(create_temp_overlay(&base_image).await?);
+        let seed = ensure_cloud_init_seed().await?;
+        let disks = vec![
+            InternalDisk {
+                file: overlay_guard.path().to_path_buf(),
+                format: InternalDiskFormat::Qcow2,
+                read_only: false,
+            },
+            InternalDisk {
+                file: seed,
+                format: InternalDiskFormat::Raw,
+                read_only: true,
+            },
+        ];
+
         let machine_config = MachineConfig::Uefi { memory };
         let mut builder = VmBuilder::new(Arch::X86_64, machine_config).serial().qga();
         if let Some(cpus) = config.cpus {
@@ -316,30 +384,6 @@ impl BmcState {
             .tpm(manager::vm::TpmConfig { state_dir: None });
 
         let mut paused_vm = builder.spawn().await?;
-
-        // Resolve disks: SNP overlay + cloud-init seed. Always present —
-        // there is no "no disks" code path anymore.
-        //
-        // The overlay is owned by an `OverlayGuard`: if power_on returns
-        // early (disk attach, start, cont, or boot-validation failure) the
-        // guard is dropped here and the temp file is removed. On the
-        // success path we hand ownership to `BmcState::overlay` and let
-        // the teardown path drop it at power_off/force_off time.
-        let base_image = ensure_ubuntu_snp_image().await?;
-        let overlay_guard = OverlayGuard::new(create_temp_overlay(&base_image).await?);
-        let seed = ensure_cloud_init_seed().await?;
-        let disks = vec![
-            InternalDisk {
-                file: overlay_guard.path().to_path_buf(),
-                format: InternalDiskFormat::Qcow2,
-                read_only: false,
-            },
-            InternalDisk {
-                file: seed,
-                format: InternalDiskFormat::Raw,
-                read_only: true,
-            },
-        ];
 
         // Add block backends via QMP (preconfig-safe since QEMU 7.1.0).
         if let Err(e) = attach_blockdevs(&paused_vm.qmp, &disks).await {
@@ -363,9 +407,7 @@ impl BmcState {
         let handle = tokio::spawn(async move {
             event_forwarder(real_rx, state_clone, history).await;
         });
-
-        let mut fwd = self.event_forwarder.lock().await;
-        *fwd = Some(handle);
+        *self.event_forwarder.lock().await = Some(handle);
 
         // Start: sends x-exit-preconfig.
         tracing::info!("calling PreconfigVm::start()");
@@ -375,15 +417,13 @@ impl BmcState {
                 vm
             }
             Err(e) => {
-                // paused_vm was consumed by start(). Tear down everything
-                // else and force the state to Off.
-                drop(fwd);
+                // paused_vm was consumed by start(). Tear down forwarder
+                // + caches. Outer `power_on` flips state back to Off.
                 self.stop_forwarder().await;
                 self.event_history.lock().await.clear();
                 *self.cached_static.lock().await = None;
-                *vm_guard = VmState::Off;
                 return Err(anyhow::anyhow!(
-                    "power_on: PreconfigVm::start failed; transitioned to Off: {e}"
+                    "power_on: PreconfigVm::start failed: {e}"
                 ));
             }
         };
@@ -393,11 +433,9 @@ impl BmcState {
         if let Err(e) = attach_devices(&vm.qmp, &disks).await {
             tracing::error!("device_add failed after x-exit-preconfig: {e}");
             vm.shutdown().await;
-            drop(fwd);
             self.stop_forwarder().await;
             self.event_history.lock().await.clear();
             *self.cached_static.lock().await = None;
-            *vm_guard = VmState::Off;
             return Err(anyhow::anyhow!("device_add failed: {e}"));
         }
 
@@ -406,11 +444,9 @@ impl BmcState {
         if let Err(e) = vm.cont().await {
             tracing::error!("cont after x-exit-preconfig failed: {e}");
             vm.shutdown().await;
-            drop(fwd);
             self.stop_forwarder().await;
             self.event_history.lock().await.clear();
             *self.cached_static.lock().await = None;
-            *vm_guard = VmState::Off;
             return Err(anyhow::anyhow!("cont failed: {e}"));
         }
 
@@ -429,11 +465,9 @@ impl BmcState {
                         status.status
                     );
                     vm.shutdown().await;
-                    drop(fwd);
                     self.stop_forwarder().await;
                     self.event_history.lock().await.clear();
                     *self.cached_static.lock().await = None;
-                    *vm_guard = VmState::Off;
                     return Err(anyhow::anyhow!(
                         "SEV-SNP guest failed to boot — not running after cont"
                     ));
@@ -449,16 +483,33 @@ impl BmcState {
                     "SEV-SNP: guest likely crashed during early boot — check dmesg for GHCB errors"
                 );
                 vm.shutdown().await;
-                drop(fwd);
                 self.stop_forwarder().await;
                 self.event_history.lock().await.clear();
                 *self.cached_static.lock().await = None;
-                *vm_guard = VmState::Off;
                 return Err(anyhow::anyhow!("SEV-SNP boot failed: {e}"));
             }
         }
 
-        *vm_guard = VmState::Running(vm);
+        // Final flip: Initializing → Running. We expect to see
+        // `Initializing` here — if not, something unrelated mutated
+        // state while the lock was released and we must not clobber it.
+        {
+            let mut vm_guard = self.vm.lock().await;
+            if !matches!(*vm_guard, VmState::Initializing) {
+                // Shouldn't happen: only power_on sets Initializing, and
+                // take_running_vm refuses to transition out of it. Tear
+                // down to avoid leaving a stray QEMU running on the host.
+                vm.shutdown().await;
+                self.stop_forwarder().await;
+                self.event_history.lock().await.clear();
+                *self.cached_static.lock().await = None;
+                return Err(anyhow::anyhow!(
+                    "power_on: vm state changed out of Initializing while \
+                     building; aborting to avoid stray QEMU"
+                ));
+            }
+            *vm_guard = VmState::Running(vm);
+        }
         // Hand overlay ownership to BmcState. Dropped (and file removed)
         // in `final_stop_and_teardown` when the VM transitions back to Off.
         *self.overlay.lock().await = Some(overlay_guard);
@@ -563,7 +614,7 @@ impl BmcState {
 
     /// Atomically take the running `Vm` out of state, transitioning to
     /// `ShuttingDown`. Returns `None` if state was `Off`; errors if state
-    /// was already `ShuttingDown`.
+    /// was already `ShuttingDown` or is mid-Initializing (R15-3).
     async fn take_running_vm(&self) -> Result<Option<Vm>> {
         let mut vm_guard = self.vm.lock().await;
         match std::mem::replace(&mut *vm_guard, VmState::ShuttingDown) {
@@ -571,6 +622,14 @@ impl BmcState {
             VmState::Off => {
                 *vm_guard = VmState::Off;
                 Ok(None)
+            }
+            VmState::Initializing => {
+                // Restore and refuse — we can't tear down a Vm that isn't
+                // built yet, and cancelling the in-flight power_on would
+                // strand a spawned QEMU + swtpm. Caller retries once the
+                // init task finishes (Running or Off).
+                *vm_guard = VmState::Initializing;
+                bail!("VM is still initializing; retry once it is running");
             }
             VmState::ShuttingDown => {
                 *vm_guard = VmState::ShuttingDown;
@@ -612,6 +671,7 @@ impl BmcState {
         let vm_guard = self.vm.lock().await;
         match &*vm_guard {
             VmState::Off => VmPhase::Off,
+            VmState::Initializing => VmPhase::Initializing,
             VmState::Running(vm) => match vm.execute(&qapi::commands::QueryStatus {}).await {
                 Ok(status) if !status.running => VmPhase::Paused,
                 _ => VmPhase::Running,
@@ -1346,5 +1406,89 @@ mod tests {
             got,
             "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
         );
+    }
+
+    /// R15-3 regression: `phase()` must not block while a concurrent task
+    /// holds the VM in `Initializing`. The pre-R15-3 `power_on` held the
+    /// `vm` lock across ~600 MiB of SHA-256, gating every dashboard poll.
+    /// After the fix the lock is released once state is flipped to
+    /// `Initializing`, so `phase()` returns `Initializing` promptly.
+    ///
+    /// The "slow work" is simulated with `tokio::time::sleep` because
+    /// constructing a real Vm requires QEMU + SNP hardware. The lock
+    /// discipline exercised here is exactly the shape of the production
+    /// `power_on` / `power_on_build` split.
+    #[tokio::test]
+    async fn phase_unblocked_while_state_is_initializing() {
+        use std::sync::Arc;
+        use tokio::time::{timeout, Duration, Instant};
+
+        let state = BmcState::new();
+        let worker_state = Arc::clone(&state);
+
+        // Worker: flip Off → Initializing, release the lock, do slow
+        // work, flip Initializing → Off. The real `power_on` does the
+        // same dance but with VM build work instead of a sleep.
+        let slow_work = Duration::from_millis(500);
+        let worker = tokio::spawn(async move {
+            {
+                let mut guard = worker_state.vm.lock().await;
+                assert!(matches!(*guard, VmState::Off));
+                *guard = VmState::Initializing;
+            }
+            // Simulate the slow SHA-256 + qemu-img + spawn work.
+            tokio::time::sleep(slow_work).await;
+            *worker_state.vm.lock().await = VmState::Off;
+        });
+
+        // Yield so the worker can claim the lock + flip to Initializing.
+        tokio::task::yield_now().await;
+        // Busy-spin a few ticks until we observe Initializing — the
+        // scheduler may not have run the worker yet.
+        let observed = timeout(Duration::from_millis(100), async {
+            loop {
+                if matches!(*state.vm.lock().await, VmState::Initializing) {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await;
+        assert!(observed.is_ok(), "worker should have entered Initializing");
+
+        // The critical assertion: phase() returns while the worker is
+        // still sleeping. Budget is 10x smaller than the worker's sleep.
+        let phase_budget = Duration::from_millis(50);
+        let start = Instant::now();
+        let p = timeout(phase_budget, state.phase())
+            .await
+            .expect("phase() blocked past budget; vm lock is being held across slow work");
+        assert_eq!(p, VmPhase::Initializing);
+        assert!(
+            start.elapsed() < phase_budget,
+            "phase() took {:?}, longer than {:?}",
+            start.elapsed(),
+            phase_budget
+        );
+
+        worker.await.unwrap();
+    }
+
+    /// R15-3: `take_running_vm` must refuse to tear down a VM that is
+    /// still initializing. Otherwise a `power_off` invoked mid-build
+    /// would flip state to `ShuttingDown` while the in-flight `power_on`
+    /// task is still spawning QEMU + swtpm — stranding both processes.
+    #[tokio::test]
+    async fn take_running_vm_refuses_while_initializing() {
+        let state = BmcState::new();
+        *state.vm.lock().await = VmState::Initializing;
+        // `Vm` is not Debug so can't use `expect_err`; match manually.
+        let msg = match state.take_running_vm().await {
+            Ok(_) => panic!("take_running_vm must reject Initializing"),
+            Err(e) => format!("{e}"),
+        };
+        assert!(msg.contains("initializing"), "error was {msg}");
+        // Lock must still hold Initializing — no partial transition.
+        assert!(matches!(*state.vm.lock().await, VmState::Initializing));
     }
 }

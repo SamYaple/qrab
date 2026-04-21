@@ -6,6 +6,9 @@ use bmc::types::{VmPhase, VmStatusResponse};
 pub fn StatusPanel(status: VmStatusResponse) -> Element {
     let phase_class = match &status.phase {
         VmPhase::Off => "phase-off",
+        // Share the "shutting-down" spinner class — both are transient
+        // busy states with no user-actionable controls. R15-3.
+        VmPhase::Initializing => "phase-shutting-down",
         VmPhase::Running => "phase-running",
         VmPhase::Paused => "phase-paused",
         VmPhase::ShuttingDown => "phase-shutting-down",
