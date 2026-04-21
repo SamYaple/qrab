@@ -65,13 +65,12 @@ scenario_env() {
         5)    echo "QRAB_ATTEST_FAULT=bad_sig" ;;
         6)    echo "QRAB_SMOKE_SKIP_ATTEST=1" ;;
         8)    echo "QRAB_SMOKE_NO_VSOCK=1" ;;
-        # R16-H14: SNP enforcement is now the default. Scenario 9
-        # sets the opt-out cfg via `QRAB_ALLOW_NON_SNP=1` — the only
-        # supported escape from fail-closed. Note: under the new
-        # default this cfg compiles the SNP check OUT, so
-        # `QRAB_FAIL_NOSNP` is NOT emitted; scenario 9's expected
-        # token wiring below is stale and needs a follow-up reshape.
-        9)    echo "QRAB_ALLOW_NON_SNP=1" ;;
+        # Scenario 9 proves the R16-H14 default-on SNP gate: smoke's
+        # blanket `QRAB_ALLOW_NON_SNP=1` (see smoke-vsock-qemu.sh) is
+        # explicitly cancelled here so the check stays compiled in and
+        # the TCG guest halts at `QRAB_FAIL_NOSNP`. This is the ONLY
+        # scenario that must not inherit the harness's TCG opt-out.
+        9)    echo "QRAB_ALLOW_NON_SNP=0" ;;
         # Scenario 10 runs TWO back-to-back smokes; the replay
         # cache path is shared between them so attest-server's
         # second invocation serves identical bytes. Handled in the
