@@ -56,6 +56,14 @@ optional = true
 version = "0.22"
 optional = true
 
+# R15-2: `ensure_cloud_init_seed` builds the FAT image inside an
+# unguessable 0700 leaf under `/tmp` via `TempDir::new_in`, closing
+# the symlink-race window on the old predictable
+# `$TMPDIR/qrab-cloud-init-build/` path.
+[dependencies.tempfile]
+workspace = true
+optional = true
+
 [dependencies.async-stream]
 version = "0.3"
 optional = true
@@ -96,6 +104,7 @@ server = [
     "dep:qrencode",
     "dep:base64",
     "dep:sha2",
+    "dep:tempfile",
 ]
 web = ["dioxus/web"]
 
