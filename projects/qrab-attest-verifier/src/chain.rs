@@ -1499,4 +1499,269 @@ mod tests {
             other => panic!("expected UnsupportedAlgorithm({OID_FAKE}), got {other:?}"),
         }
     }
+
+    // ------- R13 round 16: functional E2E verify_chain -------
+    //
+    // The fixtures above exercise each chain-walk stage in
+    // isolation with a chain whose VCEK signature can't be
+    // reproduced. These tests retain the VCEK private key, sign a
+    // complete `SnpAttestationReport`, and drive `verify_chain`
+    // end-to-end — every gate runs against a real AMD-shaped
+    // report whose ECDSA-P384 signature actually verifies.
+
+    struct FullChain {
+        ark_der: Vec<u8>,
+        ask_der: Vec<u8>,
+        vcek_der: Vec<u8>,
+        vcek_priv_pkcs8: Vec<u8>,
+        chip_id: [u8; 64],
+        reported_tcb: u64,
+    }
+
+    fn build_full_chain(
+        bl: u8, tee: u8, snp: u8, ucode: u8, chip_id: [u8; 64],
+    ) -> FullChain {
+        use rcgen::{
+            BasicConstraints, CertificateParams, CustomExtension,
+            DistinguishedName, DnType, IsCa, Issuer, KeyPair,
+            PKCS_ECDSA_P384_SHA384, PKCS_RSA_SHA384,
+        };
+        fn dn(cn: &str) -> DistinguishedName {
+            let mut d = DistinguishedName::new();
+            d.push(DnType::CommonName, cn);
+            d
+        }
+        fn mk_ca(cn: &str) -> CertificateParams {
+            let mut p = CertificateParams::new(Vec::<String>::new()).unwrap();
+            p.distinguished_name = dn(cn);
+            p.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
+            p
+        }
+
+        let ark_kp = KeyPair::generate_for(&PKCS_RSA_SHA384).unwrap();
+        let ark = mk_ca("qrab-r16 ARK").self_signed(&ark_kp).unwrap();
+        let ark_der = ark.der().to_vec();
+        let ark_issuer: Issuer<'static, _> =
+            Issuer::new(mk_ca("qrab-r16 ARK"), ark_kp);
+
+        let ask_kp = KeyPair::generate_for(&PKCS_RSA_SHA384).unwrap();
+        let ask = mk_ca("qrab-r16 ASK")
+            .signed_by(&ask_kp, &ark_issuer)
+            .unwrap();
+        let ask_der = ask.der().to_vec();
+        let ask_issuer: Issuer<'static, _> =
+            Issuer::new(mk_ca("qrab-r16 ASK"), ask_kp);
+
+        let amd_ext = |oid: &[u64], content: Vec<u8>| {
+            CustomExtension::from_oid_content(oid, content)
+        };
+        let ext_bl = amd_ext(&[1, 3, 6, 1, 4, 1, 3704, 1, 3, 1], bl.to_der().unwrap());
+        let ext_tee = amd_ext(&[1, 3, 6, 1, 4, 1, 3704, 1, 3, 2], tee.to_der().unwrap());
+        let ext_snp = amd_ext(&[1, 3, 6, 1, 4, 1, 3704, 1, 3, 3], snp.to_der().unwrap());
+        let ext_ucode = amd_ext(&[1, 3, 6, 1, 4, 1, 3704, 1, 3, 8], ucode.to_der().unwrap());
+        let ext_hwid = amd_ext(
+            &[1, 3, 6, 1, 4, 1, 3704, 1, 4],
+            der::asn1::OctetString::new(chip_id.to_vec())
+                .unwrap()
+                .to_der()
+                .unwrap(),
+        );
+
+        let vcek_kp = KeyPair::generate_for(&PKCS_ECDSA_P384_SHA384).unwrap();
+        let vcek_priv_pkcs8 = vcek_kp.serialize_der();
+        let mut vcek_params =
+            CertificateParams::new(Vec::<String>::new()).unwrap();
+        vcek_params.distinguished_name = dn("qrab-r16 VCEK");
+        for e in [ext_bl, ext_tee, ext_snp, ext_ucode, ext_hwid] {
+            vcek_params.custom_extensions.push(e);
+        }
+        let vcek = vcek_params.signed_by(&vcek_kp, &ask_issuer).unwrap();
+        let vcek_der = vcek.der().to_vec();
+
+        let mut b = [0u8; 8];
+        b[0] = bl; b[1] = tee; b[6] = snp; b[7] = ucode;
+        let reported_tcb = u64::from_le_bytes(b);
+
+        FullChain {
+            ark_der, ask_der, vcek_der,
+            vcek_priv_pkcs8, chip_id, reported_tcb,
+        }
+    }
+
+    fn sign_attestation_report(
+        chain: &FullChain,
+        measurement: [u8; 48],
+        report_data: [u8; 64],
+    ) -> qrab_snp_proto::SnpAttestationReport {
+        use p384::ecdsa::{SigningKey, Signature};
+        use p384::ecdsa::signature::hazmat::PrehashSigner;
+        use p384::pkcs8::DecodePrivateKey;
+        use sha2::{Digest, Sha384};
+        use zerocopy::{FromBytes, IntoBytes};
+
+        type Report = qrab_snp_proto::SnpAttestationReport;
+        let mut buf = [0u8; core::mem::size_of::<Report>()];
+        {
+            let mut report = Report::read_from_bytes(&buf).unwrap();
+            report.signature_algo = qrab_snp_proto::verify::SIG_ALGO_ECDSA_P384_SHA384;
+            report.measurement = measurement;
+            report.chip_id = chain.chip_id;
+            report.reported_tcb = chain.reported_tcb;
+            report.report_data = report_data;
+            buf.copy_from_slice(<Report as IntoBytes>::as_bytes(&report));
+        }
+        let signing_key = SigningKey::from_pkcs8_der(&chain.vcek_priv_pkcs8).unwrap();
+        let signed_prefix = &buf[..qrab_snp_proto::verify::SIGNED_PREFIX_LEN];
+        let digest = Sha384::digest(signed_prefix);
+        let sig: Signature = signing_key.sign_prehash(&digest).unwrap();
+        let raw = sig.to_bytes();
+        let mut sig_block = [0u8; 512];
+        for i in 0..48 {
+            sig_block[i] = raw[47 - i];
+            sig_block[72 + i] = raw[95 - i];
+        }
+        let sig_off = core::mem::offset_of!(Report, signature);
+        buf[sig_off..sig_off + 512].copy_from_slice(&sig_block);
+        Report::read_from_bytes(&buf).unwrap()
+    }
+
+    #[test]
+    fn verify_chain_end_to_end_happy_path() {
+        let chain = build_full_chain(1, 2, 3, 4, [0x5Au8; 64]);
+        let report = sign_attestation_report(&chain, [0xAAu8; 48], [0u8; 64]);
+        let verified = verify_chain(
+            &chain.ark_der, &chain.ask_der, &chain.vcek_der, &report, None,
+        ).expect("verify_chain must succeed end-to-end");
+        assert_eq!({ verified.report.measurement }, [0xAAu8; 48]);
+        assert_eq!(verified.signer, qrab_snp_proto::verify::ReportSigner::Vcek);
+        assert_eq!(verified.vcek_sec1.len(), 97);
+    }
+
+    #[test]
+    fn verify_chain_end_to_end_measurement_enforced_match() {
+        let chain = build_full_chain(0, 0, 0, 0, [0u8; 64]);
+        let measurement = [0x33u8; 48];
+        let report = sign_attestation_report(&chain, measurement, [0u8; 64]);
+        let verified = verify_chain(
+            &chain.ark_der, &chain.ask_der, &chain.vcek_der, &report, Some(&measurement),
+        ).expect("matching measurement must pass");
+        assert_eq!({ verified.report.measurement }, measurement);
+    }
+
+    #[test]
+    fn verify_chain_end_to_end_measurement_mismatch() {
+        let chain = build_full_chain(0, 0, 0, 0, [0u8; 64]);
+        let report = sign_attestation_report(&chain, [0xAAu8; 48], [0u8; 64]);
+        let err = verify_chain(
+            &chain.ark_der, &chain.ask_der, &chain.vcek_der, &report, Some(&[0xBBu8; 48]),
+        ).unwrap_err();
+        assert!(
+            matches!(err, ChainError::MeasurementMismatch),
+            "expected MeasurementMismatch, got {err:?}"
+        );
+    }
+
+    #[test]
+    fn verify_chain_end_to_end_report_data_binding() {
+        let chain = build_full_chain(1, 1, 1, 1, [0u8; 64]);
+        let report_data = [0x99u8; 64];
+        let mut report = sign_attestation_report(&chain, [0u8; 48], report_data);
+        assert!(verify_chain(
+            &chain.ark_der, &chain.ask_der, &chain.vcek_der, &report, None,
+        ).is_ok());
+
+        use zerocopy::IntoBytes;
+        let rd_off = core::mem::offset_of!(qrab_snp_proto::SnpAttestationReport, report_data);
+        let bytes = <qrab_snp_proto::SnpAttestationReport as IntoBytes>::as_mut_bytes(&mut report);
+        bytes[rd_off] ^= 0x01;
+        let err = verify_chain(
+            &chain.ark_der, &chain.ask_der, &chain.vcek_der, &report, None,
+        ).unwrap_err();
+        assert!(
+            matches!(err, ChainError::ReportSig(_)),
+            "expected ReportSig after report_data flip, got {err:?}"
+        );
+    }
+
+    #[test]
+    fn verify_chain_at_rejects_report_past_cert_expiry() {
+        use std::time::{Duration, UNIX_EPOCH};
+        let chain = build_full_chain(0, 0, 0, 0, [0u8; 64]);
+        let report = sign_attestation_report(&chain, [0u8; 48], [0u8; 64]);
+        let far_future = UNIX_EPOCH + Duration::from_secs(100_000_000_000);
+        let err = verify_chain_at(
+            &chain.ark_der, &chain.ask_der, &chain.vcek_der, &report,
+            None, far_future, Duration::from_secs(60),
+        ).unwrap_err();
+        assert!(
+            matches!(err, ChainError::CertExpired { which: "ARK" }),
+            "expected CertExpired(ARK), got {err:?}"
+        );
+    }
+
+    #[test]
+    fn verify_chain_at_accepts_report_inside_validity_window() {
+        use std::time::{Duration, SystemTime};
+        let chain = build_full_chain(0, 0, 0, 0, [0u8; 64]);
+        let report = sign_attestation_report(&chain, [0u8; 48], [0u8; 64]);
+        let now = SystemTime::now();
+        verify_chain_at(
+            &chain.ark_der, &chain.ask_der, &chain.vcek_der, &report,
+            None, now, Duration::from_secs(60),
+        ).expect("inside validity window must pass");
+    }
+
+    #[test]
+    fn verify_chain_multiple_independent_chains_do_not_cross_verify() {
+        let chain_a = build_full_chain(1, 1, 1, 1, [0u8; 64]);
+        let chain_b = build_full_chain(1, 1, 1, 1, [0u8; 64]);
+        let report = sign_attestation_report(&chain_a, [0u8; 48], [0u8; 64]);
+        let err = verify_chain(
+            &chain_b.ark_der, &chain_b.ask_der, &chain_b.vcek_der, &report, None,
+        ).unwrap_err();
+        assert!(
+            matches!(err, ChainError::ReportSig(_)),
+            "expected ReportSig, got {err:?}"
+        );
+    }
+
+    #[test]
+    fn verify_chain_tcb_mismatch_fires_before_report_sig() {
+        use zerocopy::IntoBytes;
+        let chain = build_full_chain(1, 2, 3, 4, [0u8; 64]);
+        let mut report = sign_attestation_report(&chain, [0u8; 48], [0u8; 64]);
+        let bytes = <qrab_snp_proto::SnpAttestationReport as IntoBytes>::as_mut_bytes(&mut report);
+        let tcb_off = core::mem::offset_of!(qrab_snp_proto::SnpAttestationReport, reported_tcb);
+        bytes[tcb_off] = 9;
+        bytes[tcb_off + 1] = 9;
+        bytes[tcb_off + 6] = 9;
+        bytes[tcb_off + 7] = 9;
+        let err = verify_chain(
+            &chain.ark_der, &chain.ask_der, &chain.vcek_der, &report, None,
+        ).unwrap_err();
+        assert!(
+            matches!(
+                err,
+                ChainError::TcbMismatch { component: "blSPL", cert_value: 1, report_value: 9 }
+            ),
+            "expected TcbMismatch(blSPL 1 vs 9), got {err:?}"
+        );
+    }
+
+    #[test]
+    fn verify_chain_end_to_end_sweeps_multiple_measurements() {
+        // Sign and verify across a handful of distinct measurements
+        // per chain; exercises the PSP signature verifier on varied
+        // input without re-building the cert chain each iteration.
+        let chain = build_full_chain(0, 0, 0, 0, [0u8; 64]);
+        for seed in 0u8..8 {
+            let measurement = [seed ^ 0x77; 48];
+            let report = sign_attestation_report(&chain, measurement, [seed; 64]);
+            let verified = verify_chain(
+                &chain.ark_der, &chain.ask_der, &chain.vcek_der, &report,
+                Some(&measurement),
+            ).expect("seed {seed} happy path");
+            assert_eq!({ verified.report.measurement }, measurement);
+        }
+    }
 }

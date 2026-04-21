@@ -46,6 +46,11 @@ rcgen = { version = "0.14", default-features = false, features = [
     "crypto", "pem", "aws_lc_rs",
 ] }
 hex = "0.4"
+# Round-16 E2E tests need `FromBytes` / `IntoBytes` on the
+# `SnpAttestationReport` struct so they can construct + sign a
+# complete report. Matches the version qrab-snp-proto uses so the
+# build graph stays cached.
+zerocopy = { version = "0.8", features = ["derive"] }
 # Randomised PSS signing in the F3 hand-DER cert fixtures. `OsRng`
 # lives behind the `getrandom` feature of `rand_core 0.6` (the
 # version `rsa 0.9` pins transitively). Dev-only.
