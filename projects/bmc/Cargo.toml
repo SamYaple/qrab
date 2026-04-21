@@ -43,6 +43,15 @@ optional = true
 version = "0.14"
 optional = true
 
+# R14-A7: used by `ensure_ubuntu_snp_image` to verify the downloaded
+# Ubuntu cloud image against a pinned SHA-256. Default-disabled
+# crate defaults keep the dep graph lean for non-server (WASM web
+# client) builds; the `server` feature opts us in transitively.
+[dependencies.sha2]
+version = "0.10"
+default-features = false
+optional = true
+
 [dependencies.base64]
 version = "0.22"
 optional = true
@@ -86,6 +95,7 @@ server = [
     "dep:which",
     "dep:qrencode",
     "dep:base64",
+    "dep:sha2",
 ]
 web = ["dioxus/web"]
 
