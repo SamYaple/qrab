@@ -697,6 +697,113 @@ mod tests {
         assert_ne!(a, b);
     }
 
+    // ------- R13 round 16: report_data field-isolation fan-out -------
+
+    #[test]
+    fn report_data_changes_with_server_nonce() {
+        let nonce = [0x77u8; 32];
+        let a = sample_response();
+        let mut b = sample_response();
+        b.server_nonce[0] ^= 0x80;
+        assert_ne!(report_data(&nonce, &a), report_data(&nonce, &b));
+    }
+
+    #[test]
+    fn report_data_changes_with_uki_sha256() {
+        let nonce = [0x77u8; 32];
+        let a = sample_response();
+        let mut b = sample_response();
+        b.uki_sha256[0] ^= 0x80;
+        assert_ne!(report_data(&nonce, &a), report_data(&nonce, &b));
+    }
+
+    #[test]
+    fn report_data_changes_with_secret_sha256() {
+        let nonce = [0x77u8; 32];
+        let a = sample_response();
+        let mut b = sample_response();
+        b.secret_sha256[0] ^= 0x80;
+        assert_ne!(report_data(&nonce, &a), report_data(&nonce, &b));
+    }
+
+    #[test]
+    fn report_data_every_nonce_bit_changes_output() {
+        // Bit-flip each byte of client_nonce; each flip must move
+        // the digest — guards against a partial domain-separation
+        // regression that would let a crafted nonce collide.
+        let base_nonce = [0u8; 32];
+        let r = sample_response();
+        let baseline = report_data(&base_nonce, &r);
+        for byte in 0..32 {
+            let mut tweaked = base_nonce;
+            tweaked[byte] ^= 0x01;
+            let got = report_data(&tweaked, &r);
+            assert_ne!(got, baseline, "byte {byte} flip did not move digest");
+        }
+    }
+
+    #[test]
+    fn report_data_ignores_irrelevant_fields() {
+        // `uki_url`, `secret`, and `sig` are NOT covered by
+        // `report_data` — the PSP only binds to the hashes. Flipping
+        // any of those bytes must leave the digest unchanged, so a
+        // mismatched transport-level byte doesn't invalidate an
+        // otherwise-correct report.
+        let nonce = [0x11u8; 32];
+        let a = sample_response();
+        let base = report_data(&nonce, &a);
+
+        let mut b = sample_response();
+        b.uki_url.push('X');
+        assert_eq!(report_data(&nonce, &b), base, "uki_url leaked into digest");
+
+        let mut c = sample_response();
+        c.secret = b"different-body".to_vec();
+        assert_eq!(report_data(&nonce, &c), base, "secret body leaked");
+
+        let mut d = sample_response();
+        d.sig[0] ^= 0xFF;
+        assert_eq!(report_data(&nonce, &d), base, "sig bytes leaked");
+    }
+
+    #[test]
+    fn report_data_sha256_prefix_is_32_bytes_then_zeros() {
+        // Explicit shape: bytes 0..32 = SHA-256 digest, bytes 32..64
+        // = 0. The tail must be zeros regardless of input so the
+        // guest-side report_data comparison is deterministic.
+        use sha2::{Digest as _, Sha256};
+        let nonce = [0xAAu8; 32];
+        let r = sample_response();
+        let got = report_data(&nonce, &r);
+        let expected_prefix = {
+            let mut h = Sha256::new();
+            h.update(PROTO_TAG);
+            h.update(nonce);
+            h.update(r.server_nonce);
+            h.update(r.uki_sha256);
+            h.update(r.secret_sha256);
+            let d = h.finalize();
+            let mut out = [0u8; 32];
+            out.copy_from_slice(&d);
+            out
+        };
+        assert_eq!(&got[..32], &expected_prefix);
+        assert!(got[32..].iter().all(|&b| b == 0));
+    }
+
+    #[test]
+    fn report_data_different_nonce_per_client_diversifies() {
+        // Simulate N parallel guests each with a random client_nonce;
+        // no two guests' `report_data` values should collide.
+        let r = sample_response();
+        let mut seen = alloc::collections::BTreeSet::new();
+        for i in 0u8..32 {
+            let nonce: [u8; 32] = core::array::from_fn(|k| (i as u8).wrapping_mul(13 ^ k as u8));
+            let rd = report_data(&nonce, &r);
+            assert!(seen.insert(rd), "collision at tweak {i}");
+        }
+    }
+
     fn sample_post_report() -> AttestPostReport {
         new_post_report(
             vec![0xABu8; SNP_ATTESTATION_REPORT_LEN],

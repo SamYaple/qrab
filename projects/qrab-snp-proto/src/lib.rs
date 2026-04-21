@@ -770,4 +770,136 @@ mod tests {
             &mut [u8],
         ) -> Result<usize, EnvelopeError> = decrypt_guest_msg;
     }
+
+    // ------- R13 round 16: MsgReportReq/Resp functional tests -------
+
+    #[test]
+    fn msg_report_req_preserves_report_data_byte_for_byte() {
+        // Every byte of report_data must survive intact through
+        // `MsgReportReq::new`. Pattern-matched fill ensures we
+        // catch any accidental zero-fill or truncation.
+        let mut rd = [0u8; 64];
+        for i in 0..64 {
+            rd[i] = (i as u8).wrapping_mul(7) ^ 0x5A;
+        }
+        let req = MsgReportReq::new(rd, 0);
+        assert_eq!(req.report_data, rd);
+        assert!(req.reserved.iter().all(|&b| b == 0));
+    }
+
+    #[test]
+    fn msg_report_req_vmpl_fan_out() {
+        // All 4 VMPL values (0-3) must round-trip through
+        // `MsgReportReq::new` unchanged. VMPL3 is the guest's
+        // least-privilege level; VMPL0 is reserved for SVSM.
+        for vmpl in 0u32..=3 {
+            let req = MsgReportReq::new([0; 64], vmpl);
+            assert_eq!({ req.vmpl }, vmpl, "vmpl {vmpl}");
+        }
+    }
+
+    #[test]
+    fn msg_report_req_envelope_round_trip_each_vmpl() {
+        // Functional: encrypt → decrypt a `MsgReportReq` for each
+        // VMPL, proving the whole plaintext survives envelope
+        // encryption with the value intact.
+        use zerocopy::IntoBytes;
+        const KEY: [u8; VMPCK_LEN] = [0x7F; VMPCK_LEN];
+        for vmpl in 0u32..=3 {
+            let req = MsgReportReq::new([vmpl as u8; 64], vmpl);
+            let plaintext = <MsgReportReq as IntoBytes>::as_bytes(&req);
+            let mut env =
+                SnpGuestMsg::read_from_bytes(&[0u8; SNP_GUEST_MSG_SIZE]).unwrap();
+            encrypt_guest_msg(
+                &mut env, &KEY, vmpl as u64, SnpMsgType::ReportReq, 0, plaintext,
+            ).unwrap();
+            let mut decoded = [0u8; MSG_REPORT_REQ_SIZE];
+            let n = decrypt_guest_msg(
+                &env, &KEY, vmpl as u64, SnpMsgType::ReportReq, 0, &mut decoded,
+            ).unwrap();
+            assert_eq!(n, MSG_REPORT_REQ_SIZE);
+            assert_eq!(&decoded[..], plaintext, "vmpl {vmpl} round-trip differed");
+            let back = MsgReportReq::read_from_bytes(&decoded).unwrap();
+            assert_eq!(back.report_data, [vmpl as u8; 64]);
+            assert_eq!({ back.vmpl }, vmpl);
+        }
+    }
+
+    #[test]
+    fn msg_report_resp_round_trip_preserves_embedded_report() {
+        // Functional: build a `MsgReportResp` with a distinctive
+        // marker in `status`, encrypt, decrypt, and confirm the
+        // embedded SnpAttestationReport survives byte-for-byte.
+        use zerocopy::IntoBytes;
+        const KEY: [u8; VMPCK_LEN] = [0x3C; VMPCK_LEN];
+        let mut resp = MsgReportResp::read_from_bytes(
+            &[0u8; MSG_REPORT_RESP_SIZE],
+        ).unwrap();
+        resp.status = 0x0000_0042;
+        resp.report_size = SNP_ATTESTATION_REPORT_SIZE as u32;
+        // Mark the embedded report's measurement so decrypt round
+        // round-trip can assert on it.
+        resp.report.measurement = [0xABu8; 48];
+
+        let plaintext = <MsgReportResp as IntoBytes>::as_bytes(&resp);
+        let mut env =
+            SnpGuestMsg::read_from_bytes(&[0u8; SNP_GUEST_MSG_SIZE]).unwrap();
+        encrypt_guest_msg(
+            &mut env, &KEY, 99, SnpMsgType::ReportResp, 0, plaintext,
+        ).unwrap();
+        let mut decoded = [0u8; MSG_REPORT_RESP_SIZE];
+        let n = decrypt_guest_msg(
+            &env, &KEY, 99, SnpMsgType::ReportResp, 0, &mut decoded,
+        ).unwrap();
+        assert_eq!(n, MSG_REPORT_RESP_SIZE);
+        let back = MsgReportResp::read_from_bytes(&decoded).unwrap();
+        assert_eq!({ back.status }, 0x0000_0042);
+        assert_eq!({ back.report_size }, SNP_ATTESTATION_REPORT_SIZE as u32);
+        assert_eq!({ back.report.measurement }, [0xABu8; 48]);
+    }
+
+    #[test]
+    fn msg_report_req_fan_out_distinct_report_data_distinct_ciphertext() {
+        // Feed 4 distinct report_data values through envelope with
+        // the same key + seqno + slot. Ciphertexts must all differ
+        // (AES-GCM covers the plaintext, so changing one byte in
+        // the input changes the entire output).
+        use zerocopy::IntoBytes;
+        const KEY: [u8; VMPCK_LEN] = [0x88; VMPCK_LEN];
+        let mut ciphertexts = std::collections::BTreeSet::new();
+        for marker in 0u8..4 {
+            let req = MsgReportReq::new([marker; 64], 0);
+            let plaintext = <MsgReportReq as IntoBytes>::as_bytes(&req);
+            // Different seqno per request so IVs differ too — this
+            // is the monotonic-counter discipline the caller is
+            // required to follow.
+            let mut env =
+                SnpGuestMsg::read_from_bytes(&[0u8; SNP_GUEST_MSG_SIZE]).unwrap();
+            encrypt_guest_msg(
+                &mut env, &KEY, 100 + marker as u64, SnpMsgType::ReportReq, 0, plaintext,
+            ).unwrap();
+            let ct: std::vec::Vec<u8> = env.payload[..plaintext.len()].to_vec();
+            assert!(ciphertexts.insert(ct), "collision at marker {marker}");
+        }
+    }
+
+    #[test]
+    fn msg_report_req_size_and_layout_invariant() {
+        // Pinning the on-wire layout so a future field reorder
+        // breaks the round-trip test rather than silently producing
+        // a cert the PSP will reject.
+        assert_eq!(core::mem::size_of::<MsgReportReq>(), 96);
+        assert_eq!(core::mem::offset_of!(MsgReportReq, report_data), 0);
+        assert_eq!(core::mem::offset_of!(MsgReportReq, vmpl), 64);
+        assert_eq!(core::mem::offset_of!(MsgReportReq, reserved), 68);
+    }
+
+    #[test]
+    fn msg_report_resp_size_and_layout_invariant() {
+        assert_eq!(core::mem::size_of::<MsgReportResp>(), MSG_REPORT_RESP_SIZE);
+        assert_eq!(core::mem::offset_of!(MsgReportResp, status), 0);
+        assert_eq!(core::mem::offset_of!(MsgReportResp, report_size), 4);
+        assert_eq!(core::mem::offset_of!(MsgReportResp, reserved), 8);
+        assert_eq!(core::mem::offset_of!(MsgReportResp, report), 32);
+    }
 }
