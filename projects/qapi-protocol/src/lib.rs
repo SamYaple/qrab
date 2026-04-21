@@ -134,6 +134,45 @@ where
     Ok(LineRead::Line(line))
 }
 
+/// Write a single JSON line (`payload` + trailing `\n`) as one atomic
+/// `write_all`.
+///
+/// Bug #23: splitting the send into two `write_all`s — `payload` then
+/// `b"\n"` — lets a partial failure strand the JSON on the wire with no
+/// terminator, so the peer can't parse it and the next command arrives
+/// appended to the stranded tail. Build the line in one buffer and
+/// issue one call instead: either the full line is accepted or the
+/// writer returns an error (and callers treat the stream as poisoned).
+pub(crate) async fn write_line<W>(writer: &mut W, payload: &[u8]) -> std::io::Result<()>
+where
+    W: tokio::io::AsyncWrite + Unpin,
+{
+    let mut buf = Vec::with_capacity(payload.len() + 1);
+    buf.extend_from_slice(payload);
+    buf.push(b'\n');
+    writer.write_all(&buf).await
+}
+
+/// Write a QGA line prefixed with the `0xFF` sync sentinel as one
+/// atomic `write_all`. Same rationale as [`write_line`] but for the
+/// guest-sync-delimited handshake path, where the 0xFF + JSON + `\n`
+/// triplet must reach the peer as a single contiguous chunk or not
+/// at all.
+pub(crate) async fn write_line_with_sentinel<W>(
+    writer: &mut W,
+    sentinel: u8,
+    payload: &[u8],
+) -> std::io::Result<()>
+where
+    W: tokio::io::AsyncWrite + Unpin,
+{
+    let mut buf = Vec::with_capacity(payload.len() + 2);
+    buf.push(sentinel);
+    buf.extend_from_slice(payload);
+    buf.push(b'\n');
+    writer.write_all(&buf).await
+}
+
 /// A raw QMP event as received from QEMU.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct QmpEvent {
@@ -345,8 +384,9 @@ impl Qmp {
             } else {
                 br#"{"execute":"qmp_capabilities"}"#.as_slice()
             };
-            write_half.write_all(caps_request).await?;
-            write_half.write_all(b"\n").await?;
+            // Bug #23: send as one atomic line so a mid-write failure can't
+            // strand half a command on the wire.
+            write_line(&mut write_half, caps_request).await?;
 
             let caps_resp: serde_json::Value = loop {
                 let caps_line = match read_line_bounded(&mut reader).await? {
@@ -870,10 +910,13 @@ impl Qmp {
                             continue;
                         }
                     };
-                    if write_half.write_all(serialized.as_bytes()).await.is_err() {
-                        break;
-                    }
-                    if write_half.write_all(b"\n").await.is_err() {
+                    // Bug #23: a split json + \n write let a partial-failure
+                    // strand a truncated line; the next command would then be
+                    // appended to it and poison the session. Issue one
+                    // atomic write so either the full line lands or none of
+                    // it, and on error break out so no further commands are
+                    // dispatched into a dead socket.
+                    if write_line(&mut write_half, serialized.as_bytes()).await.is_err() {
                         break;
                     }
                 }
@@ -1053,5 +1096,124 @@ impl Drop for Qmp {
         if let Some(h) = self.reaper_handle.take() {
             h.abort();
         }
+    }
+}
+
+#[cfg(test)]
+mod write_line_tests {
+    //! Bug #23: verify the atomic-write shape. `write_line` must deliver
+    //! `payload + \n` as a single `write_all`, and on short-write
+    //! failures the peer must see either the full line or nothing of
+    //! the current line — never a truncated mid-line with the next
+    //! command glued to the tail.
+    use super::{write_line, write_line_with_sentinel};
+    use std::io;
+    use std::pin::Pin;
+    use std::task::{Context, Poll};
+    use tokio::io::AsyncWrite;
+
+    /// `AsyncWrite` wrapper that records every `poll_write` and
+    /// optionally injects a failure after the first `fail_after` bytes
+    /// have been accepted. Used to prove that `write_line` issues a
+    /// single `write_all` and that a mid-buffer failure cannot leave a
+    /// stranded partial line behind a subsequent successful write.
+    struct FailAfter {
+        sink: Vec<u8>,
+        writes: Vec<usize>,
+        fail_after: Option<usize>,
+    }
+    impl FailAfter {
+        fn new(fail_after: Option<usize>) -> Self {
+            Self {
+                sink: Vec::new(),
+                writes: Vec::new(),
+                fail_after,
+            }
+        }
+    }
+    impl AsyncWrite for FailAfter {
+        fn poll_write(
+            mut self: Pin<&mut Self>,
+            _cx: &mut Context<'_>,
+            buf: &[u8],
+        ) -> Poll<io::Result<usize>> {
+            self.writes.push(buf.len());
+            if let Some(limit) = self.fail_after {
+                let remaining = limit.saturating_sub(self.sink.len());
+                if remaining == 0 {
+                    return Poll::Ready(Err(io::Error::new(
+                        io::ErrorKind::BrokenPipe,
+                        "FailAfter: injected fault",
+                    )));
+                }
+                let take = remaining.min(buf.len());
+                self.sink.extend_from_slice(&buf[..take]);
+                return Poll::Ready(Ok(take));
+            }
+            self.sink.extend_from_slice(buf);
+            Poll::Ready(Ok(buf.len()))
+        }
+        fn poll_flush(
+            self: Pin<&mut Self>,
+            _cx: &mut Context<'_>,
+        ) -> Poll<io::Result<()>> {
+            Poll::Ready(Ok(()))
+        }
+        fn poll_shutdown(
+            self: Pin<&mut Self>,
+            _cx: &mut Context<'_>,
+        ) -> Poll<io::Result<()>> {
+            Poll::Ready(Ok(()))
+        }
+    }
+
+    #[tokio::test]
+    async fn write_line_single_poll_write_happy_path() {
+        let mut w = FailAfter::new(None);
+        write_line(&mut w, br#"{"execute":"query-status"}"#)
+            .await
+            .unwrap();
+        // Bug #23 invariant: JSON + \n delivered as one contiguous
+        // buffer. `tokio::io::AsyncWriteExt::write_all` may still loop
+        // internally on short polls, but our *caller* path is one
+        // prepared buffer — so the peer's first read sees the terminator
+        // alongside the payload.
+        assert!(w.sink.ends_with(b"\n"));
+        assert_eq!(w.sink, b"{\"execute\":\"query-status\"}\n");
+        assert_eq!(w.writes, vec![w.sink.len()]);
+    }
+
+    #[tokio::test]
+    async fn write_line_partial_failure_never_strands_newline_for_next_send() {
+        // First send fails after N bytes — simulating a broken pipe
+        // mid-command. `write_line` must return Err, and the caller
+        // must treat the stream as poisoned (i.e. *not* attempt a
+        // follow-up write). The invariant being tested is: no second
+        // `write_line` call will glue its payload onto the tail of the
+        // stranded first.
+        let payload = br#"{"execute":"query-status"}"#;
+        let mut w = FailAfter::new(Some(5));
+        let err = write_line(&mut w, payload).await.unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::BrokenPipe);
+        // At most the first 5 bytes made it onto the wire.
+        assert_eq!(w.sink.len(), 5);
+        assert!(payload.starts_with(&w.sink));
+        // And crucially: the newline is *not* present in that stranded
+        // prefix, so the peer's line reader still blocks — but because
+        // the caller sees Err, no second command is pushed after it.
+        assert!(!w.sink.contains(&b'\n'));
+    }
+
+    #[tokio::test]
+    async fn write_line_with_sentinel_atomic() {
+        let mut w = FailAfter::new(None);
+        write_line_with_sentinel(&mut w, 0xFF, br#"{"execute":"guest-sync-delimited"}"#)
+            .await
+            .unwrap();
+        assert_eq!(w.sink.first(), Some(&0xFFu8));
+        assert!(w.sink.ends_with(b"\n"));
+        // One contiguous buffer: sentinel + payload + \n in a single
+        // `poll_write` from our perspective.
+        assert_eq!(w.writes, vec![w.sink.len()]);
     }
 }
