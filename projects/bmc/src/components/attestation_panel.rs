@@ -280,7 +280,10 @@ pub fn AttestationPanel(sev_status: Option<SevStatusResponse>) -> Element {
                         div { class: "qr-display",
                             div {
                                 class: "qr-svg-container",
-                                dangerous_inner_html: "{qr.qr_data}",
+                                // S7-22: `qr.qr_data` is `TrustedSvg` — its
+                                // `.as_str()` is the deliberate unwrap at
+                                // the one raw-HTML sink in this crate.
+                                dangerous_inner_html: "{qr.qr_data.as_str()}",
                             }
                         }
                         div { class: "qr-meta",

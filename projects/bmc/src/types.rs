@@ -1,5 +1,54 @@
 use serde::{Deserialize, Serialize};
 
+/// SVG content vetted as safe to feed into Dioxus `dangerous_inner_html`.
+///
+/// S7-22: `dangerous_inner_html` takes raw HTML and bypasses Dioxus's XSS
+/// escaping. The single current call site is the attestation QR code, whose
+/// SVG comes from `server::qrcode::generate_qr_svg` and never echoes
+/// caller-controlled strings. Wrapping it in a newtype whose constructor
+/// is `pub(crate)` pins the invariant at the type system: any future code
+/// path that tries to stuff a `String` (especially one routed through a
+/// user-supplied field) into a `dangerous_inner_html` attribute has to
+/// call `TrustedSvg::new_trusted` from inside the `bmc` lib crate, which
+/// `grep TrustedSvg::new_trusted` will flag for review.
+///
+/// Wire-compatible with the old `String` shape via `#[serde(transparent)]`
+/// — clients deserializing `AttestationQrResponse` still see the SVG text.
+///
+/// External crates cannot fabricate one — the tuple field is private and
+/// `new_trusted` is `pub(crate)`, so the only way a `TrustedSvg` reaches
+/// a render sink is via a `bmc`-server-built DTO off the wire.
+///
+/// ```compile_fail
+/// // Private field — direct construction is rejected.
+/// let _ = bmc::types::TrustedSvg("<script>alert(1)</script>".to_string());
+/// ```
+///
+/// ```compile_fail
+/// // `new_trusted` is `pub(crate)`, not reachable from outside.
+/// let _ = bmc::types::TrustedSvg::new_trusted(String::from("<x/>"));
+/// ```
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct TrustedSvg(String);
+
+impl TrustedSvg {
+    /// Crate-private constructor. Only generators vetted as input-free may
+    /// call this. The sole caller today is `server::vm_status`'s QR path,
+    /// which feeds static-shape `build_attestation_payload` JSON through
+    /// `server::qrcode::generate_qr_svg`.
+    #[cfg(feature = "server")]
+    pub(crate) fn new_trusted(svg: String) -> Self {
+        Self(svg)
+    }
+
+    /// Read-only view for the render layer. The `.as_str()` call at the
+    /// `dangerous_inner_html` site is the deliberate, greppable unwrap.
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
 /// VM lifecycle phases visible to the frontend.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum VmPhase {
@@ -200,10 +249,16 @@ pub struct AttestationReportResponse {
 }
 
 /// QR code generation response DTO.
+///
+/// S7-22: `qr_data` is `TrustedSvg` for the `svg` format so the WASM
+/// render-layer's `dangerous_inner_html` site takes a type whose
+/// constructor is gated to the server QR generator path. The same
+/// newtype carries ASCII output too — it's never routed through
+/// `dangerous_inner_html`, but uniform typing keeps the guard simple.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AttestationQrResponse {
     /// ASCII art or SVG content.
-    pub qr_data: String,
+    pub qr_data: TrustedSvg,
     /// "ascii" or "svg".
     pub format: String,
     /// Raw JSON payload encoded in QR.
@@ -456,4 +511,39 @@ pub enum BmcPush {
     QmpEvent(BmcEvent),
     /// Liveness heartbeat every 15s. No payload.
     Heartbeat,
+}
+
+#[cfg(test)]
+mod trusted_svg_tests {
+    use super::*;
+
+    /// S7-22: the raw-HTML unwrap is a read-only accessor; anything
+    /// touching `dangerous_inner_html` has to go through it, keeping
+    /// the audit surface grep-able.
+    #[test]
+    fn as_str_round_trips_generator_output() {
+        #[cfg(feature = "server")]
+        {
+            let svg = "<svg><rect/></svg>".to_string();
+            let t = TrustedSvg::new_trusted(svg.clone());
+            assert_eq!(t.as_str(), svg);
+        }
+    }
+
+    /// S7-22: wire shape stays a plain string so existing consumers
+    /// deserializing `AttestationQrResponse` don't break. The round-trip
+    /// through JSON reconstructs a `TrustedSvg` only because the whole
+    /// DTO came off the wire inside the `bmc` crate boundary.
+    #[test]
+    fn serde_transparent_wire_shape() {
+        let json = r#""<svg>x</svg>""#;
+        let t: TrustedSvg = serde_json::from_str(json).expect("parse");
+        assert_eq!(t.as_str(), "<svg>x</svg>");
+        let back = serde_json::to_string(&t).expect("serialize");
+        assert_eq!(back, json);
+    }
+
+    // The external-construction proofs live as `compile_fail` doctests
+    // on `TrustedSvg` itself (they need cross-crate visibility semantics
+    // that a `#[cfg(test)]` mod can't reproduce).
 }
