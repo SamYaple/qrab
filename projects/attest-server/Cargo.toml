@@ -16,7 +16,7 @@ path = "src/main.rs"
 [dependencies]
 qrab-boot-proto = { path = "../qrab-boot-proto", features = ["std"] }
 # F2: server-side chain walker + SnpAttestationReport byte cast.
-qrab-snp-proto = { path = "../qrab-snp-proto", features = ["std", "alloc"] }
+qrab-snp-proto = { path = "../qrab-snp-proto", features = ["std", "alloc", "verify"] }
 qrab-attest-verifier = { path = "../qrab-attest-verifier" }
 zerocopy = { version = "0.8", features = ["derive"] }
 base64 = "0.22"
@@ -45,10 +45,16 @@ x509-cert = { version = "0.2", features = ["std"] }
 der = { version = "0.7", features = ["alloc"] }
 
 [dev-dependencies]
-# Synthesise two-cert PEM chains for the `pem_to_der_root_ca` tests:
-# self-signed ARK + CA-issued "ASK" so only one block satisfies the
-# issuer==subject selector. Matches qrab-attest-verifier's dev-dep
-# set so build graph stays cached.
+# Synthesise cert chains for `pem_to_der_root_ca` + end-to-end
+# attestation tests: self-signed ARK + CA-issued "ASK" +
+# attacker-controlled VCEK whose P-384 private key signs a
+# constructed SnpAttestationReport. Matches qrab-attest-verifier's
+# dev-dep set so build graph stays cached.
 rcgen = { version = "0.14", default-features = false, features = [
     "crypto", "pem", "aws_lc_rs",
 ] }
+# Drive the real ECDSA-P384 sign path in the end-to-end chain
+# tests. `verify` feature of qrab-snp-proto pulls p384 already, so
+# adding it here just exposes SigningKey without duplicating the
+# transitive dep.
+p384 = { version = "0.13", features = ["ecdsa"] }

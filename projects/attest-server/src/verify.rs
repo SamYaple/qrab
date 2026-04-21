@@ -967,4 +967,319 @@ mod tests {
             "expected chain_ask_sig or related, got {r} / {err:?}"
         );
     }
+
+    // ------- R13 round 15: functional end-to-end attestation -------
+    //
+    // The tests above stop at `ReportSig` because the VCEK used to
+    // issue the cert was a throwaway — the matching private key was
+    // dropped after `signed_by` returned. Here we retain that
+    // private key, use it to actually sign an
+    // `SnpAttestationReport`, pack the signature into AMD's ABI
+    // Table 138 layout, and drive the entire chain walker
+    // end-to-end. This is the first test in the crate that exercises
+    // the ECDSA-P384 `verify_report` path and the measurement
+    // compare branch with a signature that actually verifies.
+
+    /// All the state an E2E test needs: synthetic trust anchors +
+    /// the VCEK keypair whose private half we keep so we can sign
+    /// reports.
+    struct E2eChain {
+        ark_der: Vec<u8>,
+        ask_der: Vec<u8>,
+        vcek_der: Vec<u8>,
+        /// Holds the PKCS#8 DER of the VCEK private key. Feed into
+        /// `p384::ecdsa::SigningKey::from_pkcs8_der` when signing a
+        /// report.
+        vcek_priv_pkcs8: Vec<u8>,
+        /// 64-byte chip_id embedded in the VCEK's hwID extension.
+        /// Report builders must copy this into `report.chip_id`.
+        chip_id: [u8; 64],
+        /// 8-byte packed reported_tcb that matches the four SPL
+        /// extensions in the VCEK. Report builders set
+        /// `report.reported_tcb` to this value.
+        reported_tcb: u64,
+    }
+
+    /// Build an ARK → ASK → VCEK chain where the VCEK's TCB / chip
+    /// id are pinned to caller-chosen values, and the private half
+    /// of the VCEK keypair is returned so callers can sign a
+    /// synthetic attestation report that the chain walker accepts.
+    fn build_e2e_chain(
+        bl: u8, tee: u8, snp: u8, ucode: u8, chip_id: [u8; 64],
+    ) -> E2eChain {
+        use rcgen::{
+            BasicConstraints, CertificateParams, CustomExtension,
+            DistinguishedName, DnType, IsCa, Issuer, KeyPair,
+            PKCS_ECDSA_P384_SHA384, PKCS_RSA_SHA384,
+        };
+        use der::Encode;
+        fn dn(cn: &str) -> DistinguishedName {
+            let mut d = DistinguishedName::new();
+            d.push(DnType::CommonName, cn);
+            d
+        }
+        fn mk_ca(cn: &str) -> CertificateParams {
+            let mut p = CertificateParams::new(Vec::<String>::new()).unwrap();
+            p.distinguished_name = dn(cn);
+            p.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
+            p
+        }
+
+        let ark_kp = KeyPair::generate_for(&PKCS_RSA_SHA384).unwrap();
+        let ark = mk_ca("qrab-e2e ARK").self_signed(&ark_kp).unwrap();
+        let ark_der = ark.der().to_vec();
+        let ark_issuer: Issuer<'static, _> =
+            Issuer::new(mk_ca("qrab-e2e ARK"), ark_kp);
+
+        let ask_kp = KeyPair::generate_for(&PKCS_RSA_SHA384).unwrap();
+        let ask = mk_ca("qrab-e2e ASK")
+            .signed_by(&ask_kp, &ark_issuer)
+            .unwrap();
+        let ask_der = ask.der().to_vec();
+        let ask_issuer: Issuer<'static, _> =
+            Issuer::new(mk_ca("qrab-e2e ASK"), ask_kp);
+
+        let amd_ext = |oid: &[u64], content: Vec<u8>| {
+            CustomExtension::from_oid_content(oid, content)
+        };
+        let ext_bl = amd_ext(&[1, 3, 6, 1, 4, 1, 3704, 1, 3, 1], bl.to_der().unwrap());
+        let ext_tee = amd_ext(&[1, 3, 6, 1, 4, 1, 3704, 1, 3, 2], tee.to_der().unwrap());
+        let ext_snp = amd_ext(&[1, 3, 6, 1, 4, 1, 3704, 1, 3, 3], snp.to_der().unwrap());
+        let ext_ucode = amd_ext(&[1, 3, 6, 1, 4, 1, 3704, 1, 3, 8], ucode.to_der().unwrap());
+        let ext_hwid = amd_ext(
+            &[1, 3, 6, 1, 4, 1, 3704, 1, 4],
+            der::asn1::OctetString::new(chip_id.to_vec())
+                .unwrap()
+                .to_der()
+                .unwrap(),
+        );
+
+        let vcek_kp = KeyPair::generate_for(&PKCS_ECDSA_P384_SHA384).unwrap();
+        let vcek_priv_pkcs8 = vcek_kp.serialize_der();
+        let mut vcek_params =
+            CertificateParams::new(Vec::<String>::new()).unwrap();
+        vcek_params.distinguished_name = dn("qrab-e2e VCEK");
+        for e in [ext_bl, ext_tee, ext_snp, ext_ucode, ext_hwid] {
+            vcek_params.custom_extensions.push(e);
+        }
+        let vcek = vcek_params.signed_by(&vcek_kp, &ask_issuer).unwrap();
+        let vcek_der = vcek.der().to_vec();
+
+        let mut b = [0u8; 8];
+        b[0] = bl; b[1] = tee; b[6] = snp; b[7] = ucode;
+        let reported_tcb = u64::from_le_bytes(b);
+
+        E2eChain {
+            ark_der, ask_der, vcek_der,
+            vcek_priv_pkcs8,
+            chip_id,
+            reported_tcb,
+        }
+    }
+
+    /// Build an `SnpAttestationReport` (as a flat 1184-byte vec)
+    /// populated with the caller's fields and signed end-to-end by
+    /// the VCEK private key in `chain`. The resulting bytes pass
+    /// `qrab_snp_proto::verify::verify_report` under the VCEK
+    /// pubkey embedded in `chain.vcek_der`.
+    fn build_signed_report(
+        chain: &E2eChain,
+        measurement: [u8; 48],
+    ) -> Vec<u8> {
+        use p384::ecdsa::{SigningKey, Signature};
+        use p384::ecdsa::signature::hazmat::PrehashSigner;
+        use p384::pkcs8::DecodePrivateKey;
+        use sha2::{Digest, Sha384};
+        use zerocopy::{FromBytes, IntoBytes};
+
+        let mut buf = [0u8; core::mem::size_of::<qrab_snp_proto::SnpAttestationReport>()];
+        // Populate the signed-prefix fields that chain walk /
+        // verify_report / cross_check_vcek_bindings reach for.
+        {
+            let mut report =
+                qrab_snp_proto::SnpAttestationReport::read_from_bytes(&buf).unwrap();
+            report.signature_algo = qrab_snp_proto::verify::SIG_ALGO_ECDSA_P384_SHA384;
+            report.measurement = measurement;
+            report.chip_id = chain.chip_id;
+            report.reported_tcb = chain.reported_tcb;
+            buf.copy_from_slice(<qrab_snp_proto::SnpAttestationReport as IntoBytes>::as_bytes(&report));
+        }
+
+        // SHA-384 over the first 0x2A0 bytes, then P-384 ECDSA.
+        let signing_key = SigningKey::from_pkcs8_der(&chain.vcek_priv_pkcs8)
+            .expect("P-384 SigningKey from VCEK PKCS#8");
+        let signed_prefix = &buf[..qrab_snp_proto::verify::SIGNED_PREFIX_LEN];
+        let digest = Sha384::digest(signed_prefix);
+        let sig: Signature = signing_key
+            .sign_prehash(&digest)
+            .expect("sign prehash");
+        let raw = sig.to_bytes(); // 96 bytes: R(48 BE) || S(48 BE)
+        assert_eq!(raw.len(), 96);
+
+        // AMD layout: R at sig[0..72], S at sig[72..144], reserved
+        // tail at sig[144..512] (all zero). R slot = LE 48-byte
+        // scalar + 24 zero pad. Convert BE (raw) → LE (slot).
+        let mut sig_block = [0u8; 512];
+        for i in 0..48 {
+            sig_block[i] = raw[47 - i]; // R LE
+            sig_block[72 + i] = raw[95 - i]; // S LE
+        }
+        // Place the signature into the report buffer.
+        let sig_off = core::mem::offset_of!(qrab_snp_proto::SnpAttestationReport, signature);
+        buf[sig_off..sig_off + 512].copy_from_slice(&sig_block);
+        buf.to_vec()
+    }
+
+    #[test]
+    fn e2e_chain_happy_path_no_measurement_pin() {
+        // Real ECDSA-P384 sign over a constructed report. The full
+        // chain walk must return Ok(PostReportOutcome) with
+        // measurement_enforced=false since we pass no expected.
+        let chip_id = [0x5Au8; 64];
+        let chain = build_e2e_chain(1, 2, 3, 4, chip_id);
+        let report_bytes = build_signed_report(&chain, [0xAAu8; 48]);
+        let cert_blob = cert_table_ask_vcek(&chain.ask_der, &chain.vcek_der);
+        let post = qrab_boot_proto::new_post_report(report_bytes, cert_blob);
+        let frame = qrab_boot_proto::encode_framed(&post).unwrap();
+        let outcome = handle_post_report_bytes(
+            &frame, Some(&chain.ark_der), None,
+        ).expect("E2E chain walk must succeed");
+        assert!(!outcome.measurement_enforced);
+        assert_eq!(outcome.verified.report.measurement, [0xAAu8; 48]);
+    }
+
+    #[test]
+    fn e2e_chain_happy_path_with_matching_measurement_pin() {
+        // Same as above but pass an expected measurement that
+        // matches the signed report → measurement_enforced=true.
+        let chip_id = [0x42u8; 64];
+        let chain = build_e2e_chain(2, 3, 5, 7, chip_id);
+        let measurement = [0x11u8; 48];
+        let report_bytes = build_signed_report(&chain, measurement);
+        let cert_blob = cert_table_ask_vcek(&chain.ask_der, &chain.vcek_der);
+        let post = qrab_boot_proto::new_post_report(report_bytes, cert_blob);
+        let frame = qrab_boot_proto::encode_framed(&post).unwrap();
+        let outcome = handle_post_report_bytes(
+            &frame, Some(&chain.ark_der), Some(measurement),
+        ).expect("pinned measurement match must succeed");
+        assert!(outcome.measurement_enforced);
+        assert_eq!(outcome.verified.report.measurement, measurement);
+    }
+
+    #[test]
+    fn e2e_chain_measurement_mismatch_rejected() {
+        // Sign with measurement X, verify with expected Y → the
+        // MeasurementMismatch branch fires after the PSP sig passes.
+        let chain = build_e2e_chain(0, 0, 0, 0, [0u8; 64]);
+        let report_bytes = build_signed_report(&chain, [0xAAu8; 48]);
+        let cert_blob = cert_table_ask_vcek(&chain.ask_der, &chain.vcek_der);
+        let post = qrab_boot_proto::new_post_report(report_bytes, cert_blob);
+        let frame = qrab_boot_proto::encode_framed(&post).unwrap();
+        let err = handle_post_report_bytes(
+            &frame, Some(&chain.ark_der), Some([0xBBu8; 48]),
+        ).unwrap_err();
+        assert_eq!(reason(&err), "measurement", "got {err:?}");
+    }
+
+    #[test]
+    fn e2e_chain_tampered_chip_id_rejected() {
+        // Sign a valid report, then overwrite the chip_id bytes
+        // post-sign. `cross_check_vcek_bindings` runs F4 before
+        // `verify_report` in the chain walk (cheap string compare
+        // gates the expensive ECDSA check), so the hwID-vs-chip_id
+        // mismatch fires first and we surface as `chip_id`.
+        let chip_id = [0x77u8; 64];
+        let chain = build_e2e_chain(1, 1, 1, 1, chip_id);
+        let mut report_bytes = build_signed_report(&chain, [0u8; 48]);
+        let chip_off = core::mem::offset_of!(qrab_snp_proto::SnpAttestationReport, chip_id);
+        // Flip chip_id bytes to mismatch the VCEK's hwID extension.
+        report_bytes[chip_off] ^= 0xFF;
+        let cert_blob = cert_table_ask_vcek(&chain.ask_der, &chain.vcek_der);
+        let post = qrab_boot_proto::new_post_report(report_bytes, cert_blob);
+        let frame = qrab_boot_proto::encode_framed(&post).unwrap();
+        let err = handle_post_report_bytes(
+            &frame, Some(&chain.ark_der), None,
+        ).unwrap_err();
+        assert_eq!(reason(&err), "chip_id", "got {err:?}");
+    }
+
+    #[test]
+    fn e2e_chain_tampered_reported_tcb_rejected() {
+        // Flip a byte of `reported_tcb` post-sign. TCB is in the
+        // signed prefix, but F4's `cross_check_vcek_bindings`
+        // runs first and surfaces the SPL mismatch as `tcb`.
+        let chip_id = [0u8; 64];
+        let chain = build_e2e_chain(1, 2, 3, 4, chip_id);
+        let mut report_bytes = build_signed_report(&chain, [0u8; 48]);
+        let tcb_off = core::mem::offset_of!(qrab_snp_proto::SnpAttestationReport, reported_tcb);
+        // Bump the snp byte (index 6 inside the LE u64) from 3 to 5.
+        report_bytes[tcb_off + 6] = 5;
+        let cert_blob = cert_table_ask_vcek(&chain.ask_der, &chain.vcek_der);
+        let post = qrab_boot_proto::new_post_report(report_bytes, cert_blob);
+        let frame = qrab_boot_proto::encode_framed(&post).unwrap();
+        let err = handle_post_report_bytes(
+            &frame, Some(&chain.ark_der), None,
+        ).unwrap_err();
+        assert_eq!(reason(&err), "tcb", "got {err:?}");
+    }
+
+    #[test]
+    fn e2e_chain_tampered_signed_prefix_byte_rejected() {
+        // Flip a byte inside the signed prefix that F4 does NOT
+        // check (policy field). This bypasses all pre-ECDSA gates
+        // and lands directly on the PSP signature verification —
+        // proves `verify_report` actually runs and rejects tampers
+        // in fields the chain walker doesn't structurally compare.
+        let chip_id = [0u8; 64];
+        let chain = build_e2e_chain(1, 1, 1, 1, chip_id);
+        let mut report_bytes = build_signed_report(&chain, [0u8; 48]);
+        let policy_off = core::mem::offset_of!(qrab_snp_proto::SnpAttestationReport, policy);
+        report_bytes[policy_off] ^= 0xFF;
+        let cert_blob = cert_table_ask_vcek(&chain.ask_der, &chain.vcek_der);
+        let post = qrab_boot_proto::new_post_report(report_bytes, cert_blob);
+        let frame = qrab_boot_proto::encode_framed(&post).unwrap();
+        let err = handle_post_report_bytes(
+            &frame, Some(&chain.ark_der), None,
+        ).unwrap_err();
+        assert_eq!(reason(&err), "chain_report_sig", "got {err:?}");
+    }
+
+    #[test]
+    fn e2e_chain_tampered_signature_bytes_rejected() {
+        // Flip a byte inside the 512-byte signature block after
+        // signing. PSP ECDSA verify fails directly.
+        let chain = build_e2e_chain(1, 1, 1, 1, [0u8; 64]);
+        let mut report_bytes = build_signed_report(&chain, [0u8; 48]);
+        let sig_off = core::mem::offset_of!(qrab_snp_proto::SnpAttestationReport, signature);
+        report_bytes[sig_off] ^= 0x01;
+        let cert_blob = cert_table_ask_vcek(&chain.ask_der, &chain.vcek_der);
+        let post = qrab_boot_proto::new_post_report(report_bytes, cert_blob);
+        let frame = qrab_boot_proto::encode_framed(&post).unwrap();
+        let err = handle_post_report_bytes(
+            &frame, Some(&chain.ark_der), None,
+        ).unwrap_err();
+        assert_eq!(reason(&err), "chain_report_sig", "got {err:?}");
+    }
+
+    #[test]
+    fn e2e_chain_wrong_vcek_from_different_synth_rejected() {
+        // Build two chains with different VCEKs; swap VCEK certs
+        // in the cert table → the report signed by chain A's VCEK
+        // cannot verify against chain B's VCEK pubkey. Hits the
+        // ReportSig branch after a clean chain walk.
+        let chain_a = build_e2e_chain(1, 1, 1, 1, [0u8; 64]);
+        let chain_b = build_e2e_chain(1, 1, 1, 1, [0u8; 64]);
+        // Signed by chain_a's private key.
+        let report_bytes = build_signed_report(&chain_a, [0u8; 48]);
+        // Cert table carries chain_b's VCEK (different pubkey).
+        // Use chain_b's ASK too so the VCEK-issuer→ASK-subject
+        // link resolves cleanly.
+        let cert_blob = cert_table_ask_vcek(&chain_b.ask_der, &chain_b.vcek_der);
+        let post = qrab_boot_proto::new_post_report(report_bytes, cert_blob);
+        let frame = qrab_boot_proto::encode_framed(&post).unwrap();
+        let err = handle_post_report_bytes(
+            &frame, Some(&chain_b.ark_der), None,
+        ).unwrap_err();
+        assert_eq!(reason(&err), "chain_report_sig", "got {err:?}");
+    }
 }
