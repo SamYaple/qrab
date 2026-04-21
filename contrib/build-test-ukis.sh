@@ -28,7 +28,10 @@ die() { echo "build-test-ukis.sh: error: $*" >&2; exit 1; }
 mkdir -p "$FIXTURES"
 
 # (Re)build qrab-boot.efi so fixtures always match the current source.
-(cd "$BOOT_CRATE" && cargo build --release >/dev/null)
+# R16-H15: this script only cares about the PE32+ bytes for signing
+# fixtures; the attestation flow is not exercised. Skip the pubkey
+# requirement explicitly via the dev opt-in.
+(cd "$BOOT_CRATE" && QRAB_DEV_NO_PUBKEY=1 cargo build --release >/dev/null)
 [[ -f "$BOOT_EFI" ]] || die "qrab-boot.efi missing at $BOOT_EFI"
 
 cp "$BOOT_EFI" "$FIXTURES/uki-unsigned.efi"
