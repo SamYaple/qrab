@@ -775,4 +775,95 @@ mod tests {
     fn wire_version_is_two() {
         assert_eq!(WIRE_VERSION, 2);
     }
+
+    // ------- G18: decode_framed rejects corrupt payload -------
+
+    #[test]
+    fn decode_framed_rejects_undersized_body() {
+        // Declared length 1, body = one byte. `AttestRequest`
+        // cannot deserialise from a single byte (client_nonce is
+        // 32 B alone), so postcard reports a deserialize error.
+        let bytes: Vec<u8> = {
+            let mut v = Vec::new();
+            v.extend_from_slice(&1u32.to_le_bytes());
+            v.push(0xFF);
+            v
+        };
+        let err = decode_framed::<AttestRequest>(&bytes).unwrap_err();
+        assert!(
+            matches!(err, ProtoError::Postcard(_)),
+            "expected Postcard error, got {err:?}"
+        );
+    }
+
+    #[test]
+    fn decode_framed_rejects_truncated_body() {
+        // Drop the last byte of the body; the declared length
+        // prefix now overshoots the actual bytes → FrameTruncated.
+        let req = new_request([0x01; 32]);
+        let mut bytes = encode_framed(&req).unwrap();
+        bytes.pop();
+        let err = decode_framed::<AttestRequest>(&bytes).unwrap_err();
+        assert!(
+            matches!(err, ProtoError::FrameTruncated),
+            "expected FrameTruncated, got {err:?}"
+        );
+    }
+
+    #[test]
+    fn decode_framed_rejects_zero_len_body_declared_as_request() {
+        // Declared length 0 followed by no body bytes. A zero-length
+        // body cannot round-trip into an AttestRequest (client_nonce
+        // alone is 32 B), so decode must fail with Decode.
+        let bytes: Vec<u8> = {
+            let mut v = Vec::new();
+            v.extend_from_slice(&0u32.to_le_bytes());
+            v
+        };
+        let err = decode_framed::<AttestRequest>(&bytes).unwrap_err();
+        assert!(
+            matches!(err, ProtoError::Postcard(_)),
+            "expected Decode for zero-length body, got {err:?}"
+        );
+    }
+
+    #[test]
+    fn split_framed_zero_length_body_splits_clean() {
+        // Well-formed frame with len=0 body. `split_framed` must
+        // return Ok even though a downstream postcard decode may
+        // reject; the framer only cares about the prefix arithmetic.
+        let bytes = 0u32.to_le_bytes().to_vec();
+        let (len, body) = split_framed(&bytes).unwrap();
+        assert_eq!(len, 0);
+        assert!(body.is_empty());
+    }
+
+    #[test]
+    fn split_framed_exact_boundary_max_payload_parses() {
+        // Declared length exactly MAX_FRAMED_PAYLOAD (≤ valid).
+        // `split_framed` must return Ok and the body slice must
+        // have the declared length.
+        let mut bytes = Vec::with_capacity(FRAME_PREFIX_LEN + MAX_FRAMED_PAYLOAD);
+        bytes.extend_from_slice(&(MAX_FRAMED_PAYLOAD as u32).to_le_bytes());
+        bytes.resize(FRAME_PREFIX_LEN + MAX_FRAMED_PAYLOAD, 0);
+        let (len, body) = split_framed(&bytes).unwrap();
+        assert_eq!(len, MAX_FRAMED_PAYLOAD);
+        assert_eq!(body.len(), MAX_FRAMED_PAYLOAD);
+    }
+
+    // ------- wire-version rejection fan-out -------
+
+    #[test]
+    fn attest_post_report_rejects_wire_version_drift() {
+        let mut post = new_post_report(
+            vec![0u8; SNP_ATTESTATION_REPORT_LEN],
+            vec![0u8; 24],
+        );
+        post.wire_version = 1;
+        let err = validate_post_report(&post).unwrap_err();
+        assert!(matches!(
+            err,
+            ProtoError::WireVersionMismatch { expected: WIRE_VERSION, got: 1 }
+        ));
+    }
 }
