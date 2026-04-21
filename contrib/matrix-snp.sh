@@ -24,12 +24,22 @@ scenario_env() {
     esac
 }
 
+# Root for per-scenario log directories. Each scenario gets its own
+# subdir so that scenarios 13a and 13b (and any future scenarios)
+# don't overwrite each other's serial.log / mock.log / qmp.sock
+# between runs — post-mortem of a scenario 13a failure was previously
+# impossible once 13b ran (B12-7).
+LOG_ROOT="${QRAB_MATRIX_SNP_LOG_ROOT:-$ROOT/target/matrix-snp-logs}"
+
 pass=0; fail=0; skipped=0
 for s in $SCENARIOS; do
     echo
     echo "=== scenario $s ==="
     env_line="$(scenario_env "$s")"
-    if env $env_line bash "$SMOKE"; then
+    scenario_out="$LOG_ROOT/$s"
+    mkdir -p "$scenario_out"
+    echo "logs: $scenario_out"
+    if env $env_line OUT="$scenario_out" bash "$SMOKE"; then
         echo "scenario $s: ok"
         pass=$((pass+1))
     else
