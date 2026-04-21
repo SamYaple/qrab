@@ -3,7 +3,10 @@
 //! The QGA protocol uses the same JSON-RPC wire format as QMP, but with
 //! a different handshake (guest-sync-delimited instead of qmp_capabilities).
 
-use crate::{build_qmp_error, read_line_bounded, Error, LineRead, Result, MAX_LINE_BYTES};
+use crate::{
+    build_qmp_error, read_line_bounded, write_line, write_line_with_sentinel, Error, LineRead,
+    Result, MAX_LINE_BYTES,
+};
 use qapi::QapiCommand;
 use std::path::Path;
 use std::time::Duration;
@@ -95,16 +98,17 @@ impl Qga {
         // sync is a trivial echo, so 10s is more than enough and gives the
         // caller faster feedback on a dead agent.
         tokio::time::timeout(QGA_SYNC_TIMEOUT, async {
-            // Send 0xFF sentinel byte followed by the sync command
-            self.writer.write_all(&[0xFF]).await?;
+            // Bug #23: 0xFF sentinel + JSON + \n must reach the agent as
+            // one contiguous chunk. A split write that failed between
+            // sentinel and JSON (or JSON and \n) would leave the guest
+            // hunting for a newline that never arrives and poison the
+            // session for the next command. Build once, send once.
             let cmd = serde_json::json!({
                 "execute": "guest-sync-delimited",
                 "arguments": {"id": sync_id}
             });
-            self.writer
-                .write_all(serde_json::to_string(&cmd)?.as_bytes())
-                .await?;
-            self.writer.write_all(b"\n").await?;
+            let serialized = serde_json::to_string(&cmd)?;
+            write_line_with_sentinel(&mut self.writer, 0xFF, serialized.as_bytes()).await?;
             self.writer.flush().await?;
 
             // Read until we find 0xFF sentinel, then read the response
@@ -192,8 +196,11 @@ impl Qga {
             )));
         }
 
-        self.writer.write_all(request_str.as_bytes()).await?;
-        self.writer.write_all(b"\n").await?;
+        // Bug #23: single atomic write (json + \n) so a mid-write failure
+        // can't strand a truncated line that the next command would be
+        // appended to. On error the `?` propagates and the caller must
+        // drop the `Qga`; the connection is considered poisoned.
+        write_line(&mut self.writer, request_str.as_bytes()).await?;
         self.writer.flush().await?;
 
         let line = tokio::time::timeout(
