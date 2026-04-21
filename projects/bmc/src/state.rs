@@ -1248,6 +1248,19 @@ async fn write_pwd_file_0600(path: &Path, pwd: &str) -> Result<()> {
 /// to `$cache_dir/cloud-init-seed-qga.pwd` (0600) for the operator
 /// to read; the seed cache is never reused so every `power_on`
 /// brings up a guest with a fresh credential.
+///
+/// R15-2: the scratch build dir is a per-call `tempfile::TempDir`
+/// rooted at `/tmp` (not `$TMPDIR`) so a hostile local user cannot
+/// pre-create a `user-data` symlink in the old predictable
+/// `$tmpdir/qrab-cloud-init-build/` path and redirect our YAML write
+/// (containing the per-boot pwd) onto an attacker-chosen target.
+/// Same guarantee as B14-7 on the manager socket dir: unguessable
+/// 0700 leaf, sticky-bit-rooted base, auto-remove on drop.
+///
+/// R15-6: the password is written in exactly one YAML slot —
+/// `users[0].plain_text_passwd` for the `ubuntu` user. The legacy
+/// top-level `password:` and the redundant `root` entry have been
+/// dropped; sudo NOPASSWD on `ubuntu` covers every operator path.
 async fn ensure_cloud_init_seed() -> Result<PathBuf> {
     use tokio::io::AsyncReadExt;
 
@@ -1282,16 +1295,18 @@ async fn ensure_cloud_init_seed() -> Result<PathBuf> {
          previous seed invalidated"
     );
 
-    let tmpdir = std::env::temp_dir().join("qrab-cloud-init-build");
-    let _ = tokio::fs::remove_dir_all(&tmpdir).await;
-    tokio::fs::create_dir_all(&tmpdir).await?;
+    // R15-2: unguessable 0700 scratch dir under `/tmp` (not
+    // `$TMPDIR`), auto-removed on drop. The only persistent output
+    // is the final `.img` copied to `cache_dir` below.
+    let tmpdir = tempfile::TempDir::new_in("/tmp")
+        .context("creating cloud-init build tempdir under /tmp")?;
+    let build = tmpdir.path();
 
-    // user-data
-    let user_data = tmpdir.join("user-data");
+    // user-data — single pwd slot (R15-6).
+    let user_data = build.join("user-data");
     tokio::fs::write(
         &user_data,
         format!(r#"#cloud-config
-password: {pwd}
 chpasswd:
   expire: false
 ssh_pwauth: true
@@ -1301,9 +1316,6 @@ users:
     lock_passwd: false
     shell: /bin/bash
     sudo: ALL=(ALL) NOPASSWD:ALL
-  - name: root
-    plain_text_passwd: {pwd}
-    lock_passwd: false
 packages:
   - qemu-guest-agent
 runcmd:
@@ -1315,7 +1327,7 @@ runcmd:
     .await?;
 
     // meta-data
-    let meta_data = tmpdir.join("meta-data");
+    let meta_data = build.join("meta-data");
     tokio::fs::write(
         &meta_data,
         "instance-id: snp-test-1\nlocal-hostname: snp-guest\n",
@@ -1323,7 +1335,7 @@ runcmd:
     .await?;
 
     // Build FAT image with label "cidata"
-    let img = tmpdir.join("seed.img");
+    let img = build.join("seed.img");
     tokio::process::Command::new("truncate")
         .args(["-s", "1M", &img.display().to_string()])
         .output()
@@ -1352,6 +1364,8 @@ runcmd:
         .await?;
 
     tokio::fs::copy(&img, &path).await?;
+    // `tmpdir` drops here — removes `user-data`, `meta-data`, and
+    // the staging `seed.img`. The cached `path` is the only survivor.
     Ok(path)
 }
 
