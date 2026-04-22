@@ -52,10 +52,20 @@ if ! flock -n 9; then
     die "another build-svsm-igvm.sh is using $BUILD_ROOT"
 fi
 
-VENDOR_IGVM="$MAIN_CHECKOUT/vendor/igvm"
-VENDOR_QEMU="$MAIN_CHECKOUT/vendor/qemu-svsm"
-VENDOR_EDK2="$MAIN_CHECKOUT/vendor/edk2-svsm"
-VENDOR_SVSM="$MAIN_CHECKOUT/vendor/svsm"
+# Submodules land in the worktree that added them. Prefer the caller's
+# worktree, fall back to the main checkout after merge.
+pick_vendor() {
+    local name="$1"
+    if [[ -d "$ROOT/vendor/$name/.git" || -f "$ROOT/vendor/$name/.git" ]]; then
+        echo "$ROOT/vendor/$name"
+    else
+        echo "$MAIN_CHECKOUT/vendor/$name"
+    fi
+}
+VENDOR_IGVM="$(pick_vendor igvm)"
+VENDOR_QEMU="$(pick_vendor qemu-svsm)"
+VENDOR_EDK2="$(pick_vendor edk2-svsm)"
+VENDOR_SVSM="$(pick_vendor svsm)"
 
 for d in "$VENDOR_IGVM" "$VENDOR_QEMU" "$VENDOR_EDK2" "$VENDOR_SVSM"; do
     [[ -d "$d/.git" || -f "$d/.git" ]] \
@@ -159,6 +169,21 @@ log "qemu advertises igvm-cfg"
 log "=== coconut-svsm/edk2 (svsm branch) OVMF ==="
 stage_tree edk2-svsm "$VENDOR_EDK2" "$BUILD_EDK2"
 
+# Phase 1.5 — Secure Boot wiring. Apply DSC/FDF edits on the staged tree
+# only. Vendor tree stays untouched. Idempotent.
+SB_BUILD_ARGS=()
+SB_SUFFIX=""
+if [[ "${QRAB_SVSM_SB:-0}" = 1 ]]; then
+    log "Secure Boot wiring: applying apply-sb-wiring.py on staged edk2-svsm"
+    python3 "$ROOT/contrib/patches/edk2-svsm/apply-sb-wiring.py" "$BUILD_EDK2" \
+        || die "apply-sb-wiring.py failed"
+    SB_BUILD_ARGS=(-D SECURE_BOOT_ENABLE=TRUE)
+    SB_SUFFIX="-SB"
+    log "Secure Boot: ENABLED (OVMF will enforce db signatures when keys enrolled)"
+else
+    log "Secure Boot: disabled (set QRAB_SVSM_SB=1 to enable)"
+fi
+
 EDK2_TOOLCHAIN="${QRAB_EDK2_TOOLCHAIN:-GCC5}"
 EDK2_BUILDTYPE="${QRAB_EDK2_BUILDTYPE:-RELEASE}"
 OVMF_FD="$BUILD_EDK2/Build/AmdSev/${EDK2_BUILDTYPE}_${EDK2_TOOLCHAIN}/FV/OVMF.fd"
@@ -179,12 +204,13 @@ if [[ ! -f "$OVMF_FD" || "${QRAB_FORCE_REBUILD_OVMF:-0}" = 1 ]]; then
         make -C BaseTools >"$BUILD_ROOT/edk2-basetools.log" 2>&1 \
             || { tail -40 "$BUILD_ROOT/edk2-basetools.log" >&2;
                  die "BaseTools build failed"; }
-        log "building OVMF (TPM2 + DEBUG_ON_SERIAL_PORT + PcdUninstallMemAttrProtocol=TRUE)"
+        log "building OVMF (TPM2 + DEBUG_ON_SERIAL_PORT + PcdUninstallMemAttrProtocol=TRUE${SB_SUFFIX:+ + SECURE_BOOT_ENABLE})"
         build \
             -p OvmfPkg/AmdSev/AmdSevX64.dsc \
             -a X64 \
             -t "$EDK2_TOOLCHAIN" \
             -b "$EDK2_BUILDTYPE" \
+            "${SB_BUILD_ARGS[@]}" \
             -n "$JOBS" \
             -D TPM2_ENABLE \
             -D DEBUG_ON_SERIAL_PORT \
@@ -196,8 +222,23 @@ else
     log "OVMF.fd already built at $OVMF_FD"
 fi
 [[ -f "$OVMF_FD" ]] || die "OVMF.fd not produced (see $BUILD_ROOT/edk2-ovmf.log)"
-cp "$OVMF_FD" "$OUT_DIR/OVMF-SVSM.fd"
-log "OVMF-SVSM.fd: $(stat -c'%s bytes' "$OUT_DIR/OVMF-SVSM.fd")"
+OVMF_OUT="$OUT_DIR/OVMF-SVSM${SB_SUFFIX}.fd"
+cp "$OVMF_FD" "$OVMF_OUT"
+log "$(basename "$OVMF_OUT"): $(stat -c'%s bytes' "$OVMF_OUT")"
+
+# Phase 1.5 sanity: SB-enabled build must contain SB driver strings.
+if [[ -n "$SB_SUFFIX" ]]; then
+    missing=0
+    for s in SecureBootConfigDxe EnrollDefaultKeys AuthVariable DxeImageVerification; do
+        if ! strings "$OVMF_OUT" 2>/dev/null | grep -qi "$s"; then
+            log "WARN OVMF artifact does not reference '$s' — SB wiring may have silently dropped"
+            missing=$((missing + 1))
+        fi
+    done
+    [[ $missing -eq 0 ]] \
+        && log "SB driver strings detected in OVMF artifact" \
+        || die "SB build produced firmware missing $missing of 4 expected driver strings"
+fi
 
 # ---- 4. coconut-svsm/svsm + igvmbuilder ---------------------------------
 log "=== coconut-svsm/svsm (v2026.03-devel) ==="
