@@ -152,12 +152,15 @@ def main() -> int:
 """,
     )
 
-    # Edit 2: add PCDs after the existing OptionRom policy line.
+    # Edit 2: add FeatureFlag PCDs at the tail of [PcdsFeatureFlag].
+    # Anchor on a unique PcdsFeatureFlag line. Both PCDs ARE FeatureFlag
+    # type upstream (per OvmfPkgX64.dsc [PcdsFeatureFlag]); landing them
+    # anywhere else triggers `error 1002: Mismatched PCD type`.
     patch_file(
         dsc,
         [(
             "pcds",
-            "  gEfiSecurityPkgTokenSpaceGuid.PcdOptionRomImageVerificationPolicy|0x00",
+            "  gEfiMdeModulePkgTokenSpaceGuid.PcdInstallAcpiSdtProtocol|TRUE",
             """
 !if $(SECURE_BOOT_ENABLE) == TRUE
   gUefiOvmfPkgTokenSpaceGuid.PcdSecureBootSupported|TRUE

@@ -33,6 +33,20 @@ if [[ "${QRAB_BUILD_SVSM:-0}" != "1" ]]; then
     die "guard-bit not set. Export QRAB_BUILD_SVSM=1 to build the SVSM lane."
 fi
 
+# NASM 3.0+ rejects `push strict dword` in 64-bit mode, which the
+# coconut-svsm/edk2 `svsm` branch still uses in
+# UefiCpuPkg/Library/CpuExceptionHandlerLib/X64/ExceptionHandlerAsm.nasm.
+# Fail loud + early so the operator does not sit through 10 min of
+# submodule fetches before hitting the build error. Override with
+# QRAB_ALLOW_NASM3=1 when coconut-svsm/edk2 picks up the upstream fix.
+if command -v nasm >/dev/null 2>&1; then
+    nasm_major="$(nasm --version 2>/dev/null | awk '{print $3}' | cut -d. -f1)"
+    if [[ "${nasm_major:-0}" -ge 3 && "${QRAB_ALLOW_NASM3:-0}" != "1" ]]; then
+        die "nasm ${nasm_major}.x detected; coconut-svsm/edk2 svsm branch needs nasm 2.x. \
+Downgrade (Gentoo: emerge -C1 '=dev-lang/nasm-2*') or set QRAB_ALLOW_NASM3=1 to override."
+    fi
+fi
+
 ROOT="$(git -C "$(dirname "${BASH_SOURCE[0]}")" rev-parse --show-toplevel)"
 GIT_COMMON_DIR="$(git -C "$ROOT" rev-parse --git-common-dir)"
 case "$GIT_COMMON_DIR" in
@@ -107,17 +121,26 @@ stage_tree() {
 log "=== igvm C library ==="
 stage_tree igvm "$VENDOR_IGVM" "$BUILD_IGVM"
 
-if ! command -v cargo-cinstall >/dev/null 2>&1; then
-    log "installing cargo-c (--locked)"
-    cargo install --locked cargo-c >/dev/null
+if ! command -v cbindgen >/dev/null 2>&1; then
+    log "installing cbindgen (--locked)"
+    cargo install --locked cbindgen >/dev/null \
+        || die "cargo install cbindgen failed"
 fi
 
 if [[ ! -f "$IGVM_INST/lib/pkgconfig/igvm.pc" && ! -f "$IGVM_INST/lib64/pkgconfig/igvm.pc" ]]; then
-    log "building libigvm -> $IGVM_INST"
+    log "building libigvm (make build) then installing -> $IGVM_INST"
     (
         cd "$BUILD_IGVM"
-        # Upstream Makefile honours PREFIX for install path.
-        PREFIX="$IGVM_INST" make -f igvm_c/Makefile install
+        # `make` default is `all: build test`; `test` needs libcunit which
+        # is not a hard dep for qrab — drop to just `build`.
+        make -f igvm_c/Makefile build \
+            >"$BUILD_ROOT/igvm-build.log" 2>&1 \
+            || { tail -40 "$BUILD_ROOT/igvm-build.log" >&2;
+                 die "igvm build failed; log: $BUILD_ROOT/igvm-build.log"; }
+        PREFIX="$IGVM_INST" make -f igvm_c/Makefile install \
+            >"$BUILD_ROOT/igvm-install.log" 2>&1 \
+            || { tail -40 "$BUILD_ROOT/igvm-install.log" >&2;
+                 die "igvm install failed; log: $BUILD_ROOT/igvm-install.log"; }
     )
 else
     log "libigvm already installed at $IGVM_INST"
