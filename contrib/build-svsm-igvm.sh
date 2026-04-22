@@ -287,25 +287,29 @@ OVMF_OUT="$OUT_DIR/OVMF-SVSM${SB_SUFFIX}.fd"
 cp "$OVMF_FD" "$OVMF_OUT"
 log "$(basename "$OVMF_OUT"): $(stat -c'%s bytes' "$OVMF_OUT")"
 
-# Phase 1.5 sanity: SB-enabled build must contain SB driver strings.
+# Phase 1.5 sanity: SB-enabled build must have compiled the SB driver
+# .efi binaries. The .fd FV is a packed / compressed container so
+# `strings` finds nothing meaningful inside it — check the edk2 build
+# output directory for the expected driver .efis instead.
 if [[ -n "$SB_SUFFIX" ]]; then
+    efi_dir="$BUILD_EDK2/Build/AmdSev/${EDK2_BUILDTYPE}_${EDK2_TOOLCHAIN}/X64"
     missing=0
-    for s in SecureBootConfigDxe EnrollDefaultKeys AuthVariable DxeImageVerification; do
-        if ! strings "$OVMF_OUT" 2>/dev/null | grep -qi "$s"; then
-            log "WARN OVMF artifact does not reference '$s' — SB wiring may have silently dropped"
+    for e in SecureBootConfigDxe.efi EnrollDefaultKeys.efi; do
+        if [[ ! -f "$efi_dir/$e" ]]; then
+            log "WARN edk2 build did not produce $e — SB wiring may have silently dropped"
             missing=$((missing + 1))
         fi
     done
     [[ $missing -eq 0 ]] \
-        && log "SB driver strings detected in OVMF artifact" \
-        || die "SB build produced firmware missing $missing of 4 expected driver strings"
+        && log "SB drivers ($efi_dir/{SecureBootConfigDxe,EnrollDefaultKeys}.efi) produced" \
+        || die "SB build is missing $missing of 2 expected SB driver .efi outputs"
 fi
 
 # ---- 4. coconut-svsm/svsm + igvmbuilder ---------------------------------
 log "=== coconut-svsm/svsm (v2026.03-devel) ==="
 stage_tree svsm "$VENDOR_SVSM" "$BUILD_SVSM"
 
-SVSM_BIN="$BUILD_SVSM/bin/svsm.bin"
+SVSM_ELF="$BUILD_SVSM/bin/svsm"
 SVSM_IGVM="$BUILD_SVSM/bin/coconut-qemu.igvm"
 
 if [[ ! -f "$SVSM_IGVM" || "${QRAB_FORCE_REBUILD_SVSM:-0}" = 1 ]]; then
@@ -321,9 +325,9 @@ if [[ ! -f "$SVSM_IGVM" || "${QRAB_FORCE_REBUILD_SVSM:-0}" = 1 ]]; then
 else
     log "svsm + IGVM already built at $BUILD_SVSM/bin"
 fi
-[[ -f "$SVSM_BIN"  ]] || die "svsm.bin not produced"
-[[ -f "$SVSM_IGVM" ]] || die "coconut-qemu.igvm not produced"
-cp "$SVSM_BIN"  "$OUT_DIR/svsm.bin"
+[[ -f "$SVSM_ELF"  ]] || die "svsm ELF not produced at $SVSM_ELF"
+[[ -f "$SVSM_IGVM" ]] || die "coconut-qemu.igvm not produced at $SVSM_IGVM"
+cp "$SVSM_ELF"  "$OUT_DIR/svsm"
 cp "$SVSM_IGVM" "$OUT_DIR/coconut-qemu.igvm"
 
 # ---- 5. verify IGVM magic ----------------------------------------------
@@ -331,7 +335,7 @@ cp "$SVSM_IGVM" "$OUT_DIR/coconut-qemu.igvm"
 magic="$(head -c4 "$OUT_DIR/coconut-qemu.igvm" | od -c | head -1 | awk '{print $2$3$4$5}')"
 log "coconut-qemu.igvm first 4 bytes: $magic"
 log "coconut-qemu.igvm: $(stat -c'%s bytes' "$OUT_DIR/coconut-qemu.igvm")"
-log "svsm.bin:         $(stat -c'%s bytes' "$OUT_DIR/svsm.bin")"
+log "svsm ELF:         $(stat -c'%s bytes' "$OUT_DIR/svsm")"
 
 log "done. QEMU binary: $QEMU_BIN"
 log "Feed IGVM to QEMU: -object igvm-cfg,id=igvm0,file=$OUT_DIR/coconut-qemu.igvm"
