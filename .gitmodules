@@ -4,3 +4,15 @@
 [submodule "vendor/edk2"]
 	path = vendor/edk2
 	url = https://github.com/tianocore/edk2.git
+[submodule "vendor/svsm"]
+	path = vendor/svsm
+	url = https://github.com/coconut-svsm/svsm.git
+[submodule "vendor/igvm"]
+	path = vendor/igvm
+	url = https://github.com/microsoft/igvm.git
+[submodule "vendor/edk2-svsm"]
+	path = vendor/edk2-svsm
+	url = https://github.com/coconut-svsm/edk2.git
+[submodule "vendor/qemu-svsm"]
+	path = vendor/qemu-svsm
+	url = https://github.com/coconut-svsm/qemu.git
