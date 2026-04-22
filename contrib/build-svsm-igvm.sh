@@ -233,11 +233,15 @@ if [[ -d "$BOOT_CRATE" ]]; then
     (cd "$BOOT_CRATE" && cargo build --release)
     [[ -f "$BOOT_EFI" ]] || die "qrab-boot.efi not produced at $BOOT_EFI"
     if [[ -n "$SB_SUFFIX" \
+       && "${QRAB_SVSM_SB_EMBED_UNSIGNED:-0}" != 1 \
        && -f "$SB_KEYS_DIR/db.key" && -f "$SB_KEYS_DIR/db.crt" ]]; then
         log "signing qrab-boot.efi with contrib/sb-keys/db.key"
         bash "$ROOT/contrib/sign-efi.sh" "$BOOT_EFI" "$BOOT_EFI.signed" \
             >/dev/null || die "sign-efi.sh failed"
         BOOT_EFI="$BOOT_EFI.signed"
+    elif [[ -n "$SB_SUFFIX" && "${QRAB_SVSM_SB_EMBED_UNSIGNED:-0}" = 1 ]]; then
+        log "Secure Boot UNSIGNED mode: embedding RAW qrab-boot.efi for tampered-image smoke"
+        SB_SUFFIX="-SB-UNSIGNED"
     fi
     log "embedding qrab-boot.efi into AmdSev FV"
     python3 "$ROOT/contrib/embed-efi.py" --edk2 "$BUILD_EDK2" --efi "$BOOT_EFI"
@@ -312,7 +316,18 @@ stage_tree svsm "$VENDOR_SVSM" "$BUILD_SVSM"
 SVSM_ELF="$BUILD_SVSM/bin/svsm"
 SVSM_IGVM="$BUILD_SVSM/bin/coconut-qemu.igvm"
 
-if [[ ! -f "$SVSM_IGVM" || "${QRAB_FORCE_REBUILD_SVSM:-0}" = 1 ]]; then
+# Rebuild SVSM whenever OVMF changed (signed <-> unsigned swap, or a
+# manual QRAB_FORCE_REBUILD_OVMF). The IGVM file baked the OVMF inside,
+# so a stale IGVM would carry the old firmware even if we overwrote
+# OVMF.fd on disk.
+ovmf_hash="$(sha256sum "$OVMF_FD" | awk '{print $1}')"
+ovmf_stamp="$BUILD_SVSM/.ovmf-hash"
+ovmf_hash_prev=""
+[[ -f "$ovmf_stamp" ]] && ovmf_hash_prev="$(<"$ovmf_stamp")"
+
+if [[ ! -f "$SVSM_IGVM" \
+   || "${QRAB_FORCE_REBUILD_SVSM:-0}" = 1 \
+   || "$ovmf_hash" != "$ovmf_hash_prev" ]]; then
     (
         cd "$BUILD_SVSM"
         git submodule update --init --depth 1 --recursive 2>/dev/null || true
@@ -322,20 +337,22 @@ if [[ ! -f "$SVSM_IGVM" || "${QRAB_FORCE_REBUILD_SVSM:-0}" = 1 ]]; then
             || { tail -60 "$BUILD_ROOT/svsm-cargo.log" >&2;
                  die "svsm xbuild failed; log: $BUILD_ROOT/svsm-cargo.log"; }
     )
+    echo "$ovmf_hash" > "$ovmf_stamp"
 else
-    log "svsm + IGVM already built at $BUILD_SVSM/bin"
+    log "svsm + IGVM already built at $BUILD_SVSM/bin (OVMF unchanged)"
 fi
 [[ -f "$SVSM_ELF"  ]] || die "svsm ELF not produced at $SVSM_ELF"
 [[ -f "$SVSM_IGVM" ]] || die "coconut-qemu.igvm not produced at $SVSM_IGVM"
 cp "$SVSM_ELF"  "$OUT_DIR/svsm"
-cp "$SVSM_IGVM" "$OUT_DIR/coconut-qemu.igvm"
+cp "$SVSM_IGVM" "$OUT_DIR/coconut-qemu${SB_SUFFIX}.igvm"
 
 # ---- 5. verify IGVM magic ----------------------------------------------
 # IGVM files start with `IGVM` magic per microsoft/igvm spec.
-magic="$(head -c4 "$OUT_DIR/coconut-qemu.igvm" | od -c | head -1 | awk '{print $2$3$4$5}')"
-log "coconut-qemu.igvm first 4 bytes: $magic"
-log "coconut-qemu.igvm: $(stat -c'%s bytes' "$OUT_DIR/coconut-qemu.igvm")"
+IGVM_OUT="$OUT_DIR/coconut-qemu${SB_SUFFIX}.igvm"
+magic="$(head -c4 "$IGVM_OUT" | od -c | head -1 | awk '{print $2$3$4$5}')"
+log "$(basename "$IGVM_OUT") first 4 bytes: $magic"
+log "$(basename "$IGVM_OUT"): $(stat -c'%s bytes' "$IGVM_OUT")"
 log "svsm ELF:         $(stat -c'%s bytes' "$OUT_DIR/svsm")"
 
 log "done. QEMU binary: $QEMU_BIN"
-log "Feed IGVM to QEMU: -object igvm-cfg,id=igvm0,file=$OUT_DIR/coconut-qemu.igvm"
+log "Feed IGVM to QEMU: -object igvm-cfg,id=igvm0,file=$IGVM_OUT"
