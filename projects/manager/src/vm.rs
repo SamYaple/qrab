@@ -19,7 +19,6 @@ use crate::arch::{Arch, MachineConfig};
 use crate::event::ManagerEvent;
 use crate::firmware::{self, OvmfFirmware};
 use crate::namespace::{InitConfig, KvmFd, NsHelper, SevFd};
-use crate::swtpm::SwtpmProcess;
 
 /// Minimum QEMU version. 7.2.0 added `-accel kvm,device=` support for KVM
 /// fd passing, which qrab requires for namespace-isolated KVM access. Also
@@ -276,7 +275,6 @@ struct VmProcess {
     vnc_sock: Option<PathBuf>,
     attest_sock: Option<PathBuf>,
     qga_sock: Option<PathBuf>,
-    swtpm: Option<SwtpmProcess>,
 }
 
 impl VmProcess {
@@ -353,9 +351,6 @@ impl VmProcess {
         }
         if let Some(h) = self.monitor.take() {
             let _ = h.await;
-        }
-        if let Some(ref mut swtpm) = self.swtpm {
-            swtpm.cleanup().await;
         }
     }
 }
@@ -437,30 +432,17 @@ pub enum Accel {
     KvmOrTcg,
 }
 
-/// Legacy alias: prefer `TpmBackend::Swtpm(SwtpmConfig)` on new code
-/// paths. `TpmConfig` is kept because it's the payload inside
-/// `TpmBackend::Swtpm` and because `VmBuilder::tpm(TpmConfig)` stays
-/// as a convenience setter that maps to `TpmBackend::Swtpm`.
-#[derive(Debug, Clone)]
-pub struct TpmConfig {
-    /// swtpm state directory for persistent TPM state.
-    /// If None, uses ephemeral dir in VM's tmpdir (lost on shutdown).
-    pub state_dir: Option<PathBuf>,
-}
-
 /// Kind of vTPM attached to the VM.
 ///
-/// * `Swtpm` — host-userspace swtpm process. Fine for non-CoCo VMs
-///   but insecure on SEV-SNP because the host admin can read every
-///   TPM operation. [`VmBuilder::build`] refuses this combination
-///   when a `SevSnpConfig` is also set.
-/// * `Svsm` — VMPL0 vTPM provided by coconut-svsm, loaded via an
-///   IGVM file at launch time. The only TPM path permitted under
-///   SEV-SNP; the guest sees `/dev/tpm0` backed by RMP-protected
-///   SVSM memory.
+/// qrab ships a single backend today: `Svsm`. Earlier revisions
+/// offered a host-side `Swtpm` variant, but it was removed once the
+/// CoCo path became mandatory — a userspace swtpm is readable by
+/// host admins, which is incompatible with SEV-SNP's trust model.
+/// Keeping the enum around (single variant) rather than inlining
+/// `SvsmConfig` preserves room for future RMP-protected backends
+/// (e.g. IGVM-packaged TPM alternatives) without a surface change.
 #[derive(Debug, Clone)]
 pub enum TpmBackend {
-    Swtpm(TpmConfig),
     Svsm(SvsmConfig),
 }
 
@@ -526,17 +508,6 @@ fn memory_size(config: &MachineConfig) -> String {
         MachineConfig::Uefi { memory } => memory.clone(),
         MachineConfig::SecureBoot { memory } => memory.clone(),
     }
-}
-
-fn build_tpm_args(swtpm_sock: &Path) -> Vec<String> {
-    vec![
-        "-chardev".into(),
-        format!("socket,id=chrtpm,path={}", swtpm_sock.display()),
-        "-tpmdev".into(),
-        "emulator,id=tpm0,chardev=chrtpm".into(),
-        "-device".into(),
-        "tpm-crb,tpmdev=tpm0".into(),
-    ]
 }
 
 /// OVMF's hypervisor-identifier for the PK-KEK1 SMBIOS OEM string.
@@ -740,17 +711,6 @@ impl VmBuilder {
     #[must_use]
     pub fn cpu(mut self, model: impl Into<String>) -> Self {
         self.cpu = Some(model.into());
-        self
-    }
-
-    /// Configure a TPM device (swtpm emulated, CRB frontend).
-    ///
-    /// Legacy shortcut for [`TpmBackend::Swtpm`]. CoCo VMs must NOT
-    /// use this — pair `sev_snp(...)` with [`svsm(SvsmConfig)`]
-    /// instead. `build()` refuses the SNP + Swtpm combination.
-    #[must_use]
-    pub fn tpm(mut self, config: TpmConfig) -> Self {
-        self.tpm = Some(TpmBackend::Swtpm(config));
         self
     }
 
@@ -1438,54 +1398,25 @@ impl VmBuilder {
         // guaranteeing a fresh QEMU process on the next power_on.
         args.push("-no-shutdown".into());
 
-        // --- TPM ---
-        // Swtpm backend spawns a helper process; SVSM backend is purely
-        // CLI-level (IGVM carries the vTPM). `build_svsm_args` already
-        // ran up in the machine-args block for SVSM — here we only
-        // spawn swtpm when that's the chosen backend.
-        let mut swtpm_process: Option<SwtpmProcess> = None;
-
-        match self.tpm.as_ref() {
-            None => {}
-            Some(TpmBackend::Swtpm(cfg)) => {
-                // SNP + Swtpm is a security-model violation (host can
-                // read every TPM op). Refuse before spawning.
-                if self.sev_snp.is_some() {
-                    return Err(Error::Spawn(
-                        "SNP + Swtpm is disallowed — use TpmBackend::Svsm \
-                         for confidential VMs"
-                            .into(),
-                    ));
-                }
-                let swtpm = SwtpmProcess::spawn(
-                    tmpdir.path(),
-                    cfg.state_dir.clone(),
-                    None,
-                )
-                .await?;
-                let tpm_args = build_tpm_args(swtpm.sock());
-                swtpm_process = Some(swtpm);
-                args.extend(tpm_args);
+        // --- TPM (SVSM only) ---
+        // SVSM is the sole supported TPM backend. No host-side process
+        // spawn: the vTPM lives at VMPL0 inside the guest, packaged
+        // with OVMF in the IGVM firmware blob.
+        if let Some(TpmBackend::Svsm(cfg)) = self.tpm.as_ref() {
+            if self.sev_snp.is_none() {
+                return Err(Error::Spawn(
+                    "TpmBackend::Svsm requires a SevSnpConfig — SVSM is \
+                     an SNP-only path"
+                        .into(),
+                ));
             }
-            Some(TpmBackend::Svsm(cfg)) => {
-                // SVSM demands SNP: the IGVM file carries the SEV-SNP
-                // launch directives + VMPL0 SVSM image. Using it on a
-                // non-SNP VM would be meaningless at best.
-                if self.sev_snp.is_none() {
-                    return Err(Error::Spawn(
-                        "TpmBackend::Svsm requires a SevSnpConfig — SVSM is \
-                         an SNP-only path"
-                            .into(),
-                    ));
-                }
-                if !cfg.igvm_path.is_file() {
-                    return Err(Error::Spawn(format!(
-                        "SvsmConfig.igvm_path {} does not exist",
-                        cfg.igvm_path.display()
-                    )));
-                }
-                args.extend(build_svsm_args(&cfg.igvm_path, &self.config)?);
+            if !cfg.igvm_path.is_file() {
+                return Err(Error::Spawn(format!(
+                    "SvsmConfig.igvm_path {} does not exist",
+                    cfg.igvm_path.display()
+                )));
             }
+            args.extend(build_svsm_args(&cfg.igvm_path, &self.config)?);
         }
 
         if let Some(ref pk_path) = self.sb_pk_cert {
@@ -1720,7 +1651,6 @@ impl VmBuilder {
                 vnc_sock,
                 attest_sock,
                 qga_sock,
-                swtpm: swtpm_process,
             },
             // SEV-SNP forces --preconfig even with display (see arg selection above).
             paused_mode: self.display && self.sev_snp.is_none(),
@@ -2447,21 +2377,10 @@ mod tests {
 
     mod svsm {
         use super::super::{
-            build_svsm_args, SvsmConfig, TpmBackend, TpmConfig, VmBuilder,
+            build_svsm_args, SvsmConfig, TpmBackend, VmBuilder,
         };
         use crate::arch::{Arch, MachineConfig};
         use std::path::PathBuf;
-
-        #[test]
-        fn tpm_backend_swtpm_via_legacy_setter() {
-            let b = VmBuilder::new(
-                Arch::X86_64,
-                MachineConfig::Uefi { memory: "1024M".into() },
-            )
-            .tpm(TpmConfig { state_dir: None });
-            assert!(matches!(b.tpm, Some(TpmBackend::Swtpm(_))));
-            assert!(b.qemu_binary_override.is_none());
-        }
 
         #[test]
         fn svsm_setter_picks_up_qemu_binary_override() {

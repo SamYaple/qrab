@@ -4,14 +4,16 @@ pub mod arch;
 pub mod event;
 pub mod firmware;
 pub mod namespace;
-pub mod swtpm;
 pub mod vm;
 
 pub use arch::{Arch, MachineConfig};
 pub use event::ManagerEvent;
 pub use firmware::OvmfFirmware;
 pub use namespace::{InitConfig, KvmFd, SevFd};
-pub use vm::{Accel, PreconfigVm, SevSnpConfig, TpmConfig, Vm, VmBuilder, PRECONFIG_MIN_VERSION};
+pub use vm::{
+    Accel, PreconfigVm, SevSnpConfig, SvsmConfig, TpmBackend, Vm, VmBuilder,
+    PRECONFIG_MIN_VERSION,
+};
 
 /// Crate-level error type for manager.
 #[derive(Debug, thiserror::Error)]
