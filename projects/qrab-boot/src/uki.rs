@@ -51,12 +51,65 @@
 
 use alloc::vec::Vec;
 
+#[cfg(qrab_uki_boot)]
+use qrab_boot_verify::secure_boot::{SbStatus, evaluate_bytes, sb_token};
 use uefi::boot::{self, LoadImageSource};
 use uefi::runtime::{self, VariableAttributes, VariableVendor};
 use uefi::{CStr16, Status, cstr16};
 
 use crate::halt_forever;
 use crate::secret::QRAB_SECRET_GUID;
+
+/// `EFI_GLOBAL_VARIABLE::SecureBoot` (UEFI 2.11 §3.3). Read-only UINT8.
+const SECURE_BOOT_VAR: &CStr16 = cstr16!("SecureBoot");
+/// `EFI_GLOBAL_VARIABLE::SetupMode`.
+const SETUP_MODE_VAR: &CStr16 = cstr16!("SetupMode");
+
+/// Fetch `SecureBoot` + `SetupMode` and evaluate them via
+/// `qrab_boot_verify::secure_boot::evaluate_bytes`. All firmware
+/// errors collapse to `SbStatus::VarMissing(...)` so the caller can
+/// treat "fetch failed" and "variable empty" identically.
+#[cfg(qrab_uki_boot)]
+fn check_firmware_sb() -> SbStatus {
+    let mut sb_buf = [0u8; 4];
+    let mut sm_buf = [0u8; 4];
+    let (sb_slice, sm_slice): (&[u8], &[u8]) = (
+        match runtime::get_variable(
+            SECURE_BOOT_VAR,
+            &VariableVendor::GLOBAL_VARIABLE,
+            &mut sb_buf,
+        ) {
+            Ok((bytes, _)) => bytes,
+            Err(_) => &[],
+        },
+        match runtime::get_variable(
+            SETUP_MODE_VAR,
+            &VariableVendor::GLOBAL_VARIABLE,
+            &mut sm_buf,
+        ) {
+            Ok((bytes, _)) => bytes,
+            Err(_) => &[],
+        },
+    );
+    evaluate_bytes(sb_slice, sm_slice)
+}
+
+/// Enforce `SecureBoot == 1 && SetupMode == 0` before handing the UKI
+/// to firmware. Halts on any other status after emitting the matching
+/// `QRAB_FAIL_SB_*` token. On the happy path logs `QRAB_SB_OK` and
+/// returns so the caller may proceed to LoadImage.
+///
+/// Only called on the real-UKI path (`qrab_uki_boot` cfg). Stub-skip
+/// builds never reach this and continue to emit `QRAB_LOADIMAGE_STUB_SKIP`
+/// as before.
+#[cfg(qrab_uki_boot)]
+fn require_sb_enforced() {
+    let status = check_firmware_sb();
+    log::info!("{}", sb_token(status));
+    if status != SbStatus::Enforcing {
+        halt_forever();
+    }
+}
 
 /// Vendor GUID under which the last-boot attestation blob is published.
 ///
@@ -126,6 +179,14 @@ pub fn load_and_start(uki_bytes: &[u8]) -> ! {
         );
         halt_forever();
     }
+
+    // Refuse to hand the UKI to firmware unless Secure Boot is
+    // enforcing. The check is compiled in only when qrab_uki_boot
+    // is set because that is the only configuration where LoadImage
+    // actually runs. Under any other firmware state (setup mode,
+    // SB disabled, missing vars) we fail closed.
+    #[cfg(qrab_uki_boot)]
+    require_sb_enforced();
 
     // `load_image` wants a `&[u8]` slice; we have one. `file_path=None`
     // tells the firmware the image has no backing device path, which

@@ -28,6 +28,8 @@
 
 extern crate alloc;
 
+pub mod secure_boot;
+
 use alloc::string::ToString;
 use alloc::vec::Vec;
 use core::fmt;
