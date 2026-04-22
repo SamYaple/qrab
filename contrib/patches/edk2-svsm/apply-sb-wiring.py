@@ -72,6 +72,23 @@ def replace_line(path: Path, marker_key: str, old_line: str, new_block: str) -> 
     return True
 
 
+def install_auto_enroll_driver(edk2: Path) -> None:
+    """Copy contrib/patches/edk2-svsm/qrab-sb-auto-enroll/*.{c,inf} into the
+    staged edk2 tree at OvmfPkg/QrabSbAutoEnroll/. Idempotent by content.
+    """
+    src_dir = HERE / "qrab-sb-auto-enroll"
+    dst_dir = edk2 / "OvmfPkg" / "QrabSbAutoEnroll"
+    dst_dir.mkdir(parents=True, exist_ok=True)
+    for f in ("QrabSbAutoEnroll.c", "QrabSbAutoEnroll.inf"):
+        src = src_dir / f
+        dst = dst_dir / f
+        if not src.is_file():
+            raise SystemExit(f"install_auto_enroll_driver: missing source {src}")
+        if dst.is_file() and dst.read_bytes() == src.read_bytes():
+            continue
+        dst.write_bytes(src.read_bytes())
+
+
 def bake_keys(edk2: Path, keys_dir: Path) -> None:
     """Regenerate AuthData.c from qrab PEM certs in `keys_dir`. The produced
     C file uses the same symbol names as the upstream (mMicrosoftKek /
@@ -189,6 +206,10 @@ def main() -> int:
     )
 
     # Edit 4: append SB-gated components after IoMmuDxe [Components].
+    #
+    # QrabSbAutoEnrollDxe is a downstream DXE driver that runs
+    # EnrollDefaultKeys.efi from the FV when PK is missing. Sources
+    # are copied into place by install_auto_enroll_driver() below.
     patch_file(
         dsc,
         [(
@@ -198,6 +219,7 @@ def main() -> int:
 !if $(SECURE_BOOT_ENABLE) == TRUE
   SecurityPkg/VariableAuthenticated/SecureBootConfigDxe/SecureBootConfigDxe.inf
   OvmfPkg/EnrollDefaultKeys/EnrollDefaultKeys.inf
+  OvmfPkg/QrabSbAutoEnroll/QrabSbAutoEnroll.inf
 !endif
 """,
         )],
@@ -214,10 +236,15 @@ def main() -> int:
 !if $(SECURE_BOOT_ENABLE) == TRUE
 INF  SecurityPkg/VariableAuthenticated/SecureBootConfigDxe/SecureBootConfigDxe.inf
 INF  OvmfPkg/EnrollDefaultKeys/EnrollDefaultKeys.inf
+INF  OvmfPkg/QrabSbAutoEnroll/QrabSbAutoEnroll.inf
 !endif
 """,
         )],
     )
+
+    # Install qrab-sb-auto-enroll driver sources into the staged edk2
+    # tree at OvmfPkg/QrabSbAutoEnroll/.
+    install_auto_enroll_driver(edk2)
 
     # ---- post-conditions ---------------------------------------------------
     dsc_text = dsc.read_text()
@@ -229,8 +256,10 @@ INF  OvmfPkg/EnrollDefaultKeys/EnrollDefaultKeys.inf
         (dsc, "DxeImageVerificationLib/DxeImageVerificationLib.inf"),
         (dsc, "SecureBootConfigDxe/SecureBootConfigDxe.inf"),
         (dsc, "OvmfPkg/EnrollDefaultKeys/EnrollDefaultKeys.inf"),
+        (dsc, "OvmfPkg/QrabSbAutoEnroll/QrabSbAutoEnroll.inf"),
         (fdf, "SecureBootConfigDxe/SecureBootConfigDxe.inf"),
         (fdf, "OvmfPkg/EnrollDefaultKeys/EnrollDefaultKeys.inf"),
+        (fdf, "OvmfPkg/QrabSbAutoEnroll/QrabSbAutoEnroll.inf"),
     ]
     for path, needle in required:
         body = dsc_text if path == dsc else fdf_text

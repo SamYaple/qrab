@@ -9,17 +9,20 @@
 #       appear, but so would any unsigned payload — the positive
 #       discrimination comes from scenario 2.)
 #
-#   (2) Firmware SB *probe* for rejection using an unsigned
-#       qrab-boot.efi embed (built via QRAB_SVSM_SB_EMBED_UNSIGNED=1,
-#       produces OVMF-SVSM-SB-UNSIGNED.fd + coconut-qemu-SB-UNSIGNED.igvm).
-#       Outcome classifies firmware state:
-#         - "ENFORCING": image rejected, SB is live in user mode.
-#           Reached only after an auto-enroll driver has run (tracked
-#           under Phase 1.5-G). Halt with EFI security violation;
-#           no QRAB BOOT banner.
-#         - "SETUP_MODE": image loads anyway. PK is not enrolled, so
-#           DxeImageVerificationLib is compiled in but permissive.
-#           Expected state until Phase 1.5-G lands. Banner appears.
+#   (2) QrabSbAutoEnroll DXE driver transitions firmware from
+#       Setup Mode to User Mode on first boot. We use the
+#       QRAB_SVSM_SB_EMBED_UNSIGNED build variant for this scenario
+#       because the build takes a DEBUG path that surfaces the
+#       SetupMode/SecureBoot variable state changes on serial (the
+#       RELEASE signed firmware suppresses the same DEBUG prints).
+#       The assertion is the transition itself: before = Setup Mode
+#       (PK empty), after = User Mode (SB live). Proving
+#       DxeImageVerificationLib rejects a tampered image additionally
+#       requires the image to come from OUTSIDE the FV — FV-embedded
+#       images bypass SB verification by design. The qrab security
+#       model's real enforcement point is the UKI LoadImage call
+#       inside qrab-boot (V8 in overview.md), reachable only with a
+#       running attest-server; that test lands in a future phase.
 #
 # qrab-boot's own UKI-level Secure Boot enforcement (`QRAB_SB_OK` /
 # `QRAB_FAIL_SB_*`, Phase 1.5-C) is gated on `cfg(qrab_uki_boot)` +
@@ -149,54 +152,40 @@ check "$clean1" 'QRAB BOOT v'                present 'qrab-boot banner printed (
 check "$clean1" 'Security Violation'         absent  'no DxeImageVerificationLib rejection'
 check "$clean1" 'QRAB_SNP_DETECTED'          present 'qrab-boot confirms SEV-SNP active'
 
-# --- scenario 2 — unsigned qrab-boot.efi: SB *should* REJECT -----------
-log ""
-log "=== scenario 2: unsigned qrab-boot.efi, SB-enforcement probe ==="
-clean2="$(run_qemu unsigned "$IGVM_UNSIGNED")"
-# Positive side — independent of SB:
-check "$clean2" 'VTPM.*TPM 2.0.*initialized' present 'SVSM vTPM still comes up (independent of SB)'
-check "$clean2" 'BdsDxe: starting Boot0002'  present 'BdsDxe tried to start the Grub-slot entry'
-
-# Enforcement probe. The unsigned qrab-boot-embed build is valid if
-# EITHER:
-#   (a) firmware has transitioned to user mode (PK enrolled) and
-#       DxeImageVerificationLib halts at LoadImage with a security
-#       violation — banner absent — or
-#   (b) firmware is still in SETUP MODE (PK empty). In Setup Mode
-#       DxeImageVerificationLib is compiled in but allows every
-#       image because no policy is anchored yet. This is expected on
-#       coconut-svsm/edk2 until an auto-enroll driver is wired
-#       (tracked as Phase 1.5-G).
+# --- scenario 2 — QrabSbAutoEnroll transitions Setup→User Mode --------
 #
-# Classify based on the serial content so the smoke is accurate
-# instead of misleading.
-rejected=0
-if echo "$clean2" | grep -qE \
-    'Security Violation|SecurityPolicy.*Deny|Image verification policy fail|NULL SECURITY|SecurityPkg.*fail|EFI_SECURITY_VIOLATION'; then
-    rejected=1
-fi
-if [[ $rejected -eq 1 ]] && ! echo "$clean2" | grep -q 'QRAB BOOT v'; then
-    log "OK    firmware REJECTED unsigned image — SB is enforcing (user mode)"
-    sb_state="ENFORCING"
-elif echo "$clean2" | grep -q 'QRAB BOOT v'; then
-    log "NOTE  firmware accepted unsigned image — SB is wired but in SETUP MODE"
-    log "      (PK not enrolled at runtime; EnrollDefaultKeys.efi is a shell"
-    log "      app and needs an auto-enroll driver to fire on first boot)"
-    log "      Phase 1.5-G follow-up: add SecureBootDefaultKeysDxe-style driver"
-    sb_state="SETUP_MODE"
-else
-    log "FAIL  scenario 2 produced neither 'Security Violation' nor a banner"
-    log "      (last 20 lines of $OUT/unsigned.serial.log below)"
-    tail -n 20 "$OUT/unsigned.serial.log" | sed 's/^/      /'
-    fail=1
-    sb_state="UNKNOWN"
-fi
-
+# Critical caveat: images loaded from an FV (like qrab-boot embedded
+# in OVMF) bypass DxeImageVerificationLib by design — the entire FV
+# is integrity-guaranteed by L1 measurement, so the loader treats FV
+# contents as implicitly trusted. That means an "unsigned qrab-boot
+# in FV" can't prove SB rejection; the true SB-on-FV-image test would
+# need an external-media image (disk / PXE).
+#
+# The security-relevant enforcement point for qrab is the UKI
+# LoadImage call inside qrab-boot (V8 in overview.md), which loads
+# bytes off vsock rather than from the FV. That path IS SB-verified;
+# exercising it live needs an attest-server in the smoke (future
+# Phase 2+ work).
+#
+# What this scenario CAN prove end-to-end today is that the
+# QrabSbAutoEnroll DXE driver transitions firmware out of Setup Mode
+# — the necessary precondition for SB to be live at all.
 log ""
-log "SB state detected: $sb_state"
+log "=== scenario 2: QrabSbAutoEnroll promotes firmware to user mode ==="
+clean2="$(run_qemu enrollment "$IGVM_UNSIGNED")"
+check "$clean2" 'QrabSbAutoEnroll: entry .PK absent'       present 'driver dispatched at ReadyToBoot'
+check "$clean2" 'QrabSbAutoEnroll: found EnrollDefaultKeys.efi in FV' present 'FV lookup located EnrollDefaultKeys'
+check "$clean2" 'info: SetupMode=1 SecureBoot=0'           present 'firmware started in Setup Mode (PK empty)'
+check "$clean2" 'info: SetupMode=0 SecureBoot=1'           present 'firmware TRANSITIONED to User Mode after enrol'
+check "$clean2" 'QrabSbAutoEnroll: EnrollDefaultKeys completed; PK NOW ENROLLED' present 'driver confirms PK is now enrolled'
+
 log ""
 if [[ $fail -eq 0 ]]; then
-    log "smoke PASS (scenario 1 accept-signed green; scenario 2 classified $sb_state)"
+    log "smoke PASS"
+    log "  scenario 1: firmware SB accepted signed qrab-boot.efi"
+    log "  scenario 2: auto-enroll driver transitioned SetupMode 1->0, SecureBoot 0->1"
+    log "  caveat: proving DxeImageVerificationLib rejects a tampered UKI needs"
+    log "  a live attest-server — the UKI LoadImage path runs inside qrab-boot."
     exit 0
 else
     die "smoke FAILED — see serial logs under $OUT/"
