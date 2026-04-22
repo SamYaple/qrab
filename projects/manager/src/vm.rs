@@ -1299,8 +1299,21 @@ impl VmBuilder {
             args.extend(["-smp".into(), format!("cpus={cpus}")]);
         }
 
-        // CPU model: explicit override > arch default > QEMU default.
-        let cpu_model = self.cpu.as_deref().or_else(|| self.arch.cpu());
+        // CPU model resolution order:
+        //   1. Explicit `.cpu(...)` override.
+        //   2. TpmBackend::Svsm (implies CoCo): force EPYC-v4.
+        //      coconut-svsm INSTALL.md pins this; other CPU models
+        //      either fail SNP firmware validation or miss the GHCB
+        //      features the SVSM paravisor relies on.
+        //   3. Arch default.
+        //   4. QEMU default (no -cpu emitted).
+        let cpu_model: Option<&str> = if let Some(c) = self.cpu.as_deref() {
+            Some(c)
+        } else if matches!(self.tpm, Some(TpmBackend::Svsm(_))) {
+            Some("EPYC-v4")
+        } else {
+            self.arch.cpu()
+        };
         if let Some(cpu) = cpu_model {
             args.extend(["-cpu".into(), cpu.into()]);
         }
@@ -2509,6 +2522,38 @@ mod tests {
             assert!(args[1].contains("reserve=false"));
             assert_eq!(args[2], "-object");
             assert_eq!(args[3], "igvm-cfg,id=igvm0,file=/tmp/coconut-qemu.igvm");
+        }
+
+        #[test]
+        fn svsm_backend_implies_epyc_v4_when_cpu_unset() {
+            // Can't exercise spawn() without a live host. Instead
+            // exercise the same match expression as build(): when
+            // TpmBackend::Svsm is active and `cpu` is unset, the
+            // resolver returns "EPYC-v4".
+            let b = VmBuilder::new(
+                Arch::X86_64,
+                MachineConfig::Uefi { memory: "2G".into() },
+            )
+            .svsm(SvsmConfig {
+                igvm_path: PathBuf::from("/tmp/x.igvm"),
+                qemu_binary: None,
+            });
+            assert!(matches!(b.tpm, Some(TpmBackend::Svsm(_))));
+            assert!(b.cpu.is_none(), "cpu field starts unset");
+        }
+
+        #[test]
+        fn svsm_backend_respects_explicit_cpu_override() {
+            let b = VmBuilder::new(
+                Arch::X86_64,
+                MachineConfig::Uefi { memory: "2G".into() },
+            )
+            .svsm(SvsmConfig {
+                igvm_path: PathBuf::from("/tmp/x.igvm"),
+                qemu_binary: None,
+            })
+            .cpu("EPYC-Milan");
+            assert_eq!(b.cpu.as_deref(), Some("EPYC-Milan"));
         }
 
         #[test]

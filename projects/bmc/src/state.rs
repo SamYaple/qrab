@@ -246,13 +246,17 @@ impl BmcState {
         }
     }
 
-    /// Spawn the hardcoded SEV-SNP + TPM + KVM + UEFI x86_64 VM with the
-    /// Ubuntu SNP cloud image and cloud-init seed. Transitions Off -> Running.
+    /// Spawn the hardcoded SEV-SNP + SVSM-vTPM + KVM + UEFI x86_64 VM
+    /// with the Ubuntu SNP cloud image and cloud-init seed. Transitions
+    /// Off -> Running.
     ///
     /// The only knobs that come from `BmcConfig` are `memory` and `cpus`.
-    /// Everything else is fixed: SEV-SNP, TPM (ephemeral swtpm), KVM with
-    /// EPYC-v4 CPU, UEFI via the AmdSev OVMF, display enabled, Ubuntu SNP
-    /// cloud image as the boot disk, cloud-init seed as the secondary disk.
+    /// Everything else is fixed: SEV-SNP (mandatory), SVSM vTPM at VMPL0
+    /// (via `coconut-qemu-SB.igvm`; no host-side swtpm on the CoCo path),
+    /// KVM with EPYC-v4 CPU, UEFI via the IGVM-embedded OVMF-SVSM-SB.fd
+    /// (no separate `-machine firmware=` — the IGVM carries it), display
+    /// enabled, Ubuntu SNP cloud image as the boot disk, cloud-init seed
+    /// as the secondary disk.
     ///
     /// Internally the VM goes through a paused (--preconfig) state where
     /// QMP commands like blockdev-add and device_add are issued, then `cont`
@@ -307,9 +311,16 @@ impl BmcState {
         let config = self.config.lock().await.clone();
 
         // --- Hardcoded prerequisites ---
-        if which::which("swtpm").is_err() {
-            bail!("hardcoded TPM profile requires swtpm in PATH but it was not found");
-        }
+        // CoCo path: IGVM + IGVM-aware QEMU required. swtpm intentionally
+        // absent — host userspace TPM is not acceptable under SEV-SNP.
+        let svsm = manager::firmware::find_svsm_artifacts().ok_or_else(|| {
+            anyhow::anyhow!(
+                "SEV-SNP + SVSM profile requires target/svsm-out/coconut-qemu-SB.igvm \
+                 and the coconut-svsm/qemu fork. Run `contrib/build-svsm-igvm.sh` \
+                 (see issues/svsm-vtpm-integration.md) or set \
+                 QRAB_SVSM_IGVM_PATH + QRAB_SVSM_QEMU_BIN."
+            )
+        })?;
 
         // SEV-SNP with Ubuntu needs ≥1G RAM (256M crashes during kernel
         // page conversions, 512M OOMs during cloud-init).
@@ -327,15 +338,6 @@ impl BmcState {
                 config.memory.clone()
             }
         };
-
-        // SEV-SNP needs the AmdSev OVMF variant (contains SEV metadata
-        // GUID table for SNP_LAUNCH_UPDATE). Standard OVMF won't work.
-        let amdsev_fw = manager::firmware::find_amdsev_ovmf().ok_or_else(|| {
-            anyhow::anyhow!(
-                "SEV-SNP requires AmdSev OVMF firmware but none found. \
-                 Install edk2-amdsev or build the AmdSev variant of OVMF."
-            )
-        })?;
 
         // Resolve disks: SNP overlay + cloud-init seed. Always present —
         // there is no "no disks" code path anymore.
@@ -379,9 +381,11 @@ impl BmcState {
             .accel(manager::vm::Accel::Kvm)
             .cpu("EPYC-v4")
             .display()
-            .firmware(amdsev_fw)
             .sev_snp(manager::vm::SevSnpConfig::new())
-            .tpm(manager::vm::TpmConfig { state_dir: None });
+            .svsm(manager::vm::SvsmConfig {
+                igvm_path: svsm.igvm,
+                qemu_binary: Some(svsm.qemu),
+            });
 
         let mut paused_vm = builder.spawn().await?;
 

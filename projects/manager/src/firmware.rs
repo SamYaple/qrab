@@ -107,6 +107,93 @@ pub const QRAB_OVMF_SEARCH_PATHS: &[&str] = &[
     "/usr/local/share/edk2/QrabBoot/OVMF.fd",
 ];
 
+/// The coconut-svsm IGVM + QEMU fork pair required by
+/// [`crate::vm::TpmBackend::Svsm`]. Produced by
+/// `contrib/build-svsm-igvm.sh` under `QRAB_SVSM_SB=1` on a
+/// coconut-svsm-patched host. Callers pass the resolved struct into
+/// [`crate::vm::SvsmConfig`].
+#[derive(Debug, Clone)]
+pub struct SvsmArtifacts {
+    /// Path to `coconut-qemu-SB.igvm` (IGVM firmware carrying
+    /// OVMF-SVSM-SB.fd + SVSM VMPL0 kernel + launch directives).
+    pub igvm: PathBuf,
+    /// Path to the IGVM-aware `qemu-system-x86_64` from
+    /// `coconut-svsm/qemu` (branch `svsm-igvm`). Stock QEMU 10.2 on
+    /// bb does NOT understand `-object igvm-cfg`.
+    pub qemu: PathBuf,
+}
+
+/// Locate the SVSM artifacts needed to spawn a CoCo VM.
+///
+/// Resolution order:
+///
+///   1. `QRAB_SVSM_IGVM_PATH` + `QRAB_SVSM_QEMU_BIN` env vars
+///      (operator-supplied absolute paths). Both must be set to take
+///      the env path; otherwise we fall through.
+///   2. `<workspace>/target/svsm-out/coconut-qemu-SB.igvm` +
+///      `<workspace>/target/svsm-build/qemu-svsm-inst/bin/qemu-system-x86_64`
+///      — `contrib/build-svsm-igvm.sh` output, resolved relative to the
+///      current working directory. Only used if BOTH exist.
+///   3. `QRAB_SVSM_SEARCH_PATHS` const (system-wide installs, see
+///      [`QRAB_SVSM_SEARCH_PATHS`]).
+///
+/// Returns `None` if no candidate pair resolves to regular files.
+/// Callers should `bail!` with a pointer at
+/// `contrib/build-svsm-igvm.sh` when that happens — a missing IGVM is
+/// not something the manager can silently work around.
+pub fn find_svsm_artifacts() -> Option<SvsmArtifacts> {
+    if let (Some(igvm), Some(qemu)) = (
+        std::env::var_os("QRAB_SVSM_IGVM_PATH"),
+        std::env::var_os("QRAB_SVSM_QEMU_BIN"),
+    ) {
+        let igvm = PathBuf::from(igvm);
+        let qemu = PathBuf::from(qemu);
+        if igvm.is_file() && qemu.is_file() {
+            return Some(SvsmArtifacts { igvm, qemu });
+        }
+    }
+
+    let ws_igvm = Path::new("target")
+        .join("svsm-out")
+        .join("coconut-qemu-SB.igvm");
+    let ws_qemu = Path::new("target")
+        .join("svsm-build")
+        .join("qemu-svsm-inst")
+        .join("bin")
+        .join("qemu-system-x86_64");
+    if ws_igvm.is_file() && ws_qemu.is_file() {
+        return Some(SvsmArtifacts {
+            igvm: ws_igvm,
+            qemu: ws_qemu,
+        });
+    }
+
+    for &(igvm_path, qemu_path) in QRAB_SVSM_SEARCH_PATHS {
+        let igvm = Path::new(igvm_path);
+        let qemu = Path::new(qemu_path);
+        if igvm.is_file() && qemu.is_file() {
+            return Some(SvsmArtifacts {
+                igvm: igvm.to_path_buf(),
+                qemu: qemu.to_path_buf(),
+            });
+        }
+    }
+    None
+}
+
+/// System-wide SVSM artifact locations. Packagers that ship qrab's
+/// CoCo firmware put the IGVM and IGVM-aware QEMU here.
+pub const QRAB_SVSM_SEARCH_PATHS: &[(&str, &str)] = &[
+    (
+        "/usr/share/qrab/svsm/coconut-qemu-SB.igvm",
+        "/usr/bin/qemu-system-x86_64-svsm",
+    ),
+    (
+        "/usr/local/share/qrab/svsm/coconut-qemu-SB.igvm",
+        "/usr/local/bin/qemu-system-x86_64-svsm",
+    ),
+];
+
 /// AMD SEV-SNP OVMF firmware search paths.
 const AMDSEV_OVMF_PATHS: &[&str] = &[
     // Gentoo (edk2-amdsev package)
@@ -241,6 +328,47 @@ mod tests {
             None => {}
             Some(p) if p == Path::new("target/ovmf/OVMF.fd") => {}
             Some(p) if QRAB_OVMF_SEARCH_PATHS.iter().any(|s| p == Path::new(s)) => {}
+            other => panic!("unexpected hit: {other:?}"),
+        }
+    }
+
+    #[test]
+    #[allow(unsafe_code)]
+    fn find_svsm_artifacts_env_override() {
+        let tmp = tempfile::tempdir().unwrap();
+        let igvm = tmp.path().join("coconut.igvm");
+        let qemu = tmp.path().join("qemu-svsm");
+        fs::write(&igvm, b"igvm").unwrap();
+        fs::write(&qemu, b"#!/bin/sh\necho stub").unwrap();
+
+        // Both env vars present + point at real files.
+        unsafe {
+            std::env::set_var("QRAB_SVSM_IGVM_PATH", &igvm);
+            std::env::set_var("QRAB_SVSM_QEMU_BIN", &qemu);
+        }
+        let hit = find_svsm_artifacts();
+        assert!(hit.is_some(), "env override should resolve");
+        let art = hit.unwrap();
+        assert_eq!(art.igvm, igvm);
+        assert_eq!(art.qemu, qemu);
+
+        // Only one env set — should fall through.
+        unsafe {
+            std::env::remove_var("QRAB_SVSM_QEMU_BIN");
+        }
+        let fallthrough = find_svsm_artifacts();
+        unsafe {
+            std::env::remove_var("QRAB_SVSM_IGVM_PATH");
+        }
+        // On a dev host with no target/svsm-out or /usr/share/qrab
+        // install, expect None. On a host that has run
+        // build-svsm-igvm.sh in $CWD, the worktree-target branch wins.
+        match fallthrough {
+            None => {}
+            Some(a) if a.igvm.ends_with("coconut-qemu-SB.igvm") => {}
+            Some(a) if QRAB_SVSM_SEARCH_PATHS
+                .iter()
+                .any(|(i, _)| a.igvm == Path::new(i)) => {}
             other => panic!("unexpected hit: {other:?}"),
         }
     }
