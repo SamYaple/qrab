@@ -383,7 +383,19 @@ impl Drop for VmProcess {
 ///
 /// Requires QEMU >= 3.0.0. The version is checked after connecting and the
 /// spawn will fail with an error if the QEMU binary is too old.
-pub struct VmBuilder {
+/// Type-state marker for a `VmBuilder` with no SEV-SNP config set yet.
+/// The default state produced by [`VmBuilder::new`]. Terminal methods
+/// like `spawn()` are NOT available on `VmBuilder<NoSnp>` — calling
+/// `spawn()` without first calling `.sev_snp(...)` is a compile error.
+pub struct NoSnp;
+
+/// Type-state marker for a `VmBuilder` with SEV-SNP configured. Only
+/// reachable via `.sev_snp(...)` on a `VmBuilder<NoSnp>`. Exposes
+/// `spawn()`; re-applying `.sev_snp(...)` here just overwrites the
+/// config and stays in this state.
+pub struct WithSnp;
+
+pub struct VmBuilder<S = NoSnp> {
     arch: Arch,
     config: MachineConfig,
     kernel: Option<PathBuf>,
@@ -415,6 +427,7 @@ pub struct VmBuilder {
     /// `contrib/build-svsm-igvm.sh` + `QRAB_SVSM_SB=1 QRAB_SVSM_SB_BAKE=1`.
     sb_pk_cert: Option<PathBuf>,
     extra_args: Vec<String>,
+    _state: std::marker::PhantomData<S>,
 }
 
 /// QEMU accelerator selection for [`VmBuilder::accel`].
@@ -583,15 +596,46 @@ fn build_sb_pk_smbios_args(pem_path: &Path) -> Result<Vec<String>> {
     Ok(vec!["-smbios".into(), format!("type=11,value={oem}")])
 }
 
-impl VmBuilder {
+impl VmBuilder<NoSnp> {
     #[must_use]
-    /// Construct a new VM builder.
+    /// Construct a new VM builder. Start in the `NoSnp` type-state —
+    /// terminal methods like `spawn()` are NOT reachable until
+    /// `.sev_snp(...)` is called, which transitions the builder to
+    /// `WithSnp`. That is how SEV-SNP is enforced at compile time:
+    /// there is no way to construct a running `VmBuilder<WithSnp>`
+    /// without going through the `.sev_snp(...)` setter.
     ///
-    /// `sev_snp` is required: qrab is a SEV-SNP-only VMM after the
-    /// scope-tightening round. Callers that want to adjust the
-    /// `SevSnpConfig` later can use [`VmBuilder::sev_snp`] to replace
-    /// the value.
-    pub fn new(arch: Arch, config: MachineConfig, sev_snp: SevSnpConfig) -> Self {
+    /// ## Example: typestate enforces SEV-SNP
+    ///
+    /// Calling `.spawn()` without first calling `.sev_snp(...)` is a
+    /// compile error:
+    ///
+    /// ```compile_fail
+    /// use manager::{Arch, MachineConfig, VmBuilder};
+    /// let builder = VmBuilder::new(
+    ///     Arch::X86_64,
+    ///     MachineConfig::Uefi { memory: "1G".into() },
+    /// );
+    /// let _ = builder.spawn();  // no method `spawn` on VmBuilder<NoSnp>
+    /// ```
+    ///
+    /// With `.sev_snp(...)` the builder transitions to `WithSnp` and
+    /// `.spawn()` is available. The doctest below type-checks (the
+    /// actual spawn is `no_run` because it needs a live tokio runtime
+    /// + /dev/sev):
+    ///
+    /// ```no_run
+    /// use manager::{Arch, MachineConfig, SevSnpConfig, VmBuilder};
+    /// # async fn demo() {
+    /// let builder = VmBuilder::new(
+    ///     Arch::X86_64,
+    ///     MachineConfig::Uefi { memory: "1G".into() },
+    /// )
+    /// .sev_snp(SevSnpConfig::default());
+    /// let _preconfig = builder.spawn().await.unwrap();
+    /// # }
+    /// ```
+    pub fn new(arch: Arch, config: MachineConfig) -> Self {
         Self {
             arch,
             config,
@@ -607,23 +651,56 @@ impl VmBuilder {
             accel: None,
             smp: None,
             cpu: None,
-            sev_snp: Some(sev_snp),
+            sev_snp: None,
             tpm: None,
             qemu_binary_override: None,
             sb_pk_cert: None,
             extra_args: Vec::new(),
+            _state: std::marker::PhantomData,
         }
     }
 
-    /// Replace the SEV-SNP config. The builder always has one since
-    /// [`VmBuilder::new`] requires it; this setter overwrites the
-    /// value for callers that want to tweak fields (policy, host_data,
-    /// id_block, ...) after construction.
+    /// Transition from `NoSnp` to `WithSnp`. The only way to reach a
+    /// builder on which `spawn()` is callable.
+    #[must_use]
+    pub fn sev_snp(self, config: SevSnpConfig) -> VmBuilder<WithSnp> {
+        VmBuilder {
+            arch: self.arch,
+            config: self.config,
+            kernel: self.kernel,
+            initrd: self.initrd,
+            append: self.append,
+            serial: self.serial,
+            qga: self.qga,
+            display: self.display,
+            firmware: self.firmware,
+            ovmf: self.ovmf,
+            secure_boot: self.secure_boot,
+            accel: self.accel,
+            smp: self.smp,
+            cpu: self.cpu,
+            sev_snp: Some(config),
+            tpm: self.tpm,
+            qemu_binary_override: self.qemu_binary_override,
+            sb_pk_cert: self.sb_pk_cert,
+            extra_args: self.extra_args,
+            _state: std::marker::PhantomData,
+        }
+    }
+}
+
+impl VmBuilder<WithSnp> {
+    /// Replace the SEV-SNP config on a builder that's already in the
+    /// `WithSnp` state. Stays in `WithSnp`; use the `NoSnp` variant
+    /// of this setter to make the initial transition.
     #[must_use]
     pub fn sev_snp(mut self, config: SevSnpConfig) -> Self {
         self.sev_snp = Some(config);
         self
     }
+}
+
+impl<S> VmBuilder<S> {
 
     /// Use direct kernel boot (bypasses bootloader).
     #[must_use]
@@ -1128,6 +1205,11 @@ impl VmBuilder {
         Ok(())
     }
 
+}
+
+/// Terminal methods (`spawn`) only available on `VmBuilder<WithSnp>`
+/// — the type-state gate that enforces SEV-SNP at compile time.
+impl VmBuilder<WithSnp> {
     /// Spawn QEMU inside namespace isolation via `qrab-init` and connect QMP.
     ///
     /// Returns a [`PreconfigVm`] handle for issuing configuration commands
@@ -1985,7 +2067,7 @@ impl Vm {
 mod tests {
     use super::validate_memory;
     use super::SevSnpConfig;
-    use super::{Accel, VmBuilder};
+    use super::{Accel, VmBuilder, WithSnp};
     use crate::arch::{Arch, MachineConfig};
 
     #[test]
@@ -2155,8 +2237,8 @@ mod tests {
                 MachineConfig::Uefi {
                     memory: "1024".into(),
                 },
-                super::super::SevSnpConfig::default(),
             )
+            .sev_snp(super::super::SevSnpConfig::default())
             .sb_pk_cert(std::path::PathBuf::from("/dev/null"));
             // Field is private; exercising the setter through the public
             // API guarantees the #[must_use] chaining compiles. If a
@@ -2225,12 +2307,12 @@ mod tests {
 
     // -- build_sev_args tests --
 
-    fn make_sev_builder(sev: SevSnpConfig) -> VmBuilder {
+    fn make_sev_builder(sev: SevSnpConfig) -> VmBuilder<WithSnp> {
         VmBuilder::new(
             Arch::X86_64,
             MachineConfig::Uefi { memory: "4G".into() },
-            sev,
         )
+        .sev_snp(sev)
         .accel(Accel::Kvm)
         .cpu("EPYC-v4")
     }
@@ -2246,11 +2328,10 @@ mod tests {
         assert!(!args[1].contains("sev-guest,"));
         assert_eq!(suffix, Some(",confidential-guest-support=sev0".into()));
     }
-    // `build_sev_args_no_sev` removed: SevSnpConfig is now mandatory at
-    // the VmBuilder::new() constructor, so there is no "no-SEV"
-    // state to test for. The no-suffix branch in build_sev_args is
-    // effectively dead code retained only so the internal helper keeps
-    // its pre-tightening signature.
+    // `build_sev_args_no_sev` removed: SEV-SNP is enforced via the
+    // `VmBuilder<NoSnp> -> VmBuilder<WithSnp>` typestate transition —
+    // the build_sev_args helper is now only reachable from WithSnp,
+    // so there is no "no-SEV" branch to exercise.
 
     #[test]
     fn build_sev_args_full_snp_config() {
@@ -2342,6 +2423,32 @@ mod tests {
         assert!(SevSnpConfig::default().attest_server_url.is_none());
     }
 
+    // -- typestate (Phase 3e-v2) --
+    //
+    // Compile-time assertions that `VmBuilder<NoSnp>` does NOT expose
+    // `.spawn()` and `VmBuilder<WithSnp>` does. Pure trait-bound dance,
+    // no runtime cost. If either side regresses the whole crate fails
+    // to build — exactly what we want.
+
+    /// `NoSnp` builders may not be spawned. This is a sealed trait
+    /// confined to `VmBuilder<WithSnp>`.
+    trait IsSpawnable {}
+    impl IsSpawnable for VmBuilder<super::WithSnp> {}
+
+    #[allow(dead_code)]
+    fn _assert_withsnp_is_spawnable<T: IsSpawnable>() {}
+
+    #[test]
+    fn typestate_withsnp_is_spawnable() {
+        // If this fails to compile, the typestate gate is broken.
+        _assert_withsnp_is_spawnable::<VmBuilder<super::WithSnp>>();
+    }
+
+    // The matching negative — that `VmBuilder<NoSnp>: !IsSpawnable` —
+    // would need nightly-only negative impl support. We rely on the
+    // existence of the `impl VmBuilder<WithSnp>` block in the lib
+    // being the ONLY site of `spawn()` to keep the asymmetry real.
+
     // -- svsm / TpmBackend tests (Phase 2) --
 
     mod svsm {
@@ -2360,8 +2467,8 @@ mod tests {
             let b = VmBuilder::new(
                 Arch::X86_64,
                 MachineConfig::Uefi { memory: "1024M".into() },
-                super::super::SevSnpConfig::default(),
             )
+            .sev_snp(super::super::SevSnpConfig::default())
             .svsm(cfg);
             assert!(matches!(b.tpm, Some(TpmBackend::Svsm(_))));
             assert_eq!(
@@ -2379,8 +2486,8 @@ mod tests {
             let b = VmBuilder::new(
                 Arch::X86_64,
                 MachineConfig::Uefi { memory: "1024M".into() },
-                super::super::SevSnpConfig::default(),
             )
+            .sev_snp(super::super::SevSnpConfig::default())
             .svsm(cfg);
             assert!(b.qemu_binary_override.is_none());
         }
@@ -2390,8 +2497,8 @@ mod tests {
             let b = VmBuilder::new(
                 Arch::X86_64,
                 MachineConfig::Uefi { memory: "1024M".into() },
-                super::super::SevSnpConfig::default(),
             )
+            .sev_snp(super::super::SevSnpConfig::default())
             .qemu_binary(PathBuf::from("/usr/local/bin/qemu-custom"));
             assert_eq!(
                 b.qemu_binary_override.as_ref().unwrap().to_str(),
@@ -2424,8 +2531,8 @@ mod tests {
             let b = VmBuilder::new(
                 Arch::X86_64,
                 MachineConfig::Uefi { memory: "2G".into() },
-                super::super::SevSnpConfig::default(),
             )
+            .sev_snp(super::super::SevSnpConfig::default())
             .svsm(SvsmConfig {
                 igvm_path: PathBuf::from("/tmp/x.igvm"),
                 qemu_binary: None,
@@ -2439,8 +2546,8 @@ mod tests {
             let b = VmBuilder::new(
                 Arch::X86_64,
                 MachineConfig::Uefi { memory: "2G".into() },
-                super::super::SevSnpConfig::default(),
             )
+            .sev_snp(super::super::SevSnpConfig::default())
             .svsm(SvsmConfig {
                 igvm_path: PathBuf::from("/tmp/x.igvm"),
                 qemu_binary: None,

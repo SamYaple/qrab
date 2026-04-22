@@ -52,10 +52,10 @@ async fn sev_snp_vm_spawn() {
         }
     };
 
-    let builder = VmBuilder::new(Arch::X86_64, MachineConfig::SecureBoot { memory: "256M".into() }, SevSnpConfig::default())
+    let builder = VmBuilder::new(Arch::X86_64, MachineConfig::SecureBoot { memory: "256M".into() }).sev_snp(SevSnpConfig::default())
         .accel(Accel::Kvm)
         .cpu("EPYC-v4")
-        .sev_snp(SevSnpConfig::default())
+        
         .ovmf(fw)
         .serial();
 
@@ -98,10 +98,10 @@ async fn sev_snp_vm_boot() {
         }
     };
 
-    let builder = VmBuilder::new(Arch::X86_64, MachineConfig::SecureBoot { memory: "256M".into() }, SevSnpConfig::default())
+    let builder = VmBuilder::new(Arch::X86_64, MachineConfig::SecureBoot { memory: "256M".into() }).sev_snp(SevSnpConfig::default())
         .accel(Accel::Kvm)
         .cpu("EPYC-v4")
-        .sev_snp(SevSnpConfig::default())
+        
         .ovmf(fw)
         .display()
         .serial();
@@ -148,10 +148,10 @@ fn sev_snp_requires_kvm() {
             return;
         }
 
-        let result = VmBuilder::new(Arch::X86_64, MachineConfig::SecureBoot { memory: "256M".into() }, SevSnpConfig::default())
+        let result = VmBuilder::new(Arch::X86_64, MachineConfig::SecureBoot { memory: "256M".into() }).sev_snp(SevSnpConfig::default())
             .accel(Accel::Tcg)
             .cpu("EPYC-v4")
-            .sev_snp(SevSnpConfig::default())
+            
             .spawn()
             .await;
 
@@ -252,10 +252,10 @@ async fn sev_snp_boot_with_snp_kernel() {
         .expect("qemu-img");
     assert!(img.status.success(), "qemu-img create overlay failed");
 
-    let builder = VmBuilder::new(Arch::X86_64, MachineConfig::Uefi { memory: "512M".into() }, SevSnpConfig::default())
+    let builder = VmBuilder::new(Arch::X86_64, MachineConfig::Uefi { memory: "512M".into() }).sev_snp(SevSnpConfig::default())
         .accel(Accel::Kvm)
         .cpu("EPYC-v4")
-        .sev_snp(SevSnpConfig::default())
+        
         .firmware(amdsev_fw)
         .display()
         .serial();
@@ -377,8 +377,8 @@ async fn sev_snp_launch_memory_matrix() {
             let builder = VmBuilder::new(
                 Arch::X86_64,
                 MachineConfig::Uefi { memory: (*mem).into() },
-                sev,
             )
+                .sev_snp(sev)
                 .accel(Accel::Kvm)
                 .cpu("EPYC-v4")
                 .firmware(amdsev_fw.clone())
@@ -474,10 +474,10 @@ async fn sev_snp_boot_bmc_full() {
         .expect("qemu-img");
     assert!(img.status.success());
 
-    let builder = VmBuilder::new(Arch::X86_64, MachineConfig::Uefi { memory: "512M".into() }, SevSnpConfig::default())
+    let builder = VmBuilder::new(Arch::X86_64, MachineConfig::Uefi { memory: "512M".into() }).sev_snp(SevSnpConfig::default())
         .accel(Accel::Kvm)
         .cpu("EPYC-v4")
-        .sev_snp(SevSnpConfig::default())
+        
         .firmware(amdsev_fw)
         .display()
         .serial();
@@ -601,10 +601,10 @@ async fn sev_snp_vm_boot_high_fds() {
     }
     eprintln!("Opened {} dummy fds to simulate server", dummy_fds.len());
 
-    let builder = VmBuilder::new(Arch::X86_64, MachineConfig::SecureBoot { memory: "256M".into() }, SevSnpConfig::default())
+    let builder = VmBuilder::new(Arch::X86_64, MachineConfig::SecureBoot { memory: "256M".into() }).sev_snp(SevSnpConfig::default())
         .accel(Accel::Kvm)
         .cpu("EPYC-v4")
-        .sev_snp(SevSnpConfig::default())
+        
         .ovmf(fw)
         .display()
         .serial();
@@ -699,10 +699,10 @@ async fn sev_snp_vm_boot_bmc_full() {
     };
     eprintln!("Using AmdSev OVMF: {}", amdsev_fw.display());
 
-    let builder = VmBuilder::new(Arch::X86_64, MachineConfig::SecureBoot { memory: "256M".into() }, SevSnpConfig::default())
+    let builder = VmBuilder::new(Arch::X86_64, MachineConfig::SecureBoot { memory: "256M".into() }).sev_snp(SevSnpConfig::default())
         .accel(Accel::Kvm)
         .cpu("EPYC-v4")
-        .sev_snp(SevSnpConfig::default())
+        
         .firmware(amdsev_fw)
         .display()
         .serial();
@@ -841,10 +841,10 @@ async fn sev_snp_vm_boot_bmc_flow() {
     assert!(qemu_img.status.success(), "qemu-img create failed");
 
     // Mirror BMC builder: attestation chardev via extra args
-    let builder = VmBuilder::new(Arch::X86_64, MachineConfig::SecureBoot { memory: "256M".into() }, SevSnpConfig::default())
+    let builder = VmBuilder::new(Arch::X86_64, MachineConfig::SecureBoot { memory: "256M".into() }).sev_snp(SevSnpConfig::default())
         .accel(Accel::Kvm)
         .cpu("EPYC-v4")
-        .sev_snp(SevSnpConfig::default())
+        
         .ovmf(fw)
         .display()
         .serial();
@@ -1004,10 +1004,10 @@ async fn sev_snp_boot_crash_upstream_bug() {
         .expect("qemu-img");
     assert!(img.status.success(), "qemu-img create overlay failed");
 
-    let builder = VmBuilder::new(Arch::X86_64, MachineConfig::Uefi { memory: "256M".into() }, SevSnpConfig::default())
+    let builder = VmBuilder::new(Arch::X86_64, MachineConfig::Uefi { memory: "256M".into() }).sev_snp(SevSnpConfig::default())
         .accel(Accel::Kvm)
         .cpu("EPYC-v4")
-        .sev_snp(SevSnpConfig::default())
+        
         .firmware(amdsev_fw)
         .display()
         .serial();

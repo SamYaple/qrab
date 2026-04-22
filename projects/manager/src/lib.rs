@@ -11,8 +11,8 @@ pub use event::ManagerEvent;
 pub use firmware::OvmfFirmware;
 pub use namespace::{InitConfig, KvmFd, SevFd};
 pub use vm::{
-    Accel, PreconfigVm, SevSnpConfig, SvsmConfig, TpmBackend, Vm, VmBuilder,
-    PRECONFIG_MIN_VERSION,
+    Accel, NoSnp, PreconfigVm, SevSnpConfig, SvsmConfig, TpmBackend, Vm, VmBuilder,
+    WithSnp, PRECONFIG_MIN_VERSION,
 };
 
 /// Crate-level error type for manager.
