@@ -41,8 +41,6 @@ mod vsock_pci;
 
 use core::arch::asm;
 
-#[cfg(not(qrab_no_fixtures))]
-use qrab_boot_verify::{VerifyError, verify_detached};
 use sha2::Digest as _;
 use uefi::prelude::*;
 
@@ -54,15 +52,6 @@ const BANNER: &str = concat!(
     env!("CARGO_PKG_NAME"),
     ")",
 );
-
-// Build-time fixture embedding: `build.rs` copies the bytes it finds on
-// disk into `OUT_DIR`, or emits zero-length placeholders plus a
-// `qrab_no_fixtures` cfg when the fixtures are missing. Either way the
-// `include_bytes!` paths resolve and the binary links.
-const DB_PUBKEY: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/db.pubkey.der"));
-const UKI_VALID: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/uki-valid.efi"));
-const UKI_VALID_SIG: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/uki-valid.efi.sig"));
-const UKI_TAMPERED: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/uki-tampered.efi"));
 
 #[entry]
 fn efi_main() -> Status {
@@ -123,18 +112,20 @@ fn efi_main() -> Status {
     };
 
     let vsock_result = run_vsock_demo(features, snp_page);
-    let verify_ok = run_verify_demo().is_ok();
 
-    match (vsock_result, verify_ok) {
-        (Ok(session), true) => {
+    match vsock_result {
+        Ok(session) => {
             log::info!("QRAB_PHASE4_OK");
 
             // Phase 5 StartImage: publish the `QrabReport` EFI runtime
             // variable so post-boot userspace can surface last-boot
             // attestation state, then hand the UKI off to the
-            // firmware via LoadImage + StartImage. Default builds
-            // stop at the stub-skip branch inside `load_and_start`;
-            // `QRAB_UKI_BOOT=1` at build time opens the real path.
+            // firmware via LoadImage + StartImage. Firmware SB
+            // (SecurityPkg + DxeImageVerificationLib) authenticates
+            // the PE against the baked `db` cert — no in-boot re-
+            // verify is needed. Default builds stop at the stub-skip
+            // branch inside `load_and_start`; `QRAB_UKI_BOOT=1` at
+            // build time opens the real path.
             match uki::publish_report(&session.report_data) {
                 Ok(()) => log::info!(
                     "QRAB_REPORT_OK len={}",
@@ -153,53 +144,14 @@ fn efi_main() -> Status {
 
             uki::load_and_start(&session.uki_bytes);
         }
-        (vsock_result, verify_ok) => {
-            log::warn!(
-                "QRAB_PHASE4_PARTIAL vsock_ok={} verify_ok={}",
-                vsock_result.is_ok(),
-                verify_ok,
-            );
+        Err(()) => {
+            log::warn!("QRAB_PHASE4_PARTIAL vsock_ok=false");
             // Intentionally do not return control to firmware. Per
             // plan: fail-closed, hang on any terminal state
             // including "phase not complete".
             halt_forever()
         }
     }
-}
-
-/// Boot-time driver for [`qrab_boot_verify::verify_detached`].
-///
-/// Two cases:
-///
-/// * The valid UKI and its signature must verify — logging `QRAB_VERIFY_VALID_OK`.
-/// * The tampered UKI reused with the valid signature must fail — logging
-///   `QRAB_VERIFY_TAMPERED_REJECTED`.
-///
-/// Any deviation from those two outcomes panics via the fail-closed
-/// handler, because a bootloader that cannot tell a good payload from a
-/// tampered one is strictly worse than one that never boots.
-#[cfg(not(qrab_no_fixtures))]
-fn run_verify_demo() -> Result<(), ()> {
-    match verify_detached(UKI_VALID, UKI_VALID_SIG, DB_PUBKEY) {
-        Ok(()) => log::info!("QRAB_VERIFY_VALID_OK"),
-        Err(e) => panic!("valid fixture failed to verify: {e}"),
-    }
-
-    match verify_detached(UKI_TAMPERED, UKI_VALID_SIG, DB_PUBKEY) {
-        Err(VerifyError::BadSignature) => log::info!("QRAB_VERIFY_TAMPERED_REJECTED"),
-        Ok(()) => panic!("tampered fixture verified — verifier is broken"),
-        Err(e) => panic!("tampered fixture wrong error: {e}"),
-    }
-
-    Ok(())
-}
-
-#[cfg(qrab_no_fixtures)]
-fn run_verify_demo() -> Result<(), ()> {
-    log::info!("QRAB_VERIFY_FIXTURES_ABSENT: run contrib/build-test-ukis.sh and rebuild to exercise qrab-boot-verify at boot");
-    // Fixture-less builds are a build-time choice, not a runtime failure
-    // — return Ok so `QRAB_PHASE4_OK` can still gate on the vsock leg.
-    Ok(())
 }
 
 /// Default vsock port the host attestation mock listens on. Matches

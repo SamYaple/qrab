@@ -37,8 +37,6 @@
 #   QRAB_SVSM_SB=1 QRAB_SVSM_SB_BAKE=1 \
 #     QRAB_BUILD_SVSM=1 QRAB_UKI_BOOT=1 \
 #     bash contrib/build-svsm-igvm.sh        # produces the IGVM + signed .efi
-#   bash contrib/build-test-ukis.sh          # produces signed + tampered UKI
-#                                              test fixtures (existing script)
 #
 # This script skips gracefully (exit 0, SKIP message) when the prereq
 # artifacts are missing — so it can live in CI alongside faster smokes

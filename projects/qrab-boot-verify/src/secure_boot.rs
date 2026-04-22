@@ -14,8 +14,6 @@
 //! We require **both** conditions (`SecureBoot == 1 && SetupMode == 0`)
 //! before the firmware LoadImage path is worth trusting.
 
-#![cfg_attr(not(feature = "std"), no_std)]
-
 /// Terminal verdict from [`evaluate`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SbStatus {

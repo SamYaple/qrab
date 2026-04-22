@@ -1,16 +1,19 @@
 # qrab-boot-tests fixtures
 
-Generated test artifacts. Do not commit binary contents — the dir-level
+Staging directory for generated test artefacts. The dir-level
 `.gitignore` keeps only this README and the `.gitignore` itself tracked.
 
-Populated by `contrib/build-test-ukis.sh`:
+Populated by:
 
-| File | Contents |
-|---|---|
-| `uki-unsigned.efi` | Unsigned copy of current `qrab-boot.efi`. |
-| `uki-valid.efi`    | `uki-unsigned.efi` signed with `contrib/sb-keys/db.{key,crt}`. `sbverify --cert db.crt` succeeds. |
-| `uki-tampered.efi` | `uki-valid.efi` with one byte at PE offset `0x1000` flipped. `sbverify` fails with hash mismatch. |
+| File | Producer | Consumer |
+|---|---|---|
+| `uki-real.efi` | `contrib/build-test-uki.sh` | `contrib/matrix-smoke.sh` scenario 1r |
 
-Phase 4+ will expand to per-scenario UKIs (real Linux kernel + initrd
-bundled), one per entry in the scenario matrix. For Phase 2a these three
-stand-ins are enough to prove the signing tools work end-to-end.
+Historical note: Phase 2b staged signed/tampered/detached-sig UKI
+triplets here (`uki-valid.efi`, `uki-valid.efi.sig`, `uki-tampered.efi`,
+`db.pubkey.der`) produced by a `contrib/build-test-ukis.sh` helper, to
+exercise the detached RSA-PKCS#1 v1.5 verifier in `qrab-boot-verify`.
+That verifier stood in for UEFI Secure Boot while AmdSev OVMF had no
+`SecurityPkg`. With Phase 1.5 firmware SB landed (`issues/svsm-vtpm-
+integration.md`), the detached path was retired and those fixtures
+removed.

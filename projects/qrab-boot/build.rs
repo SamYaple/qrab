@@ -1,21 +1,10 @@
-//! Build-time fixture embedder.
+//! Build-time embedder for the attestation-server SEC1 public key.
 //!
-//! For Phase 2b we want the running `qrab-boot.efi` to exercise
-//! `qrab-boot-verify` with real data — both a positive and a negative
-//! case — so a QEMU boot is also an end-to-end integration test of the
-//! verifier on the UEFI target (not just the host `cargo test`).
-//!
-//! The fixtures live at
-//! `projects/qrab-boot-tests/fixtures/`, populated by
-//! `contrib/build-test-ukis.sh`. They are intentionally not committed,
-//! so this script must tolerate their absence: when any fixture is
-//! missing, we leave the bytes empty and set a `qrab_no_fixtures` cfg
-//! which `main.rs` uses to skip the boot-time verify demo.
-//!
-//! Phase 4 adds a second input: the SEC1-uncompressed public key of
-//! the attestation server (`<workspace>/contrib/attest-keys/server.sec1`
-//! or `$QRAB_ATTEST_PUBKEY_SEC1`). R16-H15: the build now *requires*
-//! one of two things:
+//! The SEC1-uncompressed public key of the attestation server
+//! (`<workspace>/contrib/attest-keys/server.sec1` or
+//! `$QRAB_ATTEST_PUBKEY_SEC1`) is embedded into `qrab-boot.efi` so
+//! `attest::verify` can check the ECDSA-P256 signature on every
+//! `AttestResponse`. R16-H15: the build *requires* one of:
 //!   * a real key file on disk (at the default path or at
 //!     `$QRAB_ATTEST_PUBKEY_SEC1`); OR
 //!   * an explicit developer opt-in `QRAB_DEV_NO_PUBKEY=1`, which
@@ -28,41 +17,23 @@ use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-const FIXTURES: &[&str] = &[
-    "db.pubkey.der",
-    "uki-valid.efi",
-    "uki-valid.efi.sig",
-    "uki-tampered.efi",
-];
-
 fn main() {
     let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    // projects/qrab-boot/ → projects/qrab-boot-tests/fixtures/
     let workspace_root = manifest
         .parent()
         .expect("CARGO_MANIFEST_DIR has no parent")
         .parent()
         .expect("workspace has no parent")
         .to_path_buf();
-    let fixtures_dir = manifest
-        .parent()
-        .expect("CARGO_MANIFEST_DIR has no parent")
-        .join("qrab-boot-tests")
-        .join("fixtures");
 
     // Broadcast every cfg we might emit so `#[cfg(...)]` checks
     // don't produce "unexpected cfg" warnings under a stable-lint
     // toolchain.
-    println!("cargo::rustc-check-cfg=cfg(qrab_no_fixtures)");
     println!("cargo::rustc-check-cfg=cfg(qrab_no_server_pubkey)");
     println!("cargo::rustc-check-cfg=cfg(qrab_uki_boot)");
     println!("cargo::rustc-check-cfg=cfg(qrab_allow_non_snp)");
 
     println!("cargo:rerun-if-changed=build.rs");
-    for name in FIXTURES {
-        let path = fixtures_dir.join(name);
-        println!("cargo:rerun-if-changed={}", path.display());
-    }
     println!("cargo:rerun-if-env-changed=QRAB_ATTEST_PUBKEY_SEC1");
     println!("cargo:rerun-if-env-changed=QRAB_DEV_NO_PUBKEY");
     println!("cargo:rerun-if-env-changed=QRAB_UKI_BOOT");
@@ -96,20 +67,6 @@ fn main() {
     }
 
     let out = PathBuf::from(env::var_os("OUT_DIR").expect("OUT_DIR unset"));
-
-    let all_fixtures_present = FIXTURES.iter().all(|n| fixtures_dir.join(n).exists());
-    if !all_fixtures_present {
-        println!("cargo:rustc-cfg=qrab_no_fixtures");
-        for name in FIXTURES {
-            fs::write(out.join(name), b"").unwrap();
-        }
-    } else {
-        for name in FIXTURES {
-            let src = fixtures_dir.join(name);
-            let dst = out.join(name);
-            copy_or_die(&src, &dst);
-        }
-    }
 
     embed_server_pubkey(&workspace_root, &out);
 }
@@ -180,8 +137,3 @@ fn embed_server_pubkey(workspace_root: &Path, out: &Path) {
     }
 }
 
-fn copy_or_die(src: &Path, dst: &Path) {
-    fs::copy(src, dst).unwrap_or_else(|e| {
-        panic!("build.rs: copy {} -> {}: {e}", src.display(), dst.display())
-    });
-}
