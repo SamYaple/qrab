@@ -479,6 +479,10 @@ pub struct VmBuilder<S = NoSnp> {
     /// first boot. Pairs with a firmware built via
     /// `contrib/build-svsm-igvm.sh` + `QRAB_SVSM_SB=1 QRAB_SVSM_SB_BAKE=1`.
     sb_pk_cert: Option<PathBuf>,
+    /// Attach a `vhost-vsock-pci` device with the given guest CID. The
+    /// host side is always CID 2 (per virtio-vsock spec). qrab-boot
+    /// needs this to reach the attestation server.
+    vsock_guest_cid: Option<u32>,
     extra_args: Vec<String>,
     _state: std::marker::PhantomData<S>,
 }
@@ -708,6 +712,7 @@ impl VmBuilder<NoSnp> {
             tpm: None,
             qemu_binary_override: None,
             sb_pk_cert: None,
+            vsock_guest_cid: None,
             extra_args: Vec::new(),
             _state: std::marker::PhantomData,
         }
@@ -736,6 +741,7 @@ impl VmBuilder<NoSnp> {
             tpm: self.tpm,
             qemu_binary_override: self.qemu_binary_override,
             sb_pk_cert: self.sb_pk_cert,
+            vsock_guest_cid: self.vsock_guest_cid,
             extra_args: self.extra_args,
             _state: std::marker::PhantomData,
         }
@@ -870,6 +876,20 @@ impl<S> VmBuilder<S> {
     #[must_use]
     pub fn qemu_binary(mut self, binary: PathBuf) -> Self {
         self.qemu_binary_override = Some(binary);
+        self
+    }
+
+    /// Attach a `vhost-vsock-pci` device with the given guest CID.
+    ///
+    /// The host side is always CID 2 (per virtio-vsock spec); the
+    /// guest picks its own. CIDs 0–2 are reserved so valid values
+    /// are `[3, u32::MAX]`. qrab-boot needs this device to reach the
+    /// attest-server listening on host CID 2 port 1337. Requires
+    /// `/dev/vhost-vsock` accessible to the QEMU process (on Linux
+    /// the `vhost_vsock` kernel module must be loaded).
+    #[must_use]
+    pub fn vsock(mut self, guest_cid: u32) -> Self {
+        self.vsock_guest_cid = Some(guest_cid);
         self
     }
 
@@ -1446,6 +1466,17 @@ impl VmBuilder<WithSnp> {
         // Serial
         if let Some(ref log) = serial_log {
             args.extend(["-serial".into(), format!("file:{}", log.display())]);
+        }
+
+        // virtio-vsock PCI device. qrab-boot expects host CID 2 (spec-
+        // fixed) on port 1337 for the attest-server round-trip; guest
+        // CID is picked by the caller. Requires `/dev/vhost-vsock`
+        // accessible to the QEMU process.
+        if let Some(cid) = self.vsock_guest_cid {
+            args.extend([
+                "-device".into(),
+                format!("vhost-vsock-pci,guest-cid={cid},id=vsock0"),
+            ]);
         }
 
         // Virtio-serial attestation channel for SEV-SNP guests.
@@ -2620,6 +2651,36 @@ mod tests {
                 let args = build_svsm_args(&igvm, &cfg).unwrap();
                 assert!(args[1].contains(expected), "cfg missing {expected}: {}", args[1]);
             }
+        }
+
+        #[test]
+        fn vsock_setter_records_guest_cid() {
+            let b = VmBuilder::new(
+                Arch::X86_64,
+                MachineConfig::Uefi { memory: "1G".into() },
+            )
+            .vsock(3);
+            assert_eq!(b.vsock_guest_cid, Some(3));
+        }
+
+        #[test]
+        fn vsock_unset_by_default() {
+            let b = VmBuilder::new(
+                Arch::X86_64,
+                MachineConfig::Uefi { memory: "1G".into() },
+            );
+            assert_eq!(b.vsock_guest_cid, None);
+        }
+
+        #[test]
+        fn vsock_survives_sev_snp_transition() {
+            let b = VmBuilder::new(
+                Arch::X86_64,
+                MachineConfig::Uefi { memory: "1G".into() },
+            )
+            .vsock(42)
+            .sev_snp(super::super::SevSnpConfig::default());
+            assert_eq!(b.vsock_guest_cid, Some(42));
         }
     }
 }

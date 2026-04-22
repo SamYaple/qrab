@@ -155,6 +155,12 @@ pub struct BmcState {
     /// the currently-running VM. `Some(_)` while Running; cleared (and the
     /// file removed via `OverlayGuard::drop`) on transition back to Off.
     overlay: Mutex<Option<OverlayGuard>>,
+    /// Sidecar attest-server child process. Spawned lazily on the first
+    /// VM power_on (see `ensure_attest_server`) and kept alive for the
+    /// rest of the BMC process so subsequent VM boots reuse the same
+    /// listener. `kill_on_drop(true)` plus qrab-init's PDEATHSIG chain
+    /// mean this dies when BMC dies.
+    attest_server: Mutex<Option<tokio::process::Child>>,
 }
 
 impl BmcState {
@@ -191,7 +197,78 @@ impl BmcState {
             attestation: Mutex::new(AttestationState::default()),
             event_forwarder: Mutex::new(None),
             overlay: Mutex::new(None),
+            attest_server: Mutex::new(None),
         })
+    }
+
+    /// Spawn `attest-server` as a sidecar if it's not already running.
+    ///
+    /// qrab-boot inside the guest connects to host CID 2 port 1337
+    /// and halts with `QRAB_PHASE4_PARTIAL` when no one is listening.
+    /// The binary is resolved via `$QRAB_ATTEST_SERVER_BIN` (explicit
+    /// path) or `target/{release,debug}/attest-server` relative to
+    /// the BMC's CWD. Missing binary is a warning, not a hard error —
+    /// developers running `dx serve` before building attest-server
+    /// should still get a VM that spawns and reaches `QRAB_PHASE4_PARTIAL`
+    /// instead of failing at power_on.
+    async fn ensure_attest_server(&self) {
+        let mut guard = self.attest_server.lock().await;
+        if let Some(child) = guard.as_mut() {
+            if child.try_wait().ok().flatten().is_none() {
+                // Still running; reuse.
+                return;
+            }
+            // Exited — clear the slot and respawn below.
+            *guard = None;
+        }
+
+        let bin = match resolve_attest_server_bin() {
+            Some(p) => p,
+            None => {
+                tracing::warn!(
+                    "attest-server binary not found via $QRAB_ATTEST_SERVER_BIN or \
+                     target/{{release,debug}}/attest-server — qrab-boot will halt \
+                     at QRAB_PHASE4_PARTIAL. Run `cargo build -p attest-server` or \
+                     set $QRAB_ATTEST_SERVER_BIN."
+                );
+                return;
+            }
+        };
+
+        // Pin the signing key whose public half was embedded into
+        // qrab-boot.efi at build time, so the bootloader's p256
+        // verify succeeds.
+        let key_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .map(|root| root.join("contrib/attest-keys/server.pem"))
+            .filter(|p| p.is_file());
+
+        let mut cmd = tokio::process::Command::new(&bin);
+        cmd.arg("1337")
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .kill_on_drop(true);
+        if let Some(ref kp) = key_path {
+            cmd.env("QRAB_ATTEST_KEY_PATH", kp);
+        }
+        match cmd.spawn() {
+            Ok(child) => {
+                tracing::info!(
+                    attest_server = %bin.display(),
+                    key_path = ?key_path,
+                    pid = child.id(),
+                    "spawned attest-server sidecar on vsock CID 2 port 1337"
+                );
+                *guard = Some(child);
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "attest-server spawn failed ({e}); qrab-boot will halt at \
+                     QRAB_PHASE4_PARTIAL"
+                );
+            }
+        }
     }
 
     /// Read the VNC socket path while holding the vm lock. Returns Some only
@@ -354,6 +431,11 @@ impl BmcState {
         // removed. On the success path we hand ownership to
         // `BmcState::overlay` and let the teardown path drop it at
         // power_off/force_off time.
+        // Launch the attest-server sidecar before QEMU so qrab-boot's
+        // vsock connect finds a live listener on CID 2 port 1337.
+        // Idempotent: re-using the existing child on subsequent boots.
+        self.ensure_attest_server().await;
+
         let base_image = ensure_ubuntu_snp_image().await?;
         let overlay_guard = OverlayGuard::new(create_temp_overlay(&base_image).await?);
         let seed = ensure_cloud_init_seed().await?;
@@ -383,10 +465,17 @@ impl BmcState {
         }
         // SEV-SNP requires EPYC CPU model — `-cpu host` exposes
         // CPUID features that fail SNP firmware validation.
+        //
+        // `.vsock(3)` attaches `vhost-vsock-pci,guest-cid=3`.
+        // qrab-boot needs this to reach the attest-server on host
+        // CID 2 port 1337. Single-VM BMC keeps guest CID 3 as a
+        // fixed convention; a future multi-VM BMC will need to
+        // allocate CIDs from a pool.
         let mut paused_vm = pre_snp
             .accel(manager::vm::Accel::Kvm)
             .cpu("EPYC-v4")
             .display()
+            .vsock(3)
             .sev_snp(manager::vm::SevSnpConfig::new())
             .svsm(manager::vm::SvsmConfig {
                 igvm_path: svsm.igvm,
@@ -807,6 +896,35 @@ async fn event_forwarder(
 /// escape, `..` components, non-regular files). This prevents CWE-22
 /// path traversal where an attacker could read arbitrary host files via
 /// the QEMU block layer.
+/// Resolve the `attest-server` binary used as a BMC sidecar.
+///
+/// Resolution order:
+///   1. `$QRAB_ATTEST_SERVER_BIN` — explicit operator override.
+///   2. `<workspace>/target/release/attest-server`.
+///   3. `<workspace>/target/debug/attest-server`.
+///
+/// Workspace root is computed from `$CARGO_MANIFEST_DIR` (the `bmc`
+/// crate) walked up two levels (`.../projects/bmc/` → `.../`).
+fn resolve_attest_server_bin() -> Option<PathBuf> {
+    if let Some(p) = std::env::var_os("QRAB_ATTEST_SERVER_BIN") {
+        let p = PathBuf::from(p);
+        if p.is_file() {
+            return Some(p);
+        }
+    }
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()?
+        .parent()?
+        .to_path_buf();
+    for profile in ["release", "debug"] {
+        let p = workspace.join("target").join(profile).join("attest-server");
+        if p.is_file() {
+            return Some(p);
+        }
+    }
+    None
+}
+
 fn validate_disk_path(path: &Path) -> Result<PathBuf> {
     // Canonicalize resolves symlinks and `..` components.
     let canonical = path
