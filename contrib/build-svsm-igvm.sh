@@ -173,15 +173,53 @@ stage_tree edk2-svsm "$VENDOR_EDK2" "$BUILD_EDK2"
 # only. Vendor tree stays untouched. Idempotent.
 SB_BUILD_ARGS=()
 SB_SUFFIX=""
+SB_KEYS_DIR="$ROOT/contrib/sb-keys"
 if [[ "${QRAB_SVSM_SB:-0}" = 1 ]]; then
-    log "Secure Boot wiring: applying apply-sb-wiring.py on staged edk2-svsm"
-    python3 "$ROOT/contrib/patches/edk2-svsm/apply-sb-wiring.py" "$BUILD_EDK2" \
+    patcher_args=("$BUILD_EDK2")
+    if [[ "${QRAB_SVSM_SB_BAKE:-auto}" = 1 \
+       || ( "${QRAB_SVSM_SB_BAKE:-auto}" = auto \
+            && -f "$SB_KEYS_DIR/KEK.crt" && -f "$SB_KEYS_DIR/db.crt" ) ]]; then
+        log "Secure Boot: applying wiring + baking qrab certs from $SB_KEYS_DIR"
+        patcher_args=(--bake-keys "$SB_KEYS_DIR" "${patcher_args[@]}")
+    else
+        log "Secure Boot: applying wiring (keys not baked — firmware will ship with upstream MS KEK+CAs)"
+    fi
+    python3 "$ROOT/contrib/patches/edk2-svsm/apply-sb-wiring.py" "${patcher_args[@]}" \
         || die "apply-sb-wiring.py failed"
     SB_BUILD_ARGS=(-D SECURE_BOOT_ENABLE=TRUE)
     SB_SUFFIX="-SB"
-    log "Secure Boot: ENABLED (OVMF will enforce db signatures when keys enrolled)"
+    log "Secure Boot: ENABLED (OVMF will enforce db signatures once keys enrolled via EnrollDefaultKeys.efi)"
 else
     log "Secure Boot: disabled (set QRAB_SVSM_SB=1 to enable)"
+fi
+
+# qrab-boot.efi must be signed with db.key before embed when SB is on. Under
+# SB=off, embed a plain unsigned image (firmware won't verify). Build the
+# .efi here so this script is self-contained and matches build-ovmf.sh's
+# behaviour.
+BOOT_CRATE="$ROOT/projects/qrab-boot"
+BOOT_EFI="$BOOT_CRATE/target/x86_64-unknown-uefi/release/qrab-boot.efi"
+if [[ -d "$BOOT_CRATE" ]]; then
+    if [[ -z "${QRAB_ATTEST_PUBKEY_SEC1:-}" \
+       && ! -s "$ROOT/contrib/attest-keys/server.sec1" ]]; then
+        log "attest keys missing; regenerating via contrib/gen-attest-keys.sh"
+        bash "$ROOT/contrib/gen-attest-keys.sh" >/dev/null 2>&1 \
+            || die "gen-attest-keys.sh failed"
+    fi
+    log "building qrab-boot.efi"
+    (cd "$BOOT_CRATE" && cargo build --release)
+    [[ -f "$BOOT_EFI" ]] || die "qrab-boot.efi not produced at $BOOT_EFI"
+    if [[ -n "$SB_SUFFIX" \
+       && -f "$SB_KEYS_DIR/db.key" && -f "$SB_KEYS_DIR/db.crt" ]]; then
+        log "signing qrab-boot.efi with contrib/sb-keys/db.key"
+        bash "$ROOT/contrib/sign-efi.sh" "$BOOT_EFI" "$BOOT_EFI.signed" \
+            >/dev/null || die "sign-efi.sh failed"
+        BOOT_EFI="$BOOT_EFI.signed"
+    fi
+    log "embedding qrab-boot.efi into AmdSev FV"
+    python3 "$ROOT/contrib/embed-efi.py" --edk2 "$BUILD_EDK2" --efi "$BOOT_EFI"
+else
+    log "projects/qrab-boot absent in this worktree; skipping embed"
 fi
 
 EDK2_TOOLCHAIN="${QRAB_EDK2_TOOLCHAIN:-GCC5}"

@@ -15,9 +15,10 @@ PATCHER="$ROOT/contrib/patches/edk2-svsm/apply-sb-wiring.py"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
-mkdir -p "$TMP/OvmfPkg/AmdSev"
+mkdir -p "$TMP/OvmfPkg/AmdSev" "$TMP/OvmfPkg/EnrollDefaultKeys"
 cp "$VENDOR/OvmfPkg/AmdSev/AmdSevX64.dsc" "$TMP/OvmfPkg/AmdSev/"
 cp "$VENDOR/OvmfPkg/AmdSev/AmdSevX64.fdf" "$TMP/OvmfPkg/AmdSev/"
+cp "$VENDOR/OvmfPkg/EnrollDefaultKeys/AuthData.c" "$TMP/OvmfPkg/EnrollDefaultKeys/"
 
 echo "[1/4] first apply"
 python3 "$PATCHER" "$TMP"
@@ -67,7 +68,46 @@ else
     echo "  OK   fdf unchanged on re-apply"
 fi
 
-echo "[4/4] missing-anchor detection"
+echo "[4/6] key baking: regenerate AuthData.c from contrib/sb-keys/"
+KEYS_DIR="$ROOT/contrib/sb-keys"
+if [[ ! -f "$KEYS_DIR/KEK.crt" || ! -f "$KEYS_DIR/db.crt" ]]; then
+    echo "  SKIP keys absent (run contrib/sb-enroll-keys.sh first)"
+else
+    python3 "$PATCHER" --bake-keys "$KEYS_DIR" "$TMP"
+    auth="$TMP/OvmfPkg/EnrollDefaultKeys/AuthData.c"
+    check "$auth" 'qrab-generated'
+    check "$auth" 'mMicrosoftKek'
+    check "$auth" 'mMicrosoftPca'
+    check "$auth" 'mMicrosoftUefiCa'
+    check "$auth" 'mSha256OfDevNull'
+    # Subject CNs from contrib/sb-enroll-keys.sh:
+    check "$auth" 'CN=qrab-boot Key Exchange Key'
+    check "$auth" 'CN=qrab-boot db signer'
+    # Microsoft cert header text gone:
+    if grep -qi 'Microsoft Corporation KEK CA 2011' "$auth"; then
+        echo "  FAIL MS KEK header still present in $auth" >&2; fail=1
+    else
+        echo "  OK   MS KEK header stripped"
+    fi
+    # Second --bake-keys run must be a no-op except for timestamp comment.
+    before="$(grep -v 'Generated:' "$auth" | sha256sum | awk '{print $1}')"
+    python3 "$PATCHER" --bake-keys "$KEYS_DIR" "$TMP" >/dev/null
+    after="$(grep -v 'Generated:' "$auth" | sha256sum | awk '{print $1}')"
+    if [[ "$before" != "$after" ]]; then
+        echo "  FAIL AuthData.c body changed on re-bake (non-timestamp diff)" >&2; fail=1
+    else
+        echo "  OK   AuthData.c body stable on re-bake"
+    fi
+fi
+
+echo "[5/6] bake-keys with bogus dir fails closed"
+if python3 "$PATCHER" --bake-keys /nonexistent "$TMP" 2>/dev/null; then
+    echo "  FAIL patcher accepted nonexistent keys dir" >&2; fail=1
+else
+    echo "  OK   patcher rejects nonexistent keys dir"
+fi
+
+echo "[6/6] missing-anchor detection"
 bogus="$(mktemp -d)"
 mkdir -p "$bogus/OvmfPkg/AmdSev"
 cat > "$bogus/OvmfPkg/AmdSev/AmdSevX64.dsc" <<EOF

@@ -15,10 +15,12 @@ Exits 0 on success, 1 on anchor mismatch or verification failure.
 """
 from __future__ import annotations
 import argparse
+import subprocess
 import sys
 from pathlib import Path
 
 MARKER = "# QRAB_SVSM_SB_WIRING"
+HERE = Path(__file__).resolve().parent
 
 
 def patch_file(path: Path, edits: list[tuple[str, str, str]]) -> bool:
@@ -70,9 +72,53 @@ def replace_line(path: Path, marker_key: str, old_line: str, new_block: str) -> 
     return True
 
 
+def bake_keys(edk2: Path, keys_dir: Path) -> None:
+    """Regenerate AuthData.c from qrab PEM certs in `keys_dir`. The produced
+    C file uses the same symbol names as the upstream (mMicrosoftKek /
+    mMicrosoftPca / mMicrosoftUefiCa) so EnrollDefaultKeys.c does not need
+    patching. Idempotent: subsequent runs with the same keys produce the
+    same output (modulo a timestamp comment).
+    """
+    auth_c = edk2 / "OvmfPkg" / "EnrollDefaultKeys" / "AuthData.c"
+    if not auth_c.is_file():
+        raise SystemExit(f"missing: {auth_c}")
+    converter = HERE / "certs-to-c.py"
+    if not converter.is_file():
+        raise SystemExit(f"missing converter: {converter}")
+
+    result = subprocess.run(
+        [sys.executable, str(converter), str(keys_dir), str(auth_c)],
+        capture_output=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        sys.stderr.write(result.stderr.decode())
+        raise SystemExit("certs-to-c.py failed")
+
+    # Post-condition: the file must still define the three upstream symbols
+    # (so EnrollDefaultKeys.c links) and now reference qrab (not Microsoft).
+    text = auth_c.read_text()
+    for sym in ("mMicrosoftKek", "mMicrosoftPca", "mMicrosoftUefiCa",
+                "mSha256OfDevNull"):
+        if f"CONST UINT8  {sym}[]" not in text:
+            raise SystemExit(f"bake-keys: symbol {sym} missing in {auth_c}")
+    if "qrab" not in text.lower():
+        raise SystemExit(f"bake-keys: 'qrab' marker absent in {auth_c}")
+    if "Microsoft Corporation KEK CA 2011" in text:
+        raise SystemExit(f"bake-keys: MS KEK header still present in {auth_c}")
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("edk2_root", help="path to staged edk2 tree")
+    ap.add_argument(
+        "--bake-keys",
+        metavar="KEYS_DIR",
+        type=Path,
+        default=None,
+        help="replace AuthData.c Microsoft certs with qrab certs from KEYS_DIR "
+        "(must contain KEK.crt + db.crt in PEM format)",
+    )
     args = ap.parse_args()
 
     edk2 = Path(args.edk2_root).resolve()
@@ -195,6 +241,11 @@ INF  OvmfPkg/EnrollDefaultKeys/EnrollDefaultKeys.inf
         print(f"verification failed: AuthVariableLibNull fallback missing",
               file=sys.stderr)
         return 1
+
+    # Optional: bake qrab certs into AuthData.c.
+    if args.bake_keys is not None:
+        bake_keys(edk2, args.bake_keys.resolve())
+        print(f"apply-sb-wiring: keys baked from {args.bake_keys}")
 
     print(f"apply-sb-wiring: OK on {edk2}")
     return 0
