@@ -10,6 +10,11 @@ which = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tempfile = { workspace = true }
+# base64 is used to encode the SB Platform Key for QEMU's
+# `-smbios type=11,value=<guid>:<base64>` OEM-string mechanism, which
+# OVMF's EnrollDefaultKeys consumes to pin the runtime PK. Only added
+# when the SVSM+SB lane is exercised; zero code-path cost when SB is off.
+base64 = "0.22"
 
 [dependencies.qapi]
 path = "../qapi"

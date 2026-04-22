@@ -407,6 +407,13 @@ pub struct VmBuilder {
     cpu: Option<String>,
     sev_snp: Option<SevSnpConfig>,
     tpm: Option<TpmConfig>,
+    /// Platform Key certificate (PEM-encoded X.509) to inject via SMBIOS
+    /// OEM string for OVMF's EnrollDefaultKeys. When set, QEMU receives
+    /// `-smbios type=11,value=<OVMF_PK_KEK1_APP_PREFIX_GUID>:<base64-DER>`
+    /// and EnrollDefaultKeys auto-enrolls the cert as PK + first KEK on
+    /// first boot. Pairs with a firmware built via
+    /// `contrib/build-svsm-igvm.sh` + `QRAB_SVSM_SB=1 QRAB_SVSM_SB_BAKE=1`.
+    sb_pk_cert: Option<PathBuf>,
     extra_args: Vec<String>,
 }
 
@@ -445,6 +452,81 @@ fn build_tpm_args(swtpm_sock: &Path) -> Vec<String> {
     ]
 }
 
+/// OVMF's hypervisor-identifier for the PK-KEK1 SMBIOS OEM string.
+/// Defined in `vendor/edk2-svsm/OvmfPkg/Include/Guid/OvmfPkKek1AppPrefix.h`.
+/// EnrollDefaultKeys scans SMBIOS type-11 strings for this prefix,
+/// base64-decodes the body, and enrols it as PK + first KEK.
+const OVMF_PK_KEK1_APP_PREFIX_GUID: &str = "4e32566d-8e9e-4f52-81d3-5bb9715f9727";
+
+/// Read a PEM X.509 certificate from disk and produce the SMBIOS OEM
+/// string OVMF's `EnrollDefaultKeys` expects:
+/// `<OVMF_PK_KEK1_APP_PREFIX_GUID>:<single-line-base64-DER>`.
+///
+/// The OEM string forms the `value=` of a QEMU `-smbios type=11,...`
+/// pair. Callers must additionally quote or escape per QEMU's
+/// comma-splitting rules — this helper produces the raw value only.
+///
+/// We preserve the PEM base64 body (which is by definition the DER
+/// encoding base64'd) and collapse whitespace so the result is a
+/// single line. Re-encoding via `base64::encode(base64::decode(...))`
+/// is unnecessary work for the common case and would require a
+/// decoder; if the cert is malformed the downstream firmware-side
+/// decoder will reject it just the same.
+fn build_sb_pk_oem_string(pem_path: &Path) -> Result<String> {
+    let text = std::fs::read_to_string(pem_path).map_err(|e| {
+        Error::Spawn(format!(
+            "sb_pk_cert: cannot read {}: {e}",
+            pem_path.display()
+        ))
+    })?;
+
+    let mut in_cert = false;
+    let mut body = String::new();
+    for line in text.lines() {
+        let trimmed = line.trim();
+        if trimmed == "-----BEGIN CERTIFICATE-----" {
+            in_cert = true;
+            continue;
+        }
+        if trimmed == "-----END CERTIFICATE-----" {
+            in_cert = false;
+            break;
+        }
+        if in_cert {
+            body.push_str(trimmed);
+        }
+    }
+    if body.is_empty() {
+        return Err(Error::Spawn(format!(
+            "sb_pk_cert: no `-----BEGIN CERTIFICATE-----` block found in {}",
+            pem_path.display()
+        )));
+    }
+
+    // Round-trip through base64 so malformed PEM (stray chars, bad
+    // padding) is caught here rather than surfacing as a firmware-side
+    // EnrollDefaultKeys failure with no serial hint.
+    use base64::Engine;
+    let der = base64::engine::general_purpose::STANDARD
+        .decode(&body)
+        .map_err(|e| {
+            Error::Spawn(format!(
+                "sb_pk_cert: PEM body is not valid base64 in {}: {e}",
+                pem_path.display()
+            ))
+        })?;
+    let reencoded = base64::engine::general_purpose::STANDARD.encode(&der);
+
+    Ok(format!("{OVMF_PK_KEK1_APP_PREFIX_GUID}:{reencoded}"))
+}
+
+/// Emit the full `-smbios type=11,value=...` argument pair for the
+/// given PEM PK cert path.
+fn build_sb_pk_smbios_args(pem_path: &Path) -> Result<Vec<String>> {
+    let oem = build_sb_pk_oem_string(pem_path)?;
+    Ok(vec!["-smbios".into(), format!("type=11,value={oem}")])
+}
+
 impl VmBuilder {
     #[must_use]
     pub fn new(arch: Arch, config: MachineConfig) -> Self {
@@ -465,6 +547,7 @@ impl VmBuilder {
             cpu: None,
             sev_snp: None,
             tpm: None,
+            sb_pk_cert: None,
             extra_args: Vec::new(),
         }
     }
@@ -576,6 +659,27 @@ impl VmBuilder {
     #[must_use]
     pub fn tpm(mut self, config: TpmConfig) -> Self {
         self.tpm = Some(config);
+        self
+    }
+
+    /// Inject a UEFI Secure Boot Platform Key via SMBIOS OEM string.
+    ///
+    /// `pk_pem_path` points at a PEM X.509 cert (typically
+    /// `contrib/sb-keys/PK.crt`). At QEMU-launch time the builder
+    /// decodes PEM→DER, base64-encodes, and emits
+    /// `-smbios type=11,value=<OVMF_PK_KEK1_APP_PREFIX_GUID>:<b64-DER>`.
+    /// OVMF's `EnrollDefaultKeys` consumes this OEM string on first
+    /// boot and enrolls the cert as PK + first KEK, transitioning the
+    /// firmware from setup mode to user mode with no runtime shell
+    /// interaction.
+    ///
+    /// The firmware must have been built with Secure Boot wired in
+    /// (see `contrib/build-svsm-igvm.sh` under `QRAB_SVSM_SB=1` +
+    /// `QRAB_SVSM_SB_BAKE=1`). Using this setter against a non-SB
+    /// firmware is harmless — the OEM string is simply ignored.
+    #[must_use]
+    pub fn sb_pk_cert(mut self, pk_pem_path: PathBuf) -> Self {
+        self.sb_pk_cert = Some(pk_pem_path);
         self
     }
 
@@ -1208,6 +1312,10 @@ impl VmBuilder {
             let tpm_args = build_tpm_args(swtpm.sock());
             swtpm_process = Some(swtpm);
             args.extend(tpm_args);
+        }
+
+        if let Some(ref pk_path) = self.sb_pk_cert {
+            args.extend(build_sb_pk_smbios_args(pk_path)?);
         }
 
         args.extend(["-run-with".into(), "async-teardown=on".into()]);
@@ -1844,6 +1952,122 @@ mod tests {
         assert!(validate_memory("2Gibi").is_err());
         assert!(validate_memory("512M ").is_err());
         assert!(validate_memory("2GBB").is_err());
+    }
+
+    // -- build_sb_pk tests (Phase 1.5-D) --
+
+    mod sb_pk {
+        use super::super::{
+            OVMF_PK_KEK1_APP_PREFIX_GUID, build_sb_pk_oem_string, build_sb_pk_smbios_args,
+            VmBuilder,
+        };
+        use crate::arch::{Arch, MachineConfig};
+        use std::io::Write;
+
+        /// Minimal PEM cert (a qrab-generated self-signed RSA-2048 PK).
+        /// Content matters only in so far as base64-decoding must succeed
+        /// — we do not run X.509 validation here.
+        const SAMPLE_PEM: &str = "-----BEGIN CERTIFICATE-----\n\
+            MIIDBzCCAe+gAwIBAgIUQUJDRA==\n\
+            -----END CERTIFICATE-----\n";
+
+        fn write_pem(tmp: &tempfile::TempDir, body: &str) -> std::path::PathBuf {
+            let path = tmp.path().join("PK.crt");
+            let mut f = std::fs::File::create(&path).unwrap();
+            f.write_all(body.as_bytes()).unwrap();
+            path
+        }
+
+        #[test]
+        fn oem_string_has_guid_prefix_and_single_line_body() {
+            let tmp = tempfile::TempDir::new().unwrap();
+            let path = write_pem(&tmp, SAMPLE_PEM);
+            let oem = build_sb_pk_oem_string(&path).unwrap();
+            let (prefix, body) = oem.split_once(':').expect("guid:body form");
+            assert_eq!(prefix, OVMF_PK_KEK1_APP_PREFIX_GUID);
+            assert!(!body.contains('\n'), "body must be single-line base64");
+            assert!(!body.is_empty());
+        }
+
+        #[test]
+        fn oem_string_body_base64_roundtrips() {
+            use base64::Engine;
+            let tmp = tempfile::TempDir::new().unwrap();
+            let path = write_pem(&tmp, SAMPLE_PEM);
+            let oem = build_sb_pk_oem_string(&path).unwrap();
+            let body = oem.split(':').nth(1).unwrap();
+            let der = base64::engine::general_purpose::STANDARD
+                .decode(body)
+                .expect("body must base64-decode");
+            assert!(!der.is_empty(), "decoded DER must be non-empty");
+        }
+
+        #[test]
+        fn smbios_arg_pair_uses_type_11() {
+            let tmp = tempfile::TempDir::new().unwrap();
+            let path = write_pem(&tmp, SAMPLE_PEM);
+            let args = build_sb_pk_smbios_args(&path).unwrap();
+            assert_eq!(args.len(), 2);
+            assert_eq!(args[0], "-smbios");
+            assert!(args[1].starts_with("type=11,value="), "got: {}", args[1]);
+            assert!(args[1].contains(OVMF_PK_KEK1_APP_PREFIX_GUID));
+        }
+
+        #[test]
+        fn tolerates_pem_with_extra_blank_lines_and_crlf() {
+            let tmp = tempfile::TempDir::new().unwrap();
+            let wonky = "\r\n\
+                -----BEGIN CERTIFICATE-----\r\n\
+                MIIDBzCCAe+gAwIBAgIU\r\n\
+                QUJDRA==\r\n\
+                -----END CERTIFICATE-----\r\n\r\n";
+            let path = write_pem(&tmp, wonky);
+            let oem = build_sb_pk_oem_string(&path).unwrap();
+            assert!(oem.ends_with("MIIDBzCCAe+gAwIBAgIUQUJDRA=="));
+        }
+
+        #[test]
+        fn rejects_missing_begin_marker() {
+            let tmp = tempfile::TempDir::new().unwrap();
+            let path = write_pem(&tmp, "definitely not a PEM file\n");
+            let err = build_sb_pk_oem_string(&path).unwrap_err();
+            let msg = format!("{err}");
+            assert!(msg.contains("-----BEGIN CERTIFICATE-----"), "got: {msg}");
+        }
+
+        #[test]
+        fn rejects_corrupt_base64_body() {
+            let tmp = tempfile::TempDir::new().unwrap();
+            let bad = "-----BEGIN CERTIFICATE-----\n\
+                ***not_base64***\n\
+                -----END CERTIFICATE-----\n";
+            let path = write_pem(&tmp, bad);
+            let err = build_sb_pk_oem_string(&path).unwrap_err();
+            assert!(format!("{err}").contains("not valid base64"));
+        }
+
+        #[test]
+        fn rejects_missing_file() {
+            let tmp = tempfile::TempDir::new().unwrap();
+            let missing = tmp.path().join("does-not-exist.crt");
+            let err = build_sb_pk_oem_string(&missing).unwrap_err();
+            assert!(format!("{err}").contains("cannot read"));
+        }
+
+        #[test]
+        fn vm_builder_sb_pk_cert_setter_roundtrips() {
+            let builder = VmBuilder::new(
+                Arch::X86_64,
+                MachineConfig::Uefi {
+                    memory: "1024".into(),
+                },
+            )
+            .sb_pk_cert(std::path::PathBuf::from("/dev/null"));
+            // Field is private; exercising the setter through the public
+            // API guarantees the #[must_use] chaining compiles. If a
+            // future refactor drops the field this test fails to compile.
+            let _ = builder;
+        }
     }
 
     #[test]

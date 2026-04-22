@@ -2567,6 +2567,7 @@ dependencies = [
 name = "manager"
 version = "0.1.0"
 dependencies = [
+ "base64",
  "nix 0.29.0",
  "paste",
  "qapi",
