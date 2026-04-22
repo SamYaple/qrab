@@ -165,3 +165,86 @@ async fn manager_event_on_shutdown_request() {
 
     let _ = h.await;
 }
+
+/// Shutdown must send SIGTERM first (not SIGKILL) so qrab-init's
+/// handler can forward the signal to QEMU. A SIGKILL first would
+/// leave QEMU orphaned to host init — the original bug this test
+/// guards. The stand-in child catches SIGTERM and exits with a known
+/// code so we can observe which signal actually arrived.
+#[cfg(unix)]
+#[tokio::test]
+async fn shutdown_sends_sigterm_first_not_sigkill() {
+    // `trap 'exit 42' TERM` returns exit code 42 under SIGTERM; a
+    // SIGKILL would produce `killed_by_signal == Some(SIGKILL)` with
+    // no exit code. Either unambiguously tells us which path fired.
+    let (shutdown, h, mut rx) = spawn_probe("trap 'exit 42' TERM; sleep 60 & wait").await;
+    // Give the shell a moment to install the trap before we signal.
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    let _ = shutdown.send(());
+
+    let evt = tokio::time::timeout(REAPER_BUDGET, rx.recv())
+        .await
+        .expect("reaper must publish on shutdown within budget")
+        .expect("channel must yield the terminal event");
+
+    match evt {
+        ManagerEvent::ProcessExited {
+            status,
+            killed_by_signal,
+        } => {
+            assert!(
+                killed_by_signal.is_none(),
+                "SIGTERM-first must let the child exit cleanly; \
+                 got killed_by_signal={killed_by_signal:?}"
+            );
+            let code = status.expect("status captured").code();
+            assert_eq!(
+                code,
+                Some(42),
+                "SIGTERM trap should have produced exit 42, got {code:?}"
+            );
+        }
+        other => panic!("unexpected ManagerEvent variant: {other:?}"),
+    }
+
+    let _ = h.await;
+}
+
+/// If the child ignores SIGTERM the monitor must escalate to SIGKILL
+/// within the 3s grace window so teardown still terminates in bounded
+/// time. Without escalation a hung QEMU would leave the shutdown path
+/// blocked forever.
+#[cfg(unix)]
+#[tokio::test]
+async fn shutdown_escalates_to_sigkill_if_sigterm_ignored() {
+    // `trap '' TERM` installs an empty handler → SIGTERM is caught
+    // and discarded, reproducing a QEMU that won't acknowledge
+    // graceful shutdown. SIGKILL is uncatchable, so the monitor's
+    // 3s timeout → `start_kill` path is the only way out.
+    let (shutdown, h, mut rx) = spawn_probe("trap '' TERM; sleep 60").await;
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    let _ = shutdown.send(());
+
+    // Upper bound: 3s grace + monitor overhead + scheduling slack.
+    let budget = Duration::from_secs(6);
+    let evt = tokio::time::timeout(budget, rx.recv())
+        .await
+        .expect("SIGKILL escalation must fire within 6s of shutdown signal")
+        .expect("channel must yield the terminal event");
+
+    match evt {
+        ManagerEvent::ProcessExited {
+            killed_by_signal, ..
+        } => {
+            let expected = nix::sys::signal::Signal::SIGKILL as i32;
+            assert_eq!(
+                killed_by_signal,
+                Some(expected),
+                "ignored SIGTERM must escalate to SIGKILL, got {killed_by_signal:?}"
+            );
+        }
+        other => panic!("unexpected ManagerEvent variant: {other:?}"),
+    }
+
+    let _ = h.await;
+}

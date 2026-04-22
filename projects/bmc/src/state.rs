@@ -371,13 +371,19 @@ impl BmcState {
         ];
 
         let machine_config = MachineConfig::Uefi { memory };
-        let mut builder = VmBuilder::new(Arch::X86_64, machine_config).serial().qga();
+        // Builder starts in `VmBuilder<NoSnp>`. Optional `.smp()` only
+        // applies in that state — once we call `.sev_snp(...)` below
+        // the type transitions to `VmBuilder<WithSnp>`, which cannot
+        // be assigned back to a `VmBuilder<NoSnp>` slot. Keep the
+        // pre-SNP mutation on a separate binding and consume it into
+        // the WithSnp chain in one expression.
+        let mut pre_snp = VmBuilder::new(Arch::X86_64, machine_config).serial().qga();
         if let Some(cpus) = config.cpus {
-            builder = builder.smp(cpus);
+            pre_snp = pre_snp.smp(cpus);
         }
         // SEV-SNP requires EPYC CPU model — `-cpu host` exposes
         // CPUID features that fail SNP firmware validation.
-        builder = builder
+        let mut paused_vm = pre_snp
             .accel(manager::vm::Accel::Kvm)
             .cpu("EPYC-v4")
             .display()
@@ -385,9 +391,9 @@ impl BmcState {
             .svsm(manager::vm::SvsmConfig {
                 igvm_path: svsm.igvm,
                 qemu_binary: Some(svsm.qemu),
-            });
-
-        let mut paused_vm = builder.spawn().await?;
+            })
+            .spawn()
+            .await?;
 
         // Add block backends via QMP (preconfig-safe since QEMU 7.1.0).
         if let Err(e) = attach_blockdevs(&paused_vm.qmp, &disks).await {

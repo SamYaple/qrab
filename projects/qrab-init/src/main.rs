@@ -3,6 +3,7 @@ mod config;
 use config::InitConfig;
 use nix::libc;
 use nix::mount::{mount, MsFlags};
+use nix::sys::prctl;
 use nix::sys::signal::{sigaction, SaFlags, SigAction, SigHandler, SigSet, Signal};
 use nix::sys::wait::{waitpid, WaitPidFlag, WaitStatus};
 use nix::unistd::{close, execve, fork, ForkResult, Gid, Pid, Uid};
@@ -12,12 +13,19 @@ use std::io::Read;
 use std::os::unix::ffi::OsStringExt;
 use std::os::unix::io::FromRawFd;
 use std::process;
-use std::sync::atomic::{AtomicI32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 
 /// Child PID stored for signal handler to forward signals.
 static CHILD_PID: AtomicI32 = AtomicI32::new(-1);
 
+/// Set once SIGTERM/SIGINT arrives — either from the parent's shutdown
+/// path or from the kernel's `PR_SET_PDEATHSIG` when our parent dies.
+/// The reap loop uses this to arm a bounded timeout and escalate to
+/// SIGKILL if QEMU ignores SIGTERM.
+static SHUTDOWN_REQUESTED: AtomicBool = AtomicBool::new(false);
+
 extern "C" fn forward_signal(sig: libc::c_int) {
+    SHUTDOWN_REQUESTED.store(true, Ordering::Relaxed);
     let pid = CHILD_PID.load(Ordering::Relaxed);
     if pid > 0 {
         unsafe {
@@ -109,6 +117,29 @@ fn collect_environ() -> Result<Vec<CString>, String> {
 }
 
 fn run() -> Result<(), String> {
+    // Ask the kernel to send us SIGTERM when our parent (the test /
+    // manager process that spawned qrab-init) dies. Our SIGTERM
+    // handler forwards to QEMU, so ungraceful parent death —
+    // panic, abort, cargo harness timeout — cascades through into
+    // a clean QEMU shutdown instead of leaving qemu-system-* processes
+    // orphaned to init.
+    //
+    // Linux clears PDEATHSIG across execve, so this MUST be set
+    // inside qrab-init's own process image (not the parent's
+    // `pre_exec`). The signal fires on parent *thread* death, which
+    // matches parent-process death for the single-threaded parent
+    // case and is acceptably close for multi-threaded parents whose
+    // main thread outlives the Command::spawn thread.
+    prctl::set_pdeathsig(Signal::SIGTERM)
+        .map_err(|e| format!("set_pdeathsig: {e}"))?;
+    // Defence against a race: the parent may already be dead by the
+    // time we run (ppid==1 on Linux signifies reparented to init).
+    // PDEATHSIG only fires on future parent death, so check once.
+    if nix::unistd::getppid().as_raw() == 1 {
+        eprintln!("qrab-init: parent already dead at start, exiting");
+        process::exit(1);
+    }
+
     // Parse argv: <config-pipe-fd> <ack-pipe-fd>
     let args: Vec<String> = std::env::args().collect();
     if args.len() != 3 {
@@ -212,14 +243,46 @@ fn run() -> Result<(), String> {
                 sigaction(Signal::SIGINT, &sa).map_err(|e| format!("sigaction SIGINT: {e}"))?;
             }
 
-            // Reap loop — wait for all children.
+            // Reap loop — wait for all children. If a shutdown signal
+            // arrives and QEMU does not exit within a short grace
+            // window, escalate to SIGKILL so the parent can count on
+            // us to teardown synchronously.
+            let mut sigkill_deadline: Option<std::time::Instant> = None;
+            const GRACE: std::time::Duration = std::time::Duration::from_millis(2500);
             loop {
-                match waitpid(Pid::from_raw(-1), Some(WaitPidFlag::empty())) {
+                // Arm deadline on first signal observed.
+                if sigkill_deadline.is_none() && SHUTDOWN_REQUESTED.load(Ordering::Relaxed) {
+                    sigkill_deadline = Some(std::time::Instant::now() + GRACE);
+                }
+                // If deadline expired and QEMU still alive, SIGKILL it.
+                if let Some(deadline) = sigkill_deadline {
+                    if std::time::Instant::now() >= deadline {
+                        unsafe {
+                            libc::kill(child.as_raw(), libc::SIGKILL);
+                        }
+                        sigkill_deadline = None; // fired once
+                    }
+                }
+                // Non-blocking waitpid when shutdown armed, so we can
+                // check the deadline; blocking otherwise to avoid
+                // burning CPU.
+                let flags = if sigkill_deadline.is_some() {
+                    WaitPidFlag::WNOHANG
+                } else {
+                    WaitPidFlag::empty()
+                };
+                match waitpid(Pid::from_raw(-1), Some(flags)) {
                     Ok(WaitStatus::Exited(pid, code)) if pid == child => {
                         process::exit(code);
                     }
                     Ok(WaitStatus::Signaled(pid, sig, _)) if pid == child => {
                         process::exit(128 + sig as i32);
+                    }
+                    Ok(WaitStatus::StillAlive) => {
+                        // WNOHANG returned no child; sleep briefly so
+                        // we don't spin while waiting for the grace
+                        // window to close.
+                        std::thread::sleep(std::time::Duration::from_millis(50));
                     }
                     Ok(_) => {
                         // Other child reaped (zombie), continue.

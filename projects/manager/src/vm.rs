@@ -266,6 +266,12 @@ struct VmProcess {
     shutdown: Option<oneshot::Sender<()>>,
     monitor: Option<JoinHandle<()>>,
     exit_watch: watch::Receiver<Option<ExitStatus>>,
+    /// qrab-init's host PID. Used by the synchronous Drop fallback so
+    /// that — even when no tokio runtime is available to drive the
+    /// monitor task — we can still deliver SIGTERM to qrab-init
+    /// (which forwards to QEMU) before the `kill_on_drop(true)`
+    /// SIGKILL fallback fires on the Child.
+    init_pid: Option<nix::unistd::Pid>,
     /// Held until `take_manager_events()` transfers ownership to the
     /// caller. `Some` at construction, `None` after the first take.
     manager_event_rx: Option<mpsc::Receiver<ManagerEvent>>,
@@ -297,16 +303,43 @@ impl VmProcess {
         oneshot::Sender<()>,
         JoinHandle<()>,
         watch::Receiver<Option<ExitStatus>>,
+        Option<nix::unistd::Pid>,
     ) {
         let (tx, rx) = oneshot::channel::<()>();
         let (exit_tx, exit_rx) = watch::channel(None);
+        // Grab qrab-init's host PID before the Child is moved into the
+        // task. Used by the shutdown branch to send SIGTERM first so
+        // qrab-init's signal handler can forward to QEMU; SIGKILL is
+        // escalated to only if QEMU does not exit within the grace
+        // window. `child.id()` is `Some` until the kernel reaps the
+        // process (never during our spawn path).
+        let init_pid = child.id().map(|p| nix::unistd::Pid::from_raw(p as i32));
         let handle = tokio::spawn(async move {
             // Capture the wait-result so the post-select tail can publish
             // a single ManagerEvent regardless of which branch fired.
             let wait_result = tokio::select! {
                 _ = rx => {
-                    let _ = child.start_kill();
-                    child.wait().await
+                    // SIGKILL on qrab-init would not give its SIGTERM
+                    // handler a chance to forward to QEMU, leaving
+                    // QEMU orphaned to host init. SIGTERM first; wait
+                    // up to 3s for the cascade; escalate to SIGKILL on
+                    // timeout via tokio's `start_kill`. The tail
+                    // `child.wait()` still runs to reap.
+                    if let Some(pid) = init_pid {
+                        let _ = nix::sys::signal::kill(pid, nix::sys::signal::Signal::SIGTERM);
+                    } else {
+                        let _ = child.start_kill();
+                    }
+                    match tokio::time::timeout(Duration::from_secs(3), child.wait()).await {
+                        Ok(res) => res,
+                        Err(_) => {
+                            tracing::warn!(
+                                "qrab-init ignored SIGTERM for 3s, escalating to SIGKILL"
+                            );
+                            let _ = child.start_kill();
+                            child.wait().await
+                        }
+                    }
                 }
                 res = child.wait() => {
                     match &res {
@@ -339,7 +372,7 @@ impl VmProcess {
             let _ = manager_event_tx.try_send(event);
             drop(manager_event_tx);
         });
-        (tx, handle, exit_rx)
+        (tx, handle, exit_rx, init_pid)
     }
 
     /// Async cleanup: signal monitor to kill the child, wait for exit.
@@ -359,14 +392,34 @@ impl Drop for VmProcess {
     fn drop(&mut self) {
         // Signal the monitor task to kill + reap the child. If we're inside
         // a tokio runtime the monitor task will continue running (detached)
-        // and reap properly. If not, abort the handle — this drops the
-        // `Child` inside the task which triggers `kill_on_drop(true)`, at
-        // best effort with no reaper if there is no runtime.
+        // and reap properly (see `spawn_monitor`: SIGTERM → 3s grace →
+        // SIGKILL → wait).
+        //
+        // If we're NOT inside a runtime we can't drive the monitor task
+        // to completion, so the SIGTERM → SIGKILL cascade has to happen
+        // synchronously HERE. Sending SIGTERM directly lets qrab-init's
+        // own handler forward to QEMU; the aborted monitor task drops
+        // its owned `Child`, and `kill_on_drop(true)` then sends SIGKILL
+        // as a hard backstop. Without this step the no-runtime path
+        // would SIGKILL qrab-init without ever forwarding to QEMU,
+        // leaving qemu-system-* orphaned to host init — the exact
+        // symptom users see when a panic or abort interrupts a test
+        // before `shutdown().await` runs.
         if let Some(tx) = self.shutdown.take() {
             let _ = tx.send(());
         }
         if let Some(h) = self.monitor.take() {
             if tokio::runtime::Handle::try_current().is_err() {
+                if let Some(pid) = self.init_pid {
+                    let _ = nix::sys::signal::kill(
+                        pid,
+                        nix::sys::signal::Signal::SIGTERM,
+                    );
+                    // Give qrab-init a short grace to forward the
+                    // signal + reap QEMU before we drop the Child and
+                    // let `kill_on_drop(true)` SIGKILL the whole chain.
+                    std::thread::sleep(Duration::from_millis(500));
+                }
                 h.abort();
             }
         }
@@ -1690,7 +1743,7 @@ impl VmBuilder<WithSnp> {
         // the monitor uses `try_send` and then drops the sender so
         // subscribers see a clean channel close.
         let (manager_event_tx, manager_event_rx) = mpsc::channel::<ManagerEvent>(1);
-        let (shutdown, monitor, exit_watch) =
+        let (shutdown, monitor, exit_watch, init_pid) =
             VmProcess::spawn_monitor(child, manager_event_tx);
 
         Ok(PreconfigVm {
@@ -1700,6 +1753,7 @@ impl VmBuilder<WithSnp> {
                 shutdown: Some(shutdown),
                 monitor: Some(monitor),
                 exit_watch,
+                init_pid,
                 manager_event_rx: Some(manager_event_rx),
                 _tmpdir: tmpdir,
                 qmp_sock,
@@ -2587,8 +2641,10 @@ pub mod test_support {
 
     /// Expose `VmProcess::spawn_monitor` to integration tests. Returns
     /// the same `(shutdown, handle, exit_watch)` triple as the private
-    /// helper. Not intended for production use — the `ManagerEvent`
-    /// stream is normally taken off a `PreconfigVm`/`Vm` via
+    /// helper (the fourth element — the captured PID used by the no-
+    /// runtime Drop path — is stripped for the existing test contract).
+    /// Not intended for production use — the `ManagerEvent` stream is
+    /// normally taken off a `PreconfigVm`/`Vm` via
     /// `take_manager_events()`.
     #[must_use]
     pub fn spawn_monitor_for_test(
@@ -2599,6 +2655,8 @@ pub mod test_support {
         JoinHandle<()>,
         watch::Receiver<Option<ExitStatus>>,
     ) {
-        VmProcess::spawn_monitor(child, manager_event_tx)
+        let (tx, handle, exit_rx, _init_pid) =
+            VmProcess::spawn_monitor(child, manager_event_tx);
+        (tx, handle, exit_rx)
     }
 }
