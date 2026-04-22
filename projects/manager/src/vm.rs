@@ -406,7 +406,12 @@ pub struct VmBuilder {
     smp: Option<u32>,
     cpu: Option<String>,
     sev_snp: Option<SevSnpConfig>,
-    tpm: Option<TpmConfig>,
+    tpm: Option<TpmBackend>,
+    /// Optional override for the QEMU binary, propagated from
+    /// `SvsmConfig::qemu_binary` or set manually via
+    /// `VmBuilder::qemu_binary`. Honoured by the firmware + spawn
+    /// resolution logic before `which::which()` fallback.
+    qemu_binary_override: Option<PathBuf>,
     /// Platform Key certificate (PEM-encoded X.509) to inject via SMBIOS
     /// OEM string for OVMF's EnrollDefaultKeys. When set, QEMU receives
     /// `-smbios type=11,value=<OVMF_PK_KEK1_APP_PREFIX_GUID>:<base64-DER>`
@@ -432,7 +437,10 @@ pub enum Accel {
     KvmOrTcg,
 }
 
-/// TPM configuration for a VM (swtpm only, CRB frontend).
+/// Legacy alias: prefer `TpmBackend::Swtpm(SwtpmConfig)` on new code
+/// paths. `TpmConfig` is kept because it's the payload inside
+/// `TpmBackend::Swtpm` and because `VmBuilder::tpm(TpmConfig)` stays
+/// as a convenience setter that maps to `TpmBackend::Swtpm`.
 #[derive(Debug, Clone)]
 pub struct TpmConfig {
     /// swtpm state directory for persistent TPM state.
@@ -440,7 +448,86 @@ pub struct TpmConfig {
     pub state_dir: Option<PathBuf>,
 }
 
+/// Kind of vTPM attached to the VM.
+///
+/// * `Swtpm` — host-userspace swtpm process. Fine for non-CoCo VMs
+///   but insecure on SEV-SNP because the host admin can read every
+///   TPM operation. [`VmBuilder::build`] refuses this combination
+///   when a `SevSnpConfig` is also set.
+/// * `Svsm` — VMPL0 vTPM provided by coconut-svsm, loaded via an
+///   IGVM file at launch time. The only TPM path permitted under
+///   SEV-SNP; the guest sees `/dev/tpm0` backed by RMP-protected
+///   SVSM memory.
+#[derive(Debug, Clone)]
+pub enum TpmBackend {
+    Swtpm(TpmConfig),
+    Svsm(SvsmConfig),
+}
+
+/// VMPL0 SVSM vTPM configuration.
+///
+/// Paths are consumed only at `VmBuilder::build`. No process is
+/// spawned for SVSM — the vTPM lives inside the guest at VMPL0,
+/// loaded together with OVMF by the IGVM firmware blob.
+#[derive(Debug, Clone)]
+pub struct SvsmConfig {
+    /// Path to `coconut-qemu.igvm` (produced by
+    /// `contrib/build-svsm-igvm.sh`).
+    pub igvm_path: PathBuf,
+    /// Optional override for `qemu-system-<arch>` because the SVSM
+    /// lane needs the coconut-svsm/qemu fork (IGVM-aware). When
+    /// `None`, `VmBuilder` falls back to `which::which()` on the
+    /// platform's usual binary name — which on bb is the stock
+    /// QEMU that does NOT understand `-object igvm-cfg`, so
+    /// real SVSM launches must set this.
+    pub qemu_binary: Option<PathBuf>,
+}
+
 /// Build QEMU CLI args for swtpm emulated TPM with CRB frontend.
+/// Emit the QEMU CLI fragment required for an IGVM + SVSM + memfd
+/// launch per `contrib/build-svsm-igvm.sh`'s INSTALL.md-derived recipe:
+///
+/// ```text
+/// -object memory-backend-memfd,id=ram1,size=<mem>,share=true,\
+///         prealloc=false,reserve=false
+/// -object igvm-cfg,id=igvm0,file=<igvm_path>
+/// ```
+///
+/// `-machine memory-backend=ram1,igvm-cfg=igvm0` has to land on the
+/// existing `-machine` arg, but that argument is assembled upstream
+/// of this function. The machine-config block takes care of the
+/// suffix when it detects an active `SvsmConfig`; this helper only
+/// produces the `-object` pair. Keeps the SVSM-lane code path
+/// additive and easy to strip if a future refactor pulls IGVM +
+/// memfd into `build_machine_args`.
+fn build_svsm_args(
+    igvm_path: &Path,
+    config: &MachineConfig,
+) -> Result<Vec<String>> {
+    let mem = memory_size(config);
+    Ok(vec![
+        "-object".into(),
+        format!(
+            "memory-backend-memfd,id=ram1,size={mem},share=true,\
+             prealloc=false,reserve=false"
+        ),
+        "-object".into(),
+        format!("igvm-cfg,id=igvm0,file={}", igvm_path.display()),
+    ])
+}
+
+/// Extract the memory string from `MachineConfig`. Every variant
+/// carries it today; if a future variant doesn't, panic loudly here
+/// rather than silently dropping SVSM memory sizing.
+fn memory_size(config: &MachineConfig) -> String {
+    match config {
+        MachineConfig::None => "1024M".into(),
+        MachineConfig::Bios { memory } => memory.clone(),
+        MachineConfig::Uefi { memory } => memory.clone(),
+        MachineConfig::SecureBoot { memory } => memory.clone(),
+    }
+}
+
 fn build_tpm_args(swtpm_sock: &Path) -> Vec<String> {
     vec![
         "-chardev".into(),
@@ -547,6 +634,7 @@ impl VmBuilder {
             cpu: None,
             sev_snp: None,
             tpm: None,
+            qemu_binary_override: None,
             sb_pk_cert: None,
             extra_args: Vec::new(),
         }
@@ -656,9 +744,38 @@ impl VmBuilder {
     }
 
     /// Configure a TPM device (swtpm emulated, CRB frontend).
+    ///
+    /// Legacy shortcut for [`TpmBackend::Swtpm`]. CoCo VMs must NOT
+    /// use this — pair `sev_snp(...)` with [`svsm(SvsmConfig)`]
+    /// instead. `build()` refuses the SNP + Swtpm combination.
     #[must_use]
     pub fn tpm(mut self, config: TpmConfig) -> Self {
-        self.tpm = Some(config);
+        self.tpm = Some(TpmBackend::Swtpm(config));
+        self
+    }
+
+    /// Select [`TpmBackend::Svsm`] for this VM and carry forward the
+    /// `qemu_binary` override if the config names one.
+    ///
+    /// The SVSM backend requires an SNP configuration plus a QEMU
+    /// binary that understands `-object igvm-cfg`. Both constraints
+    /// are checked at `build()`; this setter only stores the state.
+    #[must_use]
+    pub fn svsm(mut self, config: SvsmConfig) -> Self {
+        if let Some(ref qbin) = config.qemu_binary {
+            self.qemu_binary_override = Some(qbin.clone());
+        }
+        self.tpm = Some(TpmBackend::Svsm(config));
+        self
+    }
+
+    /// Explicit `qemu-system-<arch>` override. Usually threaded in by
+    /// `svsm(SvsmConfig { qemu_binary: Some(_), .. })` but callers
+    /// can also set it directly — e.g. to pin a reproducible QEMU
+    /// binary independent of the TPM backend.
+    #[must_use]
+    pub fn qemu_binary(mut self, binary: PathBuf) -> Self {
+        self.qemu_binary_override = Some(binary);
         self
     }
 
@@ -1190,26 +1307,35 @@ impl VmBuilder {
 
         // SEV-SNP args (may modify machine arg)
         let (sev_args, machine_suffix) = self.build_sev_args()?;
+        let using_svsm = matches!(self.tpm, Some(TpmBackend::Svsm(_)));
         if let Some(suffix) = machine_suffix {
             if let Some(idx) = machine_idx {
                 let abs_idx = machine_idx_offset + idx;
                 args[abs_idx].push_str(&suffix);
 
-                // SEV-SNP firmware via -machine firmware= property.
-                // pflash is incompatible (KVM_CAP_READONLY_MEM=0 for SNP VMs type 3).
-                // -bios loads at reset vector without PSP validation (crashes).
-                // -machine firmware= uses the machine firmware loader which the
-                // PSP validates and measures before vCPU start.
-                let fw_path = if let Some(ref fw) = self.firmware {
-                    fw.clone()
-                } else if let Some(ref ovmf) = self.ovmf {
-                    ovmf.code.clone()
+                if using_svsm {
+                    // SVSM: IGVM file carries OVMF + SVSM + launch
+                    // directives. Machine arg points at it via the
+                    // objects emitted in the TPM block; no `firmware=`
+                    // property to append here.
+                    args[abs_idx].push_str(",memory-backend=ram1,igvm-cfg=igvm0");
                 } else {
-                    return Err(Error::Config(
-                        "SEV-SNP requires firmware (AmdSev OVMF) but none configured".into()
-                    ));
-                };
-                args[abs_idx].push_str(&format!(",firmware={}", fw_path.display()));
+                    // SEV-SNP firmware via -machine firmware= property.
+                    // pflash is incompatible (KVM_CAP_READONLY_MEM=0 for SNP VMs type 3).
+                    // -bios loads at reset vector without PSP validation (crashes).
+                    // -machine firmware= uses the machine firmware loader which the
+                    // PSP validates and measures before vCPU start.
+                    let fw_path = if let Some(ref fw) = self.firmware {
+                        fw.clone()
+                    } else if let Some(ref ovmf) = self.ovmf {
+                        ovmf.code.clone()
+                    } else {
+                        return Err(Error::Config(
+                            "SEV-SNP requires firmware (AmdSev OVMF) but none configured".into()
+                        ));
+                    };
+                    args[abs_idx].push_str(&format!(",firmware={}", fw_path.display()));
+                }
             }
         }
         // SEV fd is passed to QEMU via sev-device=/proc/self/fd/N. qrab-init
@@ -1299,19 +1425,54 @@ impl VmBuilder {
         // guaranteeing a fresh QEMU process on the next power_on.
         args.push("-no-shutdown".into());
 
-        // --- TPM (swtpm only, CRB frontend) ---
+        // --- TPM ---
+        // Swtpm backend spawns a helper process; SVSM backend is purely
+        // CLI-level (IGVM carries the vTPM). `build_svsm_args` already
+        // ran up in the machine-args block for SVSM — here we only
+        // spawn swtpm when that's the chosen backend.
         let mut swtpm_process: Option<SwtpmProcess> = None;
 
-        if let Some(ref tpm_config) = self.tpm {
-            let swtpm = SwtpmProcess::spawn(
-                tmpdir.path(),
-                tpm_config.state_dir.clone(),
-                None,
-            )
-            .await?;
-            let tpm_args = build_tpm_args(swtpm.sock());
-            swtpm_process = Some(swtpm);
-            args.extend(tpm_args);
+        match self.tpm.as_ref() {
+            None => {}
+            Some(TpmBackend::Swtpm(cfg)) => {
+                // SNP + Swtpm is a security-model violation (host can
+                // read every TPM op). Refuse before spawning.
+                if self.sev_snp.is_some() {
+                    return Err(Error::Spawn(
+                        "SNP + Swtpm is disallowed — use TpmBackend::Svsm \
+                         for confidential VMs"
+                            .into(),
+                    ));
+                }
+                let swtpm = SwtpmProcess::spawn(
+                    tmpdir.path(),
+                    cfg.state_dir.clone(),
+                    None,
+                )
+                .await?;
+                let tpm_args = build_tpm_args(swtpm.sock());
+                swtpm_process = Some(swtpm);
+                args.extend(tpm_args);
+            }
+            Some(TpmBackend::Svsm(cfg)) => {
+                // SVSM demands SNP: the IGVM file carries the SEV-SNP
+                // launch directives + VMPL0 SVSM image. Using it on a
+                // non-SNP VM would be meaningless at best.
+                if self.sev_snp.is_none() {
+                    return Err(Error::Spawn(
+                        "TpmBackend::Svsm requires a SevSnpConfig — SVSM is \
+                         an SNP-only path"
+                            .into(),
+                    ));
+                }
+                if !cfg.igvm_path.is_file() {
+                    return Err(Error::Spawn(format!(
+                        "SvsmConfig.igvm_path {} does not exist",
+                        cfg.igvm_path.display()
+                    )));
+                }
+                args.extend(build_svsm_args(&cfg.igvm_path, &self.config)?);
+            }
         }
 
         if let Some(ref pk_path) = self.sb_pk_cert {
@@ -1345,9 +1506,25 @@ impl VmBuilder {
 
         // --- Serialize InitConfig ---
         // Resolve QEMU binary to absolute path — execve in qrab-init
-        // does not do PATH lookup.
-        let qemu_binary = which::which(self.arch.binary())
-            .map_err(|_| Error::Binary(format!("QEMU binary not found: {}", self.arch.binary().display())))?;
+        // does not do PATH lookup. Explicit override wins over PATH
+        // lookup so the SVSM lane can point at coconut-svsm/qemu
+        // (IGVM-aware) without displacing the system QEMU for other
+        // VMs.
+        let qemu_binary = if let Some(ref override_path) = self.qemu_binary_override {
+            if !override_path.is_file() {
+                return Err(Error::Binary(format!(
+                    "qemu_binary override {} does not exist",
+                    override_path.display()
+                )));
+            }
+            override_path.clone()
+        } else {
+            which::which(self.arch.binary())
+                .map_err(|_| Error::Binary(format!(
+                    "QEMU binary not found: {}",
+                    self.arch.binary().display()
+                )))?
+        };
         // SEV-SNP needs /dev/sev in the namespace for PSP communication.
         let extra_dev_nodes = if self.sev_snp.is_some() {
             let sev_dev = self.sev_snp.as_ref()
@@ -2251,6 +2428,102 @@ mod tests {
         assert_eq!(cfg.attest_server_url.as_deref(), Some("vsock://2:9999/attest"));
         // Default is still None.
         assert!(SevSnpConfig::default().attest_server_url.is_none());
+    }
+
+    // -- svsm / TpmBackend tests (Phase 2) --
+
+    mod svsm {
+        use super::super::{
+            build_svsm_args, SvsmConfig, TpmBackend, TpmConfig, VmBuilder,
+        };
+        use crate::arch::{Arch, MachineConfig};
+        use std::path::PathBuf;
+
+        #[test]
+        fn tpm_backend_swtpm_via_legacy_setter() {
+            let b = VmBuilder::new(
+                Arch::X86_64,
+                MachineConfig::Uefi { memory: "1024M".into() },
+            )
+            .tpm(TpmConfig { state_dir: None });
+            assert!(matches!(b.tpm, Some(TpmBackend::Swtpm(_))));
+            assert!(b.qemu_binary_override.is_none());
+        }
+
+        #[test]
+        fn svsm_setter_picks_up_qemu_binary_override() {
+            let cfg = SvsmConfig {
+                igvm_path: PathBuf::from("/nonexistent/coconut-qemu.igvm"),
+                qemu_binary: Some(PathBuf::from("/opt/qemu-svsm/bin/qemu-system-x86_64")),
+            };
+            let b = VmBuilder::new(
+                Arch::X86_64,
+                MachineConfig::Uefi { memory: "1024M".into() },
+            )
+            .svsm(cfg);
+            assert!(matches!(b.tpm, Some(TpmBackend::Svsm(_))));
+            assert_eq!(
+                b.qemu_binary_override.as_ref().unwrap().to_str(),
+                Some("/opt/qemu-svsm/bin/qemu-system-x86_64"),
+            );
+        }
+
+        #[test]
+        fn svsm_setter_without_qemu_binary_leaves_override_none() {
+            let cfg = SvsmConfig {
+                igvm_path: PathBuf::from("/nonexistent/coconut-qemu.igvm"),
+                qemu_binary: None,
+            };
+            let b = VmBuilder::new(
+                Arch::X86_64,
+                MachineConfig::Uefi { memory: "1024M".into() },
+            )
+            .svsm(cfg);
+            assert!(b.qemu_binary_override.is_none());
+        }
+
+        #[test]
+        fn explicit_qemu_binary_override_honored() {
+            let b = VmBuilder::new(
+                Arch::X86_64,
+                MachineConfig::Uefi { memory: "1024M".into() },
+            )
+            .qemu_binary(PathBuf::from("/usr/local/bin/qemu-custom"));
+            assert_eq!(
+                b.qemu_binary_override.as_ref().unwrap().to_str(),
+                Some("/usr/local/bin/qemu-custom"),
+            );
+        }
+
+        #[test]
+        fn build_svsm_args_emits_memfd_and_igvm_objects() {
+            let igvm = PathBuf::from("/tmp/coconut-qemu.igvm");
+            let cfg = MachineConfig::Uefi { memory: "2G".into() };
+            let args = build_svsm_args(&igvm, &cfg).unwrap();
+            assert_eq!(args.len(), 4);
+            assert_eq!(args[0], "-object");
+            assert!(args[1].starts_with("memory-backend-memfd,id=ram1,size=2G,"),
+                "got: {}", args[1]);
+            assert!(args[1].contains("share=true"));
+            assert!(args[1].contains("prealloc=false"));
+            assert!(args[1].contains("reserve=false"));
+            assert_eq!(args[2], "-object");
+            assert_eq!(args[3], "igvm-cfg,id=igvm0,file=/tmp/coconut-qemu.igvm");
+        }
+
+        #[test]
+        fn build_svsm_args_pulls_memory_from_machine_config() {
+            let igvm = PathBuf::from("/a.igvm");
+            for (cfg, expected) in [
+                (MachineConfig::Uefi { memory: "4G".into() }, "size=4G"),
+                (MachineConfig::Bios { memory: "512M".into() }, "size=512M"),
+                (MachineConfig::SecureBoot { memory: "8G".into() }, "size=8G"),
+                (MachineConfig::None, "size=1024M"),
+            ] {
+                let args = build_svsm_args(&igvm, &cfg).unwrap();
+                assert!(args[1].contains(expected), "cfg missing {expected}: {}", args[1]);
+            }
+        }
     }
 }
 
