@@ -503,8 +503,6 @@ fn build_svsm_args(
 /// rather than silently dropping SVSM memory sizing.
 fn memory_size(config: &MachineConfig) -> String {
     match config {
-        MachineConfig::None => "1024M".into(),
-        MachineConfig::Bios { memory } => memory.clone(),
         MachineConfig::Uefi { memory } => memory.clone(),
         MachineConfig::SecureBoot { memory } => memory.clone(),
     }
@@ -587,7 +585,13 @@ fn build_sb_pk_smbios_args(pem_path: &Path) -> Result<Vec<String>> {
 
 impl VmBuilder {
     #[must_use]
-    pub fn new(arch: Arch, config: MachineConfig) -> Self {
+    /// Construct a new VM builder.
+    ///
+    /// `sev_snp` is required: qrab is a SEV-SNP-only VMM after the
+    /// scope-tightening round. Callers that want to adjust the
+    /// `SevSnpConfig` later can use [`VmBuilder::sev_snp`] to replace
+    /// the value.
+    pub fn new(arch: Arch, config: MachineConfig, sev_snp: SevSnpConfig) -> Self {
         Self {
             arch,
             config,
@@ -603,7 +607,7 @@ impl VmBuilder {
             accel: None,
             smp: None,
             cpu: None,
-            sev_snp: None,
+            sev_snp: Some(sev_snp),
             tpm: None,
             qemu_binary_override: None,
             sb_pk_cert: None,
@@ -611,10 +615,10 @@ impl VmBuilder {
         }
     }
 
-    /// Configure AMD SEV-SNP confidential computing.
-    ///
-    /// Requires KVM acceleration, UEFI or SecureBoot machine config,
-    /// and x86_64 architecture. Validated at spawn time.
+    /// Replace the SEV-SNP config. The builder always has one since
+    /// [`VmBuilder::new`] requires it; this setter overwrites the
+    /// value for callers that want to tweak fields (policy, host_data,
+    /// id_block, ...) after construction.
     #[must_use]
     pub fn sev_snp(mut self, config: SevSnpConfig) -> Self {
         self.sev_snp = Some(config);
@@ -777,22 +781,6 @@ impl VmBuilder {
         let mut machine_idx = None;
 
         match &self.config {
-            MachineConfig::None => {
-                args.extend(["-machine".into(), "none".into()]);
-            }
-            MachineConfig::Bios { memory } => {
-                validate_memory(memory)?;
-                let machine = self.arch.bios_machine().ok_or_else(|| {
-                    Error::Config(format!(
-                        "BIOS boot not supported for architecture {:?}",
-                        self.arch
-                    ))
-                })?;
-                args.push("-machine".into());
-                machine_idx = Some(args.len());
-                args.push(machine.into());
-                args.extend(["-m".into(), memory.clone()]);
-            }
             MachineConfig::Uefi { memory } => {
                 validate_memory(memory)?;
                 let machine = self.arch.uefi_machine();
@@ -801,18 +789,15 @@ impl VmBuilder {
                 args.push(machine.into());
                 args.extend(["-m".into(), memory.clone()]);
 
-                // q35 (x86) uses PCIe root complex — pcie.0 doesn't support
+                // q35 uses PCIe root complex — pcie.0 doesn't support
                 // hotplug. Add root ports so device_add works for disks/NICs.
-                // aarch64 virt machine handles this differently (no root ports needed).
-                if matches!(self.arch, Arch::X86_64 | Arch::I386) {
-                    for i in 0..4 {
-                        args.extend([
-                            "-device".into(),
-                            format!(
-                                "pcie-root-port,id=rp{i},slot={i},chassis={i},bus=pcie.0"
-                            ),
-                        ]);
-                    }
+                for i in 0..4 {
+                    args.extend([
+                        "-device".into(),
+                        format!(
+                            "pcie-root-port,id=rp{i},slot={i},chassis={i},bus=pcie.0"
+                        ),
+                    ]);
                 }
 
                 // SEV-SNP: firmware loaded via -machine firmware= property.
@@ -845,20 +830,10 @@ impl VmBuilder {
                         ),
                     ]);
                 } else if let Some(ref fw) = self.firmware {
-                    match self.arch {
-                        Arch::X86_64 | Arch::I386 => {
-                            args.extend(["-bios".into(), fw.display().to_string()]);
-                        }
-                        Arch::Aarch64 | Arch::Arm => {
-                            args.extend([
-                                "-drive".into(),
-                                format!(
-                                    "if=pflash,format=raw,readonly=on,file={}",
-                                    fw.display()
-                                ),
-                            ]);
-                        }
-                    }
+                    // x86_64-only: -bios loads the firmware at the
+                    // reset vector. (qrab's production SNP+SVSM path
+                    // goes through IGVM and never reaches this branch.)
+                    args.extend(["-bios".into(), fw.display().to_string()]);
                 }
             }
             MachineConfig::SecureBoot { memory } => {
@@ -1083,7 +1058,6 @@ impl VmBuilder {
                     self.secure_boot = true;
                 }
             }
-            _ => return Err(Error::Config("SEV-SNP requires UEFI or SecureBoot machine config".into())),
         }
 
         // CPU must be host or EPYC variant
@@ -2181,6 +2155,7 @@ mod tests {
                 MachineConfig::Uefi {
                     memory: "1024".into(),
                 },
+                super::super::SevSnpConfig::default(),
             )
             .sb_pk_cert(std::path::PathBuf::from("/dev/null"));
             // Field is private; exercising the setter through the public
@@ -2254,10 +2229,10 @@ mod tests {
         VmBuilder::new(
             Arch::X86_64,
             MachineConfig::Uefi { memory: "4G".into() },
+            sev,
         )
         .accel(Accel::Kvm)
         .cpu("EPYC-v4")
-        .sev_snp(sev)
     }
 
     #[test]
@@ -2271,17 +2246,11 @@ mod tests {
         assert!(!args[1].contains("sev-guest,"));
         assert_eq!(suffix, Some(",confidential-guest-support=sev0".into()));
     }
-
-    #[test]
-    fn build_sev_args_no_sev() {
-        let builder = VmBuilder::new(
-            Arch::X86_64,
-            MachineConfig::Uefi { memory: "4G".into() },
-        );
-        let (args, suffix) = builder.build_sev_args().unwrap();
-        assert!(args.is_empty());
-        assert!(suffix.is_none());
-    }
+    // `build_sev_args_no_sev` removed: SevSnpConfig is now mandatory at
+    // the VmBuilder::new() constructor, so there is no "no-SEV"
+    // state to test for. The no-suffix branch in build_sev_args is
+    // effectively dead code retained only so the internal helper keeps
+    // its pre-tightening signature.
 
     #[test]
     fn build_sev_args_full_snp_config() {
@@ -2391,6 +2360,7 @@ mod tests {
             let b = VmBuilder::new(
                 Arch::X86_64,
                 MachineConfig::Uefi { memory: "1024M".into() },
+                super::super::SevSnpConfig::default(),
             )
             .svsm(cfg);
             assert!(matches!(b.tpm, Some(TpmBackend::Svsm(_))));
@@ -2409,6 +2379,7 @@ mod tests {
             let b = VmBuilder::new(
                 Arch::X86_64,
                 MachineConfig::Uefi { memory: "1024M".into() },
+                super::super::SevSnpConfig::default(),
             )
             .svsm(cfg);
             assert!(b.qemu_binary_override.is_none());
@@ -2419,6 +2390,7 @@ mod tests {
             let b = VmBuilder::new(
                 Arch::X86_64,
                 MachineConfig::Uefi { memory: "1024M".into() },
+                super::super::SevSnpConfig::default(),
             )
             .qemu_binary(PathBuf::from("/usr/local/bin/qemu-custom"));
             assert_eq!(
@@ -2452,6 +2424,7 @@ mod tests {
             let b = VmBuilder::new(
                 Arch::X86_64,
                 MachineConfig::Uefi { memory: "2G".into() },
+                super::super::SevSnpConfig::default(),
             )
             .svsm(SvsmConfig {
                 igvm_path: PathBuf::from("/tmp/x.igvm"),
@@ -2466,6 +2439,7 @@ mod tests {
             let b = VmBuilder::new(
                 Arch::X86_64,
                 MachineConfig::Uefi { memory: "2G".into() },
+                super::super::SevSnpConfig::default(),
             )
             .svsm(SvsmConfig {
                 igvm_path: PathBuf::from("/tmp/x.igvm"),
@@ -2480,9 +2454,7 @@ mod tests {
             let igvm = PathBuf::from("/a.igvm");
             for (cfg, expected) in [
                 (MachineConfig::Uefi { memory: "4G".into() }, "size=4G"),
-                (MachineConfig::Bios { memory: "512M".into() }, "size=512M"),
                 (MachineConfig::SecureBoot { memory: "8G".into() }, "size=8G"),
-                (MachineConfig::None, "size=1024M"),
             ] {
                 let args = build_svsm_args(&igvm, &cfg).unwrap();
                 assert!(args[1].contains(expected), "cfg missing {expected}: {}", args[1]);

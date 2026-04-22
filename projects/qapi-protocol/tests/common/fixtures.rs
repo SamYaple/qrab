@@ -17,14 +17,10 @@ fn fixtures_dir() -> PathBuf {
     dir
 }
 
-/// Download cirros disk image for the given architecture. Cached.
-/// Only x86_64 and aarch64 are supported.
-pub async fn cirros_image(arch: Arch) -> PathBuf {
-    let filename = match arch {
-        Arch::X86_64 | Arch::I386 => "cirros-0.6.2-x86_64-disk.img",
-        Arch::Aarch64 => "cirros-0.6.2-aarch64-disk.img",
-        Arch::Arm => panic!("cirros boot tests not supported for arm 32-bit"),
-    };
+/// Download cirros disk image. Cached. x86_64 only — the scope-
+/// tightening round dropped non-x86_64 `Arch` variants.
+pub async fn cirros_image(_arch: Arch) -> PathBuf {
+    let filename = "cirros-0.6.2-x86_64-disk.img";
 
     let path = fixtures_dir().join(filename);
     if path.exists() {
@@ -72,24 +68,14 @@ pub async fn cirros_image_copy(arch: Arch) -> PathBuf {
     dest
 }
 
-/// Download cirros kernel for direct boot. Cached.
-pub async fn cirros_kernel(arch: Arch) -> PathBuf {
-    let filename = match arch {
-        Arch::X86_64 | Arch::I386 => "cirros-0.6.2-x86_64-kernel",
-        Arch::Aarch64 => "cirros-0.6.2-aarch64-kernel",
-        Arch::Arm => panic!("cirros kernel not supported for arm 32-bit"),
-    };
-    download_cirros_file(filename).await
+/// Download cirros kernel for direct boot. Cached. x86_64 only.
+pub async fn cirros_kernel(_arch: Arch) -> PathBuf {
+    download_cirros_file("cirros-0.6.2-x86_64-kernel").await
 }
 
-/// Download cirros initramfs for direct boot. Cached.
-pub async fn cirros_initramfs(arch: Arch) -> PathBuf {
-    let filename = match arch {
-        Arch::X86_64 | Arch::I386 => "cirros-0.6.2-x86_64-initramfs",
-        Arch::Aarch64 => "cirros-0.6.2-aarch64-initramfs",
-        Arch::Arm => panic!("cirros initramfs not supported for arm 32-bit"),
-    };
-    download_cirros_file(filename).await
+/// Download cirros initramfs for direct boot. Cached. x86_64 only.
+pub async fn cirros_initramfs(_arch: Arch) -> PathBuf {
+    download_cirros_file("cirros-0.6.2-x86_64-initramfs").await
 }
 
 async fn download_cirros_file(filename: &str) -> PathBuf {
@@ -261,17 +247,10 @@ pub async fn blank_qcow2(name: &str, size_mb: u64) -> PathBuf {
     path
 }
 
-/// Resolve UEFI firmware code path for an architecture.
-/// Returns None if not found (caller should skip the test).
-pub fn find_firmware(arch: Arch) -> Option<PathBuf> {
-    // Check arch-specific env var first
-    let env_key = match arch {
-        Arch::X86_64 => "QEMU_TEST_OVMF_X86_64",
-        Arch::I386 => "QEMU_TEST_OVMF_I386",
-        Arch::Aarch64 => "QEMU_TEST_OVMF_AARCH64",
-        Arch::Arm => "QEMU_TEST_OVMF_ARM",
-    };
-    if let Ok(path) = std::env::var(env_key) {
+/// Resolve UEFI firmware code path. Returns None if not found
+/// (caller should skip the test). x86_64 only post-tightening.
+pub fn find_firmware(_arch: Arch) -> Option<PathBuf> {
+    if let Ok(path) = std::env::var("QEMU_TEST_OVMF_X86_64") {
         let p = PathBuf::from(&path);
         if p.exists() {
             return Some(p);
@@ -287,16 +266,11 @@ pub fn find_firmware(arch: Arch) -> Option<PathBuf> {
     }
 
     // Search common system paths
-    let candidates: &[&str] = match arch {
-        Arch::X86_64 => &[
-            "/usr/share/edk2-ovmf/OVMF_CODE.fd",
-            "/usr/share/OVMF/OVMF_CODE.fd",
-            "/usr/share/qemu/edk2-x86_64-code.fd",
-        ],
-        Arch::I386 => &["/usr/share/qemu/edk2-i386-code.fd"],
-        Arch::Aarch64 => &["/usr/share/qemu/edk2-aarch64-code.fd"],
-        Arch::Arm => &["/usr/share/qemu/edk2-arm-code.fd"],
-    };
+    let candidates: &[&str] = &[
+        "/usr/share/edk2-ovmf/OVMF_CODE.fd",
+        "/usr/share/OVMF/OVMF_CODE.fd",
+        "/usr/share/qemu/edk2-x86_64-code.fd",
+    ];
 
     for path in candidates {
         let p = PathBuf::from(path);

@@ -230,40 +230,8 @@ fn struct_field_renames() {
     assert!(parsed.get("UUID").is_some(), "Expected 'UUID' key");
 }
 
-// ── QMP schema introspection (needs QEMU) ────────────────────────────────────
-
-arch_tests!(query_qmp_schema, [X86_64], |arch: Arch| async move {
-    let t = VmBuilder::new(arch, MachineConfig::None)
-        .spawn()
-        .await
-        .unwrap()
-        .start()
-        .await
-        .unwrap();
-    let schema: Vec<SchemaInfo> = t.execute(&QueryQmpSchema { arguments: None }).await.unwrap();
-    assert!(
-        schema.len() > 100,
-        "QMP schema should have >100 entries, got {}",
-        schema.len()
-    );
-
-    let mut commands = 0u32;
-    let mut objects = 0u32;
-    let mut enums = 0u32;
-    let mut events = 0u32;
-    for entry in &schema {
-        match serde_json::to_string(&entry.meta_type).unwrap().as_str() {
-            "\"command\"" => commands += 1,
-            "\"object\"" => objects += 1,
-            "\"enum\"" => enums += 1,
-            "\"event\"" => events += 1,
-            _ => {}
-        }
-    }
-    assert!(commands > 50, "Should have >50 commands, got {}", commands);
-    assert!(objects > 50, "Should have >50 objects, got {}", objects);
-    assert!(enums > 10, "Should have >10 enums, got {}", enums);
-    assert!(events > 5, "Should have >5 events, got {}", events);
-
-    t.shutdown().await;
-});
+// QMP schema introspection needed a live `-machine none` QEMU; that
+// fixture was removed with the scope-tightening round that made VMs
+// CoCo-only. The schema-traits assertions in this file
+// (command_trait_metadata etc.) still run without QEMU and cover the
+// generated type surface.

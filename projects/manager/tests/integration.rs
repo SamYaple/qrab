@@ -1,5 +1,22 @@
+//! Low-level manager integration tests.
+//!
+//! Most of this file was built around `MachineConfig::None` to exercise
+//! QEMU / QMP plumbing against a `-machine none` QEMU with no firmware,
+//! no accelerator, no guest. That fixture was removed in the
+//! scope-tightening round that made qrab VMs CoCo-only
+//! (agent/svsm / Phase 3c): there is no "bare QEMU" path on the
+//! supported surface anymore. The VM-lifecycle assertions that test
+//! required — spawn → preconfig → cont → shutdown, multi-command
+//! execution, STOP event propagation — are also exercised end-to-end
+//! by `projects/manager/tests/sev_negative.rs` on every SEV-capable
+//! host, by the BMC smokes, and by `contrib/matrix-smoke.sh`.
+//!
+//! This file retains only the assertions that do NOT need a spawned
+//! QEMU: version detection, arch availability, and the
+//! `PRECONFIG_MIN_VERSION` const sanity check.
+
 use manager::arch::detect_version;
-use manager::{Arch, MachineConfig, VmBuilder, PRECONFIG_MIN_VERSION};
+use manager::{Arch, PRECONFIG_MIN_VERSION};
 
 fn require_x86_64() -> bool {
     if !Arch::X86_64.is_available() {
@@ -7,114 +24,6 @@ fn require_x86_64() -> bool {
         return false;
     }
     true
-}
-
-#[tokio::test]
-async fn spawn_preconfig_and_start() {
-    if !require_x86_64() {
-        return;
-    }
-    let preconfig = VmBuilder::new(Arch::X86_64, MachineConfig::None)
-        .spawn()
-        .await
-        .unwrap();
-
-    // In preconfig state, query-status is allowed (PreconfigSafe)
-    let status: qapi::StatusInfo = preconfig.execute(&qapi::commands::QueryStatus {}).await.unwrap();
-    assert!(
-        !status.running,
-        "VM should not be running in preconfig state"
-    );
-
-    // Transition to running
-    let vm = preconfig.start().await.unwrap();
-    let status: qapi::StatusInfo = vm.execute(&qapi::commands::QueryStatus {}).await.unwrap();
-    assert!(status.running, "VM should be running after start()");
-
-    vm.shutdown().await;
-}
-
-#[tokio::test]
-async fn preconfig_shutdown_without_start() {
-    if !require_x86_64() {
-        return;
-    }
-    let preconfig = VmBuilder::new(Arch::X86_64, MachineConfig::None)
-        .spawn()
-        .await
-        .unwrap();
-
-    // Abort without starting -- should clean up without hanging
-    preconfig.shutdown().await;
-}
-
-#[tokio::test]
-async fn preconfig_query_commands() {
-    if !require_x86_64() {
-        return;
-    }
-    let preconfig = VmBuilder::new(Arch::X86_64, MachineConfig::None)
-        .spawn()
-        .await
-        .unwrap();
-
-    // These are all preconfig-safe commands
-    let _status: qapi::StatusInfo = preconfig.execute(&qapi::commands::QueryStatus {}).await.unwrap();
-    let _name: qapi::NameInfo = preconfig.execute(&qapi::commands::QueryName {}).await.unwrap();
-
-    let vm = preconfig.start().await.unwrap();
-    vm.shutdown().await;
-}
-
-#[tokio::test]
-async fn execute_multiple_commands_after_start() {
-    if !require_x86_64() {
-        return;
-    }
-    let preconfig = VmBuilder::new(Arch::X86_64, MachineConfig::None)
-        .spawn()
-        .await
-        .unwrap();
-    let vm = preconfig.start().await.unwrap();
-
-    let _status: qapi::StatusInfo = vm.execute(&qapi::commands::QueryStatus {}).await.unwrap();
-    let _name: qapi::NameInfo = vm.execute(&qapi::commands::QueryName {}).await.unwrap();
-    let _kvm: qapi::KvmInfo = vm.execute(&qapi::commands::QueryKvm {}).await.unwrap();
-    let _uuid: qapi::UuidInfo = vm.execute(&qapi::commands::QueryUuid {}).await.unwrap();
-
-    vm.shutdown().await;
-}
-
-#[tokio::test]
-async fn events_received_on_stop() {
-    if !require_x86_64() {
-        return;
-    }
-    let preconfig = VmBuilder::new(Arch::X86_64, MachineConfig::None)
-        .spawn()
-        .await
-        .unwrap();
-    let mut vm = preconfig.start().await.unwrap();
-
-    // Send stop command
-    vm.execute(&qapi::commands::Stop {}).await.unwrap();
-
-    // Wait for the STOP event
-    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
-    let mut got_stop = false;
-    loop {
-        match tokio::time::timeout_at(deadline, vm.events.recv()).await {
-            Ok(Some(evt)) if evt.event == "STOP" => {
-                got_stop = true;
-                break;
-            }
-            Ok(Some(_)) => continue,
-            _ => break,
-        }
-    }
-    assert!(got_stop, "Expected STOP event");
-
-    vm.shutdown().await;
 }
 
 #[tokio::test]

@@ -14,9 +14,6 @@ members = [
     "projects/qrab-snp-proto",
     "projects/qrab-attest-verifier",
     "projects/qrab-real-uki-demo-tests",
-    "examples/simple-vm",
-    "examples/preconfig-vm",
-    "examples/events",
 ]
 # qrab-boot targets `x86_64-unknown-uefi`, incompatible with the rest of the
 # workspace. Build it separately from `projects/qrab-boot/`. See

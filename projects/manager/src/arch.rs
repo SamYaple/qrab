@@ -1,41 +1,31 @@
 use std::path::PathBuf;
 
 /// Supported QEMU target architectures.
+///
+/// AMD SEV-SNP + coconut-svsm is x86_64-only (the VMPL hardware is
+/// Zen-family specific). Multi-arch support was removed in the
+/// scope-tightening round. The enum stays as a single-variant enum
+/// rather than a unit so existing call sites (`Arch::X86_64` etc.)
+/// read the same and future ARM-CCA / S390x-PV expansion is an
+/// additive change, not a type-shape break.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Arch {
     X86_64,
-    I386,
-    Aarch64,
-    Arm,
 }
 
 impl Arch {
     pub fn all() -> &'static [Arch] {
-        &[Arch::X86_64, Arch::I386, Arch::Aarch64, Arch::Arm]
+        &[Arch::X86_64]
     }
 
     /// Path to the QEMU binary for this architecture.
-    /// Checks env var `QEMU_TEST_BIN_{ARCH}` first, then falls back to the default name.
+    /// Checks env var `QEMU_TEST_BIN_X86_64` first, then falls back to
+    /// the default name.
     pub fn binary(&self) -> PathBuf {
-        let env_key = match self {
-            Arch::X86_64 => "QEMU_TEST_BIN_X86_64",
-            Arch::I386 => "QEMU_TEST_BIN_I386",
-            Arch::Aarch64 => "QEMU_TEST_BIN_AARCH64",
-            Arch::Arm => "QEMU_TEST_BIN_ARM",
-        };
-        if let Ok(path) = std::env::var(env_key) {
+        if let Ok(path) = std::env::var("QEMU_TEST_BIN_X86_64") {
             return PathBuf::from(path);
         }
-        PathBuf::from(self.default_binary_name())
-    }
-
-    fn default_binary_name(&self) -> &'static str {
-        match self {
-            Arch::X86_64 => "qemu-system-x86_64",
-            Arch::I386 => "qemu-system-i386",
-            Arch::Aarch64 => "qemu-system-aarch64",
-            Arch::Arm => "qemu-system-arm",
-        }
+        PathBuf::from("qemu-system-x86_64")
     }
 
     /// Whether the QEMU binary for this arch is installed and in PATH.
@@ -43,47 +33,29 @@ impl Arch {
         which::which(self.binary()).is_ok()
     }
 
-    /// Machine type for SeaBIOS/BIOS boot. None if not supported.
-    pub fn bios_machine(&self) -> Option<&'static str> {
-        match self {
-            Arch::X86_64 | Arch::I386 => Some("pc"),
-            Arch::Aarch64 | Arch::Arm => None,
-        }
-    }
-
     /// Machine type for UEFI boot.
     pub fn uefi_machine(&self) -> &'static str {
-        match self {
-            Arch::X86_64 | Arch::I386 => "q35",
-            Arch::Aarch64 | Arch::Arm => "virt",
-        }
+        "q35"
     }
 
     /// Machine type string for SecureBoot (same as UEFI but with SMM).
+    /// Kept for the legacy SEV-without-SNP pflash test path.
     pub fn secure_boot_machine(&self) -> Option<&'static str> {
-        match self {
-            Arch::X86_64 | Arch::I386 => Some("q35"),
-            _ => None, // SecureBoot only on x86
-        }
+        Some("q35")
     }
 
     /// CPU model for this architecture, if one must be specified.
+    ///
+    /// Returns `None` here — qrab VMs set `-cpu EPYC-v4` via either
+    /// the explicit `VmBuilder.cpu()` setter or the auto-apply path in
+    /// `VmBuilder::build()` when `TpmBackend::Svsm` is active.
     pub fn cpu(&self) -> Option<&'static str> {
-        match self {
-            Arch::Aarch64 => Some("max"),
-            Arch::Arm => Some("cortex-a15"),
-            _ => None,
-        }
+        None
     }
 
     /// Short label for this architecture.
     pub fn label(&self) -> &'static str {
-        match self {
-            Arch::X86_64 => "x86_64",
-            Arch::I386 => "i386",
-            Arch::Aarch64 => "aarch64",
-            Arch::Arm => "arm",
-        }
+        "x86_64"
     }
 }
 
@@ -94,14 +66,19 @@ impl std::fmt::Display for Arch {
 }
 
 /// Machine configuration presets.
+///
+/// The `None` / `Bios` variants were removed in the scope-tightening
+/// round that made qrab CoCo-only (SNP + SVSM + UEFI). `SecureBoot`
+/// is kept because a handful of legacy SEV pflash tests still use it,
+/// but it is not a supported production surface.
 pub enum MachineConfig {
-    /// Minimal: `-machine none`
-    None,
-    /// SeaBIOS boot (x86 only): `-machine pc`
-    Bios { memory: String },
-    /// UEFI boot: `-machine q35/virt` + firmware
+    /// UEFI boot: `-machine q35/virt` + firmware. The production path
+    /// for SEV-SNP + SVSM — the IGVM file carries the firmware, so no
+    /// separate OVMF.fd or pflash is emitted.
     Uefi { memory: String },
-    /// UEFI Secure Boot: q35 + SMM + secure pflash (x86 only)
+    /// Legacy: UEFI Secure Boot with pflash, q35 + SMM. Retained only
+    /// for the non-SNP SEV tests in `projects/manager/tests/sev.rs`;
+    /// new code must use `Uefi` + an IGVM-based SVSM build.
     SecureBoot { memory: String },
 }
 

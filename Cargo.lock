@@ -1632,16 +1632,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "events"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "manager",
- "qapi",
- "tokio",
-]
-
-[[package]]
 name = "fastrand"
 version = "2.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3175,16 +3165,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "preconfig-vm"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "manager",
- "qapi",
- "tokio",
-]
-
-[[package]]
 name = "prettyplease"
 version = "0.2.37"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3958,16 +3938,6 @@ checksum = "77549399552de45a898a580c1b41d445bf730df867cc44e6c0233bbc4b8329de"
 dependencies = [
  "digest",
  "rand_core 0.6.4",
-]
-
-[[package]]
-name = "simple-vm"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "manager",
- "qapi",
- "tokio",
 ]
 
 [[package]]
