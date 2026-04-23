@@ -20,12 +20,14 @@
 //! listed in the L5 spec §Components table.
 
 pub mod efivar;
+pub mod eventlog;
 pub mod halt;
 pub mod ima;
 pub mod log;
 pub mod lockdown;
 pub mod modsig;
 pub mod msr;
+pub mod pcr;
 pub mod real_probe;
 pub mod sequencer;
 pub mod tokens;

@@ -18,6 +18,11 @@ path = "src/main.rs"
 # L5 spec deliberately wants a thin dependency graph so the static
 # musl build (Phase 2) is small and auditable.
 nix = { workspace = true, features = ["reboot", "fs"] }
+# SHA-256 for TCG event-log PCR replay (step 10 of the boot sequence).
+# Pinned to no-default-features + std feature: pure-Rust core, no asm
+# backend, keeps the musl build portable. `qrab-snp-proto` already
+# pulls the same dep via its `verify` feature.
+sha2 = { workspace = true, features = ["std"] }
 
 [dev-dependencies]
 tempfile = { workspace = true }

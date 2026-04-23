@@ -8,7 +8,7 @@ use std::path::PathBuf;
 
 use crate::efivar::build_efivar_filename;
 use crate::msr;
-use crate::sequencer::Probe;
+use crate::sequencer::{Probe, TpmDevice};
 use crate::verity;
 
 /// Paths real boot consults. Exposed on the struct so a container or
@@ -22,6 +22,8 @@ pub struct RealProbe {
     pub mountinfo_path: PathBuf,
     pub sys_block_dir: PathBuf,
     pub dev_dir: PathBuf,
+    pub eventlog_path: PathBuf,
+    pub tpm_device_path: PathBuf,
 }
 
 impl RealProbe {
@@ -38,6 +40,10 @@ impl RealProbe {
             mountinfo_path: PathBuf::from("/proc/self/mountinfo"),
             sys_block_dir: PathBuf::from("/sys/block"),
             dev_dir: PathBuf::from("/dev"),
+            eventlog_path: PathBuf::from(
+                "/sys/kernel/security/tpm0/binary_bios_measurements",
+            ),
+            tpm_device_path: PathBuf::from("/dev/tpmrm0"),
         }
     }
 
@@ -90,6 +96,18 @@ impl Probe for RealProbe {
         let dm_name = resolve_dm_name(source, &self.dev_dir)?;
         let uuid_path = self.sys_block_dir.join(&dm_name).join("dm").join("uuid");
         std::fs::read_to_string(uuid_path)
+    }
+
+    fn read_eventlog(&self) -> std::io::Result<Vec<u8>> {
+        std::fs::read(&self.eventlog_path)
+    }
+
+    fn open_tpm(&self) -> std::io::Result<Box<dyn TpmDevice>> {
+        let f = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(&self.tpm_device_path)?;
+        Ok(Box::new(f))
     }
 }
 
