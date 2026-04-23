@@ -279,7 +279,6 @@ struct VmProcess {
     qmp_sock: PathBuf,
     serial_log: Option<PathBuf>,
     vnc_sock: Option<PathBuf>,
-    attest_sock: Option<PathBuf>,
     qga_sock: Option<PathBuf>,
 }
 
@@ -1479,43 +1478,14 @@ impl VmBuilder<WithSnp> {
             ]);
         }
 
-        // Virtio-serial attestation channel for SEV-SNP guests.
-        // Creates a Unix socket the host can connect to, and a virtio-serial
-        // port visible inside the guest as /dev/virtio-ports/org.qrab.attestation.
-        let attest_sock = if self.sev_snp.is_some() {
-            let sock = tmpdir.path().join("attest.sock");
-            args.extend([
-                "-device".into(),
-                "virtio-serial-pci,id=virtio-serial-attest".into(),
-                "-chardev".into(),
-                format!(
-                    "socket,id=attest-chardev,path={},server=on,wait=off",
-                    sock.display()
-                ),
-                "-device".into(),
-                "virtserialport,chardev=attest-chardev,name=org.qrab.attestation".into(),
-            ]);
-            Some(sock)
-        } else {
-            None
-        };
-
         // QEMU Guest Agent (QGA) virtio-serial channel.
         // Creates a Unix socket the host can connect to, exposed inside the
-        // guest as /dev/virtio-ports/org.qemu.guest_agent.0. If SEV-SNP is
-        // also enabled the attest chardev above already created a
-        // virtio-serial-pci controller; adding another with the same id
-        // would be rejected by QEMU, so we only emit a new controller when
-        // the attest path did not.
+        // guest as /dev/virtio-ports/org.qemu.guest_agent.0.
         let qga_sock = if self.qga {
             let sock = tmpdir.path().join("qga.sock");
-            if attest_sock.is_none() {
-                args.extend([
-                    "-device".into(),
-                    "virtio-serial-pci,id=virtio-serial-qga".into(),
-                ]);
-            }
             args.extend([
+                "-device".into(),
+                "virtio-serial-pci,id=virtio-serial-qga".into(),
                 "-chardev".into(),
                 format!(
                     "socket,id=qga-chardev,path={},server=on,wait=off",
@@ -1790,7 +1760,6 @@ impl VmBuilder<WithSnp> {
                 qmp_sock,
                 serial_log,
                 vnc_sock,
-                attest_sock,
                 qga_sock,
             },
             // SEV-SNP forces --preconfig even with display (see arg selection above).
@@ -1837,16 +1806,6 @@ impl PreconfigVm {
     #[must_use]
     pub fn vnc_sock(&self) -> Option<&PathBuf> {
         self.process.vnc_sock.as_ref()
-    }
-
-    /// Path to the virtio-serial attestation socket, if SEV-SNP was configured.
-    ///
-    /// The guest sees this as `/dev/virtio-ports/org.qrab.attestation`.
-    /// The host connects to this Unix socket to exchange attestation
-    /// challenge/response data with the guest.
-    #[must_use]
-    pub fn attest_sock(&self) -> Option<&PathBuf> {
-        self.process.attest_sock.as_ref()
     }
 
     /// Path to the QEMU Guest Agent (QGA) Unix socket, if QGA was enabled.
@@ -1965,12 +1924,6 @@ impl Vm {
     #[must_use]
     pub fn vnc_sock(&self) -> Option<&PathBuf> {
         self.process.vnc_sock.as_ref()
-    }
-
-    /// Path to the virtio-serial attestation socket, if SEV-SNP was configured.
-    #[must_use]
-    pub fn attest_sock(&self) -> Option<&PathBuf> {
-        self.process.attest_sock.as_ref()
     }
 
     /// Path to the QEMU Guest Agent (QGA) Unix socket, if QGA was enabled.
