@@ -54,6 +54,50 @@
 //! faulting traces (writes compile to `MOV` / `MOV imm`, the single
 //! `get_status` read goes via a plain `MOV` + bit test).
 //!
+//! ## Drop suppression — phase-5 #GP fix (2026-04-23)
+//!
+//! `virtio_drivers::transport::pci::PciTransport::drop` (pci.rs:382) is
+//!
+//! ```ignore
+//! self.set_status(DeviceStatus::empty());
+//! while self.get_status() != DeviceStatus::empty() {}
+//! ```
+//!
+//! and LLVM's x86 backend folds the loop body into a single
+//! `testb $0xCF, 0x14(%rax)` instruction against the memory-mapped
+//! `device_status` register. Under SEV-SNP that MMIO byte lives on a
+//! shared page whose accesses trap through `#VC` into OVMF's
+//! `CcExitLib::MmioExit`, which — as described above for the
+//! `read_config_generation` / `read_config_space` folds — only decodes
+//! MOV-family opcodes. `TESTB $imm8, r/m8` (`0xF6 /0`) is not one of
+//! them, so the handler returns cannot-decode and the exception
+//! re-enters the guest as `#GP`. The faulting RIP is the `testb`, the
+//! prior `movb $0, 0x14(%rax)` (a MOV-family write) decoded and
+//! completed successfully.
+//!
+//! Observed 2026-04-23 on the EPYC 9354 live attestation chain:
+//! `drop_in_place<qrab_boot::vsock_driver::VsockDriver>` → inlined
+//! `PciTransport::drop` at pci.rs:383 faulted at
+//! `RIP = ImageBase + 0x407F` with
+//! `RAX = CommonCfg BAR pointer`. Resolved via
+//! `llvm-symbolizer --obj=qrab-boot.efi 0x14000401F` against a
+//! `debug = "line-tables-only"` release build.
+//!
+//! `VolatilePciTransport` cannot intercept this with a trait override
+//! because the call sequence is internal to `PciTransport::drop`, not
+//! dispatched via the `Transport` trait. Instead the wrapper now
+//! stores the inner transport inside [`core::mem::ManuallyDrop`] and
+//! supplies its own `Drop` impl that is a no-op: qrab-boot is
+//! fail-closed — every exit path hits `halt_forever()` or
+//! `load_and_start` (neither of which returns to firmware) — so
+//! there is no value in resetting the virtio device on drop, and
+//! skipping the reset avoids the one MMIO read that OVMF can't
+//! decode. See also the `bridge` / `ScopedProtocol` `mem::forget`
+//! pattern in `vsock_driver::hal_bridge_init`: qrab-boot already
+//! relies on never-returning to firmware for the `PciRootBridgeIo`
+//! open-protocol contract; extending that to the virtio transport
+//! is the same contract, just at a different layer.
+//!
 //! ## Upstream fix to revisit
 //!
 //! This wrapper is a *workaround*, not a proper fix. The root cause
@@ -65,6 +109,7 @@
 //! directly again.
 
 use core::hint::black_box;
+use core::mem::ManuallyDrop;
 
 use virtio_drivers::transport::pci::PciTransport;
 use virtio_drivers::transport::{DeviceStatus, DeviceType, InterruptStatus, Transport};
@@ -76,14 +121,38 @@ use zerocopy::{FromBytes, Immutable, IntoBytes};
 /// the CMP-with-memory instruction form that OVMF's `#VC` handler
 /// cannot decode under SEV-SNP. See the module docs for the full
 /// story.
-pub struct VolatilePciTransport(PciTransport);
+///
+/// The inner transport is held in [`ManuallyDrop`] so its `drop`
+/// impl — whose reset-confirmation spin loop at `pci.rs:383` lowers
+/// to a `testb`-against-MMIO instruction OVMF cannot decode on SNP —
+/// never runs. qrab-boot never returns control to firmware; the
+/// device-state "leak" is benign.
+pub struct VolatilePciTransport(ManuallyDrop<PciTransport>);
 
 impl VolatilePciTransport {
     /// Wrap a ready-made [`PciTransport`]. The caller retains
     /// ownership via the returned wrapper; there is no un-wrap path
     /// because virtio-drivers consumes the transport by value.
     pub fn new(inner: PciTransport) -> Self {
-        Self(inner)
+        Self(ManuallyDrop::new(inner))
+    }
+}
+
+impl Drop for VolatilePciTransport {
+    fn drop(&mut self) {
+        // Deliberately DO NOT call `ManuallyDrop::drop(&mut self.0)`:
+        // `PciTransport::drop` issues a `while get_status() != 0 {}`
+        // spin whose body lowers to `testb $0xCF, dev_status`, and
+        // that instruction traps #GP on SEV-SNP shared-page MMIO
+        // because OVMF's `MmioExit` decoder is MOV-family only. See
+        // the module docs for the full diagnosis. The MMIO
+        // allocations behind `common_cfg` / `notify_region` /
+        // `isr_status` / `config_space` are all
+        // `UniqueMmioPointer<'static, _>` — i.e. already leaked at
+        // the type level by `safe-mmio` / virtio-drivers — so this
+        // suppression does not accumulate across calls; there is
+        // exactly one `VolatilePciTransport` per boot and the boot
+        // never returns.
     }
 }
 

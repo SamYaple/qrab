@@ -56,7 +56,15 @@ opt-level = "s"
 lto = true
 codegen-units = 1
 panic = "abort"
-strip = "symbols"
+# Emit line tables so `llvm-addr2line` / `llvm-symbolizer` can map
+# ImageBase-relative RIPs from serial-log X64 exception dumps back to
+# Rust source locations. `line-tables-only` adds only the `.debug_line`
+# section (no full DWARF locals / types into `.debug_info`), which
+# keeps qrab-boot.efi close to the stripped size — ~270 KiB vs a
+# multi-MiB PE under full `debug = true` that would bloat the OVMF FV
+# staging step. Keeps `strip = "symbols"` disabled so the line-table
+# / PDB pairing survives.
+debug = "line-tables-only"
 
 [profile.dev]
 panic = "abort"
