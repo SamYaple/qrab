@@ -244,11 +244,34 @@ impl BmcState {
             .map(|root| root.join("contrib/attest-keys/server.pem"))
             .filter(|p| p.is_file());
 
+        // Redirect attest-server output to a rotating log file so
+        // disconnect / wire-version / signing errors are diagnosable
+        // post-mortem. Path is stable across BMC restarts so an
+        // operator can `tail -f` it while debugging. Fallback to
+        // inheriting stderr if the log file cannot be opened.
+        let log_path = std::env::temp_dir().join("qrab-bmc-attest-server.log");
+        let log_file = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&log_path);
+
         let mut cmd = tokio::process::Command::new(&bin);
-        cmd.arg("1337")
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .kill_on_drop(true);
+        cmd.arg("1337").kill_on_drop(true);
+        match &log_file {
+            Ok(f) => {
+                let stdout = f.try_clone().unwrap_or_else(|_| f.try_clone().unwrap());
+                let stderr = f.try_clone().unwrap_or_else(|_| f.try_clone().unwrap());
+                cmd.stdout(stdout).stderr(stderr);
+            }
+            Err(_) => {
+                cmd.stdout(std::process::Stdio::inherit())
+                    .stderr(std::process::Stdio::inherit());
+            }
+        }
+        // Enable info-level logs by default; operator can override.
+        if std::env::var_os("RUST_LOG").is_none() {
+            cmd.env("RUST_LOG", "info");
+        }
         if let Some(ref kp) = key_path {
             cmd.env("QRAB_ATTEST_KEY_PATH", kp);
         }
@@ -257,6 +280,7 @@ impl BmcState {
                 tracing::info!(
                     attest_server = %bin.display(),
                     key_path = ?key_path,
+                    log = %log_path.display(),
                     pid = child.id(),
                     "spawned attest-server sidecar on vsock CID 2 port 1337"
                 );
