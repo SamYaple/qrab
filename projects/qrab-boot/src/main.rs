@@ -334,22 +334,74 @@ fn run_vsock_demo(
         && let Some(page) = snp_page.as_ref()
     {
         {
-                // A14: initial seqno = Secrets.msg_seqno_0 + 1. On a
-                // fresh SNP_LAUNCH that field is zero so we send 1 —
-                // same as the hard-coded value we used before — but
-                // a kexec or chain-loaded guest that updated the
-                // field before handing off to us gets the correct
-                // next-seqno without re-coding.
-                let initial_seqno = (page.msg_seqno_0 as u64).wrapping_add(1);
-                // A02: use the extended guest-request so the
-                // hypervisor also hands us the VCEK / ASK / ARK
-                // chain, and we can log + downstream-verify the
-                // full trust path in one round-trip.
-                match snp_secrets::request_report_with_certs(
-                    &page.vmpck0,
-                    initial_seqno,
-                    report_data,
-                ) {
+                // Walk VMPCK slots highest-first so an SVSM-launched
+                // OS (which zeroes VMPCK0/1) picks up VMPCK3 or
+                // VMPCK2 on the first try. Bare SEV-SNP guests (no
+                // SVSM) see only VMPCK0 populated and fall through
+                // to slot 0. A14: initial seqno = Secrets.msg_seqno_N
+                // + 1 per slot, so kexec / chain-loaded guests that
+                // updated the slot before handing off resume at the
+                // correct next-seqno.
+                let slots = qrab_snp_proto::vmpck_slots_descending(page);
+                let mut result: Option<
+                    Result<(qrab_snp_proto::SnpAttestationReport, alloc::vec::Vec<u8>),
+                           snp_secrets::ReportReqError>
+                > = None;
+                let mut chosen_slot: u8 = 0;
+                let mut initial_seqno: u64 = 0;
+                for maybe_slot in slots.iter() {
+                    let Some(slot) = maybe_slot else { break };
+                    let Some(vmpck) = qrab_snp_proto::vmpck_bytes(page, slot.index) else {
+                        continue;
+                    };
+                    let seqno = (slot.seqno as u64).wrapping_add(1);
+                    log::info!(
+                        "QRAB_SNP_VMPCK_TRY slot={} seqno={}",
+                        slot.index, seqno,
+                    );
+                    // A02: extended guest-request so the hypervisor
+                    // also hands us VCEK / ASK / ARK in one RT.
+                    let attempt = snp_secrets::request_report_with_certs(
+                        vmpck,
+                        slot.index,
+                        seqno,
+                        report_data,
+                    );
+                    match attempt {
+                        Ok(ok) => {
+                            chosen_slot = slot.index;
+                            initial_seqno = seqno;
+                            result = Some(Ok(ok));
+                            break;
+                        }
+                        // INVALID_KEY / INVALID_PARAM → wrong VMPL for
+                        // this VMPCK slot; try the next populated slot.
+                        // Other errors surface verbatim so an infra
+                        // problem doesn't get swallowed by the retry.
+                        Err(e @ snp_secrets::ReportReqError::Ghcb(
+                            qrab_snp_proto::ghcb::GhcbError::PspError(0x0B) |
+                            qrab_snp_proto::ghcb::GhcbError::PspError(0x16),
+                        )) => {
+                            log::warn!(
+                                "QRAB_SNP_VMPCK_RETRY slot={} err={e:?}",
+                                slot.index,
+                            );
+                            continue;
+                        }
+                        Err(e) => {
+                            chosen_slot = slot.index;
+                            initial_seqno = seqno;
+                            result = Some(Err(e));
+                            break;
+                        }
+                    }
+                }
+                match result {
+                    None => log::warn!(
+                        "QRAB_SNP_REPORT_NO_VMPCK no populated VMPCK slot accepted — \
+                         guest-firmware mismatch or Secrets page is all-zero",
+                    ),
+                    Some(inner) => match inner {
                     Ok((report, cert_bytes)) => {
                         // Copy out of the #[repr(C, packed)] struct so the
                         // 2024-edition `unaligned_references` rule is happy.
@@ -359,9 +411,9 @@ fn run_vsock_demo(
                         let policy = { report.policy };
                         log::info!(
                             "QRAB_SNP_REPORT_OK measurement_prefix={:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x} \
-                             version={} vmpl={} policy={:#x} seqno={}",
+                             version={} vmpl={} policy={:#x} slot={} seqno={}",
                             m[0], m[1], m[2], m[3], m[4], m[5], m[6], m[7],
-                            version, vmpl, policy, initial_seqno,
+                            version, vmpl, policy, chosen_slot, initial_seqno,
                         );
 
                         // Parse the cert-table blob. A non-fatal
@@ -418,7 +470,11 @@ fn run_vsock_demo(
                             Err(e) => log::warn!("QRAB_POST_REPORT_ENCODE_ERR {e}"),
                         }
                     }
-                    Err(e) => log::warn!("QRAB_SNP_REPORT_ERR {e:?}"),
+                    Err(e) => log::warn!(
+                        "QRAB_SNP_REPORT_ERR slot={} seqno={} err={e:?}",
+                        chosen_slot, initial_seqno,
+                    ),
+                    },
                 }
         }
     }

@@ -436,6 +436,77 @@ pub fn is_vmpck_nonzero(vmpck: &[u8]) -> bool {
     vmpck.iter().any(|&b| b != 0)
 }
 
+/// VMPCK slot + the `msg_seqno_N` counter the guest should resume
+/// from, returned by [`vmpck_slots_descending`]. Callers iterate this
+/// in order and try each slot until the PSP accepts one — the right
+/// slot depends on the guest's current VMPL, which a no_std UEFI
+/// guest cannot query directly.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct VmpckSlot {
+    /// Slot index (0..=3). Matches the header `msg_vmpck` byte and
+    /// the `MsgReportReq.vmpl` field.
+    pub index: u8,
+    /// Current `msg_seqno_N` from the Secrets page (pre-bump). The
+    /// caller passes `seqno + 1` as the request seqno and expects
+    /// `seqno + 2` as the response seqno — the spec's two-per-round
+    /// discipline.
+    pub seqno: u32,
+}
+
+/// Return the VMPCK slots that are populated on the Secrets page,
+/// ordered highest-index-first (3, 2, 1, 0) and skipping zero slots.
+///
+/// ### Why highest-first?
+///
+/// coconut-svsm runs at VMPL0 and zeroes VMPCK0 before launching the
+/// OS; the OS's VMPCK lives at a higher (less-privileged) slot. A
+/// plain kvm-hypervisor launch without SVSM populates only VMPCK0 +
+/// its own `msg_seqno_0`. Walking highest-first covers both cases:
+///
+///   * SVSM/VMPL3 OS → slot 3 first, matches the guest's VMPL.
+///   * SVSM/VMPL2 OS → slot 3 rejects with `INVALID_KEY` (caller
+///     retries), slot 2 accepted.
+///   * bare SNP at VMPL0 → slots 3..1 all zero (skipped), slot 0
+///     accepted.
+///
+/// The function is no_std/no_alloc and returns a fixed-size array
+/// padded with `None` so UEFI callers can iterate without an
+/// allocator. Callers can drive the retry loop by feeding each
+/// `Some(VmpckSlot)` in turn into
+/// `request_report_with_certs` until the PSP accepts one.
+pub fn vmpck_slots_descending(page: &SnpSecretsPage) -> [Option<VmpckSlot>; 4] {
+    // Read through raw accessors so the `#[repr(C, packed)]` layout
+    // is safe under Rust 2024 without taking unaligned references.
+    let entries: [(u8, &[u8; VMPCK_LEN], u32); 4] = [
+        (3, &page.vmpck3, { page.msg_seqno_3 }),
+        (2, &page.vmpck2, { page.msg_seqno_2 }),
+        (1, &page.vmpck1, { page.msg_seqno_1 }),
+        (0, &page.vmpck0, { page.msg_seqno_0 }),
+    ];
+    let mut out: [Option<VmpckSlot>; 4] = [None; 4];
+    let mut w = 0;
+    for (index, key, seqno) in entries {
+        if is_vmpck_nonzero(key) {
+            out[w] = Some(VmpckSlot { index, seqno });
+            w += 1;
+        }
+    }
+    out
+}
+
+/// Borrow the VMPCK bytes for `slot` on `page`. Returned as a
+/// reference so callers never copy the key onto a fresh stack frame
+/// (defense in depth against residual-key / swap leak).
+pub fn vmpck_bytes(page: &SnpSecretsPage, slot: u8) -> Option<&[u8; VMPCK_LEN]> {
+    match slot {
+        0 => Some(&page.vmpck0),
+        1 => Some(&page.vmpck1),
+        2 => Some(&page.vmpck2),
+        3 => Some(&page.vmpck3),
+        _ => None,
+    }
+}
+
 // ---- compile-time size assertions ------------------------------------------
 //
 // These catch the kind of off-by-one layout bugs that would only
@@ -653,6 +724,128 @@ mod tests {
         let mut v = [0u8; 32];
         v[17] = 0x01;
         assert!(is_vmpck_nonzero(&v));
+    }
+
+    // ------- vmpck_slots_descending / vmpck_bytes (SVSM slot-select fix) -------
+
+    #[test]
+    fn vmpck_slots_descending_empty_when_all_zero() {
+        // Baseline sanity: a page with no populated VMPCKs returns
+        // an array of `None`s. Caller should fail closed — there is
+        // no legitimate guest-originated SNP_GUEST_REQUEST from a
+        // page with no keys.
+        let page = zero_secrets_page();
+        let slots = vmpck_slots_descending(&page);
+        assert!(slots.iter().all(Option::is_none));
+    }
+
+    #[test]
+    fn vmpck_slots_descending_bare_snp_uses_slot_0() {
+        // Non-SVSM SEV-SNP guest: PSP populates VMPCK0 + `msg_seqno_0`,
+        // other slots stay zero. Walk must return only slot 0.
+        let mut page = zero_secrets_page();
+        page.version = 1;
+        page.vmpck0[0] = 0xAA;
+        page.msg_seqno_0 = 7;
+        let slots = vmpck_slots_descending(&page);
+        assert_eq!(
+            slots[0],
+            Some(VmpckSlot { index: 0, seqno: 7 }),
+        );
+        assert!(slots[1..].iter().all(Option::is_none));
+    }
+
+    #[test]
+    fn vmpck_slots_descending_svsm_vmpl3_os_prefers_slot_3() {
+        // coconut-svsm at VMPL0 populates VMPCKs for the VMPLs it
+        // exposes to the OS. A VMPL3 OS sees VMPCK3 populated (and
+        // possibly VMPCK2). Walk must return slot 3 FIRST so the
+        // first VMGEXIT uses the key that matches the guest's VMPL.
+        let mut page = zero_secrets_page();
+        page.version = 2;
+        page.vmpck2[0] = 0x11;
+        page.msg_seqno_2 = 42;
+        page.vmpck3[0] = 0x22;
+        page.msg_seqno_3 = 99;
+        let slots = vmpck_slots_descending(&page);
+        assert_eq!(
+            slots[0],
+            Some(VmpckSlot { index: 3, seqno: 99 }),
+            "VMPL3 slot must come first for SVSM-launched OS",
+        );
+        assert_eq!(
+            slots[1],
+            Some(VmpckSlot { index: 2, seqno: 42 }),
+            "VMPL2 slot must fall through second as retry target",
+        );
+        assert!(slots[2..].iter().all(Option::is_none));
+    }
+
+    #[test]
+    fn vmpck_slots_descending_skips_zero_slots_even_at_top() {
+        // Sparse population (only VMPCK2 non-zero). Walk must still
+        // surface slot 2, skipping the zero slot 3 above it.
+        let mut page = zero_secrets_page();
+        page.version = 2;
+        page.vmpck2[7] = 0x33;
+        page.msg_seqno_2 = 5;
+        let slots = vmpck_slots_descending(&page);
+        assert_eq!(
+            slots[0],
+            Some(VmpckSlot { index: 2, seqno: 5 }),
+        );
+        assert!(slots[1..].iter().all(Option::is_none));
+    }
+
+    #[test]
+    fn vmpck_slots_descending_order_is_strictly_3_2_1_0() {
+        // Populate all four slots with distinct seqnos so the test
+        // can spot a slot swap. Ordering must be 3,2,1,0 top-to-bottom.
+        let mut page = zero_secrets_page();
+        page.version = 4;
+        page.vmpck0[0] = 1;
+        page.vmpck1[0] = 2;
+        page.vmpck2[0] = 3;
+        page.vmpck3[0] = 4;
+        page.msg_seqno_0 = 10;
+        page.msg_seqno_1 = 20;
+        page.msg_seqno_2 = 30;
+        page.msg_seqno_3 = 40;
+        let slots = vmpck_slots_descending(&page);
+        let indices: std::vec::Vec<u8> = slots
+            .iter()
+            .flatten()
+            .map(|s| s.index)
+            .collect();
+        assert_eq!(indices, std::vec![3u8, 2, 1, 0]);
+        let seqnos: std::vec::Vec<u32> = slots
+            .iter()
+            .flatten()
+            .map(|s| s.seqno)
+            .collect();
+        assert_eq!(
+            seqnos,
+            std::vec![40u32, 30, 20, 10],
+            "each slot carries its own msg_seqno_N",
+        );
+    }
+
+    #[test]
+    fn vmpck_bytes_returns_correct_slot() {
+        // Pin that vmpck_bytes maps index->slot correctly, with a
+        // distinct marker in each slot so a swap shows up.
+        let mut page = zero_secrets_page();
+        page.version = 4;
+        page.vmpck0 = [0xA0u8; VMPCK_LEN];
+        page.vmpck1 = [0xB1u8; VMPCK_LEN];
+        page.vmpck2 = [0xC2u8; VMPCK_LEN];
+        page.vmpck3 = [0xD3u8; VMPCK_LEN];
+        assert_eq!(vmpck_bytes(&page, 0).map(|v| v[0]), Some(0xA0));
+        assert_eq!(vmpck_bytes(&page, 1).map(|v| v[0]), Some(0xB1));
+        assert_eq!(vmpck_bytes(&page, 2).map(|v| v[0]), Some(0xC2));
+        assert_eq!(vmpck_bytes(&page, 3).map(|v| v[0]), Some(0xD3));
+        assert!(vmpck_bytes(&page, 4).is_none());
+        assert!(vmpck_bytes(&page, 255).is_none());
     }
 
     /// S7-2 close-out: `SnpSecretsPage` now has an explicit `Drop`
