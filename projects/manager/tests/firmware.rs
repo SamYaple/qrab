@@ -276,36 +276,41 @@ fn bash_nt_operator_matches_mtime_semantics() {
 }
 
 /// Phase-5 `#GP` regression guard: scan the compiled `qrab-boot.efi`
-/// for the `TEST r/m8, imm8` opcode form (`F6 /0`) with a memory
-/// operand, which the SEV-SNP `#VC` handler in OVMF's
-/// `CcExitLib::MmioExit` cannot decode. If any such instruction
-/// survives into the binary against an MMIO-mapped operand it
-/// re-enters the guest as a `#GP(0)` on every SEV-SNP boot.
+/// for a `TEST r/m8, imm8` (`F6 /0`) immediately followed by a
+/// conditional branch whose target equals the TESTB's own address —
+/// a tight spin-loop polling a memory byte for a bit to change.
 ///
-/// The specific cause we hit on 2026-04-23 was
-/// `virtio_drivers::transport::pci::PciTransport::drop` spinning
-/// `while self.get_status() != DeviceStatus::empty() {}` — LLVM
-/// folded the read into `testb $0xCF, 0x14(%rax)`. Fix landed in
-/// `projects/qrab-boot/src/volatile_transport.rs` by wrapping
-/// `PciTransport` in `ManuallyDrop` + no-op wrapper `Drop`. See
+/// Release-optimised Rust emits many `testb $imm, offset(%reg)`
+/// instructions against ordinary struct fields (enum discriminants,
+/// bitflag probes). Those run once, fall through, and are harmless.
+/// The dangerous form is a busy-wait over the same byte: in SEV-SNP
+/// guests, if that byte is MMIO-mapped (BAR-backed), each read traps
+/// through `#VC` into OVMF's `CcExitLib::MmioExit`, which only
+/// decodes MOV-family opcodes. `TESTB r/m8, imm8` is not in the
+/// decode table, so the handler returns cannot-decode and the
+/// exception re-enters the guest as `#GP(0)`.
+///
+/// The concrete bug we hit on 2026-04-23:
+/// `virtio_drivers::transport::pci::PciTransport::drop` issues
+/// `while self.get_status() != DeviceStatus::empty() {}` which LLVM
+/// folds to `testb $0xCF, 0x14(%rax)` +
+/// `jne 0x...<self>`. Fix landed in
+/// `projects/qrab-boot/src/volatile_transport.rs` via `ManuallyDrop`
+/// + no-op wrapper `Drop`. See
 /// `llm-rag/issues/qrab-boot-phase5-gp-testb-mmio.md`.
 ///
-/// This test relies on `llvm-objdump` being on PATH and a built
-/// `qrab-boot.efi` under `projects/qrab-boot/target/x86_64-unknown-uefi/release/`.
-/// Both conditions are met during the normal build cycle (`cargo
-/// build -p qrab-boot --target x86_64-unknown-uefi --release`, which
-/// `build-svsm-igvm.sh` runs). If the `.efi` is missing, the test
-/// skips with a diagnostic — CI without a UEFI-target build chain
-/// cannot exercise this path and shouldn't fail red for it.
+/// We intentionally match ONLY the spin-loop signature
+/// (`testb mem / jne self`), not any `testb` over memory, because
+/// one-shot tests are safe — only a spin loop is pathologically
+/// stuck in the CcExitLib decoder gap. Stack-based spins
+/// (`(%rsp)`, `(%rbp)`) are further filtered out as they cannot be
+/// MMIO-backed; extremely unlikely to exist on the spin-loop form
+/// anyway, but cheap to guard.
 ///
-/// A bare `testb` against a register or a stack slot (`rsp`, `rbp`)
-/// is fine — those don't MMIO-trap. Only a memory operand with a
-/// non-stack base register is the danger. Grep pattern used
-/// (intentionally permissive so any future `TESTB imm8, [reg+disp]`
-/// form trips it): literal `testb` mnemonic with a hex-immediate and
-/// a `(%` register-operand paren that isn't `(%rsp` or `(%rbp`.
+/// Test skips when `llvm-objdump` is missing or the `.efi` hasn't
+/// been built — CI without a UEFI-target build chain stays green.
 #[test]
-fn qrab_boot_efi_no_testb_against_mmio() {
+fn qrab_boot_efi_no_testb_mmio_spin_loop() {
     let efi = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .and_then(|p| p.parent())
@@ -333,57 +338,88 @@ fn qrab_boot_efi_no_testb_against_mmio() {
     };
     let disasm = String::from_utf8_lossy(&objdump.stdout);
 
-    // Permissive pattern: any testb against a memory operand that
-    // isn't obviously on the stack. An llvm-objdump line looks like:
+    // Parse each disasm line into address + mnemonic + operands.
+    // Example:
+    //   14000407f: f6 40 14 cf   testb $-0x31, 0x14(%rax)
+    //   140004083: 75 fa         jne   0x14000407f <.text+0x307f>
     //
-    //   140004074: f6 40 14 cf  testb $-0x31, 0x14(%rax)
-    //                           ^^^^^ mnemonic
-    //                                 ^^^^^^ imm8 (negative encoding for 0xCF)
-    //                                         ^^^^^^^^^^^ memory operand
-    //
-    // `testb imm, (%rsp)` / `(%rbp)` / `(%rsp,...)` are stack-local
-    // and never MMIO-backed, so they don't trigger the #VC decoder
-    // gap. Everything else is suspect.
+    // Offender := line N is `testb <imm>, <mem-with-non-stack-reg>`
+    // AND line N+1 is `jne`/`je` whose target == line N's address.
+    struct Insn {
+        addr: u64,
+        mnemonic: String,
+        operands: String,
+    }
+    fn parse_line(line: &str) -> Option<Insn> {
+        let line = line.trim_start();
+        let colon = line.find(':')?;
+        let addr = u64::from_str_radix(line[..colon].trim(), 16).ok()?;
+        // llvm-objdump separates the byte dump from the mnemonic with
+        // a tab. After the byte dump comes `mnemonic\toperands`
+        // (or, for zero-operand insns, just `mnemonic`).
+        let after_addr = line[colon + 1..].trim_start();
+        let tab1 = after_addr.find('\t')?;
+        let after_bytes = after_addr[tab1 + 1..].trim_start();
+        let (mnem, ops) = after_bytes
+            .split_once('\t')
+            .or_else(|| after_bytes.split_once(' '))
+            .unwrap_or((after_bytes, ""));
+        Some(Insn {
+            addr,
+            mnemonic: mnem.trim().to_string(),
+            operands: ops.trim().to_string(),
+        })
+    }
+    fn parse_branch_target(operands: &str) -> Option<u64> {
+        // jne/je operand form: `0x<hex> <.text+0x...>`. Only the
+        // leading hex literal is what we want.
+        let first = operands.split_whitespace().next()?;
+        let hex = first.strip_prefix("0x").unwrap_or(first);
+        u64::from_str_radix(hex, 16).ok()
+    }
+
+    let mut prev: Option<Insn> = None;
     let mut offenders: Vec<String> = Vec::new();
     for line in disasm.lines() {
-        let trimmed = line.trim();
-        // Fast path: must contain `testb` as a token.
-        if !trimmed.contains("testb") {
-            continue;
-        }
-        // Must include a memory operand `(%reg)`.
-        let Some(paren_open) = trimmed.find("(%") else {
+        let Some(cur) = parse_line(line) else {
+            // Non-instruction line (section header, symbol, blank)
+            // — reset the "previous insn" context so we don't
+            // match across gaps.
+            prev = None;
             continue;
         };
-        let rest = &trimmed[paren_open + 2..];
-        // Extract the base-register token.
-        let reg_end = rest
-            .find(|c: char| c == ',' || c == ')')
-            .unwrap_or(rest.len());
-        let base_reg = &rest[..reg_end];
-        // rsp / rbp are stack; safe. Everything else (rax, rbx,
-        // rdi, r8, r12, ...) is potentially MMIO-backed.
-        if base_reg == "rsp" || base_reg == "rbp" {
-            continue;
+        if let Some(ref p) = prev {
+            let spin_branch =
+                (cur.mnemonic == "jne" || cur.mnemonic == "je")
+                    && parse_branch_target(&cur.operands) == Some(p.addr);
+            let test_mmio = p.mnemonic == "testb"
+                && p.operands.contains("(%")
+                && !p.operands.contains("(%rsp")
+                && !p.operands.contains("(%rbp");
+            if spin_branch && test_mmio {
+                offenders.push(format!(
+                    "0x{:x}: testb {}\n  0x{:x}: {} {}",
+                    p.addr, p.operands, cur.addr, cur.mnemonic, cur.operands,
+                ));
+            }
         }
-        offenders.push(trimmed.to_string());
+        prev = Some(cur);
     }
 
     assert!(
         offenders.is_empty(),
         "phase-5 #GP regression: qrab-boot.efi contains {} \
-         `testb imm8, (%<non-stack-reg>)` instruction(s). \
-         Under SEV-SNP, OVMF's CcExitLib decoder rejects TESTB \
-         against MMIO; the fault surfaces as #GP in the guest. \
-         Fix: wrap the offending type in `ManuallyDrop` + no-op \
-         `Drop`, or route the access through \
-         `volatile_transport.rs`'s MOV-only shim. See \
+         TESTB-against-memory / jne-self spin-loop(s). Under \
+         SEV-SNP + SVSM, OVMF's CcExitLib decoder rejects TESTB \
+         on MMIO and the fault surfaces as #GP in the guest. Fix: \
+         wrap the offending type in `ManuallyDrop` + no-op `Drop`, \
+         or route the access through `volatile_transport.rs`'s \
+         MOV-only shim. See \
          llm-rag/issues/qrab-boot-phase5-gp-testb-mmio.md.\n\n\
-         First 10 offenders:\n{}",
+         Offenders:\n{}",
         offenders.len(),
         offenders
             .iter()
-            .take(10)
             .map(|s| format!("  {s}"))
             .collect::<Vec<_>>()
             .join("\n"),
