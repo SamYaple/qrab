@@ -253,7 +253,31 @@ EDK2_TOOLCHAIN="${QRAB_EDK2_TOOLCHAIN:-GCC5}"
 EDK2_BUILDTYPE="${QRAB_EDK2_BUILDTYPE:-RELEASE}"
 OVMF_FD="$BUILD_EDK2/Build/AmdSev/${EDK2_BUILDTYPE}_${EDK2_TOOLCHAIN}/FV/OVMF.fd"
 
-if [[ ! -f "$OVMF_FD" || "${QRAB_FORCE_REBUILD_OVMF:-0}" = 1 ]]; then
+# Force-rebuild OVMF when the staged `OvmfPkg/AmdSev/Grub/grub.efi`
+# (written by `embed-efi.py` above) is newer than the compiled OVMF
+# firmware volume. Without this check, re-running the script after a
+# qrab-boot.efi rebuild silently reuses a stale OVMF.fd that still
+# embeds the OLD qrab-boot payload — `embed-efi.py` only mutates the
+# build-tree source, not the compiled FV. The guest then runs a
+# qrab-boot that does not match HEAD (wrong `response_signing_digest`
+# contents, wrong embedded pubkey, etc.) and bails with
+# `QRAB_ATTEST_BAD_SIG` while the host-side attest-server is fresh.
+# See llm-rag/issues/ovmf-stale-embed-qrab-boot.md for the debug
+# session this regression cost.
+NEED_OVMF_REBUILD=0
+STAGED_GRUB_EFI="$BUILD_EDK2/OvmfPkg/AmdSev/Grub/grub.efi"
+if [[ ! -f "$OVMF_FD" ]]; then
+    NEED_OVMF_REBUILD=1
+    log "OVMF.fd missing — rebuild required"
+elif [[ "${QRAB_FORCE_REBUILD_OVMF:-0}" = 1 ]]; then
+    NEED_OVMF_REBUILD=1
+    log "QRAB_FORCE_REBUILD_OVMF=1 — rebuild forced"
+elif [[ -f "$STAGED_GRUB_EFI" && "$STAGED_GRUB_EFI" -nt "$OVMF_FD" ]]; then
+    NEED_OVMF_REBUILD=1
+    log "staged grub.efi is newer than cached OVMF.fd — forcing rebuild so the fresh qrab-boot.efi lands in the FV"
+fi
+
+if [[ "$NEED_OVMF_REBUILD" = 1 ]]; then
     (
         cd "$BUILD_EDK2"
         git submodule update --init --depth 1 --recursive 2>/dev/null || true
@@ -284,7 +308,7 @@ if [[ ! -f "$OVMF_FD" || "${QRAB_FORCE_REBUILD_OVMF:-0}" = 1 ]]; then
                  | grep -E '(- Done -|ERROR|error:|WARNING)' || true
     )
 else
-    log "OVMF.fd already built at $OVMF_FD"
+    log "OVMF.fd already built at $OVMF_FD (staged grub.efi not newer)"
 fi
 [[ -f "$OVMF_FD" ]] || die "OVMF.fd not produced (see $BUILD_ROOT/edk2-ovmf.log)"
 OVMF_OUT="$OUT_DIR/OVMF-SVSM${SB_SUFFIX}.fd"
