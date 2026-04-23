@@ -137,6 +137,15 @@ pub fn connect_and_wait(
 /// is coming at all (scenarios 6 / attest-server absent).
 const MAX_RECV_ITERATIONS: usize = 320_000;
 
+/// Emit a heartbeat log from [`FramedStream::recv_frame`] every N idle
+/// iterations so a silent stall shows up in the serial log with a
+/// running picture of poll() outcomes (None / other-src / other-type)
+/// and the current carry-buffer length. Round-7 stall debug: picking
+/// 16_000 gives ~20 heartbeats over the full `MAX_RECV_ITERATIONS`
+/// budget — enough resolution to spot which phase of the wait loses
+/// event traffic without flooding the log.
+const RECV_HEARTBEAT_EVERY: usize = 16_000;
+
 /// Hard ceiling on a single framed payload. Matches
 /// `qrab_boot_proto::MAX_FRAMED_PAYLOAD` so an attack that lies
 /// about the length prefix cannot convince us to allocate a hostile
@@ -239,6 +248,17 @@ impl FramedStream {
     ) -> Result<Vec<u8>, IoError> {
         let dst = VsockAddr { cid, port };
         let mut idle = 0usize;
+        // Diagnostic counters for the round-7 release-recv stall. Every
+        // RECV_HEARTBEAT_EVERY polls we emit a heartbeat showing how
+        // many poll() calls yielded None vs other-source vs matching-
+        // but-non-Received events, plus the current carry buffer
+        // length. This turns a silent 10 s spin into an itemized trace
+        // that pinpoints whether the problem is "no events at all"
+        // (virtio ring stall) or "events arrive but don't match our
+        // (cid, port) filter".
+        let mut poll_none_count = 0u32;
+        let mut other_src_count = 0u32;
+        let mut other_type_count = 0u32;
 
         // Fast-path: a prior call may have over-delivered a full
         // second frame into `carry`. Try to extract one before
@@ -249,6 +269,15 @@ impl FramedStream {
         }
 
         while idle < MAX_RECV_ITERATIONS {
+            if idle > 0 && idle % RECV_HEARTBEAT_EVERY == 0 {
+                log::info!(
+                    "QRAB_VSOCK_RECV_WAIT idle={idle}/{MAX_RECV_ITERATIONS} \
+                     carry_len={} poll_none={poll_none_count} \
+                     other_src={other_src_count} other_type={other_type_count} \
+                     cid={cid} port={port}",
+                    self.carry.len(),
+                );
+            }
             match driver.manager.poll() {
                 Ok(Some(event)) if event.source == dst => {
                     match event.event_type {
@@ -313,10 +342,37 @@ impl FramedStream {
                             log::warn!("QRAB_VSOCK_RECV_DISCONNECT reason={reason:?}");
                             return Err(IoError::Disconnected);
                         }
-                        _ => {}
+                        other => {
+                            // Matching source but some other event
+                            // type (ConnectionRequest, CreditRequest,
+                            // CreditUpdate, etc). Track so the
+                            // heartbeat can distinguish "nothing's
+                            // arriving" from "ACKs arriving but no
+                            // Received".
+                            log::debug!(
+                                "QRAB_VSOCK_RECV_OTHER_TYPE event={other:?}",
+                            );
+                            other_type_count = other_type_count.saturating_add(1);
+                        }
                     }
                 }
-                Ok(_) => {}
+                Ok(Some(event)) => {
+                    // Event from a DIFFERENT (cid, port) — spurious
+                    // for our connection. Shouldn't happen with a
+                    // single client flow; if it does, the heartbeat
+                    // will surface a bump in `other_src_count`.
+                    log::debug!(
+                        "QRAB_VSOCK_RECV_OTHER_SRC src_cid={} src_port={} dst_port={} type={:?}",
+                        event.source.cid,
+                        event.source.port,
+                        event.destination.port,
+                        event.event_type,
+                    );
+                    other_src_count = other_src_count.saturating_add(1);
+                }
+                Ok(None) => {
+                    poll_none_count = poll_none_count.saturating_add(1);
+                }
                 Err(e) => {
                     log::warn!("QRAB_VSOCK_RECV_POLL_ERR {e:?}");
                     return Err(IoError::Poll(e));
@@ -329,7 +385,12 @@ impl FramedStream {
             }
         }
 
-        log::warn!("QRAB_VSOCK_RECV_TIMEOUT cid={cid} port={port}");
+        log::warn!(
+            "QRAB_VSOCK_RECV_TIMEOUT cid={cid} port={port} \
+             carry_len={} poll_none={poll_none_count} \
+             other_src={other_src_count} other_type={other_type_count}",
+            self.carry.len(),
+        );
         Err(IoError::Timeout)
     }
 
