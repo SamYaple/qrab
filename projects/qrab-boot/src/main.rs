@@ -117,29 +117,51 @@ fn efi_main() -> Status {
         Ok(session) => {
             log::info!("QRAB_PHASE4_OK");
 
-            // Phase 5 StartImage: publish the `QrabReport` EFI runtime
-            // variable so post-boot userspace can surface last-boot
-            // attestation state, then hand the UKI off to the
-            // firmware via LoadImage + StartImage. Firmware SB
-            // (SecurityPkg + DxeImageVerificationLib) authenticates
-            // the PE against the baked `db` cert — no in-boot re-
-            // verify is needed. Default builds stop at the stub-skip
-            // branch inside `load_and_start`; `QRAB_UKI_BOOT=1` at
-            // build time opens the real path.
-            match uki::publish_report(&session.report_data) {
+            // Phase 5 StartImage: publish the `QrabReport` +
+            // `QrabSession` EFI runtime variables so qrab-guest-init
+            // (running inside the UKI as PID 1) can re-check the
+            // full L1-L4 chain via /run/qrab/{report,session,secret}
+            // after the dracut pre-pivot hook copies each efivar
+            // into place. Then hand the UKI off to the firmware via
+            // LoadImage + StartImage. Firmware SB (SecurityPkg +
+            // DxeImageVerificationLib) authenticates the PE against
+            // the baked `db` cert — no in-boot re-verify is needed.
+            // Default builds stop at the stub-skip branch inside
+            // `load_and_start`; `QRAB_UKI_BOOT=1` at build time opens
+            // the real path.
+            //
+            // When the PSP round succeeded (SEV-SNP boots),
+            // `session.snp_report` carries the full 1184-byte
+            // attestation report; publish THAT so qrab-guest-init
+            // can cross-check VMPL / measurement / policy / TCB /
+            // report_data. On plain-TCG the field is `None` and we
+            // fall back to the 32-byte `report_data` so an initrd
+            // hook still sees a valid `MAGIC || body` blob — the
+            // guest-init flow won't run on plain TCG but the smoke
+            // harness picks up `QRAB_REPORT_OK` regardless.
+            let report_body: &[u8] = session
+                .snp_report
+                .as_deref()
+                .unwrap_or(&session.report_data);
+            match uki::publish_report(report_body) {
                 Ok(()) => log::info!(
                     "QRAB_REPORT_OK len={}",
-                    uki::QRAB_REPORT_MAGIC.len() + session.report_data.len()
+                    uki::QRAB_REPORT_MAGIC.len() + report_body.len()
                 ),
                 Err(e) => {
                     // Publishing the report is best-effort: a failure
                     // here does not invalidate the cryptographic
                     // chain the bootloader already completed, so we
                     // log and continue into StartImage. The smoke
-                    // harness can still detect regressions via the
-                    // absence of `QRAB_REPORT_OK`.
+                    // harness detects regressions via the absence of
+                    // `QRAB_REPORT_OK`.
                     log::warn!("QRAB_REPORT_ERR {e}");
                 }
+            }
+
+            match uki::publish_session(&session.session_nonces) {
+                Ok(()) => log::info!("QRAB_SESSION_OK len=64"),
+                Err(e) => log::warn!("QRAB_SESSION_ERR {e}"),
             }
 
             uki::load_and_start(&session.uki_bytes);
@@ -166,10 +188,7 @@ const VSOCK_GUEST_SRC_PORT: u32 = 40042;
 const VSOCK_CID_HOST: u64 = 2;
 
 /// Bound state carried out of [`run_vsock_demo`] for the phase-5
-/// StartImage tail in `efi_main`. The two fields are whatever the
-/// terminal `publish_report` + `load_and_start` calls need; keeping
-/// them in a struct keeps the signature stable when future phases
-/// add more (e.g. the full 1184-byte SNP attestation report body).
+/// StartImage tail in `efi_main`.
 pub struct VsockSession {
     /// 64-byte SNP `report_data` binding client nonce, server nonce,
     /// UKI hash, and secret hash — see
@@ -179,6 +198,21 @@ pub struct VsockSession {
     /// UKI bytes fetched from the attestation server. Already
     /// SHA-256-matched against the signed `uki_sha256` field.
     pub uki_bytes: alloc::vec::Vec<u8>,
+    /// Raw 1184-byte `SnpAttestationReport` bytes the PSP returned
+    /// in response to our `SNP_GUEST_REQUEST MSG_REPORT_REQ`.
+    /// `None` on plain-TCG boots (non-SNP guests skip the PSP
+    /// exchange entirely). L5 consumers (qrab-guest-init) read this
+    /// back out of the `QrabReport` EFI variable after the initrd
+    /// copies it to `/run/qrab/report`.
+    pub snp_report: Option<alloc::vec::Vec<u8>>,
+    /// 64-byte `client_nonce || server_nonce` session binding.
+    /// Published to the `QrabSession` EFI variable so qrab-guest-init
+    /// can reconstruct `report_data` during its step-18 cross-check
+    /// (see `docs/security/level-5-init.md`). The nonces are public
+    /// once the pre-commit is on the wire; no secrecy requirement,
+    /// only integrity + freshness, which the firmware BS|RT
+    /// variable provides across ExitBootServices.
+    pub session_nonces: [u8; 64],
 }
 
 /// Boot-time driver for the 3a→3b.3→3b.4 chain:
@@ -330,6 +364,13 @@ fn run_vsock_demo(
     // UKI write.
     let mut post_report_frame: Option<alloc::vec::Vec<u8>> = None;
 
+    // Phase-5 L5 plumbing: capture the raw 1184-byte SNP report so
+    // it can flow out of `run_vsock_demo` into the `QrabReport` EFI
+    // variable. qrab-guest-init re-parses this under the same
+    // `zerocopy::FromBytes` impl via `qrab_snp_proto::SnpAttestationReport`.
+    // Stays `None` on plain-TCG boots — those skip the PSP round.
+    let mut snp_report_bytes: Option<alloc::vec::Vec<u8>> = None;
+
     if features.sev_snp
         && let Some(page) = snp_page.as_ref()
     {
@@ -461,6 +502,11 @@ fn run_vsock_demo(
                         use zerocopy::IntoBytes as _;
                         let report_vec: alloc::vec::Vec<u8> =
                             report.as_bytes().to_vec();
+                        // Stash a copy for publish_report below. Two
+                        // clones of the 1184-byte body is negligible —
+                        // the per-byte cost at boot is dominated by the
+                        // vsock / PSP round-trips anyway.
+                        snp_report_bytes = Some(report_vec.clone());
                         let post = qrab_boot_proto::new_post_report(
                             report_vec,
                             cert_bytes,
@@ -632,9 +678,15 @@ fn run_vsock_demo(
         response.uki_url.len(),
     );
 
+    let mut session_nonces = [0u8; 64];
+    session_nonces[..32].copy_from_slice(&client_nonce);
+    session_nonces[32..].copy_from_slice(&response.server_nonce);
+
     Ok(VsockSession {
         report_data,
         uki_bytes,
+        snp_report: snp_report_bytes,
+        session_nonces,
     })
 }
 

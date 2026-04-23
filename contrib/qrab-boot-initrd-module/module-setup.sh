@@ -35,14 +35,25 @@ depends() {
 install() {
     inst_simple "$moddir/qrab-read-secret.sh" \
         /usr/lib/qrab-boot/qrab-read-secret.sh
+    inst_simple "$moddir/qrab-read-public.sh" \
+        /usr/lib/qrab-boot/qrab-read-public.sh
 
-    # Run the hook shortly before the initrd hands off to real-root.
+    # Run the hooks shortly before the initrd hands off to real-root.
     # `pre-pivot` is the idiomatic dracut place for this — the
     # efivarfs is mounted and userspace is about to take over.
+    #
+    # Priority 70 runs FIRST: qrab-read-secret.sh fails-closed on
+    # missing/zero-length secret (exit 1) so a broken boot halts
+    # before the public-var hook burns cycles. Priority 71 runs
+    # second: qrab-read-public.sh is best-effort, copies QrabReport +
+    # QrabSession as 0644 into /run/qrab/ for qrab-guest-init to
+    # read.
     inst_hook pre-pivot 70 "$moddir/qrab-read-secret.sh"
+    inst_hook pre-pivot 71 "$moddir/qrab-read-public.sh"
 
     # Needed at runtime: rm for efivarfs wipe, mktemp for atomic
-    # write, cmp for tripwire sanity. Everything else (read, dd,
-    # printf) is builtin to busybox / dash.
-    inst_multiple rm mktemp cmp
+    # write, cmp for tripwire sanity, dd for the 4-byte attrs-strip
+    # on every efivar copy. Everything else (read, printf, wc) is
+    # builtin to busybox / dash.
+    inst_multiple rm mktemp cmp dd wc
 }
