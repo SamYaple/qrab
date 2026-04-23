@@ -221,7 +221,13 @@ fi
 # .efi here so this script is self-contained and matches build-ovmf.sh's
 # behaviour.
 BOOT_CRATE="$ROOT/projects/qrab-boot"
-BOOT_EFI="$BOOT_CRATE/target/x86_64-unknown-uefi/release/qrab-boot.efi"
+# Raw (unsigned) qrab-boot.efi path. Preserved across the
+# sign-in-place swap below so the OVMF-staleness gate can compare
+# against the cargo-produced mtime (incremental rebuilds only touch
+# this file when sources actually changed — signing, by contrast,
+# always writes a fresh timestamp, which would defeat the cache).
+BOOT_EFI_RAW="$BOOT_CRATE/target/x86_64-unknown-uefi/release/qrab-boot.efi"
+BOOT_EFI="$BOOT_EFI_RAW"
 if [[ -d "$BOOT_CRATE" ]]; then
     if [[ -z "${QRAB_ATTEST_PUBKEY_SEC1:-}" \
        && ! -s "$ROOT/contrib/attest-keys/server.sec1" ]]; then
@@ -265,16 +271,20 @@ OVMF_FD="$BUILD_EDK2/Build/AmdSev/${EDK2_BUILDTYPE}_${EDK2_TOOLCHAIN}/FV/OVMF.fd
 # See llm-rag/issues/ovmf-stale-embed-qrab-boot.md for the debug
 # session this regression cost.
 NEED_OVMF_REBUILD=0
-STAGED_GRUB_EFI="$BUILD_EDK2/OvmfPkg/AmdSev/Grub/grub.efi"
 if [[ ! -f "$OVMF_FD" ]]; then
     NEED_OVMF_REBUILD=1
     log "OVMF.fd missing — rebuild required"
 elif [[ "${QRAB_FORCE_REBUILD_OVMF:-0}" = 1 ]]; then
     NEED_OVMF_REBUILD=1
     log "QRAB_FORCE_REBUILD_OVMF=1 — rebuild forced"
-elif [[ -f "$STAGED_GRUB_EFI" && "$STAGED_GRUB_EFI" -nt "$OVMF_FD" ]]; then
+elif [[ -f "$BOOT_EFI_RAW" && "$BOOT_EFI_RAW" -nt "$OVMF_FD" ]]; then
+    # Compare the CARGO-produced .efi (mtime stamped by cargo only
+    # when sources changed) to OVMF.fd. `embed-efi.py` uses
+    # `shutil.copyfile` which always refreshes the staged grub.efi's
+    # mtime, so comparing the staged copy would over-fire and
+    # rebuild OVMF every run, defeating the cache.
     NEED_OVMF_REBUILD=1
-    log "staged grub.efi is newer than cached OVMF.fd — forcing rebuild so the fresh qrab-boot.efi lands in the FV"
+    log "qrab-boot.efi is newer than cached OVMF.fd — forcing rebuild so the fresh payload lands in the FV"
 fi
 
 if [[ "$NEED_OVMF_REBUILD" = 1 ]]; then
