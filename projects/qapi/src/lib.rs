@@ -76,17 +76,6 @@ pub fn set_qemu_version(major: u32, minor: u32, patch: u32) -> Result<(), (u32, 
         Err(_) => {
             let existing = *QEMU_VERSION.get().unwrap();
             if existing != new {
-                #[cfg(feature = "tracing")]
-                tracing::warn!(
-                    existing = ?existing,
-                    attempted = ?new,
-                    "QEMU version already set to {}.{}.{}, ignoring {}.{}.{} — \
-                     OnceLock only stores the first value. Multi-VM processes with \
-                     different QEMU versions need per-connection version tracking.",
-                    existing.0, existing.1, existing.2,
-                    new.0, new.1, new.2,
-                );
-                #[cfg(not(feature = "tracing"))]
                 eprintln!(
                     "qapi: QEMU version already set to {}.{}.{}, ignoring {}.{}.{} — \
                      multi-VM version mismatch",
@@ -148,15 +137,6 @@ pub fn set_qga_version(version: String) -> Result<(), (u32, u32, u32)> {
         Err(_) => {
             let existing = *QGA_VERSION.get().unwrap();
             if existing != new {
-                #[cfg(feature = "tracing")]
-                tracing::warn!(
-                    existing = ?existing,
-                    attempted = ?new,
-                    "QGA version already set to {}.{}.{}, ignoring {}.{}.{}",
-                    existing.0, existing.1, existing.2,
-                    new.0, new.1, new.2,
-                );
-                #[cfg(not(feature = "tracing"))]
                 eprintln!(
                     "qapi: QGA version already set to {}.{}.{}, ignoring {}.{}.{}",
                     existing.0, existing.1, existing.2, new.0, new.1, new.2,

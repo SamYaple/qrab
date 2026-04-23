@@ -44,7 +44,9 @@ pub const QRAB_REPORT_READ_MAX: i64 = 2048;
 /// Cap on how long `fetch_qrab_report` will wait for QGA to accept a
 /// new connection. A live agent responds inside a few tens of ms;
 /// three seconds covers a slow ARM-under-KVM target without letting
-/// a wedged agent wedge the server fn.
+/// a wedged agent wedge the server fn. `server`-gated because the
+/// only consumer is the `#[server]` `fetch_qrab_report` async fn.
+#[cfg(feature = "server")]
 const QGA_CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
 
 /// Per-op timeout for QGA `guest-file-open` / `guest-file-read` /
@@ -52,6 +54,7 @@ const QGA_CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(
 /// real `guest-file-read` on efivarfs takes a syscall round-trip
 /// inside the guest kernel and we'd rather absorb transient kernel
 /// stalls than fail the whole server fn.
+#[cfg(feature = "server")]
 const QGA_OP_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 
 /// Classification of a QGA `guest-file-open` error's `desc` string.

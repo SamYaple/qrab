@@ -614,7 +614,6 @@ fn build_sb_pk_oem_string(pem_path: &Path) -> Result<String> {
             continue;
         }
         if trimmed == "-----END CERTIFICATE-----" {
-            in_cert = false;
             break;
         }
         if in_cert {
