@@ -11,4 +11,3 @@ pub mod security_hero;
 pub mod serial;
 pub mod status_panel;
 pub mod store;
-pub(crate) mod util;
