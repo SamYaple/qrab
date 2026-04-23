@@ -557,6 +557,22 @@ fn handle_stream_with_deadline<S: Read + Write>(
         .context("reading attestation request")?
         .ok_or_else(|| anyhow::anyhow!("peer closed before sending AttestRequest"))?;
 
+    // Diagnostic dump of the AttestRequest bytes. Cheap, one line, and
+    // lets operators eyeball proto tag / nonce / version without
+    // reaching for tcpdump. Truncate to first 64 bytes so a
+    // misbehaving peer sending a gigantic payload doesn't flood
+    // the log.
+    let dump_len = request_bytes.len().min(64);
+    let hex: String = request_bytes[..dump_len]
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect::<Vec<_>>()
+        .join("");
+    eprintln!(
+        "attest-server: request_bytes total_len={} dump[0..{dump_len}]={hex}",
+        request_bytes.len()
+    );
+
     // Build a v3 session: the pre-commit frame bytes + the held-back
     // secret. Under `Fault::Replay`, both halves are remembered so
     // re-boots see identical pre-commit bytes AND identical secret
