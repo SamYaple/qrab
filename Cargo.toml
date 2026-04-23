@@ -7,6 +7,7 @@ members = [
     "projects/qapi-protocol",
     "projects/manager",
     "projects/qrab-init",
+    "projects/qrab-guest-init",
     "projects/bmc",
     "projects/attest-server",
     "projects/qrab-boot-proto",

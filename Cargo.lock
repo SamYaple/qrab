@@ -3267,6 +3267,14 @@ name = "qrab-boot-verify"
 version = "0.2.0"
 
 [[package]]
+name = "qrab-guest-init"
+version = "0.1.0"
+dependencies = [
+ "nix 0.29.0",
+ "tempfile",
+]
+
+[[package]]
 name = "qrab-init"
 version = "0.1.0"
 dependencies = [

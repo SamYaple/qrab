@@ -1,0 +1,23 @@
+[package]
+name = "qrab-guest-init"
+version = "0.1.0"
+edition = "2024"
+description = "L5 PID-1 policy gate running inside the confidential guest — cross-checks every L1-L4 invariant before handing control to the workload service manager. See ~/workspace/llm-rag/docs/security/level-5-init.md."
+publish = false
+
+[lib]
+name = "qrab_guest_init"
+path = "src/lib.rs"
+
+[[bin]]
+name = "qrab-guest-init"
+path = "src/main.rs"
+
+[dependencies]
+# Direct syscalls for reboot(2) / mountinfo parsing. Kept narrow; the
+# L5 spec deliberately wants a thin dependency graph so the static
+# musl build (Phase 2) is small and auditable.
+nix = { workspace = true, features = ["reboot", "fs"] }
+
+[dev-dependencies]
+tempfile = { workspace = true }
