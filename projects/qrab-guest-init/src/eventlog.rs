@@ -122,6 +122,49 @@ pub fn parse(bytes: &[u8]) -> Result<Vec<EventLogEntry>, ParseError> {
     Ok(events)
 }
 
+/// Find the single SHA-256 digest of the PCR-`n` event. Returns
+/// `None` if zero or multiple events target that PCR.
+///
+/// Used by L5 step 18 (`docs/security/level-5-init.md`) to extract
+/// `uki_sha256` from the PCR-8 event for the `report_data`
+/// reconstruct. The spec pins PCR 8 as a single-event bank (qrab-boot
+/// extends exactly `sha256(uki_bytes)` once); multiple events there
+/// mean the log is either malformed or an attacker planted a second
+/// extension to dilute the binding. Zero events means qrab-boot
+/// never extended the UKI digest, which the L5 chain cannot tolerate
+/// either. Both cases must fail step 18 — the caller maps `None` to
+/// `Token::FailReportData`.
+pub fn unique_sha256_digest_for_pcr(log: &[EventLogEntry], pcr_index: u32) -> Option<[u8; 32]> {
+    let mut found: Option<[u8; 32]> = None;
+    for event in log {
+        if event.pcr_index != pcr_index {
+            continue;
+        }
+        let Some(sha256_bytes) = event
+            .digests
+            .iter()
+            .find_map(|(alg, d)| (*alg == TPM_ALG_SHA256).then_some(d))
+        else {
+            // Event targets our PCR but carries no SHA-256 digest
+            // (e.g. a SHA-1-only legacy event somehow landed in
+            // crypto-agile territory). Count it as "this PCR saw a
+            // non-unique event" — bail.
+            return None;
+        };
+        if sha256_bytes.len() != 32 {
+            return None;
+        }
+        if found.is_some() {
+            // Second hit on the same PCR — not unique.
+            return None;
+        }
+        let mut d = [0u8; 32];
+        d.copy_from_slice(sha256_bytes);
+        found = Some(d);
+    }
+    found
+}
+
 /// Replay the SHA-256 digests from `log` across PCRs `0..=max_pcr`.
 ///
 /// Each PCR starts at 32 zero bytes. For every event whose
@@ -731,6 +774,60 @@ mod tests {
         assert_eq!(log[1].digests.len(), 4);
         assert_eq!(log[1].digests[2].1.len(), 48);
         assert_eq!(log[1].digests[3].1.len(), 64);
+    }
+
+    #[test]
+    fn unique_digest_returns_lone_event() {
+        let mut b = LogBuilder::new();
+        b.push_spec_id_header(&[(TPM_ALG_SHA256, 32)]);
+        let d = sha256(b"only-one");
+        b.push_event2(8, 0, &[(TPM_ALG_SHA256, d.to_vec())], b"");
+        let log = parse(&b.bytes).unwrap();
+        assert_eq!(unique_sha256_digest_for_pcr(&log, 8), Some(d));
+    }
+
+    #[test]
+    fn unique_digest_returns_none_when_zero_events() {
+        // Spec-id header only, no events on PCR 8 → None.
+        let mut b = LogBuilder::new();
+        b.push_spec_id_header(&[(TPM_ALG_SHA256, 32)]);
+        let log = parse(&b.bytes).unwrap();
+        assert!(unique_sha256_digest_for_pcr(&log, 8).is_none());
+    }
+
+    #[test]
+    fn unique_digest_returns_none_when_multiple_events() {
+        // Two events extend PCR 8 → ambiguous for step 18's purposes.
+        let mut b = LogBuilder::new();
+        b.push_spec_id_header(&[(TPM_ALG_SHA256, 32)]);
+        b.push_event2(8, 0, &[(TPM_ALG_SHA256, sha256(b"a").to_vec())], b"");
+        b.push_event2(8, 0, &[(TPM_ALG_SHA256, sha256(b"b").to_vec())], b"");
+        let log = parse(&b.bytes).unwrap();
+        assert!(unique_sha256_digest_for_pcr(&log, 8).is_none());
+    }
+
+    #[test]
+    fn unique_digest_ignores_other_pcrs() {
+        // Events on PCR 4 must NOT be counted when we ask about PCR 8.
+        let mut b = LogBuilder::new();
+        b.push_spec_id_header(&[(TPM_ALG_SHA256, 32)]);
+        b.push_event2(4, 0, &[(TPM_ALG_SHA256, sha256(b"a").to_vec())], b"");
+        b.push_event2(4, 0, &[(TPM_ALG_SHA256, sha256(b"b").to_vec())], b"");
+        let pcr8 = sha256(b"c");
+        b.push_event2(8, 0, &[(TPM_ALG_SHA256, pcr8.to_vec())], b"");
+        let log = parse(&b.bytes).unwrap();
+        assert_eq!(unique_sha256_digest_for_pcr(&log, 8), Some(pcr8));
+    }
+
+    #[test]
+    fn unique_digest_returns_none_for_sha1_only_event() {
+        // PCR 8 event carries only SHA-1 — no SHA-256 digest to
+        // return. Step 18 must bail rather than fall through.
+        let mut b = LogBuilder::new();
+        b.push_spec_id_header(&[(TPM_ALG_SHA1, 20), (TPM_ALG_SHA256, 32)]);
+        b.push_event2(8, 0, &[(TPM_ALG_SHA1, vec![0xAB; 20])], b"");
+        let log = parse(&b.bytes).unwrap();
+        assert!(unique_sha256_digest_for_pcr(&log, 8).is_none());
     }
 
     #[test]

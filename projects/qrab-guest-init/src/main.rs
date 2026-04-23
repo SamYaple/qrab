@@ -13,20 +13,44 @@
 //!
 //! The gate itself is identical in both modes — only the sink and the
 //! failure tail differ.
+//!
+//! **Phase 2b policy.** The workload policy (`allowed_measurements`,
+//! `required_policy_mask`, `forbidden_policy_mask`, `min_tcb`) is
+//! built into the binary below. The Phase 2b scaffold carries a
+//! deliberately-empty measurement whitelist — production builds MUST
+//! replace [`workload_policy`] with a UKI-baked policy before
+//! shipping. An empty whitelist trips [`Token::FailMeasurement`] on
+//! every boot, which keeps the dev binary honest (no accidental
+//! trust-everyone regression) while Phase 2c wires up the real
+//! policy-source pipeline.
 
 use std::io;
 use std::process::ExitCode;
 
 use qrab_guest_init::log::{ConsoleSink, TokenSink};
+use qrab_guest_init::policy::Policy;
 use qrab_guest_init::{halt, real_probe::RealProbe, run_gate};
+
+/// Phase 2b placeholder workload policy. Returns an empty whitelist
+/// so every boot fails `FailMeasurement` until production wires in a
+/// real policy source. See module doc comment.
+fn workload_policy() -> Policy {
+    Policy {
+        allowed_measurements: Vec::new(),
+        required_policy_mask: 0,
+        forbidden_policy_mask: 0,
+        min_tcb: 0,
+    }
+}
 
 fn main() -> ExitCode {
     let live = std::env::var_os("QRAB_GUEST_INIT_LIVE").is_some();
     let probe = RealProbe::live_defaults();
+    let policy = workload_policy();
 
     let (emit_final, exit_code) = if live {
         match open_console_sink() {
-            Ok(mut sink) => match run_gate(&probe, &mut sink) {
+            Ok(mut sink) => match run_gate(&probe, &policy, &mut sink) {
                 Ok(()) => (None, ExitCode::SUCCESS),
                 Err(t) => (Some(t), ExitCode::FAILURE),
             },
@@ -39,7 +63,7 @@ fn main() -> ExitCode {
         }
     } else {
         let mut sink = ConsoleSink::new(io::stderr());
-        match run_gate(&probe, &mut sink) {
+        match run_gate(&probe, &policy, &mut sink) {
             Ok(()) => (None, ExitCode::SUCCESS),
             Err(t) => (Some(t), ExitCode::FAILURE),
         }

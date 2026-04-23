@@ -18,11 +18,26 @@ path = "src/main.rs"
 # L5 spec deliberately wants a thin dependency graph so the static
 # musl build (Phase 2) is small and auditable.
 nix = { workspace = true, features = ["reboot", "fs"] }
-# SHA-256 for TCG event-log PCR replay (step 10 of the boot sequence).
-# Pinned to no-default-features + std feature: pure-Rust core, no asm
-# backend, keeps the musl build portable. `qrab-snp-proto` already
-# pulls the same dep via its `verify` feature.
+# SHA-256 for TCG event-log PCR replay (step 10 of the boot sequence)
+# and Phase 2b secret-hash computation inside step 18's report_data
+# reconstruct. Pinned to no-default-features + std feature: pure-Rust
+# core, no asm backend, keeps the musl build portable. `qrab-snp-proto`
+# already pulls the same dep via its `verify` feature.
 sha2 = { workspace = true, features = ["std"] }
+# Phase 2b step 18: reuse `qrab_boot_proto::PROTO_TAG` so the
+# report_data reconstruct cannot silently drift from the bootloader
+# side if the proto tag ever bumps. `std` enables the host-side
+# `std::error::Error` impls (the musl build still works: `std` is
+# available on musl).
+qrab-boot-proto = { path = "../qrab-boot-proto", features = ["std"] }
+# Phase 2b step 13: zerocopy-cast `/run/qrab/report`'s 1184 B body
+# into an `SnpAttestationReport`. `std` + `alloc` pull in the host-
+# side error surface (the musl build has both).
+qrab-snp-proto = { path = "../qrab-snp-proto", features = ["std", "alloc"] }
+# Phase 2b step 13: `FromBytes::ref_from_bytes` on the packed
+# `SnpAttestationReport`. Same major version qrab-snp-proto pins so
+# we share the transitive crate graph.
+zerocopy = { version = "0.8", features = ["derive"] }
 
 [dev-dependencies]
 tempfile = { workspace = true }

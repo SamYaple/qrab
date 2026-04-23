@@ -24,6 +24,17 @@ pub struct RealProbe {
     pub dev_dir: PathBuf,
     pub eventlog_path: PathBuf,
     pub tpm_device_path: PathBuf,
+    /// `/run/qrab/report` — magic-prefixed SNP attestation report
+    /// written by the dracut pre-pivot hook. Phase 2b step 13.
+    pub read_report_path: PathBuf,
+    /// `/run/qrab/session` — `client_nonce || server_nonce`, 64 B
+    /// total. Phase 2b step 18.
+    pub read_session_path: PathBuf,
+    /// `/run/qrab/secret` — secret body from attest-server. Phase 2b
+    /// only hashes it for the report_data reconstruct (non-
+    /// destructive read); Phase 2c will add a consuming read that
+    /// unlinks on success.
+    pub read_secret_path: PathBuf,
 }
 
 impl RealProbe {
@@ -44,6 +55,9 @@ impl RealProbe {
                 "/sys/kernel/security/tpm0/binary_bios_measurements",
             ),
             tpm_device_path: PathBuf::from("/dev/tpmrm0"),
+            read_report_path: PathBuf::from("/run/qrab/report"),
+            read_session_path: PathBuf::from("/run/qrab/session"),
+            read_secret_path: PathBuf::from("/run/qrab/secret"),
         }
     }
 
@@ -108,6 +122,18 @@ impl Probe for RealProbe {
             .write(true)
             .open(&self.tpm_device_path)?;
         Ok(Box::new(f))
+    }
+
+    fn read_report(&self) -> std::io::Result<Vec<u8>> {
+        std::fs::read(&self.read_report_path)
+    }
+
+    fn read_session(&self) -> std::io::Result<Vec<u8>> {
+        std::fs::read(&self.read_session_path)
+    }
+
+    fn read_secret(&self) -> std::io::Result<Vec<u8>> {
+        std::fs::read(&self.read_secret_path)
     }
 }
 

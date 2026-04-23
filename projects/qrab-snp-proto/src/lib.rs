@@ -27,7 +27,7 @@
 //!   * Table 98 — SNP_GUEST_MSG header (96 B)
 //!   * Table 99 — SNP_GUEST_MSG envelope (4096 B)
 //!   * §5.4.2  — AEAD envelope (AAD = hdr[0x30..0x60],
-//!               IV = MsgSeqno (LE) || 4 zero bytes)
+//!     IV = MsgSeqno (LE) || 4 zero bytes)
 //!   * §5.4.3  — SNP Secrets page layout (VMPCK0..3 location)
 
 #![no_std]
