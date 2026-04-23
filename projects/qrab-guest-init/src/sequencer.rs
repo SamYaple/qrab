@@ -1,11 +1,9 @@
 //! Straight-line policy gate from `docs/security/level-5-init.md`.
 //!
-//! Phase 2b scope: steps 1-18. Extends Phase 2a (steps 1-12) with the
-//! SNP attestation report parse + vmpl/measurement/policy/tcb/
-//! report_data checks.
-//!
-//! Step 19 (secret consume + memfd handoff) and step 20 (per-PCR
-//! workload whitelist) remain deferred to Phase 2c.
+//! Phase 2c scope: steps 1-22. Extends Phase 2b (steps 1-18) with
+//! step 19 (single-shot secret consume → sealed memfd + unlink),
+//! step 20 (per-PCR workload whitelist), and step 21 (the Ok beacon
+//! that precedes the binary's execve handoff at step 22).
 //!
 //! Real-boot wiring lives behind the [`Probe`] trait so integration
 //! tests can drive the whole ladder with fixed strings/bytes. The
@@ -15,6 +13,8 @@
 //! call, one round-trip, done). `Send` is added only to keep the
 //! trait object usable from any thread; the trait itself isn't
 //! `async` and the real binary runs it single-threaded.
+
+use std::os::fd::RawFd;
 
 use sha2::{Digest, Sha256};
 
@@ -74,26 +74,76 @@ pub trait Probe {
     /// files appear atomically before qrab-guest-init runs.
     fn read_session(&self) -> std::io::Result<Vec<u8>>;
 
-    /// Read `/run/qrab/secret` WITHOUT unlinking. Phase 2b computes
-    /// `sha256(secret)` for the report_data reconstruct; Phase 2c
-    /// will add a distinct `consume_secret` method that does the
-    /// single-shot read + unlink. Keeping the two separate means
-    /// Phase 2b can hash the secret and compare the PSP report
-    /// binding before the secret is actually handed to the
-    /// workload — a verification fault never touches the filesystem.
+    /// Read `/run/qrab/secret` WITHOUT unlinking. Step 18 computes
+    /// `sha256(secret)` for the report_data reconstruct; keeping the
+    /// read non-destructive lets step 18 fail without touching the
+    /// filesystem. A verification fault must never unlink the
+    /// secret — an operator re-running the boot from a checkpoint
+    /// has to find it exactly where the dracut hook left it.
     fn read_secret(&self) -> std::io::Result<Vec<u8>>;
+
+    /// Single-shot consume: read `/run/qrab/secret` into a sealed
+    /// memfd, unlink the source file, and return the memfd's raw
+    /// FD. Step 19.
+    ///
+    /// The returned FD is owned by the caller — main.rs passes it
+    /// through to `execve` which inherits it across the exec. On
+    /// any failure along the read/memfd/seal/unlink path the probe
+    /// returns `Err`; the sequencer collapses every such error to
+    /// `Token::FailSecret` so the on-console output doesn't
+    /// distinguish "file missing" from "seal denied" to an
+    /// attacker.
+    ///
+    /// Production wiring lives in
+    /// [`crate::real_probe::RealProbe::consume_secret`] and
+    /// delegates to [`crate::secret::consume`]. Unit tests provide
+    /// a fake that returns a pre-arranged FD + can be configured to
+    /// fail — exercised by the sequencer tests at the bottom of
+    /// this module.
+    fn consume_secret(&self, expected_len: usize) -> std::io::Result<RawFd>;
 }
 
-/// Phase 2b sequencer. Runs steps 1-18, emits [`Token::Ok`] if they
-/// all pass. Any failure collapses to a single fatal token — the
-/// caller (bin) emits it and halts.
+/// Success value returned from [`run_gate`] on a fully-green boot.
+/// Carries the raw FD of the sealed memfd containing the boot
+/// secret so `main.rs` can pass it into `execve`'s envp as
+/// `QRAB_SECRET_FD=<n>`.
+///
+/// Ownership semantics: the FD is a raw integer owned by the caller
+/// — once `run_gate` returns it, the sequencer has surrendered
+/// control, and the caller must either exec (which inherits the FD
+/// across the syscall) or close it. `main.rs` on the success path
+/// calls `execve`; on every failure path after that point it
+/// reconstructs an `OwnedFd` via `FromRawFd` so the drop closes it
+/// before `halt()`.
+///
+/// `PartialEq` + `Eq` are derived purely for test ergonomics
+/// (`assert_eq!(run_gate(...), Err(...))`). The raw fd integer is
+/// not semantically comparable across process lifetimes — but the
+/// sequencer tests only compare against `Err(_)` variants, so the
+/// `Ok` arm's equality is never actually exercised.
+#[derive(Debug, PartialEq, Eq)]
+pub struct GateOk {
+    /// Raw FD of the sealed memfd containing the boot secret.
+    /// Main.rs inherits ownership + closes on failure paths.
+    pub memfd_fd: RawFd,
+}
+
+/// Phase 2c sequencer. Runs steps 1-21, emits [`Token::Ok`] if
+/// every check passes and returns a [`GateOk`] carrying the sealed-
+/// secret memfd for the binary's step-22 `execve`. Any failure
+/// collapses to a single fatal token — the caller (bin) emits it and
+/// halts.
 ///
 /// Tests drive this through a [`Probe`] stub, a [`Policy`] fixture,
 /// and a capturing sink; the binary wires a real probe reading
 /// `/dev/cpu/0/msr`, efivarfs, `/sys/kernel/security/*`,
 /// `/sys/kernel/security/tpm0/…`, `/dev/tpmrm0`, `/run/qrab/report`,
 /// `/run/qrab/session`, and `/run/qrab/secret`.
-pub fn run_gate<P, S>(probe: &P, policy: &Policy, sink: &mut S) -> Result<(), Token>
+pub fn run_gate<P, S>(
+    probe: &P,
+    policy: &Policy,
+    sink: &mut S,
+) -> Result<GateOk, Token>
 where
     P: Probe,
     S: TokenSink,
@@ -212,10 +262,12 @@ where
     let (client_nonce, server_nonce) =
         policy::parse_session(&session).map_err(|_| Token::FailReportData)?;
 
-    // Non-destructive read. Phase 2c will add a separate
-    // `consume_secret` accessor that does the single-shot
-    // read + unlink on `/run/qrab/secret`; Phase 2b only needs the
-    // hash.
+    // Non-destructive read for the hash. Step 19 below will call
+    // `consume_secret` to redo the read as part of a single-shot
+    // read + seal + unlink — keeping read and consume separate
+    // means a verification fault at step 18 never touches the
+    // filesystem (the secret stays on disk for a post-mortem
+    // operator to find).
     let secret_bytes = probe.read_secret().map_err(|_| Token::FailReportData)?;
     let secret_sha256: [u8; 32] = Sha256::digest(&secret_bytes).into();
 
@@ -232,15 +284,45 @@ where
         return Err(Token::FailReportData);
     }
 
-    // Phase 2c plugs in here:
-    //   19. secret::consume(/run/qrab/secret, expected_len)
-    //       → unlink + memfd handoff to workload via execve.
-    //   20. policy::check_pcr_whitelist(pcr_values)
-    //       → L5 workload-specific per-PCR allowlist against
-    //         `read` (the live `/dev/tpmrm0` bank from step 11).
+    // Step 19: single-shot consume of /run/qrab/secret → sealed
+    // memfd + unlink. Runs STRICTLY AFTER step 18's report_data
+    // cross-check — if step 18 fails we return early and the
+    // secret stays on disk for a post-mortem operator to find. Any
+    // IO / mode / length / memfd / seal / unlink failure collapses
+    // to FailSecret; the richer ConsumeError variants surface only
+    // in the dev-mode stderr via Debug. Production boots do not
+    // distinguish the branches on console — an attacker must not
+    // be able to probe which sub-step they tripped.
+    //
+    // `secret_bytes.len()` is the fixture length: if the sequencer
+    // has already hashed exactly this many bytes to reconstruct
+    // report_data (step 18), and the PSP signed that hash, then the
+    // exact same length MUST match at consume time. Any divergence
+    // between read and consume would mean the file changed out from
+    // under us — which the step-18 check would already have caught.
+    let expected_secret_len = secret_bytes.len();
+    let memfd_fd = probe
+        .consume_secret(expected_secret_len)
+        .map_err(|_| Token::FailSecret)?;
 
+    // Step 20: workload-specific per-PCR whitelist. Runs against
+    // the live TPM bank from step 11 (`read`) — step 12 already
+    // proved that bank agrees with the event-log replay, so a
+    // matching entry here is a double-assertion. An empty whitelist
+    // passes (see `Policy::check_pcr_whitelist`).
+    //
+    // `.map_err` discards the offending PCR index — the spec
+    // deliberately collapses every per-PCR mismatch into one
+    // token so an attacker probing the policy surface can't
+    // narrow down which pin they fooled.
+    policy
+        .check_pcr_whitelist(&read)
+        .map_err(|_| Token::FailPolicyPcr)?;
+
+    // Step 21: success beacon. Step 22 is the binary's execve
+    // handoff which happens in `main.rs` after `run_gate` returns.
     let _ = sink.emit(Token::Ok);
-    Ok(())
+    Ok(GateOk { memfd_fd })
 }
 
 #[cfg(test)]
@@ -277,6 +359,18 @@ mod tests {
         report: std::io::Result<Vec<u8>>,
         session: std::io::Result<Vec<u8>>,
         secret: std::io::Result<Vec<u8>>,
+        /// Step 19 consume-secret hook. Happy-path tests set this
+        /// to `Ok(some-raw-fd)` (either dup from /dev/null or a
+        /// fresh memfd — we never actually seal in-tree fixtures);
+        /// failure tests set it to `Err(…)` to trip the FailSecret
+        /// branch. Wrapped in Mutex<Option<…>> mirrored on
+        /// `tpm_response` so `&self`-only accessor can still hand
+        /// ownership out once.
+        consume_secret: std::sync::Mutex<Option<std::io::Result<RawFd>>>,
+        /// Counter so tests can assert that step 19 was actually
+        /// called (and on `consume_secret`-avoiding fail paths, that
+        /// it wasn't).
+        consume_secret_calls: std::sync::Mutex<u32>,
     }
 
     /// Boxed fake TPM. Writes are swallowed; reads drain `response`
@@ -397,6 +491,10 @@ mod tests {
             required_policy_mask: 0b0111,
             forbidden_policy_mask: 0b1000_0000,
             min_tcb: FIXTURE_MIN_TCB,
+            // Empty by default so the existing 2b tests still pass
+            // when they run through step 20. Phase 2c tests below
+            // override this to exercise the whitelist itself.
+            allowed_pcrs: Vec::new(),
         }
     }
 
@@ -505,7 +603,40 @@ mod tests {
             report: Ok(report_blob),
             session: Ok(session),
             secret: Ok(secret),
+            // Step 19 fixture: open /dev/null and hand the fd
+            // over. The sequencer's success path returns this in
+            // `GateOk.memfd_fd`; tests that care convert it back
+            // to an OwnedFd to close cleanly. (/dev/null is open
+            // O_RDWR so an accidental seal test wouldn't fail in
+            // a confusing way — the sequencer never touches the
+            // fd beyond plumbing it out.)
+            consume_secret: std::sync::Mutex::new(Some(open_dev_null_fd())),
+            consume_secret_calls: std::sync::Mutex::new(0),
         }
+    }
+
+    /// Open `/dev/null` for R/W and return the raw fd. Used by the
+    /// stub probe so happy-path tests have a benign fd to stand in
+    /// for the sealed memfd — the sequencer never actually reads
+    /// or seals it, only returns it in GateOk.
+    fn open_dev_null_fd() -> std::io::Result<RawFd> {
+        use std::os::fd::IntoRawFd;
+        let f = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open("/dev/null")?;
+        Ok(f.into_raw_fd())
+    }
+
+    /// Drop a RawFd back into an OwnedFd so tests don't leak. Used
+    /// on the happy-path assertion site after inspecting
+    /// `GateOk.memfd_fd`.
+    fn close_raw_fd(fd: RawFd) {
+        use std::os::fd::FromRawFd;
+        // SAFETY: callers pass a fd they just took from a GateOk or
+        // from `open_dev_null_fd`. Neither path leaves the fd
+        // accessible elsewhere, so re-owning it is safe.
+        let _ = unsafe { std::os::fd::OwnedFd::from_raw_fd(fd) };
     }
 
     fn clone_io<T: Clone>(r: &std::io::Result<T>) -> std::io::Result<T> {
@@ -567,14 +698,30 @@ mod tests {
         fn read_secret(&self) -> std::io::Result<Vec<u8>> {
             clone_io(&self.secret)
         }
+        fn consume_secret(&self, _expected_len: usize) -> std::io::Result<RawFd> {
+            *self.consume_secret_calls.lock().expect("mutex") += 1;
+            self.consume_secret
+                .lock()
+                .expect("mutex")
+                .take()
+                .unwrap_or_else(|| {
+                    Err(std::io::Error::other(
+                        "consume_secret called twice in one boot",
+                    ))
+                })
+        }
     }
 
     #[test]
     fn happy_path_emits_start_then_ok() {
         let cap = CaptureSink::new();
         let mut sink: &CaptureSink = &cap;
-        assert_eq!(run_gate(&passing_probe(), &fixture_policy(), &mut sink), Ok(()));
+        let ok = run_gate(&passing_probe(), &fixture_policy(), &mut sink)
+            .expect("happy path returns GateOk");
         assert_eq!(cap.tokens(), vec![Token::Start, Token::Ok]);
+        // GateOk.memfd_fd points at the stub probe's /dev/null
+        // stand-in. Close it so test-env fd accounting stays clean.
+        close_raw_fd(ok.memfd_fd);
     }
 
     #[test]
@@ -716,8 +863,10 @@ mod tests {
 
         let cap = CaptureSink::new();
         let mut sink: &CaptureSink = &cap;
-        assert_eq!(run_gate(&p, &fixture_policy(), &mut sink), Ok(()));
+        let ok = run_gate(&p, &fixture_policy(), &mut sink)
+            .expect("phase 2a happy path returns GateOk");
         assert_eq!(cap.tokens(), vec![Token::Start, Token::Ok]);
+        close_raw_fd(ok.memfd_fd);
     }
 
     /// Truncated event log → FailEventlogParse.
@@ -1149,5 +1298,160 @@ mod tests {
             run_gate(&p, &fixture_policy(), &mut sink),
             Err(Token::FailPolicy)
         );
+    }
+
+    // ------ Phase 2c (steps 19-21) sequencer tests ------
+
+    use crate::policy::PcrWhitelistEntry;
+
+    /// Happy path through all 22 steps (22 handled in main.rs so
+    /// "through 21" for the sequencer) with a mock `consume_secret`
+    /// returning a valid FD AND a passing pcr_whitelist. Extends
+    /// `happy_path_emits_start_then_ok` by also asserting that
+    /// step 19 was exercised and step 20 accepted a non-empty
+    /// whitelist.
+    #[test]
+    fn phase2c_happy_path_runs_steps_19_through_21() {
+        let p = passing_probe();
+        // Whitelist that matches the fixture bank: PCR 8 carries
+        // extend_sha256(zero, FIXTURE_UKI_SHA256); every other PCR
+        // stays zero.
+        let mut pol = fixture_policy();
+        pol.allowed_pcrs = vec![
+            PcrWhitelistEntry {
+                pcr_index: 0,
+                expected: [0u8; 32],
+            },
+            PcrWhitelistEntry {
+                pcr_index: 8,
+                expected: extend_sha256([0u8; 32], &FIXTURE_UKI_SHA256),
+            },
+        ];
+
+        let cap = CaptureSink::new();
+        let mut sink: &CaptureSink = &cap;
+        let ok = run_gate(&p, &pol, &mut sink)
+            .expect("phase 2c happy path returns GateOk");
+        assert_eq!(cap.tokens(), vec![Token::Start, Token::Ok]);
+        assert_eq!(
+            *p.consume_secret_calls.lock().unwrap(),
+            1,
+            "step 19 must invoke consume_secret exactly once",
+        );
+        close_raw_fd(ok.memfd_fd);
+    }
+
+    #[test]
+    fn phase2c_consume_secret_error_fails_fail_secret() {
+        let p = passing_probe();
+        // Replace the consume_secret fixture with an error.
+        *p.consume_secret.lock().unwrap() = Some(Err(std::io::Error::from(
+            std::io::ErrorKind::PermissionDenied,
+        )));
+        let cap = CaptureSink::new();
+        let mut sink: &CaptureSink = &cap;
+        assert_eq!(
+            run_gate(&p, &fixture_policy(), &mut sink),
+            Err(Token::FailSecret),
+        );
+        assert_eq!(
+            *p.consume_secret_calls.lock().unwrap(),
+            1,
+            "consume_secret must be called even when it will fail — the failure token is the observable, not the absence of a call",
+        );
+    }
+
+    #[test]
+    fn phase2c_pcr_whitelist_mismatch_fails_policy_pcr() {
+        let p = passing_probe();
+        let mut pol = fixture_policy();
+        // Pin PCR 0 to a value the live bank won't match.
+        pol.allowed_pcrs = vec![PcrWhitelistEntry {
+            pcr_index: 0,
+            expected: [0xDEu8; 32],
+        }];
+        let cap = CaptureSink::new();
+        let mut sink: &CaptureSink = &cap;
+        assert_eq!(
+            run_gate(&p, &pol, &mut sink),
+            Err(Token::FailPolicyPcr),
+        );
+    }
+
+    #[test]
+    fn phase2c_pcr_whitelist_first_mismatch_wins_lowest_index() {
+        // Two diverging pins: PCR 4 AND PCR 8 both won't match.
+        // Declaration order is PCR 4 first — sequencer must
+        // surface FailPolicyPcr and discard which index lost.
+        // The policy test (check_pcr_whitelist_first_mismatch_short_circuits)
+        // covers the index observation; here we assert that the
+        // SEQUENCER collapses both paths to the same token.
+        let p = passing_probe();
+        let mut pol = fixture_policy();
+        pol.allowed_pcrs = vec![
+            PcrWhitelistEntry {
+                pcr_index: 4,
+                expected: [0xAAu8; 32],
+            },
+            PcrWhitelistEntry {
+                pcr_index: 8,
+                expected: [0xBBu8; 32],
+            },
+        ];
+        let cap = CaptureSink::new();
+        let mut sink: &CaptureSink = &cap;
+        assert_eq!(
+            run_gate(&p, &pol, &mut sink),
+            Err(Token::FailPolicyPcr),
+        );
+    }
+
+    #[test]
+    fn phase2c_step19_runs_after_step18() {
+        // Break step 18 (wrong secret → report_data diverges) AND
+        // arm consume_secret to fail, then prove the sequencer
+        // returned FailReportData (step 18) — NOT FailSecret
+        // (step 19). The call counter proves step 19 was never
+        // reached.
+        let mut p = passing_probe();
+        p.secret = Ok(b"tampered-secret-body".to_vec());
+        *p.consume_secret.lock().unwrap() = Some(Err(std::io::Error::from(
+            std::io::ErrorKind::PermissionDenied,
+        )));
+
+        let cap = CaptureSink::new();
+        let mut sink: &CaptureSink = &cap;
+        assert_eq!(
+            run_gate(&p, &fixture_policy(), &mut sink),
+            Err(Token::FailReportData),
+        );
+        assert_eq!(
+            *p.consume_secret_calls.lock().unwrap(),
+            0,
+            "step 19 must NOT be called if step 18 fails — we don't want to \
+             unlink /run/qrab/secret on a verification fault",
+        );
+    }
+
+    #[test]
+    fn phase2c_empty_pcr_whitelist_accepts_any_bank() {
+        // Explicit coverage for the "empty whitelist" invariant:
+        // the sequencer's happy_path test already uses an empty
+        // whitelist, but this one pins the invariant by stating it
+        // in the test name. Production MUST pin at least one entry;
+        // the sequencer itself imposes no such requirement, so an
+        // empty `allowed_pcrs` vector passes step 20.
+        let p = passing_probe();
+        let mut pol = fixture_policy();
+        // The passing probe carries an already-non-default PCR 8
+        // (extend_sha256(zero, FIXTURE_UKI_SHA256)), so this test
+        // already exercises "non-trivial bank + no pins" — no need
+        // to override the TPM response.
+        pol.allowed_pcrs = Vec::new();
+        let cap = CaptureSink::new();
+        let mut sink: &CaptureSink = &cap;
+        let ok = run_gate(&p, &pol, &mut sink)
+            .expect("empty whitelist must accept any bank");
+        close_raw_fd(ok.memfd_fd);
     }
 }

@@ -35,6 +35,21 @@ use qrab_boot_proto::PROTO_TAG;
 /// would try to forge into.
 pub const EXPECTED_VMPL: u32 = 0;
 
+/// One entry in the Phase 2c per-PCR workload whitelist.
+///
+/// `pcr_index` indexes a SHA-256 bank slot in the `[[u8; 32]; 24]`
+/// array returned by [`crate::pcr::read_sha256_bank`]. `expected` is
+/// the digest the live TPM must read back as — i.e. the post-replay
+/// state after every event-log extend has been folded in. The
+/// whitelist runs AFTER step 12's replay-vs-TPM compare, so a
+/// matching entry here is a double assertion: the event log extends
+/// to `expected`, AND the live TPM agrees.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PcrWhitelistEntry {
+    pub pcr_index: u32,
+    pub expected: [u8; 32],
+}
+
 /// Workload policy — the whitelist of acceptable report fields.
 /// Populated by the binary (`main.rs`) with values baked into the
 /// UKI at build time.
@@ -67,6 +82,13 @@ pub struct Policy {
     /// therefore matches "newer or equal TCB" so long as each field
     /// stays within its byte.
     pub min_tcb: u64,
+    /// Per-PCR whitelist. Each entry pins the SHA-256 digest the
+    /// guest's live TPM PCR must read back as. Production pins at
+    /// least PCRs 0, 4, 7, 8, 9: UEFI secure-boot evidence (0, 7),
+    /// bootloader code (4), UKI measurement (8), secret commitment
+    /// (9). An empty `Vec` is allowed (used by some unit tests /
+    /// dev builds) but production MUST pin at least one.
+    pub allowed_pcrs: Vec<PcrWhitelistEntry>,
 }
 
 impl Policy {
@@ -109,6 +131,36 @@ impl Policy {
         } else {
             Ok(())
         }
+    }
+
+    /// Check every [`PcrWhitelistEntry`] against the live TPM SHA-256
+    /// bank. Each entry pins `read[pcr_index] == expected`.
+    ///
+    /// An empty whitelist is allowed — this is used by some tests
+    /// and the dev build has no workload-specific PCR pins yet.
+    /// Production is expected to pin at least PCRs 0, 4, 7, 8, 9.
+    ///
+    /// Returns `Err(pcr_index)` on the first mismatching entry so
+    /// the sequencer can emit `Token::FailPolicyPcr` and the
+    /// post-mortem log line carries the diverging index. Iteration
+    /// order follows `allowed_pcrs`'s declaration order — callers
+    /// who want deterministic "lowest-index wins" should sort the
+    /// vector at construction.
+    pub fn check_pcr_whitelist(&self, read: &[[u8; 32]; 24]) -> Result<(), u32> {
+        for entry in &self.allowed_pcrs {
+            let idx = entry.pcr_index as usize;
+            if idx >= read.len() {
+                // An entry pinning a PCR the kernel bank doesn't
+                // expose is itself a policy error. Return the
+                // stated index so the forensics log shows which
+                // malformed entry tripped.
+                return Err(entry.pcr_index);
+            }
+            if read[idx] != entry.expected {
+                return Err(entry.pcr_index);
+            }
+        }
+        Ok(())
     }
 }
 
@@ -194,6 +246,7 @@ mod tests {
             required_policy_mask: 0b0000_0111,
             forbidden_policy_mask: 0b1000_0000,
             min_tcb: 0x0000_0003_0002_0001,
+            allowed_pcrs: Vec::new(),
         }
     }
 
@@ -380,5 +433,122 @@ mod tests {
         let s = format!("{}", SessionError::WrongLength(42));
         assert!(!s.is_empty());
         assert!(s.contains("42"));
+    }
+
+    // ------ Phase 2c: per-PCR whitelist ------
+
+    /// Build a bank with every slot zero except where overridden
+    /// by the caller.
+    fn zero_bank() -> [[u8; 32]; 24] {
+        [[0u8; 32]; 24]
+    }
+
+    #[test]
+    fn check_pcr_whitelist_empty_accepts_anything() {
+        // An empty whitelist is explicitly allowed — dev builds use
+        // this to skip the workload-specific check. Production
+        // pins at least PCRs 0, 4, 7, 8, 9.
+        let p = base_policy();
+        assert!(p.allowed_pcrs.is_empty());
+        assert_eq!(p.check_pcr_whitelist(&zero_bank()), Ok(()));
+        // Even a bank with arbitrary non-zero contents still passes
+        // an empty whitelist — the check is an allowlist, not a
+        // deny-by-default.
+        let mut b = zero_bank();
+        b.fill([0xAA; 32]);
+        assert_eq!(p.check_pcr_whitelist(&b), Ok(()));
+    }
+
+    #[test]
+    fn check_pcr_whitelist_single_entry_matching() {
+        let mut p = base_policy();
+        p.allowed_pcrs = vec![PcrWhitelistEntry {
+            pcr_index: 7,
+            expected: [0x77; 32],
+        }];
+        let mut b = zero_bank();
+        b[7] = [0x77; 32];
+        assert_eq!(p.check_pcr_whitelist(&b), Ok(()));
+    }
+
+    #[test]
+    fn check_pcr_whitelist_single_entry_mismatching() {
+        let mut p = base_policy();
+        p.allowed_pcrs = vec![PcrWhitelistEntry {
+            pcr_index: 7,
+            expected: [0x77; 32],
+        }];
+        // Bank carries a different PCR 7.
+        let mut b = zero_bank();
+        b[7] = [0x99; 32];
+        assert_eq!(p.check_pcr_whitelist(&b), Err(7));
+    }
+
+    #[test]
+    fn check_pcr_whitelist_multiple_entries_all_matching() {
+        let mut p = base_policy();
+        p.allowed_pcrs = vec![
+            PcrWhitelistEntry {
+                pcr_index: 0,
+                expected: [0x00; 32],
+            },
+            PcrWhitelistEntry {
+                pcr_index: 4,
+                expected: [0x44; 32],
+            },
+            PcrWhitelistEntry {
+                pcr_index: 7,
+                expected: [0x77; 32],
+            },
+            PcrWhitelistEntry {
+                pcr_index: 8,
+                expected: [0x88; 32],
+            },
+            PcrWhitelistEntry {
+                pcr_index: 9,
+                expected: [0x99; 32],
+            },
+        ];
+        let mut b = zero_bank();
+        b[0] = [0x00; 32];
+        b[4] = [0x44; 32];
+        b[7] = [0x77; 32];
+        b[8] = [0x88; 32];
+        b[9] = [0x99; 32];
+        assert_eq!(p.check_pcr_whitelist(&b), Ok(()));
+    }
+
+    #[test]
+    fn check_pcr_whitelist_first_mismatch_short_circuits() {
+        // Two diverging PCRs — 4 listed BEFORE 8 in allowed_pcrs —
+        // should surface PCR 4 (the first mismatch by declaration
+        // order).
+        let mut p = base_policy();
+        p.allowed_pcrs = vec![
+            PcrWhitelistEntry {
+                pcr_index: 4,
+                expected: [0x44; 32],
+            },
+            PcrWhitelistEntry {
+                pcr_index: 8,
+                expected: [0x88; 32],
+            },
+        ];
+        let b = zero_bank(); // Both PCRs are zero, neither matches.
+        assert_eq!(p.check_pcr_whitelist(&b), Err(4));
+    }
+
+    #[test]
+    fn check_pcr_whitelist_out_of_range_index_rejected() {
+        // PCR 24 doesn't exist in a TPM 2.0 bank array of length 24.
+        // An entry pinning a bogus index is itself a policy error;
+        // the function must reject rather than panic on the
+        // out-of-bounds access.
+        let mut p = base_policy();
+        p.allowed_pcrs = vec![PcrWhitelistEntry {
+            pcr_index: 24,
+            expected: [0u8; 32],
+        }];
+        assert_eq!(p.check_pcr_whitelist(&zero_bank()), Err(24));
     }
 }

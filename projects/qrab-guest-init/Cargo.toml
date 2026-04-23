@@ -17,7 +17,16 @@ path = "src/main.rs"
 # Direct syscalls for reboot(2) / mountinfo parsing. Kept narrow; the
 # L5 spec deliberately wants a thin dependency graph so the static
 # musl build (Phase 2) is small and auditable.
-nix = { workspace = true, features = ["reboot", "fs"] }
+#
+# Features:
+# - "reboot" — Phase 1 `halt()` uses `nix::sys::reboot::reboot`.
+# - "fs"    — Phase 2c uses `nix::sys::memfd::memfd_create` and
+#             `nix::fcntl::{FcntlArg::F_ADD_SEALS, SealFlag}` for the
+#             sealed-memfd handoff in `secret::consume`. (In nix
+#             0.29, `memfd` and `fcntl` are NOT separate features —
+#             both live under `fs`.)
+# - "process" — Phase 2c `execve` handoff from `main.rs`.
+nix = { workspace = true, features = ["reboot", "fs", "process"] }
 # SHA-256 for TCG event-log PCR replay (step 10 of the boot sequence)
 # and Phase 2b secret-hash computation inside step 18's report_data
 # reconstruct. Pinned to no-default-features + std feature: pure-Rust
