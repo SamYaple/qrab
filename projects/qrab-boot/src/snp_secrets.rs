@@ -153,9 +153,10 @@ pub enum ReportReqError {
 }
 
 /// Full round-trip: encrypt a `MSG_REPORT_REQ` with `report_data`
-/// under `vmpck0` with `msg_seqno`, issue `SVM_VMGEXIT_GUEST_REQUEST`,
-/// decrypt the response under `msg_seqno + 1`, and return the signed
-/// 1184-byte [`SnpAttestationReport`].
+/// under VMPCK slot `vmpck_slot` (key bytes supplied as `vmpck`) with
+/// `msg_seqno`, issue `SVM_VMGEXIT_GUEST_REQUEST`, decrypt the response
+/// under `msg_seqno + 1`, and return the signed 1184-byte
+/// [`SnpAttestationReport`].
 ///
 /// Caller must:
 ///
@@ -163,14 +164,18 @@ pub enum ReportReqError {
 ///     `allocate_buffer` can route through `PciRootBridgeIo`).
 ///   * Have verified the guest is SEV-SNP (`ghcb::detect`).
 ///   * Have loaded the Secrets page ([`load`]) and passed the
-///     `vmpck0` + initial `msg_seqno` from it. The caller is
-///     responsible for tracking / incrementing `msg_seqno` across
-///     subsequent invocations — every `request_report` consumes
-///     two sequence numbers (one for the request envelope, one for
-///     the response envelope), so the next call must use
-///     `msg_seqno + 2`.
+///     `vmpck` + `vmpck_slot` + initial `msg_seqno` from it. Pick the
+///     slot via `qrab_snp_proto::vmpck_slots_descending` — a naive
+///     `&page.vmpck0` usage dies with `PspError(0x0B)` (INVALID_KEY)
+///     under coconut-svsm, which zeroes VMPCK0 before launching the
+///     OS. The caller is responsible for tracking / incrementing
+///     `msg_seqno` across subsequent invocations — every
+///     `request_report` consumes two sequence numbers (one for the
+///     request envelope, one for the response envelope), so the next
+///     call must use `msg_seqno + 2`.
 pub fn request_report(
-    vmpck0: &[u8; VMPCK_LEN],
+    vmpck: &[u8; VMPCK_LEN],
+    vmpck_slot: u8,
     msg_seqno: u64,
     report_data: [u8; 64],
 ) -> Result<SnpAttestationReport, ReportReqError> {
@@ -196,14 +201,14 @@ pub fn request_report(
     let resp_msg_zeros = &[0u8; SNP_GUEST_MSG_SIZE];
     *req_msg = SnpGuestMsg::read_from_bytes(resp_msg_zeros)
         .expect("4 KiB decodes into SnpGuestMsg");
-    let req = MsgReportReq::new(report_data, 0);
+    let req = MsgReportReq::new(report_data, vmpck_slot as u32);
     let plaintext = <MsgReportReq as IntoBytes>::as_bytes(&req);
     if let Err(e) = encrypt_guest_msg(
         req_msg,
-        vmpck0,
+        vmpck,
         msg_seqno,
         SnpMsgType::ReportReq,
-        0,
+        vmpck_slot,
         plaintext,
     ) {
         let _ = pci_dma::free_buffer(req_host, 1);
@@ -273,7 +278,7 @@ pub fn request_report(
     }
 
     let result = match vmgexit_result {
-        Ok(()) => decode_response(resp_host, vmpck0, msg_seqno),
+        Ok(()) => decode_response(resp_host, vmpck, vmpck_slot, msg_seqno),
         Err(e) => Err(e),
     };
 
@@ -288,7 +293,8 @@ pub fn request_report(
 /// the 1184-byte attestation report on success.
 fn decode_response(
     resp_host: *mut u8,
-    vmpck0: &[u8; VMPCK_LEN],
+    vmpck: &[u8; VMPCK_LEN],
+    vmpck_slot: u8,
     msg_seqno: u64,
 ) -> Result<SnpAttestationReport, ReportReqError> {
     // SAFETY: resp_host was allocated as a 4 KiB page owned by us
@@ -305,10 +311,10 @@ fn decode_response(
     let mut plain_buf = [0u8; MSG_REPORT_RESP_SIZE];
     let n = decrypt_guest_msg(
         resp_msg,
-        vmpck0,
+        vmpck,
         msg_seqno.wrapping_add(1),
         SnpMsgType::ReportResp,
-        0,
+        vmpck_slot,
         &mut plain_buf,
     )
     .map_err(ReportReqError::Envelope)?;
@@ -350,7 +356,8 @@ fn decode_response(
 /// Anything larger than [`CERT_PAGES_MAX`] is treated as hostile
 /// and surfaced as [`ReportReqError::CertTooLarge`].
 pub fn request_report_with_certs(
-    vmpck0: &[u8; VMPCK_LEN],
+    vmpck: &[u8; VMPCK_LEN],
+    vmpck_slot: u8,
     msg_seqno: u64,
     report_data: [u8; 64],
 ) -> Result<(SnpAttestationReport, Vec<u8>), ReportReqError> {
@@ -370,14 +377,14 @@ pub fn request_report_with_certs(
     let zeros = &[0u8; SNP_GUEST_MSG_SIZE];
     *req_msg = SnpGuestMsg::read_from_bytes(zeros)
         .expect("4 KiB decodes into SnpGuestMsg");
-    let req = MsgReportReq::new(report_data, 0);
+    let req = MsgReportReq::new(report_data, vmpck_slot as u32);
     let plaintext = <MsgReportReq as IntoBytes>::as_bytes(&req);
     if let Err(e) = encrypt_guest_msg(
         req_msg,
-        vmpck0,
+        vmpck,
         msg_seqno,
         SnpMsgType::ReportReq,
-        0,
+        vmpck_slot,
         plaintext,
     ) {
         let _ = pci_dma::free_buffer(req_host, 1);
@@ -473,7 +480,7 @@ pub fn request_report_with_certs(
                 // Response envelope handling identical to the basic path.
                 let _ = pci_dma::unmap(resp_map.cookie);
                 let _ = pci_dma::unmap(req_map.cookie);
-                match decode_response(resp_host, vmpck0, msg_seqno) {
+                match decode_response(resp_host, vmpck, vmpck_slot, msg_seqno) {
                     Ok(report) => {
                         let _ = pci_dma::free_buffer(req_host, 1);
                         let _ = pci_dma::free_buffer(resp_host, 1);
