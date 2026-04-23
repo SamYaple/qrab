@@ -332,15 +332,6 @@ impl BmcState {
         }
     }
 
-    /// Read the attestation socket path while holding the vm lock.
-    /// Returns Some only when a SEV-SNP-enabled VM is currently Running.
-    pub async fn attest_sock(&self) -> Option<PathBuf> {
-        match &*self.vm.lock().await {
-            VmState::Running(vm) => vm.attest_sock().cloned(),
-            _ => None,
-        }
-    }
-
     /// Read the QGA (QEMU Guest Agent) socket path while holding the vm lock.
     /// Returns Some only when a QGA-enabled VM is currently Running.
     pub async fn qga_sock(&self) -> Option<PathBuf> {
