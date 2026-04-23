@@ -244,6 +244,24 @@ impl BmcState {
             .map(|root| root.join("contrib/attest-keys/server.pem"))
             .filter(|p| p.is_file());
 
+        // Cached AMD SNP cert chain. When the hypervisor is launched
+        // without `-object sev-snp-guest,certs-path=`, the PSP hands
+        // the guest an empty cert blob. `attest-server`'s chain
+        // walker then needs local ARK/ASK/VCEK PEMs; supply them
+        // from `target/snp-cert-chain/` if `contrib/snp-fetch-host-cert-chain.sh`
+        // has been run. Otherwise the chain walk bails with
+        // `QRAB_SNP_POST_VERIFY_FAIL reason=ask_missing` and secrets
+        // never release.
+        let workspace = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .map(|root| root.to_path_buf());
+        let cert_chain = workspace
+            .as_deref()
+            .map(|ws| ws.join("target/snp-cert-chain"))
+            .map(CachedCertChain::from_dir)
+            .unwrap_or_default();
+
         // Redirect attest-server output to a rotating log file so
         // disconnect / wire-version / signing errors are diagnosable
         // post-mortem. Path is stable across BMC restarts so an
@@ -275,11 +293,13 @@ impl BmcState {
         if let Some(ref kp) = key_path {
             cmd.env("QRAB_ATTEST_KEY_PATH", kp);
         }
+        cert_chain.apply_to(&mut cmd);
         match cmd.spawn() {
             Ok(child) => {
                 tracing::info!(
                     attest_server = %bin.display(),
                     key_path = ?key_path,
+                    cert_chain = ?cert_chain,
                     log = %log_path.display(),
                     pid = child.id(),
                     "spawned attest-server sidecar on vsock CID 2 port 1337"
@@ -920,6 +940,53 @@ async fn event_forwarder(
 /// escape, `..` components, non-regular files). This prevents CWE-22
 /// path traversal where an attacker could read arbitrary host files via
 /// the QEMU block layer.
+/// Resolved paths to `contrib/snp-fetch-host-cert-chain.sh`'s output
+/// under `target/snp-cert-chain/`. Each field is `Some(path)` only
+/// when the file actually exists — the BMC opportunistically plumbs
+/// whichever subset is present so a partial cache still drives the
+/// chain walker further than no cache at all.
+#[derive(Debug, Clone, Default)]
+struct CachedCertChain {
+    ark_pem: Option<PathBuf>,
+    ask_pem: Option<PathBuf>,
+    vcek_pem: Option<PathBuf>,
+}
+
+impl CachedCertChain {
+    /// Probe `dir` for `ark.pem` / `ask.pem` / `vcek.pem`. Non-file
+    /// entries (missing, symlink-to-missing, directory with that
+    /// name) are silently dropped so an operator can delete a single
+    /// file to force a refresh without breaking the resolver.
+    fn from_dir(dir: PathBuf) -> Self {
+        let file_if_exists = |name: &str| -> Option<PathBuf> {
+            let p = dir.join(name);
+            p.is_file().then_some(p)
+        };
+        Self {
+            ark_pem: file_if_exists("ark.pem"),
+            ask_pem: file_if_exists("ask.pem"),
+            vcek_pem: file_if_exists("vcek.pem"),
+        }
+    }
+
+    /// Set the `QRAB_ATTEST_VERIFIER_{ARK,ASK,VCEK}_PEM` env vars on
+    /// `cmd` for whichever fields resolved to real files. Empty slots
+    /// are left unset so the attest-server's existing "fall back to
+    /// bundled ARK / fail closed on missing ASK or VCEK" semantics
+    /// still apply.
+    fn apply_to(&self, cmd: &mut tokio::process::Command) {
+        if let Some(ref p) = self.ark_pem {
+            cmd.env("QRAB_ATTEST_VERIFIER_ARK_PEM", p);
+        }
+        if let Some(ref p) = self.ask_pem {
+            cmd.env("QRAB_ATTEST_VERIFIER_ASK_PEM", p);
+        }
+        if let Some(ref p) = self.vcek_pem {
+            cmd.env("QRAB_ATTEST_VERIFIER_VCEK_PEM", p);
+        }
+    }
+}
+
 /// Resolve the `attest-server` binary used as a BMC sidecar.
 ///
 /// Resolution order:
@@ -1912,5 +1979,134 @@ mod tests {
         let picked = pick_newer_attest_bin(&root).expect("some candidate");
         assert_eq!(picked, rel);
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    // -------- CachedCertChain (phase-4 KDS fallback plumbing) --------
+    //
+    // The attest-server chain walker needs ARK + ASK + VCEK. When the
+    // hypervisor launches QEMU without `-object sev-snp-guest,certs-path=`,
+    // the guest's cert_blob arrives empty and the server must fall back
+    // to locally-cached PEMs supplied via `QRAB_ATTEST_VERIFIER_*_PEM`
+    // env vars. These tests pin that the BMC wires the cache correctly
+    // from `target/snp-cert-chain/{ark,ask,vcek}.pem`.
+
+    fn tmp_chain_dir(label: &str) -> PathBuf {
+        let root = std::env::temp_dir().join(format!(
+            "qrab-bmc-cert-chain-{label}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        root
+    }
+
+    /// `apply_to` writes env into a `tokio::process::Command`; to
+    /// inspect that env we borrow the `Command::as_std()` view and
+    /// iterate `get_envs()`.
+    fn env_map(cmd: &tokio::process::Command) -> std::collections::HashMap<String, String> {
+        let std_cmd = cmd.as_std();
+        let mut out = std::collections::HashMap::new();
+        for (k, v) in std_cmd.get_envs() {
+            if let Some(val) = v {
+                out.insert(
+                    k.to_string_lossy().into_owned(),
+                    val.to_string_lossy().into_owned(),
+                );
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn cached_cert_chain_empty_when_dir_missing() {
+        let phantom = std::env::temp_dir().join("does-not-exist-qrab-ccc");
+        let chain = CachedCertChain::from_dir(phantom);
+        assert!(chain.ark_pem.is_none());
+        assert!(chain.ask_pem.is_none());
+        assert!(chain.vcek_pem.is_none());
+    }
+
+    #[test]
+    fn cached_cert_chain_all_three_present_sets_all_env() {
+        let dir = tmp_chain_dir("all-three");
+        std::fs::write(dir.join("ark.pem"), b"-----BEGIN ARK-----\n").unwrap();
+        std::fs::write(dir.join("ask.pem"), b"-----BEGIN ASK-----\n").unwrap();
+        std::fs::write(dir.join("vcek.pem"), b"-----BEGIN VCEK-----\n").unwrap();
+
+        let chain = CachedCertChain::from_dir(dir.clone());
+        assert!(chain.ark_pem.is_some());
+        assert!(chain.ask_pem.is_some());
+        assert!(chain.vcek_pem.is_some());
+
+        let mut cmd = tokio::process::Command::new("/bin/true");
+        chain.apply_to(&mut cmd);
+        let env = env_map(&cmd);
+        assert_eq!(
+            env.get("QRAB_ATTEST_VERIFIER_ARK_PEM"),
+            Some(&dir.join("ark.pem").display().to_string()),
+        );
+        assert_eq!(
+            env.get("QRAB_ATTEST_VERIFIER_ASK_PEM"),
+            Some(&dir.join("ask.pem").display().to_string()),
+        );
+        assert_eq!(
+            env.get("QRAB_ATTEST_VERIFIER_VCEK_PEM"),
+            Some(&dir.join("vcek.pem").display().to_string()),
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn cached_cert_chain_partial_cache_sets_only_present_env() {
+        // Operator deleted vcek.pem to force a refresh but ark.pem +
+        // ask.pem are still cached. Resolver returns only the two,
+        // apply_to sets only the two env vars — the attest-server's
+        // `VcekMissing` code path still fires so the operator knows
+        // they need to re-fetch.
+        let dir = tmp_chain_dir("partial");
+        std::fs::write(dir.join("ark.pem"), b"ARK").unwrap();
+        std::fs::write(dir.join("ask.pem"), b"ASK").unwrap();
+        // Intentionally skip vcek.pem.
+
+        let chain = CachedCertChain::from_dir(dir.clone());
+        assert!(chain.ark_pem.is_some());
+        assert!(chain.ask_pem.is_some());
+        assert!(chain.vcek_pem.is_none());
+
+        let mut cmd = tokio::process::Command::new("/bin/true");
+        chain.apply_to(&mut cmd);
+        let env = env_map(&cmd);
+        assert!(env.contains_key("QRAB_ATTEST_VERIFIER_ARK_PEM"));
+        assert!(env.contains_key("QRAB_ATTEST_VERIFIER_ASK_PEM"));
+        assert!(
+            !env.contains_key("QRAB_ATTEST_VERIFIER_VCEK_PEM"),
+            "absent VCEK PEM must not set env; attest-server relies \
+             on the unset env to fall through to its VcekMissing path",
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn cached_cert_chain_ignores_non_file_entries() {
+        // Someone left a directory named `ask.pem` by mistake — the
+        // resolver must NOT treat it as a usable cert and must fall
+        // through to the "ASK missing" case rather than pointing the
+        // verifier at a subdirectory that PEM parsing can't consume.
+        let dir = tmp_chain_dir("dir-typo");
+        std::fs::write(dir.join("ark.pem"), b"ARK").unwrap();
+        std::fs::create_dir_all(dir.join("ask.pem")).unwrap();
+        std::fs::write(dir.join("vcek.pem"), b"VCEK").unwrap();
+
+        let chain = CachedCertChain::from_dir(dir.clone());
+        assert!(chain.ark_pem.is_some());
+        assert!(
+            chain.ask_pem.is_none(),
+            "a directory at ask.pem must not be treated as a PEM file",
+        );
+        assert!(chain.vcek_pem.is_some());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
