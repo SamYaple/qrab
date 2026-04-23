@@ -146,9 +146,11 @@ impl core::fmt::Display for ReportError {
 /// Publish `report_data` as the volatile, boot+runtime-accessible
 /// `QrabReport` EFI variable. `report_data` is opaque to this
 /// function: callers may pass just the 32-byte SNP `report_data`
-/// (current Phase 5 StartImage state) or the full 1184-byte signed
-/// attestation report (once the SNP report is threaded into this
-/// scope). The variable body is always `MAGIC || body_bytes`.
+/// (plain-TCG boots where the PSP exchange is skipped) or the full
+/// 1184-byte signed attestation report (SNP boots — matches
+/// `qrab_snp_proto::SnpAttestationReport`'s size-of). The variable
+/// body is always `MAGIC || body_bytes`. qrab-guest-init's
+/// `report::parse` handles the MAGIC strip + length check.
 pub fn publish_report(body: &[u8]) -> Result<(), ReportError> {
     let mut blob = Vec::with_capacity(QRAB_REPORT_MAGIC.len() + body.len());
     blob.extend_from_slice(QRAB_REPORT_MAGIC);
@@ -159,6 +161,41 @@ pub fn publish_report(body: &[u8]) -> Result<(), ReportError> {
         &VariableVendor(QRAB_REPORT_GUID),
         attrs,
         &blob,
+    )
+    .map_err(ReportError::SetVariable)
+}
+
+/// UEFI variable name for the session nonces snapshot.
+///
+/// L5 qrab-guest-init reads this back (via the dracut pre-pivot
+/// hook that copies it to `/run/qrab/session`) and feeds the 64
+/// bytes into `policy::reconstruct_report_data`. The body is
+/// exactly `client_nonce[32] || server_nonce[32]` — no magic
+/// prefix because the consumer is length-addressed, not
+/// schema-sniffed.
+pub const QRAB_SESSION_NAME: &CStr16 = cstr16!("QrabSession");
+
+/// Publish the 64-byte `client_nonce || server_nonce` blob under
+/// the shared `QRAB_SECRET_GUID` vendor GUID. Same attribute set
+/// as `QrabReport` / `QrabSecret`: `BOOTSERVICE_ACCESS |
+/// RUNTIME_ACCESS`, explicitly volatile so the variable vanishes
+/// on next boot. The dracut module at
+/// `contrib/qrab-boot-initrd-module/` copies it to
+/// `/run/qrab/session` pre-pivot alongside the secret.
+///
+/// Secrecy argument: the nonces are public once the pre-commit is
+/// on the wire — the server broadcasts `server_nonce` inside the
+/// signed response and the guest's `client_nonce` is visible in
+/// the request frame. Only integrity + freshness matter, both of
+/// which the firmware variable path provides across
+/// ExitBootServices.
+pub fn publish_session(nonces: &[u8; 64]) -> Result<(), ReportError> {
+    let attrs = VariableAttributes::BOOTSERVICE_ACCESS | VariableAttributes::RUNTIME_ACCESS;
+    runtime::set_variable(
+        QRAB_SESSION_NAME,
+        &VariableVendor(QRAB_REPORT_GUID),
+        attrs,
+        nonces,
     )
     .map_err(ReportError::SetVariable)
 }
