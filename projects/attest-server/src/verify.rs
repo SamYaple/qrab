@@ -774,6 +774,109 @@ mod tests {
         assert_eq!(reason(&err), "ask_missing");
     }
 
+    /// Phase-4 cert-chain-fallback regression guard (end-to-end).
+    ///
+    /// When QEMU is launched without `-object
+    /// sev-snp-guest,certs-path=`, the guest's `cert_blob` arrives
+    /// empty. The BMC plumbs
+    /// `target/snp-cert-chain/{ark,ask,vcek}.pem` as
+    /// `QRAB_ATTEST_VERIFIER_{ARK,ASK,VCEK}_PEM` on the sidecar env
+    /// so the chain walker can still verify. The BMC unit tests pin
+    /// that the env vars are set; the sibling
+    /// `handle_post_report_rejects_empty_cert_blob` pins the
+    /// negative (no env → AskMissing) path. This test pins the
+    /// POSITIVE end-to-end: env vars set to valid PEMs + empty
+    /// `cert_blob` → chain walk succeeds.
+    ///
+    /// Serialised via a process-wide mutex against
+    /// `e2e_chain_*_env_ark_override` tests since `std::env::set_var`
+    /// mutates global state.
+    #[test]
+    fn env_pem_fallback_wires_chain_walk_end_to_end() {
+        use std::io::Write;
+        use std::sync::Mutex;
+        // Shared mutex with other env-var tests in this module. If
+        // the crate later adds more env-touching tests, they should
+        // join this serialiser.
+        static ENV_MUTEX: Mutex<()> = Mutex::new(());
+        let _guard = ENV_MUTEX.lock().unwrap_or_else(|p| p.into_inner());
+
+        let chip_id = [0x11u8; 64];
+        let chain = build_e2e_chain(1, 2, 3, 4, chip_id);
+
+        // Write each DER through a PEM wrapper to a tempfile. The
+        // verifier's `pem_to_der` accepts a PEM string and returns
+        // the DER.
+        fn write_pem_temp(label: &str, der: &[u8]) -> std::path::PathBuf {
+            use base64::Engine;
+            let b64 = base64::engine::general_purpose::STANDARD.encode(der);
+            let mut pem = format!("-----BEGIN {label}-----\n");
+            for chunk in b64.as_bytes().chunks(64) {
+                pem.push_str(std::str::from_utf8(chunk).unwrap());
+                pem.push('\n');
+            }
+            pem.push_str(&format!("-----END {label}-----\n"));
+            let tmp = std::env::temp_dir().join(format!(
+                "qrab-env-pem-fallback-{label}-{}-{}",
+                std::process::id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos()
+            ));
+            let mut f = std::fs::File::create(&tmp).unwrap();
+            f.write_all(pem.as_bytes()).unwrap();
+            tmp
+        }
+
+        let ark_path = write_pem_temp("CERTIFICATE", &chain.ark_der);
+        let ask_path = write_pem_temp("CERTIFICATE", &chain.ask_der);
+        let vcek_path = write_pem_temp("CERTIFICATE", &chain.vcek_der);
+
+        // SAFETY: ENV_MUTEX serialises all env mutations in this
+        // module. The Rust-2024 `env::set_var` safety contract is
+        // about cross-thread races; we hold the mutex for the
+        // duration.
+        unsafe {
+            std::env::set_var(ENV_ASK_PATH, &ask_path);
+            std::env::set_var(ENV_VCEK_PATH, &vcek_path);
+            std::env::remove_var(ENV_ARK_PATH); // use the passed override
+        }
+
+        // Empty cert_blob (just the 24-byte terminator) — matches
+        // QEMU without `certs-path=`.
+        let report_bytes = build_signed_report(&chain, [0x55u8; 48]);
+        let post = qrab_boot_proto::new_post_report(
+            report_bytes,
+            vec![0u8; 24],
+        );
+        let frame = qrab_boot_proto::encode_framed(&post).unwrap();
+
+        // Pass ARK override explicitly so the ENV_ARK_PATH is not
+        // required; leaves the test focused on the ASK/VCEK
+        // fallback (the interesting bit — ARK has a bundled
+        // default and the override is orthogonal).
+        let outcome = handle_post_report_bytes(
+            &frame, Some(&chain.ark_der), None,
+        ).expect(
+            "chain walk must succeed with env-provided ASK/VCEK PEMs \
+             when cert_blob is empty — the phase-4 `certs-path=` \
+             fallback regression guard",
+        );
+
+        assert!(!outcome.measurement_enforced);
+        assert_eq!(outcome.verified.report.measurement, [0x55u8; 48]);
+
+        // Cleanup (best-effort — tests may run in any order).
+        unsafe {
+            std::env::remove_var(ENV_ASK_PATH);
+            std::env::remove_var(ENV_VCEK_PATH);
+        }
+        let _ = std::fs::remove_file(&ark_path);
+        let _ = std::fs::remove_file(&ask_path);
+        let _ = std::fs::remove_file(&vcek_path);
+    }
+
     #[test]
     fn reason_covers_all_chain_variants() {
         // Sentinel: if ChainError grows new variants this test

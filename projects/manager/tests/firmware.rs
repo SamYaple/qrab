@@ -274,3 +274,118 @@ fn bash_nt_operator_matches_mtime_semantics() {
          staleness check would over-fire and rebuild OVMF every run."
     );
 }
+
+/// Phase-5 `#GP` regression guard: scan the compiled `qrab-boot.efi`
+/// for the `TEST r/m8, imm8` opcode form (`F6 /0`) with a memory
+/// operand, which the SEV-SNP `#VC` handler in OVMF's
+/// `CcExitLib::MmioExit` cannot decode. If any such instruction
+/// survives into the binary against an MMIO-mapped operand it
+/// re-enters the guest as a `#GP(0)` on every SEV-SNP boot.
+///
+/// The specific cause we hit on 2026-04-23 was
+/// `virtio_drivers::transport::pci::PciTransport::drop` spinning
+/// `while self.get_status() != DeviceStatus::empty() {}` — LLVM
+/// folded the read into `testb $0xCF, 0x14(%rax)`. Fix landed in
+/// `projects/qrab-boot/src/volatile_transport.rs` by wrapping
+/// `PciTransport` in `ManuallyDrop` + no-op wrapper `Drop`. See
+/// `llm-rag/issues/qrab-boot-phase5-gp-testb-mmio.md`.
+///
+/// This test relies on `llvm-objdump` being on PATH and a built
+/// `qrab-boot.efi` under `projects/qrab-boot/target/x86_64-unknown-uefi/release/`.
+/// Both conditions are met during the normal build cycle (`cargo
+/// build -p qrab-boot --target x86_64-unknown-uefi --release`, which
+/// `build-svsm-igvm.sh` runs). If the `.efi` is missing, the test
+/// skips with a diagnostic — CI without a UEFI-target build chain
+/// cannot exercise this path and shouldn't fail red for it.
+///
+/// A bare `testb` against a register or a stack slot (`rsp`, `rbp`)
+/// is fine — those don't MMIO-trap. Only a memory operand with a
+/// non-stack base register is the danger. Grep pattern used
+/// (intentionally permissive so any future `TESTB imm8, [reg+disp]`
+/// form trips it): literal `testb` mnemonic with a hex-immediate and
+/// a `(%` register-operand paren that isn't `(%rsp` or `(%rbp`.
+#[test]
+fn qrab_boot_efi_no_testb_against_mmio() {
+    let efi = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(|p| p.parent())
+        .expect("walk up to workspace root")
+        .join("projects/qrab-boot/target/x86_64-unknown-uefi/release/qrab-boot.efi");
+
+    if !efi.is_file() {
+        eprintln!(
+            "skipping: {} not built (run `cargo build -p qrab-boot \
+             --target x86_64-unknown-uefi --release`)",
+            efi.display()
+        );
+        return;
+    }
+
+    let objdump = match std::process::Command::new("llvm-objdump")
+        .args(["-d", efi.to_str().unwrap()])
+        .output()
+    {
+        Ok(out) if out.status.success() => out,
+        _ => {
+            eprintln!("skipping: llvm-objdump not available or disasm failed");
+            return;
+        }
+    };
+    let disasm = String::from_utf8_lossy(&objdump.stdout);
+
+    // Permissive pattern: any testb against a memory operand that
+    // isn't obviously on the stack. An llvm-objdump line looks like:
+    //
+    //   140004074: f6 40 14 cf  testb $-0x31, 0x14(%rax)
+    //                           ^^^^^ mnemonic
+    //                                 ^^^^^^ imm8 (negative encoding for 0xCF)
+    //                                         ^^^^^^^^^^^ memory operand
+    //
+    // `testb imm, (%rsp)` / `(%rbp)` / `(%rsp,...)` are stack-local
+    // and never MMIO-backed, so they don't trigger the #VC decoder
+    // gap. Everything else is suspect.
+    let mut offenders: Vec<String> = Vec::new();
+    for line in disasm.lines() {
+        let trimmed = line.trim();
+        // Fast path: must contain `testb` as a token.
+        if !trimmed.contains("testb") {
+            continue;
+        }
+        // Must include a memory operand `(%reg)`.
+        let Some(paren_open) = trimmed.find("(%") else {
+            continue;
+        };
+        let rest = &trimmed[paren_open + 2..];
+        // Extract the base-register token.
+        let reg_end = rest
+            .find(|c: char| c == ',' || c == ')')
+            .unwrap_or(rest.len());
+        let base_reg = &rest[..reg_end];
+        // rsp / rbp are stack; safe. Everything else (rax, rbx,
+        // rdi, r8, r12, ...) is potentially MMIO-backed.
+        if base_reg == "rsp" || base_reg == "rbp" {
+            continue;
+        }
+        offenders.push(trimmed.to_string());
+    }
+
+    assert!(
+        offenders.is_empty(),
+        "phase-5 #GP regression: qrab-boot.efi contains {} \
+         `testb imm8, (%<non-stack-reg>)` instruction(s). \
+         Under SEV-SNP, OVMF's CcExitLib decoder rejects TESTB \
+         against MMIO; the fault surfaces as #GP in the guest. \
+         Fix: wrap the offending type in `ManuallyDrop` + no-op \
+         `Drop`, or route the access through \
+         `volatile_transport.rs`'s MOV-only shim. See \
+         llm-rag/issues/qrab-boot-phase5-gp-testb-mmio.md.\n\n\
+         First 10 offenders:\n{}",
+        offenders.len(),
+        offenders
+            .iter()
+            .take(10)
+            .map(|s| format!("  {s}"))
+            .collect::<Vec<_>>()
+            .join("\n"),
+    );
+}
