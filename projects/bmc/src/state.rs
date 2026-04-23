@@ -924,8 +924,20 @@ async fn event_forwarder(
 ///
 /// Resolution order:
 ///   1. `$QRAB_ATTEST_SERVER_BIN` — explicit operator override.
-///   2. `<workspace>/target/release/attest-server`.
-///   3. `<workspace>/target/debug/attest-server`.
+///   2. Whichever of `<workspace>/target/{release,debug}/attest-server`
+///      exists; when both do, **newest mtime wins**.
+///
+/// The mtime tiebreak is load-bearing: running `cargo build -p
+/// attest-server` during dev leaves an OUTDATED `target/release/`
+/// copy from an earlier `--release` build. A stale release can be
+/// compiled against a different `qrab-boot-proto` wire version
+/// (e.g. v2 before the v3 hard-bump and 4→6 prefix change) and will
+/// mis-decode a fresh guest's AttestRequest as
+/// `Postcard(DeserializeUnexpectedEnd)` — precisely the phase-4
+/// regression the `resolve_picks_newer_mtime_when_both_exist` test
+/// pins. Preferring the newer build keeps dev flows honest without
+/// changing the no-ambiguity case in production (only one binary
+/// exists there).
 ///
 /// Workspace root is computed from `$CARGO_MANIFEST_DIR` (the `bmc`
 /// crate) walked up two levels (`.../projects/bmc/` → `.../`).
@@ -940,13 +952,22 @@ fn resolve_attest_server_bin() -> Option<PathBuf> {
         .parent()?
         .parent()?
         .to_path_buf();
-    for profile in ["release", "debug"] {
-        let p = workspace.join("target").join(profile).join("attest-server");
-        if p.is_file() {
-            return Some(p);
-        }
-    }
-    None
+    pick_newer_attest_bin(&workspace.join("target"))
+}
+
+/// Newest-mtime picker, extracted so a unit test can exercise the
+/// tiebreak without having a real workspace layout.
+fn pick_newer_attest_bin(target_root: &Path) -> Option<PathBuf> {
+    let candidates = ["release", "debug"]
+        .into_iter()
+        .map(|p| target_root.join(p).join("attest-server"))
+        .filter(|p| p.is_file())
+        .filter_map(|p| {
+            let mtime = std::fs::metadata(&p).ok()?.modified().ok()?;
+            Some((p, mtime))
+        })
+        .collect::<Vec<_>>();
+    candidates.into_iter().max_by_key(|(_, m)| *m).map(|(p, _)| p)
 }
 
 fn validate_disk_path(path: &Path) -> Result<PathBuf> {
@@ -1790,5 +1811,106 @@ mod tests {
         assert_eq!(body, "new-credential\n");
 
         let _ = std::fs::remove_file(&path);
+    }
+
+    // -------- attest-server binary resolution (phase-4 stale-binary fix) --------
+    //
+    // The BMC sidecar picks one of target/{release,debug}/attest-server.
+    // Before the mtime tiebreak landed, resolve_attest_server_bin picked
+    // release unconditionally — which broke phase 4 whenever a dev rebuilt
+    // only debug against a newer wire version, leaving release compiled
+    // against the older protocol. These tests pin the pick-newer-mtime
+    // behaviour so that regression cannot land silently again.
+
+    fn write_dummy_bin(path: &Path, contents: &[u8]) {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).unwrap();
+        }
+        std::fs::write(path, contents).unwrap();
+    }
+
+    /// Sleep just long enough for filesystem mtimes to differ between two
+    /// writes. ext4 on a modern kernel gives ns precision, but CI on
+    /// older filesystems (tmpfs with coarse granularity, some NFS mounts)
+    /// rounds to 1 s. 50 ms is enough for ext4/tmpfs and short enough to
+    /// keep the test suite cheap.
+    fn mtime_tick() {
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+
+    fn tmp_target_root(label: &str) -> PathBuf {
+        let root = std::env::temp_dir().join(format!(
+            "qrab-bmc-attest-bin-{label}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        root
+    }
+
+    #[test]
+    fn resolve_picks_only_existing_binary() {
+        let root = tmp_target_root("only-release");
+        let rel = root.join("release").join("attest-server");
+        write_dummy_bin(&rel, b"release-only");
+        assert_eq!(pick_newer_attest_bin(&root).as_deref(), Some(rel.as_path()));
+
+        let _ = std::fs::remove_dir_all(&root);
+
+        let root = tmp_target_root("only-debug");
+        let dbg = root.join("debug").join("attest-server");
+        write_dummy_bin(&dbg, b"debug-only");
+        assert_eq!(pick_newer_attest_bin(&root).as_deref(), Some(dbg.as_path()));
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn resolve_returns_none_when_neither_present() {
+        let root = tmp_target_root("empty");
+        assert!(pick_newer_attest_bin(&root).is_none());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn resolve_picks_newer_mtime_when_both_exist_debug_fresh() {
+        // Reproduces the exact phase-4 regression: release is the
+        // older build (stale wire v2) and debug is the freshly
+        // rebuilt one (wire v3). The resolver must pick debug.
+        let root = tmp_target_root("debug-fresh");
+        let rel = root.join("release").join("attest-server");
+        let dbg = root.join("debug").join("attest-server");
+        write_dummy_bin(&rel, b"stale-release");
+        mtime_tick();
+        write_dummy_bin(&dbg, b"fresh-debug");
+
+        let picked = pick_newer_attest_bin(&root).expect("some candidate");
+        assert_eq!(
+            picked,
+            dbg,
+            "resolver must prefer the newer debug build; \
+             picked {picked:?} instead",
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn resolve_picks_newer_mtime_when_both_exist_release_fresh() {
+        // Inverse — release was rebuilt after a debug build. Real
+        // CI production flows hit this. Resolver must still pick the
+        // newer mtime (release here).
+        let root = tmp_target_root("release-fresh");
+        let dbg = root.join("debug").join("attest-server");
+        let rel = root.join("release").join("attest-server");
+        write_dummy_bin(&dbg, b"stale-debug");
+        mtime_tick();
+        write_dummy_bin(&rel, b"fresh-release");
+
+        let picked = pick_newer_attest_bin(&root).expect("some candidate");
+        assert_eq!(picked, rel);
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

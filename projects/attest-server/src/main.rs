@@ -981,6 +981,129 @@ mod r16_h22_tests {
         );
     }
 
+    /// Positive phase-4 half-round-trip: request → pre-commit → UKI.
+    ///
+    /// Before the stale-binary fix landed, this was the path that
+    /// broke — the host-side attest-server was a v2 build and
+    /// mis-decoded a v3 AttestRequest, closing the session without
+    /// writing anything. The existing tests in this module only
+    /// prove the NEGATIVE case (no secret leak). This test proves
+    /// the positive: the server talks back when the wire protocol
+    /// actually matches.
+    ///
+    /// Keeps the scope tight: does not drive a post-report (requires
+    /// a real ARK/ASK/VCEK signed chain — covered instead by
+    /// `verify.rs::e2e_chain_happy_path_*`). What this test owns is
+    /// the stream-level phase-4 protocol up to the UKI write.
+    #[test]
+    fn phase4_half_roundtrip_decodes_precommit_and_uki() {
+        use qrab_boot_proto::{encode_framed, split_framed,
+            AttestResponse, FRAME_PREFIX_LEN, WIRE_VERSION,
+        };
+
+        let (mut client, server) = UnixStream::pair().expect("unix pair");
+        client
+            .set_read_timeout(Some(Duration::from_millis(500)))
+            .expect("set read timeout");
+        let join = run_server_with_stream(server);
+
+        let client_nonce = [0x42u8; 32];
+        let req = qrab_boot_proto::new_request(client_nonce);
+        let wire = encode_framed(&req).expect("encode request");
+        // On wire v3 the AttestRequest frame is 46 B: 6-byte outer
+        // prefix (u32 len=40 || u16 version=3) + 40-byte postcard
+        // body. A regression in the prefix layout would show up
+        // here — cheap to catch before the network-level assertion.
+        assert_eq!(
+            wire.len(),
+            46,
+            "AttestRequest wire image should be 46 B; got {}",
+            wire.len(),
+        );
+        client.write_all(&wire).expect("write request");
+
+        // Pump the stream until we have enough to carve out the
+        // pre-commit frame (6-byte prefix + body) + the UKI frame.
+        // STUB_UKI is 512 B so the combined read should land
+        // comfortably inside a single 65 KiB chunk. Cap the pump so
+        // a regression that hangs the server doesn't hang the test.
+        let mut collected = Vec::new();
+        let mut chunk = [0u8; 65536];
+        for _ in 0..32 {
+            match client.read(&mut chunk) {
+                Ok(0) => break,
+                Ok(n) => {
+                    collected.extend_from_slice(&chunk[..n]);
+                    // STUB_UKI frame is 6 + 512 B; pre-commit is
+                    // ~200 B. >= 700 B = both frames in hand.
+                    if collected.len() >= 700 {
+                        break;
+                    }
+                }
+                Err(_) => break,
+            }
+        }
+        // Close client so the server thread stops waiting for a
+        // post-report frame that isn't coming.
+        drop(client);
+        let _ = join.join();
+
+        // Pre-commit decode: first frame off the collected stream.
+        let (precommit_len, precommit_body) =
+            split_framed(&collected).expect("pre-commit frame must split");
+        assert!(
+            precommit_len > 0,
+            "pre-commit body length must be non-zero; \
+             a v3-shape frame with len=0 means the server gave up \
+             before emitting AttestResponse",
+        );
+        let response: AttestResponse =
+            qrab_boot_proto::decode(precommit_body).expect("decode AttestResponse");
+
+        // Outer version slot is 3 (v3) — pin it so a future hard
+        // bump is caught here in addition to qrab-boot-proto's own
+        // `frame_prefix_len_is_six_after_b14_5_bump` test.
+        let outer_version = u16::from_le_bytes(
+            collected[4..6].try_into().expect("2 bytes"),
+        );
+        assert_eq!(outer_version, WIRE_VERSION);
+
+        // Sig length is pinned by validate_response; assert here too
+        // so a silent truncation shows up as a distinct failure.
+        qrab_boot_proto::validate_response(&response)
+            .expect("pre-commit must pass validate_response");
+
+        // Second frame = UKI. Re-parse from the tail of the stream.
+        let uki_frame_off = FRAME_PREFIX_LEN + precommit_len;
+        let uki_frame: AttestResponseFrame = split_framed_opt(&collected[uki_frame_off..])
+            .expect("UKI frame must split");
+
+        // UKI body hashes to the pre-commit's committed uki_sha256.
+        use sha2::{Digest as _, Sha256};
+        let actual: [u8; 32] = Sha256::digest(uki_frame.body).into();
+        assert_eq!(
+            actual, response.uki_sha256,
+            "UKI body hash on the wire must match the \
+             `uki_sha256` committed in the signed pre-commit. \
+             A mismatch means the server streamed different bytes \
+             than it signed — either a stub-UKI race or a \
+             wire-ordering regression.",
+        );
+    }
+
+    /// Tiny helper used by `phase4_half_roundtrip_decodes_precommit_and_uki`
+    /// so the test assertions read cleanly. `split_framed` returns
+    /// `(len, body)` — we just re-shape the tuple into a local
+    /// struct to avoid a confusing destructure at the call site.
+    struct AttestResponseFrame<'a> {
+        body: &'a [u8],
+    }
+
+    fn split_framed_opt(bytes: &[u8]) -> Option<AttestResponseFrame<'_>> {
+        let (_, body) = qrab_boot_proto::split_framed(bytes).ok()?;
+        Some(AttestResponseFrame { body })
+    }
+
     #[test]
     fn server_does_not_leak_secret_on_malformed_post_report() {
         // Send a valid AttestRequest, read the pre-commit + UKI,

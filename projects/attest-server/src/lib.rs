@@ -503,6 +503,67 @@ mod tests {
         );
     }
 
+    /// Phase-4 stale-binary regression guard.
+    ///
+    /// If a caller (e.g. a stale host-side attest-server binary or a
+    /// mis-rebuilt bootloader) speaks wire v2 — a 4-byte
+    /// length-only prefix with NO outer `wire_version` slot — the
+    /// bytes they send have the ``"qr"`` of the `AttestRequest.proto`
+    /// field landing exactly where the v3 server expects the
+    /// `u16 wire_version`. `split_framed` must short-circuit with
+    /// [`ProtoError::WireVersionMismatch`] and surface that through
+    /// [`HandleError::Decode`] — a distinct token — NOT
+    /// [`ProtoError::Postcard`] / `DeserializeUnexpectedEnd`.
+    ///
+    /// Before B14-5 added the outer version slot, a v2/v3 skew
+    /// manifested as a `DeserializeUnexpectedEnd` error at the
+    /// postcard layer (because the misaligned body was 40 B but
+    /// postcard spilled past the end decoding a varint from what was
+    /// actually the client_nonce tail). That opaque error cost a full
+    /// phase-4 debug session chasing a ghost serialization bug
+    /// when the real cause was a stale binary picked by
+    /// `resolve_attest_server_bin` — see
+    /// `llm-rag/issues/attest-server-stale-binary.md`. The outer
+    /// version slot plus this test together guarantee any future
+    /// version-skew surface is self-describing from the first frame.
+    #[test]
+    fn v2_shape_frame_yields_wire_version_mismatch_not_postcard_error() {
+        // Hand-craft a v2-shape frame: `u32 body_len(40) || body(40)`
+        // where body is a well-formed v2 AttestRequest postcard body.
+        // Body starts with proto = "qrab-v1" (7 bytes).
+        let proto = b"qrab-v1";
+        let client_nonce = [0x55u8; 32];
+        let client_version_varint = [0x02u8]; // varint(v2)
+        let mut body = Vec::with_capacity(40);
+        body.extend_from_slice(proto);
+        body.extend_from_slice(&client_nonce);
+        body.extend_from_slice(&client_version_varint);
+        assert_eq!(body.len(), 40);
+
+        let mut wire = Vec::with_capacity(4 + 40);
+        wire.extend_from_slice(&(body.len() as u32).to_le_bytes());
+        wire.extend_from_slice(&body);
+        assert_eq!(wire.len(), 44);
+
+        let signer = fixed_signer();
+        let err = handle_request_bytes(&wire, &signer, STUB_UKI).unwrap_err();
+        match err {
+            HandleError::Decode(ProtoError::WireVersionMismatch { expected, got }) => {
+                assert_eq!(expected, WIRE_VERSION);
+                // The first 2 bytes of the v2 body are "qr" = 0x71, 0x72.
+                // u16 LE of [0x71, 0x72] = 0x7271 = 29297.
+                assert_eq!(got, u16::from_le_bytes([b'q', b'r']));
+            }
+            other => panic!(
+                "v2-shape frame decoded as {other:?} instead of \
+                 Decode(WireVersionMismatch). A regression here \
+                 means a stale-v2 peer shows up as an opaque postcard \
+                 error again — see llm-rag/issues/\
+                 attest-server-stale-binary.md for the debug cost."
+            ),
+        }
+    }
+
     #[test]
     fn release_sig_rejected_on_tampered_secret_body() {
         // Server issues release; attacker swaps the secret bytes
