@@ -13,11 +13,20 @@
 //! policy, dm-verity on `/`. The binary emits `QRAB_INIT_START` →
 //! (fatal token) | `QRAB_INIT_OK` on `/dev/console`.
 //!
-//! **Phase 2 (planned).** Steps 9-20: TCG 2.0 event-log parse +
-//! replay, TPM 2.0 PCR read via `/dev/tpmrm0`, SnpAttestationReport
-//! parse (reusing `qrab-snp-proto`), report_data reconstruct, secret
-//! consume with memfd+execve handoff. Full module paths already
-//! listed in the L5 spec §Components table.
+//! **Phase 2a (landed).** Steps 9-12: TCG 2.0 event-log parse +
+//! SHA-256 replay + `/dev/tpmrm0` PCR read + per-PCR compare.
+//!
+//! **Phase 2b (this commit).** Steps 13-18: `/run/qrab/report`
+//! parse (`qrab-snp-proto::SnpAttestationReport` zerocopy cast),
+//! vmpl=0 check, measurement / policy-bit / reported_tcb whitelist
+//! checks, and `report_data` reconstruct bound to the PCR-8
+//! uki_sha256 event + `sha256(/run/qrab/secret)`.
+//!
+//! **Phase 2c (planned).** Step 19 — secret consume (unlink +
+//! memfd handoff) + step 20 PCR whitelist. The probe's
+//! `read_secret()` method added in Phase 2b is read-only; Phase 2c
+//! will add a distinct `consume_secret` method that does the
+//! single-shot read + unlink.
 
 pub mod efivar;
 pub mod eventlog;
@@ -28,7 +37,9 @@ pub mod lockdown;
 pub mod modsig;
 pub mod msr;
 pub mod pcr;
+pub mod policy;
 pub mod real_probe;
+pub mod report;
 pub mod sequencer;
 pub mod tokens;
 pub mod verity;

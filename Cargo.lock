@@ -3271,8 +3271,11 @@ name = "qrab-guest-init"
 version = "0.1.0"
 dependencies = [
  "nix 0.29.0",
+ "qrab-boot-proto",
+ "qrab-snp-proto",
  "sha2",
  "tempfile",
+ "zerocopy",
 ]
 
 [[package]]
