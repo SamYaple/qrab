@@ -4,10 +4,12 @@
 //! Kept isolated so the pure decoders and the sequencer stay free of
 //! unit-test-hostile IO.
 
+use std::os::fd::RawFd;
 use std::path::PathBuf;
 
 use crate::efivar::build_efivar_filename;
 use crate::msr;
+use crate::secret;
 use crate::sequencer::{Probe, TpmDevice};
 use crate::verity;
 
@@ -135,6 +137,18 @@ impl Probe for RealProbe {
     fn read_secret(&self) -> std::io::Result<Vec<u8>> {
         std::fs::read(&self.read_secret_path)
     }
+
+    fn consume_secret(&self, expected_len: usize) -> std::io::Result<RawFd> {
+        // Delegate to the `secret` module, flattening every variant
+        // of `ConsumeError` to a generic `std::io::Error` with
+        // `ErrorKind::Other`. The sequencer collapses all of these
+        // into `Token::FailSecret` anyway — the specific cause
+        // surfaces only in dev-mode stderr via `Debug`. Keeping the
+        // surface narrow on-console is the L5 contract: an attacker
+        // must not be able to probe which sub-step they tripped.
+        secret::consume(&self.read_secret_path, expected_len)
+            .map_err(|e| std::io::Error::other(format!("{e:?}")))
+    }
 }
 
 /// Resolve `/dev/mapper/<label>` or `/dev/dm-<N>` to the
@@ -210,5 +224,82 @@ mod tests {
         std::os::unix::fs::symlink("../dm-7", mapper.join("root")).unwrap();
         let name = resolve_dm_name("/dev/mapper/root", td.path()).unwrap();
         assert_eq!(name, "dm-7");
+    }
+
+    /// End-to-end smoke test of [`RealProbe::consume_secret`] via
+    /// the `secret::consume` module. Writes a 16-byte 0o600 file
+    /// under a tempdir, points a constructed `RealProbe` at it, and
+    /// asserts: (a) the call returns `Ok(fd)`, (b) the tempfile is
+    /// gone, (c) the returned fd carries the right bytes.
+    #[test]
+    fn consume_secret_delegates_to_secret_module() {
+        use std::io::{Read, Seek, SeekFrom, Write};
+        use std::os::fd::{FromRawFd, OwnedFd};
+        use std::os::unix::fs::OpenOptionsExt;
+
+        let td = tempfile::tempdir().unwrap();
+        let secret_path = td.path().join("secret");
+        let body = b"0123456789abcdef"; // 16 bytes
+        let mut f = std::fs::OpenOptions::new()
+            .create(true)
+            .truncate(true)
+            .write(true)
+            .mode(0o600)
+            .open(&secret_path)
+            .unwrap();
+        f.write_all(body).unwrap();
+        // Ensure mode sticks even if umask stripped it.
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = std::fs::metadata(&secret_path).unwrap().permissions();
+        perms.set_mode(0o600);
+        std::fs::set_permissions(&secret_path, perms).unwrap();
+
+        // Point a probe at ONLY the tempdir secret. Every other
+        // path is irrelevant — consume_secret only touches
+        // `read_secret_path`.
+        let mut probe = RealProbe::live_defaults();
+        probe.read_secret_path = secret_path.clone();
+
+        let fd = probe.consume_secret(body.len()).expect("consume ok");
+        assert!(
+            !secret_path.exists(),
+            "RealProbe::consume_secret must unlink the source"
+        );
+        // Verify bytes.
+        let owned = unsafe { OwnedFd::from_raw_fd(fd) };
+        let mut file = std::fs::File::from(owned);
+        file.seek(SeekFrom::Start(0)).unwrap();
+        let mut read_back = Vec::new();
+        file.read_to_end(&mut read_back).unwrap();
+        assert_eq!(read_back, body);
+    }
+
+    /// Length-mismatch flattens to a generic `std::io::Error`
+    /// (via the `.map_err` in `consume_secret`). The sequencer
+    /// turns this into `Token::FailSecret` — here we just confirm
+    /// the delegation surfaces an error at all.
+    #[test]
+    fn consume_secret_wrong_length_surfaces_error() {
+        use std::io::Write;
+        use std::os::unix::fs::OpenOptionsExt;
+
+        let td = tempfile::tempdir().unwrap();
+        let secret_path = td.path().join("secret");
+        let mut f = std::fs::OpenOptions::new()
+            .create(true)
+            .truncate(true)
+            .write(true)
+            .mode(0o600)
+            .open(&secret_path)
+            .unwrap();
+        f.write_all(b"short").unwrap(); // 5 bytes
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = std::fs::metadata(&secret_path).unwrap().permissions();
+        perms.set_mode(0o600);
+        std::fs::set_permissions(&secret_path, perms).unwrap();
+
+        let mut probe = RealProbe::live_defaults();
+        probe.read_secret_path = secret_path;
+        assert!(probe.consume_secret(16).is_err());
     }
 }

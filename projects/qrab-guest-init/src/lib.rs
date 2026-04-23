@@ -16,17 +16,19 @@
 //! **Phase 2a (landed).** Steps 9-12: TCG 2.0 event-log parse +
 //! SHA-256 replay + `/dev/tpmrm0` PCR read + per-PCR compare.
 //!
-//! **Phase 2b (this commit).** Steps 13-18: `/run/qrab/report`
-//! parse (`qrab-snp-proto::SnpAttestationReport` zerocopy cast),
-//! vmpl=0 check, measurement / policy-bit / reported_tcb whitelist
-//! checks, and `report_data` reconstruct bound to the PCR-8
-//! uki_sha256 event + `sha256(/run/qrab/secret)`.
+//! **Phase 2b (landed).** Steps 13-18: `/run/qrab/report` parse
+//! (`qrab-snp-proto::SnpAttestationReport` zerocopy cast), vmpl=0
+//! check, measurement / policy-bit / reported_tcb whitelist checks,
+//! and `report_data` reconstruct bound to the PCR-8 uki_sha256 event
+//! + `sha256(/run/qrab/secret)`.
 //!
-//! **Phase 2c (planned).** Step 19 — secret consume (unlink +
-//! memfd handoff) + step 20 PCR whitelist. The probe's
-//! `read_secret()` method added in Phase 2b is read-only; Phase 2c
-//! will add a distinct `consume_secret` method that does the
-//! single-shot read + unlink.
+//! **Phase 2c (this commit).** Steps 19-22: single-shot consume of
+//! `/run/qrab/secret` via memfd + seal + unlink (`secret::consume`),
+//! per-PCR workload whitelist (`Policy::check_pcr_whitelist`), and
+//! the `execve(next_stage, …, QRAB_SECRET_FD=<n>)` handoff from
+//! `main.rs`. `run_gate` now returns the raw memfd FD via
+//! [`sequencer::GateOk`] so the binary can thread it through the
+//! exec envp.
 
 pub mod efivar;
 pub mod eventlog;
@@ -40,6 +42,7 @@ pub mod pcr;
 pub mod policy;
 pub mod real_probe;
 pub mod report;
+pub mod secret;
 pub mod sequencer;
 pub mod tokens;
 pub mod verity;
@@ -47,5 +50,5 @@ pub mod verity;
 pub use halt::halt;
 pub use log::{CaptureSink, ConsoleSink, TokenSink};
 pub use real_probe::RealProbe;
-pub use sequencer::{run_gate, Probe};
+pub use sequencer::{GateOk, Probe, run_gate};
 pub use tokens::Token;
