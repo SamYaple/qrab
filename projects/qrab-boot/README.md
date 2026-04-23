@@ -60,14 +60,14 @@ Boots the built EFI under QEMU q35 with distro-provided `OVMF_CODE.fd`
 
 ```sh
 contrib/build-ovmf.sh          # ~7 min first time, ~1 min incremental
-contrib/smoke-snp-ovmf.sh       # requires /dev/sev + kvm_amd.sev_snp=Y
 ```
 
 `build-ovmf.sh` clones the pinned edk2 submodule into
 `target/edk2-build/edk2/` (never mutating `vendor/edk2`), substitutes
 `qrab-boot.efi` for `OvmfPkg/AmdSev/Grub/grub.efi`, disables the upstream
-`PREBUILD` hook, and runs the standard edk2 build tool. `smoke-snp-ovmf.sh`
-launches the firmware under SEV-SNP and greps serial for the banner.
+`PREBUILD` hook, and runs the standard edk2 build tool. For end-to-end
+SEV-SNP validation use `contrib/matrix-smoke.sh` scenarios 9+ or the
+SVSM IGVM path built via `contrib/build-svsm-igvm.sh`.
 
 Expected serial tail in both cases:
 
