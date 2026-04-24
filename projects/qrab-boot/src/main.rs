@@ -341,36 +341,27 @@ fn run_vsock_demo(
     // response is strictly more dangerous than no response at all,
     // because the bootloader would otherwise inject an
     // attacker-chosen secret into the guest kernel.
-    if !attest::has_embedded_pubkey() {
-        // R16-H15: reachable only via explicit `QRAB_DEV_NO_PUBKEY=1`
-        // at build time. Shout about the unverified response so this
-        // mode is unmistakable in serial logs.
-        log::warn!(
-            "QRAB_ATTEST_NO_PUBKEY (QRAB_DEV_NO_PUBKEY=1 build; signature verification SKIPPED — do not ship)"
-        );
-    } else {
-        match attest::verify(&response, &client_nonce) {
-            Ok(()) => log::info!("QRAB_ATTEST_SIG_OK"),
-            Err(attest::VerifyError::NoPubkey) => {
-                log::warn!("QRAB_ATTEST_NO_PUBKEY");
-                return Err(());
-            }
-            Err(attest::VerifyError::MalformedPubkey) => {
-                log::warn!("QRAB_ATTEST_MALFORMED_PUBKEY");
-                return Err(());
-            }
-            Err(attest::VerifyError::MalformedSig) => {
-                log::warn!("QRAB_ATTEST_MALFORMED_SIG");
-                return Err(());
-            }
-            Err(attest::VerifyError::BadSignature) => {
-                log::warn!("QRAB_ATTEST_BAD_SIG");
-                return Err(());
-            }
-            Err(attest::VerifyError::SecretHashMismatch) => {
-                log::warn!("QRAB_ATTEST_SECRET_HASH_MISMATCH");
-                return Err(());
-            }
+    match attest::verify(&response, &client_nonce) {
+        Ok(()) => log::info!("QRAB_ATTEST_SIG_OK"),
+        Err(attest::VerifyError::NoPubkey) => {
+            log::warn!("QRAB_ATTEST_NO_PUBKEY");
+            return Err(());
+        }
+        Err(attest::VerifyError::MalformedPubkey) => {
+            log::warn!("QRAB_ATTEST_MALFORMED_PUBKEY");
+            return Err(());
+        }
+        Err(attest::VerifyError::MalformedSig) => {
+            log::warn!("QRAB_ATTEST_MALFORMED_SIG");
+            return Err(());
+        }
+        Err(attest::VerifyError::BadSignature) => {
+            log::warn!("QRAB_ATTEST_BAD_SIG");
+            return Err(());
+        }
+        Err(attest::VerifyError::SecretHashMismatch) => {
+            log::warn!("QRAB_ATTEST_SECRET_HASH_MISMATCH");
+            return Err(());
         }
     }
 

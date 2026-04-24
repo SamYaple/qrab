@@ -19,11 +19,15 @@
 //!       [`qrab_boot_proto::verify_secret_hash`] — because the signed
 //!       digest only commits to the hash, not to the bytes.
 //!
-//! A build without a server pubkey (fresh clone, no
-//! `contrib/attest-keys/server.sec1` on disk) sets the
-//! `qrab_no_server_pubkey` cfg. `main.rs` switches to a stub that
-//! logs `QRAB_ATTEST_NO_PUBKEY` and fails the boot; there is no
-//! "accept unverified" mode.
+//! A build without a server pubkey fails in `build.rs` — the
+//! retired `QRAB_DEV_NO_PUBKEY=1` bypass used to produce a zero-
+//! filled placeholder + a `cfg(qrab_no_server_pubkey)` gate, but the
+//! opt-out was removed 2026-04-24 since attestation is mandatory on
+//! qrab's CoCo path and the panic in `build.rs` already directs
+//! fresh clones to `contrib/gen-attest-keys.sh`. [`VerifyError::NoPubkey`]
+//! remains as a defensive fail-closed branch: if the embedded bytes
+//! are somehow all zero at runtime (should be unreachable after
+//! `build.rs`), `verify` still refuses to proceed.
 //!
 //! This module is `#[deny(unsafe_code)]` because everything here is
 //! pure crypto — all the unsafe SNP plumbing lives in `ghcb.rs` and
@@ -42,12 +46,9 @@ use qrab_boot_proto::{
 /// from `contrib/attest-keys/server.sec1` or
 /// `$QRAB_ATTEST_PUBKEY_SEC1`.
 ///
-/// R16-H15: `build.rs` fails the build outright when neither source
-/// is available. The only path that produces the 65-zero placeholder
-/// is the explicit `QRAB_DEV_NO_PUBKEY=1` opt-in, which also sets
-/// `qrab_no_server_pubkey` and emits a `cargo:warning=`. In that
-/// mode [`verify`] returns [`VerifyError::NoPubkey`] before reaching
-/// the crypto crate.
+/// `build.rs` fails the build outright when neither source is
+/// available — no zero-fill dev bypass. [`VerifyError::NoPubkey`] is
+/// a defensive fail-closed check that nevertheless runs at runtime.
 pub const EMBEDDED_SERVER_PUBKEY_SEC1: &[u8; 65] =
     include_bytes!(concat!(env!("OUT_DIR"), "/attest-server-pubkey.sec1"));
 
@@ -140,9 +141,3 @@ pub fn verify_release(
     Ok(())
 }
 
-/// Returns `true` if `build.rs` emitted a real pubkey and `false`
-/// when the placeholder is active. Used by `main.rs` to route
-/// logging before even attempting a verify.
-pub const fn has_embedded_pubkey() -> bool {
-    !cfg!(qrab_no_server_pubkey)
-}
