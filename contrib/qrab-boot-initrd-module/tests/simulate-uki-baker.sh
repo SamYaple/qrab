@@ -12,7 +12,7 @@
 #       .uname   — matches the running kernel
 #   * `sbverify` against contrib/sb-keys/db.crt returns clean
 #   * unpacked initramfs contains:
-#       /init                     (qrab-init)
+#       /init                     (qrab-uki-init)
 #       /sbin/qrab-guest-init
 #       /sbin/next-stage          (qrab-next-stage)
 #       /lib64/ld-linux-x86-64.so.2

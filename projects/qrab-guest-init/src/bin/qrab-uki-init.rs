@@ -1,5 +1,10 @@
-//! qrab-init — minimal PID-1 that prepares the UKI initramfs before
-//! exec'ing `qrab-guest-init`.
+//! qrab-uki-init — minimal PID-1 that prepares the UKI initramfs
+//! before exec'ing `qrab-guest-init`.
+//!
+//! Named `qrab-uki-init` to avoid a binary collision with
+//! `projects/qrab-init/` (the manager-spawned namespace-isolation
+//! PID 1). Inside the UKI it is exec'd as `/init` by the kernel —
+//! the binary name only matters to the dev build tree.
 //!
 //! Layout when linked into `target/qrab-uki/qrab.efi`:
 //!
