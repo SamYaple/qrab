@@ -57,6 +57,60 @@
 /// active_pcr_banks` (TCG2 Protocol Spec §6.5.2.1 — `EFI_TCG2_BOOT_HASH_ALG_SHA256`).
 pub const HASH_ALG_SHA256: u32 = 0x0000_0002;
 
+/// Serial-log token literals emitted by `qrab-boot::measure` +
+/// `efi_main` for the vTPM probe path. Single source of truth so
+/// every `contrib/smoke-*.sh` grep pattern matches exactly one set
+/// of strings and a silent rename in the bootloader source fails a
+/// host-side unit test before it reaches a live smoke. See
+/// [`tests::measure_rs_uses_tokens_verbatim`] for the enforcement.
+pub mod tokens {
+    /// Happy-path — `require_and_probe_vtpm` successfully read a
+    /// non-zero PCR 0 from the SVSM-backed vTPM.
+    pub const VTPM_SVSM_OK: &str = "QRAB_VTPM_SVSM_OK";
+    /// Capability diagnostic line (protocol version, max cmd/rsp,
+    /// manufacturer ID, active banks, present flag).
+    pub const VTPM_CAP: &str = "QRAB_VTPM_CAP";
+    /// Fatal halt — vTPM probe failed under the default
+    /// `qrab_require_vtpm` cfg.
+    pub const FAIL_NO_VTPM: &str = "QRAB_FAIL_NO_VTPM";
+    /// Non-fatal log — vTPM probe failed under the
+    /// `QRAB_ALLOW_NO_VTPM=1` opt-out build; the bootloader continues
+    /// past the probe and past any extend failures.
+    pub const TCG2_SOFT_ABSENT: &str = "QRAB_TCG2_SOFT_ABSENT";
+
+    /// Every token the Phase 3 probe may emit. Consumers that want the
+    /// full set (e.g. smoke regex builders) should iterate this rather
+    /// than copy-pasting.
+    pub const ALL: &[&str] = &[VTPM_SVSM_OK, VTPM_CAP, FAIL_NO_VTPM, TCG2_SOFT_ABSENT];
+}
+
+/// Short-suffix strings appended to the halt log for each failure
+/// class so operators can grep the precise reason without parsing the
+/// `Display` output of `VtpmProbeError`.
+///
+/// Pinned by [`tests::every_fail_class_has_a_distinct_suffix`].
+pub mod fail_suffix {
+    pub const TCG2_ABSENT: &str = "TCG2_ABSENT";
+    pub const TCG2_OPEN: &str = "TCG2_OPEN";
+    pub const TCG2_GET_CAPABILITY: &str = "TCG2_GET_CAPABILITY";
+    pub const TPM_NOT_PRESENT: &str = "TPM_NOT_PRESENT";
+    pub const NO_SHA256_BANK: &str = "NO_SHA256_BANK";
+    pub const PCR_READ: &str = "PCR_READ";
+    pub const PCR_PARSE: &str = "PCR_PARSE";
+    pub const PCR0_ALL_ZERO: &str = "PCR0_ALL_ZERO";
+
+    pub const ALL: &[&str] = &[
+        TCG2_ABSENT,
+        TCG2_OPEN,
+        TCG2_GET_CAPABILITY,
+        TPM_NOT_PRESENT,
+        NO_SHA256_BANK,
+        PCR_READ,
+        PCR_PARSE,
+        PCR0_ALL_ZERO,
+    ];
+}
+
 /// TPM2_PCR_Read for PCR 0, SHA-256 bank. Fixed 20 bytes, big-endian.
 /// Submitted verbatim to `EFI_TCG2_PROTOCOL.SubmitCommand`.
 pub const PCR_READ_PCR0_SHA256_CMD: [u8; 20] = [
@@ -349,5 +403,77 @@ mod tests {
                 prefix: [0, 0, 0, 0, 0, 0, 0, 0]
             }
         );
+    }
+
+    // -- tokens + fail-suffix regression guardrails --------------------
+
+    #[test]
+    fn tokens_locked_against_rename() {
+        // If any of these equalities change, every contrib/smoke-*.sh
+        // grep pattern needs to be updated in the same commit.
+        assert_eq!(tokens::VTPM_SVSM_OK, "QRAB_VTPM_SVSM_OK");
+        assert_eq!(tokens::VTPM_CAP, "QRAB_VTPM_CAP");
+        assert_eq!(tokens::FAIL_NO_VTPM, "QRAB_FAIL_NO_VTPM");
+        assert_eq!(tokens::TCG2_SOFT_ABSENT, "QRAB_TCG2_SOFT_ABSENT");
+        assert_eq!(tokens::ALL.len(), 4);
+        for t in tokens::ALL {
+            assert!(t.starts_with("QRAB_"), "token `{t}` lost QRAB_ prefix");
+        }
+    }
+
+    #[test]
+    fn fail_suffixes_are_unique() {
+        // Grep on serial expects each probe failure to carry a single,
+        // unambiguous suffix — no overlap, no prefix collisions.
+        let all = fail_suffix::ALL;
+        for (i, a) in all.iter().enumerate() {
+            for b in &all[i + 1..] {
+                assert_ne!(a, b, "duplicate suffix `{a}`");
+                // Also guard against prefix collisions like `PCR_READ`
+                // / `PCR_READ_X` that would make grep ambiguous.
+                assert!(!a.starts_with(b), "`{a}` is a superstring of `{b}`");
+                assert!(!b.starts_with(a), "`{b}` is a superstring of `{a}`");
+            }
+            assert!(!a.is_empty());
+        }
+        assert_eq!(all.len(), 8);
+    }
+
+    #[test]
+    fn every_fail_class_has_a_distinct_suffix() {
+        // Every failure class pinned above must be referenced in the
+        // `VtpmProbeError::Display` impl under `qrab-boot::measure`.
+        // If a variant is added / renamed but the impl is forgotten,
+        // this grep test fails before any live smoke does.
+        let measure = include_str!("../../qrab-boot/src/measure.rs");
+        for suffix in fail_suffix::ALL {
+            assert!(
+                measure.contains(suffix),
+                "fail-suffix `{suffix}` missing from qrab-boot/src/measure.rs — \
+                 did someone rename a `VtpmProbeError` variant's Display form?"
+            );
+        }
+    }
+
+    #[test]
+    fn measure_rs_uses_tokens_verbatim() {
+        // Keeps the `log::info!("QRAB_VTPM_SVSM_OK ...")` / `log::warn!(
+        // "QRAB_FAIL_NO_VTPM ...")` format-string literals in the
+        // bootloader source synced with the `tokens::*` consts that
+        // every smoke greps. `include_str!` hard-fails at compile time
+        // if the source path drifts, which is also what we want.
+        //
+        // Per-file `contains` avoids heap allocation so this test stays
+        // no_std-clean under the default (featureless) build.
+        let measure = include_str!("../../qrab-boot/src/measure.rs");
+        let main = include_str!("../../qrab-boot/src/main.rs");
+        for tok in tokens::ALL {
+            assert!(
+                measure.contains(tok) || main.contains(tok),
+                "token `{tok}` missing from qrab-boot source — \
+                 did someone rename it in `measure.rs` / `main.rs` \
+                 without updating `tokens::*`?"
+            );
+        }
     }
 }

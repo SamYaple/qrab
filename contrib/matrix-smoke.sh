@@ -31,7 +31,7 @@ set -euo pipefail
 ROOT="$(git -C "$(dirname "${BASH_SOURCE[0]}")" rev-parse --show-toplevel)"
 SMOKE="$ROOT/contrib/smoke-vsock-qemu.sh"
 
-SCENARIOS="${SCENARIOS:-1 1r 3 4 5 6 8 9 10 11 12a 12b 12c}"
+SCENARIOS="${SCENARIOS:-1 1r 3 4 5 6 8 9 10 11 12a 12b 12c 13}"
 
 # Working dir for scenario-specific fixtures (e.g. the 64 KiB UKI for
 # scenario 11). Built once, reused by every matrix run that needs it.
@@ -69,8 +69,16 @@ scenario_env() {
         # blanket `QRAB_ALLOW_NON_SNP=1` (see smoke-vsock-qemu.sh) is
         # explicitly cancelled here so the check stays compiled in and
         # the TCG guest halts at `QRAB_FAIL_NOSNP`. This is the ONLY
-        # scenario that must not inherit the harness's TCG opt-out.
+        # scenario (together with 13 below) that must not inherit the
+        # harness's TCG opt-out.
         9)    echo "QRAB_ALLOW_NON_SNP=0" ;;
+        # Scenario 13 proves the R20 Phase 3 default-on vTPM gate:
+        # cancels `QRAB_ALLOW_NO_VTPM=1` so `measure::require_and_probe_vtpm`
+        # runs on a TCG boot where Tcg2Dxe reports no TPM (no swtpm,
+        # no SVSM in this lane). `QRAB_ALLOW_NON_SNP=1` stays set so
+        # the SNP gate passes first — the vTPM halt is what we're
+        # measuring, not re-tripping scenario 9.
+        13)   echo "QRAB_ALLOW_NO_VTPM=0" ;;
         # Scenario 10 runs TWO back-to-back smokes; the replay
         # cache path is shared between them so attest-server's
         # second invocation serves identical bytes. Handled in the
@@ -115,6 +123,7 @@ scenario_expect_token() {
         10)   echo "QRAB_ATTEST_OK" ;;
         11)   echo "QRAB_UKI_OK len=65536" ;;
         12a|12b|12c) echo "QRAB_LOADIMAGE_STUB_SKIP" ;;
+        13)   echo "QRAB_FAIL_NO_VTPM" ;;
     esac
 }
 
@@ -149,6 +158,12 @@ scenario_relaxed_required() {
         # before any vsock / attest token. Only QRAB_FAIL_NOSNP
         # is required; the expected-token grep below is the gate.
         9) echo "QRAB_FAIL_NOSNP" ;;
+        # R20 Phase 3 vTPM gate: halts at `require_and_probe_vtpm`
+        # before any vsock / attest token. The SNP gate passes first
+        # (`QRAB_ALLOW_NON_SNP=1` default), then the vTPM probe trips
+        # on Tcg2 either absent or `tpm_present == false` under the
+        # TCG harness. Only QRAB_FAIL_NO_VTPM is required here.
+        13) echo "QRAB_FAIL_NO_VTPM" ;;
     esac
 }
 
