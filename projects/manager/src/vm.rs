@@ -2634,6 +2634,123 @@ mod tests {
             .sev_snp(super::super::SevSnpConfig::default());
             assert_eq!(b.vsock_guest_cid, Some(42));
         }
+
+        // -- Phase 4 machine-args invariants ----------------------------
+
+        // `build_machine_args` must NOT emit `-bios`/pflash on any
+        // SEV-SNP path. For non-SVSM the firmware lands via
+        // `-machine firmware=<ovmf>`; for SVSM it lands via the IGVM
+        // `-object igvm-cfg` pair. Either way pflash under SNP is
+        // invalid (KVM_CAP_READONLY_MEM=0 for SNP VMs type 3) and
+        // `-bios` loads at the reset vector without PSP validation.
+        // These tests pin that guarantee against future refactors.
+
+        #[test]
+        fn machine_args_uefi_snp_svsm_omits_bios_and_pflash() {
+            let b = VmBuilder::new(
+                Arch::X86_64,
+                MachineConfig::Uefi { memory: "2G".into() },
+            )
+            .sev_snp(super::super::SevSnpConfig::default())
+            .svsm(SvsmConfig {
+                igvm_path: PathBuf::from("/tmp/coconut-qemu.igvm"),
+                qemu_binary: None,
+            });
+            let tmpdir = tempfile::TempDir::new().unwrap();
+            let (args, _idx) = b.build_machine_args(&tmpdir).unwrap();
+            assert!(!args.iter().any(|a| a == "-bios"), "found -bios in {args:?}");
+            assert!(
+                !args.iter().any(|a| a.starts_with("if=pflash")),
+                "found pflash in {args:?}",
+            );
+            // Machine arg present, no firmware= yet (appended in spawn()).
+            assert!(args.iter().any(|a| a == "-machine"));
+            assert!(!args.iter().any(|a| a.contains("firmware=")));
+            assert!(!args.iter().any(|a| a.contains("igvm-cfg")));
+        }
+
+        #[test]
+        fn machine_args_uefi_snp_no_svsm_still_omits_bios_and_pflash() {
+            // Non-SVSM SNP path: firmware is appended via
+            // `-machine firmware=<ovmf>` in spawn(), not here.
+            let b = VmBuilder::new(
+                Arch::X86_64,
+                MachineConfig::Uefi { memory: "2G".into() },
+            )
+            .sev_snp(super::super::SevSnpConfig::default());
+            let tmpdir = tempfile::TempDir::new().unwrap();
+            let (args, _idx) = b.build_machine_args(&tmpdir).unwrap();
+            assert!(!args.iter().any(|a| a == "-bios"), "found -bios in {args:?}");
+            assert!(
+                !args.iter().any(|a| a.starts_with("if=pflash")),
+                "found pflash in {args:?}",
+            );
+        }
+
+        #[test]
+        fn machine_args_secureboot_snp_omits_pflash() {
+            let b = VmBuilder::new(
+                Arch::X86_64,
+                MachineConfig::SecureBoot { memory: "2G".into() },
+            )
+            .sev_snp(super::super::SevSnpConfig::default());
+            let tmpdir = tempfile::TempDir::new().unwrap();
+            let (args, _idx) = b.build_machine_args(&tmpdir).unwrap();
+            assert!(
+                !args.iter().any(|a| a.starts_with("if=pflash")),
+                "found pflash in {args:?}",
+            );
+            // SecureBoot machine still emits smm=on and cfi.pflash01 global.
+            assert!(
+                args.iter().any(|a| a.contains("smm=on")),
+                "SecureBoot machine arg missing smm=on: {args:?}",
+            );
+        }
+
+        #[test]
+        fn tpm_backend_is_single_variant() {
+            // Phase 3b deleted `TpmBackend::Swtpm`; the enum should have
+            // exactly one variant today. If a new backend is added the
+            // public-API break shows up as this test failing to compile.
+            let cfg = SvsmConfig {
+                igvm_path: PathBuf::from("/tmp/x.igvm"),
+                qemu_binary: None,
+            };
+            let b = TpmBackend::Svsm(cfg);
+            match b {
+                TpmBackend::Svsm(_) => {}
+            }
+        }
+
+        #[test]
+        fn svsm_args_memory_suffix_matches_machine_memory() {
+            // The `-object memory-backend-memfd,size=<>` must mirror
+            // the `-m` value; otherwise coconut-svsm/qemu refuses to
+            // bind the memfd to the machine memory backend.
+            for mem in ["1G", "2G", "4096M", "8G"] {
+                let cfg = MachineConfig::Uefi { memory: mem.into() };
+                let args = build_svsm_args(&PathBuf::from("/tmp/x.igvm"), &cfg).unwrap();
+                assert!(
+                    args[1].contains(&format!("size={mem}")),
+                    "size does not match -m {mem}: {}",
+                    args[1],
+                );
+            }
+        }
+
+        #[test]
+        fn build_svsm_args_igvm_path_embedded_verbatim() {
+            // Defends against a future refactor that might shell-escape
+            // or canonicalise the path — both would break matching against
+            // the rebuild regression guards in `manager/tests/firmware.rs`.
+            let path = PathBuf::from("/opt/qrab/target/svsm-out/coconut-qemu.igvm");
+            let cfg = MachineConfig::Uefi { memory: "1G".into() };
+            let args = build_svsm_args(&path, &cfg).unwrap();
+            assert_eq!(
+                args[3],
+                format!("igvm-cfg,id=igvm0,file={}", path.display()),
+            );
+        }
     }
 }
 
