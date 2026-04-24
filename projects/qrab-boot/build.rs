@@ -4,14 +4,10 @@
 //! (`<workspace>/contrib/attest-keys/server.sec1` or
 //! `$QRAB_ATTEST_PUBKEY_SEC1`) is embedded into `qrab-boot.efi` so
 //! `attest::verify` can check the ECDSA-P256 signature on every
-//! `AttestResponse`. R16-H15: the build *requires* one of:
-//!   * a real key file on disk (at the default path or at
-//!     `$QRAB_ATTEST_PUBKEY_SEC1`); OR
-//!   * an explicit developer opt-in `QRAB_DEV_NO_PUBKEY=1`, which
-//!     writes 65 zero bytes + sets `qrab_no_server_pubkey` + emits a
-//!     loud `cargo:warning=` so CI logs flag the insecure build.
-//! Anything else panics with instructions — fresh clones no longer
-//! produce a silently-insecure bootloader.
+//! `AttestResponse`. The build fail-closes hard when no key is
+//! available — there is **no dev bypass**. Fresh clones run
+//! `contrib/gen-attest-keys.sh` (idempotent) once and are good
+//! thereafter.
 
 use std::env;
 use std::fs;
@@ -29,14 +25,12 @@ fn main() {
     // Broadcast every cfg we might emit so `#[cfg(...)]` checks
     // don't produce "unexpected cfg" warnings under a stable-lint
     // toolchain.
-    println!("cargo::rustc-check-cfg=cfg(qrab_no_server_pubkey)");
     println!("cargo::rustc-check-cfg=cfg(qrab_uki_boot)");
     println!("cargo::rustc-check-cfg=cfg(qrab_allow_non_snp)");
     println!("cargo::rustc-check-cfg=cfg(qrab_require_vtpm)");
 
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-env-changed=QRAB_ATTEST_PUBKEY_SEC1");
-    println!("cargo:rerun-if-env-changed=QRAB_DEV_NO_PUBKEY");
     println!("cargo:rerun-if-env-changed=QRAB_UKI_BOOT");
     println!("cargo:rerun-if-env-changed=QRAB_ALLOW_NON_SNP");
     println!("cargo:rerun-if-env-changed=QRAB_ALLOW_NO_VTPM");
@@ -97,68 +91,54 @@ fn main() {
 }
 
 /// Resolve the attestation-server SEC1 public key and write it to
-/// `<OUT_DIR>/attest-server-pubkey.sec1`. R16-H15: fail-closed. The
-/// only way the build succeeds without a real key is the explicit
-/// `QRAB_DEV_NO_PUBKEY=1` opt-in, which also sets the
-/// `qrab_no_server_pubkey` cfg so `main.rs` refuses any response.
+/// `<OUT_DIR>/attest-server-pubkey.sec1`. Fail-closed: no dev bypass,
+/// no zero-filled placeholder. A fresh clone must run
+/// `contrib/gen-attest-keys.sh` (or set `$QRAB_ATTEST_PUBKEY_SEC1`) to
+/// produce a key before `cargo build` will succeed. Previously a
+/// `QRAB_DEV_NO_PUBKEY=1` opt-in wrote 65 zero bytes + a `cfg` gate;
+/// that hatch was retired 2026-04-24 to match the CoCo-mandatory
+/// posture (attestation is not optional on the qrab path).
 fn embed_server_pubkey(workspace_root: &Path, out: &Path) {
     let default_path = workspace_root
         .join("contrib")
         .join("attest-keys")
         .join("server.sec1");
     let env_source = env::var_os("QRAB_ATTEST_PUBKEY_SEC1").map(PathBuf::from);
-    let dev_no_pubkey = env::var_os("QRAB_DEV_NO_PUBKEY")
-        .map(|v| v == "1")
-        .unwrap_or(false);
 
-    // Path we actually read from. Env override wins; otherwise try the
-    // default path iff it exists (so `QRAB_DEV_NO_PUBKEY=1` on a fresh
-    // clone without any file doesn't trip the "missing file" panic).
+    // Env override wins; otherwise the default path must exist.
     let source = match (&env_source, default_path.exists()) {
-        (Some(p), _) => Some(p.clone()),
-        (None, true) => Some(default_path.clone()),
-        (None, false) => None,
-    };
-    if let Some(ref p) = source {
-        println!("cargo:rerun-if-changed={}", p.display());
-    }
-    println!("cargo:rerun-if-changed={}", default_path.display());
-
-    match (source, dev_no_pubkey) {
-        (Some(ref path), _) => match fs::read(path) {
-            Ok(bytes) if bytes.len() == 65 && bytes[0] == 0x04 => {
-                fs::write(out.join("attest-server-pubkey.sec1"), &bytes).unwrap();
-            }
-            Ok(bytes) => panic!(
-                "qrab-boot build.rs: pubkey at {} is {} bytes (need exactly 65, prefix 0x04). \
-                 Regenerate via `contrib/gen-attest-keys.sh` or fix the file at $QRAB_ATTEST_PUBKEY_SEC1.",
-                path.display(),
-                bytes.len()
-            ),
-            Err(e) => panic!(
-                "qrab-boot build.rs: cannot read attestation-server pubkey at {}: {e}. \
-                 Either drop a real key there (run `contrib/gen-attest-keys.sh`), set \
-                 `$QRAB_ATTEST_PUBKEY_SEC1=<path>` to a 65-byte SEC1 file, or set \
-                 `$QRAB_DEV_NO_PUBKEY=1` for a dev build that refuses responses at runtime.",
-                path.display()
-            ),
-        },
-        (None, true) => {
-            // Dev opt-in: explicit, loud, cfg-gated.
-            println!(
-                "cargo:warning=QRAB_DEV_NO_PUBKEY=1 — qrab-boot.efi built without a server pubkey; attestation responses will be rejected at runtime. Do NOT ship this binary."
-            );
-            println!("cargo:rustc-cfg=qrab_no_server_pubkey");
-            fs::write(out.join("attest-server-pubkey.sec1"), [0u8; 65]).unwrap();
-        }
+        (Some(p), _) => p.clone(),
+        (None, true) => default_path.clone(),
         (None, false) => panic!(
             "qrab-boot build.rs: no attestation-server pubkey. Expected one of:\n  \
              1. file at {}\n  \
-             2. $QRAB_ATTEST_PUBKEY_SEC1=<path> pointing at a 65-byte SEC1 pubkey\n  \
-             3. $QRAB_DEV_NO_PUBKEY=1 to opt into a dev build that rejects responses\n\
-             Dev flow: run `contrib/gen-attest-keys.sh` from the workspace root.",
+             2. $QRAB_ATTEST_PUBKEY_SEC1=<path> pointing at a 65-byte SEC1 pubkey\n\
+             Dev flow: run `contrib/gen-attest-keys.sh` from the workspace root (idempotent).",
             default_path.display()
+        ),
+    };
+    println!("cargo:rerun-if-changed={}", source.display());
+    // Also rerun when the default path appears/disappears, even when
+    // an env override is active — we want changes to propagate either
+    // way.
+    println!("cargo:rerun-if-changed={}", default_path.display());
+
+    match fs::read(&source) {
+        Ok(bytes) if bytes.len() == 65 && bytes[0] == 0x04 => {
+            fs::write(out.join("attest-server-pubkey.sec1"), &bytes).unwrap();
+        }
+        Ok(bytes) => panic!(
+            "qrab-boot build.rs: pubkey at {} is {} bytes (need exactly 65, prefix 0x04). \
+             Regenerate via `contrib/gen-attest-keys.sh` or fix the file at \
+             $QRAB_ATTEST_PUBKEY_SEC1.",
+            source.display(),
+            bytes.len()
+        ),
+        Err(e) => panic!(
+            "qrab-boot build.rs: cannot read attestation-server pubkey at {}: {e}. \
+             Run `contrib/gen-attest-keys.sh` from the workspace root or set \
+             `$QRAB_ATTEST_PUBKEY_SEC1=<path>` to a 65-byte SEC1 file.",
+            source.display()
         ),
     }
 }
-
