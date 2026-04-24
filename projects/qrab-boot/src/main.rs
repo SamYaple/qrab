@@ -76,6 +76,30 @@ fn efi_main() -> Status {
         halt_forever();
     }
 
+    // R20 Phase 3: vTPM is mandatory on the SVSM CoCo path. Probe the
+    // `EFI_TCG2_PROTOCOL` right after the SNP gate so non-SNP halts
+    // still land on `QRAB_FAIL_NOSNP` unmasked, and so the probe runs
+    // *before* we touch VMPCK keys — a vTPM fault should not race the
+    // SNP Secrets Drop scrub. The probe queries GetCapability,
+    // requires a SHA-256 bank, and reads PCR 0 to confirm firmware
+    // extensions reached the vTPM. Under `qrab_require_vtpm` (the
+    // default) any failure halts with `QRAB_FAIL_NO_VTPM`. The
+    // `QRAB_ALLOW_NO_VTPM=1` build compiles this halt out so the TCG
+    // stub smoke (no OVMF / no vTPM) can still exercise the rest of
+    // the bootloader — it logs `QRAB_TCG2_SOFT_ABSENT` and proceeds.
+    match measure::require_and_probe_vtpm() {
+        Ok(()) => {}
+        Err(e) => {
+            #[cfg(qrab_require_vtpm)]
+            {
+                log::warn!("QRAB_FAIL_NO_VTPM {e}");
+                halt_forever();
+            }
+            #[cfg(not(qrab_require_vtpm))]
+            log::info!("QRAB_TCG2_SOFT_ABSENT {e} (QRAB_ALLOW_NO_VTPM=1 build)");
+        }
+    }
+
     // B12-10 / R12-14: load the SNP Secrets page exactly once.
     // Previously we loaded here for a sanity log and loaded again
     // inside `run_vsock_demo` for the `MSG_REPORT_REQ` call — two
@@ -636,25 +660,39 @@ fn run_vsock_demo(
     // Measurement + publish now run AFTER release verify so nothing
     // touches the secret until the server has chain-walked this
     // guest's post-report.
+    // Under `qrab_require_vtpm` the early-boot probe already halted
+    // on a missing Tcg2 protocol, so `Tcg2Absent` cannot reach this
+    // match — it's folded into the generic "extend failed" halt.
+    // Under the opt-out (`QRAB_ALLOW_NO_VTPM=1`) the soft-absent path
+    // stays available so the TCG stub smoke keeps running past the
+    // extend calls.
     match measure::extend_uki(&uki_bytes) {
         Ok(()) => {}
+        #[cfg(not(qrab_require_vtpm))]
         Err(measure::MeasureError::Tcg2Absent) => {
-            log::info!("QRAB_TCG2_ABSENT");
+            log::info!("QRAB_TCG2_SOFT_ABSENT pcr=8");
         }
         Err(e) => {
             log::warn!("QRAB_PCR8_ERR {e}");
-            panic!("PCR 8 extend failed with TCG2 present: {e}");
+            #[cfg(qrab_require_vtpm)]
+            halt_forever();
+            #[cfg(not(qrab_require_vtpm))]
+            panic!("PCR 8 extend failed: {e}");
         }
     }
 
     match measure::extend_secret_binding(&response.secret_sha256, &response.server_nonce) {
         Ok(()) => {}
+        #[cfg(not(qrab_require_vtpm))]
         Err(measure::MeasureError::Tcg2Absent) => {
-            log::info!("QRAB_TCG2_ABSENT");
+            log::info!("QRAB_TCG2_SOFT_ABSENT pcr=9");
         }
         Err(e) => {
             log::warn!("QRAB_PCR9_ERR {e}");
-            panic!("PCR 9 extend failed with TCG2 present: {e}");
+            #[cfg(qrab_require_vtpm)]
+            halt_forever();
+            #[cfg(not(qrab_require_vtpm))]
+            panic!("PCR 9 extend failed: {e}");
         }
     }
 

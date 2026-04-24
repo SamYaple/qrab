@@ -149,6 +149,9 @@ check "$clean1" 'BdsDxe: starting Boot0002'  present 'BdsDxe reached the Grub-sl
 check "$clean1" 'QRAB BOOT v'                present 'qrab-boot banner printed (firmware db-verified the signed image)'
 check "$clean1" 'Security Violation'         absent  'no DxeImageVerificationLib rejection'
 check "$clean1" 'QRAB_SNP_DETECTED'          present 'qrab-boot confirms SEV-SNP active'
+check "$clean1" 'QRAB_VTPM_SVSM_OK'          present 'qrab-boot read non-zero PCR 0 from SVSM vTPM'
+check "$clean1" 'QRAB_FAIL_NO_VTPM'          absent  'vTPM probe did not halt'
+check "$clean1" 'QRAB_TCG2_SOFT_ABSENT'      absent  'no soft-fallback tokens on a live SVSM boot'
 
 # --- scenario 2 — QrabSbAutoEnroll transitions Setup→User Mode --------
 #
