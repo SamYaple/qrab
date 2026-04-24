@@ -482,3 +482,61 @@ fn qrab_uki_baker_smoke() {
         stdout,
     );
 }
+
+/// Phase-5.3.e: boot the baker's UKI chain under QEMU and assert the
+/// init wiring reaches an expected point on the guest serial.
+///
+/// This wraps `contrib/smoke-uki-boot.sh` which:
+///   * bakes the UKI if `target/qrab-uki/initrd.cpio.gz` is missing,
+///   * boots with `-kernel vmlinuz -initrd cpio.gz`, no UEFI,
+///   * greps serial for `QRAB_INIT_START` / `QRAB_INIT_MOUNT_OK /proc`
+///     / `QRAB_INIT_EXEC` / `FailNoSnp`.
+///
+/// The shell test exits 77 ("SKIP") on hosts without qemu / ukify /
+/// cpio / distro kernel. Exit 77 maps to "ignored in this environment"
+/// — we return early so cargo reports the test as green.
+///
+/// Ignored by default because the boot takes up to 20 s under KVM and
+/// longer under TCG; matrix CI runs it via `cargo test -- --ignored`.
+#[test]
+#[ignore = "slow — boots a QEMU guest; run with `cargo test -- --ignored`"]
+fn qrab_uki_boot_smoke() {
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(|p| p.parent())
+        .expect("walk up from projects/manager to workspace root");
+
+    let smoke = workspace.join("contrib/smoke-uki-boot.sh");
+    if !smoke.is_file() {
+        eprintln!("skipping: contrib/smoke-uki-boot.sh missing");
+        return;
+    }
+
+    let out = std::process::Command::new("bash")
+        .arg(&smoke)
+        .current_dir(workspace)
+        .output()
+        .expect("spawn smoke-uki-boot.sh");
+
+    let code = out.status.code().unwrap_or(-1);
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+
+    // Exit 77 = host-side prereq skip (qemu/kernel/ukify absent).
+    if code == 77 {
+        eprintln!("skipping: {}", stderr.trim());
+        return;
+    }
+
+    assert!(
+        out.status.success(),
+        "smoke-uki-boot.sh exited with code {code}.\nstdout:\n{}\nstderr:\n{}",
+        stdout,
+        stderr,
+    );
+    assert!(
+        stdout.contains("PASS=") && stdout.contains("FAIL=0"),
+        "smoke-uki-boot.sh did not report PASS=…/FAIL=0.\nstdout:\n{}",
+        stdout,
+    );
+}

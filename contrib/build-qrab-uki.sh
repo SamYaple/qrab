@@ -5,7 +5,7 @@
 # Produces: target/qrab-uki/qrab.efi (PE; SB-signed if keys present).
 #
 # Layout inside the initramfs cpio:
-#     /init              → qrab-init  (PID 1; mounts + stages efivars)
+#     /init              → qrab-uki-init  (PID 1; mounts + stages efivars)
 #     /sbin/qrab-guest-init
 #     /sbin/next-stage   → qrab-next-stage  (smoke stub; swap in prod)
 #     /lib64/ld-linux-x86-64.so.2 + libc.so.6 + libgcc_s.so.1
@@ -57,13 +57,13 @@ if [[ "$SKIP_SIGN" != 1 ]]; then
 fi
 
 # --- 1. cargo build -------------------------------------------------
-log "building qrab-guest-init + qrab-init + qrab-next-stage (release)"
+log "building qrab-guest-init + qrab-uki-init + qrab-next-stage (release)"
 cargo build -p qrab-guest-init --release --bins \
-    --bin qrab-guest-init --bin qrab-init --bin qrab-next-stage
+    --bin qrab-guest-init --bin qrab-uki-init --bin qrab-next-stage
 
 BIN_DIR="target/release"
 [[ -x "$BIN_DIR/qrab-guest-init"  ]] || die "missing $BIN_DIR/qrab-guest-init"
-[[ -x "$BIN_DIR/qrab-init"        ]] || die "missing $BIN_DIR/qrab-init"
+[[ -x "$BIN_DIR/qrab-uki-init"        ]] || die "missing $BIN_DIR/qrab-uki-init"
 [[ -x "$BIN_DIR/qrab-next-stage"  ]] || die "missing $BIN_DIR/qrab-next-stage"
 
 # --- 2. staging tree ------------------------------------------------
@@ -75,7 +75,7 @@ mkdir -p "$STAGE/sbin" "$STAGE/lib64" "$STAGE/lib" \
          "$STAGE/proc" "$STAGE/sys" "$STAGE/dev" "$STAGE/run" \
          "$STAGE/sys/firmware/efi/efivars"
 
-install -m 0755 "$BIN_DIR/qrab-init"        "$STAGE/init"
+install -m 0755 "$BIN_DIR/qrab-uki-init"        "$STAGE/init"
 install -m 0755 "$BIN_DIR/qrab-guest-init"  "$STAGE/sbin/qrab-guest-init"
 install -m 0755 "$BIN_DIR/qrab-next-stage"  "$STAGE/sbin/next-stage"
 
@@ -93,7 +93,7 @@ closure_for() {
 }
 
 declare -A SEEN=()
-for bin in "$BIN_DIR/qrab-init" "$BIN_DIR/qrab-guest-init" "$BIN_DIR/qrab-next-stage"; do
+for bin in "$BIN_DIR/qrab-uki-init" "$BIN_DIR/qrab-guest-init" "$BIN_DIR/qrab-next-stage"; do
     while read -r lib; do
         [[ -z "$lib" ]] && continue
         [[ -n "${SEEN[$lib]:-}" ]] && continue
@@ -114,7 +114,12 @@ if [[ ! -e "$STAGE/lib64/ld-linux-x86-64.so.2" ]]; then
 fi
 
 # --- 4. assemble cpio ----------------------------------------------
-INITRD="$STAGE.cpio.gz"
+# Intermediate initramfs lands next to the final UKI so the
+# `contrib/smoke-uki-boot.sh` harness can boot `-kernel` + `-initrd`
+# directly without having to objcopy the .initrd section back out of
+# the PE. Stable path = `target/qrab-uki/initrd.cpio.gz`.
+mkdir -p "$(dirname "$OUTPUT")"
+INITRD="$(dirname "$OUTPUT")/initrd.cpio.gz"
 log "packing cpio → $INITRD"
 ( cd "$STAGE" && find . -print0 \
     | cpio --null --create --format=newc --quiet ) \
@@ -123,7 +128,6 @@ INITRD_SIZE="$(stat -c '%s' "$INITRD")"
 log "initramfs gz size: $INITRD_SIZE bytes"
 
 # --- 5. ukify build -------------------------------------------------
-mkdir -p "$(dirname "$OUTPUT")"
 UKIFY_ARGS=(
     build
     --linux="$KERNEL"

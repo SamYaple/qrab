@@ -17,9 +17,15 @@ path = "src/main.rs"
 # stages Qrab{Report,Session,Secret} into /run/qrab, then execve's
 # qrab-guest-init with QRAB_GUEST_INIT_LIVE=1. Spec: phase 5.3.c of
 # docs/security/level-5-init.md.
+#
+# Named `qrab-uki-init` rather than `qrab-init` to avoid a binary
+# collision with the separate `projects/qrab-init/` crate (QEMU
+# namespace-isolation PID 1 spawned by the manager). Both crates
+# land under `target/release/` so a shared name would let whichever
+# built last silently override the other.
 [[bin]]
-name = "qrab-init"
-path = "src/bin/qrab-init.rs"
+name = "qrab-uki-init"
+path = "src/bin/qrab-uki-init.rs"
 
 # Smoke-test stub that qrab-guest-init execve's after sealing the
 # secret. Reads QRAB_SECRET_FD to EOF, emits `QRAB_NEXT_STAGE_OK
