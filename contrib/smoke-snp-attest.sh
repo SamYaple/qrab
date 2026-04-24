@@ -66,6 +66,18 @@ skip() { log "skipped: $*"; exit 77; }
 
 log "reduced-phys-bits=$RPB (override via QRAB_SNP_REDUCED_PHYS_BITS)"
 
+# R20 Phase 3 broke this smoke with `QRAB_VTPM_SVSM_OK` added to the
+# required list in c61fc99 — but this smoke uses plain AmdSev OVMF at
+# `$FW`, not the SVSM+IGVM firmware, so there is no SVSM-backed vTPM
+# for qrab-boot to probe. Default `QRAB_ALLOW_NO_VTPM=1` keeps the
+# pre-SVSM attest-loop path testable so we don't lose regression
+# coverage on the vsock + SNP report + verifier plumbing while the
+# SVSM-promotion of this smoke (Phase 4 deliverable 4 in
+# `issues/svsm-vtpm-integration.md`) lands. Callers that DO want the
+# vTPM gate compiled in should use `contrib/smoke-snp-vtpm-gate.sh`.
+: "${QRAB_ALLOW_NO_VTPM:=1}"
+export QRAB_ALLOW_NO_VTPM
+
 # ---- prerequisites -------------------------------------------------------
 [[ -f "$FW" ]] || skip "no AmdSev OVMF at $FW — run contrib/build-ovmf.sh"
 [[ -e /dev/sev ]] || skip "no /dev/sev — SNP unavailable on this host"
@@ -168,7 +180,12 @@ tr -d '\r' < "$SERIAL" | grep -aE 'QRAB|phase' | head -30 || true
 echo "--- mock log ---"
 tail -5 "$MOCKLOG" || true
 
-required=(QRAB_VSOCK_FOUND QRAB_VSOCK_DRIVER_OK QRAB_VSOCK_CONNECT_OK QRAB_ATTEST_SIG_OK QRAB_REPORT_DATA_HEX QRAB_SNP_REPORT_OK QRAB_SNP_CERT_CHAIN QRAB_UKI_OK QRAB_VTPM_SVSM_OK QRAB_PCR8_EXPECTED_DIGEST QRAB_PCR9_EXPECTED_DIGEST QRAB_SECRET_OK QRAB_ATTEST_OK)
+# QRAB_VTPM_SVSM_OK deliberately NOT in this list — this smoke uses
+# plain AmdSev OVMF without SVSM; the vTPM opt-out above (
+# `QRAB_ALLOW_NO_VTPM=1`) surfaces `QRAB_TCG2_SOFT_ABSENT` instead.
+# The SVSM-promoted smoke (Phase 4 deliverable 4) will add
+# QRAB_VTPM_SVSM_OK back once it uses OVMF-SVSM-SB.fd + IGVM.
+required=(QRAB_VSOCK_FOUND QRAB_VSOCK_DRIVER_OK QRAB_VSOCK_CONNECT_OK QRAB_ATTEST_SIG_OK QRAB_REPORT_DATA_HEX QRAB_SNP_REPORT_OK QRAB_SNP_CERT_CHAIN QRAB_UKI_OK QRAB_PCR8_EXPECTED_DIGEST QRAB_PCR9_EXPECTED_DIGEST QRAB_SECRET_OK QRAB_ATTEST_OK)
 
 # B12-8: with cert chain enabled, the server also drives the full
 # ARK->ASK->VCEK+report chain walk and logs one of two green
