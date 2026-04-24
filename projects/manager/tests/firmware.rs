@@ -425,3 +425,60 @@ fn qrab_boot_efi_no_testb_mmio_spin_loop() {
             .join("\n"),
     );
 }
+
+/// Drives `contrib/build-qrab-uki.sh` via its shell functional test
+/// (`simulate-uki-baker.sh`) and asserts the baker produces a signed
+/// PE with the expected `.linux` / `.initrd` / `.cmdline` / `.uname`
+/// sections and an initramfs containing `/init`, `/sbin/qrab-guest-init`,
+/// `/sbin/next-stage`, plus libc + ld-linux.
+///
+/// Skipped on hosts without ukify / sbsign / sbverify / cpio, or
+/// without a distro vmlinuz at `/usr/lib/modules/$(uname -r)/vmlinuz`.
+/// The shell script handles that — we just propagate its exit code.
+///
+/// Why a shell-out test: the baker is itself bash, so exercising it
+/// through Rust-native helpers would duplicate staging logic. The
+/// shell test already covers 13 assertions; this wrapper pins the
+/// cargo-test harness to notice any regression.
+#[test]
+fn qrab_uki_baker_smoke() {
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(|p| p.parent())
+        .expect("walk up from projects/manager to workspace root");
+
+    let baker = workspace.join("contrib/build-qrab-uki.sh");
+    let test = workspace.join("contrib/qrab-boot-initrd-module/tests/simulate-uki-baker.sh");
+    if !baker.is_file() || !test.is_file() {
+        eprintln!("skipping: baker or its simulate-*.sh harness missing");
+        return;
+    }
+
+    let out = std::process::Command::new("bash")
+        .arg(&test)
+        .current_dir(workspace)
+        .output()
+        .expect("spawn simulate-uki-baker.sh");
+
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+
+    // Shell script prints `SKIP simulate-uki-baker: …` and exits 0
+    // when prereqs are missing. Treat that as a non-assertion skip.
+    if stdout.contains("SKIP simulate-uki-baker:") || stderr.contains("SKIP simulate-uki-baker:") {
+        eprintln!("skipping: {}", stdout.trim());
+        return;
+    }
+
+    assert!(
+        out.status.success(),
+        "simulate-uki-baker.sh exited non-zero.\nstdout:\n{}\nstderr:\n{}",
+        stdout,
+        stderr,
+    );
+    assert!(
+        stdout.contains("FAIL=0"),
+        "simulate-uki-baker.sh reported assertion failures. stdout:\n{}",
+        stdout,
+    );
+}

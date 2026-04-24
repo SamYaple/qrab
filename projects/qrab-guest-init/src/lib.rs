@@ -44,6 +44,7 @@ pub mod real_probe;
 pub mod report;
 pub mod secret;
 pub mod sequencer;
+pub mod stash;
 pub mod tokens;
 pub mod verity;
 
