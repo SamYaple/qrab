@@ -13,20 +13,37 @@ path = "src/lib.rs"
 name = "qrab-guest-init"
 path = "src/main.rs"
 
+# PID-1 in the UKI initramfs. Mounts /proc /sys /dev /run + efivarfs,
+# stages Qrab{Report,Session,Secret} into /run/qrab, then execve's
+# qrab-guest-init with QRAB_GUEST_INIT_LIVE=1. Spec: phase 5.3.c of
+# docs/security/level-5-init.md.
+[[bin]]
+name = "qrab-init"
+path = "src/bin/qrab-init.rs"
+
+# Smoke-test stub that qrab-guest-init execve's after sealing the
+# secret. Reads QRAB_SECRET_FD to EOF, emits `QRAB_NEXT_STAGE_OK
+# len=<n>`, powers the VM off. Production replaces this with the
+# workload service manager.
+[[bin]]
+name = "qrab-next-stage"
+path = "src/bin/qrab-next-stage.rs"
+
 [dependencies]
-# Direct syscalls for reboot(2) / mountinfo parsing. Kept narrow; the
-# L5 spec deliberately wants a thin dependency graph so the static
-# musl build (Phase 2) is small and auditable.
+# Direct syscalls for reboot(2) / mount(2) / mountinfo parsing. Kept
+# narrow; the L5 spec deliberately wants a thin dependency graph so
+# the static musl build (Phase 2) is small and auditable.
 #
 # Features:
-# - "reboot" — Phase 1 `halt()` uses `nix::sys::reboot::reboot`.
+# - "reboot" — Phase 1 `halt()` and qrab-{init,next-stage} power-off.
+# - "mount"  — qrab-init mounts /proc /sys /dev /run + efivarfs.
 # - "fs"    — Phase 2c uses `nix::sys::memfd::memfd_create` and
 #             `nix::fcntl::{FcntlArg::F_ADD_SEALS, SealFlag}` for the
 #             sealed-memfd handoff in `secret::consume`. (In nix
 #             0.29, `memfd` and `fcntl` are NOT separate features —
 #             both live under `fs`.)
 # - "process" — Phase 2c `execve` handoff from `main.rs`.
-nix = { workspace = true, features = ["reboot", "fs", "process"] }
+nix = { workspace = true, features = ["reboot", "mount", "fs", "process"] }
 # SHA-256 for TCG event-log PCR replay (step 10 of the boot sequence)
 # and Phase 2b secret-hash computation inside step 18's report_data
 # reconstruct. Pinned to no-default-features + std feature: pure-Rust
