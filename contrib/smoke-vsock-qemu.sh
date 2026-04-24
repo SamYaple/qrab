@@ -69,7 +69,14 @@ command -v mmd >/dev/null || die "mmd not on PATH"
 # var to anything != 1 (empty string included).
 : "${QRAB_ALLOW_NON_SNP:=1}"
 export QRAB_ALLOW_NON_SNP
-log "building qrab-boot.efi (QRAB_ALLOW_NON_SNP=$QRAB_ALLOW_NON_SNP)"
+# R20 Phase 3: bootloader fail-closes on missing vTPM by default.
+# This smoke runs under TCG (no OVMF / no SVSM vTPM) so the default
+# here must be the opt-out `QRAB_ALLOW_NO_VTPM=1`. Callers that need
+# vTPM enforcement (live SVSM+IGVM builds) leave it unset so the
+# probe halts at `QRAB_FAIL_NO_VTPM`.
+: "${QRAB_ALLOW_NO_VTPM:=1}"
+export QRAB_ALLOW_NO_VTPM
+log "building qrab-boot.efi (QRAB_ALLOW_NON_SNP=$QRAB_ALLOW_NON_SNP QRAB_ALLOW_NO_VTPM=$QRAB_ALLOW_NO_VTPM)"
 (cd "$BOOT_CRATE" && cargo build --release >/dev/null)
 [[ -f "$EFI" ]] || die "$EFI not produced"
 

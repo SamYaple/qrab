@@ -32,12 +32,14 @@ fn main() {
     println!("cargo::rustc-check-cfg=cfg(qrab_no_server_pubkey)");
     println!("cargo::rustc-check-cfg=cfg(qrab_uki_boot)");
     println!("cargo::rustc-check-cfg=cfg(qrab_allow_non_snp)");
+    println!("cargo::rustc-check-cfg=cfg(qrab_require_vtpm)");
 
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-env-changed=QRAB_ATTEST_PUBKEY_SEC1");
     println!("cargo:rerun-if-env-changed=QRAB_DEV_NO_PUBKEY");
     println!("cargo:rerun-if-env-changed=QRAB_UKI_BOOT");
     println!("cargo:rerun-if-env-changed=QRAB_ALLOW_NON_SNP");
+    println!("cargo:rerun-if-env-changed=QRAB_ALLOW_NO_VTPM");
 
     // Phase 5 StartImage: the terminal `LoadImage` + `StartImage`
     // path in `src/uki.rs` is gated on this cfg. Default builds (TCG
@@ -64,6 +66,29 @@ fn main() {
             "cargo:warning=QRAB_ALLOW_NON_SNP=1 set — bootloader will NOT enforce SEV-SNP. \
              Non-prod use only (matrix scenario 9)."
         );
+    }
+
+    // R20 Phase 3: fail-closed on missing vTPM by default. `main.rs`
+    // calls `measure::require_and_probe_vtpm` after the SNP gate and
+    // halts with `QRAB_FAIL_NO_VTPM` when the EFI_TCG2_PROTOCOL is
+    // absent, reports no TPM, lacks a SHA-256 bank, or returns an
+    // all-zero PCR 0. `QRAB_ALLOW_NO_VTPM=1` compiles the check out
+    // so the TCG stub smoke (no OVMF, no SVSM vTPM) still runs — it
+    // emits `QRAB_TCG2_SOFT_ABSENT` instead and continues. This cfg
+    // is orthogonal to `qrab_uki_boot`: the TCG smoke can opt into
+    // real UKIs without having a vTPM, and a live SVSM build can
+    // force-halt on missing vTPM even while still using the stub
+    // LoadImage path.
+    if env::var_os("QRAB_ALLOW_NO_VTPM")
+        .map(|v| v == "1")
+        .unwrap_or(false)
+    {
+        println!(
+            "cargo:warning=QRAB_ALLOW_NO_VTPM=1 set — bootloader will NOT enforce a vTPM. \
+             TCG/stub smoke only; production SVSM builds must leave this unset."
+        );
+    } else {
+        println!("cargo:rustc-cfg=qrab_require_vtpm");
     }
 
     let out = PathBuf::from(env::var_os("OUT_DIR").expect("OUT_DIR unset"));

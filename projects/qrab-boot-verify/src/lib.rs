@@ -22,3 +22,4 @@
 #![deny(rust_2018_idioms)]
 
 pub mod secure_boot;
+pub mod vtpm;
