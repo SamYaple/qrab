@@ -293,6 +293,18 @@ impl BmcState {
         if let Some(ref kp) = key_path {
             cmd.env("QRAB_ATTEST_KEY_PATH", kp);
         }
+        // If the phase-5.3.c baker's `target/qrab-uki/qrab.efi`
+        // exists, plumb it through to `QRAB_ATTEST_UKI_PATH` so
+        // attest-server serves the real signed UKI instead of the
+        // 512-byte `STUB_UKI` fallback. Operator can still override
+        // by exporting the env var in the parent shell; the child
+        // will inherit the explicit value because
+        // `tokio::process::Command` merges parent env unless
+        // `env_clear` is called (it isn't).
+        if let Some(uki) = resolve_uki_path() {
+            tracing::info!(uki = %uki.display(), "attest-server UKI path");
+            cmd.env("QRAB_ATTEST_UKI_PATH", &uki);
+        }
         cert_chain.apply_to(&mut cmd);
         match cmd.spawn() {
             Ok(child) => {
@@ -1011,6 +1023,44 @@ fn resolve_attest_server_bin() -> Option<PathBuf> {
         .parent()?
         .to_path_buf();
     pick_newer_attest_bin(&workspace.join("target"))
+}
+
+/// Resolve the path to the production UKI `attest-server` should
+/// serve (via `$QRAB_ATTEST_UKI_PATH`) in place of the 512-byte
+/// `STUB_UKI` fallback.
+///
+/// Resolution order:
+///   1. `$QRAB_ATTEST_UKI_PATH` — if the parent process already set
+///      it, return `None` here and let the child inherit the value.
+///      Honoring a caller override lets a matrix scenario aim at a
+///      fixture without any disk-layout assumptions.
+///   2. `<workspace>/target/qrab-uki/qrab.efi` if it exists (the
+///      output of `contrib/build-qrab-uki.sh`).
+///
+/// Returns `None` if neither source produces a file. The caller
+/// treats `None` as "don't set the env var", which leaves
+/// attest-server in its STUB_UKI fallback — a safe dev default for
+/// quick iteration on the wire protocol.
+fn resolve_uki_path() -> Option<PathBuf> {
+    // Case 1: explicit operator override. If the env var is already
+    // exported in the parent we don't return it — the child inherits
+    // the unmodified parent env, so re-setting would be a no-op.
+    if std::env::var_os("QRAB_ATTEST_UKI_PATH").is_some() {
+        return None;
+    }
+    // Case 2: workspace's `target/qrab-uki/qrab.efi`. Computed from
+    // `$CARGO_MANIFEST_DIR` like `resolve_attest_server_bin` above.
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).parent()?.parent()?;
+    pick_uki_path_under(workspace)
+}
+
+/// Given a workspace root, return the expected baker output path if
+/// it exists on disk. Extracted so unit tests can exercise the
+/// layout check against a synthesized tree without depending on the
+/// real `$CARGO_MANIFEST_DIR`.
+fn pick_uki_path_under(workspace: &Path) -> Option<PathBuf> {
+    let uki = workspace.join("target/qrab-uki/qrab.efi");
+    if uki.is_file() { Some(uki) } else { None }
 }
 
 /// Newest-mtime picker, extracted so a unit test can exercise the
@@ -2099,5 +2149,68 @@ mod tests {
         );
         assert!(chain.vcek_pem.is_some());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // -------- UKI path resolution (phase 5.3.d) ------------------------
+    //
+    // Pins the `<workspace>/target/qrab-uki/qrab.efi` path check so a
+    // refactor that moves the baker's output dir (or loses the
+    // `.is_file()` check) flips red.
+    //
+    // Only the inner `pick_uki_path_under` is covered here. The outer
+    // `resolve_uki_path` branches on `$QRAB_ATTEST_UKI_PATH`, which
+    // mutates process-global env and would race under the default
+    // parallel test pool. The branch itself is a one-liner var_os
+    // check — trivially bug-proof.
+
+    fn tmp_workspace(label: &str) -> PathBuf {
+        let root = std::env::temp_dir().join(format!(
+            "qrab-bmc-uki-ws-{label}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        root
+    }
+
+    #[test]
+    fn pick_uki_returns_some_when_file_present() {
+        let ws = tmp_workspace("present");
+        let uki = ws.join("target/qrab-uki/qrab.efi");
+        std::fs::create_dir_all(uki.parent().unwrap()).unwrap();
+        std::fs::write(&uki, b"dummy-PE").unwrap();
+        assert_eq!(pick_uki_path_under(&ws).as_deref(), Some(uki.as_path()));
+        let _ = std::fs::remove_dir_all(&ws);
+    }
+
+    #[test]
+    fn pick_uki_returns_none_when_file_missing() {
+        let ws = tmp_workspace("missing");
+        // no target/qrab-uki/ at all
+        assert!(pick_uki_path_under(&ws).is_none());
+        let _ = std::fs::remove_dir_all(&ws);
+    }
+
+    #[test]
+    fn pick_uki_returns_none_when_path_is_dir_not_file() {
+        // Someone mkdir'd `qrab.efi` by mistake (e.g. `mkdir -p
+        // target/qrab-uki/qrab.efi`). `.is_file()` must reject the
+        // directory rather than handing attest-server a non-readable
+        // path that would surface as an opaque open(2) EISDIR.
+        let ws = tmp_workspace("dir-not-file");
+        let uki = ws.join("target/qrab-uki/qrab.efi");
+        std::fs::create_dir_all(&uki).unwrap();
+        assert!(pick_uki_path_under(&ws).is_none());
+        let _ = std::fs::remove_dir_all(&ws);
+    }
+
+    #[test]
+    fn pick_uki_returns_none_when_workspace_missing() {
+        let phantom = std::env::temp_dir().join("qrab-bmc-uki-workspace-never-created");
+        let _ = std::fs::remove_dir_all(&phantom);
+        assert!(pick_uki_path_under(&phantom).is_none());
     }
 }
