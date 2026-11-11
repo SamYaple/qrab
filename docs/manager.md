@@ -103,6 +103,7 @@ checks its pod-bound pull authorization.
 kubectl apply -k contrib/kubernetes
 kubectl -n qrab wait --for=condition=Ready pod/qrab-demo --timeout=120s
 kubectl -n qrab logs qrab-demo
+bash contrib/kubernetes/check.sh
 kubectl -n qrab exec qrab-demo -- qrab-manager status --config /etc/qrab/vm.json
 kubectl -n qrab delete pod qrab-demo --timeout=30s
 ```
