@@ -1,7 +1,7 @@
 use anyhow::{bail, ensure, Result};
 use qrab_iscsi_target::{apply, fence, restore, Backend, LinuxHost, Phase, Report, Spec, Store};
 
-const HELP:&str="qrab-iscsi-target plan|apply|fence|status|handoff --vm-uid UUID [--size-mib 128] [--recipient-uid 1000]\nqrab-iscsi-target bootstrap|restore|install-unit\nFixed dedicated ZFS/LIO paths only. apply/fence/restore/handoff require root. Credentials never go to stdout.";
+const HELP:&str="qrab-iscsi-target plan|apply|fence|status|handoff --vm-uid UUID [--size-mib 128] [--recipient-uid 1000]\nqrab-iscsi-target bootstrap|restore|install-unit\nqrab-iscsi-target vm-disk-create|vm-disk-clone|vm-disk-expand|vm-disk-export|vm-disk-fence|vm-disk-status|vm-disk-retire|vm-image-publish|vm-image-status ... (storage daemon wrapper; vm-disk-export reads CHAP from stdin)\nFixed dedicated ZFS/LIO paths only. apply/fence/restore/handoff require root. Credentials never go to stdout.";
 fn root() -> Result<()> {
     ensure!(
         nix::unistd::getuid().is_root() && nix::unistd::geteuid().is_root(),
@@ -10,6 +10,38 @@ fn root() -> Result<()> {
     Ok(())
 }
 fn main() -> std::process::ExitCode {
+    let args: Vec<_> = std::env::args().skip(1).collect();
+    if args
+        .first()
+        .is_some_and(|a| qrab_iscsi_target::disk::COMMANDS.contains(&a.as_str()))
+    {
+        // Storage-daemon wrapper mode: JSON report on stdout, one JSON refusal
+        // line on stderr. The CHAP secret is read only from stdin.
+        let result = root().and_then(|()| {
+            qrab_iscsi_target::disk::dispatch(
+                &args,
+                &mut std::io::stdin().lock(),
+                &Store::system(),
+                &mut LinuxHost::new(),
+            )
+        });
+        return match result {
+            Ok(value) => {
+                println!("{value}");
+                std::process::ExitCode::SUCCESS
+            }
+            Err(error) => {
+                eprintln!(
+                    "{}",
+                    serde_json::json!({
+                        "error": qrab_iscsi_target::refusal(&error).unwrap_or("disk-operation-failed"),
+                        "message": format!("{error:#}"),
+                    })
+                );
+                std::process::ExitCode::FAILURE
+            }
+        };
+    }
     match run() {
         Ok(()) => std::process::ExitCode::SUCCESS,
         Err(error) => {

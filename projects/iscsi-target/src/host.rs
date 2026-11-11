@@ -1,4 +1,4 @@
-use crate::{Backend, Record, Spec, HBA, OWNER, PARENT, PARENT_QUOTA, PORTAL};
+use crate::{Backend, Image, Record, Refusal, Spec, HBA, OWNER, PARENT, PARENT_QUOTA, PORTAL};
 use anyhow::{bail, ensure, Context, Result};
 use std::{
     collections::BTreeMap,
@@ -15,6 +15,16 @@ const CONFIG: &str = "/sys/kernel/config/target";
 const ZFS: &str = "/usr/bin/zfs";
 const PROP: &str = "org.qrab:owner";
 const VM_PROP: &str = "org.qrab:vm-uid";
+const DISK_PROP: &str = "org.qrab:disk";
+const ORIGIN_IMAGE_PROP: &str = "org.qrab:origin-image";
+const ORIGIN_GENERATION_PROP: &str = "org.qrab:origin-generation";
+const IMAGE_PROP: &str = "org.qrab:image";
+const IMAGE_GENERATION_PROP: &str = "org.qrab:image-generation";
+const STATE_PROP: &str = "org.qrab:state";
+const IMAGE_HOLD: &str = "qrab-image";
+const ZFS_BOUND: Duration = Duration::from_secs(30);
+/// Bounded full copy of a fenced source into a new image generation.
+const PUBLISH_BOUND: Duration = Duration::from_secs(1500);
 const TARGET_CHILDREN: &[&str] = &["tpgt_1", "fabric_statistics", "param"];
 const TARGET_PARAMS: &[&str] = &[
     "cmd_completion_affinity",
@@ -60,18 +70,75 @@ impl LinuxHost {
         );
         Ok(())
     }
-    fn zfs(&self, args: &[&str]) -> Result<String> {
-        let mut child = Command::new(ZFS)
+    fn command(args: &[&str]) -> Command {
+        let mut command = Command::new(ZFS);
+        command
             .args(args)
             .env_clear()
             .env("PATH", "/usr/sbin:/usr/bin:/sbin:/bin")
             .env("LC_ALL", "C")
+            .stderr(Stdio::null());
+        command
+    }
+    /// `zfs send SNAPSHOT | zfs receive -o ... TARGET` without a shell.
+    fn send_receive(&self, snapshot: &str, target: &str, properties: &[String]) -> Result<()> {
+        let mut send = Self::command(&["send", snapshot])
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
-            .stderr(Stdio::null())
+            .spawn()
+            .context("start fixed ZFS send")?;
+        let stream = send
+            .stdout
+            .take()
+            .ok_or_else(|| anyhow::anyhow!("ZFS send stream absent"))?;
+        let mut args = vec!["receive"];
+        for property in properties {
+            args.extend(["-o", property.as_str()]);
+        }
+        args.push(target);
+        let mut receive = match Self::command(&args)
+            .stdin(Stdio::from(stream))
+            .stdout(Stdio::null())
+            .spawn()
+        {
+            Ok(child) => child,
+            Err(error) => {
+                let _ = send.kill();
+                let _ = send.wait();
+                return Err(error).context("start fixed ZFS receive");
+            }
+        };
+        let deadline = Instant::now() + PUBLISH_BOUND;
+        let (mut sent, mut received) = (None, None);
+        while sent.is_none() || received.is_none() {
+            if sent.is_none() {
+                sent = send.try_wait()?;
+            }
+            if received.is_none() {
+                received = receive.try_wait()?;
+            }
+            if Instant::now() >= deadline {
+                let _ = send.kill();
+                let _ = receive.kill();
+                let _ = send.wait();
+                let _ = receive.wait();
+                bail!("image copy exceeded its bound; publication stays incomplete");
+            }
+            thread::sleep(Duration::from_millis(50));
+        }
+        ensure!(
+            sent.is_some_and(|s| s.success()) && received.is_some_and(|s| s.success()),
+            "fixed ZFS image copy failed"
+        );
+        Ok(())
+    }
+    fn zfs(&self, args: &[&str]) -> Result<String> {
+        let mut child = Self::command(args)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
             .spawn()
             .context("start fixed ZFS operation")?;
-        let deadline = Instant::now() + Duration::from_secs(30);
+        let deadline = Instant::now() + ZFS_BOUND;
         let stdout = child
             .stdout
             .take()
@@ -109,6 +176,39 @@ impl LinuxHost {
             .zfs(&["list", "-H", "-o", "name"])?
             .lines()
             .any(|s| s == name))
+    }
+    fn snapshot_exists(&self, snapshot: &str) -> Result<bool> {
+        let (dataset, _) = snapshot
+            .split_once('@')
+            .ok_or_else(|| anyhow::anyhow!("not a snapshot name"))?;
+        Ok(self
+            .zfs(&[
+                "list", "-H", "-t", "snapshot", "-o", "name", "-d", "1", dataset,
+            ])?
+            .lines()
+            .any(|s| s == snapshot))
+    }
+    fn held(&self, snapshot: &str, tag: &str) -> Result<bool> {
+        Ok(self
+            .zfs(&["holds", "-H", snapshot])?
+            .lines()
+            .any(|line| line.split('\t').nth(1) == Some(tag)))
+    }
+    fn ensure_hold(&self, snapshot: &str, tag: &str) -> Result<()> {
+        if !self.held(snapshot, tag)? {
+            self.zfs(&["hold", tag, snapshot])?;
+        }
+        ensure!(self.held(snapshot, tag)?, "snapshot hold is unverified");
+        Ok(())
+    }
+    fn guid(&self, name: &str) -> Result<String> {
+        self.properties(name, "guid")?
+            .remove("guid")
+            .filter(|g| !g.is_empty() && g.bytes().all(|b| b.is_ascii_digit()))
+            .ok_or_else(|| anyhow::anyhow!("ZFS GUID absent"))
+    }
+    fn number(p: &BTreeMap<String, String>, key: &str) -> Option<u64> {
+        p.get(key).and_then(|v| v.parse::<u64>().ok())
     }
     fn properties(&self, name: &str, props: &str) -> Result<BTreeMap<String, String>> {
         let output = self.zfs(&["get", "-H", "-p", "-o", "property,value", props, name])?;
@@ -279,29 +379,44 @@ impl LinuxHost {
         }
         Ok(())
     }
-    fn volume_check(&self, spec: &Spec, guid: Option<&str>) -> Result<String> {
-        ensure!(
-            self.exists(&spec.dataset())?,
-            "owned zvol disappeared; do not recreate storage"
-        );
-        let p = self.properties(
-            &spec.dataset(),
-            "type,guid,volsize,volblocksize,refreservation,sync,org.qrab:owner,org.qrab:vm-uid",
-        )?;
+    /// Pure ownership/geometry/origin check of one zvol's ZFS properties.
+    /// `origin_guid` is the recorded sealed-snapshot GUID of a clone (looked
+    /// up by the caller as `origin_actual`).
+    fn check_volume_properties(
+        spec: &Spec,
+        p: &BTreeMap<String, String>,
+        guid: Option<&str>,
+        origin_guid: Option<&str>,
+        origin_actual: Option<&str>,
+    ) -> Result<String> {
+        let unset = "-".to_string();
         ensure!(
             p.get("type").is_some_and(|v| v == "volume")
                 && p.get(PROP).is_some_and(|v| v == OWNER)
-                && p.get(VM_PROP) == Some(&spec.vm_uid),
-            "foreign zvol ownership"
+                && p.get(VM_PROP) == Some(&spec.vm_uid)
+                && p.get(DISK_PROP) == Some(spec.disk.as_ref().unwrap_or(&unset)),
+            Refusal("foreign-dataset")
         );
         ensure!(
-            p.get("volsize").and_then(|v| v.parse::<u64>().ok()) == Some(spec.capacity_bytes)
-                && p.get("volblocksize").and_then(|v| v.parse::<u64>().ok()) == Some(16384)
-                && p.get("refreservation")
-                    .and_then(|v| v.parse::<u64>().ok())
-                    .is_some_and(|v| v >= spec.capacity_bytes),
-            "zvol geometry/reservation drift"
+            Self::number(p, "volsize") == Some(spec.capacity_bytes)
+                && Self::number(p, "volblocksize") == Some(16384),
+            "zvol geometry drift"
         );
+        match &spec.origin {
+            None => ensure!(
+                p.get("origin") == Some(&unset)
+                    && p.get(ORIGIN_IMAGE_PROP) == Some(&unset)
+                    && Self::number(p, "refreservation").is_some_and(|v| v >= spec.capacity_bytes),
+                "zvol origin/reservation drift"
+            ),
+            Some(origin) => ensure!(
+                p.get("origin") == Some(&origin.snapshot())
+                    && p.get(ORIGIN_IMAGE_PROP) == Some(&origin.image)
+                    && p.get(ORIGIN_GENERATION_PROP) == Some(&origin.generation.to_string())
+                    && origin_guid.is_none_or(|g| origin_actual == Some(g)),
+                Refusal("clone-origin-mismatch")
+            ),
+        }
         ensure!(
             p.get("sync").is_some_and(|v| v == "always"),
             "prototype zvol sync policy differs"
@@ -311,13 +426,75 @@ impl LinuxHost {
             .ok_or_else(|| anyhow::anyhow!("zvol GUID absent"))?;
         ensure!(
             guid.is_none_or(|g| g == actual),
-            "zvol was replaced; refusing adoption"
+            Refusal("dataset-replaced")
         );
         Ok(actual.clone())
     }
+    fn volume_check(
+        &self,
+        spec: &Spec,
+        guid: Option<&str>,
+        origin_guid: Option<&str>,
+    ) -> Result<String> {
+        ensure!(
+            self.exists(&spec.dataset())?,
+            "owned zvol disappeared; do not recreate storage"
+        );
+        let p = self.properties(
+            &spec.dataset(),
+            "type,guid,volsize,volblocksize,refreservation,sync,origin,org.qrab:owner,org.qrab:vm-uid,org.qrab:disk,org.qrab:origin-image,org.qrab:origin-generation",
+        )?;
+        let origin_actual = match (&spec.origin, origin_guid) {
+            (Some(origin), Some(_)) => Some(self.guid(&origin.snapshot())?),
+            _ => None,
+        };
+        Self::check_volume_properties(spec, &p, guid, origin_guid, origin_actual.as_deref())
+    }
+    fn record_check(&self, r: &Record) -> Result<String> {
+        self.volume_check(&r.spec, r.zvol_guid.as_deref(), r.origin_guid.as_deref())
+    }
+    /// Pure check of an image dataset's ZFS properties.
+    fn check_image_properties(
+        image: &Image,
+        p: &BTreeMap<String, String>,
+        guid: Option<&str>,
+    ) -> Result<String> {
+        ensure!(
+            p.get("type").is_some_and(|v| v == "volume")
+                && p.get(PROP).is_some_and(|v| v == OWNER)
+                && p.get(IMAGE_PROP) == Some(&image.origin.image)
+                && p.get(IMAGE_GENERATION_PROP) == Some(&image.origin.generation.to_string())
+                && p.get("origin").is_some_and(|v| v == "-"),
+            Refusal("foreign-dataset")
+        );
+        ensure!(
+            p.get("readonly").is_some_and(|v| v == "on")
+                && Self::number(p, "volsize") == Some(image.capacity_bytes)
+                && Self::number(p, "volblocksize") == Some(16384),
+            Refusal("image-replaced")
+        );
+        let actual = p
+            .get("guid")
+            .ok_or_else(|| anyhow::anyhow!("image GUID absent"))?;
+        ensure!(guid.is_none_or(|g| g == actual), Refusal("image-replaced"));
+        Ok(actual.clone())
+    }
+    fn image_check(&self, image: &Image, guid: Option<&str>) -> Result<String> {
+        let dataset = image.origin.dataset();
+        ensure!(self.exists(&dataset)?, Refusal("image-not-published"));
+        let p = self.properties(
+            &dataset,
+            "type,guid,volsize,volblocksize,readonly,origin,org.qrab:owner,org.qrab:image,org.qrab:image-generation",
+        )?;
+        Self::check_image_properties(image, &p, guid)
+    }
+    fn volsize(&self, dataset: &str) -> Result<u64> {
+        Self::number(&self.properties(dataset, "volsize")?, "volsize")
+            .ok_or_else(|| anyhow::anyhow!("zvol size absent"))
+    }
     fn check_partial(&self, r: &Record) -> Result<()> {
         self.kernel()?;
-        self.volume_check(&r.spec, r.zvol_guid.as_deref())?;
+        self.record_check(r)?;
         let spec = &r.spec;
         let object = Self::object(spec);
         let target = Self::target(spec);
@@ -460,22 +637,32 @@ impl Backend for LinuxHost {
                 guid.is_none(),
                 "owned zvol disappeared; refusing recreation"
             );
-            self.zfs(&[
+            ensure!(spec.origin.is_none(), "a clone is not a blank zvol");
+            let size = spec.capacity_bytes.to_string();
+            let owner = format!("{PROP}={OWNER}");
+            let vm = format!("{VM_PROP}={}", spec.vm_uid);
+            let disk = spec.disk.as_ref().map(|d| format!("{DISK_PROP}={d}"));
+            let dataset = spec.dataset();
+            let mut args = vec![
                 "create",
                 "-V",
-                &spec.capacity_bytes.to_string(),
+                &size,
                 "-b",
                 "16384",
                 "-o",
                 "sync=always",
                 "-o",
-                &format!("{PROP}={OWNER}"),
+                &owner,
                 "-o",
-                &format!("{VM_PROP}={}", spec.vm_uid),
-                &spec.dataset(),
-            ])?;
+                &vm,
+            ];
+            if let Some(disk) = &disk {
+                args.extend(["-o", disk.as_str()]);
+            }
+            args.push(&dataset);
+            self.zfs(&args)?;
         }
-        self.volume_check(spec, guid)
+        self.volume_check(spec, guid, None)
     }
     fn activate(&mut self, r: &Record) -> Result<()> {
         let spec = &r.spec;
@@ -523,7 +710,7 @@ impl Backend for LinuxHost {
         Ok(())
     }
     fn restore_active(&mut self, r: &Record) -> Result<()> {
-        self.volume_check(&r.spec, r.zvol_guid.as_deref())?;
+        self.record_check(r)?;
         if Self::target(&r.spec).exists() {
             return self.verify_active(r);
         }
@@ -601,11 +788,334 @@ impl Backend for LinuxHost {
         self.flush(spec)?;
         self.verify_fenced(r)
     }
+    fn logical_bytes(&mut self) -> Result<u64> {
+        self.zfs(&[
+            "list", "-H", "-p", "-t", "volume", "-r", "-o", "volsize", PARENT,
+        ])?
+        .lines()
+        .try_fold(0u64, |sum, line| {
+            line.parse::<u64>()
+                .ok()
+                .and_then(|v| sum.checked_add(v))
+                .ok_or_else(|| anyhow::anyhow!("malformed ZFS volume inventory"))
+        })
+    }
+    fn ensure_clone(&mut self, spec: &Spec, image: &Image, guid: Option<&str>) -> Result<String> {
+        self.verify_image(image)?;
+        let origin = spec
+            .origin
+            .as_ref()
+            .filter(|o| **o == image.origin)
+            .ok_or_else(|| anyhow::anyhow!("clone origin differs from the image"))?;
+        let snapshot = origin.snapshot();
+        let tag = spec.clone_hold();
+        let dataset = spec.dataset();
+        if !self.exists(&dataset)? {
+            ensure!(
+                guid.is_none(),
+                "owned clone disappeared; refusing recreation"
+            );
+            // Hold first: the sealed snapshot cannot vanish under the clone.
+            self.ensure_hold(&snapshot, &tag)?;
+            let properties = [
+                format!("{PROP}={OWNER}"),
+                format!("{VM_PROP}={}", spec.vm_uid),
+                format!("{DISK_PROP}={}", spec.disk.as_deref().unwrap_or("-")),
+                format!("{ORIGIN_IMAGE_PROP}={}", origin.image),
+                format!("{ORIGIN_GENERATION_PROP}={}", origin.generation),
+                "sync=always".into(),
+                "readonly=off".into(),
+            ];
+            let mut args = vec!["clone"];
+            for property in &properties {
+                args.extend(["-o", property.as_str()]);
+            }
+            args.extend([snapshot.as_str(), dataset.as_str()]);
+            if let Err(error) = self.zfs(&args) {
+                if !self.exists(&dataset)? {
+                    self.zfs(&["release", &tag, &snapshot])?;
+                }
+                return Err(error);
+            }
+        }
+        self.ensure_hold(&snapshot, &tag)?;
+        // Still provisioning: grow the fresh clone to the requested capacity.
+        if guid.is_none() && self.volsize(&dataset)? < spec.capacity_bytes {
+            self.zfs(&["set", &format!("volsize={}", spec.capacity_bytes), &dataset])?;
+        }
+        self.volume_check(spec, guid, image.snapshot_guid.as_deref())
+    }
+    fn verify_volume(&mut self, r: &Record) -> Result<()> {
+        self.record_check(r).map(|_| ())
+    }
+    fn expand(&mut self, r: &Record, capacity_bytes: u64) -> Result<()> {
+        let dataset = r.spec.dataset();
+        let current = self.volsize(&dataset)?;
+        ensure!(
+            current == r.spec.capacity_bytes || current == capacity_bytes,
+            "zvol geometry drift"
+        );
+        let mut observed = r.spec.clone();
+        observed.capacity_bytes = current;
+        self.volume_check(&observed, r.zvol_guid.as_deref(), r.origin_guid.as_deref())?;
+        if current != capacity_bytes {
+            self.zfs(&["set", &format!("volsize={capacity_bytes}"), &dataset])?;
+        }
+        if r.spec.origin.is_none() {
+            // Blank disks stay thick so pool pressure never reaches the guest.
+            self.zfs(&["set", "refreservation=auto", &dataset])?;
+        }
+        observed.capacity_bytes = capacity_bytes;
+        self.volume_check(&observed, r.zvol_guid.as_deref(), r.origin_guid.as_deref())?;
+        Ok(())
+    }
+    fn publish_image(&mut self, source: &Record, image: &mut Image) -> Result<()> {
+        self.record_check(source)?;
+        let staging = format!("{}@qrab-publish", source.spec.dataset());
+        let dataset = image.origin.dataset();
+        let sealed = image.origin.snapshot();
+        let received = format!("{dataset}@qrab-publish");
+        if !self.exists(&dataset)? {
+            ensure!(
+                image.dataset_guid.is_none(),
+                "published image disappeared; refusing recreation"
+            );
+            // A leftover staging snapshot on our fenced source is ours to redo.
+            if self.snapshot_exists(&staging)? {
+                self.zfs(&["destroy", &staging])?;
+            }
+            self.zfs(&["snapshot", &staging])?;
+            self.send_receive(
+                &staging,
+                &dataset,
+                &[
+                    format!("{PROP}={OWNER}"),
+                    format!("{IMAGE_PROP}={}", image.origin.image),
+                    format!("{IMAGE_GENERATION_PROP}={}", image.origin.generation),
+                    "readonly=on".into(),
+                    "refreservation=none".into(),
+                    "sync=always".into(),
+                ],
+            )?;
+        }
+        let guid = self.image_check(image, image.dataset_guid.as_deref())?;
+        if !self.snapshot_exists(&sealed)? {
+            ensure!(
+                self.snapshot_exists(&received)?,
+                "received image has no publication snapshot"
+            );
+            self.zfs(&["rename", &received, &sealed])?;
+        }
+        self.ensure_hold(&sealed, IMAGE_HOLD)?;
+        let snapshot_guid = self.guid(&sealed)?;
+        ensure!(
+            image
+                .snapshot_guid
+                .as_ref()
+                .is_none_or(|g| *g == snapshot_guid),
+            Refusal("image-replaced")
+        );
+        image.dataset_guid = Some(guid);
+        image.snapshot_guid = Some(snapshot_guid);
+        if self.snapshot_exists(&staging)? {
+            self.zfs(&["destroy", &staging])?;
+        }
+        Ok(())
+    }
+    fn verify_image(&mut self, image: &Image) -> Result<()> {
+        let guid = image
+            .dataset_guid
+            .as_deref()
+            .ok_or(Refusal("image-not-published"))?;
+        self.image_check(image, Some(guid))?;
+        let sealed = image.origin.snapshot();
+        ensure!(
+            self.snapshot_exists(&sealed)?
+                && image.snapshot_guid.as_deref() == Some(self.guid(&sealed)?.as_str())
+                && self.held(&sealed, IMAGE_HOLD)?,
+            Refusal("image-replaced")
+        );
+        Ok(())
+    }
+    fn retire(&mut self, r: &Record) -> Result<()> {
+        self.check_partial(r)?;
+        let spec = &r.spec;
+        let tpg = Self::tpg(spec);
+        if tpg.exists() {
+            Self::check(&tpg.join("enable"), "0")?;
+            ensure!(
+                !Self::acl(spec).exists() && !Self::lun_link(spec).exists(),
+                Refusal("fence-required")
+            );
+            let portal = tpg.join("np").join(PORTAL);
+            if portal.exists() {
+                fs::remove_dir(&portal)?;
+            }
+            fs::remove_dir(&tpg)?;
+        }
+        if Self::target(spec).exists() {
+            fs::remove_dir(Self::target(spec))?;
+        }
+        let object = Self::object(spec);
+        if object.exists() {
+            let members = object.join("alua/default_tg_pt_gp/members");
+            ensure!(
+                !members.exists() || Self::read(&members)?.is_empty(),
+                "backstore is still exported through a target port"
+            );
+            fs::remove_dir(&object).context("remove the fenced backstore")?;
+        }
+        self.zfs(&["set", &format!("{STATE_PROP}=retained"), &spec.dataset()])?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::Origin;
+
+    fn props(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
+        pairs
+            .iter()
+            .map(|(k, v)| ((*k).to_owned(), (*v).to_owned()))
+            .collect()
+    }
+    const UID: &str = "e309f751-5dda-4271-a0f4-4454c9527a59";
+    fn blank() -> (Spec, BTreeMap<String, String>) {
+        let spec = Spec::disk(UID.into(), "root".into(), 64 << 20, None).unwrap();
+        let p = props(&[
+            ("type", "volume"),
+            ("guid", "34"),
+            ("volsize", "67108864"),
+            ("volblocksize", "16384"),
+            ("refreservation", "68000000"),
+            ("sync", "always"),
+            ("origin", "-"),
+            (PROP, OWNER),
+            (VM_PROP, UID),
+            (DISK_PROP, "root"),
+            (ORIGIN_IMAGE_PROP, "-"),
+            (ORIGIN_GENERATION_PROP, "-"),
+        ]);
+        (spec, p)
+    }
+    fn refusal_of(result: Result<String>) -> Option<&'static str> {
+        result.err().and_then(|e| crate::refusal(&e))
+    }
+    #[test]
+    fn blank_disk_properties_require_exact_ownership_and_thick_reservation() {
+        let (spec, p) = blank();
+        LinuxHost::check_volume_properties(&spec, &p, Some("34"), None, None).unwrap();
+        for (key, value) in [(PROP, "someone-else"), (VM_PROP, "other"), (DISK_PROP, "-")] {
+            let mut foreign = p.clone();
+            foreign.insert(key.into(), value.into());
+            assert_eq!(
+                refusal_of(LinuxHost::check_volume_properties(
+                    &spec, &foreign, None, None, None
+                )),
+                Some("foreign-dataset")
+            );
+        }
+        let mut thin = p.clone();
+        thin.insert("refreservation".into(), "0".into());
+        assert!(LinuxHost::check_volume_properties(&spec, &thin, None, None, None).is_err());
+        assert_eq!(
+            refusal_of(LinuxHost::check_volume_properties(
+                &spec,
+                &p,
+                Some("35"),
+                None,
+                None
+            )),
+            Some("dataset-replaced")
+        );
+        // A legacy (diskless) spec never matches a provisioned disk's zvol.
+        let legacy = Spec::new(UID.into(), 64 << 20).unwrap();
+        assert!(LinuxHost::check_volume_properties(&legacy, &p, None, None, None).is_err());
+    }
+    #[test]
+    fn clone_properties_require_the_recorded_sealed_origin_on_every_read() {
+        let origin = Origin::new("debian".into(), 3).unwrap();
+        let spec = Spec::disk(UID.into(), "root".into(), 64 << 20, Some(origin.clone())).unwrap();
+        let (_, mut p) = blank();
+        p.insert("origin".into(), origin.snapshot());
+        p.insert(ORIGIN_IMAGE_PROP.into(), "debian".into());
+        p.insert(ORIGIN_GENERATION_PROP.into(), "3".into());
+        p.insert("refreservation".into(), "0".into());
+        LinuxHost::check_volume_properties(&spec, &p, None, Some("78"), Some("78")).unwrap();
+        assert_eq!(
+            refusal_of(LinuxHost::check_volume_properties(
+                &spec,
+                &p,
+                None,
+                Some("78"),
+                Some("79")
+            )),
+            Some("clone-origin-mismatch")
+        );
+        let mut other = p.clone();
+        other.insert(
+            "origin".into(),
+            "tank/qrab-iscsi/image-debian-g2@sealed".into(),
+        );
+        assert_eq!(
+            refusal_of(LinuxHost::check_volume_properties(
+                &spec, &other, None, None, None
+            )),
+            Some("clone-origin-mismatch")
+        );
+        // A blank spec refuses a zvol that is secretly a clone.
+        let (blank_spec, _) = blank();
+        assert!(LinuxHost::check_volume_properties(&blank_spec, &p, None, None, None).is_err());
+    }
+    #[test]
+    fn image_properties_require_ownership_readonly_and_recorded_guid() {
+        let image = Image {
+            schema: 2,
+            owner: OWNER.into(),
+            origin: Origin::new("debian".into(), 3).unwrap(),
+            capacity_bytes: 64 << 20,
+            source_vm_uid: UID.into(),
+            source_disk: "golden".into(),
+            source_guid: "34".into(),
+            phase: crate::disk::ImagePhase::Sealed,
+            dataset_guid: Some("77".into()),
+            snapshot_guid: Some("78".into()),
+        };
+        let p = props(&[
+            ("type", "volume"),
+            ("guid", "77"),
+            ("volsize", "67108864"),
+            ("volblocksize", "16384"),
+            ("readonly", "on"),
+            ("origin", "-"),
+            (PROP, OWNER),
+            (IMAGE_PROP, "debian"),
+            (IMAGE_GENERATION_PROP, "3"),
+        ]);
+        LinuxHost::check_image_properties(&image, &p, Some("77")).unwrap();
+        let mut writable = p.clone();
+        writable.insert("readonly".into(), "off".into());
+        assert_eq!(
+            refusal_of(LinuxHost::check_image_properties(
+                &image,
+                &writable,
+                Some("77")
+            )),
+            Some("image-replaced")
+        );
+        let mut foreign = p.clone();
+        foreign.insert(PROP.into(), "-".into());
+        assert_eq!(
+            refusal_of(LinuxHost::check_image_properties(&image, &foreign, None)),
+            Some("foreign-dataset")
+        );
+        assert_eq!(
+            refusal_of(LinuxHost::check_image_properties(&image, &p, Some("70"))),
+            Some("image-replaced")
+        );
+    }
     #[test]
     fn foreign_alias_under_a_managed_lun_is_refused() {
         let temp = tempfile::tempdir().unwrap();

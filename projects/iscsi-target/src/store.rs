@@ -1,4 +1,4 @@
-use crate::{Record, Spec, OWNER, ROOT};
+use crate::{Image, Origin, Record, Spec, OWNER, ROOT};
 use anyhow::{ensure, Context, Result};
 use nix::{
     fcntl::{Flock, FlockArg, OFlag},
@@ -83,8 +83,23 @@ impl Store {
             .custom_flags(OFlag::O_NOFOLLOW.bits())
             .open(&lock)?;
         self.private_file(&lock)?;
-        Flock::lock(file, FlockArg::LockExclusiveNonblock)
-            .map_err(|_| anyhow::anyhow!("another target administrator is active"))
+        // Bounded wait: concurrent daemon requests serialize instead of failing,
+        // within the daemon's wrapper budget.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+        let mut file = file;
+        loop {
+            match Flock::lock(file, FlockArg::LockExclusiveNonblock) {
+                Ok(lock) => return Ok(lock),
+                Err((returned, _)) if std::time::Instant::now() < deadline => {
+                    file = returned;
+                    std::thread::sleep(std::time::Duration::from_millis(50));
+                }
+                Err(_) => {
+                    return Err(anyhow::Error::new(crate::Refusal("busy"))
+                        .context("another target administrator is active"))
+                }
+            }
+        }
     }
     fn dir(&self, path: &Path) -> Result<()> {
         if !path.exists() {
@@ -143,24 +158,75 @@ impl Store {
         File::open(&self.root)?.sync_all()?;
         Ok(())
     }
-    pub(crate) fn manifest_path(&self, uid: &str) -> PathBuf {
-        self.root.join(format!("{uid}.json"))
+    pub(crate) fn manifest_path(&self, key: &str) -> PathBuf {
+        self.root.join(format!("{key}.json"))
     }
-    pub fn read(&self, uid: &str) -> Result<Option<Record>> {
-        Spec::new(uid.into(), 16 * 1024 * 1024)?.validate()?;
-        let record: Option<Record> = self.load(&self.manifest_path(uid))?;
+    fn read_key(&self, key: &str, uid: &str, disk: Option<&str>) -> Result<Option<Record>> {
+        let record: Option<Record> = self.load(&self.manifest_path(key))?;
         if let Some(r) = &record {
             r.validate()?;
             ensure!(
-                r.spec.vm_uid == uid,
+                r.spec.vm_uid == uid && r.spec.disk.as_deref() == disk,
                 "manifest identity differs from its path"
             );
         }
         Ok(record)
     }
+    /// The legacy single-disk demo record.
+    pub fn read(&self, uid: &str) -> Result<Option<Record>> {
+        Spec::new(uid.into(), 16 * 1024 * 1024)?.validate()?;
+        self.read_key(uid, uid, None)
+    }
+    pub fn read_disk(&self, uid: &str, disk: &str) -> Result<Option<Record>> {
+        let spec = Spec::disk(uid.into(), disk.into(), 16 * 1024 * 1024, None)?;
+        self.read_key(&spec.key(), uid, Some(disk))
+    }
     pub fn write(&self, record: &Record) -> Result<()> {
         record.validate()?;
-        self.save(&self.manifest_path(&record.spec.vm_uid), record)
+        self.save(&self.manifest_path(&record.spec.key()), record)
+    }
+    pub fn read_image(&self, origin: &Origin) -> Result<Option<Image>> {
+        origin.validate()?;
+        let image: Option<Image> = self.load(&self.manifest_path(&origin.key()))?;
+        if let Some(image) = &image {
+            image.validate()?;
+            ensure!(
+                &image.origin == origin,
+                "image manifest identity differs from its path"
+            );
+        }
+        Ok(image)
+    }
+    pub fn write_image(&self, image: &Image) -> Result<()> {
+        image.validate()?;
+        self.save(&self.manifest_path(&image.origin.key()), image)
+    }
+    pub fn images(&self) -> Result<Vec<Image>> {
+        let mut result = Vec::new();
+        for entry in fs::read_dir(&self.root)? {
+            let path = entry?.path();
+            let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+                continue;
+            };
+            let Some(key) = name
+                .strip_suffix(".json")
+                .and_then(|n| n.strip_prefix("image-"))
+            else {
+                continue;
+            };
+            let (image, generation) = key
+                .rsplit_once("-g")
+                .ok_or_else(|| anyhow::anyhow!("unknown image manifest name"))?;
+            let origin = Origin::new(image.into(), generation.parse()?)?;
+            ensure!(
+                origin.key() == name.trim_end_matches(".json"),
+                "unknown image manifest name"
+            );
+            if let Some(image) = self.read_image(&origin)? {
+                result.push(image);
+            }
+        }
+        Ok(result)
     }
     pub fn pool_intent_exists(&self) -> Result<bool> {
         Ok(self.load::<Pool>(&self.root.join("pool.json"))?.is_some())
@@ -194,11 +260,16 @@ impl Store {
             let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
                 continue;
             };
-            if name == "pool.json" || !name.ends_with(".json") {
+            if name == "pool.json" || !name.ends_with(".json") || name.starts_with("image-") {
                 continue;
             }
-            let uid = name.trim_end_matches(".json");
-            if let Some(r) = self.read(uid)? {
+            // Unknown journal names fail closed in the UID/disk validation.
+            let key = name.trim_end_matches(".json");
+            let record = match key.split_once('.') {
+                None => self.read(key)?,
+                Some((uid, disk)) => self.read_disk(uid, disk)?,
+            };
+            if let Some(r) = record {
                 result.push(r);
             }
         }
