@@ -1,0 +1,153 @@
+//! The control API as seen from another container: a socket-backed client
+//! with a local event mirror, and [`Backend`], which lets a BMC or Redfish
+//! service run either in-process or as a sidecar.
+use super::{
+    events::{EventLog, EventPage},
+    socket::{Client, FollowFrame},
+    Action, ConfigView, Control, Status,
+};
+use crate::Result;
+use std::{path::PathBuf, sync::Arc, time::Duration};
+use tokio::net::UnixStream;
+
+struct Inner {
+    path: PathBuf,
+    events: EventLog,
+}
+
+/// A sidecar's view of the manager behind its control socket. Requests use
+/// short-lived connections; [`Remote::mirror`] keeps one following
+/// connection that copies events, with their sequence numbers, into a local
+/// bounded log.
+#[derive(Clone)]
+pub struct Remote(Arc<Inner>);
+
+impl Remote {
+    pub fn new(path: PathBuf) -> Self {
+        Self(Arc::new(Inner {
+            path,
+            events: EventLog::default(),
+        }))
+    }
+
+    pub fn path(&self) -> &std::path::Path {
+        &self.0.path
+    }
+
+    async fn client(&self) -> Result<Client> {
+        Client::connect(&self.0.path).await
+    }
+
+    /// Mirror the manager's events forever, reconnecting after a second.
+    /// The manager normally starts after its sidecars.
+    pub async fn mirror(&self) {
+        loop {
+            let _ = self.mirror_once().await;
+            tokio::time::sleep(Duration::from_secs(1)).await;
+        }
+    }
+
+    async fn mirror_once(&self) -> Result<()> {
+        let mut client = self.client().await?;
+        loop {
+            let page = client
+                .events(Some(self.0.events.latest()), super::EVENT_PAGE_LIMIT)
+                .await?;
+            let caught_up = page.next >= page.latest;
+            for event in page.events {
+                self.0.events.insert(event, Some(page.rejected));
+            }
+            if caught_up {
+                break;
+            }
+        }
+        let mut follower = client.follow(Some(self.0.events.latest())).await?;
+        loop {
+            if let FollowFrame::Event(event) = follower.next().await? {
+                self.0.events.insert(event, None);
+            }
+        }
+    }
+
+    pub async fn status(&self) -> Result<Status> {
+        self.client().await?.status().await
+    }
+
+    pub async fn probe(&self, ready: bool) -> Result<()> {
+        self.client().await?.probe(ready).await
+    }
+
+    pub async fn config_view(&self) -> Result<ConfigView> {
+        self.client().await?.config(false).await
+    }
+
+    pub async fn action(&self, action: Action) -> Result<()> {
+        self.client().await?.action(action).await
+    }
+
+    pub async fn console(&self) -> Result<UnixStream> {
+        self.client().await?.console().await
+    }
+}
+
+/// Where a BMC-like service reaches its VM.
+#[derive(Clone)]
+pub enum Backend {
+    /// The supervisor runs in this process.
+    Local(Control),
+    /// The supervisor is another container's `qrab-manager`.
+    Socket(Remote),
+}
+
+impl Backend {
+    pub async fn status(&self) -> Result<Status> {
+        match self {
+            Self::Local(control) => control.status(),
+            Self::Socket(remote) => remote.status().await,
+        }
+    }
+
+    /// Evaluated by the manager, which owns the process identities.
+    pub async fn probe(&self, ready: bool) -> Result<()> {
+        match self {
+            Self::Local(control) => control.probe(ready),
+            Self::Socket(remote) => remote.probe(ready).await,
+        }
+    }
+
+    /// The full view; serve [`ConfigView::redacted`] to less-privileged users.
+    pub async fn config_view(&self) -> Result<ConfigView> {
+        match self {
+            Self::Local(control) => control.config_view(),
+            Self::Socket(remote) => remote.config_view().await,
+        }
+    }
+
+    pub fn events(&self, after: Option<u64>, limit: usize) -> EventPage {
+        match self {
+            Self::Local(control) => control.events(after, limit),
+            Self::Socket(remote) => remote.0.events.page(after, limit),
+        }
+    }
+
+    pub async fn wait_events(&self, cursor: u64) {
+        match self {
+            Self::Local(control) => control.wait_events(cursor).await,
+            Self::Socket(remote) => remote.0.events.wait_after(cursor).await,
+        }
+    }
+
+    pub async fn action(&self, action: Action) -> Result<()> {
+        match self {
+            Self::Local(control) => control.action(action).await,
+            Self::Socket(remote) => remote.action(action).await,
+        }
+    }
+
+    pub async fn console(&self) -> Result<UnixStream> {
+        match self {
+            Self::Local(control) => control.console().await,
+            Self::Socket(remote) => remote.console().await,
+        }
+    }
+}

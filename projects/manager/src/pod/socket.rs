@@ -29,15 +29,23 @@ pub const VERSION: u32 = 1;
 pub const MAX_REQUEST: usize = 64 * 1024;
 /// Largest response line: a full event page plus envelope fits comfortably.
 pub const MAX_RESPONSE: usize = 4 * 1024 * 1024;
-pub const MAX_CONNECTIONS: usize = 8;
+pub const MAX_CONNECTIONS: usize = 16;
 pub const MAX_CONSOLES: usize = 4;
 const IDLE_TIMEOUT: Duration = Duration::from_secs(60);
 const WRITE_TIMEOUT: Duration = Duration::from_secs(5);
-const OPERATIONS: &[&str] = &["status", "config", "events", "follow", "action", "console"];
+const OPERATIONS: &[&str] = &[
+    "status", "probe", "config", "events", "follow", "action", "console",
+];
 
-/// `{runtime_dir}/control/control.sock`: a 0700 directory and 0600 socket.
+/// `{control_dir}/control.sock`; `control_dir` defaults to
+/// `{runtime_dir}/control`. The manager creates the directory 0700 and the
+/// socket 0600.
 pub fn socket_path(config: &Config) -> PathBuf {
-    config.runtime_dir.join("control").join("control.sock")
+    config
+        .control_dir
+        .clone()
+        .unwrap_or_else(|| config.runtime_dir.join("control"))
+        .join("control.sock")
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -65,6 +73,11 @@ fn page_limit() -> usize {
 #[serde(tag = "op", rename_all = "snake_case")]
 pub enum Operation {
     Status,
+    /// Liveness (`ready: false`, paused allowed) or readiness (`ready: true`).
+    Probe {
+        #[serde(default)]
+        ready: bool,
+    },
     Config {
         #[serde(default)]
         redacted: bool,
@@ -327,6 +340,9 @@ async fn connection(
             Operation::Status => control
                 .status()
                 .map_or_else(unavailable, |s| Response::ok(id, s)),
+            Operation::Probe { ready } => control
+                .probe(ready)
+                .map_or_else(unavailable, |()| Response::ok(id, Value::Null)),
             Operation::Config { redacted } => {
                 control.config_view().map_or_else(unavailable, |view| {
                     Response::ok(id, if redacted { view.redacted() } else { view })
@@ -448,7 +464,7 @@ impl Client {
         }
     }
 
-    async fn call(&mut self, op: Operation) -> Result<Value> {
+    async fn send(&mut self, op: Operation) -> Result<u64> {
         self.next_id += 1;
         let id = self.next_id;
         let request = frame(&Request {
@@ -459,7 +475,16 @@ impl Client {
         if !write(&mut self.stream, &request).await {
             return Err(Error::Spawn("control socket write failed".into()));
         }
+        Ok(id)
+    }
+
+    async fn call(&mut self, op: Operation) -> Result<Value> {
+        let id = self.send(op).await?;
         let response: Response = Self::read_frame(&mut self.stream).await?;
+        Self::result(id, response)
+    }
+
+    fn result(id: u64, response: Response) -> Result<Value> {
         // `"result": null` deserializes as `None`.
         match (response.id, response.result, response.error) {
             (Some(got), result, None) if got == id => Ok(result.unwrap_or(Value::Null)),
@@ -473,6 +498,10 @@ impl Client {
 
     pub async fn status(&mut self) -> Result<Status> {
         Ok(serde_json::from_value(self.call(Operation::Status).await?)?)
+    }
+
+    pub async fn probe(&mut self, ready: bool) -> Result<()> {
+        self.call(Operation::Probe { ready }).await.map(|_| ())
     }
 
     pub async fn config(&mut self, redacted: bool) -> Result<ConfigView> {
@@ -498,10 +527,31 @@ impl Client {
         Ok(Follower(self.stream))
     }
 
-    /// Consume the connection as the VM's raw VNC (RFB) byte stream.
-    pub async fn console(mut self) -> Result<BufReader<UnixStream>> {
-        self.call(Operation::Console).await?;
-        Ok(self.stream)
+    /// Consume the connection as the VM's raw VNC (RFB) byte stream. The
+    /// reply is read unbuffered so no RFB bytes are left behind in a buffer.
+    pub async fn console(mut self) -> Result<UnixStream> {
+        debug_assert!(self.stream.buffer().is_empty());
+        let id = self.send(Operation::Console).await?;
+        let mut stream = self.stream.into_inner();
+        let mut line = Vec::new();
+        let read = async {
+            let mut byte = [0u8; 1];
+            while line.len() <= MAX_REQUEST {
+                if stream.read_exact(&mut byte).await.is_err() {
+                    return Err(Error::Spawn("control socket closed".into()));
+                }
+                if byte[0] == b'\n' {
+                    return Ok(());
+                }
+                line.push(byte[0]);
+            }
+            Err(Error::Spawn("control frame too large".into()))
+        };
+        tokio::time::timeout(IDLE_TIMEOUT, read)
+            .await
+            .map_err(|_| Error::Spawn("control socket timed out".into()))??;
+        Self::result(id, serde_json::from_slice(&line)?)?;
+        Ok(stream)
     }
 }
 

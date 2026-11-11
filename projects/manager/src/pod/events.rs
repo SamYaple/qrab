@@ -157,28 +157,27 @@ impl EventLog {
 
     /// `after: None` returns the newest `limit` events; `Some(cursor)` returns
     /// the oldest events with a sequence number greater than the cursor.
+    /// `missed` counts sequence numbers in `(cursor, next]` that are not
+    /// retained (evicted here, or never seen by a mirror).
     pub(super) fn page(&self, after: Option<u64>, limit: usize) -> EventPage {
         let limit = limit.clamp(1, EVENT_PAGE_LIMIT);
         let ring = self.lock();
-        let oldest = ring.events.front().map_or(ring.latest + 1, |e| e.seq);
-        let (events, missed): (Vec<_>, u64) = match after {
+        let (events, next, missed): (Vec<_>, u64, u64) = match after {
             None => {
                 let skip = ring.events.len().saturating_sub(limit);
-                (ring.events.iter().skip(skip).cloned().collect(), 0)
+                let events: Vec<_> = ring.events.iter().skip(skip).cloned().collect();
+                let next = events.last().map_or(ring.latest, |e| e.seq);
+                (events, next, 0)
             }
             Some(cursor) => {
                 let cursor = cursor.min(ring.latest);
-                let skip =
-                    usize::try_from((cursor + 1).saturating_sub(oldest)).unwrap_or(usize::MAX);
-                (
-                    ring.events.iter().skip(skip).take(limit).cloned().collect(),
-                    oldest.saturating_sub(cursor + 1),
-                )
+                let start = ring.events.partition_point(|e| e.seq <= cursor);
+                let events: Vec<_> = ring.events.range(start..).take(limit).cloned().collect();
+                let next = events.last().map_or(ring.latest, |e| e.seq);
+                let missed = (next - cursor).saturating_sub(events.len() as u64);
+                (events, next, missed)
             }
         };
-        let next = events
-            .last()
-            .map_or(after.unwrap_or(ring.latest).min(ring.latest), |e| e.seq);
         EventPage {
             events,
             next,
@@ -186,6 +185,30 @@ impl EventLog {
             missed,
             rejected: ring.rejected,
         }
+    }
+
+    /// Mirror an event read from another log, keeping its sequence number.
+    /// Events at or below the latest mirrored sequence are duplicates.
+    pub(super) fn insert(&self, event: VmEvent, rejected: Option<u64>) {
+        let mut ring = self.lock();
+        if let Some(rejected) = rejected {
+            ring.rejected = rejected;
+        }
+        if event.seq <= ring.latest {
+            return;
+        }
+        ring.latest = event.seq;
+        let seq = event.seq;
+        if ring.events.len() == EVENT_CAPACITY {
+            ring.events.pop_front();
+        }
+        ring.events.push_back(event);
+        drop(ring);
+        self.latest.send_replace(seq);
+    }
+
+    pub(super) fn latest(&self) -> u64 {
+        self.lock().latest
     }
 
     /// Resolve once an event newer than `cursor` has been recorded.
@@ -232,6 +255,29 @@ mod tests {
         assert_eq!((empty.next, empty.missed), (latest, 0));
         // A cursor from a future or reset producer cannot skip new events.
         assert_eq!(log.page(Some(u64::MAX), 1).next, latest);
+    }
+
+    #[test]
+    fn mirrored_gaps_are_reported_as_missed_and_duplicates_ignored() {
+        let source = EventLog::default();
+        for _ in 0..5 {
+            source.record(event("STOP", Value::Null));
+        }
+        let mirror = EventLog::default();
+        for seq in [2, 4, 4, 1, 5] {
+            let event = source.page(Some(seq - 1), 1).events.remove(0);
+            mirror.insert(event, Some(3));
+        }
+        let page = mirror.page(Some(0), 10);
+        assert_eq!(
+            page.events.iter().map(|e| e.seq).collect::<Vec<_>>(),
+            [2, 4, 5]
+        );
+        assert_eq!(
+            (page.next, page.latest, page.missed, page.rejected),
+            (5, 5, 2, 3)
+        );
+        assert_eq!(mirror.page(Some(2), 1).missed, 1);
     }
 
     #[test]

@@ -148,6 +148,10 @@ pub struct Config {
     /// Unix socket in the session directory. Harmless if no agent runs.
     #[serde(default = "enabled")]
     pub guest_agent: bool,
+    /// Directory for the control socket, created by the manager. Defaults to
+    /// `{runtime_dir}/control`; a separate volume shares only the socket.
+    #[serde(default)]
+    pub control_dir: Option<PathBuf>,
     #[serde(default)]
     pub disk: Option<Disk>,
     #[serde(default)]
@@ -254,8 +258,15 @@ impl Config {
         {
             required_file(path)?;
         }
-        if !self.runtime_dir.is_absolute() {
-            return Err(Error::Config("runtime_dir must be absolute".into()));
+        if !self.runtime_dir.is_absolute()
+            || self
+                .control_dir
+                .as_ref()
+                .is_some_and(|dir| !dir.is_absolute())
+        {
+            return Err(Error::Config(
+                "runtime_dir and control_dir must be absolute".into(),
+            ));
         }
         if self.uefi.is_some() || self.tpm.is_some() || !self.iscsi_disks.is_empty() {
             if !self.state_dir.is_absolute() || self.state_dir == self.runtime_dir {

@@ -60,8 +60,7 @@ fn app_with_receiver() -> (AppState, manager::pod::ControlReceiver) {
             viewers: config.viewer_subjects.clone(),
         },
         config,
-        vm,
-        control,
+        control: manager::pod::Backend::Local(control),
         sessions: BoundedStore::default(),
         consoles: Arc::new(Semaphore::new(4)),
         event_streams: Arc::new(Semaphore::new(2)),
@@ -514,16 +513,19 @@ async fn real_vnc_streams_expire_and_are_revoked_without_browser_cooperation() {
     let mut app = app();
     let runtime = tempfile::tempdir().unwrap();
     let guest = std::path::PathBuf::from(std::env::var_os("QRAB_TEST_GUEST").expect("guest path"));
-    app.vm = serde_json::from_value(serde_json::json!({
+    // The BMC runs as a sidecar: console and actions cross the control socket.
+    let vm: manager::pod::Config = serde_json::from_value(serde_json::json!({
         "name":"bmc-test", "console":true, "qemu_binary":std::env::var("QRAB_TEST_QEMU").unwrap(),
         "kernel":guest.join("vmlinuz"), "initrd":guest.join("initramfs.gz"),
         "firmware_dir":std::env::var("QRAB_TEST_QEMU_DATA").unwrap(),
-        "kernel_args":"console=tty0 console=ttyS0 rdinit=/init quiet", "runtime_dir":runtime.path(), "shutdown_grace_secs":0
+        "kernel_args":"console=tty0 console=ttyS0 rdinit=/init quiet", "runtime_dir":runtime.path(), "shutdown_grace_secs":0,
+        "control_socket":true
     })).unwrap();
-    let (control, receiver) = manager::pod::control_channel();
-    app.control = control;
+    let (_control, receiver) = manager::pod::control_channel();
+    let remote = manager::pod::Remote::new(manager::pod::socket::socket_path(&vm));
+    app.control = manager::pod::Backend::Socket(remote);
     let (stop, stopped) = tokio::sync::oneshot::channel();
-    let vm = app.vm.clone();
+    let probe = vm.clone();
     let runner = tokio::spawn(async move {
         manager::pod::run_controlled(
             vm,
@@ -535,7 +537,7 @@ async fn real_vnc_streams_expire_and_are_revoked_without_browser_cooperation() {
         .await
     });
     tokio::time::timeout(Duration::from_secs(10), async {
-        while manager::pod::probe(&app.vm, false).is_err() {
+        while manager::pod::probe(&probe, false).is_err() {
             tokio::time::sleep(Duration::from_millis(20)).await;
         }
     })

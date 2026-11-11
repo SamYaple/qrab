@@ -11,7 +11,7 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
-use manager::pod::{self, Action, Control};
+use manager::pod::{self, Action};
 use std::sync::Arc;
 use tokio::sync::Semaphore;
 use tower_sessions::{cookie::SameSite, Expiry, Session, SessionManagerLayer};
@@ -20,8 +20,8 @@ use tower_sessions::{cookie::SameSite, Expiry, Session, SessionManagerLayer};
 pub struct AppState {
     pub oidc: auth::Oidc,
     pub config: config::Config,
-    pub vm: pod::Config,
-    pub control: Control,
+    /// The VM, in-process or behind the manager's control socket.
+    pub control: pod::Backend,
     pub sessions: session_store::BoundedStore,
     pub consoles: Arc<Semaphore>,
     pub event_streams: Arc<Semaphore>,
@@ -111,8 +111,13 @@ async fn identity(
     session: Session,
 ) -> Result<Json<serde_json::Value>, Failure> {
     let principal = auth::user(&app, &session).await?;
+    let vm_name = app
+        .control
+        .config_view()
+        .await
+        .map_or_else(|_| "VM".into(), |view| view.name);
     Ok(Json(
-        serde_json::json!({"user":principal.user,"role":principal.role,"vm_name":app.vm.name}),
+        serde_json::json!({"user":principal.user,"role":principal.role,"vm_name":vm_name}),
     ))
 }
 async fn status(
@@ -122,6 +127,7 @@ async fn status(
     auth::user(&app, &session).await?;
     app.control
         .status()
+        .await
         .map(Json)
         .map_err(|_| Failure::unavailable())
 }
@@ -135,6 +141,7 @@ async fn config_view(
     let view = app
         .control
         .config_view()
+        .await
         .map_err(|_| Failure::unavailable())?;
     Ok(Json(match principal.role {
         auth::Role::Admin => view,
@@ -142,7 +149,7 @@ async fn config_view(
     }))
 }
 async fn health(State(app): State<AppState>) -> StatusCode {
-    if pod::probe(&app.vm, false).is_ok() {
+    if app.control.probe(false).await.is_ok() {
         StatusCode::OK
     } else {
         StatusCode::SERVICE_UNAVAILABLE

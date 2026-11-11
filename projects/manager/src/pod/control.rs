@@ -156,6 +156,11 @@ impl Control {
         super::status(&self.config()?)
     }
 
+    /// Liveness (`ready: false`) or readiness probe of the supervised VM.
+    pub fn probe(&self, ready: bool) -> Result<()> {
+        super::probe(&self.config()?, ready)
+    }
+
     /// The full configuration view, including sensitive fields. Callers that
     /// serve less-privileged users must use [`ConfigView::redacted`].
     pub fn config_view(&self) -> Result<ConfigView> {

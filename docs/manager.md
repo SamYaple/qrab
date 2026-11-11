@@ -168,9 +168,11 @@ other generated event types give typed payloads.
 ### Control socket
 
 With `"control_socket": true` the supervisor serves the API on
-`{runtime_dir}/control/control.sock` while it owns the runtime lock, so a BMC
-or Redfish sidecar can share the pod's runtime emptyDir. The directory is 0700
-and the socket 0600; peers must have the manager's UID. Eight connections
+`{control_dir}/control.sock` while it owns the runtime lock. `control_dir`
+defaults to `{runtime_dir}/control`; operator Pods use
+`/run/qrab-control/manager` on a volume shared only with sidecars. The manager
+creates the directory itself and refuses one owned by another UID. The directory is 0700
+and the socket 0600; peers must have the manager's UID. Sixteen connections
 (four console streams) are served at once; further connections receive a
 `busy` error and are closed. Requests are limited to 64 KiB and responses to
 4 MiB; an idle connection closes after 60 seconds and a blocked write after
@@ -189,11 +191,17 @@ Each request is `{"v":1,"id":<u64>,"op":"<op>",...}` and each reply
 | `op` | Arguments | Result |
 | --- | --- | --- |
 | `status` | | The `status.json` record |
+| `probe` | `ready` (default false) | `null` when the manager's live (or ready) probe passes |
 | `config` | `redacted` (default false) | `ConfigView` |
 | `events` | `after`, `limit` (≤256) | `EventPage` |
 | `action` | `action`: `pause`/`resume`/`reset`/`powerdown` | `null` |
 | `follow` | `after` (default: latest) | `{"after":n}`, then the connection streams `{"v":1,"event":{...}}` and `{"v":1,"missed":n}` frames until the client closes or sends anything |
 | `console` | | `null`, then the connection is the raw VNC (RFB) byte stream |
+
+`pod::Remote` is the sidecar client. It keeps a mirror of the event history,
+with the manager's sequence numbers, over one `follow` connection that
+reconnects every second. `pod::Backend` puts either an in-process `Control` or
+a `Remote` behind one API for the BMC and Redfish.
 
 The socket trusts its UID-restricted peer. A sidecar serving users enforces
 its own authentication and requests `redacted` views for less-privileged

@@ -223,6 +223,41 @@ async fn supervisor_records_qmp_events_and_serves_them_over_control_and_socket()
     assert_eq!(next(&mut follower).await.event, "BLOCK_IO_ERROR");
     client.action(Action::Resume).await.unwrap();
     assert_eq!(next(&mut follower).await.event, "RESUME");
+    // A sidecar backend mirrors events with the manager's sequence numbers.
+    let remote = pod::Remote::new(path.clone());
+    let mirror = tokio::spawn({
+        let remote = remote.clone();
+        async move { remote.mirror().await }
+    });
+    let backend = pod::Backend::Socket(remote);
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while backend.events(None, 1).latest < control.events(None, 1).latest {
+            backend.wait_events(backend.events(None, 1).latest).await;
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(
+        backend.events(Some(0), 256).events,
+        control.events(Some(0), 256).events
+    );
+    backend.probe(false).await.unwrap();
+    assert_eq!(
+        backend.status().await.unwrap().qemu_version,
+        Some((11, 1, 3))
+    );
+    assert_eq!(backend.config_view().await.unwrap().name, "events-vm");
+    backend.action(Action::Pause).await.unwrap();
+    let paused = wait_for(&control, "STOP").await;
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while backend.events(None, 1).latest < paused.seq {
+            backend.wait_events(paused.seq - 1).await;
+        }
+    })
+    .await
+    .unwrap();
+    assert!(backend.console().await.is_err());
+    mirror.abort();
     // A console request on a console-less VM is refused, not a raw socket.
     assert!(Client::connect(&path)
         .await

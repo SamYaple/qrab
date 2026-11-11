@@ -9,6 +9,7 @@ mod hotplug;
 mod iscsi;
 mod persistent;
 mod process;
+mod remote;
 pub mod socket;
 mod state;
 mod supervisor;
@@ -23,6 +24,7 @@ pub use events::{
 };
 pub use hotplug::{GuestSize, Resize};
 pub use iscsi::{IscsiBus, IscsiDisk};
+pub use remote::{Backend, Remote};
 pub use state::{probe, status, Phase, Status};
 pub use supervisor::{run, run_controlled, Outcome};
 pub use view::{BootMode, ConfigView, Deployment, DiskView, IscsiTargetView, PathView};
