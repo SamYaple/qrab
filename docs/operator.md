@@ -138,3 +138,11 @@ The explicit `manager/tests/pod_uefi.rs` test checks two UEFI boots with retaine
 EK identity, event-log availability, absence of a guest NIC, shutdown/reaping,
 a crashed TPM child, and malformed retained TPM refusal. Live rollout checks
 also compare EK fingerprints across a real controller-driven Pod replacement.
+
+The disposable demo lifecycle check is intentionally disruptive (Pod replacement,
+config repair, stop/start and a rejected identity-adoption probe), and never
+deletes its PVC:
+
+```sh
+python3 contrib/tests/operator-lifecycle.py --namespace qrab --vm qrab-demo
+```
