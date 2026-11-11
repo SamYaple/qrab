@@ -14,6 +14,7 @@ belong to the `qrab` project in towl.
   See `docs/testing.md` for the explicit real-QEMU smoke test.
 - Keep protocol tests independent of manager, systemd, KVM, guest downloads and
   confidential-computing hardware. Put launcher and boot tests with those components.
+  Target current QEMU in protocol changes; older-release compatibility is deferred.
 - Source changes, image builds and cluster rollouts are separate operations.
   No deployment follows automatically from a library refresh.
 

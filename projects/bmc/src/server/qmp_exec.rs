@@ -13,9 +13,7 @@
 
 use dioxus::prelude::*;
 
-use crate::types::{
-    CommandDto, EnumDto, QueueStatus, StructDto,
-};
+use crate::types::{CommandDto, EnumDto, QueueStatus, StructDto};
 
 // Server-side imports are scoped inside `#[cfg(feature = "server")]` blocks
 // because `dioxus::prelude::server` macros strip the function bodies out of
@@ -33,9 +31,7 @@ pub use server_impl::{build_qmp_request, validate_envelope, ValidationError};
 #[cfg(feature = "server")]
 pub mod server_impl {
     use super::*;
-    use crate::types::{
-        EnumKindDto, EnumVariantDto, FieldDto, PrimDto, TypeDto, TypeKindDto,
-    };
+    use crate::types::{EnumKindDto, EnumVariantDto, FieldDto, PrimDto, TypeDto, TypeKindDto};
     use qapi::metadata::{
         self, CommandMeta, EnumKind, EnumMeta, EnumVariantMeta, FieldMeta, Prim, StructMeta,
         TypeKind, TypeRef,
@@ -220,7 +216,9 @@ pub mod server_impl {
         true
     }
 
-    pub fn validate_envelope(envelope: &serde_json::Value) -> Result<&'static CommandMeta, ValidationError> {
+    pub fn validate_envelope(
+        envelope: &serde_json::Value,
+    ) -> Result<&'static CommandMeta, ValidationError> {
         let execute = envelope
             .get("execute")
             .and_then(|v| v.as_str())
@@ -288,10 +286,7 @@ pub mod server_impl {
             let disc_wire = disc_meta.wire_name;
 
             let disc_value = obj.get(disc_wire).and_then(|v| v.as_str()).ok_or_else(|| {
-                ValidationError::new(
-                    format!("{path}/{disc_wire}"),
-                    "missing discriminator",
-                )
+                ValidationError::new(format!("{path}/{disc_wire}"), "missing discriminator")
             })?;
 
             let branch_enum_name = meta.branch_enum.ok_or_else(|| {
@@ -329,7 +324,8 @@ pub mod server_impl {
                 // defensively even though current metadata doesn't emit
                 // one.
                 expected_fields.retain(|f| f.name != "u" && f.wire_name != "u");
-                expected_fields.extend(payload.fields.iter().filter(|f| is_alive(f.since, f.until)));
+                expected_fields
+                    .extend(payload.fields.iter().filter(|f| is_alive(f.since, f.until)));
             }
         }
 
@@ -524,15 +520,15 @@ pub async fn build_queue(state: &std::sync::Arc<crate::state::BmcState>) -> Queu
     }
 }
 
-/// Negotiated QEMU version, if a VM has ever run in this process.
+/// Version advertised by the currently connected VM.
 #[server]
 pub async fn current_qemu_version() -> Result<Option<(u32, u32, u32)>, ServerFnError> {
-    let v = qapi::qemu_version();
-    if v == (0, 0, 0) {
-        Ok(None)
-    } else {
-        Ok(Some(v))
-    }
+    let state = crate::state::bmc();
+    let vm = state.vm.lock().await;
+    Ok(match &*vm {
+        crate::state::VmState::Running(vm) => Some(vm.qmp.version()),
+        _ => None,
+    })
 }
 
 /// Every known command as a DTO. Called once on panel mount to seed the
@@ -540,21 +536,28 @@ pub async fn current_qemu_version() -> Result<Option<(u32, u32, u32)>, ServerFnE
 #[server]
 pub async fn list_commands() -> Result<Vec<CommandDto>, ServerFnError> {
     use server_impl::convert_command;
-    Ok(qapi::metadata::COMMANDS.iter().map(convert_command).collect())
+    Ok(qapi::metadata::COMMANDS
+        .iter()
+        .map(convert_command)
+        .collect())
 }
 
 /// Single struct lookup for union branch payloads and nested field shapes.
 #[server]
 pub async fn get_struct(name: String) -> Result<Option<StructDto>, ServerFnError> {
     use server_impl::convert_struct;
-    Ok(qapi::metadata::STRUCTS.get(name.as_str()).map(|s| convert_struct(s)))
+    Ok(qapi::metadata::STRUCTS
+        .get(name.as_str())
+        .map(|s| convert_struct(s)))
 }
 
 /// Single enum lookup for `<select>` option rendering.
 #[server]
 pub async fn get_enum(name: String) -> Result<Option<EnumDto>, ServerFnError> {
     use server_impl::convert_enum;
-    Ok(qapi::metadata::ENUMS.get(name.as_str()).map(|e| convert_enum(e)))
+    Ok(qapi::metadata::ENUMS
+        .get(name.as_str())
+        .map(|e| convert_enum(e)))
 }
 
 /// Validate the supplied QMP envelope against the compiled-in schema, then
@@ -573,21 +576,20 @@ pub async fn execute_qmp(
     use crate::state::{bmc, VmState};
     use server_impl::{validate_envelope, ValidationError};
 
-    // Validate shape first so bogus envelopes never hit QMP.
-    let cmd = validate_envelope(&envelope).map_err(ValidationError::into_server)?;
-    if oob && !cmd.allow_oob {
-        return Err(ServerFnError::new(format!(
-            "command '{}' does not support OOB",
-            cmd.wire_name
-        )));
-    }
-
     // Dispatch under the vm lock.
     let state = bmc();
     let result = {
         let vm_guard = state.vm.lock().await;
         match &*vm_guard {
             VmState::Running(vm) => {
+                let cmd = qapi::with_version(vm.qmp.version(), || validate_envelope(&envelope))
+                    .map_err(ValidationError::into_server)?;
+                if oob && !cmd.allow_oob {
+                    return Err(ServerFnError::new(format!(
+                        "command '{}' does not support OOB",
+                        cmd.wire_name
+                    )));
+                }
                 let req_value = server_impl::build_qmp_request(&envelope, oob);
                 let fut = async {
                     if oob {

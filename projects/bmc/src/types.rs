@@ -126,7 +126,7 @@ pub struct KvmInfoResponse {
 pub struct BmcEvent {
     pub event: String,
     pub timestamp_secs: i64,
-    pub timestamp_usecs: u32,
+    pub timestamp_usecs: i64,
     pub data: serde_json::Value,
 }
 

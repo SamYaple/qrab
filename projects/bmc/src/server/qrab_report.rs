@@ -168,7 +168,11 @@ pub fn parse_qrab_report(efivar_bytes: &[u8]) -> QrabReportStatus {
 
     let (attrs, body) = efivar_bytes.split_at(ATTR_LEN);
     let magic_matched = body.starts_with(QRAB_REPORT_MAGIC);
-    let payload: &[u8] = if magic_matched { &body[MAGIC_LEN..] } else { body };
+    let payload: &[u8] = if magic_matched {
+        &body[MAGIC_LEN..]
+    } else {
+        body
+    };
     let prefix_len = payload.len().min(32);
 
     QrabReportStatus::Ok(QrabReportSnapshot {
@@ -229,8 +233,8 @@ fn fetched_at_now() -> String {
 /// the guest agent will reap on disconnect anyway.
 #[server]
 pub async fn fetch_qrab_report() -> Result<QrabReportStatus, ServerFnError> {
-    use base64::Engine;
     use crate::state::{bmc, QgaSockProbe};
+    use base64::Engine;
 
     let state = bmc();
 
@@ -255,27 +259,25 @@ pub async fn fetch_qrab_report() -> Result<QrabReportStatus, ServerFnError> {
     // crashloop) would otherwise leave the server fn awaiting
     // indefinitely and wedge every subsequent BMC request that
     // routes through the same Tokio task / handler.
-    let mut qga = match tokio::time::timeout(
-        QGA_CONNECT_TIMEOUT,
-        qapi_protocol::qga::Qga::new(&qga_sock),
-    )
-    .await
-    {
-        Ok(Ok(q)) => q,
-        Ok(Err(e)) => {
-            return Ok(QrabReportStatus::Failed {
-                reason: format!("QGA connect failed: {e}"),
-            });
-        }
-        Err(_) => {
-            return Ok(QrabReportStatus::Failed {
-                reason: format!(
-                    "QGA connect timed out after {}s",
-                    QGA_CONNECT_TIMEOUT.as_secs()
-                ),
-            });
-        }
-    };
+    let mut qga =
+        match tokio::time::timeout(QGA_CONNECT_TIMEOUT, qapi_protocol::qga::Qga::new(&qga_sock))
+            .await
+        {
+            Ok(Ok(q)) => q,
+            Ok(Err(e)) => {
+                return Ok(QrabReportStatus::Failed {
+                    reason: format!("QGA connect failed: {e}"),
+                });
+            }
+            Err(_) => {
+                return Ok(QrabReportStatus::Failed {
+                    reason: format!(
+                        "QGA connect timed out after {}s",
+                        QGA_CONNECT_TIMEOUT.as_secs()
+                    ),
+                });
+            }
+        };
 
     // `guest-file-open` in read mode.
     let handle: i64 = match tokio::time::timeout(
@@ -301,19 +303,16 @@ pub async fn fetch_qrab_report() -> Result<QrabReportStatus, ServerFnError> {
             let msg = e.to_string();
             match classify_open_error_desc(&msg) {
                 OpenErrorClass::Absent => return Ok(QrabReportStatus::Absent),
-                OpenErrorClass::Unknown => match probe_path_exists(
-                    &mut qga,
-                    QRAB_REPORT_EFIVAR_PATH,
-                )
-                .await
-                {
-                    PathProbe::Absent => return Ok(QrabReportStatus::Absent),
-                    PathProbe::Present | PathProbe::Inconclusive => {
-                        return Ok(QrabReportStatus::Failed {
-                            reason: format!("guest-file-open: {msg}"),
-                        });
+                OpenErrorClass::Unknown => {
+                    match probe_path_exists(&mut qga, QRAB_REPORT_EFIVAR_PATH).await {
+                        PathProbe::Absent => return Ok(QrabReportStatus::Absent),
+                        PathProbe::Present | PathProbe::Inconclusive => {
+                            return Ok(QrabReportStatus::Failed {
+                                reason: format!("guest-file-open: {msg}"),
+                            });
+                        }
                     }
-                },
+                }
             }
         }
         Err(_) => {
@@ -326,28 +325,18 @@ pub async fn fetch_qrab_report() -> Result<QrabReportStatus, ServerFnError> {
         }
     };
 
-    // `guest-file-read` — typed return in qapi::qga aliases to the
-    // request struct (`{count, handle}`), not the response body. Use
-    // `execute_raw` with a local struct that matches the actual wire
-    // shape `{count, buf-b64, eof}`.
-    #[derive(serde::Deserialize)]
-    struct ReadReturn {
-        #[serde(rename = "buf-b64")]
-        buf_b64: String,
-    }
-    let req = serde_json::json!({
-        "handle": handle,
-        "count": QRAB_REPORT_READ_MAX,
-    });
-    let read_result: Result<Result<ReadReturn, _>, _> = tokio::time::timeout(
+    let read_result = tokio::time::timeout(
         QGA_OP_TIMEOUT,
-        qga.execute_raw("guest-file-read", req),
+        qga.execute(&qapi::qga::commands::GuestFileReadCommand {
+            handle,
+            count: Some(QRAB_REPORT_READ_MAX),
+        }),
     )
     .await;
 
-    // Close the handle best-effort before returning — the agent reaps
-    // on disconnect, but explicit close keeps per-call fd usage tight
-    // and avoids surprising the operator with agent-side warnings.
+    // Close the known handle best-effort while the session is aligned.
+    // After a transport failure QGA is closed; guest-side resource cleanup
+    // then requires a newly synchronized connection, not reuse of this stream.
     let _ = tokio::time::timeout(
         QGA_OP_TIMEOUT,
         qga.execute(&qapi::qga::commands::GuestFileClose { handle }),
@@ -434,24 +423,19 @@ async fn probe_path_exists(qga: &mut qapi_protocol::qga::Qga, path: &str) -> Pat
     // `/bin/test`, and modern systemd-managed distros usermerge them.
     // Capture is `none` so QGA doesn't allocate buffers for a silent
     // exit-code-only check.
-    let exec_req = serde_json::json!({
-        "path": "/usr/bin/test",
-        "arg": ["-e", path],
-        "capture-output": { "mode": "none" },
-    });
-    #[derive(serde::Deserialize)]
-    struct ExecReturn {
-        pid: i64,
-    }
+    let exec_req = qapi::qga::commands::GuestExecCommand {
+        path: "/usr/bin/test".into(),
+        arg: Some(vec!["-e".into(), path.into()]),
+        capture_output: Some(qapi::qga::GuestExecCaptureOutput::Mode(
+            qapi::qga::GuestExecCaptureOutputMode::None,
+        )),
+        env: None,
+        input_data: None,
+    };
     let Some(remaining) = deadline.checked_duration_since(tokio::time::Instant::now()) else {
         return PathProbe::Inconclusive;
     };
-    let pid: i64 = match tokio::time::timeout(
-        remaining,
-        qga.execute_raw::<ExecReturn>("guest-exec", exec_req),
-    )
-    .await
-    {
+    let pid: i64 = match tokio::time::timeout(remaining, qga.execute(&exec_req)).await {
         Ok(Ok(r)) => r.pid,
         // Any error (binary not found, QGA wire fault, timeout) → we
         // can't make an authoritative statement. Surface Inconclusive
@@ -463,29 +447,18 @@ async fn probe_path_exists(qga: &mut qapi_protocol::qga::Qga, path: &str) -> Pat
     // Poll `guest-exec-status` until `exited: true` or the budget
     // runs out. `test -e` is a syscall away from a stat(2) so the
     // first poll almost always sees the reaped status.
-    #[derive(serde::Deserialize)]
-    struct StatusReturn {
-        exited: bool,
-        #[serde(rename = "exitcode")]
-        exit_code: Option<i64>,
-    }
     loop {
         let Some(remaining) = deadline.checked_duration_since(tokio::time::Instant::now()) else {
             return PathProbe::Inconclusive;
         };
-        let status_req = serde_json::json!({ "pid": pid });
-        let status = match tokio::time::timeout(
-            remaining,
-            qga.execute_raw::<StatusReturn>("guest-exec-status", status_req),
-        )
-        .await
-        {
+        let status_req = qapi::qga::commands::GuestExecStatusCommand { pid };
+        let status = match tokio::time::timeout(remaining, qga.execute(&status_req)).await {
             Ok(Ok(s)) => s,
             _ => return PathProbe::Inconclusive,
         };
 
         if status.exited {
-            return match status.exit_code {
+            return match status.exitcode {
                 Some(0) => PathProbe::Present,
                 Some(_) => PathProbe::Absent,
                 // `exited: true` with no `exitcode` means `test` died

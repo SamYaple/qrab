@@ -125,6 +125,9 @@ async fn oob_envelope_reaches_mock() {
 // -- Case 6: queue status reflects state.vm == Off --
 #[tokio::test]
 async fn queue_status_defaults_when_vm_off() {
+    // A stale legacy process default must not masquerade as a connected VM.
+    let _ = qapi::set_qemu_version(99, 0, 0);
+    assert_eq!(bmc::server::qmp_exec::current_qemu_version().await.unwrap(), None);
     let status = qmp_queue_status().await.expect("server fn returns");
     assert_eq!(status.depth, 0, "no vm -> zero depth");
     assert_eq!(status.capacity, 8, "default capacity matches Qmp::queue_capacity");

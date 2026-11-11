@@ -1,13 +1,13 @@
 [package]
 name = "qapi-protocol"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 
 [dependencies]
+getrandom = "0.4"
 thiserror = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-tracing = { workspace = true }
 
 [dependencies.qapi]
 path = "../qapi"
@@ -18,8 +18,7 @@ features = ["net", "io-util", "sync", "rt", "macros", "time"]
 
 [dev-dependencies]
 tempfile = { workspace = true }
-futures = { workspace = true }
 
 [dev-dependencies.tokio]
 workspace = true
-features = ["net", "io-util", "sync", "rt", "macros", "rt-multi-thread", "process", "time", "fs"]
+features = ["net", "io-util", "sync", "rt", "macros", "rt-multi-thread", "process", "time", "test-util"]

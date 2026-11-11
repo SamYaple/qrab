@@ -38,7 +38,7 @@ async fn multiple_qmp_versions_serialize_independently() {
     }
     let tasks: Vec<_> = clients
         .into_iter()
-        .map(|mut client| {
+        .map(|client| {
             tokio::spawn(async move {
                 for _ in 0..3 {
                     assert!(client

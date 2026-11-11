@@ -67,10 +67,16 @@ fn EventRow(event: BmcEvent, is_newest: bool) -> Element {
         String::new()
     };
 
+    let time = if event.timestamp_secs < 0 || event.timestamp_usecs < 0 {
+        "unavailable".to_owned()
+    } else {
+        format!("{}.{:06}", event.timestamp_secs, event.timestamp_usecs)
+    };
+
     rsx! {
         tr { class: row_class,
             td { class: "cell-time",
-                "{event.timestamp_secs}.{event.timestamp_usecs:06}"
+                "{time}"
             }
             td { class: "cell-event",
                 span { class: "event-tag", "{event.event}" }

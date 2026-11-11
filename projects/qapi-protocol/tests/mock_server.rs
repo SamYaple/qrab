@@ -19,7 +19,7 @@ async fn mock_qmp_negotiate() {
 
     let server = tokio::spawn(async move {
         let mut session = QmpSession::accept(&listener).await.unwrap();
-        session.send_greeting(10, 2, 0).await.unwrap();
+        session.send_greeting(11, 1, 3).await.unwrap();
         session.negotiate().await.unwrap();
 
         // Receive query-status
@@ -34,11 +34,8 @@ async fn mock_qmp_negotiate() {
             .unwrap();
     });
 
-    // Give server a moment to bind
-    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-
-    let (mut qmp, _events) = Qmp::new(std::path::Path::new(&sock)).await.unwrap();
-    assert_eq!(qmp.version(), (10, 2, 0));
+    let (qmp, _events) = Qmp::new(std::path::Path::new(&sock)).await.unwrap();
+    assert_eq!(qmp.version(), (11, 1, 3));
 
     let status: qapi::StatusInfo = qmp.execute(&qapi::commands::QueryStatus {}).await.unwrap();
     assert!(status.running);
@@ -55,7 +52,7 @@ async fn mock_qmp_error_response() {
 
     let server = tokio::spawn(async move {
         let mut session = QmpSession::accept(&listener).await.unwrap();
-        session.send_greeting(10, 2, 0).await.unwrap();
+        session.send_greeting(11, 1, 3).await.unwrap();
         session.negotiate().await.unwrap();
 
         let (name, _args) = session.recv_command().await.unwrap();
@@ -66,9 +63,7 @@ async fn mock_qmp_error_response() {
             .unwrap();
     });
 
-    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-
-    let (mut qmp, _events) = Qmp::new(std::path::Path::new(&sock)).await.unwrap();
+    let (qmp, _events) = Qmp::new(std::path::Path::new(&sock)).await.unwrap();
     let result: Result<qapi::StatusInfo, _> = qmp.execute(&qapi::commands::QueryStatus {}).await;
     match result {
         Err(e) => assert!(e.to_string().contains("something went wrong"), "Got: {}", e),
@@ -87,7 +82,7 @@ async fn mock_qmp_event() {
 
     let server = tokio::spawn(async move {
         let mut session = QmpSession::accept(&listener).await.unwrap();
-        session.send_greeting(10, 2, 0).await.unwrap();
+        session.send_greeting(11, 1, 3).await.unwrap();
         session.negotiate().await.unwrap();
 
         // Send an event then a command response
@@ -104,9 +99,7 @@ async fn mock_qmp_event() {
             .unwrap();
     });
 
-    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-
-    let (mut qmp, mut events) = Qmp::new(std::path::Path::new(&sock)).await.unwrap();
+    let (qmp, mut events) = Qmp::new(std::path::Path::new(&sock)).await.unwrap();
 
     let status: qapi::StatusInfo = qmp.execute(&qapi::commands::QueryStatus {}).await.unwrap();
     assert!(!status.running);
@@ -140,7 +133,7 @@ async fn mock_qga_sync_and_ping() {
         assert_eq!(name, "guest-info");
         session
             .send_return(serde_json::json!({
-                "version": "10.2.0",
+                "version": "11.1.3",
                 "supported_commands": [
                     {"name": "guest-ping", "enabled": true, "success-response": true},
                     {"name": "guest-info", "enabled": true, "success-response": true}
@@ -155,10 +148,8 @@ async fn mock_qga_sync_and_ping() {
         session.send_return(serde_json::json!({})).await.unwrap();
     });
 
-    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-
     let mut qga = Qga::new(std::path::Path::new(&sock)).await.unwrap();
-    assert_eq!(qga.version(), (10, 2, 0));
+    assert_eq!(qga.version(), (11, 1, 3));
 
     // Execute guest-ping
     qga.execute(&qapi::qga::commands::GuestPing {})

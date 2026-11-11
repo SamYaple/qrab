@@ -8,7 +8,7 @@ pub use serde_json;
 
 /// Trait implemented by QAPI command types.
 pub trait QapiCommand: serde::Serialize {
-    type Returns: serde::de::DeserializeOwned;
+    type Returns: serde::de::DeserializeOwned + 'static;
     const NAME: &'static str;
     const ALLOW_OOB: bool;
     const ALLOW_PRECONFIG: bool;

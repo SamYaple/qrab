@@ -1,330 +1,193 @@
-//! QEMU Guest Agent (QGA) async client.
-//!
-//! The QGA protocol uses the same JSON-RPC wire format as QMP, but with
-//! a different handshake (guest-sync-delimited instead of qmp_capabilities).
-
+//! Sequential guest-agent transport. A timed-out or cancelled operation closes
+//! its socket: the next connection must perform guest-sync-delimited again.
 use crate::{
-    build_qmp_error, read_line_bounded, write_line, write_line_with_sentinel, Error, LineRead,
-    Result, MAX_LINE_BYTES,
+    framing::{self, JsonReader},
+    wire, ClientOptions, Error, Result,
 };
 use qapi::QapiCommand;
+use serde::de::DeserializeOwned;
+use serde_json::{json, Value};
 use std::path::Path;
-use std::time::Duration;
-use tokio::io::{AsyncReadExt, AsyncWriteExt, BufReader};
-use tokio::net::UnixStream;
+use tokio::{
+    io::AsyncWriteExt,
+    net::{
+        unix::{OwnedReadHalf, OwnedWriteHalf},
+        UnixStream,
+    },
+    time::timeout,
+};
 
-/// Maximum time to wait for a QGA response before giving up. A wedged guest
-/// agent must not block the caller forever.
-const QGA_RESPONSE_TIMEOUT: Duration = Duration::from_secs(30);
+struct Session {
+    reader: JsonReader<OwnedReadHalf>,
+    writer: OwnedWriteHalf,
+}
 
-/// Maximum time to wait for the `guest-sync-delimited` handshake to complete.
-/// Separate from — and shorter than — `QGA_RESPONSE_TIMEOUT`: sync is a
-/// zero-work ping, so any QGA that can't echo it in 10s is effectively dead
-/// and the caller should not wait the full command budget.
-const QGA_SYNC_TIMEOUT: Duration = Duration::from_secs(10);
-
-/// Maximum time to wait for `connect(2)` on the QGA socket. Unlike a hot
-/// QMP monitor, a guest agent may be quiescent but the connect itself
-/// should still return promptly on a live system; 5s matches `Qmp::new`.
-const QGA_CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
-
-/// Maximum serialized size of a QGA request. Real QGA commands cap out
-/// at a few KiB (file writes go through `guest-file-write` which itself
-/// base64-encodes payloads in chunks, so even a large push arrives as
-/// many small requests). 256 KiB is comfortably above any expected
-/// command and catches accidental unbounded growth — e.g. a caller
-/// shipping a multi-megabyte argument blob — before it hits the wire.
-const MAX_REQUEST_BYTES: usize = 256 * 1024;
-
-/// Async QGA client connected to a QEMU guest agent.
 pub struct Qga {
     version: (u32, u32, u32),
-    reader: BufReader<tokio::net::unix::OwnedReadHalf>,
-    writer: tokio::net::unix::OwnedWriteHalf,
+    options: ClientOptions,
+    session: Option<Session>,
+}
+
+impl std::fmt::Debug for Qga {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Qga")
+            .field("version", &self.version)
+            .field("closed", &self.is_closed())
+            .finish()
+    }
 }
 
 impl Qga {
-    /// Connect to a QGA socket and perform the sync-delimited handshake.
-    #[must_use = "dropping the Qga handle immediately closes the connection; bind it to keep the session alive"]
-    pub async fn new(socket_path: &Path) -> Result<Self> {
-        // Bound `connect(2)` itself so a bound-but-unserved socket or
-        // a hung filesystem can't wedge the caller indefinitely. See
-        // `Qmp::new` for the same pattern.
-        let stream = tokio::time::timeout(QGA_CONNECT_TIMEOUT, UnixStream::connect(socket_path))
+    pub async fn new(path: &Path) -> Result<Self> {
+        Self::connect_with_options(path, ClientOptions::default()).await
+    }
+
+    pub async fn connect_with_options(path: &Path, options: ClientOptions) -> Result<Self> {
+        options.validate()?;
+        let stream = timeout(options.connect_timeout, UnixStream::connect(path))
             .await
-            .map_err(|_| Error::Timeout("QGA connect timed out after 5s".into()))??;
-        let (read_half, write_half) = stream.into_split();
-        let reader = BufReader::new(read_half);
+            .map_err(|_| Error::Timeout("QGA connect timed out".into()))??;
+        Self::from_stream_with_options(stream, options).await
+    }
 
-        let mut qga = Self {
-            version: (0, 0, 0),
-            reader,
-            writer: write_half,
+    pub async fn from_stream(stream: UnixStream) -> Result<Self> {
+        Self::from_stream_with_options(stream, ClientOptions::default()).await
+    }
+
+    pub async fn from_stream_with_options(
+        stream: UnixStream,
+        options: ClientOptions,
+    ) -> Result<Self> {
+        options.validate()?;
+        let (reader, writer) = stream.into_split();
+        let mut session = Session {
+            reader: JsonReader::new(reader, options.max_message_bytes),
+            writer,
         };
-
-        // Perform sync-delimited handshake
-        qga.sync().await?;
-
-        // Query guest-info to get the QGA version
-        let info: qapi::qga::GuestAgentInfo =
-            qga.execute_raw("guest-info", serde_json::json!({})).await?;
-        qga.version = qapi::parse_qga_version(&normalize_qga_version(&info.version));
-        // Retain the legacy process default for existing consumers.
-        let _ = qapi::set_qga_version(normalize_qga_version(&info.version));
-
-        Ok(qga)
-    }
-
-    /// Version reported by this guest agent, independent of the QEMU host.
-    pub fn version(&self) -> (u32, u32, u32) {
-        self.version
-    }
-
-    /// Perform the guest-sync-delimited handshake.
-    async fn sync(&mut self) -> Result<()> {
-        // If the system clock is before UNIX_EPOCH (embedded boards with no
-        // RTC, severe clock skew, etc.) duration_since returns Err. For a
-        // sync-id any value will do, so fall back to a zero-valued Duration
-        // instead of panicking.
-        //
-        // `as_nanos()` returns u128; narrow to u64 first (which wraps around
-        // every ~584 years) and then reinterpret as i64. A negative sync id
-        // is harmless — the guest echoes it verbatim — and this preserves all
-        // 64 bits of entropy instead of silently truncating to i64::MAX.
-        let sync_id: i64 = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_nanos() as u64 as i64;
-
-        // Wrap the entire handshake in a timeout. A wedged QGA (or one
-        // flushing a long backlog of stale lines ahead of the 0xFF sentinel)
-        // would otherwise block `Qga::new()` forever. We use a dedicated
-        // `QGA_SYNC_TIMEOUT` rather than reusing the 30s response budget:
-        // sync is a trivial echo, so 10s is more than enough and gives the
-        // caller faster feedback on a dead agent.
-        tokio::time::timeout(QGA_SYNC_TIMEOUT, async {
-            // Bug #23: 0xFF sentinel + JSON + \n must reach the agent as
-            // one contiguous chunk. A split write that failed between
-            // sentinel and JSON (or JSON and \n) would leave the guest
-            // hunting for a newline that never arrives and poison the
-            // session for the next command. Build once, send once.
-            let cmd = serde_json::json!({
-                "execute": "guest-sync-delimited",
-                "arguments": {"id": sync_id}
-            });
-            let serialized = serde_json::to_string(&cmd)?;
-            write_line_with_sentinel(&mut self.writer, 0xFF, serialized.as_bytes()).await?;
-            self.writer.flush().await?;
-
-            // Read until we find 0xFF sentinel, then read the response
+        let version = timeout(options.handshake_timeout, async {
+            let mut nonce = [0_u8; 8];
+            getrandom::fill(&mut nonce)
+                .map_err(|error| std::io::Error::other(format!("QGA sync nonce: {error}")))?;
+            let nonce = i64::from_ne_bytes(nonce);
+            let command = wire::request("guest-sync-delimited", json!({"id": nonce}), false)?;
+            let mut bytes = vec![0xff];
+            bytes.extend(framing::encode(&command, options.max_message_bytes)?);
+            session.writer.write_all(&bytes).await?;
             loop {
-                let byte = self.reader.read_u8().await?;
-                if byte == 0xFF {
+                let candidate = session.reader.sync_message().await?;
+                if wire::response(candidate).is_ok_and(|value| value.as_i64() == Some(nonce)) {
                     break;
                 }
             }
-
-            // Read the sync response
-            let line = match read_line_bounded(&mut self.reader).await? {
-                LineRead::Line(line) => line,
-                LineRead::Eof => {
-                    return Err(Error::Protocol("QGA peer closed during sync".into()));
-                }
-                LineRead::TooLong => {
-                    return Err(Error::Protocol(format!(
-                        "QGA sync response exceeded {} bytes",
-                        MAX_LINE_BYTES
-                    )));
-                }
-            };
-            let resp: serde_json::Value = serde_json::from_str(line.trim())?;
-
-            if let Some(ret) = resp.get("return") {
-                let returned_id = ret.as_i64().unwrap_or(0);
-                if returned_id != sync_id {
-                    return Err(Error::Protocol(format!(
-                        "guest-sync-delimited: id mismatch (sent {}, got {})",
-                        sync_id, returned_id
-                    )));
-                }
-            } else if let Some(error) = resp.get("error") {
-                return Err(Error::Protocol(format!(
-                    "guest-sync-delimited failed: {}",
-                    error
-                )));
-            }
-
-            Ok::<(), Error>(())
+            let info = wire::request("guest-info", json!({}), false)?;
+            framing::write_json(&mut session.writer, &info, options.max_message_bytes).await?;
+            let info: qapi::qga::GuestAgentInfo =
+                wire::decode(wire::response(session.reader.next().await?)?)?;
+            parse_version(&info.version)
         })
         .await
-        .map_err(|_| Error::Timeout("QGA sync handshake timed out".into()))??;
-
-        Ok(())
+        .map_err(|_| Error::Timeout("QGA handshake timed out".into()))??;
+        Ok(Self {
+            version,
+            options,
+            session: Some(session),
+        })
     }
 
-    /// Execute a typed QGA command.
-    #[must_use = "QGA commands can fail with a QmpError or time out; ignoring the Result hides protocol errors"]
+    pub fn version(&self) -> (u32, u32, u32) {
+        self.version
+    }
+    pub fn is_closed(&self) -> bool {
+        self.session.is_none()
+    }
+    pub fn shutdown(&mut self) {
+        self.session.take();
+    }
+
+    /// Commands with success-response:false must use send_no_response, which
+    /// explicitly acknowledges delivery rather than claiming remote success.
     pub async fn execute<C: QapiCommand>(&mut self, cmd: &C) -> Result<C::Returns> {
+        if !C::SUCCESS_RESPONSE {
+            return Err(Error::InvalidRequest(format!(
+                "{} does not send a success response; use send_no_response",
+                C::NAME
+            )));
+        }
         let args = qapi::with_version(self.version, || serde_json::to_value(cmd))?;
         self.execute_raw(C::NAME, args).await
     }
 
-    /// Execute a command by name with raw JSON arguments.
-    ///
-    /// Use for commands from newer releases or out-of-tree agents. Callers
-    /// choose their own deserialization target `T`.
-    #[must_use = "QGA commands can fail with a QmpError or time out; ignoring the Result hides protocol errors"]
-    pub async fn execute_raw<T: serde::de::DeserializeOwned>(
+    pub async fn execute_raw<T: DeserializeOwned + 'static>(
         &mut self,
         name: &str,
-        args: serde_json::Value,
+        args: Value,
     ) -> Result<T> {
-        let request = if args.as_object().is_some_and(|o| o.is_empty()) {
-            serde_json::json!({ "execute": name })
-        } else {
-            serde_json::json!({ "execute": name, "arguments": args })
+        let request = wire::request(name, args, false)?;
+        let bytes = framing::encode(&request, self.options.max_message_bytes)?;
+        // Ownership leaves self before any I/O await. Cancellation drops the
+        // session, so a late reply cannot be mistaken for the next command.
+        let mut session = self.session.take().ok_or(Error::Closed)?;
+        let operation = async {
+            session.writer.write_all(&bytes).await?;
+            wire::response(session.reader.next().await?)
         };
-
-        // Guard the serialized request size. A caller passing an
-        // oversized argument blob (or a protocol bug producing one)
-        // would otherwise write it straight to the guest socket, where
-        // it hits the peer's own line limits and could hang a
-        // ring-buffered virtio-serial channel.
-        let request_str = serde_json::to_string(&request)?;
-        if request_str.len() > MAX_REQUEST_BYTES {
-            return Err(Error::Protocol(format!(
-                "QGA request too large: {} bytes (limit {})",
-                request_str.len(),
-                MAX_REQUEST_BYTES
-            )));
-        }
-
-        // Bug #23: single atomic write (json + \n) so a mid-write failure
-        // can't strand a truncated line that the next command would be
-        // appended to. On error the `?` propagates and the caller must
-        // drop the `Qga`; the connection is considered poisoned.
-        write_line(&mut self.writer, request_str.as_bytes()).await?;
-        self.writer.flush().await?;
-
-        let line = tokio::time::timeout(QGA_RESPONSE_TIMEOUT, read_line_bounded(&mut self.reader))
+        let result = timeout(self.options.command_timeout, operation)
             .await
-            .map_err(|_| Error::Timeout("QGA command timed out".into()))??;
-        let line = match line {
-            LineRead::Line(line) => line,
-            // `read_line_bounded` returns `Eof` at stream close, mirroring
-            // the previous `read_line` Ok(0) handling — either way the
-            // peer hung up and we bail with a meaningful message instead
-            // of feeding an empty string into serde_json.
-            LineRead::Eof => {
-                return Err(Error::Protocol("QGA connection closed".into()));
+            .map_err(|_| {
+                Error::Timeout(
+                    "QGA command timed out; reconnect and synchronize before reuse".into(),
+                )
+            })?;
+        match result {
+            Ok(value) => {
+                self.session = Some(session);
+                wire::decode(value)
             }
-            LineRead::TooLong => {
-                return Err(Error::Protocol(format!(
-                    "QGA response exceeded {} bytes",
-                    MAX_LINE_BYTES
-                )));
+            Err(error @ Error::Qmp(_)) => {
+                self.session = Some(session);
+                Err(error)
             }
-        };
-        if line.trim().is_empty() {
-            return Err(Error::Protocol("QGA connection closed".into()));
+            Err(error) => Err(error),
         }
-        let resp: serde_json::Value = serde_json::from_str(line.trim())?;
+    }
 
-        if let Some(error) = resp.get("error") {
-            // QGA uses the same `{class, desc}` shape as QMP — reuse the
-            // typed `QmpError` wrapper so callers can match on a single
-            // error type regardless of which protocol surfaced it.
-            return Err(Error::Qmp(build_qmp_error(error)));
+    /// Send an explicitly response-less command and close the connection.
+    /// Success only means the bytes were written. The agent can still fail the
+    /// command or shut down later, and no remote success acknowledgement exists.
+    pub async fn send_no_response<C: QapiCommand<Returns = ()>>(&mut self, cmd: &C) -> Result<()> {
+        if C::SUCCESS_RESPONSE {
+            return Err(Error::InvalidRequest(
+                "command has a response; use execute".into(),
+            ));
         }
-
-        let ret = resp
-            .get("return")
-            .cloned()
-            .unwrap_or(serde_json::Value::Object(serde_json::Map::new()));
-
-        // Handle () returns
-        let ret = if ret.as_object().is_some_and(|o| o.is_empty()) {
-            match serde_json::from_value::<T>(ret.clone()) {
-                Ok(v) => return Ok(v),
-                Err(_) => serde_json::Value::Null,
-            }
-        } else {
-            ret
-        };
-
-        Ok(serde_json::from_value(ret)?)
+        let request = qapi::with_version(self.version, || {
+            wire::request(C::NAME, serde_json::to_value(cmd)?, false)
+        })?;
+        let bytes = framing::encode(&request, self.options.max_message_bytes)?;
+        let mut session = self.session.take().ok_or(Error::Closed)?;
+        timeout(
+            self.options.command_timeout,
+            session.writer.write_all(&bytes),
+        )
+        .await
+        .map_err(|_| Error::Timeout("QGA write timed out".into()))??;
+        Ok(())
     }
 }
 
-/// Normalize a `guest-info` version string before handing it to
-/// `qapi::set_qga_version`, which does a strict `split('.')` parse.
-///
-/// Every released `qemu-ga` emits `"major.minor.patch"`, but real-world
-/// inputs have included leading/trailing whitespace, a vendor `"v"`
-/// prefix, or fewer than three components. `set_qga_version` falls back
-/// to `(0, 0, 0)` on any parse failure, so these "almost-valid" strings
-/// silently lost all version info. Trim whitespace and strip a leading
-/// `v`/`V` here so `"v1"`, `" 1.0.0 "`, `"1.0"` and friends parse as
-/// expected; truly malformed input still falls through to `(0, 0, 0)`
-/// in `set_qga_version`, matching `qemu_version`'s missing-greeting
-/// behavior.
-fn normalize_qga_version(raw: &str) -> String {
-    let trimmed = raw.trim();
-    let stripped = trimmed
-        .strip_prefix('v')
-        .or_else(|| trimmed.strip_prefix('V'))
-        .unwrap_or(trimmed);
-    stripped.to_string()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::normalize_qga_version;
-
-    #[test]
-    fn normalize_empty() {
-        assert_eq!(normalize_qga_version(""), "");
-    }
-
-    #[test]
-    fn normalize_single_number() {
-        assert_eq!(normalize_qga_version("1"), "1");
-    }
-
-    #[test]
-    fn normalize_two_components() {
-        assert_eq!(normalize_qga_version("1.0"), "1.0");
-    }
-
-    #[test]
-    fn normalize_triple() {
-        assert_eq!(normalize_qga_version("1.0.0"), "1.0.0");
-    }
-
-    #[test]
-    fn normalize_prerelease_suffix() {
-        assert_eq!(normalize_qga_version("1.0.0rc1"), "1.0.0rc1");
-    }
-
-    #[test]
-    fn normalize_leading_v() {
-        assert_eq!(normalize_qga_version("v1"), "1");
-        assert_eq!(normalize_qga_version("v1.2.3"), "1.2.3");
-    }
-
-    #[test]
-    fn normalize_uppercase_v() {
-        assert_eq!(normalize_qga_version("V2.0"), "2.0");
-    }
-
-    #[test]
-    fn normalize_whitespace() {
-        assert_eq!(normalize_qga_version(" 1.0.0 "), "1.0.0");
-        assert_eq!(normalize_qga_version("\t1.2.3\n"), "1.2.3");
-    }
-
-    #[test]
-    fn normalize_whitespace_and_v() {
-        assert_eq!(normalize_qga_version("  v3.1.4  "), "3.1.4");
-    }
+fn parse_version(raw: &str) -> Result<(u32, u32, u32)> {
+    let raw = raw.trim().trim_start_matches(['v', 'V']);
+    let parts: Vec<_> = raw.split('.').collect();
+    let parse = || -> Option<(u32, u32, u32)> {
+        if parts.len() != 3 {
+            return None;
+        }
+        let patch: String = parts[2].chars().take_while(char::is_ascii_digit).collect();
+        Some((
+            parts[0].parse().ok()?,
+            parts[1].parse().ok()?,
+            patch.parse().ok()?,
+        ))
+    };
+    parse().ok_or_else(|| Error::Protocol(format!("invalid guest-agent version: {raw:?}")))
 }

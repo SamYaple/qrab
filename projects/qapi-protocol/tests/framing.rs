@@ -1,204 +1,296 @@
-//! `MAX_LINE_BYTES` framing-limit tests for the QMP read loop.
-//!
-//! Complements the three `split_framed_*` mock-server tests by
-//! exercising the specific S7-12 invariant: "oversize line triggers
-//! resync or clean error without crash". Uses a raw `UnixStream`
-//! instead of the `QmpSession` helpers so the server can emit a
-//! >1 MiB line (and a just-under-limit line) without going through
-//! the serializer which would never produce such payloads.
+mod support;
+use qapi_protocol::{ClientOptions, Error, Qmp};
+use serde_json::json;
+use std::{sync::Arc, time::Duration};
+use tokio::{io::AsyncWriteExt, net::UnixStream};
 
-use qapi_protocol::Qmp;
-use std::path::Path;
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::Duration;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::net::{UnixListener, UnixStream};
-
-static SOCKET_COUNTER: AtomicU64 = AtomicU64::new(0);
-fn unique_socket() -> String {
-    let id = SOCKET_COUNTER.fetch_add(1, Ordering::Relaxed);
-    format!("/tmp/qrab-mock-framing-{}-{}.sock", std::process::id(), id)
-}
-
-/// Mirrors the crate-private constant. The assertion below guards
-/// against the production value drifting without this file being
-/// updated (see `projects/qapi-protocol/src/lib.rs:54`).
-const MAX_LINE_BYTES: usize = 1_024 * 1_024;
-
-/// Write greeting + consume `qmp_capabilities` handshake on a raw
-/// stream. Factored out so each test's server closure stays short.
-async fn handshake(stream: &mut UnixStream) {
-    let greeting = br#"{"QMP":{"version":{"qemu":{"major":10,"minor":2,"micro":0},"package":""},"capabilities":["oob"]}}"#;
-    stream.write_all(greeting).await.unwrap();
-    stream.write_all(b"\n").await.unwrap();
-    stream.flush().await.unwrap();
-
-    // Read qmp_capabilities request line.
-    let (read, mut write) = stream.split();
-    let mut reader = BufReader::new(read);
-    let mut line = String::new();
-    reader.read_line(&mut line).await.unwrap();
-    // Echo id back if present.
-    let parsed: serde_json::Value = serde_json::from_str(line.trim()).unwrap();
-    let mut resp = serde_json::json!({"return": {}});
-    if let Some(id) = parsed.get("id").cloned() {
-        resp["id"] = id;
-    }
-    write
-        .write_all(serde_json::to_string(&resp).unwrap().as_bytes())
+#[tokio::test]
+async fn oversized_unterminated_frame_fails_without_waiting_for_newline() {
+    let options = ClientOptions {
+        max_message_bytes: 512,
+        ..ClientOptions::default()
+    };
+    let (client, _, mut reader, mut writer) = support::raw_qmp(options).await;
+    let client = Arc::new(client);
+    let other = client.clone();
+    let call = tokio::spawn(async move { other.execute_raw(json!({"execute": "ping"})).await });
+    support::read(&mut reader).await;
+    writer.write_all(&vec![b'a'; 1024]).await.unwrap();
+    assert!(tokio::time::timeout(Duration::from_secs(1), call)
         .await
-        .unwrap();
-    write.write_all(b"\n").await.unwrap();
-    write.flush().await.unwrap();
+        .unwrap()
+        .unwrap()
+        .is_err());
+    assert!(matches!(&*client.closed().await, Error::Protocol(_)));
 }
 
-/// Serve one command by routing the QMP `id` back unchanged.
-async fn serve_one_query_status(stream: &mut UnixStream) {
-    let (read, mut write) = stream.split();
-    let mut reader = BufReader::new(read);
-    let mut line = String::new();
-    reader.read_line(&mut line).await.unwrap();
-    let parsed: serde_json::Value = serde_json::from_str(line.trim()).unwrap();
-    let id = parsed.get("id").cloned();
-    let mut resp = serde_json::json!({
-        "return": {"running": true, "status": "running"}
+#[tokio::test]
+async fn default_limit_accepts_realistic_large_responses() {
+    let (client, _, mut reader, mut writer) = support::raw_qmp(ClientOptions::default()).await;
+    let call = tokio::spawn(async move {
+        let result = client
+            .execute_raw(json!({"execute": "large"}))
+            .await
+            .unwrap();
+        assert_eq!(result.as_str().unwrap().len(), 2 * 1024 * 1024);
+        client.shutdown().await;
     });
-    if let Some(id) = id {
-        resp["id"] = id;
-    }
-    write
-        .write_all(serde_json::to_string(&resp).unwrap().as_bytes())
-        .await
-        .unwrap();
-    write.write_all(b"\n").await.unwrap();
-    write.flush().await.unwrap();
-}
-
-/// Client connected to a mock that (a) completes the handshake, then
-/// (b) pushes an oversize unterminated line, then (c) answers a
-/// normal `query-status` issued after the overflow. Asserts the
-/// client survives the overflow (no panic/hang) and that the next
-/// `execute` still works — proving `read_line_bounded`'s resync path
-/// is live in the read loop.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn oversize_line_does_not_crash_client() {
-    let sock = unique_socket();
-    let listener = UnixListener::bind(&sock).unwrap();
-
-    let server = tokio::spawn(async move {
-        let (mut stream, _addr) = listener.accept().await.unwrap();
-        handshake(&mut stream).await;
-
-        // Oversize payload: `MAX_LINE_BYTES + 1 KiB` of padded JSON.
-        // Shape it as a valid-looking response ({"x":"AAAA..."}) so if
-        // the cap ever silently grew the line would still be parseable
-        // and we'd notice via a routing warning instead of a crash.
-        // Newline at the very end so read_line_bounded's resync drain
-        // can find a line boundary after dropping the head.
-        let pad_len = MAX_LINE_BYTES + 1024;
-        let mut big = Vec::with_capacity(pad_len + 32);
-        big.extend_from_slice(br#"{"return":{"x":""#);
-        big.resize(big.len() + pad_len, b'A');
-        big.extend_from_slice(br#""}}"#);
-        big.push(b'\n');
-        stream.write_all(&big).await.unwrap();
-        stream.flush().await.unwrap();
-
-        // Now serve a real query-status so the caller can prove the
-        // read loop is still alive.
-        serve_one_query_status(&mut stream).await;
-
-        // Hold the connection open briefly so the client's last
-        // response actually lands before we tear down.
-        tokio::time::sleep(Duration::from_millis(100)).await;
-    });
-
-    tokio::time::sleep(Duration::from_millis(50)).await;
-    let (mut qmp, _events) = Qmp::new(Path::new(&sock)).await.unwrap();
-
-    // The oversize line may land before or after our dispatch — either
-    // way the client must not crash. A bounded timeout guards against
-    // a hang (the real bug we're looking for).
-    let status: qapi::StatusInfo = tokio::time::timeout(
-        Duration::from_secs(5),
-        qmp.execute(&qapi::commands::QueryStatus {}),
+    let request = support::read(&mut reader).await;
+    support::write(
+        &mut writer,
+        json!({"return": "x".repeat(2 * 1024 * 1024), "id": request["id"]}),
     )
-    .await
-    .expect("client hung after oversize line — read loop did not resync")
-    .expect("query-status failed after oversize line");
-    assert!(status.running);
-
-    qmp.shutdown().await;
-    server.await.unwrap();
-    let _ = std::fs::remove_file(&sock);
+    .await;
+    call.await.unwrap();
 }
 
-/// A line just under the cap, containing a valid large JSON response,
-/// must still parse and route. This pins the upper end of the framing
-/// window: oversize drops, undersize-at-limit survives.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn undersize_line_at_limit_still_parses() {
-    let sock = unique_socket();
-    let listener = UnixListener::bind(&sock).unwrap();
+#[tokio::test]
+async fn malformed_envelopes_fail_the_connection_instead_of_becoming_success() {
+    for malformed in [
+        json!({"id": 1}),
+        json!({"id": 1, "return": {}, "error": {"class":"X","desc":"X"}}),
+        json!({"id": 1, "error": {"desc":"missing class"}}),
+        json!([1]),
+    ] {
+        let (client, _, mut reader, mut writer) = support::raw_qmp(ClientOptions::default()).await;
+        let client = Arc::new(client);
+        let other = client.clone();
+        let call = tokio::spawn(async move { other.execute(&qapi::commands::Quit {}).await });
+        support::read(&mut reader).await;
+        support::write(&mut writer, malformed).await;
+        assert!(tokio::time::timeout(Duration::from_secs(1), call)
+            .await
+            .unwrap()
+            .unwrap()
+            .is_err());
+        assert!(client.is_closed());
+    }
+}
 
-    let server = tokio::spawn(async move {
-        let (mut stream, _addr) = listener.accept().await.unwrap();
-        handshake(&mut stream).await;
+#[tokio::test]
+async fn truncated_json_at_eof_and_invalid_utf8_are_errors() {
+    for bytes in [b"{\"return\":{},\"id\":1}".as_slice(), b"\xff\n".as_slice()] {
+        let (client, _, mut reader, mut writer) = support::raw_qmp(ClientOptions::default()).await;
+        let call =
+            tokio::spawn(async move { client.execute_raw(json!({"execute": "ping"})).await });
+        support::read(&mut reader).await;
+        writer.write_all(bytes).await.unwrap();
+        drop(writer);
+        assert!(call.await.unwrap().is_err());
+    }
+}
 
-        // Wait for the client's query-status, then fabricate a reply
-        // whose serialized form is just under MAX_LINE_BYTES. Pad the
-        // payload so `len(serialized) + len("\n") < MAX_LINE_BYTES`,
-        // leaving ~128 bytes of headroom for the JSON skeleton + id.
-        let (read, mut write) = stream.split();
-        let mut reader = BufReader::new(read);
-        let mut line = String::new();
-        reader.read_line(&mut line).await.unwrap();
-        let parsed: serde_json::Value = serde_json::from_str(line.trim()).unwrap();
-        let id = parsed.get("id").cloned();
+#[tokio::test]
+async fn fragmented_read_survives_outbound_activity() {
+    let (client, mut events, mut reader, mut writer) =
+        support::raw_qmp(ClientOptions::default()).await;
+    let client = Arc::new(client);
+    writer.write_all(b"{\"event\":\"ST").await.unwrap();
+    tokio::task::yield_now().await;
+    let other = client.clone();
+    let call = tokio::spawn(async move { other.execute_raw(json!({"execute": "ping"})).await });
+    let request = support::read(&mut reader).await;
+    writer
+        .write_all(b"OP\",\"timestamp\":{\"seconds\":-1,\"microseconds\":-1}}\r\n")
+        .await
+        .unwrap();
+    support::write(&mut writer, json!({"return": null, "id": request["id"]})).await;
+    assert!(call.await.unwrap().unwrap().is_null());
+    let event = events.recv().await.unwrap();
+    assert_eq!(event.event, "STOP");
+    assert_eq!(event.timestamp.microseconds, -1);
+    client.shutdown().await;
+}
 
-        let pad_len = MAX_LINE_BYTES - 256;
-        let padding: String = "A".repeat(pad_len);
-        let mut resp = serde_json::json!({
-            "return": {
-                "running": true,
-                "status": "running",
-                // status-info is open in the mock: extra fields are
-                // dropped by the typed deserializer. The `_pad` here
-                // fattens the wire line without disturbing typed
-                // decoding.
-                "_pad": padding,
-            }
+#[tokio::test]
+async fn invalid_raw_requests_fail_before_writing_and_do_not_poison_the_session() {
+    let (client, _, _peer) = support::qmp(ClientOptions::default()).await;
+    for value in [
+        json!(null),
+        json!({"execute":""}),
+        json!({"execute":"ping", "id":7}),
+        json!({"execute":"ping", "arguments":[]}),
+        json!({"exec-oob":"query-yank"}),
+    ] {
+        assert!(matches!(
+            client.execute_raw(value).await,
+            Err(Error::InvalidRequest(_))
+        ));
+        assert!(!client.is_closed());
+        assert_eq!(client.queue_depth(), 0);
+    }
+    client.shutdown().await;
+}
+
+#[tokio::test]
+async fn handshake_requires_real_capability_ack_and_preserves_early_events() {
+    for response in [
+        json!({}),
+        json!({"return":{},"id":99}),
+        json!({"return":null,"id":0}),
+    ] {
+        let (client, peer) = UnixStream::pair().unwrap();
+        let (read, mut write) = peer.into_split();
+        let mut read = tokio::io::BufReader::new(read);
+        let server = tokio::spawn(async move {
+            support::write(&mut write, support::greeting()).await;
+            support::read(&mut read).await;
+            support::write(&mut write, response).await;
         });
-        if let Some(id) = id {
-            resp["id"] = id;
-        }
-        let serialized = serde_json::to_string(&resp).unwrap();
-        assert!(
-            serialized.len() + 1 < MAX_LINE_BYTES,
-            "test payload {} bytes must stay under cap {}",
-            serialized.len() + 1,
-            MAX_LINE_BYTES,
-        );
-        write.write_all(serialized.as_bytes()).await.unwrap();
-        write.write_all(b"\n").await.unwrap();
-        write.flush().await.unwrap();
-
-        tokio::time::sleep(Duration::from_millis(100)).await;
+        assert!(Qmp::from_stream(client).await.is_err());
+        server.await.unwrap();
+    }
+    let (client, peer) = UnixStream::pair().unwrap();
+    let server = tokio::spawn(async move {
+        let mut peer = qapi_protocol::server::QmpSession::from_stream(peer);
+        peer.send_greeting(11, 1, 3).await.unwrap();
+        peer.send_event("STOP", json!({})).await.unwrap();
+        peer.negotiate().await.unwrap();
+        peer
     });
+    let (client, mut events) = Qmp::from_stream(client).await.unwrap();
+    let _peer = server.await.unwrap();
+    assert_eq!(events.recv().await.unwrap().event, "STOP");
+    assert_eq!(client.greeting().version.package, "");
+    client.shutdown().await;
+}
 
-    tokio::time::sleep(Duration::from_millis(50)).await;
-    let (mut qmp, _events) = Qmp::new(Path::new(&sock)).await.unwrap();
+#[tokio::test]
+async fn unknown_error_classes_are_preserved_and_valid_errors_allow_next_command() {
+    let (client, _, mut peer) = support::qmp(ClientOptions::default()).await;
+    let client = Arc::new(client);
+    let other = client.clone();
+    let call = tokio::spawn(async move { other.execute_raw(json!({"execute":"ping"})).await });
+    peer.recv_command().await.unwrap();
+    peer.send_error("FutureError", "exact description")
+        .await
+        .unwrap();
+    match call.await.unwrap().unwrap_err() {
+        Error::Qmp(error) => {
+            assert_eq!(error.class, "FutureError");
+            assert_eq!(error.desc, "exact description");
+            assert!(error.known_class().is_none());
+        }
+        other => panic!("{other:?}"),
+    }
+    assert!(!client.is_closed());
+    client.shutdown().await;
+}
 
-    let status: qapi::StatusInfo = tokio::time::timeout(
-        Duration::from_secs(5),
-        qmp.execute(&qapi::commands::QueryStatus {}),
-    )
+#[tokio::test]
+async fn large_upload_does_not_block_reading_an_earlier_large_reply() {
+    use tokio::io::AsyncBufReadExt;
+    let (client, _, mut reader, mut writer) = support::raw_qmp(ClientOptions::default()).await;
+    let client = Arc::new(client);
+    let other = client.clone();
+    let download =
+        tokio::spawn(async move { other.execute_raw(json!({"execute":"download"})).await });
+    let first = support::read(&mut reader).await;
+    let other = client.clone();
+    let upload = tokio::spawn(async move {
+        other
+            .execute_raw(json!({"execute":"upload","arguments":{"data":"y".repeat(4*1024*1024)}}))
+            .await
+    });
+    // The second command has begun writing; the socket cannot buffer it all.
+    assert!(!reader.fill_buf().await.unwrap().is_empty());
+    tokio::time::timeout(Duration::from_secs(2), async {
+        support::write(
+            &mut writer,
+            json!({"return":"x".repeat(2*1024*1024),"id":first["id"]}),
+        )
+        .await;
+        let second = support::read(&mut reader).await;
+        assert_eq!(
+            second["arguments"]["data"].as_str().unwrap().len(),
+            4 * 1024 * 1024
+        );
+        support::write(&mut writer, json!({"return":{},"id":second["id"]})).await;
+        assert_eq!(
+            download.await.unwrap().unwrap().as_str().unwrap().len(),
+            2 * 1024 * 1024
+        );
+        upload.await.unwrap().unwrap();
+    })
     .await
-    .expect("client hung on just-under-cap line")
-    .expect("just-under-cap line failed to decode");
-    assert!(status.running);
+    .expect("full-duplex read/write deadlocked under backpressure");
+    client.shutdown().await;
+}
 
-    qmp.shutdown().await;
-    server.await.unwrap();
-    let _ = std::fs::remove_file(&sock);
+#[tokio::test]
+async fn pretty_printed_json_and_escaped_delimiters_are_framed_as_one_message() {
+    let (client, _, mut reader, mut writer) = support::raw_qmp(ClientOptions::default()).await;
+    let call = tokio::spawn(async move { client.execute_raw(json!({"execute":"pretty"})).await });
+    let request = support::read(&mut reader).await;
+    let payload = json!([{"text":"quoted \"}]}\" and newline\n inside a string"}]);
+    let mut bytes =
+        serde_json::to_vec_pretty(&json!({"return":payload,"id":request["id"]})).unwrap();
+    bytes.extend_from_slice(b"\r\n");
+    // Split in the middle of an escaped string to exercise persistent lexer state.
+    for chunk in bytes.chunks(7) {
+        writer.write_all(chunk).await.unwrap();
+        tokio::task::yield_now().await;
+    }
+    assert_eq!(call.await.unwrap().unwrap(), payload);
+}
+
+#[tokio::test]
+async fn shutdown_cancels_a_blocked_write_and_wakes_its_caller() {
+    use tokio::io::AsyncBufReadExt;
+    let (client, mut events, mut reader, _writer) =
+        support::raw_qmp(ClientOptions::default()).await;
+    let client = Arc::new(client);
+    let other = client.clone();
+    let call = tokio::spawn(async move {
+        other
+            .execute_raw(json!({"execute":"upload","arguments":{"data":"x".repeat(4*1024*1024)}}))
+            .await
+    });
+    assert!(!reader.fill_buf().await.unwrap().is_empty());
+    tokio::time::timeout(Duration::from_secs(1), client.shutdown())
+        .await
+        .unwrap();
+    assert!(matches!(call.await.unwrap(), Err(Error::Disconnected(_))));
+    assert_eq!(client.queue_depth(), 0);
+    assert!(events.recv().await.is_none());
+}
+
+#[tokio::test]
+async fn unknown_ids_of_any_json_type_are_dropped_without_harming_routing() {
+    let (client, _, mut reader, mut writer) = support::raw_qmp(ClientOptions::default()).await;
+    let call = tokio::spawn(async move { client.execute_raw(json!({"execute":"ping"})).await });
+    let request = support::read(&mut reader).await;
+    for id in [
+        json!(null),
+        json!("stale"),
+        json!({"old":true}),
+        json!([1]),
+        json!(999),
+    ] {
+        support::write(&mut writer, json!({"return":"wrong","id":id})).await;
+    }
+    support::write(&mut writer, json!({"return":"correct","id":request["id"]})).await;
+    assert_eq!(call.await.unwrap().unwrap(), json!("correct"));
+}
+
+#[tokio::test]
+async fn idless_server_error_closes_connection_and_preserves_the_cause() {
+    let (client, _, mut reader, mut writer) = support::raw_qmp(ClientOptions::default()).await;
+    let client = Arc::new(client);
+    let other = client.clone();
+    let call = tokio::spawn(async move { other.execute_raw(json!({"execute":"ping"})).await });
+    support::read(&mut reader).await;
+    support::write(
+        &mut writer,
+        json!({"error":{"class":"GenericError","desc":"parser rejected input"}}),
+    )
+    .await;
+    match call.await.unwrap().unwrap_err() {
+        Error::Disconnected(cause) => match &*cause {
+            Error::Qmp(error) => assert_eq!(error.desc, "parser rejected input"),
+            other => panic!("{other:?}"),
+        },
+        other => panic!("{other:?}"),
+    }
+    client.shutdown().await;
 }
