@@ -8,12 +8,13 @@ COPY projects ./projects
 RUN --mount=type=cache,id=qrab-cargo-registry,target=/usr/local/cargo/registry --mount=type=cache,id=qrab-manager-target,target=/src/target,sharing=locked cargo build --release --locked -p manager --bin qrab-manager -p bmc --bin qrab-bmc && mkdir -p /out && cp /src/target/release/qrab-manager /src/target/release/qrab-bmc /out/
 
 FROM ${DEBIAN_IMAGE} AS demo-guest
-RUN apt-get update && apt-get install -y --no-install-recommends linux-image-amd64 busybox-static kmod zstd python3 gzip tpm2-tools systemd-ukify systemd-boot-efi dosfstools mtools fdisk && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends linux-image-amd64 busybox-static kmod zstd python3 gzip tpm2-tools systemd-ukify systemd-boot-efi dosfstools mtools fdisk e2fsprogs diffutils && rm -rf /var/lib/apt/lists/*
 COPY contrib/images/guest-init /guest/init
 COPY contrib/images/make-initramfs.py /make-initramfs.py
 COPY contrib/images/prepare-guest.py /prepare-guest.py
+COPY contrib/images/guest-disk-probe /guest/usr/bin/qrab-disk-probe
 COPY contrib/images/make-uefi-boot.py /make-uefi-boot.py
-RUN python3 /prepare-guest.py && chmod 0755 /guest/init && python3 /make-initramfs.py /guest /out/initramfs.gz && python3 /make-uefi-boot.py
+RUN python3 /prepare-guest.py && chmod 0755 /guest/init /guest/usr/bin/qrab-disk-probe && python3 /make-initramfs.py /guest /out/initramfs.gz && python3 /make-uefi-boot.py
 
 FROM ${QEMU_IMAGE}
 ARG QRAB_REVISION=unknown

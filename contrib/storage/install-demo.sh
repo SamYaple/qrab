@@ -29,12 +29,6 @@ chmod 0600 "$install_dir/marker"
 mv -T -- "$install_dir/marker" "$marker"
 /usr/bin/systemctl start sys-kernel-config.mount
 "$program" bootstrap
-"$program" install-unit
-"$program" plan --vm-uid e309f751-5dda-4271-a0f4-4454c9527a59 --size-mib 128
-"$program" apply --vm-uid e309f751-5dda-4271-a0f4-4454c9527a59 --size-mib 128
-"$program" handoff --vm-uid e309f751-5dda-4271-a0f4-4454c9527a59 --recipient-uid "$recipient_uid"
-/usr/bin/systemctl daemon-reload
-/usr/bin/systemctl enable --now qrab-iscsi-target.service
 if $allow_demo_automation; then
   rule=/etc/sudoers.d/qrab-iscsi-demo
   cat > "$install_dir/sudoers" <<RULE
@@ -51,4 +45,11 @@ RULE
   /usr/sbin/visudo -cf /etc/sudoers
   printf 'Explicit demo-only automation grant installed: four exact commands, no wildcard arguments or root shell.\n'
 fi
+
+"$program" install-unit
+"$program" plan --vm-uid e309f751-5dda-4271-a0f4-4454c9527a59 --size-mib 128
+"$program" apply --vm-uid e309f751-5dda-4271-a0f4-4454c9527a59 --size-mib 128
+"$program" handoff --vm-uid e309f751-5dda-4271-a0f4-4454c9527a59 --recipient-uid "$recipient_uid"
+/usr/bin/systemctl daemon-reload
+/usr/bin/systemctl enable --now qrab-iscsi-target.service
 printf 'Dedicated target prepared. Credentials are in the reported recipient-owned0600 file; no existing CSI export was changed.\n'

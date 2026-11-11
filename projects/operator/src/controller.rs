@@ -1,3 +1,6 @@
+#[path = "storage_guard.rs"]
+mod storage_guard;
+
 use crate::{
     api::{VirtualMachine, VirtualMachineStatus},
     resources::{self, Desired, Settings},
@@ -34,12 +37,30 @@ fn state(
         ready,
         reason: reason.into(),
         message: message.into(),
-        pod_name: pod.map(ResourceExt::name_any),
-        pod_uid: pod.and_then(ResourceExt::uid),
+        // Retain the last unreleased native-storage owner when its Pod is
+        // absent; clearing it would turn an unknown loss into a fresh start.
+        pod_name: pod.map(ResourceExt::name_any).or_else(|| {
+            storage_guard::unreleased_uid(vm).and_then(|_| vm.status.as_ref()?.pod_name.clone())
+        }),
+        pod_uid: pod
+            .and_then(ResourceExt::uid)
+            .or_else(|| storage_guard::unreleased_uid(vm).map(str::to_owned)),
         node_name: pod
             .and_then(|p| p.spec.as_ref())
-            .and_then(|s| s.node_name.clone()),
+            .and_then(|s| s.node_name.clone())
+            .or_else(|| {
+                if pod.is_none() && storage_guard::unreleased_uid(vm).is_some() {
+                    vm.status.as_ref()?.node_name.clone()
+                } else {
+                    None
+                }
+            }),
         state_volume_uid: vm.status.as_ref().and_then(|s| s.state_volume_uid.clone()),
+        storage_released_pod_uid: vm
+            .status
+            .as_ref()
+            .and_then(|s| s.storage_released_pod_uid.clone()),
+        storage_recovery: vm.status.as_ref().and_then(|s| s.storage_recovery.clone()),
     }
 }
 
@@ -92,10 +113,20 @@ async fn ensure_config(
         {
             return Ok(false);
         }
+        let mut applied = desired.config.clone();
+        applied.metadata.uid = Some(
+            actual
+                .uid()
+                .ok_or_else(|| Error::Ownership(format!("ConfigMap {name} has no UID")))?,
+        );
+        applied.metadata.resource_version =
+            Some(actual.resource_version().ok_or_else(|| {
+                Error::Ownership(format!("ConfigMap {name} has no resourceVersion"))
+            })?);
         api.patch(
             &name,
             &PatchParams::apply("qrab-operator").force(),
-            &Patch::Apply(&desired.config),
+            &Patch::Apply(&applied),
         )
         .await?;
         return Ok(boot_changed);
@@ -110,12 +141,18 @@ async fn synchronize(
     ctx: &Context,
     vms: &Api<VirtualMachine>,
 ) -> Result<Action> {
-    resources::validate(vm, &ctx.settings)?;
     let pods: Api<Pod> = Api::namespaced(ctx.client.clone(), &ctx.settings.namespace);
     let configs: Api<ConfigMap> = Api::namespaced(ctx.client.clone(), &ctx.settings.namespace);
     let claims: Api<PersistentVolumeClaim> =
         Api::namespaced(ctx.client.clone(), &ctx.settings.namespace);
     let pod = pods.get_opt(&vm.name_any()).await?;
+    if let Some(action) = storage_guard::reconcile(vm, pod.as_ref(), vms, &pods).await? {
+        return Ok(action);
+    }
+    if vm.metadata.deletion_timestamp.is_some() {
+        return Ok(Action::await_change());
+    }
+    resources::validate(vm, &ctx.settings)?;
     if let Some(pod) = &pod {
         if !resources::owned(pod, vm) {
             return Err(Error::Ownership(format!(
@@ -349,6 +386,11 @@ async fn synchronize(
             .await?;
             return Ok(Action::requeue(Duration::from_secs(2)));
         }
+        // The guard recorded the owner UID first; only a validated,
+        // converged spec/config may now be made schedulable.
+        if storage_guard::open_owner_gate(vm, &pods, pod).await? {
+            return Ok(Action::requeue(Duration::from_secs(1)));
+        }
         let ready = pod
             .status
             .as_ref()
@@ -397,9 +439,6 @@ pub async fn reconcile(event: Arc<VirtualMachine>, ctx: Arc<Context>) -> Result<
     let Some(vm) = vms.get_opt(&event.name_any()).await? else {
         return Ok(Action::await_change());
     };
-    if vm.metadata.deletion_timestamp.is_some() {
-        return Ok(Action::await_change());
-    }
     match synchronize(&vm, &ctx, &vms).await {
         Ok(action) => Ok(action),
         Err(error @ (Error::Invalid(_) | Error::Ownership(_))) => {
@@ -423,4 +462,9 @@ pub async fn reconcile(event: Arc<VirtualMachine>, ctx: Arc<Context>) -> Result<
 pub fn error_policy(vm: Arc<VirtualMachine>, error: &Error, _ctx: Arc<Context>) -> Action {
     tracing::warn!(vm=%vm.name_any(), %error, "VM reconciliation failed");
     Action::requeue(Duration::from_secs(5))
+}
+
+/// Periodically collect clean storage Pods after a forcibly removed parent.
+pub async fn sweep_orphans(ctx: Arc<Context>) -> Result<()> {
+    storage_guard::sweep_orphans(ctx).await
 }

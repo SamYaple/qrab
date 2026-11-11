@@ -5,6 +5,12 @@ use std::{
 };
 use tokio::io::{AsyncBufReadExt, BufReader};
 
+fn fixture_binary(name: &str) -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures")
+        .join(name)
+}
+
 fn config(runtime: &Path, binary: PathBuf, kernel: PathBuf) -> Config {
     serde_json::from_value(serde_json::json!({"name":"test-vm","qemu_binary":binary,"kernel":kernel,"runtime_dir":runtime,"startup_timeout_secs":5,"shutdown_grace_secs":0})).unwrap()
 }
@@ -77,14 +83,11 @@ async fn early_child_failure_is_reported_and_status_is_not_ready() {
 
 #[tokio::test]
 async fn startup_timeout_and_signal_reap_the_owned_process() {
-    use std::os::unix::fs::PermissionsExt;
     for shutdown in [false, true] {
         let dir = tempfile::tempdir().unwrap();
         let kernel = dir.path().join("kernel");
         std::fs::write(&kernel, []).unwrap();
-        let binary = dir.path().join("fake-qemu");
-        std::fs::write(&binary, b"#!/bin/sh\nexec sleep 1000\n").unwrap();
-        std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let binary = fixture_binary("sleep.sh");
         let mut config = config(dir.path(), binary, kernel);
         config.startup_timeout_secs = 1;
         let result = pod::run(config.clone(), async {
@@ -167,9 +170,7 @@ async fn cancellation_reaps_child_and_concurrent_owners_are_refused() {
     let dir = tempfile::tempdir().unwrap();
     let kernel = dir.path().join("kernel");
     std::fs::write(&kernel, []).unwrap();
-    let binary = dir.path().join("fake-qemu");
-    std::fs::write(&binary, b"#!/bin/sh\nexec sleep 1000\n").unwrap();
-    std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let binary = fixture_binary("sleep.sh");
     let config = config(dir.path(), binary, kernel);
     let first = config.clone();
     let task = tokio::spawn(async move { pod::run(first, std::future::pending()).await });
@@ -282,22 +283,15 @@ fn uefi_and_tpm_arguments_keep_boot_data_and_control_paths_separate() {
 
 #[tokio::test]
 async fn swtpm_startup_failure_timeout_and_shutdown_reap_the_tpm_before_qemu() {
-    use std::os::unix::fs::PermissionsExt;
     for mode in ["exit", "timeout", "shutdown"] {
         let directory = tempfile::tempdir().unwrap();
         let kernel = directory.path().join("kernel");
         std::fs::write(&kernel, []).unwrap();
-        let binary = directory.path().join("fake-swtpm");
-        std::fs::write(
-            &binary,
-            if mode == "exit" {
-                b"#!/bin/sh\nexit 1\n".as_slice()
-            } else {
-                b"#!/bin/sh\nexec sleep 1000\n".as_slice()
-            },
-        )
-        .unwrap();
-        std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let binary = if mode == "exit" {
+            PathBuf::from("/bin/false")
+        } else {
+            fixture_binary("sleep.sh")
+        };
         let config: Config=serde_json::from_value(serde_json::json!({
             "kernel":kernel,"qemu_binary":"/bin/false", "tpm":{"swtpm_binary":binary},
             "state_dir":directory.path().join("state"),"runtime_dir":directory.path().join("runtime"),"startup_timeout_secs":1
@@ -310,12 +304,34 @@ async fn swtpm_startup_failure_timeout_and_shutdown_reap_the_tpm_before_qemu() {
             }
         })
         .await;
-        assert_eq!(outcome.is_ok(), mode == "shutdown");
+        match mode {
+            "exit" => assert!(outcome
+                .as_ref()
+                .unwrap_err()
+                .to_string()
+                .contains("swtpm exited during startup")),
+            "timeout" => assert!(outcome
+                .as_ref()
+                .unwrap_err()
+                .to_string()
+                .contains("swtpm startup timed out")),
+            "shutdown" => assert_eq!(
+                outcome.as_ref().unwrap().reason,
+                "shutdown-during-tpm-startup"
+            ),
+            _ => unreachable!(),
+        }
         let status = pod::status(&config).unwrap();
+        let pid = status.swtpm_pid.unwrap_or_else(|| {
+            panic!(
+                "swtpm PID missing in mode {mode}; outcome={outcome:?}; detail={:?}",
+                status.detail
+            )
+        });
         assert!(status.qemu_pid.is_none());
         assert!(!status.ready);
         assert!(
-            !PathBuf::from(format!("/proc/{}", status.swtpm_pid.unwrap())).exists(),
+            !PathBuf::from(format!("/proc/{pid}")).exists(),
             "TPM process leaked after {mode}"
         );
     }

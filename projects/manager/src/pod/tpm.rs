@@ -1,4 +1,4 @@
-use super::Tpm;
+use super::{persistent::StateLease, process::ManagedChild, Tpm};
 use crate::{Error, Result};
 use std::{
     os::unix::fs::FileTypeExt,
@@ -6,19 +6,21 @@ use std::{
     process::{ExitStatus, Stdio},
     time::Duration,
 };
-use tokio::{
-    process::{Child, Command},
-    time::timeout,
-};
+use tokio::{process::Command, time::timeout};
 
 pub(super) struct Swtpm {
-    child: Child,
+    child: ManagedChild,
     socket: PathBuf,
     permanent: PathBuf,
 }
 
 impl Swtpm {
-    pub(super) fn spawn(config: &Tpm, session: &Path, state: &Path) -> Result<Self> {
+    pub(super) fn spawn(
+        config: &Tpm,
+        session: &Path,
+        state: &Path,
+        lease: StateLease,
+    ) -> Result<Self> {
         let socket = session.join("swtpm.sock");
         let child = Command::new(&config.swtpm_binary)
             .args(["socket", "--tpm2", "--tpmstate"])
@@ -37,14 +39,14 @@ impl Swtpm {
             .kill_on_drop(true)
             .spawn()?;
         Ok(Self {
-            child,
+            child: ManagedChild::new(child, Some(lease)),
             socket,
             permanent: state.join("tpm2-00.permall"),
         })
     }
 
     pub(super) fn id(&self) -> Option<u32> {
-        self.child.id()
+        Some(self.child.spawned_pid())
     }
 
     pub(super) async fn ready(&mut self) -> Result<()> {
@@ -66,8 +68,13 @@ impl Swtpm {
         Ok(self.child.wait().await?)
     }
 
-    pub(super) async fn stop(&mut self) -> Result<()> {
-        if self.child.try_wait()?.is_some() {
+    pub(super) async fn stop(&mut self, require_clean: bool) -> Result<()> {
+        if let Some(exit) = self.child.try_wait()? {
+            if require_clean && !exit.success() {
+                return Err(Error::Spawn(
+                    "swtpm did not exit cleanly; native disk release is not proven".into(),
+                ));
+            }
             return Ok(());
         }
         if let Some(pid) = self.child.id() {
@@ -77,14 +84,25 @@ impl Swtpm {
             );
         }
         if let Ok(result) = timeout(Duration::from_secs(2), self.child.wait()).await {
-            result?;
+            let exit = result?;
+            if require_clean && !exit.success() {
+                return Err(Error::Spawn(
+                    "swtpm did not exit cleanly; native disk release is not proven".into(),
+                ));
+            }
             return Ok(());
         }
         self.child.start_kill()?;
         timeout(Duration::from_secs(2), self.child.wait())
             .await
             .map_err(|_| Error::Spawn("swtpm did not reap after SIGKILL".into()))??;
-        Ok(())
+        if require_clean {
+            Err(Error::Spawn(
+                "swtpm required SIGKILL; native disk release is not proven".into(),
+            ))
+        } else {
+            Ok(())
+        }
     }
 }
 

@@ -1,11 +1,13 @@
-use super::Config;
+use super::{iscsi::Binding, Config};
 use crate::{Error, Result};
 use serde::{Deserialize, Serialize};
 use std::{
+    collections::BTreeMap,
     fs::{self, File, OpenOptions},
     io::{Read, Write},
     os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt},
     path::{Path, PathBuf},
+    sync::Arc,
 };
 
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -17,6 +19,9 @@ struct Manifest {
     uefi: bool,
     tpm: bool,
     tpm_initialized: bool,
+    /// Retain removed IDs so they cannot later be repurposed for another LUN.
+    #[serde(default)]
+    iscsi_disks: BTreeMap<String, Binding>,
 }
 
 /// The PVC mount root may be group-writable through fsGroup. All identity
@@ -24,8 +29,10 @@ struct Manifest {
 pub(super) struct PersistentState {
     directory: PathBuf,
     manifest: Manifest,
-    _lock: nix::fcntl::Flock<File>,
+    _lock: StateLease,
 }
+
+pub(super) type StateLease = Arc<nix::fcntl::Flock<File>>;
 
 fn private_directory(path: &Path) -> Result<()> {
     match fs::DirBuilder::new().mode(0o700).create(path) {
@@ -72,7 +79,7 @@ fn write_manifest(directory: &Path, manifest: &Manifest) -> Result<()> {
 
 impl PersistentState {
     pub(super) fn prepare(config: &Config) -> Result<Option<Self>> {
-        if config.uefi.is_none() && config.tpm.is_none() {
+        if config.uefi.is_none() && config.tpm.is_none() && config.iscsi_disks.is_empty() {
             return Ok(None);
         }
         fs::create_dir_all(&config.state_dir)?;
@@ -94,8 +101,13 @@ impl PersistentState {
             uefi: config.uefi.is_some(),
             tpm: config.tpm.is_some(),
             tpm_initialized: false,
+            iscsi_disks: config
+                .iscsi_disks
+                .iter()
+                .map(|disk| (disk.id.clone(), disk.binding()))
+                .collect(),
         };
-        let manifest = match fs::symlink_metadata(&directory) {
+        let mut manifest = match fs::symlink_metadata(&directory) {
             Ok(_) => {
                 private_directory(&directory)?;
                 let path = directory.join("manifest.json");
@@ -169,15 +181,31 @@ impl PersistentState {
                 _ => return Err(Error::Config("retained TPM permanent state is missing or invalid; refusing to create a new identity".into())),
             }
         }
+        let mut added = false;
+        for disk in &config.iscsi_disks {
+            let binding = disk.binding();
+            match manifest.iscsi_disks.get(&disk.id) {
+                Some(previous) if previous!=&binding => return Err(Error::Config(format!("iSCSI disk {} is bound to a different portal/target/LUN/initiator; deliberate disk identity migration is required",disk.id))),
+                Some(_) => {},
+                None => {manifest.iscsi_disks.insert(disk.id.clone(),binding);added=true;},
+            }
+        }
+        if added {
+            write_manifest(&directory, &manifest)?;
+        }
         Ok(Some(Self {
             directory,
             manifest,
-            _lock: lock,
+            _lock: Arc::new(lock),
         }))
     }
 
     pub(super) fn tpm_directory(&self) -> PathBuf {
         self.directory.join("tpm")
+    }
+
+    pub(super) fn lease(&self) -> StateLease {
+        self._lock.clone()
     }
 
     pub(super) fn mark_tpm_initialized(&mut self) -> Result<()> {
@@ -313,5 +341,44 @@ mod tests {
             .unwrap()
             .to_string()
             .contains("not a regular file"));
+    }
+
+    #[test]
+    fn iscsi_ids_bind_endpoints_but_allow_credential_and_presentation_changes() {
+        let (_directory, mut config) = fixture();
+        let state = PersistentState::prepare(&config).unwrap().unwrap();
+        let manifest = state.directory.join("manifest.json");
+        drop(state);
+        // The previous release's manifest had no native-disk field.
+        let mut previous: serde_json::Value =
+            serde_json::from_slice(&fs::read(&manifest).unwrap()).unwrap();
+        previous.as_object_mut().unwrap().remove("iscsi_disks");
+        fs::write(&manifest, serde_json::to_vec(&previous).unwrap()).unwrap();
+        let disk:super::super::IscsiDisk=serde_json::from_value(serde_json::json!({
+            "id":"data","portal":"127.0.0.1:3260","target":"iqn.2026-11.com.example:disk","lun":1,"initiator_name":"iqn.2026-11.com.example:vm.test","username":"first","password_file":"/first/secret"
+        })).unwrap();
+        config.iscsi_disks.push(disk.clone());
+        drop(PersistentState::prepare(&config).unwrap());
+        config.iscsi_disks[0].username = "rotated".into();
+        config.iscsi_disks[0].password_file = "/rotated/secret".into();
+        config.iscsi_disks[0].read_only = true;
+        config.iscsi_disks[0].bus = super::super::IscsiBus::Scsi;
+        config.iscsi_disks[0].boot_index = Some(2);
+        drop(PersistentState::prepare(&config).unwrap());
+        let mut added = disk.clone();
+        added.id = "second".into();
+        added.lun = 2;
+        config.iscsi_disks.push(added);
+        drop(PersistentState::prepare(&config).unwrap());
+        config.iscsi_disks.clear();
+        drop(PersistentState::prepare(&config).unwrap());
+        let mut repurposed = disk;
+        repurposed.target = "iqn.2026-11.com.example:different".into();
+        config.iscsi_disks.push(repurposed);
+        assert!(PersistentState::prepare(&config)
+            .err()
+            .unwrap()
+            .to_string()
+            .contains("different portal/target/LUN/initiator"));
     }
 }

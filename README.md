@@ -36,6 +36,7 @@ See [manager.md](docs/manager.md) for the runtime images, strict VM config,
 probes and shutdown behavior. Published digests and their source revision are
 recorded in [images.lock.json](contrib/images/images.lock.json).
 
+See [iscsi.md](docs/iscsi.md) for native network disks and fencing.
 See [operator.md](docs/operator.md) for CR-driven launch and persistent UEFI/TPM
 identity, and [bmc.md](docs/bmc.md) for OIDC and the per-VM console.
 Once the namespace/ServiceAccount image-pull identity and OIDC client are enrolled:

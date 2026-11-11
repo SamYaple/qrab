@@ -1,0 +1,15 @@
+{
+  "spec": {
+    "storageNode": "kube03",
+    "iscsiDisks": [
+      {
+        "id": "qrab-probe",
+        "portal": "10.203.0.1:3260",
+        "target": "iqn.2026-11.com.yapplesauce:qrab.disk.e309f751-5dda-4271-a0f4-4454c9527a59",
+        "lun": 0,
+        "username": "qrab-e309f7515dda4271a0f44454c9527a59",
+        "passwordSecret": {"name": "qrab-demo-iscsi", "key": "password"}
+      }
+    ]
+  }
+}

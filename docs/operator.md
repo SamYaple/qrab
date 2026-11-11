@@ -54,8 +54,8 @@ spec:
 ```
 
 `image` may optionally override the operator's default manager-image digest in
-the enrolled `zot.yapplesauce.com/qrab/manager` repository. The boot disk is an
-immutable readonly image file in that container. The demo is a GPT/FAT ESP with
+the enrolled `zot.yapplesauce.com/qrab/manager` repository. The bundled ESP boot disk is fixed to `/opt/qrab/demo/boot.img`. CRs cannot
+expose mounted credentials, TPM state or arbitrary container files as disks. The demo is a GPT/FAT ESP with
 a systemd-stub UKI, kernel, command line and initramfs; it is a RAM-only terminal
 guest, not a desktop or persistent OS disk. There is no BIOS/direct-kernel
 fallback for operator VMs. Future guest disk/storage choices can extend this
@@ -146,3 +146,8 @@ deletes its PVC:
 ```sh
 python3 contrib/tests/operator-lifecycle.py --namespace qrab --vm qrab-demo
 ```
+
+Native guest disks use QEMU/libiscsi with Secret file references and a pinned
+storage node. Their drain/fence lifecycle is described in [iscsi.md](iscsi.md).
+The disposable legacy lifecycle script is intentionally limited to VMs without
+native disks; failed native probes require hard-fence recovery.

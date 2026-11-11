@@ -84,10 +84,21 @@ async fn main() -> Result<()> {
         Router::new().route("/healthz", get(|| async { "ok" })),
     );
     let mut term = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
+    let orphan_context = ctx.clone();
+    let orphan_cleanup = async move {
+        let mut tick = tokio::time::interval(std::time::Duration::from_secs(30));
+        loop {
+            tick.tick().await;
+            if let Err(error) = controller::sweep_orphans(orphan_context.clone()).await {
+                tracing::warn!(%error,"iSCSI orphan drain inspection failed");
+            }
+        }
+    };
     tracing::info!(namespace=%ctx.settings.namespace,"qrab operator started");
     tokio::select! {
         _=controller=>anyhow::bail!("controller stream ended"),
         result=server=>result?,
+        _=orphan_cleanup=>anyhow::bail!("orphan cleanup loop ended"),
         _=term.recv()=>{},
         _=tokio::signal::ctrl_c()=>{},
     }

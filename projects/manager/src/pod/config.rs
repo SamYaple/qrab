@@ -1,3 +1,4 @@
+use super::IscsiDisk;
 use crate::{Error, Result};
 use serde::{Deserialize, Serialize};
 use std::{
@@ -112,6 +113,8 @@ pub struct Config {
     #[serde(default)]
     pub disk: Option<Disk>,
     #[serde(default)]
+    pub iscsi_disks: Vec<IscsiDisk>,
+    #[serde(default)]
     pub firmware_dir: Option<PathBuf>,
     #[serde(default)]
     pub uefi: Option<Uefi>,
@@ -184,7 +187,7 @@ impl Config {
         if !self.runtime_dir.is_absolute() {
             return Err(Error::Config("runtime_dir must be absolute".into()));
         }
-        if self.uefi.is_some() || self.tpm.is_some() {
+        if self.uefi.is_some() || self.tpm.is_some() || !self.iscsi_disks.is_empty() {
             if !self.state_dir.is_absolute() || self.state_dir == self.runtime_dir {
                 return Err(Error::Config(
                     "state_dir must be an absolute persistent directory separate from runtime_dir"
@@ -229,6 +232,7 @@ impl Config {
                 ));
             }
         }
+        super::iscsi::validate(&self.iscsi_disks)?;
         if self.accelerator == Accelerator::Kvm {
             OpenOptions::new()
                 .read(true)
@@ -355,6 +359,7 @@ impl Config {
                 "-blockdev".into(), serde_json::json!({"driver":disk.format, "file":"disk-file", "node-name":"disk", "read-only":disk.read_only}).to_string(),
                 "-device".into(), "virtio-blk-pci,drive=disk".into()]);
         }
+        super::iscsi::arguments(&self.iscsi_disks, &mut args);
         args
     }
 }

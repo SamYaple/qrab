@@ -1,0 +1,6 @@
+# Isolated local integration fixture only; never publish/deploy this target.
+ARG DEBIAN_IMAGE=docker.io/library/debian@sha256:7378260c0a098d27ac206225db5e7d92b8c7c84ea7afccc86eeb513756bbd392
+FROM ${DEBIAN_IMAGE}
+RUN apt-get update && apt-get install -y --no-install-recommends tgt && rm -rf /var/lib/apt/lists/*
+ENTRYPOINT ["/usr/sbin/tgtd"]
+CMD ["-f"]

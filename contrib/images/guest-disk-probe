@@ -1,0 +1,67 @@
+#!/bin/sh
+# Explicit fixture-only persistence proof. Ordinary guest disks are untouched.
+set -eu
+PATH=/usr/sbin:/usr/bin:/bin
+export PATH
+
+fail() { echo "qrab-disk-probe: $*" >&2; exit 1; }
+if [ "$#" -eq 2 ] && [ "$2" = --serial ]; then
+    exec >/dev/ttyS0 2>&1
+    set -- "$1"
+fi
+[ "$#" -eq 1 ] || fail 'usage: qrab-disk-probe initialize|verify [--serial]'
+case "$1" in initialize|verify) action=$1;; *) fail 'usage: qrab-disk-probe initialize|verify [--serial]';; esac
+
+device=
+for block in /sys/block/*; do
+    matched=false
+    for path in "$block/serial" "$block/device/serial"; do
+        if [ -r "$path" ] && [ "$(tr -d ' \r\n' <"$path")" = qrab-probe ]; then matched=true; fi
+    done
+    if "$matched"; then
+        [ -z "$device" ] || fail 'more than one disk has the reserved qrab-probe serial'
+        device=/dev/${block##*/}
+    fi
+done
+[ -n "$device" ] && [ -b "$device" ] || fail 'no block device has the reserved qrab-probe serial'
+if awk -v device="$device" '$1 == device { found=1 } END { exit !found }' /proc/mounts; then
+    fail 'probe disk is already mounted'
+fi
+size=$(/usr/sbin/blockdev --getsize64 "$device")
+[ "$size" -ge 67108864 ] && [ "$size" -le 268435456 ] || fail 'probe disk must be a disposable 64..256 MiB LUN'
+mkdir -p /run/qrab-disk-probe
+mountpoint=$(mktemp -d /run/qrab-disk-probe/mount.XXXXXX)
+mounted=false
+cleanup() { if "$mounted"; then umount "$mountpoint" || :; fi; rmdir "$mountpoint" || :; }
+trap cleanup EXIT
+
+if [ "$action" = initialize ]; then
+    [ "$(/usr/sbin/blockdev --getro "$device")" = 0 ] || fail 'probe disk is read-only'
+    result=0
+    /usr/sbin/blkid -p "$device" >/run/qrab-disk-probe/signature 2>/dev/null || result=$?
+    [ "$result" = 2 ] || fail 'refusing a disk with an existing or unreadable signature'
+    # The complete bounded LUN must be blank, including data beyond its header.
+    timeout 60 /usr/bin/cmp --bytes="$size" "$device" /dev/zero || fail 'refusing a nonblank or unreadable probe disk'
+    /usr/sbin/mke2fs -q -t ext4 -L QRAB-PROBE -m 0 -E nodiscard,lazy_itable_init=0,lazy_journal_init=0 "$device"
+    mount -t ext4 "$device" "$mountpoint"
+    mounted=true
+    cat /proc/sys/kernel/random/uuid >"$mountpoint/qrab-persistence.txt"
+    sync
+    umount "$mountpoint"
+    mounted=false
+    echo QRAB_DISK_PROBE_INITIALIZED
+fi
+
+[ "$(/usr/sbin/blkid -s TYPE -o value "$device")" = ext4 ] || fail 'probe disk is not ext4'
+[ "$(/usr/sbin/blkid -s LABEL -o value "$device")" = QRAB-PROBE ] || fail 'probe disk does not have the QRAB-PROBE label'
+mount -t ext4 -o ro,noload "$device" "$mountpoint"
+mounted=true
+marker=$mountpoint/qrab-persistence.txt
+[ -f "$marker" ] && [ "$(wc -c <"$marker")" = 37 ] || fail 'probe marker is absent or malformed'
+grep -Eq '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' "$marker" || fail 'probe marker is malformed'
+printf 'QRAB_DISK_PROBE_UUID='; /usr/sbin/blkid -s UUID -o value "$device"
+printf 'QRAB_DISK_PROBE_TOKEN='; cat "$marker"
+printf 'QRAB_DISK_PROBE_SHA256='; sha256sum "$marker" | cut -d ' ' -f 1
+umount "$mountpoint"
+mounted=false
+echo QRAB_DISK_PROBE_VERIFIED

@@ -76,3 +76,8 @@ spec:
     toPorts:
     - ports:
       - {port: '443', protocol: TCP}
+  # Native QEMU iSCSI uses the Pod's storage network; guest NICs stay disabled.
+  - toCIDR: [10.203.0.1/32]
+    toPorts:
+    - ports:
+      - {port: '3260', protocol: TCP}

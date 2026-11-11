@@ -59,7 +59,8 @@ standard configfs mount, loads the existing `target_core_iblock` and
 `iscsi_target_mod` modules, provisions the dedicated demo, and writes the
 credential handoff for bob. It refuses a foreign preexisting installed binary or
 unit. By default it installs no sudo rule or general root command interface.
-The optional explicit `--allow-demo-automation` flag installs a `visudo`-checked
+The optional explicit `--allow-demo-automation` flag installs, immediately after
+verified binary/bootstrap and before target application, a `visudo`-checked
 rule allowing bob only four exact commands for this one VM: status, fence,
 apply128MiB and handoff to bob's resolved UID. There are no wildcard arguments,
 bootstrap/install/update/restore grant, or root-shell permission. Existing foreign

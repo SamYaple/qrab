@@ -48,6 +48,7 @@ def healthy(previous=None,generation=None):
 
 original=get('qvm',a.vm)
 assert original and original['spec'].get('running',True), 'Start the disposable demo before this test'
+assert not original['spec'].get('iscsiDisks'), 'This legacy lifecycle test deliberately fails a probe; native disks require the drain/fence-specific checks instead'
 assert original['spec'].get('bootDisk')=='/opt/qrab/demo/boot.img', 'This test is only for the RAM-only demo fixture'
 baseline=until(healthy)
 claim_name=original['spec']['stateVolumeClaim']

@@ -15,6 +15,12 @@ const CONFIG: &str = "/sys/kernel/config/target";
 const ZFS: &str = "/usr/bin/zfs";
 const PROP: &str = "org.qrab:owner";
 const VM_PROP: &str = "org.qrab:vm-uid";
+const TARGET_CHILDREN: &[&str] = &["tpgt_1", "fabric_statistics", "param"];
+const TARGET_PARAMS: &[&str] = &[
+    "cmd_completion_affinity",
+    "default_submit_type",
+    "direct_submit_supported",
+];
 
 pub struct LinuxHost;
 impl Default for LinuxHost {
@@ -216,8 +222,44 @@ impl LinuxHost {
         for name in Self::children(path)? {
             ensure!(
                 allowed.contains(&name.as_str()),
-                "foreign object under the managed target"
+                "foreign object '{}' under managed target {}",
+                name,
+                path.display()
             );
+        }
+        Ok(())
+    }
+    fn target_param(name: &str, value: &str) -> Result<()> {
+        let number = value
+            .parse::<i64>()
+            .map_err(|_| anyhow::anyhow!("kernel target parameter is not numeric"))?;
+        ensure!(
+            match name {
+                "cmd_completion_affinity" => (-1..=i32::MAX as i64).contains(&number),
+                "default_submit_type" | "direct_submit_supported" => number == 0 || number == 1,
+                _ => false,
+            },
+            "unknown or unsupported kernel target parameter"
+        );
+        Ok(())
+    }
+    fn target_params(path: &Path) -> Result<()> {
+        if !path.exists() {
+            return Ok(());
+        }
+        Self::directory(path)?;
+        Self::restricted_children(path, TARGET_PARAMS)?;
+        for name in TARGET_PARAMS {
+            let attribute = path.join(name);
+            let meta = fs::symlink_metadata(&attribute)?;
+            ensure!(
+                meta.is_file()
+                    && !meta.file_type().is_symlink()
+                    && meta.uid() == 0
+                    && meta.mode() & 0o022 == 0,
+                "unsafe kernel target parameter file"
+            );
+            Self::target_param(name, &Self::read(&attribute)?)?;
         }
         Ok(())
     }
@@ -298,7 +340,8 @@ impl LinuxHost {
         }
         if target.exists() {
             Self::directory(&target)?;
-            Self::restricted_children(&target, &["tpgt_1", "fabric_statistics"])?;
+            Self::restricted_children(&target, TARGET_CHILDREN)?;
+            Self::target_params(&target.join("param"))?;
         }
         if tpg.exists() {
             Self::directory(&tpg)?;
@@ -576,5 +619,23 @@ mod tests {
         LinuxHost::only_owned_link(&lun, "expected", &object).unwrap();
         symlink(&foreign, lun.join("unexpected")).unwrap();
         assert!(LinuxHost::only_owned_link(&lun, "expected", &object).is_err());
+    }
+    #[test]
+    fn known_kernel_target_param_group_is_not_another_export() {
+        let temp = tempfile::tempdir().unwrap();
+        for name in TARGET_CHILDREN {
+            fs::create_dir(temp.path().join(name)).unwrap();
+        }
+        LinuxHost::restricted_children(temp.path(), TARGET_CHILDREN).unwrap();
+        fs::create_dir(temp.path().join("tpgt_2")).unwrap();
+        let message = LinuxHost::restricted_children(temp.path(), TARGET_CHILDREN)
+            .unwrap_err()
+            .to_string();
+        assert!(message.contains("tpgt_2") && message.contains(temp.path().to_str().unwrap()));
+        LinuxHost::target_param("cmd_completion_affinity", "-1").unwrap();
+        LinuxHost::target_param("default_submit_type", "1").unwrap();
+        LinuxHost::target_param("direct_submit_supported", "1").unwrap();
+        assert!(LinuxHost::target_param("default_submit_type", "3").is_err());
+        assert!(LinuxHost::target_param("unknown", "1").is_err());
     }
 }

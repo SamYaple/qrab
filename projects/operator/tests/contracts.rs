@@ -214,3 +214,78 @@ async fn live_api_defaulting_preserves_the_declared_vm_template() {
         "API-server defaults must not cause a controller restart loop"
     );
 }
+
+fn with_iscsi() -> VirtualMachine {
+    let mut machine = vm();
+    machine.spec.storage_node = Some("kube03".into());
+    machine.spec.iscsi_disks=serde_json::from_value(json!([{"id":"qrab-probe","portal":"10.203.0.1:3260","target":"iqn.2026-11.com.yapplesauce:qrab.disk.demo","lun":0,"username":"qrab-demo","passwordSecret":{"name":"qrab-demo-iscsi"}}])).unwrap();
+    machine
+}
+
+#[test]
+fn native_iscsi_uses_secret_files_and_derived_initiator_without_block_devices() {
+    let machine = with_iscsi();
+    let desired = resources::render(&machine, &settings()).unwrap();
+    let config: Value =
+        serde_json::from_str(&desired.config.data.as_ref().unwrap()["vm.json"]).unwrap();
+    let disk = &config["iscsi_disks"][0];
+    assert_eq!(
+        disk["initiator_name"],
+        "iqn.2026-11.com.yapplesauce:qrab.vm.owner-one"
+    );
+    assert_eq!(disk["password_file"], "/run/qrab-auth/qrab-probe/password");
+    assert!(disk.get("password").is_none());
+    let pod = serde_json::to_value(&desired.pod).unwrap();
+    assert_eq!(
+        pod["spec"]["nodeSelector"]["kubernetes.io/hostname"],
+        "kube03"
+    );
+    assert_eq!(pod["spec"]["volumes"][4]["secret"]["defaultMode"], 288);
+    assert!(pod["spec"]["containers"][0].get("volumeDevices").is_none());
+    assert!(resources::pod_matches(&desired.pod, &desired));
+    let mut scheduled = desired.pod.clone();
+    scheduled.spec.as_mut().unwrap().scheduling_gates = None;
+    assert!(
+        resources::pod_matches(&scheduled, &desired),
+        "removing the ownership gate must not restart a VM"
+    );
+    let mut stored = desired.pod.clone();
+    stored.spec.as_mut().unwrap().containers[0]
+        .volume_mounts
+        .as_mut()
+        .unwrap()[4]
+        .read_only = Some(false);
+    assert!(!resources::pod_matches(&stored, &desired));
+}
+
+#[test]
+fn native_disk_configuration_requires_pinning_and_valid_unique_endpoints() {
+    let mut machine = with_iscsi();
+    machine.spec.storage_node = None;
+    assert!(resources::render(&machine, &settings()).is_err());
+    machine = with_iscsi();
+    machine.spec.iscsi_disks[0].portal = "iscsi://user:password@host".into();
+    assert!(resources::render(&machine, &settings()).is_err());
+    machine = with_iscsi();
+    machine.spec.iscsi_disks[0].boot_index = Some(1);
+    assert!(resources::render(&machine, &settings()).is_err());
+    machine = with_iscsi();
+    machine
+        .spec
+        .iscsi_disks
+        .push(machine.spec.iscsi_disks[0].clone());
+    assert!(resources::render(&machine, &settings()).is_err());
+}
+
+#[test]
+fn boot_media_cannot_expose_host_secrets_or_tpm_state_to_the_guest() {
+    for path in [
+        "/run/qrab-auth/data/password",
+        "/var/lib/qrab/identity/tpm/tpm2-00.permall",
+        "/opt/qrab/demo/../../../run/qrab-auth/data/password",
+    ] {
+        let mut machine = with_iscsi();
+        machine.spec.boot_disk = path.into();
+        assert!(resources::render(&machine, &settings()).is_err());
+    }
+}

@@ -18,7 +18,7 @@ shutil.copy('/bin/busybox', root / 'bin/busybox')
 (root / 'bin/sh').symlink_to('busybox')
 
 modules = []
-for name in ['xhci_pci', 'usbhid', 'hid_generic', 'mousedev', 'evdev', 'tpm_tis']:
+for name in ['xhci_pci', 'usbhid', 'hid_generic', 'mousedev', 'evdev', 'tpm_tis', 'virtio_pci', 'virtio_blk', 'virtio_scsi', 'sd_mod', 'crc32c_generic', 'ext4']:
     dependencies = subprocess.check_output(['modprobe', '--set-version', version, '--show-depends', name], text=True)
     for line in dependencies.splitlines():
         if not line.startswith('insmod '):
@@ -55,4 +55,7 @@ def copy_binary_with_libraries(source):
 for name in ['tpm2_getcap', 'tpm2_pcrread', 'tpm2_createek', 'tpm2_flushcontext', 'tpm2_eventlog']:
     copy_binary_with_libraries('/usr/bin/' + name)
 copy_binary_with_libraries('/usr/lib/x86_64-linux-gnu/libtss2-tcti-device.so.0')
-(out / 'guest-packages.txt').write_bytes(subprocess.check_output(['dpkg-query', '-W', 'linux-image*', 'busybox-static', 'tpm2-tools', 'systemd-boot-efi', 'systemd-ukify']))
+for binary in ['/usr/sbin/mke2fs', '/usr/sbin/blkid', '/usr/sbin/blockdev', '/usr/bin/cmp']:
+    copy_binary_with_libraries(binary)
+shutil.copyfile('/etc/mke2fs.conf', root / 'etc/mke2fs.conf')
+(out / 'guest-packages.txt').write_bytes(subprocess.check_output(['dpkg-query', '-W', 'linux-image*', 'busybox-static', 'tpm2-tools', 'systemd-boot-efi', 'systemd-ukify', 'e2fsprogs', 'diffutils']))

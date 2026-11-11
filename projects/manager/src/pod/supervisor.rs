@@ -1,5 +1,6 @@
 use super::{
-    persistent::PersistentState,
+    persistent::{PersistentState, StateLease},
+    process::ManagedChild,
     state::{publish, start_ticks},
     tpm::Swtpm,
     Config, Phase, Status,
@@ -128,7 +129,8 @@ pub async fn run_controlled(
     let mut tpm = None;
     let result = async {
         if let Some(tpm_config) = &config.tpm {
-            tpm = Some(Swtpm::spawn(tpm_config, session.path(), &persistent.as_ref().expect("persistent TPM state").tpm_directory())?);
+            let identity=persistent.as_ref().expect("persistent TPM state");
+            tpm = Some(Swtpm::spawn(tpm_config, session.path(), &identity.tpm_directory(), identity.lease())?);
             let process = tpm.as_mut().expect("TPM process");
             state.swtpm_pid = process.id();
             state.swtpm_start_ticks = process.id().and_then(|pid| start_ticks(pid).ok());
@@ -147,10 +149,10 @@ pub async fn run_controlled(
             }
             persistent.as_mut().expect("persistent TPM state").mark_tpm_initialized()?;
         }
-        run_qemu(&config, &mut shutdown, &mut control, &socket, console.as_deref(), &mut state, &mut tpm).await
+        run_qemu(&config, &mut shutdown, &mut control, (&socket, console.as_deref()), &mut state, &mut tpm, persistent.as_ref().map(PersistentState::lease)).await
     }.await;
     let result = match (&mut tpm, result) {
-        (Some(process), result) => match process.stop().await {
+        (Some(process), result) => match process.stop(!config.iscsi_disks.is_empty()).await {
             Ok(()) => result,
             Err(error) => Err(error),
         },
@@ -169,12 +171,13 @@ async fn run_qemu(
     config: &Config,
     shutdown: impl Future<Output = ()>,
     control: &mut super::ControlReceiver,
-    socket: &Path,
-    console: Option<&Path>,
+    sockets: (&Path, Option<&Path>),
     state: &mut Status,
     tpm: &mut Option<Swtpm>,
+    lease: Option<StateLease>,
 ) -> Result<Outcome> {
-    let mut child = match Command::new(&config.qemu_binary)
+    let (socket, console) = sockets;
+    let child = match Command::new(&config.qemu_binary)
         .args(config.arguments(socket))
         .stdin(Stdio::null())
         .stdout(Stdio::inherit())
@@ -190,8 +193,9 @@ async fn run_qemu(
             return Err(Error::Io(error));
         }
     };
-    state.qemu_pid = child.id();
-    state.qemu_start_ticks = child.id().and_then(|pid| start_ticks(pid).ok());
+    let mut child = ManagedChild::new(child, lease);
+    state.qemu_pid = Some(child.spawned_pid());
+    state.qemu_start_ticks = start_ticks(child.spawned_pid()).ok();
     publish(config, state)?;
     let mut shutdown = Box::pin(shutdown);
     let options = ClientOptions {
@@ -233,8 +237,9 @@ async fn run_qemu(
     };
     let Some(qmp) = qmp else {
         let (exit, method) = stop_child(&mut child, None, Duration::from_secs(1)).await?;
-        state.phase = Phase::Exited;
         state.exit_code = exit.code();
+        native_clean_shutdown(config, &exit, method)?;
+        state.phase = Phase::Exited;
         publish(config, state)?;
         return Ok(Outcome {
             reason: "shutdown-during-startup".into(),
@@ -301,8 +306,9 @@ async fn run_qemu(
             .await;
             match (other, stopped) {
                 (Ok(None), Ok((exit, method))) => {
-                    state.phase = Phase::Exited;
                     state.exit_code = exit.code();
+                    native_clean_shutdown(config, &exit, method)?;
+                    state.phase = Phase::Exited;
                     Ok(Outcome {
                         reason: "shutdown-requested".into(),
                         exit_code: exit.code(),
@@ -326,4 +332,14 @@ async fn run_qemu(
     qmp.shutdown().await;
     publish(config, state)?;
     result
+}
+
+fn native_clean_shutdown(config: &Config, exit: &ExitStatus, method: &str) -> Result<()> {
+    if !config.iscsi_disks.is_empty() && (!exit.success() || method == "sigkill") {
+        return Err(Error::Spawn(
+            "native iSCSI QEMU exit was forced or unsuccessful; clean disk release is not proven"
+                .into(),
+        ));
+    }
+    Ok(())
 }

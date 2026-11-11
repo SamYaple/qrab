@@ -44,6 +44,9 @@
                   "bootDisk": {
                     "default": "/opt/qrab/demo/boot.img",
                     "description": "Readonly UEFI boot disk inside the manager image. No direct kernel boot.",
+                    "enum": [
+                      "/opt/qrab/demo/boot.img"
+                    ],
                     "maxLength": 4096,
                     "minLength": 2,
                     "type": "string"
@@ -82,6 +85,81 @@
                     "pattern": "^zot\\.yapplesauce\\.com/qrab/manager@sha256:[a-f0-9]{64}$",
                     "type": "string"
                   },
+                  "iscsiDisks": {
+                    "default": [],
+                    "items": {
+                      "properties": {
+                        "bootIndex": {
+                          "format": "int32",
+                          "maximum": 65535.0,
+                          "minimum": 0.0,
+                          "nullable": true,
+                          "type": "integer"
+                        },
+                        "id": {
+                          "pattern": "^[a-z0-9]([a-z0-9-]{0,18}[a-z0-9])?$",
+                          "type": "string"
+                        },
+                        "lun": {
+                          "default": 0,
+                          "format": "int32",
+                          "maximum": 16383.0,
+                          "minimum": 0.0,
+                          "type": "integer"
+                        },
+                        "passwordSecret": {
+                          "properties": {
+                            "key": {
+                              "default": "password",
+                              "type": "string"
+                            },
+                            "name": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "name"
+                          ],
+                          "type": "object"
+                        },
+                        "portal": {
+                          "type": "string"
+                        },
+                        "readOnly": {
+                          "default": false,
+                          "type": "boolean"
+                        },
+                        "target": {
+                          "type": "string"
+                        },
+                        "username": {
+                          "maxLength": 223,
+                          "minLength": 1,
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "passwordSecret",
+                        "portal",
+                        "target",
+                        "username"
+                      ],
+                      "type": "object",
+                      "x-kubernetes-validations": [
+                        {
+                          "message": "disk identity is immutable; use a new id for deliberate replacement",
+                          "rule": "self.id == oldSelf.id && self.portal == oldSelf.portal && self.target == oldSelf.target && self.lun == oldSelf.lun"
+                        }
+                      ]
+                    },
+                    "maxItems": 8,
+                    "type": "array",
+                    "x-kubernetes-list-map-keys": [
+                      "id"
+                    ],
+                    "x-kubernetes-list-type": "map"
+                  },
                   "memoryMiB": {
                     "default": 512,
                     "format": "int32",
@@ -111,6 +189,10 @@
                         "rule": "self == oldSelf"
                       }
                     ]
+                  },
+                  "storageNode": {
+                    "description": "Initial iSCSI support is node-pinned; migration requires target fencing.",
+                    "type": "string"
                   }
                 },
                 "required": [
@@ -153,6 +235,16 @@
                   "stateVolumeUid": {
                     "nullable": true,
                     "type": "string"
+                  },
+                  "storageRecovery": {
+                    "description": "Administrator acknowledgment of hard target fencing after unclean loss.",
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "storageReleasedPodUid": {
+                    "description": "Recorded only after clean drain, before deleting the previous Pod.",
+                    "nullable": true,
+                    "type": "string"
                   }
                 },
                 "required": [
@@ -174,6 +266,10 @@
               {
                 "message": "VM names must be at most 50 characters",
                 "rule": "size(self.metadata.name) <= 50"
+              },
+              {
+                "message": "storageNode is immutable; disk migration requires explicit fencing",
+                "rule": "!has(oldSelf.spec.storageNode) || (has(self.spec.storageNode) && self.spec.storageNode == oldSelf.spec.storageNode)"
               }
             ]
           }

@@ -5,7 +5,7 @@ metadata:
 rules:
 - apiGroups: [qrab.yapplesauce.com]
   resources: [virtualmachines]
-  verbs: [get, list, watch]
+  verbs: [get, list, watch, patch]
 - apiGroups: [qrab.yapplesauce.com]
   resources: [virtualmachines/status]
   verbs: [get, patch, update]

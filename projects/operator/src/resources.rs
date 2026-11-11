@@ -3,7 +3,7 @@ use k8s_openapi::api::core::v1::{ConfigMap, Pod};
 use kube::{Resource, ResourceExt};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 pub const HASH: &str = "qrab.yapplesauce.com/template-hash";
 
@@ -56,6 +56,30 @@ pub fn origin(raw: &str) -> Result<String> {
     Ok(url.origin().ascii_serialization())
 }
 
+fn valid_iqn(value: &str) -> bool {
+    if value.len() > 223
+        || !value
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b".-:".contains(&b))
+    {
+        return false;
+    }
+    let Some((date, rest)) = value.strip_prefix("iqn.").and_then(|v| v.split_once('.')) else {
+        return false;
+    };
+    if date.len() != 7
+        || date.as_bytes()[4] != b'-'
+        || !date[..4].bytes().all(|b| b.is_ascii_digit())
+        || !matches!(date[5..].parse::<u32>(), Ok(1..=12))
+    {
+        return false;
+    }
+    let (domain, unique) = rest
+        .split_once(':')
+        .map_or((rest, None), |(a, b)| (a, Some(b)));
+    domain.contains('.') && dns_name(domain) && unique.is_none_or(|v| !v.is_empty())
+}
+
 pub fn validate(vm: &VirtualMachine, settings: &Settings) -> Result<()> {
     if vm.name_any().len() > 50
         || !dns_name(&vm.name_any())
@@ -78,12 +102,9 @@ pub fn validate(vm: &VirtualMachine, settings: &Settings) -> Result<()> {
             "image must pin an immutable qrab/manager digest".into(),
         ));
     }
-    if !vm.spec.boot_disk.starts_with('/')
-        || vm.spec.boot_disk.len() > 4096
-        || vm.spec.boot_disk.chars().any(char::is_control)
-    {
+    if vm.spec.boot_disk != "/opt/qrab/demo/boot.img" {
         return Err(Error::Invalid(
-            "bootDisk must be an absolute image path".into(),
+            "bootDisk must be the immutable image ESP /opt/qrab/demo/boot.img; mounted state and Secrets cannot be guest disks".into(),
         ));
     }
     origin(&vm.spec.console.public_url)?;
@@ -102,6 +123,88 @@ pub fn validate(vm: &VirtualMachine, settings: &Settings) -> Result<()> {
     }
     if vm.uid().is_none() {
         return Err(Error::Invalid("VM UID is required".into()));
+    }
+    let mut ids = BTreeSet::new();
+    let mut endpoints = BTreeSet::new();
+    let mut boot_indexes = BTreeSet::new();
+    if vm.spec.iscsi_disks.len() > 8 {
+        return Err(Error::Invalid(
+            "at most eight iSCSI disks are supported".into(),
+        ));
+    }
+    if vm
+        .spec
+        .storage_node
+        .as_ref()
+        .is_some_and(|n| n.len() > 63 || !dns_name(n))
+    {
+        return Err(Error::Invalid(
+            "storageNode must be a valid node hostname label".into(),
+        ));
+    }
+    if !vm.spec.iscsi_disks.is_empty()
+        && !vm.spec.storage_node.as_ref().is_some_and(|n| dns_name(n))
+    {
+        return Err(Error::Invalid("native iSCSI disks require an explicit storageNode; automatic cross-node failover is disabled".into()));
+    }
+    for disk in &vm.spec.iscsi_disks {
+        if disk.id.is_empty()
+            || disk.id.len() > 20
+            || !disk
+                .id
+                .bytes()
+                .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+            || disk.id.starts_with('-')
+            || disk.id.ends_with('-')
+            || !ids.insert(&disk.id)
+        {
+            return Err(Error::Invalid(
+                "disk ids must be unique lowercase identifiers of 1..20 characters".into(),
+            ));
+        }
+        let portal = disk
+            .portal
+            .parse::<std::net::SocketAddr>()
+            .map_err(|_| Error::Invalid("disk portal must be literal IP:port".into()))?;
+        if portal.port() == 0
+            || portal.ip().is_unspecified()
+            || portal.ip().is_multicast()
+            || matches!(portal.ip(),std::net::IpAddr::V4(ip) if ip.is_broadcast())
+        {
+            return Err(Error::Invalid("invalid storage endpoint".into()));
+        }
+        if !valid_iqn(&disk.target) || disk.lun > 16383 {
+            return Err(Error::Invalid("invalid iSCSI target or LUN".into()));
+        }
+        if !endpoints.insert((portal, disk.target.as_str(), disk.lun)) {
+            return Err(Error::Invalid(
+                "the same LUN cannot be attached twice".into(),
+            ));
+        }
+        if disk.username.is_empty()
+            || disk.username.len() > 223
+            || !disk.username.bytes().all(|b| b.is_ascii_graphic())
+            || !dns_name(&disk.password_secret.name)
+            || disk.password_secret.key.is_empty()
+            || disk.password_secret.key.len() > 253
+            || !disk
+                .password_secret
+                .key
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b"-_.".contains(&b))
+        {
+            return Err(Error::Invalid(
+                "invalid CHAP account or password Secret reference".into(),
+            ));
+        }
+        if disk
+            .boot_index
+            .is_some_and(|i| i == 1 || i > 65535 || !boot_indexes.insert(i))
+        {
+            return Err(Error::Invalid(
+                "disk bootIndex must be unique; 1 is reserved for the demo ESP".into(),
+            ));
+        }
     }
     Ok(())
 }
@@ -129,7 +232,9 @@ pub fn render(vm: &VirtualMachine, settings: &Settings) -> Result<Desired> {
     // Background GC needs no delete/finalizer authority on the parent CR.
     owner.block_owner_deletion = Some(false);
     let labels = json!({"app.kubernetes.io/name":"qrab", "app.kubernetes.io/component":"vm", "app.kubernetes.io/instance":name, "qrab.yapplesauce.com/owner-uid":uid});
-    let config = json!({"name":name,"memory_mib":vm.spec.memory_mib,"cpus":vm.spec.cpus,"accelerator":"tcg","console":true,"uefi":{"boot_disk":vm.spec.boot_disk},"tpm":{},"state_dir":"/var/lib/qrab","state_id":uid,"runtime_dir":"/run/qrab","startup_timeout_secs":30,"shutdown_grace_secs":5});
+    let mut config = json!({"name":name,"memory_mib":vm.spec.memory_mib,"cpus":vm.spec.cpus,"accelerator":"tcg","console":true,"uefi":{"boot_disk":vm.spec.boot_disk},"tpm":{},"state_dir":"/var/lib/qrab","state_id":uid,"runtime_dir":"/run/qrab","startup_timeout_secs":30,"shutdown_grace_secs":5});
+    let initiator = format!("iqn.2026-11.com.yapplesauce:qrab.vm.{uid}");
+    config["iscsi_disks"]=json!(vm.spec.iscsi_disks.iter().map(|d|json!({"id":d.id,"portal":d.portal,"target":d.target,"lun":d.lun,"initiator_name":initiator,"username":d.username,"password_file":format!("/run/qrab-auth/{}/password",d.id),"read_only":d.read_only,"boot_index":d.boot_index,"bus":"virtio"})).collect::<Vec<_>>());
     let config_data = serde_json::to_string_pretty(&config)?;
     let config_map: ConfigMap = serde_json::from_value(
         json!({"apiVersion":"v1","kind":"ConfigMap","metadata":{"name":config_name,"namespace":settings.namespace,"labels":labels,"ownerReferences":[owner]},"data":{"vm.json":config_data}}),
@@ -151,6 +256,25 @@ pub fn render(vm: &VirtualMachine, settings: &Settings) -> Result<Desired> {
             "livenessProbe":{"httpGet":{"path":"/readyz","port":"http"},"periodSeconds":5,"failureThreshold":3,"timeoutSeconds":2}}],
         "volumes":[{"name":"config","configMap":{"name":config_name}},{"name":"state","persistentVolumeClaim":{"claimName":vm.spec.state_volume_claim}},{"name":"runtime","emptyDir":{"medium":"Memory","sizeLimit":"64Mi"}},{"name":"tmp","emptyDir":{"medium":"Memory","sizeLimit":"64Mi"}}]
     }});
+    if let Some(node) = &vm.spec.storage_node {
+        pod["spec"]["nodeSelector"] = json!({"kubernetes.io/hostname":node});
+    }
+    if !vm.spec.iscsi_disks.is_empty()
+        || vm
+            .metadata
+            .finalizers
+            .iter()
+            .flatten()
+            .any(|f| f == "qrab.yapplesauce.com/iscsi-state")
+    {
+        pod["metadata"]["finalizers"] = json!(["qrab.yapplesauce.com/iscsi-drain"]);
+        pod["spec"]["schedulingGates"] = json!([{"name":"qrab.yapplesauce.com/iscsi-owner"}]);
+    }
+    for disk in &vm.spec.iscsi_disks {
+        let volume = format!("iscsi-auth-{}", disk.id);
+        pod["spec"]["volumes"].as_array_mut().expect("volumes").push(json!({"name":volume,"secret":{"secretName":disk.password_secret.name,"defaultMode":288,"items":[{"key":disk.password_secret.key,"path":"password","mode":288}]}}));
+        pod["spec"]["containers"][0]["volumeMounts"].as_array_mut().expect("mounts").push(json!({"name":volume,"mountPath":format!("/run/qrab-auth/{}",disk.id),"readOnly":true}));
+    }
     if let Some(ip) = &settings.idp_ip {
         let issuer =
             url::Url::parse(&settings.oidc_issuer).map_err(|e| Error::Invalid(e.to_string()))?;
@@ -230,7 +354,9 @@ pub fn pod_matches(actual: &Pod, desired: &Desired) -> bool {
         for mount in container.volume_mounts.iter().flatten() {
             if mount.sub_path.as_ref().is_some_and(|v| !v.is_empty())
                 || mount.sub_path_expr.as_ref().is_some_and(|v| !v.is_empty())
-                || (mount.name != "config" && mount.read_only.unwrap_or(false))
+                || (mount.name != "config"
+                    && !mount.name.starts_with("iscsi-auth-")
+                    && mount.read_only.unwrap_or(false))
                 || mount
                     .mount_propagation
                     .as_ref()
@@ -248,6 +374,22 @@ pub fn pod_matches(actual: &Pod, desired: &Desired) -> bool {
         return false;
     }
     let mut actual_spec = serde_json::to_value(&actual.spec).expect("Pod serializes");
+    let mut desired_spec = serde_json::to_value(&desired.pod.spec).expect("Pod serializes");
+    for spec in [&mut actual_spec, &mut desired_spec] {
+        if let Some(gates) = spec
+            .get_mut("schedulingGates")
+            .and_then(Value::as_array_mut)
+        {
+            gates.retain(|gate| {
+                gate.get("name").and_then(Value::as_str) != Some("qrab.yapplesauce.com/iscsi-owner")
+            });
+            if gates.is_empty() {
+                spec.as_object_mut()
+                    .expect("spec object")
+                    .remove("schedulingGates");
+            }
+        }
+    }
     // These Go PodSpec bool fields use omitempty; absent means false. Do not
     // apply this normalization to pointer booleans such as token mounting.
     for field in ["hostNetwork", "hostPID", "hostIPC"] {
@@ -261,10 +403,7 @@ pub fn pod_matches(actual: &Pod, desired: &Desired) -> bool {
             .labels()
             .iter()
             .all(|(k, v)| actual.labels().get(k) == Some(v))
-        && contains(
-            &actual_spec,
-            &serde_json::to_value(&desired.pod.spec).expect("Pod serializes"),
-        )
+        && contains(&actual_spec, &desired_spec)
 }
 
 pub fn data(config: &ConfigMap) -> BTreeMap<String, String> {
