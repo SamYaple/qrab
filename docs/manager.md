@@ -48,7 +48,7 @@ absent. An optional separate `disk` accepts an absolute file or block device,
 `format` raw/qcow2 and `read_only`. Blockdev JSON handles commas/spaces safely.
 Guest networking is always disabled with `-nic none`.
 
-`tpm` defaults to `/usr/bin/swtpm`, with private Unix control and TPM2 CRB in
+`tpm` defaults to `/usr/bin/swtpm`, with private Unix control and TPM2 TIS in
 QEMU. `state_dir` must be writable persistent storage; its owner lock prevents
 concurrent supervisors. `identity/OVMF_VARS.fd`, `identity/tpm/` and a manifest
 are initialized atomically, then reused. State binds the VM name and `state_id`

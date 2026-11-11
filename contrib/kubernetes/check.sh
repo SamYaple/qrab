@@ -52,7 +52,7 @@ for index,arg in enumerate(arguments[:-1]):
     if arg=='-device':
         raw=arguments[index+1]
         devices.append(json.loads(raw).get('driver') if raw.startswith('{') else raw.split(',',1)[0])
-assert '-tpmdev' in arguments and 'tpm-crb' in devices, 'QEMU TPM2 CRB device is missing'
+assert '-tpmdev' in arguments and {'tpm-tis','tpm-crb'}.intersection(devices), 'QEMU TPM2 device is missing'
 vnc=arguments[arguments.index('-vnc')+1]
 assert vnc.startswith('unix:/run/qrab/session-') and ',websocket' not in vnc, 'VNC is not private Unix-only'
 socket_dir=vnc.split(',',1)[0].removeprefix('unix:').rsplit('/',1)[0]
