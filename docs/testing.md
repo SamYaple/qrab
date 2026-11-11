@@ -10,6 +10,12 @@ bash contrib/check-runtime.sh
 ```
 
 The script also checks formatting and runs strict manager/protocol/BMC/operator Clippy and verifies the generated VM CRD.
+Provisioned-disk coverage is hermetic: `qrab-iscsi-target` drives its disk,
+image, export/rotation, fence, budget and argv/stdin contracts against an
+in-memory host, and the operator converges `spec.disks`, auto-fences and
+fences on deletion against a fake storage API and fake Kubernetes server.
+Neither proves LIO session drain, ZFS clone behaviour or the SPIFFE/Kanidm
+exchange; those remain privileged live checks after the root rollout.
 Generated QAPI modules are excluded from rustfmt traversal; update them through
 codegen, not manual formatting.
 
