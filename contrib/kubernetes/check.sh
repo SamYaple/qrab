@@ -47,7 +47,12 @@ assert any(arguments[i:i+2]==['-nic','none'] for i in range(len(arguments))), 'g
 assert '-netdev' not in arguments, 'unexpected guest network backend'
 assert '-kernel' not in arguments and '-initrd' not in arguments, 'UEFI must boot the ESP/UKI rather than direct kernel arguments'
 assert any('pflash0=pflash-code,pflash1=pflash-vars' in arg for arg in arguments), 'UEFI pflash is not configured'
-assert '-tpmdev' in arguments and any(arg.startswith('tpm-crb') for arg in arguments), 'QEMU TPM2 CRB device is missing'
+devices=[]
+for index,arg in enumerate(arguments[:-1]):
+    if arg=='-device':
+        raw=arguments[index+1]
+        devices.append(json.loads(raw).get('driver') if raw.startswith('{') else raw.split(',',1)[0])
+assert '-tpmdev' in arguments and 'tpm-crb' in devices, 'QEMU TPM2 CRB device is missing'
 vnc=arguments[arguments.index('-vnc')+1]
 assert vnc.startswith('unix:/run/qrab/session-') and ',websocket' not in vnc, 'VNC is not private Unix-only'
 socket_dir=vnc.split(',',1)[0].removeprefix('unix:').rsplit('/',1)[0]
