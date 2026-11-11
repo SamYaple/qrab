@@ -45,6 +45,20 @@ assert status.get('swtpm_pid'), 'swtpm child is not supervised'
 arguments=kubectl('exec',pod,'--','cat',f"/proc/{status['qemu_pid']}/cmdline").strip('\n').split('\0')
 assert any(arguments[i:i+2]==['-nic','none'] for i in range(len(arguments))), 'guest NIC is not explicitly disabled'
 assert '-netdev' not in arguments, 'unexpected guest network backend'
+native=vm['spec'].get('iscsiDisks',[])
+if native:
+    assert before['spec']['nodeName']==vm['spec']['storageNode'], 'native disk VM moved without fencing'
+    assert 'qrab.yapplesauce.com/iscsi-drain' in before['metadata'].get('finalizers',[])
+    assert 'qrab.yapplesauce.com/iscsi-state' in vm['metadata'].get('finalizers',[])
+    assert not before['spec'].get('schedulingGates'), 'ownership gate was not released'
+    assert not before['spec']['containers'][0].get('volumeDevices'), 'native iSCSI must not use a node block PVC'
+    blocks=[json.loads(arguments[i+1]) for i,arg in enumerate(arguments[:-1]) if arg=='-blockdev' and arguments[i+1].startswith('{')]
+    iscsi=[block for block in blocks if block.get('driver')=='iscsi']
+    assert len(iscsi)==len(native), 'native iSCSI backend count differs'
+    for disk in native:
+        backend=next(b for b in iscsi if b['portal']==disk['portal'] and b['target']==disk['target'] and b['lun']==disk.get('lun',0))
+        assert backend['initiator-name']=='iqn.2026-11.com.yapplesauce:qrab.vm.'+vm['metadata']['uid']
+        assert backend.get('password-secret') and 'password' not in backend, 'inline iSCSI credential'
 assert '-kernel' not in arguments and '-initrd' not in arguments, 'UEFI must boot the ESP/UKI rather than direct kernel arguments'
 assert any('pflash0=pflash-code,pflash1=pflash-vars' in arg for arg in arguments), 'UEFI pflash is not configured'
 devices=[]
