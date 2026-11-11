@@ -23,6 +23,28 @@ struct Pool {
     owner: String,
     guid: Option<String>,
 }
+
+fn handoff_directory(path: &Path, owner: u32) -> Result<()> {
+    match fs::DirBuilder::new().mode(0o755).create(path) {
+        Ok(()) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+        Err(error) => return Err(error.into()),
+    }
+    // Check and chmod the same directory inode. Creation mode alone is masked
+    // by the installer's umask077; file copies remain recipient-owned0600.
+    let directory = OpenOptions::new()
+        .read(true)
+        .custom_flags((OFlag::O_NOFOLLOW | OFlag::O_DIRECTORY).bits())
+        .open(path)?;
+    let meta = directory.metadata()?;
+    ensure!(
+        meta.is_dir() && meta.uid() == owner && meta.mode() & 0o022 == 0,
+        "unsafe handoff directory"
+    );
+    directory.set_permissions(fs::Permissions::from_mode(0o755))?;
+    directory.sync_all()?;
+    Ok(())
+}
 impl Store {
     pub fn system() -> Self {
         Self {
@@ -189,14 +211,7 @@ impl Store {
             "credential recipient must be an explicit ordinary user UID"
         );
         let directory = PathBuf::from("/var/lib/qrab-iscsi-handoff");
-        if !directory.exists() {
-            fs::DirBuilder::new().mode(0o755).create(&directory)?;
-        }
-        let m = fs::symlink_metadata(&directory)?;
-        ensure!(
-            m.is_dir() && !m.file_type().is_symlink() && m.uid() == 0 && m.mode() & 0o022 == 0,
-            "unsafe handoff directory"
-        );
+        handoff_directory(&directory, 0)?;
         let path = directory.join(format!("{}.{}.json", record.spec.vm_uid, record.generation));
         #[derive(Serialize)]
         struct Handoff<'a> {
@@ -254,5 +269,42 @@ impl Store {
         temp.persist_noclobber(&path).map_err(|e| e.error)?;
         File::open(&directory)?.sync_all()?;
         Ok(path)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn restrictive_creation_mode_is_normalized_without_widening_credentials() {
+        let temp = tempfile::tempdir().unwrap();
+        let directory = temp.path().join("handoff");
+        fs::create_dir(&directory).unwrap();
+        fs::set_permissions(&directory, fs::Permissions::from_mode(0o700)).unwrap();
+        let credential = directory.join("copy.json");
+        fs::write(&credential, b"private fixture").unwrap();
+        fs::set_permissions(&credential, fs::Permissions::from_mode(0o600)).unwrap();
+        handoff_directory(&directory, nix::unistd::getuid().as_raw()).unwrap();
+        assert_eq!(fs::metadata(&directory).unwrap().mode() & 0o777, 0o755);
+        assert_eq!(fs::metadata(&credential).unwrap().mode() & 0o777, 0o600);
+        assert_eq!(
+            fs::metadata(&credential).unwrap().uid(),
+            nix::unistd::getuid().as_raw()
+        );
+    }
+    #[test]
+    fn unsafe_directory_is_not_chmodded_and_symlinks_are_not_followed() {
+        let temp = tempfile::tempdir().unwrap();
+        let directory = temp.path().join("handoff");
+        fs::create_dir(&directory).unwrap();
+        fs::set_permissions(&directory, fs::Permissions::from_mode(0o770)).unwrap();
+        assert!(handoff_directory(&directory, nix::unistd::getuid().as_raw()).is_err());
+        assert_eq!(fs::metadata(&directory).unwrap().mode() & 0o777, 0o770);
+        fs::set_permissions(&directory, fs::Permissions::from_mode(0o700)).unwrap();
+        assert!(handoff_directory(&directory, nix::unistd::getuid().as_raw() + 1).is_err());
+        let link = temp.path().join("symlink");
+        std::os::unix::fs::symlink(&directory, &link).unwrap();
+        assert!(handoff_directory(&link, nix::unistd::getuid().as_raw()).is_err());
+        assert_eq!(fs::metadata(&directory).unwrap().mode() & 0o777, 0o700);
     }
 }
