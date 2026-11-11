@@ -1,0 +1,189 @@
+{
+  "apiVersion": "apiextensions.k8s.io/v1",
+  "kind": "CustomResourceDefinition",
+  "metadata": {
+    "name": "virtualmachines.qrab.yapplesauce.com"
+  },
+  "spec": {
+    "group": "qrab.yapplesauce.com",
+    "names": {
+      "kind": "VirtualMachine",
+      "plural": "virtualmachines",
+      "shortNames": [
+        "qvm"
+      ],
+      "singular": "virtualmachine"
+    },
+    "scope": "Namespaced",
+    "versions": [
+      {
+        "additionalPrinterColumns": [
+          {
+            "jsonPath": ".status.phase",
+            "name": "Phase",
+            "type": "string"
+          },
+          {
+            "jsonPath": ".status.ready",
+            "name": "Ready",
+            "type": "boolean"
+          },
+          {
+            "jsonPath": ".status.nodeName",
+            "name": "Node",
+            "type": "string"
+          }
+        ],
+        "name": "v1alpha1",
+        "schema": {
+          "openAPIV3Schema": {
+            "description": "Auto-generated derived type for VirtualMachineSpec via `CustomResource`",
+            "properties": {
+              "spec": {
+                "properties": {
+                  "bootDisk": {
+                    "default": "/opt/qrab/demo/boot.img",
+                    "description": "Readonly UEFI boot disk inside the manager image. No direct kernel boot.",
+                    "maxLength": 4096,
+                    "minLength": 2,
+                    "type": "string"
+                  },
+                  "console": {
+                    "properties": {
+                      "allowedSubjects": {
+                        "items": {
+                          "type": "string"
+                        },
+                        "maxItems": 128,
+                        "minItems": 1,
+                        "type": "array"
+                      },
+                      "publicUrl": {
+                        "description": "Exact HTTPS origin. Service/Ingress/certificate and IdP callback are separate.",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "allowedSubjects",
+                      "publicUrl"
+                    ],
+                    "type": "object"
+                  },
+                  "cpus": {
+                    "default": 1,
+                    "format": "int32",
+                    "maximum": 256.0,
+                    "minimum": 1.0,
+                    "type": "integer"
+                  },
+                  "image": {
+                    "description": "Optional immutable manager image; defaults to the operator's release pin.",
+                    "nullable": true,
+                    "pattern": "^zot\\.yapplesauce\\.com/qrab/manager@sha256:[a-f0-9]{64}$",
+                    "type": "string"
+                  },
+                  "memoryMiB": {
+                    "default": 512,
+                    "format": "int32",
+                    "maximum": 1048576.0,
+                    "minimum": 256.0,
+                    "type": "integer"
+                  },
+                  "restartNonce": {
+                    "default": "",
+                    "description": "Change this value to restart without discarding the retained identity.",
+                    "maxLength": 128,
+                    "type": "string"
+                  },
+                  "running": {
+                    "default": true,
+                    "description": "Desired power state. A running VM is recreated after exit or Pod loss.",
+                    "type": "boolean"
+                  },
+                  "stateVolumeClaim": {
+                    "description": "Existing filesystem PVC. Its UEFI/vTPM identity is never garbage collected.",
+                    "maxLength": 253,
+                    "minLength": 1,
+                    "type": "string",
+                    "x-kubernetes-validations": [
+                      {
+                        "message": "stateVolumeClaim is immutable; identity migration must be deliberate",
+                        "rule": "self == oldSelf"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "console",
+                  "stateVolumeClaim"
+                ],
+                "type": "object"
+              },
+              "status": {
+                "nullable": true,
+                "properties": {
+                  "message": {
+                    "type": "string"
+                  },
+                  "nodeName": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "observedGeneration": {
+                    "format": "int64",
+                    "type": "integer"
+                  },
+                  "phase": {
+                    "type": "string"
+                  },
+                  "podName": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "podUid": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "ready": {
+                    "type": "boolean"
+                  },
+                  "reason": {
+                    "type": "string"
+                  },
+                  "stateVolumeUid": {
+                    "nullable": true,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "message",
+                  "observedGeneration",
+                  "phase",
+                  "ready",
+                  "reason"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "spec"
+            ],
+            "title": "VirtualMachine",
+            "type": "object",
+            "x-kubernetes-validations": [
+              {
+                "message": "VM names must be at most 50 characters",
+                "rule": "size(self.metadata.name) <= 50"
+              }
+            ]
+          }
+        },
+        "served": true,
+        "storage": true,
+        "subresources": {
+          "status": {}
+        }
+      }
+    ]
+  }
+}

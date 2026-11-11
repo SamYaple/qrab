@@ -27,6 +27,21 @@ fn startup() -> u64 {
 fn grace() -> u64 {
     5
 }
+fn persistent_state() -> PathBuf {
+    "/var/lib/qrab".into()
+}
+fn uefi_code() -> PathBuf {
+    "/opt/qrab/firmware/OVMF_CODE_4M.fd".into()
+}
+fn uefi_vars() -> PathBuf {
+    "/opt/qrab/firmware/OVMF_VARS_4M.fd".into()
+}
+fn uefi_boot_disk() -> PathBuf {
+    "/opt/qrab/demo/boot.img".into()
+}
+fn swtpm_binary() -> PathBuf {
+    "/usr/bin/swtpm".into()
+}
 
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -56,6 +71,24 @@ pub struct Disk {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+pub struct Uefi {
+    #[serde(default = "uefi_code")]
+    pub code: PathBuf,
+    #[serde(default = "uefi_vars")]
+    pub vars_template: PathBuf,
+    #[serde(default = "uefi_boot_disk")]
+    pub boot_disk: PathBuf,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Tpm {
+    #[serde(default = "swtpm_binary")]
+    pub swtpm_binary: PathBuf,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Config {
     #[serde(default = "name")]
     pub name: String,
@@ -67,7 +100,8 @@ pub struct Config {
     pub cpus: u32,
     #[serde(default)]
     pub accelerator: Accelerator,
-    pub kernel: PathBuf,
+    #[serde(default)]
+    pub kernel: Option<PathBuf>,
     #[serde(default)]
     pub initrd: Option<PathBuf>,
     #[serde(default)]
@@ -79,6 +113,16 @@ pub struct Config {
     pub disk: Option<Disk>,
     #[serde(default)]
     pub firmware_dir: Option<PathBuf>,
+    #[serde(default)]
+    pub uefi: Option<Uefi>,
+    #[serde(default)]
+    pub tpm: Option<Tpm>,
+    #[serde(default = "persistent_state")]
+    pub state_dir: PathBuf,
+    /// Immutable VM identity (the Kubernetes CR UID in operator deployments).
+    /// Standalone configurations default to the VM name.
+    #[serde(default)]
+    pub state_id: Option<String>,
     #[serde(default = "runtime")]
     pub runtime_dir: PathBuf,
     #[serde(default = "startup")]
@@ -113,19 +157,62 @@ impl Config {
                 "invalid memory, CPU count or lifecycle timeout".into(),
             ));
         }
-        for path in [&self.qemu_binary, &self.kernel]
-            .into_iter()
+        if let Some(uefi) = &self.uefi {
+            if self.kernel.is_some() || self.initrd.is_some() || !self.kernel_args.is_empty() {
+                return Err(Error::Config(
+                    "UEFI boot uses its EFI boot disk, not a direct kernel/initrd/command line"
+                        .into(),
+                ));
+            }
+            for path in [&uefi.code, &uefi.vars_template, &uefi.boot_disk] {
+                required_file(path)?;
+            }
+            if std::fs::metadata(&uefi.vars_template)?.len() < 64 {
+                return Err(Error::Config("UEFI variable template is empty".into()));
+            }
+        } else if self.kernel.is_none() {
+            return Err(Error::Config(
+                "select UEFI boot or supply a direct kernel".into(),
+            ));
+        }
+        for path in std::iter::once(&self.qemu_binary)
+            .chain(self.kernel.iter())
             .chain(self.initrd.iter())
         {
-            if !path.is_absolute() || !path.is_file() {
-                return Err(Error::Config(format!(
-                    "required absolute file is missing: {}",
-                    path.display()
-                )));
-            }
+            required_file(path)?;
         }
         if !self.runtime_dir.is_absolute() {
             return Err(Error::Config("runtime_dir must be absolute".into()));
+        }
+        if self.uefi.is_some() || self.tpm.is_some() {
+            if !self.state_dir.is_absolute() || self.state_dir == self.runtime_dir {
+                return Err(Error::Config(
+                    "state_dir must be an absolute persistent directory separate from runtime_dir"
+                        .into(),
+                ));
+            }
+            let id = self.state_id.as_deref().unwrap_or(&self.name);
+            if id.is_empty()
+                || id.len() > 128
+                || !id
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b"_.-".contains(&b))
+            {
+                return Err(Error::Config(
+                    "state_id must be 1..128 ASCII letters, digits, dots, hyphens or underscores"
+                        .into(),
+                ));
+            }
+        }
+        if let Some(tpm) = &self.tpm {
+            required_file(&tpm.swtpm_binary)?;
+            for path in [&self.state_dir, &self.runtime_dir] {
+                if path.to_str().is_none_or(|path| path.contains(',')) {
+                    return Err(Error::Config(
+                        "swtpm state/runtime paths must be UTF-8 without commas".into(),
+                    ));
+                }
+            }
         }
         if let Some(path) = &self.firmware_dir {
             if !path.is_absolute() || !path.is_dir() {
@@ -158,7 +245,11 @@ impl Config {
             "-name",
             &self.name,
             "-machine",
-            "q35",
+            if self.uefi.is_some() {
+                "q35,pflash0=pflash-code,pflash1=pflash-vars"
+            } else {
+                "q35"
+            },
             "-m",
             &self.memory_mib.to_string(),
             "-smp",
@@ -196,9 +287,42 @@ impl Config {
             "-object".into(),
             serde_json::json!({"qom-type":"monitor-qmp", "id":"monitor", "chardev":"qmp"})
                 .to_string(),
-            "-kernel".into(),
-            self.kernel.to_string_lossy().into_owned(),
         ]);
+        if let Some(uefi) = &self.uefi {
+            let vars = self.state_dir.join("identity/OVMF_VARS.fd");
+            for (name, path, read_only) in [
+                ("pflash-code", &uefi.code, true),
+                ("pflash-vars", &vars, false),
+            ] {
+                args.extend([
+                    "-blockdev".into(), serde_json::json!({"driver":"file", "filename":path, "node-name":format!("{name}-file"), "read-only":read_only}).to_string(),
+                    "-blockdev".into(), serde_json::json!({"driver":"raw", "file":format!("{name}-file"), "node-name":name, "read-only":read_only}).to_string(),
+                ]);
+            }
+            args.extend([
+                "-blockdev".into(), serde_json::json!({"driver":"file", "filename":uefi.boot_disk, "node-name":"boot-file", "read-only":true}).to_string(),
+                "-blockdev".into(), serde_json::json!({"driver":"raw", "file":"boot-file", "node-name":"boot", "read-only":true}).to_string(),
+                "-device".into(), "virtio-blk-pci,drive=boot,bootindex=1".into(),
+            ]);
+        } else if let Some(kernel) = &self.kernel {
+            args.extend(["-kernel".into(), kernel.to_string_lossy().into_owned()]);
+        }
+        if self.tpm.is_some() {
+            args.extend([
+                "-chardev".into(),
+                format!(
+                    "socket,id=tpm,path={}",
+                    socket
+                        .with_file_name("swtpm.sock")
+                        .to_string_lossy()
+                        .replace(',', ",,")
+                ),
+                "-tpmdev".into(),
+                "emulator,id=tpm0,chardev=tpm".into(),
+                "-device".into(),
+                "tpm-tis,tpmdev=tpm0".into(),
+            ]);
+        }
         if let Some(initrd) = &self.initrd {
             args.extend(["-initrd".into(), initrd.to_string_lossy().into_owned()]);
         }
@@ -233,4 +357,14 @@ impl Config {
         }
         args
     }
+}
+
+fn required_file(path: &Path) -> Result<()> {
+    if !path.is_absolute() || !path.is_file() {
+        return Err(Error::Config(format!(
+            "required absolute file is missing: {}",
+            path.display()
+        )));
+    }
+    Ok(())
 }

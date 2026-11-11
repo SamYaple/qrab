@@ -1,0 +1,69 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: qrab-operator
+  labels:
+    app.kubernetes.io/name: qrab-operator
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: qrab-operator
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: qrab-operator
+    spec:
+      serviceAccountName: qrab-operator
+      # Only the operator talks to Kubernetes. VM pods explicitly disable this.
+      automountServiceAccountToken: true
+      enableServiceLinks: false
+      terminationGracePeriodSeconds: 10
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      tolerations:
+      - key: node-role.kubernetes.io/control-plane
+        operator: Exists
+        effect: NoSchedule
+      containers:
+      - name: operator
+        # Updated from published immutable references by the release pin commit.
+        image: zot.yapplesauce.com/qrab/operator@sha256:0000000000000000000000000000000000000000000000000000000000000000
+        imagePullPolicy: Always
+        args: [run]
+        env:
+        - name: QRAB_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - {name: QRAB_VM_IMAGE, value: 'zot.yapplesauce.com/qrab/manager@sha256:ed29c4284ec373a522b0561753fceff9b9eeb4278d789bd22a436706c034b049'}
+        - {name: QRAB_OIDC_ISSUER, value: 'https://idm.yaple.net/oauth2/openid/qrab-bmc'}
+        - {name: QRAB_OIDC_CLIENT_ID, value: qrab-bmc}
+        - {name: QRAB_IDP_IP, value: '192.168.0.251'}
+        ports:
+        - name: health
+          containerPort: 8081
+        resources:
+          requests: {cpu: 50m, memory: 64Mi}
+          limits: {cpu: '1', memory: 192Mi}
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop: [ALL]
+        startupProbe:
+          httpGet: {path: /healthz, port: health}
+          periodSeconds: 2
+          failureThreshold: 30
+        readinessProbe:
+          httpGet: {path: /healthz, port: health}
+          periodSeconds: 5
+        livenessProbe:
+          httpGet: {path: /healthz, port: health}
+          periodSeconds: 10

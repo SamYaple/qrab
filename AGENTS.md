@@ -1,6 +1,7 @@
 # qrab maintenance
 
-The active path is the per-VM OIDC BMC, pod-native manager and QAPI/QMP/QGA libraries. The
+The active path is the minimal Rust VM operator, per-VM OIDC BMC, pod-native
+UEFI/TPM manager and QAPI/QMP/QGA libraries. The
 default workspace and manager features select this path; host/SEV APIs are
 explicitly opt-in. Work tracking and durable operational notes
 belong to the `qrab` project in towl.

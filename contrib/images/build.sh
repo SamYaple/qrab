@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 cd "$(dirname "$0")/../.."
-component=${1:?usage: build.sh qemu|manager TAG}
+component=${1:?usage: build.sh qemu|manager|operator TAG}
 tag=${2:?image tag required}
 [[ $tag =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$ ]] || { echo 'invalid image tag' >&2; exit 1; }
 revision=$(git rev-parse HEAD)
@@ -17,6 +17,9 @@ case "$component" in
     [[ $qemu_image =~ @sha256:[a-f0-9]{64}$ ]] || { echo 'QEMU_IMAGE must be an immutable published digest reference' >&2; exit 1; }
     podman build -f contrib/images/Containerfile.manager --build-arg "QRAB_REVISION=$revision" --build-arg "QEMU_IMAGE=$qemu_image" -t "$image" .
     ;;
-  *) echo 'component must be qemu or manager' >&2; exit 1;;
+  operator)
+    podman build -f contrib/images/Containerfile.operator --build-arg "QRAB_REVISION=$revision" -t "$image" .
+    ;;
+  *) echo 'component must be qemu, manager or operator' >&2; exit 1;;
 esac
 printf '%s\n' "$image"

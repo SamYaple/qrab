@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
-"""Assemble the RAM-only graphical console fixture; no guest network tools."""
+"""Assemble the RAM-only UEFI/TPM2 console fixture without guest networking."""
 import pathlib
+import re
 import shutil
 import subprocess
 
 root = pathlib.Path('/guest')
 out = pathlib.Path('/out')
-for directory in ['bin', 'dev', 'proc', 'sys', 'tmp', 'run', 'var/run', 'var/log', 'etc', 'usr/sbin']:
+for directory in ['bin', 'dev', 'proc', 'sys', 'tmp', 'run', 'var/run', 'var/log', 'etc', 'usr/bin']:
     (root / directory).mkdir(parents=True, exist_ok=True)
 out.mkdir(exist_ok=True)
 kernel, = pathlib.Path('/boot').glob('vmlinuz-*')
@@ -17,7 +18,7 @@ shutil.copy('/bin/busybox', root / 'bin/busybox')
 (root / 'bin/sh').symlink_to('busybox')
 
 modules = []
-for name in ['xhci_pci', 'usbhid', 'hid_generic', 'mousedev', 'evdev']:
+for name in ['xhci_pci', 'usbhid', 'hid_generic', 'mousedev', 'evdev', 'tpm_tis']:
     dependencies = subprocess.check_output(['modprobe', '--set-version', version, '--show-depends', name], text=True)
     for line in dependencies.splitlines():
         if not line.startswith('insmod '):
@@ -40,4 +41,18 @@ for name in ['xhci_pci', 'usbhid', 'hid_generic', 'mousedev', 'evdev']:
         modules.append(str(destination))
 (root / 'etc/qrab-modules').write_text('\n'.join(modules) + '\n')
 
-(out / 'guest-packages.txt').write_bytes(subprocess.check_output(['dpkg-query', '-W', 'linux-image*', 'busybox-static']))
+# These tools exercise the real guest TPM rather than asserting that QEMU
+# merely received -tpmdev. Include dlopen's device TCTI as well as ELF deps.
+def copy_binary_with_libraries(source):
+    source = pathlib.Path(source)
+    paths = [source, *map(pathlib.Path, re.findall(r'/[^\s()]+', subprocess.check_output(['ldd', str(source)], text=True)))]
+    for path in paths:
+        target = root / path.relative_to('/')
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(path, target)
+        target.chmod(path.stat().st_mode)
+
+for name in ['tpm2_getcap', 'tpm2_pcrread', 'tpm2_createek', 'tpm2_flushcontext', 'tpm2_eventlog']:
+    copy_binary_with_libraries('/usr/bin/' + name)
+copy_binary_with_libraries('/usr/lib/x86_64-linux-gnu/libtss2-tcti-device.so.0')
+(out / 'guest-packages.txt').write_bytes(subprocess.check_output(['dpkg-query', '-W', 'linux-image*', 'busybox-static', 'tpm2-tools', 'systemd-boot-efi', 'systemd-ukify']))

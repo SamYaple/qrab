@@ -7,6 +7,28 @@ printf '\nQRAB_GUEST_BOOTED\n'
 printf 'guest kernel: '; uname -r
 printf 'guest uptime: '; cat /proc/uptime
 while read -r module; do insmod "$module"; done </etc/qrab-modules
+if [ -d /sys/firmware/efi ]; then
+    echo QRAB_UEFI_BOOTED
+fi
+if [ -c /dev/tpmrm0 ]; then
+    export TPM2TOOLS_TCTI=device:/dev/tpmrm0
+    if tpm2_getcap properties-fixed >/run/tpm-capabilities && tpm2_pcrread sha256:0,4,7,11 >/run/tpm-pcrs; then
+        echo QRAB_TPM2_READY
+        cat /run/tpm-pcrs
+    fi
+    mount -t securityfs securityfs /sys/kernel/security
+    if [ -r /sys/kernel/security/tpm0/binary_bios_measurements ] && tpm2_eventlog /sys/kernel/security/tpm0/binary_bios_measurements >/run/tpm-eventlog.yaml 2>/run/tpm-eventlog.log; then
+        echo QRAB_TPM_EVENTLOG_PRESENT
+        sha256sum /sys/kernel/security/tpm0/binary_bios_measurements
+    fi
+    if tpm2_createek -G ecc -c /run/qrab-ek.ctx -u /run/qrab-ek.pub >/run/tpm-ek.log 2>&1; then
+        printf 'QRAB_TPM_EK_SHA256='
+        sha256sum /run/qrab-ek.pub | cut -d ' ' -f 1
+        # The TPM resource manager releases this transient primary when the
+        # tool's /dev/tpmrm0 descriptor closes; only its public blob is retained.
+    fi
+fi
+if [ "$(ls /sys/class/net)" = lo ]; then echo QRAB_GUEST_NO_NIC_OK; fi
 # The fixture offers a root shell only inside this disposable VM. Console access
 # is authenticated by the BMC; QEMU has no NIC. USB tablet events are available
 # through /dev/input; a graphical guest can use them as an absolute pointer.

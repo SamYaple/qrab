@@ -1,0 +1,34 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: qrab-operator
+rules:
+- apiGroups: [qrab.yapplesauce.com]
+  resources: [virtualmachines]
+  verbs: [get, list, watch]
+- apiGroups: [qrab.yapplesauce.com]
+  resources: [virtualmachines/status]
+  verbs: [get, patch, update]
+- apiGroups: ['']
+  resources: [pods, configmaps]
+  verbs: [get, list, watch, create, patch, delete]
+- apiGroups: ['']
+  resources: [persistentvolumeclaims]
+  verbs: [get]
+- apiGroups: ['']
+  resources: [serviceaccounts]
+  resourceNames: [qrab-manager]
+  verbs: [use]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: qrab-operator
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: qrab-operator
+subjects:
+- kind: ServiceAccount
+  name: qrab-operator
+  namespace: qrab

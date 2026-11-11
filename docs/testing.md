@@ -1,7 +1,7 @@
 # Core-library validation
 
 The normal developer path is the default workspace: `qapi-macros`, `qapi`,
-`qapi-protocol`, the pod-native `manager` and `bmc`. No QEMU checkout, Python, firmware,
+`qapi-protocol`, the pod-native `manager`, `bmc` and `qrab-operator`. No QEMU checkout, Python, firmware,
 privileged hardware or cluster is required for these tests:
 
 ```sh
@@ -9,7 +9,7 @@ cargo test --locked
 bash contrib/check-runtime.sh
 ```
 
-The script also checks formatting and runs strict manager/protocol/BMC Clippy.
+The script also checks formatting and runs strict manager/protocol/BMC/operator Clippy and verifies the generated VM CRD.
 Generated QAPI modules are excluded from rustfmt traversal; update them through
 codegen, not manual formatting.
 
@@ -81,3 +81,6 @@ QRAB_TEST_QGA="$PWD/target/qemu-11.1.3/qga/qemu-ga" \
 
 It runs as the current user and reads no host agent configuration. No guest VM,
 root privileges, systemd or cluster is required for either protocol smoke test.
+
+UEFI/TPM boot and retained identity are tested explicitly with `manager/tests/pod_uefi.rs`;
+see [operator.md](operator.md). These require the built image assets and swtpm.

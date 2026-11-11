@@ -8,6 +8,7 @@ default-members = [
     "projects/qapi-protocol",
     "projects/manager",
     "projects/bmc",
+    "projects/operator",
 ]
 members = [
     "projects/qapi-codegen",
@@ -18,6 +19,7 @@ members = [
     "projects/qrab-init",
     "projects/qrab-guest-init",
     "projects/bmc",
+    "projects/operator",
     "projects/attest-server",
     "projects/qrab-boot-proto",
     "projects/qrab-boot-verify",

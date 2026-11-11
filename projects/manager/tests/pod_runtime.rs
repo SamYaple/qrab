@@ -225,3 +225,98 @@ async fn cancellation_reaps_child_and_concurrent_owners_are_refused() {
         "ownership lock survived cancellation"
     );
 }
+
+#[test]
+fn uefi_and_tpm_arguments_keep_boot_data_and_control_paths_separate() {
+    let directory = tempfile::tempdir().unwrap();
+    for name in ["code", "vars", "boot", "data"] {
+        std::fs::write(directory.path().join(name), vec![0; 128]).unwrap();
+    }
+    let config: Config=serde_json::from_value(serde_json::json!({
+        "qemu_binary":"/bin/true", "console":true, "state_dir":directory.path().join("state"),
+        "uefi":{"code":directory.path().join("code"),"vars_template":directory.path().join("vars"),"boot_disk":directory.path().join("boot")},
+        "tpm":{"swtpm_binary":"/bin/true"},"disk":{"path":directory.path().join("data")}
+    })).unwrap();
+    config.validate().unwrap();
+    let args = config.arguments(Path::new("/tmp/private/qmp.sock"));
+    assert!(!args
+        .iter()
+        .any(|arg| matches!(arg.as_str(), "-kernel" | "-initrd" | "-append" | "-netdev")));
+    assert!(args.windows(2).any(|arg| arg == ["-nic", "none"]));
+    assert!(args
+        .windows(2)
+        .any(|arg| arg == ["-device", "tpm-tis,tpmdev=tpm0"]));
+    assert!(args
+        .windows(2)
+        .any(|arg| arg == ["-chardev", "socket,id=tpm,path=/tmp/private/swtpm.sock"]));
+    assert!(args
+        .windows(2)
+        .any(|arg| arg == ["-device", "virtio-blk-pci,drive=boot,bootindex=1"]));
+    assert!(args
+        .windows(2)
+        .any(|arg| arg == ["-device", "virtio-blk-pci,drive=disk"]));
+    let nodes: Vec<serde_json::Value> = args
+        .windows(2)
+        .filter(|arg| arg[0] == "-blockdev")
+        .map(|arg| serde_json::from_str(&arg[1]).unwrap())
+        .collect();
+    let vars = nodes
+        .iter()
+        .find(|node| node["node-name"] == "pflash-vars-file")
+        .unwrap();
+    assert_eq!(
+        vars["filename"],
+        config
+            .state_dir
+            .join("identity/OVMF_VARS.fd")
+            .to_str()
+            .unwrap()
+    );
+    assert_eq!(vars["read-only"], false);
+    let boot = nodes
+        .iter()
+        .find(|node| node["node-name"] == "boot-file")
+        .unwrap();
+    assert_eq!(boot["read-only"], true);
+}
+
+#[tokio::test]
+async fn swtpm_startup_failure_timeout_and_shutdown_reap_the_tpm_before_qemu() {
+    use std::os::unix::fs::PermissionsExt;
+    for mode in ["exit", "timeout", "shutdown"] {
+        let directory = tempfile::tempdir().unwrap();
+        let kernel = directory.path().join("kernel");
+        std::fs::write(&kernel, []).unwrap();
+        let binary = directory.path().join("fake-swtpm");
+        std::fs::write(
+            &binary,
+            if mode == "exit" {
+                b"#!/bin/sh\nexit 1\n".as_slice()
+            } else {
+                b"#!/bin/sh\nexec sleep 1000\n".as_slice()
+            },
+        )
+        .unwrap();
+        std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let config: Config=serde_json::from_value(serde_json::json!({
+            "kernel":kernel,"qemu_binary":"/bin/false", "tpm":{"swtpm_binary":binary},
+            "state_dir":directory.path().join("state"),"runtime_dir":directory.path().join("runtime"),"startup_timeout_secs":1
+        })).unwrap();
+        let outcome = pod::run(config.clone(), async {
+            if mode == "shutdown" {
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            } else {
+                std::future::pending::<()>().await;
+            }
+        })
+        .await;
+        assert_eq!(outcome.is_ok(), mode == "shutdown");
+        let status = pod::status(&config).unwrap();
+        assert!(status.qemu_pid.is_none());
+        assert!(!status.ready);
+        assert!(
+            !PathBuf::from(format!("/proc/{}", status.swtpm_pid.unwrap())).exists(),
+            "TPM process leaked after {mode}"
+        );
+    }
+}

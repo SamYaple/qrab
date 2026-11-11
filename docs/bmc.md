@@ -13,14 +13,15 @@ this manifest does not add a public edge route. Sign in with Kanidm, then choose
 **Connect console**. Video, keyboard, USB tablet input, Ctrl Alt Del and full
 screen run through the vendored noVNC client. There are no CDN dependencies.
 Pause, resume, reset and bounded shutdown use a small typed manager control API.
-Shutdown ends the VM and its pod process; reapplying the Pod launches a new VM.
+Shutdown ends the current VM instance. With spec.running=true, the operator
+starts another; set spec.running=false to keep it off.
 
 The RAM-only fixture has an interactive root shell on its virtual terminal.
 Keyboard and absolute pointer devices are exposed to the guest; the fixture's
 terminal is not a desktop environment. A graphical guest can consume the same
 USB tablet events. The fixture has no persistent root filesystem or NIC.
-Clipboard sharing, sound, guest networking and a Kubernetes controller remain
-outside this stage.
+Clipboard sharing, sound and guest networking remain outside this stage.
+The minimal [operator](operator.md) now creates the per-VM Pod from a CR.
 
 ## Runtime configuration
 
@@ -88,13 +89,14 @@ client; the per-VM allowlist decides which VM an operator can access.
 
 ## Build, apply and verify
 
-Use the two-image build/publication procedure in [manager.md](manager.md).
+Use the image build/publication procedure in [manager.md](manager.md).
 QEMU must include VNC and pixman; the image build enables them explicitly. No
 additional registry identity is needed: the BMC ships in `qrab/manager`.
 
 ```sh
-# The original Pod's command/probes are immutable; preserve namespace/SA identity.
-kubectl -n qrab delete pod qrab-demo --ignore-not-found --timeout=30s
+# Install the operator/CRD and preserve namespace/SA identity.
+kubectl apply -k contrib/kubernetes/operator
+kubectl wait --for=condition=Established crd/virtualmachines.qrab.yapplesauce.com
 kubectl apply -k contrib/kubernetes
 kubectl -n qrab wait --for=condition=Ready certificate/qrab-demo-tls --timeout=180s
 kubectl -n qrab wait --for=condition=Ready pod/qrab-demo --timeout=120s

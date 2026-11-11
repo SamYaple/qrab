@@ -1,10 +1,11 @@
 # qrab
 
 Rust libraries and tooling for launching QEMU VMs in Kubernetes. The active
-runtime is `qrab-bmc`: each VM pod runs a Kanidm-authenticated browser console
+runtime is driven by the Rust `qrab-operator` and a namespaced `VirtualMachine`
+CRD. Each VM pod runs a Kanidm-authenticated browser console
 and supervises QEMU through a private QMP socket. Video, keyboard and USB mouse
-input use a private VNC socket. The demo boots Linux with no guest NIC or VM
-controller. `qrab-manager` also remains available as a standalone supervisor.
+input use a private VNC socket. The demo boots Linux through UEFI with a persistent swtpm
+TPM2 and no guest NIC. `qrab-manager` also remains available as a standalone supervisor.
 
 | Component | Responsibility |
 | --- | --- |
@@ -12,6 +13,7 @@ controller. `qrab-manager` also remains available as a standalone supervisor.
 | `qapi-protocol` | Async Unix-socket QMP/QGA clients and bounded test servers |
 | `manager` | Pod-native VM configuration, supervision, status and probes |
 | `bmc` | Per-VM Kanidm OIDC login, noVNC display/input and VM controls |
+| `qrab-operator` | Minimal namespaced VM CRD, Pod/ConfigMap lifecycle and status |
 | `qapi-codegen` | Explicit schema parsing and generation tool |
 
 ## Development
@@ -22,7 +24,7 @@ cargo test --locked
 bash contrib/check-runtime.sh
 ```
 
-The default workspace selects the protocol libraries, pod manager and BMC.
+The default workspace selects the protocol libraries, pod manager, BMC and operator.
 These checks use committed generated code and require no QEMU source checkout,
 Python, KVM, firmware, systemd or cluster access. Live-QEMU tests are explicit.
 The QEMU image is built from **11.1.3**, pinned in `vendor/qemu` from our
@@ -30,14 +32,17 @@ The QEMU image is built from **11.1.3**, pinned in `vendor/qemu` from our
 
 ## Images and VM launch
 
-See [manager.md](docs/manager.md) for the two runtime images, strict VM config,
+See [manager.md](docs/manager.md) for the runtime images, strict VM config,
 probes and shutdown behavior. Published digests and their source revision are
 recorded in [images.lock.json](contrib/images/images.lock.json).
 
-See [bmc.md](docs/bmc.md) for OIDC provisioning, the per-VM console and TLS.
+See [operator.md](docs/operator.md) for CR-driven launch and persistent UEFI/TPM
+identity, and [bmc.md](docs/bmc.md) for OIDC and the per-VM console.
 Once the namespace/ServiceAccount image-pull identity and OIDC client are enrolled:
 
 ```sh
+kubectl apply -k contrib/kubernetes/operator
+kubectl wait --for=condition=Established crd/virtualmachines.qrab.yapplesauce.com
 kubectl apply -k contrib/kubernetes
 bash contrib/kubernetes/check.sh
 ```

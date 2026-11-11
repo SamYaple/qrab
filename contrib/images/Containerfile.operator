@@ -1,0 +1,17 @@
+ARG RUST_IMAGE=docker.io/library/rust@sha256:4277ce860337f6cfa1b679891bbf689a447f4b3f4f55701742614ad31321cee7
+ARG DEBIAN_IMAGE=docker.io/library/debian@sha256:7378260c0a098d27ac206225db5e7d92b8c7c84ea7afccc86eeb513756bbd392
+FROM ${RUST_IMAGE} AS build
+WORKDIR /src
+COPY Cargo.toml Cargo.lock ./
+COPY projects ./projects
+RUN --mount=type=cache,id=qrab-cargo-registry,target=/usr/local/cargo/registry --mount=type=cache,id=qrab-operator-target,target=/src/target,sharing=locked cargo build --release --locked -p qrab-operator --bin qrab-operator && mkdir -p /out && cp /src/target/release/qrab-operator /out/qrab-operator
+
+FROM ${DEBIAN_IMAGE}
+ARG QRAB_REVISION=unknown
+LABEL org.opencontainers.image.source="https://gitea.yapplesauce.com/infrastructure/qrab" \
+      org.opencontainers.image.revision="${QRAB_REVISION}" \
+      org.opencontainers.image.description="Minimal namespaced qrab VirtualMachine operator"
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates && rm -rf /var/lib/apt/lists/*
+COPY --from=build /out/qrab-operator /usr/local/bin/qrab-operator
+USER 10001:10001
+ENTRYPOINT ["/usr/local/bin/qrab-operator"]

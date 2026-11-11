@@ -1,5 +1,7 @@
 use super::{
+    persistent::PersistentState,
     state::{publish, start_ticks},
+    tpm::Swtpm,
     Config, Phase, Status,
 };
 use crate::{Error, Result};
@@ -10,6 +12,7 @@ use std::{
     fs::OpenOptions,
     future::Future,
     os::unix::fs::{OpenOptionsExt, PermissionsExt},
+    path::Path,
     process::{ExitStatus, Stdio},
     time::Duration,
 };
@@ -90,11 +93,21 @@ pub async fn run_controlled(
         .tempdir_in(&config.runtime_dir)?;
     let socket = session.path().join("qmp.sock");
     let console = config.console.then(|| session.path().join("vnc.sock"));
-    if socket.as_os_str().as_encoded_bytes().len() > 107 {
+    if socket.as_os_str().as_encoded_bytes().len() > 107
+        || (config.tpm.is_some()
+            && session
+                .path()
+                .join("swtpm.sock")
+                .as_os_str()
+                .as_encoded_bytes()
+                .len()
+                > 107)
+    {
         return Err(Error::Config(
             "runtime directory is too long for a QMP Unix socket".into(),
         ));
     }
+    let mut persistent = PersistentState::prepare(&config)?;
     let mut state = Status {
         phase: Phase::Starting,
         ready: false,
@@ -103,14 +116,66 @@ pub async fn run_controlled(
         qemu_pid: None,
         qemu_start_ticks: None,
         qemu_version: None,
+        swtpm_pid: None,
+        swtpm_start_ticks: None,
         run_state: None,
         observed_unix_ms: 0,
         exit_code: None,
         detail: None,
     };
     publish(&config, &mut state)?;
+    let mut shutdown = Box::pin(shutdown);
+    let mut tpm = None;
+    let result = async {
+        if let Some(tpm_config) = &config.tpm {
+            tpm = Some(Swtpm::spawn(tpm_config, session.path(), &persistent.as_ref().expect("persistent TPM state").tpm_directory())?);
+            let process = tpm.as_mut().expect("TPM process");
+            state.swtpm_pid = process.id();
+            state.swtpm_start_ticks = process.id().and_then(|pid| start_ticks(pid).ok());
+            publish(&config, &mut state)?;
+            let ready = tokio::select! {
+                _=&mut shutdown => None,
+                result=timeout(Duration::from_secs(config.startup_timeout_secs),process.ready()) => Some(result),
+            };
+            match ready {
+                None => {
+                    state.phase=Phase::Exited;
+                    return Ok(Outcome {reason:"shutdown-during-tpm-startup".into(),exit_code:None,shutdown_method:"swtpm-term".into()});
+                },
+                Some(Ok(result)) => result?,
+                Some(Err(_)) => return Err(Error::Spawn("swtpm startup timed out".into())),
+            }
+            persistent.as_mut().expect("persistent TPM state").mark_tpm_initialized()?;
+        }
+        run_qemu(&config, &mut shutdown, &mut control, &socket, console.as_deref(), &mut state, &mut tpm).await
+    }.await;
+    let result = match (&mut tpm, result) {
+        (Some(process), result) => match process.stop().await {
+            Ok(()) => result,
+            Err(error) => Err(error),
+        },
+        (None, result) => result,
+    };
+    if let Err(error) = &result {
+        state.phase = Phase::Failed;
+        state.detail = Some(error.to_string());
+    }
+    state.ready = false;
+    publish(&config, &mut state)?;
+    result
+}
+
+async fn run_qemu(
+    config: &Config,
+    shutdown: impl Future<Output = ()>,
+    control: &mut super::ControlReceiver,
+    socket: &Path,
+    console: Option<&Path>,
+    state: &mut Status,
+    tpm: &mut Option<Swtpm>,
+) -> Result<Outcome> {
     let mut child = match Command::new(&config.qemu_binary)
-        .args(config.arguments(&socket))
+        .args(config.arguments(socket))
         .stdin(Stdio::null())
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit())
@@ -121,13 +186,13 @@ pub async fn run_controlled(
         Err(error) => {
             state.phase = Phase::Failed;
             state.detail = Some(error.to_string());
-            let _ = publish(&config, &mut state);
+            let _ = publish(config, state);
             return Err(Error::Io(error));
         }
     };
     state.qemu_pid = child.id();
     state.qemu_start_ticks = child.id().and_then(|pid| start_ticks(pid).ok());
-    publish(&config, &mut state)?;
+    publish(config, state)?;
     let mut shutdown = Box::pin(shutdown);
     let options = ClientOptions {
         connect_timeout: Duration::from_millis(200),
@@ -140,7 +205,7 @@ pub async fn run_controlled(
             if let Some(exit) = child.try_wait()? {
                 return Err(Error::Spawn(format!("QEMU exited during startup: {exit}")));
             }
-            match Qmp::connect_with_options(&socket, options.clone()).await {
+            match Qmp::connect_with_options(socket, options.clone()).await {
                 Ok((qmp, _events)) => return Ok(qmp),
                 Err(qapi_protocol::Error::Io(error))
                     if matches!(
@@ -150,7 +215,7 @@ pub async fn run_controlled(
                 Err(qapi_protocol::Error::Timeout(_)) => {}
                 Err(error) => return Err(Error::Protocol(error)),
             }
-            publish(&config, &mut state)?;
+            publish(config, state)?;
             tokio::time::sleep(Duration::from_millis(50)).await;
         }
     };
@@ -160,7 +225,7 @@ pub async fn run_controlled(
             failure => {
                 let detail = match failure { Ok(Err(error))=>error.to_string(), Err(_)=>"QEMU startup timed out".into(), _=>unreachable!() };
                 if let Ok((exit,_))=stop_child(&mut child,None,Duration::from_secs(1)).await {state.exit_code=exit.code();}
-                state.phase=Phase::Failed;state.detail=Some(detail.clone());let _=publish(&config,&mut state);
+                state.phase=Phase::Failed;state.detail=Some(detail.clone());let _=publish(config,state);
                 return Err(Error::Spawn(detail));
             }
         },
@@ -170,7 +235,7 @@ pub async fn run_controlled(
         let (exit, method) = stop_child(&mut child, None, Duration::from_secs(1)).await?;
         state.phase = Phase::Exited;
         state.exit_code = exit.code();
-        publish(&config, &mut state)?;
+        publish(config, state)?;
         return Ok(Outcome {
             reason: "shutdown-during-startup".into(),
             exit_code: exit.code(),
@@ -194,16 +259,17 @@ pub async fn run_controlled(
             tokio::select! {
                 _=&mut shutdown => return Ok(None),
                 exit=child.wait() => return Ok(Some(exit?)),
-                Some(request)=control.0.recv() => if request.dispatch(&qmp, console.as_deref()).await { return Ok(None); },
+                exit=super::tpm::wait(tpm) => return Err(Error::Spawn(format!("swtpm exited while QEMU was active: {}", exit?))),
+                Some(request)=control.0.recv() => if request.dispatch(&qmp, console).await { return Ok(None); },
                 reason=qmp.closed() => {
-                    state.ready=false;state.phase=Phase::Stopping;publish(&config,&mut state)?;
+                    state.ready=false;state.phase=Phase::Stopping;publish(config,state)?;
                     if let Ok(exit)=timeout(Duration::from_secs(2),child.wait()).await { return Ok(Some(exit?)); }
                     return Err(Error::Spawn(format!("QMP disconnected: {reason}")));
                 },
                 _=heartbeat.tick() => {
                     let status=qmp.execute(&QueryStatus {}).await?;
                     state.phase=Phase::Running;state.ready=status.running;state.run_state=Some(status.status.to_string());
-                    publish(&config,&mut state)?;
+                    publish(config,state)?;
                 }
             }
         }
@@ -226,7 +292,7 @@ pub async fn run_controlled(
         }
         other => {
             state.phase = Phase::Stopping;
-            let _ = publish(&config, &mut state);
+            let _ = publish(config, state);
             let stopped = stop_child(
                 &mut child,
                 Some(&qmp),
@@ -258,6 +324,6 @@ pub async fn run_controlled(
         }
     };
     qmp.shutdown().await;
-    publish(&config, &mut state)?;
+    publish(config, state)?;
     result
 }

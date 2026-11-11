@@ -25,6 +25,10 @@ pub struct Status {
     pub qemu_pid: Option<u32>,
     pub qemu_start_ticks: Option<u64>,
     pub qemu_version: Option<(u32, u32, u32)>,
+    #[serde(default)]
+    pub swtpm_pid: Option<u32>,
+    #[serde(default)]
+    pub swtpm_start_ticks: Option<u64>,
     pub run_state: Option<String>,
     pub observed_unix_ms: u64,
     pub exit_code: Option<i32>,
@@ -97,9 +101,15 @@ pub fn probe(config: &Config, readiness: bool) -> Result<()> {
         .qemu_pid
         .zip(status.qemu_start_ticks)
         .is_some_and(|(pid, ticks)| start_ticks(pid).ok() == Some(ticks));
+    let tpm_alive = config.tpm.is_none()
+        || status
+            .swtpm_pid
+            .zip(status.swtpm_start_ticks)
+            .is_some_and(|(pid, ticks)| start_ticks(pid).ok() == Some(ticks));
     if age > 5_000
         || start_ticks(status.manager_pid).ok() != Some(status.manager_start_ticks)
         || !child_alive
+        || !tpm_alive
         || status.phase != Phase::Running
         || (readiness && !status.ready)
     {
@@ -152,6 +162,8 @@ mod tests {
             qemu_pid: Some(pid),
             qemu_start_ticks: Some(ticks),
             qemu_version: Some((11, 1, 3)),
+            swtpm_pid: None,
+            swtpm_start_ticks: None,
             run_state: Some("running".into()),
             observed_unix_ms: now_ms(),
             exit_code: None,

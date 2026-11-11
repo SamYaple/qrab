@@ -8,17 +8,18 @@ COPY projects ./projects
 RUN --mount=type=cache,id=qrab-cargo-registry,target=/usr/local/cargo/registry --mount=type=cache,id=qrab-manager-target,target=/src/target,sharing=locked cargo build --release --locked -p manager --bin qrab-manager -p bmc --bin qrab-bmc && mkdir -p /out && cp /src/target/release/qrab-manager /src/target/release/qrab-bmc /out/
 
 FROM ${DEBIAN_IMAGE} AS demo-guest
-RUN apt-get update && apt-get install -y --no-install-recommends linux-image-amd64 busybox-static kmod zstd python3 gzip && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends linux-image-amd64 busybox-static kmod zstd python3 gzip tpm2-tools systemd-ukify systemd-boot-efi dosfstools mtools fdisk && rm -rf /var/lib/apt/lists/*
 COPY contrib/images/guest-init /guest/init
 COPY contrib/images/make-initramfs.py /make-initramfs.py
 COPY contrib/images/prepare-guest.py /prepare-guest.py
-RUN python3 /prepare-guest.py && chmod 0755 /guest/init && python3 /make-initramfs.py /guest /out/initramfs.gz
+COPY contrib/images/make-uefi-boot.py /make-uefi-boot.py
+RUN python3 /prepare-guest.py && chmod 0755 /guest/init && python3 /make-initramfs.py /guest /out/initramfs.gz && python3 /make-uefi-boot.py
 
 FROM ${QEMU_IMAGE}
 ARG QRAB_REVISION=unknown
 LABEL org.opencontainers.image.source="https://gitea.yapplesauce.com/infrastructure/qrab" \
       org.opencontainers.image.revision="${QRAB_REVISION}" \
-      org.opencontainers.image.description="Per-VM QEMU supervisor and OIDC BMC with a RAM-only Linux console fixture"
+      org.opencontainers.image.description="Per-VM QEMU supervisor and OIDC BMC with a measured UEFI Linux/TPM2 console fixture"
 COPY --from=manager-build /out/qrab-manager /usr/local/bin/qrab-manager
 COPY --from=manager-build /out/qrab-bmc /usr/local/bin/qrab-bmc
 COPY projects/bmc/assets /opt/qrab/bmc/assets
