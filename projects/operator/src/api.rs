@@ -57,6 +57,11 @@ pub struct VirtualMachineSpec {
     #[serde(default)]
     #[schemars(length(max = 8))]
     pub iscsi_disks: Vec<IscsiDisk>,
+    /// Disks the operator provisions, exports, grows and fences through the
+    /// storage service. CHAP credentials are generated into owned Secrets.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[schemars(length(max = 8))]
+    pub disks: Vec<ProvisionedDisk>,
     /// Initial iSCSI support is node-pinned; migration requires target fencing.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub storage_node: Option<String>,
@@ -85,6 +90,49 @@ pub struct IscsiDisk {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(with = "Option<i32>", range(min = 0, max = 65535))]
     pub boot_index: Option<u32>,
+}
+
+/// A storage-service disk. Target, portal, CHAP account and Secret are derived
+/// from the VM UID and disk ID; a CR cannot point it at another LUN.
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ProvisionedDisk {
+    #[schemars(regex(pattern = r"^[a-z0-9]([a-z0-9-]{0,18}[a-z0-9])?$"))]
+    pub id: String,
+    /// Grow-only capacity, 16MiB..1TiB in whole MiB. Growth restarts the VM.
+    #[schemars(with = "i64", range(min = 16777216, max = 1099511627776_i64))]
+    pub size_bytes: u64,
+    /// Immutable CoW source; absent provisions a blank thick disk.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub base_image: Option<BaseImage>,
+    #[serde(default)]
+    pub read_only: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(with = "Option<i32>", range(min = 0, max = 65535))]
+    pub boot_index: Option<u32>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct BaseImage {
+    #[schemars(
+        length(min = 1, max = 32),
+        regex(pattern = r"^[a-z0-9]([a-z0-9-]{0,30}[a-z0-9])?$")
+    )]
+    pub name: String,
+    #[schemars(range(min = 1, max = 999999))]
+    pub generation: u32,
+}
+
+/// Observed storage-service state for one provisioned disk.
+#[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct DiskStatus {
+    pub id: String,
+    pub capacity_bytes: u64,
+    /// CHAP credential generation; increments only after a verified fence.
+    pub generation: u64,
+    pub phase: String,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
@@ -120,6 +168,8 @@ pub struct VirtualMachineStatus {
     pub storage_released_pod_uid: Option<String>,
     /// Administrator acknowledgment of hard target fencing after unclean loss.
     pub storage_recovery: Option<String>,
+    #[serde(default)]
+    pub disks: Vec<DiskStatus>,
 }
 
 pub fn crd() -> serde_json::Value {
@@ -135,6 +185,17 @@ pub fn crd() -> serde_json::Value {
     disks["items"]["x-kubernetes-validations"] = serde_json::json!([
         {"rule":"self.id == oldSelf.id && self.portal == oldSelf.portal && self.target == oldSelf.target && self.lun == oldSelf.lun", "message":"disk identity is immutable; use a new id for deliberate replacement"}
     ]);
+    let provisioned = &mut value["spec"]["versions"][0]["schema"]["openAPIV3Schema"]["properties"]
+        ["spec"]["properties"]["disks"];
+    provisioned["x-kubernetes-list-type"] = serde_json::json!("map");
+    provisioned["x-kubernetes-list-map-keys"] = serde_json::json!(["id"]);
+    provisioned["items"]["x-kubernetes-validations"] = serde_json::json!([
+        {"rule":"self.sizeBytes >= oldSelf.sizeBytes", "message":"sizeBytes may only grow; ZFS volumes are never shrunk"},
+        {"rule":"has(self.baseImage) == has(oldSelf.baseImage) && (!has(self.baseImage) || self.baseImage == oldSelf.baseImage)", "message":"baseImage is immutable; use a new disk id for another source"}
+    ]);
+    if let Some(image) = provisioned["items"]["properties"]["baseImage"].as_object_mut() {
+        image.remove("nullable");
+    }
     value["spec"]["versions"][0]["schema"]["openAPIV3Schema"]["properties"]["spec"]["properties"]
         ["stateVolumeClaim"]["x-kubernetes-validations"] = serde_json::json!([
         {"rule":"self == oldSelf", "message":"stateVolumeClaim is immutable; identity migration must be deliberate"}

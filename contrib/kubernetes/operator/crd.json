@@ -79,6 +79,79 @@
                     "minimum": 1.0,
                     "type": "integer"
                   },
+                  "disks": {
+                    "description": "Disks the operator provisions, exports, grows and fences through the\nstorage service. CHAP credentials are generated into owned Secrets.",
+                    "items": {
+                      "description": "A storage-service disk. Target, portal, CHAP account and Secret are derived\nfrom the VM UID and disk ID; a CR cannot point it at another LUN.",
+                      "properties": {
+                        "baseImage": {
+                          "description": "Immutable CoW source; absent provisions a blank thick disk.",
+                          "properties": {
+                            "generation": {
+                              "format": "uint32",
+                              "maximum": 999999.0,
+                              "minimum": 1.0,
+                              "type": "integer"
+                            },
+                            "name": {
+                              "maxLength": 32,
+                              "minLength": 1,
+                              "pattern": "^[a-z0-9]([a-z0-9-]{0,30}[a-z0-9])?$",
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "generation",
+                            "name"
+                          ],
+                          "type": "object"
+                        },
+                        "bootIndex": {
+                          "format": "int32",
+                          "maximum": 65535.0,
+                          "minimum": 0.0,
+                          "nullable": true,
+                          "type": "integer"
+                        },
+                        "id": {
+                          "pattern": "^[a-z0-9]([a-z0-9-]{0,18}[a-z0-9])?$",
+                          "type": "string"
+                        },
+                        "readOnly": {
+                          "default": false,
+                          "type": "boolean"
+                        },
+                        "sizeBytes": {
+                          "description": "Grow-only capacity, 16MiB..1TiB in whole MiB. Growth restarts the VM.",
+                          "format": "int64",
+                          "maximum": 1099511627776.0,
+                          "minimum": 16777216.0,
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "sizeBytes"
+                      ],
+                      "type": "object",
+                      "x-kubernetes-validations": [
+                        {
+                          "message": "sizeBytes may only grow; ZFS volumes are never shrunk",
+                          "rule": "self.sizeBytes >= oldSelf.sizeBytes"
+                        },
+                        {
+                          "message": "baseImage is immutable; use a new disk id for another source",
+                          "rule": "has(self.baseImage) == has(oldSelf.baseImage) && (!has(self.baseImage) || self.baseImage == oldSelf.baseImage)"
+                        }
+                      ]
+                    },
+                    "maxItems": 8,
+                    "type": "array",
+                    "x-kubernetes-list-map-keys": [
+                      "id"
+                    ],
+                    "x-kubernetes-list-type": "map"
+                  },
                   "image": {
                     "description": "Optional immutable manager image; defaults to the operator's release pin.",
                     "nullable": true,
@@ -204,6 +277,39 @@
               "status": {
                 "nullable": true,
                 "properties": {
+                  "disks": {
+                    "default": [],
+                    "items": {
+                      "description": "Observed storage-service state for one provisioned disk.",
+                      "properties": {
+                        "capacityBytes": {
+                          "format": "uint64",
+                          "minimum": 0.0,
+                          "type": "integer"
+                        },
+                        "generation": {
+                          "description": "CHAP credential generation; increments only after a verified fence.",
+                          "format": "uint64",
+                          "minimum": 0.0,
+                          "type": "integer"
+                        },
+                        "id": {
+                          "type": "string"
+                        },
+                        "phase": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "capacityBytes",
+                        "generation",
+                        "id",
+                        "phase"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
                   "message": {
                     "type": "string"
                   },

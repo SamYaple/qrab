@@ -1,6 +1,7 @@
 # VM operator
 
-The namespaced Rust operator owns only VM Pods and their ConfigMaps. PVCs and
+The namespaced Rust operator owns only VM Pods, their ConfigMaps and the
+CHAP Secrets of storage-service provisioned disks. PVCs and
 console entrypoints stay explicit Kubernetes resources; never garbage collect
 TPM/firmware identity storage. Keep one replica with Recreate rollout strategy.
 

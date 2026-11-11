@@ -1,0 +1,33 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: qrab-operator
+spec:
+  template:
+    spec:
+      containers:
+      - name: operator
+        env:
+        - {name: QRAB_STORAGE_ORIGIN, value: 'https://10.203.0.1:9477'}
+        - {name: QRAB_STORAGE_EXCHANGE_ORIGIN, value: 'https://10.203.0.10:8444'}
+        - {name: QRAB_STORAGE_CA, value: /etc/qrab-storage-tls/ca.pem}
+        - {name: QRAB_SPIFFE_ENDPOINT_SOCKET, value: 'unix:/run/spire/agent.sock'}
+        volumeMounts:
+        - name: workload-socket
+          mountPath: /run/spire
+          readOnly: true
+        - name: storage-host-ca
+          mountPath: /etc/qrab-storage-tls
+          readOnly: true
+      volumes:
+      - name: workload-socket
+        csi:
+          driver: csi.spiffe.io
+          readOnly: true
+      # Public CA of the host storage ingress only; never a private key.
+      - name: storage-host-ca
+        configMap:
+          name: qrab-storage-host-ca
+          items:
+          - key: ca.pem
+            path: ca.pem

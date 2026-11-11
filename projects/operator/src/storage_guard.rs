@@ -1,8 +1,11 @@
 //! Keep native storage ownership until the old process has demonstrably exited.
 //! A status recovery acknowledgment is an administrator statement that target
 //! sessions were hard-fenced and CHAP rotated, never a nonce/timeout substitute.
+//! For VMs whose native disks are all storage-service provisioned, the
+//! operator performs that hard fence itself (kernel ACL/LUN drain barriers)
+//! and records the acknowledgment; CHAP rotates before any re-export.
 use super::{delete, publish, state, Context};
-use crate::{api::VirtualMachine, resources, Error, Result};
+use crate::{api::VirtualMachine, provision, resources, Error, Result};
 use k8s_openapi::api::core::v1::Pod;
 use kube::{
     api::{ListParams, Patch, PatchParams},
@@ -22,7 +25,7 @@ fn has_owner_gate(pod: &Pod) -> bool {
         .and_then(|s| s.scheduling_gates.as_ref())
         .is_some_and(|g| g.iter().any(|g| g.name == OWNER_GATE))
 }
-fn never_launched(pod: &Pod) -> bool {
+pub(super) fn never_launched(pod: &Pod) -> bool {
     // Gates cannot be added after creation, and our renderer never sets
     // nodeName directly. With this gate and no binding, no kubelet ran it.
     has_owner_gate(pod) && pod.spec.as_ref().is_some_and(|s| s.node_name.is_none())
@@ -63,6 +66,7 @@ fn has_finalizer<K: Resource>(resource: &K, name: &str) -> bool {
 
 pub(super) fn active(vm: &VirtualMachine, pod: Option<&Pod>) -> bool {
     !vm.spec.iscsi_disks.is_empty()
+        || !vm.spec.disks.is_empty()
         || has_finalizer(vm, VM_FINALIZER)
         || pod.is_some_and(|p| has_finalizer(p, POD_FINALIZER))
 }
@@ -189,6 +193,41 @@ async fn blocked(
     .await?;
     Ok(Some(Action::requeue(Duration::from_secs(30))))
 }
+/// Unclean or unknown loss: hard-fence through the storage service when the
+/// operator owns every native disk, otherwise wait for an administrator.
+async fn fence_or_block(
+    ctx: &Context,
+    vms: &Api<VirtualMachine>,
+    vm: &VirtualMachine,
+    pod: Option<&Pod>,
+    uid: &str,
+    message: &str,
+) -> Result<Option<Action>> {
+    let api = ctx.storage.as_deref();
+    let Some(api) = api.filter(|_| provision::self_fencing(vm, api)) else {
+        return blocked(vms, vm, pod, message).await;
+    };
+    if let Err(error) = provision::fence_all(api, vm).await {
+        return blocked(
+            vms,
+            vm,
+            pod,
+            &format!("{message}; the automatic storage fence failed: {error}"),
+        )
+        .await;
+    }
+    let mut status = state(
+        vm,
+        pod,
+        "Stopping",
+        false,
+        "StorageAutoFenced",
+        "Hard-fenced every provisioned disk through the storage service; CHAP rotates before re-export",
+    );
+    status.storage_recovery = Some(uid.into());
+    publish(vms, vm, status).await?;
+    Ok(Some(Action::requeue(Duration::from_secs(1))))
+}
 async fn record_release(
     vms: &Api<VirtualMachine>,
     vm: &VirtualMachine,
@@ -203,7 +242,7 @@ async fn record_release(
         false,
         "StorageReleased",
         if manual {
-            "Administrator acknowledged hard target fencing and CHAP rotation"
+            "Hard target fencing was acknowledged; CHAP rotates before any re-export"
         } else {
             "All VM containers exited cleanly; QEMU has closed its storage sessions"
         },
@@ -226,6 +265,7 @@ pub(super) async fn reconcile(
     pod: Option<&Pod>,
     vms: &Api<VirtualMachine>,
     pods: &Api<Pod>,
+    ctx: &Context,
 ) -> Result<Option<Action>> {
     if !active(vm, pod) {
         return Ok(None);
@@ -252,7 +292,7 @@ pub(super) async fn reconcile(
             if recovered(vm, old) {
                 return record_release(vms, vm, None, old, true).await;
             }
-            return blocked(vms,vm,None,"The previous Pod vanished without a clean storage release; hard-fence the target, rotate CHAP and acknowledge its UID in status.storageRecovery").await;
+            return fence_or_block(ctx,vms,vm,None,old,"The previous Pod vanished without a clean storage release; hard-fence the target, rotate CHAP and acknowledge its UID in status.storageRecovery").await;
         }
         if vm.status.as_ref().and_then(|s| s.pod_uid.as_deref()) != Some(uid.as_str()) {
             let mut observed = state(
@@ -335,7 +375,7 @@ pub(super) async fn reconcile(
                     .await?;
                     return Ok(Some(Action::requeue(Duration::from_secs(2))));
                 }
-                return blocked(vms,vm,Some(pod),"The old Pod exit is failed or unknown; hard-fence the target, rotate CHAP and acknowledge this Pod UID in status.storageRecovery").await;
+                return fence_or_block(ctx,vms,vm,Some(pod),&uid,"The old Pod exit is failed or unknown; hard-fence the target, rotate CHAP and acknowledge this Pod UID in status.storageRecovery").await;
             }
             if pod
                 .status
@@ -343,7 +383,7 @@ pub(super) async fn reconcile(
                 .and_then(|s| s.phase.as_deref())
                 .is_some_and(|p| p == "Failed" || p == "Succeeded")
             {
-                return blocked(vms,vm,Some(pod),"The VM did not exit cleanly; automatic storage reattachment is blocked until explicit administrator fencing recovery").await;
+                return fence_or_block(ctx,vms,vm,Some(pod),&uid,"The VM did not exit cleanly; automatic storage reattachment is blocked until explicit administrator fencing recovery").await;
             }
         }
         if pod.metadata.deletion_timestamp.is_some() {
@@ -358,7 +398,7 @@ pub(super) async fn reconcile(
         if recovered(vm, old) {
             return record_release(vms, vm, None, old, true).await;
         }
-        return blocked(vms,vm,None,"The old Pod is missing without a recorded clean release; hard-fence the target, rotate CHAP and acknowledge its UID in status.storageRecovery").await;
+        return fence_or_block(ctx,vms,vm,None,old,"The old Pod is missing without a recorded clean release; hard-fence the target, rotate CHAP and acknowledge its UID in status.storageRecovery").await;
     }
     if vm.status.as_ref().is_some_and(|s| {
         s.storage_recovery.is_some() && s.storage_recovery == s.storage_released_pod_uid
@@ -377,6 +417,23 @@ pub(super) async fn reconcile(
     }
     if deleting {
         if has_finalizer(vm, VM_FINALIZER) {
+            // The process is gone; revoke the exports before the credential
+            // Secrets are garbage collected. Data stays retained.
+            if !vm.spec.disks.is_empty() || vm.status.as_ref().is_some_and(|s| !s.disks.is_empty())
+            {
+                let Some(api) = ctx.storage.as_deref() else {
+                    return blocked(vms, vm, None, "Deleting a VM with provisioned disks requires the storage service to fence them").await;
+                };
+                if let Err(error) = provision::fence_all(api, vm).await {
+                    return blocked(
+                        vms,
+                        vm,
+                        None,
+                        &format!("Fencing provisioned disks before deletion failed: {error}"),
+                    )
+                    .await;
+                }
+            }
             vm_finalizer(vms, vm, false).await?;
         }
         return Ok(Some(Action::requeue(Duration::from_secs(2))));
@@ -650,6 +707,17 @@ mod tests {
         Arc<Context>,
         tokio::task::JoinHandle<std::io::Result<()>>,
     ) {
+        server_with(vm, pod, None).await
+    }
+    async fn server_with(
+        vm: VirtualMachine,
+        pod: Option<Pod>,
+        storage: Option<crate::storage::SharedStorage>,
+    ) -> (
+        Store,
+        Arc<Context>,
+        tokio::task::JoinHandle<std::io::Result<()>>,
+    ) {
         let config = resources::render(&vm, &settings()).ok().map(|d| d.config);
         let store = Store(Arc::new(Mutex::new(Objects {
             vm: Some(vm),
@@ -681,6 +749,7 @@ mod tests {
                 oidc_client_id: "qrab".into(),
                 idp_ip: None,
             },
+            storage,
         });
         (
             store,
@@ -691,6 +760,96 @@ mod tests {
     async fn step(store: &Store, ctx: Arc<Context>) {
         let vm = store.0.lock().unwrap().vm.clone().unwrap();
         super::super::reconcile(Arc::new(vm), ctx).await.unwrap();
+    }
+
+    fn provisioned(mut vm: VirtualMachine) -> VirtualMachine {
+        vm.spec.storage_node = Some("node-one".into());
+        vm.spec.disks = vec![crate::api::ProvisionedDisk {
+            id: "root".into(),
+            size_bytes: 64 << 20,
+            base_image: None,
+            read_only: false,
+            boot_index: None,
+        }];
+        vm
+    }
+    fn exported() -> Arc<provision::fake::FakeStorage> {
+        let fake = Arc::new(provision::fake::FakeStorage::default());
+        fake.set(
+            "vm-uid",
+            "root",
+            provision::fake::Disk {
+                origin: None,
+                capacity: 64 << 20,
+                generation: 1,
+                phase: crate::storage::DiskPhase::Active,
+                secret: Some("0".repeat(32)),
+            },
+        );
+        fake
+    }
+    fn status_of(store: &Store) -> VirtualMachineStatus {
+        store
+            .0
+            .lock()
+            .unwrap()
+            .vm
+            .as_ref()
+            .unwrap()
+            .status
+            .clone()
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn provisioned_disks_are_hard_fenced_by_the_operator_after_an_unknown_loss() {
+        let fake = exported();
+        let (store, ctx, server) = server_with(provisioned(vm()), None, Some(fake.clone())).await;
+        step(&store, ctx.clone()).await;
+        let status = status_of(&store);
+        assert_eq!(status.reason, "StorageAutoFenced");
+        assert_eq!(status.storage_recovery.as_deref(), Some("pod-uid"));
+        assert_eq!(
+            fake.disk("vm-uid", "root").unwrap().phase,
+            crate::storage::DiskPhase::Fenced
+        );
+        assert_eq!(fake.calls(), vec!["status root", "fence root"]);
+        step(&store, ctx).await;
+        assert_eq!(store.0.lock().unwrap().calls, vec!["record-release"]);
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn a_hand_declared_disk_keeps_unknown_loss_blocked_for_the_administrator() {
+        let fake = exported();
+        let mut vm = provisioned(vm());
+        vm.spec.iscsi_disks = serde_json::from_value(json!([{"id":"data","portal":"10.203.0.1:3260","target":"iqn.2026-11.com.yapplesauce:qrab.disk.x","username":"u","passwordSecret":{"name":"s"}}])).unwrap();
+        let (store, ctx, server) = server_with(vm, None, Some(fake.clone())).await;
+        step(&store, ctx).await;
+        assert_eq!(status_of(&store).reason, "StorageFenceRequired");
+        assert!(fake.calls().is_empty());
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn deletion_fences_provisioned_disks_before_dropping_the_vm_finalizer() {
+        let mut vm = provisioned(vm());
+        vm.status.as_mut().unwrap().storage_released_pod_uid = Some("pod-uid".into());
+        mark_deleting(&mut vm);
+        let (store, ctx, server) = server_with(vm.clone(), None, None).await;
+        step(&store, ctx).await;
+        assert_eq!(status_of(&store).reason, "StorageFenceRequired");
+        assert!(store.0.lock().unwrap().calls.is_empty());
+        server.abort();
+        let fake = exported();
+        let (store, ctx, server) = server_with(vm, None, Some(fake.clone())).await;
+        step(&store, ctx).await;
+        assert_eq!(store.0.lock().unwrap().calls, vec!["remove-vm-finalizer"]);
+        assert_eq!(
+            fake.disk("vm-uid", "root").unwrap().phase,
+            crate::storage::DiskPhase::Fenced
+        );
+        server.abort();
     }
 
     #[tokio::test]

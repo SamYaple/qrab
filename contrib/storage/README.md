@@ -1,10 +1,46 @@
 # Dedicated native iSCSI target
 
 `qrab-iscsi-target` is a bounded root CLI for qrab's new ZFS-backed LIO targets.
-It does not extend the primary storage API, change existing CSI exports or grant
-new IAM/SPIRE authority. It has no remote API, shell commands or caller-selected
-backing paths. Guest disks use QEMU/libiscsi directly; the small existing
-filesystem PVC still holds TPM/NVRAM state.
+It does not change existing CSI exports. It has no remote API of its own, shell
+commands or caller-selected backing paths. Guest disks use QEMU/libiscsi
+directly; the small existing filesystem PVC still holds TPM/NVRAM state.
+
+## Storage-service wrapper mode
+
+The `vm-disk-*` and `vm-image-*` subcommands are the fixed wrapper behind the
+towl storage daemon's verbs of the same names (`docs/iscsi.md`). They take an
+exact flag set, print one JSON report on stdout and one
+`{"error":"<code>","message":...}` line on stderr when refused. Only
+`vm-disk-export` reads a credential, from stdin; reports never contain it.
+Provisioned disks use journal schema 2 (`<uid>.<disk>.json`) and the dataset,
+target and object names `disk-<uid>-<disk>`, `qrab.disk.<uid>.<disk>` and
+`qrab-<uid>-<disk>`, so they cannot collide with the legacy demo record. Sealed
+images are journaled as `image-<name>-g<gen>.json`. The global journal lock
+waits up to 20s, then reports `busy`.
+
+Activation requires root and is staged, not automatic:
+
+1. Build from merged source and record the SHA256 (`cargo build --locked
+   --release -p qrab-iscsi-target`). Upgrade the installed tool with the reviewed
+   installer, which verifies its owned marker and re-verifies the demo target:
+   `sudo bash contrib/storage/install-demo.sh "$PWD/target/release/qrab-iscsi-target" SHA256`.
+   The existing four demo sudo commands keep working unchanged.
+2. Install a towl-storage-daemon build that has the `vm-disk-*` verbs, set
+   `TOWL_STORAGE_VM_DISK_WRAPPER=true` and
+   `TOWL_STORAGE_VM_DISK_SUBJECTS=<qrab operator subject UUID>` in
+   `/etc/towl/storage-daemon.env` (preserve existing subjects/actors; the shim
+   actor must already be in `TOWL_STORAGE_ALLOWED_ACTORS`) and restart it.
+3. Create the Kanidm service account and scope map for the operator subject
+   (`openid storage_read storage_provision storage_clone storage_expand
+   storage_attach`; never `storage_publish`/`storage_retire`), its `may_act`
+   grant for the exchange shim actor, and the shim policy
+   `qrab-vm-disk-operator` for caller
+   `spiffe://yapplesauce.com/kubernetes/qrab/qrab-operator`.
+4. Allow the `vm-disk-*` verbs and the top-level `credential` field in the
+   storage-ingress shim, register the operator's ClusterSPIFFEID
+   (`contrib/kubernetes/operator/storage-api/clusterspiffeid.yaml`) and publish
+   the ingress CA as ConfigMap `qrab-storage-host-ca`; then apply the
+   `contrib/kubernetes/operator/storage-api` component.
 
 The first demo is fixed to VM UID `e309f751-5dda-4271-a0f4-4454c9527a59`, LUN0,
 128MiB, host bridge `10.203.0.1:3260`. Its target is
@@ -21,7 +57,9 @@ thick-reserved16KiB zvols of16..1024MiB, kernel HBA `iblock_47` and exact
 VM-derived target names. Prototype volumes use `sync=always`. Existing parents,
 zvols and targets without its root ownership journal/markers are refused.
 Recorded ZFS GUID, identity, size, geometry, reservation and target topology
-must continue to match. There is no destroy, resize, snapshot or foreign-adopt
+must continue to match. The legacy demo has no resize; provisioned disks grow
+only (`vm-disk-expand`), CoW clones are thin but budgeted at their logical size,
+and images are sealed snapshots. There is no destroy or foreign-adopt
 operation. The existing `tank/kubernetes-block-storage` tree is unchanged.
 
 Manifests and passwords are root-owned0600 below

@@ -46,6 +46,68 @@ ESP; other boot indexes must be unique. Ordinary data disks omit it. The initial
 live proof uses a disposable 128MiB data LUN; OS installation and generic volume
 provisioning are outside the demo installer.
 
+## Provisioned disks and CoW base images
+
+`spec.disks` asks the operator to manage the whole disk lifecycle through the
+towl storage service instead of hand-declaring a target and Secret:
+
+```yaml
+spec:
+  storageNode: kube03
+  disks:
+  - id: root
+    sizeBytes: 10737418240          # grow-only; 16MiB..1TiB in whole MiB
+    baseImage: {name: debian, generation: 3}   # optional, immutable
+    bootIndex: 0
+  - id: scratch
+    sizeBytes: 1073741824           # no baseImage: blank thick zvol
+```
+
+Architecture: the operator calls the root `towl-storage-daemon` verbs
+`vm-disk-*`/`vm-image-*`, which run qrab's reviewed
+`/usr/local/sbin/qrab-iscsi-target` as a fixed wrapper. That one tool owns
+`tank/qrab-iscsi`, the dedicated HBA and every LIO object, so ZFS/LIO
+ownership and the kernel fence barriers stay in the code reviewed for the
+demo; towl-zfs never touches this parent. The daemon authenticates the
+operator's delegated Kanidm token (SPIFFE exchange, RFC 8693 actor, per-verb
+scope) and passes CHAP only on the wrapper's stdin.
+
+Per disk the operator:
+
+1. reads `vm-disk-status`; if absent, creates a thick blank zvol
+   (`vm-disk-create`) or a CoW clone of the sealed image generation
+   (`vm-disk-clone`). A clone holds `image-<name>-g<gen>@sealed` and records that
+   snapshot's GUID; every later read verifies the clone's ZFS origin and GUID.
+2. grows the zvol when `sizeBytes` increases (`vm-disk-expand`, never shrinks).
+   libiscsi does not see growth in a running QEMU, so the new capacity is part of
+   the Pod template hash and the VM is replaced through the normal clean drain.
+3. generates a 32-hex CHAP secret, stores it in the VM-owned Secret
+   `<vm>-disk-<id>` (key `password`, generation annotation) **before** exporting,
+   then calls `vm-disk-export` with the exact derived initiator ACL. Status
+   records each disk's capacity, credential generation and phase.
+
+Target names are derived and verified, never CR input:
+`iqn.2026-11.com.yapplesauce:qrab.disk.<VM-UID>.<id>`, CHAP account
+`qrab-<uid-hex>-<id>`, dataset `tank/qrab-iscsi/disk-<VM-UID>-<id>`. The total
+logical size of every disk and image stays within the 8GiB parent quota; raise
+it only through a reviewed root change of `PARENT_QUOTA` and `zfs set quota`.
+`iscsiDisks` and `disks` may be combined; IDs are unique across both lists.
+
+Base images are administrative. Build one on an ordinary provisioned disk,
+stop that VM (the disk is fenced on deletion, or fence it explicitly), then
+publish it with an administrator token holding `storage_publish`:
+
+```json
+{"request_id":"publish-debian-3","operation":{"name":"vm-image-publish","image":"debian","image_generation":3,"source_vm_uid":"<builder VM UID>","source_disk":"root"}}
+```
+
+Publication requires a verified `Fenced` source, copies it with
+`zfs send | zfs receive` into a readonly `image-debian-g3` and holds its
+`@sealed` snapshot. Generations are immutable; publish a new generation for an
+update. The operator identity cannot publish or retire. `vm-disk-retire` (also
+administrative) removes a fenced disk's LIO objects and marks it retained;
+data is never destroyed by the API.
+
 ## Ownership and recovery
 
 This first version requires immutable `storageNode` and scheduler nodeSelector.
@@ -74,7 +136,18 @@ kubectl -n qrab patch qvm VM --subresource=status --type=merge \
 ```
 
 This field is an operator acknowledgment, not a signed fence receipt. It cannot
-be reused for another Pod UID. A failed orphan whose parent was forcibly removed
+be reused for another Pod UID.
+
+When every native disk of a VM is in `spec.disks`, the operator performs this
+recovery itself: on a failed, vanished or unknown owner it calls
+`vm-disk-fence` for each disk, which returns only after the kernel ACL and LUN
+teardown barriers complete, then records `status.storageRecovery` with reason
+`StorageAutoFenced`. A fenced disk is re-exported only after the old Pod is
+gone, with the next credential generation and a newly generated secret; a
+running Pod whose disk is found fenced is replaced first. A storage-service
+failure leaves the VM blocked. Any hand-declared `iscsiDisks` entry keeps the
+administrator procedure above. Deleting a VM fences its provisioned disks
+before the finalizer is removed; zvols are retained. A failed orphan whose parent was forcibly removed
 remains a visible finalizer tombstone; hard-fence first, then explicitly remove
 its Pod finalizer. The periodic sweep only collects genuinely VM-owned clean
 orphans. There is no general migration workflow in this release.

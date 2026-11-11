@@ -62,7 +62,35 @@ async fn main() -> Result<()> {
         .context("list VirtualMachines (install CRD and RBAC first)")?;
     let pods: Api<Pod> = Api::namespaced(client.clone(), &settings.namespace);
     let configs: Api<ConfigMap> = Api::namespaced(client.clone(), &settings.namespace);
-    let ctx = Arc::new(Context { client, settings });
+    // Optional: without it, VMs that declare spec.disks report Blocked.
+    let storage: Option<qrab_operator::storage::SharedStorage> =
+        match std::env::var("QRAB_STORAGE_ORIGIN") {
+            Err(_) => None,
+            Ok(storage_origin) => {
+                let ca_path = std::env::var("QRAB_STORAGE_CA")
+                    .unwrap_or_else(|_| "/etc/qrab-storage-tls/ca.pem".into());
+                let ca = std::fs::read(&ca_path).context("read QRAB_STORAGE_CA")?;
+                let exchange = std::env::var("QRAB_STORAGE_EXCHANGE_ORIGIN")
+                    .context("QRAB_STORAGE_EXCHANGE_ORIGIN is required with QRAB_STORAGE_ORIGIN")?;
+                let workload = std::env::var("QRAB_SPIFFE_ENDPOINT_SOCKET")
+                    .unwrap_or_else(|_| "unix:/spiffe-workload-api/spire-agent.sock".into());
+                Some(Arc::new(
+                    qrab_operator::storage::HttpStorage::new(
+                        &workload,
+                        &exchange,
+                        &storage_origin,
+                        &ca,
+                    )
+                    .await
+                    .context("initialize the storage-service client")?,
+                ))
+            }
+        };
+    let ctx = Arc::new(Context {
+        client,
+        settings,
+        storage,
+    });
     let controller = Controller::new(vms, watcher::Config::default())
         .owns(
             pods,

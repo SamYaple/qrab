@@ -3,10 +3,12 @@ mod storage_guard;
 
 use crate::{
     api::{VirtualMachine, VirtualMachineStatus},
+    provision::{self, Attached, SecretStore, Step},
     resources::{self, Desired, Settings},
+    storage::{SharedStorage, StorageError},
     Error, Result,
 };
-use k8s_openapi::api::core::v1::{ConfigMap, PersistentVolumeClaim, Pod};
+use k8s_openapi::api::core::v1::{ConfigMap, PersistentVolumeClaim, Pod, Secret};
 use kube::{
     api::{DeleteParams, Patch, PatchParams, PostParams, Preconditions},
     runtime::controller::Action,
@@ -21,6 +23,8 @@ use std::{
 pub struct Context {
     pub client: Client,
     pub settings: Settings,
+    /// Storage-service client for `spec.disks`; absent blocks provisioning.
+    pub storage: Option<SharedStorage>,
 }
 
 fn state(
@@ -61,7 +65,93 @@ fn state(
             .as_ref()
             .and_then(|s| s.storage_released_pod_uid.clone()),
         storage_recovery: vm.status.as_ref().and_then(|s| s.storage_recovery.clone()),
+        disks: vm
+            .status
+            .as_ref()
+            .map(|s| s.disks.clone())
+            .unwrap_or_default(),
     }
+}
+
+/// Converge every `spec.disks` entry. `Err(action)` means this reconcile has
+/// already published progress and must stop before rendering the Pod.
+async fn provision_disks(
+    vm: &VirtualMachine,
+    ctx: &Context,
+    vms: &Api<VirtualMachine>,
+    pods: &Api<Pod>,
+    pod: Option<&Pod>,
+) -> Result<std::result::Result<Vec<Attached>, Action>> {
+    if vm.spec.disks.is_empty() {
+        return Ok(Ok(Vec::new()));
+    }
+    let Some(api) = ctx.storage.as_deref() else {
+        publish(
+            vms,
+            vm,
+            state(
+                vm,
+                pod,
+                "Blocked",
+                false,
+                "StorageServiceUnavailable",
+                "spec.disks requires the operator's storage-service client (QRAB_STORAGE_ORIGIN)",
+            ),
+        )
+        .await?;
+        return Ok(Err(Action::requeue(Duration::from_secs(30))));
+    };
+    let uid = vm
+        .uid()
+        .ok_or_else(|| Error::Invalid("VM UID is required".into()))?;
+    let launched = pod.is_some_and(|p| !storage_guard::never_launched(p));
+    let secrets = SecretStore {
+        api: Api::<Secret>::namespaced(ctx.client.clone(), &ctx.settings.namespace),
+        vm,
+    };
+    let (mut attached, mut statuses, mut wait, mut restart) = (Vec::new(), Vec::new(), None, None);
+    for disk in &vm.spec.disks {
+        let (step, status) =
+            provision::converge(api, &secrets, &vm.name_any(), &uid, disk, launched).await?;
+        statuses.extend(status);
+        match step {
+            Step::Ready(disk) => attached.push(disk),
+            Step::Wait(message) => {
+                wait.get_or_insert(message);
+            }
+            Step::Restart(message) => {
+                restart.get_or_insert(message);
+            }
+        }
+    }
+    if vm.status.as_ref().map(|s| &s.disks) != Some(&statuses) {
+        let mut status = vm.status.clone().unwrap_or_default();
+        status.disks = statuses;
+        publish(vms, vm, status).await?;
+        return Ok(Err(Action::requeue(Duration::from_secs(1))));
+    }
+    if let (Some(message), Some(pod)) = (restart, pod) {
+        if pod.metadata.deletion_timestamp.is_none() {
+            delete(pods, pod).await?;
+        }
+        publish(
+            vms,
+            vm,
+            state(vm, Some(pod), "Updating", false, "StorageFenced", &message),
+        )
+        .await?;
+        return Ok(Err(Action::requeue(Duration::from_secs(2))));
+    }
+    if let Some(message) = wait {
+        publish(
+            vms,
+            vm,
+            state(vm, pod, "Pending", false, "StorageProvisioning", &message),
+        )
+        .await?;
+        return Ok(Err(Action::requeue(Duration::from_secs(10))));
+    }
+    Ok(Ok(attached))
 }
 
 async fn publish(
@@ -146,7 +236,7 @@ async fn synchronize(
     let claims: Api<PersistentVolumeClaim> =
         Api::namespaced(ctx.client.clone(), &ctx.settings.namespace);
     let pod = pods.get_opt(&vm.name_any()).await?;
-    if let Some(action) = storage_guard::reconcile(vm, pod.as_ref(), vms, &pods).await? {
+    if let Some(action) = storage_guard::reconcile(vm, pod.as_ref(), vms, &pods, ctx).await? {
         return Ok(action);
     }
     if vm.metadata.deletion_timestamp.is_some() {
@@ -295,7 +385,11 @@ async fn synchronize(
         }
         _ => {}
     }
-    let desired = resources::render(vm, &ctx.settings)?;
+    let provisioned = match provision_disks(vm, ctx, vms, &pods, pod.as_ref()).await? {
+        Ok(provisioned) => provisioned,
+        Err(action) => return Ok(action),
+    };
+    let desired = resources::render_with(vm, &ctx.settings, &provisioned)?;
     if let Some(pod) = &pod {
         if !resources::pod_matches(pod, &desired) {
             delete(&pods, pod).await?;
@@ -441,11 +535,12 @@ pub async fn reconcile(event: Arc<VirtualMachine>, ctx: Arc<Context>) -> Result<
     };
     match synchronize(&vm, &ctx, &vms).await {
         Ok(action) => Ok(action),
-        Err(error @ (Error::Invalid(_) | Error::Ownership(_))) => {
-            let reason = if matches!(&error, Error::Ownership(_)) {
-                "OwnershipConflict"
-            } else {
-                "InvalidSpec"
+        Err(error @ (Error::Invalid(_) | Error::Ownership(_) | Error::Storage(_))) => {
+            let reason = match &error {
+                Error::Ownership(_) => "OwnershipConflict",
+                Error::Storage(StorageError::Refused(_)) => "StorageRefused",
+                Error::Storage(StorageError::Unavailable(_)) => "StorageUnavailable",
+                _ => "InvalidSpec",
             };
             publish(
                 &vms,

@@ -289,3 +289,118 @@ fn boot_media_cannot_expose_host_secrets_or_tpm_state_to_the_guest() {
         assert!(resources::render(&machine, &settings()).is_err());
     }
 }
+
+fn with_provisioned() -> (VirtualMachine, Vec<qrab_operator::provision::Attached>) {
+    let mut machine = with_iscsi();
+    machine.spec.disks = serde_json::from_value(
+        json!([{"id":"root","sizeBytes":67108864,"baseImage":{"name":"debian","generation":3},"bootIndex":0}]),
+    )
+    .unwrap();
+    let attached = vec![qrab_operator::provision::Attached {
+        id: "root".into(),
+        portal: "10.203.0.1:3260".into(),
+        target: "iqn.2026-11.com.yapplesauce:qrab.disk.owner-one.root".into(),
+        username: "qrab-ownerone-root".into(),
+        secret_name: "test-vm-disk-root".into(),
+        generation: 1,
+        capacity_bytes: 67108864,
+        read_only: false,
+        boot_index: Some(0),
+    }];
+    (machine, attached)
+}
+
+#[test]
+fn provisioned_disks_render_beside_hand_declared_ones_with_owned_secret_files() {
+    let (machine, attached) = with_provisioned();
+    // A provisioned disk is never rendered before the storage service exports it.
+    assert!(resources::render(&machine, &settings()).is_err());
+    let desired = resources::render_with(&machine, &settings(), &attached).unwrap();
+    let config: Value =
+        serde_json::from_str(&desired.config.data.as_ref().unwrap()["vm.json"]).unwrap();
+    let disk = &config["iscsi_disks"][1];
+    assert_eq!(config["iscsi_disks"][0]["id"], "qrab-probe");
+    assert_eq!(
+        disk["target"],
+        "iqn.2026-11.com.yapplesauce:qrab.disk.owner-one.root"
+    );
+    assert_eq!(
+        disk["initiator_name"],
+        "iqn.2026-11.com.yapplesauce:qrab.vm.owner-one"
+    );
+    assert_eq!(disk["password_file"], "/run/qrab-auth/root/password");
+    assert_eq!(disk["boot_index"], 0);
+    assert!(!config.to_string().contains("password\":"));
+    let pod = serde_json::to_value(&desired.pod).unwrap();
+    let volume = pod["spec"]["volumes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|v| v["name"] == "iscsi-auth-root")
+        .unwrap();
+    assert_eq!(volume["secret"]["secretName"], "test-vm-disk-root");
+    assert_eq!(volume["secret"]["items"][0]["key"], "password");
+    assert_eq!(
+        pod["metadata"]["finalizers"][0],
+        "qrab.yapplesauce.com/iscsi-drain"
+    );
+    assert!(resources::pod_matches(&desired.pod, &desired));
+}
+
+#[test]
+fn rotation_or_growth_replaces_the_instance_but_legacy_hashes_are_unchanged() {
+    let legacy = resources::render(&with_iscsi(), &settings()).unwrap();
+    let (mut machine, attached) = with_provisioned();
+    let base = resources::render_with(&machine, &settings(), &attached).unwrap();
+    let changes: [fn(&mut qrab_operator::provision::Attached); 2] =
+        [|a| a.generation = 2, |a| a.capacity_bytes *= 2];
+    for change in changes {
+        let mut next = attached.clone();
+        change(&mut next[0]);
+        let changed = resources::render_with(&machine, &settings(), &next).unwrap();
+        assert!(!resources::pod_matches(&base.pod, &changed));
+    }
+    machine.spec.disks.clear();
+    assert_eq!(
+        resources::render_with(&machine, &settings(), &[])
+            .unwrap()
+            .hash,
+        legacy.hash
+    );
+}
+
+#[test]
+fn provisioned_disk_specs_are_bounded_unique_and_pinned() {
+    let (machine, attached) = with_provisioned();
+    for edit in [
+        json!({"sizeBytes": 1048576}),
+        json!({"sizeBytes": 67108865}),
+        json!({"id": "qrab-probe"}),
+        json!({"bootIndex": 1}),
+        json!({"baseImage": {"name": "../x", "generation": 1}}),
+        json!({"baseImage": {"name": "debian", "generation": 0}}),
+    ] {
+        let mut value = serde_json::to_value(&machine).unwrap();
+        for (key, v) in edit.as_object().unwrap() {
+            value["spec"]["disks"][0][key] = v.clone();
+        }
+        let bad: VirtualMachine = serde_json::from_value(value).unwrap();
+        let mut renamed = attached.clone();
+        renamed[0].id = bad.spec.disks[0].id.clone();
+        assert!(
+            resources::render_with(&bad, &settings(), &renamed).is_err(),
+            "{edit}"
+        );
+    }
+    let mut unpinned = machine.clone();
+    unpinned.spec.storage_node = None;
+    unpinned.spec.iscsi_disks.clear();
+    assert!(resources::render_with(&unpinned, &settings(), &attached).is_err());
+    let crd = api::crd();
+    let disks = &crd["spec"]["versions"][0]["schema"]["openAPIV3Schema"]["properties"]["spec"]
+        ["properties"]["disks"];
+    assert_eq!(disks["x-kubernetes-list-map-keys"], json!(["id"]));
+    assert!(disks["items"]["x-kubernetes-validations"]
+        .to_string()
+        .contains("self.sizeBytes >= oldSelf.sizeBytes"));
+}

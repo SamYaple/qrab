@@ -1,4 +1,4 @@
-use crate::{api::VirtualMachine, Error, Result};
+use crate::{api::VirtualMachine, provision::Attached, Error, Result};
 use k8s_openapi::api::core::v1::{ConfigMap, Pod};
 use kube::{Resource, ResourceExt};
 use serde_json::{json, Value};
@@ -56,7 +56,7 @@ pub fn origin(raw: &str) -> Result<String> {
     Ok(url.origin().ascii_serialization())
 }
 
-fn valid_iqn(value: &str) -> bool {
+pub fn valid_iqn(value: &str) -> bool {
     if value.len() > 223
         || !value
             .bytes()
@@ -206,7 +206,64 @@ pub fn validate(vm: &VirtualMachine, settings: &Settings) -> Result<()> {
             ));
         }
     }
+    if vm.spec.iscsi_disks.len() + vm.spec.disks.len() > 8 {
+        return Err(Error::Invalid(
+            "at most eight iSCSI disks are supported".into(),
+        ));
+    }
+    if !vm.spec.disks.is_empty() && !vm.spec.storage_node.as_ref().is_some_and(|n| dns_name(n)) {
+        return Err(Error::Invalid("provisioned disks require an explicit storageNode; automatic cross-node failover is disabled".into()));
+    }
+    for disk in &vm.spec.disks {
+        if !valid_name(&disk.id, 20) || !ids.insert(&disk.id) {
+            return Err(Error::Invalid(
+                "disk ids must be unique lowercase identifiers of 1..20 characters across iscsiDisks and disks".into(),
+            ));
+        }
+        if !(16 << 20..=1 << 40).contains(&disk.size_bytes)
+            || !disk.size_bytes.is_multiple_of(1 << 20)
+        {
+            return Err(Error::Invalid(
+                "disk sizeBytes must be 16MiB..1TiB in whole MiB".into(),
+            ));
+        }
+        if disk
+            .base_image
+            .as_ref()
+            .is_some_and(|b| !valid_name(&b.name, 32) || !(1..=999_999).contains(&b.generation))
+        {
+            return Err(Error::Invalid(
+                "baseImage needs a 1..32 character lowercase name and generation 1..999999".into(),
+            ));
+        }
+        if disk
+            .boot_index
+            .is_some_and(|i| i == 1 || i > 65535 || !boot_indexes.insert(i))
+        {
+            return Err(Error::Invalid(
+                "disk bootIndex must be unique; 1 is reserved for the demo ESP".into(),
+            ));
+        }
+    }
     Ok(())
+}
+
+fn valid_name(value: &str, max: usize) -> bool {
+    !value.is_empty()
+        && value.len() <= max
+        && value
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+        && !value.starts_with('-')
+        && !value.ends_with('-')
+}
+
+/// Operator-generated CHAP secrets are 32 lowercase hex characters.
+pub fn valid_chap(value: &str) -> bool {
+    value.len() == 32
+        && value
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
 
 pub struct Desired {
@@ -224,7 +281,28 @@ fn memory_quantity(mib: u32) -> String {
 }
 
 pub fn render(vm: &VirtualMachine, settings: &Settings) -> Result<Desired> {
+    render_with(vm, settings, &[])
+}
+
+/// Render with the verified exports of every `spec.disks` entry, in order.
+pub fn render_with(
+    vm: &VirtualMachine,
+    settings: &Settings,
+    provisioned: &[Attached],
+) -> Result<Desired> {
     validate(vm, settings)?;
+    if vm.spec.disks.len() != provisioned.len()
+        || vm
+            .spec
+            .disks
+            .iter()
+            .zip(provisioned)
+            .any(|(d, a)| d.id != a.id)
+    {
+        return Err(Error::Invalid(
+            "provisioned disks are not exported yet".into(),
+        ));
+    }
     let name = vm.name_any();
     let config_name = format!("{name}-config");
     let uid = vm.uid().expect("validated UID");
@@ -234,7 +312,9 @@ pub fn render(vm: &VirtualMachine, settings: &Settings) -> Result<Desired> {
     let labels = json!({"app.kubernetes.io/name":"qrab", "app.kubernetes.io/component":"vm", "app.kubernetes.io/instance":name, "qrab.yapplesauce.com/owner-uid":uid});
     let mut config = json!({"name":name,"memory_mib":vm.spec.memory_mib,"cpus":vm.spec.cpus,"accelerator":"tcg","console":true,"uefi":{"boot_disk":vm.spec.boot_disk},"tpm":{},"state_dir":"/var/lib/qrab","state_id":uid,"runtime_dir":"/run/qrab","startup_timeout_secs":30,"shutdown_grace_secs":5});
     let initiator = format!("iqn.2026-11.com.yapplesauce:qrab.vm.{uid}");
-    config["iscsi_disks"]=json!(vm.spec.iscsi_disks.iter().map(|d|json!({"id":d.id,"portal":d.portal,"target":d.target,"lun":d.lun,"initiator_name":initiator,"username":d.username,"password_file":format!("/run/qrab-auth/{}/password",d.id),"read_only":d.read_only,"boot_index":d.boot_index,"bus":"virtio"})).collect::<Vec<_>>());
+    let mut disks: Vec<_> = vm.spec.iscsi_disks.iter().map(|d|json!({"id":d.id,"portal":d.portal,"target":d.target,"lun":d.lun,"initiator_name":initiator,"username":d.username,"password_file":format!("/run/qrab-auth/{}/password",d.id),"read_only":d.read_only,"boot_index":d.boot_index,"bus":"virtio"})).collect();
+    disks.extend(provisioned.iter().map(|d|json!({"id":d.id,"portal":d.portal,"target":d.target,"lun":0,"initiator_name":initiator,"username":d.username,"password_file":format!("/run/qrab-auth/{}/password",d.id),"read_only":d.read_only,"boot_index":d.boot_index,"bus":"virtio"})));
+    config["iscsi_disks"] = json!(disks);
     let config_data = serde_json::to_string_pretty(&config)?;
     let config_map: ConfigMap = serde_json::from_value(
         json!({"apiVersion":"v1","kind":"ConfigMap","metadata":{"name":config_name,"namespace":settings.namespace,"labels":labels,"ownerReferences":[owner]},"data":{"vm.json":config_data}}),
@@ -260,6 +340,7 @@ pub fn render(vm: &VirtualMachine, settings: &Settings) -> Result<Desired> {
         pod["spec"]["nodeSelector"] = json!({"kubernetes.io/hostname":node});
     }
     if !vm.spec.iscsi_disks.is_empty()
+        || !vm.spec.disks.is_empty()
         || vm
             .metadata
             .finalizers
@@ -275,17 +356,27 @@ pub fn render(vm: &VirtualMachine, settings: &Settings) -> Result<Desired> {
         pod["spec"]["volumes"].as_array_mut().expect("volumes").push(json!({"name":volume,"secret":{"secretName":disk.password_secret.name,"defaultMode":288,"items":[{"key":disk.password_secret.key,"path":"password","mode":288}]}}));
         pod["spec"]["containers"][0]["volumeMounts"].as_array_mut().expect("mounts").push(json!({"name":volume,"mountPath":format!("/run/qrab-auth/{}",disk.id),"readOnly":true}));
     }
+    for disk in provisioned {
+        let volume = format!("iscsi-auth-{}", disk.id);
+        pod["spec"]["volumes"].as_array_mut().expect("volumes").push(json!({"name":volume,"secret":{"secretName":disk.secret_name,"defaultMode":288,"items":[{"key":crate::provision::SECRET_KEY,"path":"password","mode":288}]}}));
+        pod["spec"]["containers"][0]["volumeMounts"].as_array_mut().expect("mounts").push(json!({"name":volume,"mountPath":format!("/run/qrab-auth/{}",disk.id),"readOnly":true}));
+    }
     if let Some(ip) = &settings.idp_ip {
         let issuer =
             url::Url::parse(&settings.oidc_issuer).map_err(|e| Error::Invalid(e.to_string()))?;
         pod["spec"]["hostAliases"] = json!([{"ip":ip,"hostnames":[issuer.host_str().ok_or_else(||Error::Invalid("OIDC issuer has no host".into()))?]}]);
     }
-    let hash = format!(
-        "{:x}",
-        Sha256::digest(serde_json::to_vec(
-            &json!({"pod":pod,"config":config_data,"restartNonce":vm.spec.restart_nonce})
-        )?)
-    );
+    let mut identity = json!({"pod":pod,"config":config_data,"restartNonce":vm.spec.restart_nonce});
+    // A rotated credential or grown LUN needs a fresh QEMU: libiscsi neither
+    // reloads secrets nor sees capacity growth. Absent for legacy VMs, so
+    // their template hash is unchanged.
+    if !provisioned.is_empty() {
+        identity["provisioned"] = json!(provisioned
+            .iter()
+            .map(|d| json!({"id":d.id,"generation":d.generation,"capacityBytes":d.capacity_bytes}))
+            .collect::<Vec<_>>());
+    }
+    let hash = format!("{:x}", Sha256::digest(serde_json::to_vec(&identity)?));
     pod["metadata"]["annotations"] = json!({HASH:hash});
     Ok(Desired {
         config: config_map,

@@ -1,0 +1,23 @@
+# The exchange shim's qrab-vm-disk-operator policy trusts exactly this ID.
+# Pin the container-image selector to the published operator digest at rollout.
+apiVersion: spire.spiffe.io/v1alpha1
+kind: ClusterSPIFFEID
+metadata:
+  name: qrab-operator
+spec:
+  className: kubernetes-tpm
+  spiffeIDTemplate: spiffe://yapplesauce.com/kubernetes/qrab/qrab-operator
+  namespaceSelector:
+    matchLabels:
+      kubernetes.io/metadata.name: qrab
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: qrab-operator
+  workloadSelectorTemplates:
+  - k8s:ns:qrab
+  - k8s:sa:qrab-operator
+  - k8s:container-name:operator
+  - k8s:container-image:zot.yapplesauce.com/qrab/operator@sha256:REPLACE_WITH_PUBLISHED_OPERATOR_DIGEST
+  - unix:uid:10001
+  ttl: 10m
+  admin: false

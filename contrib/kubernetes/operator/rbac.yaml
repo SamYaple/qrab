@@ -15,6 +15,11 @@ rules:
 - apiGroups: ['']
   resources: [persistentvolumeclaims]
   verbs: [get]
+# Operator-generated CHAP Secrets for spec.disks (<vm>-disk-<id>, VM-owned).
+# No list/watch/delete: owner GC removes them with the VM.
+- apiGroups: ['']
+  resources: [secrets]
+  verbs: [get, create, patch]
 - apiGroups: ['']
   resources: [serviceaccounts]
   resourceNames: [qrab-manager]

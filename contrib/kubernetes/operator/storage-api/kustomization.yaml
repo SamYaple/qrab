@@ -1,0 +1,13 @@
+# Opt-in storage-service client for spec.disks. Not part of the default
+# operator kustomization: apply it only after the host daemon runs the
+# qrab-iscsi-target wrapper, the exchange-shim policy and Kanidm subject exist,
+# and the storage ingress allows the vm-disk verbs (docs/iscsi.md).
+# clusterspiffeid.yaml is cluster-scoped SPIRE registration: it belongs with
+# the other ClusterSPIFFEIDs in kubernetes-gitops, not in this namespace.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+patches:
+- path: deployment.patch.yaml
+  target:
+    kind: Deployment
+    name: qrab-operator
