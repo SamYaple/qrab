@@ -1719,7 +1719,7 @@ impl VmBuilder<WithSnp> {
         // --- Connect QMP ---
         let (qmp, events) = Qmp::new(&qmp_sock).await?;
 
-        let version = qapi::qemu_version();
+        let version = qmp.version();
         if version == (0, 0, 0) {
             tracing::warn!(
                 "QEMU version not yet set (OnceLock uninitialized); \

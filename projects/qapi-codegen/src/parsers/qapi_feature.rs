@@ -227,7 +227,8 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_trailing_comma_accepted() {
+    fn test_parse_trailing_comma_rejected() {
+        crate::set_parser_version((11, 1, 3));
         let inputs = [
             "{'name':'feature_name',}",
             "{'name':'feature_name', 'if':'condition',}",
@@ -235,8 +236,8 @@ mod tests {
         for input in inputs.iter() {
             let result = QapiFeature::parse(input);
             assert!(
-                result.is_ok(),
-                "Trailing commas should be accepted: {}",
+                result.is_err(),
+                "Modern QAPI rejects trailing commas: {}",
                 input
             );
         }

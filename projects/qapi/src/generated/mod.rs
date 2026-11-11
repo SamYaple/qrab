@@ -1201,6 +1201,11 @@ pub enum BlkdebugEvent {
 ///
 #[qapi(added = "2.0.0")]
 pub struct BlkdebugInjectErrorOptions {
+    /// request delay before completion in nanoseconds
+    /// (default: 0, since: 11.1)
+    #[qapi(name = "delay-ns")]
+    #[qapi(added = "10.0.10")]
+    pub delay_ns: Option<i64>,
     /// error identifier (errno) to be returned; defaults to EIO
     pub errno: Option<i64>,
     /// trigger event
@@ -1383,6 +1388,15 @@ pub struct BlockdevAmendOptionsQcow2 {
     pub encrypt: Option<QCryptoBlockAmendOptions>,
 }
 
+/// Start a point-in-time copy of a block device to a new destination.  The
+/// status of ongoing blockdev-backup operations can be checked with
+/// query-block-jobs where the BlockJobInfo.type field has the value 'backup'.
+/// The operation can be stopped before it has completed using the
+/// block-job-cancel command.
+///
+/// For the arguments, see the documentation of BlockdevBackup.
+///
+#[qapi(name = "blockdev-backup")]
 #[qapi(command)]
 #[qapi(returns = "()")]
 #[qapi(added = "2.3.0")]
@@ -1530,6 +1544,7 @@ pub enum BlockdevCreateOptionsBranch {
     #[qapi(removed = "3.0.0")]
     Ftps(BlockdevCreateNotSupported),
     #[qapi(name = "gluster")]
+    #[qapi(removed = "11.1.0")]
     Gluster(BlockdevCreateOptionsGluster),
     #[qapi(name = "host_cdrom")]
     #[qapi(removed = "3.0.0")]
@@ -1629,6 +1644,7 @@ pub struct BlockdevCreateOptionsFile {
 /// Driver specific image creation options for gluster.
 ///
 #[qapi(added = "2.12.0")]
+#[qapi(removed = "11.1.0")]
 pub struct BlockdevCreateOptionsGluster {
     /// Where to store the new image file
     pub location: BlockdevOptionsGluster,
@@ -2040,6 +2056,7 @@ pub enum BlockdevDriver {
     #[qapi(feature = "deprecated")]
     #[qapi(added = "2.7.0")]
     #[qapi(deprecated(added = "9.2.0"))]
+    #[qapi(removed = "11.1.0")]
     Gluster,
     /// Since 2.1
     #[qapi(name = "host_cdrom")]
@@ -2908,6 +2925,7 @@ pub enum BlockdevOptionsBranch {
     Ftps(BlockdevOptionsCurlFtps),
     #[qapi(name = "gluster")]
     #[qapi(added = "2.7.0")]
+    #[qapi(removed = "11.1.0")]
     Gluster(BlockdevOptionsGluster),
     #[qapi(name = "host_cdrom")]
     #[qapi(condition = "defined(HAVE_HOST_BLOCK_DEVICE)")]
@@ -3188,6 +3206,13 @@ pub struct BlockdevOptionsCurlHttp {
     #[qapi(name = "cookie-secret")]
     #[qapi(added = "2.10.0")]
     pub cookie_secret: Option<String>,
+    /// Don't issue a HEAD HTTP request to discover if the
+    /// http server supports range requests and rely only on GET
+    /// requests.  This is especially useful for S3 presigned URLs where
+    /// HEAD requests are unauthorized.  (default: false; since 11.0)
+    #[qapi(name = "force-range")]
+    #[qapi(added = "11.0.0")]
+    pub force_range: Option<bool>,
     /// ID of a QCryptoSecret object providing a password
     /// for authentication (defaults to no password)
     #[qapi(name = "password-secret")]
@@ -3225,6 +3250,13 @@ pub struct BlockdevOptionsCurlHttps {
     #[qapi(name = "cookie-secret")]
     #[qapi(added = "2.10.0")]
     pub cookie_secret: Option<String>,
+    /// Don't issue a HEAD HTTP request to discover if the
+    /// http server supports range requests and rely only on GET
+    /// requests.  This is especially useful for S3 presigned URLs where
+    /// HEAD requests are unauthorized.  (default: false; since 11.0)
+    #[qapi(name = "force-range")]
+    #[qapi(added = "11.0.0")]
+    pub force_range: Option<bool>,
     /// ID of a QCryptoSecret object providing a password
     /// for authentication (defaults to no password)
     #[qapi(name = "password-secret")]
@@ -3319,6 +3351,7 @@ pub struct BlockdevOptionsGenericFormat {
 /// Driver specific block device options for Gluster
 ///
 #[qapi(added = "2.7.0")]
+#[qapi(removed = "11.1.0")]
 pub struct BlockdevOptionsGluster {
     /// libgfapi log level (default '4' which is Error) (Since 2.8)
     #[qapi(added = "2.8.0")]
@@ -3940,8 +3973,11 @@ pub enum BlockdevRefType {
     Reference,
 }
 
-/// Either @device or @node-name must be set but not both.
+/// Generates a snapshot of a block device.
 ///
+/// For the arguments, see the documentation of BlockdevSnapshot.
+///
+#[qapi(name = "blockdev-snapshot")]
 #[qapi(command)]
 #[qapi(returns = "()")]
 #[qapi(added = "1.1.0")]
@@ -4102,6 +4138,7 @@ pub struct BlockDirtyBitmap {
     pub node: String,
 }
 
+#[qapi(name = "block-dirty-bitmap-add")]
 #[qapi(command)]
 #[qapi(returns = "()")]
 #[qapi(added = "2.4.0")]
@@ -4129,7 +4166,9 @@ pub struct BlockDirtyBitmapAdd {
     /// the bitmap is persistent, i.e. it will be saved to the
     /// corresponding block device image file on its close.  For now
     /// only Qcow2 disks support persistent bitmaps.  Default is false
-    /// for `block-dirty-bitmap-add`.  (Since: 2.10)
+    /// for `block-dirty-bitmap-add`.  This fails if the node is
+    /// read-only or inactive, since such a bitmap could never be
+    /// stored.  (Since: 2.10)
     #[qapi(added = "2.10.0")]
     pub persistent: Option<bool>,
     /// the bitmap is created in the disabled state, which means that
@@ -4146,6 +4185,7 @@ pub struct BlockDirtyBitmapAddWrapper {
     pub data: BlockDirtyBitmapAdd,
 }
 
+#[qapi(name = "block-dirty-bitmap-merge")]
 #[qapi(command)]
 #[qapi(returns = "()")]
 #[qapi(added = "3.0.0")]
@@ -4301,6 +4341,26 @@ pub struct BlockExportInfo {
     pub r#type: BlockExportType,
 }
 
+/// Specify a single or multiple I/O threads in which to run a block
+/// export's I/O.
+///
+#[qapi(added = "11.0.0")]
+pub enum BlockExportIothreads {
+    /// Use multi-threading across the given set of I/O threads,
+    /// which must not be empty.  Note: Passing a single I/O thread via
+    /// this variant is still treated as multi-threading, which is
+    /// different from using the @single variant.  In particular, even
+    /// if there only is a single I/O thread in the set, export types
+    /// that do not support multi-threading will generally reject this
+    /// variant, and BlockExportOptions.fixed-iothread is always
+    /// incompatible with it.
+    #[qapi(name = "multi")]
+    Multi(Vec<String>),
+    /// Run the export's I/O in the given single I/O thread.
+    #[qapi(name = "single")]
+    Single(String),
+}
+
 /// An NBD block export.
 ///
 #[qapi(added = "5.0.0")]
@@ -4346,9 +4406,10 @@ pub struct BlockExportOptions {
     /// types)
     pub id: String,
     /// is given, export creation fails if the block node
-    /// cannot be moved to the iothread.  The default is false.
+    /// cannot be moved to the iothread.  Must not be true when giving
+    /// multiple iothreads for @iothread.  The default is false.
     /// (since: 5.2)
-    pub iothread: Option<String>,
+    pub iothread: Option<BlockExportIothreads>,
     /// The node name of the block node to be exported
     /// (since: 5.2)
     #[qapi(name = "node-name")]
@@ -4387,6 +4448,11 @@ pub enum BlockExportOptionsBranch {
 
 /// Options for exporting a block graph node on some (file) mountpoint
 /// as a raw image.
+///
+/// Multi-threading note: The FUSE export supports multi-threading.
+/// Currently, requests are distributed across these threads in a
+/// round-robin fashion, i.e. independently of the CPU core from which a
+/// request originates.
 ///
 #[qapi(condition = "defined(CONFIG_FUSE)")]
 #[qapi(added = "6.0.0")]
@@ -5466,6 +5532,10 @@ pub struct ChardevCommon {
     pub logappend: Option<bool>,
     /// The name of a logfile to save output
     pub logfile: Option<String>,
+    /// true to insert timestamps into logfile
+    /// (default false) (since 11.0)
+    #[qapi(added = "11.0.0")]
+    pub logtimestamp: Option<bool>,
 }
 
 #[qapi(added = "6.2.0")]
@@ -5479,11 +5549,19 @@ pub struct ChardevCommonWrapper {
 #[qapi(condition = "CONFIG_DBUS_DISPLAY")]
 #[qapi(added = "7.0.0")]
 pub struct ChardevDBus {
+    /// character encoding the guest is expected to use
+    /// (since 11.1)
+    #[qapi(added = "11.1.0")]
+    pub encoding: Option<ChardevVcEncoding>,
     /// true to append instead of truncate (default to false to
     /// truncate)
     pub logappend: Option<bool>,
     /// The name of a logfile to save output
     pub logfile: Option<String>,
+    /// true to insert timestamps into logfile
+    /// (default false) (since 11.0)
+    #[qapi(added = "11.0.0")]
+    pub logtimestamp: Option<bool>,
     /// name of the channel (following docs/spice-port-fqdn.txt)
     pub name: String,
 }
@@ -5518,6 +5596,10 @@ pub struct ChardevFile {
     /// The name of a logfile to save output
     #[qapi(added = "2.6.0")]
     pub logfile: Option<String>,
+    /// true to insert timestamps into logfile
+    /// (default false) (since 11.0)
+    #[qapi(added = "11.0.0")]
+    pub logtimestamp: Option<bool>,
     /// The name of the output file
     pub out: String,
 }
@@ -5542,6 +5624,10 @@ pub struct ChardevHostdev {
     /// The name of a logfile to save output
     #[qapi(added = "2.6.0")]
     pub logfile: Option<String>,
+    /// true to insert timestamps into logfile
+    /// (default false) (since 11.0)
+    #[qapi(added = "11.0.0")]
+    pub logtimestamp: Option<bool>,
 }
 
 #[qapi(added = "6.2.0")]
@@ -5561,6 +5647,10 @@ pub struct ChardevHub {
     pub logappend: Option<bool>,
     /// The name of a logfile to save output
     pub logfile: Option<String>,
+    /// true to insert timestamps into logfile
+    /// (default false) (since 11.0)
+    #[qapi(added = "11.0.0")]
+    pub logtimestamp: Option<bool>,
 }
 
 #[qapi(added = "10.0.0")]
@@ -5601,6 +5691,10 @@ pub struct ChardevMux {
     /// The name of a logfile to save output
     #[qapi(added = "2.6.0")]
     pub logfile: Option<String>,
+    /// true to insert timestamps into logfile
+    /// (default false) (since 11.0)
+    #[qapi(added = "11.0.0")]
+    pub logtimestamp: Option<bool>,
 }
 
 #[qapi(added = "6.2.0")]
@@ -5618,6 +5712,10 @@ pub struct ChardevPty {
     pub logappend: Option<bool>,
     /// The name of a logfile to save output
     pub logfile: Option<String>,
+    /// true to insert timestamps into logfile
+    /// (default false) (since 11.0)
+    #[qapi(added = "11.0.0")]
+    pub logtimestamp: Option<bool>,
     /// optional path to create a symbolic link that points to the
     /// allocated PTY
     pub path: Option<String>,
@@ -5642,6 +5740,10 @@ pub struct ChardevQemuVdAgent {
     pub logappend: Option<bool>,
     /// The name of a logfile to save output
     pub logfile: Option<String>,
+    /// true to insert timestamps into logfile
+    /// (default false) (since 11.0)
+    #[qapi(added = "11.0.0")]
+    pub logtimestamp: Option<bool>,
     /// enable/disable mouse, default is enabled.
     pub mouse: Option<bool>,
 }
@@ -5674,6 +5776,10 @@ pub struct ChardevRingbuf {
     /// The name of a logfile to save output
     #[qapi(added = "2.6.0")]
     pub logfile: Option<String>,
+    /// true to insert timestamps into logfile
+    /// (default false) (since 11.0)
+    #[qapi(added = "11.0.0")]
+    pub logtimestamp: Option<bool>,
     /// ring buffer size, must be power of two, default is 65536
     pub size: Option<i64>,
 }
@@ -5698,6 +5804,10 @@ pub struct ChardevSocket {
     /// The name of a logfile to save output
     #[qapi(added = "2.6.0")]
     pub logfile: Option<String>,
+    /// true to insert timestamps into logfile
+    /// (default false) (since 11.0)
+    #[qapi(added = "11.0.0")]
+    pub logtimestamp: Option<bool>,
     /// set TCP_NODELAY socket option (default: false)
     pub nodelay: Option<bool>,
     /// For a client socket, if a socket is disconnected, then
@@ -5763,6 +5873,10 @@ pub struct ChardevSpiceChannel {
     /// The name of a logfile to save output
     #[qapi(added = "2.6.0")]
     pub logfile: Option<String>,
+    /// true to insert timestamps into logfile
+    /// (default false) (since 11.0)
+    #[qapi(added = "11.0.0")]
+    pub logtimestamp: Option<bool>,
     /// kind of channel (for example vdagent).
     pub r#type: String,
 }
@@ -5788,6 +5902,10 @@ pub struct ChardevSpicePort {
     /// The name of a logfile to save output
     #[qapi(added = "2.6.0")]
     pub logfile: Option<String>,
+    /// true to insert timestamps into logfile
+    /// (default false) (since 11.0)
+    #[qapi(added = "11.0.0")]
+    pub logtimestamp: Option<bool>,
 }
 
 #[qapi(condition = "CONFIG_SPICE")]
@@ -5808,6 +5926,10 @@ pub struct ChardevStdio {
     /// The name of a logfile to save output
     #[qapi(added = "2.6.0")]
     pub logfile: Option<String>,
+    /// true to insert timestamps into logfile
+    /// (default false) (since 11.0)
+    #[qapi(added = "11.0.0")]
+    pub logtimestamp: Option<bool>,
     /// Allow signals (such as SIGINT triggered by ^C) be delivered
     /// to QEMU.  Default: true.
     pub signal: Option<bool>,
@@ -5832,6 +5954,10 @@ pub struct ChardevUdp {
     /// The name of a logfile to save output
     #[qapi(added = "2.6.0")]
     pub logfile: Option<String>,
+    /// true to insert timestamps into logfile
+    /// (default false) (since 11.0)
+    #[qapi(added = "11.0.0")]
+    pub logtimestamp: Option<bool>,
     /// remote address
     pub remote: SocketAddressLegacy,
 }
@@ -5849,6 +5975,14 @@ pub struct ChardevUdpWrapper {
 pub struct ChardevVc {
     /// console width, in chars
     pub cols: Option<i64>,
+    /// character encoding the guest is expected to use
+    /// (since 11.1)
+    ///
+    /// .. note:: The options are only effective when the VNC or SDL
+    /// graphical display backend is active.  They are ignored with the
+    /// GTK, Spice, VNC and D-Bus display backends.
+    #[qapi(added = "11.1.0")]
+    pub encoding: Option<ChardevVcEncoding>,
     /// console height, in pixels
     pub height: Option<i64>,
     /// true to append instead of truncate (default to false to
@@ -5858,14 +5992,31 @@ pub struct ChardevVc {
     /// The name of a logfile to save output
     #[qapi(added = "2.6.0")]
     pub logfile: Option<String>,
+    /// true to insert timestamps into logfile
+    /// (default false) (since 11.0)
+    #[qapi(added = "11.0.0")]
+    pub logtimestamp: Option<bool>,
     /// console height, in chars
-    ///
-    /// .. note:: The options are only effective when the VNC or SDL
-    /// graphical display backend is active.  They are ignored with the
-    /// GTK, Spice, VNC and D-Bus display backends.
     pub rows: Option<i64>,
     /// console width, in pixels
     pub width: Option<i64>,
+}
+
+/// Character encoding expected from the guest on a virtual console.
+///
+#[qapi(name = "ChardevVCEncoding")]
+#[qapi(added = "11.1.0")]
+pub enum ChardevVcEncoding {
+    /// CP437 (8-bit Extended ASCII / VGA).  Every byte maps
+    /// directly to a glyph; suitable for DOS or other guests that
+    /// output raw CP437.
+    #[qapi(name = "cp437")]
+    Cp437,
+    /// UTF-8.  Multi-byte sequences are decoded and then mapped
+    /// back to CP437 glyphs for display; unmappable codepoints are
+    /// shown as '?'.  Suitable for modern Linux guests.
+    #[qapi(name = "utf8")]
+    Utf8,
 }
 
 #[qapi(name = "ChardevVCWrapper")]
@@ -6766,6 +6917,36 @@ pub struct CurrentMachineParams {
     pub wakeup_suspend_support: bool,
 }
 
+/// Common event base for a CXL Event (CXL r3.2 8.2.10.2.1
+/// Table 8-55 Common Event Record Format).
+///
+#[qapi(name = "CXLCommonEventBase")]
+#[qapi(added = "11.0.0")]
+pub struct CxlCommonEventBase {
+    /// Event Record Flags.  See CXL r3.2 Table 8-55 Common Event
+    /// Record Format, Event Record Flags for subfield definitions.
+    pub flags: u32,
+    /// ID of the device head from where the event originated.
+    #[qapi(name = "head-id")]
+    pub head_id: Option<u8>,
+    /// Logical Device (LD) ID of LD from where the event
+    /// originated.
+    #[qapi(name = "ld-id")]
+    pub ld_id: Option<u16>,
+    /// event log to add the event to
+    pub log: CxlEventLog,
+    /// Maintenance operation class the device requests to
+    /// initiate.
+    #[qapi(name = "maint-op-class")]
+    pub maint_op_class: Option<u8>,
+    /// Maintenance operation subclass the device
+    /// requests to initiate.
+    #[qapi(name = "maint-op-subclass")]
+    pub maint_op_subclass: Option<u8>,
+    /// CXL type 3 device canonical QOM path
+    pub path: String,
+}
+
 /// Type of CXL correctable error to inject
 ///
 #[qapi(added = "8.0.0")]
@@ -6793,6 +6974,96 @@ pub enum CxlCorErrorType {
     /// Machine, 68B Flits only.
     #[qapi(name = "retry-threshold")]
     RetryThreshold,
+}
+
+/// Event record for a DRAM Event (CXL r3.2 8.2.10.2.1.2).
+///
+#[qapi(name = "CXLDRAMEvent")]
+#[qapi(added = "11.0.0")]
+pub struct CxldramEvent {
+    /// Bank of the memory event location.  A single bank is accessed
+    /// per read or write of the memory.
+    pub bank: Option<u8>,
+    /// Bank group of the memory event location, incorporating
+    /// a number of banks.
+    #[qapi(name = "bank-group")]
+    pub bank_group: Option<u8>,
+    /// The channel of the memory event location.  A channel is an
+    /// interface that can be independently accessed for a transaction.
+    pub channel: Option<u8>,
+    /// Advanced programmable corrected memory error
+    /// threshold event flags.
+    #[qapi(name = "cme-ev-flags")]
+    pub cme_ev_flags: Option<u8>,
+    /// Column address within the DRAM.
+    pub column: Option<u16>,
+    /// Device specific component identifier for the event.
+    /// May describe a field replaceable sub-component of the device.
+    #[qapi(name = "component-id")]
+    pub component_id: Option<String>,
+    /// Bits within each nibble.  Used in order of bits
+    /// set in the nibble-mask.  Up to 4 nibbles may be covered.
+    #[qapi(name = "correction-mask")]
+    pub correction_mask: Option<Vec<u64>>,
+    /// Corrected volatile memory error count at event.
+    #[qapi(name = "cvme-count")]
+    pub cvme_count: Option<u32>,
+    /// Memory Event Descriptor with additional memory event
+    /// information.  See CXL r3.2 Table 8-58 DRAM Event Record, Memory
+    /// Event Descriptor for bit definitions.
+    pub descriptor: u8,
+    /// Device Physical Address (relative to @path device).  Note
+    /// lower bits include some flags.  See CXL r3.2 Table 8-58 DRAM
+    /// Event Record, Physical Address.
+    pub dpa: u64,
+    /// Event Record Flags.  See CXL r3.2 Table 8-55 Common Event
+    /// Record Format, Event Record Flags for subfield definitions.
+    pub flags: u32,
+    /// ID of the device head from where the event originated.
+    #[qapi(name = "head-id")]
+    pub head_id: Option<u8>,
+    /// This flag specifies whether the device-specific
+    /// component identifier format follows PLDM.
+    #[qapi(name = "is-comp-id-pldm")]
+    pub is_comp_id_pldm: Option<bool>,
+    /// Logical Device (LD) ID of LD from where the event
+    /// originated.
+    #[qapi(name = "ld-id")]
+    pub ld_id: Option<u16>,
+    /// event log to add the event to
+    pub log: CxlEventLog,
+    /// Maintenance operation class the device requests to
+    /// initiate.
+    #[qapi(name = "maint-op-class")]
+    pub maint_op_class: Option<u8>,
+    /// Maintenance operation subclass the device
+    /// requests to initiate.
+    #[qapi(name = "maint-op-subclass")]
+    pub maint_op_subclass: Option<u8>,
+    /// Identifies one or more nibbles that the error affects
+    #[qapi(name = "nibble-mask")]
+    pub nibble_mask: Option<u32>,
+    /// CXL type 3 device canonical QOM path
+    pub path: String,
+    /// The rank of the memory event location.  A rank is a set of
+    /// memory devices on a channel that together execute a transaction.
+    pub rank: Option<u8>,
+    /// Row address within the DRAM.
+    pub row: Option<u32>,
+    /// The sub-channel of the memory event location.
+    #[qapi(name = "sub-channel")]
+    pub sub_channel: Option<u8>,
+    /// Memory event sub-type.
+    #[qapi(name = "sub-type")]
+    pub sub_type: u8,
+    /// Type of first transaction that caused the event
+    /// to occur.  See CXL r3.2 Table 8-58 DRAM Event Record,
+    /// Transaction Type for possible values.
+    #[qapi(name = "transaction-type")]
+    pub transaction_type: u8,
+    /// Type of memory event that occurred.  See CXL r3.2 Table 8-58
+    /// DRAM Event Record, Memory Event Type for possible values.
+    pub r#type: u8,
 }
 
 /// A single dynamic capacity extent.  This is a contiguous allocation
@@ -6906,6 +7177,128 @@ pub struct CxlfmwProperties {
     /// List of `CXLFixedMemoryWindowOptions`
     #[qapi(name = "cxl-fmw")]
     pub cxl_fmw: Vec<CxlFixedMemoryWindowOptions>,
+}
+
+/// Event record for a General Media Event (CXL r3.2 8.2.10.2.1.1).
+///
+#[qapi(name = "CXLGeneralMediaEvent")]
+#[qapi(added = "11.0.0")]
+pub struct CxlGeneralMediaEvent {
+    /// The channel of the memory event location.  A channel is an
+    /// interface that can be independently accessed for a transaction.
+    pub channel: Option<u8>,
+    /// Corrected memory error count at event.
+    #[qapi(name = "cme-count")]
+    pub cme_count: Option<u32>,
+    /// Advanced programmable corrected memory error
+    /// threshold event flags.
+    #[qapi(name = "cme-ev-flags")]
+    pub cme_ev_flags: Option<u8>,
+    /// Device specific component identifier for the event.
+    /// May describe a field replaceable sub-component of the device.
+    #[qapi(name = "component-id")]
+    pub component_id: Option<String>,
+    /// Memory Event Descriptor with additional memory event
+    /// information.  See CXL r3.2 Table 8-57 General Media Event
+    /// Record, Memory Event Descriptor for bit definitions.
+    pub descriptor: u8,
+    /// Bitmask that represents all devices in the rank associated
+    /// with the memory event location.
+    pub device: Option<u32>,
+    /// Device Physical Address (relative to @path device).  Note
+    /// lower bits include some flags.  See CXL r3.2 Table 8-57 General
+    /// Media Event Record, Physical Address.
+    pub dpa: u64,
+    /// Event Record Flags.  See CXL r3.2 Table 8-55 Common Event
+    /// Record Format, Event Record Flags for subfield definitions.
+    pub flags: u32,
+    /// ID of the device head from where the event originated.
+    #[qapi(name = "head-id")]
+    pub head_id: Option<u8>,
+    /// This flag specifies whether the device-specific
+    /// component identifier format follows PLDM.
+    #[qapi(name = "is-comp-id-pldm")]
+    pub is_comp_id_pldm: Option<bool>,
+    /// Logical Device (LD) ID of LD from where the event
+    /// originated.
+    #[qapi(name = "ld-id")]
+    pub ld_id: Option<u16>,
+    /// event log to add the event to
+    pub log: CxlEventLog,
+    /// Maintenance operation class the device requests to
+    /// initiate.
+    #[qapi(name = "maint-op-class")]
+    pub maint_op_class: Option<u8>,
+    /// Maintenance operation subclass the device
+    /// requests to initiate.
+    #[qapi(name = "maint-op-subclass")]
+    pub maint_op_subclass: Option<u8>,
+    /// CXL type 3 device canonical QOM path
+    pub path: String,
+    /// The rank of the memory event location.  A rank is a set of
+    /// memory devices on a channel that together execute a transaction.
+    pub rank: Option<u8>,
+    /// Memory event sub-type.
+    #[qapi(name = "sub-type")]
+    pub sub_type: u8,
+    /// Type of first transaction that caused the event
+    /// to occur.  See CXL r3-2 Table 8-57 General Media Event Record,
+    /// Transaction Type for possible values.
+    #[qapi(name = "transaction-type")]
+    pub transaction_type: u8,
+    /// Type of memory event that occurred.  See CXL r3.2 Table 8-57
+    /// General Media Event Record, Memory Event Type for possible
+    /// values.
+    pub r#type: u8,
+}
+
+#[qapi(name = "CXLMemModuleEvent")]
+#[qapi(added = "11.0.0")]
+pub struct CxlMemModuleEvent {
+    #[qapi(name = "additional-status")]
+    pub additional_status: u8,
+    #[qapi(name = "component-id")]
+    pub component_id: Option<String>,
+    #[qapi(name = "corrected-persistent-error-count")]
+    pub corrected_persistent_error_count: u32,
+    #[qapi(name = "corrected-volatile-error-count")]
+    pub corrected_volatile_error_count: u32,
+    #[qapi(name = "dirty-shutdown-count")]
+    pub dirty_shutdown_count: u32,
+    /// Event Record Flags.  See CXL r3.2 Table 8-55 Common Event
+    /// Record Format, Event Record Flags for subfield definitions.
+    pub flags: u32,
+    /// ID of the device head from where the event originated.
+    #[qapi(name = "head-id")]
+    pub head_id: Option<u8>,
+    #[qapi(name = "health-status")]
+    pub health_status: u8,
+    #[qapi(name = "is-comp-id-pldm")]
+    pub is_comp_id_pldm: Option<bool>,
+    /// Logical Device (LD) ID of LD from where the event
+    /// originated.
+    #[qapi(name = "ld-id")]
+    pub ld_id: Option<u16>,
+    #[qapi(name = "life-used")]
+    pub life_used: u8,
+    /// event log to add the event to
+    pub log: CxlEventLog,
+    /// Maintenance operation class the device requests to
+    /// initiate.
+    #[qapi(name = "maint-op-class")]
+    pub maint_op_class: Option<u8>,
+    /// Maintenance operation subclass the device
+    /// requests to initiate.
+    #[qapi(name = "maint-op-subclass")]
+    pub maint_op_subclass: Option<u8>,
+    #[qapi(name = "media-status")]
+    pub media_status: u8,
+    /// CXL type 3 device canonical QOM path
+    pub path: String,
+    #[qapi(name = "sub-type")]
+    pub sub_type: u8,
+    pub temperature: i16,
+    pub r#type: u8,
 }
 
 /// Record of a single error including header log.
@@ -7247,6 +7640,10 @@ pub enum DisplayGlMode {
 #[qapi(name = "DisplayGTK")]
 #[qapi(added = "2.12.0")]
 pub struct DisplayGtk {
+    /// Enable host-guest clipboard sharing.  Defaults to "off".
+    /// (Since 11.1)
+    #[qapi(added = "11.1.0")]
+    pub clipboard: Option<bool>,
     /// Grab keyboard input on mouse hover.
     #[qapi(name = "grab-on-hover")]
     pub grab_on_hover: Option<bool>,
@@ -7493,6 +7890,7 @@ pub enum DisplayUpdateType {
     Vnc,
 }
 
+#[qapi(name = "drive-backup")]
 #[qapi(command)]
 #[qapi(returns = "()")]
 #[qapi(added = "1.6.0")]
@@ -7623,6 +8021,7 @@ pub enum DumpGuestMemoryFormat {
     /// Windows full crashdump format, can be used instead of ELF
     /// converting (since 2.13)
     #[qapi(name = "win-dmp")]
+    #[qapi(feature = "allowed-by-guest")]
     #[qapi(added = "3.0.0")]
     WinDmp,
 }
@@ -8256,6 +8655,9 @@ pub enum GuestPanicInformationBranch {
     #[qapi(name = "s390")]
     #[qapi(added = "2.12.0")]
     S390(GuestPanicInformationS390),
+    #[qapi(name = "sev")]
+    #[qapi(added = "11.0.0")]
+    Sev(GuestPanicInformationSev),
     #[qapi(name = "tdx")]
     #[qapi(added = "10.1.0")]
     Tdx(GuestPanicInformationTdx),
@@ -8299,6 +8701,17 @@ pub struct GuestPanicInformationS390 {
     pub reason: S390CrashReason,
 }
 
+/// Information for AMD SEV-specific termination request (GHCB MSR
+/// contents)
+///
+#[qapi(added = "11.0.0")]
+pub struct GuestPanicInformationSev {
+    /// The reason code provided by the guest
+    pub code: u32,
+    /// The reason code set provided by the guest
+    pub set: u32,
+}
+
 /// TDX Guest panic information specific to TDX, as specified in the
 /// "Guest-Hypervisor Communication Interface (GHCI) Specification",
 /// section TDG.VP.VMCALL<ReportFatalError>.
@@ -8328,6 +8741,10 @@ pub enum GuestPanicInformationType {
     #[qapi(name = "s390")]
     #[qapi(added = "2.12.0")]
     S390,
+    /// AMD SEV-ES guest termination information type (Since: 11.0)
+    #[qapi(name = "sev")]
+    #[qapi(added = "11.0.0")]
+    Sev,
     /// tdx guest panic information type (Since: 10.1)
     #[qapi(name = "tdx")]
     #[qapi(added = "10.1.0")]
@@ -9226,6 +9643,13 @@ pub struct IoThreadInfo {
     #[qapi(name = "poll-shrink")]
     #[qapi(added = "2.9.0")]
     pub poll_shrink: Option<i64>,
+    /// the weight factor for adaptive polling.
+    /// Determines how much the current event interval contributes to
+    /// the next polling time calculation.  Valid values are 1 or
+    /// greater (since 11.1)
+    #[qapi(name = "poll-weight")]
+    #[qapi(added = "11.1.0")]
+    pub poll_weight: Option<i64>,
     /// ID of the underlying host thread
     #[qapi(name = "thread-id")]
     pub thread_id: i64,
@@ -9254,10 +9678,19 @@ pub struct IothreadProperties {
     /// the divisor used to decrease the polling time when the
     /// algorithm detects it is spending too long polling without
     /// encountering events.  0 selects a default behaviour (default: 0)
-    ///
-    /// The @aio-max-batch option is available since 6.1.
     #[qapi(name = "poll-shrink")]
     pub poll_shrink: Option<i64>,
+    /// the weight factor for adaptive polling.  Determines
+    /// how much the most recent event interval affects the next
+    /// polling duration calculation.  If set to 0, the system default
+    /// value of 3 is used.  Typical values: 1 (high weight on recent
+    /// interval), 2-4 (moderate weight on recent interval).
+    /// (default: 0) (since 11.1)
+    ///
+    /// The @aio-max-batch option is available since 6.1.
+    #[qapi(name = "poll-weight")]
+    #[qapi(added = "11.1.0")]
+    pub poll_weight: Option<i64>,
     /// maximum number of threads the thread pool can
     /// contain (default:64)
     #[qapi(name = "thread-pool-max")]
@@ -10052,6 +10485,9 @@ pub enum MemoryDeviceInfoBranch {
     #[qapi(name = "sgx-epc")]
     #[qapi(added = "6.2.0")]
     SgxEpc(SgxEpcDeviceInfoWrapper),
+    #[qapi(name = "sp-mem")]
+    #[qapi(added = "11.1.0")]
+    SpMem(SpMemDeviceInfoWrapper),
     #[qapi(name = "virtio-mem")]
     #[qapi(added = "5.1.0")]
     VirtioMem(VirtioMemDeviceInfoWrapper),
@@ -10074,6 +10510,10 @@ pub enum MemoryDeviceInfoKind {
     /// since 6.2.
     #[qapi(name = "sgx-epc")]
     SgxEpc,
+    /// since 11.1.
+    #[qapi(name = "sp-mem")]
+    #[qapi(added = "11.1.0")]
+    SpMem,
     /// since 5.1
     #[qapi(name = "virtio-mem")]
     VirtioMem,
@@ -10391,6 +10831,7 @@ pub enum MigrationCapability {
     #[qapi(feature = "deprecated")]
     #[qapi(added = "1.6.0")]
     #[qapi(deprecated(added = "9.2.0"))]
+    #[qapi(removed = "11.0.0")]
     ZeroBlocks,
     #[qapi(name = "zero-copy-send")]
     #[qapi(added = "7.1.0")]
@@ -10532,7 +10973,9 @@ pub struct MigrationInfo {
     pub postcopy_vcpu_latency: Option<Vec<u64>>,
     /// @MigrationStats containing detailed migration status, only
     /// returned if status is 'active' or 'completed'(since 1.2)
-    pub ram: Option<MigrationStats>,
+    pub ram: Option<MigrationRamStats>,
+    #[qapi(added = "11.1.0")]
+    pub remaining: Option<u64>,
     /// amount of setup time in milliseconds *before* the
     /// iterations begin but *after* the QMP command is issued.  This is
     /// designed to provide an accounting of any activities (such as
@@ -10704,6 +11147,10 @@ pub enum MigrationParameter {
     #[qapi(added = "2.11.0")]
     #[qapi(removed = "4.0.0")]
     XMultifdPageCount,
+    #[qapi(name = "x-rdma-chunk-size")]
+    #[qapi(feature = "unstable")]
+    #[qapi(added = "11.1.0")]
+    XRdmaChunkSize,
     #[qapi(name = "x-vcpu-dirty-limit-period")]
     #[qapi(feature = "unstable")]
     #[qapi(added = "8.1.0")]
@@ -10812,13 +11259,13 @@ pub struct MigrationParameters {
     pub throttle_trigger_threshold: Option<u8>,
     #[qapi(name = "tls-authz")]
     #[qapi(added = "4.0.0")]
-    pub tls_authz: Option<String>,
+    pub tls_authz: Option<StrOrNull>,
     #[qapi(name = "tls-creds")]
     #[qapi(added = "2.7.0")]
-    pub tls_creds: Option<String>,
+    pub tls_creds: Option<StrOrNull>,
     #[qapi(name = "tls-hostname")]
     #[qapi(added = "2.7.0")]
-    pub tls_hostname: Option<String>,
+    pub tls_hostname: Option<StrOrNull>,
     #[qapi(name = "vcpu-dirty-limit")]
     #[qapi(added = "8.1.0")]
     pub vcpu_dirty_limit: Option<u64>,
@@ -10842,6 +11289,10 @@ pub struct MigrationParameters {
     #[qapi(added = "2.11.0")]
     #[qapi(removed = "4.0.0")]
     pub x_multifd_page_count: Option<u32>,
+    #[qapi(name = "x-rdma-chunk-size")]
+    #[qapi(feature = "unstable")]
+    #[qapi(added = "11.1.0")]
+    pub x_rdma_chunk_size: Option<u64>,
     #[qapi(name = "x-vcpu-dirty-limit-period")]
     #[qapi(feature = "unstable")]
     #[qapi(added = "8.1.0")]
@@ -10856,7 +11307,72 @@ pub struct MigrationParameters {
 
 /// Detailed migration status.
 ///
+#[qapi(name = "MigrationRAMStats")]
+#[qapi(added = "11.1.0")]
+pub struct MigrationRamStats {
+    /// number of pages dirtied by second by the guest
+    /// (since 1.3)
+    #[qapi(name = "dirty-pages-rate")]
+    pub dirty_pages_rate: i64,
+    /// number of times that dirty ram was synchronized
+    /// (since 2.1)
+    #[qapi(name = "dirty-sync-count")]
+    pub dirty_sync_count: i64,
+    /// Number of times dirty RAM
+    /// synchronization could not avoid copying dirty pages.  This is
+    /// between 0 and @dirty-sync-count * @multifd-channels.
+    /// (since 7.1)
+    #[qapi(name = "dirty-sync-missed-zero-copy")]
+    pub dirty_sync_missed_zero_copy: u64,
+    /// The number of bytes sent while the guest is paused
+    /// (since 7.0).
+    #[qapi(name = "downtime-bytes")]
+    pub downtime_bytes: u64,
+    /// number of duplicate (zero) pages (since 1.2)
+    pub duplicate: i64,
+    /// throughput in megabits/sec.  (since 1.6)
+    pub mbps: f64,
+    /// The number of bytes sent through multifd (since 3.0)
+    #[qapi(name = "multifd-bytes")]
+    pub multifd_bytes: u64,
+    /// number of normal pages (since 1.2)
+    pub normal: i64,
+    /// number of normal bytes sent (since 1.2)
+    #[qapi(name = "normal-bytes")]
+    pub normal_bytes: i64,
+    /// The number of bytes per page for the various page-based
+    /// statistics (since 2.10)
+    #[qapi(name = "page-size")]
+    pub page_size: i64,
+    /// the number of memory pages transferred per second
+    /// (Since 4.0)
+    #[qapi(name = "pages-per-second")]
+    pub pages_per_second: u64,
+    /// The number of bytes sent during the post-copy phase
+    /// (since 7.0).
+    #[qapi(name = "postcopy-bytes")]
+    pub postcopy_bytes: u64,
+    /// The number of page requests received from the
+    /// destination (since 2.7)
+    #[qapi(name = "postcopy-requests")]
+    pub postcopy_requests: i64,
+    /// The number of bytes sent in the pre-copy phase
+    /// (since 7.0).
+    #[qapi(name = "precopy-bytes")]
+    pub precopy_bytes: u64,
+    /// amount of bytes remaining to be transferred to the
+    /// target VM
+    pub remaining: i64,
+    /// total amount of bytes involved in the migration process
+    pub total: i64,
+    /// amount of bytes already transferred to the target VM
+    pub transferred: i64,
+}
+
+/// Detailed migration status.
+///
 #[qapi(added = "1.0.0")]
+#[qapi(removed = "11.1.0")]
 pub struct MigrationStats {
     /// number of pages dirtied by second by the guest
     /// (since 1.3)
@@ -10967,9 +11483,14 @@ pub enum MigrationStatus {
     #[qapi(name = "device")]
     #[qapi(added = "2.11.0")]
     Device,
-    /// some error occurred during migration process.
+    /// error occurred during migration, clean-up done.
     #[qapi(name = "failed")]
     Failed,
+    /// error occurred during migration, clean-up underway.
+    /// (since 11.0)
+    #[qapi(name = "failing")]
+    #[qapi(added = "11.0.0")]
+    Failing,
     /// no migration has ever happened.
     #[qapi(name = "none")]
     None,
@@ -11017,6 +11538,7 @@ pub enum MigrationStatus {
 /// Information about migrationthreads
 ///
 #[qapi(added = "8.0.0")]
+#[qapi(removed = "11.0.0")]
 pub struct MigrationThreadInfo {
     /// the name of migration thread
     pub name: String,
@@ -11066,6 +11588,18 @@ pub enum MirrorSyncMode {
     Top,
 }
 
+/// Properties for the HMP monitor
+///
+#[qapi(name = "MonitorHMPProperties")]
+#[qapi(added = "11.1.0")]
+pub struct MonitorHmpProperties {
+    /// ID of the character device providing the monitor transport
+    pub chardev: String,
+    /// whether to enable readline for line editing
+    /// (default: true)
+    pub readline: Option<bool>,
+}
+
 /// An enumeration of monitor modes.
 ///
 #[qapi(added = "5.0.0")]
@@ -11090,6 +11624,43 @@ pub struct MonitorOptions {
     /// emulator, control in qemu-storage-daemon)
     pub mode: Option<MonitorMode>,
     /// Enables pretty printing (QMP only)
+    pub pretty: Option<bool>,
+}
+
+/// Properties for all monitors
+///
+#[qapi(added = "11.1.0")]
+pub struct MonitorProperties {
+    /// ID of the character device providing the monitor transport
+    pub chardev: String,
+}
+
+/// Action to take when the character device backend is closed.
+///
+#[qapi(name = "MonitorQMPCloseAction")]
+#[qapi(added = "11.1.0")]
+pub enum MonitorQmpCloseAction {
+    /// delete both the 'monitor-qmp' object and its associated
+    /// character device backend object
+    #[qapi(name = "delete")]
+    Delete,
+    /// take no action
+    #[qapi(name = "none")]
+    None,
+}
+
+/// Properties for the QMP monitor
+///
+#[qapi(name = "MonitorQMPProperties")]
+#[qapi(added = "11.1.0")]
+pub struct MonitorQmpProperties {
+    /// ID of the character device providing the monitor transport
+    pub chardev: String,
+    /// action to take when the character device backend is
+    /// closed (default: none)
+    #[qapi(name = "close-action")]
+    pub close_action: Option<MonitorQmpCloseAction>,
+    /// whether to pretty print JSON responses (default: false)
     pub pretty: Option<bool>,
 }
 
@@ -11487,7 +12058,7 @@ pub enum NetdevBranch {
     #[qapi(name = "passt")]
     #[qapi(condition = "CONFIG_PASST")]
     #[qapi(added = "10.1.0")]
-    Passt(NetDevPasstOptions),
+    Passt(NetdevPasstOptions),
     #[qapi(name = "socket")]
     Socket(NetdevSocketOptions),
     #[qapi(name = "stream")]
@@ -11646,6 +12217,7 @@ pub struct NetdevNoneOptions {}
 ///
 #[qapi(condition = "CONFIG_PASST")]
 #[qapi(added = "10.1.0")]
+#[qapi(removed = "11.1.0")]
 pub struct NetDevPasstOptions {
     /// IPv4 or IPv6 address
     pub address: Option<String>,
@@ -11725,6 +12297,94 @@ pub struct NetDevPasstOptions {
     /// UDP ports to forward
     #[qapi(name = "udp-ports")]
     pub udp_ports: Option<Vec<QapiString>>,
+    /// enable vhost-user
+    #[qapi(name = "vhost-user")]
+    pub vhost_user: Option<bool>,
+}
+
+/// Unprivileged user-mode network connectivity using passt
+///
+#[qapi(condition = "CONFIG_PASST")]
+#[qapi(added = "11.1.0")]
+pub struct NetdevPasstOptions {
+    /// IPv4 or IPv6 address
+    pub address: Option<String>,
+    /// enable/disable DHCP
+    pub dhcp: Option<bool>,
+    /// enable/disable DNS list in DHCP/DHCPv6/NDP
+    #[qapi(name = "dhcp-dns")]
+    pub dhcp_dns: Option<bool>,
+    /// enable/disable list in DHCP/DHCPv6/NDP
+    #[qapi(name = "dhcp-search")]
+    pub dhcp_search: Option<bool>,
+    /// enable/disable DHCPv6
+    pub dhcpv6: Option<bool>,
+    /// IPv4 or IPv6 address as DNS
+    pub dns: Option<String>,
+    /// forward DNS queries sent to
+    #[qapi(name = "dns-forward")]
+    pub dns_forward: Option<String>,
+    /// host nameserver to direct queries to
+    #[qapi(name = "dns-host")]
+    pub dns_host: Option<String>,
+    /// FQDN to configure client with
+    pub fqdn: Option<String>,
+    /// bind to any address for forwarding
+    pub freebind: Option<bool>,
+    /// IPv4 or IPv6 address as gateway
+    pub gateway: Option<String>,
+    /// enable/disable ICMP
+    pub icmp: Option<bool>,
+    /// interface for addresses and routes
+    pub interface: Option<String>,
+    /// enable/disable IPv4
+    pub ipv4: Option<bool>,
+    /// enable/disable IPv6
+    pub ipv6: Option<bool>,
+    /// source MAC address
+    pub mac: Option<String>,
+    /// addr to translate to guest's address
+    #[qapi(name = "map-guest-addr")]
+    pub map_guest_addr: Option<String>,
+    /// addresse to refer to host
+    #[qapi(name = "map-host-loopback")]
+    pub map_host_loopback: Option<String>,
+    /// assign MTU via DHCP/NDP
+    pub mtu: Option<i64>,
+    /// enable/disable NDP
+    pub ndp: Option<bool>,
+    /// IPv4 mask
+    pub netmask: Option<String>,
+    /// bind to address as outbound source
+    pub outbound: Option<String>,
+    /// bind to outbound interface for IPv4
+    #[qapi(name = "outbound-if4")]
+    pub outbound_if4: Option<String>,
+    /// bind to outbound interface for IPv6
+    #[qapi(name = "outbound-if6")]
+    pub outbound_if6: Option<String>,
+    /// parameter to pass to passt command
+    pub param: Option<Vec<PasstParameter>>,
+    /// Filename of the passt program to run (by default 'passt', and
+    /// use PATH)
+    pub path: Option<String>,
+    /// don't print informational messages (default, passed as
+    /// '--quiet')
+    pub quiet: Option<bool>,
+    /// enable/disable route advertisements
+    pub ra: Option<bool>,
+    /// search domains
+    pub search: Option<Vec<PasstSearch>>,
+    /// enable/disable TCP
+    pub tcp: Option<bool>,
+    /// TCP ports to forward
+    #[qapi(name = "tcp-ports")]
+    pub tcp_ports: Option<Vec<PasstPortForward>>,
+    /// enable/disable UDP
+    pub udp: Option<bool>,
+    /// UDP ports to forward
+    #[qapi(name = "udp-ports")]
+    pub udp_ports: Option<Vec<PasstPortForward>>,
     /// enable vhost-user
     #[qapi(name = "vhost-user")]
     pub vhost_user: Option<bool>,
@@ -11824,6 +12484,23 @@ pub struct NetdevTapOptions {
     pub vnet_hdr: Option<bool>,
 }
 
+#[qapi(added = "11.1.0")]
+pub struct NetdevUserDomainSuffix {
+    /// DNS domain name suffix for host name lookup, similar to
+    /// resolv.conf(5)
+    pub str: String,
+}
+
+#[qapi(added = "11.1.0")]
+pub struct NetdevUserGuestForward {
+    pub str: String,
+}
+
+#[qapi(added = "11.1.0")]
+pub struct NetdevUserHostForward {
+    pub str: String,
+}
+
 /// Use the user mode network stack which requires no administrator
 /// privilege to run.
 ///
@@ -11839,18 +12516,18 @@ pub struct NetdevUserOptions {
     /// list of DNS suffixes to search, passed as DHCP option to
     /// the guest
     #[qapi(added = "1.3.0")]
-    pub dnssearch: Option<Vec<QapiString>>,
+    pub dnssearch: Option<Vec<NetdevUserDomainSuffix>>,
     /// guest-visible domain name of the virtual nameserver
     /// (since 3.0)
     #[qapi(added = "3.0.0")]
     pub domainname: Option<String>,
     /// forward guest TCP connections
-    pub guestfwd: Option<Vec<QapiString>>,
+    pub guestfwd: Option<Vec<NetdevUserGuestForward>>,
     /// guest-visible address of the host
     pub host: Option<String>,
     /// redirect incoming TCP, UDP or UNIX host connections to
     /// guest endpoints
-    pub hostfwd: Option<Vec<QapiString>>,
+    pub hostfwd: Option<Vec<NetdevUserHostForward>>,
     /// client hostname reported by the builtin DHCP server
     pub hostname: Option<String>,
     /// legacy parameter, use net= instead
@@ -12476,6 +13153,39 @@ pub enum NumaOptionsType {
     Node,
 }
 
+/// SMMUv3 Output Address Size configuration mode.
+///
+#[qapi(added = "11.0.0")]
+pub enum OasMode {
+    /// 32-bit output address size
+    #[qapi(name = "32")]
+    _32,
+    /// 36-bit output address size
+    #[qapi(name = "36")]
+    _36,
+    /// 40-bit output address size
+    #[qapi(name = "40")]
+    _40,
+    /// 42-bit output address size
+    #[qapi(name = "42")]
+    _42,
+    /// 44-bit output address size
+    #[qapi(name = "44")]
+    _44,
+    /// 48-bit output address size
+    #[qapi(name = "48")]
+    _48,
+    /// 52-bit output address size
+    #[qapi(name = "52")]
+    _52,
+    /// 56-bit output address size
+    #[qapi(name = "56")]
+    _56,
+    /// derive from host IOMMU capabilities
+    #[qapi(name = "auto")]
+    Auto,
+}
+
 /// Describes the options of a user creatable QOM object.
 ///
 #[qapi(added = "6.0.0")]
@@ -12568,6 +13278,12 @@ pub enum ObjectOptionsBranch {
     #[qapi(condition = "CONFIG_POSIX")]
     #[qapi(added = "9.1.0")]
     MemoryBackendShm(MemoryBackendShmProperties),
+    #[qapi(name = "monitor-hmp")]
+    #[qapi(added = "11.1.0")]
+    MonitorHmp(MonitorHmpProperties),
+    #[qapi(name = "monitor-qmp")]
+    #[qapi(added = "11.1.0")]
+    MonitorQmp(MonitorQmpProperties),
     #[qapi(name = "pr-manager-helper")]
     #[qapi(condition = "CONFIG_LINUX")]
     PrManagerHelper(PrManagerHelperProperties),
@@ -12739,6 +13455,12 @@ pub enum ObjectType {
     #[qapi(condition = "CONFIG_POSIX")]
     #[qapi(added = "9.1.0")]
     MemoryBackendShm,
+    #[qapi(name = "monitor-hmp")]
+    #[qapi(added = "11.1.0")]
+    MonitorHmp,
+    #[qapi(name = "monitor-qmp")]
+    #[qapi(added = "11.1.0")]
+    MonitorQmp,
     #[qapi(name = "pef-guest")]
     PefGuest,
     #[qapi(name = "pr-manager-helper")]
@@ -12901,6 +13623,26 @@ pub enum PanicAction {
     /// action
     #[qapi(name = "shutdown")]
     Shutdown,
+}
+
+#[qapi(added = "11.1.0")]
+pub struct PasstParameter {
+    /// Additional arguments for the passt executable, see passt(1)
+    pub str: String,
+}
+
+#[qapi(added = "11.1.0")]
+pub struct PasstPortForward {
+    /// passt port forwarding specification, see passt(1) option
+    /// --tcp-ports and --udp-ports.
+    pub str: String,
+}
+
+#[qapi(added = "11.1.0")]
+pub struct PasstSearch {
+    /// DNS domain name suffix for host name lookup, or "none".  See
+    /// passt(1) option --search.
+    pub str: String,
 }
 
 /// PCDIMMDevice state information
@@ -13211,11 +13953,18 @@ pub enum QapiErrorClass {
 ///
 #[qapi(name = "String")]
 #[qapi(added = "1.2.0")]
+#[qapi(removed = "11.1.0")]
 pub struct QapiString {
     pub str: String,
 }
 
-/// An enumeration of the VFIO device migration states.
+/// An enumeration of the VFIO device migration states.  In addition to
+/// the regular states, there are prepare states (with 'prepare' suffix)
+/// which indicate that the device is just about to transition to the
+/// corresponding state.  Note that seeing a prepare state for state X
+/// doesn't guarantee that the next state will be X, as the state
+/// transition can fail and the device may transition to a different
+/// state instead.
 ///
 #[qapi(added = "9.2.0")]
 pub enum QapiVfioMigrationState {
@@ -13228,6 +13977,11 @@ pub enum QapiVfioMigrationState {
     /// for reading.
     #[qapi(name = "pre-copy-p2p")]
     PreCopyP2p,
+    /// The device is just about to move to
+    /// pre-copy-p2p state.  (since 11.0)
+    #[qapi(name = "pre-copy-p2p-prepare")]
+    #[qapi(added = "11.0.0")]
+    PreCopyP2pPrepare,
     /// The device is stopped and its internal state is available
     /// for writing.
     #[qapi(name = "resuming")]
@@ -15663,6 +16417,7 @@ pub struct SevCapability {
 
 /// Properties common to objects that are derivatives of sev-common.
 ///
+#[qapi(feature = "confidential-guest-reset")]
 #[qapi(added = "9.1.0")]
 pub struct SevCommonProperties {
     /// C-bit location in page table entry (default: 0)
@@ -16444,6 +17199,28 @@ pub struct SpiceServerInfo {
     pub port: String,
 }
 
+/// sp-mem device state information
+///
+#[qapi(added = "11.1.0")]
+pub struct SpMemDeviceInfo {
+    /// physical address, where device is mapped
+    pub addr: u64,
+    /// device's ID
+    pub id: Option<String>,
+    /// memory backend linked with device
+    pub memdev: String,
+    /// NUMA proximity domain to which the device is assigned
+    pub node: i64,
+    /// size of memory that the device provides, in bytes
+    pub size: u64,
+}
+
+#[qapi(added = "11.1.0")]
+pub struct SpMemDeviceInfoWrapper {
+    /// sp-mem device state information
+    pub data: SpMemDeviceInfo,
+}
+
 #[qapi(added = "2.12.0")]
 pub struct SshHostKeyCheck {
     /// How to check the host key
@@ -16505,6 +17282,59 @@ pub struct SshHostKeyHash {
     pub hash: String,
     /// The hash algorithm used for the hash
     pub r#type: SshHostKeyCheckHashType,
+}
+
+/// SMMUv3 SubstreamID size configuration mode.
+///
+#[qapi(added = "11.0.0")]
+pub enum SsidSizeMode {
+    #[qapi(name = "0")]
+    _0,
+    #[qapi(name = "1")]
+    _1,
+    #[qapi(name = "10")]
+    _10,
+    #[qapi(name = "11")]
+    _11,
+    #[qapi(name = "12")]
+    _12,
+    #[qapi(name = "13")]
+    _13,
+    #[qapi(name = "14")]
+    _14,
+    #[qapi(name = "15")]
+    _15,
+    #[qapi(name = "16")]
+    _16,
+    #[qapi(name = "17")]
+    _17,
+    #[qapi(name = "18")]
+    _18,
+    #[qapi(name = "19")]
+    _19,
+    #[qapi(name = "2")]
+    _2,
+    #[qapi(name = "20")]
+    _20,
+    #[qapi(name = "3")]
+    _3,
+    #[qapi(name = "4")]
+    _4,
+    #[qapi(name = "5")]
+    _5,
+    #[qapi(name = "6")]
+    _6,
+    #[qapi(name = "7")]
+    _7,
+    #[qapi(name = "8")]
+    _8,
+    #[qapi(name = "9")]
+    _9,
+    /// derive from host IOMMU capabilities
+    ///
+    /// Values 0-20: SSIDSIZE value in bits.  0 disables SubstreamID.
+    #[qapi(name = "auto")]
+    Auto,
 }
 
 #[qapi(added = "7.1.0")]
@@ -16677,7 +17507,7 @@ pub enum StatsValue {
     Boolean(bool),
     /// list of unsigned 64-bit integers (used for histograms).
     #[qapi(name = "list")]
-    List(u64),
+    List(Vec<u64>),
     /// single unsigned 64-bit integers.
     #[qapi(name = "scalar")]
     Scalar(u64),
@@ -16745,6 +17575,14 @@ pub enum SysEmuTarget {
     #[qapi(name = "cris")]
     #[qapi(removed = "9.2.0")]
     Cris,
+    /// since 11.0
+    ///
+    /// .. note:: The resulting QMP strings can be appended to the
+    /// "qemu-system-" prefix to produce the corresponding QEMU
+    /// executable name.  This is true even for "qemu-system-x86_64".
+    #[qapi(name = "hexagon")]
+    #[qapi(added = "11.0.0")]
+    Hexagon,
     #[qapi(name = "hppa")]
     Hppa,
     #[qapi(name = "i386")]
@@ -16753,10 +17591,6 @@ pub enum SysEmuTarget {
     #[qapi(removed = "6.1.0")]
     Lm32,
     /// since 7.1
-    ///
-    /// .. note:: The resulting QMP strings can be appended to the
-    /// "qemu-system-" prefix to produce the corresponding QEMU
-    /// executable name.  This is true even for "qemu-system-x86_64".
     #[qapi(name = "loongarch64")]
     #[qapi(added = "7.1.0")]
     Loongarch64,
@@ -16765,6 +17599,7 @@ pub enum SysEmuTarget {
     #[qapi(name = "microblaze")]
     Microblaze,
     #[qapi(name = "microblazeel")]
+    #[qapi(removed = "11.0.0")]
     Microblazeel,
     #[qapi(name = "mips")]
     Mips,
@@ -16894,6 +17729,7 @@ pub enum TargetType {
 
 /// Properties for tdx-guest objects.
 ///
+#[qapi(feature = "confidential-guest-reset")]
 #[qapi(added = "10.1.0")]
 pub struct TdxGuestProperties {
     /// The 'attributes' of a TD guest that is passed to
@@ -17523,7 +18359,7 @@ pub struct TransactionProperties {
     pub completion_mode: Option<ActionCompletionMode>,
 }
 
-/// UEFI Variable.  Check the UEFI specifification for more detailed
+/// UEFI Variable.  Check the UEFI specification for more detailed
 /// information on the fields.
 ///
 #[qapi(added = "10.0.0")]
@@ -17707,7 +18543,8 @@ pub struct VhostStatus {
     pub backend_cap: u64,
     /// vhost_dev backend_features
     #[qapi(name = "backend-features")]
-    pub backend_features: VirtioDeviceFeatures,
+    #[qapi(removed = "11.1.0")]
+    pub backend_features: Option<VirtioDeviceFeatures>,
     /// vhost_dev features
     pub features: VirtioDeviceFeatures,
     /// vhost_dev log_enabled flag
@@ -17771,13 +18608,18 @@ pub struct VirtioDeviceStatus {
     pub unknown_statuses: Option<u8>,
 }
 
-/// Describes configuration of a VirtIO GPU output.
-///
+/// Describes configuration of a VirtIO GPU output.  If both @xres and
 #[qapi(name = "VirtIOGPUOutput")]
 #[qapi(added = "10.1.0")]
 pub struct VirtIogpuOutput {
     /// the name of the output
     pub name: String,
+    /// horizontal resolution of the output in pixels (since 11.0)
+    #[qapi(added = "11.0.0")]
+    pub xres: Option<u16>,
+    /// vertical resolution of the output in pixels (since 11.0)
+    #[qapi(added = "11.0.0")]
+    pub yres: Option<u16>,
 }
 
 /// Basic information about a given VirtIODevice
@@ -18018,7 +18860,8 @@ pub struct VirtQueueStatus {
 #[qapi(added = "7.2.0")]
 pub struct VirtVhostQueueStatus {
     /// vhost_virtqueue avail
-    pub avail: u64,
+    #[qapi(removed = "11.1.0")]
+    pub avail: Option<u64>,
     /// vhost_virtqueue avail_phys (driver area physical
     /// address)
     #[qapi(name = "avail-phys")]
@@ -18029,7 +18872,8 @@ pub struct VirtVhostQueueStatus {
     /// vhost_virtqueue call
     pub call: i64,
     /// vhost_virtqueue desc
-    pub desc: u64,
+    #[qapi(removed = "11.1.0")]
+    pub desc: Option<u64>,
     /// vhost_virtqueue desc_phys (descriptor area physical
     /// address)
     #[qapi(name = "desc-phys")]
@@ -18044,7 +18888,8 @@ pub struct VirtVhostQueueStatus {
     /// vhost_virtqueue num
     pub num: i64,
     /// vhost_virtqueue used
-    pub used: u64,
+    #[qapi(removed = "11.1.0")]
+    pub used: Option<u64>,
     /// vhost_virtqueue used_phys (device area physical address)
     #[qapi(name = "used-phys")]
     pub used_phys: u64,

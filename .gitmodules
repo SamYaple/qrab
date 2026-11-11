@@ -1,6 +1,6 @@
 [submodule "vendor/qemu"]
 	path = vendor/qemu
-	url = /home/sam/repos/qemu
+	url = https://gitea.yapplesauce.com/mirrors/qemu.git
 [submodule "vendor/edk2"]
 	path = vendor/edk2
 	url = https://github.com/tianocore/edk2.git

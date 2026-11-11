@@ -57,6 +57,7 @@ pub struct GuestCpuStats {
     #[qapi(discriminator)]
     pub r#type: GuestCpuStatsType,
     #[qapi(union)]
+    #[qapi(flatten)]
     pub u: Option<GuestCpuStatsBranch>,
 }
 
@@ -86,6 +87,7 @@ pub struct GuestDeviceId {
     #[qapi(discriminator)]
     pub r#type: GuestDeviceType,
     #[qapi(union)]
+    #[qapi(flatten)]
     pub u: Option<GuestDeviceIdBranch>,
 }
 
@@ -267,6 +269,7 @@ pub struct GuestDiskSmart {
     #[qapi(discriminator)]
     pub r#type: GuestDiskBusType,
     #[qapi(union)]
+    #[qapi(flatten)]
     pub u: Option<GuestDiskSmartBranch>,
 }
 
@@ -343,6 +346,12 @@ pub struct GuestDiskStatsInfo {
     pub stats: GuestDiskStats,
 }
 
+#[qapi(added = "2.5.0")]
+pub struct GuestExec {
+    /// pid of child process in guest OS
+    pub pid: i64,
+}
+
 /// Controls what `guest-exec` output gets captures.
 ///
 #[qapi(added = "8.1.0")]
@@ -378,6 +387,59 @@ pub enum GuestExecCaptureOutputMode {
     /// only capture stdout
     #[qapi(name = "stdout")]
     Stdout,
+}
+
+#[qapi(added = "2.5.0")]
+pub struct GuestExecStatus {
+    /// base64-encoded stderr of the process.  Note: @out-data
+    /// and @err-data are present only if 'capture-output' was specified
+    /// for `guest-exec`.  This field will only be populated after the
+    /// process exits.
+    #[qapi(name = "err-data")]
+    pub err_data: Option<String>,
+    /// true if stderr was not fully captured due to size
+    /// limitation.
+    #[qapi(name = "err-truncated")]
+    pub err_truncated: Option<bool>,
+    /// process exit code if it was normally terminated.
+    pub exitcode: Option<i64>,
+    /// true if process has already terminated.
+    pub exited: bool,
+    /// base64-encoded stdout of the process.  This field will
+    /// only be populated after the process exits.
+    #[qapi(name = "out-data")]
+    pub out_data: Option<String>,
+    /// true if stdout was not fully captured due to size
+    /// limitation.
+    #[qapi(name = "out-truncated")]
+    pub out_truncated: Option<bool>,
+    /// signal number (linux) or unhandled exception code (windows)
+    /// if the process was abnormally terminated.
+    pub signal: Option<i64>,
+}
+
+/// Result of guest agent file-read operation
+///
+#[qapi(added = "1.4.0")]
+pub struct GuestFileRead {
+    /// base64-encoded bytes read
+    #[qapi(name = "buf-b64")]
+    pub buf_b64: String,
+    /// number of bytes read (note: count is *before*
+    /// base64-encoding is applied)
+    pub count: i64,
+    /// whether EOF was encountered during read operation.
+    pub eof: bool,
+}
+
+/// Result of guest agent file-seek operation
+///
+#[qapi(added = "1.4.0")]
+pub struct GuestFileSeek {
+    /// whether EOF was encountered during file seek
+    pub eof: bool,
+    /// current file position
+    pub position: i64,
 }
 
 #[qapi(condition = "(CONFIG_WIN32 || CONFIG_LINUX)")]
@@ -441,6 +503,30 @@ pub enum GuestFileWhence {
     /// guest's SEEK_* values (since: 0.15)
     #[qapi(name = "value")]
     Value(i64),
+}
+
+/// Result of guest agent file-write operation
+///
+#[qapi(added = "1.4.0")]
+pub struct GuestFileWrite {
+    /// number of bytes written (note: count is actual bytes
+    /// written, after base64-decoding of provided buffer)
+    pub count: i64,
+    /// whether EOF was encountered during write operation.
+    pub eof: bool,
+}
+
+/// An enumeration of filesystem freeze states
+///
+#[qapi(condition = "(CONFIG_WIN32 || CONFIG_FSFREEZE)")]
+#[qapi(added = "1.4.0")]
+pub enum GuestFsfreezeStatus {
+    /// all non-network guest filesystems frozen
+    #[qapi(name = "frozen")]
+    Frozen,
+    /// filesystems thawed/unfrozen
+    #[qapi(name = "thawed")]
+    Thawed,
 }
 
 #[qapi(added = "2.10.0")]
@@ -646,7 +732,8 @@ pub struct GuestNetworkInterfaceStat {
     pub tx_packets: u64,
 }
 
-/// Route information, currently, only linux supported.
+/// Route information.  Supported on Linux (since 9.1) and Windows
+/// (since 11.0).
 ///
 #[qapi(condition = "CONFIG_LINUX")]
 #[qapi(added = "9.1.0")]
@@ -852,3 +939,4 @@ pub enum QgaSeek {
 
 pub mod commands;
 pub mod events;
+pub mod metadata;

@@ -3,7 +3,8 @@
 Primary consumer-facing crate. Contains generated QMP/QGA types and runtime
 traits (`QapiCommand`, `QapiEvent`, `PreconfigSafe`).
 
-See [../../docs/qapi-crate.md](../../docs/qapi-crate.md) for type details and version gating.
+See [../../docs/codegen.md](../../docs/codegen.md) for generation and
+[../../docs/protocol.md](../../docs/protocol.md) for version contexts.
 
-**Key rule:** `generated.rs` and `qga.rs` are machine-generated outputs.
+**Key rule:** `src/generated/` and `src/qga/` are machine-generated outputs.
 Edit `qapi-codegen` to change them, never edit directly.
