@@ -9,7 +9,7 @@ use serde::Serialize;
 use std::{
     fs::OpenOptions,
     future::Future,
-    os::unix::fs::OpenOptionsExt,
+    os::unix::fs::{OpenOptionsExt, PermissionsExt},
     process::{ExitStatus, Stdio},
     time::Duration,
 };
@@ -86,6 +86,7 @@ pub async fn run_controlled(
         .map_err(|_| Error::Config("another manager owns this runtime directory".into()))?;
     let session = tempfile::Builder::new()
         .prefix("session-")
+        .permissions(std::fs::Permissions::from_mode(0o700))
         .tempdir_in(&config.runtime_dir)?;
     let socket = session.path().join("qmp.sock");
     let console = config.console.then(|| session.path().join("vnc.sock"));

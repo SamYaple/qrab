@@ -26,6 +26,9 @@ assert any(arguments[i:i+2]==['-nic','none'] for i in range(len(arguments))), 'g
 assert '-netdev' not in arguments, 'unexpected guest network backend'
 vnc=arguments[arguments.index('-vnc')+1]
 assert vnc.startswith('unix:/run/qrab/session-') and ',websocket' not in vnc, 'VNC is not private Unix-only'
+socket_dir=vnc.split(',',1)[0].removeprefix('unix:').rsplit('/',1)[0]
+mode=int(kubectl('exec',pod,'--','stat','-c','%a',socket_dir).strip(),8)
+assert mode & 0o777 == 0o700, 'another UID can traverse the QMP/VNC session directory'
 env={v['name']:v.get('value') for v in before['spec']['containers'][0]['env']}
 origin=env['BMC_PUBLIC_URL']
 class NoRedirect(urllib.request.HTTPRedirectHandler):

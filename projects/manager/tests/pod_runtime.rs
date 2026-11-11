@@ -185,6 +185,21 @@ async fn cancellation_reaps_child_and_concurrent_owners_are_refused() {
     })
     .await
     .unwrap();
+    let session = std::fs::read_dir(&config.runtime_dir)
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .find(|path| {
+            path.file_name()
+                .unwrap()
+                .to_string_lossy()
+                .starts_with("session-")
+        })
+        .unwrap();
+    assert_eq!(
+        std::fs::metadata(session).unwrap().permissions().mode() & 0o777,
+        0o700,
+        "another UID must not be able to traverse the QMP/VNC directory"
+    );
     let duplicate = pod::run(config.clone(), std::future::pending()).await;
     assert!(duplicate
         .unwrap_err()

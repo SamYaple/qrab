@@ -10,6 +10,8 @@ async fn main() -> Result<()> {
             tracing_subscriber::EnvFilter::try_from_default_env()
                 .unwrap_or_else(|_| "bmc=info,qrab_bmc=info".into()),
         )
+        .with_ansi(false)
+        .with_writer(std::io::stderr)
         .with_target(false)
         .init();
     let args: Vec<_> = std::env::args().skip(1).collect();
