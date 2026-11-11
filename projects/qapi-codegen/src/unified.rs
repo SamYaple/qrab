@@ -9,7 +9,7 @@ use crate::versions::{
     extract_schema_from_tag, find_extracted_qga_schema_entry, find_extracted_schema_entry,
     parse_version_tag,
 };
-use crate::{parse_schema, QapiSchemaToken};
+use crate::{QapiSchemaToken, parse_schema};
 use anyhow::{Context, Result};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::Path;
@@ -146,6 +146,17 @@ fn attrs_equivalent(a: &Attribute, b: &Attribute) -> bool {
 /// Merge command-specific attributes (command, returns, allow_oob, etc.) from
 /// a processed command struct onto an existing data struct.
 fn merge_command_attrs_onto(source: &Struct, target: &mut Struct) {
+    // The argument struct's QAPI name is not the command's wire name.
+    // Preserve the command spelling when the two share a Rust identifier.
+    target
+        .meta
+        .attributes
+        .retain(|attr| !matches!(attr, Attribute::Item { name, .. } if name == "name"));
+    target
+        .meta
+        .attributes
+        .push(Attribute::with_value("name", source.name.clone()));
+    merge_doc_from(&mut target.meta.doc, source.meta.doc.as_deref());
     for attr in &source.meta.attributes {
         match attr {
             Attribute::Unit(n)
@@ -259,8 +270,8 @@ fn process_version_schema(
             _ => None,
         };
 
-        let processed = process_command(v, &structs_lookup);
-        let cmd_key = rustify_name(&processed.name);
+        let mut processed = process_command(v, &structs_lookup);
+        let mut cmd_key = rustify_name(&processed.name);
 
         if let Some(ref ref_name) = data_ref_name {
             let ref_key = rustify_name(ref_name);
@@ -279,6 +290,27 @@ fn process_version_schema(
             // under its rustified key. The data struct stays under its key.
         }
 
+        // A command and its *response* can rustify to the same identifier
+        // (guest-file-read / GuestFileRead, guest-exec / GuestExec). Preserve
+        // the data type and give the request an explicit Command suffix.
+        // Otherwise Returns resolves to the request itself and decoding
+        // silently loses response fields or fails on missing arguments.
+        if structs_lookup.contains_key(&cmd_key) || enums_lookup.contains_key(&cmd_key) {
+            processed
+                .meta
+                .attributes
+                .retain(|attr| !matches!(attr, Attribute::Item { name, .. } if name == "name"));
+            processed
+                .meta
+                .attributes
+                .push(Attribute::with_value("name", processed.name.clone()));
+            processed.name = format!("{cmd_key}Command");
+            cmd_key = rustify_name(&processed.name);
+            anyhow::ensure!(
+                !structs_lookup.contains_key(&cmd_key),
+                "Conflicting command type: {cmd_key}"
+            );
+        }
         structs_lookup.insert(cmd_key, processed);
     }
 
@@ -293,6 +325,37 @@ struct VersionResult {
     schema_hash: u64,
     enums: HashMap<String, Enum>,
     structs: HashMap<String, Struct>,
+}
+
+/// Bound concurrent git processes and parser workers even on hosts with large
+/// CPU counts. Keep input order so errors and merges are reproducible.
+fn parse_versions<T: Send>(
+    tags: &[&str],
+    parse: impl Fn(&str) -> Result<T> + Sync,
+) -> Result<Vec<T>> {
+    let workers = std::thread::available_parallelism()
+        .map_or(1, |n| n.get())
+        .min(8);
+    let mut results = Vec::with_capacity(tags.len());
+    for batch in tags.chunks(workers) {
+        std::thread::scope(|scope| -> Result<()> {
+            let handles: Vec<_> = batch
+                .iter()
+                .map(|tag| {
+                    let parse = &parse;
+                    (*tag, scope.spawn(move || parse(tag)))
+                })
+                .collect();
+            for (tag, handle) in handles {
+                let result = handle
+                    .join()
+                    .map_err(|_| anyhow::anyhow!("Parser worker panicked for {tag}"))?;
+                results.push(result.with_context(|| format!("Failed to process {tag}"))?);
+            }
+            Ok(())
+        })?;
+    }
+    Ok(results)
 }
 
 /// Extract, parse, and process IR for a single version.
@@ -388,34 +451,13 @@ pub fn build_unified_registry(qemu_repo: &Path, version_tags: &[&str]) -> Result
         "Extracting and parsing {} versions in parallel...",
         version_tags.len()
     );
-    let results: Vec<Result<VersionResult>> = std::thread::scope(|scope| {
-        let handles: Vec<_> = version_tags
-            .iter()
-            .map(|tag| scope.spawn(move || process_single_version(qemu_repo, tag)))
-            .collect();
-
-        // Propagate worker panics as errors instead of silently unwrapping,
-        // which would abort the process and obscure which tag failed.
-        handles
-            .into_iter()
-            .map(|h| {
-                h.join().unwrap_or_else(|e| {
-                    Err(anyhow::anyhow!("worker thread panicked: {:?}", e))
-                })
-            })
-            .collect()
-    });
+    let mut version_results =
+        parse_versions(version_tags, |tag| process_single_version(qemu_repo, tag))?;
 
     eprintln!(
         "  Extraction + parsing: {:.1}s",
         start.elapsed().as_secs_f64()
     );
-
-    // Collect results, maintaining the original tag order
-    let mut version_results: Vec<VersionResult> = Vec::with_capacity(version_tags.len());
-    for result in results {
-        version_results.push(result?);
-    }
 
     // Sort by version to ensure deterministic merge order
     version_results.sort_by_key(|r| r.version);
@@ -753,11 +795,8 @@ fn merge_struct(registry: &mut UnifiedRegistry, name: &str, s: &Struct, version:
                 // specific directives (e.g. deprecated feature) survive.
                 // Doc falls through: newer version wins if it has one,
                 // otherwise the older doc is preserved.
-                if let Some(existing_field) = existing
-                    .ir
-                    .fields
-                    .iter_mut()
-                    .find(|f| f.name == field.name)
+                if let Some(existing_field) =
+                    existing.ir.fields.iter_mut().find(|f| f.name == field.name)
                 {
                     existing_field.r#type = field.r#type.clone();
                     existing_field.optional = field.optional;
@@ -988,7 +1027,10 @@ struct CodegenFlavor {
 /// QGA (`generate_qga_code`). Classifies each type, partitions into
 /// types/commands/events token streams, formats each as a Rust file, and
 /// returns the three-file output.
-fn emit_unified_output(registry: &UnifiedRegistry, flavor: &CodegenFlavor) -> GeneratedOutput {
+fn emit_unified_output(
+    registry: &UnifiedRegistry,
+    flavor: &CodegenFlavor,
+) -> Result<GeneratedOutput> {
     use std::time::Instant;
     let codegen_start = Instant::now();
 
@@ -1094,13 +1136,14 @@ fn emit_unified_output(registry: &UnifiedRegistry, flavor: &CodegenFlavor) -> Ge
             TypeCategory::Event => (&mut events_tokens, &mut seen_event_names),
         };
 
-        if seen.contains(&rust_name) {
-            eprintln!(
-                "WARNING: {}skipping duplicate Rust name '{}' (QAPI name: '{}', category: {:?})",
-                flavor.label, rust_name, name, category
-            );
-            continue;
-        }
+        anyhow::ensure!(
+            !seen.contains(&rust_name),
+            "{}duplicate Rust name '{}' (QAPI name: '{}', category: {:?})",
+            flavor.label,
+            rust_name,
+            name,
+            category
+        );
         seen.insert(rust_name);
 
         let code = match ut {
@@ -1128,13 +1171,13 @@ fn emit_unified_output(registry: &UnifiedRegistry, flavor: &CodegenFlavor) -> Ge
         pub mod events;
         pub mod metadata;
     };
-    let types_file = format_rust_file(mod_tokens, "");
+    let types_file = format_rust_file(mod_tokens, "")?;
 
     // commands.rs: command types with super::* import
-    let commands_file = format_rust_file(commands_tokens, "use super::*;\n");
+    let commands_file = format_rust_file(commands_tokens, "use super::*;\n")?;
 
     // events.rs: event types with super::* import
-    let events_file = format_rust_file(events_tokens, "use super::*;\n");
+    let events_file = format_rust_file(events_tokens, "use super::*;\n")?;
 
     if flavor.verbose_timing {
         eprintln!("  Formatting: {:.1}s", fmt_start.elapsed().as_secs_f64());
@@ -1152,23 +1195,23 @@ fn emit_unified_output(registry: &UnifiedRegistry, flavor: &CodegenFlavor) -> Ge
 
     let metadata_file = crate::metadata_emit::emit(registry);
 
-    GeneratedOutput {
+    Ok(GeneratedOutput {
         types: types_file,
         commands: commands_file,
         events: events_file,
         metadata: metadata_file,
-    }
+    })
 }
 
 pub fn generate_unified_code(qemu_repo: &Path, version_tags: &[&str]) -> Result<GeneratedOutput> {
     let registry = build_unified_registry(qemu_repo, version_tags)?;
-    Ok(emit_unified_output(
+    emit_unified_output(
         &registry,
         &CodegenFlavor {
             label: "",
             verbose_timing: true,
         },
-    ))
+    )
 }
 
 /// The four files produced by code generation.
@@ -1215,7 +1258,7 @@ impl GeneratedOutput {
 }
 
 /// Format a token stream as a complete Rust file with the standard header.
-fn format_rust_file(tokens: proc_macro2::TokenStream, extra_imports: &str) -> String {
+fn format_rust_file(tokens: proc_macro2::TokenStream, extra_imports: &str) -> Result<String> {
     let mut output = String::new();
     output.push_str("#![allow(unused_imports, non_camel_case_types, dead_code)]\n");
     output.push_str("use crate as qapi;\n");
@@ -1227,13 +1270,8 @@ fn format_rust_file(tokens: proc_macro2::TokenStream, extra_imports: &str) -> St
     output.push('\n');
 
     let combined = format!("{}{}", output, tokens);
-    match syn::parse_file(&combined) {
-        Ok(syntree) => separate_items(&prettyplease::unparse(&syntree)),
-        Err(e) => {
-            eprintln!("WARNING: Failed to parse output: {}", e);
-            combined
-        }
-    }
+    let syntax = syn::parse_file(&combined).context("Generated invalid Rust")?;
+    Ok(separate_items(&prettyplease::unparse(&syntax)))
 }
 
 /// Insert a blank line between top-level items for readability.
@@ -1368,7 +1406,9 @@ fn generate_unified_struct(
         {
             inner.push(Attribute::with_value("removed", version_str(until)));
         }
-        ir.meta.attributes.push(Attribute::nested("unstable", inner));
+        ir.meta
+            .attributes
+            .push(Attribute::nested("unstable", inner));
         // Remove redundant feature = "unstable" since unstable(added=...) covers it
         ir.meta.attributes.retain(|a| {
             !matches!(a,
@@ -1466,50 +1506,22 @@ pub fn build_qga_registry(qemu_repo: &Path, version_tags: &[&str]) -> Result<Uni
         "Extracting and parsing QGA schemas from {} versions...",
         version_tags.len()
     );
-    let results: Vec<Result<Option<VersionResult>>> = std::thread::scope(|scope| {
-        let handles: Vec<_> = version_tags
-            .iter()
-            .map(|tag| scope.spawn(move || process_single_version_qga(qemu_repo, tag)))
-            .collect();
-        // Propagate worker panics as errors instead of silently unwrapping,
-        // which would abort the process and obscure which tag failed.
-        handles
-            .into_iter()
-            .map(|h| {
-                h.join().unwrap_or_else(|e| {
-                    Err(anyhow::anyhow!("worker thread panicked: {:?}", e))
-                })
-            })
-            .collect()
-    });
+    let results = parse_versions(version_tags, |tag| {
+        process_single_version_qga(qemu_repo, tag)
+    })?;
 
     eprintln!(
         "  QGA extraction + parsing: {:.1}s",
         start.elapsed().as_secs_f64()
     );
 
-    let mut version_results: Vec<VersionResult> = Vec::new();
-    let mut parse_failures = 0;
-    for result in results {
-        match result {
-            Ok(Some(vr)) => version_results.push(vr),
-            Ok(None) => {} // No QGA schema in this version
-            Err(e) => {
-                parse_failures += 1;
-                if parse_failures <= 3 {
-                    eprintln!("  QGA parse error (skipping): {:#}", e);
-                }
-            }
-        }
-    }
-    if parse_failures > 3 {
-        eprintln!("  ... and {} more QGA parse errors", parse_failures - 3);
-    }
+    let absent = results.iter().filter(|r| r.is_none()).count();
+    let mut version_results: Vec<VersionResult> = results.into_iter().flatten().collect();
     version_results.sort_by_key(|r| r.version);
     eprintln!(
-        "  QGA: {} versions parsed, {} skipped (no schema or parse error)",
+        "  QGA: {} versions parsed, {} without a guest-agent schema",
         version_results.len(),
-        parse_failures
+        absent
     );
 
     let merge_start = Instant::now();
@@ -1563,11 +1575,11 @@ pub fn build_qga_registry(qemu_repo: &Path, version_tags: &[&str]) -> Result<Uni
 /// Generate unified QGA code from the registry.
 pub fn generate_qga_code(qemu_repo: &Path, version_tags: &[&str]) -> Result<GeneratedOutput> {
     let registry = build_qga_registry(qemu_repo, version_tags)?;
-    Ok(emit_unified_output(
+    emit_unified_output(
         &registry,
         &CodegenFlavor {
             label: "QGA ",
             verbose_timing: false,
         },
-    ))
+    )
 }

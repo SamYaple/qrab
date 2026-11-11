@@ -6,7 +6,7 @@ use qapi_codegen::versions::{
     discover_version_tags, extract_schema_from_tag, find_extracted_schema_entry, find_schema_entry,
     parse_version_tag,
 };
-use qapi_codegen::{parse_schema, read_schema_with_version, QapiSchemaToken};
+use qapi_codegen::{QapiSchemaToken, parse_schema, read_schema_with_version};
 
 /// Shorthand for looking up a type in the unified registry. Registry keys are
 /// always the rustified form, so callers that know the raw QAPI name go
@@ -36,7 +36,7 @@ fn qemu_root() -> &'static Path {
 fn representative_tags() -> Vec<String> {
     vec![
         "v1.0", "v1.1.0", "v1.7.0", "v2.0.0", "v2.1.0", "v2.5.0", "v2.8.0", "v2.12.0", "v3.0.0",
-        "v5.0.0", "v7.0.0", "v9.0.0", "v10.2.0",
+        "v5.0.0", "v7.0.0", "v9.0.0", "v10.2.0", "v11.0.0", "v11.1.3",
     ]
     .into_iter()
     .map(String::from)
@@ -135,7 +135,7 @@ fn test_parse_all_discovered_versions() {
         "v2.7.0", "v2.8.0", "v2.10.0", "v2.12.0", // era C/D: struct keyword, pragmas
         "v3.0.0", "v4.0.0", "v5.0.0", // era D: conditions, features
         "v6.0.0", "v7.0.0", "v8.0.0", // era E: modern format
-        "v9.0.0", "v10.2.0", // latest
+        "v9.0.0", "v10.2.0", "v11.0.0", "v11.1.3", // latest
     ]
     .into_iter()
     .map(String::from)
@@ -828,18 +828,21 @@ fn test_field_evolution_inline_to_boxed() {
             "netdev_add should not have a synthetic 'data' field after flatten-inlining",
         );
 
-        // No synthetic-ref flatten field should exist. The only flatten allowed
-        // is the `HashMap` catch-all left over from pre-5.0 `gen: false`
-        // behavior, which is a distinct mechanism from data-ref inlining.
-        let bad_flatten = us.ir.fields.iter().any(|f| {
-            let is_flatten = f.meta.attributes.iter().any(
-                |a| matches!(a, qapi_codegen::qapi_ir::Attribute::Unit(n) if n == "flatten"),
-            );
-            is_flatten && !f.r#type.starts_with("HashMap<")
-        });
+        // Data refs are inlined, but the flat-union branch and the legacy
+        // gen:false argument map still need flatten semantics.
+        let bad_flatten =
+            us.ir.fields.iter().any(|f| {
+                let is_flatten = f.meta.attributes.iter().any(
+                    |a| matches!(a, qapi_codegen::qapi_ir::Attribute::Unit(n) if n == "flatten"),
+                );
+                let is_union = f.meta.attributes.iter().any(
+                    |a| matches!(a, qapi_codegen::qapi_ir::Attribute::Unit(n) if n == "union"),
+                );
+                is_flatten && !is_union && !f.r#type.starts_with("HashMap<")
+            });
         assert!(
             !bad_flatten,
-            "netdev_add should not carry any non-HashMap #[qapi(flatten)] fields after inlining",
+            "netdev_add should flatten only its union branch and legacy argument map",
         );
 
         // Netdev's discriminator field `type` should now appear directly on netdev_add.
@@ -1016,16 +1019,30 @@ fn test_all_latest_commands_in_registry() {
         for token in schema.iter() {
             if let QapiSchemaToken::Command(cmd) = token {
                 let cmd_name = cmd.name;
-                // Registry is keyed by rustified name. Either the command
-                // name itself or its data ref (if they rustify to the same
-                // thing, they're the same entry) must resolve.
-                let data_ref = match &cmd.data {
-                    Some(qapi_codegen::MembersOrRef::Ref(name)) => Some(name.to_string()),
-                    _ => None,
-                };
-
-                let found = has_key(&registry, cmd_name)
-                    || data_ref.as_ref().map_or(false, |r| has_key(&registry, r));
+                // Existence of a similarly named data type is insufficient:
+                // the generated command must preserve its exact wire name.
+                let found = registry.types.values().any(|ty| {
+                    let qapi_codegen::unified::UnifiedType::Struct(s) = ty else {
+                        return false;
+                    };
+                    let attrs = &s.ir.meta.attributes;
+                    let is_command = attrs.iter().any(|a| {
+                        matches!(a,
+                        qapi_codegen::qapi_ir::Attribute::Unit(name) if name == "command")
+                    });
+                    let wire_name = attrs
+                        .iter()
+                        .find_map(|a| match a {
+                            qapi_codegen::qapi_ir::Attribute::Item { name, value }
+                                if name == "name" =>
+                            {
+                                Some(value.as_str())
+                            }
+                            _ => None,
+                        })
+                        .unwrap_or(&s.ir.name);
+                    is_command && wire_name == cmd_name
+                });
 
                 if !found {
                     missing.push(cmd_name.to_string());
@@ -1341,21 +1358,32 @@ fn test_generated_code_inlines_boxed_command_data() {
         ba_body,
     );
 
-    // The only remaining `#[qapi(flatten)]` occurrences should be catch-all
-    // HashMap `arguments` fields on `gen: false` commands.
-    for line in code.lines().enumerate().collect::<Vec<_>>().windows(6) {
-        if line[0].1.trim() == "#[qapi(flatten)]" {
-            // Look ahead for the field type on the next few lines.
-            let ahead: String = line[1..]
-                .iter()
-                .map(|(_, l)| l.trim_start())
-                .collect::<Vec<_>>()
-                .join(" ");
-            assert!(
-                ahead.contains("HashMap") && ahead.contains("arguments"),
-                "Unexpected #[qapi(flatten)] usage -- only HashMap `arguments` catch-alls should remain.\nContext: {}",
-                ahead,
-            );
+    // Flat unions keep their branch fields at the same JSON object level.
+    // Reject synthetic data-ref wrappers while allowing these branches and
+    // the gen:false catch-all argument maps.
+    let parsed = syn::parse_file(&code).unwrap();
+    for item in parsed.items {
+        let syn::Item::Struct(item) = item else {
+            continue;
+        };
+        for field in item.fields {
+            let marker = |name: &str| {
+                field.attrs.iter().any(|attr| {
+                    attr.path().is_ident("qapi")
+                        && matches!(&attr.meta,
+                    syn::Meta::List(list) if list.tokens.to_string() == name)
+                })
+            };
+            if marker("flatten") {
+                let argument_map = field.ident.as_ref().is_some_and(|i| i == "arguments")
+                    && matches!(&field.ty, syn::Type::Path(p) if p.path.segments.last().is_some_and(|s| s.ident == "Option" || s.ident == "HashMap"));
+                assert!(
+                    marker("union") || argument_map,
+                    "Unexpected flatten field in {}: {:?}",
+                    item.ident,
+                    field.ident
+                );
+            }
         }
     }
 }
@@ -1415,7 +1443,10 @@ fn test_generated_code_valid_rust_with_fix() {
             struct_names.contains(&expected.to_string()),
             "Generated code should contain struct '{}' but it's missing.\nFound structs starting with same prefix: {:?}",
             expected,
-            struct_names.iter().filter(|s| s.starts_with(&expected[..4.min(expected.len())])).collect::<Vec<_>>(),
+            struct_names
+                .iter()
+                .filter(|s| s.starts_with(&expected[..4.min(expected.len())]))
+                .collect::<Vec<_>>(),
         );
     }
 }

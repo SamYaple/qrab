@@ -1,5 +1,3 @@
-mod common;
-
 use qapi_protocol::qga::Qga;
 use qapi_protocol::server::{QgaSession, QmpSession};
 use qapi_protocol::Qmp;
@@ -40,7 +38,7 @@ async fn mock_qmp_negotiate() {
     tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
     let (mut qmp, _events) = Qmp::new(std::path::Path::new(&sock)).await.unwrap();
-    assert_eq!(qapi::qemu_version(), (10, 2, 0));
+    assert_eq!(qmp.version(), (10, 2, 0));
 
     let status: qapi::StatusInfo = qmp.execute(&qapi::commands::QueryStatus {}).await.unwrap();
     assert!(status.running);
@@ -160,10 +158,12 @@ async fn mock_qga_sync_and_ping() {
     tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
     let mut qga = Qga::new(std::path::Path::new(&sock)).await.unwrap();
-    assert_eq!(qapi::qga_version(), (10, 2, 0));
+    assert_eq!(qga.version(), (10, 2, 0));
 
     // Execute guest-ping
-    qga.execute(&qapi::qga::commands::GuestPing {}).await.unwrap();
+    qga.execute(&qapi::qga::commands::GuestPing {})
+        .await
+        .unwrap();
 
     server.await.unwrap();
     let _ = std::fs::remove_file(&sock);

@@ -505,9 +505,10 @@ pub struct BlockExportAdd {
     /// types)
     pub id: String,
     /// is given, export creation fails if the block node
-    /// cannot be moved to the iothread.  The default is false.
+    /// cannot be moved to the iothread.  Must not be true when giving
+    /// multiple iothreads for @iothread.  The default is false.
     /// (since: 5.2)
-    pub iothread: Option<String>,
+    pub iothread: Option<BlockExportIothreads>,
     /// The node name of the block node to be exported
     /// (since: 5.2)
     #[qapi(name = "node-name")]
@@ -1093,9 +1094,9 @@ pub struct CxlInjectCorrectableError {
     pub r#type: CxlCorErrorType,
 }
 
-/// Inject an event record for a DRAM Event (CXL r3.0 8.2.9.2.1.2).
-/// This event type is reported via one of the event logs specified via
-/// the log parameter.
+/// Inject an event record for a DRAM Event (CXL r3.2 8.2.10.2.1.2).
+/// This event type is reported via one of the event logs
+/// specified via the log parameter.
 ///
 #[qapi(command)]
 #[qapi(name = "cxl-inject-dram-event")]
@@ -1112,25 +1113,63 @@ pub struct CxlInjectDramEvent {
     /// The channel of the memory event location.  A channel is an
     /// interface that can be independently accessed for a transaction.
     pub channel: Option<u8>,
+    /// Advanced programmable corrected memory error
+    /// threshold event flags.
+    #[qapi(name = "cme-ev-flags")]
+    #[qapi(added = "11.0.0")]
+    pub cme_ev_flags: Option<u8>,
     /// Column address within the DRAM.
     pub column: Option<u16>,
+    /// Device specific component identifier for the event.
+    /// May describe a field replaceable sub-component of the device.
+    #[qapi(name = "component-id")]
+    #[qapi(added = "11.0.0")]
+    pub component_id: Option<String>,
     /// Bits within each nibble.  Used in order of bits
     /// set in the nibble-mask.  Up to 4 nibbles may be covered.
     #[qapi(name = "correction-mask")]
     pub correction_mask: Option<Vec<u64>>,
+    /// Corrected volatile memory error count at event.
+    #[qapi(name = "cvme-count")]
+    #[qapi(added = "11.0.0")]
+    pub cvme_count: Option<u32>,
     /// Memory Event Descriptor with additional memory event
-    /// information.  See CXL r3.0 Table 8-44 DRAM Event Record, Memory
+    /// information.  See CXL r3.2 Table 8-58 DRAM Event Record, Memory
     /// Event Descriptor for bit definitions.
     pub descriptor: u8,
     /// Device Physical Address (relative to @path device).  Note
-    /// lower bits include some flags.  See CXL r3.0 Table 8-44 DRAM
+    /// lower bits include some flags.  See CXL r3.2 Table 8-58 DRAM
     /// Event Record, Physical Address.
     pub dpa: u64,
-    /// Event Record Flags.  See CXL r3.0 Table 8-42 Common Event
+    /// Event Record Flags.  See CXL r3.2 Table 8-55 Common Event
     /// Record Format, Event Record Flags for subfield definitions.
-    pub flags: u8,
-    /// Event log to add the event to
+    pub flags: u32,
+    /// ID of the device head from where the event originated.
+    #[qapi(name = "head-id")]
+    #[qapi(added = "11.0.0")]
+    pub head_id: Option<u8>,
+    /// This flag specifies whether the device-specific
+    /// component identifier format follows PLDM.
+    #[qapi(name = "is-comp-id-pldm")]
+    #[qapi(added = "11.0.0")]
+    pub is_comp_id_pldm: Option<bool>,
+    /// Logical Device (LD) ID of LD from where the event
+    /// originated.
+    #[qapi(name = "ld-id")]
+    #[qapi(added = "11.0.0")]
+    pub ld_id: Option<u16>,
+    /// event log to add the event to
     pub log: CxlEventLog,
+    /// Maintenance operation class the device requests to
+    /// initiate.
+    #[qapi(name = "maint-op-class")]
+    #[qapi(added = "11.0.0")]
+    pub maint_op_class: Option<u8>,
+    /// Maintenance operation subclass the device
+    /// requests to initiate.
+    #[qapi(name = "maint-op-subclass")]
+    #[qapi(added = "11.0.0")]
+    pub maint_op_subclass: Option<u8>,
     /// Identifies one or more nibbles that the error affects
     #[qapi(name = "nibble-mask")]
     pub nibble_mask: Option<u32>,
@@ -1141,19 +1180,27 @@ pub struct CxlInjectDramEvent {
     pub rank: Option<u8>,
     /// Row address within the DRAM.
     pub row: Option<u32>,
+    /// The sub-channel of the memory event location.
+    #[qapi(name = "sub-channel")]
+    #[qapi(added = "11.0.0")]
+    pub sub_channel: Option<u8>,
+    /// Memory event sub-type.
+    #[qapi(name = "sub-type")]
+    #[qapi(added = "11.0.0")]
+    pub sub_type: Option<u8>,
     /// Type of first transaction that caused the event
-    /// to occur.  See CXL r3.0 Table 8-44 DRAM Event Record,
+    /// to occur.  See CXL r3.2 Table 8-58 DRAM Event Record,
     /// Transaction Type for possible values.
     #[qapi(name = "transaction-type")]
     pub transaction_type: u8,
-    /// Type of memory event that occurred.  See CXL r3.0 Table 8-44
+    /// Type of memory event that occurred.  See CXL r3.2 Table 8-58
     /// DRAM Event Record, Memory Event Type for possible values.
     pub r#type: u8,
 }
 
-/// Inject an event record for a General Media Event (CXL r3.0
-/// 8.2.9.2.1.1).  This event type is reported via one of the event logs
-/// specified via the log parameter.
+/// Inject an event record for a General Media Event (CXL r3.2
+/// 8.2.10.2.1.1).  This event type is reported via one of the event
+/// logs specified via the log parameter.
 ///
 #[qapi(command)]
 #[qapi(name = "cxl-inject-general-media-event")]
@@ -1163,42 +1210,83 @@ pub struct CxlInjectGeneralMediaEvent {
     /// The channel of the memory event location.  A channel is an
     /// interface that can be independently accessed for a transaction.
     pub channel: Option<u8>,
+    /// Corrected memory error count at event.
+    #[qapi(name = "cme-count")]
+    #[qapi(added = "11.0.0")]
+    pub cme_count: Option<u32>,
+    /// Advanced programmable corrected memory error
+    /// threshold event flags.
+    #[qapi(name = "cme-ev-flags")]
+    #[qapi(added = "11.0.0")]
+    pub cme_ev_flags: Option<u8>,
     /// Device specific component identifier for the event.
     /// May describe a field replaceable sub-component of the device.
     #[qapi(name = "component-id")]
     pub component_id: Option<String>,
     /// Memory Event Descriptor with additional memory event
-    /// information.  See CXL r3.0 Table 8-43 General Media Event
+    /// information.  See CXL r3.2 Table 8-57 General Media Event
     /// Record, Memory Event Descriptor for bit definitions.
     pub descriptor: u8,
     /// Bitmask that represents all devices in the rank associated
     /// with the memory event location.
     pub device: Option<u32>,
     /// Device Physical Address (relative to @path device).  Note
-    /// lower bits include some flags.  See CXL r3.0 Table 8-43 General
+    /// lower bits include some flags.  See CXL r3.2 Table 8-57 General
     /// Media Event Record, Physical Address.
     pub dpa: u64,
-    /// Event Record Flags.  See CXL r3.0 Table 8-42 Common Event
+    /// Event Record Flags.  See CXL r3.2 Table 8-55 Common Event
     /// Record Format, Event Record Flags for subfield definitions.
-    pub flags: u8,
+    pub flags: u32,
+    /// ID of the device head from where the event originated.
+    #[qapi(name = "head-id")]
+    #[qapi(added = "11.0.0")]
+    pub head_id: Option<u8>,
+    /// This flag specifies whether the device-specific
+    /// component identifier format follows PLDM.
+    #[qapi(name = "is-comp-id-pldm")]
+    #[qapi(added = "11.0.0")]
+    pub is_comp_id_pldm: Option<bool>,
+    /// Logical Device (LD) ID of LD from where the event
+    /// originated.
+    #[qapi(name = "ld-id")]
+    #[qapi(added = "11.0.0")]
+    pub ld_id: Option<u16>,
     /// event log to add the event to
     pub log: CxlEventLog,
+    /// Maintenance operation class the device requests to
+    /// initiate.
+    #[qapi(name = "maint-op-class")]
+    #[qapi(added = "11.0.0")]
+    pub maint_op_class: Option<u8>,
+    /// Maintenance operation subclass the device
+    /// requests to initiate.
+    #[qapi(name = "maint-op-subclass")]
+    #[qapi(added = "11.0.0")]
+    pub maint_op_subclass: Option<u8>,
     /// CXL type 3 device canonical QOM path
     pub path: String,
     /// The rank of the memory event location.  A rank is a set of
     /// memory devices on a channel that together execute a transaction.
     pub rank: Option<u8>,
+    /// Memory event sub-type.
+    #[qapi(name = "sub-type")]
+    #[qapi(added = "11.0.0")]
+    pub sub_type: Option<u8>,
     /// Type of first transaction that caused the event
-    /// to occur.  See CXL r3.0 Table 8-43 General Media Event Record,
+    /// to occur.  See CXL r3-2 Table 8-57 General Media Event Record,
     /// Transaction Type for possible values.
     #[qapi(name = "transaction-type")]
     pub transaction_type: u8,
-    /// Type of memory event that occurred.  See CXL r3.0 Table 8-43
+    /// Type of memory event that occurred.  See CXL r3.2 Table 8-57
     /// General Media Event Record, Memory Event Type for possible
     /// values.
     pub r#type: u8,
 }
 
+/// Inject an event record for a Memory Module Event (CXL r3.2
+/// 8.2.10.2.1.3).  This event includes a copy of the Device Health info
+/// at the time of the event.
+///
 #[qapi(command)]
 #[qapi(name = "cxl-inject-memory-module-event")]
 #[qapi(returns = "()")]
@@ -1206,21 +1294,53 @@ pub struct CxlInjectGeneralMediaEvent {
 pub struct CxlInjectMemoryModuleEvent {
     #[qapi(name = "additional-status")]
     pub additional_status: u8,
+    #[qapi(name = "component-id")]
+    #[qapi(added = "11.0.0")]
+    pub component_id: Option<String>,
     #[qapi(name = "corrected-persistent-error-count")]
     pub corrected_persistent_error_count: u32,
     #[qapi(name = "corrected-volatile-error-count")]
     pub corrected_volatile_error_count: u32,
     #[qapi(name = "dirty-shutdown-count")]
     pub dirty_shutdown_count: u32,
-    pub flags: u8,
+    /// Event Record Flags.  See CXL r3.2 Table 8-55 Common Event
+    /// Record Format, Event Record Flags for subfield definitions.
+    pub flags: u32,
+    /// ID of the device head from where the event originated.
+    #[qapi(name = "head-id")]
+    #[qapi(added = "11.0.0")]
+    pub head_id: Option<u8>,
     #[qapi(name = "health-status")]
     pub health_status: u8,
+    #[qapi(name = "is-comp-id-pldm")]
+    #[qapi(added = "11.0.0")]
+    pub is_comp_id_pldm: Option<bool>,
+    /// Logical Device (LD) ID of LD from where the event
+    /// originated.
+    #[qapi(name = "ld-id")]
+    #[qapi(added = "11.0.0")]
+    pub ld_id: Option<u16>,
     #[qapi(name = "life-used")]
     pub life_used: u8,
+    /// event log to add the event to
     pub log: CxlEventLog,
+    /// Maintenance operation class the device requests to
+    /// initiate.
+    #[qapi(name = "maint-op-class")]
+    #[qapi(added = "11.0.0")]
+    pub maint_op_class: Option<u8>,
+    /// Maintenance operation subclass the device
+    /// requests to initiate.
+    #[qapi(name = "maint-op-subclass")]
+    #[qapi(added = "11.0.0")]
+    pub maint_op_subclass: Option<u8>,
     #[qapi(name = "media-status")]
     pub media_status: u8,
+    /// CXL type 3 device canonical QOM path
     pub path: String,
+    #[qapi(name = "sub-type")]
+    #[qapi(added = "11.0.0")]
+    pub sub_type: Option<u8>,
     pub temperature: i16,
     pub r#type: u8,
 }
@@ -1602,7 +1722,7 @@ pub struct JobCancel {
 /// the device to write to the target path only.  Note that drive
 /// mirroring includes `drive-mirror`, `blockdev-mirror` and
 /// `block-commit` job (only in case of "active commit", when the node
-/// being commited is used by the guest).  The ability to complete is
+/// being committed is used by the guest).  The ability to complete is
 /// signaled with a `BLOCK_JOB_READY` event.
 ///
 /// This command completes an active background block operation
@@ -1728,6 +1848,7 @@ pub struct Migrate {
     pub channels: Option<Vec<MigrationChannel>>,
     #[qapi(feature = "deprecated")]
     #[qapi(deprecated(added = "10.1.0"))]
+    #[qapi(removed = "11.0.0")]
     pub detach: Option<bool>,
     #[qapi(feature = "deprecated")]
     #[qapi(deprecated(added = "8.2.0"))]
@@ -1963,6 +2084,10 @@ pub struct MigrateSetParameters {
     #[qapi(added = "2.11.0")]
     #[qapi(removed = "4.0.0")]
     pub x_multifd_page_count: Option<i64>,
+    #[qapi(name = "x-rdma-chunk-size")]
+    #[qapi(feature = "unstable")]
+    #[qapi(added = "11.1.0")]
+    pub x_rdma_chunk_size: Option<u64>,
     #[qapi(name = "x-vcpu-dirty-limit-period")]
     #[qapi(feature = "unstable")]
     #[qapi(added = "8.1.0")]
@@ -2280,7 +2405,10 @@ pub struct QueryBalloon {}
 #[qapi(returns = "Vec<BlockInfo>")]
 #[qapi(added = "1.0.0")]
 #[qapi(allow_preconfig(added = "7.1.0"))]
-pub struct QueryBlock {}
+pub struct QueryBlock {
+    #[qapi(added = "11.0.0")]
+    pub flat: Option<bool>,
+}
 
 #[qapi(command)]
 #[qapi(name = "query-block-exports")]
@@ -2512,7 +2640,9 @@ pub struct QueryJobs {}
 #[qapi(command)]
 #[qapi(name = "query-kvm")]
 #[qapi(returns = "KvmInfo")]
+#[qapi(feature = "deprecated")]
 #[qapi(added = "1.0.0")]
+#[qapi(deprecated(added = "11.1.0"))]
 pub struct QueryKvm {}
 
 #[qapi(command)]
@@ -2596,6 +2726,7 @@ pub struct QueryMigrateParameters {}
 #[qapi(feature = "deprecated")]
 #[qapi(added = "8.0.0")]
 #[qapi(deprecated(added = "9.2.0"))]
+#[qapi(removed = "11.0.0")]
 pub struct QueryMigrationthreads {}
 
 #[qapi(command)]

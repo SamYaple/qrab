@@ -281,6 +281,7 @@ struct Outbound {
 /// semaphore entirely and are answered immediately by the monitor.
 #[derive(Debug)]
 pub struct Qmp {
+    version: (u32, u32, u32),
     command_tx: mpsc::Sender<Outbound>,
     in_flight: Arc<Mutex<HashMap<u64, PendingCmd>>>,
     queue_permits: Arc<Semaphore>,
@@ -320,17 +321,15 @@ impl Qmp {
         // living on a hung FUSE mount — would otherwise leave the
         // caller blocked indefinitely. 5s comfortably covers a healthy
         // local connect while still surfacing a dead peer quickly.
-        let stream = tokio::time::timeout(
-            Duration::from_secs(5),
-            UnixStream::connect(socket_path),
-        )
-        .await
-        .map_err(|_| Error::Timeout("QMP connect timed out after 5s".into()))??;
+        let stream = tokio::time::timeout(Duration::from_secs(5), UnixStream::connect(socket_path))
+            .await
+            .map_err(|_| Error::Timeout("QMP connect timed out after 5s".into()))??;
         let (read_half, write_half) = stream.into_split();
 
         let mut reader = BufReader::new(read_half);
         let mut write_half = write_half;
         let mut oob_supported = false;
+        let mut version = (0, 0, 0);
 
         // Bound the full greeting + qmp_capabilities handshake. All reads
         // below are otherwise unbounded — if QEMU accepts the connect(2)
@@ -341,11 +340,14 @@ impl Qmp {
             let greeting_line = match read_line_bounded(&mut reader).await? {
                 LineRead::Line(line) => line,
                 LineRead::Eof => {
-                    return Err(Error::Protocol("QMP peer closed before sending greeting".into()));
+                    return Err(Error::Protocol(
+                        "QMP peer closed before sending greeting".into(),
+                    ));
                 }
                 LineRead::TooLong => {
                     return Err(Error::Protocol(format!(
-                        "QMP greeting exceeded {} bytes", MAX_LINE_BYTES
+                        "QMP greeting exceeded {} bytes",
+                        MAX_LINE_BYTES
                     )));
                 }
             };
@@ -358,9 +360,18 @@ impl Qmp {
                 .ok_or_else(|| {
                     Error::Protocol(format!("QMP greeting missing QMP.version.qemu: {}", parsed))
                 })?;
-            let major = qemu["major"].as_u64().unwrap_or(0) as u32;
-            let minor = qemu["minor"].as_u64().unwrap_or(0) as u32;
-            let micro = qemu["micro"].as_u64().unwrap_or(0) as u32;
+            let component = |name: &str| -> Result<u32> {
+                qemu[name]
+                    .as_u64()
+                    .and_then(|v| u32::try_from(v).ok())
+                    .ok_or_else(|| {
+                        Error::Protocol(format!("Invalid QMP version component: {name}"))
+                    })
+            };
+            let major = component("major")?;
+            let minor = component("minor")?;
+            let micro = component("micro")?;
+            version = (major, minor, micro);
             // Log but don't fail if version was already set (multi-VM process).
             let _ = qapi::set_qemu_version(major, minor, micro);
 
@@ -429,8 +440,7 @@ impl Qmp {
         let (event_tx, event_rx) = mpsc::channel(100);
         let (shutdown_tx, shutdown_rx) = watch::channel(());
         let (queue_depth_tx, _queue_depth_rx) = watch::channel(0usize);
-        let in_flight: Arc<Mutex<HashMap<u64, PendingCmd>>> =
-            Arc::new(Mutex::new(HashMap::new()));
+        let in_flight: Arc<Mutex<HashMap<u64, PendingCmd>>> = Arc::new(Mutex::new(HashMap::new()));
         let queue_permits = Arc::new(Semaphore::new(QMP_QUEUE_CAPACITY));
         let oob_available = Arc::new(AtomicBool::new(oob_supported));
         let connection_alive = Arc::new(AtomicBool::new(true));
@@ -467,6 +477,7 @@ impl Qmp {
         ));
 
         let qmp = Self {
+            version,
             command_tx,
             in_flight,
             queue_permits,
@@ -482,6 +493,11 @@ impl Qmp {
         };
 
         Ok((qmp, event_rx))
+    }
+
+    /// Version advertised by this peer, independent of other connections.
+    pub fn version(&self) -> (u32, u32, u32) {
+        self.version
     }
 
     /// Maximum number of non-OOB commands that may be in flight at once.
@@ -518,7 +534,7 @@ impl Qmp {
     /// responses are routed by the QMP `id` field.
     #[must_use = "QMP commands can fail with a QmpError; ignoring the Result hides protocol errors"]
     pub async fn execute<C: QapiCommand>(&self, cmd: &C) -> Result<C::Returns> {
-        let request = build_request(cmd, false)?;
+        let request = qapi::with_version(self.version, || build_request(cmd, false))?;
         let response = self.dispatch(request, false).await?;
         decode_response::<C>(response)
     }
@@ -537,8 +553,10 @@ impl Qmp {
         cmd: &C,
         timeout: Duration,
     ) -> Result<C::Returns> {
-        let request = build_request(cmd, false)?;
-        let response = self.dispatch_with_timeout(request, false, Some((C::NAME, timeout))).await?;
+        let request = qapi::with_version(self.version, || build_request(cmd, false))?;
+        let response = self
+            .dispatch_with_timeout(request, false, Some((C::NAME, timeout)))
+            .await?;
         decode_response::<C>(response)
     }
 
@@ -557,10 +575,7 @@ impl Qmp {
     /// value is the contents of the `return` field (an empty object
     /// `{}` if the command has no payload).
     #[must_use = "QMP commands can fail with a QmpError; ignoring the Result hides protocol errors"]
-    pub async fn execute_raw(
-        &self,
-        raw: serde_json::Value,
-    ) -> Result<serde_json::Value> {
+    pub async fn execute_raw(&self, raw: serde_json::Value) -> Result<serde_json::Value> {
         let response = self.dispatch(raw, false).await?;
         decode_raw(response)
     }
@@ -592,7 +607,7 @@ impl Qmp {
                     .into(),
             ));
         }
-        let request = build_request(cmd, true)?;
+        let request = qapi::with_version(self.version, || build_request(cmd, true))?;
         let response = self.dispatch(request, true).await?;
         decode_response::<C>(response)
     }
@@ -606,10 +621,7 @@ impl Qmp {
     /// is checked only at runtime: a peer that never advertised OOB
     /// will receive `Error::Protocol`.
     #[must_use = "QMP commands can fail with a QmpError; ignoring the Result hides protocol errors"]
-    pub async fn execute_raw_oob(
-        &self,
-        raw: serde_json::Value,
-    ) -> Result<serde_json::Value> {
+    pub async fn execute_raw_oob(&self, raw: serde_json::Value) -> Result<serde_json::Value> {
         if !self.oob_supported() {
             return Err(Error::Protocol(
                 "OOB not negotiated with peer (server did not advertise \"oob\" in greeting)"
@@ -622,11 +634,7 @@ impl Qmp {
 
     /// Submit `request` and await the matching reply with no extra
     /// timeout. The reaper still enforces a global stall guard.
-    async fn dispatch(
-        &self,
-        request: serde_json::Value,
-        oob: bool,
-    ) -> Result<serde_json::Value> {
+    async fn dispatch(&self, request: serde_json::Value, oob: bool) -> Result<serde_json::Value> {
         self.dispatch_with_timeout(request, oob, None).await
     }
 
@@ -1153,16 +1161,10 @@ mod write_line_tests {
             self.sink.extend_from_slice(buf);
             Poll::Ready(Ok(buf.len()))
         }
-        fn poll_flush(
-            self: Pin<&mut Self>,
-            _cx: &mut Context<'_>,
-        ) -> Poll<io::Result<()>> {
+        fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
             Poll::Ready(Ok(()))
         }
-        fn poll_shutdown(
-            self: Pin<&mut Self>,
-            _cx: &mut Context<'_>,
-        ) -> Poll<io::Result<()>> {
+        fn poll_shutdown(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
             Poll::Ready(Ok(()))
         }
     }

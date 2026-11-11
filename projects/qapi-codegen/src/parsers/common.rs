@@ -5,16 +5,17 @@ use nom::Parser;
 use nom::branch::alt;
 use nom::bytes::complete::{tag, take_until};
 use nom::character::complete::{line_ending, multispace0, not_line_ending, space0};
-use nom::combinator::{not, opt, peek, recognize};
-use nom::error::Error;
-use nom::multi::many1;
+use nom::combinator::{eof, not, opt, peek, recognize};
+use nom::error::{Error, ErrorKind};
+use nom::multi::{many1, separated_list0};
 use nom::sequence::{delimited, preceded};
+use std::collections::HashSet;
 
 pub fn qcomment(input: &str) -> IResult<&str, &str> {
     delimited(
         (tag("#"), not(peek(tag("#"))), space0),
         not_line_ending,
-        line_ending,
+        alt((line_ending, eof)),
     )
     .parse(input)
 }
@@ -39,28 +40,50 @@ pub fn qbool(input: &str) -> IResult<&str, &str> {
     alt((qtag("true"), qtag("false"))).parse(input)
 }
 
-/// Parse a comma-separated list. Commas between items are optional,
-/// matching QEMU's Python-based QAPI parser behavior.
-/// Trailing commas are also accepted.
+/// Modern QAPI uses JSON separators. Retain the permissive legacy grammar
+/// only when parsing pre-2.4 schemas.
 pub fn take_list<'i, I, O>(
     item_parser: I,
 ) -> impl Parser<&'i str, Output = Vec<O>, Error = Error<&'i str>>
 where
     I: Parser<&'i str, Output = O, Error = Error<&'i str>>,
 {
-    delimited(qtag("["), separated_list_flexible(item_parser), qtag("]"))
+    delimited(qtag("["), separated_items(item_parser), qtag("]"))
 }
 
-/// Parse a dict of key-value entries. Commas between entries are optional,
-/// matching QEMU's Python-based QAPI parser behavior.
-/// Trailing commas are also accepted.
+/// Parse a dict without silently overwriting duplicate keys.
 pub fn take_dict<'i, I, O>(
-    item_parser: I,
+    mut item_parser: I,
 ) -> impl Parser<&'i str, Output = Vec<O>, Error = Error<&'i str>>
 where
     I: Parser<&'i str, Output = O, Error = Error<&'i str>>,
 {
-    delimited(qtag("{"), separated_list_flexible(item_parser), qtag("}"))
+    move |input| {
+        let mut keys = HashSet::new();
+        let mut entry = |input| {
+            let (_, key) = qstring(input)?;
+            if !keys.insert(key) {
+                return Err(nom::Err::Failure(Error::new(input, ErrorKind::Verify)));
+            }
+            item_parser.parse(input)
+        };
+        delimited(qtag("{"), separated_items(&mut entry), qtag("}")).parse(input)
+    }
+}
+
+fn separated_items<'i, I, O>(
+    mut item_parser: I,
+) -> impl Parser<&'i str, Output = Vec<O>, Error = Error<&'i str>>
+where
+    I: Parser<&'i str, Output = O, Error = Error<&'i str>>,
+{
+    move |input| {
+        if super::parser_version() < (2, 4, 0) {
+            separated_list_flexible(|i| item_parser.parse(i)).parse(input)
+        } else {
+            separated_list0(qtag(","), |i| item_parser.parse(i)).parse(input)
+        }
+    }
 }
 
 /// Parse items separated by optional commas. Accepts:
@@ -100,6 +123,9 @@ where
                 .unwrap_or(after_comma);
             match item_parser.parse(after_ws) {
                 Ok((remaining, item)) => {
+                    if remaining.len() == after_ws.len() {
+                        return Err(nom::Err::Error(Error::new(after_ws, ErrorKind::Many0)));
+                    }
                     items.push(item);
                     input = remaining;
                 }
@@ -110,6 +136,42 @@ where
                 Err(e) => return Err(e),
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{parse_schema, set_parser_version};
+
+    #[test]
+    fn modern_separators_match_qemu() {
+        set_parser_version((11, 1, 3));
+        for input in [
+            "{ 'enum': 'E', 'data': ['a' 'b'] }",
+            "{ 'enum': 'E', 'data': ['a',] }",
+            "{ 'enum': 'E' 'data': ['a'] }",
+            "{ 'enum': 'E', 'data': ['a'], }",
+            "{ 'struct': 'S', 'data': { 'x': 'str', 'x': 'int' } }",
+            "{ 'enum': 'E', 'enum': 'F', 'data': [] }",
+        ] {
+            assert!(
+                parse_schema(input).is_err(),
+                "Accepted invalid QAPI: {input}"
+            );
+        }
+        parse_schema("{ 'enum': 'E', 'data': ['a', 'b'] }").unwrap();
+    }
+
+    #[test]
+    fn historical_separator_compatibility() {
+        set_parser_version((1, 0, 0));
+        parse_schema("{ 'enum': 'E' 'data': ['a' 'b',], }").unwrap();
+    }
+
+    #[test]
+    fn comments_can_end_at_eof() {
+        parse_schema("# final comment").unwrap();
+        parse_schema("{ 'enum': 'E', 'data': ['a'] } # final comment").unwrap();
     }
 }
 

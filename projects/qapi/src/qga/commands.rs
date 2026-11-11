@@ -1,13 +1,13 @@
 #![allow(unused_imports, non_camel_case_types, dead_code)]
-use super::*;
 use crate as qapi;
 use qapi_macros::qapi;
 use std::collections::HashMap;
+use super::*;
 #[qapi(command)]
-#[qapi(name = "guest-exec")]
 #[qapi(returns = "GuestExec")]
+#[qapi(name = "guest-exec")]
 #[qapi(added = "2.5.0")]
-pub struct GuestExec {
+pub struct GuestExecCommand {
     pub arg: Option<Vec<String>>,
     #[qapi(name = "capture-output")]
     pub capture_output: Option<GuestExecCaptureOutput>,
@@ -22,10 +22,10 @@ pub struct GuestExec {
 /// exited.
 ///
 #[qapi(command)]
-#[qapi(name = "guest-exec-status")]
 #[qapi(returns = "GuestExecStatus")]
+#[qapi(name = "guest-exec-status")]
 #[qapi(added = "2.5.0")]
-pub struct GuestExecStatus {
+pub struct GuestExecStatusCommand {
     /// pid returned from `guest-exec`
     pub pid: i64,
 }
@@ -66,10 +66,10 @@ pub struct GuestFileOpen {
 /// file access, the number of bytes to read is limited to 48 MB.
 ///
 #[qapi(command)]
-#[qapi(name = "guest-file-read")]
 #[qapi(returns = "GuestFileRead")]
+#[qapi(name = "guest-file-read")]
 #[qapi(added = "1.4.0")]
-pub struct GuestFileRead {
+pub struct GuestFileReadCommand {
     /// maximum number of bytes to read (default is 4KB, maximum is
     /// 48MB)
     pub count: Option<i64>,
@@ -82,10 +82,10 @@ pub struct GuestFileRead {
 /// functionality, with offset=0 and whence=1.
 ///
 #[qapi(command)]
-#[qapi(name = "guest-file-seek")]
 #[qapi(returns = "GuestFileSeek")]
+#[qapi(name = "guest-file-seek")]
 #[qapi(added = "1.4.0")]
-pub struct GuestFileSeek {
+pub struct GuestFileSeekCommand {
     /// filehandle returned by `guest-file-open`
     pub handle: i64,
     /// bytes to skip over in the file stream
@@ -97,10 +97,10 @@ pub struct GuestFileSeek {
 /// Write to an open file in the guest.
 ///
 #[qapi(command)]
-#[qapi(name = "guest-file-write")]
 #[qapi(returns = "GuestFileWrite")]
+#[qapi(name = "guest-file-write")]
 #[qapi(added = "1.4.0")]
-pub struct GuestFileWrite {
+pub struct GuestFileWriteCommand {
     /// base64-encoded string representing data to be written
     #[qapi(name = "buf-b64")]
     pub buf_b64: String,
@@ -134,11 +134,11 @@ pub struct GuestFsfreezeFreezeList {
 ///    freeze/thaw.
 ///
 #[qapi(command)]
+#[qapi(returns = "GuestFsfreezeStatus")]
 #[qapi(name = "guest-fsfreeze-status")]
 #[qapi(condition = "(CONFIG_WIN32 || CONFIG_FSFREEZE)")]
-#[qapi(returns = "GuestFsfreezeStatus")]
-#[qapi(added = "10.2.0")]
-pub struct GuestFsfreezeStatus {}
+#[qapi(added = "1.4.0")]
+pub struct GuestFsfreezeStatusCommand {}
 
 #[qapi(command)]
 #[qapi(name = "guest-fsfreeze-thaw")]

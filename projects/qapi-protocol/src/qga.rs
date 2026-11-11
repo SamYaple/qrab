@@ -38,6 +38,7 @@ const MAX_REQUEST_BYTES: usize = 256 * 1024;
 
 /// Async QGA client connected to a QEMU guest agent.
 pub struct Qga {
+    version: (u32, u32, u32),
     reader: BufReader<tokio::net::unix::OwnedReadHalf>,
     writer: tokio::net::unix::OwnedWriteHalf,
 }
@@ -49,16 +50,14 @@ impl Qga {
         // Bound `connect(2)` itself so a bound-but-unserved socket or
         // a hung filesystem can't wedge the caller indefinitely. See
         // `Qmp::new` for the same pattern.
-        let stream = tokio::time::timeout(
-            QGA_CONNECT_TIMEOUT,
-            UnixStream::connect(socket_path),
-        )
-        .await
-        .map_err(|_| Error::Timeout("QGA connect timed out after 5s".into()))??;
+        let stream = tokio::time::timeout(QGA_CONNECT_TIMEOUT, UnixStream::connect(socket_path))
+            .await
+            .map_err(|_| Error::Timeout("QGA connect timed out after 5s".into()))??;
         let (read_half, write_half) = stream.into_split();
         let reader = BufReader::new(read_half);
 
         let mut qga = Self {
+            version: (0, 0, 0),
             reader,
             writer: write_half,
         };
@@ -69,10 +68,16 @@ impl Qga {
         // Query guest-info to get the QGA version
         let info: qapi::qga::GuestAgentInfo =
             qga.execute_raw("guest-info", serde_json::json!({})).await?;
-        // Log but don't fail if version was already set (multi-agent process).
+        qga.version = qapi::parse_qga_version(&normalize_qga_version(&info.version));
+        // Retain the legacy process default for existing consumers.
         let _ = qapi::set_qga_version(normalize_qga_version(&info.version));
 
         Ok(qga)
+    }
+
+    /// Version reported by this guest agent, independent of the QEMU host.
+    pub fn version(&self) -> (u32, u32, u32) {
+        self.version
     }
 
     /// Perform the guest-sync-delimited handshake.
@@ -127,7 +132,8 @@ impl Qga {
                 }
                 LineRead::TooLong => {
                     return Err(Error::Protocol(format!(
-                        "QGA sync response exceeded {} bytes", MAX_LINE_BYTES
+                        "QGA sync response exceeded {} bytes",
+                        MAX_LINE_BYTES
                     )));
                 }
             };
@@ -143,7 +149,8 @@ impl Qga {
                 }
             } else if let Some(error) = resp.get("error") {
                 return Err(Error::Protocol(format!(
-                    "guest-sync-delimited failed: {}", error
+                    "guest-sync-delimited failed: {}",
+                    error
                 )));
             }
 
@@ -158,18 +165,14 @@ impl Qga {
     /// Execute a typed QGA command.
     #[must_use = "QGA commands can fail with a QmpError or time out; ignoring the Result hides protocol errors"]
     pub async fn execute<C: QapiCommand>(&mut self, cmd: &C) -> Result<C::Returns> {
-        let args = serde_json::to_value(cmd)?;
+        let args = qapi::with_version(self.version, || serde_json::to_value(cmd))?;
         self.execute_raw(C::NAME, args).await
     }
 
     /// Execute a command by name with raw JSON arguments.
     ///
-    /// Escape hatch for commands whose typed return shape in the
-    /// generated `qapi::qga` module does not match the actual QGA
-    /// response (e.g. `guest-file-read`, whose typed `Returns` is the
-    /// request struct rather than the `{count, buf-b64, eof}` body the
-    /// agent sends back). Callers pick their own deserialization target
-    /// `T` — a local struct, `serde_json::Value`, etc.
+    /// Use for commands from newer releases or out-of-tree agents. Callers
+    /// choose their own deserialization target `T`.
     #[must_use = "QGA commands can fail with a QmpError or time out; ignoring the Result hides protocol errors"]
     pub async fn execute_raw<T: serde::de::DeserializeOwned>(
         &mut self,
@@ -203,12 +206,9 @@ impl Qga {
         write_line(&mut self.writer, request_str.as_bytes()).await?;
         self.writer.flush().await?;
 
-        let line = tokio::time::timeout(
-            QGA_RESPONSE_TIMEOUT,
-            read_line_bounded(&mut self.reader),
-        )
-        .await
-        .map_err(|_| Error::Timeout("QGA command timed out".into()))??;
+        let line = tokio::time::timeout(QGA_RESPONSE_TIMEOUT, read_line_bounded(&mut self.reader))
+            .await
+            .map_err(|_| Error::Timeout("QGA command timed out".into()))??;
         let line = match line {
             LineRead::Line(line) => line,
             // `read_line_bounded` returns `Eof` at stream close, mirroring
@@ -220,7 +220,8 @@ impl Qga {
             }
             LineRead::TooLong => {
                 return Err(Error::Protocol(format!(
-                    "QGA response exceeded {} bytes", MAX_LINE_BYTES
+                    "QGA response exceeded {} bytes",
+                    MAX_LINE_BYTES
                 )));
             }
         };

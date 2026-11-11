@@ -1,6 +1,6 @@
 use super::{
-    doc_to_tokens, generate_attribute, rustify_field, rustify_name, rustify_type, Metadata,
-    StructField,
+    Metadata, StructField, doc_to_tokens, generate_attribute, rustify_field, rustify_name,
+    rustify_type,
 };
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
@@ -83,7 +83,12 @@ impl Enum {
                     }
                 }
                 EnumVariantKind::Tuple(type_name) => {
-                    let type_tokens: TokenStream = rustify_type(type_name).parse().unwrap();
+                    let inner: TokenStream = rustify_type(type_name).parse().unwrap();
+                    let type_tokens = if variant.array {
+                        quote! { Vec<#inner> }
+                    } else {
+                        inner
+                    };
                     quote! {
                         #variant_doc
                         #(#variant_attrs)*

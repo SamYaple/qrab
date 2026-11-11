@@ -1,6 +1,6 @@
 #![deny(unsafe_code)]
 
-use std::sync::OnceLock;
+use std::{cell::Cell, sync::OnceLock};
 
 pub use qapi_macros::qapi;
 pub use serde;
@@ -62,13 +62,32 @@ impl<T: QapiFlatUnion> QapiFlatUnion for Box<T> {
 
 static QEMU_VERSION: OnceLock<(u32, u32, u32)> = OnceLock::new();
 
-/// Set the QEMU version for runtime version gating.
+thread_local! {
+    static SERIALIZATION_VERSION: Cell<Option<(u32, u32, u32)>> = const { Cell::new(None) };
+}
+
+/// Serialize QAPI values using a particular peer's version. QMP and QGA clients
+/// use this for each request, so connections to different releases can coexist.
 ///
-/// Should be called once after connecting to QEMU and querying its version.
+/// The override is synchronous, thread-local, nestable and restored on unwind.
+/// Run serialization inside the closure; do not return a future to await later.
+pub fn with_version<T>(version: (u32, u32, u32), f: impl FnOnce() -> T) -> T {
+    struct Restore(Option<(u32, u32, u32)>);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            SERIALIZATION_VERSION.set(self.0);
+        }
+    }
+    let _restore = Restore(SERIALIZATION_VERSION.replace(Some(version)));
+    f()
+}
+
+/// Set the legacy process default for direct QAPI serialization.
+///
+/// Protocol clients scope serialization to their own version. Direct users
+/// should prefer [`with_version`] when handling more than one peer.
 /// Returns `Ok(())` on the first call, or `Err` if a version was already set.
-/// If the new version differs from the existing one, a warning is logged —
-/// this catches the multi-VM case where a second QEMU instance with a
-/// different version silently gets the wrong version gating.
+/// If the new version differs, the existing process default is retained.
 pub fn set_qemu_version(major: u32, minor: u32, patch: u32) -> Result<(), (u32, u32, u32)> {
     let new = (major, minor, patch);
     match QEMU_VERSION.set(new) {
@@ -87,9 +106,12 @@ pub fn set_qemu_version(major: u32, minor: u32, patch: u32) -> Result<(), (u32, 
     }
 }
 
-/// Get the QEMU version. Returns (0, 0, 0) if not yet set.
+/// Get the scoped serialization version, or the legacy process default.
+/// Returns (0, 0, 0) if neither has been set.
 pub fn qemu_version() -> (u32, u32, u32) {
-    *QEMU_VERSION.get().unwrap_or(&(0, 0, 0))
+    SERIALIZATION_VERSION
+        .get()
+        .unwrap_or_else(|| *QEMU_VERSION.get().unwrap_or(&(0, 0, 0)))
 }
 
 mod generated;
@@ -123,15 +145,7 @@ static QGA_VERSION: OnceLock<(u32, u32, u32)> = OnceLock::new();
 ///
 /// Returns `Err` with the existing version if already set.
 pub fn set_qga_version(version: String) -> Result<(), (u32, u32, u32)> {
-    let parts: Vec<&str> = version.split('.').collect();
-    let major = parts.first().and_then(|s| s.parse().ok()).unwrap_or(0);
-    let minor = parts.get(1).and_then(|s| s.parse().ok()).unwrap_or(0);
-    let patch = parts
-        .get(2)
-        .and_then(|s| s.split(|c: char| !c.is_ascii_digit()).next())
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(0);
-    let new = (major, minor, patch);
+    let new = parse_qga_version(&version);
     match QGA_VERSION.set(new) {
         Ok(()) => Ok(()),
         Err(_) => {
@@ -145,6 +159,20 @@ pub fn set_qga_version(version: String) -> Result<(), (u32, u32, u32)> {
             Err(existing)
         }
     }
+}
+
+/// Parse a guest-info version, accepting a patch suffix such as `11.1.0rc1`.
+/// Missing or nonnumeric components default to zero.
+pub fn parse_qga_version(version: &str) -> (u32, u32, u32) {
+    let parts: Vec<&str> = version.split('.').collect();
+    let major = parts.first().and_then(|s| s.parse().ok()).unwrap_or(0);
+    let minor = parts.get(1).and_then(|s| s.parse().ok()).unwrap_or(0);
+    let patch = parts
+        .get(2)
+        .and_then(|s| s.split(|c: char| !c.is_ascii_digit()).next())
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0);
+    (major, minor, patch)
 }
 
 /// Get the QGA version. Returns `(0, 0, 0)` if not yet set.

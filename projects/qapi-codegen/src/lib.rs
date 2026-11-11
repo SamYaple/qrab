@@ -47,7 +47,7 @@ pub fn parse_schema(input: &str) -> Result<QapiSchema<'_>> {
         i.is_empty(),
         "Unparsed input remaining ({} bytes): {:?}",
         i.len(),
-        &i[..i.len().min(200)]
+        i.chars().take(200).collect::<String>()
     );
     Ok(schema)
 }
@@ -59,7 +59,7 @@ pub fn read_schema_with_version(
     version: Option<(u32, u32, u32)>,
 ) -> Result<Vec<(PathBuf, String)>> {
     let mut sources = Vec::new();
-    read_schema_file(schema_file, &mut sources, version)?;
+    read_schema_file(schema_file, &mut sources, &mut Vec::new(), version)?;
     if sources.len() > 1 {
         sources.rotate_left(1);
     }
@@ -69,11 +69,21 @@ pub fn read_schema_with_version(
 fn read_schema_file(
     schema_file: &Path,
     sources: &mut Vec<(PathBuf, String)>,
+    active: &mut Vec<PathBuf>,
     version: Option<(u32, u32, u32)>,
 ) -> Result<()> {
-    if sources.iter().any(|(path, _)| path == schema_file) {
+    let schema_file = schema_file
+        .canonicalize()
+        .with_context(|| format!("Failed to resolve schema file: {}", schema_file.display()))?;
+    anyhow::ensure!(
+        !active.contains(&schema_file),
+        "QAPI inclusion loop: {}",
+        schema_file.display()
+    );
+    if sources.iter().any(|(path, _)| path == &schema_file) {
         return Ok(());
     }
+    active.push(schema_file.clone());
 
     // Set parser version for version-aware parsing
     if let Some(v) = version {
@@ -82,7 +92,7 @@ fn read_schema_file(
         set_parser_version((99, 0, 0));
     }
 
-    let content = std::fs::read_to_string(schema_file)
+    let content = std::fs::read_to_string(&schema_file)
         .with_context(|| format!("Failed to read schema file: {}", schema_file.display()))?;
     sources.push((schema_file.to_path_buf(), content.clone()));
     let schema_tokens = parse_schema(&content).with_context(|| {
@@ -101,7 +111,8 @@ fn read_schema_file(
         .collect();
     for include in includes {
         let include_path = schema_file.parent().unwrap().join(include);
-        read_schema_file(&include_path, sources, version)?;
+        read_schema_file(&include_path, sources, active, version)?;
     }
+    active.pop();
     Ok(())
 }

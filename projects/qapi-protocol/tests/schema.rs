@@ -1,14 +1,13 @@
 //! Non-QEMU serde tests (trait metadata, enum coverage, field renames)
 //! plus QMP schema introspection (needs QEMU x86_64).
 
-#[allow(dead_code, unused_imports)]
-mod common;
-
-#[allow(unused_imports)]
-use common::*;
-use qapi::*;
 use qapi::commands::*;
 use qapi::events::*;
+use qapi::*;
+
+fn ensure_version_set() {
+    let _ = qapi::set_qemu_version(99, 0, 0);
+}
 
 // ── Command trait metadata ───────────────────────────────────────────────────
 
