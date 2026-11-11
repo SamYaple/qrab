@@ -2,7 +2,7 @@ use anyhow::{Context, Result};
 use qapi_codegen::versions::{PINNED_VERSIONS, parse_pinned_versions, verify_pinned_versions};
 use std::path::PathBuf;
 
-const USAGE: &str = "Usage: qapi-codegen [qemu-git-repo] [--qga] --output-dir <dir> [--versions-file <file>]\n\nDefaults to vendor/qemu and the embedded qemu-versions.lock release pins.\nFetch upstream release tags before generation. --versions-file selects an explicit\nalternate set of tag/commit pairs. No output is written until all inputs parse.";
+const USAGE: &str = "Usage: qapi-codegen [qemu-git-repo] [--qga] --output-dir <dir> [--versions-file <file>]\n\nDefaults to vendor/qemu and the embedded qemu-versions.lock release pins.\nFetch release tags from the local Gitea QEMU mirror before generation. --versions-file selects an explicit\nalternate set of tag/commit pairs. No output is written until all inputs parse.";
 
 #[derive(Debug, PartialEq, Eq)]
 struct Options {

@@ -15,7 +15,8 @@ The protocol foundation is independent of systemd and Kubernetes:
 | `qapi-protocol` | Async Unix-socket QMP/QGA clients and test servers |
 | `manager` | QEMU process lifecycle and VM configuration |
 
-The schema baseline is QEMU **11.1.3**, pinned in `vendor/qemu`. A lockfile
+The schema baseline is QEMU **11.1.3**, pinned in `vendor/qemu` from our
+[local Gitea mirror](https://gitea.yapplesauce.com/mirrors/qemu). A lockfile
 records the exact release commits used for historical lifecycle metadata.
 Ordinary consumers build from the checked-in generated code without QEMU
 sources, Python, systemd, KVM or a cluster.

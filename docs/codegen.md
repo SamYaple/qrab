@@ -6,15 +6,17 @@ introductions, removals, flags and fields. QMP and QGA use the same pipeline.
 
 ## Inputs
 
-`vendor/qemu` points at upstream QEMU **v11.1.3**, commit
+`vendor/qemu` points at locally vendored QEMU **v11.1.3**, commit
 `005c61c0ef6f6ae615283440b4bb7be51b2c6ddd`. The source remote is
-<https://gitlab.com/qemu-project/qemu.git>.
+<https://gitea.yapplesauce.com/mirrors/qemu.git>.
 
 `projects/qapi-codegen/qemu-versions.lock` pins every selected stable release
 from v1.0 through v11.1.3 by tag and peeled commit. The generator checks all
 pins before parsing. Extra local tags and release candidates cannot alter the
-default output. Missing or moved pins fail generation. Library functions may
-still accept explicit tag lists for testing; the CLI always uses a lockfile.
+default output. Missing or moved pins fail generation. QEMU source and tag
+fetches use this local Gitea repository exclusively; do not fetch directly from
+upstream. Library functions may still accept explicit tag lists for testing;
+the CLI always uses a lockfile.
 
 Initialize only the QEMU submodule; firmware and SVSM submodules are unrelated
 to protocol development:
@@ -44,9 +46,9 @@ Normal builds consume these files directly and perform no network access or
 code generation. Use release mode for generation and parser integration tests;
 unoptimized parsing across the full release history is much slower.
 
-When advancing QEMU, verify the stable release at
-<https://www.qemu.org/download/>, advance the submodule, add the newly selected
-tag/commit pairs in numeric release order, regenerate both protocols, and run
+When advancing QEMU, select a stable release available in the local mirror,
+advance the submodule, and add the newly selected tag/commit pairs in numeric
+release order. Regenerate both protocols and run
 `contrib/check-qapi.sh`. Keep old pins to preserve lifecycle metadata.
 
 ## Correctness boundaries

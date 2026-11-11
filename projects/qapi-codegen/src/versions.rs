@@ -63,7 +63,7 @@ pub fn verify_pinned_versions(repo: &Path, versions: &[PinnedVersion]) -> Result
             .context("Failed to run git rev-parse")?;
         anyhow::ensure!(
             output.status.success(),
-            "Missing QEMU release {}; fetch upstream tags first",
+            "Missing QEMU release {}; fetch tags from the local Gitea QEMU mirror first",
             pin.tag
         );
         let actual = String::from_utf8(output.stdout)?;

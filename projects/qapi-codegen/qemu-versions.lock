@@ -1,5 +1,5 @@
 # QEMU stable schema inputs, in release order. tag peeled-commit
-# Source: https://gitlab.com/qemu-project/qemu.git
+# Source: https://gitea.yapplesauce.com/mirrors/qemu.git
 v1.0 1c8a881daaca6fe0646a425b0970fb3ad25f6732
 v1.0.1 3ffb4001c2e28624cd59a2b3598858784d0718d0
 v1.1.0 78260a5f085d34e4ae46e42bdc010dfcd6f6cc31
