@@ -4,6 +4,7 @@ set -euo pipefail
 cd "$(dirname "$0")/../.."
 python3 - "${1:-qrab}" "${2:-qrab-demo}" <<'PY'
 import json,subprocess,sys,urllib.request,urllib.error,urllib.parse
+from http.client import HTTPSConnection
 from pathlib import Path
 namespace,pod=sys.argv[1:]
 def kubectl(*args):
@@ -37,7 +38,14 @@ assert response('/').status==200, 'HTTPS console is unavailable'
 for path in ['/api/session','/api/status']:
     assert response(path).status==401, f'{path} is not protected'
 assert response('/api/action',data=b'"pause"',headers={'Content-Type':'application/json'}).status==401, 'VM control is not protected'
-assert response('/api/console',headers={'Connection':'Upgrade','Upgrade':'websocket','Sec-WebSocket-Version':'13','Sec-WebSocket-Key':'dGhlIHNhbXBsZSBub25jZQ==','Origin':origin}).status==401, 'console upgrade is not protected'
+# urllib forces Connection: close, so it cannot exercise a WebSocket upgrade.
+connection=HTTPSConnection(urllib.parse.urlsplit(origin).netloc,timeout=15)
+try:
+    connection.request('GET','/api/console',headers={'Connection':'Upgrade','Upgrade':'websocket','Sec-WebSocket-Version':'13','Sec-WebSocket-Key':'dGhlIHNhbXBsZSBub25jZQ==','Origin':origin})
+    upgrade=connection.getresponse()
+    assert upgrade.status==401, f'unexpected unauthenticated console HTTP status {upgrade.status}'
+finally:
+    connection.close()
 login=response('/auth/login')
 assert login.status==307, 'OIDC login does not redirect'
 url=urllib.parse.urlsplit(login.headers['Location'])
