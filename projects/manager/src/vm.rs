@@ -1590,8 +1590,8 @@ impl VmBuilder<WithSnp> {
         let config = InitConfig {
             qemu_binary,
             qemu_args: args.clone(),
-            kvm_fd: kvm_fd.as_ref().map(|f| f.raw_fd() as i32),
-            sev_fd: sev_fd.as_ref().map(|f: &SevFd| f.raw_fd() as i32),
+            kvm_fd: kvm_fd.as_ref().map(|f| f.raw_fd()),
+            sev_fd: sev_fd.as_ref().map(|f: &SevFd| f.raw_fd()),
             extra_dev_nodes,
         };
 
@@ -2080,17 +2080,11 @@ impl Vm {
 
         // Step 4: Wait 5s for exit
         let quit_deadline = tokio::time::Instant::now() + Duration::from_secs(5);
-        loop {
-            match tokio::time::timeout_at(quit_deadline, self.process.exit_watch.changed()).await {
-                Ok(Ok(())) => {
-                    if self.process.exit_watch.borrow().is_some() {
-                        // Process exited
-                        self.qmp.shutdown().await;
-                        self.process.cleanup().await;
-                        return;
-                    }
-                }
-                _ => break, // timeout or channel closed
+        while let Ok(Ok(())) = tokio::time::timeout_at(quit_deadline, self.process.exit_watch.changed()).await {
+            if self.process.exit_watch.borrow().is_some() {
+                self.qmp.shutdown().await;
+                self.process.cleanup().await;
+                return;
             }
         }
 

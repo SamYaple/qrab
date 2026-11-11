@@ -1,0 +1,11 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: qrab
+resources:
+- pod.yaml
+configMapGenerator:
+- name: qrab-vm
+  files:
+  - vm.json
+generatorOptions:
+  disableNameSuffixHash: true

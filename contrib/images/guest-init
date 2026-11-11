@@ -1,0 +1,13 @@
+#!/bin/sh
+/bin/busybox --install -s /bin
+mount -t proc proc /proc
+mount -t sysfs sysfs /sys
+mount -t devtmpfs devtmpfs /dev
+printf '\nQRAB_GUEST_BOOTED\n'
+printf 'guest kernel: '; uname -r
+printf 'guest uptime: '; cat /proc/uptime
+# Deliberately no network setup or guest service controller. This RAM-only guest
+# stays up for the pod lifecycle. The manager attempts ACPI powerdown, then uses
+# bounded QMP quit if this tiny init has no ACPI userspace handler.
+trap 'poweroff -f' TERM INT
+while :; do sleep 3600 & wait "$!"; done

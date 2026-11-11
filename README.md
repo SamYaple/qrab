@@ -1,9 +1,8 @@
 # qrab
 
 Rust libraries and tooling for launching and controlling QEMU. The repository
-is being refactored toward a QEMU wrapper running in Kubernetes. The existing
-manager and host/guest boot utilities still contain the earlier deployment
-model; Kubernetes delivery is a separate stage of the refactor.
+is being refactored toward a QEMU wrapper running in Kubernetes. The new `qrab-manager` pod runtime launches QEMU directly in the container
+sandbox. The older manager/boot APIs remain separate while the refactor proceeds.
 
 The protocol foundation is independent of systemd and Kubernetes:
 
@@ -21,5 +20,6 @@ records the exact release commits used for historical lifecycle metadata.
 Ordinary consumers build from the checked-in generated code without QEMU
 sources, Python, systemd, KVM or a cluster.
 
-See [schema generation](docs/codegen.md), [protocol behavior](docs/protocol.md),
+See [pod runtime, images and Kubernetes launch](docs/manager.md),
+[schema generation](docs/codegen.md), [protocol behavior](docs/protocol.md),
 and [validation](docs/testing.md) for the core-library development workflow.

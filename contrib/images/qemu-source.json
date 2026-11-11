@@ -1,0 +1,27 @@
+{
+  "qemu": {
+    "version": "11.1.3",
+    "revision": "005c61c0ef6f6ae615283440b4bb7be51b2c6ddd",
+    "remote": "https://gitea.yapplesauce.com/mirrors/qemu.git"
+  },
+  "subprojects": [
+    {
+      "name": "berkeley-softfloat-3",
+      "revision": "b64af41c3276f97f0e181920400ee056b9c88037",
+      "archive": "vendor/qemu-build/berkeley-softfloat-3.tar.gz",
+      "sha256": "210eea39e06d1668527ea138e8fac88c37de21d1a10be78792469054315440eb"
+    },
+    {
+      "name": "berkeley-testfloat-3",
+      "revision": "e7af9751d9f9fd3b47911f51a5cfd08af256a9ab",
+      "archive": "vendor/qemu-build/berkeley-testfloat-3.tar.gz",
+      "sha256": "6f22760245a0b942dab88af114aab4943d3534fda8610e179df5ef3fdfb2d87b"
+    },
+    {
+      "name": "keycodemapdb",
+      "revision": "f5772a62ec52591ff6870b7e8ef32482371f22c6",
+      "archive": "vendor/qemu-build/keycodemapdb.tar.gz",
+      "sha256": "086946752e67e931333936cbc097f897c3ef079a5d7e87e3e56f01ad6aa0d740"
+    }
+  ]
+}

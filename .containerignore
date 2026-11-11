@@ -1,0 +1,6 @@
+.git
+/target
+/vendor
+.worktrees
+.agent-memory
+contrib/attest-keys

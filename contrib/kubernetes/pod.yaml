@@ -1,0 +1,80 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: qrab-demo
+  labels:
+    app.kubernetes.io/name: qrab
+    app.kubernetes.io/component: vm
+spec:
+  serviceAccountName: qrab-manager
+  automountServiceAccountToken: false
+  restartPolicy: Never
+  terminationGracePeriodSeconds: 20
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 10001
+    runAsGroup: 10001
+    fsGroup: 10001
+    seccompProfile:
+      type: RuntimeDefault
+  # The current cluster's worker-capable nodes also have this control-plane taint.
+  tolerations:
+  - key: node-role.kubernetes.io/control-plane
+    operator: Exists
+    effect: NoSchedule
+  containers:
+  - name: manager
+    # Replaced by the verified published digest in the release pin commit.
+    image: zot.yapplesauce.com/qrab/manager:development
+    imagePullPolicy: Always
+    args: [run, --config, /etc/qrab/vm.json]
+    resources:
+      requests:
+        cpu: "1"
+        memory: 512Mi
+      limits:
+        cpu: "2"
+        memory: 768Mi
+    securityContext:
+      allowPrivilegeEscalation: false
+      readOnlyRootFilesystem: true
+      capabilities:
+        drop: [ALL]
+    volumeMounts:
+    - name: config
+      mountPath: /etc/qrab
+      readOnly: true
+    - name: runtime
+      mountPath: /run/qrab
+    - name: tmp
+      mountPath: /tmp
+    startupProbe:
+      exec:
+        command: [qrab-manager, ready, --config, /etc/qrab/vm.json]
+      periodSeconds: 1
+      failureThreshold: 60
+      timeoutSeconds: 2
+    readinessProbe:
+      exec:
+        command: [qrab-manager, ready, --config, /etc/qrab/vm.json]
+      periodSeconds: 2
+      failureThreshold: 3
+      timeoutSeconds: 2
+    livenessProbe:
+      exec:
+        command: [qrab-manager, live, --config, /etc/qrab/vm.json]
+      periodSeconds: 5
+      failureThreshold: 3
+      timeoutSeconds: 2
+  volumes:
+  - name: config
+    configMap:
+      name: qrab-vm
+  - name: runtime
+    emptyDir:
+      medium: Memory
+      sizeLimit: 64Mi
+  - name: tmp
+    emptyDir:
+      medium: Memory
+      sizeLimit: 64Mi

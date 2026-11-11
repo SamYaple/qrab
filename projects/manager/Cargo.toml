@@ -28,7 +28,7 @@ features = ["fs", "mount", "process", "sched", "signal", "user"]
 
 [dependencies.tokio]
 workspace = true
-features = ["net", "io-util", "sync", "rt", "macros", "rt-multi-thread", "process", "time", "fs"]
+features = ["net", "io-util", "sync", "rt", "macros", "rt-multi-thread", "process", "time", "fs", "signal"]
 
 [dev-dependencies]
 paste = { workspace = true }

@@ -4,6 +4,7 @@ pub mod arch;
 pub mod event;
 pub mod firmware;
 pub mod namespace;
+pub mod pod;
 pub mod vm;
 
 pub use arch::{Arch, MachineConfig};
