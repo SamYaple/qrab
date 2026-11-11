@@ -37,11 +37,11 @@ path = "../qapi-protocol"
 
 [dependencies.nix]
 workspace = true
-features = ["fs", "process", "signal"]
+features = ["fs", "process", "signal", "user"]
 
 [dependencies.tokio]
 workspace = true
-features = ["rt", "macros", "process", "time", "signal"]
+features = ["rt", "macros", "process", "time", "signal", "sync", "net", "io-util"]
 
 [dev-dependencies.tokio]
 workspace = true

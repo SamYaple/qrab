@@ -88,6 +88,12 @@ pub async fn run_controlled(
         .open(config.runtime_dir.join("owner.lock"))?;
     let _lock = nix::fcntl::Flock::lock(lock, nix::fcntl::FlockArg::LockExclusiveNonblock)
         .map_err(|_| Error::Config("another manager owns this runtime directory".into()))?;
+    control.set_config(&config);
+    // Declared after the lock, so the socket server stops before it is released.
+    let _control_socket = match config.control_socket {
+        true => Some(super::socket::spawn(&config, control.control())?),
+        false => None,
+    };
     let session = tempfile::Builder::new()
         .prefix("session-")
         .permissions(std::fs::Permissions::from_mode(0o700))
@@ -210,7 +216,7 @@ async fn run_qemu(
                 return Err(Error::Spawn(format!("QEMU exited during startup: {exit}")));
             }
             match Qmp::connect_with_options(socket, options.clone()).await {
-                Ok((qmp, _events)) => return Ok(qmp),
+                Ok(connected) => return Ok(connected),
                 Err(qapi_protocol::Error::Io(error))
                     if matches!(
                         error.kind(),
@@ -225,7 +231,7 @@ async fn run_qemu(
     };
     let qmp = tokio::select! {
         result=timeout(Duration::from_secs(config.startup_timeout_secs),startup) => match result {
-            Ok(Ok(qmp)) => Some(qmp),
+            Ok(Ok(connected)) => Some(connected),
             failure => {
                 let detail = match failure { Ok(Err(error))=>error.to_string(), Err(_)=>"QEMU startup timed out".into(), _=>unreachable!() };
                 if let Ok((exit,_))=stop_child(&mut child,None,Duration::from_secs(1)).await {state.exit_code=exit.code();}
@@ -235,7 +241,7 @@ async fn run_qemu(
         },
         _=&mut shutdown => None,
     };
-    let Some(qmp) = qmp else {
+    let Some((qmp, mut events)) = qmp else {
         let (exit, method) = stop_child(&mut child, None, Duration::from_secs(1)).await?;
         state.exit_code = exit.code();
         native_clean_shutdown(config, &exit, method)?;
@@ -265,7 +271,8 @@ async fn run_qemu(
                 _=&mut shutdown => return Ok(None),
                 exit=child.wait() => return Ok(Some(exit?)),
                 exit=super::tpm::wait(tpm) => return Err(Error::Spawn(format!("swtpm exited while QEMU was active: {}", exit?))),
-                Some(request)=control.0.recv() => if request.dispatch(&qmp, console).await { return Ok(None); },
+                Some(request)=control.requests.recv() => if request.dispatch(&qmp, console).await { return Ok(None); },
+                Some(event)=events.recv() => control.record_event(event),
                 reason=qmp.closed() => {
                     state.ready=false;state.phase=Phase::Stopping;publish(config,state)?;
                     if let Ok(exit)=timeout(Duration::from_secs(2),child.wait()).await { return Ok(Some(exit?)); }
@@ -329,6 +336,10 @@ async fn run_qemu(
             }
         }
     };
+    // Shutdown and exit events arrive while stopping; keep what was queued.
+    while let Ok(event) = events.try_recv() {
+        control.record_event(event);
+    }
     qmp.shutdown().await;
     publish(config, state)?;
     result

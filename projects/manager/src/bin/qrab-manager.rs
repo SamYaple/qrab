@@ -37,9 +37,15 @@ async fn execute() -> manager::Result<()> {
                 tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
             let mut interrupt =
                 tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())?;
-            let outcome = pod::run(config, async {
-                tokio::select! {_=term.recv()=>{},_=interrupt.recv()=>{}}
-            })
+            let (_control, receiver) =
+                pod::control_channel_for(&config, pod::Deployment::from_env());
+            let outcome = pod::run_controlled(
+                config,
+                async {
+                    tokio::select! {_=term.recv()=>{},_=interrupt.recv()=>{}}
+                },
+                receiver,
+            )
             .await?;
             eprintln!(
                 "{}",

@@ -90,6 +90,58 @@ The tiny init has no ACPI handler, so normal shutdown may use QMP quit. The
 operator's `running:true` policy creates another instance after exit; use the CR
 to keep a VM off.
 
+## Control API
+
+`manager::pod::Control` is the source control API; the in-process BMC and the
+control socket are thin transports over it. It provides `status()`,
+`config_view()` (use `ConfigView::redacted()` for less-privileged users),
+`events(after, limit)`, `wait_events(cursor)`, `action(..)` and `console()`.
+`control_channel_for(&config, Deployment::from_env())` makes the configuration
+view available before QEMU starts; `Deployment::from_env()` reads the optional
+`QRAB_NODE_NAME`, `QRAB_POD_NAME`, `QRAB_POD_NAMESPACE` and `QRAB_IMAGE`.
+
+The supervisor records every QMP event in a bounded history: 256 events,
+oldest evicted first, payloads over 8 KiB replaced by `null` with
+`truncated: true`, and names that are not QAPI-shaped rejected and counted.
+Sequence numbers start at 1 and increase by one per event for the channel's
+lifetime, so `missed` in a page reports eviction between a cursor and the
+oldest retained event. `VmEvent::decode::<qapi::events::ResetEvent>()` and the
+other generated event types give typed payloads.
+
+### Control socket
+
+With `"control_socket": true` the supervisor serves the API on
+`{runtime_dir}/control/control.sock` while it owns the runtime lock, so a BMC
+or Redfish sidecar can share the pod's runtime emptyDir. The directory is 0700
+and the socket 0600; peers must have the manager's UID. Eight connections
+(four console streams) are served at once; further connections receive a
+`busy` error and are closed. Requests are limited to 64 KiB and responses to
+4 MiB; an idle connection closes after 60 seconds and a blocked write after
+5 seconds. The socket is removed when the supervisor exits. It never exposes
+QMP or a socket path.
+
+The protocol is newline-delimited JSON, version 1 (`pod::socket` has the
+types and a typed `Client`). On connect the server sends
+`{"protocol":"qrab-control","version":1,"vm":"<name>","operations":[...]}`.
+Each request is `{"v":1,"id":<u64>,"op":"<op>",...}` and each reply
+`{"v":1,"id":<id>,"result":...}` or
+`{"v":1,"id":<id>,"error":{"code":"<code>","message":"..."}}` with codes
+`bad_request`, `unsupported_version`, `frame_too_large`, `busy` and
+`unavailable`. A connection may carry any number of requests.
+
+| `op` | Arguments | Result |
+| --- | --- | --- |
+| `status` | | The `status.json` record |
+| `config` | `redacted` (default false) | `ConfigView` |
+| `events` | `after`, `limit` (≤256) | `EventPage` |
+| `action` | `action`: `pause`/`resume`/`reset`/`powerdown` | `null` |
+| `follow` | `after` (default: latest) | `{"after":n}`, then the connection streams `{"v":1,"event":{...}}` and `{"v":1,"missed":n}` frames until the client closes or sends anything |
+| `console` | | `null`, then the connection is the raw VNC (RFB) byte stream |
+
+The socket trusts its UID-restricted peer. A sidecar serving users enforces
+its own authentication and requests `redacted` views for less-privileged
+users, as the BMC does.
+
 ## Build and publish
 
 From clean committed source, with `vendor/qemu` initialized from local Gitea:

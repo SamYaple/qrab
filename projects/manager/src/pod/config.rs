@@ -110,6 +110,10 @@ pub struct Config {
     /// Enable a graphical console on a private Unix socket in the session directory.
     #[serde(default)]
     pub console: bool,
+    /// Serve the typed control API on `{runtime_dir}/control/control.sock`
+    /// for a sidecar sharing the runtime volume. See `pod::socket`.
+    #[serde(default)]
+    pub control_socket: bool,
     #[serde(default)]
     pub disk: Option<Disk>,
     #[serde(default)]

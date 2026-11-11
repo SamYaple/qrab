@@ -71,6 +71,12 @@ impl QmpWriter {
         }
         self.send(reply).await
     }
+    pub async fn send_event(&mut self, name: &str, data: Value) -> Result<()> {
+        self.send(
+            json!({"event": name, "data": data, "timestamp": {"seconds": 0, "microseconds": 0}}),
+        )
+        .await
+    }
 }
 
 pub struct QmpSession {
@@ -136,7 +142,7 @@ impl QmpSession {
             .await
     }
     pub async fn send_event(&mut self, name: &str, data: Value) -> Result<()> {
-        self.writer.send(json!({"event": name, "data": data, "timestamp": {"seconds": 0, "microseconds": 0}})).await
+        self.writer.send_event(name, data).await
     }
 }
 
