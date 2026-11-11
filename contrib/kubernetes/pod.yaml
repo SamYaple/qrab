@@ -29,7 +29,7 @@ spec:
   containers:
   - name: manager
     # Published image/source provenance is recorded in contrib/images/images.lock.json.
-    image: zot.yapplesauce.com/qrab/manager@sha256:5f072f05258a8804a8afc84cd811d2d85171a99522690c0ab6c3e95593ab692b
+    image: zot.yapplesauce.com/qrab/manager@sha256:064f59282403160ae18274fdb07fe6bc2ae96fe6372919538198cfc9bb38d58c
     imagePullPolicy: Always
     command: [qrab-bmc]
     args: [--config, /etc/qrab/vm.json]
