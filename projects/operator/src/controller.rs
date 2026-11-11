@@ -4,7 +4,7 @@ mod storage_guard;
 use crate::{
     api::{VirtualMachine, VirtualMachineStatus},
     provision::{self, Attached, SecretStore, Step},
-    resources::{self, Desired, Settings},
+    resources::{self, Desired, GuestSize, ResizePlan, Settings},
     storage::{SharedStorage, StorageError},
     Error, Result,
 };
@@ -70,6 +70,7 @@ fn state(
             .as_ref()
             .map(|s| s.disks.clone())
             .unwrap_or_default(),
+        resize: None,
     }
 }
 
@@ -389,7 +390,12 @@ async fn synchronize(
         Ok(provisioned) => provisioned,
         Err(action) => return Ok(action),
     };
-    let desired = resources::render_with(vm, &ctx.settings, &provisioned)?;
+    // A live Pod keeps the config it booted with; only its resources follow the spec.
+    let boot = pod
+        .as_ref()
+        .and_then(resources::boot_size)
+        .unwrap_or_else(|| GuestSize::of(vm));
+    let desired = resources::render_booted(vm, &ctx.settings, &provisioned, boot)?;
     if let Some(pod) = &pod {
         if !resources::pod_matches(pod, &desired) {
             delete(&pods, pod).await?;
@@ -480,6 +486,45 @@ async fn synchronize(
             .await?;
             return Ok(Action::requeue(Duration::from_secs(2)));
         }
+        let mut rejected = None;
+        let mut current = pod.clone();
+        match resources::plan_resize(vm, pod, &desired) {
+            ResizePlan::Steady => {}
+            ResizePlan::Restart(reason) => {
+                delete(&pods, pod).await?;
+                publish(
+                    vms,
+                    vm,
+                    state(
+                        vm,
+                        Some(pod),
+                        "Updating",
+                        false,
+                        "ResizeRequiresRestart",
+                        reason,
+                    ),
+                )
+                .await?;
+                return Ok(Action::requeue(Duration::from_secs(2)));
+            }
+            ResizePlan::Grow(patch) => match pods
+                .patch_subresource(
+                    "resize",
+                    &pod.name_any(),
+                    &PatchParams::default(),
+                    &Patch::Strategic(patch),
+                )
+                .await
+            {
+                Ok(updated) => current = updated,
+                // Requests beyond node allocatable are refused synchronously.
+                Err(kube::Error::Api(status)) if status.code == 403 => {
+                    rejected = Some(status.message.clone());
+                }
+                Err(error) => return Err(error.into()),
+            },
+        }
+        let pod = &current;
         // The guard recorded the owner UID first; only a validated,
         // converged spec/config may now be made schedulable.
         if storage_guard::open_owner_gate(vm, &pods, pod).await? {
@@ -490,23 +535,25 @@ async fn synchronize(
             .as_ref()
             .and_then(|s| s.conditions.as_ref())
             .is_some_and(|c| c.iter().any(|c| c.type_ == "Ready" && c.status == "True"));
-        publish(
-            vms,
+        let mut status = state(
             vm,
-            state(
-                vm,
-                Some(pod),
-                if ready { "Running" } else { "Pending" },
-                ready,
-                if ready { "VMRunning" } else { "PodNotReady" },
-                if ready {
-                    "QEMU, swtpm and BMC are live; guest networking is disabled"
-                } else {
-                    "Waiting for the VM Pod to become ready"
-                },
-            ),
-        )
-        .await?;
+            Some(pod),
+            if ready { "Running" } else { "Pending" },
+            ready,
+            if ready { "VMRunning" } else { "PodNotReady" },
+            if ready {
+                "QEMU, swtpm and BMC are live; guest networking is disabled"
+            } else {
+                "Waiting for the VM Pod to become ready"
+            },
+        );
+        let resize = resources::resize_status(pod, &desired, rejected);
+        let settled = resize.phase == "Applied";
+        status.resize = Some(resize);
+        publish(vms, vm, status).await?;
+        if !settled {
+            return Ok(Action::requeue(Duration::from_secs(5)));
+        }
     } else {
         ensure_config(&configs, vm, &desired).await?;
         let pod = pods.create(&PostParams::default(), &desired.pod).await?;

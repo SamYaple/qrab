@@ -56,6 +56,63 @@ are initialized atomically, then reused. State binds the VM name and `state_id`
 are 0700 and files 0600. Corrupt/missing initialized TPM state or a mismatched
 manifest fails closed instead of silently resetting identity.
 
+### In-place growth (`hotplug`)
+
+An optional `hotplug` object gives QEMU boot-time headroom and lets the
+supervisor grow a running guest. It has no Kubernetes client; it learns the
+desired size from files and gates on the container's own cgroup:
+
+```json
+"hotplug": {"max_cpus": 4, "max_memory_mib": 2048, "limits_dir": "/run/qrab-size",
+            "cpu_overhead_millis": 1000, "memory_overhead_mib": 512}
+```
+
+- QEMU starts with `-smp cpus=N,maxcpus=max_cpus` and, when `max_memory_mib`
+  exceeds `memory_mib`, `-m size=M,maxmem=…` plus a `virtio-mem-pci` device
+  (`hotplug-memory0`, 2 MiB blocks, `requested-size=0`) on a `memory-backend-ram`.
+  Unplugged virtio-mem blocks are reserved address space, not RSS. QEMU 11.1.3
+  q35 accepts `maxmem` without DIMM slots.
+- `limits_dir` holds the downward-API files `cpu_limit_millis` and
+  `memory_limit_mib`. Desired guest size = limit − overhead (`cpu_limit/1000 − 1`
+  vCPUs, `memory_limit − 512` MiB in operator Pods).
+- Each one-second heartbeat also reads `cgroup_dir` (default `/sys/fs/cgroup`)
+  `cpu.max` and `memory.max`. Growth is `min(desired, applied cgroup, maxima)`
+  and never shrinks. vCPUs are added with `query-hotpluggable-cpus` +
+  `device_add` (free slots in topology order, id `qrab-vcpuN`); memory with
+  `qom-set /machine/peripheral/hotplug-memory0 requested-size`. `qom-get size`
+  reports what the guest driver actually plugged.
+- `status.json` carries `resize`: boot, maximum, desired, permitted, current,
+  `plugged_memory_mib` and a `detail` such as waiting for cgroup limits or
+  "exceeds the boot-time maximum; a restart is required". Each growth logs a
+  `guest_resized` stderr record. Hot-plug failures are reported there and do not
+  stop the VM.
+
+The kubelet updates downward-API files before cgroup limits (and even while a
+resize is `Deferred`), so the cgroup check is the safety gate. The guest must
+online the new resources: the demo initramfs loads `virtio_mem` (Debian 6.12
+auto-onlines its memory) and, having no udev, onlines hot-added CPUs and any
+offline memory blocks in a background loop that prints
+`QRAB_GUEST_RESOURCES cpus=N memory_kib=M` on serial.
+
+**vCPU hot-plug requires a hypervisor-identified guest.** Linux 6.12.116
+(`acpi_is_processor_usable`) only registers QEMU's disabled MADT entries as
+hot-pluggable when the guest is not on bare metal; under TCG the hypervisor
+type is NATIVE (QEMU's `TCGTCGTCGTCG` signature is unknown), so the guest logs
+`Allowing 1 present CPUs plus 0 hotplug CPUs` and ignores `device_add`
+(`hypervisor=on` does not help). With KVM (`Hypervisor detected: KVM`) it
+allows the hot-plug CPUs and onlines them. Memory hot-plug works under both.
+The operator therefore renders `max_cpus = cpus` for its TCG VMs.
+
+Verified 2026-11-11 with the published QEMU 11.1.3/OVMF/demo-guest image, the
+updated demo initramfs and `qrab-manager run` (direct kernel boot, KVM) with
+simulated limit/cgroup files; the same QMP sequence was also checked by hand on
+the OVMF/UKI `boot.img` under KVM. Limits asking for 3 vCPUs/1024 MiB while
+`cpu.max=200000 100000` held the guest at 1/512 with "waiting for the kubelet";
+raising `cpu.max` to `400000 100000` and `memory.max` to 1536 MiB produced
+`guest_resized cpus=3 memory_mib=1024`, `plugged_memory_mib: 512` and guest
+serial `QRAB_GUEST_RESOURCES cpus=3 memory_kib=930352` (from 406064). Under TCG
+the same flow grew memory (`memory_kib` 400948 → 925236) but not CPUs.
+
 The readonly image's ESP is separate from mutable VARS/TPM state. See
 [spire-vm.md](spire-vm.md) before enrolling a VM: presence of TPM2 and an event log
 alone is not trusted SPIRE node authentication.

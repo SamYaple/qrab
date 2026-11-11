@@ -1,11 +1,89 @@
 use crate::{api::VirtualMachine, provision::Attached, Error, Result};
 use k8s_openapi::api::core::v1::{ConfigMap, Pod};
 use kube::{Resource, ResourceExt};
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 
 pub const HASH: &str = "qrab.yapplesauce.com/template-hash";
+/// Guest size the Pod's QEMU booted with; resizes never change it.
+pub const BOOT_SIZE: &str = "qrab.yapplesauce.com/boot-size";
+/// Rendered accelerator. Linux treats TCG guests as bare metal and refuses
+/// hot-added vCPUs, so only KVM VMs get vCPU headroom.
+const ACCELERATOR: &str = "tcg";
+const CPU_LIMIT_OVERHEAD_MILLIS: u32 = 1000;
+const MEMORY_REQUEST_OVERHEAD_MIB: u32 = 256;
+const MEMORY_LIMIT_OVERHEAD_MIB: u32 = 512;
+const SIZE_DIR: &str = "/run/qrab-size";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct GuestSize {
+    pub cpus: u32,
+    #[serde(rename = "memoryMiB")]
+    pub memory_mib: u32,
+}
+
+impl GuestSize {
+    pub fn of(vm: &VirtualMachine) -> Self {
+        Self {
+            cpus: vm.spec.cpus,
+            memory_mib: vm.spec.memory_mib,
+        }
+    }
+
+    fn fits(self, bound: Self) -> bool {
+        self.cpus <= bound.cpus && self.memory_mib <= bound.memory_mib
+    }
+
+    /// Container resources: guest size plus a fixed, bounded QEMU/BMC overhead.
+    pub fn container_resources(self) -> Value {
+        json!({
+            "requests":{"cpu":self.cpus.to_string(),"memory":memory_quantity(self.memory_mib+MEMORY_REQUEST_OVERHEAD_MIB)},
+            "limits":{"cpu":(self.cpus+CPU_LIMIT_OVERHEAD_MILLIS/1000).to_string(),"memory":memory_quantity(self.memory_mib+MEMORY_LIMIT_OVERHEAD_MIB)}
+        })
+    }
+
+    /// Inverse of `container_resources` for the quantity forms it renders.
+    pub fn from_limits(limits: &Value) -> Option<Self> {
+        let cpus = limits.get("cpu")?.as_str()?.parse::<u32>().ok()?;
+        let memory = limits.get("memory")?.as_str()?;
+        let memory_mib = match (memory.strip_suffix("Gi"), memory.strip_suffix("Mi")) {
+            (Some(gib), _) => gib.parse::<u32>().ok()?.checked_mul(1024)?,
+            (_, Some(mib)) => mib.parse().ok()?,
+            _ => return None,
+        };
+        Some(Self {
+            cpus: cpus.checked_sub(CPU_LIMIT_OVERHEAD_MILLIS / 1000)?,
+            memory_mib: memory_mib.checked_sub(MEMORY_LIMIT_OVERHEAD_MIB)?,
+        })
+    }
+
+    /// Hot-plug ceilings fixed when QEMU boots at `self`.
+    pub fn maxima(self, vm: &VirtualMachine) -> Self {
+        Self {
+            cpus: if ACCELERATOR == "kvm" {
+                vm.spec
+                    .max_cpus
+                    .unwrap_or((self.cpus * 4).min(64))
+                    .clamp(self.cpus, 256)
+            } else {
+                self.cpus
+            },
+            memory_mib: vm
+                .spec
+                .max_memory_mib
+                .unwrap_or((self.memory_mib * 4).min(self.memory_mib + 65_536))
+                .clamp(self.memory_mib, 1_048_576),
+        }
+    }
+}
+
+/// Boot size recorded on a Pod this operator created.
+pub fn boot_size(pod: &Pod) -> Option<GuestSize> {
+    serde_json::from_str(pod.annotations().get(BOOT_SIZE)?).ok()
+}
 
 #[derive(Clone)]
 pub struct Settings {
@@ -95,6 +173,19 @@ pub fn validate(vm: &VirtualMachine, settings: &Settings) -> Result<()> {
     {
         return Err(Error::Invalid(
             "invalid memory, CPU count or restartNonce".into(),
+        ));
+    }
+    if vm
+        .spec
+        .max_cpus
+        .is_some_and(|max| !(vm.spec.cpus..=256).contains(&max))
+        || vm
+            .spec
+            .max_memory_mib
+            .is_some_and(|max| !(vm.spec.memory_mib..=1_048_576).contains(&max))
+    {
+        return Err(Error::Invalid(
+            "maxCpus/maxMemoryMiB must not be below cpus/memoryMiB".into(),
         ));
     }
     if !pinned_image(vm.spec.image.as_deref().unwrap_or(&settings.vm_image)) {
@@ -270,6 +361,8 @@ pub struct Desired {
     pub config: ConfigMap,
     pub pod: Pod,
     pub hash: String,
+    pub boot: GuestSize,
+    pub maximum: GuestSize,
 }
 
 fn memory_quantity(mib: u32) -> String {
@@ -280,6 +373,7 @@ fn memory_quantity(mib: u32) -> String {
     }
 }
 
+/// Render a fresh instance that boots at the spec size.
 pub fn render(vm: &VirtualMachine, settings: &Settings) -> Result<Desired> {
     render_with(vm, settings, &[])
 }
@@ -289,6 +383,17 @@ pub fn render_with(
     vm: &VirtualMachine,
     settings: &Settings,
     provisioned: &[Attached],
+) -> Result<Desired> {
+    render_booted(vm, settings, provisioned, GuestSize::of(vm))
+}
+
+/// Render the instance that booted at `boot`. Its config and template hash
+/// stay fixed while the container resources follow the spec size.
+pub fn render_booted(
+    vm: &VirtualMachine,
+    settings: &Settings,
+    provisioned: &[Attached],
+    boot: GuestSize,
 ) -> Result<Desired> {
     validate(vm, settings)?;
     if vm.spec.disks.len() != provisioned.len()
@@ -303,6 +408,7 @@ pub fn render_with(
             "provisioned disks are not exported yet".into(),
         ));
     }
+    let maximum = boot.maxima(vm);
     let name = vm.name_any();
     let config_name = format!("{name}-config");
     let uid = vm.uid().expect("validated UID");
@@ -310,7 +416,8 @@ pub fn render_with(
     // Background GC needs no delete/finalizer authority on the parent CR.
     owner.block_owner_deletion = Some(false);
     let labels = json!({"app.kubernetes.io/name":"qrab", "app.kubernetes.io/component":"vm", "app.kubernetes.io/instance":name, "qrab.yapplesauce.com/owner-uid":uid});
-    let mut config = json!({"name":name,"memory_mib":vm.spec.memory_mib,"cpus":vm.spec.cpus,"accelerator":"tcg","console":true,"uefi":{"boot_disk":vm.spec.boot_disk},"tpm":{},"state_dir":"/var/lib/qrab","state_id":uid,"runtime_dir":"/run/qrab","startup_timeout_secs":30,"shutdown_grace_secs":5});
+    let mut config = json!({"name":name,"memory_mib":boot.memory_mib,"cpus":boot.cpus,"accelerator":ACCELERATOR,"console":true,"uefi":{"boot_disk":vm.spec.boot_disk},"tpm":{},"state_dir":"/var/lib/qrab","state_id":uid,"runtime_dir":"/run/qrab","startup_timeout_secs":30,"shutdown_grace_secs":5,
+        "hotplug":{"max_cpus":maximum.cpus,"max_memory_mib":maximum.memory_mib,"limits_dir":SIZE_DIR,"cpu_overhead_millis":CPU_LIMIT_OVERHEAD_MILLIS,"memory_overhead_mib":MEMORY_LIMIT_OVERHEAD_MIB}});
     let initiator = format!("iqn.2026-11.com.yapplesauce:qrab.vm.{uid}");
     let mut disks: Vec<_> = vm.spec.iscsi_disks.iter().map(|d|json!({"id":d.id,"portal":d.portal,"target":d.target,"lun":d.lun,"initiator_name":initiator,"username":d.username,"password_file":format!("/run/qrab-auth/{}/password",d.id),"read_only":d.read_only,"boot_index":d.boot_index,"bus":"virtio"})).collect();
     disks.extend(provisioned.iter().map(|d|json!({"id":d.id,"portal":d.portal,"target":d.target,"lun":0,"initiator_name":initiator,"username":d.username,"password_file":format!("/run/qrab-auth/{}/password",d.id),"read_only":d.read_only,"boot_index":d.boot_index,"bus":"virtio"})));
@@ -328,7 +435,8 @@ pub fn render_with(
         "containers":[{"name":"manager","image":vm.spec.image.as_deref().unwrap_or(&settings.vm_image),"imagePullPolicy":"Always","command":["qrab-bmc"],"args":["--config","/etc/qrab/vm.json"],
             "ports":[{"name":"http","containerPort":8080}],
             "env":[{"name":"BMC_PUBLIC_URL","value":origin(&vm.spec.console.public_url)?},{"name":"BMC_OIDC_ISSUER","value":settings.oidc_issuer},{"name":"BMC_OIDC_CLIENT_ID","value":settings.oidc_client_id},{"name":"BMC_ALLOWED_SUBJECTS","value":vm.spec.console.allowed_subjects.join(",")}],
-            "resources":{"requests":{"cpu":vm.spec.cpus.to_string(),"memory":memory_quantity(vm.spec.memory_mib+256)},"limits":{"cpu":(vm.spec.cpus+1).to_string(),"memory":memory_quantity(vm.spec.memory_mib+512)}},
+            "resources":GuestSize::of(vm).container_resources(),
+            "resizePolicy":[{"resourceName":"cpu","restartPolicy":"NotRequired"},{"resourceName":"memory","restartPolicy":"NotRequired"}],
             "securityContext":{"allowPrivilegeEscalation":false,"privileged":false,"readOnlyRootFilesystem":true,"capabilities":{"drop":["ALL"]}},"terminationMessagePolicy":"FallbackToLogsOnError",
             "volumeMounts":[{"name":"config","mountPath":"/etc/qrab","readOnly":true},{"name":"state","mountPath":"/var/lib/qrab"},{"name":"runtime","mountPath":"/run/qrab"},{"name":"tmp","mountPath":"/tmp"}],
             "startupProbe":{"httpGet":{"path":"/readyz","port":"http"},"periodSeconds":1,"failureThreshold":90,"timeoutSeconds":2},
@@ -361,12 +469,28 @@ pub fn render_with(
         pod["spec"]["volumes"].as_array_mut().expect("volumes").push(json!({"name":volume,"secret":{"secretName":disk.secret_name,"defaultMode":288,"items":[{"key":crate::provision::SECRET_KEY,"path":"password","mode":288}]}}));
         pod["spec"]["containers"][0]["volumeMounts"].as_array_mut().expect("mounts").push(json!({"name":volume,"mountPath":format!("/run/qrab-auth/{}",disk.id),"readOnly":true}));
     }
+    // The kubelet refreshes these limit files on resize, before the cgroup;
+    // the manager waits for the cgroup itself before growing the guest.
+    pod["spec"]["volumes"].as_array_mut().expect("volumes").push(json!({"name":"size","downwardAPI":{"defaultMode":292,"items":[
+        {"path":"cpu_limit_millis","resourceFieldRef":{"containerName":"manager","resource":"limits.cpu","divisor":"1m"}},
+        {"path":"memory_limit_mib","resourceFieldRef":{"containerName":"manager","resource":"limits.memory","divisor":"1Mi"}}]}}));
+    pod["spec"]["containers"][0]["volumeMounts"]
+        .as_array_mut()
+        .expect("mounts")
+        .push(json!({"name":"size","mountPath":SIZE_DIR,"readOnly":true}));
     if let Some(ip) = &settings.idp_ip {
         let issuer =
             url::Url::parse(&settings.oidc_issuer).map_err(|e| Error::Invalid(e.to_string()))?;
         pod["spec"]["hostAliases"] = json!([{"ip":ip,"hostnames":[issuer.host_str().ok_or_else(||Error::Invalid("OIDC issuer has no host".into()))?]}]);
     }
-    let mut identity = json!({"pod":pod,"config":config_data,"restartNonce":vm.spec.restart_nonce});
+    // In-place resizes change only container resources, never the template.
+    let mut template = pod.clone();
+    template["spec"]["containers"][0]
+        .as_object_mut()
+        .expect("container")
+        .remove("resources");
+    let mut identity =
+        json!({"pod":template,"config":config_data,"restartNonce":vm.spec.restart_nonce});
     // A rotated credential or grown LUN needs a fresh QEMU: libiscsi neither
     // reloads secrets nor sees capacity growth. Absent for legacy VMs, so
     // their template hash is unchanged.
@@ -377,11 +501,13 @@ pub fn render_with(
             .collect::<Vec<_>>());
     }
     let hash = format!("{:x}", Sha256::digest(serde_json::to_vec(&identity)?));
-    pod["metadata"]["annotations"] = json!({HASH:hash});
+    pod["metadata"]["annotations"] = json!({HASH:hash, BOOT_SIZE:serde_json::to_string(&boot)?});
     Ok(Desired {
         config: config_map,
         pod: serde_json::from_value(pod)?,
         hash,
+        boot,
+        maximum,
     })
 }
 
@@ -446,6 +572,7 @@ pub fn pod_matches(actual: &Pod, desired: &Desired) -> bool {
             if mount.sub_path.as_ref().is_some_and(|v| !v.is_empty())
                 || mount.sub_path_expr.as_ref().is_some_and(|v| !v.is_empty())
                 || (mount.name != "config"
+                    && mount.name != "size"
                     && !mount.name.starts_with("iscsi-auth-")
                     && mount.read_only.unwrap_or(false))
                 || mount
@@ -467,6 +594,17 @@ pub fn pod_matches(actual: &Pod, desired: &Desired) -> bool {
     let mut actual_spec = serde_json::to_value(&actual.spec).expect("Pod serializes");
     let mut desired_spec = serde_json::to_value(&desired.pod.spec).expect("Pod serializes");
     for spec in [&mut actual_spec, &mut desired_spec] {
+        // Container resources are reconciled in place by `plan_resize`.
+        for container in spec
+            .get_mut("containers")
+            .and_then(Value::as_array_mut)
+            .into_iter()
+            .flatten()
+        {
+            if let Some(container) = container.as_object_mut() {
+                container.remove("resources");
+            }
+        }
         if let Some(gates) = spec
             .get_mut("schedulingGates")
             .and_then(Value::as_array_mut)
@@ -499,4 +637,112 @@ pub fn pod_matches(actual: &Pod, desired: &Desired) -> bool {
 
 pub fn data(config: &ConfigMap) -> BTreeMap<String, String> {
     config.data.clone().unwrap_or_default()
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ResizePlan {
+    /// The Pod already requests the spec size.
+    Steady,
+    /// Strategic-merge patch for the Pod's `resize` subresource.
+    Grow(Value),
+    /// The change cannot be applied to the running guest.
+    Restart(&'static str),
+}
+
+fn manager_container(pod: &Value) -> Option<&Value> {
+    pod["spec"]["containers"]
+        .as_array()?
+        .iter()
+        .find(|c| c["name"] == "manager")
+}
+
+/// Decide how a converged Pod reaches the spec size. Growth within the boot
+/// maxima is applied in place; a running guest is never shrunk in place.
+pub fn plan_resize(vm: &VirtualMachine, pod: &Pod, desired: &Desired) -> ResizePlan {
+    let pod_value = serde_json::to_value(pod).expect("Pod serializes");
+    let want = GuestSize::of(vm);
+    let Some(have) = manager_container(&pod_value)
+        .and_then(|c| GuestSize::from_limits(&c["resources"]["limits"]))
+    else {
+        return ResizePlan::Restart("the VM Pod has unrecognized container resources");
+    };
+    if want == have {
+        return ResizePlan::Steady;
+    }
+    if pod_value["status"]["phase"] != "Running" {
+        return ResizePlan::Restart("the VM Pod has not started; recreating it at the new size");
+    }
+    if !have.fits(want) {
+        return ResizePlan::Restart("a running guest cannot shrink in place");
+    }
+    if !want.fits(desired.maximum) {
+        return ResizePlan::Restart("the new size exceeds the boot-time hot-plug maximum");
+    }
+    ResizePlan::Grow(json!({
+        "metadata":{"uid":pod.uid()},
+        "spec":{"containers":[{"name":"manager","resources":want.container_resources()}]}
+    }))
+}
+
+fn condition<'a>(pod: &'a Value, kind: &str) -> Option<&'a Value> {
+    pod["status"]["conditions"]
+        .as_array()?
+        .iter()
+        .find(|c| c["type"] == kind && c["status"] == "True")
+}
+
+/// Kubelet-side resize state. `rejected` is an API-server refusal of the
+/// resize patch, which Kubernetes 1.37 returns synchronously for requests
+/// beyond the node's allocatable capacity.
+pub fn resize_status(
+    pod: &Pod,
+    desired: &Desired,
+    rejected: Option<String>,
+) -> crate::api::ResizeStatus {
+    let pod_value = serde_json::to_value(pod).expect("Pod serializes");
+    let requested = manager_container(&pod_value)
+        .and_then(|c| GuestSize::from_limits(&c["resources"]["limits"]));
+    let applied = pod_value["status"]["containerStatuses"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|c| c["name"] == "manager")
+        .and_then(|c| GuestSize::from_limits(&c["resources"]["limits"]));
+    let text = |c: &Value, key: &str| c[key].as_str().unwrap_or_default().to_owned();
+    let observed = pod_value["status"]["observedGeneration"]
+        .as_i64()
+        .unwrap_or(0)
+        >= pod.metadata.generation.unwrap_or(0);
+    let (phase, message) = if let Some(message) = rejected {
+        ("Infeasible".to_owned(), message)
+    } else if let Some(c) = condition(&pod_value, "PodResizePending") {
+        (text(c, "reason"), text(c, "message"))
+    } else if let Some(c) = condition(&pod_value, "PodResizeInProgress") {
+        let phase = if c["reason"] == "Error" {
+            "Error"
+        } else {
+            "InProgress"
+        };
+        (phase.to_owned(), text(c, "message"))
+    } else if observed && requested.is_some() && applied == requested {
+        ("Applied".to_owned(), String::new())
+    } else {
+        (
+            "Proposed".to_owned(),
+            "waiting for the kubelet to act on the resize".to_owned(),
+        )
+    };
+    let requested = requested.unwrap_or(desired.boot);
+    crate::api::ResizeStatus {
+        phase,
+        message,
+        cpus: requested.cpus,
+        memory_mib: requested.memory_mib,
+        applied_cpus: applied.map(|s| s.cpus),
+        applied_memory_mib: applied.map(|s| s.memory_mib),
+        boot_cpus: desired.boot.cpus,
+        boot_memory_mib: desired.boot.memory_mib,
+        max_cpus: desired.maximum.cpus,
+        max_memory_mib: desired.maximum.memory_mib,
+    }
 }

@@ -5,6 +5,7 @@ mod agent;
 mod config;
 mod control;
 mod events;
+mod hotplug;
 mod iscsi;
 mod persistent;
 mod process;
@@ -15,11 +16,12 @@ mod tpm;
 mod view;
 
 pub use agent::{AgentStatus, FreezeState, UpdateState, UpdateStatus};
-pub use config::{Accelerator, Config, Disk, DiskFormat, Tpm, Uefi};
+pub use config::{Accelerator, Config, Disk, DiskFormat, Hotplug, Tpm, Uefi, HOTPLUG_BLOCK_MIB};
 pub use control::{control_channel, control_channel_for, Action, Control, ControlReceiver};
 pub use events::{
     EventPage, QemuTime, VmEvent, EVENT_CAPACITY, EVENT_DATA_LIMIT, EVENT_PAGE_LIMIT,
 };
+pub use hotplug::{GuestSize, Resize};
 pub use iscsi::{IscsiBus, IscsiDisk};
 pub use state::{probe, status, Phase, Status};
 pub use supervisor::{run, run_controlled, Outcome};

@@ -133,6 +133,7 @@ pub async fn run_controlled(
         observed_unix_ms: 0,
         exit_code: None,
         detail: None,
+        resize: super::Resize::new(&config),
     };
     publish(&config, &mut state)?;
     let mut shutdown = Box::pin(shutdown);
@@ -289,6 +290,7 @@ async fn run_qemu(
                 _=heartbeat.tick() => {
                     let status=qmp.execute(&QueryStatus {}).await?;
                     state.phase=Phase::Running;state.ready=status.running;state.run_state=Some(status.status.to_string());
+                    if let Some(resize)=state.resize.as_mut() { super::hotplug::reconcile(config,&qmp,resize).await; }
                     publish(config,state)?;
                 }
             }

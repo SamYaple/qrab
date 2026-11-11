@@ -46,6 +46,33 @@ fn enabled() -> bool {
 fn swtpm_binary() -> PathBuf {
     "/usr/bin/swtpm".into()
 }
+fn limits_dir() -> PathBuf {
+    "/run/qrab-size".into()
+}
+fn cgroup_dir() -> PathBuf {
+    "/sys/fs/cgroup".into()
+}
+
+/// virtio-mem plugs whole blocks; QEMU's x86 default and minimum is 2 MiB.
+pub const HOTPLUG_BLOCK_MIB: u64 = 2;
+
+/// Boot-time headroom for in-place growth. QEMU starts with `cpus` and
+/// `memory_mib`; the supervisor grows the guest toward the container's
+/// downward-API limits, never past what its cgroup already permits.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct Hotplug {
+    pub max_cpus: u32,
+    pub max_memory_mib: u64,
+    /// Downward-API files `cpu_limit_millis` and `memory_limit_mib` for this container.
+    #[serde(default = "limits_dir")]
+    pub limits_dir: PathBuf,
+    #[serde(default = "cgroup_dir")]
+    pub cgroup_dir: PathBuf,
+    /// The container limit is the guest size plus these fixed overheads.
+    pub cpu_overhead_millis: u64,
+    pub memory_overhead_mib: u64,
+}
 
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -143,9 +170,28 @@ pub struct Config {
     pub startup_timeout_secs: u64,
     #[serde(default = "grace")]
     pub shutdown_grace_secs: u64,
+    #[serde(default)]
+    pub hotplug: Option<Hotplug>,
 }
 
 impl Config {
+    /// Upper vCPU bound fixed at boot; equal to `cpus` without hot-plug.
+    pub fn max_cpus(&self) -> u32 {
+        self.hotplug
+            .as_ref()
+            .map_or(self.cpus, |h| h.max_cpus.max(self.cpus))
+    }
+
+    /// Size of the virtio-mem region above boot memory, in whole blocks.
+    pub fn hotplug_memory_mib(&self) -> u64 {
+        self.hotplug.as_ref().map_or(0, |h| {
+            h.max_memory_mib
+                .saturating_sub(self.memory_mib)
+                .div_ceil(HOTPLUG_BLOCK_MIB)
+                * HOTPLUG_BLOCK_MIB
+        })
+    }
+
     pub fn read(path: &Path) -> Result<Self> {
         Ok(serde_json::from_slice(&std::fs::read(path)?)?)
     }
@@ -170,6 +216,19 @@ impl Config {
             return Err(Error::Config(
                 "invalid memory, CPU count or lifecycle timeout".into(),
             ));
+        }
+        if let Some(hotplug) = &self.hotplug {
+            if !(self.cpus..=256).contains(&hotplug.max_cpus)
+                || !(self.memory_mib..=1_048_576).contains(&hotplug.max_memory_mib)
+                || hotplug.cpu_overhead_millis > 64_000
+                || hotplug.memory_overhead_mib > 65_536
+                || !hotplug.limits_dir.is_absolute()
+                || !hotplug.cgroup_dir.is_absolute()
+            {
+                return Err(Error::Config(
+                    "hotplug maxima must cover the boot size within 256 vCPUs/1 TiB, with bounded overheads and absolute source directories".into(),
+                ));
+            }
         }
         if let Some(uefi) = &self.uefi {
             if self.kernel.is_some() || self.initrd.is_some() || !self.kernel_args.is_empty() {
@@ -256,6 +315,21 @@ impl Config {
 
     /// JSON blockdev options keep filenames with commas or spaces unambiguous.
     pub fn arguments(&self, socket: &Path) -> Vec<String> {
+        let hotplug_memory = self.hotplug_memory_mib();
+        let memory = if hotplug_memory == 0 {
+            self.memory_mib.to_string()
+        } else {
+            format!(
+                "size={}M,maxmem={}M",
+                self.memory_mib,
+                self.memory_mib + hotplug_memory
+            )
+        };
+        let smp = if self.max_cpus() > self.cpus {
+            format!("cpus={},maxcpus={}", self.cpus, self.max_cpus())
+        } else {
+            self.cpus.to_string()
+        };
         let mut args: Vec<String> = [
             "-name",
             &self.name,
@@ -266,9 +340,9 @@ impl Config {
                 "q35"
             },
             "-m",
-            &self.memory_mib.to_string(),
+            &memory,
             "-smp",
-            &self.cpus.to_string(),
+            &smp,
             "-accel",
             match self.accelerator {
                 Accelerator::Tcg => "tcg,thread=multi",
@@ -385,6 +459,16 @@ impl Config {
             args.extend(["-blockdev".into(), serde_json::json!({"driver":"file", "filename":disk.path, "node-name":"disk-file", "read-only":disk.read_only}).to_string(),
                 "-blockdev".into(), serde_json::json!({"driver":disk.format, "file":"disk-file", "node-name":"disk", "read-only":disk.read_only}).to_string(),
                 "-device".into(), "virtio-blk-pci,drive=disk".into()]);
+        }
+        if hotplug_memory > 0 {
+            // Unplugged blocks are reserved address space only; the guest
+            // touches memory after the supervisor raises requested-size.
+            args.extend([
+                "-object".into(),
+                serde_json::json!({"qom-type":"memory-backend-ram", "id":"hotplug-memory", "size":hotplug_memory << 20}).to_string(),
+                "-device".into(),
+                format!("virtio-mem-pci,id={},memdev=hotplug-memory,requested-size=0,block-size={HOTPLUG_BLOCK_MIB}M", super::hotplug::MEMORY_DEVICE),
+            ]);
         }
         super::iscsi::arguments(&self.iscsi_disks, &mut args);
         args

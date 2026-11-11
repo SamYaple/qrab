@@ -33,6 +33,9 @@ pub struct Status {
     pub observed_unix_ms: u64,
     pub exit_code: Option<i32>,
     pub detail: Option<String>,
+    /// In-place vCPU/memory growth progress when hot-plug headroom is configured.
+    #[serde(default)]
+    pub resize: Option<super::Resize>,
 }
 
 fn now_ms() -> u64 {
@@ -168,6 +171,7 @@ mod tests {
             observed_unix_ms: now_ms(),
             exit_code: None,
             detail: None,
+            resize: None,
         };
         (dir, config, status)
     }

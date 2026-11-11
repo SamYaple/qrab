@@ -28,6 +28,7 @@ fn boot_disk() -> String {
 #[kube(printcolumn = r#"{"name":"Phase","type":"string","jsonPath":".status.phase"}"#)]
 #[kube(printcolumn = r#"{"name":"Ready","type":"boolean","jsonPath":".status.ready"}"#)]
 #[kube(printcolumn = r#"{"name":"Node","type":"string","jsonPath":".status.nodeName"}"#)]
+#[kube(printcolumn = r#"{"name":"Resize","type":"string","jsonPath":".status.resize.phase"}"#)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct VirtualMachineSpec {
     /// Existing filesystem PVC. Its UEFI/vTPM identity is never garbage collected.
@@ -39,6 +40,20 @@ pub struct VirtualMachineSpec {
     #[serde(default = "cpus")]
     #[schemars(with = "i32", range(min = 1, max = 256))]
     pub cpus: u32,
+    /// vCPU hot-plug ceiling fixed at boot. Defaults to 4x the booted count
+    /// (at most 64). Growth beyond it, or changing it, restarts the VM.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(with = "Option<i32>", range(min = 1, max = 256))]
+    pub max_cpus: Option<u32>,
+    /// Memory hot-plug ceiling fixed at boot. Defaults to 4x the booted size
+    /// (at most +64 GiB). Growth beyond it, or changing it, restarts the VM.
+    #[serde(
+        default,
+        rename = "maxMemoryMiB",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[schemars(with = "Option<i32>", range(min = 256, max = 1048576))]
+    pub max_memory_mib: Option<u32>,
     /// Desired power state. A running VM is recreated after exit or Pod loss.
     #[serde(default = "running")]
     pub running: bool,
@@ -170,13 +185,42 @@ pub struct VirtualMachineStatus {
     pub storage_recovery: Option<String>,
     #[serde(default)]
     pub disks: Vec<DiskStatus>,
+    /// In-place resource growth of the current Pod.
+    pub resize: Option<ResizeStatus>,
+}
+
+/// The kubelet side of an in-place resize. `phase` is Applied, Proposed,
+/// InProgress, Deferred, Infeasible or Error. The manager hot-adds guest
+/// vCPUs/memory only after the applied cgroup limits have grown.
+#[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ResizeStatus {
+    pub phase: String,
+    pub message: String,
+    /// Guest size requested from the Pod's container resources.
+    pub cpus: u32,
+    #[serde(rename = "memoryMiB")]
+    pub memory_mib: u32,
+    /// Guest size whose limits the kubelet reports as applied.
+    pub applied_cpus: Option<u32>,
+    #[serde(rename = "appliedMemoryMiB")]
+    pub applied_memory_mib: Option<u32>,
+    /// Size and hot-plug ceilings this Pod's QEMU booted with.
+    pub boot_cpus: u32,
+    #[serde(rename = "bootMemoryMiB")]
+    pub boot_memory_mib: u32,
+    pub max_cpus: u32,
+    #[serde(rename = "maxMemoryMiB")]
+    pub max_memory_mib: u32,
 }
 
 pub fn crd() -> serde_json::Value {
     let mut value = serde_json::to_value(VirtualMachine::crd()).expect("CRD serializes");
     value["spec"]["versions"][0]["schema"]["openAPIV3Schema"]["x-kubernetes-validations"] = serde_json::json!([
         {"rule":"size(self.metadata.name) <= 50", "message":"VM names must be at most 50 characters"},
-        {"rule":"!has(oldSelf.spec.storageNode) || (has(self.spec.storageNode) && self.spec.storageNode == oldSelf.spec.storageNode)", "message":"storageNode is immutable; disk migration requires explicit fencing"}
+        {"rule":"!has(oldSelf.spec.storageNode) || (has(self.spec.storageNode) && self.spec.storageNode == oldSelf.spec.storageNode)", "message":"storageNode is immutable; disk migration requires explicit fencing"},
+        {"rule":"!has(self.spec.maxCpus) || self.spec.cpus <= self.spec.maxCpus", "message":"cpus must not exceed maxCpus"},
+        {"rule":"!has(self.spec.maxMemoryMiB) || self.spec.memoryMiB <= self.spec.maxMemoryMiB", "message":"memoryMiB must not exceed maxMemoryMiB"}
     ]);
     let disks = &mut value["spec"]["versions"][0]["schema"]["openAPIV3Schema"]["properties"]
         ["spec"]["properties"]["iscsiDisks"];
@@ -203,11 +247,13 @@ pub fn crd() -> serde_json::Value {
     value["spec"]["versions"][0]["schema"]["openAPIV3Schema"]["properties"]["spec"]["properties"]
         ["bootDisk"]["enum"] = serde_json::json!(["/opt/qrab/demo/boot.img"]);
     // Optional means absent. Prune explicit null rather than pinning to it.
-    let node = value["spec"]["versions"][0]["schema"]["openAPIV3Schema"]["properties"]["spec"]
-        ["properties"]["storageNode"]
-        .as_object_mut()
-        .expect("storageNode schema");
-    node.remove("nullable");
-    node.remove("default");
+    for field in ["storageNode", "maxCpus", "maxMemoryMiB"] {
+        let schema = value["spec"]["versions"][0]["schema"]["openAPIV3Schema"]["properties"]
+            ["spec"]["properties"][field]
+            .as_object_mut()
+            .expect("optional field schema");
+        schema.remove("nullable");
+        schema.remove("default");
+    }
     value
 }

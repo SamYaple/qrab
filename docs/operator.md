@@ -98,10 +98,101 @@ identity files are owner-only. `fsGroupChangePolicy: OnRootMismatch` prevents
 routine remounts from broadening retained private-file access.
 
 Status reports `observedGeneration`, `phase`, `ready`, `reason`, `message`, Pod
-name/UID/node and the state PVC UID. Ready means the manager/QEMU/swtpm/BMC
+name/UID/node, the state PVC UID and in-place `resize` progress. Ready means the manager/QEMU/swtpm/BMC
 processes are healthy, including a deliberately paused VM; guest boot evidence
 is checked separately. Invalid specs and ownership conflicts are reported as
 Blocked rather than mutating unrelated resources.
+
+## Resizing a running VM
+
+The VM container is sized from the spec: requests `cpus` / `memoryMiB + 256Mi`,
+limits `cpus + 1` / `memoryMiB + 512Mi`, with `resizePolicy: NotRequired` for
+cpu and memory. The Pod records the size QEMU booted with in the
+`qrab.yapplesauce.com/boot-size` annotation; its ConfigMap and template hash
+stay at that boot size, so a size change is not a template change.
+
+```sh
+kubectl -n qrab patch qvm qrab-demo --type merge -p '{"spec":{"memoryMiB":1024}}'
+kubectl -n qrab get qvm qrab-demo -o jsonpath='{.status.resize}'
+```
+
+- **Growth within the boot maxima** of a Running Pod patches `pods/resize`
+  (strategic merge of the manager container's resources, with `metadata.uid` as
+  a precondition). No Pod restart. The manager then hot-adds memory/vCPUs
+  ([manager.md](manager.md#in-place-growth-hotplug)) once the kubelet has
+  applied the new cgroup limits.
+- **Shrink**, growth beyond `maxCpus`/`maxMemoryMiB`, a change of either ceiling,
+  or a size change before the Pod is Running takes the existing controlled
+  restart path (reason `ResizeRequiresRestart`; firmware/TPM identity retained).
+  The guest is never shrunk in place, even though Kubernetes would apply a lower
+  memory limit. Lowering a still-Deferred request also restarts: the kubelet may
+  admit and apply the larger size (and the manager plug it) concurrently.
+- `maxCpus` / `maxMemoryMiB` are optional, boot-time hot-plug ceilings, validated
+  by CEL to be ≥ `cpus`/`memoryMiB`. Defaults: 4× the booted size (vCPUs at most
+  64; memory at most +64 GiB). **The operator renders TCG, and Linux refuses
+  hot-added vCPUs under TCG**, so the effective vCPU ceiling is the booted count
+  and CPU growth restarts; memory growth is in place. The vCPU ceiling applies
+  once an accelerator that guests recognise (KVM) is rendered.
+
+`status.resize` reports `phase` (Applied, Proposed, InProgress, Deferred,
+Infeasible, Error), the kubelet `message`, requested and applied guest sizes,
+and the boot size and ceilings; `kubectl get qvm` shows it in the `Resize`
+column. Phases come from `PodResizePending` (Deferred/Infeasible) and
+`PodResizeInProgress` conditions, `observedGeneration` and the container
+status resources. Kubernetes 1.37 rejects a request beyond the node's
+allocatable capacity synchronously (HTTP 403); that is reported as Infeasible
+and retried every reconcile. A Deferred resize is retried by the kubelet. The
+only RBAC addition is `patch` on `pods/resize`. Existing VMs restart once when
+an operator with this template (resizePolicy, downward-API `size` volume)
+first reconciles them.
+
+Live check on Kubernetes v1.37.1 / containerd 2.4.1, scratch namespace
+`qrab-resize-test` (deleted afterwards), 2026-11-11. A plain Pod using the
+cached `docker.io/library/python@sha256:0741d101…` image, the control-plane
+toleration, `resizePolicy` NotRequired, requests 1/768Mi and limits 2/1Gi
+(cgroup `cpu.max 200000 100000`, `memory.max 1073741824`):
+
+```sh
+kubectl -n qrab-resize-test patch pod resize-probe --subresource resize \
+  -p '{"spec":{"containers":[{"name":"probe","resources":{"requests":{"cpu":"2","memory":"1280Mi"},"limits":{"cpu":"3","memory":"1536Mi"}}}]}}'
+```
+
+- Within 1 s `metadata.generation`/`status.observedGeneration` went 2/1 → 2/2,
+  container status resources became 3/1536Mi, the container saw
+  `cpu.max 300000 100000` and `memory.max 1610612736`, `restartCount` stayed 0
+  and `startedAt` was unchanged.
+- `--type merge` is refused (`only cpu and memory resources are mutable`,
+  because it replaces the container list); use a strategic merge patch.
+- cpu 500 on a 12-CPU node: refused synchronously with 403 `node didn't have
+  enough allocatable resources: cpu`; nothing changed.
+- memory 6Gi on a node with 95% memory requested: accepted, then
+  `PodResizePending` reason `Deferred` (`Node didn't have enough resource:
+  memory, requested: 6442450944, used: 46495956992, capacity: 50312679424`);
+  the cgroup stayed at 1.5 GiB. Reverting the request cleared the condition.
+- A memory *limit* decrease (2Gi → 1536Mi) is applied in place by the kubelet,
+  which is why the operator never sends one for a running guest.
+- Downward-API `limits.cpu` (divisor `1m`) and `limits.memory` (divisor `1Mi`)
+  files, mounted read-only at `/run/qrab-size` (mode 0444, UID 10001,
+  read-only root), refreshed about 1 s after the patch — once observed *before*
+  `cpu.max` changed — and also showed the desired 6144 MiB while the resize was
+  Deferred (cgroup still 2 GiB). Hence the manager gates on the cgroup.
+- `metadata.uid` in a resize patch acts as a precondition (`metadata.uid:
+  field is immutable` on mismatch); labels/annotations in it are ignored.
+
+The rendered VM Pod is checked with the ignored tests (namespace needs a
+`qrab-manager` ServiceAccount for the dry run; both passed in the scratch
+namespace):
+
+```sh
+QRAB_TEST_NAMESPACE=qrab-resize-test \
+QRAB_TEST_IMAGE=docker.io/library/python@sha256:0741d101873c12ab927e6f8653feb8862b9bd58771177acb1b885b95141f91b4 \
+  cargo test -p qrab-operator --test resize --test contracts -- --ignored
+```
+
+They verify that API-server defaulting of the new template does not cause a
+restart loop and that the operator's own resize patch reaches `Applied` with
+`restartCount` 0. The guest-side hot-plug of the real VM Pod is verified at the
+integration rollout.
 
 ## UEFI, TPM and SPIRE
 

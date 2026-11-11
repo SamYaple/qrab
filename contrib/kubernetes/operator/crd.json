@@ -32,6 +32,11 @@
             "jsonPath": ".status.nodeName",
             "name": "Node",
             "type": "string"
+          },
+          {
+            "jsonPath": ".status.resize.phase",
+            "name": "Resize",
+            "type": "string"
           }
         ],
         "name": "v1alpha1",
@@ -233,6 +238,20 @@
                     ],
                     "x-kubernetes-list-type": "map"
                   },
+                  "maxCpus": {
+                    "description": "vCPU hot-plug ceiling fixed at boot. Defaults to 4x the booted count\n(at most 64). Growth beyond it, or changing it, restarts the VM.",
+                    "format": "int32",
+                    "maximum": 256.0,
+                    "minimum": 1.0,
+                    "type": "integer"
+                  },
+                  "maxMemoryMiB": {
+                    "description": "Memory hot-plug ceiling fixed at boot. Defaults to 4x the booted size\n(at most +64 GiB). Growth beyond it, or changing it, restarts the VM.",
+                    "format": "int32",
+                    "maximum": 1048576.0,
+                    "minimum": 256.0,
+                    "type": "integer"
+                  },
                   "memoryMiB": {
                     "default": 512,
                     "format": "int32",
@@ -338,6 +357,74 @@
                   "reason": {
                     "type": "string"
                   },
+                  "resize": {
+                    "description": "In-place resource growth of the current Pod.",
+                    "nullable": true,
+                    "properties": {
+                      "appliedCpus": {
+                        "description": "Guest size whose limits the kubelet reports as applied.",
+                        "format": "uint32",
+                        "minimum": 0.0,
+                        "nullable": true,
+                        "type": "integer"
+                      },
+                      "appliedMemoryMiB": {
+                        "format": "uint32",
+                        "minimum": 0.0,
+                        "nullable": true,
+                        "type": "integer"
+                      },
+                      "bootCpus": {
+                        "description": "Size and hot-plug ceilings this Pod's QEMU booted with.",
+                        "format": "uint32",
+                        "minimum": 0.0,
+                        "type": "integer"
+                      },
+                      "bootMemoryMiB": {
+                        "format": "uint32",
+                        "minimum": 0.0,
+                        "type": "integer"
+                      },
+                      "cpus": {
+                        "description": "Guest size requested from the Pod's container resources.",
+                        "format": "uint32",
+                        "minimum": 0.0,
+                        "type": "integer"
+                      },
+                      "maxCpus": {
+                        "format": "uint32",
+                        "minimum": 0.0,
+                        "type": "integer"
+                      },
+                      "maxMemoryMiB": {
+                        "format": "uint32",
+                        "minimum": 0.0,
+                        "type": "integer"
+                      },
+                      "memoryMiB": {
+                        "format": "uint32",
+                        "minimum": 0.0,
+                        "type": "integer"
+                      },
+                      "message": {
+                        "type": "string"
+                      },
+                      "phase": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "bootCpus",
+                      "bootMemoryMiB",
+                      "cpus",
+                      "maxCpus",
+                      "maxMemoryMiB",
+                      "memoryMiB",
+                      "message",
+                      "phase"
+                    ],
+                    "type": "object"
+                  },
                   "stateVolumeUid": {
                     "nullable": true,
                     "type": "string"
@@ -376,6 +463,14 @@
               {
                 "message": "storageNode is immutable; disk migration requires explicit fencing",
                 "rule": "!has(oldSelf.spec.storageNode) || (has(self.spec.storageNode) && self.spec.storageNode == oldSelf.spec.storageNode)"
+              },
+              {
+                "message": "cpus must not exceed maxCpus",
+                "rule": "!has(self.spec.maxCpus) || self.spec.cpus <= self.spec.maxCpus"
+              },
+              {
+                "message": "memoryMiB must not exceed maxMemoryMiB",
+                "rule": "!has(self.spec.maxMemoryMiB) || self.spec.memoryMiB <= self.spec.maxMemoryMiB"
               }
             ]
           }
