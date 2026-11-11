@@ -2911,6 +2911,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "qrab-iscsi-target"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "nix 0.29.0",
+ "serde",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
 name = "qrab-operator"
 version = "0.1.0"
 dependencies = [
