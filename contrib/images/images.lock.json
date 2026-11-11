@@ -1,13 +1,13 @@
 {
   "schema": 1,
-  "source_revision": "eb219e0a909035b6673628a22af8ea7a7bfe4ed2",
+  "source_revision": "c0969422a255c5a0d76fed4b9ad4e3939536cc06",
   "qemu": {
-    "image": "zot.yapplesauce.com/qrab/qemu@sha256:689dd28a60cd4e32a213e2ad8f036cc244a17a1e58c35b7c9039e5338e0b917c",
+    "image": "zot.yapplesauce.com/qrab/qemu@sha256:dee161751a1888bc824e2da28456c46f91f406b1712196cdfd56ea3b2d1e33f0",
     "version": "11.1.3",
     "source_revision": "005c61c0ef6f6ae615283440b4bb7be51b2c6ddd"
   },
   "manager": {
-    "image": "zot.yapplesauce.com/qrab/manager@sha256:ed29c4284ec373a522b0561753fceff9b9eeb4278d789bd22a436706c034b049",
+    "image": "zot.yapplesauce.com/qrab/manager@sha256:3b6061c4d18dcaf96db585e5baa3bfb26e8ed4af5eb4f09815ec5525d5bdc8c1",
     "bmc_version": "0.2.0"
   },
   "demo_guest_packages": [
@@ -15,6 +15,13 @@
     "linux-image-6.12.116+deb13-amd64\t6.12.116-1",
     "linux-image-6.12.116+deb13-amd64-unsigned\t",
     "linux-image-amd64\t6.12.116-1",
-    "linux-image-generic\t"
-  ]
+    "linux-image-generic\t",
+    "systemd-boot-efi:amd64\t257.13-1~deb13u1",
+    "systemd-ukify\t257.13-1~deb13u1",
+    "tpm2-tools\t5.7-1"
+  ],
+  "operator": {
+    "image": "zot.yapplesauce.com/qrab/operator@sha256:9ef9988fb9d603827887c1ecce6798928f31735755dadf73c14d340a645022e8",
+    "version": "0.1.0"
+  }
 }
