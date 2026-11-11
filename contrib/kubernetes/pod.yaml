@@ -24,8 +24,8 @@ spec:
     effect: NoSchedule
   containers:
   - name: manager
-    # Replaced by the verified published digest in the release pin commit.
-    image: zot.yapplesauce.com/qrab/manager:development
+    # Published image/source provenance is recorded in contrib/images/images.lock.json.
+    image: zot.yapplesauce.com/qrab/manager@sha256:5f072f05258a8804a8afc84cd811d2d85171a99522690c0ab6c3e95593ab692b
     imagePullPolicy: Always
     args: [run, --config, /etc/qrab/vm.json]
     resources:
