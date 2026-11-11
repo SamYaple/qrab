@@ -1426,7 +1426,7 @@ pub struct DeviceDel {
 
 #[qapi(command)]
 #[qapi(name = "device-list-properties")]
-#[qapi(returns = "Vec<DevicePropertyInfo>")]
+#[qapi(returns = "Vec<ObjectPropertyInfo>")]
 #[qapi(added = "1.2.0")]
 pub struct DeviceListProperties {
     pub typename: String,
@@ -2931,7 +2931,7 @@ pub struct QueryStatus {}
 ///
 #[qapi(command)]
 #[qapi(name = "query-target")]
-#[qapi(returns = "TargetInfo")]
+#[qapi(returns = "QemuTargetInfo")]
 #[qapi(added = "1.2.0")]
 pub struct QueryTarget {}
 

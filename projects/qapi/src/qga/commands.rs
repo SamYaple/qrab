@@ -149,7 +149,7 @@ pub struct GuestFsfreezeThaw {}
 
 #[qapi(command)]
 #[qapi(name = "guest-fstrim")]
-#[qapi(returns = "()")]
+#[qapi(returns = "GuestFilesystemTrimResponse")]
 #[qapi(condition = "(CONFIG_WIN32 || CONFIG_FSTRIM)")]
 #[qapi(added = "1.4.0")]
 pub struct GuestFstrim {

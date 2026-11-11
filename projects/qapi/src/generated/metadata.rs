@@ -288,8 +288,8 @@ pub static TYPE_REFS: &[TypeRef] = &[
     TypeRef { kind: TypeKind::Enum, name: "CxlExtentRemovalPolicy", prim: Prim::Null, inner: 0 },
     TypeRef { kind: TypeKind::Enum, name: "CxlUncorErrorType", prim: Prim::Null, inner: 0 },
     TypeRef { kind: TypeKind::List, name: "List<uint32>", prim: Prim::Null, inner: 5 },
-    TypeRef { kind: TypeKind::Struct, name: "DevicePropertyInfo", prim: Prim::Null, inner: 0 },
-    TypeRef { kind: TypeKind::List, name: "List<DevicePropertyInfo>", prim: Prim::Null, inner: 197 },
+    TypeRef { kind: TypeKind::Struct, name: "ObjectPropertyInfo", prim: Prim::Null, inner: 0 },
+    TypeRef { kind: TypeKind::List, name: "List<ObjectPropertyInfo>", prim: Prim::Null, inner: 197 },
     TypeRef { kind: TypeKind::Enum, name: "DirtyRateStatus", prim: Prim::Null, inner: 0 },
     TypeRef { kind: TypeKind::Struct, name: "DirtyRateVcpu", prim: Prim::Null, inner: 0 },
     TypeRef { kind: TypeKind::List, name: "List<DirtyRateVcpu>", prim: Prim::Null, inner: 200 },
@@ -440,96 +440,94 @@ pub static TYPE_REFS: &[TypeRef] = &[
     TypeRef { kind: TypeKind::Enum, name: "QmpCapability", prim: Prim::Null, inner: 0 },
     TypeRef { kind: TypeKind::List, name: "List<QmpCapability>", prim: Prim::Null, inner: 346 },
     TypeRef { kind: TypeKind::Primitive, name: "SerdeJsonValue", prim: Prim::Any, inner: 0 },
-    TypeRef { kind: TypeKind::Struct, name: "ObjectPropertyInfo", prim: Prim::Null, inner: 0 },
-    TypeRef { kind: TypeKind::List, name: "List<ObjectPropertyInfo>", prim: Prim::Null, inner: 349 },
     TypeRef { kind: TypeKind::Struct, name: "ObjectPropertiesValues", prim: Prim::Null, inner: 0 },
-    TypeRef { kind: TypeKind::List, name: "List<ObjectPropertiesValues>", prim: Prim::Null, inner: 351 },
+    TypeRef { kind: TypeKind::List, name: "List<ObjectPropertiesValues>", prim: Prim::Null, inner: 349 },
     TypeRef { kind: TypeKind::Struct, name: "ObjectTypeInfo", prim: Prim::Null, inner: 0 },
-    TypeRef { kind: TypeKind::List, name: "List<ObjectTypeInfo>", prim: Prim::Null, inner: 353 },
+    TypeRef { kind: TypeKind::List, name: "List<ObjectTypeInfo>", prim: Prim::Null, inner: 351 },
     TypeRef { kind: TypeKind::Struct, name: "AcceleratorInfo", prim: Prim::Null, inner: 0 },
     TypeRef { kind: TypeKind::List, name: "List<AcpiostInfo>", prim: Prim::Null, inner: 3 },
     TypeRef { kind: TypeKind::Struct, name: "Audiodev", prim: Prim::Null, inner: 0 },
-    TypeRef { kind: TypeKind::List, name: "List<Audiodev>", prim: Prim::Null, inner: 357 },
+    TypeRef { kind: TypeKind::List, name: "List<Audiodev>", prim: Prim::Null, inner: 355 },
     TypeRef { kind: TypeKind::Struct, name: "BalloonInfo", prim: Prim::Null, inner: 0 },
     TypeRef { kind: TypeKind::Struct, name: "BlockInfo", prim: Prim::Null, inner: 0 },
-    TypeRef { kind: TypeKind::List, name: "List<BlockInfo>", prim: Prim::Null, inner: 360 },
+    TypeRef { kind: TypeKind::List, name: "List<BlockInfo>", prim: Prim::Null, inner: 358 },
     TypeRef { kind: TypeKind::Struct, name: "BlockExportInfo", prim: Prim::Null, inner: 0 },
-    TypeRef { kind: TypeKind::List, name: "List<BlockExportInfo>", prim: Prim::Null, inner: 362 },
+    TypeRef { kind: TypeKind::List, name: "List<BlockExportInfo>", prim: Prim::Null, inner: 360 },
     TypeRef { kind: TypeKind::Struct, name: "BlockJobInfo", prim: Prim::Null, inner: 0 },
-    TypeRef { kind: TypeKind::List, name: "List<BlockJobInfo>", prim: Prim::Null, inner: 364 },
+    TypeRef { kind: TypeKind::List, name: "List<BlockJobInfo>", prim: Prim::Null, inner: 362 },
     TypeRef { kind: TypeKind::List, name: "List<BlockStats>", prim: Prim::Null, inner: 142 },
     TypeRef { kind: TypeKind::Struct, name: "ChardevInfo", prim: Prim::Null, inner: 0 },
-    TypeRef { kind: TypeKind::List, name: "List<ChardevInfo>", prim: Prim::Null, inner: 367 },
+    TypeRef { kind: TypeKind::List, name: "List<ChardevInfo>", prim: Prim::Null, inner: 365 },
     TypeRef { kind: TypeKind::Struct, name: "ChardevBackendInfo", prim: Prim::Null, inner: 0 },
-    TypeRef { kind: TypeKind::List, name: "List<ChardevBackendInfo>", prim: Prim::Null, inner: 369 },
+    TypeRef { kind: TypeKind::List, name: "List<ChardevBackendInfo>", prim: Prim::Null, inner: 367 },
     TypeRef { kind: TypeKind::Struct, name: "ColoStatus", prim: Prim::Null, inner: 0 },
     TypeRef { kind: TypeKind::Struct, name: "CommandLineOptionInfo", prim: Prim::Null, inner: 0 },
-    TypeRef { kind: TypeKind::List, name: "List<CommandLineOptionInfo>", prim: Prim::Null, inner: 372 },
+    TypeRef { kind: TypeKind::List, name: "List<CommandLineOptionInfo>", prim: Prim::Null, inner: 370 },
     TypeRef { kind: TypeKind::Struct, name: "CommandInfo", prim: Prim::Null, inner: 0 },
-    TypeRef { kind: TypeKind::List, name: "List<CommandInfo>", prim: Prim::Null, inner: 374 },
+    TypeRef { kind: TypeKind::List, name: "List<CommandInfo>", prim: Prim::Null, inner: 372 },
     TypeRef { kind: TypeKind::Struct, name: "CpuDefinitionInfo", prim: Prim::Null, inner: 0 },
-    TypeRef { kind: TypeKind::List, name: "List<CpuDefinitionInfo>", prim: Prim::Null, inner: 376 },
+    TypeRef { kind: TypeKind::List, name: "List<CpuDefinitionInfo>", prim: Prim::Null, inner: 374 },
     TypeRef { kind: TypeKind::Struct, name: "CpuModelBaselineInfo", prim: Prim::Null, inner: 0 },
     TypeRef { kind: TypeKind::Struct, name: "CpuModelCompareInfo", prim: Prim::Null, inner: 0 },
     TypeRef { kind: TypeKind::Enum, name: "CpuModelExpansionType", prim: Prim::Null, inner: 0 },
     TypeRef { kind: TypeKind::Struct, name: "CpuModelExpansionInfo", prim: Prim::Null, inner: 0 },
     TypeRef { kind: TypeKind::Struct, name: "CpuInfo", prim: Prim::Null, inner: 0 },
-    TypeRef { kind: TypeKind::List, name: "List<CpuInfo>", prim: Prim::Null, inner: 382 },
+    TypeRef { kind: TypeKind::List, name: "List<CpuInfo>", prim: Prim::Null, inner: 380 },
     TypeRef { kind: TypeKind::Struct, name: "CpuInfoFast", prim: Prim::Null, inner: 0 },
-    TypeRef { kind: TypeKind::List, name: "List<CpuInfoFast>", prim: Prim::Null, inner: 384 },
+    TypeRef { kind: TypeKind::List, name: "List<CpuInfoFast>", prim: Prim::Null, inner: 382 },
     TypeRef { kind: TypeKind::Struct, name: "QCryptodevInfo", prim: Prim::Null, inner: 0 },
-    TypeRef { kind: TypeKind::List, name: "List<QCryptodevInfo>", prim: Prim::Null, inner: 386 },
+    TypeRef { kind: TypeKind::List, name: "List<QCryptodevInfo>", prim: Prim::Null, inner: 384 },
     TypeRef { kind: TypeKind::Struct, name: "CurrentMachineParams", prim: Prim::Null, inner: 0 },
     TypeRef { kind: TypeKind::Struct, name: "DirtyRateInfo", prim: Prim::Null, inner: 0 },
     TypeRef { kind: TypeKind::Struct, name: "DisplayOptions", prim: Prim::Null, inner: 0 },
     TypeRef { kind: TypeKind::Struct, name: "DumpGuestMemoryCapability", prim: Prim::Null, inner: 0 },
     TypeRef { kind: TypeKind::Struct, name: "EventInfo", prim: Prim::Null, inner: 0 },
-    TypeRef { kind: TypeKind::List, name: "List<EventInfo>", prim: Prim::Null, inner: 392 },
+    TypeRef { kind: TypeKind::List, name: "List<EventInfo>", prim: Prim::Null, inner: 390 },
     TypeRef { kind: TypeKind::Struct, name: "FdsetInfo", prim: Prim::Null, inner: 0 },
-    TypeRef { kind: TypeKind::List, name: "List<FdsetInfo>", prim: Prim::Null, inner: 394 },
+    TypeRef { kind: TypeKind::List, name: "List<FdsetInfo>", prim: Prim::Null, inner: 392 },
     TypeRef { kind: TypeKind::Struct, name: "FirmwareLog", prim: Prim::Null, inner: 0 },
     TypeRef { kind: TypeKind::Struct, name: "GicCapability", prim: Prim::Null, inner: 0 },
-    TypeRef { kind: TypeKind::List, name: "List<GicCapability>", prim: Prim::Null, inner: 397 },
+    TypeRef { kind: TypeKind::List, name: "List<GicCapability>", prim: Prim::Null, inner: 395 },
     TypeRef { kind: TypeKind::Struct, name: "HotpluggableCpu", prim: Prim::Null, inner: 0 },
-    TypeRef { kind: TypeKind::List, name: "List<HotpluggableCpu>", prim: Prim::Null, inner: 399 },
+    TypeRef { kind: TypeKind::List, name: "List<HotpluggableCpu>", prim: Prim::Null, inner: 397 },
     TypeRef { kind: TypeKind::Struct, name: "HvBalloonInfo", prim: Prim::Null, inner: 0 },
     TypeRef { kind: TypeKind::Struct, name: "IoThreadInfo", prim: Prim::Null, inner: 0 },
-    TypeRef { kind: TypeKind::List, name: "List<IoThreadInfo>", prim: Prim::Null, inner: 402 },
+    TypeRef { kind: TypeKind::List, name: "List<IoThreadInfo>", prim: Prim::Null, inner: 400 },
     TypeRef { kind: TypeKind::Struct, name: "JobInfo", prim: Prim::Null, inner: 0 },
-    TypeRef { kind: TypeKind::List, name: "List<JobInfo>", prim: Prim::Null, inner: 404 },
+    TypeRef { kind: TypeKind::List, name: "List<JobInfo>", prim: Prim::Null, inner: 402 },
     TypeRef { kind: TypeKind::Struct, name: "KvmInfo", prim: Prim::Null, inner: 0 },
     TypeRef { kind: TypeKind::Struct, name: "MachineInfo", prim: Prim::Null, inner: 0 },
-    TypeRef { kind: TypeKind::List, name: "List<MachineInfo>", prim: Prim::Null, inner: 407 },
+    TypeRef { kind: TypeKind::List, name: "List<MachineInfo>", prim: Prim::Null, inner: 405 },
     TypeRef { kind: TypeKind::Struct, name: "Memdev", prim: Prim::Null, inner: 0 },
-    TypeRef { kind: TypeKind::List, name: "List<Memdev>", prim: Prim::Null, inner: 409 },
+    TypeRef { kind: TypeKind::List, name: "List<Memdev>", prim: Prim::Null, inner: 407 },
     TypeRef { kind: TypeKind::Struct, name: "MemoryDeviceInfo", prim: Prim::Null, inner: 0 },
-    TypeRef { kind: TypeKind::List, name: "List<MemoryDeviceInfo>", prim: Prim::Null, inner: 411 },
+    TypeRef { kind: TypeKind::List, name: "List<MemoryDeviceInfo>", prim: Prim::Null, inner: 409 },
     TypeRef { kind: TypeKind::Struct, name: "MemoryInfo", prim: Prim::Null, inner: 0 },
     TypeRef { kind: TypeKind::Struct, name: "MouseInfo", prim: Prim::Null, inner: 0 },
-    TypeRef { kind: TypeKind::List, name: "List<MouseInfo>", prim: Prim::Null, inner: 414 },
+    TypeRef { kind: TypeKind::List, name: "List<MouseInfo>", prim: Prim::Null, inner: 412 },
     TypeRef { kind: TypeKind::Struct, name: "MigrationInfo", prim: Prim::Null, inner: 0 },
     TypeRef { kind: TypeKind::Primitive, name: "i64", prim: Prim::I64, inner: 0 },
     TypeRef { kind: TypeKind::Struct, name: "MigrationParameters", prim: Prim::Null, inner: 0 },
     TypeRef { kind: TypeKind::Struct, name: "MigrationThreadInfo", prim: Prim::Null, inner: 0 },
-    TypeRef { kind: TypeKind::List, name: "List<MigrationThreadInfo>", prim: Prim::Null, inner: 419 },
+    TypeRef { kind: TypeKind::List, name: "List<MigrationThreadInfo>", prim: Prim::Null, inner: 417 },
     TypeRef { kind: TypeKind::Struct, name: "NameInfo", prim: Prim::Null, inner: 0 },
     TypeRef { kind: TypeKind::List, name: "List<BlockDeviceInfo>", prim: Prim::Null, inner: 134 },
     TypeRef { kind: TypeKind::Struct, name: "PciInfo", prim: Prim::Null, inner: 0 },
-    TypeRef { kind: TypeKind::List, name: "List<PciInfo>", prim: Prim::Null, inner: 423 },
+    TypeRef { kind: TypeKind::List, name: "List<PciInfo>", prim: Prim::Null, inner: 421 },
     TypeRef { kind: TypeKind::Struct, name: "PrManagerInfo", prim: Prim::Null, inner: 0 },
-    TypeRef { kind: TypeKind::List, name: "List<PrManagerInfo>", prim: Prim::Null, inner: 425 },
+    TypeRef { kind: TypeKind::List, name: "List<PrManagerInfo>", prim: Prim::Null, inner: 423 },
     TypeRef { kind: TypeKind::Struct, name: "SchemaInfo", prim: Prim::Null, inner: 0 },
-    TypeRef { kind: TypeKind::List, name: "List<SchemaInfo>", prim: Prim::Null, inner: 427 },
+    TypeRef { kind: TypeKind::List, name: "List<SchemaInfo>", prim: Prim::Null, inner: 425 },
     TypeRef { kind: TypeKind::Struct, name: "ReplayInfo", prim: Prim::Null, inner: 0 },
     TypeRef { kind: TypeKind::Struct, name: "RockerSwitch", prim: Prim::Null, inner: 0 },
     TypeRef { kind: TypeKind::Struct, name: "RockerOfDpaFlow", prim: Prim::Null, inner: 0 },
-    TypeRef { kind: TypeKind::List, name: "List<RockerOfDpaFlow>", prim: Prim::Null, inner: 431 },
+    TypeRef { kind: TypeKind::List, name: "List<RockerOfDpaFlow>", prim: Prim::Null, inner: 429 },
     TypeRef { kind: TypeKind::Struct, name: "RockerOfDpaGroup", prim: Prim::Null, inner: 0 },
-    TypeRef { kind: TypeKind::List, name: "List<RockerOfDpaGroup>", prim: Prim::Null, inner: 433 },
+    TypeRef { kind: TypeKind::List, name: "List<RockerOfDpaGroup>", prim: Prim::Null, inner: 431 },
     TypeRef { kind: TypeKind::Struct, name: "RockerPort", prim: Prim::Null, inner: 0 },
-    TypeRef { kind: TypeKind::List, name: "List<RockerPort>", prim: Prim::Null, inner: 435 },
+    TypeRef { kind: TypeKind::List, name: "List<RockerPort>", prim: Prim::Null, inner: 433 },
     TypeRef { kind: TypeKind::Struct, name: "RxFilterInfo", prim: Prim::Null, inner: 0 },
-    TypeRef { kind: TypeKind::List, name: "List<RxFilterInfo>", prim: Prim::Null, inner: 437 },
+    TypeRef { kind: TypeKind::List, name: "List<RxFilterInfo>", prim: Prim::Null, inner: 435 },
     TypeRef { kind: TypeKind::Struct, name: "CpuPolarizationInfo", prim: Prim::Null, inner: 0 },
     TypeRef { kind: TypeKind::Struct, name: "SevInfo", prim: Prim::Null, inner: 0 },
     TypeRef { kind: TypeKind::Struct, name: "SevAttestationReport", prim: Prim::Null, inner: 0 },
@@ -539,31 +537,31 @@ pub static TYPE_REFS: &[TypeRef] = &[
     TypeRef { kind: TypeKind::Struct, name: "SpiceInfo", prim: Prim::Null, inner: 0 },
     TypeRef { kind: TypeKind::Enum, name: "StatsTarget", prim: Prim::Null, inner: 0 },
     TypeRef { kind: TypeKind::Struct, name: "StatsRequest", prim: Prim::Null, inner: 0 },
-    TypeRef { kind: TypeKind::List, name: "List<StatsRequest>", prim: Prim::Null, inner: 447 },
+    TypeRef { kind: TypeKind::List, name: "List<StatsRequest>", prim: Prim::Null, inner: 445 },
     TypeRef { kind: TypeKind::Struct, name: "StatsResult", prim: Prim::Null, inner: 0 },
-    TypeRef { kind: TypeKind::List, name: "List<StatsResult>", prim: Prim::Null, inner: 449 },
+    TypeRef { kind: TypeKind::List, name: "List<StatsResult>", prim: Prim::Null, inner: 447 },
     TypeRef { kind: TypeKind::Enum, name: "StatsProvider", prim: Prim::Null, inner: 0 },
     TypeRef { kind: TypeKind::Struct, name: "StatsSchema", prim: Prim::Null, inner: 0 },
-    TypeRef { kind: TypeKind::List, name: "List<StatsSchema>", prim: Prim::Null, inner: 452 },
+    TypeRef { kind: TypeKind::List, name: "List<StatsSchema>", prim: Prim::Null, inner: 450 },
     TypeRef { kind: TypeKind::Struct, name: "StatusInfo", prim: Prim::Null, inner: 0 },
-    TypeRef { kind: TypeKind::Struct, name: "TargetInfo", prim: Prim::Null, inner: 0 },
+    TypeRef { kind: TypeKind::Struct, name: "QemuTargetInfo", prim: Prim::Null, inner: 0 },
     TypeRef { kind: TypeKind::Struct, name: "TpmInfo", prim: Prim::Null, inner: 0 },
-    TypeRef { kind: TypeKind::List, name: "List<TpmInfo>", prim: Prim::Null, inner: 456 },
+    TypeRef { kind: TypeKind::List, name: "List<TpmInfo>", prim: Prim::Null, inner: 454 },
     TypeRef { kind: TypeKind::Enum, name: "TpmModel", prim: Prim::Null, inner: 0 },
-    TypeRef { kind: TypeKind::List, name: "List<TpmModel>", prim: Prim::Null, inner: 458 },
+    TypeRef { kind: TypeKind::List, name: "List<TpmModel>", prim: Prim::Null, inner: 456 },
     TypeRef { kind: TypeKind::Enum, name: "TpmType", prim: Prim::Null, inner: 0 },
-    TypeRef { kind: TypeKind::List, name: "List<TpmType>", prim: Prim::Null, inner: 460 },
+    TypeRef { kind: TypeKind::List, name: "List<TpmType>", prim: Prim::Null, inner: 458 },
     TypeRef { kind: TypeKind::Struct, name: "UuidInfo", prim: Prim::Null, inner: 0 },
     TypeRef { kind: TypeKind::Struct, name: "DirtyLimitInfo", prim: Prim::Null, inner: 0 },
-    TypeRef { kind: TypeKind::List, name: "List<DirtyLimitInfo>", prim: Prim::Null, inner: 463 },
+    TypeRef { kind: TypeKind::List, name: "List<DirtyLimitInfo>", prim: Prim::Null, inner: 461 },
     TypeRef { kind: TypeKind::Struct, name: "VersionInfo", prim: Prim::Null, inner: 0 },
     TypeRef { kind: TypeKind::Struct, name: "GuidInfo", prim: Prim::Null, inner: 0 },
     TypeRef { kind: TypeKind::Struct, name: "VncInfo", prim: Prim::Null, inner: 0 },
     TypeRef { kind: TypeKind::Struct, name: "VncInfo2", prim: Prim::Null, inner: 0 },
-    TypeRef { kind: TypeKind::List, name: "List<VncInfo2>", prim: Prim::Null, inner: 468 },
+    TypeRef { kind: TypeKind::List, name: "List<VncInfo2>", prim: Prim::Null, inner: 466 },
     TypeRef { kind: TypeKind::Struct, name: "ReplicationStatus", prim: Prim::Null, inner: 0 },
     TypeRef { kind: TypeKind::Struct, name: "YankInstance", prim: Prim::Null, inner: 0 },
-    TypeRef { kind: TypeKind::List, name: "List<YankInstance>", prim: Prim::Null, inner: 471 },
+    TypeRef { kind: TypeKind::List, name: "List<YankInstance>", prim: Prim::Null, inner: 469 },
     TypeRef { kind: TypeKind::Enum, name: "QuorumOpType", prim: Prim::Null, inner: 0 },
     TypeRef { kind: TypeKind::Enum, name: "ReplayMode", prim: Prim::Null, inner: 0 },
     TypeRef { kind: TypeKind::Enum, name: "EbpfProgramId", prim: Prim::Null, inner: 0 },
@@ -578,14 +576,14 @@ pub static TYPE_REFS: &[TypeRef] = &[
     TypeRef { kind: TypeKind::Enum, name: "RxState", prim: Prim::Null, inner: 0 },
     TypeRef { kind: TypeKind::Enum, name: "SchemaMetaType", prim: Prim::Null, inner: 0 },
     TypeRef { kind: TypeKind::Struct, name: "SchemaInfoAlternateMember", prim: Prim::Null, inner: 0 },
-    TypeRef { kind: TypeKind::List, name: "List<SchemaInfoAlternateMember>", prim: Prim::Null, inner: 486 },
+    TypeRef { kind: TypeKind::List, name: "List<SchemaInfoAlternateMember>", prim: Prim::Null, inner: 484 },
     TypeRef { kind: TypeKind::Enum, name: "JsonType", prim: Prim::Null, inner: 0 },
     TypeRef { kind: TypeKind::Struct, name: "SchemaInfoEnumMember", prim: Prim::Null, inner: 0 },
-    TypeRef { kind: TypeKind::List, name: "List<SchemaInfoEnumMember>", prim: Prim::Null, inner: 489 },
+    TypeRef { kind: TypeKind::List, name: "List<SchemaInfoEnumMember>", prim: Prim::Null, inner: 487 },
     TypeRef { kind: TypeKind::Struct, name: "SchemaInfoObjectMember", prim: Prim::Null, inner: 0 },
-    TypeRef { kind: TypeKind::List, name: "List<SchemaInfoObjectMember>", prim: Prim::Null, inner: 491 },
+    TypeRef { kind: TypeKind::List, name: "List<SchemaInfoObjectMember>", prim: Prim::Null, inner: 489 },
     TypeRef { kind: TypeKind::Struct, name: "SchemaInfoObjectVariant", prim: Prim::Null, inner: 0 },
-    TypeRef { kind: TypeKind::List, name: "List<SchemaInfoObjectVariant>", prim: Prim::Null, inner: 493 },
+    TypeRef { kind: TypeKind::List, name: "List<SchemaInfoObjectVariant>", prim: Prim::Null, inner: 491 },
     TypeRef { kind: TypeKind::Enum, name: "ImageFormat", prim: Prim::Null, inner: 0 },
     TypeRef { kind: TypeKind::Enum, name: "QCryptoSecretFormat", prim: Prim::Null, inner: 0 },
     TypeRef { kind: TypeKind::List, name: "List<KeyValue>", prim: Prim::Null, inner: 250 },
@@ -598,21 +596,21 @@ pub static TYPE_REFS: &[TypeRef] = &[
     TypeRef { kind: TypeKind::Enum, name: "SevGuestType", prim: Prim::Null, inner: 0 },
     TypeRef { kind: TypeKind::Struct, name: "SgxEpcDeviceInfo", prim: Prim::Null, inner: 0 },
     TypeRef { kind: TypeKind::Struct, name: "SgxEpc", prim: Prim::Null, inner: 0 },
-    TypeRef { kind: TypeKind::List, name: "List<SgxEpc>", prim: Prim::Null, inner: 506 },
+    TypeRef { kind: TypeKind::List, name: "List<SgxEpc>", prim: Prim::Null, inner: 504 },
     TypeRef { kind: TypeKind::Struct, name: "SgxEpcSection", prim: Prim::Null, inner: 0 },
-    TypeRef { kind: TypeKind::List, name: "List<SgxEpcSection>", prim: Prim::Null, inner: 508 },
+    TypeRef { kind: TypeKind::List, name: "List<SgxEpcSection>", prim: Prim::Null, inner: 506 },
     TypeRef { kind: TypeKind::Enum, name: "SheepdogRedundancyType", prim: Prim::Null, inner: 0 },
     TypeRef { kind: TypeKind::Enum, name: "CacheLevelAndType", prim: Prim::Null, inner: 0 },
     TypeRef { kind: TypeKind::Enum, name: "CpuTopologyLevel", prim: Prim::Null, inner: 0 },
     TypeRef { kind: TypeKind::Struct, name: "SmpCacheProperties", prim: Prim::Null, inner: 0 },
-    TypeRef { kind: TypeKind::List, name: "List<SmpCacheProperties>", prim: Prim::Null, inner: 513 },
+    TypeRef { kind: TypeKind::List, name: "List<SmpCacheProperties>", prim: Prim::Null, inner: 511 },
     TypeRef { kind: TypeKind::Enum, name: "SocketAddressType", prim: Prim::Null, inner: 0 },
     TypeRef { kind: TypeKind::Enum, name: "SocketAddressFlatType", prim: Prim::Null, inner: 0 },
     TypeRef { kind: TypeKind::Enum, name: "SocketAddressLegacyType", prim: Prim::Null, inner: 0 },
     TypeRef { kind: TypeKind::Enum, name: "NetworkAddressFamily", prim: Prim::Null, inner: 0 },
     TypeRef { kind: TypeKind::Struct, name: "SpiceBasicInfo", prim: Prim::Null, inner: 0 },
     TypeRef { kind: TypeKind::Struct, name: "SpiceChannel", prim: Prim::Null, inner: 0 },
-    TypeRef { kind: TypeKind::List, name: "List<SpiceChannel>", prim: Prim::Null, inner: 520 },
+    TypeRef { kind: TypeKind::List, name: "List<SpiceChannel>", prim: Prim::Null, inner: 518 },
     TypeRef { kind: TypeKind::Enum, name: "SpiceQueryMouseMode", prim: Prim::Null, inner: 0 },
     TypeRef { kind: TypeKind::Struct, name: "SpiceServerInfo", prim: Prim::Null, inner: 0 },
     TypeRef { kind: TypeKind::Struct, name: "SpMemDeviceInfo", prim: Prim::Null, inner: 0 },
@@ -620,9 +618,9 @@ pub static TYPE_REFS: &[TypeRef] = &[
     TypeRef { kind: TypeKind::Enum, name: "SshHostKeyCheckHashType", prim: Prim::Null, inner: 0 },
     TypeRef { kind: TypeKind::Enum, name: "StatsValue", prim: Prim::Null, inner: 0 },
     TypeRef { kind: TypeKind::Struct, name: "Stats", prim: Prim::Null, inner: 0 },
-    TypeRef { kind: TypeKind::List, name: "List<Stats>", prim: Prim::Null, inner: 528 },
+    TypeRef { kind: TypeKind::List, name: "List<Stats>", prim: Prim::Null, inner: 526 },
     TypeRef { kind: TypeKind::Struct, name: "StatsSchemaValue", prim: Prim::Null, inner: 0 },
-    TypeRef { kind: TypeKind::List, name: "List<StatsSchemaValue>", prim: Prim::Null, inner: 530 },
+    TypeRef { kind: TypeKind::List, name: "List<StatsSchemaValue>", prim: Prim::Null, inner: 528 },
     TypeRef { kind: TypeKind::Enum, name: "StatsType", prim: Prim::Null, inner: 0 },
     TypeRef { kind: TypeKind::Enum, name: "StatsUnit", prim: Prim::Null, inner: 0 },
     TypeRef { kind: TypeKind::Primitive, name: "int8", prim: Prim::I8, inner: 0 },
@@ -634,16 +632,16 @@ pub static TYPE_REFS: &[TypeRef] = &[
     TypeRef { kind: TypeKind::Struct, name: "TpmPassthroughOptions", prim: Prim::Null, inner: 0 },
     TypeRef { kind: TypeKind::Enum, name: "TpmTypeOptionsType", prim: Prim::Null, inner: 0 },
     TypeRef { kind: TypeKind::Struct, name: "TraceEventInfo", prim: Prim::Null, inner: 0 },
-    TypeRef { kind: TypeKind::List, name: "List<TraceEventInfo>", prim: Prim::Null, inner: 542 },
+    TypeRef { kind: TypeKind::List, name: "List<TraceEventInfo>", prim: Prim::Null, inner: 540 },
     TypeRef { kind: TypeKind::Enum, name: "TraceEventState", prim: Prim::Null, inner: 0 },
     TypeRef { kind: TypeKind::Struct, name: "TransactionAction", prim: Prim::Null, inner: 0 },
-    TypeRef { kind: TypeKind::List, name: "List<TransactionAction>", prim: Prim::Null, inner: 545 },
+    TypeRef { kind: TypeKind::List, name: "List<TransactionAction>", prim: Prim::Null, inner: 543 },
     TypeRef { kind: TypeKind::Struct, name: "TransactionProperties", prim: Prim::Null, inner: 0 },
     TypeRef { kind: TypeKind::Enum, name: "TransactionActionType", prim: Prim::Null, inner: 0 },
     TypeRef { kind: TypeKind::Enum, name: "TransactionActionKind", prim: Prim::Null, inner: 0 },
     TypeRef { kind: TypeKind::Enum, name: "ActionCompletionMode", prim: Prim::Null, inner: 0 },
     TypeRef { kind: TypeKind::Struct, name: "UefiVariable", prim: Prim::Null, inner: 0 },
-    TypeRef { kind: TypeKind::List, name: "List<UefiVariable>", prim: Prim::Null, inner: 551 },
+    TypeRef { kind: TypeKind::List, name: "List<UefiVariable>", prim: Prim::Null, inner: 549 },
     TypeRef { kind: TypeKind::Struct, name: "UnixSocketAddress", prim: Prim::Null, inner: 0 },
     TypeRef { kind: TypeKind::Struct, name: "VersionTriple", prim: Prim::Null, inner: 0 },
     TypeRef { kind: TypeKind::Enum, name: "QapiVfioMigrationState", prim: Prim::Null, inner: 0 },
@@ -652,7 +650,7 @@ pub static TYPE_REFS: &[TypeRef] = &[
     TypeRef { kind: TypeKind::Struct, name: "VirtioMemDeviceInfo", prim: Prim::Null, inner: 0 },
     TypeRef { kind: TypeKind::Struct, name: "VirtioPmemDeviceInfo", prim: Prim::Null, inner: 0 },
     TypeRef { kind: TypeKind::Struct, name: "VirtioRingDesc", prim: Prim::Null, inner: 0 },
-    TypeRef { kind: TypeKind::List, name: "List<VirtioRingDesc>", prim: Prim::Null, inner: 560 },
+    TypeRef { kind: TypeKind::List, name: "List<VirtioRingDesc>", prim: Prim::Null, inner: 558 },
     TypeRef { kind: TypeKind::Struct, name: "VirtioRingAvail", prim: Prim::Null, inner: 0 },
     TypeRef { kind: TypeKind::Struct, name: "VirtioRingUsed", prim: Prim::Null, inner: 0 },
     TypeRef { kind: TypeKind::Struct, name: "VirtioDeviceStatus", prim: Prim::Null, inner: 0 },
@@ -660,9 +658,9 @@ pub static TYPE_REFS: &[TypeRef] = &[
     TypeRef { kind: TypeKind::Struct, name: "VncServerInfo", prim: Prim::Null, inner: 0 },
     TypeRef { kind: TypeKind::Struct, name: "VncBasicInfo", prim: Prim::Null, inner: 0 },
     TypeRef { kind: TypeKind::Struct, name: "VncClientInfo", prim: Prim::Null, inner: 0 },
-    TypeRef { kind: TypeKind::List, name: "List<VncClientInfo>", prim: Prim::Null, inner: 568 },
+    TypeRef { kind: TypeKind::List, name: "List<VncClientInfo>", prim: Prim::Null, inner: 566 },
     TypeRef { kind: TypeKind::Struct, name: "VncServerInfo2", prim: Prim::Null, inner: 0 },
-    TypeRef { kind: TypeKind::List, name: "List<VncServerInfo2>", prim: Prim::Null, inner: 570 },
+    TypeRef { kind: TypeKind::List, name: "List<VncServerInfo2>", prim: Prim::Null, inner: 568 },
     TypeRef { kind: TypeKind::Enum, name: "VncPrimaryAuth", prim: Prim::Null, inner: 0 },
     TypeRef { kind: TypeKind::Enum, name: "VncVencryptSubAuth", prim: Prim::Null, inner: 0 },
     TypeRef { kind: TypeKind::Struct, name: "VsockSocketAddress", prim: Prim::Null, inner: 0 },
@@ -670,16 +668,16 @@ pub static TYPE_REFS: &[TypeRef] = &[
     TypeRef { kind: TypeKind::Struct, name: "HumanReadableText", prim: Prim::Null, inner: 0 },
     TypeRef { kind: TypeKind::Struct, name: "BlockdevAmendOptions", prim: Prim::Null, inner: 0 },
     TypeRef { kind: TypeKind::Struct, name: "XDbgBlockGraphNode", prim: Prim::Null, inner: 0 },
-    TypeRef { kind: TypeKind::List, name: "List<XDbgBlockGraphNode>", prim: Prim::Null, inner: 578 },
+    TypeRef { kind: TypeKind::List, name: "List<XDbgBlockGraphNode>", prim: Prim::Null, inner: 576 },
     TypeRef { kind: TypeKind::Struct, name: "XDbgBlockGraphEdge", prim: Prim::Null, inner: 0 },
-    TypeRef { kind: TypeKind::List, name: "List<XDbgBlockGraphEdge>", prim: Prim::Null, inner: 580 },
+    TypeRef { kind: TypeKind::List, name: "List<XDbgBlockGraphEdge>", prim: Prim::Null, inner: 578 },
     TypeRef { kind: TypeKind::Enum, name: "XDbgBlockGraphNodeType", prim: Prim::Null, inner: 0 },
     TypeRef { kind: TypeKind::Struct, name: "BlockDirtyBitmapSha256", prim: Prim::Null, inner: 0 },
     TypeRef { kind: TypeKind::Struct, name: "XDbgBlockGraph", prim: Prim::Null, inner: 0 },
     TypeRef { kind: TypeKind::Struct, name: "EvtchnInfo", prim: Prim::Null, inner: 0 },
-    TypeRef { kind: TypeKind::List, name: "List<EvtchnInfo>", prim: Prim::Null, inner: 585 },
+    TypeRef { kind: TypeKind::List, name: "List<EvtchnInfo>", prim: Prim::Null, inner: 583 },
     TypeRef { kind: TypeKind::Struct, name: "VirtioInfo", prim: Prim::Null, inner: 0 },
-    TypeRef { kind: TypeKind::List, name: "List<VirtioInfo>", prim: Prim::Null, inner: 587 },
+    TypeRef { kind: TypeKind::List, name: "List<VirtioInfo>", prim: Prim::Null, inner: 585 },
     TypeRef { kind: TypeKind::Struct, name: "VirtioQueueElement", prim: Prim::Null, inner: 0 },
     TypeRef { kind: TypeKind::Struct, name: "VirtQueueStatus", prim: Prim::Null, inner: 0 },
     TypeRef { kind: TypeKind::Struct, name: "VirtioStatus", prim: Prim::Null, inner: 0 },
@@ -14582,7 +14580,7 @@ static STRUCT_QueryCpuModelComparison: StructMeta = StructMeta {
     until: None,
 };
 static FIELDS_QueryCpuModelExpansion: &[FieldMeta] = &[
-    FieldMeta { name: "r#type", wire_name: "type", ty: 380, optional: false, is_discriminator: false, recursive: false, since: (2u32, 8u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    FieldMeta { name: "r#type", wire_name: "type", ty: 378, optional: false, is_discriminator: false, recursive: false, since: (2u32, 8u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
     FieldMeta { name: "model", wire_name: "model", ty: 181, optional: false, is_discriminator: false, recursive: false, since: (2u32, 8u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
 ];
 static STRUCT_QueryCpuModelExpansion: StructMeta = StructMeta {
@@ -15207,8 +15205,8 @@ static STRUCT_QuerySpice: StructMeta = StructMeta {
     until: None,
 };
 static FIELDS_QueryStats: &[FieldMeta] = &[
-    FieldMeta { name: "target", wire_name: "target", ty: 446, optional: false, is_discriminator: true, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "the kind of objects to query.  Note that each possible\ntarget may enable additional filtering options" },
-    FieldMeta { name: "providers", wire_name: "providers", ty: 448, optional: true, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "which providers to request statistics from, and\noptionally which named values to return within each provider" },
+    FieldMeta { name: "target", wire_name: "target", ty: 444, optional: false, is_discriminator: true, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "the kind of objects to query.  Note that each possible\ntarget may enable additional filtering options" },
+    FieldMeta { name: "providers", wire_name: "providers", ty: 446, optional: true, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "which providers to request statistics from, and\noptionally which named values to return within each provider" },
 ];
 static STRUCT_QueryStats: StructMeta = StructMeta {
     name: "query-stats",
@@ -15222,7 +15220,7 @@ static STRUCT_QueryStats: StructMeta = StructMeta {
     until: None,
 };
 static FIELDS_QueryStatsSchemas: &[FieldMeta] = &[
-    FieldMeta { name: "provider", wire_name: "provider", ty: 451, optional: true, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "a provider to restrict the query to.\n\n.. note:: Runtime-collected statistics and their names fall outside\nQEMU's usual deprecation policies.  QEMU will try to keep the set\nof available data stable, together with their names, but will not\nguarantee stability at all costs; the same is true of providers\nthat source statistics externally, e.g. from Linux.  For example,\nif the same value is being tracked with different names on\ndifferent architectures or by different providers, one of them\nmight be renamed.  A statistic might go away if an algorithm is\nchanged or some code is removed; changing a default might cause\npreviously useful statistics to always report 0.  Such changes,\nhowever, are expected to be rare." },
+    FieldMeta { name: "provider", wire_name: "provider", ty: 449, optional: true, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "a provider to restrict the query to.\n\n.. note:: Runtime-collected statistics and their names fall outside\nQEMU's usual deprecation policies.  QEMU will try to keep the set\nof available data stable, together with their names, but will not\nguarantee stability at all costs; the same is true of providers\nthat source statistics externally, e.g. from Linux.  For example,\nif the same value is being tracked with different names on\ndifferent architectures or by different providers, one of them\nmight be renamed.  A statistic might go away if an algorithm is\nchanged or some code is removed; changing a default might cause\npreviously useful statistics to always report 0.  Such changes,\nhowever, are expected to be rare." },
 ];
 static STRUCT_QueryStatsSchemas: StructMeta = StructMeta {
     name: "query-stats-schemas",
@@ -15463,7 +15461,7 @@ static FIELDS_QuorumReportBadEvent: &[FieldMeta] = &[
     FieldMeta { name: "node_name", wire_name: "node-name", ty: 4, optional: false, is_discriminator: false, recursive: false, since: (2u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "the graph node name of the block driver state" },
     FieldMeta { name: "sector_num", wire_name: "sector-num", ty: 7, optional: false, is_discriminator: false, recursive: false, since: (2u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "number of the first sector of the failed read operation" },
     FieldMeta { name: "sectors_count", wire_name: "sectors-count", ty: 7, optional: false, is_discriminator: false, recursive: false, since: (2u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "failed read operation sector count" },
-    FieldMeta { name: "r#type", wire_name: "type", ty: 473, optional: false, is_discriminator: false, recursive: false, since: (2u32, 6u32, 0u32), until: None, deprecated: false, unstable: false, doc: "quorum operation type (Since 2.6)" },
+    FieldMeta { name: "r#type", wire_name: "type", ty: 471, optional: false, is_discriminator: false, recursive: false, since: (2u32, 6u32, 0u32), until: None, deprecated: false, unstable: false, doc: "quorum operation type (Since 2.6)" },
 ];
 static STRUCT_QuorumReportBadEvent: StructMeta = StructMeta {
     name: "QUORUM_REPORT_BAD",
@@ -15743,7 +15741,7 @@ static STRUCT_ReplayDeleteBreak: StructMeta = StructMeta {
     until: None,
 };
 static FIELDS_ReplayInfo: &[FieldMeta] = &[
-    FieldMeta { name: "mode", wire_name: "mode", ty: 474, optional: false, is_discriminator: false, recursive: false, since: (5u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "current mode." },
+    FieldMeta { name: "mode", wire_name: "mode", ty: 472, optional: false, is_discriminator: false, recursive: false, since: (5u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "current mode." },
     FieldMeta { name: "filename", wire_name: "filename", ty: 4, optional: true, is_discriminator: false, recursive: false, since: (5u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "name of the record/replay log file.  It is present only\nin record or replay modes, when the log is recorded or replayed." },
     FieldMeta { name: "icount", wire_name: "icount", ty: 7, optional: false, is_discriminator: false, recursive: false, since: (5u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "current number of executed instructions." },
 ];
@@ -15813,7 +15811,7 @@ static STRUCT_ReplicationStatus: StructMeta = StructMeta {
     until: None,
 };
 static FIELDS_RequestEbpf: &[FieldMeta] = &[
-    FieldMeta { name: "id", wire_name: "id", ty: 475, optional: false, is_discriminator: false, recursive: false, since: (9u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    FieldMeta { name: "id", wire_name: "id", ty: 473, optional: false, is_discriminator: false, recursive: false, since: (9u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
 ];
 static STRUCT_RequestEbpf: StructMeta = StructMeta {
     name: "request-ebpf",
@@ -15828,7 +15826,7 @@ static STRUCT_RequestEbpf: StructMeta = StructMeta {
 };
 static FIELDS_ResetEvent: &[FieldMeta] = &[
     FieldMeta { name: "guest", wire_name: "guest", ty: 9, optional: false, is_discriminator: false, recursive: false, since: (2u32, 10u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
-    FieldMeta { name: "reason", wire_name: "reason", ty: 477, optional: false, is_discriminator: false, recursive: false, since: (4u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    FieldMeta { name: "reason", wire_name: "reason", ty: 475, optional: false, is_discriminator: false, recursive: false, since: (4u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
 ];
 static STRUCT_ResetEvent: StructMeta = StructMeta {
     name: "RESET",
@@ -15857,7 +15855,7 @@ static STRUCT_ResumeEvent: StructMeta = StructMeta {
 static FIELDS_RingbufRead: &[FieldMeta] = &[
     FieldMeta { name: "device", wire_name: "device", ty: 4, optional: false, is_discriminator: false, recursive: false, since: (1u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
     FieldMeta { name: "size", wire_name: "size", ty: 7, optional: false, is_discriminator: false, recursive: false, since: (1u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
-    FieldMeta { name: "format", wire_name: "format", ty: 478, optional: true, is_discriminator: false, recursive: false, since: (1u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    FieldMeta { name: "format", wire_name: "format", ty: 476, optional: true, is_discriminator: false, recursive: false, since: (1u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
 ];
 static STRUCT_RingbufRead: StructMeta = StructMeta {
     name: "ringbuf-read",
@@ -15873,7 +15871,7 @@ static STRUCT_RingbufRead: StructMeta = StructMeta {
 static FIELDS_RingbufWrite: &[FieldMeta] = &[
     FieldMeta { name: "device", wire_name: "device", ty: 4, optional: false, is_discriminator: false, recursive: false, since: (1u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
     FieldMeta { name: "data", wire_name: "data", ty: 4, optional: false, is_discriminator: false, recursive: false, since: (1u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
-    FieldMeta { name: "format", wire_name: "format", ty: 478, optional: true, is_discriminator: false, recursive: false, since: (1u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    FieldMeta { name: "format", wire_name: "format", ty: 476, optional: true, is_discriminator: false, recursive: false, since: (1u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
 ];
 static STRUCT_RingbufWrite: StructMeta = StructMeta {
     name: "ringbuf-write",
@@ -15933,9 +15931,9 @@ static STRUCT_RngRandomProperties: StructMeta = StructMeta {
 static FIELDS_RockerOfDpaFlow: &[FieldMeta] = &[
     FieldMeta { name: "cookie", wire_name: "cookie", ty: 90, optional: false, is_discriminator: false, recursive: false, since: (2u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "flow unique cookie ID" },
     FieldMeta { name: "hits", wire_name: "hits", ty: 90, optional: false, is_discriminator: false, recursive: false, since: (2u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "count of matches (hits) on flow" },
-    FieldMeta { name: "key", wire_name: "key", ty: 479, optional: false, is_discriminator: false, recursive: false, since: (2u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "flow key" },
-    FieldMeta { name: "mask", wire_name: "mask", ty: 480, optional: false, is_discriminator: false, recursive: false, since: (2u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "flow mask" },
-    FieldMeta { name: "action", wire_name: "action", ty: 481, optional: false, is_discriminator: false, recursive: false, since: (2u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "flow action" },
+    FieldMeta { name: "key", wire_name: "key", ty: 477, optional: false, is_discriminator: false, recursive: false, since: (2u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "flow key" },
+    FieldMeta { name: "mask", wire_name: "mask", ty: 478, optional: false, is_discriminator: false, recursive: false, since: (2u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "flow mask" },
+    FieldMeta { name: "action", wire_name: "action", ty: 479, optional: false, is_discriminator: false, recursive: false, since: (2u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "flow action" },
 ];
 static STRUCT_RockerOfDpaFlow: StructMeta = StructMeta {
     name: "RockerOfDpaFlow",
@@ -16042,8 +16040,8 @@ static FIELDS_RockerPort: &[FieldMeta] = &[
     FieldMeta { name: "enabled", wire_name: "enabled", ty: 9, optional: false, is_discriminator: false, recursive: false, since: (2u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "port is enabled for I/O" },
     FieldMeta { name: "link_up", wire_name: "link-up", ty: 9, optional: false, is_discriminator: false, recursive: false, since: (2u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "physical link is UP on port" },
     FieldMeta { name: "speed", wire_name: "speed", ty: 5, optional: false, is_discriminator: false, recursive: false, since: (2u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "port link speed in Mbps" },
-    FieldMeta { name: "duplex", wire_name: "duplex", ty: 482, optional: false, is_discriminator: false, recursive: false, since: (2u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "port link duplex" },
-    FieldMeta { name: "autoneg", wire_name: "autoneg", ty: 483, optional: false, is_discriminator: false, recursive: false, since: (2u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "port link autoneg" },
+    FieldMeta { name: "duplex", wire_name: "duplex", ty: 480, optional: false, is_discriminator: false, recursive: false, since: (2u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "port link duplex" },
+    FieldMeta { name: "autoneg", wire_name: "autoneg", ty: 481, optional: false, is_discriminator: false, recursive: false, since: (2u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "port link autoneg" },
 ];
 static STRUCT_RockerPort: StructMeta = StructMeta {
     name: "RockerPort",
@@ -16154,8 +16152,8 @@ static ENUM_RunState: EnumMeta = EnumMeta {
 static FIELDS_RxFilterInfo: &[FieldMeta] = &[
     FieldMeta { name: "name", wire_name: "name", ty: 4, optional: false, is_discriminator: false, recursive: false, since: (1u32, 6u32, 0u32), until: None, deprecated: false, unstable: false, doc: "net client name" },
     FieldMeta { name: "promiscuous", wire_name: "promiscuous", ty: 9, optional: false, is_discriminator: false, recursive: false, since: (1u32, 6u32, 0u32), until: None, deprecated: false, unstable: false, doc: "whether promiscuous mode is enabled" },
-    FieldMeta { name: "multicast", wire_name: "multicast", ty: 484, optional: false, is_discriminator: false, recursive: false, since: (1u32, 6u32, 0u32), until: None, deprecated: false, unstable: false, doc: "multicast receive state" },
-    FieldMeta { name: "unicast", wire_name: "unicast", ty: 484, optional: false, is_discriminator: false, recursive: false, since: (1u32, 6u32, 0u32), until: None, deprecated: false, unstable: false, doc: "unicast receive state" },
+    FieldMeta { name: "multicast", wire_name: "multicast", ty: 482, optional: false, is_discriminator: false, recursive: false, since: (1u32, 6u32, 0u32), until: None, deprecated: false, unstable: false, doc: "multicast receive state" },
+    FieldMeta { name: "unicast", wire_name: "unicast", ty: 482, optional: false, is_discriminator: false, recursive: false, since: (1u32, 6u32, 0u32), until: None, deprecated: false, unstable: false, doc: "unicast receive state" },
     FieldMeta { name: "broadcast_allowed", wire_name: "broadcast-allowed", ty: 9, optional: false, is_discriminator: false, recursive: false, since: (1u32, 6u32, 0u32), until: None, deprecated: false, unstable: false, doc: "whether to receive broadcast" },
     FieldMeta { name: "multicast_overflow", wire_name: "multicast-overflow", ty: 9, optional: false, is_discriminator: false, recursive: false, since: (1u32, 6u32, 0u32), until: None, deprecated: false, unstable: false, doc: "multicast table is overflowed or not" },
     FieldMeta { name: "unicast_overflow", wire_name: "unicast-overflow", ty: 9, optional: false, is_discriminator: false, recursive: false, since: (1u32, 6u32, 0u32), until: None, deprecated: false, unstable: false, doc: "unicast table is overflowed or not" },
@@ -16163,7 +16161,7 @@ static FIELDS_RxFilterInfo: &[FieldMeta] = &[
     FieldMeta { name: "vlan_table", wire_name: "vlan-table", ty: 82, optional: false, is_discriminator: false, recursive: false, since: (1u32, 6u32, 0u32), until: None, deprecated: false, unstable: false, doc: "a list of active vlan id" },
     FieldMeta { name: "unicast_table", wire_name: "unicast-table", ty: 11, optional: false, is_discriminator: false, recursive: false, since: (1u32, 6u32, 0u32), until: None, deprecated: false, unstable: false, doc: "a list of unicast macaddr string" },
     FieldMeta { name: "multicast_table", wire_name: "multicast-table", ty: 11, optional: false, is_discriminator: false, recursive: false, since: (1u32, 6u32, 0u32), until: None, deprecated: false, unstable: false, doc: "a list of multicast macaddr string" },
-    FieldMeta { name: "vlan", wire_name: "vlan", ty: 484, optional: false, is_discriminator: false, recursive: false, since: (2u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "vlan receive state (Since 2.0)" },
+    FieldMeta { name: "vlan", wire_name: "vlan", ty: 482, optional: false, is_discriminator: false, recursive: false, since: (2u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "vlan receive state (Since 2.0)" },
 ];
 static STRUCT_RxFilterInfo: StructMeta = StructMeta {
     name: "RxFilterInfo",
@@ -16247,7 +16245,7 @@ static ENUM_S390CrashReason: EnumMeta = EnumMeta {
 };
 static FIELDS_SchemaInfo: &[FieldMeta] = &[
     FieldMeta { name: "name", wire_name: "name", ty: 4, optional: false, is_discriminator: false, recursive: false, since: (2u32, 5u32, 0u32), until: None, deprecated: false, unstable: false, doc: "the entity's name, inherited from @base.  The `SchemaInfo` is\nalways referenced by this name.  Commands and events have the\nname defined in the QAPI schema.  Unlike command and event\nnames, type names are not part of the wire ABI.  Consequently,\ntype names are meaningless strings here, although they are still\nguaranteed unique regardless of @meta-type." },
-    FieldMeta { name: "meta_type", wire_name: "meta-type", ty: 485, optional: false, is_discriminator: true, recursive: false, since: (2u32, 5u32, 0u32), until: None, deprecated: false, unstable: false, doc: "the entity's meta type, inherited from @base." },
+    FieldMeta { name: "meta_type", wire_name: "meta-type", ty: 483, optional: false, is_discriminator: true, recursive: false, since: (2u32, 5u32, 0u32), until: None, deprecated: false, unstable: false, doc: "the entity's meta type, inherited from @base." },
     FieldMeta { name: "features", wire_name: "features", ty: 11, optional: true, is_discriminator: false, recursive: false, since: (5u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "names of features associated with the entity, in no\nparticular order.  (since 4.1 for object types, 4.2 for\ncommands, 5.0 for the rest)" },
 ];
 static STRUCT_SchemaInfo: StructMeta = StructMeta {
@@ -16262,7 +16260,7 @@ static STRUCT_SchemaInfo: StructMeta = StructMeta {
     until: None,
 };
 static FIELDS_SchemaInfoAlternate: &[FieldMeta] = &[
-    FieldMeta { name: "members", wire_name: "members", ty: 487, optional: false, is_discriminator: false, recursive: false, since: (2u32, 5u32, 0u32), until: None, deprecated: false, unstable: false, doc: "the alternate type's members, in no particular order.  The\nmembers' wire encoding is distinct, see\n:doc:`/devel/qapi-code-gen` section Alternate types.\n\nOn the wire, this can be any of the members." },
+    FieldMeta { name: "members", wire_name: "members", ty: 485, optional: false, is_discriminator: false, recursive: false, since: (2u32, 5u32, 0u32), until: None, deprecated: false, unstable: false, doc: "the alternate type's members, in no particular order.  The\nmembers' wire encoding is distinct, see\n:doc:`/devel/qapi-code-gen` section Alternate types.\n\nOn the wire, this can be any of the members." },
 ];
 static STRUCT_SchemaInfoAlternate: StructMeta = StructMeta {
     name: "SchemaInfoAlternate",
@@ -16305,7 +16303,7 @@ static STRUCT_SchemaInfoArray: StructMeta = StructMeta {
 };
 static FIELDS_SchemaInfoBase: &[FieldMeta] = &[
     FieldMeta { name: "name", wire_name: "name", ty: 4, optional: false, is_discriminator: false, recursive: false, since: (2u32, 5u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
-    FieldMeta { name: "meta_type", wire_name: "meta-type", ty: 485, optional: false, is_discriminator: false, recursive: false, since: (2u32, 5u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    FieldMeta { name: "meta_type", wire_name: "meta-type", ty: 483, optional: false, is_discriminator: false, recursive: false, since: (2u32, 5u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
 ];
 static STRUCT_SchemaInfoBase: StructMeta = StructMeta {
     name: "SchemaInfoBase",
@@ -16336,7 +16334,7 @@ static ENUM_SchemaInfoBranch: EnumMeta = EnumMeta {
     until: None,
 };
 static FIELDS_SchemaInfoBuiltin: &[FieldMeta] = &[
-    FieldMeta { name: "json_type", wire_name: "json-type", ty: 488, optional: false, is_discriminator: false, recursive: false, since: (2u32, 5u32, 0u32), until: None, deprecated: false, unstable: false, doc: "the JSON type used for this type on the wire." },
+    FieldMeta { name: "json_type", wire_name: "json-type", ty: 486, optional: false, is_discriminator: false, recursive: false, since: (2u32, 5u32, 0u32), until: None, deprecated: false, unstable: false, doc: "the JSON type used for this type on the wire." },
 ];
 static STRUCT_SchemaInfoBuiltin: StructMeta = StructMeta {
     name: "SchemaInfoBuiltin",
@@ -16368,7 +16366,7 @@ static STRUCT_SchemaInfoCommand: StructMeta = StructMeta {
 };
 static FIELDS_SchemaInfoEnum: &[FieldMeta] = &[
     FieldMeta { name: "values", wire_name: "values", ty: 11, optional: false, is_discriminator: false, recursive: false, since: (2u32, 5u32, 0u32), until: None, deprecated: true, unstable: false, doc: "the enumeration type's values, in no particular order.\n\nValues of this type are JSON string on the wire." },
-    FieldMeta { name: "members", wire_name: "members", ty: 490, optional: false, is_discriminator: false, recursive: false, since: (6u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    FieldMeta { name: "members", wire_name: "members", ty: 488, optional: false, is_discriminator: false, recursive: false, since: (6u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
 ];
 static STRUCT_SchemaInfoEnum: StructMeta = StructMeta {
     name: "SchemaInfoEnum",
@@ -16411,9 +16409,9 @@ static STRUCT_SchemaInfoEvent: StructMeta = StructMeta {
     until: None,
 };
 static FIELDS_SchemaInfoObject: &[FieldMeta] = &[
-    FieldMeta { name: "members", wire_name: "members", ty: 492, optional: false, is_discriminator: false, recursive: false, since: (2u32, 5u32, 0u32), until: None, deprecated: false, unstable: false, doc: "with this name must exist." },
+    FieldMeta { name: "members", wire_name: "members", ty: 490, optional: false, is_discriminator: false, recursive: false, since: (2u32, 5u32, 0u32), until: None, deprecated: false, unstable: false, doc: "with this name must exist." },
     FieldMeta { name: "tag", wire_name: "tag", ty: 4, optional: true, is_discriminator: false, recursive: false, since: (2u32, 5u32, 0u32), until: None, deprecated: false, unstable: false, doc: "the name of the member serving as type tag.  An element of" },
-    FieldMeta { name: "variants", wire_name: "variants", ty: 494, optional: true, is_discriminator: false, recursive: false, since: (2u32, 5u32, 0u32), until: None, deprecated: false, unstable: false, doc: "variant members, i.e. additional members that depend on\nthe type tag's value.  Present exactly when @tag is present.\nThe variants are in no particular order, and may even differ\nfrom the order of the values of the enum type of the @tag.\n\nValues of this type are JSON object on the wire." },
+    FieldMeta { name: "variants", wire_name: "variants", ty: 492, optional: true, is_discriminator: false, recursive: false, since: (2u32, 5u32, 0u32), until: None, deprecated: false, unstable: false, doc: "variant members, i.e. additional members that depend on\nthe type tag's value.  Present exactly when @tag is present.\nThe variants are in no particular order, and may even differ\nfrom the order of the values of the enum type of the @tag.\n\nValues of this type are JSON object on the wire." },
     FieldMeta { name: "features", wire_name: "features", ty: 11, optional: true, is_discriminator: false, recursive: false, since: (4u32, 1u32, 0u32), until: Some((5u32, 0u32, 0u32)), deprecated: false, unstable: false, doc: "names of features associated with the type, in no particular\norder. (since: 4.1)\n\nValues of this type are JSON object on the wire." },
 ];
 static STRUCT_SchemaInfoObject: StructMeta = StructMeta {
@@ -16493,7 +16491,7 @@ static FIELDS_Screendump: &[FieldMeta] = &[
     FieldMeta { name: "filename", wire_name: "filename", ty: 4, optional: false, is_discriminator: false, recursive: false, since: (1u32, 3u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
     FieldMeta { name: "device", wire_name: "device", ty: 4, optional: true, is_discriminator: false, recursive: false, since: (2u32, 12u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
     FieldMeta { name: "head", wire_name: "head", ty: 7, optional: true, is_discriminator: false, recursive: false, since: (2u32, 12u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
-    FieldMeta { name: "format", wire_name: "format", ty: 495, optional: true, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    FieldMeta { name: "format", wire_name: "format", ty: 493, optional: true, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
 ];
 static STRUCT_Screendump: StructMeta = StructMeta {
     name: "screendump",
@@ -16508,7 +16506,7 @@ static STRUCT_Screendump: StructMeta = StructMeta {
 };
 static FIELDS_SecretCommonProperties: &[FieldMeta] = &[
     FieldMeta { name: "loaded", wire_name: "loaded", ty: 9, optional: true, is_discriminator: false, recursive: false, since: (6u32, 0u32, 0u32), until: Some((9u32, 2u32, 0u32)), deprecated: true, unstable: false, doc: "" },
-    FieldMeta { name: "format", wire_name: "format", ty: 496, optional: true, is_discriminator: false, recursive: false, since: (6u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "the data format that the secret is provided in\n(default: raw)" },
+    FieldMeta { name: "format", wire_name: "format", ty: 494, optional: true, is_discriminator: false, recursive: false, since: (6u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "the data format that the secret is provided in\n(default: raw)" },
     FieldMeta { name: "keyid", wire_name: "keyid", ty: 4, optional: true, is_discriminator: false, recursive: false, since: (6u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "the name of another secret that should be used to decrypt\nthe provided data.  If not present, the data is assumed to be\nunencrypted." },
     FieldMeta { name: "iv", wire_name: "iv", ty: 4, optional: true, is_discriminator: false, recursive: false, since: (6u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "the random initialization vector used for encryption of this\nparticular secret.  Should be a base64 encrypted string of the\n16-byte IV.  Mandatory if @keyid is given.  Ignored if @keyid is\nabsent." },
 ];
@@ -16525,7 +16523,7 @@ static STRUCT_SecretCommonProperties: StructMeta = StructMeta {
 };
 static FIELDS_SecretKeyringProperties: &[FieldMeta] = &[
     FieldMeta { name: "loaded", wire_name: "loaded", ty: 9, optional: true, is_discriminator: false, recursive: false, since: (6u32, 0u32, 0u32), until: Some((9u32, 2u32, 0u32)), deprecated: true, unstable: false, doc: "" },
-    FieldMeta { name: "format", wire_name: "format", ty: 496, optional: true, is_discriminator: false, recursive: false, since: (6u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "the data format that the secret is provided in\n(default: raw)" },
+    FieldMeta { name: "format", wire_name: "format", ty: 494, optional: true, is_discriminator: false, recursive: false, since: (6u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "the data format that the secret is provided in\n(default: raw)" },
     FieldMeta { name: "keyid", wire_name: "keyid", ty: 4, optional: true, is_discriminator: false, recursive: false, since: (6u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "the name of another secret that should be used to decrypt\nthe provided data.  If not present, the data is assumed to be\nunencrypted." },
     FieldMeta { name: "iv", wire_name: "iv", ty: 4, optional: true, is_discriminator: false, recursive: false, since: (6u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "the random initialization vector used for encryption of this\nparticular secret.  Should be a base64 encrypted string of the\n16-byte IV.  Mandatory if @keyid is given.  Ignored if @keyid is\nabsent." },
     FieldMeta { name: "serial", wire_name: "serial", ty: 87, optional: false, is_discriminator: false, recursive: false, since: (6u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "serial number that identifies a key to get from the kernel" },
@@ -16543,7 +16541,7 @@ static STRUCT_SecretKeyringProperties: StructMeta = StructMeta {
 };
 static FIELDS_SecretProperties: &[FieldMeta] = &[
     FieldMeta { name: "loaded", wire_name: "loaded", ty: 9, optional: true, is_discriminator: false, recursive: false, since: (6u32, 0u32, 0u32), until: Some((9u32, 2u32, 0u32)), deprecated: true, unstable: false, doc: "" },
-    FieldMeta { name: "format", wire_name: "format", ty: 496, optional: true, is_discriminator: false, recursive: false, since: (6u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "the data format that the secret is provided in\n(default: raw)" },
+    FieldMeta { name: "format", wire_name: "format", ty: 494, optional: true, is_discriminator: false, recursive: false, since: (6u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "the data format that the secret is provided in\n(default: raw)" },
     FieldMeta { name: "keyid", wire_name: "keyid", ty: 4, optional: true, is_discriminator: false, recursive: false, since: (6u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "the name of another secret that should be used to decrypt\nthe provided data.  If not present, the data is assumed to be\nunencrypted." },
     FieldMeta { name: "iv", wire_name: "iv", ty: 4, optional: true, is_discriminator: false, recursive: false, since: (6u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "the random initialization vector used for encryption of this\nparticular secret.  Should be a base64 encrypted string of the\n16-byte IV.  Mandatory if @keyid is given.  Ignored if @keyid is\nabsent." },
     FieldMeta { name: "data", wire_name: "data", ty: 4, optional: true, is_discriminator: false, recursive: false, since: (6u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "the associated with the secret from" },
@@ -16561,7 +16559,7 @@ static STRUCT_SecretProperties: StructMeta = StructMeta {
     until: None,
 };
 static FIELDS_SendKey: &[FieldMeta] = &[
-    FieldMeta { name: "keys", wire_name: "keys", ty: 497, optional: false, is_discriminator: false, recursive: false, since: (1u32, 3u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    FieldMeta { name: "keys", wire_name: "keys", ty: 495, optional: false, is_discriminator: false, recursive: false, since: (1u32, 3u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
     FieldMeta { name: "hold_time", wire_name: "hold-time", ty: 7, optional: true, is_discriminator: false, recursive: false, since: (1u32, 3u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
 ];
 static STRUCT_SendKey: StructMeta = StructMeta {
@@ -16576,10 +16574,10 @@ static STRUCT_SendKey: StructMeta = StructMeta {
     until: None,
 };
 static FIELDS_SetAction: &[FieldMeta] = &[
-    FieldMeta { name: "reboot", wire_name: "reboot", ty: 498, optional: true, is_discriminator: false, recursive: false, since: (6u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
-    FieldMeta { name: "shutdown", wire_name: "shutdown", ty: 499, optional: true, is_discriminator: false, recursive: false, since: (6u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
-    FieldMeta { name: "panic", wire_name: "panic", ty: 500, optional: true, is_discriminator: false, recursive: false, since: (6u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
-    FieldMeta { name: "watchdog", wire_name: "watchdog", ty: 501, optional: true, is_discriminator: false, recursive: false, since: (6u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    FieldMeta { name: "reboot", wire_name: "reboot", ty: 496, optional: true, is_discriminator: false, recursive: false, since: (6u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    FieldMeta { name: "shutdown", wire_name: "shutdown", ty: 497, optional: true, is_discriminator: false, recursive: false, since: (6u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    FieldMeta { name: "panic", wire_name: "panic", ty: 498, optional: true, is_discriminator: false, recursive: false, since: (6u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    FieldMeta { name: "watchdog", wire_name: "watchdog", ty: 499, optional: true, is_discriminator: false, recursive: false, since: (6u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
 ];
 static STRUCT_SetAction: StructMeta = StructMeta {
     name: "set-action",
@@ -16643,7 +16641,7 @@ static STRUCT_SetNumaNode: StructMeta = StructMeta {
 static FIELDS_SetPassword: &[FieldMeta] = &[
     FieldMeta { name: "protocol", wire_name: "protocol", ty: 220, optional: false, is_discriminator: true, recursive: false, since: (1u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "- 'vnc' to modify the VNC server password\n- 'spice' to modify the Spice server password" },
     FieldMeta { name: "password", wire_name: "password", ty: 4, optional: false, is_discriminator: false, recursive: false, since: (1u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "the new password" },
-    FieldMeta { name: "connected", wire_name: "connected", ty: 502, optional: true, is_discriminator: false, recursive: false, since: (1u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "How to handle existing clients when changing the\npassword.  If nothing is specified, defaults to 'keep'.  For\nVNC, only 'keep' is currently implemented." },
+    FieldMeta { name: "connected", wire_name: "connected", ty: 500, optional: true, is_discriminator: false, recursive: false, since: (1u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "How to handle existing clients when changing the\npassword.  If nothing is specified, defaults to 'keep'.  For\nVNC, only 'keep' is currently implemented." },
 ];
 static STRUCT_SetPassword: StructMeta = StructMeta {
     name: "set_password",
@@ -16672,7 +16670,7 @@ static ENUM_SetPasswordAction: EnumMeta = EnumMeta {
 static FIELDS_SetPasswordOptions: &[FieldMeta] = &[
     FieldMeta { name: "protocol", wire_name: "protocol", ty: 220, optional: false, is_discriminator: true, recursive: false, since: (7u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "- 'vnc' to modify the VNC server password\n- 'spice' to modify the Spice server password" },
     FieldMeta { name: "password", wire_name: "password", ty: 4, optional: false, is_discriminator: false, recursive: false, since: (7u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "the new password" },
-    FieldMeta { name: "connected", wire_name: "connected", ty: 502, optional: true, is_discriminator: false, recursive: false, since: (7u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "How to handle existing clients when changing the\npassword.  If nothing is specified, defaults to 'keep'.  For\nVNC, only 'keep' is currently implemented." },
+    FieldMeta { name: "connected", wire_name: "connected", ty: 500, optional: true, is_discriminator: false, recursive: false, since: (7u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "How to handle existing clients when changing the\npassword.  If nothing is specified, defaults to 'keep'.  For\nVNC, only 'keep' is currently implemented." },
 ];
 static STRUCT_SetPasswordOptions: StructMeta = StructMeta {
     name: "SetPasswordOptions",
@@ -16829,9 +16827,9 @@ static FIELDS_SevInfo: &[FieldMeta] = &[
     FieldMeta { name: "api_minor", wire_name: "api-minor", ty: 8, optional: false, is_discriminator: false, recursive: false, since: (2u32, 12u32, 0u32), until: None, deprecated: false, unstable: false, doc: "SEV API minor version" },
     FieldMeta { name: "build_id", wire_name: "build-id", ty: 8, optional: false, is_discriminator: false, recursive: false, since: (2u32, 12u32, 0u32), until: None, deprecated: false, unstable: false, doc: "SEV FW build id" },
     FieldMeta { name: "policy", wire_name: "policy", ty: 5, optional: false, is_discriminator: false, recursive: false, since: (2u32, 12u32, 0u32), until: Some((9u32, 1u32, 0u32)), deprecated: false, unstable: false, doc: "SEV policy value" },
-    FieldMeta { name: "state", wire_name: "state", ty: 503, optional: false, is_discriminator: false, recursive: false, since: (2u32, 12u32, 0u32), until: None, deprecated: false, unstable: false, doc: "SEV guest state" },
+    FieldMeta { name: "state", wire_name: "state", ty: 501, optional: false, is_discriminator: false, recursive: false, since: (2u32, 12u32, 0u32), until: None, deprecated: false, unstable: false, doc: "SEV guest state" },
     FieldMeta { name: "handle", wire_name: "handle", ty: 5, optional: false, is_discriminator: false, recursive: false, since: (2u32, 12u32, 0u32), until: Some((9u32, 1u32, 0u32)), deprecated: false, unstable: false, doc: "SEV firmware handle" },
-    FieldMeta { name: "sev_type", wire_name: "sev-type", ty: 504, optional: false, is_discriminator: true, recursive: false, since: (9u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Type of SEV guest being run" },
+    FieldMeta { name: "sev_type", wire_name: "sev-type", ty: 502, optional: false, is_discriminator: true, recursive: false, since: (9u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Type of SEV guest being run" },
 ];
 static STRUCT_SevInfo: StructMeta = StructMeta {
     name: "SevInfo",
@@ -16974,7 +16972,7 @@ static STRUCT_SgxEpcDeviceInfo: StructMeta = StructMeta {
     until: None,
 };
 static FIELDS_SgxEpcDeviceInfoWrapper: &[FieldMeta] = &[
-    FieldMeta { name: "data", wire_name: "data", ty: 505, optional: false, is_discriminator: false, recursive: false, since: (6u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Sgx EPC state information" },
+    FieldMeta { name: "data", wire_name: "data", ty: 503, optional: false, is_discriminator: false, recursive: false, since: (6u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Sgx EPC state information" },
 ];
 static STRUCT_SgxEpcDeviceInfoWrapper: StructMeta = StructMeta {
     name: "SgxEPCDeviceInfoWrapper",
@@ -16988,7 +16986,7 @@ static STRUCT_SgxEpcDeviceInfoWrapper: StructMeta = StructMeta {
     until: None,
 };
 static FIELDS_SgxEpcProperties: &[FieldMeta] = &[
-    FieldMeta { name: "sgx_epc", wire_name: "sgx-epc", ty: 507, optional: false, is_discriminator: false, recursive: false, since: (6u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "list of ids of memory-backend-epc objects." },
+    FieldMeta { name: "sgx_epc", wire_name: "sgx-epc", ty: 505, optional: false, is_discriminator: false, recursive: false, since: (6u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "list of ids of memory-backend-epc objects." },
 ];
 static STRUCT_SgxEpcProperties: StructMeta = StructMeta {
     name: "SgxEPCProperties",
@@ -17037,7 +17035,7 @@ static FIELDS_SgxInfo: &[FieldMeta] = &[
     FieldMeta { name: "sgx2", wire_name: "sgx2", ty: 9, optional: false, is_discriminator: false, recursive: false, since: (6u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "true if SGX2 is supported" },
     FieldMeta { name: "flc", wire_name: "flc", ty: 9, optional: false, is_discriminator: false, recursive: false, since: (6u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "true if FLC is supported" },
     FieldMeta { name: "section_size", wire_name: "section-size", ty: 90, optional: false, is_discriminator: false, recursive: false, since: (6u32, 2u32, 0u32), until: Some((8u32, 0u32, 0u32)), deprecated: true, unstable: false, doc: "The EPC section size for guest" },
-    FieldMeta { name: "sections", wire_name: "sections", ty: 509, optional: false, is_discriminator: false, recursive: false, since: (7u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "The EPC sections information (Since: 7.0)" },
+    FieldMeta { name: "sections", wire_name: "sections", ty: 507, optional: false, is_discriminator: false, recursive: false, since: (7u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "The EPC sections information (Since: 7.0)" },
 ];
 static STRUCT_SgxInfo: StructMeta = StructMeta {
     name: "SGXInfo",
@@ -17051,7 +17049,7 @@ static STRUCT_SgxInfo: StructMeta = StructMeta {
     until: None,
 };
 static FIELDS_SheepdogRedundancy: &[FieldMeta] = &[
-    FieldMeta { name: "r#type", wire_name: "type", ty: 510, optional: false, is_discriminator: true, recursive: false, since: (2u32, 12u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    FieldMeta { name: "r#type", wire_name: "type", ty: 508, optional: false, is_discriminator: true, recursive: false, since: (2u32, 12u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
 ];
 static STRUCT_SheepdogRedundancy: StructMeta = StructMeta {
     name: "SheepdogRedundancy",
@@ -17152,7 +17150,7 @@ static ENUM_ShutdownCause: EnumMeta = EnumMeta {
 };
 static FIELDS_ShutdownEvent: &[FieldMeta] = &[
     FieldMeta { name: "guest", wire_name: "guest", ty: 9, optional: false, is_discriminator: false, recursive: false, since: (2u32, 10u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
-    FieldMeta { name: "reason", wire_name: "reason", ty: 477, optional: false, is_discriminator: false, recursive: false, since: (4u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    FieldMeta { name: "reason", wire_name: "reason", ty: 475, optional: false, is_discriminator: false, recursive: false, since: (4u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
 ];
 static STRUCT_ShutdownEvent: StructMeta = StructMeta {
     name: "SHUTDOWN",
@@ -17179,8 +17177,8 @@ static ENUM_SmbiosEntryPointType: EnumMeta = EnumMeta {
     until: None,
 };
 static FIELDS_SmpCacheProperties: &[FieldMeta] = &[
-    FieldMeta { name: "cache", wire_name: "cache", ty: 511, optional: false, is_discriminator: false, recursive: false, since: (9u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Cache name, which is the combination of cache level and\ncache type." },
-    FieldMeta { name: "topology", wire_name: "topology", ty: 512, optional: false, is_discriminator: false, recursive: false, since: (9u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Cache topology level.  It accepts the CPU topology\nenumeration as the parameter, i.e., CPUs in the same\ntopology container share the same cache." },
+    FieldMeta { name: "cache", wire_name: "cache", ty: 509, optional: false, is_discriminator: false, recursive: false, since: (9u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Cache name, which is the combination of cache level and\ncache type." },
+    FieldMeta { name: "topology", wire_name: "topology", ty: 510, optional: false, is_discriminator: false, recursive: false, since: (9u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Cache topology level.  It accepts the CPU topology\nenumeration as the parameter, i.e., CPUs in the same\ntopology container share the same cache." },
 ];
 static STRUCT_SmpCacheProperties: StructMeta = StructMeta {
     name: "SmpCacheProperties",
@@ -17194,7 +17192,7 @@ static STRUCT_SmpCacheProperties: StructMeta = StructMeta {
     until: None,
 };
 static FIELDS_SmpCachePropertiesWrapper: &[FieldMeta] = &[
-    FieldMeta { name: "caches", wire_name: "caches", ty: 514, optional: false, is_discriminator: false, recursive: false, since: (9u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "the list of `SmpCacheProperties`." },
+    FieldMeta { name: "caches", wire_name: "caches", ty: 512, optional: false, is_discriminator: false, recursive: false, since: (9u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "the list of `SmpCacheProperties`." },
 ];
 static STRUCT_SmpCachePropertiesWrapper: StructMeta = StructMeta {
     name: "SmpCachePropertiesWrapper",
@@ -17302,8 +17300,8 @@ static STRUCT_SnapshotSave: StructMeta = StructMeta {
     until: None,
 };
 static FIELDS_SocketAddress: &[FieldMeta] = &[
-    FieldMeta { name: "r_type", wire_name: "type", ty: 515, optional: false, is_discriminator: true, recursive: false, since: (1u32, 3u32, 0u32), until: Some((2u32, 10u32, 0u32)), deprecated: false, unstable: false, doc: "" },
-    FieldMeta { name: "r#type", wire_name: "type", ty: 515, optional: false, is_discriminator: true, recursive: false, since: (2u32, 10u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Transport type" },
+    FieldMeta { name: "r_type", wire_name: "type", ty: 513, optional: false, is_discriminator: true, recursive: false, since: (1u32, 3u32, 0u32), until: Some((2u32, 10u32, 0u32)), deprecated: false, unstable: false, doc: "" },
+    FieldMeta { name: "r#type", wire_name: "type", ty: 513, optional: false, is_discriminator: true, recursive: false, since: (2u32, 10u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Transport type" },
 ];
 static STRUCT_SocketAddress: StructMeta = StructMeta {
     name: "SocketAddress",
@@ -17331,7 +17329,7 @@ static ENUM_SocketAddressBranch: EnumMeta = EnumMeta {
     until: None,
 };
 static FIELDS_SocketAddressFlat: &[FieldMeta] = &[
-    FieldMeta { name: "r#type", wire_name: "type", ty: 516, optional: false, is_discriminator: true, recursive: false, since: (2u32, 9u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Transport type\n\nThis is just like SocketAddress, except it's a flat union rather\nthan a simple union.  Nicer because it avoids nesting on the wire,\ni.e. this form has fewer {}." },
+    FieldMeta { name: "r#type", wire_name: "type", ty: 514, optional: false, is_discriminator: true, recursive: false, since: (2u32, 9u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Transport type\n\nThis is just like SocketAddress, except it's a flat union rather\nthan a simple union.  Nicer because it avoids nesting on the wire,\ni.e. this form has fewer {}." },
 ];
 static STRUCT_SocketAddressFlat: StructMeta = StructMeta {
     name: "SocketAddressFlat",
@@ -17373,8 +17371,8 @@ static ENUM_SocketAddressFlatType: EnumMeta = EnumMeta {
     until: Some((2u32, 10u32, 0u32)),
 };
 static FIELDS_SocketAddressLegacy: &[FieldMeta] = &[
-    FieldMeta { name: "r_type", wire_name: "type", ty: 517, optional: false, is_discriminator: true, recursive: false, since: (2u32, 10u32, 0u32), until: Some((6u32, 2u32, 0u32)), deprecated: false, unstable: false, doc: "" },
-    FieldMeta { name: "r#type", wire_name: "type", ty: 515, optional: false, is_discriminator: true, recursive: false, since: (6u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Transport type" },
+    FieldMeta { name: "r_type", wire_name: "type", ty: 515, optional: false, is_discriminator: true, recursive: false, since: (2u32, 10u32, 0u32), until: Some((6u32, 2u32, 0u32)), deprecated: false, unstable: false, doc: "" },
+    FieldMeta { name: "r#type", wire_name: "type", ty: 513, optional: false, is_discriminator: true, recursive: false, since: (6u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Transport type" },
 ];
 static STRUCT_SocketAddressLegacy: StructMeta = StructMeta {
     name: "SocketAddressLegacy",
@@ -17432,7 +17430,7 @@ static ENUM_SocketAddressType: EnumMeta = EnumMeta {
 static FIELDS_SpiceBasicInfo: &[FieldMeta] = &[
     FieldMeta { name: "host", wire_name: "host", ty: 4, optional: false, is_discriminator: false, recursive: false, since: (2u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "IP address" },
     FieldMeta { name: "port", wire_name: "port", ty: 4, optional: false, is_discriminator: false, recursive: false, since: (2u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "port number" },
-    FieldMeta { name: "family", wire_name: "family", ty: 518, optional: false, is_discriminator: false, recursive: false, since: (2u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "address family" },
+    FieldMeta { name: "family", wire_name: "family", ty: 516, optional: false, is_discriminator: false, recursive: false, since: (2u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "address family" },
 ];
 static STRUCT_SpiceBasicInfo: StructMeta = StructMeta {
     name: "SpiceBasicInfo",
@@ -17447,7 +17445,7 @@ static STRUCT_SpiceBasicInfo: StructMeta = StructMeta {
 };
 static FIELDS_SpiceChannel: &[FieldMeta] = &[
     FieldMeta { name: "host", wire_name: "host", ty: 4, optional: false, is_discriminator: false, recursive: false, since: (1u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "IP address" },
-    FieldMeta { name: "family", wire_name: "family", ty: 518, optional: false, is_discriminator: false, recursive: false, since: (1u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "address family" },
+    FieldMeta { name: "family", wire_name: "family", ty: 516, optional: false, is_discriminator: false, recursive: false, since: (1u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "address family" },
     FieldMeta { name: "port", wire_name: "port", ty: 4, optional: false, is_discriminator: false, recursive: false, since: (1u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "port number" },
     FieldMeta { name: "connection_id", wire_name: "connection-id", ty: 7, optional: false, is_discriminator: false, recursive: false, since: (1u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "SPICE connection id number.  All channels with the\nsame id belong to the same SPICE session." },
     FieldMeta { name: "channel_type", wire_name: "channel-type", ty: 7, optional: false, is_discriminator: false, recursive: false, since: (1u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "SPICE channel type number.  \"1\" is the main control\nchannel, filter for this one if you want to track spice sessions\nonly" },
@@ -17466,8 +17464,8 @@ static STRUCT_SpiceChannel: StructMeta = StructMeta {
     until: None,
 };
 static FIELDS_SpiceConnectedEvent: &[FieldMeta] = &[
-    FieldMeta { name: "server", wire_name: "server", ty: 519, optional: false, is_discriminator: false, recursive: false, since: (2u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "server information" },
-    FieldMeta { name: "client", wire_name: "client", ty: 519, optional: false, is_discriminator: false, recursive: false, since: (2u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "client information" },
+    FieldMeta { name: "server", wire_name: "server", ty: 517, optional: false, is_discriminator: false, recursive: false, since: (2u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "server information" },
+    FieldMeta { name: "client", wire_name: "client", ty: 517, optional: false, is_discriminator: false, recursive: false, since: (2u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "client information" },
 ];
 static STRUCT_SpiceConnectedEvent: StructMeta = StructMeta {
     name: "SPICE_CONNECTED",
@@ -17481,8 +17479,8 @@ static STRUCT_SpiceConnectedEvent: StructMeta = StructMeta {
     until: None,
 };
 static FIELDS_SpiceDisconnectedEvent: &[FieldMeta] = &[
-    FieldMeta { name: "server", wire_name: "server", ty: 519, optional: false, is_discriminator: false, recursive: false, since: (2u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "server information" },
-    FieldMeta { name: "client", wire_name: "client", ty: 519, optional: false, is_discriminator: false, recursive: false, since: (2u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "client information" },
+    FieldMeta { name: "server", wire_name: "server", ty: 517, optional: false, is_discriminator: false, recursive: false, since: (2u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "server information" },
+    FieldMeta { name: "client", wire_name: "client", ty: 517, optional: false, is_discriminator: false, recursive: false, since: (2u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "client information" },
 ];
 static STRUCT_SpiceDisconnectedEvent: StructMeta = StructMeta {
     name: "SPICE_DISCONNECTED",
@@ -17502,8 +17500,8 @@ static FIELDS_SpiceInfo: &[FieldMeta] = &[
     FieldMeta { name: "tls_port", wire_name: "tls-port", ty: 7, optional: true, is_discriminator: false, recursive: false, since: (1u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "The SPICE server's TLS port number." },
     FieldMeta { name: "auth", wire_name: "auth", ty: 4, optional: true, is_discriminator: false, recursive: false, since: (1u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "the current authentication type used by the server\n\n- 'none' if no authentication is being used\n- 'spice' uses SASL or direct TLS authentication, depending on\ncommand line options" },
     FieldMeta { name: "compiled_version", wire_name: "compiled-version", ty: 4, optional: true, is_discriminator: false, recursive: false, since: (1u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "SPICE server version." },
-    FieldMeta { name: "channels", wire_name: "channels", ty: 521, optional: true, is_discriminator: false, recursive: false, since: (1u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "a list of `SpiceChannel` for each active spice channel" },
-    FieldMeta { name: "mouse_mode", wire_name: "mouse-mode", ty: 522, optional: false, is_discriminator: false, recursive: false, since: (1u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "The mode in which the mouse cursor is displayed\ncurrently.  Can be determined by the client or the server, or\nunknown if spice server doesn't provide this information.\n(since: 1.1)" },
+    FieldMeta { name: "channels", wire_name: "channels", ty: 519, optional: true, is_discriminator: false, recursive: false, since: (1u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "a list of `SpiceChannel` for each active spice channel" },
+    FieldMeta { name: "mouse_mode", wire_name: "mouse-mode", ty: 520, optional: false, is_discriminator: false, recursive: false, since: (1u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "The mode in which the mouse cursor is displayed\ncurrently.  Can be determined by the client or the server, or\nunknown if spice server doesn't provide this information.\n(since: 1.1)" },
     FieldMeta { name: "migrated", wire_name: "migrated", ty: 9, optional: false, is_discriminator: false, recursive: false, since: (1u32, 2u32, 1u32), until: None, deprecated: false, unstable: false, doc: "true if the last guest migration completed and spice\nmigration had completed as well, false otherwise (since 1.4)" },
 ];
 static STRUCT_SpiceInfo: StructMeta = StructMeta {
@@ -17518,8 +17516,8 @@ static STRUCT_SpiceInfo: StructMeta = StructMeta {
     until: None,
 };
 static FIELDS_SpiceInitializedEvent: &[FieldMeta] = &[
-    FieldMeta { name: "server", wire_name: "server", ty: 523, optional: false, is_discriminator: false, recursive: false, since: (2u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "server information" },
-    FieldMeta { name: "client", wire_name: "client", ty: 520, optional: false, is_discriminator: false, recursive: false, since: (2u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "client information" },
+    FieldMeta { name: "server", wire_name: "server", ty: 521, optional: false, is_discriminator: false, recursive: false, since: (2u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "server information" },
+    FieldMeta { name: "client", wire_name: "client", ty: 518, optional: false, is_discriminator: false, recursive: false, since: (2u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "client information" },
 ];
 static STRUCT_SpiceInitializedEvent: StructMeta = StructMeta {
     name: "SPICE_INITIALIZED",
@@ -17561,7 +17559,7 @@ static ENUM_SpiceQueryMouseMode: EnumMeta = EnumMeta {
 static FIELDS_SpiceServerInfo: &[FieldMeta] = &[
     FieldMeta { name: "host", wire_name: "host", ty: 4, optional: false, is_discriminator: false, recursive: false, since: (2u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "IP address" },
     FieldMeta { name: "port", wire_name: "port", ty: 4, optional: false, is_discriminator: false, recursive: false, since: (2u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "port number" },
-    FieldMeta { name: "family", wire_name: "family", ty: 518, optional: false, is_discriminator: false, recursive: false, since: (2u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "address family" },
+    FieldMeta { name: "family", wire_name: "family", ty: 516, optional: false, is_discriminator: false, recursive: false, since: (2u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "address family" },
     FieldMeta { name: "auth", wire_name: "auth", ty: 4, optional: true, is_discriminator: false, recursive: false, since: (2u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "authentication method" },
 ];
 static STRUCT_SpiceServerInfo: StructMeta = StructMeta {
@@ -17594,7 +17592,7 @@ static STRUCT_SpMemDeviceInfo: StructMeta = StructMeta {
     until: None,
 };
 static FIELDS_SpMemDeviceInfoWrapper: &[FieldMeta] = &[
-    FieldMeta { name: "data", wire_name: "data", ty: 524, optional: false, is_discriminator: false, recursive: false, since: (11u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "sp-mem device state information" },
+    FieldMeta { name: "data", wire_name: "data", ty: 522, optional: false, is_discriminator: false, recursive: false, since: (11u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "sp-mem device state information" },
 ];
 static STRUCT_SpMemDeviceInfoWrapper: StructMeta = StructMeta {
     name: "SpMemDeviceInfoWrapper",
@@ -17608,7 +17606,7 @@ static STRUCT_SpMemDeviceInfoWrapper: StructMeta = StructMeta {
     until: None,
 };
 static FIELDS_SshHostKeyCheck: &[FieldMeta] = &[
-    FieldMeta { name: "mode", wire_name: "mode", ty: 525, optional: false, is_discriminator: true, recursive: false, since: (2u32, 12u32, 0u32), until: None, deprecated: false, unstable: false, doc: "How to check the host key" },
+    FieldMeta { name: "mode", wire_name: "mode", ty: 523, optional: false, is_discriminator: true, recursive: false, since: (2u32, 12u32, 0u32), until: None, deprecated: false, unstable: false, doc: "How to check the host key" },
 ];
 static STRUCT_SshHostKeyCheck: StructMeta = StructMeta {
     name: "SshHostKeyCheck",
@@ -17674,7 +17672,7 @@ static STRUCT_SshHostKeyDummy: StructMeta = StructMeta {
     until: Some((3u32, 0u32, 0u32)),
 };
 static FIELDS_SshHostKeyHash: &[FieldMeta] = &[
-    FieldMeta { name: "r#type", wire_name: "type", ty: 526, optional: false, is_discriminator: false, recursive: false, since: (2u32, 12u32, 0u32), until: None, deprecated: false, unstable: false, doc: "The hash algorithm used for the hash" },
+    FieldMeta { name: "r#type", wire_name: "type", ty: 524, optional: false, is_discriminator: false, recursive: false, since: (2u32, 12u32, 0u32), until: None, deprecated: false, unstable: false, doc: "The hash algorithm used for the hash" },
     FieldMeta { name: "hash", wire_name: "hash", ty: 4, optional: false, is_discriminator: false, recursive: false, since: (2u32, 12u32, 0u32), until: None, deprecated: false, unstable: false, doc: "The expected hash value" },
 ];
 static STRUCT_SshHostKeyHash: StructMeta = StructMeta {
@@ -17722,7 +17720,7 @@ static ENUM_SsidSizeMode: EnumMeta = EnumMeta {
 };
 static FIELDS_Stats: &[FieldMeta] = &[
     FieldMeta { name: "name", wire_name: "name", ty: 4, optional: false, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "name of stat." },
-    FieldMeta { name: "value", wire_name: "value", ty: 527, optional: false, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "stat value." },
+    FieldMeta { name: "value", wire_name: "value", ty: 525, optional: false, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "stat value." },
 ];
 static STRUCT_Stats: StructMeta = StructMeta {
     name: "Stats",
@@ -17736,8 +17734,8 @@ static STRUCT_Stats: StructMeta = StructMeta {
     until: None,
 };
 static FIELDS_StatsFilter: &[FieldMeta] = &[
-    FieldMeta { name: "target", wire_name: "target", ty: 446, optional: false, is_discriminator: true, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "the kind of objects to query.  Note that each possible\ntarget may enable additional filtering options" },
-    FieldMeta { name: "providers", wire_name: "providers", ty: 448, optional: true, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "which providers to request statistics from, and\noptionally which named values to return within each provider" },
+    FieldMeta { name: "target", wire_name: "target", ty: 444, optional: false, is_discriminator: true, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "the kind of objects to query.  Note that each possible\ntarget may enable additional filtering options" },
+    FieldMeta { name: "providers", wire_name: "providers", ty: 446, optional: true, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "which providers to request statistics from, and\noptionally which named values to return within each provider" },
 ];
 static STRUCT_StatsFilter: StructMeta = StructMeta {
     name: "StatsFilter",
@@ -17774,7 +17772,7 @@ static ENUM_StatsProvider: EnumMeta = EnumMeta {
     until: None,
 };
 static FIELDS_StatsRequest: &[FieldMeta] = &[
-    FieldMeta { name: "provider", wire_name: "provider", ty: 451, optional: false, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "provider for which to return statistics." },
+    FieldMeta { name: "provider", wire_name: "provider", ty: 449, optional: false, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "provider for which to return statistics." },
     FieldMeta { name: "names", wire_name: "names", ty: 11, optional: true, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "statistics to be returned (all if omitted)." },
 ];
 static STRUCT_StatsRequest: StructMeta = StructMeta {
@@ -17789,9 +17787,9 @@ static STRUCT_StatsRequest: StructMeta = StructMeta {
     until: None,
 };
 static FIELDS_StatsResult: &[FieldMeta] = &[
-    FieldMeta { name: "provider", wire_name: "provider", ty: 451, optional: false, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "provider for this set of statistics." },
+    FieldMeta { name: "provider", wire_name: "provider", ty: 449, optional: false, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "provider for this set of statistics." },
     FieldMeta { name: "qom_path", wire_name: "qom-path", ty: 4, optional: true, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Path to the object for which the statistics are returned,\nif the object is exposed in the QOM tree" },
-    FieldMeta { name: "stats", wire_name: "stats", ty: 529, optional: false, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "list of statistics." },
+    FieldMeta { name: "stats", wire_name: "stats", ty: 527, optional: false, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "list of statistics." },
 ];
 static STRUCT_StatsResult: StructMeta = StructMeta {
     name: "StatsResult",
@@ -17805,9 +17803,9 @@ static STRUCT_StatsResult: StructMeta = StructMeta {
     until: None,
 };
 static FIELDS_StatsSchema: &[FieldMeta] = &[
-    FieldMeta { name: "provider", wire_name: "provider", ty: 451, optional: false, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "provider for this set of statistics." },
-    FieldMeta { name: "target", wire_name: "target", ty: 446, optional: false, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "the kind of object that can be queried through the\nprovider." },
-    FieldMeta { name: "stats", wire_name: "stats", ty: 531, optional: false, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "list of statistics." },
+    FieldMeta { name: "provider", wire_name: "provider", ty: 449, optional: false, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "provider for this set of statistics." },
+    FieldMeta { name: "target", wire_name: "target", ty: 444, optional: false, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "the kind of object that can be queried through the\nprovider." },
+    FieldMeta { name: "stats", wire_name: "stats", ty: 529, optional: false, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "list of statistics." },
 ];
 static STRUCT_StatsSchema: StructMeta = StructMeta {
     name: "StatsSchema",
@@ -17822,9 +17820,9 @@ static STRUCT_StatsSchema: StructMeta = StructMeta {
 };
 static FIELDS_StatsSchemaValue: &[FieldMeta] = &[
     FieldMeta { name: "name", wire_name: "name", ty: 4, optional: false, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "name of the statistic; each element of the schema is uniquely\nidentified by a target, a provider (both available in\n`StatsSchema`) and the name." },
-    FieldMeta { name: "r#type", wire_name: "type", ty: 532, optional: false, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "kind of statistic." },
-    FieldMeta { name: "unit", wire_name: "unit", ty: 533, optional: true, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "basic unit of measure for the statistic; if missing, the\nstatistic is a simple number or counter." },
-    FieldMeta { name: "base", wire_name: "base", ty: 534, optional: true, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "base for the multiple of @unit in which the statistic is\nmeasured.  Only present if @exponent is non-zero; @base and" },
+    FieldMeta { name: "r#type", wire_name: "type", ty: 530, optional: false, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "kind of statistic." },
+    FieldMeta { name: "unit", wire_name: "unit", ty: 531, optional: true, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "basic unit of measure for the statistic; if missing, the\nstatistic is a simple number or counter." },
+    FieldMeta { name: "base", wire_name: "base", ty: 532, optional: true, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "base for the multiple of @unit in which the statistic is\nmeasured.  Only present if @exponent is non-zero; @base and" },
     FieldMeta { name: "exponent", wire_name: "exponent", ty: 191, optional: false, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "exponent for the multiple of @unit in which the statistic\nis expressed, or 0 for the basic unit" },
     FieldMeta { name: "bucket_size", wire_name: "bucket-size", ty: 5, optional: true, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Present when @type is \"linear-histogram\", contains the\nwidth of each bucket of the histogram." },
 ];
@@ -17911,7 +17909,7 @@ static STRUCT_StatsVcpuFilter: StructMeta = StructMeta {
 static FIELDS_StatusInfo: &[FieldMeta] = &[
     FieldMeta { name: "running", wire_name: "running", ty: 9, optional: false, is_discriminator: false, recursive: false, since: (1u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "true if all VCPUs are runnable, false if not runnable" },
     FieldMeta { name: "singlestep", wire_name: "singlestep", ty: 9, optional: false, is_discriminator: false, recursive: false, since: (1u32, 0u32, 0u32), until: Some((9u32, 0u32, 0u32)), deprecated: true, unstable: false, doc: "" },
-    FieldMeta { name: "status", wire_name: "status", ty: 535, optional: false, is_discriminator: false, recursive: false, since: (1u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "the virtual machine `RunState`" },
+    FieldMeta { name: "status", wire_name: "status", ty: 533, optional: false, is_discriminator: false, recursive: false, since: (1u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "the virtual machine `RunState`" },
 ];
 static STRUCT_StatusInfo: StructMeta = StructMeta {
     name: "StatusInfo",
@@ -18172,7 +18170,7 @@ static STRUCT_ThreadContextProperties: StructMeta = StructMeta {
     until: None,
 };
 static FIELDS_ThrottleGroupProperties: &[FieldMeta] = &[
-    FieldMeta { name: "limits", wire_name: "limits", ty: 536, optional: true, is_discriminator: false, recursive: false, since: (6u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "limits to apply for this throttle group" },
+    FieldMeta { name: "limits", wire_name: "limits", ty: 534, optional: true, is_discriminator: false, recursive: false, since: (6u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "limits to apply for this throttle group" },
     FieldMeta { name: "x_iops_total", wire_name: "x-iops-total", ty: 7, optional: true, is_discriminator: false, recursive: false, since: (6u32, 0u32, 0u32), until: None, deprecated: false, unstable: true, doc: "" },
     FieldMeta { name: "x_iops_total_max", wire_name: "x-iops-total-max", ty: 7, optional: true, is_discriminator: false, recursive: false, since: (6u32, 0u32, 0u32), until: None, deprecated: false, unstable: true, doc: "" },
     FieldMeta { name: "x_iops_total_max_length", wire_name: "x-iops-total-max-length", ty: 7, optional: true, is_discriminator: false, recursive: false, since: (6u32, 0u32, 0u32), until: None, deprecated: false, unstable: true, doc: "" },
@@ -18251,7 +18249,7 @@ static ENUM_TimeUnit: EnumMeta = EnumMeta {
 static FIELDS_TlsCredsAnonProperties: &[FieldMeta] = &[
     FieldMeta { name: "verify_peer", wire_name: "verify-peer", ty: 9, optional: true, is_discriminator: false, recursive: false, since: (6u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "if true the peer credentials will be verified once the\nhandshake is completed.  This is a no-op for anonymous\ncredentials.  (default: true)" },
     FieldMeta { name: "dir", wire_name: "dir", ty: 4, optional: true, is_discriminator: false, recursive: false, since: (6u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "the path of the directory that contains the credential files" },
-    FieldMeta { name: "endpoint", wire_name: "endpoint", ty: 537, optional: true, is_discriminator: false, recursive: false, since: (6u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "whether the QEMU network backend that uses the\ncredentials will be acting as a client or as a server\n(default: client)" },
+    FieldMeta { name: "endpoint", wire_name: "endpoint", ty: 535, optional: true, is_discriminator: false, recursive: false, since: (6u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "whether the QEMU network backend that uses the\ncredentials will be acting as a client or as a server\n(default: client)" },
     FieldMeta { name: "priority", wire_name: "priority", ty: 4, optional: true, is_discriminator: false, recursive: false, since: (6u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "a gnutls priority string as described at\nhttps://gnutls.org/manual/html_node/Priority-Strings.html" },
     FieldMeta { name: "loaded", wire_name: "loaded", ty: 9, optional: true, is_discriminator: false, recursive: false, since: (6u32, 0u32, 0u32), until: Some((9u32, 2u32, 0u32)), deprecated: true, unstable: false, doc: "" },
 ];
@@ -18269,7 +18267,7 @@ static STRUCT_TlsCredsAnonProperties: StructMeta = StructMeta {
 static FIELDS_TlsCredsProperties: &[FieldMeta] = &[
     FieldMeta { name: "verify_peer", wire_name: "verify-peer", ty: 9, optional: true, is_discriminator: false, recursive: false, since: (6u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "if true the peer credentials will be verified once the\nhandshake is completed.  This is a no-op for anonymous\ncredentials.  (default: true)" },
     FieldMeta { name: "dir", wire_name: "dir", ty: 4, optional: true, is_discriminator: false, recursive: false, since: (6u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "the path of the directory that contains the credential files" },
-    FieldMeta { name: "endpoint", wire_name: "endpoint", ty: 537, optional: true, is_discriminator: false, recursive: false, since: (6u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "whether the QEMU network backend that uses the\ncredentials will be acting as a client or as a server\n(default: client)" },
+    FieldMeta { name: "endpoint", wire_name: "endpoint", ty: 535, optional: true, is_discriminator: false, recursive: false, since: (6u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "whether the QEMU network backend that uses the\ncredentials will be acting as a client or as a server\n(default: client)" },
     FieldMeta { name: "priority", wire_name: "priority", ty: 4, optional: true, is_discriminator: false, recursive: false, since: (6u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "a gnutls priority string as described at\nhttps://gnutls.org/manual/html_node/Priority-Strings.html" },
 ];
 static STRUCT_TlsCredsProperties: StructMeta = StructMeta {
@@ -18286,7 +18284,7 @@ static STRUCT_TlsCredsProperties: StructMeta = StructMeta {
 static FIELDS_TlsCredsPskProperties: &[FieldMeta] = &[
     FieldMeta { name: "verify_peer", wire_name: "verify-peer", ty: 9, optional: true, is_discriminator: false, recursive: false, since: (6u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "if true the peer credentials will be verified once the\nhandshake is completed.  This is a no-op for anonymous\ncredentials.  (default: true)" },
     FieldMeta { name: "dir", wire_name: "dir", ty: 4, optional: true, is_discriminator: false, recursive: false, since: (6u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "the path of the directory that contains the credential files" },
-    FieldMeta { name: "endpoint", wire_name: "endpoint", ty: 537, optional: true, is_discriminator: false, recursive: false, since: (6u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "whether the QEMU network backend that uses the\ncredentials will be acting as a client or as a server\n(default: client)" },
+    FieldMeta { name: "endpoint", wire_name: "endpoint", ty: 535, optional: true, is_discriminator: false, recursive: false, since: (6u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "whether the QEMU network backend that uses the\ncredentials will be acting as a client or as a server\n(default: client)" },
     FieldMeta { name: "priority", wire_name: "priority", ty: 4, optional: true, is_discriminator: false, recursive: false, since: (6u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "a gnutls priority string as described at\nhttps://gnutls.org/manual/html_node/Priority-Strings.html" },
     FieldMeta { name: "loaded", wire_name: "loaded", ty: 9, optional: true, is_discriminator: false, recursive: false, since: (6u32, 0u32, 0u32), until: Some((9u32, 2u32, 0u32)), deprecated: true, unstable: false, doc: "" },
     FieldMeta { name: "username", wire_name: "username", ty: 4, optional: true, is_discriminator: false, recursive: false, since: (6u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "the username which will be sent to the server.  For\nclients only.  If absent, \"qemu\" is sent and the property will\nread back as an empty string." },
@@ -18305,7 +18303,7 @@ static STRUCT_TlsCredsPskProperties: StructMeta = StructMeta {
 static FIELDS_TlsCredsX509Properties: &[FieldMeta] = &[
     FieldMeta { name: "verify_peer", wire_name: "verify-peer", ty: 9, optional: true, is_discriminator: false, recursive: false, since: (6u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "if true the peer credentials will be verified once the\nhandshake is completed.  This is a no-op for anonymous\ncredentials.  (default: true)" },
     FieldMeta { name: "dir", wire_name: "dir", ty: 4, optional: true, is_discriminator: false, recursive: false, since: (6u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "the path of the directory that contains the credential files" },
-    FieldMeta { name: "endpoint", wire_name: "endpoint", ty: 537, optional: true, is_discriminator: false, recursive: false, since: (6u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "whether the QEMU network backend that uses the\ncredentials will be acting as a client or as a server\n(default: client)" },
+    FieldMeta { name: "endpoint", wire_name: "endpoint", ty: 535, optional: true, is_discriminator: false, recursive: false, since: (6u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "whether the QEMU network backend that uses the\ncredentials will be acting as a client or as a server\n(default: client)" },
     FieldMeta { name: "priority", wire_name: "priority", ty: 4, optional: true, is_discriminator: false, recursive: false, since: (6u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "a gnutls priority string as described at\nhttps://gnutls.org/manual/html_node/Priority-Strings.html" },
     FieldMeta { name: "loaded", wire_name: "loaded", ty: 9, optional: true, is_discriminator: false, recursive: false, since: (6u32, 0u32, 0u32), until: Some((9u32, 2u32, 0u32)), deprecated: true, unstable: false, doc: "" },
     FieldMeta { name: "sanity_check", wire_name: "sanity-check", ty: 9, optional: true, is_discriminator: false, recursive: false, since: (6u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "if true, perform some sanity checks before using the\ncredentials (default: true)" },
@@ -18337,7 +18335,7 @@ static STRUCT_TpmEmulatorOptions: StructMeta = StructMeta {
     until: None,
 };
 static FIELDS_TpmEmulatorOptionsWrapper: &[FieldMeta] = &[
-    FieldMeta { name: "data", wire_name: "data", ty: 538, optional: false, is_discriminator: false, recursive: false, since: (6u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Information about the TPM emulator type" },
+    FieldMeta { name: "data", wire_name: "data", ty: 536, optional: false, is_discriminator: false, recursive: false, since: (6u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Information about the TPM emulator type" },
 ];
 static STRUCT_TpmEmulatorOptionsWrapper: StructMeta = StructMeta {
     name: "TPMEmulatorOptionsWrapper",
@@ -18352,8 +18350,8 @@ static STRUCT_TpmEmulatorOptionsWrapper: StructMeta = StructMeta {
 };
 static FIELDS_TpmInfo: &[FieldMeta] = &[
     FieldMeta { name: "id", wire_name: "id", ty: 4, optional: false, is_discriminator: false, recursive: false, since: (1u32, 5u32, 0u32), until: None, deprecated: false, unstable: false, doc: "The Id of the TPM" },
-    FieldMeta { name: "model", wire_name: "model", ty: 458, optional: false, is_discriminator: false, recursive: false, since: (1u32, 5u32, 0u32), until: None, deprecated: false, unstable: false, doc: "The TPM frontend model" },
-    FieldMeta { name: "options", wire_name: "options", ty: 539, optional: false, is_discriminator: false, recursive: false, since: (1u32, 5u32, 0u32), until: None, deprecated: false, unstable: false, doc: "The TPM (backend) type configuration options" },
+    FieldMeta { name: "model", wire_name: "model", ty: 456, optional: false, is_discriminator: false, recursive: false, since: (1u32, 5u32, 0u32), until: None, deprecated: false, unstable: false, doc: "The TPM frontend model" },
+    FieldMeta { name: "options", wire_name: "options", ty: 537, optional: false, is_discriminator: false, recursive: false, since: (1u32, 5u32, 0u32), until: None, deprecated: false, unstable: false, doc: "The TPM (backend) type configuration options" },
 ];
 static STRUCT_TpmInfo: StructMeta = StructMeta {
     name: "TPMInfo",
@@ -18395,7 +18393,7 @@ static STRUCT_TpmPassthroughOptions: StructMeta = StructMeta {
     until: None,
 };
 static FIELDS_TpmPassthroughOptionsWrapper: &[FieldMeta] = &[
-    FieldMeta { name: "data", wire_name: "data", ty: 540, optional: false, is_discriminator: false, recursive: false, since: (6u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Information about the TPM passthrough type" },
+    FieldMeta { name: "data", wire_name: "data", ty: 538, optional: false, is_discriminator: false, recursive: false, since: (6u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Information about the TPM passthrough type" },
 ];
 static STRUCT_TpmPassthroughOptionsWrapper: StructMeta = StructMeta {
     name: "TPMPassthroughOptionsWrapper",
@@ -18421,8 +18419,8 @@ static ENUM_TpmType: EnumMeta = EnumMeta {
     until: None,
 };
 static FIELDS_TpmTypeOptions: &[FieldMeta] = &[
-    FieldMeta { name: "r_type", wire_name: "type", ty: 541, optional: false, is_discriminator: true, recursive: false, since: (1u32, 5u32, 0u32), until: Some((6u32, 2u32, 0u32)), deprecated: false, unstable: false, doc: "" },
-    FieldMeta { name: "r#type", wire_name: "type", ty: 460, optional: false, is_discriminator: true, recursive: false, since: (6u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "- 'passthrough' The configuration options for the TPM\npassthrough type\n- 'emulator' The configuration options for TPM emulator backend\ntype" },
+    FieldMeta { name: "r_type", wire_name: "type", ty: 539, optional: false, is_discriminator: true, recursive: false, since: (1u32, 5u32, 0u32), until: Some((6u32, 2u32, 0u32)), deprecated: false, unstable: false, doc: "" },
+    FieldMeta { name: "r#type", wire_name: "type", ty: 458, optional: false, is_discriminator: true, recursive: false, since: (6u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "- 'passthrough' The configuration options for the TPM\npassthrough type\n- 'emulator' The configuration options for TPM emulator backend\ntype" },
 ];
 static STRUCT_TpmTypeOptions: StructMeta = StructMeta {
     name: "TpmTypeOptions",
@@ -18476,7 +18474,7 @@ static STRUCT_TraceEventGetState: StructMeta = StructMeta {
 };
 static FIELDS_TraceEventInfo: &[FieldMeta] = &[
     FieldMeta { name: "name", wire_name: "name", ty: 4, optional: false, is_discriminator: false, recursive: false, since: (2u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Event name." },
-    FieldMeta { name: "state", wire_name: "state", ty: 544, optional: false, is_discriminator: false, recursive: false, since: (2u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Tracing state." },
+    FieldMeta { name: "state", wire_name: "state", ty: 542, optional: false, is_discriminator: false, recursive: false, since: (2u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Tracing state." },
     FieldMeta { name: "vcpu", wire_name: "vcpu", ty: 9, optional: false, is_discriminator: false, recursive: false, since: (2u32, 7u32, 0u32), until: Some((9u32, 1u32, 0u32)), deprecated: true, unstable: false, doc: "Whether this is a per-vCPU event (since 2.7).\n\nAn event is per-vCPU if it has the \"vcpu\" property in the \"trace-events\"\nfiles." },
 ];
 static STRUCT_TraceEventInfo: StructMeta = StructMeta {
@@ -18521,8 +18519,8 @@ static ENUM_TraceEventState: EnumMeta = EnumMeta {
     until: None,
 };
 static FIELDS_Transaction: &[FieldMeta] = &[
-    FieldMeta { name: "actions", wire_name: "actions", ty: 546, optional: false, is_discriminator: false, recursive: false, since: (1u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
-    FieldMeta { name: "properties", wire_name: "properties", ty: 547, optional: true, is_discriminator: false, recursive: false, since: (2u32, 5u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    FieldMeta { name: "actions", wire_name: "actions", ty: 544, optional: false, is_discriminator: false, recursive: false, since: (1u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    FieldMeta { name: "properties", wire_name: "properties", ty: 545, optional: true, is_discriminator: false, recursive: false, since: (2u32, 5u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
 ];
 static STRUCT_Transaction: StructMeta = StructMeta {
     name: "transaction",
@@ -18536,8 +18534,8 @@ static STRUCT_Transaction: StructMeta = StructMeta {
     until: None,
 };
 static FIELDS_TransactionAction: &[FieldMeta] = &[
-    FieldMeta { name: "r_type", wire_name: "type", ty: 548, optional: false, is_discriminator: true, recursive: false, since: (1u32, 6u32, 0u32), until: Some((6u32, 2u32, 0u32)), deprecated: false, unstable: false, doc: "" },
-    FieldMeta { name: "r#type", wire_name: "type", ty: 549, optional: false, is_discriminator: true, recursive: false, since: (6u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "the operation to be performed" },
+    FieldMeta { name: "r_type", wire_name: "type", ty: 546, optional: false, is_discriminator: true, recursive: false, since: (1u32, 6u32, 0u32), until: Some((6u32, 2u32, 0u32)), deprecated: false, unstable: false, doc: "" },
+    FieldMeta { name: "r#type", wire_name: "type", ty: 547, optional: false, is_discriminator: true, recursive: false, since: (6u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "the operation to be performed" },
 ];
 static STRUCT_TransactionAction: StructMeta = StructMeta {
     name: "TransactionAction",
@@ -18623,7 +18621,7 @@ static ENUM_TransactionActionType: EnumMeta = EnumMeta {
     until: Some((6u32, 2u32, 0u32)),
 };
 static FIELDS_TransactionProperties: &[FieldMeta] = &[
-    FieldMeta { name: "completion_mode", wire_name: "completion-mode", ty: 550, optional: true, is_discriminator: false, recursive: false, since: (2u32, 5u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Controls how jobs launched asynchronously by\nActions will complete or fail as a group.  See\n`ActionCompletionMode` for details." },
+    FieldMeta { name: "completion_mode", wire_name: "completion-mode", ty: 548, optional: true, is_discriminator: false, recursive: false, since: (2u32, 5u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Controls how jobs launched asynchronously by\nActions will complete or fail as a group.  See\n`ActionCompletionMode` for details." },
 ];
 static STRUCT_TransactionProperties: StructMeta = StructMeta {
     name: "TransactionProperties",
@@ -18657,7 +18655,7 @@ static STRUCT_UefiVariable: StructMeta = StructMeta {
 };
 static FIELDS_UefiVarStore: &[FieldMeta] = &[
     FieldMeta { name: "version", wire_name: "version", ty: 7, optional: false, is_discriminator: false, recursive: false, since: (10u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "currently always 2" },
-    FieldMeta { name: "variables", wire_name: "variables", ty: 552, optional: false, is_discriminator: false, recursive: false, since: (10u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "list of UEFI variables" },
+    FieldMeta { name: "variables", wire_name: "variables", ty: 550, optional: false, is_discriminator: false, recursive: false, since: (10u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "list of UEFI variables" },
 ];
 static STRUCT_UefiVarStore: StructMeta = StructMeta {
     name: "UefiVarStore",
@@ -18687,7 +18685,7 @@ static STRUCT_UnixSocketAddress: StructMeta = StructMeta {
     until: None,
 };
 static FIELDS_UnixSocketAddressWrapper: &[FieldMeta] = &[
-    FieldMeta { name: "data", wire_name: "data", ty: 553, optional: false, is_discriminator: false, recursive: false, since: (6u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "UNIX domain socket address" },
+    FieldMeta { name: "data", wire_name: "data", ty: 551, optional: false, is_discriminator: false, recursive: false, since: (6u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "UNIX domain socket address" },
 ];
 static STRUCT_UnixSocketAddressWrapper: StructMeta = StructMeta {
     name: "UnixSocketAddressWrapper",
@@ -18729,7 +18727,7 @@ static STRUCT_UuidInfo: StructMeta = StructMeta {
     until: None,
 };
 static FIELDS_VersionInfo: &[FieldMeta] = &[
-    FieldMeta { name: "qemu", wire_name: "qemu", ty: 554, optional: false, is_discriminator: false, recursive: false, since: (1u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "The version of QEMU.  By current convention, a micro version\nof 50 signifies a development branch.  A micro version greater\nthan or equal to 90 signifies a release candidate for the next\nminor version.  A micro version of less than 50 signifies a\nstable release." },
+    FieldMeta { name: "qemu", wire_name: "qemu", ty: 552, optional: false, is_discriminator: false, recursive: false, since: (1u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "The version of QEMU.  By current convention, a micro version\nof 50 signifies a development branch.  A micro version greater\nthan or equal to 90 signifies a release candidate for the next\nminor version.  A micro version of less than 50 signifies a\nstable release." },
     FieldMeta { name: "package", wire_name: "package", ty: 4, optional: false, is_discriminator: false, recursive: false, since: (1u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "QEMU will always set this field to an empty string.\nDownstream versions of QEMU should set this to a non-empty\nstring.  The exact format depends on the downstream however it\nhighly recommended that a unique name is used." },
 ];
 static STRUCT_VersionInfo: StructMeta = StructMeta {
@@ -18778,7 +18776,7 @@ static STRUCT_VersionTriple: StructMeta = StructMeta {
 static FIELDS_VfioMigrationEvent: &[FieldMeta] = &[
     FieldMeta { name: "device_id", wire_name: "device-id", ty: 4, optional: false, is_discriminator: false, recursive: false, since: (9u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
     FieldMeta { name: "qom_path", wire_name: "qom-path", ty: 4, optional: false, is_discriminator: false, recursive: false, since: (9u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
-    FieldMeta { name: "device_state", wire_name: "device-state", ty: 555, optional: false, is_discriminator: false, recursive: false, since: (9u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    FieldMeta { name: "device_state", wire_name: "device-state", ty: 553, optional: false, is_discriminator: false, recursive: false, since: (9u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
 ];
 static STRUCT_VfioMigrationEvent: StructMeta = StructMeta {
     name: "VFIO_MIGRATION",
@@ -18874,10 +18872,10 @@ static FIELDS_VhostStatus: &[FieldMeta] = &[
     FieldMeta { name: "n_tmp_sections", wire_name: "n-tmp-sections", ty: 7, optional: false, is_discriminator: false, recursive: false, since: (7u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "vhost_dev n_tmp_sections" },
     FieldMeta { name: "nvqs", wire_name: "nvqs", ty: 5, optional: false, is_discriminator: false, recursive: false, since: (7u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "vhost_dev nvqs (number of virtqueues being used)" },
     FieldMeta { name: "vq_index", wire_name: "vq-index", ty: 7, optional: false, is_discriminator: false, recursive: false, since: (7u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "vhost_dev vq_index" },
-    FieldMeta { name: "features", wire_name: "features", ty: 556, optional: false, is_discriminator: false, recursive: false, since: (7u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "vhost_dev features" },
-    FieldMeta { name: "acked_features", wire_name: "acked-features", ty: 556, optional: false, is_discriminator: false, recursive: false, since: (7u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "vhost_dev acked_features" },
-    FieldMeta { name: "backend_features", wire_name: "backend-features", ty: 556, optional: false, is_discriminator: false, recursive: false, since: (7u32, 2u32, 0u32), until: Some((11u32, 1u32, 0u32)), deprecated: false, unstable: false, doc: "vhost_dev backend_features" },
-    FieldMeta { name: "protocol_features", wire_name: "protocol-features", ty: 557, optional: false, is_discriminator: false, recursive: false, since: (7u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "vhost_dev protocol_features" },
+    FieldMeta { name: "features", wire_name: "features", ty: 554, optional: false, is_discriminator: false, recursive: false, since: (7u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "vhost_dev features" },
+    FieldMeta { name: "acked_features", wire_name: "acked-features", ty: 554, optional: false, is_discriminator: false, recursive: false, since: (7u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "vhost_dev acked_features" },
+    FieldMeta { name: "backend_features", wire_name: "backend-features", ty: 554, optional: false, is_discriminator: false, recursive: false, since: (7u32, 2u32, 0u32), until: Some((11u32, 1u32, 0u32)), deprecated: false, unstable: false, doc: "vhost_dev backend_features" },
+    FieldMeta { name: "protocol_features", wire_name: "protocol-features", ty: 555, optional: false, is_discriminator: false, recursive: false, since: (7u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "vhost_dev protocol_features" },
     FieldMeta { name: "max_queues", wire_name: "max-queues", ty: 90, optional: false, is_discriminator: false, recursive: false, since: (7u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "vhost_dev max_queues" },
     FieldMeta { name: "backend_cap", wire_name: "backend-cap", ty: 90, optional: false, is_discriminator: false, recursive: false, since: (7u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "vhost_dev backend_cap" },
     FieldMeta { name: "log_enabled", wire_name: "log-enabled", ty: 9, optional: false, is_discriminator: false, recursive: false, since: (7u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "vhost_dev log_enabled flag" },
@@ -18979,7 +18977,7 @@ static STRUCT_VirtioMemDeviceInfo: StructMeta = StructMeta {
     until: None,
 };
 static FIELDS_VirtioMemDeviceInfoWrapper: &[FieldMeta] = &[
-    FieldMeta { name: "data", wire_name: "data", ty: 558, optional: false, is_discriminator: false, recursive: false, since: (6u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "VirtioMEMDevice state information" },
+    FieldMeta { name: "data", wire_name: "data", ty: 556, optional: false, is_discriminator: false, recursive: false, since: (6u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "VirtioMEMDevice state information" },
 ];
 static STRUCT_VirtioMemDeviceInfoWrapper: StructMeta = StructMeta {
     name: "VirtioMEMDeviceInfoWrapper",
@@ -19010,7 +19008,7 @@ static STRUCT_VirtioPmemDeviceInfo: StructMeta = StructMeta {
     until: None,
 };
 static FIELDS_VirtioPmemDeviceInfoWrapper: &[FieldMeta] = &[
-    FieldMeta { name: "data", wire_name: "data", ty: 559, optional: false, is_discriminator: false, recursive: false, since: (6u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "VirtioPMEM state information" },
+    FieldMeta { name: "data", wire_name: "data", ty: 557, optional: false, is_discriminator: false, recursive: false, since: (6u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "VirtioPMEM state information" },
 ];
 static STRUCT_VirtioPmemDeviceInfoWrapper: StructMeta = StructMeta {
     name: "VirtioPMEMDeviceInfoWrapper",
@@ -19026,9 +19024,9 @@ static STRUCT_VirtioPmemDeviceInfoWrapper: StructMeta = StructMeta {
 static FIELDS_VirtioQueueElement: &[FieldMeta] = &[
     FieldMeta { name: "name", wire_name: "name", ty: 4, optional: false, is_discriminator: false, recursive: false, since: (7u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Name of the VirtIODevice that uses this VirtQueue" },
     FieldMeta { name: "index", wire_name: "index", ty: 5, optional: false, is_discriminator: false, recursive: false, since: (7u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Index of the element in the queue" },
-    FieldMeta { name: "descs", wire_name: "descs", ty: 561, optional: false, is_discriminator: false, recursive: false, since: (7u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "List of descriptors (`VirtioRingDesc`)" },
-    FieldMeta { name: "avail", wire_name: "avail", ty: 562, optional: false, is_discriminator: false, recursive: false, since: (7u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "VRingAvail info" },
-    FieldMeta { name: "used", wire_name: "used", ty: 563, optional: false, is_discriminator: false, recursive: false, since: (7u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "VRingUsed info" },
+    FieldMeta { name: "descs", wire_name: "descs", ty: 559, optional: false, is_discriminator: false, recursive: false, since: (7u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "List of descriptors (`VirtioRingDesc`)" },
+    FieldMeta { name: "avail", wire_name: "avail", ty: 560, optional: false, is_discriminator: false, recursive: false, since: (7u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "VRingAvail info" },
+    FieldMeta { name: "used", wire_name: "used", ty: 561, optional: false, is_discriminator: false, recursive: false, since: (7u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "VRingUsed info" },
 ];
 static STRUCT_VirtioQueueElement: StructMeta = StructMeta {
     name: "VirtioQueueElement",
@@ -19093,11 +19091,11 @@ static FIELDS_VirtioStatus: &[FieldMeta] = &[
     FieldMeta { name: "device_id", wire_name: "device-id", ty: 128, optional: false, is_discriminator: false, recursive: false, since: (7u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "VirtIODevice ID" },
     FieldMeta { name: "vhost_started", wire_name: "vhost-started", ty: 9, optional: false, is_discriminator: false, recursive: false, since: (7u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "VirtIODevice vhost_started flag" },
     FieldMeta { name: "device_endian", wire_name: "device-endian", ty: 4, optional: false, is_discriminator: false, recursive: false, since: (7u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "VirtIODevice device_endian" },
-    FieldMeta { name: "guest_features", wire_name: "guest-features", ty: 556, optional: false, is_discriminator: false, recursive: false, since: (7u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "VirtIODevice guest_features" },
-    FieldMeta { name: "host_features", wire_name: "host-features", ty: 556, optional: false, is_discriminator: false, recursive: false, since: (7u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "VirtIODevice host_features" },
-    FieldMeta { name: "backend_features", wire_name: "backend-features", ty: 556, optional: false, is_discriminator: false, recursive: false, since: (7u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "VirtIODevice backend_features" },
+    FieldMeta { name: "guest_features", wire_name: "guest-features", ty: 554, optional: false, is_discriminator: false, recursive: false, since: (7u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "VirtIODevice guest_features" },
+    FieldMeta { name: "host_features", wire_name: "host-features", ty: 554, optional: false, is_discriminator: false, recursive: false, since: (7u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "VirtIODevice host_features" },
+    FieldMeta { name: "backend_features", wire_name: "backend-features", ty: 554, optional: false, is_discriminator: false, recursive: false, since: (7u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "VirtIODevice backend_features" },
     FieldMeta { name: "num_vqs", wire_name: "num-vqs", ty: 7, optional: false, is_discriminator: false, recursive: false, since: (7u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "VirtIODevice virtqueue count.  This is the number of\nactive virtqueues being used by the VirtIODevice." },
-    FieldMeta { name: "status", wire_name: "status", ty: 564, optional: false, is_discriminator: false, recursive: false, since: (7u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "VirtIODevice configuration status (`VirtioDeviceStatus`)" },
+    FieldMeta { name: "status", wire_name: "status", ty: 562, optional: false, is_discriminator: false, recursive: false, since: (7u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "VirtIODevice configuration status (`VirtioDeviceStatus`)" },
     FieldMeta { name: "isr", wire_name: "isr", ty: 8, optional: false, is_discriminator: false, recursive: false, since: (7u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "VirtIODevice ISR" },
     FieldMeta { name: "queue_sel", wire_name: "queue-sel", ty: 128, optional: false, is_discriminator: false, recursive: false, since: (7u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "VirtIODevice queue_sel" },
     FieldMeta { name: "vm_running", wire_name: "vm-running", ty: 9, optional: false, is_discriminator: false, recursive: false, since: (7u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "VirtIODevice vm_running flag" },
@@ -19109,7 +19107,7 @@ static FIELDS_VirtioStatus: &[FieldMeta] = &[
     FieldMeta { name: "disable_legacy_check", wire_name: "disable-legacy-check", ty: 9, optional: false, is_discriminator: false, recursive: false, since: (7u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "VirtIODevice disabled_legacy_check flag" },
     FieldMeta { name: "bus_name", wire_name: "bus-name", ty: 4, optional: false, is_discriminator: false, recursive: false, since: (7u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "VirtIODevice bus_name" },
     FieldMeta { name: "use_guest_notifier_mask", wire_name: "use-guest-notifier-mask", ty: 9, optional: false, is_discriminator: false, recursive: false, since: (7u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "VirtIODevice use_guest_notifier_mask flag" },
-    FieldMeta { name: "vhost_dev", wire_name: "vhost-dev", ty: 565, optional: true, is_discriminator: false, recursive: false, since: (7u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Corresponding vhost device info for a given\nVirtIODevice.  Present if the given VirtIODevice has an active\nvhost device." },
+    FieldMeta { name: "vhost_dev", wire_name: "vhost-dev", ty: 563, optional: true, is_discriminator: false, recursive: false, since: (7u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Corresponding vhost device info for a given\nVirtIODevice.  Present if the given VirtIODevice has an active\nvhost device." },
 ];
 static STRUCT_VirtioStatus: StructMeta = StructMeta {
     name: "VirtioStatus",
@@ -19209,7 +19207,7 @@ static STRUCT_VmdkExtentInfo: StructMeta = StructMeta {
 static FIELDS_VncBasicInfo: &[FieldMeta] = &[
     FieldMeta { name: "host", wire_name: "host", ty: 4, optional: false, is_discriminator: false, recursive: false, since: (2u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "IP address" },
     FieldMeta { name: "service", wire_name: "service", ty: 4, optional: false, is_discriminator: false, recursive: false, since: (2u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "The service name of the vnc port.  This may depend on the\nhost system's service database so symbolic names should not be\nrelied on." },
-    FieldMeta { name: "family", wire_name: "family", ty: 518, optional: false, is_discriminator: false, recursive: false, since: (2u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "address family" },
+    FieldMeta { name: "family", wire_name: "family", ty: 516, optional: false, is_discriminator: false, recursive: false, since: (2u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "address family" },
     FieldMeta { name: "websocket", wire_name: "websocket", ty: 9, optional: false, is_discriminator: false, recursive: false, since: (2u32, 3u32, 0u32), until: None, deprecated: false, unstable: false, doc: "true in case the socket is a websocket (since 2.3)." },
 ];
 static STRUCT_VncBasicInfo: StructMeta = StructMeta {
@@ -19225,7 +19223,7 @@ static STRUCT_VncBasicInfo: StructMeta = StructMeta {
 };
 static FIELDS_VncClientInfo: &[FieldMeta] = &[
     FieldMeta { name: "host", wire_name: "host", ty: 4, optional: false, is_discriminator: false, recursive: false, since: (1u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "IP address" },
-    FieldMeta { name: "family", wire_name: "family", ty: 518, optional: false, is_discriminator: false, recursive: false, since: (1u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "address family" },
+    FieldMeta { name: "family", wire_name: "family", ty: 516, optional: false, is_discriminator: false, recursive: false, since: (1u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "address family" },
     FieldMeta { name: "service", wire_name: "service", ty: 4, optional: false, is_discriminator: false, recursive: false, since: (1u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "The service name of the vnc port.  This may depend on the\nhost system's service database so symbolic names should not be\nrelied on." },
     FieldMeta { name: "x509_dname", wire_name: "x509_dname", ty: 4, optional: true, is_discriminator: false, recursive: false, since: (1u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "If x509 authentication is in use, the Distinguished\nName of the client." },
     FieldMeta { name: "sasl_username", wire_name: "sasl_username", ty: 4, optional: true, is_discriminator: false, recursive: false, since: (1u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "If SASL authentication is in use, the SASL username\nused for authentication." },
@@ -19243,8 +19241,8 @@ static STRUCT_VncClientInfo: StructMeta = StructMeta {
     until: None,
 };
 static FIELDS_VncConnectedEvent: &[FieldMeta] = &[
-    FieldMeta { name: "server", wire_name: "server", ty: 566, optional: false, is_discriminator: false, recursive: false, since: (2u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
-    FieldMeta { name: "client", wire_name: "client", ty: 567, optional: false, is_discriminator: false, recursive: false, since: (2u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    FieldMeta { name: "server", wire_name: "server", ty: 564, optional: false, is_discriminator: false, recursive: false, since: (2u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    FieldMeta { name: "client", wire_name: "client", ty: 565, optional: false, is_discriminator: false, recursive: false, since: (2u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
 ];
 static STRUCT_VncConnectedEvent: StructMeta = StructMeta {
     name: "VNC_CONNECTED",
@@ -19258,8 +19256,8 @@ static STRUCT_VncConnectedEvent: StructMeta = StructMeta {
     until: None,
 };
 static FIELDS_VncDisconnectedEvent: &[FieldMeta] = &[
-    FieldMeta { name: "server", wire_name: "server", ty: 566, optional: false, is_discriminator: false, recursive: false, since: (2u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "server information" },
-    FieldMeta { name: "client", wire_name: "client", ty: 568, optional: false, is_discriminator: false, recursive: false, since: (2u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "client information" },
+    FieldMeta { name: "server", wire_name: "server", ty: 564, optional: false, is_discriminator: false, recursive: false, since: (2u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "server information" },
+    FieldMeta { name: "client", wire_name: "client", ty: 566, optional: false, is_discriminator: false, recursive: false, since: (2u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "client information" },
 ];
 static STRUCT_VncDisconnectedEvent: StructMeta = StructMeta {
     name: "VNC_DISCONNECTED",
@@ -19275,10 +19273,10 @@ static STRUCT_VncDisconnectedEvent: StructMeta = StructMeta {
 static FIELDS_VncInfo: &[FieldMeta] = &[
     FieldMeta { name: "enabled", wire_name: "enabled", ty: 9, optional: false, is_discriminator: false, recursive: false, since: (1u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "true if the VNC server is enabled, false otherwise" },
     FieldMeta { name: "host", wire_name: "host", ty: 4, optional: true, is_discriminator: false, recursive: false, since: (1u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "The hostname the VNC server is bound to.  This depends on the\nname resolution on the host and may be an IP address." },
-    FieldMeta { name: "family", wire_name: "family", ty: 518, optional: true, is_discriminator: false, recursive: false, since: (1u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "- 'ipv6' if the host is listening for IPv6 connections\n- 'ipv4' if the host is listening for IPv4 connections\n- 'unix' if the host is listening on a unix domain socket\n- 'unknown' otherwise" },
+    FieldMeta { name: "family", wire_name: "family", ty: 516, optional: true, is_discriminator: false, recursive: false, since: (1u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "- 'ipv6' if the host is listening for IPv6 connections\n- 'ipv4' if the host is listening for IPv4 connections\n- 'unix' if the host is listening on a unix domain socket\n- 'unknown' otherwise" },
     FieldMeta { name: "service", wire_name: "service", ty: 4, optional: true, is_discriminator: false, recursive: false, since: (1u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "The service name of the server's port.  This may depends\non the host system's service database so symbolic names should\nnot be relied on." },
     FieldMeta { name: "auth", wire_name: "auth", ty: 4, optional: true, is_discriminator: false, recursive: false, since: (1u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "the current authentication type used by the server\n\n- 'none' if no authentication is being used\n- 'vnc' if VNC authentication is being used\n- 'vencrypt+plain' if VEncrypt is used with plain text\nauthentication\n- 'vencrypt+tls+none' if VEncrypt is used with TLS and no\nauthentication\n- 'vencrypt+tls+vnc' if VEncrypt is used with TLS and VNC\nauthentication\n- 'vencrypt+tls+plain' if VEncrypt is used with TLS and plain\ntext auth\n- 'vencrypt+x509+none' if VEncrypt is used with x509 and no auth\n- 'vencrypt+x509+vnc' if VEncrypt is used with x509 and VNC auth\n- 'vencrypt+x509+plain' if VEncrypt is used with x509 and plain\ntext auth\n- 'vencrypt+tls+sasl' if VEncrypt is used with TLS and SASL auth\n- 'vencrypt+x509+sasl' if VEncrypt is used with x509 and SASL\nauth" },
-    FieldMeta { name: "clients", wire_name: "clients", ty: 569, optional: true, is_discriminator: false, recursive: false, since: (1u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "a list of `VncClientInfo` of all currently connected\nclients" },
+    FieldMeta { name: "clients", wire_name: "clients", ty: 567, optional: true, is_discriminator: false, recursive: false, since: (1u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "a list of `VncClientInfo` of all currently connected\nclients" },
 ];
 static STRUCT_VncInfo: StructMeta = StructMeta {
     name: "VncInfo",
@@ -19293,10 +19291,10 @@ static STRUCT_VncInfo: StructMeta = StructMeta {
 };
 static FIELDS_VncInfo2: &[FieldMeta] = &[
     FieldMeta { name: "id", wire_name: "id", ty: 4, optional: false, is_discriminator: false, recursive: false, since: (2u32, 3u32, 0u32), until: None, deprecated: false, unstable: false, doc: "vnc server name." },
-    FieldMeta { name: "server", wire_name: "server", ty: 571, optional: false, is_discriminator: false, recursive: false, since: (2u32, 3u32, 0u32), until: None, deprecated: false, unstable: false, doc: "A list of `VncBasicInfo` describing all listening sockets.\nThe list can be empty (in case the vnc server is disabled).  It\nalso may have multiple entries: normal + websocket, possibly\nalso ipv4 + ipv6 in the future." },
-    FieldMeta { name: "clients", wire_name: "clients", ty: 569, optional: false, is_discriminator: false, recursive: false, since: (2u32, 3u32, 0u32), until: None, deprecated: false, unstable: false, doc: "A list of `VncClientInfo` of all currently connected\nclients.  The list can be empty, for obvious reasons." },
-    FieldMeta { name: "auth", wire_name: "auth", ty: 572, optional: false, is_discriminator: false, recursive: false, since: (2u32, 3u32, 0u32), until: None, deprecated: false, unstable: false, doc: "The current authentication type used by the non-websockets\nservers" },
-    FieldMeta { name: "vencrypt", wire_name: "vencrypt", ty: 573, optional: true, is_discriminator: false, recursive: false, since: (2u32, 3u32, 0u32), until: None, deprecated: false, unstable: false, doc: "The vencrypt authentication type used by the servers,\nonly specified in case auth == vencrypt." },
+    FieldMeta { name: "server", wire_name: "server", ty: 569, optional: false, is_discriminator: false, recursive: false, since: (2u32, 3u32, 0u32), until: None, deprecated: false, unstable: false, doc: "A list of `VncBasicInfo` describing all listening sockets.\nThe list can be empty (in case the vnc server is disabled).  It\nalso may have multiple entries: normal + websocket, possibly\nalso ipv4 + ipv6 in the future." },
+    FieldMeta { name: "clients", wire_name: "clients", ty: 567, optional: false, is_discriminator: false, recursive: false, since: (2u32, 3u32, 0u32), until: None, deprecated: false, unstable: false, doc: "A list of `VncClientInfo` of all currently connected\nclients.  The list can be empty, for obvious reasons." },
+    FieldMeta { name: "auth", wire_name: "auth", ty: 570, optional: false, is_discriminator: false, recursive: false, since: (2u32, 3u32, 0u32), until: None, deprecated: false, unstable: false, doc: "The current authentication type used by the non-websockets\nservers" },
+    FieldMeta { name: "vencrypt", wire_name: "vencrypt", ty: 571, optional: true, is_discriminator: false, recursive: false, since: (2u32, 3u32, 0u32), until: None, deprecated: false, unstable: false, doc: "The vencrypt authentication type used by the servers,\nonly specified in case auth == vencrypt." },
     FieldMeta { name: "display", wire_name: "display", ty: 4, optional: true, is_discriminator: false, recursive: false, since: (2u32, 3u32, 0u32), until: None, deprecated: false, unstable: false, doc: "The display device the vnc server is linked to." },
 ];
 static STRUCT_VncInfo2: StructMeta = StructMeta {
@@ -19311,8 +19309,8 @@ static STRUCT_VncInfo2: StructMeta = StructMeta {
     until: None,
 };
 static FIELDS_VncInitializedEvent: &[FieldMeta] = &[
-    FieldMeta { name: "server", wire_name: "server", ty: 566, optional: false, is_discriminator: false, recursive: false, since: (2u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "server information" },
-    FieldMeta { name: "client", wire_name: "client", ty: 568, optional: false, is_discriminator: false, recursive: false, since: (2u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "client information" },
+    FieldMeta { name: "server", wire_name: "server", ty: 564, optional: false, is_discriminator: false, recursive: false, since: (2u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "server information" },
+    FieldMeta { name: "client", wire_name: "client", ty: 566, optional: false, is_discriminator: false, recursive: false, since: (2u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "client information" },
 ];
 static STRUCT_VncInitializedEvent: StructMeta = StructMeta {
     name: "VNC_INITIALIZED",
@@ -19347,7 +19345,7 @@ static ENUM_VncPrimaryAuth: EnumMeta = EnumMeta {
 static FIELDS_VncServerInfo: &[FieldMeta] = &[
     FieldMeta { name: "host", wire_name: "host", ty: 4, optional: false, is_discriminator: false, recursive: false, since: (2u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "IP address" },
     FieldMeta { name: "service", wire_name: "service", ty: 4, optional: false, is_discriminator: false, recursive: false, since: (2u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "The service name of the vnc port.  This may depend on the\nhost system's service database so symbolic names should not be\nrelied on." },
-    FieldMeta { name: "family", wire_name: "family", ty: 518, optional: false, is_discriminator: false, recursive: false, since: (2u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "address family" },
+    FieldMeta { name: "family", wire_name: "family", ty: 516, optional: false, is_discriminator: false, recursive: false, since: (2u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "address family" },
     FieldMeta { name: "auth", wire_name: "auth", ty: 4, optional: true, is_discriminator: false, recursive: false, since: (2u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "authentication method used for the plain (non-websocket) VNC\nserver" },
     FieldMeta { name: "websocket", wire_name: "websocket", ty: 9, optional: false, is_discriminator: false, recursive: false, since: (2u32, 3u32, 0u32), until: None, deprecated: false, unstable: false, doc: "true in case the socket is a websocket (since 2.3)." },
 ];
@@ -19365,10 +19363,10 @@ static STRUCT_VncServerInfo: StructMeta = StructMeta {
 static FIELDS_VncServerInfo2: &[FieldMeta] = &[
     FieldMeta { name: "host", wire_name: "host", ty: 4, optional: false, is_discriminator: false, recursive: false, since: (2u32, 9u32, 0u32), until: None, deprecated: false, unstable: false, doc: "IP address" },
     FieldMeta { name: "service", wire_name: "service", ty: 4, optional: false, is_discriminator: false, recursive: false, since: (2u32, 9u32, 0u32), until: None, deprecated: false, unstable: false, doc: "The service name of the vnc port.  This may depend on the\nhost system's service database so symbolic names should not be\nrelied on." },
-    FieldMeta { name: "family", wire_name: "family", ty: 518, optional: false, is_discriminator: false, recursive: false, since: (2u32, 9u32, 0u32), until: None, deprecated: false, unstable: false, doc: "address family" },
+    FieldMeta { name: "family", wire_name: "family", ty: 516, optional: false, is_discriminator: false, recursive: false, since: (2u32, 9u32, 0u32), until: None, deprecated: false, unstable: false, doc: "address family" },
     FieldMeta { name: "websocket", wire_name: "websocket", ty: 9, optional: false, is_discriminator: false, recursive: false, since: (2u32, 9u32, 0u32), until: None, deprecated: false, unstable: false, doc: "true in case the socket is a websocket (since 2.3)." },
-    FieldMeta { name: "auth", wire_name: "auth", ty: 572, optional: false, is_discriminator: false, recursive: false, since: (2u32, 9u32, 0u32), until: None, deprecated: false, unstable: false, doc: "The current authentication type used by the servers" },
-    FieldMeta { name: "vencrypt", wire_name: "vencrypt", ty: 573, optional: true, is_discriminator: false, recursive: false, since: (2u32, 9u32, 0u32), until: None, deprecated: false, unstable: false, doc: "The vencrypt sub authentication type used by the servers,\nonly specified in case auth == vencrypt." },
+    FieldMeta { name: "auth", wire_name: "auth", ty: 570, optional: false, is_discriminator: false, recursive: false, since: (2u32, 9u32, 0u32), until: None, deprecated: false, unstable: false, doc: "The current authentication type used by the servers" },
+    FieldMeta { name: "vencrypt", wire_name: "vencrypt", ty: 571, optional: true, is_discriminator: false, recursive: false, since: (2u32, 9u32, 0u32), until: None, deprecated: false, unstable: false, doc: "The vencrypt sub authentication type used by the servers,\nonly specified in case auth == vencrypt." },
 ];
 static STRUCT_VncServerInfo2: StructMeta = StructMeta {
     name: "VncServerInfo2",
@@ -19431,7 +19429,7 @@ static STRUCT_VsockSocketAddress: StructMeta = StructMeta {
     until: None,
 };
 static FIELDS_VsockSocketAddressWrapper: &[FieldMeta] = &[
-    FieldMeta { name: "data", wire_name: "data", ty: 574, optional: false, is_discriminator: false, recursive: false, since: (6u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "VSOCK domain socket address" },
+    FieldMeta { name: "data", wire_name: "data", ty: 572, optional: false, is_discriminator: false, recursive: false, since: (6u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "VSOCK domain socket address" },
 ];
 static STRUCT_VsockSocketAddressWrapper: StructMeta = StructMeta {
     name: "VsockSocketAddressWrapper",
@@ -19475,7 +19473,7 @@ static ENUM_WatchdogAction: EnumMeta = EnumMeta {
     until: None,
 };
 static FIELDS_WatchdogEvent: &[FieldMeta] = &[
-    FieldMeta { name: "action", wire_name: "action", ty: 501, optional: false, is_discriminator: false, recursive: false, since: (2u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    FieldMeta { name: "action", wire_name: "action", ty: 499, optional: false, is_discriminator: false, recursive: false, since: (2u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
 ];
 static STRUCT_WatchdogEvent: StructMeta = StructMeta {
     name: "WATCHDOG",
@@ -19506,7 +19504,7 @@ static ENUM_WatchdogExpirationAction: EnumMeta = EnumMeta {
     until: Some((2u32, 11u32, 0u32)),
 };
 static FIELDS_WatchdogSetAction: &[FieldMeta] = &[
-    FieldMeta { name: "action", wire_name: "action", ty: 501, optional: false, is_discriminator: false, recursive: false, since: (2u32, 11u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    FieldMeta { name: "action", wire_name: "action", ty: 499, optional: false, is_discriminator: false, recursive: false, since: (2u32, 11u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
 ];
 static STRUCT_WatchdogSetAction: StructMeta = StructMeta {
     name: "watchdog-set-action",
@@ -19522,7 +19520,7 @@ static STRUCT_WatchdogSetAction: StructMeta = StructMeta {
 static FIELDS_X86cpuFeatureWordInfo: &[FieldMeta] = &[
     FieldMeta { name: "cpuid_input_eax", wire_name: "cpuid-input-eax", ty: 7, optional: false, is_discriminator: false, recursive: false, since: (1u32, 5u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Input EAX value for CPUID instruction for that\nfeature word" },
     FieldMeta { name: "cpuid_input_ecx", wire_name: "cpuid-input-ecx", ty: 7, optional: true, is_discriminator: false, recursive: false, since: (1u32, 5u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Input ECX value for CPUID instruction for that\nfeature word" },
-    FieldMeta { name: "cpuid_register", wire_name: "cpuid-register", ty: 575, optional: false, is_discriminator: false, recursive: false, since: (1u32, 5u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Output register containing the feature bits" },
+    FieldMeta { name: "cpuid_register", wire_name: "cpuid-register", ty: 573, optional: false, is_discriminator: false, recursive: false, since: (1u32, 5u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Output register containing the feature bits" },
     FieldMeta { name: "features", wire_name: "features", ty: 7, optional: false, is_discriminator: false, recursive: false, since: (1u32, 5u32, 0u32), until: None, deprecated: false, unstable: false, doc: "value of output register, containing the feature bits" },
 ];
 static STRUCT_X86cpuFeatureWordInfo: StructMeta = StructMeta {
@@ -19570,7 +19568,7 @@ static STRUCT_XAccelStats: StructMeta = StructMeta {
 static FIELDS_XBlockdevAmend: &[FieldMeta] = &[
     FieldMeta { name: "job_id", wire_name: "job-id", ty: 4, optional: false, is_discriminator: false, recursive: false, since: (5u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Identifier for the newly created job." },
     FieldMeta { name: "node_name", wire_name: "node-name", ty: 4, optional: false, is_discriminator: false, recursive: false, since: (5u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Name of the block node to work on" },
-    FieldMeta { name: "options", wire_name: "options", ty: 577, optional: false, is_discriminator: false, recursive: false, since: (5u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Options (driver specific)" },
+    FieldMeta { name: "options", wire_name: "options", ty: 575, optional: false, is_discriminator: false, recursive: false, since: (5u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Options (driver specific)" },
     FieldMeta { name: "force", wire_name: "force", ty: 9, optional: true, is_discriminator: false, recursive: false, since: (5u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Allow unsafe operations, format specific\nFor luks that allows erase of the last active keyslot\n(permanent loss of data),\nand replacement of an active keyslot\n(possible loss of data if IO error happens)" },
 ];
 static STRUCT_XBlockdevAmend: StructMeta = StructMeta {
@@ -19795,8 +19793,8 @@ static STRUCT_XColoLostHeartbeat: StructMeta = StructMeta {
     until: None,
 };
 static FIELDS_XDbgBlockGraph: &[FieldMeta] = &[
-    FieldMeta { name: "nodes", wire_name: "nodes", ty: 579, optional: false, is_discriminator: false, recursive: false, since: (4u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
-    FieldMeta { name: "edges", wire_name: "edges", ty: 581, optional: false, is_discriminator: false, recursive: false, since: (4u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    FieldMeta { name: "nodes", wire_name: "nodes", ty: 577, optional: false, is_discriminator: false, recursive: false, since: (4u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    FieldMeta { name: "edges", wire_name: "edges", ty: 579, optional: false, is_discriminator: false, recursive: false, since: (4u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
 ];
 static STRUCT_XDbgBlockGraph: StructMeta = StructMeta {
     name: "XDbgBlockGraph",
@@ -19829,7 +19827,7 @@ static STRUCT_XDbgBlockGraphEdge: StructMeta = StructMeta {
 };
 static FIELDS_XDbgBlockGraphNode: &[FieldMeta] = &[
     FieldMeta { name: "id", wire_name: "id", ty: 90, optional: false, is_discriminator: false, recursive: false, since: (4u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Block graph node identifier.  This @id is generated only for\n`x-debug-query-block-graph` and does not relate to any other\nidentifiers in QEMU." },
-    FieldMeta { name: "r#type", wire_name: "type", ty: 582, optional: false, is_discriminator: false, recursive: false, since: (4u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Type of graph node.  Can be one of block-backend, block-job\nor block-driver-state." },
+    FieldMeta { name: "r#type", wire_name: "type", ty: 580, optional: false, is_discriminator: false, recursive: false, since: (4u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Type of graph node.  Can be one of block-backend, block-job\nor block-driver-state." },
     FieldMeta { name: "name", wire_name: "name", ty: 4, optional: false, is_discriminator: false, recursive: false, since: (4u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Human readable name of the node.  Corresponds to node-name\nfor block-driver-state nodes; is not guaranteed to be unique in\nthe whole graph (with block-jobs and block-backends)." },
 ];
 static STRUCT_XDbgBlockGraphNode: StructMeta = StructMeta {
@@ -20245,7 +20243,7 @@ static STRUCT_XQueryVirtioVhostQueueStatus: StructMeta = StructMeta {
     until: None,
 };
 static FIELDS_Yank: &[FieldMeta] = &[
-    FieldMeta { name: "instances", wire_name: "instances", ty: 472, optional: false, is_discriminator: false, recursive: false, since: (6u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    FieldMeta { name: "instances", wire_name: "instances", ty: 470, optional: false, is_discriminator: false, recursive: false, since: (6u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
 ];
 static STRUCT_Yank: StructMeta = StructMeta {
     name: "yank",
@@ -20259,7 +20257,7 @@ static STRUCT_Yank: StructMeta = StructMeta {
     until: None,
 };
 static FIELDS_YankInstance: &[FieldMeta] = &[
-    FieldMeta { name: "r#type", wire_name: "type", ty: 593, optional: false, is_discriminator: true, recursive: false, since: (6u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "yank instance type\n\nCurrently implemented yank instances:\n\n- nbd block device: Yanking it will shut down the connection to the\nnbd server without attempting to reconnect.\n- socket chardev: Yanking it will shut down the connected socket.\n- migration: Yanking it will shut down all migration connections.\nUnlike `migrate_cancel`, it will not notify the migration process,\nso migration will go into @failed state, instead of @cancelled\nstate.  `yank` should be used to recover from hangs." },
+    FieldMeta { name: "r#type", wire_name: "type", ty: 591, optional: false, is_discriminator: true, recursive: false, since: (6u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "yank instance type\n\nCurrently implemented yank instances:\n\n- nbd block device: Yanking it will shut down the connection to the\nnbd server without attempting to reconnect.\n- socket chardev: Yanking it will shut down the connected socket.\n- migration: Yanking it will shut down all migration connections.\nUnlike `migrate_cancel`, it will not notify the migration process,\nso migration will go into @failed state, instead of @cancelled\nstate.  `yank` should be used to recover from hangs." },
 ];
 static STRUCT_YankInstance: StructMeta = StructMeta {
     name: "YankInstance",
@@ -20454,95 +20452,95 @@ pub static COMMANDS: &[CommandMeta] = &[
     CommandMeta { wire_name: "pmemsave", rust_name: "Pmemsave", args: &STRUCT_Pmemsave, returns: None, allow_oob: false, allow_preconfig: false, success_response: true, since: (1u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "pmemsave" },
     CommandMeta { wire_name: "qmp_capabilities", rust_name: "QmpCapabilities", args: &STRUCT_QmpCapabilities, returns: None, allow_oob: false, allow_preconfig: true, success_response: true, since: (2u32, 8u32, 0u32), until: None, deprecated: false, unstable: false, doc: "# Enable QMP capabilities.\n#", category: "qmp_capabilities" },
     CommandMeta { wire_name: "qom-get", rust_name: "QomGet", args: &STRUCT_QomGet, returns: Some(348), allow_oob: false, allow_preconfig: true, success_response: true, since: (1u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "qom" },
-    CommandMeta { wire_name: "qom-list", rust_name: "QomList", args: &STRUCT_QomList, returns: Some(350), allow_oob: false, allow_preconfig: true, success_response: true, since: (1u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "qom" },
-    CommandMeta { wire_name: "qom-list-get", rust_name: "QomListGet", args: &STRUCT_QomListGet, returns: Some(352), allow_oob: false, allow_preconfig: true, success_response: true, since: (10u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "qom" },
-    CommandMeta { wire_name: "qom-list-properties", rust_name: "QomListProperties", args: &STRUCT_QomListProperties, returns: Some(350), allow_oob: false, allow_preconfig: true, success_response: true, since: (2u32, 12u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "qom" },
-    CommandMeta { wire_name: "qom-list-types", rust_name: "QomListTypes", args: &STRUCT_QomListTypes, returns: Some(354), allow_oob: false, allow_preconfig: true, success_response: true, since: (1u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "qom" },
+    CommandMeta { wire_name: "qom-list", rust_name: "QomList", args: &STRUCT_QomList, returns: Some(198), allow_oob: false, allow_preconfig: true, success_response: true, since: (1u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "qom" },
+    CommandMeta { wire_name: "qom-list-get", rust_name: "QomListGet", args: &STRUCT_QomListGet, returns: Some(350), allow_oob: false, allow_preconfig: true, success_response: true, since: (10u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "qom" },
+    CommandMeta { wire_name: "qom-list-properties", rust_name: "QomListProperties", args: &STRUCT_QomListProperties, returns: Some(198), allow_oob: false, allow_preconfig: true, success_response: true, since: (2u32, 12u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "qom" },
+    CommandMeta { wire_name: "qom-list-types", rust_name: "QomListTypes", args: &STRUCT_QomListTypes, returns: Some(352), allow_oob: false, allow_preconfig: true, success_response: true, since: (1u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "qom" },
     CommandMeta { wire_name: "qom-set", rust_name: "QomSet", args: &STRUCT_QomSet, returns: None, allow_oob: false, allow_preconfig: true, success_response: true, since: (1u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "# This command will set a property from a object model path.\n#", category: "qom" },
-    CommandMeta { wire_name: "query-accelerators", rust_name: "QueryAccelerators", args: &STRUCT_QueryAccelerators, returns: Some(355), allow_oob: false, allow_preconfig: false, success_response: true, since: (10u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "query" },
-    CommandMeta { wire_name: "query-acpi-ospm-status", rust_name: "QueryAcpiOspmStatus", args: &STRUCT_QueryAcpiOspmStatus, returns: Some(356), allow_oob: false, allow_preconfig: false, success_response: true, since: (2u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "# Lists ACPI OSPM status of ACPI device objects,\n# which might be reported via _OST method\n#", category: "query" },
-    CommandMeta { wire_name: "query-audiodevs", rust_name: "QueryAudiodevs", args: &STRUCT_QueryAudiodevs, returns: Some(358), allow_oob: false, allow_preconfig: false, success_response: true, since: (8u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "# Return information about audiodev configuration\n#", category: "query" },
-    CommandMeta { wire_name: "query-balloon", rust_name: "QueryBalloon", args: &STRUCT_QueryBalloon, returns: Some(359), allow_oob: false, allow_preconfig: false, success_response: true, since: (1u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "query" },
-    CommandMeta { wire_name: "query-block", rust_name: "QueryBlock", args: &STRUCT_QueryBlock, returns: Some(361), allow_oob: false, allow_preconfig: true, success_response: true, since: (1u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "query" },
-    CommandMeta { wire_name: "query-block-exports", rust_name: "QueryBlockExports", args: &STRUCT_QueryBlockExports, returns: Some(363), allow_oob: false, allow_preconfig: true, success_response: true, since: (5u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "query" },
-    CommandMeta { wire_name: "query-block-jobs", rust_name: "QueryBlockJobs", args: &STRUCT_QueryBlockJobs, returns: Some(365), allow_oob: false, allow_preconfig: true, success_response: true, since: (1u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "query" },
-    CommandMeta { wire_name: "query-blockstats", rust_name: "QueryBlockstats", args: &STRUCT_QueryBlockstats, returns: Some(366), allow_oob: false, allow_preconfig: true, success_response: true, since: (1u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "query" },
-    CommandMeta { wire_name: "query-chardev", rust_name: "QueryChardev", args: &STRUCT_QueryChardev, returns: Some(368), allow_oob: false, allow_preconfig: true, success_response: true, since: (1u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "query" },
-    CommandMeta { wire_name: "query-chardev-backends", rust_name: "QueryChardevBackends", args: &STRUCT_QueryChardevBackends, returns: Some(370), allow_oob: false, allow_preconfig: false, success_response: true, since: (2u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "query" },
-    CommandMeta { wire_name: "query-colo-status", rust_name: "QueryColoStatus", args: &STRUCT_QueryColoStatus, returns: Some(371), allow_oob: false, allow_preconfig: false, success_response: true, since: (3u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "query" },
-    CommandMeta { wire_name: "query-command-line-options", rust_name: "QueryCommandLineOptions", args: &STRUCT_QueryCommandLineOptions, returns: Some(373), allow_oob: false, allow_preconfig: true, success_response: true, since: (1u32, 5u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "query" },
-    CommandMeta { wire_name: "query-commands", rust_name: "QueryCommands", args: &STRUCT_QueryCommands, returns: Some(375), allow_oob: false, allow_preconfig: true, success_response: true, since: (1u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "query" },
-    CommandMeta { wire_name: "query-cpu-definitions", rust_name: "QueryCpuDefinitions", args: &STRUCT_QueryCpuDefinitions, returns: Some(377), allow_oob: false, allow_preconfig: false, success_response: true, since: (1u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "# Return a list of supported virtual CPU definitions\n#", category: "query" },
-    CommandMeta { wire_name: "query-cpu-model-baseline", rust_name: "QueryCpuModelBaseline", args: &STRUCT_QueryCpuModelBaseline, returns: Some(378), allow_oob: false, allow_preconfig: false, success_response: true, since: (2u32, 8u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "query" },
-    CommandMeta { wire_name: "query-cpu-model-comparison", rust_name: "QueryCpuModelComparison", args: &STRUCT_QueryCpuModelComparison, returns: Some(379), allow_oob: false, allow_preconfig: false, success_response: true, since: (2u32, 8u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "query" },
-    CommandMeta { wire_name: "query-cpu-model-expansion", rust_name: "QueryCpuModelExpansion", args: &STRUCT_QueryCpuModelExpansion, returns: Some(381), allow_oob: false, allow_preconfig: false, success_response: true, since: (2u32, 8u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "query" },
-    CommandMeta { wire_name: "query-cpus", rust_name: "QueryCpus", args: &STRUCT_QueryCpus, returns: Some(383), allow_oob: false, allow_preconfig: false, success_response: true, since: (1u32, 0u32, 0u32), until: Some((6u32, 0u32, 0u32)), deprecated: true, unstable: false, doc: "", category: "query" },
-    CommandMeta { wire_name: "query-cpus-fast", rust_name: "QueryCpusFast", args: &STRUCT_QueryCpusFast, returns: Some(385), allow_oob: false, allow_preconfig: false, success_response: true, since: (2u32, 12u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "query" },
-    CommandMeta { wire_name: "query-cryptodev", rust_name: "QueryCryptodev", args: &STRUCT_QueryCryptodev, returns: Some(387), allow_oob: false, allow_preconfig: false, success_response: true, since: (8u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "# Return information about current crypto devices.\n#", category: "query" },
-    CommandMeta { wire_name: "query-current-machine", rust_name: "QueryCurrentMachine", args: &STRUCT_QueryCurrentMachine, returns: Some(388), allow_oob: false, allow_preconfig: false, success_response: true, since: (4u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "# Return information on the current virtual machine.\n#", category: "query" },
-    CommandMeta { wire_name: "query-dirty-rate", rust_name: "QueryDirtyRate", args: &STRUCT_QueryDirtyRate, returns: Some(389), allow_oob: false, allow_preconfig: false, success_response: true, since: (5u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "# query dirty page rate in units of MB/s for vm\n#", category: "query" },
-    CommandMeta { wire_name: "query-display-options", rust_name: "QueryDisplayOptions", args: &STRUCT_QueryDisplayOptions, returns: Some(390), allow_oob: false, allow_preconfig: false, success_response: true, since: (3u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "# Return information about display configuration\n#", category: "query" },
+    CommandMeta { wire_name: "query-accelerators", rust_name: "QueryAccelerators", args: &STRUCT_QueryAccelerators, returns: Some(353), allow_oob: false, allow_preconfig: false, success_response: true, since: (10u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "query" },
+    CommandMeta { wire_name: "query-acpi-ospm-status", rust_name: "QueryAcpiOspmStatus", args: &STRUCT_QueryAcpiOspmStatus, returns: Some(354), allow_oob: false, allow_preconfig: false, success_response: true, since: (2u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "# Lists ACPI OSPM status of ACPI device objects,\n# which might be reported via _OST method\n#", category: "query" },
+    CommandMeta { wire_name: "query-audiodevs", rust_name: "QueryAudiodevs", args: &STRUCT_QueryAudiodevs, returns: Some(356), allow_oob: false, allow_preconfig: false, success_response: true, since: (8u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "# Return information about audiodev configuration\n#", category: "query" },
+    CommandMeta { wire_name: "query-balloon", rust_name: "QueryBalloon", args: &STRUCT_QueryBalloon, returns: Some(357), allow_oob: false, allow_preconfig: false, success_response: true, since: (1u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "query" },
+    CommandMeta { wire_name: "query-block", rust_name: "QueryBlock", args: &STRUCT_QueryBlock, returns: Some(359), allow_oob: false, allow_preconfig: true, success_response: true, since: (1u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "query" },
+    CommandMeta { wire_name: "query-block-exports", rust_name: "QueryBlockExports", args: &STRUCT_QueryBlockExports, returns: Some(361), allow_oob: false, allow_preconfig: true, success_response: true, since: (5u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "query" },
+    CommandMeta { wire_name: "query-block-jobs", rust_name: "QueryBlockJobs", args: &STRUCT_QueryBlockJobs, returns: Some(363), allow_oob: false, allow_preconfig: true, success_response: true, since: (1u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "query" },
+    CommandMeta { wire_name: "query-blockstats", rust_name: "QueryBlockstats", args: &STRUCT_QueryBlockstats, returns: Some(364), allow_oob: false, allow_preconfig: true, success_response: true, since: (1u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "query" },
+    CommandMeta { wire_name: "query-chardev", rust_name: "QueryChardev", args: &STRUCT_QueryChardev, returns: Some(366), allow_oob: false, allow_preconfig: true, success_response: true, since: (1u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "query" },
+    CommandMeta { wire_name: "query-chardev-backends", rust_name: "QueryChardevBackends", args: &STRUCT_QueryChardevBackends, returns: Some(368), allow_oob: false, allow_preconfig: false, success_response: true, since: (2u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "query" },
+    CommandMeta { wire_name: "query-colo-status", rust_name: "QueryColoStatus", args: &STRUCT_QueryColoStatus, returns: Some(369), allow_oob: false, allow_preconfig: false, success_response: true, since: (3u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "query" },
+    CommandMeta { wire_name: "query-command-line-options", rust_name: "QueryCommandLineOptions", args: &STRUCT_QueryCommandLineOptions, returns: Some(371), allow_oob: false, allow_preconfig: true, success_response: true, since: (1u32, 5u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "query" },
+    CommandMeta { wire_name: "query-commands", rust_name: "QueryCommands", args: &STRUCT_QueryCommands, returns: Some(373), allow_oob: false, allow_preconfig: true, success_response: true, since: (1u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "query" },
+    CommandMeta { wire_name: "query-cpu-definitions", rust_name: "QueryCpuDefinitions", args: &STRUCT_QueryCpuDefinitions, returns: Some(375), allow_oob: false, allow_preconfig: false, success_response: true, since: (1u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "# Return a list of supported virtual CPU definitions\n#", category: "query" },
+    CommandMeta { wire_name: "query-cpu-model-baseline", rust_name: "QueryCpuModelBaseline", args: &STRUCT_QueryCpuModelBaseline, returns: Some(376), allow_oob: false, allow_preconfig: false, success_response: true, since: (2u32, 8u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "query" },
+    CommandMeta { wire_name: "query-cpu-model-comparison", rust_name: "QueryCpuModelComparison", args: &STRUCT_QueryCpuModelComparison, returns: Some(377), allow_oob: false, allow_preconfig: false, success_response: true, since: (2u32, 8u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "query" },
+    CommandMeta { wire_name: "query-cpu-model-expansion", rust_name: "QueryCpuModelExpansion", args: &STRUCT_QueryCpuModelExpansion, returns: Some(379), allow_oob: false, allow_preconfig: false, success_response: true, since: (2u32, 8u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "query" },
+    CommandMeta { wire_name: "query-cpus", rust_name: "QueryCpus", args: &STRUCT_QueryCpus, returns: Some(381), allow_oob: false, allow_preconfig: false, success_response: true, since: (1u32, 0u32, 0u32), until: Some((6u32, 0u32, 0u32)), deprecated: true, unstable: false, doc: "", category: "query" },
+    CommandMeta { wire_name: "query-cpus-fast", rust_name: "QueryCpusFast", args: &STRUCT_QueryCpusFast, returns: Some(383), allow_oob: false, allow_preconfig: false, success_response: true, since: (2u32, 12u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "query" },
+    CommandMeta { wire_name: "query-cryptodev", rust_name: "QueryCryptodev", args: &STRUCT_QueryCryptodev, returns: Some(385), allow_oob: false, allow_preconfig: false, success_response: true, since: (8u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "# Return information about current crypto devices.\n#", category: "query" },
+    CommandMeta { wire_name: "query-current-machine", rust_name: "QueryCurrentMachine", args: &STRUCT_QueryCurrentMachine, returns: Some(386), allow_oob: false, allow_preconfig: false, success_response: true, since: (4u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "# Return information on the current virtual machine.\n#", category: "query" },
+    CommandMeta { wire_name: "query-dirty-rate", rust_name: "QueryDirtyRate", args: &STRUCT_QueryDirtyRate, returns: Some(387), allow_oob: false, allow_preconfig: false, success_response: true, since: (5u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "# query dirty page rate in units of MB/s for vm\n#", category: "query" },
+    CommandMeta { wire_name: "query-display-options", rust_name: "QueryDisplayOptions", args: &STRUCT_QueryDisplayOptions, returns: Some(388), allow_oob: false, allow_preconfig: false, success_response: true, since: (3u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "# Return information about display configuration\n#", category: "query" },
     CommandMeta { wire_name: "query-dump", rust_name: "QueryDump", args: &STRUCT_QueryDump, returns: Some(215), allow_oob: false, allow_preconfig: false, success_response: true, since: (2u32, 6u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "query" },
-    CommandMeta { wire_name: "query-dump-guest-memory-capability", rust_name: "QueryDumpGuestMemoryCapability", args: &STRUCT_QueryDumpGuestMemoryCapability, returns: Some(391), allow_oob: false, allow_preconfig: false, success_response: true, since: (2u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "query" },
-    CommandMeta { wire_name: "query-events", rust_name: "QueryEvents", args: &STRUCT_QueryEvents, returns: Some(393), allow_oob: false, allow_preconfig: false, success_response: true, since: (1u32, 2u32, 0u32), until: Some((6u32, 0u32, 0u32)), deprecated: true, unstable: false, doc: "", category: "query" },
-    CommandMeta { wire_name: "query-fdsets", rust_name: "QueryFdsets", args: &STRUCT_QueryFdsets, returns: Some(395), allow_oob: false, allow_preconfig: false, success_response: true, since: (1u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "query" },
-    CommandMeta { wire_name: "query-firmware-log", rust_name: "QueryFirmwareLog", args: &STRUCT_QueryFirmwareLog, returns: Some(396), allow_oob: false, allow_preconfig: false, success_response: true, since: (10u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "# Find firmware memory log buffer in guest memory, return content.\n#", category: "query" },
-    CommandMeta { wire_name: "query-gic-capabilities", rust_name: "QueryGicCapabilities", args: &STRUCT_QueryGicCapabilities, returns: Some(398), allow_oob: false, allow_preconfig: false, success_response: true, since: (2u32, 6u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "query" },
-    CommandMeta { wire_name: "query-hotpluggable-cpus", rust_name: "QueryHotpluggableCpus", args: &STRUCT_QueryHotpluggableCpus, returns: Some(400), allow_oob: false, allow_preconfig: true, success_response: true, since: (2u32, 7u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "query" },
-    CommandMeta { wire_name: "query-hv-balloon-status-report", rust_name: "QueryHvBalloonStatusReport", args: &STRUCT_QueryHvBalloonStatusReport, returns: Some(401), allow_oob: false, allow_preconfig: false, success_response: true, since: (8u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "query" },
-    CommandMeta { wire_name: "query-iothreads", rust_name: "QueryIothreads", args: &STRUCT_QueryIothreads, returns: Some(403), allow_oob: false, allow_preconfig: true, success_response: true, since: (2u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "query" },
-    CommandMeta { wire_name: "query-jobs", rust_name: "QueryJobs", args: &STRUCT_QueryJobs, returns: Some(405), allow_oob: false, allow_preconfig: false, success_response: true, since: (3u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "query" },
-    CommandMeta { wire_name: "query-kvm", rust_name: "QueryKvm", args: &STRUCT_QueryKvm, returns: Some(406), allow_oob: false, allow_preconfig: false, success_response: true, since: (1u32, 0u32, 0u32), until: None, deprecated: true, unstable: false, doc: "", category: "query" },
-    CommandMeta { wire_name: "query-machines", rust_name: "QueryMachines", args: &STRUCT_QueryMachines, returns: Some(408), allow_oob: false, allow_preconfig: false, success_response: true, since: (1u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "query" },
-    CommandMeta { wire_name: "query-memdev", rust_name: "QueryMemdev", args: &STRUCT_QueryMemdev, returns: Some(410), allow_oob: false, allow_preconfig: true, success_response: true, since: (2u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "query" },
-    CommandMeta { wire_name: "query-memory-devices", rust_name: "QueryMemoryDevices", args: &STRUCT_QueryMemoryDevices, returns: Some(412), allow_oob: false, allow_preconfig: false, success_response: true, since: (2u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "# Lists available memory devices and their state\n#", category: "query" },
-    CommandMeta { wire_name: "query-memory-size-summary", rust_name: "QueryMemorySizeSummary", args: &STRUCT_QueryMemorySizeSummary, returns: Some(413), allow_oob: false, allow_preconfig: false, success_response: true, since: (2u32, 11u32, 0u32), until: None, deprecated: false, unstable: false, doc: "# Return the amount of initially allocated and present hotpluggable\n# (if enabled) memory in bytes.\n#\n# .. qmp-example::\n#\n#     -> { \"execute\": \"query-memory-size-summary\" }\n#     <- { \"return\": { \"base-memory\": 4294967296, \"plugged-memory\": 0 } }\n#", category: "query" },
-    CommandMeta { wire_name: "query-mice", rust_name: "QueryMice", args: &STRUCT_QueryMice, returns: Some(415), allow_oob: false, allow_preconfig: false, success_response: true, since: (1u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "query" },
-    CommandMeta { wire_name: "query-migrate", rust_name: "QueryMigrate", args: &STRUCT_QueryMigrate, returns: Some(416), allow_oob: false, allow_preconfig: false, success_response: true, since: (1u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "query" },
-    CommandMeta { wire_name: "query-migrate-cache-size", rust_name: "QueryMigrateCacheSize", args: &STRUCT_QueryMigrateCacheSize, returns: Some(417), allow_oob: false, allow_preconfig: false, success_response: true, since: (1u32, 2u32, 0u32), until: Some((6u32, 0u32, 0u32)), deprecated: true, unstable: false, doc: "", category: "query" },
+    CommandMeta { wire_name: "query-dump-guest-memory-capability", rust_name: "QueryDumpGuestMemoryCapability", args: &STRUCT_QueryDumpGuestMemoryCapability, returns: Some(389), allow_oob: false, allow_preconfig: false, success_response: true, since: (2u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "query" },
+    CommandMeta { wire_name: "query-events", rust_name: "QueryEvents", args: &STRUCT_QueryEvents, returns: Some(391), allow_oob: false, allow_preconfig: false, success_response: true, since: (1u32, 2u32, 0u32), until: Some((6u32, 0u32, 0u32)), deprecated: true, unstable: false, doc: "", category: "query" },
+    CommandMeta { wire_name: "query-fdsets", rust_name: "QueryFdsets", args: &STRUCT_QueryFdsets, returns: Some(393), allow_oob: false, allow_preconfig: false, success_response: true, since: (1u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "query" },
+    CommandMeta { wire_name: "query-firmware-log", rust_name: "QueryFirmwareLog", args: &STRUCT_QueryFirmwareLog, returns: Some(394), allow_oob: false, allow_preconfig: false, success_response: true, since: (10u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "# Find firmware memory log buffer in guest memory, return content.\n#", category: "query" },
+    CommandMeta { wire_name: "query-gic-capabilities", rust_name: "QueryGicCapabilities", args: &STRUCT_QueryGicCapabilities, returns: Some(396), allow_oob: false, allow_preconfig: false, success_response: true, since: (2u32, 6u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "query" },
+    CommandMeta { wire_name: "query-hotpluggable-cpus", rust_name: "QueryHotpluggableCpus", args: &STRUCT_QueryHotpluggableCpus, returns: Some(398), allow_oob: false, allow_preconfig: true, success_response: true, since: (2u32, 7u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "query" },
+    CommandMeta { wire_name: "query-hv-balloon-status-report", rust_name: "QueryHvBalloonStatusReport", args: &STRUCT_QueryHvBalloonStatusReport, returns: Some(399), allow_oob: false, allow_preconfig: false, success_response: true, since: (8u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "query" },
+    CommandMeta { wire_name: "query-iothreads", rust_name: "QueryIothreads", args: &STRUCT_QueryIothreads, returns: Some(401), allow_oob: false, allow_preconfig: true, success_response: true, since: (2u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "query" },
+    CommandMeta { wire_name: "query-jobs", rust_name: "QueryJobs", args: &STRUCT_QueryJobs, returns: Some(403), allow_oob: false, allow_preconfig: false, success_response: true, since: (3u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "query" },
+    CommandMeta { wire_name: "query-kvm", rust_name: "QueryKvm", args: &STRUCT_QueryKvm, returns: Some(404), allow_oob: false, allow_preconfig: false, success_response: true, since: (1u32, 0u32, 0u32), until: None, deprecated: true, unstable: false, doc: "", category: "query" },
+    CommandMeta { wire_name: "query-machines", rust_name: "QueryMachines", args: &STRUCT_QueryMachines, returns: Some(406), allow_oob: false, allow_preconfig: false, success_response: true, since: (1u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "query" },
+    CommandMeta { wire_name: "query-memdev", rust_name: "QueryMemdev", args: &STRUCT_QueryMemdev, returns: Some(408), allow_oob: false, allow_preconfig: true, success_response: true, since: (2u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "query" },
+    CommandMeta { wire_name: "query-memory-devices", rust_name: "QueryMemoryDevices", args: &STRUCT_QueryMemoryDevices, returns: Some(410), allow_oob: false, allow_preconfig: false, success_response: true, since: (2u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "# Lists available memory devices and their state\n#", category: "query" },
+    CommandMeta { wire_name: "query-memory-size-summary", rust_name: "QueryMemorySizeSummary", args: &STRUCT_QueryMemorySizeSummary, returns: Some(411), allow_oob: false, allow_preconfig: false, success_response: true, since: (2u32, 11u32, 0u32), until: None, deprecated: false, unstable: false, doc: "# Return the amount of initially allocated and present hotpluggable\n# (if enabled) memory in bytes.\n#\n# .. qmp-example::\n#\n#     -> { \"execute\": \"query-memory-size-summary\" }\n#     <- { \"return\": { \"base-memory\": 4294967296, \"plugged-memory\": 0 } }\n#", category: "query" },
+    CommandMeta { wire_name: "query-mice", rust_name: "QueryMice", args: &STRUCT_QueryMice, returns: Some(413), allow_oob: false, allow_preconfig: false, success_response: true, since: (1u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "query" },
+    CommandMeta { wire_name: "query-migrate", rust_name: "QueryMigrate", args: &STRUCT_QueryMigrate, returns: Some(414), allow_oob: false, allow_preconfig: false, success_response: true, since: (1u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "query" },
+    CommandMeta { wire_name: "query-migrate-cache-size", rust_name: "QueryMigrateCacheSize", args: &STRUCT_QueryMigrateCacheSize, returns: Some(415), allow_oob: false, allow_preconfig: false, success_response: true, since: (1u32, 2u32, 0u32), until: Some((6u32, 0u32, 0u32)), deprecated: true, unstable: false, doc: "", category: "query" },
     CommandMeta { wire_name: "query-migrate-capabilities", rust_name: "QueryMigrateCapabilities", args: &STRUCT_QueryMigrateCapabilities, returns: Some(274), allow_oob: false, allow_preconfig: false, success_response: true, since: (1u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "query" },
-    CommandMeta { wire_name: "query-migrate-parameters", rust_name: "QueryMigrateParameters", args: &STRUCT_QueryMigrateParameters, returns: Some(418), allow_oob: false, allow_preconfig: false, success_response: true, since: (2u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "query" },
-    CommandMeta { wire_name: "query-migrationthreads", rust_name: "QueryMigrationthreads", args: &STRUCT_QueryMigrationthreads, returns: Some(420), allow_oob: false, allow_preconfig: false, success_response: true, since: (8u32, 0u32, 0u32), until: Some((11u32, 0u32, 0u32)), deprecated: true, unstable: false, doc: "", category: "query" },
-    CommandMeta { wire_name: "query-name", rust_name: "QueryName", args: &STRUCT_QueryName, returns: Some(421), allow_oob: false, allow_preconfig: true, success_response: true, since: (1u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "query" },
-    CommandMeta { wire_name: "query-named-block-nodes", rust_name: "QueryNamedBlockNodes", args: &STRUCT_QueryNamedBlockNodes, returns: Some(422), allow_oob: false, allow_preconfig: true, success_response: true, since: (2u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "query" },
-    CommandMeta { wire_name: "query-pci", rust_name: "QueryPci", args: &STRUCT_QueryPci, returns: Some(424), allow_oob: false, allow_preconfig: false, success_response: true, since: (1u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "query" },
-    CommandMeta { wire_name: "query-pr-managers", rust_name: "QueryPrManagers", args: &STRUCT_QueryPrManagers, returns: Some(426), allow_oob: false, allow_preconfig: true, success_response: true, since: (3u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "query" },
-    CommandMeta { wire_name: "query-qmp-schema", rust_name: "QueryQmpSchema", args: &STRUCT_QueryQmpSchema, returns: Some(428), allow_oob: false, allow_preconfig: true, success_response: true, since: (2u32, 5u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "query" },
-    CommandMeta { wire_name: "query-replay", rust_name: "QueryReplay", args: &STRUCT_QueryReplay, returns: Some(429), allow_oob: false, allow_preconfig: false, success_response: true, since: (5u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "query" },
-    CommandMeta { wire_name: "query-rocker", rust_name: "QueryRocker", args: &STRUCT_QueryRocker, returns: Some(430), allow_oob: false, allow_preconfig: false, success_response: true, since: (2u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "query" },
-    CommandMeta { wire_name: "query-rocker-of-dpa-flows", rust_name: "QueryRockerOfDpaFlows", args: &STRUCT_QueryRockerOfDpaFlows, returns: Some(432), allow_oob: false, allow_preconfig: false, success_response: true, since: (2u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "query" },
-    CommandMeta { wire_name: "query-rocker-of-dpa-groups", rust_name: "QueryRockerOfDpaGroups", args: &STRUCT_QueryRockerOfDpaGroups, returns: Some(434), allow_oob: false, allow_preconfig: false, success_response: true, since: (2u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "query" },
-    CommandMeta { wire_name: "query-rocker-ports", rust_name: "QueryRockerPorts", args: &STRUCT_QueryRockerPorts, returns: Some(436), allow_oob: false, allow_preconfig: false, success_response: true, since: (2u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "query" },
-    CommandMeta { wire_name: "query-rx-filter", rust_name: "QueryRxFilter", args: &STRUCT_QueryRxFilter, returns: Some(438), allow_oob: false, allow_preconfig: false, success_response: true, since: (1u32, 6u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "query" },
-    CommandMeta { wire_name: "query-s390x-cpu-polarization", rust_name: "QueryS390xCpuPolarization", args: &STRUCT_QueryS390xCpuPolarization, returns: Some(439), allow_oob: false, allow_preconfig: false, success_response: true, since: (8u32, 2u32, 0u32), until: None, deprecated: false, unstable: true, doc: "", category: "query" },
-    CommandMeta { wire_name: "query-sev", rust_name: "QuerySev", args: &STRUCT_QuerySev, returns: Some(440), allow_oob: false, allow_preconfig: false, success_response: true, since: (2u32, 12u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "query" },
-    CommandMeta { wire_name: "query-sev-attestation-report", rust_name: "QuerySevAttestationReport", args: &STRUCT_QuerySevAttestationReport, returns: Some(441), allow_oob: false, allow_preconfig: false, success_response: true, since: (6u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "query" },
-    CommandMeta { wire_name: "query-sev-capabilities", rust_name: "QuerySevCapabilities", args: &STRUCT_QuerySevCapabilities, returns: Some(442), allow_oob: false, allow_preconfig: false, success_response: true, since: (2u32, 12u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "query" },
-    CommandMeta { wire_name: "query-sev-launch-measure", rust_name: "QuerySevLaunchMeasure", args: &STRUCT_QuerySevLaunchMeasure, returns: Some(443), allow_oob: false, allow_preconfig: false, success_response: true, since: (2u32, 12u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "query" },
-    CommandMeta { wire_name: "query-sgx", rust_name: "QuerySgx", args: &STRUCT_QuerySgx, returns: Some(444), allow_oob: false, allow_preconfig: false, success_response: true, since: (6u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "query" },
-    CommandMeta { wire_name: "query-sgx-capabilities", rust_name: "QuerySgxCapabilities", args: &STRUCT_QuerySgxCapabilities, returns: Some(444), allow_oob: false, allow_preconfig: false, success_response: true, since: (6u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "query" },
-    CommandMeta { wire_name: "query-spice", rust_name: "QuerySpice", args: &STRUCT_QuerySpice, returns: Some(445), allow_oob: false, allow_preconfig: false, success_response: true, since: (1u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "query" },
-    CommandMeta { wire_name: "query-stats", rust_name: "QueryStats", args: &STRUCT_QueryStats, returns: Some(450), allow_oob: false, allow_preconfig: false, success_response: true, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "query" },
-    CommandMeta { wire_name: "query-stats-schemas", rust_name: "QueryStatsSchemas", args: &STRUCT_QueryStatsSchemas, returns: Some(453), allow_oob: false, allow_preconfig: false, success_response: true, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "# Return the schema for all available runtime-collected statistics.\n#", category: "query" },
-    CommandMeta { wire_name: "query-status", rust_name: "QueryStatus", args: &STRUCT_QueryStatus, returns: Some(454), allow_oob: false, allow_preconfig: true, success_response: true, since: (1u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "query" },
-    CommandMeta { wire_name: "query-target", rust_name: "QueryTarget", args: &STRUCT_QueryTarget, returns: Some(455), allow_oob: false, allow_preconfig: false, success_response: true, since: (1u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "# Return information about the target for this QEMU\n#", category: "query" },
-    CommandMeta { wire_name: "query-tpm", rust_name: "QueryTpm", args: &STRUCT_QueryTpm, returns: Some(457), allow_oob: false, allow_preconfig: false, success_response: true, since: (1u32, 5u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "query" },
-    CommandMeta { wire_name: "query-tpm-models", rust_name: "QueryTpmModels", args: &STRUCT_QueryTpmModels, returns: Some(459), allow_oob: false, allow_preconfig: false, success_response: true, since: (1u32, 5u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "query" },
-    CommandMeta { wire_name: "query-tpm-types", rust_name: "QueryTpmTypes", args: &STRUCT_QueryTpmTypes, returns: Some(461), allow_oob: false, allow_preconfig: false, success_response: true, since: (1u32, 5u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "query" },
-    CommandMeta { wire_name: "query-uuid", rust_name: "QueryUuid", args: &STRUCT_QueryUuid, returns: Some(462), allow_oob: false, allow_preconfig: true, success_response: true, since: (1u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "query" },
-    CommandMeta { wire_name: "query-vcpu-dirty-limit", rust_name: "QueryVcpuDirtyLimit", args: &STRUCT_QueryVcpuDirtyLimit, returns: Some(464), allow_oob: false, allow_preconfig: false, success_response: true, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "query" },
-    CommandMeta { wire_name: "query-version", rust_name: "QueryVersion", args: &STRUCT_QueryVersion, returns: Some(465), allow_oob: false, allow_preconfig: true, success_response: true, since: (1u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "query" },
-    CommandMeta { wire_name: "query-vm-generation-id", rust_name: "QueryVmGenerationId", args: &STRUCT_QueryVmGenerationId, returns: Some(466), allow_oob: false, allow_preconfig: false, success_response: true, since: (2u32, 9u32, 0u32), until: None, deprecated: false, unstable: false, doc: "# Show Virtual Machine Generation ID\n#", category: "query" },
-    CommandMeta { wire_name: "query-vnc", rust_name: "QueryVnc", args: &STRUCT_QueryVnc, returns: Some(467), allow_oob: false, allow_preconfig: false, success_response: true, since: (1u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "query" },
-    CommandMeta { wire_name: "query-vnc-servers", rust_name: "QueryVncServers", args: &STRUCT_QueryVncServers, returns: Some(469), allow_oob: false, allow_preconfig: false, success_response: true, since: (2u32, 3u32, 0u32), until: None, deprecated: false, unstable: false, doc: "# Return a list of vnc servers.  The list can be empty.\n#", category: "query" },
-    CommandMeta { wire_name: "query-xen-replication-status", rust_name: "QueryXenReplicationStatus", args: &STRUCT_QueryXenReplicationStatus, returns: Some(470), allow_oob: false, allow_preconfig: false, success_response: true, since: (2u32, 9u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "query" },
-    CommandMeta { wire_name: "query-yank", rust_name: "QueryYank", args: &STRUCT_QueryYank, returns: Some(472), allow_oob: true, allow_preconfig: false, success_response: true, since: (6u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "query" },
+    CommandMeta { wire_name: "query-migrate-parameters", rust_name: "QueryMigrateParameters", args: &STRUCT_QueryMigrateParameters, returns: Some(416), allow_oob: false, allow_preconfig: false, success_response: true, since: (2u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "query" },
+    CommandMeta { wire_name: "query-migrationthreads", rust_name: "QueryMigrationthreads", args: &STRUCT_QueryMigrationthreads, returns: Some(418), allow_oob: false, allow_preconfig: false, success_response: true, since: (8u32, 0u32, 0u32), until: Some((11u32, 0u32, 0u32)), deprecated: true, unstable: false, doc: "", category: "query" },
+    CommandMeta { wire_name: "query-name", rust_name: "QueryName", args: &STRUCT_QueryName, returns: Some(419), allow_oob: false, allow_preconfig: true, success_response: true, since: (1u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "query" },
+    CommandMeta { wire_name: "query-named-block-nodes", rust_name: "QueryNamedBlockNodes", args: &STRUCT_QueryNamedBlockNodes, returns: Some(420), allow_oob: false, allow_preconfig: true, success_response: true, since: (2u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "query" },
+    CommandMeta { wire_name: "query-pci", rust_name: "QueryPci", args: &STRUCT_QueryPci, returns: Some(422), allow_oob: false, allow_preconfig: false, success_response: true, since: (1u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "query" },
+    CommandMeta { wire_name: "query-pr-managers", rust_name: "QueryPrManagers", args: &STRUCT_QueryPrManagers, returns: Some(424), allow_oob: false, allow_preconfig: true, success_response: true, since: (3u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "query" },
+    CommandMeta { wire_name: "query-qmp-schema", rust_name: "QueryQmpSchema", args: &STRUCT_QueryQmpSchema, returns: Some(426), allow_oob: false, allow_preconfig: true, success_response: true, since: (2u32, 5u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "query" },
+    CommandMeta { wire_name: "query-replay", rust_name: "QueryReplay", args: &STRUCT_QueryReplay, returns: Some(427), allow_oob: false, allow_preconfig: false, success_response: true, since: (5u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "query" },
+    CommandMeta { wire_name: "query-rocker", rust_name: "QueryRocker", args: &STRUCT_QueryRocker, returns: Some(428), allow_oob: false, allow_preconfig: false, success_response: true, since: (2u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "query" },
+    CommandMeta { wire_name: "query-rocker-of-dpa-flows", rust_name: "QueryRockerOfDpaFlows", args: &STRUCT_QueryRockerOfDpaFlows, returns: Some(430), allow_oob: false, allow_preconfig: false, success_response: true, since: (2u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "query" },
+    CommandMeta { wire_name: "query-rocker-of-dpa-groups", rust_name: "QueryRockerOfDpaGroups", args: &STRUCT_QueryRockerOfDpaGroups, returns: Some(432), allow_oob: false, allow_preconfig: false, success_response: true, since: (2u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "query" },
+    CommandMeta { wire_name: "query-rocker-ports", rust_name: "QueryRockerPorts", args: &STRUCT_QueryRockerPorts, returns: Some(434), allow_oob: false, allow_preconfig: false, success_response: true, since: (2u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "query" },
+    CommandMeta { wire_name: "query-rx-filter", rust_name: "QueryRxFilter", args: &STRUCT_QueryRxFilter, returns: Some(436), allow_oob: false, allow_preconfig: false, success_response: true, since: (1u32, 6u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "query" },
+    CommandMeta { wire_name: "query-s390x-cpu-polarization", rust_name: "QueryS390xCpuPolarization", args: &STRUCT_QueryS390xCpuPolarization, returns: Some(437), allow_oob: false, allow_preconfig: false, success_response: true, since: (8u32, 2u32, 0u32), until: None, deprecated: false, unstable: true, doc: "", category: "query" },
+    CommandMeta { wire_name: "query-sev", rust_name: "QuerySev", args: &STRUCT_QuerySev, returns: Some(438), allow_oob: false, allow_preconfig: false, success_response: true, since: (2u32, 12u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "query" },
+    CommandMeta { wire_name: "query-sev-attestation-report", rust_name: "QuerySevAttestationReport", args: &STRUCT_QuerySevAttestationReport, returns: Some(439), allow_oob: false, allow_preconfig: false, success_response: true, since: (6u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "query" },
+    CommandMeta { wire_name: "query-sev-capabilities", rust_name: "QuerySevCapabilities", args: &STRUCT_QuerySevCapabilities, returns: Some(440), allow_oob: false, allow_preconfig: false, success_response: true, since: (2u32, 12u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "query" },
+    CommandMeta { wire_name: "query-sev-launch-measure", rust_name: "QuerySevLaunchMeasure", args: &STRUCT_QuerySevLaunchMeasure, returns: Some(441), allow_oob: false, allow_preconfig: false, success_response: true, since: (2u32, 12u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "query" },
+    CommandMeta { wire_name: "query-sgx", rust_name: "QuerySgx", args: &STRUCT_QuerySgx, returns: Some(442), allow_oob: false, allow_preconfig: false, success_response: true, since: (6u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "query" },
+    CommandMeta { wire_name: "query-sgx-capabilities", rust_name: "QuerySgxCapabilities", args: &STRUCT_QuerySgxCapabilities, returns: Some(442), allow_oob: false, allow_preconfig: false, success_response: true, since: (6u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "query" },
+    CommandMeta { wire_name: "query-spice", rust_name: "QuerySpice", args: &STRUCT_QuerySpice, returns: Some(443), allow_oob: false, allow_preconfig: false, success_response: true, since: (1u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "query" },
+    CommandMeta { wire_name: "query-stats", rust_name: "QueryStats", args: &STRUCT_QueryStats, returns: Some(448), allow_oob: false, allow_preconfig: false, success_response: true, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "query" },
+    CommandMeta { wire_name: "query-stats-schemas", rust_name: "QueryStatsSchemas", args: &STRUCT_QueryStatsSchemas, returns: Some(451), allow_oob: false, allow_preconfig: false, success_response: true, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "# Return the schema for all available runtime-collected statistics.\n#", category: "query" },
+    CommandMeta { wire_name: "query-status", rust_name: "QueryStatus", args: &STRUCT_QueryStatus, returns: Some(452), allow_oob: false, allow_preconfig: true, success_response: true, since: (1u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "query" },
+    CommandMeta { wire_name: "query-target", rust_name: "QueryTarget", args: &STRUCT_QueryTarget, returns: Some(453), allow_oob: false, allow_preconfig: false, success_response: true, since: (1u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "# Return information about the target for this QEMU\n#", category: "query" },
+    CommandMeta { wire_name: "query-tpm", rust_name: "QueryTpm", args: &STRUCT_QueryTpm, returns: Some(455), allow_oob: false, allow_preconfig: false, success_response: true, since: (1u32, 5u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "query" },
+    CommandMeta { wire_name: "query-tpm-models", rust_name: "QueryTpmModels", args: &STRUCT_QueryTpmModels, returns: Some(457), allow_oob: false, allow_preconfig: false, success_response: true, since: (1u32, 5u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "query" },
+    CommandMeta { wire_name: "query-tpm-types", rust_name: "QueryTpmTypes", args: &STRUCT_QueryTpmTypes, returns: Some(459), allow_oob: false, allow_preconfig: false, success_response: true, since: (1u32, 5u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "query" },
+    CommandMeta { wire_name: "query-uuid", rust_name: "QueryUuid", args: &STRUCT_QueryUuid, returns: Some(460), allow_oob: false, allow_preconfig: true, success_response: true, since: (1u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "query" },
+    CommandMeta { wire_name: "query-vcpu-dirty-limit", rust_name: "QueryVcpuDirtyLimit", args: &STRUCT_QueryVcpuDirtyLimit, returns: Some(462), allow_oob: false, allow_preconfig: false, success_response: true, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "query" },
+    CommandMeta { wire_name: "query-version", rust_name: "QueryVersion", args: &STRUCT_QueryVersion, returns: Some(463), allow_oob: false, allow_preconfig: true, success_response: true, since: (1u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "query" },
+    CommandMeta { wire_name: "query-vm-generation-id", rust_name: "QueryVmGenerationId", args: &STRUCT_QueryVmGenerationId, returns: Some(464), allow_oob: false, allow_preconfig: false, success_response: true, since: (2u32, 9u32, 0u32), until: None, deprecated: false, unstable: false, doc: "# Show Virtual Machine Generation ID\n#", category: "query" },
+    CommandMeta { wire_name: "query-vnc", rust_name: "QueryVnc", args: &STRUCT_QueryVnc, returns: Some(465), allow_oob: false, allow_preconfig: false, success_response: true, since: (1u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "query" },
+    CommandMeta { wire_name: "query-vnc-servers", rust_name: "QueryVncServers", args: &STRUCT_QueryVncServers, returns: Some(467), allow_oob: false, allow_preconfig: false, success_response: true, since: (2u32, 3u32, 0u32), until: None, deprecated: false, unstable: false, doc: "# Return a list of vnc servers.  The list can be empty.\n#", category: "query" },
+    CommandMeta { wire_name: "query-xen-replication-status", rust_name: "QueryXenReplicationStatus", args: &STRUCT_QueryXenReplicationStatus, returns: Some(468), allow_oob: false, allow_preconfig: false, success_response: true, since: (2u32, 9u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "query" },
+    CommandMeta { wire_name: "query-yank", rust_name: "QueryYank", args: &STRUCT_QueryYank, returns: Some(470), allow_oob: true, allow_preconfig: false, success_response: true, since: (6u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "query" },
     CommandMeta { wire_name: "quit", rust_name: "Quit", args: &STRUCT_Quit, returns: None, allow_oob: false, allow_preconfig: true, success_response: true, since: (1u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "# This command will cause the QEMU process to exit gracefully.  While every\n# attempt is made to send the QMP response before terminating, this is not\n# guaranteed.  When using this interface, a premature EOF would not be\n# unexpected.\n#", category: "quit" },
     CommandMeta { wire_name: "remove-fd", rust_name: "RemoveFd", args: &STRUCT_RemoveFd, returns: None, allow_oob: false, allow_preconfig: false, success_response: true, since: (1u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "remove" },
     CommandMeta { wire_name: "replay-break", rust_name: "ReplayBreak", args: &STRUCT_ReplayBreak, returns: None, allow_oob: false, allow_preconfig: false, success_response: true, since: (5u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "replay" },
     CommandMeta { wire_name: "replay-delete-break", rust_name: "ReplayDeleteBreak", args: &STRUCT_ReplayDeleteBreak, returns: None, allow_oob: false, allow_preconfig: false, success_response: true, since: (5u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "replay" },
     CommandMeta { wire_name: "replay-seek", rust_name: "ReplaySeek", args: &STRUCT_ReplaySeek, returns: None, allow_oob: false, allow_preconfig: false, success_response: true, since: (5u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "replay" },
-    CommandMeta { wire_name: "request-ebpf", rust_name: "RequestEbpf", args: &STRUCT_RequestEbpf, returns: Some(476), allow_oob: false, allow_preconfig: false, success_response: true, since: (9u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "request" },
+    CommandMeta { wire_name: "request-ebpf", rust_name: "RequestEbpf", args: &STRUCT_RequestEbpf, returns: Some(474), allow_oob: false, allow_preconfig: false, success_response: true, since: (9u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "request" },
     CommandMeta { wire_name: "ringbuf-read", rust_name: "RingbufRead", args: &STRUCT_RingbufRead, returns: Some(231), allow_oob: false, allow_preconfig: false, success_response: true, since: (1u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "ringbuf" },
     CommandMeta { wire_name: "ringbuf-write", rust_name: "RingbufWrite", args: &STRUCT_RingbufWrite, returns: None, allow_oob: false, allow_preconfig: false, success_response: true, since: (1u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "ringbuf" },
     CommandMeta { wire_name: "rtc-reset-reinjection", rust_name: "RtcResetReinjection", args: &STRUCT_RtcResetReinjection, returns: None, allow_oob: false, allow_preconfig: false, success_response: true, since: (2u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "# This command will reset the RTC interrupt reinjection backlog.\n# Can be used if another mechanism to synchronize guest time\n# is in effect, for example QEMU guest agent's guest-set-time\n# command.\n#", category: "rtc" },
@@ -20562,11 +20560,11 @@ pub static COMMANDS: &[CommandMeta] = &[
     CommandMeta { wire_name: "system_powerdown", rust_name: "SystemPowerdown", args: &STRUCT_SystemPowerdown, returns: None, allow_oob: false, allow_preconfig: false, success_response: true, since: (1u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "system_powerdown" },
     CommandMeta { wire_name: "system_reset", rust_name: "SystemReset", args: &STRUCT_SystemReset, returns: None, allow_oob: false, allow_preconfig: false, success_response: true, since: (1u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "# Performs a hard reset of a guest.\n#", category: "system_reset" },
     CommandMeta { wire_name: "system_wakeup", rust_name: "SystemWakeup", args: &STRUCT_SystemWakeup, returns: None, allow_oob: false, allow_preconfig: false, success_response: true, since: (1u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "system_wakeup" },
-    CommandMeta { wire_name: "trace-event-get-state", rust_name: "TraceEventGetState", args: &STRUCT_TraceEventGetState, returns: Some(543), allow_oob: false, allow_preconfig: false, success_response: true, since: (2u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "trace" },
+    CommandMeta { wire_name: "trace-event-get-state", rust_name: "TraceEventGetState", args: &STRUCT_TraceEventGetState, returns: Some(541), allow_oob: false, allow_preconfig: false, success_response: true, since: (2u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "trace" },
     CommandMeta { wire_name: "trace-event-set-state", rust_name: "TraceEventSetState", args: &STRUCT_TraceEventSetState, returns: None, allow_oob: false, allow_preconfig: false, success_response: true, since: (2u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "# Set the dynamic tracing state of events.\n#", category: "trace" },
     CommandMeta { wire_name: "transaction", rust_name: "Transaction", args: &STRUCT_Transaction, returns: None, allow_oob: false, allow_preconfig: false, success_response: true, since: (1u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "transaction" },
     CommandMeta { wire_name: "watchdog-set-action", rust_name: "WatchdogSetAction", args: &STRUCT_WatchdogSetAction, returns: None, allow_oob: false, allow_preconfig: false, success_response: true, since: (2u32, 11u32, 0u32), until: None, deprecated: false, unstable: false, doc: "# Set watchdog action\n#", category: "watchdog" },
-    CommandMeta { wire_name: "x-accel-stats", rust_name: "XAccelStats", args: &STRUCT_XAccelStats, returns: Some(576), allow_oob: false, allow_preconfig: false, success_response: true, since: (10u32, 1u32, 0u32), until: None, deprecated: false, unstable: true, doc: "", category: "x" },
+    CommandMeta { wire_name: "x-accel-stats", rust_name: "XAccelStats", args: &STRUCT_XAccelStats, returns: Some(574), allow_oob: false, allow_preconfig: false, success_response: true, since: (10u32, 1u32, 0u32), until: None, deprecated: false, unstable: true, doc: "", category: "x" },
     CommandMeta { wire_name: "x-block-dirty-bitmap-disable", rust_name: "XBlockDirtyBitmapDisable", args: &STRUCT_XBlockDirtyBitmapDisable, returns: None, allow_oob: false, allow_preconfig: false, success_response: true, since: (3u32, 0u32, 0u32), until: Some((4u32, 0u32, 0u32)), deprecated: false, unstable: false, doc: "", category: "x" },
     CommandMeta { wire_name: "x-block-dirty-bitmap-enable", rust_name: "XBlockDirtyBitmapEnable", args: &STRUCT_XBlockDirtyBitmapEnable, returns: None, allow_oob: false, allow_preconfig: false, success_response: true, since: (3u32, 0u32, 0u32), until: Some((4u32, 0u32, 0u32)), deprecated: false, unstable: false, doc: "", category: "x" },
     CommandMeta { wire_name: "x-block-dirty-bitmap-merge", rust_name: "XBlockDirtyBitmapMerge", args: &STRUCT_XBlockDirtyBitmapMerge, returns: None, allow_oob: false, allow_preconfig: false, success_response: true, since: (3u32, 0u32, 0u32), until: Some((4u32, 0u32, 0u32)), deprecated: false, unstable: false, doc: "", category: "x" },
@@ -20580,30 +20578,30 @@ pub static COMMANDS: &[CommandMeta] = &[
     CommandMeta { wire_name: "x-blockdev-reopen", rust_name: "XBlockdevReopen", args: &STRUCT_XBlockdevReopen, returns: None, allow_oob: false, allow_preconfig: false, success_response: true, since: (4u32, 0u32, 0u32), until: Some((6u32, 1u32, 0u32)), deprecated: false, unstable: false, doc: "# Reopens a block device using the given set of options. Any option\n# not specified will be reset to its default value regardless of its\n# previous status. If an option cannot be changed or a particular\n# driver does not support reopening then the command will return an\n# error.\n#\n# The top-level @node-name option (from BlockdevOptions) must be\n# specified and is used to select the block device to be reopened.\n# Other @node-name options must be either omitted or set to the\n# current name of the appropriate node. This command won't change any\n# node name and any attempt to do it will result in an error.\n#\n# In the case of options that refer to child nodes, the behavior of\n# this command depends on the value:\n#\n#  1) A set of options (BlockdevOptions): the child is reopened with\n#     the specified set of options.\n#\n#  2) A reference to the current child: the child is reopened using\n#     its existing set of options.\n#\n#  3) A reference to a different node: the current child is replaced\n#     with the specified one.\n#\n#  4) NULL: the current child (if any) is detached.\n#\n# Options (1) and (2) are supported in all cases, but at the moment\n# only @backing allows replacing or detaching an existing child.\n#\n# Unlike with blockdev-add, the @backing option must always be present\n# unless the node being reopened does not have a backing file and its\n# image does not have a default backing file name as part of its\n# metadata.\n#", category: "x" },
     CommandMeta { wire_name: "x-blockdev-set-iothread", rust_name: "XBlockdevSetIothread", args: &STRUCT_XBlockdevSetIothread, returns: None, allow_oob: false, allow_preconfig: true, success_response: true, since: (2u32, 12u32, 0u32), until: None, deprecated: false, unstable: true, doc: "", category: "x" },
     CommandMeta { wire_name: "x-colo-lost-heartbeat", rust_name: "XColoLostHeartbeat", args: &STRUCT_XColoLostHeartbeat, returns: None, allow_oob: false, allow_preconfig: false, success_response: true, since: (2u32, 8u32, 0u32), until: None, deprecated: false, unstable: true, doc: "# Tell qemu that heartbeat is lost, request it to do takeover procedures.\n# If this command is sent to the PVM, the Primary side will exit COLO mode.\n# If sent to the Secondary, the Secondary side will run failover work,\n# then takes over server operation to become the service VM.\n#", category: "x" },
-    CommandMeta { wire_name: "x-debug-block-dirty-bitmap-sha256", rust_name: "XDebugBlockDirtyBitmapSha256", args: &STRUCT_XDebugBlockDirtyBitmapSha256, returns: Some(583), allow_oob: false, allow_preconfig: true, success_response: true, since: (2u32, 10u32, 0u32), until: None, deprecated: false, unstable: true, doc: "", category: "x" },
-    CommandMeta { wire_name: "x-debug-query-block-graph", rust_name: "XDebugQueryBlockGraph", args: &STRUCT_XDebugQueryBlockGraph, returns: Some(584), allow_oob: false, allow_preconfig: true, success_response: true, since: (4u32, 0u32, 0u32), until: None, deprecated: false, unstable: true, doc: "# Get the block graph.\n#", category: "x" },
+    CommandMeta { wire_name: "x-debug-block-dirty-bitmap-sha256", rust_name: "XDebugBlockDirtyBitmapSha256", args: &STRUCT_XDebugBlockDirtyBitmapSha256, returns: Some(581), allow_oob: false, allow_preconfig: true, success_response: true, since: (2u32, 10u32, 0u32), until: None, deprecated: false, unstable: true, doc: "", category: "x" },
+    CommandMeta { wire_name: "x-debug-query-block-graph", rust_name: "XDebugQueryBlockGraph", args: &STRUCT_XDebugQueryBlockGraph, returns: Some(582), allow_oob: false, allow_preconfig: true, success_response: true, since: (4u32, 0u32, 0u32), until: None, deprecated: false, unstable: true, doc: "# Get the block graph.\n#", category: "x" },
     CommandMeta { wire_name: "x-exit-preconfig", rust_name: "XExitPreconfig", args: &STRUCT_XExitPreconfig, returns: None, allow_oob: false, allow_preconfig: true, success_response: true, since: (3u32, 0u32, 0u32), until: None, deprecated: false, unstable: true, doc: "", category: "x" },
     CommandMeta { wire_name: "x-input-send-event", rust_name: "XInputSendEvent", args: &STRUCT_XInputSendEvent, returns: None, allow_oob: false, allow_preconfig: false, success_response: true, since: (2u32, 2u32, 0u32), until: Some((2u32, 6u32, 0u32)), deprecated: false, unstable: false, doc: "", category: "x" },
     CommandMeta { wire_name: "x-nbd-server-add-bitmap", rust_name: "XNbdServerAddBitmap", args: &STRUCT_XNbdServerAddBitmap, returns: None, allow_oob: false, allow_preconfig: false, success_response: true, since: (3u32, 0u32, 0u32), until: Some((4u32, 0u32, 0u32)), deprecated: false, unstable: false, doc: "", category: "x" },
     CommandMeta { wire_name: "x-oob-test", rust_name: "XOobTest", args: &STRUCT_XOobTest, returns: None, allow_oob: true, allow_preconfig: false, success_response: true, since: (2u32, 12u32, 0u32), until: Some((3u32, 0u32, 0u32)), deprecated: false, unstable: false, doc: "", category: "x" },
-    CommandMeta { wire_name: "x-query-interrupt-controllers", rust_name: "XQueryInterruptControllers", args: &STRUCT_XQueryInterruptControllers, returns: Some(576), allow_oob: false, allow_preconfig: false, success_response: true, since: (9u32, 1u32, 0u32), until: None, deprecated: false, unstable: true, doc: "", category: "x" },
-    CommandMeta { wire_name: "x-query-irq", rust_name: "XQueryIrq", args: &STRUCT_XQueryIrq, returns: Some(576), allow_oob: false, allow_preconfig: false, success_response: true, since: (6u32, 2u32, 0u32), until: None, deprecated: false, unstable: true, doc: "", category: "x" },
-    CommandMeta { wire_name: "x-query-jit", rust_name: "XQueryJit", args: &STRUCT_XQueryJit, returns: Some(576), allow_oob: false, allow_preconfig: false, success_response: true, since: (6u32, 2u32, 0u32), until: None, deprecated: false, unstable: true, doc: "", category: "x" },
-    CommandMeta { wire_name: "x-query-numa", rust_name: "XQueryNuma", args: &STRUCT_XQueryNuma, returns: Some(576), allow_oob: false, allow_preconfig: false, success_response: true, since: (6u32, 2u32, 0u32), until: None, deprecated: false, unstable: true, doc: "", category: "x" },
-    CommandMeta { wire_name: "x-query-opcount", rust_name: "XQueryOpcount", args: &STRUCT_XQueryOpcount, returns: Some(576), allow_oob: false, allow_preconfig: false, success_response: true, since: (6u32, 2u32, 0u32), until: Some((10u32, 1u32, 0u32)), deprecated: false, unstable: true, doc: "", category: "x" },
-    CommandMeta { wire_name: "x-query-profile", rust_name: "XQueryProfile", args: &STRUCT_XQueryProfile, returns: Some(576), allow_oob: false, allow_preconfig: false, success_response: true, since: (6u32, 2u32, 0u32), until: Some((8u32, 1u32, 0u32)), deprecated: false, unstable: true, doc: "", category: "x" },
-    CommandMeta { wire_name: "x-query-ramblock", rust_name: "XQueryRamblock", args: &STRUCT_XQueryRamblock, returns: Some(576), allow_oob: false, allow_preconfig: false, success_response: true, since: (6u32, 2u32, 0u32), until: None, deprecated: false, unstable: true, doc: "", category: "x" },
-    CommandMeta { wire_name: "x-query-rdma", rust_name: "XQueryRdma", args: &STRUCT_XQueryRdma, returns: Some(576), allow_oob: false, allow_preconfig: false, success_response: true, since: (6u32, 2u32, 0u32), until: Some((9u32, 1u32, 0u32)), deprecated: false, unstable: true, doc: "", category: "x" },
-    CommandMeta { wire_name: "x-query-roms", rust_name: "XQueryRoms", args: &STRUCT_XQueryRoms, returns: Some(576), allow_oob: false, allow_preconfig: false, success_response: true, since: (6u32, 2u32, 0u32), until: None, deprecated: false, unstable: true, doc: "", category: "x" },
-    CommandMeta { wire_name: "x-query-usb", rust_name: "XQueryUsb", args: &STRUCT_XQueryUsb, returns: Some(576), allow_oob: false, allow_preconfig: false, success_response: true, since: (6u32, 2u32, 0u32), until: None, deprecated: false, unstable: true, doc: "", category: "x" },
-    CommandMeta { wire_name: "x-query-virtio", rust_name: "XQueryVirtio", args: &STRUCT_XQueryVirtio, returns: Some(588), allow_oob: false, allow_preconfig: false, success_response: true, since: (7u32, 2u32, 0u32), until: None, deprecated: false, unstable: true, doc: "", category: "x" },
-    CommandMeta { wire_name: "x-query-virtio-queue-element", rust_name: "XQueryVirtioQueueElement", args: &STRUCT_XQueryVirtioQueueElement, returns: Some(589), allow_oob: false, allow_preconfig: false, success_response: true, since: (7u32, 2u32, 0u32), until: None, deprecated: false, unstable: true, doc: "", category: "x" },
-    CommandMeta { wire_name: "x-query-virtio-queue-status", rust_name: "XQueryVirtioQueueStatus", args: &STRUCT_XQueryVirtioQueueStatus, returns: Some(590), allow_oob: false, allow_preconfig: false, success_response: true, since: (7u32, 2u32, 0u32), until: None, deprecated: false, unstable: true, doc: "", category: "x" },
-    CommandMeta { wire_name: "x-query-virtio-status", rust_name: "XQueryVirtioStatus", args: &STRUCT_XQueryVirtioStatus, returns: Some(591), allow_oob: false, allow_preconfig: false, success_response: true, since: (7u32, 2u32, 0u32), until: None, deprecated: false, unstable: true, doc: "", category: "x" },
-    CommandMeta { wire_name: "x-query-virtio-vhost-queue-status", rust_name: "XQueryVirtioVhostQueueStatus", args: &STRUCT_XQueryVirtioVhostQueueStatus, returns: Some(592), allow_oob: false, allow_preconfig: false, success_response: true, since: (7u32, 2u32, 0u32), until: None, deprecated: false, unstable: true, doc: "", category: "x" },
+    CommandMeta { wire_name: "x-query-interrupt-controllers", rust_name: "XQueryInterruptControllers", args: &STRUCT_XQueryInterruptControllers, returns: Some(574), allow_oob: false, allow_preconfig: false, success_response: true, since: (9u32, 1u32, 0u32), until: None, deprecated: false, unstable: true, doc: "", category: "x" },
+    CommandMeta { wire_name: "x-query-irq", rust_name: "XQueryIrq", args: &STRUCT_XQueryIrq, returns: Some(574), allow_oob: false, allow_preconfig: false, success_response: true, since: (6u32, 2u32, 0u32), until: None, deprecated: false, unstable: true, doc: "", category: "x" },
+    CommandMeta { wire_name: "x-query-jit", rust_name: "XQueryJit", args: &STRUCT_XQueryJit, returns: Some(574), allow_oob: false, allow_preconfig: false, success_response: true, since: (6u32, 2u32, 0u32), until: None, deprecated: false, unstable: true, doc: "", category: "x" },
+    CommandMeta { wire_name: "x-query-numa", rust_name: "XQueryNuma", args: &STRUCT_XQueryNuma, returns: Some(574), allow_oob: false, allow_preconfig: false, success_response: true, since: (6u32, 2u32, 0u32), until: None, deprecated: false, unstable: true, doc: "", category: "x" },
+    CommandMeta { wire_name: "x-query-opcount", rust_name: "XQueryOpcount", args: &STRUCT_XQueryOpcount, returns: Some(574), allow_oob: false, allow_preconfig: false, success_response: true, since: (6u32, 2u32, 0u32), until: Some((10u32, 1u32, 0u32)), deprecated: false, unstable: true, doc: "", category: "x" },
+    CommandMeta { wire_name: "x-query-profile", rust_name: "XQueryProfile", args: &STRUCT_XQueryProfile, returns: Some(574), allow_oob: false, allow_preconfig: false, success_response: true, since: (6u32, 2u32, 0u32), until: Some((8u32, 1u32, 0u32)), deprecated: false, unstable: true, doc: "", category: "x" },
+    CommandMeta { wire_name: "x-query-ramblock", rust_name: "XQueryRamblock", args: &STRUCT_XQueryRamblock, returns: Some(574), allow_oob: false, allow_preconfig: false, success_response: true, since: (6u32, 2u32, 0u32), until: None, deprecated: false, unstable: true, doc: "", category: "x" },
+    CommandMeta { wire_name: "x-query-rdma", rust_name: "XQueryRdma", args: &STRUCT_XQueryRdma, returns: Some(574), allow_oob: false, allow_preconfig: false, success_response: true, since: (6u32, 2u32, 0u32), until: Some((9u32, 1u32, 0u32)), deprecated: false, unstable: true, doc: "", category: "x" },
+    CommandMeta { wire_name: "x-query-roms", rust_name: "XQueryRoms", args: &STRUCT_XQueryRoms, returns: Some(574), allow_oob: false, allow_preconfig: false, success_response: true, since: (6u32, 2u32, 0u32), until: None, deprecated: false, unstable: true, doc: "", category: "x" },
+    CommandMeta { wire_name: "x-query-usb", rust_name: "XQueryUsb", args: &STRUCT_XQueryUsb, returns: Some(574), allow_oob: false, allow_preconfig: false, success_response: true, since: (6u32, 2u32, 0u32), until: None, deprecated: false, unstable: true, doc: "", category: "x" },
+    CommandMeta { wire_name: "x-query-virtio", rust_name: "XQueryVirtio", args: &STRUCT_XQueryVirtio, returns: Some(586), allow_oob: false, allow_preconfig: false, success_response: true, since: (7u32, 2u32, 0u32), until: None, deprecated: false, unstable: true, doc: "", category: "x" },
+    CommandMeta { wire_name: "x-query-virtio-queue-element", rust_name: "XQueryVirtioQueueElement", args: &STRUCT_XQueryVirtioQueueElement, returns: Some(587), allow_oob: false, allow_preconfig: false, success_response: true, since: (7u32, 2u32, 0u32), until: None, deprecated: false, unstable: true, doc: "", category: "x" },
+    CommandMeta { wire_name: "x-query-virtio-queue-status", rust_name: "XQueryVirtioQueueStatus", args: &STRUCT_XQueryVirtioQueueStatus, returns: Some(588), allow_oob: false, allow_preconfig: false, success_response: true, since: (7u32, 2u32, 0u32), until: None, deprecated: false, unstable: true, doc: "", category: "x" },
+    CommandMeta { wire_name: "x-query-virtio-status", rust_name: "XQueryVirtioStatus", args: &STRUCT_XQueryVirtioStatus, returns: Some(589), allow_oob: false, allow_preconfig: false, success_response: true, since: (7u32, 2u32, 0u32), until: None, deprecated: false, unstable: true, doc: "", category: "x" },
+    CommandMeta { wire_name: "x-query-virtio-vhost-queue-status", rust_name: "XQueryVirtioVhostQueueStatus", args: &STRUCT_XQueryVirtioVhostQueueStatus, returns: Some(590), allow_oob: false, allow_preconfig: false, success_response: true, since: (7u32, 2u32, 0u32), until: None, deprecated: false, unstable: true, doc: "", category: "x" },
     CommandMeta { wire_name: "xen-colo-do-checkpoint", rust_name: "XenColoDoCheckpoint", args: &STRUCT_XenColoDoCheckpoint, returns: None, allow_oob: false, allow_preconfig: false, success_response: true, since: (2u32, 9u32, 0u32), until: None, deprecated: false, unstable: false, doc: "# Xen uses this command to notify replication to trigger a checkpoint.\n#\n# .. qmp-example::\n#\n#     -> { \"execute\": \"xen-colo-do-checkpoint\" }\n#     <- { \"return\": {} }\n#", category: "xen" },
     CommandMeta { wire_name: "xen-event-inject", rust_name: "XenEventInject", args: &STRUCT_XenEventInject, returns: None, allow_oob: false, allow_preconfig: false, success_response: true, since: (8u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "xen" },
-    CommandMeta { wire_name: "xen-event-list", rust_name: "XenEventList", args: &STRUCT_XenEventList, returns: Some(586), allow_oob: false, allow_preconfig: false, success_response: true, since: (8u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "xen" },
+    CommandMeta { wire_name: "xen-event-list", rust_name: "XenEventList", args: &STRUCT_XenEventList, returns: Some(584), allow_oob: false, allow_preconfig: false, success_response: true, since: (8u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "xen" },
     CommandMeta { wire_name: "xen-load-devices-state", rust_name: "XenLoadDevicesState", args: &STRUCT_XenLoadDevicesState, returns: None, allow_oob: false, allow_preconfig: false, success_response: true, since: (2u32, 7u32, 0u32), until: None, deprecated: false, unstable: false, doc: "# Load the state of all devices from file. The RAM and the block devices\n# of the VM are not loaded by this command.\n#", category: "xen" },
     CommandMeta { wire_name: "xen-save-devices-state", rust_name: "XenSaveDevicesState", args: &STRUCT_XenSaveDevicesState, returns: None, allow_oob: false, allow_preconfig: false, success_response: true, since: (1u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "xen" },
     CommandMeta { wire_name: "xen-set-global-dirty-log", rust_name: "XenSetGlobalDirtyLog", args: &STRUCT_XenSetGlobalDirtyLog, returns: None, allow_oob: false, allow_preconfig: false, success_response: true, since: (1u32, 3u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "xen" },

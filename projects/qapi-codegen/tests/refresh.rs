@@ -1,6 +1,10 @@
 //! Current-schema coverage and regressions in the generation pipeline.
-use qapi_codegen::unified::{UnifiedType, build_qga_registry};
-use qapi_codegen::versions::{PinnedVersion, verify_pinned_versions};
+use qapi_codegen::unified::{
+    UnifiedRegistry, UnifiedType, build_qga_registry, build_unified_registry,
+};
+use qapi_codegen::versions::{
+    PINNED_VERSIONS, PinnedVersion, parse_pinned_versions, verify_pinned_versions,
+};
 use qapi_codegen::{QapiSchemaToken, parse_schema, read_schema_with_version};
 use std::{collections::BTreeSet, path::Path, process::Command};
 
@@ -184,4 +188,86 @@ fn include_aliases_are_deduplicated_but_cycles_are_errors() {
 #[test]
 fn invalid_utf8_boundary_in_schema_excerpt_does_not_panic() {
     assert!(parse_schema(&"☃".repeat(100)).is_err());
+}
+
+type ReturnChange = (&'static str, Vec<((u32, u32, u32), &'static str)>);
+
+/// Every command whose return type changed between pinned releases, with
+/// the first version of each type. Generated code must use the newest one.
+fn changed_returns(registry: &UnifiedRegistry) -> Vec<(String, Vec<((u32, u32, u32), String)>)> {
+    registry
+        .types
+        .iter()
+        .filter_map(|(name, ty)| match ty {
+            UnifiedType::Struct(s) if s.returns_history.len() > 1 => {
+                assert_eq!(
+                    s.returns(),
+                    s.returns_history.last().map(|(_, r)| r.as_str()),
+                    "{name} must return its newest type"
+                );
+                Some((name.clone(), s.returns_history.clone()))
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+fn owned(expected: &[ReturnChange]) -> Vec<(String, Vec<((u32, u32, u32), String)>)> {
+    expected
+        .iter()
+        .map(|(name, history)| {
+            (
+                name.to_string(),
+                history.iter().map(|(v, r)| (*v, r.to_string())).collect(),
+            )
+        })
+        .collect()
+}
+
+fn pinned_tags() -> Vec<String> {
+    parse_pinned_versions(PINNED_VERSIONS)
+        .unwrap()
+        .into_iter()
+        .map(|p| p.tag)
+        .collect()
+}
+
+#[test]
+fn command_returns_follow_the_newest_release() {
+    let tags = pinned_tags();
+    let tags: Vec<_> = tags.iter().map(String::as_str).collect();
+    let qmp = build_unified_registry(&qemu(), &tags).unwrap();
+    let qmp_expected: &[ReturnChange] = &[
+        (
+            "DeviceListProperties",
+            vec![
+                ((1, 2, 0), "Vec<DevicePropertyInfo>"),
+                ((2, 12, 0), "Vec<ObjectPropertyInfo>"),
+            ],
+        ),
+        (
+            "QueryTarget",
+            vec![((1, 2, 0), "TargetInfo"), ((10, 1, 0), "QemuTargetInfo")],
+        ),
+    ];
+    assert_eq!(changed_returns(&qmp), owned(qmp_expected));
+
+    let qga = build_qga_registry(&qemu(), &tags).unwrap();
+    let qga_expected: &[ReturnChange] = &[(
+        "GuestFstrim",
+        vec![
+            ((1, 4, 0), "()"),
+            ((2, 4, 0), "GuestFilesystemTrimResponse"),
+        ],
+    )];
+    assert_eq!(changed_returns(&qga), owned(qga_expected));
+}
+
+#[test]
+fn guest_fstrim_returns_the_trim_response() {
+    let registry = build_qga_registry(&qemu(), &["v1.4.0", "v2.4.0", "v11.1.3"]).unwrap();
+    let UnifiedType::Struct(command) = &registry.types["GuestFstrim"] else {
+        panic!("Missing guest-fstrim")
+    };
+    assert_eq!(command.returns(), Some("GuestFilesystemTrimResponse"));
 }

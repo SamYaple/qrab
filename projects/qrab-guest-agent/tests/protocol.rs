@@ -374,9 +374,10 @@ async fn fstrim_reports_each_filesystem() {
     let dir = tempfile::tempdir().unwrap();
     let (agent, _) = agent_with(Fake::with_mounts(&["/", "/boot"]), config(dir.path()));
     let mut qga = connect(agent).await;
-    // The generated GuestFstrim declares the pre-2.4 unit return; decode raw.
-    let reply: qapi::qga::GuestFilesystemTrimResponse = qga
-        .execute_raw("guest-fstrim", serde_json::json!({"minimum": 1024}))
+    let reply = qga
+        .execute(&GuestFstrim {
+            minimum: Some(1024),
+        })
         .await
         .unwrap();
     assert_eq!(reply.paths.len(), 2);

@@ -112,6 +112,44 @@ pub struct UnifiedStruct {
     /// Per-attribute version ranges for command/event flags that can appear/disappear
     /// across versions (e.g. allow_preconfig, allow_oob, no_success_response, unstable).
     pub attr_versions: BTreeMap<String, VersionRange>,
+    /// Command return types in version order: each entry is the first merged
+    /// version that returned that Rust type. Generated code uses the newest
+    /// entry, the current QEMU contract; older entries record the lifecycle.
+    pub returns_history: Vec<(Version, String)>,
+}
+
+impl UnifiedStruct {
+    /// The return type served by the newest merged version, for commands.
+    pub fn returns(&self) -> Option<&str> {
+        returns_attr(&self.ir.meta)
+    }
+}
+
+fn returns_attr(meta: &Metadata) -> Option<&str> {
+    meta.attributes.iter().find_map(|a| match a {
+        Attribute::Item { name, value } if name == "returns" => Some(value.as_str()),
+        _ => None,
+    })
+}
+
+/// A command's return type changed: the newest version is authoritative,
+/// and the change is recorded in `returns_history`.
+fn merge_returns(existing: &mut UnifiedStruct, new_meta: &Metadata, version: Version) {
+    let Some(new) = returns_attr(new_meta) else {
+        return;
+    };
+    if existing.returns_history.last().map(|(_, r)| r.as_str()) != Some(new) {
+        existing.returns_history.push((version, new.to_owned()));
+    }
+    // A struct first seen as plain data gains `returns` through the
+    // ordinary attribute union, keeping attribute order stable.
+    for attr in &mut existing.ir.meta.attributes {
+        if let Attribute::Item { name, value } = attr {
+            if name == "returns" {
+                *value = new.to_owned();
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -761,6 +799,7 @@ fn merge_struct(registry: &mut UnifiedRegistry, name: &str, s: &Struct, version:
         merge_doc_from(&mut existing.ir.meta.doc, s.meta.doc.as_deref());
         // Merge version-tracked boolean command attributes (allow_preconfig, allow_oob, etc.)
         merge_bool_attrs(existing, &s.meta, version);
+        merge_returns(existing, &s.meta, version);
         // Union struct-level attributes across versions. We preserve the
         // older version's attributes (e.g. `name = "SGXInfo"` wire override
         // from pre-10.1) and add any new attributes the newer version
@@ -912,6 +951,9 @@ fn merge_struct(registry: &mut UnifiedRegistry, name: &str, s: &Struct, version:
         }
         // Track version-sensitive boolean attributes from initial version
         let attr_versions = extract_bool_attr_versions(&ir.meta, version);
+        let returns_history = returns_attr(&ir.meta)
+            .map(|r| vec![(version, r.to_owned())])
+            .unwrap_or_default();
         let mut versions = VersionRange::new(version);
         if has_feature(&ir.meta, "unstable") {
             versions.unstable = Some(version);
@@ -926,6 +968,7 @@ fn merge_struct(registry: &mut UnifiedRegistry, name: &str, s: &Struct, version:
                 versions,
                 field_versions,
                 attr_versions,
+                returns_history,
             }),
         );
     }

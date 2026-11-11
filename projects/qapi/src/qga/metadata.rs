@@ -120,40 +120,41 @@ pub static TYPE_REFS: &[TypeRef] = &[
     TypeRef { kind: TypeKind::List, name: "List<GuestFilesystemTrimResult>", prim: Prim::Null, inner: 25 },
     TypeRef { kind: TypeKind::Struct, name: "GuestFileWrite", prim: Prim::Null, inner: 0 },
     TypeRef { kind: TypeKind::Enum, name: "GuestFsfreezeStatus", prim: Prim::Null, inner: 0 },
+    TypeRef { kind: TypeKind::Struct, name: "GuestFilesystemTrimResponse", prim: Prim::Null, inner: 0 },
     TypeRef { kind: TypeKind::Struct, name: "GuestCpuStats", prim: Prim::Null, inner: 0 },
-    TypeRef { kind: TypeKind::List, name: "List<GuestCpuStats>", prim: Prim::Null, inner: 29 },
+    TypeRef { kind: TypeKind::List, name: "List<GuestCpuStats>", prim: Prim::Null, inner: 30 },
     TypeRef { kind: TypeKind::Struct, name: "GuestDeviceInfo", prim: Prim::Null, inner: 0 },
-    TypeRef { kind: TypeKind::List, name: "List<GuestDeviceInfo>", prim: Prim::Null, inner: 31 },
+    TypeRef { kind: TypeKind::List, name: "List<GuestDeviceInfo>", prim: Prim::Null, inner: 32 },
     TypeRef { kind: TypeKind::Struct, name: "GuestDiskInfo", prim: Prim::Null, inner: 0 },
-    TypeRef { kind: TypeKind::List, name: "List<GuestDiskInfo>", prim: Prim::Null, inner: 33 },
+    TypeRef { kind: TypeKind::List, name: "List<GuestDiskInfo>", prim: Prim::Null, inner: 34 },
     TypeRef { kind: TypeKind::Struct, name: "GuestDiskStatsInfo", prim: Prim::Null, inner: 0 },
-    TypeRef { kind: TypeKind::List, name: "List<GuestDiskStatsInfo>", prim: Prim::Null, inner: 35 },
+    TypeRef { kind: TypeKind::List, name: "List<GuestDiskStatsInfo>", prim: Prim::Null, inner: 36 },
     TypeRef { kind: TypeKind::Struct, name: "GuestFilesystemInfo", prim: Prim::Null, inner: 0 },
-    TypeRef { kind: TypeKind::List, name: "List<GuestFilesystemInfo>", prim: Prim::Null, inner: 37 },
+    TypeRef { kind: TypeKind::List, name: "List<GuestFilesystemInfo>", prim: Prim::Null, inner: 38 },
     TypeRef { kind: TypeKind::Struct, name: "GuestHostName", prim: Prim::Null, inner: 0 },
     TypeRef { kind: TypeKind::Struct, name: "GuestLoadAverage", prim: Prim::Null, inner: 0 },
     TypeRef { kind: TypeKind::Struct, name: "GuestMemoryBlockInfo", prim: Prim::Null, inner: 0 },
     TypeRef { kind: TypeKind::Struct, name: "GuestMemoryBlock", prim: Prim::Null, inner: 0 },
-    TypeRef { kind: TypeKind::List, name: "List<GuestMemoryBlock>", prim: Prim::Null, inner: 42 },
+    TypeRef { kind: TypeKind::List, name: "List<GuestMemoryBlock>", prim: Prim::Null, inner: 43 },
     TypeRef { kind: TypeKind::Struct, name: "GuestOsInfo", prim: Prim::Null, inner: 0 },
     TypeRef { kind: TypeKind::Struct, name: "GuestTimezone", prim: Prim::Null, inner: 0 },
     TypeRef { kind: TypeKind::Struct, name: "GuestUser", prim: Prim::Null, inner: 0 },
-    TypeRef { kind: TypeKind::List, name: "List<GuestUser>", prim: Prim::Null, inner: 46 },
+    TypeRef { kind: TypeKind::List, name: "List<GuestUser>", prim: Prim::Null, inner: 47 },
     TypeRef { kind: TypeKind::Struct, name: "GuestLogicalProcessor", prim: Prim::Null, inner: 0 },
-    TypeRef { kind: TypeKind::List, name: "List<GuestLogicalProcessor>", prim: Prim::Null, inner: 48 },
+    TypeRef { kind: TypeKind::List, name: "List<GuestLogicalProcessor>", prim: Prim::Null, inner: 49 },
     TypeRef { kind: TypeKind::Struct, name: "GuestAgentInfo", prim: Prim::Null, inner: 0 },
     TypeRef { kind: TypeKind::Enum, name: "GuestIpAddressType", prim: Prim::Null, inner: 0 },
     TypeRef { kind: TypeKind::Primitive, name: "number", prim: Prim::F64, inner: 0 },
     TypeRef { kind: TypeKind::Enum, name: "GuestMemoryBlockResponseType", prim: Prim::Null, inner: 0 },
     TypeRef { kind: TypeKind::Struct, name: "GuestNetworkInterface", prim: Prim::Null, inner: 0 },
-    TypeRef { kind: TypeKind::List, name: "List<GuestNetworkInterface>", prim: Prim::Null, inner: 54 },
+    TypeRef { kind: TypeKind::List, name: "List<GuestNetworkInterface>", prim: Prim::Null, inner: 55 },
     TypeRef { kind: TypeKind::Struct, name: "GuestNetworkRoute", prim: Prim::Null, inner: 0 },
-    TypeRef { kind: TypeKind::List, name: "List<GuestNetworkRoute>", prim: Prim::Null, inner: 56 },
+    TypeRef { kind: TypeKind::List, name: "List<GuestNetworkRoute>", prim: Prim::Null, inner: 57 },
     TypeRef { kind: TypeKind::Struct, name: "GuestIpAddress", prim: Prim::Null, inner: 0 },
-    TypeRef { kind: TypeKind::List, name: "List<GuestIpAddress>", prim: Prim::Null, inner: 58 },
+    TypeRef { kind: TypeKind::List, name: "List<GuestIpAddress>", prim: Prim::Null, inner: 59 },
     TypeRef { kind: TypeKind::Struct, name: "GuestNetworkInterfaceStat", prim: Prim::Null, inner: 0 },
     TypeRef { kind: TypeKind::Struct, name: "GuestMemoryBlockResponse", prim: Prim::Null, inner: 0 },
-    TypeRef { kind: TypeKind::List, name: "List<GuestMemoryBlockResponse>", prim: Prim::Null, inner: 61 },
+    TypeRef { kind: TypeKind::List, name: "List<GuestMemoryBlockResponse>", prim: Prim::Null, inner: 62 },
     TypeRef { kind: TypeKind::Struct, name: "GuestAuthorizedKeys", prim: Prim::Null, inner: 0 },
 ];
 
@@ -1047,7 +1048,7 @@ static STRUCT_GuestInfo: StructMeta = StructMeta {
 };
 static FIELDS_GuestIpAddress: &[FieldMeta] = &[
     FieldMeta { name: "ip_address", wire_name: "ip-address", ty: 0, optional: false, is_discriminator: false, recursive: false, since: (1u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "IP address" },
-    FieldMeta { name: "ip_address_type", wire_name: "ip-address-type", ty: 51, optional: false, is_discriminator: false, recursive: false, since: (1u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Type of @ip-address (e.g. ipv4, ipv6)" },
+    FieldMeta { name: "ip_address_type", wire_name: "ip-address-type", ty: 52, optional: false, is_discriminator: false, recursive: false, since: (1u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Type of @ip-address (e.g. ipv4, ipv6)" },
     FieldMeta { name: "prefix", wire_name: "prefix", ty: 5, optional: false, is_discriminator: false, recursive: false, since: (1u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Network prefix length of @ip-address" },
 ];
 static STRUCT_GuestIpAddress: StructMeta = StructMeta {
@@ -1098,9 +1099,9 @@ static STRUCT_GuestLinuxCpuStats: StructMeta = StructMeta {
     until: None,
 };
 static FIELDS_GuestLoadAverage: &[FieldMeta] = &[
-    FieldMeta { name: "load1m", wire_name: "load1m", ty: 52, optional: false, is_discriminator: false, recursive: false, since: (10u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "1-minute load avage" },
-    FieldMeta { name: "load5m", wire_name: "load5m", ty: 52, optional: false, is_discriminator: false, recursive: false, since: (10u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "5-minute load avage" },
-    FieldMeta { name: "load15m", wire_name: "load15m", ty: 52, optional: false, is_discriminator: false, recursive: false, since: (10u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "15-minute load avage" },
+    FieldMeta { name: "load1m", wire_name: "load1m", ty: 53, optional: false, is_discriminator: false, recursive: false, since: (10u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "1-minute load avage" },
+    FieldMeta { name: "load5m", wire_name: "load5m", ty: 53, optional: false, is_discriminator: false, recursive: false, since: (10u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "5-minute load avage" },
+    FieldMeta { name: "load15m", wire_name: "load15m", ty: 53, optional: false, is_discriminator: false, recursive: false, since: (10u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "15-minute load avage" },
 ];
 static STRUCT_GuestLoadAverage: StructMeta = StructMeta {
     name: "GuestLoadAverage",
@@ -1161,7 +1162,7 @@ static STRUCT_GuestMemoryBlockInfo: StructMeta = StructMeta {
 };
 static FIELDS_GuestMemoryBlockResponse: &[FieldMeta] = &[
     FieldMeta { name: "phys_index", wire_name: "phys-index", ty: 15, optional: false, is_discriminator: false, recursive: false, since: (2u32, 3u32, 0u32), until: None, deprecated: false, unstable: false, doc: "same with the 'phys-index' member of\n`GuestMemoryBlock`." },
-    FieldMeta { name: "response", wire_name: "response", ty: 53, optional: false, is_discriminator: false, recursive: false, since: (2u32, 3u32, 0u32), until: None, deprecated: false, unstable: false, doc: "the result of memory block operation." },
+    FieldMeta { name: "response", wire_name: "response", ty: 54, optional: false, is_discriminator: false, recursive: false, since: (2u32, 3u32, 0u32), until: None, deprecated: false, unstable: false, doc: "the result of memory block operation." },
     FieldMeta { name: "error_code", wire_name: "error-code", ty: 5, optional: true, is_discriminator: false, recursive: false, since: (2u32, 3u32, 0u32), until: None, deprecated: false, unstable: false, doc: "the error number.  When memory block operation fails,\nwe assign the value of 'errno' to this member, it indicates what\ngoes wrong.  When the operation succeeds, it will be omitted." },
 ];
 static STRUCT_GuestMemoryBlockResponse: StructMeta = StructMeta {
@@ -1218,8 +1219,8 @@ static STRUCT_GuestNetworkGetRoute: StructMeta = StructMeta {
 static FIELDS_GuestNetworkInterface: &[FieldMeta] = &[
     FieldMeta { name: "name", wire_name: "name", ty: 0, optional: false, is_discriminator: false, recursive: false, since: (1u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "The name of interface for which info are being delivered" },
     FieldMeta { name: "hardware_address", wire_name: "hardware-address", ty: 0, optional: true, is_discriminator: false, recursive: false, since: (1u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Hardware address of @name" },
-    FieldMeta { name: "ip_addresses", wire_name: "ip-addresses", ty: 59, optional: true, is_discriminator: false, recursive: false, since: (1u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "List of addresses assigned to @name" },
-    FieldMeta { name: "statistics", wire_name: "statistics", ty: 60, optional: true, is_discriminator: false, recursive: false, since: (2u32, 11u32, 0u32), until: None, deprecated: false, unstable: false, doc: "various statistic counters related to @name (since\n2.11)" },
+    FieldMeta { name: "ip_addresses", wire_name: "ip-addresses", ty: 60, optional: true, is_discriminator: false, recursive: false, since: (1u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "List of addresses assigned to @name" },
+    FieldMeta { name: "statistics", wire_name: "statistics", ty: 61, optional: true, is_discriminator: false, recursive: false, since: (2u32, 11u32, 0u32), until: None, deprecated: false, unstable: false, doc: "various statistic counters related to @name (since\n2.11)" },
 ];
 static STRUCT_GuestNetworkInterface: StructMeta = StructMeta {
     name: "GuestNetworkInterface",
@@ -1374,7 +1375,7 @@ static STRUCT_GuestPing: StructMeta = StructMeta {
     until: None,
 };
 static FIELDS_GuestSetMemoryBlocks: &[FieldMeta] = &[
-    FieldMeta { name: "mem_blks", wire_name: "mem-blks", ty: 43, optional: false, is_discriminator: false, recursive: false, since: (2u32, 3u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    FieldMeta { name: "mem_blks", wire_name: "mem-blks", ty: 44, optional: false, is_discriminator: false, recursive: false, since: (2u32, 3u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
 ];
 static STRUCT_GuestSetMemoryBlocks: StructMeta = StructMeta {
     name: "guest-set-memory-blocks",
@@ -1418,7 +1419,7 @@ static STRUCT_GuestSetUserPassword: StructMeta = StructMeta {
     until: None,
 };
 static FIELDS_GuestSetVcpus: &[FieldMeta] = &[
-    FieldMeta { name: "vcpus", wire_name: "vcpus", ty: 49, optional: false, is_discriminator: false, recursive: false, since: (1u32, 5u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    FieldMeta { name: "vcpus", wire_name: "vcpus", ty: 50, optional: false, is_discriminator: false, recursive: false, since: (1u32, 5u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
 ];
 static STRUCT_GuestSetVcpus: StructMeta = StructMeta {
     name: "guest-set-vcpus",
@@ -1574,7 +1575,7 @@ static STRUCT_GuestTimezone: StructMeta = StructMeta {
 };
 static FIELDS_GuestUser: &[FieldMeta] = &[
     FieldMeta { name: "user", wire_name: "user", ty: 0, optional: false, is_discriminator: false, recursive: false, since: (2u32, 10u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Username" },
-    FieldMeta { name: "login_time", wire_name: "login-time", ty: 52, optional: false, is_discriminator: false, recursive: false, since: (2u32, 10u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Time of login of this user on the computer.  If\nmultiple instances of the user are logged in, the earliest login\ntime is reported.  The value is in fractional seconds since\nepoch time." },
+    FieldMeta { name: "login_time", wire_name: "login-time", ty: 53, optional: false, is_discriminator: false, recursive: false, since: (2u32, 10u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Time of login of this user on the computer.  If\nmultiple instances of the user are logged in, the earliest login\ntime is reported.  The value is in fractional seconds since\nepoch time." },
     FieldMeta { name: "domain", wire_name: "domain", ty: 0, optional: true, is_discriminator: false, recursive: false, since: (2u32, 10u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Logon domain (windows only)" },
 ];
 static STRUCT_GuestUser: StructMeta = StructMeta {
@@ -1615,32 +1616,32 @@ pub static COMMANDS: &[CommandMeta] = &[
     CommandMeta { wire_name: "guest-fsfreeze-freeze-list", rust_name: "GuestFsfreezeFreezeList", args: &STRUCT_GuestFsfreezeFreezeList, returns: Some(20), allow_oob: false, allow_preconfig: false, success_response: true, since: (2u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "guest" },
     CommandMeta { wire_name: "guest-fsfreeze-status", rust_name: "GuestFsfreezeStatusCommand", args: &STRUCT_GuestFsfreezeStatusCommand, returns: Some(28), allow_oob: false, allow_preconfig: false, success_response: true, since: (1u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "# Get guest fsfreeze state.\n#\n# .. note:: This may fail to properly report the current state as a\n#    result of some other guest processes having issued an fs\n#    freeze/thaw.\n#", category: "guest" },
     CommandMeta { wire_name: "guest-fsfreeze-thaw", rust_name: "GuestFsfreezeThaw", args: &STRUCT_GuestFsfreezeThaw, returns: Some(20), allow_oob: false, allow_preconfig: false, success_response: true, since: (1u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "guest" },
-    CommandMeta { wire_name: "guest-fstrim", rust_name: "GuestFstrim", args: &STRUCT_GuestFstrim, returns: None, allow_oob: false, allow_preconfig: false, success_response: true, since: (1u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "guest" },
-    CommandMeta { wire_name: "guest-get-cpustats", rust_name: "GuestGetCpustats", args: &STRUCT_GuestGetCpustats, returns: Some(30), allow_oob: false, allow_preconfig: false, success_response: true, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "guest" },
-    CommandMeta { wire_name: "guest-get-devices", rust_name: "GuestGetDevices", args: &STRUCT_GuestGetDevices, returns: Some(32), allow_oob: false, allow_preconfig: false, success_response: true, since: (5u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "# Retrieve information about device drivers in Windows guest\n#", category: "guest" },
-    CommandMeta { wire_name: "guest-get-disks", rust_name: "GuestGetDisks", args: &STRUCT_GuestGetDisks, returns: Some(34), allow_oob: false, allow_preconfig: false, success_response: true, since: (5u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "guest" },
-    CommandMeta { wire_name: "guest-get-diskstats", rust_name: "GuestGetDiskstats", args: &STRUCT_GuestGetDiskstats, returns: Some(36), allow_oob: false, allow_preconfig: false, success_response: true, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "guest" },
-    CommandMeta { wire_name: "guest-get-fsinfo", rust_name: "GuestGetFsinfo", args: &STRUCT_GuestGetFsinfo, returns: Some(38), allow_oob: false, allow_preconfig: false, success_response: true, since: (2u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "guest" },
-    CommandMeta { wire_name: "guest-get-host-name", rust_name: "GuestGetHostName", args: &STRUCT_GuestGetHostName, returns: Some(39), allow_oob: false, allow_preconfig: false, success_response: true, since: (2u32, 10u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "guest" },
-    CommandMeta { wire_name: "guest-get-load", rust_name: "GuestGetLoad", args: &STRUCT_GuestGetLoad, returns: Some(40), allow_oob: false, allow_preconfig: false, success_response: true, since: (10u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "guest" },
-    CommandMeta { wire_name: "guest-get-memory-block-info", rust_name: "GuestGetMemoryBlockInfo", args: &STRUCT_GuestGetMemoryBlockInfo, returns: Some(41), allow_oob: false, allow_preconfig: false, success_response: true, since: (2u32, 3u32, 0u32), until: None, deprecated: false, unstable: false, doc: "# Get information relating to guest memory blocks.\n#", category: "guest" },
-    CommandMeta { wire_name: "guest-get-memory-blocks", rust_name: "GuestGetMemoryBlocks", args: &STRUCT_GuestGetMemoryBlocks, returns: Some(43), allow_oob: false, allow_preconfig: false, success_response: true, since: (2u32, 3u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "guest" },
-    CommandMeta { wire_name: "guest-get-osinfo", rust_name: "GuestGetOsinfo", args: &STRUCT_GuestGetOsinfo, returns: Some(44), allow_oob: false, allow_preconfig: false, success_response: true, since: (2u32, 10u32, 0u32), until: None, deprecated: false, unstable: false, doc: "# Retrieve guest operating system information\n#", category: "guest" },
+    CommandMeta { wire_name: "guest-fstrim", rust_name: "GuestFstrim", args: &STRUCT_GuestFstrim, returns: Some(29), allow_oob: false, allow_preconfig: false, success_response: true, since: (1u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "guest" },
+    CommandMeta { wire_name: "guest-get-cpustats", rust_name: "GuestGetCpustats", args: &STRUCT_GuestGetCpustats, returns: Some(31), allow_oob: false, allow_preconfig: false, success_response: true, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "guest" },
+    CommandMeta { wire_name: "guest-get-devices", rust_name: "GuestGetDevices", args: &STRUCT_GuestGetDevices, returns: Some(33), allow_oob: false, allow_preconfig: false, success_response: true, since: (5u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "# Retrieve information about device drivers in Windows guest\n#", category: "guest" },
+    CommandMeta { wire_name: "guest-get-disks", rust_name: "GuestGetDisks", args: &STRUCT_GuestGetDisks, returns: Some(35), allow_oob: false, allow_preconfig: false, success_response: true, since: (5u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "guest" },
+    CommandMeta { wire_name: "guest-get-diskstats", rust_name: "GuestGetDiskstats", args: &STRUCT_GuestGetDiskstats, returns: Some(37), allow_oob: false, allow_preconfig: false, success_response: true, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "guest" },
+    CommandMeta { wire_name: "guest-get-fsinfo", rust_name: "GuestGetFsinfo", args: &STRUCT_GuestGetFsinfo, returns: Some(39), allow_oob: false, allow_preconfig: false, success_response: true, since: (2u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "guest" },
+    CommandMeta { wire_name: "guest-get-host-name", rust_name: "GuestGetHostName", args: &STRUCT_GuestGetHostName, returns: Some(40), allow_oob: false, allow_preconfig: false, success_response: true, since: (2u32, 10u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "guest" },
+    CommandMeta { wire_name: "guest-get-load", rust_name: "GuestGetLoad", args: &STRUCT_GuestGetLoad, returns: Some(41), allow_oob: false, allow_preconfig: false, success_response: true, since: (10u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "guest" },
+    CommandMeta { wire_name: "guest-get-memory-block-info", rust_name: "GuestGetMemoryBlockInfo", args: &STRUCT_GuestGetMemoryBlockInfo, returns: Some(42), allow_oob: false, allow_preconfig: false, success_response: true, since: (2u32, 3u32, 0u32), until: None, deprecated: false, unstable: false, doc: "# Get information relating to guest memory blocks.\n#", category: "guest" },
+    CommandMeta { wire_name: "guest-get-memory-blocks", rust_name: "GuestGetMemoryBlocks", args: &STRUCT_GuestGetMemoryBlocks, returns: Some(44), allow_oob: false, allow_preconfig: false, success_response: true, since: (2u32, 3u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "guest" },
+    CommandMeta { wire_name: "guest-get-osinfo", rust_name: "GuestGetOsinfo", args: &STRUCT_GuestGetOsinfo, returns: Some(45), allow_oob: false, allow_preconfig: false, success_response: true, since: (2u32, 10u32, 0u32), until: None, deprecated: false, unstable: false, doc: "# Retrieve guest operating system information\n#", category: "guest" },
     CommandMeta { wire_name: "guest-get-time", rust_name: "GuestGetTime", args: &STRUCT_GuestGetTime, returns: Some(20), allow_oob: false, allow_preconfig: false, success_response: true, since: (1u32, 5u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "guest" },
-    CommandMeta { wire_name: "guest-get-timezone", rust_name: "GuestGetTimezone", args: &STRUCT_GuestGetTimezone, returns: Some(45), allow_oob: false, allow_preconfig: false, success_response: true, since: (2u32, 10u32, 0u32), until: None, deprecated: false, unstable: false, doc: "# Retrieves the timezone information from the guest.\n#", category: "guest" },
-    CommandMeta { wire_name: "guest-get-users", rust_name: "GuestGetUsers", args: &STRUCT_GuestGetUsers, returns: Some(47), allow_oob: false, allow_preconfig: false, success_response: true, since: (2u32, 10u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "guest" },
-    CommandMeta { wire_name: "guest-get-vcpus", rust_name: "GuestGetVcpus", args: &STRUCT_GuestGetVcpus, returns: Some(49), allow_oob: false, allow_preconfig: false, success_response: true, since: (1u32, 5u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "guest" },
-    CommandMeta { wire_name: "guest-info", rust_name: "GuestInfo", args: &STRUCT_GuestInfo, returns: Some(50), allow_oob: false, allow_preconfig: false, success_response: true, since: (1u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "# Get some information about the guest agent.\n#", category: "guest" },
-    CommandMeta { wire_name: "guest-network-get-interfaces", rust_name: "GuestNetworkGetInterfaces", args: &STRUCT_GuestNetworkGetInterfaces, returns: Some(55), allow_oob: false, allow_preconfig: false, success_response: true, since: (1u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "# Get list of guest IP addresses, MAC addresses and netmasks.\n#", category: "guest" },
-    CommandMeta { wire_name: "guest-network-get-route", rust_name: "GuestNetworkGetRoute", args: &STRUCT_GuestNetworkGetRoute, returns: Some(57), allow_oob: false, allow_preconfig: false, success_response: true, since: (9u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "guest" },
+    CommandMeta { wire_name: "guest-get-timezone", rust_name: "GuestGetTimezone", args: &STRUCT_GuestGetTimezone, returns: Some(46), allow_oob: false, allow_preconfig: false, success_response: true, since: (2u32, 10u32, 0u32), until: None, deprecated: false, unstable: false, doc: "# Retrieves the timezone information from the guest.\n#", category: "guest" },
+    CommandMeta { wire_name: "guest-get-users", rust_name: "GuestGetUsers", args: &STRUCT_GuestGetUsers, returns: Some(48), allow_oob: false, allow_preconfig: false, success_response: true, since: (2u32, 10u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "guest" },
+    CommandMeta { wire_name: "guest-get-vcpus", rust_name: "GuestGetVcpus", args: &STRUCT_GuestGetVcpus, returns: Some(50), allow_oob: false, allow_preconfig: false, success_response: true, since: (1u32, 5u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "guest" },
+    CommandMeta { wire_name: "guest-info", rust_name: "GuestInfo", args: &STRUCT_GuestInfo, returns: Some(51), allow_oob: false, allow_preconfig: false, success_response: true, since: (1u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "# Get some information about the guest agent.\n#", category: "guest" },
+    CommandMeta { wire_name: "guest-network-get-interfaces", rust_name: "GuestNetworkGetInterfaces", args: &STRUCT_GuestNetworkGetInterfaces, returns: Some(56), allow_oob: false, allow_preconfig: false, success_response: true, since: (1u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "# Get list of guest IP addresses, MAC addresses and netmasks.\n#", category: "guest" },
+    CommandMeta { wire_name: "guest-network-get-route", rust_name: "GuestNetworkGetRoute", args: &STRUCT_GuestNetworkGetRoute, returns: Some(58), allow_oob: false, allow_preconfig: false, success_response: true, since: (9u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "guest" },
     CommandMeta { wire_name: "guest-ping", rust_name: "GuestPing", args: &STRUCT_GuestPing, returns: None, allow_oob: false, allow_preconfig: false, success_response: true, since: (1u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "# Ping the guest agent, a non-error return implies success\n#", category: "guest" },
-    CommandMeta { wire_name: "guest-set-memory-blocks", rust_name: "GuestSetMemoryBlocks", args: &STRUCT_GuestSetMemoryBlocks, returns: Some(62), allow_oob: false, allow_preconfig: false, success_response: true, since: (2u32, 3u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "guest" },
+    CommandMeta { wire_name: "guest-set-memory-blocks", rust_name: "GuestSetMemoryBlocks", args: &STRUCT_GuestSetMemoryBlocks, returns: Some(63), allow_oob: false, allow_preconfig: false, success_response: true, since: (2u32, 3u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "guest" },
     CommandMeta { wire_name: "guest-set-time", rust_name: "GuestSetTime", args: &STRUCT_GuestSetTime, returns: None, allow_oob: false, allow_preconfig: false, success_response: true, since: (1u32, 5u32, 0u32), until: None, deprecated: false, unstable: false, doc: "# Set guest time.\n#\n# When a guest is paused or migrated to a file then loaded from that\n# file, the guest OS has no idea that there was a big gap in the time.\n# Depending on how long the gap was, NTP might not be able to\n# resynchronize the guest.\n#\n# This command tries to set guest's System Time to the given value,\n# then sets the Hardware Clock (RTC) to the current System Time.  This\n# will make it easier for a guest to resynchronize without waiting for\n# NTP.  If no @time is specified, then the time to set is read from\n# RTC.  However, this may not be supported on all platforms (i.e.\n# Windows).  If that's the case users are advised to always pass a\n# value.\n#", category: "guest" },
     CommandMeta { wire_name: "guest-set-user-password", rust_name: "GuestSetUserPassword", args: &STRUCT_GuestSetUserPassword, returns: None, allow_oob: false, allow_preconfig: false, success_response: true, since: (2u32, 3u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "guest" },
     CommandMeta { wire_name: "guest-set-vcpus", rust_name: "GuestSetVcpus", args: &STRUCT_GuestSetVcpus, returns: Some(20), allow_oob: false, allow_preconfig: false, success_response: true, since: (1u32, 5u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "guest" },
     CommandMeta { wire_name: "guest-shutdown", rust_name: "GuestShutdown", args: &STRUCT_GuestShutdown, returns: None, allow_oob: false, allow_preconfig: false, success_response: false, since: (1u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "# Initiate guest-activated shutdown.  Note: this is an asynchronous\n# shutdown request, with no guarantee of successful shutdown.\n#", category: "guest" },
     CommandMeta { wire_name: "guest-ssh-add-authorized-keys", rust_name: "GuestSshAddAuthorizedKeys", args: &STRUCT_GuestSshAddAuthorizedKeys, returns: None, allow_oob: false, allow_preconfig: false, success_response: true, since: (5u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "# Append public keys to user .ssh/authorized_keys on Unix systems (not\n# implemented for other systems).\n#", category: "guest" },
-    CommandMeta { wire_name: "guest-ssh-get-authorized-keys", rust_name: "GuestSshGetAuthorizedKeys", args: &STRUCT_GuestSshGetAuthorizedKeys, returns: Some(63), allow_oob: false, allow_preconfig: false, success_response: true, since: (5u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "# Return the public keys from user .ssh/authorized_keys on Unix\n# systems (not implemented for other systems).\n#", category: "guest" },
+    CommandMeta { wire_name: "guest-ssh-get-authorized-keys", rust_name: "GuestSshGetAuthorizedKeys", args: &STRUCT_GuestSshGetAuthorizedKeys, returns: Some(64), allow_oob: false, allow_preconfig: false, success_response: true, since: (5u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "# Return the public keys from user .ssh/authorized_keys on Unix\n# systems (not implemented for other systems).\n#", category: "guest" },
     CommandMeta { wire_name: "guest-ssh-remove-authorized-keys", rust_name: "GuestSshRemoveAuthorizedKeys", args: &STRUCT_GuestSshRemoveAuthorizedKeys, returns: None, allow_oob: false, allow_preconfig: false, success_response: true, since: (5u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "# Remove public keys from the user .ssh/authorized_keys on Unix\n# systems (not implemented for other systems).  It's not an error if\n# the key is already missing.\n#", category: "guest" },
     CommandMeta { wire_name: "guest-suspend-disk", rust_name: "GuestSuspendDisk", args: &STRUCT_GuestSuspendDisk, returns: None, allow_oob: false, allow_preconfig: false, success_response: false, since: (1u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "guest" },
     CommandMeta { wire_name: "guest-suspend-hybrid", rust_name: "GuestSuspendHybrid", args: &STRUCT_GuestSuspendHybrid, returns: None, allow_oob: false, allow_preconfig: false, success_response: false, since: (1u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "", category: "guest" },

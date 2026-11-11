@@ -71,6 +71,14 @@ command colliding with a distinct response type gets a `Command` suffix:
 `qapi::qga::GuestFileRead`. The same distinction applies to guest-file-write,
 guest-file-seek, guest-exec, guest-exec-status and guest-fsfreeze-status.
 
+A command's `Returns` type is the newest pinned release's, since a Rust
+associated type cannot vary by peer version. Earlier return types stay in the
+registry as `UnifiedStruct::returns_history`. The changes across pins are
+pinned by a test: `device-list-properties` (`DevicePropertyInfo` until 2.12,
+then `ObjectPropertyInfo`), `query-target` (`TargetInfo` until 10.1, then
+`QemuTargetInfo`) and `guest-fstrim` (unit until 2.4, then
+`GuestFilesystemTrimResponse`).
+
 The test suite compares definition sets with QEMU's own Python parser for both
 current QMP and QGA schemas. Live QMP validation additionally checks that every
 advertised command appears under its exact wire name in generated metadata.

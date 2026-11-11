@@ -150,10 +150,15 @@ fn encode<T: Serialize>(value: &T) -> Result<Value, QgaError> {
         .map_err(|e| QgaError::generic(format!("cannot encode reply: {e}")))
 }
 
-fn typed<C: DeserializeOwned, R: Serialize>(
+/// Replies are typed by the command's generated `Returns`, so the agent
+/// cannot drift from the schema clients decode with.
+fn typed<C: QapiCommand + DeserializeOwned>(
     args: Value,
-    run: impl FnOnce(C) -> Result<R, QgaError>,
-) -> Result<Value, QgaError> {
+    run: impl FnOnce(C) -> Result<C::Returns, QgaError>,
+) -> Result<Value, QgaError>
+where
+    C::Returns: Serialize,
+{
     let command = qapi::with_version(SCHEMA_VERSION, || serde_json::from_value(args))
         .map_err(|e| QgaError::generic(format!("Invalid parameter: {e}")))?;
     encode(&run(command)?)
