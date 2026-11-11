@@ -29,7 +29,29 @@ pub type Client = CoreClient<
 pub struct Oidc {
     pub client: Arc<Client>,
     pub http: openidconnect::reqwest::Client,
-    pub allowed: HashSet<String>,
+    pub admins: HashSet<String>,
+    pub viewers: HashSet<String>,
+}
+
+/// Roles are resolved from configuration on every request, never stored in
+/// the session, so a session cannot carry a stale privilege.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Role {
+    Viewer,
+    Admin,
+}
+
+impl Oidc {
+    pub fn role(&self, subject: &str) -> Option<Role> {
+        if self.admins.contains(subject) {
+            Some(Role::Admin)
+        } else if self.viewers.contains(subject) {
+            Some(Role::Viewer)
+        } else {
+            None
+        }
+    }
 }
 #[derive(Serialize, Deserialize)]
 struct Pending {
@@ -87,7 +109,8 @@ impl Oidc {
         Ok(Self {
             client: Arc::new(client),
             http,
-            allowed: config.allowed_subjects.clone(),
+            admins: config.admin_subjects.clone(),
+            viewers: config.viewer_subjects.clone(),
         })
     }
 }
@@ -191,17 +214,61 @@ pub async fn callback(
     Ok(Redirect::to("/"))
 }
 
-pub fn authorized(oidc: &Oidc, user: &User) -> bool {
-    user.expires > now() && oidc.allowed.contains(&user.subject)
+/// The role of an unexpired session user, if any.
+pub fn role(oidc: &Oidc, user: &User) -> Option<Role> {
+    (user.expires > now())
+        .then(|| oidc.role(&user.subject))
+        .flatten()
 }
-pub async fn user(app: &AppState, session: &Session) -> Result<User, Failure> {
+pub fn authorized(oidc: &Oidc, user: &User) -> bool {
+    role(oidc, user).is_some()
+}
+
+pub struct Principal {
+    pub user: User,
+    pub role: Role,
+}
+
+/// Any authorized user. Missing, expired or unlisted sessions are 401.
+pub async fn user(app: &AppState, session: &Session) -> Result<Principal, Failure> {
     let user: User = session
         .get("user")
         .await
         .map_err(|_| Failure::internal())?
         .ok_or_else(Failure::unauthorized)?;
-    if !authorized(&app.oidc, &user) {
-        return Err(Failure::unauthorized());
+    let role = role(&app.oidc, &user).ok_or_else(Failure::unauthorized)?;
+    Ok(Principal { user, role })
+}
+
+/// An admin user. Authenticated viewers are 403.
+pub async fn admin(app: &AppState, session: &Session) -> Result<User, Failure> {
+    let principal = user(app, session).await?;
+    if principal.role != Role::Admin {
+        return Err(Failure::forbidden());
     }
-    Ok(user)
+    Ok(principal.user)
+}
+
+/// Re-read a long-lived stream's session from the store: it must still be the
+/// same login, unexpired and hold at least `required`.
+pub async fn still_current(
+    app: &AppState,
+    id: &tower_sessions::session::Id,
+    user: &User,
+    required: Role,
+) -> bool {
+    use tower_sessions::SessionStore;
+    let current: Option<User> = app
+        .sessions
+        .load(id)
+        .await
+        .ok()
+        .flatten()
+        .and_then(|record| record.data.get("user").cloned())
+        .and_then(|value| serde_json::from_value(value).ok());
+    current.is_some_and(|current| {
+        current.subject == user.subject
+            && current.csrf == user.csrf
+            && role(&app.oidc, &current).is_some_and(|role| role >= required)
+    })
 }

@@ -8,7 +8,10 @@ pub struct Config {
     pub origin: String,
     pub issuer: String,
     pub client_id: String,
-    pub allowed_subjects: HashSet<String>,
+    /// Full access: sensitive configuration, power actions and the console.
+    pub admin_subjects: HashSet<String>,
+    /// Read-only access: status, events and redacted configuration.
+    pub viewer_subjects: HashSet<String>,
     pub assets_dir: PathBuf,
     pub ca_file: Option<PathBuf>,
 }
@@ -25,15 +28,30 @@ impl Config {
             std::env::var("BMC_ALLOW_LOOPBACK_HTTP").as_deref() == Ok("true"),
             &listen,
         )?;
-        let allowed_subjects: HashSet<_> = required("BMC_ALLOWED_SUBJECTS")?
-            .split(',')
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-            .map(|s| uuid::Uuid::parse_str(s).map(|id| id.to_string()))
-            .collect::<Result<_, _>>()?;
+        let subjects = |name: &str| -> Result<HashSet<String>> {
+            std::env::var(name)
+                .unwrap_or_default()
+                .split(',')
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(|s| {
+                    uuid::Uuid::parse_str(s)
+                        .map(|id| id.to_string())
+                        .with_context(|| format!("{name} must contain subject UUIDs"))
+                })
+                .collect()
+        };
+        // BMC_ALLOWED_SUBJECTS predates roles and keeps granting full access.
+        let mut admin_subjects = subjects("BMC_ALLOWED_SUBJECTS")?;
+        admin_subjects.extend(subjects("BMC_ADMIN_SUBJECTS")?);
+        let viewer_subjects = subjects("BMC_VIEWER_SUBJECTS")?;
         ensure!(
-            !allowed_subjects.is_empty(),
-            "BMC_ALLOWED_SUBJECTS must name authorized operator UUIDs"
+            !admin_subjects.is_empty() || !viewer_subjects.is_empty(),
+            "BMC_ALLOWED_SUBJECTS, BMC_ADMIN_SUBJECTS or BMC_VIEWER_SUBJECTS must name authorized operator UUIDs"
+        );
+        ensure!(
+            admin_subjects.is_disjoint(&viewer_subjects),
+            "a subject cannot be both a BMC admin and a viewer"
         );
         let issuer = required("BMC_OIDC_ISSUER")?;
         ensure!(
@@ -47,7 +65,8 @@ impl Config {
             origin,
             issuer,
             client_id,
-            allowed_subjects,
+            admin_subjects,
+            viewer_subjects,
             assets_dir: std::env::var_os("BMC_ASSETS_DIR")
                 .map(PathBuf::from)
                 .unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("assets")),

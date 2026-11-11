@@ -13,7 +13,7 @@ use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::UnixStream,
 };
-use tower_sessions::{Session, SessionStore};
+use tower_sessions::Session;
 
 pub async fn upgrade(
     State(app): State<AppState>,
@@ -21,7 +21,7 @@ pub async fn upgrade(
     headers: HeaderMap,
     ws: WebSocketUpgrade,
 ) -> Result<Response, Failure> {
-    let user = auth::user(&app, &session).await?;
+    let user = auth::admin(&app, &session).await?;
     if !crate::same_origin(&app, &headers) {
         return Err(Failure::forbidden());
     }
@@ -96,13 +96,7 @@ async fn bridge(
         let mut interval = tokio::time::interval(Duration::from_secs(1));
         loop {
             interval.tick().await;
-            let stored = app.sessions.load(&id).await.ok().flatten();
-            let current: Option<auth::User> = stored
-                .and_then(|r| r.data.get("user").cloned())
-                .and_then(|v| serde_json::from_value(v).ok());
-            if !current.is_some_and(|u| {
-                u.subject == user.subject && u.csrf == user.csrf && auth::authorized(&app.oidc, &u)
-            }) {
+            if !auth::still_current(&app, &id, &user, auth::Role::Admin).await {
                 break;
             }
         }

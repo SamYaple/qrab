@@ -1,7 +1,8 @@
 import RFB from './novnc/core/rfb.js';
 
 const element = id => document.getElementById(id);
-let session, rfb, polling;
+let session, rfb, polling, events;
+const MAX_EVENT_ROWS = 200;
 const showError = message => { element('error').textContent = message; element('error').hidden = !message; };
 async function request(path, options = {}) {
     const response = await fetch(path, {credentials: 'same-origin', ...options});
@@ -11,12 +12,77 @@ async function request(path, options = {}) {
 }
 function signedOut() {
     clearInterval(polling);
+    if (events) { events.close(); events = null; }
     if (rfb) rfb.disconnect();
     session = null;
     element('dashboard').hidden = true;
     element('login').hidden = false;
     element('logout').hidden = true;
     element('identity').textContent = '';
+    element('role').hidden = true;
+}
+const node = (tag, text, className) => {
+    const item = document.createElement(tag);
+    if (text !== undefined) item.textContent = text;
+    if (className) item.className = className;
+    return item;
+};
+function eventRow(event) {
+    const millis = event.qemu_time ? event.qemu_time.seconds * 1000 + Math.floor(event.qemu_time.microseconds / 1000) : event.received_unix_ms;
+    const time = node('time', new Date(millis).toLocaleTimeString());
+    time.dateTime = new Date(millis).toISOString();
+    const data = event.truncated ? '(payload too large; omitted)' : JSON.stringify(event.data ?? {});
+    const row = node('li');
+    row.append(time, node('b', event.event), node('code', data === '{}' ? '' : data));
+    row.title = `#${event.seq} ${data}`;
+    return row;
+}
+function addEvents(rows) {
+    const list = element('events');
+    for (const row of rows) list.prepend(row);
+    while (list.children.length > MAX_EVENT_ROWS) list.lastElementChild.remove();
+}
+function missedRow(count) {
+    const row = node('li', undefined, 'gap');
+    row.append(node('time', new Date().toLocaleTimeString()), node('b', 'MISSED'), node('code', `${count} older event(s) were evicted`));
+    return row;
+}
+async function startEvents() {
+    const page = await request('/api/events?limit=100');
+    addEvents(page.events.map(eventRow));
+    const status = element('events-status');
+    events = new EventSource(`/api/events/stream?after=${page.next}`);
+    events.addEventListener('open', () => { status.textContent = 'Live'; });
+    events.addEventListener('qmp', message => addEvents([eventRow(JSON.parse(message.data))]));
+    events.addEventListener('missed', message => addEvents([missedRow(message.data)]));
+    events.addEventListener('error', () => {
+        status.textContent = events?.readyState === EventSource.CLOSED ? 'Disconnected' : 'Reconnecting…';
+        refresh();
+    });
+}
+function describeDisk(disk) {
+    const parts = [disk.kind === 'iscsi' ? `iSCSI ${disk.id} (${disk.bus})` : `file (${disk.format})`, disk.read_only ? 'read-only' : 'read-write'];
+    if (disk.boot_index !== undefined) parts.push(`boot ${disk.boot_index}`);
+    if (disk.path) parts.push(disk.path);
+    if (disk.target) parts.push(`${disk.target.portal} ${disk.target.target} LUN ${disk.target.lun}`, `user ${disk.target.username}`, `secret ${disk.target.password_file}`, `initiator ${disk.target.initiator_name}`);
+    return parts.join(' · ');
+}
+async function loadConfig() {
+    const view = await request('/api/config');
+    const rows = [
+        ['Name', view.name], ['Memory', `${view.memory_mib} MiB`], ['vCPUs', view.cpus], ['Accelerator', view.accelerator],
+        ['Boot', view.boot], ['TPM', view.tpm ? 'yes' : 'no'], ['Console', view.console ? 'yes' : 'no'],
+        ['Guest network', view.guest_network ? 'enabled' : 'disabled'],
+        ['Startup timeout', `${view.startup_timeout_secs}s`], ['Shutdown grace', `${view.shutdown_grace_secs}s`],
+        ...view.disks.map((disk, index) => [`Disk ${index}`, describeDisk(disk)]),
+    ];
+    if (view.state_id) rows.push(['State ID', view.state_id]);
+    if (view.kernel_args) rows.push(['Kernel args', view.kernel_args]);
+    for (const [key, value] of Object.entries(view.deployment || {})) rows.push([key[0].toUpperCase() + key.slice(1), value]);
+    for (const [key, value] of Object.entries(view.paths || {})) rows.push([key.replaceAll('_', ' '), value]);
+    const list = element('config');
+    list.replaceChildren(...rows.flatMap(([key, value]) => [node('dt', key), node('dd', String(value))]));
+    element('config-note').textContent = view.redacted ? 'Sensitive fields hidden for viewers' : 'Full view';
 }
 async function refresh() {
     try {
@@ -79,9 +145,18 @@ element('logout').addEventListener('click', async () => {
 try {
     session = await request('/api/session');
     element('identity').textContent = session.user.name;
+    element('role').textContent = session.role === 'admin' ? 'Admin' : 'Viewer';
+    element('role').hidden = false;
     element('vm-name').textContent = session.vm_name;
+    if (session.role !== 'admin') {
+        for (const item of document.querySelectorAll('.admin-only')) item.hidden = true;
+        element('screen').replaceChildren(node('p', 'Console and power actions require the admin role.'));
+        element('console-status').textContent = 'View-only access';
+        element('hint').hidden = true;
+    }
     element('dashboard').hidden = false;
     element('logout').hidden = false;
     await refresh();
     polling = setInterval(refresh, 2000);
+    await Promise.all([loadConfig(), startEvents()]).catch(error => showError(error.message));
 } catch (error) { signedOut(); if (!error.message.startsWith('Your session ended')) showError(error.message); }

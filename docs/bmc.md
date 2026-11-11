@@ -13,6 +13,8 @@ this manifest does not add a public edge route. Sign in with Kanidm, then choose
 **Connect console**. Video, keyboard, USB tablet input, Ctrl Alt Del and full
 screen run through the vendored noVNC client. There are no CDN dependencies.
 Pause, resume, reset and bounded shutdown use a small typed manager control API.
+The dashboard also shows the VM's live QMP event history and its effective
+configuration.
 Shutdown ends the current VM instance. With spec.running=true, the operator
 starts another; set spec.running=false to keep it off.
 
@@ -33,7 +35,10 @@ standalone manager and must set `console: true`. See [manager.md](manager.md).
 | `BMC_PUBLIC_URL` | Exact HTTPS origin for this VM, without a path/query/fragment |
 | `BMC_OIDC_ISSUER` | `https://idm.yaple.net/oauth2/openid/qrab-bmc` |
 | `BMC_OIDC_CLIENT_ID` | Public PKCE client `qrab-bmc`; no client secret |
-| `BMC_ALLOWED_SUBJECTS` | Required comma-separated UUID allowlist for this VM |
+| `BMC_ALLOWED_SUBJECTS` | Comma-separated subject UUIDs with full (admin) access; kept for compatibility |
+| `BMC_ADMIN_SUBJECTS` | Additional comma-separated admin subject UUIDs |
+| `BMC_VIEWER_SUBJECTS` | Comma-separated read-only (viewer) subject UUIDs |
+| `QRAB_NODE_NAME`, `QRAB_POD_NAME`, `QRAB_POD_NAMESPACE`, `QRAB_IMAGE` | Optional deployment metadata shown to admins |
 | `BMC_LISTEN` | Listener; defaults to `0.0.0.0:8080` |
 | `BMC_ASSETS_DIR` | Defaults to the source assets directory; image sets `/opt/qrab/bmc/assets` |
 | `BMC_CA_FILE` | Optional PEM root certificate for an isolated test IdP |
@@ -52,16 +57,47 @@ closes them. Kanidm group changes affect new logins; existing sessions retain
 their authorization until expiry or logout. Changing the VM's allowlist requires
 recreating its pod.
 
-`/api/session`, `/api/status`, `/api/action` and `/api/console` require a valid
-session. WebSocket upgrades require the exact configured Origin. Mutations also
+At least one admin or viewer subject is required, and a subject cannot be in
+both sets. Roles are resolved from this configuration on every request and on
+every live-stream recheck; they are never stored in the session.
+
+| Role | Access |
+| --- | --- |
+| viewer | `/api/session`, `/api/status`, `/api/events`, `/api/events/stream`, redacted `/api/config` |
+| admin | Everything a viewer has, the full `/api/config`, `/api/action` and `/api/console` |
+
+A viewer's configuration keeps sizing, boot mode, TPM/console flags, disk kinds,
+IDs, buses and read-only flags. It omits iSCSI portals, targets, LUNs,
+initiator names, CHAP usernames and password-file references, file paths,
+kernel arguments, the state ID, node, pod and image. Secret contents are never
+read into any view. The console is admin-only: a server-side view-only RFB
+filter is not implemented, so viewers are refused at WebSocket admission
+(403) and the UI hides the console and power controls.
+
+Every `/api/*` route requires a valid session: missing, expired or unlisted
+sessions get 401, and an authenticated viewer on an admin route gets 403.
+WebSocket upgrades require the exact configured Origin. Mutations also
 require the session's `X-CSRF-Token`. The control endpoint accepts only JSON
 `"pause"`, `"resume"`, `"reset"` or `"powerdown"`; there is no browser raw-QMP
 endpoint. Four simultaneous consoles and a bounded manager queue limit resource
 use. Binary WebSocket messages are limited to 64 KiB and blocked writes time out.
 
+`GET /api/events?after=<seq>&limit=<n>` returns a bounded page of the
+manager's QMP event history (`events`, `next`, `latest`, `missed`,
+`rejected`); without `after` it returns the newest events. Each event has a
+sequence number, receive time, QEMU timestamp, QAPI name and payload.
+`GET /api/events/stream` is a Server-Sent Events stream of `qmp` events (SSE
+`id` is the sequence number, so a reconnecting browser resumes with
+`Last-Event-ID`) and `missed` events when the history evicted events first.
+Its session is authorized at admission and rechecked at least once a second;
+logout, expiry or removal from the subject lists end the stream. A request
+carrying a foreign Origin is refused. Sixteen concurrent streams are allowed
+per BMC; further streams get 503.
+
 QMP and VNC listen only on sockets under the supervisor's private session
 directory. The BMC receives an established VNC stream through the manager's
-in-process channel. It never accepts a socket path from HTTP. QEMU always starts
+in-process channel. The same typed API is available to a sidecar over the
+manager's optional control socket; see [manager.md](manager.md#control-api). It never accepts a socket path from HTTP. QEMU always starts
 with `-nic none`; opening the BMC's pod port does not create guest networking.
 The sample Cilium policy admits ingress/host probes on 8080 and permits only DNS
 and Kanidm HTTPS outbound from the pod. It mounts no Kubernetes API token.

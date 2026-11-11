@@ -2,15 +2,19 @@
 <html lang="en">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>qrab · VM console</title><link rel="stylesheet" href="/assets/style.css"><script type="module" src="/assets/console.js"></script></head>
 <body>
-<header><a class="brand" href="/">qrab<span>VM console</span></a><div id="identity"></div><button id="logout" hidden>Sign out</button></header>
+<header><a class="brand" href="/">qrab<span>VM console</span></a><div id="identity"></div><span id="role" class="badge" hidden></span><button id="logout" hidden>Sign out</button></header>
 <main>
 <section id="login" hidden><h1>Your VM console</h1><p>Sign in with your infrastructure account to open this VM.</p><a class="button primary" href="/auth/login">Sign in with Kanidm</a></section>
 <section id="dashboard" hidden>
 <div class="heading"><div><p class="eyebrow">VIRTUAL MACHINE</p><h1 id="vm-name">Console</h1></div><span class="badge">Guest networking disabled</span></div>
-<div class="toolbar"><span id="vm-status" role="status">Connecting…</span><div class="controls"><button id="connect">Connect console</button><button id="cad" disabled>Ctrl Alt Del</button><button id="fullscreen" disabled>Full screen</button></div></div>
+<div class="toolbar"><span id="vm-status" role="status">Connecting…</span><div class="controls admin-only"><button id="connect">Connect console</button><button id="cad" disabled>Ctrl Alt Del</button><button id="fullscreen" disabled>Full screen</button></div></div>
 <div id="screen"><p>Open the console for video, keyboard and mouse access.</p></div>
-<div class="toolbar"><p id="console-status" role="status">Console disconnected</p><div class="controls"><button data-action="pause">Pause</button><button data-action="resume">Resume</button><button data-action="reset">Reset</button><button data-action="powerdown">Shut down</button></div></div>
-<p class="hint">Click the display to send keyboard input. Power actions apply to this VM only.</p>
+<div class="toolbar"><p id="console-status" role="status">Console disconnected</p><div class="controls admin-only"><button data-action="pause">Pause</button><button data-action="resume">Resume</button><button data-action="reset">Reset</button><button data-action="powerdown">Shut down</button></div></div>
+<p class="hint" id="hint">Click the display to send keyboard input. Power actions apply to this VM only.</p>
+<div class="panels">
+<section class="panel"><div class="panel-head"><h2>QMP events</h2><span id="events-status" role="status">Loading…</span></div><ol id="events"></ol></section>
+<section class="panel"><div class="panel-head"><h2>Configuration</h2><span id="config-note"></span></div><dl id="config"></dl></section>
+</div>
 </section>
 <p id="error" role="alert" hidden></p>
 </main>

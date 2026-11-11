@@ -1,6 +1,7 @@
 pub mod auth;
 pub mod config;
 mod console;
+mod events;
 pub mod session_store;
 
 use axum::{
@@ -23,6 +24,7 @@ pub struct AppState {
     pub control: Control,
     pub sessions: session_store::BoundedStore,
     pub consoles: Arc<Semaphore>,
+    pub event_streams: Arc<Semaphore>,
 }
 
 pub struct Failure(StatusCode, &'static str);
@@ -74,6 +76,9 @@ pub fn router(app: AppState) -> Router {
         .route("/auth/logout", post(logout))
         .route("/api/session", get(identity))
         .route("/api/status", get(status))
+        .route("/api/config", get(config_view))
+        .route("/api/events", get(events::page))
+        .route("/api/events/stream", get(events::stream))
         .route("/api/action", post(action))
         .route("/api/console", get(console::upgrade))
         .route("/healthz", get(|| async { "ok" }))
@@ -105,17 +110,36 @@ async fn identity(
     State(app): State<AppState>,
     session: Session,
 ) -> Result<Json<serde_json::Value>, Failure> {
-    let user = auth::user(&app, &session).await?;
-    Ok(Json(serde_json::json!({"user":user,"vm_name":app.vm.name})))
+    let principal = auth::user(&app, &session).await?;
+    Ok(Json(
+        serde_json::json!({"user":principal.user,"role":principal.role,"vm_name":app.vm.name}),
+    ))
 }
 async fn status(
     State(app): State<AppState>,
     session: Session,
 ) -> Result<Json<pod::Status>, Failure> {
     auth::user(&app, &session).await?;
-    pod::status(&app.vm)
+    app.control
+        .status()
         .map(Json)
         .map_err(|_| Failure::unavailable())
+}
+/// Viewers receive the redacted view; only admins see storage endpoints,
+/// credential references, identity, paths, node and image.
+async fn config_view(
+    State(app): State<AppState>,
+    session: Session,
+) -> Result<Json<pod::ConfigView>, Failure> {
+    let principal = auth::user(&app, &session).await?;
+    let view = app
+        .control
+        .config_view()
+        .map_err(|_| Failure::unavailable())?;
+    Ok(Json(match principal.role {
+        auth::Role::Admin => view,
+        auth::Role::Viewer => view.redacted(),
+    }))
 }
 async fn health(State(app): State<AppState>) -> StatusCode {
     if pod::probe(&app.vm, false).is_ok() {
@@ -143,7 +167,7 @@ async fn action(
     headers: HeaderMap,
     Json(action): Json<Action>,
 ) -> Result<StatusCode, Failure> {
-    let user = auth::user(&app, &session).await?;
+    let user = auth::admin(&app, &session).await?;
     mutation(&app, &headers, &user)?;
     let result = app.control.action(action).await;
     tracing::info!(subject=%user.subject, ?action, success=result.is_ok(), "VM control requested");
@@ -156,7 +180,7 @@ async fn logout(
     session: Session,
     headers: HeaderMap,
 ) -> Result<StatusCode, Failure> {
-    let user = auth::user(&app, &session).await?;
+    let user = auth::user(&app, &session).await?.user;
     mutation(&app, &headers, &user)?;
     session.flush().await.map_err(|_| Failure::internal())?;
     Ok(StatusCode::NO_CONTENT)

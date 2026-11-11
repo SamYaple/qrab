@@ -35,7 +35,7 @@ async fn main() -> Result<()> {
         .await
         .context("OIDC discovery")?;
     let listener = tokio::net::TcpListener::bind(config.listen).await?;
-    let (control, receiver) = pod::control_channel();
+    let (control, receiver) = pod::control_channel_for(&vm, pod::Deployment::from_env());
     let app = bmc::router(bmc::AppState {
         oidc,
         config: config.clone(),
@@ -43,6 +43,7 @@ async fn main() -> Result<()> {
         control,
         sessions: Default::default(),
         consoles: Arc::new(Semaphore::new(4)),
+        event_streams: Arc::new(Semaphore::new(16)),
     });
     let (stop, signal) = watch::channel(false);
     let mut web_signal = signal.clone();
