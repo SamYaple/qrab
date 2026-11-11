@@ -21,6 +21,14 @@ podman push --digestfile "target/images/$component.digest" "$image"
 digest=$(cat "target/images/$component.digest")
 [[ $digest =~ ^sha256:[a-f0-9]{64}$ ]] || exit 1
 reference="$registry/qrab/$component@$digest"
-podman manifest inspect "$reference" > "target/images/$component.manifest.json"
+# manifest inspect only accepts indexes on some Podman releases. Pulling the
+# immutable reference verifies an ordinary OCI image manifest as well.
+podman pull "$reference" >/dev/null
+podman image inspect "$reference" > "target/images/$component.inspect.json"
+python3 - "$reference" "target/images/$component.inspect.json" <<'PYVERIFY'
+import json,sys
+image=json.load(open(sys.argv[2]))[0]
+assert sys.argv[1] in image['RepoDigests'], 'remote digest reference was not verified'
+PYVERIFY
 printf '%s\n' "$reference" > "target/images/$component.ref"
 printf '%s\n' "$reference"
