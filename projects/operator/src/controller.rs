@@ -542,7 +542,7 @@ async fn synchronize(
             ready,
             if ready { "VMRunning" } else { "PodNotReady" },
             if ready {
-                "QEMU, swtpm and BMC are live; guest networking is disabled"
+                "QEMU, swtpm and the enabled BMC/Redfish components are live; guest networking is disabled"
             } else {
                 "Waiting for the VM Pod to become ready"
             },

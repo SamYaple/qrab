@@ -1,8 +1,11 @@
 # Per-VM BMC
 
-`qrab-bmc` owns one QEMU VM through `manager::pod` and serves its browser console.
-The manager image contains both `qrab-manager` and `qrab-bmc`; the demo pod selects
-`qrab-bmc` as PID 1. The BMC uses the same Kanidm authorization-code OIDC flow as
+`qrab-bmc` serves one VM's browser console. Operator Pods run it as an optional
+sidecar, `qrab-bmc --socket /run/qrab-control/manager/control.sock`, next to the
+`qrab-manager` container that owns the VM ([operator.md](operator.md#components)).
+`qrab-bmc --config /etc/qrab/vm.json` still runs the VM in-process for
+standalone use. The manager image contains `qrab-manager`, `qrab-bmc` and
+`qrab-redfish`. The BMC uses the same Kanidm authorization-code OIDC flow as
 `idm-dashboard`, with S256 PKCE, state/nonce verification, signature/issuer/audience
 and expiry validation. No bearer-token console or anonymous development bypass
 is provided.
@@ -27,8 +30,12 @@ The minimal [operator](operator.md) now creates the per-VM Pod from a CR.
 
 ## Runtime configuration
 
-Run `qrab-bmc --config /etc/qrab/vm.json`. The VM config is shared with the
-standalone manager and must set `console: true`. See [manager.md](manager.md).
+In sidecar mode the BMC needs only the control socket. It keeps a local mirror
+of the manager's event history and opens a short socket connection for each
+status, configuration, action or console request. The VM config, which must
+set `console: true`, belongs to the manager container. In embedded mode
+(`--config`) the BMC runs the supervisor itself. See [manager.md](manager.md).
+On SIGTERM the sidecar closes live streams within two seconds and exits 0.
 
 | Variable | Meaning |
 | --- | --- |
@@ -95,9 +102,14 @@ carrying a foreign Origin is refused. Sixteen concurrent streams are allowed
 per BMC; further streams get 503.
 
 QMP and VNC listen only on sockets under the supervisor's private session
-directory. The BMC receives an established VNC stream through the manager's
-in-process channel. The same typed API is available to a sidecar over the
-manager's optional control socket; see [manager.md](manager.md#control-api). It never accepts a socket path from HTTP. QEMU always starts
+directory. A sidecar BMC receives an established VNC stream through the manager's control
+socket (`console` operation), and an embedded BMC receives it through the
+in-process channel. The BMC still authenticates the WebSocket at admission and
+rechecks the session every second, so logout, expiry or role loss closes the
+tunnel. The manager trusts its same-UID socket peer. The sidecar mounts only the
+control-socket volume, never the directory holding QMP and VNC sockets; see
+[manager.md](manager.md#control-api). For a token-authenticated machine API, see
+[redfish.md](redfish.md). It never accepts a socket path from HTTP. QEMU always starts
 with `-nic none`; opening the BMC's pod port does not create guest networking.
 The sample Cilium policy admits ingress/host probes on 8080 and permits only DNS
 and Kanidm HTTPS outbound from the pod. It mounts no Kubernetes API token.

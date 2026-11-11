@@ -620,6 +620,8 @@ mod tests {
             oidc_issuer: "https://idm.example/oidc".into(),
             oidc_client_id: "qrab".into(),
             idp_ip: None,
+            redfish_oidc_issuer: "https://idm.example/redfish".into(),
+            redfish_oidc_audience: "qrab-redfish".into(),
         }
     }
     async fn get_claim() -> Response {
@@ -748,6 +750,8 @@ mod tests {
                 oidc_issuer: "https://idm.example/oidc".into(),
                 oidc_client_id: "qrab".into(),
                 idp_ip: None,
+                redfish_oidc_issuer: "https://idm.example/redfish".into(),
+                redfish_oidc_audience: "qrab-redfish".into(),
             },
             storage,
         });
@@ -1183,6 +1187,8 @@ mod tests {
             oidc_issuer: "https://idm.example/oidc".into(),
             oidc_client_id: "qrab".into(),
             idp_ip: None,
+            redfish_oidc_issuer: "https://idm.example/redfish".into(),
+            redfish_oidc_audience: "qrab-redfish".into(),
         };
         let desired = resources::render(&vm, &settings).unwrap();
         let mut old = desired.config.clone();
@@ -1253,7 +1259,7 @@ mod tests {
         let mut vm = vm();
         vm.spec.running = true;
         let pod = rendered_gated_pod(&vm);
-        vm.spec.console.allowed_subjects = vec!["invalid-uuid".into()];
+        vm.spec.console.as_mut().unwrap().allowed_subjects = vec!["invalid-uuid".into()];
         let (store, ctx, server) = server(vm, Some(pod)).await;
         step(&store, ctx).await;
         assert!(store.0.lock().unwrap().calls.is_empty());

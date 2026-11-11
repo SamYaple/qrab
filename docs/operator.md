@@ -2,8 +2,8 @@
 
 `qrab-operator` reconciles namespaced `VirtualMachine` resources in
 `qrab.yapplesauce.com/v1alpha1`. It owns one Pod and ConfigMap per VM. Each Pod
-runs the existing manager/BMC, QEMU, OVMF UEFI and swtpm TPM2, with guest
-networking disabled. No guest Kubernetes token, VIF, arbitrary Pod template,
+runs `qrab-manager` (QEMU, OVMF UEFI and swtpm TPM2) with guest networking
+disabled, plus the optional BMC and Redfish sidecars. No guest Kubernetes token, VIF, arbitrary Pod template,
 leader election, VM admission webhook or cluster-wide controller is involved.
 Use one operator replica with `Recreate` deployment strategy.
 
@@ -61,6 +61,75 @@ guest, not a desktop or persistent OS disk. There is no BIOS/direct-kernel
 fallback for operator VMs. Future guest disk/storage choices can extend this
 small API without exposing arbitrary Pod specifications.
 
+## Components
+
+The `manager` container always owns the VM: `qrab-manager run` supervises QEMU
+and swtpm and serves the control socket. The browser BMC and the Redfish API
+are optional sidecars in the same image:
+
+```yaml
+spec:
+  console:                       # required while components.bmc is enabled
+    publicUrl: https://qrab-demo.yapplesauce.com
+    allowedSubjects: [6175a2a1-efb9-44e8-8c0b-5fe7ace18f9b]   # BMC admins
+    viewerSubjects: []                                         # read-only BMC users
+  components:
+    bmc:
+      enabled: true              # default; existing CRs keep the BMC
+    redfish:
+      enabled: false             # default
+      adminSubjects: []          # may read and ComputerSystem.Reset
+      viewerSubjects: []         # read-only
+```
+
+| components | Pod |
+| --- | --- |
+| BMC only (default) | `manager` + `bmc` sidecar on port 8080 |
+| BMC and Redfish | `manager` + `bmc` (8080) + `redfish` (8081) |
+| Redfish only | `manager` + `redfish` (8081); `console` may be omitted |
+| none | `manager` alone; the VM runs with no HTTP surface |
+
+Sidecars are native sidecars (`initContainers` with `restartPolicy: Always`):
+they start before the manager, keep serving while it stops the VM, restart on
+their own failure without touching the VM, and do not keep the Pod alive after
+the manager exits. On SIGTERM they exit 0 within about two seconds, so the
+iSCSI clean-release check still sees an orderly stop. The operator replaces a
+Pod whose sidecars differ from the rendered set.
+
+The manager serves the control socket at
+`/run/qrab-control/manager/control.sock` on a separate 1 MiB in-memory
+`control` volume (`control_socket: true`, `control_dir` in `vm.json`). Sidecars
+mount only that volume. They never see the `runtime` volume with the QMP, VNC
+and swtpm sockets, the identity PVC, iSCSI Secrets or the VM config. All
+containers run as UID/GID 10001 (Pod `securityContext`), and the socket is 0600
+in a 0700 directory with a same-UID peer check. The mount layout, not the UID, is
+what keeps sidecars away from QMP/VNC. No group-based (0660) socket access is
+used.
+
+The manager container receives `QRAB_NODE_NAME`, `QRAB_POD_NAME`,
+`QRAB_POD_NAMESPACE` (downward API) and `QRAB_IMAGE`; admins see them in the
+configuration view. Its startup, readiness and liveness probes run
+`qrab-manager live`, so a paused VM stays reachable. Sidecars have readiness on
+`/readyz` (the manager's live probe over the socket) and liveness on `/healthz`,
+and no startup probe, which would delay the manager's start.
+
+The BMC sidecar receives `BMC_PUBLIC_URL`, `BMC_OIDC_ISSUER`,
+`BMC_OIDC_CLIENT_ID`, `BMC_ALLOWED_SUBJECTS` and, when set,
+`BMC_VIEWER_SUBJECTS`. The Redfish sidecar receives `REDFISH_OIDC_ISSUER`,
+`REDFISH_OIDC_AUDIENCE` and the non-empty `REDFISH_ADMIN_SUBJECTS` /
+`REDFISH_VIEWER_SUBJECTS`. The operator's own environment selects the issuers:
+
+| Operator variable | Default |
+| --- | --- |
+| `QRAB_OIDC_ISSUER` / `QRAB_OIDC_CLIENT_ID` | `https://idm.yaple.net/oauth2/openid/qrab-bmc` / `qrab-bmc` |
+| `QRAB_REDFISH_OIDC_ISSUER` / `QRAB_REDFISH_OIDC_AUDIENCE` | `https://idm.yaple.net/oauth2/openid/qrab-redfish` / `qrab-redfish` |
+| `QRAB_IDP_IP` | optional `hostAliases` IP for the enabled components' issuer hosts |
+
+Changing components, subjects or this layout changes the Pod template hash, so
+the operator replaces the VM Pod while keeping its identity. Service, Ingress
+and network-policy entries for port 8081 are explicit infrastructure, like the
+console's; see [redfish.md](redfish.md).
+
 The console public URL must have a matching Service/Ingress, TLS certificate and
 exact registered Kanidm callback. See [bmc.md](bmc.md). The operator does not
 mutate the identity provider. The sample's existing URL and Sam allowlist remain
@@ -98,8 +167,8 @@ identity files are owner-only. `fsGroupChangePolicy: OnRootMismatch` prevents
 routine remounts from broadening retained private-file access.
 
 Status reports `observedGeneration`, `phase`, `ready`, `reason`, `message`, Pod
-name/UID/node, the state PVC UID and in-place `resize` progress. Ready means the manager/QEMU/swtpm/BMC
-processes are healthy, including a deliberately paused VM; guest boot evidence
+name/UID/node, the state PVC UID and in-place `resize` progress. Ready means the manager/QEMU/swtpm processes and the enabled
+sidecars are healthy, including a deliberately paused VM; guest boot evidence
 is checked separately. Invalid specs and ownership conflicts are reported as
 Blocked rather than mutating unrelated resources.
 

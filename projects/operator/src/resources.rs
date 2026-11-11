@@ -84,6 +84,9 @@ impl GuestSize {
 pub fn boot_size(pod: &Pod) -> Option<GuestSize> {
     serde_json::from_str(pod.annotations().get(BOOT_SIZE)?).ok()
 }
+/// Shared only with sidecars; the manager's QMP/VNC runtime volume is not.
+pub const CONTROL_DIR: &str = "/run/qrab-control/manager";
+pub const CONTROL_SOCKET: &str = "/run/qrab-control/manager/control.sock";
 
 #[derive(Clone)]
 pub struct Settings {
@@ -92,6 +95,9 @@ pub struct Settings {
     pub oidc_issuer: String,
     pub oidc_client_id: String,
     pub idp_ip: Option<String>,
+    /// Issuer and audience (OAuth2 client ID) of Redfish bearer tokens.
+    pub redfish_oidc_issuer: String,
+    pub redfish_oidc_audience: String,
 }
 
 pub fn pinned_image(image: &str) -> bool {
@@ -158,6 +164,21 @@ pub fn valid_iqn(value: &str) -> bool {
     domain.contains('.') && dns_name(domain) && unique.is_none_or(|v| !v.is_empty())
 }
 
+/// Admin and viewer lists hold at most 128 distinct UUIDs and never overlap.
+fn subjects(what: &str, admins: &[String], viewers: &[String]) -> Result<()> {
+    let parsed = |list: &[String]| -> Option<BTreeSet<uuid::Uuid>> {
+        (list.len() <= 128)
+            .then(|| list.iter().map(|s| uuid::Uuid::parse_str(s).ok()).collect())
+            .flatten()
+    };
+    match (parsed(admins), parsed(viewers)) {
+        (Some(admins), Some(viewers)) if admins.is_disjoint(&viewers) => Ok(()),
+        _ => Err(Error::Invalid(format!(
+            "{what} must be at most 128 subject UUIDs each, with no subject in both lists"
+        ))),
+    }
+}
+
 pub fn validate(vm: &VirtualMachine, settings: &Settings) -> Result<()> {
     if vm.name_any().len() > 50
         || !dns_name(&vm.name_any())
@@ -198,19 +219,39 @@ pub fn validate(vm: &VirtualMachine, settings: &Settings) -> Result<()> {
             "bootDisk must be the immutable image ESP /opt/qrab/demo/boot.img; mounted state and Secrets cannot be guest disks".into(),
         ));
     }
-    origin(&vm.spec.console.public_url)?;
-    if vm.spec.console.allowed_subjects.is_empty()
-        || vm.spec.console.allowed_subjects.len() > 128
-        || vm
-            .spec
-            .console
-            .allowed_subjects
-            .iter()
-            .any(|s| uuid::Uuid::parse_str(s).is_err())
-    {
-        return Err(Error::Invalid(
-            "console.allowedSubjects must contain operator UUIDs".into(),
-        ));
+    match &vm.spec.console {
+        Some(console) => {
+            origin(&console.public_url)?;
+            if console.allowed_subjects.is_empty() {
+                return Err(Error::Invalid(
+                    "console.allowedSubjects must contain operator UUIDs".into(),
+                ));
+            }
+            subjects(
+                "console.allowedSubjects and console.viewerSubjects",
+                &console.allowed_subjects,
+                &console.viewer_subjects,
+            )?;
+        }
+        None if vm.spec.components.bmc.enabled => {
+            return Err(Error::Invalid(
+                "console is required while components.bmc is enabled".into(),
+            ))
+        }
+        None => {}
+    }
+    let redfish = &vm.spec.components.redfish;
+    if redfish.enabled {
+        if redfish.admin_subjects.is_empty() && redfish.viewer_subjects.is_empty() {
+            return Err(Error::Invalid(
+                "components.redfish needs adminSubjects or viewerSubjects".into(),
+            ));
+        }
+        subjects(
+            "components.redfish adminSubjects and viewerSubjects",
+            &redfish.admin_subjects,
+            &redfish.viewer_subjects,
+        )?;
     }
     if vm.uid().is_none() {
         return Err(Error::Invalid("VM UID is required".into()));
@@ -373,6 +414,75 @@ fn memory_quantity(mib: u32) -> String {
     }
 }
 
+fn subject_list(subjects: &[String]) -> String {
+    subjects.join(",")
+}
+
+/// Native sidecars (restartable init containers) start before the manager,
+/// keep serving while it stops the VM, and do not hold the Pod open after it
+/// exits. They mount only the control-socket volume.
+fn sidecars(
+    vm: &VirtualMachine,
+    settings: &Settings,
+    image: &str,
+    security: &Value,
+) -> Result<Vec<Value>> {
+    let sidecar = |name: &str, command: &str, port: (&str, u16), env: Value| {
+        json!({"name":name,"image":image,"imagePullPolicy":"Always","restartPolicy":"Always",
+            "command":[command],"args":["--socket",CONTROL_SOCKET],
+            "ports":[{"name":port.0,"containerPort":port.1}],"env":env,
+            "resources":{"requests":{"cpu":"20m","memory":"32Mi"},"limits":{"cpu":"500m","memory":"128Mi"}},
+            "securityContext":security,"terminationMessagePolicy":"FallbackToLogsOnError",
+            "volumeMounts":[{"name":"control","mountPath":"/run/qrab-control"}],
+            // No startup probe: it would delay the manager, which starts after sidecars.
+            "readinessProbe":{"httpGet":{"path":"/readyz","port":port.0},"periodSeconds":2,"failureThreshold":3,"timeoutSeconds":2},
+            "livenessProbe":{"httpGet":{"path":"/healthz","port":port.0},"periodSeconds":10,"failureThreshold":3,"timeoutSeconds":2}})
+    };
+    let mut containers = Vec::new();
+    if vm.spec.components.bmc.enabled {
+        let console = vm.spec.console.as_ref().ok_or_else(|| {
+            Error::Invalid("console is required while components.bmc is enabled".into())
+        })?;
+        let mut env = vec![
+            json!({"name":"BMC_PUBLIC_URL","value":origin(&console.public_url)?}),
+            json!({"name":"BMC_OIDC_ISSUER","value":settings.oidc_issuer}),
+            json!({"name":"BMC_OIDC_CLIENT_ID","value":settings.oidc_client_id}),
+            json!({"name":"BMC_ALLOWED_SUBJECTS","value":subject_list(&console.allowed_subjects)}),
+        ];
+        if !console.viewer_subjects.is_empty() {
+            env.push(json!({"name":"BMC_VIEWER_SUBJECTS","value":subject_list(&console.viewer_subjects)}));
+        }
+        containers.push(sidecar(
+            "bmc",
+            "qrab-bmc",
+            ("http", 8080),
+            Value::Array(env),
+        ));
+    }
+    let redfish = &vm.spec.components.redfish;
+    if redfish.enabled {
+        let mut env = vec![
+            json!({"name":"REDFISH_OIDC_ISSUER","value":settings.redfish_oidc_issuer}),
+            json!({"name":"REDFISH_OIDC_AUDIENCE","value":settings.redfish_oidc_audience}),
+        ];
+        for (name, list) in [
+            ("REDFISH_ADMIN_SUBJECTS", &redfish.admin_subjects),
+            ("REDFISH_VIEWER_SUBJECTS", &redfish.viewer_subjects),
+        ] {
+            if !list.is_empty() {
+                env.push(json!({"name":name,"value":subject_list(list)}));
+            }
+        }
+        containers.push(sidecar(
+            "redfish",
+            "qrab-redfish",
+            ("redfish", 8081),
+            Value::Array(env),
+        ));
+    }
+    Ok(containers)
+}
+
 /// Render a fresh instance that boots at the spec size.
 pub fn render(vm: &VirtualMachine, settings: &Settings) -> Result<Desired> {
     render_with(vm, settings, &[])
@@ -416,7 +526,7 @@ pub fn render_booted(
     // Background GC needs no delete/finalizer authority on the parent CR.
     owner.block_owner_deletion = Some(false);
     let labels = json!({"app.kubernetes.io/name":"qrab", "app.kubernetes.io/component":"vm", "app.kubernetes.io/instance":name, "qrab.yapplesauce.com/owner-uid":uid});
-    let mut config = json!({"name":name,"memory_mib":boot.memory_mib,"cpus":boot.cpus,"accelerator":ACCELERATOR,"console":true,"uefi":{"boot_disk":vm.spec.boot_disk},"tpm":{},"state_dir":"/var/lib/qrab","state_id":uid,"runtime_dir":"/run/qrab","startup_timeout_secs":30,"shutdown_grace_secs":5,
+    let mut config = json!({"name":name,"memory_mib":boot.memory_mib,"cpus":boot.cpus,"accelerator":ACCELERATOR,"console":true,"uefi":{"boot_disk":vm.spec.boot_disk},"tpm":{},"state_dir":"/var/lib/qrab","state_id":uid,"runtime_dir":"/run/qrab","control_socket":true,"control_dir":CONTROL_DIR,"startup_timeout_secs":30,"shutdown_grace_secs":5,
         "hotplug":{"max_cpus":maximum.cpus,"max_memory_mib":maximum.memory_mib,"limits_dir":SIZE_DIR,"cpu_overhead_millis":CPU_LIMIT_OVERHEAD_MILLIS,"memory_overhead_mib":MEMORY_LIMIT_OVERHEAD_MIB}});
     let initiator = format!("iqn.2026-11.com.yapplesauce:qrab.vm.{uid}");
     let mut disks: Vec<_> = vm.spec.iscsi_disks.iter().map(|d|json!({"id":d.id,"portal":d.portal,"target":d.target,"lun":d.lun,"initiator_name":initiator,"username":d.username,"password_file":format!("/run/qrab-auth/{}/password",d.id),"read_only":d.read_only,"boot_index":d.boot_index,"bus":"virtio"})).collect();
@@ -426,24 +536,31 @@ pub fn render_booted(
     let config_map: ConfigMap = serde_json::from_value(
         json!({"apiVersion":"v1","kind":"ConfigMap","metadata":{"name":config_name,"namespace":settings.namespace,"labels":labels,"ownerReferences":[owner]},"data":{"vm.json":config_data}}),
     )?;
+    let image = vm.spec.image.as_deref().unwrap_or(&settings.vm_image);
+    let security = json!({"allowPrivilegeEscalation":false,"privileged":false,"readOnlyRootFilesystem":true,"capabilities":{"drop":["ALL"]}});
+    let probe = json!(["qrab-manager", "live", "--config", "/etc/qrab/vm.json"]);
+    let sidecars = sidecars(vm, settings, image, &security)?;
     let mut pod = json!({"apiVersion":"v1","kind":"Pod","metadata":{"name":name,"namespace":settings.namespace,"labels":labels,"ownerReferences":[owner]},"spec":{
         "serviceAccountName":"qrab-manager","automountServiceAccountToken":false,"enableServiceLinks":false,
         "hostNetwork":false,"hostPID":false,"hostIPC":false,
         "restartPolicy":"Never","terminationGracePeriodSeconds":20,
         "securityContext":{"runAsNonRoot":true,"runAsUser":10001,"runAsGroup":10001,"fsGroup":10001,"fsGroupChangePolicy":"OnRootMismatch","seccompProfile":{"type":"RuntimeDefault"}},
         "tolerations":[{"key":"node-role.kubernetes.io/control-plane","operator":"Exists","effect":"NoSchedule"}],
-        "containers":[{"name":"manager","image":vm.spec.image.as_deref().unwrap_or(&settings.vm_image),"imagePullPolicy":"Always","command":["qrab-bmc"],"args":["--config","/etc/qrab/vm.json"],
-            "ports":[{"name":"http","containerPort":8080}],
-            "env":[{"name":"BMC_PUBLIC_URL","value":origin(&vm.spec.console.public_url)?},{"name":"BMC_OIDC_ISSUER","value":settings.oidc_issuer},{"name":"BMC_OIDC_CLIENT_ID","value":settings.oidc_client_id},{"name":"BMC_ALLOWED_SUBJECTS","value":vm.spec.console.allowed_subjects.join(",")}],
+        "containers":[{"name":"manager","image":image,"imagePullPolicy":"Always","command":["qrab-manager"],"args":["run","--config","/etc/qrab/vm.json"],
+            "env":[{"name":"QRAB_NODE_NAME","valueFrom":{"fieldRef":{"fieldPath":"spec.nodeName"}}},{"name":"QRAB_POD_NAME","valueFrom":{"fieldRef":{"fieldPath":"metadata.name"}}},{"name":"QRAB_POD_NAMESPACE","valueFrom":{"fieldRef":{"fieldPath":"metadata.namespace"}}},{"name":"QRAB_IMAGE","value":image}],
             "resources":GuestSize::of(vm).container_resources(),
             "resizePolicy":[{"resourceName":"cpu","restartPolicy":"NotRequired"},{"resourceName":"memory","restartPolicy":"NotRequired"}],
-            "securityContext":{"allowPrivilegeEscalation":false,"privileged":false,"readOnlyRootFilesystem":true,"capabilities":{"drop":["ALL"]}},"terminationMessagePolicy":"FallbackToLogsOnError",
-            "volumeMounts":[{"name":"config","mountPath":"/etc/qrab","readOnly":true},{"name":"state","mountPath":"/var/lib/qrab"},{"name":"runtime","mountPath":"/run/qrab"},{"name":"tmp","mountPath":"/tmp"}],
-            "startupProbe":{"httpGet":{"path":"/readyz","port":"http"},"periodSeconds":1,"failureThreshold":90,"timeoutSeconds":2},
-            "readinessProbe":{"httpGet":{"path":"/readyz","port":"http"},"periodSeconds":2,"failureThreshold":3,"timeoutSeconds":2},
-            "livenessProbe":{"httpGet":{"path":"/readyz","port":"http"},"periodSeconds":5,"failureThreshold":3,"timeoutSeconds":2}}],
-        "volumes":[{"name":"config","configMap":{"name":config_name}},{"name":"state","persistentVolumeClaim":{"claimName":vm.spec.state_volume_claim}},{"name":"runtime","emptyDir":{"medium":"Memory","sizeLimit":"64Mi"}},{"name":"tmp","emptyDir":{"medium":"Memory","sizeLimit":"64Mi"}}]
+            "securityContext":security,"terminationMessagePolicy":"FallbackToLogsOnError",
+            "volumeMounts":[{"name":"config","mountPath":"/etc/qrab","readOnly":true},{"name":"state","mountPath":"/var/lib/qrab"},{"name":"runtime","mountPath":"/run/qrab"},{"name":"tmp","mountPath":"/tmp"},{"name":"control","mountPath":"/run/qrab-control"}],
+            // Live semantics: a paused VM stays reachable so it can be resumed.
+            "startupProbe":{"exec":{"command":probe},"periodSeconds":1,"failureThreshold":90,"timeoutSeconds":2},
+            "readinessProbe":{"exec":{"command":probe},"periodSeconds":2,"failureThreshold":3,"timeoutSeconds":2},
+            "livenessProbe":{"exec":{"command":probe},"periodSeconds":5,"failureThreshold":3,"timeoutSeconds":2}}],
+        "volumes":[{"name":"config","configMap":{"name":config_name}},{"name":"state","persistentVolumeClaim":{"claimName":vm.spec.state_volume_claim}},{"name":"runtime","emptyDir":{"medium":"Memory","sizeLimit":"64Mi"}},{"name":"tmp","emptyDir":{"medium":"Memory","sizeLimit":"64Mi"}},{"name":"control","emptyDir":{"medium":"Memory","sizeLimit":"1Mi"}}]
     }});
+    if !sidecars.is_empty() {
+        pod["spec"]["initContainers"] = Value::Array(sidecars);
+    }
     if let Some(node) = &vm.spec.storage_node {
         pod["spec"]["nodeSelector"] = json!({"kubernetes.io/hostname":node});
     }
@@ -479,9 +596,27 @@ pub fn render_booted(
         .expect("mounts")
         .push(json!({"name":"size","mountPath":SIZE_DIR,"readOnly":true}));
     if let Some(ip) = &settings.idp_ip {
-        let issuer =
-            url::Url::parse(&settings.oidc_issuer).map_err(|e| Error::Invalid(e.to_string()))?;
-        pod["spec"]["hostAliases"] = json!([{"ip":ip,"hostnames":[issuer.host_str().ok_or_else(||Error::Invalid("OIDC issuer has no host".into()))?]}]);
+        let mut hosts = BTreeSet::new();
+        for (enabled, issuer) in [
+            (vm.spec.components.bmc.enabled, &settings.oidc_issuer),
+            (
+                vm.spec.components.redfish.enabled,
+                &settings.redfish_oidc_issuer,
+            ),
+        ] {
+            if enabled {
+                let issuer = url::Url::parse(issuer).map_err(|e| Error::Invalid(e.to_string()))?;
+                hosts.insert(
+                    issuer
+                        .host_str()
+                        .ok_or_else(|| Error::Invalid("OIDC issuer has no host".into()))?
+                        .to_owned(),
+                );
+            }
+        }
+        if !hosts.is_empty() {
+            pod["spec"]["hostAliases"] = json!([{"ip":ip,"hostnames":hosts}]);
+        }
     }
     // In-place resizes change only container resources, never the template.
     let mut template = pod.clone();
@@ -551,7 +686,18 @@ pub fn pod_matches(actual: &Pod, desired: &Desired) -> bool {
     let Some(spec) = &actual.spec else {
         return false;
     };
-    if spec.init_containers.as_ref().is_some_and(|v| !v.is_empty())
+    let desired_init = desired
+        .pod
+        .spec
+        .as_ref()
+        .and_then(|s| s.init_containers.as_ref())
+        .map_or(0, Vec::len);
+    // Declared sidecars are compared field by field below; nothing else may run.
+    if spec.init_containers.as_ref().map_or(0, Vec::len) != desired_init
+        || spec
+            .ephemeral_containers
+            .as_ref()
+            .is_some_and(|v| !v.is_empty())
         || spec
             .image_pull_secrets
             .as_ref()
@@ -559,7 +705,11 @@ pub fn pod_matches(actual: &Pod, desired: &Desired) -> bool {
     {
         return false;
     }
-    for container in &spec.containers {
+    for container in spec
+        .containers
+        .iter()
+        .chain(spec.init_containers.iter().flatten())
+    {
         if container.env_from.as_ref().is_some_and(|v| !v.is_empty())
             || container
                 .volume_devices

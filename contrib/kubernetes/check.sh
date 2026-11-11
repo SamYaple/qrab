@@ -73,7 +73,9 @@ socket_dir=vnc.split(',',1)[0].removeprefix('unix:').rsplit('/',1)[0]
 mode=int(kubectl('exec',pod,'--','stat','-c','%a',socket_dir).strip(),8)
 assert mode & 0o777 == 0o700, 'another UID can traverse the QMP/VNC session directory'
 assert int(kubectl('exec',pod,'--','stat','-c','%a','/var/lib/qrab/identity').strip(),8)&0o777==0o700, 'persistent identity directory is not private'
-env={v['name']:v.get('value') for v in before['spec']['containers'][0]['env']}
+env={v['name']:v.get('value') for c in before['spec'].get('initContainers',[]) if c['name']=='bmc' for v in c['env']}
+# Sidecars share only the control socket, never the QMP/VNC runtime volume.
+assert kubectl('exec',pod,'-c','bmc','--','sh','-c','test -e /run/qrab-control/manager/control.sock && ! test -e /run/qrab && echo isolated').strip()=='isolated', 'BMC sidecar can reach the manager runtime directory'
 origin=env['BMC_PUBLIC_URL']
 class NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self,*args):return None

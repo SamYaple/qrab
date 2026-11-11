@@ -12,6 +12,8 @@ fn settings() -> Settings {
         oidc_issuer: "https://idm.yaple.net/oauth2/openid/qrab-bmc".into(),
         oidc_client_id: "qrab-bmc".into(),
         idp_ip: Some("192.168.0.251".into()),
+        redfish_oidc_issuer: "https://idm.yaple.net/oauth2/openid/qrab-redfish".into(),
+        redfish_oidc_audience: "qrab-redfish".into(),
     }
 }
 fn vm() -> VirtualMachine {
@@ -71,7 +73,9 @@ fn api_server_defaults_and_canonical_quantities_do_not_restart_a_vm() {
     }
     stored["spec"]["nodeName"] = json!("kube03");
     stored["spec"]["dnsPolicy"] = json!("ClusterFirst");
-    stored["spec"]["containers"][0]["startupProbe"]["httpGet"]["scheme"] = json!("HTTP");
+    stored["spec"]["initContainers"][0]["readinessProbe"]["httpGet"]["scheme"] = json!("HTTP");
+    stored["spec"]["initContainers"][0]["terminationMessagePath"] = json!("/dev/termination-log");
+    stored["spec"]["containers"][0]["env"][0]["valueFrom"]["fieldRef"]["apiVersion"] = json!("v1");
     stored["spec"]["tolerations"].as_array_mut().unwrap().push(json!({"key":"node.kubernetes.io/not-ready","operator":"Exists","effect":"NoExecute","tolerationSeconds":300}));
     assert_eq!(
         stored["spec"]["containers"][0]["resources"]["limits"]["memory"],
@@ -143,10 +147,10 @@ fn metadata_and_status_updates_do_not_change_the_template_but_restart_nonce_does
 #[test]
 fn invalid_unsafe_or_incomplete_specs_are_rejected_before_pod_creation() {
     let mut vm = vm();
-    vm.spec.console.allowed_subjects.clear();
+    vm.spec.console.as_mut().unwrap().allowed_subjects.clear();
     assert!(resources::render(&vm, &settings()).is_err());
     vm = self::vm();
-    vm.spec.console.public_url = "http://test-vm.yapplesauce.com".into();
+    vm.spec.console.as_mut().unwrap().public_url = "http://test-vm.yapplesauce.com".into();
     assert!(resources::render(&vm, &settings()).is_err());
     vm = self::vm();
     vm.spec.image = Some("docker.io/untrusted/vm:latest".into());
@@ -240,7 +244,7 @@ fn native_iscsi_uses_secret_files_and_derived_initiator_without_block_devices() 
         pod["spec"]["nodeSelector"]["kubernetes.io/hostname"],
         "kube03"
     );
-    assert_eq!(pod["spec"]["volumes"][4]["secret"]["defaultMode"], 288);
+    assert_eq!(pod["spec"]["volumes"][5]["secret"]["defaultMode"], 288);
     assert!(pod["spec"]["containers"][0].get("volumeDevices").is_none());
     assert!(resources::pod_matches(&desired.pod, &desired));
     let mut scheduled = desired.pod.clone();
@@ -253,7 +257,7 @@ fn native_iscsi_uses_secret_files_and_derived_initiator_without_block_devices() 
     stored.spec.as_mut().unwrap().containers[0]
         .volume_mounts
         .as_mut()
-        .unwrap()[4]
+        .unwrap()[5]
         .read_only = Some(false);
     assert!(!resources::pod_matches(&stored, &desired));
 }
@@ -403,4 +407,233 @@ fn provisioned_disk_specs_are_bounded_unique_and_pinned() {
     assert!(disks["items"]["x-kubernetes-validations"]
         .to_string()
         .contains("self.sizeBytes >= oldSelf.sizeBytes"));
+}
+
+const VIEWER: &str = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+
+fn with_components(bmc: bool, redfish: bool) -> VirtualMachine {
+    let mut machine = vm();
+    machine.spec.components = serde_json::from_value(json!({
+        "bmc":{"enabled":bmc},
+        "redfish":{"enabled":redfish,"adminSubjects":["6175a2a1-efb9-44e8-8c0b-5fe7ace18f9b"],"viewerSubjects":[VIEWER]}
+    }))
+    .unwrap();
+    if !bmc {
+        machine.spec.console = None;
+    }
+    machine
+}
+
+fn env(container: &Value) -> std::collections::BTreeMap<String, Value> {
+    container["env"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|e| {
+            let value = e
+                .get("value")
+                .cloned()
+                .unwrap_or_else(|| e["valueFrom"].clone());
+            (e["name"].as_str().unwrap().to_owned(), value)
+        })
+        .collect()
+}
+
+#[test]
+fn existing_specs_keep_the_bmc_and_omit_redfish() {
+    let spec: api::VirtualMachineSpec = serde_json::from_value(
+        json!({"stateVolumeClaim":"s","console":{"publicUrl":"https://x.example","allowedSubjects":[]}}),
+    )
+    .unwrap();
+    assert!(spec.components.bmc.enabled);
+    assert!(!spec.components.redfish.enabled);
+    let pod = serde_json::to_value(resources::render(&vm(), &settings()).unwrap().pod).unwrap();
+    let names: Vec<_> = pod["spec"]["initContainers"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|c| c["name"].as_str().unwrap())
+        .collect();
+    assert_eq!(names, ["bmc"]);
+    assert!(!env(&pod["spec"]["initContainers"][0]).contains_key("BMC_VIEWER_SUBJECTS"));
+}
+
+#[test]
+fn operator_renders_exactly_the_enabled_sidecars() {
+    for (bmc, redfish) in [(true, false), (true, true), (false, true), (false, false)] {
+        let machine = with_components(bmc, redfish);
+        let desired = resources::render(&machine, &settings()).unwrap();
+        assert!(
+            resources::pod_matches(&desired.pod, &desired),
+            "{bmc} {redfish}"
+        );
+        let config: Value =
+            serde_json::from_str(&desired.config.data.as_ref().unwrap()["vm.json"]).unwrap();
+        assert_eq!(config["control_socket"], true);
+        assert_eq!(config["control_dir"], resources::CONTROL_DIR);
+        let pod = serde_json::to_value(&desired.pod).unwrap();
+        // The manager always owns the VM, with no port and deployment metadata.
+        let manager = &pod["spec"]["containers"][0];
+        assert_eq!(pod["spec"]["containers"].as_array().unwrap().len(), 1);
+        assert_eq!(manager["command"], json!(["qrab-manager"]));
+        assert_eq!(
+            manager["args"],
+            json!(["run", "--config", "/etc/qrab/vm.json"])
+        );
+        assert!(manager.get("ports").is_none());
+        assert_eq!(
+            manager["readinessProbe"]["exec"]["command"],
+            json!(["qrab-manager", "live", "--config", "/etc/qrab/vm.json"])
+        );
+        let manager_env = env(manager);
+        assert_eq!(
+            manager_env["QRAB_NODE_NAME"]["fieldRef"]["fieldPath"],
+            "spec.nodeName"
+        );
+        assert_eq!(
+            manager_env["QRAB_POD_NAME"]["fieldRef"]["fieldPath"],
+            "metadata.name"
+        );
+        assert_eq!(
+            manager_env["QRAB_POD_NAMESPACE"]["fieldRef"]["fieldPath"],
+            "metadata.namespace"
+        );
+        assert_eq!(manager_env["QRAB_IMAGE"], manager["image"]);
+        let sidecars: Vec<Value> = pod["spec"]["initContainers"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default();
+        let names: Vec<_> = sidecars
+            .iter()
+            .map(|c| c["name"].as_str().unwrap())
+            .collect();
+        let expected: Vec<_> = [("bmc", bmc), ("redfish", redfish)]
+            .into_iter()
+            .filter_map(|(name, on)| on.then_some(name))
+            .collect();
+        assert_eq!(names, expected);
+        for sidecar in &sidecars {
+            assert_eq!(sidecar["restartPolicy"], "Always");
+            assert_eq!(sidecar["image"], manager["image"]);
+            assert_eq!(
+                sidecar["args"],
+                json!(["--socket", resources::CONTROL_SOCKET])
+            );
+            // Only the control socket volume: no QMP/VNC runtime, state, Secrets or config.
+            assert_eq!(
+                sidecar["volumeMounts"],
+                json!([{"name":"control","mountPath":"/run/qrab-control"}])
+            );
+            assert!(sidecar.get("startupProbe").is_none());
+            assert_eq!(sidecar["securityContext"], manager["securityContext"]);
+        }
+        let ports: Vec<_> = sidecars
+            .iter()
+            .flat_map(|c| c["ports"].as_array().unwrap().clone())
+            .map(|p| p["containerPort"].as_u64().unwrap())
+            .collect();
+        let expected_ports: Vec<u64> = [(8080, bmc), (8081, redfish)]
+            .into_iter()
+            .filter_map(|(port, on)| on.then_some(port))
+            .collect();
+        assert_eq!(ports, expected_ports);
+        if redfish {
+            let redfish = env(sidecars.iter().find(|c| c["name"] == "redfish").unwrap());
+            assert_eq!(redfish["REDFISH_OIDC_AUDIENCE"], "qrab-redfish");
+            assert_eq!(
+                redfish["REDFISH_OIDC_ISSUER"],
+                "https://idm.yaple.net/oauth2/openid/qrab-redfish"
+            );
+            assert_eq!(
+                redfish["REDFISH_ADMIN_SUBJECTS"],
+                "6175a2a1-efb9-44e8-8c0b-5fe7ace18f9b"
+            );
+            assert_eq!(redfish["REDFISH_VIEWER_SUBJECTS"], VIEWER);
+        }
+        assert_eq!(pod["spec"]["hostAliases"].is_null(), !bmc && !redfish);
+        assert!(pod["spec"]["volumes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|v| v["name"] == "control" && v["emptyDir"]["medium"] == "Memory"));
+    }
+}
+
+#[test]
+fn bmc_viewers_are_rendered_and_role_lists_are_validated() {
+    let mut machine = vm();
+    machine.spec.console.as_mut().unwrap().viewer_subjects = vec![VIEWER.into()];
+    let pod = serde_json::to_value(resources::render(&machine, &settings()).unwrap().pod).unwrap();
+    assert_eq!(
+        env(&pod["spec"]["initContainers"][0])["BMC_VIEWER_SUBJECTS"],
+        VIEWER
+    );
+    let mut overlap = machine.clone();
+    overlap.spec.console.as_mut().unwrap().viewer_subjects =
+        vec!["6175a2a1-efb9-44e8-8c0b-5fe7ace18f9b".into()];
+    assert!(resources::render(&overlap, &settings()).is_err());
+    let mut no_console = vm();
+    no_console.spec.console = None;
+    assert!(resources::render(&no_console, &settings()).is_err());
+    let mut empty_redfish = with_components(false, true);
+    empty_redfish.spec.components.redfish.admin_subjects.clear();
+    empty_redfish
+        .spec
+        .components
+        .redfish
+        .viewer_subjects
+        .clear();
+    assert!(resources::render(&empty_redfish, &settings()).is_err());
+    let mut bad_redfish = with_components(false, true);
+    bad_redfish.spec.components.redfish.viewer_subjects = vec!["not-a-uuid".into()];
+    assert!(resources::render(&bad_redfish, &settings()).is_err());
+}
+
+#[test]
+fn unexpected_or_missing_sidecars_replace_the_pod() {
+    let desired = resources::render(&with_components(true, true), &settings()).unwrap();
+    let sidecars = |pod: &mut k8s_openapi::api::core::v1::Pod| {
+        pod.spec
+            .as_mut()
+            .unwrap()
+            .init_containers
+            .as_mut()
+            .unwrap()
+            .clone()
+    };
+    let mut extra = desired.pod.clone();
+    let mut injected = sidecars(&mut extra)[0].clone();
+    injected.name = "injected".into();
+    extra
+        .spec
+        .as_mut()
+        .unwrap()
+        .init_containers
+        .as_mut()
+        .unwrap()
+        .push(injected);
+    assert!(!resources::pod_matches(&extra, &desired));
+    let mut missing = desired.pod.clone();
+    missing
+        .spec
+        .as_mut()
+        .unwrap()
+        .init_containers
+        .as_mut()
+        .unwrap()
+        .pop();
+    assert!(!resources::pod_matches(&missing, &desired));
+    let mut widened = desired.pod.clone();
+    widened
+        .spec
+        .as_mut()
+        .unwrap()
+        .init_containers
+        .as_mut()
+        .unwrap()[1]
+        .volume_mounts
+        .as_mut()
+        .unwrap()
+        .push(serde_json::from_value(json!({"name":"runtime","mountPath":"/run/qrab"})).unwrap());
+    assert!(!resources::pod_matches(&widened, &desired));
 }

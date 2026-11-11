@@ -14,6 +14,9 @@ fn running() -> bool {
 fn boot_disk() -> String {
     "/opt/qrab/demo/boot.img".into()
 }
+fn enabled() -> bool {
+    true
+}
 
 #[derive(CustomResource, Debug, Clone, Deserialize, Serialize, JsonSchema)]
 #[kube(
@@ -80,7 +83,52 @@ pub struct VirtualMachineSpec {
     /// Initial iSCSI support is node-pinned; migration requires target fencing.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub storage_node: Option<String>,
-    pub console: Console,
+    /// Browser console settings; required while `components.bmc` is enabled.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub console: Option<Console>,
+    /// Optional sidecars. The manager container always owns the VM.
+    #[serde(default)]
+    pub components: Components,
+}
+
+/// Sidecars reach the VM only through the manager's control socket.
+#[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Components {
+    #[serde(default)]
+    pub bmc: BmcComponent,
+    #[serde(default)]
+    pub redfish: RedfishComponent,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct BmcComponent {
+    /// The OIDC browser console and dashboard. Enabled unless set to false.
+    #[serde(default = "enabled")]
+    pub enabled: bool,
+}
+
+impl Default for BmcComponent {
+    fn default() -> Self {
+        Self { enabled: true }
+    }
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RedfishComponent {
+    /// A DMTF Redfish API authenticated by OIDC bearer tokens.
+    #[serde(default)]
+    pub enabled: bool,
+    /// Subject UUIDs that may read and reset the VM.
+    #[serde(default)]
+    #[schemars(length(max = 128))]
+    pub admin_subjects: Vec<String>,
+    /// Subject UUIDs with read-only access.
+    #[serde(default)]
+    #[schemars(length(max = 128))]
+    pub viewer_subjects: Vec<String>,
 }
 
 fn password_key() -> String {
@@ -163,8 +211,13 @@ pub struct PasswordSecret {
 pub struct Console {
     /// Exact HTTPS origin. Service/Ingress/certificate and IdP callback are separate.
     pub public_url: String,
+    /// Subject UUIDs with full (admin) BMC access.
     #[schemars(length(min = 1, max = 128))]
     pub allowed_subjects: Vec<String>,
+    /// Subject UUIDs with read-only BMC access: status, events and redacted configuration.
+    #[serde(default)]
+    #[schemars(length(max = 128))]
+    pub viewer_subjects: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema, PartialEq, Eq)]
@@ -220,7 +273,8 @@ pub fn crd() -> serde_json::Value {
         {"rule":"size(self.metadata.name) <= 50", "message":"VM names must be at most 50 characters"},
         {"rule":"!has(oldSelf.spec.storageNode) || (has(self.spec.storageNode) && self.spec.storageNode == oldSelf.spec.storageNode)", "message":"storageNode is immutable; disk migration requires explicit fencing"},
         {"rule":"!has(self.spec.maxCpus) || self.spec.cpus <= self.spec.maxCpus", "message":"cpus must not exceed maxCpus"},
-        {"rule":"!has(self.spec.maxMemoryMiB) || self.spec.memoryMiB <= self.spec.maxMemoryMiB", "message":"memoryMiB must not exceed maxMemoryMiB"}
+        {"rule":"!has(self.spec.maxMemoryMiB) || self.spec.memoryMiB <= self.spec.maxMemoryMiB", "message":"memoryMiB must not exceed maxMemoryMiB"},
+        {"rule":"has(self.spec.console) || (has(self.spec.components) && has(self.spec.components.bmc) && has(self.spec.components.bmc.enabled) && !self.spec.components.bmc.enabled)", "message":"console is required while components.bmc is enabled"}
     ]);
     let disks = &mut value["spec"]["versions"][0]["schema"]["openAPIV3Schema"]["properties"]
         ["spec"]["properties"]["iscsiDisks"];

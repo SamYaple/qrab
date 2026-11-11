@@ -9,7 +9,8 @@ spec:
   ports:
   - name: http
     port: 8080
-    targetPort: http
+    # Numeric: the port belongs to the BMC sidecar (a restartable init container).
+    targetPort: 8080
 ---
 apiVersion: networking.k8s.io/v1
 kind: Ingress

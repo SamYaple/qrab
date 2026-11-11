@@ -43,6 +43,12 @@ async fn main() -> Result<()> {
         url::Url::parse(&issuer)?.scheme() == "https",
         "OIDC issuer must use HTTPS"
     );
+    let redfish_issuer = std::env::var("QRAB_REDFISH_OIDC_ISSUER")
+        .unwrap_or_else(|_| "https://idm.yaple.net/oauth2/openid/qrab-redfish".into());
+    ensure!(
+        url::Url::parse(&redfish_issuer)?.scheme() == "https",
+        "Redfish OIDC issuer must use HTTPS"
+    );
     let idp_ip = std::env::var("QRAB_IDP_IP").ok();
     if let Some(ip) = &idp_ip {
         ip.parse::<std::net::IpAddr>()
@@ -54,6 +60,9 @@ async fn main() -> Result<()> {
         oidc_issuer: issuer,
         oidc_client_id: std::env::var("QRAB_OIDC_CLIENT_ID").unwrap_or_else(|_| "qrab-bmc".into()),
         idp_ip,
+        redfish_oidc_issuer: redfish_issuer,
+        redfish_oidc_audience: std::env::var("QRAB_REDFISH_OIDC_AUDIENCE")
+            .unwrap_or_else(|_| "qrab-redfish".into()),
     };
     let client = Client::try_default().await?;
     let vms: Api<VirtualMachine> = Api::namespaced(client.clone(), &settings.namespace);

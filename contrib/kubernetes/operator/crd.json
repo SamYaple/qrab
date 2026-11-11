@@ -56,9 +56,74 @@
                     "minLength": 2,
                     "type": "string"
                   },
+                  "components": {
+                    "default": {
+                      "bmc": {
+                        "enabled": true
+                      },
+                      "redfish": {
+                        "adminSubjects": [],
+                        "enabled": false,
+                        "viewerSubjects": []
+                      }
+                    },
+                    "description": "Optional sidecars. The manager container always owns the VM.",
+                    "properties": {
+                      "bmc": {
+                        "default": {
+                          "enabled": true
+                        },
+                        "properties": {
+                          "enabled": {
+                            "default": true,
+                            "description": "The OIDC browser console and dashboard. Enabled unless set to false.",
+                            "type": "boolean"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "redfish": {
+                        "default": {
+                          "adminSubjects": [],
+                          "enabled": false,
+                          "viewerSubjects": []
+                        },
+                        "properties": {
+                          "adminSubjects": {
+                            "default": [],
+                            "description": "Subject UUIDs that may read and reset the VM.",
+                            "items": {
+                              "type": "string"
+                            },
+                            "maxItems": 128,
+                            "type": "array"
+                          },
+                          "enabled": {
+                            "default": false,
+                            "description": "A DMTF Redfish API authenticated by OIDC bearer tokens.",
+                            "type": "boolean"
+                          },
+                          "viewerSubjects": {
+                            "default": [],
+                            "description": "Subject UUIDs with read-only access.",
+                            "items": {
+                              "type": "string"
+                            },
+                            "maxItems": 128,
+                            "type": "array"
+                          }
+                        },
+                        "type": "object"
+                      }
+                    },
+                    "type": "object"
+                  },
                   "console": {
+                    "description": "Browser console settings; required while `components.bmc` is enabled.",
+                    "nullable": true,
                     "properties": {
                       "allowedSubjects": {
+                        "description": "Subject UUIDs with full (admin) BMC access.",
                         "items": {
                           "type": "string"
                         },
@@ -69,6 +134,15 @@
                       "publicUrl": {
                         "description": "Exact HTTPS origin. Service/Ingress/certificate and IdP callback are separate.",
                         "type": "string"
+                      },
+                      "viewerSubjects": {
+                        "default": [],
+                        "description": "Subject UUIDs with read-only BMC access: status, events and redacted configuration.",
+                        "items": {
+                          "type": "string"
+                        },
+                        "maxItems": 128,
+                        "type": "array"
                       }
                     },
                     "required": [
@@ -288,7 +362,6 @@
                   }
                 },
                 "required": [
-                  "console",
                   "stateVolumeClaim"
                 ],
                 "type": "object"
@@ -471,6 +544,10 @@
               {
                 "message": "memoryMiB must not exceed maxMemoryMiB",
                 "rule": "!has(self.spec.maxMemoryMiB) || self.spec.memoryMiB <= self.spec.maxMemoryMiB"
+              },
+              {
+                "message": "console is required while components.bmc is enabled",
+                "rule": "has(self.spec.console) || (has(self.spec.components) && has(self.spec.components.bmc) && has(self.spec.components.bmc.enabled) && !self.spec.components.bmc.enabled)"
               }
             ]
           }
