@@ -5,20 +5,24 @@ FROM ${RUST_IMAGE} AS manager-build
 WORKDIR /src
 COPY Cargo.toml Cargo.lock ./
 COPY projects ./projects
-RUN --mount=type=cache,id=qrab-cargo-registry,target=/usr/local/cargo/registry --mount=type=cache,id=qrab-manager-target,target=/src/target,sharing=locked cargo build --release --locked -p manager --bin qrab-manager && mkdir -p /out && cp /src/target/release/qrab-manager /out/qrab-manager
+RUN --mount=type=cache,id=qrab-cargo-registry,target=/usr/local/cargo/registry --mount=type=cache,id=qrab-manager-target,target=/src/target,sharing=locked cargo build --release --locked -p manager --bin qrab-manager -p bmc --bin qrab-bmc && mkdir -p /out && cp /src/target/release/qrab-manager /src/target/release/qrab-bmc /out/
 
 FROM ${DEBIAN_IMAGE} AS demo-guest
-RUN apt-get update && apt-get install -y --no-install-recommends linux-image-cloud-amd64 busybox-static python3 gzip && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends linux-image-amd64 busybox-static kmod zstd python3 gzip && rm -rf /var/lib/apt/lists/*
 COPY contrib/images/guest-init /guest/init
 COPY contrib/images/make-initramfs.py /make-initramfs.py
-RUN mkdir -p /guest/bin /guest/dev /guest/proc /guest/sys /guest/tmp /out && cp /bin/busybox /guest/bin/busybox && ln -s busybox /guest/bin/sh && chmod 0755 /guest/init && cp /boot/vmlinuz-*cloud-amd64 /out/vmlinuz && chmod 0644 /out/vmlinuz && dpkg-query -W 'linux-image*' busybox-static > /out/guest-packages.txt && python3 /make-initramfs.py /guest /out/initramfs.gz
+COPY contrib/images/prepare-guest.py /prepare-guest.py
+RUN python3 /prepare-guest.py && chmod 0755 /guest/init && python3 /make-initramfs.py /guest /out/initramfs.gz
 
 FROM ${QEMU_IMAGE}
 ARG QRAB_REVISION=unknown
 LABEL org.opencontainers.image.source="https://gitea.yapplesauce.com/infrastructure/qrab" \
       org.opencontainers.image.revision="${QRAB_REVISION}" \
-      org.opencontainers.image.description="Pod-native QEMU supervisor with a RAM-only Linux boot fixture"
+      org.opencontainers.image.description="Per-VM QEMU supervisor and OIDC BMC with a RAM-only Linux console fixture"
 COPY --from=manager-build /out/qrab-manager /usr/local/bin/qrab-manager
+COPY --from=manager-build /out/qrab-bmc /usr/local/bin/qrab-bmc
+COPY projects/bmc/assets /opt/qrab/bmc/assets
+ENV BMC_ASSETS_DIR=/opt/qrab/bmc/assets
 COPY --from=demo-guest /out /opt/qrab/demo
 COPY contrib/kubernetes/vm.json /etc/qrab/vm.json
 USER 10001:10001

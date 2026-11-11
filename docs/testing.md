@@ -1,7 +1,7 @@
 # Core-library validation
 
 The normal developer path is the default workspace: `qapi-macros`, `qapi`,
-`qapi-protocol` and the pod-native `manager`. No QEMU checkout, Python, firmware,
+`qapi-protocol`, the pod-native `manager` and `bmc`. No QEMU checkout, Python, firmware,
 privileged hardware or cluster is required for these tests:
 
 ```sh
@@ -9,7 +9,7 @@ cargo test --locked
 bash contrib/check-runtime.sh
 ```
 
-The script also checks formatting and runs strict manager/protocol Clippy.
+The script also checks formatting and runs strict manager/protocol/BMC Clippy.
 Generated QAPI modules are excluded from rustfmt traversal; update them through
 codegen, not manual formatting.
 
@@ -26,7 +26,7 @@ Historical schemas remain tooling inputs; their compatibility work is not a
 mandatory runtime development step.
 
 Legacy host APIs and firmware tests are opt-in; see [legacy.md](legacy.md).
-The preserved BMC server selects the `legacy-host` manager feature explicitly.
+BMC authentication and browser acceptance are described in [bmc.md](bmc.md).
 
 Protocol cleanup can be checked directly with:
 

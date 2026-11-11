@@ -3,6 +3,7 @@ kind: Kustomization
 namespace: qrab
 resources:
 - pod.yaml
+- console.yaml
 configMapGenerator:
 - name: qrab-vm
   files:

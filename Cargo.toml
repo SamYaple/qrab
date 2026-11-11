@@ -1,12 +1,13 @@
 [workspace]
 resolver = "3"
 # The normal developer path is the generated protocol and pod runtime. Tooling,
-# the BMC, and confidential-guest experiments remain explicit package selections.
+# confidential-guest experiments remain explicit package selections.
 default-members = [
     "projects/qapi-macros",
     "projects/qapi",
     "projects/qapi-protocol",
     "projects/manager",
+    "projects/bmc",
 ]
 members = [
     "projects/qapi-codegen",

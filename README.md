@@ -1,15 +1,17 @@
 # qrab
 
 Rust libraries and tooling for launching QEMU VMs in Kubernetes. The active
-runtime is `qrab-manager`: one container supervises one QEMU process through a
-private QMP socket. The demo boots a real Linux guest without guest networking
-or a VM controller.
+runtime is `qrab-bmc`: each VM pod runs a Kanidm-authenticated browser console
+and supervises QEMU through a private QMP socket. Video, keyboard and USB mouse
+input use a private VNC socket. The demo boots Linux with no guest NIC or VM
+controller. `qrab-manager` also remains available as a standalone supervisor.
 
 | Component | Responsibility |
 | --- | --- |
 | `qapi-macros` / `qapi` | Generated QMP/QGA types, Serde and command/event traits |
 | `qapi-protocol` | Async Unix-socket QMP/QGA clients and bounded test servers |
 | `manager` | Pod-native VM configuration, supervision, status and probes |
+| `bmc` | Per-VM Kanidm OIDC login, noVNC display/input and VM controls |
 | `qapi-codegen` | Explicit schema parsing and generation tool |
 
 ## Development
@@ -20,7 +22,7 @@ cargo test --locked
 bash contrib/check-runtime.sh
 ```
 
-The default workspace selects only the protocol libraries and pod manager.
+The default workspace selects the protocol libraries, pod manager and BMC.
 These checks use committed generated code and require no QEMU source checkout,
 Python, KVM, firmware, systemd or cluster access. Live-QEMU tests are explicit.
 The QEMU image is built from **11.1.3**, pinned in `vendor/qemu` from our
@@ -32,7 +34,8 @@ See [manager.md](docs/manager.md) for the two runtime images, strict VM config,
 probes and shutdown behavior. Published digests and their source revision are
 recorded in [images.lock.json](contrib/images/images.lock.json).
 
-Once the namespace/ServiceAccount image-pull identity is enrolled:
+See [bmc.md](docs/bmc.md) for OIDC provisioning, the per-VM console and TLS.
+Once the namespace/ServiceAccount image-pull identity and OIDC client are enrolled:
 
 ```sh
 kubectl apply -k contrib/kubernetes
@@ -46,6 +49,6 @@ Read [protocol.md](docs/protocol.md) for the transport contract and
 ## Earlier experiments
 
 Host namespace/SEV/SVSM manager APIs are opt-in through `manager/legacy-host`.
-The older BMC enables this explicitly. Confidential-guest boot/attestation
+Confidential-guest boot/attestation
 experiments and standalone UEFI crates remain available separately; see
 [legacy.md](docs/legacy.md). They are not prerequisites for a normal VM pod.

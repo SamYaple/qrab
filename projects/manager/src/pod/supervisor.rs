@@ -64,6 +64,16 @@ async fn stop_child(
 /// Own one QEMU child until it exits or shutdown resolves. kill_on_drop covers
 /// cancellation of this future; explicit paths always wait and reap the child.
 pub async fn run(config: Config, shutdown: impl Future<Output = ()>) -> Result<Outcome> {
+    let (_control, receiver) = super::control_channel();
+    run_controlled(config, shutdown, receiver).await
+}
+
+/// Supervise a VM with a bounded in-process control channel for its BMC.
+pub async fn run_controlled(
+    config: Config,
+    shutdown: impl Future<Output = ()>,
+    mut control: super::ControlReceiver,
+) -> Result<Outcome> {
     config.validate()?;
     std::fs::create_dir_all(&config.runtime_dir)?;
     let lock = OpenOptions::new()
@@ -78,6 +88,7 @@ pub async fn run(config: Config, shutdown: impl Future<Output = ()>) -> Result<O
         .prefix("session-")
         .tempdir_in(&config.runtime_dir)?;
     let socket = session.path().join("qmp.sock");
+    let console = config.console.then(|| session.path().join("vnc.sock"));
     if socket.as_os_str().as_encoded_bytes().len() > 107 {
         return Err(Error::Config(
             "runtime directory is too long for a QMP Unix socket".into(),
@@ -182,6 +193,7 @@ pub async fn run(config: Config, shutdown: impl Future<Output = ()>) -> Result<O
             tokio::select! {
                 _=&mut shutdown => return Ok(None),
                 exit=child.wait() => return Ok(Some(exit?)),
+                Some(request)=control.0.recv() => if request.dispatch(&qmp, console.as_deref()).await { return Ok(None); },
                 reason=qmp.closed() => {
                     state.ready=false;state.phase=Phase::Stopping;publish(&config,&mut state)?;
                     if let Ok(exit)=timeout(Duration::from_secs(2),child.wait()).await { return Ok(Some(exit?)); }

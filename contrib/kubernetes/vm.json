@@ -5,7 +5,8 @@
   "accelerator": "tcg",
   "kernel": "/opt/qrab/demo/vmlinuz",
   "initrd": "/opt/qrab/demo/initramfs.gz",
-  "kernel_args": "console=ttyS0 rdinit=/init panic=0 quiet",
+  "kernel_args": "console=tty0 console=ttyS0 rdinit=/init panic=0 quiet",
+  "console": true,
   "runtime_dir": "/run/qrab",
   "startup_timeout_secs": 30,
   "shutdown_grace_secs": 5

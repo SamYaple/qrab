@@ -1,0 +1,79 @@
+use anyhow::{ensure, Context, Result};
+use openidconnect::url::Url;
+use std::{collections::HashSet, net::SocketAddr, path::PathBuf};
+
+#[derive(Clone)]
+pub struct Config {
+    pub listen: SocketAddr,
+    pub origin: String,
+    pub issuer: String,
+    pub client_id: String,
+    pub allowed_subjects: HashSet<String>,
+    pub assets_dir: PathBuf,
+    pub ca_file: Option<PathBuf>,
+}
+
+impl Config {
+    pub fn from_env() -> Result<Self> {
+        let required =
+            |name: &str| std::env::var(name).with_context(|| format!("{name} is required"));
+        let listen = std::env::var("BMC_LISTEN")
+            .unwrap_or_else(|_| "0.0.0.0:8080".into())
+            .parse()?;
+        let origin = public_origin(
+            &required("BMC_PUBLIC_URL")?,
+            std::env::var("BMC_ALLOW_LOOPBACK_HTTP").as_deref() == Ok("true"),
+            &listen,
+        )?;
+        let allowed_subjects: HashSet<_> = required("BMC_ALLOWED_SUBJECTS")?
+            .split(',')
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(|s| uuid::Uuid::parse_str(s).map(|id| id.to_string()))
+            .collect::<Result<_, _>>()?;
+        ensure!(
+            !allowed_subjects.is_empty(),
+            "BMC_ALLOWED_SUBJECTS must name authorized operator UUIDs"
+        );
+        let issuer = required("BMC_OIDC_ISSUER")?;
+        ensure!(
+            Url::parse(&issuer)?.scheme() == "https",
+            "OIDC issuer must use HTTPS"
+        );
+        let client_id = required("BMC_OIDC_CLIENT_ID")?;
+        ensure!(!client_id.is_empty(), "OIDC client ID must not be empty");
+        Ok(Self {
+            listen,
+            origin,
+            issuer,
+            client_id,
+            allowed_subjects,
+            assets_dir: std::env::var_os("BMC_ASSETS_DIR")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("assets")),
+            ca_file: std::env::var_os("BMC_CA_FILE").map(PathBuf::from),
+        })
+    }
+}
+
+pub fn public_origin(raw: &str, allow_http: bool, listen: &SocketAddr) -> Result<String> {
+    let url = Url::parse(raw)?;
+    ensure!(
+        url.username().is_empty()
+            && url.password().is_none()
+            && url.query().is_none()
+            && url.fragment().is_none()
+            && url.path() == "/"
+            && url.host_str().is_some(),
+        "BMC_PUBLIC_URL must be an origin without credentials, path, query or fragment"
+    );
+    let loopback = url.host_str().is_some_and(|host| {
+        host == "localhost"
+            || host
+                .trim_matches(['[', ']'])
+                .parse::<std::net::IpAddr>()
+                .is_ok_and(|ip| ip.is_loopback())
+    });
+    ensure!(url.scheme() == "https" || (url.scheme() == "http" && allow_http && loopback && listen.ip().is_loopback()), "BMC_PUBLIC_URL must use HTTPS (explicit HTTP development requires a loopback origin and listener)");
+    Ok(url.origin().ascii_serialization())
+}

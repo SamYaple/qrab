@@ -5,9 +5,13 @@ metadata:
   labels:
     app.kubernetes.io/name: qrab
     app.kubernetes.io/component: vm
+    app.kubernetes.io/instance: qrab-demo
 spec:
   serviceAccountName: qrab-manager
   automountServiceAccountToken: false
+  hostAliases:
+  - ip: 192.168.0.251
+    hostnames: [idm.yaple.net]
   restartPolicy: Never
   terminationGracePeriodSeconds: 20
   securityContext:
@@ -27,7 +31,16 @@ spec:
     # Published image/source provenance is recorded in contrib/images/images.lock.json.
     image: zot.yapplesauce.com/qrab/manager@sha256:5f072f05258a8804a8afc84cd811d2d85171a99522690c0ab6c3e95593ab692b
     imagePullPolicy: Always
-    args: [run, --config, /etc/qrab/vm.json]
+    command: [qrab-bmc]
+    args: [--config, /etc/qrab/vm.json]
+    ports:
+    - name: http
+      containerPort: 8080
+    env:
+    - {name: BMC_PUBLIC_URL, value: 'https://qrab-demo.yapplesauce.com'}
+    - {name: BMC_OIDC_ISSUER, value: 'https://idm.yaple.net/oauth2/openid/qrab-bmc'}
+    - {name: BMC_OIDC_CLIENT_ID, value: qrab-bmc}
+    - {name: BMC_ALLOWED_SUBJECTS, value: '6175a2a1-efb9-44e8-8c0b-5fe7ace18f9b'}
     resources:
       requests:
         cpu: "1"
@@ -49,20 +62,17 @@ spec:
     - name: tmp
       mountPath: /tmp
     startupProbe:
-      exec:
-        command: [qrab-manager, ready, --config, /etc/qrab/vm.json]
+      httpGet: {path: /readyz, port: http}
       periodSeconds: 1
       failureThreshold: 60
       timeoutSeconds: 2
     readinessProbe:
-      exec:
-        command: [qrab-manager, ready, --config, /etc/qrab/vm.json]
+      httpGet: {path: /readyz, port: http}
       periodSeconds: 2
       failureThreshold: 3
       timeoutSeconds: 2
     livenessProbe:
-      exec:
-        command: [qrab-manager, live, --config, /etc/qrab/vm.json]
+      httpGet: {path: /readyz, port: http}
       periodSeconds: 5
       failureThreshold: 3
       timeoutSeconds: 2

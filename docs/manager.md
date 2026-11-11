@@ -12,23 +12,24 @@ The older confidential-guest `VmBuilder` API requires the explicit
   are compiled in; only the x86-64 system emulator is built. Firmware and source
   provenance are included under `/opt/qemu` and `/usr/share/doc/qrab-qemu`.
 - `qrab/manager`: extends an immutable QEMU image and adds the Rust supervisor.
-  A tiny, RAM-only Linux guest is included as a reproducible boot fixture.
+  The `qrab-bmc` binary and noVNC assets provide the per-VM OIDC console.
+  A RAM-only Linux guest is included as a reproducible boot/input fixture.
 
-Both run as UID/GID 10001. The manager is the container's main process and owns
+Both run as UID/GID 10001. The BMC embeds the manager as PID 1 and owns
 QEMU directly. The sample pod has a read-only root filesystem, drops all
 capabilities, uses RuntimeDefault seccomp, mounts no API token, and needs only
 writable `emptyDir` volumes. It uses TCG so it can run without a privileged pod
 or a KVM device plugin. KVM is an explicit config option and requires separately
 provisioned access to `/dev/kvm`; the sample does not configure that access.
 
-The demo contains a Debian cloud kernel and a static BusyBox initramfs. It
+The demo contains a Debian kernel, USB input drivers and a static BusyBox initramfs. It
 prints `QRAB_GUEST_BOOTED` and the guest kernel version to the serial console,
-then remains running. It has no guest NIC or persistent root filesystem.
+then offers an interactive shell on the virtual terminal. It has no guest NIC or persistent root filesystem.
 Its package versions are recorded in `/opt/qrab/demo/guest-packages.txt`.
 
 ## Configuration and commands
 
-See `contrib/kubernetes/vm.json` for a complete example. Config is strict JSON;
+See [bmc.md](bmc.md) for the authenticated console and `contrib/kubernetes/vm.json` for a complete VM example. Config is strict JSON;
 unknown fields fail. Required `kernel` and optional `initrd` paths must be
 absolute existing files. Memory is in MiB, CPUs are explicit, and the default
 machine is q35. `accelerator` is `tcg` or `kvm`. Optional `disk` accepts an
@@ -45,7 +46,8 @@ qrab-manager live --config /etc/qrab/vm.json
 ```
 
 The runtime directory has an exclusive kernel-backed owner lock and a private
-per-run QMP socket directory. Stale lock files do not block a container restart;
+per-run QMP/VNC socket directory. `console: true` adds VGA and a USB tablet,
+with VNC on a Unix socket only. Guest networking stays disabled. Stale lock files do not block a container restart;
 active concurrent managers are refused. QEMU starts paused, the manager checks
 its QMP version and resumes it. Serial output goes to container stdout; lifecycle
 records go to stderr as JSON.
@@ -111,9 +113,12 @@ kubectl -n qrab delete pod qrab-demo --timeout=30s
 
 Reapply to launch a new VM. The namespace/ServiceAccount must retain their UIDs;
 they are separate, never-pruned GitOps identity resources. There is no Deployment,
-VM CRD, service or controller in the demo. To use a different kernel/initramfs or
+VM CRD or controller in the demo; the BMC has a per-VM Service/Ingress and TLS
+certificate. To use a different kernel/initramfs or
 disk, mount the files and update the ConfigMap; configuration is read at launch,
-not hot-reloaded. Networking, production storage policy, device plugins and a
+not hot-reloaded. The Pod command selects `qrab-bmc`; its HTTP readiness keeps
+paused VMs accessible. The standalone `qrab-manager` commands above are still
+available for headless use. Guest networking, production storage policy, device plugins and a
 controller remain subsequent work.
 
 ## Validation

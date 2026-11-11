@@ -72,6 +72,9 @@ pub struct Config {
     pub initrd: Option<PathBuf>,
     #[serde(default)]
     pub kernel_args: String,
+    /// Enable a graphical console on a private Unix socket in the session directory.
+    #[serde(default)]
+    pub console: bool,
     #[serde(default)]
     pub disk: Option<Disk>,
     #[serde(default)]
@@ -201,6 +204,24 @@ impl Config {
         }
         if !self.kernel_args.is_empty() {
             args.extend(["-append".into(), self.kernel_args.clone()]);
+        }
+        if self.console {
+            args.extend([
+                "-device".into(),
+                "VGA,vgamem_mb=16".into(),
+                "-device".into(),
+                "qemu-xhci,id=usb".into(),
+                "-device".into(),
+                "usb-tablet,bus=usb.0".into(),
+                "-vnc".into(),
+                format!(
+                    "unix:{},share=force-shared",
+                    socket
+                        .with_file_name("vnc.sock")
+                        .to_string_lossy()
+                        .replace(',', ",,")
+                ),
+            ]);
         }
         if let Some(path) = &self.firmware_dir {
             args.extend(["-L".into(), path.to_string_lossy().into_owned()]);

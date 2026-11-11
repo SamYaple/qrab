@@ -31,6 +31,16 @@ fn arguments_separate_paths_from_qemu_option_syntax() {
     assert_eq!(value["read-only"], true);
     assert!(args.windows(2).any(|a| a == ["-nic", "none"]));
     assert!(!args.iter().any(|a| a.contains("qrab-init")));
+    assert!(!args.iter().any(|a| a == "-vnc"));
+    config.console = true;
+    let args = config.arguments(Path::new("/tmp/private/qmp.sock"));
+    assert!(args
+        .windows(2)
+        .any(|a| a == ["-vnc", "unix:/tmp/private/vnc.sock,share=force-shared"]));
+    assert!(args
+        .windows(2)
+        .any(|a| a == ["-device", "usb-tablet,bus=usb.0"]));
+    assert!(args.windows(2).any(|a| a == ["-nic", "none"]));
 }
 
 #[test]

@@ -7,7 +7,6 @@ normal `cargo build` / `cargo test` package selection:
 | Component | Purpose |
 | --- | --- |
 | `manager` with `legacy-host` | Host namespaces, firmware discovery and the SEV/SVSM `VmBuilder` API |
-| `bmc --features server` | Earlier BMC server; explicitly enables the legacy manager feature |
 | `qrab-init` | Host namespace helper used by that earlier manager |
 | `qrab-boot`, `qrab-real-uki-demo` | Standalone UEFI targets with their own toolchains |
 | `qrab-boot-*`, `qrab-snp-proto`, `qrab-attest-verifier`, `attest-server`, `qrab-guest-init` | Confidential-guest boot, attestation and policy experiments |
@@ -19,11 +18,10 @@ The old API keeps its module names and re-exports when enabled:
 manager = { path = "../manager", features = ["legacy-host"] }
 ```
 
-Safe host API/unit and BMC compilation checks are:
+Safe host API/unit checks are:
 
 ```sh
 cargo test --locked -p manager --features legacy-host --lib
-cargo check --locked -p bmc --features server
 ```
 
 The legacy manager integration targets require `legacy-host`. Selecting that
@@ -50,3 +48,6 @@ The obsolete Debian QEMU 3.1/5.2/7.2 container wrapper matrix was retired. Curre
 images are built from pinned local source under `contrib/images`, and current
 live tests are documented in [testing.md](testing.md). Older-version
 compatibility will be revisited separately.
+
+The earlier Dioxus/host BMC was replaced by the pod-native OIDC BMC; its source
+is retained in Git history before the BMC 0.2 refactor. See [bmc.md](bmc.md).

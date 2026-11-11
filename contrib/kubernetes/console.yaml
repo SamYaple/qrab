@@ -1,0 +1,78 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: qrab-demo
+spec:
+  selector:
+    app.kubernetes.io/name: qrab
+    app.kubernetes.io/instance: qrab-demo
+  ports:
+  - name: http
+    port: 8080
+    targetPort: http
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: qrab-demo
+  annotations:
+    ingress.cilium.io/force-https: enabled
+spec:
+  ingressClassName: cilium
+  tls:
+  - hosts: [qrab-demo.yapplesauce.com]
+    secretName: qrab-demo-tls
+  rules:
+  - host: qrab-demo.yapplesauce.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: qrab-demo
+            port:
+              name: http
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: qrab-demo-tls
+spec:
+  secretName: qrab-demo-tls
+  dnsNames: [qrab-demo.yapplesauce.com]
+  issuerRef:
+    kind: ClusterIssuer
+    name: letsencrypt-production
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+    rotationPolicy: Always
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: qrab-demo
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: qrab
+      app.kubernetes.io/instance: qrab-demo
+  ingress:
+  - fromEntities: [ingress, host]
+    toPorts:
+    - ports:
+      - {port: '8080', protocol: TCP}
+  egress:
+  - toEndpoints:
+    - matchLabels:
+        k8s:io.kubernetes.pod.namespace: kube-system
+        k8s:k8s-app: kube-dns
+    toPorts:
+    - ports:
+      - {port: '53', protocol: UDP}
+      - {port: '53', protocol: TCP}
+  - toCIDR: [192.168.0.251/32]
+    toPorts:
+    - ports:
+      - {port: '443', protocol: TCP}

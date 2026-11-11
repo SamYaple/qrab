@@ -1,124 +1,37 @@
 [package]
 name = "bmc"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
+
+[[bin]]
+name = "qrab-bmc"
+path = "src/main.rs"
 
 [dependencies]
 anyhow = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tracing = { workspace = true }
-tracing-subscriber = { workspace = true, optional = true }
+tracing-subscriber = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt", "signal", "net", "time", "sync", "io-util"] }
+manager = { path = "../manager" }
+axum = { version = "0.8", features = ["ws"] }
+futures = { workspace = true }
+tower-http = { version = "0.6", features = ["fs"] }
+openidconnect = { version = "4", default-features = false, features = ["reqwest", "rustls-tls"] }
+tower-sessions = { version = "0.15", default-features = false, features = ["axum-core"] }
+uuid = { version = "1", features = ["v4"] }
+async-trait = "0.1"
+time = "0.3"
 
-[dependencies.dioxus]
-version = "0.7"
-features = ["fullstack", "router"]
-
-[dependencies.tokio]
-workspace = true
-features = ["time"]
-
-[dependencies.manager]
-path = "../manager"
-features = ["legacy-host"]
-optional = true
-
-[dependencies.qapi]
-path = "../qapi"
-optional = true
-
-[dependencies.qapi-protocol]
-path = "../qapi-protocol"
-optional = true
-
-[dependencies.axum]
-version = "0.8"
-features = ["ws"]
-optional = true
-
-[dependencies.which]
-workspace = true
-optional = true
-
-[dependencies.qrencode]
-version = "0.14"
-optional = true
-
-# R14-A7: used by `ensure_ubuntu_snp_image` to verify the downloaded
-# Ubuntu cloud image against a pinned SHA-256. Default-disabled
-# crate defaults keep the dep graph lean for non-server (WASM web
-# client) builds; the `server` feature opts us in transitively.
-[dependencies.sha2]
-version = "0.10"
-default-features = false
-optional = true
-
-[dependencies.base64]
-version = "0.22"
-optional = true
-
-# R15-2: `ensure_cloud_init_seed` builds the FAT image inside an
-# unguessable 0700 leaf under `/tmp` via `TempDir::new_in`, closing
-# the symlink-race window on the old predictable
-# `$TMPDIR/qrab-cloud-init-build/` path.
-[dependencies.tempfile]
-workspace = true
-optional = true
-
-[dependencies.async-stream]
-version = "0.3"
-optional = true
-
-[dependencies.tower-http]
-version = "0.6"
-features = ["fs"]
-optional = true
-
-[dependencies.futures]
-workspace = true
-optional = true
-
-[target.'cfg(target_arch = "wasm32")'.dependencies]
-gloo-timers = { version = "0.3", features = ["futures"] }
-
+# Compatibility for native builds; the BMC no longer has a WASM build.
 [features]
 default = []
-server = [
-    "dioxus/server",
-    "tokio/sync",
-    "tokio/rt",
-    "tokio/rt-multi-thread",
-    "tokio/macros",
-    "tokio/process",
-    "tokio/fs",
-    "tokio/net",
-    "tokio/io-util",
-    "dep:manager",
-    "dep:qapi",
-    "dep:qapi-protocol",
-    "dep:axum",
-    "dep:async-stream",
-    "dep:futures",
-    "dep:tower-http",
-    "dep:tracing-subscriber",
-    "dep:which",
-    "dep:qrencode",
-    "dep:base64",
-    "dep:sha2",
-    "dep:tempfile",
-]
-web = ["dioxus/web"]
+server = []
 
 [dev-dependencies]
-tokio = { workspace = true, features = ["full"] }
-qapi-protocol = { path = "../qapi-protocol" }
-# S7-21: middleware-level tests feed axum Requests directly via
-# `ServiceExt::oneshot`, which lives in `tower::util`.
 tower = { version = "0.5", features = ["util"] }
-
-[[test]]
-name = "mock_bmc"
-
-[[test]]
-name = "qmp_console"
-required-features = ["server"]
+tempfile = { workspace = true }
+qapi-protocol = { path = "../qapi-protocol" }
+qapi = { path = "../qapi" }
+tokio-tungstenite = "0.29"

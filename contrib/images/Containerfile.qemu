@@ -3,7 +3,7 @@ FROM ${DEBIAN_IMAGE} AS build
 RUN apt-get update && apt-get install -y --no-install-recommends build-essential python3 python3-venv python3-pip python3-setuptools python3-wheel ninja-build meson pkg-config libglib2.0-dev libpixman-1-dev zlib1g-dev libfdt-dev && rm -rf /var/lib/apt/lists/*
 COPY qemu-source /src/qemu
 WORKDIR /build
-RUN /src/qemu/configure --prefix=/opt/qemu --target-list=x86_64-softmmu --without-default-features --enable-tcg --enable-kvm --disable-guest-agent --disable-docs --disable-werror --disable-download && ninja -j 8 && ninja install
+RUN /src/qemu/configure --prefix=/opt/qemu --target-list=x86_64-softmmu --without-default-features --enable-tcg --enable-kvm --enable-vnc --enable-pixman --disable-guest-agent --disable-docs --disable-werror --disable-download && ninja -j 8 && ninja install
 RUN strip /opt/qemu/bin/qemu-system-x86_64
 
 FROM ${DEBIAN_IMAGE}

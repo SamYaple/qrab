@@ -5,7 +5,7 @@ QEMU directly inside the container sandbox. See [../../docs/manager.md](../../do
 for config, images, probes, shutdown and Kubernetes launch.
 
 The default feature set is pod-only. The older typestate/namespace/confidential-guest
-API in `src/vm.rs` requires `legacy-host`; BMC enables it explicitly.
+API in `src/vm.rs` requires `legacy-host`. BMC uses the pod control channel.
 Keep it separate from the pod path; basic pod launch must not require qrab-init,
 SEV/SVSM, host namespaces or Kubernetes API access.
 
