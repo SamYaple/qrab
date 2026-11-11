@@ -1,5 +1,13 @@
 [workspace]
 resolver = "3"
+# The normal developer path is the generated protocol and pod runtime. Tooling,
+# the BMC, and confidential-guest experiments remain explicit package selections.
+default-members = [
+    "projects/qapi-macros",
+    "projects/qapi",
+    "projects/qapi-protocol",
+    "projects/manager",
+]
 members = [
     "projects/qapi-codegen",
     "projects/qapi-macros",
@@ -16,14 +24,7 @@ members = [
     "projects/qrab-attest-verifier",
     "projects/qrab-real-uki-demo-tests",
 ]
-# qrab-boot targets `x86_64-unknown-uefi`, incompatible with the rest of the
-# workspace. Build it separately from `projects/qrab-boot/`. See
-# `~/workspace/llm-rag/reference/qrab-boot-plan.md`.
-#
-# `qrab-real-uki-demo` is a standalone `x86_64-unknown-uefi` PE used
-# as a real UKI fixture for `contrib/matrix-smoke.sh` scenario 1r (see
-# `reference/followups.md` F10). Built out-of-band by
-# `contrib/build-test-uki.sh`.
+# Standalone UEFI targets have their own toolchains. See docs/legacy.md.
 exclude = [
     "projects/qrab-boot",
     "projects/qrab-real-uki-demo",

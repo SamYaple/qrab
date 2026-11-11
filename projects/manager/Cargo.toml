@@ -1,20 +1,33 @@
 [package]
 name = "manager"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
+
+[features]
+default = []
+# Preserved host namespace/SEV/SVSM API, used by the older BMC server.
+legacy-host = [
+    "dep:base64",
+    "dep:paste",
+    "dep:tracing",
+    "dep:which",
+    "nix/ioctl",
+    "nix/mount",
+    "nix/sched",
+    "nix/user",
+    "tokio/fs",
+    "tokio/rt-multi-thread",
+]
 
 [dependencies]
 thiserror = { workspace = true }
-tracing = { workspace = true }
-which = { workspace = true }
+tracing = { workspace = true, optional = true }
+which = { workspace = true, optional = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tempfile = { workspace = true }
-# base64 is used to encode the SB Platform Key for QEMU's
-# `-smbios type=11,value=<guid>:<base64>` OEM-string mechanism, which
-# OVMF's EnrollDefaultKeys consumes to pin the runtime PK. Only added
-# when the SVSM+SB lane is exercised; zero code-path cost when SB is off.
-base64 = "0.22"
+base64 = { version = "0.22", optional = true }
+paste = { workspace = true, optional = true }
 
 [dependencies.qapi]
 path = "../qapi"
@@ -24,14 +37,40 @@ path = "../qapi-protocol"
 
 [dependencies.nix]
 workspace = true
-features = ["fs", "mount", "process", "sched", "signal", "user"]
+features = ["fs", "process", "signal"]
 
 [dependencies.tokio]
 workspace = true
-features = ["net", "io-util", "sync", "rt", "macros", "rt-multi-thread", "process", "time", "fs", "signal"]
+features = ["rt", "macros", "process", "time", "signal"]
 
-[dev-dependencies]
-paste = { workspace = true }
-serde_json = { workspace = true }
-serde = { workspace = true }
-nix = { workspace = true, features = ["ioctl"] }
+[dev-dependencies.tokio]
+workspace = true
+features = ["io-util"]
+
+[[test]]
+name = "child_crash_event"
+required-features = ["legacy-host"]
+
+[[test]]
+name = "firmware"
+required-features = ["legacy-host"]
+
+[[test]]
+name = "integration"
+required-features = ["legacy-host"]
+
+[[test]]
+name = "sev"
+required-features = ["legacy-host"]
+
+[[test]]
+name = "sev_kvm_readonly"
+required-features = ["legacy-host"]
+
+[[test]]
+name = "sev_negative"
+required-features = ["legacy-host"]
+
+[[test]]
+name = "vnc_display"
+required-features = ["legacy-host"]

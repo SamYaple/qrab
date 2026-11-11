@@ -77,9 +77,11 @@ impl ManagerEvent {
     /// any non-zero exit, signal-kill, or wait failure.
     #[must_use]
     pub fn is_clean_exit(&self) -> bool {
-        let Self::ProcessExited { status, killed_by_signal } = self;
-        killed_by_signal.is_none()
-            && status.map(|s| s.success()).unwrap_or(false)
+        let Self::ProcessExited {
+            status,
+            killed_by_signal,
+        } = self;
+        killed_by_signal.is_none() && status.map(|s| s.success()).unwrap_or(false)
     }
 }
 

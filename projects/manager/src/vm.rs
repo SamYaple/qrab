@@ -222,10 +222,12 @@ fn validate_memory(mem: &str) -> Result<()> {
     if i < bytes.len() {
         match bytes[i] {
             b'K' | b'k' | b'M' | b'm' | b'G' | b'g' | b'T' | b't' => i += 1,
-            _ => return Err(Error::Config(format!(
-                "memory size {:?} has invalid unit suffix (expected one of K/M/G/T)",
-                mem
-            ))),
+            _ => {
+                return Err(Error::Config(format!(
+                    "memory size {:?} has invalid unit suffix (expected one of K/M/G/T)",
+                    mem
+                )))
+            }
         }
     }
 
@@ -410,10 +412,7 @@ impl Drop for VmProcess {
         if let Some(h) = self.monitor.take() {
             if tokio::runtime::Handle::try_current().is_err() {
                 if let Some(pid) = self.init_pid {
-                    let _ = nix::sys::signal::kill(
-                        pid,
-                        nix::sys::signal::Signal::SIGTERM,
-                    );
+                    let _ = nix::sys::signal::kill(pid, nix::sys::signal::Signal::SIGTERM);
                     // Give qrab-init a short grace to forward the
                     // signal + reap QEMU before we drop the Child and
                     // let `kill_on_drop(true)` SIGKILL the whole chain.
@@ -551,10 +550,7 @@ pub struct SvsmConfig {
 /// produces the `-object` pair. Keeps the SVSM-lane code path
 /// additive and easy to strip if a future refactor pulls IGVM +
 /// memfd into `build_machine_args`.
-fn build_svsm_args(
-    igvm_path: &Path,
-    config: &MachineConfig,
-) -> Result<Vec<String>> {
+fn build_svsm_args(igvm_path: &Path, config: &MachineConfig) -> Result<Vec<String>> {
     let mem = memory_size(config);
     Ok(vec![
         "-object".into(),
@@ -758,7 +754,6 @@ impl VmBuilder<WithSnp> {
 }
 
 impl<S> VmBuilder<S> {
-
     /// Use direct kernel boot (bypasses bootloader).
     #[must_use]
     pub fn kernel(mut self, kernel: PathBuf, initrd: PathBuf, append: &str) -> Self {
@@ -924,7 +919,10 @@ impl<S> VmBuilder<S> {
     /// Returns `(args, machine_arg_index)` where `machine_arg_index` is
     /// the index of the machine type value in `args` (for later SEV
     /// modification).
-    fn build_machine_args(&self, tmpdir: &tempfile::TempDir) -> Result<(Vec<String>, Option<usize>)> {
+    fn build_machine_args(
+        &self,
+        tmpdir: &tempfile::TempDir,
+    ) -> Result<(Vec<String>, Option<usize>)> {
         let mut args: Vec<String> = Vec::new();
         let mut machine_idx = None;
 
@@ -942,9 +940,7 @@ impl<S> VmBuilder<S> {
                 for i in 0..4 {
                     args.extend([
                         "-device".into(),
-                        format!(
-                            "pcie-root-port,id=rp{i},slot={i},chassis={i},bus=pcie.0"
-                        ),
+                        format!("pcie-root-port,id=rp{i},slot={i},chassis={i},bus=pcie.0"),
                     ]);
                 }
 
@@ -959,10 +955,8 @@ impl<S> VmBuilder<S> {
                     // Don't emit any firmware args here.
                 } else if let Some(ref ovmf) = self.ovmf {
                     // Normal (non-SEV): split pflash for UEFI vars persistence.
-                    let vars_copy = firmware::prepare_vars_copy(
-                        &ovmf.vars_template,
-                        tmpdir.path(),
-                    )?;
+                    let vars_copy =
+                        firmware::prepare_vars_copy(&ovmf.vars_template, tmpdir.path())?;
                     args.extend([
                         "-drive".into(),
                         format!(
@@ -972,10 +966,7 @@ impl<S> VmBuilder<S> {
                     ]);
                     args.extend([
                         "-drive".into(),
-                        format!(
-                            "if=pflash,format=raw,file={}",
-                            vars_copy.display()
-                        ),
+                        format!("if=pflash,format=raw,file={}", vars_copy.display()),
                     ]);
                 } else if let Some(ref fw) = self.firmware {
                     // x86_64-only: -bios loads the firmware at the
@@ -1003,9 +994,7 @@ impl<S> VmBuilder<S> {
                 for i in 0..4 {
                     args.extend([
                         "-device".into(),
-                        format!(
-                            "pcie-root-port,id=rp{i},slot={i},chassis={i},bus=pcie.0"
-                        ),
+                        format!("pcie-root-port,id=rp{i},slot={i},chassis={i},bus=pcie.0"),
                     ]);
                 }
 
@@ -1014,7 +1003,7 @@ impl<S> VmBuilder<S> {
                     Some(ref fw) => fw.clone(),
                     None => firmware::find_ovmf(true).ok_or_else(|| {
                         Error::Config(
-                            "SecureBoot requires OVMF firmware but none found on system".into()
+                            "SecureBoot requires OVMF firmware but none found on system".into(),
                         )
                     })?,
                 };
@@ -1023,10 +1012,8 @@ impl<S> VmBuilder<S> {
                     // SEV-SNP: firmware via -machine firmware= (same as UEFI path).
                     // Don't emit anything here — handled via machine suffix.
                 } else {
-                    let vars_copy = firmware::prepare_vars_copy(
-                        &ovmf.vars_template,
-                        tmpdir.path(),
-                    )?;
+                    let vars_copy =
+                        firmware::prepare_vars_copy(&ovmf.vars_template, tmpdir.path())?;
                     args.extend([
                         "-drive".into(),
                         format!(
@@ -1036,10 +1023,7 @@ impl<S> VmBuilder<S> {
                     ]);
                     args.extend([
                         "-drive".into(),
-                        format!(
-                            "if=pflash,format=raw,file={}",
-                            vars_copy.display()
-                        ),
+                        format!("if=pflash,format=raw,file={}", vars_copy.display()),
                     ]);
                 }
             }
@@ -1074,7 +1058,11 @@ impl<S> VmBuilder<S> {
     fn detect_cbitpos() -> Option<u32> {
         let result = std::arch::x86_64::__cpuid(0x8000001F);
         let cbitpos = result.ebx & 0x3F;
-        if cbitpos > 0 { Some(cbitpos) } else { None }
+        if cbitpos > 0 {
+            Some(cbitpos)
+        } else {
+            None
+        }
     }
 
     #[cfg(not(target_arch = "x86_64"))]
@@ -1148,10 +1136,7 @@ impl<S> VmBuilder<S> {
         if self.display {
             let sock = tmpdir.join("vnc.sock");
             args.push("-nodefaults".into());
-            args.extend([
-                "-display".into(),
-                format!("vnc=unix:{}", sock.display()),
-            ]);
+            args.extend(["-display".into(), format!("vnc=unix:{}", sock.display())]);
             args.extend(["-vga".into(), "std".into()]);
             (args, Some(sock))
         } else {
@@ -1183,7 +1168,10 @@ impl<S> VmBuilder<S> {
 
         // Must be x86_64
         if !matches!(self.arch, Arch::X86_64) {
-            return Err(Error::Config(format!("SEV-SNP requires x86_64 architecture (got {:?})", self.arch)));
+            return Err(Error::Config(format!(
+                "SEV-SNP requires x86_64 architecture (got {:?})",
+                self.arch
+            )));
         }
 
         // Must use KVM
@@ -1222,7 +1210,7 @@ impl<S> VmBuilder<S> {
         // which won't work for SEV-SNP. Require explicit CPU.
         if cpu.is_none() {
             return Err(Error::Config(
-                "SEV-SNP requires explicit CPU model ('host' or EPYC variant)".into()
+                "SEV-SNP requires explicit CPU model ('host' or EPYC variant)".into(),
             ));
         }
 
@@ -1238,7 +1226,8 @@ impl<S> VmBuilder<S> {
         } else if !Path::new("/dev/sev").exists() && !Path::new("/dev/sev-guest").exists() {
             return Err(Error::Config(
                 "SEV device not found (tried /dev/sev and /dev/sev-guest) \
-                 — is AMD SEV enabled in BIOS and kernel?".into()
+                 — is AMD SEV enabled in BIOS and kernel?"
+                    .into(),
             ));
         }
 
@@ -1257,9 +1246,7 @@ impl<S> VmBuilder<S> {
 
         // Verify firmware is AmdSev OVMF variant when SEV-SNP enabled
         if let Some(ref fw) = self.firmware {
-            let name = fw.file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("");
+            let name = fw.file_name().and_then(|n| n.to_str()).unwrap_or("");
             let path_str = fw.display().to_string().to_lowercase();
             if !name.to_lowercase().contains("amdsev")
                 && !path_str.contains("amdsev")
@@ -1275,7 +1262,6 @@ impl<S> VmBuilder<S> {
 
         Ok(())
     }
-
 }
 
 /// Terminal methods (`spawn`) only available on `VmBuilder<WithSnp>`
@@ -1316,7 +1302,9 @@ impl VmBuilder<WithSnp> {
 
         // --- SEV fd (open before namespace — needs real credentials) ---
         let sev_fd = if self.sev_snp.is_some() {
-            let dev_path = self.sev_snp.as_ref()
+            let dev_path = self
+                .sev_snp
+                .as_ref()
                 .and_then(|s| s.sev_device.as_ref())
                 .map(|p| p.as_path());
             Some(SevFd::open(dev_path)?)
@@ -1431,7 +1419,7 @@ impl VmBuilder<WithSnp> {
                         ovmf.code.clone()
                     } else {
                         return Err(Error::Config(
-                            "SEV-SNP requires firmware (AmdSev OVMF) but none configured".into()
+                            "SEV-SNP requires firmware (AmdSev OVMF) but none configured".into(),
                         ));
                     };
                     args[abs_idx].push_str(&format!(",firmware={}", fw_path.display()));
@@ -1537,12 +1525,12 @@ impl VmBuilder<WithSnp> {
         args.extend(self.extra_args);
 
         // --- Pipes for namespace sync + config transport ---
-        let (sync_parent_r, sync_child_w) = nix::unistd::pipe()
-            .map_err(|e| Error::Spawn(format!("sync pipe (to parent): {e}")))?;
-        let (ack_child_r, ack_parent_w) = nix::unistd::pipe()
-            .map_err(|e| Error::Spawn(format!("ack pipe (to child): {e}")))?;
-        let (cfg_r, cfg_w) = nix::unistd::pipe()
-            .map_err(|e| Error::Spawn(format!("config pipe: {e}")))?;
+        let (sync_parent_r, sync_child_w) =
+            nix::unistd::pipe().map_err(|e| Error::Spawn(format!("sync pipe (to parent): {e}")))?;
+        let (ack_child_r, ack_parent_w) =
+            nix::unistd::pipe().map_err(|e| Error::Spawn(format!("ack pipe (to child): {e}")))?;
+        let (cfg_r, cfg_w) =
+            nix::unistd::pipe().map_err(|e| Error::Spawn(format!("config pipe: {e}")))?;
 
         // Set CLOEXEC on parent-side pipe ends so they're closed in child
         // on exec. Without this, the child inherits the write end of the
@@ -1572,15 +1560,18 @@ impl VmBuilder<WithSnp> {
             }
             override_path.clone()
         } else {
-            which::which(self.arch.binary())
-                .map_err(|_| Error::Binary(format!(
+            which::which(self.arch.binary()).map_err(|_| {
+                Error::Binary(format!(
                     "QEMU binary not found: {}",
                     self.arch.binary().display()
-                )))?
+                ))
+            })?
         };
         // SEV-SNP needs /dev/sev in the namespace for PSP communication.
         let extra_dev_nodes = if self.sev_snp.is_some() {
-            let sev_dev = self.sev_snp.as_ref()
+            let sev_dev = self
+                .sev_snp
+                .as_ref()
                 .and_then(|s| s.sev_device.clone())
                 .unwrap_or_else(|| PathBuf::from("/dev/sev"));
             vec![sev_dev]
@@ -1646,9 +1637,7 @@ impl VmBuilder<WithSnp> {
             let n = nix::unistd::write(&cfg_w, &config_json[written..])
                 .map_err(|e| Error::Spawn(format!("write config pipe: {e}")))?;
             if n == 0 {
-                return Err(Error::Spawn(
-                    "write config pipe: zero-length write".into(),
-                ));
+                return Err(Error::Spawn("write config pipe: zero-length write".into()));
             }
             written += n;
         }
@@ -1688,30 +1677,28 @@ impl VmBuilder<WithSnp> {
             }
             if let Ok(Some(status)) = child.try_wait() {
                 // tmpdir drops on return, cleaning up.
-                return Err(Error::Spawn(format!("qrab-init exited before QMP socket appeared: {status}")));
+                return Err(Error::Spawn(format!(
+                    "qrab-init exited before QMP socket appeared: {status}"
+                )));
             }
             tokio::time::sleep(Duration::from_millis(100)).await;
         }
 
         if !tokio::fs::try_exists(&qmp_sock).await.unwrap_or(false) {
-            return Err(Error::Spawn(format!("QMP socket did not appear: {}", qmp_sock.display())));
+            return Err(Error::Spawn(format!(
+                "QMP socket did not appear: {}",
+                qmp_sock.display()
+            )));
         }
 
         // Restrict socket permissions to owner only.
         #[cfg(unix)]
         {
-            tokio::fs::set_permissions(
-                &qmp_sock,
-                std::fs::Permissions::from_mode(0o600),
-            )
-            .await?;
+            tokio::fs::set_permissions(&qmp_sock, std::fs::Permissions::from_mode(0o600)).await?;
             if let Some(ref sock) = vnc_sock {
                 if tokio::fs::try_exists(sock).await.unwrap_or(false) {
-                    tokio::fs::set_permissions(
-                        sock,
-                        std::fs::Permissions::from_mode(0o600),
-                    )
-                    .await?;
+                    tokio::fs::set_permissions(sock, std::fs::Permissions::from_mode(0o600))
+                        .await?;
                 }
             }
         }
@@ -1992,7 +1979,9 @@ impl Vm {
     /// Request guest powerdown via ACPI (sends `system_powerdown`).
     #[must_use = "QMP command results should be checked for errors"]
     pub async fn powerdown(&self) -> Result<()> {
-        self.qmp.execute(&qapi::commands::SystemPowerdown {}).await?;
+        self.qmp
+            .execute(&qapi::commands::SystemPowerdown {})
+            .await?;
         Ok(())
     }
 
@@ -2020,7 +2009,8 @@ impl Vm {
     /// Query SEV launch measurement for attestation.
     #[must_use = "QMP command results should be checked for errors"]
     pub async fn query_sev_launch_measure(&self) -> Result<qapi::SevLaunchMeasureInfo> {
-        self.execute(&qapi::commands::QuerySevLaunchMeasure {}).await
+        self.execute(&qapi::commands::QuerySevLaunchMeasure {})
+            .await
     }
 
     /// Query SEV attestation report with a nonce.
@@ -2029,7 +2019,8 @@ impl Vm {
         &self,
         mnonce: String,
     ) -> Result<qapi::SevAttestationReport> {
-        self.execute(&qapi::commands::QuerySevAttestationReport { mnonce }).await
+        self.execute(&qapi::commands::QuerySevAttestationReport { mnonce })
+            .await
     }
 
     /// Force-kill shutdown: disconnect QMP, kill the process immediately.
@@ -2063,8 +2054,8 @@ impl Vm {
                     break;
                 }
                 Ok(Some(_)) => continue, // other event, keep waiting
-                Ok(None) => break,        // channel closed
-                Err(_) => break,          // timeout
+                Ok(None) => break,       // channel closed
+                Err(_) => break,         // timeout
             }
         }
 
@@ -2080,7 +2071,9 @@ impl Vm {
 
         // Step 4: Wait 5s for exit
         let quit_deadline = tokio::time::Instant::now() + Duration::from_secs(5);
-        while let Ok(Ok(())) = tokio::time::timeout_at(quit_deadline, self.process.exit_watch.changed()).await {
+        while let Ok(Ok(())) =
+            tokio::time::timeout_at(quit_deadline, self.process.exit_watch.changed()).await
+        {
             if self.process.exit_watch.borrow().is_some() {
                 self.qmp.shutdown().await;
                 self.process.cleanup().await;
@@ -2165,8 +2158,8 @@ mod tests {
 
     mod sb_pk {
         use super::super::{
-            OVMF_PK_KEK1_APP_PREFIX_GUID, build_sb_pk_oem_string, build_sb_pk_smbios_args,
-            VmBuilder,
+            build_sb_pk_oem_string, build_sb_pk_smbios_args, VmBuilder,
+            OVMF_PK_KEK1_APP_PREFIX_GUID,
         };
         use crate::arch::{Arch, MachineConfig};
         use std::io::Write;
@@ -2331,7 +2324,10 @@ mod tests {
         assert_eq!(cfg.author_key_enabled, Some(true));
         assert_eq!(cfg.vcek_disabled, Some(true));
         assert_eq!(cfg.kernel_hashes, Some(true));
-        assert_eq!(cfg.guest_visible_workarounds.as_deref(), Some("d29ya2Fyb3VuZHM="));
+        assert_eq!(
+            cfg.guest_visible_workarounds.as_deref(),
+            Some("d29ya2Fyb3VuZHM=")
+        );
         assert_eq!(cfg.reduced_phys_bits, 2);
         assert_eq!(cfg.cbitpos, Some(51));
     }
@@ -2341,7 +2337,9 @@ mod tests {
     fn make_sev_builder(sev: SevSnpConfig) -> VmBuilder<WithSnp> {
         VmBuilder::new(
             Arch::X86_64,
-            MachineConfig::Uefi { memory: "4G".into() },
+            MachineConfig::Uefi {
+                memory: "4G".into(),
+            },
         )
         .sev_snp(sev)
         .accel(Accel::Kvm)
@@ -2437,19 +2435,20 @@ mod tests {
         let without = make_sev_builder(SevSnpConfig::default())
             .build_sev_args()
             .unwrap();
-        let with = make_sev_builder(
-            SevSnpConfig::default()
-                .attest_server_url("vsock://2:1337/attest"),
-        )
-        .build_sev_args()
-        .unwrap();
+        let with =
+            make_sev_builder(SevSnpConfig::default().attest_server_url("vsock://2:1337/attest"))
+                .build_sev_args()
+                .unwrap();
         assert_eq!(without.0, with.0);
     }
 
     #[test]
     fn attest_server_url_builder_roundtrips() {
         let cfg = SevSnpConfig::default().attest_server_url("vsock://2:9999/attest");
-        assert_eq!(cfg.attest_server_url.as_deref(), Some("vsock://2:9999/attest"));
+        assert_eq!(
+            cfg.attest_server_url.as_deref(),
+            Some("vsock://2:9999/attest")
+        );
         // Default is still None.
         assert!(SevSnpConfig::default().attest_server_url.is_none());
     }
@@ -2483,9 +2482,7 @@ mod tests {
     // -- svsm / TpmBackend tests (Phase 2) --
 
     mod svsm {
-        use super::super::{
-            build_svsm_args, SvsmConfig, TpmBackend, VmBuilder,
-        };
+        use super::super::{build_svsm_args, SvsmConfig, TpmBackend, VmBuilder};
         use crate::arch::{Arch, MachineConfig};
         use std::path::PathBuf;
 
@@ -2497,7 +2494,9 @@ mod tests {
             };
             let b = VmBuilder::new(
                 Arch::X86_64,
-                MachineConfig::Uefi { memory: "1024M".into() },
+                MachineConfig::Uefi {
+                    memory: "1024M".into(),
+                },
             )
             .sev_snp(super::super::SevSnpConfig::default())
             .svsm(cfg);
@@ -2516,7 +2515,9 @@ mod tests {
             };
             let b = VmBuilder::new(
                 Arch::X86_64,
-                MachineConfig::Uefi { memory: "1024M".into() },
+                MachineConfig::Uefi {
+                    memory: "1024M".into(),
+                },
             )
             .sev_snp(super::super::SevSnpConfig::default())
             .svsm(cfg);
@@ -2527,7 +2528,9 @@ mod tests {
         fn explicit_qemu_binary_override_honored() {
             let b = VmBuilder::new(
                 Arch::X86_64,
-                MachineConfig::Uefi { memory: "1024M".into() },
+                MachineConfig::Uefi {
+                    memory: "1024M".into(),
+                },
             )
             .sev_snp(super::super::SevSnpConfig::default())
             .qemu_binary(PathBuf::from("/usr/local/bin/qemu-custom"));
@@ -2540,12 +2543,17 @@ mod tests {
         #[test]
         fn build_svsm_args_emits_memfd_and_igvm_objects() {
             let igvm = PathBuf::from("/tmp/coconut-qemu.igvm");
-            let cfg = MachineConfig::Uefi { memory: "2G".into() };
+            let cfg = MachineConfig::Uefi {
+                memory: "2G".into(),
+            };
             let args = build_svsm_args(&igvm, &cfg).unwrap();
             assert_eq!(args.len(), 4);
             assert_eq!(args[0], "-object");
-            assert!(args[1].starts_with("memory-backend-memfd,id=ram1,size=2G,"),
-                "got: {}", args[1]);
+            assert!(
+                args[1].starts_with("memory-backend-memfd,id=ram1,size=2G,"),
+                "got: {}",
+                args[1]
+            );
             assert!(args[1].contains("share=true"));
             assert!(args[1].contains("prealloc=false"));
             assert!(args[1].contains("reserve=false"));
@@ -2561,7 +2569,9 @@ mod tests {
             // resolver returns "EPYC-v4".
             let b = VmBuilder::new(
                 Arch::X86_64,
-                MachineConfig::Uefi { memory: "2G".into() },
+                MachineConfig::Uefi {
+                    memory: "2G".into(),
+                },
             )
             .sev_snp(super::super::SevSnpConfig::default())
             .svsm(SvsmConfig {
@@ -2576,7 +2586,9 @@ mod tests {
         fn svsm_backend_respects_explicit_cpu_override() {
             let b = VmBuilder::new(
                 Arch::X86_64,
-                MachineConfig::Uefi { memory: "2G".into() },
+                MachineConfig::Uefi {
+                    memory: "2G".into(),
+                },
             )
             .sev_snp(super::super::SevSnpConfig::default())
             .svsm(SvsmConfig {
@@ -2591,11 +2603,25 @@ mod tests {
         fn build_svsm_args_pulls_memory_from_machine_config() {
             let igvm = PathBuf::from("/a.igvm");
             for (cfg, expected) in [
-                (MachineConfig::Uefi { memory: "4G".into() }, "size=4G"),
-                (MachineConfig::SecureBoot { memory: "8G".into() }, "size=8G"),
+                (
+                    MachineConfig::Uefi {
+                        memory: "4G".into(),
+                    },
+                    "size=4G",
+                ),
+                (
+                    MachineConfig::SecureBoot {
+                        memory: "8G".into(),
+                    },
+                    "size=8G",
+                ),
             ] {
                 let args = build_svsm_args(&igvm, &cfg).unwrap();
-                assert!(args[1].contains(expected), "cfg missing {expected}: {}", args[1]);
+                assert!(
+                    args[1].contains(expected),
+                    "cfg missing {expected}: {}",
+                    args[1]
+                );
             }
         }
 
@@ -2603,7 +2629,9 @@ mod tests {
         fn vsock_setter_records_guest_cid() {
             let b = VmBuilder::new(
                 Arch::X86_64,
-                MachineConfig::Uefi { memory: "1G".into() },
+                MachineConfig::Uefi {
+                    memory: "1G".into(),
+                },
             )
             .vsock(3);
             assert_eq!(b.vsock_guest_cid, Some(3));
@@ -2613,7 +2641,9 @@ mod tests {
         fn vsock_unset_by_default() {
             let b = VmBuilder::new(
                 Arch::X86_64,
-                MachineConfig::Uefi { memory: "1G".into() },
+                MachineConfig::Uefi {
+                    memory: "1G".into(),
+                },
             );
             assert_eq!(b.vsock_guest_cid, None);
         }
@@ -2622,7 +2652,9 @@ mod tests {
         fn vsock_survives_sev_snp_transition() {
             let b = VmBuilder::new(
                 Arch::X86_64,
-                MachineConfig::Uefi { memory: "1G".into() },
+                MachineConfig::Uefi {
+                    memory: "1G".into(),
+                },
             )
             .vsock(42)
             .sev_snp(super::super::SevSnpConfig::default());
@@ -2643,7 +2675,9 @@ mod tests {
         fn machine_args_uefi_snp_svsm_omits_bios_and_pflash() {
             let b = VmBuilder::new(
                 Arch::X86_64,
-                MachineConfig::Uefi { memory: "2G".into() },
+                MachineConfig::Uefi {
+                    memory: "2G".into(),
+                },
             )
             .sev_snp(super::super::SevSnpConfig::default())
             .svsm(SvsmConfig {
@@ -2652,7 +2686,10 @@ mod tests {
             });
             let tmpdir = tempfile::TempDir::new().unwrap();
             let (args, _idx) = b.build_machine_args(&tmpdir).unwrap();
-            assert!(!args.iter().any(|a| a == "-bios"), "found -bios in {args:?}");
+            assert!(
+                !args.iter().any(|a| a == "-bios"),
+                "found -bios in {args:?}"
+            );
             assert!(
                 !args.iter().any(|a| a.starts_with("if=pflash")),
                 "found pflash in {args:?}",
@@ -2669,12 +2706,17 @@ mod tests {
             // `-machine firmware=<ovmf>` in spawn(), not here.
             let b = VmBuilder::new(
                 Arch::X86_64,
-                MachineConfig::Uefi { memory: "2G".into() },
+                MachineConfig::Uefi {
+                    memory: "2G".into(),
+                },
             )
             .sev_snp(super::super::SevSnpConfig::default());
             let tmpdir = tempfile::TempDir::new().unwrap();
             let (args, _idx) = b.build_machine_args(&tmpdir).unwrap();
-            assert!(!args.iter().any(|a| a == "-bios"), "found -bios in {args:?}");
+            assert!(
+                !args.iter().any(|a| a == "-bios"),
+                "found -bios in {args:?}"
+            );
             assert!(
                 !args.iter().any(|a| a.starts_with("if=pflash")),
                 "found pflash in {args:?}",
@@ -2685,7 +2727,9 @@ mod tests {
         fn machine_args_secureboot_snp_omits_pflash() {
             let b = VmBuilder::new(
                 Arch::X86_64,
-                MachineConfig::SecureBoot { memory: "2G".into() },
+                MachineConfig::SecureBoot {
+                    memory: "2G".into(),
+                },
             )
             .sev_snp(super::super::SevSnpConfig::default());
             let tmpdir = tempfile::TempDir::new().unwrap();
@@ -2738,7 +2782,9 @@ mod tests {
             // or canonicalise the path — both would break matching against
             // the rebuild regression guards in `manager/tests/firmware.rs`.
             let path = PathBuf::from("/opt/qrab/target/svsm-out/coconut-qemu.igvm");
-            let cfg = MachineConfig::Uefi { memory: "1G".into() };
+            let cfg = MachineConfig::Uefi {
+                memory: "1G".into(),
+            };
             let args = build_svsm_args(&path, &cfg).unwrap();
             assert_eq!(
                 args[3],
@@ -2779,8 +2825,7 @@ pub mod test_support {
         JoinHandle<()>,
         watch::Receiver<Option<ExitStatus>>,
     ) {
-        let (tx, handle, exit_rx, _init_pid) =
-            VmProcess::spawn_monitor(child, manager_event_tx);
+        let (tx, handle, exit_rx, _init_pid) = VmProcess::spawn_monitor(child, manager_event_tx);
         (tx, handle, exit_rx)
     }
 }

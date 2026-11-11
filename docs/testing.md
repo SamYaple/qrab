@@ -1,23 +1,32 @@
 # Core-library validation
 
-Rust/Cargo, Git and a C toolchain build the core libraries. Parser integration
-tests also require the initialized QEMU submodule, its pinned release tags and
-Python 3 for QEMU's independent parser oracle. They do not need QEMU binaries.
-
-From the repository root:
+The normal developer path is the default workspace: `qapi-macros`, `qapi`,
+`qapi-protocol` and the pod-native `manager`. No QEMU checkout, Python, firmware,
+privileged hardware or cluster is required for these tests:
 
 ```sh
-contrib/check-qapi.sh
+cargo test --locked
+bash contrib/check-runtime.sh
 ```
 
-This runs parser/generator, macro, type and protocol tests, then generates QMP
-and QGA into a temporary directory and compares every file with the committed
-outputs. Ordinary builds do not regenerate schemas. For just the transport and
-type tests (no submodules or Python required):
+The script also checks formatting and runs strict manager/protocol Clippy.
+Generated QAPI modules are excluded from rustfmt traversal; update them through
+codegen, not manual formatting.
+
+Parser/generator changes have a separate, explicit check:
 
 ```sh
-cargo test --locked -p qapi-macros -p qapi -p qapi-protocol
+bash contrib/check-qapi.sh
 ```
+
+It requires Git, Python 3 and the initialized local QEMU submodule with pinned
+release tags. It compares definition coverage with QEMU's own parser, tests the
+generator, and regenerates QMP/QGA to verify committed outputs byte for byte.
+Historical schemas remain tooling inputs; their compatibility work is not a
+mandatory runtime development step.
+
+Legacy host APIs and firmware tests are opt-in; see [legacy.md](legacy.md).
+The preserved BMC server selects the `legacy-host` manager feature explicitly.
 
 Protocol cleanup can be checked directly with:
 

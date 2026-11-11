@@ -3,7 +3,8 @@
 `qrab-manager` runs one x86-64 QEMU VM inside an existing container sandbox.
 It uses `manager::pod` and `qapi-protocol` directly: no systemd, host namespace
 helper, Kubernetes API client, guest networking or VM controller is involved.
-The older confidential-guest `VmBuilder` API remains separate from this path.
+The older confidential-guest `VmBuilder` API requires the explicit
+`legacy-host` Cargo feature; see [legacy.md](legacy.md).
 
 ## Images
 
@@ -117,7 +118,7 @@ controller remain subsequent work.
 
 ## Validation
 
-`cargo test -p manager --test pod_runtime` exercises config/argument handling,
+`cargo test -p manager` exercises config/argument handling,
 early exits, startup timeout, cancellation, ownership and child reaping. The
 ignored live CLI test boots the same fixture, validates readiness, attaches a
 read-only disk whose filename contains commas/spaces, sends SIGTERM and checks

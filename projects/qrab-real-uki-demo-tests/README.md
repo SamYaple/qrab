@@ -1,9 +1,9 @@
 # qrab-real-uki-demo-tests
 
 Host-side invariant tests for the sibling `qrab-real-uki-demo` UEFI PE
-fixture. Closes [B13-6](../../../llm-rag/audits/bugs.md#b13-6) — prior
-to this crate the byte-size budget and PE shape of that fixture were
-only enforced by a shell assertion in `contrib/build-test-uki.sh`.
+fixture. The byte-size budget and PE shape are checked independently from
+the shell staging helper. This is [legacy firmware tooling](../../docs/legacy.md),
+not part of the default pod runtime.
 
 ## Why a separate crate?
 

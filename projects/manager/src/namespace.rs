@@ -46,7 +46,8 @@ pub fn qrab_init_binary() -> crate::Result<PathBuf> {
         let path = PathBuf::from(p);
         if !path.is_file() {
             return Err(crate::Error::Binary(format!(
-                "QRAB_INIT_BIN={} is not a file", path.display()
+                "QRAB_INIT_BIN={} is not a file",
+                path.display()
             )));
         }
         return Ok(path);
@@ -69,8 +70,9 @@ pub fn qrab_init_binary() -> crate::Result<PathBuf> {
         }
     }
 
-    which::which("qrab-init")
-        .map_err(|_| crate::Error::Binary("qrab-init not found — install it or set QRAB_INIT_BIN".into()))
+    which::which("qrab-init").map_err(|_| {
+        crate::Error::Binary("qrab-init not found — install it or set QRAB_INIT_BIN".into())
+    })
 }
 
 /// Wrapper around a pre-opened `/dev/kvm` file descriptor.
@@ -173,7 +175,8 @@ impl NsHelper {
         let pid_str = std::str::from_utf8(&pid_buf[..n])
             .map_err(|e| crate::Error::Namespace(format!("invalid PID from child: {e}")))?
             .trim();
-        let pid: u32 = pid_str.parse()
+        let pid: u32 = pid_str
+            .parse()
             .map_err(|e| crate::Error::Namespace(format!("invalid PID from child: {e}")))?;
 
         let real_uid = Uid::current().as_raw();
@@ -183,18 +186,10 @@ impl NsHelper {
         tokio::fs::write(format!("/proc/{pid}/setgroups"), "deny").await?;
 
         // Map container uid 0 → real uid.
-        tokio::fs::write(
-            format!("/proc/{pid}/uid_map"),
-            format!("0 {real_uid} 1"),
-        )
-        .await?;
+        tokio::fs::write(format!("/proc/{pid}/uid_map"), format!("0 {real_uid} 1")).await?;
 
         // Map container gid 0 → real gid.
-        tokio::fs::write(
-            format!("/proc/{pid}/gid_map"),
-            format!("0 {real_gid} 1"),
-        )
-        .await?;
+        tokio::fs::write(format!("/proc/{pid}/gid_map"), format!("0 {real_gid} 1")).await?;
 
         // Ack: tell child that maps are written.
         ack_file.write_all(&[0x42]).await?;
@@ -296,47 +291,32 @@ mod tests {
         );
     }
 
-    /// B8-V4: If `NsHelper::run` errors before the handoff completes, both
-    /// pipe fds must be closed by `OwnedFd::drop`, not leaked.
-    ///
-    /// We force an early error by closing the sync-pipe write end before
-    /// calling `run`, so the read returns 0 bytes and PID parsing fails.
-    /// After the call, `fcntl(F_GETFD)` on the original fd numbers must
-    /// report EBADF (fd closed).
+    /// Early PID parsing failure must close both helper endpoints. Observe
+    /// retained pipe peers, not raw FD numbers that parallel tests can reuse.
     #[tokio::test]
     async fn ns_helper_run_closes_fds_on_early_error() {
-        // sync: parent reads; child would write. ack: parent writes.
         let (sync_r, sync_w) = nix::unistd::pipe().expect("sync pipe");
         let (ack_r, ack_w) = nix::unistd::pipe().expect("ack pipe");
-
-        let sync_r_raw = sync_r.as_raw_fd();
-        let ack_w_raw = ack_w.as_raw_fd();
-
-        // Drop the sync write end — parent's read will return EOF, so
-        // PID parsing of "" fails and `run` returns Err before any
-        // further await points.
-        drop(sync_w);
-        // Keep ack_r alive (represents qrab-init's end); parent must
-        // still close its own ack_w on the error path.
-        let _ack_r_keepalive = ack_r;
-
-        let err = NsHelper::run(sync_r, ack_w).await;
-        assert!(err.is_err(), "expected NsHelper::run to fail on empty PID");
-
-        // Both fds must now be closed. F_GETFD on a closed fd yields
-        // EBADF. Do not open any fds between the drop and this check,
-        // or fd numbers may be reused and the check becomes useless.
-        let sync_check = nix::fcntl::fcntl(sync_r_raw, FcntlArg::F_GETFD);
-        let ack_check = nix::fcntl::fcntl(ack_w_raw, FcntlArg::F_GETFD);
-        assert_eq!(
-            sync_check.err(),
-            Some(nix::errno::Errno::EBADF),
-            "sync_r fd leaked (F_GETFD = {sync_check:?})",
-        );
-        assert_eq!(
-            ack_check.err(),
-            Some(nix::errno::Errno::EBADF),
-            "ack_w fd leaked (F_GETFD = {ack_check:?})",
-        );
+        nix::unistd::write(&sync_w, b"invalid-pid").unwrap();
+        for fd in [sync_w.as_raw_fd(), ack_r.as_raw_fd()] {
+            nix::fcntl::fcntl(fd, FcntlArg::F_SETFL(OFlag::O_NONBLOCK)).unwrap();
+        }
+        assert!(NsHelper::run(sync_r, ack_w).await.is_err());
+        // Tokio's blocking-file worker can finish dropping its last reference
+        // just after read().await. Bound that cleanup without blocking the test.
+        tokio::time::timeout(std::time::Duration::from_secs(1), async {
+            loop {
+                let reader_closed =
+                    nix::unistd::write(&sync_w, b"x").err() == Some(nix::errno::Errno::EPIPE);
+                let writer_closed =
+                    nix::unistd::read(ack_r.as_raw_fd(), &mut [0u8]).ok() == Some(0);
+                if reader_closed && writer_closed {
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+            }
+        })
+        .await
+        .expect("helper retained pipe endpoints after returning an error");
     }
 }

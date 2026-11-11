@@ -5,9 +5,7 @@
 //! alternates and branch enums are distinguishable, and the type-ref pool
 //! resolves correctly.
 
-use qapi::metadata::{
-    EnumKind, COMMANDS, ENUMS, STRUCTS,
-};
+use qapi::metadata::{EnumKind, COMMANDS, ENUMS, STRUCTS};
 
 #[test]
 fn commands_table_has_full_qapi_surface() {

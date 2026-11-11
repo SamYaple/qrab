@@ -106,16 +106,16 @@ fn svsm_igvm_not_older_than_qrab_boot_efi() {
 
     // Standalone qrab-boot.efi (the source of truth — build.rs stamps
     // the embedded pubkey at this mtime).
-    let boot_efi = workspace
-        .join("projects/qrab-boot/target/x86_64-unknown-uefi/release/qrab-boot.efi");
+    let boot_efi =
+        workspace.join("projects/qrab-boot/target/x86_64-unknown-uefi/release/qrab-boot.efi");
 
     // Every derived artifact `build-svsm-igvm.sh` emits into
     // `target/svsm-out/` must be >= boot_efi mtime. `target/svsm-build`
     // OVMF.fd also included so a pre-copy staleness still trips the
     // test.
     let out_dir = workspace.join("target/svsm-out");
-    let build_ovmf = workspace
-        .join("target/svsm-build/edk2-svsm/Build/AmdSev/RELEASE_GCC5/FV/OVMF.fd");
+    let build_ovmf =
+        workspace.join("target/svsm-build/edk2-svsm/Build/AmdSev/RELEASE_GCC5/FV/OVMF.fd");
     let derived: &[std::path::PathBuf] = &[
         out_dir.join("OVMF-SVSM-SB.fd"),
         out_dir.join("OVMF-SVSM.fd"),
@@ -195,8 +195,14 @@ fn mtime_compare_pure_logic() {
     let swapped_newer = tmp.path().join("qrab-boot.efi.rebuilt");
     std::thread::sleep(std::time::Duration::from_millis(50));
     std::fs::write(&swapped_newer, b"fresh qrab-boot").unwrap();
-    let a2 = std::fs::metadata(&swapped_older).unwrap().modified().unwrap();
-    let b2 = std::fs::metadata(&swapped_newer).unwrap().modified().unwrap();
+    let a2 = std::fs::metadata(&swapped_older)
+        .unwrap()
+        .modified()
+        .unwrap();
+    let b2 = std::fs::metadata(&swapped_newer)
+        .unwrap()
+        .modified()
+        .unwrap();
     assert!(
         b2 > a2,
         "rebuilt qrab-boot.efi must be strictly newer than the prior \
@@ -218,10 +224,7 @@ fn mtime_compare_pure_logic() {
 /// still runs in minimal CI images.
 #[test]
 fn bash_nt_operator_matches_mtime_semantics() {
-    let bash = match std::process::Command::new("bash")
-        .arg("--version")
-        .output()
-    {
+    let bash = match std::process::Command::new("bash").arg("--version").output() {
         Ok(o) if o.status.success() => true,
         _ => {
             eprintln!("skipping: bash not available in PATH");
@@ -389,9 +392,8 @@ fn qrab_boot_efi_no_testb_mmio_spin_loop() {
             continue;
         };
         if let Some(ref p) = prev {
-            let spin_branch =
-                (cur.mnemonic == "jne" || cur.mnemonic == "je")
-                    && parse_branch_target(&cur.operands) == Some(p.addr);
+            let spin_branch = (cur.mnemonic == "jne" || cur.mnemonic == "je")
+                && parse_branch_target(&cur.operands) == Some(p.addr);
             let test_mmio = p.mnemonic == "testb"
                 && p.operands.contains("(%")
                 && !p.operands.contains("(%rsp")

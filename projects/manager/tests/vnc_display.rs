@@ -30,7 +30,10 @@ async fn vnc_display_name(sock: &std::path::Path) -> Result<String, String> {
 
     // 3. Read security types
     let mut num_types = [0u8; 1];
-    stream.read_exact(&mut num_types).await.map_err(|e| format!("read sec count: {e}"))?;
+    stream
+        .read_exact(&mut num_types)
+        .await
+        .map_err(|e| format!("read sec count: {e}"))?;
     let n = num_types[0] as usize;
     if n == 0 {
         // Server sent failure reason
@@ -39,39 +42,60 @@ async fn vnc_display_name(sock: &std::path::Path) -> Result<String, String> {
         let len = u32::from_be_bytes(len_buf) as usize;
         let mut reason = vec![0u8; len];
         stream.read_exact(&mut reason).await.ok();
-        return Err(format!("VNC auth failed: {}", String::from_utf8_lossy(&reason)));
+        return Err(format!(
+            "VNC auth failed: {}",
+            String::from_utf8_lossy(&reason)
+        ));
     }
     let mut types = vec![0u8; n];
-    stream.read_exact(&mut types).await.map_err(|e| format!("read sec types: {e}"))?;
+    stream
+        .read_exact(&mut types)
+        .await
+        .map_err(|e| format!("read sec types: {e}"))?;
 
     // 4. Select security type None (1) if available
     if !types.contains(&1) {
         return Err(format!("No 'None' auth type. Available: {types:?}"));
     }
-    stream.write_all(&[1]).await.map_err(|e| format!("write sec type: {e}"))?;
+    stream
+        .write_all(&[1])
+        .await
+        .map_err(|e| format!("write sec type: {e}"))?;
 
     // 5. Read security result (RFB 3.8+)
     if ver_str.contains("003.008") {
         let mut result = [0u8; 4];
-        stream.read_exact(&mut result).await.map_err(|e| format!("read sec result: {e}"))?;
+        stream
+            .read_exact(&mut result)
+            .await
+            .map_err(|e| format!("read sec result: {e}"))?;
         if u32::from_be_bytes(result) != 0 {
             return Err("Security handshake failed".into());
         }
     }
 
     // 6. Send ClientInit (shared = 1)
-    stream.write_all(&[1]).await.map_err(|e| format!("write clientinit: {e}"))?;
+    stream
+        .write_all(&[1])
+        .await
+        .map_err(|e| format!("write clientinit: {e}"))?;
 
     // 7. Read ServerInit: width(2) + height(2) + pixel_format(16) + name_len(4) + name
     let mut header = [0u8; 24]; // 2+2+16+4
-    stream.read_exact(&mut header).await.map_err(|e| format!("read serverinit: {e}"))?;
+    stream
+        .read_exact(&mut header)
+        .await
+        .map_err(|e| format!("read serverinit: {e}"))?;
 
     let width = u16::from_be_bytes([header[0], header[1]]);
     let height = u16::from_be_bytes([header[2], header[3]]);
     let name_len = u32::from_be_bytes([header[20], header[21], header[22], header[23]]) as usize;
 
     let mut name = vec![0u8; name_len];
-    stream.read_exact(&mut name).await.map_err(|e| format!("read name: {e}"))?;
+    stream
+        .read_exact(&mut name)
+        .await
+        .map_err(|e| format!("read name: {e}"))?;
     let name_str = String::from_utf8_lossy(&name).to_string();
 
     eprintln!("  VNC: {width}x{height} name={name_str:?}");
@@ -89,16 +113,26 @@ impl TestVm {
         static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let id = COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         let tmpdir = std::env::temp_dir();
-        let qmp_sock = tmpdir.join(format!("qrab-vnc-test-qmp-{}-{}.sock", std::process::id(), id));
-        let vnc_sock = tmpdir.join(format!("qrab-vnc-test-vnc-{}-{}.sock", std::process::id(), id));
+        let qmp_sock = tmpdir.join(format!(
+            "qrab-vnc-test-qmp-{}-{}.sock",
+            std::process::id(),
+            id
+        ));
+        let vnc_sock = tmpdir.join(format!(
+            "qrab-vnc-test-vnc-{}-{}.sock",
+            std::process::id(),
+            id
+        ));
 
         let _ = tokio::fs::remove_file(&qmp_sock).await;
         let _ = tokio::fs::remove_file(&vnc_sock).await;
 
         let mut args: Vec<String> = vec![
             "--preconfig".into(),
-            "-machine".into(), "pc".into(),
-            "-m".into(), "256M".into(),
+            "-machine".into(),
+            "pc".into(),
+            "-m".into(),
+            "256M".into(),
         ];
         for a in extra_args {
             args.push(a.to_string());
@@ -118,39 +152,56 @@ impl TestVm {
 
         // Wait for QMP socket
         for _ in 0..50 {
-            if qmp_sock.exists() { break; }
+            if qmp_sock.exists() {
+                break;
+            }
             tokio::time::sleep(Duration::from_millis(100)).await;
         }
         assert!(qmp_sock.exists(), "QMP socket never appeared");
 
-        Self { child: Some(child), qmp_sock, vnc_sock }
+        Self {
+            child: Some(child),
+            qmp_sock,
+            vnc_sock,
+        }
     }
 
     async fn start(&self) {
         use qapi_protocol::Qmp;
         let (qmp, _events) = Qmp::new(&self.qmp_sock).await.expect("qmp connect");
-        qmp.execute(&qapi::commands::XExitPreconfig {}).await.expect("exit preconfig");
+        qmp.execute(&qapi::commands::XExitPreconfig {})
+            .await
+            .expect("exit preconfig");
         tokio::time::sleep(Duration::from_millis(200)).await;
 
         // Add VGA device dynamically — VNC should pick it up
-        let r: String = qmp.execute(&qapi::commands::HumanMonitorCommand {
-            command_line: "device_add VGA,id=vga0".into(),
-            cpu_index: None,
-        }).await.expect("device_add VGA");
+        let r: String = qmp
+            .execute(&qapi::commands::HumanMonitorCommand {
+                command_line: "device_add VGA,id=vga0".into(),
+                cpu_index: None,
+            })
+            .await
+            .expect("device_add VGA");
         eprintln!("  device_add VGA: {r:?}");
         tokio::time::sleep(Duration::from_millis(500)).await;
 
         // Probe display state via QMP
-        let vnc_info: String = qmp.execute(&qapi::commands::HumanMonitorCommand {
-            command_line: "info vnc".into(),
-            cpu_index: None,
-        }).await.expect("info vnc");
+        let vnc_info: String = qmp
+            .execute(&qapi::commands::HumanMonitorCommand {
+                command_line: "info vnc".into(),
+                cpu_index: None,
+            })
+            .await
+            .expect("info vnc");
         eprintln!("  info vnc:\n{vnc_info}");
 
-        let display_info: String = qmp.execute(&qapi::commands::HumanMonitorCommand {
-            command_line: "info qtree".into(),
-            cpu_index: None,
-        }).await.expect("info qtree");
+        let display_info: String = qmp
+            .execute(&qapi::commands::HumanMonitorCommand {
+                command_line: "info qtree".into(),
+                cpu_index: None,
+            })
+            .await
+            .expect("info qtree");
         // Just print VGA-related lines
         for line in display_info.lines() {
             let lower = line.to_lowercase();
@@ -161,10 +212,13 @@ impl TestVm {
 
         // Try screendump
         let dump_path = std::env::temp_dir().join("qrab-vnc-screendump.ppm");
-        let dump_result: String = qmp.execute(&qapi::commands::HumanMonitorCommand {
-            command_line: format!("screendump {}", dump_path.display()),
-            cpu_index: None,
-        }).await.expect("screendump");
+        let dump_result: String = qmp
+            .execute(&qapi::commands::HumanMonitorCommand {
+                command_line: format!("screendump {}", dump_path.display()),
+                cpu_index: None,
+            })
+            .await
+            .expect("screendump");
         eprintln!("  screendump: {dump_result:?}");
         if dump_path.exists() {
             let meta = std::fs::metadata(&dump_path).unwrap();
@@ -209,7 +263,10 @@ impl Drop for TestVm {
 }
 
 /// Test a specific set of display args, return (preconfig_name, running_name).
-async fn test_display_args(label: &str, args: &[&str]) -> (Result<String, String>, Result<String, String>) {
+async fn test_display_args(
+    label: &str,
+    args: &[&str],
+) -> (Result<String, String>, Result<String, String>) {
     eprintln!("\n=== {label} ===");
     eprintln!("  args: {args:?}");
 
@@ -217,7 +274,9 @@ async fn test_display_args(label: &str, args: &[&str]) -> (Result<String, String
 
     // Wait for VNC socket
     for _ in 0..30 {
-        if vm.vnc_sock.exists() { break; }
+        if vm.vnc_sock.exists() {
+            break;
+        }
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
 
@@ -245,39 +304,68 @@ async fn test_display_args(label: &str, args: &[&str]) -> (Result<String, String
 }
 
 /// After VNC handshake, request a framebuffer update and check we get pixel data.
-async fn vnc_has_framebuffer_data(sock: &std::path::Path) -> Result<(u16, u16, String, bool), String> {
+async fn vnc_has_framebuffer_data(
+    sock: &std::path::Path,
+) -> Result<(u16, u16, String, bool), String> {
     let mut stream = UnixStream::connect(sock)
         .await
         .map_err(|e| format!("connect: {e}"))?;
 
     // Handshake
     let mut ver = [0u8; 12];
-    stream.read_exact(&mut ver).await.map_err(|e| format!("read ver: {e}"))?;
-    stream.write_all(&ver).await.map_err(|e| format!("write ver: {e}"))?;
+    stream
+        .read_exact(&mut ver)
+        .await
+        .map_err(|e| format!("read ver: {e}"))?;
+    stream
+        .write_all(&ver)
+        .await
+        .map_err(|e| format!("write ver: {e}"))?;
 
     let mut num_types = [0u8; 1];
-    stream.read_exact(&mut num_types).await.map_err(|e| format!("read sec: {e}"))?;
+    stream
+        .read_exact(&mut num_types)
+        .await
+        .map_err(|e| format!("read sec: {e}"))?;
     let n = num_types[0] as usize;
     let mut types = vec![0u8; n];
-    stream.read_exact(&mut types).await.map_err(|e| format!("read types: {e}"))?;
-    stream.write_all(&[1]).await.map_err(|e| format!("write sec: {e}"))?;
+    stream
+        .read_exact(&mut types)
+        .await
+        .map_err(|e| format!("read types: {e}"))?;
+    stream
+        .write_all(&[1])
+        .await
+        .map_err(|e| format!("write sec: {e}"))?;
 
     let ver_str = String::from_utf8_lossy(&ver);
     if ver_str.contains("003.008") {
         let mut result = [0u8; 4];
-        stream.read_exact(&mut result).await.map_err(|e| format!("sec result: {e}"))?;
+        stream
+            .read_exact(&mut result)
+            .await
+            .map_err(|e| format!("sec result: {e}"))?;
     }
 
-    stream.write_all(&[1]).await.map_err(|e| format!("clientinit: {e}"))?;
+    stream
+        .write_all(&[1])
+        .await
+        .map_err(|e| format!("clientinit: {e}"))?;
 
     let mut header = [0u8; 24];
-    stream.read_exact(&mut header).await.map_err(|e| format!("serverinit: {e}"))?;
+    stream
+        .read_exact(&mut header)
+        .await
+        .map_err(|e| format!("serverinit: {e}"))?;
 
     let width = u16::from_be_bytes([header[0], header[1]]);
     let height = u16::from_be_bytes([header[2], header[3]]);
     let name_len = u32::from_be_bytes([header[20], header[21], header[22], header[23]]) as usize;
     let mut name = vec![0u8; name_len];
-    stream.read_exact(&mut name).await.map_err(|e| format!("name: {e}"))?;
+    stream
+        .read_exact(&mut name)
+        .await
+        .map_err(|e| format!("name: {e}"))?;
     let name_str = String::from_utf8_lossy(&name).to_string();
 
     // Request framebuffer update (message type 3)
@@ -287,7 +375,10 @@ async fn vnc_has_framebuffer_data(sock: &std::path::Path) -> Result<(u16, u16, S
     req.extend_from_slice(&0u16.to_be_bytes()); // y
     req.extend_from_slice(&width.to_be_bytes()); // w
     req.extend_from_slice(&height.to_be_bytes()); // h
-    stream.write_all(&req).await.map_err(|e| format!("fb req: {e}"))?;
+    stream
+        .write_all(&req)
+        .await
+        .map_err(|e| format!("fb req: {e}"))?;
 
     // Read framebuffer update response with timeout
     let mut got_pixels = false;
@@ -295,9 +386,13 @@ async fn vnc_has_framebuffer_data(sock: &std::path::Path) -> Result<(u16, u16, S
     let mut total_bytes = 0usize;
 
     loop {
-        if tokio::time::Instant::now() > deadline { break; }
+        if tokio::time::Instant::now() > deadline {
+            break;
+        }
         let mut msg_type = [0u8; 1];
-        match tokio::time::timeout(Duration::from_millis(500), stream.read_exact(&mut msg_type)).await {
+        match tokio::time::timeout(Duration::from_millis(500), stream.read_exact(&mut msg_type))
+            .await
+        {
             Ok(Ok(_)) => {}
             _ => break,
         }
@@ -305,22 +400,36 @@ async fn vnc_has_framebuffer_data(sock: &std::path::Path) -> Result<(u16, u16, S
         if msg_type[0] == 0 {
             // FramebufferUpdate
             let mut fb_header = [0u8; 3]; // padding(1) + num_rects(2)
-            stream.read_exact(&mut fb_header).await.map_err(|e| format!("fb header: {e}"))?;
+            stream
+                .read_exact(&mut fb_header)
+                .await
+                .map_err(|e| format!("fb header: {e}"))?;
             let num_rects = u16::from_be_bytes([fb_header[1], fb_header[2]]);
 
             for _ in 0..num_rects {
                 let mut rect_header = [0u8; 12]; // x(2)+y(2)+w(2)+h(2)+encoding(4)
-                stream.read_exact(&mut rect_header).await.map_err(|e| format!("rect: {e}"))?;
+                stream
+                    .read_exact(&mut rect_header)
+                    .await
+                    .map_err(|e| format!("rect: {e}"))?;
                 let rw = u16::from_be_bytes([rect_header[4], rect_header[5]]) as usize;
                 let rh = u16::from_be_bytes([rect_header[6], rect_header[7]]) as usize;
-                let encoding = i32::from_be_bytes([rect_header[8], rect_header[9], rect_header[10], rect_header[11]]);
+                let encoding = i32::from_be_bytes([
+                    rect_header[8],
+                    rect_header[9],
+                    rect_header[10],
+                    rect_header[11],
+                ]);
 
                 if encoding == 0 {
                     // Raw encoding: bpp/8 * w * h bytes
                     let bpp = header[4]; // bits-per-pixel from ServerInit pixel format
                     let bytes = (bpp as usize / 8) * rw * rh;
                     let mut pixels = vec![0u8; bytes];
-                    stream.read_exact(&mut pixels).await.map_err(|e| format!("pixels: {e}"))?;
+                    stream
+                        .read_exact(&mut pixels)
+                        .await
+                        .map_err(|e| format!("pixels: {e}"))?;
                     total_bytes += bytes;
                     // Check if any non-zero pixels (not all black)
                     if pixels.iter().any(|&b| b != 0) {
@@ -335,7 +444,9 @@ async fn vnc_has_framebuffer_data(sock: &std::path::Path) -> Result<(u16, u16, S
         }
     }
 
-    eprintln!("  VNC: {width}x{height} name={name_str:?} pixels={total_bytes} has_content={got_pixels}");
+    eprintln!(
+        "  VNC: {width}x{height} name={name_str:?} pixels={total_bytes} has_content={got_pixels}"
+    );
     Ok((width, height, name_str, got_pixels))
 }
 
@@ -358,23 +469,32 @@ async fn test_vnc_with_bmc_args() {
     let vnc_display = format!("vnc=unix:{}", vnc_sock.display());
     let serial_path = format!("file:{}", serial_log.display());
     let cirros = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .parent().unwrap().parent().unwrap()
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
         .join("target/test-fixtures/cirros-0.6.2-x86_64-disk.img");
     let drive_arg = format!("file={},format=qcow2,if=virtio", cirros.display());
     // VNC in args but NO VGA. Add VGA dynamically after machine init.
     let vnc_legacy = format!("unix:{}", vnc_sock.display());
     let args = vec![
-        "-vnc", &vnc_legacy,
-        "-parallel", "none",
-        "-serial", &serial_path,
-        "-drive", &drive_arg,
+        "-vnc",
+        &vnc_legacy,
+        "-parallel",
+        "none",
+        "-serial",
+        &serial_path,
+        "-drive",
+        &drive_arg,
     ];
 
     let mut vm = TestVm::spawn(&args).await;
     vm.vnc_sock = vnc_sock.clone();
 
     for _ in 0..30 {
-        if vm.vnc_sock.exists() { break; }
+        if vm.vnc_sock.exists() {
+            break;
+        }
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
 
@@ -384,7 +504,9 @@ async fn test_vnc_with_bmc_args() {
 
     // Wait for VNC socket to appear
     for _ in 0..30 {
-        if vm.vnc_sock.exists() { break; }
+        if vm.vnc_sock.exists() {
+            break;
+        }
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
 
@@ -408,7 +530,10 @@ async fn test_vnc_with_bmc_args() {
     // Verify graphic console
     if let Ok((_, _, ref name, has_content)) = running {
         assert_eq!(name, "QEMU", "VNC should show graphic console");
-        assert!(has_content, "Framebuffer should have non-zero pixel data after BIOS runs");
+        assert!(
+            has_content,
+            "Framebuffer should have non-zero pixel data after BIOS runs"
+        );
     }
 
     vm.cleanup().await;
@@ -434,11 +559,29 @@ async fn probe_vnc_display_configurations() {
         ),
         (
             "C: -display vnc -vga std -parallel null -monitor null",
-            vec!["-display", "VNCSOCK", "-vga", "std", "-parallel", "null", "-monitor", "null"],
+            vec![
+                "-display",
+                "VNCSOCK",
+                "-vga",
+                "std",
+                "-parallel",
+                "null",
+                "-monitor",
+                "null",
+            ],
         ),
         (
             "D: -display vnc -vga std -parallel none -monitor none",
-            vec!["-display", "VNCSOCK", "-vga", "std", "-parallel", "none", "-monitor", "none"],
+            vec![
+                "-display",
+                "VNCSOCK",
+                "-vga",
+                "std",
+                "-parallel",
+                "none",
+                "-monitor",
+                "none",
+            ],
         ),
         (
             "E: -vnc sock -vga std (legacy syntax)",
@@ -503,7 +646,9 @@ async fn probe_vnc_display_configurations() {
         vm.vnc_sock = vnc_sock.clone();
 
         for _ in 0..30 {
-            if vm.vnc_sock.exists() { break; }
+            if vm.vnc_sock.exists() {
+                break;
+            }
             tokio::time::sleep(Duration::from_millis(100)).await;
         }
 

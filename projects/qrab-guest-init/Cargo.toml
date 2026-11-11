@@ -2,7 +2,7 @@
 name = "qrab-guest-init"
 version = "0.1.0"
 edition = "2024"
-description = "L5 PID-1 policy gate running inside the confidential guest — cross-checks every L1-L4 invariant before handing control to the workload service manager. See ~/workspace/llm-rag/docs/security/level-5-init.md."
+description = "PID-1 policy gate for the legacy confidential-guest boot experiments."
 publish = false
 
 [lib]

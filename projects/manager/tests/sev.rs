@@ -52,17 +52,25 @@ async fn sev_snp_vm_spawn() {
         }
     };
 
-    let builder = VmBuilder::new(Arch::X86_64, MachineConfig::SecureBoot { memory: "256M".into() }).sev_snp(SevSnpConfig::default())
-        .accel(Accel::Kvm)
-        .cpu("EPYC-v4")
-        
-        .ovmf(fw)
-        .serial();
+    let builder = VmBuilder::new(
+        Arch::X86_64,
+        MachineConfig::SecureBoot {
+            memory: "256M".into(),
+        },
+    )
+    .sev_snp(SevSnpConfig::default())
+    .accel(Accel::Kvm)
+    .cpu("EPYC-v4")
+    .ovmf(fw)
+    .serial();
 
     match builder.spawn().await {
         Ok(vm) => {
             // Query SEV capabilities via QMP
-            let sev_info = vm.qmp.execute(&qapi::commands::QuerySevCapabilities {}).await;
+            let sev_info = vm
+                .qmp
+                .execute(&qapi::commands::QuerySevCapabilities {})
+                .await;
             // Cleanup before asserting
             vm.shutdown().await;
             if let Ok(info) = sev_info {
@@ -98,13 +106,18 @@ async fn sev_snp_vm_boot() {
         }
     };
 
-    let builder = VmBuilder::new(Arch::X86_64, MachineConfig::SecureBoot { memory: "256M".into() }).sev_snp(SevSnpConfig::default())
-        .accel(Accel::Kvm)
-        .cpu("EPYC-v4")
-        
-        .ovmf(fw)
-        .display()
-        .serial();
+    let builder = VmBuilder::new(
+        Arch::X86_64,
+        MachineConfig::SecureBoot {
+            memory: "256M".into(),
+        },
+    )
+    .sev_snp(SevSnpConfig::default())
+    .accel(Accel::Kvm)
+    .cpu("EPYC-v4")
+    .ovmf(fw)
+    .display()
+    .serial();
 
     let preconfig = match builder.spawn().await {
         Ok(vm) => vm,
@@ -115,7 +128,10 @@ async fn sev_snp_vm_boot() {
     };
 
     // x-exit-preconfig (SNP launch sequence)
-    let vm = preconfig.start().await.expect("start (x-exit-preconfig) failed");
+    let vm = preconfig
+        .start()
+        .await
+        .expect("start (x-exit-preconfig) failed");
 
     // cont — start vCPUs
     vm.cont().await.expect("cont failed");
@@ -124,12 +140,18 @@ async fn sev_snp_vm_boot() {
     tokio::time::sleep(std::time::Duration::from_secs(5)).await;
 
     // Check VM is still alive
-    let status = vm.qmp.execute(&qapi::commands::QueryStatus {}).await
+    let status = vm
+        .qmp
+        .execute(&qapi::commands::QueryStatus {})
+        .await
         .expect("query-status failed — VM may have crashed (check dmesg for GHCB errors)");
     assert!(status.running, "VM should be running after cont");
 
     // Query SEV state
-    let sev = vm.qmp.execute(&qapi::commands::QuerySev {}).await
+    let sev = vm
+        .qmp
+        .execute(&qapi::commands::QuerySev {})
+        .await
         .expect("query-sev failed");
     eprintln!("SEV state: {:?}", sev.state);
 
@@ -148,12 +170,17 @@ fn sev_snp_requires_kvm() {
             return;
         }
 
-        let result = VmBuilder::new(Arch::X86_64, MachineConfig::SecureBoot { memory: "256M".into() }).sev_snp(SevSnpConfig::default())
-            .accel(Accel::Tcg)
-            .cpu("EPYC-v4")
-            
-            .spawn()
-            .await;
+        let result = VmBuilder::new(
+            Arch::X86_64,
+            MachineConfig::SecureBoot {
+                memory: "256M".into(),
+            },
+        )
+        .sev_snp(SevSnpConfig::default())
+        .accel(Accel::Tcg)
+        .cpu("EPYC-v4")
+        .spawn()
+        .await;
 
         match result {
             Ok(_) => panic!("SEV-SNP with TCG should fail"),
@@ -220,7 +247,9 @@ fn find_amdsev_ovmf() {
 /// - Guest powers off cleanly (guest-initiated shutdown)
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn sev_snp_boot_with_snp_kernel() {
-    if sev_skip_check() { return; }
+    if sev_skip_check() {
+        return;
+    }
 
     let amdsev_fw = match firmware::find_amdsev_ovmf() {
         Some(fw) => fw,
@@ -243,72 +272,120 @@ async fn sev_snp_boot_with_snp_kernel() {
     let overlay = tmpdir.path().join("overlay.qcow2");
     let img = std::process::Command::new("qemu-img")
         .args([
-            "create", "-f", "qcow2",
-            "-b", &snp_image.display().to_string(),
-            "-F", "qcow2",
+            "create",
+            "-f",
+            "qcow2",
+            "-b",
+            &snp_image.display().to_string(),
+            "-F",
+            "qcow2",
             &overlay.display().to_string(),
         ])
         .output()
         .expect("qemu-img");
     assert!(img.status.success(), "qemu-img create overlay failed");
 
-    let builder = VmBuilder::new(Arch::X86_64, MachineConfig::Uefi { memory: "512M".into() }).sev_snp(SevSnpConfig::default())
-        .accel(Accel::Kvm)
-        .cpu("EPYC-v4")
-        
-        .firmware(amdsev_fw)
-        .display()
-        .serial();
+    let builder = VmBuilder::new(
+        Arch::X86_64,
+        MachineConfig::Uefi {
+            memory: "512M".into(),
+        },
+    )
+    .sev_snp(SevSnpConfig::default())
+    .accel(Accel::Kvm)
+    .cpu("EPYC-v4")
+    .firmware(amdsev_fw)
+    .display()
+    .serial();
 
     let preconfig = builder.spawn().await.expect("SEV-SNP spawn failed");
     let serial_log = preconfig.serial_log().cloned();
 
     // blockdev-add + x-exit-preconfig + device_add + cont (BMC flow)
     use qapi::commands::{BlockdevAdd, DeviceAdd};
-    use qapi::{BlockdevDriver, BlockdevOptionsBranch, BlockdevOptionsFile, BlockdevOptionsQcow2, BlockdevRef};
+    use qapi::{
+        BlockdevDriver, BlockdevOptionsBranch, BlockdevOptionsFile, BlockdevOptionsQcow2,
+        BlockdevRef,
+    };
 
-    preconfig.qmp.execute(&BlockdevAdd {
-        driver: Some(BlockdevDriver::File),
-        node_name: Some("disk0-file".into()),
-        read_only: Some(false),
-        u: Some(BlockdevOptionsBranch::File(BlockdevOptionsFile {
-            filename: overlay.display().to_string(),
-            aio: None, aio_max_batch: None, drop_cache: None,
-            locking: None, pr_manager: None, x_check_cache_dropped: None,
-        })),
-        active: None, auto_read_only: None, cache: None,
-        detect_zeroes: None, discard: None, force_share: None, options: None,
-    }).await.expect("blockdev-add file failed");
+    preconfig
+        .qmp
+        .execute(&BlockdevAdd {
+            driver: Some(BlockdevDriver::File),
+            node_name: Some("disk0-file".into()),
+            read_only: Some(false),
+            u: Some(BlockdevOptionsBranch::File(BlockdevOptionsFile {
+                filename: overlay.display().to_string(),
+                aio: None,
+                aio_max_batch: None,
+                drop_cache: None,
+                locking: None,
+                pr_manager: None,
+                x_check_cache_dropped: None,
+            })),
+            active: None,
+            auto_read_only: None,
+            cache: None,
+            detect_zeroes: None,
+            discard: None,
+            force_share: None,
+            options: None,
+        })
+        .await
+        .expect("blockdev-add file failed");
 
-    preconfig.qmp.execute(&BlockdevAdd {
-        driver: Some(BlockdevDriver::Qcow2),
-        node_name: Some("disk0".into()),
-        read_only: Some(false),
-        u: Some(BlockdevOptionsBranch::Qcow2(BlockdevOptionsQcow2 {
-            file: Box::new(BlockdevRef::Reference("disk0-file".into())),
-            backing: None, cache_clean_interval: None, cache_size: None,
-            data_file: None, discard_no_unref: None, encrypt: None,
-            l2_cache_entry_size: None, l2_cache_size: None,
-            lazy_refcounts: None, overlap_check: None,
-            pass_discard_other: None, pass_discard_request: None,
-            pass_discard_snapshot: None, refcount_cache_size: None,
-        })),
-        active: None, auto_read_only: None, cache: None,
-        detect_zeroes: None, discard: None, force_share: None, options: None,
-    }).await.expect("blockdev-add qcow2 failed");
+    preconfig
+        .qmp
+        .execute(&BlockdevAdd {
+            driver: Some(BlockdevDriver::Qcow2),
+            node_name: Some("disk0".into()),
+            read_only: Some(false),
+            u: Some(BlockdevOptionsBranch::Qcow2(BlockdevOptionsQcow2 {
+                file: Box::new(BlockdevRef::Reference("disk0-file".into())),
+                backing: None,
+                cache_clean_interval: None,
+                cache_size: None,
+                data_file: None,
+                discard_no_unref: None,
+                encrypt: None,
+                l2_cache_entry_size: None,
+                l2_cache_size: None,
+                lazy_refcounts: None,
+                overlap_check: None,
+                pass_discard_other: None,
+                pass_discard_request: None,
+                pass_discard_snapshot: None,
+                refcount_cache_size: None,
+            })),
+            active: None,
+            auto_read_only: None,
+            cache: None,
+            detect_zeroes: None,
+            discard: None,
+            force_share: None,
+            options: None,
+        })
+        .await
+        .expect("blockdev-add qcow2 failed");
 
     let vm = preconfig.start().await.expect("x-exit-preconfig failed");
 
     use std::collections::HashMap;
-    vm.qmp.execute(&DeviceAdd {
-        driver: "virtio-blk-pci".into(),
-        id: Some("blk0".into()),
-        bus: Some("rp0".into()),
-        arguments: Some(HashMap::from([
-            ("drive".to_string(), serde_json::Value::String("disk0".into())),
-            ("bootindex".to_string(), serde_json::Value::Number(0.into())),
-        ])),
-    }).await.expect("device_add failed");
+    vm.qmp
+        .execute(&DeviceAdd {
+            driver: "virtio-blk-pci".into(),
+            id: Some("blk0".into()),
+            bus: Some("rp0".into()),
+            arguments: Some(HashMap::from([
+                (
+                    "drive".to_string(),
+                    serde_json::Value::String("disk0".into()),
+                ),
+                ("bootindex".to_string(), serde_json::Value::Number(0.into())),
+            ])),
+        })
+        .await
+        .expect("device_add failed");
 
     vm.cont().await.expect("cont failed");
 
@@ -359,11 +436,16 @@ async fn sev_snp_boot_with_snp_kernel() {
 /// drift (e.g. AmdSev OVMF's embedded GRUB expecting `sevsecret`).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn sev_snp_launch_memory_matrix() {
-    if sev_skip_check() { return; }
+    if sev_skip_check() {
+        return;
+    }
 
     let amdsev_fw = match firmware::find_amdsev_ovmf() {
         Some(fw) => fw,
-        None => { eprintln!("SKIP: AmdSev OVMF not found"); return; }
+        None => {
+            eprintln!("SKIP: AmdSev OVMF not found");
+            return;
+        }
     };
 
     let mut failures: Vec<String> = Vec::new();
@@ -376,13 +458,15 @@ async fn sev_snp_launch_memory_matrix() {
             let sev = SevSnpConfig::new().reduced_phys_bits(phys_bits);
             let builder = VmBuilder::new(
                 Arch::X86_64,
-                MachineConfig::Uefi { memory: (*mem).into() },
+                MachineConfig::Uefi {
+                    memory: (*mem).into(),
+                },
             )
-                .sev_snp(sev)
-                .accel(Accel::Kvm)
-                .cpu("EPYC-v4")
-                .firmware(amdsev_fw.clone())
-                .serial();
+            .sev_snp(sev)
+            .accel(Accel::Kvm)
+            .cpu("EPYC-v4")
+            .firmware(amdsev_fw.clone())
+            .serial();
 
             let preconfig = match builder.spawn().await {
                 Ok(vm) => vm,
@@ -440,15 +524,23 @@ async fn sev_snp_launch_memory_matrix() {
 /// Combines: AmdSev OVMF + bootable SNP disk + ~260 dummy fds + BMC QMP flow.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn sev_snp_boot_bmc_full() {
-    if sev_skip_check() { return; }
+    if sev_skip_check() {
+        return;
+    }
 
     let amdsev_fw = match firmware::find_amdsev_ovmf() {
         Some(fw) => fw,
-        None => { eprintln!("SKIP: AmdSev OVMF not found"); return; }
+        None => {
+            eprintln!("SKIP: AmdSev OVMF not found");
+            return;
+        }
     };
     let snp_image = match find_snp_boot_image() {
         Some(img) => img,
-        None => { eprintln!("SKIP: SNP boot image not found"); return; }
+        None => {
+            eprintln!("SKIP: SNP boot image not found");
+            return;
+        }
     };
 
     // Simulate Dioxus fd pressure
@@ -465,22 +557,31 @@ async fn sev_snp_boot_bmc_full() {
     let overlay = tmpdir.path().join("overlay.qcow2");
     let img = std::process::Command::new("qemu-img")
         .args([
-            "create", "-f", "qcow2",
-            "-b", &snp_image.display().to_string(),
-            "-F", "qcow2",
+            "create",
+            "-f",
+            "qcow2",
+            "-b",
+            &snp_image.display().to_string(),
+            "-F",
+            "qcow2",
             &overlay.display().to_string(),
         ])
         .output()
         .expect("qemu-img");
     assert!(img.status.success());
 
-    let builder = VmBuilder::new(Arch::X86_64, MachineConfig::Uefi { memory: "512M".into() }).sev_snp(SevSnpConfig::default())
-        .accel(Accel::Kvm)
-        .cpu("EPYC-v4")
-        
-        .firmware(amdsev_fw)
-        .display()
-        .serial();
+    let builder = VmBuilder::new(
+        Arch::X86_64,
+        MachineConfig::Uefi {
+            memory: "512M".into(),
+        },
+    )
+    .sev_snp(SevSnpConfig::default())
+    .accel(Accel::Kvm)
+    .cpu("EPYC-v4")
+    .firmware(amdsev_fw)
+    .display()
+    .serial();
 
     let preconfig = match builder.spawn().await {
         Ok(vm) => vm,
@@ -496,50 +597,89 @@ async fn sev_snp_boot_bmc_full() {
 
     // BMC flow: blockdev-add → x-exit-preconfig → device_add → cont
     use qapi::commands::{BlockdevAdd, DeviceAdd};
-    use qapi::{BlockdevDriver, BlockdevOptionsBranch, BlockdevOptionsFile, BlockdevOptionsQcow2, BlockdevRef};
+    use qapi::{
+        BlockdevDriver, BlockdevOptionsBranch, BlockdevOptionsFile, BlockdevOptionsQcow2,
+        BlockdevRef,
+    };
 
-    preconfig.qmp.execute(&BlockdevAdd {
-        driver: Some(BlockdevDriver::File),
-        node_name: Some("disk0-file".into()),
-        read_only: Some(false),
-        u: Some(BlockdevOptionsBranch::File(BlockdevOptionsFile {
-            filename: overlay.display().to_string(),
-            aio: None, aio_max_batch: None, drop_cache: None,
-            locking: None, pr_manager: None, x_check_cache_dropped: None,
-        })),
-        active: None, auto_read_only: None, cache: None,
-        detect_zeroes: None, discard: None, force_share: None, options: None,
-    }).await.expect("blockdev-add file failed");
+    preconfig
+        .qmp
+        .execute(&BlockdevAdd {
+            driver: Some(BlockdevDriver::File),
+            node_name: Some("disk0-file".into()),
+            read_only: Some(false),
+            u: Some(BlockdevOptionsBranch::File(BlockdevOptionsFile {
+                filename: overlay.display().to_string(),
+                aio: None,
+                aio_max_batch: None,
+                drop_cache: None,
+                locking: None,
+                pr_manager: None,
+                x_check_cache_dropped: None,
+            })),
+            active: None,
+            auto_read_only: None,
+            cache: None,
+            detect_zeroes: None,
+            discard: None,
+            force_share: None,
+            options: None,
+        })
+        .await
+        .expect("blockdev-add file failed");
 
-    preconfig.qmp.execute(&BlockdevAdd {
-        driver: Some(BlockdevDriver::Qcow2),
-        node_name: Some("disk0".into()),
-        read_only: Some(false),
-        u: Some(BlockdevOptionsBranch::Qcow2(BlockdevOptionsQcow2 {
-            file: Box::new(BlockdevRef::Reference("disk0-file".into())),
-            backing: None, cache_clean_interval: None, cache_size: None,
-            data_file: None, discard_no_unref: None, encrypt: None,
-            l2_cache_entry_size: None, l2_cache_size: None,
-            lazy_refcounts: None, overlap_check: None,
-            pass_discard_other: None, pass_discard_request: None,
-            pass_discard_snapshot: None, refcount_cache_size: None,
-        })),
-        active: None, auto_read_only: None, cache: None,
-        detect_zeroes: None, discard: None, force_share: None, options: None,
-    }).await.expect("blockdev-add qcow2 failed");
+    preconfig
+        .qmp
+        .execute(&BlockdevAdd {
+            driver: Some(BlockdevDriver::Qcow2),
+            node_name: Some("disk0".into()),
+            read_only: Some(false),
+            u: Some(BlockdevOptionsBranch::Qcow2(BlockdevOptionsQcow2 {
+                file: Box::new(BlockdevRef::Reference("disk0-file".into())),
+                backing: None,
+                cache_clean_interval: None,
+                cache_size: None,
+                data_file: None,
+                discard_no_unref: None,
+                encrypt: None,
+                l2_cache_entry_size: None,
+                l2_cache_size: None,
+                lazy_refcounts: None,
+                overlap_check: None,
+                pass_discard_other: None,
+                pass_discard_request: None,
+                pass_discard_snapshot: None,
+                refcount_cache_size: None,
+            })),
+            active: None,
+            auto_read_only: None,
+            cache: None,
+            detect_zeroes: None,
+            discard: None,
+            force_share: None,
+            options: None,
+        })
+        .await
+        .expect("blockdev-add qcow2 failed");
 
     let vm = preconfig.start().await.expect("x-exit-preconfig failed");
 
     use std::collections::HashMap;
-    vm.qmp.execute(&DeviceAdd {
-        driver: "virtio-blk-pci".into(),
-        id: Some("blk0".into()),
-        bus: Some("rp0".into()),
-        arguments: Some(HashMap::from([
-            ("drive".to_string(), serde_json::Value::String("disk0".into())),
-            ("bootindex".to_string(), serde_json::Value::Number(0.into())),
-        ])),
-    }).await.expect("device_add failed");
+    vm.qmp
+        .execute(&DeviceAdd {
+            driver: "virtio-blk-pci".into(),
+            id: Some("blk0".into()),
+            bus: Some("rp0".into()),
+            arguments: Some(HashMap::from([
+                (
+                    "drive".to_string(),
+                    serde_json::Value::String("disk0".into()),
+                ),
+                ("bootindex".to_string(), serde_json::Value::Number(0.into())),
+            ])),
+        })
+        .await
+        .expect("device_add failed");
 
     vm.cont().await.expect("cont failed");
 
@@ -601,13 +741,18 @@ async fn sev_snp_vm_boot_high_fds() {
     }
     eprintln!("Opened {} dummy fds to simulate server", dummy_fds.len());
 
-    let builder = VmBuilder::new(Arch::X86_64, MachineConfig::SecureBoot { memory: "256M".into() }).sev_snp(SevSnpConfig::default())
-        .accel(Accel::Kvm)
-        .cpu("EPYC-v4")
-        
-        .ovmf(fw)
-        .display()
-        .serial();
+    let builder = VmBuilder::new(
+        Arch::X86_64,
+        MachineConfig::SecureBoot {
+            memory: "256M".into(),
+        },
+    )
+    .sev_snp(SevSnpConfig::default())
+    .accel(Accel::Kvm)
+    .cpu("EPYC-v4")
+    .ovmf(fw)
+    .display()
+    .serial();
 
     let preconfig = match builder.spawn().await {
         Ok(vm) => vm,
@@ -626,7 +771,10 @@ async fn sev_snp_vm_boot_high_fds() {
 
     tokio::time::sleep(std::time::Duration::from_secs(5)).await;
 
-    let status = vm.qmp.execute(&qapi::commands::QueryStatus {}).await
+    let status = vm
+        .qmp
+        .execute(&qapi::commands::QueryStatus {})
+        .await
         .expect("query-status failed — GHCB crash? check dmesg");
     assert!(status.running, "VM should be running");
 
@@ -683,7 +831,13 @@ async fn sev_snp_vm_boot_bmc_full() {
     let disk_dir = tempfile::tempdir().expect("tempdir");
     let disk_path = disk_dir.path().join("test.qcow2");
     let img = std::process::Command::new("qemu-img")
-        .args(["create", "-f", "qcow2", &disk_path.display().to_string(), "64M"])
+        .args([
+            "create",
+            "-f",
+            "qcow2",
+            &disk_path.display().to_string(),
+            "64M",
+        ])
         .output()
         .expect("qemu-img");
     assert!(img.status.success());
@@ -699,13 +853,18 @@ async fn sev_snp_vm_boot_bmc_full() {
     };
     eprintln!("Using AmdSev OVMF: {}", amdsev_fw.display());
 
-    let builder = VmBuilder::new(Arch::X86_64, MachineConfig::SecureBoot { memory: "256M".into() }).sev_snp(SevSnpConfig::default())
-        .accel(Accel::Kvm)
-        .cpu("EPYC-v4")
-        
-        .firmware(amdsev_fw)
-        .display()
-        .serial();
+    let builder = VmBuilder::new(
+        Arch::X86_64,
+        MachineConfig::SecureBoot {
+            memory: "256M".into(),
+        },
+    )
+    .sev_snp(SevSnpConfig::default())
+    .accel(Accel::Kvm)
+    .cpu("EPYC-v4")
+    .firmware(amdsev_fw)
+    .display()
+    .serial();
 
     let preconfig = match builder.spawn().await {
         Ok(vm) => vm,
@@ -721,52 +880,91 @@ async fn sev_snp_vm_boot_bmc_full() {
 
     // blockdev-add
     use qapi::commands::{BlockdevAdd, DeviceAdd};
-    use qapi::{BlockdevDriver, BlockdevOptionsBranch, BlockdevOptionsFile, BlockdevOptionsQcow2, BlockdevRef};
+    use qapi::{
+        BlockdevDriver, BlockdevOptionsBranch, BlockdevOptionsFile, BlockdevOptionsQcow2,
+        BlockdevRef,
+    };
 
-    preconfig.qmp.execute(&BlockdevAdd {
-        driver: Some(BlockdevDriver::File),
-        node_name: Some("disk0-file".into()),
-        read_only: Some(false),
-        u: Some(BlockdevOptionsBranch::File(BlockdevOptionsFile {
-            filename: disk_path.display().to_string(),
-            aio: None, aio_max_batch: None, drop_cache: None,
-            locking: None, pr_manager: None, x_check_cache_dropped: None,
-        })),
-        active: None, auto_read_only: None, cache: None,
-        detect_zeroes: None, discard: None, force_share: None, options: None,
-    }).await.expect("blockdev-add file failed");
+    preconfig
+        .qmp
+        .execute(&BlockdevAdd {
+            driver: Some(BlockdevDriver::File),
+            node_name: Some("disk0-file".into()),
+            read_only: Some(false),
+            u: Some(BlockdevOptionsBranch::File(BlockdevOptionsFile {
+                filename: disk_path.display().to_string(),
+                aio: None,
+                aio_max_batch: None,
+                drop_cache: None,
+                locking: None,
+                pr_manager: None,
+                x_check_cache_dropped: None,
+            })),
+            active: None,
+            auto_read_only: None,
+            cache: None,
+            detect_zeroes: None,
+            discard: None,
+            force_share: None,
+            options: None,
+        })
+        .await
+        .expect("blockdev-add file failed");
 
-    preconfig.qmp.execute(&BlockdevAdd {
-        driver: Some(BlockdevDriver::Qcow2),
-        node_name: Some("disk0".into()),
-        read_only: Some(false),
-        u: Some(BlockdevOptionsBranch::Qcow2(BlockdevOptionsQcow2 {
-            file: Box::new(BlockdevRef::Reference("disk0-file".into())),
-            backing: None, cache_clean_interval: None, cache_size: None,
-            data_file: None, discard_no_unref: None, encrypt: None,
-            l2_cache_entry_size: None, l2_cache_size: None,
-            lazy_refcounts: None, overlap_check: None,
-            pass_discard_other: None, pass_discard_request: None,
-            pass_discard_snapshot: None, refcount_cache_size: None,
-        })),
-        active: None, auto_read_only: None, cache: None,
-        detect_zeroes: None, discard: None, force_share: None, options: None,
-    }).await.expect("blockdev-add qcow2 failed");
+    preconfig
+        .qmp
+        .execute(&BlockdevAdd {
+            driver: Some(BlockdevDriver::Qcow2),
+            node_name: Some("disk0".into()),
+            read_only: Some(false),
+            u: Some(BlockdevOptionsBranch::Qcow2(BlockdevOptionsQcow2 {
+                file: Box::new(BlockdevRef::Reference("disk0-file".into())),
+                backing: None,
+                cache_clean_interval: None,
+                cache_size: None,
+                data_file: None,
+                discard_no_unref: None,
+                encrypt: None,
+                l2_cache_entry_size: None,
+                l2_cache_size: None,
+                lazy_refcounts: None,
+                overlap_check: None,
+                pass_discard_other: None,
+                pass_discard_request: None,
+                pass_discard_snapshot: None,
+                refcount_cache_size: None,
+            })),
+            active: None,
+            auto_read_only: None,
+            cache: None,
+            detect_zeroes: None,
+            discard: None,
+            force_share: None,
+            options: None,
+        })
+        .await
+        .expect("blockdev-add qcow2 failed");
 
     // x-exit-preconfig
     let vm = preconfig.start().await.expect("x-exit-preconfig failed");
 
     // device_add
     use std::collections::HashMap;
-    vm.qmp.execute(&DeviceAdd {
-        driver: "virtio-blk-pci".into(),
-        id: Some("blk0".into()),
-        bus: Some("rp0".into()),
-        arguments: Some(HashMap::from([
-            ("drive".to_string(), serde_json::Value::String("disk0".into())),
-            ("bootindex".to_string(), serde_json::Value::Number(0.into())),
-        ])),
-    }).await.expect("device_add failed");
+    vm.qmp
+        .execute(&DeviceAdd {
+            driver: "virtio-blk-pci".into(),
+            id: Some("blk0".into()),
+            bus: Some("rp0".into()),
+            arguments: Some(HashMap::from([
+                (
+                    "drive".to_string(),
+                    serde_json::Value::String("disk0".into()),
+                ),
+                ("bootindex".to_string(), serde_json::Value::Number(0.into())),
+            ])),
+        })
+        .await
+        .expect("device_add failed");
 
     // cont — BMC crash point
     vm.cont().await.expect("cont failed");
@@ -787,7 +985,10 @@ async fn sev_snp_vm_boot_bmc_full() {
     eprintln!("  query-kvm: {:?}", qk.is_ok());
 
     let qsev = vm.qmp.execute(&qapi::commands::QuerySev {}).await;
-    eprintln!("  query-sev: {:?}", qsev.as_ref().map(|_| ()).map_err(|e| e.to_string()));
+    eprintln!(
+        "  query-sev: {:?}",
+        qsev.as_ref().map(|_| ()).map_err(|e| e.to_string())
+    );
 
     let qtpm = vm.qmp.execute(&qapi::commands::QueryTpm {}).await;
     eprintln!("  query-tpm: {:?}", qtpm.is_ok());
@@ -795,7 +996,10 @@ async fn sev_snp_vm_boot_bmc_full() {
     // Now wait and check if VM survives
     tokio::time::sleep(std::time::Duration::from_secs(5)).await;
 
-    let status = vm.qmp.execute(&qapi::commands::QueryStatus {}).await
+    let status = vm
+        .qmp
+        .execute(&qapi::commands::QueryStatus {})
+        .await
         .expect("query-status failed — GHCB crash? check dmesg");
     assert!(status.running, "VM should be running");
 
@@ -835,19 +1039,30 @@ async fn sev_snp_vm_boot_bmc_flow() {
     let disk_dir = tempfile::tempdir().expect("failed to create temp dir");
     let disk_path = disk_dir.path().join("test.qcow2");
     let qemu_img = std::process::Command::new("qemu-img")
-        .args(["create", "-f", "qcow2", &disk_path.display().to_string(), "64M"])
+        .args([
+            "create",
+            "-f",
+            "qcow2",
+            &disk_path.display().to_string(),
+            "64M",
+        ])
         .output()
         .expect("qemu-img not found");
     assert!(qemu_img.status.success(), "qemu-img create failed");
 
     // Mirror BMC builder: attestation chardev via extra args
-    let builder = VmBuilder::new(Arch::X86_64, MachineConfig::SecureBoot { memory: "256M".into() }).sev_snp(SevSnpConfig::default())
-        .accel(Accel::Kvm)
-        .cpu("EPYC-v4")
-        
-        .ovmf(fw)
-        .display()
-        .serial();
+    let builder = VmBuilder::new(
+        Arch::X86_64,
+        MachineConfig::SecureBoot {
+            memory: "256M".into(),
+        },
+    )
+    .sev_snp(SevSnpConfig::default())
+    .accel(Accel::Kvm)
+    .cpu("EPYC-v4")
+    .ovmf(fw)
+    .display()
+    .serial();
 
     let preconfig = match builder.spawn().await {
         Ok(vm) => vm,
@@ -859,75 +1074,92 @@ async fn sev_snp_vm_boot_bmc_flow() {
 
     // Step 1: blockdev-add file backend (preconfig-safe)
     use qapi::commands::{BlockdevAdd, DeviceAdd};
-    use qapi::{BlockdevDriver, BlockdevOptionsBranch, BlockdevOptionsFile, BlockdevOptionsQcow2, BlockdevRef};
+    use qapi::{
+        BlockdevDriver, BlockdevOptionsBranch, BlockdevOptionsFile, BlockdevOptionsQcow2,
+        BlockdevRef,
+    };
 
-    preconfig.qmp.execute(&BlockdevAdd {
-        driver: Some(BlockdevDriver::File),
-        node_name: Some("disk0-file".into()),
-        read_only: Some(false),
-        u: Some(BlockdevOptionsBranch::File(BlockdevOptionsFile {
-            filename: disk_path.display().to_string(),
-            aio: None,
-            aio_max_batch: None,
-            drop_cache: None,
-            locking: None,
-            pr_manager: None,
-            x_check_cache_dropped: None,
-        })),
-        active: None,
-        auto_read_only: None,
-        cache: None,
-        detect_zeroes: None,
-        discard: None,
-        force_share: None,
-        options: None,
-    }).await.expect("blockdev-add file backend failed");
+    preconfig
+        .qmp
+        .execute(&BlockdevAdd {
+            driver: Some(BlockdevDriver::File),
+            node_name: Some("disk0-file".into()),
+            read_only: Some(false),
+            u: Some(BlockdevOptionsBranch::File(BlockdevOptionsFile {
+                filename: disk_path.display().to_string(),
+                aio: None,
+                aio_max_batch: None,
+                drop_cache: None,
+                locking: None,
+                pr_manager: None,
+                x_check_cache_dropped: None,
+            })),
+            active: None,
+            auto_read_only: None,
+            cache: None,
+            detect_zeroes: None,
+            discard: None,
+            force_share: None,
+            options: None,
+        })
+        .await
+        .expect("blockdev-add file backend failed");
 
     // Step 2: blockdev-add format layer
-    preconfig.qmp.execute(&BlockdevAdd {
-        driver: Some(BlockdevDriver::Qcow2),
-        node_name: Some("disk0".into()),
-        read_only: Some(false),
-        u: Some(BlockdevOptionsBranch::Qcow2(BlockdevOptionsQcow2 {
-            file: Box::new(BlockdevRef::Reference("disk0-file".into())),
-            backing: None,
-            cache_clean_interval: None,
-            cache_size: None,
-            data_file: None,
-            discard_no_unref: None,
-            encrypt: None,
-            l2_cache_entry_size: None,
-            l2_cache_size: None,
-            lazy_refcounts: None,
-            overlap_check: None,
-            pass_discard_other: None,
-            pass_discard_request: None,
-            pass_discard_snapshot: None,
-            refcount_cache_size: None,
-        })),
-        active: None,
-        auto_read_only: None,
-        cache: None,
-        detect_zeroes: None,
-        discard: None,
-        force_share: None,
-        options: None,
-    }).await.expect("blockdev-add qcow2 layer failed");
+    preconfig
+        .qmp
+        .execute(&BlockdevAdd {
+            driver: Some(BlockdevDriver::Qcow2),
+            node_name: Some("disk0".into()),
+            read_only: Some(false),
+            u: Some(BlockdevOptionsBranch::Qcow2(BlockdevOptionsQcow2 {
+                file: Box::new(BlockdevRef::Reference("disk0-file".into())),
+                backing: None,
+                cache_clean_interval: None,
+                cache_size: None,
+                data_file: None,
+                discard_no_unref: None,
+                encrypt: None,
+                l2_cache_entry_size: None,
+                l2_cache_size: None,
+                lazy_refcounts: None,
+                overlap_check: None,
+                pass_discard_other: None,
+                pass_discard_request: None,
+                pass_discard_snapshot: None,
+                refcount_cache_size: None,
+            })),
+            active: None,
+            auto_read_only: None,
+            cache: None,
+            detect_zeroes: None,
+            discard: None,
+            force_share: None,
+            options: None,
+        })
+        .await
+        .expect("blockdev-add qcow2 layer failed");
 
     // Step 3: x-exit-preconfig (SNP launch sequence)
     let vm = preconfig.start().await.expect("x-exit-preconfig failed");
 
     // Step 4: device_add virtio-blk-pci on rp0 (after machine init)
     use std::collections::HashMap;
-    vm.qmp.execute(&DeviceAdd {
-        driver: "virtio-blk-pci".into(),
-        id: Some("blk0".into()),
-        bus: Some("rp0".into()),
-        arguments: Some(HashMap::from([
-            ("drive".to_string(), serde_json::Value::String("disk0".into())),
-            ("bootindex".to_string(), serde_json::Value::Number(0.into())),
-        ])),
-    }).await.expect("device_add virtio-blk-pci failed");
+    vm.qmp
+        .execute(&DeviceAdd {
+            driver: "virtio-blk-pci".into(),
+            id: Some("blk0".into()),
+            bus: Some("rp0".into()),
+            arguments: Some(HashMap::from([
+                (
+                    "drive".to_string(),
+                    serde_json::Value::String("disk0".into()),
+                ),
+                ("bootindex".to_string(), serde_json::Value::Number(0.into())),
+            ])),
+        })
+        .await
+        .expect("device_add virtio-blk-pci failed");
 
     // Step 5: cont — this is where BMC crashes with GHCB error
     vm.cont().await.expect("cont failed");
@@ -936,7 +1168,10 @@ async fn sev_snp_vm_boot_bmc_flow() {
     tokio::time::sleep(std::time::Duration::from_secs(5)).await;
 
     // Check VM still alive
-    let status = vm.qmp.execute(&qapi::commands::QueryStatus {}).await
+    let status = vm
+        .qmp
+        .execute(&qapi::commands::QueryStatus {})
+        .await
         .expect("query-status failed — GHCB crash? check dmesg for 'GHCB GPA not registered'");
     assert!(status.running, "VM should be running after cont");
 
@@ -982,8 +1217,10 @@ async fn sev_snp_boot_crash_upstream_bug() {
     // Must use a BOOTABLE disk to trigger the crash. An empty qcow2
     // stays at the OVMF shell and never hits the failing code path.
     let cirros = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .parent().unwrap()
-        .parent().unwrap()
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
         .join("target/test-fixtures/cirros-0.6.2-x86_64-disk.img");
     if !cirros.exists() {
         eprintln!("SKIP: cirros not found at {}", cirros.display());
@@ -995,22 +1232,31 @@ async fn sev_snp_boot_crash_upstream_bug() {
     let overlay = tmpdir.path().join("overlay.qcow2");
     let img = std::process::Command::new("qemu-img")
         .args([
-            "create", "-f", "qcow2",
-            "-b", &cirros.display().to_string(),
-            "-F", "qcow2",
+            "create",
+            "-f",
+            "qcow2",
+            "-b",
+            &cirros.display().to_string(),
+            "-F",
+            "qcow2",
             &overlay.display().to_string(),
         ])
         .output()
         .expect("qemu-img");
     assert!(img.status.success(), "qemu-img create overlay failed");
 
-    let builder = VmBuilder::new(Arch::X86_64, MachineConfig::Uefi { memory: "256M".into() }).sev_snp(SevSnpConfig::default())
-        .accel(Accel::Kvm)
-        .cpu("EPYC-v4")
-        
-        .firmware(amdsev_fw)
-        .display()
-        .serial();
+    let builder = VmBuilder::new(
+        Arch::X86_64,
+        MachineConfig::Uefi {
+            memory: "256M".into(),
+        },
+    )
+    .sev_snp(SevSnpConfig::default())
+    .accel(Accel::Kvm)
+    .cpu("EPYC-v4")
+    .firmware(amdsev_fw)
+    .display()
+    .serial();
 
     let preconfig = match builder.spawn().await {
         Ok(vm) => vm,
@@ -1022,52 +1268,91 @@ async fn sev_snp_boot_crash_upstream_bug() {
 
     // blockdev-add
     use qapi::commands::{BlockdevAdd, DeviceAdd};
-    use qapi::{BlockdevDriver, BlockdevOptionsBranch, BlockdevOptionsFile, BlockdevOptionsQcow2, BlockdevRef};
+    use qapi::{
+        BlockdevDriver, BlockdevOptionsBranch, BlockdevOptionsFile, BlockdevOptionsQcow2,
+        BlockdevRef,
+    };
 
-    preconfig.qmp.execute(&BlockdevAdd {
-        driver: Some(BlockdevDriver::File),
-        node_name: Some("disk0-file".into()),
-        read_only: Some(false),
-        u: Some(BlockdevOptionsBranch::File(BlockdevOptionsFile {
-            filename: overlay.display().to_string(),
-            aio: None, aio_max_batch: None, drop_cache: None,
-            locking: None, pr_manager: None, x_check_cache_dropped: None,
-        })),
-        active: None, auto_read_only: None, cache: None,
-        detect_zeroes: None, discard: None, force_share: None, options: None,
-    }).await.expect("blockdev-add file failed");
+    preconfig
+        .qmp
+        .execute(&BlockdevAdd {
+            driver: Some(BlockdevDriver::File),
+            node_name: Some("disk0-file".into()),
+            read_only: Some(false),
+            u: Some(BlockdevOptionsBranch::File(BlockdevOptionsFile {
+                filename: overlay.display().to_string(),
+                aio: None,
+                aio_max_batch: None,
+                drop_cache: None,
+                locking: None,
+                pr_manager: None,
+                x_check_cache_dropped: None,
+            })),
+            active: None,
+            auto_read_only: None,
+            cache: None,
+            detect_zeroes: None,
+            discard: None,
+            force_share: None,
+            options: None,
+        })
+        .await
+        .expect("blockdev-add file failed");
 
-    preconfig.qmp.execute(&BlockdevAdd {
-        driver: Some(BlockdevDriver::Qcow2),
-        node_name: Some("disk0".into()),
-        read_only: Some(false),
-        u: Some(BlockdevOptionsBranch::Qcow2(BlockdevOptionsQcow2 {
-            file: Box::new(BlockdevRef::Reference("disk0-file".into())),
-            backing: None, cache_clean_interval: None, cache_size: None,
-            data_file: None, discard_no_unref: None, encrypt: None,
-            l2_cache_entry_size: None, l2_cache_size: None,
-            lazy_refcounts: None, overlap_check: None,
-            pass_discard_other: None, pass_discard_request: None,
-            pass_discard_snapshot: None, refcount_cache_size: None,
-        })),
-        active: None, auto_read_only: None, cache: None,
-        detect_zeroes: None, discard: None, force_share: None, options: None,
-    }).await.expect("blockdev-add qcow2 failed");
+    preconfig
+        .qmp
+        .execute(&BlockdevAdd {
+            driver: Some(BlockdevDriver::Qcow2),
+            node_name: Some("disk0".into()),
+            read_only: Some(false),
+            u: Some(BlockdevOptionsBranch::Qcow2(BlockdevOptionsQcow2 {
+                file: Box::new(BlockdevRef::Reference("disk0-file".into())),
+                backing: None,
+                cache_clean_interval: None,
+                cache_size: None,
+                data_file: None,
+                discard_no_unref: None,
+                encrypt: None,
+                l2_cache_entry_size: None,
+                l2_cache_size: None,
+                lazy_refcounts: None,
+                overlap_check: None,
+                pass_discard_other: None,
+                pass_discard_request: None,
+                pass_discard_snapshot: None,
+                refcount_cache_size: None,
+            })),
+            active: None,
+            auto_read_only: None,
+            cache: None,
+            detect_zeroes: None,
+            discard: None,
+            force_share: None,
+            options: None,
+        })
+        .await
+        .expect("blockdev-add qcow2 failed");
 
     // x-exit-preconfig (SNP launch)
     let vm = preconfig.start().await.expect("x-exit-preconfig failed");
 
     // device_add
     use std::collections::HashMap;
-    vm.qmp.execute(&DeviceAdd {
-        driver: "virtio-blk-pci".into(),
-        id: Some("blk0".into()),
-        bus: Some("rp0".into()),
-        arguments: Some(HashMap::from([
-            ("drive".to_string(), serde_json::Value::String("disk0".into())),
-            ("bootindex".to_string(), serde_json::Value::Number(0.into())),
-        ])),
-    }).await.expect("device_add failed");
+    vm.qmp
+        .execute(&DeviceAdd {
+            driver: "virtio-blk-pci".into(),
+            id: Some("blk0".into()),
+            bus: Some("rp0".into()),
+            arguments: Some(HashMap::from([
+                (
+                    "drive".to_string(),
+                    serde_json::Value::String("disk0".into()),
+                ),
+                ("bootindex".to_string(), serde_json::Value::Number(0.into())),
+            ])),
+        })
+        .await
+        .expect("device_add failed");
 
     // cont — guest starts executing
     vm.cont().await.expect("cont failed");
@@ -1088,10 +1373,16 @@ async fn sev_snp_boot_crash_upstream_bug() {
         }
         Ok(status) => {
             // Guest crashed (internal-error). Expected with the upstream bug.
-            eprintln!("EXPECTED CRASH: status={:?} (upstream KVM/QEMU/OVMF bug)", status.status);
+            eprintln!(
+                "EXPECTED CRASH: status={:?} (upstream KVM/QEMU/OVMF bug)",
+                status.status
+            );
             eprintln!("See: llm-rag/issues/sev-snp-boot-crash.md");
             vm.shutdown().await;
-            panic!("SEV-SNP guest crashed during Linux boot (upstream bug): {:?}", status.status);
+            panic!(
+                "SEV-SNP guest crashed during Linux boot (upstream bug): {:?}",
+                status.status
+            );
         }
         Err(e) => {
             // QMP connection lost — QEMU process died.

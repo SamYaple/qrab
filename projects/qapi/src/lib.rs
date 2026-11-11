@@ -114,6 +114,7 @@ pub fn qemu_version() -> (u32, u32, u32) {
         .unwrap_or_else(|| *QEMU_VERSION.get().unwrap_or(&(0, 0, 0)))
 }
 
+#[rustfmt::skip]
 mod generated;
 /// QMP data types (structs, enums, unions) re-exported at the crate root.
 pub use generated::*;
@@ -130,6 +131,7 @@ pub use generated::events;
 pub use generated::metadata;
 
 /// QEMU Guest Agent (QGA) types.
+#[rustfmt::skip]
 pub mod qga;
 
 static QGA_VERSION: OnceLock<(u32, u32, u32)> = OnceLock::new();

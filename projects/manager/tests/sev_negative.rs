@@ -128,20 +128,34 @@ fn snp_object_arg() -> &'static str {
 /// failure back, the assertions fire and the doc must be updated.
 #[test]
 fn snp_dash_s_flag_starts_cleanly_on_current_host() {
-    let fw = match skip_unless_snp_ready("snp+-S canary") { Some(f) => f, None => return };
+    let fw = match skip_unless_snp_ready("snp+-S canary") {
+        Some(f) => f,
+        None => return,
+    };
 
     let args = vec![
         "-S".to_string(),
-        "-machine".into(), format!("q35,confidential-guest-support=sev0,firmware={}", fw.display()),
-        "-m".into(), "512M".into(),
-        "-accel".into(), "kvm".into(),
-        "-cpu".into(), "EPYC-v4".into(),
-        "-object".into(), snp_object_arg().into(),
-        "-qmp".into(), "stdio".into(),
+        "-machine".into(),
+        format!(
+            "q35,confidential-guest-support=sev0,firmware={}",
+            fw.display()
+        ),
+        "-m".into(),
+        "512M".into(),
+        "-accel".into(),
+        "kvm".into(),
+        "-cpu".into(),
+        "EPYC-v4".into(),
+        "-object".into(),
+        snp_object_arg().into(),
+        "-qmp".into(),
+        "stdio".into(),
         "-nodefaults".into(),
-        "-display".into(), "none".into(),
+        "-display".into(),
+        "none".into(),
         "-no-reboot".into(),
-        "-serial".into(), "null".into(),
+        "-serial".into(),
+        "null".into(),
     ];
     let qmp = [
         r#"{"execute":"qmp_capabilities"}"#,
@@ -152,7 +166,11 @@ fn snp_dash_s_flag_starts_cleanly_on_current_host() {
     eprintln!("--- stdout ---\n{}", r.stdout);
     eprintln!("--- stderr ({} bytes) ---\n{}", r.stderr.len(), r.stderr);
 
-    let lower = format!("{}{}", r.stdout.to_ascii_lowercase(), r.stderr.to_ascii_lowercase());
+    let lower = format!(
+        "{}{}",
+        r.stdout.to_ascii_lowercase(),
+        r.stderr.to_ascii_lowercase()
+    );
     let kvm_failure = lower.contains("kvm run failed")
         || lower.contains("kvm_run failed")
         || lower.contains("snp_launch_finish failed")
@@ -173,16 +191,20 @@ fn snp_dash_s_flag_starts_cleanly_on_current_host() {
         r.stdout.contains("\"QMP\""),
         "QEMU didn't even emit the QMP greeting under -S + SNP. \
          STDOUT:\n{}\nSTDERR:\n{}",
-        r.stdout, r.stderr
+        r.stdout,
+        r.stderr
     );
     assert!(
         r.stdout.contains("\"return\""),
         "QEMU didn't acknowledge the cont command. \
          STDOUT:\n{}\nSTDERR:\n{}",
-        r.stdout, r.stderr
+        r.stdout,
+        r.stderr
     );
 
-    eprintln!("VERIFIED: SNP + -S launches cleanly (legacy claim 'must use --preconfig' no longer holds)");
+    eprintln!(
+        "VERIFIED: SNP + -S launches cleanly (legacy claim 'must use --preconfig' no longer holds)"
+    );
 }
 
 /// `issues/sev-snp-pflash.md` claimed `-bios <OVMF>` causes an immediate
@@ -194,20 +216,32 @@ fn snp_dash_s_flag_starts_cleanly_on_current_host() {
 /// the pflash-doc claim is re-verified.
 #[test]
 fn snp_bios_firmware_starts_cleanly_on_current_host() {
-    let fw = match skip_unless_snp_ready("snp+-bios canary") { Some(f) => f, None => return };
+    let fw = match skip_unless_snp_ready("snp+-bios canary") {
+        Some(f) => f,
+        None => return,
+    };
 
     let args = vec![
-        "-machine".into(), "q35,confidential-guest-support=sev0".into(),
-        "-bios".into(), fw.display().to_string(),
-        "-m".into(), "512M".into(),
-        "-accel".into(), "kvm".into(),
-        "-cpu".into(), "EPYC-v4".into(),
-        "-object".into(), snp_object_arg().into(),
-        "-qmp".into(), "stdio".into(),
+        "-machine".into(),
+        "q35,confidential-guest-support=sev0".into(),
+        "-bios".into(),
+        fw.display().to_string(),
+        "-m".into(),
+        "512M".into(),
+        "-accel".into(),
+        "kvm".into(),
+        "-cpu".into(),
+        "EPYC-v4".into(),
+        "-object".into(),
+        snp_object_arg().into(),
+        "-qmp".into(),
+        "stdio".into(),
         "-nodefaults".into(),
-        "-display".into(), "none".into(),
+        "-display".into(),
+        "none".into(),
         "-no-reboot".into(),
-        "-serial".into(), "null".into(),
+        "-serial".into(),
+        "null".into(),
     ];
     let qmp = [
         r#"{"execute":"qmp_capabilities"}"#,
@@ -217,7 +251,11 @@ fn snp_bios_firmware_starts_cleanly_on_current_host() {
     eprintln!("--- stdout ---\n{}", r.stdout);
     eprintln!("--- stderr ({} bytes) ---\n{}", r.stderr.len(), r.stderr);
 
-    let lower = format!("{}{}", r.stdout.to_ascii_lowercase(), r.stderr.to_ascii_lowercase());
+    let lower = format!(
+        "{}{}",
+        r.stdout.to_ascii_lowercase(),
+        r.stderr.to_ascii_lowercase()
+    );
     let kvm_failure = lower.contains("kvm run failed")
         || lower.contains("kvm_run failed")
         || lower.contains("internal-error");
@@ -236,13 +274,15 @@ fn snp_bios_firmware_starts_cleanly_on_current_host() {
         r.stdout.contains("\"QMP\""),
         "QEMU didn't emit QMP greeting under -bios + SNP. \
          STDOUT:\n{}\nSTDERR:\n{}",
-        r.stdout, r.stderr
+        r.stdout,
+        r.stderr
     );
     assert!(
         r.stdout.contains("\"status\":"),
         "QEMU didn't answer query-status under -bios + SNP. \
          STDOUT:\n{}\nSTDERR:\n{}",
-        r.stdout, r.stderr
+        r.stdout,
+        r.stderr
     );
 
     eprintln!("VERIFIED: SNP + -bios launches cleanly (legacy '-bios crashes vCPU' claim no longer holds)");
@@ -257,19 +297,30 @@ fn snp_bios_firmware_starts_cleanly_on_current_host() {
 /// so we run without it.
 #[test]
 fn snp_rejects_pflash_drive() {
-    let fw = match skip_unless_snp_ready("snp+pflash") { Some(f) => f, None => return };
+    let fw = match skip_unless_snp_ready("snp+pflash") {
+        Some(f) => f,
+        None => return,
+    };
 
     let args = vec![
-        "-machine".into(), "q35,confidential-guest-support=sev0".into(),
-        "-drive".into(), format!("if=pflash,format=raw,readonly=on,file={}", fw.display()),
-        "-m".into(), "512M".into(),
-        "-accel".into(), "kvm".into(),
-        "-cpu".into(), "EPYC-v4".into(),
-        "-object".into(), snp_object_arg().into(),
+        "-machine".into(),
+        "q35,confidential-guest-support=sev0".into(),
+        "-drive".into(),
+        format!("if=pflash,format=raw,readonly=on,file={}", fw.display()),
+        "-m".into(),
+        "512M".into(),
+        "-accel".into(),
+        "kvm".into(),
+        "-cpu".into(),
+        "EPYC-v4".into(),
+        "-object".into(),
+        snp_object_arg().into(),
         "-nodefaults".into(),
-        "-display".into(), "none".into(),
+        "-display".into(),
+        "none".into(),
         "-no-reboot".into(),
-        "-serial".into(), "null".into(),
+        "-serial".into(),
+        "null".into(),
     ];
     // No QMP needed — QEMU errors out during machine init, before any
     // monitor socket is usable.

@@ -366,9 +366,10 @@ mod tests {
         match fallthrough {
             None => {}
             Some(a) if a.igvm.ends_with("coconut-qemu-SB.igvm") => {}
-            Some(a) if QRAB_SVSM_SEARCH_PATHS
-                .iter()
-                .any(|(i, _)| a.igvm == Path::new(i)) => {}
+            Some(a)
+                if QRAB_SVSM_SEARCH_PATHS
+                    .iter()
+                    .any(|(i, _)| a.igvm == Path::new(i)) => {}
             other => panic!("unexpected hit: {other:?}"),
         }
     }

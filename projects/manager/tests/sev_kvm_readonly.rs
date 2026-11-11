@@ -42,7 +42,11 @@ const KVM_X86_SEV_ES_VM: i32 = 3;
 const KVM_X86_SNP_VM: i32 = 4;
 
 fn open_kvm() -> Option<OwnedFd> {
-    let fd = match std::fs::OpenOptions::new().read(true).write(true).open("/dev/kvm") {
+    let fd = match std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open("/dev/kvm")
+    {
         Ok(f) => f,
         Err(e) => {
             eprintln!("SKIP: cannot open /dev/kvm: {e}");
@@ -90,7 +94,10 @@ fn check_cap(kvm: &OwnedFd, vm_type: i32, cap: i32) -> Option<i32> {
 /// mask should also include SEV, SEV-ES and SNP.
 #[test]
 fn kvm_advertises_vm_types_bitmask() {
-    let kvm = match open_kvm() { Some(f) => f, None => return };
+    let kvm = match open_kvm() {
+        Some(f) => f,
+        None => return,
+    };
     let mask = supported_vm_type_mask(&kvm);
     eprintln!("KVM_CAP_VM_TYPES mask = 0x{mask:x}");
 
@@ -117,7 +124,10 @@ fn kvm_advertises_vm_types_bitmask() {
 /// kernel. Types the host doesn't support are skipped gracefully.
 #[test]
 fn kvm_cap_readonly_mem_non_coco_types_support_it() {
-    let kvm = match open_kvm() { Some(f) => f, None => return };
+    let kvm = match open_kvm() {
+        Some(f) => f,
+        None => return,
+    };
 
     // Default VM is non-negotiable — if this fails the kernel is broken.
     match check_cap(&kvm, KVM_X86_DEFAULT_VM, KVM_CAP_READONLY_MEM) {
@@ -131,8 +141,10 @@ fn kvm_cap_readonly_mem_non_coco_types_support_it() {
     // SW-protected VMs opt into the same memslot model as default VMs,
     // so readonly memory should still be supported when the type exists.
     if let Some(r) = check_cap(&kvm, KVM_X86_SW_PROTECTED_VM, KVM_CAP_READONLY_MEM) {
-        assert_eq!(r, 1,
-            "KVM_CAP_READONLY_MEM for KVM_X86_SW_PROTECTED_VM (1) should be 1, got {r}");
+        assert_eq!(
+            r, 1,
+            "KVM_CAP_READONLY_MEM for KVM_X86_SW_PROTECTED_VM (1) should be 1, got {r}"
+        );
     } else {
         eprintln!("SKIP: KVM_X86_SW_PROTECTED_VM not supported on this host");
     }
@@ -142,7 +154,10 @@ fn kvm_cap_readonly_mem_non_coco_types_support_it() {
 /// use the Reverse Map Table, so readonly memslots are still valid.
 #[test]
 fn kvm_cap_readonly_mem_sev_type_returns_one() {
-    let kvm = match open_kvm() { Some(f) => f, None => return };
+    let kvm = match open_kvm() {
+        Some(f) => f,
+        None => return,
+    };
 
     match check_cap(&kvm, KVM_X86_SEV_VM, KVM_CAP_READONLY_MEM) {
         Some(r) => {
@@ -165,7 +180,10 @@ fn kvm_cap_readonly_mem_sev_type_returns_one() {
 /// doc can be corrected against the test.
 #[test]
 fn kvm_cap_readonly_mem_sev_es_type_recorded() {
-    let kvm = match open_kvm() { Some(f) => f, None => return };
+    let kvm = match open_kvm() {
+        Some(f) => f,
+        None => return,
+    };
 
     match check_cap(&kvm, KVM_X86_SEV_ES_VM, KVM_CAP_READONLY_MEM) {
         Some(r) => {
@@ -193,7 +211,10 @@ fn kvm_cap_readonly_mem_sev_es_type_recorded() {
 /// `KVM_CAP_READONLY_MEM` so the doc can cite a real test run.
 #[test]
 fn kvm_cap_readonly_mem_snp_type_recorded() {
-    let kvm = match open_kvm() { Some(f) => f, None => return };
+    let kvm = match open_kvm() {
+        Some(f) => f,
+        None => return,
+    };
 
     let mask = supported_vm_type_mask(&kvm);
     if mask & (1u64 << KVM_X86_SNP_VM) == 0 {

@@ -20,6 +20,7 @@ features = ["time"]
 
 [dependencies.manager]
 path = "../manager"
+features = ["legacy-host"]
 optional = true
 
 [dependencies.qapi]
