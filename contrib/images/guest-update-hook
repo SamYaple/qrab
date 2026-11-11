@@ -1,0 +1,20 @@
+#!/bin/sh
+# Example qrab guest update hook, installed root-owned at /etc/qrab/update-hook.
+# qrab-guest-agent runs only this path, in its own process group, with a
+# cleared environment, stdin from /dev/null and already validated token
+# arguments ([A-Za-z0-9._:/=+@,-], none starting with '-'). Combined output is
+# returned by qrab-update-status; exit 0 reports success.
+#
+# The RAM-only demo guest has nothing to update. A real image replaces this
+# with its own updater (for example: verify and stage a signed image, then
+# request a reboot) and should validate every argument it accepts.
+set -eu
+echo "qrab update hook run ${QRAB_UPDATE_RUN_ID:-?}: $*"
+for argument in "$@"; do
+    case "$argument" in
+        channel=*|version=*) echo "accepted $argument" ;;
+        *) echo "unsupported argument: $argument" >&2; exit 2 ;;
+    esac
+done
+uname -r
+echo QRAB_UPDATE_HOOK_OK

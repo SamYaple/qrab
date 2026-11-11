@@ -38,6 +38,23 @@ fn arguments_separate_paths_from_qemu_option_syntax() {
     assert!(args.windows(2).any(|a| a == ["-nic", "none"]));
     assert!(!args.iter().any(|a| a.contains("qrab-init")));
     assert!(!args.iter().any(|a| a == "-vnc"));
+    // The guest agent port is on a private socket beside QMP, never TCP.
+    assert!(args.windows(2).any(|a| a
+        == [
+            "-chardev",
+            "socket,id=qga0,path=/tmp/a,,b/qga.sock,server=on,wait=off"
+        ]));
+    assert!(args.windows(2).any(|a| a
+        == [
+            "-device",
+            "virtserialport,bus=qga-serial.0,chardev=qga0,name=org.qemu.guest_agent.0"
+        ]));
+    config.guest_agent = false;
+    let args = config.arguments(Path::new("/tmp/private/qmp.sock"));
+    assert!(!args
+        .iter()
+        .any(|a| a.contains("qga") || a.contains("virtio-serial")));
+    config.guest_agent = true;
     config.console = true;
     let args = config.arguments(Path::new("/tmp/private/qmp.sock"));
     assert!(args

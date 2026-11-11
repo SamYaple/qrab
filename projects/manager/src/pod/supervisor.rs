@@ -100,15 +100,19 @@ pub async fn run_controlled(
         .tempdir_in(&config.runtime_dir)?;
     let socket = session.path().join("qmp.sock");
     let console = config.console.then(|| session.path().join("vnc.sock"));
-    if socket.as_os_str().as_encoded_bytes().len() > 107
-        || (config.tpm.is_some()
+    let socket_too_long = |enabled: bool, name: &str| {
+        enabled
             && session
                 .path()
-                .join("swtpm.sock")
+                .join(name)
                 .as_os_str()
                 .as_encoded_bytes()
                 .len()
-                > 107)
+                > 107
+    };
+    if socket_too_long(true, "qmp.sock")
+        || socket_too_long(config.tpm.is_some(), "swtpm.sock")
+        || socket_too_long(config.guest_agent, "qga.sock")
     {
         return Err(Error::Config(
             "runtime directory is too long for a QMP Unix socket".into(),
@@ -258,6 +262,10 @@ async fn run_qemu(
         "{}",
         serde_json::json!({"event":"qmp_connected","version":qmp.version(),"qemu_pid":state.qemu_pid})
     );
+    // QEMU created the agent chardev before QMP became available.
+    let agent = config.guest_agent.then(|| {
+        super::agent::GuestAgent::spawn(socket.with_file_name("qga.sock"), Default::default())
+    });
     let execution = async {
         if qmp.version() < (11,1,0) { return Err(Error::Config("pod manager requires QEMU 11.1 or newer".into())); }
         tokio::select! {
@@ -271,7 +279,7 @@ async fn run_qemu(
                 _=&mut shutdown => return Ok(None),
                 exit=child.wait() => return Ok(Some(exit?)),
                 exit=super::tpm::wait(tpm) => return Err(Error::Spawn(format!("swtpm exited while QEMU was active: {}", exit?))),
-                Some(request)=control.requests.recv() => if request.dispatch(&qmp, console).await { return Ok(None); },
+                Some(request)=control.requests.recv() => if request.dispatch(&qmp, console, agent.as_ref()).await { return Ok(None); },
                 Some(event)=events.recv() => control.record_event(event),
                 reason=qmp.closed() => {
                     state.ready=false;state.phase=Phase::Stopping;publish(config,state)?;
@@ -286,6 +294,7 @@ async fn run_qemu(
             }
         }
     }.await;
+    drop(agent);
     state.ready = false;
     let result = match execution {
         Ok(Some(exit)) => {

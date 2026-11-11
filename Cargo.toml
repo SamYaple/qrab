@@ -10,6 +10,7 @@ default-members = [
     "projects/bmc",
     "projects/operator",
     "projects/iscsi-target",
+    "projects/qrab-guest-agent",
 ]
 members = [
     "projects/qapi-codegen",
@@ -22,6 +23,7 @@ members = [
     "projects/bmc",
     "projects/operator",
     "projects/iscsi-target",
+    "projects/qrab-guest-agent",
     "projects/attest-server",
     "projects/qrab-boot-proto",
     "projects/qrab-boot-verify",

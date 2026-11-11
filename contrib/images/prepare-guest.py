@@ -7,7 +7,7 @@ import subprocess
 
 root = pathlib.Path('/guest')
 out = pathlib.Path('/out')
-for directory in ['bin', 'dev', 'proc', 'sys', 'tmp', 'run', 'var/run', 'var/log', 'etc', 'usr/bin']:
+for directory in ['bin', 'dev', 'proc', 'sys', 'tmp', 'run', 'var/run', 'var/log', 'etc', 'etc/qrab', 'usr/bin', 'usr/sbin']:
     (root / directory).mkdir(parents=True, exist_ok=True)
 out.mkdir(exist_ok=True)
 kernel, = pathlib.Path('/boot').glob('vmlinuz-*')
@@ -18,7 +18,7 @@ shutil.copy('/bin/busybox', root / 'bin/busybox')
 (root / 'bin/sh').symlink_to('busybox')
 
 modules = []
-for name in ['xhci_pci', 'usbhid', 'hid_generic', 'mousedev', 'evdev', 'tpm_tis', 'virtio_pci', 'virtio_blk', 'virtio_scsi', 'sd_mod', 'crc32c_generic', 'ext4']:
+for name in ['xhci_pci', 'usbhid', 'hid_generic', 'mousedev', 'evdev', 'tpm_tis', 'virtio_pci', 'virtio_console', 'virtio_blk', 'virtio_scsi', 'sd_mod', 'crc32c_generic', 'ext4']:
     dependencies = subprocess.check_output(['modprobe', '--set-version', version, '--show-depends', name], text=True)
     for line in dependencies.splitlines():
         if not line.startswith('insmod '):

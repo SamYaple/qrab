@@ -12,7 +12,7 @@ The older confidential-guest API is opt-in through `legacy-host`.
 - `qrab/qemu`: pinned local-Gitea QEMU 11.1.3, TCG/KVM, VNC/pixman/TPM, swtpm and
   OVMF CODE/VARS under `/opt/qrab/firmware`. QEMU source/provenance stays local.
 - `qrab/manager`: Rust supervisor and BMC plus the readonly GPT/FAT ESP demo UKI,
-  kernel, initramfs and TPM2 guest probes under `/opt/qrab/demo`.
+  kernel, initramfs (with `qrab-guest-agent`) and TPM2 guest probes under `/opt/qrab/demo`.
 - `qrab/operator`: the small namespace-scoped Rust reconciler without QEMU or
   guest assets. Its Kubernetes API token is separate from the token-free VM Pod.
 
@@ -141,6 +141,39 @@ Each request is `{"v":1,"id":<u64>,"op":"<op>",...}` and each reply
 The socket trusts its UID-restricted peer. A sidecar serving users enforces
 its own authentication and requests `redacted` views for less-privileged
 users, as the BMC does.
+
+## Guest agent
+
+`guest_agent` (default `true`) adds `virtio-serial-pci` and a
+`virtserialport` named `org.qemu.guest_agent.0` backed by
+`socket,id=qga0,path=<session>/qga.sock,server=on,wait=off`. The socket is in
+the private 0700 session directory beside QMP; it is never on TCP. The
+channel is harmless when no agent runs in the guest.
+
+After QMP connects, the supervisor starts one guest-agent task owning a
+`qapi-protocol` QGA connection to that socket. QEMU accepts the socket even with
+no agent, so absence shows as a 3-second handshake timeout; the task retries
+every 2 seconds, pings every 10 seconds, and resynchronizes with
+`guest-sync-delimited` after any timeout or desynchronizing failure. A valid
+agent error leaves the session connected. The task ends with the QEMU child.
+
+`manager::pod::Control` exposes it:
+
+| Method | Effect |
+|---|---|
+| `agent_status()` | Cached `AgentStatus`: `enabled`, `connected`, `version`, connect/last-seen times, `last_error`. Never waits on the guest. |
+| `agent_ping()` | `guest-ping`. |
+| `agent_freeze(None \| Some(mountpoints))` | `guest-fsfreeze-freeze` or `-freeze-list`; returns the number frozen. |
+| `agent_thaw()`, `agent_freeze_status()` | Thaw all, or report `frozen`/`thawed`. |
+| `agent_update_trigger(args)`, `agent_update_status()` | Start or inspect the guest's fixed update hook. |
+
+Requests fail immediately when the agent is not connected, its four-slot
+queue is full, or the channel is disabled. They have a 30-second control
+deadline (a 20-second QGA command bound plus one reconnect attempt). Update
+arguments are validated host-side with the agent's own bound before reaching
+the guest. As with QMP, a timeout never proves a command did not run: the guest
+watchdog thaws an abandoned freeze. See [guest-agent.md](guest-agent.md) for
+the guest daemon, its allowlist and the update-hook contract.
 
 ## Build and publish
 

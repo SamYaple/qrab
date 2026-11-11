@@ -7,6 +7,12 @@ printf '\nQRAB_GUEST_BOOTED\n'
 printf 'guest kernel: '; uname -r
 printf 'guest uptime: '; cat /proc/uptime
 while read -r module; do insmod "$module"; done </etc/qrab-modules
+# The guest agent finds org.qemu.guest_agent.0 through sysfs (no udev here)
+# and is restarted if it exits. Its log lines go to the serial console.
+if [ -x /usr/sbin/qrab-guest-agent ]; then
+    (while :; do /usr/sbin/qrab-guest-agent </dev/null; sleep 1; done) &
+    echo QRAB_GUEST_AGENT_STARTED
+fi
 if [ -d /sys/firmware/efi ]; then
     echo QRAB_UEFI_BOOTED
 fi

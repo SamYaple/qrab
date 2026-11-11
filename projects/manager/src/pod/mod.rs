@@ -1,6 +1,7 @@
 //! QEMU supervision inside an existing container sandbox. No host namespaces,
 //! qrab-init helper, confidential-guest hardware or Kubernetes API is required.
 
+mod agent;
 mod config;
 mod control;
 mod events;
@@ -13,6 +14,7 @@ mod supervisor;
 mod tpm;
 mod view;
 
+pub use agent::{AgentStatus, FreezeState, UpdateState, UpdateStatus};
 pub use config::{Accelerator, Config, Disk, DiskFormat, Tpm, Uefi};
 pub use control::{control_channel, control_channel_for, Action, Control, ControlReceiver};
 pub use events::{

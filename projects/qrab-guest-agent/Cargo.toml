@@ -1,0 +1,23 @@
+[package]
+name = "qrab-guest-agent"
+version = "0.1.0"
+edition = "2021"
+description = "Minimal guest-side QEMU guest agent for qrab VMs"
+
+[dependencies]
+libc = "0.2"
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[dependencies.qapi]
+path = "../qapi"
+
+[dev-dependencies]
+tempfile = { workspace = true }
+
+[dev-dependencies.qapi-protocol]
+path = "../qapi-protocol"
+
+[dev-dependencies.tokio]
+workspace = true
+features = ["net", "rt", "macros", "time"]

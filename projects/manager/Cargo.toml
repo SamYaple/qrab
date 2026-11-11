@@ -35,6 +35,10 @@ path = "../qapi"
 [dependencies.qapi-protocol]
 path = "../qapi-protocol"
 
+# Wire types for the namespaced qrab guest-agent commands.
+[dependencies.qrab-guest-agent]
+path = "../qrab-guest-agent"
+
 [dependencies.nix]
 workspace = true
 features = ["fs", "process", "signal", "user"]

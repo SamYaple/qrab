@@ -2098,6 +2098,7 @@ dependencies = [
  "paste",
  "qapi",
  "qapi-protocol",
+ "qrab-guest-agent",
  "serde",
  "serde_json",
  "tempfile",
@@ -2888,6 +2889,19 @@ dependencies = [
 [[package]]
 name = "qrab-boot-verify"
 version = "0.2.0"
+
+[[package]]
+name = "qrab-guest-agent"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "qapi",
+ "qapi-protocol",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+]
 
 [[package]]
 name = "qrab-guest-init"

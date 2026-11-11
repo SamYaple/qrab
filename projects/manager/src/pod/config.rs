@@ -40,6 +40,9 @@ fn uefi_vars() -> PathBuf {
 fn uefi_boot_disk() -> PathBuf {
     "/opt/qrab/demo/boot.img".into()
 }
+fn enabled() -> bool {
+    true
+}
 fn swtpm_binary() -> PathBuf {
     "/usr/bin/swtpm".into()
 }
@@ -114,6 +117,10 @@ pub struct Config {
     /// for a sidecar sharing the runtime volume. See `pod::socket`.
     #[serde(default)]
     pub control_socket: bool,
+    /// Attach the `org.qemu.guest_agent.0` virtio-serial port to a private
+    /// Unix socket in the session directory. Harmless if no agent runs.
+    #[serde(default = "enabled")]
+    pub guest_agent: bool,
     #[serde(default)]
     pub disk: Option<Disk>,
     #[serde(default)]
@@ -296,6 +303,22 @@ impl Config {
             serde_json::json!({"qom-type":"monitor-qmp", "id":"monitor", "chardev":"qmp"})
                 .to_string(),
         ]);
+        if self.guest_agent {
+            args.extend([
+                "-device".into(),
+                "virtio-serial-pci,id=qga-serial".into(),
+                "-chardev".into(),
+                format!(
+                    "socket,id=qga0,path={},server=on,wait=off",
+                    socket
+                        .with_file_name("qga.sock")
+                        .to_string_lossy()
+                        .replace(',', ",,")
+                ),
+                "-device".into(),
+                "virtserialport,bus=qga-serial.0,chardev=qga0,name=org.qemu.guest_agent.0".into(),
+            ]);
+        }
         if let Some(uefi) = &self.uefi {
             let vars = self.state_dir.join("identity/OVMF_VARS.fd");
             for (name, path, read_only) in [

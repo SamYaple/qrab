@@ -82,5 +82,9 @@ QRAB_TEST_QGA="$PWD/target/qemu-11.1.3/qga/qemu-ga" \
 It runs as the current user and reads no host agent configuration. No guest VM,
 root privileges, systemd or cluster is required for either protocol smoke test.
 
+The guest agent's protocol tests need none of these. Its explicit real-guest
+test, `manager/tests/pod_guest_agent.rs`, is described in
+[guest-agent.md](guest-agent.md#tests).
+
 UEFI/TPM boot and retained identity are tested explicitly with `manager/tests/pod_uefi.rs`;
 see [operator.md](operator.md). These require the built image assets and swtpm.
