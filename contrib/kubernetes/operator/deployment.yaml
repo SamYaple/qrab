@@ -34,7 +34,7 @@ spec:
       containers:
       - name: operator
         # Updated from published immutable references by the release pin commit.
-        image: zot.yapplesauce.com/qrab/operator@sha256:9ef9988fb9d603827887c1ecce6798928f31735755dadf73c14d340a645022e8
+        image: zot.yapplesauce.com/qrab/operator@sha256:d4cfb6fcefc6aef476de383f4deebbc32269ec6f0063d628d3277d9d178acfab
         imagePullPolicy: Always
         args: [run]
         env:
@@ -42,7 +42,7 @@ spec:
           valueFrom:
             fieldRef:
               fieldPath: metadata.namespace
-        - {name: QRAB_VM_IMAGE, value: 'zot.yapplesauce.com/qrab/manager@sha256:3b6061c4d18dcaf96db585e5baa3bfb26e8ed4af5eb4f09815ec5525d5bdc8c1'}
+        - {name: QRAB_VM_IMAGE, value: 'zot.yapplesauce.com/qrab/manager@sha256:653b44b4cdb7d91007e2f558c5bd1805650f6a2cc7c3dc07a489cdeafa25d7a1'}
         - {name: QRAB_OIDC_ISSUER, value: 'https://idm.yaple.net/oauth2/openid/qrab-bmc'}
         - {name: QRAB_OIDC_CLIENT_ID, value: qrab-bmc}
         - {name: QRAB_IDP_IP, value: '192.168.0.251'}
