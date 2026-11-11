@@ -3035,6 +3035,25 @@ name = "qrab-real-uki-demo-tests"
 version = "0.1.0"
 
 [[package]]
+name = "qrab-redfish"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "axum",
+ "futures",
+ "manager",
+ "openidconnect",
+ "qapi-protocol",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tower",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
 name = "qrab-snp-proto"
 version = "0.1.0"
 dependencies = [
