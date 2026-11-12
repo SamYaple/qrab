@@ -284,6 +284,7 @@ async fn run_qemu(
             started=qmp.execute(&Cont {}) => {started?;}
         }
         let mut heartbeat=tokio::time::interval(Duration::from_secs(1));
+        let mut disk_growth=super::disks::DiskGrowth::default();
         loop {
             tokio::select! {
                 _=&mut shutdown => return Ok(None),
@@ -304,6 +305,7 @@ async fn run_qemu(
                     let status=qmp.execute(&QueryStatus {}).await?;
                     state.phase=Phase::Running;state.ready=status.running;state.run_state=Some(status.status.to_string());
                     if let Some(resize)=state.resize.as_mut() { super::hotplug::reconcile(config,&qmp,resize).await; }
+                    super::disks::reconcile(config,&qmp,&mut disk_growth).await;
                     control.set_qmp_dropped(qmp.dropped_events());
                     publish(config,state)?;
                 }

@@ -4,6 +4,7 @@
 mod agent;
 mod config;
 mod control;
+mod disks;
 mod events;
 mod hotplug;
 mod iscsi;
