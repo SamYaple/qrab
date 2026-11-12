@@ -35,7 +35,7 @@ spec:
       containers:
       - name: dashboard
         # Placeholder: pinned to the published immutable digest by the release pin commit.
-        image: zot.yapplesauce.com/qrab/dashboard@sha256:0000000000000000000000000000000000000000000000000000000000000000
+        image: zot.yapplesauce.com/qrab/dashboard@sha256:6a92359c3a3cd5bbecd814ae70fd1bbb589f9ce04601f75da88543569fbd675c
         imagePullPolicy: Always
         env:
         - {name: DASHBOARD_PUBLIC_URL, value: 'https://vms.yapplesauce.com'}
