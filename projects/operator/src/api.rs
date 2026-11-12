@@ -244,8 +244,12 @@ pub struct PasswordSecret {
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Console {
-    /// Exact HTTPS origin. Service/Ingress/certificate and IdP callback are separate.
-    pub public_url: String,
+    /// Exact HTTPS origin of the BMC's own browser login and UI.
+    /// Service/Ingress/certificate and IdP callback are separate. Omit it for a
+    /// BMC reached only through the dashboard, which needs the operator's BMC
+    /// bearer-token settings.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub public_url: Option<String>,
     /// Subject UUIDs with full (admin) BMC access.
     #[serde(default)]
     #[schemars(length(max = 128))]

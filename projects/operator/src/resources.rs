@@ -131,6 +131,15 @@ pub struct Settings {
     /// Issuer and audience (OAuth2 client ID) of Redfish bearer tokens.
     pub redfish_oidc_issuer: String,
     pub redfish_oidc_audience: String,
+    /// ID tokens the dashboard forwards to every BMC's JSON API.
+    pub bmc_bearer: Option<BearerSettings>,
+}
+
+/// The issuer and audience (OAuth2 client ID) of accepted bearer ID tokens.
+#[derive(Clone)]
+pub struct BearerSettings {
+    pub issuer: String,
+    pub audience: String,
 }
 
 pub fn pinned_image(image: &str) -> bool {
@@ -267,6 +276,8 @@ fn viewers_with_creator(
     all
 }
 
+const NO_BMC_ACCESS: &str = "console.publicUrl is required unless the operator sets QRAB_BMC_BEARER_ISSUER and QRAB_BMC_BEARER_AUDIENCE for dashboard access";
+
 pub fn validate(vm: &VirtualMachine, settings: &Settings) -> Result<()> {
     if vm.name_any().len() > 50
         || !dns_name(&vm.name_any())
@@ -310,7 +321,15 @@ pub fn validate(vm: &VirtualMachine, settings: &Settings) -> Result<()> {
     let creator = creator(vm)?;
     match &vm.spec.console {
         Some(console) => {
-            origin(&console.public_url)?;
+            match &console.public_url {
+                Some(url) => {
+                    origin(url)?;
+                }
+                None if vm.spec.components.bmc.enabled && settings.bmc_bearer.is_none() => {
+                    return Err(Error::Invalid(NO_BMC_ACCESS.into()))
+                }
+                None => {}
+            }
             access(
                 "console",
                 (&console.allowed_subjects, &console.viewer_subjects),
@@ -525,11 +544,22 @@ fn sidecars(
         let console = vm.spec.console.as_ref().ok_or_else(|| {
             Error::Invalid("console is required while components.bmc is enabled".into())
         })?;
-        let mut env = vec![
-            json!({"name":"BMC_PUBLIC_URL","value":origin(&console.public_url)?}),
-            json!({"name":"BMC_OIDC_ISSUER","value":settings.oidc_issuer}),
-            json!({"name":"BMC_OIDC_CLIENT_ID","value":settings.oidc_client_id}),
-        ];
+        let mut env = Vec::new();
+        if let Some(url) = &console.public_url {
+            env.extend([
+                json!({"name":"BMC_PUBLIC_URL","value":origin(url)?}),
+                json!({"name":"BMC_OIDC_ISSUER","value":settings.oidc_issuer}),
+                json!({"name":"BMC_OIDC_CLIENT_ID","value":settings.oidc_client_id}),
+            ]);
+        }
+        match &settings.bmc_bearer {
+            Some(bearer) => env.extend([
+                json!({"name":"BMC_BEARER_ISSUER","value":bearer.issuer}),
+                json!({"name":"BMC_BEARER_AUDIENCE","value":bearer.audience}),
+            ]),
+            None if env.is_empty() => return Err(Error::Invalid(NO_BMC_ACCESS.into())),
+            None => {}
+        }
         let viewers = viewers_with_creator(
             &console.allowed_subjects,
             &console.viewer_subjects,
@@ -710,8 +740,20 @@ pub fn render_booted(
         .push(json!({"name":"size","mountPath":SIZE_DIR,"readOnly":true}));
     if let Some(ip) = &settings.idp_ip {
         let mut hosts = BTreeSet::new();
+        let bmc = vm.spec.components.bmc.enabled;
+        let browser = bmc
+            && vm
+                .spec
+                .console
+                .as_ref()
+                .is_some_and(|c| c.public_url.is_some());
+        let bearer = settings.bmc_bearer.as_ref().filter(|_| bmc);
         for (enabled, issuer) in [
-            (vm.spec.components.bmc.enabled, &settings.oidc_issuer),
+            (browser, &settings.oidc_issuer),
+            (
+                bearer.is_some(),
+                bearer.map_or(&settings.oidc_issuer, |b| &b.issuer),
+            ),
             (
                 vm.spec.components.redfish.enabled,
                 &settings.redfish_oidc_issuer,

@@ -45,6 +45,9 @@ spec:
         - {name: QRAB_VM_IMAGE, value: 'zot.yapplesauce.com/qrab/manager@sha256:80a93bb052f3fa6db076ae1983438b33990376bc95d1d4372c132d2f94fa7391'}
         - {name: QRAB_OIDC_ISSUER, value: 'https://idm.yaple.net/oauth2/openid/qrab-bmc'}
         - {name: QRAB_OIDC_CLIENT_ID, value: qrab-bmc}
+        # Every BMC also accepts the dashboard's forwarded ID tokens.
+        - {name: QRAB_BMC_BEARER_ISSUER, value: 'https://idm.yaple.net/oauth2/openid/qrab-dashboard'}
+        - {name: QRAB_BMC_BEARER_AUDIENCE, value: qrab-dashboard}
         - {name: QRAB_IDP_IP, value: '192.168.0.251'}
         ports:
         - name: health

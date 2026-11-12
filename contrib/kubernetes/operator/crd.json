@@ -171,7 +171,8 @@
                         "type": "array"
                       },
                       "publicUrl": {
-                        "description": "Exact HTTPS origin. Service/Ingress/certificate and IdP callback are separate.",
+                        "description": "Exact HTTPS origin of the BMC's own browser login and UI.\nService/Ingress/certificate and IdP callback are separate. Omit it for a\nBMC reached only through the dashboard, which needs the operator's BMC\nbearer-token settings.",
+                        "nullable": true,
                         "type": "string"
                       },
                       "viewerGroups": {
@@ -193,9 +194,6 @@
                         "type": "array"
                       }
                     },
-                    "required": [
-                      "publicUrl"
-                    ],
                     "type": "object"
                   },
                   "cpus": {

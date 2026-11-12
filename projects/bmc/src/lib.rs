@@ -19,7 +19,11 @@ use tower_sessions::{cookie::SameSite, Expiry, Session, SessionManagerLayer};
 
 #[derive(Clone)]
 pub struct AppState {
-    pub oidc: auth::Oidc,
+    /// The browser login; `None` on a bearer-only BMC.
+    pub oidc: Option<auth::Oidc>,
+    pub access: auth::Access,
+    /// Verifies dashboard ID tokens when bearer mode is configured.
+    pub bearer: Option<Arc<oidc_bearer::Verifier>>,
     pub config: config::Config,
     /// The VM, in-process or behind the manager's control socket.
     pub control: pod::Backend,
@@ -35,6 +39,9 @@ impl Failure {
     }
     pub fn forbidden() -> Self {
         Self(StatusCode::FORBIDDEN, "This request is not authorized.")
+    }
+    pub fn not_found() -> Self {
+        Self(StatusCode::NOT_FOUND, "Not found.")
     }
     pub fn internal() -> Self {
         Self(
@@ -63,8 +70,14 @@ impl IntoResponse for Failure {
     }
 }
 
+/// Without a browser login (`BMC_PUBLIC_URL`) there is no UI, `/auth/*` or
+/// `/assets`: only the JSON API, for bearer tokens, and the probes.
 pub fn router(app: AppState) -> Router {
-    let secure = app.config.origin.starts_with("https://");
+    let secure = app
+        .config
+        .browser
+        .as_ref()
+        .is_none_or(|browser| browser.origin.starts_with("https://"));
     let sessions = SessionManagerLayer::new(app.sessions.clone())
         .with_name(if secure {
             "__Host-qrab-session"
@@ -75,14 +88,22 @@ pub fn router(app: AppState) -> Router {
         .with_http_only(true)
         .with_same_site(SameSite::Lax)
         .with_expiry(Expiry::OnInactivity(time::Duration::minutes(15)));
-    Router::new()
-        .route(
-            "/",
-            get(|| async { Html(include_str!("../assets/index.html")) }),
-        )
-        .route("/auth/login", get(auth::login))
-        .route("/auth/callback", get(auth::callback))
-        .route("/auth/logout", post(logout))
+    let mut router = Router::new();
+    if app.oidc.is_some() {
+        router = router
+            .route(
+                "/",
+                get(|| async { Html(include_str!("../assets/index.html")) }),
+            )
+            .route("/auth/login", get(auth::login))
+            .route("/auth/callback", get(auth::callback))
+            .route("/auth/logout", post(logout))
+            .nest_service(
+                "/assets",
+                tower_http::services::ServeDir::new(app.config.assets_dir.clone()),
+            );
+    }
+    router
         .route("/api/session", get(identity))
         .route("/api/status", get(status))
         .route("/api/config", get(config_view))
@@ -97,10 +118,6 @@ pub fn router(app: AppState) -> Router {
         .route("/healthz", get(|| async { "ok" }))
         // A paused VM must stay reachable so an operator can resume it.
         .route("/readyz", get(health))
-        .nest_service(
-            "/assets",
-            tower_http::services::ServeDir::new(app.config.assets_dir.clone()),
-        )
         .layer(DefaultBodyLimit::max(4096))
         .layer(axum::middleware::from_fn(headers))
         .layer(sessions)
@@ -121,9 +138,8 @@ async fn headers(request: axum::extract::Request, next: axum::middleware::Next) 
 
 async fn identity(
     State(app): State<AppState>,
-    session: Session,
+    principal: auth::Principal,
 ) -> Result<Json<serde_json::Value>, Failure> {
-    let principal = auth::user(&app, &session).await?;
     let vm_name = app
         .control
         .config_view()
@@ -135,9 +151,8 @@ async fn identity(
 }
 async fn status(
     State(app): State<AppState>,
-    session: Session,
+    _: auth::Principal,
 ) -> Result<Json<pod::Status>, Failure> {
-    auth::user(&app, &session).await?;
     app.control
         .status()
         .await
@@ -148,9 +163,8 @@ async fn status(
 /// credential references, identity, paths, node and image.
 async fn config_view(
     State(app): State<AppState>,
-    session: Session,
+    principal: auth::Principal,
 ) -> Result<Json<pod::ConfigView>, Failure> {
-    let principal = auth::user(&app, &session).await?;
     let view = app
         .control
         .config_view()
@@ -170,9 +184,21 @@ async fn health(State(app): State<AppState>) -> StatusCode {
 }
 
 fn same_origin(app: &AppState, headers: &HeaderMap) -> bool {
-    headers.get("origin").and_then(|v| v.to_str().ok()) == Some(app.config.origin.as_str())
+    let origin = app.config.browser.as_ref().map(|b| b.origin.as_str());
+    origin.is_some() && headers.get("origin").and_then(|v| v.to_str().ok()) == origin
 }
-fn mutation(app: &AppState, headers: &HeaderMap, user: &auth::User) -> Result<(), Failure> {
+/// Cookie-session mutations need the exact Origin and the session's CSRF
+/// token. Browsers never attach bearer tokens by themselves, so bearer
+/// requests need neither.
+fn mutation(
+    app: &AppState,
+    headers: &HeaderMap,
+    principal: &auth::Principal,
+) -> Result<(), Failure> {
+    if principal.is_bearer() {
+        return Ok(());
+    }
+    let user = &principal.user;
     if !same_origin(app, headers)
         || headers.get("x-csrf-token").and_then(|v| v.to_str().ok()) != Some(user.csrf.as_str())
         || user.csrf.is_empty()
@@ -183,14 +209,14 @@ fn mutation(app: &AppState, headers: &HeaderMap, user: &auth::User) -> Result<()
 }
 async fn action(
     State(app): State<AppState>,
-    session: Session,
+    principal: auth::Principal,
     headers: HeaderMap,
     Json(action): Json<Action>,
 ) -> Result<StatusCode, Failure> {
-    let user = auth::admin(&app, &session).await?;
-    mutation(&app, &headers, &user)?;
+    let principal = principal.admin()?;
+    mutation(&app, &headers, &principal)?;
     let result = app.control.action(action).await;
-    tracing::info!(subject=%user.subject, ?action, success=result.is_ok(), "VM control requested");
+    tracing::info!(subject=%principal.user.subject, bearer=principal.is_bearer(), ?action, success=result.is_ok(), "VM control requested");
     result
         .map(|_| StatusCode::NO_CONTENT)
         .map_err(|error| Failure::vm(&error, "The VM did not complete the power action."))
@@ -200,8 +226,8 @@ async fn logout(
     session: Session,
     headers: HeaderMap,
 ) -> Result<StatusCode, Failure> {
-    let user = auth::user(&app, &session).await?.user;
-    mutation(&app, &headers, &user)?;
+    let principal = auth::user(&app, &session).await?;
+    mutation(&app, &headers, &principal)?;
     session.flush().await.map_err(|_| Failure::internal())?;
     Ok(StatusCode::NO_CONTENT)
 }

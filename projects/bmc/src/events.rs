@@ -9,12 +9,11 @@ use axum::{
     },
     Json,
 };
-use futures::Stream;
+use futures::{Stream, StreamExt};
 use manager::pod::{EventPage, VmEvent};
 use serde::Deserialize;
 use std::{collections::VecDeque, convert::Infallible, time::Duration};
 use tokio::sync::OwnedSemaphorePermit;
-use tower_sessions::Session;
 
 const STREAM_BATCH: usize = 64;
 
@@ -26,10 +25,9 @@ pub struct Cursor {
 
 pub async fn page(
     State(app): State<AppState>,
-    session: Session,
+    _: auth::Principal,
     Query(cursor): Query<Cursor>,
 ) -> Result<Json<EventPage>, Failure> {
-    auth::user(&app, &session).await?;
     Ok(Json(app.control.events(
         cursor.after,
         cursor.limit.unwrap_or(manager::pod::EVENT_PAGE_LIMIT),
@@ -38,8 +36,7 @@ pub async fn page(
 
 struct Follow {
     app: AppState,
-    id: tower_sessions::session::Id,
-    user: auth::User,
+    principal: auth::Principal,
     cursor: u64,
     queue: VecDeque<VmEvent>,
     missed: u64,
@@ -49,18 +46,21 @@ struct Follow {
 }
 
 /// Same-origin EventSource requests carry no Origin header, and SameSite=Lax
-/// withholds the cookie from cross-site subresources; a foreign Origin is refused.
+/// withholds the cookie from cross-site subresources; a foreign Origin is
+/// refused. Bearer requests carry no ambient credential and skip that check.
+/// The stream ends at the credential's expiry, or when a session is revoked.
 pub async fn stream(
     State(app): State<AppState>,
-    session: Session,
+    principal: auth::Principal,
     headers: HeaderMap,
     Query(cursor): Query<Cursor>,
 ) -> Result<Response, Failure> {
-    let principal = auth::user(&app, &session).await?;
-    if headers.contains_key("origin") && !crate::same_origin(&app, &headers) {
+    if !principal.is_bearer()
+        && headers.contains_key("origin")
+        && !crate::same_origin(&app, &headers)
+    {
         return Err(Failure::forbidden());
     }
-    let id = session.id().ok_or_else(Failure::unauthorized)?;
     let permit = app
         .event_streams
         .clone()
@@ -74,19 +74,22 @@ pub async fn stream(
     let cursor = resume
         .or(cursor.after)
         .unwrap_or_else(|| app.control.events(None, 1).latest);
-    tracing::info!(subject=%principal.user.subject, role=?principal.role, "VM event stream opened");
+    tracing::info!(subject=%principal.user.subject, role=?principal.role, bearer=principal.is_bearer(), "VM event stream opened");
     let app_dropped = app.control.events(None, 1).qmp_dropped;
+    let ended = {
+        let (app, principal) = (app.clone(), principal.clone());
+        async move { principal.ended(&app, auth::Role::Viewer).await }
+    };
     let follow = Follow {
         app,
-        id,
-        user: principal.user,
+        principal,
         cursor,
         queue: VecDeque::new(),
         missed: 0,
         dropped: app_dropped,
         _permit: permit,
     };
-    Ok(Sse::new(events(follow))
+    Ok(Sse::new(events(follow).take_until(ended))
         .keep_alive(KeepAlive::new().interval(Duration::from_secs(15)))
         .into_response())
 }
@@ -113,9 +116,12 @@ fn events(follow: Follow) -> impl Stream<Item = Result<Event, Infallible>> {
             }
             // Authorization is rechecked before every batch and at least once
             // a second while idle; logout, expiry or delisting end the stream.
-            if !auth::still_current(&follow.app, &follow.id, &follow.user, auth::Role::Viewer).await
+            if !follow
+                .principal
+                .still_current(&follow.app, auth::Role::Viewer)
+                .await
             {
-                tracing::info!(subject=%follow.user.subject, "VM event stream closed");
+                tracing::info!(subject=%follow.principal.user.subject, "VM event stream closed");
                 return None;
             }
             let page = follow.app.control.events(Some(follow.cursor), STREAM_BATCH);

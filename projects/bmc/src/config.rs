@@ -2,12 +2,29 @@ use anyhow::{ensure, Context, Result};
 use openidconnect::url::Url;
 use std::{collections::HashSet, net::SocketAddr, path::PathBuf};
 
+/// The browser console: a Kanidm authorization-code login with cookie sessions.
 #[derive(Clone)]
-pub struct Config {
-    pub listen: SocketAddr,
+pub struct Browser {
+    /// Exact public origin, from `BMC_PUBLIC_URL`.
     pub origin: String,
     pub issuer: String,
     pub client_id: String,
+}
+
+/// ID tokens another OIDC client (the dashboard) forwards as
+/// `Authorization: Bearer` credentials on `/api/*`.
+#[derive(Clone)]
+pub struct Bearer {
+    pub issuer: String,
+    pub audience: String,
+}
+
+#[derive(Clone)]
+pub struct Config {
+    pub listen: SocketAddr,
+    /// Absent without `BMC_PUBLIC_URL`: no login, cookie sessions or UI.
+    pub browser: Option<Browser>,
+    pub bearer: Option<Bearer>,
     /// Full access: sensitive configuration, power actions and the console.
     pub admin_subjects: HashSet<String>,
     /// Read-only access: status, events and redacted configuration.
@@ -20,20 +37,62 @@ pub struct Config {
     pub ca_file: Option<PathBuf>,
 }
 
+fn https(name: &str, raw: &str) -> Result<()> {
+    ensure!(
+        Url::parse(raw)
+            .with_context(|| format!("{name} must be a URL"))?
+            .scheme()
+            == "https",
+        "{name} must use HTTPS"
+    );
+    Ok(())
+}
+
 impl Config {
     pub fn from_env() -> Result<Self> {
-        let required =
-            |name: &str| std::env::var(name).with_context(|| format!("{name} is required"));
-        let listen = std::env::var("BMC_LISTEN")
-            .unwrap_or_else(|_| "0.0.0.0:8080".into())
+        Self::from_vars(|name| std::env::var(name).ok())
+    }
+
+    /// Configuration from `var`, which returns a variable's value if set.
+    /// Empty values count as unset.
+    ///
+    /// ```
+    /// use bmc::config::Config;
+    /// let vars = |pairs: &'static [(&str, &str)]| {
+    ///     move |name: &str| pairs.iter().find(|(k, _)| *k == name).map(|(_, v)| v.to_string())
+    /// };
+    /// const ADMIN: (&str, &str) = ("BMC_ADMIN_SUBJECTS", "6175a2a1-efb9-44e8-8c0b-5fe7ace18f9b");
+    /// const ISSUER: (&str, &str) = ("BMC_BEARER_ISSUER", "https://idm.example/oauth2/openid/dash");
+    /// const AUDIENCE: (&str, &str) = ("BMC_BEARER_AUDIENCE", "dash");
+    /// // Bearer-only: no public URL, so no browser login.
+    /// let config = Config::from_vars(vars(&[ADMIN, ISSUER, AUDIENCE])).unwrap();
+    /// assert!(config.browser.is_none());
+    /// assert_eq!(config.bearer.unwrap().audience, "dash");
+    /// // Some way in is required, and the bearer settings come as a pair.
+    /// assert!(Config::from_vars(vars(&[ADMIN])).is_err());
+    /// assert!(Config::from_vars(vars(&[ADMIN, ISSUER])).is_err());
+    /// const HTTP: (&str, &str) = ("BMC_BEARER_ISSUER", "http://idm.example/oauth2/openid/dash");
+    /// assert!(Config::from_vars(vars(&[ADMIN, HTTP, AUDIENCE])).is_err());
+    /// // The browser console keeps requiring its own OIDC client.
+    /// const PUBLIC: (&str, &str) = ("BMC_PUBLIC_URL", "https://vm.example");
+    /// assert!(Config::from_vars(vars(&[ADMIN, PUBLIC])).is_err());
+    /// let both = Config::from_vars(vars(&[
+    ///     ADMIN, PUBLIC, ISSUER, AUDIENCE,
+    ///     ("BMC_OIDC_ISSUER", "https://idm.example/oauth2/openid/qrab-bmc"),
+    ///     ("BMC_OIDC_CLIENT_ID", "qrab-bmc"),
+    /// ]))
+    /// .unwrap();
+    /// assert_eq!(both.browser.unwrap().origin, "https://vm.example");
+    /// assert!(both.bearer.is_some());
+    /// ```
+    pub fn from_vars(var: impl Fn(&str) -> Option<String>) -> Result<Self> {
+        let var = |name: &str| var(name).filter(|value| !value.is_empty());
+        let required = |name: &str| var(name).with_context(|| format!("{name} is required"));
+        let listen = var("BMC_LISTEN")
+            .unwrap_or_else(|| "0.0.0.0:8080".into())
             .parse()?;
-        let origin = public_origin(
-            &required("BMC_PUBLIC_URL")?,
-            std::env::var("BMC_ALLOW_LOOPBACK_HTTP").as_deref() == Ok("true"),
-            &listen,
-        )?;
         let uuids = |name: &str| -> Result<HashSet<String>> {
-            std::env::var(name)
+            var(name)
                 .unwrap_or_default()
                 .split(',')
                 .map(str::trim)
@@ -65,26 +124,47 @@ impl Config {
             admin_groups.is_disjoint(&viewer_groups),
             "a group cannot grant both BMC admin and viewer access"
         );
-        let issuer = required("BMC_OIDC_ISSUER")?;
+        let browser = match var("BMC_PUBLIC_URL") {
+            None => None,
+            Some(public_url) => {
+                let origin = public_origin(
+                    &public_url,
+                    var("BMC_ALLOW_LOOPBACK_HTTP").as_deref() == Some("true"),
+                    &listen,
+                )?;
+                let issuer = required("BMC_OIDC_ISSUER")?;
+                https("BMC_OIDC_ISSUER", &issuer)?;
+                Some(Browser {
+                    origin,
+                    issuer,
+                    client_id: required("BMC_OIDC_CLIENT_ID")?,
+                })
+            }
+        };
+        let bearer = match (var("BMC_BEARER_ISSUER"), var("BMC_BEARER_AUDIENCE")) {
+            (None, None) => None,
+            (Some(issuer), Some(audience)) => {
+                https("BMC_BEARER_ISSUER", &issuer)?;
+                Some(Bearer { issuer, audience })
+            }
+            _ => anyhow::bail!("BMC_BEARER_ISSUER and BMC_BEARER_AUDIENCE must be set together"),
+        };
         ensure!(
-            Url::parse(&issuer)?.scheme() == "https",
-            "OIDC issuer must use HTTPS"
+            browser.is_some() || bearer.is_some(),
+            "BMC_PUBLIC_URL (browser console) or BMC_BEARER_ISSUER and BMC_BEARER_AUDIENCE (dashboard bearer tokens) are required"
         );
-        let client_id = required("BMC_OIDC_CLIENT_ID")?;
-        ensure!(!client_id.is_empty(), "OIDC client ID must not be empty");
         Ok(Self {
             listen,
-            origin,
-            issuer,
-            client_id,
+            browser,
+            bearer,
             admin_subjects,
             viewer_subjects,
             admin_groups,
             viewer_groups,
-            assets_dir: std::env::var_os("BMC_ASSETS_DIR")
+            assets_dir: var("BMC_ASSETS_DIR")
                 .map(PathBuf::from)
                 .unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("assets")),
-            ca_file: std::env::var_os("BMC_CA_FILE").map(PathBuf::from),
+            ca_file: var("BMC_CA_FILE").map(PathBuf::from),
         })
     }
 }

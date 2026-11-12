@@ -13,16 +13,17 @@ use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::UnixStream,
 };
-use tower_sessions::Session;
 
+/// Admission authenticates before the upgrade. Cookie sessions need the exact
+/// Origin; a bearer token is not ambient browser state and needs none.
 pub async fn upgrade(
     State(app): State<AppState>,
-    session: Session,
+    principal: auth::Principal,
     headers: HeaderMap,
     ws: WebSocketUpgrade,
 ) -> Result<Response, Failure> {
-    let user = auth::admin(&app, &session).await?;
-    if !crate::same_origin(&app, &headers) {
+    let principal = principal.admin()?;
+    if !principal.is_bearer() && !crate::same_origin(&app, &headers) {
         return Err(Failure::forbidden());
     }
     let permit = app
@@ -35,25 +36,20 @@ pub async fn upgrade(
         .console()
         .await
         .map_err(|error| Failure::vm(&error, "The VM console is unavailable."))?;
-    let id = session.id().ok_or_else(Failure::unauthorized)?;
-    tracing::info!(subject=%user.subject, "VM console connected");
+    tracing::info!(subject=%principal.user.subject, bearer=principal.is_bearer(), "VM console connected");
     Ok(ws
         .protocols(["binary"])
         .max_message_size(64 * 1024)
         .max_frame_size(64 * 1024)
         .on_upgrade(move |socket| async move {
             let _permit = permit;
-            bridge(socket, stream, app, id, user).await;
+            bridge(socket, stream, app, principal).await;
         }))
 }
 
-async fn bridge(
-    ws: WebSocket,
-    stream: UnixStream,
-    app: AppState,
-    id: tower_sessions::session::Id,
-    user: auth::User,
-) {
+/// Ends at logout, expiry or role loss for sessions, and at the token's
+/// expiry for bearer admission.
+async fn bridge(ws: WebSocket, stream: UnixStream, app: AppState, principal: auth::Principal) {
     let (mut tx, mut rx) = ws.split();
     let (mut read, mut write) = stream.into_split();
     // Neither direction is detached. Dropping either copy future also drops
@@ -92,18 +88,9 @@ async fn bridge(
             }
         }
     };
-    let revoked = async {
-        let mut interval = tokio::time::interval(Duration::from_secs(1));
-        loop {
-            interval.tick().await;
-            if !auth::still_current(&app, &id, &user, auth::Role::Admin).await {
-                break;
-            }
-        }
-    };
     tokio::select! {
-        _=to_vnc => {}, _=to_ws => {}, _=revoked => {},
-        _=tokio::time::sleep(Duration::from_secs(user.expires.saturating_sub(auth::now()))) => {},
+        _=to_vnc => {}, _=to_ws => {},
+        _=principal.ended(&app, auth::Role::Admin) => {},
     }
-    tracing::info!(subject=%user.subject, "VM console disconnected");
+    tracing::info!(subject=%principal.user.subject, "VM console disconnected");
 }

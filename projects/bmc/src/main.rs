@@ -26,16 +26,38 @@ async fn main() -> Result<()> {
         USAGE
     );
     let config = bmc::config::Config::from_env()?;
-    ensure!(
-        config.assets_dir.join("novnc/core/rfb.js").is_file(),
-        "BMC noVNC assets are missing"
-    );
-    let oidc = bmc::auth::Oidc::discover(&config)
-        .await
-        .context("OIDC discovery")?;
+    let oidc = match &config.browser {
+        None => None,
+        Some(browser) => {
+            ensure!(
+                config.assets_dir.join("novnc/core/rfb.js").is_file(),
+                "BMC noVNC assets are missing"
+            );
+            Some(
+                bmc::auth::Oidc::discover(browser, config.ca_file.as_deref())
+                    .await
+                    .context("OIDC discovery")?,
+            )
+        }
+    };
+    let bearer = match &config.bearer {
+        None => None,
+        Some(bearer) => Some(Arc::new(
+            oidc_bearer::Verifier::discover(
+                &bearer.issuer,
+                &bearer.audience,
+                config.ca_file.as_deref(),
+            )
+            .await
+            .context("bearer token issuer discovery")?,
+        )),
+    };
+    let origin = config.browser.as_ref().map(|b| b.origin.clone());
     let listener = tokio::net::TcpListener::bind(config.listen).await?;
     let state = |control| bmc::AppState {
         oidc,
+        access: bmc::auth::Access::from_config(&config),
+        bearer,
         config: config.clone(),
         control,
         sessions: Default::default(),
@@ -50,7 +72,7 @@ async fn main() -> Result<()> {
     if args[0] == "--socket" {
         let remote = pod::Remote::new(args[1].clone().into());
         let app = bmc::router(state(pod::Backend::Socket(remote.clone())));
-        tracing::info!(listen=%config.listen, origin=%config.origin, socket=%args[1], "BMC sidecar started");
+        tracing::info!(listen=%config.listen, origin=?origin, bearer=config.bearer.is_some(), socket=%args[1], "BMC sidecar started");
         return sidecar(listener, app, remote, signal).await;
     }
     let vm = pod::Config::read(Path::new(&args[1]))?;
@@ -73,7 +95,7 @@ async fn main() -> Result<()> {
         receiver,
     );
     let mut runner = std::pin::pin!(runner);
-    tracing::info!(listen=%config.listen, origin=%config.origin, "BMC started");
+    tracing::info!(listen=%config.listen, origin=?origin, bearer=config.bearer.is_some(), "BMC started");
     tokio::select! {
         result=&mut runner => { stop.send_replace(true); let _=tokio::time::timeout(Duration::from_secs(2), &mut server).await; result?; },
         result=&mut server => { stop.send_replace(true); runner.await?; result?; },

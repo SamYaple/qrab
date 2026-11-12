@@ -58,7 +58,9 @@ the issuer's discovered JWKS (ES256 or RS256 only), the issuer, the audience
 listed, or the token's `groups` claim (Kanidm scope `groups_uuid`) must contain
 a configured group UUID; admin wins when both apply. Tokens are limited to
 16 KiB, about 300 group memberships. Keys are refreshed every ten minutes, and at most every 30 seconds
-after a signature fails, so rotated keys are picked up.
+after a signature fails, so rotated keys are picked up. This verification lives
+in `projects/oidc-bearer`, which the BMC's
+[dashboard bearer mode](bmc.md#dashboard-bearer-tokens) shares.
 
 There are no Redfish sessions, static tokens, Basic authentication, stored
 passwords or anonymous routes other than `/healthz` and `/readyz`. Missing,

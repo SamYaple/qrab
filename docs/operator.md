@@ -70,7 +70,7 @@ are optional sidecars in the same image:
 ```yaml
 spec:
   console:                       # required while components.bmc is enabled
-    publicUrl: https://qrab-demo.yapplesauce.com
+    publicUrl: https://qrab-demo.yapplesauce.com   # optional with dashboard bearer access
     allowedSubjects: [6175a2a1-efb9-44e8-8c0b-5fe7ace18f9b]   # BMC admins
     viewerSubjects: []                                         # read-only BMC users
     adminGroups: []                                            # Kanidm group UUIDs
@@ -116,8 +116,33 @@ and refuse any later change. The operator adds that subject to the BMC and
 Redfish viewers unless it is already an admin, so the creator can always
 watch the VM; only explicit grants allow power actions and the console. VMs
 created by certificate or ServiceAccount identities, such as Flux, have no
-creator. `contrib/kubernetes/operator/check-creator-policy.sh` checks the
-policies live with server-side dry runs.
+creator. The dashboard's ServiceAccount
+(`system:serviceaccount:qrab:qrab-dashboard`) is the one exception: it creates
+VMs for its signed-in user, so it must set the annotation itself to that
+user's lowercase hyphenated subject UUID. Admission keeps its value and refuses
+a missing or malformed one. The annotation stays immutable for everyone.
+`contrib/kubernetes/operator/check-creator-policy.sh` checks the policies live
+with server-side dry runs.
+
+### Dashboard access and publicUrl
+
+The dashboard (Kanidm client `qrab-dashboard`) is meant to be the cluster's
+only browser OIDC client. It calls each VM's BMC JSON API server-side at the
+Pod IP, port 8080, and forwards the signed-in user's ID token as
+`Authorization: Bearer`. With `QRAB_BMC_BEARER_ISSUER` and
+`QRAB_BMC_BEARER_AUDIENCE` set, every BMC sidecar receives `BMC_BEARER_ISSUER`
+and `BMC_BEARER_AUDIENCE` and verifies those tokens itself. The VM's subject
+and group lists decide that user's role, exactly as for the BMC login
+([bmc.md](bmc.md#dashboard-bearer-tokens)).
+
+`console.publicUrl` is then optional. Without it the BMC gets no
+`BMC_PUBLIC_URL` or `BMC_OIDC_*`: it has no login, browser UI, Service,
+Ingress, certificate or Kanidm callback, and is reachable only through the
+dashboard. The operator refuses a BMC-enabled VM with neither a `publicUrl` nor
+its own bearer settings, since that BMC would have no way in. With a
+`publicUrl`, the per-VM browser console works as before, and the BMC also
+accepts dashboard tokens. Network policy must admit the dashboard's Pods to
+port 8080 of the VM Pods.
 
 | components | Pod |
 | --- | --- |
@@ -151,9 +176,11 @@ manager`, so unqualified `kubectl exec`/`logs` reach it. Its startup, readiness 
 `/readyz` (the manager's live probe over the socket) and liveness on `/healthz`,
 and no startup probe, which would delay the manager's start.
 
-The BMC sidecar receives `BMC_PUBLIC_URL`, `BMC_OIDC_ISSUER`,
-`BMC_OIDC_CLIENT_ID`, `BMC_ALLOWED_SUBJECTS` and, when set,
-`BMC_VIEWER_SUBJECTS`. The Redfish sidecar receives `REDFISH_OIDC_ISSUER`,
+The BMC sidecar receives `BMC_PUBLIC_URL`, `BMC_OIDC_ISSUER` and
+`BMC_OIDC_CLIENT_ID` when `console.publicUrl` is set, `BMC_BEARER_ISSUER` and
+`BMC_BEARER_AUDIENCE` when the operator has bearer settings, and the non-empty
+`BMC_ALLOWED_SUBJECTS`, `BMC_VIEWER_SUBJECTS`, `BMC_ADMIN_GROUPS` and
+`BMC_VIEWER_GROUPS`. The Redfish sidecar receives `REDFISH_OIDC_ISSUER`,
 `REDFISH_OIDC_AUDIENCE` and the non-empty `REDFISH_ADMIN_SUBJECTS` /
 `REDFISH_VIEWER_SUBJECTS`. The operator's own environment selects the issuers:
 
@@ -161,10 +188,13 @@ The BMC sidecar receives `BMC_PUBLIC_URL`, `BMC_OIDC_ISSUER`,
 | --- | --- |
 | `QRAB_OIDC_ISSUER` / `QRAB_OIDC_CLIENT_ID` | `https://idm.yaple.net/oauth2/openid/qrab-bmc` / `qrab-bmc` |
 | `QRAB_REDFISH_OIDC_ISSUER` / `QRAB_REDFISH_OIDC_AUDIENCE` | `https://idm.yaple.net/oauth2/openid/qrab-redfish` / `qrab-redfish` |
+| `QRAB_BMC_BEARER_ISSUER` / `QRAB_BMC_BEARER_AUDIENCE` | unset; set together, e.g. `https://idm.yaple.net/oauth2/openid/qrab-dashboard` / `qrab-dashboard` |
 | `QRAB_IDP_IP` | optional `hostAliases` IP for the enabled components' issuer hosts |
 
-Changing components, subjects or this layout changes the Pod template hash, so
-the operator replaces the VM Pod while keeping its identity. Service, Ingress
+Changing components, subjects, the operator's bearer settings or this layout
+changes the Pod template hash, so the operator replaces the VM Pod while
+keeping its identity. Setting the bearer variables therefore restarts every
+BMC-enabled VM once. Service, Ingress
 and network-policy entries for port 8081 are explicit infrastructure, like the
 console's; see [redfish.md](redfish.md).
 

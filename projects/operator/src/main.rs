@@ -9,7 +9,7 @@ use kube::{
 use qrab_operator::{
     api::VirtualMachine,
     controller::{self, Context},
-    resources::{pinned_image, Settings},
+    resources::{pinned_image, BearerSettings, Settings},
 };
 use std::sync::Arc;
 
@@ -49,6 +49,26 @@ async fn main() -> Result<()> {
         url::Url::parse(&redfish_issuer)?.scheme() == "https",
         "Redfish OIDC issuer must use HTTPS"
     );
+    let bmc_bearer = match (
+        std::env::var("QRAB_BMC_BEARER_ISSUER").ok(),
+        std::env::var("QRAB_BMC_BEARER_AUDIENCE").ok(),
+    ) {
+        (None, None) => None,
+        (Some(issuer), Some(audience)) => {
+            ensure!(
+                url::Url::parse(&issuer)?.scheme() == "https",
+                "QRAB_BMC_BEARER_ISSUER must use HTTPS"
+            );
+            ensure!(
+                !audience.is_empty(),
+                "QRAB_BMC_BEARER_AUDIENCE must not be empty"
+            );
+            Some(BearerSettings { issuer, audience })
+        }
+        _ => anyhow::bail!(
+            "QRAB_BMC_BEARER_ISSUER and QRAB_BMC_BEARER_AUDIENCE must be set together"
+        ),
+    };
     let idp_ip = std::env::var("QRAB_IDP_IP").ok();
     if let Some(ip) = &idp_ip {
         ip.parse::<std::net::IpAddr>()
@@ -63,6 +83,7 @@ async fn main() -> Result<()> {
         redfish_oidc_issuer: redfish_issuer,
         redfish_oidc_audience: std::env::var("QRAB_REDFISH_OIDC_AUDIENCE")
             .unwrap_or_else(|_| "qrab-redfish".into()),
+        bmc_bearer,
     };
     let client = Client::try_default().await?;
     let vms: Api<VirtualMachine> = Api::namespaced(client.clone(), &settings.namespace);

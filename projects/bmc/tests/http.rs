@@ -16,8 +16,109 @@ const PORTAL: &str = "192.0.2.10:3260";
 const TARGET: &str = "iqn.2026-11.com.yapplesauce:qrab.test.disk";
 const IMAGE: &str =
     "zot.yapplesauce.com/qrab/manager@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+const ISSUER: &str = "https://idm.example/oauth2/openid/qrab-dashboard";
+const AUDIENCE: &str = "qrab-dashboard";
+const UNLISTED: &str = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
+const SIGNER: &str = "test-only-signing-key.pem";
+
+/// Redfish's test-only RSA keys; the BMC verifies tokens the same way.
+fn key(name: &str) -> openidconnect::core::CoreRsaPrivateSigningKey {
+    let pem = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../redfish/tests/fixtures")
+            .join(name),
+    )
+    .unwrap();
+    openidconnect::core::CoreRsaPrivateSigningKey::from_pem(
+        &pem,
+        Some(openidconnect::JsonWebKeyId::new("test".into())),
+    )
+    .unwrap()
+}
+
+fn verifier() -> oidc_bearer::Verifier {
+    use openidconnect::PrivateSigningKey;
+    oidc_bearer::Verifier::new(
+        openidconnect::IssuerUrl::new(ISSUER.into()).unwrap(),
+        openidconnect::ClientId::new(AUDIENCE.into()),
+        openidconnect::core::CoreJsonWebKeySet::new(vec![key(SIGNER).as_verification_key()]),
+    )
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+struct Groups {
+    groups: Vec<String>,
+}
+impl openidconnect::AdditionalClaims for Groups {}
+
+/// A signed ID token, as the dashboard forwards it.
+fn signed(
+    signer: &str,
+    issuer: &str,
+    audience: &str,
+    subject: &str,
+    groups: &[&str],
+    expires_in: i64,
+) -> String {
+    use openidconnect::core::{
+        CoreGenderClaim, CoreJweContentEncryptionAlgorithm, CoreJwsSigningAlgorithm,
+    };
+    let now = auth::now() as i64;
+    let claims: openidconnect::IdTokenClaims<Groups, CoreGenderClaim> =
+        serde_json::from_value(serde_json::json!({
+            "iss": issuer, "aud": [audience], "sub": subject, "iat": now - 5,
+            "exp": now + expires_in, "preferred_username": "dashboard-user", "groups": groups
+        }))
+        .unwrap();
+    openidconnect::IdToken::<
+        Groups,
+        CoreGenderClaim,
+        CoreJweContentEncryptionAlgorithm,
+        CoreJwsSigningAlgorithm,
+    >::new(
+        claims,
+        &key(signer),
+        CoreJwsSigningAlgorithm::RsaSsaPkcs1V15Sha256,
+        None,
+        None,
+    )
+    .unwrap()
+    .to_string()
+}
+
+fn bearer(subject: &str) -> String {
+    signed(SIGNER, ISSUER, AUDIENCE, subject, &[], 300)
+}
+
+fn grouped(subject: &str, groups: &[&str]) -> String {
+    signed(SIGNER, ISSUER, AUDIENCE, subject, groups, 300)
+}
+
+fn breq(path: &str, token: &str) -> axum::http::request::Builder {
+    Request::builder()
+        .uri(path)
+        .header("authorization", format!("Bearer {token}"))
+}
+
+async fn send(app: &AppState, request: Request<Body>) -> (StatusCode, String) {
+    let response = bmc::router(app.clone()).oneshot(request).await.unwrap();
+    let status = response.status();
+    let body = axum::body::to_bytes(response.into_body(), 1 << 20)
+        .await
+        .unwrap();
+    (status, String::from_utf8(body.to_vec()).unwrap())
+}
+
 fn app() -> AppState {
     app_with_receiver().0
+}
+
+/// No `BMC_PUBLIC_URL`: only the dashboard's bearer tokens get in.
+fn bearer_only() -> AppState {
+    let mut app = app();
+    app.oidc = None;
+    app.config.browser = None;
+    app
 }
 fn app_with_receiver() -> (AppState, manager::pod::ControlReceiver) {
     let metadata: openidconnect::core::CoreProviderMetadata = serde_json::from_value(serde_json::json!({
@@ -33,9 +134,15 @@ fn app_with_receiver() -> (AppState, manager::pod::ControlReceiver) {
     );
     let config = Config {
         listen: "127.0.0.1:8080".parse().unwrap(),
-        origin: "https://vm.example".into(),
-        issuer: "https://idp.example".into(),
-        client_id: "qrab-bmc".into(),
+        browser: Some(bmc::config::Browser {
+            origin: "https://vm.example".into(),
+            issuer: "https://idp.example".into(),
+            client_id: "qrab-bmc".into(),
+        }),
+        bearer: Some(bmc::config::Bearer {
+            issuer: ISSUER.into(),
+            audience: AUDIENCE.into(),
+        }),
         admin_subjects: [SUBJECT.to_string()].into_iter().collect(),
         viewer_subjects: [VIEWER.to_string()].into_iter().collect(),
         admin_groups: [ADMIN_GROUP.to_string()].into_iter().collect(),
@@ -59,14 +166,12 @@ fn app_with_receiver() -> (AppState, manager::pod::ControlReceiver) {
     };
     let (control, receiver) = manager::pod::control_channel_for(&vm, deployment);
     let app = AppState {
-        oidc: auth::Oidc {
+        oidc: Some(auth::Oidc {
             client: Arc::new(client),
             http: openidconnect::reqwest::Client::new(),
-            admins: config.admin_subjects.clone(),
-            viewers: config.viewer_subjects.clone(),
-            admin_groups: config.admin_groups.clone(),
-            viewer_groups: config.viewer_groups.clone(),
-        },
+        }),
+        access: auth::Access::from_config(&config),
+        bearer: Some(Arc::new(verifier())),
         config,
         control: manager::pod::Backend::Local(control),
         sessions: BoundedStore::default(),
@@ -774,14 +879,14 @@ async fn configured_groups_grant_roles_and_are_requested_only_when_configured() 
             .to_string(),
     );
     assert_eq!(
-        app.oidc.configured_groups(&format!("h.{payload}.s")),
+        app.access.configured_groups(&format!("h.{payload}.s")),
         [VIEWER_GROUP]
     );
 
     // Without configured groups the login asks for no group claim.
     let mut plain = app.clone();
-    plain.oidc.admin_groups.clear();
-    plain.oidc.viewer_groups.clear();
+    plain.access.admin_groups.clear();
+    plain.access.viewer_groups.clear();
     let response = bmc::router(plain)
         .oneshot(req("/auth/login", None).body(Body::empty()).unwrap())
         .await
@@ -790,4 +895,339 @@ async fn configured_groups_grant_roles_and_are_requested_only_when_configured() 
         openidconnect::url::Url::parse(response.headers()["location"].to_str().unwrap()).unwrap();
     let scope = url.query_pairs().find(|(k, _)| k == "scope").unwrap().1;
     assert_eq!(scope, "openid profile");
+}
+
+#[tokio::test]
+async fn bearer_tokens_are_fully_verified_on_every_api_route() {
+    let app = app();
+    let cookie = cookie(app.sessions.clone(), SUBJECT, auth::now() + 60).await;
+    let expired = signed(SIGNER, ISSUER, AUDIENCE, SUBJECT, &[], -60);
+    let rejected = [
+        String::new(),
+        "not-a-jwt".to_string(),
+        "a".repeat(oidc_bearer::MAX_TOKEN_BYTES + 1),
+        expired.clone(),
+        signed(SIGNER, ISSUER, "qrab-bmc", SUBJECT, &[], 300),
+        signed(
+            SIGNER,
+            "https://evil.example/oauth2/openid/qrab-dashboard",
+            AUDIENCE,
+            SUBJECT,
+            &[],
+            300,
+        ),
+        signed(
+            "test-only-foreign-key.pem",
+            ISSUER,
+            AUDIENCE,
+            SUBJECT,
+            &[],
+            300,
+        ),
+    ];
+    for path in [
+        "/api/session",
+        "/api/status",
+        "/api/config",
+        "/api/events",
+        "/api/events/stream",
+        "/api/agent",
+    ] {
+        for token in &rejected {
+            // A bearer request never falls back to the cookie session it carries.
+            let request = breq(path, token)
+                .header("cookie", &cookie)
+                .body(Body::empty())
+                .unwrap();
+            assert_eq!(
+                send(&app, request).await.0,
+                StatusCode::UNAUTHORIZED,
+                "{path} {}",
+                &token[..token.len().min(40)]
+            );
+        }
+        // A valid token whose subject and groups grant nothing is forbidden.
+        let unlisted = grouped(UNLISTED, &["ffffffff-ffff-4fff-8fff-ffffffffffff"]);
+        let request = breq(path, &unlisted).body(Body::empty()).unwrap();
+        assert_eq!(send(&app, request).await.0, StatusCode::FORBIDDEN, "{path}");
+    }
+    for (path, body) in [
+        ("/api/action", "\"reset\""),
+        ("/api/agent/freeze", ""),
+        ("/api/agent/thaw", ""),
+        ("/api/agent/update", r#"{"args":[]}"#),
+    ] {
+        let request = breq(path, &expired)
+            .method("POST")
+            .header("content-type", "application/json")
+            .body(Body::from(body))
+            .unwrap();
+        assert_eq!(
+            send(&app, request).await.0,
+            StatusCode::UNAUTHORIZED,
+            "{path}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn bearer_roles_come_from_subjects_and_groups_and_need_no_csrf() {
+    let app = app();
+    for (token, expected) in [
+        (bearer(SUBJECT), "admin"),
+        (bearer(VIEWER), "viewer"),
+        (grouped(UNLISTED, &[VIEWER_GROUP]), "viewer"),
+        (grouped(UNLISTED, &[ADMIN_GROUP]), "admin"),
+        (grouped(VIEWER, &[ADMIN_GROUP]), "admin"),
+        (grouped(UNLISTED, &[VIEWER_GROUP, ADMIN_GROUP]), "admin"),
+    ] {
+        let request = breq("/api/session", &token).body(Body::empty()).unwrap();
+        let (status, body) = send(&app, request).await;
+        assert_eq!(status, StatusCode::OK);
+        let body: serde_json::Value = serde_json::from_str(&body).unwrap();
+        assert_eq!(body["role"], expected);
+        assert_eq!(body["user"]["name"], "dashboard-user");
+    }
+    // A bearer viewer gets the redacted configuration and no admin route.
+    let viewer = grouped(UNLISTED, &[VIEWER_GROUP]);
+    let request = breq("/api/config", &viewer).body(Body::empty()).unwrap();
+    let (status, body) = send(&app, request).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(body.contains("\"redacted\":true") && !body.contains(PORTAL));
+    let agent = "The guest agent did not complete the request.";
+    let mutations = [
+        (
+            "/api/action",
+            "\"reset\"",
+            "The VM did not complete the power action.",
+        ),
+        ("/api/agent/freeze", "", agent),
+        ("/api/agent/thaw", "", agent),
+        ("/api/agent/update", r#"{"args":["release=2"]}"#, agent),
+    ];
+    for (path, body, _) in mutations {
+        let request = breq(path, &viewer)
+            .method("POST")
+            .header("content-type", "application/json")
+            .body(Body::from(body))
+            .unwrap();
+        assert_eq!(send(&app, request).await.0, StatusCode::FORBIDDEN, "{path}");
+    }
+    // A bearer admin needs neither CSRF nor Origin, even a foreign one: the
+    // request reaches the (absent) VM.
+    for token in [bearer(SUBJECT), grouped(UNLISTED, &[ADMIN_GROUP])] {
+        for (path, body, unavailable) in mutations {
+            for origin in [None, Some("https://evil.example")] {
+                let mut request = breq(path, &token)
+                    .method("POST")
+                    .header("content-type", "application/json");
+                if let Some(origin) = origin {
+                    request = request.header("origin", origin);
+                }
+                let (status, message) = send(&app, request.body(Body::from(body)).unwrap()).await;
+                assert_eq!(
+                    (status, message.as_str()),
+                    (StatusCode::SERVICE_UNAVAILABLE, unavailable),
+                    "{path} {origin:?}"
+                );
+            }
+        }
+    }
+}
+
+#[tokio::test]
+async fn authorization_headers_grant_nothing_without_bearer_mode() {
+    let mut app = app();
+    app.bearer = None;
+    for path in [
+        "/api/session",
+        "/api/status",
+        "/api/config",
+        "/api/events/stream",
+    ] {
+        let request = breq(path, &bearer(SUBJECT)).body(Body::empty()).unwrap();
+        assert_eq!(
+            send(&app, request).await.0,
+            StatusCode::UNAUTHORIZED,
+            "{path}"
+        );
+    }
+    let request = breq("/api/action", &bearer(SUBJECT))
+        .method("POST")
+        .header("content-type", "application/json")
+        .header("origin", "https://vm.example")
+        .body(Body::from("\"reset\""))
+        .unwrap();
+    assert_eq!(send(&app, request).await.0, StatusCode::UNAUTHORIZED);
+    // The cookie session still decides, whatever the header says.
+    let viewer = cookie(app.sessions.clone(), VIEWER, auth::now() + 60).await;
+    let request = breq("/api/session", &bearer(SUBJECT))
+        .header("cookie", &viewer)
+        .body(Body::empty())
+        .unwrap();
+    let (status, body) = send(&app, request).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(body.contains("\"role\":\"viewer\""), "{body}");
+    // In bearer mode, other schemes also leave the cookie session in charge.
+    app.bearer = Some(Arc::new(verifier()));
+    let request = req("/api/session", Some(&viewer))
+        .header("authorization", "Basic YWRtaW46cGFzc3dvcmQ=")
+        .body(Body::empty())
+        .unwrap();
+    let (status, body) = send(&app, request).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(body.contains("\"role\":\"viewer\""), "{body}");
+}
+
+#[tokio::test]
+async fn bearer_websocket_admission_needs_an_admin_token_and_no_origin() {
+    let app = app();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    use std::future::IntoFuture;
+    let server = tokio::spawn(axum::serve(listener, bmc::router(app)).into_future());
+    use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+    for (token, origin, expected) in [
+        ("not-a-jwt".to_string(), None, StatusCode::UNAUTHORIZED),
+        (
+            signed(SIGNER, ISSUER, AUDIENCE, SUBJECT, &[], -60),
+            None,
+            StatusCode::UNAUTHORIZED,
+        ),
+        (bearer(UNLISTED), None, StatusCode::FORBIDDEN),
+        (bearer(VIEWER), None, StatusCode::FORBIDDEN),
+        (
+            grouped(UNLISTED, &[VIEWER_GROUP]),
+            None,
+            StatusCode::FORBIDDEN,
+        ),
+        // Admission passed; no VM console is running here.
+        (bearer(SUBJECT), None, StatusCode::SERVICE_UNAVAILABLE),
+        (
+            grouped(UNLISTED, &[ADMIN_GROUP]),
+            Some("https://evil.example"),
+            StatusCode::SERVICE_UNAVAILABLE,
+        ),
+    ] {
+        let mut request = format!("ws://{address}/api/console")
+            .into_client_request()
+            .unwrap();
+        request
+            .headers_mut()
+            .insert("authorization", format!("Bearer {token}").parse().unwrap());
+        if let Some(origin) = origin {
+            request
+                .headers_mut()
+                .insert("origin", origin.parse().unwrap());
+        }
+        match tokio_tungstenite::connect_async(request).await.unwrap_err() {
+            tokio_tungstenite::tungstenite::Error::Http(response) => {
+                assert_eq!(response.status(), expected)
+            }
+            error => panic!("unexpected error {error}"),
+        }
+    }
+    server.abort();
+}
+
+#[tokio::test]
+async fn bearer_admission_lasts_until_the_token_expires() {
+    use axum::extract::FromRequestParts;
+    use std::time::{Duration, Instant};
+    let app = app();
+    let token = signed(SIGNER, ISSUER, AUDIENCE, SUBJECT, &[], 2);
+    let (mut parts, ()) = breq("/api/console", &token).body(()).unwrap().into_parts();
+    let Ok(principal) = auth::Principal::from_request_parts(&mut parts, &app).await else {
+        panic!("a valid admin token was refused");
+    };
+    assert!(principal.is_bearer() && principal.role == auth::Role::Admin);
+    assert!(principal.still_current(&app, auth::Role::Admin).await);
+    // The console bridge and the event stream both end on this future.
+    let started = Instant::now();
+    tokio::time::timeout(
+        Duration::from_secs(5),
+        principal.ended(&app, auth::Role::Admin),
+    )
+    .await
+    .expect("bearer admission outlived its token");
+    assert!(started.elapsed() >= Duration::from_millis(900));
+    assert!(!principal.still_current(&app, auth::Role::Viewer).await);
+}
+
+#[tokio::test]
+async fn bearer_event_streams_skip_origin_checks_and_end_at_token_expiry() {
+    use futures::StreamExt;
+    use std::time::Duration;
+    let (app, receiver) = app_with_receiver();
+    receiver.record_event(qmp_event("RESUME"));
+    let token = signed(SIGNER, ISSUER, AUDIENCE, UNLISTED, &[VIEWER_GROUP], 2);
+    let response = bmc::router(app.clone())
+        .oneshot(
+            breq("/api/events/stream?after=0", &token)
+                .header("origin", "https://dashboard.example")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let mut body = response.into_body().into_data_stream();
+    let mut seen = String::new();
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while !seen.contains("\"event\":\"RESUME\"") {
+            let chunk = body.next().await.expect("stream ended").unwrap();
+            seen.push_str(std::str::from_utf8(&chunk).unwrap());
+        }
+    })
+    .await
+    .unwrap_or_else(|_| panic!("RESUME not streamed: {seen}"));
+    let drain = tokio::spawn(async move { while body.next().await.is_some() {} });
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert!(!drain.is_finished(), "ended before the token expired");
+    tokio::time::timeout(Duration::from_secs(5), drain)
+        .await
+        .expect("event stream outlived its bearer token")
+        .unwrap();
+    assert_eq!(app.event_streams.available_permits(), 2);
+}
+
+#[tokio::test]
+async fn bearer_only_bmc_serves_the_api_but_no_login_or_ui() {
+    let app = bearer_only();
+    for (method, path) in [
+        ("GET", "/"),
+        ("GET", "/auth/login"),
+        ("GET", "/auth/callback?code=x&state=y"),
+        ("POST", "/auth/logout"),
+        ("GET", "/assets/novnc/core/rfb.js"),
+    ] {
+        let request = Request::builder()
+            .method(method)
+            .uri(path)
+            .body(Body::empty())
+            .unwrap();
+        assert_eq!(send(&app, request).await.0, StatusCode::NOT_FOUND, "{path}");
+    }
+    let request = breq("/api/session", &bearer(SUBJECT))
+        .body(Body::empty())
+        .unwrap();
+    let (status, body) = send(&app, request).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(body.contains("\"role\":\"admin\""));
+    let request = breq("/api/action", &bearer(SUBJECT))
+        .method("POST")
+        .header("content-type", "application/json")
+        .body(Body::from("\"reset\""))
+        .unwrap();
+    assert_eq!(send(&app, request).await.0, StatusCode::SERVICE_UNAVAILABLE);
+    for path in ["/api/session", "/api/status", "/api/events/stream"] {
+        let request = req(path, None).body(Body::empty()).unwrap();
+        assert_eq!(
+            send(&app, request).await.0,
+            StatusCode::UNAUTHORIZED,
+            "{path}"
+        );
+    }
+    let request = req("/healthz", None).body(Body::empty()).unwrap();
+    assert_eq!(send(&app, request).await.0, StatusCode::OK);
 }

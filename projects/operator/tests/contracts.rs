@@ -14,6 +14,7 @@ fn settings() -> Settings {
         idp_ip: Some("192.168.0.251".into()),
         redfish_oidc_issuer: "https://idm.yaple.net/oauth2/openid/qrab-redfish".into(),
         redfish_oidc_audience: "qrab-redfish".into(),
+        bmc_bearer: None,
     }
 }
 fn vm() -> VirtualMachine {
@@ -150,7 +151,7 @@ fn invalid_unsafe_or_incomplete_specs_are_rejected_before_pod_creation() {
     vm.spec.console.as_mut().unwrap().allowed_subjects.clear();
     assert!(resources::render(&vm, &settings()).is_err());
     vm = self::vm();
-    vm.spec.console.as_mut().unwrap().public_url = "http://test-vm.yapplesauce.com".into();
+    vm.spec.console.as_mut().unwrap().public_url = Some("http://test-vm.yapplesauce.com".into());
     assert!(resources::render(&vm, &settings()).is_err());
     vm = self::vm();
     vm.spec.image = Some("docker.io/untrusted/vm:latest".into());
@@ -772,4 +773,92 @@ fn unexpected_or_missing_sidecars_replace_the_pod() {
         .unwrap()
         .push(serde_json::from_value(json!({"name":"runtime","mountPath":"/run/qrab"})).unwrap());
     assert!(!resources::pod_matches(&widened, &desired));
+}
+
+fn bearer_settings() -> Settings {
+    Settings {
+        bmc_bearer: Some(resources::BearerSettings {
+            issuer: "https://idm.example/oauth2/openid/qrab-dashboard".into(),
+            audience: "qrab-dashboard".into(),
+        }),
+        ..settings()
+    }
+}
+
+#[test]
+fn bmc_bearer_settings_reach_every_bmc_and_public_url_is_optional() {
+    // With bearer settings, every BMC gets them next to its browser login.
+    let pod =
+        serde_json::to_value(resources::render(&vm(), &bearer_settings()).unwrap().pod).unwrap();
+    let bmc = env(&pod["spec"]["initContainers"][0]);
+    assert_eq!(
+        bmc["BMC_BEARER_ISSUER"],
+        "https://idm.example/oauth2/openid/qrab-dashboard"
+    );
+    assert_eq!(bmc["BMC_BEARER_AUDIENCE"], "qrab-dashboard");
+    assert_eq!(bmc["BMC_PUBLIC_URL"], "https://test-vm.yapplesauce.com");
+    assert_eq!(bmc["BMC_OIDC_CLIENT_ID"], "qrab-bmc");
+    let hosts = pod["spec"]["hostAliases"][0]["hostnames"].clone();
+    assert_eq!(hosts, json!(["idm.example", "idm.yaple.net"]));
+    // Without them nothing changes.
+    let pod = serde_json::to_value(resources::render(&vm(), &settings()).unwrap().pod).unwrap();
+    let bmc = env(&pod["spec"]["initContainers"][0]);
+    assert!(!bmc.contains_key("BMC_BEARER_ISSUER") && !bmc.contains_key("BMC_BEARER_AUDIENCE"));
+
+    // A dashboard-only BMC has no public URL and no browser OIDC client.
+    let mut dashboard_only = vm();
+    dashboard_only.spec.console.as_mut().unwrap().public_url = None;
+    let pod = serde_json::to_value(
+        resources::render(&dashboard_only, &bearer_settings())
+            .unwrap()
+            .pod,
+    )
+    .unwrap();
+    let bmc = env(&pod["spec"]["initContainers"][0]);
+    for absent in ["BMC_PUBLIC_URL", "BMC_OIDC_ISSUER", "BMC_OIDC_CLIENT_ID"] {
+        assert!(!bmc.contains_key(absent), "{absent}");
+    }
+    assert_eq!(bmc["BMC_BEARER_AUDIENCE"], "qrab-dashboard");
+    assert_eq!(
+        bmc["BMC_ALLOWED_SUBJECTS"],
+        "6175a2a1-efb9-44e8-8c0b-5fe7ace18f9b"
+    );
+    assert_eq!(
+        pod["spec"]["hostAliases"][0]["hostnames"],
+        json!(["idm.example"])
+    );
+    // It is refused without the operator's bearer settings, whose absence
+    // would leave the BMC with no way in.
+    assert!(resources::validate(&dashboard_only, &settings()).is_err());
+    assert!(resources::render(&dashboard_only, &settings()).is_err());
+    // Without a BMC, publicUrl is not needed either way.
+    let mut no_bmc = dashboard_only.clone();
+    no_bmc.spec.components.bmc.enabled = false;
+    assert!(resources::render(&no_bmc, &settings()).is_ok());
+    // Access rules still apply to a dashboard-only BMC.
+    let mut ungranted = dashboard_only.clone();
+    ungranted
+        .spec
+        .console
+        .as_mut()
+        .unwrap()
+        .allowed_subjects
+        .clear();
+    assert!(resources::render(&ungranted, &bearer_settings()).is_err());
+    let mut http = vm();
+    http.spec.console.as_mut().unwrap().public_url = Some("http://test-vm.yapplesauce.com".into());
+    assert!(resources::render(&http, &bearer_settings()).is_err());
+
+    // The CRD no longer requires publicUrl; a manifest may omit it.
+    let crd = api::crd();
+    let console = &crd["spec"]["versions"][0]["schema"]["openAPIV3Schema"]["properties"]["spec"]
+        ["properties"]["console"];
+    assert!(!console["required"]
+        .as_array()
+        .is_some_and(|r| r.contains(&json!("publicUrl"))));
+    let spec: api::VirtualMachineSpec = serde_json::from_value(
+        json!({"stateVolumeClaim":"s","console":{"allowedSubjects":["6175a2a1-efb9-44e8-8c0b-5fe7ace18f9b"]}}),
+    )
+    .unwrap();
+    assert!(spec.console.unwrap().public_url.is_none());
 }

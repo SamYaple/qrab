@@ -7,8 +7,9 @@ sidecar, `qrab-bmc --socket /run/qrab-control/manager/control.sock`, next to the
 standalone use. The manager image contains `qrab-manager`, `qrab-bmc` and
 `qrab-redfish`. The BMC uses the same Kanidm authorization-code OIDC flow as
 `idm-dashboard`, with S256 PKCE, state/nonce verification, signature/issuer/audience
-and expiry validation. No bearer-token console or anonymous development bypass
-is provided.
+and expiry validation. The JSON API can also accept the dashboard's Kanidm ID
+tokens as bearer credentials ([below](#dashboard-bearer-tokens)). There are no
+static tokens and no anonymous development bypass.
 
 The demo is at **https://qrab-demo.yapplesauce.com**, using the cluster's private
 DNS and Cilium ingress, like `idm-dashboard`. It requires LAN/private-DNS access;
@@ -39,9 +40,11 @@ On SIGTERM the sidecar closes live streams within two seconds and exits 0.
 
 | Variable | Meaning |
 | --- | --- |
-| `BMC_PUBLIC_URL` | Exact HTTPS origin for this VM, without a path/query/fragment |
-| `BMC_OIDC_ISSUER` | `https://idm.yaple.net/oauth2/openid/qrab-bmc` |
-| `BMC_OIDC_CLIENT_ID` | Public PKCE client `qrab-bmc`; no client secret |
+| `BMC_PUBLIC_URL` | Exact HTTPS origin for this VM, without a path/query/fragment. Optional: without it there is no browser login or UI |
+| `BMC_OIDC_ISSUER` | `https://idm.yaple.net/oauth2/openid/qrab-bmc`; required with `BMC_PUBLIC_URL` |
+| `BMC_OIDC_CLIENT_ID` | Public PKCE client `qrab-bmc`; no client secret; required with `BMC_PUBLIC_URL` |
+| `BMC_BEARER_ISSUER` | HTTPS issuer of accepted bearer ID tokens, e.g. `https://idm.yaple.net/oauth2/openid/qrab-dashboard` |
+| `BMC_BEARER_AUDIENCE` | Their audience, the dashboard's client ID `qrab-dashboard`; set with `BMC_BEARER_ISSUER` |
 | `BMC_ALLOWED_SUBJECTS` | Comma-separated subject UUIDs with full (admin) access; kept for compatibility |
 | `BMC_ADMIN_SUBJECTS` | Additional comma-separated admin subject UUIDs |
 | `BMC_VIEWER_SUBJECTS` | Comma-separated read-only (viewer) subject UUIDs |
@@ -56,6 +59,10 @@ On SIGTERM the sidecar closes live streams within two seconds and exits 0.
 `BMC_ALLOW_LOOPBACK_HTTP=true` permits HTTP only when **both** the public origin
 and listener are loopback. OIDC issuer/endpoints still require verified HTTPS.
 Never use that option in the Kubernetes pod.
+
+At least one of `BMC_PUBLIC_URL` (browser console) and the
+`BMC_BEARER_ISSUER`/`BMC_BEARER_AUDIENCE` pair (dashboard tokens) is required;
+both may be set. The BMC discovers each configured issuer at startup.
 
 Sessions are opaque server-side records, bounded to 2,048 per VM and lost on
 restart. Cookies are host-only, Secure, HttpOnly and SameSite=Lax under the
@@ -95,8 +102,9 @@ read into any view. The console is admin-only: a server-side view-only RFB
 filter is not implemented, so viewers are refused at WebSocket admission
 (403) and the UI hides the console and power controls.
 
-Every `/api/*` route requires a valid session: missing, expired or unlisted
-sessions get 401, and an authenticated viewer on an admin route gets 403.
+Every `/api/*` route requires a valid session or, in bearer mode, a valid
+bearer token: missing, expired or unlisted sessions get 401, and an
+authenticated viewer on an admin route gets 403.
 WebSocket upgrades require the exact configured Origin. Mutations also
 require the session's `X-CSRF-Token`. The control endpoint accepts only JSON
 `"pause"`, `"resume"`, `"reset"` or `"powerdown"`; there is no browser raw-QMP
@@ -131,6 +139,54 @@ control-socket volume, never the directory holding QMP and VNC sockets; see
 with `-nic none`; opening the BMC's pod port does not create guest networking.
 The sample Cilium policy admits ingress/host probes on 8080 and permits only DNS
 and Kanidm HTTPS outbound from the pod. It mounts no Kubernetes API token.
+
+## Dashboard bearer tokens
+
+The dashboard is the cluster's single browser OIDC client (Kanidm client
+`qrab-dashboard`). It calls a VM's BMC JSON API server-side at the Pod IP on
+port 8080 and forwards the signed-in user's ID token as
+`Authorization: Bearer <JWT>`. The BMC verifies that token itself, so a
+dashboard cannot forge identities. Bearer mode is on when both
+`BMC_BEARER_ISSUER` and `BMC_BEARER_AUDIENCE` are set; the operator renders
+them into every BMC sidecar when it has its own `QRAB_BMC_BEARER_*` settings
+([operator.md](operator.md#dashboard-access-and-publicurl)).
+
+In bearer mode, any `/api/*` request with an `Authorization: Bearer` header,
+including `/api/console` WebSocket admission and `/api/events/stream`, is
+authenticated only by that token. It never falls back to, mixes with or
+creates a cookie session. The token is verified like Redfish's (the shared
+`oidc-bearer` crate): ES256 or RS256 signature against the issuer's discovered
+JWKS, issuer, audience (and `azp` when several audiences are present) and
+expiry. Keys are refreshed every ten minutes, and at most every 30 seconds
+after a signature fails. Tokens are limited to 16 KiB. The role then comes from
+the subject and the configured groups in the token's `groups` claim (Kanidm
+scope `groups_uuid`), exactly as for a browser session; admin wins.
+
+- An empty, oversized, malformed, expired, wrong-issuer, wrong-audience or
+  badly signed token gets 401. A valid token whose subject and groups grant
+  nothing gets 403, and a bearer viewer on an admin route gets 403.
+- Bearer requests need no `X-CSRF-Token` and no matching Origin. Those checks
+  protect ambient cookie credentials; a browser never attaches a bearer token
+  by itself.
+- A console or event stream admitted by a bearer token ends at the token's
+  `exp`. A bearer token cannot be revoked at the BMC: its lifetime is the
+  IdP's ID-token lifetime, so keep that short. Group changes take effect with
+  the next token.
+- Without a bearer header, cookie sessions behave exactly as described above.
+  Other `Authorization` schemes are ignored, and without bearer mode, an
+  `Authorization` header grants nothing.
+- `GET /api/session` returns the bearer user with an empty `csrf`.
+
+Without `BMC_PUBLIC_URL` the BMC is bearer-only: it registers no `/auth/*`
+routes and serves no browser UI or `/assets` (404). It needs no Service,
+Ingress, certificate or Kanidm callback, and only the dashboard reaches it.
+Its network policy must admit the dashboard's Pods to port 8080 and permit
+HTTPS to the token issuer for discovery and JWKS.
+
+Kanidm must issue `qrab-dashboard` ID tokens with the `groups_uuid` scope for
+group grants to work. Keep it a separate client from `qrab-bmc` and
+`qrab-redfish`, so BMC browser tokens and Redfish tokens are never accepted as
+dashboard tokens, or the reverse.
 
 ## Kanidm provisioning
 

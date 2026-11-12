@@ -1,0 +1,12 @@
+[package]
+name = "oidc-bearer"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = { workspace = true }
+base64 = "0.22"
+serde_json = { workspace = true }
+tracing = { workspace = true }
+openidconnect = { version = "4", default-features = false, features = ["reqwest", "rustls-tls"] }
+uuid = "1"

@@ -4,6 +4,8 @@
 # `kanidm:<sub>` (AuthenticationConfiguration on the control plane), and `sub`
 # is the subject the BMC and Redfish see. Any client-supplied value is replaced
 # or removed on create, and the annotation can never change afterwards.
+# The one exception is the dashboard's ServiceAccount, which creates VMs for
+# its signed-in user: it sets that user's subject UUID itself and must set one.
 # Checked live by contrib/kubernetes/operator/check-creator-policy.sh.
 apiVersion: admissionregistration.k8s.io/v1
 kind: MutatingAdmissionPolicy
@@ -21,6 +23,8 @@ spec:
   variables:
   - name: key
     expression: "'qrab.yapplesauce.com/creator-subject'"
+  - name: dashboard
+    expression: "request.userInfo.username == 'system:serviceaccount:qrab:qrab-dashboard'"
   - name: creator
     expression: >-
       request.userInfo.username.startsWith('kanidm:') &&
@@ -32,13 +36,15 @@ spec:
   - patchType: JSONPatch
     jsonPatch:
       expression: >-
-        variables.creator == ''
-        ? (variables.annotated
-            ? [JSONPatch{op: 'remove', path: '/metadata/annotations/' + jsonpatch.escapeKey(variables.key)}]
-            : [])
-        : (has(object.metadata.annotations)
-            ? [JSONPatch{op: 'add', path: '/metadata/annotations/' + jsonpatch.escapeKey(variables.key), value: variables.creator}]
-            : [JSONPatch{op: 'add', path: '/metadata/annotations', value: {variables.key: variables.creator}}])
+        variables.dashboard
+        ? []
+        : (variables.creator == ''
+          ? (variables.annotated
+              ? [JSONPatch{op: 'remove', path: '/metadata/annotations/' + jsonpatch.escapeKey(variables.key)}]
+              : [])
+          : (has(object.metadata.annotations)
+              ? [JSONPatch{op: 'add', path: '/metadata/annotations/' + jsonpatch.escapeKey(variables.key), value: variables.creator}]
+              : [JSONPatch{op: 'add', path: '/metadata/annotations', value: {variables.key: variables.creator}}]))
 ---
 apiVersion: admissionregistration.k8s.io/v1
 kind: MutatingAdmissionPolicyBinding
@@ -48,8 +54,8 @@ spec:
   policyName: qrab-vm-creator
 ---
 # Runs after every mutation: a create must carry exactly the requesting Kanidm
-# subject (or nothing for other users), and no update may add, change or
-# remove the annotation.
+# subject (or nothing for other users; a lowercase hyphenated UUID from the
+# dashboard), and no update may add, change or remove the annotation.
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicy
 metadata:
@@ -65,6 +71,8 @@ spec:
   variables:
   - name: key
     expression: "'qrab.yapplesauce.com/creator-subject'"
+  - name: dashboard
+    expression: "request.userInfo.username == 'system:serviceaccount:qrab:qrab-dashboard'"
   - name: creator
     expression: >-
       request.userInfo.username.startsWith('kanidm:') &&
@@ -80,8 +88,12 @@ spec:
       variables.key in oldObject.metadata.annotations
       ? oldObject.metadata.annotations[variables.key] : ''
   validations:
-  - expression: "request.operation != 'CREATE' || variables.current == variables.creator"
+  - expression: "request.operation != 'CREATE' || variables.dashboard || variables.current == variables.creator"
     message: qrab.yapplesauce.com/creator-subject is set by admission to the creating Kanidm subject
+  - expression: >-
+      request.operation != 'CREATE' || !variables.dashboard ||
+      variables.current.matches('^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')
+    message: the dashboard must set qrab.yapplesauce.com/creator-subject to its user's lowercase subject UUID
   - expression: "request.operation != 'UPDATE' || variables.current == variables.previous"
     message: qrab.yapplesauce.com/creator-subject is immutable
 ---

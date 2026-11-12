@@ -4,7 +4,6 @@ use axum::{extract::State, http::HeaderMap, Json};
 use manager::pod::{FreezeState, UpdateStatus};
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
-use tower_sessions::Session;
 
 /// Bound on the guest round trips behind a status read.
 const READ_TIMEOUT: Duration = Duration::from_secs(3);
@@ -28,9 +27,8 @@ fn redacted(mut update: UpdateStatus) -> UpdateStatus {
 
 pub async fn view(
     State(app): State<AppState>,
-    session: Session,
+    principal: auth::Principal,
 ) -> Result<Json<AgentView>, Failure> {
-    let principal = auth::user(&app, &session).await?;
     let status = app
         .control
         .agent_status()
@@ -69,26 +67,26 @@ fn agent_failure(error: manager::Error) -> Failure {
 
 pub async fn freeze(
     State(app): State<AppState>,
-    session: Session,
+    principal: auth::Principal,
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, Failure> {
-    let user = auth::admin(&app, &session).await?;
-    crate::mutation(&app, &headers, &user)?;
+    let principal = principal.admin()?;
+    crate::mutation(&app, &headers, &principal)?;
     let result = app.control.agent_freeze(None).await;
-    tracing::info!(subject=%user.subject, success=result.is_ok(), "guest filesystems freeze requested");
+    tracing::info!(subject=%principal.user.subject, bearer=principal.is_bearer(), success=result.is_ok(), "guest filesystems freeze requested");
     let frozen = result.map_err(agent_failure)?;
     Ok(Json(serde_json::json!({ "frozen": frozen })))
 }
 
 pub async fn thaw(
     State(app): State<AppState>,
-    session: Session,
+    principal: auth::Principal,
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, Failure> {
-    let user = auth::admin(&app, &session).await?;
-    crate::mutation(&app, &headers, &user)?;
+    let principal = principal.admin()?;
+    crate::mutation(&app, &headers, &principal)?;
     let result = app.control.agent_thaw().await;
-    tracing::info!(subject=%user.subject, success=result.is_ok(), "guest filesystems thaw requested");
+    tracing::info!(subject=%principal.user.subject, bearer=principal.is_bearer(), success=result.is_ok(), "guest filesystems thaw requested");
     let thawed = result.map_err(agent_failure)?;
     Ok(Json(serde_json::json!({ "thawed": thawed })))
 }
@@ -102,14 +100,14 @@ pub struct UpdateRequest {
 
 pub async fn update(
     State(app): State<AppState>,
-    session: Session,
+    principal: auth::Principal,
     headers: HeaderMap,
     Json(request): Json<UpdateRequest>,
 ) -> Result<Json<UpdateStatus>, Failure> {
-    let user = auth::admin(&app, &session).await?;
-    crate::mutation(&app, &headers, &user)?;
+    let principal = principal.admin()?;
+    crate::mutation(&app, &headers, &principal)?;
     let result = app.control.agent_update_trigger(request.args).await;
-    tracing::info!(subject=%user.subject, success=result.is_ok(), "guest update requested");
+    tracing::info!(subject=%principal.user.subject, bearer=principal.is_bearer(), success=result.is_ok(), "guest update requested");
     result.map(Json).map_err(agent_failure)
 }
 
