@@ -1,0 +1,35 @@
+# Disposable storage-API acceptance VM: one 64MiB blank provisioned disk.
+# Used only by check.sh; delete it (and its PVC) afterwards. It has no console
+# ingress, BMC or guest NIC.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: qrab-disk-test-state
+spec:
+  storageClassName: zfs-block
+  accessModes: [ReadWriteOncePod]
+  volumeMode: Filesystem
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: qrab.yapplesauce.com/v1alpha1
+kind: VirtualMachine
+metadata:
+  name: qrab-disk-test
+spec:
+  stateVolumeClaim: qrab-disk-test-state
+  memoryMiB: 512
+  cpus: 1
+  running: true
+  bootDisk: /opt/qrab/demo/boot.img
+  storageNode: kube03
+  components:
+    bmc: {enabled: false}
+  console:
+    publicUrl: https://qrab-disk-test.invalid
+    allowedSubjects:
+    - 6175a2a1-efb9-44e8-8c0b-5fe7ace18f9b
+  disks:
+  - id: scratch
+    sizeBytes: 67108864

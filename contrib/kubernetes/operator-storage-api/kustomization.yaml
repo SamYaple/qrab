@@ -1,0 +1,12 @@
+# The operator with its storage-service client. Apply only after
+# kubernetes-gitops has reconciled ClusterSPIFFEID qrab-operator (pinned to the
+# same operator digest as ../operator/deployment.yaml) and
+# ConfigMap qrab/qrab-storage-host-ca, and the host daemon/shim are active:
+#   kubectl apply --server-side -k contrib/kubernetes/operator-storage-api
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: qrab
+resources:
+- ../operator
+components:
+- ../operator/storage-api
