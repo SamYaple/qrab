@@ -21,9 +21,18 @@ pub const OWNER: &str = "qrab-iscsi-target-v1";
 pub const MIN_VOLUME: u64 = 16 * 1024 * 1024;
 /// Legacy single-disk demo bound. Provisioned disks use [`MAX_DISK`].
 pub const MAX_VOLUME: u64 = 1024 * 1024 * 1024;
-/// Per-disk bound; the aggregate logical budget is [`PARENT_QUOTA`].
+/// Per-disk bound; the aggregate logical budget is the parent's ZFS quota.
 pub const MAX_DISK: u64 = 1 << 40;
+/// Quota the dedicated parent is created with, and the smallest accepted.
 pub const PARENT_QUOTA: u64 = 8 * 1024 * 1024 * 1024;
+/// Largest reviewed parent quota. An administrator raises the quota within
+/// [`PARENT_QUOTA`]..=this bound with `zfs set quota=<N>G tank/qrab-iscsi`.
+pub const MAX_PARENT_QUOTA: u64 = 4 << 40;
+
+/// The parent quota is a whole number of GiB inside the reviewed range.
+pub fn valid_quota(quota: u64) -> bool {
+    (PARENT_QUOTA..=MAX_PARENT_QUOTA).contains(&quota) && quota.is_multiple_of(1 << 30)
+}
 
 /// A stable machine-readable refusal reported to the storage daemon caller.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -344,6 +353,8 @@ pub trait Backend {
     fn restore_active(&mut self, record: &Record) -> Result<()>;
     /// Sum of every zvol's logical size below the dedicated parent.
     fn logical_bytes(&mut self) -> Result<u64>;
+    /// The parent's verified quota, inside the reviewed range.
+    fn parent_quota(&mut self) -> Result<u64>;
     /// Holds the sealed origin snapshot, then CoW-clones it (or verifies the
     /// recorded clone and its origin). Returns the clone's zvol GUID.
     fn ensure_clone(&mut self, spec: &Spec, image: &Image, guid: Option<&str>) -> Result<String>;
@@ -357,6 +368,8 @@ pub trait Backend {
     fn verify_image(&mut self, image: &Image) -> Result<()>;
     /// Removes the fenced export objects and marks the zvol retained.
     fn retire(&mut self, record: &Record) -> Result<()>;
+    /// Refuses while any clone hold remains; marks the image retained.
+    fn retire_image(&mut self, image: &Image) -> Result<()>;
 }
 
 fn password() -> Result<String> {
@@ -530,6 +543,8 @@ pub(crate) mod tests {
         pub images: BTreeMap<String, (u64, String, String)>,
         pub retired: Vec<String>,
         pub replaced_origin: bool,
+        pub quota: Option<u64>,
+        pub retired_images: Vec<String>,
     }
     impl Backend for Fake {
         fn preflight_new_scope(&mut self) -> Result<()> {
@@ -580,6 +595,25 @@ pub(crate) mod tests {
         }
         fn logical_bytes(&mut self) -> Result<u64> {
             Ok(self.volumes.values().sum())
+        }
+        fn parent_quota(&mut self) -> Result<u64> {
+            let quota = self.quota.unwrap_or(PARENT_QUOTA);
+            ensure!(
+                valid_quota(quota),
+                "dedicated parent quota is outside the reviewed range"
+            );
+            Ok(quota)
+        }
+        fn retire_image(&mut self, image: &Image) -> Result<()> {
+            self.verify_image(image)?;
+            ensure!(
+                self.holds
+                    .get(&image.origin.snapshot())
+                    .is_none_or(|h| h.iter().all(|t| t == "qrab-image")),
+                Refusal("image-in-use")
+            );
+            self.retired_images.push(image.origin.key());
+            Ok(())
         }
         fn ensure_clone(&mut self, spec: &Spec, image: &Image, _: Option<&str>) -> Result<String> {
             self.verify_image(image)?;

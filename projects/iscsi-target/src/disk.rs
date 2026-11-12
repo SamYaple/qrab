@@ -6,7 +6,7 @@
 //! and never appear in reports, argv or errors.
 use crate::{
     fence_record, prepare_pool, valid_password, Backend, Origin, Phase, Record, Refusal, Report,
-    Spec, Store, OWNER, PARENT_QUOTA,
+    Spec, Store, OWNER,
 };
 use anyhow::{bail, ensure, Result};
 use serde::{Deserialize, Serialize};
@@ -17,6 +17,8 @@ use std::io::Read as _;
 pub enum ImagePhase {
     Publishing,
     Sealed,
+    /// No new clones; data retained for explicit offline disposal.
+    Retired,
 }
 
 /// Root journal entry for one sealed base-image generation.
@@ -91,10 +93,11 @@ pub struct ImageReport {
 /// Total logical zvol size stays within the dedicated parent quota, so thin
 /// clones cannot overcommit the pool into guest-visible ENOSPC.
 fn budget<B: Backend>(host: &mut B, additional: u64) -> Result<()> {
+    let quota = host.parent_quota()?;
     let used = host.logical_bytes()?;
     ensure!(
         used.checked_add(additional)
-            .is_some_and(|total| total <= PARENT_QUOTA),
+            .is_some_and(|total| total <= quota),
         Refusal("budget-exhausted")
     );
     Ok(())
@@ -193,8 +196,9 @@ pub fn clone<B: Backend>(
     let _lock = store.lock()?;
     let image = store
         .read_image(&origin)?
-        .filter(|i| i.phase == ImagePhase::Sealed)
+        .filter(|i| i.phase != ImagePhase::Publishing)
         .ok_or(Refusal("image-not-published"))?;
+    ensure!(image.phase == ImagePhase::Sealed, Refusal("image-retired"));
     ensure!(
         capacity_bytes >= image.capacity_bytes,
         Refusal("clone-smaller-than-image")
@@ -384,11 +388,14 @@ pub fn publish<B: Backend>(
                     && image.capacity_bytes == source.spec.capacity_bytes,
                 Refusal("image-generation-exists")
             );
-            if image.phase == ImagePhase::Sealed {
-                host.verify_image(&image)?;
-                return Ok(image.report());
+            match image.phase {
+                ImagePhase::Sealed => {
+                    host.verify_image(&image)?;
+                    return Ok(image.report());
+                }
+                ImagePhase::Retired => bail!(Refusal("image-retired")),
+                ImagePhase::Publishing => image,
             }
-            image
         }
         None => {
             budget(host, source.spec.capacity_bytes)?;
@@ -434,6 +441,35 @@ pub fn image_status<B: Backend>(
     Ok(image.report())
 }
 
+/// Administrative: stop new clones of a sealed generation. Refused while any
+/// disk journal (in any phase) or ZFS clone hold still descends from it.
+pub fn image_retire<B: Backend>(
+    store: &Store,
+    host: &mut B,
+    origin: &Origin,
+) -> Result<ImageReport> {
+    let _lock = store.lock()?;
+    let mut image = store
+        .read_image(origin)?
+        .ok_or(Refusal("image-not-found"))?;
+    match image.phase {
+        ImagePhase::Retired => return Ok(image.report()),
+        ImagePhase::Publishing => bail!(Refusal("image-not-published")),
+        ImagePhase::Sealed => {}
+    }
+    ensure!(
+        !store
+            .records()?
+            .iter()
+            .any(|r| r.spec.origin.as_ref() == Some(origin)),
+        Refusal("image-in-use")
+    );
+    host.retire_image(&image)?;
+    image.phase = ImagePhase::Retired;
+    store.write_image(&image)?;
+    Ok(image.report())
+}
+
 /// Wrapper commands exposed through the storage daemon's fixed argv.
 pub const COMMANDS: &[&str] = &[
     "vm-disk-create",
@@ -445,6 +481,7 @@ pub const COMMANDS: &[&str] = &[
     "vm-disk-retire",
     "vm-image-publish",
     "vm-image-status",
+    "vm-image-retire",
 ];
 
 /// Exact flag set per command: no repeats, extras or credential-bearing flags.
@@ -543,13 +580,14 @@ pub fn dispatch<B: Backend>(
             let origin = Origin::new(v[0].into(), number(v[1])?)?;
             image(publish(store, host, origin, v[2], v[3])?)
         }
-        "vm-image-status" => {
+        "vm-image-status" | "vm-image-retire" => {
             let v = flags(rest, &["--image", "--image-generation"])?;
-            image(image_status(
-                store,
-                host,
-                &Origin::new(v[0].into(), number(v[1])?)?,
-            )?)
+            let origin = Origin::new(v[0].into(), number(v[1])?)?;
+            image(if command == "vm-image-status" {
+                image_status(store, host, &origin)?
+            } else {
+                image_retire(store, host, &origin)?
+            })
         }
         _ => bail!(Refusal("invalid-arguments")),
     })
@@ -954,6 +992,113 @@ mod tests {
             serde_json::to_string(&status(&store, &mut host, UID, "root").unwrap()).unwrap();
         assert!(!public.contains(PW1) && !public.contains("password"));
         assert!(public.contains("\"disk\":\"root\""));
+    }
+
+    fn published(store: &Store, host: &mut Fake) -> Origin {
+        let origin = Origin::new("debian".into(), 1).unwrap();
+        create(store, host, UID, "golden", 64 * MIB).unwrap();
+        export(store, host, UID, "golden", 1, PW1).unwrap();
+        fence(store, host, UID, "golden").unwrap();
+        publish(store, host, origin.clone(), UID, "golden").unwrap();
+        origin
+    }
+
+    #[test]
+    fn image_retire_is_refused_while_any_clone_descends_from_it() {
+        let (_dir, store, _) = fixture();
+        let mut host = Fake::default();
+        let origin = published(&store, &mut host);
+        clone(&store, &mut host, OTHER, "root", origin.clone(), 64 * MIB).unwrap();
+        assert_eq!(
+            code(image_retire(&store, &mut host, &origin)),
+            "image-in-use"
+        );
+        // A retired clone still depends on the snapshot.
+        fence(&store, &mut host, OTHER, "root").unwrap();
+        retire(&store, &mut host, OTHER, "root").unwrap();
+        assert_eq!(
+            code(image_retire(&store, &mut host, &origin)),
+            "image-in-use"
+        );
+        assert!(host.retired_images.is_empty());
+        // A ZFS hold without a journal (e.g. a foreign clone) also blocks it.
+        let (_dir, store, _) = fixture();
+        let mut host = Fake::default();
+        let origin = published(&store, &mut host);
+        host.holds
+            .get_mut(&origin.snapshot())
+            .unwrap()
+            .push("qrab-clone-elsewhere".into());
+        assert_eq!(
+            code(image_retire(&store, &mut host, &origin)),
+            "image-in-use"
+        );
+    }
+
+    #[test]
+    fn retired_images_accept_no_new_clones_or_republication() {
+        let (_dir, store, _) = fixture();
+        let mut host = Fake::default();
+        let origin = published(&store, &mut host);
+        let report = image_retire(&store, &mut host, &origin).unwrap();
+        assert_eq!(report.phase, ImagePhase::Retired);
+        assert_eq!(host.retired_images, vec![origin.key()]);
+        image_retire(&store, &mut host, &origin).unwrap();
+        assert_eq!(host.retired_images.len(), 1);
+        assert_eq!(
+            code(clone(
+                &store,
+                &mut host,
+                OTHER,
+                "root",
+                origin.clone(),
+                64 * MIB
+            )),
+            "image-retired"
+        );
+        assert_eq!(
+            code(publish(&store, &mut host, origin.clone(), UID, "golden")),
+            "image-retired"
+        );
+        assert_eq!(
+            code(image_retire(
+                &store,
+                &mut host,
+                &Origin::new("absent".into(), 1).unwrap()
+            )),
+            "image-not-found"
+        );
+        let mut empty: &[u8] = b"";
+        let argv: Vec<String> = [
+            "vm-image-retire",
+            "--image",
+            "debian",
+            "--image-generation",
+            "1",
+        ]
+        .iter()
+        .map(|s| (*s).to_owned())
+        .collect();
+        let out = dispatch(&argv, &mut empty, &store, &mut host).unwrap();
+        assert_eq!(out["image"]["phase"], "retired");
+    }
+
+    #[test]
+    fn budget_follows_the_verified_parent_quota() {
+        let (_dir, store, _) = fixture();
+        let mut host = Fake {
+            quota: Some(32 << 30),
+            ..Default::default()
+        };
+        create(&store, &mut host, UID, "big", 20 << 30).unwrap();
+        create(&store, &mut host, UID, "more", 10 << 30).unwrap();
+        assert_eq!(
+            code(create(&store, &mut host, UID, "over", 4 << 30)),
+            "budget-exhausted"
+        );
+        host.quota = Some(5 << 40);
+        assert!(create(&store, &mut host, UID, "over", 1 << 30).is_err());
+        assert!(store.read_disk(UID, "over").unwrap().is_none());
     }
 
     #[test]

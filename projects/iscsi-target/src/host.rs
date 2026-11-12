@@ -1,4 +1,6 @@
-use crate::{Backend, Image, Record, Refusal, Spec, HBA, OWNER, PARENT, PARENT_QUOTA, PORTAL};
+use crate::{
+    valid_quota, Backend, Image, Record, Refusal, Spec, HBA, OWNER, PARENT, PARENT_QUOTA, PORTAL,
+};
 use anyhow::{bail, ensure, Context, Result};
 use std::{
     collections::BTreeMap,
@@ -488,6 +490,33 @@ impl LinuxHost {
         )?;
         Self::check_image_properties(image, &p, guid)
     }
+    /// Pure check of the dedicated parent's policy; returns its GUID and quota.
+    fn check_parent_properties(
+        p: &BTreeMap<String, String>,
+        guid: Option<&str>,
+    ) -> Result<(String, u64)> {
+        let quota = Self::number(p, "quota").unwrap_or(0);
+        ensure!(
+            p.get("type").is_some_and(|v| v == "filesystem")
+                && p.get("mountpoint").is_some_and(|v| v == "none")
+                && p.get("canmount").is_some_and(|v| v == "off")
+                && p.get(PROP).is_some_and(|v| v == OWNER),
+            "dedicated parent policy differs; refusing adoption"
+        );
+        ensure!(
+            valid_quota(quota),
+            "dedicated parent quota is outside the reviewed 8GiB..4TiB whole-GiB range"
+        );
+        let actual = p
+            .get("guid")
+            .ok_or_else(|| anyhow::anyhow!("parent GUID absent"))?;
+        ensure!(guid.is_none_or(|g| g == actual), "parent GUID changed");
+        Ok((actual.clone(), quota))
+    }
+    fn parent_check(&self, guid: Option<&str>) -> Result<(String, u64)> {
+        let p = self.properties(PARENT, "type,guid,mountpoint,canmount,quota,org.qrab:owner")?;
+        Self::check_parent_properties(&p, guid)
+    }
     fn volsize(&self, dataset: &str) -> Result<u64> {
         Self::number(&self.properties(dataset, "volsize")?, "volsize")
             .ok_or_else(|| anyhow::anyhow!("zvol size absent"))
@@ -605,22 +634,10 @@ impl Backend for LinuxHost {
                 PARENT,
             ])?;
         }
-        let p = self.properties(PARENT, "type,guid,mountpoint,canmount,quota,org.qrab:owner")?;
-        ensure!(
-            p.get("type").is_some_and(|v| v == "filesystem")
-                && p.get("mountpoint").is_some_and(|v| v == "none")
-                && p.get("canmount").is_some_and(|v| v == "off")
-                && p.get("quota").and_then(|v| v.parse::<u64>().ok()) == Some(PARENT_QUOTA)
-                && p.get(PROP).is_some_and(|v| v == OWNER),
-            "dedicated parent policy differs; refusing adoption"
-        );
-        let actual = p
-            .get("guid")
-            .ok_or_else(|| anyhow::anyhow!("parent GUID absent"))?;
-        ensure!(guid.is_none_or(|g| g == actual), "parent GUID changed");
+        let (actual, _) = self.parent_check(guid)?;
         Self::mkdir(&Path::new(CONFIG).join("core").join(HBA))?;
         Self::mkdir(&Path::new(CONFIG).join("iscsi"))?;
-        Ok(actual.clone())
+        Ok(actual)
     }
     fn preflight_new_volume(&mut self, spec: &Spec) -> Result<()> {
         ensure!(
@@ -787,6 +804,32 @@ impl Backend for LinuxHost {
         }
         self.flush(spec)?;
         self.verify_fenced(r)
+    }
+    fn parent_quota(&mut self) -> Result<u64> {
+        Ok(self.parent_check(None)?.1)
+    }
+    fn retire_image(&mut self, image: &Image) -> Result<()> {
+        self.verify_image(image)?;
+        let sealed = image.origin.snapshot();
+        let holds = self.zfs(&["holds", "-H", &sealed])?;
+        ensure!(
+            holds
+                .lines()
+                .all(|line| line.split('\t').nth(1) == Some(IMAGE_HOLD)),
+            Refusal("image-in-use")
+        );
+        // Clones keep `origin` pointing here even without a hold.
+        let origins = self.zfs(&["list", "-H", "-t", "volume", "-r", "-o", "origin", PARENT])?;
+        ensure!(
+            !origins.lines().any(|origin| origin == sealed),
+            Refusal("image-in-use")
+        );
+        self.zfs(&[
+            "set",
+            &format!("{STATE_PROP}=retained"),
+            &image.origin.dataset(),
+        ])?;
+        Ok(())
     }
     fn logical_bytes(&mut self) -> Result<u64> {
         self.zfs(&[
@@ -1002,6 +1045,44 @@ mod tests {
     }
     fn refusal_of(result: Result<String>) -> Option<&'static str> {
         result.err().and_then(|e| crate::refusal(&e))
+    }
+    #[test]
+    fn parent_quota_accepts_the_reviewed_whole_gib_range_only() {
+        let parent = |quota: &str| {
+            props(&[
+                ("type", "filesystem"),
+                ("guid", "12"),
+                ("mountpoint", "none"),
+                ("canmount", "off"),
+                ("quota", quota),
+                (PROP, OWNER),
+            ])
+        };
+        for quota in [PARENT_QUOTA, 64 << 30, crate::MAX_PARENT_QUOTA] {
+            let (_, accepted) =
+                LinuxHost::check_parent_properties(&parent(&quota.to_string()), Some("12"))
+                    .unwrap();
+            assert_eq!(accepted, quota);
+        }
+        for quota in [
+            "0",
+            "none",
+            &(PARENT_QUOTA - (1 << 30)).to_string(),
+            &(crate::MAX_PARENT_QUOTA + (1 << 30)).to_string(),
+            &(PARENT_QUOTA + 1).to_string(),
+        ] {
+            assert!(
+                LinuxHost::check_parent_properties(&parent(quota), None).is_err(),
+                "{quota}"
+            );
+        }
+        let mut foreign = parent(&PARENT_QUOTA.to_string());
+        foreign.insert(PROP.into(), "-".into());
+        assert!(LinuxHost::check_parent_properties(&foreign, None).is_err());
+        assert!(
+            LinuxHost::check_parent_properties(&parent(&PARENT_QUOTA.to_string()), Some("13"))
+                .is_err()
+        );
     }
     #[test]
     fn blank_disk_properties_require_exact_ownership_and_thick_reservation() {
