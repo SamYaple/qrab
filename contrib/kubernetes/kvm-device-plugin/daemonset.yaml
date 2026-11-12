@@ -47,7 +47,8 @@ spec:
       - name: plugin
         # The operator image ships this binary. Pin the published digest.
         image: zot.yapplesauce.com/qrab/operator@sha256:OPERATOR_DIGEST
-        imagePullPolicy: IfNotPresent
+        # Delegated-pull admission requires Always for first-party Zot images.
+        imagePullPolicy: Always
         command: [/usr/local/bin/qrab-kvm-device-plugin]
         env:
         - {name: QRAB_KVM_DEVICES, value: '32'}
