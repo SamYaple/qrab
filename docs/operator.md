@@ -108,7 +108,8 @@ used.
 
 The manager container receives `QRAB_NODE_NAME`, `QRAB_POD_NAME`,
 `QRAB_POD_NAMESPACE` (downward API) and `QRAB_IMAGE`; admins see them in the
-configuration view. Its startup, readiness and liveness probes run
+configuration view. Pods carry `kubectl.kubernetes.io/default-container:
+manager`, so unqualified `kubectl exec`/`logs` reach it. Its startup, readiness and liveness probes run
 `qrab-manager live`, so a paused VM stays reachable. Sidecars have readiness on
 `/readyz` (the manager's live probe over the socket) and liveness on `/healthz`,
 and no startup probe, which would delay the manager's start.

@@ -27,6 +27,7 @@ assert any(c['type']=='Ready' and c['status']=='True' for c in before['status'][
 container=before['status']['containerStatuses'][0]
 assert container['imageID']==lock['manager']['image'], 'running image differs from the published pin'
 assert not before['spec'].get('imagePullSecrets'), 'unexpected static image pull credentials'
+assert before['metadata'].get('annotations',{}).get('kubectl.kubernetes.io/default-container')=='manager', 'unqualified kubectl exec would not reach the manager container'
 assert before['spec'].get('automountServiceAccountToken') is False, 'unexpected API token mount'
 required=['QRAB_GUEST_BOOTED','QRAB_UEFI_BOOTED','QRAB_TPM2_READY','QRAB_TPM_EVENTLOG_PRESENT','QRAB_GUEST_NO_NIC_OK']
 for _ in range(60):

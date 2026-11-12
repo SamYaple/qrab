@@ -15,7 +15,11 @@ pub const HASH: &str = "qrab.yapplesauce.com/template-hash";
 pub const BOOT_SIZE: &str = "qrab.yapplesauce.com/boot-size";
 /// Extended resource of the qrab KVM device plugin (CDI-injected /dev/kvm).
 pub const KVM_RESOURCE: &str = "qrab.yapplesauce.com/kvm";
+/// `kubectl exec`/`logs` without `-c` reach the VM owner, not a sidecar.
+pub const DEFAULT_CONTAINER: &str = "kubectl.kubernetes.io/default-container";
 const CPU_LIMIT_OVERHEAD_MILLIS: u32 = 1000;
+// Sized before the BMC moved to a sidecar; the rollout measures QEMU RSS
+// before these change.
 const MEMORY_REQUEST_OVERHEAD_MIB: u32 = 256;
 const MEMORY_LIMIT_OVERHEAD_MIB: u32 = 512;
 const SIZE_DIR: &str = "/run/qrab-size";
@@ -54,7 +58,8 @@ impl GuestSize {
         self.cpus <= bound.cpus && self.memory_mib <= bound.memory_mib
     }
 
-    /// Container resources: guest size plus a fixed, bounded QEMU/BMC overhead.
+    /// Manager container resources: guest size plus a fixed, bounded overhead
+    /// for QEMU, swtpm and the manager. Sidecars have their own resources.
     /// A KVM VM also requests one KVM device, whose count a resize never changes.
     pub fn container_resources(self, accelerator: Accelerator) -> Value {
         let mut resources = json!({
@@ -651,6 +656,7 @@ pub fn render_booted(
             pod["spec"]["hostAliases"] = json!([{"ip":ip,"hostnames":hosts}]);
         }
     }
+    pod["metadata"]["annotations"] = json!({DEFAULT_CONTAINER: "manager"});
     // In-place resizes change only container resources, never the template.
     let mut template = pod.clone();
     template["spec"]["containers"][0]
@@ -669,7 +675,11 @@ pub fn render_booted(
             .collect::<Vec<_>>());
     }
     let hash = format!("{:x}", Sha256::digest(serde_json::to_vec(&identity)?));
-    pod["metadata"]["annotations"] = json!({HASH:hash, BOOT_SIZE:serde_json::to_string(&boot)?});
+    let annotations = pod["metadata"]["annotations"]
+        .as_object_mut()
+        .expect("annotations");
+    annotations.insert(HASH.into(), json!(hash));
+    annotations.insert(BOOT_SIZE.into(), json!(serde_json::to_string(&boot)?));
     if !provisioned.is_empty() {
         pod["metadata"]["annotations"][DISK_CAPACITY] = json!(disk_capacity(provisioned));
     }

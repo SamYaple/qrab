@@ -239,7 +239,12 @@ other than status fail at once while the agent is disabled or not connected
 
 `pod::Remote` is the sidecar client. It keeps a mirror of the event history,
 with the manager's sequence numbers, over one `follow` connection that
-reconnects every second. `pod::Backend` puts either an in-process `Control` or
+reconnects every second; when a reconnected manager reports a lower latest
+sequence (it restarted its numbering), the mirror resets and resyncs, and
+waiters holding old cursors wake. Requests reuse up to four idle connections
+younger than 30 s (the manager closes idle ones after 60 s); a failed pooled
+connection is dropped, read-only requests retry once on a fresh one, and
+actions are never retried. `pod::Backend` puts either an in-process `Control` or
 a `Remote` behind one API for the BMC and Redfish.
 
 The socket trusts its UID-restricted peer. A sidecar serving users enforces

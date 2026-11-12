@@ -237,9 +237,26 @@ impl EventLog {
     }
 
     /// Resolve once an event newer than `cursor` has been recorded.
+    /// Also resolves when the log is [reset](Self::reset), so a waiter
+    /// holding a cursor from the previous numbering re-reads.
     pub(super) async fn wait_after(&self, cursor: u64) {
         let mut latest = self.latest.subscribe();
-        let _ = latest.wait_for(|latest| *latest > cursor).await;
+        let start = *latest.borrow_and_update();
+        let _ = latest
+            .wait_for(|latest| *latest > cursor || *latest < start)
+            .await;
+    }
+
+    /// Forget a mirror's history after its source restarted its numbering.
+    pub(super) fn reset(&self) {
+        let mut ring = self.lock();
+        ring.events.clear();
+        ring.latest = 0;
+        ring.rejected = 0;
+        ring.qmp_dropped = 0;
+        drop(ring);
+        self.latest.send_replace(0);
+        self.dropped.send_replace(0);
     }
 }
 

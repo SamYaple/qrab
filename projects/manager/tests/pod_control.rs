@@ -686,3 +686,151 @@ async fn next(follower: &mut socket::Follower) -> pod::VmEvent {
         other => panic!("unexpected follow frame {other:?}"),
     }
 }
+
+/// Start a supervisor with its mock QEMU; returns the control, an event
+/// injector and the supervisor task.
+fn start(
+    config: &Config,
+) -> (
+    pod::Control,
+    mpsc::Sender<(String, Value)>,
+    tokio::task::JoinHandle<manager::Result<pod::Outcome>>,
+) {
+    let (control, receiver) = pod::control_channel_for(config, Deployment::default());
+    let (inject, injected) = mpsc::channel(8);
+    tokio::spawn(mock_qemu(config.runtime_dir.clone(), injected));
+    let runner = tokio::spawn(pod::run_controlled(
+        config.clone(),
+        std::future::pending(),
+        receiver,
+    ));
+    (control, inject, runner)
+}
+
+#[tokio::test]
+async fn sidecar_mirror_resyncs_after_a_manager_restart_and_reuses_connections() {
+    let (_dir, config) = fixture();
+    let path = socket::socket_path(&config);
+    let (control, inject, runner) = start(&config);
+    wait_for(&control, "RESUME").await;
+    for _ in 0..4 {
+        inject
+            .send(("RTC_CHANGE".into(), json!({"offset":1,"qom-path":"/rtc"})))
+            .await
+            .unwrap();
+    }
+    let remote = pod::Remote::new(path.clone());
+    let mirror = tokio::spawn({
+        let remote = remote.clone();
+        async move { remote.mirror().await }
+    });
+    let backend = pod::Backend::Socket(remote.clone());
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while control
+            .events(Some(0), 256)
+            .events
+            .iter()
+            .filter(|e| e.event == "RTC_CHANGE")
+            .count()
+            < 4
+        {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .unwrap();
+    let latest = control.events(None, 1).latest;
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while backend.events(None, 1).latest < latest {
+            backend.wait_events(backend.events(None, 1).latest).await;
+        }
+    })
+    .await
+    .unwrap();
+
+    // Sequential requests reuse one pooled connection.
+    tokio::time::timeout(Duration::from_secs(3), async {
+        while backend.status().await.is_err() {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    })
+    .await
+    .unwrap();
+    let opened = remote.connections_opened();
+    for _ in 0..20 {
+        backend.status().await.unwrap();
+        backend.agent_status().await.unwrap();
+    }
+    assert_eq!(remote.connections_opened(), opened);
+    assert_eq!(remote.idle_connections(), 1);
+    // Concurrent requests open what they need; at most the pool size stays idle.
+    let calls: Vec<_> = (0..10)
+        .map(|_| {
+            let backend = backend.clone();
+            tokio::spawn(async move { backend.config_view().await.map(|_| ()) })
+        })
+        .collect();
+    for call in calls {
+        call.await.unwrap().unwrap();
+    }
+    assert!(remote.idle_connections() <= pod::REMOTE_POOL_SIZE);
+    assert!(remote.connections_opened() <= opened + 10);
+    // A refused request keeps its healthy connection.
+    let before = remote.connections_opened();
+    assert!(backend
+        .agent_update_trigger(vec!["--x".into()])
+        .await
+        .is_err());
+    backend.status().await.unwrap();
+    assert_eq!(remote.connections_opened(), before);
+
+    control.action(Action::Powerdown).await.unwrap();
+    tokio::time::timeout(Duration::from_secs(10), runner)
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    // The mirror holds the old manager's full numbering, through POWERDOWN.
+    let old = control.events(None, 1).latest;
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while backend.events(None, 1).latest < old {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .unwrap();
+    // A waiter holding the old numbering wakes when the mirror resets.
+    let waiter = tokio::spawn({
+        let backend = backend.clone();
+        async move { backend.wait_events(old).await }
+    });
+
+    // A new manager on the same socket numbers its events from 1 again.
+    let (control, _inject, runner) = start(&config);
+    let resumed = wait_for(&control, "RESUME").await;
+    assert_eq!(resumed.seq, 1);
+    tokio::time::timeout(Duration::from_secs(10), waiter)
+        .await
+        .expect("waiter kept the old numbering")
+        .unwrap();
+    tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            let page = backend.events(Some(0), 256);
+            if page.latest < old && page.events.iter().any(|e| e.event == "RESUME") {
+                assert!(
+                    !page.events.iter().any(|e| e.event == "RTC_CHANGE"),
+                    "{page:?}"
+                );
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    })
+    .await
+    .expect("mirror did not resync after the restart");
+    // Pooled connections to the old manager are replaced transparently.
+    backend.status().await.unwrap();
+    mirror.abort();
+    control.action(Action::Powerdown).await.unwrap();
+    let _ = tokio::time::timeout(Duration::from_secs(10), runner).await;
+}

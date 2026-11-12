@@ -6,17 +6,52 @@ use super::{
     socket::{Client, FollowFrame},
     Action, AgentStatus, ConfigView, Control, FreezeState, Status, UpdateStatus,
 };
-use crate::Result;
-use std::{path::PathBuf, sync::Arc, time::Duration};
+use crate::{Error, Result};
+use std::{
+    path::PathBuf,
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc, Mutex,
+    },
+    time::{Duration, Instant},
+};
 use tokio::net::UnixStream;
+
+/// `pooled!(self, retry, method(args))` runs one `Client` method through
+/// [`Remote::call`], handing the connection back with the result.
+macro_rules! pooled {
+    ($remote:expr, $retry:expr, $method:ident($($arg:ident),*)) => {
+        $remote
+            .call($retry, |mut client| {
+                $(let $arg = $arg.clone();)*
+                async move {
+                    let result = client.$method($($arg),*).await;
+                    (client, result)
+                }
+            })
+            .await
+    };
+}
+
+/// Idle connections kept for reuse. The manager closes connections idle for
+/// 60 s, so pooled ones are reused only while comfortably younger than that.
+pub const POOL_SIZE: usize = 4;
+const POOL_IDLE: Duration = Duration::from_secs(30);
+
+struct Idle {
+    client: Client,
+    since: Instant,
+}
 
 struct Inner {
     path: PathBuf,
     events: EventLog,
+    pool: Mutex<Vec<Idle>>,
+    opened: AtomicU64,
 }
 
-/// A sidecar's view of the manager behind its control socket. Requests use
-/// short-lived connections; [`Remote::mirror`] keeps one following
+/// A sidecar's view of the manager behind its control socket. Requests reuse
+/// a small pool of connections; [`Remote::mirror`] keeps one following
 /// connection that copies events, with their sequence numbers, into a local
 /// bounded log.
 #[derive(Clone)]
@@ -27,6 +62,8 @@ impl Remote {
         Self(Arc::new(Inner {
             path,
             events: EventLog::default(),
+            pool: Mutex::new(Vec::new()),
+            opened: AtomicU64::new(0),
         }))
     }
 
@@ -34,8 +71,72 @@ impl Remote {
         &self.0.path
     }
 
-    async fn client(&self) -> Result<Client> {
+    /// Request connections opened so far (the mirror's are not counted).
+    pub fn connections_opened(&self) -> u64 {
+        self.0.opened.load(Ordering::Relaxed)
+    }
+
+    /// Idle pooled request connections, at most [`POOL_SIZE`].
+    pub fn idle_connections(&self) -> usize {
+        self.pool().len()
+    }
+
+    fn pool(&self) -> std::sync::MutexGuard<'_, Vec<Idle>> {
+        self.0
+            .pool
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner())
+    }
+
+    async fn connect(&self) -> Result<Client> {
+        self.0.opened.fetch_add(1, Ordering::Relaxed);
         Client::connect(&self.0.path).await
+    }
+
+    fn take(&self) -> Option<Client> {
+        let mut pool = self.pool();
+        pool.retain(|idle| idle.since.elapsed() < POOL_IDLE);
+        pool.pop().map(|idle| idle.client)
+    }
+
+    fn give_back(&self, client: Client) {
+        let mut pool = self.pool();
+        if pool.len() < POOL_SIZE {
+            pool.push(Idle {
+                client,
+                since: Instant::now(),
+            });
+        }
+    }
+
+    /// Run one request on a pooled or new connection. A failed connection is
+    /// dropped. Only `retry` (read-only) requests are repeated on a fresh
+    /// connection after a pooled one fails; actions never are.
+    async fn call<T, F, Fut>(&self, retry: bool, request: F) -> Result<T>
+    where
+        F: Fn(Client) -> Fut,
+        Fut: std::future::Future<Output = (Client, Result<T>)>,
+    {
+        if let Some(client) = self.take() {
+            match request(client).await {
+                (client, Ok(value)) => {
+                    self.give_back(client);
+                    return Ok(value);
+                }
+                (client, Err(error)) if !retry || is_refusal(&error) => {
+                    if is_refusal(&error) {
+                        self.give_back(client);
+                    }
+                    return Err(error);
+                }
+                (_, Err(_)) => {}
+            }
+        }
+        let (client, result) = request(self.connect().await?).await;
+        if result.as_ref().map_or_else(is_refusal, |_| true) {
+            self.give_back(client);
+        }
+        result
     }
 
     /// Mirror the manager's events forever, reconnecting after a second.
@@ -48,7 +149,11 @@ impl Remote {
     }
 
     async fn mirror_once(&self) -> Result<()> {
-        let mut client = self.client().await?;
+        let mut client = Client::connect(&self.0.path).await?;
+        // A restarted manager numbers its events from 1 again.
+        if client.events(None, 1).await?.latest < self.0.events.latest() {
+            self.0.events.reset();
+        }
         loop {
             let page = client
                 .events(Some(self.0.events.latest()), super::EVENT_PAGE_LIMIT)
@@ -73,48 +178,57 @@ impl Remote {
     }
 
     pub async fn status(&self) -> Result<Status> {
-        self.client().await?.status().await
+        pooled!(self, true, status())
     }
 
     pub async fn probe(&self, ready: bool) -> Result<()> {
-        self.client().await?.probe(ready).await
+        pooled!(self, true, probe(ready))
     }
 
     pub async fn config_view(&self) -> Result<ConfigView> {
-        self.client().await?.config(false).await
+        let redacted = false;
+        pooled!(self, true, config(redacted))
     }
 
     pub async fn action(&self, action: Action) -> Result<()> {
-        self.client().await?.action(action).await
+        pooled!(self, false, action(action))
     }
 
+    /// A console consumes its connection; it is never pooled.
     pub async fn console(&self) -> Result<UnixStream> {
-        self.client().await?.console().await
+        self.connect().await?.console().await
     }
 
     pub async fn agent_status(&self) -> Result<AgentStatus> {
-        self.client().await?.agent_status().await
+        pooled!(self, true, agent_status())
     }
 
     pub async fn agent_freeze_status(&self) -> Result<FreezeState> {
-        self.client().await?.agent_freeze_status().await
+        pooled!(self, true, agent_freeze_status())
     }
 
     pub async fn agent_freeze(&self, mountpoints: Option<Vec<String>>) -> Result<i64> {
-        self.client().await?.agent_freeze(mountpoints).await
+        pooled!(self, false, agent_freeze(mountpoints))
     }
 
     pub async fn agent_thaw(&self) -> Result<i64> {
-        self.client().await?.agent_thaw().await
+        pooled!(self, false, agent_thaw())
     }
 
     pub async fn agent_update_trigger(&self, args: Vec<String>) -> Result<UpdateStatus> {
-        self.client().await?.agent_update_trigger(args).await
+        pooled!(self, false, agent_update_trigger(args))
     }
 
     pub async fn agent_update_status(&self) -> Result<UpdateStatus> {
-        self.client().await?.agent_update_status().await
+        pooled!(self, true, agent_update_status())
     }
+}
+
+/// The manager answered with an error, so the connection is healthy.
+/// `Client` reports other manager errors as "control request failed (...)".
+fn is_refusal(error: &Error) -> bool {
+    matches!(error, Error::ShuttingDown | Error::Config(_))
+        || error.to_string().starts_with("control request failed")
 }
 
 /// Where a BMC-like service reaches its VM.

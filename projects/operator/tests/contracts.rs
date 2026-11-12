@@ -503,6 +503,12 @@ fn operator_renders_exactly_the_enabled_sidecars() {
         // The manager always owns the VM, with no port and deployment metadata.
         let manager = &pod["spec"]["containers"][0];
         assert_eq!(pod["spec"]["containers"].as_array().unwrap().len(), 1);
+        // Unqualified `kubectl exec`/`logs` reach the VM owner.
+        assert_eq!(
+            pod["metadata"]["annotations"][resources::DEFAULT_CONTAINER],
+            "manager"
+        );
+        assert!(pod["metadata"]["annotations"][resources::HASH].is_string());
         assert_eq!(manager["command"], json!(["qrab-manager"]));
         assert_eq!(
             manager["args"],

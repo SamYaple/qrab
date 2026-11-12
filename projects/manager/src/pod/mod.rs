@@ -25,7 +25,7 @@ pub use events::{
 };
 pub use hotplug::{GuestSize, Resize, ResizePhase};
 pub use iscsi::{IscsiBus, IscsiDisk};
-pub use remote::{Backend, Remote};
+pub use remote::{Backend, Remote, POOL_SIZE as REMOTE_POOL_SIZE};
 pub use state::{probe, status, Phase, Status};
 pub use supervisor::{run, run_controlled, Outcome};
 pub use view::{
