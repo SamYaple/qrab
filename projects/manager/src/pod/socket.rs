@@ -34,7 +34,7 @@ pub const MAX_CONSOLES: usize = 4;
 const IDLE_TIMEOUT: Duration = Duration::from_secs(60);
 const WRITE_TIMEOUT: Duration = Duration::from_secs(5);
 const OPERATIONS: &[&str] = &[
-    "status", "probe", "config", "events", "follow", "action", "console",
+    "status", "probe", "config", "events", "follow", "action", "console", "agent",
 ];
 
 /// `{control_dir}/control.sock`; `control_dir` defaults to
@@ -96,6 +96,48 @@ pub enum Operation {
         action: Action,
     },
     Console,
+    /// A guest-agent request through [`Control`]'s agent methods.
+    Agent {
+        agent: AgentCommand,
+    },
+}
+
+/// Guest-agent requests. Each maps to one `Control::agent_*` method; the
+/// update hook path stays fixed inside the guest.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "command", rename_all = "snake_case")]
+pub enum AgentCommand {
+    Status,
+    Ping,
+    FreezeStatus,
+    /// Freeze every guest filesystem, or only `mountpoints`.
+    Freeze {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        mountpoints: Option<Vec<String>>,
+    },
+    Thaw,
+    UpdateTrigger {
+        #[serde(default)]
+        args: Vec<String>,
+    },
+    UpdateStatus,
+}
+
+async fn agent(control: &Control, command: AgentCommand) -> Result<Value> {
+    Ok(match command {
+        AgentCommand::Status => serde_json::to_value(control.agent_status().await?)?,
+        AgentCommand::Ping => {
+            control.agent_ping().await?;
+            Value::Null
+        }
+        AgentCommand::FreezeStatus => serde_json::to_value(control.agent_freeze_status().await?)?,
+        AgentCommand::Freeze { mountpoints } => control.agent_freeze(mountpoints).await?.into(),
+        AgentCommand::Thaw => control.agent_thaw().await?.into(),
+        AgentCommand::UpdateTrigger { args } => {
+            serde_json::to_value(control.agent_update_trigger(args).await?)?
+        }
+        AgentCommand::UpdateStatus => serde_json::to_value(control.agent_update_status().await?)?,
+    })
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -366,6 +408,9 @@ async fn connection(
                 .action(action)
                 .await
                 .map_or_else(unavailable, |()| Response::ok(id, Value::Null)),
+            Operation::Agent { agent: command } => agent(&control, command)
+                .await
+                .map_or_else(unavailable, |value| Response::ok(id, value)),
             Operation::Follow { after } => {
                 let cursor = after.unwrap_or_else(|| control.events(None, 1).latest);
                 if write(
@@ -547,6 +592,11 @@ impl Client {
 
     pub async fn action(&mut self, action: Action) -> Result<()> {
         self.call(Operation::Action { action }).await.map(|_| ())
+    }
+
+    /// The JSON result of the matching `Control::agent_*` method.
+    pub async fn agent(&mut self, command: AgentCommand) -> Result<Value> {
+        self.call(Operation::Agent { agent: command }).await
     }
 
     /// Consume the connection as an event stream starting after `after`

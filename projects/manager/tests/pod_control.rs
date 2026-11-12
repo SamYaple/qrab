@@ -218,6 +218,25 @@ async fn supervisor_records_qmp_events_and_serves_them_over_control_and_socket()
     assert!(!full.redacted && full.paths.is_some());
     let redacted = client.config(true).await.unwrap();
     assert!(redacted.redacted && redacted.paths.is_none() && redacted.state_id.is_none());
+    // Guest-agent requests reach Control; no agent runs behind the fixture.
+    assert!(client.greeting().operations.iter().any(|op| op == "agent"));
+    let agent: pod::AgentStatus =
+        serde_json::from_value(client.agent(socket::AgentCommand::Status).await.unwrap()).unwrap();
+    assert!(agent.enabled && !agent.connected, "{agent:?}");
+    let error = client
+        .agent(socket::AgentCommand::Ping)
+        .await
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("not connected"), "{error}");
+    let error = client
+        .agent(socket::AgentCommand::UpdateTrigger {
+            args: vec!["--x".into()],
+        })
+        .await
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("update arguments"), "{error}");
     tokio::time::timeout(Duration::from_secs(3), async {
         while client.status().await.is_err() {
             tokio::time::sleep(Duration::from_millis(50)).await;

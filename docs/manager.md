@@ -223,6 +223,7 @@ newer managers. A connection may carry any number of requests.
 | `action` | `action`: `pause`/`resume`/`reset`/`powerdown` | `null` |
 | `follow` | `after` (default: latest) | `{"after":n}`, then the connection streams `{"v":1,"event":{...}}`, `{"v":1,"missed":n}` and `{"v":1,"qmp_dropped":n}` (on change) frames until the client closes or sends anything |
 | `console` | | `null`, then the connection is the raw VNC (RFB) byte stream |
+| `agent` | `agent`: `{"command":"status"\|"ping"\|"freeze_status"\|"thaw"\|"update_status"}`, `{"command":"freeze","mountpoints":[..]}` (optional list) or `{"command":"update_trigger","args":[..]}` | The matching `Control::agent_*` result (see [Guest agent](#guest-agent)) |
 
 `pod::Remote` is the sidecar client. It keeps a mirror of the event history,
 with the manager's sequence numbers, over one `follow` connection that
@@ -257,6 +258,17 @@ agent error leaves the session connected. The task ends with the QEMU child.
 | `agent_freeze(None \| Some(mountpoints))` | `guest-fsfreeze-freeze` or `-freeze-list`; returns the number frozen. |
 | `agent_thaw()`, `agent_freeze_status()` | Thaw all, or report `frozen`/`thawed`. |
 | `agent_update_trigger(args)`, `agent_update_status()` | Start or inspect the guest's fixed update hook. |
+
+With `control_socket` enabled, the same requests are available as the
+socket's `agent` operation and from inside the manager container:
+
+```sh
+qrab-manager agent status --config /etc/qrab/vm.json
+qrab-manager agent freeze --config /etc/qrab/vm.json [MOUNTPOINT...]
+qrab-manager agent thaw --config /etc/qrab/vm.json
+qrab-manager agent update-trigger --config /etc/qrab/vm.json channel=stable
+qrab-manager agent update-status --config /etc/qrab/vm.json
+```
 
 Requests fail immediately when the agent is not connected, its four-slot
 queue is full, or the channel is disabled. They have a 30-second control
