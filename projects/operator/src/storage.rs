@@ -12,6 +12,20 @@ use std::{sync::Arc, time::Duration};
 
 pub const EXCHANGE_SERVER: &str = "spiffe://yapplesauce.com/kanidm/exchange-shim";
 pub const EXCHANGE_POLICY: &str = "qrab-vm-disk-operator";
+/// Per-call timeout for every storage verb except `vm-disk-fence`.
+pub const CALL_TIMEOUT: Duration = Duration::from_secs(75);
+/// The daemon bounds a fence's kernel drain at 600s and the ingress at 610s.
+pub const FENCE_CALL_TIMEOUT: Duration = Duration::from_secs(620);
+
+/// Timeout for one daemon verb. Each reconcile awaits only its own VM's calls,
+/// so a slow fence never delays other VMs' reconciles.
+pub fn call_timeout(operation: &str) -> Duration {
+    if operation == "vm-disk-fence" {
+        FENCE_CALL_TIMEOUT
+    } else {
+        CALL_TIMEOUT
+    }
+}
 const RESPONSE_LIMIT: usize = 256 << 10;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -163,7 +177,7 @@ pub fn storage_client(mut ca: &[u8]) -> anyhow::Result<reqwest::Client> {
         .with_protocol_versions(&[&rustls::version::TLS13])?
         .with_root_certificates(roots)
         .with_no_client_auth();
-    http_client(tls, Duration::from_secs(75))
+    http_client(tls, CALL_TIMEOUT)
 }
 
 async fn bounded_json(mut response: reqwest::Response) -> anyhow::Result<Value> {
@@ -217,6 +231,11 @@ pub fn parse_execution(
     }
     if status == 422 {
         if let Some(code) = body["result"]["stderr"].as_str().and_then(wrapper_refusal) {
+            // Another administration call holds the target journal lock
+            // (often a long fence): transient, not a refusal of this request.
+            if code == "busy" {
+                return Err(StorageError::Unavailable("storage target busy".into()));
+            }
             return Err(StorageError::Refused(code));
         }
     }
@@ -248,12 +267,20 @@ pub fn parse_report(output: &Value, vm_uid: &str, disk: &str) -> StorageResult<D
     Ok(report)
 }
 
+enum Bearer {
+    Exchange {
+        client: reqwest::Client,
+        origin: String,
+        source: spiffe::X509Source,
+    },
+    #[cfg(test)]
+    Fixed(String),
+}
+
 pub struct HttpStorage {
-    exchange: reqwest::Client,
+    bearer: Bearer,
     storage: reqwest::Client,
-    exchange_origin: String,
     storage_origin: String,
-    source: spiffe::X509Source,
 }
 
 #[derive(Deserialize)]
@@ -291,25 +318,44 @@ impl HttpStorage {
             .with_alpn_protocols([b"http/1.1"])
             .build()?;
         Ok(Self {
-            exchange: http_client(tls, Duration::from_secs(20))?,
+            bearer: Bearer::Exchange {
+                client: http_client(tls, Duration::from_secs(20))?,
+                origin: exchange_origin.into(),
+                source,
+            },
             storage,
-            exchange_origin: exchange_origin.into(),
             storage_origin: storage_origin.into(),
-            source,
         })
+    }
+
+    #[cfg(test)]
+    fn fixed(storage: reqwest::Client, storage_origin: &str, token: &str) -> Self {
+        Self {
+            bearer: Bearer::Fixed(token.into()),
+            storage,
+            storage_origin: storage_origin.into(),
+        }
     }
 
     /// One fresh short-lived bearer per RPC; never cached or logged.
     async fn token(&self) -> StorageResult<String> {
-        if self.source.svid().is_err() {
+        let (client, origin, source) = match &self.bearer {
+            Bearer::Exchange {
+                client,
+                origin,
+                source,
+            } => (client, origin, source),
+            #[cfg(test)]
+            Bearer::Fixed(token) => return Ok(token.clone()),
+        };
+        if source.svid().is_err() {
             return Err(StorageError::Unavailable(
                 "SPIFFE identity unavailable".into(),
             ));
         }
         let unavailable = |_| StorageError::Unavailable("identity exchange unavailable".into());
-        let response = self
-            .exchange
-            .post(format!("{}/exchange", self.exchange_origin))
+        let response = client
+            .post(format!("{origin}/exchange"))
             .json(&json!({"policy": EXCHANGE_POLICY}))
             .send()
             .await
@@ -349,6 +395,7 @@ impl HttpStorage {
             .storage
             .post(format!("{}/v1/execute", self.storage_origin))
             .bearer_auth(token)
+            .timeout(call_timeout(&name))
             .json(&body)
             .send()
             .await
@@ -517,5 +564,88 @@ mod tests {
         }
         let secret = ChapSecret("0123456789abcdef0123456789abcdef".into());
         assert!(!format!("{secret:?}").contains("0123"));
+    }
+
+    #[test]
+    fn only_fence_gets_a_call_timeout_above_the_daemon_and_ingress_budgets() {
+        assert_eq!(call_timeout("vm-disk-fence"), FENCE_CALL_TIMEOUT);
+        assert!(FENCE_CALL_TIMEOUT > Duration::from_secs(610));
+        for verb in [
+            "vm-disk-status",
+            "vm-disk-create",
+            "vm-disk-clone",
+            "vm-disk-expand",
+            "vm-disk-export",
+            "vm-image-status",
+        ] {
+            assert_eq!(call_timeout(verb), CALL_TIMEOUT, "{verb}");
+        }
+        assert_eq!(CALL_TIMEOUT, Duration::from_secs(75));
+    }
+
+    #[test]
+    fn a_busy_journal_lock_is_transient_not_a_refusal() {
+        let busy = json!({"ok":false,"request_id":"r1","operation":"vm-disk-status","result":{"success":false,"exit_code":1,"output":null,"stderr":"{\"error\":\"busy\"}"}});
+        assert!(matches!(
+            parse_execution(422, &busy, "vm-disk-status", "r1"),
+            Err(StorageError::Unavailable(_))
+        ));
+    }
+
+    #[tokio::test]
+    async fn a_slow_fence_for_one_vm_does_not_delay_another_vms_calls() {
+        use axum::{extract::State, routing::post, Json, Router};
+        use std::sync::Arc;
+        use tokio::sync::Notify;
+        const OTHER: &str = "0b5c1d0e-1111-4222-8333-944455556666";
+        let release = Arc::new(Notify::new());
+        async fn execute(
+            State(release): State<Arc<Notify>>,
+            Json(body): Json<Value>,
+        ) -> Json<Value> {
+            let name = body["operation"]["name"].as_str().unwrap().to_owned();
+            if name == "vm-disk-fence" {
+                release.notified().await;
+            }
+            let uid = body["operation"]["vm_uid"].clone();
+            let phase = if name == "vm-disk-fence" {
+                "fenced"
+            } else {
+                "active"
+            };
+            Json(
+                json!({"ok":true,"request_id":body["request_id"],"operation":name,"result":{"success":true,"exit_code":0,"stderr":"",
+                "output":{"disk":{"vm_uid":uid,"disk":"root","capacity_bytes":67108864,"target_iqn":"iqn.2026-11.com.yapplesauce:qrab.disk.x.root",
+                    "initiator_iqn":"iqn.2026-11.com.yapplesauce:qrab.vm.x","portal":"10.203.0.1:3260","lun":0,"chap_username":"qrab-x-root",
+                    "generation":1,"phase":phase}}}}),
+            )
+        }
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let origin = format!("http://{}", listener.local_addr().unwrap());
+        let app = Router::new()
+            .route("/v1/execute", post(execute))
+            .with_state(release.clone());
+        let server = tokio::spawn(async move { axum::serve(listener, app).await });
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let client = reqwest::Client::builder().no_proxy().build().unwrap();
+        let storage = Arc::new(HttpStorage::fixed(client, &origin, "test-token"));
+        let fencing = storage.clone();
+        let fence = tokio::spawn(async move { fencing.fence(UID, "root").await });
+        tokio::task::yield_now().await;
+        let other = tokio::time::timeout(Duration::from_secs(5), storage.status(OTHER, "root"))
+            .await
+            .expect("another VM's call waits on no in-flight fence")
+            .unwrap()
+            .unwrap();
+        assert_eq!(other.phase, DiskPhase::Active);
+        assert!(!fence.is_finished());
+        release.notify_one();
+        let fenced = tokio::time::timeout(Duration::from_secs(5), fence)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        assert_eq!(fenced.phase, DiskPhase::Fenced);
+        server.abort();
     }
 }

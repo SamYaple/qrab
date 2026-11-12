@@ -108,7 +108,12 @@ Per disk the operator:
 A fence that outlives the storage daemon's wrapper budget leaves the journal in
 `Fencing`; the operator reports `StorageFenceInProgress` and resumes it on the
 next reconcile instead of treating it as a refusal. No export happens before a
-fence completes.
+fence completes. Fence calls wait up to 620s (the daemon bounds the drain at
+600s, the ingress at 610s); every other storage call times out at 75s. Each
+reconcile awaits only its own VM's calls, so a slow fence never delays other
+VMs' reconciles. While a fence holds the target journal lock, other VMs' calls
+may report `busy`; the operator treats that, like any outage, as transient and
+retries without rewriting the VM's status.
 
 Target names are derived and verified, never CR input:
 `iqn.2026-11.com.yapplesauce:qrab.disk.<VM-UID>.<id>`, CHAP account

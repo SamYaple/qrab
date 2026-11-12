@@ -630,6 +630,12 @@ pub async fn reconcile(event: Arc<VirtualMachine>, ctx: Arc<Context>) -> Result<
     };
     match synchronize(&vm, &ctx, &vms).await {
         Ok(action) => Ok(action),
+        // An outage, timeout or another VM's long fence holding the target
+        // lock: retry without rewriting this VM's status.
+        Err(Error::Storage(StorageError::Unavailable(message))) => {
+            tracing::warn!(vm=%vm.name_any(), %message, "storage service temporarily unavailable");
+            Ok(Action::requeue(Duration::from_secs(15)))
+        }
         Err(error @ (Error::Invalid(_) | Error::Ownership(_) | Error::Storage(_))) => {
             let reason = match &error {
                 Error::Ownership(_) => "OwnershipConflict",
