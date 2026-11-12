@@ -269,16 +269,14 @@ async fn supervisor_records_qmp_events_and_serves_them_over_control_and_socket()
     assert!(!full.redacted && full.paths.is_some());
     let redacted = client.config(true).await.unwrap();
     assert!(redacted.redacted && redacted.paths.is_none() && redacted.state_id.is_none());
-    // The nested `agent` form reaches Control too; connected-agent checks
+    // One wire form: the flat `agent_*` operations. Connected-agent checks
     // follow below and the not-connected ones in the protocol test.
-    assert!(client.greeting().operations.iter().any(|op| op == "agent"));
-    let agent: pod::AgentStatus =
-        serde_json::from_value(client.agent(socket::AgentCommand::Status).await.unwrap()).unwrap();
-    assert!(agent.enabled, "{agent:?}");
+    let operations = &client.greeting().operations;
+    assert!(operations.iter().any(|op| op == "agent_ping"));
+    assert!(!operations.iter().any(|op| op == "agent"));
+    assert!(client.agent_status().await.unwrap().enabled);
     let error = client
-        .agent(socket::AgentCommand::UpdateTrigger {
-            args: vec!["--x".into()],
-        })
+        .agent_update_trigger(vec!["--x".into()])
         .await
         .unwrap_err()
         .to_string();
@@ -369,6 +367,39 @@ async fn supervisor_records_qmp_events_and_serves_them_over_control_and_socket()
         .operations
         .iter()
         .any(|op| op == "agent_update_trigger"));
+    // The CLI reaches the same operations; its output is unchanged JSON.
+    let config_file = config.runtime_dir.with_file_name("vm.json");
+    std::fs::write(&config_file, serde_json::to_vec(&config).unwrap()).unwrap();
+    let cli = move |args: &[&str]| {
+        let output = std::process::Command::new(env!("CARGO_BIN_EXE_qrab-manager"))
+            .arg("agent")
+            .arg(args[0])
+            .arg("--config")
+            .arg(&config_file)
+            .args(&args[1..])
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{args:?}: {output:?}");
+        serde_json::from_slice::<Value>(&output.stdout).unwrap()
+    };
+    let cli_status = tokio::task::spawn_blocking(move || {
+        (
+            cli(&["status"]),
+            cli(&["ping"]),
+            cli(&["freeze-status"]),
+            cli(&["freeze", "/"]),
+            cli(&["thaw"]),
+        )
+    })
+    .await
+    .unwrap();
+    assert_eq!(cli_status.0["connected"], true);
+    assert_eq!(cli_status.1, Value::Null);
+    assert_eq!(cli_status.2, "thawed");
+    assert_eq!(
+        (cli_status.3.clone(), cli_status.4.clone()),
+        (json!(1), json!(1))
+    );
     // A console request on a console-less VM is refused, not a raw socket.
     assert!(Client::connect(&path)
         .await
@@ -563,7 +594,7 @@ async fn socket_protocol_is_versioned_bounded_and_survives_bad_requests() {
     }
     stream
         .get_mut()
-        .write_all(b"{\"v\":1,\"id\":9,\"op\":\"agent\",\"agent\":{\"command\":\"ping\"}}\n")
+        .write_all(b"{\"v\":1,\"id\":9,\"op\":\"agent_ping\"}\n")
         .await
         .unwrap();
     let reply = read(&mut stream).await;
@@ -588,6 +619,11 @@ async fn socket_protocol_is_versioned_bounded_and_survives_bad_requests() {
         ),
         (
             "{\"v\":1,\"id\":9,\"op\":\"action\",\"action\":\"quit\"}\n",
+            "bad_request",
+        ),
+        // The former nested guest-agent form is no longer accepted.
+        (
+            "{\"v\":1,\"id\":10,\"op\":\"agent\",\"agent\":{\"command\":\"ping\"}}\n",
             "bad_request",
         ),
     ] {

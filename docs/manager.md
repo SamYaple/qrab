@@ -223,18 +223,19 @@ newer managers. A connection may carry any number of requests.
 | `action` | `action`: `pause`/`resume`/`reset`/`powerdown` | `null` |
 | `follow` | `after` (default: latest) | `{"after":n}`, then the connection streams `{"v":1,"event":{...}}`, `{"v":1,"missed":n}` and `{"v":1,"qmp_dropped":n}` (on change) frames until the client closes or sends anything |
 | `console` | | `null`, then the connection is the raw VNC (RFB) byte stream |
-| `agent` | `agent`: `{"command":"status"\|"ping"\|"freeze_status"\|"thaw"\|"update_status"}`, `{"command":"freeze","mountpoints":[..]}` (optional list) or `{"command":"update_trigger","args":[..]}` | The matching `Control::agent_*` result (see [Guest agent](#guest-agent)) |
-| `agent_status` | | shorthand for `agent` `status`: cached `AgentStatus` (`enabled`, `connected`, `version`, timestamps, `last_error`); never queues |
+| `agent_status` | | cached `AgentStatus` (`enabled`, `connected`, `version`, timestamps, `last_error`); never queues |
+| `agent_ping` | | `null` once the guest answers `guest-ping` |
 | `agent_freeze_status` | | `"frozen"` or `"thawed"` |
 | `agent_freeze` | `mountpoints` (default: all) | number of frozen filesystems |
 | `agent_thaw` | | number of thawed filesystems |
 | `agent_update_trigger` | `args` (≤16 tokens) | the guest `UpdateStatus`; invalid arguments are `bad_request` |
 | `agent_update_status` | | the guest `UpdateStatus` |
 
-The flat `agent_*` operations are equivalent to the nested `agent` form
-(`qrab-manager agent` uses the nested form; `pod::socket::Client` has typed
-methods for both). Guest-agent commands other than status fail at once while the agent is
-disabled or not connected (for example before QEMU starts).
+These `agent_*` operations are the only guest-agent wire form; each maps to
+one `Control::agent_*` method (see [Guest agent](#guest-agent)), and
+`pod::socket::Client` and `qrab-manager agent` use them. Guest-agent commands
+other than status fail at once while the agent is disabled or not connected
+(for example before QEMU starts).
 
 `pod::Remote` is the sidecar client. It keeps a mirror of the event history,
 with the manager's sequence numbers, over one `follow` connection that
@@ -271,7 +272,8 @@ agent error leaves the session connected. The task ends with the QEMU child.
 | `agent_update_trigger(args)`, `agent_update_status()` | Start or inspect the guest's fixed update hook. |
 
 With `control_socket` enabled, the same requests are available as the
-socket's `agent` operation and from inside the manager container:
+socket's `agent_*` operations and from inside the manager container (output is
+the pretty-printed JSON result; `null` for `ping`):
 
 ```sh
 qrab-manager agent status --config /etc/qrab/vm.json

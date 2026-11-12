@@ -66,7 +66,7 @@ async fn execute() -> manager::Result<()> {
 }
 
 async fn agent(args: &[String]) -> manager::Result<()> {
-    use pod::socket::{AgentCommand, Client};
+    use pod::socket::Client;
     if args.len() < 3 || args[1] != "--config" {
         return Err(manager::Error::Config(USAGE.into()));
     }
@@ -77,20 +77,34 @@ async fn agent(args: &[String]) -> manager::Result<()> {
         ));
     }
     let extra = args[3..].to_vec();
-    let command = match (args[0].as_str(), extra.is_empty()) {
-        ("status", true) => AgentCommand::Status,
-        ("ping", true) => AgentCommand::Ping,
-        ("freeze-status", true) => AgentCommand::FreezeStatus,
-        ("freeze", _) => AgentCommand::Freeze {
-            mountpoints: (!extra.is_empty()).then_some(extra),
-        },
-        ("thaw", true) => AgentCommand::Thaw,
-        ("update-status", true) => AgentCommand::UpdateStatus,
-        ("update-trigger", _) => AgentCommand::UpdateTrigger { args: extra },
-        _ => return Err(manager::Error::Config(USAGE.into())),
-    };
+    let known = matches!(
+        (args[0].as_str(), extra.is_empty()),
+        (
+            "status" | "ping" | "freeze-status" | "thaw" | "update-status",
+            true
+        ) | ("freeze" | "update-trigger", _)
+    );
+    if !known {
+        return Err(manager::Error::Config(USAGE.into()));
+    }
     let mut client = Client::connect(&pod::socket::socket_path(&config)).await?;
-    let result = client.agent(command).await?;
+    // Output is the pretty JSON of the typed result (`null` for ping).
+    let result = match args[0].as_str() {
+        "status" => serde_json::to_value(client.agent_status().await?)?,
+        "ping" => {
+            client.agent_ping().await?;
+            serde_json::Value::Null
+        }
+        "freeze-status" => serde_json::to_value(client.agent_freeze_status().await?)?,
+        "freeze" => client
+            .agent_freeze((!extra.is_empty()).then_some(extra))
+            .await?
+            .into(),
+        "thaw" => client.agent_thaw().await?.into(),
+        "update-status" => serde_json::to_value(client.agent_update_status().await?)?,
+        "update-trigger" => serde_json::to_value(client.agent_update_trigger(extra).await?)?,
+        _ => unreachable!("checked above"),
+    };
     println!("{}", serde_json::to_string_pretty(&result)?);
     Ok(())
 }

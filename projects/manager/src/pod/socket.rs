@@ -44,7 +44,7 @@ const OPERATIONS: &[&str] = &[
     "follow",
     "action",
     "console",
-    "agent",
+    "agent_ping",
     "agent_status",
     "agent_freeze_status",
     "agent_freeze",
@@ -114,6 +114,8 @@ pub enum Operation {
     Console,
     /// Cached guest-agent connection state; never waits on the guest.
     AgentStatus,
+    /// A guest round trip proving the agent answers.
+    AgentPing,
     AgentFreezeStatus,
     /// Freeze all guest filesystems, or only `mountpoints`.
     AgentFreeze {
@@ -127,34 +129,21 @@ pub enum Operation {
         args: Vec<String>,
     },
     AgentUpdateStatus,
-    /// The same requests in nested form, used by `qrab-manager agent`.
-    Agent {
-        agent: AgentCommand,
-    },
 }
 
-/// Guest-agent requests. Each maps to one `Control::agent_*` method; the
-/// update hook path stays fixed inside the guest.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "command", rename_all = "snake_case")]
-pub enum AgentCommand {
+/// The `agent_*` operations; each maps to one `Control::agent_*` method and
+/// the update hook path stays fixed inside the guest.
+enum AgentCommand {
     Status,
     Ping,
     FreezeStatus,
-    /// Freeze every guest filesystem, or only `mountpoints`.
-    Freeze {
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        mountpoints: Option<Vec<String>>,
-    },
+    Freeze { mountpoints: Option<Vec<String>> },
     Thaw,
-    UpdateTrigger {
-        #[serde(default)]
-        args: Vec<String>,
-    },
+    UpdateTrigger { args: Vec<String> },
     UpdateStatus,
 }
 
-/// One reply for both the nested `agent` and the flat `agent_*` forms.
+/// One reply shape and error mapping for every `agent_*` operation.
 async fn agent_reply(control: &Control, id: Option<u64>, command: AgentCommand) -> Response {
     match agent(control, command).await {
         Ok(value) => Response::ok(id, value),
@@ -451,10 +440,8 @@ async fn connection(
                 .action(action)
                 .await
                 .map_or_else(unavailable, |()| Response::ok(id, Value::Null)),
-            Operation::Agent { agent: command } => agent(&control, command)
-                .await
-                .map_or_else(unavailable, |value| Response::ok(id, value)),
             Operation::AgentStatus => agent_reply(&control, id, AgentCommand::Status).await,
+            Operation::AgentPing => agent_reply(&control, id, AgentCommand::Ping).await,
             Operation::AgentFreezeStatus => {
                 agent_reply(&control, id, AgentCommand::FreezeStatus).await
             }
@@ -654,9 +641,8 @@ impl Client {
         self.call(Operation::Action { action }).await.map(|_| ())
     }
 
-    /// The JSON result of the matching `Control::agent_*` method.
-    pub async fn agent(&mut self, command: AgentCommand) -> Result<Value> {
-        self.call(Operation::Agent { agent: command }).await
+    pub async fn agent_ping(&mut self) -> Result<()> {
+        self.call(Operation::AgentPing).await.map(|_| ())
     }
 
     pub async fn agent_status(&mut self) -> Result<AgentStatus> {
