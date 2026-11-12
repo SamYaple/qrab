@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 cd "$(dirname "$0")/../.."
-component=${1:?usage: publish.sh qemu|manager|operator TAG}
+component=${1:?usage: publish.sh qemu|manager|operator|dashboard TAG}
 tag=${2:?image tag required}
-[[ $component == qemu || $component == manager || $component == operator ]] || exit 1
+[[ $component == qemu || $component == manager || $component == operator || $component == dashboard ]] || exit 1
 [[ $tag =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$ ]] || exit 1
 [[ -z $(git status --porcelain) ]] || { echo 'commit the source before publication' >&2; exit 1; }
 registry=${QRAB_REGISTRY:-zot.yapplesauce.com}

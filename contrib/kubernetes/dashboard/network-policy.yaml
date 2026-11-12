@@ -1,0 +1,56 @@
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: qrab-dashboard
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: qrab-dashboard
+  ingress:
+  # The Cilium ingress and kubelet probes.
+  - fromEntities: [ingress, host]
+    toPorts:
+    - ports:
+      - {port: '8080', protocol: TCP}
+  egress:
+  - toEntities: [kube-apiserver]
+  - toEndpoints:
+    - matchLabels:
+        k8s:io.kubernetes.pod.namespace: kube-system
+        k8s:k8s-app: kube-dns
+    toPorts:
+    - ports:
+      - {port: '53', protocol: UDP}
+      - {port: '53', protocol: TCP}
+  # Kanidm (idm.yaple.net): OIDC discovery, token exchange, group REST API.
+  - toCIDR: [192.168.0.251/32]
+    toPorts:
+    - ports:
+      - {port: '443', protocol: TCP}
+  # Each VM's BMC, called with the signed-in user's bearer token.
+  - toEndpoints:
+    - matchLabels:
+        app.kubernetes.io/name: qrab
+        app.kubernetes.io/component: vm
+    toPorts:
+    - ports:
+      - {port: '8080', protocol: TCP}
+---
+# Selects every VM Pod. Cilium policies are additive: per-VM policies such as
+# qrab-demo's keep their own rules, and this one adds the dashboard on 8080.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: qrab-vm-from-dashboard
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: qrab
+      app.kubernetes.io/component: vm
+  ingress:
+  - fromEndpoints:
+    - matchLabels:
+        app.kubernetes.io/name: qrab-dashboard
+    toPorts:
+    - ports:
+      - {port: '8080', protocol: TCP}

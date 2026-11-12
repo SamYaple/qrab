@@ -1,0 +1,21 @@
+ARG RUST_IMAGE=docker.io/library/rust@sha256:4277ce860337f6cfa1b679891bbf689a447f4b3f4f55701742614ad31321cee7
+ARG DEBIAN_IMAGE=docker.io/library/debian@sha256:7378260c0a098d27ac206225db5e7d92b8c7c84ea7afccc86eeb513756bbd392
+FROM ${RUST_IMAGE} AS build
+WORKDIR /src
+COPY Cargo.toml Cargo.lock ./
+COPY projects ./projects
+RUN --mount=type=cache,id=qrab-cargo-registry,target=/usr/local/cargo/registry --mount=type=cache,id=qrab-dashboard-target,target=/src/target,sharing=locked cargo build --release --locked -p qrab-dashboard --bin qrab-dashboard && mkdir -p /out && cp /src/target/release/qrab-dashboard /out/
+
+FROM ${DEBIAN_IMAGE}
+ARG QRAB_REVISION=unknown
+LABEL org.opencontainers.image.source="https://gitea.yapplesauce.com/infrastructure/qrab" \
+      org.opencontainers.image.revision="${QRAB_REVISION}" \
+      org.opencontainers.image.description="qrab VM dashboard: launch, inspect and open VM consoles through one OIDC client"
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates && rm -rf /var/lib/apt/lists/*
+COPY --from=build /out/qrab-dashboard /usr/local/bin/qrab-dashboard
+# Vendored noVNC (copied from the BMC); the console page is the only script.
+COPY projects/dashboard/assets/novnc /opt/qrab/dashboard/novnc
+ENV DASHBOARD_NOVNC_DIR=/opt/qrab/dashboard/novnc
+USER 10001:10001
+EXPOSE 8080
+ENTRYPOINT ["/usr/local/bin/qrab-dashboard"]

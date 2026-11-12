@@ -1,0 +1,90 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: qrab-dashboard
+  labels:
+    app.kubernetes.io/name: qrab-dashboard
+spec:
+  # Sessions and pending logins live in process memory: one replica.
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: qrab-dashboard
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: qrab-dashboard
+    spec:
+      serviceAccountName: qrab-dashboard
+      # The dashboard reads and creates VMs through the Kubernetes API.
+      automountServiceAccountToken: true
+      enableServiceLinks: false
+      terminationGracePeriodSeconds: 10
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      hostAliases:
+      - ip: 192.168.0.251
+        hostnames: [idm.yaple.net]
+      containers:
+      - name: dashboard
+        # Placeholder: pinned to the published immutable digest by the release pin commit.
+        image: zot.yapplesauce.com/qrab/dashboard@sha256:0000000000000000000000000000000000000000000000000000000000000000
+        imagePullPolicy: Always
+        env:
+        - {name: DASHBOARD_PUBLIC_URL, value: 'https://vms.yapplesauce.com'}
+        - {name: DASHBOARD_OIDC_ISSUER, value: 'https://idm.yaple.net/oauth2/openid/qrab-dashboard'}
+        - {name: DASHBOARD_OIDC_CLIENT_ID, value: qrab-dashboard}
+        - {name: DASHBOARD_OIDC_CLIENT_SECRET_FILE, value: /run/secrets/qrab-dashboard/oidc-client-secret}
+        # qrab_vm_launchers
+        - {name: DASHBOARD_LAUNCHER_GROUP, value: 7617e8d9-74ce-4525-a70b-80235206b06a}
+        # qrab_vm_users, into which each VM's admins/viewers groups are nested
+        - {name: DASHBOARD_VM_USERS_GROUP, value: 3d40e2a1-3968-43ea-b4a4-154cbd26d88b}
+        - {name: DASHBOARD_KANIDM_URL, value: 'https://idm.yaple.net'}
+        - {name: DASHBOARD_KANIDM_TOKEN_FILE, value: /run/secrets/qrab-dashboard/kanidm-token}
+        - name: DASHBOARD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - {name: DASHBOARD_STORAGE_NODE, value: kube03}
+        - {name: DASHBOARD_LISTEN, value: '0.0.0.0:8080'}
+        ports:
+        - name: http
+          containerPort: 8080
+        resources:
+          requests: {cpu: 50m, memory: 64Mi}
+          limits: {cpu: '1', memory: 256Mi}
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop: [ALL]
+        volumeMounts:
+        - name: secrets
+          mountPath: /run/secrets/qrab-dashboard
+          readOnly: true
+        startupProbe:
+          httpGet: {path: /healthz, port: http}
+          periodSeconds: 2
+          failureThreshold: 30
+        readinessProbe:
+          httpGet: {path: /readyz, port: http}
+          periodSeconds: 5
+        livenessProbe:
+          httpGet: {path: /healthz, port: http}
+          periodSeconds: 10
+      volumes:
+      # Files readable by the pod's fsGroup only; never env or argv.
+      - name: secrets
+        secret:
+          secretName: qrab-dashboard
+          defaultMode: 0440
+          items:
+          - {key: oidc-client-secret, path: oidc-client-secret}
+          - {key: kanidm-token, path: kanidm-token}

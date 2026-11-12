@@ -1,0 +1,49 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: qrab-dashboard
+spec:
+  selector:
+    app.kubernetes.io/name: qrab-dashboard
+  ports:
+  - name: http
+    port: 8080
+    targetPort: http
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: qrab-dashboard
+  annotations:
+    ingress.cilium.io/force-https: enabled
+spec:
+  ingressClassName: cilium
+  tls:
+  - hosts: [vms.yapplesauce.com]
+    secretName: qrab-dashboard-tls
+  rules:
+  - host: vms.yapplesauce.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: qrab-dashboard
+            port:
+              name: http
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: qrab-dashboard-tls
+spec:
+  secretName: qrab-dashboard-tls
+  dnsNames: [vms.yapplesauce.com]
+  issuerRef:
+    kind: ClusterIssuer
+    name: letsencrypt-production
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+    rotationPolicy: Always

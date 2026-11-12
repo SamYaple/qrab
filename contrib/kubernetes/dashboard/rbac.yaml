@@ -1,0 +1,38 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: qrab-dashboard
+---
+# Namespace-scoped. No update/patch on VMs, no PVC deletion (PVCs hold TPM
+# identities), no Secrets. The creator-subject annotation it sets is trusted
+# by admission only for system:serviceaccount:qrab:qrab-dashboard.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: qrab-dashboard
+rules:
+- apiGroups: [qrab.yapplesauce.com]
+  resources: [virtualmachines]
+  verbs: [get, list, watch, create, delete]
+- apiGroups: ['']
+  resources: [pods]
+  verbs: [get, list]
+- apiGroups: ['']
+  resources: [persistentvolumeclaims]
+  verbs: [get, create]
+- apiGroups: [metrics.k8s.io]
+  resources: [pods]
+  verbs: [get, list]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: qrab-dashboard
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: qrab-dashboard
+subjects:
+- kind: ServiceAccount
+  name: qrab-dashboard
+  namespace: qrab

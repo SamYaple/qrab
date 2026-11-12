@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 cd "$(dirname "$0")/../.."
-component=${1:?usage: build.sh qemu|manager|operator TAG}
+component=${1:?usage: build.sh qemu|manager|operator|dashboard TAG}
 tag=${2:?image tag required}
 [[ $tag =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$ ]] || { echo 'invalid image tag' >&2; exit 1; }
 revision=$(git rev-parse HEAD)
@@ -20,6 +20,9 @@ case "$component" in
   operator)
     podman build -f contrib/images/Containerfile.operator --build-arg "QRAB_REVISION=$revision" -t "$image" .
     ;;
-  *) echo 'component must be qemu, manager or operator' >&2; exit 1;;
+  dashboard)
+    podman build -f contrib/images/Containerfile.dashboard --build-arg "QRAB_REVISION=$revision" -t "$image" .
+    ;;
+  *) echo 'component must be qemu, manager, operator or dashboard' >&2; exit 1;;
 esac
 printf '%s\n' "$image"
