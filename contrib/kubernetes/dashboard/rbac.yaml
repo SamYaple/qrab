@@ -18,6 +18,11 @@ rules:
 - apiGroups: ['']
   resources: [persistentvolumeclaims]
   verbs: [get, create]
+# The base-image catalog written by contrib/images/stage-base-image.sh.
+- apiGroups: ['']
+  resources: [configmaps]
+  resourceNames: [qrab-base-images]
+  verbs: [get]
 # The list page reads all PodMetrics in one call.
 - apiGroups: [metrics.k8s.io]
   resources: [pods]

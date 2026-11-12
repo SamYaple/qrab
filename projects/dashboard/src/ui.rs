@@ -3,6 +3,7 @@
 use crate::{
     access::Role,
     bmc::{self, Action, Panel},
+    images::BaseImage,
     launch::{self, Report},
     model::{self, Detail, Row},
 };
@@ -36,6 +37,8 @@ pub struct LaunchPage {
     pub errors: Vec<String>,
     pub namespace: String,
     pub storage_node: Option<String>,
+    /// The base-image catalog at render time.
+    pub images: Vec<BaseImage>,
 }
 
 #[derive(Clone)]
@@ -60,6 +63,7 @@ pub enum Body {
     Launch(LaunchPage),
     Launched(Launched),
     Console(ConsolePage),
+    Images(Vec<BaseImage>),
 }
 
 #[derive(Clone, Default)]
@@ -74,6 +78,7 @@ pub fn render(page: Page) -> String {
         Body::Detail(d) => format!("{} · qrab VMs", d.detail.row.name),
         Body::Console(c) => format!("{} console · qrab VMs", c.name),
         Body::Launch(_) | Body::Launched(_) => "Launch a VM · qrab VMs".into(),
+        Body::Images(_) => "Base images · qrab VMs".into(),
         _ => "qrab VMs".into(),
     };
     let mut dom = VirtualDom::new(app);
@@ -416,6 +421,7 @@ fn detail_page(page: &DetailPage, user: &UserView) -> Element {
             sizes(d.row.memory_mib, d.row.max_memory_mib, " MiB"),
         ),
         ("Accelerator", d.accelerator.to_string()),
+        ("Boots from", d.boots_from.clone()),
         ("Boot", d.boot.clone()),
         (
             "Storage node",
@@ -503,7 +509,7 @@ fn detail_page(page: &DetailPage, user: &UserView) -> Element {
                 p { "None: VMs have no guest NIC by design (QMP/VNC stay on private sockets)." }
             }
             section { class: if d.disks.is_empty() { "card" } else { "card wide" }, h2 { "Disks" }
-                if d.disks.is_empty() && d.iscsi_disks.is_empty() { p { class: "empty", "No data disks. The VM boots the read-only demo ESP." } }
+                if d.disks.is_empty() && d.iscsi_disks.is_empty() { p { class: "empty", "No disks. The VM boots the read-only demo ESP." } }
                 if !d.disks.is_empty() {
                     div { class: "table-wrap", table {
                         thead { tr { th { scope: "col", "ID" } th { scope: "col", "Size" } th { scope: "col", "Capacity" } th { scope: "col", "Phase" } th { scope: "col", "Credential generation" } th { scope: "col", "Base image" } } }
@@ -565,12 +571,13 @@ fn launch_form(page: &LaunchPage, user: &UserView) -> Element {
     rsx! {
         a { class: "back", href: "/", "← All VMs" }
         div { class: "heading", div { p { class: "eyebrow", "LAUNCH" } h1 { "Launch a VM" }
-            p { class: "muted", "Creates Kanidm groups for its admins and viewers (you join the admins), a 1 GiB state PVC and the VirtualMachine in namespace {page.namespace}. The VM boots the demo ESP and has no guest NIC." } } }
+            p { class: "muted", "Creates Kanidm groups for its admins and viewers (you join the admins), a 1 GiB state PVC and the VirtualMachine in namespace {page.namespace}. The VM boots its own copy-on-write clone of the chosen operating system, or the demo ESP, and has no guest NIC." } } }
         if !page.errors.is_empty() {
             section { class: "card", role: "alert", h2 { "Check the form" } ul { for e in &page.errors { li { "{e}" } } } }
         }
         form { class: "card launch", method: "post", action: "/launch",
             input { r#type: "hidden", name: "csrf", value: "{user.csrf}" }
+            {os_fieldset(page)}
             fieldset { legend { "Machine" }
                 label { r#for: "name", "Name" }
                 input { id: "name", name: "name", required: true, maxlength: "50", pattern: "[a-z0-9]([a-z0-9-]*[a-z0-9])?", value: v("name", ""), aria_describedby: "name-help" }
@@ -607,6 +614,85 @@ fn launch_form(page: &LaunchPage, user: &UserView) -> Element {
                 }
             }
             button { r#type: "submit", "Launch VM" }
+        }
+    }
+}
+
+fn mib(bytes: u64) -> String {
+    format!("{} MiB", bytes.div_ceil(1024 * 1024))
+}
+
+fn os_fieldset(page: &LaunchPage) -> Element {
+    let chosen = input_value(&page.values, "os", "none");
+    let root = input_value(&page.values, "root_size_gib", "1");
+    let node = page.storage_node.clone();
+    rsx! {
+        fieldset { legend { "Operating system" }
+            p { class: "muted",
+                "The VM boots a private copy-on-write clone of a sealed base image over iSCSI, as its "
+                code { "root" } " disk. The demo ESP stays as the fallback boot entry. "
+                a { href: "/images", "About the images" }
+            }
+            div { class: "choices", role: "radiogroup", aria_label: "Operating system",
+                label { class: "confirm",
+                    input { r#type: "radio", name: "os", value: "none", checked: chosen == "none" || chosen.is_empty() }
+                    "None: demo ESP only"
+                }
+                for image in &page.images {
+                    {
+                        let key = image.key();
+                        let checked = chosen == key;
+                        let text = format!("{} ({}) · {} · root disk at least {} GiB", image.title, image.label(), mib(image.size_bytes), image.min_root_gib());
+                        rsx! { label { class: "confirm",
+                            input { r#type: "radio", name: "os", value: "{key}", checked: checked, disabled: node.is_none() }
+                            "{text}"
+                        } }
+                    }
+                }
+            }
+            if page.images.is_empty() { p { class: "muted", "No base images are staged yet." } }
+            if node.is_none() && !page.images.is_empty() { p { class: "muted", "Operating system images need a storage node; DASHBOARD_STORAGE_NODE is not configured." } }
+            div { class: "pair",
+                div {
+                    label { r#for: "root_size_gib", "Root disk size (GiB)" }
+                    input { id: "root_size_gib", name: "root_size_gib", r#type: "number", min: "1", max: "{launch::MAX_DISK_GIB}", value: "{root}", aria_describedby: "root-help" }
+                }
+            }
+            p { id: "root-help", class: "muted", "Used only with an operating system. At least the image size rounded up to whole GiB; the clone can grow later but never shrink." }
+        }
+    }
+}
+
+fn images_page(images: &[BaseImage]) -> Element {
+    rsx! {
+        div { class: "heading", div { p { class: "eyebrow", "BASE IMAGES" } h1 { "Operating system images" }
+            p { class: "muted", "Sealed images a new VM can boot from. Choose one on the launch form." } }
+            span { class: "count", "{images.len()} staged" } }
+        section { class: "card wide directory",
+            if images.is_empty() { p { class: "empty", "No base images are staged yet." } }
+            else { div { class: "table-wrap", table {
+                caption { class: "visually-hidden", "Staged base images" }
+                thead { tr {
+                    th { scope: "col", "Image" } th { scope: "col", "Name" } th { scope: "col", "Size" }
+                    th { scope: "col", "Raw SHA-256" } th { scope: "col", "Source" } th { scope: "col", "Boot" }
+                } }
+                tbody { for image in images { tr {
+                    td { "data-label": "Image", div { strong { "{image.title}" } p { class: "muted", "{image.os} {image.version}" } } }
+                    td { "data-label": "Name", code { {image.label()} } }
+                    td { "data-label": "Size", {mib(image.size_bytes)} }
+                    td { "data-label": "Raw SHA-256", code { "{image.sha256}" } }
+                    td { "data-label": "Source", a { href: "{image.source_url}", rel: "noreferrer", "{image.source_url}" } }
+                    td { "data-label": "Boot", {image.boot.to_uppercase()} }
+                } } }
+            } } }
+        }
+        section { class: "card wide", aria_labelledby: "how-title",
+            h2 { id: "how-title", "How images get here" }
+            ol {
+                li { "An administrator stages an image with " code { "contrib/images/stage-base-image.sh" } ": it downloads a known release, checks the upstream SHA-256 and converts it to a raw disk." }
+                li { "As root on the storage node, the import writes it to a ZFS volume and seals it as the read-only snapshot " code { "image-<name>-g<generation>@sealed" } ", checking the raw SHA-256. The script then records it here." }
+                li { "Each VM launched with it gets its own copy-on-write clone of that snapshot as its " code { "root" } " disk, exported over iSCSI and booted by UEFI. The image itself never changes; a new release is a new generation." }
+            }
         }
     }
 }
@@ -659,6 +745,7 @@ fn app() -> Element {
         body {
             header { div { class: "brand", a { href: "/", "qrab" } span { "Virtual machines" } }
                 if let Some(user) = &page.user { div { class: "operator",
+                    nav { class: "site-nav", aria_label: "Dashboard", a { href: "/", "VMs" } a { href: "/images", "Images" } }
                     if user.launcher { a { class: "button", href: "/launch", "Launch VM" } }
                     span { "{user.name}" }
                     form { method: "post", action: "/auth/logout", input { r#type: "hidden", name: "csrf", value: "{user.csrf}" } button { class: "quiet", r#type: "submit", "Sign out" } }
@@ -679,6 +766,7 @@ fn app() -> Element {
                     (Body::Launch(launch), Some(user)) => launch_form(launch, user),
                     (Body::Launched(result), Some(_)) => launched(result),
                     (Body::Console(console), Some(_)) => console_page(console),
+                    (Body::Images(images), Some(_)) => images_page(images),
                     _ => rsx! { section { class: "welcome card", p { class: "eyebrow", "QRAB" } h1 { "Your virtual machines, in one place." }
                         p { "Launch VMs, check their state and usage, and open their consoles." }
                         a { class: "button", href: "/auth/login", "Sign in with Kanidm →" }

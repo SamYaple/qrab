@@ -51,6 +51,8 @@ pub struct Detail {
     pub uid: String,
     pub accelerator: &'static str,
     pub boot: String,
+    /// "CirrOS 0.6.3 (cirros g1) clone on root", or "demo ESP".
+    pub boots_from: String,
     pub running: bool,
     pub storage_node: String,
     pub state_pvc: String,
@@ -141,6 +143,7 @@ pub fn detail(
     usage: &HashMap<String, Usage>,
     pod: Option<&Pod>,
     pod_ip: Option<std::net::IpAddr>,
+    catalog: &[crate::images::BaseImage],
 ) -> Detail {
     let status = vm.status.clone().unwrap_or_default();
     let disks = vm
@@ -176,6 +179,7 @@ pub fn detail(
         uid: vm.metadata.uid.clone().unwrap_or_default(),
         accelerator: vm.spec.accelerator.as_str(),
         boot: format!("UEFI from {}", vm.spec.boot_disk),
+        boots_from: boots_from(vm, catalog),
         running: vm.spec.running,
         storage_node: vm.spec.storage_node.clone().unwrap_or_default(),
         state_pvc: vm.spec.state_volume_claim.clone(),
@@ -189,6 +193,27 @@ pub fn detail(
         pod_name: status.pod_name.clone(),
         pod_ip: pod_ip.map(|ip| ip.to_string()),
         containers,
+    }
+}
+
+/// The VM's first boot source: a base-image clone with boot index 0, named
+/// by its catalog title when the catalog still lists it, else the demo ESP.
+pub fn boots_from(vm: &VirtualMachine, catalog: &[crate::images::BaseImage]) -> String {
+    let Some((disk, image)) = vm
+        .spec
+        .disks
+        .iter()
+        .find_map(|d| (d.boot_index == Some(0)).then_some((d, d.base_image.as_ref()?)))
+    else {
+        return "demo ESP".into();
+    };
+    let label = format!("{} g{}", image.name, image.generation);
+    match catalog
+        .iter()
+        .find(|c| c.name == image.name && c.generation == image.generation)
+    {
+        Some(c) => format!("{} ({label}) clone on {}", c.title, disk.id),
+        None => format!("{label} clone on {}", disk.id),
     }
 }
 
@@ -245,10 +270,39 @@ mod tests {
         assert_eq!((r.disks, r.disk_bytes), (2, 1073741824));
         assert_eq!(usage_text(r.usage), ("500m".into(), "600 MiB".into()));
         assert_eq!(r.path(), "/vms/qrab/web");
-        let d = detail(&machine, Role::Viewer, &usage, None, None);
+        let d = detail(&machine, Role::Viewer, &usage, None, None, &[]);
+        assert_eq!(d.boots_from, "demo ESP");
         assert_eq!(d.disks[0].phase, "Active");
         assert_eq!(d.disks[1].phase, "Pending");
         assert_eq!(d.storage_node, "kube03");
         assert_eq!(gib(1073741824), "1.0 GiB");
+    }
+
+    #[test]
+    fn the_boot_source_names_the_cloned_image() {
+        let clone = |boot: serde_json::Value| {
+            let mut root = serde_json::json!({"id": "root", "sizeBytes": 1073741824u64,
+                "baseImage": {"name": "cirros", "generation": 1}});
+            if !boot.is_null() {
+                root["bootIndex"] = boot;
+            }
+            vm(
+                "web",
+                serde_json::json!({"storageNode": "kube03", "disks": [
+                {"id": "data", "sizeBytes": 1073741824u64}, root]}),
+                None,
+            )
+        };
+        let catalog = [crate::images::tests::cirros()];
+        assert_eq!(
+            boots_from(&clone(0.into()), &catalog),
+            "CirrOS 0.6.3 (cirros g1) clone on root"
+        );
+        assert_eq!(boots_from(&clone(0.into()), &[]), "cirros g1 clone on root");
+        assert_eq!(
+            boots_from(&clone(serde_json::Value::Null), &catalog),
+            "demo ESP"
+        );
+        assert_eq!(boots_from(&clone(2.into()), &catalog), "demo ESP");
     }
 }

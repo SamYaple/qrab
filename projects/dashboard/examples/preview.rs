@@ -4,12 +4,14 @@
 //!
 //!   cargo run -p qrab-dashboard --example preview -- OUT_DIR VM.json POD.json [VM.json POD.json ...]
 //!
-//! The first VM gets the detail page; every VM appears in the list.
+//! The first VM gets the detail page; every VM appears in the list. A
+//! sample base-image catalog feeds the Images page and the launch forms.
 use k8s_openapi::api::core::v1::Pod;
 use qrab_dashboard::{
     access::Role,
     bmc::{self, Panel},
     cluster::Usage,
+    images,
     launch::Report,
     model,
     ui::{self, Body, ConsolePage, DetailPage, LaunchPage, Launched, Page, PanelState, UserView},
@@ -74,6 +76,18 @@ fn panel() -> Panel {
     }
 }
 
+/// A sample `images.json`, as `contrib/images/stage-base-image.sh` writes it.
+const CATALOG: &str = r#"[
+ {"name":"cirros","generation":1,"title":"CirrOS 0.6.3","os":"cirros","version":"0.6.3",
+  "size_bytes":117440512,"sha256":"809dc3e0e993cd8ec736e28d55b8356ccc4ee9051cad9ad1be66fad9a79470f1",
+  "upstream_sha256":"7d6355852aeb6dbcd191bcda7cd74f1536cfe5cbf8a10495a7283a8396e4b75b",
+  "source_url":"https://download.cirros-cloud.net/0.6.3/cirros-0.6.3-x86_64-disk.img","boot":"uefi"},
+ {"name":"cirros","generation":2,"title":"CirrOS 0.6.3 (rebuilt)","os":"cirros","version":"0.6.3",
+  "size_bytes":1181116007,"sha256":"aa0f2bb5b61f9bd57f3e0b3d4e0a6c2b8a7e1f9c3d2b4a6e8f0a1c3e5b7d9f1a",
+  "upstream_sha256":"7d6355852aeb6dbcd191bcda7cd74f1536cfe5cbf8a10495a7283a8396e4b75b",
+  "source_url":"https://download.cirros-cloud.net/0.6.3/cirros-0.6.3-x86_64-disk.img","boot":"uefi"}
+]"#;
+
 fn write(dir: &str, name: &str, page: Page, css: &str) {
     let html = ui::render(page)
         .replace("/assets/style.css", css)
@@ -116,6 +130,8 @@ fn main() {
         body,
     };
     write(dir, "list", page(Body::List(rows)), &css);
+    let catalog = images::parse(CATALOG);
+    write(dir, "images", page(Body::Images(catalog.clone())), &css);
     let (vm, pod) = &pairs[0];
     let ip = pod
         .status
@@ -123,7 +139,7 @@ fn main() {
         .and_then(|s| s.pod_ip.as_ref())
         .and_then(|ip| ip.parse().ok());
     for (name, role) in [("detail", Role::Admin), ("detail-viewer", Role::Viewer)] {
-        let detail = model::detail(vm, role, &usage, Some(pod), ip);
+        let detail = model::detail(vm, role, &usage, Some(pod), ip, &catalog);
         let body = Body::Detail(Box::new(DetailPage {
             detail,
             panel: PanelState::Loaded(Box::new(panel())),
@@ -137,7 +153,24 @@ fn main() {
         page(Body::Launch(LaunchPage {
             namespace: "qrab".into(),
             storage_node: Some("kube03".into()),
+            images: catalog.clone(),
             ..Default::default()
+        })),
+        &css,
+    );
+    write(
+        dir,
+        "launch-os",
+        page(Body::Launch(LaunchPage {
+            values: vec![
+                ("name".into(), "web".into()),
+                ("os".into(), "cirros:2".into()),
+                ("root_size_gib".into(), "1".into()),
+            ],
+            errors: vec!["Root disk size (GiB) must be a whole number from 2 to 1024.".into()],
+            namespace: "qrab".into(),
+            storage_node: Some("kube03".into()),
+            images: catalog.clone(),
         })),
         &css,
     );

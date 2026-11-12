@@ -1,5 +1,6 @@
 //! The launch form: validation, the rendered Kanidm groups, PVC and
 //! VirtualMachine, and the step-by-step creation with a report.
+use crate::images::BaseImage;
 use crate::{
     cluster::{self, Cluster},
     kanidm::Kanidm,
@@ -23,9 +24,21 @@ pub struct Disk {
     pub base_image: Option<(String, u32)>,
 }
 
+/// The chosen operating system: a copy-on-write clone of a catalog image
+/// as the VM's `root` disk, booted first.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Os {
+    pub image: BaseImage,
+    pub root_gib: u64,
+}
+
+/// The disk ID of an OS image clone.
+pub const ROOT_DISK: &str = "root";
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Request {
     pub name: String,
+    pub os: Option<Os>,
     pub cpus: u32,
     pub max_cpus: Option<u32>,
     pub memory_mib: u32,
@@ -121,12 +134,39 @@ pub fn parse(
     fields: &[(String, String)],
     namespace: &str,
     storage_node: Option<&str>,
+    catalog: &[BaseImage],
 ) -> Result<Request, Vec<String>> {
     let mut errors = Vec::new();
     let name = field(fields, "name").to_owned();
     if let Err(e) = names(namespace, &name) {
         errors.push(e);
     }
+    // The choice must still be in the catalog at submit time.
+    let os = match field(fields, "os") {
+        "" | "none" => None,
+        key => match catalog.iter().find(|image| image.key() == key) {
+            None => {
+                errors.push(format!(
+                    "The operating system image {key} is not in the base-image catalog (it may have been removed). Reload the form and choose again."
+                ));
+                None
+            }
+            Some(image) => {
+                let min = image.min_root_gib();
+                let root = match field(fields, "root_size_gib") {
+                    "" => Some(min),
+                    raw => number(&mut errors, "Root disk size (GiB)", raw, min, MAX_DISK_GIB),
+                };
+                if storage_node.is_none() {
+                    errors.push("Operating system images need a storage node; DASHBOARD_STORAGE_NODE is not configured.".into());
+                }
+                root.map(|root_gib| Os {
+                    image: image.clone(),
+                    root_gib,
+                })
+            }
+        },
+    };
     let cpus = number(&mut errors, "vCPUs", field(fields, "cpus"), 1u32, 256);
     let max_cpus = match field(fields, "max_cpus") {
         "" => None,
@@ -175,6 +215,11 @@ pub fn parse(
             continue;
         }
         let label = format!("Disk {}", i + 1);
+        if id == ROOT_DISK && !matches!(field(fields, "os"), "" | "none") {
+            errors.push(format!(
+                "{label} cannot be named {ROOT_DISK}: that is the operating system disk."
+            ));
+        }
         if !disk_id(id) {
             errors.push(format!("{label} ID must be 1-20 lowercase letters, digits or '-', starting and ending with a letter or digit."));
         } else if disks.iter().any(|d| d.id == id) {
@@ -220,6 +265,7 @@ pub fn parse(
     match (errors.is_empty(), cpus, memory_mib) {
         (true, Some(cpus), Some(memory_mib)) => Ok(Request {
             name,
+            os,
             cpus,
             max_cpus,
             memory_mib,
@@ -283,19 +329,26 @@ pub fn render_vm(
     if request.kvm {
         spec["accelerator"] = "kvm".into();
     }
-    if !request.disks.is_empty() {
+    let mut disks: Vec<serde_json::Value> = Vec::new();
+    // OVMF boots the clone first; the demo ESP (boot index 1) is the fallback.
+    if let Some(os) = &request.os {
+        disks.push(json!({
+            "id": ROOT_DISK,
+            "sizeBytes": os.root_gib * 1024 * 1024 * 1024,
+            "baseImage": {"name": os.image.name, "generation": os.image.generation},
+            "bootIndex": 0,
+        }));
+    }
+    disks.extend(request.disks.iter().map(|d| {
+        let mut disk = json!({"id": d.id, "sizeBytes": d.size_gib * 1024 * 1024 * 1024});
+        if let Some((name, generation)) = &d.base_image {
+            disk["baseImage"] = json!({"name": name, "generation": generation});
+        }
+        disk
+    }));
+    if !disks.is_empty() {
         spec["storageNode"] = storage_node.into();
-        spec["disks"] = request
-            .disks
-            .iter()
-            .map(|d| {
-                let mut disk = json!({"id": d.id, "sizeBytes": d.size_gib * 1024 * 1024 * 1024});
-                if let Some((name, generation)) = &d.base_image {
-                    disk["baseImage"] = json!({"name": name, "generation": generation});
-                }
-                disk
-            })
-            .collect();
+        spec["disks"] = disks.into();
     }
     json!({
         "apiVersion": "qrab.yapplesauce.com/v1alpha1",
@@ -601,6 +654,7 @@ mod tests {
             ]),
             "qrab",
             Some("kube03"),
+            &[],
         )
         .unwrap();
         assert_eq!(ok.cpus, 2);
@@ -691,7 +745,7 @@ mod tests {
                 "DNS label",
             ),
         ] {
-            let errors = parse(&form(&pairs), "qrab", Some("kube03")).unwrap_err();
+            let errors = parse(&form(&pairs), "qrab", Some("kube03"), &[]).unwrap_err();
             assert!(
                 errors.iter().any(|e| e.contains(needle)),
                 "{needle}: {errors:?}"
@@ -707,6 +761,7 @@ mod tests {
             ]),
             "qrab",
             None,
+            &[],
         )
         .unwrap_err();
         assert!(errors[0].contains("storage node"));
@@ -729,6 +784,7 @@ mod tests {
             ]),
             "qrab",
             Some("kube03"),
+            &[],
         )
         .unwrap();
         let n = names("qrab", "web").unwrap();
@@ -790,6 +846,141 @@ mod tests {
         assert_eq!(pvc["spec"]["accessModes"], json!(["ReadWriteOncePod"]));
         assert_eq!(pvc["spec"]["volumeMode"], "Filesystem");
         assert_eq!(pvc["spec"]["resources"]["requests"]["storage"], "1Gi");
+    }
+
+    fn os_form(extra: &[(&str, &str)]) -> Vec<(String, String)> {
+        let mut pairs = vec![("name", "web"), ("cpus", "1"), ("memory_mib", "512")];
+        pairs.extend_from_slice(extra);
+        form(&pairs)
+    }
+
+    #[test]
+    fn an_os_choice_must_be_in_the_catalog_and_fit_its_root_disk() {
+        use crate::images::tests::cirros;
+        let catalog = [cirros()];
+        let parsed = |extra: &[(&str, &str)], node: Option<&str>| {
+            parse(&os_form(extra), "qrab", node, &catalog)
+        };
+        // None keeps the demo-ESP launch.
+        for none in [&[][..], &[("os", "none")][..], &[("os", "")][..]] {
+            assert_eq!(parsed(none, Some("kube03")).unwrap().os, None);
+        }
+        let os = parsed(&[("os", "cirros:1")], Some("kube03"))
+            .unwrap()
+            .os
+            .unwrap();
+        assert_eq!((os.image.key(), os.root_gib), ("cirros:1".into(), 1));
+        let os = parsed(
+            &[("os", "cirros:1"), ("root_size_gib", "8")],
+            Some("kube03"),
+        )
+        .unwrap()
+        .os
+        .unwrap();
+        assert_eq!(os.root_gib, 8);
+        for (extra, needle) in [
+            (&[("os", "cirros:2")][..], "not in the base-image catalog"),
+            (&[("os", "../etc")][..], "not in the base-image catalog"),
+            (
+                &[("os", "cirros:1"), ("root_size_gib", "0")][..],
+                "Root disk size",
+            ),
+            (
+                &[("os", "cirros:1"), ("root_size_gib", "1025")][..],
+                "Root disk size",
+            ),
+            (
+                &[
+                    ("os", "cirros:1"),
+                    ("disk0_id", "root"),
+                    ("disk0_size_gib", "1"),
+                ][..],
+                "cannot be named root",
+            ),
+        ] {
+            let errors = parsed(extra, Some("kube03")).unwrap_err();
+            assert!(
+                errors.iter().any(|e| e.contains(needle)),
+                "{needle}: {errors:?}"
+            );
+        }
+        // The minimum is the image size rounded up to whole GiB.
+        let mut big = cirros();
+        big.size_bytes = 5 * 1024 * 1024 * 1024 + 1;
+        let errors = parse(
+            &os_form(&[("os", "cirros:1"), ("root_size_gib", "5")]),
+            "qrab",
+            Some("kube03"),
+            &[big.clone()],
+        )
+        .unwrap_err();
+        assert!(errors[0].contains("from 6 to 1024"), "{errors:?}");
+        let os = parse(
+            &os_form(&[("os", "cirros:1")]),
+            "qrab",
+            Some("kube03"),
+            &[big],
+        )
+        .unwrap()
+        .os
+        .unwrap();
+        assert_eq!(os.root_gib, 6);
+        // Without an OS, a data disk may be called root.
+        assert!(
+            parsed(
+                &[("disk0_id", "root"), ("disk0_size_gib", "1")],
+                Some("kube03")
+            )
+            .is_ok()
+        );
+        let errors = parsed(&[("os", "cirros:1")], None).unwrap_err();
+        assert!(errors[0].contains("storage node"), "{errors:?}");
+    }
+
+    #[test]
+    fn an_os_launch_clones_the_image_as_the_first_boot_disk() {
+        use crate::images::tests::cirros;
+        let request = parse(
+            &os_form(&[
+                ("os", "cirros:1"),
+                ("root_size_gib", "2"),
+                ("disk0_id", "data"),
+                ("disk0_size_gib", "3"),
+            ]),
+            "qrab",
+            Some("kube03"),
+            &[cirros()],
+        )
+        .unwrap();
+        let n = names("qrab", "web").unwrap();
+        let vm = render_vm(
+            &request,
+            &n,
+            "qrab",
+            "sub-1",
+            &Groups {
+                admins: "ga",
+                viewers: "gv",
+            },
+            Some("kube03"),
+        );
+        assert_eq!(vm["spec"]["storageNode"], "kube03");
+        assert_eq!(
+            vm["spec"]["disks"],
+            json!([
+                {"id": "root", "sizeBytes": 2147483648u64, "baseImage": {"name": "cirros", "generation": 1}, "bootIndex": 0},
+                {"id": "data", "sizeBytes": 3221225472u64}
+            ])
+        );
+        assert_eq!(vm["spec"]["bootDisk"], BOOT_DISK);
+        assert_eq!(vm["metadata"]["labels"][MANAGED_BY], MANAGER);
+        assert_eq!(vm["metadata"]["annotations"][CREATOR], "sub-1");
+        assert_eq!(
+            vm["spec"]["console"],
+            json!({"adminGroups": ["ga"], "viewerGroups": ["gv"]})
+        );
+        let typed: qrab_operator::api::VirtualMachine = serde_json::from_value(vm).unwrap();
+        assert_eq!(typed.spec.disks[0].boot_index, Some(0));
     }
 
     #[test]

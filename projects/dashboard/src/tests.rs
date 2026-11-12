@@ -28,6 +28,9 @@ struct FakeCluster {
     fail_vm_create: std::sync::atomic::AtomicBool,
     /// Appears after the first read misses it (a race with the preflight).
     racing_pvc: Mutex<Option<PersistentVolumeClaim>>,
+    /// ConfigMap qrab-base-images, key images.json.
+    catalog: Mutex<Option<String>>,
+    fail_catalog: std::sync::atomic::AtomicBool,
 }
 
 impl FakeCluster {
@@ -63,6 +66,12 @@ impl cluster::Cluster for FakeCluster {
                 memory_bytes: 300.0 * 1048576.0,
             },
         )]))
+    }
+    async fn base_image_catalog(&self) -> anyhow::Result<Option<String>> {
+        if self.fail_catalog.load(std::sync::atomic::Ordering::SeqCst) {
+            anyhow::bail!("configmaps \"qrab-base-images\" is forbidden");
+        }
+        Ok(self.catalog.lock().unwrap().clone())
     }
     async fn get_pvc(&self, name: &str) -> anyhow::Result<Option<PersistentVolumeClaim>> {
         let mut pvcs = self.pvcs.lock().unwrap();
@@ -750,6 +759,158 @@ async fn delete_is_admin_only_confirmed_and_keeps_the_pvc() {
     );
     let (_, _, body) = send(&h, get("/", Some(&cookie))).await;
     assert!(body.contains("a-state was kept"));
+}
+
+fn catalog_with_cirros(h: &Harness) {
+    let broken = serde_json::json!({"name": "broken", "generation": 1});
+    *h.cluster.catalog.lock().unwrap() =
+        Some(serde_json::json!([crate::images::tests::cirros_json(), broken]).to_string());
+}
+
+#[tokio::test]
+async fn the_images_page_lists_the_catalog_for_any_signed_in_user() {
+    let h = harness().await;
+    assert_eq!(
+        send(&h, get("/images", None)).await.0,
+        StatusCode::UNAUTHORIZED
+    );
+    let viewer = session(&h.state.sessions, BOB, &[]).await;
+    let (status, _, body) = send(&h, get("/images", Some(&viewer))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(body.contains("No base images are staged yet."));
+    assert!(body.contains("href=\"/images\""));
+    catalog_with_cirros(&h);
+    let (status, _, body) = send(&h, get("/images", Some(&viewer))).await;
+    assert_eq!(status, StatusCode::OK);
+    for text in [
+        "CirrOS 0.6.3",
+        "<code>cirros g1</code>",
+        "112 MiB",
+        "<code>0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef</code>",
+        "https://download.cirros-cloud.net/0.6.3/cirros-0.6.3-x86_64-disk.img",
+        "data-label=\"Raw SHA-256\"",
+        "How images get here",
+        "contrib/images/stage-base-image.sh",
+        "1 staged",
+    ] {
+        assert!(body.contains(text), "{text}");
+    }
+    assert!(!body.contains("broken"));
+    // A catalog the dashboard cannot read is an upstream failure, not an empty list.
+    h.cluster
+        .fail_catalog
+        .store(true, std::sync::atomic::Ordering::SeqCst);
+    assert_eq!(
+        send(&h, get("/images", Some(&viewer))).await.0,
+        StatusCode::BAD_GATEWAY
+    );
+}
+
+#[tokio::test]
+async fn launching_with_an_os_clones_the_catalog_image_as_root() {
+    let h = harness().await;
+    catalog_with_cirros(&h);
+    let cookie = session(&h.state.sessions, ALICE, &[LAUNCHERS]).await;
+    let (status, _, body) = send(&h, get("/launch", Some(&cookie))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(body.contains("value=\"cirros:1\"") && body.contains("None: demo ESP only"));
+    assert!(body.contains("name=\"root_size_gib\""));
+    // A stale or unknown choice and a too-small root create nothing.
+    for (fields, needle) in [
+        ("os=cirros:2", "not in the base-image catalog"),
+        ("os=cirros:1&root_size_gib=0", "Root disk size"),
+        (
+            "os=cirros:1&disk0_id=root&disk0_size_gib=1",
+            "cannot be named root",
+        ),
+    ] {
+        let (status, _, body) = send(
+            &h,
+            post(
+                "/launch",
+                Some(&cookie),
+                Some(ORIGIN),
+                &format!("csrf=correct&name=web&cpus=1&memory_mib=512&{fields}"),
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{fields}");
+        assert!(body.contains(needle), "{needle}");
+    }
+    assert!(h.kanidm.lock().unwrap().is_empty());
+    assert_eq!(h.cluster.mutations(), 0);
+    let (status, headers, _) = send(
+        &h,
+        post(
+            "/launch",
+            Some(&cookie),
+            Some(ORIGIN),
+            "csrf=correct&name=web&cpus=1&memory_mib=512&os=cirros:1&root_size_gib=2",
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert_eq!(headers["location"], "/auth/login?next=/vms/qrab/web");
+    let created = h.cluster.created_vms.lock().unwrap()[0].clone();
+    assert_eq!(
+        created["spec"]["disks"],
+        serde_json::json!([{"id": "root", "sizeBytes": 2147483648u64,
+            "baseImage": {"name": "cirros", "generation": 1}, "bootIndex": 0}])
+    );
+    assert_eq!(created["spec"]["storageNode"], "kube03");
+    assert_eq!(
+        created["metadata"]["labels"]["app.kubernetes.io/managed-by"],
+        "qrab-dashboard"
+    );
+    assert_eq!(
+        created["metadata"]["annotations"]["qrab.yapplesauce.com/creator-subject"],
+        ALICE
+    );
+    let admins = h.dir.lock().unwrap().groups["qrab_vm_qrab_web_admins"].clone();
+    assert_eq!(
+        created["spec"]["console"]["adminGroups"],
+        serde_json::json!([admins])
+    );
+    // The detail page names the boot source.
+    let mut vm: VirtualMachine = serde_json::from_value(created).unwrap();
+    vm.metadata.uid = Some("uid-web".into());
+    h.cluster.vms.lock().unwrap().push(vm);
+    let (_, _, body) = send(&h, get("/vms/qrab/web", Some(&cookie))).await;
+    assert!(
+        body.contains("CirrOS 0.6.3 (cirros g1) clone on root"),
+        "{body}"
+    );
+    let (_, _, body) = send(&h, get("/vms/qrab/a", Some(&cookie))).await;
+    assert!(body.contains("demo ESP"));
+}
+
+#[tokio::test]
+async fn without_an_os_an_unreadable_catalog_does_not_block_launches() {
+    let h = harness().await;
+    h.cluster
+        .fail_catalog
+        .store(true, std::sync::atomic::Ordering::SeqCst);
+    let cookie = session(&h.state.sessions, ALICE, &[LAUNCHERS]).await;
+    let (status, _, body) = send(&h, get("/launch", Some(&cookie))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(body.contains("catalog is unavailable"));
+    let launch = |os: &str| {
+        post(
+            "/launch",
+            Some(&cookie),
+            Some(ORIGIN),
+            &format!("csrf=correct&name=web&cpus=1&memory_mib=512&os={os}"),
+        )
+    };
+    assert_eq!(
+        send(&h, launch("cirros:1")).await.0,
+        StatusCode::BAD_GATEWAY
+    );
+    assert_eq!(h.cluster.mutations(), 0);
+    assert_eq!(send(&h, launch("none")).await.0, StatusCode::SEE_OTHER);
+    let created = h.cluster.created_vms.lock().unwrap()[0].clone();
+    assert!(created["spec"].get("disks").is_none());
+    assert!(created["spec"].get("storageNode").is_none());
 }
 
 #[tokio::test]

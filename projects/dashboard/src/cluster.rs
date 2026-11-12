@@ -1,6 +1,6 @@
 //! Namespace-scoped Kubernetes access through the dashboard's ServiceAccount.
 use anyhow::Result;
-use k8s_openapi::api::core::v1::{PersistentVolumeClaim, Pod};
+use k8s_openapi::api::core::v1::{ConfigMap, PersistentVolumeClaim, Pod};
 use kube::{
     Api, Client,
     api::{ApiResource, DeleteParams, DynamicObject, ListParams, PostParams, Preconditions},
@@ -25,6 +25,8 @@ pub trait Cluster: Send + Sync {
     /// Usage keyed by Pod name.
     async fn pod_usage(&self) -> Result<HashMap<String, Usage>>;
     async fn get_pvc(&self, name: &str) -> Result<Option<PersistentVolumeClaim>>;
+    /// The raw `images.json` of ConfigMap `qrab-base-images`, if present.
+    async fn base_image_catalog(&self) -> Result<Option<String>>;
     async fn create_pvc(&self, pvc: &PersistentVolumeClaim) -> Result<()>;
     async fn create_vm(&self, vm: &serde_json::Value) -> Result<()>;
     /// Deletes exactly the VM with this UID.
@@ -125,6 +127,7 @@ pub struct Kube {
     pods: Api<Pod>,
     pvcs: Api<PersistentVolumeClaim>,
     metrics: Api<DynamicObject>,
+    configs: Api<ConfigMap>,
 }
 
 impl Kube {
@@ -141,7 +144,8 @@ impl Kube {
             vms: Api::namespaced_with(client.clone(), namespace, &vm),
             pods: Api::namespaced(client.clone(), namespace),
             pvcs: Api::namespaced(client.clone(), namespace),
-            metrics: Api::namespaced_with(client, namespace, &metrics),
+            metrics: Api::namespaced_with(client.clone(), namespace, &metrics),
+            configs: Api::namespaced(client, namespace),
         }
     }
 }
@@ -186,6 +190,14 @@ impl Cluster for Kube {
                 Some((name, pod_metrics_usage(&object.data)))
             })
             .collect())
+    }
+    async fn base_image_catalog(&self) -> Result<Option<String>> {
+        Ok(self
+            .configs
+            .get_opt(crate::images::CONFIGMAP)
+            .await?
+            .and_then(|c| c.data)
+            .and_then(|mut d| d.remove(crate::images::KEY)))
     }
     async fn get_pvc(&self, name: &str) -> Result<Option<PersistentVolumeClaim>> {
         Ok(self.pvcs.get_opt(name).await?)

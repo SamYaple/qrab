@@ -43,6 +43,7 @@ launch new VMs; VM admins can send power actions and delete VMs.
 | `GET /vms/{ns}/{name}/console` | noVNC page (admin) |
 | `GET /vms/{ns}/{name}/console/ws` | Console WebSocket proxy (admin, exact Origin) |
 | `GET`/`POST /launch` | Launch form (launchers) |
+| `GET /images` | Base-image catalog and how images are staged (any signed-in user) |
 | `GET /auth/login`, `GET /auth/callback`, `POST /auth/logout` | OIDC |
 | `GET /healthz`, `GET /readyz` | Probes |
 
@@ -65,11 +66,18 @@ BMC at the next sign-in; sessions last at most 15 minutes.
 
 ### Launching a VM
 
-The form takes a name (DNS label, at most 50 characters, and
+The form takes an operating system (see [Base images](#base-images)): "None:
+demo ESP only" or one catalog image, with a root disk size in GiB (default 1,
+at least the image size rounded up to whole GiB, at most 1024). It also takes a
+name (DNS label, at most 50 characters, and
 `qrab_vm_<namespace>_<name>_viewers` at most 64), vCPUs and an optional
 maximum, memory and an optional maximum, the accelerator (KVM or TCG) and
 up to four data disks (ID, GiB, optional base image name
-and generation; they use `DASHBOARD_STORAGE_NODE`). On submit:
+and generation; they use `DASHBOARD_STORAGE_NODE`). The chosen image must
+still be in the catalog when the form is submitted; an unknown or removed
+choice, a root disk below the minimum, a data disk named `root` alongside an
+image, or an image without a configured storage node is a 400 and creates
+nothing. On submit:
 
 1. Preflight: the VirtualMachine, the PVC `<name>-state` and both Kanidm
    groups must not exist. An existing group is never adopted, because its
@@ -83,7 +91,10 @@ and generation; they use `DASHBOARD_STORAGE_NODE`). On submit:
    `Filesystem`, 1Gi).
 4. Create the VirtualMachine with `bootDisk: /opt/qrab/demo/boot.img`,
    `running: true`, `console: {adminGroups, viewerGroups}` (no `publicUrl`),
-   `storageNode` and `disks` when disks are requested, the creator annotation
+   `storageNode` and `disks` when disks are requested (an OS image adds
+   `{id: root, sizeBytes, baseImage: {name, generation}, bootIndex: 0}`
+   first, so OVMF boots the clone and falls back to the demo ESP at boot
+   index 1), the creator annotation
    set to the launcher and the label `app.kubernetes.io/managed-by:
    qrab-dashboard`. There is no Redfish option: nothing routes or admits port
    8081 to these VMs.
@@ -102,6 +113,75 @@ confirm) deletes the VirtualMachine
 with a UID precondition. Its Pod, ConfigMap and disk Secrets follow. The
 state PVC stays: it holds the firmware variables and TPM identity, and an
 administrator deletes it deliberately. The Kanidm groups stay too.
+
+## Base images
+
+A base image is a sealed, read-only ZFS snapshot
+`tank/qrab-iscsi/image-<name>-g<generation>@sealed` on the storage node. A VM
+launched with it gets `spec.disks[] = {id: root, baseImage: {name,
+generation}, bootIndex: 0}`; the operator and storage service make that disk
+a private copy-on-write clone of the snapshot and export it over iSCSI, and
+OVMF boots its EFI System partition. The image never changes; a new release
+or rebuild is a new generation. The VM detail page shows "Boots from:
+CirrOS 0.6.3 (cirros g1) clone on root" for such a VM, else "demo ESP".
+
+The dashboard reads the catalog from ConfigMap `qrab/qrab-base-images`, key
+`images.json`, on every Images page and launch request (RBAC: `get` on that
+one ConfigMap). It is a JSON array of objects with exactly these fields:
+
+| Field | Meaning |
+| --- | --- |
+| `name`, `generation` | The snapshot `image-<name>-g<generation>`; name is 1-32 of `[a-z0-9-]`, generation 1-999999 |
+| `title`, `os`, `version` | Display text, e.g. `CirrOS 0.6.3`, `cirros`, `0.6.3` |
+| `size_bytes` | Raw image size; the root disk minimum is this rounded up to whole GiB |
+| `sha256` | SHA-256 of the imported raw image |
+| `upstream_sha256`, `source_url` | The downloaded release file and where it came from (HTTPS) |
+| `boot` | `uefi` |
+
+Entries with missing, extra or invalid fields, and duplicates of an earlier
+`(name, generation)`, are skipped with a logged warning.
+
+### Staging an image
+
+Staging is an administrator task with three parts: an unprivileged download
+and conversion, a root import on the storage node, and the catalog update.
+`contrib/images/stage-base-image.sh` drives all three. Its built-in table
+knows CirrOS 0.6.3 (x86_64, GPT with an EFI System partition, 117440512 bytes
+virtual size).
+
+```sh
+bash contrib/images/stage-base-image.sh cirros 0.6.3 1
+```
+
+1. It downloads
+   `https://download.cirros-cloud.net/0.6.3/cirros-0.6.3-x86_64-disk.img`
+   (`curl -fL`, HTTPS only; the URL redirects to GitHub) into a private
+   temporary directory, checks the upstream SHA-256
+   `7d6355852aeb6dbcd191bcda7cd74f1536cfe5cbf8a10495a7283a8396e4b75b`,
+   converts it with `qemu-img convert -O raw` and checks the raw size against
+   the image's virtual size.
+2. It copies the raw image to `/var/tmp/qrab-image-cirros-g1.raw` (0644) and
+   prints the root command with the raw SHA-256, for example:
+
+   ```sh
+   sudo /usr/local/sbin/qrab-iscsi-target vm-image-import --image cirros --image-generation 1 \
+     --source /var/tmp/qrab-image-cirros-g1.raw --sha256 <raw sha256>
+   ```
+
+   A local run on 2026-11-12 produced raw SHA-256
+   `809dc3e0e993cd8ec736e28d55b8356ccc4ee9051cad9ad1be66fad9a79470f1` for
+   CirrOS 0.6.3; use the value the script prints. The import verifies that digest, writes the zvol and seals
+   `image-cirros-g1@sealed`, exactly as `vm-image-publish` does. Run it on
+   the storage node (`DASHBOARD_STORAGE_NODE`), then press Enter.
+3. It merges the entry into `images.json` by `(name, generation)`, keeps the
+   array sorted, and applies the ConfigMap with `kubectl apply --server-side
+   --field-manager=qrab-stage-base-image`. The image then appears on
+   `/images` and the launch form.
+
+`--catalog-only` repeats only step 3 from the staged raw file, for example
+after the import had to be retried. The script handles no credentials. Do
+not add a catalog entry for an image that has not been imported and sealed:
+VMs launched with it would wait for a snapshot that does not exist.
 
 ## Configuration
 
@@ -168,7 +248,7 @@ prints them or puts them in arguments or files.
 
 `contrib/kubernetes/dashboard` holds a namespaced Role
 (VirtualMachines get/list/create/delete, Pods get, PVCs get/create,
-`metrics.k8s.io` pods list), the Deployment (one replica, `Recreate`,
+ConfigMap `qrab-base-images` get, `metrics.k8s.io` pods list), the Deployment (one replica, `Recreate`,
 non-root UID 10001, read-only root, no capabilities, credentials mounted as
 files), the Service, the Ingress and Certificate for `vms.yapplesauce.com`,
 and two CiliumNetworkPolicies. The first lets the dashboard receive from the
@@ -242,7 +322,9 @@ runs offline against an in-memory cluster, a fake Kanidm and two fake BMCs on
 127.0.0.1 and 127.0.0.2. It covers role resolution, list filtering, launch
 authorization, the rendered names, PVC and VirtualMachine, rollback, CSRF and
 Origin on every POST, BMC calls with the bearer only to the selected Pod,
-escaping of guest strings, OIDC state handling and the console WebSocket's
+escaping of guest strings, the base-image catalog parser, the Images page,
+OS launches (root clone, stale or unknown images, root minimum, a data disk
+named root), OIDC state handling and the console WebSocket's
 refusals, proxying and revocation. A live Kanidm login and a browser console
 session are part of the rollout check.
 

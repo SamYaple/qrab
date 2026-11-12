@@ -7,6 +7,7 @@ pub mod bmc;
 pub mod cluster;
 pub mod config;
 pub mod console;
+pub mod images;
 pub mod kanidm;
 pub mod launch;
 pub mod model;
@@ -139,6 +140,7 @@ pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/", get(home))
         .route("/launch", get(launch_form).post(launch))
+        .route("/images", get(images_page))
         .route("/vms/{namespace}/{name}", get(detail))
         .route("/vms/{namespace}/{name}/action", post(action))
         .route("/vms/{namespace}/{name}/delete", post(delete))
@@ -316,7 +318,8 @@ async fn detail(
             ui::PanelState::Loaded(Box::new(app.bmc.panel(ip, &user.id_token).await))
         }
     };
-    let detail = model::detail(&vm, role, &usage, pod.as_ref(), ip);
+    let catalog = base_images(&app).await.unwrap_or_default();
+    let detail = model::detail(&vm, role, &usage, pod.as_ref(), ip, &catalog);
     let deletable = access::can_delete(&vm, role);
     page(
         &app,
@@ -445,12 +448,39 @@ async fn console_page(
         .into_response())
 }
 
-fn launch_page(app: &AppState, values: Vec<(String, String)>, errors: Vec<String>) -> ui::Body {
+/// The base-image catalog, read on each request (it is small).
+pub(crate) async fn base_images(app: &AppState) -> anyhow::Result<Vec<images::BaseImage>> {
+    let raw = app
+        .cluster
+        .base_image_catalog()
+        .await
+        .inspect_err(|error| {
+            tracing::warn!(error=%cluster::describe(error), "base-image catalog unavailable");
+        })?;
+    Ok(raw.as_deref().map(images::parse).unwrap_or_default())
+}
+
+async fn images_page(
+    State(app): State<AppState>,
+    session: Session,
+) -> Result<Html<String>, Failure> {
+    let user = auth::user(&session).await?;
+    let catalog = base_images(&app).await.map_err(|e| Failure::upstream(&e))?;
+    page(&app, &session, &user, ui::Body::Images(catalog)).await
+}
+
+fn launch_page(
+    app: &AppState,
+    values: Vec<(String, String)>,
+    errors: Vec<String>,
+    images: Vec<images::BaseImage>,
+) -> ui::Body {
     ui::Body::Launch(ui::LaunchPage {
         values: values.into_iter().filter(|(k, _)| k != "csrf").collect(),
         errors,
         namespace: app.namespace.clone(),
         storage_node: app.storage_node.clone(),
+        images,
     })
 }
 
@@ -465,11 +495,18 @@ async fn launch_form(
             "Launching VMs requires membership of qrab_vm_launchers.".into(),
         ));
     }
+    let (catalog, errors) = match base_images(&app).await {
+        Ok(catalog) => (catalog, Vec::new()),
+        Err(_) => (
+            Vec::new(),
+            vec!["The base-image catalog is unavailable; only the demo ESP can be chosen.".into()],
+        ),
+    };
     page(
         &app,
         &session,
         &user,
-        launch_page(&app, Vec::new(), Vec::new()),
+        launch_page(&app, Vec::new(), errors, catalog),
     )
     .await
 }
@@ -484,12 +521,29 @@ async fn launch(
     if !access::can_launch(&user.groups, &app.launcher_group) {
         return Err(Failure::forbidden());
     }
-    let request = match launch::parse(&fields, &app.namespace, app.storage_node.as_deref()) {
+    let catalog = match base_images(&app).await {
+        Ok(catalog) => catalog,
+        Err(e) if !matches!(launch::field(&fields, "os"), "" | "none") => {
+            return Err(Failure::upstream(&e));
+        }
+        Err(_) => Vec::new(),
+    };
+    let request = match launch::parse(
+        &fields,
+        &app.namespace,
+        app.storage_node.as_deref(),
+        &catalog,
+    ) {
         Ok(r) => r,
         Err(errors) => {
-            let mut html = page(&app, &session, &user, launch_page(&app, fields, errors))
-                .await?
-                .into_response();
+            let mut html = page(
+                &app,
+                &session,
+                &user,
+                launch_page(&app, fields, errors, catalog),
+            )
+            .await?
+            .into_response();
             *html.status_mut() = StatusCode::BAD_REQUEST;
             return Ok(html);
         }
@@ -509,8 +563,17 @@ async fn launch(
         flash(
             &session,
             format!(
-                "Launched {}. Your sign-in was refreshed so it includes the VM's new admins group (console and power).",
-                request.name
+                "Launched {} {}. Your sign-in was refreshed so it includes the VM's new admins group (console and power).",
+                request.name,
+                match &request.os {
+                    Some(os) => format!(
+                        "from {} ({}): its {} GiB root disk is a copy-on-write clone, provisioned before the first boot",
+                        os.image.title,
+                        os.image.label(),
+                        os.root_gib
+                    ),
+                    None => "with the demo ESP".into(),
+                }
             ),
         )
         .await?;
