@@ -355,3 +355,36 @@ storage service; the operator then owns `<vm>-disk-<id>` CHAP Secrets (RBAC
 report `StorageServiceUnavailable`.
 The disposable legacy lifecycle script is intentionally limited to VMs without
 native disks; failed native probes require hard-fence recovery.
+
+### VM-platform rollout record (2026-11-12)
+
+Images built from main 503ea0e: manager
+`zot.yapplesauce.com/qrab/manager@sha256:b6b8f19bd2e6fc10401addcecd0845a3ff8fcdb6534b29981bf2f53ba6fb2e0f`
+(pin b7e2d00), operator
+`zot.yapplesauce.com/qrab/operator@sha256:373cd49262f883b218421287f84254ca2fc22f9951cb5f92cce503cfc1f0e9d5`
+(pin ac8b13c). The QEMU image was reused unchanged. One window applied the CRD,
+RBAC, the `qrab-operator-disk-secrets` admission policy and binding, the
+operator Deployment and `console.yaml` (Service `targetPort: 8080`). The
+storage-api component, the KVM device plugin and the demo patch were not
+applied.
+
+The operator replaced qrab-demo by clean drain: old Pod ccbe3953 was recorded
+in `storageReleasedPodUid`, new Pod c544ae20 is on kube03 with the same state
+PVC 67cba3ee, and there was no storage recovery. Live checks on the new Pod:
+
+| Check | Result |
+| --- | --- |
+| `contrib/kubernetes/check.sh` | PASS, including the published digests and private state |
+| TPM EK | `ec61ceb9…e844`, unchanged |
+| Guest NIC | absent (`QRAB_GUEST_NO_NIC_OK`) |
+| Pod layout | `bmc` native sidecar (`restartPolicy: Always`); default container `manager` |
+| iSCSI disk | native libiscsi blockdev with the same target and VM initiator, CHAP secret file, `qrab-probe` serial, read-write |
+| Guest agent | connected (11.1.3); ping, freeze → `frozen`, thaw → `thawed`; `update-trigger channel=stable` succeeded, exit 0, `QRAB_UPDATE_HOOK_OK` |
+| In-place memory | `memoryMiB` 512 → 768: `status.resize.phase=Applied`, Pod UID unchanged, restartCount 0, container limit 1Gi → 1280Mi, `guest_resized memory_mib=768`, guest reports `memory_kib=663088` |
+| RSS at 768 MiB guest | manager 4 MiB, QEMU 453 MiB, container cgroup 445 MiB of 1280 MiB |
+
+Not verified live in this window: iSCSI filesystem content (the test-only
+probe copy into the Pod was not run), the BMC viewer role (no
+`console.viewerSubjects`), Redfish (off; its Kanidm client now exists but
+port 8081 has no Service/Ingress/Cilium path), vCPU growth (needs KVM) and
+`spec.disks` provisioning (needs storage activation).
