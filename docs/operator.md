@@ -493,3 +493,22 @@ Completed afterwards:
 
 Still open: the viewer-role 403 check (`redfish-live.py --expect viewer`)
 needs a second, non-admin account.
+
+### VM access through Kanidm groups, rollout record (2026-11-12, evening)
+
+- Source `2f9a296`: manager `80a93bb0…` and operator `cea9e1ad…` (pins
+  `093cb6a`). The gitops re-pin of the operator's SPIFFE identity and the
+  KVM device plugin merged first (kubernetes-gitops PR #412).
+- `creator-policy.yaml` is applied. `check-creator-policy.sh` passes with
+  server-side dry runs: no creator for certificate identities, forged values
+  removed or replaced, Kanidm users recorded, updates refused as immutable.
+- Kanidm, through `vm-access-groups.sh setup` and `create qrab qrab-demo`:
+  `qrab_vm_users` and `qrab_operators` map `openid profile groups_uuid` on
+  `qrab-bmc` and `qrab-redfish`. `qrab_vm_qrab_qrab-demo_admins` is
+  `5704ce8a…` (member sam) and `_viewers` is `4a520b85…`.
+- qrab-demo carries both groups for the console and Redfish. The manager
+  image change and the group patch shared one controlled replacement (Pod
+  `4fb433fe`, 50 s, 0 restarts). `check.sh` PASS with EK `ec61ceb9…e844`
+  unchanged. The BMC login now requests `groups_uuid`.
+- idm-dashboard `9255e09` (person page "Virtual machines") is published as
+  `e557a425…`; its gitops roll-out is a separate PR.
