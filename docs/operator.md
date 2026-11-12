@@ -444,11 +444,15 @@ console's admin subject. That gave one clean drain, c544ae20 → b031b6d1.
 | `operator-storage-api/check.sh` (VM 6ab10794) | PASS: Active gen 1; online growth to 128 MiB with `disk_grown` in the same Pod; shrink refused; removal fenced and its Secret deleted; re-add rotated to gen 2; deletion garbage-collected the Secret |
 | `operator-storage-api/clone-check.sh qrab-test 1` (VM c97c60a9) | PASS: clone Active and VM Running at 128 MiB; baseImage change refused; deletion fenced the clone and garbage-collected its Secret. Before deletion, `disk-c97c60a9…-root` had origin `image-qrab-test-g1@sealed`, and the snapshot held `qrab-image` plus `qrab-clone-c97c60a9-217d-4acb-ba73-ac911673fcd3.root` (userrefs 2) |
 
-Still open:
+Completed afterwards:
 
-- An authenticated Redfish call with a real Kanidm ID token
-  (`contrib/kubernetes/redfish-live.py`, needs a browser login).
-- Root retirement of the fenced clone (`vm-disk-retire --vm-uid
-  c97c60a9-217d-4acb-ba73-ac911673fcd3 --disk root`). It must happen before
-  `qrab-test` g1 can be retired.
-- The host storage-ingress shim with the 610 s fence timeout (spiffe-kanidm-shim 4078a3e).
+- `redfish-live.py` as an admin: a Kanidm ID token over HTTPS read
+  `Systems/1` (PowerState On, Health OK), and `Reset` Pause then Resume
+  reached Paused then On. qrab-demo kept Pod b031b6d1 with 0 restarts.
+- Root retired the acceptance zvols and the clone `c97c60a9` (LIO objects
+  removed, data retained). `qrab-test` g1 remains published.
+- The host storage ingress runs spiffe-kanidm-shim 4078a3e (610 s fence
+  timeout).
+
+Still open: the viewer-role 403 check (`redfish-live.py --expect viewer`)
+needs a second, non-admin account.
