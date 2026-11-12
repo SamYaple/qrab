@@ -24,6 +24,24 @@ At least one subject is required and the two lists must be disjoint. The
 listener is plain HTTP inside the Pod; expose it only through a TLS Ingress, as
 for the BMC.
 
+### Exposure
+
+`contrib/kubernetes/console.yaml` routes `https://qrab-demo.yapplesauce.com/redfish`
+(Redfish's own URI root, which the BMC does not serve) to Service port
+`redfish` (8081). The rest of the host still reaches the BMC, behind the same
+certificate. The VM's CiliumNetworkPolicy admits 8081 only from the ingress
+and host entities. With `spec.components.redfish.enabled`,
+`contrib/kubernetes/check.sh` requires a native `redfish` sidecar with a
+subject allowlist and no access to the runtime directory. It also requires
+401 with `WWW-Authenticate: Bearer` on `/redfish`, the service root,
+`Systems/1` and `Reset`, with no token or a malformed one.
+
+`contrib/kubernetes/redfish-live.py` is the authenticated half, run by an
+allowlisted person. It obtains an ID token by PKCE through the loopback
+redirect and keeps it in memory only. As admin, it reads `Systems/1` and
+cycles `Reset` Pause and then Resume. With `--expect viewer`, it reads and
+requires 403 for `Reset`.
+
 ## Authentication
 
 Every request, including `/redfish` and the service root, needs

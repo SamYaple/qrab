@@ -11,6 +11,10 @@ spec:
     port: 8080
     # Numeric: the port belongs to the BMC sidecar (a restartable init container).
     targetPort: 8080
+  # The Redfish sidecar; nothing listens unless spec.components.redfish is enabled.
+  - name: redfish
+    port: 8081
+    targetPort: 8081
 ---
 apiVersion: networking.k8s.io/v1
 kind: Ingress
@@ -27,6 +31,14 @@ spec:
   - host: qrab-demo.yapplesauce.com
     http:
       paths:
+      # Redfish's own URI root; the BMC serves no /redfish routes.
+      - path: /redfish
+        pathType: Prefix
+        backend:
+          service:
+            name: qrab-demo
+            port:
+              name: redfish
       - path: /
         pathType: Prefix
         backend:
@@ -64,6 +76,7 @@ spec:
     toPorts:
     - ports:
       - {port: '8080', protocol: TCP}
+      - {port: '8081', protocol: TCP}
   egress:
   - toEndpoints:
     - matchLabels:

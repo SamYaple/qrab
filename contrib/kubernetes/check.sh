@@ -104,7 +104,23 @@ assert url.scheme=='https' and url.hostname=='idm.yaple.net', 'wrong OIDC author
 assert query['client_id']==[env['BMC_OIDC_CLIENT_ID']] and query['redirect_uri']==[origin+'/auth/callback'] and query['code_challenge_method']==['S256'], 'incorrect OIDC redirect/PKCE'
 cookie=login.headers['Set-Cookie']
 assert cookie.startswith('__Host-qrab-session=') and all(flag in cookie for flag in ['Secure','HttpOnly','SameSite=Lax','Path=/']) and 'Domain=' not in cookie, 'session cookie is not confined to this HTTPS origin'
+redfish=vm['spec'].get('components',{}).get('redfish',{}).get('enabled',False)
+sidecars={c['name']:c for c in before['spec'].get('initContainers',[])}
+assert redfish==('redfish' in sidecars), 'Redfish sidecar presence differs from spec.components.redfish'
+if redfish:
+    sidecar=sidecars['redfish']
+    assert sidecar.get('restartPolicy')=='Always', 'Redfish is not a native sidecar'
+    renv={v['name']:v.get('value') for v in sidecar['env']}
+    assert renv.get('REDFISH_ADMIN_SUBJECTS') or renv.get('REDFISH_VIEWER_SUBJECTS'), 'Redfish has no subject allowlist'
+    assert kubectl('exec',pod,'-c','redfish','--','sh','-c','test -e /run/qrab-control/manager/control.sock && ! test -e /run/qrab && echo isolated').strip()=='isolated', 'Redfish sidecar can reach the manager runtime directory'
+    for path,data in [('/redfish',None),('/redfish/v1/',None),('/redfish/v1/Systems/1',None),('/redfish/v1/Systems/1/Actions/ComputerSystem.Reset',b'{"ResetType":"Pause"}')]:
+        for auth in [None,'Bearer not.a.jwt']:
+            headers={'Content-Type':'application/json'} if data else {}
+            if auth:headers['Authorization']=auth
+            reply=response(path,data=data,headers=headers)
+            assert reply.status==401 and reply.headers.get('WWW-Authenticate','').startswith('Bearer'), f'Redfish {path} is not protected ({reply.status})'
+            assert reply.headers.get('OData-Version')=='4.0', f'{path} was not answered by Redfish'
 after=json.loads(kubectl('get','pod',pod,'-o','json'))
 assert before['metadata']['uid']==after['metadata']['uid'], 'pod changed during verification; retry'
-print(f"PASS {namespace}/{pod}: CR-owned UEFI/TPM2 VM, EK={ek}, QMP {status['qemu_version']}, published VM/operator digests, retained private state, no guest NIC, HTTPS/OIDC and protected console")
+print(f"PASS {namespace}/{pod}: CR-owned UEFI/TPM2 VM, EK={ek}, QMP {status['qemu_version']}, published VM/operator digests, retained private state, no guest NIC, HTTPS/OIDC and protected console"+(", protected Redfish" if redfish else ""))
 PY
