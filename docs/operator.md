@@ -198,10 +198,10 @@ kubectl -n qrab get qvm qrab-demo -o jsonpath='{.status.resize}'
   admit and apply the larger size (and the manager plug it) concurrently.
 - `maxCpus` / `maxMemoryMiB` are optional, boot-time hot-plug ceilings, validated
   by CEL to be ≥ `cpus`/`memoryMiB`. Defaults: 4× the booted size (vCPUs at most
-  64; memory at most +64 GiB). **The operator renders TCG, and Linux refuses
-  hot-added vCPUs under TCG**, so the effective vCPU ceiling is the booted count
-  and CPU growth restarts; memory growth is in place. The vCPU ceiling applies
-  once an accelerator that guests recognise (KVM) is rendered.
+  64; memory at most +64 GiB). **Linux refuses hot-added vCPUs under TCG**, so
+  a TCG VM's effective vCPU ceiling is its booted count and CPU growth restarts;
+  memory growth is in place. `maxCpus` applies to `accelerator: kvm` VMs
+  (see [KVM acceleration](#kvm-acceleration)).
 
 `status.resize` reports `phase` (Applied, Proposed, InProgress, Deferred,
 Infeasible, Error), the kubelet `message`, requested and applied guest sizes,
@@ -262,6 +262,43 @@ They verify that API-server defaulting of the new template does not cause a
 restart loop and that the operator's own resize patch reaches `Applied` with
 `restartCount` 0. The guest-side hot-plug of the real VM Pod is verified at the
 integration rollout.
+
+## KVM acceleration
+
+`spec.accelerator` is `tcg` (default; absent in stored CRs, and TCG template
+hashes are unchanged by the field) or `kvm`. A `kvm` VM renders
+`"accelerator":"kvm"` (QEMU `-accel kvm -cpu host`), honours `maxCpus` for
+in-place vCPU growth, and requests and limits one
+`qrab.yapplesauce.com/kvm` extended resource. The VM Pod stays restricted:
+no privileged container, capability, hostPath or supplemental host group.
+Switching the accelerator restarts the VM. Without the device plugin on a node,
+a `kvm` Pod stays Pending (`Insufficient qrab.yapplesauce.com/kvm`).
+
+`qrab-kvm-device-plugin` (`projects/kvm-device-plugin`, shipped in the
+operator image) is a kubelet v1beta1 device plugin. It advertises
+`QRAB_KVM_DEVICES` (default 32) shareable slots per node, Healthy while
+`/sys/class/misc/kvm/dev` exists. It writes the CDI spec
+`/var/run/cdi/qrab.yapplesauce.com-kvm.json` (`/dev/kvm`, char major:minor from
+sysfs, `fileMode` 0666 inside the container) and answers Allocate with only the
+CDI device `qrab.yapplesauce.com/kvm=kvm`; containerd 2.x (CDI on by default) creates
+the node in that container alone, so UID 10001 can open it without the host's
+`kvm` group (gid 992, mode 0660). It re-registers after a kubelet restart.
+Its DaemonSet ([daemonset.yaml](../contrib/kubernetes/kvm-device-plugin/daemonset.yaml))
+runs as UID 0 to own sockets in the kubelet's root-owned directory, but is not privileged,
+drops all capabilities, has a read-only root and mounts only
+`/var/lib/kubelet/device-plugins` and `/var/run/cdi`. It needs a namespace with
+privileged PSA for those hostPaths and lands through kubernetes-gitops.
+
+Node evidence, 2026-11-12 (read-only, scratch namespace `qrab-kvm-probe`,
+deleted afterwards): kube01–03 are KVM guests on an AMD EPYC 9354 host
+(`kvm_amd` `nested=1`), started as `qemu-system-x86_64 -cpu host -smp 12
+-m 48G`. From a restricted Pod on each node: `/sys/module/kvm_amd/parameters/nested`
+= 1, `/sys/class/misc/kvm/dev` = `10:232`, 12 of 12 CPUs report `svm`, kernel
+7.0.0-38-generic. `kubectl debug node/<n> --profile=general` shows
+`/dev/kvm` as `crw-rw---- root:kvm(992)`, `kvm:x:992:` in `/etc/group`, only
+`kubelet.sock` in `/var/lib/kubelet/device-plugins`, no `/etc/cdi` or
+`/var/run/cdi`, and no CDI override in `/etc/containerd/config.toml`. No node advertises
+a KVM resource yet. A VM Pod would run as a nested (L2) guest.
 
 ## UEFI, TPM and SPIRE
 

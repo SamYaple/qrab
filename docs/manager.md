@@ -17,8 +17,9 @@ The older confidential-guest API is opt-in through `legacy-host`.
   guest assets. Its Kubernetes API token is separate from the token-free VM Pod.
 
 All run as UID/GID 10001. The default VM uses TCG, read-only container rootfs,
-RuntimeDefault seccomp and zero capabilities. KVM remains a standalone explicit
-option requiring provisioned `/dev/kvm`; the operator does not expose it yet.
+RuntimeDefault seccomp and zero capabilities. KVM requires an openable
+`/dev/kvm`; operator VMs opt in with `spec.accelerator: kvm` and receive it from
+the qrab KVM device plugin through CDI (see operator.md).
 Published immutable references and source revision are in
 `contrib/images/images.lock.json`.
 
@@ -112,7 +113,8 @@ type is NATIVE (QEMU's `TCGTCGTCGTCG` signature is unknown), so the guest logs
 `Allowing 1 present CPUs plus 0 hotplug CPUs` and ignores `device_add`
 (`hypervisor=on` does not help). With KVM (`Hypervisor detected: KVM`) it
 allows the hot-plug CPUs and onlines them. Memory hot-plug works under both.
-The operator therefore renders `max_cpus = cpus` for its TCG VMs.
+The operator therefore renders `max_cpus = cpus` for its TCG VMs and vCPU
+headroom only for `accelerator: kvm`.
 
 Verified 2026-11-11 with the published QEMU 11.1.3/OVMF/demo-guest image, the
 updated demo initramfs and `qrab-manager run` (direct kernel boot, KVM) with

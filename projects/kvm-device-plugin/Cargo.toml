@@ -1,0 +1,20 @@
+[package]
+name = "qrab-kvm-device-plugin"
+version = "0.1.0"
+edition = "2021"
+description = "Unprivileged kubelet device plugin that hands /dev/kvm to VM pods through CDI"
+
+[dependencies]
+anyhow = { workspace = true }
+serde_json = { workspace = true }
+prost = "0.14"
+tonic = "0.14"
+tonic-prost = "0.14"
+tokio = { workspace = true, features = ["rt", "macros", "net", "signal", "time", "sync", "fs"] }
+tokio-stream = { version = "0.1", features = ["net", "sync"] }
+hyper-util = { version = "0.1", features = ["tokio"] }
+tower = { version = "0.5", features = ["util"] }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread"] }

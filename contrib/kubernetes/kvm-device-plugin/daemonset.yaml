@@ -1,0 +1,70 @@
+# Staged node enablement for VirtualMachine spec.accelerator: kvm. Not part of
+# the operator kustomization: it needs a privileged-PSA namespace for its two
+# hostPath directories and lands through kubernetes-gitops. The container is
+# not privileged, has no capabilities and no /dev mount; VM Pods receive
+# /dev/kvm only through the CDI spec it writes.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: qrab-node
+  labels:
+    pod-security.kubernetes.io/enforce: privileged
+    pod-security.kubernetes.io/warn: restricted
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: qrab-kvm-device-plugin
+  namespace: qrab-node
+  labels:
+    app.kubernetes.io/name: qrab-kvm-device-plugin
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: qrab-kvm-device-plugin
+  updateStrategy:
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: qrab-kvm-device-plugin
+    spec:
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      terminationGracePeriodSeconds: 5
+      tolerations:
+      - key: node-role.kubernetes.io/control-plane
+        operator: Exists
+        effect: NoSchedule
+      securityContext:
+        # Root only to own sockets in the kubelet's root-owned 0755 directory.
+        runAsNonRoot: false
+        runAsUser: 0
+        runAsGroup: 0
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: plugin
+        # The operator image ships this binary. Pin the published digest.
+        image: zot.yapplesauce.com/qrab/operator@sha256:OPERATOR_DIGEST
+        imagePullPolicy: IfNotPresent
+        command: [/usr/local/bin/qrab-kvm-device-plugin]
+        env:
+        - {name: QRAB_KVM_DEVICES, value: '32'}
+        resources:
+          requests: {cpu: 5m, memory: 16Mi}
+          limits: {cpu: 100m, memory: 64Mi}
+        securityContext:
+          privileged: false
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop: [ALL]
+        volumeMounts:
+        - {name: device-plugins, mountPath: /var/lib/kubelet/device-plugins}
+        - {name: cdi, mountPath: /var/run/cdi}
+      volumes:
+      - name: device-plugins
+        hostPath: {path: /var/lib/kubelet/device-plugins, type: Directory}
+      - name: cdi
+        hostPath: {path: /var/run/cdi, type: DirectoryOrCreate}

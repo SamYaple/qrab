@@ -46,6 +46,14 @@
             "properties": {
               "spec": {
                 "properties": {
+                  "accelerator": {
+                    "description": "`kvm` requests one `qrab.yapplesauce.com/kvm` device (CDI-injected\n/dev/kvm) and enables vCPU hot-plug; such Pods stay Pending on nodes\nwithout the qrab KVM device plugin. Changing it restarts the VM.",
+                    "enum": [
+                      "kvm",
+                      "tcg"
+                    ],
+                    "type": "string"
+                  },
                   "bootDisk": {
                     "default": "/opt/qrab/demo/boot.img",
                     "description": "Readonly UEFI boot disk inside the manager image. No direct kernel boot.",

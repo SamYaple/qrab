@@ -57,6 +57,11 @@ pub struct VirtualMachineSpec {
     )]
     #[schemars(with = "Option<i32>", range(min = 256, max = 1048576))]
     pub max_memory_mib: Option<u32>,
+    /// `kvm` requests one `qrab.yapplesauce.com/kvm` device (CDI-injected
+    /// /dev/kvm) and enables vCPU hot-plug; such Pods stay Pending on nodes
+    /// without the qrab KVM device plugin. Changing it restarts the VM.
+    #[serde(default, skip_serializing_if = "Accelerator::is_tcg")]
+    pub accelerator: Accelerator,
     /// Desired power state. A running VM is recreated after exit or Pod loss.
     #[serde(default = "running")]
     pub running: bool,
@@ -129,6 +134,28 @@ pub struct RedfishComponent {
     #[serde(default)]
     #[schemars(length(max = 128))]
     pub viewer_subjects: Vec<String>,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum Accelerator {
+    /// Portable emulation; the guest refuses hot-added vCPUs.
+    #[default]
+    Tcg,
+    Kvm,
+}
+
+impl Accelerator {
+    pub fn is_tcg(&self) -> bool {
+        *self == Self::Tcg
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Tcg => "tcg",
+            Self::Kvm => "kvm",
+        }
+    }
 }
 
 fn password_key() -> String {

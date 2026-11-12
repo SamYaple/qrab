@@ -12,6 +12,7 @@ default-members = [
     "projects/operator",
     "projects/iscsi-target",
     "projects/qrab-guest-agent",
+    "projects/kvm-device-plugin",
 ]
 members = [
     "projects/qapi-codegen",
@@ -26,6 +27,7 @@ members = [
     "projects/operator",
     "projects/iscsi-target",
     "projects/qrab-guest-agent",
+    "projects/kvm-device-plugin",
     "projects/attest-server",
     "projects/qrab-boot-proto",
     "projects/qrab-boot-verify",

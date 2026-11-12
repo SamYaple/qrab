@@ -3003,6 +3003,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "qrab-kvm-device-plugin"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "hyper-util",
+ "prost",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tokio-stream",
+ "tonic",
+ "tonic-prost",
+ "tower",
+]
+
+[[package]]
 name = "qrab-operator"
 version = "0.1.0"
 dependencies = [
@@ -4296,6 +4312,7 @@ dependencies = [
  "futures-core",
  "pin-project-lite",
  "tokio",
+ "tokio-util",
 ]
 
 [[package]]
@@ -4343,6 +4360,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cd1fa9b1a51188f3266a823208078315811269d06d272c3a61be0b9a194194ff"
 dependencies = [
  "async-trait",
+ "axum",
  "base64 0.22.1",
  "bytes",
  "h2",

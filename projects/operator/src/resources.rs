@@ -1,4 +1,8 @@
-use crate::{api::VirtualMachine, provision::Attached, Error, Result};
+use crate::{
+    api::{Accelerator, VirtualMachine},
+    provision::Attached,
+    Error, Result,
+};
 use k8s_openapi::api::core::v1::{ConfigMap, Pod};
 use kube::{Resource, ResourceExt};
 use serde::{Deserialize, Serialize};
@@ -9,9 +13,8 @@ use std::collections::{BTreeMap, BTreeSet};
 pub const HASH: &str = "qrab.yapplesauce.com/template-hash";
 /// Guest size the Pod's QEMU booted with; resizes never change it.
 pub const BOOT_SIZE: &str = "qrab.yapplesauce.com/boot-size";
-/// Rendered accelerator. Linux treats TCG guests as bare metal and refuses
-/// hot-added vCPUs, so only KVM VMs get vCPU headroom.
-const ACCELERATOR: &str = "tcg";
+/// Extended resource of the qrab KVM device plugin (CDI-injected /dev/kvm).
+pub const KVM_RESOURCE: &str = "qrab.yapplesauce.com/kvm";
 const CPU_LIMIT_OVERHEAD_MILLIS: u32 = 1000;
 const MEMORY_REQUEST_OVERHEAD_MIB: u32 = 256;
 const MEMORY_LIMIT_OVERHEAD_MIB: u32 = 512;
@@ -38,11 +41,17 @@ impl GuestSize {
     }
 
     /// Container resources: guest size plus a fixed, bounded QEMU/BMC overhead.
-    pub fn container_resources(self) -> Value {
-        json!({
+    /// A KVM VM also requests one KVM device, whose count a resize never changes.
+    pub fn container_resources(self, accelerator: Accelerator) -> Value {
+        let mut resources = json!({
             "requests":{"cpu":self.cpus.to_string(),"memory":memory_quantity(self.memory_mib+MEMORY_REQUEST_OVERHEAD_MIB)},
             "limits":{"cpu":(self.cpus+CPU_LIMIT_OVERHEAD_MILLIS/1000).to_string(),"memory":memory_quantity(self.memory_mib+MEMORY_LIMIT_OVERHEAD_MIB)}
-        })
+        });
+        if accelerator == Accelerator::Kvm {
+            resources["requests"][KVM_RESOURCE] = json!("1");
+            resources["limits"][KVM_RESOURCE] = json!("1");
+        }
+        resources
     }
 
     /// Inverse of `container_resources` for the quantity forms it renders.
@@ -60,10 +69,12 @@ impl GuestSize {
         })
     }
 
-    /// Hot-plug ceilings fixed when QEMU boots at `self`.
+    /// Hot-plug ceilings fixed when QEMU boots at `self`. Linux treats a TCG
+    /// guest as bare metal and refuses hot-added vCPUs, so only KVM VMs get
+    /// vCPU headroom.
     pub fn maxima(self, vm: &VirtualMachine) -> Self {
         Self {
-            cpus: if ACCELERATOR == "kvm" {
+            cpus: if vm.spec.accelerator == Accelerator::Kvm {
                 vm.spec
                     .max_cpus
                     .unwrap_or((self.cpus * 4).min(64))
@@ -526,7 +537,7 @@ pub fn render_booted(
     // Background GC needs no delete/finalizer authority on the parent CR.
     owner.block_owner_deletion = Some(false);
     let labels = json!({"app.kubernetes.io/name":"qrab", "app.kubernetes.io/component":"vm", "app.kubernetes.io/instance":name, "qrab.yapplesauce.com/owner-uid":uid});
-    let mut config = json!({"name":name,"memory_mib":boot.memory_mib,"cpus":boot.cpus,"accelerator":ACCELERATOR,"console":true,"uefi":{"boot_disk":vm.spec.boot_disk},"tpm":{},"state_dir":"/var/lib/qrab","state_id":uid,"runtime_dir":"/run/qrab","control_socket":true,"control_dir":CONTROL_DIR,"startup_timeout_secs":30,"shutdown_grace_secs":5,
+    let mut config = json!({"name":name,"memory_mib":boot.memory_mib,"cpus":boot.cpus,"accelerator":vm.spec.accelerator.as_str(),"console":true,"uefi":{"boot_disk":vm.spec.boot_disk},"tpm":{},"state_dir":"/var/lib/qrab","state_id":uid,"runtime_dir":"/run/qrab","control_socket":true,"control_dir":CONTROL_DIR,"startup_timeout_secs":30,"shutdown_grace_secs":5,
         "hotplug":{"max_cpus":maximum.cpus,"max_memory_mib":maximum.memory_mib,"limits_dir":SIZE_DIR,"cpu_overhead_millis":CPU_LIMIT_OVERHEAD_MILLIS,"memory_overhead_mib":MEMORY_LIMIT_OVERHEAD_MIB}});
     let initiator = format!("iqn.2026-11.com.yapplesauce:qrab.vm.{uid}");
     let mut disks: Vec<_> = vm.spec.iscsi_disks.iter().map(|d|json!({"id":d.id,"portal":d.portal,"target":d.target,"lun":d.lun,"initiator_name":initiator,"username":d.username,"password_file":format!("/run/qrab-auth/{}/password",d.id),"read_only":d.read_only,"boot_index":d.boot_index,"bus":"virtio"})).collect();
@@ -548,7 +559,7 @@ pub fn render_booted(
         "tolerations":[{"key":"node-role.kubernetes.io/control-plane","operator":"Exists","effect":"NoSchedule"}],
         "containers":[{"name":"manager","image":image,"imagePullPolicy":"Always","command":["qrab-manager"],"args":["run","--config","/etc/qrab/vm.json"],
             "env":[{"name":"QRAB_NODE_NAME","valueFrom":{"fieldRef":{"fieldPath":"spec.nodeName"}}},{"name":"QRAB_POD_NAME","valueFrom":{"fieldRef":{"fieldPath":"metadata.name"}}},{"name":"QRAB_POD_NAMESPACE","valueFrom":{"fieldRef":{"fieldPath":"metadata.namespace"}}},{"name":"QRAB_IMAGE","value":image}],
-            "resources":GuestSize::of(vm).container_resources(),
+            "resources":GuestSize::of(vm).container_resources(vm.spec.accelerator),
             "resizePolicy":[{"resourceName":"cpu","restartPolicy":"NotRequired"},{"resourceName":"memory","restartPolicy":"NotRequired"}],
             "securityContext":security,"terminationMessagePolicy":"FallbackToLogsOnError",
             "volumeMounts":[{"name":"config","mountPath":"/etc/qrab","readOnly":true},{"name":"state","mountPath":"/var/lib/qrab"},{"name":"runtime","mountPath":"/run/qrab"},{"name":"tmp","mountPath":"/tmp"},{"name":"control","mountPath":"/run/qrab-control"}],
@@ -830,7 +841,7 @@ pub fn plan_resize(vm: &VirtualMachine, pod: &Pod, desired: &Desired) -> ResizeP
     }
     ResizePlan::Grow(json!({
         "metadata":{"uid":pod.uid()},
-        "spec":{"containers":[{"name":"manager","resources":want.container_resources()}]}
+        "spec":{"containers":[{"name":"manager","resources":want.container_resources(vm.spec.accelerator)}]}
     }))
 }
 

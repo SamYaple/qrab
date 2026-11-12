@@ -340,6 +340,68 @@ async fn live_rendered_pod_grows_in_place_without_a_restart() {
 }
 
 #[test]
+fn kvm_is_opt_in_requests_the_device_and_grows_vcpus_in_place() {
+    let tcg = vm();
+    let mut explicit = vm();
+    explicit.spec = serde_json::from_value(
+        json!({"stateVolumeClaim":"test-state","accelerator":"tcg","console":{"publicUrl":"https://test-vm.yapplesauce.com","allowedSubjects":["6175a2a1-efb9-44e8-8c0b-5fe7ace18f9b"]}}),
+    )
+    .unwrap();
+    let default = resources::render(&tcg, &settings()).unwrap();
+    assert_eq!(
+        resources::render(&explicit, &settings()).unwrap().hash,
+        default.hash
+    );
+    assert!(serde_json::to_value(&tcg.spec)
+        .unwrap()
+        .get("accelerator")
+        .is_none());
+    let mut kvm = vm();
+    kvm.spec.accelerator = api::Accelerator::Kvm;
+    let desired = resources::render(&kvm, &settings()).unwrap();
+    assert_ne!(
+        desired.hash, default.hash,
+        "switching accelerator restarts the VM"
+    );
+    let pod = serde_json::to_value(&desired.pod).unwrap();
+    let container = &pod["spec"]["containers"][0];
+    for side in ["requests", "limits"] {
+        assert_eq!(container["resources"][side][resources::KVM_RESOURCE], "1");
+    }
+    assert!(serde_json::to_string(&pod)
+        .unwrap()
+        .find("hostPath")
+        .is_none());
+    assert!(container["securityContext"]["privileged"] == false);
+    assert_eq!(config(&desired)["accelerator"], "kvm");
+    assert_eq!(config(&desired)["hotplug"]["max_cpus"], 4);
+    kvm.spec.max_cpus = Some(6);
+    let pod = running(&kvm);
+    kvm.spec.cpus = 3;
+    let desired = rerender(&kvm, &pod);
+    assert_eq!(config(&desired)["hotplug"]["max_cpus"], 6);
+    let ResizePlan::Grow(patch) = resources::plan_resize(&kvm, &pod, &desired) else {
+        panic!("KVM vCPU growth is in place");
+    };
+    assert_eq!(
+        patch["spec"]["containers"][0]["resources"],
+        json!({"requests":{"cpu":"3","memory":"768Mi",resources::KVM_RESOURCE:"1"},"limits":{"cpu":"4","memory":"1Gi",resources::KVM_RESOURCE:"1"}})
+    );
+    kvm.spec.max_cpus = None;
+    kvm.spec.cpus = 5;
+    assert!(
+        matches!(resources::plan_resize(&kvm, &pod, &rerender(&kvm, &pod)), ResizePlan::Restart(m) if m.contains("maximum"))
+    );
+    let schema = &api::crd()["spec"]["versions"][0]["schema"]["openAPIV3Schema"]["properties"]
+        ["spec"]["properties"]["accelerator"];
+    assert_eq!(schema["enum"], json!(["kvm", "tcg"]));
+    assert!(
+        schema.get("default").is_none(),
+        "absent means tcg; stored CRs gain no field"
+    );
+}
+
+#[test]
 fn crd_validates_hotplug_ceilings_and_publishes_resize_status() {
     let crd = api::crd();
     let schema = &crd["spec"]["versions"][0]["schema"]["openAPIV3Schema"];
