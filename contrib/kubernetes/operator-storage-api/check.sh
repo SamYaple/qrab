@@ -39,7 +39,13 @@ done
 [ "$(status .status.podUid)" = "$pod_uid" ] || { echo "FAIL: growth restarted the VM" >&2; exit 1; }
 grown=false
 for _ in $(seq 1 60); do
-  k logs "$vm" -c manager | grep -q '"event":"disk_grown","disk":"scratch","capacity_bytes":134217728' && { grown=true; break; }
+  # Key order is not part of the log contract; match the parsed event.
+  k logs "$vm" -c manager | python3 -c 'import json,sys
+for line in sys.stdin:
+    try: e=json.loads(line)
+    except ValueError: continue
+    if isinstance(e,dict) and e.get("event")=="disk_grown" and e.get("disk")=="scratch" and e.get("capacity_bytes")==134217728: sys.exit(0)
+sys.exit(1)' && { grown=true; break; }
   sleep 5
 done
 k logs "$vm" -c manager | grep '"event":"disk_grow' | tail -3
