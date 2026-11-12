@@ -208,6 +208,24 @@ async fn fence_or_block(
         return blocked(vms, vm, pod, message).await;
     };
     if let Err(error) = provision::fence_all(api, vm).await {
+        if provision::fence_in_progress(&error) {
+            publish(
+                vms,
+                vm,
+                state(
+                    vm,
+                    pod,
+                    "Blocked",
+                    false,
+                    "StorageFenceInProgress",
+                    &format!(
+                        "The automatic storage fence has not completed yet and is retried: {error}"
+                    ),
+                ),
+            )
+            .await?;
+            return Ok(Some(Action::requeue(Duration::from_secs(15))));
+        }
         return blocked(
             vms,
             vm,

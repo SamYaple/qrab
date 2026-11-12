@@ -52,7 +52,8 @@ authenticates login; it does not encrypt the data transport.
 
 ## Ownership and limits
 
-The tool uses only dedicated parent `tank/qrab-iscsi` (8GiB aggregate quota),
+The tool uses only dedicated parent `tank/qrab-iscsi` (aggregate quota created
+at 8GiB, accepted within the reviewed 8GiB..4TiB whole-GiB range),
 thick-reserved16KiB zvols of16..1024MiB, kernel HBA `iblock_47` and exact
 VM-derived target names. Prototype volumes use `sync=always`. Existing parents,
 zvols and targets without its root ownership journal/markers are refused.

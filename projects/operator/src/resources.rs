@@ -19,6 +19,20 @@ const CPU_LIMIT_OVERHEAD_MILLIS: u32 = 1000;
 const MEMORY_REQUEST_OVERHEAD_MIB: u32 = 256;
 const MEMORY_LIMIT_OVERHEAD_MIB: u32 = 512;
 const SIZE_DIR: &str = "/run/qrab-size";
+/// Provisioned-disk capacities `{"<id>": bytes}`. Projected into SIZE_DIR as
+/// `disk_capacity`; the manager grows the running guest's disks from it.
+pub const DISK_CAPACITY: &str = "qrab.yapplesauce.com/disk-capacity";
+
+/// The capacity annotation value for verified exports.
+pub fn disk_capacity(provisioned: &[Attached]) -> String {
+    serde_json::to_string(
+        &provisioned
+            .iter()
+            .map(|d| (d.id.clone(), d.capacity_bytes))
+            .collect::<BTreeMap<_, _>>(),
+    )
+    .expect("capacity map serializes")
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -602,6 +616,14 @@ pub fn render_booted(
     pod["spec"]["volumes"].as_array_mut().expect("volumes").push(json!({"name":"size","downwardAPI":{"defaultMode":292,"items":[
         {"path":"cpu_limit_millis","resourceFieldRef":{"containerName":"manager","resource":"limits.cpu","divisor":"1m"}},
         {"path":"memory_limit_mib","resourceFieldRef":{"containerName":"manager","resource":"limits.memory","divisor":"1Mi"}}]}}));
+    // Online disk growth: the operator grows the LUN, then this annotation;
+    // the kubelet refreshes the file and the manager calls block_resize.
+    if !provisioned.is_empty() {
+        pod["spec"]["volumes"].as_array_mut().expect("volumes").last_mut().expect("size volume")["downwardAPI"]["items"]
+            .as_array_mut()
+            .expect("items")
+            .push(json!({"path":"disk_capacity","fieldRef":{"fieldPath":format!("metadata.annotations['{DISK_CAPACITY}']")}}));
+    }
     pod["spec"]["containers"][0]["volumeMounts"]
         .as_array_mut()
         .expect("mounts")
@@ -637,17 +659,20 @@ pub fn render_booted(
         .remove("resources");
     let mut identity =
         json!({"pod":template,"config":config_data,"restartNonce":vm.spec.restart_nonce});
-    // A rotated credential or grown LUN needs a fresh QEMU: libiscsi neither
-    // reloads secrets nor sees capacity growth. Absent for legacy VMs, so
-    // their template hash is unchanged.
+    // A rotated credential needs a fresh QEMU: libiscsi does not reload
+    // secrets. Capacity grows online through DISK_CAPACITY instead. Absent for
+    // legacy VMs, so their template hash is unchanged.
     if !provisioned.is_empty() {
         identity["provisioned"] = json!(provisioned
             .iter()
-            .map(|d| json!({"id":d.id,"generation":d.generation,"capacityBytes":d.capacity_bytes}))
+            .map(|d| json!({"id":d.id,"generation":d.generation}))
             .collect::<Vec<_>>());
     }
     let hash = format!("{:x}", Sha256::digest(serde_json::to_vec(&identity)?));
     pod["metadata"]["annotations"] = json!({HASH:hash, BOOT_SIZE:serde_json::to_string(&boot)?});
+    if !provisioned.is_empty() {
+        pod["metadata"]["annotations"][DISK_CAPACITY] = json!(disk_capacity(provisioned));
+    }
     Ok(Desired {
         config: config_map,
         pod: serde_json::from_value(pod)?,

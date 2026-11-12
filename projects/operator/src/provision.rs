@@ -2,18 +2,24 @@
 //!
 //! Each disk is created (blank) or CoW-cloned (base image), grown on size
 //! increase and exported with an operator-generated CHAP secret stored in an
-//! owned Secret. The secret is persisted before the export that uses it, so a
-//! retry always presents the credential the target recorded. A fenced disk
-//! is re-exported only with the next generation and a new secret, and only
-//! after the VM process that held the old one is gone.
+//! owned Secret. Credentials are write-only: the operator never reads a
+//! Secret. Every export uses a fresh secret written before the call, so an
+//! Active export's Secret is the one it was exported with; an interrupted
+//! export or fence is finished with a fence and the next generation. A fenced
+//! disk is re-exported only after the VM process that held the old secret is
+//! gone. Server-side admission (contrib/kubernetes/operator/secret-policy.yaml)
+//! confines the operator's Secret writes to these VM-owned objects.
 use crate::{
     api::{DiskStatus, ProvisionedDisk, VirtualMachine},
     storage::{ChapSecret, DiskPhase, DiskReport, Origin, StorageApi, StorageError},
     Error, Result,
 };
-use k8s_openapi::{api::core::v1::Secret, ByteString};
+use k8s_openapi::{
+    api::core::v1::{Pod, Secret},
+    ByteString,
+};
 use kube::{
-    api::{Patch, PatchParams, PostParams},
+    api::{DeleteParams, Patch, PatchParams},
     Api, Resource, ResourceExt,
 };
 use serde_json::json;
@@ -64,11 +70,12 @@ impl Credential {
     }
 }
 
-/// Owned per-disk credential storage (Kubernetes Secrets in production).
+/// Write-only per-disk credential storage (Kubernetes Secrets in production).
 #[async_trait::async_trait]
 pub trait CredentialStore: Send + Sync {
-    async fn get(&self, disk: &str) -> Result<Option<Credential>>;
     async fn put(&self, disk: &str, credential: &Credential) -> Result<()>;
+    /// Absent is success.
+    async fn delete(&self, disk: &str) -> Result<()>;
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -157,41 +164,33 @@ pub async fn converge(
             .map_err(storage)?;
         verified(vm_uid, disk, &report)?;
     }
-    let current = credentials.get(id).await?;
-    let matches = |c: &Option<Credential>| {
-        c.as_ref()
-            .is_some_and(|c| c.generation == report.generation && report.generation > 0)
-    };
-    // An export whose secret we no longer hold, or an interrupted fence, is
-    // finished with a fence before rotation. Never while a VM may use it.
-    if report.phase == DiskPhase::Fencing
-        || (matches!(report.phase, DiskPhase::Active | DiskPhase::Preparing) && !matches(&current))
-    {
+    // An interrupted export or fence: the secret it recorded is unknown, so
+    // finish the fence and rotate. Never while a VM may still use the export.
+    if matches!(report.phase, DiskPhase::Preparing | DiskPhase::Fencing) {
         if launched {
             return Ok((
                 Step::Wait(format!(
-                    "disk {id} credential state is {:?} without a matching Secret; stop the VM to fence and rotate it",
+                    "disk {id} is {:?}; stop the VM to fence and rotate its credential",
                     report.phase
                 )),
                 Some(status(id, &report)),
             ));
         }
-        report = api.fence(vm_uid, id).await.map_err(storage)?;
+        report = match api.fence(vm_uid, id).await {
+            Ok(report) => report,
+            Err(error @ StorageError::Unavailable(_)) => {
+                return Ok((
+                    Step::Wait(format!("disk {id} fence is still in progress: {error}")),
+                    Some(status(id, &report)),
+                ))
+            }
+            Err(error) => return Err(storage(error)),
+        };
         verified(vm_uid, disk, &report)?;
     }
-    let held = current
-        .clone()
-        .filter(|c| c.generation == report.generation && report.generation > 0);
-    let credential = match (report.phase, held) {
-        (DiskPhase::Active, Some(credential)) => credential,
-        (DiskPhase::Preparing, Some(credential)) => {
-            report = api
-                .export(vm_uid, id, credential.generation, &credential.secret)
-                .await
-                .map_err(storage)?;
-            credential
-        }
-        (DiskPhase::Provisioned | DiskPhase::Fenced, _) => {
+    let generation = match report.phase {
+        DiskPhase::Active => report.generation,
+        DiskPhase::Provisioned | DiskPhase::Fenced => {
             if report.phase == DiskPhase::Fenced && launched {
                 return Ok((
                     Step::Restart(format!(
@@ -200,34 +199,24 @@ pub async fn converge(
                     Some(status(id, &report)),
                 ));
             }
-            let next = report.generation + 1;
-            let credential = match current {
-                Some(c) if c.generation == next => c,
-                _ => {
-                    let fresh = Credential::generate(next)?;
-                    // Durable before use: the target records exactly this secret.
-                    credentials.put(id, &fresh).await?;
-                    fresh
-                }
-            };
+            let fresh = Credential::generate(report.generation + 1)?;
+            // Durable before use: the target records exactly this secret.
+            credentials.put(id, &fresh).await?;
             report = api
-                .export(vm_uid, id, next, &credential.secret)
+                .export(vm_uid, id, fresh.generation, &fresh.secret)
                 .await
                 .map_err(storage)?;
-            credential
+            fresh.generation
         }
         _ => {
             return Ok((
-                Step::Wait(format!(
-                    "disk {id} is {:?} without a usable credential",
-                    report.phase
-                )),
+                Step::Wait(format!("disk {id} is {:?}", report.phase)),
                 Some(status(id, &report)),
             ))
         }
     };
     verified(vm_uid, disk, &report)?;
-    if report.phase != DiskPhase::Active || report.generation != credential.generation {
+    if report.phase != DiskPhase::Active || report.generation != generation {
         return Ok((
             Step::Wait(format!("disk {id} export is not active yet")),
             Some(status(id, &report)),
@@ -278,61 +267,95 @@ pub async fn fence_all(api: &dyn StorageApi, vm: &VirtualMachine) -> Result<()> 
     Ok(())
 }
 
+/// Fence a disk no longer in `spec.disks` and delete its credential Secret.
+/// The zvol is retained; retirement stays an administrative storage verb.
+pub async fn release(
+    api: &dyn StorageApi,
+    credentials: &dyn CredentialStore,
+    vm_uid: &str,
+    id: &str,
+) -> Result<()> {
+    if api.status(vm_uid, id).await.map_err(storage)?.is_some() {
+        let report = api.fence(vm_uid, id).await.map_err(storage)?;
+        if !matches!(
+            report.phase,
+            DiskPhase::Fenced | DiskPhase::Provisioned | DiskPhase::Retired
+        ) {
+            return Err(Error::Storage(StorageError::Unavailable(format!(
+                "disk {id} did not report a completed fence"
+            ))));
+        }
+    }
+    credentials.delete(id).await
+}
+
+/// Disks recorded in status but no longer in `spec.disks` whose export no
+/// launched VM process can still be using.
+pub fn removable(vm: &VirtualMachine, pod: Option<&Pod>, launched: bool) -> Vec<String> {
+    vm.status
+        .iter()
+        .flat_map(|s| s.disks.iter())
+        .filter(|gone| !vm.spec.disks.iter().any(|d| d.id == gone.id))
+        .filter(|gone| {
+            !(launched
+                && pod.and_then(|p| p.spec.as_ref()).is_some_and(|s| {
+                    s.volumes
+                        .iter()
+                        .flatten()
+                        .any(|v| v.name == format!("iscsi-auth-{}", gone.id))
+                }))
+        })
+        .map(|gone| gone.id.clone())
+        .collect()
+}
+
+/// A storage-service outage or timeout while fencing is progress, not a
+/// refusal: the target journal stays `Fencing` and the next call resumes it.
+pub fn fence_in_progress(error: &Error) -> bool {
+    matches!(error, Error::Storage(StorageError::Unavailable(_)))
+}
+
 /// True when the operator itself can hard-fence every native disk of this VM.
 pub fn self_fencing(vm: &VirtualMachine, api: Option<&dyn StorageApi>) -> bool {
     api.is_some() && vm.spec.iscsi_disks.is_empty() && !vm.spec.disks.is_empty()
 }
 
 /// Secrets named `<vm>-disk-<id>`, controller-owned by the VM, holding only
-/// the CHAP password and its generation annotation.
+/// the CHAP password and its generation annotation. Never read back.
 pub struct SecretStore<'a> {
     pub api: Api<Secret>,
     pub vm: &'a VirtualMachine,
 }
 
-impl SecretStore<'_> {
-    fn owned(&self, secret: &Secret, disk: &str) -> bool {
-        crate::resources::owned(secret, self.vm)
-            && secret
-                .annotations()
-                .get(DISK_ANNOTATION)
-                .map(String::as_str)
-                == Some(disk)
+#[async_trait::async_trait]
+impl CredentialStore for SecretStore<'_> {
+    async fn put(&self, disk: &str, credential: &Credential) -> Result<()> {
+        let secret = self.render(disk, credential)?;
+        // Server-side apply creates or replaces without a read; admission
+        // refuses it unless any existing object is this VM's credential.
+        self.api
+            .patch(
+                &secret.name_any(),
+                &PatchParams::apply("qrab-operator").force(),
+                &Patch::Apply(&secret),
+            )
+            .await?;
+        Ok(())
+    }
+
+    async fn delete(&self, disk: &str) -> Result<()> {
+        let name = secret_name(&self.vm.name_any(), disk);
+        match self.api.delete(&name, &DeleteParams::default()).await {
+            Ok(_) => Ok(()),
+            Err(kube::Error::Api(status)) if status.code == 404 => Ok(()),
+            Err(error) => Err(error.into()),
+        }
     }
 }
 
-#[async_trait::async_trait]
-impl CredentialStore for SecretStore<'_> {
-    async fn get(&self, disk: &str) -> Result<Option<Credential>> {
-        let name = secret_name(&self.vm.name_any(), disk);
-        let Some(secret) = self.api.get_opt(&name).await? else {
-            return Ok(None);
-        };
-        if !self.owned(&secret, disk) {
-            return Err(Error::Ownership(format!(
-                "Secret {name} is not this VM's disk credential"
-            )));
-        }
-        let generation = secret
-            .annotations()
-            .get(GENERATION_ANNOTATION)
-            .and_then(|g| g.parse::<u64>().ok());
-        let password = secret
-            .data
-            .as_ref()
-            .and_then(|d| d.get(SECRET_KEY))
-            .and_then(|v| String::from_utf8(v.0.clone()).ok())
-            .filter(|p| crate::resources::valid_chap(p));
-        Ok(match (generation, password) {
-            (Some(generation), Some(password)) => Some(Credential {
-                generation,
-                secret: ChapSecret(password),
-            }),
-            _ => None,
-        })
-    }
-
-    async fn put(&self, disk: &str, credential: &Credential) -> Result<()> {
+impl SecretStore<'_> {
+    /// The exact object `put` applies; admission accepts nothing else.
+    pub fn render(&self, disk: &str, credential: &Credential) -> Result<Secret> {
         let name = secret_name(&self.vm.name_any(), disk);
         let uid = self
             .vm
@@ -367,28 +390,7 @@ impl CredentialStore for SecretStore<'_> {
             SECRET_KEY.to_owned(),
             ByteString(credential.secret.0.clone().into_bytes()),
         )]));
-        match self.api.get_opt(&name).await? {
-            None => {
-                self.api.create(&PostParams::default(), &secret).await?;
-            }
-            Some(existing) => {
-                if !self.owned(&existing, disk) {
-                    return Err(Error::Ownership(format!(
-                        "Secret {name} is not this VM's disk credential"
-                    )));
-                }
-                secret.metadata.uid = existing.uid();
-                secret.metadata.resource_version = existing.resource_version();
-                self.api
-                    .patch(
-                        &name,
-                        &PatchParams::apply("qrab-operator").force(),
-                        &Patch::Apply(&secret),
-                    )
-                    .await?;
-            }
-        }
-        Ok(())
+        Ok(secret)
     }
 }
 
@@ -413,6 +415,8 @@ pub(crate) mod fake {
     pub struct FakeStorage {
         pub disks: Mutex<BTreeMap<String, Disk>>,
         pub calls: Mutex<Vec<String>>,
+        /// Simulates a daemon wrapper timeout during a slow kernel drain.
+        pub fence_timeout: std::sync::atomic::AtomicBool,
     }
 
     impl FakeStorage {
@@ -555,7 +559,14 @@ pub(crate) mod fake {
             })
         }
         async fn fence(&self, uid: &str, id: &str) -> StorageResult<DiskReport> {
+            let timeout = self.fence_timeout.load(std::sync::atomic::Ordering::SeqCst);
             self.with("fence", uid, id, |m, k| {
+                if timeout {
+                    if let Some(d) = m.get_mut(&k) {
+                        d.phase = DiskPhase::Fencing;
+                    }
+                    return Err(StorageError::Unavailable("wrapper-timeout".into()));
+                }
                 let d = m
                     .get_mut(&k)
                     .ok_or(StorageError::Refused("disk-not-found".into()))?;
@@ -572,8 +583,9 @@ pub(crate) mod fake {
 
     #[async_trait::async_trait]
     impl CredentialStore for FakeCredentials {
-        async fn get(&self, disk: &str) -> Result<Option<Credential>> {
-            Ok(self.0.lock().unwrap().get(disk).cloned())
+        async fn delete(&self, disk: &str) -> Result<()> {
+            self.0.lock().unwrap().remove(disk);
+            Ok(())
         }
         async fn put(&self, disk: &str, credential: &Credential) -> Result<()> {
             self.0
@@ -724,36 +736,33 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_persisted_rotation_is_reused_after_a_failed_export() {
+    async fn every_export_writes_a_fresh_secret_before_the_call() {
         let api = FakeStorage::default();
         let creds = FakeCredentials::default();
         run(&api, &creds, &disk(64 * MIB, None), false)
             .await
             .unwrap();
+        let first = creds.0.lock().unwrap()["root"].clone();
         api.fence(UID, "root").await.unwrap();
-        let pending = Credential::generate(2).unwrap();
-        creds
-            .0
-            .lock()
-            .unwrap()
-            .insert("root".into(), pending.clone());
         run(&api, &creds, &disk(64 * MIB, None), false)
             .await
             .unwrap();
-        assert_eq!(
-            api.disk(UID, "root").unwrap().secret,
-            Some(pending.secret.0)
-        );
+        let second = creds.0.lock().unwrap()["root"].clone();
+        assert_ne!(first.secret, second.secret);
+        assert_eq!(second.generation, 2);
+        assert_eq!(api.disk(UID, "root").unwrap().secret, Some(second.secret.0));
     }
 
     #[tokio::test]
-    async fn lost_secret_for_a_live_export_waits_then_fences_and_rotates_when_stopped() {
+    async fn interrupted_export_waits_while_live_then_fences_and_rotates_when_stopped() {
         let api = FakeStorage::default();
         let creds = FakeCredentials::default();
         run(&api, &creds, &disk(64 * MIB, None), false)
             .await
             .unwrap();
-        creds.0.lock().unwrap().clear();
+        let mut interrupted = api.disk(UID, "root").unwrap();
+        interrupted.phase = DiskPhase::Preparing;
+        api.set(UID, "root", interrupted);
         let (step, _) = run(&api, &creds, &disk(64 * MIB, None), true)
             .await
             .unwrap();
@@ -819,6 +828,90 @@ mod tests {
             verified(UID, &disk(64 * MIB, None), &report),
             Err(Error::Ownership(_))
         ));
+    }
+
+    #[tokio::test]
+    async fn a_fence_timeout_is_reported_as_progress_and_resumed() {
+        let api = FakeStorage::default();
+        let creds = FakeCredentials::default();
+        run(&api, &creds, &disk(64 * MIB, None), false)
+            .await
+            .unwrap();
+        api.fence_timeout
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+        let error = release(&api, &creds, UID, "root").await.unwrap_err();
+        assert!(fence_in_progress(&error));
+        assert!(
+            creds.0.lock().unwrap().contains_key("root"),
+            "kept until fenced"
+        );
+        let (step, status) = run(&api, &creds, &disk(64 * MIB, None), false)
+            .await
+            .unwrap();
+        assert!(matches!(step, Step::Wait(ref m) if m.contains("in progress")));
+        assert_eq!(status.unwrap().phase, "Fencing");
+        api.fence_timeout
+            .store(false, std::sync::atomic::Ordering::SeqCst);
+        let (step, _) = run(&api, &creds, &disk(64 * MIB, None), false)
+            .await
+            .unwrap();
+        let Step::Ready(attached) = step else {
+            panic!("not ready")
+        };
+        assert_eq!(
+            attached.generation, 2,
+            "resumed fence rotates the credential"
+        );
+        assert!(!fence_in_progress(&Error::Storage(StorageError::Refused(
+            "fence-required".into()
+        ))));
+    }
+
+    #[test]
+    fn removed_disks_are_released_only_once_no_launched_pod_mounts_them() {
+        let mut vm: VirtualMachine = serde_json::from_value(serde_json::json!({
+            "apiVersion":"qrab.yapplesauce.com/v1alpha1","kind":"VirtualMachine",
+            "metadata":{"name":"vm","namespace":"qrab","uid":UID},
+            "spec":{"stateVolumeClaim":"state","console":{"publicUrl":"https://vm.example/","allowedSubjects":[]},
+                "disks":[{"id":"root","sizeBytes":67108864}]},
+            "status":{"observedGeneration":1,"phase":"Running","ready":true,"reason":"","message":"",
+                "disks":[{"id":"root","capacityBytes":67108864,"generation":1,"phase":"Active"},
+                         {"id":"old","capacityBytes":67108864,"generation":1,"phase":"Active"}]}
+        }))
+        .unwrap();
+        let pod: Pod = serde_json::from_value(serde_json::json!({
+            "metadata":{"name":"vm"},
+            "spec":{"containers":[{"name":"manager"}],"volumes":[{"name":"iscsi-auth-old","secret":{"secretName":"vm-disk-old"}}]}
+        }))
+        .unwrap();
+        assert!(
+            removable(&vm, Some(&pod), true).is_empty(),
+            "still mounted by a live QEMU"
+        );
+        assert_eq!(removable(&vm, Some(&pod), false), vec!["old"]);
+        assert_eq!(removable(&vm, None, false), vec!["old"]);
+        vm.spec.disks.clear();
+        assert_eq!(removable(&vm, None, false), vec!["root", "old"]);
+    }
+
+    #[tokio::test]
+    async fn a_removed_disk_is_fenced_before_its_secret_is_deleted() {
+        let api = FakeStorage::default();
+        let creds = FakeCredentials::default();
+        run(&api, &creds, &disk(64 * MIB, None), false)
+            .await
+            .unwrap();
+        release(&api, &creds, UID, "root").await.unwrap();
+        assert_eq!(api.disk(UID, "root").unwrap().phase, DiskPhase::Fenced);
+        assert!(creds.0.lock().unwrap().is_empty());
+        assert_eq!(api.calls().last().map(String::as_str), Some("fence root"));
+        // Already gone from storage: only the Secret is removed.
+        release(&api, &creds, UID, "never").await.unwrap();
+        // Re-adding the same id reattaches the retained data with a new secret.
+        let (step, _) = run(&api, &creds, &disk(64 * MIB, None), false)
+            .await
+            .unwrap();
+        assert!(matches!(step, Step::Ready(ref a) if a.generation == 2));
     }
 
     #[tokio::test]

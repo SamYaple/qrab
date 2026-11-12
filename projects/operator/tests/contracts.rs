@@ -352,18 +352,46 @@ fn provisioned_disks_render_beside_hand_declared_ones_with_owned_secret_files() 
 }
 
 #[test]
-fn rotation_or_growth_replaces_the_instance_but_legacy_hashes_are_unchanged() {
+fn rotation_replaces_the_instance_growth_is_online_and_legacy_hashes_are_unchanged() {
+    use kube::ResourceExt;
     let legacy = resources::render(&with_iscsi(), &settings()).unwrap();
     let (mut machine, attached) = with_provisioned();
     let base = resources::render_with(&machine, &settings(), &attached).unwrap();
-    let changes: [fn(&mut qrab_operator::provision::Attached); 2] =
-        [|a| a.generation = 2, |a| a.capacity_bytes *= 2];
-    for change in changes {
-        let mut next = attached.clone();
-        change(&mut next[0]);
-        let changed = resources::render_with(&machine, &settings(), &next).unwrap();
-        assert!(!resources::pod_matches(&base.pod, &changed));
-    }
+    let mut rotated = attached.clone();
+    rotated[0].generation = 2;
+    let changed = resources::render_with(&machine, &settings(), &rotated).unwrap();
+    assert!(!resources::pod_matches(&base.pod, &changed));
+    // Growth keeps the template; only the projected capacity annotation moves.
+    let mut grown = attached.clone();
+    grown[0].capacity_bytes *= 2;
+    let bigger = resources::render_with(&machine, &settings(), &grown).unwrap();
+    assert!(resources::pod_matches(&base.pod, &bigger));
+    assert_eq!(
+        base.pod.annotations()[resources::DISK_CAPACITY],
+        r#"{"root":67108864}"#
+    );
+    assert_eq!(
+        bigger.pod.annotations()[resources::DISK_CAPACITY],
+        r#"{"root":134217728}"#
+    );
+    let pod = serde_json::to_value(&base.pod).unwrap();
+    let size = pod["spec"]["volumes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|v| v["name"] == "size")
+        .unwrap();
+    assert!(size["downwardAPI"]["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|i| {
+            i["path"] == "disk_capacity"
+                && i["fieldRef"]["fieldPath"]
+                    == "metadata.annotations['qrab.yapplesauce.com/disk-capacity']"
+        }));
+    let legacy_pod = serde_json::to_value(&legacy.pod).unwrap();
+    assert!(!legacy_pod.to_string().contains("disk_capacity"));
     machine.spec.disks.clear();
     assert_eq!(
         resources::render_with(&machine, &settings(), &[])

@@ -4,4 +4,5 @@ namespace: qrab
 resources:
 - crd.json
 - rbac.yaml
+- secret-policy.yaml
 - deployment.yaml

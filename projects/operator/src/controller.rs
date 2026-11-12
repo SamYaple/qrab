@@ -83,7 +83,7 @@ async fn provision_disks(
     pods: &Api<Pod>,
     pod: Option<&Pod>,
 ) -> Result<std::result::Result<Vec<Attached>, Action>> {
-    if vm.spec.disks.is_empty() {
+    if vm.spec.disks.is_empty() && vm.status.as_ref().is_none_or(|s| s.disks.is_empty()) {
         return Ok(Ok(Vec::new()));
     }
     let Some(api) = ctx.storage.as_deref() else {
@@ -110,6 +110,31 @@ async fn provision_disks(
         api: Api::<Secret>::namespaced(ctx.client.clone(), &ctx.settings.namespace),
         vm,
     };
+    // Disks dropped from spec: once no launched process mounts them, fence the
+    // export and delete the credential. The zvol stays retained.
+    let mut released = Vec::new();
+    for gone in provision::removable(vm, pod, launched) {
+        if let Err(error) = provision::release(api, &secrets, &uid, &gone).await {
+            if provision::fence_in_progress(&error) {
+                publish(
+                    vms,
+                    vm,
+                    state(
+                        vm,
+                        pod,
+                        "Pending",
+                        false,
+                        "StorageFenceInProgress",
+                        &format!("Fencing removed disk {gone}: {error}"),
+                    ),
+                )
+                .await?;
+                return Ok(Err(Action::requeue(Duration::from_secs(15))));
+            }
+            return Err(error);
+        }
+        released.push(gone);
+    }
     let (mut attached, mut statuses, mut wait, mut restart) = (Vec::new(), Vec::new(), None, None);
     for disk in &vm.spec.disks {
         let (step, status) =
@@ -125,6 +150,14 @@ async fn provision_disks(
             }
         }
     }
+    // Removed disks still mounted by a live process stay recorded until released.
+    statuses.extend(
+        vm.status
+            .iter()
+            .flat_map(|s| s.disks.iter())
+            .filter(|d| !vm.spec.disks.iter().any(|s| s.id == d.id) && !released.contains(&d.id))
+            .cloned(),
+    );
     if vm.status.as_ref().map(|s| &s.disks) != Some(&statuses) {
         let mut status = vm.status.clone().unwrap_or_default();
         status.disks = statuses;
@@ -523,6 +556,21 @@ async fn synchronize(
                 }
                 Err(error) => return Err(error.into()),
             },
+        }
+        // Grown provisioned disks reach the running guest through the
+        // projected capacity annotation; the manager applies block_resize.
+        if let Some(want) = desired.pod.annotations().get(resources::DISK_CAPACITY) {
+            if current.annotations().get(resources::DISK_CAPACITY) != Some(want) {
+                let mut annotations = serde_json::Map::new();
+                annotations.insert(resources::DISK_CAPACITY.into(), want.clone().into());
+                current = pods
+                    .patch(
+                        &current.name_any(),
+                        &PatchParams::default(),
+                        &Patch::Merge(json!({"metadata":{"uid":current.uid(),"resourceVersion":current.resource_version(),"annotations":annotations}})),
+                    )
+                    .await?;
+            }
         }
         let pod = &current;
         // The guard recorded the owner UID first; only a validated,

@@ -78,19 +78,45 @@ Per disk the operator:
    (`vm-disk-create`) or a CoW clone of the sealed image generation
    (`vm-disk-clone`). A clone holds `image-<name>-g<gen>@sealed` and records that
    snapshot's GUID; every later read verifies the clone's ZFS origin and GUID.
-2. grows the zvol when `sizeBytes` increases (`vm-disk-expand`, never shrinks).
-   libiscsi does not see growth in a running QEMU, so the new capacity is part of
-   the Pod template hash and the VM is replaced through the normal clean drain.
-3. generates a 32-hex CHAP secret, stores it in the VM-owned Secret
-   `<vm>-disk-<id>` (key `password`, generation annotation) **before** exporting,
-   then calls `vm-disk-export` with the exact derived initiator ACL. Status
-   records each disk's capacity, credential generation and phase.
+2. grows the zvol when `sizeBytes` increases (`vm-disk-expand`, never shrinks)
+   **online**: after the LUN has grown, the operator updates the Pod annotation
+   `qrab.yapplesauce.com/disk-capacity` (`{"<id>": bytes}`). The kubelet projects
+   it into the manager's downward-API file `/run/qrab-size/disk_capacity`; the
+   manager compares it with the raw node's size from `query-named-block-nodes`
+   and calls QMP `block_resize` on `iscsi-<id>` only to grow. libiscsi re-reads
+   the LUN capacity and refuses a size the target lacks; virtio-blk notifies the
+   guest, whose filesystem growth stays the guest's decision. No restart, and no
+   operator→Pod network path is involved.
+3. generates a fresh 32-hex CHAP secret for every export, writes it to the
+   VM-owned Secret `<vm>-disk-<id>` (key `password`, generation annotation)
+   **before** calling `vm-disk-export` with the exact derived initiator ACL.
+   Credentials are write-only: the operator has no Secret `get/list/watch`, and
+   the `ValidatingAdmissionPolicy` in `contrib/kubernetes/operator/secret-policy.yaml`
+   lets it create, update or delete only Secrets controller-owned by a
+   VirtualMachine, labelled `disk-credential` with the matching owner UID, named
+   `<vm>-disk-<disk>` and holding only `password`. An update must keep the same
+   owner, so it cannot take over a hand-declared credential.
+   `contrib/kubernetes/operator/check-secret-policy.sh` checks this live in a
+   disposable namespace. An interrupted export or fence (`Preparing`/`Fencing`)
+   is fenced and rotated to the next generation once no VM process uses it.
+   Status records each disk's capacity, credential generation and phase.
+4. when a disk leaves `spec.disks`, waits until no launched VM process mounts
+   it, then fences its export and deletes its Secret. The zvol is retained, and
+   re-adding the same ID reattaches that data with a new credential. Removing
+   the LIO objects (`vm-disk-retire`) stays an administrative storage verb.
+
+A fence that outlives the storage daemon's wrapper budget leaves the journal in
+`Fencing`; the operator reports `StorageFenceInProgress` and resumes it on the
+next reconcile instead of treating it as a refusal. No export happens before a
+fence completes.
 
 Target names are derived and verified, never CR input:
 `iqn.2026-11.com.yapplesauce:qrab.disk.<VM-UID>.<id>`, CHAP account
 `qrab-<uid-hex>-<id>`, dataset `tank/qrab-iscsi/disk-<VM-UID>-<id>`. The total
-logical size of every disk and image stays within the 8GiB parent quota; raise
-it only through a reviewed root change of `PARENT_QUOTA` and `zfs set quota`.
+logical size of every disk and image stays within the parent's ZFS quota. It is
+created at 8GiB; an administrator may raise it within the reviewed 8GiB..4TiB
+whole-GiB range with `zfs set quota=<N>G tank/qrab-iscsi` (leaving pool
+headroom for thick reservations); values outside the range fail closed.
 `iscsiDisks` and `disks` may be combined; IDs are unique across both lists.
 
 Base images are administrative. Build one on an ordinary provisioned disk,
@@ -105,8 +131,11 @@ Publication requires a verified `Fenced` source, copies it with
 `zfs send | zfs receive` into a readonly `image-debian-g3` and holds its
 `@sealed` snapshot. Generations are immutable; publish a new generation for an
 update. The operator identity cannot publish or retire. `vm-disk-retire` (also
-administrative) removes a fenced disk's LIO objects and marks it retained;
-data is never destroyed by the API.
+administrative) removes a fenced disk's LIO objects and marks it retained.
+`vm-image-retire` stops new clones of a generation and marks it retained; it is
+refused while any disk journal (in any phase, including retired clones), clone
+hold or ZFS origin still descends from the sealed snapshot. Data is never
+destroyed by the API.
 
 ## Ownership and recovery
 

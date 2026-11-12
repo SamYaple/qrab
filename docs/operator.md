@@ -348,7 +348,8 @@ Native guest disks use QEMU/libiscsi with Secret file references and a pinned
 storage node. Their drain/fence lifecycle is described in [iscsi.md](iscsi.md).
 `spec.disks` entries are provisioned, grown, exported and fenced through the
 storage service; the operator then owns `<vm>-disk-<id>` CHAP Secrets (RBAC
-`secrets: get, create, patch`) and needs the opt-in
+`secrets: create, patch, delete`, write-only and confined by
+`secret-policy.yaml`) and needs the opt-in
 `contrib/kubernetes/operator/storage-api` component. Without it such VMs
 report `StorageServiceUnavailable`.
 The disposable legacy lifecycle script is intentionally limited to VMs without

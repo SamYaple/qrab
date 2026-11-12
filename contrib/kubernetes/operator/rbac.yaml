@@ -19,10 +19,11 @@ rules:
   resources: [persistentvolumeclaims]
   verbs: [get]
 # Operator-generated CHAP Secrets for spec.disks (<vm>-disk-<id>, VM-owned).
-# No list/watch/delete: owner GC removes them with the VM.
+# Write-only: no get/list/watch, so the operator cannot read hand-declared
+# credentials. secret-policy.yaml confines these writes to its own objects.
 - apiGroups: ['']
   resources: [secrets]
-  verbs: [get, create, patch]
+  verbs: [create, patch, delete]
 - apiGroups: ['']
   resources: [serviceaccounts]
   resourceNames: [qrab-manager]
