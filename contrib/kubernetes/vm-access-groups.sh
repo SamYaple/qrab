@@ -23,7 +23,7 @@ name() { # NS VM ROLE -> group name, refusing what Kanidm or the dashboard canno
 }
 exists() { k group get "$1" 2>/dev/null | grep -q '^uuid: '; }
 uuid() { k group get "$1" | sed -n 's/^uuid: //p'; }
-members() { k group list-members "$1" 2>/dev/null | sed 's/@.*//'; }
+members() { k group list-members "$1" 2>/dev/null | tr -d '"' | sed 's/@.*//'; }
 scope_map() { # client group -> the scopes it maps, one per line
   k system oauth2 get "$1" | sed -n "s/^oauth2_rs_scope_map: $2@[^:]*: //p" | tr -d '{}",' | tr ' ' '\n' | sed '/^$/d' | sort
 }
