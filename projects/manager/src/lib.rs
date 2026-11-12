@@ -43,6 +43,9 @@ pub enum Error {
     /// Namespace setup error.
     #[error("{0}")]
     Namespace(String),
+    /// The supervisor is stopping the VM and accepts no further requests.
+    #[error("VM is shutting down")]
+    ShuttingDown,
     /// QMP/QGA protocol error.
     #[error(transparent)]
     Protocol(#[from] qapi_protocol::Error),

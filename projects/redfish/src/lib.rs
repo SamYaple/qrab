@@ -93,13 +93,19 @@ impl Failure {
             "Use a URI from the service root.",
         )
     }
-    fn unavailable() -> Self {
+    fn unavailable(message: &'static str) -> Self {
         Self::new(
             StatusCode::SERVICE_UNAVAILABLE,
             "ServiceTemporarilyUnavailable",
-            "The VM manager is unavailable.",
+            message,
             "Retry later.",
         )
+    }
+    fn vm(error: &manager::Error, message: &'static str) -> Self {
+        match error {
+            manager::Error::ShuttingDown => Self::unavailable("The VM is shutting down."),
+            _ => Self::unavailable(message),
+        }
     }
 }
 
@@ -285,7 +291,7 @@ async fn system(State(app): State<AppState>, headers: HeaderMap) -> Result<Json<
         .control
         .config_view()
         .await
-        .map_err(|_| Failure::unavailable())?;
+        .map_err(|_| Failure::unavailable("The VM configuration is unavailable."))?;
     let status = app.control.status().await.ok();
     let (power_state, state, health) = power(status.as_ref());
     let status_object = json!({"State": state, "Health": health});
@@ -390,7 +396,7 @@ async fn reset(
     tracing::info!(subject=%who.subject, reset_type, ?action, success=result.is_ok(), "Redfish reset requested");
     result
         .map(|()| StatusCode::NO_CONTENT)
-        .map_err(|_| Failure::unavailable())
+        .map_err(|error| Failure::vm(&error, "The VM did not complete the reset."))
 }
 
 async fn managers(State(app): State<AppState>, headers: HeaderMap) -> Result<Json<Value>, Failure> {
@@ -444,6 +450,7 @@ async fn log_service(
     headers: HeaderMap,
 ) -> Result<Json<Value>, Failure> {
     principal(&app, &headers).await?;
+    let dropped = app.control.events(None, 1).qmp_dropped;
     Ok(Json(json!({
         "@odata.id": LOG,
         "@odata.type": "#LogService.v1_7_0.LogService",
@@ -455,7 +462,9 @@ async fn log_service(
         "OverWritePolicy": "WrapsWhenFull",
         "LogEntryType": "OEM",
         "Entries": link(&format!("{LOG}/Entries")),
-        "Status": {"State": "Enabled", "Health": "OK"},
+        // Events QEMU emitted that the manager's QMP client had to discard.
+        "Status": {"State": "Enabled", "Health": if dropped > 0 { "Warning" } else { "OK" }},
+        "Oem": {"Qrab": {"@odata.type": "#QrabLogService.v1_0_0.QrabLogService", "QmpDropped": dropped}},
     })))
 }
 
@@ -619,7 +628,7 @@ async fn sse(State(app): State<AppState>, headers: HeaderMap) -> Result<Response
         .streams
         .clone()
         .try_acquire_owned()
-        .map_err(|_| Failure::unavailable())?;
+        .map_err(|_| Failure::unavailable("Too many event streams are open."))?;
     let resume = headers
         .get("last-event-id")
         .and_then(|v| v.to_str().ok())

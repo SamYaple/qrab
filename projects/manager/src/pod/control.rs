@@ -7,10 +7,13 @@ use crate::{Error, Result};
 use qapi::commands::{Cont, Stop, SystemReset};
 use qapi_protocol::{Qmp, QmpEvent};
 use serde::{Deserialize, Serialize};
-use std::sync::{Arc, RwLock};
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc, RwLock,
+};
 use tokio::{
     net::UnixStream,
-    sync::{mpsc, oneshot},
+    sync::{mpsc, oneshot, watch},
 };
 
 /// The intentionally small control surface exposed to a pod's BMC.
@@ -35,6 +38,10 @@ struct Shared {
     events: EventLog,
     deployment: Deployment,
     config: RwLock<Option<Config>>,
+    /// Every record the supervisor publishes, as it publishes it.
+    status: Arc<watch::Sender<Option<Status>>>,
+    /// Set once the supervisor stops serving requests.
+    stopping: AtomicBool,
 }
 
 /// The source control API for one VM. Every transport (in-process BMC, the
@@ -70,6 +77,8 @@ fn channel(config: Option<Config>, deployment: Deployment) -> (Control, ControlR
         events: EventLog::default(),
         deployment,
         config: RwLock::new(config),
+        status: Arc::new(watch::channel(None).0),
+        stopping: AtomicBool::new(false),
     });
     (
         Control {
@@ -88,6 +97,35 @@ impl ControlReceiver {
     /// Record a QMP event in the channel's bounded history.
     pub fn record_event(&self, event: QmpEvent) {
         self.shared.events.record(event);
+    }
+
+    /// Forward events from QMP as they arrive, independent of request
+    /// dispatch, so a slow command cannot back up QMP's bounded event queue.
+    pub(super) fn pump_events(
+        &self,
+        mut events: mpsc::Receiver<QmpEvent>,
+    ) -> tokio::task::JoinHandle<()> {
+        let shared = self.shared.clone();
+        tokio::spawn(async move {
+            while let Some(event) = events.recv().await {
+                shared.events.record(event);
+            }
+        })
+    }
+
+    /// Events the QMP client discarded because its queue was full or an
+    /// event exceeded its size bound.
+    pub(super) fn set_qmp_dropped(&self, dropped: u64) {
+        self.shared.events.set_qmp_dropped(dropped);
+    }
+
+    /// From now on requests fail at once with [`Error::ShuttingDown`].
+    pub(super) fn set_stopping(&self) {
+        self.shared.stopping.store(true, Ordering::Release);
+    }
+
+    pub(super) fn status_sink(&self) -> super::state::StatusSink {
+        super::state::StatusSink::new(self.shared.status.clone())
     }
 
     pub(super) fn set_config(&self, config: &Config) {
@@ -121,6 +159,9 @@ impl Control {
         deadline: std::time::Duration,
         make: impl FnOnce(oneshot::Sender<Result<T>>) -> Request,
     ) -> Result<T> {
+        if self.shared.stopping.load(Ordering::Acquire) {
+            return Err(Error::ShuttingDown);
+        }
         let (tx, rx) = oneshot::channel();
         self.requests
             .try_send(make(tx))
@@ -151,9 +192,18 @@ impl Control {
             .ok_or_else(|| Error::Spawn("VM supervisor has not started".into()))
     }
 
-    /// The last status record published by the supervisor heartbeat.
+    /// The last status record published by the supervisor, from memory once
+    /// this channel's supervisor has published; otherwise from `status.json`.
     pub fn status(&self) -> Result<Status> {
+        if let Some(status) = self.shared.status.borrow().clone() {
+            return Ok(status);
+        }
         super::status(&self.config()?)
+    }
+
+    /// Changes whenever the supervisor publishes a status record.
+    pub fn watch_status(&self) -> watch::Receiver<Option<Status>> {
+        self.shared.status.subscribe()
     }
 
     /// Liveness (`ready: false`) or readiness probe of the supervised VM.
@@ -179,6 +229,11 @@ impl Control {
     /// Resolve once an event with a sequence number above `cursor` exists.
     pub async fn wait_events(&self, cursor: u64) {
         self.shared.events.wait_after(cursor).await
+    }
+
+    /// Resolve once [`EventPage::qmp_dropped`] differs from `known`.
+    pub async fn wait_qmp_dropped(&self, known: u64) {
+        self.shared.events.wait_dropped(known).await
     }
 
     /// Guest-agent requests wait for one reconnect attempt plus a command,
@@ -227,6 +282,18 @@ impl Control {
 const AGENT_REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 
 impl Request {
+    /// Answer a request that arrives while the VM is being stopped. A
+    /// repeated powerdown is already in effect.
+    pub(super) fn shutting_down(self) {
+        match self {
+            Self::Action(Action::Powerdown, reply) => drop(reply.send(Ok(()))),
+            Self::Action(_, reply) => drop(reply.send(Err(Error::ShuttingDown))),
+            Self::Console(reply) => drop(reply.send(Err(Error::ShuttingDown))),
+            Self::AgentStatus(reply) => drop(reply.send(Err(Error::ShuttingDown))),
+            Self::Agent(op) => op.reject(|| Error::ShuttingDown),
+        }
+    }
+
     /// True requests the supervisor's bounded ACPI/quit/reap shutdown path.
     pub(super) async fn dispatch(
         self,

@@ -106,6 +106,11 @@ pub enum ErrorCode {
     FrameTooLarge,
     Busy,
     Unavailable,
+    /// The supervisor is stopping the VM ([`Error::ShuttingDown`]).
+    ShuttingDown,
+    /// A code from a newer manager.
+    #[serde(other)]
+    Other,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -130,6 +135,9 @@ pub struct Response {
     /// Events evicted before a follower could read them.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub missed: Option<u64>,
+    /// The QMP client's new dropped-event count ([`EventPage::qmp_dropped`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub qmp_dropped: Option<u64>,
 }
 
 impl Response {
@@ -334,8 +342,13 @@ async fn connection(
             }
         };
         let id = request.id;
-        let unavailable =
-            |error: Error| Response::error(id, ErrorCode::Unavailable, error.to_string());
+        let unavailable = |error: Error| {
+            let code = match error {
+                Error::ShuttingDown => ErrorCode::ShuttingDown,
+                _ => ErrorCode::Unavailable,
+            };
+            Response::error(id, code, error.to_string())
+        };
         let reply = match request.op {
             Operation::Status => control
                 .status()
@@ -392,8 +405,20 @@ async fn connection(
 
 async fn follow(mut stream: BufReader<UnixStream>, control: &Control, mut cursor: u64) {
     let mut probe = [0u8; 1];
+    let mut dropped = 0;
     loop {
         let page = control.events(Some(cursor), 64);
+        if page.qmp_dropped != dropped {
+            dropped = page.qmp_dropped;
+            let frame_ = Response {
+                v: VERSION,
+                qmp_dropped: Some(dropped),
+                ..Response::default()
+            };
+            if !write(&mut stream, &frame(&frame_)).await {
+                return;
+            }
+        }
         if page.missed > 0 {
             let missed = Response {
                 v: VERSION,
@@ -417,6 +442,7 @@ async fn follow(mut stream: BufReader<UnixStream>, control: &Control, mut cursor
         }
         tokio::select! {
             _ = control.wait_events(cursor) => {}
+            _ = control.wait_qmp_dropped(dropped) => {}
             // The follower sends nothing; input or EOF ends the stream.
             _ = stream.read(&mut probe) => return,
         }
@@ -488,6 +514,9 @@ impl Client {
         // `"result": null` deserializes as `None`.
         match (response.id, response.result, response.error) {
             (Some(got), result, None) if got == id => Ok(result.unwrap_or(Value::Null)),
+            (_, _, Some(error)) if error.code == ErrorCode::ShuttingDown => {
+                Err(Error::ShuttingDown)
+            }
             (_, _, Some(error)) => Err(Error::Spawn(format!(
                 "control request failed ({:?}): {}",
                 error.code, error.message
@@ -562,6 +591,7 @@ pub struct Follower(BufReader<UnixStream>);
 pub enum FollowFrame {
     Event(VmEvent),
     Missed(u64),
+    QmpDropped(u64),
 }
 
 impl Follower {
@@ -573,9 +603,10 @@ impl Follower {
             Line::Closed => return Err(Error::Spawn("control socket closed".into())),
         };
         let response: Response = serde_json::from_slice(&line)?;
-        match (response.event, response.missed) {
-            (Some(event), None) => Ok(FollowFrame::Event(event)),
-            (None, Some(missed)) => Ok(FollowFrame::Missed(missed)),
+        match (response.event, response.missed, response.qmp_dropped) {
+            (Some(event), None, None) => Ok(FollowFrame::Event(event)),
+            (None, Some(missed), None) => Ok(FollowFrame::Missed(missed)),
+            (None, None, Some(dropped)) => Ok(FollowFrame::QmpDropped(dropped)),
             _ => Err(Error::Spawn("malformed follow frame".into())),
         }
     }

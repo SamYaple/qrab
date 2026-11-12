@@ -43,6 +43,8 @@ struct Follow {
     cursor: u64,
     queue: VecDeque<VmEvent>,
     missed: u64,
+    /// Last QMP-client dropped count the browser has (from its page read).
+    dropped: u64,
     _permit: OwnedSemaphorePermit,
 }
 
@@ -63,7 +65,7 @@ pub async fn stream(
         .event_streams
         .clone()
         .try_acquire_owned()
-        .map_err(|_| Failure::unavailable())?;
+        .map_err(|_| Failure::unavailable("Too many live event streams are open."))?;
     // A reconnecting EventSource resumes from its last delivered sequence.
     let resume = headers
         .get("last-event-id")
@@ -73,6 +75,7 @@ pub async fn stream(
         .or(cursor.after)
         .unwrap_or_else(|| app.control.events(None, 1).latest);
     tracing::info!(subject=%principal.user.subject, role=?principal.role, "VM event stream opened");
+    let app_dropped = app.control.events(None, 1).qmp_dropped;
     let follow = Follow {
         app,
         id,
@@ -80,6 +83,7 @@ pub async fn stream(
         cursor,
         queue: VecDeque::new(),
         missed: 0,
+        dropped: app_dropped,
         _permit: permit,
     };
     Ok(Sse::new(events(follow))
@@ -117,6 +121,15 @@ fn events(follow: Follow) -> impl Stream<Item = Result<Event, Infallible>> {
             let page = follow.app.control.events(Some(follow.cursor), STREAM_BATCH);
             follow.cursor = page.next;
             follow.missed = page.missed;
+            if follow.dropped != page.qmp_dropped {
+                follow.dropped = page.qmp_dropped;
+                return Some((
+                    Ok(Event::default()
+                        .event("qmp_dropped")
+                        .data(page.qmp_dropped.to_string())),
+                    follow_with(follow, page.events),
+                ));
+            }
             follow.queue.extend(page.events);
             if follow.queue.is_empty() && follow.missed == 0 {
                 let _ = tokio::time::timeout(
@@ -127,4 +140,10 @@ fn events(follow: Follow) -> impl Stream<Item = Result<Event, Infallible>> {
             }
         }
     })
+}
+
+/// Keep a page's events queued behind a frame emitted first.
+fn follow_with(mut follow: Follow, events: Vec<VmEvent>) -> Follow {
+    follow.queue.extend(events);
+    follow
 }

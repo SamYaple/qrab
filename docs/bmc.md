@@ -91,11 +91,15 @@ use. Binary WebSocket messages are limited to 64 KiB and blocked writes time out
 
 `GET /api/events?after=<seq>&limit=<n>` returns a bounded page of the
 manager's QMP event history (`events`, `next`, `latest`, `missed`,
-`rejected`); without `after` it returns the newest events. Each event has a
+`rejected`, `qmp_dropped`); without `after` it returns the newest events. Each event has a
 sequence number, receive time, QEMU timestamp, QAPI name and payload.
 `GET /api/events/stream` is a Server-Sent Events stream of `qmp` events (SSE
 `id` is the sequence number, so a reconnecting browser resumes with
-`Last-Event-ID`) and `missed` events when the history evicted events first.
+`Last-Event-ID`), `missed` events when the history evicted events first, and
+`qmp_dropped` events when the manager's QMP client count of discarded events
+changes; the events panel shows that warning. 503 responses name what is
+unavailable (status, configuration, console, power action, or too many
+consoles/streams) and say so when the VM is shutting down.
 Its session is authorized at admission and rechecked at least once a second;
 logout, expiry or removal from the subject lists end the stream. A request
 carrying a foreign Origin is refused. Sixteen concurrent streams are allowed

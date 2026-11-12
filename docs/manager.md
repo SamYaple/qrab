@@ -178,6 +178,18 @@ lifetime, so `missed` in a page reports eviction between a cursor and the
 oldest retained event. `VmEvent::decode::<qapi::events::ResetEvent>()` and the
 other generated event types give typed payloads.
 
+Events are drained by their own task as QMP delivers them, independent of
+request dispatch and the heartbeat, through a 1024-event client queue. Should
+QMP's client still discard events (full queue or an event over 1 MiB), the
+count is reported as `qmp_dropped` in every page, refreshed after each
+dispatched request and on the heartbeat.
+
+`status()` returns the record the supervisor last published, from memory
+(`watch_status()` follows changes); before this channel's supervisor publishes,
+it reads `status.json`. Once the supervisor starts stopping QEMU, every request
+fails at once with `Error::ShuttingDown` (a repeated powerdown succeeds)
+instead of waiting for the 5 s request timeout.
+
 ### Control socket
 
 With `"control_socket": true` the supervisor serves the API on
@@ -198,8 +210,9 @@ types and a typed `Client`). On connect the server sends
 Each request is `{"v":1,"id":<u64>,"op":"<op>",...}` and each reply
 `{"v":1,"id":<id>,"result":...}` or
 `{"v":1,"id":<id>,"error":{"code":"<code>","message":"..."}}` with codes
-`bad_request`, `unsupported_version`, `frame_too_large`, `busy` and
-`unavailable`. A connection may carry any number of requests.
+`bad_request`, `unsupported_version`, `frame_too_large`, `busy`,
+`unavailable` and `shutting_down`; clients must accept unknown codes from
+newer managers. A connection may carry any number of requests.
 
 | `op` | Arguments | Result |
 | --- | --- | --- |
@@ -208,7 +221,7 @@ Each request is `{"v":1,"id":<u64>,"op":"<op>",...}` and each reply
 | `config` | `redacted` (default false) | `ConfigView` |
 | `events` | `after`, `limit` (≤256) | `EventPage` |
 | `action` | `action`: `pause`/`resume`/`reset`/`powerdown` | `null` |
-| `follow` | `after` (default: latest) | `{"after":n}`, then the connection streams `{"v":1,"event":{...}}` and `{"v":1,"missed":n}` frames until the client closes or sends anything |
+| `follow` | `after` (default: latest) | `{"after":n}`, then the connection streams `{"v":1,"event":{...}}`, `{"v":1,"missed":n}` and `{"v":1,"qmp_dropped":n}` (on change) frames until the client closes or sends anything |
 | `console` | | `null`, then the connection is the raw VNC (RFB) byte stream |
 
 `pod::Remote` is the sidecar client. It keeps a mirror of the event history,

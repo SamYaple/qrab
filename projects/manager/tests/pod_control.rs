@@ -72,11 +72,24 @@ async fn mock_qemu(runtime: PathBuf, mut inject: mpsc::Receiver<(String, Value)>
         }
     });
     let mut running = false;
+    // Set by an injected FLOOD_NEXT_STOP: the next `stop` is slow and is
+    // preceded by a burst far beyond QMP's client event queue.
+    let mut flood = 0;
     loop {
         tokio::select! {
-            Some((name, data)) = inject.recv() => writer.send_event(&name, data).await.unwrap(),
+            Some((name, data)) = inject.recv() => if name == "FLOOD_NEXT_STOP" {
+                flood = data["count"].as_u64().unwrap();
+            } else {
+                writer.send_event(&name, data).await.unwrap()
+            },
             command = commands.recv() => {
                 let Some(command) = command else { break };
+                if command.name == "stop" && flood > 0 {
+                    for offset in 0..std::mem::take(&mut flood) {
+                        writer.send_event("RTC_CHANGE", json!({"offset":offset,"qom-path":"/machine/unattached/device[0]"})).await.unwrap();
+                    }
+                    tokio::time::sleep(Duration::from_millis(1500)).await;
+                }
                 let reply = match command.name.as_str() {
                     "query-status" => json!({"running":running,"status":if running {"running"} else {"paused"}}),
                     _ => json!({}),
@@ -266,7 +279,51 @@ async fn supervisor_records_qmp_events_and_serves_them_over_control_and_socket()
         .await
         .is_err());
 
+    // A burst during a slow dispatch is not lost: events drain on their own
+    // task while the supervisor waits for `stop`.
+    const FLOOD: u64 = 1500;
+    let before = control.events(None, 1).latest;
+    inject
+        .send(("FLOOD_NEXT_STOP".into(), json!({"count":FLOOD})))
+        .await
+        .unwrap();
+    control.action(Action::Pause).await.unwrap();
+    let flooded = wait_for(&control, "STOP").await;
+    let recorded = flooded.seq - before - 1;
+    // Any loss must become visible; the dropped count is refreshed after
+    // each dispatch and on the heartbeat.
+    let dropped = tokio::time::timeout(Duration::from_secs(3), async {
+        loop {
+            let dropped = control.events(None, 1).qmp_dropped;
+            if recorded == FLOOD || dropped > 0 {
+                return dropped;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    })
+    .await
+    .unwrap_or_else(|_| panic!("{recorded} of {FLOOD} recorded and no loss reported"));
+    assert_eq!((recorded, dropped), (FLOOD, 0));
+    // Status comes from memory once the supervisor publishes.
+    std::fs::remove_file(config.runtime_dir.join("status.json")).unwrap();
+    assert_eq!(control.status().unwrap().qemu_version, Some((11, 1, 3)));
+
     client.action(Action::Powerdown).await.unwrap();
+    // While the supervisor stops QEMU, requests fail at once with a typed
+    // error instead of waiting out the 5 s request timeout.
+    let started = std::time::Instant::now();
+    assert!(matches!(
+        control.action(Action::Pause).await,
+        Err(manager::Error::ShuttingDown)
+    ));
+    let mut late = Client::connect(&path).await.unwrap();
+    let error = late.action(Action::Reset).await.unwrap_err().to_string();
+    assert!(error.contains("shutting down"), "{error}");
+    assert!(
+        started.elapsed() < Duration::from_secs(1),
+        "{:?}",
+        started.elapsed()
+    );
     let outcome = tokio::time::timeout(Duration::from_secs(10), runner)
         .await
         .unwrap()

@@ -382,6 +382,8 @@ async fn resources_have_redfish_shapes_and_links() {
         .starts_with("#LogService.v1_"));
     assert_eq!(log["MaxNumberOfRecords"], 256);
     assert_eq!(log["OverWritePolicy"], "WrapsWhenFull");
+    assert_eq!(log["Oem"]["Qrab"]["QmpDropped"], 0);
+    assert_eq!(log["Status"]["Health"], "OK");
 
     record(&fixture, "STOP", json!({}));
     record(
@@ -510,6 +512,10 @@ async fn reset_types_map_honestly_and_bad_requests_get_redfish_errors() {
     .await;
     assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
     assert_error(&reply, "ServiceTemporarilyUnavailable");
+    assert_eq!(
+        reply["error"]["message"],
+        "The VM did not complete the reset."
+    );
 }
 
 #[tokio::test]

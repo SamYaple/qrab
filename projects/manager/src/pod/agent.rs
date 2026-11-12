@@ -50,7 +50,7 @@ impl AgentOp {
         self.reject(|| Error::Spawn(message.to_owned()));
     }
 
-    fn reject(self, error: impl Fn() -> Error) {
+    pub(super) fn reject(self, error: impl Fn() -> Error) {
         match self {
             Self::Ping(r) => drop(r.send(Err(error()))),
             Self::FreezeStatus(r) => drop(r.send(Err(error()))),

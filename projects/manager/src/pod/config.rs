@@ -152,6 +152,9 @@ pub struct Config {
     /// `{runtime_dir}/control`; a separate volume shares only the socket.
     #[serde(default)]
     pub control_dir: Option<PathBuf>,
+    /// In-memory status for the supervisor's control channel; never serialized.
+    #[serde(skip)]
+    pub(crate) status_sink: super::state::StatusSink,
     #[serde(default)]
     pub disk: Option<Disk>,
     #[serde(default)]

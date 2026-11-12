@@ -252,7 +252,13 @@ async fn websocket_admission_checks_auth_and_origin_over_real_http() {
         }
         match tokio_tungstenite::connect_async(request).await.unwrap_err() {
             tokio_tungstenite::tungstenite::Error::Http(response) => {
-                assert_eq!(response.status(), expected)
+                assert_eq!(response.status(), expected);
+                if expected == StatusCode::SERVICE_UNAVAILABLE {
+                    assert_eq!(
+                        response.body().as_deref(),
+                        Some(&b"The VM console is unavailable."[..])
+                    );
+                }
             }
             error => panic!("unexpected error {error}"),
         }
@@ -435,6 +441,8 @@ async fn event_stream_checks_admission_and_ends_on_revocation() {
         .await
         .unwrap();
     assert_eq!(third.status(), StatusCode::SERVICE_UNAVAILABLE);
+    let refused = axum::body::to_bytes(third.into_body(), 1024).await.unwrap();
+    assert_eq!(&refused[..], b"Too many live event streams are open.");
     drop(second);
     // Server-side revocation ends an idle, already-waiting stream without
     // client cooperation.
@@ -601,4 +609,38 @@ async fn real_vnc_streams_expire_and_are_revoked_without_browser_cooperation() {
     assert_eq!(outcome.reason, "shutdown-requested");
     let _ = stop.send(());
     server.abort();
+}
+
+#[tokio::test]
+async fn unavailable_responses_name_the_missing_resource() {
+    let mut app = app();
+    let admin = cookie(app.sessions.clone(), SUBJECT, auth::now() + 60).await;
+    let (status, body) = get(&app, "/api/status", &admin).await;
+    assert_eq!(
+        (status, body.as_str()),
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "The VM status is unavailable."
+        )
+    );
+    let response = bmc::router(app.clone())
+        .oneshot(post_action(&admin))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+    let body = axum::body::to_bytes(response.into_body(), 1024)
+        .await
+        .unwrap();
+    assert_eq!(&body[..], b"The VM did not complete the power action.");
+    // A channel whose supervisor has not published a configuration yet.
+    let (control, _receiver) = manager::pod::control_channel();
+    app.control = manager::pod::Backend::Local(control);
+    let (status, body) = get(&app, "/api/config", &admin).await;
+    assert_eq!(
+        (status, body.as_str()),
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "The VM configuration is unavailable."
+        )
+    );
 }

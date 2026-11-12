@@ -74,11 +74,12 @@ pub async fn run(config: Config, shutdown: impl Future<Output = ()>) -> Result<O
 
 /// Supervise a VM with a bounded in-process control channel for its BMC.
 pub async fn run_controlled(
-    config: Config,
+    mut config: Config,
     shutdown: impl Future<Output = ()>,
     mut control: super::ControlReceiver,
 ) -> Result<Outcome> {
     config.validate()?;
+    config.status_sink = control.status_sink();
     std::fs::create_dir_all(&config.runtime_dir)?;
     let lock = OpenOptions::new()
         .create(true)
@@ -213,6 +214,8 @@ async fn run_qemu(
         connect_timeout: Duration::from_millis(200),
         handshake_timeout: Duration::from_secs(1),
         command_timeout: Duration::from_secs(2),
+        // Headroom for bursts; events are also drained by their own task.
+        event_capacity: 1024,
         ..ClientOptions::default()
     };
     let startup = async {
@@ -246,7 +249,8 @@ async fn run_qemu(
         },
         _=&mut shutdown => None,
     };
-    let Some((qmp, mut events)) = qmp else {
+    let Some((qmp, events)) = qmp else {
+        control.set_stopping();
         let (exit, method) = stop_child(&mut child, None, Duration::from_secs(1)).await?;
         state.exit_code = exit.code();
         native_clean_shutdown(config, &exit, method)?;
@@ -263,6 +267,7 @@ async fn run_qemu(
         "{}",
         serde_json::json!({"event":"qmp_connected","version":qmp.version(),"qemu_pid":state.qemu_pid})
     );
+    let pump = control.pump_events(events);
     // QEMU created the agent chardev before QMP became available.
     let agent = config.guest_agent.then(|| {
         super::agent::GuestAgent::spawn(socket.with_file_name("qga.sock"), Default::default())
@@ -280,8 +285,12 @@ async fn run_qemu(
                 _=&mut shutdown => return Ok(None),
                 exit=child.wait() => return Ok(Some(exit?)),
                 exit=super::tpm::wait(tpm) => return Err(Error::Spawn(format!("swtpm exited while QEMU was active: {}", exit?))),
-                Some(request)=control.requests.recv() => if request.dispatch(&qmp, console, agent.as_ref()).await { return Ok(None); },
-                Some(event)=events.recv() => control.record_event(event),
+                Some(request)=control.requests.recv() => {
+                    let stop = request.dispatch(&qmp, console, agent.as_ref()).await;
+                    // A slow command is when the QMP event queue can overflow.
+                    control.set_qmp_dropped(qmp.dropped_events());
+                    if stop { return Ok(None); }
+                },
                 reason=qmp.closed() => {
                     state.ready=false;state.phase=Phase::Stopping;publish(config,state)?;
                     if let Ok(exit)=timeout(Duration::from_secs(2),child.wait()).await { return Ok(Some(exit?)); }
@@ -291,12 +300,14 @@ async fn run_qemu(
                     let status=qmp.execute(&QueryStatus {}).await?;
                     state.phase=Phase::Running;state.ready=status.running;state.run_state=Some(status.status.to_string());
                     if let Some(resize)=state.resize.as_mut() { super::hotplug::reconcile(config,&qmp,resize).await; }
+                    control.set_qmp_dropped(qmp.dropped_events());
                     publish(config,state)?;
                 }
             }
         }
     }.await;
     drop(agent);
+    control.set_stopping();
     state.ready = false;
     let result = match execution {
         Ok(Some(exit)) => {
@@ -316,12 +327,20 @@ async fn run_qemu(
         other => {
             state.phase = Phase::Stopping;
             let _ = publish(config, state);
-            let stopped = stop_child(
+            // Requests that raced the stopping flag are answered, not queued.
+            let stopping = stop_child(
                 &mut child,
                 Some(&qmp),
                 Duration::from_secs(config.shutdown_grace_secs),
-            )
-            .await;
+            );
+            tokio::pin!(stopping);
+            let stopped = loop {
+                tokio::select! {
+                    biased;
+                    stopped = &mut stopping => break stopped,
+                    Some(request) = control.requests.recv() => request.shutting_down(),
+                }
+            };
             match (other, stopped) {
                 (Ok(None), Ok((exit, method))) => {
                     state.exit_code = exit.code();
@@ -347,11 +366,11 @@ async fn run_qemu(
             }
         }
     };
-    // Shutdown and exit events arrive while stopping; keep what was queued.
-    while let Ok(event) = events.try_recv() {
-        control.record_event(event);
-    }
+    control.set_qmp_dropped(qmp.dropped_events());
     qmp.shutdown().await;
+    // Shutdown and exit events arrive while stopping; the pump ends when the
+    // closed connection drops its event queue.
+    let _ = timeout(Duration::from_secs(1), pump).await;
     publish(config, state)?;
     result
 }

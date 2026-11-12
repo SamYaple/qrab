@@ -54,6 +54,7 @@ impl Remote {
                 .events(Some(self.0.events.latest()), super::EVENT_PAGE_LIMIT)
                 .await?;
             let caught_up = page.next >= page.latest;
+            self.0.events.set_qmp_dropped(page.qmp_dropped);
             for event in page.events {
                 self.0.events.insert(event, Some(page.rejected));
             }
@@ -63,8 +64,10 @@ impl Remote {
         }
         let mut follower = client.follow(Some(self.0.events.latest())).await?;
         loop {
-            if let FollowFrame::Event(event) = follower.next().await? {
-                self.0.events.insert(event, None);
+            match follower.next().await? {
+                FollowFrame::Event(event) => self.0.events.insert(event, None),
+                FollowFrame::QmpDropped(dropped) => self.0.events.set_qmp_dropped(dropped),
+                FollowFrame::Missed(_) => {}
             }
         }
     }

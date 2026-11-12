@@ -74,17 +74,23 @@ pub struct EventPage {
     pub missed: u64,
     /// Events the supervisor discarded (invalid names) since the channel started.
     pub rejected: u64,
+    /// Events the QMP client discarded before the supervisor saw them (full
+    /// queue or oversized event) during the current QEMU connection.
+    #[serde(default)]
+    pub qmp_dropped: u64,
 }
 
 struct Ring {
     events: VecDeque<VmEvent>,
     latest: u64,
     rejected: u64,
+    qmp_dropped: u64,
 }
 
 pub(super) struct EventLog {
     ring: Mutex<Ring>,
     latest: watch::Sender<u64>,
+    dropped: watch::Sender<u64>,
 }
 
 fn now_ms() -> u64 {
@@ -111,8 +117,10 @@ impl Default for EventLog {
                 events: VecDeque::with_capacity(EVENT_CAPACITY),
                 latest: 0,
                 rejected: 0,
+                qmp_dropped: 0,
             }),
             latest: watch::channel(0).0,
+            dropped: watch::channel(0).0,
         }
     }
 }
@@ -184,6 +192,7 @@ impl EventLog {
             latest: ring.latest,
             missed,
             rejected: ring.rejected,
+            qmp_dropped: ring.qmp_dropped,
         }
     }
 
@@ -205,6 +214,22 @@ impl EventLog {
         ring.events.push_back(event);
         drop(ring);
         self.latest.send_replace(seq);
+    }
+
+    pub(super) fn set_qmp_dropped(&self, dropped: u64) {
+        let mut ring = self.lock();
+        if ring.qmp_dropped != dropped {
+            ring.qmp_dropped = dropped;
+            drop(ring);
+            // Wake followers so the new count is forwarded.
+            self.dropped.send_replace(dropped);
+        }
+    }
+
+    /// Resolve once the dropped-event count differs from `known`.
+    pub(super) async fn wait_dropped(&self, known: u64) {
+        let mut dropped = self.dropped.subscribe();
+        let _ = dropped.wait_for(|dropped| *dropped != known).await;
     }
 
     pub(super) fn latest(&self) -> u64 {

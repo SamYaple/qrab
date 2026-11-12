@@ -29,12 +29,12 @@ pub async fn upgrade(
         .consoles
         .clone()
         .try_acquire_owned()
-        .map_err(|_| Failure::unavailable())?;
+        .map_err(|_| Failure::unavailable("Too many consoles are open for this VM."))?;
     let stream = app
         .control
         .console()
         .await
-        .map_err(|_| Failure::unavailable())?;
+        .map_err(|error| Failure::vm(&error, "The VM console is unavailable."))?;
     let id = session.id().ok_or_else(Failure::unauthorized)?;
     tracing::info!(subject=%user.subject, "VM console connected");
     Ok(ws

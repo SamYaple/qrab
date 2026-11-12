@@ -51,10 +51,16 @@ async function startEvents() {
     const page = await request('/api/events?limit=100');
     addEvents(page.events.map(eventRow));
     const status = element('events-status');
+    const dropped = count => {
+        element('events-dropped').textContent = count > 0 ? `${count} QMP event(s) were dropped before the manager recorded them` : '';
+        element('events-dropped').hidden = !(count > 0);
+    };
+    dropped(page.qmp_dropped);
     events = new EventSource(`/api/events/stream?after=${page.next}`);
     events.addEventListener('open', () => { status.textContent = 'Live'; });
     events.addEventListener('qmp', message => addEvents([eventRow(JSON.parse(message.data))]));
     events.addEventListener('missed', message => addEvents([missedRow(message.data)]));
+    events.addEventListener('qmp_dropped', message => dropped(Number(message.data)));
     events.addEventListener('error', () => {
         status.textContent = events?.readyState === EventSource.CLOSED ? 'Disconnected' : 'Reconnecting…';
         refresh();

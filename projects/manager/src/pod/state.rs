@@ -75,6 +75,22 @@ pub(super) fn start_ticks(pid: u32) -> Result<u64> {
     live_start_ticks(&std::fs::read_to_string(format!("/proc/{pid}/stat"))?)
 }
 
+/// Where a supervisor's published status records are mirrored in memory.
+#[derive(Clone, Default)]
+pub(crate) struct StatusSink(Option<std::sync::Arc<tokio::sync::watch::Sender<Option<Status>>>>);
+
+impl StatusSink {
+    pub(super) fn new(sender: std::sync::Arc<tokio::sync::watch::Sender<Option<Status>>>) -> Self {
+        Self(Some(sender))
+    }
+}
+
+impl std::fmt::Debug for StatusSink {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("StatusSink")
+    }
+}
+
 pub(super) fn publish(config: &Config, status: &mut Status) -> Result<()> {
     status.observed_unix_ms = now_ms();
     let mut file = tempfile::NamedTempFile::new_in(&config.runtime_dir)?;
@@ -83,6 +99,9 @@ pub(super) fn publish(config: &Config, status: &mut Status) -> Result<()> {
     file.as_file().sync_data()?;
     file.persist(config.runtime_dir.join("status.json"))
         .map_err(|e| Error::Io(e.error))?;
+    if let Some(sink) = &config.status_sink.0 {
+        sink.send_replace(Some(status.clone()));
+    }
     Ok(())
 }
 

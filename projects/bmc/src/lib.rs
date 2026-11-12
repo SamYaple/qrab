@@ -41,11 +41,16 @@ impl Failure {
             "The request could not be completed.",
         )
     }
-    pub fn unavailable() -> Self {
-        Self(
-            StatusCode::SERVICE_UNAVAILABLE,
-            "The VM console is unavailable.",
-        )
+    /// 503 naming what is unavailable.
+    pub fn unavailable(message: &'static str) -> Self {
+        Self(StatusCode::SERVICE_UNAVAILABLE, message)
+    }
+    /// A failed VM request; shutdown is reported as such.
+    pub fn vm(error: &manager::Error, message: &'static str) -> Self {
+        match error {
+            manager::Error::ShuttingDown => Self::unavailable("The VM is shutting down."),
+            _ => Self::unavailable(message),
+        }
     }
 }
 impl IntoResponse for Failure {
@@ -129,7 +134,7 @@ async fn status(
         .status()
         .await
         .map(Json)
-        .map_err(|_| Failure::unavailable())
+        .map_err(|_| Failure::unavailable("The VM status is unavailable."))
 }
 /// Viewers receive the redacted view; only admins see storage endpoints,
 /// credential references, identity, paths, node and image.
@@ -142,7 +147,7 @@ async fn config_view(
         .control
         .config_view()
         .await
-        .map_err(|_| Failure::unavailable())?;
+        .map_err(|_| Failure::unavailable("The VM configuration is unavailable."))?;
     Ok(Json(match principal.role {
         auth::Role::Admin => view,
         auth::Role::Viewer => view.redacted(),
@@ -180,7 +185,7 @@ async fn action(
     tracing::info!(subject=%user.subject, ?action, success=result.is_ok(), "VM control requested");
     result
         .map(|_| StatusCode::NO_CONTENT)
-        .map_err(|_| Failure::unavailable())
+        .map_err(|error| Failure::vm(&error, "The VM did not complete the power action."))
 }
 async fn logout(
     State(app): State<AppState>,
