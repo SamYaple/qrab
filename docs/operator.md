@@ -407,3 +407,47 @@ probe copy into the Pod was not run), the BMC viewer role (no
 `console.viewerSubjects`), Redfish (off; its Kanidm client now exists but
 port 8081 has no Service/Ingress/Cilium path), vCPU growth (needs KVM) and
 `spec.disks` provisioning (needs storage activation).
+
+### Storage, KVM and Redfish rollout record (2026-11-12, later)
+
+The earlier "not verified" items are now covered:
+
+- **iSCSI content.** On c544ae20 the probe verify reported filesystem UUID `b7f594a0…`
+  and token SHA-256 `7cbc00f2…6005`, the same as before the rollout.
+- **Storage activation.** It finished after the kubernetes-gitops identity PR
+  (#404). The operator storage-api component was then applied with operator
+  `3b85ece6…`, and qrab-demo kept its Pod.
+- **First storage check.** `operator-storage-api/check.sh` showed that online
+  growth never reached QEMU. Every `query-named-block-nodes` failed to decode
+  the `format-specific: file` of the pflash nodes, a QAPI shared-wire-name bug
+  fixed in 0607fc5. The check had reported a false ok.
+- **KVM.** The KVM device plugin DaemonSet (#403) and the node pull bindings
+  were applied. The live KVM evidence is recorded [above](#kvm-acceleration).
+
+Images rebuilt from 0d143c1 and pinned in 123e3b9:
+
+- manager `zot.yapplesauce.com/qrab/manager@sha256:2458ab2a3d7854551debf22ec7718c669374cb56b2cc1086e03f51f62a1c9709`
+- operator `zot.yapplesauce.com/qrab/operator@sha256:60b28e68c011afed4a90b927bc8eaee16d4343fda4c0de89ee5d89212b823cab`
+
+kubernetes-gitops re-pinned the ClusterSPIFFEID and the DaemonSet to that
+operator before it was applied. One apply covered three things: `console.yaml`
+(Redfish `/redfish` route, Service port 8081, Cilium 8081), the
+storage-api operator, and `spec.components.redfish` on qrab-demo with the
+console's admin subject. That gave one clean drain, c544ae20 → b031b6d1.
+
+| Check | Result |
+| --- | --- |
+| `contrib/kubernetes/check.sh` | PASS, including protected Redfish: 401 + `WWW-Authenticate: Bearer` on `/redfish`, the service root, `Systems/1` and `Reset`, with no token and with a malformed one |
+| TPM EK | `ec61ceb9…e844`, unchanged |
+| iSCSI content | `QRAB_DISK_PROBE_VERIFIED`, same UUID and token hash |
+| Pod layout | native `bmc` and `redfish` sidecars |
+| `operator-storage-api/check.sh` (VM 6ab10794) | PASS: Active gen 1; online growth to 128 MiB with `disk_grown` in the same Pod; shrink refused; removal fenced and its Secret deleted; re-add rotated to gen 2; deletion garbage-collected the Secret |
+
+Still open:
+
+- An authenticated Redfish call with a real Kanidm ID token
+  (`contrib/kubernetes/redfish-live.py`, needs a browser login).
+- A live CoW clone (`operator-storage-api/clone-check.sh`, needs an
+  administrator to publish a base image).
+- Root retirement of the fenced acceptance zvols.
+- The host storage-ingress shim with the 610 s fence timeout (spiffe-kanidm-shim 4078a3e).
