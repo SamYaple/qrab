@@ -155,7 +155,7 @@ arguments or files.
 
 ## Deployment
 
-`contrib/kubernetes/dashboard` holds the ServiceAccount, a namespaced Role
+`contrib/kubernetes/dashboard` holds a namespaced Role
 (VirtualMachines get/list/watch/create/delete, Pods get/list, PVCs get/create,
 `metrics.k8s.io` pods get/list), the Deployment (one replica, `Recreate`,
 non-root UID 10001, read-only root, no capabilities, credentials mounted as
@@ -178,8 +178,10 @@ Bearer access also needs the operator's `QRAB_BMC_BEARER_ISSUER` and
 `QRAB_BMC_BEARER_AUDIENCE`, and the admission policy that trusts only
 `system:serviceaccount:qrab:qrab-dashboard` to set the creator annotation
 ([operator.md](operator.md#the-creator-is-a-viewer)). The private image pull
-identity for the ServiceAccount belongs to Kubernetes GitOps, like the
-operator's.
+identity belongs to Kubernetes GitOps, like the operator's: the
+`qrab-dashboard` ServiceAccount (never pruned, because node pull policies bind
+its UID), its pull-audience and `use` RBAC, the protected-account admission
+guards, and its `spiffe-node-pulls.py` entry for `zot.yapplesauce.com/qrab/dashboard`.
 
 ## Security notes
 
