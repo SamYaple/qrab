@@ -73,6 +73,45 @@ function describeDisk(disk) {
     if (disk.target) parts.push(`${disk.target.portal} ${disk.target.target} LUN ${disk.target.lun}`, `user ${disk.target.username}`, `secret ${disk.target.password_file}`, `initiator ${disk.target.initiator_name}`);
     return parts.join(' · ');
 }
+const stamp = millis => millis ? new Date(millis).toLocaleString() : '—';
+async function loadAgent() {
+    const view = await request('/api/agent');
+    const status = view.status;
+    const rows = [
+        ['Channel', status.enabled ? 'enabled' : 'disabled'],
+        ['Connected', status.connected ? `yes, since ${stamp(status.connected_since_unix_ms)}` : 'no'],
+        ['Version', status.version || '—'],
+        ['Last seen', stamp(status.last_seen_unix_ms)],
+    ];
+    if (status.last_error) rows.push(['Last error', status.last_error]);
+    if (view.freeze) rows.push(['Filesystems', view.freeze]);
+    if (view.update) {
+        const update = view.update;
+        rows.push(['Update', `${update.state}${update['run-id'] ? ` · run ${update['run-id']}` : ''}${update['exit-code'] !== null && update['exit-code'] !== undefined ? ` · exit ${update['exit-code']}` : ''}${update['hook-installed'] ? '' : ' · no hook installed'}`]);
+        if (update.output) rows.push(['Update output', update.output]);
+    }
+    element('agent').replaceChildren(...rows.flatMap(([key, value]) => [node('dt', key), node('dd', String(value))]));
+    element('agent-note').textContent = status.connected ? 'Connected' : 'Not connected';
+    for (const button of document.querySelectorAll('[data-agent]')) button.disabled = !status.connected;
+}
+for (const button of document.querySelectorAll('[data-agent]')) {
+    button.addEventListener('click', async () => {
+        const operation = button.dataset.agent;
+        let body;
+        if (operation === 'freeze' && !confirm('Freeze guest filesystems? Writes block until thawed or the agent watchdog thaws them.')) return;
+        if (operation === 'update') {
+            const args = prompt('Update hook arguments (space separated tokens, may be empty):', '');
+            if (args === null) return;
+            body = JSON.stringify({args: args.split(/\s+/).filter(Boolean)});
+        }
+        button.disabled = true;
+        try {
+            await request(`/api/agent/${operation}`, {method: 'POST', headers: {'Content-Type': 'application/json', 'X-CSRF-Token': session.user.csrf}, body});
+            showError('');
+        } catch (error) { showError(error.message); }
+        finally { await loadAgent().catch(error => showError(error.message)); }
+    });
+}
 async function loadConfig() {
     const view = await request('/api/config');
     const rows = [
@@ -172,5 +211,6 @@ try {
     element('logout').hidden = false;
     await refresh();
     polling = setInterval(refresh, 2000);
-    await Promise.all([loadConfig(), startEvents()]).catch(error => showError(error.message));
+    await Promise.all([loadConfig(), loadAgent(), startEvents()]).catch(error => showError(error.message));
+    setInterval(() => loadAgent().catch(() => {}), 5000);
 } catch (error) { signedOut(); if (!error.message.startsWith('Your session ended')) showError(error.message); }

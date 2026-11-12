@@ -23,6 +23,9 @@ use tokio::sync::Semaphore;
 pub const SYSTEM: &str = "/redfish/v1/Systems/1";
 pub const MANAGER: &str = "/redfish/v1/Managers/1";
 const RESET_TARGET: &str = "/redfish/v1/Systems/1/Actions/ComputerSystem.Reset";
+pub const FREEZE_TARGET: &str = "/redfish/v1/Systems/1/Actions/Oem/QrabComputerSystem.Freeze";
+pub const THAW_TARGET: &str = "/redfish/v1/Systems/1/Actions/Oem/QrabComputerSystem.Thaw";
+pub const UPDATE_TARGET: &str = "/redfish/v1/Systems/1/Actions/Oem/QrabComputerSystem.Update";
 const LOG: &str = "/redfish/v1/Managers/1/LogServices/Events";
 const REGISTRY: &str = "Base.1.18";
 /// Reset types this service performs; see [`reset_action`].
@@ -142,6 +145,9 @@ pub fn router(app: AppState) -> Router {
         .route("/redfish/v1/Systems", get(systems))
         .route(SYSTEM, get(system))
         .route(RESET_TARGET, post(reset))
+        .route(FREEZE_TARGET, post(agent_freeze))
+        .route(THAW_TARGET, post(agent_thaw))
+        .route(UPDATE_TARGET, post(agent_update))
         .route("/redfish/v1/Managers", get(managers))
         .route(MANAGER, get(manager_resource))
         .route("/redfish/v1/Managers/1/LogServices", get(log_services))
@@ -307,10 +313,18 @@ async fn system(State(app): State<AppState>, headers: HeaderMap) -> Result<Json<
         "Status": status_object,
         "ProcessorSummary": {"Count": view.cpus, "LogicalProcessorCount": view.cpus, "Status": status_object},
         "MemorySummary": {"TotalSystemMemoryGiB": view.memory_mib as f64 / 1024.0, "Status": status_object},
-        "Actions": {"#ComputerSystem.Reset": {
-            "target": RESET_TARGET,
-            "ResetType@Redfish.AllowableValues": RESET_TYPES,
-        }},
+        "Actions": {
+            "#ComputerSystem.Reset": {
+                "target": RESET_TARGET,
+                "ResetType@Redfish.AllowableValues": RESET_TYPES,
+            },
+            // Guest-agent operations; admin only, like Reset.
+            "Oem": {
+                "#QrabComputerSystem.Freeze": {"target": FREEZE_TARGET},
+                "#QrabComputerSystem.Thaw": {"target": THAW_TARGET},
+                "#QrabComputerSystem.Update": {"target": UPDATE_TARGET},
+            },
+        },
         "Links": {"ManagedBy": [link(MANAGER)]},
     });
     if let Some(uuid) = vm_uuid(&app, &who).await {
@@ -321,7 +335,9 @@ async fn system(State(app): State<AppState>, headers: HeaderMap) -> Result<Json<
         Role::Admin => view,
         Role::Viewer => view.redacted(),
     };
-    system["Oem"] = json!({"Qrab": {"@odata.type": "#QrabComputerSystem.v1_0_0.QrabComputerSystem", "Configuration": view}});
+    // Cached connection state from the manager; no guest round trip.
+    let agent = app.control.agent_status().await.ok();
+    system["Oem"] = json!({"Qrab": {"@odata.type": "#QrabComputerSystem.v1_0_0.QrabComputerSystem", "Configuration": view, "GuestAgent": agent}});
     Ok(Json(system))
 }
 
@@ -357,6 +373,101 @@ pub fn reset_action(
             "Use one of the ResetType@Redfish.AllowableValues.",
         )),
     }
+}
+
+async fn admin(app: &AppState, headers: &HeaderMap) -> Result<Principal, Failure> {
+    let who = principal(app, headers).await?;
+    if who.role != Role::Admin {
+        return Err(Failure::forbidden());
+    }
+    Ok(who)
+}
+
+fn agent_failure(error: manager::Error) -> Failure {
+    match error {
+        manager::Error::Config(message) => Failure::new(
+            StatusCode::BAD_REQUEST,
+            "ActionParameterValueFormatError",
+            message,
+            "Use at most 16 tokens of [A-Za-z0-9._:/=+@,-] that do not start with '-'.",
+        ),
+        error => Failure::vm(&error, "The guest agent did not complete the request."),
+    }
+}
+
+/// An optional JSON object body; empty bodies are allowed for parameterless actions.
+fn action_body(body: &Bytes) -> Result<Value, Failure> {
+    if body.iter().all(u8::is_ascii_whitespace) {
+        return Ok(json!({}));
+    }
+    serde_json::from_slice::<Value>(body)
+        .ok()
+        .filter(Value::is_object)
+        .ok_or_else(|| {
+            Failure::new(
+                StatusCode::BAD_REQUEST,
+                "MalformedJSON",
+                "The request body is not a valid JSON object.",
+                "Send a JSON object.",
+            )
+        })
+}
+
+fn string_list(body: &Value, name: &'static str) -> Result<Option<Vec<String>>, Failure> {
+    match body.get(name) {
+        None => Ok(None),
+        Some(value) => serde_json::from_value(value.clone())
+            .map(Some)
+            .map_err(|_| {
+                Failure::new(
+                    StatusCode::BAD_REQUEST,
+                    "ActionParameterValueTypeError",
+                    format!("{name} must be an array of strings."),
+                    "Send an array of strings.",
+                )
+            }),
+    }
+}
+
+async fn agent_freeze(
+    State(app): State<AppState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Json<Value>, Failure> {
+    let who = admin(&app, &headers).await?;
+    let mountpoints = string_list(&action_body(&body)?, "Mountpoints")?;
+    let result = app.control.agent_freeze(mountpoints).await;
+    tracing::info!(subject=%who.subject, success=result.is_ok(), "Redfish guest freeze requested");
+    Ok(Json(
+        json!({"FrozenFilesystems": result.map_err(agent_failure)?}),
+    ))
+}
+
+async fn agent_thaw(
+    State(app): State<AppState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Json<Value>, Failure> {
+    let who = admin(&app, &headers).await?;
+    action_body(&body)?;
+    let result = app.control.agent_thaw().await;
+    tracing::info!(subject=%who.subject, success=result.is_ok(), "Redfish guest thaw requested");
+    Ok(Json(
+        json!({"ThawedFilesystems": result.map_err(agent_failure)?}),
+    ))
+}
+
+async fn agent_update(
+    State(app): State<AppState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Json<Value>, Failure> {
+    let who = admin(&app, &headers).await?;
+    let args = string_list(&action_body(&body)?, "Args")?.unwrap_or_default();
+    let result = app.control.agent_update_trigger(args).await;
+    tracing::info!(subject=%who.subject, success=result.is_ok(), "Redfish guest update requested");
+    let status = result.map_err(agent_failure)?;
+    Ok(Json(json!({"Update": status})))
 }
 
 async fn reset(

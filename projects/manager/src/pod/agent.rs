@@ -13,7 +13,7 @@ use qapi_protocol::{qga::Qga, ClientOptions};
 use qrab_guest_agent::proto::{validate_update_args, QrabUpdateStatus, QrabUpdateTrigger};
 pub use qrab_guest_agent::proto::{UpdateState, UpdateStatus};
 use serde::{Deserialize, Serialize};
-use std::{path::PathBuf, time::Duration};
+use std::{path::PathBuf, sync::Arc, time::Duration};
 use tokio::sync::{mpsc, oneshot, watch};
 
 /// Connection state of the in-guest agent, as last observed by the manager.
@@ -102,29 +102,53 @@ impl Default for AgentTimings {
 /// Owned by the supervisor for one QEMU lifetime; dropping it stops the task.
 pub(super) struct GuestAgent {
     ops: mpsc::Sender<AgentOp>,
-    status: watch::Receiver<AgentStatus>,
+    publisher: Arc<watch::Sender<AgentStatus>>,
     task: tokio::task::JoinHandle<()>,
 }
 
 impl Drop for GuestAgent {
     fn drop(&mut self) {
         self.task.abort();
+        self.publisher.send_modify(|s| {
+            s.connected = false;
+            s.connected_since_unix_ms = None;
+        });
     }
 }
 
 impl GuestAgent {
+    #[cfg(test)]
     pub(super) fn spawn(socket: PathBuf, timings: AgentTimings) -> Self {
+        Self::spawn_publishing(
+            socket,
+            timings,
+            Arc::new(watch::channel(Default::default()).0),
+        )
+    }
+
+    /// Publish connection state into `status`, which readers (the control
+    /// channel) observe without a supervisor round trip.
+    pub(super) fn spawn_publishing(
+        socket: PathBuf,
+        timings: AgentTimings,
+        publisher: Arc<watch::Sender<AgentStatus>>,
+    ) -> Self {
         let (ops, receiver) = mpsc::channel(4);
-        let (publisher, status) = watch::channel(AgentStatus {
+        publisher.send_replace(AgentStatus {
             enabled: true,
             ..AgentStatus::default()
         });
-        let task = tokio::spawn(worker(socket, timings, receiver, publisher));
-        Self { ops, status, task }
+        let task = tokio::spawn(worker(socket, timings, receiver, publisher.clone()));
+        Self {
+            ops,
+            publisher,
+            task,
+        }
     }
 
+    #[cfg(test)]
     pub(super) fn status(&self) -> AgentStatus {
-        self.status.borrow().clone()
+        self.publisher.borrow().clone()
     }
 
     /// Never waits: a busy agent queue is reported instead of stalling the
@@ -152,7 +176,7 @@ async fn worker(
     socket: PathBuf,
     timings: AgentTimings,
     mut ops: mpsc::Receiver<AgentOp>,
-    status: watch::Sender<AgentStatus>,
+    status: Arc<watch::Sender<AgentStatus>>,
 ) {
     let options = ClientOptions {
         connect_timeout: Duration::from_secs(1),

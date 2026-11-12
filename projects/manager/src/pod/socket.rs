@@ -6,7 +6,10 @@
 //! request turns the connection into a stream of event frames, and a `console`
 //! request turns it into the raw VNC byte stream. Neither QMP nor a VNC socket
 //! path is ever exposed.
-use super::{Action, Config, ConfigView, Control, EventPage, Status, VmEvent};
+use super::{
+    Action, AgentStatus, Config, ConfigView, Control, EventPage, FreezeState, Status, UpdateStatus,
+    VmEvent,
+};
 use crate::{Error, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -34,7 +37,20 @@ pub const MAX_CONSOLES: usize = 4;
 const IDLE_TIMEOUT: Duration = Duration::from_secs(60);
 const WRITE_TIMEOUT: Duration = Duration::from_secs(5);
 const OPERATIONS: &[&str] = &[
-    "status", "probe", "config", "events", "follow", "action", "console", "agent",
+    "status",
+    "probe",
+    "config",
+    "events",
+    "follow",
+    "action",
+    "console",
+    "agent",
+    "agent_status",
+    "agent_freeze_status",
+    "agent_freeze",
+    "agent_thaw",
+    "agent_update_trigger",
+    "agent_update_status",
 ];
 
 /// `{control_dir}/control.sock`; `control_dir` defaults to
@@ -96,7 +112,22 @@ pub enum Operation {
         action: Action,
     },
     Console,
-    /// A guest-agent request through [`Control`]'s agent methods.
+    /// Cached guest-agent connection state; never waits on the guest.
+    AgentStatus,
+    AgentFreezeStatus,
+    /// Freeze all guest filesystems, or only `mountpoints`.
+    AgentFreeze {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        mountpoints: Option<Vec<String>>,
+    },
+    AgentThaw,
+    /// Start the guest's fixed update hook with bounded token arguments.
+    AgentUpdateTrigger {
+        #[serde(default)]
+        args: Vec<String>,
+    },
+    AgentUpdateStatus,
+    /// The same requests in nested form, used by `qrab-manager agent`.
     Agent {
         agent: AgentCommand,
     },
@@ -121,6 +152,24 @@ pub enum AgentCommand {
         args: Vec<String>,
     },
     UpdateStatus,
+}
+
+/// One reply for both the nested `agent` and the flat `agent_*` forms.
+async fn agent_reply(control: &Control, id: Option<u64>, command: AgentCommand) -> Response {
+    match agent(control, command).await {
+        Ok(value) => Response::ok(id, value),
+        Err(error) => error_reply(id, error),
+    }
+}
+
+fn error_reply(id: Option<u64>, error: Error) -> Response {
+    let code = match error {
+        Error::ShuttingDown => ErrorCode::ShuttingDown,
+        // A request the manager refused on its merits, e.g. update arguments.
+        Error::Config(_) => ErrorCode::BadRequest,
+        _ => ErrorCode::Unavailable,
+    };
+    Response::error(id, code, error.to_string())
 }
 
 async fn agent(control: &Control, command: AgentCommand) -> Result<Value> {
@@ -384,13 +433,7 @@ async fn connection(
             }
         };
         let id = request.id;
-        let unavailable = |error: Error| {
-            let code = match error {
-                Error::ShuttingDown => ErrorCode::ShuttingDown,
-                _ => ErrorCode::Unavailable,
-            };
-            Response::error(id, code, error.to_string())
-        };
+        let unavailable = |error: Error| error_reply(id, error);
         let reply = match request.op {
             Operation::Status => control
                 .status()
@@ -411,6 +454,20 @@ async fn connection(
             Operation::Agent { agent: command } => agent(&control, command)
                 .await
                 .map_or_else(unavailable, |value| Response::ok(id, value)),
+            Operation::AgentStatus => agent_reply(&control, id, AgentCommand::Status).await,
+            Operation::AgentFreezeStatus => {
+                agent_reply(&control, id, AgentCommand::FreezeStatus).await
+            }
+            Operation::AgentFreeze { mountpoints } => {
+                agent_reply(&control, id, AgentCommand::Freeze { mountpoints }).await
+            }
+            Operation::AgentThaw => agent_reply(&control, id, AgentCommand::Thaw).await,
+            Operation::AgentUpdateTrigger { args } => {
+                agent_reply(&control, id, AgentCommand::UpdateTrigger { args }).await
+            }
+            Operation::AgentUpdateStatus => {
+                agent_reply(&control, id, AgentCommand::UpdateStatus).await
+            }
             Operation::Follow { after } => {
                 let cursor = after.unwrap_or_else(|| control.events(None, 1).latest);
                 if write(
@@ -562,6 +619,9 @@ impl Client {
             (_, _, Some(error)) if error.code == ErrorCode::ShuttingDown => {
                 Err(Error::ShuttingDown)
             }
+            (_, _, Some(error)) if error.code == ErrorCode::BadRequest => {
+                Err(Error::Config(error.message))
+            }
             (_, _, Some(error)) => Err(Error::Spawn(format!(
                 "control request failed ({:?}): {}",
                 error.code, error.message
@@ -597,6 +657,44 @@ impl Client {
     /// The JSON result of the matching `Control::agent_*` method.
     pub async fn agent(&mut self, command: AgentCommand) -> Result<Value> {
         self.call(Operation::Agent { agent: command }).await
+    }
+
+    pub async fn agent_status(&mut self) -> Result<AgentStatus> {
+        Ok(serde_json::from_value(
+            self.call(Operation::AgentStatus).await?,
+        )?)
+    }
+
+    pub async fn agent_freeze_status(&mut self) -> Result<FreezeState> {
+        Ok(serde_json::from_value(
+            self.call(Operation::AgentFreezeStatus).await?,
+        )?)
+    }
+
+    /// Returns the number of frozen filesystems.
+    pub async fn agent_freeze(&mut self, mountpoints: Option<Vec<String>>) -> Result<i64> {
+        Ok(serde_json::from_value(
+            self.call(Operation::AgentFreeze { mountpoints }).await?,
+        )?)
+    }
+
+    /// Returns the number of thawed filesystems.
+    pub async fn agent_thaw(&mut self) -> Result<i64> {
+        Ok(serde_json::from_value(
+            self.call(Operation::AgentThaw).await?,
+        )?)
+    }
+
+    pub async fn agent_update_trigger(&mut self, args: Vec<String>) -> Result<UpdateStatus> {
+        Ok(serde_json::from_value(
+            self.call(Operation::AgentUpdateTrigger { args }).await?,
+        )?)
+    }
+
+    pub async fn agent_update_status(&mut self) -> Result<UpdateStatus> {
+        Ok(serde_json::from_value(
+            self.call(Operation::AgentUpdateStatus).await?,
+        )?)
     }
 
     /// Consume the connection as an event stream starting after `after`

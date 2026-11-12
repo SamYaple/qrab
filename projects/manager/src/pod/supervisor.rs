@@ -270,7 +270,11 @@ async fn run_qemu(
     let pump = control.pump_events(events);
     // QEMU created the agent chardev before QMP became available.
     let agent = config.guest_agent.then(|| {
-        super::agent::GuestAgent::spawn(socket.with_file_name("qga.sock"), Default::default())
+        super::agent::GuestAgent::spawn_publishing(
+            socket.with_file_name("qga.sock"),
+            Default::default(),
+            control.agent_status_publisher(),
+        )
     });
     let execution = async {
         if qmp.version() < (11,1,0) { return Err(Error::Config("pod manager requires QEMU 11.1 or newer".into())); }

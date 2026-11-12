@@ -1,3 +1,4 @@
+mod agent;
 pub mod auth;
 pub mod config;
 mod console;
@@ -45,6 +46,9 @@ impl Failure {
     pub fn unavailable(message: &'static str) -> Self {
         Self(StatusCode::SERVICE_UNAVAILABLE, message)
     }
+    pub fn bad_request(message: &'static str) -> Self {
+        Self(StatusCode::BAD_REQUEST, message)
+    }
     /// A failed VM request; shutdown is reported as such.
     pub fn vm(error: &manager::Error, message: &'static str) -> Self {
         match error {
@@ -85,6 +89,10 @@ pub fn router(app: AppState) -> Router {
         .route("/api/events", get(events::page))
         .route("/api/events/stream", get(events::stream))
         .route("/api/action", post(action))
+        .route("/api/agent", get(agent::view))
+        .route("/api/agent/freeze", post(agent::freeze))
+        .route("/api/agent/thaw", post(agent::thaw))
+        .route("/api/agent/update", post(agent::update))
         .route("/api/console", get(console::upgrade))
         .route("/healthz", get(|| async { "ok" }))
         // A paused VM must stay reachable so an operator can resume it.

@@ -342,6 +342,22 @@ async fn resources_have_redfish_shapes_and_links() {
         "/redfish/v1/Managers/1"
     );
     assert_eq!(system["UUID"], STATE_ID);
+    let oem = &system["Actions"]["Oem"];
+    assert_eq!(
+        oem["#QrabComputerSystem.Freeze"]["target"],
+        qrab_redfish::FREEZE_TARGET
+    );
+    assert_eq!(
+        oem["#QrabComputerSystem.Thaw"]["target"],
+        qrab_redfish::THAW_TARGET
+    );
+    assert_eq!(
+        oem["#QrabComputerSystem.Update"]["target"],
+        qrab_redfish::UPDATE_TARGET
+    );
+    // Cached guest-agent state, available before QEMU runs.
+    assert_eq!(system["Oem"]["Qrab"]["GuestAgent"]["enabled"], true);
+    assert_eq!(system["Oem"]["Qrab"]["GuestAgent"]["connected"], false);
     let admin_config = system["Oem"]["Qrab"]["Configuration"].to_string();
     assert!(admin_config.contains(PORTAL) && admin_config.contains("chap-user"));
     // Viewers get the BMC's redacted configuration and no identity.
@@ -637,4 +653,43 @@ fn timestamps_are_rfc3339_utc() {
         qrab_redfish::rfc3339(1_794_441_599_999),
         "2026-11-11T23:59:59.999Z"
     );
+}
+
+#[tokio::test]
+async fn guest_agent_actions_are_admin_only_and_validated() {
+    let fixture = fixture();
+    let app = &fixture.app;
+    let viewer = good(VIEWER);
+    let admin = good(ADMIN);
+    for (target, body) in [
+        (qrab_redfish::FREEZE_TARGET, ""),
+        (qrab_redfish::THAW_TARGET, "{}"),
+        (qrab_redfish::UPDATE_TARGET, r#"{"Args":["release=2"]}"#),
+    ] {
+        let (status, _, reply) = call(app, "POST", target, Some(&viewer), body).await;
+        assert_eq!(status, StatusCode::FORBIDDEN, "{target}");
+        assert_error(&reply, "InsufficientPrivilege");
+        let (status, _, _) = call(app, "POST", target, None, body).await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+        // Admins reach the manager; the agent is not connected yet.
+        let (status, _, reply) = call(app, "POST", target, Some(&admin), body).await;
+        assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "{target}");
+        assert_eq!(
+            reply["error"]["message"],
+            "The guest agent did not complete the request."
+        );
+    }
+    for (body, message_id) in [
+        (
+            r#"{"Args":["$(reboot)"]}"#,
+            "ActionParameterValueFormatError",
+        ),
+        (r#"{"Args":"release=2"}"#, "ActionParameterValueTypeError"),
+        ("[1]", "MalformedJSON"),
+    ] {
+        let (status, _, reply) =
+            call(app, "POST", qrab_redfish::UPDATE_TARGET, Some(&admin), body).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+        assert_error(&reply, message_id);
+    }
 }

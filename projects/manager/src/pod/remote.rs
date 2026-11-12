@@ -4,7 +4,7 @@
 use super::{
     events::{EventLog, EventPage},
     socket::{Client, FollowFrame},
-    Action, ConfigView, Control, Status,
+    Action, AgentStatus, ConfigView, Control, FreezeState, Status, UpdateStatus,
 };
 use crate::Result;
 use std::{path::PathBuf, sync::Arc, time::Duration};
@@ -91,6 +91,30 @@ impl Remote {
     pub async fn console(&self) -> Result<UnixStream> {
         self.client().await?.console().await
     }
+
+    pub async fn agent_status(&self) -> Result<AgentStatus> {
+        self.client().await?.agent_status().await
+    }
+
+    pub async fn agent_freeze_status(&self) -> Result<FreezeState> {
+        self.client().await?.agent_freeze_status().await
+    }
+
+    pub async fn agent_freeze(&self, mountpoints: Option<Vec<String>>) -> Result<i64> {
+        self.client().await?.agent_freeze(mountpoints).await
+    }
+
+    pub async fn agent_thaw(&self) -> Result<i64> {
+        self.client().await?.agent_thaw().await
+    }
+
+    pub async fn agent_update_trigger(&self, args: Vec<String>) -> Result<UpdateStatus> {
+        self.client().await?.agent_update_trigger(args).await
+    }
+
+    pub async fn agent_update_status(&self) -> Result<UpdateStatus> {
+        self.client().await?.agent_update_status().await
+    }
 }
 
 /// Where a BMC-like service reaches its VM.
@@ -151,6 +175,48 @@ impl Backend {
         match self {
             Self::Local(control) => control.console().await,
             Self::Socket(remote) => remote.console().await,
+        }
+    }
+
+    pub async fn agent_status(&self) -> Result<AgentStatus> {
+        match self {
+            Self::Local(control) => control.agent_status().await,
+            Self::Socket(remote) => remote.agent_status().await,
+        }
+    }
+
+    pub async fn agent_freeze_status(&self) -> Result<FreezeState> {
+        match self {
+            Self::Local(control) => control.agent_freeze_status().await,
+            Self::Socket(remote) => remote.agent_freeze_status().await,
+        }
+    }
+
+    pub async fn agent_freeze(&self, mountpoints: Option<Vec<String>>) -> Result<i64> {
+        match self {
+            Self::Local(control) => control.agent_freeze(mountpoints).await,
+            Self::Socket(remote) => remote.agent_freeze(mountpoints).await,
+        }
+    }
+
+    pub async fn agent_thaw(&self) -> Result<i64> {
+        match self {
+            Self::Local(control) => control.agent_thaw().await,
+            Self::Socket(remote) => remote.agent_thaw().await,
+        }
+    }
+
+    pub async fn agent_update_trigger(&self, args: Vec<String>) -> Result<UpdateStatus> {
+        match self {
+            Self::Local(control) => control.agent_update_trigger(args).await,
+            Self::Socket(remote) => remote.agent_update_trigger(args).await,
+        }
+    }
+
+    pub async fn agent_update_status(&self) -> Result<UpdateStatus> {
+        match self {
+            Self::Local(control) => control.agent_update_status().await,
+            Self::Socket(remote) => remote.agent_update_status().await,
         }
     }
 }

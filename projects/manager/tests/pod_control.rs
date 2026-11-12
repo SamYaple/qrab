@@ -59,6 +59,7 @@ async fn mock_qemu(runtime: PathBuf, mut inject: mpsc::Receiver<(String, Value)>
     .await
     .unwrap();
     let listener = UnixListener::bind(session.join("qmp.sock")).unwrap();
+    serve_guest_agent(&session.join("qga.sock"));
     let mut session = QmpSession::accept(&listener).await.unwrap();
     session.send_greeting(11, 1, 3).await.unwrap();
     session.negotiate().await.unwrap();
@@ -109,6 +110,56 @@ async fn mock_qemu(runtime: PathBuf, mut inject: mpsc::Receiver<(String, Value)>
         }
     }
     read.abort();
+}
+
+/// One filesystem whose freeze/thaw only flips a flag.
+#[derive(Default)]
+struct Guest(std::sync::Mutex<bool>);
+impl qrab_guest_agent::sys::Platform for Guest {
+    fn mounts(&self) -> std::io::Result<Vec<qrab_guest_agent::sys::Mount>> {
+        Ok(vec![qrab_guest_agent::sys::Mount {
+            dir: "/".into(),
+            fstype: "ext4".into(),
+            device: (253, 1),
+        }])
+    }
+    fn freeze(&self, _: &qrab_guest_agent::sys::Mount) -> std::io::Result<()> {
+        *self.0.lock().unwrap() = true;
+        Ok(())
+    }
+    fn thaw(&self, _: &qrab_guest_agent::sys::Mount) -> std::io::Result<()> {
+        *self.0.lock().unwrap() = false;
+        Ok(())
+    }
+    fn trim(&self, _: &qrab_guest_agent::sys::Mount, _: u64) -> std::io::Result<(u64, u64)> {
+        Ok((0, 0))
+    }
+    fn shutdown(&self, _: qrab_guest_agent::sys::ShutdownMode) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+/// The production agent library serving QGA where QEMU's chardev would be.
+fn serve_guest_agent(path: &Path) {
+    let listener = std::os::unix::net::UnixListener::bind(path).unwrap();
+    let hooks = std::env::temp_dir().join(format!("qrab-hook-{}", std::process::id()));
+    let agent = qrab_guest_agent::Agent::new(
+        qrab_guest_agent::Config {
+            update: qrab_guest_agent::HookPolicy {
+                path: hooks.join("update-hook"),
+                require_root: false,
+                timeout: Duration::from_secs(5),
+            },
+            ..Default::default()
+        },
+        std::sync::Arc::new(Guest::default()),
+    );
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(stream) = stream else { return };
+            let _ = agent.serve(&stream, &stream);
+        }
+    });
 }
 
 async fn wait_for(control: &pod::Control, name: &str) -> pod::VmEvent {
@@ -218,17 +269,12 @@ async fn supervisor_records_qmp_events_and_serves_them_over_control_and_socket()
     assert!(!full.redacted && full.paths.is_some());
     let redacted = client.config(true).await.unwrap();
     assert!(redacted.redacted && redacted.paths.is_none() && redacted.state_id.is_none());
-    // Guest-agent requests reach Control; no agent runs behind the fixture.
+    // The nested `agent` form reaches Control too; connected-agent checks
+    // follow below and the not-connected ones in the protocol test.
     assert!(client.greeting().operations.iter().any(|op| op == "agent"));
     let agent: pod::AgentStatus =
         serde_json::from_value(client.agent(socket::AgentCommand::Status).await.unwrap()).unwrap();
-    assert!(agent.enabled && !agent.connected, "{agent:?}");
-    let error = client
-        .agent(socket::AgentCommand::Ping)
-        .await
-        .unwrap_err()
-        .to_string();
-    assert!(error.contains("not connected"), "{error}");
+    assert!(agent.enabled, "{agent:?}");
     let error = client
         .agent(socket::AgentCommand::UpdateTrigger {
             args: vec!["--x".into()],
@@ -290,6 +336,39 @@ async fn supervisor_records_qmp_events_and_serves_them_over_control_and_socket()
     .unwrap();
     assert!(backend.console().await.is_err());
     mirror.abort();
+    // Guest-agent operations over the socket, against the real agent.
+    tokio::time::timeout(Duration::from_secs(10), async {
+        while !control.agent_status().await.unwrap().connected {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("guest agent never connected");
+    let agent = client.agent_status().await.unwrap();
+    assert!(agent.enabled && agent.connected, "{agent:?}");
+    assert_eq!(agent.version.as_deref(), Some("11.1.3"));
+    assert_eq!(client.agent_freeze(None).await.unwrap(), 1);
+    assert_eq!(
+        client.agent_freeze_status().await.unwrap(),
+        pod::FreezeState::Frozen
+    );
+    assert!(
+        client.agent_update_trigger(vec![]).await.is_err(),
+        "trigger while frozen"
+    );
+    assert_eq!(client.agent_thaw().await.unwrap(), 1);
+    assert!(!client.agent_update_status().await.unwrap().hook_installed);
+    let refused = client
+        .agent_update_trigger(vec!["$(reboot)".into()])
+        .await
+        .unwrap_err()
+        .to_string();
+    assert!(refused.contains("update arguments"), "{refused}");
+    assert!(client
+        .greeting()
+        .operations
+        .iter()
+        .any(|op| op == "agent_update_trigger"));
     // A console request on a console-less VM is refused, not a raw socket.
     assert!(Client::connect(&path)
         .await
@@ -446,6 +525,57 @@ async fn socket_protocol_is_versioned_bounded_and_survives_bad_requests() {
     let greeting = read(&mut stream).await;
     assert_eq!(greeting["protocol"], "qrab-control");
     assert_eq!(greeting["version"], 1);
+    // Agent status never waits on the supervisor queue: QEMU has not started,
+    // and agent commands are refused at once instead of timing out.
+    let started = std::time::Instant::now();
+    stream
+        .get_mut()
+        .write_all(b"{\"v\":1,\"id\":3,\"op\":\"agent_status\"}\n")
+        .await
+        .unwrap();
+    let reply = read(&mut stream).await;
+    assert_eq!(reply["id"], 3);
+    assert_eq!(
+        (
+            reply["result"]["enabled"].as_bool(),
+            reply["result"]["connected"].as_bool()
+        ),
+        (Some(true), Some(false))
+    );
+    for request in [
+        "{\"v\":1,\"id\":4,\"op\":\"agent_freeze\",\"mountpoints\":[\"/\"]}\n",
+        "{\"v\":1,\"id\":5,\"op\":\"agent_thaw\"}\n",
+        "{\"v\":1,\"id\":6,\"op\":\"agent_update_trigger\",\"args\":[\"release=2\"]}\n",
+        "{\"v\":1,\"id\":7,\"op\":\"agent_update_status\"}\n",
+        "{\"v\":1,\"id\":8,\"op\":\"agent_freeze_status\"}\n",
+    ] {
+        stream
+            .get_mut()
+            .write_all(request.as_bytes())
+            .await
+            .unwrap();
+        let reply = read(&mut stream).await;
+        assert_eq!(reply["error"]["code"], "unavailable", "{request}");
+        assert!(reply["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("not connected"));
+    }
+    stream
+        .get_mut()
+        .write_all(b"{\"v\":1,\"id\":9,\"op\":\"agent\",\"agent\":{\"command\":\"ping\"}}\n")
+        .await
+        .unwrap();
+    let reply = read(&mut stream).await;
+    assert!(reply["error"]["message"]
+        .as_str()
+        .unwrap()
+        .contains("not connected"));
+    assert!(
+        started.elapsed() < Duration::from_secs(1),
+        "{:?}",
+        started.elapsed()
+    );
     for (request, code) in [
         (
             "{\"v\":2,\"id\":7,\"op\":\"status\"}\n",

@@ -7,6 +7,18 @@ filesystem quiesce for consistent disk snapshots, and one entry point for
 guest updates. It is not qemu-ga: it serves a fixed allowlist and has no
 arbitrary execution, file access, user, password or network commands.
 
+## Host access
+
+`manager::pod::Control` exposes the agent; its connection status lives in the
+control channel's shared state, so `agent_status` answers before QEMU starts
+and never queues behind the supervisor. Other commands fail at once while the
+agent is disabled or disconnected. The control socket carries the same
+operations (`agent_status`, `agent_freeze_status`, `agent_freeze`,
+`agent_thaw`, `agent_update_trigger`, `agent_update_status`; see
+[manager.md](manager.md#control-socket)). The BMC shows the status to viewers
+and offers freeze, thaw and update to admins ([bmc.md](bmc.md)); Redfish has
+`Oem.Qrab.GuestAgent` and admin-only OEM actions ([redfish.md](redfish.md)).
+
 ## Commands
 
 | Command | Notes |

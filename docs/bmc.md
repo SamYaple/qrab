@@ -71,7 +71,14 @@ every live-stream recheck; they are never stored in the session.
 | Role | Access |
 | --- | --- |
 | viewer | `/api/session`, `/api/status`, `/api/events`, `/api/events/stream`, redacted `/api/config` |
-| admin | Everything a viewer has, the full `/api/config`, `/api/action` and `/api/console` |
+| admin | Everything a viewer has, the full `/api/config`, `/api/action`, `/api/console` and `POST /api/agent/{freeze,thaw,update}` |
+
+`GET /api/agent` (both roles) returns the manager's cached guest-agent status
+and, while connected, the freeze state and last update run; viewers do not see
+update arguments, output or errors. Admin `POST /api/agent/freeze`,
+`/api/agent/thaw` and `/api/agent/update` (`{"args":[...]}`) need the same
+Origin and CSRF checks as power actions. The dashboard's guest-agent panel
+shows the status and offers the admin buttons.
 
 A viewer's configuration keeps sizing, boot mode, TPM/console flags, disk kinds,
 IDs, buses and read-only flags. It omits iSCSI portals, targets, LUNs,

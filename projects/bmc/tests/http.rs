@@ -126,6 +126,7 @@ async fn vm_apis_reject_missing_expired_and_unlisted_sessions() {
         "/api/config",
         "/api/events",
         "/api/events/stream",
+        "/api/agent",
     ] {
         for cookie in [
             None,
@@ -643,4 +644,78 @@ async fn unavailable_responses_name_the_missing_resource() {
             "The VM configuration is unavailable."
         )
     );
+}
+
+fn post(path: &str, cookie: &str, csrf: &str, body: &str) -> Request<Body> {
+    req(path, Some(cookie))
+        .method("POST")
+        .header("content-type", "application/json")
+        .header("origin", "https://vm.example")
+        .header("x-csrf-token", csrf)
+        .body(Body::from(body.to_owned()))
+        .unwrap()
+}
+
+#[tokio::test]
+async fn guest_agent_status_is_for_viewers_and_its_mutations_for_admins() {
+    let app = app();
+    let viewer = cookie(app.sessions.clone(), VIEWER, auth::now() + 60).await;
+    let admin = cookie(app.sessions.clone(), SUBJECT, auth::now() + 60).await;
+    // Status is answered from the manager's cached state, before QEMU runs.
+    let started = std::time::Instant::now();
+    let (status, body) = get(&app, "/api/agent", &viewer).await;
+    assert!(started.elapsed() < std::time::Duration::from_secs(1));
+    assert_eq!(status, StatusCode::OK);
+    let view: serde_json::Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(view["status"]["enabled"], true);
+    assert_eq!(view["status"]["connected"], false);
+    assert!(view["freeze"].is_null() && view["update"].is_null());
+    let paths = [
+        ("/api/agent/freeze", ""),
+        ("/api/agent/thaw", ""),
+        ("/api/agent/update", r#"{"args":["release=2"]}"#),
+    ];
+    for (path, body) in paths {
+        let response = bmc::router(app.clone())
+            .oneshot(post(path, &viewer, "correct", body))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::FORBIDDEN, "viewer {path}");
+        let response = bmc::router(app.clone())
+            .oneshot(post(path, &admin, "wrong", body))
+            .await
+            .unwrap();
+        assert_eq!(
+            response.status(),
+            StatusCode::FORBIDDEN,
+            "admin without CSRF {path}"
+        );
+        // An admin passes authorization; the agent is not connected yet.
+        let response = bmc::router(app.clone())
+            .oneshot(post(path, &admin, "correct", body))
+            .await
+            .unwrap();
+        assert_eq!(
+            response.status(),
+            StatusCode::SERVICE_UNAVAILABLE,
+            "admin {path}"
+        );
+        let message = axum::body::to_bytes(response.into_body(), 1024)
+            .await
+            .unwrap();
+        assert_eq!(
+            &message[..],
+            b"The guest agent did not complete the request."
+        );
+    }
+    let response = bmc::router(app.clone())
+        .oneshot(post(
+            "/api/agent/update",
+            &admin,
+            "correct",
+            r#"{"args":["$(reboot)"]}"#,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
 }
