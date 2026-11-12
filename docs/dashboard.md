@@ -245,3 +245,31 @@ Origin on every POST, BMC calls with the bearer only to the selected Pod,
 escaping of guest strings, OIDC state handling and the console WebSocket's
 refusals, proxying and revocation. A live Kanidm login and a browser console
 session are part of the rollout check.
+
+## Rollout record (2026-11-12)
+
+- Kanidm: confidential client `qrab-dashboard` (one strict callback,
+  `https://vms.yapplesauce.com/auth/callback`), scope maps `openid profile
+  groups_uuid` for `qrab_vm_users`, `qrab_vm_launchers` (7617e8d9…, member
+  sam) and `qrab_operators`; service account `qrab-dashboard-groups` in
+  `idm_group_admins`. Secret `qrab/qrab-dashboard` was installed without
+  printing either credential and carries no last-applied annotation.
+- kubernetes-gitops `c990160`: ServiceAccount `qrab/qrab-dashboard` (UID
+  e368e4b5…), pull and `use` RBAC, the protected-account guards, and the
+  operator re-pinned to `02c56cd9`. `spiffe-node-pulls.py --apply` enrolled
+  `qrab/dashboard` on kube01–03.
+- Images from `2ed767d`: manager `373b51bb…`, operator `02c56cd9…`. The
+  dashboard `98cfeff4…` comes from `c208c2e`, which fixes the independent
+  security review. Every node is a control-plane node, so the Deployment
+  tolerates that taint.
+- `creator-policy.yaml` applied. `check-creator-policy.sh` PASS, including the
+  dashboard cases. The ServiceAccount can create, list and delete VMs, create
+  PVCs and get Pods and metrics. It cannot delete PVCs, read Secrets or patch
+  VMs.
+- qrab-demo was replaced once for the bearer settings (Pod 3f9ce1e7, 0
+  restarts). `check.sh` PASS with EK `ec61ceb9…e844` unchanged.
+- `https://vms.yapplesauce.com`: certificate Ready; `/healthz` 200; login
+  redirects to Kanidm with `client_id=qrab-dashboard`, S256 PKCE and
+  `groups_uuid`.
+- Not yet exercised: a browser login, the BMC panel and console through the
+  proxy, and a real launch.
