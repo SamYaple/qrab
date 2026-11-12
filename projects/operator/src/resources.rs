@@ -594,6 +594,11 @@ pub fn render_booted(
     if let Some(node) = &vm.spec.storage_node {
         pod["spec"]["nodeSelector"] = json!({"kubernetes.io/hostname":node});
     }
+    if vm.spec.accelerator == Accelerator::Kvm {
+        // Pinned so a mutated live Pod reads as drift; see check_kvm_user_namespace.
+        pod["spec"]["hostUsers"] = json!(true);
+    }
+    check_kvm_user_namespace(&pod["spec"])?;
     if !vm.spec.iscsi_disks.is_empty()
         || !vm.spec.disks.is_empty()
         || vm
@@ -690,6 +695,34 @@ pub fn render_booted(
         boot,
         maximum,
     })
+}
+
+/// Refuses a Pod spec that requests the KVM device inside a user namespace.
+/// The runtime creates the CDI `/dev/kvm` node with mode 0666 only in the host
+/// user namespace; with `hostUsers: false`, runc bind-mounts the host's 0660
+/// `root:kvm` node instead and QEMU (UID 10001) cannot open it.
+///
+/// ```
+/// use qrab_operator::resources::{check_kvm_user_namespace, KVM_RESOURCE};
+/// let mut spec = serde_json::json!({"containers":[{"resources":{"limits":{KVM_RESOURCE:"1"}}}]});
+/// assert!(check_kvm_user_namespace(&spec).is_ok());
+/// spec["hostUsers"] = true.into();
+/// assert!(check_kvm_user_namespace(&spec).is_ok());
+/// spec["hostUsers"] = false.into();
+/// assert!(check_kvm_user_namespace(&spec).is_err());
+/// ```
+pub fn check_kvm_user_namespace(spec: &Value) -> Result<()> {
+    let wants_kvm = spec["containers"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .any(|c| c["resources"]["limits"].get(KVM_RESOURCE).is_some());
+    if wants_kvm && spec.get("hostUsers") == Some(&Value::Bool(false)) {
+        return Err(Error::Invalid(
+            "a KVM VM Pod cannot use a user namespace (hostUsers: false): /dev/kvm would not be openable".into(),
+        ));
+    }
+    Ok(())
 }
 
 pub fn owned<K: Resource<DynamicType = ()>>(resource: &K, vm: &VirtualMachine) -> bool {

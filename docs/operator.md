@@ -272,6 +272,9 @@ hashes are unchanged by the field) or `kvm`. A `kvm` VM renders
 in-place vCPU growth, and requests and limits one
 `qrab.yapplesauce.com/kvm` extended resource. The VM Pod stays restricted:
 no privileged container, capability, hostPath or supplemental host group.
+It pins `hostUsers: true`, and the operator refuses a KVM Pod spec with
+`hostUsers: false`: in a user namespace runc bind-mounts the host's 0660 node
+instead of creating the CDI one, so UID 10001 could not open `/dev/kvm`.
 Switching the accelerator restarts the VM. Without the device plugin on a node,
 a `kvm` Pod stays Pending (`Insufficient qrab.yapplesauce.com/kvm`).
 
@@ -312,6 +315,10 @@ therefore creates the CDI node with its `fileMode`, so no supplemental group is
 rendered. Patching `cpus` 1→2→4 resized the same Pod UID in place, with 0
 restarts and a CPU limit of 3 and then 5. The guest reported `QRAB_GUEST_RESOURCES cpus=2`
 and then `cpus=4`. `cpus: 5` is rejected by the CRD (`cpus must not exceed maxCpus`).
+
+The generated `projects/kvm-device-plugin/src/v1beta1.rs` is checked against a
+fresh tonic-prost-build 0.14.6 run (default configuration, needs `protoc`):
+`cargo test -p qrab-kvm-device-plugin --test regenerate -- --ignored`.
 
 ## UEFI, TPM and SPIRE
 

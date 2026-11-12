@@ -373,6 +373,21 @@ fn kvm_is_opt_in_requests_the_device_and_grows_vcpus_in_place() {
         .find("hostPath")
         .is_none());
     assert!(container["securityContext"]["privileged"] == false);
+    assert_eq!(
+        pod["spec"]["hostUsers"], true,
+        "CDI device modes need the host user namespace"
+    );
+    let mut user_namespaced = pod["spec"].clone();
+    user_namespaced["hostUsers"] = json!(false);
+    assert!(resources::check_kvm_user_namespace(&user_namespaced).is_err());
+    let tcg_pod = serde_json::to_value(&default.pod).unwrap();
+    assert!(
+        tcg_pod["spec"].get("hostUsers").is_none(),
+        "TCG Pods are unchanged"
+    );
+    let mut tcg_user_namespaced = tcg_pod["spec"].clone();
+    tcg_user_namespaced["hostUsers"] = json!(false);
+    assert!(resources::check_kvm_user_namespace(&tcg_user_namespaced).is_ok());
     assert_eq!(config(&desired)["accelerator"], "kvm");
     assert_eq!(config(&desired)["hotplug"]["max_cpus"], 4);
     kvm.spec.max_cpus = Some(6);
