@@ -2,7 +2,9 @@
 # kubernetes-gitops has reconciled ClusterSPIFFEID qrab-operator (pinned to the
 # same operator digest as ../operator/deployment.yaml) and
 # ConfigMap qrab/qrab-storage-host-ca, and the host daemon/shim are active:
-#   kubectl apply --server-side -k contrib/kubernetes/operator-storage-api
+#   kubectl apply -k contrib/kubernetes/operator-storage-api
+# (client-side, like ../operator: --server-side conflicts with the
+# kubectl-client-side-apply field manager that owns the Deployment)
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 namespace: qrab

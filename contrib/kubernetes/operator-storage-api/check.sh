@@ -2,7 +2,9 @@
 # Live acceptance of the operator storage API with a disposable VM in namespace
 # qrab: provision, export, online grow, removal fence/Secret deletion, VM
 # deletion fence and cleanup. Run by an administrator after
-#   kubectl apply --server-side -k contrib/kubernetes/operator-storage-api
+#   kubectl apply -k contrib/kubernetes/operator-storage-api
+# (client-side, like ../operator: --server-side conflicts with the
+# kubectl-client-side-apply field manager that owns the Deployment)
 # has rolled out the operator. It never prints credentials.
 set -euo pipefail
 cd "$(dirname "$0")"
