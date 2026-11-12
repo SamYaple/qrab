@@ -20,6 +20,42 @@ pub struct GuestSize {
     pub memory_mib: u64,
 }
 
+/// Where in-place growth stands; non-sensitive, shown to BMC viewers.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ResizePhase {
+    /// The guest has the desired size, or no resize has been requested.
+    #[default]
+    Idle,
+    /// The container limits changed but the kubelet has not applied them.
+    WaitingForLimits,
+    /// A hot-plug step failed; the next attempt waits `retry_after_unix_ms`.
+    Retrying,
+    /// The desired size exceeds the boot-time maximum.
+    RestartRequired,
+    /// Container limit or cgroup files cannot be read.
+    LimitsUnavailable,
+}
+
+/// First retry delay after a failed hot-plug step; doubles per failure.
+pub const RETRY_INITIAL_MS: u64 = 1000;
+/// Retry delay ceiling, so a persistent failure costs one attempt a minute.
+pub const RETRY_MAX_MS: u64 = 60_000;
+
+/// Delay before attempt `failures + 1`: 1 s, 2 s, 4 s ... capped at 60 s.
+pub fn retry_delay_ms(failures: u32) -> u64 {
+    RETRY_INITIAL_MS
+        .saturating_mul(1 << failures.saturating_sub(1).min(16))
+        .min(RETRY_MAX_MS)
+}
+
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
 /// Resize progress published with the runtime status.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Resize {
@@ -34,6 +70,18 @@ pub struct Resize {
     /// Memory the guest's virtio-mem driver has actually plugged.
     pub plugged_memory_mib: Option<u64>,
     pub detail: Option<String>,
+    #[serde(default)]
+    pub phase: ResizePhase,
+    /// Consecutive failed hot-plug steps; reset by a successful step.
+    #[serde(default)]
+    pub failures: u32,
+    /// The most recent hot-plug failure, kept until a step succeeds.
+    #[serde(default)]
+    pub last_error: Option<String>,
+    /// No QMP hot-plug attempt is made before this time unless the
+    /// container limits change.
+    #[serde(default)]
+    pub retry_after_unix_ms: Option<u64>,
 }
 
 impl Resize {
@@ -142,7 +190,7 @@ async fn add_cpus(qmp: &Qmp, cpus: u32) -> Result<u32> {
         if present + vcpus > cpus {
             break;
         }
-        let props = match qapi::with_version(qmp.version(), || serde_json::to_value(&slot.props))? {
+        let props = match qapi::to_value(qmp.version(), &slot.props)? {
             serde_json::Value::Object(map) => {
                 map.into_iter().filter(|(_, v)| !v.is_null()).collect()
             }
@@ -162,29 +210,64 @@ async fn add_cpus(qmp: &Qmp, cpus: u32) -> Result<u32> {
 
 /// One growth step. Returns true when the published resize state changed.
 pub(super) async fn reconcile(config: &Config, qmp: &Qmp, resize: &mut Resize) -> bool {
+    reconcile_at(config, qmp, resize, now_ms()).await
+}
+
+/// A failed step is retried with capped exponential backoff instead of on
+/// every heartbeat; changed container limits retry immediately.
+async fn reconcile_at(config: &Config, qmp: &Qmp, resize: &mut Resize, now: u64) -> bool {
     let Some(hotplug) = &config.hotplug else {
         return false;
     };
     let before = resize.clone();
     resize.desired = desired(hotplug);
     resize.permitted = permitted(hotplug);
+    let limits_changed = resize.desired != before.desired || resize.permitted != before.permitted;
+    if !limits_changed && resize.retry_after_unix_ms.is_some_and(|t| now < t) {
+        return false;
+    }
     let result = grow(qmp, resize).await;
+    match &result {
+        Err(error) => {
+            resize.failures = resize.failures.saturating_add(1);
+            resize.last_error = Some(error.to_string());
+            let delay = retry_delay_ms(resize.failures);
+            resize.retry_after_unix_ms = Some(now.saturating_add(delay));
+            eprintln!(
+                "{}",
+                serde_json::json!({"event":"guest_resize_failed","failures":resize.failures,"retry_in_ms":delay,"error":error.to_string()})
+            );
+        }
+        Ok(()) => {
+            resize.failures = 0;
+            resize.last_error = None;
+            resize.retry_after_unix_ms = None;
+        }
+    }
     let (Some(desired), Some(permitted)) = (resize.desired, resize.permitted) else {
+        resize.phase = ResizePhase::LimitsUnavailable;
         resize.detail = Some("container limit or cgroup files are unavailable".into());
         return *resize != before;
     };
-    resize.detail = match &result {
-        Err(error) => Some(format!("hot-plug failed: {error}")),
+    (resize.phase, resize.detail) = match &result {
+        Err(error) => (
+            ResizePhase::Retrying,
+            Some(format!("hot-plug failed: {error}")),
+        ),
         Ok(())
             if desired.cpus > resize.maximum.cpus
                 || desired.memory_mib > resize.maximum.memory_mib =>
         {
-            Some("desired size exceeds the boot-time maximum; a restart is required".into())
+            (
+                ResizePhase::RestartRequired,
+                Some("desired size exceeds the boot-time maximum; a restart is required".into()),
+            )
         }
-        Ok(()) if desired.cpus > permitted.cpus || desired.memory_mib > permitted.memory_mib => {
-            Some("waiting for the kubelet to raise the container cgroup limits".into())
-        }
-        Ok(()) => None,
+        Ok(()) if desired.cpus > permitted.cpus || desired.memory_mib > permitted.memory_mib => (
+            ResizePhase::WaitingForLimits,
+            Some("waiting for the kubelet to raise the container cgroup limits".into()),
+        ),
+        Ok(()) => (ResizePhase::Idle, None),
     };
     if resize.current != before.current {
         eprintln!(
@@ -361,6 +444,79 @@ mod tests {
         );
     }
 
+    #[test]
+    fn retry_delay_doubles_to_a_cap() {
+        let delays: Vec<_> = (1..=9).map(retry_delay_ms).collect();
+        assert_eq!(
+            delays,
+            [1000, 2000, 4000, 8000, 16000, 32000, 60000, 60000, 60000]
+        );
+        assert_eq!(retry_delay_ms(u32::MAX), RETRY_MAX_MS);
+    }
+
+    #[tokio::test]
+    async fn failing_device_add_backs_off_and_reports_the_last_error() {
+        use qapi_protocol::server::QmpSession;
+        let dir = tempfile::tempdir().unwrap();
+        let config = config(dir.path());
+        let socket = dir.path().join("qmp.sock");
+        let listener = tokio::net::UnixListener::bind(&socket).unwrap();
+        let server = tokio::spawn(async move {
+            let mut session = QmpSession::accept(&listener).await.unwrap();
+            session.send_greeting(11, 1, 3).await.unwrap();
+            session.negotiate().await.unwrap();
+            let mut device_adds = 0;
+            while let Ok((name, _)) = session.recv_command().await {
+                match name.as_str() {
+                    "query-hotpluggable-cpus" => session
+                        .send_return(serde_json::json!([
+                            {"props":{"core-id":1},"vcpus-count":1,"type":"max-x86_64-cpu"},
+                            {"props":{"core-id":0},"vcpus-count":1,"type":"max-x86_64-cpu","qom-path":"/machine/unattached/device[0]"}
+                        ]))
+                        .await
+                        .unwrap(),
+                    "device_add" => {
+                        device_adds += 1;
+                        session
+                            .send_error("GenericError", "CPU hot-add refused")
+                            .await
+                            .unwrap()
+                    }
+                    _ => session.send_return(serde_json::json!({})).await.unwrap(),
+                }
+            }
+            device_adds
+        });
+        let (qmp, _events) = Qmp::new(&socket).await.unwrap();
+        let mut resize = Resize::new(&config).unwrap();
+        write(dir.path(), 3000, 1024, "max 100000", "max");
+        // One heartbeat per simulated second.
+        let mut attempts = Vec::new();
+        for second in 0..=123u64 {
+            let failures = resize.failures;
+            reconcile_at(&config, &qmp, &mut resize, second * 1000).await;
+            if resize.failures != failures {
+                attempts.push(second);
+            }
+        }
+        assert_eq!(attempts, [0, 1, 3, 7, 15, 31, 63, 123]);
+        assert_eq!(resize.phase, ResizePhase::Retrying);
+        assert_eq!(resize.failures, 8);
+        assert!(resize
+            .last_error
+            .as_deref()
+            .unwrap()
+            .contains("CPU hot-add refused"));
+        assert_eq!(resize.retry_after_unix_ms, Some(123_000 + 60_000));
+        assert_eq!(resize.current, resize.boot);
+        // New container limits retry at once instead of waiting out the delay.
+        write(dir.path(), 4000, 1024, "max 100000", "max");
+        reconcile_at(&config, &qmp, &mut resize, 124_000).await;
+        assert_eq!(resize.failures, 9);
+        qmp.shutdown().await;
+        assert_eq!(server.await.unwrap(), 9, "one device_add per attempt");
+    }
+
     #[tokio::test]
     async fn hotplug_waits_for_applied_cgroup_limits_then_adds_vcpus_and_memory() {
         use qapi_protocol::server::QmpSession;
@@ -411,6 +567,7 @@ mod tests {
         assert!(reconcile(&config, &qmp, &mut resize).await);
         assert_eq!(resize.current, resize.boot);
         assert!(resize.detail.as_deref().unwrap().contains("cgroup"));
+        assert_eq!(resize.phase, ResizePhase::WaitingForLimits);
         write(dir.path(), 4000, 1536, "400000 100000", "1610612736");
         assert!(reconcile(&config, &qmp, &mut resize).await);
         assert_eq!(
@@ -428,6 +585,7 @@ mod tests {
         reconcile(&config, &qmp, &mut resize).await;
         assert_eq!(resize.current.cpus, 4);
         assert!(resize.detail.as_deref().unwrap().contains("restart"));
+        assert_eq!(resize.phase, ResizePhase::RestartRequired);
         qmp.shutdown().await;
         let seen = server.await.unwrap();
         let names: Vec<_> = seen.iter().map(|(name, _)| name.as_str()).collect();

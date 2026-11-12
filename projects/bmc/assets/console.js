@@ -76,6 +76,14 @@ async function loadConfig() {
         ['Startup timeout', `${view.startup_timeout_secs}s`], ['Shutdown grace', `${view.shutdown_grace_secs}s`],
         ...view.disks.map((disk, index) => [`Disk ${index}`, describeDisk(disk)]),
     ];
+    if (view.hotplug) {
+        const h = view.hotplug;
+        rows.push(['Hot-plug maximum', `${h.max_cpus} vCPUs · ${h.max_memory_mib} MiB`]);
+        if (h.phase) {
+            const size = h.current ? ` · ${h.current.cpus} vCPUs, ${h.current.memory_mib} MiB` : '';
+            rows.push(['Resize', `${h.phase.replaceAll('_', ' ')}${size}${h.last_error ? ` · ${h.last_error}` : ''}`]);
+        }
+    }
     if (view.state_id) rows.push(['State ID', view.state_id]);
     if (view.kernel_args) rows.push(['Kernel args', view.kernel_args]);
     for (const [key, value] of Object.entries(view.deployment || {})) rows.push([key[0].toUpperCase() + key.slice(1), value]);

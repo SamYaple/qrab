@@ -710,7 +710,7 @@ fn gen_unit_enum_ser(name: &syn::Ident, variants: &[VariantInfo], ta: &TypeAttrs
     let body = if let Some(chk) = version_range_check(ta.since.as_deref(), ta.until.as_deref()) {
         quote! {
             if !(#chk) {
-                return Err(serde::ser::Error::custom(concat!("Type ", stringify!(#name), " not available in this QEMU version")));
+                return Err(serde::ser::Error::custom(qapi::unavailable_type_message(stringify!(#name))));
             }
             #dep_warn
             match self { #(#arms)* }
@@ -1176,7 +1176,7 @@ fn gen_struct_ser(
     let body = if let Some(chk) = version_range_check(ta.since.as_deref(), ta.until.as_deref()) {
         quote! {
             if !(#chk) {
-                return Err(serde::ser::Error::custom(concat!("Type ", stringify!(#name), " not available in this QEMU version")));
+                return Err(serde::ser::Error::custom(qapi::unavailable_type_message(stringify!(#name))));
             }
             #dep_warn
             #body
@@ -1286,7 +1286,7 @@ fn gen_struct_ser_flatten(name: &syn::Ident, fields: &[FieldInfo], ta: &TypeAttr
     let body = if let Some(chk) = version_range_check(ta.since.as_deref(), ta.until.as_deref()) {
         quote! {
             if !(#chk) {
-                return Err(serde::ser::Error::custom(concat!("Type ", stringify!(#name), " not available in this QEMU version")));
+                return Err(serde::ser::Error::custom(qapi::unavailable_type_message(stringify!(#name))));
             }
             #dep_warn
             #body

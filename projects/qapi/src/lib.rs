@@ -106,6 +106,42 @@ pub fn set_qemu_version(major: u32, minor: u32, patch: u32) -> Result<(), (u32, 
     }
 }
 
+/// Serialize a QAPI value for a particular peer version.
+///
+/// Generated types gate fields and whole types on the peer's QEMU version,
+/// so serializing outside a version context fails. Protocol clients scope
+/// this for requests; use this helper for values built elsewhere.
+///
+/// ```
+/// let props: qapi::CpuInstanceProperties =
+///     serde_json::from_value(serde_json::json!({"core-id": 1})).unwrap();
+/// let error = serde_json::to_value(&props).unwrap_err();
+/// assert!(error.to_string().contains("qapi::with_version"));
+/// let value = qapi::to_value((11, 1, 3), &props).unwrap();
+/// assert_eq!(value["core-id"], 1);
+/// ```
+pub fn to_value<T: serde::Serialize + ?Sized>(
+    version: (u32, u32, u32),
+    value: &T,
+) -> serde_json::Result<serde_json::Value> {
+    with_version(version, || serde_json::to_value(value))
+}
+
+/// Error text for a version-gated type serialized outside its range. Without
+/// any version context it names the fix rather than blaming the peer.
+#[doc(hidden)]
+pub fn unavailable_type_message(type_name: &str) -> String {
+    match qemu_version() {
+        (0, 0, 0) => format!(
+            "Type {type_name} cannot be serialized without a QEMU version; \
+             wrap serialization in qapi::with_version(peer_version, ..) or use qapi::to_value"
+        ),
+        (major, minor, patch) => {
+            format!("Type {type_name} not available in QEMU {major}.{minor}.{patch}")
+        }
+    }
+}
+
 /// Get the scoped serialization version, or the legacy process default.
 /// Returns (0, 0, 0) if neither has been set.
 pub fn qemu_version() -> (u32, u32, u32) {

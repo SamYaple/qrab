@@ -95,7 +95,7 @@ closes the socket so a possible error reply cannot contaminate a later call.
 Each connection serializes using its own peer's `version()`, including guest
 agents whose version differs from QEMU. Protocol connections no longer mutate
 process-global QAPI version defaults. Direct serialization can use the
-synchronous `qapi::with_version(version, || ...)` scope; the legacy global APIs
+synchronous `qapi::with_version(version, || ...)` scope or `qapi::to_value(version, &value)`; outside any scope a version-gated type fails with an error naming `qapi::with_version`; the legacy global APIs
 remain only for direct callers. BMC validation and version display use the
 connected VM's version.
 

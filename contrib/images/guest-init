@@ -14,15 +14,24 @@ if [ -x /usr/sbin/qrab-guest-agent ]; then
     echo QRAB_GUEST_AGENT_STARTED
 fi
 # There is no udev: online vCPUs and memory blocks the host hot-adds after a
-# Pod resize, and log each resulting guest size on the serial console.
+# Pod resize, and log each resulting guest size on the serial console. Only
+# devices that appear after boot are onlined, once each, so a CPU or memory
+# block deliberately offlined inside the guest stays offline.
 (
+    hotplug_paths() {
+        echo /sys/devices/system/cpu/cpu[0-9]*/online /sys/devices/system/memory/memory[0-9]*/state
+    }
+    seen=" $(hotplug_paths) "
     last=
     while :; do
-        for online in /sys/devices/system/cpu/cpu[0-9]*/online; do
-            [ "$(cat "$online" 2>/dev/null)" = 0 ] && echo 1 >"$online"
-        done
-        for block in /sys/devices/system/memory/memory[0-9]*/state; do
-            [ "$(cat "$block" 2>/dev/null)" = offline ] && echo online >"$block"
+        for path in $(hotplug_paths); do
+            case "$seen" in *" $path "*) continue ;; esac
+            [ -e "$path" ] || continue
+            case "$(cat "$path" 2>/dev/null)" in
+                0) echo 1 >"$path" 2>/dev/null || continue ;;
+                offline) echo online >"$path" 2>/dev/null || continue ;;
+            esac
+            seen="$seen$path "
         done
         now="cpus=$(grep -c '^processor' /proc/cpuinfo) memory_kib=$(sed -n 's/^MemTotal: *\([0-9]*\) kB$/\1/p' /proc/meminfo)"
         if [ "$now" != "$last" ]; then echo "QRAB_GUEST_RESOURCES $now"; last=$now; fi

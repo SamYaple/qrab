@@ -82,16 +82,27 @@ desired size from files and gates on the container's own cgroup:
   `qom-set /machine/peripheral/hotplug-memory0 requested-size`. `qom-get size`
   reports what the guest driver actually plugged.
 - `status.json` carries `resize`: boot, maximum, desired, permitted, current,
-  `plugged_memory_mib` and a `detail` such as waiting for cgroup limits or
-  "exceeds the boot-time maximum; a restart is required". Each growth logs a
-  `guest_resized` stderr record. Hot-plug failures are reported there and do not
-  stop the VM.
+  `plugged_memory_mib`, a `phase` (`idle`, `waiting_for_limits`, `retrying`,
+  `restart_required`, `limits_unavailable`) and a `detail` such as waiting for
+  cgroup limits or "exceeds the boot-time maximum; a restart is required". Each
+  growth logs a `guest_resized` stderr record. Hot-plug failures do not stop
+  the VM.
+- A failed `device_add`/`qom-set` step is retried with capped exponential
+  backoff (1 s, 2 s, 4 s ... 60 s) rather than on every heartbeat. `resize`
+  reports `failures`, `last_error` and `retry_after_unix_ms`. Each failure logs
+  a `guest_resize_failed` record. A change in the container limits retries
+  immediately, and a successful step clears the failure state.
+- `Control::config_view()` includes `hotplug`: the boot-time maxima plus the
+  last published phase, current and desired size and last error. It is not
+  sensitive, so the redacted viewer view and the BMC show it too.
 
 The kubelet updates downward-API files before cgroup limits (and even while a
 resize is `Deferred`), so the cgroup check is the safety gate. The guest must
 online the new resources: the demo initramfs loads `virtio_mem` (Debian 6.12
-auto-onlines its memory) and, having no udev, onlines hot-added CPUs and any
-offline memory blocks in a background loop that prints
+auto-onlines its memory) and, having no udev, onlines hot-added CPUs and
+memory blocks in a background loop. It onlines only devices that appear after
+boot, once each, so a CPU or block an administrator offlines inside the guest
+stays offline. The loop prints
 `QRAB_GUEST_RESOURCES cpus=N memory_kib=M` on serial.
 
 **vCPU hot-plug requires a hypervisor-identified guest.** Linux 6.12.116

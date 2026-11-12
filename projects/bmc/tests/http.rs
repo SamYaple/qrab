@@ -40,7 +40,9 @@ fn app_with_receiver() -> (AppState, manager::pod::ControlReceiver) {
         ca_file: None,
     };
     let vm: manager::pod::Config = serde_json::from_value(serde_json::json!({
-        "kernel":"/unused", "console":true, "iscsi_disks":[{
+        "kernel":"/unused", "console":true,
+        "hotplug":{"max_cpus":4,"max_memory_mib":4096,"cpu_overhead_millis":500,"memory_overhead_mib":256},
+        "iscsi_disks":[{
             "id":"root","portal":PORTAL,"target":TARGET,"initiator_name":"iqn.2026-11.com.yapplesauce:qrab.vm.x",
             "username":"chap-user","password_file":"/run/qrab-auth/root/password"
         }]
@@ -307,6 +309,9 @@ async fn viewers_get_redacted_config_and_no_mutation_while_admins_get_everything
     assert_eq!(view["redacted"], true);
     assert_eq!(view["disks"][0]["kind"], "iscsi");
     assert_eq!(view["disks"][0]["id"], "root");
+    // Hot-plug ceilings are not sensitive.
+    assert_eq!(view["hotplug"]["max_cpus"], 4);
+    assert_eq!(view["hotplug"]["max_memory_mib"], 4096);
     for field in sensitive {
         assert!(!body.contains(field), "viewer saw {field}: {body}");
     }

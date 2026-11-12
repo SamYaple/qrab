@@ -1,6 +1,6 @@
 //! Read-only VM configuration views. Sensitive fields are `Option`s that the
 //! redacted view clears, so a viewer response cannot carry them by accident.
-use super::{Accelerator, Config, DiskFormat, IscsiBus};
+use super::{Accelerator, Config, DiskFormat, GuestSize, IscsiBus, Resize, ResizePhase};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
@@ -92,6 +92,23 @@ pub enum DiskView {
     },
 }
 
+/// In-place growth ceilings and progress. Not sensitive: viewers see it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HotplugView {
+    /// Boot-time maxima; growing past them needs a restart.
+    pub max_cpus: u32,
+    pub max_memory_mib: u64,
+    /// Filled from the supervisor's last published status, when available.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub phase: Option<ResizePhase>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub current: Option<GuestSize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub desired: Option<GuestSize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_error: Option<String>,
+}
+
 /// The effective VM configuration as shown to a BMC.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ConfigView {
@@ -117,6 +134,8 @@ pub struct ConfigView {
     pub paths: Option<PathView>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub deployment: Option<Deployment>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hotplug: Option<HotplugView>,
 }
 
 impl ConfigView {
@@ -177,7 +196,26 @@ impl ConfigView {
                 runtime_dir: config.runtime_dir.clone(),
             }),
             deployment: Some(deployment.clone()),
+            hotplug: Resize::new(config).map(|resize| HotplugView {
+                max_cpus: resize.maximum.cpus,
+                max_memory_mib: resize.maximum.memory_mib,
+                phase: None,
+                current: None,
+                desired: None,
+                last_error: None,
+            }),
         }
+    }
+
+    /// Add resize progress from a published status record.
+    pub fn with_resize(mut self, resize: Option<&Resize>) -> Self {
+        if let (Some(view), Some(resize)) = (self.hotplug.as_mut(), resize) {
+            view.phase = Some(resize.phase);
+            view.current = Some(resize.current);
+            view.desired = resize.desired;
+            view.last_error = resize.last_error.clone();
+        }
+        self
     }
 
     /// Remove storage endpoints, credentials references, identity, paths,
@@ -217,5 +255,39 @@ impl ConfigView {
             deployment: None,
             ..self.clone()
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn hotplug_ceilings_and_progress_survive_redaction() {
+        let config: Config = serde_json::from_value(serde_json::json!({
+            "kernel": "/unused", "cpus": 1, "memory_mib": 512,
+            "hotplug": {"max_cpus": 4, "max_memory_mib": 2048,
+                "cpu_overhead_millis": 1000, "memory_overhead_mib": 512}
+        }))
+        .unwrap();
+        let view = ConfigView::new(&config, &Deployment::default());
+        let hotplug = view.hotplug.clone().unwrap();
+        assert_eq!((hotplug.max_cpus, hotplug.max_memory_mib), (4, 2048));
+        assert_eq!(hotplug.phase, None);
+
+        let mut resize = Resize::new(&config).unwrap();
+        resize.phase = ResizePhase::Retrying;
+        resize.last_error = Some("CPU hot-add refused".into());
+        let viewer = view.with_resize(Some(&resize)).redacted();
+        let hotplug = viewer.hotplug.unwrap();
+        assert_eq!(hotplug.phase, Some(ResizePhase::Retrying));
+        assert_eq!(hotplug.current, Some(resize.boot));
+        assert_eq!(hotplug.last_error.as_deref(), Some("CPU hot-add refused"));
+
+        let fixed: Config =
+            serde_json::from_value(serde_json::json!({"kernel": "/unused"})).unwrap();
+        assert!(ConfigView::new(&fixed, &Deployment::default())
+            .hotplug
+            .is_none());
     }
 }

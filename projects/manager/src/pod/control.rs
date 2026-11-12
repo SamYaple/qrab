@@ -164,7 +164,11 @@ impl Control {
     /// The full configuration view, including sensitive fields. Callers that
     /// serve less-privileged users must use [`ConfigView::redacted`].
     pub fn config_view(&self) -> Result<ConfigView> {
-        Ok(ConfigView::new(&self.config()?, &self.shared.deployment))
+        let config = self.config()?;
+        let view = ConfigView::new(&config, &self.shared.deployment);
+        // Resize progress is best effort: the status record may not exist yet.
+        let status = super::status(&config).ok();
+        Ok(view.with_resize(status.as_ref().and_then(|s| s.resize.as_ref())))
     }
 
     /// See [`EventPage`]. `after: None` is a snapshot of the newest events.

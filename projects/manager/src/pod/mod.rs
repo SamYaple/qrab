@@ -22,9 +22,11 @@ pub use control::{control_channel, control_channel_for, Action, Control, Control
 pub use events::{
     EventPage, QemuTime, VmEvent, EVENT_CAPACITY, EVENT_DATA_LIMIT, EVENT_PAGE_LIMIT,
 };
-pub use hotplug::{GuestSize, Resize};
+pub use hotplug::{GuestSize, Resize, ResizePhase};
 pub use iscsi::{IscsiBus, IscsiDisk};
 pub use remote::{Backend, Remote};
 pub use state::{probe, status, Phase, Status};
 pub use supervisor::{run, run_controlled, Outcome};
-pub use view::{BootMode, ConfigView, Deployment, DiskView, IscsiTargetView, PathView};
+pub use view::{
+    BootMode, ConfigView, Deployment, DiskView, HotplugView, IscsiTargetView, PathView,
+};
