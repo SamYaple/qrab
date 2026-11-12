@@ -182,7 +182,11 @@ mod tests {
                             {"node-name":"iscsi-root-lun","drv":"iscsi","encrypted":false,"file":"iscsi","ro":false,
                              "image":{"filename":"iscsi","format":"iscsi","virtual-size":size}},
                             {"node-name":"iscsi-root","drv":"raw","encrypted":false,"file":"iscsi","ro":false,
-                             "image":{"filename":"iscsi","format":"raw","virtual-size":size}}
+                             "image":{"filename":"iscsi","format":"raw","virtual-size":size}},
+                            // QEMU 8.0+ reports format-specific "file" for every file-posix node.
+                            {"node-name":"pflash-code-file","drv":"file","encrypted":false,"file":"/usr/share/qrab/OVMF_CODE.fd","ro":true,
+                             "image":{"filename":"/usr/share/qrab/OVMF_CODE.fd","format":"file","virtual-size":4194304,
+                                      "format-specific":{"type":"file","data":{}}}}
                         ]))
                         .await
                         .unwrap(),

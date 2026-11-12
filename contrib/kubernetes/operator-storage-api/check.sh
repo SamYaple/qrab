@@ -37,12 +37,15 @@ for _ in $(seq 1 60); do
   sleep 5
 done
 [ "$(status .status.podUid)" = "$pod_uid" ] || { echo "FAIL: growth restarted the VM" >&2; exit 1; }
+grown=false
 for _ in $(seq 1 60); do
-  k logs "$vm" -c manager | grep -q '"event":"disk_grown","disk":"scratch","capacity_bytes":134217728' && break
+  k logs "$vm" -c manager | grep -q '"event":"disk_grown","disk":"scratch","capacity_bytes":134217728' && { grown=true; break; }
   sleep 5
 done
 k logs "$vm" -c manager | grep '"event":"disk_grow' | tail -3
-echo "ok: guest disk grown online without a restart (check the guest's virtio size if a console is attached)"
+$grown || { echo "FAIL: QEMU never grew the disk (no disk_grown event)" >&2; exit 1; }
+[ "$(status .status.podUid)" = "$pod_uid" ] || { echo "FAIL: growth restarted the VM" >&2; exit 1; }
+echo "ok: QEMU grew the disk online without a restart"
 # Shrinking is refused by the CRD.
 if k patch qvm "$vm" --type=json -p '[{"op":"replace","path":"/spec/disks/0/sizeBytes","value":67108864}]' 2>/dev/null; then
   echo "FAIL: shrink accepted" >&2; exit 1

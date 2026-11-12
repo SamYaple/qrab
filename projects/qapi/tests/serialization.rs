@@ -436,3 +436,45 @@ fn sev_info_unknown_discriminator_errors() {
         err
     );
 }
+
+/// `type` is carried by two version alternates; the removed one's enum has no
+/// `file`, which QEMU 8.0+ reports for every file-posix node.
+#[test]
+fn shared_wire_discriminator_decodes_current_values() {
+    set_qemu_version(11, 1, 3);
+    let file: ImageInfoSpecific =
+        serde_json::from_str(r#"{"type":"file","data":{"extent-size-hint":1048576}}"#).unwrap();
+    assert!(file.r_type.is_none());
+    assert!(matches!(file.r#type, Some(ImageInfoSpecificKind::File)));
+    let Some(ImageInfoSpecificBranch::File(wrapper)) = file.u else {
+        panic!("file branch");
+    };
+    assert_eq!(wrapper.data.extent_size_hint, Some(1048576));
+    let qcow2: ImageInfoSpecific = serde_json::from_str(
+        r#"{"type":"qcow2","data":{"compat":"1.1","lazy-refcounts":false,"refcount-bits":16,"corrupt":false,"extended-l2":false,"compression-type":"zlib"}}"#,
+    )
+    .unwrap();
+    assert!(matches!(qcow2.r#type, Some(ImageInfoSpecificKind::Qcow2)));
+    assert!(matches!(qcow2.u, Some(ImageInfoSpecificBranch::Qcow2(_))));
+    let error = serde_json::from_str::<ImageInfoSpecific>(r#"{"type":"bogus","data":{}}"#)
+        .err()
+        .expect("an unknown discriminator is refused");
+    assert!(
+        error
+            .to_string()
+            .contains("no version of field 'type' accepts"),
+        "{error}"
+    );
+}
+
+#[test]
+fn shared_wire_discriminator_roundtrips_once() {
+    set_qemu_version(11, 1, 3);
+    let json = r#"{"type":"unix","path":"/run/qrab/qmp.sock"}"#;
+    let address: SocketAddress = serde_json::from_str(json).unwrap();
+    assert!(matches!(address.u, Some(SocketAddressBranch::Unix(_))));
+    let back = serde_json::to_value(&address).unwrap();
+    assert_eq!(back["type"], "unix");
+    assert_eq!(back["path"], "/run/qrab/qmp.sock");
+    assert_eq!(back.as_object().unwrap().len(), 2, "{back}");
+}

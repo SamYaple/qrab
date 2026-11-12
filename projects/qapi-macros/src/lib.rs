@@ -1307,6 +1307,57 @@ fn gen_struct_ser_flatten(name: &syn::Ident, fields: &[FieldInfo], ta: &TypeAttr
     }
 }
 
+/// Wire names carried by more than one field: version alternates such as a
+/// discriminator whose enum type changed (`ImageInfoSpecific.type` is
+/// `ImageInfoSpecificType` until 6.2 and `ImageInfoSpecificKind` after). Each
+/// alternate is optional and takes the value only if its own type accepts it.
+fn shared_wires(fields: &[FieldInfo]) -> std::collections::BTreeSet<String> {
+    let mut seen = std::collections::BTreeSet::new();
+    let mut shared = std::collections::BTreeSet::new();
+    for f in fields.iter().filter(|f| !f.attrs.flatten) {
+        let w = wire_name(&f.attrs.name, &f.ident);
+        if !seen.insert(w.clone()) {
+            shared.insert(w);
+        }
+    }
+    shared
+}
+
+/// Lenient extraction of one version alternate from a raw JSON value.
+fn alternate_init(f: &FieldInfo, raw: &TokenStream2) -> TokenStream2 {
+    let id = &f.ident;
+    let ty = &f.ty;
+    assert!(
+        is_option_type(ty),
+        "fields sharing a wire name must be optional version alternates"
+    );
+    quote! {
+        let #id: #ty = #raw.as_ref().and_then(|v| serde_json::from_value::<#ty>(v.clone()).ok().flatten());
+    }
+}
+
+/// Fails when a shared wire name was present but no alternate accepted it.
+fn alternates_check(
+    name: &syn::Ident,
+    wire: &str,
+    raw: &TokenStream2,
+    ids: &[&syn::Ident],
+) -> TokenStream2 {
+    quote! {
+        if let Some(v) = #raw.as_ref() {
+            if #(#ids.is_none())&&* {
+                return Err(serde::de::Error::custom(format!(
+                    "{}: no version of field '{}' accepts {}", stringify!(#name), #wire, v
+                )));
+            }
+        }
+    }
+}
+
+fn raw_ident(wire: &str) -> syn::Ident {
+    format_ident!("__raw_{}", wire.replace(['-', '.'], "_"))
+}
+
 fn gen_struct_de(name: &syn::Ident, fields: &[FieldInfo]) -> TokenStream2 {
     let field_idents: Vec<&syn::Ident> = fields.iter().map(|f| &f.ident).collect();
     let field_wires: Vec<String> = fields
@@ -1323,9 +1374,11 @@ fn gen_struct_de(name: &syn::Ident, fields: &[FieldInfo]) -> TokenStream2 {
         .map(|v| quote! { let mut #v = None; })
         .collect();
 
-    let match_arms: Vec<TokenStream2> = fields
+    let shared = shared_wires(fields);
+    let mut match_arms: Vec<TokenStream2> = fields
         .iter()
         .enumerate()
+        .filter(|(i, _)| !shared.contains(&field_wires[*i]))
         .map(|(i, f)| {
             let w = &field_wires[i];
             let v = &field_vars[i];
@@ -1333,21 +1386,44 @@ fn gen_struct_de(name: &syn::Ident, fields: &[FieldInfo]) -> TokenStream2 {
             quote! { #cond #w => { #v = Some(map.next_value()?); } }
         })
         .collect();
+    let mut none_inits: Vec<TokenStream2> = none_inits
+        .into_iter()
+        .enumerate()
+        .filter(|(i, _)| !shared.contains(&field_wires[*i]))
+        .map(|(_, t)| t)
+        .collect();
+    for w in &shared {
+        let raw = raw_ident(w);
+        none_inits.push(quote! { let mut #raw: Option<serde_json::Value> = None; });
+        match_arms.push(quote! { #w => { #raw = Some(map.next_value()?); } });
+    }
 
-    let inits: Vec<TokenStream2> = fields
+    let mut inits: Vec<TokenStream2> = fields
         .iter()
         .enumerate()
         .map(|(i, f)| {
             let v = &field_vars[i];
             let id = &f.ident;
             let w = &field_wires[i];
-            if is_option_type(&f.ty) {
+            if shared.contains(w) {
+                let raw = raw_ident(w);
+                alternate_init(f, &quote! { #raw })
+            } else if is_option_type(&f.ty) {
                 quote! { let #id = #v.unwrap_or(None); }
             } else {
                 quote! { let #id = #v.ok_or_else(|| serde::de::Error::missing_field(#w))?; }
             }
         })
         .collect();
+    for w in &shared {
+        let raw = raw_ident(w);
+        let ids: Vec<&syn::Ident> = fields
+            .iter()
+            .filter(|f| !f.attrs.flatten && &wire_name(&f.attrs.name, &f.ident) == w)
+            .map(|f| &f.ident)
+            .collect();
+        inits.push(alternates_check(name, w, &quote! { #raw }, &ids));
+    }
 
     quote! {
         #[allow(deprecated)]
@@ -1383,11 +1459,22 @@ fn gen_struct_de_flatten(name: &syn::Ident, fields: &[FieldInfo]) -> TokenStream
     let non_flat: Vec<&FieldInfo> = fields.iter().filter(|f| !f.attrs.flatten).collect();
     let flat: Vec<&FieldInfo> = fields.iter().filter(|f| f.attrs.flatten).collect();
 
-    let extractions: Vec<TokenStream2> = non_flat.iter().map(|f| {
+    let shared = shared_wires(fields);
+    let mut extractions: Vec<TokenStream2> = shared
+        .iter()
+        .map(|w| {
+            let raw = raw_ident(w);
+            quote! { let #raw: Option<serde_json::Value> = map.remove(#w); }
+        })
+        .collect();
+    extractions.extend(non_flat.iter().map(|f| {
         let id = &f.ident;
         let w = wire_name(&f.attrs.name, &f.ident);
         let ty = &f.ty;
-        if is_option_type(ty) {
+        if shared.contains(&w) {
+            let raw = raw_ident(&w);
+            alternate_init(f, &quote! { #raw })
+        } else if is_option_type(ty) {
             quote! {
                 let #id: #ty = match map.remove(#w) {
                     Some(v) => Some(serde_json::from_value(v).map_err(serde::de::Error::custom)?),
@@ -1402,10 +1489,20 @@ fn gen_struct_de_flatten(name: &syn::Ident, fields: &[FieldInfo]) -> TokenStream
                 };
             }
         }
-    }).collect();
+    }));
+    for w in &shared {
+        let raw = raw_ident(w);
+        let ids: Vec<&syn::Ident> = non_flat
+            .iter()
+            .filter(|f| &wire_name(&f.attrs.name, &f.ident) == w)
+            .map(|f| &f.ident)
+            .collect();
+        extractions.push(alternates_check(name, w, &quote! { #raw }, &ids));
+    }
 
     // Find discriminator field (if any) for gating union deserialization
-    let discriminator_field: Option<&FieldInfo> = fields.iter().find(|f| f.attrs.discriminator);
+    let discriminators: Vec<&FieldInfo> = fields.iter().filter(|f| f.attrs.discriminator).collect();
+    let discriminator_field: Option<&FieldInfo> = discriminators.first().copied();
 
     let flat_extractions: Vec<TokenStream2> = flat.iter().map(|f| {
         let id = &f.ident;
@@ -1413,7 +1510,25 @@ fn gen_struct_de_flatten(name: &syn::Ident, fields: &[FieldInfo]) -> TokenStream
         if f.attrs.union_field {
             if let Some(disc_f) = discriminator_field {
                 let disc_id = &disc_f.ident;
-                if is_option_type(&disc_f.ty) {
+                if discriminators.len() > 1 {
+                    // Version-alternate discriminators: use whichever decoded,
+                    // preferring one that is not removed.
+                    let inner_ty = inner_option_type(ty)
+                        .expect("union field with alternate discriminators must be Option<T>");
+                    let mut ordered = discriminators.clone();
+                    ordered.sort_by_key(|f| f.attrs.until.is_some());
+                    let ids: Vec<&syn::Ident> = ordered.iter().map(|f| &f.ident).collect();
+                    quote! {
+                        let __disc: Option<String> = None #(.or_else(|| #ids.as_ref().map(|d| d.to_string())))*;
+                        let #id: #ty = match __disc {
+                            Some(d) => Some(<#inner_ty as qapi::QapiFlatUnion>::deserialize_variant(
+                                &d,
+                                full_map.clone(),
+                            ).map_err(serde::de::Error::custom)?),
+                            None => None,
+                        };
+                    }
+                } else if is_option_type(&disc_f.ty) {
                     // Optional discriminator (e.g. added in later version):
                     // when None, union is None; when Some, use discriminator to
                     // select the correct variant via QapiFlatUnion trait.
