@@ -28,6 +28,14 @@ kubectl -n qrab get qvm,pod,pvc
 bash contrib/kubernetes/check.sh
 ```
 
+Once the storage service is enabled (`contrib/kubernetes/operator-storage-api`,
+as on this cluster), always update the operator through that kustomization:
+`kubectl apply -k contrib/kubernetes/operator-storage-api`. Applying
+`contrib/kubernetes/operator` or `operator/deployment.yaml` on its own removes
+the storage client (`QRAB_STORAGE_*` and its volumes) from the Deployment.
+Every VM with `spec.disks`, including dashboard OS launches, then sits
+`Blocked` with `StorageServiceUnavailable`.
+
 For the first migration only, remove the old manually managed `qrab-demo` Pod
 before applying the CR. The operator refuses to adopt resources with another
 owner UID, including an unowned Pod with the same name. Do not delete or recreate

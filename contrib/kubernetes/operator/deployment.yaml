@@ -1,3 +1,6 @@
+# With the storage service enabled, apply this only through
+# `kubectl apply -k contrib/kubernetes/operator-storage-api`; on its own it
+# drops the storage client and blocks every VM with spec.disks.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
