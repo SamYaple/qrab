@@ -9,7 +9,7 @@ use anyhow::{bail, ensure, Result};
 use serde::{Deserialize, Serialize};
 use std::{fs::File, io::Read, path::PathBuf};
 
-pub use disk::Image;
+pub use disk::{Image, ImportSource};
 pub use host::LinuxHost;
 pub use store::Store;
 
@@ -365,6 +365,19 @@ pub trait Backend {
     /// Copies a fenced source disk into a sealed, held, readonly image.
     /// Records the image dataset and snapshot GUIDs before returning.
     fn publish_image(&mut self, source: &Record, image: &mut Image) -> Result<()>;
+    /// Refuses an image dataset that exists without a journal (no adoption).
+    fn preflight_new_image(&mut self, image: &Image) -> Result<()>;
+    /// Creates the owned, still writable zvol of an import. Returns its GUID.
+    fn create_image_volume(&mut self, image: &Image) -> Result<String>;
+    /// Copies `source` to the new zvol's device node with plain file I/O and
+    /// fsyncs it. Returns the number of bytes written.
+    fn write_image(&mut self, image: &Image, source: &mut dyn std::io::Read) -> Result<u64>;
+    /// Seals a written import exactly as publication seals a received copy:
+    /// readonly, `@sealed`, the image hold, and the recorded GUIDs.
+    fn seal_new_image(&mut self, image: &mut Image) -> Result<()>;
+    /// Destroys an unsealed import's dataset after verifying it is ours.
+    /// Absent datasets are already clean.
+    fn destroy_new_image(&mut self, image: &Image) -> Result<()>;
     fn verify_image(&mut self, image: &Image) -> Result<()>;
     /// Removes the fenced export objects and marks the zvol retained.
     fn retire(&mut self, record: &Record) -> Result<()>;
@@ -545,6 +558,11 @@ pub(crate) mod tests {
         pub replaced_origin: bool,
         pub quota: Option<u64>,
         pub retired_images: Vec<String>,
+        pub fail_write: bool,
+        pub fail_seal: bool,
+        pub fail_destroy: bool,
+        pub written: BTreeMap<String, Vec<u8>>,
+        pub destroyed: Vec<String>,
     }
     impl Backend for Fake {
         fn preflight_new_scope(&mut self) -> Result<()> {
@@ -664,6 +682,66 @@ pub(crate) mod tests {
                 .entry(image.origin.snapshot())
                 .or_default()
                 .push("qrab-image".into());
+            Ok(())
+        }
+        fn preflight_new_image(&mut self, image: &Image) -> Result<()> {
+            ensure!(
+                !self.volumes.contains_key(&image.origin.dataset()),
+                Refusal("image-generation-exists")
+            );
+            Ok(())
+        }
+        fn create_image_volume(&mut self, image: &Image) -> Result<String> {
+            self.calls.push("import-create");
+            self.preflight_new_image(image)?;
+            self.volumes
+                .insert(image.origin.dataset(), image.capacity_bytes);
+            Ok("86".into())
+        }
+        fn write_image(&mut self, image: &Image, source: &mut dyn Read) -> Result<u64> {
+            ensure!(
+                self.volumes.contains_key(&image.origin.dataset()),
+                "image zvol absent"
+            );
+            let mut data = Vec::new();
+            source.read_to_end(&mut data)?;
+            ensure!(data.len() as u64 <= image.capacity_bytes, "image overflow");
+            ensure!(!self.fail_write, "device write failed");
+            let written = data.len() as u64;
+            self.written.insert(image.origin.key(), data);
+            Ok(written)
+        }
+        fn seal_new_image(&mut self, image: &mut Image) -> Result<()> {
+            ensure!(image.dataset_guid.as_deref() == Some("86"), "GUID drift");
+            // A failure after the hold must still be cleaned up.
+            self.holds
+                .entry(image.origin.snapshot())
+                .or_default()
+                .push("qrab-image".into());
+            ensure!(!self.fail_seal, "seal failed");
+            image.snapshot_guid = Some("88".into());
+            self.images.insert(
+                image.origin.key(),
+                (image.capacity_bytes, "86".into(), "88".into()),
+            );
+            Ok(())
+        }
+        fn destroy_new_image(&mut self, image: &Image) -> Result<()> {
+            self.calls.push("import-destroy");
+            ensure!(!self.fail_destroy, "destroy failed");
+            let snapshot = image.origin.snapshot();
+            ensure!(
+                self.holds
+                    .get(&snapshot)
+                    .is_none_or(|h| h.iter().all(|t| t == "qrab-image")),
+                Refusal("image-in-use")
+            );
+            if self.volumes.remove(&image.origin.dataset()).is_some() {
+                self.destroyed.push(image.origin.key());
+            }
+            self.holds.remove(&snapshot);
+            self.images.remove(&image.origin.key());
+            self.written.remove(&image.origin.key());
             Ok(())
         }
         fn verify_image(&mut self, image: &Image) -> Result<()> {

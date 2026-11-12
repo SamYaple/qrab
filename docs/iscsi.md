@@ -124,7 +124,13 @@ whole-GiB range with `zfs set quota=<N>G tank/qrab-iscsi` (leaving pool
 headroom for thick reservations); values outside the range fail closed.
 `iscsiDisks` and `disks` may be combined; IDs are unique across both lists.
 
-Base images are administrative. Build one on an ordinary provisioned disk,
+Base images are administrative. There are two ways to create a generation:
+**publish** a disk that a VM built, or **import** a verified raw image file on
+the storage host. The result is the same sealed generation either way, and
+`vm-image-status`, `vm-disk-clone` and `vm-image-retire` treat both kinds
+identically.
+
+To publish, build the image on an ordinary provisioned disk,
 stop that VM (the disk is fenced on deletion, or fence it explicitly), then
 publish it with an administrator token holding `storage_publish`:
 
@@ -141,6 +147,52 @@ administrative) removes a fenced disk's LIO objects and marks it retained.
 refused while any disk journal (in any phase, including retired clones), clone
 hold or ZFS origin still descends from the sealed snapshot. Data is never
 destroyed by the API.
+
+To import a stock OS image such as CirrOS, a storage-host administrator runs
+the root-only `vm-image-import` command. It is not a storage-daemon verb and
+no token scope reaches it: the daemon's fixed operation set and the wrapper's
+`vm-*` dispatch table both exclude it, so it can't be called remotely. The
+command reads a local file, so it runs only through `sudo` on the host, like
+the target's other administrative commands. Convert the image to raw first.
+The SHA-256 you pass is the hash of the **raw** file, not of the upstream
+qcow2:
+
+```sh
+# Check the upstream qcow2 against its published checksum, then:
+qemu-img convert -f qcow2 -O raw cirros-0.6.3-x86_64-disk.img /var/tmp/cirros-0.6.3.raw
+sha256sum /var/tmp/cirros-0.6.3.raw
+sudo /usr/local/sbin/qrab-iscsi-target vm-image-import --image cirros --image-generation 1 \
+  --source /var/tmp/cirros-0.6.3.raw --sha256 <raw sha256>
+```
+
+Import applies publication's name and generation rules and refuses an
+existing generation (journal or dataset). The source must be an absolute path
+to a non-empty regular file whose size is a multiple of 512 bytes and at most
+64GiB. The file is opened without following symlinks, and its type and size
+are checked on the opened file. The zvol is that size rounded up to the next
+whole MiB (minimum 16MiB, the same rule as disk capacities), counted against
+the parent quota.
+
+The tool creates the zvol, writes the file to its device node with plain file
+I/O while hashing the same bytes, and fsyncs. It seals the zvol only if the
+digest and length match: it sets readonly, creates the `@sealed` snapshot,
+adds the `qrab-image` hold and records the journal. These are the same
+properties and sealing steps as publication. If anything fails after the zvol
+is created (a digest mismatch, a short read, or a write or seal error), the
+tool destroys that zvol and removes its journal. Existing generations are
+never touched.
+
+If the import is interrupted (for example by a crash) or the cleanup itself
+fails, an unsealed import journal remains. Rerunning the import for that
+generation cleans it up and starts over. The journal records the digest and
+size as `"import":{"sha256":...,"size_bytes":...}` and leaves the source VM
+fields empty. Published journals are unchanged. Clones must be at least the
+image's capacity (`capacity_bytes` in the report). Boot a clone with
+`bootIndex: 0`, which requires a UEFI-bootable image.
+
+The import holds the global journal lock for the whole copy. Storage-daemon
+calls made meanwhile wait 20s and then report `busy`. The operator retries
+these.
 
 ## Ownership and recovery
 

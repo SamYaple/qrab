@@ -8,7 +8,10 @@ directly; the small existing filesystem PVC still holds TPM/NVRAM state.
 ## Storage-service wrapper mode
 
 The `vm-disk-*` and `vm-image-*` subcommands are the fixed wrapper behind the
-towl storage daemon's verbs of the same names (`docs/iscsi.md`). They take an
+towl storage daemon's verbs of the same names (`docs/iscsi.md`). The one
+exception is `vm-image-import` (below), which is administrator-only and
+deliberately outside both the wrapper's dispatch table and the daemon's
+operation set. The wrapper subcommands take an
 exact flag set, print one JSON report on stdout and one
 `{"error":"<code>","message":...}` line on stderr when refused. Only
 `vm-disk-export` reads a credential, from stdin; reports never contain it.
@@ -17,6 +20,43 @@ target and object names `disk-<uid>-<disk>`, `qrab.disk.<uid>.<disk>` and
 `qrab-<uid>-<disk>`, so they cannot collide with the legacy demo record. Sealed
 images are journaled as `image-<name>-g<gen>.json`. The global journal lock
 waits up to 20s, then reports `busy`.
+
+### Importing a base image from a raw file
+
+`vm-image-import` turns a verified raw OS image into a sealed generation that
+VMs clone, without a builder VM. It reads a local file, so the storage
+daemon must never be able to call it. Like `vm-image-retire` and the target
+recovery commands, an administrator runs it as root on the storage host:
+
+1. Download the upstream image and check it against the upstream checksum
+   list (for CirrOS, the release's checksum file for the qcow2).
+2. Convert it to raw in a root-controlled directory and hash the **raw** file:
+   `qemu-img convert -f qcow2 -O raw cirros-0.6.3-x86_64-disk.img /var/tmp/cirros-0.6.3.raw`
+   and `sha256sum /var/tmp/cirros-0.6.3.raw`.
+3. Import a new, unused generation:
+
+   ```sh
+   sudo /usr/local/sbin/qrab-iscsi-target vm-image-import --image cirros --image-generation 1 \
+     --source /var/tmp/cirros-0.6.3.raw --sha256 <raw sha256>
+   ```
+
+   The flags must be given in exactly this order. On success it prints
+   `{"ok":true,"image":{...,"phase":"sealed","import":{"sha256":...,"size_bytes":...}}}`.
+   On refusal it prints one `{"error":"<code>",...}` line on stderr. The codes
+   are `invalid-image`, `invalid-sha256`, `invalid-source` (not an absolute
+   path), `source-not-found`, `source-not-regular`, `source-empty`,
+   `source-misaligned` (not a multiple of 512 bytes), `source-too-large`
+   (over 64GiB), `image-generation-exists`, `budget-exhausted`,
+   `source-changed` (short read) and `sha256-mismatch`.
+4. Check it with the daemon's `vm-image-status` verb, or locally with
+   `sudo /usr/local/sbin/qrab-iscsi-target vm-image-status --image cirros --image-generation 1`.
+   Then delete the raw file.
+
+A digest mismatch or any failure after the zvol is created destroys that new
+zvol and its journal; existing images are never touched. If the tool is
+killed mid-copy, or its cleanup fails, it leaves an unsealed import journal.
+Rerunning the import for that generation cleans it up first. The copy holds
+the global journal lock, so daemon calls report `busy` until it finishes.
 
 Activation requires root and is staged, not automatic:
 
@@ -61,7 +101,8 @@ Recorded ZFS GUID, identity, size, geometry, reservation and target topology
 must continue to match. The legacy demo has no resize; provisioned disks grow
 only (`vm-disk-expand`), CoW clones are thin but budgeted at their logical size,
 and images are sealed snapshots. There is no destroy or foreign-adopt
-operation. The existing `tank/kubernetes-block-storage` tree is unchanged.
+operation. The only destroy is a failed `vm-image-import` discarding the
+unsealed zvol it created itself, after checking that zvol's ownership. The existing `tank/kubernetes-block-storage` tree is unchanged.
 
 Manifests and passwords are root-owned0600 below
 `/var/lib/qrab-iscsi-target` (0700). A global root lock serializes administration.

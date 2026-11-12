@@ -1,7 +1,7 @@
 use anyhow::{bail, ensure, Result};
 use qrab_iscsi_target::{apply, fence, restore, Backend, LinuxHost, Phase, Report, Spec, Store};
 
-const HELP:&str="qrab-iscsi-target plan|apply|fence|status|handoff --vm-uid UUID [--size-mib 128] [--recipient-uid 1000]\nqrab-iscsi-target bootstrap|restore|install-unit\nqrab-iscsi-target vm-disk-create|vm-disk-clone|vm-disk-expand|vm-disk-export|vm-disk-fence|vm-disk-status|vm-disk-retire|vm-image-publish|vm-image-status|vm-image-retire ... (storage daemon wrapper; vm-disk-export reads CHAP from stdin)\nFixed dedicated ZFS/LIO paths only. apply/fence/restore/handoff require root. Credentials never go to stdout.";
+const HELP:&str="qrab-iscsi-target plan|apply|fence|status|handoff --vm-uid UUID [--size-mib 128] [--recipient-uid 1000]\nqrab-iscsi-target bootstrap|restore|install-unit\nqrab-iscsi-target vm-disk-create|vm-disk-clone|vm-disk-expand|vm-disk-export|vm-disk-fence|vm-disk-status|vm-disk-retire|vm-image-publish|vm-image-status|vm-image-retire ... (storage daemon wrapper; vm-disk-export reads CHAP from stdin)\nqrab-iscsi-target vm-image-import --image NAME --image-generation N --source /ABSOLUTE/PATH.raw --sha256 HEX64 (administrator only; never a storage daemon verb)\nFixed dedicated ZFS/LIO paths only. apply/fence/restore/handoff require root. Credentials never go to stdout.";
 fn root() -> Result<()> {
     ensure!(
         nix::unistd::getuid().is_root() && nix::unistd::geteuid().is_root(),
@@ -11,19 +11,28 @@ fn root() -> Result<()> {
 }
 fn main() -> std::process::ExitCode {
     let args: Vec<_> = std::env::args().skip(1).collect();
-    if args
-        .first()
-        .is_some_and(|a| qrab_iscsi_target::disk::COMMANDS.contains(&a.as_str()))
-    {
+    let command = args.first().map(String::as_str).unwrap_or_default();
+    let wrapper = qrab_iscsi_target::disk::COMMANDS.contains(&command);
+    if wrapper || qrab_iscsi_target::disk::ADMIN_COMMANDS.contains(&command) {
         // Storage-daemon wrapper mode: JSON report on stdout, one JSON refusal
         // line on stderr. The CHAP secret is read only from stdin.
+        // Administrator-only commands share the output contract but never
+        // the daemon's dispatch table.
         let result = root().and_then(|()| {
-            qrab_iscsi_target::disk::dispatch(
-                &args,
-                &mut std::io::stdin().lock(),
-                &Store::system(),
-                &mut LinuxHost::new(),
-            )
+            if wrapper {
+                qrab_iscsi_target::disk::dispatch(
+                    &args,
+                    &mut std::io::stdin().lock(),
+                    &Store::system(),
+                    &mut LinuxHost::new(),
+                )
+            } else {
+                qrab_iscsi_target::disk::admin_dispatch(
+                    &args,
+                    &Store::system(),
+                    &mut LinuxHost::new(),
+                )
+            }
         });
         return match result {
             Ok(value) => {

@@ -201,6 +201,20 @@ impl Store {
         image.validate()?;
         self.save(&self.manifest_path(&image.origin.key()), image)
     }
+    /// Removes the journal of an unsealed import after its dataset was
+    /// destroyed. Published or sealed journals are never removed.
+    pub(crate) fn remove_unsealed_import(&self, origin: &Origin) -> Result<()> {
+        let Some(image) = self.read_image(origin)? else {
+            return Ok(());
+        };
+        ensure!(
+            image.import.is_some() && image.phase == crate::disk::ImagePhase::Publishing,
+            "only an unsealed import journal may be removed"
+        );
+        fs::remove_file(self.manifest_path(&origin.key()))?;
+        File::open(&self.root)?.sync_all()?;
+        Ok(())
+    }
     pub fn images(&self) -> Result<Vec<Image>> {
         let mut result = Vec::new();
         for entry in fs::read_dir(&self.root)? {

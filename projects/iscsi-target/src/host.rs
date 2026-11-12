@@ -5,7 +5,7 @@ use anyhow::{bail, ensure, Context, Result};
 use std::{
     collections::BTreeMap,
     fs::{self, OpenOptions},
-    io::Read,
+    io::{Read, Seek, SeekFrom, Write},
     os::unix::fs::{symlink, FileTypeExt, MetadataExt},
     path::{Path, PathBuf},
     process::{Command, Stdio},
@@ -455,8 +455,8 @@ impl LinuxHost {
     fn record_check(&self, r: &Record) -> Result<String> {
         self.volume_check(&r.spec, r.zvol_guid.as_deref(), r.origin_guid.as_deref())
     }
-    /// Pure check of an image dataset's ZFS properties.
-    fn check_image_properties(
+    /// Pure ownership/geometry/GUID check of an image dataset, sealed or not.
+    fn check_image_identity(
         image: &Image,
         p: &BTreeMap<String, String>,
         guid: Option<&str>,
@@ -470,8 +470,7 @@ impl LinuxHost {
             Refusal("foreign-dataset")
         );
         ensure!(
-            p.get("readonly").is_some_and(|v| v == "on")
-                && Self::number(p, "volsize") == Some(image.capacity_bytes)
+            Self::number(p, "volsize") == Some(image.capacity_bytes)
                 && Self::number(p, "volblocksize") == Some(16384),
             Refusal("image-replaced")
         );
@@ -481,14 +480,66 @@ impl LinuxHost {
         ensure!(guid.is_none_or(|g| g == actual), Refusal("image-replaced"));
         Ok(actual.clone())
     }
-    fn image_check(&self, image: &Image, guid: Option<&str>) -> Result<String> {
+    /// Pure check of a sealable image dataset's ZFS properties.
+    fn check_image_properties(
+        image: &Image,
+        p: &BTreeMap<String, String>,
+        guid: Option<&str>,
+    ) -> Result<String> {
+        let actual = Self::check_image_identity(image, p, guid)?;
+        ensure!(
+            p.get("readonly").is_some_and(|v| v == "on"),
+            Refusal("image-replaced")
+        );
+        Ok(actual)
+    }
+    fn image_properties(&self, image: &Image) -> Result<BTreeMap<String, String>> {
         let dataset = image.origin.dataset();
         ensure!(self.exists(&dataset)?, Refusal("image-not-published"));
-        let p = self.properties(
+        self.properties(
             &dataset,
             "type,guid,volsize,volblocksize,readonly,origin,org.qrab:owner,org.qrab:image,org.qrab:image-generation",
-        )?;
-        Self::check_image_properties(image, &p, guid)
+        )
+    }
+    fn image_check(&self, image: &Image, guid: Option<&str>) -> Result<String> {
+        Self::check_image_properties(image, &self.image_properties(image)?, guid)
+    }
+    /// The shared final step of publication and import: verify the owned
+    /// readonly dataset, turn its staged snapshot into `@sealed`, hold it and
+    /// record both GUIDs on `image`.
+    fn seal(&self, image: &mut Image, staged: &str) -> Result<()> {
+        let guid = self.image_check(image, image.dataset_guid.as_deref())?;
+        let sealed = image.origin.snapshot();
+        if !self.snapshot_exists(&sealed)? {
+            ensure!(
+                self.snapshot_exists(staged)?,
+                "image has no staged snapshot to seal"
+            );
+            self.zfs(&["rename", staged, &sealed])?;
+        }
+        self.ensure_hold(&sealed, IMAGE_HOLD)?;
+        let snapshot_guid = self.guid(&sealed)?;
+        ensure!(
+            image
+                .snapshot_guid
+                .as_ref()
+                .is_none_or(|g| *g == snapshot_guid),
+            Refusal("image-replaced")
+        );
+        image.dataset_guid = Some(guid);
+        image.snapshot_guid = Some(snapshot_guid);
+        Ok(())
+    }
+    /// Waits, bounded, for udev to create the new zvol's device node.
+    fn wait_for_device(path: &Path) -> Result<()> {
+        let deadline = Instant::now() + ZFS_BOUND;
+        loop {
+            if fs::metadata(path).is_ok_and(|m| m.file_type().is_block_device()) {
+                return Ok(());
+            }
+            ensure!(Instant::now() < deadline, "zvol device node did not appear");
+            thread::sleep(Duration::from_millis(50));
+        }
     }
     /// Pure check of the dedicated parent's policy; returns its GUID and quota.
     fn check_parent_properties(
@@ -916,7 +967,6 @@ impl Backend for LinuxHost {
         self.record_check(source)?;
         let staging = format!("{}@qrab-publish", source.spec.dataset());
         let dataset = image.origin.dataset();
-        let sealed = image.origin.snapshot();
         let received = format!("{dataset}@qrab-publish");
         if !self.exists(&dataset)? {
             ensure!(
@@ -941,28 +991,168 @@ impl Backend for LinuxHost {
                 ],
             )?;
         }
-        let guid = self.image_check(image, image.dataset_guid.as_deref())?;
-        if !self.snapshot_exists(&sealed)? {
-            ensure!(
-                self.snapshot_exists(&received)?,
-                "received image has no publication snapshot"
-            );
-            self.zfs(&["rename", &received, &sealed])?;
-        }
-        self.ensure_hold(&sealed, IMAGE_HOLD)?;
-        let snapshot_guid = self.guid(&sealed)?;
-        ensure!(
-            image
-                .snapshot_guid
-                .as_ref()
-                .is_none_or(|g| *g == snapshot_guid),
-            Refusal("image-replaced")
-        );
-        image.dataset_guid = Some(guid);
-        image.snapshot_guid = Some(snapshot_guid);
+        self.seal(image, &received)?;
         if self.snapshot_exists(&staging)? {
             self.zfs(&["destroy", &staging])?;
         }
+        Ok(())
+    }
+    fn preflight_new_image(&mut self, image: &Image) -> Result<()> {
+        ensure!(
+            !self.exists(&image.origin.dataset())?,
+            Refusal("image-generation-exists")
+        );
+        Ok(())
+    }
+    fn create_image_volume(&mut self, image: &Image) -> Result<String> {
+        let dataset = image.origin.dataset();
+        ensure!(
+            image.import.is_some() && image.dataset_guid.is_none(),
+            "only a new import creates an image zvol"
+        );
+        self.preflight_new_image(image)?;
+        let size = image.capacity_bytes.to_string();
+        let owner = format!("{PROP}={OWNER}");
+        let name = format!("{IMAGE_PROP}={}", image.origin.image);
+        let generation = format!("{IMAGE_GENERATION_PROP}={}", image.origin.generation);
+        // Thin like a received copy; sync=always is set before sealing.
+        self.zfs(&[
+            "create",
+            "-V",
+            &size,
+            "-b",
+            "16384",
+            "-o",
+            "refreservation=none",
+            "-o",
+            "sync=standard",
+            "-o",
+            "readonly=off",
+            "-o",
+            &owner,
+            "-o",
+            &name,
+            "-o",
+            &generation,
+            &dataset,
+        ])?;
+        let p = self.image_properties(image)?;
+        ensure!(
+            p.get("readonly").is_some_and(|v| v == "off"),
+            "new image zvol is not writable"
+        );
+        Self::check_image_identity(image, &p, None)
+    }
+    fn write_image(&mut self, image: &Image, source: &mut dyn Read) -> Result<u64> {
+        let guid = image
+            .dataset_guid
+            .as_deref()
+            .ok_or_else(|| anyhow::anyhow!("image zvol GUID is not recorded"))?;
+        let p = self.image_properties(image)?;
+        Self::check_image_identity(image, &p, Some(guid))?;
+        ensure!(
+            p.get("readonly").is_some_and(|v| v == "off"),
+            "image zvol is already readonly"
+        );
+        let path = PathBuf::from("/dev/zvol").join(image.origin.dataset());
+        Self::wait_for_device(&path)?;
+        // The udev link resolves to /dev/zdN; check the opened node itself.
+        let mut device = OpenOptions::new()
+            .write(true)
+            .open(&path)
+            .context("open the new image zvol")?;
+        ensure!(
+            device.metadata()?.file_type().is_block_device(),
+            "image zvol device is not a block device"
+        );
+        ensure!(
+            device.seek(SeekFrom::End(0))? == image.capacity_bytes,
+            "image zvol device size differs from the recorded capacity"
+        );
+        device.seek(SeekFrom::Start(0))?;
+        let mut buffer = vec![0u8; 1 << 20];
+        let mut written = 0u64;
+        loop {
+            let n = match source.read(&mut buffer) {
+                Ok(0) => break,
+                Ok(n) => n,
+                Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+                Err(error) => {
+                    return Err(anyhow::Error::new(error).context("read the import source"))
+                }
+            };
+            ensure!(
+                written + n as u64 <= image.capacity_bytes,
+                "import source exceeds the image zvol"
+            );
+            device
+                .write_all(&buffer[..n])
+                .context("write the image zvol")?;
+            written += n as u64;
+        }
+        device.sync_all().context("flush the image zvol")?;
+        Ok(written)
+    }
+    fn seal_new_image(&mut self, image: &mut Image) -> Result<()> {
+        ensure!(image.import.is_some(), "only an import is sealed in place");
+        let dataset = image.origin.dataset();
+        let staged = format!("{dataset}@qrab-import");
+        let guid = image
+            .dataset_guid
+            .as_deref()
+            .ok_or_else(|| anyhow::anyhow!("image zvol GUID is not recorded"))?;
+        Self::check_image_identity(image, &self.image_properties(image)?, Some(guid))?;
+        // Published copies are received with exactly these properties.
+        self.zfs(&["set", "sync=always", &dataset])?;
+        self.zfs(&["set", "readonly=on", &dataset])?;
+        if !self.snapshot_exists(&image.origin.snapshot())? && !self.snapshot_exists(&staged)? {
+            self.zfs(&["snapshot", &staged])?;
+        }
+        self.seal(image, &staged)
+    }
+    fn destroy_new_image(&mut self, image: &Image) -> Result<()> {
+        ensure!(
+            image.import.is_some(),
+            "only an unsealed import is destroyed"
+        );
+        let dataset = image.origin.dataset();
+        if !self.exists(&dataset)? {
+            return Ok(());
+        }
+        // Never destroy anything but our own dataset of this generation.
+        Self::check_image_identity(
+            image,
+            &self.image_properties(image)?,
+            image.dataset_guid.as_deref(),
+        )?;
+        let prefix = format!("{dataset}@");
+        let origins = self.zfs(&["list", "-H", "-t", "volume", "-r", "-o", "origin", PARENT])?;
+        ensure!(
+            !origins.lines().any(|origin| origin.starts_with(&prefix)),
+            Refusal("image-in-use")
+        );
+        let sealed = image.origin.snapshot();
+        if self.snapshot_exists(&sealed)? {
+            let holds = self.zfs(&["holds", "-H", &sealed])?;
+            ensure!(
+                holds
+                    .lines()
+                    .all(|line| line.split('\t').nth(1) == Some(IMAGE_HOLD)),
+                Refusal("image-in-use")
+            );
+            if self.held(&sealed, IMAGE_HOLD)? {
+                self.zfs(&["release", IMAGE_HOLD, &sealed])?;
+            }
+        }
+        // udev may still hold the fresh device node open for a moment.
+        let deadline = Instant::now() + ZFS_BOUND;
+        while let Err(error) = self.zfs(&["destroy", "-r", &dataset]) {
+            if Instant::now() >= deadline {
+                return Err(error.context("destroy the unsealed image zvol"));
+            }
+            thread::sleep(Duration::from_millis(250));
+        }
+        ensure!(!self.exists(&dataset)?, "unsealed image zvol still exists");
         Ok(())
     }
     fn verify_image(&mut self, image: &Image) -> Result<()> {
@@ -1160,6 +1350,7 @@ mod tests {
             source_vm_uid: UID.into(),
             source_disk: "golden".into(),
             source_guid: "34".into(),
+            import: None,
             phase: crate::disk::ImagePhase::Sealed,
             dataset_guid: Some("77".into()),
             snapshot_guid: Some("78".into()),
@@ -1186,8 +1377,14 @@ mod tests {
             )),
             Some("image-replaced")
         );
+        // An import's zvol is still writable before sealing, never foreign.
+        LinuxHost::check_image_identity(&image, &writable, Some("77")).unwrap();
         let mut foreign = p.clone();
         foreign.insert(PROP.into(), "-".into());
+        assert_eq!(
+            refusal_of(LinuxHost::check_image_identity(&image, &foreign, None)),
+            Some("foreign-dataset")
+        );
         assert_eq!(
             refusal_of(LinuxHost::check_image_properties(&image, &foreign, None)),
             Some("foreign-dataset")
