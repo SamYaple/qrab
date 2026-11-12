@@ -4,7 +4,7 @@ use qapi::*;
 
 /// Set a high version so all since-gated fields are included.
 fn init_version() {
-    set_qemu_version(99, 0, 0);
+    let _ = set_qemu_version(99, 0, 0);
 }
 
 #[test]
@@ -441,7 +441,7 @@ fn sev_info_unknown_discriminator_errors() {
 /// `file`, which QEMU 8.0+ reports for every file-posix node.
 #[test]
 fn shared_wire_discriminator_decodes_current_values() {
-    set_qemu_version(11, 1, 3);
+    let _ = set_qemu_version(11, 1, 3);
     let file: ImageInfoSpecific =
         serde_json::from_str(r#"{"type":"file","data":{"extent-size-hint":1048576}}"#).unwrap();
     assert!(file.r_type.is_none());
@@ -469,7 +469,7 @@ fn shared_wire_discriminator_decodes_current_values() {
 
 #[test]
 fn shared_wire_discriminator_roundtrips_once() {
-    set_qemu_version(11, 1, 3);
+    let _ = set_qemu_version(11, 1, 3);
     let json = r#"{"type":"unix","path":"/run/qrab/qmp.sock"}"#;
     let address: SocketAddress = serde_json::from_str(json).unwrap();
     assert!(matches!(address.u, Some(SocketAddressBranch::Unix(_))));
