@@ -124,17 +124,21 @@ fn vm_table(rows: &[Row]) -> Element {
             tbody { for row in rows {
                 {
                     let (cpu, mem) = model::usage_text(row.usage);
-                    let disks = if row.disks == 0 { "none".to_string() } else { format!("{} · {}", row.disks, model::gib(row.disk_bytes)) };
+                    let disks = match (row.disks, row.disk_bytes) {
+                        (0, _) => "none".to_string(),
+                        (n, 0) => format!("{n} static"),
+                        (n, bytes) => format!("{n} · {}", model::gib(bytes)),
+                    };
                     rsx! { tr {
-                        td { a { class: "identity-link", href: row.path(), "{row.name}" } p { class: "muted", "{row.namespace}" } }
-                        td { {state_badge(row)} }
-                        td { if row.node.is_empty() { "—" } else { "{row.node}" } }
-                        td { {sizes(row.cpus, row.max_cpus, "")} }
-                        td { {sizes(row.memory_mib, row.max_memory_mib, "")} }
-                        td { "{disks}" }
-                        td { "{cpu}" }
-                        td { "{mem}" }
-                        td { span { class: if row.role == Role::Admin { "badge admin" } else { "badge" }, {row.role.label()} } }
+                        td { "data-label": "Name", div { a { class: "identity-link", href: row.path(), "{row.name}" } p { class: "muted", "{row.namespace}" } } }
+                        td { "data-label": "State", div { {state_badge(row)} } }
+                        td { "data-label": "Node", if row.node.is_empty() { "—" } else { "{row.node}" } }
+                        td { "data-label": "vCPUs", {sizes(row.cpus, row.max_cpus, "")} }
+                        td { "data-label": "Memory (MiB)", {sizes(row.memory_mib, row.max_memory_mib, "")} }
+                        td { "data-label": "Disks", "{disks}" }
+                        td { "data-label": "CPU use", "{cpu}" }
+                        td { "data-label": "Memory use", "{mem}" }
+                        td { "data-label": "Your role", div { span { class: if row.role == Role::Admin { "badge admin" } else { "badge" }, {row.role.label()} } } }
                     } }
                 }
             } }
@@ -142,8 +146,19 @@ fn vm_table(rows: &[Row]) -> Element {
     }
 }
 
+/// Values that are identifiers render as code; multi-line output keeps its
+/// line breaks.
+const CODE_KEYS: &[&str] = &["Image", "State ID", "State PVC", "Pod"];
+
 fn dl(rows: Vec<(&'static str, String)>) -> Element {
-    rsx! { dl { class: "identity-details", for (key, value) in rows { dt { "{key}" } dd { "{value}" } } } }
+    rsx! { dl { class: "identity-details",
+        for (key, value) in rows {
+            dt { "{key}" }
+            if value.contains('\n') { dd { pre { class: "output", "{value}" } } }
+            else if CODE_KEYS.contains(&key) { dd { code { "{value}" } } }
+            else { dd { "{value}" } }
+        }
+    } }
 }
 
 fn panel_error(title: &str, error: &str) -> Element {
@@ -249,12 +264,19 @@ fn bmc_panel(panel: &Panel) -> Element {
     };
     let events = match &panel.events {
         Ok(page) => rsx! {
-            section { class: "card", h3 { "Recent QMP events" }
+            section { class: "card wide", h3 { "Recent QMP events" }
                 if page.qmp_dropped > 0 { p { class: "notice", role: "status", "{page.qmp_dropped} QMP event(s) were dropped before the manager recorded them." } }
                 if page.events.is_empty() { p { class: "empty", "No events recorded." } }
                 else { ol { class: "events", reversed: true,
                     for event in page.events.iter().rev() {
-                        li { time { {stamp(Some(event.received_unix_ms))} } b { "{event.event}" } code { {bmc::event_data(event)} } }
+                        {
+                            let data = bmc::event_data(event);
+                            rsx! { li {
+                                time { {stamp(Some(event.received_unix_ms))} }
+                                b { "{event.event}" }
+                                if data.is_empty() { span { class: "muted", "no data" } } else { code { "{data}" } }
+                            } }
+                        }
                     }
                 } }
             }
@@ -314,7 +336,7 @@ fn bmc_panel(panel: &Panel) -> Element {
             } else {
                 "Full view"
             };
-            rsx! { section { class: "card", h3 { "Effective configuration" } p { class: "muted", "{note}" } {dl(rows)} } }
+            rsx! { section { class: "card wide", h3 { "Effective configuration" } p { class: "muted", "{note}" } {dl(rows)} } }
         }
         Err(e) => panel_error("Effective configuration", e),
     };
@@ -480,30 +502,35 @@ fn detail_page(page: &DetailPage, user: &UserView) -> Element {
             section { class: "card", h2 { "Network" }
                 p { "None: VMs have no guest NIC by design (QMP/VNC stay on private sockets)." }
             }
-            section { class: "card", h2 { "Disks" }
+            section { class: if d.disks.is_empty() { "card" } else { "card wide" }, h2 { "Disks" }
                 if d.disks.is_empty() && d.iscsi_disks.is_empty() { p { class: "empty", "No data disks. The VM boots the read-only demo ESP." } }
                 if !d.disks.is_empty() {
                     div { class: "table-wrap", table {
                         thead { tr { th { scope: "col", "ID" } th { scope: "col", "Size" } th { scope: "col", "Capacity" } th { scope: "col", "Phase" } th { scope: "col", "Credential generation" } th { scope: "col", "Base image" } } }
                         tbody { for disk in &d.disks { tr {
-                            td { code { "{disk.id}" } }
-                            td { {model::gib(disk.size_bytes)} }
-                            td { {disk.capacity_bytes.map(model::gib).unwrap_or_else(|| "—".into())} }
-                            td { "{disk.phase}" }
-                            td { {disk.generation.map(|g| g.to_string()).unwrap_or_else(|| "—".into())} }
-                            td { {disk.base_image.clone().unwrap_or_else(|| "blank".into())} }
+                            td { "data-label": "ID", code { "{disk.id}" } }
+                            td { "data-label": "Size", {model::gib(disk.size_bytes)} }
+                            td { "data-label": "Capacity", {disk.capacity_bytes.map(model::gib).unwrap_or_else(|| "—".into())} }
+                            td { "data-label": "Phase", "{disk.phase}" }
+                            td { "data-label": "Credential generation", {disk.generation.map(|g| g.to_string()).unwrap_or_else(|| "—".into())} }
+                            td { "data-label": "Base image", {disk.base_image.clone().unwrap_or_else(|| "blank".into())} }
                         } } }
                     } }
                 }
                 for id in &d.iscsi_disks { p { class: "muted", "Static iSCSI disk " code { "{id}" } } }
             }
             if let Some(rows) = resize { section { class: "card", h2 { "In-place resize" } {dl(rows)} } }
-            section { class: "card", h2 { "Pod resources" }
+            section { class: "card wide", h2 { "Pod resources" }
                 if let Some(pod) = &d.pod_name { p { class: "muted", "Pod " code { "{pod}" } if let Some(ip) = &d.pod_ip { " · " code { "{ip}" } } } }
                 if d.containers.is_empty() { p { class: "empty", "No Pod is running." } }
                 else { div { class: "table-wrap", table {
                     thead { tr { th { scope: "col", "Container" } th { scope: "col", "Kind" } th { scope: "col", "Requests" } th { scope: "col", "Limits" } } }
-                    tbody { for c in &d.containers { tr { td { code { "{c.name}" } } td { "{c.kind}" } td { "{c.requests}" } td { "{c.limits}" } } } }
+                    tbody { for c in &d.containers { tr {
+                        td { "data-label": "Container", code { "{c.name}" } }
+                        td { "data-label": "Kind", "{c.kind}" }
+                        td { "data-label": "Requests", "{c.requests}" }
+                        td { "data-label": "Limits", "{c.limits}" }
+                    } } }
                 } } }
             }
         }

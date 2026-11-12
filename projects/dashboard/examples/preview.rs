@@ -1,0 +1,171 @@
+//! Renders the dashboard's pages from saved Kubernetes objects and
+//! representative BMC data, for checking layout in a browser without a
+//! cluster or a sign-in. Not part of the shipped image.
+//!
+//!   cargo run -p qrab-dashboard --example preview -- OUT_DIR VM.json POD.json [VM.json POD.json ...]
+//!
+//! The first VM gets the detail page; every VM appears in the list.
+use k8s_openapi::api::core::v1::Pod;
+use qrab_dashboard::{
+    access::Role,
+    bmc::{self, Panel},
+    cluster::Usage,
+    launch::Report,
+    model,
+    ui::{self, Body, ConsolePage, DetailPage, LaunchPage, Launched, Page, PanelState, UserView},
+};
+use qrab_operator::api::VirtualMachine;
+use std::collections::HashMap;
+
+fn load<T: serde::de::DeserializeOwned>(path: &str) -> T {
+    serde_json::from_str(&std::fs::read_to_string(path).expect(path)).expect(path)
+}
+
+fn panel() -> Panel {
+    let now = 1_794_517_200_000u64;
+    let events = (0..14)
+        .map(|i| {
+            let (event, data) = match i % 7 {
+                0 => ("RTC_CHANGE", serde_json::json!({"offset": 1, "qom-path": "/machine/unattached/device[8]"})),
+                1 => ("ACPI_DEVICE_OST", serde_json::json!({"info": {"device": "cpu-3", "source": 1, "status": 0, "slot": "3", "slot-type": "CPU"}})),
+                2 => ("DEVICE_DELETED", serde_json::json!({"path": "/machine/peripheral/iscsi-scratch-virtio-blk-pci/virtio-backend", "device": "iscsi-scratch"})),
+                3 => ("BLOCK_JOB_COMPLETED", serde_json::json!({"device": "iscsi-root", "len": 134217728u64, "offset": 134217728u64, "speed": 0, "type": "commit"})),
+                4 => ("RESUME", serde_json::Value::Null),
+                5 => ("STOP", serde_json::Value::Null),
+                _ => ("GUEST_PANICKED", serde_json::json!({"action": "pause", "info": {"type": "hyper-v", "arg1": 0, "arg2": 0, "arg3": 0, "arg4": 0, "arg5": 0}})),
+            };
+            bmc::Event {
+                seq: i,
+                received_unix_ms: now - (14 - i) * 37_000,
+                event: event.into(),
+                data,
+                truncated: false,
+            }
+        })
+        .collect();
+    let config: bmc::Config = serde_json::from_value(serde_json::json!({
+        "name": "qrab-demo", "memory_mib": 1536, "cpus": 2, "accelerator": "kvm", "boot": "uefi",
+        "console": true, "tpm": true, "guest_network": false,
+        "disks": [
+            {"kind": "file", "id": "esp", "format": "raw", "read_only": true, "boot_index": 0},
+            {"kind": "iscsi", "id": "data", "bus": "virtio", "read_only": false, "portal": "10.203.0.1:3260",
+             "target": "iqn.2026-11.com.yapplesauce:qrab.disk.e309f751-5dda-4271-a0f4-4454c9527a59.data"}
+        ],
+        "startup_timeout_secs": 300, "shutdown_grace_secs": 30, "redacted": false,
+        "state_id": "e309f751-5dda-4271-a0f4-4454c9527a59",
+        "hotplug": {"max_cpus": 4, "max_memory_mib": 4096, "phase": "applied"},
+        "deployment": {"node": "kube03", "pod": "qrab-demo", "namespace": "qrab",
+            "image": "zot.yapplesauce.com/qrab/manager@sha256:373b51bbb3d05add0160b10277826634b9e2efe7d7f15a27e2a849cae233102c"}
+    }))
+    .unwrap();
+    Panel {
+        status: Ok(serde_json::from_value(serde_json::json!({"phase": "running", "ready": true,
+            "run_state": "running", "qemu_version": [11, 1, 3], "observed_unix_ms": now,
+            "detail": "QEMU is running; the guest agent answered 2 s ago and the last hot-plug applied 2 vCPUs and 1536 MiB"})).unwrap()),
+        agent: Ok(serde_json::from_value(serde_json::json!({"status": {"enabled": true, "connected": true,
+            "version": "qrab-guest-agent 0.1.0 (rustc 1.97.1, x86_64-unknown-linux-musl)",
+            "connected_since_unix_ms": now - 3_600_000, "last_seen_unix_ms": now - 2_000,
+            "last_error": "guest-fsfreeze-thaw: Command not permitted while filesystems are not frozen"},
+            "freeze": "thawed",
+            "update": {"state": "succeeded", "run-id": 7, "exit-code": 0, "hook-installed": true,
+                "output": "Fetched 4 packages (12.3 MB)\nUnpacking linux-image-6.12.116+deb13-amd64 (6.12.116-1) over (6.12.115-1)\nSetting up qrab-guest-agent (0.1.0) ...", "error": null}})).unwrap()),
+        events: Ok(bmc::Events { events, latest: 13, missed: 0, qmp_dropped: 2 }),
+        config: Ok(config),
+    }
+}
+
+fn write(dir: &str, name: &str, page: Page, css: &str) {
+    let html = ui::render(page)
+        .replace("/assets/style.css", css)
+        .replace("src=\"/assets/console.js\"", "src=\"about:blank\"");
+    std::fs::write(format!("{dir}/{name}.html"), html).unwrap();
+}
+
+fn main() {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let dir = &args[0];
+    let css = format!("file://{}/assets/style.css", env!("CARGO_MANIFEST_DIR"));
+    let user = UserView {
+        name: "sam".into(),
+        csrf: "csrf".into(),
+        launcher: true,
+    };
+    let pairs: Vec<(VirtualMachine, Pod)> = args[1..]
+        .chunks(2)
+        .map(|c| (load(&c[0]), load(&c[1])))
+        .collect();
+    let mut usage = HashMap::new();
+    for (vm, pod) in &pairs {
+        let name = pod.metadata.name.clone().unwrap_or_default();
+        let _ = vm;
+        usage.insert(
+            name,
+            Usage {
+                cpu_cores: 0.125,
+                memory_bytes: 433.0 * 1024.0 * 1024.0,
+            },
+        );
+    }
+    let rows: Vec<_> = pairs
+        .iter()
+        .map(|(vm, _)| model::row(vm, Role::Admin, &usage))
+        .collect();
+    let page = |body| Page {
+        user: Some(user.clone()),
+        notice: None,
+        body,
+    };
+    write(dir, "list", page(Body::List(rows)), &css);
+    let (vm, pod) = &pairs[0];
+    let ip = pod
+        .status
+        .as_ref()
+        .and_then(|s| s.pod_ip.as_ref())
+        .and_then(|ip| ip.parse().ok());
+    for (name, role) in [("detail", Role::Admin), ("detail-viewer", Role::Viewer)] {
+        let detail = model::detail(vm, role, &usage, Some(pod), ip);
+        let body = Body::Detail(Box::new(DetailPage {
+            detail,
+            panel: PanelState::Loaded(Box::new(panel())),
+            deletable: role == Role::Admin,
+        }));
+        write(dir, name, Page { user: Some(user.clone()), notice: Some("Launched test. Your sign-in was refreshed so it includes the VM's new admins group (console and power).".into()), body }, &css);
+    }
+    write(
+        dir,
+        "launch",
+        page(Body::Launch(LaunchPage {
+            namespace: "qrab".into(),
+            storage_node: Some("kube03".into()),
+            ..Default::default()
+        })),
+        &css,
+    );
+    let report = Report {
+        created: vec![
+            "Kanidm group qrab_vm_qrab_test_admins (12f802c8-4daf-4481-9f6a-a6fdb5d086c3)".into(),
+            "Kanidm group qrab_vm_qrab_test_viewers (2724fd1d-78d0-4612-a42e-448094971abb)".into(),
+            "PersistentVolumeClaim test-state".into(),
+            "VirtualMachine test".into(),
+        ],
+        ..Default::default()
+    };
+    write(
+        dir,
+        "launched",
+        page(Body::Launched(Launched {
+            vm_path: Some("/vms/qrab/test".into()),
+            report,
+        })),
+        &css,
+    );
+    write(
+        dir,
+        "console",
+        page(Body::Console(ConsolePage {
+            namespace: "qrab".into(),
+            name: "qrab-demo".into(),
+        })),
+        &css,
+    );
+}
