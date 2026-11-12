@@ -52,6 +52,24 @@ impl Action {
     }
 }
 
+/// Largest BMC response body the dashboard reads.
+pub const MAX_BODY: usize = 1024 * 1024;
+
+/// Reads at most `limit` bytes; a longer body is refused, not truncated.
+async fn read_capped(mut response: reqwest::Response, limit: usize) -> Result<Vec<u8>, BmcError> {
+    if response.content_length().is_some_and(|n| n > limit as u64) {
+        return Err(BmcError::Invalid);
+    }
+    let mut body = Vec::new();
+    while let Some(chunk) = response.chunk().await.map_err(|_| BmcError::Unreachable)? {
+        if body.len() + chunk.len() > limit {
+            return Err(BmcError::Invalid);
+        }
+        body.extend_from_slice(&chunk);
+    }
+    Ok(body)
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BmcError {
     Status(u16),
@@ -114,7 +132,8 @@ impl Bmc {
         if !response.status().is_success() {
             return Err(BmcError::Status(response.status().as_u16()));
         }
-        response.json().await.map_err(|_| BmcError::Invalid)
+        serde_json::from_slice(&read_capped(response, MAX_BODY).await?)
+            .map_err(|_| BmcError::Invalid)
     }
 
     pub async fn action(&self, ip: IpAddr, token: &str, action: Action) -> Result<(), BmcError> {

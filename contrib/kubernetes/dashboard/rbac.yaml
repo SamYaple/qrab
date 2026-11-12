@@ -11,16 +11,17 @@ metadata:
 rules:
 - apiGroups: [qrab.yapplesauce.com]
   resources: [virtualmachines]
-  verbs: [get, list, watch, create, delete]
+  verbs: [get, list, create, delete]
 - apiGroups: ['']
   resources: [pods]
-  verbs: [get, list]
+  verbs: [get]
 - apiGroups: ['']
   resources: [persistentvolumeclaims]
   verbs: [get, create]
+# The list page reads all PodMetrics in one call.
 - apiGroups: [metrics.k8s.io]
   resources: [pods]
-  verbs: [get, list]
+  verbs: [list]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding

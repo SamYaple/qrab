@@ -87,9 +87,9 @@ impl Kanidm {
             .transpose()
     }
 
-    /// `POST /v1/group` with `{"attrs":{"name":[..],"description":[..]}}`,
-    /// then its UUID by name.
-    pub async fn create_group(&self, name: &str, description: &str) -> Result<String> {
+    /// `POST /v1/group` with `{"attrs":{"name":[..],"description":[..]}}`.
+    /// The caller reads the UUID back by name.
+    pub async fn create_group(&self, name: &str, description: &str) -> Result<()> {
         ensure!(group_name(name), "invalid group name");
         self.http
             .post(format!("{}/v1/group", self.base))
@@ -98,10 +98,7 @@ impl Kanidm {
             .send()
             .await?
             .error_for_status()?;
-        match self.group_uuid(name).await? {
-            Some(id) => Ok(id),
-            None => bail!("group {name} was not found after creation"),
-        }
+        Ok(())
     }
 
     /// `POST /v1/group/{group}/_attr/member` with `["<member uuid>"]`: a delta,
@@ -119,9 +116,14 @@ impl Kanidm {
         Ok(())
     }
 
-    /// `DELETE /v1/group/{uuid}`: rollback of a group this request created.
+    /// `DELETE /v1/group/{uuid or name}`: rollback of a group this request
+    /// created, by name when its UUID could not be read.
     pub async fn delete_group(&self, group: &str) -> Result<()> {
-        let group = uuid(group)?;
+        let group = match crate::config::uuid(group) {
+            Some(id) => id,
+            None if group_name(group) => group.to_owned(),
+            None => bail!("invalid group reference"),
+        };
         self.http
             .delete(format!("{}/v1/group/{group}", self.base))
             .bearer_auth(&*self.token)

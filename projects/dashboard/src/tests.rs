@@ -26,6 +26,8 @@ struct FakeCluster {
     created_vms: Mutex<Vec<serde_json::Value>>,
     deleted: Mutex<Vec<(String, String)>>,
     fail_vm_create: std::sync::atomic::AtomicBool,
+    /// Appears after the first read misses it (a race with the preflight).
+    racing_pvc: Mutex<Option<PersistentVolumeClaim>>,
 }
 
 impl FakeCluster {
@@ -63,7 +65,14 @@ impl cluster::Cluster for FakeCluster {
         )]))
     }
     async fn get_pvc(&self, name: &str) -> anyhow::Result<Option<PersistentVolumeClaim>> {
-        Ok(self.pvcs.lock().unwrap().get(name).cloned())
+        let mut pvcs = self.pvcs.lock().unwrap();
+        let found = pvcs.get(name).cloned();
+        if found.is_none()
+            && let Some(pvc) = self.racing_pvc.lock().unwrap().take()
+        {
+            pvcs.insert(name.into(), pvc);
+        }
+        Ok(found)
     }
     async fn create_pvc(&self, pvc: &PersistentVolumeClaim) -> anyhow::Result<()> {
         self.pvcs
@@ -184,6 +193,8 @@ fn fake_bmc(label: &'static str, log: Log) -> axum::Router {
 struct Directory {
     groups: HashMap<String, String>,
     members: HashMap<String, Vec<String>>,
+    /// Lookups miss even existing groups.
+    blind: bool,
 }
 
 fn fake_kanidm(log: Log, dir: Arc<Mutex<Directory>>) -> axum::Router {
@@ -211,6 +222,7 @@ fn fake_kanidm(log: Log, dir: Arc<Mutex<Directory>>) -> axum::Router {
             let mut dir = dir.lock().unwrap();
             match (parts.method.clone(), path.as_slice()) {
                 (Method::GET, ["v1", "group", id]) => match dir.groups.get(*id) {
+                    Some(_) if dir.blind => StatusCode::NOT_FOUND.into_response(),
                     Some(uuid) => {
                         Json(serde_json::json!({"attrs": {"name": [id], "uuid": [uuid]}}))
                             .into_response()
@@ -233,7 +245,7 @@ fn fake_kanidm(log: Log, dir: Arc<Mutex<Directory>>) -> axum::Router {
                     Json(serde_json::Value::Null).into_response()
                 }
                 (Method::DELETE, ["v1", "group", id]) => {
-                    dir.groups.retain(|_, v| v != id);
+                    dir.groups.retain(|k, v| v != id && k != id);
                     Json(serde_json::Value::Null).into_response()
                 }
                 _ => StatusCode::BAD_REQUEST.into_response(),
@@ -255,7 +267,9 @@ fn pod(name: &str, ip: &str) -> Pod {
     serde_json::from_value(serde_json::json!({
         "metadata": {"name": name, "labels": {"app.kubernetes.io/name": "qrab",
             "app.kubernetes.io/component": "vm", "app.kubernetes.io/instance": name,
-            "qrab.yapplesauce.com/owner-uid": format!("uid-{name}")}},
+            "qrab.yapplesauce.com/owner-uid": format!("uid-{name}")},
+            "ownerReferences": [{"apiVersion": "qrab.yapplesauce.com/v1alpha1", "kind": "VirtualMachine",
+                "name": name, "uid": format!("uid-{name}"), "controller": true}]},
         "spec": {"containers": [{"name": "manager", "image": "x",
             "resources": {"requests": {"cpu": "1", "memory": "768Mi"}, "limits": {"cpu": "2", "memory": "1Gi"}}}]},
         "status": {"podIP": ip}
@@ -347,7 +361,8 @@ async fn harness() -> Harness {
         bmc: bmc::Bmc::new(port).unwrap(),
         sessions: Default::default(),
         novnc_dir: PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("assets/novnc"),
-        consoles: Arc::new(Semaphore::new(4)),
+        consoles: Arc::new(Semaphore::new(16)),
+        console_subjects: Default::default(),
     };
     Harness {
         state,
@@ -684,7 +699,35 @@ async fn delete_is_admin_only_confirmed_and_keeps_the_pvc() {
     )
     .await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
+    // Alice is a console admin of a, but a was not launched by the dashboard.
+    let (status, _, body) = send(&h, get("/vms/qrab/a", Some(&cookie))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(!body.contains("Delete VM"));
+    let (status, _, _) = send(
+        &h,
+        post(
+            "/vms/qrab/a/delete",
+            Some(&cookie),
+            Some(ORIGIN),
+            "csrf=correct&confirm_name=a",
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
     assert!(h.cluster.deleted.lock().unwrap().is_empty());
+    h.cluster.vms.lock().unwrap()[0].metadata.labels = Some(
+        [(
+            "app.kubernetes.io/managed-by".to_string(),
+            "qrab-dashboard".to_string(),
+        )]
+        .into(),
+    );
+    assert!(
+        send(&h, get("/vms/qrab/a", Some(&cookie)))
+            .await
+            .2
+            .contains("Delete VM")
+    );
     let (status, _, _) = send(
         &h,
         post(
@@ -783,9 +826,11 @@ async fn launch_creates_groups_pvc_and_vm_in_order() {
         created["spec"]["console"],
         serde_json::json!({"adminGroups": [admins], "viewerGroups": [viewers]})
     );
+    // The form's Redfish field is ignored: nothing admits 8081 for these VMs.
+    assert!(created["spec"].get("components").is_none());
     assert_eq!(
-        created["spec"]["components"]["redfish"]["adminGroups"],
-        serde_json::json!([admins])
+        created["metadata"]["labels"]["app.kubernetes.io/managed-by"],
+        "qrab-dashboard"
     );
     assert_eq!(created["spec"]["storageNode"], "kube03");
     assert_eq!(created["spec"]["disks"][0]["sizeBytes"], 4u64 << 30);
@@ -853,6 +898,125 @@ async fn a_failed_launch_reports_and_rolls_back_its_groups() {
     assert!(body.contains("never adopted"));
     assert!(!h.cluster.pvcs.lock().unwrap().contains_key("db-state"));
     assert!(h.cluster.created_vms.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn launches_roll_back_by_name_and_recheck_the_pvc() {
+    let h = harness().await;
+    let cookie = session(&h.state.sessions, ALICE, &[LAUNCHERS]).await;
+    let launch = |name: &str| {
+        post(
+            "/launch",
+            Some(&cookie),
+            Some(ORIGIN),
+            &format!("csrf=correct&name={name}&cpus=1&memory_mib=512"),
+        )
+    };
+    // The group is created but its UUID cannot be read back (two lookups):
+    // it is still rolled back, by name.
+    h.dir.lock().unwrap().blind = true;
+    let (status, _, body) = send(&h, launch("web")).await;
+    assert_eq!(status, StatusCode::BAD_GATEWAY);
+    assert!(body.contains("Read Kanidm group qrab_vm_qrab_web_admins"));
+    assert!(body.contains("Kanidm group qrab_vm_qrab_web_admins deleted"));
+    assert!(h.dir.lock().unwrap().groups.is_empty());
+    let log = h.kanidm.lock().unwrap().clone();
+    let lookups = log
+        .iter()
+        .filter(|(m, p, _, _)| m == "GET" && p == "/v1/group/qrab_vm_qrab_web_admins")
+        .count();
+    assert_eq!(lookups, 3, "preflight plus one retry after creation");
+    assert!(
+        log.iter()
+            .any(|(m, p, _, _)| m == "DELETE" && p == "/v1/group/qrab_vm_qrab_web_admins")
+    );
+    h.dir.lock().unwrap().blind = false;
+    // A bound claim that appears after the preflight is not reused.
+    let bound: PersistentVolumeClaim = serde_json::from_value(serde_json::json!({
+        "metadata": {"name": "db-state", "labels": {"app.kubernetes.io/managed-by": "qrab-dashboard"}},
+        "status": {"phase": "Bound"}
+    }))
+    .unwrap();
+    *h.cluster.racing_pvc.lock().unwrap() = Some(bound);
+    let (status, _, body) = send(&h, launch("db")).await;
+    assert_eq!(status, StatusCode::BAD_GATEWAY);
+    assert!(body.contains("Reuse the state PVC"));
+    assert!(h.dir.lock().unwrap().groups.is_empty());
+    assert!(h.cluster.created_vms.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn oversized_bmc_responses_are_refused() {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    serve(
+        listener,
+        axum::Router::new()
+            .route(
+                "/api/status",
+                axum::routing::get(|| async {
+                    let mut big = String::from("{\"phase\":\"");
+                    big.push_str(&"x".repeat(bmc::MAX_BODY));
+                    big.push_str("\"}");
+                    ([("content-type", "application/json")], big)
+                }),
+            )
+            .route(
+                "/api/config",
+                axum::routing::get(|| async { Json(serde_json::json!({"name": "ok"})) }),
+            ),
+    )
+    .await;
+    let client = bmc::Bmc::new(port).unwrap();
+    let ip = "127.0.0.1".parse().unwrap();
+    let status: Result<bmc::Status, _> = client.get(ip, bmc::STATUS, "t").await;
+    assert_eq!(status.unwrap_err(), bmc::BmcError::Invalid);
+    let config: bmc::Config = client.get(ip, bmc::CONFIG, "t").await.unwrap();
+    assert_eq!(config.name, "ok");
+}
+
+#[tokio::test]
+async fn one_subject_holds_at_most_four_consoles() {
+    use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+    let h = harness().await;
+    let admin = session(&h.state.sessions, ALICE, &[]).await;
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    serve(listener, router(h.state.clone())).await;
+    let connect = || {
+        let mut req = format!("ws://{addr}/vms/qrab/a/console/ws")
+            .into_client_request()
+            .unwrap();
+        req.headers_mut()
+            .insert("cookie", HeaderValue::from_str(&admin).unwrap());
+        req.headers_mut()
+            .insert("origin", HeaderValue::from_static(ORIGIN));
+        tokio_tungstenite::connect_async(req)
+    };
+    let mut open = Vec::new();
+    for _ in 0..console::PER_SUBJECT {
+        open.push(connect().await.unwrap().0);
+    }
+    match connect().await {
+        Err(tokio_tungstenite::tungstenite::Error::Http(r)) => {
+            assert_eq!(r.status(), StatusCode::SERVICE_UNAVAILABLE)
+        }
+        other => panic!("expected 503, got {:?}", other.map(|_| ())),
+    }
+    assert_eq!(h.state.console_subjects.lock().unwrap()[ALICE], 4);
+    // Closing one console frees its slot.
+    drop(open.pop());
+    let freed = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        loop {
+            if h.state.console_subjects.lock().unwrap().get(ALICE) == Some(&3) {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+    })
+    .await;
+    assert!(freed.is_ok());
+    assert!(connect().await.is_ok());
 }
 
 #[tokio::test]

@@ -1,5 +1,5 @@
-//! Per-VM roles, mirroring the BMC. The BMC still enforces its own roles on
-//! every bearer request; this decides what the dashboard shows and offers.
+//! Per-VM roles, the same as the BMC's. The BMC still enforces its own roles
+//! on every bearer request; this decides what the dashboard shows and offers.
 use qrab_operator::{api::VirtualMachine, resources::CREATOR};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -26,34 +26,45 @@ fn any_listed(list: &[String], groups: &[String]) -> bool {
     groups.iter().any(|group| listed(list, group))
 }
 
-/// The strongest role `subject` holds on `vm`, directly or through the
-/// token's group UUIDs. `None` means the VM is invisible to them.
+/// The strongest role `subject` holds on `vm`, exactly as its BMC grants
+/// it: admin from `console.allowedSubjects`/`adminGroups`, viewer from
+/// `console.viewerSubjects`/`viewerGroups` or the creator annotation (which
+/// the operator adds to the BMC's viewers). Redfish lists grant nothing here.
+/// `None` means the VM is invisible to them.
 pub fn role(vm: &VirtualMachine, subject: &str, groups: &[String]) -> Option<Role> {
-    let console = vm.spec.console.as_ref();
-    let redfish = &vm.spec.components.redfish;
-    let empty: &[String] = &[];
-    let console_list = |pick: fn(&qrab_operator::api::Console) -> &[String]| -> &[String] {
-        console.map_or(empty, pick)
-    };
-    let admin = listed(console_list(|c| &c.allowed_subjects), subject)
-        || listed(&redfish.admin_subjects, subject)
-        || any_listed(console_list(|c| &c.admin_groups), groups)
-        || any_listed(&redfish.admin_groups, groups);
-    if admin {
-        return Some(Role::Admin);
-    }
     let creator = vm
         .metadata
         .annotations
         .as_ref()
         .and_then(|a| a.get(CREATOR))
         .is_some_and(|c| c.trim().eq_ignore_ascii_case(subject));
+    let Some(console) = vm.spec.console.as_ref() else {
+        return creator.then_some(Role::Viewer);
+    };
+    if listed(&console.allowed_subjects, subject) || any_listed(&console.admin_groups, groups) {
+        return Some(Role::Admin);
+    }
     let viewer = creator
-        || listed(console_list(|c| &c.viewer_subjects), subject)
-        || listed(&redfish.viewer_subjects, subject)
-        || any_listed(console_list(|c| &c.viewer_groups), groups)
-        || any_listed(&redfish.viewer_groups, groups);
+        || listed(&console.viewer_subjects, subject)
+        || any_listed(&console.viewer_groups, groups);
     viewer.then_some(Role::Viewer)
+}
+
+/// The label that marks VMs this dashboard launched. Only those can be
+/// deleted through it.
+pub const MANAGED_BY: &str = "app.kubernetes.io/managed-by";
+pub const MANAGER: &str = "qrab-dashboard";
+
+/// Delete needs a console admin and a VM launched by this dashboard, so
+/// qrab-demo and other hand-made VMs cannot be deleted here.
+pub fn can_delete(vm: &VirtualMachine, role: Role) -> bool {
+    role == Role::Admin
+        && vm
+            .metadata
+            .labels
+            .as_ref()
+            .and_then(|l| l.get(MANAGED_BY))
+            .is_some_and(|v| v == MANAGER)
 }
 
 /// The VMs a user may see, each with their role, sorted by name.
@@ -137,13 +148,11 @@ pub(crate) mod tests {
         redfish["components"] = serde_json::json!({"redfish": {"enabled": true,
             "adminSubjects": [ALICE], "viewerSubjects": [BOB],
             "adminGroups": [RF_ADMINS], "viewerGroups": [RF_VIEWERS]}});
+        // The BMC ignores Redfish lists, so they grant nothing here.
         let redfish = vm("c", redfish, None);
-        assert_eq!(role(&redfish, ALICE, &[]), Some(Role::Admin));
-        assert_eq!(role(&redfish, BOB, &[]), Some(Role::Viewer));
-        let carol = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
-        assert_eq!(role(&redfish, carol, &g(&[RF_ADMINS])), Some(Role::Admin));
-        assert_eq!(role(&redfish, carol, &g(&[RF_VIEWERS])), Some(Role::Viewer));
-        assert_eq!(role(&redfish, carol, &[]), None);
+        assert_eq!(role(&redfish, ALICE, &[]), None);
+        assert_eq!(role(&redfish, BOB, &[]), None);
+        assert_eq!(role(&redfish, BOB, &g(&[RF_ADMINS, RF_VIEWERS])), None);
         // The creator is a viewer, and admin wins over every viewer grant.
         let created = vm(
             "d",
@@ -160,6 +169,23 @@ pub(crate) mod tests {
             None,
         );
         assert_eq!(role(&bare, ALICE, &g(&[ADMINS, VIEWERS])), None);
+        let bare_created = vm("f", serde_json::json!({}), Some(ALICE));
+        assert_eq!(role(&bare_created, ALICE, &[]), Some(Role::Viewer));
+    }
+
+    #[test]
+    fn only_console_admins_delete_and_only_dashboard_vms() {
+        let mut launched = vm(
+            "a",
+            console(serde_json::json!({"allowedSubjects": [ALICE]})),
+            None,
+        );
+        assert!(!can_delete(&launched, Role::Admin));
+        launched.metadata.labels = Some([(MANAGED_BY.to_string(), "flux".to_string())].into());
+        assert!(!can_delete(&launched, Role::Admin));
+        launched.metadata.labels = Some([(MANAGED_BY.to_string(), MANAGER.to_string())].into());
+        assert!(can_delete(&launched, Role::Admin));
+        assert!(!can_delete(&launched, Role::Viewer));
     }
 
     #[test]

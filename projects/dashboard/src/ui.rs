@@ -26,6 +26,8 @@ pub enum PanelState {
 pub struct DetailPage {
     pub detail: Detail,
     pub panel: PanelState,
+    /// A console admin on a VM launched by this dashboard.
+    pub deletable: bool,
 }
 
 #[derive(Clone, Default)]
@@ -503,7 +505,7 @@ fn detail_page(page: &DetailPage, user: &UserView) -> Element {
             }
         }
         if admin && d.bmc_enabled { {power_controls(d, &user.csrf)} }
-        if admin { {delete_form(d, &user.csrf)} }
+        if page.deletable { {delete_form(d, &user.csrf)} }
     }
 }
 
@@ -518,7 +520,6 @@ fn input_value(values: &[(String, String)], key: &str, default: &str) -> String 
 fn launch_form(page: &LaunchPage, user: &UserView) -> Element {
     let v = |key: &str, default: &str| input_value(&page.values, key, default);
     let kvm = v("accelerator", "kvm") == "kvm";
-    let redfish = !page.values.is_empty() && launch::field(&page.values, "redfish") == "on";
     let node = page
         .storage_node
         .clone()
@@ -548,7 +549,6 @@ fn launch_form(page: &LaunchPage, user: &UserView) -> Element {
                     option { value: "kvm", selected: kvm, "KVM (hardware)" }
                     option { value: "tcg", selected: !kvm, "TCG (emulation)" }
                 }
-                label { class: "confirm", input { r#type: "checkbox", name: "redfish", value: "on", checked: redfish } "Enable the Redfish API (same groups)" }
             }
             fieldset { legend { "Data disks (optional)" }
                 p { class: "muted", "Provisioned by the storage service on node {node}. Leave the ID empty to skip a row." }

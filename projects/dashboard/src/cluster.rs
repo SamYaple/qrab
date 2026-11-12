@@ -92,13 +92,24 @@ pub fn pod_metrics_usage(object: &serde_json::Value) -> Usage {
     usage
 }
 
-/// The VM's Pod address, only when the Pod carries the operator's labels for
-/// this exact VM (name and UID) and reports an IP.
+/// The VM's Pod address, only when the Pod is controlled by this exact VM
+/// (a controller ownerReference with its kind and UID, as the operator
+/// checks) and carries the operator's labels for it, and reports an IP.
 pub fn vm_pod_ip(vm: &VirtualMachine, pod: &Pod) -> Option<IpAddr> {
+    use kube::Resource;
     let labels = pod.metadata.labels.as_ref()?;
     let label = |key: &str| labels.get(key).map(String::as_str);
     let uid = vm.metadata.uid.as_deref()?;
-    if label("app.kubernetes.io/name") != Some("qrab")
+    let api_version = VirtualMachine::api_version(&());
+    let controlled = pod.metadata.owner_references.iter().flatten().any(|o| {
+        o.controller == Some(true)
+            && o.kind == "VirtualMachine"
+            && o.api_version == api_version
+            && o.uid == uid
+            && Some(o.name.as_str()) == vm.metadata.name.as_deref()
+    });
+    if !controlled
+        || label("app.kubernetes.io/name") != Some("qrab")
         || label("app.kubernetes.io/component") != Some("vm")
         || label("app.kubernetes.io/instance") != vm.metadata.name.as_deref()
         || label("qrab.yapplesauce.com/owner-uid") != Some(uid)
@@ -214,9 +225,18 @@ mod tests {
     use super::*;
     use crate::access::tests::vm;
 
+    fn owner(uid: &str, controller: bool) -> serde_json::Value {
+        serde_json::json!([{"apiVersion": "qrab.yapplesauce.com/v1alpha1", "kind": "VirtualMachine",
+            "name": "a", "uid": uid, "controller": controller}])
+    }
+
     fn pod(labels: serde_json::Value, ip: &str) -> Pod {
+        owned(labels, ip, owner("uid-a", true))
+    }
+
+    fn owned(labels: serde_json::Value, ip: &str, owners: serde_json::Value) -> Pod {
         serde_json::from_value(serde_json::json!({
-            "metadata": {"name": "a", "labels": labels},
+            "metadata": {"name": "a", "labels": labels, "ownerReferences": owners},
             "status": {"podIP": ip}
         }))
         .unwrap()
@@ -240,7 +260,18 @@ mod tests {
             wrong[key] = value.into();
             assert_eq!(vm_pod_ip(&vm, &pod(wrong, "10.0.0.7")), None, "{key}");
         }
-        assert_eq!(vm_pod_ip(&vm, &pod(labels, "not-an-ip")), None);
+        assert_eq!(vm_pod_ip(&vm, &pod(labels.clone(), "not-an-ip")), None);
+        // The labels alone are not enough: the VM must control the Pod.
+        for owners in [
+            owner("uid-b", true),
+            owner("uid-a", false),
+            serde_json::json!([]),
+        ] {
+            assert_eq!(
+                vm_pod_ip(&vm, &owned(labels.clone(), "10.0.0.7", owners)),
+                None
+            );
+        }
     }
 
     #[test]

@@ -13,8 +13,8 @@ pub const STORAGE_CLASS: &str = "zfs-block";
 pub const MAX_NAME: usize = 50;
 pub const FORM_DISKS: usize = 4;
 pub const MAX_DISK_GIB: u64 = 1024;
-/// Marks resources the dashboard created.
-pub const LAUNCHED_BY: &str = "qrab.yapplesauce.com/launched-by";
+/// Marks resources the dashboard created; only such VMs can be deleted here.
+pub use crate::access::{MANAGED_BY, MANAGER};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Disk {
@@ -31,7 +31,6 @@ pub struct Request {
     pub memory_mib: u32,
     pub max_memory_mib: Option<u32>,
     pub kvm: bool,
-    pub redfish: bool,
     pub disks: Vec<Disk>,
 }
 
@@ -162,7 +161,6 @@ pub fn parse(
             false
         }
     };
-    let redfish = matches!(field(fields, "redfish"), "on" | "true" | "yes");
     let mut disks: Vec<Disk> = Vec::new();
     for i in 0..FORM_DISKS {
         let key = |suffix: &str| format!("disk{i}_{suffix}");
@@ -227,7 +225,6 @@ pub fn parse(
             memory_mib,
             max_memory_mib,
             kvm,
-            redfish,
             disks,
         }),
         _ => Err(errors),
@@ -241,7 +238,7 @@ pub fn render_pvc(names: &Names, namespace: &str) -> PersistentVolumeClaim {
         "metadata": {
             "name": names.pvc,
             "namespace": namespace,
-            "labels": {LAUNCHED_BY: "qrab-dashboard"},
+            "labels": {MANAGED_BY: MANAGER},
             "annotations": {"qrab.yapplesauce.com/vm": names.vm},
         },
         "spec": {
@@ -286,11 +283,6 @@ pub fn render_vm(
     if request.kvm {
         spec["accelerator"] = "kvm".into();
     }
-    if request.redfish {
-        spec["components"] = json!({"redfish": {
-            "enabled": true, "adminGroups": [groups.admins], "viewerGroups": [groups.viewers]
-        }});
-    }
     if !request.disks.is_empty() {
         spec["storageNode"] = storage_node.into();
         spec["disks"] = request
@@ -311,7 +303,7 @@ pub fn render_vm(
         "metadata": {
             "name": names.vm,
             "namespace": namespace,
-            "labels": {LAUNCHED_BY: "qrab-dashboard"},
+            "labels": {MANAGED_BY: "qrab-dashboard"},
             "annotations": {CREATOR: creator},
         },
         "spec": spec,
@@ -341,8 +333,8 @@ pub fn reusable_pvc(pvc: &PersistentVolumeClaim) -> bool {
     pvc.metadata
         .labels
         .as_ref()
-        .and_then(|l| l.get(LAUNCHED_BY))
-        .is_some_and(|v| v == "qrab-dashboard")
+        .and_then(|l| l.get(MANAGED_BY))
+        .is_some_and(|v| v == MANAGER)
         && pvc.metadata.deletion_timestamp.is_none()
         && pvc.status.as_ref().and_then(|s| s.phase.as_deref()) == Some("Pending")
 }
@@ -363,7 +355,7 @@ impl Launcher<'_> {
             report.failed = Some((step, error));
             return report;
         }
-        let mut groups: Vec<(String, String)> = Vec::new();
+        let mut groups: Vec<(String, Option<String>)> = Vec::new();
         let result = self
             .groups(&names, subject, username, &mut groups, &mut report)
             .await;
@@ -376,10 +368,21 @@ impl Launcher<'_> {
             }
         };
         let pvc_name = format!("PersistentVolumeClaim {}/{}", self.namespace, names.pvc);
+        // Checked again: the claim may have changed since the preflight.
         match self.cluster.get_pvc(&names.pvc).await {
-            Ok(Some(_)) => report
+            Ok(Some(pvc)) if reusable_pvc(&pvc) => report
                 .created
                 .push(format!("{pvc_name} (reused, never bound)")),
+            Ok(Some(_)) => {
+                report.failed = Some((
+                    "Reuse the state PVC".into(),
+                    format!(
+                        "{pvc_name} appeared or bound during the launch and may hold another VM's identity."
+                    ),
+                ));
+                self.rollback(&groups, &mut report).await;
+                return report;
+            }
             Ok(None) => match self
                 .cluster
                 .create_pvc(&render_pvc(&names, self.namespace))
@@ -472,44 +475,68 @@ impl Launcher<'_> {
         names: &Names,
         subject: &str,
         username: &str,
-        created: &mut Vec<(String, String)>,
+        created: &mut Vec<(String, Option<String>)>,
         report: &mut Report,
     ) -> Result<(String, String), (String, String)> {
         let vm = format!("{}/{}", self.namespace, names.vm);
+        let mut ids = Vec::new();
         for (group, role) in [(&names.admins, "admins"), (&names.viewers, "viewers")] {
             let description =
                 format!("qrab VM {vm} {role}, launched by {username} through qrab-dashboard");
-            let id = self
-                .kanidm
+            self.kanidm
                 .create_group(group, &description)
                 .await
                 .map_err(|e| (format!("Create Kanidm group {group}"), e.to_string()))?;
+            // From here the group exists: it is rolled back by name if its
+            // UUID cannot be read.
+            created.push((group.clone(), None));
+            let mut lookup = self.kanidm.group_uuid(group).await;
+            if !matches!(lookup, Ok(Some(_))) {
+                lookup = self.kanidm.group_uuid(group).await;
+            }
+            let id = match lookup {
+                Ok(Some(id)) => id,
+                Ok(None) => {
+                    return Err((
+                        format!("Read Kanidm group {group}"),
+                        "the group was created but cannot be found".into(),
+                    ));
+                }
+                Err(e) => return Err((format!("Read Kanidm group {group}"), e.to_string())),
+            };
             report.created.push(format!("Kanidm group {group} ({id})"));
-            created.push((group.clone(), id));
+            if let Some(last) = created.last_mut() {
+                last.1 = Some(id.clone());
+            }
+            ids.push(id);
         }
-        for (group, id) in created.iter() {
+        for ((group, _), id) in created.iter().zip(&ids) {
             self.kanidm
                 .add_member(self.vm_users_group, id)
                 .await
                 .map_err(|e| (format!("Nest {group} in qrab_vm_users"), e.to_string()))?;
         }
-        let admins = created[0].1.clone();
         self.kanidm
-            .add_member(&admins, subject)
+            .add_member(&ids[0], subject)
             .await
             .map_err(|e| (format!("Add you to {}", names.admins), e.to_string()))?;
-        Ok((admins, created[1].1.clone()))
+        Ok((ids[0].clone(), ids[1].clone()))
     }
 
-    async fn rollback(&self, groups: &[(String, String)], report: &mut Report) {
+    /// Deletes the groups this launch created, by UUID or else by name.
+    async fn rollback(&self, groups: &[(String, Option<String>)], report: &mut Report) {
         for (name, id) in groups {
-            match self.kanidm.delete_group(id).await {
+            match self
+                .kanidm
+                .delete_group(id.as_deref().unwrap_or(name))
+                .await
+            {
                 Ok(()) => report
                     .rolled_back
                     .push(format!("Kanidm group {name} deleted")),
                 Err(e) => report
                     .left
-                    .push(format!("Kanidm group {name} ({id}): rollback failed: {e}")),
+                    .push(format!("Kanidm group {name}: rollback failed: {e}")),
             }
         }
     }
@@ -579,7 +606,7 @@ mod tests {
         assert_eq!(ok.cpus, 2);
         assert_eq!(ok.max_cpus, Some(4));
         assert_eq!(ok.max_memory_mib, None);
-        assert!(ok.kvm && ok.redfish);
+        assert!(ok.kvm);
         assert_eq!(ok.disks[1].base_image, Some(("debian-13".into(), 3)));
         for (pairs, needle) in [
             (
@@ -722,20 +749,19 @@ mod tests {
                 "apiVersion": "qrab.yapplesauce.com/v1alpha1",
                 "kind": "VirtualMachine",
                 "metadata": {"name": "web", "namespace": "qrab",
-                    "labels": {LAUNCHED_BY: "qrab-dashboard"},
+                    "labels": {"app.kubernetes.io/managed-by": "qrab-dashboard"},
                     "annotations": {"qrab.yapplesauce.com/creator-subject": "sub-1"}},
                 "spec": {
                     "stateVolumeClaim": "web-state", "memoryMiB": 1024, "maxMemoryMiB": 4096, "cpus": 2,
                     "running": true, "bootDisk": "/opt/qrab/demo/boot.img",
                     "console": {"adminGroups": ["ga"], "viewerGroups": ["gv"]},
-                    "components": {"redfish": {"enabled": true, "adminGroups": ["ga"], "viewerGroups": ["gv"]}},
                     "storageNode": "kube03",
                     "disks": [{"id": "data", "sizeBytes": 2147483648u64, "baseImage": {"name": "debian", "generation": 1}}]
                 }
             })
         );
+        // The form offers no Redfish: nothing admits port 8081 for these VMs.
         let plain = Request {
-            redfish: false,
             disks: vec![],
             kvm: true,
             ..request

@@ -47,6 +47,7 @@ async fn main() -> anyhow::Result<()> {
         sessions: Default::default(),
         novnc_dir: config.novnc_dir.clone(),
         consoles: Arc::new(tokio::sync::Semaphore::new(16)),
+        console_subjects: Default::default(),
     };
     let listener = tokio::net::TcpListener::bind(config.listen).await?;
     tracing::info!(origin=%config.origin, namespace=%config.namespace, "qrab-dashboard started");

@@ -6,7 +6,7 @@ pub mod auth;
 pub mod bmc;
 pub mod cluster;
 pub mod config;
-mod console;
+pub mod console;
 pub mod kanidm;
 pub mod launch;
 pub mod model;
@@ -41,7 +41,10 @@ pub struct AppState {
     pub bmc: bmc::Bmc,
     pub sessions: session_store::BoundedStore,
     pub novnc_dir: PathBuf,
+    /// Global cap on open consoles.
     pub consoles: Arc<Semaphore>,
+    /// Open consoles per subject, capped at `console::PER_SUBJECT`.
+    pub console_subjects: console::SubjectCounts,
 }
 
 pub struct Failure(pub StatusCode, pub String);
@@ -314,11 +317,16 @@ async fn detail(
         }
     };
     let detail = model::detail(&vm, role, &usage, pod.as_ref(), ip);
+    let deletable = access::can_delete(&vm, role);
     page(
         &app,
         &session,
         &user,
-        ui::Body::Detail(Box::new(ui::DetailPage { detail, panel })),
+        ui::Body::Detail(Box::new(ui::DetailPage {
+            detail,
+            panel,
+            deletable,
+        })),
     )
     .await
 }
@@ -384,8 +392,11 @@ async fn delete(
         return Err(Failure::invalid("Type the VM name to confirm deletion."));
     }
     let (vm, role) = visible_vm(&app, &user, &namespace, &name).await?;
-    if role != Role::Admin {
-        return Err(Failure::forbidden());
+    if !access::can_delete(&vm, role) {
+        return Err(Failure(
+            StatusCode::FORBIDDEN,
+            "Only console admins can delete, and only VMs launched by this dashboard.".into(),
+        ));
     }
     let uid = vm.metadata.uid.clone().ok_or_else(Failure::internal)?;
     app.cluster

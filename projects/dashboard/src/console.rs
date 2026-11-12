@@ -9,11 +9,52 @@ use axum::{
     response::Response,
 };
 use futures::{SinkExt, StreamExt};
-use std::time::Duration;
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 use tokio_tungstenite::tungstenite::Message as Upstream;
 use tower_sessions::Session;
 
 const FRAME: usize = 64 * 1024;
+/// Consoles one subject may hold open at once, within the global limit.
+pub const PER_SUBJECT: usize = 4;
+
+pub type SubjectCounts = Arc<Mutex<HashMap<String, usize>>>;
+
+/// One open console counted against its subject until dropped.
+struct SubjectSlot {
+    counts: SubjectCounts,
+    subject: String,
+}
+
+impl SubjectSlot {
+    fn acquire(counts: &SubjectCounts, subject: &str) -> Option<Self> {
+        let mut map = counts.lock().unwrap_or_else(|e| e.into_inner());
+        let count = map.entry(subject.to_owned()).or_default();
+        if *count >= PER_SUBJECT {
+            return None;
+        }
+        *count += 1;
+        Some(Self {
+            counts: counts.clone(),
+            subject: subject.to_owned(),
+        })
+    }
+}
+
+impl Drop for SubjectSlot {
+    fn drop(&mut self) {
+        let mut map = self.counts.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(count) = map.get_mut(&self.subject) {
+            *count = count.saturating_sub(1);
+            if *count == 0 {
+                map.remove(&self.subject);
+            }
+        }
+    }
+}
 const WRITE_TIMEOUT: Duration = Duration::from_secs(5);
 /// How often the VM's grants are re-read while a console is open.
 const ROLE_RECHECK: Duration = Duration::from_secs(30);
@@ -37,6 +78,8 @@ pub async fn upgrade(
     let ip = crate::pod_ip(&app, &vm)
         .await?
         .ok_or_else(|| Failure::unavailable("The VM's Pod is not running."))?;
+    let subject_slot = SubjectSlot::acquire(&app.console_subjects, &user.subject)
+        .ok_or_else(|| Failure::unavailable("You have too many consoles open."))?;
     let permit = app
         .consoles
         .clone()
@@ -62,7 +105,7 @@ pub async fn upgrade(
         .max_message_size(FRAME)
         .max_frame_size(FRAME)
         .on_upgrade(move |socket| async move {
-            let _permit = permit;
+            let _permits = (permit, subject_slot);
             bridge(socket, upstream, app, id, user, name).await;
         }))
 }
