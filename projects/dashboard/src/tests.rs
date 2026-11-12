@@ -515,6 +515,11 @@ async fn detail_calls_only_the_selected_vms_bmc_with_the_bearer_and_escapes_gues
     assert!(
         body.contains("bmc-b") && !body.contains("Open console") && !body.contains("Delete VM")
     );
+    // A viewer learns why, and can refresh a sign-in that predates a new grant.
+    assert!(
+        body.contains("Console: admins only")
+            && body.contains("href=\"/auth/login?next=/vms/qrab/b\"")
+    );
     assert_eq!(h.bmc_b.lock().unwrap().len(), 4);
     assert_eq!(h.bmc_a.lock().unwrap().len(), 4);
 }
@@ -782,7 +787,8 @@ async fn launch_creates_groups_pvc_and_vm_in_order() {
     assert!(h.kanidm.lock().unwrap().is_empty());
     let (status, headers, _) = send(&h, post("/launch", Some(&cookie), Some(ORIGIN), form)).await;
     assert_eq!(status, StatusCode::SEE_OTHER);
-    assert_eq!(headers["location"], "/vms/qrab/web");
+    // A launch refreshes the sign-in and returns to the new VM.
+    assert_eq!(headers["location"], "/auth/login?next=/vms/qrab/web");
     let (admins, viewers) = {
         let dir = h.dir.lock().unwrap();
         let admins = dir.groups["qrab_vm_qrab_web_admins"].clone();

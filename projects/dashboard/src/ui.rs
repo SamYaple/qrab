@@ -454,11 +454,22 @@ fn detail_page(page: &DetailPage, user: &UserView) -> Element {
     });
     let admin = d.row.role == Role::Admin;
     let console = format!("{}/console", d.row.path());
+    let refresh = format!("/auth/login?next={}", d.row.path());
     rsx! {
         a { class: "back", href: "/", "← All VMs" }
         div { class: "heading",
             div { p { class: "eyebrow", "VIRTUAL MACHINE · {d.row.namespace}" } h1 { "{d.row.name}" } p { class: "muted", "UID " code { "{d.uid}" } } }
             if admin && d.bmc_enabled { a { class: "button", href: "{console}", "Open console →" } }
+            if !admin && d.bmc_enabled {
+                div { class: "console-locked",
+                    span { class: "button disabled", aria_disabled: "true", "Console: admins only" }
+                    p { class: "muted",
+                        "Opening the console needs admin access to this VM. If you were just given it, "
+                        a { href: "{refresh}", "refresh your sign-in" }
+                        "."
+                    }
+                }
+            }
         }
         div { class: "detail-grid",
             section { class: "card", h2 { "Overview" } {dl(summary)} }

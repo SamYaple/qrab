@@ -509,12 +509,14 @@ async fn launch(
         flash(
             &session,
             format!(
-                "Launched {}. You are in its admins group; sign out and in again for admin access (console and power). Until then you are its viewer as the creator.",
+                "Launched {}. Your sign-in was refreshed so it includes the VM's new admins group (console and power).",
                 request.name
             ),
         )
         .await?;
-        return Ok(Redirect::to(&path).into_response());
+        // The ID token predates the new admins group, so sign in again through
+        // Kanidm's existing session and come back to the VM as its admin.
+        return Ok(Redirect::to(&format!("/auth/login?next={path}")).into_response());
     }
     let created_vm = report
         .created

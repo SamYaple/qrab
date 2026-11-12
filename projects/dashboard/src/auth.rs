@@ -47,6 +47,43 @@ pub(crate) struct Pending {
     verifier: String,
     nonce: String,
     pub(crate) expires: u64,
+    /// Where the callback lands; only a path accepted by [`return_path`].
+    #[serde(default)]
+    next: Option<String>,
+}
+
+#[derive(Deserialize)]
+pub struct LoginQuery {
+    next: Option<String>,
+}
+
+/// A same-origin VM page to return to after sign-in, or `None`. Anything else
+/// (absolute URLs, `//host`, traversal, query strings) is refused, so the
+/// callback can never redirect off-site.
+///
+/// ```
+/// use qrab_dashboard::auth::return_path;
+/// assert_eq!(return_path("/vms/qrab/test").as_deref(), Some("/vms/qrab/test"));
+/// assert_eq!(return_path("/vms/qrab/web.a"), Some("/vms/qrab/web.a".into()));
+/// for bad in ["//evil.example/vms/a/b", "https://evil.example/", "/vms/qrab", "/vms/qrab/a/../b",
+///             "/vms/qrab/a?x=1", "/vms/qrab/A", "/launch", "/vms//a"] {
+///     assert_eq!(return_path(bad), None, "{bad}");
+/// }
+/// ```
+pub fn return_path(next: &str) -> Option<String> {
+    let rest = next.strip_prefix("/vms/")?;
+    let (namespace, name) = rest.split_once('/')?;
+    let label = |s: &str, dots: bool| {
+        !s.is_empty()
+            && s.len() <= 63
+            && s.bytes().all(|b| {
+                b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-' || (dots && b == b'.')
+            })
+            && !s.starts_with(['-', '.'])
+            && !s.ends_with(['-', '.'])
+            && !s.contains("..")
+    };
+    (label(namespace, false) && label(name, true)).then(|| next.to_owned())
 }
 
 /// A signed-in user. No `Debug`: it holds the raw ID token.
@@ -169,7 +206,11 @@ impl Oidc {
     }
 }
 
-pub async fn login(State(app): State<AppState>, session: Session) -> Result<Redirect, Failure> {
+pub async fn login(
+    State(app): State<AppState>,
+    session: Session,
+    Query(query): Query<LoginQuery>,
+) -> Result<Redirect, Failure> {
     let (challenge, verifier) = PkceCodeChallenge::new_random_sha256();
     let (url, state, nonce) = app
         .oidc
@@ -203,6 +244,7 @@ pub async fn login(State(app): State<AppState>, session: Session) -> Result<Redi
                 verifier: verifier.secret().clone(),
                 nonce: nonce.secret().clone(),
                 expires,
+                next: query.next.as_deref().and_then(return_path),
             },
         )
         .await
@@ -285,7 +327,7 @@ pub async fn callback(
         id_token: raw,
     };
     establish_session(&session, user).await?;
-    Ok(Redirect::to("/"))
+    Ok(Redirect::to(pending.next.as_deref().unwrap_or("/")))
 }
 
 pub(crate) async fn establish_session(session: &Session, user: User) -> Result<(), Failure> {
@@ -386,6 +428,7 @@ mod tests {
             verifier: "v".into(),
             nonce: "n".into(),
             expires: 100,
+            next: None,
         };
         assert!(check_state(&pending, Some("s"), 99));
         assert!(!check_state(&pending, Some("s"), 100));
