@@ -18,6 +18,11 @@ spec:
         app.kubernetes.io/name: qrab-dashboard
     spec:
       serviceAccountName: qrab-dashboard
+      # Every node is a control-plane node, as for the operator.
+      tolerations:
+      - key: node-role.kubernetes.io/control-plane
+        operator: Exists
+        effect: NoSchedule
       # The dashboard reads and creates VMs through the Kubernetes API.
       automountServiceAccountToken: true
       enableServiceLinks: false
