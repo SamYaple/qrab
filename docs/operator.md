@@ -301,6 +301,18 @@ deleted afterwards): kube01–03 are KVM guests on an AMD EPYC 9354 host
 `/var/run/cdi`, and no CDI override in `/etc/containerd/config.toml`. No node advertises
 a KVM resource yet. A VM Pod would run as a nested (L2) guest.
 
+Live evidence, 2026-11-12, after the kubernetes-gitops DaemonSet (#403, operator
+`3b85ece6…`) and the node pull bindings: kube01–03 each allocate 32
+`qrab.yapplesauce.com/kvm`. The host node stays `crw-rw---- 0:992`. A disposable
+VM `qrab-kvm-test` (`accelerator: kvm`, `cpus: 1`, `maxCpus: 4`, no disk or
+BMC; deleted with its PVC afterwards) ran on kube03 with QEMU
+`-accel kvm -cpu host -smp cpus=1,maxcpus=4` as UID 10001 in the host user
+namespace, and saw `/dev/kvm` as `crw-rw-rw- 10001:10001`. containerd 2.4
+therefore creates the CDI node with its `fileMode`, so no supplemental group is
+rendered. Patching `cpus` 1→2→4 resized the same Pod UID in place, with 0
+restarts and a CPU limit of 3 and then 5. The guest reported `QRAB_GUEST_RESOURCES cpus=2`
+and then `cpus=4`. `cpus: 5` is rejected by the CRD (`cpus must not exceed maxCpus`).
+
 ## UEFI, TPM and SPIRE
 
 Per-VM writable NVRAM and TPM state live under `/var/lib/qrab/identity` on the
