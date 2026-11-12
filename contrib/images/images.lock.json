@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "source_revision": "96d0461d2c719e8b2457c027b02fb9379bba0b59",
+  "source_revision": "503ea0e525152ad068153e288d4352dc37977b1a",
   "qemu": {
     "image": "zot.yapplesauce.com/qrab/qemu@sha256:e70d4816b5b14b8bf4547e96ad4e5c2f3c8f0b2e91f9bc4f68b6ed2e1f2e4a80",
     "version": "11.1.3",
@@ -13,8 +13,10 @@
     ]
   },
   "manager": {
-    "image": "zot.yapplesauce.com/qrab/manager@sha256:653b44b4cdb7d91007e2f558c5bd1805650f6a2cc7c3dc07a489cdeafa25d7a1",
-    "bmc_version": "0.2.0"
+    "image": "zot.yapplesauce.com/qrab/manager@sha256:b6b8f19bd2e6fc10401addcecd0845a3ff8fcdb6534b29981bf2f53ba6fb2e0f",
+    "bmc_version": "0.2.0",
+    "redfish_version": "0.1.0",
+    "guest_agent_version": "0.1.0"
   },
   "demo_guest_packages": [
     "busybox-static\t1:1.37.0-6+b9",
