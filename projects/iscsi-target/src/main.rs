@@ -1,7 +1,7 @@
 use anyhow::{bail, ensure, Result};
 use qrab_iscsi_target::{apply, fence, restore, Backend, LinuxHost, Phase, Report, Spec, Store};
 
-const HELP:&str="qrab-iscsi-target plan|apply|fence|status|handoff --vm-uid UUID [--size-mib 128] [--recipient-uid 1000]\nqrab-iscsi-target bootstrap|restore|install-unit\nqrab-iscsi-target vm-disk-create|vm-disk-clone|vm-disk-expand|vm-disk-export|vm-disk-fence|vm-disk-status|vm-disk-retire|vm-image-publish|vm-image-status ... (storage daemon wrapper; vm-disk-export reads CHAP from stdin)\nFixed dedicated ZFS/LIO paths only. apply/fence/restore/handoff require root. Credentials never go to stdout.";
+const HELP:&str="qrab-iscsi-target plan|apply|fence|status|handoff --vm-uid UUID [--size-mib 128] [--recipient-uid 1000]\nqrab-iscsi-target bootstrap|restore|install-unit\nqrab-iscsi-target vm-disk-create|vm-disk-clone|vm-disk-expand|vm-disk-export|vm-disk-fence|vm-disk-status|vm-disk-retire|vm-image-publish|vm-image-status|vm-image-retire ... (storage daemon wrapper; vm-disk-export reads CHAP from stdin)\nFixed dedicated ZFS/LIO paths only. apply/fence/restore/handoff require root. Credentials never go to stdout.";
 fn root() -> Result<()> {
     ensure!(
         nix::unistd::getuid().is_root() && nix::unistd::geteuid().is_root(),
