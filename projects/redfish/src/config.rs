@@ -8,6 +8,8 @@ pub struct Config {
     pub audience: String,
     pub admin_subjects: HashSet<String>,
     pub viewer_subjects: HashSet<String>,
+    pub admin_groups: HashSet<String>,
+    pub viewer_groups: HashSet<String>,
     pub ca_file: Option<PathBuf>,
 }
 
@@ -18,7 +20,7 @@ pub fn subjects(name: &str, raw: &str) -> Result<HashSet<String>> {
         .map(|s| {
             uuid::Uuid::parse_str(s)
                 .map(|id| id.to_string())
-                .with_context(|| format!("{name} must contain subject UUIDs"))
+                .with_context(|| format!("{name} must contain UUIDs"))
         })
         .collect()
 }
@@ -46,13 +48,21 @@ impl Config {
             "REDFISH_VIEWER_SUBJECTS",
             &optional("REDFISH_VIEWER_SUBJECTS"),
         )?;
+        let admin_groups = subjects("REDFISH_ADMIN_GROUPS", &optional("REDFISH_ADMIN_GROUPS"))?;
+        let viewer_groups = subjects("REDFISH_VIEWER_GROUPS", &optional("REDFISH_VIEWER_GROUPS"))?;
         ensure!(
-            !admin_subjects.is_empty() || !viewer_subjects.is_empty(),
-            "REDFISH_ADMIN_SUBJECTS or REDFISH_VIEWER_SUBJECTS must name subject UUIDs"
+            [&admin_subjects, &viewer_subjects, &admin_groups, &viewer_groups]
+                .iter()
+                .any(|set| !set.is_empty()),
+            "REDFISH_ADMIN_SUBJECTS, REDFISH_VIEWER_SUBJECTS, REDFISH_ADMIN_GROUPS or REDFISH_VIEWER_GROUPS must name subject or group UUIDs"
         );
         ensure!(
             admin_subjects.is_disjoint(&viewer_subjects),
             "a subject cannot be both a Redfish admin and a viewer"
+        );
+        ensure!(
+            admin_groups.is_disjoint(&viewer_groups),
+            "a group cannot grant both Redfish admin and viewer access"
         );
         Ok(Self {
             listen: std::env::var("REDFISH_LISTEN")
@@ -62,6 +72,8 @@ impl Config {
             audience,
             admin_subjects,
             viewer_subjects,
+            admin_groups,
+            viewer_groups,
             ca_file: std::env::var_os("REDFISH_CA_FILE").map(PathBuf::from),
         })
     }

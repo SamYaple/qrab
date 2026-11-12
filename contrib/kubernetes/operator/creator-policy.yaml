@@ -1,0 +1,94 @@
+# Records who created each VirtualMachine so the operator can make that person
+# a permanent viewer of its BMC and Redfish API. Only Kanidm users carry an
+# identity the BMC can match: the API server maps their tokens to
+# `kanidm:<sub>` (AuthenticationConfiguration on the control plane), and `sub`
+# is the subject the BMC and Redfish see. Any client-supplied value is replaced
+# or removed on create, and the annotation can never change afterwards.
+# Checked live by contrib/kubernetes/operator/check-creator-policy.sh.
+apiVersion: admissionregistration.k8s.io/v1
+kind: MutatingAdmissionPolicy
+metadata:
+  name: qrab-vm-creator
+spec:
+  failurePolicy: Fail
+  reinvocationPolicy: Never
+  matchConstraints:
+    resourceRules:
+    - apiGroups: [qrab.yapplesauce.com]
+      apiVersions: [v1alpha1]
+      operations: [CREATE]
+      resources: [virtualmachines]
+  variables:
+  - name: key
+    expression: "'qrab.yapplesauce.com/creator-subject'"
+  - name: creator
+    expression: >-
+      request.userInfo.username.startsWith('kanidm:') &&
+      request.userInfo.username.substring(7).matches('^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')
+      ? request.userInfo.username.substring(7) : ''
+  - name: annotated
+    expression: "has(object.metadata.annotations) && variables.key in object.metadata.annotations"
+  mutations:
+  - patchType: JSONPatch
+    jsonPatch:
+      expression: >-
+        variables.creator == ''
+        ? (variables.annotated
+            ? [JSONPatch{op: 'remove', path: '/metadata/annotations/' + jsonpatch.escapeKey(variables.key)}]
+            : [])
+        : (has(object.metadata.annotations)
+            ? [JSONPatch{op: 'add', path: '/metadata/annotations/' + jsonpatch.escapeKey(variables.key), value: variables.creator}]
+            : [JSONPatch{op: 'add', path: '/metadata/annotations', value: {variables.key: variables.creator}}])
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: MutatingAdmissionPolicyBinding
+metadata:
+  name: qrab-vm-creator
+spec:
+  policyName: qrab-vm-creator
+---
+# Runs after every mutation: a create must carry exactly the requesting Kanidm
+# subject (or nothing for other users), and no update may add, change or
+# remove the annotation.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: qrab-vm-creator
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+    - apiGroups: [qrab.yapplesauce.com]
+      apiVersions: [v1alpha1]
+      operations: [CREATE, UPDATE]
+      resources: [virtualmachines]
+  variables:
+  - name: key
+    expression: "'qrab.yapplesauce.com/creator-subject'"
+  - name: creator
+    expression: >-
+      request.userInfo.username.startsWith('kanidm:') &&
+      request.userInfo.username.substring(7).matches('^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')
+      ? request.userInfo.username.substring(7) : ''
+  - name: current
+    expression: >-
+      has(object.metadata.annotations) && variables.key in object.metadata.annotations
+      ? object.metadata.annotations[variables.key] : ''
+  - name: previous
+    expression: >-
+      request.operation == 'UPDATE' && has(oldObject.metadata.annotations) &&
+      variables.key in oldObject.metadata.annotations
+      ? oldObject.metadata.annotations[variables.key] : ''
+  validations:
+  - expression: "request.operation != 'CREATE' || variables.current == variables.creator"
+    message: qrab.yapplesauce.com/creator-subject is set by admission to the creating Kanidm subject
+  - expression: "request.operation != 'UPDATE' || variables.current == variables.previous"
+    message: qrab.yapplesauce.com/creator-subject is immutable
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: qrab-vm-creator
+spec:
+  policyName: qrab-vm-creator
+  validationActions: [Deny]

@@ -134,6 +134,14 @@ pub struct RedfishComponent {
     #[serde(default)]
     #[schemars(length(max = 128))]
     pub viewer_subjects: Vec<String>,
+    /// Kanidm group UUIDs whose members may read and reset the VM.
+    #[serde(default)]
+    #[schemars(length(max = 16))]
+    pub admin_groups: Vec<String>,
+    /// Kanidm group UUIDs whose members have read-only access.
+    #[serde(default)]
+    #[schemars(length(max = 16))]
+    pub viewer_groups: Vec<String>,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize, JsonSchema)]
@@ -239,12 +247,21 @@ pub struct Console {
     /// Exact HTTPS origin. Service/Ingress/certificate and IdP callback are separate.
     pub public_url: String,
     /// Subject UUIDs with full (admin) BMC access.
-    #[schemars(length(min = 1, max = 128))]
+    #[serde(default)]
+    #[schemars(length(max = 128))]
     pub allowed_subjects: Vec<String>,
     /// Subject UUIDs with read-only BMC access: status, events and redacted configuration.
     #[serde(default)]
     #[schemars(length(max = 128))]
     pub viewer_subjects: Vec<String>,
+    /// Kanidm group UUIDs whose members have full BMC access.
+    #[serde(default)]
+    #[schemars(length(max = 16))]
+    pub admin_groups: Vec<String>,
+    /// Kanidm group UUIDs whose members have read-only BMC access.
+    #[serde(default)]
+    #[schemars(length(max = 16))]
+    pub viewer_groups: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema, PartialEq, Eq)]

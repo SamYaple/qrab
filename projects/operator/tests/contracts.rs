@@ -179,10 +179,20 @@ fn crd_is_namespaced_and_schema_bounds_and_status_are_published() {
         spec["stateVolumeClaim"]["x-kubernetes-validations"][0]["rule"],
         "self == oldSelf"
     );
-    assert_eq!(
-        spec["console"]["properties"]["allowedSubjects"]["minItems"],
-        1
-    );
+    // Subjects, groups or a recorded creator may grant console access, so no
+    // single list is required; validation demands at least one grant.
+    let console = &spec["console"]["properties"];
+    assert!(console["allowedSubjects"].get("minItems").is_none());
+    assert_eq!(console["allowedSubjects"]["maxItems"], 128);
+    let redfish = &spec["components"]["properties"]["redfish"]["properties"];
+    for groups in [
+        &console["adminGroups"],
+        &console["viewerGroups"],
+        &redfish["adminGroups"],
+        &redfish["viewerGroups"],
+    ] {
+        assert_eq!(groups["maxItems"], 16);
+    }
 }
 
 #[test]
@@ -621,6 +631,98 @@ fn bmc_viewers_are_rendered_and_role_lists_are_validated() {
     let mut bad_redfish = with_components(false, true);
     bad_redfish.spec.components.redfish.viewer_subjects = vec!["not-a-uuid".into()];
     assert!(resources::render(&bad_redfish, &settings()).is_err());
+}
+
+#[test]
+fn role_groups_and_the_creator_reach_both_sidecars() {
+    const ADMIN_GROUP: &str = "11111111-1111-4111-8111-111111111111";
+    const VIEWER_GROUP: &str = "22222222-2222-4222-8222-222222222222";
+    const CREATOR: &str = "33333333-3333-4333-8333-333333333333";
+    let admin = "6175a2a1-efb9-44e8-8c0b-5fe7ace18f9b";
+    let mut machine = with_components(true, true);
+    let console = machine.spec.console.as_mut().unwrap();
+    console.admin_groups = vec![ADMIN_GROUP.into()];
+    console.viewer_groups = vec![VIEWER_GROUP.into()];
+    let redfish = &mut machine.spec.components.redfish;
+    redfish.admin_groups = vec![ADMIN_GROUP.into()];
+    redfish.viewer_groups = vec![VIEWER_GROUP.into()];
+    machine
+        .metadata
+        .annotations
+        .get_or_insert_with(Default::default)
+        .insert(resources::CREATOR.into(), CREATOR.to_uppercase());
+    let pod = serde_json::to_value(resources::render(&machine, &settings()).unwrap().pod).unwrap();
+    let bmc = env(&pod["spec"]["initContainers"][0]);
+    assert_eq!(bmc["BMC_ADMIN_GROUPS"], ADMIN_GROUP);
+    assert_eq!(bmc["BMC_VIEWER_GROUPS"], VIEWER_GROUP);
+    assert_eq!(
+        bmc["BMC_VIEWER_SUBJECTS"], CREATOR,
+        "the creator is a viewer"
+    );
+    let redfish = env(&pod["spec"]["initContainers"][1]);
+    assert_eq!(redfish["REDFISH_ADMIN_GROUPS"], ADMIN_GROUP);
+    assert_eq!(redfish["REDFISH_VIEWER_GROUPS"], VIEWER_GROUP);
+    assert!(redfish["REDFISH_VIEWER_SUBJECTS"]
+        .as_str()
+        .unwrap()
+        .ends_with(CREATOR));
+
+    // A creator who is already an admin is not demoted or duplicated.
+    let mut creator_admin = machine.clone();
+    creator_admin
+        .metadata
+        .annotations
+        .as_mut()
+        .unwrap()
+        .insert(resources::CREATOR.into(), admin.into());
+    let pod =
+        serde_json::to_value(resources::render(&creator_admin, &settings()).unwrap().pod).unwrap();
+    assert!(!env(&pod["spec"]["initContainers"][0]).contains_key("BMC_VIEWER_SUBJECTS"));
+
+    // Groups alone, or the creator alone, are enough for the console.
+    let mut groups_only = machine.clone();
+    groups_only.metadata.annotations = None;
+    groups_only
+        .spec
+        .console
+        .as_mut()
+        .unwrap()
+        .allowed_subjects
+        .clear();
+    let pod =
+        serde_json::to_value(resources::render(&groups_only, &settings()).unwrap().pod).unwrap();
+    assert!(!env(&pod["spec"]["initContainers"][0]).contains_key("BMC_ALLOWED_SUBJECTS"));
+    let mut creator_only = with_components(true, false);
+    creator_only
+        .spec
+        .console
+        .as_mut()
+        .unwrap()
+        .allowed_subjects
+        .clear();
+    creator_only
+        .metadata
+        .annotations
+        .get_or_insert_with(Default::default)
+        .insert(resources::CREATOR.into(), CREATOR.into());
+    assert!(resources::render(&creator_only, &settings()).is_ok());
+    creator_only.metadata.annotations = None;
+    assert!(resources::render(&creator_only, &settings()).is_err());
+
+    // Malformed creators and overlapping or malformed groups are refused.
+    let mut bad = machine.clone();
+    bad.metadata
+        .annotations
+        .as_mut()
+        .unwrap()
+        .insert(resources::CREATOR.into(), "kanidm:someone".into());
+    assert!(resources::render(&bad, &settings()).is_err());
+    let mut overlap = machine.clone();
+    overlap.spec.console.as_mut().unwrap().viewer_groups = vec![ADMIN_GROUP.into()];
+    assert!(resources::render(&overlap, &settings()).is_err());
+    let mut malformed = machine.clone();
+    malformed.spec.components.redfish.admin_groups = vec!["qrab_vm_qrab_demo_admins".into()];
+    assert!(resources::render(&malformed, &settings()).is_err());
 }
 
 #[test]

@@ -5,4 +5,5 @@ resources:
 - crd.json
 - rbac.yaml
 - secret-policy.yaml
+- creator-policy.yaml
 - deployment.yaml

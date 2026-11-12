@@ -45,6 +45,8 @@ On SIGTERM the sidecar closes live streams within two seconds and exits 0.
 | `BMC_ALLOWED_SUBJECTS` | Comma-separated subject UUIDs with full (admin) access; kept for compatibility |
 | `BMC_ADMIN_SUBJECTS` | Additional comma-separated admin subject UUIDs |
 | `BMC_VIEWER_SUBJECTS` | Comma-separated read-only (viewer) subject UUIDs |
+| `BMC_ADMIN_GROUPS` | Comma-separated Kanidm group UUIDs whose members have admin access |
+| `BMC_VIEWER_GROUPS` | Comma-separated Kanidm group UUIDs whose members have viewer access |
 | `QRAB_NODE_NAME`, `QRAB_POD_NAME`, `QRAB_POD_NAMESPACE`, `QRAB_IMAGE` | Optional deployment metadata shown to admins |
 | `BMC_LISTEN` | Listener; defaults to `0.0.0.0:8080` |
 | `BMC_ASSETS_DIR` | Defaults to the source assets directory; image sets `/opt/qrab/bmc/assets` |
@@ -61,12 +63,17 @@ restart. Cookies are host-only, Secure, HttpOnly and SameSite=Lax under the
 expiry and 15 minutes after login. There is no refresh token in the browser.
 Signing out revokes active consoles across tabs within one second; expiry also
 closes them. Kanidm group changes affect new logins; existing sessions retain
-their authorization until expiry or logout. Changing the VM's allowlist requires
-recreating its pod.
+their authorization until expiry or logout, at most 15 minutes. Changing the
+VM's subject or group lists requires recreating its pod; changing a group's
+members does not.
 
-At least one admin or viewer subject is required, and a subject cannot be in
-both sets. Roles are resolved from this configuration on every request and on
-every live-stream recheck; they are never stored in the session.
+At least one admin or viewer subject or group is required. No subject, and no
+group, may be in both the admin and the viewer set. With groups configured, the
+login also requests Kanidm's `groups_uuid` scope. The session keeps only the
+configured group UUIDs listed in the verified ID token. Roles are resolved from
+this configuration and those groups on every request and on every live-stream
+recheck; admin wins when both apply. The role itself is never stored in the
+session.
 
 | Role | Access |
 | --- | --- |
@@ -108,7 +115,7 @@ changes; the events panel shows that warning. 503 responses name what is
 unavailable (status, configuration, console, power action, or too many
 consoles/streams) and say so when the VM is shutting down.
 Its session is authorized at admission and rechecked at least once a second;
-logout, expiry or removal from the subject lists end the stream. A request
+logout, expiry or removal from the subject or group lists end the stream. A request
 carrying a foreign Origin is refused. Sixteen concurrent streams are allowed
 per BMC; further streams get 503.
 

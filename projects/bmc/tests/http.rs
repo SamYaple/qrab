@@ -10,6 +10,8 @@ use tower_sessions::Session;
 
 const SUBJECT: &str = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const VIEWER: &str = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+const ADMIN_GROUP: &str = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+const VIEWER_GROUP: &str = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
 const PORTAL: &str = "192.0.2.10:3260";
 const TARGET: &str = "iqn.2026-11.com.yapplesauce:qrab.test.disk";
 const IMAGE: &str =
@@ -36,6 +38,8 @@ fn app_with_receiver() -> (AppState, manager::pod::ControlReceiver) {
         client_id: "qrab-bmc".into(),
         admin_subjects: [SUBJECT.to_string()].into_iter().collect(),
         viewer_subjects: [VIEWER.to_string()].into_iter().collect(),
+        admin_groups: [ADMIN_GROUP.to_string()].into_iter().collect(),
+        viewer_groups: [VIEWER_GROUP.to_string()].into_iter().collect(),
         assets_dir: std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("assets"),
         ca_file: None,
     };
@@ -60,6 +64,8 @@ fn app_with_receiver() -> (AppState, manager::pod::ControlReceiver) {
             http: openidconnect::reqwest::Client::new(),
             admins: config.admin_subjects.clone(),
             viewers: config.viewer_subjects.clone(),
+            admin_groups: config.admin_groups.clone(),
+            viewer_groups: config.viewer_groups.clone(),
         },
         config,
         control: manager::pod::Backend::Local(control),
@@ -70,12 +76,16 @@ fn app_with_receiver() -> (AppState, manager::pod::ControlReceiver) {
     (app, receiver)
 }
 async fn cookie(store: BoundedStore, subject: &str, expires: u64) -> String {
+    group_cookie(store, subject, &[], expires).await
+}
+async fn group_cookie(store: BoundedStore, subject: &str, groups: &[&str], expires: u64) -> String {
     let session = Session::new(None, Arc::new(store), None);
     session
         .insert(
             "user",
             auth::User {
                 subject: subject.into(),
+                groups: groups.iter().map(|g| g.to_string()).collect(),
                 name: "operator".into(),
                 csrf: "correct".into(),
                 expires,
@@ -108,6 +118,7 @@ async fn login_is_pkce_and_cookie_is_opaque_secure_and_host_only() {
     }
     assert_eq!(q["code_challenge_method"], "S256");
     assert_eq!(q["redirect_uri"], "https://vm.example/auth/callback");
+    assert_eq!(q["scope"], "openid profile groups_uuid");
     let value = response.headers()["set-cookie"].to_str().unwrap();
     assert!(value.starts_with("__Host-qrab-session="));
     for flag in ["Secure", "HttpOnly", "SameSite=Lax", "Path=/"] {
@@ -718,4 +729,65 @@ async fn guest_agent_status_is_for_viewers_and_its_mutations_for_admins() {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn configured_groups_grant_roles_and_are_requested_only_when_configured() {
+    let app = app();
+    let unlisted = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
+    for (groups, expected) in [
+        (vec![VIEWER_GROUP], Some("viewer")),
+        (vec![ADMIN_GROUP], Some("admin")),
+        (vec![VIEWER_GROUP, ADMIN_GROUP], Some("admin")),
+        (vec![], None),
+        (vec!["ffffffff-ffff-4fff-8fff-ffffffffffff"], None),
+    ] {
+        let cookie = group_cookie(app.sessions.clone(), unlisted, &groups, auth::now() + 60).await;
+        let (status, body) = get(&app, "/api/session", &cookie).await;
+        match expected {
+            Some(role) => {
+                assert_eq!(status, StatusCode::OK, "{groups:?}");
+                let body: serde_json::Value = serde_json::from_str(&body).unwrap();
+                assert_eq!(body["role"], role, "{groups:?}");
+            }
+            None => assert_eq!(status, StatusCode::UNAUTHORIZED, "{groups:?}"),
+        }
+    }
+    // A viewer group cannot act on the VM.
+    let viewer = group_cookie(
+        app.sessions.clone(),
+        unlisted,
+        &[VIEWER_GROUP],
+        auth::now() + 60,
+    )
+    .await;
+    let response = bmc::router(app.clone())
+        .oneshot(post_action(&viewer))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+
+    // Only configured groups from a verified token are kept in the session.
+    use base64::Engine;
+    let payload = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(
+        serde_json::json!({"groups":[VIEWER_GROUP.to_uppercase(),"ffffffff-ffff-4fff-8fff-ffffffffffff","admins@idm.example"]})
+            .to_string(),
+    );
+    assert_eq!(
+        app.oidc.configured_groups(&format!("h.{payload}.s")),
+        [VIEWER_GROUP]
+    );
+
+    // Without configured groups the login asks for no group claim.
+    let mut plain = app.clone();
+    plain.oidc.admin_groups.clear();
+    plain.oidc.viewer_groups.clear();
+    let response = bmc::router(plain)
+        .oneshot(req("/auth/login", None).body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    let url =
+        openidconnect::url::Url::parse(response.headers()["location"].to_str().unwrap()).unwrap();
+    let scope = url.query_pairs().find(|(k, _)| k == "scope").unwrap().1;
+    assert_eq!(scope, "openid profile");
 }

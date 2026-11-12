@@ -30,7 +30,7 @@ def main():
     challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b'=').decode()
     state = secrets.token_urlsafe(24)
     print(discovery['authorization_endpoint'] + '?' + urllib.parse.urlencode({
-        'response_type': 'code', 'client_id': CLIENT, 'redirect_uri': REDIRECT, 'scope': 'openid profile',
+        'response_type': 'code', 'client_id': CLIENT, 'redirect_uri': REDIRECT, 'scope': 'openid profile groups_uuid',
         'state': state, 'code_challenge': challenge, 'code_challenge_method': 'S256'}))
     print('Open the URL above. Waiting on localhost:8400, or paste the redirected URL here:', flush=True)
     code = wait_for_code(state)

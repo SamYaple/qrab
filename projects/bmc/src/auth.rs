@@ -17,6 +17,9 @@ use std::{
 };
 use tower_sessions::Session;
 
+/// Kanidm scope whose `groups` claim lists group UUIDs only.
+pub const GROUPS_SCOPE: &str = "groups_uuid";
+
 pub type Client = CoreClient<
     openidconnect::EndpointSet,
     openidconnect::EndpointNotSet,
@@ -31,6 +34,8 @@ pub struct Oidc {
     pub http: openidconnect::reqwest::Client,
     pub admins: HashSet<String>,
     pub viewers: HashSet<String>,
+    pub admin_groups: HashSet<String>,
+    pub viewer_groups: HashSet<String>,
 }
 
 /// Roles are resolved from configuration on every request, never stored in
@@ -43,15 +48,64 @@ pub enum Role {
 }
 
 impl Oidc {
-    pub fn role(&self, subject: &str) -> Option<Role> {
-        if self.admins.contains(subject) {
+    /// The strongest role granted to `subject` directly or through `groups`.
+    pub fn role(&self, subject: &str, groups: &[String]) -> Option<Role> {
+        let member = |set: &HashSet<String>| groups.iter().any(|g| set.contains(g));
+        if self.admins.contains(subject) || member(&self.admin_groups) {
             Some(Role::Admin)
-        } else if self.viewers.contains(subject) {
+        } else if self.viewers.contains(subject) || member(&self.viewer_groups) {
             Some(Role::Viewer)
         } else {
             None
         }
     }
+
+    fn wants_groups(&self) -> bool {
+        !self.admin_groups.is_empty() || !self.viewer_groups.is_empty()
+    }
+
+    /// The configured groups among a verified ID token's `groups` claim.
+    pub fn configured_groups(&self, verified_token: &str) -> Vec<String> {
+        let mut groups: Vec<String> = groups_claim(verified_token)
+            .into_iter()
+            .filter(|g| self.admin_groups.contains(g) || self.viewer_groups.contains(g))
+            .collect();
+        groups.sort();
+        groups.dedup();
+        groups
+    }
+}
+
+/// The UUID entries of the `groups` claim of a compact JWS whose signature has
+/// already been verified. Kanidm's `groups_uuid` scope emits hyphenated UUIDs;
+/// anything else (SPNs, names) is ignored.
+///
+/// ```
+/// use base64::Engine;
+/// let payload = base64::engine::general_purpose::URL_SAFE_NO_PAD
+///     .encode(br#"{"groups":["7E1F5D44-0B67-4C8B-9C4A-2B6A9E3C1D00","admins@idm.example"]}"#);
+/// assert_eq!(
+///     bmc::auth::groups_claim(&format!("h.{payload}.s")),
+///     ["7e1f5d44-0b67-4c8b-9c4a-2b6a9e3c1d00"]
+/// );
+/// assert!(bmc::auth::groups_claim("not-a-jwt").is_empty());
+/// ```
+pub fn groups_claim(token: &str) -> Vec<String> {
+    use base64::Engine;
+    let Some(payload) = token.split('.').nth(1) else {
+        return Vec::new();
+    };
+    base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .decode(payload)
+        .ok()
+        .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
+        .and_then(|claims| claims.get("groups").and_then(|g| g.as_array()).cloned())
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|g| g.as_str())
+        .filter_map(|g| uuid::Uuid::parse_str(g).ok())
+        .map(|id| id.to_string())
+        .collect()
 }
 #[derive(Serialize, Deserialize)]
 struct Pending {
@@ -63,6 +117,10 @@ struct Pending {
 #[derive(Clone, Serialize, Deserialize)]
 pub struct User {
     pub subject: String,
+    /// Configured role groups the ID token listed at login. Sessions end
+    /// within 15 minutes, which bounds how long a removed membership lasts.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub groups: Vec<String>,
     pub name: String,
     pub csrf: String,
     pub expires: u64,
@@ -111,13 +169,15 @@ impl Oidc {
             http,
             admins: config.admin_subjects.clone(),
             viewers: config.viewer_subjects.clone(),
+            admin_groups: config.admin_groups.clone(),
+            viewer_groups: config.viewer_groups.clone(),
         })
     }
 }
 
 pub async fn login(State(app): State<AppState>, session: Session) -> Result<Redirect, Failure> {
     let (challenge, verifier) = PkceCodeChallenge::new_random_sha256();
-    let (url, state, nonce) = app
+    let mut request = app
         .oidc
         .client
         .authorize_url(
@@ -125,9 +185,11 @@ pub async fn login(State(app): State<AppState>, session: Session) -> Result<Redi
             || CsrfToken::new_random_len(32),
             || Nonce::new_random_len(32),
         )
-        .add_scope(Scope::new("profile".into()))
-        .set_pkce_challenge(challenge)
-        .url();
+        .add_scope(Scope::new("profile".into()));
+    if app.oidc.wants_groups() {
+        request = request.add_scope(Scope::new(GROUPS_SCOPE.into()));
+    }
+    let (url, state, nonce) = request.set_pkce_challenge(challenge).url();
     session
         .insert(
             "pending",
@@ -194,6 +256,7 @@ pub async fn callback(
     }
     let user = User {
         subject: claims.subject().as_str().into(),
+        groups: app.oidc.configured_groups(&id.to_string()),
         name: claims
             .preferred_username()
             .map(|s| s.as_str())
@@ -217,7 +280,7 @@ pub async fn callback(
 /// The role of an unexpired session user, if any.
 pub fn role(oidc: &Oidc, user: &User) -> Option<Role> {
     (user.expires > now())
-        .then(|| oidc.role(&user.subject))
+        .then(|| oidc.role(&user.subject, &user.groups))
         .flatten()
 }
 pub fn authorized(oidc: &Oidc, user: &User) -> bool {
@@ -268,6 +331,7 @@ pub async fn still_current(
         .and_then(|value| serde_json::from_value(value).ok());
     current.is_some_and(|current| {
         current.subject == user.subject
+            && current.groups == user.groups
             && current.csrf == user.csrf
             && role(&app.oidc, &current).is_some_and(|role| role >= required)
     })

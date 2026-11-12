@@ -17,8 +17,9 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
-/// Tokens larger than this are refused before parsing.
-pub const MAX_TOKEN_BYTES: usize = 8 * 1024;
+/// Tokens larger than this are refused before parsing. A `groups_uuid` claim
+/// costs about 50 bytes per group.
+pub const MAX_TOKEN_BYTES: usize = 16 * 1024;
 /// Keys are refetched at most this often after an unknown key or bad signature.
 const REFRESH_BACKOFF: Duration = Duration::from_secs(30);
 /// Keys are refreshed before use when older than this.
@@ -65,6 +66,8 @@ pub struct Authenticator {
     fetch: Option<Fetch>,
     admins: HashSet<String>,
     viewers: HashSet<String>,
+    admin_groups: HashSet<String>,
+    viewer_groups: HashSet<String>,
 }
 
 pub fn now() -> u64 {
@@ -98,7 +101,17 @@ impl Authenticator {
             fetch: None,
             admins,
             viewers,
+            admin_groups: HashSet::new(),
+            viewer_groups: HashSet::new(),
         }
+    }
+
+    /// Also grant roles to members of these Kanidm group UUIDs, read from the
+    /// token's `groups` claim.
+    pub fn with_groups(mut self, admins: HashSet<String>, viewers: HashSet<String>) -> Self {
+        self.admin_groups = admins;
+        self.viewer_groups = viewers;
+        self
     }
 
     /// OIDC discovery over HTTPS with redirects disabled.
@@ -125,7 +138,8 @@ impl Authenticator {
             metadata.jwks().clone(),
             config.admin_subjects.clone(),
             config.viewer_subjects.clone(),
-        );
+        )
+        .with_groups(config.admin_groups.clone(), config.viewer_groups.clone());
         authenticator.fetch = Some(Fetch {
             http,
             url: metadata.jwks_uri().clone(),
@@ -134,17 +148,18 @@ impl Authenticator {
         Ok(authenticator)
     }
 
-    fn role(&self, subject: &str) -> Option<Role> {
-        if self.admins.contains(subject) {
+    fn role(&self, subject: &str, groups: &[String]) -> Option<Role> {
+        let member = |set: &HashSet<String>| groups.iter().any(|g| set.contains(g));
+        if self.admins.contains(subject) || member(&self.admin_groups) {
             Some(Role::Admin)
-        } else if self.viewers.contains(subject) {
+        } else if self.viewers.contains(subject) || member(&self.viewer_groups) {
             Some(Role::Viewer)
         } else {
             None
         }
     }
 
-    fn check(&self, token: &CoreIdToken) -> Option<(String, u64)> {
+    fn check(&self, token: &CoreIdToken) -> Option<(String, u64, Vec<String>)> {
         let keys = self
             .keys
             .read()
@@ -162,7 +177,11 @@ impl Authenticator {
         ]);
         let claims = token.claims(&verifier, any_nonce).ok()?;
         let expires = u64::try_from(claims.expiration().timestamp()).ok()?;
-        Some((claims.subject().as_str().to_owned(), expires))
+        Some((
+            claims.subject().as_str().to_owned(),
+            expires,
+            groups_claim(&token.to_string()),
+        ))
     }
 
     async fn refresh(&self, force: bool) {
@@ -218,15 +237,45 @@ impl Authenticator {
                 self.check(&token)
             }
         };
-        let (subject, expires) = verified.ok_or(Rejection::Unauthenticated)?;
+        let (subject, expires, groups) = verified.ok_or(Rejection::Unauthenticated)?;
         if expires <= now() {
             return Err(Rejection::Unauthenticated);
         }
-        let role = self.role(&subject).ok_or(Rejection::Forbidden)?;
+        let role = self.role(&subject, &groups).ok_or(Rejection::Forbidden)?;
         Ok(Principal {
             subject,
             role,
             expires,
         })
     }
+}
+
+/// The UUID entries of the `groups` claim of a compact JWS whose signature has
+/// already been verified; SPNs and names are ignored.
+///
+/// ```
+/// use base64::Engine;
+/// let payload = base64::engine::general_purpose::URL_SAFE_NO_PAD
+///     .encode(br#"{"groups":["7e1f5d44-0b67-4c8b-9c4a-2b6a9e3c1d00","admins@idm.example",3]}"#);
+/// assert_eq!(
+///     qrab_redfish::auth::groups_claim(&format!("h.{payload}.s")),
+///     ["7e1f5d44-0b67-4c8b-9c4a-2b6a9e3c1d00"]
+/// );
+/// ```
+pub fn groups_claim(token: &str) -> Vec<String> {
+    use base64::Engine;
+    let Some(payload) = token.split('.').nth(1) else {
+        return Vec::new();
+    };
+    base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .decode(payload)
+        .ok()
+        .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
+        .and_then(|claims| claims.get("groups").and_then(|g| g.as_array()).cloned())
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|g| g.as_str())
+        .filter_map(|g| uuid::Uuid::parse_str(g).ok())
+        .map(|id| id.to_string())
+        .collect()
 }

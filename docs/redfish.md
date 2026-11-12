@@ -16,11 +16,14 @@ qrab-redfish --socket /run/qrab-control/manager/control.sock
 | `REDFISH_OIDC_AUDIENCE` | Required token audience: the OAuth2 client ID, e.g. `qrab-redfish` |
 | `REDFISH_ADMIN_SUBJECTS` | Comma-separated subject UUIDs that may read and reset the VM |
 | `REDFISH_VIEWER_SUBJECTS` | Comma-separated read-only subject UUIDs |
+| `REDFISH_ADMIN_GROUPS` | Comma-separated Kanidm group UUIDs whose members may read and reset the VM |
+| `REDFISH_VIEWER_GROUPS` | Comma-separated Kanidm group UUIDs with read-only access |
 | `REDFISH_LISTEN` | Listener; defaults to `0.0.0.0:8081` |
 | `REDFISH_CA_FILE` | Optional PEM root certificate for an isolated test IdP |
 | `RUST_LOG` | Default `qrab_redfish=info` |
 
-At least one subject is required and the two lists must be disjoint. The
+At least one subject or group is required. The admin and viewer lists of each
+kind must be disjoint. The
 listener is plain HTTP inside the Pod; expose it only through a TLS Ingress, as
 for the BMC.
 
@@ -52,13 +55,16 @@ authentication, the token is an ID token (a signed JWT) issued to the
 `REDFISH_OIDC_AUDIENCE` client. Each request verifies the signature against
 the issuer's discovered JWKS (ES256 or RS256 only), the issuer, the audience
 (and `azp` when several audiences are present) and expiry. The subject must be
-listed. Keys are refreshed every ten minutes, and at most every 30 seconds
+listed, or the token's `groups` claim (Kanidm scope `groups_uuid`) must contain
+a configured group UUID; admin wins when both apply. Tokens are limited to
+16 KiB, about 300 group memberships. Keys are refreshed every ten minutes, and at most every 30 seconds
 after a signature fails, so rotated keys are picked up.
 
 There are no Redfish sessions, static tokens, Basic authentication, stored
 passwords or anonymous routes other than `/healthz` and `/readyz`. Missing,
 malformed, expired, wrong-issuer, wrong-audience or badly signed tokens get 401
-with `WWW-Authenticate: Bearer`; a valid token for an unlisted subject gets 403.
+with `WWW-Authenticate: Bearer`; a valid token for an unlisted subject without a
+configured group gets 403.
 Bearer tokens cannot be revoked here: their lifetime is the IdP's ID-token
 lifetime, and event streams close when the token expires.
 

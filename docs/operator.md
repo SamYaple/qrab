@@ -73,6 +73,8 @@ spec:
     publicUrl: https://qrab-demo.yapplesauce.com
     allowedSubjects: [6175a2a1-efb9-44e8-8c0b-5fe7ace18f9b]   # BMC admins
     viewerSubjects: []                                         # read-only BMC users
+    adminGroups: []                                            # Kanidm group UUIDs
+    viewerGroups: []
   components:
     bmc:
       enabled: true              # default; existing CRs keep the BMC
@@ -80,7 +82,42 @@ spec:
       enabled: false             # default
       adminSubjects: []          # may read and ComputerSystem.Reset
       viewerSubjects: []         # read-only
+      adminGroups: []
+      viewerGroups: []
 ```
+
+### Access through Kanidm groups
+
+Each VM may name a Kanidm admins group and a viewers group, by UUID, for the
+console and for Redfish. Membership is then managed in Kanidm, for example
+from the idm-dashboard person page ("Virtual machines"). It takes effect at
+the person's next BMC login (sessions last at most 15 minutes) or next Redfish
+token, without restarting the VM. Changing the CR's lists does restart it once.
+
+The convention, which the idm-dashboard relies on to discover a VM's groups,
+is `qrab_vm_<namespace>_<vm>_admins` and `qrab_vm_<namespace>_<vm>_viewers`.
+Each group is a member of `qrab_vm_users`, the group scope-mapped to
+`openid profile groups_uuid` on the `qrab-bmc` and `qrab-redfish` clients. As
+a Kanidm administrator, create them and print the patch for the CR with:
+
+```sh
+bash contrib/kubernetes/vm-access-groups.sh create <namespace> <vm>
+bash contrib/kubernetes/vm-access-groups.sh check <namespace> <vm>
+```
+
+Kanidm names are at most 64 characters, so `<namespace>_<vm>` must fit in 47.
+
+### The creator is a viewer
+
+The admission policies in `contrib/kubernetes/operator/creator-policy.yaml`
+record the Kanidm subject that created a VM in the annotation
+`qrab.yapplesauce.com/creator-subject`. They replace any client-supplied value
+and refuse any later change. The operator adds that subject to the BMC and
+Redfish viewers unless it is already an admin, so the creator can always
+watch the VM; only explicit grants allow power actions and the console. VMs
+created by certificate or ServiceAccount identities, such as Flux, have no
+creator. `contrib/kubernetes/operator/check-creator-policy.sh` checks the
+policies live with server-side dry runs.
 
 | components | Pod |
 | --- | --- |

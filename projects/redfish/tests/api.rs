@@ -20,6 +20,8 @@ const AUDIENCE: &str = "qrab-redfish";
 const ADMIN: &str = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const VIEWER: &str = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const UNLISTED: &str = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+const ADMIN_GROUP: &str = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
+const VIEWER_GROUP: &str = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
 const STATE_ID: &str = "0f0e0d0c-0b0a-4908-8706-050403020100";
 const PORTAL: &str = "192.0.2.10:3260";
 
@@ -42,6 +44,37 @@ fn token(signer: &str, issuer: &str, audience: &str, subject: &str, expires_in: 
     CoreIdToken::new(
         claims,
         &key(signer),
+        CoreJwsSigningAlgorithm::RsaSsaPkcs1V15Sha256,
+        None,
+        None,
+    )
+    .unwrap()
+    .to_string()
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+struct Groups {
+    groups: Vec<String>,
+}
+impl openidconnect::AdditionalClaims for Groups {}
+
+/// A valid token for `subject` whose `groups` claim lists `groups`.
+fn grouped(subject: &str, groups: &[&str]) -> String {
+    let now = auth::now() as i64;
+    let claims: openidconnect::IdTokenClaims<Groups, openidconnect::core::CoreGenderClaim> =
+        serde_json::from_value(json!({
+            "iss": ISSUER, "aud": [AUDIENCE], "sub": subject, "iat": now - 5, "exp": now + 300,
+            "groups": groups
+        }))
+        .unwrap();
+    openidconnect::IdToken::<
+        Groups,
+        openidconnect::core::CoreGenderClaim,
+        openidconnect::core::CoreJweContentEncryptionAlgorithm,
+        CoreJwsSigningAlgorithm,
+    >::new(
+        claims,
+        &key("test-only-signing-key.pem"),
         CoreJwsSigningAlgorithm::RsaSsaPkcs1V15Sha256,
         None,
         None,
@@ -106,6 +139,10 @@ fn fixture() -> Fixture {
         keys,
         [ADMIN.to_string()].into_iter().collect(),
         [VIEWER.to_string()].into_iter().collect(),
+    )
+    .with_groups(
+        [ADMIN_GROUP.to_string()].into_iter().collect(),
+        [VIEWER_GROUP.to_string()].into_iter().collect(),
     );
     Fixture {
         app: AppState {
@@ -691,5 +728,43 @@ async fn guest_agent_actions_are_admin_only_and_validated() {
             call(app, "POST", qrab_redfish::UPDATE_TARGET, Some(&admin), body).await;
         assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
         assert_error(&reply, message_id);
+    }
+}
+
+#[tokio::test]
+async fn group_claims_grant_configured_roles_only() {
+    let fixture = fixture();
+    let app = &fixture.app;
+    write_status(&fixture.config, "running", "running");
+    let reset = r#"{"ResetType":"On"}"#;
+    // A configured viewer group reads but cannot reset.
+    let viewer = grouped(UNLISTED, &["admins@idm.example", VIEWER_GROUP]);
+    assert_eq!(
+        call(app, "GET", SYSTEM_PATH, Some(&viewer), "").await.0,
+        StatusCode::OK
+    );
+    let (status, _, body) = call(app, "POST", RESET, Some(&viewer), reset).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert_error(&body, "InsufficientPrivilege");
+    // An admin group wins over a viewer group, in either order.
+    for groups in [[ADMIN_GROUP, VIEWER_GROUP], [VIEWER_GROUP, ADMIN_GROUP]] {
+        let admin = grouped(UNLISTED, &groups);
+        assert_eq!(
+            call(app, "POST", RESET, Some(&admin), reset).await.0,
+            StatusCode::NO_CONTENT
+        );
+    }
+    // Unconfigured groups, names standing in for UUIDs, and an empty claim grant nothing.
+    for groups in [
+        vec!["ffffffff-ffff-4fff-8fff-ffffffffffff"],
+        vec!["qrab_vm_qrab_redfish-vm_admins"],
+        vec![],
+    ] {
+        let token = grouped(UNLISTED, &groups);
+        assert_eq!(
+            call(app, "GET", SYSTEM_PATH, Some(&token), "").await.0,
+            StatusCode::FORBIDDEN,
+            "{groups:?}"
+        );
     }
 }

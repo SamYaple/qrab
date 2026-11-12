@@ -70,8 +70,10 @@
                         "enabled": true
                       },
                       "redfish": {
+                        "adminGroups": [],
                         "adminSubjects": [],
                         "enabled": false,
+                        "viewerGroups": [],
                         "viewerSubjects": []
                       }
                     },
@@ -92,11 +94,22 @@
                       },
                       "redfish": {
                         "default": {
+                          "adminGroups": [],
                           "adminSubjects": [],
                           "enabled": false,
+                          "viewerGroups": [],
                           "viewerSubjects": []
                         },
                         "properties": {
+                          "adminGroups": {
+                            "default": [],
+                            "description": "Kanidm group UUIDs whose members may read and reset the VM.",
+                            "items": {
+                              "type": "string"
+                            },
+                            "maxItems": 16,
+                            "type": "array"
+                          },
                           "adminSubjects": {
                             "default": [],
                             "description": "Subject UUIDs that may read and reset the VM.",
@@ -110,6 +123,15 @@
                             "default": false,
                             "description": "A DMTF Redfish API authenticated by OIDC bearer tokens.",
                             "type": "boolean"
+                          },
+                          "viewerGroups": {
+                            "default": [],
+                            "description": "Kanidm group UUIDs whose members have read-only access.",
+                            "items": {
+                              "type": "string"
+                            },
+                            "maxItems": 16,
+                            "type": "array"
                           },
                           "viewerSubjects": {
                             "default": [],
@@ -130,18 +152,36 @@
                     "description": "Browser console settings; required while `components.bmc` is enabled.",
                     "nullable": true,
                     "properties": {
+                      "adminGroups": {
+                        "default": [],
+                        "description": "Kanidm group UUIDs whose members have full BMC access.",
+                        "items": {
+                          "type": "string"
+                        },
+                        "maxItems": 16,
+                        "type": "array"
+                      },
                       "allowedSubjects": {
+                        "default": [],
                         "description": "Subject UUIDs with full (admin) BMC access.",
                         "items": {
                           "type": "string"
                         },
                         "maxItems": 128,
-                        "minItems": 1,
                         "type": "array"
                       },
                       "publicUrl": {
                         "description": "Exact HTTPS origin. Service/Ingress/certificate and IdP callback are separate.",
                         "type": "string"
+                      },
+                      "viewerGroups": {
+                        "default": [],
+                        "description": "Kanidm group UUIDs whose members have read-only BMC access.",
+                        "items": {
+                          "type": "string"
+                        },
+                        "maxItems": 16,
+                        "type": "array"
                       },
                       "viewerSubjects": {
                         "default": [],
@@ -154,7 +194,6 @@
                       }
                     },
                     "required": [
-                      "allowedSubjects",
                       "publicUrl"
                     ],
                     "type": "object"

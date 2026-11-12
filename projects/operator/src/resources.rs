@@ -25,6 +25,9 @@ const MEMORY_LIMIT_OVERHEAD_MIB: u32 = 512;
 const SIZE_DIR: &str = "/run/qrab-size";
 /// Provisioned-disk capacities `{"<id>": bytes}`. Projected into SIZE_DIR as
 /// `disk_capacity`; the manager grows the running guest's disks from it.
+/// The Kanidm subject that created the VM, stamped by the `qrab-vm-creator`
+/// admission policy and immutable afterwards. That person is always a viewer.
+pub const CREATOR: &str = "qrab.yapplesauce.com/creator-subject";
 pub const DISK_CAPACITY: &str = "qrab.yapplesauce.com/disk-capacity";
 
 /// The capacity annotation value for verified exports.
@@ -204,9 +207,64 @@ fn subjects(what: &str, admins: &[String], viewers: &[String]) -> Result<()> {
     match (parsed(admins), parsed(viewers)) {
         (Some(admins), Some(viewers)) if admins.is_disjoint(&viewers) => Ok(()),
         _ => Err(Error::Invalid(format!(
-            "{what} must be at most 128 subject UUIDs each, with no subject in both lists"
+            "{what} must be at most 128 UUIDs each, with none in both the admin and viewer lists"
         ))),
     }
+}
+
+/// The creator subject recorded by admission, if any.
+pub fn creator(vm: &VirtualMachine) -> Result<Option<String>> {
+    vm.annotations()
+        .get(CREATOR)
+        .map(|value| {
+            uuid::Uuid::parse_str(value)
+                .map(|id| id.to_string())
+                .map_err(|_| Error::Invalid(format!("annotation {CREATOR} must be a subject UUID")))
+        })
+        .transpose()
+}
+
+/// Validate one component's subject and group lists. Some grant must exist;
+/// the creator counts as a viewer.
+fn access(
+    what: &str,
+    people: (&[String], &[String]),
+    groups: (&[String], &[String]),
+    creator: Option<&str>,
+) -> Result<()> {
+    subjects(&format!("{what} subjects"), people.0, people.1)?;
+    subjects(&format!("{what} groups"), groups.0, groups.1)?;
+    if people.0.is_empty()
+        && people.1.is_empty()
+        && groups.0.is_empty()
+        && groups.1.is_empty()
+        && creator.is_none()
+    {
+        return Err(Error::Invalid(format!(
+            "{what} needs admin or viewer subjects or groups"
+        )));
+    }
+    Ok(())
+}
+
+/// The viewer subjects a sidecar receives: the listed viewers plus the
+/// creator, unless the creator is already an admin.
+fn viewers_with_creator(
+    admins: &[String],
+    viewers: &[String],
+    creator: Option<&str>,
+) -> Vec<String> {
+    let mut all = viewers.to_vec();
+    if let Some(creator) = creator {
+        let listed = |list: &[String]| {
+            list.iter()
+                .any(|s| uuid::Uuid::parse_str(s).is_ok_and(|id| id.to_string() == creator))
+        };
+        if !listed(admins) && !listed(viewers) {
+            all.push(creator.to_owned());
+        }
+    }
+    all
 }
 
 pub fn validate(vm: &VirtualMachine, settings: &Settings) -> Result<()> {
@@ -249,18 +307,15 @@ pub fn validate(vm: &VirtualMachine, settings: &Settings) -> Result<()> {
             "bootDisk must be the immutable image ESP /opt/qrab/demo/boot.img; mounted state and Secrets cannot be guest disks".into(),
         ));
     }
+    let creator = creator(vm)?;
     match &vm.spec.console {
         Some(console) => {
             origin(&console.public_url)?;
-            if console.allowed_subjects.is_empty() {
-                return Err(Error::Invalid(
-                    "console.allowedSubjects must contain operator UUIDs".into(),
-                ));
-            }
-            subjects(
-                "console.allowedSubjects and console.viewerSubjects",
-                &console.allowed_subjects,
-                &console.viewer_subjects,
+            access(
+                "console",
+                (&console.allowed_subjects, &console.viewer_subjects),
+                (&console.admin_groups, &console.viewer_groups),
+                creator.as_deref(),
             )?;
         }
         None if vm.spec.components.bmc.enabled => {
@@ -272,15 +327,11 @@ pub fn validate(vm: &VirtualMachine, settings: &Settings) -> Result<()> {
     }
     let redfish = &vm.spec.components.redfish;
     if redfish.enabled {
-        if redfish.admin_subjects.is_empty() && redfish.viewer_subjects.is_empty() {
-            return Err(Error::Invalid(
-                "components.redfish needs adminSubjects or viewerSubjects".into(),
-            ));
-        }
-        subjects(
-            "components.redfish adminSubjects and viewerSubjects",
-            &redfish.admin_subjects,
-            &redfish.viewer_subjects,
+        access(
+            "components.redfish",
+            (&redfish.admin_subjects, &redfish.viewer_subjects),
+            (&redfish.admin_groups, &redfish.viewer_groups),
+            creator.as_deref(),
         )?;
     }
     if vm.uid().is_none() {
@@ -468,6 +519,7 @@ fn sidecars(
             "readinessProbe":{"httpGet":{"path":"/readyz","port":port.0},"periodSeconds":2,"failureThreshold":3,"timeoutSeconds":2},
             "livenessProbe":{"httpGet":{"path":"/healthz","port":port.0},"periodSeconds":10,"failureThreshold":3,"timeoutSeconds":2}})
     };
+    let creator = creator(vm)?;
     let mut containers = Vec::new();
     if vm.spec.components.bmc.enabled {
         let console = vm.spec.console.as_ref().ok_or_else(|| {
@@ -477,10 +529,21 @@ fn sidecars(
             json!({"name":"BMC_PUBLIC_URL","value":origin(&console.public_url)?}),
             json!({"name":"BMC_OIDC_ISSUER","value":settings.oidc_issuer}),
             json!({"name":"BMC_OIDC_CLIENT_ID","value":settings.oidc_client_id}),
-            json!({"name":"BMC_ALLOWED_SUBJECTS","value":subject_list(&console.allowed_subjects)}),
         ];
-        if !console.viewer_subjects.is_empty() {
-            env.push(json!({"name":"BMC_VIEWER_SUBJECTS","value":subject_list(&console.viewer_subjects)}));
+        let viewers = viewers_with_creator(
+            &console.allowed_subjects,
+            &console.viewer_subjects,
+            creator.as_deref(),
+        );
+        for (name, list) in [
+            ("BMC_ALLOWED_SUBJECTS", &console.allowed_subjects),
+            ("BMC_VIEWER_SUBJECTS", &viewers),
+            ("BMC_ADMIN_GROUPS", &console.admin_groups),
+            ("BMC_VIEWER_GROUPS", &console.viewer_groups),
+        ] {
+            if !list.is_empty() {
+                env.push(json!({"name":name,"value":subject_list(list)}));
+            }
         }
         containers.push(sidecar(
             "bmc",
@@ -495,9 +558,16 @@ fn sidecars(
             json!({"name":"REDFISH_OIDC_ISSUER","value":settings.redfish_oidc_issuer}),
             json!({"name":"REDFISH_OIDC_AUDIENCE","value":settings.redfish_oidc_audience}),
         ];
+        let viewers = viewers_with_creator(
+            &redfish.admin_subjects,
+            &redfish.viewer_subjects,
+            creator.as_deref(),
+        );
         for (name, list) in [
             ("REDFISH_ADMIN_SUBJECTS", &redfish.admin_subjects),
-            ("REDFISH_VIEWER_SUBJECTS", &redfish.viewer_subjects),
+            ("REDFISH_VIEWER_SUBJECTS", &viewers),
+            ("REDFISH_ADMIN_GROUPS", &redfish.admin_groups),
+            ("REDFISH_VIEWER_GROUPS", &redfish.viewer_groups),
         ] {
             if !list.is_empty() {
                 env.push(json!({"name":name,"value":subject_list(list)}));
