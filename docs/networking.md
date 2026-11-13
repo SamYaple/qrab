@@ -247,3 +247,34 @@ and migration. It is not implemented.
   forwarded only where the node lets an unprivileged Pod bind them.
 - At most 4 NICs per VM. Each NIC Pod costs about 320 MiB of memory (see
   [Resource cost](#resource-cost)).
+
+## Rollout record (2026-11-13)
+
+- Images from `3c4d6a8`: manager `cb0c0e23…` (with the patched passt), operator `4fbf5455…`,
+  dashboard `da24e9a`. Gitops re-pinned the operator (ClusterSPIFFEID and KVM
+  device plugin) before `kubectl apply -k contrib/kubernetes/operator-storage-api`,
+  which also brought the CiliumNetworkPolicy RBAC and the CRD.
+- `contrib/kubernetes/console.yaml` selects `component: vm`, so qrab-demo's
+  BMC Service never targets NIC pods. Apply it with `-n qrab`: the file
+  carries no namespace.
+- Live test VM `netvm2`: CirrOS 0.6.3 clone, `nics: [{name: eth0,
+  securityGroups: [nettest]}]`, `cloudInit.hostname: netcheck`, and a user-data
+  script reporting to a listener pod in namespace `qrab-nettest`. Security
+  group `sg-nettest` allows TCP 22 in from `qrab-nettest`, plus egress to the
+  listener on 8000 and to kube-dns.
+  - Outbound: the listener logged `GET /?from=netcheck&step=outbound-ok` from
+    `10.244.4.194`, the NIC pod's IP. Guest traffic leaves with the NIC
+    pod's identity.
+  - The security group blocks egress: the guest's `wget http://1.1.1.1/`
+    failed, and it reported `step=egress-blocked`.
+  - Inbound: a pod in `qrab-nettest` read `SSH-2.0-dropbear_2020.81` from
+    the NIC pod's IP on port 22, which passt forwarded to the guest.
+  - Inbound outside the group: port 8080 was refused. Hubble shows
+    `Policy denied DROPPED` from `qrab-nettest/probe3` to
+    `qrab/netvm-nic-eth0:8080`.
+  - Relay lockdown: TCP 7700 from a non-VM pod was refused. Hubble shows
+    only the VM pod's flows to `netvm-nic-eth0:7700` FORWARDED.
+- A state PVC carries a VM's TPM/NVRAM identity, bound to its UID. A new
+  VirtualMachine must get a fresh PVC: reusing a deleted VM's PVC makes
+  the manager refuse to start (identity adoption), and the storage guard
+  then fences the disks.
