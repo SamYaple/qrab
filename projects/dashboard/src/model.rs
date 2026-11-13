@@ -17,6 +17,8 @@ pub struct Row {
     pub max_memory_mib: Option<u32>,
     pub disks: usize,
     pub disk_bytes: u64,
+    /// The first NIC's IP: its NIC Pod's IP.
+    pub ip: Option<String>,
     pub usage: Option<Usage>,
     pub role: Role,
 }
@@ -35,6 +37,17 @@ pub struct DiskRow {
     pub phase: String,
     pub generation: Option<u64>,
     pub base_image: Option<String>,
+}
+
+/// A `spec.nics` entry joined with its `status.nics` entry by name.
+#[derive(Debug, Clone, PartialEq)]
+pub struct NicRow {
+    pub name: String,
+    pub mac: Option<String>,
+    pub ip: Option<String>,
+    pub security_groups: Vec<String>,
+    pub pod_name: Option<String>,
+    pub ready: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -61,6 +74,9 @@ pub struct Detail {
     pub disks: Vec<DiskRow>,
     pub iscsi_disks: Vec<String>,
     pub resize: Option<ResizeStatus>,
+    pub nics: Vec<NicRow>,
+    /// The seed in one line; never the user-data itself.
+    pub cloud_init: String,
     pub bmc_enabled: bool,
     pub redfish_enabled: bool,
     pub pod_name: Option<String>,
@@ -101,6 +117,7 @@ pub fn row(vm: &VirtualMachine, role: Role, usage: &HashMap<String, Usage>) -> R
         max_memory_mib,
         disks: vm.spec.disks.len() + vm.spec.iscsi_disks.len(),
         disk_bytes: status.disks.iter().map(|d| d.capacity_bytes).sum(),
+        ip: nics(vm).into_iter().next().and_then(|n| n.ip),
         usage: status
             .pod_name
             .as_ref()
@@ -188,11 +205,68 @@ pub fn detail(
         disks,
         iscsi_disks: vm.spec.iscsi_disks.iter().map(|d| d.id.clone()).collect(),
         resize: status.resize.clone(),
+        nics: nics(vm),
+        cloud_init: cloud_init(vm),
         bmc_enabled: vm.spec.components.bmc.enabled,
         redfish_enabled: vm.spec.components.redfish.enabled,
         pod_name: status.pod_name.clone(),
         pod_ip: pod_ip.map(|ip| ip.to_string()),
         containers,
+    }
+}
+
+/// The VM's NICs in spec order, with what `status.nics` reports for each.
+pub fn nics(vm: &VirtualMachine) -> Vec<NicRow> {
+    let observed = vm
+        .status
+        .as_ref()
+        .map(|s| s.nics.as_slice())
+        .unwrap_or_default();
+    vm.spec
+        .nics
+        .iter()
+        .map(|nic| {
+            let status = observed.iter().find(|s| s.name == nic.name);
+            NicRow {
+                name: nic.name.clone(),
+                mac: status.map(|s| s.mac.clone()).filter(|m| !m.is_empty()),
+                ip: status
+                    .and_then(|s| s.ip.clone())
+                    .filter(|ip| !ip.is_empty()),
+                security_groups: nic.security_groups.iter().map(|g| g.0.clone()).collect(),
+                pod_name: status.map(|s| s.pod_name.clone()).filter(|p| !p.is_empty()),
+                ready: status.is_some_and(|s| s.ready),
+            }
+        })
+        .collect()
+}
+
+/// "hostname web, user-data 120 bytes". Only the size of user-data is shown.
+///
+/// ```
+/// use qrab_dashboard::model::cloud_init;
+/// let vm: qrab_operator::api::VirtualMachine = serde_json::from_value(serde_json::json!({
+///     "apiVersion": "qrab.yapplesauce.com/v1alpha1", "kind": "VirtualMachine",
+///     "metadata": {"name": "web"},
+///     "spec": {"stateVolumeClaim": "web-state", "cloudInit": {"userData": "#cloud-config\n"}}
+/// })).unwrap();
+/// assert_eq!(cloud_init(&vm), "hostname web, user-data 14 bytes");
+/// ```
+pub fn cloud_init(vm: &VirtualMachine) -> String {
+    let name = vm.metadata.name.clone().unwrap_or_default();
+    match &vm.spec.cloud_init {
+        Some(c) => format!(
+            "hostname {}, {}",
+            c.hostname.as_deref().unwrap_or(&name),
+            match &c.user_data {
+                Some(u) => format!("user-data {} bytes", u.len()),
+                None => "no user-data".into(),
+            }
+        ),
+        None if !vm.spec.nics.is_empty() => {
+            format!("hostname {name}, no user-data (seed for the NICs only)")
+        }
+        None => "none".into(),
     }
 }
 
@@ -276,6 +350,54 @@ mod tests {
         assert_eq!(d.disks[1].phase, "Pending");
         assert_eq!(d.storage_node, "kube03");
         assert_eq!(gib(1073741824), "1.0 GiB");
+    }
+
+    #[test]
+    fn nics_join_spec_and_status_and_cloud_init_shows_only_sizes() {
+        let mut machine = vm(
+            "web",
+            serde_json::json!({"nics": [{"name": "eth0", "securityGroups": ["web", "ssh"]},
+                {"name": "eth1"}]}),
+            None,
+        );
+        assert_eq!(row(&machine, Role::Viewer, &HashMap::new()).ip, None);
+        assert_eq!(
+            cloud_init(&machine),
+            "hostname web, no user-data (seed for the NICs only)"
+        );
+        machine.status = Some(
+            serde_json::from_value(serde_json::json!({
+                "observedGeneration": 1, "phase": "Pending", "ready": false, "reason": "NicPending", "message": "",
+                "nics": [{"name": "eth1", "mac": "02:00:00:00:00:02", "podName": "web-nic-eth1", "ip": null, "ready": false},
+                    {"name": "eth0", "mac": "02:00:00:00:00:01", "podName": "web-nic-eth0", "ip": "10.42.1.7", "ready": true}]
+            }))
+            .unwrap(),
+        );
+        assert_eq!(
+            row(&machine, Role::Viewer, &HashMap::new()).ip.as_deref(),
+            Some("10.42.1.7")
+        );
+        let nics = nics(&machine);
+        assert_eq!(
+            nics[0],
+            NicRow {
+                name: "eth0".into(),
+                mac: Some("02:00:00:00:00:01".into()),
+                ip: Some("10.42.1.7".into()),
+                security_groups: vec!["web".into(), "ssh".into()],
+                pod_name: Some("web-nic-eth0".into()),
+                ready: true,
+            }
+        );
+        assert_eq!((nics[1].ip.as_deref(), nics[1].ready), (None, false));
+        machine.spec.cloud_init = Some(qrab_operator::api::CloudInit {
+            hostname: Some("db".into()),
+            user_data: None,
+        });
+        assert_eq!(cloud_init(&machine), "hostname db, no user-data");
+        machine.spec.nics.clear();
+        machine.spec.cloud_init = None;
+        assert_eq!(cloud_init(&machine), "none");
     }
 
     #[test]

@@ -494,7 +494,7 @@ async fn detail_calls_only_the_selected_vms_bmc_with_the_bearer_and_escapes_gues
     assert_eq!(status, StatusCode::OK);
     assert!(body.contains("bmc-a") && !body.contains("bmc-b"));
     assert!(body.contains("Open console"));
-    assert!(body.contains("None: VMs have no guest NIC by design"));
+    assert!(body.contains("No guest NIC."));
     assert!(body.contains("cpu 1, memory 768Mi") && body.contains("cpu 2, memory 1Gi"));
     assert!(!body.contains("<script>alert") && !body.contains("<img src=x"));
     assert!(
@@ -1110,6 +1110,169 @@ async fn launches_roll_back_by_name_and_recheck_the_pvc() {
     assert!(body.contains("Reuse the state PVC"));
     assert!(h.dir.lock().unwrap().groups.is_empty());
     assert!(h.cluster.created_vms.lock().unwrap().is_empty());
+}
+
+/// Captures every log line written while it is the thread's default subscriber.
+#[derive(Clone, Default)]
+struct Logs(Arc<Mutex<Vec<u8>>>);
+impl std::io::Write for Logs {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.0.lock().unwrap().extend_from_slice(buf);
+        Ok(buf.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+#[tokio::test]
+async fn launching_with_a_nic_and_cloud_init_never_shows_or_logs_user_data() {
+    let logs = Logs::default();
+    let writer = logs.clone();
+    let _guard = tracing::subscriber::set_default(
+        tracing_subscriber::fmt()
+            .with_max_level(tracing::Level::TRACE)
+            .with_writer(move || writer.clone())
+            .finish(),
+    );
+    let h = harness().await;
+    catalog_with_cirros(&h);
+    let cookie = session(&h.state.sessions, ALICE, &[LAUNCHERS]).await;
+    // A fresh form attaches eth0 and warns where user-data is stored.
+    let (_, _, body) = send(&h, get("/launch", Some(&cookie))).await;
+    assert!(
+        body.contains("name=\"nic0_enabled\" value=\"on\" checked"),
+        "{body}"
+    );
+    assert!(body.contains("Attach a network interface (eth0)"));
+    assert!(body.contains("name=\"nic0_security_groups\""));
+    assert!(body.contains("name=\"hostname\"") && body.contains("name=\"user_data\""));
+    assert!(body.contains("default-allow") && body.contains("docs/networking.md"));
+    assert!(body.contains("stored in the VM&#39;s ConfigMap"));
+    // More than the 16 KiB default body limit: user-data may be 32 KiB.
+    let secret = "SECRET-USER-DATA-hunter2";
+    let user_data = format!("#cloud-config\r\n# {secret}\r\n{}\r\n", "#".repeat(20_000));
+    let form = |extra: &[(&str, &str)]| {
+        let mut s = url::form_urlencoded::Serializer::new(String::new());
+        s.extend_pairs([
+            ("csrf", "correct"),
+            ("name", "web"),
+            ("cpus", "1"),
+            ("memory_mib", "512"),
+            ("os", "cirros:1"),
+            ("user_data", user_data.as_str()),
+        ]);
+        s.extend_pairs(extra);
+        s.finish()
+    };
+    // A rejected form names the problem and never sends user-data back.
+    let (status, _, body) = send(
+        &h,
+        post(
+            "/launch",
+            Some(&cookie),
+            Some(ORIGIN),
+            &form(&[
+                ("nic0_enabled", "on"),
+                ("nic0_security_groups", "web,Bad"),
+                ("hostname", "web-1"),
+            ]),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert!(body.contains("Security group Bad on eth0"), "{body}");
+    assert!(body.contains("Paste it again") && body.contains("value=\"web,Bad\""));
+    assert!(!body.contains(secret));
+    assert_eq!(h.cluster.mutations(), 0);
+    // Unchecking the NIC sticks on a re-rendered form.
+    let (_, _, body) = send(
+        &h,
+        post(
+            "/launch",
+            Some(&cookie),
+            Some(ORIGIN),
+            &form(&[("hostname", "Web")]),
+        ),
+    )
+    .await;
+    assert!(body.contains("Hostname must be a DNS label"));
+    assert!(body.contains("name=\"nic0_enabled\" value=\"on\""));
+    assert!(!body.contains("name=\"nic0_enabled\" value=\"on\" checked"));
+    // Parallel tests without a subscriber may have cached "never" for the
+    // launch log line's callsite.
+    tracing::callsite::rebuild_interest_cache();
+    let (status, _, _) = send(
+        &h,
+        post(
+            "/launch",
+            Some(&cookie),
+            Some(ORIGIN),
+            &form(&[
+                ("nic0_enabled", "on"),
+                ("nic0_security_groups", "web, ssh"),
+                ("hostname", "web-1"),
+            ]),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let created = h.cluster.created_vms.lock().unwrap()[0].clone();
+    assert_eq!(
+        created["spec"]["nics"],
+        serde_json::json!([{"name": "eth0", "securityGroups": ["web", "ssh"]}])
+    );
+    assert_eq!(created["spec"]["cloudInit"]["hostname"], "web-1");
+    let stored = created["spec"]["cloudInit"]["userData"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    assert!(stored.contains(secret) && !stored.contains('\r'));
+    // The new VM's pages show the NIC and the user-data size only.
+    let mut vm: VirtualMachine = serde_json::from_value(created).unwrap();
+    vm.metadata.uid = Some("uid-web".into());
+    vm.status = Some(
+        serde_json::from_value(
+            serde_json::json!({"observedGeneration": 1, "phase": "Running",
+            "ready": true, "reason": "", "message": "", "nodeName": "kube01",
+            "nics": [{"name": "eth0", "mac": "02:aa:bb:cc:dd:ee", "podName": "web-nic-eth0",
+                "ip": "10.244.1.9", "ready": true}]}),
+        )
+        .unwrap(),
+    );
+    let bytes = stored.len();
+    h.cluster.vms.lock().unwrap().push(vm);
+    let (_, _, detail) = send(&h, get("/vms/qrab/web", Some(&cookie))).await;
+    assert!(detail.contains(&format!("hostname web-1, user-data {bytes} bytes")));
+    for cell in [
+        "02:aa:bb:cc:dd:ee",
+        "10.244.1.9",
+        "web, ssh",
+        "web-nic-eth0",
+        "data-label=\"Security groups\"",
+        "Guest traffic leaves from the NIC pod&#39;s IP; the VM pod (BMC) never carries it.",
+    ] {
+        assert!(detail.contains(cell), "{cell}");
+    }
+    let (_, _, list) = send(&h, get("/", Some(&cookie))).await;
+    assert!(list.contains("data-label=\"IP\"") && list.contains("10.244.1.9"));
+    let logs = String::from_utf8(logs.0.lock().unwrap().clone()).unwrap();
+    assert!(logs.contains("VM launch"), "{logs}");
+    for page in [&detail, &list, &logs] {
+        assert!(!page.contains(secret) && !page.contains("hunter2"));
+    }
+    // Other routes keep the 16 KiB limit.
+    let (status, _, _) = send(
+        &h,
+        post(
+            "/vms/qrab/a/action",
+            Some(&cookie),
+            Some(ORIGIN),
+            &format!("csrf=correct&action=reset&pad={}", "x".repeat(20_000)),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::PAYLOAD_TOO_LARGE);
 }
 
 #[tokio::test]

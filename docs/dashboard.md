@@ -36,8 +36,8 @@ launch new VMs; VM admins can send power actions and delete VMs.
 
 | Route | Purpose |
 | --- | --- |
-| `GET /` | VMs visible to the user: phase/ready, node, vCPUs and memory (current / hot-plug maximum), disks, live CPU and memory from `metrics.k8s.io`, role |
-| `GET /vms/{ns}/{name}` | Spec and status, disks, `status.resize`, Pod requests/limits, live usage, network, and the BMC panel |
+| `GET /` | VMs visible to the user: phase/ready, node, the first NIC's IP, vCPUs and memory (current / hot-plug maximum), disks, live CPU and memory from `metrics.k8s.io`, role |
+| `GET /vms/{ns}/{name}` | Spec and status, cloud-init summary, disks, `status.resize`, Pod requests/limits, live usage, guest NICs, and the BMC panel |
 | `POST /vms/{ns}/{name}/action` | Admin power action (pause, resume, reset, shut down) |
 | `POST /vms/{ns}/{name}/delete` | Admin deletion of a VM launched by the dashboard; the PVC is kept |
 | `GET /vms/{ns}/{name}/console` | noVNC page (admin) |
@@ -73,7 +73,8 @@ name (DNS label, at most 50 characters, and
 `qrab_vm_<namespace>_<name>_viewers` at most 64), vCPUs and an optional
 maximum, memory and an optional maximum, the accelerator (KVM or TCG) and
 up to four data disks (ID, GiB, optional base image name
-and generation; they use `DASHBOARD_STORAGE_NODE`). The chosen image must
+and generation; they use `DASHBOARD_STORAGE_NODE`), a network interface and
+cloud-init (below). The chosen image must
 still be in the catalog when the form is submitted; an unknown or removed
 choice, a root disk below the minimum, a data disk named `root` alongside an
 image, or an image without a configured storage node is a 400 and creates
@@ -91,6 +92,7 @@ nothing. On submit:
    `Filesystem`, 1Gi).
 4. Create the VirtualMachine with `bootDisk: /opt/qrab/demo/boot.img`,
    `running: true`, `console: {adminGroups, viewerGroups}` (no `publicUrl`),
+   `nics` and `cloudInit` as described below,
    `storageNode` and `disks` when disks are requested (an OS image adds
    `{id: root, sizeBytes, baseImage: {name, generation}, bootIndex: 0}`
    first, so OVMF boots the clone and falls back to the demo ESP at boot
@@ -105,6 +107,32 @@ if their UUID could not be read back after one retry. The PVC
 cannot be rolled back (the dashboard has no PVC delete permission); a retry with
 the same name reuses it while it is unbound.
 
+### Network and cloud-init on the launch form
+
+- **Network.** "Attach a network interface (eth0)" is checked by default and
+  renders `spec.nics: [{name: eth0, securityGroups}]`. Security groups are
+  comma-separated DNS labels, at most 8, distinct. Each becomes the NIC Pod
+  label `sg.qrab.yapplesauce.com/<group>: ""`, which CiliumNetworkPolicies
+  select. A NIC that no policy selects is default-allow, as the form says
+  ([networking.md](networking.md#security-groups)). Unchecked, the VM has no
+  NIC; security groups without the NIC are a 400. The form offers one NIC
+  (`launch::FORM_NICS`); raising it adds `eth1`... rows with fields
+  `nic<i>_enabled` and `nic<i>_security_groups`.
+- **Cloud-init.** "Hostname" (DNS label, default: the VM name, so it is left
+  out of the CR) and "User-data" (monospace, at most 32 KiB after the
+  browser's CRLF line breaks become LF). `spec.cloudInit` is rendered when
+  either is given, and always with an OS image (cloud images expect a seed;
+  then `cloudInit: {}` means hostname = VM name and an empty
+  `#cloud-config`). A VM with a NIC gets a seed with static network-config
+  from the operator in any case. The launch route accepts bodies up to
+  128 KiB for this; every other route keeps 16 KiB.
+- **user-data is never shown or logged.** It is stored in the VM's ConfigMap,
+  which the form says, so it must not hold secrets. The dashboard never
+  renders it: a rejected form is shown again without it and asks for it
+  again, validation errors give only its size, the request's Debug output
+  shows only its size, and the detail page shows "hostname X, user-data N
+  bytes".
+
 The launcher's current ID token predates the new `_admins` group. Until they
 sign in again they are the VM's viewer as its creator; after that, its admin.
 
@@ -113,6 +141,16 @@ confirm) deletes the VirtualMachine
 with a UID precondition. Its Pod, ConfigMap and disk Secrets follow. The
 state PVC stays: it holds the firmware variables and TPM identity, and an
 administrator deletes it deliberately. The Kanidm groups stay too.
+
+### The detail page
+
+The Overview card adds "Cloud-init": `hostname <name>, user-data <N> bytes`
+(or "no user-data"); a VM with NICs but no `spec.cloudInit` shows "seed for
+the NICs only", and a VM with neither "none". The Network card lists
+`spec.nics` joined with `status.nics` by name: NIC, MAC, IP, security groups,
+NIC Pod and ready, as stacked cells on phones. Guest traffic leaves from the
+NIC Pod's IP; the VM Pod (BMC) never carries it. A VM without NICs shows "No
+guest NIC." The VM list shows the first NIC's IP, or "—".
 
 ## Base images
 
@@ -324,7 +362,9 @@ authorization, the rendered names, PVC and VirtualMachine, rollback, CSRF and
 Origin on every POST, BMC calls with the bearer only to the selected Pod,
 escaping of guest strings, the base-image catalog parser, the Images page,
 OS launches (root clone, stale or unknown images, root minimum, a data disk
-named root), OIDC state handling and the console WebSocket's
+named root), NIC and cloud-init rendering and validation (user-data never
+in a page, an error or a log line, and the larger launch body limit), OIDC
+state handling and the console WebSocket's
 refusals, proxying and revocation. A live Kanidm login and a browser console
 session are part of the rollout check.
 

@@ -139,7 +139,12 @@ pub fn router(state: AppState) -> Router {
     let novnc = tower_http::services::ServeDir::new(state.novnc_dir.clone());
     Router::new()
         .route("/", get(home))
-        .route("/launch", get(launch_form).post(launch))
+        .route(
+            "/launch",
+            get(launch_form)
+                .post(launch)
+                .layer(DefaultBodyLimit::max(launch::LAUNCH_BODY_LIMIT)),
+        )
         .route("/images", get(images_page))
         .route("/vms/{namespace}/{name}", get(detail))
         .route("/vms/{namespace}/{name}/action", post(action))
@@ -475,8 +480,14 @@ fn launch_page(
     errors: Vec<String>,
     images: Vec<images::BaseImage>,
 ) -> ui::Body {
+    // user-data is never rendered, not even back to the user who typed it.
+    let user_data_cleared = launch::user_data(&values).is_some();
     ui::Body::Launch(ui::LaunchPage {
-        values: values.into_iter().filter(|(k, _)| k != "csrf").collect(),
+        values: values
+            .into_iter()
+            .filter(|(k, _)| k != "csrf" && k != "user_data")
+            .collect(),
+        user_data_cleared,
         errors,
         namespace: app.namespace.clone(),
         storage_node: app.storage_node.clone(),

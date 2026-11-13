@@ -5,7 +5,9 @@
 //!   cargo run -p qrab-dashboard --example preview -- OUT_DIR VM.json POD.json [VM.json POD.json ...]
 //!
 //! The first VM gets the detail page; every VM appears in the list. A
-//! sample base-image catalog feeds the Images page and the launch forms.
+//! built-in VM with NICs and cloud-init is always added and gets
+//! `detail-network.html`. A sample base-image catalog feeds the Images page
+//! and the launch forms.
 use k8s_openapi::api::core::v1::Pod;
 use qrab_dashboard::{
     access::Role,
@@ -76,6 +78,38 @@ fn panel() -> Panel {
     }
 }
 
+/// A dashboard-launched CirrOS VM with two NICs (one still pending), status
+/// IPs and cloud-init, plus its Pod.
+fn network_vm() -> (VirtualMachine, Pod) {
+    let vm = serde_json::from_value(serde_json::json!({
+        "apiVersion": "qrab.yapplesauce.com/v1alpha1", "kind": "VirtualMachine",
+        "metadata": {"name": "web-1", "namespace": "qrab", "uid": "4f0c2a6e-9b1d-4c55-8e2a-1d7f3b9c0a11",
+            "labels": {"app.kubernetes.io/managed-by": "qrab-dashboard"}},
+        "spec": {"stateVolumeClaim": "web-1-state", "cpus": 2, "memoryMiB": 1024, "accelerator": "kvm",
+            "storageNode": "kube03",
+            "disks": [{"id": "root", "sizeBytes": 2147483648u64, "baseImage": {"name": "cirros", "generation": 1}, "bootIndex": 0}],
+            "console": {"adminGroups": ["12f802c8-4daf-4481-9f6a-a6fdb5d086c3"], "viewerGroups": ["2724fd1d-78d0-4612-a42e-448094971abb"]},
+            "nics": [{"name": "eth0", "securityGroups": ["web", "ssh", "monitoring-scrape"]}, {"name": "eth1"}],
+            "cloudInit": {"hostname": "web-1", "userData": "#cloud-config\nssh_authorized_keys: [ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExample sam]\npackages: [nginx]\n"}},
+        "status": {"observedGeneration": 3, "phase": "Running", "ready": true, "reason": "", "message": "",
+            "podName": "web-1", "nodeName": "kube02",
+            "disks": [{"id": "root", "capacityBytes": 2147483648u64, "generation": 1, "phase": "Active"}],
+            "nics": [
+                {"name": "eth0", "mac": "02:5e:a1:3c:77:0b", "podName": "web-1-nic-eth0", "ip": "10.244.2.187", "ready": true},
+                {"name": "eth1", "mac": "02:91:c4:08:2d:e6", "podName": "web-1-nic-eth1", "ip": null, "ready": false}
+            ]}
+    }))
+    .unwrap();
+    let pod = serde_json::from_value(serde_json::json!({
+        "metadata": {"name": "web-1", "namespace": "qrab"},
+        "spec": {"containers": [{"name": "manager", "image": "zot.yapplesauce.com/qrab/manager@sha256:373b51bbb3d05add0160b10277826634b9e2efe7d7f15a27e2a849cae233102c",
+            "resources": {"requests": {"cpu": "2", "memory": "1280Mi"}, "limits": {"cpu": "2", "memory": "1280Mi"}}}]},
+        "status": {"podIP": "10.244.2.141"}
+    }))
+    .unwrap();
+    (vm, pod)
+}
+
 /// A sample `images.json`, as `contrib/images/stage-base-image.sh` writes it.
 const CATALOG: &str = r#"[
  {"name":"cirros","generation":1,"title":"CirrOS 0.6.3","os":"cirros","version":"0.6.3",
@@ -104,10 +138,11 @@ fn main() {
         csrf: "csrf".into(),
         launcher: true,
     };
-    let pairs: Vec<(VirtualMachine, Pod)> = args[1..]
+    let mut pairs: Vec<(VirtualMachine, Pod)> = args[1..]
         .chunks(2)
         .map(|c| (load(&c[0]), load(&c[1])))
         .collect();
+    pairs.push(network_vm());
     let mut usage = HashMap::new();
     for (vm, pod) in &pairs {
         let name = pod.metadata.name.clone().unwrap_or_default();
@@ -132,13 +167,18 @@ fn main() {
     write(dir, "list", page(Body::List(rows)), &css);
     let catalog = images::parse(CATALOG);
     write(dir, "images", page(Body::Images(catalog.clone())), &css);
-    let (vm, pod) = &pairs[0];
-    let ip = pod
-        .status
-        .as_ref()
-        .and_then(|s| s.pod_ip.as_ref())
-        .and_then(|ip| ip.parse().ok());
-    for (name, role) in [("detail", Role::Admin), ("detail-viewer", Role::Viewer)] {
+    let network = pairs.len() - 1;
+    for (name, index, role) in [
+        ("detail", 0, Role::Admin),
+        ("detail-viewer", 0, Role::Viewer),
+        ("detail-network", network, Role::Admin),
+    ] {
+        let (vm, pod) = &pairs[index];
+        let ip = pod
+            .status
+            .as_ref()
+            .and_then(|s| s.pod_ip.as_ref())
+            .and_then(|ip| ip.parse().ok());
         let detail = model::detail(vm, role, &usage, Some(pod), ip, &catalog);
         let body = Body::Detail(Box::new(DetailPage {
             detail,
@@ -166,11 +206,18 @@ fn main() {
                 ("name".into(), "web".into()),
                 ("os".into(), "cirros:2".into()),
                 ("root_size_gib".into(), "1".into()),
+                ("nic0_enabled".into(), "on".into()),
+                ("nic0_security_groups".into(), "web, SSH".into()),
+                ("hostname".into(), "web-1".into()),
             ],
-            errors: vec!["Root disk size (GiB) must be a whole number from 2 to 1024.".into()],
+            errors: vec![
+                "Root disk size (GiB) must be a whole number from 2 to 1024.".into(),
+                "Security group SSH on eth0 must be a DNS label: 1-63 lowercase letters, digits or '-', starting and ending with a letter or digit.".into(),
+            ],
             namespace: "qrab".into(),
             storage_node: Some("kube03".into()),
             images: catalog.clone(),
+            user_data_cleared: true,
         })),
         &css,
     );

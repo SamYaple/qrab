@@ -39,7 +39,12 @@ pub struct LaunchPage {
     pub storage_node: Option<String>,
     /// The base-image catalog at render time.
     pub images: Vec<BaseImage>,
+    /// The rejected form had user-data, which is never sent back.
+    pub user_data_cleared: bool,
 }
+
+/// Where security groups and the default-allow rule are described.
+pub const NETWORKING_DOCS: &str = "https://gitea.yapplesauce.com/infrastructure/qrab/src/branch/main/docs/networking.md#security-groups";
 
 #[derive(Clone)]
 pub struct Launched {
@@ -122,7 +127,7 @@ fn vm_table(rows: &[Row]) -> Element {
         section { class: "card directory", div { class: "table-wrap", table {
             caption { class: "visually-hidden", "Virtual machines you can access" }
             thead { tr {
-                th { scope: "col", "Name" } th { scope: "col", "State" } th { scope: "col", "Node" }
+                th { scope: "col", "Name" } th { scope: "col", "State" } th { scope: "col", "Node" } th { scope: "col", "IP" }
                 th { scope: "col", "vCPUs" } th { scope: "col", "Memory (MiB)" } th { scope: "col", "Disks" }
                 th { scope: "col", "CPU use" } th { scope: "col", "Memory use" } th { scope: "col", "Your role" }
             } }
@@ -138,6 +143,7 @@ fn vm_table(rows: &[Row]) -> Element {
                         td { "data-label": "Name", div { a { class: "identity-link", href: row.path(), "{row.name}" } p { class: "muted", "{row.namespace}" } } }
                         td { "data-label": "State", div { {state_badge(row)} } }
                         td { "data-label": "Node", if row.node.is_empty() { "—" } else { "{row.node}" } }
+                        td { "data-label": "IP", if let Some(ip) = &row.ip { code { "{ip}" } } else { "—" } }
                         td { "data-label": "vCPUs", {sizes(row.cpus, row.max_cpus, "")} }
                         td { "data-label": "Memory (MiB)", {sizes(row.memory_mib, row.max_memory_mib, "")} }
                         td { "data-label": "Disks", "{disks}" }
@@ -387,6 +393,34 @@ fn delete_form(detail: &Detail, csrf: &str) -> Element {
     }
 }
 
+fn network_card(d: &Detail) -> Element {
+    let or_dash = |v: &Option<String>| v.clone().unwrap_or_else(|| "—".into());
+    rsx! {
+        section { class: if d.nics.is_empty() { "card" } else { "card wide" }, h2 { "Network" }
+            if d.nics.is_empty() { p { "No guest NIC." } }
+            else {
+                div { class: "table-wrap", table {
+                    thead { tr { th { scope: "col", "NIC" } th { scope: "col", "MAC" } th { scope: "col", "IP" } th { scope: "col", "Security groups" } th { scope: "col", "NIC pod" } th { scope: "col", "Ready" } } }
+                    tbody { for nic in &d.nics { tr {
+                        td { "data-label": "NIC", code { "{nic.name}" } }
+                        td { "data-label": "MAC", code { {or_dash(&nic.mac)} } }
+                        td { "data-label": "IP", code { {or_dash(&nic.ip)} } }
+                        td { "data-label": "Security groups",
+                            if nic.security_groups.is_empty() { div { span { class: "muted", "none" } } }
+                            else { {nic.security_groups.join(", ")} }
+                        }
+                        td { "data-label": "NIC pod", code { {or_dash(&nic.pod_name)} } }
+                        td { "data-label": "Ready", div { span { class: if nic.ready { "badge ok" } else { "badge" }, if nic.ready { "ready" } else { "not ready" } } } }
+                    } } }
+                } }
+                p { class: "muted", "Guest traffic leaves from the NIC pod's IP; the VM pod (BMC) never carries it. A NIC that no security-group policy selects is default-allow. "
+                    a { href: NETWORKING_DOCS, rel: "noreferrer", "Security groups" }
+                }
+            }
+        }
+    }
+}
+
 fn detail_page(page: &DetailPage, user: &UserView) -> Element {
     let d = &page.detail;
     let (cpu, mem) = model::usage_text(d.row.usage);
@@ -432,6 +466,7 @@ fn detail_page(page: &DetailPage, user: &UserView) -> Element {
             },
         ),
         ("State PVC", d.state_pvc.clone()),
+        ("Cloud-init", d.cloud_init.clone()),
         (
             "Components",
             format!(
@@ -505,9 +540,7 @@ fn detail_page(page: &DetailPage, user: &UserView) -> Element {
                 p { class: "muted", "From metrics.k8s.io for the whole Pod, including the BMC and Redfish sidecars." }
                 {dl(vec![("CPU", cpu), ("Memory", mem)])}
             }
-            section { class: "card", h2 { "Network" }
-                p { "None: VMs have no guest NIC by design (QMP/VNC stay on private sockets)." }
-            }
+            {network_card(d)}
             section { class: if d.disks.is_empty() { "card" } else { "card wide" }, h2 { "Disks" }
                 if d.disks.is_empty() && d.iscsi_disks.is_empty() { p { class: "empty", "No disks. The VM boots the read-only demo ESP." } }
                 if !d.disks.is_empty() {
@@ -571,7 +604,7 @@ fn launch_form(page: &LaunchPage, user: &UserView) -> Element {
     rsx! {
         a { class: "back", href: "/", "← All VMs" }
         div { class: "heading", div { p { class: "eyebrow", "LAUNCH" } h1 { "Launch a VM" }
-            p { class: "muted", "Creates Kanidm groups for its admins and viewers (you join the admins), a 1 GiB state PVC and the VirtualMachine in namespace {page.namespace}. The VM boots its own copy-on-write clone of the chosen operating system, or the demo ESP, and has no guest NIC." } } }
+            p { class: "muted", "Creates Kanidm groups for its admins and viewers (you join the admins), a 1 GiB state PVC and the VirtualMachine in namespace {page.namespace}. The VM boots its own copy-on-write clone of the chosen operating system, or the demo ESP. Each network interface gets its own NIC Pod, whose IP is the guest's address." } } }
         if !page.errors.is_empty() {
             section { class: "card", role: "alert", h2 { "Check the form" } ul { for e in &page.errors { li { "{e}" } } } }
         }
@@ -595,6 +628,8 @@ fn launch_form(page: &LaunchPage, user: &UserView) -> Element {
                     option { value: "tcg", selected: !kvm, "TCG (emulation)" }
                 }
             }
+            {network_fieldset(page)}
+            {cloud_init_fieldset(page)}
             fieldset { legend { "Data disks (optional)" }
                 p { class: "muted", "Provisioned by the storage service on node {node}. Leave the ID empty to skip a row." }
                 for i in 0..launch::FORM_DISKS {
@@ -614,6 +649,59 @@ fn launch_form(page: &LaunchPage, user: &UserView) -> Element {
                 }
             }
             button { r#type: "submit", "Launch VM" }
+        }
+    }
+}
+
+/// One row per form NIC. A fresh form attaches `eth0`; a re-rendered one
+/// keeps what was submitted.
+fn network_fieldset(page: &LaunchPage) -> Element {
+    let fresh = page.values.is_empty();
+    rsx! {
+        fieldset { legend { "Network" }
+            for i in 0..launch::FORM_NICS {
+                {
+                    let nic = launch::nic_name(i);
+                    let enabled = format!("nic{i}_enabled");
+                    let groups = format!("nic{i}_security_groups");
+                    let checked = if fresh { i == 0 } else { input_value(&page.values, &enabled, "") == "on" };
+                    rsx! { div { class: "nic-row", role: "group", aria_label: "Network interface {nic}",
+                        label { class: "confirm",
+                            input { r#type: "checkbox", name: "{enabled}", value: "on", checked: checked }
+                            "Attach a network interface ({nic})"
+                        }
+                        label { r#for: "{groups}", "Security groups" }
+                        input { id: "{groups}", name: "{groups}", placeholder: "web, ssh", autocomplete: "off", spellcheck: "false", value: input_value(&page.values, &groups, ""), aria_describedby: "nic-help" }
+                    } }
+                }
+            }
+            p { id: "nic-help", class: "muted",
+                "Comma-separated DNS labels, at most {launch::MAX_SECURITY_GROUPS}. Each becomes the label "
+                code { "sg.qrab.yapplesauce.com/<group>" } " on the NIC Pod, and CiliumNetworkPolicies select those labels. "
+                strong { "Without any matching policy the NIC is default-allow" }
+                ": every forwarded guest port is reachable and the guest can reach anything. See "
+                a { href: NETWORKING_DOCS, rel: "noreferrer", "docs/networking.md" } "."
+            }
+            p { class: "muted", "The guest's address is its NIC Pod's IP, configured statically through the cloud-init seed. Guest traffic never passes through the VM Pod." }
+        }
+    }
+}
+
+fn cloud_init_fieldset(page: &LaunchPage) -> Element {
+    rsx! {
+        fieldset { legend { "Cloud-init" }
+            p { class: "muted", "A NoCloud seed disk (" code { "cidata" } "). An operating system image or a network interface always gets one; the seed also carries each NIC's network-config." }
+            label { r#for: "hostname", "Hostname (optional)" }
+            input { id: "hostname", name: "hostname", maxlength: "63", pattern: "[a-z0-9]([a-z0-9-]*[a-z0-9])?", autocomplete: "off", placeholder: "the VM name", value: input_value(&page.values, "hostname", ""), aria_describedby: "hostname-help" }
+            p { id: "hostname-help", class: "muted", "DNS label. Defaults to the VM name." }
+            label { r#for: "user_data", "User-data (optional)" }
+            textarea { id: "user_data", name: "user_data", rows: "8", spellcheck: "false", autocomplete: "off", maxlength: "{launch::USER_DATA_LIMIT}", placeholder: "#cloud-config\nssh_authorized_keys: [ssh-ed25519 AAAA...]", aria_describedby: "user-data-help" }
+            if page.user_data_cleared { p { class: "notice", role: "status", "Your user-data was not sent back with this form. Paste it again." } }
+            p { id: "user-data-help", class: "muted",
+                "Passed to the guest verbatim, at most 32 KiB. "
+                strong { "It is stored in the VM's ConfigMap" }
+                ", which anyone who can read ConfigMaps in namespace {page.namespace} can read. Use it for configuration and public keys; do not put passwords or tokens in it. The dashboard shows only its size."
+            }
         }
     }
 }
@@ -724,7 +812,7 @@ fn console_page(page: &ConsolePage) -> Element {
     let socket = format!("{back}/console/ws");
     rsx! {
         a { class: "back", href: "{back}", "← Back to {page.name}" }
-        div { class: "heading", div { p { class: "eyebrow", "CONSOLE · {page.namespace}" } h1 { "{page.name}" } } span { class: "badge", "Guest networking disabled" } }
+        div { class: "heading", div { p { class: "eyebrow", "CONSOLE · {page.namespace}" } h1 { "{page.name}" } } }
         div { class: "toolbar",
             p { id: "console-status", role: "status", "Console disconnected" }
             div { class: "actions",

@@ -14,6 +14,12 @@ pub const STORAGE_CLASS: &str = "zfs-block";
 pub const MAX_NAME: usize = 50;
 pub const FORM_DISKS: usize = 4;
 pub const MAX_DISK_GIB: u64 = 1024;
+/// NIC rows on the form, named `eth0`, `eth1`, ...; the CRD allows 4.
+pub const FORM_NICS: usize = 1;
+pub const MAX_SECURITY_GROUPS: usize = 8;
+pub use qrab_operator::resources::USER_DATA_LIMIT;
+/// A launch form carries up to 32 KiB of user-data, URL-encoded.
+pub const LAUNCH_BODY_LIMIT: usize = 4 * USER_DATA_LIMIT;
 /// Marks resources the dashboard created; only such VMs can be deleted here.
 pub use crate::access::{MANAGED_BY, MANAGER};
 
@@ -35,6 +41,35 @@ pub struct Os {
 /// The disk ID of an OS image clone.
 pub const ROOT_DISK: &str = "root";
 
+/// A guest NIC, backed by the NIC Pod `<vm>-nic-<name>`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Nic {
+    pub name: String,
+    pub security_groups: Vec<String>,
+}
+
+/// The guest name of form NIC `i`, matching the seed's `ethN`.
+pub fn nic_name(i: usize) -> String {
+    format!("eth{i}")
+}
+
+/// `spec.cloudInit`. Its Debug output shows only the user-data size, so it
+/// cannot reach a log line.
+#[derive(Clone, Default, PartialEq, Eq)]
+pub struct CloudInit {
+    pub hostname: Option<String>,
+    pub user_data: Option<String>,
+}
+
+impl std::fmt::Debug for CloudInit {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CloudInit")
+            .field("hostname", &self.hostname)
+            .field("user_data_bytes", &self.user_data.as_ref().map(String::len))
+            .finish()
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Request {
     pub name: String,
@@ -45,6 +80,8 @@ pub struct Request {
     pub max_memory_mib: Option<u32>,
     pub kvm: bool,
     pub disks: Vec<Disk>,
+    pub nics: Vec<Nic>,
+    pub cloud_init: Option<CloudInit>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -129,7 +166,40 @@ fn number<T: std::str::FromStr + PartialOrd + std::fmt::Display + Copy>(
     }
 }
 
+/// Comma-separated DNS labels, distinct, at most [`MAX_SECURITY_GROUPS`].
+fn security_groups(errors: &mut Vec<String>, nic: &str, raw: &str) -> Vec<String> {
+    let mut groups: Vec<String> = Vec::new();
+    for group in raw.split(',').map(str::trim).filter(|g| !g.is_empty()) {
+        if !crate::config::dns_label(group) {
+            errors.push(format!(
+                "Security group {group} on {nic} must be a DNS label: 1-63 lowercase letters, digits or '-', starting and ending with a letter or digit."
+            ));
+        } else if groups.iter().any(|g| g == group) {
+            errors.push(format!("Security group {group} on {nic} is listed twice."));
+        } else {
+            groups.push(group.to_owned());
+        }
+    }
+    if groups.len() > MAX_SECURITY_GROUPS {
+        errors.push(format!(
+            "{nic} may have at most {MAX_SECURITY_GROUPS} security groups."
+        ));
+    }
+    groups
+}
+
+/// The submitted user-data, untrimmed, with the browser's CRLF line breaks
+/// as LF. Whitespace only means none.
+pub fn user_data(fields: &[(String, String)]) -> Option<String> {
+    fields
+        .iter()
+        .find(|(k, _)| k == "user_data")
+        .filter(|(_, v)| !v.trim().is_empty())
+        .map(|(_, v)| v.replace("\r\n", "\n"))
+}
+
 /// Validates the form against the CRD's limits. Every problem is reported.
+/// Errors never quote user-data.
 pub fn parse(
     fields: &[(String, String)],
     namespace: &str,
@@ -262,6 +332,45 @@ pub fn parse(
             "Data disks need a storage node; DASHBOARD_STORAGE_NODE is not configured.".into(),
         );
     }
+    let mut nics = Vec::new();
+    for i in 0..FORM_NICS {
+        let name = nic_name(i);
+        let raw = field(fields, &format!("nic{i}_security_groups"));
+        let security_groups = security_groups(&mut errors, &name, raw);
+        if field(fields, &format!("nic{i}_enabled")) == "on" {
+            nics.push(Nic {
+                name,
+                security_groups,
+            });
+        } else if !raw.is_empty() {
+            errors.push(format!(
+                "Security groups apply to a network interface: attach {name} or clear its security groups."
+            ));
+        }
+    }
+    let hostname = match field(fields, "hostname") {
+        "" => None,
+        h if crate::config::dns_label(h) => Some(h.to_owned()),
+        _ => {
+            errors.push("Hostname must be a DNS label: 1-63 lowercase letters, digits or '-', starting and ending with a letter or digit.".into());
+            None
+        }
+    };
+    let user_data = user_data(fields);
+    if let Some(u) = &user_data
+        && u.len() > USER_DATA_LIMIT
+    {
+        errors.push(format!(
+            "User-data is {} bytes; at most {USER_DATA_LIMIT} bytes (32 KiB) are allowed.",
+            u.len()
+        ));
+    }
+    // Cloud images expect a seed, so an OS launch always gets one.
+    let cloud_init =
+        (hostname.is_some() || user_data.is_some() || os.is_some()).then_some(CloudInit {
+            hostname,
+            user_data,
+        });
     match (errors.is_empty(), cpus, memory_mib) {
         (true, Some(cpus), Some(memory_mib)) => Ok(Request {
             name,
@@ -272,6 +381,8 @@ pub fn parse(
             max_memory_mib,
             kvm,
             disks,
+            nics,
+            cloud_init,
         }),
         _ => Err(errors),
     }
@@ -349,6 +460,29 @@ pub fn render_vm(
     if !disks.is_empty() {
         spec["storageNode"] = storage_node.into();
         spec["disks"] = disks.into();
+    }
+    if !request.nics.is_empty() {
+        spec["nics"] = request
+            .nics
+            .iter()
+            .map(|nic| {
+                let mut value = json!({"name": nic.name});
+                if !nic.security_groups.is_empty() {
+                    value["securityGroups"] = json!(nic.security_groups);
+                }
+                value
+            })
+            .collect();
+    }
+    if let Some(cloud_init) = &request.cloud_init {
+        let mut value = json!({});
+        if let Some(hostname) = &cloud_init.hostname {
+            value["hostname"] = hostname.as_str().into();
+        }
+        if let Some(user_data) = &cloud_init.user_data {
+            value["userData"] = user_data.as_str().into();
+        }
+        spec["cloudInit"] = value;
     }
     json!({
         "apiVersion": "qrab.yapplesauce.com/v1alpha1",
@@ -981,6 +1115,121 @@ mod tests {
         );
         let typed: qrab_operator::api::VirtualMachine = serde_json::from_value(vm).unwrap();
         assert_eq!(typed.spec.disks[0].boot_index, Some(0));
+    }
+
+    fn rendered(extra: &[(&str, &str)], catalog: &[BaseImage]) -> serde_json::Value {
+        let request = parse(&os_form(extra), "qrab", Some("kube03"), catalog).unwrap();
+        render_vm(
+            &request,
+            &names("qrab", "web").unwrap(),
+            "qrab",
+            "sub-1",
+            &Groups {
+                admins: "ga",
+                viewers: "gv",
+            },
+            Some("kube03"),
+        )
+    }
+
+    #[test]
+    fn network_and_cloud_init_render_only_when_requested() {
+        use crate::images::tests::cirros;
+        // Neither: no nics, no cloudInit.
+        let vm = rendered(&[], &[]);
+        assert!(vm["spec"].get("nics").is_none());
+        assert!(vm["spec"].get("cloudInit").is_none());
+        // eth0 with groups, hostname and user-data (CRLF from the browser).
+        let vm = rendered(
+            &[
+                ("nic0_enabled", "on"),
+                ("nic0_security_groups", " web, ssh ,,"),
+                ("hostname", "web-1"),
+                ("user_data", "#cloud-config\r\npackages: [htop]\r\n"),
+            ],
+            &[],
+        );
+        assert_eq!(
+            vm["spec"]["nics"],
+            json!([{"name": "eth0", "securityGroups": ["web", "ssh"]}])
+        );
+        assert_eq!(
+            vm["spec"]["cloudInit"],
+            json!({"hostname": "web-1", "userData": "#cloud-config\npackages: [htop]\n"})
+        );
+        let typed: qrab_operator::api::VirtualMachine = serde_json::from_value(vm).unwrap();
+        assert_eq!(typed.spec.nics[0].security_groups.len(), 2);
+        // A NIC without groups, and no cloud-init without an OS.
+        let vm = rendered(&[("nic0_enabled", "on"), ("user_data", "  \r\n")], &[]);
+        assert_eq!(vm["spec"]["nics"], json!([{"name": "eth0"}]));
+        assert!(vm["spec"].get("cloudInit").is_none());
+        // An OS image always gets a seed; the hostname defaults to the VM name.
+        let vm = rendered(&[("os", "cirros:1")], &[cirros()]);
+        assert_eq!(vm["spec"]["cloudInit"], json!({}));
+        assert!(vm["spec"].get("nics").is_none());
+        let typed: qrab_operator::api::VirtualMachine = serde_json::from_value(vm).unwrap();
+        assert_eq!(typed.spec.cloud_init, Some(Default::default()));
+    }
+
+    #[test]
+    fn network_and_cloud_init_are_validated_without_quoting_user_data() {
+        let secret = "#cloud-config\npassword: hunter2-secret\n";
+        let too_big = format!("{secret}{}", "x".repeat(USER_DATA_LIMIT));
+        let nine = "a,b,c,d,e,f,g,h,i";
+        let long_host = "a".repeat(64);
+        for (extra, needle) in [
+            (
+                vec![("nic0_enabled", "on"), ("nic0_security_groups", "Web")],
+                "Security group Web on eth0 must be a DNS label",
+            ),
+            (
+                vec![("nic0_enabled", "on"), ("nic0_security_groups", "web,web")],
+                "listed twice",
+            ),
+            (
+                vec![("nic0_enabled", "on"), ("nic0_security_groups", nine)],
+                "at most 8 security groups",
+            ),
+            (
+                vec![("nic0_security_groups", "web")],
+                "attach eth0 or clear",
+            ),
+            (vec![("hostname", "web_1")], "Hostname must be a DNS label"),
+            (vec![("hostname", long_host.as_str())], "Hostname"),
+            (vec![("user_data", too_big.as_str())], "at most 32768 bytes"),
+        ] {
+            let errors = parse(&os_form(&extra), "qrab", Some("kube03"), &[]).unwrap_err();
+            assert!(
+                errors.iter().any(|e| e.contains(needle)),
+                "{needle}: {errors:?}"
+            );
+            assert!(!errors.iter().any(|e| e.contains("hunter2")), "{errors:?}");
+        }
+        // Eight groups and exactly 32 KiB are accepted.
+        let groups = "a,b,c,d,e,f,g,h";
+        let limit = "x".repeat(USER_DATA_LIMIT);
+        let request = parse(
+            &os_form(&[
+                ("nic0_enabled", "on"),
+                ("nic0_security_groups", groups),
+                ("user_data", &limit),
+            ]),
+            "qrab",
+            Some("kube03"),
+            &[],
+        )
+        .unwrap();
+        assert_eq!(request.nics[0].security_groups.len(), 8);
+        // Debug output, which a log line could carry, shows only the size.
+        let request = parse(
+            &os_form(&[("user_data", secret)]),
+            "qrab",
+            Some("kube03"),
+            &[],
+        )
+        .unwrap();
+        let debug = format!("{request:?}");
+        assert!(!debug.contains("hunter2") && debug.contains("user_data_bytes: Some(39)"));
     }
 
     #[test]
