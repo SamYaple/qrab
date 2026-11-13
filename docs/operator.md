@@ -2,8 +2,9 @@
 
 `qrab-operator` reconciles namespaced `VirtualMachine` resources in
 `qrab.yapplesauce.com/v1alpha1`. It owns one Pod and ConfigMap per VM. Each Pod
-runs `qrab-manager` (QEMU, OVMF UEFI and swtpm TPM2) with guest networking
-disabled, plus the optional BMC and Redfish sidecars. No guest Kubernetes token, VIF, arbitrary Pod template,
+runs `qrab-manager` (QEMU, OVMF UEFI and swtpm TPM2), plus the optional BMC and
+Redfish sidecars. Guest NICs are opt-in (`spec.nics`); each is a separate NIC Pod,
+so guest traffic never enters the VM Pod (see [Guest NICs](#guest-nics)). No guest Kubernetes token, VIF, arbitrary Pod template,
 leader election, VM admission webhook or cluster-wide controller is involved.
 Use one operator replica with `Recreate` deployment strategy.
 
@@ -210,6 +211,49 @@ The console public URL must have a matching Service/Ingress, TLS certificate and
 exact registered Kanidm callback. See [bmc.md](bmc.md). The operator does not
 mutate the identity provider. The sample's existing URL and Sam allowlist remain
 valid.
+
+## Guest NICs
+
+[networking.md](networking.md) is the full description. In short:
+
+```yaml
+spec:
+  nics:
+  - name: lan
+    securityGroups: [web]
+```
+
+- **What the operator creates.** For each NIC it creates a NIC Pod
+  `<vm>-nic-<name>`, which runs `qrab-manager nic`: passt behind a
+  one-connection relay on TCP 7700, as the `qrab-manager` ServiceAccount with
+  no API token. It also creates a CiliumNetworkPolicy `<vm>-nic-<name>-relay`.
+  Both are controller-owned by the VM.
+- **NIC Pod labels.** `app.kubernetes.io/component: vm-nic`,
+  `app.kubernetes.io/instance: <vm>`, `qrab.yapplesauce.com/owner-uid`,
+  `qrab.yapplesauce.com/nic: <name>`, and one
+  `sg.qrab.yapplesauce.com/<group>: ""` per security group.
+- **The relay policy.** Only this VM's Pod reaches 7700. An `ingressDeny`
+  covers every other source, so no security-group rule can open 7700. The VM
+  Pod is allowed egress to the relay. The policy never enables default deny,
+  so **NIC Pods are default-allow until a security-group or baseline policy
+  selects them**.
+- **Startup.** The VM waits with reason `NicPending` until every NIC Pod is
+  Ready. Then its config gets `nics: [{id, mac, host: <NIC Pod IP>, port:
+  7700}]`. The MAC is `02:` plus five bytes of SHA-256 over the VM UID and NIC
+  name.
+- **Status.** `status.nics` reports `name`, `mac`, `podName`, `ip` and `ready`.
+- **Changes.**
+  - Security-group changes patch NIC Pod labels in place.
+  - A missing or failed NIC Pod is recreated. A new NIC Pod IP changes the VM
+    config, which replaces the VM Pod through the normal controlled path, with
+    identity kept.
+  - Removing a NIC deletes its Pod and policy. Deleting the VM collects them
+    through owner references.
+- **Selectors.** NIC Pods share `app.kubernetes.io/instance` with their VM.
+  Anything meant for the VM Pod must also select `app.kubernetes.io/component:
+  vm`, as `console.yaml`'s Service and policy do.
+- **RBAC.** The operator needs `ciliumnetworkpolicies.cilium.io` get, list,
+  watch, create, patch and delete in `rbac.yaml`.
 
 ## Power, restart and deletion
 

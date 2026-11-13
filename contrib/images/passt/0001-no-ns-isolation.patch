@@ -1,0 +1,109 @@
+Subject: [PATCH] passt: add --no-ns-isolation for callers that sandbox passt
+
+qrab runs passt as UID 10001 with no capabilities in a Kubernetes Pod
+Security restricted pod. containerd's RuntimeDefault seccomp profile
+refuses unshare(), mount(), pivot_root() and umount2() to such a
+container, so passt's self-isolation dies with "Couldn't create user
+namespace" before it serves anything.
+
+--no-ns-isolation (passt and vhost-user modes only) skips creating the
+user, IPC, mount, UTS and PID namespaces and the pivot_root() into an
+empty tmpfs. passt still switches UID/GID, clamps and drops
+capabilities, sets no_new_privs and installs its own seccomp filter;
+the pod supplies the network namespace, read-only root, dropped
+capabilities and RuntimeDefault seccomp. Without the flag behaviour is
+unchanged.
+
+Applies to Debian passt 0.0~git20250503.587980c-2+deb13u1 (after its
+quilt series).
+---
+diff --git a/conf.c b/conf.c
+index a6d7e22..6764111 100644
+--- a/conf.c
++++ b/conf.c
+@@ -864,6 +864,9 @@ static void usage(const char *name, FILE *f, int status)
+ 		FPRINTF(f,
+ 			"  --repair-path PATH	path for passt-repair(1)\n"
+ 			"    default: append '.repair' to UNIX domain path\n");
++		FPRINTF(f,
++			"  --no-ns-isolation	Don't create namespaces or detach\n"
++			"    the filesystem; rely on the caller's sandbox\n");
+ 	}
+ 
+ 	FPRINTF(f,
+@@ -1468,6 +1471,7 @@ void conf(struct ctx *c, int argc, char **argv)
+ 		{"socket-path",	required_argument,	NULL,		's' },
+ 		{"fqdn",	required_argument,	NULL,		27 },
+ 		{"repair-path",	required_argument,	NULL,		28 },
++		{"no-ns-isolation", no_argument,	NULL,		29 },
+ 		{ 0 },
+ 	};
+ 	const char *optstring = "+dqfel:hs:F:I:p:P:m:a:n:M:g:i:o:D:S:H:461t:u:T:U:";
+@@ -1683,6 +1687,12 @@ void conf(struct ctx *c, int argc, char **argv)
+ 					   optarg))
+ 				die("Invalid passt-repair path: %s", optarg);
+ 
++			break;
++		case 29:
++			if (c->mode == MODE_PASTA)
++				die("--no-ns-isolation is for passt mode only");
++
++			c->no_ns_isolation = 1;
+ 			break;
+ 		case 'd':
+ 			c->debug = 1;
+@@ -2040,7 +2050,8 @@ void conf(struct ctx *c, int argc, char **argv)
+ 
+ 	conf_open_files(c);	/* Before any possible setuid() / setgid() */
+ 
+-	isolate_user(uid, gid, !netns_only, userns, c->mode);
++	isolate_user(uid, gid, !netns_only && !c->no_ns_isolation, userns,
++		     c->mode);
+ 
+ 	if (c->pasta_conf_ns)
+ 		c->no_ra = 1;
+diff --git a/isolation.c b/isolation.c
+index c944fb3..54f81e3 100644
+--- a/isolation.c
++++ b/isolation.c
+@@ -315,6 +315,12 @@ int isolate_prefork(const struct ctx *c)
+ 	if (!c->foreground || c->mode != MODE_PASTA)
+ 		flags |= CLONE_NEWPID;
+ 
++	/* The caller's sandbox already confines us and forbids creating
++	 * namespaces: keep capability clamping and the seccomp filter only.
++	 */
++	if (c->no_ns_isolation)
++		goto drop_caps;
++
+ 	if (unshare(flags)) {
+ 		err_perror("Failed to detach isolating namespaces");
+ 		return -errno;
+@@ -347,6 +353,7 @@ int isolate_prefork(const struct ctx *c)
+ 		return -errno;
+ 	}
+ 
++drop_caps:
+ 	/* Now that initialization is more-or-less complete, we can
+ 	 * drop further capabilities
+ 	 */
+diff --git a/passt.h b/passt.h
+index 8693794..be880f7 100644
+--- a/passt.h
++++ b/passt.h
+@@ -189,6 +189,7 @@ struct ip6_ctx {
+  * @trace:		Enable tracing (extra debug) mode
+  * @quiet:		Don't print informational messages
+  * @foreground:		Run in foreground, don't log to stderr by default
++ * @no_ns_isolation:	Skip namespace and filesystem self-isolation
+  * @nofile:		Maximum number of open files (ulimit -n)
+  * @sock_path:		Path for UNIX domain socket
+  * @repair_path:	TCP_REPAIR helper path, can be "none", empty for default
+@@ -248,6 +249,7 @@ struct ctx {
+ 	int trace;
+ 	int quiet;
+ 	int foreground;
++	int no_ns_isolation;
+ 	int nofile;
+ 	char sock_path[UNIX_PATH_MAX];
+ 	char repair_path[UNIX_PATH_MAX];

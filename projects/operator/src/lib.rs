@@ -1,5 +1,6 @@
 pub mod api;
 pub mod controller;
+pub mod nic;
 pub mod provision;
 pub mod resources;
 pub mod storage;

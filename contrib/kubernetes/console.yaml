@@ -3,8 +3,10 @@ kind: Service
 metadata:
   name: qrab-demo
 spec:
+  # component: vm keeps the VM's NIC Pods (component: vm-nic) out of the BMC Service.
   selector:
     app.kubernetes.io/name: qrab
+    app.kubernetes.io/component: vm
     app.kubernetes.io/instance: qrab-demo
   ports:
   - name: http
@@ -70,6 +72,7 @@ spec:
   endpointSelector:
     matchLabels:
       app.kubernetes.io/name: qrab
+      app.kubernetes.io/component: vm
       app.kubernetes.io/instance: qrab-demo
   ingress:
   - fromEntities: [ingress, host]
@@ -90,7 +93,9 @@ spec:
     toPorts:
     - ports:
       - {port: '443', protocol: TCP}
-  # Native QEMU iSCSI uses the Pod's storage network; guest NICs stay disabled.
+  # Native QEMU iSCSI uses the Pod's storage network. Guest NICs are separate
+  # NIC Pods; the operator's <vm>-nic-<name>-relay policies add this Pod's
+  # egress to their relay port 7700.
   - toCIDR: [10.203.0.1/32]
     toPorts:
     - ports:

@@ -1,9 +1,11 @@
 use crate::{
-    api::{Accelerator, VirtualMachine},
+    api::{Accelerator, Nic, VirtualMachine},
+    nic::{mac as nic_mac, NicEndpoint, NIC_LIMIT, RELAY_PORT},
     provision::Attached,
     Error, Result,
 };
 use k8s_openapi::api::core::v1::{ConfigMap, Pod};
+use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
 use kube::{Resource, ResourceExt};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -438,6 +440,7 @@ pub fn validate(vm: &VirtualMachine, settings: &Settings) -> Result<()> {
             ));
         }
     }
+    validate_nics(&vm.spec.nics)?;
     if vm.spec.iscsi_disks.len() + vm.spec.disks.len() > 8 {
         return Err(Error::Invalid(
             "at most eight iSCSI disks are supported".into(),
@@ -475,6 +478,35 @@ pub fn validate(vm: &VirtualMachine, settings: &Settings) -> Result<()> {
             return Err(Error::Invalid(
                 "disk bootIndex must be unique; 1 is reserved for the demo ESP".into(),
             ));
+        }
+    }
+    Ok(())
+}
+
+fn validate_nics(nics: &[Nic]) -> Result<()> {
+    if nics.len() > NIC_LIMIT {
+        return Err(Error::Invalid(format!(
+            "at most {NIC_LIMIT} NICs are supported"
+        )));
+    }
+    let mut names = BTreeSet::new();
+    for nic in nics {
+        if !valid_name(&nic.name, 15) || !names.insert(&nic.name) {
+            return Err(Error::Invalid(
+                "NIC names must be unique lowercase DNS labels of 1..15 characters".into(),
+            ));
+        }
+        let mut groups = BTreeSet::new();
+        if nic.security_groups.len() > 8
+            || !nic
+                .security_groups
+                .iter()
+                .all(|g| valid_name(&g.0, 63) && groups.insert(&g.0))
+        {
+            return Err(Error::Invalid(format!(
+                "NIC {} may name at most 8 distinct security groups, each a DNS label",
+                nic.name
+            )));
         }
     }
     Ok(())
@@ -635,7 +667,30 @@ pub fn render_booted(
     provisioned: &[Attached],
     boot: GuestSize,
 ) -> Result<Desired> {
+    render_attached(vm, settings, provisioned, boot, &[])
+}
+
+/// As `render_booted`, with the relay endpoint of every `spec.nics` entry,
+/// in order. A NIC Pod's IP is part of the VM's config: a replaced NIC Pod
+/// with a new IP replaces the VM Pod.
+pub fn render_attached(
+    vm: &VirtualMachine,
+    settings: &Settings,
+    provisioned: &[Attached],
+    boot: GuestSize,
+    nics: &[NicEndpoint],
+) -> Result<Desired> {
     validate(vm, settings)?;
+    if vm.spec.nics.len() != nics.len()
+        || vm
+            .spec
+            .nics
+            .iter()
+            .zip(nics)
+            .any(|(spec, nic)| spec.name != nic.name)
+    {
+        return Err(Error::Invalid("the NIC Pods are not ready yet".into()));
+    }
     if vm.spec.disks.len() != provisioned.len()
         || vm
             .spec
@@ -662,6 +717,12 @@ pub fn render_booted(
     let mut disks: Vec<_> = vm.spec.iscsi_disks.iter().map(|d|json!({"id":d.id,"portal":d.portal,"target":d.target,"lun":d.lun,"initiator_name":initiator,"username":d.username,"password_file":format!("/run/qrab-auth/{}/password",d.id),"read_only":d.read_only,"boot_index":d.boot_index,"bus":"virtio"})).collect();
     disks.extend(provisioned.iter().map(|d|json!({"id":d.id,"portal":d.portal,"target":d.target,"lun":0,"initiator_name":initiator,"username":d.username,"password_file":format!("/run/qrab-auth/{}/password",d.id),"read_only":d.read_only,"boot_index":d.boot_index,"bus":"virtio"})));
     config["iscsi_disks"] = json!(disks);
+    if !nics.is_empty() {
+        config["nics"] = json!(nics
+            .iter()
+            .map(|n| json!({"id":n.name,"mac":nic_mac(&uid, &n.name),"host":n.ip.to_string(),"port":RELAY_PORT}))
+            .collect::<Vec<_>>());
+    }
     let config_data = serde_json::to_string_pretty(&config)?;
     let config_map: ConfigMap = serde_json::from_value(
         json!({"apiVersion":"v1","kind":"ConfigMap","metadata":{"name":config_name,"namespace":settings.namespace,"labels":labels,"ownerReferences":[owner]},"data":{"vm.json":config_data}}),
@@ -838,23 +899,24 @@ pub fn check_kvm_user_namespace(spec: &Value) -> Result<()> {
 }
 
 pub fn owned<K: Resource<DynamicType = ()>>(resource: &K, vm: &VirtualMachine) -> bool {
-    resource
-        .meta()
-        .owner_references
-        .as_ref()
-        .is_some_and(|owners| {
-            owners.iter().any(|o| {
-                o.controller == Some(true)
-                    && Some(o.uid.clone()) == vm.uid()
-                    && o.kind == "VirtualMachine"
-                    && o.name == vm.name_any()
-            })
+    owned_meta(resource.meta(), vm)
+}
+
+/// `owned` for objects of any type, such as CiliumNetworkPolicies.
+pub fn owned_meta(meta: &ObjectMeta, vm: &VirtualMachine) -> bool {
+    meta.owner_references.as_ref().is_some_and(|owners| {
+        owners.iter().any(|o| {
+            o.controller == Some(true)
+                && Some(o.uid.clone()) == vm.uid()
+                && o.kind == "VirtualMachine"
+                && o.name == vm.name_any()
         })
+    })
 }
 
 /// Compare only declared fields: the API server adds defaults to stored Pods.
 /// Arrays retain their declared membership, except injected default tolerations.
-fn contains(actual: &Value, desired: &Value) -> bool {
+pub(crate) fn contains(actual: &Value, desired: &Value) -> bool {
     match (actual, desired) {
         (Value::Object(a), Value::Object(d)) => d.iter().all(|(key, value)| {
             if key == "tolerations" {

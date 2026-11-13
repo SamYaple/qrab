@@ -47,7 +47,15 @@ Config is strict JSON. The example `contrib/kubernetes/vm.json` uses:
 initramfs. Existing standalone direct-kernel JSON remains supported when UEFI is
 absent. An optional separate `disk` accepts an absolute file or block device,
 `format` raw/qcow2 and `read_only`. Blockdev JSON handles commas/spaces safely.
-Guest networking is always disabled with `-nic none`.
+Without `nics` QEMU runs with `-nic none`. Each entry of the optional
+`nics: [{"id","mac","host","port"}]` becomes a JSON
+`-netdev {"type":"stream","id":"nic-<id>","server":false,"addr":{"type":"inet",...},"reconnect-ms":1000}`
+and `-device virtio-net-pci,id=nic-<id>,netdev=nic-<id>,mac=<mac>,romfile=`.
+`id` is a DNS label, `mac` is unicast and locally administered, and `host` is
+an IP literal. The relay at `host:port` is `qrab-manager nic` in a separate
+NIC Pod. The config view shows each NIC's id and MAC, and its endpoint to
+admins only; `guest_network` is true when NICs exist. See
+[networking.md](networking.md).
 
 `tpm` defaults to `/usr/bin/swtpm`, with private Unix control and TPM2 TIS in
 QEMU. `state_dir` must be writable persistent storage; its owner lock prevents
@@ -138,7 +146,13 @@ qrab-manager run --config /etc/qrab/vm.json
 qrab-manager status --config /etc/qrab/vm.json
 qrab-manager ready --config /etc/qrab/vm.json
 qrab-manager live --config /etc/qrab/vm.json
+qrab-manager nic --listen 0.0.0.0:7700 --socket /run/nic/passt.sock
+qrab-manager nic-ready --socket /run/nic/passt.sock
 ```
+
+`nic` and `nic-ready` are the NIC Pod's relay and readiness probe
+([networking.md](networking.md)). The manager image carries a patched passt
+at `/usr/bin/passt` for them.
 
 Use persistent `/var/lib/qrab` and a writable `/run/qrab` mount in standalone
 containers. A private runtime session owns QMP, VNC and swtpm sockets. QEMU starts

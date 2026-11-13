@@ -24,6 +24,10 @@ rules:
 - apiGroups: ['']
   resources: [secrets]
   verbs: [create, patch, delete]
+# Relay policies of guest NIC Pods (<vm>-nic-<name>-relay, VM-owned).
+- apiGroups: [cilium.io]
+  resources: [ciliumnetworkpolicies]
+  verbs: [get, list, watch, create, patch, delete]
 - apiGroups: ['']
   resources: [serviceaccounts]
   resourceNames: [qrab-manager]

@@ -92,6 +92,15 @@ pub enum DiskView {
     },
 }
 
+/// A guest NIC. The relay endpoint is an internal Pod address, admin-only.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NicView {
+    pub id: String,
+    pub mac: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub endpoint: Option<String>,
+}
+
 /// In-place growth ceilings and progress. Not sensitive: viewers see it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HotplugView {
@@ -119,8 +128,10 @@ pub struct ConfigView {
     pub boot: BootMode,
     pub console: bool,
     pub tpm: bool,
-    /// Always false: QEMU starts with `-nic none`.
+    /// True when the VM has guest NICs; without them QEMU runs `-nic none`.
     pub guest_network: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub nics: Vec<NicView>,
     pub disks: Vec<DiskView>,
     pub startup_timeout_secs: u64,
     pub shutdown_grace_secs: u64,
@@ -175,7 +186,24 @@ impl ConfigView {
             },
             console: config.console,
             tpm: config.tpm.is_some(),
-            guest_network: false,
+            guest_network: !config.nics.is_empty(),
+            nics: config
+                .nics
+                .iter()
+                .map(|nic| NicView {
+                    id: nic.id.clone(),
+                    mac: nic.mac.clone(),
+                    endpoint: Some(
+                        std::net::SocketAddr::new(
+                            nic.host
+                                .parse()
+                                .unwrap_or(std::net::Ipv4Addr::UNSPECIFIED.into()),
+                            nic.port,
+                        )
+                        .to_string(),
+                    ),
+                })
+                .collect(),
             disks,
             startup_timeout_secs: config.startup_timeout_secs,
             shutdown_grace_secs: config.shutdown_grace_secs,
@@ -248,6 +276,14 @@ impl ConfigView {
                     },
                 })
                 .collect(),
+            nics: self
+                .nics
+                .iter()
+                .map(|nic| NicView {
+                    endpoint: None,
+                    ..nic.clone()
+                })
+                .collect(),
             redacted: true,
             state_id: None,
             kernel_args: None,
@@ -261,6 +297,33 @@ impl ConfigView {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn nics_show_id_and_mac_to_viewers_and_the_endpoint_to_admins() {
+        let config: Config = serde_json::from_value(serde_json::json!({
+            "kernel": "/unused",
+            "nics": [{"id": "lan", "mac": "02:aa:bb:cc:dd:ee", "host": "fd00::7", "port": 7700}]
+        }))
+        .unwrap();
+        let view = ConfigView::new(&config, &Deployment::default());
+        assert!(view.guest_network);
+        assert_eq!(view.nics[0].endpoint.as_deref(), Some("[fd00::7]:7700"));
+        let viewer = view.redacted();
+        assert!(viewer.guest_network);
+        assert_eq!(
+            viewer.nics,
+            [NicView {
+                id: "lan".into(),
+                mac: "02:aa:bb:cc:dd:ee".into(),
+                endpoint: None
+            }]
+        );
+        let none: Config =
+            serde_json::from_value(serde_json::json!({"kernel": "/unused"})).unwrap();
+        let view = ConfigView::new(&none, &Deployment::default());
+        assert!(!view.guest_network && view.nics.is_empty());
+        assert!(serde_json::to_value(&view).unwrap().get("nics").is_none());
+    }
 
     #[test]
     fn hotplug_ceilings_and_progress_survive_redaction() {

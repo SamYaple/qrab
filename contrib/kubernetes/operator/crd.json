@@ -378,6 +378,39 @@
                     "minimum": 256.0,
                     "type": "integer"
                   },
+                  "nics": {
+                    "description": "Guest NICs. Each is backed by its own NIC Pod (`<vm>-nic-<name>`)\nwhose IP, Cilium identity and security-group labels are the NIC's.",
+                    "items": {
+                      "description": "A guest NIC. Guest traffic leaves through its NIC Pod, never the VM Pod.",
+                      "properties": {
+                        "name": {
+                          "pattern": "^[a-z0-9]([a-z0-9-]{0,13}[a-z0-9])?$",
+                          "type": "string"
+                        },
+                        "securityGroups": {
+                          "description": "Each becomes the NIC Pod label `sg.qrab.yapplesauce.com/<group>: \"\"`\nfor CiliumNetworkPolicies to select. Changes apply without a restart.",
+                          "items": {
+                            "description": "A DNS label naming a security group.",
+                            "pattern": "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$",
+                            "type": "string"
+                          },
+                          "maxItems": 8,
+                          "type": "array",
+                          "x-kubernetes-list-type": "set"
+                        }
+                      },
+                      "required": [
+                        "name"
+                      ],
+                      "type": "object"
+                    },
+                    "maxItems": 4,
+                    "type": "array",
+                    "x-kubernetes-list-map-keys": [
+                      "name"
+                    ],
+                    "x-kubernetes-list-type": "map"
+                  },
                   "restartNonce": {
                     "default": "",
                     "description": "Change this value to restart without discarding the retained identity.",
@@ -449,6 +482,39 @@
                   },
                   "message": {
                     "type": "string"
+                  },
+                  "nics": {
+                    "default": [],
+                    "items": {
+                      "description": "Observed state of one guest NIC.",
+                      "properties": {
+                        "ip": {
+                          "description": "The NIC Pod IP, which is also the guest's address on this NIC.",
+                          "nullable": true,
+                          "type": "string"
+                        },
+                        "mac": {
+                          "type": "string"
+                        },
+                        "name": {
+                          "type": "string"
+                        },
+                        "podName": {
+                          "type": "string"
+                        },
+                        "ready": {
+                          "type": "boolean"
+                        }
+                      },
+                      "required": [
+                        "mac",
+                        "name",
+                        "podName",
+                        "ready"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
                   },
                   "nodeName": {
                     "nullable": true,

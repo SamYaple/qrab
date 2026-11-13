@@ -16,7 +16,14 @@
     "image": "zot.yapplesauce.com/qrab/manager@sha256:373b51bbb3d05add0160b10277826634b9e2efe7d7f15a27e2a849cae233102c",
     "bmc_version": "0.2.0",
     "redfish_version": "0.1.0",
-    "guest_agent_version": "0.1.0"
+    "guest_agent_version": "0.1.0",
+    "passt": {
+      "source_package": "passt 0.0~git20250503.587980c-2+deb13u1",
+      "source_snapshot": "http://snapshot.debian.org/archive/debian/20261104T212339Z",
+      "patch": "contrib/images/passt/0001-no-ns-isolation.patch",
+      "patch_sha256": "fd099d84b51ee50e38797b22fd7c8070cac2409db07dddde498f4a2fd59e61b3",
+      "binary_version": "0.0~git20250503.587980c-2+deb13u1+qrab1"
+    }
   },
   "demo_guest_packages": [
     "busybox-static\t1:1.37.0-6+b9",

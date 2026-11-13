@@ -120,6 +120,7 @@ async function loadConfig() {
         ['Guest network', view.guest_network ? 'enabled' : 'disabled'],
         ['Startup timeout', `${view.startup_timeout_secs}s`], ['Shutdown grace', `${view.shutdown_grace_secs}s`],
         ...view.disks.map((disk, index) => [`Disk ${index}`, describeDisk(disk)]),
+        ...(view.nics || []).map(nic => [`NIC ${nic.id}`, `${nic.mac}${nic.endpoint ? ` · relay ${nic.endpoint}` : ''}`]),
     ];
     if (view.hotplug) {
         const h = view.hotplug;

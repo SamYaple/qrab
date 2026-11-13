@@ -67,6 +67,138 @@ fn arguments_separate_paths_from_qemu_option_syntax() {
 }
 
 #[test]
+fn guest_nics_replace_nic_none_with_stream_netdevs_to_their_relays() {
+    let dir = tempfile::tempdir().unwrap();
+    let kernel = dir.path().join("kernel");
+    std::fs::write(&kernel, []).unwrap();
+    let mut config = config(dir.path(), PathBuf::from("/bin/true"), kernel);
+    config.nics = serde_json::from_value(serde_json::json!([
+        {"id": "lan", "mac": "02:12:34:56:78:9a", "host": "10.0.3.7", "port": 7700},
+        {"id": "storage", "mac": "06:00:00:00:00:02", "host": "fd00::7", "port": 7701}
+    ]))
+    .unwrap();
+    config.validate().unwrap();
+    let args = config.arguments(Path::new("/tmp/private/qmp.sock"));
+    assert!(!args.iter().any(|a| a == "-nic"));
+    let netdevs: Vec<serde_json::Value> = args
+        .windows(2)
+        .filter(|a| a[0] == "-netdev")
+        .map(|a| serde_json::from_str(&a[1]).unwrap())
+        .collect();
+    assert_eq!(
+        netdevs,
+        [
+            serde_json::json!({"type":"stream","id":"nic-lan","server":false,
+                "addr":{"type":"inet","host":"10.0.3.7","port":"7700"},"reconnect-ms":1000}),
+            serde_json::json!({"type":"stream","id":"nic-storage","server":false,
+                "addr":{"type":"inet","host":"fd00::7","port":"7701"},"reconnect-ms":1000}),
+        ]
+    );
+    assert!(args.windows(2).any(|a| a
+        == [
+            "-device",
+            "virtio-net-pci,id=nic-lan,netdev=nic-lan,mac=02:12:34:56:78:9a,romfile="
+        ]));
+    assert!(args.windows(2).any(|a| a
+        == [
+            "-device",
+            "virtio-net-pci,id=nic-storage,netdev=nic-storage,mac=06:00:00:00:00:02,romfile="
+        ]));
+    config.nics.clear();
+    let args = config.arguments(Path::new("/tmp/private/qmp.sock"));
+    assert!(args.windows(2).any(|a| a == ["-nic", "none"]));
+    assert!(!args.iter().any(|a| a == "-netdev"));
+}
+
+#[test]
+fn guest_nics_need_unique_labels_local_unicast_macs_and_ip_relays() {
+    let dir = tempfile::tempdir().unwrap();
+    let kernel = dir.path().join("kernel");
+    std::fs::write(&kernel, []).unwrap();
+    let base = config(dir.path(), PathBuf::from("/bin/true"), kernel);
+    let nic = |id: &str, mac: &str, host: &str, port: u16| pod::Nic {
+        id: id.into(),
+        mac: mac.into(),
+        host: host.into(),
+        port,
+    };
+    for (nics, problem) in [
+        (
+            vec![nic("Lan", "02:00:00:00:00:01", "10.0.0.1", 7700)],
+            "id",
+        ),
+        (
+            vec![nic("lan,x", "02:00:00:00:00:01", "10.0.0.1", 7700)],
+            "id",
+        ),
+        (
+            vec![
+                nic("lan", "02:00:00:00:00:01", "10.0.0.1", 7700),
+                nic("lan", "02:00:00:00:00:02", "10.0.0.2", 7700),
+            ],
+            "duplicate id",
+        ),
+        (
+            vec![nic("lan", "00:16:3e:00:00:01", "10.0.0.1", 7700)],
+            "vendor MAC",
+        ),
+        (
+            vec![nic("lan", "03:00:00:00:00:01", "10.0.0.1", 7700)],
+            "multicast MAC",
+        ),
+        (
+            vec![nic("lan", "02:00:00:00:00", "10.0.0.1", 7700)],
+            "short MAC",
+        ),
+        (
+            vec![nic("lan", "02:00:00:00:00:01,romfile=x", "10.0.0.1", 7700)],
+            "MAC injection",
+        ),
+        (
+            vec![
+                nic("a", "02:00:00:00:00:01", "10.0.0.1", 7700),
+                nic("b", "02:00:00:00:00:01", "10.0.0.2", 7700),
+            ],
+            "duplicate MAC",
+        ),
+        (
+            vec![nic("lan", "02:00:00:00:00:01", "relay.example", 7700)],
+            "hostname",
+        ),
+        (
+            vec![nic("lan", "02:00:00:00:00:01", "0.0.0.0", 7700)],
+            "unspecified",
+        ),
+        (
+            vec![nic("lan", "02:00:00:00:00:01", "224.0.0.1", 7700)],
+            "multicast",
+        ),
+        (vec![nic("lan", "02:00:00:00:00:01", "10.0.0.1", 0)], "port"),
+        (
+            (0..=pod::NIC_LIMIT)
+                .map(|i| {
+                    nic(
+                        &format!("n{i}"),
+                        &format!("02:00:00:00:00:{i:02x}"),
+                        "10.0.0.1",
+                        7700,
+                    )
+                })
+                .collect(),
+            "too many",
+        ),
+    ] {
+        let mut config = base.clone();
+        config.nics = nics;
+        assert!(config.validate().is_err(), "{problem} accepted");
+    }
+    assert_eq!(
+        pod::parse_guest_mac("0A:BB:cc:00:00:01"),
+        Some([0x0a, 0xbb, 0xcc, 0, 0, 1])
+    );
+}
+
+#[test]
 fn invalid_configuration_and_stale_readiness_are_refused() {
     assert!(serde_json::from_value::<Config>(
         serde_json::json!({"kernel":"/kernel","surprise":true})

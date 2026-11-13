@@ -94,6 +94,43 @@ pub struct VirtualMachineSpec {
     /// Optional sidecars. The manager container always owns the VM.
     #[serde(default)]
     pub components: Components,
+    /// Guest NICs. Each is backed by its own NIC Pod (`<vm>-nic-<name>`)
+    /// whose IP, Cilium identity and security-group labels are the NIC's.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[schemars(length(max = 4))]
+    pub nics: Vec<Nic>,
+}
+
+/// A guest NIC. Guest traffic leaves through its NIC Pod, never the VM Pod.
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Nic {
+    #[schemars(regex(pattern = r"^[a-z0-9]([a-z0-9-]{0,13}[a-z0-9])?$"))]
+    pub name: String,
+    /// Each becomes the NIC Pod label `sg.qrab.yapplesauce.com/<group>: ""`
+    /// for CiliumNetworkPolicies to select. Changes apply without a restart.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[schemars(length(max = 8))]
+    pub security_groups: Vec<SecurityGroup>,
+}
+
+/// A DNS label naming a security group.
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord)]
+#[serde(transparent)]
+pub struct SecurityGroup(
+    #[schemars(regex(pattern = r"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$"))] pub String,
+);
+
+/// Observed state of one guest NIC.
+#[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct NicStatus {
+    pub name: String,
+    pub mac: String,
+    pub pod_name: String,
+    /// The NIC Pod IP, which is also the guest's address on this NIC.
+    pub ip: Option<String>,
+    pub ready: bool,
 }
 
 /// Sidecars reach the VM only through the manager's control socket.
@@ -288,6 +325,8 @@ pub struct VirtualMachineStatus {
     pub disks: Vec<DiskStatus>,
     /// In-place resource growth of the current Pod.
     pub resize: Option<ResizeStatus>,
+    #[serde(default)]
+    pub nics: Vec<NicStatus>,
 }
 
 /// The kubelet side of an in-place resize. `phase` is Applied, Proposed,
@@ -342,6 +381,12 @@ pub fn crd() -> serde_json::Value {
     if let Some(image) = provisioned["items"]["properties"]["baseImage"].as_object_mut() {
         image.remove("nullable");
     }
+    let nics = &mut value["spec"]["versions"][0]["schema"]["openAPIV3Schema"]["properties"]["spec"]
+        ["properties"]["nics"];
+    nics["x-kubernetes-list-type"] = serde_json::json!("map");
+    nics["x-kubernetes-list-map-keys"] = serde_json::json!(["name"]);
+    nics["items"]["properties"]["securityGroups"]["x-kubernetes-list-type"] =
+        serde_json::json!("set");
     value["spec"]["versions"][0]["schema"]["openAPIV3Schema"]["properties"]["spec"]["properties"]
         ["stateVolumeClaim"]["x-kubernetes-validations"] = serde_json::json!([
         {"rule":"self == oldSelf", "message":"stateVolumeClaim is immutable; identity migration must be deliberate"}

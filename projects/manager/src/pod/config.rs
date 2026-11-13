@@ -111,6 +111,92 @@ pub struct Uefi {
     pub boot_disk: PathBuf,
 }
 
+/// Most guest NICs one VM may attach.
+pub const NIC_LIMIT: usize = 8;
+
+/// A guest NIC whose frames travel over a QEMU `stream` netdev to a relay
+/// (`qrab-manager nic`) in a separate network namespace. The guest traffic
+/// never enters this VM's own namespace.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct Nic {
+    /// DNS label; QEMU ids are `nic-<id>`.
+    pub id: String,
+    /// Unicast, locally administered guest MAC, e.g. `02:00:00:00:00:01`.
+    pub mac: String,
+    /// IP literal of the relay.
+    pub host: String,
+    pub port: u16,
+}
+
+impl Nic {
+    /// The QEMU netdev and device id.
+    pub fn qemu_id(&self) -> String {
+        format!("nic-{}", self.id)
+    }
+}
+
+fn dns_label(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 63
+        && value
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+        && !value.starts_with('-')
+        && !value.ends_with('-')
+}
+
+/// Parses `xx:xx:xx:xx:xx:xx` and requires a unicast, locally administered
+/// address, so a guest MAC never collides with a vendor-assigned one.
+pub fn parse_guest_mac(value: &str) -> Option<[u8; 6]> {
+    let mut mac = [0u8; 6];
+    let mut parts = value.split(':');
+    for byte in &mut mac {
+        let part = parts.next()?;
+        if part.len() != 2 {
+            return None;
+        }
+        *byte = u8::from_str_radix(part, 16).ok()?;
+    }
+    (parts.next().is_none() && mac[0] & 0b01 == 0 && mac[0] & 0b10 != 0).then_some(mac)
+}
+
+fn validate_nics(nics: &[Nic]) -> Result<()> {
+    if nics.len() > NIC_LIMIT {
+        return Err(Error::Config(format!(
+            "at most {NIC_LIMIT} guest NICs are supported"
+        )));
+    }
+    let mut ids = std::collections::BTreeSet::new();
+    let mut macs = std::collections::BTreeSet::new();
+    for nic in nics {
+        if !dns_label(&nic.id) || !ids.insert(nic.id.as_str()) {
+            return Err(Error::Config("NIC ids must be unique DNS labels".into()));
+        }
+        if !parse_guest_mac(&nic.mac).is_some_and(|mac| macs.insert(mac)) {
+            return Err(Error::Config(format!(
+                "NIC {} needs a unique unicast, locally administered MAC",
+                nic.id
+            )));
+        }
+        let host: std::net::IpAddr = nic
+            .host
+            .parse()
+            .map_err(|_| Error::Config(format!("NIC {} host must be an IP literal", nic.id)))?;
+        if host.is_unspecified()
+            || host.is_multicast()
+            || matches!(host, std::net::IpAddr::V4(ip) if ip.is_broadcast())
+            || nic.port == 0
+        {
+            return Err(Error::Config(format!(
+                "NIC {} needs a unicast relay address and a non-zero port",
+                nic.id
+            )));
+        }
+    }
+    Ok(())
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Tpm {
@@ -179,6 +265,9 @@ pub struct Config {
     pub shutdown_grace_secs: u64,
     #[serde(default)]
     pub hotplug: Option<Hotplug>,
+    /// Guest NICs. Empty means QEMU runs with `-nic none`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub nics: Vec<Nic>,
 }
 
 impl Config {
@@ -317,6 +406,7 @@ impl Config {
             }
         }
         super::iscsi::validate(&self.iscsi_disks)?;
+        validate_nics(&self.nics)?;
         if self.accelerator == Accelerator::Kvm {
             OpenOptions::new()
                 .read(true)
@@ -370,13 +460,31 @@ impl Config {
             "-nodefaults",
             "-display",
             "none",
-            "-nic",
-            "none",
             "-S",
         ]
         .into_iter()
         .map(str::to_owned)
         .collect();
+        if self.nics.is_empty() {
+            args.extend(["-nic".into(), "none".into()]);
+        }
+        for nic in &self.nics {
+            // QEMU reconnects on its own after the relay or its Pod restarts.
+            // An empty romfile keeps iPXE out of the boot order.
+            args.extend([
+                "-netdev".into(),
+                serde_json::json!({"type":"stream","id":nic.qemu_id(),"server":false,
+                    "addr":{"type":"inet","host":nic.host,"port":nic.port.to_string()},
+                    "reconnect-ms":1000})
+                .to_string(),
+                "-device".into(),
+                format!(
+                    "virtio-net-pci,id={0},netdev={0},mac={1},romfile=",
+                    nic.qemu_id(),
+                    nic.mac
+                ),
+            ]);
+        }
         args.extend([
             "-chardev".into(),
             "stdio,id=serial,signal=off".into(),

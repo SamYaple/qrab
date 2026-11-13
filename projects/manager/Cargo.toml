@@ -41,7 +41,7 @@ path = "../qrab-guest-agent"
 
 [dependencies.nix]
 workspace = true
-features = ["fs", "process", "signal", "user"]
+features = ["fs", "net", "process", "signal", "socket", "user"]
 
 [dependencies.tokio]
 workspace = true

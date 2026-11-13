@@ -2,7 +2,8 @@
 mod storage_guard;
 
 use crate::{
-    api::{VirtualMachine, VirtualMachineStatus},
+    api::{NicStatus, VirtualMachine, VirtualMachineStatus},
+    nic::{self, NicEndpoint},
     provision::{self, Attached, SecretStore, Step},
     resources::{self, Desired, GuestSize, ResizePlan, Settings},
     storage::{SharedStorage, StorageError},
@@ -10,7 +11,7 @@ use crate::{
 };
 use k8s_openapi::api::core::v1::{ConfigMap, PersistentVolumeClaim, Pod, Secret};
 use kube::{
-    api::{DeleteParams, Patch, PatchParams, PostParams, Preconditions},
+    api::{DeleteParams, DynamicObject, ListParams, Patch, PatchParams, PostParams, Preconditions},
     runtime::controller::Action,
     Api, Client, ResourceExt,
 };
@@ -71,6 +72,11 @@ fn state(
             .map(|s| s.disks.clone())
             .unwrap_or_default(),
         resize: None,
+        nics: vm
+            .status
+            .as_ref()
+            .map(|s| s.nics.clone())
+            .unwrap_or_default(),
     }
 }
 
@@ -188,6 +194,141 @@ async fn provision_disks(
     Ok(Ok(attached))
 }
 
+/// Converge the NIC Pods and relay policies of `spec.nics`, remove those of
+/// dropped NICs and record `status.nics`. Returns the relay endpoints once
+/// every NIC Pod is Ready, `Ok(None)` while one is pending, or `Err(action)`
+/// after publishing a status change.
+async fn reconcile_nics(
+    vm: &VirtualMachine,
+    ctx: &Context,
+    vms: &Api<VirtualMachine>,
+    pods: &Api<Pod>,
+) -> Result<std::result::Result<Option<Vec<NicEndpoint>>, Action>> {
+    if vm.spec.nics.is_empty() && vm.status.as_ref().is_none_or(|s| s.nics.is_empty()) {
+        return Ok(Ok(Some(Vec::new())));
+    }
+    let uid = vm
+        .uid()
+        .ok_or_else(|| Error::Invalid("VM UID is required".into()))?;
+    let policies: Api<DynamicObject> = Api::namespaced_with(
+        ctx.client.clone(),
+        &ctx.settings.namespace,
+        &nic::policy_resource(),
+    );
+    let (mut endpoints, mut statuses) = (Vec::new(), Vec::new());
+    for spec in &vm.spec.nics {
+        let desired = nic::render(vm, &ctx.settings, spec)?;
+        let policy_name = desired.policy.name_any();
+        match policies.get_opt(&policy_name).await? {
+            Some(actual) if !resources::owned_meta(&actual.metadata, vm) => {
+                return Err(Error::Ownership(format!(
+                    "CiliumNetworkPolicy {policy_name} belongs to another owner"
+                )))
+            }
+            Some(actual) if nic::policy_matches(&actual, &desired.policy) => {}
+            Some(_) => {
+                policies
+                    .patch(
+                        &policy_name,
+                        &PatchParams::apply("qrab-operator").force(),
+                        &Patch::Apply(&desired.policy),
+                    )
+                    .await?;
+            }
+            None => {
+                policies
+                    .create(&PostParams::default(), &desired.policy)
+                    .await?;
+            }
+        }
+        let name = desired.pod.name_any();
+        let mut endpoint = None;
+        match pods.get_opt(&name).await? {
+            Some(actual) if !resources::owned(&actual, vm) => {
+                return Err(Error::Ownership(format!(
+                    "Pod {name} is not owned by this VM UID"
+                )))
+            }
+            Some(actual) if actual.metadata.deletion_timestamp.is_some() => {}
+            Some(actual)
+                if !nic::pod_matches(&actual, &desired)
+                    || matches!(
+                        actual.status.as_ref().and_then(|s| s.phase.as_deref()),
+                        Some("Failed" | "Succeeded")
+                    ) =>
+            {
+                delete(pods, &actual).await?;
+            }
+            Some(actual) => {
+                if let Some(patch) = nic::security_group_patch(&actual, spec) {
+                    pods.patch(&name, &PatchParams::default(), &Patch::Merge(patch))
+                        .await?;
+                }
+                endpoint = nic::endpoint(&actual, &spec.name);
+            }
+            // NIC Pods hold no VM state; a missing one is simply recreated.
+            None => {
+                pods.create(&PostParams::default(), &desired.pod).await?;
+            }
+        }
+        statuses.push(NicStatus {
+            name: spec.name.clone(),
+            mac: nic::mac(&uid, &spec.name),
+            pod_name: name,
+            ip: endpoint.as_ref().map(|e| e.ip.to_string()),
+            ready: endpoint.is_some(),
+        });
+        endpoints.extend(endpoint);
+    }
+    // Dropped NICs. VM deletion garbage collects through owner references.
+    let selector = format!(
+        "app.kubernetes.io/component={},{}={uid}",
+        nic::COMPONENT,
+        nic::OWNER_UID
+    );
+    let wanted = |labels: &std::collections::BTreeMap<String, String>| {
+        labels
+            .get(nic::NIC_LABEL)
+            .is_some_and(|n| vm.spec.nics.iter().any(|s| &s.name == n))
+    };
+    for stale in pods.list(&ListParams::default().labels(&selector)).await? {
+        if !wanted(stale.labels())
+            && resources::owned(&stale, vm)
+            && stale.metadata.deletion_timestamp.is_none()
+        {
+            delete(pods, &stale).await?;
+        }
+    }
+    for stale in policies
+        .list(&ListParams::default().labels(&selector))
+        .await?
+    {
+        if !wanted(stale.labels()) && resources::owned_meta(&stale.metadata, vm) {
+            policies
+                .delete(
+                    &stale.name_any(),
+                    &DeleteParams {
+                        preconditions: Some(Preconditions {
+                            uid: stale.uid(),
+                            ..Default::default()
+                        }),
+                        ..Default::default()
+                    },
+                )
+                .await?;
+        }
+    }
+    if vm.status.as_ref().map(|s| &s.nics) != Some(&statuses) {
+        let mut status = vm.status.clone().unwrap_or_default();
+        status.nics = statuses;
+        publish(vms, vm, status).await?;
+        return Ok(Err(Action::requeue(Duration::from_secs(1))));
+    }
+    Ok(Ok(
+        (endpoints.len() == vm.spec.nics.len()).then_some(endpoints)
+    ))
+}
+
 async fn publish(
     api: &Api<VirtualMachine>,
     vm: &VirtualMachine,
@@ -301,6 +442,11 @@ async fn synchronize(
             return Ok(Action::requeue(Duration::from_secs(2)));
         }
     }
+    // NIC Pods stay up while the VM is off, so their IPs survive a restart.
+    let nics = match reconcile_nics(vm, ctx, vms, &pods).await? {
+        Ok(nics) => nics,
+        Err(action) => return Ok(action),
+    };
     if !vm.spec.running {
         if let Some(pod) = &pod {
             delete(&pods, pod).await?;
@@ -419,6 +565,22 @@ async fn synchronize(
         }
         _ => {}
     }
+    let Some(nics) = nics else {
+        publish(
+            vms,
+            vm,
+            state(
+                vm,
+                pod.as_ref(),
+                "Pending",
+                false,
+                "NicPending",
+                "Waiting for the NIC Pods to become ready",
+            ),
+        )
+        .await?;
+        return Ok(Action::requeue(Duration::from_secs(3)));
+    };
     let provisioned = match provision_disks(vm, ctx, vms, &pods, pod.as_ref()).await? {
         Ok(provisioned) => provisioned,
         Err(action) => return Ok(action),
@@ -428,7 +590,7 @@ async fn synchronize(
         .as_ref()
         .and_then(resources::boot_size)
         .unwrap_or_else(|| GuestSize::of(vm));
-    let desired = resources::render_booted(vm, &ctx.settings, &provisioned, boot)?;
+    let desired = resources::render_attached(vm, &ctx.settings, &provisioned, boot, &nics)?;
     if let Some(pod) = &pod {
         if !resources::pod_matches(pod, &desired) {
             delete(&pods, pod).await?;
@@ -590,7 +752,11 @@ async fn synchronize(
             ready,
             if ready { "VMRunning" } else { "PodNotReady" },
             if ready {
-                "QEMU, swtpm and the enabled BMC/Redfish components are live; guest networking is disabled"
+                if vm.spec.nics.is_empty() {
+                    "QEMU, swtpm and the enabled BMC/Redfish components are live; guest networking is disabled"
+                } else {
+                    "QEMU, swtpm, the enabled BMC/Redfish components and the NIC Pods are live"
+                }
             } else {
                 "Waiting for the VM Pod to become ready"
             },
