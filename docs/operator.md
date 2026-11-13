@@ -287,11 +287,18 @@ spec:
   validation errors do not quote it. The BMC shows only its size.
 - Validation: `hostname` must be a DNS label (1..63 lowercase letters, digits,
   hyphens), and `userData` must be at most 32 KiB.
-- network-config is not rendered yet. `resources::seed_network_config` renders
-  cloud-init network-config v2 from `NicAddress { mac, address_cidr, gateway,
-  nameservers }`: match by MAC, `set-name: ethN`, a default route, and
-  `on-link: true` for a /32 or /128 address. It is meant for static guest IPs
-  once guest NICs land.
+- **Static network-config for NICs.** A VM with `spec.nics` always gets a
+  seed, even without `cloudInit`. Its network-config v2 is rendered by
+  `resources::seed_network_config`, with one entry per NIC:
+  - the interface is matched by its guest MAC and named `ethN`;
+  - the address is the NIC Pod IP as /32 (or /128);
+  - the default route goes `on-link` via passt's fixed gateway `169.254.1.1`;
+  - the nameserver is `169.254.1.1`, which passt forwards to the NIC Pod's
+    resolver.
+
+  passt's DHCP still offers the same address, for guests that ignore the
+  seed. A new NIC Pod IP changes the seed and restarts the VM, like any
+  other config change.
 
 ## Power, restart and deletion
 

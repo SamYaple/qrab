@@ -47,8 +47,21 @@ length, then the Ethernet frame), so the relay copies bytes. QEMU runs with
 (`romfile=`), so it never enters the boot order.
 
 passt answers the guest's ARP, NDP and DHCP itself and hands it the NIC Pod's
-own address and gateway. That DHCP serves only this guest; it is not network
-DHCP. Outbound connections from the guest leave from the NIC Pod's IP. Inbound
+own address. That DHCP serves only this guest; it is not network DHCP.
+
+The gateway is the fixed link-local `169.254.1.1` on every node (`-g`).
+passt answers ARP for it and routes through it. With a Cilium /32 Pod address,
+passt's DHCP adds option 121 so the gateway is reachable on-link. DNS sent to
+`169.254.1.1` is forwarded to the NIC Pod's resolver (`--dns-forward`).
+`--no-map-gw` keeps the gateway address from reaching the NIC Pod's loopback,
+where the relay listens. Outbound connections from the guest leave from the
+NIC Pod's IP.
+
+The VM's NoCloud seed carries the same configuration statically, so guests
+that run cloud-init need no DHCP. Each NIC is matched by MAC, gets the NIC Pod
+IP as a /32, a default route `on-link` via `169.254.1.1`, and nameserver
+`169.254.1.1`. A VM with NICs gets a seed even without `spec.cloudInit`, and
+passt's DHCP remains as a fallback. Inbound
 connections to the NIC Pod IP on any TCP or UDP port, except the relay port
 7700 and the kernel's ephemeral range (32768–60999), are forwarded to the
 guest. This is passt's `-t ~7700 -u ~7700`; passt skips the ephemeral range
@@ -58,7 +71,8 @@ The NIC Pod runs `qrab-manager nic --listen 0.0.0.0:7700 --socket
 /run/nic/passt.sock`. It binds the relay listener, then starts
 
 ```
-passt -f -q --no-ns-isolation --socket /run/nic/passt.sock -P /run/nic/passt.pid -t ~7700 -u ~7700
+passt -f -q --no-ns-isolation --socket /run/nic/passt.sock -P /run/nic/passt.pid \
+  -t ~7700 -u ~7700 -g 169.254.1.1 --no-map-gw --dns-forward 169.254.1.1
 ```
 
 - **Exit behaviour.** If passt exits, the relay exits non-zero and Kubernetes

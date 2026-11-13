@@ -1067,6 +1067,51 @@ fn vm_config_carries_nics_only_once_every_nic_pod_has_an_address() {
             {"id":"backup","mac":qrab_operator::nic::mac("owner-one","backup"),"host":"fd00::9","port":7700}
         ])
     );
+    // Without cloudInit the VM still gets a seed: meta-data plus static
+    // network-config for each NIC, gateway and DNS through passt.
+    let seed = &config["seed"];
+    assert_eq!(
+        seed["meta_data"],
+        resources::seed_meta_data("owner-one", "test-vm")
+    );
+    assert!(seed.get("user_data").is_none());
+    let lan_mac = qrab_operator::nic::mac("owner-one", "lan");
+    let backup_mac = qrab_operator::nic::mac("owner-one", "backup");
+    assert_eq!(
+        seed["network_config"],
+        resources::seed_network_config(&[
+            resources::NicAddress {
+                mac: lan_mac.clone(),
+                address_cidr: "10.0.3.7/32".into(),
+                gateway: Some("169.254.1.1".into()),
+                nameservers: vec!["169.254.1.1".into()],
+            },
+            resources::NicAddress {
+                mac: backup_mac,
+                address_cidr: "fd00::9/128".into(),
+                gateway: None,
+                nameservers: vec![],
+            },
+        ])
+    );
+    let network = seed["network_config"].as_str().unwrap();
+    assert!(network.contains(&format!("macaddress: \"{lan_mac}\"")));
+    assert!(network.contains("- \"10.0.3.7/32\"\n"));
+    assert!(network.contains("via: \"169.254.1.1\"\n        on-link: true\n"));
+    // cloudInit keeps its hostname and user-data alongside the NICs.
+    let mut configured = vm.clone();
+    configured.spec.cloud_init =
+        serde_json::from_value(json!({"hostname":"web-1","userData":"#cloud-config\n"})).unwrap();
+    let with_user =
+        resources::render_attached(&configured, &settings(), &[], boot, &endpoints).unwrap();
+    let with_user: Value =
+        serde_json::from_str(&with_user.config.data.unwrap()["vm.json"]).unwrap();
+    assert_eq!(with_user["seed"]["user_data"], "#cloud-config\n");
+    assert_eq!(
+        with_user["seed"]["meta_data"],
+        resources::seed_meta_data("owner-one", "web-1")
+    );
+    assert_eq!(with_user["seed"]["network_config"], seed["network_config"]);
     // A replaced NIC Pod with a new IP is a new VM template.
     let mut moved = endpoints.clone();
     moved[0].ip = "10.0.3.8".parse().unwrap();
@@ -1075,7 +1120,7 @@ fn vm_config_carries_nics_only_once_every_nic_pod_has_an_address() {
     // Without NICs nothing changes for existing VMs.
     let plain = resources::render(&self::vm(), &settings()).unwrap();
     let config: Value = serde_json::from_str(&plain.config.data.unwrap()["vm.json"]).unwrap();
-    assert!(config.get("nics").is_none());
+    assert!(config.get("nics").is_none() && config.get("seed").is_none());
 }
 
 #[test]

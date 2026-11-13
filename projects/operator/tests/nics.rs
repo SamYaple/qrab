@@ -228,6 +228,9 @@ async fn vm_waits_for_ready_nic_pods_then_boots_with_their_relay_addresses() {
         config["nics"],
         json!([{"id":"lan","mac":mac,"host":"10.0.3.7","port":7700}])
     );
+    // Static addressing through the seed, even without spec.cloudInit.
+    let network = config["seed"]["network_config"].as_str().unwrap();
+    assert!(network.contains("\"10.0.3.7/32\"") && network.contains(&mac));
     assert!(store.get(&format!("{PODS}/test-vm")).is_some());
     assert_eq!(store.status()["reason"], "PodCreated");
 

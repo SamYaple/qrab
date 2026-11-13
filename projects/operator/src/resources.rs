@@ -1,6 +1,6 @@
 use crate::{
     api::{Accelerator, CloudInit, Nic, VirtualMachine},
-    nic::{mac as nic_mac, NicEndpoint, NIC_LIMIT, RELAY_PORT},
+    nic::{mac as nic_mac, NicEndpoint, GUEST_GATEWAY, NIC_LIMIT, RELAY_PORT},
     provision::Attached,
     Error, Result,
 };
@@ -568,14 +568,44 @@ pub fn seed_meta_data(instance_id: &str, hostname: &str) -> String {
     )
 }
 
-/// The manager's `seed` config for a VM with `spec.cloudInit`.
-fn seed(vm: &VirtualMachine, cloud_init: &CloudInit, uid: &str) -> Value {
+/// The manager's `seed` config for a VM with `spec.cloudInit` or NICs. NICs
+/// add static network-config; a VM with NICs gets a seed even without
+/// `cloudInit`.
+fn seed(vm: &VirtualMachine, uid: &str, nics: &[NicEndpoint]) -> Option<Value> {
+    if vm.spec.cloud_init.is_none() && nics.is_empty() {
+        return None;
+    }
+    let cloud_init = vm.spec.cloud_init.clone().unwrap_or_default();
     let hostname = cloud_init.hostname.clone().unwrap_or_else(|| vm.name_any());
     let mut seed = json!({"meta_data": seed_meta_data(uid, &hostname)});
     if let Some(user_data) = &cloud_init.user_data {
         seed["user_data"] = json!(user_data);
     }
-    seed
+    if !nics.is_empty() {
+        seed["network_config"] = json!(seed_network_config(&nic_addresses(uid, nics)));
+    }
+    Some(seed)
+}
+
+/// Each NIC's static address: the NIC Pod IP as a host address, reached
+/// through passt's fixed gateway, which also forwards DNS. passt's DHCP
+/// offers the same address for guests that ignore the seed.
+pub fn nic_addresses(uid: &str, nics: &[NicEndpoint]) -> Vec<NicAddress> {
+    nics.iter()
+        .map(|nic| NicAddress {
+            mac: nic_mac(uid, &nic.name),
+            address_cidr: match nic.ip {
+                std::net::IpAddr::V4(ip) => format!("{ip}/32"),
+                std::net::IpAddr::V6(ip) => format!("{ip}/128"),
+            },
+            gateway: nic.ip.is_ipv4().then(|| GUEST_GATEWAY.to_string()),
+            nameservers: if nic.ip.is_ipv4() {
+                vec![GUEST_GATEWAY.to_string()]
+            } else {
+                Vec::new()
+            },
+        })
+        .collect()
 }
 
 /// One guest NIC's static address for NoCloud network-config.
@@ -853,9 +883,9 @@ pub fn render_attached(
             .map(|n| json!({"id":n.name,"mac":nic_mac(&uid, &n.name),"host":n.ip.to_string(),"port":RELAY_PORT}))
             .collect::<Vec<_>>());
     }
-    // Absent without spec.cloudInit, so existing template hashes are unchanged.
-    if let Some(cloud_init) = &vm.spec.cloud_init {
-        config["seed"] = seed(vm, cloud_init, &uid);
+    // Absent without spec.cloudInit or NICs, so existing template hashes are unchanged.
+    if let Some(seed) = seed(vm, &uid, nics) {
+        config["seed"] = seed;
     }
     let config_data = serde_json::to_string_pretty(&config)?;
     let config_map: ConfigMap = serde_json::from_value(

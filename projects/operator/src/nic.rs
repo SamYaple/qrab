@@ -20,6 +20,10 @@ use std::{collections::BTreeMap, net::IpAddr};
 /// The relay port QEMU connects to in every NIC Pod.
 pub const RELAY_PORT: u16 = 7700;
 pub const NIC_LIMIT: usize = 4;
+/// The guest's IPv4 gateway and DNS server on every NIC: passt answers ARP
+/// for it, routes through it and forwards its port 53 to the NIC Pod's
+/// resolver (`qrab-manager nic` passes `-g` and `--dns-forward`).
+pub const GUEST_GATEWAY: std::net::Ipv4Addr = std::net::Ipv4Addr::new(169, 254, 1, 1);
 pub const COMPONENT: &str = "vm-nic";
 pub const NIC_LABEL: &str = "qrab.yapplesauce.com/nic";
 pub const OWNER_UID: &str = "qrab.yapplesauce.com/owner-uid";

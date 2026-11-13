@@ -18,6 +18,10 @@ use tokio::net::{TcpListener, TcpStream, UnixStream};
 /// The relay's TCP port in NIC Pods.
 pub const RELAY_PORT: u16 = 7700;
 pub const PASST: &str = "/usr/bin/passt";
+/// The gateway passt presents to the guest, the same on every node, so a
+/// static network-config needs only the NIC Pod IP. passt answers ARP for
+/// it and forwards DNS sent to it to the Pod's resolver.
+pub const GUEST_GATEWAY: &str = "169.254.1.1";
 const STARTUP: Duration = Duration::from_secs(10);
 /// passt drops a closed client on its next event; a client that connects
 /// before then is discarded, so the relay pauses briefly between sessions.
@@ -45,7 +49,9 @@ impl Options {
     /// namespaces: the restricted Pod cannot create them, and the Pod is the
     /// sandbox. Every TCP and UDP port except the relay's (and the kernel's
     /// ephemeral range, which passt always skips for exclusions) is forwarded
-    /// to the guest, so the Pod IP acts as the guest's address.
+    /// to the guest, so the Pod IP acts as the guest's address. The guest's
+    /// gateway is the fixed GUEST_GATEWAY, which also forwards DNS, and is
+    /// never mapped to the Pod's loopback, where the relay listens.
     pub fn passt_arguments(&self) -> Vec<String> {
         let except = format!("~{}", self.listen.port());
         [
@@ -60,6 +66,11 @@ impl Options {
             &except,
             "-u",
             &except,
+            "-g",
+            GUEST_GATEWAY,
+            "--no-map-gw",
+            "--dns-forward",
+            GUEST_GATEWAY,
         ]
         .into_iter()
         .map(str::to_owned)
@@ -364,7 +375,12 @@ mod tests {
                 "-t",
                 "~7700",
                 "-u",
-                "~7700"
+                "~7700",
+                "-g",
+                "169.254.1.1",
+                "--no-map-gw",
+                "--dns-forward",
+                "169.254.1.1"
             ]
         );
         assert_eq!(options.ready_file(), Path::new("/run/nic/ready"));
