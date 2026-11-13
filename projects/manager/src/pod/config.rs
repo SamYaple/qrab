@@ -1,4 +1,4 @@
-use super::IscsiDisk;
+use super::{IscsiDisk, Seed};
 use crate::{Error, Result};
 use serde::{Deserialize, Serialize};
 use std::{
@@ -268,6 +268,9 @@ pub struct Config {
     /// Guest NICs. Empty means QEMU runs with `-nic none`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub nics: Vec<Nic>,
+    /// cloud-init NoCloud files, attached as a read-only `cidata` disk.
+    #[serde(default)]
+    pub seed: Option<Seed>,
 }
 
 impl Config {
@@ -407,6 +410,9 @@ impl Config {
         }
         super::iscsi::validate(&self.iscsi_disks)?;
         validate_nics(&self.nics)?;
+        if let Some(seed) = &self.seed {
+            seed.validate()?;
+        }
         if self.accelerator == Accelerator::Kvm {
             OpenOptions::new()
                 .read(true)
@@ -593,6 +599,9 @@ impl Config {
             ]);
         }
         super::iscsi::arguments(&self.iscsi_disks, &mut args);
+        if self.seed.is_some() {
+            super::seed::arguments(socket, &mut args);
+        }
         args
     }
 }

@@ -118,6 +118,18 @@ pub struct HotplugView {
     pub last_error: Option<String>,
 }
 
+/// The attached cloud-init NoCloud seed. Its user-data may hold secrets, so
+/// no view carries it, not even the admin view: only its size is shown.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SeedView {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hostname: Option<String>,
+    /// Bytes of the `user-data` file, including the empty `#cloud-config` default.
+    pub user_data_bytes: usize,
+    /// Whether a `network-config` file is present; its addresses are not shown.
+    pub network_config: bool,
+}
+
 /// The effective VM configuration as shown to a BMC.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ConfigView {
@@ -147,6 +159,8 @@ pub struct ConfigView {
     pub deployment: Option<Deployment>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub hotplug: Option<HotplugView>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub seed: Option<SeedView>,
 }
 
 impl ConfigView {
@@ -231,6 +245,11 @@ impl ConfigView {
                 current: None,
                 desired: None,
                 last_error: None,
+            }),
+            seed: config.seed.as_ref().map(|seed| SeedView {
+                hostname: seed.hostname(),
+                user_data_bytes: seed.user_data().len(),
+                network_config: seed.network_config.is_some(),
             }),
         }
     }
@@ -352,5 +371,35 @@ mod tests {
         assert!(ConfigView::new(&fixed, &Deployment::default())
             .hotplug
             .is_none());
+    }
+
+    #[test]
+    fn seed_shows_hostname_and_size_but_never_user_data() {
+        let secret = "#cloud-config\npassword: hunter2-secret\n";
+        let config: Config = serde_json::from_value(serde_json::json!({
+            "kernel": "/unused",
+            "seed": {"meta_data": "instance-id: \"uid\"\nlocal-hostname: \"seedtest\"\n",
+                "user_data": secret, "network_config": "version: 2\n"}
+        }))
+        .unwrap();
+        let admin = ConfigView::new(&config, &Deployment::default());
+        let expected = SeedView {
+            hostname: Some("seedtest".into()),
+            user_data_bytes: secret.len(),
+            network_config: true,
+        };
+        assert_eq!(admin.seed.as_ref(), Some(&expected));
+        for view in [&admin, &admin.redacted()] {
+            let text = serde_json::to_string(view).unwrap();
+            assert!(!text.contains("hunter2"), "{text}");
+            assert!(!text.contains("instance-id"), "{text}");
+            assert_eq!(view.seed.as_ref(), Some(&expected));
+        }
+
+        let none: Config =
+            serde_json::from_value(serde_json::json!({"kernel": "/unused"})).unwrap();
+        let view = ConfigView::new(&none, &Deployment::default());
+        assert!(view.seed.is_none());
+        assert!(!serde_json::to_string(&view).unwrap().contains("seed"));
     }
 }

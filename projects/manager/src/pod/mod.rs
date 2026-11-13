@@ -12,6 +12,7 @@ pub mod nic;
 mod persistent;
 mod process;
 mod remote;
+mod seed;
 pub mod socket;
 mod state;
 mod supervisor;
@@ -30,8 +31,10 @@ pub use events::{
 pub use hotplug::{GuestSize, Resize, ResizePhase};
 pub use iscsi::{IscsiBus, IscsiDisk};
 pub use remote::{Backend, Remote, POOL_SIZE as REMOTE_POOL_SIZE};
+pub use seed::{Seed, SEED_IMAGE, SEED_IMAGE_BYTES, SEED_INPUT_LIMIT};
 pub use state::{probe, status, Phase, Status};
 pub use supervisor::{run, run_controlled, Outcome};
 pub use view::{
     BootMode, ConfigView, Deployment, DiskView, HotplugView, IscsiTargetView, NicView, PathView,
+    SeedView,
 };

@@ -26,6 +26,8 @@ which = { workspace = true, optional = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tempfile = { workspace = true }
+# Writes the cloud-init NoCloud seed volume; no clock, so timestamps are fixed.
+fatfs = { version = "0.3.6", default-features = false, features = ["std", "alloc"] }
 base64 = { version = "0.22", optional = true }
 paste = { workspace = true, optional = true }
 

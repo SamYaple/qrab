@@ -255,6 +255,44 @@ spec:
 - **RBAC.** The operator needs `ciliumnetworkpolicies.cilium.io` get, list,
   watch, create, patch and delete in `rbac.yaml`.
 
+## cloud-init seed
+
+`spec.cloudInit` is opt-in. With it, the VM gets a read-only cloud-init NoCloud
+disk labelled `cidata` and configures itself without DHCP:
+
+```yaml
+spec:
+  cloudInit:
+    hostname: web-1          # DNS label; defaults to metadata.name
+    userData: |              # verbatim, at most 32 KiB; default: empty #cloud-config
+      #cloud-config
+      ssh_authorized_keys: [ssh-ed25519 AAAA...]
+```
+
+- meta-data is generated: `instance-id` is the VM UID, so cloud-init runs its
+  per-instance steps once for the lifetime of the CR, not on every Pod.
+  `local-hostname` is `hostname` or the VM name. meta-data is written as a JSON
+  object. cloud-init reads it as YAML, and JSON is a subset of YAML; CirrOS
+  accepts only JSON. Names such as `no` or `0123` therefore stay strings.
+- The operator puts the seed under `seed` in the VM ConfigMap's `vm.json`, and
+  the manager builds the disk at each start (see manager.md). VMs without
+  `cloudInit` render no seed; their ConfigMap and template hash are unchanged.
+  Adding, changing or removing `cloudInit` changes the template hash and
+  restarts the VM.
+- **user-data is stored in the VM ConfigMap.** The operator owns that
+  ConfigMap and only the VM Pod mounts it, but anyone who can read ConfigMaps
+  in the namespace can read user-data, as with the CR itself. Use it for
+  configuration and public keys. Do not put passwords or tokens there. The
+  operator never copies user-data into status, events or logs, and its
+  validation errors do not quote it. The BMC shows only its size.
+- Validation: `hostname` must be a DNS label (1..63 lowercase letters, digits,
+  hyphens), and `userData` must be at most 32 KiB.
+- network-config is not rendered yet. `resources::seed_network_config` renders
+  cloud-init network-config v2 from `NicAddress { mac, address_cidr, gateway,
+  nameservers }`: match by MAC, `set-name: ethN`, a default route, and
+  `on-link: true` for a /32 or /128 address. It is meant for static guest IPs
+  once guest NICs land.
+
 ## Power, restart and deletion
 
 ```sh

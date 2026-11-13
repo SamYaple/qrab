@@ -199,6 +199,50 @@ fn guest_nics_need_unique_labels_local_unicast_macs_and_ip_relays() {
 }
 
 #[test]
+fn seed_disk_is_attached_read_only_without_boot_index_only_when_configured() {
+    let dir = tempfile::tempdir().unwrap();
+    let kernel = dir.path().join("kernel");
+    std::fs::write(&kernel, []).unwrap();
+    let mut config = config(dir.path(), PathBuf::from("/bin/true"), kernel);
+    let socket = Path::new("/run/qrab/session-x/qmp.sock");
+    let plain = config.arguments(socket);
+    assert!(!plain.iter().any(|a| a.contains("seed")));
+
+    config.seed = Some(pod::Seed {
+        meta_data: "instance-id: \"uid\"\n".into(),
+        user_data: None,
+        network_config: None,
+    });
+    config.validate().unwrap();
+    let args = config.arguments(socket);
+    // The seed adds exactly its own two nodes and device after the rest.
+    assert_eq!(&args[..plain.len()], &plain[..]);
+    let seed: Vec<_> = args[plain.len()..].iter().map(String::as_str).collect();
+    assert_eq!(seed.len(), 6);
+    let file: serde_json::Value = serde_json::from_str(seed[1]).unwrap();
+    let raw: serde_json::Value = serde_json::from_str(seed[3]).unwrap();
+    assert_eq!(
+        (seed[0], seed[2], seed[4]),
+        ("-blockdev", "-blockdev", "-device")
+    );
+    assert_eq!(
+        file,
+        serde_json::json!({"driver":"file","filename":"/run/qrab/session-x/seed.img","node-name":"seed-file","read-only":true})
+    );
+    assert_eq!(
+        raw,
+        serde_json::json!({"driver":"raw","file":"seed-file","node-name":"seed","read-only":true})
+    );
+    assert_eq!(seed[5], "virtio-blk-pci,drive=seed,id=seed");
+
+    config.seed.as_mut().unwrap().user_data = Some("x".repeat(pod::SEED_INPUT_LIMIT));
+    assert!(matches!(
+        config.validate(),
+        Err(manager::Error::Config(message)) if message.contains("seed")
+    ));
+}
+
+#[test]
 fn invalid_configuration_and_stale_readiness_are_refused() {
     assert!(serde_json::from_value::<Config>(
         serde_json::json!({"kernel":"/kernel","surprise":true})

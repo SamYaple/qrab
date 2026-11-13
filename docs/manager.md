@@ -138,6 +138,51 @@ The readonly image's ESP is separate from mutable VARS/TPM state. See
 [spire-vm.md](spire-vm.md) before enrolling a VM: presence of TPM2 and an event log
 alone is not trusted SPIRE node authentication.
 
+### cloud-init seed (`seed`)
+
+An optional `seed` gives the guest a cloud-init
+[NoCloud](https://docs.cloud-init.io/en/latest/reference/datasources/nocloud.html)
+volume, so it configures itself (hostname, user-data, later static network)
+without DHCP or a metadata service:
+
+```json
+"seed": {"meta_data": "{\"instance-id\":\"<uid>\",\"local-hostname\":\"web-1\"}\n",
+         "user_data": "#cloud-config\n...", "network_config": "version: 2\n..."}
+```
+
+- On every start the manager writes a 1 MiB FAT12 image labelled `cidata`
+  with the files `meta-data`, `user-data` (an empty `#cloud-config` when
+  `user_data` is absent) and, only when present, `network-config`. It lives in
+  the private per-start session directory under `runtime_dir` (tmpfs in
+  operator Pods), mode 0600 and owned by the manager user, and disappears with
+  the session. The image is a pure function of the input: fixed FAT
+  timestamps, no clock.
+- QEMU attaches it read-only, with JSON `-blockdev` file/raw nodes `seed-file`
+  and `seed` and `-device virtio-blk-pci,drive=seed,id=seed`, with no
+  `bootindex`. The guest finds it by label. Without `seed` the argv is
+  unchanged.
+- `meta_data` is required. The three files total at most 64 KiB; validation
+  refuses a larger seed before QEMU starts.
+- The config view reports `seed: {hostname, user_data_bytes, network_config}`.
+  `hostname` comes from `local-hostname` in meta-data, and `network_config` is
+  a boolean. user-data may hold secrets, so no view shows it, admin views
+  included; only its size is reported.
+
+The label is lowercase `cidata`. cloud-init accepts either case, but CirrOS
+matches `blkid -t LABEL=cidata` exactly. CirrOS also parses meta-data as
+JSON only, which is why the operator writes JSON.
+
+Local proof, 2026-11-13: CirrOS 0.6.3 booted under OVMF/KVM in the manager
+image, with a seed built by `Seed::write` and attached with the arguments
+above. It mounted the seed through its `nocloud` datasource and set the
+hostname from `local-hostname`: the VGA console showed `seedtest login:` and
+`/etc/hostname` was `seedtest`. It recorded instance `0b7c4e6a-seed-proof`
+from meta-data and ran the `#!/bin/sh` user-data
+(`/var/lib/cirros/sem/instance.0b7c4e6a-seed-proof.userdata`). An identical
+image labelled `CIDATA` was ignored (`cirros login:`). CirrOS has no NIC
+configured from the seed, so it still waits about three minutes for dhcpcd to
+time out before it continues.
+
 ## CLI, probes and lifecycle
 
 ```sh

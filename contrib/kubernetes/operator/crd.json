@@ -64,6 +64,25 @@
                     "minLength": 2,
                     "type": "string"
                   },
+                  "cloudInit": {
+                    "description": "cloud-init NoCloud seed, attached as a read-only `cidata` disk.\nOpt-in; adding, changing or removing it restarts the VM.",
+                    "nullable": true,
+                    "properties": {
+                      "hostname": {
+                        "description": "Guest hostname, a DNS label. Defaults to the VM name.",
+                        "nullable": true,
+                        "pattern": "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$",
+                        "type": "string"
+                      },
+                      "userData": {
+                        "description": "user-data passed through verbatim, at most 32 KiB. It is stored in\nthe VM's operator-owned ConfigMap; reference no secret you would not\nput there. Absent means an empty `#cloud-config`.",
+                        "maxLength": 32768,
+                        "nullable": true,
+                        "type": "string"
+                      }
+                    },
+                    "type": "object"
+                  },
                   "components": {
                     "default": {
                       "bmc": {

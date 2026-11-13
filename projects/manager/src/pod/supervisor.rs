@@ -119,6 +119,9 @@ pub async fn run_controlled(
             "runtime directory is too long for a QMP Unix socket".into(),
         ));
     }
+    if let Some(seed) = &config.seed {
+        seed.write(&super::seed::image_path(&socket))?;
+    }
     let mut persistent = PersistentState::prepare(&config)?;
     let mut state = Status {
         phase: Phase::Starting,

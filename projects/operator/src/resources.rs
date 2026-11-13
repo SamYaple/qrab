@@ -1,5 +1,5 @@
 use crate::{
-    api::{Accelerator, Nic, VirtualMachine},
+    api::{Accelerator, CloudInit, Nic, VirtualMachine},
     nic::{mac as nic_mac, NicEndpoint, NIC_LIMIT, RELAY_PORT},
     provision::Attached,
     Error, Result,
@@ -480,6 +480,9 @@ pub fn validate(vm: &VirtualMachine, settings: &Settings) -> Result<()> {
             ));
         }
     }
+    if let Some(cloud_init) = &vm.spec.cloud_init {
+        validate_cloud_init(cloud_init)?;
+    }
     Ok(())
 }
 
@@ -510,6 +513,133 @@ fn validate_nics(nics: &[Nic]) -> Result<()> {
         }
     }
     Ok(())
+}
+
+/// Bytes of `spec.cloudInit.userData`; the manager bounds the whole seed at 64 KiB.
+pub const USER_DATA_LIMIT: usize = 32 * 1024;
+
+/// Errors never quote user-data: it may hold secrets and errors reach status.
+fn validate_cloud_init(cloud_init: &CloudInit) -> Result<()> {
+    if cloud_init
+        .hostname
+        .as_ref()
+        .is_some_and(|h| !valid_name(h, 63))
+    {
+        return Err(Error::Invalid(
+            "cloudInit.hostname must be a DNS label of 1..63 lowercase letters, digits or hyphens"
+                .into(),
+        ));
+    }
+    if cloud_init
+        .user_data
+        .as_ref()
+        .is_some_and(|u| u.len() > USER_DATA_LIMIT)
+    {
+        return Err(Error::Invalid(format!(
+            "cloudInit.userData must be at most {USER_DATA_LIMIT} bytes"
+        )));
+    }
+    Ok(())
+}
+
+/// A YAML double-quoted scalar. JSON string syntax is valid YAML, so a value
+/// such as `no` or `0123` stays a string.
+fn yaml_string(value: &str) -> String {
+    serde_json::to_string(value).expect("string serializes")
+}
+
+/// NoCloud meta-data: the immutable VM UID as instance-id, so cloud-init runs
+/// its per-instance modules once per VM, and the guest hostname. It is a JSON
+/// object: cloud-init reads it as YAML, of which JSON is a subset, and
+/// CirrOS's own NoCloud reader accepts only JSON. Values stay strings, even
+/// a hostname such as `no` or `0123`.
+///
+/// ```
+/// use qrab_operator::resources::seed_meta_data;
+/// assert_eq!(
+///     seed_meta_data("7c1d", "no"),
+///     "{\"instance-id\":\"7c1d\",\"local-hostname\":\"no\"}\n"
+/// );
+/// ```
+pub fn seed_meta_data(instance_id: &str, hostname: &str) -> String {
+    format!(
+        "{}\n",
+        json!({"instance-id": instance_id, "local-hostname": hostname})
+    )
+}
+
+/// The manager's `seed` config for a VM with `spec.cloudInit`.
+fn seed(vm: &VirtualMachine, cloud_init: &CloudInit, uid: &str) -> Value {
+    let hostname = cloud_init.hostname.clone().unwrap_or_else(|| vm.name_any());
+    let mut seed = json!({"meta_data": seed_meta_data(uid, &hostname)});
+    if let Some(user_data) = &cloud_init.user_data {
+        seed["user_data"] = json!(user_data);
+    }
+    seed
+}
+
+/// One guest NIC's static address for NoCloud network-config.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NicAddress {
+    /// Guest MAC, matched to name the interface.
+    pub mac: String,
+    /// Address with prefix length, e.g. `10.0.0.5/32`.
+    pub address_cidr: String,
+    pub gateway: Option<String>,
+    pub nameservers: Vec<String>,
+}
+
+/// cloud-init network-config v2 for static addresses: NIC `i` is matched by
+/// MAC and named `eth{i}`. A host address (/32 or /128) reaches its gateway
+/// `on-link`, since the gateway lies outside the interface's own prefix.
+///
+/// ```
+/// use qrab_operator::resources::{seed_network_config, NicAddress};
+/// let yaml = seed_network_config(&[NicAddress {
+///     mac: "52:54:00:12:34:56".into(),
+///     address_cidr: "10.0.0.5/32".into(),
+///     gateway: Some("10.0.0.1".into()),
+///     nameservers: vec!["10.0.0.53".into()],
+/// }]);
+/// assert!(yaml.starts_with("version: 2\nethernets:\n  eth0:\n"));
+/// assert!(yaml.contains("        on-link: true\n"));
+/// ```
+pub fn seed_network_config(nics: &[NicAddress]) -> String {
+    if nics.is_empty() {
+        return "version: 2\nethernets: {}\n".into();
+    }
+    let mut yaml = String::from("version: 2\nethernets:\n");
+    for (index, nic) in nics.iter().enumerate() {
+        let name = format!("eth{index}");
+        yaml += &format!(
+            "  {name}:\n    match:\n      macaddress: {}\n    set-name: {}\n    addresses:\n      - {}\n",
+            yaml_string(&nic.mac.to_ascii_lowercase()),
+            yaml_string(&name),
+            yaml_string(&nic.address_cidr)
+        );
+        if let Some(gateway) = &nic.gateway {
+            let v6 = gateway.contains(':');
+            let host = nic
+                .address_cidr
+                .rsplit_once('/')
+                .is_some_and(|(_, prefix)| prefix == if v6 { "128" } else { "32" });
+            yaml += &format!(
+                "    routes:\n      - to: {}\n        via: {}\n",
+                yaml_string(if v6 { "::/0" } else { "0.0.0.0/0" }),
+                yaml_string(gateway)
+            );
+            if host {
+                yaml += "        on-link: true\n";
+            }
+        }
+        if !nic.nameservers.is_empty() {
+            yaml += "    nameservers:\n      addresses:\n";
+            for server in &nic.nameservers {
+                yaml += &format!("        - {}\n", yaml_string(server));
+            }
+        }
+    }
+    yaml
 }
 
 fn valid_name(value: &str, max: usize) -> bool {
@@ -722,6 +852,10 @@ pub fn render_attached(
             .iter()
             .map(|n| json!({"id":n.name,"mac":nic_mac(&uid, &n.name),"host":n.ip.to_string(),"port":RELAY_PORT}))
             .collect::<Vec<_>>());
+    }
+    // Absent without spec.cloudInit, so existing template hashes are unchanged.
+    if let Some(cloud_init) = &vm.spec.cloud_init {
+        config["seed"] = seed(vm, cloud_init, &uid);
     }
     let config_data = serde_json::to_string_pretty(&config)?;
     let config_map: ConfigMap = serde_json::from_value(

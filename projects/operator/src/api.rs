@@ -99,6 +99,27 @@ pub struct VirtualMachineSpec {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     #[schemars(length(max = 4))]
     pub nics: Vec<Nic>,
+    /// cloud-init NoCloud seed, attached as a read-only `cidata` disk.
+    /// Opt-in; adding, changing or removing it restarts the VM.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cloud_init: Option<CloudInit>,
+}
+
+/// The guest configures itself from this seed without any DHCP or metadata
+/// service. meta-data carries `instance-id` (the VM UID) and `local-hostname`.
+#[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CloudInit {
+    /// Guest hostname, a DNS label. Defaults to the VM name.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(regex(pattern = r"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$"))]
+    pub hostname: Option<String>,
+    /// user-data passed through verbatim, at most 32 KiB. It is stored in
+    /// the VM's operator-owned ConfigMap; reference no secret you would not
+    /// put there. Absent means an empty `#cloud-config`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(length(max = 32768))]
+    pub user_data: Option<String>,
 }
 
 /// A guest NIC. Guest traffic leaves through its NIC Pod, never the VM Pod.

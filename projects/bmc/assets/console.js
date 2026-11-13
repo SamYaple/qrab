@@ -130,6 +130,10 @@ async function loadConfig() {
             rows.push(['Resize', `${h.phase.replaceAll('_', ' ')}${size}${h.last_error ? ` · ${h.last_error}` : ''}`]);
         }
     }
+    if (view.seed) {
+        const s = view.seed;
+        rows.push(['cloud-init seed', [s.hostname ? `hostname ${s.hostname}` : 'attached', `user-data ${s.user_data_bytes} bytes`, s.network_config ? 'network-config' : ''].filter(Boolean).join(' · ')]);
+    }
     if (view.state_id) rows.push(['State ID', view.state_id]);
     if (view.kernel_args) rows.push(['Kernel args', view.kernel_args]);
     for (const [key, value] of Object.entries(view.deployment || {})) rows.push([key[0].toUpperCase() + key.slice(1), value]);
