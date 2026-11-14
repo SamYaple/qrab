@@ -122,7 +122,32 @@ passt still keeps the rest of its hardening:
 The Pod itself supplies the remaining isolation: a separate network namespace,
 read-only root, no capabilities, no service-account token and RuntimeDefault
 seccomp. Without the flag, passt behaves exactly as upstream.
-`images.lock.json` records the version and the patch hash.
+`images.lock.json` records the version and the patch hashes.
+
+Two more patches matter whenever a NIC Pod is replaced while its guest runs
+(always the case with [stable addresses](#stable-addresses)):
+
+- [`0002-tcp-buf-record-owner-of-flag-frames.patch`](../contrib/images/passt/0002-tcp-buf-record-owner-of-flag-frames.patch):
+  inbound TCP that reaches a new passt before QEMU reconnects made it crash
+  (SIGSEGV in `tcp_revert_seq`). passt queued flag-only frames (SYN, ACK, FIN)
+  without their connection, then reverted sequence numbers through a NULL or
+  stale pointer when the send to the absent guest failed. Unpatched upstream
+  passt crashes the same way.
+- [`0003-passt-preset-guest-mac.patch`](../contrib/images/passt/0003-passt-preset-guest-mac.patch):
+  a fresh passt addresses frames to broadcast until the guest sends one, and
+  Linux TCP drops segments not addressed to the host's MAC. An idle guest
+  therefore never answered a replaced NIC Pod. The patch lets
+  `--ns-mac-addr` preset the guest MAC in passt mode; `qrab-manager nic
+  --guest-mac` passes the MAC the operator assigned.
+
+QEMU carries one patch as well,
+[`0001-net-stream-reset-send-state-on-disconnect.patch`](../contrib/images/qemu-patches/0001-net-stream-reset-send-state-on-disconnect.patch),
+applied by `prepare-source.py` and locked in `qemu-source.json`. When the
+stream peer goes away, 11.1.3 keeps a partly written frame's offset and the
+`receive_disabled` flag a blocked write set, so the next connection could
+start mid-frame and guest TX could stay queued. The patch resets the offset
+and releases the queue on disconnect. (This hazard follows from the code; the
+guest stall seen live was the broadcast-MAC issue above.)
 
 ## Security groups
 
@@ -326,3 +351,31 @@ one address at once.
   VirtualMachine must get a fresh PVC: reusing a deleted VM's PVC makes
   the manager refuse to start (identity adoption), and the storage guard
   then fences the disks.
+
+## Rollout record (2026-11-14): stable addresses
+
+- kubernetes-gitops `5516540` declared the Cilium default pool as
+  `10.244.0.0/17` (each node kept its /24; the Cilium operator logged them
+  orphaned from the old /16, then re-adopted), let the node mesh accept /32s
+  from `10.244.128.0/17` and labelled the base FRRConfigurations
+  `qrab.yapplesauce.com/nic-route-base`. No Cilium agent restarted.
+- Images from `fe93197`: manager `859ae526…` on QEMU `37ae004c…` (stream
+  patch) with passt `+qrab3`, and operator `ead30f6f…` with
+  `QRAB_NIC_ADDRESS_RANGE=10.244.128.0/17`. Gitops re-pinned the operator
+  before `kubectl apply -k contrib/kubernetes/operator-storage-api`, which
+  also brought `nic-addresses.yaml`.
+- Test VM `netvm3` (CirrOS clone, one NIC in security group `nettest`) got
+  `10.244.128.1` from pool `qrab-nic-10-244-128-1`; kube01 and kube02 learned
+  the /32 via kube03 over iBGP. A pod in `qrab-nettest` read the guest's SSH
+  banner every second throughout.
+- Move: with kube03 cordoned, deleting the NIC Pod brought it back on kube01
+  with the same address, Ready after 27 s. The FRRConfiguration followed in
+  the same second, kube03's CiliumNode released the pool, the VM Pod (same
+  UID) never restarted, and the SSH banner returned 39 s after the delete.
+  The first attempts found the three bugs fixed by passt 0002/0003 and the
+  QEMU patch above.
+- Deleting `netvm3` stopped its NIC Pod, withdrew the route and released the
+  pool within 9 s; the VM was gone after 24 s.
+- The VM host (`10.203.0.1`) still drops NIC /32s until its FRR prefix list
+  is updated (`work/awaiting-human-host-frr-nic-routes`, root).
+
