@@ -17,10 +17,10 @@ this manifest does not add a public edge route. Sign in with Kanidm, then choose
 **Connect console**. Video, keyboard, USB tablet input, Ctrl Alt Del and full
 screen run through the vendored noVNC client. There are no CDN dependencies.
 Everything else on the page (power state, power actions, guest-agent actions,
-the live QMP event history, the effective configuration and service resources)
+the live QMP event history, the effective configuration and metrics)
 is read from and sent to the VM's in-pod [Redfish](redfish.md) service through
-the BMC's [`/redfish` proxy](#redfish-proxy). The power buttons are the
-`ResetType` values Redfish's `ResetActionInfo` allows.
+the BMC's [`/redfish` proxy](#redfish-proxy).
+
 Shutdown ends the current VM instance. With spec.running=true, the operator
 starts another; set spec.running=false to keep it off.
 
@@ -30,6 +30,44 @@ terminal is not a desktop environment. A graphical guest can consume the same
 USB tablet events. The fixture has no persistent root filesystem or NIC.
 Clipboard sharing, sound and guest networking remain outside this stage.
 The minimal [operator](operator.md) now creates the per-VM Pod from a CR.
+
+## Browser UI
+
+The page is console-first (`projects/bmc/assets`, plain HTML, CSS and ES
+modules):
+
+- **Status header** (sticky): VM name, a `PowerState · Health` chip from
+  `Systems/1`, the role badge and **Sign out**. The chip is re-read every 3 s
+  and shortly after every `EventService/SSE` event, so pause, resume or a
+  guest panic shows without a reload.
+- **Console toolbar**, attached to the display: **Connect console** /
+  **Disconnect**, **Ctrl Alt Del**, a **Fit** / **1:1** scaling toggle (noVNC
+  `scaleViewport`; 1:1 scrolls inside the display), **Full screen**, the
+  admin-bucket **Audio** toggle when enabled, and the **Power** group. The power
+  buttons are the `ResetType` values Redfish's `ResetActionInfo` allows (Pause,
+  Resume, Reset = `ForceRestart`, Restart guest = `GracefulRestart`, Shut down,
+  Power cycle, NMI). Disruptive ones use an inline two-step confirm: the first
+  click turns the button into **Confirm <action>** for 5 s and only a second
+  click sends it. Pressing a toolbar or tab button while the console has
+  keyboard focus keeps that focus; clicking anywhere else releases it.
+- **Side rail** beside the console (stacked below it at 1000 px and narrower),
+  with keyboard-accessible tabs (arrow keys, Home, End). The selected tab is
+  remembered per user in the browser's `localStorage`.
+  - *Overview*: power, health, vCPUs, memory, disks, NICs, guest network and
+    guest-agent state.
+  - *Metrics*: current values from `TelemetryService/MetricReports/VM` and
+    `Managers/1/Oem/Qrab/Resources`, polled every 5 s only while the tab is
+    shown (each report read takes a fresh QMP sample). The `#metric-history`
+    slot is reserved for the history graphs of `work/bmc-metric-history-graphs`.
+  - *Events*: the QMP event log and live stream, a name filter and the
+    dropped-events warning.
+  - *Guest agent*: agent status and the freeze (two-step confirm), thaw and
+    update actions.
+  - *Configuration*: `Oem.Qrab.Configuration`, redacted for viewers.
+
+Viewers get the same header and rail, but the console toolbar, power group,
+keyboard hint and guest-agent actions are not in the page at all. The palette
+is dark by default and switches to a light one with the system preference.
 
 ## Runtime configuration
 
@@ -117,7 +155,7 @@ initiator names, CHAP usernames and password-file references, file paths,
 kernel arguments, the state ID, node, pod and image. Secret contents are never
 read into any view. The console is admin-only: a server-side view-only RFB
 filter is not implemented, so viewers are refused at WebSocket admission
-(403) and the UI hides the console and power controls.
+(403) and the UI leaves the console and power controls out of the page.
 
 Every `/api/*` route requires a valid session or, in bearer mode, a valid
 bearer token: missing, expired or unlisted sessions get 401, and an
@@ -417,7 +455,7 @@ QRAB_TEST_GUEST=/path/to/demo \
 See [Redfish resource accounting](redfish.md#separate-cpu-and-memory-accounting)
 for independent BMC/Redfish container budgets and per-container usage queries.
 
-The Service resources panel shows Redfish's `Managers/1/Oem/Qrab/Resources`:
+The Metrics tab's Service resources list shows Redfish's `Managers/1/Oem/Qrab/Resources`:
 Redfish and manager process/cgroup usage, separately. The BMC's own container
 usage is in the cluster's cAdvisor metrics. The guest-restart power action
 (`GracefulRestart`) requires a connected, thawed guest; delivery does not

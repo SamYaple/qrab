@@ -62,8 +62,8 @@ try:
             except Exception:
                 pass  # Existing consent may redirect directly.
             page.wait_for_url(a.origin.rstrip('/') + '/', timeout=20000)
-            page.get_by_role('button', name='Connect console', exact=True).click()
-            page.get_by_text('Connected · Keyboard and mouse enabled', exact=True).wait_for(timeout=15000)
+            page.get_by_role('toolbar', name='Console controls').get_by_role('button', name='Connect console', exact=True).click()
+            page.locator('#console-status', has_text='Connected · Keyboard and mouse enabled').wait_for(timeout=15000)
             a.output.mkdir(parents=True, exist_ok=True)
             page.screenshot(path=str(a.output / 'connected.png'), full_page=True)
             canvas = page.locator('#screen canvas')
@@ -83,18 +83,18 @@ try:
             command(page, 'test "$(ls /sys/class/net)" = lo && echo QRAB_GUEST_NO_NIC_OK > /dev/ttyS0')
             serial_marker('QRAB_GUEST_NO_NIC_OK')
             print('PASS real Kanidm OIDC, video, physical keyboard, USB mouse and no guest NIC')
-            page.get_by_role('button', name='Pause', exact=True).click()
+            page.get_by_role('group', name='Power').get_by_role('button', name='Pause', exact=True).click()
             page.wait_for_function("async () => (await (await fetch('/api/status')).json()).run_state === 'paused'")
             assert page.request.get(a.origin + '/readyz').status == 200
-            page.get_by_role('button', name='Resume', exact=True).click()
+            page.get_by_role('group', name='Power').get_by_role('button', name='Resume', exact=True).click()
             page.wait_for_function("async () => (await (await fetch('/api/status')).json()).run_state === 'running'")
             page.screenshot(path=str(a.output / 'input-verified.png'), full_page=True)
             print('PASS authenticated pause/resume; paused VM stays reachable')
             # Another tab signs out while this tab holds an active VNC connection.
             other = context.new_page()
             other.goto(a.origin)
-            other.get_by_role('button', name='Connect console', exact=True).click()
-            other.get_by_text('Connected · Keyboard and mouse enabled', exact=True).wait_for()
+            other.get_by_role('toolbar', name='Console controls').get_by_role('button', name='Connect console', exact=True).click()
+            other.locator('#console-status', has_text='Connected · Keyboard and mouse enabled').wait_for()
             page.get_by_role('button', name='Sign out', exact=True).click()
             page.get_by_role('link', name='Sign in with Kanidm').wait_for()
             other.get_by_role('link', name='Sign in with Kanidm').wait_for(timeout=5000)
