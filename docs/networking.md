@@ -376,6 +376,9 @@ one address at once.
   QEMU patch above.
 - Deleting `netvm3` stopped its NIC Pod, withdrew the route and released the
   pool within 9 s; the VM was gone after 24 s.
-- The VM host (`10.203.0.1`) still drops NIC /32s until its FRR prefix list
-  is updated (`work/awaiting-human-host-frr-nic-routes`, root).
+- The VM host (`10.203.0.1`) accepts NIC /32s since its FRR prefix list
+  `KUBE-IN` gained `seq 15 permit 10.244.128.0/17 ge 32 le 32` (applied live
+  with a soft inbound refresh, 16:46Z). Test VM `netvm4` (`10.244.128.1` on
+  kube03) was then routed from the host via `10.203.0.13`, and the host read
+  its SSH banner directly. Deleting the VM withdrew the host route.
 
