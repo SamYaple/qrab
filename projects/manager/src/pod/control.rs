@@ -63,6 +63,102 @@ struct Shared {
     stopping: AtomicBool,
     /// Guest-agent connection state, published by the agent task.
     agent: Arc<watch::Sender<AgentStatus>>,
+    reads: GuestReads,
+}
+
+/// One in-flight call per read-only guest query, shared by every concurrent
+/// caller, so repeated status polls never queue behind a hung agent.
+#[derive(Default)]
+struct GuestReads {
+    ping: Flight<()>,
+    network: Flight<super::GuestNetworkSnapshot>,
+    firmware: Flight<super::FirmwareSnapshot>,
+    boot: Flight<super::BootSnapshot>,
+    freeze_status: Flight<FreezeState>,
+    update_status: Flight<UpdateStatus>,
+}
+
+/// A shareable form of [`Error`] that keeps the distinctions the control
+/// socket reports as error codes.
+#[derive(Clone)]
+enum FlightError {
+    ShuttingDown,
+    Config(String),
+    Other(String),
+}
+
+impl From<Error> for FlightError {
+    fn from(error: Error) -> Self {
+        match error {
+            Error::ShuttingDown => Self::ShuttingDown,
+            Error::Config(message) => Self::Config(message),
+            error => Self::Other(error.to_string()),
+        }
+    }
+}
+
+impl From<FlightError> for Error {
+    fn from(error: FlightError) -> Self {
+        match error {
+            FlightError::ShuttingDown => Error::ShuttingDown,
+            FlightError::Config(message) => Error::Config(message),
+            FlightError::Other(message) => Error::Spawn(message),
+        }
+    }
+}
+
+type Landing<T> = Option<std::result::Result<T, FlightError>>;
+
+/// Single-flight coalescing for one idempotent read. The call runs in its own
+/// task, so one caller giving up (its control client disconnected) never
+/// cancels it for the others; once every caller has gone it is dropped, which
+/// lets the agent worker skip it if it has not started.
+struct Flight<T>(std::sync::Mutex<std::sync::Weak<watch::Sender<Landing<T>>>>);
+
+impl<T> Default for Flight<T> {
+    fn default() -> Self {
+        Self(std::sync::Mutex::new(std::sync::Weak::new()))
+    }
+}
+
+impl<T: Clone + Send + Sync + 'static> Flight<T> {
+    /// Join the call in flight, or start one with `start`.
+    async fn join<F>(&self, start: impl Fn() -> F) -> Result<T>
+    where
+        F: std::future::Future<Output = Result<T>> + Send + 'static,
+    {
+        loop {
+            let mut landing = {
+                let mut slot = self.0.lock().unwrap_or_else(|p| p.into_inner());
+                match slot.upgrade() {
+                    Some(flight) => flight.subscribe(),
+                    None => {
+                        let (flight, landing) = watch::channel(None);
+                        let flight = Arc::new(flight);
+                        *slot = Arc::downgrade(&flight);
+                        let call = start();
+                        tokio::spawn(async move {
+                            tokio::select! {
+                                result = call => {
+                                    flight.send_replace(Some(result.map_err(FlightError::from)));
+                                }
+                                () = flight.closed() => {}
+                            }
+                        });
+                        landing
+                    }
+                }
+            };
+            let landed = match landing.wait_for(Option::is_some).await {
+                Ok(landed) => landed.clone(),
+                // Joined a call whose callers had all gone; start afresh.
+                Err(_) => None,
+            };
+            if let Some(result) = landed {
+                return result.map_err(Error::from);
+            }
+        }
+    }
 }
 
 /// The source control API for one VM. Every transport (in-process BMC, the
@@ -113,6 +209,7 @@ fn channel(config: Option<Config>, deployment: Deployment) -> (Control, ControlR
         status: Arc::new(watch::channel(None).0),
         stopping: AtomicBool::new(false),
         agent: Arc::new(watch::channel(agent).0),
+        reads: GuestReads::default(),
     });
     (
         Control {
@@ -336,7 +433,8 @@ impl Control {
     }
 
     pub async fn agent_boot(&self) -> Result<super::BootSnapshot> {
-        self.agent(AgentOp::Boot).await
+        self.agent_read(|r| &r.boot, AGENT_STATUS_TIMEOUT, AgentOp::Boot)
+            .await
     }
     pub async fn agent_boot_next(&self, reference: Option<String>) -> Result<super::BootSnapshot> {
         self.agent(|tx| AgentOp::BootNext(reference, tx)).await
@@ -415,7 +513,8 @@ impl Control {
     }
 
     pub async fn agent_firmware(&self) -> Result<super::FirmwareSnapshot> {
-        self.agent(AgentOp::Firmware).await
+        self.agent_read(|r| &r.firmware, AGENT_REQUEST_TIMEOUT, AgentOp::Firmware)
+            .await
     }
     pub async fn media(&self, operation: super::MediaOperation) -> Result<super::MediaStatus> {
         // Disabled policy discovery is available even before QEMU starts.
@@ -444,7 +543,8 @@ impl Control {
         Ok(sample)
     }
     pub async fn agent_network(&self) -> Result<super::GuestNetworkSnapshot> {
-        self.agent(AgentOp::Network).await
+        self.agent_read(|r| &r.network, AGENT_REQUEST_TIMEOUT, AgentOp::Network)
+            .await
     }
 
     /// Fixed read-only queries through the same bounded queue as VM actions.
@@ -582,6 +682,29 @@ impl Control {
         &self,
         make: impl FnOnce(oneshot::Sender<Result<T>>) -> AgentOp,
     ) -> Result<T> {
+        self.agent_within(AGENT_REQUEST_TIMEOUT, make).await
+    }
+
+    /// A read-only guest query, coalesced with concurrent identical ones.
+    async fn agent_read<T: Clone + Send + Sync + 'static>(
+        &self,
+        flight: fn(&GuestReads) -> &Flight<T>,
+        deadline: std::time::Duration,
+        make: fn(oneshot::Sender<Result<T>>) -> AgentOp,
+    ) -> Result<T> {
+        flight(&self.shared.reads)
+            .join(|| {
+                let control = self.clone();
+                async move { control.agent_within(deadline, make).await }
+            })
+            .await
+    }
+
+    async fn agent_within<T>(
+        &self,
+        deadline: std::time::Duration,
+        make: impl FnOnce(oneshot::Sender<Result<T>>) -> AgentOp,
+    ) -> Result<T> {
         // Fail at once rather than queue behind startup or a reconnect.
         let status = self.shared.agent.borrow().clone();
         if !status.enabled {
@@ -590,7 +713,7 @@ impl Control {
         if !status.connected {
             return Err(Error::Spawn("guest agent is not connected".into()));
         }
-        self.request_within(AGENT_REQUEST_TIMEOUT, |tx| Request::Agent(make(tx)))
+        self.request_within(deadline, |tx| Request::Agent(make(tx)))
             .await
     }
 
@@ -607,11 +730,17 @@ impl Control {
     }
 
     pub async fn agent_ping(&self) -> Result<()> {
-        self.agent(AgentOp::Ping).await
+        self.agent_read(|r| &r.ping, AGENT_STATUS_TIMEOUT, AgentOp::Ping)
+            .await
     }
 
     pub async fn agent_freeze_status(&self) -> Result<FreezeState> {
-        self.agent(AgentOp::FreezeStatus).await
+        self.agent_read(
+            |r| &r.freeze_status,
+            AGENT_STATUS_TIMEOUT,
+            AgentOp::FreezeStatus,
+        )
+        .await
     }
 
     /// Freeze all guest filesystems, or only the listed mountpoints. The
@@ -631,11 +760,19 @@ impl Control {
     }
 
     pub async fn agent_update_status(&self) -> Result<UpdateStatus> {
-        self.agent(AgentOp::UpdateStatus).await
+        self.agent_read(
+            |r| &r.update_status,
+            AGENT_STATUS_TIMEOUT,
+            AgentOp::UpdateStatus,
+        )
+        .await
     }
 }
 
 const AGENT_REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+/// Status reads: the agent worker's 5 s read bound plus a short queue. A
+/// caller that gives up drops its request, which the worker then skips.
+const AGENT_STATUS_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 
 impl Request {
     /// Answer a request that arrives while the VM is being stopped. A
@@ -892,6 +1029,114 @@ mod tests {
         }
         qmp_server.abort();
     }
+    #[tokio::test]
+    async fn concurrent_guest_reads_share_one_call_that_ends_with_its_last_caller() {
+        use qapi_protocol::server::QgaSession;
+        let dir = tempfile::tempdir().unwrap();
+        let qmp_path = dir.path().join("qmp.sock");
+        let qmp_listener = tokio::net::UnixListener::bind(&qmp_path).unwrap();
+        let qmp_server = tokio::spawn(async move {
+            let mut session = QmpSession::accept(&qmp_listener).await.unwrap();
+            session.send_greeting(11, 1, 3).await.unwrap();
+            session.negotiate().await.unwrap();
+            let _ = session.recv_command().await;
+        });
+        let (qmp, _events) = Qmp::new(&qmp_path).await.unwrap();
+        // A slow agent recording every command it receives.
+        let qga_path = dir.path().join("qga.sock");
+        let qga_listener = tokio::net::UnixListener::bind(&qga_path).unwrap();
+        let seen = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+        let guest = tokio::spawn({
+            let seen = seen.clone();
+            async move {
+                let mut session = QgaSession::accept(&qga_listener).await.unwrap();
+                session.handle_sync().await.unwrap();
+                assert_eq!(session.recv_command().await.unwrap().0, "guest-info");
+                session
+                    .send_return(serde_json::json!({"version":"11.1.3","supported_commands":[]}))
+                    .await
+                    .unwrap();
+                while let Ok((name, _)) = session.recv_command().await {
+                    let reply = match name.as_str() {
+                        "guest-fsfreeze-status" => serde_json::json!("thawed"),
+                        _ => serde_json::json!({}),
+                    };
+                    seen.lock().unwrap().push(name);
+                    tokio::time::sleep(Duration::from_millis(300)).await;
+                    session.send_return(reply).await.unwrap();
+                }
+            }
+        });
+        let (control, mut receiver) = control_channel();
+        let timings = AgentTimings {
+            retry: Duration::from_millis(50),
+            ..Default::default()
+        };
+        let guest_agent =
+            GuestAgent::spawn_publishing(qga_path, timings, receiver.agent_status_publisher());
+        let supervisor = async {
+            while let Some(request) = receiver.requests.recv().await {
+                request.dispatch(&qmp, None, Some(&guest_agent)).await;
+            }
+        };
+        let seen = || seen.lock().unwrap().clone();
+        let spawn_read = |control: &Control| {
+            let control = control.clone();
+            tokio::spawn(async move { control.agent_freeze_status().await })
+        };
+        let client = async {
+            for _ in 0..200 {
+                if control.agent_status().await.unwrap().connected {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+            // More callers than the agent queue holds share one guest call,
+            // even after the caller that started it gave up.
+            let leader = spawn_read(&control);
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            let followers: Vec<_> = (0..12).map(|_| spawn_read(&control)).collect();
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            leader.abort();
+            for follower in followers {
+                assert_eq!(follower.await.unwrap().unwrap(), FreezeState::Thawed);
+            }
+            assert_eq!(seen(), ["guest-fsfreeze-status"]);
+            // A read whose every caller left before the guest got to it is
+            // dropped, so the worker skips it.
+            let ping = tokio::spawn({
+                let control = control.clone();
+                async move { control.agent_ping().await }
+            });
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            let abandoned = spawn_read(&control);
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            abandoned.abort();
+            ping.await.unwrap().unwrap();
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            assert_eq!(seen(), ["guest-fsfreeze-status", "guest-ping"]);
+            // A later read starts a fresh guest call.
+            assert_eq!(
+                control.agent_freeze_status().await.unwrap(),
+                FreezeState::Thawed
+            );
+            assert_eq!(
+                seen(),
+                [
+                    "guest-fsfreeze-status",
+                    "guest-ping",
+                    "guest-fsfreeze-status"
+                ]
+            );
+        };
+        tokio::select! {
+            _ = supervisor => panic!("control channel closed"),
+            _ = client => {}
+        }
+        guest.abort();
+        qmp_server.abort();
+    }
+
     #[tokio::test]
     async fn cold_restart_uses_quit_and_unmanaged_callers_are_refused() {
         let config: Config =

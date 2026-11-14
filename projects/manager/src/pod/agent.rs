@@ -99,11 +99,14 @@ impl AgentOp {
 }
 
 /// Timeouts for the agent connection. A freeze can legitimately take
-/// several seconds while dirty data is flushed.
+/// several seconds while dirty data is flushed; `read` bounds the
+/// single-command status reads (ping, boot state, freeze status, update status)
+/// and the periodic ping, which a healthy agent answers at once.
 #[derive(Debug, Clone)]
 pub(super) struct AgentTimings {
     pub handshake: Duration,
     pub command: Duration,
+    pub read: Duration,
     pub retry: Duration,
     pub ping: Duration,
 }
@@ -113,6 +116,7 @@ impl Default for AgentTimings {
         Self {
             handshake: Duration::from_secs(3),
             command: Duration::from_secs(20),
+            read: Duration::from_secs(5),
             retry: Duration::from_secs(2),
             ping: Duration::from_secs(10),
         }
@@ -263,10 +267,13 @@ async fn serve(
         let healthy = tokio::select! {
             op = ops.recv() => match op {
                 Some(op) if op.abandoned() => continue,
-                Some(op) => execute(&mut qga, op).await,
+                Some(op) => execute(&mut qga, op, timings.read).await,
                 None => return false,
             },
-            _ = ping.tick() => qga.execute(&GuestPing {}).await.map_err(|e| e.to_string()),
+            _ = ping.tick() => {
+                let ping = tokio::time::timeout(timings.read, qga.execute(&GuestPing {})).await;
+                expire(&mut qga, ping).map_err(|e| e.to_string())
+            }
         };
         match healthy {
             Ok(()) => status.send_modify(|s| s.last_seen_unix_ms = Some(now_ms())),
@@ -282,9 +289,26 @@ async fn serve(
     }
 }
 
+/// A read that outlasted its deadline may still be answered by the guest:
+/// cancellation never cancels remote work. Its session is dropped so the
+/// worker reconnects and resynchronizes with a fresh `guest-sync-delimited`
+/// nonce, which discards the late reply, before the channel is reused.
+fn expire<T>(
+    qga: &mut Qga,
+    read: std::result::Result<qapi_protocol::Result<T>, tokio::time::error::Elapsed>,
+) -> qapi_protocol::Result<T> {
+    read.unwrap_or_else(|_| {
+        qga.shutdown();
+        Err(qapi_protocol::Error::Timeout(
+            "guest agent read timed out; resynchronizing before reuse".into(),
+        ))
+    })
+}
+
 /// Executes one request and reports whether the agent answered at all; a
-/// valid agent error still proves the session is alive.
-async fn execute(qga: &mut Qga, op: AgentOp) -> std::result::Result<(), String> {
+/// valid agent error still proves the session is alive. Status reads are
+/// bounded by `limit`; every other request by the QGA command timeout.
+async fn execute(qga: &mut Qga, op: AgentOp, limit: Duration) -> std::result::Result<(), String> {
     fn finish<T>(
         reply: Reply<T>,
         result: qapi_protocol::Result<T>,
@@ -296,8 +320,12 @@ async fn execute(qga: &mut Qga, op: AgentOp) -> std::result::Result<(), String> 
         let _ = reply.send(result.map_err(Error::Protocol));
         alive
     }
+    use tokio::time::timeout;
     match op {
-        AgentOp::Ping(reply) => finish(reply, qga.execute(&GuestPing {}).await),
+        AgentOp::Ping(reply) => {
+            let read = timeout(limit, qga.execute(&GuestPing {})).await;
+            finish(reply, expire(qga, read))
+        }
         AgentOp::Reboot(reply) => finish(reply, reboot(qga).await),
         AgentOp::Network(reply) => finish(reply, super::GuestNetworkSnapshot::query(qga).await),
         AgentOp::Firmware(reply) => finish(reply, super::FirmwareSnapshot::query(qga).await),
@@ -308,12 +336,16 @@ async fn execute(qga: &mut Qga, op: AgentOp) -> std::result::Result<(), String> 
             reply,
             super::SecureBootDatabaseSnapshot::update(qga, request).await,
         ),
-        AgentOp::Boot(reply) => finish(reply, super::BootSnapshot::query(qga).await),
+        AgentOp::Boot(reply) => {
+            let read = timeout(limit, super::BootSnapshot::query(qga)).await;
+            finish(reply, expire(qga, read))
+        }
         AgentOp::BootNext(reference, reply) => {
             finish(reply, super::BootSnapshot::set_next(qga, reference).await)
         }
         AgentOp::FreezeStatus(reply) => {
-            let result = qga.execute(&GuestFsfreezeStatusCommand {}).await;
+            let read = timeout(limit, qga.execute(&GuestFsfreezeStatusCommand {})).await;
+            let result = expire(qga, read);
             finish(
                 reply,
                 result.map(|state| match state {
@@ -333,7 +365,10 @@ async fn execute(qga: &mut Qga, op: AgentOp) -> std::result::Result<(), String> 
         AgentOp::UpdateTrigger(args, reply) => {
             finish(reply, qga.execute(&QrabUpdateTrigger { args }).await)
         }
-        AgentOp::UpdateStatus(reply) => finish(reply, qga.execute(&QrabUpdateStatus {}).await),
+        AgentOp::UpdateStatus(reply) => {
+            let read = timeout(limit, qga.execute(&QrabUpdateStatus {})).await;
+            finish(reply, expire(qga, read))
+        }
     }
 }
 
@@ -375,6 +410,7 @@ mod tests {
         AgentTimings {
             handshake: Duration::from_millis(300),
             command: Duration::from_millis(500),
+            read: Duration::from_millis(300),
             retry: Duration::from_millis(50),
             ping: Duration::from_secs(3600),
         }
@@ -525,6 +561,94 @@ mod tests {
         server.abort();
     }
     #[tokio::test]
+    async fn an_abandoned_read_still_consumes_its_own_late_reply() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("qga.sock");
+        let listener = UnixListener::bind(&path).unwrap();
+        let agent = GuestAgent::spawn(path, fast());
+        let server = tokio::spawn(async move {
+            let mut session = accept(&listener).await;
+            let (name, _) = session.recv_command().await.unwrap();
+            assert_eq!(name, "guest-fsfreeze-status");
+            // Answered after its caller gave up, but within the read bound.
+            tokio::time::sleep(Duration::from_millis(150)).await;
+            session.send_return(json!("frozen")).await.unwrap();
+            let (name, _) = session.recv_command().await.unwrap();
+            assert_eq!(name, "guest-fsfreeze-status");
+            session.send_return(json!("thawed")).await.unwrap();
+            let _ = session.recv_command().await;
+        });
+        wait_connected(&agent, true).await;
+        let since = agent.status().connected_since_unix_ms;
+        let (reply, abandoned) = oneshot::channel();
+        agent.submit(AgentOp::FreezeStatus(reply));
+        assert!(tokio::time::timeout(Duration::from_millis(50), abandoned)
+            .await
+            .is_err());
+        assert_eq!(
+            call(&agent, AgentOp::FreezeStatus).await.unwrap(),
+            FreezeState::Thawed
+        );
+        // The same session served both: no reconnect was needed.
+        assert_eq!(agent.status().connected_since_unix_ms, since);
+        drop(agent);
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn an_expired_read_resynchronizes_past_its_late_reply() {
+        use tokio::io::AsyncWriteExt;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("qga.sock");
+        let listener = UnixListener::bind(&path).unwrap();
+        let timings = fast();
+        let agent = GuestAgent::spawn(path, timings.clone());
+        let server = tokio::spawn(async move {
+            let mut first = accept(&listener).await;
+            let (name, _) = first.recv_command().await.unwrap();
+            assert_eq!(name, "guest-fsfreeze-status");
+            // The guest is still working on it when the host gives up.
+            assert!(first.recv_command().await.is_err());
+            // The guest's virtio-serial stream outlives the host connection, so
+            // its late reply and a reply to an older sync reach the next one.
+            let (mut stream, _) = listener.accept().await.unwrap();
+            stream
+                .write_all(b"{\"return\": \"frozen\"}\n\xff{\"return\": 7}\n")
+                .await
+                .unwrap();
+            let mut second = QgaSession::from_stream(stream);
+            second.handle_sync().await.unwrap();
+            assert_eq!(second.recv_command().await.unwrap().0, "guest-info");
+            second
+                .send_return(json!({"version":"11.1.3","supported_commands":[]}))
+                .await
+                .unwrap();
+            let (name, _) = second.recv_command().await.unwrap();
+            assert_eq!(name, "guest-fsfreeze-status");
+            second.send_return(json!("thawed")).await.unwrap();
+            let _ = second.recv_command().await;
+        });
+        wait_connected(&agent, true).await;
+        let started = std::time::Instant::now();
+        let error = call(&agent, AgentOp::FreezeStatus).await.unwrap_err();
+        assert!(error.to_string().contains("timed out"), "{error}");
+        // The status-read bound, not the longer command bound, applied.
+        assert!(
+            started.elapsed() < timings.command,
+            "{:?}",
+            started.elapsed()
+        );
+        wait_connected(&agent, false).await;
+        wait_connected(&agent, true).await;
+        assert_eq!(
+            call(&agent, AgentOp::FreezeStatus).await.unwrap(),
+            FreezeState::Thawed
+        );
+        drop(agent);
+        server.abort();
+    }
+
+    #[tokio::test]
     async fn graceful_reboot_delivers_native_shutdown_without_waiting_for_a_response() {
         let (host, guest) = tokio::net::UnixStream::pair().unwrap();
         let server = tokio::spawn(async move {
@@ -561,7 +685,9 @@ mod tests {
         });
         let mut qga = Qga::from_stream(host).await.unwrap();
         let (reply, response) = oneshot::channel();
-        execute(&mut qga, AgentOp::Reboot(reply)).await.unwrap();
+        execute(&mut qga, AgentOp::Reboot(reply), Duration::from_secs(5))
+            .await
+            .unwrap();
         response.await.unwrap().unwrap();
         assert!(qga.is_closed());
         server.await.unwrap();

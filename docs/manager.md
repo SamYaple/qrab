@@ -271,7 +271,11 @@ Each request is `{"v":1,"id":<u64>,"op":"<op>",...}` and each reply
 `{"v":1,"id":<id>,"error":{"code":"<code>","message":"..."}}` with codes
 `bad_request`, `unsupported_version`, `frame_too_large`, `busy`,
 `unavailable` and `shutting_down`; clients must accept unknown codes from
-newer managers. A connection may carry any number of requests.
+newer managers. A connection may carry any number of requests, answered in
+order. A client that closes its connection (including only its write side)
+while a read-only request is pending abandons that request, and the manager
+frees the connection slot at once. Actions, guest writes, staging and media
+changes run to their outcome whether or not the client is still waiting.
 
 | `op` | Arguments | Result |
 | --- | --- | --- |
@@ -350,7 +354,19 @@ qrab-manager agent update-status --config /etc/qrab/vm.json
 
 Requests fail immediately when the agent is not connected, its four-slot
 queue is full, or the channel is disabled. They have a 30-second control
-deadline (a 20-second QGA command bound plus one reconnect attempt). Update
+deadline (a 20-second QGA command bound plus one reconnect attempt).
+
+Read-only queries (`agent_ping`, `agent_freeze_status`, `agent_update_status`,
+`agent_boot`, `agent_network`, `agent_firmware`) are coalesced: concurrent
+callers of the same query share one in-flight guest call, so status polls
+never queue behind a hung agent or fill its queue. A caller that gives up (for
+example because its control client disconnected) does not cancel the call for
+the others; once every caller has gone the call is dropped and the worker
+skips it if it has not started. Ping, freeze status, update status and boot
+state are bounded at 5 seconds in the guest (a 10-second control deadline), as
+is the periodic ping. An expired read drops the QGA session: the guest may
+still answer it, so the task reconnects and resynchronizes with a fresh
+`guest-sync-delimited` nonce, which discards the late reply. Update
 arguments are validated host-side with the agent's own bound before reaching
 the guest. As with QMP, a timeout never proves a command did not run: the guest
 watchdog thaws an abandoned freeze. See [guest-agent.md](guest-agent.md) for

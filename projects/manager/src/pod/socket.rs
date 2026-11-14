@@ -5,7 +5,9 @@
 //! ([`Request`]); each reply is one [`Response`] line echoing `id`. A `follow`
 //! request turns the connection into a stream of event frames, and a `console`
 //! request turns it into the raw VNC byte stream. Neither QMP nor a VNC socket
-//! path is ever exposed.
+//! path is ever exposed. A client that closes the connection while a
+//! [read-only](Operation::is_read_only) request is pending abandons it, which
+//! frees the connection at once; every other request runs to its outcome.
 use super::{
     Action, AgentStatus, Config, ConfigView, Control, EventPage, FreezeState, Status, UpdateStatus,
     VmEvent,
@@ -171,6 +173,45 @@ pub enum Operation {
         args: Vec<String>,
     },
     AgentUpdateStatus,
+}
+
+impl Operation {
+    /// Operations without side effects. The manager abandons one of these when
+    /// its client disconnects; every other operation runs to its outcome.
+    pub fn is_read_only(&self) -> bool {
+        match self {
+            Self::Metrics
+            | Self::Inventory
+            | Self::ResourceUsage
+            | Self::Serial
+            | Self::AgentNetwork
+            | Self::AgentFirmware
+            | Self::AgentSecureBootDatabases
+            | Self::SecureBootSettings
+            | Self::AgentBoot
+            | Self::FirmwareCatalog
+            | Self::FirmwareStageStatus
+            | Self::Status
+            | Self::Probe { .. }
+            | Self::Config { .. }
+            | Self::Events { .. }
+            | Self::AgentStatus
+            | Self::AgentPing
+            | Self::AgentFreezeStatus
+            | Self::AgentUpdateStatus => true,
+            Self::Media { operation } => *operation == super::MediaOperation::Status,
+            Self::AgentSecureBootUpdate { .. }
+            | Self::StageSecureBoot { .. }
+            | Self::AgentBootNext { .. }
+            | Self::FirmwareStage { .. }
+            | Self::Follow { .. }
+            | Self::Action { .. }
+            | Self::Console
+            | Self::AgentFreeze { .. }
+            | Self::AgentThaw
+            | Self::AgentUpdateTrigger { .. } => false,
+        }
+    }
 }
 
 /// The `agent_*` operations; each maps to one `Control::agent_*` method and
@@ -464,97 +505,7 @@ async fn connection(
             }
         };
         let id = request.id;
-        let unavailable = |error: Error| error_reply(id, error);
         let reply = match request.op {
-            Operation::AgentSecureBootDatabases => control
-                .agent_secure_boot_databases()
-                .await
-                .map_or_else(unavailable, |v| Response::ok(id, v)),
-            Operation::AgentSecureBootUpdate { request } => control
-                .agent_secure_boot_update(request)
-                .await
-                .map_or_else(unavailable, |v| Response::ok(id, v)),
-            Operation::SecureBootSettings => control
-                .secure_boot_settings()
-                .await
-                .map_or_else(unavailable, |v| Response::ok(id, v)),
-            Operation::StageSecureBoot { enabled } => control
-                .stage_secure_boot(enabled)
-                .await
-                .map_or_else(unavailable, |v| Response::ok(id, v)),
-            Operation::AgentBoot => control
-                .agent_boot()
-                .await
-                .map_or_else(unavailable, |v| Response::ok(id, v)),
-            Operation::AgentBootNext { reference } => control
-                .agent_boot_next(reference)
-                .await
-                .map_or_else(unavailable, |v| Response::ok(id, v)),
-            Operation::FirmwareCatalog => control
-                .firmware_catalog()
-                .await
-                .map_or_else(unavailable, |v| Response::ok(id, v)),
-            Operation::FirmwareStageStatus => control
-                .firmware_stage_status()
-                .await
-                .map_or_else(unavailable, |v| Response::ok(id, v)),
-            Operation::FirmwareStage { artifact } => control
-                .firmware_stage(artifact)
-                .await
-                .map_or_else(unavailable, |v| Response::ok(id, v)),
-            Operation::Serial => Response::ok(id, control.serial()),
-            Operation::Media { operation } => control
-                .media(operation)
-                .await
-                .map_or_else(unavailable, |v| Response::ok(id, v)),
-            Operation::AgentFirmware => control
-                .agent_firmware()
-                .await
-                .map_or_else(unavailable, |v| Response::ok(id, v)),
-            Operation::ResourceUsage => Response::ok(id, control.resource_usage()),
-            Operation::Inventory => control
-                .inventory()
-                .await
-                .map_or_else(unavailable, |v| Response::ok(id, v)),
-            Operation::AgentNetwork => control
-                .agent_network()
-                .await
-                .map_or_else(unavailable, |v| Response::ok(id, v)),
-            Operation::Metrics => control
-                .metrics()
-                .await
-                .map_or_else(unavailable, |m| Response::ok(id, m)),
-            Operation::Status => control
-                .status()
-                .map_or_else(unavailable, |s| Response::ok(id, s)),
-            Operation::Probe { ready } => control
-                .probe(ready)
-                .map_or_else(unavailable, |()| Response::ok(id, Value::Null)),
-            Operation::Config { redacted } => {
-                control.config_view().map_or_else(unavailable, |view| {
-                    Response::ok(id, if redacted { view.redacted() } else { view })
-                })
-            }
-            Operation::Events { after, limit } => Response::ok(id, control.events(after, limit)),
-            Operation::Action { action } => control
-                .action(action)
-                .await
-                .map_or_else(unavailable, |()| Response::ok(id, Value::Null)),
-            Operation::AgentStatus => agent_reply(&control, id, AgentCommand::Status).await,
-            Operation::AgentPing => agent_reply(&control, id, AgentCommand::Ping).await,
-            Operation::AgentFreezeStatus => {
-                agent_reply(&control, id, AgentCommand::FreezeStatus).await
-            }
-            Operation::AgentFreeze { mountpoints } => {
-                agent_reply(&control, id, AgentCommand::Freeze { mountpoints }).await
-            }
-            Operation::AgentThaw => agent_reply(&control, id, AgentCommand::Thaw).await,
-            Operation::AgentUpdateTrigger { args } => {
-                agent_reply(&control, id, AgentCommand::UpdateTrigger { args }).await
-            }
-            Operation::AgentUpdateStatus => {
-                agent_reply(&control, id, AgentCommand::UpdateStatus).await
-            }
             Operation::Follow { after } => {
                 let cursor = after.unwrap_or_else(|| control.events(None, 1).latest);
                 if write(
@@ -582,13 +533,126 @@ async fn connection(
                         }
                         return;
                     }
-                    Err(error) => unavailable(error),
+                    Err(error) => error_reply(id, error),
                 }
             }
+            // A client that goes away abandons its read; actions run to their
+            // outcome whether or not anyone is still waiting for it.
+            op if op.is_read_only() => tokio::select! {
+                reply = respond(&control, id, op) => reply,
+                () = peer_gone(&mut stream) => return,
+            },
+            op => respond(&control, id, op).await,
         };
         if !write(&mut stream, &frame(&reply)).await {
             return;
         }
+    }
+}
+
+/// The reply to every operation that does not take over the connection.
+async fn respond(control: &Control, id: Option<u64>, op: Operation) -> Response {
+    let unavailable = |error: Error| error_reply(id, error);
+    match op {
+        Operation::AgentSecureBootDatabases => control
+            .agent_secure_boot_databases()
+            .await
+            .map_or_else(unavailable, |v| Response::ok(id, v)),
+        Operation::AgentSecureBootUpdate { request } => control
+            .agent_secure_boot_update(request)
+            .await
+            .map_or_else(unavailable, |v| Response::ok(id, v)),
+        Operation::SecureBootSettings => control
+            .secure_boot_settings()
+            .await
+            .map_or_else(unavailable, |v| Response::ok(id, v)),
+        Operation::StageSecureBoot { enabled } => control
+            .stage_secure_boot(enabled)
+            .await
+            .map_or_else(unavailable, |v| Response::ok(id, v)),
+        Operation::AgentBoot => control
+            .agent_boot()
+            .await
+            .map_or_else(unavailable, |v| Response::ok(id, v)),
+        Operation::AgentBootNext { reference } => control
+            .agent_boot_next(reference)
+            .await
+            .map_or_else(unavailable, |v| Response::ok(id, v)),
+        Operation::FirmwareCatalog => control
+            .firmware_catalog()
+            .await
+            .map_or_else(unavailable, |v| Response::ok(id, v)),
+        Operation::FirmwareStageStatus => control
+            .firmware_stage_status()
+            .await
+            .map_or_else(unavailable, |v| Response::ok(id, v)),
+        Operation::FirmwareStage { artifact } => control
+            .firmware_stage(artifact)
+            .await
+            .map_or_else(unavailable, |v| Response::ok(id, v)),
+        Operation::Serial => Response::ok(id, control.serial()),
+        Operation::Media { operation } => control
+            .media(operation)
+            .await
+            .map_or_else(unavailable, |v| Response::ok(id, v)),
+        Operation::AgentFirmware => control
+            .agent_firmware()
+            .await
+            .map_or_else(unavailable, |v| Response::ok(id, v)),
+        Operation::ResourceUsage => Response::ok(id, control.resource_usage()),
+        Operation::Inventory => control
+            .inventory()
+            .await
+            .map_or_else(unavailable, |v| Response::ok(id, v)),
+        Operation::AgentNetwork => control
+            .agent_network()
+            .await
+            .map_or_else(unavailable, |v| Response::ok(id, v)),
+        Operation::Metrics => control
+            .metrics()
+            .await
+            .map_or_else(unavailable, |m| Response::ok(id, m)),
+        Operation::Status => control
+            .status()
+            .map_or_else(unavailable, |s| Response::ok(id, s)),
+        Operation::Probe { ready } => control
+            .probe(ready)
+            .map_or_else(unavailable, |()| Response::ok(id, Value::Null)),
+        Operation::Config { redacted } => control.config_view().map_or_else(unavailable, |view| {
+            Response::ok(id, if redacted { view.redacted() } else { view })
+        }),
+        Operation::Events { after, limit } => Response::ok(id, control.events(after, limit)),
+        Operation::Action { action } => control
+            .action(action)
+            .await
+            .map_or_else(unavailable, |()| Response::ok(id, Value::Null)),
+        Operation::AgentStatus => agent_reply(control, id, AgentCommand::Status).await,
+        Operation::AgentPing => agent_reply(control, id, AgentCommand::Ping).await,
+        Operation::AgentFreezeStatus => agent_reply(control, id, AgentCommand::FreezeStatus).await,
+        Operation::AgentFreeze { mountpoints } => {
+            agent_reply(control, id, AgentCommand::Freeze { mountpoints }).await
+        }
+        Operation::AgentThaw => agent_reply(control, id, AgentCommand::Thaw).await,
+        Operation::AgentUpdateTrigger { args } => {
+            agent_reply(control, id, AgentCommand::UpdateTrigger { args }).await
+        }
+        Operation::AgentUpdateStatus => agent_reply(control, id, AgentCommand::UpdateStatus).await,
+        Operation::Follow { .. } | Operation::Console => Response::error(
+            id,
+            ErrorCode::BadRequest,
+            "stream operations take over the connection",
+        ),
+    }
+}
+
+/// Resolves once the client has closed the connection (or it failed) while a
+/// request runs. Bytes a client sends meanwhile stay buffered for the next
+/// request, and the connection is then no longer watched: sidecars never
+/// pipeline, so only a closed client reaches this.
+async fn peer_gone(stream: &mut BufReader<UnixStream>) {
+    match stream.fill_buf().await {
+        Ok([]) | Err(_) => {}
+        Ok(_) => std::future::pending().await,
     }
 }
 

@@ -6,11 +6,15 @@ use manager::pod::{
     socket::{self, Client, FollowFrame},
     Action, Config, Deployment, DiskView,
 };
-use qapi_protocol::server::QmpSession;
+use qapi_protocol::server::{QgaSession, QmpSession};
 use serde_json::{json, Value};
 use std::{
     os::unix::fs::PermissionsExt,
     path::{Path, PathBuf},
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    },
     time::Duration,
 };
 use tokio::{
@@ -42,7 +46,16 @@ fn fixture() -> (tempfile::TempDir, Config) {
 
 /// Minimal QEMU: replies to every command, emits the event QEMU would, and
 /// forwards injected events.
-async fn mock_qemu(runtime: PathBuf, mut inject: mpsc::Receiver<(String, Value)>) {
+async fn mock_qemu(runtime: PathBuf, inject: mpsc::Receiver<(String, Value)>) {
+    mock_qemu_with(runtime, inject, serve_guest_agent).await
+}
+
+/// [`mock_qemu`] with `agent` serving the guest-agent chardev socket.
+async fn mock_qemu_with(
+    runtime: PathBuf,
+    mut inject: mpsc::Receiver<(String, Value)>,
+    agent: impl FnOnce(&Path),
+) {
     let session = tokio::time::timeout(Duration::from_secs(5), async {
         loop {
             let found = std::fs::read_dir(&runtime).ok().and_then(|entries| {
@@ -59,7 +72,7 @@ async fn mock_qemu(runtime: PathBuf, mut inject: mpsc::Receiver<(String, Value)>
     .await
     .unwrap();
     let listener = UnixListener::bind(session.join("qmp.sock")).unwrap();
-    serve_guest_agent(&session.join("qga.sock"));
+    agent(&session.join("qga.sock"));
     let mut session = QmpSession::accept(&listener).await.unwrap();
     session.send_greeting(11, 1, 3).await.unwrap();
     session.negotiate().await.unwrap();
@@ -861,6 +874,186 @@ async fn sidecar_mirror_resyncs_after_a_manager_restart_and_reuses_connections()
     // Pooled connections to the old manager are replaced transparently.
     backend.status().await.unwrap();
     mirror.abort();
+    control.action(Action::Powerdown).await.unwrap();
+    let _ = tokio::time::timeout(Duration::from_secs(10), runner).await;
+}
+
+/// A wedged guest agent: it completes every handshake and answers pings but
+/// never answers any other command. `received` counts those commands.
+fn serve_hung_agent(path: &Path, received: Arc<AtomicUsize>) {
+    let listener = UnixListener::bind(path).unwrap();
+    tokio::spawn(async move {
+        while let Ok(mut session) = QgaSession::accept(&listener).await {
+            let received = received.clone();
+            tokio::spawn(async move {
+                if session.handle_sync().await.is_err() {
+                    return;
+                }
+                match session.recv_command().await {
+                    Ok((name, _)) if name == "guest-info" => {}
+                    _ => return,
+                }
+                let info = json!({"version":"11.1.3","supported_commands":[]});
+                if session.send_return(info).await.is_err() {
+                    return;
+                }
+                while let Ok((name, _)) = session.recv_command().await {
+                    if name == "guest-ping" {
+                        let _ = session.send_return(json!({})).await;
+                    } else {
+                        received.fetch_add(1, Ordering::SeqCst);
+                    }
+                }
+            });
+        }
+    });
+}
+
+/// A running supervisor whose connected guest agent never answers a read.
+async fn start_with_hung_agent(
+    config: &Config,
+) -> (
+    pod::Control,
+    mpsc::Sender<(String, Value)>,
+    Arc<AtomicUsize>,
+    tokio::task::JoinHandle<manager::Result<pod::Outcome>>,
+) {
+    let (control, receiver) = pod::control_channel_for(config, Deployment::default());
+    let (inject, injected) = mpsc::channel(8);
+    let received = Arc::new(AtomicUsize::new(0));
+    tokio::spawn(mock_qemu_with(config.runtime_dir.clone(), injected, {
+        let received = received.clone();
+        move |path: &Path| serve_hung_agent(path, received)
+    }));
+    let runner = tokio::spawn(pod::run_controlled(
+        config.clone(),
+        std::future::pending(),
+        receiver,
+    ));
+    wait_for(&control, "RESUME").await;
+    tokio::time::timeout(Duration::from_secs(10), async {
+        while !control.agent_status().await.unwrap().connected {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("guest agent never connected");
+    (control, inject, received, runner)
+}
+
+/// A raw control connection past its greeting; panics on a `busy` refusal.
+async fn open(path: &Path) -> BufReader<UnixStream> {
+    let mut stream = BufReader::new(UnixStream::connect(path).await.unwrap());
+    let greeting = read(&mut stream).await;
+    assert_eq!(greeting["protocol"], "qrab-control", "{greeting}");
+    stream
+}
+
+/// Every control connection slot, once all of them are free within `within`.
+async fn all_connections(path: &Path, within: Duration) -> Vec<Client> {
+    tokio::time::timeout(within, async {
+        loop {
+            let mut held = Vec::new();
+            while held.len() < socket::MAX_CONNECTIONS {
+                match Client::connect(path).await {
+                    Ok(client) => held.push(client),
+                    Err(_) => break,
+                }
+            }
+            if held.len() == socket::MAX_CONNECTIONS {
+                return held;
+            }
+            drop(held);
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("abandoned guest reads still hold control connections")
+}
+
+#[tokio::test]
+async fn a_disconnected_client_abandons_its_pending_guest_read_at_once() {
+    let (_dir, config) = fixture();
+    let path = socket::socket_path(&config);
+    let (control, _inject, _received, runner) = start_with_hung_agent(&config).await;
+    // Every connection slot waits on the same unanswered guest read: none is
+    // turned away as busy by the agent queue.
+    let mut pending = Vec::new();
+    for id in 0..socket::MAX_CONNECTIONS {
+        let mut stream = open(&path).await;
+        let request = format!("{{\"v\":1,\"id\":{id},\"op\":\"agent_freeze_status\"}}\n");
+        stream
+            .get_mut()
+            .write_all(request.as_bytes())
+            .await
+            .unwrap();
+        pending.push(stream);
+    }
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    for stream in &mut pending {
+        let mut line = String::new();
+        let answered =
+            tokio::time::timeout(Duration::from_millis(10), stream.read_line(&mut line)).await;
+        assert!(answered.is_err(), "answered: {line}");
+    }
+    let mut refused = BufReader::new(UnixStream::connect(&path).await.unwrap());
+    assert_eq!(read(&mut refused).await["error"]["code"], "busy");
+    // The clients give up; their reads are abandoned within a second, long
+    // before the agent worker's own read deadline.
+    drop(pending);
+    let mut held = all_connections(&path, Duration::from_secs(1)).await;
+    for client in &mut held {
+        client.status().await.unwrap();
+    }
+    drop(held);
+    control.action(Action::Powerdown).await.unwrap();
+    let _ = tokio::time::timeout(Duration::from_secs(10), runner).await;
+}
+
+#[tokio::test]
+async fn polling_a_hung_agent_never_exhausts_control_connections() {
+    let (_dir, config) = fixture();
+    let path = socket::socket_path(&config);
+    let (control, _inject, received, runner) = start_with_hung_agent(&config).await;
+    // A Redfish-like poller: every 100 ms a new client asks for the boot state
+    // and gives up after 1 s. None is ever refused a connection.
+    let clients: Vec<_> = (0..40u64)
+        .map(|i| {
+            let path = path.clone();
+            tokio::spawn(async move {
+                tokio::time::sleep(Duration::from_millis(100 * i)).await;
+                let mut stream = open(&path).await;
+                stream
+                    .get_mut()
+                    .write_all(b"{\"v\":1,\"id\":1,\"op\":\"agent_boot\"}\n")
+                    .await
+                    .unwrap();
+                let mut line = String::new();
+                // Answered only when the shared read's deadline expires, never
+                // turned away because the agent queue is full.
+                let _ =
+                    tokio::time::timeout(Duration::from_secs(1), stream.read_line(&mut line)).await;
+                assert!(!line.contains("busy"), "{line}");
+            })
+        })
+        .collect();
+    for client in clients {
+        client.await.unwrap();
+    }
+    // The polls shared their guest reads instead of queueing one each.
+    let reads = received.load(Ordering::SeqCst);
+    assert!((1..=2).contains(&reads), "{reads} guest reads");
+    // Every slot is free again, and each answers, including a console request.
+    let mut held = all_connections(&path, Duration::from_secs(1)).await;
+    for client in &mut held {
+        client.status().await.unwrap();
+    }
+    let console = held.pop().unwrap().console().await.unwrap_err().to_string();
+    assert!(
+        console.contains("graphical console is disabled"),
+        "{console}"
+    );
+    drop(held);
     control.action(Action::Powerdown).await.unwrap();
     let _ = tokio::time::timeout(Duration::from_secs(10), runner).await;
 }
