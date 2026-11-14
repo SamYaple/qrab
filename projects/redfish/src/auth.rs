@@ -1,7 +1,9 @@
 //! Per-request bearer authentication: an OIDC ID token (JWT) verified against
 //! the issuer's JWKS, like Kubernetes API-server OIDC authentication. There
 //! are no Redfish sessions, static tokens, Basic credentials or anonymous
-//! access.
+//! access. Several issuers may be trusted; the token's unverified `iss`
+//! selects the one verifier that checks it, and only the VM's subject and
+//! group lists grant a role.
 use openidconnect::{core::CoreJsonWebKeySet, ClientId, IssuerUrl};
 use serde::Serialize;
 use std::collections::HashSet;
@@ -32,7 +34,8 @@ pub enum Rejection {
 }
 
 pub struct Authenticator {
-    verifier: oidc_bearer::Verifier,
+    /// One per issuer.
+    verifiers: Vec<oidc_bearer::Verifier>,
     admins: HashSet<String>,
     viewers: HashSet<String>,
     admin_groups: HashSet<String>,
@@ -49,12 +52,34 @@ impl Authenticator {
         viewers: HashSet<String>,
     ) -> Self {
         Self {
-            verifier: oidc_bearer::Verifier::new(issuer, audience, keys),
+            verifiers: vec![oidc_bearer::Verifier::new(issuer, audience, keys)],
             admins,
             viewers,
             admin_groups: HashSet::new(),
             viewer_groups: HashSet::new(),
         }
+    }
+
+    /// Also accept tokens verified by `verifier`, whose issuer must not
+    /// already be trusted (add audiences with
+    /// [`oidc_bearer::Verifier::with_audience`] instead).
+    pub fn trusting(mut self, verifier: oidc_bearer::Verifier) -> Self {
+        assert!(
+            self.verifier_named(verifier.issuer()).is_none(),
+            "one verifier per issuer"
+        );
+        self.verifiers.push(verifier);
+        self
+    }
+
+    fn verifier_named(&self, issuer: &str) -> Option<&oidc_bearer::Verifier> {
+        self.verifiers.iter().find(|v| v.issuer() == issuer)
+    }
+
+    /// The only verifier that may check `token`: the one for its unverified
+    /// `iss`. Other sources are never tried.
+    pub fn verifier_for(&self, token: &str) -> Option<&oidc_bearer::Verifier> {
+        self.verifier_named(&oidc_bearer::unverified_issuer(token)?)
     }
 
     /// Also grant roles to members of these Kanidm group UUIDs, read from the
@@ -67,13 +92,22 @@ impl Authenticator {
 
     /// OIDC discovery over HTTPS with redirects disabled.
     pub async fn discover(config: &crate::config::Config) -> anyhow::Result<Self> {
+        let mut verifiers = Vec::with_capacity(config.sources.len());
+        for source in &config.sources {
+            let (first, rest) = source
+                .audiences
+                .split_first()
+                .ok_or_else(|| anyhow::anyhow!("{} has no audience", source.issuer))?;
+            let verifier =
+                oidc_bearer::Verifier::discover(&source.issuer, first, config.ca_file.as_deref())
+                    .await
+                    .map_err(|e| e.context(source.issuer.clone()))?;
+            verifiers.push(rest.iter().fold(verifier, |v, audience| {
+                v.with_audience(ClientId::new(audience.clone()))
+            }));
+        }
         Ok(Self {
-            verifier: oidc_bearer::Verifier::discover(
-                &config.issuer,
-                &config.audience,
-                config.ca_file.as_deref(),
-            )
-            .await?,
+            verifiers,
             admins: config.admin_subjects.clone(),
             viewers: config.viewer_subjects.clone(),
             admin_groups: config.admin_groups.clone(),
@@ -98,7 +132,8 @@ impl Authenticator {
             .and_then(oidc_bearer::bearer_token)
             .ok_or(Rejection::Unauthenticated)?;
         let verified = self
-            .verifier
+            .verifier_for(token)
+            .ok_or(Rejection::Unauthenticated)?
             .verify(token)
             .await
             .ok_or(Rejection::Unauthenticated)?;

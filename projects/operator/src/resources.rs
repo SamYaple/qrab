@@ -387,6 +387,36 @@ fn viewers_with_creator(
     all
 }
 
+/// Whether the BMC has its own browser login (and so holds `qrab-bmc` ID tokens).
+fn browser_login(vm: &VirtualMachine) -> bool {
+    vm.spec.components.bmc.enabled
+        && vm
+            .spec
+            .console
+            .as_ref()
+            .is_some_and(|c| c.public_url.is_some())
+}
+
+/// The `(issuer, audience)` pairs Redfish trusts besides its own client: the
+/// BMC's browser client when it has a login, and the dashboard's bearer
+/// client when the operator has one. They grant no role by themselves.
+fn redfish_trusted_tokens<'a>(
+    vm: &VirtualMachine,
+    settings: &'a Settings,
+) -> Vec<(&'a str, &'a str)> {
+    let mut pairs = Vec::new();
+    if browser_login(vm) {
+        pairs.push((
+            settings.oidc_issuer.as_str(),
+            settings.oidc_client_id.as_str(),
+        ));
+    }
+    if let Some(bearer) = &settings.bmc_bearer {
+        pairs.push((bearer.issuer.as_str(), bearer.audience.as_str()));
+    }
+    pairs
+}
+
 const NO_BMC_ACCESS: &str = "console.publicUrl is required unless the operator sets QRAB_BMC_BEARER_ISSUER and QRAB_BMC_BEARER_AUDIENCE for dashboard access";
 
 /// The only mounted boot-media namespace. This is a path-string policy;
@@ -962,6 +992,14 @@ fn sidecars(
             json!({"name":"REDFISH_OIDC_ISSUER","value":settings.redfish_oidc_issuer}),
             json!({"name":"REDFISH_OIDC_AUDIENCE","value":settings.redfish_oidc_audience}),
         ];
+        let trusted = redfish_trusted_tokens(vm, settings);
+        if !trusted.is_empty() {
+            let pairs: Vec<_> = trusted
+                .iter()
+                .map(|(issuer, audience)| format!("{issuer}|{audience}"))
+                .collect();
+            env.push(json!({"name":"REDFISH_TRUSTED_TOKENS","value":pairs.join(",")}));
+        }
         let viewers = viewers_with_creator(
             &redfish.admin_subjects,
             &redfish.viewer_subjects,
@@ -1282,24 +1320,20 @@ pub fn render_incarnation(
     if let Some(ip) = &settings.idp_ip {
         let mut hosts = BTreeSet::new();
         let bmc = vm.spec.components.bmc.enabled;
-        let browser = bmc
-            && vm
-                .spec
-                .console
-                .as_ref()
-                .is_some_and(|c| c.public_url.is_some());
+        let redfish = vm.spec.components.redfish.enabled;
         let bearer = settings.bmc_bearer.as_ref().filter(|_| bmc);
+        let trusted = redfish_trusted_tokens(vm, settings);
         for (enabled, issuer) in [
-            (browser, &settings.oidc_issuer),
+            (browser_login(vm), settings.oidc_issuer.as_str()),
             (
                 bearer.is_some(),
-                bearer.map_or(&settings.oidc_issuer, |b| &b.issuer),
+                bearer.map_or(settings.oidc_issuer.as_str(), |b| b.issuer.as_str()),
             ),
-            (
-                vm.spec.components.redfish.enabled,
-                &settings.redfish_oidc_issuer,
-            ),
-        ] {
+            (redfish, settings.redfish_oidc_issuer.as_str()),
+        ]
+        .into_iter()
+        .chain(trusted.iter().map(|(issuer, _)| (redfish, *issuer)))
+        {
             if enabled {
                 let issuer = url::Url::parse(issuer).map_err(|e| Error::Invalid(e.to_string()))?;
                 hosts.insert(

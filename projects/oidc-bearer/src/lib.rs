@@ -47,7 +47,8 @@ struct Fetch {
 
 pub struct Verifier {
     issuer: IssuerUrl,
-    audience: ClientId,
+    /// Never empty; one token is checked against exactly one of them.
+    audiences: Vec<ClientId>,
     keys: RwLock<Keys>,
     fetch: Option<Fetch>,
 }
@@ -86,7 +87,7 @@ impl Verifier {
     pub fn new(issuer: IssuerUrl, audience: ClientId, keys: CoreJsonWebKeySet) -> Self {
         Self {
             issuer,
-            audience,
+            audiences: vec![audience],
             keys: RwLock::new(Keys {
                 set: keys,
                 fetched: Instant::now(),
@@ -135,27 +136,57 @@ impl Verifier {
         Ok(verifier)
     }
 
+    /// Also accept tokens issued to `audience` by the same issuer, with the
+    /// same keys. Each token is verified against the single audience it names
+    /// (its `azp`, or its only `aud`), never against each audience in turn.
+    pub fn with_audience(mut self, audience: ClientId) -> Self {
+        if !self.audiences.contains(&audience) {
+            self.audiences.push(audience);
+        }
+        self
+    }
+
+    /// The configured issuer, exactly as given.
+    pub fn issuer(&self) -> &str {
+        self.issuer.as_str()
+    }
+
+    /// The configured audience a token claims to be for: the only one when a
+    /// single audience is configured, otherwise its `azp` or its sole `aud`.
+    /// The verifier then requires exactly that audience.
+    fn audience_for(&self, token: &str) -> Option<&ClientId> {
+        if let [only] = self.audiences.as_slice() {
+            return Some(only);
+        }
+        let claims = unverified_claims(token)?;
+        let named = match (claims.get("azp"), claims.get("aud")) {
+            (Some(azp), _) => azp.as_str()?,
+            (None, Some(serde_json::Value::String(aud))) => aud,
+            (None, Some(serde_json::Value::Array(aud))) if aud.len() == 1 => aud[0].as_str()?,
+            _ => return None,
+        };
+        self.audiences.iter().find(|a| a.as_str() == named)
+    }
+
     fn check(&self, token: &CoreIdToken) -> Option<Verified> {
+        let compact = token.to_string();
+        let audience = self.audience_for(&compact)?.clone();
         let keys = self
             .keys
             .read()
             .unwrap_or_else(|poison| poison.into_inner())
             .set
             .clone();
-        let verifier = CoreIdTokenVerifier::new_public_client(
-            self.audience.clone(),
-            self.issuer.clone(),
-            keys,
-        )
-        .set_allowed_algs([
-            CoreJwsSigningAlgorithm::EcdsaP256Sha256,
-            CoreJwsSigningAlgorithm::RsaSsaPkcs1V15Sha256,
-        ]);
+        let verifier = CoreIdTokenVerifier::new_public_client(audience, self.issuer.clone(), keys)
+            .set_allowed_algs([
+                CoreJwsSigningAlgorithm::EcdsaP256Sha256,
+                CoreJwsSigningAlgorithm::RsaSsaPkcs1V15Sha256,
+            ]);
         let claims = token.claims(&verifier, any_nonce).ok()?;
         Some(Verified {
             subject: claims.subject().as_str().to_owned(),
             name: claims.preferred_username().map(|name| name.to_string()),
-            groups: groups_claim(&token.to_string()),
+            groups: groups_claim(&compact),
             expires: u64::try_from(claims.expiration().timestamp()).ok()?,
         })
     }
@@ -217,6 +248,39 @@ impl Verifier {
     }
 }
 
+/// The payload of a compact JWS, decoded without verifying anything.
+fn unverified_claims(token: &str) -> Option<serde_json::Value> {
+    use base64::Engine;
+    let payload = token.split('.').nth(1)?;
+    base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .decode(payload)
+        .ok()
+        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+}
+
+/// The `iss` claim of a compact JWS, read WITHOUT verifying the signature.
+/// Use it only to choose which [`Verifier`] fully verifies the token.
+///
+/// ```
+/// use base64::Engine;
+/// let payload = base64::engine::general_purpose::URL_SAFE_NO_PAD
+///     .encode(br#"{"iss":"https://idm.example/oauth2/openid/qrab-bmc","aud":"qrab-bmc"}"#);
+/// assert_eq!(
+///     oidc_bearer::unverified_issuer(&format!("h.{payload}.s")).as_deref(),
+///     Some("https://idm.example/oauth2/openid/qrab-bmc")
+/// );
+/// assert_eq!(oidc_bearer::unverified_issuer("not-a-jwt"), None);
+/// ```
+pub fn unverified_issuer(token: &str) -> Option<String> {
+    if token.len() > MAX_TOKEN_BYTES {
+        return None;
+    }
+    unverified_claims(token)?
+        .get("iss")?
+        .as_str()
+        .map(str::to_owned)
+}
+
 /// The UUID entries of the `groups` claim of a compact JWS whose signature has
 /// already been verified. Kanidm's `groups_uuid` scope emits hyphenated UUIDs;
 /// anything else (SPNs, names) is ignored.
@@ -232,14 +296,7 @@ impl Verifier {
 /// assert!(oidc_bearer::groups_claim("not-a-jwt").is_empty());
 /// ```
 pub fn groups_claim(token: &str) -> Vec<String> {
-    use base64::Engine;
-    let Some(payload) = token.split('.').nth(1) else {
-        return Vec::new();
-    };
-    base64::engine::general_purpose::URL_SAFE_NO_PAD
-        .decode(payload)
-        .ok()
-        .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
+    unverified_claims(token)
         .and_then(|claims| claims.get("groups").and_then(|g| g.as_array()).cloned())
         .unwrap_or_default()
         .iter()

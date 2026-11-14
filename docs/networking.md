@@ -405,3 +405,19 @@ survive the NIC moving to another node. Beyond the cluster:
   kube03) was then routed from the host via `10.203.0.13`, and the host read
   its SSH banner directly. Deleting the VM withdrew the host route.
 
+## Rollout record (2026-11-14): egress keeps the guest's address
+
+- qrab 7737251 annotates NIC pools with `ipam.cilium.io/skip-masquerade`; operator
+  9e732de6 (gitops 6127706, applied with `kubectl apply -k
+  contrib/kubernetes/operator-storage-api`), since superseded by the Redfish
+  release's eaf5dcbd built from 0492566, which includes it.
+  `check-nic-address-policy.sh` passes with the two new denials.
+- `contrib/kubernetes/egress-check.sh`, 18:46Z: VM `egresscheck` got
+  `10.244.128.1` on kube03; its pool carried the annotation and its lxc entry
+  `flags=0x0004` (skip-masquerade). A listener on the VM host saw the guest as
+  `10.244.128.1`, and the guest reached `1.1.1.1` through the LAN router's NAT.
+  An ordinary pod on kube03 reached the same listener as `10.203.0.13`, its
+  node. The run's control-pod step then hit a transient
+  `etcdserver: request timed out`.
+- Later runs were refused with `StorageRefused budget-exhausted`: every run keeps
+  its 1 GiB root clone.

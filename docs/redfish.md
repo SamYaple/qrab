@@ -14,6 +14,7 @@ qrab-redfish --socket /run/qrab-control/manager/control.sock
 | --- | --- |
 | `REDFISH_OIDC_ISSUER` | Required HTTPS OIDC issuer, e.g. `https://idm.yaple.net/oauth2/openid/qrab-redfish` |
 | `REDFISH_OIDC_AUDIENCE` | Required token audience: the OAuth2 client ID, e.g. `qrab-redfish` |
+| `REDFISH_TRUSTED_TOKENS` | Optional further token sources: comma-separated `issuer\|audience` pairs, e.g. `https://idm.yaple.net/oauth2/openid/qrab-bmc\|qrab-bmc` |
 | `REDFISH_ADMIN_SUBJECTS` | Comma-separated subject UUIDs that may read and reset the VM |
 | `REDFISH_VIEWER_SUBJECTS` | Comma-separated read-only subject UUIDs |
 | `REDFISH_ADMIN_GROUPS` | Comma-separated Kanidm group UUIDs whose members may read and reset the VM |
@@ -52,15 +53,30 @@ Every request, including `/redfish` and the service root, needs
 DMTF convention that the service root is anonymous: no VM data or version
 information is served without a token. Like Kubernetes API-server OIDC
 authentication, the token is an ID token (a signed JWT) issued to the
-`REDFISH_OIDC_AUDIENCE` client. Each request verifies the signature against
-the issuer's discovered JWKS (ES256 or RS256 only), the issuer, the audience
-(and `azp` when several audiences are present) and expiry. The subject must be
+`REDFISH_OIDC_AUDIENCE` client or to a `REDFISH_TRUSTED_TOKENS` pair. Each
+request verifies the signature against the issuer's discovered JWKS (ES256 or
+RS256 only), the issuer, the audience (and `azp` when several audiences are
+present) and expiry. The subject must be
 listed, or the token's `groups` claim (Kanidm scope `groups_uuid`) must contain
 a configured group UUID; admin wins when both apply. Tokens are limited to
 16 KiB, about 300 group memberships. Keys are refreshed every ten minutes, and at most every 30 seconds
 after a signature fails, so rotated keys are picked up. This verification lives
 in `projects/oidc-bearer`, which the BMC's
 [dashboard bearer mode](bmc.md#dashboard-bearer-tokens) shares.
+
+### Trusted token sources
+
+Each configured issuer is discovered at startup and keeps its own JWKS and
+refresh. The token's `iss`, read before verification, selects the single
+verifier for that issuer; a token from any other issuer gets 401 and no other
+source is tried. Several audiences of one issuer share its verifier, and a
+token is checked against the one audience it names (its `azp`, or its only
+`aud`), so `iss` and `aud` must form a configured pair. Repeated pairs are
+ignored. A trusted source grants no role: the subject and group lists above
+still decide admin, viewer or 403. The operator adds the BMC browser client
+and the dashboard client
+([operator.md](operator.md#dashboard-access-and-publicurl)) so their users'
+ID tokens reach Redfish unchanged.
 
 There are no Redfish sessions, static tokens, Basic authentication, stored
 passwords or anonymous routes other than `/healthz` and `/readyz`. Missing,
@@ -72,8 +88,9 @@ lifetime, and event streams close when the token expires.
 
 ### Kanidm provisioning
 
-Use a separate public client so BMC browser tokens (audience `qrab-bmc`) are
-never accepted by Redfish:
+Use a separate public client for direct Redfish callers. BMC (`qrab-bmc`) and
+dashboard tokens are accepted only where the operator lists them in
+`REDFISH_TRUSTED_TOKENS`:
 
 ```sh
 kanidm system oauth2 create-public qrab-redfish 'qrab Redfish' https://qrab-demo.yapplesauce.com -D idm_admin
@@ -137,7 +154,9 @@ event streams are served at once.
 
 `cargo test --locked -p qrab-redfish` covers resource shapes, the authentication
 rejection matrix (missing, Basic, malformed, expired, wrong audience, wrong
-issuer, foreign signing key, unlisted subject, viewer reset), reset mapping,
+issuer, foreign signing key, unlisted subject, viewer reset), trusted sources
+(each pair accepted with its listed role, cross-source audiences and keys and
+unconfigured issuers 401, unlisted subjects 403), reset mapping,
 power-state mapping, the event stream and its token-expiry bound. The tests sign
 tokens with the test-only keys under `projects/redfish/tests/fixtures`.
 

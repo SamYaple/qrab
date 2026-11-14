@@ -61,12 +61,20 @@ impl openidconnect::AdditionalClaims for Groups {}
 /// A valid token for `subject` whose `groups` claim lists `groups`.
 fn grouped(subject: &str, groups: &[&str]) -> String {
     let now = auth::now() as i64;
-    let claims: openidconnect::IdTokenClaims<Groups, openidconnect::core::CoreGenderClaim> =
-        serde_json::from_value(json!({
+    signed(
+        "test-only-signing-key.pem",
+        json!({
             "iss": ISSUER, "aud": [AUDIENCE], "sub": subject, "iat": now - 5, "exp": now + 300,
             "groups": groups
-        }))
-        .unwrap();
+        }),
+    )
+}
+
+/// A token with arbitrary claims (a `groups` claim among them), signed by the
+/// named fixture key.
+fn signed(signer: &str, claims: Value) -> String {
+    let claims: openidconnect::IdTokenClaims<Groups, openidconnect::core::CoreGenderClaim> =
+        serde_json::from_value(claims).unwrap();
     openidconnect::IdToken::<
         Groups,
         openidconnect::core::CoreGenderClaim,
@@ -74,7 +82,7 @@ fn grouped(subject: &str, groups: &[&str]) -> String {
         CoreJwsSigningAlgorithm,
     >::new(
         claims,
-        &key("test-only-signing-key.pem"),
+        &key(signer),
         CoreJwsSigningAlgorithm::RsaSsaPkcs1V15Sha256,
         None,
         None,
@@ -1709,4 +1717,180 @@ async fn secure_boot_pending_settings_and_databases_round_trip_without_changing_
         StatusCode::NO_CONTENT
     );
     worker.abort();
+}
+
+const BMC_ISSUER: &str = "https://idm.example/oauth2/openid/qrab-bmc";
+const BMC_AUDIENCE: &str = "qrab-bmc";
+const BMC_CLI_AUDIENCE: &str = "qrab-bmc-cli";
+const DASHBOARD_ISSUER: &str = "https://idm.example/oauth2/openid/qrab-dashboard";
+const DASHBOARD_AUDIENCE: &str = "qrab-dashboard";
+const SIGNING_KEY: &str = "test-only-signing-key.pem";
+const FOREIGN_KEY: &str = "test-only-foreign-key.pem";
+
+/// The default fixture plus the BMC client (with a second audience on its
+/// issuer) and a dashboard client that signs with its own key.
+fn trusted_fixture() -> Fixture {
+    let mut fixture = fixture();
+    let keys = |name: &str| CoreJsonWebKeySet::new(vec![key(name).as_verification_key()]);
+    let authenticator = auth::Authenticator::new(
+        IssuerUrl::new(ISSUER.into()).unwrap(),
+        ClientId::new(AUDIENCE.into()),
+        keys(SIGNING_KEY),
+        [ADMIN.to_string()].into_iter().collect(),
+        [VIEWER.to_string()].into_iter().collect(),
+    )
+    .with_groups(
+        [ADMIN_GROUP.to_string()].into_iter().collect(),
+        [VIEWER_GROUP.to_string()].into_iter().collect(),
+    )
+    .trusting(
+        oidc_bearer::Verifier::new(
+            IssuerUrl::new(BMC_ISSUER.into()).unwrap(),
+            ClientId::new(BMC_AUDIENCE.into()),
+            keys(SIGNING_KEY),
+        )
+        .with_audience(ClientId::new(BMC_CLI_AUDIENCE.into())),
+    )
+    .trusting(oidc_bearer::Verifier::new(
+        IssuerUrl::new(DASHBOARD_ISSUER.into()).unwrap(),
+        ClientId::new(DASHBOARD_AUDIENCE.into()),
+        keys(FOREIGN_KEY),
+    ));
+    fixture.app.auth = Arc::new(authenticator);
+    fixture
+}
+
+/// (signing key, issuer, audience) of every trusted pair in `trusted_fixture`.
+const TRUSTED: [(&str, &str, &str); 4] = [
+    (SIGNING_KEY, ISSUER, AUDIENCE),
+    (SIGNING_KEY, BMC_ISSUER, BMC_AUDIENCE),
+    (SIGNING_KEY, BMC_ISSUER, BMC_CLI_AUDIENCE),
+    (FOREIGN_KEY, DASHBOARD_ISSUER, DASHBOARD_AUDIENCE),
+];
+
+fn claims(issuer: &str, audience: Value, subject: &str, groups: &[&str]) -> Value {
+    let now = auth::now() as i64;
+    json!({
+        "iss": issuer, "aud": audience, "sub": subject, "iat": now - 5, "exp": now + 300,
+        "groups": groups
+    })
+}
+
+async fn assert_unauthenticated(app: &AppState, token: &str) {
+    let (status, headers, body) = call(app, "GET", SYSTEM_PATH, Some(token), "").await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED, "{token}");
+    assert!(headers["www-authenticate"]
+        .to_str()
+        .unwrap()
+        .starts_with("Bearer"));
+    assert_error(&body, "NoValidSession");
+}
+
+#[tokio::test]
+async fn trusted_token_sources_are_selected_by_issuer_and_grant_only_listed_roles() {
+    let fixture = trusted_fixture();
+    let app = &fixture.app;
+    write_status(&fixture.config, "running", "running");
+    let reset = r#"{"ResetType":"On"}"#;
+    // Every pair is accepted, checked only by its own issuer's verifier, and
+    // maps to the role its subject or groups grant.
+    for (signer, issuer, audience) in TRUSTED {
+        let token = |subject: &str, groups: &[&str]| {
+            signed(signer, claims(issuer, json!([audience]), subject, groups))
+        };
+        let viewer = token(VIEWER, &[]);
+        assert_eq!(
+            app.auth.verifier_for(&viewer).map(|v| v.issuer()),
+            Some(issuer)
+        );
+        assert_eq!(
+            call(app, "GET", SYSTEM_PATH, Some(&viewer), "").await.0,
+            StatusCode::OK,
+            "{issuer} {audience}"
+        );
+        assert_eq!(
+            call(app, "POST", RESET, Some(&viewer), reset).await.0,
+            StatusCode::FORBIDDEN
+        );
+        for admin in [token(ADMIN, &[]), token(UNLISTED, &[ADMIN_GROUP])] {
+            assert_eq!(
+                call(app, "POST", RESET, Some(&admin), reset).await.0,
+                StatusCode::NO_CONTENT,
+                "{issuer} {audience}"
+            );
+        }
+        let principal = app
+            .auth
+            .authenticate(Some(&format!(
+                "Bearer {}",
+                token(UNLISTED, &[VIEWER_GROUP])
+            )))
+            .await
+            .unwrap();
+        assert_eq!(principal.role, auth::Role::Viewer);
+        // A trusted source grants nothing by itself.
+        for unlisted in [
+            token(UNLISTED, &[]),
+            token(UNLISTED, &["ffffffff-ffff-4fff-8fff-ffffffffffff"]),
+        ] {
+            let (status, _, body) = call(app, "GET", SYSTEM_PATH, Some(&unlisted), "").await;
+            assert_eq!(status, StatusCode::FORBIDDEN, "{issuer} {audience}");
+            assert_error(&body, "InsufficientPrivilege");
+        }
+    }
+    // A trusted issuer with another source's audience is not a trusted pair,
+    // alone or next to its own audience, with or without `azp`.
+    for (signer, issuer, audience) in [
+        (SIGNING_KEY, ISSUER, json!([BMC_AUDIENCE])),
+        (SIGNING_KEY, ISSUER, json!(BMC_CLI_AUDIENCE)),
+        (SIGNING_KEY, BMC_ISSUER, json!([AUDIENCE])),
+        (SIGNING_KEY, BMC_ISSUER, json!([DASHBOARD_AUDIENCE])),
+        (FOREIGN_KEY, DASHBOARD_ISSUER, json!([BMC_AUDIENCE])),
+        (SIGNING_KEY, BMC_ISSUER, json!([BMC_AUDIENCE, AUDIENCE])),
+        (
+            SIGNING_KEY,
+            BMC_ISSUER,
+            json!([BMC_AUDIENCE, BMC_CLI_AUDIENCE]),
+        ),
+    ] {
+        assert_unauthenticated(app, &signed(signer, claims(issuer, audience, ADMIN, &[]))).await;
+    }
+    for (audience, azp) in [
+        (json!([BMC_AUDIENCE, AUDIENCE]), BMC_AUDIENCE),
+        (json!([BMC_AUDIENCE]), AUDIENCE),
+        (json!([BMC_AUDIENCE]), BMC_CLI_AUDIENCE),
+    ] {
+        let mut claims = claims(BMC_ISSUER, audience, ADMIN, &[]);
+        claims["azp"] = json!(azp);
+        assert_unauthenticated(app, &signed(SIGNING_KEY, claims)).await;
+    }
+    // An unconfigured issuer has no verifier, even when a trusted source's
+    // key signed it for a trusted audience.
+    for audience in [AUDIENCE, BMC_AUDIENCE, DASHBOARD_AUDIENCE] {
+        let token = signed(
+            SIGNING_KEY,
+            claims(
+                "https://idm.example/oauth2/openid/qrab-other",
+                json!([audience]),
+                ADMIN,
+                &[],
+            ),
+        );
+        assert!(app.auth.verifier_for(&token).is_none());
+        assert_unauthenticated(app, &token).await;
+    }
+    // Only the issuer's own keys are consulted: another source's key never
+    // signs for it.
+    for (signer, issuer, audience) in [
+        (SIGNING_KEY, DASHBOARD_ISSUER, DASHBOARD_AUDIENCE),
+        (FOREIGN_KEY, ISSUER, AUDIENCE),
+        (FOREIGN_KEY, BMC_ISSUER, BMC_AUDIENCE),
+    ] {
+        let token = signed(signer, claims(issuer, json!([audience]), ADMIN, &[]));
+        assert_eq!(
+            app.auth.verifier_for(&token).map(|v| v.issuer()),
+            Some(issuer)
+        );
+        assert_unauthenticated(app, &token).await;
+    }
 }

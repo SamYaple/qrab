@@ -886,6 +886,71 @@ fn bmc_bearer_settings_reach_every_bmc_and_public_url_is_optional() {
     assert!(spec.console.unwrap().public_url.is_none());
 }
 
+#[test]
+fn redfish_trusts_the_bmc_login_and_dashboard_clients_only_when_they_exist() {
+    const BMC_PAIR: &str = "https://idm.yaple.net/oauth2/openid/qrab-bmc|qrab-bmc";
+    const DASHBOARD_PAIR: &str = "https://idm.example/oauth2/openid/qrab-dashboard|qrab-dashboard";
+    let render = |machine: &VirtualMachine, settings: &Settings| {
+        let pod = serde_json::to_value(resources::render(machine, settings).unwrap().pod).unwrap();
+        let redfish = env(pod["spec"]["initContainers"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|c| c["name"] == "redfish")
+            .unwrap());
+        // Redfish's own client stays the primary source in every case.
+        assert_eq!(
+            redfish["REDFISH_OIDC_ISSUER"],
+            "https://idm.yaple.net/oauth2/openid/qrab-redfish"
+        );
+        assert_eq!(redfish["REDFISH_OIDC_AUDIENCE"], "qrab-redfish");
+        let hosts = pod["spec"]["hostAliases"][0]["hostnames"].clone();
+        (
+            redfish
+                .get("REDFISH_TRUSTED_TOKENS")
+                .map(|v| v.as_str().unwrap().to_owned()),
+            hosts,
+        )
+    };
+    let browser = with_components(true, true);
+    let mut dashboard_only = browser.clone();
+    dashboard_only.spec.console.as_mut().unwrap().public_url = None;
+    let mut no_bmc = vm();
+    no_bmc.spec.components = with_components(false, true).spec.components;
+    assert!(no_bmc.spec.console.as_ref().unwrap().public_url.is_some());
+    for (machine, settings, pairs, hosts) in [
+        (
+            &browser,
+            settings(),
+            Some(BMC_PAIR.to_owned()),
+            json!(["idm.yaple.net"]),
+        ),
+        (
+            &browser,
+            bearer_settings(),
+            Some(format!("{BMC_PAIR},{DASHBOARD_PAIR}")),
+            json!(["idm.example", "idm.yaple.net"]),
+        ),
+        (
+            &dashboard_only,
+            bearer_settings(),
+            Some(DASHBOARD_PAIR.to_owned()),
+            json!(["idm.example", "idm.yaple.net"]),
+        ),
+        // A publicUrl without a BMC is no browser login.
+        (&no_bmc, settings(), None, json!(["idm.yaple.net"])),
+        // Without a BMC, Redfish still trusts the dashboard and resolves its issuer.
+        (
+            &no_bmc,
+            bearer_settings(),
+            Some(DASHBOARD_PAIR.to_owned()),
+            json!(["idm.example", "idm.yaple.net"]),
+        ),
+    ] {
+        assert_eq!(render(machine, &settings), (pairs, hosts));
+    }
+}
+
 fn networked() -> VirtualMachine {
     let mut vm = vm();
     vm.spec.nics = serde_json::from_value(json!([
