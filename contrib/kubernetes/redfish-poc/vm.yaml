@@ -7,7 +7,7 @@ spec:
   stateVolumeClaim: qrab-redfish-poc-state
   mediaVolumeClaim: qrab-redfish-poc-media
   bootDisk: /var/lib/qrab-media/signed-boot.img
-  image: zot.yapplesauce.com/qrab/manager@sha256:7e2cff107e1f33e9867d8bb8e51a5cdea8d0339e493c0a575236916854a6c2ba
+  image: zot.yapplesauce.com/qrab/manager@sha256:99a29308fe52cd5d433e2ebbc39b24ce4e992e3d16e3f028c4fc33e6d6b8ca1f
   memoryMiB: 512
   cpus: 1
   running: true
