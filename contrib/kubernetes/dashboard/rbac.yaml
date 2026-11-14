@@ -1,9 +1,13 @@
 # The qrab-dashboard ServiceAccount itself lives in kubernetes-gitops
 # (infrastructure/qrab-identity/identity.yaml), never pruned: node image-pull
 # policies bind its UID. It disables token automount; the Deployment enables it.
-# Namespace-scoped. No update/patch on VMs, no PVC deletion (PVCs hold TPM
-# identities), no Secrets. The creator-subject annotation it sets is trusted
-# by admission only for system:serviceaccount:qrab:qrab-dashboard.
+# Namespace-scoped. VM patches are for power on/off only: the
+# ValidatingAdmissionPolicy qrab-dashboard-vm-updates
+# (contrib/kubernetes/operator/dashboard-update-policy.yaml) refuses any
+# dashboard update that changes anything but spec.running. No update verb, no
+# PVC deletion (PVCs hold TPM identities), no Secrets. The creator-subject
+# annotation it sets is trusted by admission only for
+# system:serviceaccount:qrab:qrab-dashboard.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
@@ -11,7 +15,7 @@ metadata:
 rules:
 - apiGroups: [qrab.yapplesauce.com]
   resources: [virtualmachines]
-  verbs: [get, list, create, delete]
+  verbs: [get, list, create, delete, patch]
 - apiGroups: ['']
   resources: [pods]
   verbs: [get]

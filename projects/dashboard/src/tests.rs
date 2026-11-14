@@ -25,6 +25,8 @@ struct FakeCluster {
     pvcs: Mutex<HashMap<String, PersistentVolumeClaim>>,
     created_vms: Mutex<Vec<serde_json::Value>>,
     deleted: Mutex<Vec<(String, String)>>,
+    /// `set_running` calls: (name, uid, running).
+    running: Mutex<Vec<(String, String, bool)>>,
     fail_vm_create: std::sync::atomic::AtomicBool,
     /// Appears after the first read misses it (a race with the preflight).
     racing_pvc: Mutex<Option<PersistentVolumeClaim>>,
@@ -37,6 +39,7 @@ impl FakeCluster {
     fn mutations(&self) -> usize {
         self.created_vms.lock().unwrap().len()
             + self.deleted.lock().unwrap().len()
+            + self.running.lock().unwrap().len()
             + self.pvcs.lock().unwrap().len()
     }
 }
@@ -102,6 +105,13 @@ impl cluster::Cluster for FakeCluster {
     }
     async fn delete_vm(&self, name: &str, uid: &str) -> anyhow::Result<()> {
         self.deleted.lock().unwrap().push((name.into(), uid.into()));
+        Ok(())
+    }
+    async fn set_running(&self, name: &str, uid: &str, running: bool) -> anyhow::Result<()> {
+        self.running
+            .lock()
+            .unwrap()
+            .push((name.into(), uid.into(), running));
         Ok(())
     }
 }
@@ -1347,6 +1357,237 @@ async fn one_subject_holds_at_most_four_consoles() {
     .await;
     assert!(freed.is_ok());
     assert!(connect().await.is_ok());
+}
+
+fn post_json(
+    path: &str,
+    cookie: Option<&str>,
+    origin: Option<&str>,
+    csrf: Option<&str>,
+    body: serde_json::Value,
+) -> Request<Body> {
+    let mut req = Request::builder()
+        .method("POST")
+        .uri(path)
+        .header("content-type", "application/json");
+    for (key, value) in [
+        ("cookie", cookie),
+        ("origin", origin),
+        ("x-csrf-token", csrf),
+    ] {
+        if let Some(value) = value {
+            req = req.header(key, value);
+        }
+    }
+    req.body(Body::from(body.to_string())).unwrap()
+}
+
+#[tokio::test]
+async fn console_power_controls_are_admin_only_checked_and_reach_the_bmc_or_the_vm() {
+    let h = harness().await;
+    let admin = session(&h.state.sessions, ALICE, &[VIEWERS]).await;
+    let (status, _, page) = send(&h, get("/vms/qrab/a/console", Some(&admin))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(page.contains("data-endpoint=\"/vms/qrab/a/power\""));
+    assert!(page.contains("data-csrf=\"correct\""));
+    for (action, _, _) in ui::CONSOLE_POWER {
+        assert!(
+            page.contains(&format!("data-power=\"{action}\"")),
+            "{action}"
+        );
+    }
+
+    let pause = serde_json::json!({"action": "pause"});
+    let path = "/vms/qrab/a/power";
+    for (vm, cookie, origin, csrf, body, expected) in [
+        (
+            "a",
+            None,
+            Some(ORIGIN),
+            Some("correct"),
+            pause.clone(),
+            StatusCode::UNAUTHORIZED,
+        ),
+        (
+            "a",
+            Some(admin.as_str()),
+            Some(ORIGIN),
+            None,
+            pause.clone(),
+            StatusCode::FORBIDDEN,
+        ),
+        (
+            "a",
+            Some(admin.as_str()),
+            Some(ORIGIN),
+            Some("wrong"),
+            pause.clone(),
+            StatusCode::FORBIDDEN,
+        ),
+        (
+            "a",
+            Some(admin.as_str()),
+            Some("https://evil.example"),
+            Some("correct"),
+            pause.clone(),
+            StatusCode::FORBIDDEN,
+        ),
+        (
+            "a",
+            Some(admin.as_str()),
+            None,
+            Some("correct"),
+            pause.clone(),
+            StatusCode::FORBIDDEN,
+        ),
+        (
+            "b",
+            Some(admin.as_str()),
+            Some(ORIGIN),
+            Some("correct"),
+            pause.clone(),
+            StatusCode::FORBIDDEN,
+        ),
+        (
+            "b",
+            Some(admin.as_str()),
+            Some(ORIGIN),
+            Some("correct"),
+            serde_json::json!({"action": "on"}),
+            StatusCode::FORBIDDEN,
+        ),
+        (
+            "c",
+            Some(admin.as_str()),
+            Some(ORIGIN),
+            Some("correct"),
+            pause.clone(),
+            StatusCode::NOT_FOUND,
+        ),
+        (
+            "a",
+            Some(admin.as_str()),
+            Some(ORIGIN),
+            Some("correct"),
+            serde_json::json!({"action": "system_reset"}),
+            StatusCode::BAD_REQUEST,
+        ),
+        (
+            "a",
+            Some(admin.as_str()),
+            Some(ORIGIN),
+            Some("correct"),
+            serde_json::json!({"action": "reset"}),
+            StatusCode::BAD_REQUEST,
+        ),
+        (
+            "a",
+            Some(admin.as_str()),
+            Some(ORIGIN),
+            Some("correct"),
+            serde_json::json!({"action": "off", "confirm": false}),
+            StatusCode::BAD_REQUEST,
+        ),
+    ] {
+        let (status, _, _) = send(
+            &h,
+            post_json(
+                &format!("/vms/qrab/{vm}/power"),
+                cookie,
+                origin,
+                csrf,
+                body.clone(),
+            ),
+        )
+        .await;
+        assert_eq!(status, expected, "{vm} {origin:?} {csrf:?} {body}");
+    }
+    assert!(h.bmc_a.lock().unwrap().is_empty() && h.bmc_b.lock().unwrap().is_empty());
+    assert!(h.cluster.running.lock().unwrap().is_empty());
+
+    for body in [
+        pause,
+        serde_json::json!({"action": "reset", "confirm": true}),
+        serde_json::json!({"action": "off", "confirm": true}),
+        serde_json::json!({"action": "on"}),
+    ] {
+        let (status, _, text) = send(
+            &h,
+            post_json(
+                path,
+                Some(&admin),
+                Some(ORIGIN),
+                Some("correct"),
+                body.clone(),
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NO_CONTENT, "{body}: {text}");
+    }
+    let bearer = "Bearer id-token-of-alice".to_string();
+    assert_eq!(
+        *h.bmc_a.lock().unwrap(),
+        [
+            (
+                "POST".into(),
+                "/api/action".into(),
+                bearer.clone(),
+                "\"pause\"".into()
+            ),
+            (
+                "POST".into(),
+                "/api/action".into(),
+                bearer,
+                "\"reset\"".into()
+            ),
+        ]
+    );
+    assert!(h.bmc_b.lock().unwrap().is_empty());
+    assert_eq!(
+        *h.cluster.running.lock().unwrap(),
+        [
+            ("a".into(), "uid-a".into(), false),
+            ("a".into(), "uid-a".into(), true)
+        ]
+    );
+}
+
+#[tokio::test]
+async fn console_power_state_is_admin_only_and_reads_the_vms_own_bmc() {
+    let h = harness().await;
+    let admin = session(&h.state.sessions, ALICE, &[VIEWERS]).await;
+    let (status, headers, body) = send(&h, get("/vms/qrab/a/power", Some(&admin))).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert!(
+        headers["content-type"]
+            .to_str()
+            .unwrap()
+            .starts_with("application/json")
+    );
+    let state: serde_json::Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(state["running"], true);
+    assert_eq!(state["pod"], true);
+    assert_eq!(state["phase"], "Running");
+    assert_eq!(state["run_state"], "bmc-a");
+    assert!(state["bmc_error"].is_null());
+    assert_eq!(
+        *h.bmc_a.lock().unwrap(),
+        [(
+            "GET".into(),
+            "/api/status".into(),
+            "Bearer id-token-of-alice".into(),
+            String::new()
+        )]
+    );
+    for (vm, cookie, expected) in [
+        ("a", None, StatusCode::UNAUTHORIZED),
+        ("b", Some(admin.as_str()), StatusCode::FORBIDDEN),
+        ("c", Some(admin.as_str()), StatusCode::NOT_FOUND),
+    ] {
+        let (status, _, _) = send(&h, get(&format!("/vms/qrab/{vm}/power"), cookie)).await;
+        assert_eq!(status, expected, "{vm}");
+    }
+    assert!(h.bmc_b.lock().unwrap().is_empty());
 }
 
 #[tokio::test]

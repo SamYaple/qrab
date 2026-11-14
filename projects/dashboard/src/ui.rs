@@ -56,7 +56,19 @@ pub struct Launched {
 pub struct ConsolePage {
     pub namespace: String,
     pub name: String,
+    /// For the page script's power requests (`X-CSRF-Token`).
+    pub csrf: String,
 }
+
+/// The console page's power buttons: (action, label, disruptive).
+pub const CONSOLE_POWER: [(&str, &str, bool); 6] = [
+    ("on", "Power on", false),
+    ("resume", "Resume", false),
+    ("pause", "Pause", false),
+    ("reset", "Reset", true),
+    ("powerdown", "Shut down", true),
+    ("off", "Power off", true),
+];
 
 #[derive(Clone, Default)]
 pub enum Body {
@@ -819,6 +831,14 @@ fn console_page(page: &ConsolePage) -> Element {
                 button { id: "connect", r#type: "button", "Connect console" }
                 button { id: "cad", r#type: "button", class: "quiet", disabled: true, "Ctrl Alt Del" }
                 button { id: "fullscreen", r#type: "button", class: "quiet", disabled: true, "Full screen" }
+            }
+        }
+        div { class: "toolbar power-bar", id: "power", "data-endpoint": "{back}/power", "data-csrf": "{page.csrf}",
+            p { class: "power-state", span { id: "power-chip", class: "chip", "Checking…" } span { id: "power-detail", class: "muted" } }
+            div { class: "actions", role: "group", aria_label: "Power",
+                for (action, label, disruptive) in CONSOLE_POWER {
+                    button { r#type: "button", class: if disruptive { "danger" } else { "quiet" }, "data-power": action, "data-label": label, disabled: true, {label} }
+                }
             }
         }
         div { id: "screen", "data-socket": "{socket}", p { "Open the console for video, keyboard and mouse access. It closes when your session ends." } }

@@ -1,0 +1,11 @@
+# Binds dashboard-update-policy.json, which `qrab-operator dashboard-update-policy`
+# generates from the CRD: the dashboard's ServiceAccount may patch an existing
+# VirtualMachine's spec.running (power on/off) and nothing else.
+# Checked live by contrib/kubernetes/operator/check-dashboard-update-policy.sh.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: qrab-dashboard-vm-updates
+spec:
+  policyName: qrab-dashboard-vm-updates
+  validationActions: [Deny]

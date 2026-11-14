@@ -30,9 +30,16 @@ async fn main() -> Result<()> {
         );
         return Ok(());
     }
+    if args.as_slice() == ["dashboard-update-policy"] {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&qrab_operator::api::dashboard_update_policy())?
+        );
+        return Ok(());
+    }
     ensure!(
         args.as_slice() == ["run"],
-        "usage: qrab-operator <run|crd|migration-crd>"
+        "usage: qrab-operator <run|crd|migration-crd|dashboard-update-policy>"
     );
     tracing_subscriber::fmt()
         .with_ansi(false)
