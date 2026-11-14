@@ -183,7 +183,11 @@ fn fake_bmc(label: &'static str, log: Log) -> axum::Router {
                             "guest_network": false, "disks": [], "startup_timeout_secs": 60,
                             "shutdown_grace_secs": 30, "redacted": false},
                         "GuestAgent": {"enabled": true, "connected": true,
-                            "version": "<script>alert(1)</script>"}}}
+                            "version": "<script>alert(1)</script>", "FreezeState": "Frozen",
+                            "LastUpdate": {"State": "Failed", "RunId": 7, "ExitCode": 2,
+                                "HookInstalled": true, "EndTime": "2026-11-14T00:00:00.000Z",
+                                "Error": "<iframe src=x>", "Output": "line 1\n<svg onload=alert(3)>",
+                                "OutputTruncated": true}}}}
                 }))
                 .into_response(),
                 (Method::GET, "/redfish/v1/Systems/1/ResetActionInfo") => Json(serde_json::json!({
@@ -565,6 +569,17 @@ async fn detail_reads_only_the_selected_vms_redfish_with_the_bearer_and_escapes_
         "{body}"
     );
     assert!(!body.contains("id-token-of-alice"));
+    // The guest agent's freeze state and last update run, guest text escaped.
+    assert!(body.contains("frozen"), "{body}");
+    assert!(
+        body.contains("failed · run 7 · exit 2 · 2026-11-14T00:00:00.000Z"),
+        "{body}"
+    );
+    assert!(body.contains("Update output (tail)") && body.contains("Update error"));
+    assert!(!body.contains("<iframe") && !body.contains("<svg"));
+    assert!(
+        body.contains("&#60;iframe src=x&#62;") && body.contains("&#60;svg onload=alert(3)&#62;")
+    );
     // Systems/1 PowerState and Status, the log service's drop count, and the
     // log entries newest first.
     assert!(body.contains("Power state") && body.contains("Enabled"));

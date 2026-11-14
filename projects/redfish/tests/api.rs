@@ -421,6 +421,15 @@ async fn resources_have_redfish_shapes_and_links() {
     // Cached guest-agent state, available before QEMU runs.
     assert_eq!(system["Oem"]["Qrab"]["GuestAgent"]["enabled"], true);
     assert_eq!(system["Oem"]["Qrab"]["GuestAgent"]["connected"], false);
+    // A disconnected agent reports neither a freeze state nor an update run.
+    assert_eq!(
+        system["Oem"]["Qrab"]["GuestAgent"]["FreezeState"],
+        Value::Null
+    );
+    assert_eq!(
+        system["Oem"]["Qrab"]["GuestAgent"]["LastUpdate"],
+        Value::Null
+    );
     let admin_config = system["Oem"]["Qrab"]["Configuration"].to_string();
     assert!(admin_config.contains(PORTAL) && admin_config.contains("chap-user"));
     // Viewers get the BMC's redacted configuration and no identity.
@@ -883,6 +892,122 @@ async fn guest_agent_actions_are_admin_only_and_validated() {
         assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
         assert_error(&reply, message_id);
     }
+}
+
+#[tokio::test]
+async fn system_reports_freeze_state_and_last_update_with_viewer_redaction() {
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+    let mut fixture = fixture();
+    let view = fixture.app.control.config_view().await.unwrap();
+    let path = fixture.config.runtime_dir.join("agent.sock");
+    let listener = tokio::net::UnixListener::bind(&path).unwrap();
+    fixture.app.control = manager::pod::Backend::Socket(manager::pod::Remote::new(path));
+    let update = manager::pod::UpdateStatus {
+        state: manager::pod::UpdateState::Failed,
+        run_id: 3,
+        args: vec!["release=secret".into()],
+        started_unix_ms: Some(1_700_000_000_000),
+        finished_unix_ms: Some(1_700_000_001_500),
+        exit_code: Some(2),
+        error: Some("hook failed at /srv/private".into()),
+        output: "token=abc".into(),
+        output_truncated: true,
+        hook_installed: true,
+        ..Default::default()
+    };
+    let replies: std::collections::BTreeMap<&str, Value> = [
+        ("config", serde_json::to_value(&view).unwrap()),
+        (
+            "status",
+            json!({"phase":"running","ready":true,"manager_pid":1,"manager_start_ticks":1,
+            "qemu_pid":2,"qemu_start_ticks":2,"qemu_version":[11,1,3],"run_state":"running",
+            "observed_unix_ms":0,"exit_code":null,"detail":null}),
+        ),
+        (
+            "agent_status",
+            serde_json::to_value(manager::pod::AgentStatus {
+                enabled: true,
+                connected: true,
+                version: Some("1.0".into()),
+                ..Default::default()
+            })
+            .unwrap(),
+        ),
+        ("agent_freeze_status", json!("frozen")),
+        (
+            "agent_update_status",
+            serde_json::to_value(&update).unwrap(),
+        ),
+    ]
+    .into_iter()
+    .collect();
+    let replies = Arc::new(replies);
+    let server = tokio::spawn(async move {
+        loop {
+            let (stream, _) = listener.accept().await.unwrap();
+            let replies = replies.clone();
+            tokio::spawn(async move {
+                let mut stream = BufReader::new(stream);
+                let hello = json!({"protocol":"qrab-control","version":1,"vm":"test",
+                    "operations":replies.keys().collect::<Vec<_>>()})
+                .to_string()
+                    + "\n";
+                stream.get_mut().write_all(hello.as_bytes()).await.unwrap();
+                loop {
+                    let mut line = String::new();
+                    if stream.read_line(&mut line).await.unwrap() == 0 {
+                        return;
+                    }
+                    let request: Value = serde_json::from_str(&line).unwrap();
+                    // Hardware inventory and boot reads are optional for Systems/1.
+                    let reply = match replies.get(request["op"].as_str().unwrap()) {
+                        Some(result) => json!({"v":1,"id":request["id"],"result":result}),
+                        None => json!({"v":1,"id":request["id"],
+                            "error":{"code":"unavailable","message":"not in this fixture"}}),
+                    };
+                    let reply = reply.to_string() + "\n";
+                    stream.get_mut().write_all(reply.as_bytes()).await.unwrap();
+                }
+            });
+        }
+    });
+
+    let (status, _, admin) = call(&fixture.app, "GET", SYSTEM_PATH, Some(&good(ADMIN)), "").await;
+    assert_eq!(status, StatusCode::OK, "{admin}");
+    let agent = &admin["Oem"]["Qrab"]["GuestAgent"];
+    assert_eq!(agent["connected"], true, "{agent}");
+    assert_eq!(agent["FreezeState"], "Frozen", "{agent}");
+    assert_eq!(
+        agent["LastUpdate"],
+        json!({"State":"Failed","RunId":3,"HookInstalled":true,"ExitCode":2,"Signal":null,
+            "StartTime":"2023-11-14T22:13:20.000Z","EndTime":"2023-11-14T22:13:21.500Z",
+            "Args":["release=secret"],"Output":"token=abc","OutputTruncated":true,
+            "Error":"hook failed at /srv/private"})
+    );
+
+    let (status, _, viewer) = call(&fixture.app, "GET", SYSTEM_PATH, Some(&good(VIEWER)), "").await;
+    assert_eq!(status, StatusCode::OK, "{viewer}");
+    let agent = &viewer["Oem"]["Qrab"]["GuestAgent"];
+    assert_eq!(agent["FreezeState"], "Frozen", "{agent}");
+    let last = &agent["LastUpdate"];
+    assert_eq!(
+        (
+            &last["State"],
+            &last["RunId"],
+            &last["ExitCode"],
+            &last["HookInstalled"]
+        ),
+        (&json!("Failed"), &json!(3), &json!(2), &json!(true)),
+        "{last}"
+    );
+    for hidden in ["Args", "Output", "OutputTruncated", "Error"] {
+        assert!(last.get(hidden).is_none(), "{hidden} in {last}");
+    }
+    let text = viewer.to_string();
+    for hidden in ["release=secret", "token=abc", "/srv/private"] {
+        assert!(!text.contains(hidden), "{hidden} in {text}");
+    }
+    server.abort();
 }
 
 #[tokio::test]

@@ -610,13 +610,9 @@ async fn system(State(app): State<AppState>, headers: HeaderMap) -> Result<Json<
     if let Some(uuid) = vm_uuid(&app, &who).await {
         system["UUID"] = json!(uuid);
     }
-    if app
-        .control
-        .agent_status()
-        .await
-        .ok()
-        .is_some_and(|status| status.connected)
-    {
+    // Cached connection state from the manager; no guest round trip.
+    let agent = app.control.agent_status().await.ok();
+    if agent.as_ref().is_some_and(|status| status.connected) {
         if let Ok(snapshot) = app.control.agent_boot().await {
             system["Boot"] = boot::system_boot(&snapshot);
         }
@@ -626,10 +622,68 @@ async fn system(State(app): State<AppState>, headers: HeaderMap) -> Result<Json<
         Role::Admin => view,
         Role::Viewer => view.redacted(),
     };
-    // Cached connection state from the manager; no guest round trip.
-    let agent = app.control.agent_status().await.ok();
+    let agent = match agent {
+        Some(status) => guest_agent(&app, status, who.role).await,
+        None => Value::Null,
+    };
     system["Oem"] = json!({"Qrab": {"@odata.type": "#QrabComputerSystem.v1_0_0.QrabComputerSystem", "Configuration": view, "GuestAgent": agent, "Metrics": link(telemetry::METRICS)}});
     Ok(Json(system))
+}
+
+/// Bound on each guest round trip behind a Systems/1 read, so a busy or
+/// freezing agent cannot stall it.
+const AGENT_READ_TIMEOUT: Duration = Duration::from_secs(1);
+
+/// `Oem.Qrab.GuestAgent`: the cached connection state plus, while the agent
+/// is connected and answers in time, the filesystem freeze state and the last
+/// update-hook run. Both are `null` otherwise.
+async fn guest_agent(app: &AppState, status: pod::AgentStatus, role: Role) -> Value {
+    let (freeze, update) = if status.connected {
+        let (freeze, update) = tokio::join!(
+            tokio::time::timeout(AGENT_READ_TIMEOUT, app.control.agent_freeze_status()),
+            tokio::time::timeout(AGENT_READ_TIMEOUT, app.control.agent_update_status()),
+        );
+        (
+            freeze.ok().and_then(Result::ok),
+            update.ok().and_then(Result::ok),
+        )
+    } else {
+        (None, None)
+    };
+    let mut agent = serde_json::to_value(status).unwrap_or_else(|_| json!({}));
+    agent["FreezeState"] = json!(freeze.map(|state| match state {
+        pod::FreezeState::Frozen => "Frozen",
+        pod::FreezeState::Thawed => "Thawed",
+    }));
+    agent["LastUpdate"] = update.map_or(Value::Null, |update| last_update(&update, role));
+    agent
+}
+
+/// The last update-hook run. Hook arguments, output and errors can carry
+/// deployment detail, so viewers see only the outcome.
+fn last_update(update: &pod::UpdateStatus, role: Role) -> Value {
+    let state = match update.state {
+        pod::UpdateState::Idle => "Idle",
+        pod::UpdateState::Running => "Running",
+        pod::UpdateState::Succeeded => "Succeeded",
+        pod::UpdateState::Failed => "Failed",
+    };
+    let mut run = json!({
+        "State": state,
+        "RunId": update.run_id,
+        "HookInstalled": update.hook_installed,
+        "ExitCode": update.exit_code,
+        "Signal": update.signal,
+        "StartTime": update.started_unix_ms.map(rfc3339),
+        "EndTime": update.finished_unix_ms.map(rfc3339),
+    });
+    if role == Role::Admin {
+        run["Args"] = json!(update.args);
+        run["Output"] = json!(update.output);
+        run["OutputTruncated"] = json!(update.output_truncated);
+        run["Error"] = json!(update.error);
+    }
+    run
 }
 
 /// Map a Redfish ResetType to a manager action. `Ok(None)` is a no-op.

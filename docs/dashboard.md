@@ -47,16 +47,19 @@ launch new VMs; VM admins can send power actions and delete VMs.
 The detail page's BMC panel reads the VM's Redfish service with the user's
 token (viewers and admins alike):
 
-- `Systems/1`: `PowerState`, `Status` (`State`, `Health`), the cached guest
-  agent status (`Oem.Qrab.GuestAgent`) and the effective configuration
+- `Systems/1`: `PowerState`, `Status` (`State`, `Health`), the guest agent
+  status (`Oem.Qrab.GuestAgent`) and the effective configuration
   (`Oem.Qrab.Configuration`, which Redfish redacts for viewers);
 - `Managers/1/LogServices/Events` for the QMP drop count, and its `Entries`
   for the newest 20 QMP events. Redfish implements no `$top`/`$skip`, so the
   dashboard reads the whole bounded log (at most 256 entries) and keeps the
   newest 20.
 
-Freeze state and guest-update results are not shown: Redfish exposes freeze,
-thaw and update only as admin actions.
+While the agent is connected, the guest-agent card also shows the filesystem
+freeze state and the last update-hook run (state, run id, exit code or
+signal, end time). Update errors and output appear only for admins, because
+Redfish sends them only to admins. Freeze, thaw and update themselves are
+Redfish admin actions offered on the BMC's Guest agent tab, not here.
 
 | Route | Purpose |
 | --- | --- |

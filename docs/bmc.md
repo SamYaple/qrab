@@ -66,8 +66,9 @@ modules):
     missed count, shown under any filter; `Qrab.1.0.QmpEventsDropped`
     notices set or clear the dropped-events warning. Nothing on this tab
     polls ([redfish.md](redfish.md#event-stream-sse)).
-  - *Guest agent*: agent status and the freeze (two-step confirm), thaw and
-    update actions.
+  - *Guest agent*: agent status, the filesystem freeze state and the last
+    update run from `Oem.Qrab.GuestAgent` (update output and errors for
+    admins only), and the freeze (two-step confirm), thaw and update actions.
   - *Configuration*: `Oem.Qrab.Configuration`, redacted for viewers.
 
 Viewers get the same header and rail, but the console toolbar, power group,

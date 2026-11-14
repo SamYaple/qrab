@@ -274,9 +274,11 @@ function describeDisk(disk) {
     if (disk.target) parts.push(`${disk.target.portal} ${disk.target.target} LUN ${disk.target.lun}`, `user ${disk.target.username}`, `secret ${disk.target.password_file}`, `initiator ${disk.target.initiator_name}`);
     return parts.join(' · ');
 }
+// Oem.Qrab.GuestAgent.LastUpdate; Output and Error are present for admins only.
 function updateSummary(update) {
-    const exit = update['exit-code'] !== null && update['exit-code'] !== undefined ? ` · exit ${update['exit-code']}` : '';
-    return `${update.state}${update['run-id'] ? ` · run ${update['run-id']}` : ''}${exit}${update['hook-installed'] ? '' : ' · no hook installed'}`;
+    const exit = update.ExitCode != null ? ` · exit ${update.ExitCode}` : update.Signal != null ? ` · signal ${update.Signal}` : '';
+    const ended = update.EndTime ? ` · ${new Date(update.EndTime).toLocaleString()}` : '';
+    return `${update.State.toLowerCase()}${update.RunId ? ` · run ${update.RunId}` : ''}${exit}${ended}${update.HookInstalled ? '' : ' · no hook installed'}`;
 }
 function showAgent(status) {
     const rows = [
@@ -286,6 +288,14 @@ function showAgent(status) {
         ['Last seen', stamp(status?.last_seen_unix_ms)],
     ];
     if (status?.last_error) rows.push(['Last error', status.last_error]);
+    // Read from Systems/1 on every refresh, so they survive a page reload.
+    if (status?.connected) rows.push(['Filesystems', status.FreezeState ? status.FreezeState.toLowerCase() : 'unknown']);
+    const update = status?.connected ? status.LastUpdate : null;
+    if (update) {
+        rows.push(['Last update', updateSummary(update)]);
+        if (update.Error) rows.push(['Update error', update.Error]);
+        if (update.Output) rows.push([update.OutputTruncated ? 'Update output (tail)' : 'Update output', update.Output]);
+    }
     render('agent', [...rows, ...agentResult]);
     element('agent-note').textContent = status?.connected ? 'Connected' : 'Not connected';
     for (const button of document.querySelectorAll('[data-agent]')) if (button !== armed) button.disabled = !status?.connected;
@@ -311,12 +321,10 @@ function wireAgentActions() {
             try {
                 const name = operation[0].toUpperCase() + operation.slice(1);
                 const result = await post(agentTarget(name), body);
-                if (operation === 'freeze') agentResult = [['Filesystems', `frozen (${result.FrozenFilesystems})`]];
-                if (operation === 'thaw') agentResult = [['Filesystems', `thawed (${result.ThawedFilesystems})`]];
-                if (operation === 'update') {
-                    agentResult = [['Update', updateSummary(result.Update)]];
-                    if (result.Update.output) agentResult.push(['Update output', result.Update.output]);
-                }
+                // The freeze state and update run come back with the refresh below.
+                if (operation === 'freeze') agentResult = [['Last action', `froze ${result.FrozenFilesystems} filesystems`]];
+                if (operation === 'thaw') agentResult = [['Last action', `thawed ${result.ThawedFilesystems} filesystems`]];
+                if (operation === 'update') agentResult = [['Last action', `started update run ${result.Update['run-id']}`]];
                 showError('');
             } catch (error) { showError(error.message); }
             finally { await refresh(); }

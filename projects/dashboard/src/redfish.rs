@@ -304,6 +304,27 @@ pub struct AgentStatus {
     pub connected_since_unix_ms: Option<u64>,
     pub last_seen_unix_ms: Option<u64>,
     pub last_error: Option<String>,
+    /// `Frozen` or `Thawed`; null while the agent is disconnected or slow.
+    #[serde(rename = "FreezeState")]
+    pub freeze_state: Option<String>,
+    #[serde(rename = "LastUpdate")]
+    pub last_update: Option<LastUpdate>,
+}
+
+/// The guest's last update-hook run. Redfish sends `Output` and `Error` to
+/// admins only.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default, rename_all = "PascalCase")]
+pub struct LastUpdate {
+    pub state: String,
+    pub run_id: u64,
+    pub hook_installed: bool,
+    pub exit_code: Option<i32>,
+    pub signal: Option<i32>,
+    pub end_time: Option<String>,
+    pub output: Option<String>,
+    pub output_truncated: bool,
+    pub error: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -478,6 +499,17 @@ mod tests {
         assert_eq!(system.power_state.as_deref(), Some("Paused"));
         assert_eq!(system.actions.reset.allowable_values, ["Pause"]);
         assert_eq!(system.oem.qrab.configuration.unwrap().cpus, 2);
+        // A viewer's agent: no output or error; a null freeze state when slow.
+        let agent: AgentStatus = serde_json::from_value(serde_json::json!({
+            "enabled": true, "connected": true, "FreezeState": null,
+            "LastUpdate": {"State": "Succeeded", "RunId": 3, "ExitCode": 0,
+                "HookInstalled": true, "Signal": null, "Unknown": 1}
+        }))
+        .unwrap();
+        assert!(agent.freeze_state.is_none());
+        let update = agent.last_update.unwrap();
+        assert_eq!((update.state.as_str(), update.run_id), ("Succeeded", 3));
+        assert!(update.output.is_none() && update.error.is_none());
         let offline: System = serde_json::from_value(serde_json::json!({
             "PowerState": null, "Status": {"State": "UnavailableOffline"}
         }))

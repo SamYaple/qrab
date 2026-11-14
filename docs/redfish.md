@@ -187,7 +187,7 @@ the loopback redirect, then calls e.g.
 | `/redfish/v1/Systems` | `ComputerSystemCollection` | one member |
 | `/redfish/v1/Systems/1` | `ComputerSystem.v1_22_0` | `PowerState`, `Status`, `ProcessorSummary`, `MemorySummary`, `Actions`, `Links.ManagedBy`; `Oem.Qrab.Configuration` is the BMC configuration view (redacted for viewers) |
 | `/redfish/v1/Systems/1/Actions/ComputerSystem.Reset` | action (POST) | admin only |
-| `/redfish/v1/Systems/1/Actions/Oem/QrabComputerSystem.{Freeze,Thaw,Update}` | OEM actions (POST) | admin only; `{"Mountpoints":[...]}` (optional) for Freeze, `{"Args":[...]}` for Update; return `FrozenFilesystems`, `ThawedFilesystems` or `Update`. `Oem.Qrab.GuestAgent` on `Systems/1` is the cached agent status |
+| `/redfish/v1/Systems/1/Actions/Oem/QrabComputerSystem.{Freeze,Thaw,Update}` | OEM actions (POST) | admin only; `{"Mountpoints":[...]}` (optional) for Freeze, `{"Args":[...]}` for Update; return `FrozenFilesystems`, `ThawedFilesystems` or `Update`. `Oem.Qrab.GuestAgent` on `Systems/1` carries the agent status, freeze state and last update run ([below](#guest-agent-status)) |
 | `/redfish/v1/Managers`, `/Managers/1` | `ManagerCollection`, `Manager.v1_19_0` | `ManagerType: BMC` |
 | `/redfish/v1/Managers/1/LogServices/Events` | `LogService.v1_7_0` | 256 records, `WrapsWhenFull`; `Oem.Qrab.QmpDropped` counts events QMP discarded, with `Health: Warning` when nonzero |
 | `.../Events/Entries`, `.../Entries/{seq}` | `LogEntryCollection`, `LogEntry.v1_17_0` | one `Oem` entry per QMP event; QAPI name and data under `Oem.Qrab` |
@@ -199,6 +199,24 @@ running, `Paused` when QEMU is paused or otherwise not running, `PoweringOff`
 while stopping, `Off` after exit; `null` with `UnavailableOffline` when the
 manager cannot be reached. Panicked or I/O-errored guests and failed managers
 report `Health: Critical`.
+
+### Guest agent status
+
+`Oem.Qrab.GuestAgent` on `Systems/1` is the manager's cached connection state
+(`enabled`, `connected`, `version`, `connected_since_unix_ms`,
+`last_seen_unix_ms`, `last_error`; `null` when the manager is unreachable)
+plus two guest reads, each bounded to one second and made only while the
+agent is connected:
+
+- `FreezeState`: `Frozen` or `Thawed` from QGA `guest-fsfreeze-status`.
+- `LastUpdate`: the update hook's last run since the agent started:
+  `State` (`Idle`, `Running`, `Succeeded`, `Failed`), `RunId` (0 before the
+  first run), `HookInstalled`, `ExitCode`, `Signal`, `StartTime`, `EndTime`
+  (RFC 3339). Admins also get `Args`, `Output` (the tail of the hook's
+  combined stdout and stderr), `OutputTruncated` and `Error`. Hook arguments,
+  output and errors can carry deployment detail, so viewers never see them.
+
+Both are `null` while the agent is disconnected or does not answer in time.
 
 `ComputerSystem.Reset` (`{"ResetType": ...}`) maps honestly to manager actions:
 

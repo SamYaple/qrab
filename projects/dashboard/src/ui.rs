@@ -311,7 +311,44 @@ fn agent_card(agent: Option<&redfish::AgentStatus>) -> Element {
     if let Some(e) = &s.last_error {
         rows.push(("Last error", e.clone()));
     }
+    if s.connected {
+        let freeze = s.freeze_state.as_deref().unwrap_or("unknown");
+        rows.push(("Filesystems", freeze.to_ascii_lowercase()));
+        if let Some(update) = &s.last_update {
+            rows.push(("Last update", update_summary(update)));
+            if let Some(error) = &update.error {
+                rows.push(("Update error", error.clone()));
+            }
+            if let Some(output) = update.output.as_ref().filter(|o| !o.is_empty()) {
+                let label = if update.output_truncated {
+                    "Update output (tail)"
+                } else {
+                    "Update output"
+                };
+                rows.push((label, output.clone()));
+            }
+        }
+    }
     rsx! { section { class: "card", h3 { "Guest agent" } {dl(rows)} } }
+}
+
+fn update_summary(update: &redfish::LastUpdate) -> String {
+    let mut summary = update.state.to_ascii_lowercase();
+    if update.run_id > 0 {
+        summary += &format!(" · run {}", update.run_id);
+    }
+    match (update.exit_code, update.signal) {
+        (Some(code), _) => summary += &format!(" · exit {code}"),
+        (None, Some(signal)) => summary += &format!(" · signal {signal}"),
+        _ => {}
+    }
+    if let Some(end) = &update.end_time {
+        summary += &format!(" · {end}");
+    }
+    if !update.hook_installed {
+        summary += " · no hook installed";
+    }
+    summary
 }
 
 fn config_card(config: Option<&redfish::Config>) -> Element {
