@@ -124,7 +124,7 @@ pub fn admission(
 pub struct Grants(Arc<watch::Sender<BTreeSet<Feature>>>);
 
 impl Grants {
-    fn new(features: BTreeSet<Feature>) -> Self {
+    pub(crate) fn new(features: BTreeSet<Feature>) -> Self {
         Self(Arc::new(watch::Sender::new(features)))
     }
 

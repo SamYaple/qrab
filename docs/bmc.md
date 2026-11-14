@@ -230,15 +230,57 @@ The dashboard forwards `features` on its console proxy only for admins and
 only for features that VM enables; it drops the others and refuses unknown
 names with 400.
 
-This is the gate only. The manager records the flags but adds no QEMU audio or
-USB device, and the console carries no new stream yet. Audio playback and
-WebUSB redirection are separate work that waits on the console protocol
-decision (VNC with upstream extensions or SPICE).
+### Audio playback
+
+Audio uses QEMU's upstream VNC audio extension and travels in-band on the
+existing console stream; there is no new socket or manager operation, and
+QEMU is not patched. With `adminBucket.audio` (and the console) enabled, the
+manager adds `-audiodev none,id=snd0 -device intel-hda,id=hda -device
+hda-output,audiodev=snd0` and `,audiodev=snd0` on `-vnc`. The guest sees an
+Intel HDA controller with an output-only codec; there is no microphone. A VM
+without the flag keeps its exact command line, and QEMU then ignores the audio
+encoding on every connection. Turning the flag on or off changes the QEMU
+arguments, which take effect when the VM's Pod next starts.
+
+The enforcement point is the BMC's client-to-server RFB filter
+(`rfb_filter`), applied to every console connection. It parses the
+ProtocolVersion (3.3, 3.7 or 3.8), the None security choice and ClientInit,
+then every client message noVNC sends: SetPixelFormat (0), SetEncodings (2),
+FramebufferUpdateRequest (3), KeyEvent (4), PointerEvent (5), ClientCutText
+(6, including the extended clipboard's negative length), EnableContinuousUpdates
+(150), ClientFence (248), xvp (250), SetDesktopSize (251), the QEMU extended key
+event (255/0) and QEMU audio (255/1). Any other type, an unknown QEMU
+sub-message or audio operation, more than 1024 encodings or a fence payload over
+64 bytes closes the console. Unless the connection's grants admit `audio`, the
+filter removes the audio pseudo-encoding (-259) from SetEncodings and drops
+every 255/1 message, so QEMU never acknowledges audio or sends any on that
+connection; other viewers of the same VM are unaffected because QEMU captures
+audio per connection. When an admitted connection loses its audio grant, the BMC
+closes the console: stopping audio already in flight would mean parsing the
+server-to-client stream.
+
+Both console pages show an **Audio** toggle only to admins of a VM that enables
+audio (the BMC page reads `admin_bucket` from `/api/session`; the dashboard page
+reads `spec.console.adminBucket`). It is off on every page load. Clicking it
+creates the page's AudioContext (browsers allow playback only from a user
+gesture) and, if the console is open, reconnects it with `?features=audio`;
+otherwise the next connect asks for audio. Clicking it again closes the
+AudioContext and reconnects without audio. The vendored noVNC carries
+`contrib/novnc-audio.patch` (adapted from novnc/noVNC#1952, MPL-2.0) in both
+identical copies: it advertises -259 only when constructed with an
+`audioContext`, requests S16 stereo at 44.1 kHz on the acknowledgement, and
+plays through an AudioWorklet (`core/audio.js`, served same-origin) with a
+60-100 ms jitter buffer that drops frames on overflow. One listening console
+costs about 176 KB/s (1.4 Mbit/s).
+
+USB redirection is not built (decision note on
+`container/bmc-experience-2026-11`); its flag still changes nothing.
 
 Exit criteria, all required for a feature to leave the bucket:
 
 - **audio**: a security review of the audio path; a server-side protocol filter
-  that passes only playback (never capture) from the guest; per-feature RBAC
+  that passes only playback (never capture) from the guest (the client-side
+  `rfb_filter` gates negotiation; the server stream is not yet parsed); per-feature RBAC
   separate from console admin; rate and size limits on the audio stream; and
   the user's decision recorded on `container/bmc-experience-2026-11`.
 - **usb-redirect**: a security review of the redirection path; a server-side

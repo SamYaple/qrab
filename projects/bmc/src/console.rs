@@ -1,4 +1,9 @@
-use crate::{admin_bucket, auth, AppState, Failure};
+use crate::{
+    admin_bucket::{self, Feature},
+    auth,
+    rfb_filter::RfbFilter,
+    AppState, Failure,
+};
 use axum::{
     extract::{
         ws::{Message, WebSocket, WebSocketUpgrade},
@@ -66,13 +71,23 @@ async fn bridge(
 ) {
     let (mut tx, mut rx) = ws.split();
     let (mut read, mut write) = stream.into_split();
+    let subject = &principal.user.subject;
     // Neither direction is detached. Dropping either copy future also drops
     // its stream half, including during backpressure or shutdown cancellation.
+    // Every browser byte passes the RFB filter, which enforces audio admission.
     let to_vnc = async {
+        let mut filter = RfbFilter::new();
+        let mut filtered = Vec::new();
         while let Some(Ok(message)) = rx.next().await {
             match message {
                 Message::Binary(bytes) => {
-                    match tokio::time::timeout(Duration::from_secs(5), write.write_all(&bytes))
+                    filtered.clear();
+                    let audio = grants.is_active(Feature::Audio);
+                    if let Err(violation) = filter.feed(&bytes, audio, &mut filtered) {
+                        tracing::warn!(%subject, %violation, "console closed by the RFB filter");
+                        break;
+                    }
+                    match tokio::time::timeout(Duration::from_secs(5), write.write_all(&filtered))
                         .await
                     {
                         Ok(Ok(())) => {}
@@ -106,7 +121,44 @@ async fn bridge(
         _=to_vnc => {}, _=to_ws => {},
         _=principal.ended(&app, auth::Role::Admin) => {},
         _=grants.supervise(&app, &principal) => {},
+        // Stopping audio already in flight would mean parsing the server's
+        // stream; closing the console is the simple, complete revocation.
+        _=lost(&grants, Feature::Audio) => {
+            tracing::info!(%subject, "console closed: audio admission ended");
+        },
     }
     grants.revoke_all(&principal.user.subject, "console closed");
     tracing::info!(subject=%principal.user.subject, "VM console disconnected");
+}
+
+/// Resolves when `feature`, admitted on this connection, is withdrawn; never
+/// for a feature the connection was not admitted.
+async fn lost(grants: &admin_bucket::Grants, feature: Feature) {
+    if grants.is_active(feature) {
+        grants.revoked(feature).await;
+    } else {
+        std::future::pending().await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+
+    #[tokio::test]
+    async fn only_an_admitted_feature_can_be_lost() {
+        let timeout = |grants: admin_bucket::Grants| async move {
+            tokio::time::timeout(Duration::from_millis(50), lost(&grants, Feature::Audio))
+                .await
+                .is_ok()
+        };
+        assert!(!timeout(admin_bucket::Grants::none()).await);
+        let grants = admin_bucket::Grants::new([Feature::Audio].into());
+        assert!(!timeout(grants.clone()).await);
+        let waiter = tokio::spawn(timeout(grants.clone()));
+        tokio::task::yield_now().await;
+        grants.revoke_all("subject", "test");
+        assert!(waiter.await.unwrap());
+    }
 }

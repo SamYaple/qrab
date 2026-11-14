@@ -1,4 +1,5 @@
 import RFB from './novnc/core/rfb.js';
+import { createAudioContext } from './novnc/core/audio.js';
 
 // Every management read and action goes to the in-pod Redfish service
 // through the BMC's /redfish proxy; the BMC itself serves only the session
@@ -256,7 +257,8 @@ element('connect').addEventListener('click', () => {
     screen.replaceChildren();
     try {
         const scheme = location.protocol === 'https:' ? 'wss:' : 'ws:';
-        rfb = new RFB(screen, `${scheme}//${location.host}/api/console`);
+        const audio = audioContext ? {audioContext} : {};
+        rfb = new RFB(screen, `${scheme}//${location.host}/api/console${audioContext ? '?features=audio' : ''}`, audio);
         rfb.scaleViewport = true;
         rfb.resizeSession = false;
         rfb.focusOnClick = true;
@@ -272,6 +274,25 @@ element('connect').addEventListener('click', () => {
         element('console-status').textContent = 'Connecting…';
     } catch (error) { disconnected('Console disconnected'); showError(error.message); }
 });
+// Admin-bucket guest audio (docs/bmc.md#admin-bucket): off until clicked.
+// The BMC admits audio per connection, so a change reconnects an open console.
+let audioContext = null;
+function audioToggle() {
+    const button = node('button', 'Audio off');
+    button.id = 'audio';
+    button.title = 'Guest audio playback, about 1.4 Mbit/s';
+    button.setAttribute('aria-pressed', 'false');
+    button.addEventListener('click', () => {
+        if (audioContext) { audioContext.close(); audioContext = null; } else { audioContext = createAudioContext(); }
+        button.textContent = audioContext ? 'Audio on' : 'Audio off';
+        button.setAttribute('aria-pressed', String(Boolean(audioContext)));
+        if (rfb) {
+            rfb.addEventListener('disconnect', () => element('connect').click(), {once: true});
+            rfb.disconnect();
+        }
+    });
+    element('fullscreen').after(button);
+}
 element('cad').addEventListener('click', () => rfb?.sendCtrlAltDel());
 element('fullscreen').addEventListener('click', () => element('screen').requestFullscreen().catch(error => showError(error.message)));
 element('logout').addEventListener('click', async () => {
@@ -287,6 +308,7 @@ try {
     element('role').hidden = false;
     element('vm-name').textContent = session.vm_name;
     const admin = session.role === 'admin';
+    if (admin && session.admin_bucket?.includes('audio')) audioToggle();
     if (!admin) {
         for (const item of document.querySelectorAll('.admin-only')) item.hidden = true;
         element('screen').replaceChildren(node('p', 'Console and power actions require the admin role.'));

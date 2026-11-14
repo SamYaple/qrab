@@ -1700,6 +1700,13 @@ async fn console_forwards_only_the_admin_bucket_features_the_vm_enables() {
         tokio_tungstenite::connect_async(req)
     };
     let hello = Message::Binary("RFB 003.008\n".into());
+    // The speaker toggle is rendered only when the VM enables audio.
+    let toggle = async || {
+        let (status, _, body) = send(&h, get("/vms/qrab/a/console", Some(&admin))).await;
+        assert_eq!(status, StatusCode::OK);
+        body.contains("id=\"audio\"")
+    };
+    assert!(!toggle().await);
     // Without spec.console.adminBucket nothing is forwarded.
     let (mut socket, _) = connect("a", "?features=audio", &admin).await.unwrap();
     assert_eq!(socket.next().await.unwrap().unwrap(), hello);
@@ -1713,6 +1720,7 @@ async fn console_forwards_only_the_admin_bucket_features_the_vm_enables() {
         audio: true,
         usb_redirect: false,
     });
+    assert!(toggle().await);
     let (mut socket, _) = connect("a", "?features=audio,usb-redirect", &admin)
         .await
         .unwrap();

@@ -5,6 +5,7 @@ pub mod config;
 mod console;
 mod events;
 pub mod proxy;
+pub mod rfb_filter;
 pub mod session_store;
 
 use axum::{

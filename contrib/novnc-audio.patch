@@ -1,0 +1,339 @@
+noVNC: QEMU VNC audio playback (pseudo-encoding -259), playback only.
+
+Adapted from novnc/noVNC#1952 "Qemu audio support v2" by Dietmar Maurer
+(https://github.com/novnc/noVNC/pull/1952, MPL-2.0; still open upstream).
+This adaptation is MPL-2.0 like the rest of noVNC (see LICENSE.txt).
+
+Changes from the upstream PR:
+- -259 is advertised only when RFB is constructed with
+  `options.audioContext`; without it the client behaves exactly as before.
+- On the acknowledgement it requests S16 (format 3), 2 channels, 44100 Hz,
+  then enables audio, once per connection.
+- Audio messages arriving without a negotiated acknowledgement, and unknown
+  QEMU sub-messages or operations, fail the connection.
+- Zero-length data messages are tolerated (upstream stalls on them), and a
+  data length above 1 MiB fails the connection.
+- Playback runs in an AudioWorklet with a bounded jitter buffer: it starts
+  after 60 ms is buffered, holds at most 100 ms, drops frames that arrive
+  while it is full, and re-primes after an underrun. core/audio.js is both
+  the page-side player and the worklet module, so it loads same-origin under
+  script-src 'self'.
+- No app/ui.js or vnc.html changes: the qrab console pages own the toggle.
+
+qrab keeps two identical vendored copies. Apply to each with:
+  git apply --directory=projects/bmc/assets/novnc contrib/novnc-audio.patch
+  git apply --directory=projects/dashboard/assets/novnc contrib/novnc-audio.patch
+
+diff --git a/core/audio.js b/core/audio.js
+new file mode 100644
+index 0000000..1cfba93
+--- /dev/null
++++ b/core/audio.js
+@@ -0,0 +1,156 @@
++/*
++ * noVNC: HTML5 VNC client
++ * Copyright (C) 2025 Dietmar Maurer, 2026 the qrab authors
++ * Licensed under MPL 2.0 (see LICENSE.txt)
++ *
++ * QEMU VNC audio playback (pseudo-encoding -259). Adapted for qrab from
++ * novnc/noVNC#1952 "Qemu audio support v2" by Dietmar Maurer (MPL-2.0):
++ * qrab requests S16 instead of U16 and plays through an AudioWorklet with a
++ * bounded jitter buffer instead of scheduling AudioBufferSourceNodes.
++ *
++ * This file is both the page-side player and, loaded with
++ * audioWorklet.addModule, the worklet processor, so a script-src 'self'
++ * policy covers it.
++ */
++
++const PROCESSOR = 'novnc-qemu-audio';
++export const SAMPLE_RATE = 44100;
++export const CHANNELS = 2;
++// Playback starts, and restarts after an underrun, once this much is buffered.
++const PRIME_SECONDS = 0.06;
++// Frames that arrive while the buffer holds this much are dropped.
++const CAPACITY_SECONDS = 0.1;
++
++if (typeof registerProcessor === 'function') {
++    // eslint-disable-next-line no-undef
++    registerProcessor(PROCESSOR, class extends AudioWorkletProcessor {
++        constructor(options) {
++            super();
++            const { channels, capacity, prime } = options.processorOptions;
++            this._channels = channels;
++            this._capacity = capacity;
++            this._prime = prime;
++            this._ring = new Float32Array(capacity * channels);
++            this._read = 0;
++            this._length = 0;
++            this._playing = false;
++            this.port.onmessage = ({ data }) => (data === null ? this._reset() : this._push(data));
++        }
++
++        _reset() {
++            this._read = 0;
++            this._length = 0;
++            this._playing = false;
++        }
++
++        // Interleaved S16 little-endian frames: [L0, R0, L1, R1, ...].
++        _push(buffer) {
++            const samples = new DataView(buffer);
++            const frames = Math.floor(buffer.byteLength / (2 * this._channels));
++            const take = Math.min(frames, this._capacity - this._length);
++            let write = (this._read + this._length) % this._capacity;
++            for (let f = 0; f < take; f++) {
++                for (let c = 0; c < this._channels; c++) {
++                    const sample = samples.getInt16((f * this._channels + c) * 2, true);
++                    this._ring[write * this._channels + c] = sample / 32768;
++                }
++                write = (write + 1) % this._capacity;
++            }
++            this._length += take;
++            if (this._length >= this._prime) {
++                this._playing = true;
++            }
++        }
++
++        process(inputs, outputs) {
++            const output = outputs[0];
++            if (!this._playing || output.length === 0) {
++                return true;
++            }
++            for (let f = 0; f < output[0].length; f++) {
++                if (this._length === 0) {
++                    this._playing = false;
++                    break;
++                }
++                for (let c = 0; c < output.length; c++) {
++                    const channel = Math.min(c, this._channels - 1);
++                    output[c][f] = this._ring[this._read * this._channels + channel];
++                }
++                this._read = (this._read + 1) % this._capacity;
++                this._length--;
++            }
++            return true;
++        }
++    });
++}
++
++// Browsers only let an AudioContext play when it was created or resumed
++// during a user gesture, so the page creates it in its click handler.
++export function createAudioContext() {
++    return new AudioContext({ latencyHint: 'interactive', sampleRate: SAMPLE_RATE });
++}
++
++export default class Audio {
++    constructor(context) {
++        this._context = context;
++        this._node = null;
++        this._loading = null;
++        this._closed = false;
++    }
++
++    get sampleRate() { return SAMPLE_RATE; }
++    get channels() { return CHANNELS; }
++
++    // The server's audio-begin. Data before the worklet is ready is dropped.
++    start() {
++        if (!this._loading) {
++            this._loading = this._context.audioWorklet.addModule(import.meta.url)
++                .then(() => {
++                    if (this._closed) {
++                        return;
++                    }
++                    this._node = new AudioWorkletNode(this._context, PROCESSOR, {
++                        numberOfInputs: 0,
++                        outputChannelCount: [CHANNELS],
++                        processorOptions: {
++                            channels: CHANNELS,
++                            capacity: Math.round(SAMPLE_RATE * CAPACITY_SECONDS),
++                            prime: Math.round(SAMPLE_RATE * PRIME_SECONDS),
++                        },
++                    });
++                    this._node.connect(this._context.destination);
++                });
++        }
++        if (this._context.state === 'suspended') {
++            this._context.resume().catch(() => {});
++        }
++        return this._loading;
++    }
++
++    // The server's audio-end: drop what is buffered.
++    stop() {
++        if (this._node) {
++            this._node.port.postMessage(null);
++        }
++    }
++
++    // One audio-data payload, which the player takes over.
++    play(bytes) {
++        if (!this._node || bytes.length === 0) {
++            return;
++        }
++        const buffer = bytes.byteOffset === 0 && bytes.byteLength === bytes.buffer.byteLength
++            ? bytes.buffer : bytes.slice().buffer;
++        this._node.port.postMessage(buffer, [buffer]);
++    }
++
++    // The connection ended; the page owns and closes the AudioContext.
++    close() {
++        this._closed = true;
++        if (this._node) {
++            this._node.disconnect();
++            this._node.port.close();
++            this._node = null;
++        }
++    }
++}
+diff --git a/core/encodings.js b/core/encodings.js
+index 1a79989..9ae3ae3 100644
+--- a/core/encodings.js
++++ b/core/encodings.js
+@@ -22,6 +22,7 @@ export const encodings = {
+     pseudoEncodingLastRect: -224,
+     pseudoEncodingCursor: -239,
+     pseudoEncodingQEMUExtendedKeyEvent: -258,
++    pseudoEncodingQEMUAudioEvent: -259,
+     pseudoEncodingQEMULedEvent: -261,
+     pseudoEncodingDesktopName: -307,
+     pseudoEncodingExtendedDesktopSize: -308,
+diff --git a/core/rfb.js b/core/rfb.js
+index f2deb0e..f64aeb9 100644
+--- a/core/rfb.js
++++ b/core/rfb.js
+@@ -14,6 +14,7 @@ import { dragThreshold } from './util/browser.js';
+ import { clientToElement } from './util/element.js';
+ import { setCapture } from './util/events.js';
+ import EventTargetMixin from './util/eventtarget.js';
++import Audio from "./audio.js";
+ import Display from "./display.js";
+ import Inflator from "./inflator.js";
+ import Deflator from "./deflator.js";
+@@ -150,6 +151,10 @@ export default class RFB extends EventTargetMixin {
+ 
+         this._qemuExtKeyEventSupported = false;
+ 
++        // QEMU audio is requested only when the page passes an AudioContext.
++        this._audio = options.audioContext ? new Audio(options.audioContext) : null;
++        this._qemuAudioSupported = false;
++
+         this._clipboardText = null;
+         this._clipboardServerCapabilitiesActions = {};
+         this._clipboardServerCapabilitiesFormats = {};
+@@ -616,6 +621,9 @@ export default class RFB extends EventTargetMixin {
+         this._canvas.removeEventListener("mousedown", this._eventHandlers.focusCanvas);
+         this._canvas.removeEventListener("touchstart", this._eventHandlers.focusCanvas);
+         this._resizeObserver.disconnect();
++        if (this._audio) {
++            this._audio.close();
++        }
+         this._keyboard.ungrab();
+         this._gestures.detach();
+         this._sock.close();
+@@ -2131,6 +2139,9 @@ export default class RFB extends EventTargetMixin {
+         encs.push(encodings.pseudoEncodingDesktopSize);
+         encs.push(encodings.pseudoEncodingLastRect);
+         encs.push(encodings.pseudoEncodingQEMUExtendedKeyEvent);
++        if (this._audio) {
++            encs.push(encodings.pseudoEncodingQEMUAudioEvent);
++        }
+         encs.push(encodings.pseudoEncodingQEMULedEvent);
+         encs.push(encodings.pseudoEncodingExtendedDesktopSize);
+         encs.push(encodings.pseudoEncodingXvp);
+@@ -2485,6 +2496,9 @@ export default class RFB extends EventTargetMixin {
+             case 250:  // XVP
+                 return this._handleXvpMsg();
+ 
++            case 255:  // QEMU server message
++                return this._handleQemuAudioMsg();
++
+             default:
+                 this._fail("Unexpected server message (type " + msgType + ")");
+                 Log.Debug("sock.rQpeekBytes(30): " + this._sock.rQpeekBytes(30));
+@@ -2557,6 +2571,15 @@ export default class RFB extends EventTargetMixin {
+                 this._qemuExtKeyEventSupported = true;
+                 return true;
+ 
++            case encodings.pseudoEncodingQEMUAudioEvent:
++                // The server acknowledged audio: request S16 stereo, then enable.
++                if (this._audio && !this._qemuAudioSupported) {
++                    this._qemuAudioSupported = true;
++                    RFB.messages.enableQemuAudio(this._sock, this._audio.channels,
++                                                 this._audio.sampleRate);
++                }
++                return true;
++
+             case encodings.pseudoEncodingDesktopName:
+                 return this._handleDesktopName();
+ 
+@@ -2575,6 +2598,47 @@ export default class RFB extends EventTargetMixin {
+         }
+     }
+ 
++    // QEMU audio: 255, 1, u16 operation (0 end, 1 begin, 2 data + u32 length).
++    _handleQemuAudioMsg() {
++        if (this._sock.rQwait("QEMU server message", 3, 1)) {
++            return false;
++        }
++        const submsg = this._sock.rQshift8();
++        const operation = this._sock.rQshift16();
++        if (submsg !== 1 || !this._qemuAudioSupported) {
++            return this._fail("Unexpected QEMU server message (type " + submsg + ")");
++        }
++
++        switch (operation) {
++            case 0:
++                this._audio.stop();
++                return true;
++            case 1:
++                this._audio.start().catch(e => Log.Error("Audio playback failed: " + e));
++                return true;
++            case 2:
++                break;
++            default:
++                return this._fail("Unexpected QEMU audio operation " + operation);
++        }
++
++        if (this._sock.rQwait("QEMU audio data length", 4, 4)) {
++            return false;
++        }
++        const length = this._sock.rQshift32();
++        if (length > 1 << 20) {
++            return this._fail("QEMU audio data too long (" + length + " bytes)");
++        }
++        if (length === 0) {
++            return true;
++        }
++        if (this._sock.rQwait("QEMU audio data", length, 8)) {
++            return false;
++        }
++        this._audio.play(this._sock.rQshiftBytes(length));
++        return true;
++    }
++
+     _handleVMwareCursor() {
+         const hotx = this._FBU.x;  // hotspot-x
+         const hoty = this._FBU.y;  // hotspot-y
+@@ -3148,6 +3212,21 @@ RFB.messages = {
+         sock.flush();
+     },
+ 
++    enableQemuAudio(sock, channels, sampleRate) {
++        sock.sQpush8(255); // msg-type
++        sock.sQpush8(1); // submessage-type: audio
++        sock.sQpush16(2); // set-format
++        sock.sQpush8(3); // S16
++        sock.sQpush8(channels);
++        sock.sQpush32(sampleRate);
++
++        sock.sQpush8(255); // msg-type
++        sock.sQpush8(1); // submessage-type: audio
++        sock.sQpush16(0); // enable
++
++        sock.flush();
++    },
++
+     pixelFormat(sock, depth, trueColor) {
+         let bpp;
+ 

@@ -246,6 +246,7 @@ fn main() {
             namespace: "qrab".into(),
             name: "qrab-demo".into(),
             csrf: "preview".into(),
+            audio: true,
         })),
         &css,
     );

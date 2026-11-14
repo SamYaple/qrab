@@ -1834,3 +1834,255 @@ async fn unreachable_redfish_is_a_named_503() {
         )
     );
 }
+
+/// The manager's control socket with a fake QEMU VNC server behind its
+/// console: it acknowledges -259 only when SetEncodings asks for it, answers
+/// audio enable with audio-begin and one data message, and answers a
+/// FramebufferUpdateRequest with a Bell. Like QEMU it drops a connection that
+/// sends a 255/1 audio message without negotiating -259. Each console reports
+/// the client messages it received when it ends.
+fn fake_vnc_manager(path: &std::path::Path) -> tokio::sync::mpsc::UnboundedReceiver<Vec<Vec<u8>>> {
+    let listener = tokio::net::UnixListener::bind(path).unwrap();
+    let (sender, receiver) = tokio::sync::mpsc::unbounded_channel();
+    tokio::spawn(async move {
+        while let Ok((stream, _)) = listener.accept().await {
+            let sender = sender.clone();
+            tokio::spawn(async move {
+                let mut received = Vec::new();
+                let _ = fake_vnc(stream, &mut received).await;
+                let _ = sender.send(received);
+            });
+        }
+    });
+    receiver
+}
+
+async fn fake_vnc(
+    mut stream: tokio::net::UnixStream,
+    received: &mut Vec<Vec<u8>>,
+) -> std::io::Result<()> {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    async fn read(stream: &mut tokio::net::UnixStream, n: usize) -> std::io::Result<Vec<u8>> {
+        let mut bytes = vec![0; n];
+        stream.read_exact(&mut bytes).await?;
+        Ok(bytes)
+    }
+    stream
+        .write_all(b"{\"protocol\":\"qrab-control\",\"version\":1,\"vm\":\"fake\",\"operations\":[\"console\"]}\n")
+        .await?;
+    let mut line = Vec::new();
+    loop {
+        match stream.read_u8().await? {
+            b'\n' => break,
+            byte => line.push(byte),
+        }
+    }
+    let request: serde_json::Value = serde_json::from_slice(&line).unwrap();
+    assert_eq!(request["op"], "console");
+    let reply = format!("{{\"v\":1,\"id\":{},\"result\":null}}\n", request["id"]);
+    stream.write_all(reply.as_bytes()).await?;
+    // RFB 3.8 with the None security type, as QEMU serves the private socket.
+    stream.write_all(b"RFB 003.008\n\x01\x01").await?;
+    assert_eq!(read(&mut stream, 12).await?, b"RFB 003.008\n");
+    assert_eq!(read(&mut stream, 1).await?, [1]);
+    stream.write_all(&[0, 0, 0, 0]).await?;
+    read(&mut stream, 1).await?;
+    stream
+        .write_all(&[
+            2, 128, 1, 224, 32, 24, 0, 1, 0, 255, 0, 255, 0, 255, 16, 8, 0, 0, 0, 0, 0, 0, 0, 4,
+            b'f', b'a', b'k', b'e',
+        ])
+        .await?;
+    let mut audio = false;
+    loop {
+        let mut message = vec![stream.read_u8().await?];
+        match message[0] {
+            2 => {
+                message.extend(read(&mut stream, 3).await?);
+                let count = u16::from_be_bytes([message[2], message[3]]);
+                message.extend(read(&mut stream, 4 * usize::from(count)).await?);
+                if message[4..].chunks(4).any(|e| e == (-259i32).to_be_bytes()) {
+                    audio = true;
+                    stream
+                        .write_all(&[0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, 0xfe, 0xfd])
+                        .await?;
+                }
+            }
+            3 => {
+                message.extend(read(&mut stream, 9).await?);
+                stream.write_all(&[2]).await?;
+            }
+            255 => {
+                message.push(stream.read_u8().await?);
+                if message[1] == 0 {
+                    message.extend(read(&mut stream, 10).await?);
+                } else {
+                    message.extend(read(&mut stream, 2).await?);
+                    if !audio {
+                        received.push(message);
+                        return Ok(());
+                    }
+                    match message[3] {
+                        0 => {
+                            stream.write_all(&[255, 1, 0, 1]).await?;
+                            stream
+                                .write_all(&[255, 1, 0, 2, 0, 0, 0, 4, 1, 2, 3, 4])
+                                .await?;
+                        }
+                        2 => message.extend(read(&mut stream, 6).await?),
+                        _ => {}
+                    }
+                }
+            }
+            _ => return Ok(()),
+        }
+        received.push(message);
+    }
+}
+
+async fn closes_within(
+    ws: &mut (impl futures::Stream<
+        Item = tokio_tungstenite::tungstenite::Result<tokio_tungstenite::tungstenite::Message>,
+    > + Unpin),
+    what: &str,
+) {
+    use futures::StreamExt;
+    use tokio_tungstenite::tungstenite::Message;
+    tokio::time::timeout(std::time::Duration::from_secs(4), async {
+        while let Some(Ok(message)) = ws.next().await {
+            if matches!(message, Message::Close(_)) {
+                break;
+            }
+        }
+    })
+    .await
+    .unwrap_or_else(|_| panic!("{what} left the console open"));
+}
+
+#[tokio::test]
+async fn unadmitted_consoles_never_negotiate_or_receive_audio() {
+    use futures::{SinkExt, StreamExt};
+    use std::future::IntoFuture;
+    use std::time::Duration;
+    use tokio_tungstenite::tungstenite::{client::IntoClientRequest, Message};
+    use tower_sessions::SessionStore;
+    let runtime = tempfile::tempdir().unwrap();
+    let socket = runtime.path().join("control.sock");
+    let mut reports = fake_vnc_manager(&socket);
+    let mut app = app();
+    app.control = manager::pod::Backend::Socket(manager::pod::Remote::new(socket));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = tokio::spawn(axum::serve(listener, bmc::router(app.clone())).into_future());
+    let bearer_console = |query: &str| {
+        let mut request = format!("ws://{address}/api/console{query}")
+            .into_client_request()
+            .unwrap();
+        request.headers_mut().insert(
+            "authorization",
+            format!("Bearer {}", bearer(SUBJECT)).parse().unwrap(),
+        );
+        request
+    };
+    let encodings = |list: &[i32]| {
+        let mut message = vec![2, 0];
+        message.extend((list.len() as u16).to_be_bytes());
+        list.iter().for_each(|e| message.extend(e.to_be_bytes()));
+        message
+    };
+    let extended_key = [255, 0, 0, 1, 0, 0, 0, 0x61, 0, 0, 0, 0x1e].to_vec();
+    let set_format = [255, 1, 0, 2, 3, 2, 0, 0, 0xac, 0x44].to_vec();
+    let enable = [255, 1, 0, 0].to_vec();
+    let update_request = [3, 1, 0, 0, 0, 0, 2, 128, 1, 224].to_vec();
+    // The server's handshake: version, security types, result, ServerInit.
+    const PREFIX: usize = 12 + 2 + 4 + 28;
+    let ack = [0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, 0xfe, 0xfd];
+    let begin_and_data = [255, 1, 0, 1, 255, 1, 0, 2, 0, 0, 0, 4, 1, 2, 3, 4];
+    let admitted_tail = [&ack[..], &begin_and_data, &[2]].concat();
+    for (query, expected_tail, expected_received) in [
+        // Unadmitted: only the Bell answers; QEMU saw no -259 and no 255/1.
+        (
+            "",
+            vec![2],
+            vec![
+                encodings(&[0, -258]),
+                extended_key.clone(),
+                update_request.clone(),
+            ],
+        ),
+        (
+            "?features=audio",
+            admitted_tail,
+            vec![
+                encodings(&[0, -258, -259]),
+                extended_key.clone(),
+                set_format.clone(),
+                enable.clone(),
+                update_request.clone(),
+            ],
+        ),
+    ] {
+        let (mut ws, _) = tokio_tungstenite::connect_async(bearer_console(query))
+            .await
+            .unwrap();
+        // Handshake and SetEncodings coalesced in one frame, the rest split
+        // across frames mid-message.
+        let first = [&b"RFB 003.008\n\x01\x01"[..], &encodings(&[0, -258, -259])].concat();
+        ws.send(Message::Binary(first.into())).await.unwrap();
+        let rest = [&extended_key[..], &set_format, &enable, &update_request].concat();
+        for chunk in rest.chunks(3) {
+            ws.send(Message::Binary(chunk.to_vec().into()))
+                .await
+                .unwrap();
+        }
+        let mut bytes = Vec::new();
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while bytes.len() < PREFIX + expected_tail.len() {
+                match ws.next().await {
+                    Some(Ok(Message::Binary(chunk))) => bytes.extend_from_slice(&chunk),
+                    other => panic!("console ended early: {other:?}"),
+                }
+            }
+        })
+        .await
+        .unwrap_or_else(|_| panic!("{query}: {bytes:?}"));
+        assert_eq!(&bytes[PREFIX..], expected_tail, "{query}");
+        ws.close(None).await.unwrap();
+        let received = tokio::time::timeout(Duration::from_secs(5), reports.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(received, expected_received, "{query}");
+    }
+    // Losing the audio grant (here: the admin session ends) closes the
+    // console without client cooperation.
+    let cookie = cookie(app.sessions.clone(), SUBJECT, auth::now() + 60).await;
+    let mut request = format!("ws://{address}/api/console?features=audio")
+        .into_client_request()
+        .unwrap();
+    let headers = request.headers_mut();
+    headers.insert("origin", "https://vm.example".parse().unwrap());
+    headers.insert("cookie", cookie.parse().unwrap());
+    let (mut ws, _) = tokio_tungstenite::connect_async(request).await.unwrap();
+    let banner = ws.next().await.unwrap().unwrap();
+    assert!(matches!(banner, Message::Binary(ref bytes) if bytes.starts_with(b"RFB ")));
+    app.sessions
+        .delete(&cookie.split_once('=').unwrap().1.parse().unwrap())
+        .await
+        .unwrap();
+    closes_within(&mut ws, "losing the audio grant").await;
+    // An unknown client message closes the console before it reaches QEMU.
+    let (mut ws, _) = tokio_tungstenite::connect_async(bearer_console(""))
+        .await
+        .unwrap();
+    let violation = [&b"RFB 003.008\n\x01\x01"[..], &[9]].concat();
+    ws.send(Message::Binary(violation.into())).await.unwrap();
+    closes_within(&mut ws, "an unknown client message").await;
+    reports.recv().await.unwrap();
+    let report = tokio::time::timeout(Duration::from_secs(5), reports.recv())
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(report.is_empty(), "{report:?}");
+    server.abort();
+}
