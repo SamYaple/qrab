@@ -278,9 +278,152 @@ fn bmc_panel(panel: &Panel) -> Element {
         },
         Err(e) => panel_error("Recent QMP events", e),
     };
+    let history = history_card(&panel.history);
     rsx! {
         p { class: "muted", "Read from the VM's Redfish service with your sign-in." }
-        div { class: "panel-grid", {status} {agent} {config} {events} }
+        div { class: "panel-grid", {status} {agent} {config} {history} {events} }
+    }
+}
+
+/// Sparkline geometry: the viewBox the polylines are drawn in.
+const SPARK_W: f64 = 240.0;
+const SPARK_H: f64 = 48.0;
+/// Series colours are CSS classes (`spark-0`..), as the page CSP forbids inline styles.
+const SPARK_COLOURS: usize = 4;
+
+/// A value in a history unit, short enough for a legend.
+pub fn history_value(value: f64, unit: &str) -> String {
+    let scaled = |value: f64, suffix: &str| {
+        let units = ["B", "KiB", "MiB", "GiB", "TiB"];
+        let mut value = value;
+        let mut index = 0;
+        while value.abs() >= 1024.0 && index + 1 < units.len() {
+            value /= 1024.0;
+            index += 1;
+        }
+        let digits = if index == 0 || value.abs() >= 10.0 {
+            0
+        } else {
+            1
+        };
+        format!("{value:.digits$} {}{suffix}", units[index])
+    };
+    match unit {
+        "bytes" => scaled(value, ""),
+        "bytes/s" => scaled(value, "/s"),
+        "cores" if value.abs() < 1.0 => format!("{:.0} mcores", value * 1000.0),
+        "cores" => format!("{value:.2} cores"),
+        unit => format!("{value} {unit}"),
+    }
+}
+
+/// One series as polyline points, scaled to `[start, end] x [0, max]`.
+pub fn spark_points(points: &[(f64, f64)], start: f64, end: f64, max: f64) -> String {
+    let span = (end - start).max(1.0);
+    let max = if max > 0.0 { max } else { 1.0 };
+    points
+        .iter()
+        .map(|(t, v)| {
+            let x = ((t - start) / span).clamp(0.0, 1.0) * SPARK_W;
+            let y = SPARK_H - (v / max).clamp(0.0, 1.0) * (SPARK_H - 2.0) - 1.0;
+            format!("{x:.1},{y:.1}")
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn sparkline(metric: &str, history: &redfish::History) -> Element {
+    let max = history
+        .series
+        .iter()
+        .flat_map(|s| s.points.iter().map(|(_, v)| *v))
+        .fold(0.0_f64, f64::max);
+    let lines: Vec<_> = history
+        .series
+        .iter()
+        .enumerate()
+        .map(|(index, series)| {
+            let latest = series
+                .points
+                .last()
+                .map(|(_, v)| history_value(*v, &history.unit))
+                .unwrap_or_else(|| "no data".into());
+            (
+                format!("spark-{}", index % SPARK_COLOURS),
+                series.label(),
+                spark_points(
+                    &series.points,
+                    history.start as f64,
+                    history.end as f64,
+                    max,
+                ),
+                latest,
+            )
+        })
+        .collect();
+    let has_data = history.series.iter().any(|s| !s.points.is_empty());
+    let summary = format!(
+        "{}, last hour, peak {}; latest {}.",
+        history.name,
+        history_value(max, &history.unit),
+        lines
+            .iter()
+            .map(|(_, label, _, latest)| format!("{label} {latest}"))
+            .collect::<Vec<_>>()
+            .join(", ")
+    );
+    let title = if history.name.is_empty() {
+        history_title(metric).to_owned()
+    } else {
+        history.name.clone()
+    };
+    rsx! {
+        figure { class: "spark", "data-metric": "{metric}",
+            if !has_data { figcaption { b { "{title}" } } p { class: "muted", "No data in the last hour." } }
+            else { figcaption { b { "{title}" } span { class: "muted", " · peak {history_value(max, &history.unit)}" } }
+            svg { view_box: "0 0 240 48", preserve_aspect_ratio: "none", role: "img", "aria-label": "{summary}",
+                line { class: "spark-axis", x1: "0", y1: "47", x2: "240", y2: "47" }
+                for (class, _, points, _) in lines.iter() {
+                    polyline { class: "{class}", points: "{points}" }
+                }
+            }
+            ul { class: "spark-legend",
+                for (class, label, _, latest) in lines.iter() {
+                    li { span { class: "swatch {class}" } code { "{label}" } " {latest}" }
+                }
+            } }
+        }
+    }
+}
+
+/// A heading for a history metric whose answer carried none.
+fn history_title(metric: &str) -> &str {
+    match metric {
+        "container-cpu" => "Container CPU",
+        "container-memory" => "Container memory working set",
+        "block-read" => "Disk read",
+        "block-write" => "Disk write",
+        "nic-rx" => "Network received",
+        "nic-tx" => "Network sent",
+        other => other,
+    }
+}
+
+fn history_card(history: &[redfish::HistoryRead]) -> Element {
+    rsx! {
+        section { class: "card wide", h3 { "Metric history (last hour)" }
+            p { class: "muted", "From the cluster Prometheus through the VM's Redfish MetricHistory: container CPU and memory from kubelet cAdvisor, disk and network rates from the Redfish export." }
+            div { class: "spark-grid",
+                for (metric, read) in history.iter() {
+                    match read {
+                        Ok(h) => sparkline(metric, h),
+                        Err(e) => rsx! { figure { class: "spark", "data-metric": "{metric}",
+                            figcaption { b { {history_title(metric)} } }
+                            p { class: "muted", role: "status", "Unavailable: {e}" } } },
+                    }
+                }
+            }
+        }
     }
 }
 

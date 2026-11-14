@@ -255,6 +255,17 @@ changes the Pod template, so the first operator rollout with it replaces each
 Redfish-enabled VM Pod once. `contrib/kubernetes/monitoring/` holds the one
 static PodMonitor and the Grafana dashboard ConfigMap.
 
+For [metric history](redfish.md#metric-history) the Redfish sidecar also
+receives `REDFISH_PROMETHEUS_URL=http://kube-prometheus-stack-prometheus.monitoring.svc:9090`
+and its own `QRAB_POD_NAME` / `QRAB_POD_NAMESPACE` (downward API), and the
+operator keeps a second owned, additive CiliumNetworkPolicy
+`<vm>-redfish-prometheus` selecting the VM Pod: egress to Prometheus Pods
+(`app.kubernetes.io/name=prometheus`) in `monitoring` on TCP 9090 and nothing
+else. It never enables default deny; the Service name resolves through the
+VM's existing kube-dns egress (as in `console.yaml`). It is deleted when
+Redfish is disabled. The new environment changes the Pod template, so the
+first operator rollout with it replaces each Redfish-enabled VM Pod once.
+
 The console public URL must have a matching Service/Ingress, TLS certificate and
 exact registered Kanidm callback. See [bmc.md](bmc.md). The operator does not
 mutate the identity provider. The sample's existing URL and Sam allowlist remain

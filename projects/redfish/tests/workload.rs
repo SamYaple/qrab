@@ -51,6 +51,7 @@ async fn server(ca: &Authority) -> (Workload, SocketAddr, tokio::task::JoinHandl
         triggers: Default::default(),
         subscriptions: Default::default(),
         exporter: Default::default(),
+        history: Default::default(),
     };
     let task = tokio::spawn(async move {
         axum::serve(listener, qrab_redfish::router(state))

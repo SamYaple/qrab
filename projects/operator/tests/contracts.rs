@@ -1870,3 +1870,68 @@ fn admin_bucket_is_default_off_and_renders_only_enabled_features() {
     }
     assert!(serde_json::from_value::<api::AdminBucket>(json!({"microphone":true})).is_err());
 }
+
+#[test]
+fn redfish_may_reach_only_monitoring_prometheus_on_9090_for_its_own_pods_history() {
+    let machine = with_components(false, true);
+    let pod = serde_json::to_value(&resources::render(&machine, &settings()).unwrap().pod).unwrap();
+    let redfish = pod["spec"]["initContainers"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|c| c["name"] == "redfish")
+        .cloned()
+        .unwrap();
+    let env = env(&redfish);
+    assert_eq!(
+        env["REDFISH_PROMETHEUS_URL"],
+        "http://kube-prometheus-stack-prometheus.monitoring.svc:9090"
+    );
+    // History queries are scoped to the Pod's own downward-API identity.
+    assert_eq!(
+        env["QRAB_POD_NAME"],
+        json!({"fieldRef":{"fieldPath":"metadata.name"}})
+    );
+    assert_eq!(
+        env["QRAB_POD_NAMESPACE"],
+        json!({"fieldRef":{"fieldPath":"metadata.namespace"}})
+    );
+
+    let policy = resources::redfish_prometheus_policy(&machine, &settings())
+        .unwrap()
+        .unwrap();
+    assert_eq!(policy.name_any(), "test-vm-redfish-prometheus");
+    assert_eq!(policy.metadata.namespace.as_deref(), Some("qrab"));
+    let owners = policy.metadata.owner_references.as_ref().unwrap();
+    assert_eq!(owners.len(), 1);
+    assert_eq!(owners[0].uid, "owner-one");
+    assert_eq!(owners[0].controller, Some(true));
+    let spec = &policy.data["spec"];
+    assert_eq!(
+        spec["endpointSelector"],
+        json!({"matchLabels":{"app.kubernetes.io/name":"qrab","app.kubernetes.io/component":"vm","qrab.yapplesauce.com/owner-uid":"owner-one"}})
+    );
+    // Additive egress only: no ingress, no default deny, one peer, one port.
+    assert_eq!(
+        spec["enableDefaultDeny"],
+        json!({"ingress":false,"egress":false})
+    );
+    assert!(spec.get("ingress").is_none() && spec.get("ingressDeny").is_none());
+    assert_eq!(
+        spec["egress"],
+        json!([{"toEndpoints":[{"matchLabels":{"k8s:io.kubernetes.pod.namespace":"monitoring","app.kubernetes.io/name":"prometheus"}}],
+            "toPorts":[{"ports":[{"port":"9090","protocol":"TCP"}]}]}])
+    );
+    // The BMC brings Redfish, so it gets the policy too; neither means none.
+    assert!(
+        resources::redfish_prometheus_policy(&with_components(true, false), &settings())
+            .unwrap()
+            .is_some()
+    );
+    let plain = with_components(false, false);
+    assert!(resources::redfish_prometheus_policy(&plain, &settings())
+        .unwrap()
+        .is_none());
+    let pod = serde_json::to_value(&resources::render(&plain, &settings()).unwrap().pod).unwrap();
+    assert!(!pod.to_string().contains("REDFISH_PROMETHEUS_URL"));
+}

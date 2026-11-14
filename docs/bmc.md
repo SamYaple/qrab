@@ -28,7 +28,8 @@ The RAM-only fixture has an interactive root shell on its virtual terminal.
 Keyboard and absolute pointer devices are exposed to the guest; the fixture's
 terminal is not a desktop environment. A graphical guest can consume the same
 USB tablet events. The fixture has no persistent root filesystem or NIC.
-Clipboard sharing, sound and guest networking remain outside this stage.
+Clipboard sharing and guest networking remain outside this stage; guest audio
+playback is an opt-in [admin-bucket](#admin-bucket) feature.
 The minimal [operator](operator.md) now creates the per-VM Pod from a CR.
 
 ## Browser UI
@@ -57,8 +58,16 @@ modules):
     guest-agent state.
   - *Metrics*: current values from `TelemetryService/MetricReports/VM` and
     `Managers/1/Oem/Qrab/Resources`, polled every 5 s only while the tab is
-    shown (each report read takes a fresh QMP sample). The `#metric-history`
-    slot is reserved for the history graphs of `work/bmc-metric-history-graphs`.
+    shown (each report read takes a fresh QMP sample). Below them, *History*
+    draws one hand-written SVG line chart per Redfish
+    [MetricHistory](redfish.md#metric-history) metric (container CPU and
+    memory, disk read and write, network received and sent) with a
+    15m/1h/6h/24h/7d range selector (remembered per user), unit-labelled axes,
+    a legend with the latest values, a pointer or keyboard (arrow keys, Home,
+    End) readout, and an `aria-label` text summary per chart. History is
+    re-read at most every 30 s while the tab shows; a metric whose request
+    fails shows Redfish's error text instead of its chart. Colours are the
+    page's CSS custom properties, with a light palette.
   - *Events*: the QMP event log (the newest 100 `LogServices/Events`
     entries) followed by the live `EventService/SSE` stream, and a name
     filter. A stream `Qrab.1.0.EventsMissed` notice (a reconnect whose
@@ -324,9 +333,13 @@ Exit criteria, all required for a feature to leave the bucket:
 
 Known bucket concern: Prometheus in this cluster
 (`kube-prometheus-stack-prometheus:9090`) has no query authentication. The
-planned VM-pod egress to it for metric history graphs
-(`work/bmc-metric-history-graphs`) would let a compromised BMC or Redfish
-sidecar query every series in the cluster, not only its own VM's.
+operator's `<vm>-redfish-prometheus` policy gives every Redfish-enabled VM Pod
+egress to it on 9090 for [metric history](redfish.md#metric-history), so a
+compromised container in a VM Pod (the BMC, the Redfish sidecar or the
+manager) can query every series in the cluster, not only its own VM's.
+Redfish itself sends only its fixed, Pod-scoped PromQL. Closing this needs
+query authorization in front of Prometheus (for example a label-enforcing
+proxy keyed by the Pod's identity).
 
 ## Dashboard bearer tokens
 

@@ -76,7 +76,97 @@ fn panel() -> Panel {
             entries: serde_json::from_value(serde_json::Value::Array(events)).unwrap(),
             qmp_dropped: Some(2),
         }),
+        history: history(now / 1000),
     }
+}
+
+type Points = Vec<(f64, f64)>;
+
+/// A representative last hour of every MetricHistory metric; NIC tx failed.
+fn history(end: u64) -> Vec<qrab_dashboard::redfish::HistoryRead> {
+    let end = end as i64;
+    let start = end - 3600;
+    let wave = |base: f64, amplitude: f64, phase: f64| -> Points {
+        (0..=240)
+            .map(|i| {
+                let t = (start + i * 15) as f64;
+                let x = i as f64 / 240.0 * std::f64::consts::TAU * 3.0 + phase;
+                (
+                    t,
+                    (base + amplitude * x.sin() + amplitude * 0.4 * (x * 3.7).cos()).max(0.0),
+                )
+            })
+            .collect()
+    };
+    let series = |items: Vec<(&str, &str, Points)>| -> Vec<qrab_dashboard::redfish::HistorySeries> {
+        items
+            .into_iter()
+            .map(
+                |(key, label, points)| qrab_dashboard::redfish::HistorySeries {
+                    labels: [(key.to_owned(), label.to_owned())].into(),
+                    points,
+                },
+            )
+            .collect()
+    };
+    let one = |name: &str, unit: &str, series| qrab_dashboard::redfish::History {
+        name: name.into(),
+        unit: unit.into(),
+        step: 15,
+        start,
+        end,
+        series,
+    };
+    vec![
+        (
+            "container-cpu",
+            Ok(one(
+                "Container CPU",
+                "cores",
+                series(vec![
+                    ("container", "bmc", wave(0.002, 0.001, 0.0)),
+                    ("container", "manager", wave(0.12, 0.06, 1.0)),
+                    ("container", "redfish", wave(0.003, 0.002, 2.0)),
+                ]),
+            )),
+        ),
+        (
+            "container-memory",
+            Ok(one(
+                "Container memory working set",
+                "bytes",
+                series(vec![
+                    ("container", "bmc", wave(2.4e6, 1e5, 0.0)),
+                    ("container", "manager", wave(4.9e8, 1.5e7, 0.5)),
+                    ("container", "redfish", wave(1.7e6, 1e5, 1.0)),
+                ]),
+            )),
+        ),
+        (
+            "block-read",
+            Ok(one(
+                "Disk read",
+                "bytes/s",
+                series(vec![
+                    ("drive", "boot", wave(40_000.0, 35_000.0, 0.3)),
+                    ("drive", "data", wave(8_000.0, 6_000.0, 2.2)),
+                ]),
+            )),
+        ),
+        (
+            "block-write",
+            Ok(one(
+                "Disk write",
+                "bytes/s",
+                series(vec![
+                    ("drive", "boot", wave(12_000.0, 10_000.0, 1.3)),
+                    ("drive", "data", wave(90_000.0, 60_000.0, 0.1)),
+                ]),
+            )),
+        ),
+        ("nic-rx", Ok(one("Network received", "bytes/s", Vec::new()))),
+        ("nic-tx", Err("Redfish answered HTTP 503".into())),
+    ]
 }
 
 /// A dashboard-launched CirrOS VM with two NICs (one still pending), status

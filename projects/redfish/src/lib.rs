@@ -11,6 +11,8 @@ pub use subscriptions::{spawn as spawn_subscriptions, SubscriptionStore};
 mod boot;
 mod firmware;
 mod hardware;
+pub mod history;
+pub use history::HistoryStore;
 mod inventory;
 mod media;
 pub mod prometheus;
@@ -112,6 +114,8 @@ pub struct AppState {
     pub subscriptions: SubscriptionStore,
     /// Coalesced Prometheus collection for [`metrics_router`].
     pub exporter: MetricsExport,
+    /// Metric history read back from the cluster Prometheus.
+    pub history: HistoryStore,
 }
 
 /// A Redfish error response with a Base registry message.
@@ -311,6 +315,7 @@ pub fn router(app: AppState) -> Router {
             get(telemetry::resources),
         )
         .route(telemetry::SERVICE, get(telemetry::service))
+        .route(history::PATH, get(history::history))
         .route(
             "/redfish/v1/TelemetryService/MetricReports",
             get(telemetry::reports),

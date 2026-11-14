@@ -15,6 +15,16 @@ pub const RESET: &str = "/redfish/v1/Systems/1/Actions/ComputerSystem.Reset";
 pub const RESET_INFO: &str = "/redfish/v1/Systems/1/ResetActionInfo";
 pub const EVENT_LOG: &str = "/redfish/v1/Managers/1/LogServices/Events";
 pub const EVENT_ENTRIES: &str = "/redfish/v1/Managers/1/LogServices/Events/Entries";
+/// The last hour of each Redfish `MetricHistory` metric (fixed server-side
+/// PromQL over the cluster Prometheus), in the order the page shows them.
+pub const HISTORY: [&str; 6] = [
+    "/redfish/v1/TelemetryService/Oem/Qrab/MetricHistory?metric=container-cpu&range=1h",
+    "/redfish/v1/TelemetryService/Oem/Qrab/MetricHistory?metric=container-memory&range=1h",
+    "/redfish/v1/TelemetryService/Oem/Qrab/MetricHistory?metric=block-read&range=1h",
+    "/redfish/v1/TelemetryService/Oem/Qrab/MetricHistory?metric=block-write&range=1h",
+    "/redfish/v1/TelemetryService/Oem/Qrab/MetricHistory?metric=nic-rx&range=1h",
+    "/redfish/v1/TelemetryService/Oem/Qrab/MetricHistory?metric=nic-tx&range=1h",
+];
 
 /// QMP events the detail page shows, newest first.
 pub const EVENTS_SHOWN: usize = 20;
@@ -214,16 +224,26 @@ impl Redfish {
 
     /// The detail page's reads, fetched concurrently.
     pub async fn panel(&self, ip: IpAddr, token: &str) -> Panel {
-        let (system, log, entries) = tokio::join!(
+        let history = futures::future::join_all(HISTORY.map(|path| async move {
+            let metric = path
+                .split_once("metric=")
+                .and_then(|(_, rest)| rest.split('&').next())
+                .unwrap_or_default();
+            let read = self.get::<History>(ip, path, token, MAX_BODY).await;
+            (metric, read.map_err(|e| e.to_string()))
+        }));
+        let (system, log, entries, history) = tokio::join!(
             self.get::<System>(ip, SYSTEM, token, MAX_BODY),
             self.get::<LogService>(ip, EVENT_LOG, token, MAX_BODY),
             self.get::<Collection<LogEntry>>(ip, EVENT_ENTRIES, token, MAX_LOG_BODY),
+            history,
         );
         Panel {
             system: system.map_err(|e| e.to_string()),
             events: entries
                 .map(|entries| Events::newest(entries.members, log.ok()))
                 .map_err(|e| e.to_string()),
+            history,
         }
     }
 }
@@ -426,10 +446,44 @@ impl Events {
     }
 }
 
+/// One Redfish `MetricHistory` answer: series of `[unix seconds, value]`
+/// points in `unit`. Labels are configured drive/NIC ids or container names,
+/// still rendered only as escaped text.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default)]
+pub struct History {
+    #[serde(rename = "Name")]
+    pub name: String,
+    pub unit: String,
+    pub step: u64,
+    pub start: i64,
+    pub end: i64,
+    pub series: Vec<HistorySeries>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default)]
+pub struct HistorySeries {
+    pub labels: BTreeMap<String, String>,
+    pub points: Vec<(f64, f64)>,
+}
+
+impl HistorySeries {
+    /// The series' one label value, e.g. `manager` or a drive id.
+    pub fn label(&self) -> String {
+        self.labels.values().next().cloned().unwrap_or_default()
+    }
+}
+
+/// A [`HISTORY`] metric id and its answer, or the error text.
+pub type HistoryRead = (&'static str, Result<History, String>);
+
 #[derive(Debug, Clone)]
 pub struct Panel {
     pub system: Result<System, String>,
     pub events: Result<Events, String>,
+    /// Each [`HISTORY`] metric id with its answer, in order.
+    pub history: Vec<HistoryRead>,
 }
 
 /// A short description of a config-view disk.

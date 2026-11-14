@@ -53,7 +53,16 @@ token (viewers and admins alike):
 - `Managers/1/LogServices/Events` for the QMP drop count, and its `Entries`
   for the newest 20 QMP events. Redfish implements no `$top`/`$skip`, so the
   dashboard reads the whole bounded log (at most 256 entries) and keeps the
-  newest 20.
+  newest 20;
+- `TelemetryService/Oem/Qrab/MetricHistory` with a fixed `range=1h` for each
+  metric (`container-cpu`, `container-memory`, `block-read`, `block-write`,
+  `nic-rx`, `nic-tx`), drawn as server-side SVG sparklines in a *Metric
+  history* card: one polyline per series scaled to the hour and the peak, a
+  legend with the latest values and an `aria-label` summary. Series colours
+  are stylesheet classes, so the page keeps its script-free CSP without
+  inline styles. A metric with no samples says so, and a failed read shows
+  the Redfish error. The six reads run concurrently with the others; Redfish
+  answers them from Prometheus ([redfish.md](redfish.md#metric-history)).
 
 While the agent is connected, the guest-agent card also shows the filesystem
 freeze state and the last update-hook run (state, run id, exit code or
@@ -442,7 +451,8 @@ runs offline against an in-memory cluster, a fake Kanidm and two fake VM Pods
 (BMC console and Redfish) on 127.0.0.1 and 127.0.0.2. It covers role resolution, list filtering, launch
 authorization, the rendered names, PVC and VirtualMachine, rollback, CSRF and
 Origin on every POST, Redfish and console calls with the bearer only to the
-selected Pod, the panel from `Systems/1` and the event log, each power action
+selected Pod, the panel from `Systems/1`, the event log and a sparkline per
+metric history answer, each power action
 as its ResetType, Redfish refusals as refused actions, the response bounds,
 escaping of guest strings, the base-image catalog parser, the Images page,
 OS launches (root clone, stale or unknown images, root minimum, a data disk

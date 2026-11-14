@@ -163,6 +163,7 @@ fn fixture() -> Fixture {
             subscriptions: Default::default(),
             triggers: Default::default(),
             exporter: Default::default(),
+            history: Default::default(),
         },
         receiver: Some(receiver),
         config,
@@ -3028,5 +3029,308 @@ async fn event_discovery_advertises_push_only_when_push_delivery_is_enabled() {
     assert_eq!(
         enabled["Subscriptions"]["@odata.id"],
         "/redfish/v1/EventService/Subscriptions"
+    );
+}
+
+/// The query parameters of every request a fake Prometheus received.
+type PromLog = Arc<std::sync::Mutex<Vec<(String, std::collections::BTreeMap<String, String>)>>>;
+
+/// A recording fake Prometheus `query_range` endpoint on loopback. Each answer
+/// carries two series (one with a NaN gap) grouped by `label`, plus unrelated
+/// labels Redfish must not pass on; `delay` stalls every answer.
+async fn fake_prometheus(label: &'static str, delay: Duration) -> (String, PromLog) {
+    let log = PromLog::default();
+    let seen = log.clone();
+    let handler = move |uri: axum::http::Uri| {
+        let seen = seen.clone();
+        async move {
+            let pairs = openidconnect::url::Url::parse(&format!("http://fake{uri}"))
+                .unwrap()
+                .query_pairs()
+                .map(|(k, v)| (k.into_owned(), v.into_owned()))
+                .collect();
+            seen.lock().unwrap().push((uri.path().to_owned(), pairs));
+            tokio::time::sleep(delay).await;
+            axum::Json(
+                json!({"status":"success","data":{"resultType":"matrix","result":[
+                    {"metric":{label:"b","namespace":"qrab","instance":"10.0.0.1:10250"},
+                     "values":[[1_700_000_000,"1.5"],[1_700_000_015,"NaN"],[1_700_000_030,"2"]]},
+                    {"metric":{label:"a"},"values":[[1_700_000_000,"0.25"]]}
+                ]}}),
+            )
+        }
+    };
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("http://{}", listener.local_addr().unwrap());
+    tokio::spawn(async move {
+        axum::serve(listener, axum::Router::new().fallback(handler))
+            .await
+            .unwrap()
+    });
+    (url, log)
+}
+
+fn history_store(url: &str) -> qrab_redfish::HistoryStore {
+    qrab_redfish::HistoryStore::new(
+        qrab_redfish::history::prometheus_url(url).unwrap(),
+        Some(qrab_redfish::history::PodIdentity::new("qrab", "vm-a").unwrap()),
+    )
+    .unwrap()
+}
+
+const HISTORY: &str = "/redfish/v1/TelemetryService/Oem/Qrab/MetricHistory";
+
+#[tokio::test]
+async fn metric_history_sends_only_fixed_promql_for_this_vms_own_pod() {
+    let cadvisor = r#"namespace="qrab",pod="vm-a",container=~"manager|bmc|redfish""#;
+    let expected: [(&str, &'static str, &str, String); 6] = [
+        (
+            "container-cpu",
+            "container",
+            "cores",
+            format!("sum by (container) (rate(container_cpu_usage_seconds_total{{{cadvisor}}}[120s]))"),
+        ),
+        (
+            "container-memory",
+            "container",
+            "bytes",
+            format!("sum by (container) (container_memory_working_set_bytes{{{cadvisor}}})"),
+        ),
+        (
+            "block-read",
+            "drive",
+            "bytes/s",
+            r#"sum by (drive) (rate(qrab_vm_block_read_bytes_total{namespace="qrab",pod="vm-a"}[120s]))"#.into(),
+        ),
+        (
+            "block-write",
+            "drive",
+            "bytes/s",
+            r#"sum by (drive) (rate(qrab_vm_block_write_bytes_total{namespace="qrab",pod="vm-a"}[120s]))"#.into(),
+        ),
+        (
+            "nic-rx",
+            "nic",
+            "bytes/s",
+            r#"sum by (nic) (rate(qrab_vm_nic_rx_bytes_total{namespace="qrab",pod="vm-a"}[120s]))"#.into(),
+        ),
+        (
+            "nic-tx",
+            "nic",
+            "bytes/s",
+            r#"sum by (nic) (rate(qrab_vm_nic_tx_bytes_total{namespace="qrab",pod="vm-a"}[120s]))"#.into(),
+        ),
+    ];
+    let mut fixture = fixture();
+    for (metric, label, unit, promql) in expected {
+        let (url, log) = fake_prometheus(label, Duration::ZERO).await;
+        // A base URL with a trailing slash still reaches /api/v1/query_range.
+        fixture.app.history = history_store(&format!("{url}/"));
+        // Viewers may read history.
+        let path = format!("{HISTORY}?metric={metric}&range=1h");
+        let (status, headers, body) =
+            call(&fixture.app, "GET", &path, Some(&good(VIEWER)), "").await;
+        assert_eq!(status, StatusCode::OK, "{metric}: {body}");
+        assert_eq!(headers["content-type"], "application/json");
+        assert_eq!(headers["cache-control"], "no-store");
+        let requests = log.lock().unwrap().clone();
+        assert_eq!(requests.len(), 1, "{metric}");
+        let (upstream, params) = &requests[0];
+        assert_eq!(upstream, "/api/v1/query_range");
+        assert_eq!(
+            params.keys().collect::<Vec<_>>(),
+            ["end", "query", "start", "step", "timeout"]
+        );
+        assert_eq!(params["query"], promql, "{metric}");
+        assert_eq!(params["step"], "15");
+        assert_eq!(params["timeout"], "2s");
+        let start: u64 = params["start"].parse().unwrap();
+        let end: u64 = params["end"].parse().unwrap();
+        assert_eq!(end - start, 3600);
+        assert!(end.abs_diff(auth::now()) <= 5);
+        assert_eq!(body["metric"], metric);
+        assert_eq!(body["range"], "1h");
+        assert_eq!(body["unit"], unit);
+        assert_eq!(body["step"], 15);
+        // Series sorted by their one label; values are numbers and NaN is a gap.
+        assert_eq!(
+            body["series"],
+            json!([
+                {"labels":{label:"a"},"points":[[1_700_000_000_i64,0.25]]},
+                {"labels":{label:"b"},"points":[[1_700_000_000_i64,1.5],[1_700_000_030_i64,2.0]]}
+            ]),
+            "{metric}"
+        );
+        // A repeat within 15 s is served from the cache.
+        let (status, _, again) = call(&fixture.app, "GET", &path, Some(&good(ADMIN)), "").await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(again, body);
+        assert_eq!(log.lock().unwrap().len(), 1, "{metric}");
+    }
+
+    // Each range has its own step and rate window; range defaults to 1h.
+    let (url, log) = fake_prometheus("container", Duration::ZERO).await;
+    fixture.app.history = history_store(&url);
+    for (range, step, window, seconds) in [
+        ("15m", "15", "120s", 900),
+        ("6h", "90", "120s", 21600),
+        ("24h", "360", "360s", 86400),
+        ("7d", "2520", "2520s", 604800),
+    ] {
+        let path = format!("{HISTORY}?range={range}&metric=container-cpu");
+        let (status, _, body) = call(&fixture.app, "GET", &path, Some(&good(VIEWER)), "").await;
+        assert_eq!(status, StatusCode::OK, "{range}: {body}");
+        let params = log.lock().unwrap().last().unwrap().1.clone();
+        assert_eq!(params["step"], step, "{range}");
+        assert!(
+            params["query"].ends_with(&format!("[{window}]))")),
+            "{range}"
+        );
+        assert_eq!(
+            params["end"].parse::<u64>().unwrap() - params["start"].parse::<u64>().unwrap(),
+            seconds
+        );
+        assert_eq!(body["step"].as_u64().unwrap().to_string(), step);
+    }
+    let (status, _, body) = call(
+        &fixture.app,
+        "GET",
+        &format!("{HISTORY}?metric=block-read"),
+        Some(&good(VIEWER)),
+        "",
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["range"], "1h");
+
+    // The TelemetryService advertises the fixed sets.
+    let (_, _, service) = call(
+        &fixture.app,
+        "GET",
+        "/redfish/v1/TelemetryService",
+        Some(&good(VIEWER)),
+        "",
+    )
+    .await;
+    let discovery = &service["Oem"]["Qrab"]["MetricHistory"];
+    assert_eq!(discovery["@odata.id"], HISTORY);
+    assert_eq!(
+        discovery["Metric@Redfish.AllowableValues"],
+        json!([
+            "container-cpu",
+            "container-memory",
+            "block-read",
+            "block-write",
+            "nic-rx",
+            "nic-tx"
+        ])
+    );
+    assert_eq!(
+        discovery["Range@Redfish.AllowableValues"],
+        json!(["15m", "1h", "6h", "24h", "7d"])
+    );
+}
+
+#[tokio::test]
+async fn metric_history_refuses_values_outside_the_fixed_sets_before_prometheus() {
+    let mut fixture = fixture();
+    let (url, log) = fake_prometheus("container", Duration::ZERO).await;
+    fixture.app.history = history_store(&url);
+    for (query, message_id) in [
+        ("", "QueryParameterOutOfRange"),
+        ("range=1h", "QueryParameterOutOfRange"),
+        ("metric=cpu", "QueryParameterOutOfRange"),
+        ("metric=container-cpu&range=2h", "QueryParameterOutOfRange"),
+        ("metric=container-cpu&range=1H", "QueryParameterOutOfRange"),
+        ("metric=container-cpu%22%7D", "QueryParameterOutOfRange"),
+        ("metric=container%2Dcpu", "QueryParameterOutOfRange"),
+        ("metric=up", "QueryParameterOutOfRange"),
+        ("metric=container-cpu&range=", "QueryParameterOutOfRange"),
+        (
+            "metric=container-cpu&metric=nic-rx",
+            "QueryCombinationInvalid",
+        ),
+        (
+            "metric=container-cpu&range=1h&range=7d",
+            "QueryCombinationInvalid",
+        ),
+        (
+            "metric=container-cpu&pod=other",
+            "QueryParameterUnsupported",
+        ),
+        ("metric=container-cpu&query=up", "QueryParameterUnsupported"),
+        (
+            "metric=container-cpu&namespace=kube-system",
+            "QueryParameterUnsupported",
+        ),
+    ] {
+        let (status, _, body) = call(
+            &fixture.app,
+            "GET",
+            &format!("{HISTORY}?{query}"),
+            Some(&good(VIEWER)),
+            "",
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{query}: {body}");
+        assert_error(&body, message_id);
+    }
+    // Credentials and roles are checked as on every other route.
+    let path = format!("{HISTORY}?metric=nic-rx");
+    let (status, _, _) = call(&fixture.app, "GET", &path, None, "").await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    let (status, _, _) = call(&fixture.app, "GET", &path, Some(&good(UNLISTED)), "").await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    let (status, _, _) = call(&fixture.app, "POST", &path, Some(&good(ADMIN)), "{}").await;
+    assert_eq!(status, StatusCode::METHOD_NOT_ALLOWED);
+    assert!(log.lock().unwrap().is_empty(), "{:?}", log.lock().unwrap());
+}
+
+#[tokio::test]
+async fn metric_history_is_503_when_prometheus_is_slow_unreachable_or_unconfigured() {
+    let mut fixture = fixture();
+    let path = format!("{HISTORY}?metric=container-memory&range=6h");
+    // Unconfigured: no downward-API Pod identity.
+    let (status, _, body) = call(&fixture.app, "GET", &path, Some(&good(VIEWER)), "").await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+    assert_error(&body, "ServiceTemporarilyUnavailable");
+    assert!(body["error"]["message"]
+        .as_str()
+        .unwrap()
+        .contains("QRAB_POD_NAME"));
+
+    // A Prometheus that does not answer in time.
+    let (url, log) = fake_prometheus("container", Duration::from_secs(30)).await;
+    fixture.app.history = history_store(&url);
+    let started = std::time::Instant::now();
+    let (status, _, body) = call(&fixture.app, "GET", &path, Some(&good(VIEWER)), "").await;
+    let elapsed = started.elapsed();
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "{body}");
+    assert_error(&body, "ServiceTemporarilyUnavailable");
+    assert!(elapsed < Duration::from_millis(2500), "{elapsed:?}");
+    assert!(
+        body["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("within 2 seconds"),
+        "{body}"
+    );
+    assert_eq!(log.lock().unwrap().len(), 1);
+
+    // Nothing listening.
+    let closed = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("http://{}", closed.local_addr().unwrap());
+    drop(closed);
+    fixture.app.history = history_store(&url);
+    let started = std::time::Instant::now();
+    let (status, _, body) = call(&fixture.app, "GET", &path, Some(&good(VIEWER)), "").await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+    assert!(started.elapsed() < Duration::from_millis(2500));
+    assert!(
+        body["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("unreachable"),
+        "{body}"
     );
 }

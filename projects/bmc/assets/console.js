@@ -416,10 +416,225 @@ async function loadReport() {
     }));
     return report.Timestamp;
 }
-// Hook for work/bmc-metric-history-graphs: called with the #metric-history
-// slot each time the Metrics tab is shown or polled. Until history exists the
-// slot keeps its static placeholder.
-function renderMetricHistory(/* slot */) {}
+// ── Metric history: Redfish MetricHistory, answered from the cluster
+// Prometheus with fixed server-side PromQL. Hand-written SVG line charts;
+// colours come from CSS custom properties. loadMetrics() calls
+// renderMetricHistory every 5 s while the tab shows; history is re-read at
+// most every 30 s (Redfish caches it for 15 s).
+const HISTORY = '/redfish/v1/TelemetryService/Oem/Qrab/MetricHistory';
+const HISTORY_METRICS = [
+    ['container-cpu', 'Container CPU'],
+    ['container-memory', 'Container memory'],
+    ['block-read', 'Disk read'],
+    ['block-write', 'Disk write'],
+    ['nic-rx', 'Network received'],
+    ['nic-tx', 'Network sent'],
+];
+const HISTORY_RANGES = ['15m', '1h', '6h', '24h', '7d'];
+const HISTORY_REFRESH_MS = 30000;
+const SERIES_COLOURS = 6;
+const SVG_NS = 'http://www.w3.org/2000/svg';
+const metricHistory = {range: '1h', fetchedAt: 0, loading: false, answers: {}, built: false, resize: null};
+const rangeKey = () => `qrab-bmc:history-range:${session?.user?.subject || 'anonymous'}`;
+function svgNode(tag, attributes = {}, text) {
+    const item = document.createElementNS(SVG_NS, tag);
+    for (const [key, value] of Object.entries(attributes)) item.setAttribute(key, String(value));
+    if (text !== undefined) item.textContent = text;
+    return item;
+}
+function scaled(value, suffix) {
+    const units = ['B', 'KiB', 'MiB', 'GiB', 'TiB'];
+    let index = 0;
+    while (Math.abs(value) >= 1024 && index < units.length - 1) { value /= 1024; index += 1; }
+    const digits = index === 0 || Math.abs(value) >= 10 ? 0 : 1;
+    return `${value.toFixed(digits)} ${units[index]}${suffix}`;
+}
+function formatValue(value, unit) {
+    if (unit === 'bytes') return scaled(value, '');
+    if (unit === 'bytes/s') return scaled(value, '/s');
+    if (unit === 'cores') return Math.abs(value) < 1 ? `${Math.round(value * 1000)} mcores` : `${value.toFixed(2)} cores`;
+    return `${+value.toPrecision(3)} ${unit || ''}`.trim();
+}
+// A round axis maximum: 1, 2 or 5 times a power of 1024 (bytes) or 10.
+function niceMax(max, unit) {
+    if (!(max > 0)) return 1;
+    const base = unit === 'bytes' || unit === 'bytes/s' ? 1024 : 10;
+    const power = base ** Math.floor(Math.log(max) / Math.log(base));
+    const step = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000].find(n => n * power >= max);
+    return step * power;
+}
+function axisTime(unix, range) {
+    const at = new Date(unix * 1000);
+    return range === '7d' ? at.toLocaleDateString([], {weekday: 'short', day: 'numeric'}) : at.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'});
+}
+const seriesLabel = series => Object.values(series.labels || {})[0] || '—';
+function historySummary(answer, title, max) {
+    const latest = answer.series.map(series => {
+        const last = series.points.at(-1);
+        return `${seriesLabel(series)} ${last ? formatValue(last[1], answer.unit) : 'no data'}`;
+    });
+    if (!latest.length) return `${title}: no data over the last ${answer.range}.`;
+    return `${title} over the last ${answer.range}: peak ${formatValue(max, answer.unit)}; latest ${latest.join(', ')}.`;
+}
+function drawChart(figure, answer, title) {
+    const body = figure.querySelector('.chart-body');
+    const readout = figure.querySelector('.readout');
+    const width = Math.max(240, Math.round(body.clientWidth || 320));
+    const height = 132;
+    const pad = {left: 74, right: 8, top: 8, bottom: 20};
+    const plotWidth = width - pad.left - pad.right;
+    const plotHeight = height - pad.top - pad.bottom;
+    const values = answer.series.flatMap(series => series.points.map(point => point[1]));
+    const max = values.length ? Math.max(...values) : 0;
+    const top = niceMax(max, answer.unit);
+    const x = t => pad.left + (t - answer.start) / Math.max(1, answer.end - answer.start) * plotWidth;
+    const y = v => pad.top + plotHeight - Math.min(1, Math.max(0, v / top)) * plotHeight;
+    const summary = historySummary(answer, title, max);
+    figure.querySelector('.peak').textContent = values.length ? `peak ${formatValue(max, answer.unit)}` : '';
+    if (!values.length) {
+        body.replaceChildren(node('p', `No samples over the last ${answer.range}.`, 'chart-empty'));
+        return;
+    }
+    const svg = svgNode('svg', {viewBox: `0 0 ${width} ${height}`, width, height, role: 'img', 'aria-label': summary, tabindex: 0, class: 'chart'});
+    svg.append(svgNode('title', {}, summary));
+    for (const fraction of [0, 0.5, 1]) {
+        const level = pad.top + plotHeight * (1 - fraction);
+        svg.append(svgNode('line', {x1: pad.left, x2: width - pad.right, y1: level, y2: level, class: fraction ? 'grid' : 'axis'}));
+        svg.append(svgNode('text', {x: pad.left - 5, y: level + 4, 'text-anchor': 'end', class: 'tick'}, formatValue(top * fraction, answer.unit)));
+    }
+    for (const [fraction, anchor] of [[0, 'start'], [0.5, 'middle'], [1, 'end']]) {
+        const t = answer.start + (answer.end - answer.start) * fraction;
+        svg.append(svgNode('text', {x: pad.left + plotWidth * fraction, y: height - 5, 'text-anchor': anchor, class: 'tick'}, axisTime(t, answer.range)));
+    }
+    answer.series.forEach((series, index) => {
+        // A gap longer than two steps (no samples, or NaN) breaks the line.
+        let d = '', previous = null;
+        for (const [t, v] of series.points) {
+            d += `${previous !== null && t - previous <= 2 * answer.step ? 'L' : 'M'}${x(t).toFixed(1)},${y(v).toFixed(1)}`;
+            previous = t;
+        }
+        if (series.points.length === 1) d += `h1`;
+        svg.append(svgNode('path', {d, class: `line series-${index % SERIES_COLOURS}`}));
+    });
+    const cursor = svgNode('line', {y1: pad.top, y2: pad.top + plotHeight, class: 'cursor', visibility: 'hidden'});
+    const hit = svgNode('rect', {x: pad.left, y: pad.top, width: plotWidth, height: plotHeight, class: 'hit'});
+    svg.append(cursor, hit);
+    const times = [...new Set(answer.series.flatMap(series => series.points.map(point => point[0])))].sort((a, b) => a - b);
+    let selected = -1;
+    const show = index => {
+        if (!times.length) return;
+        selected = Math.min(times.length - 1, Math.max(0, index));
+        const t = times[selected];
+        cursor.setAttribute('x1', x(t));
+        cursor.setAttribute('x2', x(t));
+        cursor.setAttribute('visibility', 'visible');
+        const parts = answer.series.map(series => {
+            const point = series.points.find(p => p[0] === t);
+            return `${seriesLabel(series)} ${point ? formatValue(point[1], answer.unit) : '—'}`;
+        });
+        readout.textContent = `${new Date(t * 1000).toLocaleString()}: ${parts.join(' · ')}`;
+    };
+    const hide = () => { cursor.setAttribute('visibility', 'hidden'); selected = -1; readout.textContent = ''; };
+    const nearest = t => times.reduce((best, value, index) => Math.abs(value - t) < Math.abs(times[best] - t) ? index : best, 0);
+    svg.addEventListener('pointermove', event => {
+        const box = svg.getBoundingClientRect();
+        const px = (event.clientX - box.left) * width / box.width;
+        show(nearest(answer.start + (px - pad.left) / plotWidth * (answer.end - answer.start)));
+    });
+    svg.addEventListener('pointerleave', () => { if (document.activeElement !== svg) hide(); });
+    svg.addEventListener('focus', () => show(times.length - 1));
+    svg.addEventListener('blur', hide);
+    svg.addEventListener('keydown', event => {
+        const next = {ArrowLeft: selected - 1, ArrowRight: selected + 1, Home: 0, End: times.length - 1}[event.key];
+        if (next === undefined) return;
+        event.preventDefault();
+        show(next);
+    });
+    const legend = node('ul', undefined, 'legend');
+    answer.series.forEach((series, index) => {
+        const item = node('li');
+        const last = series.points.at(-1);
+        item.append(node('span', undefined, `swatch series-${index % SERIES_COLOURS}`), node('code', seriesLabel(series)), document.createTextNode(` ${last ? formatValue(last[1], answer.unit) : 'no data'}`));
+        legend.append(item);
+    });
+    body.replaceChildren(svg, legend);
+}
+function drawHistory(slot) {
+    for (const [metric, title] of HISTORY_METRICS) {
+        const figure = slot.querySelector(`[data-metric="${metric}"]`);
+        const answer = metricHistory.answers[metric];
+        if (!answer) continue;
+        if (answer.error) {
+            figure.querySelector('.peak').textContent = '';
+            figure.querySelector('.readout').textContent = '';
+            figure.querySelector('.chart-body').replaceChildren(node('p', answer.error, 'chart-error'));
+        } else drawChart(figure, answer.value, title);
+    }
+}
+function buildHistory(slot) {
+    try { const stored = localStorage.getItem(rangeKey()); if (HISTORY_RANGES.includes(stored)) metricHistory.range = stored; } catch { /* storage unavailable */ }
+    const head = node('div', undefined, 'history-head');
+    const ranges = node('div', undefined, 'ranges');
+    ranges.setAttribute('role', 'group');
+    ranges.setAttribute('aria-label', 'History range');
+    for (const range of HISTORY_RANGES) {
+        const button = node('button', range);
+        button.type = 'button';
+        button.dataset.range = range;
+        button.setAttribute('aria-pressed', String(range === metricHistory.range));
+        button.addEventListener('click', () => {
+            if (metricHistory.range === range) return;
+            metricHistory.range = range;
+            try { localStorage.setItem(rangeKey(), range); } catch { /* storage unavailable */ }
+            for (const other of ranges.children) other.setAttribute('aria-pressed', String(other.dataset.range === range));
+            metricHistory.fetchedAt = 0;
+            renderMetricHistory(slot);
+        });
+        ranges.append(button);
+    }
+    const status = node('span', 'Loading…', 'history-status');
+    status.setAttribute('role', 'status');
+    head.append(node('h3', 'History'), ranges, status);
+    const charts = HISTORY_METRICS.map(([metric, title]) => {
+        const figure = node('figure', undefined, 'history-chart');
+        figure.dataset.metric = metric;
+        const caption = node('figcaption');
+        caption.append(node('b', title), node('span', '', 'peak'));
+        const readout = node('p', '', 'readout');
+        readout.setAttribute('aria-live', 'polite');
+        figure.append(caption, node('div', undefined, 'chart-body'), readout);
+        return figure;
+    });
+    slot.classList.remove('slot');
+    slot.replaceChildren(head, ...charts);
+    metricHistory.resize = new ResizeObserver(() => drawHistory(slot));
+    metricHistory.resize.observe(slot);
+    metricHistory.built = true;
+}
+async function renderMetricHistory(slot) {
+    if (!session || !slot) return;
+    if (!metricHistory.built) buildHistory(slot);
+    if (metricHistory.loading || Date.now() - metricHistory.fetchedAt < HISTORY_REFRESH_MS) return;
+    metricHistory.loading = true;
+    const range = metricHistory.range;
+    const status = slot.querySelector('.history-status');
+    status.textContent = 'Loading…';
+    try {
+        const results = await Promise.allSettled(HISTORY_METRICS.map(([metric]) => request(`${HISTORY}?metric=${metric}&range=${range}`)));
+        if (range !== metricHistory.range) return;
+        HISTORY_METRICS.forEach(([metric], index) => {
+            const result = results[index];
+            metricHistory.answers[metric] = result.status === 'fulfilled' ? {value: result.value} : {error: result.reason.message};
+        });
+        metricHistory.fetchedAt = Date.now();
+        drawHistory(slot);
+        const failed = results.filter(result => result.status === 'rejected').length;
+        status.textContent = failed === results.length ? 'Unavailable' : `Updated ${new Date().toLocaleTimeString()}`;
+    } finally {
+        metricHistory.loading = false;
+        if (range !== metricHistory.range) renderMetricHistory(slot);
+    }
+}
 async function loadMetrics() {
     if (!session || currentTab !== 'metrics') return;
     const note = element('metrics-note');

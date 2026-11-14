@@ -37,6 +37,8 @@ async fn main() -> Result<()> {
         triggers: Default::default(),
         subscriptions: qrab_redfish::SubscriptionStore::from_env().map_err(anyhow::Error::msg)?,
         exporter: Default::default(),
+        history: qrab_redfish::HistoryStore::new(config.prometheus_url.clone(), config.pod.clone())
+            .map_err(anyhow::Error::msg)?,
     };
     let sampler = qrab_redfish::spawn_sampler(state.clone());
     let subscriptions = qrab_redfish::spawn_subscriptions(state.clone());
@@ -84,7 +86,7 @@ async fn main() -> Result<()> {
     let mut server = std::pin::pin!(server);
     let mut term = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
     let mut interrupt = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())?;
-    tracing::info!(listen=%config.listen, metrics=%config.metrics_listen, socket=%args[1], issuers=config.sources.len(), "Redfish sidecar started");
+    tracing::info!(listen=%config.listen, metrics=%config.metrics_listen, socket=%args[1], issuers=config.sources.len(), history=config.pod.is_some(), "Redfish sidecar started");
     tokio::select! {
         result=&mut server => result?,
         () = remote.mirror() => unreachable!("the event mirror never returns"),

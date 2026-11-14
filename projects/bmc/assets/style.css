@@ -31,6 +31,14 @@
     --error-border: #995740;
     --error-text: #f5c4ae;
     --screen: #070b0c;
+    --chart-bg: #10191c;
+    --chart-grid: #2a3a40;
+    --series-0: #7fd1b0;
+    --series-1: #e8b06e;
+    --series-2: #8db7f0;
+    --series-3: #d99ae6;
+    --series-4: #e8d36e;
+    --series-5: #f08f8f;
     --topbar-height: 58px;
     font: 15px system-ui, sans-serif;
     color: var(--text);
@@ -68,6 +76,14 @@
         --error-bg: #fbe9e4;
         --error-border: #d68b7b;
         --error-text: #7a2616;
+        --chart-bg: #fbfdfd;
+        --chart-grid: #dbe4e7;
+        --series-0: #1d7a57;
+        --series-1: #b0620f;
+        --series-2: #2b62b8;
+        --series-3: #8a3fa0;
+        --series-4: #7d6a00;
+        --series-5: #b33a3a;
     }
 }
 
@@ -163,10 +179,42 @@ footer { padding: 12px 2vw; color: var(--faint); font-size: 12px; }
 .panel dd { margin: 0; overflow-wrap: anywhere; font-family: ui-monospace, monospace; font-size: 12px; color: var(--text-data); }
 .agent-actions { margin-top: 4px; }
 
-/* Metric history: work/bmc-metric-history-graphs renders into this slot */
+/* Metric history: hand-written SVG charts drawn by renderMetricHistory */
 .slot { margin-top: 6px; padding: 10px 12px; border: 1px dashed var(--border-strong); border-radius: 6px; }
 .slot h3 { margin-top: 0; }
 .slot p { margin: 0; font-size: 12px; color: var(--faint); }
+#metric-history { margin-top: 18px; border-top: 1px solid var(--border-subtle); padding-top: 4px; }
+.history-head { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 12px; margin: 10px 0 6px; }
+.history-head h3 { margin: 0; }
+.ranges { display: flex; gap: 2px; }
+.ranges button { padding: 3px 8px; font-size: 12px; }
+.ranges button[aria-pressed=true] { background: var(--control-hover); color: var(--text-strong); }
+.history-status { margin-left: auto; font-size: 12px; color: var(--muted); }
+.history-chart { margin: 0 0 14px; min-width: 0; }
+.history-chart figcaption { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; margin-bottom: 4px; }
+.history-chart .peak { color: var(--muted); font-size: 12px; }
+.chart-body { min-width: 0; }
+svg.chart { display: block; width: 100%; height: auto; background: var(--chart-bg); border: 1px solid var(--border-subtle); border-radius: 5px; touch-action: pan-y; }
+svg.chart:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+svg.chart .grid { stroke: var(--chart-grid); stroke-width: 1; stroke-dasharray: 3 3; }
+svg.chart .axis { stroke: var(--border-strong); stroke-width: 1; }
+svg.chart .tick { fill: var(--faint); font: 10px ui-monospace, monospace; }
+svg.chart .line { fill: none; stroke-width: 1.6; stroke-linejoin: round; stroke-linecap: round; }
+svg.chart .cursor { stroke: var(--muted); stroke-width: 1; }
+svg.chart .hit { fill: transparent; }
+.series-0 { stroke: var(--series-0); background: var(--series-0); }
+.series-1 { stroke: var(--series-1); background: var(--series-1); }
+.series-2 { stroke: var(--series-2); background: var(--series-2); }
+.series-3 { stroke: var(--series-3); background: var(--series-3); }
+.series-4 { stroke: var(--series-4); background: var(--series-4); }
+.series-5 { stroke: var(--series-5); background: var(--series-5); }
+.legend { list-style: none; margin: 5px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 3px 12px; font-size: 12px; color: var(--muted); }
+.legend code { color: var(--text-data); margin-right: 3px; }
+.swatch { display: inline-block; width: 10px; height: 3px; border-radius: 2px; margin-right: 5px; vertical-align: middle; }
+.readout { min-height: 1.3em; margin: 3px 0 0; font: 11px ui-monospace, monospace; color: var(--text-data); overflow-wrap: anywhere; }
+.chart-empty, .chart-error { margin: 4px 0 0; font-size: 12px; }
+.chart-empty { color: var(--faint); }
+.chart-error { color: var(--error-text); background: var(--error-bg); border: 1px solid var(--error-border); border-radius: 5px; padding: 8px 10px; }
 
 /* QMP events */
 #events-filter { width: 100%; margin: 0 0 8px; padding: 6px 9px; font: inherit; font-size: 13px; color: var(--text); background: var(--bg); border: 1px solid var(--border-strong); border-radius: 5px; }

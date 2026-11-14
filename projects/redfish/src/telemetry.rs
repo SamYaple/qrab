@@ -14,7 +14,8 @@ pub(super) async fn service(
     Ok(Json(json!({
         "@odata.id":SERVICE,"@odata.type":"#TelemetryService.v1_4_0.TelemetryService",
         "Id":"TelemetryService","Name":"VM telemetry","ServiceEnabled":true,
-        "MetricReports":link(REPORTS),"MetricDefinitions":link(DEFINITIONS),"MetricReportDefinitions":link(REPORT_DEFINITIONS),"Triggers":link(triggers::COLLECTION),"LogService":link(triggers::LOG_SERVICE)
+        "MetricReports":link(REPORTS),"MetricDefinitions":link(DEFINITIONS),"MetricReportDefinitions":link(REPORT_DEFINITIONS),"Triggers":link(triggers::COLLECTION),"LogService":link(triggers::LOG_SERVICE),
+        "Oem":{"Qrab":{"@odata.type":"#QrabTelemetryService.v1_0_0.QrabTelemetryService","MetricHistory":history::discovery()}}
     })))
 }
 

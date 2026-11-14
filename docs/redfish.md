@@ -26,6 +26,8 @@ qrab-redfish --socket /run/qrab-control/manager/control.sock
 | `REDFISH_LISTEN` | Listener; defaults to `0.0.0.0:8081` |
 | `REDFISH_METRICS_LISTEN` | Unauthenticated Prometheus listener serving only `/metrics`; defaults to `0.0.0.0:9181` and must use another port ([Prometheus export](#prometheus-export)) |
 | `REDFISH_CA_FILE` | Optional PEM root certificate for an isolated test IdP |
+| `REDFISH_PROMETHEUS_URL` | Prometheus for [metric history](#metric-history); defaults to `http://kube-prometheus-stack-prometheus.monitoring.svc:9090`. HTTP(S) without credentials, query or fragment |
+| `QRAB_POD_NAMESPACE`, `QRAB_POD_NAME` | This VM Pod's namespace and name (downward API); set both or neither. Without them metric history answers 503 |
 | `REDFISH_LOCAL_ACCOUNTS_FILE` | Optional read-only JSON Secret file containing Argon2id password hashes; enables Basic authentication and password-based session creation |
 | `REDFISH_PUBLIC_DISCOVERY` | Optional `true` permits static anonymous version/root/OData discovery; default `false` preserves the deployed OIDC-only discovery policy |
 | `REDFISH_WORKLOAD_LISTEN` | Optional separate SPIFFE mTLS listener, e.g. `0.0.0.0:8443`; requires exact allowed peers |
@@ -284,7 +286,10 @@ unconfigured issuers 401, unlisted subjects 403), reset mapping,
 power-state mapping, the event stream, its gap and QMP-dropped notices and its
 token-expiry bound, and the
 Prometheus exposition (format, label sanitization, scrape coalescing, listener
-separation, and the shipped dashboard's queries). The tests sign
+separation, and the shipped dashboard's queries), and metric history against a
+recording fake Prometheus (the exact PromQL, step and window per metric and
+range, viewer access, caching, 400 before any upstream call, and 503 within
+2.5 s for a stalled, closed or unconfigured Prometheus). The tests sign
 tokens with the test-only keys under `projects/redfish/tests/fixtures`.
 
 ## Native inventory and telemetry
@@ -313,6 +318,7 @@ unimplemented power-management path.
 | `/TelemetryService/MetricReportDefinitions/VM` | `OnRequest` by default; explicitly configured `Periodic` cadence |
 | `/TelemetryService/MetricReports/VM` | Current report; MetricProperty links address `/Systems/1/Oem/Qrab/Metrics` |
 | `/TelemetryService/MetricReports/History-{sequence}` | Up to 128 successful samples retained in memory |
+| `/TelemetryService/Oem/Qrab/MetricHistory?metric=&range=` | Prometheus-backed history of fixed metrics ([Metric history](#metric-history)); `Oem.Qrab.MetricHistory` on the TelemetryService lists the allowable values |
 | `/Managers/1/Oem/Qrab/Resources` | Independent Redfish and manager process/container usage |
 
 QMP queries are fixed, typed and read-only: `query-cpus-fast`, `query-block`,
@@ -381,6 +387,63 @@ dashboard (uid `qrab-vm`, ConfigMap label `grafana_dashboard: "1"`, found by
 kube-prometheus-stack's sidecar in every namespace): power state and its
 history, health, agent, vCPU/RAM, per-container CPU and working set
 (cAdvisor), block and NIC rates and QMP drops for one VM.
+
+### Metric history
+
+`GET /redfish/v1/TelemetryService/Oem/Qrab/MetricHistory?metric=<id>&range=<range>`
+reads history back from the cluster Prometheus for the BMC's Metrics tab and
+the dashboard's VM page, so both share one implementation. Viewers may read
+it; it needs a token like every other route. Each metric id maps to one fixed
+PromQL template in `projects/redfish/src/history.rs`, scoped to this Pod's own
+`QRAB_POD_NAMESPACE`/`QRAB_POD_NAME`; nothing from the request reaches
+Prometheus. The response is one `/api/v1/query_range` answer:
+
+| `metric` | Unit | PromQL (`<ns>`, `<pod>` from the downward API; `<w>` the rate window) |
+| --- | --- | --- |
+| `container-cpu` | `cores` | `sum by (container) (rate(container_cpu_usage_seconds_total{namespace="<ns>",pod="<pod>",container=~"manager\|bmc\|redfish"}[<w>]))` |
+| `container-memory` | `bytes` | `sum by (container) (container_memory_working_set_bytes{namespace="<ns>",pod="<pod>",container=~"manager\|bmc\|redfish"})` |
+| `block-read`, `block-write` | `bytes/s` | `sum by (drive) (rate(qrab_vm_block_{read,write}_bytes_total{namespace="<ns>",pod="<pod>"}[<w>]))` |
+| `nic-rx`, `nic-tx` | `bytes/s` | `sum by (nic) (rate(qrab_vm_nic_{rx,tx}_bytes_total{namespace="<ns>",pod="<pod>"}[<w>]))` |
+
+There is no vCPU utilisation metric: the exported families carry the vCPU
+count but no guest CPU time, and the manager container's CPU also counts
+QEMU's device emulation and swtpm. Container CPU and memory come from kubelet
+cAdvisor; block and NIC rates from the [Prometheus export](#prometheus-export),
+so they exist only while it is scraped (and NIC counters only while the guest
+agent is connected).
+
+`range` is `15m`, `1h` (the default), `6h`, `24h` or `7d`. The step is the
+range divided by 240, rounded to whole seconds and at least 15 s (15, 15, 90,
+360 and 2520 s); the rate window is the step, but at least 120 s (four 30 s
+scrapes). An unknown, repeated or missing `metric`, an unknown `range` or any
+other query parameter is 400 (`QueryParameterOutOfRange`,
+`QueryCombinationInvalid`, `QueryParameterUnsupported`) before any upstream
+call; values are compared verbatim, without percent-decoding. Prometheus
+unreachable, slower than the 2 s deadline (connection and body included) or
+answering anything but a matrix is 503 `ServiceTemporarilyUnavailable`, as is
+a Redfish without the Pod identity.
+
+```json
+{"@odata.id":"/redfish/v1/TelemetryService/Oem/Qrab/MetricHistory",
+ "@odata.type":"#QrabMetricHistory.v1_0_0.QrabMetricHistory","Id":"MetricHistory",
+ "Name":"Container CPU","metric":"container-cpu","range":"1h","unit":"cores",
+ "step":15,"start":1794686700,"end":1794690300,
+ "series":[{"labels":{"container":"bmc"},"points":[[1794686700,0.0004],[1794686715,0.0005]]}]}
+```
+
+Series carry only their grouping label and are sorted by it; values are JSON
+numbers, and NaN or infinite samples are dropped as gaps. At most 16 series
+and a 1 MiB Prometheus body are read. Successful answers are cached for 15 s
+per (metric, range); concurrent identical reads share one query, and at most
+four queries run at once, inside the service's 32-request admission.
+
+For a Redfish-enabled VM the operator renders `REDFISH_PROMETHEUS_URL` and the
+downward-API Pod identity, and keeps the owned, additive CiliumNetworkPolicy
+`<vm>-redfish-prometheus`, which allows the VM Pod egress to Prometheus Pods
+(`app.kubernetes.io/name=prometheus`) in `monitoring` on TCP 9090 only
+([operator.md](operator.md#components)). Resolving the Service name uses the
+VM's existing kube-dns egress. Prometheus in this cluster has no query
+authentication, so this is an [admin-bucket concern](bmc.md#admin-bucket).
 
 ### Numeric thresholds
 
@@ -613,7 +676,9 @@ sum by (namespace,pod,container) (rate(container_cpu_usage_seconds_total{namespa
 sum by (namespace,pod,container) (container_memory_working_set_bytes{namespace="qrab",container=~"manager|bmc|redfish|redis"})
 ```
 
-No Prometheus credentials or Kubernetes API tokens are introduced into VM Pods.
+No Prometheus credentials or Kubernetes API tokens are introduced into VM Pods;
+[metric history](#metric-history) queries the unauthenticated in-cluster
+Prometheus.
 
 ## Remaining full-stack lifecycle work
 

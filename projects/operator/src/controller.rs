@@ -613,6 +613,7 @@ async fn synchronize(
     resources::validate(vm, &ctx.settings)?;
     reconcile_redfish_policy(vm, ctx).await?;
     reconcile_redfish_metrics_policy(vm, ctx).await?;
+    reconcile_redfish_prometheus_policy(vm, ctx).await?;
     if let Some(pod) = &pod {
         if !resources::owned(pod, vm) {
             return Err(Error::Ownership(format!(
@@ -1059,6 +1060,17 @@ async fn reconcile_redfish_metrics_policy(vm: &VirtualMachine, ctx: &Context) ->
         ctx,
         resources::redfish_metrics_policy_name(vm),
         resources::redfish_metrics_policy(vm, &ctx.settings)?,
+    )
+    .await
+}
+
+/// Egress to Prometheus for Redfish's metric history, like event egress.
+async fn reconcile_redfish_prometheus_policy(vm: &VirtualMachine, ctx: &Context) -> Result<()> {
+    reconcile_vm_policy(
+        vm,
+        ctx,
+        resources::redfish_prometheus_policy_name(vm),
+        resources::redfish_prometheus_policy(vm, &ctx.settings)?,
     )
     .await
 }

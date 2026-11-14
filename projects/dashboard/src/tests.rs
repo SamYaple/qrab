@@ -150,6 +150,52 @@ const FAKE_RESET_TYPES: [&str; 7] = [
     "GracefulRestart",
 ];
 
+/// A fake Redfish `MetricHistory` answer for the dashboard's fixed 1h reads:
+/// container series with markup in a label, an empty NIC rx series, and a
+/// 503 for NIC tx.
+fn fake_history(query: &str) -> Response {
+    let metric = query
+        .strip_prefix("metric=")
+        .and_then(|rest| rest.strip_suffix("&range=1h"))
+        .unwrap_or("");
+    let (name, unit, series) = match metric {
+        "container-cpu" => (
+            "Container CPU",
+            "cores",
+            serde_json::json!([
+                {"labels":{"container":"bmc"},"points":[[1000,0.001],[1060,0.002]]},
+                {"labels":{"container":"<b>manager</b>"},"points":[[1000,0.25],[1030,0.5],[1060,0.125]]}
+            ]),
+        ),
+        "container-memory" => (
+            "Container memory working set",
+            "bytes",
+            serde_json::json!([
+                {"labels":{"container":"manager"},"points":[[1000,524288000.0],[1060,536870912.0]]}
+            ]),
+        ),
+        "block-read" | "block-write" => (
+            "Disk",
+            "bytes/s",
+            serde_json::json!([{"labels":{"drive":"boot"},"points":[[1000,0.0],[1060,2048.0]]}]),
+        ),
+        "nic-rx" => ("Network received", "bytes/s", serde_json::json!([])),
+        _ => {
+            return (
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(serde_json::json!({"error":{
+                    "message":"Prometheus is unreachable, so metric history is unavailable."}})),
+            )
+                .into_response();
+        }
+    };
+    Json(
+        serde_json::json!({"Name": name, "metric": metric, "range": "1h", "unit": unit,
+        "step": 15, "start": 1000, "end": 1060, "series": series}),
+    )
+    .into_response()
+}
+
 /// A fake VM Pod: the BMC console and a Redfish service whose system is named
 /// `label`. Its guest strings carry markup. Alice's token is a Redfish admin;
 /// a stale token is only a viewer there, so Redfish refuses its resets.
@@ -210,6 +256,9 @@ fn fake_bmc(label: &'static str, log: Log) -> axum::Router {
                          "Data": {"reason": "<img src=x onerror=alert(2)>"}, "Truncated": false}}}
                     ]}))
                     .into_response()
+                }
+                (Method::GET, "/redfish/v1/TelemetryService/Oem/Qrab/MetricHistory") => {
+                    fake_history(parts.uri.query().unwrap_or(""))
                 }
                 (Method::POST, "/redfish/v1/Systems/1/Actions/ComputerSystem.Reset") if admin => {
                     StatusCode::NO_CONTENT.into_response()
@@ -576,7 +625,8 @@ async fn detail_reads_only_the_selected_vms_redfish_with_the_bearer_and_escapes_
         "{body}"
     );
     assert!(body.contains("Update output (tail)") && body.contains("Update error"));
-    assert!(!body.contains("<iframe") && !body.contains("<svg"));
+    // The page draws its own history SVGs; guest markup never becomes one.
+    assert!(!body.contains("<iframe") && !body.contains("<svg onload"));
     assert!(
         body.contains("&#60;iframe src=x&#62;") && body.contains("&#60;svg onload=alert(3)&#62;")
     );
@@ -594,14 +644,26 @@ async fn detail_reads_only_the_selected_vms_redfish_with_the_bearer_and_escapes_
     let seen = h.bmc_a.lock().unwrap().clone();
     let mut paths: Vec<_> = seen.iter().map(|(m, p, _, _)| format!("{m} {p}")).collect();
     paths.sort();
-    assert_eq!(
-        paths,
-        [
-            "GET /redfish/v1/Managers/1/LogServices/Events",
-            "GET /redfish/v1/Managers/1/LogServices/Events/Entries",
-            "GET /redfish/v1/Systems/1",
-        ]
-    );
+    let mut expected = vec![
+        "GET /redfish/v1/Managers/1/LogServices/Events".to_string(),
+        "GET /redfish/v1/Managers/1/LogServices/Events/Entries".to_string(),
+        "GET /redfish/v1/Systems/1".to_string(),
+    ];
+    // The fixed 1h history of every metric, from the same Redfish.
+    for metric in [
+        "block-read",
+        "block-write",
+        "container-cpu",
+        "container-memory",
+        "nic-rx",
+        "nic-tx",
+    ] {
+        expected.push(format!(
+            "GET /redfish/v1/TelemetryService/Oem/Qrab/MetricHistory?metric={metric}&range=1h"
+        ));
+    }
+    expected.sort();
+    assert_eq!(paths, expected);
     assert!(
         seen.iter()
             .all(|(_, _, auth, _)| auth == "Bearer id-token-of-alice")
@@ -619,8 +681,8 @@ async fn detail_reads_only_the_selected_vms_redfish_with_the_bearer_and_escapes_
         body.contains("Console: admins only")
             && body.contains("href=\"/auth/login?next=/vms/qrab/b\"")
     );
-    assert_eq!(h.bmc_b.lock().unwrap().len(), 3);
-    assert_eq!(h.bmc_a.lock().unwrap().len(), 3);
+    assert_eq!(h.bmc_b.lock().unwrap().len(), 9);
+    assert_eq!(h.bmc_a.lock().unwrap().len(), 9);
 }
 
 #[tokio::test]
@@ -2061,5 +2123,67 @@ fn public_origins_must_be_https_origins() {
     assert_eq!(
         origin("https://vms.yapplesauce.com", false).unwrap(),
         "https://vms.yapplesauce.com"
+    );
+}
+
+#[tokio::test]
+async fn detail_draws_a_server_side_svg_sparkline_per_redfish_history_metric() {
+    let h = harness().await;
+    let cookie = session(&h.state.sessions, ALICE, &[VIEWERS]).await;
+    let (status, headers, body) = send(&h, get("/vms/qrab/a", Some(&cookie))).await;
+    assert_eq!(status, StatusCode::OK);
+    // Still the script-free page CSP: no client script and no inline styles.
+    assert_eq!(
+        headers["content-security-policy"],
+        "default-src 'none'; style-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"
+    );
+    assert!(
+        !body.contains("<script") && !body.contains("style="),
+        "{body}"
+    );
+    assert!(body.contains("Metric history (last hour)"));
+    let figure = |metric: &str| {
+        let start = body
+            .find(&format!("data-metric=\"{metric}\""))
+            .unwrap_or_else(|| panic!("{metric}: {body}"));
+        let end = start + body[start..].find("</figure>").unwrap();
+        body[start..end].to_owned()
+    };
+    // One SVG per metric with data, one polyline per series, scaled into the
+    // 240x48 viewBox over [start, end] and [0, peak].
+    let cpu = figure("container-cpu");
+    assert_eq!(cpu.matches("<svg").count(), 1, "{cpu}");
+    assert_eq!(cpu.matches("<polyline").count(), 2, "{cpu}");
+    assert!(cpu.contains("viewBox=\"0 0 240 48\""), "{cpu}");
+    assert!(
+        cpu.contains("points=\"0.0,24.0 120.0,1.0 240.0,35.5\""),
+        "{cpu}"
+    );
+    assert!(cpu.contains("role=\"img\""));
+    assert!(
+        cpu.contains("aria-label=\"Container CPU, last hour, peak 500 mcores; latest bmc 2 mcores, &#60;b&#62;manager&#60;/b&#62; 125 mcores.\""),
+        "{cpu}"
+    );
+    assert!(!body.contains("<b>manager</b>"));
+    let memory = figure("container-memory");
+    assert_eq!(memory.matches("<polyline").count(), 1);
+    assert!(memory.contains("512 MiB"), "{memory}");
+    for metric in ["block-read", "block-write"] {
+        let disk = figure(metric);
+        assert_eq!(disk.matches("<polyline").count(), 1, "{disk}");
+        assert!(disk.contains("2.0 KiB/s"), "{disk}");
+    }
+    // An empty answer and a failed one say so instead of drawing a line.
+    let rx = figure("nic-rx");
+    assert!(
+        rx.contains("No data in the last hour.") && !rx.contains("<polyline"),
+        "{rx}"
+    );
+    let tx = figure("nic-tx");
+    assert!(
+        tx.contains("<b>Network sent</b>")
+            && tx.contains("Unavailable: Redfish answered HTTP 503")
+            && !tx.contains("<svg"),
+        "{tx}"
     );
 }

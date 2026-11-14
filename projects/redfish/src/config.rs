@@ -15,6 +15,10 @@ pub struct Config {
     pub ca_file: Option<PathBuf>,
     pub local_accounts_file: Option<PathBuf>,
     pub public_discovery: bool,
+    /// The cluster Prometheus that serves metric history.
+    pub prometheus_url: openidconnect::url::Url,
+    /// This VM's Pod from the downward API; without it history is disabled.
+    pub pod: Option<crate::history::PodIdentity>,
 }
 
 /// An issuer and the audiences (OAuth2 client IDs) whose ID tokens it may
@@ -153,8 +157,25 @@ impl Config {
             listen.port() != metrics_listen.port(),
             "REDFISH_METRICS_LISTEN must use a different port from REDFISH_LISTEN"
         );
+        let prometheus_url = crate::history::prometheus_url(
+            &std::env::var("REDFISH_PROMETHEUS_URL")
+                .unwrap_or_else(|_| crate::history::DEFAULT_PROMETHEUS_URL.into()),
+        )
+        .map_err(anyhow::Error::msg)?;
+        let pod = match (
+            std::env::var("QRAB_POD_NAMESPACE"),
+            std::env::var("QRAB_POD_NAME"),
+        ) {
+            (Ok(namespace), Ok(pod)) => Some(
+                crate::history::PodIdentity::new(&namespace, &pod).map_err(anyhow::Error::msg)?,
+            ),
+            (Err(_), Err(_)) => None,
+            _ => anyhow::bail!("QRAB_POD_NAMESPACE and QRAB_POD_NAME must be set together"),
+        };
         Ok(Self {
             listen,
+            prometheus_url,
+            pod,
             metrics_listen,
             sources,
             admin_subjects,

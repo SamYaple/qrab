@@ -289,6 +289,45 @@ pub fn redfish_metrics_policy(
     )?))
 }
 
+/// The Prometheus query port and in-cluster URL Redfish reads history from.
+pub const PROMETHEUS_PORT: u16 = 9090;
+pub const PROMETHEUS_URL: &str = "http://kube-prometheus-stack-prometheus.monitoring.svc:9090";
+
+pub fn redfish_prometheus_policy_name(vm: &VirtualMachine) -> String {
+    format!("{}-redfish-prometheus", vm.name_any())
+}
+
+/// Additive VM-Pod egress to the monitoring namespace's Prometheus Pods on
+/// [`PROMETHEUS_PORT`] only, for Redfish's metric history. Resolving the
+/// Service name relies on the VM's existing kube-dns egress, as for event
+/// receivers. Never enables default deny.
+pub fn redfish_prometheus_policy(
+    vm: &VirtualMachine,
+    settings: &Settings,
+) -> Result<Option<DynamicObject>> {
+    validate(vm, settings)?;
+    if !vm.spec.components.redfish_enabled() {
+        return Ok(None);
+    }
+    let uid = vm
+        .uid()
+        .ok_or_else(|| Error::Invalid("VM UID is required".into()))?;
+    let owner = vm
+        .controller_owner_ref(&())
+        .ok_or_else(|| Error::Invalid("VM owner reference is unavailable".into()))?;
+    Ok(Some(serde_json::from_value(
+        json!({"apiVersion":"cilium.io/v2","kind":"CiliumNetworkPolicy",
+            "metadata":{"name":redfish_prometheus_policy_name(vm),"namespace":settings.namespace,"ownerReferences":[owner],
+                "labels":{"app.kubernetes.io/name":"qrab","app.kubernetes.io/component":"redfish-prometheus","app.kubernetes.io/instance":vm.name_any(),crate::nic::OWNER_UID:uid}},
+            "spec":{"description":format!("VM {} may query the {PROMETHEUS_NAMESPACE} namespace's Prometheus for its metric history",vm.name_any()),
+                "endpointSelector":{"matchLabels":{"app.kubernetes.io/name":"qrab","app.kubernetes.io/component":"vm",crate::nic::OWNER_UID:uid}},
+                "enableDefaultDeny":{"ingress":false,"egress":false},
+                "egress":[{"toEndpoints":[{"matchLabels":{"k8s:io.kubernetes.pod.namespace":PROMETHEUS_NAMESPACE,"app.kubernetes.io/name":PROMETHEUS_NAME}}],
+                    "toPorts":[{"ports":[{"port":PROMETHEUS_PORT.to_string(),"protocol":"TCP"}]}]}]}
+        }),
+    )?))
+}
+
 /// Additive VM-Pod egress for explicitly enabled event receivers. Cilium policy
 /// is per Pod, while exact URL paths are enforced by the Redfish process.
 pub fn redfish_policy(vm: &VirtualMachine, settings: &Settings) -> Result<Option<DynamicObject>> {
@@ -1154,6 +1193,12 @@ fn sidecars(
                 env.push(json!({"name":name,"value":subject_list(list)}));
             }
         }
+        // Metric history: fixed PromQL scoped to this Pod (redfish_prometheus_policy).
+        env.extend([
+            json!({"name":"REDFISH_PROMETHEUS_URL","value":PROMETHEUS_URL}),
+            json!({"name":"QRAB_POD_NAME","valueFrom":{"fieldRef":{"fieldPath":"metadata.name"}}}),
+            json!({"name":"QRAB_POD_NAMESPACE","valueFrom":{"fieldRef":{"fieldPath":"metadata.namespace"}}}),
+        ]);
         if let Some(seconds) = redfish.telemetry_interval_seconds {
             env.push(json!({"name":"REDFISH_TELEMETRY_INTERVAL_SECS","value":seconds.to_string()}));
         }
