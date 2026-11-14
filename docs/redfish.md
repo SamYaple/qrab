@@ -20,6 +20,7 @@ qrab-redfish --socket /run/qrab-control/manager/control.sock
 | `REDFISH_ADMIN_GROUPS` | Comma-separated Kanidm group UUIDs whose members may read and reset the VM |
 | `REDFISH_VIEWER_GROUPS` | Comma-separated Kanidm group UUIDs with read-only access |
 | `REDFISH_LISTEN` | Listener; defaults to `0.0.0.0:8081` |
+| `REDFISH_METRICS_LISTEN` | Unauthenticated Prometheus listener serving only `/metrics`; defaults to `0.0.0.0:9181` and must use another port ([Prometheus export](#prometheus-export)) |
 | `REDFISH_CA_FILE` | Optional PEM root certificate for an isolated test IdP |
 | `RUST_LOG` | Default `qrab_redfish=info` |
 
@@ -157,7 +158,9 @@ rejection matrix (missing, Basic, malformed, expired, wrong audience, wrong
 issuer, foreign signing key, unlisted subject, viewer reset), trusted sources
 (each pair accepted with its listed role, cross-source audiences and keys and
 unconfigured issuers 401, unlisted subjects 403), reset mapping,
-power-state mapping, the event stream and its token-expiry bound. The tests sign
+power-state mapping, the event stream and its token-expiry bound, and the
+Prometheus exposition (format, label sanitization, scrape coalescing, listener
+separation, and the shipped dashboard's queries). The tests sign
 tokens with the test-only keys under `projects/redfish/tests/fixtures`.
 
 ## Native inventory and telemetry
@@ -195,13 +198,65 @@ for one second, with a two-second query deadline and bounded manager admission.
 Backing chains, host paths, storage credentials and host thread IDs are not
 exposed. A failed sample returns 503 rather than invented zeroes. Historical
 reports retain their sample timestamp; stale history never substitutes for a
-successful current query.
+successful current query. Prometheus is the history of record
+([Prometheus export](#prometheus-export)); the 128-sample in-memory history is
+a short-term fallback lost on restart.
 
 RAM metrics are configured capacity, not guest used RAM or QEMU RSS. Block
 counters reset with the QEMU instance; rates require successive samples. Drive
 native KiB counters use whole KiB; exact byte counts remain in OEM fields.
 The snapshots use sequential queries and are not atomic VM-wide measurements.
 Physical temperature, power and fan readings are not synthesized.
+
+### Prometheus export
+
+A second listener (`REDFISH_METRICS_LISTEN`, port name `metrics`, 9181) serves
+`GET /metrics` in the Prometheus text format (`version=0.0.4`) and nothing
+else: no Redfish routes, probes or other methods. The 8081 API does not serve
+`/metrics`. The listener is unauthenticated, so it carries only viewer-level
+values, and the operator's `<vm>-redfish-metrics` CiliumNetworkPolicy admits
+it only from Prometheus Pods (`app.kubernetes.io/name=prometheus`) in the
+`monitoring` namespace and denies it to every other endpoint and entity
+([operator.md](operator.md#components)).
+
+| Family | Type | Labels | Source |
+| --- | --- | --- | --- |
+| `qrab_vm_power_state` | gauge | `state` (`On`, `Off`, `PoweringOn`, `PoweringOff`, `Paused`) | 1 for the current Redfish `PowerState`; all 0 when the manager is unreachable |
+| `qrab_vm_health` | gauge | | Redfish `Status.Health`: 0 OK, 1 Warning, 2 Critical |
+| `qrab_vm_vcpus` | gauge | | QMP online vCPUs |
+| `qrab_vm_memory_configured_bytes` | gauge | | Configured guest RAM, not memory use |
+| `qrab_vm_block_{read,write}_{bytes,ops}_total` | counter | `drive` | Per-drive guest-facing counters (the `Chassis/1/Drives` ids) |
+| `qrab_vm_nic_{rx,tx}_{bytes,packets}_total` | counter | `nic` | Guest-agent counters for configured NICs, matched by MAC; only while the agent is connected |
+| `qrab_vm_guest_agent_connected` | gauge | | 1 while the guest agent is connected |
+| `qrab_vm_qmp_events_dropped_total` | counter | | QMP events discarded during the current QEMU connection |
+| `qrab_redfish_build_info` | gauge | `version` | Always 1 |
+
+Label values are configured identifiers only (`[A-Za-z0-9_-]`, at most 64
+bytes). Values that could be a path, IQN, portal, MAC or IP address are
+dropped, never escaped; guest-chosen interface names, MACs and addresses are
+not exported. The PodMonitor adds `namespace`, `pod` and `vm`; the exporter
+emits none of them. Counters reset with the QEMU instance or connection, which
+`rate()` handles. A family whose source query fails is omitted rather than
+reported as zero.
+
+Scrapes within five seconds share one collection, held under a lock so
+concurrent or HA-paired scrapes wait for it; at most four scrapes are admitted
+at once. A collection issues one each of the manager's `status`,
+`agent_status`, `metrics` and `inventory` requests (plus `config` and
+`agent_network` when the agent is connected), each with a two-second
+deadline; the QMP drop counter comes from the local event mirror. Its metrics
+sample feeds the same triggers and on-request history as a Redfish read.
+
+`contrib/kubernetes/monitoring/podmonitor.yaml` is the one static PodMonitor
+for every VM Pod (`app.kubernetes.io/name=qrab`, `component=vm`, port
+`metrics`, 30s), relabelling `app.kubernetes.io/instance` to `vm`. VMs without
+Redfish declare no `metrics` port and are not scraped. Container CPU and
+memory come from kubelet cAdvisor; the exporter does not repeat them.
+`contrib/kubernetes/monitoring/grafana-dashboard.yaml` is the Grafana "qrab VM"
+dashboard (uid `qrab-vm`, ConfigMap label `grafana_dashboard: "1"`, found by
+kube-prometheus-stack's sidecar in every namespace): power state and its
+history, health, agent, vCPU/RAM, per-container CPU and working set
+(cAdvisor), block and NIC rates and QMP drops for one VM.
 
 ### Numeric thresholds
 

@@ -5,3 +5,6 @@ resources:
 - operator
 - vm.yaml
 - console.yaml
+# Prometheus scraping and the Grafana VM dashboard (kube-prometheus-stack).
+- monitoring/podmonitor.yaml
+- monitoring/grafana-dashboard.yaml

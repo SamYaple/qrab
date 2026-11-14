@@ -55,9 +55,15 @@ async fn sample(app: &AppState, headers: &HeaderMap) -> Result<pod::VmMetrics, F
         .metrics()
         .await
         .map_err(|_| Failure::unavailable("Live VM metrics are unavailable."))?;
-    app.triggers.evaluate(&sample);
-    app.telemetry.record(&sample);
+    observe(app, &sample);
     Ok(sample)
+}
+
+/// Every successful on-request sample, including a Prometheus scrape's,
+/// feeds the same triggers and bounded history.
+pub(super) fn observe(app: &AppState, sample: &pod::VmMetrics) {
+    app.triggers.evaluate(sample);
+    app.telemetry.record(sample);
 }
 
 pub(super) async fn metrics(

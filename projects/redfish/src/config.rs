@@ -4,6 +4,8 @@ use std::{collections::HashSet, net::SocketAddr, path::PathBuf};
 #[derive(Clone)]
 pub struct Config {
     pub listen: SocketAddr,
+    /// Unauthenticated Prometheus listener; serves only `/metrics`.
+    pub metrics_listen: SocketAddr,
     /// Trusted ID-token sources, one per issuer, `REDFISH_OIDC_ISSUER` first.
     pub sources: Vec<TokenSource>,
     pub admin_subjects: HashSet<String>,
@@ -137,10 +139,21 @@ impl Config {
             admin_groups.is_disjoint(&viewer_groups),
             "a group cannot grant both Redfish admin and viewer access"
         );
+        let listen: SocketAddr = std::env::var("REDFISH_LISTEN")
+            .unwrap_or_else(|_| "0.0.0.0:8081".into())
+            .parse()
+            .context("REDFISH_LISTEN must be a socket address")?;
+        let metrics_listen: SocketAddr = std::env::var("REDFISH_METRICS_LISTEN")
+            .unwrap_or_else(|_| "0.0.0.0:9181".into())
+            .parse()
+            .context("REDFISH_METRICS_LISTEN must be a socket address")?;
+        ensure!(
+            listen.port() != metrics_listen.port(),
+            "REDFISH_METRICS_LISTEN must use a different port from REDFISH_LISTEN"
+        );
         Ok(Self {
-            listen: std::env::var("REDFISH_LISTEN")
-                .unwrap_or_else(|_| "0.0.0.0:8081".into())
-                .parse()?,
+            listen,
+            metrics_listen,
             sources,
             admin_subjects,
             viewer_subjects,

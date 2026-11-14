@@ -156,8 +156,8 @@ port 8080 of the VM Pods.
 | components | Pod |
 | --- | --- |
 | BMC only (default) | `manager` + `bmc` sidecar on port 8080 |
-| BMC and Redfish | `manager` + `bmc` (8080) + `redfish` (8081) |
-| Redfish only | `manager` + `redfish` (8081); `console` may be omitted |
+| BMC and Redfish | `manager` + `bmc` (8080) + `redfish` (8081, `metrics` 9181) |
+| Redfish only | `manager` + `redfish` (8081, `metrics` 9181); `console` may be omitted |
 | none | `manager` alone; the VM runs with no HTTP surface |
 
 Sidecars are native sidecars (`initContainers` with `restartPolicy: Always`):
@@ -213,6 +213,17 @@ keeping its identity. Setting the bearer variables therefore restarts every
 BMC- or Redfish-enabled VM once. Service, Ingress
 and network-policy entries for port 8081 are explicit infrastructure, like the
 console's; see [redfish.md](redfish.md).
+
+The Redfish sidecar also declares port `metrics` (9181), its unauthenticated
+Prometheus listener ([redfish.md](redfish.md#prometheus-export)). For each
+Redfish-enabled VM the operator keeps an owned, additive CiliumNetworkPolicy
+`<vm>-redfish-metrics`: it admits 9181 from Prometheus Pods
+(`app.kubernetes.io/name=prometheus`) in the `monitoring` namespace and denies
+9181 to every other endpoint and entity, without enabling default deny or
+touching other ports. It is deleted when Redfish is disabled. Adding the port
+changes the Pod template, so the first operator rollout with it replaces each
+Redfish-enabled VM Pod once. `contrib/kubernetes/monitoring/` holds the one
+static PodMonitor and the Grafana dashboard ConfigMap.
 
 The console public URL must have a matching Service/Ingress, TLS certificate and
 exact registered Kanidm callback. See [bmc.md](bmc.md). The operator does not

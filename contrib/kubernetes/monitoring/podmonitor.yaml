@@ -1,0 +1,28 @@
+# One static PodMonitor for every VM Pod whose Redfish sidecar is enabled:
+# only those Pods declare the `metrics` port (9181). kube-prometheus-stack's
+# Prometheus selects every PodMonitor (podMonitorSelector: {}). The operator's
+# per-VM <vm>-redfish-metrics CiliumNetworkPolicy admits 9181 only from the
+# monitoring namespace's Prometheus Pods. See docs/redfish.md#prometheus-export.
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: qrab-vm-redfish
+  labels:
+    app.kubernetes.io/name: qrab
+    app.kubernetes.io/component: monitoring
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: qrab
+      app.kubernetes.io/component: vm
+  podMetricsEndpoints:
+  - port: metrics
+    path: /metrics
+    scheme: http
+    interval: 30s
+    scrapeTimeout: 10s
+    relabelings:
+    # The VM name, stable across Pod replacement and live migration.
+    - action: replace
+      sourceLabels: [__meta_kubernetes_pod_label_app_kubernetes_io_instance]
+      targetLabel: vm
