@@ -507,6 +507,11 @@
                     "items": {
                       "description": "Observed state of one guest NIC.",
                       "properties": {
+                        "address": {
+                          "description": "The address this NIC keeps across nodes (its one-address\nCiliumPodIPPool), when the operator hands out stable addresses.",
+                          "nullable": true,
+                          "type": "string"
+                        },
                         "ip": {
                           "description": "The NIC Pod IP, which is also the guest's address on this NIC.",
                           "nullable": true,

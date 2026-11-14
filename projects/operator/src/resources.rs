@@ -135,6 +135,9 @@ pub struct Settings {
     pub redfish_oidc_audience: String,
     /// ID tokens the dashboard forwards to every BMC's JSON API.
     pub bmc_bearer: Option<BearerSettings>,
+    /// Stable per-NIC addresses; without it a NIC Pod takes an address from
+    /// its node's block and changes it when it moves.
+    pub nic_addresses: Option<crate::address::Addressing>,
 }
 
 /// The issuer and audience (OAuth2 client ID) of accepted bearer ID tokens.

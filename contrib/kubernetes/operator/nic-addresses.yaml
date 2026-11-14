@@ -1,0 +1,127 @@
+# Stable guest NIC addresses (QRAB_NIC_ADDRESS_RANGE in deployment.yaml).
+# The operator claims one address per NIC as a one-address CiliumPodIPPool
+# (cluster-scoped), announces it through a per-NIC FRRConfiguration in
+# frr-k8s-system, and frees it from the CiliumNode of a dead node. That needs
+# cluster-wide RBAC; the policy below confines it to qrab's own objects inside
+# the NIC range. Keep the range in the policy equal to QRAB_NIC_ADDRESS_RANGE.
+# Checked live by contrib/kubernetes/operator/check-nic-address-policy.sh.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: qrab-operator-nic-addresses
+rules:
+- apiGroups: [cilium.io]
+  resources: [ciliumpodippools]
+  verbs: [get, list, create, patch, delete]
+- apiGroups: [cilium.io]
+  resources: [ciliumnodes]
+  verbs: [get, list, patch]
+- apiGroups: [frrk8s.metallb.io]
+  resources: [frrconfigurations]
+  verbs: [get, list, create, patch, delete]
+- apiGroups: ['']
+  resources: [nodes]
+  verbs: [get, list]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: qrab-operator-nic-addresses
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: qrab-operator-nic-addresses
+subjects:
+- kind: ServiceAccount
+  name: qrab-operator
+  namespace: qrab
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: qrab-operator-nic-addresses
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+    - apiGroups: [cilium.io]
+      apiVersions: ['*']
+      operations: [CREATE, UPDATE, DELETE]
+      resources: [ciliumpodippools]
+    - apiGroups: [cilium.io]
+      apiVersions: ['*']
+      operations: [CREATE, UPDATE, DELETE]
+      resources: [ciliumnodes]
+    - apiGroups: [frrk8s.metallb.io]
+      apiVersions: ['*']
+      operations: [CREATE, UPDATE, DELETE]
+      resources: [frrconfigurations]
+  matchConditions:
+  - name: qrab-operator
+    expression: "request.userInfo.username == 'system:serviceaccount:qrab:qrab-operator'"
+  variables:
+  - name: range
+    expression: "'10.244.128.0/17'"
+  - name: subject
+    expression: "request.operation == 'DELETE' ? oldObject : object"
+  - name: name
+    expression: "variables.subject.metadata.name"
+  - name: address
+    expression: "variables.name.startsWith('qrab-nic-') ? variables.name.substring(9).replace('-', '.') : ''"
+  - name: prefix
+    expression: "variables.address + '/32'"
+  - name: owned
+    expression: >-
+      variables.name.startsWith('qrab-nic-') && isIP(variables.address) &&
+      ip(variables.address).family() == 4 && cidr(variables.range).containsIP(variables.address) &&
+      variables.subject.metadata.?labels['app.kubernetes.io/component'].orValue('') == 'vm-nic-address'
+  # CiliumNodes: the operator may only drop qrab-nic-* entries from
+  # spec.ipam.pools.requested and .allocated; everything else stays as it was.
+  - name: nodeOk
+    expression: >-
+      request.operation == 'UPDATE' &&
+      object.metadata.?labels == oldObject.metadata.?labels &&
+      object.metadata.?annotations == oldObject.metadata.?annotations &&
+      object.metadata.?finalizers == oldObject.metadata.?finalizers &&
+      object.metadata.?ownerReferences == oldObject.metadata.?ownerReferences &&
+      oldObject.spec.all(k, k == 'ipam' || (k in object.spec && object.spec[k] == oldObject.spec[k])) &&
+      object.spec.all(k, k in oldObject.spec) &&
+      oldObject.spec.?ipam.orValue({}).all(k, k == 'pools' || (k in object.spec.ipam && object.spec.ipam[k] == oldObject.spec.ipam[k])) &&
+      object.spec.?ipam.orValue({}).all(k, k in oldObject.spec.?ipam.orValue({})) &&
+      oldObject.spec.?ipam.?pools.orValue({}).all(k, k in ['requested', 'allocated'] || (k in object.spec.ipam.pools && object.spec.ipam.pools[k] == oldObject.spec.ipam.pools[k])) &&
+      object.spec.?ipam.?pools.orValue({}).all(k, k in oldObject.spec.?ipam.?pools.orValue({})) &&
+      ['requested', 'allocated'].all(key,
+        object.spec.?ipam.?pools[key].orValue([]).all(e, e in oldObject.spec.?ipam.?pools[key].orValue([])) &&
+        oldObject.spec.?ipam.?pools[key].orValue([]).all(e,
+          e.?pool.orValue('').startsWith('qrab-nic-') || e in object.spec.?ipam.?pools[key].orValue([])))
+  validations:
+  - expression: "request.resource.resource != 'ciliumnodes' || variables.nodeOk"
+    message: the qrab operator may only remove qrab-nic-* pools from a CiliumNode's requested and allocated lists
+  - expression: "request.resource.resource == 'ciliumnodes' || variables.owned"
+    messageExpression: "'the qrab operator may only write labelled qrab-nic-<address> objects inside ' + variables.range"
+  - expression: >-
+      request.resource.resource != 'ciliumpodippools' || request.operation == 'DELETE' ||
+      (object.spec.?ipv4.?cidrs.orValue([]) == [variables.prefix] &&
+       object.spec.?ipv4.?maskSize.orValue(0) == 32 && !has(object.spec.ipv6))
+    message: a NIC address pool holds exactly the /32 its name gives
+  - expression: >-
+      request.resource.resource != 'frrconfigurations' ||
+      (request.namespace == 'frr-k8s-system' &&
+       (request.operation == 'DELETE' ||
+        (object.spec.all(k, k in ['bgp', 'nodeSelector']) &&
+         object.spec.bgp.all(k, k == 'routers') &&
+         object.spec.bgp.routers.all(r,
+           r.all(k, k in ['asn', 'vrf', 'prefixes', 'neighbors']) &&
+           r.?prefixes.orValue([]) == [variables.prefix] &&
+           r.?neighbors.orValue([]).all(n, !has(n.toReceive) &&
+             n.?toAdvertise.?allowed.?mode.orValue('') == 'filtered' &&
+             n.?toAdvertise.?allowed.?prefixes.orValue([]) == [variables.prefix])))))
+    message: a NIC route lives in frr-k8s-system, announces only its own /32 and accepts nothing
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: qrab-operator-nic-addresses
+spec:
+  policyName: qrab-operator-nic-addresses
+  validationActions: [Deny]

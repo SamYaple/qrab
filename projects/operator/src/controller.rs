@@ -2,6 +2,7 @@
 mod storage_guard;
 
 use crate::{
+    address,
     api::{NicStatus, VirtualMachine, VirtualMachineStatus},
     nic::{self, NicEndpoint},
     provision::{self, Attached, SecretStore, Step},
@@ -195,29 +196,68 @@ async fn provision_disks(
 }
 
 /// Converge the NIC Pods and relay policies of `spec.nics`, remove those of
-/// dropped NICs and record `status.nics`. Returns the relay endpoints once
-/// every NIC Pod is Ready, `Ok(None)` while one is pending, or `Err(action)`
-/// after publishing a status change.
+/// dropped NICs and record `status.nics`. With stable addressing, also claim,
+/// announce, fence and release each NIC's address pool. Returns the relay
+/// endpoints once every NIC Pod is Ready, `Ok(None)` while one is pending, or
+/// `Err(action)` after publishing a change.
 async fn reconcile_nics(
     vm: &VirtualMachine,
     ctx: &Context,
     vms: &Api<VirtualMachine>,
     pods: &Api<Pod>,
 ) -> Result<std::result::Result<Option<Vec<NicEndpoint>>, Action>> {
-    if vm.spec.nics.is_empty() && vm.status.as_ref().is_none_or(|s| s.nics.is_empty()) {
+    let addressing = ctx.settings.nic_addresses.as_ref();
+    if vm.spec.nics.is_empty()
+        && vm.status.as_ref().is_none_or(|s| s.nics.is_empty())
+        && !address::has_finalizer(vm)
+    {
         return Ok(Ok(Some(Vec::new())));
     }
     let uid = vm
         .uid()
         .ok_or_else(|| Error::Invalid("VM UID is required".into()))?;
+    // Recorded before the first claim, so deletion always finds the pools.
+    if addressing.is_some() && !vm.spec.nics.is_empty() && !address::has_finalizer(vm) {
+        address::vm_finalizer(vms, vm, true).await?;
+        return Ok(Err(Action::requeue(Duration::from_secs(1))));
+    }
+    let mut addresses = if addressing.is_some() || address::has_finalizer(vm) {
+        Some(address::Addresses::load(&ctx.client, &frr_namespace(ctx)).await?)
+    } else {
+        None
+    };
     let policies: Api<DynamicObject> = Api::namespaced_with(
         ctx.client.clone(),
         &ctx.settings.namespace,
         &nic::policy_resource(),
     );
+    let selector = format!(
+        "app.kubernetes.io/component={},{}={uid}",
+        nic::COMPONENT,
+        nic::OWNER_UID
+    );
+    let nic_pods = pods
+        .list(&ListParams::default().labels(&selector))
+        .await?
+        .items;
     let (mut endpoints, mut statuses) = (Vec::new(), Vec::new());
     for spec in &vm.spec.nics {
-        let desired = nic::render(vm, &ctx.settings, spec)?;
+        let pool = match (addressing, addresses.as_mut()) {
+            (Some(addressing), Some(addresses)) => Some(match addresses.of(&uid, &spec.name) {
+                Some(pool) => pool.clone(),
+                None => addresses.claim(&addressing.range, vm, &spec.name).await?,
+            }),
+            _ => None,
+        };
+        let address = pool
+            .as_ref()
+            .and_then(|p| address::pool_address(&p.name_any()));
+        let desired = nic::render_in_pool(
+            vm,
+            &ctx.settings,
+            spec,
+            pool.as_ref().map(|p| p.name_any()).as_deref(),
+        )?;
         let policy_name = desired.policy.name_any();
         match policies.get_opt(&policy_name).await? {
             Some(actual) if !resources::owned_meta(&actual.metadata, vm) => {
@@ -243,32 +283,46 @@ async fn reconcile_nics(
         }
         let name = desired.pod.name_any();
         let mut endpoint = None;
-        match pods.get_opt(&name).await? {
-            Some(actual) if !resources::owned(&actual, vm) => {
+        let live = pods.get_opt(&name).await?;
+        match &live {
+            Some(actual) if !resources::owned(actual, vm) => {
                 return Err(Error::Ownership(format!(
                     "Pod {name} is not owned by this VM UID"
                 )))
             }
             Some(actual) if actual.metadata.deletion_timestamp.is_some() => {}
             Some(actual)
-                if !nic::pod_matches(&actual, &desired)
+                if !nic::pod_matches(actual, &desired)
                     || matches!(
                         actual.status.as_ref().and_then(|s| s.phase.as_deref()),
                         Some("Failed" | "Succeeded")
                     ) =>
             {
-                delete(pods, &actual).await?;
+                delete(pods, actual).await?;
             }
             Some(actual) => {
-                if let Some(patch) = nic::security_group_patch(&actual, spec) {
+                if let Some(patch) = nic::security_group_patch(actual, spec) {
                     pods.patch(&name, &PatchParams::default(), &Patch::Merge(patch))
                         .await?;
                 }
-                endpoint = nic::endpoint(&actual, &spec.name);
+                endpoint = nic::endpoint(actual, &spec.name)
+                    .filter(|e| address.is_none_or(|a| e.ip == std::net::IpAddr::V4(a)));
             }
             // NIC Pods hold no VM state; a missing one is simply recreated.
             None => {
                 pods.create(&PostParams::default(), &desired.pod).await?;
+            }
+        }
+        if let (Some(addresses), Some(pool), Some(ip)) = (&addresses, &pool, address) {
+            let holder = live.as_ref().filter(|p| {
+                p.status.as_ref().and_then(|s| s.pod_ip.as_deref()) == Some(&ip.to_string())
+            });
+            addresses.route(pool, holder).await?;
+            if holder.is_none() {
+                let bound = pods_of(&nic_pods, &spec.name)
+                    .filter_map(|p| p.spec.as_ref()?.node_name.clone())
+                    .collect();
+                addresses.fence(pool, &bound).await?;
             }
         }
         statuses.push(NicStatus {
@@ -277,26 +331,22 @@ async fn reconcile_nics(
             pod_name: name,
             ip: endpoint.as_ref().map(|e| e.ip.to_string()),
             ready: endpoint.is_some(),
+            address: address.map(|a| a.to_string()),
         });
         endpoints.extend(endpoint);
     }
-    // Dropped NICs. VM deletion garbage collects through owner references.
-    let selector = format!(
-        "app.kubernetes.io/component={},{}={uid}",
-        nic::COMPONENT,
-        nic::OWNER_UID
-    );
+    // Dropped NICs. VM deletion is handled by `finalize_nics`.
     let wanted = |labels: &std::collections::BTreeMap<String, String>| {
         labels
             .get(nic::NIC_LABEL)
             .is_some_and(|n| vm.spec.nics.iter().any(|s| &s.name == n))
     };
-    for stale in pods.list(&ListParams::default().labels(&selector)).await? {
+    for stale in &nic_pods {
         if !wanted(stale.labels())
-            && resources::owned(&stale, vm)
+            && resources::owned(stale, vm)
             && stale.metadata.deletion_timestamp.is_none()
         {
-            delete(pods, &stale).await?;
+            delete(pods, stale).await?;
         }
     }
     for stale in policies
@@ -318,6 +368,27 @@ async fn reconcile_nics(
                 .await?;
         }
     }
+    if let Some(addresses) = &addresses {
+        let mut kept = 0;
+        for pool in addresses.owned_by(&uid) {
+            let nic = pool
+                .labels()
+                .get(nic::NIC_LABEL)
+                .cloned()
+                .unwrap_or_default();
+            if wanted(pool.labels()) {
+                kept += 1;
+            } else if pods_of(&nic_pods, &nic).next().is_none() {
+                addresses.release(pool).await?;
+            } else {
+                kept += 1;
+            }
+        }
+        if kept == 0 && vm.spec.nics.is_empty() && address::has_finalizer(vm) {
+            address::vm_finalizer(vms, vm, false).await?;
+            return Ok(Err(Action::requeue(Duration::from_secs(1))));
+        }
+    }
     if vm.status.as_ref().map(|s| &s.nics) != Some(&statuses) {
         let mut status = vm.status.clone().unwrap_or_default();
         status.nics = statuses;
@@ -327,6 +398,111 @@ async fn reconcile_nics(
     Ok(Ok(
         (endpoints.len() == vm.spec.nics.len()).then_some(endpoints)
     ))
+}
+
+fn pods_of<'a>(pods: &'a [Pod], nic: &'a str) -> impl Iterator<Item = &'a Pod> + 'a {
+    pods.iter()
+        .filter(move |p| p.labels().get(nic::NIC_LABEL).map(String::as_str) == Some(nic))
+}
+
+fn frr_namespace(ctx: &Context) -> String {
+    ctx.settings
+        .nic_addresses
+        .as_ref()
+        .map_or(address::DEFAULT_FRR_NAMESPACE, |a| a.frr_namespace.as_str())
+        .to_owned()
+}
+
+enum Finalized {
+    /// No address pools to release.
+    Absent,
+    /// NIC Pods are still terminating.
+    Waiting,
+    /// The VM changed; reconcile again before touching it.
+    Patched,
+}
+
+/// On VM deletion: stop the NIC Pods, then release their addresses and drop
+/// the VM's address finalizer.
+async fn finalize_nics(
+    vm: &VirtualMachine,
+    ctx: &Context,
+    vms: &Api<VirtualMachine>,
+    pods: &Api<Pod>,
+) -> Result<Finalized> {
+    if !address::has_finalizer(vm) {
+        return Ok(Finalized::Absent);
+    }
+    let uid = vm
+        .uid()
+        .ok_or_else(|| Error::Invalid("VM UID is required".into()))?;
+    let selector = format!(
+        "app.kubernetes.io/component={},{}={uid}",
+        nic::COMPONENT,
+        nic::OWNER_UID
+    );
+    let nic_pods = pods
+        .list(&ListParams::default().labels(&selector))
+        .await?
+        .items;
+    if !nic_pods.is_empty() {
+        for pod in &nic_pods {
+            if pod.metadata.deletion_timestamp.is_none() && resources::owned(pod, vm) {
+                delete(pods, pod).await?;
+            }
+        }
+        return Ok(Finalized::Waiting);
+    }
+    let addresses = address::Addresses::load(&ctx.client, &frr_namespace(ctx)).await?;
+    for pool in addresses.owned_by(&uid) {
+        addresses.release(pool).await?;
+    }
+    address::vm_finalizer(vms, vm, false).await?;
+    Ok(Finalized::Patched)
+}
+
+/// Release address pools whose VM is gone (deleted past its finalizer) once
+/// no NIC Pod of theirs remains.
+async fn sweep_addresses(ctx: &Context) -> Result<()> {
+    if ctx.settings.nic_addresses.is_none() {
+        return Ok(());
+    }
+    let addresses = address::Addresses::load(&ctx.client, &frr_namespace(ctx)).await?;
+    if addresses.all().is_empty() {
+        return Ok(());
+    }
+    let vms: Api<VirtualMachine> = Api::namespaced(ctx.client.clone(), &ctx.settings.namespace);
+    let live: std::collections::BTreeSet<String> = vms
+        .list(&ListParams::default())
+        .await?
+        .items
+        .iter()
+        .filter_map(ResourceExt::uid)
+        .collect();
+    let pods: Api<Pod> = Api::namespaced(ctx.client.clone(), &ctx.settings.namespace);
+    for pool in addresses.all() {
+        let Some(uid) = pool.labels().get(nic::OWNER_UID) else {
+            continue;
+        };
+        if live.contains(uid) {
+            continue;
+        }
+        let selector = format!(
+            "app.kubernetes.io/component={},{}={uid}",
+            nic::COMPONENT,
+            nic::OWNER_UID
+        );
+        if pods
+            .list(&ListParams::default().labels(&selector))
+            .await?
+            .items
+            .is_empty()
+        {
+            tracing::warn!(pool=%pool.name_any(), %uid, "releasing the NIC address of a VM that is gone");
+            addresses.release(pool).await?;
+        }
+    }
+    Ok(())
 }
 
 async fn publish(
@@ -411,11 +587,22 @@ async fn synchronize(
     let claims: Api<PersistentVolumeClaim> =
         Api::namespaced(ctx.client.clone(), &ctx.settings.namespace);
     let pod = pods.get_opt(&vm.name_any()).await?;
+    let nics_finalized = if vm.metadata.deletion_timestamp.is_some() {
+        finalize_nics(vm, ctx, vms, &pods).await?
+    } else {
+        Finalized::Absent
+    };
+    if matches!(nics_finalized, Finalized::Patched) {
+        return Ok(Action::requeue(Duration::from_secs(1)));
+    }
     if let Some(action) = storage_guard::reconcile(vm, pod.as_ref(), vms, &pods, ctx).await? {
         return Ok(action);
     }
     if vm.metadata.deletion_timestamp.is_some() {
-        return Ok(Action::await_change());
+        return Ok(match nics_finalized {
+            Finalized::Waiting => Action::requeue(Duration::from_secs(2)),
+            _ => Action::await_change(),
+        });
     }
     resources::validate(vm, &ctx.settings)?;
     if let Some(pod) = &pod {
@@ -828,5 +1015,6 @@ pub fn error_policy(vm: Arc<VirtualMachine>, error: &Error, _ctx: Arc<Context>) 
 
 /// Periodically collect clean storage Pods after a forcibly removed parent.
 pub async fn sweep_orphans(ctx: Arc<Context>) -> Result<()> {
-    storage_guard::sweep_orphans(ctx).await
+    storage_guard::sweep_orphans(ctx.clone()).await?;
+    sweep_addresses(&ctx).await
 }

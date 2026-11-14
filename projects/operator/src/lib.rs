@@ -1,3 +1,4 @@
+pub mod address;
 pub mod api;
 pub mod controller;
 pub mod nic;

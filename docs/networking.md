@@ -223,19 +223,67 @@ for the VM Pod must therefore also select `app.kubernetes.io/component: vm`, as
   7700}]` and start the VM Pod. `status.nics` lists each NIC's `name`, `mac`,
   `podName`, `ip` and `ready`.
 - **Replacing a NIC Pod.** NIC Pods hold no VM state, so a missing or Failed
-  NIC Pod is recreated. A replaced NIC Pod normally gets a **new IP**. The new
-  IP changes the VM's config, which triggers the operator's normal controlled
-  VM Pod replacement (TPM and firmware identity are kept). The guest then gets
-  the new address from passt's DHCP. A container restart inside the same Pod
-  keeps the IP; QEMU reconnects and the guest does not restart.
+  NIC Pod is recreated. With [stable addresses](#stable-addresses) it comes
+  back with the same IP on any node. Without them a replaced NIC Pod normally
+  gets a **new IP**, which changes the VM's config and triggers the operator's
+  normal controlled VM Pod replacement (TPM and firmware identity are kept);
+  the guest then gets the new address from passt's DHCP. A container restart
+  inside the same Pod keeps the IP; QEMU reconnects and the guest does not
+  restart.
 - **While the VM is off.** NIC Pods stay up when `running: false`, so a
   restart keeps the IPs.
 - **Removal.** Removing a NIC deletes its Pod and policy. Deleting the VM
-  garbage-collects both through owner references.
+  garbage-collects both through owner references (with stable addresses, the
+  operator first stops the NIC Pods and releases their addresses).
 
-The planned fix for the IP change is a delegated IPAM range per VM NIC plus an
-FRR-announced /32, so an address follows the guest across NIC Pod replacement
-and migration. It is not implemented.
+## Stable addresses
+
+With `QRAB_NIC_ADDRESS_RANGE` set (live: `10.244.128.0/17`, carved out of the
+Cilium default pool in kubernetes-gitops), each NIC keeps one address for its
+whole life, on whichever node its Pod runs:
+
+1. **Claim.** The operator creates a cluster-scoped Cilium multi-pool
+   `CiliumPodIPPool` named `qrab-nic-<a>-<b>-<c>-<d>` that holds only that /32
+   (`maskSize: 32`). The name is the address, so `create` is the atomic claim:
+   `AlreadyExists` means another NIC has it and the next free address is
+   tried. Pools carry `qrab.yapplesauce.com/owner-uid` and `nic` labels and the
+   finalizer `qrab.yapplesauce.com/nic-address`; the VM carries the same
+   finalizer from before its first claim. `status.nics[].address` shows it.
+2. **Pin.** The NIC Pod is annotated `ipam.cilium.io/ip-pool: <pool>` and
+   `ipam.cilium.io/require-pool-match: "true"`, so Cilium gives it exactly that
+   address. The guest's static NoCloud network-config therefore never goes
+   stale. NIC pools are never listed in Cilium's `multiPoolPreAllocation`.
+3. **Announce.** While a Pod holds the address, an `FRRConfiguration` of the
+   same name in `frr-k8s-system` selects that Pod's node and announces the /32
+   to the node's BGP neighbors. The operator copies the ASN (and VRF) and the
+   neighbors from the node's base configuration, the one labelled
+   `qrab.yapplesauce.com/nic-route-base: "true"` whose `matchLabels` select the
+   node; frr-k8s merges the two. The route follows the Pod when it moves and is
+   withdrawn while no Pod holds the address. The node mesh and the VM host
+   accept /32s from the NIC range only.
+4. **Fence.** A pool stays allocated to the CiliumNode that last used it until
+   that node's agent frees it. If that Node is gone or not Ready and no Pod of
+   the NIC is bound to it any more, the operator removes the pool from that
+   CiliumNode's `spec.ipam.pools.requested` and `.allocated`, so the new Pod
+   can take the address elsewhere. A Pod still bound to an unreachable node
+   (Terminating) keeps the claim: as for a StatefulSet, only deleting it
+   (`--force`) declares the old process gone.
+5. **Release.** When the NIC is removed or the VM deleted, the operator waits
+   until no Pod of the NIC exists, then deletes the route, the pool's finalizer
+   and the pool. A periodic sweep releases pools whose VM was force-deleted.
+
+The operator needs cluster-wide RBAC for this (pools, CiliumNodes, Nodes,
+FRRConfigurations: `contrib/kubernetes/operator/nic-addresses.yaml`). The
+ValidatingAdmissionPolicy in the same file confines it: pools and routes only
+as labelled `qrab-nic-<address>` objects inside the range, holding or announcing
+only that /32 and accepting no routes, and CiliumNode edits only removing
+`qrab-nic-*` entries. `check-nic-address-policy.sh` checks the policy live with
+dry runs.
+
+A cold move takes about 15–20 s (the new node's first CNI ADD waits for the
+pool; Cilium's `ipam.ciliumNodeUpdateRate` is 1s). The addresses do not
+overlap, so this does not by itself allow live migration: two Pods cannot hold
+one address at once.
 
 ## Limits
 

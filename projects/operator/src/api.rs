@@ -152,6 +152,10 @@ pub struct NicStatus {
     /// The NIC Pod IP, which is also the guest's address on this NIC.
     pub ip: Option<String>,
     pub ready: bool,
+    /// The address this NIC keeps across nodes (its one-address
+    /// CiliumPodIPPool), when the operator hands out stable addresses.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub address: Option<String>,
 }
 
 /// Sidecars reach the VM only through the manager's control socket.

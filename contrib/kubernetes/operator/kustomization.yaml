@@ -6,4 +6,5 @@ resources:
 - rbac.yaml
 - secret-policy.yaml
 - creator-policy.yaml
+- nic-addresses.yaml
 - deployment.yaml

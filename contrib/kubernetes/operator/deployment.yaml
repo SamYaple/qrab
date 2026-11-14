@@ -52,6 +52,10 @@ spec:
         - {name: QRAB_BMC_BEARER_ISSUER, value: 'https://idm.yaple.net/oauth2/openid/qrab-dashboard'}
         - {name: QRAB_BMC_BEARER_AUDIENCE, value: qrab-dashboard}
         - {name: QRAB_IDP_IP, value: '192.168.0.251'}
+        # Stable guest NIC addresses (docs/networking.md#stable-addresses). Keep
+        # equal to the range in nic-addresses.yaml and kubernetes-gitops'
+        # infrastructure/config/cilium-pod-ip-pools.yaml.
+        - {name: QRAB_NIC_ADDRESS_RANGE, value: 10.244.128.0/17}
         ports:
         - name: health
           containerPort: 8081

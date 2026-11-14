@@ -641,6 +641,7 @@ mod tests {
             redfish_oidc_issuer: "https://idm.example/redfish".into(),
             redfish_oidc_audience: "qrab-redfish".into(),
             bmc_bearer: None,
+            nic_addresses: None,
         }
     }
     async fn get_claim() -> Response {
@@ -772,6 +773,7 @@ mod tests {
                 redfish_oidc_issuer: "https://idm.example/redfish".into(),
                 redfish_oidc_audience: "qrab-redfish".into(),
                 bmc_bearer: None,
+                nic_addresses: None,
             },
             storage,
         });
@@ -1210,6 +1212,7 @@ mod tests {
             redfish_oidc_issuer: "https://idm.example/redfish".into(),
             redfish_oidc_audience: "qrab-redfish".into(),
             bmc_bearer: None,
+            nic_addresses: None,
         };
         let desired = resources::render(&vm, &settings).unwrap();
         let mut old = desired.config.clone();

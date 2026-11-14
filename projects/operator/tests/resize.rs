@@ -15,6 +15,7 @@ fn settings() -> Settings {
         redfish_oidc_issuer: "https://idm.yaple.net/oauth2/openid/qrab-redfish".into(),
         redfish_oidc_audience: "qrab-redfish".into(),
         bmc_bearer: None,
+        nic_addresses: None,
     }
 }
 

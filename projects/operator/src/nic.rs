@@ -126,8 +126,19 @@ pub fn policy_resource() -> ApiResource {
     )
 }
 
-/// The NIC Pod and its relay policy.
+/// The NIC Pod and its relay policy, addressed from its node's block.
 pub fn render(vm: &VirtualMachine, settings: &Settings, nic: &Nic) -> Result<DesiredNic> {
+    render_in_pool(vm, settings, nic, None)
+}
+
+/// The NIC Pod and its relay policy; with `pool`, the Pod takes its address
+/// from that one-address CiliumPodIPPool (see [`crate::address`]).
+pub fn render_in_pool(
+    vm: &VirtualMachine,
+    settings: &Settings,
+    nic: &Nic,
+    pool: Option<&str>,
+) -> Result<DesiredNic> {
     let uid = uid(vm)?;
     let owner = owner_json(vm)?;
     let image = vm.spec.image.as_deref().unwrap_or(&settings.vm_image);
@@ -159,8 +170,15 @@ pub fn render(vm: &VirtualMachine, settings: &Settings, nic: &Nic) -> Result<Des
     if let Some(node) = &vm.spec.storage_node {
         pod["spec"]["affinity"]["nodeAffinity"] = json!({"preferredDuringSchedulingIgnoredDuringExecution":[{"weight":50,"preference":{"matchExpressions":[{"key":"kubernetes.io/hostname","operator":"In","values":[node]}]}}]});
     }
+    let mut annotations = serde_json::Map::new();
+    if let Some(pool) = pool {
+        annotations.insert(crate::address::POOL_ANNOTATION.into(), json!(pool));
+        annotations.insert(crate::address::REQUIRE_POOL_MATCH.into(), json!("true"));
+        pod["metadata"]["annotations"] = Value::Object(annotations.clone());
+    }
     let hash = format!("{:x}", Sha256::digest(serde_json::to_vec(&pod)?));
-    pod["metadata"]["annotations"] = json!({HASH: hash});
+    annotations.insert(HASH.into(), json!(hash));
+    pod["metadata"]["annotations"] = Value::Object(annotations);
     labels.extend(security_group_labels(nic));
     pod["metadata"]["labels"] = json!(labels);
     let policy = serde_json::from_value(relay_policy(vm, settings, &nic.name, owner)?)?;

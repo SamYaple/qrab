@@ -74,6 +74,18 @@ async fn main() -> Result<()> {
         ip.parse::<std::net::IpAddr>()
             .context("QRAB_IDP_IP must be an IP address")?;
     }
+    // Opt-in stable NIC addresses: needs Cilium multi-pool IPAM and frr-k8s
+    // base configurations labelled qrab.yapplesauce.com/nic-route-base.
+    let nic_addresses = match std::env::var("QRAB_NIC_ADDRESS_RANGE") {
+        Err(_) => None,
+        Ok(range) => Some(qrab_operator::address::Addressing {
+            range: range
+                .parse()
+                .map_err(|e| anyhow::anyhow!("QRAB_NIC_ADDRESS_RANGE: {e}"))?,
+            frr_namespace: std::env::var("QRAB_FRR_NAMESPACE")
+                .unwrap_or_else(|_| qrab_operator::address::DEFAULT_FRR_NAMESPACE.into()),
+        }),
+    };
     let settings = Settings {
         namespace: std::env::var("QRAB_NAMESPACE").unwrap_or_else(|_| "qrab".into()),
         vm_image,
@@ -84,6 +96,7 @@ async fn main() -> Result<()> {
         redfish_oidc_audience: std::env::var("QRAB_REDFISH_OIDC_AUDIENCE")
             .unwrap_or_else(|_| "qrab-redfish".into()),
         bmc_bearer,
+        nic_addresses,
     };
     let client = Client::try_default().await?;
     let vms: Api<VirtualMachine> = Api::namespaced(client.clone(), &settings.namespace);
