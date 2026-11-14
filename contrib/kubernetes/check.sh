@@ -2,11 +2,11 @@
 # Read-only verification of a CR-managed UEFI/TPM VM and its OIDC console.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
-python3 - "${1:-qrab}" "${2:-qrab-demo}" <<'PY'
-import json,re,subprocess,sys,time,urllib.request,urllib.error,urllib.parse
+python3 - "${1:-qrab}" "${2:-qrab-demo}" "${3:-}" <<'PY'
+import json,re,socket,subprocess,sys,time,urllib.request,urllib.error,urllib.parse
 from http.client import HTTPSConnection
 from pathlib import Path
-namespace,pod=sys.argv[1:]
+namespace,pod,connect_ip=sys.argv[1:]
 def kubectl(*args):
     return subprocess.check_output(['kubectl','-n',namespace,*args],text=True)
 lock=json.loads(Path('contrib/images/images.lock.json').read_text())
@@ -78,6 +78,13 @@ env={v['name']:v.get('value') for c in before['spec'].get('initContainers',[]) i
 # Sidecars share only the control socket, never the QMP/VNC runtime volume.
 assert kubectl('exec',pod,'-c','bmc','--','sh','-c','test -e /run/qrab-control/manager/control.sock && ! test -e /run/qrab && echo isolated').strip()=='isolated', 'BMC sidecar can reach the manager runtime directory'
 origin=env['BMC_PUBLIC_URL']
+if connect_ip:
+    original_getaddrinfo=socket.getaddrinfo
+    origin_host=urllib.parse.urlsplit(origin).hostname
+    def resolve(host,port,*args,**kwargs):
+        return original_getaddrinfo(connect_ip if host==origin_host else host,port,*args,**kwargs)
+    socket.getaddrinfo=resolve
+
 class NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self,*args):return None
 http=urllib.request.build_opener(NoRedirect)

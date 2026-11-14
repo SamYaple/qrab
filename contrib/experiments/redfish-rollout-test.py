@@ -19,6 +19,7 @@ import json
 import os
 from pathlib import Path
 import re
+import socket
 import ssl
 import stat
 import subprocess
@@ -168,11 +169,16 @@ def http_client(args):
     require(origin.hostname is not None and origin.username is None and origin.password is None
             and not origin.query and not origin.fragment and origin.path in ["", "/"], "origin must be a credential-free HTTP(S) origin")
     require(origin.scheme == "https" or (origin.scheme == "http" and origin.hostname in ["127.0.0.1", "localhost", "::1"]), "HTTP is permitted only for an explicit loopback port-forward")
+    if args.connect_ip:
+        original=socket.getaddrinfo
+        def resolve(host,port,*rest,**kwargs):
+            return original(args.connect_ip if host==origin.hostname else host,port,*rest,**kwargs)
+        socket.getaddrinfo=resolve
     context = ssl.create_default_context(cafile=args.ca_file)
     class NoRedirect(urllib.request.HTTPRedirectHandler):
         def redirect_request(self, req, fp, code, msg, headers, newurl):
             return None
-    opener = urllib.request.build_opener(NoRedirect, urllib.request.HTTPSHandler(context=context))
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect, urllib.request.HTTPSHandler(context=context))
     def call(method, path, token=None, body=None):
         require(path.startswith("/redfish") and not path.startswith("//"), "unexpected Redfish URI")
         headers = {"Content-Type": "application/json"}
@@ -229,6 +235,7 @@ def main():
     parser.add_argument("--socket", default="/run/qrab-control/manager/control.sock")
     parser.add_argument("--origin", help="HTTPS origin or loopback port-forward origin")
     parser.add_argument("--ca-file")
+    parser.add_argument("--connect-ip", help="connect to this IP while preserving HTTPS Host/SNI")
     parser.add_argument("--token-file", help="private existing real-OIDC ID token file; never printed")
     parser.add_argument("--expect-role", choices=["admin", "viewer"], default="admin")
     parser.add_argument("--expect-secure-boot", choices=["enabled", "disabled", "unknown"])

@@ -1,12 +1,13 @@
 apiVersion: qrab.yapplesauce.com/v1alpha1
 kind: VirtualMachine
 metadata:
+  namespace: qrab
   name: qrab-redfish-poc
 spec:
   stateVolumeClaim: qrab-redfish-poc-state
   mediaVolumeClaim: qrab-redfish-poc-media
   bootDisk: /var/lib/qrab-media/signed-boot.img
-  image: zot.yapplesauce.com/qrab/manager@sha256:fa971f1863c1795d500cf06cf1e8d88d2686fd10b18e5b304c3331107b46a0ea
+  image: zot.yapplesauce.com/qrab/manager@sha256:12327ea9c53fdf8762d501b17d24fdec8f3d35bfd6f58e1431e10f664be9eb1d
   memoryMiB: 512
   cpus: 1
   running: true
@@ -21,3 +22,4 @@ spec:
       stateVolumeClaim: qrab-redfish-poc-redfish-state
       adminSubjects:
       - 6175a2a1-efb9-44e8-8c0b-5fe7ace18f9b
+      viewerSubjects: []
