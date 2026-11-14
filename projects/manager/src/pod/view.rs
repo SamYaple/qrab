@@ -133,6 +133,8 @@ pub struct SeedView {
 /// The effective VM configuration as shown to a BMC.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ConfigView {
+    #[serde(default)]
+    pub restart_on_exit: bool,
     pub name: String,
     pub memory_mib: u64,
     pub cpus: u32,
@@ -189,6 +191,7 @@ impl ConfigView {
             }),
         }));
         Self {
+            restart_on_exit: config.restart_on_exit,
             name: config.name.clone(),
             memory_mib: config.memory_mib,
             cpus: config.cpus,

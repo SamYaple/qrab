@@ -559,6 +559,19 @@ fn operator_renders_exactly_the_enabled_sidecars() {
             .collect();
         assert_eq!(names, expected);
         for sidecar in &sidecars {
+            // Each service has its own cgroup budget; it is never subtracted
+            // from the guest's manager container allocation.
+            assert_eq!(
+                sidecar["resources"],
+                json!({
+                    "requests":{"cpu":"20m","memory":"32Mi"},
+                    "limits":{"cpu":"500m","memory":"128Mi"}
+                })
+            );
+            assert_eq!(
+                manager["resources"],
+                resources::GuestSize::of(&machine).container_resources(machine.spec.accelerator)
+            );
             assert_eq!(sidecar["restartPolicy"], "Always");
             assert_eq!(sidecar["image"], manager["image"]);
             assert_eq!(
@@ -1160,4 +1173,276 @@ fn invalid_nics_are_refused() {
     assert_eq!(nics["maxItems"], 4);
     assert_eq!(nics["x-kubernetes-list-map-keys"], json!(["name"]));
     assert_eq!(nics["items"]["properties"]["securityGroups"]["maxItems"], 8);
+}
+
+#[test]
+fn redfish_push_is_opt_in_with_separate_state_and_exact_https_egress() {
+    let mut machine = with_components(true, true);
+    assert!(resources::redfish_policy(&machine, &settings())
+        .unwrap()
+        .is_none());
+    let plain = resources::render(&machine, &settings()).unwrap();
+    let plain_json = serde_json::to_value(&plain.pod).unwrap();
+    let plain_redfish = plain_json["spec"]["initContainers"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|c| c["name"] == "redfish")
+        .unwrap();
+    assert!(!env(plain_redfish).contains_key("REDFISH_EVENT_DESTINATIONS"));
+    assert!(!env(plain_redfish).contains_key("REDFISH_SUBSCRIPTIONS_FILE"));
+    machine.spec.components.redfish.event_destinations = vec![
+        "https://events.example/receiver".into(),
+        "https://192.0.2.20:443/hooks".into(),
+        "https://[fd00::20]/hooks".into(),
+    ];
+    machine.spec.components.redfish.state_volume_claim = Some("test-redfish-state".into());
+    let desired = resources::render(&machine, &settings()).unwrap();
+    let pod = serde_json::to_value(&desired.pod).unwrap();
+    let redfish = pod["spec"]["initContainers"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|c| c["name"] == "redfish")
+        .unwrap();
+    let configured = env(redfish);
+    assert_eq!(
+        configured["REDFISH_EVENT_DESTINATIONS"],
+        "https://events.example/receiver,https://192.0.2.20/hooks,https://[fd00::20]/hooks"
+    );
+    assert_eq!(
+        configured["REDFISH_SUBSCRIPTIONS_FILE"],
+        "/var/lib/qrab-redfish/subscriptions-owner-one.json"
+    );
+    assert_eq!(configured["QRAB_RESOURCE_SCOPE"], "container");
+    assert_eq!(
+        redfish["volumeMounts"],
+        json!([{"name":"control","mountPath":"/run/qrab-control"},{"name":"redfish-state","mountPath":"/var/lib/qrab-redfish"}])
+    );
+    assert!(pod["spec"]["volumes"].as_array().unwrap().iter().any(|v|v==&json!({"name":"redfish-state","persistentVolumeClaim":{"claimName":"test-redfish-state"}})));
+    for container in pod["spec"]["containers"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .chain(pod["spec"]["initContainers"].as_array().unwrap())
+    {
+        if container["name"] != "redfish" {
+            assert!(!container["volumeMounts"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|v| v["name"] == "redfish-state"));
+        }
+    }
+    assert_eq!(redfish["resources"], plain_redfish["resources"]);
+    assert_eq!(
+        pod["spec"]["containers"][0]["resources"],
+        plain_json["spec"]["containers"][0]["resources"]
+    );
+    assert!(resources::pod_matches(&desired.pod, &desired));
+    assert!(!resources::pod_matches(&plain.pod, &desired));
+    let policy = resources::redfish_policy(&machine, &settings())
+        .unwrap()
+        .unwrap();
+    assert!(resources::owned_meta(&policy.metadata, &machine));
+    let policy = serde_json::to_value(policy).unwrap();
+    assert_eq!(policy["metadata"]["name"], "test-vm-redfish-events");
+    assert_eq!(
+        policy["spec"]["enableDefaultDeny"],
+        json!({"ingress":false,"egress":false})
+    );
+    assert_eq!(
+        policy["spec"]["endpointSelector"]["matchLabels"]["qrab.yapplesauce.com/owner-uid"],
+        "owner-one"
+    );
+    let egress = policy["spec"]["egress"].as_array().unwrap();
+    assert_eq!(egress.len(), 3);
+    assert_eq!(
+        egress[0]["toEndpoints"][0]["matchLabels"]["k8s:k8s-app"],
+        "kube-dns"
+    );
+    assert_eq!(
+        egress[1]["toFQDNs"],
+        json!([{"matchName":"events.example"}])
+    );
+    assert_eq!(
+        egress[1]["toPorts"],
+        json!([{"ports":[{"port":"443","protocol":"TCP"}]}])
+    );
+    assert_eq!(
+        egress[2]["toCIDR"],
+        json!(["192.0.2.20/32", "fd00::20/128"])
+    );
+    assert!(!policy.to_string().contains("toEntities"));
+}
+
+#[test]
+fn redfish_event_configuration_rejects_unsafe_or_ambiguous_destinations() {
+    let mut machine = with_components(false, true);
+    for destination in [
+        "http://events.example/hook",
+        "https://user:pass@events.example/hook",
+        "https://events.example:8443/hook",
+        "https://events.example/hook?token=secret",
+        "https://events.example/hook#fragment",
+        "https://events.example/a,b",
+        "https://127.0.0.1/hook",
+        "https://0.0.0.0/hook",
+        "https://[::1]/hook",
+    ] {
+        machine.spec.components.redfish.event_destinations = vec![destination.into()];
+        assert!(
+            resources::render(&machine, &settings()).is_err(),
+            "accepted {destination}"
+        );
+    }
+    machine.spec.components.redfish.event_destinations =
+        vec!["https://events.example/hook".into(); 33];
+    assert!(resources::render(&machine, &settings()).is_err());
+    machine.spec.components.redfish.event_destinations =
+        vec!["https://events.example/hook".into(); 2];
+    assert!(resources::render(&machine, &settings()).is_err());
+    machine.spec.components.redfish.event_destinations.clear();
+    machine.spec.components.redfish.state_volume_claim =
+        Some(machine.spec.state_volume_claim.clone());
+    assert!(resources::render(&machine, &settings()).is_err());
+    machine.spec.components.redfish.state_volume_claim = Some("bad_claim".into());
+    assert!(resources::render(&machine, &settings()).is_err());
+    machine.spec.components.redfish.state_volume_claim = Some("separate-redfish-state".into());
+    machine.spec.components.redfish.enabled = false;
+    assert!(resources::render(&machine, &settings()).is_err());
+}
+
+#[test]
+fn approved_media_and_firmware_catalogs_are_read_only_manager_only_and_default_off() {
+    let mut machine = with_components(true, true);
+    let plain = resources::render(&machine, &settings()).unwrap();
+    let plain_json = serde_json::to_value(&plain.pod).unwrap();
+    let plain_env = env(&plain_json["spec"]["containers"][0]);
+    assert!(
+        !plain_env.contains_key("QRAB_MEDIA_ROOT") && !plain_env.contains_key("QRAB_FIRMWARE_ROOT")
+    );
+    machine.spec.media_volume_claim = Some("approved-media".into());
+    machine.spec.firmware_catalog_volume_claim = Some("approved-firmware".into());
+    machine.spec.components.redfish.state_volume_claim = Some("redfish-persistence".into());
+    let desired = resources::render(&machine, &settings()).unwrap();
+    let pod = serde_json::to_value(&desired.pod).unwrap();
+    let manager = &pod["spec"]["containers"][0];
+    let manager_env = env(manager);
+    assert_eq!(manager_env["QRAB_MEDIA_ROOT"], "/var/lib/qrab-media");
+    assert_eq!(manager_env["QRAB_FIRMWARE_ROOT"], "/var/lib/qrab-firmware");
+    for (name, claim, path) in [
+        ("media-catalog", "approved-media", "/var/lib/qrab-media"),
+        (
+            "firmware-catalog",
+            "approved-firmware",
+            "/var/lib/qrab-firmware",
+        ),
+    ] {
+        assert!(pod["spec"]["volumes"].as_array().unwrap().iter().any(|v| v
+            == &json!({"name":name,"persistentVolumeClaim":{"claimName":claim,"readOnly":true}})));
+        assert!(manager["volumeMounts"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|m| m == &json!({"name":name,"mountPath":path,"readOnly":true})));
+        for sidecar in pod["spec"]["initContainers"].as_array().unwrap() {
+            assert!(!sidecar["volumeMounts"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|m| m["name"] == name));
+        }
+    }
+    assert!(resources::pod_matches(&desired.pod, &desired));
+    assert!(!resources::pod_matches(&plain.pod, &desired));
+    let mut widened = desired.pod.clone();
+    widened.spec.as_mut().unwrap().containers[0]
+        .volume_mounts
+        .as_mut()
+        .unwrap()
+        .iter_mut()
+        .find(|m| m.name == "firmware-catalog")
+        .unwrap()
+        .read_only = Some(false);
+    assert!(!resources::pod_matches(&widened, &desired));
+    machine.spec.firmware_catalog_volume_claim = machine.spec.media_volume_claim.clone();
+    assert!(resources::render(&machine, &settings()).is_err());
+    machine.spec.firmware_catalog_volume_claim = Some(machine.spec.state_volume_claim.clone());
+    assert!(resources::render(&machine, &settings()).is_err());
+    machine.spec.firmware_catalog_volume_claim = Some("redfish-persistence".into());
+    assert!(resources::render(&machine, &settings()).is_err());
+    machine.spec.firmware_catalog_volume_claim = Some("bad_claim".into());
+    assert!(resources::render(&machine, &settings()).is_err());
+}
+
+#[test]
+fn periodic_redfish_telemetry_is_explicit_and_bounded() {
+    let mut machine = with_components(true, true);
+    let default =
+        serde_json::to_value(resources::render(&machine, &settings()).unwrap().pod).unwrap();
+    let redfish = default["spec"]["initContainers"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|c| c["name"] == "redfish")
+        .unwrap();
+    assert!(!env(redfish).contains_key("REDFISH_TELEMETRY_INTERVAL_SECS"));
+    machine.spec.components.redfish.telemetry_interval_seconds = Some(7);
+    let configured = resources::render(&machine, &settings()).unwrap();
+    let pod = serde_json::to_value(&configured.pod).unwrap();
+    let redfish = pod["spec"]["initContainers"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|c| c["name"] == "redfish")
+        .unwrap();
+    assert_eq!(env(redfish)["REDFISH_TELEMETRY_INTERVAL_SECS"], "7");
+    assert!(resources::pod_matches(&configured.pod, &configured));
+    for seconds in [0, 4, 3601] {
+        machine.spec.components.redfish.telemetry_interval_seconds = Some(seconds);
+        assert!(resources::render(&machine, &settings()).is_err());
+    }
+    machine.spec.components.redfish.telemetry_interval_seconds = Some(5);
+    machine.spec.components.redfish.enabled = false;
+    assert!(resources::render(&machine, &settings()).is_err());
+}
+
+#[test]
+fn secure_boot_capability_is_explicit_without_inventing_enabled_state_or_resources() {
+    let mut machine = vm();
+    assert!(!machine.spec.secure_boot_capable);
+    let plain = resources::render(&machine, &settings()).unwrap();
+    let plain_config: Value =
+        serde_json::from_str(&plain.config.data.as_ref().unwrap()["vm.json"]).unwrap();
+    assert_eq!(
+        plain_config["uefi"],
+        json!({"boot_disk":"/opt/qrab/demo/boot.img"})
+    );
+    assert_eq!(plain_config["restart_on_exit"], true);
+    machine.spec.secure_boot_capable = true;
+    let secure = resources::render(&machine, &settings()).unwrap();
+    let config: Value =
+        serde_json::from_str(&secure.config.data.as_ref().unwrap()["vm.json"]).unwrap();
+    assert_eq!(
+        config["uefi"],
+        json!({"boot_disk":"/opt/qrab/demo/boot.img","secure_boot_capable":true,"code":"/opt/qrab/firmware/OVMF_CODE_4M.secboot.fd"})
+    );
+    assert_eq!(config["restart_on_exit"], true);
+    assert!(config["uefi"].get("secure_boot_enabled").is_none());
+    let plain_pod = serde_json::to_value(&plain.pod).unwrap();
+    let secure_pod = serde_json::to_value(&secure.pod).unwrap();
+    assert_eq!(
+        plain_pod["spec"]["containers"][0]["resources"],
+        secure_pod["spec"]["containers"][0]["resources"]
+    );
+    assert_eq!(
+        plain_pod["spec"]["initContainers"],
+        secure_pod["spec"]["initContainers"]
+    );
+    assert!(resources::pod_matches(&secure.pod, &secure));
+    assert_ne!(
+        plain.hash, secure.hash,
+        "changing firmware capability must replace the booted instance"
+    );
 }

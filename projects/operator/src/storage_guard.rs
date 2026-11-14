@@ -615,9 +615,71 @@ mod tests {
         pod: Option<Pod>,
         calls: Vec<&'static str>,
         config: Option<k8s_openapi::api::core::v1::ConfigMap>,
+        redfish_policy: Option<Value>,
+        replace_redfish_on_get: bool,
     }
     fn not_found() -> Response {
         (StatusCode::NOT_FOUND,Json(json!({"apiVersion":"v1","kind":"Status","status":"Failure","reason":"NotFound","message":"not found","code":404}))).into_response()
+    }
+    async fn get_redfish_policy(State(store): State<Store>) -> Response {
+        let mut objects = store.0.lock().unwrap();
+        let response = objects.redfish_policy.clone();
+        if objects.replace_redfish_on_get {
+            objects.replace_redfish_on_get = false;
+            let foreign = objects.redfish_policy.as_mut().unwrap();
+            foreign["metadata"]["uid"] = json!("foreign-policy-uid");
+            foreign["metadata"]["resourceVersion"] = json!("99");
+            foreign["metadata"]["ownerReferences"][0]["uid"] = json!("foreign-vm-uid");
+        }
+        match response {
+            Some(policy) => Json(policy).into_response(),
+            None => not_found(),
+        }
+    }
+    async fn create_redfish_policy(
+        State(store): State<Store>,
+        body: axum::body::Bytes,
+    ) -> Response {
+        let mut policy: Value = serde_json::from_slice(&body).unwrap();
+        policy["metadata"]["uid"] = json!("policy-uid");
+        policy["metadata"]["resourceVersion"] = json!("1");
+        let mut objects = store.0.lock().unwrap();
+        objects.calls.push("create-redfish-policy");
+        objects.redfish_policy = Some(policy.clone());
+        (StatusCode::CREATED, Json(policy)).into_response()
+    }
+    async fn patch_redfish_policy(State(store): State<Store>, body: axum::body::Bytes) -> Response {
+        let mut policy: Value = serde_json::from_slice(&body).unwrap();
+        let mut objects = store.0.lock().unwrap();
+        let current = objects.redfish_policy.as_ref().unwrap();
+        if policy["metadata"]["uid"] != current["metadata"]["uid"]
+            || policy["metadata"]["resourceVersion"] != current["metadata"]["resourceVersion"]
+        {
+            return (StatusCode::CONFLICT,Json(json!({"apiVersion":"v1","kind":"Status","status":"Failure","reason":"Conflict","message":"policy identity or resourceVersion changed","code":409}))).into_response();
+        }
+        policy["metadata"]["uid"] = current["metadata"]["uid"].clone();
+        policy["metadata"]["resourceVersion"] = json!("2");
+        objects.calls.push("patch-redfish-policy");
+        objects.redfish_policy = Some(policy.clone());
+        Json(policy).into_response()
+    }
+    async fn delete_redfish_policy(
+        State(store): State<Store>,
+        body: axum::body::Bytes,
+    ) -> Response {
+        let params: Value = serde_json::from_slice(&body).unwrap();
+        let mut objects = store.0.lock().unwrap();
+        let Some(policy) = objects.redfish_policy.as_ref() else {
+            return not_found();
+        };
+        assert_eq!(
+            params["preconditions"]["uid"], policy["metadata"]["uid"],
+            "policy deletion must fence object identity"
+        );
+        objects.calls.push("delete-redfish-policy");
+        objects.redfish_policy = None;
+        Json(json!({"apiVersion":"v1","kind":"Status","status":"Success","code":200}))
+            .into_response()
     }
     async fn get_vm(State(store): State<Store>) -> Response {
         match &store.0.lock().unwrap().vm {
@@ -746,6 +808,8 @@ mod tests {
             pod,
             calls: Vec::new(),
             config,
+            redfish_policy: None,
+            replace_redfish_on_get: false,
         })));
         let app=Router::new()
             .route("/apis/qrab.yapplesauce.com/v1alpha1/namespaces/qrab/virtualmachines/test-vm",get(get_vm).patch(patch_vm))
@@ -754,6 +818,8 @@ mod tests {
             .route("/api/v1/namespaces/qrab/pods",get(list_pods))
             .route("/api/v1/namespaces/qrab/persistentvolumeclaims/state",get(get_claim))
             .route("/api/v1/namespaces/qrab/configmaps/test-vm-config",get(get_config))
+            .route("/apis/cilium.io/v2/namespaces/qrab/ciliumnetworkpolicies/test-vm-redfish-events",get(get_redfish_policy).patch(patch_redfish_policy).delete(delete_redfish_policy))
+            .route("/apis/cilium.io/v2/namespaces/qrab/ciliumnetworkpolicies",axum::routing::post(create_redfish_policy))
             .with_state(store.clone());
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let client = kube::Client::try_from(kube::Config::new(
@@ -1303,6 +1369,89 @@ mod tests {
                 .unwrap()
                 .reason,
             "InvalidSpec"
+        );
+        server.abort();
+    }
+    #[tokio::test]
+    async fn redfish_egress_policy_reconciles_independently_and_refuses_foreign_owners() {
+        let mut vm = vm();
+        vm.spec.components.redfish=serde_json::from_value(json!({"enabled":true,"adminSubjects":["6175a2a1-efb9-44e8-8c0b-5fe7ace18f9b"],"eventDestinations":["https://events.example/receiver"]})).unwrap();
+        let (store, ctx, server) = server(vm.clone(), None).await;
+        super::super::reconcile_redfish_policy(&vm, &ctx)
+            .await
+            .unwrap();
+        assert_eq!(store.0.lock().unwrap().calls, vec!["create-redfish-policy"]);
+        super::super::reconcile_redfish_policy(&vm, &ctx)
+            .await
+            .unwrap();
+        assert_eq!(
+            store.0.lock().unwrap().calls.len(),
+            1,
+            "matching owned policy must not be rewritten"
+        );
+        vm.spec.components.redfish.event_destinations =
+            vec!["https://updated.example/receiver".into()];
+        super::super::reconcile_redfish_policy(&vm, &ctx)
+            .await
+            .unwrap();
+        assert_eq!(
+            store.0.lock().unwrap().calls,
+            vec!["create-redfish-policy", "patch-redfish-policy"]
+        );
+        let owned = store.0.lock().unwrap().redfish_policy.clone().unwrap();
+        store.0.lock().unwrap().redfish_policy.as_mut().unwrap()["metadata"]["ownerReferences"]
+            [0]["uid"] = json!("foreign-owner");
+        assert!(matches!(
+            super::super::reconcile_redfish_policy(&vm, &ctx).await,
+            Err(Error::Ownership(_))
+        ));
+        vm.spec.components.redfish.event_destinations.clear();
+        assert!(matches!(
+            super::super::reconcile_redfish_policy(&vm, &ctx).await,
+            Err(Error::Ownership(_))
+        ));
+        assert_eq!(
+            store.0.lock().unwrap().calls.len(),
+            2,
+            "foreign objects must not be patched or deleted"
+        );
+        store.0.lock().unwrap().redfish_policy = Some(owned);
+        super::super::reconcile_redfish_policy(&vm, &ctx)
+            .await
+            .unwrap();
+        assert!(store.0.lock().unwrap().redfish_policy.is_none());
+        assert_eq!(
+            store.0.lock().unwrap().calls,
+            vec![
+                "create-redfish-policy",
+                "patch-redfish-policy",
+                "delete-redfish-policy"
+            ]
+        );
+        server.abort();
+    }
+    #[tokio::test]
+    async fn redfish_policy_apply_does_not_clobber_replacement_after_ownership_get() {
+        let mut vm = vm();
+        vm.spec.components.redfish=serde_json::from_value(json!({"enabled":true,"adminSubjects":["6175a2a1-efb9-44e8-8c0b-5fe7ace18f9b"],"eventDestinations":["https://events.example/receiver"]})).unwrap();
+        let (store, ctx, server) = server(vm.clone(), None).await;
+        super::super::reconcile_redfish_policy(&vm, &ctx)
+            .await
+            .unwrap();
+        store.0.lock().unwrap().replace_redfish_on_get = true;
+        vm.spec.components.redfish.event_destinations =
+            vec!["https://updated.example/receiver".into()];
+        let error = super::super::reconcile_redfish_policy(&vm, &ctx)
+            .await
+            .unwrap_err();
+        assert!(matches!(error,Error::Kubernetes(kube::Error::Api(status)) if status.code==409));
+        let objects = store.0.lock().unwrap();
+        assert_eq!(objects.calls, vec!["create-redfish-policy"]);
+        let policy = objects.redfish_policy.as_ref().unwrap();
+        assert_eq!(policy["metadata"]["uid"], "foreign-policy-uid");
+        assert_eq!(
+            policy["metadata"]["ownerReferences"][0]["uid"],
+            "foreign-vm-uid"
         );
         server.abort();
     }

@@ -37,6 +37,14 @@ pub struct VirtualMachineSpec {
     /// Existing filesystem PVC. Its UEFI/vTPM identity is never garbage collected.
     #[schemars(length(min = 1, max = 253))]
     pub state_volume_claim: String,
+    /// Explicit read-only catalog PVC of approved virtual media. Mounted only
+    /// into the manager; no file uploads, PVC creation or garbage collection.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub media_volume_claim: Option<String>,
+    /// Explicit read-only approved firmware catalog PVC. Its root-owned sealed
+    /// manifest and CODE artifacts must satisfy manager catalog validation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub firmware_catalog_volume_claim: Option<String>,
     #[serde(default = "memory", rename = "memoryMiB")]
     #[schemars(with = "i32", range(min = 256, max = 1048576))]
     pub memory_mib: u32,
@@ -77,6 +85,10 @@ pub struct VirtualMachineSpec {
     #[serde(default = "boot_disk")]
     #[schemars(length(min = 2, max = 4096))]
     pub boot_disk: String,
+    /// Select explicit secure-capable OVMF with SMM-protected variable flash.
+    /// Key enrollment and requested enablement remain separate operations.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub secure_boot_capable: bool,
     #[serde(default)]
     #[schemars(length(max = 8))]
     pub iscsi_disks: Vec<IscsiDisk>,
@@ -185,6 +197,20 @@ impl Default for BmcComponent {
 #[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RedfishComponent {
+    /// Optional periodic Redfish metric history cadence. Absent keeps reports
+    /// on demand and avoids idle VM metric queries; enabled triggers still poll.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(with = "Option<i32>", range(min = 5, max = 3600))]
+    pub telemetry_interval_seconds: Option<u32>,
+    /// Exact HTTPS event receiver URLs, without credentials, query, fragment
+    /// or non-443 ports. Empty disables outbound Redfish event subscriptions.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[schemars(length(max = 32))]
+    pub event_destinations: Vec<String>,
+    /// Explicit separate PVC for Redfish subscription state. The operator never
+    /// creates or deletes it; it must not be the VM's firmware/TPM state PVC.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub state_volume_claim: Option<String>,
     /// A DMTF Redfish API authenticated by OIDC bearer tokens.
     #[serde(default)]
     pub enabled: bool,

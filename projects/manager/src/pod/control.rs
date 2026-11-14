@@ -4,7 +4,7 @@ use super::{
     Config, ConfigView, Deployment, Status,
 };
 use crate::{Error, Result};
-use qapi::commands::{Cont, Stop, SystemReset};
+use qapi::commands::{Cont, InjectNmi, Quit, Stop, SystemReset};
 use qapi_protocol::{Qmp, QmpEvent};
 use serde::{Deserialize, Serialize};
 use std::sync::{
@@ -24,9 +24,18 @@ pub enum Action {
     Resume,
     Reset,
     Powerdown,
+    Nmi,
+    Reboot,
+    ColdRestart,
 }
 
 pub(super) enum Request {
+    Metrics(oneshot::Sender<Result<super::VmMetrics>>),
+    Inventory(oneshot::Sender<Result<super::HardwareInventory>>),
+    Media(
+        super::MediaOperation,
+        oneshot::Sender<Result<super::MediaStatus>>,
+    ),
     Action(Action, oneshot::Sender<Result<()>>),
     Console(oneshot::Sender<Result<UnixStream>>),
     Agent(AgentOp),
@@ -35,6 +44,17 @@ pub(super) enum Request {
 /// State readable without a supervisor round trip.
 struct Shared {
     events: EventLog,
+    serial: super::serial::SerialLog,
+    firmware_stage: tokio::sync::Mutex<()>,
+    firmware_status_cache:
+        tokio::sync::Mutex<Option<(std::time::Instant, super::FirmwareStageStatus)>>,
+    secure_boot_databases:
+        tokio::sync::Mutex<Option<(std::time::Instant, super::SecureBootDatabaseSnapshot)>>,
+    secure_boot_settings:
+        tokio::sync::Mutex<Option<(std::time::Instant, super::SecureBootSettings)>>,
+    state_lease: RwLock<Option<super::persistent::StateLease>>,
+    metrics: tokio::sync::Mutex<Option<(std::time::Instant, super::VmMetrics)>>,
+    inventory: tokio::sync::Mutex<Option<(std::time::Instant, super::HardwareInventory)>>,
     deployment: Deployment,
     config: RwLock<Option<Config>>,
     /// Every record the supervisor publishes, as it publishes it.
@@ -80,6 +100,14 @@ fn channel(config: Option<Config>, deployment: Deployment) -> (Control, ControlR
     };
     let shared = Arc::new(Shared {
         events: EventLog::default(),
+        serial: Default::default(),
+        firmware_stage: Default::default(),
+        firmware_status_cache: Default::default(),
+        secure_boot_databases: Default::default(),
+        secure_boot_settings: Default::default(),
+        state_lease: Default::default(),
+        metrics: tokio::sync::Mutex::new(None),
+        inventory: tokio::sync::Mutex::new(None),
         deployment,
         config: RwLock::new(config),
         status: Arc::new(watch::channel(None).0),
@@ -99,7 +127,61 @@ fn channel(config: Option<Config>, deployment: Deployment) -> (Control, ControlR
     )
 }
 
+pub(super) struct FirmwareLeaseGuard(Arc<Shared>);
+impl Drop for FirmwareLeaseGuard {
+    fn drop(&mut self) {
+        self.0
+            .state_lease
+            .write()
+            .unwrap_or_else(|p| p.into_inner())
+            .take();
+    }
+}
 impl ControlReceiver {
+    pub(super) fn firmware_lease(
+        &self,
+        lease: Option<super::persistent::StateLease>,
+    ) -> FirmwareLeaseGuard {
+        *self
+            .shared
+            .state_lease
+            .write()
+            .unwrap_or_else(|p| p.into_inner()) = lease;
+        FirmwareLeaseGuard(self.shared.clone())
+    }
+
+    pub(super) fn pump_serial(
+        &self,
+        mut stdout: tokio::process::ChildStdout,
+    ) -> tokio::task::JoinHandle<()> {
+        use tokio::io::AsyncReadExt;
+        let log = self.shared.serial.clone();
+        // Container log backpressure must never block the control runtime.
+        // The mirror is best effort; the authoritative bounded tail is recorded first.
+        let (mirror, packets) = std::sync::mpsc::sync_channel::<Vec<u8>>(16);
+        let _ = std::thread::Builder::new()
+            .name("guest-serial-log".into())
+            .stack_size(128 * 1024)
+            .spawn(move || {
+                use std::io::Write;
+                for bytes in packets {
+                    let _ = std::io::stdout().write_all(&bytes);
+                }
+            });
+        tokio::spawn(async move {
+            let mut buffer = [0; 4096];
+            loop {
+                match stdout.read(&mut buffer).await {
+                    Ok(0) | Err(_) => break,
+                    Ok(n) => {
+                        log.record(&buffer[..n]);
+                        let _ = mirror.try_send(buffer[..n].to_vec());
+                    }
+                }
+            }
+        })
+    }
+
     /// Record a QMP event in the channel's bounded history.
     pub fn record_event(&self, event: QmpEvent) {
         self.shared.events.record(event);
@@ -159,6 +241,218 @@ impl ControlReceiver {
 }
 
 impl Control {
+    pub async fn agent_secure_boot_databases(&self) -> Result<super::SecureBootDatabaseSnapshot> {
+        let mut cached = self
+            .shared
+            .secure_boot_databases
+            .try_lock()
+            .map_err(|_| Error::Spawn("Secure Boot inventory is busy".into()))?;
+        if let Some((at, snapshot)) = cached.as_ref() {
+            if at.elapsed() < std::time::Duration::from_secs(5) {
+                return Ok(snapshot.clone());
+            }
+        }
+        let snapshot = self.agent(AgentOp::SecureBootDatabases).await?;
+        *cached = Some((std::time::Instant::now(), snapshot.clone()));
+        Ok(snapshot)
+    }
+    pub async fn agent_secure_boot_update(
+        &self,
+        request: super::SecureBootUpdateRequest,
+    ) -> Result<super::SecureBootDatabaseSnapshot> {
+        super::validate_secure_boot_update(&request)?;
+        let mut cached = self
+            .shared
+            .secure_boot_databases
+            .try_lock()
+            .map_err(|_| Error::Spawn("Secure Boot inventory/update is busy".into()))?;
+        *cached = None;
+        let snapshot = self
+            .agent(|tx| AgentOp::SecureBootUpdate(request, tx))
+            .await?;
+        *cached = Some((std::time::Instant::now(), snapshot.clone()));
+        Ok(snapshot)
+    }
+    pub async fn secure_boot_settings(&self) -> Result<super::SecureBootSettings> {
+        let mut cache = self
+            .shared
+            .secure_boot_settings
+            .try_lock()
+            .map_err(|_| Error::Spawn("Secure Boot settings are busy".into()))?;
+        if let Some((at, snapshot)) = cache.as_ref() {
+            if at.elapsed() < std::time::Duration::from_secs(5) {
+                return Ok(snapshot.clone());
+            }
+        }
+        let config = self.config()?;
+        let snapshot =
+            tokio::task::spawn_blocking(move || super::secure_boot_policy::settings(&config))
+                .await
+                .map_err(|_| Error::Spawn("Secure Boot settings worker failed".into()))??;
+        *cache = Some((std::time::Instant::now(), snapshot.clone()));
+        Ok(snapshot)
+    }
+    pub async fn stage_secure_boot(&self, enabled: bool) -> Result<super::SecureBootSettings> {
+        if self.shared.stopping.load(Ordering::Acquire) {
+            return Err(Error::ShuttingDown);
+        }
+        let _stage = self
+            .shared
+            .firmware_stage
+            .try_lock()
+            .map_err(|_| Error::Spawn("Firmware/settings staging is busy".into()))?;
+        let mut cache = self
+            .shared
+            .secure_boot_settings
+            .try_lock()
+            .map_err(|_| Error::Spawn("Secure Boot settings are busy".into()))?;
+        let lease = self
+            .shared
+            .state_lease
+            .read()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone()
+            .ok_or_else(|| {
+                Error::Spawn("Secure Boot staging requires the live persistent-state lease".into())
+            })?;
+        let config = self.config()?;
+        *cache = None;
+        let snapshot = tokio::task::spawn_blocking(move || {
+            let _lease = lease;
+            super::secure_boot_policy::stage(&config, enabled)
+        })
+        .await
+        .map_err(|_| Error::Spawn("Secure Boot staging worker failed".into()))??;
+        *cache = Some((std::time::Instant::now(), snapshot.clone()));
+        Ok(snapshot)
+    }
+
+    pub async fn agent_boot(&self) -> Result<super::BootSnapshot> {
+        self.agent(AgentOp::Boot).await
+    }
+    pub async fn agent_boot_next(&self, reference: Option<String>) -> Result<super::BootSnapshot> {
+        self.agent(|tx| AgentOp::BootNext(reference, tx)).await
+    }
+
+    pub async fn firmware_catalog(&self) -> Result<super::FirmwareCatalogView> {
+        tokio::task::spawn_blocking(super::firmware::firmware_catalog)
+            .await
+            .map_err(|_| Error::Spawn("firmware catalog worker failed".into()))?
+    }
+    pub async fn firmware_stage_status(&self) -> Result<super::FirmwareStageStatus> {
+        let mut cache = self
+            .shared
+            .firmware_status_cache
+            .try_lock()
+            .map_err(|_| Error::Spawn("firmware status is busy".into()))?;
+        if let Some((at, status)) = cache.as_ref() {
+            if at.elapsed() < std::time::Duration::from_secs(5) {
+                return Ok(status.clone());
+            }
+        }
+        let config = self.config()?;
+        let running = self.shared.status.borrow().as_ref().is_some_and(|s| {
+            s.manager_pid == std::process::id() && s.phase == super::Phase::Running
+        });
+        let status = tokio::task::spawn_blocking(move || {
+            super::firmware::firmware_stage_status(&config, running)
+        })
+        .await
+        .map_err(|_| Error::Spawn("firmware status worker failed".into()))??;
+        *cache = Some((std::time::Instant::now(), status.clone()));
+        Ok(status)
+    }
+    pub async fn firmware_stage(&self, id: String) -> Result<super::FirmwareStageStatus> {
+        if self.shared.stopping.load(Ordering::Acquire) {
+            return Err(Error::ShuttingDown);
+        }
+        let _guard = self.shared.firmware_stage.lock().await;
+        if self.shared.stopping.load(Ordering::Acquire) {
+            return Err(Error::ShuttingDown);
+        }
+        let lease = self
+            .shared
+            .state_lease
+            .read()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone()
+            .ok_or_else(|| {
+                Error::Spawn(
+                    "firmware staging requires the manager's live persistent-state lease".into(),
+                )
+            })?;
+        let config = self.config()?;
+        let mut cached = self
+            .shared
+            .firmware_status_cache
+            .try_lock()
+            .map_err(|_| Error::Spawn("firmware status/staging is busy".into()))?;
+        *cached = None;
+        let result = tokio::task::spawn_blocking(move || {
+            let _lease = lease; // Retain exclusive ownership even if caller/supervisor is cancelled.
+            super::firmware::stage_firmware(&config, &id)
+        })
+        .await
+        .map_err(|_| Error::Spawn("firmware staging worker failed".into()))??;
+        *cached = Some((std::time::Instant::now(), result.clone()));
+        Ok(result)
+    }
+
+    pub fn serial(&self) -> super::SerialSnapshot {
+        self.shared.serial.snapshot()
+    }
+
+    pub async fn agent_firmware(&self) -> Result<super::FirmwareSnapshot> {
+        self.agent(AgentOp::Firmware).await
+    }
+    pub async fn media(&self, operation: super::MediaOperation) -> Result<super::MediaStatus> {
+        // Disabled policy discovery is available even before QEMU starts.
+        if operation == super::MediaOperation::Status && super::MediaPolicy::from_env()?.is_none() {
+            return Ok(Default::default());
+        }
+        self.request(|tx| Request::Media(operation, tx)).await
+    }
+
+    pub fn resource_usage(&self) -> super::ResourceUsage {
+        super::ResourceUsage::sample()
+    }
+
+    pub async fn inventory(&self) -> Result<super::HardwareInventory> {
+        if self.shared.stopping.load(Ordering::Acquire) {
+            return Err(Error::ShuttingDown);
+        }
+        let mut cached = self.shared.inventory.lock().await;
+        if let Some((at, sample)) = cached.as_ref() {
+            if at.elapsed() < std::time::Duration::from_secs(1) {
+                return Ok(sample.clone());
+            }
+        }
+        let sample = self.request(Request::Inventory).await?;
+        *cached = Some((std::time::Instant::now(), sample.clone()));
+        Ok(sample)
+    }
+    pub async fn agent_network(&self) -> Result<super::GuestNetworkSnapshot> {
+        self.agent(AgentOp::Network).await
+    }
+
+    /// Fixed read-only queries through the same bounded queue as VM actions.
+    pub async fn metrics(&self) -> Result<super::VmMetrics> {
+        if self.shared.stopping.load(Ordering::Acquire) {
+            return Err(Error::ShuttingDown);
+        }
+        // Coalesce BMC/Redfish readers into one successful sample per second.
+        // Failures never become cached zero values or indefinitely stale data.
+        let mut cached = self.shared.metrics.lock().await;
+        if let Some((at, sample)) = cached.as_ref() {
+            if at.elapsed() < std::time::Duration::from_secs(1) {
+                return Ok(sample.clone());
+            }
+        }
+        let sample = self.request(Request::Metrics).await?;
+        *cached = Some((std::time::Instant::now(), sample.clone()));
+        Ok(sample)
+    }
+
     async fn request<T>(
         &self,
         make: impl FnOnce(oneshot::Sender<Result<T>>) -> Request,
@@ -187,6 +481,24 @@ impl Control {
     }
 
     pub async fn action(&self, action: Action) -> Result<()> {
+        if action == Action::ColdRestart && !self.config()?.restart_on_exit {
+            return Err(Error::Config(
+                "cold restart requires an operator restart-on-exit guarantee".into(),
+            ));
+        }
+        if action == Action::Reset && self.config()?.restart_on_exit {
+            let pending_settings = self.secure_boot_settings().await?.pending_cold_boot;
+            let pending_code =
+                self.firmware_stage_status().await?.activation.as_deref() == Some("PendingRestart");
+            if pending_settings || pending_code {
+                return self
+                    .request(|tx| Request::Action(Action::ColdRestart, tx))
+                    .await;
+            }
+        }
+        if action == Action::Reboot {
+            return self.agent_reboot().await;
+        }
         self.request(|tx| Request::Action(action, tx)).await
     }
 
@@ -235,6 +547,9 @@ impl Control {
     }
 
     /// See [`EventPage`]. `after: None` is a snapshot of the newest events.
+    pub fn event_summaries(&self, after: Option<u64>, limit: usize) -> EventPage {
+        self.shared.events.summary_page(after, limit)
+    }
     pub fn events(&self, after: Option<u64>, limit: usize) -> EventPage {
         self.shared.events.page(after, limit)
     }
@@ -271,6 +586,12 @@ impl Control {
     /// queue, so it answers before QEMU starts and while it stops.
     pub async fn agent_status(&self) -> Result<AgentStatus> {
         Ok(self.shared.agent.borrow().clone())
+    }
+
+    /// Deliver guest-shutdown(mode=reboot), after checking command admission
+    /// and thawed filesystems. Success means delivery, not completed reboot.
+    pub async fn agent_reboot(&self) -> Result<()> {
+        self.agent(AgentOp::Reboot).await
     }
 
     pub async fn agent_ping(&self) -> Result<()> {
@@ -312,6 +633,9 @@ impl Request {
             Self::Action(Action::Powerdown, reply) => drop(reply.send(Ok(()))),
             Self::Action(_, reply) => drop(reply.send(Err(Error::ShuttingDown))),
             Self::Console(reply) => drop(reply.send(Err(Error::ShuttingDown))),
+            Self::Metrics(reply) => drop(reply.send(Err(Error::ShuttingDown))),
+            Self::Inventory(reply) => drop(reply.send(Err(Error::ShuttingDown))),
+            Self::Media(_, reply) => drop(reply.send(Err(Error::ShuttingDown))),
             Self::Agent(op) => op.reject(|| Error::ShuttingDown),
         }
     }
@@ -324,6 +648,56 @@ impl Request {
         agent: Option<&GuestAgent>,
     ) -> bool {
         match self {
+            Self::Action(Action::ColdRestart, reply) if !reply.is_closed() => {
+                let result = qmp
+                    .execute(&Quit {})
+                    .await
+                    .map(|_| ())
+                    .map_err(Error::Protocol);
+                let _ = reply.send(result);
+                return true;
+            }
+            Self::Media(operation, reply) if !reply.is_closed() => {
+                let result = match super::MediaPolicy::from_env() {
+                    Ok(policy) => tokio::time::timeout(
+                        std::time::Duration::from_secs(3),
+                        super::media::execute(qmp, policy.as_ref(), operation),
+                    )
+                    .await
+                    .unwrap_or_else(|_| {
+                        Err(Error::Spawn(
+                            "virtual media request timed out; outcome may be unknown".into(),
+                        ))
+                    }),
+                    Err(error) => Err(error),
+                };
+                let _ = reply.send(result);
+            }
+            Self::Inventory(reply) if !reply.is_closed() => {
+                let result = tokio::time::timeout(
+                    std::time::Duration::from_secs(2),
+                    super::HardwareInventory::query(qmp),
+                )
+                .await
+                .unwrap_or_else(|_| Err(Error::Spawn("QMP inventory timed out".into())));
+                let _ = reply.send(result);
+            }
+            Self::Metrics(reply) if !reply.is_closed() => {
+                let result = tokio::time::timeout(
+                    std::time::Duration::from_secs(2),
+                    super::VmMetrics::query(qmp),
+                )
+                .await
+                .unwrap_or_else(|_| Err(Error::Spawn("QMP metrics timed out".into())));
+                let _ = reply.send(result);
+            }
+            Self::Action(Action::Reboot, reply) if !reply.is_closed() => match agent {
+                Some(agent) => agent.submit(AgentOp::Reboot(reply)),
+                None => {
+                    let _ =
+                        reply.send(Err(Error::Config("guest agent channel is disabled".into())));
+                }
+            },
             Self::Action(Action::Powerdown, reply) if !reply.is_closed() => {
                 let _ = reply.send(Ok(()));
                 return true;
@@ -333,7 +707,8 @@ impl Request {
                     Action::Pause => qmp.execute(&Stop {}).await,
                     Action::Resume => qmp.execute(&Cont {}).await,
                     Action::Reset => qmp.execute(&SystemReset {}).await,
-                    Action::Powerdown => unreachable!(),
+                    Action::Nmi => qmp.execute(&InjectNmi {}).await,
+                    Action::Powerdown | Action::Reboot | Action::ColdRestart => unreachable!(),
                 }
                 .map(|_| ())
                 .map_err(Error::Protocol);
@@ -504,5 +879,59 @@ mod tests {
             _ = client => {}
         }
         qmp_server.abort();
+    }
+    #[tokio::test]
+    async fn cold_restart_uses_quit_and_unmanaged_callers_are_refused() {
+        let config: Config =
+            serde_json::from_value(serde_json::json!({"kernel":"/unused"})).unwrap();
+        let (control, _) = control_channel_for(&config, Deployment::default());
+        assert!(matches!(
+            control.action(Action::ColdRestart).await,
+            Err(Error::Config(_))
+        ));
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("qmp.sock");
+        let listener = tokio::net::UnixListener::bind(&path).unwrap();
+        let server = tokio::spawn(async move {
+            let mut session = QmpSession::accept(&listener).await.unwrap();
+            session.send_greeting(11, 1, 3).await.unwrap();
+            session.negotiate().await.unwrap();
+            let request = session.recv_command_full().await.unwrap();
+            assert_eq!(request.name, "quit");
+            session
+                .send_return_with_id(serde_json::json!({}), request.id)
+                .await
+                .unwrap();
+        });
+        let (qmp, _) = Qmp::new(&path).await.unwrap();
+        let (reply, answer) = oneshot::channel();
+        assert!(
+            Request::Action(Action::ColdRestart, reply)
+                .dispatch(&qmp, None, None)
+                .await
+        );
+        answer.await.unwrap().unwrap();
+        server.await.unwrap();
+    }
+    #[tokio::test]
+    async fn pending_secure_boot_setting_upgrades_managed_force_restart_to_cold() {
+        let config: Config =
+            serde_json::from_value(serde_json::json!({"kernel":"/unused","restart_on_exit":true}))
+                .unwrap();
+        let (control, mut receiver) = control_channel_for(&config, Deployment::default());
+        *control.shared.secure_boot_settings.lock().await = Some((
+            std::time::Instant::now(),
+            super::super::SecureBootSettings {
+                pending_cold_boot: true,
+                ..Default::default()
+            },
+        ));
+        *control.shared.firmware_status_cache.lock().await =
+            Some((std::time::Instant::now(), Default::default()));
+        let call = tokio::spawn(async move { control.action(Action::Reset).await });
+        let request = receiver.requests.recv().await.unwrap();
+        assert!(matches!(&request, Request::Action(Action::ColdRestart, _)));
+        request.shutting_down();
+        assert!(call.await.unwrap().is_err());
     }
 }

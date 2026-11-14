@@ -258,7 +258,7 @@ defaults to `{runtime_dir}/control`; operator Pods use
 creates the directory itself and refuses one owned by another UID. The directory is 0700
 and the socket 0600; peers must have the manager's UID. Sixteen connections
 (four console streams) are served at once; further connections receive a
-`busy` error and are closed. Requests are limited to 64 KiB and responses to
+`busy` error and are closed. Requests are limited to 384KiB (bounded authenticated EFI updates) and responses to
 4 MiB; an idle connection closes after 60 seconds and a blocked write after
 5 seconds. The socket is removed when the supervisor exits. It never exposes
 QMP or a socket path.
@@ -278,8 +278,9 @@ newer managers. A connection may carry any number of requests.
 | `status` | | The `status.json` record |
 | `probe` | `ready` (default false) | `null` when the manager's live (or ready) probe passes |
 | `config` | `redacted` (default false) | `ConfigView` |
+| `metrics` | | `VmMetrics`: timestamp, logical processor count, configured RAM bytes and aggregate guest-facing block counters; one-second cache, two-second QMP deadline |
 | `events` | `after`, `limit` (≤256) | `EventPage` |
-| `action` | `action`: `pause`/`resume`/`reset`/`powerdown` | `null` |
+| `action` | `action`: `pause`/`resume`/`reset`/`powerdown`/`nmi`/`reboot`/`coldrestart` | `null` |
 | `follow` | `after` (default: latest) | `{"after":n}`, then the connection streams `{"v":1,"event":{...}}`, `{"v":1,"missed":n}` and `{"v":1,"qmp_dropped":n}` (on change) frames until the client closes or sends anything |
 | `console` | | `null`, then the connection is the raw VNC (RFB) byte stream |
 | `agent_status` | | cached `AgentStatus` (`enabled`, `connected`, `version`, timestamps, `last_error`); never queues |
@@ -377,3 +378,57 @@ manifest. Credentials never enter images/manifests. Pin the resulting refs and
 operator default VM image in a subsequent data-only commit; unchanged code need
 not be rebuilt for that pin commit. Namespace/ServiceAccount pull identities
 remain separately managed by Kubernetes GitOps.
+
+### Redfish inventory and lifecycle extensions
+
+The additive control operations `inventory`, `resource_usage`, and `serial`
+return sanitized hardware topology/drives, this manager's process/container
+usage, and a bounded 64KiB guest serial tail. Only admin-facing HTTP routes may
+serve serial text. The serial log mirror uses a 64KiB bounded queue and 128KiB
+thread stack so container-log backpressure cannot block the manager runtime.
+The in-memory tail remains authoritative for retained history.
+
+`agent_network`, `agent_firmware`, `agent_boot`, and `agent_boot_next` execute on
+the existing bounded QGA worker. They read actual guest networking/EFI state;
+the only writable EFI variable is validated BootNext, with readback. `reboot`
+preflights enabled guest shutdown and thawed filesystems, then sends native QGA
+reboot without a response or automatic retry. Delivery is not completion.
+
+`media` takes a tagged `operation` object (`status`, `insert` with local
+`image` basename, or `eject`). `QRAB_MEDIA_ROOT` opts into a trusted read-only
+local image mount, cold-provisioned CD device and bounded image policy.
+`QRAB_MEDIA_MAX_BYTES` defaults to 8GiB. No URL credentials or arbitrary paths
+are accepted.
+
+`firmware_catalog`, `firmware_stage_status` and `firmware_stage` expose the
+approved immutable firmware catalog and identity-bound staging selection.
+`QRAB_FIRMWARE_ROOT` enables that catalog; staging retains the supervisor's
+exclusive persistent-state lease even if the caller stops waiting. Cold-start
+application follows PersistentState preparation, revalidates the catalog,
+changes only selected CODE and republishes the effective configuration.
+NVRAM/TPM identity is retained. See [Redfish](redfish.md) for catalog format,
+authorization, task semantics and separate service budgets.
+
+### Secure Boot cold settings and signed updates
+
+`uefi.secure_boot_capable=true` is an explicit secure-firmware build contract;
+it selects q35 SMM and protected flash. It is separate from enablement and
+key enrollment. `secure_boot_settings` observes the next-boot flag and staged
+policy; `stage_secure_boot` records a boolean under retained identity and lease.
+Cold startup applies it only before a QEMU child exists, using the bounded
+native FV editor and atomic backup/replacement. No Python runtime helper is used.
+
+`agent_secure_boot_databases` reads fixed public PK/KEK/db/dbx inventory;
+`agent_secure_boot_update` accepts a bounded authenticated update request.
+Guest/manager frames are 384KiB maximum, database aggregate bytes 256KiB,
+certificate/signature count 512, decoded AUTH2 payload 128KiB. The existing 16
+control connections and 32 Redfish response-lifetime admissions bound memory.
+Read caches last five seconds; mutation failure never preserves stale trust data.
+
+The operator sets `restart_on_exit=true` as its lifecycle guarantee. Managed
+`coldrestart` exits QEMU cleanly and lets the operator create the next instance
+under retained identity. A normal `reset` upgrades to this path if cold settings
+or CODE activation is pending. Standalone config defaults false and refuses
+coldrestart rather than claiming the process will restart itself. QGA reboot
+remains a warm guest operation. Full force-off/On intent reconciliation remains
+separate work. See [Redfish](redfish.md) for API semantics and measured experiments.

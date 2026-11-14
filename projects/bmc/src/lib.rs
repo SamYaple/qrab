@@ -106,6 +106,7 @@ pub fn router(app: AppState) -> Router {
     router
         .route("/api/session", get(identity))
         .route("/api/status", get(status))
+        .route("/api/resources", get(resource_usage))
         .route("/api/config", get(config_view))
         .route("/api/events", get(events::page))
         .route("/api/events/stream", get(events::stream))
@@ -230,4 +231,13 @@ async fn logout(
     mutation(&app, &headers, &principal)?;
     session.flush().await.map_err(|_| Failure::internal())?;
     Ok(StatusCode::NO_CONTENT)
+}
+
+async fn resource_usage(
+    State(app): State<AppState>,
+    _: auth::Principal,
+) -> Json<serde_json::Value> {
+    Json(
+        serde_json::json!({"bmc":pod::ResourceUsage::sample(),"manager":app.control.resource_usage().await.ok()}),
+    )
 }

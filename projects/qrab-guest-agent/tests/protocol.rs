@@ -17,6 +17,8 @@ use std::{
 #[derive(Default)]
 struct Fake {
     mounts: Vec<Mount>,
+    firmware: Option<qrab_guest_agent::proto::FirmwareState>,
+    secure_databases: Option<qrab_guest_agent::secure_boot::SecureBootDatabases>,
     log: Mutex<Vec<String>>,
     frozen: Mutex<Vec<PathBuf>>,
     fail_freeze: Option<PathBuf>,
@@ -43,6 +45,53 @@ impl Fake {
 }
 
 impl Platform for Fake {
+    fn secure_boot_databases(
+        &self,
+    ) -> std::io::Result<qrab_guest_agent::secure_boot::SecureBootDatabases> {
+        Ok(self.secure_databases.clone().unwrap_or_default())
+    }
+    fn secure_boot_update(
+        &self,
+        request: qrab_guest_agent::secure_boot::QrabSecureBootUpdate,
+    ) -> std::io::Result<qrab_guest_agent::secure_boot::SecureBootDatabases> {
+        self.log.lock().unwrap().push(format!(
+            "authenticated {} append={}",
+            request.database_id, request.append
+        ));
+        self.secure_boot_databases()
+    }
+
+    fn firmware_state(&self) -> std::io::Result<qrab_guest_agent::proto::FirmwareState> {
+        Ok(self.firmware.clone().unwrap_or_default())
+    }
+
+    fn network_interfaces(
+        &self,
+    ) -> std::io::Result<Vec<qrab_guest_agent::proto::NetworkInterface>> {
+        use qrab_guest_agent::proto::{NetworkAddress, NetworkInterface, NetworkStatistics};
+        Ok(vec![NetworkInterface {
+            name: "eth0".into(),
+            hardware_address: Some("02:aa:bb:cc:dd:ee".into()),
+            ip_addresses: vec![
+                NetworkAddress {
+                    address: "192.0.2.8".into(),
+                    prefix: 24,
+                },
+                NetworkAddress {
+                    address: "2001:db8::8".into(),
+                    prefix: 64,
+                },
+            ],
+            interface_enabled: Some(true),
+            link_up: Some(false),
+            statistics: Some(NetworkStatistics {
+                rx_bytes: 123,
+                tx_packets: 456,
+                ..Default::default()
+            }),
+        }])
+    }
+
     fn mounts(&self) -> std::io::Result<Vec<Mount>> {
         Ok(self.mounts.clone())
     }
@@ -148,10 +197,17 @@ async fn sync_info_ping_and_identity() {
             "guest-get-osinfo",
             "guest-get-time",
             "guest-info",
+            "guest-network-get-interfaces",
             "guest-ping",
             "guest-shutdown",
             "guest-sync",
             "guest-sync-delimited",
+            "qrab-boot-next",
+            "qrab-boot-state",
+            "qrab-firmware-state",
+            "qrab-network-get-interfaces",
+            "qrab-secure-boot-databases",
+            "qrab-secure-boot-update",
             "qrab-update-status",
             "qrab-update-trigger",
         ]
@@ -197,7 +253,7 @@ async fn unknown_disabled_and_malformed_requests_fail_without_desync() {
         ("guest-exec", "CommandNotFound"),
         ("guest-file-open", "CommandNotFound"),
         ("guest-set-user-password", "CommandNotFound"),
-        ("guest-network-get-interfaces", "CommandNotFound"),
+        ("guest-network-set-interfaces", "CommandNotFound"),
         ("qrab-update-trigger", "CommandNotFound"),
     ] {
         match qga
@@ -543,4 +599,135 @@ async fn update_hook_timeout_kills_the_run() {
     assert_eq!(status.signal, Some(libc::SIGKILL));
     assert!(status.error.unwrap().contains("timed out"));
     assert!(status.output.contains("started"));
+}
+
+#[tokio::test]
+async fn network_inventory_is_read_only_typed_and_reports_actual_flags() {
+    let dir = tempfile::tempdir().unwrap();
+    let (agent, _) = agent_with(Fake::default(), config(dir.path()));
+    let mut qga = connect(agent).await;
+    let interfaces = qga.execute(&GuestNetworkGetInterfaces {}).await.unwrap();
+    assert_eq!(interfaces.len(), 1);
+    assert_eq!(interfaces[0].name, "eth0");
+    assert_eq!(
+        interfaces[0].hardware_address.as_deref(),
+        Some("02:aa:bb:cc:dd:ee")
+    );
+    let ips = interfaces[0].ip_addresses.as_ref().unwrap();
+    assert_eq!(ips[0].ip_address, "192.0.2.8");
+    assert_eq!(ips[1].prefix, 64);
+    assert_eq!(interfaces[0].statistics.as_ref().unwrap().rx_bytes, 123);
+    let extended = qga
+        .execute(&qrab_guest_agent::proto::QrabNetworkGetInterfaces {})
+        .await
+        .unwrap();
+    assert_eq!(extended[0].interface_enabled, Some(true));
+    assert_eq!(extended[0].link_up, Some(false));
+    assert_eq!(extended[0].statistics.as_ref().unwrap().tx_packets, 456);
+    qga.execute(&GuestFsfreezeFreeze {}).await.unwrap();
+    assert!(qga.execute(&GuestNetworkGetInterfaces {}).await.is_err());
+    qga.execute(&GuestFsfreezeThaw {}).await.unwrap();
+    assert!(qga.execute(&GuestNetworkGetInterfaces {}).await.is_ok());
+}
+
+#[tokio::test]
+async fn missing_guest_efi_interfaces_remain_unknown_on_the_wire() {
+    let dir = tempfile::tempdir().unwrap();
+    let (agent, _) = agent_with(Fake::default(), config(dir.path()));
+    let mut qga = connect(agent).await;
+    let state = qga
+        .execute(&qrab_guest_agent::proto::QrabFirmwareState {})
+        .await
+        .unwrap();
+    assert!(!state.efi_runtime_available);
+    assert_eq!(state.secure_boot, None);
+    assert_eq!(state.setup_mode, None);
+}
+
+#[tokio::test]
+async fn firmware_flags_are_typed_on_the_real_guest_agent_wire() {
+    use qrab_guest_agent::proto::{FirmwareState, QrabFirmwareState};
+    let dir = tempfile::tempdir().unwrap();
+    let expected = FirmwareState {
+        efi_runtime_available: true,
+        secure_boot: Some(true),
+        setup_mode: Some(false),
+        audit_mode: Some(false),
+        deployed_mode: Some(true),
+    };
+    let (agent, _) = agent_with(
+        Fake {
+            firmware: Some(expected.clone()),
+            ..Default::default()
+        },
+        config(dir.path()),
+    );
+    let mut qga = connect(agent).await;
+    assert_eq!(qga.execute(&QrabFirmwareState {}).await.unwrap(), expected);
+}
+
+#[tokio::test]
+async fn secure_boot_database_inventory_and_signed_update_admission_use_the_typed_wire() {
+    use qrab_guest_agent::secure_boot::{
+        EfiSignature, QrabSecureBootDatabases, QrabSecureBootUpdate, SecureBootDatabase,
+        SecureBootDatabases,
+    };
+    let dir = tempfile::tempdir().unwrap();
+    let expected = SecureBootDatabases {
+        efi_runtime_available: true,
+        databases: vec![SecureBootDatabase {
+            id: "db".into(),
+            present: Some(true),
+            attributes: Some(0x27),
+            signatures: vec![EfiSignature {
+                signature_type_guid: "c1c41626-504c-4092-aca9-41f936934328".into(),
+                owner_guid: "12345678-1234-5678-90ab-cdef12345678".into(),
+                data_hex: "03".repeat(32),
+            }],
+            ..Default::default()
+        }],
+    };
+    let (agent, platform) = agent_with(
+        Fake {
+            secure_databases: Some(expected.clone()),
+            ..Default::default()
+        },
+        config(dir.path()),
+    );
+    let mut qga = connect(agent).await;
+    assert_eq!(
+        qga.execute(&QrabSecureBootDatabases {}).await.unwrap(),
+        expected
+    );
+    let cms = [
+        0x30, 0x12, 0x06, 0x09, 0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x07, 0x02, 0xa0, 0x05,
+        0x30, 0x03, 0x02, 0x01, 0x01,
+    ];
+    let mut payload = vec![0xea, 0x07, 11, 14, 12, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+    payload.extend_from_slice(&(24u32 + cms.len() as u32).to_le_bytes());
+    payload.extend_from_slice(&[0, 2, 0xf1, 0x0e]);
+    payload.extend_from_slice(&[
+        0x9d, 0xd2, 0xaf, 0x4a, 0xdf, 0x68, 0xee, 0x49, 0x8a, 0xa9, 0x34, 0x7d, 0x37, 0x56, 0x65,
+        0xa7,
+    ]);
+    payload.extend_from_slice(&cms);
+    let valid = QrabSecureBootUpdate {
+        database_id: "db".into(),
+        payload_hex: payload.iter().map(|b| format!("{b:02x}")).collect(),
+        append: false,
+    };
+    let invalid = QrabSecureBootUpdate {
+        payload_hex: "private-key-marker".into(),
+        ..valid.clone()
+    };
+    assert!(qga.execute(&invalid).await.is_err());
+    assert!(platform.log().is_empty());
+    // This fake Platform acknowledges admission only; firmware cryptographic
+    // authorization is intentionally not simulated by a protocol fixture.
+    assert_eq!(qga.execute(&valid).await.unwrap(), expected);
+    assert_eq!(platform.log(), vec!["authenticated db append=false"]);
+    qga.execute(&GuestFsfreezeFreeze {}).await.unwrap();
+    assert!(qga.execute(&valid).await.is_err());
+    assert_eq!(platform.log().len(), 1);
+    qga.execute(&GuestFsfreezeThaw {}).await.unwrap();
 }

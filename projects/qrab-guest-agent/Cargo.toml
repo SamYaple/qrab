@@ -8,6 +8,7 @@ description = "Minimal guest-side QEMU guest agent for qrab VMs"
 libc = "0.2"
 serde = { workspace = true }
 serde_json = { workspace = true }
+x509-cert = { version = "0.2", features = ["std"] }
 
 [dependencies.qapi]
 path = "../qapi"

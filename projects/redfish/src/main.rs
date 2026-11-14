@@ -27,11 +27,19 @@ async fn main() -> Result<()> {
         .await
         .context("OIDC discovery")?;
     let remote = pod::Remote::new(args[1].clone().into());
-    let app = qrab_redfish::router(qrab_redfish::AppState {
+    let state = qrab_redfish::AppState {
         auth: Arc::new(auth),
         control: pod::Backend::Socket(remote.clone()),
         streams: Arc::new(Semaphore::new(8)),
-    });
+        requests: Arc::new(Semaphore::new(32)),
+        tasks: Default::default(),
+        telemetry: qrab_redfish::TelemetryStore::from_env().map_err(anyhow::Error::msg)?,
+        triggers: Default::default(),
+        subscriptions: qrab_redfish::SubscriptionStore::from_env().map_err(anyhow::Error::msg)?,
+    };
+    let sampler = qrab_redfish::spawn_sampler(state.clone());
+    let subscriptions = qrab_redfish::spawn_subscriptions(state.clone());
+    let app = qrab_redfish::router(state);
     let listener = tokio::net::TcpListener::bind(config.listen).await?;
     let (stop, mut stopped) = watch::channel(false);
     let server = axum::serve(listener, app).with_graceful_shutdown(async move {
@@ -51,5 +59,7 @@ async fn main() -> Result<()> {
             tracing::info!("Redfish sidecar stopped");
         }
     }
+    sampler.abort();
+    subscriptions.abort();
     Ok(())
 }

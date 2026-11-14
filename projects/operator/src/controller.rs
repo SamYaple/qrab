@@ -605,6 +605,7 @@ async fn synchronize(
         });
     }
     resources::validate(vm, &ctx.settings)?;
+    reconcile_redfish_policy(vm, ctx).await?;
     if let Some(pod) = &pod {
         if !resources::owned(pod, vm) {
             return Err(Error::Ownership(format!(
@@ -1017,4 +1018,57 @@ pub fn error_policy(vm: Arc<VirtualMachine>, error: &Error, _ctx: Arc<Context>) 
 pub async fn sweep_orphans(ctx: Arc<Context>) -> Result<()> {
     storage_guard::sweep_orphans(ctx.clone()).await?;
     sweep_addresses(&ctx).await
+}
+
+/// Event egress is reconciled independently of NIC presence and NIC GC labels.
+async fn reconcile_redfish_policy(vm: &VirtualMachine, ctx: &Context) -> Result<()> {
+    let policies: Api<DynamicObject> = Api::namespaced_with(
+        ctx.client.clone(),
+        &ctx.settings.namespace,
+        &nic::policy_resource(),
+    );
+    let name = resources::redfish_policy_name(vm);
+    let desired = resources::redfish_policy(vm, &ctx.settings)?;
+    let actual = policies.get_opt(&name).await?;
+    if actual
+        .as_ref()
+        .is_some_and(|p| !resources::owned_meta(&p.metadata, vm))
+    {
+        return Err(Error::Ownership(format!(
+            "CiliumNetworkPolicy {name} belongs to another owner"
+        )));
+    }
+    match (actual, desired) {
+        (None, Some(want)) => {
+            policies.create(&PostParams::default(), &want).await?;
+        }
+        (Some(actual), Some(mut want)) if !nic::policy_matches(&actual, &want) => {
+            // Bind the write to the exact object whose ownership we checked.
+            want.metadata.uid = actual.metadata.uid.clone();
+            want.metadata.resource_version = actual.metadata.resource_version.clone();
+            policies
+                .patch(
+                    &name,
+                    &PatchParams::apply("qrab-operator").force(),
+                    &Patch::Apply(&want),
+                )
+                .await?;
+        }
+        (Some(actual), None) => {
+            policies
+                .delete(
+                    &name,
+                    &DeleteParams {
+                        preconditions: Some(Preconditions {
+                            uid: actual.uid(),
+                            ..Default::default()
+                        }),
+                        ..Default::default()
+                    },
+                )
+                .await?;
+        }
+        _ => {}
+    }
+    Ok(())
 }

@@ -103,6 +103,10 @@ pub struct Disk {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Uefi {
+    /// Explicit secure-capable firmware contract; enables SMM-protected pflash.
+    /// This is not the requested SecureBootEnable setting or proof of enrollment.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub secure_boot_capable: bool,
     #[serde(default = "uefi_code")]
     pub code: PathBuf,
     #[serde(default = "uefi_vars")]
@@ -207,6 +211,9 @@ pub struct Tpm {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
+    /// Operator guarantees a fresh VM instance after clean supervisor exit.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub restart_on_exit: bool,
     #[serde(default = "name")]
     pub name: String,
     #[serde(default = "binary")]
@@ -296,6 +303,7 @@ impl Config {
     }
 
     pub fn validate(&self) -> Result<()> {
+        super::MediaPolicy::from_env()?;
         if self.name.is_empty()
             || self.name.len() > 63
             || !self
@@ -445,7 +453,11 @@ impl Config {
             &self.name,
             "-machine",
             if self.uefi.is_some() {
-                "q35,pflash0=pflash-code,pflash1=pflash-vars"
+                if self.uefi.as_ref().is_some_and(|u| u.secure_boot_capable) {
+                    "q35,smm=on,pflash0=pflash-code,pflash1=pflash-vars"
+                } else {
+                    "q35,pflash0=pflash-code,pflash1=pflash-vars"
+                }
             } else {
                 "q35"
             },
@@ -540,6 +552,12 @@ impl Config {
         } else if let Some(kernel) = &self.kernel {
             args.extend(["-kernel".into(), kernel.to_string_lossy().into_owned()]);
         }
+        if self.uefi.as_ref().is_some_and(|u| u.secure_boot_capable) {
+            args.extend([
+                "-global".into(),
+                "driver=cfi.pflash01,property=secure,value=on".into(),
+            ]);
+        }
         if self.tpm.is_some() {
             args.extend([
                 "-chardev".into(),
@@ -597,6 +615,9 @@ impl Config {
                 "-device".into(),
                 format!("virtio-mem-pci,id={},memdev=hotplug-memory,requested-size=0,block-size={HOTPLUG_BLOCK_MIB}M", super::hotplug::MEMORY_DEVICE),
             ]);
+        }
+        if let Ok(Some(policy)) = super::MediaPolicy::from_env() {
+            policy.arguments(&mut args);
         }
         super::iscsi::arguments(&self.iscsi_disks, &mut args);
         if self.seed.is_some() {

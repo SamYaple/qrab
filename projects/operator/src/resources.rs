@@ -6,7 +6,7 @@ use crate::{
 };
 use k8s_openapi::api::core::v1::{ConfigMap, Pod};
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
-use kube::{Resource, ResourceExt};
+use kube::{api::DynamicObject, Resource, ResourceExt};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -187,6 +187,112 @@ pub fn origin(raw: &str) -> Result<String> {
     Ok(url.origin().ascii_serialization())
 }
 
+/// Validate event destinations before deriving either the sidecar allowlist or
+/// the matching Cilium egress rule. URL paths remain application-level exact.
+pub fn event_destination(raw: &str) -> Result<url::Url> {
+    let url = url::Url::parse(raw)
+        .map_err(|_| Error::Invalid("invalid Redfish event destination URL".into()))?;
+    if raw.len() > 2048
+        || raw.contains(',')
+        || raw.chars().any(char::is_whitespace)
+        || url.scheme() != "https"
+        || url.host().is_none()
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.query().is_some()
+        || url.fragment().is_some()
+        || url.port_or_known_default() != Some(443)
+    {
+        return Err(Error::Invalid("Redfish event destinations must be exact HTTPS URLs on port 443 without credentials, query or fragment".into()));
+    }
+    match url.host().unwrap() {
+        url::Host::Domain(host) if !dns_name(host) => {
+            return Err(Error::Invalid(
+                "invalid Redfish event destination DNS name".into(),
+            ))
+        }
+        url::Host::Ipv4(ip)
+            if ip.is_unspecified()
+                || ip.is_loopback()
+                || ip.is_multicast()
+                || ip.is_broadcast()
+                || ip.is_link_local() =>
+        {
+            return Err(Error::Invalid(
+                "invalid Redfish event destination IP address".into(),
+            ))
+        }
+        url::Host::Ipv6(ip)
+            if ip.is_unspecified()
+                || ip.is_loopback()
+                || ip.is_multicast()
+                || ip.is_unicast_link_local() =>
+        {
+            return Err(Error::Invalid(
+                "invalid Redfish event destination IP address".into(),
+            ))
+        }
+        _ => {}
+    }
+    Ok(url)
+}
+
+pub fn redfish_policy_name(vm: &VirtualMachine) -> String {
+    format!("{}-redfish-events", vm.name_any())
+}
+
+/// Additive VM-Pod egress for explicitly enabled event receivers. Cilium policy
+/// is per Pod, while exact URL paths are enforced by the Redfish process.
+pub fn redfish_policy(vm: &VirtualMachine, settings: &Settings) -> Result<Option<DynamicObject>> {
+    validate(vm, settings)?;
+    let redfish = &vm.spec.components.redfish;
+    if !redfish.enabled || redfish.event_destinations.is_empty() {
+        return Ok(None);
+    }
+    let uid = vm
+        .uid()
+        .ok_or_else(|| Error::Invalid("VM UID is required".into()))?;
+    let owner = vm
+        .controller_owner_ref(&())
+        .ok_or_else(|| Error::Invalid("VM owner reference is unavailable".into()))?;
+    let mut hosts = BTreeSet::new();
+    let mut ips = BTreeSet::new();
+    for destination in &redfish.event_destinations {
+        match event_destination(destination)?.host().unwrap() {
+            url::Host::Domain(host) => {
+                hosts.insert(host.to_owned());
+            }
+            url::Host::Ipv4(ip) => {
+                ips.insert(format!("{ip}/32"));
+            }
+            url::Host::Ipv6(ip) => {
+                ips.insert(format!("{ip}/128"));
+            }
+        }
+    }
+    let https = json!([{"ports":[{"port":"443","protocol":"TCP"}]}]);
+    let mut egress = Vec::new();
+    if !hosts.is_empty() {
+        // Existing VM policy permits kube-dns53. Wildcard interception keeps
+        // that DNS behavior while populating Cilium's FQDN cache; exact names
+        // in the separate HTTPS rule determine which destination hosts admit.
+        egress.push(json!({"toEndpoints":[{"matchLabels":{"k8s:io.kubernetes.pod.namespace":"kube-system","k8s:k8s-app":"kube-dns"}}],
+            "toPorts":[{"ports":[{"port":"53","protocol":"UDP"},{"port":"53","protocol":"TCP"}],"rules":{"dns":[{"matchPattern":"*"}]}}]}));
+        egress.push(json!({"toFQDNs":hosts.iter().map(|host|json!({"matchName":host})).collect::<Vec<_>>(),"toPorts":https}));
+    }
+    if !ips.is_empty() {
+        egress.push(json!({"toCIDR":ips,"toPorts":https}));
+    }
+    Ok(Some(serde_json::from_value(
+        json!({"apiVersion":"cilium.io/v2","kind":"CiliumNetworkPolicy",
+            "metadata":{"name":redfish_policy_name(vm),"namespace":settings.namespace,"ownerReferences":[owner],
+                "labels":{"app.kubernetes.io/name":"qrab","app.kubernetes.io/component":"redfish-events","app.kubernetes.io/instance":vm.name_any(),crate::nic::OWNER_UID:uid}},
+            "spec":{"description":"Explicit Redfish event destinations only","endpointSelector":{"matchLabels":{"app.kubernetes.io/name":"qrab","app.kubernetes.io/component":"vm",crate::nic::OWNER_UID:uid}},
+                "enableDefaultDeny":{"ingress":false,"egress":false},"egress":egress}
+        }),
+    )?))
+}
+
 pub fn valid_iqn(value: &str) -> bool {
     if value.len() > 223
         || !value
@@ -350,6 +456,58 @@ pub fn validate(vm: &VirtualMachine, settings: &Settings) -> Result<()> {
         None => {}
     }
     let redfish = &vm.spec.components.redfish;
+    if !redfish.enabled
+        && (!redfish.event_destinations.is_empty()
+            || redfish.state_volume_claim.is_some()
+            || redfish.telemetry_interval_seconds.is_some())
+    {
+        return Err(Error::Invalid(
+            "Redfish event destinations, persistence or periodic telemetry require components.redfish.enabled".into(),
+        ));
+    }
+    if redfish
+        .telemetry_interval_seconds
+        .is_some_and(|seconds| !(5..=3600).contains(&seconds))
+    {
+        return Err(Error::Invalid(
+            "Redfish telemetryIntervalSeconds must be from 5 to 3600".into(),
+        ));
+    }
+    if redfish.event_destinations.len() > 32 {
+        return Err(Error::Invalid(
+            "at most 32 Redfish event destinations are supported".into(),
+        ));
+    }
+    let mut destinations = BTreeSet::new();
+    for destination in &redfish.event_destinations {
+        if !destinations.insert(event_destination(destination)?.to_string()) {
+            return Err(Error::Invalid(
+                "Redfish event destinations must be unique".into(),
+            ));
+        }
+    }
+    if redfish
+        .state_volume_claim
+        .as_ref()
+        .is_some_and(|claim| !dns_name(claim) || claim == &vm.spec.state_volume_claim)
+    {
+        return Err(Error::Invalid(
+            "components.redfish.stateVolumeClaim must name a separate valid PVC".into(),
+        ));
+    }
+    let mut claims = BTreeSet::from([vm.spec.state_volume_claim.as_str()]);
+    for claim in [
+        redfish.state_volume_claim.as_ref(),
+        vm.spec.media_volume_claim.as_ref(),
+        vm.spec.firmware_catalog_volume_claim.as_ref(),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        if !dns_name(claim) || !claims.insert(claim.as_str()) {
+            return Err(Error::Invalid("identity, Redfish state, media and firmware PVC roles must use distinct valid claim names".into()));
+        }
+    }
     if redfish.enabled {
         access(
             "components.redfish",
@@ -715,14 +873,18 @@ fn subject_list(subjects: &[String]) -> String {
 
 /// Native sidecars (restartable init containers) start before the manager,
 /// keep serving while it stops the VM, and do not hold the Pod open after it
-/// exits. They mount only the control-socket volume.
+/// exits. They mount the control socket; only Redfish may additionally mount
+/// its separately configured subscription-state PVC.
 fn sidecars(
     vm: &VirtualMachine,
     settings: &Settings,
     image: &str,
     security: &Value,
 ) -> Result<Vec<Value>> {
-    let sidecar = |name: &str, command: &str, port: (&str, u16), env: Value| {
+    let sidecar = |name: &str, command: &str, port: (&str, u16), mut env: Value| {
+        env.as_array_mut()
+            .unwrap()
+            .push(json!({"name":"QRAB_RESOURCE_SCOPE","value":"container"}));
         json!({"name":name,"image":image,"imagePullPolicy":"Always","restartPolicy":"Always",
             "command":[command],"args":["--socket",CONTROL_SOCKET],
             "ports":[{"name":port.0,"containerPort":port.1}],"env":env,
@@ -798,12 +960,33 @@ fn sidecars(
                 env.push(json!({"name":name,"value":subject_list(list)}));
             }
         }
-        containers.push(sidecar(
+        if let Some(seconds) = redfish.telemetry_interval_seconds {
+            env.push(json!({"name":"REDFISH_TELEMETRY_INTERVAL_SECS","value":seconds.to_string()}));
+        }
+        if !redfish.event_destinations.is_empty() {
+            let destinations = redfish
+                .event_destinations
+                .iter()
+                .map(|d| event_destination(d).map(|url| url.to_string()))
+                .collect::<Result<Vec<_>>>()?;
+            env.push(json!({"name":"REDFISH_EVENT_DESTINATIONS","value":destinations.join(",")}));
+        }
+        if redfish.state_volume_claim.is_some() {
+            env.push(json!({"name":"REDFISH_SUBSCRIPTIONS_FILE","value":format!("/var/lib/qrab-redfish/subscriptions-{}.json",vm.uid().unwrap_or_default())}));
+        }
+        let mut container = sidecar(
             "redfish",
             "qrab-redfish",
             ("redfish", 8081),
             Value::Array(env),
-        ));
+        );
+        if redfish.state_volume_claim.is_some() {
+            container["volumeMounts"]
+                .as_array_mut()
+                .unwrap()
+                .push(json!({"name":"redfish-state","mountPath":"/var/lib/qrab-redfish"}));
+        }
+        containers.push(container);
     }
     Ok(containers)
 }
@@ -874,8 +1057,12 @@ pub fn render_attached(
     // Background GC needs no delete/finalizer authority on the parent CR.
     owner.block_owner_deletion = Some(false);
     let labels = json!({"app.kubernetes.io/name":"qrab", "app.kubernetes.io/component":"vm", "app.kubernetes.io/instance":name, "qrab.yapplesauce.com/owner-uid":uid});
-    let mut config = json!({"name":name,"memory_mib":boot.memory_mib,"cpus":boot.cpus,"accelerator":vm.spec.accelerator.as_str(),"console":true,"uefi":{"boot_disk":vm.spec.boot_disk},"tpm":{},"state_dir":"/var/lib/qrab","state_id":uid,"runtime_dir":"/run/qrab","control_socket":true,"control_dir":CONTROL_DIR,"startup_timeout_secs":30,"shutdown_grace_secs":5,
+    let mut config = json!({"restart_on_exit":true,"name":name,"memory_mib":boot.memory_mib,"cpus":boot.cpus,"accelerator":vm.spec.accelerator.as_str(),"console":true,"uefi":{"boot_disk":vm.spec.boot_disk},"tpm":{},"state_dir":"/var/lib/qrab","state_id":uid,"runtime_dir":"/run/qrab","control_socket":true,"control_dir":CONTROL_DIR,"startup_timeout_secs":30,"shutdown_grace_secs":5,
         "hotplug":{"max_cpus":maximum.cpus,"max_memory_mib":maximum.memory_mib,"limits_dir":SIZE_DIR,"cpu_overhead_millis":CPU_LIMIT_OVERHEAD_MILLIS,"memory_overhead_mib":MEMORY_LIMIT_OVERHEAD_MIB}});
+    if vm.spec.secure_boot_capable {
+        config["uefi"]["secure_boot_capable"] = json!(true);
+        config["uefi"]["code"] = json!("/opt/qrab/firmware/OVMF_CODE_4M.secboot.fd");
+    }
     let initiator = format!("iqn.2026-11.com.yapplesauce:qrab.vm.{uid}");
     let mut disks: Vec<_> = vm.spec.iscsi_disks.iter().map(|d|json!({"id":d.id,"portal":d.portal,"target":d.target,"lun":d.lun,"initiator_name":initiator,"username":d.username,"password_file":format!("/run/qrab-auth/{}/password",d.id),"read_only":d.read_only,"boot_index":d.boot_index,"bus":"virtio"})).collect();
     disks.extend(provisioned.iter().map(|d|json!({"id":d.id,"portal":d.portal,"target":d.target,"lun":0,"initiator_name":initiator,"username":d.username,"password_file":format!("/run/qrab-auth/{}/password",d.id),"read_only":d.read_only,"boot_index":d.boot_index,"bus":"virtio"})));
@@ -905,7 +1092,7 @@ pub fn render_attached(
         "securityContext":{"runAsNonRoot":true,"runAsUser":10001,"runAsGroup":10001,"fsGroup":10001,"fsGroupChangePolicy":"OnRootMismatch","seccompProfile":{"type":"RuntimeDefault"}},
         "tolerations":[{"key":"node-role.kubernetes.io/control-plane","operator":"Exists","effect":"NoSchedule"}],
         "containers":[{"name":"manager","image":image,"imagePullPolicy":"Always","command":["qrab-manager"],"args":["run","--config","/etc/qrab/vm.json"],
-            "env":[{"name":"QRAB_NODE_NAME","valueFrom":{"fieldRef":{"fieldPath":"spec.nodeName"}}},{"name":"QRAB_POD_NAME","valueFrom":{"fieldRef":{"fieldPath":"metadata.name"}}},{"name":"QRAB_POD_NAMESPACE","valueFrom":{"fieldRef":{"fieldPath":"metadata.namespace"}}},{"name":"QRAB_IMAGE","value":image}],
+            "env":[{"name":"QRAB_RESOURCE_SCOPE","value":"container"},{"name":"QRAB_NODE_NAME","valueFrom":{"fieldRef":{"fieldPath":"spec.nodeName"}}},{"name":"QRAB_POD_NAME","valueFrom":{"fieldRef":{"fieldPath":"metadata.name"}}},{"name":"QRAB_POD_NAMESPACE","valueFrom":{"fieldRef":{"fieldPath":"metadata.namespace"}}},{"name":"QRAB_IMAGE","value":image}],
             "resources":GuestSize::of(vm).container_resources(vm.spec.accelerator),
             "resizePolicy":[{"resourceName":"cpu","restartPolicy":"NotRequired"},{"resourceName":"memory","restartPolicy":"NotRequired"}],
             "securityContext":security,"terminationMessagePolicy":"FallbackToLogsOnError",
@@ -918,6 +1105,47 @@ pub fn render_attached(
     }});
     if !sidecars.is_empty() {
         pod["spec"]["initContainers"] = Value::Array(sidecars);
+    }
+    if let Some(claim) = vm
+        .spec
+        .components
+        .redfish
+        .state_volume_claim
+        .as_ref()
+        .filter(|_| vm.spec.components.redfish.enabled)
+    {
+        pod["spec"]["volumes"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({"name":"redfish-state","persistentVolumeClaim":{"claimName":claim}}));
+    }
+    for (claim, volume, mount_path, variable) in [
+        (
+            vm.spec.media_volume_claim.as_ref(),
+            "media-catalog",
+            "/var/lib/qrab-media",
+            "QRAB_MEDIA_ROOT",
+        ),
+        (
+            vm.spec.firmware_catalog_volume_claim.as_ref(),
+            "firmware-catalog",
+            "/var/lib/qrab-firmware",
+            "QRAB_FIRMWARE_ROOT",
+        ),
+    ] {
+        if let Some(claim) = claim {
+            pod["spec"]["volumes"].as_array_mut().unwrap().push(
+                json!({"name":volume,"persistentVolumeClaim":{"claimName":claim,"readOnly":true}}),
+            );
+            pod["spec"]["containers"][0]["volumeMounts"]
+                .as_array_mut()
+                .unwrap()
+                .push(json!({"name":volume,"mountPath":mount_path,"readOnly":true}));
+            pod["spec"]["containers"][0]["env"]
+                .as_array_mut()
+                .unwrap()
+                .push(json!({"name":variable,"value":mount_path}));
+        }
     }
     if let Some(node) = &vm.spec.storage_node {
         pod["spec"]["nodeSelector"] = json!({"kubernetes.io/hostname":node});
@@ -1143,6 +1371,8 @@ pub fn pod_matches(actual: &Pod, desired: &Desired) -> bool {
                 || mount.sub_path_expr.as_ref().is_some_and(|v| !v.is_empty())
                 || (mount.name != "config"
                     && mount.name != "size"
+                    && mount.name != "media-catalog"
+                    && mount.name != "firmware-catalog"
                     && !mount.name.starts_with("iscsi-auth-")
                     && mount.read_only.unwrap_or(false))
                 || mount
@@ -1155,9 +1385,11 @@ pub fn pod_matches(actual: &Pod, desired: &Desired) -> bool {
         }
     }
     if spec.volumes.iter().flatten().any(|v| {
-        v.persistent_volume_claim
-            .as_ref()
-            .is_some_and(|v| v.read_only.unwrap_or(false))
+        v.name != "media-catalog"
+            && v.name != "firmware-catalog"
+            && v.persistent_volume_claim
+                .as_ref()
+                .is_some_and(|v| v.read_only.unwrap_or(false))
     }) {
         return false;
     }

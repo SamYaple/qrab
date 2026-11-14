@@ -7,6 +7,15 @@ printf '\nQRAB_GUEST_BOOTED\n'
 printf 'guest kernel: '; uname -r
 printf 'guest uptime: '; cat /proc/uptime
 while read -r module; do insmod "$module"; done </etc/qrab-modules
+# EFI runtime variables have a separate filesystem; sysfs alone exposes no
+# Secure Boot databases or BootNext values. Mount it before the agent starts.
+if [ -d /sys/firmware/efi ]; then
+    if grep -qs ' /sys/firmware/efi/efivars efivarfs ' /proc/mounts || mount -t efivarfs efivarfs /sys/firmware/efi/efivars; then
+        echo QRAB_EFIVARFS_READY
+    else
+        echo QRAB_EFIVARFS_UNAVAILABLE >&2
+    fi
+fi
 # The guest agent finds org.qemu.guest_agent.0 through sysfs (no udev here)
 # and is restarted if it exits. Its log lines go to the serial console.
 if [ -x /usr/sbin/qrab-guest-agent ]; then

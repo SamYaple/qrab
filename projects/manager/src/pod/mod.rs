@@ -2,17 +2,40 @@
 //! qrab-init helper, confidential-guest hardware or Kubernetes API is required.
 
 mod agent;
+mod boot;
+pub use boot::{BootOption, BootSnapshot, BootState};
 mod config;
 mod control;
 mod disks;
 mod events;
 mod hotplug;
 mod iscsi;
+mod media;
+mod metrics;
+pub use media::{MediaOperation, MediaPolicy, MediaStatus, MEDIA_DEVICE};
+mod firmware;
+pub use firmware::{
+    validate_secure_boot_update, FirmwareArtifact, FirmwareCatalogView, FirmwareSnapshot,
+    FirmwareStageStatus, FirmwareState, SecureBootDatabaseInventory, SecureBootDatabaseSnapshot,
+    SecureBootSignatureInventory, SecureBootUpdateRequest,
+};
+mod resources;
+pub use resources::{ContainerResources, ProcessResources, ResourceUsage};
+mod inventory;
+pub use inventory::{DriveCounters, DriveInventory, HardwareInventory, ProcessorInventory};
+mod network;
+pub use metrics::VmMetrics;
+pub use network::{GuestNetworkSnapshot, NetworkAddress, NetworkInterface, NetworkStatistics};
 pub mod nic;
 mod persistent;
 mod process;
 mod remote;
+mod secure_boot_policy;
+mod secure_boot_store;
 mod seed;
+mod serial;
+pub use secure_boot_policy::SecureBootSettings;
+pub use serial::{SerialSnapshot, SERIAL_CAPACITY};
 pub mod socket;
 mod state;
 mod supervisor;

@@ -1,7 +1,12 @@
 //! Command dispatch and the filesystem freeze state machine.
 use crate::{
+    boot::{QrabBootNext, QrabBootState},
     framing::{Frame, Framer},
-    proto::{self, QrabUpdateStatus, QrabUpdateTrigger, SCHEMA_VERSION},
+    proto::{
+        self, QrabFirmwareState, QrabNetworkGetInterfaces, QrabUpdateStatus, QrabUpdateTrigger,
+        SCHEMA_VERSION,
+    },
+    secure_boot::{QrabSecureBootDatabases, QrabSecureBootUpdate},
     sys::{Mount, Platform, ShutdownMode},
     update::{HookPolicy, Updater},
 };
@@ -10,7 +15,8 @@ use qapi::{
         commands::{
             GuestFsfreezeFreeze, GuestFsfreezeFreezeList, GuestFsfreezeStatusCommand,
             GuestFsfreezeThaw, GuestFstrim, GuestGetHostName, GuestGetOsinfo, GuestGetTime,
-            GuestInfo, GuestPing, GuestShutdown, GuestSync, GuestSyncDelimited,
+            GuestInfo, GuestNetworkGetInterfaces, GuestPing, GuestShutdown, GuestSync,
+            GuestSyncDelimited,
         },
         GuestAgentCommandInfo, GuestAgentInfo, GuestFilesystemTrimResponse,
         GuestFilesystemTrimResult, GuestFsfreezeStatus, GuestHostName, GuestOsInfo,
@@ -27,7 +33,7 @@ use std::{
 };
 
 /// Requests are small; anything larger is hostile or corrupt.
-pub const MAX_REQUEST_BYTES: usize = 64 * 1024;
+pub const MAX_REQUEST_BYTES: usize = 384 * 1024;
 const MAX_FREEZE_MOUNTPOINTS: usize = 256;
 /// FIFREEZE nests; repeat FITHAW a bounded number of times per filesystem.
 const MAX_THAW_REPEATS: usize = 16;
@@ -103,6 +109,79 @@ static COMMANDS: &[Spec] = &[
         typed(a, |c: GuestSyncDelimited| Ok(c.id))
     }),
     spec!(GuestPing, [], true, |_, _| Ok(json!({}))),
+    spec!(
+        QrabSecureBootUpdate,
+        ["database-id", "payload-hex", "append"],
+        false,
+        |agent, a| {
+            typed(a, |request: QrabSecureBootUpdate| {
+                crate::secure_boot::validate_update(&request)
+                    .map_err(|e| QgaError::generic(e.to_string()))?;
+                agent
+                    .platform
+                    .secure_boot_update(request)
+                    .map_err(|e| QgaError::generic(e.to_string()))
+            })
+        }
+    ),
+    spec!(QrabSecureBootDatabases, [], false, |agent, _| {
+        encode(
+            &agent
+                .platform
+                .secure_boot_databases()
+                .map_err(|e| QgaError::generic(e.to_string()))?,
+        )
+    }),
+    spec!(QrabBootState, [], false, |agent, _| {
+        encode(
+            &agent
+                .platform
+                .boot_state()
+                .map_err(|e| QgaError::generic(e.to_string()))?,
+        )
+    }),
+    spec!(QrabBootNext, ["reference"], false, |agent, a| {
+        typed(a, |c: QrabBootNext| {
+            agent
+                .platform
+                .boot_next(c.reference)
+                .map_err(|e| QgaError::generic(e.to_string()))
+        })
+    }),
+    spec!(QrabFirmwareState, [], false, |agent, _| {
+        encode(
+            &agent
+                .platform
+                .firmware_state()
+                .map_err(|e| QgaError::generic(e.to_string()))?,
+        )
+    }),
+    spec!(GuestNetworkGetInterfaces, [], false, |agent, _| {
+        let items = agent
+            .platform
+            .network_interfaces()
+            .map_err(|e| QgaError::generic(e.to_string()))?;
+        let items: Vec<_> = items
+            .into_iter()
+            .take(proto::MAX_NETWORK_INTERFACES)
+            .map(|mut i| {
+                i.ip_addresses.truncate(proto::MAX_NETWORK_ADDRESSES);
+                i.qga()
+            })
+            .collect();
+        encode(&items)
+    }),
+    spec!(QrabNetworkGetInterfaces, [], false, |agent, _| {
+        let mut items = agent
+            .platform
+            .network_interfaces()
+            .map_err(|e| QgaError::generic(e.to_string()))?;
+        items.truncate(proto::MAX_NETWORK_INTERFACES);
+        for item in &mut items {
+            item.ip_addresses.truncate(proto::MAX_NETWORK_ADDRESSES);
+        }
+        encode(&items)
+    }),
     spec!(GuestInfo, [], true, |agent, _| encode(&agent.info())),
     spec!(GuestGetOsinfo, [], false, |agent, _| encode(
         &agent.osinfo()

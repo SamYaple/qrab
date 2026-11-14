@@ -19,8 +19,12 @@
 //! ```
 
 mod agent;
+pub mod boot;
+mod firmware;
 mod framing;
+mod network;
 pub mod proto;
+pub mod secure_boot;
 pub mod sys;
 mod update;
 

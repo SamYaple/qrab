@@ -123,6 +123,11 @@ pub async fn run_controlled(
         seed.write(&super::seed::image_path(&socket))?;
     }
     let mut persistent = PersistentState::prepare(&config)?;
+    let _firmware_lease = control.firmware_lease(persistent.as_ref().map(PersistentState::lease));
+    super::firmware::apply_staged_firmware(&mut config)?;
+    super::secure_boot_policy::apply(&config)?;
+    config.validate()?;
+    control.set_config(&config);
     let mut state = Status {
         phase: Phase::Starting,
         ready: false,
@@ -192,10 +197,10 @@ async fn run_qemu(
     lease: Option<StateLease>,
 ) -> Result<Outcome> {
     let (socket, console) = sockets;
-    let child = match Command::new(&config.qemu_binary)
+    let mut child = match Command::new(&config.qemu_binary)
         .args(config.arguments(socket))
         .stdin(Stdio::null())
-        .stdout(Stdio::inherit())
+        .stdout(Stdio::piped())
         .stderr(Stdio::inherit())
         .kill_on_drop(true)
         .spawn()
@@ -208,6 +213,11 @@ async fn run_qemu(
             return Err(Error::Io(error));
         }
     };
+    let serial = child
+        .stdout
+        .take()
+        .map(|stdout| control.pump_serial(stdout));
+    let _serial = SerialPump(serial);
     let mut child = ManagedChild::new(child, lease);
     state.qemu_pid = Some(child.spawned_pid());
     state.qemu_start_ticks = start_ticks(child.spawned_pid()).ok();
@@ -392,4 +402,13 @@ fn native_clean_shutdown(config: &Config, exit: &ExitStatus, method: &str) -> Re
         ));
     }
     Ok(())
+}
+
+struct SerialPump(Option<tokio::task::JoinHandle<()>>);
+impl Drop for SerialPump {
+    fn drop(&mut self) {
+        if let Some(task) = self.0.take() {
+            task.abort();
+        }
+    }
 }

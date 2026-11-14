@@ -529,3 +529,21 @@ async fn swtpm_startup_failure_timeout_and_shutdown_reap_the_tpm_before_qemu() {
         );
     }
 }
+
+#[test]
+fn secure_capable_firmware_explicitly_requires_smm_and_protected_pflash() {
+    let config: Config =
+        serde_json::from_value(serde_json::json!({"uefi":{"secure_boot_capable":true}})).unwrap();
+    let args = config.arguments(Path::new("/tmp/qmp.sock"));
+    assert!(args
+        .windows(2)
+        .any(|a| a[0] == "-machine" && a[1].contains("smm=on")));
+    assert!(args
+        .windows(2)
+        .any(|a| a == ["-global", "driver=cfi.pflash01,property=secure,value=on"]));
+    let config: Config = serde_json::from_value(serde_json::json!({"uefi":{}})).unwrap();
+    assert!(!config
+        .arguments(Path::new("/tmp/qmp.sock"))
+        .iter()
+        .any(|a| a.contains("property=secure")));
+}

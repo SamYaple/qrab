@@ -142,6 +142,23 @@ async function loadConfig() {
     list.replaceChildren(...rows.flatMap(([key, value]) => [node('dt', key), node('dd', String(value))]));
     element('config-note').textContent = view.redacted ? 'Sensitive fields hidden for viewers' : 'Full view';
 }
+async function loadResources() {
+    const usage = await request('/api/resources');
+    const rows = [];
+    const mib = value => value == null ? 'unavailable' : `${(value / 1048576).toFixed(1)} MiB`;
+    for (const [name, sample] of Object.entries(usage)) {
+        if (!sample) { rows.push([name, 'unavailable']); continue; }
+        const process = sample.process || {};
+        rows.push([`${name} process RSS`, mib(process.resident_memory_bytes)]);
+        rows.push([`${name} process CPU total`, process.cpu_time_seconds == null ? 'unavailable' : `${process.cpu_time_seconds.toFixed(2)} s`]);
+        if (sample.container) {
+            rows.push([`${name} container memory`, mib(sample.container.memory_current_bytes)]);
+            rows.push([`${name} memory limit`, mib(sample.container.memory_limit_bytes)]);
+            rows.push([`${name} container CPU total`, sample.container.cpu_usage_seconds == null ? 'unavailable' : `${sample.container.cpu_usage_seconds.toFixed(2)} s`]);
+        }
+    }
+    element('resources').replaceChildren(...rows.flatMap(([key, value]) => [node('dt', key), node('dd', value)]));
+}
 async function refresh() {
     try {
         const status = await request('/api/status');
@@ -216,6 +233,6 @@ try {
     element('logout').hidden = false;
     await refresh();
     polling = setInterval(refresh, 2000);
-    await Promise.all([loadConfig(), loadAgent(), startEvents()]).catch(error => showError(error.message));
-    setInterval(() => loadAgent().catch(() => {}), 5000);
+    await Promise.all([loadConfig(), loadAgent(), loadResources(), startEvents()]).catch(error => showError(error.message));
+    setInterval(() => { loadAgent().catch(() => {}); loadResources().catch(() => {}); }, 5000);
 } catch (error) { signedOut(); if (!error.message.startsWith('Your session ended')) showError(error.message); }

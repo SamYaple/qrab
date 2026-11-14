@@ -185,6 +185,58 @@ impl Remote {
         pooled!(self, true, probe(ready))
     }
 
+    pub async fn resource_usage(&self) -> Result<super::ResourceUsage> {
+        pooled!(self, true, resource_usage())
+    }
+    pub async fn agent_firmware(&self) -> Result<super::FirmwareSnapshot> {
+        pooled!(self, true, agent_firmware())
+    }
+    pub async fn media(&self, operation: super::MediaOperation) -> Result<super::MediaStatus> {
+        pooled!(self, false, media(operation))
+    }
+    pub async fn serial(&self) -> Result<super::SerialSnapshot> {
+        pooled!(self, true, serial())
+    }
+    pub async fn firmware_catalog(&self) -> Result<super::FirmwareCatalogView> {
+        pooled!(self, true, firmware_catalog())
+    }
+    pub async fn firmware_stage_status(&self) -> Result<super::FirmwareStageStatus> {
+        pooled!(self, true, firmware_stage_status())
+    }
+    pub async fn firmware_stage(&self, artifact: String) -> Result<super::FirmwareStageStatus> {
+        pooled!(self, false, firmware_stage(artifact))
+    }
+    pub async fn agent_boot(&self) -> Result<super::BootSnapshot> {
+        pooled!(self, true, agent_boot())
+    }
+    pub async fn agent_boot_next(&self, reference: Option<String>) -> Result<super::BootSnapshot> {
+        pooled!(self, false, agent_boot_next(reference))
+    }
+    pub async fn agent_secure_boot_databases(&self) -> Result<super::SecureBootDatabaseSnapshot> {
+        pooled!(self, true, agent_secure_boot_databases())
+    }
+    pub async fn agent_secure_boot_update(
+        &self,
+        request: super::SecureBootUpdateRequest,
+    ) -> Result<super::SecureBootDatabaseSnapshot> {
+        pooled!(self, false, agent_secure_boot_update(request))
+    }
+    pub async fn secure_boot_settings(&self) -> Result<super::SecureBootSettings> {
+        pooled!(self, true, secure_boot_settings())
+    }
+    pub async fn stage_secure_boot(&self, enabled: bool) -> Result<super::SecureBootSettings> {
+        pooled!(self, false, stage_secure_boot(enabled))
+    }
+    pub async fn inventory(&self) -> Result<super::HardwareInventory> {
+        pooled!(self, true, inventory())
+    }
+    pub async fn agent_network(&self) -> Result<super::GuestNetworkSnapshot> {
+        pooled!(self, true, agent_network())
+    }
+    pub async fn metrics(&self) -> Result<super::VmMetrics> {
+        pooled!(self, true, metrics())
+    }
+
     pub async fn config_view(&self) -> Result<ConfigView> {
         let redacted = false;
         pooled!(self, true, config(redacted))
@@ -241,6 +293,120 @@ pub enum Backend {
 }
 
 impl Backend {
+    pub fn event_summaries(&self, after: Option<u64>, limit: usize) -> EventPage {
+        match self {
+            Self::Local(control) => control.event_summaries(after, limit),
+            Self::Socket(remote) => remote.0.events.summary_page(after, limit),
+        }
+    }
+
+    pub async fn agent_secure_boot_databases(&self) -> Result<super::SecureBootDatabaseSnapshot> {
+        match self {
+            Self::Local(c) => c.agent_secure_boot_databases().await,
+            Self::Socket(r) => r.agent_secure_boot_databases().await,
+        }
+    }
+    pub async fn agent_secure_boot_update(
+        &self,
+        request: super::SecureBootUpdateRequest,
+    ) -> Result<super::SecureBootDatabaseSnapshot> {
+        match self {
+            Self::Local(c) => c.agent_secure_boot_update(request).await,
+            Self::Socket(r) => r.agent_secure_boot_update(request).await,
+        }
+    }
+    pub async fn secure_boot_settings(&self) -> Result<super::SecureBootSettings> {
+        match self {
+            Self::Local(c) => c.secure_boot_settings().await,
+            Self::Socket(r) => r.secure_boot_settings().await,
+        }
+    }
+    pub async fn stage_secure_boot(&self, enabled: bool) -> Result<super::SecureBootSettings> {
+        match self {
+            Self::Local(c) => c.stage_secure_boot(enabled).await,
+            Self::Socket(r) => r.stage_secure_boot(enabled).await,
+        }
+    }
+
+    pub async fn agent_boot(&self) -> Result<super::BootSnapshot> {
+        match self {
+            Self::Local(c) => c.agent_boot().await,
+            Self::Socket(r) => r.agent_boot().await,
+        }
+    }
+    pub async fn agent_boot_next(&self, reference: Option<String>) -> Result<super::BootSnapshot> {
+        match self {
+            Self::Local(c) => c.agent_boot_next(reference).await,
+            Self::Socket(r) => r.agent_boot_next(reference).await,
+        }
+    }
+
+    pub async fn firmware_catalog(&self) -> Result<super::FirmwareCatalogView> {
+        match self {
+            Self::Local(c) => c.firmware_catalog().await,
+            Self::Socket(r) => r.firmware_catalog().await,
+        }
+    }
+    pub async fn firmware_stage_status(&self) -> Result<super::FirmwareStageStatus> {
+        match self {
+            Self::Local(c) => c.firmware_stage_status().await,
+            Self::Socket(r) => r.firmware_stage_status().await,
+        }
+    }
+    pub async fn firmware_stage(&self, artifact: String) -> Result<super::FirmwareStageStatus> {
+        match self {
+            Self::Local(c) => c.firmware_stage(artifact).await,
+            Self::Socket(r) => r.firmware_stage(artifact).await,
+        }
+    }
+
+    pub async fn serial(&self) -> Result<super::SerialSnapshot> {
+        match self {
+            Self::Local(c) => Ok(c.serial()),
+            Self::Socket(r) => r.serial().await,
+        }
+    }
+
+    pub async fn agent_firmware(&self) -> Result<super::FirmwareSnapshot> {
+        match self {
+            Self::Local(c) => c.agent_firmware().await,
+            Self::Socket(r) => r.agent_firmware().await,
+        }
+    }
+    pub async fn media(&self, operation: super::MediaOperation) -> Result<super::MediaStatus> {
+        match self {
+            Self::Local(c) => c.media(operation).await,
+            Self::Socket(r) => r.media(operation).await,
+        }
+    }
+
+    pub async fn resource_usage(&self) -> Result<super::ResourceUsage> {
+        match self {
+            Self::Local(c) => Ok(c.resource_usage()),
+            Self::Socket(r) => r.resource_usage().await,
+        }
+    }
+
+    pub async fn inventory(&self) -> Result<super::HardwareInventory> {
+        match self {
+            Self::Local(c) => c.inventory().await,
+            Self::Socket(r) => r.inventory().await,
+        }
+    }
+    pub async fn agent_network(&self) -> Result<super::GuestNetworkSnapshot> {
+        match self {
+            Self::Local(c) => c.agent_network().await,
+            Self::Socket(r) => r.agent_network().await,
+        }
+    }
+
+    pub async fn metrics(&self) -> Result<super::VmMetrics> {
+        match self {
+            Self::Local(control) => control.metrics().await,
+            Self::Socket(remote) => remote.metrics().await,
+        }
+    }
+
     pub async fn status(&self) -> Result<Status> {
         match self {
             Self::Local(control) => control.status(),

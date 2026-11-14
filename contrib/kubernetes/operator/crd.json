@@ -143,6 +143,27 @@
                             "description": "A DMTF Redfish API authenticated by OIDC bearer tokens.",
                             "type": "boolean"
                           },
+                          "eventDestinations": {
+                            "description": "Exact HTTPS event receiver URLs, without credentials, query, fragment\nor non-443 ports. Empty disables outbound Redfish event subscriptions.",
+                            "items": {
+                              "type": "string"
+                            },
+                            "maxItems": 32,
+                            "type": "array"
+                          },
+                          "stateVolumeClaim": {
+                            "description": "Explicit separate PVC for Redfish subscription state. The operator never\ncreates or deletes it; it must not be the VM's firmware/TPM state PVC.",
+                            "nullable": true,
+                            "type": "string"
+                          },
+                          "telemetryIntervalSeconds": {
+                            "description": "Optional periodic Redfish metric history cadence. Absent keeps reports\non demand and avoids idle VM metric queries; enabled triggers still poll.",
+                            "format": "int32",
+                            "maximum": 3600.0,
+                            "minimum": 5.0,
+                            "nullable": true,
+                            "type": "integer"
+                          },
                           "viewerGroups": {
                             "default": [],
                             "description": "Kanidm group UUIDs whose members have read-only access.",
@@ -295,6 +316,11 @@
                     ],
                     "x-kubernetes-list-type": "map"
                   },
+                  "firmwareCatalogVolumeClaim": {
+                    "description": "Explicit read-only approved firmware catalog PVC. Its root-owned sealed\nmanifest and CODE artifacts must satisfy manager catalog validation.",
+                    "nullable": true,
+                    "type": "string"
+                  },
                   "image": {
                     "description": "Optional immutable manager image; defaults to the operator's release pin.",
                     "nullable": true,
@@ -390,6 +416,11 @@
                     "minimum": 256.0,
                     "type": "integer"
                   },
+                  "mediaVolumeClaim": {
+                    "description": "Explicit read-only catalog PVC of approved virtual media. Mounted only\ninto the manager; no file uploads, PVC creation or garbage collection.",
+                    "nullable": true,
+                    "type": "string"
+                  },
                   "memoryMiB": {
                     "default": 512,
                     "format": "int32",
@@ -439,6 +470,10 @@
                   "running": {
                     "default": true,
                     "description": "Desired power state. A running VM is recreated after exit or Pod loss.",
+                    "type": "boolean"
+                  },
+                  "secureBootCapable": {
+                    "description": "Select explicit secure-capable OVMF with SMM-protected variable flash.\nKey enrollment and requested enablement remain separate operations.",
                     "type": "boolean"
                   },
                   "stateVolumeClaim": {

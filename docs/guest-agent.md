@@ -48,7 +48,7 @@ Requests are top-level JSON objects with `execute`, optional object
 `arguments` and an optional `id` that is echoed. Line breaks are optional. A
 `0xFF` byte discards all partial input, so a client that sends `0xFF` before
 `guest-sync-delimited` recovers from a torn previous session; stale replies are
-ignored by the client's nonce check. Requests over 64 KiB are rejected and the
+ignored by the client's nonce check. Requests over 384KiB are rejected and the
 input is discarded to the next line feed or `0xFF`. Unknown members and
 unknown arguments are errors rather than being silently ignored.
 
@@ -138,3 +138,42 @@ one frozen filesystem; the RAM-only demo reports zero.
 
 A glibc `+crt-static` build linked against a host-optimized static libc can
 fault with `SIGILL` under TCG `-cpu max`. Use the musl target.
+
+## Redfish inventory and boot commands
+
+The fixed command allowlist now includes standard
+`guest-network-get-interfaces` plus `qrab-network-get-interfaces` for real Linux
+interface/carrier flags. Names, MACs, addresses/prefixes and counters come from
+the guest; the manager bounds and validates them before matching configured MACs.
+
+`qrab-firmware-state` reads the fixed EFI SecureBoot/SetupMode/AuditMode/
+DeployedMode variables. Absent/inaccessible/malformed values remain unknown.
+This does not expose arbitrary EFI variable or filesystem access.
+
+`qrab-boot-state` reads actual EFI BootOrder/BootNext and bounded Boot####
+entries. `qrab-boot-next` selects an existing active reference or clears it.
+Writes are limited to the fixed BootNext GUID, with native NV/BS/RT attributes
+and readback confirmation; kernel permission/immutable-file errors are real
+failures. There is no raw pflash access or arbitrary EFI variable API. Signed Secure Boot
+database updates use the fixed authenticated command described below.
+
+Manager graceful restart uses the existing native `guest-shutdown` reboot mode,
+with admission/thaw preflight and no success response. A successful send means
+delivery, while later guest/QMP observations establish the resulting state.
+
+## Authenticated Secure Boot databases
+
+`qrab-secure-boot-databases` returns bounded public PK/KEK/db/dbx signature lists.
+`qrab-secure-boot-update` accepts an AUTH2 descriptor for one of those fixed names
+and GUIDs, validated before Platform dispatch and denied while frozen. It never
+accepts a private key or arbitrary variable/path. The static guest adds a small
+pure-Rust DER/X.509 decoder, with no OpenSSL library, helper process or async
+runtime dependency. Kernel/firmware authorization and immutable restrictions
+remain intact; a successful write is followed by inventory readback. Unknown
+outcomes must be inspected, not automatically replayed. Native SecureBootEnable
+is boot-service-only on the tested OVMF, so enable/disable uses the manager's cold
+policy editor instead of pretending Linux runtime can write that flag.
+
+The checked musl release binary is static PIE:1,328,312 bytes unstripped
+(981,318 bytes text). This is executable size, not process RSS; measurement
+was taken after the Secure Boot parser/update additions on 2026-11-14.

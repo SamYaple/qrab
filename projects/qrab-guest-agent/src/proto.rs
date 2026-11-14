@@ -32,6 +32,96 @@ pub struct QrabUpdateTrigger {
 #[serde(deny_unknown_fields)]
 pub struct QrabUpdateStatus {}
 
+/// Read-only network inventory including Linux administrative/carrier state.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct QrabNetworkGetInterfaces {}
+
+/// Current EFI runtime flags, read-only; unavailable/missing flags stay unknown.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct QrabFirmwareState {}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub struct FirmwareState {
+    pub efi_runtime_available: bool,
+    pub secure_boot: Option<bool>,
+    pub setup_mode: Option<bool>,
+    pub audit_mode: Option<bool>,
+    pub deployed_mode: Option<bool>,
+}
+
+pub const MAX_NETWORK_INTERFACES: usize = 128;
+pub const MAX_NETWORK_ADDRESSES: usize = 64;
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub struct NetworkInterface {
+    pub name: String,
+    pub hardware_address: Option<String>,
+    pub ip_addresses: Vec<NetworkAddress>,
+    pub statistics: Option<NetworkStatistics>,
+    /// Actual IFF_UP flag. Unknown for agents implementing only standard QGA.
+    pub interface_enabled: Option<bool>,
+    /// Kernel operstate; unknown is kept unknown rather than inferred from IPs.
+    pub link_up: Option<bool>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct NetworkAddress {
+    pub address: String,
+    pub prefix: u8,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub struct NetworkStatistics {
+    pub rx_bytes: u64,
+    pub rx_packets: u64,
+    pub rx_errs: u64,
+    pub rx_dropped: u64,
+    pub tx_bytes: u64,
+    pub tx_packets: u64,
+    pub tx_errs: u64,
+    pub tx_dropped: u64,
+}
+
+impl NetworkInterface {
+    pub fn qga(self) -> qapi::qga::GuestNetworkInterface {
+        qapi::qga::GuestNetworkInterface {
+            name: self.name,
+            hardware_address: self.hardware_address,
+            ip_addresses: Some(
+                self.ip_addresses
+                    .into_iter()
+                    .map(|a| qapi::qga::GuestIpAddress {
+                        ip_address_type: if a.address.contains(':') {
+                            qapi::qga::GuestIpAddressType::Ipv6
+                        } else {
+                            qapi::qga::GuestIpAddressType::Ipv4
+                        },
+                        ip_address: a.address,
+                        prefix: i64::from(a.prefix),
+                    })
+                    .collect(),
+            ),
+            statistics: self
+                .statistics
+                .map(|s| qapi::qga::GuestNetworkInterfaceStat {
+                    rx_bytes: s.rx_bytes,
+                    rx_packets: s.rx_packets,
+                    rx_errs: s.rx_errs,
+                    rx_dropped: s.rx_dropped,
+                    tx_bytes: s.tx_bytes,
+                    tx_packets: s.tx_packets,
+                    tx_errs: s.tx_errs,
+                    tx_dropped: s.tx_dropped,
+                }),
+        }
+    }
+}
+
 macro_rules! qrab_command {
     ($type:ty, $name:literal, $returns:ty) => {
         impl qapi::QapiCommand for $type {
@@ -47,6 +137,12 @@ macro_rules! qrab_command {
         }
     };
 }
+qrab_command!(QrabFirmwareState, "qrab-firmware-state", FirmwareState);
+qrab_command!(
+    QrabNetworkGetInterfaces,
+    "qrab-network-get-interfaces",
+    Vec<NetworkInterface>
+);
 qrab_command!(QrabUpdateTrigger, "qrab-update-trigger", UpdateStatus);
 qrab_command!(QrabUpdateStatus, "qrab-update-status", UpdateStatus);
 

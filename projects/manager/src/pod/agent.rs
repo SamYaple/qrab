@@ -5,7 +5,7 @@ use crate::{Error, Result};
 use qapi::qga::{
     commands::{
         GuestFsfreezeFreeze, GuestFsfreezeFreezeList, GuestFsfreezeStatusCommand,
-        GuestFsfreezeThaw, GuestPing,
+        GuestFsfreezeThaw, GuestInfo, GuestPing, GuestShutdown,
     },
     GuestFsfreezeStatus,
 };
@@ -38,6 +38,16 @@ type Reply<T> = oneshot::Sender<Result<T>>;
 
 pub(super) enum AgentOp {
     Ping(Reply<()>),
+    Reboot(Reply<()>),
+    Network(Reply<super::GuestNetworkSnapshot>),
+    Firmware(Reply<super::FirmwareSnapshot>),
+    SecureBootDatabases(Reply<super::SecureBootDatabaseSnapshot>),
+    SecureBootUpdate(
+        super::SecureBootUpdateRequest,
+        Reply<super::SecureBootDatabaseSnapshot>,
+    ),
+    Boot(Reply<super::BootSnapshot>),
+    BootNext(Option<String>, Reply<super::BootSnapshot>),
     FreezeStatus(Reply<FreezeState>),
     Freeze(Option<Vec<String>>, Reply<i64>),
     Thaw(Reply<i64>),
@@ -52,7 +62,13 @@ impl AgentOp {
 
     pub(super) fn reject(self, error: impl Fn() -> Error) {
         match self {
-            Self::Ping(r) => drop(r.send(Err(error()))),
+            Self::Ping(r) | Self::Reboot(r) => drop(r.send(Err(error()))),
+            Self::Network(r) => drop(r.send(Err(error()))),
+            Self::Firmware(r) => drop(r.send(Err(error()))),
+            Self::SecureBootDatabases(r) | Self::SecureBootUpdate(_, r) => {
+                drop(r.send(Err(error())))
+            }
+            Self::Boot(r) | Self::BootNext(_, r) => drop(r.send(Err(error()))),
             Self::FreezeStatus(r) => drop(r.send(Err(error()))),
             Self::Freeze(_, r) | Self::Thaw(r) => drop(r.send(Err(error()))),
             Self::UpdateTrigger(_, r) | Self::UpdateStatus(r) => drop(r.send(Err(error()))),
@@ -61,7 +77,11 @@ impl AgentOp {
 
     fn abandoned(&self) -> bool {
         match self {
-            Self::Ping(r) => r.is_closed(),
+            Self::Ping(r) | Self::Reboot(r) => r.is_closed(),
+            Self::Network(r) => r.is_closed(),
+            Self::Firmware(r) => r.is_closed(),
+            Self::SecureBootDatabases(r) | Self::SecureBootUpdate(_, r) => r.is_closed(),
+            Self::Boot(r) | Self::BootNext(_, r) => r.is_closed(),
             Self::FreezeStatus(r) => r.is_closed(),
             Self::Freeze(_, r) | Self::Thaw(r) => r.is_closed(),
             Self::UpdateTrigger(_, r) | Self::UpdateStatus(r) => r.is_closed(),
@@ -278,6 +298,20 @@ async fn execute(qga: &mut Qga, op: AgentOp) -> std::result::Result<(), String> 
     }
     match op {
         AgentOp::Ping(reply) => finish(reply, qga.execute(&GuestPing {}).await),
+        AgentOp::Reboot(reply) => finish(reply, reboot(qga).await),
+        AgentOp::Network(reply) => finish(reply, super::GuestNetworkSnapshot::query(qga).await),
+        AgentOp::Firmware(reply) => finish(reply, super::FirmwareSnapshot::query(qga).await),
+        AgentOp::SecureBootDatabases(reply) => {
+            finish(reply, super::SecureBootDatabaseSnapshot::query(qga).await)
+        }
+        AgentOp::SecureBootUpdate(request, reply) => finish(
+            reply,
+            super::SecureBootDatabaseSnapshot::update(qga, request).await,
+        ),
+        AgentOp::Boot(reply) => finish(reply, super::BootSnapshot::query(qga).await),
+        AgentOp::BootNext(reference, reply) => {
+            finish(reply, super::BootSnapshot::set_next(qga, reference).await)
+        }
         AgentOp::FreezeStatus(reply) => {
             let result = qga.execute(&GuestFsfreezeStatusCommand {}).await;
             finish(
@@ -301,6 +335,33 @@ async fn execute(qga: &mut Qga, op: AgentOp) -> std::result::Result<(), String> 
         }
         AgentOp::UpdateStatus(reply) => finish(reply, qga.execute(&QrabUpdateStatus {}).await),
     }
+}
+
+/// Deliver a native graceful reboot request. The protocol has no success
+/// response; completion is established only by later guest/QMP observations.
+async fn reboot(qga: &mut Qga) -> qapi_protocol::Result<()> {
+    let info = qga.execute(&GuestInfo {}).await?;
+    if !info
+        .supported_commands
+        .iter()
+        .any(|command| command.name == "guest-shutdown" && command.enabled)
+    {
+        return Err(qapi_protocol::Error::InvalidRequest(
+            "guest-shutdown is unavailable".into(),
+        ));
+    }
+    if matches!(
+        qga.execute(&GuestFsfreezeStatusCommand {}).await?,
+        GuestFsfreezeStatus::Frozen
+    ) {
+        return Err(qapi_protocol::Error::InvalidRequest(
+            "guest filesystems are frozen".into(),
+        ));
+    }
+    qga.send_no_response(&GuestShutdown {
+        mode: Some("reboot".into()),
+    })
+    .await
 }
 
 #[cfg(test)]
@@ -462,5 +523,86 @@ mod tests {
         assert_eq!(call(&agent, AgentOp::Thaw).await.unwrap(), 0);
         drop(agent);
         server.abort();
+    }
+    #[tokio::test]
+    async fn graceful_reboot_delivers_native_shutdown_without_waiting_for_a_response() {
+        let (host, guest) = tokio::net::UnixStream::pair().unwrap();
+        let server = tokio::spawn(async move {
+            let mut session = QgaSession::from_stream(guest);
+            session.handle_sync().await.unwrap();
+            assert_eq!(session.recv_command().await.unwrap().0, "guest-info");
+            session
+                .send_return(json!({"version":"11.1.3","supported_commands":[]}))
+                .await
+                .unwrap();
+            assert_eq!(session.recv_command().await.unwrap().0, "guest-info");
+            session
+                .send_return(json!({"version":"11.1.3","supported_commands":[{
+                    "name":"guest-shutdown","enabled":true,"success-response":false
+                }]}))
+                .await
+                .unwrap();
+            assert_eq!(
+                session.recv_command().await.unwrap().0,
+                "guest-fsfreeze-status"
+            );
+            session.send_return(json!("thawed")).await.unwrap();
+            let (name, args) = session.recv_command().await.unwrap();
+            assert_eq!(name, "guest-shutdown");
+            assert_eq!(args, json!({"mode":"reboot"}));
+            // No success reply exists for guest-shutdown. The client closes
+            // this session and must later reconnect; delivery cannot be replayed.
+            assert!(
+                tokio::time::timeout(Duration::from_secs(1), session.recv_command())
+                    .await
+                    .unwrap()
+                    .is_err()
+            );
+        });
+        let mut qga = Qga::from_stream(host).await.unwrap();
+        let (reply, response) = oneshot::channel();
+        execute(&mut qga, AgentOp::Reboot(reply)).await.unwrap();
+        response.await.unwrap().unwrap();
+        assert!(qga.is_closed());
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn graceful_reboot_is_not_sent_when_disabled_or_frozen() {
+        for enabled in [false, true] {
+            let (host, guest) = tokio::net::UnixStream::pair().unwrap();
+            let server = tokio::spawn(async move {
+                let mut session = QgaSession::from_stream(guest);
+                session.handle_sync().await.unwrap();
+                assert_eq!(session.recv_command().await.unwrap().0, "guest-info");
+                session
+                    .send_return(json!({"version":"11.1.3","supported_commands":[]}))
+                    .await
+                    .unwrap();
+                assert_eq!(session.recv_command().await.unwrap().0, "guest-info");
+                session
+                    .send_return(json!({"version":"11.1.3","supported_commands":[{
+                        "name":"guest-shutdown","enabled":enabled,"success-response":false
+                    }]}))
+                    .await
+                    .unwrap();
+                if enabled {
+                    assert_eq!(
+                        session.recv_command().await.unwrap().0,
+                        "guest-fsfreeze-status"
+                    );
+                    session.send_return(json!("frozen")).await.unwrap();
+                }
+                // A successful subsequent ping proves no response-less reboot
+                // was dispatched and the preflight failure kept framing intact.
+                assert_eq!(session.recv_command().await.unwrap().0, "guest-ping");
+                session.send_return(json!({})).await.unwrap();
+            });
+            let mut qga = Qga::from_stream(host).await.unwrap();
+            assert!(reboot(&mut qga).await.is_err());
+            assert!(!qga.is_closed());
+            qga.execute(&GuestPing {}).await.unwrap();
+            server.await.unwrap();
+        }
     }
 }

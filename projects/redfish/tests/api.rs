@@ -149,6 +149,11 @@ fn fixture() -> Fixture {
             auth: Arc::new(authenticator),
             control: manager::pod::Backend::Local(control),
             streams: Arc::new(Semaphore::new(2)),
+            requests: Arc::new(Semaphore::new(32)),
+            tasks: Default::default(),
+            telemetry: Default::default(),
+            subscriptions: Default::default(),
+            triggers: Default::default(),
         },
         receiver: Some(receiver),
         config,
@@ -366,13 +371,22 @@ async fn resources_have_redfish_shapes_and_links() {
     assert_eq!(system["SystemType"], "Virtual");
     assert_eq!(system["PowerState"], "On");
     assert_eq!(system["Status"], json!({"State":"Enabled","Health":"OK"}));
-    assert_eq!(system["ProcessorSummary"]["Count"], 2);
+    assert_eq!(system["ProcessorSummary"]["LogicalProcessorCount"], 2);
+    assert!(system["ProcessorSummary"].get("Count").is_none());
     assert_eq!(system["MemorySummary"]["TotalSystemMemoryGiB"], 1.5);
     let reset = &system["Actions"]["#ComputerSystem.Reset"];
     assert_eq!(reset["target"], RESET);
     assert_eq!(
         reset["ResetType@Redfish.AllowableValues"],
-        json!(["On", "GracefulShutdown", "ForceRestart", "Pause", "Resume"])
+        json!([
+            "On",
+            "GracefulShutdown",
+            "ForceRestart",
+            "Pause",
+            "Resume",
+            "Nmi",
+            "GracefulRestart"
+        ])
     );
     assert_eq!(
         system["Links"]["ManagedBy"][0]["@odata.id"],
@@ -499,8 +513,8 @@ async fn resources_have_redfish_shapes_and_links() {
         "{}",
     )
     .await;
-    assert_eq!(status, StatusCode::METHOD_NOT_ALLOWED);
-    assert_error(&body, "OperationNotAllowed");
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+    assert_error(&body, "ServiceTemporarilyUnavailable");
 }
 
 #[tokio::test]
@@ -510,10 +524,7 @@ async fn reset_types_map_honestly_and_bad_requests_get_redfish_errors() {
     let admin = good(ADMIN);
     for (body, message_id) in [
         (r#"{"ResetType":"ForceOff"}"#, "ActionParameterNotSupported"),
-        (
-            r#"{"ResetType":"GracefulRestart"}"#,
-            "ActionParameterNotSupported",
-        ),
+        (r#"{"ResetType":"ForceOn"}"#, "ActionParameterNotSupported"),
         (
             r#"{"ResetType":"Explode"}"#,
             "ActionParameterValueNotInList",
@@ -535,6 +546,8 @@ async fn reset_types_map_honestly_and_bad_requests_get_redfish_errors() {
         ("Resume", Action::Resume),
         ("Pause", Action::Pause),
         ("ForceRestart", Action::Reset),
+        ("Nmi", Action::Nmi),
+        ("GracefulRestart", Action::Reboot),
         ("GracefulShutdown", Action::Powerdown),
     ] {
         assert_eq!(
@@ -669,7 +682,7 @@ async fn unknown_resources_are_redfish_not_found() {
     let (status, headers, body) = call(
         &fixture.app,
         "GET",
-        "/redfish/v1/Chassis",
+        "/redfish/v1/Chassis/unknown",
         Some(&good(ADMIN)),
         "",
     )
@@ -767,4 +780,933 @@ async fn group_claims_grant_configured_roles_only() {
             "{groups:?}"
         );
     }
+}
+
+#[tokio::test]
+async fn native_inventory_is_discoverable_authenticated_and_redacted() {
+    let mut fixture = fixture();
+    fixture.receiver = None;
+    write_status(&fixture.config, "running", "running");
+    let token = good(VIEWER);
+    for path in [
+        "/redfish/v1/Chassis",
+        "/redfish/v1/Chassis/1",
+        "/redfish/v1/Systems/1/ResetActionInfo",
+        "/redfish/v1/Systems/1/Memory",
+        "/redfish/v1/Systems/1/Memory/1",
+        "/redfish/v1/Systems/1/EthernetInterfaces",
+        "/redfish/v1/Systems/1/SimpleStorage",
+        "/redfish/v1/Systems/1/SimpleStorage/1",
+    ] {
+        assert_eq!(
+            call(&fixture.app, "GET", path, None, "").await.0,
+            StatusCode::UNAUTHORIZED
+        );
+        let (status, _, body) = call(&fixture.app, "GET", path, Some(&token), "").await;
+        assert_eq!(status, StatusCode::OK, "{path}: {body}");
+        assert_eq!(body["@odata.id"], path);
+        for secret in [PORTAL, "chap-user", "/run/qrab-auth", STATE_ID] {
+            assert!(
+                !body.to_string().contains(secret),
+                "{path}: leaked {secret}"
+            );
+        }
+        if let Some(members) = body["Members"].as_array() {
+            for member in members {
+                assert_eq!(
+                    call(
+                        &fixture.app,
+                        "GET",
+                        member["@odata.id"].as_str().unwrap(),
+                        Some(&token),
+                        ""
+                    )
+                    .await
+                    .0,
+                    StatusCode::OK
+                );
+            }
+        }
+    }
+    for path in [
+        "/redfish/v1/Systems/1/Processors",
+        "/redfish/v1/Systems/1/Processors/1",
+    ] {
+        assert_eq!(
+            call(&fixture.app, "GET", path, None, "").await.0,
+            StatusCode::UNAUTHORIZED
+        );
+        assert_eq!(
+            call(&fixture.app, "GET", path, Some(&token), "").await.0,
+            StatusCode::SERVICE_UNAVAILABLE
+        );
+    }
+    let (_, _, memory) = call(
+        &fixture.app,
+        "GET",
+        "/redfish/v1/Systems/1/Memory/1",
+        Some(&token),
+        "",
+    )
+    .await;
+    assert_eq!(memory["CapacityMiB"], 1536);
+    let (_, _, nics) = call(
+        &fixture.app,
+        "GET",
+        "/redfish/v1/Systems/1/EthernetInterfaces",
+        Some(&token),
+        "",
+    )
+    .await;
+    assert_eq!(nics["Members@odata.count"], 0);
+    for path in [
+        "/redfish/v1/Systems/1/Memory/2",
+        "/redfish/v1/Systems/1/Unknown",
+        "/redfish/v1/Systems/1/Memory/01",
+    ] {
+        let (status, _, body) = call(&fixture.app, "GET", path, Some(&token), "").await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert_error(&body, "ResourceNotFound");
+    }
+}
+
+#[tokio::test]
+async fn telemetry_discovery_and_live_failure_are_authenticated() {
+    let mut fixture = fixture();
+    fixture.receiver = None; // No VM supervisor: live queries must fail, never invent zeroes.
+    let viewer = good(VIEWER);
+    for (path, expected) in [
+        ("/redfish/v1/TelemetryService", StatusCode::OK),
+        ("/redfish/v1/TelemetryService/MetricReports", StatusCode::OK),
+        (
+            "/redfish/v1/TelemetryService/MetricReports/VM",
+            StatusCode::SERVICE_UNAVAILABLE,
+        ),
+        (
+            "/redfish/v1/Systems/1/Oem/Qrab/Metrics",
+            StatusCode::SERVICE_UNAVAILABLE,
+        ),
+    ] {
+        assert_eq!(
+            call(&fixture.app, "GET", path, None, "").await.0,
+            StatusCode::UNAUTHORIZED
+        );
+        let (status, _, body) = call(&fixture.app, "GET", path, Some(&viewer), "").await;
+        assert_eq!(status, expected, "{path}: {body}");
+        if expected == StatusCode::SERVICE_UNAVAILABLE {
+            assert_error(&body, "ServiceTemporarilyUnavailable");
+        }
+    }
+}
+
+#[tokio::test]
+async fn live_report_round_trips_through_the_sidecar_control_socket() {
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+    let mut fixture = fixture();
+    let path = fixture.config.runtime_dir.join("metrics.sock");
+    let listener = tokio::net::UnixListener::bind(&path).unwrap();
+    fixture.app.control = manager::pod::Backend::Socket(manager::pod::Remote::new(path));
+    let server = tokio::spawn(async move {
+        let (stream, _) = listener.accept().await.unwrap();
+        let mut stream = BufReader::new(stream);
+        stream.get_mut().write_all(b"{\"protocol\":\"qrab-control\",\"version\":1,\"vm\":\"test\",\"operations\":[\"metrics\"]}\n").await.unwrap();
+        // Reuse one connection for both report and MetricProperty resource.
+        for _ in 0..2 {
+            let mut line = String::new();
+            stream.read_line(&mut line).await.unwrap();
+            let request: Value = serde_json::from_str(&line).unwrap();
+            assert_eq!(request["op"], "metrics");
+            let sample = manager::pod::VmMetrics {
+                observed_unix_ms: 1_700_000_000_123,
+                logical_processors: 4,
+                memory_bytes: 3_221_225_472,
+                block_read_bytes: 4096,
+                ..Default::default()
+            };
+            let reply = json!({"v":1,"id":request["id"],"result":sample}).to_string() + "\n";
+            stream.get_mut().write_all(reply.as_bytes()).await.unwrap();
+        }
+    });
+    let viewer = good(VIEWER);
+    let (status, _, report) = call(
+        &fixture.app,
+        "GET",
+        "/redfish/v1/TelemetryService/MetricReports/VM",
+        Some(&viewer),
+        "",
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{report}");
+    let value = report["MetricValues"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|v| v["MetricId"] == "BlockReadBytes")
+        .unwrap();
+    assert_eq!(value["MetricValue"], "4096");
+    let property = value["MetricProperty"].as_str().unwrap();
+    let (path, pointer) = property.split_once('#').unwrap();
+    let (status, _, metrics) = call(&fixture.app, "GET", path, Some(&viewer), "").await;
+    assert_eq!(status, StatusCode::OK, "{metrics}");
+    assert_eq!(metrics.pointer(pointer).unwrap(), 4096);
+    assert_eq!(metrics["Timestamp"], report["Timestamp"]);
+    server.await.unwrap();
+}
+
+#[tokio::test]
+async fn task_and_diagnostic_admission_and_download_keep_role_boundaries() {
+    let mut fixture = fixture();
+    write_status(&fixture.config, "running", "running");
+    fixture.receiver = None; // Unavailable metrics/agent are explicit best-effort/failure paths.
+    let admin = good(ADMIN);
+    let viewer = good(VIEWER);
+    let task_service = "/redfish/v1/TaskService";
+    let task_collection = "/redfish/v1/TaskService/Tasks";
+    let update = "/redfish/v1/TaskService/Actions/Oem/QrabTaskService.StartGuestUpdate";
+    let diagnostic_service = "/redfish/v1/Managers/1/LogServices/Diagnostics";
+    let collect =
+        "/redfish/v1/Managers/1/LogServices/Diagnostics/Actions/LogService.CollectDiagnosticData";
+    for path in [task_service, task_collection, diagnostic_service] {
+        assert_eq!(
+            call(&fixture.app, "GET", path, None, "").await.0,
+            StatusCode::UNAUTHORIZED
+        );
+        let (status, _, body) = call(&fixture.app, "GET", path, Some(&viewer), "").await;
+        assert_eq!(status, StatusCode::OK, "{path}: {body}");
+        assert_eq!(body["@odata.id"], path);
+    }
+    for (path, body) in [
+        (update, r#"{"Args":[]}"#),
+        (collect, r#"{"DiagnosticDataType":"Manager"}"#),
+    ] {
+        assert_eq!(
+            call(&fixture.app, "POST", path, None, body).await.0,
+            StatusCode::UNAUTHORIZED
+        );
+        assert_eq!(
+            call(&fixture.app, "POST", path, Some(&viewer), body)
+                .await
+                .0,
+            StatusCode::FORBIDDEN
+        );
+    }
+    for (path, body) in [
+        (update, r#"{"Args":["--unsafe"]}"#),
+        (collect, r#"{}"#),
+        (collect, r#"{"DiagnosticDataType":"OS"}"#),
+    ] {
+        assert_eq!(
+            call(&fixture.app, "POST", path, Some(&admin), body).await.0,
+            StatusCode::BAD_REQUEST
+        );
+    }
+    let (status, headers, task) = call(
+        &fixture.app,
+        "POST",
+        collect,
+        Some(&admin),
+        r#"{"DiagnosticDataType":"Manager"}"#,
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{task}");
+    assert_eq!(task["TaskState"], "Running");
+    let monitor = headers["location"].to_str().unwrap();
+    assert_eq!(task["TaskMonitor"], monitor);
+    assert_eq!(
+        call(&fixture.app, "GET", monitor, None, "").await.0,
+        StatusCode::UNAUTHORIZED
+    );
+    let (entry_headers, entry) = tokio::time::timeout(Duration::from_secs(2), async {
+        loop {
+            let (status, headers, body) =
+                call(&fixture.app, "GET", monitor, Some(&viewer), "").await;
+            if status == StatusCode::CREATED {
+                break (headers, body);
+            }
+            assert_eq!(status, StatusCode::ACCEPTED, "{body}");
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(
+        entry_headers["location"].to_str().unwrap(),
+        entry["@odata.id"].as_str().unwrap()
+    );
+    let attachment = entry["AdditionalDataURI"].as_str().unwrap();
+    assert_eq!(
+        call(&fixture.app, "GET", attachment, None, "").await.0,
+        StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(
+        call(&fixture.app, "GET", attachment, Some(&viewer), "")
+            .await
+            .0,
+        StatusCode::FORBIDDEN
+    );
+    let (status, headers, bundle) = call(&fixture.app, "GET", attachment, Some(&admin), "").await;
+    assert_eq!(status, StatusCode::OK, "{bundle}");
+    assert_eq!(headers["content-type"], "application/json");
+    assert!(headers["content-disposition"]
+        .to_str()
+        .unwrap()
+        .contains("attachment"));
+    assert_eq!(bundle["redacted"], true);
+    assert_eq!(bundle["availability"]["metrics"], false);
+    for secret in [PORTAL, "chap-user", "/run/qrab-auth", STATE_ID] {
+        assert!(
+            !bundle.to_string().contains(secret),
+            "diagnostic leaked {secret}"
+        );
+    }
+    let task_uri = task["@odata.id"].as_str().unwrap();
+    let (_, _, done) = call(&fixture.app, "GET", task_uri, Some(&viewer), "").await;
+    assert_eq!(done["TaskState"], "Completed");
+    assert!(done.get("EndTime").is_some());
+    assert_eq!(
+        done["Links"]["CreatedResources"][0]["@odata.id"],
+        entry["@odata.id"]
+    );
+}
+
+#[tokio::test]
+async fn asynchronous_guest_update_reports_unknown_outcome_without_false_success() {
+    let mut fixture = fixture();
+    fixture.receiver = None;
+    let admin = good(ADMIN);
+    let update = "/redfish/v1/TaskService/Actions/Oem/QrabTaskService.StartGuestUpdate";
+    let (status, headers, task) = call(
+        &fixture.app,
+        "POST",
+        update,
+        Some(&admin),
+        r#"{"Args":["channel=stable"]}"#,
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{task}");
+    let monitor = headers["location"].to_str().unwrap();
+    tokio::time::timeout(Duration::from_secs(2), async {
+        loop {
+            let (status, _, body) = call(&fixture.app, "GET", monitor, Some(&admin), "").await;
+            if status == StatusCode::INTERNAL_SERVER_ERROR {
+                assert_error(&body, "GeneralError");
+                break;
+            }
+            assert_eq!(status, StatusCode::ACCEPTED);
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .unwrap();
+    let (_, _, done) = call(
+        &fixture.app,
+        "GET",
+        task["@odata.id"].as_str().unwrap(),
+        Some(&good(VIEWER)),
+        "",
+    )
+    .await;
+    assert_eq!(done["TaskState"], "Exception");
+    assert_eq!(done["TaskStatus"], "Critical");
+    assert!(!done.to_string().contains("channel=stable"));
+}
+
+#[tokio::test]
+async fn subscriptions_require_allowlisted_https_and_keep_receiver_details_admin_only() {
+    let mut fixture = fixture();
+    let admin = good(ADMIN);
+    let viewer = good(VIEWER);
+    let collection = "/redfish/v1/EventService/Subscriptions";
+    let body = r#"{"Destination":"https://events.example/receiver","Protocol":"Redfish","Context":"operator-context","RegistryPrefixes":["Qrab"],"ResourceTypes":["ComputerSystem"],"Severities":["Critical"]}"#;
+    assert_eq!(
+        call(&fixture.app, "POST", collection, None, body).await.0,
+        StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(
+        call(&fixture.app, "POST", collection, Some(&viewer), body)
+            .await
+            .0,
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        call(&fixture.app, "POST", collection, Some(&admin), body)
+            .await
+            .0,
+        StatusCode::SERVICE_UNAVAILABLE
+    );
+    fixture.app.subscriptions =
+        qrab_redfish::SubscriptionStore::new(vec!["https://events.example/receiver".into()], None)
+            .unwrap();
+    for destination in [
+        "http://events.example/receiver",
+        "https://user:pass@events.example/receiver",
+        "https://events.example/receiver?token=secret",
+    ] {
+        let body = json!({"Destination":destination,"Protocol":"Redfish"}).to_string();
+        assert_eq!(
+            call(&fixture.app, "POST", collection, Some(&admin), &body)
+                .await
+                .0,
+            StatusCode::BAD_REQUEST
+        );
+    }
+    let unlisted = r#"{"Destination":"https://events.example/different","Protocol":"Redfish"}"#;
+    assert_eq!(
+        call(&fixture.app, "POST", collection, Some(&admin), unlisted)
+            .await
+            .0,
+        StatusCode::FORBIDDEN
+    );
+    let headers = r#"{"Destination":"https://events.example/receiver","Protocol":"Redfish","HttpHeaders":[{"Authorization":"secret"}]}"#;
+    assert_eq!(
+        call(&fixture.app, "POST", collection, Some(&admin), headers)
+            .await
+            .0,
+        StatusCode::BAD_REQUEST
+    );
+    let (status, headers, created) =
+        call(&fixture.app, "POST", collection, Some(&admin), body).await;
+    assert_eq!(status, StatusCode::CREATED, "{created}");
+    let uri = headers["location"].to_str().unwrap();
+    assert_eq!(created["@odata.id"], uri);
+    assert_eq!(created["Destination"], "https://events.example/receiver");
+    assert_eq!(created["DeliveryRetryPolicy"], "TerminateAfterRetries");
+    let (_, _, visible) = call(&fixture.app, "GET", uri, Some(&viewer), "").await;
+    assert!(
+        !visible.to_string().contains("events.example")
+            && !visible.to_string().contains("operator-context")
+    );
+    assert_eq!(
+        call(&fixture.app, "DELETE", uri, Some(&viewer), "").await.0,
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        call(&fixture.app, "DELETE", uri, Some(&admin), "").await.0,
+        StatusCode::NO_CONTENT
+    );
+    assert_eq!(
+        call(&fixture.app, "GET", uri, Some(&admin), "").await.0,
+        StatusCode::NOT_FOUND
+    );
+}
+
+#[tokio::test]
+async fn event_subscription_capacity_is_bounded_without_evicting_existing_receivers() {
+    let mut fixture = fixture();
+    fixture.app.subscriptions =
+        qrab_redfish::SubscriptionStore::new(vec!["https://events.example/receiver".into()], None)
+            .unwrap();
+    let admin = good(ADMIN);
+    let collection = "/redfish/v1/EventService/Subscriptions";
+    let body = r#"{"Destination":"https://events.example/receiver","Protocol":"Redfish"}"#;
+    let mut first = String::new();
+    for index in 0..32 {
+        let (status, headers, reply) =
+            call(&fixture.app, "POST", collection, Some(&admin), body).await;
+        assert_eq!(status, StatusCode::CREATED, "{reply}");
+        if index == 0 {
+            first = headers["location"].to_str().unwrap().into();
+        }
+    }
+    let (status, _, error) = call(&fixture.app, "POST", collection, Some(&admin), body).await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+    assert_error(&error, "ServiceTemporarilyUnavailable");
+    assert_eq!(
+        call(&fixture.app, "GET", &first, Some(&admin), "").await.0,
+        StatusCode::OK
+    );
+    let (_, _, listing) = call(&fixture.app, "GET", collection, Some(&admin), "").await;
+    assert_eq!(listing["Members@odata.count"], 32);
+}
+
+#[tokio::test]
+async fn numeric_triggers_have_admin_mutations_and_authenticated_crossing_logs() {
+    let fixture = fixture();
+    let admin = good(ADMIN);
+    let viewer = good(VIEWER);
+    let collection = "/redfish/v1/TelemetryService/Triggers";
+    let body = r#"{"Name":"RAM threshold","MetricProperties":["/redfish/v1/Systems/1/Oem/Qrab/Metrics#/MemoryBytes"],"NumericThresholds":{"UpperCritical":{"Reading":150,"Activation":"Increasing","DwellTime":"PT0S"}},"TriggerActions":["LogToLogService"]}"#;
+    assert_eq!(
+        call(&fixture.app, "GET", collection, None, "").await.0,
+        StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(
+        call(&fixture.app, "POST", collection, Some(&viewer), body)
+            .await
+            .0,
+        StatusCode::FORBIDDEN
+    );
+    let (status, headers, created) =
+        call(&fixture.app, "POST", collection, Some(&admin), body).await;
+    assert_eq!(status, StatusCode::CREATED, "{created}");
+    let uri = headers["location"].to_str().unwrap();
+    assert_eq!(created["@odata.id"], uri);
+    assert_eq!(created["TriggerActions"], json!(["LogToLogService"]));
+    assert_eq!(
+        call(&fixture.app, "GET", uri, Some(&viewer), "").await.0,
+        StatusCode::OK
+    );
+    assert_eq!(
+        call(
+            &fixture.app,
+            "PATCH",
+            uri,
+            Some(&viewer),
+            r#"{"TriggerEnabled":false}"#
+        )
+        .await
+        .0,
+        StatusCode::FORBIDDEN
+    );
+    fixture.app.triggers.evaluate(&manager::pod::VmMetrics {
+        observed_unix_ms: 1,
+        memory_bytes: 100,
+        ..Default::default()
+    });
+    fixture.app.triggers.evaluate(&manager::pod::VmMetrics {
+        observed_unix_ms: 2,
+        memory_bytes: 200,
+        ..Default::default()
+    });
+    let alerts = "/redfish/v1/Managers/1/LogServices/Telemetry/Entries";
+    assert_eq!(
+        call(&fixture.app, "GET", alerts, None, "").await.0,
+        StatusCode::UNAUTHORIZED
+    );
+    let (status, _, entries) = call(&fixture.app, "GET", alerts, Some(&viewer), "").await;
+    assert_eq!(status, StatusCode::OK, "{entries}");
+    assert_eq!(entries["Members@odata.count"], 1);
+    assert_eq!(entries["Members"][0]["Severity"], "Critical");
+    assert_eq!(entries["Members"][0]["Oem"]["Qrab"]["Reading"], 200);
+    assert_eq!(
+        call(
+            &fixture.app,
+            "PATCH",
+            uri,
+            Some(&admin),
+            r#"{"TriggerActions":["RedfishEvent"]}"#
+        )
+        .await
+        .0,
+        StatusCode::BAD_REQUEST
+    );
+    assert_eq!(
+        call(
+            &fixture.app,
+            "PATCH",
+            uri,
+            Some(&admin),
+            r#"{"TriggerEnabled":false}"#
+        )
+        .await
+        .0,
+        StatusCode::OK
+    );
+    assert_eq!(
+        call(&fixture.app, "DELETE", uri, Some(&viewer), "").await.0,
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        call(&fixture.app, "DELETE", uri, Some(&admin), "").await.0,
+        StatusCode::NO_CONTENT
+    );
+    assert_eq!(
+        call(&fixture.app, "GET", uri, Some(&admin), "").await.0,
+        StatusCode::NOT_FOUND
+    );
+}
+
+#[tokio::test]
+async fn native_hardware_and_boot_routes_round_trip_over_the_control_socket() {
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+    let mut fixture = fixture();
+    let path = fixture.config.runtime_dir.join("hardware.sock");
+    let listener = tokio::net::UnixListener::bind(&path).unwrap();
+    fixture.app.control = manager::pod::Backend::Socket(manager::pod::Remote::new(path));
+    let server = tokio::spawn(async move {
+        let (stream, _) = listener.accept().await.unwrap();
+        let mut stream = BufReader::new(stream);
+        stream.get_mut().write_all(b"{\"protocol\":\"qrab-control\",\"version\":1,\"vm\":\"test\",\"operations\":[\"inventory\",\"agent_boot\",\"agent_boot_next\"]}\n").await.unwrap();
+        let hardware = manager::pod::HardwareInventory {
+            observed_unix_ms: 1_700_000_000_123,
+            processors: vec![manager::pod::ProcessorInventory {
+                id: "socket-0".into(),
+                socket: Some(0),
+                total_threads: 4,
+                total_cores: Some(2),
+                model: Some("test-x86-cpu".into()),
+            }],
+            drives: vec![manager::pod::DriveInventory {
+                id: "disk-root".into(),
+                capacity_bytes: Some(1048576),
+                read_only: false,
+                removable: false,
+                media_present: true,
+                encrypted: false,
+                format: Some("raw".into()),
+                io_failed: false,
+                counters: Some(manager::pod::DriveCounters {
+                    read_bytes: 4096,
+                    write_bytes: 8192,
+                    ..Default::default()
+                }),
+            }],
+        };
+        let mut boot = manager::pod::BootSnapshot {
+            observed_unix_ms: 1_700_000_000_123,
+            state: manager::pod::BootState {
+                efi_runtime_available: true,
+                boot_order: vec!["Boot0001".into()],
+                boot_next: None,
+                options: vec![manager::pod::BootOption {
+                    reference: "Boot0001".into(),
+                    description: "Linux".into(),
+                    active: true,
+                }],
+            },
+        };
+        loop {
+            let mut line = String::new();
+            if stream.read_line(&mut line).await.unwrap() == 0 {
+                break;
+            }
+            let request: Value = serde_json::from_str(&line).unwrap();
+            let result = match request["op"].as_str().unwrap() {
+                "inventory" => serde_json::to_value(&hardware).unwrap(),
+                "agent_boot" => serde_json::to_value(&boot).unwrap(),
+                "agent_boot_next" => {
+                    boot.state.boot_next = request["reference"].as_str().map(str::to_owned);
+                    serde_json::to_value(&boot).unwrap()
+                }
+                other => panic!("unexpected control operation {other}"),
+            };
+            let reply = json!({"v":1,"id":request["id"],"result":result}).to_string() + "\n";
+            stream.get_mut().write_all(reply.as_bytes()).await.unwrap();
+        }
+    });
+    let viewer = good(VIEWER);
+    let admin = good(ADMIN);
+    for path in [
+        "/redfish/v1/Systems/1/Processors",
+        "/redfish/v1/Systems/1/Processors/socket-0",
+        "/redfish/v1/Systems/1/Storage",
+        "/redfish/v1/Systems/1/Storage/1",
+        "/redfish/v1/Systems/1/Storage/1/Volumes",
+        "/redfish/v1/Systems/1/Storage/1/Volumes/disk-root",
+        "/redfish/v1/Chassis/1/Drives/disk-root",
+        "/redfish/v1/Chassis/1/Drives/disk-root/Metrics",
+        "/redfish/v1/Systems/1/BootOptions",
+        "/redfish/v1/Systems/1/BootOptions/Boot0001",
+    ] {
+        let (status, _, body) = call(&fixture.app, "GET", path, Some(&viewer), "").await;
+        assert_eq!(status, StatusCode::OK, "{path}: {body}");
+        assert_eq!(body["@odata.id"], path);
+    }
+    let body = r#"{"Boot":{"BootSourceOverrideEnabled":"Once","BootSourceOverrideTarget":"UefiBootNext","BootNext":"Boot0001"}}"#;
+    assert_eq!(
+        call(&fixture.app, "PATCH", SYSTEM_PATH, Some(&viewer), body)
+            .await
+            .0,
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        call(&fixture.app, "PATCH", SYSTEM_PATH, Some(&admin), body)
+            .await
+            .0,
+        StatusCode::NO_CONTENT
+    );
+    assert_eq!(
+        call(
+            &fixture.app,
+            "PATCH",
+            SYSTEM_PATH,
+            Some(&admin),
+            r#"{"Boot":{"BootSourceOverrideEnabled":"Disabled"}}"#
+        )
+        .await
+        .0,
+        StatusCode::NO_CONTENT
+    );
+    server.abort();
+}
+
+#[tokio::test]
+async fn serial_history_and_firmware_staging_require_admin() {
+    let fixture = fixture();
+    let viewer = good(VIEWER);
+    let admin = good(ADMIN);
+    for path in [
+        "/redfish/v1/Managers/1/LogServices/Serial",
+        "/redfish/v1/Managers/1/LogServices/Serial/Entries",
+        "/redfish/v1/Managers/1/LogServices/Serial/Entries/Tail",
+    ] {
+        assert_eq!(
+            call(&fixture.app, "GET", path, None, "").await.0,
+            StatusCode::UNAUTHORIZED
+        );
+        assert_eq!(
+            call(&fixture.app, "GET", path, Some(&viewer), "").await.0,
+            StatusCode::FORBIDDEN
+        );
+        assert_eq!(
+            call(&fixture.app, "GET", path, Some(&admin), "").await.0,
+            StatusCode::OK
+        );
+    }
+    let path = "/redfish/v1/UpdateService/Actions/Oem/QrabUpdateService.StageFirmware";
+    assert_eq!(
+        call(
+            &fixture.app,
+            "POST",
+            path,
+            Some(&viewer),
+            r#"{"ArtifactId":"approved"}"#
+        )
+        .await
+        .0,
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        call(
+            &fixture.app,
+            "POST",
+            path,
+            Some(&admin),
+            r#"{"ArtifactId":"../escape"}"#
+        )
+        .await
+        .0,
+        StatusCode::BAD_REQUEST
+    );
+    // The native task is accepted, but no live persistent lease/catalog exists.
+    let (status, _, task) = call(
+        &fixture.app,
+        "POST",
+        path,
+        Some(&admin),
+        r#"{"ArtifactId":"approved"}"#,
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED);
+    let path = task["@odata.id"].as_str().unwrap();
+    tokio::time::timeout(Duration::from_secs(2), async {
+        loop {
+            let (_, _, task) = call(&fixture.app, "GET", path, Some(&admin), "").await;
+            if task["TaskState"] == "Exception" {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+}
+
+#[tokio::test]
+async fn admission_is_shared_and_held_through_slow_response_bodies() {
+    let mut fixture = fixture();
+    fixture.app.requests = Arc::new(Semaphore::new(1));
+    let token = good(VIEWER);
+    let first = qrab_redfish::router(fixture.app.clone())
+        .oneshot(
+            Request::builder()
+                .uri("/redfish/v1/")
+                .header("authorization", format!("Bearer {token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(first.status(), StatusCode::OK);
+    assert_eq!(fixture.app.requests.available_permits(), 0);
+    let (status, _, body) =
+        call(&fixture.app, "GET", "/redfish/v1/Systems", Some(&token), "").await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+    assert_error(&body, "ServiceTemporarilyUnavailable");
+    let health = qrab_redfish::router(fixture.app.clone())
+        .oneshot(
+            Request::builder()
+                .uri("/healthz")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(health.status(), StatusCode::OK);
+    drop(first);
+    assert_eq!(fixture.app.requests.available_permits(), 1);
+    assert_eq!(
+        call(&fixture.app, "GET", "/redfish/v1/Systems", Some(&token), "")
+            .await
+            .0,
+        StatusCode::OK
+    );
+}
+
+#[tokio::test]
+async fn secure_boot_pending_settings_and_databases_round_trip_without_changing_current_boot() {
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+    let mut fixture = fixture();
+    write_status(&fixture.config, "running", "running");
+    let mut config = fixture.config.clone();
+    config.restart_on_exit = true;
+    let config_view = manager::pod::ConfigView::new(&config, &Default::default());
+    let status: Value =
+        serde_json::from_slice(&std::fs::read(config.runtime_dir.join("status.json")).unwrap())
+            .unwrap();
+    let socket = config.runtime_dir.join("secure.sock");
+    let listener = tokio::net::UnixListener::bind(&socket).unwrap();
+    fixture.app.control = manager::pod::Backend::Socket(manager::pod::Remote::new(socket));
+    let worker = tokio::spawn(async move {
+        let (stream, _) = listener.accept().await.unwrap();
+        let mut stream = BufReader::new(stream);
+        stream.get_mut().write_all(b"{\"protocol\":\"qrab-control\",\"version\":1,\"vm\":\"test\",\"operations\":[]}\n").await.unwrap();
+        let mut settings = manager::pod::SecureBootSettings {
+            supported: true,
+            enabled: Some(true),
+            current_setting: Some(true),
+            ..Default::default()
+        };
+        loop {
+            let mut line = String::new();
+            if stream.read_line(&mut line).await.unwrap() == 0 {
+                break;
+            }
+            let request: Value = serde_json::from_str(&line).unwrap();
+            let result = match request["op"].as_str().unwrap() {
+                "agent_firmware" => serde_json::to_value(manager::pod::FirmwareSnapshot {
+                    observed_unix_ms: 1_700_000_000_123,
+                    state: manager::pod::FirmwareState {
+                        efi_runtime_available: true,
+                        secure_boot: Some(true),
+                        setup_mode: Some(false),
+                        audit_mode: Some(false),
+                        deployed_mode: Some(false),
+                    },
+                })
+                .unwrap(),
+                "secure_boot_settings" => serde_json::to_value(&settings).unwrap(),
+                "stage_secure_boot" => {
+                    settings.enabled = request["enabled"].as_bool();
+                    settings.pending_cold_boot = true;
+                    settings.generation += 1;
+                    serde_json::to_value(&settings).unwrap()
+                }
+                "agent_secure_boot_databases" => {
+                    json!({"observed_unix_ms":1_700_000_000_123u64,"efi_runtime_available":true,"databases":[{"id":"db","present":true,"attributes":39,"signatures":[],"unsupported_types":[],"error":null}]})
+                }
+                "config" => serde_json::to_value(&config_view).unwrap(),
+                "status" => status.clone(),
+                "action" => {
+                    assert_eq!(request["action"], "coldrestart");
+                    Value::Null
+                }
+                other => panic!("unexpected secure operation {other}"),
+            };
+            let reply = json!({"v":1,"id":request["id"],"result":result}).to_string() + "\n";
+            stream.get_mut().write_all(reply.as_bytes()).await.unwrap();
+        }
+    });
+    let admin = good(ADMIN);
+    let viewer = good(VIEWER);
+    let resource = "/redfish/v1/Systems/1/SecureBoot";
+    assert_eq!(
+        call(&fixture.app, "GET", resource, None, "").await.0,
+        StatusCode::UNAUTHORIZED
+    );
+    let (_, _, before) = call(&fixture.app, "GET", resource, Some(&viewer), "").await;
+    assert_eq!(before["SecureBootCurrentBoot"], "Enabled");
+    assert_eq!(before["SecureBootEnable"], true);
+    assert_eq!(
+        call(
+            &fixture.app,
+            "PATCH",
+            resource,
+            Some(&viewer),
+            r#"{"SecureBootEnable":false}"#
+        )
+        .await
+        .0,
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        call(
+            &fixture.app,
+            "PATCH",
+            resource,
+            Some(&admin),
+            r#"{"SecureBootEnable":"false"}"#
+        )
+        .await
+        .0,
+        StatusCode::BAD_REQUEST
+    );
+    let (code, _, task) = call(
+        &fixture.app,
+        "PATCH",
+        resource,
+        Some(&admin),
+        r#"{"SecureBootEnable":false}"#,
+    )
+    .await;
+    assert_eq!(code, StatusCode::ACCEPTED);
+    let task_uri = task["@odata.id"].as_str().unwrap();
+    tokio::time::timeout(Duration::from_secs(2), async {
+        loop {
+            let (_, _, task) = call(&fixture.app, "GET", task_uri, Some(&admin), "").await;
+            if task["TaskState"] == "Completed" {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    let (_, _, after) = call(&fixture.app, "GET", resource, Some(&viewer), "").await;
+    assert_eq!(after["SecureBootCurrentBoot"], "Enabled");
+    assert_eq!(after["SecureBootEnable"], true);
+    assert_eq!(after["Oem"]["Qrab"]["PendingColdBoot"], true);
+    let (_, _, pending) = call(
+        &fixture.app,
+        "GET",
+        "/redfish/v1/Systems/1/SecureBoot/Settings",
+        Some(&viewer),
+        "",
+    )
+    .await;
+    assert_eq!(pending["SecureBootEnable"], false);
+    for path in [
+        "/redfish/v1/Systems/1/SecureBoot/SecureBootDatabases",
+        "/redfish/v1/Systems/1/SecureBoot/SecureBootDatabases/db",
+        "/redfish/v1/Systems/1/SecureBoot/SecureBootDatabases/db/Certificates",
+        "/redfish/v1/Systems/1/SecureBoot/SecureBootDatabases/db/Signatures",
+    ] {
+        let (status, _, body) = call(&fixture.app, "GET", path, Some(&viewer), "").await;
+        assert_eq!(status, StatusCode::OK, "{path}: {body}");
+    }
+    let (_, _, info) = call(
+        &fixture.app,
+        "GET",
+        "/redfish/v1/Systems/1/ResetActionInfo",
+        Some(&viewer),
+        "",
+    )
+    .await;
+    assert!(info["Parameters"][0]["AllowableValues"]
+        .as_array()
+        .unwrap()
+        .contains(&json!("PowerCycle")));
+    assert_eq!(
+        call(
+            &fixture.app,
+            "POST",
+            RESET,
+            Some(&admin),
+            r#"{"ResetType":"PowerCycle"}"#
+        )
+        .await
+        .0,
+        StatusCode::NO_CONTENT
+    );
+    worker.abort();
 }

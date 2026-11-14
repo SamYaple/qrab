@@ -2,6 +2,22 @@
 //! manager control API. See docs/redfish.md for the resource tree.
 pub mod auth;
 pub mod config;
+mod diagnostics;
+mod subscriptions;
+pub use subscriptions::{spawn as spawn_subscriptions, SubscriptionStore};
+mod boot;
+mod firmware;
+mod hardware;
+mod inventory;
+mod media;
+mod secure_boot;
+mod serial;
+mod tasks;
+pub use tasks::TaskStore;
+pub use telemetry::{spawn_sampler, TelemetryStore};
+mod telemetry;
+mod triggers;
+pub use triggers::TriggerStore;
 
 use auth::{Authenticator, Principal, Rejection, Role};
 use axum::{
@@ -29,15 +45,20 @@ pub const UPDATE_TARGET: &str = "/redfish/v1/Systems/1/Actions/Oem/QrabComputerS
 const LOG: &str = "/redfish/v1/Managers/1/LogServices/Events";
 const REGISTRY: &str = "Base.1.18";
 /// Reset types this service performs; see [`reset_action`].
-pub const RESET_TYPES: &[&str] = &["On", "GracefulShutdown", "ForceRestart", "Pause", "Resume"];
+pub const RESET_TYPES: &[&str] = &[
+    "On",
+    "GracefulShutdown",
+    "ForceRestart",
+    "Pause",
+    "Resume",
+    "Nmi",
+    "GracefulRestart",
+];
 /// DMTF ResetType values that are valid but cannot be performed honestly.
 const UNSUPPORTED_RESET_TYPES: &[&str] = &[
     "ForceOff",
-    "GracefulRestart",
     "ForceOn",
-    "Nmi",
     "PushPowerButton",
-    "PowerCycle",
     "Suspend",
     "FullPowerCycle",
 ];
@@ -47,6 +68,12 @@ pub struct AppState {
     pub auth: Arc<Authenticator>,
     pub control: pod::Backend,
     pub streams: Arc<Semaphore>,
+    /// Shared admission held until the response body ends or is dropped.
+    pub requests: Arc<Semaphore>,
+    pub tasks: TaskStore,
+    pub telemetry: TelemetryStore,
+    pub triggers: TriggerStore,
+    pub subscriptions: SubscriptionStore,
 }
 
 /// A Redfish error response with a Base registry message.
@@ -139,11 +166,64 @@ impl IntoResponse for Failure {
 
 pub fn router(app: AppState) -> Router {
     Router::new()
+        .merge(hardware::routes())
+        .merge(boot::routes())
+        .merge(serial::routes())
+        .route(
+            triggers::COLLECTION,
+            get(triggers::collection_handler).post(triggers::create),
+        )
+        .route(
+            "/redfish/v1/TelemetryService/Triggers/{id}",
+            get(triggers::get)
+                .patch(triggers::patch)
+                .delete(triggers::delete),
+        )
+        .route(triggers::LOG_SERVICE, get(triggers::log_service))
+        .route(triggers::ENTRIES, get(triggers::entries))
+        .route(
+            "/redfish/v1/Managers/1/LogServices/Telemetry/Entries/{id}",
+            get(triggers::entry),
+        )
+        .merge(media::routes())
+        .merge(firmware::routes())
+        .merge(secure_boot::routes())
+        .route(tasks::SERVICE, get(tasks::service))
+        .route(tasks::TASKS, get(tasks::collection_handler))
+        .route("/redfish/v1/TaskService/Tasks/{id}", get(tasks::task))
+        .route(
+            "/redfish/v1/TaskService/TaskMonitors/{id}",
+            get(tasks::monitor),
+        )
+        .route(tasks::START_UPDATE, post(tasks::start_update))
+        .route(diagnostics::SERVICE, get(diagnostics::service))
+        .route(diagnostics::ENTRIES, get(diagnostics::entries))
+        .route(
+            "/redfish/v1/Managers/1/LogServices/Diagnostics/Entries/{id}",
+            get(diagnostics::entry),
+        )
+        .route(
+            "/redfish/v1/Managers/1/LogServices/Diagnostics/Entries/{id}/attachment",
+            get(diagnostics::attachment),
+        )
+        .route(diagnostics::COLLECT, post(diagnostics::collect))
+        .route("/redfish/v1/UpdateService", get(update_service))
         .route("/redfish", get(versions))
         .route("/redfish/v1", get(service_root))
         .route("/redfish/v1/", get(service_root))
         .route("/redfish/v1/Systems", get(systems))
-        .route(SYSTEM, get(system))
+        .route(SYSTEM, get(system).patch(boot::patch))
+        .route(
+            "/redfish/v1/Systems/1/{kind}",
+            get(inventory::inventory_collection),
+        )
+        .route(
+            "/redfish/v1/Systems/1/{kind}/{id}",
+            get(inventory::inventory_item),
+        )
+        .route("/redfish/v1/Chassis", get(inventory::chassis_collection))
+        .route(inventory::CHASSIS, get(inventory::chassis))
+        .route(inventory::RESET_INFO, get(inventory::reset_info))
         .route(RESET_TARGET, post(reset))
         .route(FREEZE_TARGET, post(agent_freeze))
         .route(THAW_TARGET, post(agent_thaw))
@@ -160,8 +240,43 @@ pub fn router(app: AppState) -> Router {
             "/redfish/v1/Managers/1/LogServices/Events/Entries/{id}",
             get(log_entry),
         )
+        .route(telemetry::DEFINITIONS, get(telemetry::definitions))
+        .route(
+            "/redfish/v1/TelemetryService/MetricDefinitions/{id}",
+            get(telemetry::definition),
+        )
+        .route(
+            telemetry::REPORT_DEFINITIONS,
+            get(telemetry::report_definitions),
+        )
+        .route(
+            "/redfish/v1/TelemetryService/MetricReportDefinitions/VM",
+            get(telemetry::report_definition),
+        )
+        .route(
+            "/redfish/v1/TelemetryService/MetricReports/{id}",
+            get(telemetry::historical_report),
+        )
+        .route(
+            "/redfish/v1/Managers/1/Oem/Qrab/Resources",
+            get(telemetry::resources),
+        )
+        .route(telemetry::SERVICE, get(telemetry::service))
+        .route(
+            "/redfish/v1/TelemetryService/MetricReports",
+            get(telemetry::reports),
+        )
+        .route(telemetry::REPORT, get(telemetry::vm_report))
+        .route(telemetry::METRICS, get(telemetry::metrics))
         .route("/redfish/v1/EventService", get(event_service))
-        .route("/redfish/v1/EventService/Subscriptions", get(subscriptions))
+        .route(
+            "/redfish/v1/EventService/Subscriptions",
+            get(subscriptions::collection_handler).post(subscriptions::create),
+        )
+        .route(
+            "/redfish/v1/EventService/Subscriptions/{id}",
+            get(subscriptions::get).delete(subscriptions::delete),
+        )
         .route("/redfish/v1/EventService/SSE", get(sse))
         .route("/healthz", get(|| async { "ok" }))
         .route("/readyz", get(ready))
@@ -175,8 +290,33 @@ pub fn router(app: AppState) -> Router {
             )
         })
         .layer(DefaultBodyLimit::max(4096))
+        .layer(axum::middleware::from_fn_with_state(app.clone(), admission))
         .layer(axum::middleware::from_fn(headers))
         .with_state(app)
+}
+
+/// Reject overload instead of retaining unbounded request/response state.
+async fn admission(
+    State(app): State<AppState>,
+    request: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> Response {
+    if matches!(request.uri().path(), "/healthz" | "/readyz") {
+        return next.run(request).await;
+    }
+    let Ok(permit) = app.requests.clone().try_acquire_owned() else {
+        return Failure::unavailable("The Redfish request limit has been reached.").into_response();
+    };
+    let response = next.run(request).await;
+    response.map(|body| {
+        axum::body::Body::from_stream(futures::stream::unfold(
+            (body.into_data_stream(), permit),
+            |(mut stream, permit)| async move {
+                use futures::StreamExt;
+                stream.next().await.map(|chunk| (chunk, (stream, permit)))
+            },
+        ))
+    })
 }
 
 async fn headers(request: axum::extract::Request, next: axum::middleware::Next) -> Response {
@@ -241,7 +381,11 @@ async fn service_root(
         "Product": "qrab VM",
         "Systems": link("/redfish/v1/Systems"),
         "Managers": link("/redfish/v1/Managers"),
+        "Chassis": link("/redfish/v1/Chassis"),
         "EventService": link("/redfish/v1/EventService"),
+        "TelemetryService": link(telemetry::SERVICE),
+        "TaskService": link(tasks::SERVICE),
+        "UpdateService": link("/redfish/v1/UpdateService"),
         "Links": {},
     });
     if let Some(uuid) = vm_uuid(&app, &who).await {
@@ -301,6 +445,7 @@ async fn system(State(app): State<AppState>, headers: HeaderMap) -> Result<Json<
     let status = app.control.status().await.ok();
     let (power_state, state, health) = power(status.as_ref());
     let status_object = json!({"State": state, "Health": health});
+    let (cpus, memory_mib) = inventory::size(&view);
     let mut system = json!({
         "@odata.id": SYSTEM,
         "@odata.type": "#ComputerSystem.v1_22_0.ComputerSystem",
@@ -311,12 +456,21 @@ async fn system(State(app): State<AppState>, headers: HeaderMap) -> Result<Json<
         "Model": "q35",
         "PowerState": power_state,
         "Status": status_object,
-        "ProcessorSummary": {"Count": view.cpus, "LogicalProcessorCount": view.cpus, "Status": status_object},
-        "MemorySummary": {"TotalSystemMemoryGiB": view.memory_mib as f64 / 1024.0, "Status": status_object},
+        "ProcessorSummary": {"LogicalProcessorCount": cpus, "Status": status_object},
+        "MemorySummary": {"TotalSystemMemoryGiB": memory_mib as f64 / 1024.0, "Status": status_object},
+        "Boot":{"BootOptions":link(boot::OPTIONS)},
+        "Storage": link(hardware::STORAGE),
+        "VirtualMedia": link(media::COLLECTION),
+        "SecureBoot": link(firmware::SECURE_BOOT),
+        "Processors": link(&format!("{SYSTEM}/Processors")),
+        "Memory": link(&format!("{SYSTEM}/Memory")),
+        "EthernetInterfaces": link(&format!("{SYSTEM}/EthernetInterfaces")),
+        "SimpleStorage": link(&format!("{SYSTEM}/SimpleStorage")),
         "Actions": {
             "#ComputerSystem.Reset": {
                 "target": RESET_TARGET,
-                "ResetType@Redfish.AllowableValues": RESET_TYPES,
+                "@Redfish.ActionInfo": inventory::RESET_INFO,
+                "ResetType@Redfish.AllowableValues": reset_types(&view),
             },
             // Guest-agent operations; admin only, like Reset.
             "Oem": {
@@ -325,10 +479,31 @@ async fn system(State(app): State<AppState>, headers: HeaderMap) -> Result<Json<
                 "#QrabComputerSystem.Update": {"target": UPDATE_TARGET},
             },
         },
-        "Links": {"ManagedBy": [link(MANAGER)]},
+        "Links": {"ManagedBy": [link(MANAGER)], "Chassis": [link(inventory::CHASSIS)]},
     });
+    if let Ok(Ok(hardware)) =
+        tokio::time::timeout(Duration::from_millis(200), app.control.inventory()).await
+    {
+        system["ProcessorSummary"]["Count"] = json!(hardware.processors.len());
+        system["ProcessorSummary"]["LogicalProcessorCount"] = json!(hardware
+            .processors
+            .iter()
+            .map(|p| p.total_threads)
+            .sum::<u64>());
+    }
     if let Some(uuid) = vm_uuid(&app, &who).await {
         system["UUID"] = json!(uuid);
+    }
+    if app
+        .control
+        .agent_status()
+        .await
+        .ok()
+        .is_some_and(|status| status.connected)
+    {
+        if let Ok(snapshot) = app.control.agent_boot().await {
+            system["Boot"] = boot::system_boot(&snapshot);
+        }
     }
     // The same role-based redaction as the browser BMC.
     let view = match who.role {
@@ -337,7 +512,7 @@ async fn system(State(app): State<AppState>, headers: HeaderMap) -> Result<Json<
     };
     // Cached connection state from the manager; no guest round trip.
     let agent = app.control.agent_status().await.ok();
-    system["Oem"] = json!({"Qrab": {"@odata.type": "#QrabComputerSystem.v1_0_0.QrabComputerSystem", "Configuration": view, "GuestAgent": agent}});
+    system["Oem"] = json!({"Qrab": {"@odata.type": "#QrabComputerSystem.v1_0_0.QrabComputerSystem", "Configuration": view, "GuestAgent": agent, "Metrics": link(telemetry::METRICS)}});
     Ok(Json(system))
 }
 
@@ -350,6 +525,9 @@ pub fn reset_action(
     match reset_type {
         "GracefulShutdown" => Ok(Some(Action::Powerdown)),
         "ForceRestart" => Ok(Some(Action::Reset)),
+        "Nmi" => Ok(Some(Action::Nmi)),
+        "GracefulRestart" => Ok(Some(Action::Reboot)),
+        "PowerCycle" => Ok(Some(Action::ColdRestart)),
         "Pause" => Ok(Some(Action::Pause)),
         "Resume" => Ok(Some(Action::Resume)),
         "On" if power_state == "Paused" => Ok(Some(Action::Resume)),
@@ -498,6 +676,21 @@ async fn reset(
                 "Supply ResetType.",
             )
         })?;
+    if reset_type == "PowerCycle" {
+        let view = app
+            .control
+            .config_view()
+            .await
+            .map_err(|_| Failure::unavailable("Power-cycle capabilities are unavailable."))?;
+        if !view.restart_on_exit {
+            return Err(Failure::new(
+                StatusCode::CONFLICT,
+                "OperationNotAllowed",
+                "PowerCycle requires an operator-managed restart-on-exit guarantee.",
+                "Cold-restart the standalone manager explicitly.",
+            ));
+        }
+    }
     let status = app.control.status().await.ok();
     let action = reset_action(reset_type, status.as_ref())?;
     let result = match action {
@@ -539,7 +732,8 @@ async fn manager_resource(
         "FirmwareVersion": env!("CARGO_PKG_VERSION"),
         "Status": {"State": "Enabled", "Health": health},
         "LogServices": link("/redfish/v1/Managers/1/LogServices"),
-        "Links": {"ManagerForServers": [link(SYSTEM)]},
+        "Oem":{"Qrab":{"@odata.type":"#QrabManager.v1_0_0.QrabManager","Resources":link("/redfish/v1/Managers/1/Oem/Qrab/Resources")}},
+        "Links": {"ManagerForServers": [link(SYSTEM)], "ManagerForChassis": [link(inventory::CHASSIS)]},
     })))
 }
 
@@ -547,12 +741,22 @@ async fn log_services(
     State(app): State<AppState>,
     headers: HeaderMap,
 ) -> Result<Json<Value>, Failure> {
-    principal(&app, &headers).await?;
+    let who = principal(&app, &headers).await?;
     Ok(Json(collection(
         "/redfish/v1/Managers/1/LogServices",
         "LogServiceCollection",
         "Log Service Collection",
-        vec![link(LOG)],
+        {
+            let mut services = vec![
+                link(LOG),
+                link(diagnostics::SERVICE),
+                link(triggers::LOG_SERVICE),
+            ];
+            if who.role == Role::Admin {
+                services.push(link(serial::SERVICE));
+            }
+            services
+        },
     )))
 }
 
@@ -693,23 +897,16 @@ async fn event_service(
         "Name": "Event Service",
         "ServiceEnabled": true,
         "ServerSentEventUri": "/redfish/v1/EventService/SSE",
-        "Subscriptions": link("/redfish/v1/EventService/Subscriptions"),
+        "Subscriptions": link(subscriptions::COLLECTION),
+        "DeliveryRetryAttempts":subscriptions::DELIVERY_RETRY_ATTEMPTS,
+        "DeliveryRetryIntervalSeconds":subscriptions::DELIVERY_RETRY_INTERVAL,
+        "EventFormatTypes":["Event"],"RegistryPrefixes":["Qrab"],
+        "ResourceTypes":["ComputerSystem"],"Severities":["OK","Warning","Critical"],
+        "Oem":{"Qrab":{"@odata.type":"#QrabEventService.v1_0_0.QrabEventService",
+            "PushDeliveryEnabled":app.subscriptions.enabled(),"PersistentSubscriptions":app.subscriptions.persistent(),
+            "MaxSubscriptions":32,"MaxDeliveryConcurrency":2}},
         "Status": {"State": "Enabled", "Health": "OK"},
     })))
-}
-
-async fn subscriptions(
-    State(app): State<AppState>,
-    headers: HeaderMap,
-) -> Result<Json<Value>, Failure> {
-    principal(&app, &headers).await?;
-    // Push delivery is not offered; use ServerSentEventUri.
-    Ok(Json(collection(
-        "/redfish/v1/EventService/Subscriptions",
-        "EventDestinationCollection",
-        "Event Subscriptions",
-        Vec::new(),
-    )))
 }
 
 pub fn event_json(event: &VmEvent) -> Value {
@@ -789,4 +986,25 @@ async fn ready(State(app): State<AppState>) -> StatusCode {
     } else {
         StatusCode::SERVICE_UNAVAILABLE
     }
+}
+
+async fn update_service(
+    State(app): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<Value>, Failure> {
+    principal(&app, &headers).await?;
+    Ok(Json(
+        json!({"@odata.id":"/redfish/v1/UpdateService","@odata.type":"#UpdateService.v1_16_0.UpdateService",
+        "Id":"UpdateService","Name":"Firmware inventory","ServiceEnabled":true,"FirmwareInventory":link(hardware::FIRMWARE),
+        "Actions":{"Oem":{"#QrabUpdateService.StageFirmware":{"target":firmware::STAGE}}},
+        "Oem":{"Qrab":{"@odata.type":"#QrabUpdateService.v1_0_0.QrabUpdateService","Artifacts":link(firmware::ARTIFACTS),"StagedFirmware":link(firmware::STAGED)}}}),
+    ))
+}
+
+pub(crate) fn reset_types(view: &pod::ConfigView) -> Vec<&'static str> {
+    let mut types = RESET_TYPES.to_vec();
+    if view.restart_on_exit {
+        types.push("PowerCycle");
+    }
+    types
 }

@@ -29,7 +29,7 @@ use tokio::{
 pub const PROTOCOL: &str = "qrab-control";
 pub const VERSION: u32 = 1;
 /// Largest request line, excluding the newline.
-pub const MAX_REQUEST: usize = 64 * 1024;
+pub const MAX_REQUEST: usize = 384 * 1024;
 /// Largest response line: a full event page plus envelope fits comfortably.
 pub const MAX_RESPONSE: usize = 4 * 1024 * 1024;
 pub const MAX_CONNECTIONS: usize = 16;
@@ -38,6 +38,22 @@ const IDLE_TIMEOUT: Duration = Duration::from_secs(60);
 const WRITE_TIMEOUT: Duration = Duration::from_secs(5);
 const OPERATIONS: &[&str] = &[
     "status",
+    "metrics",
+    "inventory",
+    "resource_usage",
+    "serial",
+    "agent_network",
+    "agent_firmware",
+    "agent_secure_boot_databases",
+    "agent_secure_boot_update",
+    "secure_boot_settings",
+    "stage_secure_boot",
+    "agent_boot",
+    "agent_boot_next",
+    "firmware_catalog",
+    "firmware_stage_status",
+    "firmware_stage",
+    "media",
     "probe",
     "config",
     "events",
@@ -88,6 +104,32 @@ fn page_limit() -> usize {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "op", rename_all = "snake_case")]
 pub enum Operation {
+    Metrics,
+    Inventory,
+    ResourceUsage,
+    Serial,
+    AgentNetwork,
+    AgentFirmware,
+    AgentSecureBootDatabases,
+    AgentSecureBootUpdate {
+        request: super::SecureBootUpdateRequest,
+    },
+    SecureBootSettings,
+    StageSecureBoot {
+        enabled: bool,
+    },
+    AgentBoot,
+    AgentBootNext {
+        reference: Option<String>,
+    },
+    FirmwareCatalog,
+    FirmwareStageStatus,
+    FirmwareStage {
+        artifact: String,
+    },
+    Media {
+        operation: super::MediaOperation,
+    },
     Status,
     /// Liveness (`ready: false`, paused allowed) or readiness (`ready: true`).
     Probe {
@@ -424,6 +466,64 @@ async fn connection(
         let id = request.id;
         let unavailable = |error: Error| error_reply(id, error);
         let reply = match request.op {
+            Operation::AgentSecureBootDatabases => control
+                .agent_secure_boot_databases()
+                .await
+                .map_or_else(unavailable, |v| Response::ok(id, v)),
+            Operation::AgentSecureBootUpdate { request } => control
+                .agent_secure_boot_update(request)
+                .await
+                .map_or_else(unavailable, |v| Response::ok(id, v)),
+            Operation::SecureBootSettings => control
+                .secure_boot_settings()
+                .await
+                .map_or_else(unavailable, |v| Response::ok(id, v)),
+            Operation::StageSecureBoot { enabled } => control
+                .stage_secure_boot(enabled)
+                .await
+                .map_or_else(unavailable, |v| Response::ok(id, v)),
+            Operation::AgentBoot => control
+                .agent_boot()
+                .await
+                .map_or_else(unavailable, |v| Response::ok(id, v)),
+            Operation::AgentBootNext { reference } => control
+                .agent_boot_next(reference)
+                .await
+                .map_or_else(unavailable, |v| Response::ok(id, v)),
+            Operation::FirmwareCatalog => control
+                .firmware_catalog()
+                .await
+                .map_or_else(unavailable, |v| Response::ok(id, v)),
+            Operation::FirmwareStageStatus => control
+                .firmware_stage_status()
+                .await
+                .map_or_else(unavailable, |v| Response::ok(id, v)),
+            Operation::FirmwareStage { artifact } => control
+                .firmware_stage(artifact)
+                .await
+                .map_or_else(unavailable, |v| Response::ok(id, v)),
+            Operation::Serial => Response::ok(id, control.serial()),
+            Operation::Media { operation } => control
+                .media(operation)
+                .await
+                .map_or_else(unavailable, |v| Response::ok(id, v)),
+            Operation::AgentFirmware => control
+                .agent_firmware()
+                .await
+                .map_or_else(unavailable, |v| Response::ok(id, v)),
+            Operation::ResourceUsage => Response::ok(id, control.resource_usage()),
+            Operation::Inventory => control
+                .inventory()
+                .await
+                .map_or_else(unavailable, |v| Response::ok(id, v)),
+            Operation::AgentNetwork => control
+                .agent_network()
+                .await
+                .map_or_else(unavailable, |v| Response::ok(id, v)),
+            Operation::Metrics => control
+                .metrics()
+                .await
+                .map_or_else(unavailable, |m| Response::ok(id, m)),
             Operation::Status => control
                 .status()
                 .map_or_else(unavailable, |s| Response::ok(id, s)),
@@ -623,6 +723,94 @@ impl Client {
 
     pub async fn probe(&mut self, ready: bool) -> Result<()> {
         self.call(Operation::Probe { ready }).await.map(|_| ())
+    }
+
+    pub async fn resource_usage(&mut self) -> Result<super::ResourceUsage> {
+        Ok(serde_json::from_value(
+            self.call(Operation::ResourceUsage).await?,
+        )?)
+    }
+    pub async fn agent_firmware(&mut self) -> Result<super::FirmwareSnapshot> {
+        Ok(serde_json::from_value(
+            self.call(Operation::AgentFirmware).await?,
+        )?)
+    }
+    pub async fn media(&mut self, operation: super::MediaOperation) -> Result<super::MediaStatus> {
+        Ok(serde_json::from_value(
+            self.call(Operation::Media { operation }).await?,
+        )?)
+    }
+    pub async fn serial(&mut self) -> Result<super::SerialSnapshot> {
+        Ok(serde_json::from_value(self.call(Operation::Serial).await?)?)
+    }
+    pub async fn firmware_catalog(&mut self) -> Result<super::FirmwareCatalogView> {
+        Ok(serde_json::from_value(
+            self.call(Operation::FirmwareCatalog).await?,
+        )?)
+    }
+    pub async fn firmware_stage_status(&mut self) -> Result<super::FirmwareStageStatus> {
+        Ok(serde_json::from_value(
+            self.call(Operation::FirmwareStageStatus).await?,
+        )?)
+    }
+    pub async fn firmware_stage(&mut self, artifact: String) -> Result<super::FirmwareStageStatus> {
+        Ok(serde_json::from_value(
+            self.call(Operation::FirmwareStage { artifact }).await?,
+        )?)
+    }
+    pub async fn agent_boot(&mut self) -> Result<super::BootSnapshot> {
+        Ok(serde_json::from_value(
+            self.call(Operation::AgentBoot).await?,
+        )?)
+    }
+    pub async fn agent_boot_next(
+        &mut self,
+        reference: Option<String>,
+    ) -> Result<super::BootSnapshot> {
+        Ok(serde_json::from_value(
+            self.call(Operation::AgentBootNext { reference }).await?,
+        )?)
+    }
+    pub async fn agent_secure_boot_databases(
+        &mut self,
+    ) -> Result<super::SecureBootDatabaseSnapshot> {
+        Ok(serde_json::from_value(
+            self.call(Operation::AgentSecureBootDatabases).await?,
+        )?)
+    }
+    pub async fn agent_secure_boot_update(
+        &mut self,
+        request: super::SecureBootUpdateRequest,
+    ) -> Result<super::SecureBootDatabaseSnapshot> {
+        Ok(serde_json::from_value(
+            self.call(Operation::AgentSecureBootUpdate { request })
+                .await?,
+        )?)
+    }
+    pub async fn secure_boot_settings(&mut self) -> Result<super::SecureBootSettings> {
+        Ok(serde_json::from_value(
+            self.call(Operation::SecureBootSettings).await?,
+        )?)
+    }
+    pub async fn stage_secure_boot(&mut self, enabled: bool) -> Result<super::SecureBootSettings> {
+        Ok(serde_json::from_value(
+            self.call(Operation::StageSecureBoot { enabled }).await?,
+        )?)
+    }
+    pub async fn inventory(&mut self) -> Result<super::HardwareInventory> {
+        Ok(serde_json::from_value(
+            self.call(Operation::Inventory).await?,
+        )?)
+    }
+    pub async fn agent_network(&mut self) -> Result<super::GuestNetworkSnapshot> {
+        Ok(serde_json::from_value(
+            self.call(Operation::AgentNetwork).await?,
+        )?)
+    }
+    pub async fn metrics(&mut self) -> Result<super::VmMetrics> {
+        Ok(serde_json::from_value(
+            self.call(Operation::Metrics).await?,
+        )?)
     }
 
     pub async fn config(&mut self, redacted: bool) -> Result<ConfigView> {

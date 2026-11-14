@@ -168,19 +168,43 @@ impl EventLog {
     /// `missed` counts sequence numbers in `(cursor, next]` that are not
     /// retained (evicted here, or never seen by a mirror).
     pub(super) fn page(&self, after: Option<u64>, limit: usize) -> EventPage {
+        self.projected_page(after, limit, true)
+    }
+    /// Metadata-only callers never clone retained raw QMP payloads.
+    pub(super) fn summary_page(&self, after: Option<u64>, limit: usize) -> EventPage {
+        self.projected_page(after, limit, false)
+    }
+    fn projected_page(&self, after: Option<u64>, limit: usize, payload: bool) -> EventPage {
         let limit = limit.clamp(1, EVENT_PAGE_LIMIT);
         let ring = self.lock();
+        let project = |event: &VmEvent| VmEvent {
+            seq: event.seq,
+            received_unix_ms: event.received_unix_ms,
+            qemu_time: event.qemu_time,
+            event: event.event.clone(),
+            data: if payload {
+                event.data.clone()
+            } else {
+                Value::Null
+            },
+            truncated: event.truncated,
+        };
         let (events, next, missed): (Vec<_>, u64, u64) = match after {
             None => {
                 let skip = ring.events.len().saturating_sub(limit);
-                let events: Vec<_> = ring.events.iter().skip(skip).cloned().collect();
+                let events: Vec<_> = ring.events.iter().skip(skip).map(project).collect();
                 let next = events.last().map_or(ring.latest, |e| e.seq);
                 (events, next, 0)
             }
             Some(cursor) => {
                 let cursor = cursor.min(ring.latest);
                 let start = ring.events.partition_point(|e| e.seq <= cursor);
-                let events: Vec<_> = ring.events.range(start..).take(limit).cloned().collect();
+                let events: Vec<_> = ring
+                    .events
+                    .range(start..)
+                    .take(limit)
+                    .map(project)
+                    .collect();
                 let next = events.last().map_or(ring.latest, |e| e.seq);
                 let missed = (next - cursor).saturating_sub(events.len() as u64);
                 (events, next, missed)
@@ -358,5 +382,25 @@ mod tests {
             .await
             .unwrap()
             .unwrap();
+    }
+    #[test]
+    fn summaries_preserve_page_cursors_without_cloning_payloads() {
+        let log = EventLog::default();
+        for offset in 0..3 {
+            log.record(serde_json::from_value(serde_json::json!({"event":"RTC_CHANGE","data":{"offset":offset,"private":"host-path"},"timestamp":{"seconds":1,"microseconds":0}})).unwrap());
+        }
+        let full = log.page(Some(0), 2);
+        let summary = log.summary_page(Some(0), 2);
+        assert_eq!(
+            (full.next, full.latest, full.missed),
+            (summary.next, summary.latest, summary.missed)
+        );
+        assert_eq!(full.events.len(), summary.events.len());
+        for (full, summary) in full.events.iter().zip(&summary.events) {
+            assert_eq!(full.seq, summary.seq);
+            assert_eq!(full.event, summary.event);
+            assert!(summary.data.is_null());
+            assert!(!full.data.is_null());
+        }
     }
 }

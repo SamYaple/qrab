@@ -239,6 +239,7 @@ async fn vm_apis_reject_missing_expired_and_unlisted_sessions() {
     for path in [
         "/api/session",
         "/api/status",
+        "/api/resources",
         "/api/config",
         "/api/events",
         "/api/events/stream",
@@ -928,6 +929,7 @@ async fn bearer_tokens_are_fully_verified_on_every_api_route() {
     for path in [
         "/api/session",
         "/api/status",
+        "/api/resources",
         "/api/config",
         "/api/events",
         "/api/events/stream",
@@ -1042,6 +1044,7 @@ async fn authorization_headers_grant_nothing_without_bearer_mode() {
     for path in [
         "/api/session",
         "/api/status",
+        "/api/resources",
         "/api/config",
         "/api/events/stream",
     ] {

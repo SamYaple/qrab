@@ -20,6 +20,7 @@ oidc-bearer = { path = "../oidc-bearer" }
 axum = "0.8"
 openidconnect = { version = "4", default-features = false, features = ["reqwest", "rustls-tls"] }
 uuid = "1"
+base64 = "0.22"
 
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }

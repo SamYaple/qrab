@@ -25,6 +25,8 @@ tracing = { workspace = true, optional = true }
 which = { workspace = true, optional = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+sha2 = { workspace = true }
+x509-cert = { version = "0.2", features = ["std"] }
 tempfile = { workspace = true }
 # Writes the cloud-init NoCloud seed volume; no clock, so timestamps are fixed.
 fatfs = { version = "0.3.6", default-features = false, features = ["std", "alloc"] }

@@ -639,3 +639,55 @@ needs a second, non-admin account.
   unchanged. The BMC login now requests `groups_uuid`.
 - idm-dashboard `9255e09` (person page "Virtual machines") is published as
   `e557a425…`; its gitops roll-out is a separate PR.
+
+## Redfish service state and approved artifacts
+
+Optional fields keep state/artifact access separated by container:
+
+```yaml
+spec:
+  mediaVolumeClaim: approved-install-media
+  firmwareCatalogVolumeClaim: approved-firmware-catalog
+  components:
+    redfish:
+      enabled: true
+      adminSubjects: ["<operator-subject-uuid>"]
+      eventDestinations: ["https://events.example/redfish"]
+      stateVolumeClaim: vm-redfish-state
+```
+
+These PVCs are explicit resources; the operator neither creates nor deletes
+them. All claim roles must be distinct, including `spec.stateVolumeClaim`.
+Media and firmware catalogs mount read-only only into the manager at
+`/var/lib/qrab-media` and `/var/lib/qrab-firmware`. Redfish subscription state
+mounts only into Redfish at `/var/lib/qrab-redfish`; it never gets the identity
+PVC or manager runtime directory. Leaving fields absent retains prior defaults.
+
+Event destinations are bounded exact HTTPS443 URLs without credentials, query
+or fragment. The operator maintains an ownership-checked additive Cilium
+policy for just those destination hosts/IPs, independently of guest NICs.
+DNS interception retains existing kube-dns lookup behavior while exact HTTPS
+rules constrain delivery; URL paths are enforced by the Redfish process.
+
+Each service retains its own CPU/memory budget and receives
+`QRAB_RESOURCE_SCOPE=container` for verified cgroup sampling. New workers and
+bounded task/telemetry/subscription state execute within Redfish's allocation;
+media and firmware operations execute within manager's allocation. See
+[Redfish](redfish.md) for bounds, catalog permissions, task semantics and
+current/pending lifecycle support. Source changes do not deploy these features.
+
+### Explicit Secure Boot capability and telemetry cadence
+
+`spec.secureBootCapable: true` selects the manager image's explicit
+`OVMF_CODE_4M.secboot.fd` and SMM-protected pflash. It neither enrolls keys nor
+sets SecureBootEnable. Use Redfish authenticated database updates, staged settings
+and managed PowerCycle to control those separately. Retained NVRAM/TPM is never
+reseeded when this capability changes; incompatible/malformed state fails closed.
+The new secure-capable artifact must be present in the separately built/pinned
+image before enabling the option in a cluster.
+
+Redfish defaults to on-request telemetry. Set
+`spec.components.redfish.telemetryIntervalSeconds: 5` (allowed 5..3600) for explicit
+periodic history. Active numeric triggers still sample every five seconds.
+All work remains within independent manager/BMC/Redfish CPU and memory budgets;
+no Redis or firmware helper daemon is added.

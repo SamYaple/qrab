@@ -2498,11 +2498,13 @@ dependencies = [
  "qrab-guest-agent",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
  "tempfile",
  "thiserror 2.0.18",
  "tokio",
  "tracing",
  "which",
+ "x509-cert",
 ]
 
 [[package]]
@@ -3405,6 +3407,7 @@ dependencies = [
  "serde_json",
  "tempfile",
  "tokio",
+ "x509-cert",
 ]
 
 [[package]]
@@ -3494,6 +3497,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "axum",
+ "base64 0.22.1",
  "futures",
  "manager",
  "oidc-bearer",

@@ -22,6 +22,45 @@ pub enum ShutdownMode {
 }
 
 pub trait Platform: Send + Sync + 'static {
+    fn secure_boot_update(
+        &self,
+        _request: crate::secure_boot::QrabSecureBootUpdate,
+    ) -> io::Result<crate::secure_boot::SecureBootDatabases> {
+        Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "authenticated EFI variable updates are unavailable",
+        ))
+    }
+
+    fn secure_boot_databases(&self) -> io::Result<crate::secure_boot::SecureBootDatabases> {
+        Ok(crate::secure_boot::SecureBootDatabases::default())
+    }
+
+    fn boot_state(&self) -> io::Result<crate::boot::BootState> {
+        Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "UEFI boot inventory is unavailable",
+        ))
+    }
+    fn boot_next(&self, _reference: Option<String>) -> io::Result<crate::boot::BootState> {
+        Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "UEFI BootNext management is unavailable",
+        ))
+    }
+
+    fn firmware_state(&self) -> io::Result<crate::proto::FirmwareState> {
+        Ok(crate::proto::FirmwareState::default())
+    }
+
+    /// Interfaces and counters observed inside the guest network namespace.
+    fn network_interfaces(&self) -> io::Result<Vec<crate::proto::NetworkInterface>> {
+        Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "network inventory is unavailable",
+        ))
+    }
+
     /// Freezable local filesystems in mount order, one entry per superblock.
     fn mounts(&self) -> io::Result<Vec<Mount>>;
     /// `Unsupported` means the filesystem cannot freeze and is skipped.
@@ -147,6 +186,32 @@ fn ioctl_int(file: &File, request: u32) -> io::Result<()> {
 }
 
 impl Platform for Linux {
+    fn secure_boot_update(
+        &self,
+        request: crate::secure_boot::QrabSecureBootUpdate,
+    ) -> io::Result<crate::secure_boot::SecureBootDatabases> {
+        crate::secure_boot::authenticated_update(Path::new("/sys/firmware/efi"), request)
+    }
+
+    fn secure_boot_databases(&self) -> io::Result<crate::secure_boot::SecureBootDatabases> {
+        crate::secure_boot::databases(Path::new("/sys/firmware/efi"))
+    }
+
+    fn boot_state(&self) -> io::Result<crate::boot::BootState> {
+        crate::boot::state()
+    }
+    fn boot_next(&self, reference: Option<String>) -> io::Result<crate::boot::BootState> {
+        crate::boot::set_next(reference)
+    }
+
+    fn firmware_state(&self) -> io::Result<crate::proto::FirmwareState> {
+        crate::firmware::state(Path::new("/sys/firmware/efi"))
+    }
+
+    fn network_interfaces(&self) -> io::Result<Vec<crate::proto::NetworkInterface>> {
+        crate::network::interfaces()
+    }
+
     fn mounts(&self) -> io::Result<Vec<Mount>> {
         Ok(parse_mountinfo(&std::fs::read_to_string(&self.mountinfo)?))
     }

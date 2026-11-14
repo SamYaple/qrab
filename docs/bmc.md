@@ -107,7 +107,7 @@ bearer token: missing, expired or unlisted sessions get 401, and an
 authenticated viewer on an admin route gets 403.
 WebSocket upgrades require the exact configured Origin. Mutations also
 require the session's `X-CSRF-Token`. The control endpoint accepts only JSON
-`"pause"`, `"resume"`, `"reset"` or `"powerdown"`; there is no browser raw-QMP
+`"pause"`, `"resume"`, `"reset"`, `"nmi"`, `"reboot"` or `"powerdown"`; there is no browser raw-QMP
 endpoint. Four simultaneous consoles and a bounded manager queue limit resource
 use. Binary WebSocket messages are limited to 64 KiB and blocked writes time out.
 
@@ -257,3 +257,10 @@ QRAB_TEST_QEMU_DATA=/path/to/qemu/share/qemu \
 QRAB_TEST_GUEST=/path/to/demo \
   cargo test --locked -p bmc --test http real_vnc_streams -- --ignored
 ```
+
+See [Redfish resource accounting](redfish.md#separate-cpu-and-memory-accounting)
+for independent BMC/Redfish container budgets and per-container usage queries.
+
+The Service resources panel and authenticated `/api/resources` expose BMC and
+manager process/cgroup usage separately. The guest-agent reboot action requires
+a connected, thawed guest; delivery does not prove reboot completion.

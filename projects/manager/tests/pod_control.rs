@@ -92,6 +92,15 @@ async fn mock_qemu(runtime: PathBuf, mut inject: mpsc::Receiver<(String, Value)>
                     tokio::time::sleep(Duration::from_millis(1500)).await;
                 }
                 let reply = match command.name.as_str() {
+                    "query-cpus-fast" => json!([{"cpu-index":0,"qom-path":"/machine/private-cpu","thread-id":123}]),
+                    "query-memory-size-summary" => json!({"base-memory":1073741824,"plugged-memory":268435456}),
+                    "query-blockstats" => json!([{
+                        "device":"disk0","qdev":"/machine/private-storage",
+                        "stats":{"rd_bytes":4096,"wr_bytes":8192,"rd_operations":2,"wr_operations":3,
+                            "flush_operations":1,"flush_total_time_ns":10,"rd_total_time_ns":20,"wr_total_time_ns":30,"wr_highest_offset":8192},
+                        "parent":{"stats":{"rd_bytes":99999,"wr_bytes":99999,"rd_operations":99,"wr_operations":99,
+                            "flush_operations":99,"flush_total_time_ns":10,"rd_total_time_ns":20,"wr_total_time_ns":30,"wr_highest_offset":99999}}
+                    }]),
                     "query-status" => json!({"running":running,"status":if running {"running"} else {"paused"}}),
                     _ => json!({}),
                 };
@@ -220,6 +229,7 @@ async fn supervisor_records_qmp_events_and_serves_them_over_control_and_socket()
     );
     control.action(Action::Pause).await.unwrap();
     wait_for(&control, "STOP").await;
+    control.action(Action::Nmi).await.unwrap();
     control.action(Action::Reset).await.unwrap();
     let reset = wait_for(&control, "RESET").await;
     let typed = reset.decode::<qapi::events::ResetEvent>().unwrap().unwrap();
@@ -252,6 +262,26 @@ async fn supervisor_records_qmp_events_and_serves_them_over_control_and_socket()
     let mut client = Client::connect(&path).await.unwrap();
     assert_eq!(client.greeting().version, socket::VERSION);
     assert_eq!(client.greeting().vm, "events-vm");
+    assert!(client
+        .greeting()
+        .operations
+        .iter()
+        .any(|op| op == "metrics"));
+    let metrics = client.metrics().await.unwrap();
+    assert_eq!(metrics.logical_processors, 1);
+    assert_eq!(metrics.memory_bytes, 1_342_177_280);
+    assert_eq!(metrics.block_read_bytes, 4096);
+    assert_eq!(metrics.block_write_bytes, 8192);
+    assert_eq!(metrics.block_read_operations, 2);
+    assert_eq!(metrics.block_flush_operations, 1);
+    assert_eq!(metrics.block_write_time_ns, 30);
+    assert!(metrics.observed_unix_ms > 0);
+    let serialized = serde_json::to_string(&metrics).unwrap();
+    assert!(!serialized.contains("private") && !serialized.contains("99999"));
+    // Remote readers and in-process callers share the same bounded cache.
+    assert_eq!(control.metrics().await.unwrap(), metrics);
+    let remote = pod::Backend::Socket(pod::Remote::new(path.clone()));
+    assert_eq!(remote.metrics().await.unwrap(), metrics);
     let page = client.events(Some(0), 2).await.unwrap();
     assert_eq!(
         page.events
