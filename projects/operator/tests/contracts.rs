@@ -256,7 +256,13 @@ fn native_iscsi_uses_secret_files_and_derived_initiator_without_block_devices() 
         pod["spec"]["nodeSelector"]["kubernetes.io/hostname"],
         "kube03"
     );
-    assert_eq!(pod["spec"]["volumes"][5]["secret"]["defaultMode"], 288);
+    let auth = pod["spec"]["volumes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|v| v["name"] == "iscsi-auth-qrab-probe")
+        .unwrap();
+    assert_eq!(auth["secret"]["defaultMode"], 288);
     assert!(pod["spec"]["containers"][0].get("volumeDevices").is_none());
     assert!(resources::pod_matches(&desired.pod, &desired));
     let mut scheduled = desired.pod.clone();
@@ -269,7 +275,10 @@ fn native_iscsi_uses_secret_files_and_derived_initiator_without_block_devices() 
     stored.spec.as_mut().unwrap().containers[0]
         .volume_mounts
         .as_mut()
-        .unwrap()[5]
+        .unwrap()
+        .iter_mut()
+        .find(|m| m.name == "iscsi-auth-qrab-probe")
+        .unwrap()
         .read_only = Some(false);
     assert!(!resources::pod_matches(&stored, &desired));
 }

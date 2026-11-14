@@ -2,7 +2,7 @@ use manager::pod::{self, Config};
 use std::{path::Path, process::ExitCode};
 
 const USAGE: &str = "qrab-manager <run|ready|live|status|check> --config /path/to/vm.json
-qrab-manager agent <status|ping|freeze-status|freeze|thaw|update-status|update-trigger> --config /path/to/vm.json [ARG...]
+qrab-manager control --socket /run/qrab-control/manager/control.sock < typed-operation.json\nqrab-manager inspect <inventory|metrics|network|boot|firmware|secure-boot|settings|resources|media|config> --socket /run/qrab-control/manager/control.sock\nqrab-manager agent <status|ping|freeze-status|freeze|thaw|update-status|update-trigger> --config /path/to/vm.json [ARG...]
 qrab-manager nic --listen 0.0.0.0:7700 --socket /run/nic/passt.sock [--passt /usr/bin/passt] [--guest-mac 02:..]
 qrab-manager nic-ready --socket /run/nic/passt.sock
 
@@ -33,6 +33,8 @@ async fn execute() -> manager::Result<()> {
     }
     match args.first().map(String::as_str) {
         Some("agent") => return agent(&args[1..]).await,
+        Some("inspect") => return inspect(&args[1..]).await,
+        Some("control") => return control(&args[1..]).await,
         Some("nic") => return nic(&args[1..]).await,
         Some("nic-ready") => {
             let options = flags(&args[1..], &["--socket"])?;
@@ -72,6 +74,11 @@ async fn execute() -> manager::Result<()> {
                 "{}",
                 serde_json::json!({"event":"manager_exit","outcome":outcome})
             );
+            // The operator hands storage to a migration target only on this
+            // message; an ordinary exit 0 (the guest powered off) stays distinct.
+            if outcome.reason == "migrated" {
+                let _ = std::fs::write("/dev/termination-log", "migrated");
+            }
             Ok(())
         }
         _ => Err(manager::Error::Config(USAGE.into())),
@@ -181,4 +188,55 @@ async fn nic(args: &[String]) -> manager::Result<()> {
         tokio::select! {_=term.recv()=>{},_=interrupt.recv()=>{}}
     })
     .await
+}
+
+/// Fixed read-only control queries for slim images and operational verification.
+async fn inspect(args: &[String]) -> manager::Result<()> {
+    if args.len() != 3 || args[1] != "--socket" {
+        return Err(manager::Error::Config(USAGE.into()));
+    }
+    let path = Path::new(&args[2]);
+    if !path.is_absolute() {
+        return Err(manager::Error::Config("--socket must be absolute".into()));
+    }
+    let mut client = pod::socket::Client::connect(path).await?;
+    let value = match args[0].as_str() {
+        "inventory" => serde_json::to_value(client.inventory().await?)?,
+        "metrics" => serde_json::to_value(client.metrics().await?)?,
+        "network" => serde_json::to_value(client.agent_network().await?)?,
+        "boot" => serde_json::to_value(client.agent_boot().await?)?,
+        "firmware" => serde_json::to_value(client.agent_firmware().await?)?,
+        "secure-boot" => serde_json::to_value(client.agent_secure_boot_databases().await?)?,
+        "settings" => serde_json::to_value(client.secure_boot_settings().await?)?,
+        "resources" => serde_json::to_value(client.resource_usage().await?)?,
+        "media" => serde_json::to_value(client.media(pod::MediaOperation::Status).await?)?,
+        "config" => serde_json::to_value(client.config(true).await?)?,
+        _ => return Err(manager::Error::Config(USAGE.into())),
+    };
+    println!("{}", serde_json::to_string_pretty(&value)?);
+    Ok(())
+}
+
+/// Read one bounded typed control operation from stdin; no shell/raw QMP API.
+async fn control(args: &[String]) -> manager::Result<()> {
+    use std::io::Read;
+    if args.len() != 2 || args[0] != "--socket" || !Path::new(&args[1]).is_absolute() {
+        return Err(manager::Error::Config(USAGE.into()));
+    }
+    let mut bytes = Vec::new();
+    std::io::stdin()
+        .take(pod::socket::MAX_REQUEST as u64 + 1)
+        .read_to_end(&mut bytes)?;
+    if bytes.len() > pod::socket::MAX_REQUEST {
+        return Err(manager::Error::Config(
+            "control request exceeds bound".into(),
+        ));
+    }
+    let operation: pod::socket::Operation = serde_json::from_slice(&bytes)?;
+    let mut client = pod::socket::Client::connect(Path::new(&args[1])).await?;
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&client.request_json(operation).await?)?
+    );
+    Ok(())
 }

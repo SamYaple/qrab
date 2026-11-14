@@ -271,7 +271,7 @@ enum Bearer {
     Exchange {
         client: reqwest::Client,
         origin: String,
-        source: spiffe::X509Source,
+        identity: qrab_spiffe::Identity,
     },
     #[cfg(test)]
     Fixed(String),
@@ -299,29 +299,14 @@ impl HttpStorage {
     ) -> anyhow::Result<Self> {
         origin(exchange_origin)?;
         origin(storage_origin)?;
-        anyhow::ensure!(
-            workload_api.starts_with("unix:"),
-            "the SPIFFE Workload API must be a Unix socket"
-        );
         let storage = storage_client(ca)?;
-        let source = spiffe::X509Source::builder()
-            .endpoint(workload_api)
-            .initial_sync_timeout(Duration::from_secs(30))
-            .shutdown_timeout(Some(Duration::from_secs(5)))
-            .build()
-            .await
-            .map_err(|_| anyhow::anyhow!("SPIFFE Workload API identity unavailable"))?;
-        let id: spiffe::SpiffeId = EXCHANGE_SERVER.parse()?;
-        let tls = spiffe_rustls::mtls_client(source.clone())
-            .authorize(spiffe_rustls::exact([EXCHANGE_SERVER])?)
-            .trust_domain_policy(spiffe_rustls::LocalOnly(id.trust_domain().clone()))
-            .with_alpn_protocols([b"http/1.1"])
-            .build()?;
+        let identity = qrab_spiffe::Identity::connect(workload_api).await?;
+        let tls = identity.client_config(&[qrab_spiffe::id(EXCHANGE_SERVER)?], &[b"http/1.1"])?;
         Ok(Self {
             bearer: Bearer::Exchange {
                 client: http_client(tls, Duration::from_secs(20))?,
                 origin: exchange_origin.into(),
-                source,
+                identity,
             },
             storage,
             storage_origin: storage_origin.into(),
@@ -339,16 +324,16 @@ impl HttpStorage {
 
     /// One fresh short-lived bearer per RPC; never cached or logged.
     async fn token(&self) -> StorageResult<String> {
-        let (client, origin, source) = match &self.bearer {
+        let (client, origin, identity) = match &self.bearer {
             Bearer::Exchange {
                 client,
                 origin,
-                source,
-            } => (client, origin, source),
+                identity,
+            } => (client, origin, identity),
             #[cfg(test)]
             Bearer::Fixed(token) => return Ok(token.clone()),
         };
-        if source.svid().is_err() {
+        if identity.id().is_err() {
             return Err(StorageError::Unavailable(
                 "SPIFFE identity unavailable".into(),
             ));

@@ -26,6 +26,8 @@ pub use inventory::{DriveCounters, DriveInventory, HardwareInventory, ProcessorI
 mod network;
 pub use metrics::VmMetrics;
 pub use network::{GuestNetworkSnapshot, NetworkAddress, NetworkInterface, NetworkStatistics};
+pub mod migration;
+
 pub mod nic;
 mod persistent;
 mod process;

@@ -1,0 +1,29 @@
+[package]
+name = "qrab-spiffe"
+version = "0.1.0"
+edition = "2021"
+description = "SPIFFE X509-SVID mTLS with exact peer IDs for qrab components"
+
+[features]
+# A Workload API server and SVID generator for tests in dependent crates.
+fixture = ["dep:prost", "dep:rcgen", "dep:tempfile", "dep:tokio-stream", "dep:tonic", "dep:tonic-prost", "dep:tower", "dep:time", "tokio/rt"]
+
+[dependencies]
+rustls = { version = "0.23", default-features = false, features = ["std", "ring"] }
+spiffe = { version = "=0.18.0", default-features = false, features = ["x509-source"] }
+spiffe-rustls = { version = "=0.10.0", default-features = false, features = ["ring"] }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["net", "time", "io-util"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring"] }
+prost = { version = "0.14", optional = true }
+rcgen = { version = "0.14", default-features = false, features = ["crypto", "ring"], optional = true }
+tempfile = { version = "3", optional = true }
+tokio-stream = { version = "0.1", features = ["net", "sync"], optional = true }
+tonic = { version = "0.14", default-features = false, features = ["transport", "codegen", "router"], optional = true }
+tonic-prost = { version = "0.14", optional = true }
+tower = { version = "0.5", features = ["util"], optional = true }
+time = { version = "0.3", optional = true }
+
+[dev-dependencies]
+qrab-spiffe = { path = ".", features = ["fixture"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "net", "io-util", "time"] }

@@ -94,6 +94,14 @@ impl PersistentState {
         let lock = nix::fcntl::Flock::lock(lock_file, nix::fcntl::FlockArg::LockExclusiveNonblock)
             .map_err(|_| Error::Config("another manager owns this persistent VM state".into()))?;
         let directory = config.state_dir.join("identity");
+        if config.incoming.is_some() && fs::symlink_metadata(&directory).is_ok() {
+            // The guest's TPM and UEFI state arrive in the migration stream; a
+            // retained identity here would be a second, divergent copy.
+            return Err(Error::Config(
+                "a migration target needs empty VM state; refusing to overwrite retained identity"
+                    .into(),
+            ));
+        }
         let expected = Manifest {
             version: 1,
             state_id: config.state_id.as_deref().unwrap_or(&config.name).into(),
@@ -206,6 +214,37 @@ impl PersistentState {
 
     pub(super) fn lease(&self) -> StateLease {
         self._lock.clone()
+    }
+
+    /// Every iSCSI binding this state has recorded, including removed IDs.
+    pub(super) fn bindings(&self) -> BTreeMap<String, Binding> {
+        self.manifest.iscsi_disks.clone()
+    }
+
+    /// Adopt a migration source's retained bindings; a conflicting binding
+    /// for the same ID is refused.
+    pub(super) fn retain(&mut self, bindings: &BTreeMap<String, Binding>) -> Result<()> {
+        let mut added = false;
+        for (id, binding) in bindings {
+            match self.manifest.iscsi_disks.get(id) {
+                Some(current) if current != binding => {
+                    return Err(Error::Config(format!(
+                        "iSCSI disk {id} is bound differently on the migration source"
+                    )))
+                }
+                Some(_) => {}
+                None => {
+                    self.manifest
+                        .iscsi_disks
+                        .insert(id.clone(), binding.clone());
+                    added = true;
+                }
+            }
+        }
+        if added {
+            write_manifest(&self.directory, &self.manifest)?;
+        }
+        Ok(())
     }
 
     pub(super) fn mark_tpm_initialized(&mut self) -> Result<()> {

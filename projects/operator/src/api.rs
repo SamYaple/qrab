@@ -378,6 +378,80 @@ pub struct VirtualMachineStatus {
     pub resize: Option<ResizeStatus>,
     #[serde(default)]
     pub nics: Vec<NicStatus>,
+    /// The state PVC holding the VM's UEFI/TPM identity now, when a live
+    /// migration moved it off `spec.stateVolumeClaim`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub state_volume_claim: Option<String>,
+    /// The node the VM runs on since its last live migration; replaces
+    /// `spec.storageNode` as the scheduling pin.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub placement_node: Option<String>,
+}
+
+/// Move a running VM to another node without rebooting it. Create one per
+/// move; it records the outcome and is never reused.
+#[derive(CustomResource, Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[kube(
+    group = "qrab.yapplesauce.com",
+    version = "v1alpha1",
+    kind = "VirtualMachineMigration",
+    plural = "virtualmachinemigrations",
+    namespaced,
+    shortname = "qvmm",
+    status = "VirtualMachineMigrationStatus"
+)]
+#[kube(printcolumn = r#"{"name":"VM","type":"string","jsonPath":".spec.vmName"}"#)]
+#[kube(printcolumn = r#"{"name":"Phase","type":"string","jsonPath":".status.phase"}"#)]
+#[kube(printcolumn = r#"{"name":"Source","type":"string","jsonPath":".status.sourceNode"}"#)]
+#[kube(printcolumn = r#"{"name":"Target","type":"string","jsonPath":".status.targetNode"}"#)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct VirtualMachineMigrationSpec {
+    /// The VirtualMachine in this namespace to move.
+    #[schemars(length(min = 1, max = 50))]
+    pub vm_name: String,
+    /// Destination node; another Ready node is chosen when absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(length(min = 1, max = 63))]
+    pub target_node: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct VirtualMachineMigrationStatus {
+    /// Pending, TargetStarting, Migrating, Succeeded or Failed.
+    pub phase: String,
+    pub message: String,
+    pub source_pod: Option<String>,
+    pub source_pod_uid: Option<String>,
+    pub source_node: Option<String>,
+    pub target_pod: Option<String>,
+    pub target_pod_uid: Option<String>,
+    pub target_node: Option<String>,
+    pub target_state_volume_claim: Option<String>,
+    /// The source's previous state PVC, deleted after success when the
+    /// operator created it for an earlier migration.
+    pub previous_state_volume_claim: Option<String>,
+    /// Unix seconds.
+    pub started_at: Option<i64>,
+    pub completed_at: Option<i64>,
+    /// Source Pod, policy and replaced PVC are gone (success) or the target
+    /// Pod, policy and PVC are gone (failure).
+    #[serde(default)]
+    pub cleaned: bool,
+}
+
+pub fn migration_crd() -> serde_json::Value {
+    let mut value = serde_json::to_value(VirtualMachineMigration::crd()).expect("CRD serializes");
+    value["spec"]["versions"][0]["schema"]["openAPIV3Schema"]["x-kubernetes-validations"] = serde_json::json!([
+        {"rule":"self.spec == oldSelf.spec", "message":"a migration is immutable; create a new one"}
+    ]);
+    let schema = value["spec"]["versions"][0]["schema"]["openAPIV3Schema"]["properties"]["spec"]
+        ["properties"]["targetNode"]
+        .as_object_mut()
+        .expect("targetNode schema");
+    schema.remove("nullable");
+    schema.remove("default");
+    value
 }
 
 /// The kubelet side of an in-place resize. `phase` is Applied, Proposed,

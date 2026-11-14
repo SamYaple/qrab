@@ -3,6 +3,7 @@ kind: Kustomization
 namespace: qrab
 resources:
 - crd.json
+- migration-crd.json
 - rbac.yaml
 - secret-policy.yaml
 - creator-policy.yaml

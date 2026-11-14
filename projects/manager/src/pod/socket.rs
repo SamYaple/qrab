@@ -693,6 +693,15 @@ impl Client {
         Ok(id)
     }
 
+    /// Typed JSON-only operations for a UID-authorized local operational client.
+    pub async fn request_json(&mut self, op: Operation) -> Result<Value> {
+        if matches!(op, Operation::Console | Operation::Follow { .. }) {
+            return Err(Error::Config(
+                "stream operations are not JSON requests".into(),
+            ));
+        }
+        self.call(op).await
+    }
     async fn call(&mut self, op: Operation) -> Result<Value> {
         let id = self.send(op).await?;
         let response: Response = Self::read_frame(&mut self.stream).await?;

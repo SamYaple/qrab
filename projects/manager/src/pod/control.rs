@@ -138,6 +138,14 @@ impl Drop for FirmwareLeaseGuard {
     }
 }
 impl ControlReceiver {
+    /// Serialize firmware metadata mutations with a live migration admission.
+    pub(super) fn migration_guard(&self) -> Result<tokio::sync::MutexGuard<'_, ()>> {
+        self.shared
+            .firmware_stage
+            .try_lock()
+            .map_err(|_| Error::Migration("firmware management is busy".into()))
+    }
+
     pub(super) fn firmware_lease(
         &self,
         lease: Option<super::persistent::StateLease>,
@@ -366,7 +374,11 @@ impl Control {
         if self.shared.stopping.load(Ordering::Acquire) {
             return Err(Error::ShuttingDown);
         }
-        let _guard = self.shared.firmware_stage.lock().await;
+        let _guard = self
+            .shared
+            .firmware_stage
+            .try_lock()
+            .map_err(|_| Error::Spawn("firmware management/migration is busy".into()))?;
         if self.shared.stopping.load(Ordering::Acquire) {
             return Err(Error::ShuttingDown);
         }

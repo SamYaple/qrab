@@ -1016,6 +1016,58 @@ pub fn render_booted(
     render_attached(vm, settings, provisioned, boot, &[])
 }
 
+/// The manager's live-migration listener port (qrab-manager `migration.port`).
+pub const MIGRATION_PORT: u16 = 7800;
+/// Names the exact VM Pod incarnation, so a migration's source and target can
+/// be told apart by policy.
+pub const POD_LABEL: &str = "qrab.yapplesauce.com/pod";
+/// Where the csi.spiffe.io driver serves the Workload API in qrab Pods.
+pub const WORKLOAD_SOCKET_DIR: &str = "/run/spire";
+
+/// The Workload API volume and its read-only mount for a qrab container.
+pub fn workload_socket() -> (Value, Value) {
+    (
+        json!({"name":"workload-socket","csi":{"driver":"csi.spiffe.io","readOnly":true}}),
+        json!({"name":"workload-socket","mountPath":WORKLOAD_SOCKET_DIR,"readOnly":true}),
+    )
+}
+
+/// The environment pointing qrab-spiffe at [`workload_socket`].
+pub fn workload_env() -> Value {
+    json!({"name":"QRAB_SPIFFE_ENDPOINT_SOCKET","value":format!("unix:{WORKLOAD_SOCKET_DIR}/agent.sock")})
+}
+
+/// Which Pod, ConfigMap, state PVC and node a VM process uses. Normally the
+/// Pod is named after the VM; a live migration's target has its own name,
+/// state PVC and node, and VM status keeps them once it takes over.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Incarnation {
+    pub pod: String,
+    pub state_claim: String,
+    pub node: Option<String>,
+}
+
+impl Incarnation {
+    pub fn of(vm: &VirtualMachine) -> Self {
+        let status = vm.status.as_ref();
+        Self {
+            pod: status
+                .and_then(|s| s.pod_name.clone())
+                .unwrap_or_else(|| vm.name_any()),
+            state_claim: status
+                .and_then(|s| s.state_volume_claim.clone())
+                .unwrap_or_else(|| vm.spec.state_volume_claim.clone()),
+            node: status
+                .and_then(|s| s.placement_node.clone())
+                .or_else(|| vm.spec.storage_node.clone()),
+        }
+    }
+
+    pub fn config_name(&self) -> String {
+        format!("{}-config", self.pod)
+    }
+}
+
 /// As `render_booted`, with the relay endpoint of every `spec.nics` entry,
 /// in order. A NIC Pod's IP is part of the VM's config: a replaced NIC Pod
 /// with a new IP replaces the VM Pod.
@@ -1025,6 +1077,18 @@ pub fn render_attached(
     provisioned: &[Attached],
     boot: GuestSize,
     nics: &[NicEndpoint],
+) -> Result<Desired> {
+    render_incarnation(vm, settings, provisioned, boot, nics, &Incarnation::of(vm))
+}
+
+/// As `render_attached`, for an explicit incarnation.
+pub fn render_incarnation(
+    vm: &VirtualMachine,
+    settings: &Settings,
+    provisioned: &[Attached],
+    boot: GuestSize,
+    nics: &[NicEndpoint],
+    incarnation: &Incarnation,
 ) -> Result<Desired> {
     validate(vm, settings)?;
     if vm.spec.nics.len() != nics.len()
@@ -1051,13 +1115,15 @@ pub fn render_attached(
     }
     let maximum = boot.maxima(vm);
     let name = vm.name_any();
-    let config_name = format!("{name}-config");
+    let config_name = incarnation.config_name();
     let uid = vm.uid().expect("validated UID");
     let mut owner = vm.controller_owner_ref(&()).expect("VM has a UID");
     // Background GC needs no delete/finalizer authority on the parent CR.
     owner.block_owner_deletion = Some(false);
-    let labels = json!({"app.kubernetes.io/name":"qrab", "app.kubernetes.io/component":"vm", "app.kubernetes.io/instance":name, "qrab.yapplesauce.com/owner-uid":uid});
+    let labels = json!({"app.kubernetes.io/name":"qrab", "app.kubernetes.io/component":"vm", "app.kubernetes.io/instance":name, "qrab.yapplesauce.com/owner-uid":uid, POD_LABEL:incarnation.pod});
     let mut config = json!({"restart_on_exit":true,"name":name,"memory_mib":boot.memory_mib,"cpus":boot.cpus,"accelerator":vm.spec.accelerator.as_str(),"console":true,"uefi":{"boot_disk":vm.spec.boot_disk},"tpm":{},"state_dir":"/var/lib/qrab","state_id":uid,"runtime_dir":"/run/qrab","control_socket":true,"control_dir":CONTROL_DIR,"startup_timeout_secs":30,"shutdown_grace_secs":5,
+        "migration":{"port":MIGRATION_PORT},
+
         "hotplug":{"max_cpus":maximum.cpus,"max_memory_mib":maximum.memory_mib,"limits_dir":SIZE_DIR,"cpu_overhead_millis":CPU_LIMIT_OVERHEAD_MILLIS,"memory_overhead_mib":MEMORY_LIMIT_OVERHEAD_MIB}});
     if vm.spec.secure_boot_capable {
         config["uefi"]["secure_boot_capable"] = json!(true);
@@ -1085,23 +1151,25 @@ pub fn render_attached(
     let security = json!({"allowPrivilegeEscalation":false,"privileged":false,"readOnlyRootFilesystem":true,"capabilities":{"drop":["ALL"]}});
     let probe = json!(["qrab-manager", "live", "--config", "/etc/qrab/vm.json"]);
     let sidecars = sidecars(vm, settings, image, &security)?;
-    let mut pod = json!({"apiVersion":"v1","kind":"Pod","metadata":{"name":name,"namespace":settings.namespace,"labels":labels,"ownerReferences":[owner]},"spec":{
+    let (socket_volume, socket_mount) = workload_socket();
+    let mut pod = json!({"apiVersion":"v1","kind":"Pod","metadata":{"name":incarnation.pod,"namespace":settings.namespace,"labels":labels,"ownerReferences":[owner]},"spec":{
         "serviceAccountName":"qrab-manager","automountServiceAccountToken":false,"enableServiceLinks":false,
         "hostNetwork":false,"hostPID":false,"hostIPC":false,
         "restartPolicy":"Never","terminationGracePeriodSeconds":20,
         "securityContext":{"runAsNonRoot":true,"runAsUser":10001,"runAsGroup":10001,"fsGroup":10001,"fsGroupChangePolicy":"OnRootMismatch","seccompProfile":{"type":"RuntimeDefault"}},
         "tolerations":[{"key":"node-role.kubernetes.io/control-plane","operator":"Exists","effect":"NoSchedule"}],
         "containers":[{"name":"manager","image":image,"imagePullPolicy":"Always","command":["qrab-manager"],"args":["run","--config","/etc/qrab/vm.json"],
-            "env":[{"name":"QRAB_RESOURCE_SCOPE","value":"container"},{"name":"QRAB_NODE_NAME","valueFrom":{"fieldRef":{"fieldPath":"spec.nodeName"}}},{"name":"QRAB_POD_NAME","valueFrom":{"fieldRef":{"fieldPath":"metadata.name"}}},{"name":"QRAB_POD_NAMESPACE","valueFrom":{"fieldRef":{"fieldPath":"metadata.namespace"}}},{"name":"QRAB_IMAGE","value":image}],
+            "env":[{"name":"QRAB_RESOURCE_SCOPE","value":"container"},{"name":"QRAB_NODE_NAME","valueFrom":{"fieldRef":{"fieldPath":"spec.nodeName"}}},{"name":"QRAB_POD_NAME","valueFrom":{"fieldRef":{"fieldPath":"metadata.name"}}},{"name":"QRAB_POD_NAMESPACE","valueFrom":{"fieldRef":{"fieldPath":"metadata.namespace"}}},{"name":"QRAB_IMAGE","value":image},workload_env()],
+
             "resources":GuestSize::of(vm).container_resources(vm.spec.accelerator),
             "resizePolicy":[{"resourceName":"cpu","restartPolicy":"NotRequired"},{"resourceName":"memory","restartPolicy":"NotRequired"}],
             "securityContext":security,"terminationMessagePolicy":"FallbackToLogsOnError",
-            "volumeMounts":[{"name":"config","mountPath":"/etc/qrab","readOnly":true},{"name":"state","mountPath":"/var/lib/qrab"},{"name":"runtime","mountPath":"/run/qrab"},{"name":"tmp","mountPath":"/tmp"},{"name":"control","mountPath":"/run/qrab-control"}],
+            "volumeMounts":[{"name":"config","mountPath":"/etc/qrab","readOnly":true},{"name":"state","mountPath":"/var/lib/qrab"},{"name":"runtime","mountPath":"/run/qrab"},{"name":"tmp","mountPath":"/tmp"},{"name":"control","mountPath":"/run/qrab-control"},socket_mount],
             // Live semantics: a paused VM stays reachable so it can be resumed.
             "startupProbe":{"exec":{"command":probe},"periodSeconds":1,"failureThreshold":90,"timeoutSeconds":2},
             "readinessProbe":{"exec":{"command":probe},"periodSeconds":2,"failureThreshold":3,"timeoutSeconds":2},
             "livenessProbe":{"exec":{"command":probe},"periodSeconds":5,"failureThreshold":3,"timeoutSeconds":2}}],
-        "volumes":[{"name":"config","configMap":{"name":config_name}},{"name":"state","persistentVolumeClaim":{"claimName":vm.spec.state_volume_claim}},{"name":"runtime","emptyDir":{"medium":"Memory","sizeLimit":"64Mi"}},{"name":"tmp","emptyDir":{"medium":"Memory","sizeLimit":"64Mi"}},{"name":"control","emptyDir":{"medium":"Memory","sizeLimit":"1Mi"}}]
+        "volumes":[{"name":"config","configMap":{"name":config_name}},{"name":"state","persistentVolumeClaim":{"claimName":incarnation.state_claim}},{"name":"runtime","emptyDir":{"medium":"Memory","sizeLimit":"64Mi"}},{"name":"tmp","emptyDir":{"medium":"Memory","sizeLimit":"64Mi"}},{"name":"control","emptyDir":{"medium":"Memory","sizeLimit":"1Mi"}},socket_volume]
     }});
     if !sidecars.is_empty() {
         pod["spec"]["initContainers"] = Value::Array(sidecars);
@@ -1147,7 +1215,7 @@ pub fn render_attached(
                 .push(json!({"name":variable,"value":mount_path}));
         }
     }
-    if let Some(node) = &vm.spec.storage_node {
+    if let Some(node) = &incarnation.node {
         pod["spec"]["nodeSelector"] = json!({"kubernetes.io/hostname":node});
     }
     if vm.spec.accelerator == Accelerator::Kvm {
@@ -1373,6 +1441,7 @@ pub fn pod_matches(actual: &Pod, desired: &Desired) -> bool {
                     && mount.name != "size"
                     && mount.name != "media-catalog"
                     && mount.name != "firmware-catalog"
+                    && mount.name != "workload-socket"
                     && !mount.name.starts_with("iscsi-auth-")
                     && mount.read_only.unwrap_or(false))
                 || mount

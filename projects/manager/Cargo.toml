@@ -39,6 +39,10 @@ path = "../qapi"
 [dependencies.qapi-protocol]
 path = "../qapi-protocol"
 
+# SPIFFE mTLS for the live migration tunnel.
+[dependencies.qrab-spiffe]
+path = "../qrab-spiffe"
+
 # Wire types for the namespaced qrab guest-agent commands.
 [dependencies.qrab-guest-agent]
 path = "../qrab-guest-agent"
@@ -54,6 +58,10 @@ features = ["rt", "macros", "process", "time", "signal", "sync", "net", "io-util
 [dev-dependencies.tokio]
 workspace = true
 features = ["io-util"]
+
+[dev-dependencies.qrab-spiffe]
+path = "../qrab-spiffe"
+features = ["fixture"]
 
 [[test]]
 name = "child_crash_event"

@@ -43,6 +43,9 @@ pub enum Error {
     /// Namespace setup error.
     #[error("{0}")]
     Namespace(String),
+    /// Live migration failed or was refused.
+    #[error("migration: {0}")]
+    Migration(String),
     /// The supervisor is stopping the VM and accepts no further requests.
     #[error("VM is shutting down")]
     ShuttingDown,

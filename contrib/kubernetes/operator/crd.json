@@ -586,6 +586,11 @@
                   "phase": {
                     "type": "string"
                   },
+                  "placementNode": {
+                    "description": "The node the VM runs on since its last live migration; replaces\n`spec.storageNode` as the scheduling pin.",
+                    "nullable": true,
+                    "type": "string"
+                  },
                   "podName": {
                     "nullable": true,
                     "type": "string"
@@ -667,6 +672,11 @@
                       "phase"
                     ],
                     "type": "object"
+                  },
+                  "stateVolumeClaim": {
+                    "description": "The state PVC holding the VM's UEFI/TPM identity now, when a live\nmigration moved it off `spec.stateVolumeClaim`.",
+                    "nullable": true,
+                    "type": "string"
                   },
                   "stateVolumeUid": {
                     "nullable": true,

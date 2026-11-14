@@ -24,5 +24,4 @@ getrandom = "0.4"
 reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider", "json"] }
 rustls = { version = "0.23", default-features = false, features = ["std", "ring"] }
 rustls-pemfile = "2"
-spiffe = { version = "=0.18.0", default-features = false, features = ["x509-source"] }
-spiffe-rustls = { version = "=0.10.0", default-features = false, features = ["ring"] }
+qrab-spiffe = { path = "../qrab-spiffe" }
