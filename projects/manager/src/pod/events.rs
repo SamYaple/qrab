@@ -26,7 +26,8 @@ pub struct QemuTime {
 }
 
 /// One QMP event. `seq` increases by one per recorded event for the lifetime
-/// of the control channel, so a gap in a cursor read means eviction.
+/// of the control channel, so a gap in a cursor read means eviction. Sequences
+/// are only comparable within one [`EventPage::epoch`].
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct VmEvent {
     pub seq: u64,
@@ -78,10 +79,18 @@ pub struct EventPage {
     /// queue or oversized event) during the current QEMU connection.
     #[serde(default)]
     pub qmp_dropped: u64,
+    /// The numbering these sequences belong to: an opaque token (16 lowercase
+    /// hex digits) chosen at random when the control channel starts, so a
+    /// restarted manager, which numbers from 1 again, always reports another
+    /// epoch. `None` from a manager that predates epochs, and from a sidecar
+    /// mirror that has not yet synchronized with its manager.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub epoch: Option<String>,
 }
 
 struct Ring {
     events: VecDeque<VmEvent>,
+    epoch: Option<String>,
     latest: u64,
     rejected: u64,
     qmp_dropped: u64,
@@ -102,6 +111,22 @@ fn now_ms() -> u64 {
         .unwrap_or(u64::MAX)
 }
 
+/// A fresh numbering epoch. `RandomState` keys come from the OS random source
+/// (once per thread, then stepped per instance), so no two control channels
+/// share one in practice; the clock and pid are mixed in for good measure.
+fn new_epoch() -> String {
+    use std::hash::{BuildHasher, Hasher};
+    let mut hasher = std::collections::hash_map::RandomState::new().build_hasher();
+    hasher.write_u128(
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos(),
+    );
+    hasher.write_u32(std::process::id());
+    format!("{:016x}", hasher.finish())
+}
+
 fn valid_name(name: &str) -> bool {
     !name.is_empty()
         && name.len() <= EVENT_NAME_LIMIT
@@ -110,11 +135,19 @@ fn valid_name(name: &str) -> bool {
             .all(|b| b.is_ascii_uppercase() || b.is_ascii_digit() || b == b'_')
 }
 
+/// A recording log with a fresh [epoch](EventPage::epoch).
 impl Default for EventLog {
     fn default() -> Self {
+        Self::with_epoch(Some(new_epoch()))
+    }
+}
+
+impl EventLog {
+    fn with_epoch(epoch: Option<String>) -> Self {
         Self {
             ring: Mutex::new(Ring {
                 events: VecDeque::with_capacity(EVENT_CAPACITY),
+                epoch,
                 latest: 0,
                 rejected: 0,
                 qmp_dropped: 0,
@@ -123,9 +156,12 @@ impl Default for EventLog {
             dropped: watch::channel(0).0,
         }
     }
-}
 
-impl EventLog {
+    /// An empty mirror; it takes its source's epoch in [`Self::sync_source`].
+    pub(super) fn mirror() -> Self {
+        Self::with_epoch(None)
+    }
+
     fn lock(&self) -> std::sync::MutexGuard<'_, Ring> {
         self.ring
             .lock()
@@ -217,6 +253,7 @@ impl EventLog {
             missed,
             rejected: ring.rejected,
             qmp_dropped: ring.qmp_dropped,
+            epoch: ring.epoch.clone(),
         }
     }
 
@@ -271,16 +308,25 @@ impl EventLog {
             .await;
     }
 
-    /// Forget a mirror's history after its source restarted its numbering.
-    pub(super) fn reset(&self) {
+    /// Before a mirror copies events from a (re)connected source, compare
+    /// numberings using one of the source's pages. A different epoch, or (with
+    /// an epoch-less source) a lower latest sequence, means the source
+    /// restarted: the mirror forgets its history, adopts the source's epoch
+    /// and returns `true`, and waiters holding old cursors wake.
+    pub(super) fn sync_source(&self, source: &EventPage) -> bool {
         let mut ring = self.lock();
+        if ring.epoch == source.epoch && source.latest >= ring.latest {
+            return false;
+        }
         ring.events.clear();
+        ring.epoch = source.epoch.clone();
         ring.latest = 0;
         ring.rejected = 0;
         ring.qmp_dropped = 0;
         drop(ring);
         self.latest.send_replace(0);
         self.dropped.send_replace(0);
+        true
     }
 }
 
@@ -344,6 +390,114 @@ mod tests {
             (5, 5, 2, 3)
         );
         assert_eq!(mirror.page(Some(2), 1).missed, 1);
+    }
+
+    /// Copy `source`'s events into `mirror` the way `Remote::mirror_once`
+    /// does after reconnecting: sync numberings first, then insert.
+    fn reconnect(mirror: &EventLog, source: &EventLog) -> bool {
+        let reset = mirror.sync_source(&source.page(None, 1));
+        let page = source.page(Some(mirror.latest()), EVENT_PAGE_LIMIT);
+        for event in page.events {
+            mirror.insert(event, Some(page.rejected));
+        }
+        reset
+    }
+
+    #[test]
+    fn each_log_has_its_own_epoch_and_a_mirror_adopts_its_sources() {
+        let (first, second) = (EventLog::default(), EventLog::default());
+        let epoch = first
+            .page(None, 1)
+            .epoch
+            .expect("a recording log has an epoch");
+        assert_eq!(epoch.len(), 16);
+        assert!(epoch
+            .bytes()
+            .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase()));
+        assert_ne!(first.page(None, 1).epoch, second.page(None, 1).epoch);
+        let mirror = EventLog::mirror();
+        assert_eq!(mirror.page(None, 1).epoch, None);
+        first.record(event("STOP", Value::Null));
+        reconnect(&mirror, &first);
+        assert_eq!(mirror.page(Some(0), 10).epoch, Some(epoch));
+        // Reconnecting to the same manager keeps the history.
+        first.record(event("RESUME", Value::Null));
+        assert!(!reconnect(&mirror, &first));
+        assert_eq!(mirror.page(Some(0), 10).events.len(), 2);
+        // An epoch-less (older) manager on the wire is told apart too.
+        let legacy = EventPage {
+            epoch: None,
+            ..first.page(None, 1)
+        };
+        assert!(mirror.sync_source(&legacy));
+        assert_eq!(mirror.page(None, 1).epoch, None);
+        assert!(!mirror.sync_source(&legacy));
+    }
+
+    #[test]
+    fn a_mirror_resets_for_a_restarted_manager_even_when_its_latest_is_higher() {
+        let old = EventLog::default();
+        for _ in 0..3 {
+            old.record(event("STOP", Value::Null));
+        }
+        let mirror = EventLog::mirror();
+        reconnect(&mirror, &old);
+        assert_eq!(mirror.latest(), 3);
+        // The restarted manager recorded more events than the old one before
+        // the mirror reconnected.
+        let restarted = EventLog::default();
+        for _ in 0..5 {
+            restarted.record(event("RESUME", Value::Null));
+        }
+        assert!(reconnect(&mirror, &restarted));
+        let page = mirror.page(Some(0), 10);
+        assert_eq!(page.epoch, restarted.page(None, 1).epoch);
+        assert_eq!(
+            page.events
+                .iter()
+                .map(|e| (e.seq, e.event.as_str()))
+                .collect::<Vec<_>>(),
+            [
+                (1, "RESUME"),
+                (2, "RESUME"),
+                (3, "RESUME"),
+                (4, "RESUME"),
+                (5, "RESUME")
+            ]
+        );
+        assert_eq!((page.latest, page.missed), (5, 0));
+    }
+
+    #[tokio::test]
+    async fn a_mirror_reset_wakes_waiters_holding_the_old_numbering() {
+        let old = EventLog::default();
+        old.record(event("STOP", Value::Null));
+        let mirror = std::sync::Arc::new(EventLog::mirror());
+        reconnect(&mirror, &old);
+        let waiter = tokio::spawn({
+            let mirror = mirror.clone();
+            async move { mirror.wait_after(1).await }
+        });
+        tokio::task::yield_now().await;
+        assert!(!waiter.is_finished());
+        assert!(mirror.sync_source(&EventLog::default().page(None, 1)));
+        tokio::time::timeout(std::time::Duration::from_secs(1), waiter)
+            .await
+            .unwrap()
+            .unwrap();
+    }
+
+    #[test]
+    fn pages_from_managers_without_epochs_still_decode() {
+        let page: EventPage = serde_json::from_value(serde_json::json!({
+            "events": [], "next": 4, "latest": 4, "missed": 0, "rejected": 0
+        }))
+        .unwrap();
+        assert_eq!((page.epoch, page.latest), (None, 4));
+        let json = serde_json::to_value(EventLog::default().page(None, 1)).unwrap();
+        assert!(json["epoch"].is_string());
+        let json = serde_json::to_value(EventLog::mirror().page(None, 1)).unwrap();
+        assert!(json.get("epoch").is_none());
     }
 
     #[test]

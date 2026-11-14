@@ -1045,7 +1045,7 @@ enum Payload {
     Withheld,
 }
 
-fn oem(event: &VmEvent, payload: Payload) -> Value {
+fn oem(event: &VmEvent, epoch: Option<&str>, payload: Payload) -> Value {
     let data = match payload {
         Payload::Included => event.data.clone(),
         Payload::Withheld => Value::Null,
@@ -1053,13 +1053,15 @@ fn oem(event: &VmEvent, payload: Payload) -> Value {
     json!({"Qrab": {
         "@odata.type": "#QrabEvent.v1_0_0.QrabEvent",
         "Sequence": event.seq,
+        "Epoch": epoch,
         "Event": event.event,
         "Data": data,
         "Truncated": event.truncated,
     }})
 }
 
-pub fn log_entry_json(event: &VmEvent) -> Value {
+/// One `LogEntry`; `epoch` is the page's [`pod::EventPage::epoch`].
+pub fn log_entry_json(event: &VmEvent, epoch: Option<&str>) -> Value {
     json!({
         "@odata.id": format!("{LOG}/Entries/{}", event.seq),
         "@odata.type": "#LogEntry.v1_17_0.LogEntry",
@@ -1070,7 +1072,7 @@ pub fn log_entry_json(event: &VmEvent) -> Value {
         "Created": event_time(event),
         "Severity": severity(&event.event),
         "Message": event.event,
-        "Oem": oem(event, Payload::Included),
+        "Oem": oem(event, epoch, Payload::Included),
     })
 }
 
@@ -1084,7 +1086,10 @@ async fn log_entries(
         &format!("{LOG}/Entries"),
         "LogEntryCollection",
         "QMP event log entries",
-        page.events.iter().map(log_entry_json).collect(),
+        page.events
+            .iter()
+            .map(|event| log_entry_json(event, page.epoch.as_deref()))
+            .collect(),
     )))
 }
 
@@ -1099,7 +1104,7 @@ async fn log_entry(
     page.events
         .first()
         .filter(|event| event.seq == seq)
-        .map(|event| Json(log_entry_json(event)))
+        .map(|event| Json(log_entry_json(event, page.epoch.as_deref())))
         .ok_or_else(Failure::not_found)
 }
 
@@ -1142,41 +1147,120 @@ fn event_envelope(id: String, name: &str, record: Value) -> Value {
 
 /// The one `EventRecord` for a QMP event, shared by the SSE stream and push
 /// delivery so both carry the same fields, including the required `MemberId`.
-fn qmp_event_record(event: &VmEvent, payload: Payload) -> Value {
+fn qmp_event_record(event: &VmEvent, epoch: Option<&str>, payload: Payload) -> Value {
     json!({
         "MemberId": "0",
         "EventType": "Other",
-        "EventId": event.seq.to_string(),
+        "EventId": EventCursor::new(epoch, event.seq).to_string(),
         "EventTimestamp": event_time(event),
         "Severity": severity(&event.event),
         "Message": event.event,
         "MessageId": "Qrab.1.0.QmpEvent",
         "MessageArgs": [event.event],
         "OriginOfCondition": link(SYSTEM),
-        "Oem": oem(event, payload),
+        "Oem": oem(event, epoch, payload),
     })
 }
 
-fn qmp_event(event: &VmEvent, payload: Payload) -> Value {
+fn qmp_event(event: &VmEvent, epoch: Option<&str>, payload: Payload) -> Value {
     event_envelope(
-        event.seq.to_string(),
+        EventCursor::new(epoch, event.seq).to_string(),
         "qrab VM event",
-        qmp_event_record(event, payload),
+        qmp_event_record(event, epoch, payload),
     )
 }
 
-/// The SSE `Event` for a QMP event. Push delivery sends the same record with
-/// `Oem.Qrab.Data` withheld.
+/// The SSE `Event` for a QMP event of numbering `epoch` (the page's
+/// [`pod::EventPage::epoch`]). Its `Id` and `EventId` are the event's
+/// [`EventCursor`], the same value as its SSE `id`. Push delivery sends the
+/// same record with `Oem.Qrab.Data` withheld.
 ///
 /// ```
 /// # let event = manager::pod::VmEvent { seq: 4, received_unix_ms: 0, qemu_time: None,
 /// #     event: "STOP".into(), data: serde_json::json!({}), truncated: false };
-/// let record = &qrab_redfish::event_json(&event)["Events"][0];
+/// let value = qrab_redfish::event_json(&event, Some("0123456789abcdef"));
+/// let record = &value["Events"][0];
 /// assert_eq!(record["MemberId"], "0");
 /// assert_eq!(record["Oem"]["Qrab"]["Sequence"], 4);
+/// assert_eq!(record["Oem"]["Qrab"]["Epoch"], "0123456789abcdef");
+/// assert_eq!(record["EventId"], "0123456789abcdef.4");
+/// assert_eq!(value["Id"], "0123456789abcdef.4");
+/// // A manager that predates epochs: the plain sequence.
+/// assert_eq!(qrab_redfish::event_json(&event, None)["Id"], "4");
 /// ```
-pub fn event_json(event: &VmEvent) -> Value {
-    qmp_event(event, Payload::Included)
+pub fn event_json(event: &VmEvent, epoch: Option<&str>) -> Value {
+    qmp_event(event, epoch, Payload::Included)
+}
+
+/// A position in the event stream: the last delivered sequence of one manager
+/// numbering. Its text form is the SSE `id`, the `Last-Event-ID` and `after=`
+/// value and the `Event` `Id`: `<epoch>.<sequence>`, or a plain `<sequence>`
+/// when the epoch is unknown (older clients, Redfish services and managers).
+/// An epoch is 1 to 64 ASCII letters, digits or `-`; the sequence is decimal.
+///
+/// ```
+/// use qrab_redfish::EventCursor;
+/// let cursor: EventCursor = "0123456789abcdef.42".parse().unwrap();
+/// assert_eq!((cursor.epoch.as_deref(), cursor.seq), (Some("0123456789abcdef"), 42));
+/// assert_eq!(cursor.to_string(), "0123456789abcdef.42");
+/// let plain: EventCursor = "42".parse().unwrap();
+/// assert_eq!((plain.epoch.as_deref(), plain.seq), (None, 42));
+/// assert_eq!(plain.to_string(), "42");
+/// for bad in ["", "-1", "+1", ".4", "abc.", "abc.-1", "a b.4", "abc.4.5", "x"] {
+///     assert!(bad.parse::<EventCursor>().is_err(), "{bad}");
+/// }
+/// ```
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct EventCursor {
+    pub epoch: Option<String>,
+    pub seq: u64,
+}
+
+impl EventCursor {
+    pub fn new(epoch: Option<&str>, seq: u64) -> Self {
+        Self {
+            epoch: epoch.map(str::to_owned),
+            seq,
+        }
+    }
+
+    /// The newest position of `page`'s numbering.
+    pub fn latest(page: &pod::EventPage) -> Self {
+        Self::new(page.epoch.as_deref(), page.latest)
+    }
+
+    pub(crate) fn valid_epoch(epoch: &str) -> bool {
+        (1..=64).contains(&epoch.len())
+            && epoch
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b == b'-')
+    }
+}
+
+impl std::fmt::Display for EventCursor {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match &self.epoch {
+            Some(epoch) => write!(f, "{epoch}.{}", self.seq),
+            None => write!(f, "{}", self.seq),
+        }
+    }
+}
+
+impl std::str::FromStr for EventCursor {
+    type Err = ();
+
+    fn from_str(value: &str) -> Result<Self, ()> {
+        let (epoch, seq) = match value.split_once('.') {
+            Some((epoch, seq)) if Self::valid_epoch(epoch) => (Some(epoch), seq),
+            Some(_) => return Err(()),
+            None => (None, value),
+        };
+        // `u64::from_str` accepts a leading `+`; a cursor is digits only.
+        if seq.is_empty() || !seq.bytes().all(|b| b.is_ascii_digit()) {
+            return Err(());
+        }
+        Ok(Self::new(epoch, seq.parse().map_err(|_| ())?))
+    }
 }
 
 /// A stream-only notice: these describe the stream, not a QMP event, so they
@@ -1218,8 +1302,8 @@ fn now_ms() -> u64 {
 pub(crate) enum GapCause {
     /// Events after the cursor were evicted from the bounded history.
     Evicted,
-    /// The cursor is above the newest sequence, so it names an event of an
-    /// earlier numbering: the manager restarted and numbers from 1 again.
+    /// The cursor names an event of an earlier numbering: the manager
+    /// restarted and numbers from 1 again (see [`read_after`]).
     SequenceRestarted,
 }
 
@@ -1246,29 +1330,53 @@ impl Gap {
     }
 }
 
-/// Read the retained events after `cursor` with `read`, and the one gap to
-/// report before them, if any. A cursor above the newest sequence comes from a
-/// manager instance that has since restarted (sequences start at 1 again).
-/// Every event of the current numbering is newer than anything that reader
-/// received, so the read restarts at 0: nothing retained is skipped and
-/// nothing it already saw is replayed.
+/// Read the retained events after `cursor` with `read` (which takes a
+/// sequence), the one gap to report before them, if any, and the cursor to
+/// continue from.
+///
+/// The cursor names an earlier manager instance's numbering when its epoch
+/// differs from the page's, or, when either epoch is unknown, when its
+/// sequence is above the newest one. Every event of the current numbering is
+/// then newer than anything that reader received, so the read restarts at 0:
+/// nothing retained is skipped and nothing it already saw is replayed. A page
+/// without an epoch and without events (a sidecar mirror that has not yet
+/// synchronized) gives nothing to compare or deliver, so the cursor is kept.
+/// A plain cursor not above the newest sequence is taken as current and
+/// continues under the page's epoch.
 pub(crate) fn read_after(
-    cursor: u64,
+    cursor: &EventCursor,
     read: impl Fn(u64) -> pod::EventPage,
-) -> (pod::EventPage, Option<Gap>) {
-    let page = read(cursor);
-    let (page, cause) = if cursor > page.latest {
-        (read(0), GapCause::SequenceRestarted)
-    } else {
-        (page, GapCause::Evicted)
+) -> (pod::EventPage, Option<Gap>, EventCursor) {
+    let page = read(cursor.seq);
+    let restarted = match (&cursor.epoch, &page.epoch) {
+        (Some(ours), Some(theirs)) => ours != theirs,
+        (_, None) if page.latest == 0 => false,
+        _ => cursor.seq > page.latest,
     };
-    let gap = (cause == GapCause::SequenceRestarted || page.missed > 0).then(|| Gap {
-        cause,
-        after: cursor,
+    if restarted {
+        let page = read(0);
+        let gap = Gap {
+            cause: GapCause::SequenceRestarted,
+            after: cursor.seq,
+            evicted: page.missed,
+            resumes_at: page.events.first().map(|event| event.seq),
+        };
+        let next = EventCursor::new(page.epoch.as_deref(), page.next);
+        return (page, Some(gap), next);
+    }
+    let gap = (page.missed > 0).then(|| Gap {
+        cause: GapCause::Evicted,
+        after: cursor.seq,
         evicted: page.missed,
         resumes_at: page.events.first().map(|event| event.seq),
     });
-    (page, gap)
+    let next = EventCursor {
+        epoch: page.epoch.clone().or_else(|| cursor.epoch.clone()),
+        // A cursor of this numbering above a lagging mirror's newest
+        // sequence waits there instead of replaying what it already has.
+        seq: cursor.seq.max(page.next),
+    };
+    (page, gap, next)
 }
 
 /// The SSE gap record: `missed` QMP events after sequence `after` were evicted
@@ -1366,27 +1474,42 @@ fn bad_cursor(message: String) -> Failure {
         StatusCode::BAD_REQUEST,
         "QueryParameterValueFormatError",
         message,
-        "Pass the last received QMP sequence as a decimal integer, once.",
+        "Pass the last received SSE id (<epoch>.<sequence>, or a decimal QMP sequence), once.",
     )
 }
 
 /// The stream's resume cursor: the `Last-Event-ID` header, else the `after`
-/// query parameter, else none (start at the newest event). The header wins
-/// because a browser's automatic reconnect repeats the original URL but sends
-/// the newest id it received. Other query parameters are ignored.
+/// query parameter, else none (start at the newest event). Both take an
+/// [`EventCursor`]. The header wins because a browser's automatic reconnect
+/// repeats the original URL but sends the newest id it received; a malformed
+/// header is ignored. Other query parameters are ignored.
 ///
 /// ```
 /// use axum::http::HeaderMap;
+/// use qrab_redfish::{resume_cursor, EventCursor};
 /// let none = HeaderMap::new();
-/// assert_eq!(qrab_redfish::resume_cursor(&none, Some("after=7")).unwrap(), Some(7));
+/// assert_eq!(resume_cursor(&none, Some("after=7")).unwrap(), Some(EventCursor::new(None, 7)));
 /// let mut header = HeaderMap::new();
 /// header.insert("last-event-id", "9".parse().unwrap());
-/// assert_eq!(qrab_redfish::resume_cursor(&header, Some("after=7")).unwrap(), Some(9));
-/// assert_eq!(qrab_redfish::resume_cursor(&none, None).unwrap(), None);
-/// assert!(qrab_redfish::resume_cursor(&none, Some("after=-1")).is_err());
-/// assert!(qrab_redfish::resume_cursor(&none, Some("after=1&after=2")).is_err());
+/// assert_eq!(resume_cursor(&header, Some("after=7")).unwrap(), Some(EventCursor::new(None, 9)));
+/// header.insert("last-event-id", "0123456789abcdef.9".parse().unwrap());
+/// assert_eq!(
+///     resume_cursor(&header, Some("after=7")).unwrap(),
+///     Some(EventCursor::new(Some("0123456789abcdef"), 9))
+/// );
+/// assert_eq!(
+///     resume_cursor(&none, Some("after=0123456789abcdef.7")).unwrap(),
+///     Some(EventCursor::new(Some("0123456789abcdef"), 7))
+/// );
+/// assert_eq!(resume_cursor(&none, None).unwrap(), None);
+/// assert!(resume_cursor(&none, Some("after=-1")).is_err());
+/// assert!(resume_cursor(&none, Some("after=1&after=2")).is_err());
+/// assert!(resume_cursor(&none, Some("after=.7")).is_err());
 /// ```
-pub fn resume_cursor(headers: &HeaderMap, query: Option<&str>) -> Result<Option<u64>, Failure> {
+pub fn resume_cursor(
+    headers: &HeaderMap,
+    query: Option<&str>,
+) -> Result<Option<EventCursor>, Failure> {
     let mut after = None;
     for pair in query.unwrap_or("").split('&') {
         let Some(value) = pair.strip_prefix("after=") else {
@@ -1396,9 +1519,9 @@ pub fn resume_cursor(headers: &HeaderMap, query: Option<&str>) -> Result<Option<
             return Err(bad_cursor("The query parameter after is repeated.".into()));
         }
         let shown: String = value.chars().take(32).collect();
-        after = Some(value.parse::<u64>().map_err(|_| {
+        after = Some(value.parse::<EventCursor>().map_err(|()| {
             bad_cursor(format!(
-                "The value {shown:?} for the query parameter after is not a QMP sequence."
+                "The value {shown:?} for the query parameter after is not an event stream cursor."
             ))
         })?);
     }
@@ -1412,9 +1535,10 @@ pub fn resume_cursor(headers: &HeaderMap, query: Option<&str>) -> Result<Option<
 /// Live events close on credential expiry or session revocation. Idle streams
 /// do not refresh a session's last authenticated request time.
 ///
-/// Only QMP events carry an SSE `id` (their sequence). Gap and QMP-dropped
-/// notices omit it, so the client's Last-Event-ID stays the last QMP sequence
-/// it received: a resume neither skips events nor depends on notice ordering.
+/// Only QMP events carry an SSE `id` (their [`EventCursor`]). Gap and
+/// QMP-dropped notices omit it, so the client's Last-Event-ID stays the last
+/// QMP event it received: a resume neither skips events nor depends on notice
+/// ordering.
 /// A gap is reported whenever the cursor falls behind the retained history
 /// (an evicted resume cursor or a reader slower than the history) or names an
 /// earlier manager numbering (see [`read_after`]); the dropped total is sent
@@ -1431,14 +1555,14 @@ async fn sse(
         .clone()
         .try_acquire_owned()
         .map_err(|_| Failure::unavailable("Too many event streams are open."))?;
-    let cursor = resume.unwrap_or_else(|| app.control.events(None, 1).latest);
+    let cursor = resume.unwrap_or_else(|| EventCursor::latest(&app.control.events(None, 1)));
     let deadline =
         tokio::time::Instant::now() + Duration::from_secs(who.expires.saturating_sub(auth::now()));
     let state = (
         app,
         cursor,
         0u64,
-        std::collections::VecDeque::<(Option<u64>, Value)>::new(),
+        std::collections::VecDeque::<(Option<String>, Value)>::new(),
         permit,
         who,
     );
@@ -1453,7 +1577,7 @@ async fn sse(
                     let mut event =
                         Event::default().data(serde_json::to_string(&value).unwrap_or_default());
                     if let Some(id) = id {
-                        event = event.id(id.to_string());
+                        event = event.id(id);
                     }
                     let item: Result<Event, Infallible> = Ok(event);
                     return Some((item, (app, cursor, dropped, queue, permit, who)));
@@ -1461,7 +1585,8 @@ async fn sse(
                 if tokio::time::Instant::now() >= deadline {
                     return None;
                 }
-                let (page, gap) = read_after(cursor, |after| app.control.events(Some(after), 64));
+                let (page, gap, next) =
+                    read_after(&cursor, |after| app.control.events(Some(after), 64));
                 if let Some(gap) = gap {
                     queue.push_back((None, gap.json()));
                 }
@@ -1469,15 +1594,17 @@ async fn sse(
                     dropped = page.qmp_dropped;
                     queue.push_back((None, qmp_dropped_event_json(dropped)));
                 }
-                cursor = page.next;
-                queue.extend(
-                    page.events
-                        .iter()
-                        .map(|event| (Some(event.seq), event_json(event))),
-                );
+                cursor = next;
+                let epoch = page.epoch.as_deref();
+                queue.extend(page.events.iter().map(|event| {
+                    (
+                        Some(EventCursor::new(epoch, event.seq).to_string()),
+                        event_json(event, epoch),
+                    )
+                }));
                 if queue.is_empty() {
                     tokio::select! {
-                        () = app.control.wait_events(cursor) => {}
+                        () = app.control.wait_events(cursor.seq) => {}
                         () = app.control.wait_qmp_dropped(dropped) => {}
                         () = tokio::time::sleep_until(deadline) => return None,
                         () = tokio::time::sleep(Duration::from_secs(1)) => {},

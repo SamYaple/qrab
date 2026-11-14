@@ -184,6 +184,12 @@ fn write_status(config: &manager::pod::Config, phase: &str, run_state: &str) {
     .unwrap();
 }
 
+/// The SSE id (and Event `Id`) of the fixture manager's event `seq`.
+fn sse_id(fixture: &Fixture, seq: u64) -> String {
+    let epoch = fixture.app.control.events(None, 1).epoch;
+    format!("{}.{seq}", epoch.expect("a manager's events have an epoch"))
+}
+
 fn record(fixture: &Fixture, name: &str, data: Value) {
     fixture.receiver.as_ref().unwrap().record_event(
         serde_json::from_value(json!({
@@ -673,7 +679,10 @@ async fn event_stream_delivers_redfish_events_and_ends_at_token_expiry() {
         .starts_with("text/event-stream"));
     let mut body = response.into_body().into_data_stream();
     let first = String::from_utf8(body.next().await.unwrap().unwrap().to_vec()).unwrap();
-    assert!(first.contains("id: 1"), "{first}");
+    assert!(
+        first.contains(&format!("id: {}\n", sse_id(&fixture, 1))),
+        "{first}"
+    );
     let data: Value = serde_json::from_str(
         first
             .lines()
@@ -754,7 +763,7 @@ async fn an_evicted_resume_cursor_gets_one_gap_event_before_the_replay() {
     }
     // Events 1..=10 are evicted; a client that last saw #3 missed #4..=#10.
     let mut body = open_stream(&fixture.app, Some("3")).await;
-    let frames = frames_until(&mut body, "12").await;
+    let frames = frames_until(&mut body, &sse_id(&fixture, 12)).await;
     assert_eq!(frames.len(), 3, "{frames:?}");
     let (id, gap) = &frames[0];
     // No SSE id: the client's Last-Event-ID stays the last QMP sequence it saw.
@@ -775,15 +784,18 @@ async fn an_evicted_resume_cursor_gets_one_gap_event_before_the_replay() {
             "MissedEvents":7,"After":3,"OldestAvailableSequence":11})
     );
     // The gap precedes the replay of what the history still holds.
-    let replay: Vec<_> = frames[1..].iter().map(|(id, _)| id.as_deref()).collect();
-    assert_eq!(replay, [Some("11"), Some("12")]);
+    let replay: Vec<_> = frames[1..].iter().map(|(id, _)| id.clone()).collect();
+    assert_eq!(
+        replay,
+        [Some(sse_id(&fixture, 11)), Some(sse_id(&fixture, 12))]
+    );
     assert!(frames[1..]
         .iter()
         .all(|(_, data)| message_id(data) == "Qrab.1.0.QmpEvent"));
 
     // A cursor still inside the history replays without a gap.
     let mut body = open_stream(&fixture.app, Some(&(total - 2).to_string())).await;
-    let frames = frames_until(&mut body, &total.to_string()).await;
+    let frames = frames_until(&mut body, &sse_id(&fixture, total)).await;
     assert_eq!(frames.len(), 2, "{frames:?}");
     assert!(frames.iter().all(|(id, _)| id.is_some()));
 }
@@ -797,7 +809,7 @@ async fn a_resume_cursor_from_an_earlier_manager_numbering_gets_one_gap_then_the
     // #500 was numbered by a manager instance that has since restarted, so
     // the client has seen none of the current #1..=#3.
     let mut body = open_stream(&fixture.app, Some("500")).await;
-    let frames = frames_until(&mut body, "3").await;
+    let frames = frames_until(&mut body, &sse_id(&fixture, 3)).await;
     assert_eq!(frames.len(), 4, "{frames:?}");
     let (id, gap) = &frames[0];
     assert!(id.is_none());
@@ -810,8 +822,98 @@ async fn a_resume_cursor_from_an_earlier_manager_numbering_gets_one_gap_then_the
         json!({"@odata.type":"#QrabEventGap.v1_0_0.QrabEventGap","Reason":"SequenceRestarted",
             "MissedEvents":null,"After":500,"OldestAvailableSequence":1})
     );
-    let replay: Vec<_> = frames[1..].iter().map(|(id, _)| id.as_deref()).collect();
-    assert_eq!(replay, [Some("1"), Some("2"), Some("3")]);
+    let replay: Vec<_> = frames[1..].iter().map(|(id, _)| id.clone()).collect();
+    let ids: Vec<_> = (1..=3).map(|seq| Some(sse_id(&fixture, seq))).collect();
+    assert_eq!(replay, ids);
+}
+
+#[tokio::test]
+async fn a_resume_cursor_of_another_epoch_gets_exactly_one_gap_even_below_the_latest() {
+    let history = || {
+        let fixture = fixture();
+        for _ in 0..3 {
+            record(&fixture, "STOP", json!({}));
+        }
+        fixture
+    };
+    // #2 of an earlier manager instance: its sequence is not above the newest
+    // (#3), but its epoch names another numbering.
+    for (uri, last) in [
+        ("/redfish/v1/EventService/SSE", Some("earlier-instance.2")),
+        (
+            "/redfish/v1/EventService/SSE?after=earlier-instance.2",
+            None,
+        ),
+    ] {
+        let fixture = history();
+        let response = open_stream_at(&fixture.app, uri, last).await;
+        assert_eq!(response.status(), StatusCode::OK);
+        let mut body = response.into_body().into_data_stream();
+        let frames = frames_until(&mut body, &sse_id(&fixture, 3)).await;
+        assert_eq!(frames.len(), 4, "{frames:?}");
+        let (id, gap) = &frames[0];
+        assert!(id.is_none());
+        assert_eq!(
+            gap["Events"][0]["Oem"]["Qrab"],
+            json!({"@odata.type":"#QrabEventGap.v1_0_0.QrabEventGap","Reason":"SequenceRestarted",
+                "MissedEvents":null,"After":2,"OldestAvailableSequence":1})
+        );
+        let ids: Vec<_> = frames[1..].iter().map(|(id, _)| id.clone()).collect();
+        let expected: Vec<_> = (1..=3).map(|seq| Some(sse_id(&fixture, seq))).collect();
+        assert_eq!(ids, expected);
+        // Later events follow without another gap.
+        record(&fixture, "RESUME", json!({}));
+        let latest = fixture.app.control.events(None, 1).latest;
+        let more = frames_until(&mut body, &sse_id(&fixture, latest)).await;
+        assert!(
+            more.iter()
+                .all(|(_, data)| message_id(data) == "Qrab.1.0.QmpEvent"),
+            "{more:?}"
+        );
+    }
+    // The current epoch's #2 resumes without a gap.
+    let fixture = history();
+    let mut body = open_stream(&fixture.app, Some(&sse_id(&fixture, 2))).await;
+    let frames = frames_until(&mut body, &sse_id(&fixture, 3)).await;
+    let ids: Vec<_> = frames.iter().map(|(id, _)| id.clone()).collect();
+    assert_eq!(ids, [Some(sse_id(&fixture, 3))], "{frames:?}");
+}
+
+#[tokio::test]
+async fn event_ids_and_log_entries_carry_the_manager_epoch() {
+    let fixture = fixture();
+    record(&fixture, "STOP", json!({}));
+    let epoch = fixture.app.control.events(None, 1).epoch.unwrap();
+    let mut body = open_stream(&fixture.app, Some("0")).await;
+    let frames = frames_until(&mut body, &sse_id(&fixture, 1)).await;
+    let (id, data) = &frames[0];
+    // The SSE id, the Event Id and the EventId are one value.
+    assert_eq!(id.as_deref(), Some(sse_id(&fixture, 1).as_str()));
+    assert_eq!(data["Id"], sse_id(&fixture, 1));
+    assert_eq!(data["Events"][0]["EventId"], sse_id(&fixture, 1));
+    assert_eq!(data["Events"][0]["Oem"]["Qrab"]["Epoch"], epoch);
+    assert_eq!(data["Events"][0]["Oem"]["Qrab"]["Sequence"], 1);
+    let (status, _, entries) = call(
+        &fixture.app,
+        "GET",
+        "/redfish/v1/Managers/1/LogServices/Events/Entries",
+        Some(&good(VIEWER)),
+        "",
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let entry = &entries["Members"][0];
+    assert_eq!(entry["Id"], "1");
+    assert_eq!(entry["Oem"]["Qrab"]["Epoch"], epoch);
+    let (_, _, entry) = call(
+        &fixture.app,
+        "GET",
+        "/redfish/v1/Managers/1/LogServices/Events/Entries/1",
+        Some(&good(VIEWER)),
+        "",
+    )
+    .await;
+    assert_eq!(entry["Oem"]["Qrab"]["Epoch"], epoch);
 }
 
 /// Open the SSE stream at `uri`, optionally with a Last-Event-ID header.
@@ -838,9 +940,13 @@ async fn the_after_query_resumes_like_last_event_id_and_the_header_wins() {
     let response = open_stream_at(&fixture.app, "/redfish/v1/EventService/SSE?after=1", None).await;
     assert_eq!(response.status(), StatusCode::OK);
     let mut body = response.into_body().into_data_stream();
-    let frames = frames_until(&mut body, "3").await;
-    let ids: Vec<_> = frames.iter().map(|(id, _)| id.as_deref()).collect();
-    assert_eq!(ids, [Some("2"), Some("3")], "{frames:?}");
+    let frames = frames_until(&mut body, &sse_id(&fixture, 3)).await;
+    let ids: Vec<_> = frames.iter().map(|(id, _)| id.clone()).collect();
+    assert_eq!(
+        ids,
+        [Some(sse_id(&fixture, 2)), Some(sse_id(&fixture, 3))],
+        "{frames:?}"
+    );
     drop(body);
 
     // A browser reconnect repeats the URL but names the newest id it received.
@@ -851,12 +957,29 @@ async fn the_after_query_resumes_like_last_event_id_and_the_header_wins() {
     )
     .await;
     let mut body = response.into_body().into_data_stream();
-    let frames = frames_until(&mut body, "3").await;
-    let ids: Vec<_> = frames.iter().map(|(id, _)| id.as_deref()).collect();
-    assert_eq!(ids, [Some("3")], "{frames:?}");
+    let frames = frames_until(&mut body, &sse_id(&fixture, 3)).await;
+    let ids: Vec<_> = frames.iter().map(|(id, _)| id.clone()).collect();
+    assert_eq!(ids, [Some(sse_id(&fixture, 3))], "{frames:?}");
     drop(body);
 
-    for query in ["after=x", "after=-1", "after=", "after=1&after=2"] {
+    // The same with the epoch-qualified ids a browser actually holds.
+    let uri = format!("/redfish/v1/EventService/SSE?after={}", sse_id(&fixture, 0));
+    let response = open_stream_at(&fixture.app, &uri, Some(&sse_id(&fixture, 2))).await;
+    let mut body = response.into_body().into_data_stream();
+    let frames = frames_until(&mut body, &sse_id(&fixture, 3)).await;
+    let ids: Vec<_> = frames.iter().map(|(id, _)| id.clone()).collect();
+    assert_eq!(ids, [Some(sse_id(&fixture, 3))], "{frames:?}");
+    drop(body);
+
+    for query in [
+        "after=x",
+        "after=-1",
+        "after=",
+        "after=1&after=2",
+        "after=.1",
+        "after=abc.",
+        "after=a%20b.1",
+    ] {
         let uri = format!("/redfish/v1/EventService/SSE?{query}");
         let response = open_stream_at(&fixture.app, &uri, None).await;
         assert_eq!(response.status(), StatusCode::BAD_REQUEST, "{query}");
@@ -882,7 +1005,7 @@ async fn a_changed_qmp_dropped_counter_is_one_stream_event() {
     receiver.set_qmp_dropped(2);
     tokio::time::sleep(Duration::from_millis(50)).await;
     record(&fixture, "RESUME", json!({}));
-    let frames = frames_until(&mut live, "2").await;
+    let frames = frames_until(&mut live, &sse_id(&fixture, 2)).await;
     assert_eq!(frames.len(), 2, "{frames:?}");
     let (id, notice) = &frames[0];
     assert!(id.is_none());
@@ -900,7 +1023,7 @@ async fn a_changed_qmp_dropped_counter_is_one_stream_event() {
     // A new stream starts from the current nonzero total, sent once.
     drop(live);
     let mut fresh = open_stream(&fixture.app, Some("0")).await;
-    let frames = frames_until(&mut fresh, "2").await;
+    let frames = frames_until(&mut fresh, &sse_id(&fixture, 2)).await;
     let notices: Vec<_> = frames
         .iter()
         .filter(|(_, data)| message_id(data) == qrab_redfish::DROPPED_MESSAGE)

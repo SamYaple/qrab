@@ -195,9 +195,9 @@ the loopback redirect, then calls e.g.
 | `/redfish/v1/Systems/1/Actions/Oem/QrabComputerSystem.{Freeze,Thaw,Update}` | OEM actions (POST) | admin only; `{"Mountpoints":[...]}` (optional) for Freeze, `{"Args":[...]}` for Update; return `FrozenFilesystems`, `ThawedFilesystems` or `Update`. `Oem.Qrab.GuestAgent` on `Systems/1` carries the agent status, freeze state and last update run ([below](#guest-agent-status)) |
 | `/redfish/v1/Managers`, `/Managers/1` | `ManagerCollection`, `Manager.v1_19_0` | `ManagerType: BMC` |
 | `/redfish/v1/Managers/1/LogServices/Events` | `LogService.v1_7_0` | 256 records, `WrapsWhenFull`; `Oem.Qrab.QmpDropped` counts events QMP discarded, with `Health: Warning` when nonzero |
-| `.../Events/Entries`, `.../Entries/{seq}` | `LogEntryCollection`, `LogEntry.v1_17_0` | one `Oem` entry per QMP event; QAPI name and data under `Oem.Qrab` |
+| `.../Events/Entries`, `.../Entries/{seq}` | `LogEntryCollection`, `LogEntry.v1_17_0` | one `Oem` entry per QMP event; QAPI name, data, `Sequence` and `Epoch` under `Oem.Qrab` |
 | `/redfish/v1/EventService` | `EventService.v1_10_0` | `ServerSentEventUri` and opt-in HTTPS push subscriptions |
-| `/redfish/v1/EventService/SSE` | SSE of `Event.v1_10_0` | SSE `id` is the QMP sequence; `Last-Event-ID` (or `?after=`) resumes; gap and QMP-dropped notices, see [Event stream](#event-stream-sse) |
+| `/redfish/v1/EventService/SSE` | SSE of `Event.v1_10_0` | SSE `id` is `<epoch>.<QMP sequence>`; `Last-Event-ID` (or `?after=`) resumes; gap and QMP-dropped notices, see [Event stream](#event-stream-sse) |
 
 `PowerState` follows the manager status: `PoweringOn` while starting, `On`
 running, `Paused` when QEMU is paused or otherwise not running, `PoweringOff`
@@ -262,24 +262,39 @@ event streams are served at once.
 
 `/redfish/v1/EventService/SSE` streams one `Event.v1_10_0` per frame. A stream
 without a resume cursor starts at the newest event; with one, it replays the
-retained events after that sequence. The cursor is the `Last-Event-ID` header,
-else the OEM query parameter `after=<sequence>` with the same meaning. Redfish
-defines no SSE resume query (its SSE `$filter` selects events, not a
-position), and a browser `EventSource` cannot set `Last-Event-ID` on its first
-request: a page that read the event log opens `SSE?after=<newest logged
-sequence>`, so a reconnect before the first `id` still resumes there. The
+retained events after it. The cursor is the `Last-Event-ID` header, else the
+OEM query parameter `after=<cursor>` with the same meaning. Redfish defines no
+SSE resume query (its SSE `$filter` selects events, not a position), and a
+browser `EventSource` cannot set `Last-Event-ID` on its first request: a page
+that read the event log opens `SSE?after=<Epoch>.<Sequence>` of the newest
+logged entry, so a reconnect before the first `id` still resumes there. The
 header wins when both are present, because an automatic reconnect repeats the
 URL and sends the newest received `id`. A malformed or repeated `after` is 400
-`QueryParameterValueFormatError`; other query parameters are ignored. The
+`QueryParameterValueFormatError`; a malformed header is ignored (the stream
+starts at the newest event); other query parameters are ignored. The
 stream closes at credential expiry or session revocation, as described under
 Authentication. Every record has `EventType: Other`, `MemberId: "0"` and a
 `Qrab.1.0.*` `MessageId`:
 
 | `MessageId` | SSE `id` | `OriginOfCondition` | `Oem.Qrab` |
 | --- | --- | --- | --- |
-| `Qrab.1.0.QmpEvent` | QMP sequence | `Systems/1` | `QrabEvent`: `Sequence`, `Event`, `Data`, `Truncated` |
+| `Qrab.1.0.QmpEvent` | `<epoch>.<sequence>` | `Systems/1` | `QrabEvent`: `Sequence`, `Epoch`, `Event`, `Data`, `Truncated` |
 | `Qrab.1.0.EventsMissed` | none | `LogServices/Events` | `QrabEventGap`: `Reason`, `MissedEvents`, `After`, `OldestAvailableSequence` |
 | `Qrab.1.0.QmpEventsDropped` | none | `LogServices/Events` | `QrabQmpDropped`: `QmpDropped` |
+
+QMP sequences count from 1 for each VM manager instance. Each instance also
+has an epoch, an opaque token (16 lowercase hex digits today; clients must
+accept 1 to 64 ASCII letters, digits or `-`) chosen at random when it starts,
+reported as `Oem.Qrab.Epoch` on every event and log entry. A cursor is
+`<epoch>.<sequence>`: the SSE `id`, and also the `Event` `Id` and the record's
+`EventId`, so a push receiver deduplicating by `Id` never confuses two
+instances' events. The `LogEntry` `Id` stays the plain sequence (it is the
+entry's URI). A plain decimal `<sequence>` is still accepted as a cursor (from
+clients and pages written before epochs) and has an unknown epoch: it is taken
+as the current numbering when it is not above the newest sequence, and as an
+earlier one when it is. A stream continues under the current epoch from then
+on, so the ids it sends are always epoch-qualified. `Epoch` is `null`, and ids
+are plain sequences, only when the manager predates epochs.
 
 `EventsMissed` (`Severity: Warning`, `MessageArgs: [missed, after]`) is sent
 once, before the events that follow the gap, in two cases:
@@ -287,18 +302,26 @@ once, before the events that follow the gap, in two cases:
 - `Reason: Evicted`: events after the cursor were already evicted from the
   256-event history (a resume with an old cursor, or a reader that fell more
   than the history behind). `MissedEvents` is their count.
-- `Reason: SequenceRestarted`: the cursor is above the newest sequence. QMP
-  sequences count from 1 for each VM manager instance, so such a cursor was
-  numbered by an earlier instance (a manager restart or power cycle).
-  `MissedEvents` is `null` and `MessageArgs[0]` is `unknown`: how many events
-  the old instance recorded after the cursor is not known. Every event of the
-  current numbering is newer than anything that reader received, so the
-  stream replays the whole retained history from the oldest event; nothing
-  retained is skipped and nothing is repeated. A cursor from an earlier
-  instance that is not above the current newest sequence cannot be told
-  apart from a current one; the stream treats it as current.
+- `Reason: SequenceRestarted`: the cursor was numbered by an earlier manager
+  instance (a manager restart or power cycle): its epoch differs from the
+  current one, whatever the sequence values, or, with a plain cursor (or a
+  manager without epochs), its sequence is above the newest one. `MissedEvents`
+  is `null` and `MessageArgs[0]` is `unknown`: how many events the old
+  instance recorded after the cursor is not known. Every event of the current
+  numbering is newer than anything that reader received, so the stream
+  replays the whole retained history from the oldest event; nothing retained
+  is skipped and nothing is repeated, and the gap is sent once. Only a plain
+  cursor from an earlier instance that is not above the current newest
+  sequence cannot be told apart from a current one; the stream treats it as
+  current.
 
-`After` is the cursor; `OldestAvailableSequence` is the next sequence
+While the Redfish sidecar's mirror of the manager's events has not yet
+synchronized (just after the sidecar starts), it has no epoch and no events;
+a cursor read then is kept as is, and compared once the mirror has caught up.
+A cursor of the current epoch above the mirror's newest sequence (a mirror
+still catching up) waits for newer events rather than replaying.
+
+`After` is the cursor's sequence; `OldestAvailableSequence` is the next sequence
 delivered (`null` when none is retained). `QmpEventsDropped`
 carries the `LogServices/Events` `Oem.Qrab.QmpDropped` total (QEMU events the
 QMP client discarded during the current QEMU connection). It is sent when a
@@ -307,7 +330,7 @@ including the reset to 0 after a QEMU reconnect; `Severity` is `Warning` while
 nonzero.
 
 The notices carry no SSE `id`. A client's `Last-Event-ID` therefore always
-names the last QMP event it received, so resuming never skips events because a
+names the last QMP event it received (with its epoch), so resuming never skips events because a
 notice arrived last. A notice can repeat after a reconnect, and the current
 dropped total is sent again on every reopened stream. Notices are not
 `LogEntry` records. Push subscriptions deliver the same `EventsMissed`
@@ -528,8 +551,12 @@ allowlisted HTTPS URLs, no credentials/query/fragment or custom HTTP headers.
 Each POST is one `Event.v1_10_0` with the subscription's `Context`. QMP events
 use the SSE stream's `EventRecord` (the same builder, `MemberId` included)
 with `Oem.Qrab.Data` always `null`: raw QMP data is withheld from push
-destinations. When a subscription's cursor falls behind the history or names
-an earlier manager numbering, the SSE `EventsMissed` notice (same `Reason`
+destinations. Each subscription keeps a cursor like an SSE stream's: the last
+delivered sequence and its epoch (state files written before epochs hold the
+sequence alone; such a cursor is treated like a plain SSE cursor and takes the
+current epoch at the next delivery cycle, without a POST). When a
+subscription's cursor falls behind the history or names an earlier manager
+numbering, the SSE `EventsMissed` notice (same `Reason`
 semantics) is posted once before the next event, whatever the `Severities`
 filter, since the gap can hide matching events; `Oem.Qrab.MissedEvents` on the
 subscription adds the evicted count (an unknown restart loss adds nothing).
@@ -542,7 +569,8 @@ One worker uses event notifications and allows two in-flight deliveries, each wi
 no redirects and no environment proxy. There are three attempts per event,
 two seconds between failures, then subscription termination. Successful cursors
 are checkpointed in batches per delivery cycle; an interrupted cycle can replay
-a previously delivered event, so receivers should deduplicate by event ID. Sequence cursors,
+a previously delivered event, so receivers should deduplicate by event `Id`
+(`<epoch>.<sequence>`, unique across manager restarts). Epoch-qualified cursors,
 the missed-event counter and the gap notices bound replay behavior.
 A persistence failure pauses delivery instead of producing a retry storm.
 Disk writes run outside the async runtime and reader lock, with one admitted
@@ -553,7 +581,7 @@ Standalone environment:
 | Variable | Meaning |
 | --- | --- |
 | `REDFISH_EVENT_DESTINATIONS` | Comma-separated exact allowed HTTPS receiver URLs; empty disables creation/delivery |
-| `REDFISH_SUBSCRIPTIONS_FILE` | Optional absolute private JSON state file, 128 KiB maximum; atomic 0600 writes. Without it subscriptions are volatile |
+| `REDFISH_SUBSCRIPTIONS_FILE` | Optional absolute private JSON state file, 128 KiB maximum; atomic 0600 writes. Without it subscriptions are volatile. Entries gained an optional `cursor_epoch`; files without it still load, but a Redfish build from before epochs refuses a file that has it |
 
 Operator `spec.components.redfish.eventDestinations` configures exact HTTPS port 443
 receivers and creates an owned additive Cilium policy for their hosts/IPs.

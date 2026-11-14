@@ -56,7 +56,12 @@ struct Subscription {
     registry_prefixes: Vec<String>,
     resource_types: Vec<String>,
     severities: Vec<String>,
+    /// The last delivered sequence, of numbering `cursor_epoch`.
     cursor: u64,
+    /// Absent in state written before epochs existed, and while the manager
+    /// reports none: the cursor is then compared by sequence alone.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    cursor_epoch: Option<String>,
     failures: u32,
     retry_at: u64,
     missed: u64,
@@ -154,6 +159,10 @@ impl SubscriptionStore {
                             || entry.resource_types.len() > 1
                             || entry.severities.len() > 3
                             || entry.expires > auth::now().saturating_add(MAX_LIFETIME)
+                            || entry
+                                .cursor_epoch
+                                .as_deref()
+                                .is_some_and(|epoch| !EventCursor::valid_epoch(epoch))
                         {
                             return Err("invalid persisted subscription".into());
                         }
@@ -477,6 +486,7 @@ pub(super) async fn create(
             "Context exceeds its bound or contains control characters.",
         ));
     }
+    let latest = EventCursor::latest(&app.control.event_summaries(None, 1));
     let entry = Subscription {
         id: 0,
         destination,
@@ -485,7 +495,8 @@ pub(super) async fn create(
         registry_prefixes: filter(&body, "RegistryPrefixes", &["Qrab"])?,
         resource_types: filter(&body, "ResourceTypes", &["ComputerSystem"])?,
         severities: filter(&body, "Severities", &["OK", "Warning", "Critical"])?,
-        cursor: app.control.event_summaries(None, 1).latest,
+        cursor: latest.seq,
+        cursor_epoch: latest.epoch,
         failures: 0,
         retry_at: 0,
         missed: 0,
@@ -550,8 +561,14 @@ pub(super) async fn delete(
 
 /// The push body for a QMP event: the SSE record with `Oem.Qrab.Data`
 /// withheld (the payload is never cloned), plus the subscription's Context.
-fn outbound(event: &VmEvent, context: &str) -> Vec<u8> {
-    with_context(qmp_event(event, Payload::Withheld), context)
+fn outbound(event: &VmEvent, epoch: Option<&str>, context: &str) -> Vec<u8> {
+    with_context(qmp_event(event, epoch, Payload::Withheld), context)
+}
+
+impl Subscription {
+    fn position(&self) -> EventCursor {
+        EventCursor::new(self.cursor_epoch.as_deref(), self.cursor)
+    }
 }
 
 fn with_context(mut event: Value, context: &str) -> Vec<u8> {
@@ -568,45 +585,52 @@ enum Next {
     /// the cursor moves to `resume`, so the gap is delivered once.
     Gap {
         gap: Gap,
-        resume: u64,
+        resume: EventCursor,
     },
-    /// No retained event passes the filter: advance without a POST.
+    /// No retained event passes the filter, or a plain (pre-epoch) cursor
+    /// takes the current epoch: advance without a POST.
     Skip {
-        next: u64,
+        next: EventCursor,
         skipped: u64,
     },
-    /// Post `event`, the first match after `skipped` filtered events; a
-    /// failed POST still moves the cursor to `before`, past those.
+    /// Post `event` of numbering `before.epoch`, the first match after
+    /// `skipped` filtered events; a failed POST still moves the cursor to
+    /// `before`, past those.
     Event {
         event: VmEvent,
         skipped: u64,
-        before: u64,
+        before: EventCursor,
     },
 }
 
 /// Skip nonmatching events in one bounded page instead of one disk commit
 /// and one 250ms timer per filtered event.
 fn next(entry: &Subscription, read: impl Fn(u64) -> pod::EventPage) -> Next {
-    let (page, gap) = read_after(entry.cursor, read);
+    let position = entry.position();
+    let (page, gap, next) = read_after(&position, read);
     if let Some(gap) = gap {
-        let resume = gap
-            .resumes_at
-            .map_or(page.next, |seq| seq.saturating_sub(1));
+        let resume = EventCursor {
+            seq: gap.resumes_at.map_or(next.seq, |seq| seq.saturating_sub(1)),
+            ..next
+        };
         return Next::Gap { gap, resume };
     }
     let Some(index) = page.events.iter().position(|event| entry.accepts(event)) else {
         return match page.events.len() {
-            0 => Next::Idle,
+            0 if next == position => Next::Idle,
             skipped => Next::Skip {
-                next: page.next,
+                next,
                 skipped: skipped as u64,
             },
         };
     };
     Next::Event {
-        before: index
-            .checked_sub(1)
-            .map_or(entry.cursor, |before| page.events[before].seq),
+        before: EventCursor {
+            seq: index
+                .checked_sub(1)
+                .map_or(entry.cursor, |before| page.events[before].seq),
+            epoch: next.epoch,
+        },
         skipped: index as u64,
         event: page
             .events
@@ -618,8 +642,8 @@ fn next(entry: &Subscription, read: impl Fn(u64) -> pod::EventPage) -> Next {
 
 struct DeliveryUpdate {
     id: u64,
-    expected_cursor: u64,
-    next_cursor: u64,
+    expected_cursor: EventCursor,
+    next_cursor: EventCursor,
     missed: u64,
     skipped: u64,
     success: bool,
@@ -644,7 +668,7 @@ async fn deliver(
             Next::Skip { next, skipped } => {
                 return Some(DeliveryUpdate {
                     id: entry.id,
-                    expected_cursor: entry.cursor,
+                    expected_cursor: entry.position(),
                     next_cursor: next,
                     missed: 0,
                     skipped,
@@ -655,7 +679,7 @@ async fn deliver(
             Next::Gap { gap, resume } => (
                 with_context(gap.json(), &entry.context),
                 resume,
-                entry.cursor,
+                entry.position(),
                 gap.evicted,
                 0,
             ),
@@ -664,8 +688,11 @@ async fn deliver(
                 skipped,
                 before,
             } => (
-                outbound(&event, &entry.context),
-                event.seq,
+                outbound(&event, before.epoch.as_deref(), &entry.context),
+                EventCursor {
+                    seq: event.seq,
+                    ..before.clone()
+                },
                 before,
                 0,
                 skipped,
@@ -696,7 +723,7 @@ async fn deliver(
     };
     Some(DeliveryUpdate {
         id: entry.id,
-        expected_cursor: entry.cursor,
+        expected_cursor: entry.position(),
         next_cursor: if success { accepted } else { refused },
         missed: if success { missed } else { 0 },
         skipped,
@@ -715,10 +742,11 @@ impl SubscriptionStore {
         self.mutate_async(true, move |state| {
             for update in updates {
                 if let Some(current) = state.entries.get_mut(&update.id) {
-                    if current.cursor != update.expected_cursor {
+                    if current.position() != update.expected_cursor {
                         continue;
                     }
-                    current.cursor = update.next_cursor;
+                    current.cursor = update.next_cursor.seq;
+                    current.cursor_epoch = update.next_cursor.epoch;
                     current.missed = current.missed.saturating_add(update.missed);
                     if update.success {
                         current.failures = 0;
@@ -801,12 +829,17 @@ pub fn spawn(app: AppState) -> tokio::task::JoinHandle<()> {
                 }
             }
             let _ = app.subscriptions.commit_delivery_batch(batch).await;
-            let latest = app.control.event_summaries(None, 1).latest;
+            let latest = EventCursor::latest(&app.control.event_summaries(None, 1));
             let entries = app.subscriptions.list();
-            if latest > 0
-                && entries
-                    .iter()
-                    .any(|entry| entry.cursor != latest && entry.retry_at <= auth::now())
+            // A cursor of another epoch is owed a gap (or, plain, the epoch).
+            let behind = |entry: &Subscription| match (&entry.cursor_epoch, &latest.epoch) {
+                (Some(ours), Some(theirs)) => ours != theirs || entry.cursor < latest.seq,
+                (None, Some(_)) => true,
+                _ => latest.seq > 0 && entry.cursor != latest.seq,
+            };
+            if entries
+                .iter()
+                .any(|entry| behind(entry) && entry.retry_at <= auth::now())
             {
                 // Backlogs are drained at bounded delivery concurrency without
                 // an unconditional 250ms delay between every event.
@@ -821,7 +854,7 @@ pub fn spawn(app: AppState) -> tokio::task::JoinHandle<()> {
                 .unwrap_or(5)
                 .min(5);
             tokio::select! {
-                _=app.control.wait_events(latest)=>{},
+                _=app.control.wait_events(latest.seq)=>{},
                 _=tokio::time::sleep(Duration::from_secs(retry))=>{},
             }
         }
@@ -856,6 +889,7 @@ pub(crate) async fn performance_experiment(legacy: bool, rounds: usize) -> Value
                         resource_types: Vec::new(),
                         severities: Vec::new(),
                         cursor: 0,
+                        cursor_epoch: None,
                         failures: 0,
                         retry_at: 0,
                         missed: 0,
@@ -881,8 +915,8 @@ pub(crate) async fn performance_experiment(legacy: bool, rounds: usize) -> Value
             let updates = (1..=LIMIT as u64)
                 .map(|id| DeliveryUpdate {
                     id,
-                    expected_cursor: round as u64,
-                    next_cursor: round as u64 + 1,
+                    expected_cursor: EventCursor::new(None, round as u64),
+                    next_cursor: EventCursor::new(None, round as u64 + 1),
                     missed: 0,
                     skipped: 0,
                     success: true,
@@ -910,9 +944,18 @@ mod tests {
             resource_types: vec![],
             severities: vec!["Critical".into()],
             cursor: 0,
+            cursor_epoch: None,
             failures: 0,
             retry_at: 0,
             missed: 0,
+        }
+    }
+    /// `entry()` with its cursor at `position`.
+    fn at(position: &EventCursor) -> Subscription {
+        Subscription {
+            cursor: position.seq,
+            cursor_epoch: position.epoch.clone(),
+            ..entry()
         }
     }
     #[test]
@@ -932,7 +975,7 @@ mod tests {
             truncated: false,
         };
         assert!(entry().accepts(&event));
-        let body = String::from_utf8(outbound(&event, "context")).unwrap();
+        let body = String::from_utf8(outbound(&event, None, "context")).unwrap();
         assert!(body.contains("BLOCK_IO_ERROR"));
         assert!(!body.contains("secret") && !body.contains("/private"));
         assert!(!entry().json(false).to_string().contains("events.example"));
@@ -948,20 +991,27 @@ mod tests {
             data: json!({"action":"pause"}),
             truncated: false,
         };
-        let push: Value = serde_json::from_slice(&outbound(&event, "ctx")).unwrap();
-        let sse = event_json(&VmEvent {
-            data: Value::Null,
-            ..event.clone()
-        });
+        let epoch = Some("0123456789abcdef");
+        let push: Value = serde_json::from_slice(&outbound(&event, epoch, "ctx")).unwrap();
+        let sse = event_json(
+            &VmEvent {
+                data: Value::Null,
+                ..event.clone()
+            },
+            epoch,
+        );
         assert_eq!(push["Events"], sse["Events"]);
         assert_eq!(push["Events"][0]["MemberId"], "0");
         assert!(push["Events"][0]["Oem"]["Qrab"]["Data"].is_null());
         assert_eq!(
-            event_json(&event)["Events"][0]["Oem"]["Qrab"]["Data"]["action"],
+            event_json(&event, epoch)["Events"][0]["Oem"]["Qrab"]["Data"]["action"],
             "pause"
         );
         assert_eq!(push["Context"], "ctx");
         assert_eq!(push["Id"], sse["Id"]);
+        // Receivers deduplicate by Id, which is unique across manager restarts.
+        assert_eq!(push["Id"], "0123456789abcdef.9");
+        assert_eq!(push["Events"][0]["EventId"], "0123456789abcdef.9");
     }
 
     /// A control channel holding `count` recorded STOP events (`OK` severity).
@@ -995,7 +1045,9 @@ mod tests {
         let Next::Gap { gap, resume } = next(&stale, read) else {
             panic!("expected a gap");
         };
-        assert_eq!(resume, 0);
+        let epoch = control.events(None, 1).epoch;
+        assert!(epoch.is_some());
+        assert_eq!(resume, EventCursor::new(epoch.as_deref(), 0));
         assert_eq!((gap.after, gap.evicted, gap.resumes_at), (500, 0, Some(1)));
         let body: Value = serde_json::from_slice(&with_context(gap.json(), "ctx")).unwrap();
         let record = &body["Events"][0];
@@ -1005,14 +1057,11 @@ mod tests {
         assert!(record["Oem"]["Qrab"]["MissedEvents"].is_null());
         assert_eq!(body["Context"], "ctx");
         // From the resumed cursor nothing is missed again; the filter applies.
-        let resumed = Subscription {
-            cursor: resume,
-            ..entry()
-        };
+        let resumed = at(&resume);
         assert_eq!(
             next(&resumed, read),
             Next::Skip {
-                next: 3,
+                next: EventCursor::new(epoch.as_deref(), 3),
                 skipped: 3
             }
         );
@@ -1028,12 +1077,152 @@ mod tests {
         else {
             panic!("expected an event");
         };
-        assert_eq!((event.seq, skipped, before), (1, 0, 0));
-        let caught_up = Subscription {
+        assert_eq!(
+            (event.seq, skipped, before),
+            (1, 0, EventCursor::new(epoch.as_deref(), 0))
+        );
+        let caught_up = at(&EventCursor::new(epoch.as_deref(), 3));
+        assert_eq!(next(&caught_up, read), Next::Idle);
+        // A caught-up plain cursor (persisted before epochs) takes the epoch
+        // without a POST, so a later restart is detected exactly.
+        let plain = Subscription {
             cursor: 3,
             ..entry()
         };
-        assert_eq!(next(&caught_up, read), Next::Idle);
+        assert_eq!(
+            next(&plain, read),
+            Next::Skip {
+                next: EventCursor::new(epoch.as_deref(), 3),
+                skipped: 0
+            }
+        );
+    }
+
+    #[test]
+    fn a_cursor_of_another_epoch_at_or_below_the_latest_delivers_exactly_one_gap() {
+        let (control, _receiver) = history(3);
+        let read = |after| control.event_summaries(Some(after), 64);
+        let epoch = control.events(None, 1).epoch;
+        // An earlier manager instance numbered #2; this one has #1..=#3.
+        let stale = Subscription {
+            severities: vec![],
+            ..at(&EventCursor::new(Some("earlier-instance"), 2))
+        };
+        let Next::Gap { gap, resume } = next(&stale, read) else {
+            panic!("expected a gap");
+        };
+        assert_eq!(gap.cause, GapCause::SequenceRestarted);
+        assert_eq!((gap.after, gap.resumes_at), (2, Some(1)));
+        assert_eq!(
+            gap.json()["Events"][0]["Oem"]["Qrab"]["Reason"],
+            "SequenceRestarted"
+        );
+        assert_eq!(resume, EventCursor::new(epoch.as_deref(), 0));
+        // Once the gap is accepted the whole current numbering follows, with
+        // no second gap.
+        let mut cursor = Subscription {
+            severities: vec![],
+            ..at(&resume)
+        };
+        let mut delivered = Vec::new();
+        loop {
+            match next(&cursor, read) {
+                Next::Event { event, .. } => {
+                    delivered.push(event.seq);
+                    cursor.cursor = event.seq;
+                }
+                Next::Idle => break,
+                other => panic!("unexpected {other:?}"),
+            }
+        }
+        assert_eq!(delivered, [1, 2, 3]);
+        // The same sequence in the current epoch is simply caught up.
+        assert_eq!(
+            next(&at(&EventCursor::new(epoch.as_deref(), 3)), read),
+            Next::Idle
+        );
+    }
+
+    #[tokio::test]
+    async fn a_checkpoint_from_another_epoch_does_not_overwrite_the_cursor() {
+        let store = SubscriptionStore::new(vec![entry().destination], None).unwrap();
+        let current = EventCursor::new(Some("current"), 4);
+        store
+            .mutate(|s| {
+                s.next_id = 1;
+                s.entries.insert(1, at(&current));
+                Ok(())
+            })
+            .unwrap();
+        let update = |expected: EventCursor| DeliveryUpdate {
+            id: 1,
+            expected_cursor: expected,
+            next_cursor: EventCursor::new(Some("next"), 1),
+            missed: 0,
+            skipped: 0,
+            success: true,
+            delivered: true,
+        };
+        // Same sequence, other numbering: the cursor moved meanwhile.
+        store
+            .commit_delivery_batch(vec![update(EventCursor::new(Some("earlier"), 4))])
+            .await
+            .unwrap();
+        assert_eq!(store.get(1).unwrap().position(), current);
+        store
+            .commit_delivery_batch(vec![update(current)])
+            .await
+            .unwrap();
+        assert_eq!(
+            store.get(1).unwrap().position(),
+            EventCursor::new(Some("next"), 1)
+        );
+    }
+
+    #[test]
+    fn subscriptions_persisted_before_epochs_load_and_then_record_the_epoch() {
+        let dir =
+            std::env::temp_dir().join(format!("qrab-subscriptions-legacy-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir(&dir).unwrap();
+        let path = dir.join("subscriptions.json");
+        let legacy = json!({"next_id":1,"entries":{"1":{
+            "id":1,"destination":entry().destination,"context":"","expires":auth::now() + 60,
+            "registry_prefixes":[],"resource_types":[],"severities":[],
+            "cursor":7,"failures":0,"retry_at":0,"missed":0}}});
+        std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&path)
+            .unwrap()
+            .write_all(legacy.to_string().as_bytes())
+            .unwrap();
+        let store = SubscriptionStore::new(vec![entry().destination], Some(path.clone())).unwrap();
+        assert_eq!(store.get(1).unwrap().position(), EventCursor::new(None, 7));
+        store
+            .mutate(|s| {
+                s.entries.get_mut(&1).unwrap().cursor_epoch = Some("0123456789abcdef".into());
+                Ok(())
+            })
+            .unwrap();
+        let saved: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        assert_eq!(saved["entries"]["1"]["cursor_epoch"], "0123456789abcdef");
+        let reloaded =
+            SubscriptionStore::new(vec![entry().destination], Some(path.clone())).unwrap();
+        assert_eq!(
+            reloaded.get(1).unwrap().position(),
+            EventCursor::new(Some("0123456789abcdef"), 7)
+        );
+        // A malformed epoch is refused like any other invalid entry.
+        store
+            .mutate(|s| {
+                s.entries.get_mut(&1).unwrap().cursor_epoch = Some("not an epoch".into());
+                Ok(())
+            })
+            .unwrap();
+        assert!(SubscriptionStore::new(vec![entry().destination], Some(path)).is_err());
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]
@@ -1048,12 +1237,14 @@ mod tests {
             panic!("expected a gap");
         };
         assert_eq!((gap.after, gap.evicted, gap.resumes_at), (3, 7, Some(11)));
-        assert_eq!(resume, 10);
+        assert_eq!(
+            resume,
+            EventCursor::new(control.events(None, 1).epoch.as_deref(), 10)
+        );
         assert_eq!(gap.json()["Events"][0]["Oem"]["Qrab"]["MissedEvents"], 7);
         let resumed = Subscription {
-            cursor: resume,
             severities: vec![],
-            ..entry()
+            ..at(&resume)
         };
         assert!(matches!(next(&resumed, read), Next::Event { ref event, .. } if event.seq == 11));
     }
@@ -1130,8 +1321,8 @@ mod tests {
         let updates = (1..=LIMIT as u64)
             .map(|id| DeliveryUpdate {
                 id,
-                expected_cursor: 0,
-                next_cursor: 1,
+                expected_cursor: EventCursor::new(None, 0),
+                next_cursor: EventCursor::new(None, 1),
                 missed: 0,
                 skipped: 0,
                 success: true,

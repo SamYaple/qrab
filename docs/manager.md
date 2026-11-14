@@ -234,7 +234,12 @@ oldest evicted first, payloads over 8 KiB replaced by `null` with
 `truncated: true`, and names that are not QAPI-shaped rejected and counted.
 Sequence numbers start at 1 and increase by one per event for the channel's
 lifetime, so `missed` in a page reports eviction between a cursor and the
-oldest retained event. `VmEvent::decode::<qapi::events::ResetEvent>()` and the
+oldest retained event. Every page also carries the channel's `epoch`: 16
+lowercase hex digits chosen at random when the channel is created (once per
+manager process), so sequences are comparable only within one epoch and a
+restarted manager is recognised whatever its sequence values. The field is
+optional on the wire: a manager without it omits it, and readers treat a
+missing epoch as unknown. `VmEvent::decode::<qapi::events::ResetEvent>()` and the
 other generated event types give typed payloads.
 
 Events are drained by their own task as QMP delivers them, independent of
@@ -302,10 +307,12 @@ other than status fail at once while the agent is disabled or not connected
 (for example before QEMU starts).
 
 `pod::Remote` is the sidecar client. It keeps a mirror of the event history,
-with the manager's sequence numbers, over one `follow` connection that
-reconnects every second; when a reconnected manager reports a lower latest
-sequence (it restarted its numbering), the mirror resets and resyncs, and
-waiters holding old cursors wake. Requests reuse up to four idle connections
+with the manager's sequence numbers and epoch, over one `follow` connection
+that reconnects every second. When a reconnected manager reports another
+epoch (or, from a manager without epochs, a lower latest sequence) it
+restarted its numbering: the mirror resets, adopts the new epoch and resyncs,
+and waiters holding old cursors wake. A mirror that has not yet synchronized
+reports no epoch. Requests reuse up to four idle connections
 younger than 30 s (the manager closes idle ones after 60 s); a failed pooled
 connection is dropped, read-only requests retry once on a fresh one, and
 actions are never retried. `pod::Backend` puts either an in-process `Control` or

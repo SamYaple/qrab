@@ -146,7 +146,7 @@ keepConsoleFocus(element('console-toolbar'));
 // QMP-dropped total (at open when nonzero, then on every change).
 const MISSED = 'Qrab.1.0.EventsMissed';
 const DROPPED = 'Qrab.1.0.QmpEventsDropped';
-const fromEntry = entry => ({seq: entry.Oem?.Qrab?.Sequence ?? Number(entry.Id), time: entry.Created, ...qmp(entry)});
+const fromEntry = entry => ({seq: entry.Oem?.Qrab?.Sequence ?? Number(entry.Id), epoch: entry.Oem?.Qrab?.Epoch, time: entry.Created, ...qmp(entry)});
 const fromEvent = record => {
     const oem = record.Oem?.Qrab ?? {};
     if (record.MessageId === MISSED) return {kind: 'gap', time: record.EventTimestamp, restarted: oem.Reason === 'SequenceRestarted', missed: oem.MissedEvents, after: oem.After, resumes: oem.OldestAvailableSequence};
@@ -201,10 +201,12 @@ function refreshSoon() {
     clearTimeout(refreshTimer);
     refreshTimer = setTimeout(refresh, 250);
 }
-// The history is read first and the stream opens after its newest sequence
-// (?after=), so no event falls between them, and a reconnect before any SSE id
-// arrives still resumes from that cursor rather than the newest event. Once an
-// id has arrived, the browser's Last-Event-ID takes precedence on reconnect.
+// The history is read first and the stream opens after its newest event
+// (?after=<epoch>.<sequence>, the form of an SSE id), so no event falls between
+// them, a manager restart in between arrives as a gap, and a reconnect before
+// any SSE id arrives still resumes from that cursor rather than the newest
+// event. Once an id has arrived, the browser's Last-Event-ID takes precedence
+// on reconnect. Rows are deduplicated by Oem.Qrab.Sequence, not by SSE id.
 async function startEvents() {
     const status = element('events-status');
     let last = 0, cursor = '';
@@ -220,7 +222,8 @@ async function startEvents() {
         const history = (page.Members || []).map(fromEntry).sort((a, b) => a.seq - b.seq);
         for (const record of history.slice(-100)) show(record);
         last = history.at(-1)?.seq ?? 0;
-        cursor = `?after=${last}`;
+        const epoch = history.at(-1)?.epoch;
+        cursor = `?after=${epoch ? `${encodeURIComponent(epoch)}.` : ''}${last}`;
     } catch (error) {
         // Without a history cursor the stream starts at the newest event.
         if (!session) return;

@@ -240,6 +240,7 @@ mod tests {
             missed: 0,
             rejected: 0,
             qmp_dropped: 0,
+            epoch: None,
         };
         let events = event_summary(&page).to_string();
         assert!(events.contains("BLOCK_IO_ERROR"));

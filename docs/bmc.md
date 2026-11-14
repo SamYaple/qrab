@@ -70,8 +70,9 @@ modules):
     page's CSS custom properties, with a light palette.
   - *Events*: the QMP event log (the newest 100 `LogServices/Events`
     entries) followed by the live `EventService/SSE` stream, opened with
-    `?after=<newest logged sequence>` so a reconnect before the first event
-    still resumes from the log, and a name filter. A stream
+    `?after=<epoch>.<newest logged sequence>` (the entry's `Oem.Qrab.Epoch`)
+    so a reconnect before the first event still resumes from the log and a
+    manager restart in between is reported, and a name filter. A stream
     `Qrab.1.0.EventsMissed` notice (a resume cursor already evicted, or one
     from before a manager restart) becomes a **Gap** row naming the missed
     count or the restart, shown under any filter; `Qrab.1.0.QmpEventsDropped`

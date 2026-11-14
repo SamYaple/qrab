@@ -61,7 +61,7 @@ impl Remote {
     pub fn new(path: PathBuf) -> Self {
         Self(Arc::new(Inner {
             path,
-            events: EventLog::default(),
+            events: EventLog::mirror(),
             pool: Mutex::new(Vec::new()),
             opened: AtomicU64::new(0),
         }))
@@ -150,10 +150,9 @@ impl Remote {
 
     async fn mirror_once(&self) -> Result<()> {
         let mut client = Client::connect(&self.0.path).await?;
-        // A restarted manager numbers its events from 1 again.
-        if client.events(None, 1).await?.latest < self.0.events.latest() {
-            self.0.events.reset();
-        }
+        // A restarted manager numbers its events from 1 again under a new
+        // epoch, whatever its latest sequence: never mix the two numberings.
+        self.0.events.sync_source(&client.events(None, 1).await?);
         loop {
             let page = client
                 .events(Some(self.0.events.latest()), super::EVENT_PAGE_LIMIT)
