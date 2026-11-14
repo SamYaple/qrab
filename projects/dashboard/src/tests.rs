@@ -1,5 +1,5 @@
 //! HTTP and WebSocket tests against an in-memory cluster, a fake Kanidm and
-//! fake BMCs on loopback addresses.
+//! fake VM Pods (BMC console and Redfish) on loopback addresses.
 use super::*;
 use crate::access::tests::{ADMINS, ALICE, BOB, VIEWERS, vm};
 use axum::{
@@ -139,7 +139,20 @@ async fn serve(listener: tokio::net::TcpListener, app: axum::Router) {
     tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
 }
 
-/// A fake BMC whose status names `label`. Its guest strings carry markup.
+/// The ResetTypes the fake Redfish allows: no PowerCycle (not operator-restartable).
+const FAKE_RESET_TYPES: [&str; 7] = [
+    "On",
+    "GracefulShutdown",
+    "ForceRestart",
+    "Pause",
+    "Resume",
+    "Nmi",
+    "GracefulRestart",
+];
+
+/// A fake VM Pod: the BMC console and a Redfish service whose system is named
+/// `label`. Its guest strings carry markup. Alice's token is a Redfish admin;
+/// a stale token is only a viewer there, so Redfish refuses its resets.
 fn fake_bmc(label: &'static str, log: Log) -> axum::Router {
     let handler = move |req: Request| {
         let log = log.clone();
@@ -148,37 +161,58 @@ fn fake_bmc(label: &'static str, log: Log) -> axum::Router {
             let bytes = axum::body::to_bytes(body, 4096).await.unwrap();
             let req = Request::from_parts(parts.clone(), Body::empty());
             record(&log, &req, &String::from_utf8_lossy(&bytes));
-            if parts
+            let admin = match parts
                 .headers
                 .get("authorization")
                 .and_then(|v| v.to_str().ok())
-                != Some("Bearer id-token-of-alice")
             {
-                return StatusCode::UNAUTHORIZED.into_response();
-            }
-            match parts.uri.path() {
-                "/api/status" => Json(serde_json::json!({"phase": "running", "ready": true,
-                    "run_state": label, "qemu_version": [11, 1, 3], "observed_unix_ms": 1}))
+                Some("Bearer id-token-of-alice") => true,
+                Some("Bearer id-token-of-stale") => false,
+                _ => return StatusCode::UNAUTHORIZED.into_response(),
+            };
+            match (parts.method.clone(), parts.uri.path()) {
+                (Method::GET, "/redfish/v1/Systems/1") => Json(serde_json::json!({
+                    "Id": "1", "Name": label, "PowerState": "On",
+                    "Status": {"State": "Enabled", "Health": "OK"},
+                    "Actions": {"#ComputerSystem.Reset": {
+                        "target": "/redfish/v1/Systems/1/Actions/ComputerSystem.Reset",
+                        "ResetType@Redfish.AllowableValues": FAKE_RESET_TYPES}},
+                    "Oem": {"Qrab": {
+                        "Configuration": {"name": label, "memory_mib": 512, "cpus": 1,
+                            "accelerator": "tcg", "boot": "uefi", "console": true, "tpm": true,
+                            "guest_network": false, "disks": [], "startup_timeout_secs": 60,
+                            "shutdown_grace_secs": 30, "redacted": false},
+                        "GuestAgent": {"enabled": true, "connected": true,
+                            "version": "<script>alert(1)</script>"}}}
+                }))
                 .into_response(),
-                "/api/agent" => Json(
-                    serde_json::json!({"status": {"enabled": true, "connected": true,
-                    "version": "<script>alert(1)</script>"}, "freeze": "thawed"}),
-                )
+                (Method::GET, "/redfish/v1/Systems/1/ResetActionInfo") => Json(serde_json::json!({
+                    "Id": "ResetActionInfo",
+                    "Parameters": [{"Name": "ResetType", "Required": true, "DataType": "String",
+                        "AllowableValues": FAKE_RESET_TYPES}]
+                }))
                 .into_response(),
-                "/api/events" => Json(
-                    serde_json::json!({"events": [{"seq": 1, "received_unix_ms": 1,
-                    "event": "RESET", "data": {"reason": "<img src=x onerror=alert(2)>"}}],
-                    "next": 1, "latest": 1, "missed": 0, "rejected": 0, "qmp_dropped": 0}),
-                )
-                .into_response(),
-                "/api/config" => Json(
-                    serde_json::json!({"name": "vm", "memory_mib": 512, "cpus": 1,
-                    "accelerator": "tcg", "boot": "uefi", "console": true, "tpm": true,
-                    "guest_network": false, "disks": [], "startup_timeout_secs": 60,
-                    "shutdown_grace_secs": 30, "redacted": false}),
-                )
-                .into_response(),
-                "/api/action" => StatusCode::NO_CONTENT.into_response(),
+                (Method::GET, "/redfish/v1/Managers/1/LogServices/Events") => {
+                    Json(serde_json::json!({"Id": "Events", "Oem": {"Qrab": {"QmpDropped": 2}}}))
+                        .into_response()
+                }
+                (Method::GET, "/redfish/v1/Managers/1/LogServices/Events/Entries") => {
+                    Json(serde_json::json!({"Members@odata.count": 2, "Members": [
+                        {"Id": "1", "Created": "1970-01-01T00:00:00.001Z", "Severity": "OK",
+                         "Message": "STOP", "Oem": {"Qrab": {"Sequence": 1, "Event": "STOP",
+                         "Data": {}, "Truncated": false}}},
+                        {"Id": "2", "Created": "1970-01-01T00:00:00.002Z", "Severity": "OK",
+                         "Message": "RESET", "Oem": {"Qrab": {"Sequence": 2, "Event": "RESET",
+                         "Data": {"reason": "<img src=x onerror=alert(2)>"}, "Truncated": false}}}
+                    ]}))
+                    .into_response()
+                }
+                (Method::POST, "/redfish/v1/Systems/1/Actions/ComputerSystem.Reset") if admin => {
+                    StatusCode::NO_CONTENT.into_response()
+                }
+                (Method::POST, "/redfish/v1/Systems/1/Actions/ComputerSystem.Reset") => {
+                    StatusCode::FORBIDDEN.into_response()
+                }
                 _ => StatusCode::NOT_FOUND.into_response(),
             }
         }
@@ -342,7 +376,7 @@ async fn harness() -> Harness {
             None,
         )),
     ];
-    // Two BMCs on the same port at different loopback addresses.
+    // Two VM Pods on the same port at different loopback addresses.
     let first = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = first.local_addr().unwrap().port();
     let second = tokio::net::TcpListener::bind(("127.0.0.2", port))
@@ -385,7 +419,8 @@ async fn harness() -> Harness {
         storage_node: Some("kube03".into()),
         cluster: cluster.clone(),
         kanidm: kanidm::Kanidm::new(&kanidm_url, KANIDM_TOKEN.into(), None, true).unwrap(),
-        bmc: bmc::Bmc::new(port).unwrap(),
+        bmc: bmc::Bmc::new(port),
+        redfish: redfish::Redfish::new(port).unwrap(),
         sessions: Default::default(),
         novnc_dir: PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("assets/novnc"),
         consoles: Arc::new(Semaphore::new(16)),
@@ -402,6 +437,16 @@ async fn harness() -> Harness {
 }
 
 async fn session(store: &session_store::BoundedStore, subject: &str, groups: &[&str]) -> String {
+    session_with_token(store, subject, groups, "id-token-of-alice").await
+}
+
+/// A session whose ID token Redfish may judge differently from the dashboard.
+async fn session_with_token(
+    store: &session_store::BoundedStore,
+    subject: &str,
+    groups: &[&str],
+    token: &str,
+) -> String {
     let session = Session::new(None, Arc::new(store.clone()), None);
     session
         .insert(
@@ -412,7 +457,7 @@ async fn session(store: &session_store::BoundedStore, subject: &str, groups: &[&
                 groups: groups.iter().map(|g| g.to_string()).collect(),
                 csrf: "correct".into(),
                 expires: auth::now() + 600,
-                id_token: "id-token-of-alice".into(),
+                id_token: token.into(),
             },
         )
         .await
@@ -478,7 +523,7 @@ async fn the_list_shows_only_visible_vms_and_launch_only_to_launchers() {
     let launcher = session(&h.state.sessions, ALICE, &[LAUNCHERS]).await;
     let (_, _, body) = send(&h, get("/", Some(&launcher))).await;
     assert!(body.contains("href=\"/launch\""));
-    // No BMC is contacted for the list.
+    // No VM Pod is contacted for the list.
     assert!(h.bmc_a.lock().unwrap().is_empty() && h.bmc_b.lock().unwrap().is_empty());
 }
 
@@ -505,7 +550,7 @@ async fn invisible_absent_and_foreign_namespace_vms_are_404() {
 }
 
 #[tokio::test]
-async fn detail_calls_only_the_selected_vms_bmc_with_the_bearer_and_escapes_guest_text() {
+async fn detail_reads_only_the_selected_vms_redfish_with_the_bearer_and_escapes_guest_text() {
     let h = harness().await;
     let cookie = session(&h.state.sessions, ALICE, &[VIEWERS]).await;
     let (status, _, body) = send(&h, get("/vms/qrab/a", Some(&cookie))).await;
@@ -520,16 +565,26 @@ async fn detail_calls_only_the_selected_vms_bmc_with_the_bearer_and_escapes_gues
         "{body}"
     );
     assert!(!body.contains("id-token-of-alice"));
+    // Systems/1 PowerState and Status, the log service's drop count, and the
+    // log entries newest first.
+    assert!(body.contains("Power state") && body.contains("Enabled"));
+    assert!(body.contains("2 QMP event(s) were dropped"));
+    let (reset, stop) = (body.find("<b>RESET</b>"), body.find("<b>STOP</b>"));
+    assert!(reset.unwrap() < stop.unwrap(), "{body}");
+    // The power form follows the system's allowable reset types.
+    for reset in ["GracefulRestart", "Nmi", "ForceRestart", "Pause"] {
+        assert!(body.contains(&format!("value=\"{reset}\"")), "{reset}");
+    }
+    assert!(!body.contains("value=\"PowerCycle\"") && !body.contains("value=\"On\""));
     let seen = h.bmc_a.lock().unwrap().clone();
     let mut paths: Vec<_> = seen.iter().map(|(m, p, _, _)| format!("{m} {p}")).collect();
     paths.sort();
     assert_eq!(
         paths,
         [
-            "GET /api/agent",
-            "GET /api/config",
-            "GET /api/events?limit=20",
-            "GET /api/status"
+            "GET /redfish/v1/Managers/1/LogServices/Events",
+            "GET /redfish/v1/Managers/1/LogServices/Events/Entries",
+            "GET /redfish/v1/Systems/1",
         ]
     );
     assert!(
@@ -542,13 +597,15 @@ async fn detail_calls_only_the_selected_vms_bmc_with_the_bearer_and_escapes_gues
     assert!(
         body.contains("bmc-b") && !body.contains("Open console") && !body.contains("Delete VM")
     );
+    // Viewers see the panel but no power form.
+    assert!(body.contains("Recent QMP events") && !body.contains("power-title"));
     // A viewer learns why, and can refresh a sign-in that predates a new grant.
     assert!(
         body.contains("Console: admins only")
             && body.contains("href=\"/auth/login?next=/vms/qrab/b\"")
     );
-    assert_eq!(h.bmc_b.lock().unwrap().len(), 4);
-    assert_eq!(h.bmc_a.lock().unwrap().len(), 4);
+    assert_eq!(h.bmc_b.lock().unwrap().len(), 3);
+    assert_eq!(h.bmc_a.lock().unwrap().len(), 3);
 }
 
 #[tokio::test]
@@ -573,7 +630,7 @@ async fn every_post_requires_session_csrf_and_exact_origin() {
     let routes = [
         ("/auth/logout", "".to_string()),
         ("/launch", "name=web&cpus=1&memory_mib=512".to_string()),
-        ("/vms/qrab/a/action", "action=pause".to_string()),
+        ("/vms/qrab/a/action", "action=Pause".to_string()),
         ("/vms/qrab/a/delete", "confirm_name=a".to_string()),
     ];
     for (path, fields) in &routes {
@@ -640,7 +697,7 @@ async fn every_post_requires_session_csrf_and_exact_origin() {
 }
 
 #[tokio::test]
-async fn power_actions_are_admin_only_confirmed_and_sent_with_the_bearer() {
+async fn power_actions_are_admin_only_confirmed_and_sent_to_redfish_with_the_bearer() {
     let h = harness().await;
     let cookie = session(&h.state.sessions, ALICE, &[VIEWERS]).await;
     let (status, _, _) = send(
@@ -649,7 +706,7 @@ async fn power_actions_are_admin_only_confirmed_and_sent_with_the_bearer() {
             "/vms/qrab/b/action",
             Some(&cookie),
             Some(ORIGIN),
-            "csrf=correct&action=pause",
+            "csrf=correct&action=Pause",
         ),
     )
     .await;
@@ -660,12 +717,18 @@ async fn power_actions_are_admin_only_confirmed_and_sent_with_the_bearer() {
             "/vms/qrab/c/action",
             Some(&cookie),
             Some(ORIGIN),
-            "csrf=correct&action=pause",
+            "csrf=correct&action=Pause",
         ),
     )
     .await;
     assert_eq!(status, StatusCode::NOT_FOUND);
-    for bad in ["action=qmp", "action=reset", "action=powerdown&confirm=no"] {
+    for bad in [
+        "action=qmp",
+        "action=reset",
+        "action=On",
+        "action=ForceRestart",
+        "action=GracefulShutdown&confirm=no",
+    ] {
         let (status, _, _) = send(
             &h,
             post(
@@ -685,7 +748,7 @@ async fn power_actions_are_admin_only_confirmed_and_sent_with_the_bearer() {
             "/vms/qrab/a/action",
             Some(&cookie),
             Some(ORIGIN),
-            "csrf=correct&action=reset&confirm=yes",
+            "csrf=correct&action=ForceRestart&confirm=yes",
         ),
     )
     .await;
@@ -696,13 +759,75 @@ async fn power_actions_are_admin_only_confirmed_and_sent_with_the_bearer() {
         seen,
         [(
             "POST".into(),
-            "/api/action".into(),
+            "/redfish/v1/Systems/1/Actions/ComputerSystem.Reset".into(),
             "Bearer id-token-of-alice".into(),
-            "\"reset\"".into()
+            r#"{"ResetType":"ForceRestart"}"#.into()
         )]
     );
     let (_, _, body) = send(&h, get("/vms/qrab/a", Some(&cookie))).await;
     assert!(body.contains("Reset sent to a."));
+}
+
+#[tokio::test]
+async fn a_redfish_refusal_is_a_refused_action_not_a_failure() {
+    let h = harness().await;
+    // The dashboard holds Alice as admin, but her token is only a viewer in
+    // Redfish (for example, a grant that changed since she signed in).
+    let cookie = session_with_token(&h.state.sessions, ALICE, &[], "id-token-of-stale").await;
+    let (status, headers, _) = send(
+        &h,
+        post(
+            "/vms/qrab/a/action",
+            Some(&cookie),
+            Some(ORIGIN),
+            "csrf=correct&action=Pause",
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert_eq!(headers["location"], "/vms/qrab/a");
+    let (_, _, body) = send(&h, get("/vms/qrab/a", Some(&cookie))).await;
+    assert!(
+        body.contains("Pause was refused: Redfish refused this for your role (HTTP 403)."),
+        "{body}"
+    );
+    let (status, _, text) = send(
+        &h,
+        post_json(
+            "/vms/qrab/a/power",
+            Some(&cookie),
+            Some(ORIGIN),
+            Some("correct"),
+            serde_json::json!({"action": "Nmi", "confirm": true}),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert_eq!(
+        text,
+        "NMI was refused: Redfish refused this for your role (HTTP 403)."
+    );
+    let resets: Vec<_> = h
+        .bmc_a
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|(m, _, _, _)| m == "POST")
+        .map(|(_, _, auth, body)| (auth.clone(), body.clone()))
+        .collect();
+    assert_eq!(
+        resets,
+        [
+            (
+                "Bearer id-token-of-stale".to_string(),
+                r#"{"ResetType":"Pause"}"#.to_string()
+            ),
+            (
+                "Bearer id-token-of-stale".to_string(),
+                r#"{"ResetType":"Nmi"}"#.to_string()
+            ),
+        ]
+    );
 }
 
 #[tokio::test]
@@ -1011,7 +1136,7 @@ async fn launch_creates_groups_pvc_and_vm_in_order() {
         created["spec"]["console"],
         serde_json::json!({"adminGroups": [admins], "viewerGroups": [viewers]})
     );
-    // The form's Redfish field is ignored: nothing admits 8081 for these VMs.
+    // The form's Redfish field is ignored: the BMC's Redfish sidecar serves the dashboard.
     assert!(created["spec"].get("components").is_none());
     assert_eq!(
         created["metadata"]["labels"]["app.kubernetes.io/managed-by"],
@@ -1294,33 +1419,48 @@ async fn launching_with_a_nic_and_cloud_init_never_shows_or_logs_user_data() {
 }
 
 #[tokio::test]
-async fn oversized_bmc_responses_are_refused() {
+async fn oversized_redfish_responses_are_refused() {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = listener.local_addr().unwrap().port();
+    let padded = |size: usize| {
+        let mut big = String::from("{\"Name\":\"");
+        big.push_str(&"x".repeat(size));
+        big.push_str("\",\"Members\":[]}");
+        ([("content-type", "application/json")], big)
+    };
     serve(
         listener,
         axum::Router::new()
             .route(
-                "/api/status",
-                axum::routing::get(|| async {
-                    let mut big = String::from("{\"phase\":\"");
-                    big.push_str(&"x".repeat(bmc::MAX_BODY));
-                    big.push_str("\"}");
-                    ([("content-type", "application/json")], big)
-                }),
+                redfish::SYSTEM,
+                axum::routing::get(move || async move { padded(redfish::MAX_BODY) }),
             )
             .route(
-                "/api/config",
-                axum::routing::get(|| async { Json(serde_json::json!({"name": "ok"})) }),
+                redfish::RESET_INFO,
+                axum::routing::get(|| async { Json(serde_json::json!({"Parameters": []})) }),
+            )
+            .route(
+                redfish::EVENT_ENTRIES,
+                axum::routing::get(move || async move { padded(2 * redfish::MAX_BODY) }),
+            )
+            .route(
+                redfish::EVENT_LOG,
+                axum::routing::get(move || async move { padded(redfish::MAX_LOG_BODY) }),
             ),
     )
     .await;
-    let client = bmc::Bmc::new(port).unwrap();
+    let client = redfish::Redfish::new(port).unwrap();
     let ip = "127.0.0.1".parse().unwrap();
-    let status: Result<bmc::Status, _> = client.get(ip, bmc::STATUS, "t").await;
-    assert_eq!(status.unwrap_err(), bmc::BmcError::Invalid);
-    let config: bmc::Config = client.get(ip, bmc::CONFIG, "t").await.unwrap();
-    assert_eq!(config.name, "ok");
+    let system: Result<redfish::System, _> = client
+        .get(ip, redfish::SYSTEM, "t", redfish::MAX_BODY)
+        .await;
+    assert_eq!(system.unwrap_err(), redfish::RedfishError::Invalid);
+    assert_eq!(client.reset_types(ip, "t").await.unwrap(), []);
+    // The whole event log fits its larger bound; nothing else does.
+    let panel = client.panel(ip, "t").await;
+    assert!(panel.system.is_err());
+    let events = panel.events.unwrap();
+    assert!(events.entries.is_empty() && events.qmp_dropped.is_none());
 }
 
 #[tokio::test]
@@ -1391,21 +1531,30 @@ fn post_json(
 }
 
 #[tokio::test]
-async fn console_power_controls_are_admin_only_checked_and_reach_the_bmc_or_the_vm() {
+async fn console_power_controls_are_admin_only_checked_and_reach_redfish_or_the_vm() {
     let h = harness().await;
     let admin = session(&h.state.sessions, ALICE, &[VIEWERS]).await;
     let (status, _, page) = send(&h, get("/vms/qrab/a/console", Some(&admin))).await;
     assert_eq!(status, StatusCode::OK);
     assert!(page.contains("data-endpoint=\"/vms/qrab/a/power\""));
     assert!(page.contains("data-csrf=\"correct\""));
-    for (action, _, _) in ui::CONSOLE_POWER {
+    for button in ui::console_power() {
         assert!(
-            page.contains(&format!("data-power=\"{action}\"")),
-            "{action}"
+            page.contains(&format!("data-power=\"{}\"", button.action)),
+            "{button:?}"
         );
     }
+    for (action, label) in [
+        ("GracefulRestart", "Restart guest"),
+        ("PowerCycle", "Power cycle"),
+        ("Nmi", "NMI"),
+    ] {
+        assert!(page.contains(&format!(
+            "data-power=\"{action}\" data-label=\"{label}\" data-in-pod=\"true\""
+        )));
+    }
 
-    let pause = serde_json::json!({"action": "pause"});
+    let pause = serde_json::json!({"action": "Pause"});
     let path = "/vms/qrab/a/power";
     for (vm, cookie, origin, csrf, body, expected) in [
         (
@@ -1485,7 +1634,15 @@ async fn console_power_controls_are_admin_only_checked_and_reach_the_bmc_or_the_
             Some(admin.as_str()),
             Some(ORIGIN),
             Some("correct"),
-            serde_json::json!({"action": "reset"}),
+            serde_json::json!({"action": "ForceRestart"}),
+            StatusCode::BAD_REQUEST,
+        ),
+        (
+            "a",
+            Some(admin.as_str()),
+            Some(ORIGIN),
+            Some("correct"),
+            serde_json::json!({"action": "On"}),
             StatusCode::BAD_REQUEST,
         ),
         (
@@ -1513,9 +1670,30 @@ async fn console_power_controls_are_admin_only_checked_and_reach_the_bmc_or_the_
     assert!(h.bmc_a.lock().unwrap().is_empty() && h.bmc_b.lock().unwrap().is_empty());
     assert!(h.cluster.running.lock().unwrap().is_empty());
 
+    let resets = [
+        "Pause",
+        "Resume",
+        "GracefulRestart",
+        "ForceRestart",
+        "PowerCycle",
+        "Nmi",
+        "GracefulShutdown",
+    ];
+    for reset in resets {
+        let (status, _, text) = send(
+            &h,
+            post_json(
+                path,
+                Some(&admin),
+                Some(ORIGIN),
+                Some("correct"),
+                serde_json::json!({"action": reset, "confirm": true}),
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NO_CONTENT, "{reset}: {text}");
+    }
     for body in [
-        pause,
-        serde_json::json!({"action": "reset", "confirm": true}),
         serde_json::json!({"action": "off", "confirm": true}),
         serde_json::json!({"action": "on"}),
     ] {
@@ -1532,23 +1710,18 @@ async fn console_power_controls_are_admin_only_checked_and_reach_the_bmc_or_the_
         .await;
         assert_eq!(status, StatusCode::NO_CONTENT, "{body}: {text}");
     }
-    let bearer = "Bearer id-token-of-alice".to_string();
+    // Each in-pod action is the matching ResetType with the user's bearer.
+    let sent: Vec<_> = h.bmc_a.lock().unwrap().clone();
     assert_eq!(
-        *h.bmc_a.lock().unwrap(),
-        [
-            (
-                "POST".into(),
-                "/api/action".into(),
-                bearer.clone(),
-                "\"pause\"".into()
-            ),
-            (
-                "POST".into(),
-                "/api/action".into(),
-                bearer,
-                "\"reset\"".into()
-            ),
-        ]
+        sent,
+        resets
+            .map(|reset| (
+                "POST".to_string(),
+                "/redfish/v1/Systems/1/Actions/ComputerSystem.Reset".to_string(),
+                "Bearer id-token-of-alice".to_string(),
+                format!(r#"{{"ResetType":"{reset}"}}"#)
+            ))
+            .to_vec()
     );
     assert!(h.bmc_b.lock().unwrap().is_empty());
     assert_eq!(
@@ -1561,7 +1734,7 @@ async fn console_power_controls_are_admin_only_checked_and_reach_the_bmc_or_the_
 }
 
 #[tokio::test]
-async fn console_power_state_is_admin_only_and_reads_the_vms_own_bmc() {
+async fn console_power_state_is_admin_only_and_reads_the_vms_own_redfish() {
     let h = harness().await;
     let admin = session(&h.state.sessions, ALICE, &[VIEWERS]).await;
     let (status, headers, body) = send(&h, get("/vms/qrab/a/power", Some(&admin))).await;
@@ -1576,16 +1749,40 @@ async fn console_power_state_is_admin_only_and_reads_the_vms_own_bmc() {
     assert_eq!(state["running"], true);
     assert_eq!(state["pod"], true);
     assert_eq!(state["phase"], "Running");
-    assert_eq!(state["run_state"], "bmc-a");
-    assert!(state["bmc_error"].is_null());
+    assert_eq!(state["power_state"], "On");
+    assert_eq!(state["health"], "OK");
+    assert!(state["redfish_error"].is_null());
+    // ResetActionInfo's values the console offers, in button order: no On, and
+    // no PowerCycle where Redfish does not allow it.
     assert_eq!(
-        *h.bmc_a.lock().unwrap(),
-        [(
-            "GET".into(),
-            "/api/status".into(),
-            "Bearer id-token-of-alice".into(),
-            String::new()
-        )]
+        state["reset_types"],
+        serde_json::json!([
+            "Resume",
+            "Pause",
+            "GracefulRestart",
+            "ForceRestart",
+            "Nmi",
+            "GracefulShutdown"
+        ])
+    );
+    let mut seen = h.bmc_a.lock().unwrap().clone();
+    seen.sort();
+    assert_eq!(
+        seen,
+        [
+            (
+                "GET".into(),
+                "/redfish/v1/Systems/1".into(),
+                "Bearer id-token-of-alice".into(),
+                String::new()
+            ),
+            (
+                "GET".into(),
+                "/redfish/v1/Systems/1/ResetActionInfo".into(),
+                "Bearer id-token-of-alice".into(),
+                String::new()
+            ),
+        ]
     );
     for (vm, cookie, expected) in [
         ("a", None, StatusCode::UNAUTHORIZED),

@@ -248,13 +248,7 @@ async fn login_is_pkce_and_cookie_is_opaque_secure_and_host_only() {
 #[tokio::test]
 async fn vm_apis_reject_missing_expired_and_unlisted_sessions() {
     let app = app();
-    for path in [
-        "/api/session",
-        "/api/status",
-        "/api/config",
-        "/api/events",
-        "/api/agent",
-    ] {
+    for path in ["/api/session", "/api/console"] {
         for cookie in [
             None,
             Some(cookie(app.sessions.clone(), SUBJECT, auth::now()).await),
@@ -287,7 +281,7 @@ async fn mutations_need_both_csrf_and_exact_origin_before_reaching_vm() {
         ("null", "correct"),
         ("https://vm.example", "wrong"),
     ] {
-        for (path, body) in [("/api/action", "\"reset\""), ("/auth/logout", "")] {
+        for (path, body) in [("/auth/logout", "")] {
             let response = bmc::router(app.clone())
                 .oneshot(
                     req(path, Some(&cookie))
@@ -303,19 +297,8 @@ async fn mutations_need_both_csrf_and_exact_origin_before_reaching_vm() {
             assert_eq!(response.status(), StatusCode::FORBIDDEN);
         }
     }
-    let response = bmc::router(app)
-        .oneshot(
-            req("/api/action", Some(&cookie))
-                .method("POST")
-                .header("content-type", "application/json")
-                .header("origin", "https://vm.example")
-                .header("x-csrf-token", "correct")
-                .body(Body::from("\"reset\""))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+    // The session survived every refused logout.
+    assert_eq!(get(&app, "/api/session", &cookie).await.0, StatusCode::OK);
 }
 
 #[tokio::test]
@@ -406,126 +389,55 @@ async fn get(app: &AppState, path: &str, cookie: &str) -> (StatusCode, String) {
     (status, String::from_utf8(body.to_vec()).unwrap())
 }
 
-fn post_action(cookie: &str) -> Request<Body> {
-    req("/api/action", Some(cookie))
-        .method("POST")
-        .header("content-type", "application/json")
-        .header("origin", "https://vm.example")
-        .header("x-csrf-token", "correct")
-        .body(Body::from("\"reset\""))
-        .unwrap()
-}
-
+/// The configuration's viewer redaction is Redfish's (`Systems/1`
+/// `Oem.Qrab.Configuration`); the BMC reports only the session's role.
 #[tokio::test]
-async fn viewers_get_redacted_config_and_no_mutation_while_admins_get_everything() {
+async fn cookie_sessions_report_the_listed_role() {
     let app = app();
-    let viewer = cookie(app.sessions.clone(), VIEWER, auth::now() + 60).await;
-    let admin = cookie(app.sessions.clone(), SUBJECT, auth::now() + 60).await;
-    let sensitive = [
-        PORTAL,
-        TARGET,
-        "chap-user",
-        "/run/qrab-auth/root/password",
-        "node-a",
-        IMAGE,
-        "/unused",
-    ];
-
-    let (status, body) = get(&app, "/api/session", &viewer).await;
-    assert_eq!(status, StatusCode::OK);
-    assert_eq!(
-        serde_json::from_str::<serde_json::Value>(&body).unwrap()["role"],
-        "viewer"
-    );
-    let (status, body) = get(&app, "/api/config", &viewer).await;
-    assert_eq!(status, StatusCode::OK);
-    let view: serde_json::Value = serde_json::from_str(&body).unwrap();
-    assert_eq!(view["redacted"], true);
-    assert_eq!(view["disks"][0]["kind"], "iscsi");
-    assert_eq!(view["disks"][0]["id"], "root");
-    // Hot-plug ceilings are not sensitive.
-    assert_eq!(view["hotplug"]["max_cpus"], 4);
-    assert_eq!(view["hotplug"]["max_memory_mib"], 4096);
-    for field in sensitive {
-        assert!(!body.contains(field), "viewer saw {field}: {body}");
+    for (subject, role) in [(VIEWER, "viewer"), (SUBJECT, "admin")] {
+        let session = cookie(app.sessions.clone(), subject, auth::now() + 60).await;
+        let (status, body) = get(&app, "/api/session", &session).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&body).unwrap()["role"],
+            role
+        );
     }
-    // Viewers reach status (503 here only because no supervisor runs) and events.
-    assert_eq!(
-        get(&app, "/api/status", &viewer).await.0,
-        StatusCode::SERVICE_UNAVAILABLE
-    );
-    assert_eq!(get(&app, "/api/events", &viewer).await.0, StatusCode::OK);
-    // Even with valid CSRF and Origin, a viewer cannot act on the VM.
-    let response = bmc::router(app.clone())
-        .oneshot(post_action(&viewer))
-        .await
-        .unwrap();
-    assert_eq!(response.status(), StatusCode::FORBIDDEN);
-
-    let (status, body) = get(&app, "/api/session", &admin).await;
-    assert_eq!(status, StatusCode::OK);
-    assert_eq!(
-        serde_json::from_str::<serde_json::Value>(&body).unwrap()["role"],
-        "admin"
-    );
-    let (status, body) = get(&app, "/api/config", &admin).await;
-    assert_eq!(status, StatusCode::OK);
-    assert!(body.contains("\"redacted\":false"));
-    for field in sensitive {
-        assert!(body.contains(field), "admin view lacks {field}: {body}");
-    }
-    // The admin's action passes authorization and reaches the (absent) supervisor.
-    let response = bmc::router(app).oneshot(post_action(&admin)).await.unwrap();
-    assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
-}
-
-fn qmp_event(name: &str) -> qapi_protocol::QmpEvent {
-    serde_json::from_value(serde_json::json!({
-        "event": name, "data": {}, "timestamp": {"seconds": 1, "microseconds": 2}
-    }))
-    .unwrap()
-}
-
-#[tokio::test]
-async fn event_pages_follow_cursors() {
-    let (app, receiver) = app_with_receiver();
-    let viewer = cookie(app.sessions.clone(), VIEWER, auth::now() + 60).await;
-    for name in ["RESUME", "STOP", "RESET"] {
-        receiver.record_event(qmp_event(name));
-    }
-    let (status, body) = get(&app, "/api/events?after=1&limit=1", &viewer).await;
-    assert_eq!(status, StatusCode::OK);
-    let page: manager::pod::EventPage = serde_json::from_str(&body).unwrap();
-    assert_eq!(page.events.len(), 1);
-    assert_eq!(
-        (page.events[0].event.as_str(), page.next, page.latest),
-        ("STOP", 2, 3)
-    );
 }
 
 #[tokio::test]
 async fn viewers_are_refused_at_console_websocket_admission() {
     let app = app();
     let viewer = cookie(app.sessions.clone(), VIEWER, auth::now() + 60).await;
+    let unlisted = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
+    let group_viewer = group_cookie(
+        app.sessions.clone(),
+        unlisted,
+        &[VIEWER_GROUP],
+        auth::now() + 60,
+    )
+    .await;
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();
     use std::future::IntoFuture;
     let server = tokio::spawn(axum::serve(listener, bmc::router(app)).into_future());
     use tokio_tungstenite::tungstenite::client::IntoClientRequest;
-    let mut request = format!("ws://{address}/api/console")
-        .into_client_request()
-        .unwrap();
-    request
-        .headers_mut()
-        .insert("origin", "https://vm.example".parse().unwrap());
-    request
-        .headers_mut()
-        .insert("cookie", viewer.parse().unwrap());
-    match tokio_tungstenite::connect_async(request).await.unwrap_err() {
-        tokio_tungstenite::tungstenite::Error::Http(response) => {
-            assert_eq!(response.status(), StatusCode::FORBIDDEN)
+    for viewer in [viewer, group_viewer] {
+        let mut request = format!("ws://{address}/api/console")
+            .into_client_request()
+            .unwrap();
+        request
+            .headers_mut()
+            .insert("origin", "https://vm.example".parse().unwrap());
+        request
+            .headers_mut()
+            .insert("cookie", viewer.parse().unwrap());
+        match tokio_tungstenite::connect_async(request).await.unwrap_err() {
+            tokio_tungstenite::tungstenite::Error::Http(response) => {
+                assert_eq!(response.status(), StatusCode::FORBIDDEN)
+            }
+            error => panic!("unexpected error {error}"),
         }
-        error => panic!("unexpected error {error}"),
     }
     server.abort();
 }
@@ -650,40 +562,6 @@ async fn real_vnc_streams_expire_and_are_revoked_without_browser_cooperation() {
     server.abort();
 }
 
-#[tokio::test]
-async fn unavailable_responses_name_the_missing_resource() {
-    let mut app = app();
-    let admin = cookie(app.sessions.clone(), SUBJECT, auth::now() + 60).await;
-    let (status, body) = get(&app, "/api/status", &admin).await;
-    assert_eq!(
-        (status, body.as_str()),
-        (
-            StatusCode::SERVICE_UNAVAILABLE,
-            "The VM status is unavailable."
-        )
-    );
-    let response = bmc::router(app.clone())
-        .oneshot(post_action(&admin))
-        .await
-        .unwrap();
-    assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
-    let body = axum::body::to_bytes(response.into_body(), 1024)
-        .await
-        .unwrap();
-    assert_eq!(&body[..], b"The VM did not complete the power action.");
-    // A channel whose supervisor has not published a configuration yet.
-    let (control, _receiver) = manager::pod::control_channel();
-    app.control = manager::pod::Backend::Local(control);
-    let (status, body) = get(&app, "/api/config", &admin).await;
-    assert_eq!(
-        (status, body.as_str()),
-        (
-            StatusCode::SERVICE_UNAVAILABLE,
-            "The VM configuration is unavailable."
-        )
-    );
-}
-
 fn post(path: &str, cookie: &str, csrf: &str, body: &str) -> Request<Body> {
     req(path, Some(cookie))
         .method("POST")
@@ -694,27 +572,18 @@ fn post(path: &str, cookie: &str, csrf: &str, body: &str) -> Request<Body> {
         .unwrap()
 }
 
-#[tokio::test]
-async fn guest_agent_status_is_for_viewers() {
-    let app = app();
-    let viewer = cookie(app.sessions.clone(), VIEWER, auth::now() + 60).await;
-    // Status is answered from the manager's cached state, before QEMU runs.
-    let started = std::time::Instant::now();
-    let (status, body) = get(&app, "/api/agent", &viewer).await;
-    assert!(started.elapsed() < std::time::Duration::from_secs(1));
-    assert_eq!(status, StatusCode::OK);
-    let view: serde_json::Value = serde_json::from_str(&body).unwrap();
-    assert_eq!(view["status"]["enabled"], true);
-    assert_eq!(view["status"]["connected"], false);
-    assert!(view["freeze"].is_null() && view["update"].is_null());
-}
-
-/// Management lives in Redfish; only the dashboard's routes remain.
+/// Management lives in Redfish: the BMC serves only `/api/session` and
+/// `/api/console` besides the login, probes, assets and the `/redfish` proxy.
 #[tokio::test]
 async fn duplicate_management_routes_are_gone() {
     let app = app();
     let admin = cookie(app.sessions.clone(), SUBJECT, auth::now() + 60).await;
     for (method, path) in [
+        ("GET", "/api/status"),
+        ("GET", "/api/config"),
+        ("GET", "/api/events"),
+        ("GET", "/api/agent"),
+        ("POST", "/api/action"),
         ("GET", "/api/resources"),
         ("GET", "/api/events/stream"),
         ("POST", "/api/agent/freeze"),
@@ -754,20 +623,6 @@ async fn configured_groups_grant_roles_and_are_requested_only_when_configured() 
             None => assert_eq!(status, StatusCode::UNAUTHORIZED, "{groups:?}"),
         }
     }
-    // A viewer group cannot act on the VM.
-    let viewer = group_cookie(
-        app.sessions.clone(),
-        unlisted,
-        &[VIEWER_GROUP],
-        auth::now() + 60,
-    )
-    .await;
-    let response = bmc::router(app.clone())
-        .oneshot(post_action(&viewer))
-        .await
-        .unwrap();
-    assert_eq!(response.status(), StatusCode::FORBIDDEN);
-
     // Only configured groups from a verified token are kept in the session.
     use base64::Engine;
     let payload = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(
@@ -821,13 +676,8 @@ async fn bearer_tokens_are_fully_verified_on_every_api_route() {
             300,
         ),
     ];
-    for path in [
-        "/api/session",
-        "/api/status",
-        "/api/config",
-        "/api/events",
-        "/api/agent",
-    ] {
+    // Admission authenticates before the console's WebSocket upgrade.
+    for path in ["/api/session", "/api/console"] {
         for token in &rejected {
             // A bearer request never falls back to the cookie session it carries.
             let request = breq(path, token)
@@ -845,18 +695,6 @@ async fn bearer_tokens_are_fully_verified_on_every_api_route() {
         let unlisted = grouped(UNLISTED, &["ffffffff-ffff-4fff-8fff-ffffffffffff"]);
         let request = breq(path, &unlisted).body(Body::empty()).unwrap();
         assert_eq!(send(&app, request).await.0, StatusCode::FORBIDDEN, "{path}");
-    }
-    for (path, body) in [("/api/action", "\"reset\"")] {
-        let request = breq(path, &expired)
-            .method("POST")
-            .header("content-type", "application/json")
-            .body(Body::from(body))
-            .unwrap();
-        assert_eq!(
-            send(&app, request).await.0,
-            StatusCode::UNAUTHORIZED,
-            "{path}"
-        );
     }
 }
 
@@ -878,52 +716,13 @@ async fn bearer_roles_come_from_subjects_and_groups_and_need_no_csrf() {
         assert_eq!(body["role"], expected);
         assert_eq!(body["user"]["name"], "dashboard-user");
     }
-    // A bearer viewer gets the redacted configuration and no admin route.
-    let viewer = grouped(UNLISTED, &[VIEWER_GROUP]);
-    let request = breq("/api/config", &viewer).body(Body::empty()).unwrap();
-    let (status, body) = send(&app, request).await;
-    assert_eq!(status, StatusCode::OK);
-    assert!(body.contains("\"redacted\":true") && !body.contains(PORTAL));
-    let mutations = [(
-        "/api/action",
-        "\"reset\"",
-        "The VM did not complete the power action.",
-    )];
-    for (path, body, _) in mutations {
-        let request = breq(path, &viewer)
-            .method("POST")
-            .header("content-type", "application/json")
-            .body(Body::from(body))
-            .unwrap();
-        assert_eq!(send(&app, request).await.0, StatusCode::FORBIDDEN, "{path}");
-    }
-    // A bearer admin needs neither CSRF nor Origin, even a foreign one: the
-    // request reaches the (absent) VM.
-    for token in [bearer(SUBJECT), grouped(UNLISTED, &[ADMIN_GROUP])] {
-        for (path, body, unavailable) in mutations {
-            for origin in [None, Some("https://evil.example")] {
-                let mut request = breq(path, &token)
-                    .method("POST")
-                    .header("content-type", "application/json");
-                if let Some(origin) = origin {
-                    request = request.header("origin", origin);
-                }
-                let (status, message) = send(&app, request.body(Body::from(body)).unwrap()).await;
-                assert_eq!(
-                    (status, message.as_str()),
-                    (StatusCode::SERVICE_UNAVAILABLE, unavailable),
-                    "{path} {origin:?}"
-                );
-            }
-        }
-    }
 }
 
 #[tokio::test]
 async fn authorization_headers_grant_nothing_without_bearer_mode() {
     let mut app = app();
     app.bearer = None;
-    for path in ["/api/session", "/api/status", "/api/config", "/api/events"] {
+    for path in ["/api/session", "/api/console"] {
         let request = breq(path, &bearer(SUBJECT)).body(Body::empty()).unwrap();
         assert_eq!(
             send(&app, request).await.0,
@@ -931,13 +730,6 @@ async fn authorization_headers_grant_nothing_without_bearer_mode() {
             "{path}"
         );
     }
-    let request = breq("/api/action", &bearer(SUBJECT))
-        .method("POST")
-        .header("content-type", "application/json")
-        .header("origin", "https://vm.example")
-        .body(Body::from("\"reset\""))
-        .unwrap();
-    assert_eq!(send(&app, request).await.0, StatusCode::UNAUTHORIZED);
     // The cookie session still decides, whatever the header says.
     let viewer = cookie(app.sessions.clone(), VIEWER, auth::now() + 60).await;
     let request = breq("/api/session", &bearer(SUBJECT))
@@ -1034,7 +826,7 @@ async fn bearer_admission_lasts_until_the_token_expires() {
 }
 
 #[tokio::test]
-async fn bearer_only_bmc_serves_the_api_but_no_login_or_ui() {
+async fn bearer_only_bmc_serves_session_console_and_proxy_but_no_login_or_ui() {
     let app = bearer_only();
     for (method, path) in [
         ("GET", "/"),
@@ -1056,13 +848,7 @@ async fn bearer_only_bmc_serves_the_api_but_no_login_or_ui() {
     let (status, body) = send(&app, request).await;
     assert_eq!(status, StatusCode::OK);
     assert!(body.contains("\"role\":\"admin\""));
-    let request = breq("/api/action", &bearer(SUBJECT))
-        .method("POST")
-        .header("content-type", "application/json")
-        .body(Body::from("\"reset\""))
-        .unwrap();
-    assert_eq!(send(&app, request).await.0, StatusCode::SERVICE_UNAVAILABLE);
-    for path in ["/api/session", "/api/status", "/api/events"] {
+    for path in ["/api/session", "/api/console"] {
         let request = req(path, None).body(Body::empty()).unwrap();
         assert_eq!(
             send(&app, request).await.0,

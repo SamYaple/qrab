@@ -92,9 +92,9 @@ def response(path,**kwargs):
     try:return http.open(urllib.request.Request(origin+path,**kwargs),timeout=15)
     except urllib.error.HTTPError as error:return error
 assert response('/').status==200, 'HTTPS console is unavailable'
-for path in ['/api/session','/api/status']:
+for path in ['/api/session','/redfish/v1/Systems/1']:
     assert response(path).status==401, f'{path} is not protected'
-assert response('/api/action',data=b'"pause"',headers={'Content-Type':'application/json'}).status==401, 'VM control is not protected'
+assert response('/redfish/v1/Systems/1/Actions/ComputerSystem.Reset',data=b'{"ResetType":"Pause"}',headers={'Content-Type':'application/json'}).status==401, 'VM control is not protected'
 # urllib forces Connection: close, so it cannot exercise a WebSocket upgrade.
 connection=HTTPSConnection(urllib.parse.urlsplit(origin).netloc,timeout=15)
 try:

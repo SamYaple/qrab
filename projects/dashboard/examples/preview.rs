@@ -1,5 +1,5 @@
 //! Renders the dashboard's pages from saved Kubernetes objects and
-//! representative BMC data, for checking layout in a browser without a
+//! representative Redfish data, for checking layout in a browser without a
 //! cluster or a sign-in. Not part of the shipped image.
 //!
 //!   cargo run -p qrab-dashboard --example preview -- OUT_DIR VM.json POD.json [VM.json POD.json ...]
@@ -11,11 +11,11 @@
 use k8s_openapi::api::core::v1::Pod;
 use qrab_dashboard::{
     access::Role,
-    bmc::{self, Panel},
     cluster::Usage,
     images,
     launch::Report,
     model,
+    redfish::{Panel, System},
     ui::{self, Body, ConsolePage, DetailPage, LaunchPage, Launched, Page, PanelState, UserView},
 };
 use qrab_operator::api::VirtualMachine;
@@ -26,8 +26,7 @@ fn load<T: serde::de::DeserializeOwned>(path: &str) -> T {
 }
 
 fn panel() -> Panel {
-    let now = 1_794_517_200_000u64;
-    let events = (0..14)
+    let events: Vec<serde_json::Value> = (0..14u64)
         .map(|i| {
             let (event, data) = match i % 7 {
                 0 => ("RTC_CHANGE", serde_json::json!({"offset": 1, "qom-path": "/machine/unattached/device[8]"})),
@@ -38,43 +37,45 @@ fn panel() -> Panel {
                 5 => ("STOP", serde_json::Value::Null),
                 _ => ("GUEST_PANICKED", serde_json::json!({"action": "pause", "info": {"type": "hyper-v", "arg1": 0, "arg2": 0, "arg3": 0, "arg4": 0, "arg5": 0}})),
             };
-            bmc::Event {
-                seq: i,
-                received_unix_ms: now - (14 - i) * 37_000,
-                event: event.into(),
-                data,
-                truncated: false,
-            }
+            serde_json::json!({"Id": i.to_string(), "Created": format!("2026-11-14T10:{:02}:{:02}.000Z", 10 + i / 2, (i * 37) % 60),
+                "Severity": if event == "GUEST_PANICKED" { "Critical" } else { "OK" }, "Message": event,
+                "Oem": {"Qrab": {"Sequence": i, "Event": event, "Data": data, "Truncated": false}}})
         })
+        .rev()
         .collect();
-    let config: bmc::Config = serde_json::from_value(serde_json::json!({
-        "name": "qrab-demo", "memory_mib": 1536, "cpus": 2, "accelerator": "kvm", "boot": "uefi",
-        "console": true, "tpm": true, "guest_network": false,
-        "disks": [
-            {"kind": "file", "id": "esp", "format": "raw", "read_only": true, "boot_index": 0},
-            {"kind": "iscsi", "id": "data", "bus": "virtio", "read_only": false, "portal": "10.203.0.1:3260",
-             "target": "iqn.2026-11.com.yapplesauce:qrab.disk.e309f751-5dda-4271-a0f4-4454c9527a59.data"}
-        ],
-        "startup_timeout_secs": 300, "shutdown_grace_secs": 30, "redacted": false,
-        "state_id": "e309f751-5dda-4271-a0f4-4454c9527a59",
-        "hotplug": {"max_cpus": 4, "max_memory_mib": 4096, "phase": "applied"},
-        "deployment": {"node": "kube03", "pod": "qrab-demo", "namespace": "qrab",
-            "image": "zot.yapplesauce.com/qrab/manager@sha256:373b51bbb3d05add0160b10277826634b9e2efe7d7f15a27e2a849cae233102c"}
+    let now = 1_794_517_200_000u64;
+    let system: System = serde_json::from_value(serde_json::json!({
+        "PowerState": "On", "Status": {"State": "Enabled", "Health": "OK"},
+        "Actions": {"#ComputerSystem.Reset": {"ResetType@Redfish.AllowableValues":
+            ["On", "GracefulShutdown", "ForceRestart", "Pause", "Resume", "Nmi", "GracefulRestart", "PowerCycle"]}},
+        "Oem": {"Qrab": {
+            "Configuration": {
+                "name": "qrab-demo", "memory_mib": 1536, "cpus": 2, "accelerator": "kvm", "boot": "uefi",
+                "console": true, "tpm": true, "guest_network": false,
+                "disks": [
+                    {"kind": "file", "id": "esp", "format": "raw", "read_only": true, "boot_index": 0},
+                    {"kind": "iscsi", "id": "data", "bus": "virtio", "read_only": false, "portal": "10.203.0.1:3260",
+                     "target": "iqn.2026-11.com.yapplesauce:qrab.disk.e309f751-5dda-4271-a0f4-4454c9527a59.data"}
+                ],
+                "startup_timeout_secs": 300, "shutdown_grace_secs": 30, "redacted": false,
+                "state_id": "e309f751-5dda-4271-a0f4-4454c9527a59",
+                "hotplug": {"max_cpus": 4, "max_memory_mib": 4096, "phase": "applied"},
+                "deployment": {"node": "kube03", "pod": "qrab-demo", "namespace": "qrab",
+                    "image": "zot.yapplesauce.com/qrab/manager@sha256:373b51bbb3d05add0160b10277826634b9e2efe7d7f15a27e2a849cae233102c"}
+            },
+            "GuestAgent": {"enabled": true, "connected": true,
+                "version": "qrab-guest-agent 0.1.0 (rustc 1.97.1, x86_64-unknown-linux-musl)",
+                "connected_since_unix_ms": now - 3_600_000, "last_seen_unix_ms": now - 2_000,
+                "last_error": "guest-fsfreeze-thaw: Command not permitted while filesystems are not frozen"}
+        }}
     }))
     .unwrap();
     Panel {
-        status: Ok(serde_json::from_value(serde_json::json!({"phase": "running", "ready": true,
-            "run_state": "running", "qemu_version": [11, 1, 3], "observed_unix_ms": now,
-            "detail": "QEMU is running; the guest agent answered 2 s ago and the last hot-plug applied 2 vCPUs and 1536 MiB"})).unwrap()),
-        agent: Ok(serde_json::from_value(serde_json::json!({"status": {"enabled": true, "connected": true,
-            "version": "qrab-guest-agent 0.1.0 (rustc 1.97.1, x86_64-unknown-linux-musl)",
-            "connected_since_unix_ms": now - 3_600_000, "last_seen_unix_ms": now - 2_000,
-            "last_error": "guest-fsfreeze-thaw: Command not permitted while filesystems are not frozen"},
-            "freeze": "thawed",
-            "update": {"state": "succeeded", "run-id": 7, "exit-code": 0, "hook-installed": true,
-                "output": "Fetched 4 packages (12.3 MB)\nUnpacking linux-image-6.12.116+deb13-amd64 (6.12.116-1) over (6.12.115-1)\nSetting up qrab-guest-agent (0.1.0) ...", "error": null}})).unwrap()),
-        events: Ok(bmc::Events { events, latest: 13, missed: 0, qmp_dropped: 2 }),
-        config: Ok(config),
+        system: Ok(system),
+        events: Ok(qrab_dashboard::redfish::Events {
+            entries: serde_json::from_value(serde_json::Value::Array(events)).unwrap(),
+            qmp_dropped: Some(2),
+        }),
     }
 }
 

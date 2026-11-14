@@ -27,7 +27,8 @@ spec:
     toPorts:
     - ports:
       - {port: '443', protocol: TCP}
-  # Each VM's BMC, called with the signed-in user's bearer token.
+  # Each VM's BMC console (8080) and Redfish service (8081), called with the
+  # signed-in user's bearer token.
   - toEndpoints:
     - matchLabels:
         app.kubernetes.io/name: qrab
@@ -35,9 +36,11 @@ spec:
     toPorts:
     - ports:
       - {port: '8080', protocol: TCP}
+      - {port: '8081', protocol: TCP}
 ---
 # Selects every VM Pod. Cilium policies are additive: per-VM policies such as
-# qrab-demo's keep their own rules, and this one adds the dashboard on 8080.
+# qrab-demo's keep their own rules, and this one adds the dashboard on 8080
+# (BMC console) and 8081 (Redfish).
 apiVersion: cilium.io/v2
 kind: CiliumNetworkPolicy
 metadata:
@@ -54,3 +57,4 @@ spec:
     toPorts:
     - ports:
       - {port: '8080', protocol: TCP}
+      - {port: '8081', protocol: TCP}

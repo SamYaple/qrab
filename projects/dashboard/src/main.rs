@@ -1,6 +1,6 @@
 use anyhow::Context;
 use qrab_dashboard::{
-    AppState, auth::Oidc, bmc::Bmc, cluster::Kube, config::Config, kanidm::Kanidm,
+    AppState, auth::Oidc, bmc::Bmc, cluster::Kube, config::Config, kanidm::Kanidm, redfish::Redfish,
 };
 use std::sync::Arc;
 
@@ -43,7 +43,8 @@ async fn main() -> anyhow::Result<()> {
         storage_node: config.storage_node.clone(),
         cluster: Arc::new(Kube::new(client, &config.namespace)),
         kanidm,
-        bmc: Bmc::new(8080)?,
+        bmc: Bmc::new(8080),
+        redfish: Redfish::new(8081)?,
         sessions: Default::default(),
         novnc_dir: config.novnc_dir.clone(),
         consoles: Arc::new(tokio::sync::Semaphore::new(16)),

@@ -950,7 +950,7 @@ mod tests {
                 }
             })
         );
-        // The form offers no Redfish: nothing admits port 8081 for these VMs.
+        // The form offers no Redfish options: the BMC's Redfish sidecar serves the dashboard.
         let plain = Request {
             disks: vec![],
             kvm: true,

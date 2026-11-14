@@ -15,7 +15,7 @@ function showError(message) {
     element('console-error').hidden = !message;
 }
 
-// After a reset, shutdown or power-on the console comes back by itself:
+// After a reset, restart, shutdown, power cycle or power-on the console comes back by itself:
 // retries back off from 1 s to 30 s and stop two minutes after the action.
 const RECONNECT_WINDOW_MS = 120000;
 let reconnectUntil = 0;
@@ -94,36 +94,47 @@ audioButton?.addEventListener('click', () => {
 element('cad').addEventListener('click', () => rfb?.sendCtrlAltDel());
 element('fullscreen').addEventListener('click', () => screen.requestFullscreen().catch(error => showError(error.message)));
 
-// Power. The server enforces role, CSRF, Origin and confirmation; the
-// buttons only reflect what currently makes sense.
+// Power. The server enforces role, CSRF, Origin and confirmation, and Redfish
+// enforces the role again; the buttons only reflect what currently makes
+// sense. In-pod buttons are Redfish ResetTypes, shown while ResetActionInfo
+// allows them; Power on and Power off set the VM's spec.running.
 const buttons = [...power.querySelectorAll('[data-power]')];
+const RECONNECTS = ['on', 'ForceRestart', 'GracefulRestart', 'GracefulShutdown', 'PowerCycle'];
 let state = null;
 let busy = false;
 let armed = null;
 let armTimer = null;
 
+function offered(button) {
+    // Unknown (Redfish unreachable or not yet asked): keep the button, disabled.
+    return button.dataset.inPod !== 'true' || !state?.reset_types || state.reset_types.includes(button.dataset.power);
+}
 function allowed(action) {
     if (!state) return false;
-    const run = state.run_state || '';
-    const live = state.pod && !state.bmc_error;
+    const power = state.power_state || '';
+    const live = state.pod && !state.redfish_error;
     switch (action) {
         case 'on': return !state.running;
         case 'off': return state.running || state.pod;
-        case 'resume': return live && run === 'paused';
-        case 'pause': return live && run === 'running';
-        case 'reset': return live && (run === 'running' || run === 'paused');
-        case 'powerdown': return live && run === 'running';
+        case 'Resume': return live && power === 'Paused';
+        case 'Pause':
+        case 'GracefulRestart':
+        case 'GracefulShutdown':
+        case 'Nmi': return live && power === 'On';
+        case 'ForceRestart':
+        case 'PowerCycle': return live && (power === 'On' || power === 'Paused');
         default: return false;
     }
 }
+const POWER_STATES = {On: 'Running', Paused: 'Paused', PoweringOn: 'Starting', PoweringOff: 'Stopping', Off: 'Exited'};
 function describe() {
     if (!state) return ['Unknown', ''];
     const phase = state.phase ? `Operator: ${state.phase}` : '';
     if (!state.running) return [state.pod ? 'Stopping' : 'Off', phase];
     if (!state.pod) return ['Starting', phase];
-    if (state.bmc_error) return ['Unreachable', `BMC: ${state.bmc_error}`];
-    const run = state.run_state || 'unknown';
-    return [run === 'running' ? 'Running' : run === 'paused' ? 'Paused' : run, phase];
+    if (state.redfish_error) return ['Unreachable', state.redfish_error];
+    const health = state.health && state.health !== 'OK' ? `Health: ${state.health}` : '';
+    return [POWER_STATES[state.power_state] || state.power_state || 'Unknown', [health, phase].filter(Boolean).join(' · ')];
 }
 function render() {
     const [chip, detail] = describe();
@@ -132,6 +143,8 @@ function render() {
     element('power-detail').textContent = detail;
     for (const button of buttons) {
         if (button !== armed) button.textContent = button.dataset.label;
+        // The stylesheet sets buttons' display, so `hidden` alone would not hide them.
+        button.style.display = offered(button) ? '' : 'none';
         button.disabled = busy || !allowed(button.dataset.power);
     }
 }
@@ -176,7 +189,7 @@ async function send(button) {
         if (!response.ok) throw new Error(await response.text());
         showError('');
         status.textContent = `${button.dataset.label} sent.`;
-        if (['on', 'reset', 'powerdown'].includes(action)) {
+        if (RECONNECTS.includes(action)) {
             reconnectUntil = Date.now() + RECONNECT_WINDOW_MS;
             reconnectDelay = 1000;
             if (!rfb && !reconnectTimer) scheduleReconnect();

@@ -13,19 +13,25 @@ launch new VMs; VM admins can send power actions and delete VMs.
   `https://vms.yapplesauce.com/auth/callback`. Per-VM console hosts,
   certificates and callbacks are no longer needed for new VMs: the dashboard
   creates VMs without `console.publicUrl`, so their BMCs are bearer-only.
-- **BMC calls are server-side.** For a VM page the dashboard resolves the VM's
+- **VM calls are server-side.** For a VM page the dashboard resolves the VM's
   Pod from `status.podName`, checks that this exact VM controls the Pod (a
   controller ownerReference of kind VirtualMachine with the VM's UID, as the
   operator checks) and that the Pod carries the operator's labels for it
   (`app.kubernetes.io/instance` and `qrab.yapplesauce.com/owner-uid`), and
-  calls `http://<pod IP>:8080` with `Authorization: Bearer <the user's ID
-  token>`. The BMC verifies that token itself (issuer
-  `https://idm.yaple.net/oauth2/openid/qrab-dashboard`, audience
-  `qrab-dashboard`, see [bmc.md](bmc.md#dashboard-bearer-tokens)) and applies
-  its own roles to status, events, configuration, agent, power and console, so
-  the dashboard cannot widen access to anything a BMC serves. Launch and
-  delete use the dashboard's own ServiceAccount; the dashboard gates them
-  itself ([below](#roles)). Responses larger than 1 MiB are refused.
+  calls that Pod with `Authorization: Bearer <the user's ID token>`: its
+  Redfish service at `http://<pod IP>:8081/redfish/v1` for status, guest
+  agent, configuration, events and power, and its BMC at
+  `ws://<pod IP>:8080/api/console` for the console only. Both verify the
+  token themselves (issuer `https://idm.yaple.net/oauth2/openid/qrab-dashboard`,
+  audience `qrab-dashboard`; see [bmc.md](bmc.md#dashboard-bearer-tokens) and
+  [redfish.md](redfish.md#trusted-token-sources)) and apply the VM's roles:
+  while the BMC is enabled the operator merges the console's admin and viewer
+  lists into Redfish's ([operator.md](operator.md#bmc-users-in-redfish)), so a
+  dashboard user holds the same role in Redfish, and the dashboard cannot
+  widen access to anything either serves. Launch and delete use the
+  dashboard's own ServiceAccount; the dashboard gates them itself
+  ([below](#roles)). Redfish responses larger than 1 MiB are refused (4 MiB
+  for the whole event log).
 - **The ID token never reaches the browser.** It lives in the server-side
   session with the subject, `preferred_username`, the token's group UUIDs and
   the expiry. The browser holds only an opaque `__Host-` cookie.
@@ -36,14 +42,30 @@ launch new VMs; VM admins can send power actions and delete VMs.
   controls call `/vms/{namespace}/{name}/power`
   ([below](#console-power-controls)).
 
+### The BMC panel
+
+The detail page's BMC panel reads the VM's Redfish service with the user's
+token (viewers and admins alike):
+
+- `Systems/1`: `PowerState`, `Status` (`State`, `Health`), the cached guest
+  agent status (`Oem.Qrab.GuestAgent`) and the effective configuration
+  (`Oem.Qrab.Configuration`, which Redfish redacts for viewers);
+- `Managers/1/LogServices/Events` for the QMP drop count, and its `Entries`
+  for the newest 20 QMP events. Redfish implements no `$top`/`$skip`, so the
+  dashboard reads the whole bounded log (at most 256 entries) and keeps the
+  newest 20.
+
+Freeze state and guest-update results are not shown: Redfish exposes freeze,
+thaw and update only as admin actions.
+
 | Route | Purpose |
 | --- | --- |
 | `GET /` | VMs visible to the user: phase/ready, node, the first NIC's IP, vCPUs and memory (current / hot-plug maximum), disks, live CPU and memory from `metrics.k8s.io`, role |
-| `GET /vms/{ns}/{name}` | Spec and status, cloud-init summary, disks, `status.resize`, Pod requests/limits, live usage, guest NICs, and the BMC panel |
-| `POST /vms/{ns}/{name}/action` | Admin power action (pause, resume, reset, shut down) |
+| `GET /vms/{ns}/{name}` | Spec and status, cloud-init summary, disks, `status.resize`, Pod requests/limits, live usage, guest NICs, and the BMC panel ([below](#the-bmc-panel)) |
+| `POST /vms/{ns}/{name}/action` | Admin form power action: one Redfish ResetType from `Systems/1`'s allowable values (`action`, plus `confirm=yes` for disruptive ones) |
 | `POST /vms/{ns}/{name}/delete` | Admin deletion of a VM launched by the dashboard; the PVC is kept |
-| `GET /vms/{ns}/{name}/power` | Admin JSON power state: `running` (spec), operator `phase`, `pod`, the BMC's `run_state`, `bmc_error` |
-| `POST /vms/{ns}/{name}/power` | Admin JSON power request `{"action": ..., "confirm": bool}`: `on`, `off`, `pause`, `resume`, `reset`, `powerdown` |
+| `GET /vms/{ns}/{name}/power` | Admin JSON power state: `running` (spec), operator `phase`, `pod`, Redfish `power_state` and `health` from `Systems/1`, the allowed in-pod `reset_types` from `ResetActionInfo`, `redfish_error` |
+| `POST /vms/{ns}/{name}/power` | Admin JSON power request `{"action": ..., "confirm": bool}`: `on`, `off`, or a Redfish ResetType (`Resume`, `Pause`, `GracefulRestart`, `ForceRestart`, `PowerCycle`, `Nmi`, `GracefulShutdown`) |
 | `GET /vms/{ns}/{name}/console` | noVNC page with power controls (admin) |
 | `GET /vms/{ns}/{name}/console/ws` | Console WebSocket proxy (admin, exact Origin) |
 | `GET`/`POST /launch` | Launch form (launchers) |
@@ -53,31 +75,47 @@ launch new VMs; VM admins can send power actions and delete VMs.
 
 ### Console power controls
 
-The console page's toolbar has **Power on**, **Resume**, **Pause**, **Reset**,
-**Shut down** and **Power off**, enabled from a state poll every 3 seconds
-while the tab is visible. Reset, Shut down and Power off arm on the first
-click ("Confirm reset") and send only on a second click within 5 seconds; the
-server also refuses them without `"confirm": true`.
+The console page's toolbar has **Power on**, the in-pod Redfish resets
+**Resume**, **Pause**, **Restart guest** (`GracefulRestart`), **Reset**
+(`ForceRestart`), **Power cycle** (`PowerCycle`), **NMI** (`Nmi`) and **Shut
+down** (`GracefulShutdown`), and **Power off**, enabled from a state poll
+every 3 seconds while the tab is visible. An in-pod button is shown only while
+the VM's `Systems/1/ResetActionInfo` lists its ResetType (Power cycle needs an
+operator-managed restart, Restart guest a connected guest agent at action
+time), and enabled from `Systems/1` `PowerState`: Resume while `Paused`;
+Pause, Restart guest, NMI and Shut down while `On`; Reset and Power cycle while
+`On` or `Paused`. Every button except Power on, Resume and Pause arms on the
+first click ("Confirm reset") and sends only on a second click within 5
+seconds; the server also refuses them without `"confirm": true`.
 
-- Pause, Resume, Reset and Shut down go to the running VM's BMC with the
-  user's ID token, exactly like the detail page's power form. Shut down ends
+- The in-pod buttons send `ComputerSystem.Reset` with the matching ResetType
+  to the running VM's Redfish service with the user's ID token. Shut down ends
   this instance; while `spec.running` is true the operator starts another.
+  Redfish's `On` is not offered: Resume covers a paused VM.
 - **Power on** and **Power off** set `spec.running` with a merge patch that
   carries the VM's UID (so it cannot reach a recreated VM of the same name).
-  An off VM has no Pod or BMC, so these go through Kubernetes. Power off is
-  the operator's stop and keeps the VM off.
-- After Power on, Reset or Shut down, the console reconnects by itself,
-  backing off from 1 to 30 seconds, for two minutes. Disconnect or Power off
-  cancels that.
+  An off VM has no Pod or Redfish service, so these go through Kubernetes.
+  Power off is the operator's stop and keeps the VM off.
+- After Power on, Reset, Restart guest, Power cycle or Shut down, the console
+  reconnects by itself, backing off from 1 to 30 seconds, for two minutes.
+  Disconnect or Power off cancels that.
 
 `POST /vms/{ns}/{name}/power` takes JSON with `X-CSRF-Token` and the exact
 Origin, and is admin-only (viewers 403, invisible VMs 404), like the console.
-Graceful restart and NMI join the list when the dashboard moves to Redfish
-(work/dashboard-uses-redfish).
+Redfish enforces the role again: its 403 (for example a grant removed since
+sign-in) is returned as a 403 naming the refused action, a 409 as a 409, and
+other failures as 502.
+
+The detail page keeps a no-script power form for the same in-pod resets,
+rendered from the allowable values in the `Systems/1` it already read and
+posted to `POST /vms/{ns}/{name}/action`; its result, including a Redfish
+refusal, comes back as the page notice. Power on and off are only on the
+console page.
 
 ### Roles
 
-The dashboard grants each VM the same roles as its BMC:
+The dashboard grants each VM the same roles as its BMC (and, through the
+operator's merged lists, its Redfish service):
 
 - **admin**: the subject is in `spec.console.allowedSubjects`, or a token
   group is in `console.adminGroups`;
@@ -85,12 +123,13 @@ The dashboard grants each VM the same roles as its BMC:
   `qrab.yapplesauce.com/creator-subject` annotation (which the operator adds
   to the BMC's viewers), or a token group is in `console.viewerGroups`;
 - otherwise the VM is invisible: it is not listed and its pages are 404, as for
-  a VM that does not exist. Redfish lists grant nothing in the dashboard.
+  a VM that does not exist. `components.redfish`'s own lists grant nothing in
+  the dashboard.
 
 Admin wins when both apply. Deleting additionally requires the VM to carry
 `app.kubernetes.io/managed-by: qrab-dashboard`, which only dashboard launches
-set, so qrab-demo and other hand-made VMs cannot be deleted here. Kanidm group changes reach the dashboard and the
-BMC at the next sign-in; sessions last at most 15 minutes.
+set, so qrab-demo and other hand-made VMs cannot be deleted here. Kanidm group changes reach the dashboard, the
+BMC and Redfish at the next sign-in; sessions last at most 15 minutes.
 
 ### Launching a VM
 
@@ -126,8 +165,9 @@ nothing. On submit:
    first, so OVMF boots the clone and falls back to the demo ESP at boot
    index 1), the creator annotation
    set to the launcher and the label `app.kubernetes.io/managed-by:
-   qrab-dashboard`. There is no Redfish option: nothing routes or admits port
-   8081 to these VMs.
+   qrab-dashboard`. The form has no Redfish options: the Redfish sidecar that
+   comes with the BMC serves the dashboard, and the launcher is its admin
+   through the console lists.
 
 If a step fails, the result page names the step, what was created, and what
 was rolled back: groups created by that request are deleted again, by name
@@ -319,12 +359,13 @@ non-root UID 10001, read-only root, no capabilities, credentials mounted as
 files), the Service, the Ingress and Certificate for `vms.yapplesauce.com`,
 and two CiliumNetworkPolicies. The first lets the dashboard receive from the
 ingress and host, and reach the API server, DNS, Kanidm (192.168.0.251:443)
-and VM Pods on 8080. The second, `qrab-vm-from-dashboard`, selects every VM
-Pod and admits the dashboard on 8080. Cilium policies are additive, so per-VM
+and VM Pods on 8080 (BMC console) and 8081 (Redfish). The second,
+`qrab-vm-from-dashboard`, selects every VM Pod and admits the dashboard on 8080
+and 8081. Cilium policies are additive, so per-VM
 policies such as qrab-demo's keep working and gain only the dashboard. A VM Pod
 without a policy of its own, such as every dashboard-launched VM, becomes
-ingress default-deny once this policy selects it: only dashboard to 8080 is
-admitted (Redfish's 8081 and everything else are refused). Its egress is not
+ingress default-deny once this policy selects it: only the dashboard to 8080
+and 8081 is admitted. Its egress is not
 restricted by this policy.
 
 ```sh
@@ -370,10 +411,11 @@ guards, and its `spiffe-node-pulls.py` entry for `zot.yapplesauce.com/qrab/dashb
   needs a session, the exact Origin and the admin role, and closes within a
   second of sign-out or expiry; it rechecks the VM's grants every 30 seconds.
   At most 16 consoles are open at once, and at most 4 per subject.
-- BMC calls go only to the requested VM's own Pod IP. The dashboard and VM
-  Pods talk plain HTTP inside the cluster network, restricted by the
-  policies above; the bearer is an ID token for the `qrab-dashboard` audience
-  only, which Redfish (audience `qrab-redfish`) does not accept.
+- BMC and Redfish calls go only to the requested VM's own Pod IP. The
+  dashboard and VM Pods talk plain HTTP inside the cluster network,
+  restricted by the policies above; the bearer is an ID token for the
+  `qrab-dashboard` audience, which the VM's BMC and Redfish accept only
+  because the operator lists that pair (`QRAB_BMC_BEARER_*`).
 - Guest- and VM-controlled strings (agent versions, errors, event payloads)
   are rendered as escaped text. Pages have a no-script CSP; the console page
   allows only same-origin scripts and WebSocket.
@@ -393,10 +435,12 @@ guards, and its `spiffe-node-pulls.py` entry for `zot.yapplesauce.com/qrab/dashb
 ## Testing
 
 `cargo test --locked -p qrab-dashboard` (part of `contrib/check-runtime.sh`)
-runs offline against an in-memory cluster, a fake Kanidm and two fake BMCs on
-127.0.0.1 and 127.0.0.2. It covers role resolution, list filtering, launch
+runs offline against an in-memory cluster, a fake Kanidm and two fake VM Pods
+(BMC console and Redfish) on 127.0.0.1 and 127.0.0.2. It covers role resolution, list filtering, launch
 authorization, the rendered names, PVC and VirtualMachine, rollback, CSRF and
-Origin on every POST, BMC calls with the bearer only to the selected Pod,
+Origin on every POST, Redfish and console calls with the bearer only to the
+selected Pod, the panel from `Systems/1` and the event log, each power action
+as its ResetType, Redfish refusals as refused actions, the response bounds,
 escaping of guest strings, the base-image catalog parser, the Images page,
 OS launches (root clone, stale or unknown images, root minimum, a data disk
 named root), NIC and cloud-init rendering and validation (user-data never

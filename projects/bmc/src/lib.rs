@@ -1,9 +1,7 @@
 pub mod admin_bucket;
-mod agent;
 pub mod auth;
 pub mod config;
 mod console;
-mod events;
 pub mod proxy;
 pub mod rfb_filter;
 pub mod session_store;
@@ -15,7 +13,7 @@ use axum::{
     routing::{any, get, post},
     Json, Router,
 };
-use manager::pod::{self, Action};
+use manager::pod;
 use std::sync::Arc;
 use tokio::sync::Semaphore;
 use tower_sessions::{cookie::SameSite, Expiry, Session, SessionManagerLayer};
@@ -76,10 +74,11 @@ impl IntoResponse for Failure {
     }
 }
 
-/// Without a browser login (`BMC_PUBLIC_URL`) there is no UI, `/auth/*` or
-/// `/assets`: only `/redfish/*`, the JSON API for bearer tokens, and the probes.
-/// VM management lives in Redfish; the remaining `/api/*` management routes
-/// serve only the dashboard until it reads Redfish too.
+/// The BMC serves the login (`/auth/*`), the UI shell and its `/assets`,
+/// `/api/session`, the `/api/console` streams, the `/redfish/*` proxy to the
+/// in-pod Redfish service and the probes. VM management is Redfish's: never
+/// add `/api/*` management routes here. Without a browser login
+/// (`BMC_PUBLIC_URL`) there is no UI, `/auth/*` or `/assets`.
 pub fn router(app: AppState) -> Router {
     let secure = app
         .config
@@ -113,16 +112,6 @@ pub fn router(app: AppState) -> Router {
     }
     router
         .route("/api/session", get(identity))
-        // Removed by work/dashboard-uses-redfish
-        .route("/api/status", get(status))
-        // Removed by work/dashboard-uses-redfish
-        .route("/api/config", get(config_view))
-        // Removed by work/dashboard-uses-redfish
-        .route("/api/events", get(events::page))
-        // Removed by work/dashboard-uses-redfish
-        .route("/api/action", post(action))
-        // Removed by work/dashboard-uses-redfish
-        .route("/api/agent", get(agent::view))
         .route("/api/console", get(console::upgrade))
         .route("/redfish", any(proxy::forward))
         .route("/redfish/", any(proxy::forward))
@@ -165,32 +154,6 @@ async fn identity(
     }
     Ok(Json(body))
 }
-async fn status(
-    State(app): State<AppState>,
-    _: auth::Principal,
-) -> Result<Json<pod::Status>, Failure> {
-    app.control
-        .status()
-        .await
-        .map(Json)
-        .map_err(|_| Failure::unavailable("The VM status is unavailable."))
-}
-/// Viewers receive the redacted view; only admins see storage endpoints,
-/// credential references, identity, paths, node and image.
-async fn config_view(
-    State(app): State<AppState>,
-    principal: auth::Principal,
-) -> Result<Json<pod::ConfigView>, Failure> {
-    let view = app
-        .control
-        .config_view()
-        .await
-        .map_err(|_| Failure::unavailable("The VM configuration is unavailable."))?;
-    Ok(Json(match principal.role {
-        auth::Role::Admin => view,
-        auth::Role::Viewer => view.redacted(),
-    }))
-}
 async fn health(State(app): State<AppState>) -> StatusCode {
     if app.control.probe(false).await.is_ok() {
         StatusCode::OK
@@ -222,20 +185,6 @@ fn mutation(
         return Err(Failure::forbidden());
     }
     Ok(())
-}
-async fn action(
-    State(app): State<AppState>,
-    principal: auth::Principal,
-    headers: HeaderMap,
-    Json(action): Json<Action>,
-) -> Result<StatusCode, Failure> {
-    let principal = principal.admin()?;
-    mutation(&app, &headers, &principal)?;
-    let result = app.control.action(action).await;
-    tracing::info!(subject=%principal.user.subject, bearer=principal.is_bearer(), ?action, success=result.is_ok(), "VM control requested");
-    result
-        .map(|_| StatusCode::NO_CONTENT)
-        .map_err(|error| Failure::vm(&error, "The VM did not complete the power action."))
 }
 async fn logout(
     State(app): State<AppState>,

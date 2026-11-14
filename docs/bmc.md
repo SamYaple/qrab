@@ -7,8 +7,8 @@ sidecar, `qrab-bmc --socket /run/qrab-control/manager/control.sock`, next to the
 standalone use. The manager image contains `qrab-manager`, `qrab-bmc` and
 `qrab-redfish`. The BMC uses the same Kanidm authorization-code OIDC flow as
 `idm-dashboard`, with S256 PKCE, state/nonce verification, signature/issuer/audience
-and expiry validation. The JSON API can also accept the dashboard's Kanidm ID
-tokens as bearer credentials ([below](#dashboard-bearer-tokens)). There are no
+and expiry validation. `/api/session` and the `/api/console` WebSocket can
+also accept the dashboard's Kanidm ID tokens as bearer credentials ([below](#dashboard-bearer-tokens)). There are no
 static tokens and no anonymous development bypass.
 
 The demo is at **https://qrab-demo.yapplesauce.com**, using the cluster's private
@@ -73,8 +73,8 @@ is dark by default and switches to a light one with the system preference.
 
 In sidecar mode the BMC needs the control socket and the Redfish sidecar on the
 Pod's loopback. It keeps a local mirror of the manager's event history and
-opens a short socket connection for each console request and for the
-dashboard's remaining `/api/*` reads. The VM config, which must
+opens a short socket connection for each console request. The VM config,
+which must
 set `console: true`, belongs to the manager container. In embedded mode
 (`--config`) the BMC runs the supervisor itself. See [manager.md](manager.md).
 On SIGTERM the sidecar closes live streams within two seconds and exits 0.
@@ -129,50 +129,43 @@ session.
 
 | Role | Access |
 | --- | --- |
-| viewer | `/api/session`, `/api/status`, `/api/events`, `/api/agent`, redacted `/api/config` |
-| admin | Everything a viewer has, the full `/api/config`, `/api/action` and `/api/console`, plus the VM's enabled [admin-bucket](#admin-bucket) features when requested |
+| viewer | `/api/session` |
+| admin | `/api/session` and `/api/console`, plus the VM's enabled [admin-bucket](#admin-bucket) features when requested |
 
 Through `/redfish` a user's role is Redfish's, from the same Kanidm subject
 and groups ([below](#redfish-proxy)).
 
-### Routes kept for the dashboard
+### Routes
 
-Redfish is the VM's single management plane. The BMC's own
-`/api/status`, `/api/action`, `/api/events`, `/api/agent` and `/api/config`
-remain only because the dashboard still calls them; work/dashboard-uses-redfish
-removes them. `/api/events/stream`, `/api/resources` and
-`POST /api/agent/{freeze,thaw,update}` are gone: use `EventService/SSE`,
-`Managers/1/Oem/Qrab/Resources` and the `Oem/QrabComputerSystem` actions.
-Add new management capabilities to Redfish, never to the BMC.
+Redfish is the VM's single management plane. The BMC serves only the login
+(`/auth/*`), the UI shell and its `/assets`, `GET /api/session`, the
+`/api/console` WebSocket, the [`/redfish` proxy](#redfish-proxy) and the
+`/healthz` and `/readyz` probes. Status, power, events, the guest agent and the
+(role-redacted) configuration are Redfish's `Systems/1`,
+`ComputerSystem.Reset`, `LogServices/Events`, `EventService/SSE`,
+`Oem.Qrab.GuestAgent`, `Oem.Qrab.Configuration`,
+`Managers/1/Oem/Qrab/Resources` and the `Oem/QrabComputerSystem` actions
+([redfish.md](redfish.md)). The BMC page reads them through the proxy and the
+dashboard calls each VM's Redfish on port 8081 directly
+([dashboard.md](dashboard.md)). The former `/api/status`, `/api/action`,
+`/api/events`, `/api/agent`, `/api/config`, `/api/events/stream`,
+`/api/resources` and `POST /api/agent/{freeze,thaw,update}` routes are gone
+(404). Add new management capabilities to Redfish, never to the BMC.
 
-`GET /api/agent` (both roles) returns the manager's cached guest-agent status
-and, while connected, the freeze state and last update run; viewers do not see
-update arguments, output or errors.
+The console is admin-only: a server-side view-only RFB filter is not
+implemented, so viewers are refused at WebSocket admission (403) and the UI
+leaves the console and power controls out of the page.
 
-A viewer's configuration keeps sizing, boot mode, TPM/console flags, disk kinds,
-IDs, buses and read-only flags. It omits iSCSI portals, targets, LUNs,
-initiator names, CHAP usernames and password-file references, file paths,
-kernel arguments, the state ID, node, pod and image. Secret contents are never
-read into any view. The console is admin-only: a server-side view-only RFB
-filter is not implemented, so viewers are refused at WebSocket admission
-(403) and the UI leaves the console and power controls out of the page.
-
-Every `/api/*` route requires a valid session or, in bearer mode, a valid
-bearer token: missing, expired or unlisted sessions get 401, and an
-authenticated viewer on an admin route gets 403.
-WebSocket upgrades require the exact configured Origin. Mutations also
-require the session's `X-CSRF-Token`. The control endpoint accepts only JSON
-`"pause"`, `"resume"`, `"reset"`, `"nmi"`, `"reboot"` or `"powerdown"`; there is no browser raw-QMP
-endpoint. Four simultaneous consoles and a bounded manager queue limit resource
-use. Binary WebSocket messages are limited to 64 KiB and blocked writes time out.
-
-`GET /api/events?after=<seq>&limit=<n>` returns a bounded page of the
-manager's QMP event history (`events`, `next`, `latest`, `missed`,
-`rejected`, `qmp_dropped`); without `after` it returns the newest events. Each event has a
-sequence number, receive time, QEMU timestamp, QAPI name and payload.
-503 responses name what is unavailable (status, configuration, console, power
-action, Redfish, or too many consoles/streams) and say so when the VM is
-shutting down.
+`/api/session` and `/api/console` require a valid session or, in bearer mode,
+a valid bearer token: missing, expired or unlisted sessions get 401, and an
+authenticated viewer at console admission gets 403.
+WebSocket upgrades require the exact configured Origin, and cookie-session
+mutations (logout and proxied Redfish writes) also require the session's
+`X-CSRF-Token`. There is no browser raw-QMP endpoint. Four simultaneous
+consoles and a bounded manager queue limit resource use. Binary WebSocket
+messages are limited to 64 KiB and blocked writes time out. 503 responses
+name what is unavailable (console, Redfish, or too many consoles/streams) and
+say so when the VM is shutting down.
 
 ## Redfish proxy
 
@@ -336,16 +329,18 @@ sidecar query every series in the cluster, not only its own VM's.
 ## Dashboard bearer tokens
 
 The dashboard is the cluster's single browser OIDC client (Kanidm client
-`qrab-dashboard`). It calls a VM's BMC JSON API server-side at the Pod IP on
-port 8080 and forwards the signed-in user's ID token as
-`Authorization: Bearer <JWT>`. The BMC verifies that token itself, so a
+`qrab-dashboard`). It proxies a VM's console server-side from the BMC's
+`/api/console` at the Pod IP on port 8080 and forwards the signed-in user's
+ID token as `Authorization: Bearer <JWT>`; status, events and power go to the
+VM's Redfish on port 8081 with the same token
+([dashboard.md](dashboard.md)). The BMC verifies that token itself, so a
 dashboard cannot forge identities. Bearer mode is on when both
 `BMC_BEARER_ISSUER` and `BMC_BEARER_AUDIENCE` are set; the operator renders
 them into every BMC sidecar when it has its own `QRAB_BMC_BEARER_*` settings
 ([operator.md](operator.md#dashboard-access-and-publicurl)).
 
-In bearer mode, any `/api/*` request with an `Authorization: Bearer` header,
-including `/api/console` WebSocket admission, is
+In bearer mode, an `/api/session` request or `/api/console` WebSocket
+admission with an `Authorization: Bearer` header is
 authenticated only by that token. It never falls back to, mixes with or
 creates a cookie session. The token is verified like Redfish's (the shared
 `oidc-bearer` crate): ES256 or RS256 signature against the issuer's discovered
@@ -357,7 +352,7 @@ scope `groups_uuid`), exactly as for a browser session; admin wins.
 
 - An empty, oversized, malformed, expired, wrong-issuer, wrong-audience or
   badly signed token gets 401. A valid token whose subject and groups grant
-  nothing gets 403, and a bearer viewer on an admin route gets 403.
+  nothing gets 403, and a bearer viewer at console admission gets 403.
 - Bearer requests need no `X-CSRF-Token` and no matching Origin. Those checks
   protect ambient cookie credentials; a browser never attaches a bearer token
   by itself.
@@ -433,8 +428,9 @@ pause/resume and logout across tabs. It takes a private credentials JSON file,
 a captured guest serial log, and a Chromium executable; it never saves cookies
 or passwords. Screenshots go to ignored `target/bmc-browser`.
 
-It observes pause/resume through `/api/status` while that route remains. For
-example, against an isolated client/guest already running locally:
+It observes pause/resume through Redfish `Systems/1` `PowerState` on the BMC's
+`/redfish` proxy. For example, against an isolated client/guest already
+running locally:
 
 ```sh
 python3 contrib/tests/bmc-browser.py --origin http://localhost:28080 \
