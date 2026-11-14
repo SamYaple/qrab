@@ -2,10 +2,13 @@
 use serde::{Deserialize, Serialize};
 use std::{
     collections::BTreeSet,
-    fs::OpenOptions,
+    fs::{File, OpenOptions},
     io::{self, Read},
-    os::unix::fs::OpenOptionsExt,
-    path::Path,
+    os::{
+        fd::AsRawFd,
+        unix::fs::{MetadataExt, OpenOptionsExt},
+    },
+    path::{Path, PathBuf},
 };
 
 const GLOBAL_GUID: &str = "8be4df61-93ca-11d2-aa0d-00e098032b8c";
@@ -402,11 +405,169 @@ pub fn validate_update(request: &QrabSecureBootUpdate) -> io::Result<Vec<u8>> {
     Ok(payload)
 }
 
+const IMMUTABLE_FLAG: u32 = 0x10;
+
+trait VariableTransaction {
+    fn flags(&mut self) -> io::Result<u32>;
+    fn set_flags(&mut self, flags: u32) -> io::Result<()>;
+    fn write_once(&mut self, bytes: &[u8]) -> io::Result<usize>;
+}
+
+struct VariableFile {
+    file: File,
+    path: PathBuf,
+    device: u64,
+    inode: u64,
+    created: bool,
+}
+impl VariableFile {
+    fn open(path: PathBuf) -> io::Result<Self> {
+        match OpenOptions::new()
+            .read(true)
+            .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC | libc::O_NONBLOCK)
+            .open(&path)
+        {
+            Ok(file) => Self::from_file(path, file, false),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => Self::create(path),
+            Err(error) => Err(error),
+        }
+    }
+    fn create(path: PathBuf) -> io::Result<Self> {
+        // An absent fixed database may be enrolled in SetupMode. Exclusive
+        // creation never truncates a concurrently created/replaced variable.
+        let file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC | libc::O_NONBLOCK)
+            .open(&path)?;
+        Self::from_file(path, file, true).map_err(|_| {
+            io::Error::other(
+                "new EFI variable inode could not be inspected; outcome requires inspection",
+            )
+        })
+    }
+    fn from_file(path: PathBuf, file: File, created: bool) -> io::Result<Self> {
+        let metadata = file.metadata()?;
+        if !metadata.file_type().is_file() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "EFI update requires a regular variable",
+            ));
+        }
+        Ok(Self {
+            file,
+            path,
+            device: metadata.dev(),
+            inode: metadata.ino(),
+            created,
+        })
+    }
+}
+impl VariableTransaction for VariableFile {
+    fn flags(&mut self) -> io::Result<u32> {
+        let mut flags: libc::c_long = 0;
+        // SAFETY: GETFLAGS only writes one native long into this live buffer;
+        // the descriptor pins the original fixed-name, NOFOLLOW regular inode.
+        if unsafe { libc::ioctl(self.file.as_raw_fd(), libc::FS_IOC_GETFLAGS, &mut flags) } < 0 {
+            return Err(io::Error::last_os_error());
+        }
+        Ok(flags as u32)
+    }
+    fn set_flags(&mut self, flags: u32) -> io::Result<()> {
+        let flags = flags as libc::c_long;
+        // SAFETY: SETFLAGS reads the native-long value for a pinned inode.
+        // Callers supply only its exact prior flags or those flags minus the
+        // immutable bit; no arbitrary ioctl/flags are available on the wire.
+        if unsafe { libc::ioctl(self.file.as_raw_fd(), libc::FS_IOC_SETFLAGS, &flags) } < 0 {
+            return Err(io::Error::last_os_error());
+        }
+        Ok(())
+    }
+    fn write_once(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        use std::io::Write;
+        let mut file = OpenOptions::new()
+            .write(true)
+            .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC | libc::O_NONBLOCK)
+            .open(&self.path)?;
+        let metadata = file.metadata()?;
+        if !metadata.file_type().is_file()
+            || metadata.dev() != self.device
+            || metadata.ino() != self.inode
+        {
+            return Err(io::Error::other(
+                "EFI variable inode changed during authenticated update",
+            ));
+        }
+        // One efivarfs write is one firmware SetVariable transaction. A short
+        // write is ambiguous and is never retried or completed in fragments.
+        file.write(bytes)
+    }
+}
+
+struct ProtectionGuard<'a, T: VariableTransaction> {
+    backend: &'a mut T,
+    original: u32,
+    armed: bool,
+}
+impl<T: VariableTransaction> ProtectionGuard<'_, T> {
+    fn restore(&mut self) -> io::Result<()> {
+        if !self.armed {
+            return Ok(());
+        }
+        let result = self.backend.set_flags(self.original).and_then(|()| {
+            if self.backend.flags()? != self.original {
+                return Err(io::Error::other(
+                    "EFI kernel protection flags did not restore",
+                ));
+            }
+            Ok(())
+        });
+        self.armed = false;
+        result.map_err(|_|io::Error::other("EFI update outcome unknown: kernel protection restoration failed; variable requires inspection"))
+    }
+}
+impl<T: VariableTransaction> Drop for ProtectionGuard<'_, T> {
+    fn drop(&mut self) {
+        if self.armed {
+            // Panic/unwind fallback. All ordinary success/error paths use
+            // restore() so a failure is explicit instead of false success.
+            let _ = self.backend.set_flags(self.original);
+        }
+    }
+}
+
+fn transact<T: VariableTransaction>(backend: &mut T, bytes: &[u8]) -> io::Result<()> {
+    let original = backend.flags()?;
+    let mut guard = ProtectionGuard {
+        backend,
+        original,
+        armed: original & IMMUTABLE_FLAG != 0,
+    };
+    let result = (|| {
+        if guard.armed {
+            guard.backend.set_flags(original & !IMMUTABLE_FLAG)?;
+        }
+        if guard.backend.write_once(bytes)? != bytes.len() {
+            return Err(io::Error::other(
+                "incomplete EFI authenticated update; outcome unknown",
+            ));
+        }
+        Ok(())
+    })();
+    // Restoration takes precedence over a firmware or short-write error: it
+    // must never be hidden by reporting a simpler ordinary update failure.
+    guard.restore()?;
+    result
+}
+
 pub(crate) fn authenticated_update(
     efi: &Path,
     request: QrabSecureBootUpdate,
 ) -> io::Result<SecureBootDatabases> {
-    use std::io::Write;
+    // Validate AUTH2, PKCS#7 framing and bounded public ESL contents BEFORE
+    // opening any variable or reading/changing its kernel protection flags.
     let payload = validate_update(&request)?;
     let guid = database_guid(&request.database_id).ok_or_else(malformed)?;
     let variables = efi.join("efivars");
@@ -416,24 +577,21 @@ pub(crate) fn authenticated_update(
             "EFI runtime variables are unavailable",
         ));
     }
-    // NV | BOOTSERVICE_ACCESS | RUNTIME_ACCESS | TIME_BASED_AUTHENTICATED_WRITE_ACCESS.
     let attributes = 0x27u32 | if request.append { 0x40 } else { 0 };
     let mut bytes = attributes.to_le_bytes().to_vec();
     bytes.extend_from_slice(&payload);
     let path = variables.join(format!("{}-{guid}", request.database_id));
-    let mut file = OpenOptions::new()
-        .write(true)
-        .create(true)
-        .truncate(false)
-        .mode(0o600)
-        .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
-        .open(path)?;
-    // efivarfs SetVariable is one transaction. Never retry a short/ambiguous
-    // write, clear immutable flags, or bypass firmware authentication failures.
-    if file.write(&bytes)? != bytes.len() {
-        return Err(io::Error::other(
-            "incomplete EFI authenticated update; outcome unknown",
-        ));
+    let mut file = VariableFile::open(path)?;
+    // Linux's immutable inode guard is temporarily relaxed for this fixed,
+    // validated authenticated operation and restored exactly. Firmware still
+    // enforces PKCS#7 signatures, key ownership and timestamp/replay policy.
+    if let Err(error) = transact(&mut file, &bytes) {
+        if file.created {
+            // Never unlink after rejection: firmware may have accepted data
+            // before an I/O failure, or another actor may have replaced it.
+            return Err(io::Error::new(error.kind(),format!("new EFI variable update failed; inode may remain and requires inspection before retry: {error}")));
+        }
+        return Err(error);
     }
     databases(efi)
 }
@@ -441,6 +599,7 @@ pub(crate) fn authenticated_update(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::os::unix::fs::PermissionsExt;
     fn guid_bytes(guid: &str) -> [u8; 16] {
         let parts = guid.split('-').collect::<Vec<_>>();
         let mut bytes = [0; 16];
@@ -582,7 +741,7 @@ mod tests {
         .is_err());
     }
     #[test]
-    fn update_writes_only_fixed_variable_and_never_follows_symlinks() {
+    fn authenticated_updates_create_only_fixed_regular_variables_without_symlinks() {
         let temp = tempfile::tempdir().unwrap();
         let efi = temp.path().join("efi");
         let vars = efi.join("efivars");
@@ -590,17 +749,168 @@ mod tests {
         let protected = vars.join(format!("SecureBoot-{GLOBAL_GUID}"));
         std::fs::write(&protected, [7, 0, 0, 0, 1]).unwrap();
         let payload = auth(&list("c1c41626-504c-4092-aca9-41f936934328", &[9; 32], 1));
-        // This regular-file fixture checks syscall framing only. Actual EFI
-        // cryptographic/time authorization is performed by firmware at runtime.
-        authenticated_update(&efi, request(&payload)).unwrap();
         let variable = vars.join(format!("db-{IMAGE_GUID}"));
-        let written = std::fs::read(&variable).unwrap();
-        assert_eq!(&written[..4], &0x27u32.to_le_bytes());
-        assert_eq!(&written[4..], payload);
-        assert_eq!(std::fs::read(&protected).unwrap(), [7, 0, 0, 0, 1]);
+        let created = VariableFile::open(variable.clone()).unwrap();
+        assert!(created.created);
+        assert_eq!(
+            std::fs::metadata(&variable).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        drop(created);
         std::fs::remove_file(&variable).unwrap();
         std::os::unix::fs::symlink(&protected, &variable).unwrap();
         assert!(authenticated_update(&efi, request(&payload)).is_err());
         assert_eq!(std::fs::read(protected).unwrap(), [7, 0, 0, 0, 1]);
+    }
+
+    struct Synthetic {
+        flags: u32,
+        original: u32,
+        calls: Vec<String>,
+        fail_write: bool,
+        partial: bool,
+        fail_restore: bool,
+        fail_clear: bool,
+        panic_write: bool,
+    }
+    impl Synthetic {
+        fn new(flags: u32) -> Self {
+            Self {
+                flags,
+                original: flags,
+                calls: Vec::new(),
+                fail_write: false,
+                partial: false,
+                fail_restore: false,
+                fail_clear: false,
+                panic_write: false,
+            }
+        }
+    }
+    impl VariableTransaction for Synthetic {
+        fn flags(&mut self) -> io::Result<u32> {
+            self.calls.push("get".into());
+            Ok(self.flags)
+        }
+        fn set_flags(&mut self, flags: u32) -> io::Result<()> {
+            self.calls.push(format!("set:{flags:x}"));
+            if self.fail_clear && flags == self.original & !IMMUTABLE_FLAG {
+                self.flags = flags; // Model an ambiguous ioctl failure after mutation.
+                return Err(io::Error::from_raw_os_error(libc::EPERM));
+            }
+            if self.fail_restore && flags == self.original {
+                return Err(io::Error::other("synthetic restore failure"));
+            }
+            self.flags = flags;
+            Ok(())
+        }
+        fn write_once(&mut self, bytes: &[u8]) -> io::Result<usize> {
+            self.calls.push("write".into());
+            assert!(!self.panic_write, "synthetic unwind");
+            if self.fail_write {
+                return Err(io::Error::from_raw_os_error(libc::EPERM));
+            }
+            Ok(bytes.len() - usize::from(self.partial))
+        }
+    }
+    #[test]
+    fn immutable_transaction_restores_exact_original_flags_on_success_firmware_error_and_short_write(
+    ) {
+        for (fail_write, partial) in [(false, false), (true, false), (false, true)] {
+            let mut backend = Synthetic::new(0x200010);
+            backend.fail_write = fail_write;
+            backend.partial = partial;
+            let result = transact(&mut backend, b"authenticated request");
+            assert_eq!(result.is_ok(), !fail_write && !partial);
+            assert_eq!(backend.flags, 0x200010);
+            assert_eq!(
+                backend.calls,
+                vec!["get", "set:200000", "write", "set:200010", "get"]
+            );
+        }
+        let mut unchanged = Synthetic::new(0x200000);
+        transact(&mut unchanged, b"auth").unwrap();
+        assert_eq!(unchanged.calls, vec!["get", "write"]);
+    }
+    #[test]
+    fn protection_restoration_failure_is_explicit_even_when_firmware_write_fails() {
+        for fail_write in [false, true] {
+            let mut backend = Synthetic::new(IMMUTABLE_FLAG);
+            backend.fail_restore = true;
+            backend.fail_write = fail_write;
+            let error = transact(&mut backend, b"auth").unwrap_err();
+            assert!(error.to_string().contains("outcome unknown"));
+            assert!(error.to_string().contains("restoration failed"));
+            assert_eq!(backend.flags, 0);
+        }
+    }
+    #[test]
+    fn protection_guard_restores_on_unwind() {
+        let mut backend = Synthetic::new(0x200010);
+        backend.panic_write = true;
+        assert!(
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| transact(
+                &mut backend,
+                b"auth"
+            )))
+            .is_err()
+        );
+        assert_eq!(backend.flags, 0x200010);
+        assert_eq!(
+            backend.calls,
+            vec!["get", "set:200000", "write", "set:200010"]
+        );
+    }
+    #[test]
+    fn failed_clear_restores_prior_flags_and_never_dispatches_a_firmware_write() {
+        let mut backend = Synthetic::new(0x200010);
+        backend.fail_clear = true;
+        assert!(transact(&mut backend, b"auth").is_err());
+        assert_eq!(backend.flags, 0x200010);
+        assert_eq!(
+            backend.calls,
+            vec!["get", "set:200000", "set:200010", "get"]
+        );
+    }
+    #[test]
+    fn invalid_auth_is_rejected_before_accessing_even_a_missing_variable_path() {
+        let temp = tempfile::tempdir().unwrap();
+        let request = QrabSecureBootUpdate {
+            database_id: "db".into(),
+            payload_hex: "00".into(),
+            append: false,
+        };
+        let error = authenticated_update(&temp.path().join("does-not-exist"), request).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+    }
+    #[test]
+    fn exclusive_creation_race_never_truncates_or_follows_an_existing_inode() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("db-fixed");
+        std::fs::write(&path, b"existing trust data").unwrap();
+        assert_eq!(
+            VariableFile::create(path.clone()).err().unwrap().kind(),
+            io::ErrorKind::AlreadyExists
+        );
+        assert_eq!(std::fs::read(&path).unwrap(), b"existing trust data");
+        let target = temp.path().join("target");
+        std::fs::write(&target, b"protected").unwrap();
+        std::fs::remove_file(&path).unwrap();
+        std::os::unix::fs::symlink(&target, &path).unwrap();
+        assert!(VariableFile::create(path).is_err());
+        assert_eq!(std::fs::read(target).unwrap(), b"protected");
+    }
+    #[test]
+    fn malformed_auth_never_creates_an_absent_database_inode() {
+        let temp = tempfile::tempdir().unwrap();
+        let efi = temp.path().join("efi");
+        std::fs::create_dir_all(efi.join("efivars")).unwrap();
+        let request = QrabSecureBootUpdate {
+            database_id: "db".into(),
+            payload_hex: "00".into(),
+            append: false,
+        };
+        assert!(authenticated_update(&efi, request).is_err());
+        assert_eq!(std::fs::read_dir(efi.join("efivars")).unwrap().count(), 0);
     }
 }

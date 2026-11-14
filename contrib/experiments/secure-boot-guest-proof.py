@@ -163,6 +163,7 @@ fn main(){
         # metadata, never trust payloads or private keys, and never clear flags.
         init = init.replace("# The guest agent finds", """echo QRAB_SB_DIAGNOSTICS
 /usr/bin/qrab-efi-metadata-probe
+( i=0; while [ "$i" -lt 60 ]; do /usr/bin/qrab-efi-metadata-probe; sleep 1; i=$((i+1)); done ) &
 mount -t securityfs securityfs /sys/kernel/security 2>/dev/null || true
 cat /sys/kernel/security/lockdown 2>/dev/null || true
 # The guest agent finds""")
@@ -184,11 +185,49 @@ cat /sys/kernel/security/lockdown 2>/dev/null || true
                  "--os-release=@" + str(args.guest / "os-release"), "--output=" + str(unsigned)])
     command(["sbsign", "--key", out / "key.pem", "--cert", out / "cert.pem", "--output", out / "signed.efi", unsigned])
     command(["sbverify", "--cert", out / "cert.pem", out / "signed.efi"])
+    if args.case == ["setup-enrollment"]:
+        # This case starts with the pristine distro VARS and enrolls exclusively
+        # through authenticated guest runtime calls; no offline reseeding.
+        return unsigned
     owner = "17b5b3ca-1170-4b35-bf84-91427e1fb028"
     command([args.virt_fw_vars, "-i", args.vars, "-o", out / "enabled.fd", "--set-pk", owner, out / "cert.pem",
              "--add-kek", owner, out / "cert.pem", "--add-db", owner, out / "cert.pem", "--secure-boot"])
     command([args.virt_fw_vars, "-i", out / "enabled.fd", "-o", out / "disabled.fd", "--set-false", "SecureBootEnable"])
     return unsigned
+
+
+def setup_enrollment(args, guest):
+    """Enroll db -> KEK -> PK using only native guest AUTH2 writes."""
+    certificate = command(["openssl", "x509", "-in", args.output / "cert.pem", "-outform", "DER"])
+    owner = uuid.UUID("17b5b3ca-1170-4b35-bf84-91427e1fb028").bytes_le
+    data = uuid.UUID("a5c059a1-94e4-4aa7-87b5-ab155c2bf072").bytes_le + struct.pack("<III", 28 + 16 + len(certificate), 0, 16 + len(certificate)) + owner + certificate
+    steps = []
+    for database in ["db", "KEK", "PK"]:
+        timestamp = datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0)
+        stamp = struct.pack("<HBBBBBxIhBB", timestamp.year, timestamp.month, timestamp.day,
+                            timestamp.hour, timestamp.minute, timestamp.second, 0, 0, 0, 0)
+        guid = "d719b2cb-3d3a-4596-a3bc-dad00e67656f" if database == "db" else "8be4df61-93ca-11d2-aa0d-00e098032b8c"
+        signed = database.encode("utf-16-le") + uuid.UUID(guid).bytes_le + struct.pack("<I", 0x27) + stamp + data
+        source = args.output / ("enroll-" + database + ".sign-input")
+        signature = args.output / ("enroll-" + database + ".pkcs7")
+        source.write_bytes(signed)
+        command(["openssl", "cms", "-sign", "-binary", "-noattr", "-md", "sha256", "-signer", args.output / "cert.pem",
+                 "-inkey", args.output / "key.pem", "-in", source, "-outform", "DER", "-out", signature])
+        cms = signature.read_bytes()
+        auth = stamp + struct.pack("<IHH", 24 + len(cms), 0x0200, 0x0EF1) + uuid.UUID("4aafd29d-68df-49ee-8aa9-347d375665a7").bytes_le + cms + data
+        try:
+            returned = guest.request("qrab-secure-boot-update", {"database-id": database, "payload-hex": auth.hex(), "append": False})
+            current = next(value for value in returned["databases"] if value["id"] == database)
+            success = current["present"] and current["error"] is None and any(value["data-hex"] == certificate.hex() for value in current["signatures"])
+            steps.append({"database": database, "enrolled": success})
+            if not success:
+                return {"passed": False, "steps": steps}
+        except (QgaError, OSError) as error:
+            # Never retry a possibly delivered enrollment after an ambiguous I/O error.
+            steps.append({"database": database, "enrolled": False, "error": str(error)})
+            return {"passed": False, "steps": steps}
+    state = guest.request("qrab-firmware-state")
+    return {"passed": state.get("setup-mode") is False, "steps": steps, "firmware_after_enrollment": state}
 
 
 def auth_append(args, guest):
@@ -206,12 +245,26 @@ def auth_append(args, guest):
     cms = (args.output / "append.pkcs7").read_bytes()
     auth = stamp + struct.pack("<IHH", 24 + len(cms), 0x0200, 0x0EF1) + uuid.UUID("4aafd29d-68df-49ee-8aa9-347d375665a7").bytes_le + cms + data
     try:
+        before = guest.request("qrab-secure-boot-databases")
+        original = next(value for value in before["databases"] if value["id"] == "db")["signatures"]
+        tampered = bytearray(auth)
+        tampered[16 + 24 + len(cms) - 1] ^= 1  # signature value, preserving DER framing
+        try:
+            guest.request("qrab-secure-boot-update", {"database-id": "db", "payload-hex": tampered.hex(), "append": True})
+        except QgaError:
+            tampered_rejected = True
+        else:
+            return {"authorized": False, "tampered_rejected": False}
+        after = guest.request("qrab-secure-boot-databases")
+        unchanged = next(value for value in after["databases"] if value["id"] == "db")["signatures"] == original
         returned = guest.request("qrab-secure-boot-update", {"database-id": "db", "payload-hex": auth.hex(), "append": True})
-        db = next(v for v in returned["databases"] if v["id"] == "db")
-        present = any(v["data-hex"] == marker.hex() for v in db["signatures"])
-        return {"authorized": present, "database_present": db["present"], "database_error": db["error"]}
-    except QgaError as error:
-        return {"authorized": False, "denial": str(error)}
+        db = next(value for value in returned["databases"] if value["id"] == "db")
+        present = any(value["data-hex"] == marker.hex() for value in db["signatures"])
+        return {"authorized": present, "tampered_rejected": tampered_rejected, "tampered_unchanged": unchanged,
+                "database_present": db["present"], "database_error": db["error"]}
+    except (QgaError, OSError) as error:
+        # A mutation is never replayed after any ambiguous I/O failure.
+        return {"authorized": False, "denial": str(error), "outcome_unknown": isinstance(error, OSError)}
 
 
 def boot(args, label, firmware, loader, expect_boot, secure):
@@ -262,8 +315,21 @@ def boot(args, label, firmware, loader, expect_boot, secure):
                             result["firmware"] = guest.request("qrab-firmware-state")
                             result["databases"] = guest.request("qrab-secure-boot-databases")
                             result["boot_options"] = guest.request("qrab-boot-state")
+                            if label == "setup-enrollment":
+                                result["enrollment"] = setup_enrollment(args, guest)
+                                result["databases_after_enrollment"] = guest.request("qrab-secure-boot-databases")
                             if args.authenticated_updates and secure:
                                 result["authenticated_update"] = auth_append(args, guest)
+                                before = (case / "serial.log").read_text(errors="replace").count("QRAB_DB_FILE_FLAGS")
+                                deadline = time.monotonic() + 4
+                                while time.monotonic() < deadline:
+                                    serial_after = (case / "serial.log").read_text(errors="replace")
+                                    lines = [line for line in serial_after.splitlines() if "QRAB_DB_FILE_FLAGS" in line]
+                                    if len(lines) > before:
+                                        result["authenticated_update"]["kernel_flags_restored"] = "immutable=true" in lines[-1]
+                                        result["authenticated_update"]["post_update_flags"] = lines[-1]
+                                        break
+                                    time.sleep(0.1)
                         finally:
                             guest.close()
                         break
@@ -284,6 +350,8 @@ def boot(args, label, firmware, loader, expect_boot, secure):
     result["passed"] = (result["booted"] and result.get("firmware", {}).get("secure-boot") is secure) if expect_boot else (not result["booted"] and result.get("firmware_rejected", False))
     if expect_boot:
         result["passed"] = result["passed"] and result.get("databases", {}).get("efi-runtime-available", False)
+    if label == "setup-enrollment":
+        result["passed"] = result["passed"] and result.get("enrollment", {}).get("passed", False)
     return result
 
 
@@ -300,7 +368,7 @@ def main():
     parser.add_argument("--accelerator", choices=["tcg", "kvm"], default="tcg")
     parser.add_argument("--timeout", type=float, default=120)
     parser.add_argument("--authenticated-updates", action="store_true")
-    parser.add_argument("--case", action="append", choices=["signed-enabled", "unsigned-enabled", "unsigned-disabled"], help="run selected disposable cases; default all")
+    parser.add_argument("--case", action="append", choices=["signed-enabled", "unsigned-enabled", "unsigned-disabled", "setup-enrollment"], help="run selected disposable cases; default all")
     args = parser.parse_args()
     if "@sha256:" not in args.image_ref:
         parser.error("--image-ref must record an immutable published source digest")
@@ -321,10 +389,14 @@ def main():
     configurations = [("signed-enabled", args.output / "enabled.fd", args.output / "signed.efi", True, True),
                       ("unsigned-enabled", args.output / "enabled.fd", unsigned, False, True),
                       ("unsigned-disabled", args.output / "disabled.fd", unsigned, True, False)]
+    if args.case and "setup-enrollment" in args.case:
+        configurations.append(("setup-enrollment", args.vars, unsigned, True, False))
     cases = [boot(args, *case) for case in configurations if not args.case or case[0] in args.case]
     boot_passed = all(case["passed"] for case in cases)
-    auth_passed = all(case.get("authenticated_update", {}).get("authorized", False)
-                      for case in cases if case["expect_boot"] and case["expected_secure_boot"]) if args.authenticated_updates else None
+    auth_cases = [case for case in cases if case["expect_boot"] and case["expected_secure_boot"]]
+    auth_passed = bool(auth_cases) and all(all(case.get("authenticated_update", {}).get(field, False)
+                                               for field in ["authorized", "tampered_rejected", "tampered_unchanged", "kernel_flags_restored"])
+                                        for case in auth_cases) if args.authenticated_updates else None
     report = {"image_ref": args.image_ref, "qemu_version": version, "qemu_sha256": sha(args.qemu),
               "code_sha256": sha(args.code), "vars_template_sha256": sha(args.vars), "source_boot_sha256": sha(args.guest / "boot.img"),
               "source_agent_sha256": sha(args.agent) if args.agent else None,

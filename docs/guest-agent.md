@@ -168,8 +168,13 @@ delivery, while later guest/QMP observations establish the resulting state.
 and GUIDs, validated before Platform dispatch and denied while frozen. It never
 accepts a private key or arbitrary variable/path. The static guest adds a small
 pure-Rust DER/X.509 decoder, with no OpenSSL library, helper process or async
-runtime dependency. Kernel/firmware authorization and immutable restrictions
-remain intact; a successful write is followed by inventory readback. Unknown
+runtime dependency. Firmware authorization remains intact. For an existing fixed-name database,
+the agent pins its regular NOFOLLOW inode (or atomically creates a missing fixed
+name with exclusive0600 semantics after validating the signed input), temporarily removes only the Linux
+immutable bit if necessary, writes once to the same verified inode, then restores
+and verifies the exact prior flags on success/error (with an unwind guard).
+Malformed input is rejected before any flag change. No generic chattr/ioctl
+interface exists, and restoration failure is an explicit unknown outcome; a successful write is followed by inventory readback. Unknown
 outcomes must be inspected, not automatically replayed. Native SecureBootEnable
 is boot-service-only on the tested OVMF, so enable/disable uses the manager's cold
 policy editor instead of pretending Linux runtime can write that flag.

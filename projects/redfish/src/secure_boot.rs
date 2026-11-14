@@ -279,7 +279,7 @@ async fn authenticated_update(
     let request = authenticated_request(&body)?;
     let snapshot=app.control.agent_secure_boot_update(request).await.map_err(|_|Failure::new(
         StatusCode::CONFLICT,"OperationNotAllowed","The guest or firmware denied the authenticated update, or its outcome is unknown.",
-        "Inspect current Secure Boot databases before issuing another signed update; kernel/firmware restrictions are never bypassed."))?;
+        "Inspect current Secure Boot databases and kernel protection before another signed update; restoration failure is an unknown outcome, and firmware authorization is never bypassed."))?;
     Ok(Json(
         json!({"@odata.id":DATABASES,"@odata.type":"#QrabAuthenticatedDatabaseUpdate.v1_0_0.QrabAuthenticatedDatabaseUpdate",
         "Id":"AuthenticatedDatabaseUpdate","Name":"Firmware-authorized database update",

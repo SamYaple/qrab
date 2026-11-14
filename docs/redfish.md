@@ -329,8 +329,17 @@ Only PK/KEK/db/dbx are writable. Payloads are capped at 128KiB decoded and 192Ki
 HTTP; all other route bodies retain 4KiB limits. The command validates AUTH2,
 UTC time/header lengths, PKCS#7 envelope and signature-list/DER structure, then
 performs one fixed-variable efivarfs write. Firmware validates trust, signature
-and timestamp authorization. No private signing key is sent or stored, no
-immutable flag is cleared, and no ambiguous mutation is automatically retried.
+and timestamp authorization. No private signing key is sent or stored, and no ambiguous mutation is
+replayed. An existing fixed-variable inode may have Linux's conservative
+immutable guard temporarily lifted for exactly one authenticated write; every
+other flag is preserved and the exact original flags are restored and verified
+on success or failure. A missing fixed-name variable may be created atomically
+with NOFOLLOW/exclusive0600 semantics after validation, enabling initial
+SetupMode enrollment; a concurrent existing inode is never truncated. A rejected
+creation is reported for inspection rather than blindly unlinked. No arbitrary
+path/flag operation is exposed. Firmware
+continues enforcing PKCS#7 trust/signature/time policy. A restoration failure is
+an unknown outcome requiring inspection, never a successful update.
 The cache is invalidated before dispatch, including errors after a possible
 write. Re-read actual inventory after an unknown outcome. Append follows UEFI
 semantics and does not provide timestamp replay protection; ordinary replacement
