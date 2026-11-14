@@ -1,5 +1,5 @@
 use crate::{
-    api::{Accelerator, CloudInit, Nic, VirtualMachine},
+    api::{Accelerator, AdminBucket, CloudInit, Nic, VirtualMachine},
     nic::{mac as nic_mac, NicEndpoint, GUEST_GATEWAY, NIC_LIMIT, RELAY_PORT},
     provision::Attached,
     Error, Result,
@@ -966,6 +966,17 @@ fn subject_list(subjects: &[String]) -> String {
     subjects.join(",")
 }
 
+/// The VM's enabled admin-bucket features. They are console features, so
+/// they render only with the BMC that gates them.
+fn admin_bucket(vm: &VirtualMachine) -> AdminBucket {
+    vm.spec
+        .console
+        .as_ref()
+        .and_then(|console| console.admin_bucket)
+        .filter(|_| vm.spec.components.bmc.enabled)
+        .unwrap_or_default()
+}
+
 /// Native sidecars (restartable init containers) start before the manager,
 /// keep serving while it stops the VM, and do not hold the Pod open after it
 /// exits. They mount the control socket; only Redfish may additionally mount
@@ -1026,6 +1037,10 @@ fn sidecars(
             if !list.is_empty() {
                 env.push(json!({"name":name,"value":subject_list(list)}));
             }
+        }
+        let bucket = admin_bucket(vm).features();
+        if !bucket.is_empty() {
+            env.push(json!({"name":"BMC_ADMIN_BUCKET","value":bucket.join(",")}));
         }
         containers.push(sidecar(
             "bmc",
@@ -1250,6 +1265,11 @@ pub fn render_incarnation(
     // Absent without spec.cloudInit or NICs, so existing template hashes are unchanged.
     if let Some(seed) = seed(vm, &uid, nics) {
         config["seed"] = seed;
+    }
+    // Absent unless a feature is enabled, so existing template hashes are unchanged.
+    let bucket = admin_bucket(vm);
+    if bucket != AdminBucket::default() {
+        config["admin_bucket"] = json!({"audio":bucket.audio,"usb_redirect":bucket.usb_redirect});
     }
     let config_data = serde_json::to_string_pretty(&config)?;
     let config_map: ConfigMap = serde_json::from_value(

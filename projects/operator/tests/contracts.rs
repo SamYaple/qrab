@@ -1716,3 +1716,66 @@ fn redfish_metrics_port_is_declared_and_admitted_only_from_monitoring_prometheus
     let pod = serde_json::to_value(&resources::render(&plain, &settings()).unwrap().pod).unwrap();
     assert!(!pod.to_string().contains("9181"));
 }
+
+#[test]
+fn admin_bucket_is_default_off_and_renders_only_enabled_features() {
+    let rendered = |machine: &VirtualMachine| {
+        let desired = resources::render(machine, &settings()).unwrap();
+        let config: Value =
+            serde_json::from_str(&desired.config.data.as_ref().unwrap()["vm.json"]).unwrap();
+        let pod = serde_json::to_value(&desired.pod).unwrap();
+        let bmc = pod["spec"]["initContainers"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .find(|c| c["name"] == "bmc")
+            .map(env);
+        (desired.hash, config, bmc)
+    };
+    let plain = vm();
+    let (plain_hash, config, bmc) = rendered(&plain);
+    assert!(config.get("admin_bucket").is_none());
+    assert!(!bmc.unwrap().contains_key("BMC_ADMIN_BUCKET"));
+    // An all-false bucket is the same as none: no restart, nothing rendered.
+    let mut off = vm();
+    off.spec.console.as_mut().unwrap().admin_bucket = Some(api::AdminBucket::default());
+    let (off_hash, config, bmc) = rendered(&off);
+    assert_eq!(off_hash, plain_hash);
+    assert!(config.get("admin_bucket").is_none());
+    assert!(!bmc.unwrap().contains_key("BMC_ADMIN_BUCKET"));
+    for (bucket, names) in [
+        (json!({"audio":true}), "audio"),
+        (json!({"usbRedirect":true}), "usb-redirect"),
+        (
+            json!({"audio":true,"usbRedirect":true}),
+            "audio,usb-redirect",
+        ),
+    ] {
+        let mut machine = vm();
+        machine.spec.console.as_mut().unwrap().admin_bucket =
+            Some(serde_json::from_value(bucket.clone()).unwrap());
+        let (hash, config, bmc) = rendered(&machine);
+        assert_ne!(hash, plain_hash, "{bucket}");
+        assert_eq!(
+            config["admin_bucket"],
+            json!({"audio":bucket["audio"] == true,"usb_redirect":bucket["usbRedirect"] == true})
+        );
+        assert_eq!(bmc.unwrap()["BMC_ADMIN_BUCKET"], names);
+    }
+    // Without the BMC that gates them, the features render nowhere.
+    let mut headless = vm();
+    headless.spec.console.as_mut().unwrap().admin_bucket = Some(api::AdminBucket {
+        audio: true,
+        usb_redirect: true,
+    });
+    headless.spec.components.bmc.enabled = false;
+    let (_, config, bmc) = rendered(&headless);
+    assert!(config.get("admin_bucket").is_none() && bmc.is_none());
+    let crd = api::crd();
+    let bucket = &crd["spec"]["versions"][0]["schema"]["openAPIV3Schema"]["properties"]["spec"]
+        ["properties"]["console"]["properties"]["adminBucket"]["properties"];
+    for field in ["audio", "usbRedirect"] {
+        assert_eq!(bucket[field]["default"], false, "{field}");
+    }
+    assert!(serde_json::from_value::<api::AdminBucket>(json!({"microphone":true})).is_err());
+}

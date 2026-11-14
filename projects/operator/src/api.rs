@@ -359,6 +359,42 @@ pub struct Console {
     #[serde(default)]
     #[schemars(length(max = 16))]
     pub viewer_groups: Vec<String>,
+    /// Console features with data-exfiltration or device-injection risk.
+    /// Each is off unless set here, and even then only a console admin who
+    /// requests it on a connection gets it (docs/bmc.md#admin-bucket).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub admin_bucket: Option<AdminBucket>,
+}
+
+/// The admin bucket: risky console features a VM opts into one by one.
+///
+/// ```
+/// use qrab_operator::api::AdminBucket;
+/// let bucket: AdminBucket = serde_json::from_str(r#"{"usbRedirect":true}"#).unwrap();
+/// assert_eq!(bucket.features(), ["usb-redirect"]);
+/// assert!(AdminBucket::default().features().is_empty());
+/// assert!(serde_json::from_str::<AdminBucket>(r#"{"microphone":true}"#).is_err());
+/// ```
+#[derive(Debug, Clone, Copy, Default, Deserialize, Serialize, JsonSchema, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct AdminBucket {
+    /// Guest audio playback in the console (no microphone).
+    #[serde(default)]
+    pub audio: bool,
+    /// Browser USB device redirection into the guest.
+    #[serde(default)]
+    pub usb_redirect: bool,
+}
+
+impl AdminBucket {
+    /// The enabled features by their BMC names (`BMC_ADMIN_BUCKET`, and
+    /// `?features=` at console admission), in a fixed order.
+    pub fn features(&self) -> Vec<&'static str> {
+        [(self.audio, "audio"), (self.usb_redirect, "usb-redirect")]
+            .into_iter()
+            .filter_map(|(enabled, name)| enabled.then_some(name))
+            .collect()
+    }
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema, PartialEq, Eq)]

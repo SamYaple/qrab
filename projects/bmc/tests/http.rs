@@ -2,7 +2,13 @@ use axum::{
     body::Body,
     http::{Request, StatusCode},
 };
-use bmc::{auth, config::Config, session_store::BoundedStore, AppState};
+use bmc::{
+    admin_bucket::{self, Feature},
+    auth,
+    config::Config,
+    session_store::BoundedStore,
+    AppState,
+};
 use std::sync::Arc;
 use tokio::sync::Semaphore;
 use tower::ServiceExt;
@@ -149,6 +155,8 @@ fn app_with_receiver() -> (AppState, manager::pod::ControlReceiver) {
         viewer_groups: [VIEWER_GROUP.to_string()].into_iter().collect(),
         assets_dir: std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("assets"),
         ca_file: None,
+        // Audio is enabled for this VM; USB redirection is not.
+        admin_bucket: [Feature::Audio].into(),
     };
     let vm: manager::pod::Config = serde_json::from_value(serde_json::json!({
         "kernel":"/unused", "console":true,
@@ -1233,4 +1241,291 @@ async fn bearer_only_bmc_serves_the_api_but_no_login_or_ui() {
     }
     let request = req("/healthz", None).body(Body::empty()).unwrap();
     assert_eq!(send(&app, request).await.0, StatusCode::OK);
+}
+
+#[tokio::test]
+async fn admin_bucket_features_need_this_vm_an_admin_and_an_explicit_request() {
+    let app = app();
+    let admin = cookie(app.sessions.clone(), SUBJECT, auth::now() + 60).await;
+    let viewer = cookie(app.sessions.clone(), VIEWER, auth::now() + 60).await;
+    let group_admin = group_cookie(
+        app.sessions.clone(),
+        UNLISTED,
+        &[ADMIN_GROUP],
+        auth::now() + 60,
+    )
+    .await;
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    use std::future::IntoFuture;
+    let server = tokio::spawn(axum::serve(listener, bmc::router(app)).into_future());
+    use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+    const ORIGIN: Option<&str> = Some("https://vm.example");
+    // 503 means admission passed; no VM console is running here.
+    let unavailable = StatusCode::SERVICE_UNAVAILABLE;
+    /// Query, cookie, bearer token, Origin and the expected admission status.
+    type Case<'a> = (
+        &'a str,
+        Option<&'a str>,
+        Option<String>,
+        Option<&'a str>,
+        StatusCode,
+    );
+    let cases: Vec<Case> = vec![
+        ("", Some(&admin), None, ORIGIN, unavailable),
+        ("?features=audio", Some(&admin), None, ORIGIN, unavailable),
+        (
+            "?features=audio&features=",
+            Some(&group_admin),
+            None,
+            ORIGIN,
+            unavailable,
+        ),
+        (
+            "?features=audio",
+            None,
+            Some(bearer(SUBJECT)),
+            None,
+            unavailable,
+        ),
+        // Disabled for this VM, alone or beside an enabled feature.
+        (
+            "?features=usb-redirect",
+            Some(&admin),
+            None,
+            ORIGIN,
+            StatusCode::FORBIDDEN,
+        ),
+        (
+            "?features=audio,usb-redirect",
+            Some(&admin),
+            None,
+            ORIGIN,
+            StatusCode::FORBIDDEN,
+        ),
+        // Viewers are refused at admission, by cookie or bearer.
+        (
+            "?features=audio",
+            Some(&viewer),
+            None,
+            ORIGIN,
+            StatusCode::FORBIDDEN,
+        ),
+        (
+            "?features=audio",
+            None,
+            Some(bearer(VIEWER)),
+            None,
+            StatusCode::FORBIDDEN,
+        ),
+        (
+            "?features=audio",
+            Some(&admin),
+            None,
+            Some("https://evil.example"),
+            StatusCode::FORBIDDEN,
+        ),
+        (
+            "?features=microphone",
+            Some(&admin),
+            None,
+            ORIGIN,
+            StatusCode::BAD_REQUEST,
+        ),
+        (
+            "?features=audio",
+            None,
+            None,
+            ORIGIN,
+            StatusCode::UNAUTHORIZED,
+        ),
+    ];
+    for (query, cookie, token, origin, expected) in cases {
+        let mut request = format!("ws://{address}/api/console{query}")
+            .into_client_request()
+            .unwrap();
+        let headers = request.headers_mut();
+        if let Some(cookie) = cookie {
+            headers.insert("cookie", cookie.parse().unwrap());
+        }
+        if let Some(token) = token {
+            headers.insert("authorization", format!("Bearer {token}").parse().unwrap());
+        }
+        if let Some(origin) = origin {
+            headers.insert("origin", origin.parse().unwrap());
+        }
+        match tokio_tungstenite::connect_async(request).await.unwrap_err() {
+            tokio_tungstenite::tungstenite::Error::Http(response) => {
+                assert_eq!(response.status(), expected, "{query} {cookie:?} {origin:?}")
+            }
+            error => panic!("unexpected error {error}"),
+        }
+    }
+    server.abort();
+}
+
+/// Log lines written while `f` runs on this thread.
+fn captured_logs(f: impl FnOnce()) -> String {
+    #[derive(Clone, Default)]
+    struct Buffer(Arc<std::sync::Mutex<Vec<u8>>>);
+    impl std::io::Write for Buffer {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for Buffer {
+        type Writer = Self;
+        fn make_writer(&'a self) -> Self {
+            self.clone()
+        }
+    }
+    let buffer = Buffer::default();
+    let subscriber = tracing_subscriber::fmt()
+        .with_writer(buffer.clone())
+        .with_ansi(false)
+        .with_max_level(tracing::Level::INFO)
+        .finish();
+    tracing::subscriber::with_default(subscriber, f);
+    let bytes = buffer.0.lock().unwrap().clone();
+    String::from_utf8(bytes).unwrap()
+}
+
+#[test]
+fn admin_bucket_admissions_and_denials_are_logged_with_subject_feature_and_outcome() {
+    let app = app();
+    let principal = |subject: &str, role| auth::Principal {
+        user: auth::User {
+            subject: subject.into(),
+            groups: Vec::new(),
+            name: "operator".into(),
+            csrf: String::new(),
+            expires: auth::now() + 60,
+        },
+        role,
+        credential: auth::Credential::Bearer,
+    };
+    let admin = principal(SUBJECT, auth::Role::Admin);
+    let viewer = principal(VIEWER, auth::Role::Viewer);
+    let both = [Feature::Audio, Feature::UsbRedirect].into();
+    let mut outcomes = Vec::new();
+    let logs = captured_logs(|| {
+        for (feature, who, requested) in [
+            (Feature::Audio, &admin, &both),
+            (Feature::UsbRedirect, &admin, &both),
+            (Feature::Audio, &viewer, &both),
+            (Feature::Audio, &admin, &Default::default()),
+        ] {
+            outcomes.push(admin_bucket::admit(&app, feature, who, requested).is_ok());
+        }
+    });
+    assert_eq!(outcomes, [true, false, false, false]);
+    let lines: Vec<&str> = logs.lines().collect();
+    assert_eq!(lines.len(), 4, "{logs}");
+    for (line, (subject, feature, outcome, reason)) in lines.iter().zip([
+        (SUBJECT, "audio", "admitted", ""),
+        (SUBJECT, "usb-redirect", "denied", "not enabled for this VM"),
+        (VIEWER, "audio", "denied", "not an admin"),
+        (
+            SUBJECT,
+            "audio",
+            "denied",
+            "not requested on this connection",
+        ),
+    ]) {
+        assert!(line.contains(" INFO "), "{line}");
+        assert!(line.contains(&format!("subject={subject}")), "{line}");
+        assert!(line.contains(&format!("feature={feature} ")), "{line}");
+        assert!(line.contains(outcome) && line.contains(reason), "{line}");
+    }
+}
+
+#[tokio::test]
+async fn losing_admin_revokes_admin_bucket_features_within_two_seconds() {
+    use std::time::Duration;
+    use tower_sessions::SessionStore;
+    let app = app();
+    for removal in ["logout", "group removal"] {
+        let cookie = group_cookie(
+            app.sessions.clone(),
+            UNLISTED,
+            &[ADMIN_GROUP],
+            auth::now() + 60,
+        )
+        .await;
+        let id: tower_sessions::session::Id = cookie.split_once('=').unwrap().1.parse().unwrap();
+        let session = Session::new(Some(id), Arc::new(app.sessions.clone()), None);
+        let Ok(principal) = auth::user(&app, &session).await else {
+            panic!("the admin session was refused");
+        };
+        let Ok(grants) = admin_bucket::admission(&app, &principal, &[Feature::Audio].into()) else {
+            panic!("an admin was refused an enabled, requested feature");
+        };
+        assert!(grants.is_active(Feature::Audio) && !grants.is_active(Feature::UsbRedirect));
+        let supervisor = tokio::spawn({
+            let (app, grants, principal) = (app.clone(), grants.clone(), principal.clone());
+            async move { grants.supervise(&app, &principal).await }
+        });
+        // Passing rechecks keep the feature.
+        tokio::time::sleep(Duration::from_millis(1500)).await;
+        assert!(grants.is_active(Feature::Audio), "{removal}");
+        match removal {
+            "logout" => app.sessions.delete(&id).await.unwrap(),
+            _ => {
+                let mut record = app.sessions.load(&id).await.unwrap().unwrap();
+                record.data.get_mut("user").unwrap()["groups"] = serde_json::json!([]);
+                app.sessions.save(&record).await.unwrap();
+            }
+        }
+        tokio::time::timeout(Duration::from_secs(2), grants.revoked(Feature::Audio))
+            .await
+            .unwrap_or_else(|_| panic!("{removal} left the feature admitted"));
+        assert!(grants.active().is_empty());
+        // The supervisor keeps running: the console follows its own rules.
+        assert!(!supervisor.is_finished());
+        supervisor.abort();
+    }
+    // Closing the console revokes its features too.
+    let grants = admin_bucket::admission(
+        &app,
+        &auth::Principal {
+            user: auth::User {
+                subject: SUBJECT.into(),
+                groups: Vec::new(),
+                name: "operator".into(),
+                csrf: String::new(),
+                expires: auth::now() + 60,
+            },
+            role: auth::Role::Admin,
+            credential: auth::Credential::Bearer,
+        },
+        &[Feature::Audio].into(),
+    )
+    .unwrap_or_else(|_| panic!("refused"));
+    grants.revoke_all(SUBJECT, "console closed");
+    assert!(!grants.is_active(Feature::Audio));
+    assert!(admin_bucket::Grants::none().active().is_empty());
+}
+
+#[tokio::test]
+async fn only_admins_see_the_enabled_admin_bucket_in_their_session() {
+    let app = app();
+    let admin = cookie(app.sessions.clone(), SUBJECT, auth::now() + 60).await;
+    let viewer = cookie(app.sessions.clone(), VIEWER, auth::now() + 60).await;
+    let (status, body) = get(&app, "/api/session", &admin).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(body.contains("\"admin_bucket\":[\"audio\"]"), "{body}");
+    let (status, body) = get(&app, "/api/session", &viewer).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(!body.contains("admin_bucket"), "{body}");
+    let request = breq("/api/session", &bearer(SUBJECT))
+        .body(Body::empty())
+        .unwrap();
+    assert!(send(&app, request)
+        .await
+        .1
+        .contains("\"admin_bucket\":[\"audio\"]"));
 }
