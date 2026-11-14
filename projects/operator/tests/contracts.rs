@@ -911,7 +911,9 @@ fn nic_pods_are_owned_restricted_relays_labelled_with_their_security_groups() {
             "--listen",
             "0.0.0.0:7700",
             "--socket",
-            "/run/nic/passt.sock"
+            "/run/nic/passt.sock",
+            "--guest-mac",
+            nic::mac(vm.uid().as_deref().unwrap(), &vm.spec.nics[0].name)
         ])
     );
     assert_eq!(

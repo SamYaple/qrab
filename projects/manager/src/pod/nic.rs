@@ -34,6 +34,10 @@ pub struct Options {
     /// passt's Unix socket. Its directory also holds `passt.pid` and `ready`.
     pub socket: PathBuf,
     pub passt: PathBuf,
+    /// The guest's MAC, so that a replaced NIC Pod's passt sends unicast
+    /// frames before the guest's first frame (an idle guest's TCP drops the
+    /// broadcast-addressed ones passt would send otherwise).
+    pub guest_mac: Option<String>,
 }
 
 impl Options {
@@ -74,6 +78,11 @@ impl Options {
         ]
         .into_iter()
         .map(str::to_owned)
+        .chain(
+            self.guest_mac
+                .iter()
+                .flat_map(|mac| ["--ns-mac-addr".to_owned(), mac.clone()]),
+        )
         .collect()
     }
 }
@@ -361,6 +370,7 @@ mod tests {
             listen: "0.0.0.0:7700".parse().unwrap(),
             socket: "/run/nic/passt.sock".into(),
             passt: PASST.into(),
+            guest_mac: None,
         };
         assert_eq!(
             options.passt_arguments(),
@@ -384,6 +394,14 @@ mod tests {
             ]
         );
         assert_eq!(options.ready_file(), Path::new("/run/nic/ready"));
+        let with_mac = Options {
+            guest_mac: Some("02:9b:d9:30:c5:eb".into()),
+            ..options
+        };
+        assert_eq!(
+            with_mac.passt_arguments()[16..],
+            ["--ns-mac-addr", "02:9b:d9:30:c5:eb"]
+        );
     }
 
     #[tokio::test]
@@ -404,6 +422,7 @@ mod tests {
             listen: "127.0.0.1:0".parse().unwrap(),
             socket: dir.path().join("passt.sock"),
             passt: fake,
+            guest_mac: None,
         };
         std::fs::write(options.ready_file(), b"stale").unwrap();
         assert!(probe(&options.socket).is_err());

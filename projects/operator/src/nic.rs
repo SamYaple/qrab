@@ -157,7 +157,7 @@ pub fn render_in_pool(
         // passt binds one socket per forwarded TCP and UDP port; their kernel
         // memory (about 260 MiB) is charged to this container.
         "containers":[{"name":"nic","image":image,"imagePullPolicy":"Always","command":["qrab-manager"],
-            "args":["nic","--listen",format!("0.0.0.0:{RELAY_PORT}"),"--socket",SOCKET],
+            "args":["nic","--listen",format!("0.0.0.0:{RELAY_PORT}"),"--socket",SOCKET,"--guest-mac",mac(&uid,&nic.name)],
             "ports":[{"name":"relay","containerPort":RELAY_PORT,"protocol":"TCP"}],
             "resources":{"requests":{"cpu":"50m","memory":"320Mi"},"limits":{"cpu":"1","memory":"512Mi"}},
             "securityContext":security,"terminationMessagePolicy":"FallbackToLogsOnError",

@@ -21,7 +21,8 @@ RUN python3 /prepare-guest.py && chmod 0755 /guest/init /guest/usr/bin/qrab-disk
 # passt for NIC pods, from the Debian source in the base image's snapshot plus
 # contrib/images/passt/*.patch in order: 0001 adds --no-ns-isolation (a
 # restricted pod's RuntimeDefault seccomp refuses the namespaces passt would
-# create itself); 0002 fixes a crash on inbound TCP before a guest attaches.
+# create itself); 0002 fixes a crash on inbound TCP before a guest attaches;
+# 0003 lets --ns-mac-addr preset the guest MAC in passt mode.
 FROM ${DEBIAN_IMAGE} AS passt-build
 ARG PASST_VERSION=0.0~git20250503.587980c-2+deb13u1
 COPY contrib/images/passt /passt
@@ -29,7 +30,7 @@ RUN cp /passt/snapshot.sources /etc/apt/sources.list.d/passt-src.sources && apt-
  && mkdir /build && cd /build && apt-get source --download-only "passt=${PASST_VERSION}" \
  && sha256sum -c /passt/source.sha256 \
  && dpkg-source -x "passt_${PASST_VERSION}.dsc" src && cd src && for p in /passt/*.patch; do patch -p1 --no-backup-if-mismatch < "$p" || exit 1; done \
- && export DEB_BUILD_MAINT_OPTIONS=hardening=+all && make passt VERSION="${PASST_VERSION}+qrab2" CFLAGS="$(dpkg-buildflags --get CFLAGS)" CPPFLAGS="$(dpkg-buildflags --get CPPFLAGS)" LDFLAGS="$(dpkg-buildflags --get LDFLAGS)" \
+ && export DEB_BUILD_MAINT_OPTIONS=hardening=+all && make passt VERSION="${PASST_VERSION}+qrab3" CFLAGS="$(dpkg-buildflags --get CFLAGS)" CPPFLAGS="$(dpkg-buildflags --get CPPFLAGS)" LDFLAGS="$(dpkg-buildflags --get LDFLAGS)" \
  && install -D -m 0755 passt /out/passt && /out/passt --version | head -1 && /out/passt --help | grep -q -- --no-ns-isolation
 
 FROM ${QEMU_IMAGE}

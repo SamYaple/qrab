@@ -3,7 +3,7 @@ use std::{path::Path, process::ExitCode};
 
 const USAGE: &str = "qrab-manager <run|ready|live|status|check> --config /path/to/vm.json
 qrab-manager agent <status|ping|freeze-status|freeze|thaw|update-status|update-trigger> --config /path/to/vm.json [ARG...]
-qrab-manager nic --listen 0.0.0.0:7700 --socket /run/nic/passt.sock [--passt /usr/bin/passt]
+qrab-manager nic --listen 0.0.0.0:7700 --socket /run/nic/passt.sock [--passt /usr/bin/passt] [--guest-mac 02:..]
 qrab-manager nic-ready --socket /run/nic/passt.sock
 
 agent talks to the guest agent through the running manager's control socket
@@ -142,7 +142,7 @@ fn flags(
 }
 
 async fn nic(args: &[String]) -> manager::Result<()> {
-    let mut values = flags(args, &["--listen", "--socket", "--passt"])?;
+    let mut values = flags(args, &["--listen", "--socket", "--passt", "--guest-mac"])?;
     let (Some(listen), Some(socket)) = (values.remove("--listen"), values.remove("--socket"))
     else {
         return Err(manager::Error::Config(USAGE.into()));
@@ -156,7 +156,20 @@ async fn nic(args: &[String]) -> manager::Result<()> {
             .remove("--passt")
             .unwrap_or_else(|| pod::nic::PASST.into())
             .into(),
+        guest_mac: values.remove("--guest-mac"),
     };
+    if let Some(mac) = &options.guest_mac {
+        let octets: Vec<_> = mac.split(':').collect();
+        if octets.len() != 6
+            || !octets
+                .iter()
+                .all(|o| o.len() == 2 && o.bytes().all(|b| b.is_ascii_hexdigit()))
+        {
+            return Err(manager::Error::Config(
+                "--guest-mac must be six colon-separated hex octets".into(),
+            ));
+        }
+    }
     if !options.socket.is_absolute() || !options.passt.is_absolute() {
         return Err(manager::Error::Config(
             "--socket and --passt must be absolute paths".into(),
