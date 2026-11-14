@@ -271,6 +271,15 @@ pub struct Config {
     /// cloud-init NoCloud files, attached as a read-only `cidata` disk.
     #[serde(default)]
     pub seed: Option<Seed>,
+    /// Accept live migrations of this VM to another manager.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub migration: Option<super::migration::Outgoing>,
+    /// Start as the target of a live migration instead of booting.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub incoming: Option<super::migration::Incoming>,
+    /// Exact machine type to run, set from a migration offer; never serialized.
+    #[serde(skip)]
+    pub(crate) machine: Option<String>,
 }
 
 impl Config {
@@ -440,15 +449,15 @@ impl Config {
         } else {
             self.cpus.to_string()
         };
+        let mut machine = self.machine.clone().unwrap_or_else(|| "q35".into());
+        if self.uefi.is_some() {
+            machine.push_str(",pflash0=pflash-code,pflash1=pflash-vars");
+        }
         let mut args: Vec<String> = [
             "-name",
             &self.name,
             "-machine",
-            if self.uefi.is_some() {
-                "q35,pflash0=pflash-code,pflash1=pflash-vars"
-            } else {
-                "q35"
-            },
+            &machine,
             "-m",
             &memory,
             "-smp",
@@ -601,6 +610,9 @@ impl Config {
         super::iscsi::arguments(&self.iscsi_disks, &mut args);
         if self.seed.is_some() {
             super::seed::arguments(socket, &mut args);
+        }
+        if self.incoming.is_some() {
+            args.extend(["-incoming".into(), "defer".into()]);
         }
         args
     }

@@ -1,4 +1,6 @@
 use super::{
+    iscsi::Binding,
+    migration::{self, Pending, Receiving, Sent},
     persistent::{PersistentState, StateLease},
     process::ManagedChild,
     state::{publish, start_ticks},
@@ -10,6 +12,7 @@ use qapi::commands::{Cont, QueryStatus, Quit, SystemPowerdown};
 use qapi_protocol::{ClientOptions, Qmp};
 use serde::Serialize;
 use std::{
+    collections::BTreeMap,
     fs::OpenOptions,
     future::Future,
     os::unix::fs::{OpenOptionsExt, PermissionsExt},
@@ -19,8 +22,16 @@ use std::{
 };
 use tokio::{
     process::{Child, Command},
+    sync::mpsc,
     time::timeout,
 };
+
+async fn next_migration(outgoing: &mut Option<mpsc::Receiver<Pending>>) -> Option<Pending> {
+    match outgoing {
+        Some(receiver) => receiver.recv().await,
+        None => std::future::pending().await,
+    }
+}
 
 #[derive(Debug, Serialize)]
 pub struct Outcome {
@@ -122,7 +133,24 @@ pub async fn run_controlled(
     if let Some(seed) = &config.seed {
         seed.write(&super::seed::image_path(&socket))?;
     }
+    // A target learns the source's machine type and retained state before it
+    // prepares anything of its own.
+    let receiving = match &config.incoming {
+        Some(incoming) => {
+            let receiving = migration::connect(&config, incoming).await?;
+            config.machine = Some(receiving.offer.machine.clone());
+            Some(receiving)
+        }
+        None => None,
+    };
     let mut persistent = PersistentState::prepare(&config)?;
+    if let (Some(state), Some(receiving)) = (persistent.as_mut(), &receiving) {
+        state.retain(&receiving.offer.iscsi_disks)?;
+    }
+    let retained = persistent
+        .as_ref()
+        .map(PersistentState::bindings)
+        .unwrap_or_default();
     let mut state = Status {
         phase: Phase::Starting,
         ready: false,
@@ -164,7 +192,8 @@ pub async fn run_controlled(
             }
             persistent.as_mut().expect("persistent TPM state").mark_tpm_initialized()?;
         }
-        run_qemu(&config, &mut shutdown, &mut control, (&socket, console.as_deref()), &mut state, &mut tpm, persistent.as_ref().map(PersistentState::lease)).await
+        let migration = Migration { receiving, retained };
+        run_qemu(&config, &mut shutdown, &mut control, (&socket, console.as_deref()), &mut state, &mut tpm, persistent.as_ref().map(PersistentState::lease), migration).await
     }.await;
     let result = match (&mut tpm, result) {
         (Some(process), result) => match process.stop(!config.iscsi_disks.is_empty()).await {
@@ -182,6 +211,15 @@ pub async fn run_controlled(
     result
 }
 
+/// What a QEMU run needs for live migration in either direction.
+struct Migration {
+    /// The source's offer when this run is a migration target.
+    receiving: Option<Receiving>,
+    /// This VM's retained iSCSI bindings, offered to a target.
+    retained: BTreeMap<String, Binding>,
+}
+
+#[allow(clippy::too_many_arguments)]
 async fn run_qemu(
     config: &Config,
     shutdown: impl Future<Output = ()>,
@@ -190,8 +228,17 @@ async fn run_qemu(
     state: &mut Status,
     tpm: &mut Option<Swtpm>,
     lease: Option<StateLease>,
+    migration: Migration,
 ) -> Result<Outcome> {
     let (socket, console) = sockets;
+    let session = socket
+        .parent()
+        .expect("the QMP socket lives in the session directory");
+    let Migration {
+        receiving,
+        retained,
+    } = migration;
+    let mut migrated = false;
     let child = match Command::new(&config.qemu_binary)
         .args(config.arguments(socket))
         .stdin(Stdio::null())
@@ -281,11 +328,25 @@ async fn run_qemu(
     });
     let execution = async {
         if qmp.version() < (11,1,0) { return Err(Error::Config("pod manager requires QEMU 11.1 or newer".into())); }
+        if let Some(receiving) = receiving {
+            // Healthy but not ready while the guest arrives.
+            state.phase=Phase::Running;state.run_state=Some("inmigrate".into());publish(config,state)?;
+            let received = tokio::select! {
+                biased;
+                _=&mut shutdown => return Ok(None),
+                received=receiving.receive(&qmp, session, |progress| {
+                    state.run_state=Some(format!("inmigrate:{progress}"));
+                    std::future::ready(publish(config,state).map(|_| true))
+                }) => received,
+            };
+            received?;
+        }
         tokio::select! {
             biased;
             _=&mut shutdown => return Ok(None),
             started=qmp.execute(&Cont {}) => {started?;}
         }
+        let mut outgoing = config.migration.as_ref().map(migration::listen);
         let mut heartbeat=tokio::time::interval(Duration::from_secs(1));
         let mut disk_growth=super::disks::DiskGrowth::default();
         loop {
@@ -293,6 +354,36 @@ async fn run_qemu(
                 _=&mut shutdown => return Ok(None),
                 exit=child.wait() => return Ok(Some(exit?)),
                 exit=super::tpm::wait(tpm) => return Err(Error::Spawn(format!("swtpm exited while QEMU was active: {}", exit?))),
+                Some(pending)=next_migration(&mut outgoing) => {
+                    let grown=state.resize.as_ref().is_some_and(|resize| resize.current!=resize.boot);
+                    let sent = tokio::select! {
+                        biased;
+                        _=&mut shutdown => {
+                            let _=qmp.execute_raw(serde_json::json!({"execute":"migrate_cancel"})).await;
+                            return Ok(None);
+                        }
+                        sent=migration::send(config, &qmp, session, pending, retained.clone(), grown, |progress| {
+                            state.run_state=Some(format!("migrating:{progress}"));
+                            std::future::ready(publish(config,state).map(|_| true))
+                        }) => sent,
+                    };
+                    match sent {
+                        Sent::Completed => {
+                            // The guest runs on the target now; this QEMU holds
+                            // inactive disks and must not resume.
+                            migrated=true;
+                            state.ready=false;state.run_state=Some("postmigrate".into());publish(config,state)?;
+                            let _=qmp.execute(&Quit {}).await;
+                            return match timeout(Duration::from_secs(10), child.wait()).await {
+                                Ok(exit) => Ok(Some(exit?)),
+                                Err(_) => Err(Error::Spawn("QEMU did not quit after migration".into())),
+                            };
+                        }
+                        Sent::Failed(reason) => {
+                            state.detail=Some(format!("migration failed: {reason}"));publish(config,state)?;
+                        }
+                    }
+                },
                 Some(request)=control.requests.recv() => {
                     let stop = request.dispatch(&qmp, console, agent.as_ref()).await;
                     // A slow command is when the QMP event queue can overflow.
@@ -324,9 +415,9 @@ async fn run_qemu(
             if exit.success() {
                 state.phase = Phase::Exited;
                 Ok(Outcome {
-                    reason: "guest-exited".into(),
+                    reason: if migrated { "migrated" } else { "guest-exited" }.into(),
                     exit_code: exit.code(),
-                    shutdown_method: "guest".into(),
+                    shutdown_method: if migrated { "migration" } else { "guest" }.into(),
                 })
             } else {
                 state.phase = Phase::Failed;

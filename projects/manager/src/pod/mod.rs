@@ -8,6 +8,7 @@ mod disks;
 mod events;
 mod hotplug;
 mod iscsi;
+pub mod migration;
 pub mod nic;
 mod persistent;
 mod process;

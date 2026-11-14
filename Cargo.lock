@@ -2496,6 +2496,7 @@ dependencies = [
  "qapi",
  "qapi-protocol",
  "qrab-guest-agent",
+ "qrab-spiffe",
  "serde",
  "serde_json",
  "tempfile",
