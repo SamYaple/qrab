@@ -3,10 +3,10 @@
 # created and the operator never sees these objects. Needs an admin context
 # that may impersonate (the default certificate context does).
 #
-#   bash contrib/kubernetes/operator/check-creator-policy.sh [EXISTING_VM]
+#   bash contrib/kubernetes/operator/check-creator-policy.sh EXISTING_VM
 set -euo pipefail
 ns=qrab
-existing=${1:-qrab-demo}
+existing=${1:?usage: $0 EXISTING_VM (a VirtualMachine in namespace qrab)}
 key=qrab.yapplesauce.com/creator-subject
 person=00000000-0000-4000-8000-00000000c0de
 as_kanidm=(--as="kanidm:$person" --as-group=kanidm:kubernetes:admin --as-group=system:authenticated)

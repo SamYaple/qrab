@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Disruptive acceptance for the disposable qrab demo; never deletes its PVC."""
+"""Disruptive acceptance for a disposable qrab VM; never deletes its PVC."""
 import argparse
 import copy
 import json
@@ -10,7 +10,7 @@ import uuid
 
 p=argparse.ArgumentParser(description=__doc__)
 p.add_argument('--namespace',default='qrab')
-p.add_argument('--vm',default='qrab-demo')
+p.add_argument('--vm',required=True,help='a disposable VM: this check replaces its Pod and stops it')
 a=p.parse_args()
 
 def command(*args,body=None,check=True):

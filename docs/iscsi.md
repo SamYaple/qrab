@@ -262,7 +262,8 @@ command over the private Unix VNC socket when run through authenticated
 `kubectl exec`; it is not an anonymous BMC endpoint or a shipped service.
 
 The deployment-specific demo patch is
-`contrib/kubernetes/iscsi-demo.patch.json`. Apply it only after the reviewed root
+`contrib/kubernetes/examples/qrab-demo/iscsi-demo.patch.json`, kept with the
+retired qrab-demo sample. Apply such a patch only after the reviewed root
 installer has prepared that exact VM UID's target, fencing has been tested and
 the matching `qrab-demo-iscsi` Secret has been created. It is deliberately not
 included in the default kustomization: installing runtime capability must not

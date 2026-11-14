@@ -18,32 +18,40 @@ it cannot create or delete them, change VM specs, or manage another namespace.
 The operator uses the registered `qrab-operator` image-pull identity; VM Pods use
 the separate `qrab-manager` identity without a mounted API token. Kubernetes
 GitOps preserves both ServiceAccount UIDs and installs scoped pull/use guards.
-Install that identity first, then apply the release-pinned manifests:
+Install that identity first, then apply the release-pinned manifests. Each
+bundle and its apply mode is listed in
+[contrib/kubernetes/README.md](../contrib/kubernetes/README.md). The root
+kustomization is the platform (the operator with its storage client, and
+monitoring); VMs are applied from their own directories, so a platform apply
+never creates or retargets a VM:
 
 ```sh
-kubectl apply -k contrib/kubernetes/operator
+kubectl apply -k contrib/kubernetes
 kubectl wait --for=condition=Established crd/virtualmachines.qrab.yapplesauce.com
 kubectl -n qrab rollout status deployment/qrab-operator --timeout=180s
-kubectl apply -k contrib/kubernetes
+kubectl apply -k contrib/kubernetes/redfish-poc
 kubectl -n qrab get qvm,pod,pvc
-bash contrib/kubernetes/check.sh
+bash contrib/kubernetes/check.sh qrab qrab-redfish-poc
 ```
 
-Once the storage service is enabled (`contrib/kubernetes/operator-storage-api`,
-as on this cluster), always update the operator through that kustomization:
-`kubectl apply -k contrib/kubernetes/operator-storage-api`. Applying
+With the storage service enabled (`contrib/kubernetes/operator-storage-api`,
+as on this cluster), always update the operator through the root kustomization
+or `kubectl apply -k contrib/kubernetes/operator-storage-api`. Applying
 `contrib/kubernetes/operator` or `operator/deployment.yaml` on its own removes
 the storage client (`QRAB_STORAGE_*` and its volumes) from the Deployment.
 Every VM with `spec.disks`, including dashboard OS launches, then sits
-`Blocked` with `StorageServiceUnavailable`.
+`Blocked` with `StorageServiceUnavailable`. `contrib/kubernetes/operator` is
+only for a cluster without the storage service.
 
-For the first migration only, remove the old manually managed `qrab-demo` Pod
-before applying the CR. The operator refuses to adopt resources with another
-owner UID, including an unowned Pod with the same name. Do not delete or recreate
-the namespace or image-pull ServiceAccounts.
+The operator refuses to adopt resources with another owner UID, including an
+unowned Pod with the same name. Do not delete or recreate the namespace or
+image-pull ServiceAccounts.
 
-The [example](../contrib/kubernetes/vm.yaml) provides a retained 1 GiB filesystem
-PVC on `zfs-block` and a VM CR:
+The [qrab-demo sample](../contrib/kubernetes/examples/qrab-demo/vm.yaml) provides
+a retained 1 GiB filesystem PVC on `zfs-block` and a VM CR. The qrab-demo VM
+itself was retired, and on this cluster its console names and host belong to
+`redfish-poc`, so copy and rename the sample before applying it
+([why](../contrib/kubernetes/README.md#examplesqrab-demo)):
 
 ```yaml
 apiVersion: qrab.yapplesauce.com/v1alpha1
@@ -173,7 +181,7 @@ ports 8080 and 8081 of the VM Pods.
 
 | components | Pod |
 | --- | --- |
-| BMC (default) | `manager` + `bmc` (8080) + `redfish` (8081, reached through the BMC's `/redfish` proxy; `metrics` 9181) |
+| BMC (default) | `manager` + `bmc` (8080) + `redfish` (8081; the BMC UI reaches it over Pod loopback through `/bmc/redfish`; `metrics` 9181) |
 | Redfish only (`bmc.enabled: false`, `redfish.enabled: true`) | `manager` + `redfish` (8081, `metrics` 9181); `console` may be omitted |
 | none (`bmc.enabled: false`) | `manager` alone; the VM runs with no HTTP surface |
 
@@ -239,10 +247,15 @@ changes the Pod template hash, so the operator replaces the VM Pod while
 keeping its identity. Setting the bearer variables therefore restarts every
 BMC- or Redfish-enabled VM once, and so does the operator release that made
 Redfish mandatory beside the BMC (new `redfish` sidecar, `BMC_REDFISH_URL`,
-merged role lists). A BMC-enabled VM needs no Service, Ingress or policy
-entry for port 8081: browsers and Redfish clients reach Redfish through the
-BMC's `/redfish` proxy. For a Redfish-only VM those are explicit
-infrastructure, like the console's; see [redfish.md](redfish.md#exposure).
+merged role lists). The BMC's browser UI reaches Redfish over Pod loopback
+through its `/bmc/redfish` session adapter, so the browser console needs no
+Service, Ingress or policy entry for port 8081. Native Redfish clients do not
+go through the BMC: the console Ingress routes the public `/redfish` prefix
+straight to Service port `redfish` (8081), and the console's
+CiliumNetworkPolicy admits 8081 from the ingress, as
+`contrib/kubernetes/redfish-poc/console.yaml` does. Without that route and
+port a VM's Redfish is reachable only by the dashboard. A Redfish-only VM needs
+the same explicit infrastructure; see [redfish.md](redfish.md#exposure).
 
 The Redfish sidecar also declares port `metrics` (9181), its unauthenticated
 Prometheus listener ([redfish.md](redfish.md#prometheus-export)). For each
@@ -262,14 +275,16 @@ operator keeps a second owned, additive CiliumNetworkPolicy
 `<vm>-redfish-prometheus` selecting the VM Pod: egress to Prometheus Pods
 (`app.kubernetes.io/name=prometheus`) in `monitoring` on TCP 9090 and nothing
 else. It never enables default deny; the Service name resolves through the
-VM's existing kube-dns egress (as in `console.yaml`). It is deleted when
+VM's existing kube-dns egress (as in a console's `console.yaml`). It is deleted when
 Redfish is disabled. The new environment changes the Pod template, so the
 first operator rollout with it replaces each Redfish-enabled VM Pod once.
 
 The console public URL must have a matching Service/Ingress, TLS certificate and
 exact registered Kanidm callback. See [bmc.md](bmc.md). The operator does not
-mutate the identity provider. The sample's existing URL and Sam allowlist remain
-valid.
+mutate the identity provider. On this cluster `https://qrab-demo.yapplesauce.com`
+and its callback now serve `qrab-redfish-poc`
+([redfish-poc/console.yaml](../contrib/kubernetes/redfish-poc/console.yaml));
+a new console VM needs its own host, objects and callback.
 
 ### Admin bucket
 
@@ -385,10 +400,10 @@ spec:
 ## Power, restart and deletion
 
 ```sh
-kubectl -n qrab patch qvm qrab-demo --type merge -p '{"spec":{"running":false}}'
-kubectl -n qrab patch qvm qrab-demo --type merge -p '{"spec":{"running":true}}'
-kubectl -n qrab patch qvm qrab-demo --type merge -p '{"spec":{"restartNonce":"restart-1"}}'
-kubectl -n qrab get qvm qrab-demo -o yaml
+kubectl -n qrab patch qvm "$vm" --type merge -p '{"spec":{"running":false}}'
+kubectl -n qrab patch qvm "$vm" --type merge -p '{"spec":{"running":true}}'
+kubectl -n qrab patch qvm "$vm" --type merge -p '{"spec":{"restartNonce":"restart-1"}}'
+kubectl -n qrab get qvm "$vm" -o yaml
 ```
 
 `running:true` means the operator restores an exited or deleted Pod. BMC
@@ -428,8 +443,8 @@ cpu and memory. The Pod records the size QEMU booted with in the
 stay at that boot size, so a size change is not a template change.
 
 ```sh
-kubectl -n qrab patch qvm qrab-demo --type merge -p '{"spec":{"memoryMiB":1024}}'
-kubectl -n qrab get qvm qrab-demo -o jsonpath='{.status.resize}'
+kubectl -n qrab patch qvm "$vm" --type merge -p '{"spec":{"memoryMiB":1024}}'
+kubectl -n qrab get qvm "$vm" -o jsonpath='{.status.resize}'
 ```
 
 - **Growth within the boot maxima** of a Running Pod patches `pods/resize`
@@ -602,12 +617,12 @@ EK identity, event-log availability, absence of a guest NIC, shutdown/reaping,
 a crashed TPM child, and malformed retained TPM refusal. Live rollout checks
 also compare EK fingerprints across a real controller-driven Pod replacement.
 
-The disposable demo lifecycle check is intentionally disruptive (Pod replacement,
-config repair, stop/start and a rejected identity-adoption probe), and never
-deletes its PVC:
+The lifecycle check is intentionally disruptive (Pod replacement, config
+repair, stop/start and a rejected identity-adoption probe), so run it only
+against a disposable VM. It never deletes the VM's PVC:
 
 ```sh
-python3 contrib/tests/operator-lifecycle.py --namespace qrab --vm qrab-demo
+python3 contrib/tests/operator-lifecycle.py --namespace qrab --vm "$disposable_vm"
 ```
 
 Native guest disks use QEMU/libiscsi with Secret file references and a pinned
@@ -622,6 +637,10 @@ The disposable legacy lifecycle script is intentionally limited to VMs without
 native disks; failed native probes require hard-fence recovery.
 
 ### VM-platform rollout record (2026-11-12)
+
+These dated records describe the cluster at the time. The qrab-demo VM they
+verify has since been retired; its host and console objects now serve
+`qrab-redfish-poc` ([contrib/kubernetes/README.md](../contrib/kubernetes/README.md#examplesqrab-demo)).
 
 Images built from main 503ea0e: manager
 `zot.yapplesauce.com/qrab/manager@sha256:b6b8f19bd2e6fc10401addcecd0845a3ff8fcdb6534b29981bf2f53ba6fb2e0f`
@@ -650,8 +669,8 @@ PVC 67cba3ee, and there was no storage recovery. Live checks on the new Pod:
 
 Not verified live in this window: iSCSI filesystem content (the test-only
 probe copy into the Pod was not run), the BMC viewer role (no
-`console.viewerSubjects`), Redfish (off; its Kanidm client now exists but
-port 8081 has no Service/Ingress/Cilium path), vCPU growth (needs KVM) and
+`console.viewerSubjects`), Redfish (off; its Kanidm client existed, but
+port 8081 had no Service/Ingress/Cilium path yet; the next record adds it), vCPU growth (needs KVM) and
 `spec.disks` provisioning (needs storage activation).
 
 ### Storage, KVM and Redfish rollout record (2026-11-12, later)

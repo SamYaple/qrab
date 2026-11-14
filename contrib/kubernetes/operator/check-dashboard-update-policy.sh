@@ -2,10 +2,10 @@
 # Live check of dashboard-update-policy.json with server-side dry runs against
 # an existing VM: nothing changes. Needs an admin context that may impersonate.
 #
-#   bash contrib/kubernetes/operator/check-dashboard-update-policy.sh [EXISTING_VM]
+#   bash contrib/kubernetes/operator/check-dashboard-update-policy.sh EXISTING_VM
 set -euo pipefail
 ns=qrab
-existing=${1:-qrab-demo}
+existing=${1:?usage: $0 EXISTING_VM (a VirtualMachine in namespace qrab)}
 policy=qrab-dashboard-vm-updates
 # The policy looks only at the username. The admin group lets the dry runs pass
 # RBAC whether or not the dashboard's own Role is installed yet.

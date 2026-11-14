@@ -1,3 +1,8 @@
+# SAMPLE ONLY (contrib/kubernetes/README.md). The qrab-demo VM was retired;
+# on this cluster the qrab-demo Service, Ingress, Certificate, CiliumNetworkPolicy
+# and host belong to ../../redfish-poc. Copy and rename every name, selector,
+# claim and host before applying (never reuse the retained qrab-demo-state
+# claim); this directory deliberately has no kustomization.
 apiVersion: v1
 kind: Service
 metadata:

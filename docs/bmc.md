@@ -11,15 +11,15 @@ and expiry validation. `/api/session` and the `/api/console` WebSocket can
 also accept the dashboard's Kanidm ID tokens as bearer credentials ([below](#dashboard-bearer-tokens)). There are no
 static tokens and no anonymous development bypass.
 
-The demo is at **https://qrab-demo.yapplesauce.com**, using the cluster's private
-DNS and Cilium ingress, like `idm-dashboard`. It requires LAN/private-DNS access;
+The console is at **https://qrab-demo.yapplesauce.com** (VM `qrab-redfish-poc`),
+using the cluster's private DNS and Cilium ingress, like `idm-dashboard`. It requires LAN/private-DNS access;
 this manifest does not add a public edge route. Sign in with Kanidm, then choose
 **Connect console**. Video, keyboard, USB tablet input, Ctrl Alt Del and full
 screen run through the vendored noVNC client. There are no CDN dependencies.
 Everything else on the page (power state, power actions, guest-agent actions,
 the live QMP event history, the effective configuration and metrics)
 is read from and sent to the VM's in-pod [Redfish](redfish.md) service through
-the BMC's [`/redfish` proxy](#redfish-proxy).
+the BMC's [`/bmc/redfish` session adapter](#redfish-proxy).
 
 Shutdown ends the current VM instance. With spec.running=true, the operator
 starts another; set spec.running=false to keep it off.
@@ -154,8 +154,8 @@ and groups ([below](#redfish-proxy)).
 
 Redfish is the VM's single management plane. The BMC serves only the login
 (`/auth/*`), the UI shell and its `/assets`, `GET /api/session`, the
-`/api/console` WebSocket, the [`/redfish` proxy](#redfish-proxy) and the
-`/healthz` and `/readyz` probes. Status, power, events, the guest agent and the
+`/api/console` WebSocket, the [`/bmc/redfish` session adapter](#redfish-proxy)
+and the `/healthz` and `/readyz` probes. Status, power, events, the guest agent and the
 (role-redacted) configuration are Redfish's `Systems/1`,
 `ComputerSystem.Reset`, `LogServices/Events`, `EventService/SSE`,
 `Oem.Qrab.GuestAgent`, `Oem.Qrab.Configuration`,
@@ -420,15 +420,17 @@ additional registry identity is needed: the BMC ships in `qrab/manager`.
 
 ```sh
 # Install the operator/CRD and preserve namespace/SA identity.
-kubectl apply -k contrib/kubernetes/operator
-kubectl wait --for=condition=Established crd/virtualmachines.qrab.yapplesauce.com
 kubectl apply -k contrib/kubernetes
+kubectl wait --for=condition=Established crd/virtualmachines.qrab.yapplesauce.com
+kubectl apply -k contrib/kubernetes/redfish-poc
 kubectl -n qrab wait --for=condition=Ready certificate/qrab-demo-tls --timeout=180s
-kubectl -n qrab wait --for=condition=Ready pod/qrab-demo --timeout=120s
-bash contrib/kubernetes/check.sh
+kubectl -n qrab wait --for=condition=Ready pod/qrab-redfish-poc --timeout=120s
+bash contrib/kubernetes/check.sh qrab qrab-redfish-poc
 ```
 
-The per-VM Service/Ingress and certificate are part of qrab's launch manifests.
+The per-VM Service/Ingress and certificate are part of each VM's own bundle
+(`contrib/kubernetes/redfish-poc/console.yaml`), never of the root
+kustomization.
 The namespace and private-image-pull ServiceAccount stay in Kubernetes GitOps.
 Pod readiness uses HTTP `/readyz`, which validates a live manager/QEMU heartbeat
 and permits paused VMs so the operator can resume them. It is separate from the
@@ -444,8 +446,8 @@ a captured guest serial log, and a Chromium executable; it never saves cookies
 or passwords. Screenshots go to ignored `target/bmc-browser`.
 
 It observes pause/resume through Redfish `Systems/1` `PowerState` on the BMC's
-`/redfish` proxy. For example, against an isolated client/guest already
-running locally:
+`/bmc/redfish` session adapter. For example, against an isolated client/guest
+already running locally:
 
 ```sh
 python3 contrib/tests/bmc-browser.py --origin http://localhost:28080 \

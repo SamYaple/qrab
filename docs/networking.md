@@ -350,8 +350,8 @@ survive the NIC moving to another node. Beyond the cluster:
   dashboard `da24e9a`. Gitops re-pinned the operator (ClusterSPIFFEID and KVM
   device plugin) before `kubectl apply -k contrib/kubernetes/operator-storage-api`,
   which also brought the CiliumNetworkPolicy RBAC and the CRD.
-- `contrib/kubernetes/console.yaml` selects `component: vm`, so qrab-demo's
-  BMC Service never targets NIC pods. Apply it with `-n qrab`: the file
+- `contrib/kubernetes/console.yaml` (now `examples/qrab-demo/console.yaml`)
+  selects `component: vm`, so qrab-demo's BMC Service never targets NIC pods. Apply it with `-n qrab`: the file
   carries no namespace.
 - Live test VM `netvm2`: CirrOS 0.6.3 clone, `nics: [{name: eth0,
   securityGroups: [nettest]}]`, `cloudInit.hostname: netcheck`, and a user-data

@@ -1,8 +1,17 @@
 #!/usr/bin/env bash
 # Read-only verification of a CR-managed UEFI/TPM VM and its OIDC console.
+#
+#   bash contrib/kubernetes/check.sh NAMESPACE VM [CONNECT_IP]
+#
+# e.g. `check.sh qrab qrab-redfish-poc`. CONNECT_IP pins the console host to an
+# address (the Cilium Ingress) when private DNS does not resolve it.
 set -euo pipefail
+if [ $# -lt 2 ] || [ $# -gt 3 ]; then
+  echo "usage: $0 NAMESPACE VM [CONNECT_IP]" >&2
+  exit 2
+fi
 cd "$(dirname "$0")/../.."
-python3 - "${1:-qrab}" "${2:-qrab-demo}" "${3:-}" <<'PY'
+python3 - "$1" "$2" "${3:-}" <<'PY'
 import json,re,socket,subprocess,sys,time,urllib.request,urllib.error,urllib.parse
 from http.client import HTTPSConnection
 from pathlib import Path
@@ -127,7 +136,7 @@ if redfish:
     backend=paths[0]['backend']['service']
     service=json.loads(kubectl('get','service',backend['name'],'-o','json'))
     ports=[port for port in service['spec']['ports'] if port.get('name')==backend['port'].get('name') or port.get('port')==backend['port'].get('number')]
-    assert len(ports)==1 and ports[0].get('targetPort')==8081, 'public Redfish must route directly to sidecar port8081'
+    assert len(ports)==1 and ports[0].get('targetPort')==8081, 'public Redfish must route directly to sidecar port 8081'
     sidecar=sidecars['redfish']
     assert sidecar.get('restartPolicy')=='Always', 'Redfish is not a native sidecar'
     renv={v['name']:v.get('value') for v in sidecar['env']}

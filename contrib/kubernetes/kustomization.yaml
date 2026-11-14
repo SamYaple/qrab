@@ -1,10 +1,15 @@
+# The cluster-wide qrab platform as this cluster runs it: the operator with its
+# storage-service client (the same objects as `kubectl apply -k
+# contrib/kubernetes/operator-storage-api`; read that kustomization's
+# prerequisites) plus the monitoring PodMonitor and Grafana dashboard.
+# Apply it client-side, from a checkout at current origin/main. VMs and the
+# dashboard are separate bundles (README.md). Never add a VM or its console
+# objects here: this bundle must not create, retarget or resurrect a VM.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 namespace: qrab
 resources:
-- operator
-- vm.yaml
-- console.yaml
+- operator-storage-api
 # Prometheus scraping and the Grafana VM dashboard (kube-prometheus-stack).
 - monitoring/podmonitor.yaml
 - monitoring/grafana-dashboard.yaml

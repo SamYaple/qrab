@@ -43,8 +43,9 @@ for the BMC.
 ### Exposure
 
 Every BMC-enabled VM has a Redfish sidecar: the BMC's browser UI manages the
-VM through it ([bmc.md](bmc.md#redfish-proxy)). `contrib/kubernetes/console.yaml`
-(and `redfish-poc/console.yaml`) routes the public `/redfish` prefix directly to
+VM through it ([bmc.md](bmc.md#redfish-proxy)). A VM's console Ingress
+(`contrib/kubernetes/redfish-poc/console.yaml`, and the
+`examples/qrab-demo` sample) routes the public `/redfish` prefix directly to
 Service port `redfish` (8081), bypassing the BMC. The rest of the host reaches
 BMC port 8080. Browser UI management uses the distinct `/bmc/redfish` session
 adapter, which forwards over Pod loopback with the browser login's server-side
@@ -52,9 +53,11 @@ OIDC token. Native Redfish clients do not traverse this adapter.
 `contrib/kubernetes/check.sh`
 requires a native `redfish` sidecar beside the BMC (or with
 `spec.components.redfish.enabled`) with a subject allowlist and no access to
-the runtime directory, and `BMC_REDFISH_URL` on the BMC. It also requires
-401 with `WWW-Authenticate: Bearer` on `/redfish`, the service root,
-`Systems/1` and `Reset`, with no token or a malformed one.
+the runtime directory, and `BMC_REDFISH_URL` on the BMC. It requires exactly
+one Ingress `/redfish` Prefix route for the console host, to a Service port
+whose target is 8081, and 401 with `WWW-Authenticate: Bearer` on `/redfish`,
+the service root, `Systems/1` and `Reset`, with no token or a malformed one.
+Run it as `check.sh qrab qrab-redfish-poc`; the namespace and VM are required.
 
 `contrib/kubernetes/redfish-live.py` is the authenticated half, run by an
 allowlisted person. It obtains an ID token by PKCE through the loopback
@@ -463,7 +466,7 @@ UpperWarning/UpperCritical/LowerWarning/LowerCritical thresholds. Increasing
 and Decreasing activation are supported with zero dwell/hysteresis. The first
 sample establishes a baseline; duplicate samples are ignored and cumulative
 counter resets reestablish it. Only `LogToLogService` is advertised. Enabled triggers sample every five seconds; inactive triggers do no sampling. The
-`/Managers/1/LogServices/Telemetry` log retains128 alerts; threshold webhook
+`/Managers/1/LogServices/Telemetry` log retains 128 alerts; threshold webhook
 forwarding is not yet offered. Triggers and report history are volatile.
 
 ## Tasks, diagnostics and serial history
@@ -484,9 +487,9 @@ Admin `POST /Managers/1/LogServices/Diagnostics/Actions/LogService.CollectDiagno
 creates a diagnostic task. Its completed monitor links a LogEntry with an
 attachment. Bundles contain redacted configuration, summarized status/events
 and best-effort metrics; raw QMP payloads and free-form errors are omitted.
-Each attachment is bounded to 128KiB and remains admin-only.
+Each attachment is bounded to 128 KiB and remains admin-only.
 
-`/Managers/1/LogServices/Serial` exposes the current 64KiB guest serial tail as
+`/Managers/1/LogServices/Serial` exposes the current 64 KiB guest serial tail as
 an admin-only LogEntry attachment, with retained/dropped byte counts. It is
 volatile and mirrors the existing container serial log on a bounded best-effort
 queue; log backpressure cannot stall VM control. Serial text may
@@ -509,14 +512,14 @@ a previously delivered event, so receivers should deduplicate by event ID. Seque
 missed-event counters and manager restart handling bound replay behavior.
 A persistence failure pauses delivery instead of producing a retry storm.
 Disk writes run outside the async runtime and reader lock, with one admitted
-persistent writer; concurrent mutations return503 instead of growing a queue.
+persistent writer; concurrent mutations return 503 instead of growing a queue.
 
 Standalone environment:
 
 | Variable | Meaning |
 | --- | --- |
 | `REDFISH_EVENT_DESTINATIONS` | Comma-separated exact allowed HTTPS receiver URLs; empty disables creation/delivery |
-| `REDFISH_SUBSCRIPTIONS_FILE` | Optional absolute private JSON state file,128KiB maximum; atomic0600 writes. Without it subscriptions are volatile |
+| `REDFISH_SUBSCRIPTIONS_FILE` | Optional absolute private JSON state file, 128 KiB maximum; atomic 0600 writes. Without it subscriptions are volatile |
 
 Operator `spec.components.redfish.eventDestinations` configures exact HTTPS port 443
 receivers and creates an owned additive Cilium policy for their hosts/IPs.
@@ -547,7 +550,7 @@ paths or caller credentials. Images must be nonempty regular files under a
 trusted read-only media mount; canonical escape and size checks apply.
 
 Manager `QRAB_MEDIA_ROOT` enables an empty q35 IDE CD-ROM at startup;
-`QRAB_MEDIA_MAX_BYTES` defaults to 8GiB and cannot exceed64GiB. Existing VMs
+`QRAB_MEDIA_MAX_BYTES` defaults to 8 GiB and cannot exceed 64 GiB. Existing VMs
 without the cold-provisioned device may reject hotplug, which is reported as
 failure. Media capacity is bounded independently of task/telemetry memory.
 Use operator `spec.mediaVolumeClaim` for the approved read-only media PVC.
@@ -596,8 +599,8 @@ than retaining an unbounded waiter queue.
 
 Admin `POST /Systems/1/SecureBoot/Actions/Oem/QrabSecureBoot.UpdateAuthenticatedDatabase`
 accepts `{"DatabaseId":"db","PayloadBase64":"<EFI_AUTHENTICATION_2 .auth>","Append":false}`.
-Only PK/KEK/db/dbx are writable. Payloads are capped at 128KiB decoded and 192KiB
-HTTP; all other route bodies retain 4KiB limits. The command validates AUTH2,
+Only PK/KEK/db/dbx are writable. Payloads are capped at 128 KiB decoded and 192 KiB
+HTTP; all other route bodies retain 4 KiB limits. The command validates AUTH2,
 UTC time/header lengths, PKCS#7 envelope and signature-list/DER structure, then
 performs one fixed-variable efivarfs write. Firmware validates trust, signature
 and timestamp authorization. No private signing key is sent or stored, and no ambiguous mutation is
@@ -605,7 +608,7 @@ replayed. An existing fixed-variable inode may have Linux's conservative
 immutable guard temporarily lifted for exactly one authenticated write; every
 other flag is preserved and the exact original flags are restored and verified
 on success or failure. A missing fixed-name variable may be created atomically
-with NOFOLLOW/exclusive0600 semantics after validation, enabling initial
+with NOFOLLOW/exclusive 0600 semantics after validation, enabling initial
 SetupMode enrollment; a concurrent existing inode is never truncated. A rejected
 creation is reported for inspection rather than blindly unlinked. No arbitrary
 path/flag operation is exposed. Firmware
@@ -640,7 +643,7 @@ A catalog has schema 1 and at most 64 artifacts:
 Sizes shown are examples; use the actual approved build dimensions/digests.
 Artifacts for secure-capable targets must additionally declare
 `"secure_boot_capable":true` in their sealed catalog metadata.
-Each CODE is bounded to 64MiB. Staging validates SHA256, image size, retained
+Each CODE is bounded to 64 MiB. Staging validates SHA256, image size, retained
 VARS size and the immutable VARS template digest, then atomically records a
 VM-identity-bound selection under the existing private identity directory.
 Application occurs under the manager's exclusive persistent-state lease and
@@ -671,8 +674,8 @@ Standalone embedded BMC shares the manager process and cannot give independent
 container accounting. Configured guest RAM must not be added to QEMU's cgroup
 memory usage because it is already accounted there.
 
-New state has explicit bounds:64KiB serial tail in manager;128 metric reports,
-16 triggers/128 alerts,32 subscriptions,32 tasks/two active and 128KiB per
+New state has explicit bounds: 64 KiB serial tail in manager; 128 metric reports,
+16 triggers/128 alerts, 32 subscriptions, 32 tasks/two active and 128 KiB per
 attachment in Redfish. All workers remain inside the Redfish allocation.
 Subscription disk state lives on its separate optional PVC. No Redis was added;
 these bounded stores do not yet justify another per-VM service. Redis would
@@ -722,10 +725,10 @@ Cheap probes remain available under load. Firmware status hashes are cached
 for five seconds and invalidated before staging.
 
 [Performance experiment](../contrib/experiments/redfish-performance.md) documents
-three debug runs and limitations:20,000 duplicate recordings dropped from 6.64M
+three debug runs and limitations: 20,000 duplicate recordings dropped from 6.64M
 allocations to zero, 128 event acknowledgments from 128 checkpoints to four,
-and modeled process peak RSS from 8,608KiB to 6,468KiB. Historical JSON reads
-cost more (~66us each) because rendering moves to the read path. These are
+and modeled process peak RSS from 8,608 KiB to 6,468 KiB. Historical JSON reads
+cost more (~66 us each) because rendering moves to the read path. These are
 isolated representations/current mock transport and tmpfs checkpoint timings,
 not promised end-to-end or PVC speedups.
 
@@ -733,7 +736,7 @@ not promised end-to-end or PVC speedups.
 including signed acceptance, unsigned rejection, cold flag roundtrip and the
 actual flag's disappearance after ExitBootServices. The native editor matches
 all active variables from virt-fw-vars and preserves unrelated bytes; measured
-debug edits were 0.76ms/128KiB and 1.78ms/528KiB versus ~120ms/~32MiB for the Python
+debug edits were 0.76 ms/128 KiB and 1.78 ms/528 KiB versus ~120 ms/~32 MiB for the Python
 reference tool. Production has no Python helper or new daemon.
 
 `contrib/experiments/secure-boot-auth-update.py` uses real throwaway PKCS#7

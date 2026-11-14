@@ -39,13 +39,15 @@ recorded in [images.lock.json](contrib/images/images.lock.json).
 See [iscsi.md](docs/iscsi.md) for native network disks and fencing.
 See [operator.md](docs/operator.md) for CR-driven launch and persistent UEFI/TPM
 identity, and [bmc.md](docs/bmc.md) for OIDC and the per-VM console.
-Once the namespace/ServiceAccount image-pull identity and OIDC client are enrolled:
+Once the namespace/ServiceAccount image-pull identity, the storage service and
+the OIDC client are enrolled, apply the platform and then each VM bundle on its
+own ([contrib/kubernetes/README.md](contrib/kubernetes/README.md)):
 
 ```sh
-kubectl apply -k contrib/kubernetes/operator
+kubectl apply -k contrib/kubernetes   # operator with storage client, monitoring
 kubectl wait --for=condition=Established crd/virtualmachines.qrab.yapplesauce.com
-kubectl apply -k contrib/kubernetes
-bash contrib/kubernetes/check.sh
+kubectl apply -k contrib/kubernetes/redfish-poc
+bash contrib/kubernetes/check.sh qrab qrab-redfish-poc
 ```
 
 Read [protocol.md](docs/protocol.md) for the transport contract and
