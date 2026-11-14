@@ -176,6 +176,7 @@ footer { padding: 12px 2vw; color: var(--faint); font-size: 12px; }
 #events time { color: var(--faint); }
 #events b { color: var(--event); font-weight: 600; }
 #events code { color: var(--text-data); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#events li.gap b, #events li.gap code { color: var(--warn); white-space: normal; }
 
 /* ── Responsive ── */
 @media (max-width: 1000px) {

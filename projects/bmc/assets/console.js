@@ -23,7 +23,7 @@ const RESETS = [
 ];
 const TABS = ['overview', 'metrics', 'events', 'agent', 'config'];
 const element = id => document.getElementById(id);
-let session, rfb, polling, metricsTimer, droppedTimer, events, system, refreshTimer;
+let session, rfb, polling, metricsTimer, events, system, refreshTimer;
 let agentResult = [];
 let scaleToFit = true;
 const rendered = {};
@@ -52,7 +52,6 @@ const post = (path, body) => request(path, {method: 'POST', headers: {'Content-T
 function signedOut() {
     clearInterval(polling);
     clearInterval(metricsTimer);
-    clearInterval(droppedTimer);
     clearTimeout(refreshTimer);
     if (events) { events.close(); events = null; }
     if (rfb) rfb.disconnect();
@@ -143,11 +142,21 @@ keepConsoleFocus(element('rail-tabs'));
 keepConsoleFocus(element('console-toolbar'));
 
 // ── Events. LogEntry (history) and Event (SSE) records carry the QMP event under Oem.Qrab.
+// The stream also sends two notices without an SSE id: a history gap and the
+// QMP-dropped total (at open when nonzero, then on every change).
+const MISSED = 'Qrab.1.0.EventsMissed';
+const DROPPED = 'Qrab.1.0.QmpEventsDropped';
 const fromEntry = entry => ({seq: entry.Oem?.Qrab?.Sequence ?? Number(entry.Id), time: entry.Created, ...qmp(entry)});
-const fromEvent = record => ({seq: record.Oem?.Qrab?.Sequence ?? Number(record.EventId), time: record.EventTimestamp, ...qmp(record)});
+const fromEvent = record => {
+    const oem = record.Oem?.Qrab ?? {};
+    if (record.MessageId === MISSED) return {kind: 'gap', time: record.EventTimestamp, missed: oem.MissedEvents, after: oem.After, resumes: oem.OldestAvailableSequence};
+    if (record.MessageId === DROPPED) return {kind: 'dropped', total: oem.QmpDropped ?? 0};
+    return {kind: 'qmp', seq: oem.Sequence ?? Number(record.EventId), time: record.EventTimestamp, ...qmp(record)};
+};
 const qmp = record => ({event: record.Oem?.Qrab?.Event ?? record.Message, data: record.Oem?.Qrab?.Data, truncated: record.Oem?.Qrab?.Truncated});
 const eventFilter = () => element('events-filter').value.trim().toLowerCase();
-const matches = (row, filter) => !filter || row.dataset.event.toLowerCase().includes(filter);
+// Gap markers stay visible under any filter: the gap may hide matching events.
+const matches = (row, filter) => !filter || row.classList.contains('gap') || row.dataset.event.toLowerCase().includes(filter);
 function eventRow(event) {
     const at = event.time ? new Date(event.time) : new Date();
     const time = node('time', at.toLocaleTimeString());
@@ -169,9 +178,17 @@ element('events-filter').addEventListener('input', () => {
     const filter = eventFilter();
     for (const row of element('events').children) row.hidden = !matches(row, filter);
 });
-async function loadDropped() {
-    const log = await request(EVENT_LOG);
-    const count = log.Oem?.Qrab?.QmpDropped ?? 0;
+function gapRow(gap) {
+    const at = gap.time ? new Date(gap.time) : new Date();
+    const time = node('time', at.toLocaleTimeString());
+    time.dateTime = at.toISOString();
+    const after = gap.resumes ? `; history resumes at #${gap.resumes}` : '';
+    const row = node('li', undefined, 'gap');
+    row.append(time, node('b', 'Gap'), node('code', `${gap.missed} event(s) after #${gap.after} were evicted before they could be shown${after}`));
+    row.dataset.event = '';
+    return row;
+}
+function showDropped(count) {
     element('events-dropped').textContent = count > 0 ? `${count} QMP event(s) were dropped before the manager recorded them` : '';
     element('events-dropped').hidden = !(count > 0);
 }
@@ -186,14 +203,21 @@ function refreshSoon() {
 async function startEvents() {
     const status = element('events-status');
     let last = -1, pending = [];
-    const show = record => { if (record.seq > last) { last = record.seq; addEvents([eventRow(record)]); } };
+    const show = record => {
+        if (record.kind === 'gap') addEvents([gapRow(record)]);
+        else if (record.seq > last) { last = record.seq; addEvents([eventRow(record)]); }
+    };
     events = new EventSource(browserPath(EVENT_STREAM));
     events.addEventListener('open', () => { status.textContent = 'Live'; });
     events.addEventListener('message', message => {
         let records;
         try { records = (JSON.parse(message.data).Events || []).map(fromEvent); } catch { return; }
-        for (const record of records) pending ? pending.push(record) : show(record);
-        if (records.length) refreshSoon();
+        for (const record of records) {
+            if (record.kind === 'dropped') showDropped(record.total);
+            else if (pending) pending.push(record);
+            else show(record);
+        }
+        if (records.some(record => record.kind === 'qmp')) refreshSoon();
     });
     events.addEventListener('error', () => {
         status.textContent = events?.readyState === EventSource.CLOSED ? 'Disconnected' : 'Reconnecting…';
@@ -205,7 +229,6 @@ async function startEvents() {
     const buffered = pending;
     pending = null;
     for (const record of buffered) show(record);
-    await loadDropped();
 }
 
 // ── Status header and overview, from one Systems/1 read.
@@ -520,5 +543,4 @@ try {
     polling = setInterval(refresh, 3000);
     await Promise.all([admin ? loadPower() : null, startEvents()]).catch(error => showError(error.message));
     metricsTimer = setInterval(() => { if (!document.hidden) loadMetrics(); }, 5000);
-    droppedTimer = setInterval(() => { loadDropped().catch(() => {}); }, 5000);
 } catch (error) { signedOut(); if (!error.message.startsWith('Your session ended')) showError(error.message); }

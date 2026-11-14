@@ -444,6 +444,14 @@ impl Backend {
         }
     }
 
+    /// Resolve once [`EventPage::qmp_dropped`] differs from `known`.
+    pub async fn wait_qmp_dropped(&self, known: u64) {
+        match self {
+            Self::Local(control) => control.wait_qmp_dropped(known).await,
+            Self::Socket(remote) => remote.0.events.wait_dropped(known).await,
+        }
+    }
+
     pub async fn action(&self, action: Action) -> Result<()> {
         match self {
             Self::Local(control) => control.action(action).await,

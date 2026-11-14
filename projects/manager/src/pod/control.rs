@@ -211,7 +211,7 @@ impl ControlReceiver {
 
     /// Events the QMP client discarded because its queue was full or an
     /// event exceeded its size bound.
-    pub(super) fn set_qmp_dropped(&self, dropped: u64) {
+    pub fn set_qmp_dropped(&self, dropped: u64) {
         self.shared.events.set_qmp_dropped(dropped);
     }
 

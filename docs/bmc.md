@@ -59,8 +59,13 @@ modules):
     `Managers/1/Oem/Qrab/Resources`, polled every 5 s only while the tab is
     shown (each report read takes a fresh QMP sample). The `#metric-history`
     slot is reserved for the history graphs of `work/bmc-metric-history-graphs`.
-  - *Events*: the QMP event log and live stream, a name filter and the
-    dropped-events warning.
+  - *Events*: the QMP event log (the newest 100 `LogServices/Events`
+    entries) followed by the live `EventService/SSE` stream, and a name
+    filter. A stream `Qrab.1.0.EventsMissed` notice (a reconnect whose
+    `Last-Event-ID` was already evicted) becomes a **Gap** row naming the
+    missed count, shown under any filter; `Qrab.1.0.QmpEventsDropped`
+    notices set or clear the dropped-events warning. Nothing on this tab
+    polls ([redfish.md](redfish.md#event-stream-sse)).
   - *Guest agent*: agent status and the freeze (two-step confirm), thaw and
     update actions.
   - *Configuration*: `Oem.Qrab.Configuration`, redacted for viewers.

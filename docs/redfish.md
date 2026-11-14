@@ -192,7 +192,7 @@ the loopback redirect, then calls e.g.
 | `/redfish/v1/Managers/1/LogServices/Events` | `LogService.v1_7_0` | 256 records, `WrapsWhenFull`; `Oem.Qrab.QmpDropped` counts events QMP discarded, with `Health: Warning` when nonzero |
 | `.../Events/Entries`, `.../Entries/{seq}` | `LogEntryCollection`, `LogEntry.v1_17_0` | one `Oem` entry per QMP event; QAPI name and data under `Oem.Qrab` |
 | `/redfish/v1/EventService` | `EventService.v1_10_0` | `ServerSentEventUri` and opt-in HTTPS push subscriptions |
-| `/redfish/v1/EventService/SSE` | SSE of `Event.v1_10_0` | SSE `id` is the QMP sequence; `Last-Event-ID` resumes |
+| `/redfish/v1/EventService/SSE` | SSE of `Event.v1_10_0` | SSE `id` is the QMP sequence; `Last-Event-ID` resumes; gap and QMP-dropped notices, see [Event stream](#event-stream-sse) |
 
 `PowerState` follows the manager status: `PoweringOn` while starting, `On`
 running, `Paused` when QEMU is paused or otherwise not running, `PoweringOff`
@@ -225,6 +225,37 @@ and `Cache-Control: no-store`. Ordinary request bodies are limited to 4 KiB (sig
 192 KiB bound) and eight
 event streams are served at once.
 
+### Event stream (SSE)
+
+`/redfish/v1/EventService/SSE` streams one `Event.v1_10_0` per frame. A stream
+without `Last-Event-ID` starts at the newest event; with one, it replays the
+retained events after that sequence. It closes at credential expiry or session
+revocation, as described under Authentication. Every record has
+`EventType: Other`, `MemberId: "0"` and a `Qrab.1.0.*` `MessageId`:
+
+| `MessageId` | SSE `id` | `OriginOfCondition` | `Oem.Qrab` |
+| --- | --- | --- | --- |
+| `Qrab.1.0.QmpEvent` | QMP sequence | `Systems/1` | `QrabEvent`: `Sequence`, `Event`, `Data`, `Truncated` |
+| `Qrab.1.0.EventsMissed` | none | `LogServices/Events` | `QrabEventGap`: `MissedEvents`, `After`, `OldestAvailableSequence` |
+| `Qrab.1.0.QmpEventsDropped` | none | `LogServices/Events` | `QrabQmpDropped`: `QmpDropped` |
+
+`EventsMissed` (`Severity: Warning`, `MessageArgs: [missed, after]`) is sent
+once, before the replay, when events after the stream's cursor were already
+evicted from the 256-event history: a resume with an old `Last-Event-ID`, or a
+reader that fell more than the history behind. `OldestAvailableSequence` is the
+next sequence delivered (`null` when none is retained). `QmpEventsDropped`
+carries the `LogServices/Events` `Oem.Qrab.QmpDropped` total (QEMU events the
+QMP client discarded during the current QEMU connection). It is sent when a
+stream opens with a nonzero total and again whenever the total changes,
+including the reset to 0 after a QEMU reconnect; `Severity` is `Warning` while
+nonzero.
+
+The notices carry no SSE `id`. A client's `Last-Event-ID` therefore always
+names the last QMP event it received, so resuming never skips events because a
+notice arrived last. A notice can repeat after a reconnect, and the current
+dropped total is sent again on every reopened stream. Notices are not
+`LogEntry` records, and push subscriptions do not deliver them.
+
 ## Tests
 
 `cargo test --locked -p qrab-redfish` covers resource shapes, the authentication
@@ -232,7 +263,8 @@ rejection matrix (missing, Basic, malformed, expired, wrong audience, wrong
 issuer, foreign signing key, unlisted subject, viewer reset), trusted sources
 (each pair accepted with its listed role, cross-source audiences and keys and
 unconfigured issuers 401, unlisted subjects 403), reset mapping,
-power-state mapping, the event stream and its token-expiry bound, and the
+power-state mapping, the event stream, its gap and QMP-dropped notices and its
+token-expiry bound, and the
 Prometheus exposition (format, label sanitization, scrape coalescing, listener
 separation, and the shipped dashboard's queries). The tests sign
 tokens with the test-only keys under `projects/redfish/tests/fixtures`.

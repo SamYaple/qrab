@@ -688,6 +688,135 @@ async fn event_stream_delivers_redfish_events_and_ends_at_token_expiry() {
     assert_eq!(fixture.app.streams.available_permits(), 2);
 }
 
+/// Open the SSE stream as a viewer, optionally resuming after `last`.
+async fn open_stream(app: &AppState, last: Option<&str>) -> axum::body::BodyDataStream {
+    let mut request = Request::builder()
+        .uri("/redfish/v1/EventService/SSE")
+        .header("authorization", format!("Bearer {}", good(VIEWER)));
+    if let Some(last) = last {
+        request = request.header("last-event-id", last);
+    }
+    let response = qrab_redfish::router(app.clone())
+        .oneshot(request.body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    response.into_body().into_data_stream()
+}
+
+/// SSE frames as (`id`, decoded `data`), read until one carries `until` as its id.
+async fn frames_until(
+    body: &mut axum::body::BodyDataStream,
+    until: &str,
+) -> Vec<(Option<String>, Value)> {
+    use futures::StreamExt;
+    let mut text = String::new();
+    let complete = tokio::time::timeout(Duration::from_secs(5), async {
+        while !text.contains(&format!("id: {until}\n")) {
+            let chunk = body.next().await.unwrap().unwrap();
+            text.push_str(std::str::from_utf8(&chunk).unwrap());
+        }
+    })
+    .await;
+    assert!(complete.is_ok(), "no SSE frame with id {until}: {text}");
+    text.split("\n\n")
+        .filter_map(|frame| {
+            let data = frame.lines().find_map(|line| line.strip_prefix("data: "))?;
+            let id = frame
+                .lines()
+                .find_map(|line| line.strip_prefix("id: "))
+                .map(str::to_string);
+            Some((id, serde_json::from_str(data).unwrap()))
+        })
+        .collect()
+}
+
+fn message_id(data: &Value) -> &Value {
+    &data["Events"][0]["MessageId"]
+}
+
+#[tokio::test]
+async fn an_evicted_resume_cursor_gets_one_gap_event_before_the_replay() {
+    let fixture = fixture();
+    let total = manager::pod::EVENT_CAPACITY as u64 + 10;
+    for _ in 0..total {
+        record(&fixture, "STOP", json!({}));
+    }
+    // Events 1..=10 are evicted; a client that last saw #3 missed #4..=#10.
+    let mut body = open_stream(&fixture.app, Some("3")).await;
+    let frames = frames_until(&mut body, "12").await;
+    assert_eq!(frames.len(), 3, "{frames:?}");
+    let (id, gap) = &frames[0];
+    // No SSE id: the client's Last-Event-ID stays the last QMP sequence it saw.
+    assert!(id.is_none());
+    assert_eq!(gap["@odata.type"], "#Event.v1_10_0.Event");
+    let record_ = &gap["Events"][0];
+    assert_eq!(record_["MessageId"], qrab_redfish::MISSED_MESSAGE);
+    assert_eq!(record_["EventType"], "Other");
+    assert_eq!(record_["Severity"], "Warning");
+    assert_eq!(record_["MessageArgs"], json!(["7", "3"]));
+    assert_eq!(
+        record_["OriginOfCondition"]["@odata.id"],
+        "/redfish/v1/Managers/1/LogServices/Events"
+    );
+    assert_eq!(
+        record_["Oem"]["Qrab"],
+        json!({"@odata.type":"#QrabEventGap.v1_0_0.QrabEventGap",
+            "MissedEvents":7,"After":3,"OldestAvailableSequence":11})
+    );
+    // The gap precedes the replay of what the history still holds.
+    let replay: Vec<_> = frames[1..].iter().map(|(id, _)| id.as_deref()).collect();
+    assert_eq!(replay, [Some("11"), Some("12")]);
+    assert!(frames[1..]
+        .iter()
+        .all(|(_, data)| message_id(data) == "Qrab.1.0.QmpEvent"));
+
+    // A cursor still inside the history replays without a gap.
+    let mut body = open_stream(&fixture.app, Some(&(total - 2).to_string())).await;
+    let frames = frames_until(&mut body, &total.to_string()).await;
+    assert_eq!(frames.len(), 2, "{frames:?}");
+    assert!(frames.iter().all(|(id, _)| id.is_some()));
+}
+
+#[tokio::test]
+async fn a_changed_qmp_dropped_counter_is_one_stream_event() {
+    let fixture = fixture();
+    let receiver = fixture.receiver.as_ref().unwrap();
+    record(&fixture, "STOP", json!({}));
+    let mut live = open_stream(&fixture.app, None).await;
+    // Let the stream reach its idle wait before the counter changes.
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    receiver.set_qmp_dropped(2);
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    record(&fixture, "RESUME", json!({}));
+    let frames = frames_until(&mut live, "2").await;
+    assert_eq!(frames.len(), 2, "{frames:?}");
+    let (id, notice) = &frames[0];
+    assert!(id.is_none());
+    assert_eq!(notice["@odata.type"], "#Event.v1_10_0.Event");
+    let record_ = &notice["Events"][0];
+    assert_eq!(record_["MessageId"], qrab_redfish::DROPPED_MESSAGE);
+    assert_eq!(record_["Severity"], "Warning");
+    assert_eq!(record_["MessageArgs"], json!(["2"]));
+    assert_eq!(
+        record_["Oem"]["Qrab"],
+        json!({"@odata.type":"#QrabQmpDropped.v1_0_0.QrabQmpDropped","QmpDropped":2})
+    );
+    assert_eq!(frames[1].1["Events"][0]["Message"], "RESUME");
+
+    // A new stream starts from the current nonzero total, sent once.
+    drop(live);
+    let mut fresh = open_stream(&fixture.app, Some("0")).await;
+    let frames = frames_until(&mut fresh, "2").await;
+    let notices: Vec<_> = frames
+        .iter()
+        .filter(|(_, data)| message_id(data) == qrab_redfish::DROPPED_MESSAGE)
+        .collect();
+    assert_eq!(notices.len(), 1, "{frames:?}");
+    assert_eq!(notices[0].1["Events"][0]["Oem"]["Qrab"]["QmpDropped"], 2);
+    assert_eq!(frames.len(), 3, "{frames:?}");
+}
+
 #[tokio::test]
 async fn unknown_resources_are_redfish_not_found() {
     let fixture = fixture();

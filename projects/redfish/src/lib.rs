@@ -1034,6 +1034,7 @@ pub fn event_json(event: &VmEvent) -> Value {
         "Id": event.seq.to_string(),
         "Name": "qrab VM event",
         "Events": [{
+            "MemberId": "0",
             "EventType": "Other",
             "EventId": event.seq.to_string(),
             "EventTimestamp": event_time(event),
@@ -1047,8 +1048,103 @@ pub fn event_json(event: &VmEvent) -> Value {
     })
 }
 
+/// A stream-only notice: these describe the stream, not a QMP event, so they
+/// have no sequence number and are never written to the event log.
+fn notice(
+    id: String,
+    severity: &str,
+    message: String,
+    message_id: &str,
+    args: Vec<String>,
+    oem: Value,
+) -> Value {
+    json!({
+        "@odata.type": "#Event.v1_10_0.Event",
+        "Id": id,
+        "Name": "qrab event stream notice",
+        "Events": [{
+            "MemberId": "0",
+            "EventType": "Other",
+            "EventId": id,
+            "EventTimestamp": rfc3339(now_ms()),
+            "Severity": severity,
+            "Message": message,
+            "MessageId": message_id,
+            "MessageArgs": args,
+            "OriginOfCondition": link(LOG),
+            "Oem": {"Qrab": oem},
+        }],
+    })
+}
+
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
+}
+
+/// The SSE gap record: `missed` QMP events after sequence `after` were evicted
+/// from the bounded history before this stream read them; `resumes_at` is the
+/// first retained sequence delivered next.
+///
+/// ```
+/// let gap = qrab_redfish::missed_event_json(3, 7, Some(11));
+/// let record = &gap["Events"][0];
+/// assert_eq!(record["MessageId"], "Qrab.1.0.EventsMissed");
+/// assert_eq!(record["MessageArgs"], serde_json::json!(["7", "3"]));
+/// assert_eq!(record["Oem"]["Qrab"]["MissedEvents"], 7);
+/// assert_eq!(record["Oem"]["Qrab"]["OldestAvailableSequence"], 11);
+/// ```
+pub fn missed_event_json(after: u64, missed: u64, resumes_at: Option<u64>) -> Value {
+    notice(
+        format!("missed-{after}"),
+        "Warning",
+        format!("{missed} QMP event(s) after sequence {after} were evicted from the event history before this stream read them."),
+        MISSED_MESSAGE,
+        vec![missed.to_string(), after.to_string()],
+        json!({
+            "@odata.type": "#QrabEventGap.v1_0_0.QrabEventGap",
+            "MissedEvents": missed,
+            "After": after,
+            "OldestAvailableSequence": resumes_at,
+        }),
+    )
+}
+
+/// The SSE notice for a new `LogServices/Events` `Oem.Qrab.QmpDropped` total.
+///
+/// ```
+/// let notice = qrab_redfish::qmp_dropped_event_json(2);
+/// assert_eq!(notice["Events"][0]["MessageId"], "Qrab.1.0.QmpEventsDropped");
+/// assert_eq!(notice["Events"][0]["Oem"]["Qrab"]["QmpDropped"], 2);
+/// assert_eq!(qrab_redfish::qmp_dropped_event_json(0)["Events"][0]["Severity"], "OK");
+/// ```
+pub fn qmp_dropped_event_json(total: u64) -> Value {
+    notice(
+        format!("qmp-dropped-{total}"),
+        if total > 0 { "Warning" } else { "OK" },
+        format!("The QMP client has discarded {total} QEMU event(s) during the current QEMU connection."),
+        DROPPED_MESSAGE,
+        vec![total.to_string()],
+        json!({
+            "@odata.type": "#QrabQmpDropped.v1_0_0.QrabQmpDropped",
+            "QmpDropped": total,
+        }),
+    )
+}
+
+pub const MISSED_MESSAGE: &str = "Qrab.1.0.EventsMissed";
+pub const DROPPED_MESSAGE: &str = "Qrab.1.0.QmpEventsDropped";
+
 /// Live events close on credential expiry or session revocation. Idle streams
 /// do not refresh a session's last authenticated request time.
+///
+/// Only QMP events carry an SSE `id` (their sequence). Gap and QMP-dropped
+/// notices omit it, so the client's Last-Event-ID stays the last QMP sequence
+/// it received: a resume neither skips events nor depends on notice ordering.
+/// A gap is reported whenever the cursor falls behind the retained history
+/// (an evicted resume cursor or a reader slower than the history); the
+/// dropped total is sent at open when nonzero and again on every change.
 async fn sse(State(app): State<AppState>, headers: HeaderMap) -> Result<Response, Failure> {
     let who = principal(&app, &headers).await?;
     let permit = app
@@ -1066,32 +1162,49 @@ async fn sse(State(app): State<AppState>, headers: HeaderMap) -> Result<Response
     let state = (
         app,
         cursor,
-        std::collections::VecDeque::<VmEvent>::new(),
+        0u64,
+        std::collections::VecDeque::<(Option<u64>, Value)>::new(),
         permit,
         who,
     );
     let stream = futures::stream::unfold(
         state,
-        move |(app, mut cursor, mut queue, permit, who)| async move {
+        move |(app, mut cursor, mut dropped, mut queue, permit, who)| async move {
             loop {
                 if tokio::time::Instant::now() >= deadline || !app.auth.principal_active(&who) {
                     return None;
                 }
-                if let Some(event) = queue.pop_front() {
-                    let data = serde_json::to_string(&event_json(&event)).unwrap_or_default();
-                    let item: Result<Event, Infallible> =
-                        Ok(Event::default().id(event.seq.to_string()).data(data));
-                    return Some((item, (app, cursor, queue, permit, who)));
+                if let Some((id, value)) = queue.pop_front() {
+                    let mut event =
+                        Event::default().data(serde_json::to_string(&value).unwrap_or_default());
+                    if let Some(id) = id {
+                        event = event.id(id.to_string());
+                    }
+                    let item: Result<Event, Infallible> = Ok(event);
+                    return Some((item, (app, cursor, dropped, queue, permit, who)));
                 }
                 if tokio::time::Instant::now() >= deadline {
                     return None;
                 }
                 let page = app.control.events(Some(cursor), 64);
+                if page.missed > 0 {
+                    let resumes_at = page.events.first().map(|event| event.seq);
+                    queue.push_back((None, missed_event_json(cursor, page.missed, resumes_at)));
+                }
+                if page.qmp_dropped != dropped {
+                    dropped = page.qmp_dropped;
+                    queue.push_back((None, qmp_dropped_event_json(dropped)));
+                }
                 cursor = page.next;
-                queue.extend(page.events);
+                queue.extend(
+                    page.events
+                        .iter()
+                        .map(|event| (Some(event.seq), event_json(event))),
+                );
                 if queue.is_empty() {
                     tokio::select! {
                         () = app.control.wait_events(cursor) => {}
+                        () = app.control.wait_qmp_dropped(dropped) => {}
                         () = tokio::time::sleep_until(deadline) => return None,
                         () = tokio::time::sleep(Duration::from_secs(1)) => {},
                     }
