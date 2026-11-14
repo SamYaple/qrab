@@ -37,7 +37,7 @@ spec:
       containers:
       - name: operator
         # Updated from published immutable references by the release pin commit.
-        image: zot.yapplesauce.com/qrab/operator@sha256:9e732de64bbac00f92706637681223a9cf61828161c5f079e8049bef1a1bd5ce
+        image: zot.yapplesauce.com/qrab/operator@sha256:eaf5dcbd16551a370742595f4490cdbcd5277b9ee0b0f9edbf30eb4ee93fbc20
         imagePullPolicy: Always
         args: [run]
         env:
@@ -45,7 +45,7 @@ spec:
           valueFrom:
             fieldRef:
               fieldPath: metadata.namespace
-        - {name: QRAB_VM_IMAGE, value: 'zot.yapplesauce.com/qrab/manager@sha256:1e66af3e96705e9400bc3aea89baeb638fa7ee17d4d76473a6f2d498393efcf9'}
+        - {name: QRAB_VM_IMAGE, value: 'zot.yapplesauce.com/qrab/manager@sha256:fa971f1863c1795d500cf06cf1e8d88d2686fd10b18e5b304c3331107b46a0ea'}
         - {name: QRAB_OIDC_ISSUER, value: 'https://idm.yaple.net/oauth2/openid/qrab-bmc'}
         - {name: QRAB_OIDC_CLIENT_ID, value: qrab-bmc}
         # Every BMC also accepts the dashboard's forwarded ID tokens.
