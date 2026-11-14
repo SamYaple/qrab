@@ -116,7 +116,7 @@ async fn main() -> Result<()> {
                 let exchange = std::env::var("QRAB_STORAGE_EXCHANGE_ORIGIN")
                     .context("QRAB_STORAGE_EXCHANGE_ORIGIN is required with QRAB_STORAGE_ORIGIN")?;
                 let workload = std::env::var("QRAB_SPIFFE_ENDPOINT_SOCKET")
-                    .unwrap_or_else(|_| "unix:/spiffe-workload-api/spire-agent.sock".into());
+                    .unwrap_or_else(|_| qrab_spiffe::DEFAULT_ENDPOINT.into());
                 Some(Arc::new(
                     qrab_operator::storage::HttpStorage::new(
                         &workload,
