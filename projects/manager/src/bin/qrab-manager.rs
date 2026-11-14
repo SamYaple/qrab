@@ -72,6 +72,11 @@ async fn execute() -> manager::Result<()> {
                 "{}",
                 serde_json::json!({"event":"manager_exit","outcome":outcome})
             );
+            // The operator hands storage to a migration target only on this
+            // message; an ordinary exit 0 (the guest powered off) stays distinct.
+            if outcome.reason == "migrated" {
+                let _ = std::fs::write("/dev/termination-log", "migrated");
+            }
             Ok(())
         }
         _ => Err(manager::Error::Config(USAGE.into())),

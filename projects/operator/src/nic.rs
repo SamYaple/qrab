@@ -147,6 +147,7 @@ pub fn render_in_pool(
         json!({"app.kubernetes.io/name":"qrab","app.kubernetes.io/component":"vm",OWNER_UID:uid});
     let security = json!({"allowPrivilegeEscalation":false,"privileged":false,"readOnlyRootFilesystem":true,"capabilities":{"drop":["ALL"]}});
     let probe = json!(["qrab-manager", "nic-ready", "--socket", SOCKET]);
+    let (socket_volume, socket_mount) = crate::resources::workload_socket();
     let mut pod = json!({"apiVersion":"v1","kind":"Pod","metadata":{"name":pod_name(vm,&nic.name),"namespace":settings.namespace,"labels":labels,"ownerReferences":[owner]},"spec":{
         "serviceAccountName":"qrab-manager","automountServiceAccountToken":false,"enableServiceLinks":false,
         "hostNetwork":false,"hostPID":false,"hostIPC":false,
@@ -161,11 +162,12 @@ pub fn render_in_pool(
             "ports":[{"name":"relay","containerPort":RELAY_PORT,"protocol":"TCP"}],
             "resources":{"requests":{"cpu":"50m","memory":"320Mi"},"limits":{"cpu":"1","memory":"512Mi"}},
             "securityContext":security,"terminationMessagePolicy":"FallbackToLogsOnError",
-            "volumeMounts":[{"name":"nic","mountPath":"/run/nic"}],
+            "env":[crate::resources::workload_env()],
+            "volumeMounts":[{"name":"nic","mountPath":"/run/nic"},socket_mount],
             // Never a TCP or socket probe: passt and the relay serve one client.
             "readinessProbe":{"exec":{"command":probe},"periodSeconds":2,"failureThreshold":2,"timeoutSeconds":2},
             "livenessProbe":{"exec":{"command":probe},"initialDelaySeconds":10,"periodSeconds":10,"failureThreshold":3,"timeoutSeconds":2}}],
-        "volumes":[{"name":"nic","emptyDir":{"medium":"Memory","sizeLimit":"1Mi"}}]
+        "volumes":[{"name":"nic","emptyDir":{"medium":"Memory","sizeLimit":"1Mi"}},socket_volume]
     }});
     if let Some(node) = &vm.spec.storage_node {
         pod["spec"]["affinity"]["nodeAffinity"] = json!({"preferredDuringSchedulingIgnoredDuringExecution":[{"weight":50,"preference":{"matchExpressions":[{"key":"kubernetes.io/hostname","operator":"In","values":[node]}]}}]});

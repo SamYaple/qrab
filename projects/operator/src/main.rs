@@ -23,7 +23,17 @@ async fn main() -> Result<()> {
         );
         return Ok(());
     }
-    ensure!(args.as_slice() == ["run"], "usage: qrab-operator <run|crd>");
+    if args.as_slice() == ["migration-crd"] {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&qrab_operator::api::migration_crd())?
+        );
+        return Ok(());
+    }
+    ensure!(
+        args.as_slice() == ["run"],
+        "usage: qrab-operator <run|crd|migration-crd>"
+    );
     tracing_subscriber::fmt()
         .with_ansi(false)
         .with_target(false)
@@ -105,6 +115,9 @@ async fn main() -> Result<()> {
         .context("list VirtualMachines (install CRD and RBAC first)")?;
     let pods: Api<Pod> = Api::namespaced(client.clone(), &settings.namespace);
     let configs: Api<ConfigMap> = Api::namespaced(client.clone(), &settings.namespace);
+    let migrations: Api<qrab_operator::api::VirtualMachineMigration> =
+        Api::namespaced(client.clone(), &settings.namespace);
+    let namespace = settings.namespace.clone();
     // Optional: without it, VMs that declare spec.disks report Blocked.
     let storage: Option<qrab_operator::storage::SharedStorage> =
         match std::env::var("QRAB_STORAGE_ORIGIN") {
@@ -143,6 +156,13 @@ async fn main() -> Result<()> {
             configs,
             watcher::Config::default().labels("app.kubernetes.io/name=qrab"),
         )
+        // A migration is driven by its VM's reconcile.
+        .watches(migrations, watcher::Config::default(), move |migration| {
+            Some(
+                kube::runtime::reflector::ObjectRef::<VirtualMachine>::new(&migration.spec.vm_name)
+                    .within(&namespace),
+            )
+        })
         .run(controller::reconcile, controller::error_policy, ctx.clone())
         .for_each(|result| async move {
             if let Err(error) = result {

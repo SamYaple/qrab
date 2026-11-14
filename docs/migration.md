@@ -14,11 +14,59 @@ guest keeps its NIC addresses. Design and work items: towl
   side of the tunnel accepts exactly that ID (`projects/qrab-spiffe`, TLS 1.3,
   local trust domain only). Another VM's pod, or any other workload, fails the
   handshake.
-- The source listens on TCP 7800 (`migration.port`). The operator opens that
-  port with a CiliumNetworkPolicy from the target pod to the source pod only for
-  the migration's lifetime; otherwise it is default-denied.
+- The source listens on TCP 7800 (`migration.port`). Two policies guard it:
+  the standing `<vm>-migration-guard` denies the port to every entity and every
+  endpoint that is not one of the VM's own VM Pods, and a deny always wins; the
+  time-boxed `qrab-migration-<migration>` allows only the target Pod to reach
+  the source Pod (by the `qrab.yapplesauce.com/pod` label), for the migration's
+  lifetime. Outside a migration a VM has one Pod, so nothing can use the port.
 - The target's hello names the VM (`state_id`) and the migration UID; the source
   refuses another VM, a protocol mismatch, local disks and hot-plugged growth.
+
+## Moving a VM
+
+```yaml
+apiVersion: qrab.yapplesauce.com/v1alpha1
+kind: VirtualMachineMigration
+metadata: {name: move-web-1, namespace: qrab}
+spec:
+  vmName: web
+  targetNode: kube02   # optional; another Ready node is chosen otherwise
+```
+
+`kubectl get qvmm` shows the phase: `Pending` (waiting for a Ready VM),
+`TargetStarting`, `Migrating`, then `Succeeded` or `Failed` with a message. A
+migration object is single-use and immutable; create a new one per move. One
+migration per VM runs at a time; a second one created meanwhile fails.
+
+The VM's own reconcile drives it (`projects/operator/src/migration.rs`), since
+only that reconcile has the rendered disks, NIC endpoints and boot size:
+
+1. It picks the node (requested, else the first Ready, schedulable node other
+   than the source with the KVM resource when needed), and names the target Pod
+   `<vm>-m<id>` and its state PVC `<vm>-state-<id>` (same storage class and
+   size, ReadWriteOncePod, VM-owned).
+2. It creates the time-boxed policy `qrab-migration-<migration>`, the PVC, the
+   target's ConfigMap (the VM's config plus `incoming`), and the target Pod
+   pinned to the node, and records the target's UID before ungating it.
+3. When the source's manager exits 0 with the termination message `migrated`,
+   the target owns the guest and its disks. The operator strips `incoming` and
+   points VM status at the target: `podName`, `podUid`, `nodeName`,
+   `stateVolumeClaim`, `stateVolumeUid` and `placementNode`. From then on the
+   normal reconcile renders exactly the target Pod, so it is not replaced.
+4. Cleanup removes the source Pod, the policy and an operator-created previous
+   state PVC after success (a PVC you created is left alone). After failure it
+   removes the target Pod, policy, PVC and ConfigMap.
+
+Anything else ending first fails the migration and leaves the source running:
+the target stopping, the source exiting without `migrated`, the source Pod
+being replaced, the VM stopping, or 10 minutes passing. A source that reports
+`migrated` is never fenced by the storage guard, because its disks belong to
+the target. If no migration adopts such a Pod, the VM blocks with reason
+`HandedOver` instead of booting the guest a second time.
+
+`spec.storageNode` is only the initial placement; `status.placementNode`
+replaces it as the scheduling pin after a move, and the VM restarts there.
 
 ## Manager protocol
 

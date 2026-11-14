@@ -9,15 +9,23 @@ rules:
 - apiGroups: [qrab.yapplesauce.com]
   resources: [virtualmachines/status]
   verbs: [get, patch, update]
+- apiGroups: [qrab.yapplesauce.com]
+  resources: [virtualmachinemigrations]
+  verbs: [get, list, watch]
+- apiGroups: [qrab.yapplesauce.com]
+  resources: [virtualmachinemigrations/status]
+  verbs: [get, patch]
 - apiGroups: ['']
   resources: [pods, configmaps]
   verbs: [get, list, watch, create, patch, delete]
 - apiGroups: ['']
   resources: [pods/resize]
   verbs: [patch]
+# State PVCs of live-migration targets (<vm>-state-<id>, VM-owned); the
+# operator deletes only those it labelled vm-state for the same VM UID.
 - apiGroups: ['']
   resources: [persistentvolumeclaims]
-  verbs: [get]
+  verbs: [get, create, delete]
 # Operator-generated CHAP Secrets for spec.disks (<vm>-disk-<id>, VM-owned).
 # Write-only: no get/list/watch, so the operator cannot read hand-declared
 # credentials. secret-policy.yaml confines these writes to its own objects.

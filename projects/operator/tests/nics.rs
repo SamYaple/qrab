@@ -33,6 +33,8 @@ const POOLS: &str = "/apis/cilium.io/v2alpha1/ciliumpodippools";
 const ROUTES: &str = "/apis/frrk8s.metallb.io/v1beta1/namespaces/frr-k8s-system/frrconfigurations";
 const CILIUM_NODES: &str = "/apis/cilium.io/v2/ciliumnodes";
 const NODES: &str = "/api/v1/nodes";
+const MIGRATIONS: &str =
+    "/apis/qrab.yapplesauce.com/v1alpha1/namespaces/qrab/virtualmachinemigrations";
 
 fn status(code: u16, reason: &str) -> Response {
     (
@@ -74,8 +76,17 @@ async fn api(
     let mut objects = store.0.lock().unwrap();
     let path = uri.path().trim_end_matches("/status").to_owned();
     let body: Value = serde_json::from_slice(&body).unwrap_or(Value::Null);
-    let collection =
-        [PODS, POLICIES, CONFIGS, POOLS, ROUTES, CILIUM_NODES, NODES].contains(&path.as_str());
+    let collection = [
+        PODS,
+        POLICIES,
+        CONFIGS,
+        POOLS,
+        ROUTES,
+        CILIUM_NODES,
+        NODES,
+        MIGRATIONS,
+    ]
+    .contains(&path.as_str());
     match (method, collection) {
         (Method::GET, true) => {
             let selector = url::form_urlencoded::parse(uri.query().unwrap_or("").as_bytes())
@@ -125,7 +136,7 @@ async fn api(
                 object["metadata"]["uid"] = metadata["uid"].clone();
             } else {
                 let mut patch = body;
-                if let Some(metadata) = patch["metadata"].as_object_mut() {
+                if let Some(metadata) = patch.get_mut("metadata").and_then(Value::as_object_mut) {
                     metadata.remove("resourceVersion");
                     metadata.remove("uid");
                 }

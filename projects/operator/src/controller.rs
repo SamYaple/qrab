@@ -1,5 +1,5 @@
 #[path = "storage_guard.rs"]
-mod storage_guard;
+pub(crate) mod storage_guard;
 
 use crate::{
     address,
@@ -29,7 +29,7 @@ pub struct Context {
     pub storage: Option<SharedStorage>,
 }
 
-fn state(
+pub(crate) fn state(
     vm: &VirtualMachine,
     pod: Option<&Pod>,
     phase: &str,
@@ -78,6 +78,11 @@ fn state(
             .as_ref()
             .map(|s| s.nics.clone())
             .unwrap_or_default(),
+        state_volume_claim: vm
+            .status
+            .as_ref()
+            .and_then(|s| s.state_volume_claim.clone()),
+        placement_node: vm.status.as_ref().and_then(|s| s.placement_node.clone()),
     }
 }
 
@@ -505,7 +510,7 @@ async fn sweep_addresses(ctx: &Context) -> Result<()> {
     Ok(())
 }
 
-async fn publish(
+pub(crate) async fn publish(
     api: &Api<VirtualMachine>,
     vm: &VirtualMachine,
     status: VirtualMachineStatus,
@@ -586,7 +591,8 @@ async fn synchronize(
     let configs: Api<ConfigMap> = Api::namespaced(ctx.client.clone(), &ctx.settings.namespace);
     let claims: Api<PersistentVolumeClaim> =
         Api::namespaced(ctx.client.clone(), &ctx.settings.namespace);
-    let pod = pods.get_opt(&vm.name_any()).await?;
+    let incarnation = resources::Incarnation::of(vm);
+    let pod = pods.get_opt(&incarnation.pod).await?;
     let nics_finalized = if vm.metadata.deletion_timestamp.is_some() {
         finalize_nics(vm, ctx, vms, &pods).await?
     } else {
@@ -667,7 +673,7 @@ async fn synchronize(
         .await?;
         return Ok(Action::await_change());
     }
-    let Some(claim) = claims.get_opt(&vm.spec.state_volume_claim).await? else {
+    let Some(claim) = claims.get_opt(&incarnation.state_claim).await? else {
         publish(
             vms,
             vm,
@@ -779,6 +785,15 @@ async fn synchronize(
         .unwrap_or_else(|| GuestSize::of(vm));
     let desired = resources::render_attached(vm, &ctx.settings, &provisioned, boot, &nics)?;
     if let Some(pod) = &pod {
+        // An active live migration owns both of the VM's Pods.
+        let inputs = crate::migration::Inputs {
+            provisioned: &provisioned,
+            boot,
+            nics: &nics,
+        };
+        if let Some(action) = crate::migration::drive(ctx, vm, vms, &pods, pod, &inputs).await? {
+            return Ok(action);
+        }
         if !resources::pod_matches(pod, &desired) {
             delete(&pods, pod).await?;
             publish(
@@ -801,6 +816,11 @@ async fn synchronize(
             .as_ref()
             .and_then(|s| s.phase.as_deref())
             .unwrap_or("Pending");
+        if crate::migration::handed_over(pod) {
+            publish(vms, vm, state(vm, Some(pod), "Blocked", false, "HandedOver",
+                "This Pod live-migrated its guest to a target no VirtualMachineMigration adopted; find the running target before restarting the VM")).await?;
+            return Ok(Action::requeue(Duration::from_secs(30)));
+        }
         if phase == "Failed" || phase == "Succeeded" {
             let finished = pod
                 .status

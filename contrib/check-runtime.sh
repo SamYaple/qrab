@@ -8,4 +8,6 @@ crd_check_file=$(mktemp)
 trap 'rm -f "$crd_check_file"' EXIT
 cargo run --locked --quiet -p qrab-operator -- crd > "$crd_check_file"
 cmp contrib/kubernetes/operator/crd.json "$crd_check_file"
+cargo run --locked --quiet -p qrab-operator -- migration-crd > "$crd_check_file"
+cmp contrib/kubernetes/operator/migration-crd.json "$crd_check_file"
 cargo clippy --locked -p qrab-guest-agent -p qrab-iscsi-target -p qrab-operator -p qrab-dashboard -p qrab-kvm-device-plugin -p qrab-spiffe -p oidc-bearer -p bmc -p qrab-redfish -p manager -p qapi-protocol --all-targets --no-deps -- -D warnings

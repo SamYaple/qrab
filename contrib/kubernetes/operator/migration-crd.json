@@ -1,0 +1,156 @@
+{
+  "apiVersion": "apiextensions.k8s.io/v1",
+  "kind": "CustomResourceDefinition",
+  "metadata": {
+    "name": "virtualmachinemigrations.qrab.yapplesauce.com"
+  },
+  "spec": {
+    "group": "qrab.yapplesauce.com",
+    "names": {
+      "kind": "VirtualMachineMigration",
+      "plural": "virtualmachinemigrations",
+      "shortNames": [
+        "qvmm"
+      ],
+      "singular": "virtualmachinemigration"
+    },
+    "scope": "Namespaced",
+    "versions": [
+      {
+        "additionalPrinterColumns": [
+          {
+            "jsonPath": ".spec.vmName",
+            "name": "VM",
+            "type": "string"
+          },
+          {
+            "jsonPath": ".status.phase",
+            "name": "Phase",
+            "type": "string"
+          },
+          {
+            "jsonPath": ".status.sourceNode",
+            "name": "Source",
+            "type": "string"
+          },
+          {
+            "jsonPath": ".status.targetNode",
+            "name": "Target",
+            "type": "string"
+          }
+        ],
+        "name": "v1alpha1",
+        "schema": {
+          "openAPIV3Schema": {
+            "description": "Auto-generated derived type for VirtualMachineMigrationSpec via `CustomResource`",
+            "properties": {
+              "spec": {
+                "description": "Move a running VM to another node without rebooting it. Create one per\nmove; it records the outcome and is never reused.",
+                "properties": {
+                  "targetNode": {
+                    "description": "Destination node; another Ready node is chosen when absent.",
+                    "maxLength": 63,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "vmName": {
+                    "description": "The VirtualMachine in this namespace to move.",
+                    "maxLength": 50,
+                    "minLength": 1,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "vmName"
+                ],
+                "type": "object"
+              },
+              "status": {
+                "nullable": true,
+                "properties": {
+                  "cleaned": {
+                    "default": false,
+                    "description": "Source Pod, policy and replaced PVC are gone (success) or the target\nPod, policy and PVC are gone (failure).",
+                    "type": "boolean"
+                  },
+                  "completedAt": {
+                    "format": "int64",
+                    "nullable": true,
+                    "type": "integer"
+                  },
+                  "message": {
+                    "type": "string"
+                  },
+                  "phase": {
+                    "description": "Pending, TargetStarting, Migrating, Succeeded or Failed.",
+                    "type": "string"
+                  },
+                  "previousStateVolumeClaim": {
+                    "description": "The source's previous state PVC, deleted after success when the\noperator created it for an earlier migration.",
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "sourceNode": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "sourcePod": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "sourcePodUid": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "startedAt": {
+                    "description": "Unix seconds.",
+                    "format": "int64",
+                    "nullable": true,
+                    "type": "integer"
+                  },
+                  "targetNode": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "targetPod": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "targetPodUid": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "targetStateVolumeClaim": {
+                    "nullable": true,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "message",
+                  "phase"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "spec"
+            ],
+            "title": "VirtualMachineMigration",
+            "type": "object",
+            "x-kubernetes-validations": [
+              {
+                "message": "a migration is immutable; create a new one",
+                "rule": "self.spec == oldSelf.spec"
+              }
+            ]
+          }
+        },
+        "served": true,
+        "storage": true,
+        "subresources": {
+          "status": {}
+        }
+      }
+    ]
+  }
+}

@@ -25,7 +25,7 @@ fn has_owner_gate(pod: &Pod) -> bool {
         .and_then(|s| s.scheduling_gates.as_ref())
         .is_some_and(|g| g.iter().any(|g| g.name == OWNER_GATE))
 }
-pub(super) fn never_launched(pod: &Pod) -> bool {
+pub(crate) fn never_launched(pod: &Pod) -> bool {
     // Gates cannot be added after creation, and our renderer never sets
     // nodeName directly. With this gate and no binding, no kubelet ran it.
     has_owner_gate(pod) && pod.spec.as_ref().is_some_and(|s| s.node_name.is_none())
@@ -302,6 +302,12 @@ pub(super) async fn reconcile(
         if !has_finalizer(pod, POD_FINALIZER) && pod.metadata.deletion_timestamp.is_none() {
             pod_finalizer(pods, pod, true).await?;
             return Ok(Some(Action::requeue(Duration::from_secs(1))));
+        }
+        // A live-migration source that handed over: its target owns the disks,
+        // so an unclean sidecar exit here must not fence them. The migration
+        // adopts the target; without one the VM blocks instead of rebooting.
+        if crate::migration::handed_over(pod) && !deleting {
+            return Ok(None);
         }
         let uid = pod
             .uid()
@@ -616,6 +622,9 @@ mod tests {
         calls: Vec<&'static str>,
         config: Option<k8s_openapi::api::core::v1::ConfigMap>,
     }
+    async fn not_found_handler() -> Response {
+        not_found()
+    }
     fn not_found() -> Response {
         (StatusCode::NOT_FOUND,Json(json!({"apiVersion":"v1","kind":"Status","status":"Failure","reason":"NotFound","message":"not found","code":404}))).into_response()
     }
@@ -754,6 +763,9 @@ mod tests {
             .route("/api/v1/namespaces/qrab/pods",get(list_pods))
             .route("/api/v1/namespaces/qrab/persistentvolumeclaims/state",get(get_claim))
             .route("/api/v1/namespaces/qrab/configmaps/test-vm-config",get(get_config))
+            // No live migrations; the migration guard policy is accepted.
+            .route("/apis/qrab.yapplesauce.com/v1alpha1/namespaces/qrab/virtualmachinemigrations",get(|| async { Json(json!({"apiVersion":"qrab.yapplesauce.com/v1alpha1","kind":"VirtualMachineMigrationList","metadata":{"resourceVersion":"1"},"items":[]})) }))
+            .route("/apis/cilium.io/v2/namespaces/qrab/ciliumnetworkpolicies/test-vm-migration-guard",get(not_found_handler).patch(|body: axum::body::Bytes| async move { Json(serde_json::from_slice::<serde_json::Value>(&body).unwrap()) }))
             .with_state(store.clone());
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let client = kube::Client::try_from(kube::Config::new(
