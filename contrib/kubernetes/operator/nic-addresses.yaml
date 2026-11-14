@@ -104,6 +104,15 @@ spec:
       (object.spec.?ipv4.?cidrs.orValue([]) == [variables.prefix] &&
        object.spec.?ipv4.?maskSize.orValue(0) == 32 && !has(object.spec.ipv6))
     message: a NIC address pool holds exactly the /32 its name gives
+  # Guests keep their own address on egress: Cilium gives endpoints of a pool
+  # annotated skip-masquerade "true" the no-SNAT flag. Required on create and
+  # never removed on update (a pool predating the rule may still be released).
+  - expression: >-
+      request.resource.resource != 'ciliumpodippools' || request.operation == 'DELETE' ||
+      object.metadata.?annotations['ipam.cilium.io/skip-masquerade'].orValue('') == 'true' ||
+      (request.operation == 'UPDATE' &&
+       oldObject.metadata.?annotations['ipam.cilium.io/skip-masquerade'].orValue('') != 'true')
+    message: a NIC address pool must carry ipam.cilium.io/skip-masquerade "true" and may not drop it
   - expression: >-
       request.resource.resource != 'frrconfigurations' ||
       (request.namespace == 'frr-k8s-system' &&

@@ -1,7 +1,10 @@
 //! Rendering and fencing decisions of stable NIC addresses.
 use k8s_openapi::api::core::v1::Node;
 use kube::api::DynamicObject;
-use qrab_operator::address::{fence_patch, render_route, selects, stranded};
+use qrab_operator::address::{
+    fence_patch, render_pool, render_route, selects, stranded, SKIP_MASQUERADE,
+};
+use qrab_operator::api::VirtualMachine;
 use serde_json::{json, Value};
 use std::collections::BTreeSet;
 
@@ -92,4 +95,20 @@ fn only_dead_or_missing_nodes_without_a_bound_pod_lose_the_pool() {
         json!({"metadata":{"resourceVersion":"3"},"spec":{"ipam":{"pools":{
             "allocated":[{"pool":"default"}],"requested":[]}}}})
     );
+}
+
+#[test]
+fn nic_pools_never_masquerade_their_guest() {
+    let vm: VirtualMachine = serde_json::from_value(json!({
+        "apiVersion":"qrab.yapplesauce.com/v1alpha1","kind":"VirtualMachine",
+        "metadata":{"name":"test-vm","namespace":"qrab","uid":"vm-uid"},
+        "spec":{"stateVolumeClaim":"state","nics":[{"name":"lan"}]}}))
+    .unwrap();
+    let pool = render_pool(&vm, "lan", "10.244.128.9".parse().unwrap()).unwrap();
+    let annotations = pool.metadata.annotations.unwrap();
+    assert_eq!(
+        annotations.get(SKIP_MASQUERADE).map(String::as_str),
+        Some("true")
+    );
+    assert_eq!(SKIP_MASQUERADE, "ipam.cilium.io/skip-masquerade");
 }

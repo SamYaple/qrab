@@ -310,6 +310,29 @@ pool; Cilium's `ipam.ciliumNodeUpdateRate` is 1s). The addresses do not
 overlap, so this does not by itself allow live migration: two Pods cannot hold
 one address at once.
 
+### Egress keeps the guest's address
+
+Cilium masquerades pod traffic to anything outside `10.244.0.0/16` as the
+node's IP. NIC pools opt out: every `qrab-nic-<address>` pool carries
+`ipam.cilium.io/skip-masquerade: "true"`, so Cilium's multi-pool IPAM gives the
+NIC Pod's endpoint the no-SNAT flag (eBPF masquerade, which the cluster uses,
+honours it). The admission policy requires the annotation on create and
+refuses removing it. Cilium reads it when it allocates the address, so it
+applies to NIC Pods created after their pool carries it.
+
+A guest's connections therefore leave the cluster from its own /32 and
+survive the NIC moving to another node. Beyond the cluster:
+
+- **The VM host** (`10.203.0.1`) learns each /32 over BGP and forwards
+  `10.244.128.0/17` untranslated. Its `/etc/kube-vms/isolation.nft` admits
+  guest connections to non-private destinations and LAN (`192.168.0.0/24`)
+  connections to guests. Guests still cannot open connections to the LAN or any
+  other private range. Reload it only through `/etc/kube-vms/edge-dnat.nft`,
+  which includes it and re-inserts the edge DNAT jump.
+- **The LAN router** (192.168.0.1) routes `10.244.128.0/17` statically via
+  `192.168.0.251` and is the only NAT, towards the internet. LAN hosts see
+  guests by their own addresses.
+
 ## Limits
 
 - passt is a userspace stack: every packet is copied through the NIC Pod's
