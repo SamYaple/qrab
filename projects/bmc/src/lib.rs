@@ -34,7 +34,7 @@ pub struct AppState {
     pub consoles: Arc<Semaphore>,
     /// Live Redfish event streams proxied at once.
     pub event_streams: Arc<Semaphore>,
-    /// The in-pod Redfish sidecar behind `/redfish/*`.
+    /// The in-pod Redfish sidecar behind the browser-only `/bmc/redfish/*` bridge.
     pub redfish: proxy::Upstream,
 }
 
@@ -77,7 +77,7 @@ impl IntoResponse for Failure {
 }
 
 /// Without a browser login (`BMC_PUBLIC_URL`) there is no UI, `/auth/*` or
-/// `/assets`: only `/redfish/*`, the JSON API for bearer tokens, and the probes.
+/// `/assets`: only `/bmc/redfish/*`, the JSON API for bearer tokens, and the probes.
 /// VM management lives in Redfish; the remaining `/api/*` management routes
 /// serve only the dashboard until it reads Redfish too.
 pub fn router(app: AppState) -> Router {
@@ -124,9 +124,9 @@ pub fn router(app: AppState) -> Router {
         // Removed by work/dashboard-uses-redfish
         .route("/api/agent", get(agent::view))
         .route("/api/console", get(console::upgrade))
-        .route("/redfish", any(proxy::forward))
-        .route("/redfish/", any(proxy::forward))
-        .route("/redfish/{*path}", any(proxy::forward))
+        .route("/bmc/redfish", any(proxy::forward))
+        .route("/bmc/redfish/", any(proxy::forward))
+        .route("/bmc/redfish/{*path}", any(proxy::forward))
         .route("/healthz", get(|| async { "ok" }))
         // A paused VM must stay reachable so an operator can resume it.
         .route("/readyz", get(health))

@@ -12,9 +12,10 @@ subject/group lists; they never mix with cookie sessions. Without
 `BMC_PUBLIC_URL` the BMC is bearer-only and serves no login or UI.
 
 Redfish is the VM's management plane. The BMC UI uses it through the
-`/redfish` proxy (`src/proxy.rs`): a session's request carries the login's
+`/bmc/redfish` browser-session adapter (`src/proxy.rs`): a session's request carries the login's
 server-side ID token after the Origin/CSRF checks, a bearer request carries
-its own token, and Redfish verifies and authorizes both. Never add BMC
+its own token, and Redfish verifies and authorizes both. Public `/redfish` routes directly to the
+Redfish sidecar through Kubernetes Ingress. Never add BMC
 `/api/*` management routes; the remaining ones serve the dashboard until
 work/dashboard-uses-redfish.
 Only explicit loopback HTTP development may use non-Secure cookies. Tests must

@@ -176,37 +176,33 @@ shutting down.
 
 ## Redfish proxy
 
-`/redfish` and everything below it is a reverse proxy to the in-pod Redfish
-sidecar at `BMC_REDFISH_URL` (GET, HEAD, POST, PATCH and DELETE, including the
-streaming `EventService/SSE`). Redfish verifies every token and decides the
-role from the VM's lists; the BMC never grants a Redfish role itself. The
-operator gives Redfish the console's subjects and groups
-([operator.md](operator.md#bmc-users-in-redfish)), so a BMC admin or viewer
-has the same role through the proxy.
+The browser UI's `/bmc/redfish` path is an OIDC-session adapter to the in-pod
+Redfish sidecar at `BMC_REDFISH_URL`. It strips `/bmc` before forwarding the
+native resource URI, including streaming `EventService/SSE`. Public `/redfish`
+traffic is routed directly by Kubernetes Ingress to the Redfish Service port;
+native clients bypass the BMC entirely. Redfish verifies credentials and decides
+the role; the BMC never grants a Redfish role itself. The operator gives Redfish
+the console's subjects and groups
+([operator.md](operator.md#bmc-users-in-redfish)).
 
-- **Browser sessions.** A request with a valid session cookie is forwarded
-  with `Authorization: Bearer <the login's ID token>`. Mutations (POST, PATCH,
-  DELETE) need the exact Origin and the session's `X-CSRF-Token`, and a read
-  with a foreign Origin is refused, before a single byte is sent upstream.
-  The response is cut off at logout, expiry or role loss, rechecked at least
-  once a second, so a proxied event stream ends within two seconds. Redfish
-  refusing the token of a session the BMC accepted is 502, not 401, so the
-  browser does not mistake a configuration fault for a sign-out.
-- **Bearer requests.** A request with `Authorization: Bearer` is forwarded
-  with exactly that token and never touches the cookie session; Redfish
-  verifies it (its own, BMC and dashboard clients are trusted,
-  [redfish.md](redfish.md#trusted-token-sources)). Redfish ends such streams
-  at the token's expiry. No CSRF token or Origin is needed.
-- **No credential.** The request is forwarded without one and Redfish answers
-  401 with `WWW-Authenticate: Bearer`.
-- Only `Authorization`, `Content-Type`, `Accept` and `Last-Event-ID` are
-  forwarded, never a cookie, and only `Content-Type`, `OData-Version`,
-  `Location`, `ETag`, `Allow`, `Retry-After`, `Link` and `WWW-Authenticate`
-  come back. Bodies are bounded like Redfish's (4 KiB; 192 KiB for the signed
-  Secure Boot database update) and refused with 413 before forwarding; paths
-  with dot segments get 400. Sixteen event streams are proxied at once.
-  Redfish unreachable is 503 (`The VM's Redfish service is unavailable.`) and
-  a non-streaming exchange is bounded to 60 seconds (504).
+Browser-session requests use the login's server-side ID token. Every non-GET/HEAD
+request needs the exact Origin and session CSRF token; foreign-Origin reads are
+refused. Logout, expiry or role loss terminates admitted response streams.
+Credentials never enter the browser DOM or URL. Password-session bootstrap does
+not inject a conflicting bearer token, and still requires browser CSRF checks
+when a browser session is present.
+
+Explicit `Authorization` or `X-Auth-Token` credentials, including repeated or
+malformed values, pass unchanged to Redfish and never fall back to browser
+cookies. Cookies and forwarded identity headers never reach Redfish. Supported
+negotiation headers and all authentication challenges are preserved, as is the
+sensitive `X-Auth-Token` creation response. This compatibility applies to the
+adapter too; it is not the public Redfish route.
+
+Bodies retain Redfish's bounds (4 KiB; 192 KiB for signed database updates),
+dot-segment paths are rejected, at most sixteen event streams are admitted, and
+non-streaming exchanges have a 60-second timeout. Redfish decides supported
+methods and returns its own Allow/error responses.
 
 Redfish is reached over the Pod's loopback, which network policy does not
 filter; the BMC needs no other route to it. The embedded `--config` mode has no

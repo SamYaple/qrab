@@ -42,12 +42,11 @@ for the BMC.
 
 Every BMC-enabled VM has a Redfish sidecar: the BMC's browser UI manages the
 VM through it ([bmc.md](bmc.md#redfish-proxy)). `contrib/kubernetes/console.yaml`
-(and `redfish-poc/console.yaml`) routes all of
-`https://qrab-demo.yapplesauce.com`, including `/redfish`, to the BMC, whose
-`/redfish` proxy forwards to Redfish over the Pod's loopback. Bearer requests
-pass through unchanged, so direct Redfish clients use the same URL. The
-Service port `redfish` (8081) and its policy entry remain for in-cluster and
-port-forwarded clients; a Redfish-only VM needs its own Ingress to it.
+(and `redfish-poc/console.yaml`) routes the public `/redfish` prefix directly to
+Service port `redfish` (8081), bypassing the BMC. The rest of the host reaches
+BMC port 8080. Browser UI management uses the distinct `/bmc/redfish` session
+adapter, which forwards over Pod loopback with the browser login's server-side
+OIDC token. Native Redfish clients do not traverse this adapter.
 `contrib/kubernetes/check.sh`
 requires a native `redfish` sidecar beside the BMC (or with
 `spec.components.redfish.enabled`) with a subject allowlist and no access to

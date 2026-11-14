@@ -2,7 +2,7 @@ import RFB from './novnc/core/rfb.js';
 import { createAudioContext } from './novnc/core/audio.js';
 
 // Every management read and action goes to the in-pod Redfish service
-// through the BMC's /redfish proxy; the BMC itself serves only the session
+// through the BMC's /bmc/redfish browser bridge; the BMC itself serves only the session
 // and the console.
 const SYSTEM = '/redfish/v1/Systems/1';
 const RESET_INFO = `${SYSTEM}/ResetActionInfo`;
@@ -36,8 +36,14 @@ async function failure(response) {
         return error?.['@Message.ExtendedInfo']?.[0]?.Message || error?.message || text;
     } catch { return text; }
 }
+// Redfish advertises native /redfish URIs. Browser requests use a separate
+// cookie/CSRF bridge; the public /redfish endpoint stays directly on Redfish.
+const browserPath = path => {
+    if (typeof path !== 'string' || !path.startsWith('/') || path.startsWith('//')) throw new Error('Invalid management URL');
+    return path === '/redfish' || path.startsWith('/redfish/') ? `/bmc${path}` : path;
+};
 async function request(path, options = {}) {
-    const response = await fetch(path, {credentials: 'same-origin', ...options});
+    const response = await fetch(browserPath(path), {credentials: 'same-origin', ...options});
     if (response.status === 401) { signedOut(); throw new Error('Your session ended. Sign in to reconnect.'); }
     if (!response.ok) throw new Error(await failure(response));
     return response.status === 204 ? null : response.json();
@@ -181,7 +187,7 @@ async function startEvents() {
     const status = element('events-status');
     let last = -1, pending = [];
     const show = record => { if (record.seq > last) { last = record.seq; addEvents([eventRow(record)]); } };
-    events = new EventSource(EVENT_STREAM);
+    events = new EventSource(browserPath(EVENT_STREAM));
     events.addEventListener('open', () => { status.textContent = 'Live'; });
     events.addEventListener('message', message => {
         let records;

@@ -116,8 +116,18 @@ components=vm['spec'].get('components',{})
 redfish=components.get('bmc',{}).get('enabled',True) or components.get('redfish',{}).get('enabled') is True
 sidecars={c['name']:c for c in before['spec'].get('initContainers',[])}
 assert redfish==('redfish' in sidecars), 'Redfish sidecar presence differs from spec.components'
-assert env.get('BMC_REDFISH_URL')=='http://127.0.0.1:8081', 'the BMC does not proxy /redfish to the loopback Redfish sidecar'
+assert env.get('BMC_REDFISH_URL')=='http://127.0.0.1:8081', 'the BMC browser adapter does not use the loopback Redfish sidecar'
 if redfish:
+    # Native Redfish traffic must bypass the BMC browser-session adapter.
+    host=urllib.parse.urlsplit(origin).hostname
+    paths=[path for ingress in json.loads(kubectl('get','ingress','-o','json'))['items']
+           for rule in ingress.get('spec',{}).get('rules',[]) if rule.get('host')==host
+           for path in rule.get('http',{}).get('paths',[]) if path.get('path')=='/redfish']
+    assert len(paths)==1 and paths[0].get('pathType')=='Prefix', 'public Redfish route is missing or ambiguous'
+    backend=paths[0]['backend']['service']
+    service=json.loads(kubectl('get','service',backend['name'],'-o','json'))
+    ports=[port for port in service['spec']['ports'] if port.get('name')==backend['port'].get('name') or port.get('port')==backend['port'].get('number')]
+    assert len(ports)==1 and ports[0].get('targetPort')==8081, 'public Redfish must route directly to sidecar port8081'
     sidecar=sidecars['redfish']
     assert sidecar.get('restartPolicy')=='Always', 'Redfish is not a native sidecar'
     renv={v['name']:v.get('value') for v in sidecar['env']}

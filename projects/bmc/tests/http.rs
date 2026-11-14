@@ -104,7 +104,7 @@ fn grouped(subject: &str, groups: &[&str]) -> String {
 
 fn breq(path: &str, token: &str) -> axum::http::request::Builder {
     Request::builder()
-        .uri(path)
+        .uri(browser_path(path))
         .header("authorization", format!("Bearer {token}"))
 }
 
@@ -213,8 +213,17 @@ async fn group_cookie(store: BoundedStore, subject: &str, groups: &[&str], expir
     session.save().await.unwrap();
     format!("__Host-qrab-session={}", session.id().unwrap())
 }
+// Match the browser's mapping of native Redfish-advertised links onto its
+// private cookie bridge. The Recording sidecar continues to see native URIs.
+fn browser_path(path: &str) -> String {
+    if path == "/redfish" || path.starts_with("/redfish/") {
+        format!("/bmc{path}")
+    } else {
+        path.to_owned()
+    }
+}
 fn req(path: &str, cookie: Option<&str>) -> axum::http::request::Builder {
-    let mut request = Request::builder().uri(path);
+    let mut request = Request::builder().uri(browser_path(path));
     if let Some(cookie) = cookie {
         request = request.header("cookie", cookie);
     }
@@ -1456,7 +1465,52 @@ impl Recording {
         };
         let recorder = seen.clone();
         let app = axum::Router::new()
-            .route("/redfish/v1/Systems/1", get(resource))
+            .route(
+                "/redfish/v1/Systems/1",
+                get(resource).options(|| async { StatusCode::NO_CONTENT }),
+            )
+            .route("/redfish/v1/", get(resource))
+            .route(
+                "/redfish/v1/SessionService/Sessions",
+                post(|| async {
+                    let mut response = (
+                        StatusCode::CREATED,
+                        axum::Json(serde_json::json!({"Id":"session-resource-id"})),
+                    )
+                        .into_response();
+                    response
+                        .headers_mut()
+                        .insert("x-auth-token", "redfish-session-secret".parse().unwrap());
+                    response.headers_mut().insert(
+                        "location",
+                        "/redfish/v1/SessionService/Sessions/session-resource-id"
+                            .parse()
+                            .unwrap(),
+                    );
+                    response
+                        .headers_mut()
+                        .insert("set-cookie", "upstream=must-not-leak".parse().unwrap());
+                    response
+                }),
+            )
+            .route(
+                "/redfish/v1/Challenges",
+                get(|| async {
+                    let mut response =
+                        (StatusCode::UNAUTHORIZED, "credentials refused").into_response();
+                    response.headers_mut().append(
+                        "www-authenticate",
+                        "Bearer realm=\"qrab-redfish\"".parse().unwrap(),
+                    );
+                    response.headers_mut().append(
+                        "www-authenticate",
+                        "Basic realm=\"qrab-redfish\", charset=\"UTF-8\""
+                            .parse()
+                            .unwrap(),
+                    );
+                    response
+                }),
+            )
             .route(RESET, post(|| async { StatusCode::NO_CONTENT }))
             .route(SIGNED_UPDATE, post(|| async { StatusCode::NO_CONTENT }))
             .route("/redfish/v1/EventService/SSE", get(sse))
@@ -1466,8 +1520,15 @@ impl Recording {
             )
             .layer(axum::middleware::from_fn(
                 |request: axum::extract::Request, next: axum::middleware::Next| async move {
-                    // Like Redfish, nothing is served without a bearer token.
-                    if !request.headers().contains_key("authorization") {
+                    // The fixture records transport, not credential validity.
+                    // Discovery and password session bootstrap are anonymous;
+                    // all other resources require an explicit credential.
+                    let anonymous = request.uri().path() == "/redfish/v1/"
+                        || request.uri().path() == "/redfish/v1/SessionService/Sessions";
+                    if !anonymous
+                        && !request.headers().contains_key("authorization")
+                        && !request.headers().contains_key("x-auth-token")
+                    {
                         return (
                             StatusCode::UNAUTHORIZED,
                             [("www-authenticate", "Bearer realm=\"qrab-redfish\"")],
@@ -1541,6 +1602,9 @@ fn assert_forwarded_only_allowed_headers(seen: &Seen) {
         assert!(
             [
                 "authorization",
+                "x-auth-token",
+                "odata-version",
+                "odata-maxversion",
                 "content-type",
                 "accept",
                 "last-event-id",
@@ -2085,4 +2149,255 @@ async fn unadmitted_consoles_never_negotiate_or_receive_audio() {
         .unwrap();
     assert!(report.is_empty(), "{report:?}");
     server.abort();
+}
+
+#[tokio::test]
+async fn redfish_explicit_credentials_and_protocol_headers_are_transparent_without_cookie_fallback()
+{
+    let (app, upstream) = proxied().await;
+    let browser = token_cookie(app.sessions.clone(), SUBJECT, SESSION_TOKEN).await;
+    for (name, value) in [
+        ("authorization", "Basic dmFsaWRhdG9yOnBhc3N3b3Jk"),
+        ("x-auth-token", "explicit-redfish-session"),
+    ] {
+        let response = bmc::router(app.clone())
+            .oneshot(
+                req("/redfish/v1/Systems/1", Some(&browser))
+                    .header(name, value)
+                    .header("odata-version", "4.0")
+                    .header("odata-maxversion", "4.0")
+                    .header("origin", "https://evil.example")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let seen = upstream.seen().pop().unwrap();
+        assert_eq!(seen.headers[name], value);
+        assert_eq!(seen.headers["odata-version"], "4.0");
+        assert_eq!(seen.headers["odata-maxversion"], "4.0");
+        assert!(!seen.headers.contains_key("cookie"));
+        assert!(!seen.headers.values().any(|v| v
+            .as_bytes()
+            .windows(SESSION_TOKEN.len())
+            .any(|w| w == SESSION_TOKEN.as_bytes())));
+        if name == "x-auth-token" {
+            assert!(!seen.headers.contains_key("authorization"));
+        }
+        assert_forwarded_only_allowed_headers(&seen);
+    }
+    // Even empty/malformed/ambiguous credentials are Redfish's decision. They
+    // cannot silently select the ambient browser's powerful login.
+    for (name, value) in [
+        ("authorization", ""),
+        ("authorization", "garbage"),
+        ("authorization", "Basic !!!"),
+        ("x-auth-token", ""),
+        ("x-auth-token", "invalid-session"),
+    ] {
+        let response = bmc::router(app.clone())
+            .oneshot(
+                req("/redfish/v1/Refused", Some(&browser))
+                    .header(name, value)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        assert_eq!(upstream.seen().pop().unwrap().headers[name], value);
+    }
+    let response = bmc::router(app.clone())
+        .oneshot(
+            req("/redfish/v1/Refused", Some(&browser))
+                .header("authorization", "Basic first")
+                .header("authorization", "Bearer second")
+                .header("x-auth-token", "first-session")
+                .header("x-auth-token", "second-session")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    let seen = upstream.seen().pop().unwrap();
+    assert_eq!(
+        seen.headers
+            .get_all("authorization")
+            .iter()
+            .map(|v| v.to_str().unwrap())
+            .collect::<Vec<_>>(),
+        ["Basic first", "Bearer second"]
+    );
+    assert_eq!(
+        seen.headers
+            .get_all("x-auth-token")
+            .iter()
+            .map(|v| v.to_str().unwrap())
+            .collect::<Vec<_>>(),
+        ["first-session", "second-session"]
+    );
+    assert!(!seen.headers.contains_key("cookie"));
+}
+
+#[tokio::test]
+async fn redfish_session_bootstrap_response_and_challenges_survive_the_bmc_proxy() {
+    let (app, upstream) = proxied().await;
+    let path = "/redfish/v1/SessionService/Sessions";
+    let body = r#"{"UserName":"validator","Password":"test-only-password"}"#;
+    let response = bmc::router(app.clone())
+        .oneshot(
+            req(path, None)
+                .method("POST")
+                .header("content-type", "application/json")
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::CREATED);
+    let secret = &response.headers()["x-auth-token"];
+    assert_eq!(secret, "redfish-session-secret");
+    assert!(secret.is_sensitive());
+    assert_eq!(
+        response.headers()["location"],
+        "/redfish/v1/SessionService/Sessions/session-resource-id"
+    );
+    assert!(response
+        .headers()
+        .get_all("set-cookie")
+        .iter()
+        .all(|v| !v.to_str().unwrap().contains("upstream")));
+    let seen = upstream.seen().pop().unwrap();
+    assert_eq!(seen.body, body.as_bytes());
+    assert!(!seen.headers.contains_key("authorization"));
+    assert!(!seen.headers.contains_key("cookie"));
+    let response = bmc::router(app.clone())
+        .oneshot(
+            req("/redfish/v1/Challenges", None)
+                .header("x-auth-token", "invalid-session")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    assert_eq!(
+        response
+            .headers()
+            .get_all("www-authenticate")
+            .iter()
+            .map(|v| v.to_str().unwrap())
+            .collect::<Vec<_>>(),
+        [
+            "Bearer realm=\"qrab-redfish\"",
+            "Basic realm=\"qrab-redfish\", charset=\"UTF-8\""
+        ]
+    );
+    // Public discovery reaches Redfish without a cookie or manufactured token.
+    let response = bmc::router(app.clone())
+        .oneshot(req("/redfish/v1/", None).body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let seen = upstream.seen().pop().unwrap();
+    assert!(!seen.headers.contains_key("cookie"));
+    assert!(!seen.headers.contains_key("authorization"));
+}
+
+#[tokio::test]
+async fn browser_password_session_bootstrap_keeps_csrf_checks_without_injecting_oidc() {
+    let (app, upstream) = proxied().await;
+    let browser = token_cookie(app.sessions.clone(), SUBJECT, SESSION_TOKEN).await;
+    let path = "/redfish/v1/SessionService/Sessions";
+    let body = r#"{"UserName":"validator","Password":"test-only-password"}"#;
+    let response = bmc::router(app.clone())
+        .oneshot(
+            req(path, Some(&browser))
+                .method("POST")
+                .header("content-type", "application/json")
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    assert!(upstream.seen().is_empty());
+    let response = bmc::router(app.clone())
+        .oneshot(post(path, &browser, "correct", body))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::CREATED);
+    let seen = upstream.seen().pop().unwrap();
+    assert_eq!(seen.body, body.as_bytes());
+    assert!(!seen.headers.contains_key("authorization"));
+    assert!(!seen.headers.contains_key("cookie"));
+}
+
+#[tokio::test]
+async fn unsupported_redfish_methods_are_decided_by_the_sidecar_not_the_bmc() {
+    let (app, upstream) = proxied().await;
+    let response = bmc::router(app.clone())
+        .oneshot(
+            req("/redfish/v1/Systems/1", None)
+                .method("PUT")
+                .header("x-auth-token", "explicit-redfish-session")
+                .body(Body::from("{}"))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::METHOD_NOT_ALLOWED);
+    assert!(response.headers()["allow"]
+        .to_str()
+        .unwrap()
+        .contains("GET"));
+    let seen = upstream.seen().pop().unwrap();
+    assert_eq!(seen.method, "PUT");
+    assert_eq!(seen.body, b"{}");
+}
+
+#[tokio::test]
+async fn public_redfish_is_not_a_bmc_route_and_browser_bridge_strips_its_prefix() {
+    let (app, upstream) = proxied().await;
+    let browser = token_cookie(app.sessions.clone(), SUBJECT, SESSION_TOKEN).await;
+    for path in [
+        "/redfish",
+        "/redfish/",
+        "/redfish/v1/",
+        "/redfish/v1/Systems/1",
+    ] {
+        // Deliberately bypass the browser_path helper: these are public URLs.
+        let response = bmc::router(app.clone())
+            .oneshot(
+                Request::builder()
+                    .uri(path)
+                    .header("cookie", &browser)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND, "{path}");
+    }
+    assert!(upstream.seen().is_empty());
+    let response = bmc::router(app.clone())
+        .oneshot(
+            Request::builder()
+                .uri("/bmc/redfish/v1/Systems/1?test=preserved")
+                .header("cookie", &browser)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let seen = upstream.seen().pop().unwrap();
+    assert_eq!(seen.uri, "/redfish/v1/Systems/1?test=preserved");
+    assert_eq!(
+        seen.headers["authorization"],
+        format!("Bearer {SESSION_TOKEN}")
+    );
+    assert!(!seen.headers.contains_key("cookie"));
 }
