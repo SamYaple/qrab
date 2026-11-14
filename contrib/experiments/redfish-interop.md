@@ -208,9 +208,9 @@ tests cover allowed identities, unlisted identities, missing certificates,
 stalled handshakes and connection admission limits. API tests cover OIDC expiry,
 session ownership, revocation of admitted event streams and ambiguous credentials.
 
-This research branch is `codex/redfish-auth-validation`; it has not been merged,
-built into a release image or deployed. Existing live OIDC behavior and cluster
-network policy remain unchanged. Basic accounts, public discovery and the
+At the end of the research spike, `codex/redfish-auth-validation` had not been
+merged or deployed. The subsequently authorized merged release and direct native
+routing are recorded in [the rollout report](../../docs/redfish-auth-rollout-2026-11-14.md). Basic accounts, public discovery and the
 separate workload mTLS listener are opt-in. Enabling the workload endpoint in
 Kubernetes still needs explicit operator configuration, SPIRE registration,
 socket projection, a Service port and Cilium policy. Cilium mesh authentication
