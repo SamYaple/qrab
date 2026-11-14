@@ -4,13 +4,91 @@ use std::{collections::HashSet, net::SocketAddr, path::PathBuf};
 #[derive(Clone)]
 pub struct Config {
     pub listen: SocketAddr,
-    pub issuer: String,
-    pub audience: String,
+    /// Trusted ID-token sources, one per issuer, `REDFISH_OIDC_ISSUER` first.
+    pub sources: Vec<TokenSource>,
     pub admin_subjects: HashSet<String>,
     pub viewer_subjects: HashSet<String>,
     pub admin_groups: HashSet<String>,
     pub viewer_groups: HashSet<String>,
     pub ca_file: Option<PathBuf>,
+}
+
+/// An issuer and the audiences (OAuth2 client IDs) whose ID tokens it may
+/// present. A trusted source grants no role by itself.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TokenSource {
+    pub issuer: String,
+    pub audiences: Vec<String>,
+}
+
+/// The primary pair followed by the comma-separated `issuer|audience` pairs
+/// of `REDFISH_TRUSTED_TOKENS`, grouped by issuer in first-seen order.
+/// Repeated pairs collapse; a shared issuer keeps each audience as its own pair.
+///
+/// ```
+/// use qrab_redfish::config::{token_sources, TokenSource};
+/// let sources = token_sources(
+///     "https://idm.example/oauth2/openid/qrab-redfish",
+///     "qrab-redfish",
+///     "https://idm.example/oauth2/openid/qrab-bmc|qrab-bmc, https://idm.example/oauth2/openid/qrab-redfish|qrab-redfish",
+/// )
+/// .unwrap();
+/// assert_eq!(sources, [
+///     TokenSource {
+///         issuer: "https://idm.example/oauth2/openid/qrab-redfish".into(),
+///         audiences: vec!["qrab-redfish".into()],
+///     },
+///     TokenSource {
+///         issuer: "https://idm.example/oauth2/openid/qrab-bmc".into(),
+///         audiences: vec!["qrab-bmc".into()],
+///     },
+/// ]);
+/// let shared = token_sources("https://idm.example", "a", "https://idm.example|b").unwrap();
+/// assert_eq!(shared[0].audiences, ["a", "b"]);
+/// assert!(token_sources("https://idm.example", "a", "https://idm.example").is_err());
+/// assert!(token_sources("https://idm.example", "a", "http://idm.example|b").is_err());
+/// assert!(token_sources("https://idm.example", "a", "https://idm.example|").is_err());
+/// assert!(token_sources("https://idm.example", "", "").is_err());
+/// ```
+pub fn token_sources(issuer: &str, audience: &str, trusted: &str) -> Result<Vec<TokenSource>> {
+    let mut pairs = vec![(
+        "REDFISH_OIDC_ISSUER/REDFISH_OIDC_AUDIENCE",
+        issuer.to_owned(),
+        audience.to_owned(),
+    )];
+    for pair in trusted.split(',').map(str::trim).filter(|p| !p.is_empty()) {
+        let (issuer, audience) = pair
+            .split_once('|')
+            .context("REDFISH_TRUSTED_TOKENS entries must be issuer|audience")?;
+        pairs.push((
+            "REDFISH_TRUSTED_TOKENS",
+            issuer.trim().to_owned(),
+            audience.trim().to_owned(),
+        ));
+    }
+    let mut sources: Vec<TokenSource> = Vec::new();
+    for (name, issuer, audience) in pairs {
+        ensure!(
+            openidconnect::url::Url::parse(&issuer)
+                .with_context(|| format!("{name} issuer"))?
+                .scheme()
+                == "https",
+            "{name} issuers must use HTTPS"
+        );
+        ensure!(
+            !audience.is_empty() && !audience.contains(char::is_whitespace),
+            "{name} audiences must be non-empty client IDs"
+        );
+        match sources.iter_mut().find(|s| s.issuer == issuer) {
+            Some(source) if source.audiences.contains(&audience) => {}
+            Some(source) => source.audiences.push(audience),
+            None => sources.push(TokenSource {
+                issuer,
+                audiences: vec![audience],
+            }),
+        }
+    }
+    Ok(sources)
 }
 
 pub fn subjects(name: &str, raw: &str) -> Result<HashSet<String>> {
@@ -30,16 +108,11 @@ impl Config {
         let required =
             |name: &str| std::env::var(name).with_context(|| format!("{name} is required"));
         let optional = |name: &str| std::env::var(name).unwrap_or_default();
-        let issuer = required("REDFISH_OIDC_ISSUER")?;
-        ensure!(
-            openidconnect::url::Url::parse(&issuer)?.scheme() == "https",
-            "REDFISH_OIDC_ISSUER must use HTTPS"
-        );
-        let audience = required("REDFISH_OIDC_AUDIENCE")?;
-        ensure!(
-            !audience.is_empty(),
-            "REDFISH_OIDC_AUDIENCE must not be empty"
-        );
+        let sources = token_sources(
+            &required("REDFISH_OIDC_ISSUER")?,
+            &required("REDFISH_OIDC_AUDIENCE")?,
+            &optional("REDFISH_TRUSTED_TOKENS"),
+        )?;
         let admin_subjects = subjects(
             "REDFISH_ADMIN_SUBJECTS",
             &optional("REDFISH_ADMIN_SUBJECTS"),
@@ -68,8 +141,7 @@ impl Config {
             listen: std::env::var("REDFISH_LISTEN")
                 .unwrap_or_else(|_| "0.0.0.0:8081".into())
                 .parse()?,
-            issuer,
-            audience,
+            sources,
             admin_subjects,
             viewer_subjects,
             admin_groups,

@@ -48,7 +48,7 @@ async fn main() -> Result<()> {
     let mut server = std::pin::pin!(std::future::IntoFuture::into_future(server));
     let mut term = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
     let mut interrupt = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())?;
-    tracing::info!(listen=%config.listen, socket=%args[1], "Redfish sidecar started");
+    tracing::info!(listen=%config.listen, socket=%args[1], issuers=config.sources.len(), "Redfish sidecar started");
     tokio::select! {
         result=&mut server => result?,
         () = remote.mirror() => unreachable!("the event mirror never returns"),

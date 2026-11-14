@@ -191,7 +191,14 @@ The BMC sidecar receives `BMC_PUBLIC_URL`, `BMC_OIDC_ISSUER` and
 `BMC_ALLOWED_SUBJECTS`, `BMC_VIEWER_SUBJECTS`, `BMC_ADMIN_GROUPS` and
 `BMC_VIEWER_GROUPS`. The Redfish sidecar receives `REDFISH_OIDC_ISSUER`,
 `REDFISH_OIDC_AUDIENCE` and the non-empty `REDFISH_ADMIN_SUBJECTS` /
-`REDFISH_VIEWER_SUBJECTS`. The operator's own environment selects the issuers:
+`REDFISH_VIEWER_SUBJECTS`. Its `REDFISH_TRUSTED_TOKENS` lists the BMC client
+(`QRAB_OIDC_ISSUER|QRAB_OIDC_CLIENT_ID`) when the BMC is enabled with a
+`console.publicUrl`, and the dashboard client
+(`QRAB_BMC_BEARER_ISSUER|QRAB_BMC_BEARER_AUDIENCE`) when those are set, so
+the BMC and dashboard can call Redfish with their users' ID tokens; the
+Redfish role lists still decide access
+([redfish.md](redfish.md#trusted-token-sources)). The operator's own
+environment selects the issuers:
 
 | Operator variable | Default |
 | --- | --- |
@@ -203,7 +210,7 @@ The BMC sidecar receives `BMC_PUBLIC_URL`, `BMC_OIDC_ISSUER` and
 Changing components, subjects, the operator's bearer settings or this layout
 changes the Pod template hash, so the operator replaces the VM Pod while
 keeping its identity. Setting the bearer variables therefore restarts every
-BMC-enabled VM once. Service, Ingress
+BMC- or Redfish-enabled VM once. Service, Ingress
 and network-policy entries for port 8081 are explicit infrastructure, like the
 console's; see [redfish.md](redfish.md).
 
