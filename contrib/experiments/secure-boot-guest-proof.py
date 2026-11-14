@@ -138,7 +138,35 @@ def prepare(args):
         if len(archive) > 256 * 1024 * 1024:
             raise RuntimeError("initrd expansion exceeds bound")
         unpack_newc(archive, root)
-        shutil.copyfile(args.source_root / "contrib/images/guest-init", root / "init")
+        probe_source = out / "efi-metadata-probe.rs"
+        probe_source.write_text(r'''
+use std::{fs::File,os::fd::AsRawFd};
+unsafe extern "C" { fn ioctl(fd:i32,request:u64,arg:*mut u64)->i32; }
+fn main(){
+ let path="/sys/firmware/efi/efivars/db-d719b2cb-3d3a-4596-a3bc-dad00e67656f";
+ match File::open(path){
+  Ok(file)=>{let mut flags=0u64;
+   // FS_IOC_GETFLAGS is read-only; this diagnostic never calls SETFLAGS.
+   let result=unsafe{ioctl(file.as_raw_fd(),0x80086601,&mut flags)};
+   println!("QRAB_DB_FILE_FLAGS result={result} flags={flags:#x} immutable={}",flags&0x10!=0);
+  },Err(error)=>println!("QRAB_DB_FILE_FLAGS error={error}"),
+ }
+ if let Ok(status)=std::fs::read_to_string("/proc/self/status"){
+  for line in status.lines().filter(|l|l.starts_with("CapEff:")){println!("QRAB_SB_{line}");}
+ }
+}
+''')
+        command(["rustc", "--edition=2021", "--target=x86_64-unknown-linux-musl", "-O", probe_source,
+                 "-o", root / "usr/bin/qrab-efi-metadata-probe"])
+        init = (args.source_root / "contrib/images/guest-init").read_text()
+        # Diagnostic reads occur only inside the disposable guest. They expose
+        # metadata, never trust payloads or private keys, and never clear flags.
+        init = init.replace("# The guest agent finds", """echo QRAB_SB_DIAGNOSTICS
+/usr/bin/qrab-efi-metadata-probe
+mount -t securityfs securityfs /sys/kernel/security 2>/dev/null || true
+cat /sys/kernel/security/lockdown 2>/dev/null || true
+# The guest agent finds""")
+        (root / "init").write_text(init)
         (root / "init").chmod(0o755)
         if args.agent is None:
             raise RuntimeError("--rebuild-initrd requires --agent")
@@ -272,6 +300,7 @@ def main():
     parser.add_argument("--accelerator", choices=["tcg", "kvm"], default="tcg")
     parser.add_argument("--timeout", type=float, default=120)
     parser.add_argument("--authenticated-updates", action="store_true")
+    parser.add_argument("--case", action="append", choices=["signed-enabled", "unsigned-enabled", "unsigned-disabled"], help="run selected disposable cases; default all")
     args = parser.parse_args()
     if "@sha256:" not in args.image_ref:
         parser.error("--image-ref must record an immutable published source digest")
@@ -289,14 +318,20 @@ def main():
     if "11.1." not in version:
         parser.error("this proof requires the pinned QEMU 11.1 release")
     unsigned = prepare(args)
-    cases = [boot(args, "signed-enabled", args.output / "enabled.fd", args.output / "signed.efi", True, True),
-             boot(args, "unsigned-enabled", args.output / "enabled.fd", unsigned, False, True),
-             boot(args, "unsigned-disabled", args.output / "disabled.fd", unsigned, True, False)]
+    configurations = [("signed-enabled", args.output / "enabled.fd", args.output / "signed.efi", True, True),
+                      ("unsigned-enabled", args.output / "enabled.fd", unsigned, False, True),
+                      ("unsigned-disabled", args.output / "disabled.fd", unsigned, True, False)]
+    cases = [boot(args, *case) for case in configurations if not args.case or case[0] in args.case]
+    boot_passed = all(case["passed"] for case in cases)
+    auth_passed = all(case.get("authenticated_update", {}).get("authorized", False)
+                      for case in cases if case["expect_boot"] and case["expected_secure_boot"]) if args.authenticated_updates else None
     report = {"image_ref": args.image_ref, "qemu_version": version, "qemu_sha256": sha(args.qemu),
               "code_sha256": sha(args.code), "vars_template_sha256": sha(args.vars), "source_boot_sha256": sha(args.guest / "boot.img"),
               "source_agent_sha256": sha(args.agent) if args.agent else None,
               "source_efivarfs_module_sha256": sha(args.efivarfs_module) if args.efivarfs_module else None, "rebuilt_disposable_initrd": args.rebuild_initrd,
-              "cases": cases, "passed": all(v["passed"] for v in cases)}
+              "cases": cases, "boot_and_query_passed": boot_passed,
+              "authenticated_updates_requested": args.authenticated_updates, "authenticated_updates_passed": auth_passed,
+              "passed": boot_passed and (auth_passed is not False)}
     (args.output / "result.json").write_text(json.dumps(report, indent=2))
     print(json.dumps(report, indent=2))
     if not report["passed"]:
