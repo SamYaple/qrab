@@ -489,22 +489,105 @@ fn env(container: &Value) -> std::collections::BTreeMap<String, Value> {
 }
 
 #[test]
-fn existing_specs_keep_the_bmc_and_omit_redfish() {
+fn existing_specs_keep_the_bmc_and_gain_its_redfish_sidecar() {
     let spec: api::VirtualMachineSpec = serde_json::from_value(
         json!({"stateVolumeClaim":"s","console":{"publicUrl":"https://x.example","allowedSubjects":[]}}),
     )
     .unwrap();
     assert!(spec.components.bmc.enabled);
-    assert!(!spec.components.redfish.enabled);
-    let pod = serde_json::to_value(resources::render(&vm(), &settings()).unwrap().pod).unwrap();
-    let names: Vec<_> = pod["spec"]["initContainers"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|c| c["name"].as_str().unwrap())
-        .collect();
-    assert_eq!(names, ["bmc"]);
-    assert!(!env(&pod["spec"]["initContainers"][0]).contains_key("BMC_VIEWER_SUBJECTS"));
+    assert_eq!(spec.components.redfish.enabled, None);
+    assert!(spec.components.redfish_enabled());
+    // Objects stored under the old CRD carry its `enabled: false` default.
+    let mut stored = vm();
+    stored.spec.components.redfish.enabled = Some(false);
+    for machine in [vm(), stored] {
+        let pod =
+            serde_json::to_value(resources::render(&machine, &settings()).unwrap().pod).unwrap();
+        let names: Vec<_> = pod["spec"]["initContainers"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|c| c["name"].as_str().unwrap())
+            .collect();
+        assert_eq!(names, ["bmc", "redfish"]);
+        let bmc = env(&pod["spec"]["initContainers"][0]);
+        assert!(!bmc.contains_key("BMC_VIEWER_SUBJECTS"));
+        // The BMC's /redfish proxy reaches Redfish over the Pod's loopback.
+        assert_eq!(bmc["BMC_REDFISH_URL"], "http://127.0.0.1:8081");
+        let redfish = env(&pod["spec"]["initContainers"][1]);
+        assert_eq!(
+            redfish["REDFISH_ADMIN_SUBJECTS"],
+            "6175a2a1-efb9-44e8-8c0b-5fe7ace18f9b"
+        );
+        assert!(!redfish.contains_key("REDFISH_VIEWER_SUBJECTS"));
+    }
+}
+
+#[test]
+fn console_roles_carry_over_to_redfish_with_admin_winning() {
+    const ADMIN_GROUP: &str = "11111111-1111-4111-8111-111111111111";
+    const VIEWER_GROUP: &str = "22222222-2222-4222-8222-222222222222";
+    const REDFISH_ONLY: &str = "44444444-4444-4444-8444-444444444444";
+    let console_admin = "6175a2a1-efb9-44e8-8c0b-5fe7ace18f9b";
+    let mut machine = vm();
+    let console = machine.spec.console.as_mut().unwrap();
+    console.viewer_subjects = vec![VIEWER.into()];
+    console.admin_groups = vec![ADMIN_GROUP.into()];
+    console.viewer_groups = vec![VIEWER_GROUP.into()];
+    // Redfish's own lists add to the console's; a console admin listed as a
+    // Redfish viewer (in another case) stays an admin.
+    let redfish = &mut machine.spec.components.redfish;
+    redfish.admin_subjects = vec![REDFISH_ONLY.into()];
+    redfish.viewer_subjects = vec![console_admin.to_uppercase()];
+    redfish.viewer_groups = vec![ADMIN_GROUP.into()];
+    let pod = serde_json::to_value(resources::render(&machine, &settings()).unwrap().pod).unwrap();
+    let redfish = env(&pod["spec"]["initContainers"][1]);
+    assert_eq!(
+        redfish["REDFISH_ADMIN_SUBJECTS"],
+        format!("{REDFISH_ONLY},{console_admin}")
+    );
+    assert_eq!(redfish["REDFISH_VIEWER_SUBJECTS"], VIEWER);
+    assert_eq!(redfish["REDFISH_ADMIN_GROUPS"], ADMIN_GROUP);
+    assert_eq!(redfish["REDFISH_VIEWER_GROUPS"], VIEWER_GROUP);
+    // Without the BMC the console's lists grant nothing in Redfish.
+    machine.spec.components.bmc.enabled = false;
+    machine.spec.components.redfish.enabled = Some(true);
+    let pod = serde_json::to_value(resources::render(&machine, &settings()).unwrap().pod).unwrap();
+    let redfish = env(&pod["spec"]["initContainers"][0]);
+    assert_eq!(redfish["REDFISH_ADMIN_SUBJECTS"], REDFISH_ONLY);
+    assert_eq!(
+        redfish["REDFISH_VIEWER_SUBJECTS"],
+        console_admin.to_uppercase()
+    );
+    assert_eq!(redfish["REDFISH_VIEWER_GROUPS"], ADMIN_GROUP);
+    assert!(!redfish.contains_key("REDFISH_ADMIN_GROUPS"));
+}
+
+#[test]
+fn the_crd_refuses_turning_redfish_off_beside_the_bmc() {
+    let crd = api::crd();
+    let components = &crd["spec"]["versions"][0]["schema"]["openAPIV3Schema"]["properties"]["spec"]
+        ["properties"]["components"];
+    let rules = components["x-kubernetes-validations"].to_string();
+    assert!(rules.contains("!self.redfish.enabled"), "{rules}");
+    assert!(rules.contains("!self.bmc.enabled"), "{rules}");
+    // Attached below the root, without oldSelf, so unchanged stored
+    // components ratchet through unrelated updates such as spec.running.
+    assert!(!rules.contains("oldSelf"), "{rules}");
+    assert!(
+        crd["spec"]["versions"][0]["schema"]["openAPIV3Schema"]["x-kubernetes-validations"]
+            .to_string()
+            .contains("console is required")
+    );
+    // No default may make an absent `enabled` look explicitly false.
+    let enabled = &components["properties"]["redfish"]["properties"]["enabled"];
+    assert!(enabled.get("default").is_none() && enabled.get("nullable").is_none());
+    for default in [
+        &components["default"]["redfish"],
+        &components["properties"]["redfish"]["default"],
+    ] {
+        assert!(default.get("enabled").is_none(), "{default}");
+    }
 }
 
 #[test]
@@ -562,6 +645,8 @@ fn operator_renders_exactly_the_enabled_sidecars() {
             .iter()
             .map(|c| c["name"].as_str().unwrap())
             .collect();
+        // The BMC always brings Redfish, whatever redfish.enabled says.
+        let redfish = redfish || bmc;
         let expected: Vec<_> = [("bmc", bmc), ("redfish", redfish)]
             .into_iter()
             .filter_map(|(name, on)| on.then_some(name))
@@ -846,9 +931,10 @@ fn bmc_bearer_settings_reach_every_bmc_and_public_url_is_optional() {
         bmc["BMC_ALLOWED_SUBJECTS"],
         "6175a2a1-efb9-44e8-8c0b-5fe7ace18f9b"
     );
+    // Its Redfish sidecar still resolves Redfish's own issuer.
     assert_eq!(
         pod["spec"]["hostAliases"][0]["hostnames"],
-        json!(["idm.example"])
+        json!(["idm.example", "idm.yaple.net"])
     );
     // It is refused without the operator's bearer settings, whose absence
     // would leave the BMC with no way in.
@@ -1383,7 +1469,9 @@ fn redfish_event_configuration_rejects_unsafe_or_ambiguous_destinations() {
     machine.spec.components.redfish.state_volume_claim = Some("bad_claim".into());
     assert!(resources::render(&machine, &settings()).is_err());
     machine.spec.components.redfish.state_volume_claim = Some("separate-redfish-state".into());
-    machine.spec.components.redfish.enabled = false;
+    // Only switching the BMC off as well turns Redfish off.
+    machine.spec.components.bmc.enabled = false;
+    machine.spec.components.redfish.enabled = Some(false);
     assert!(resources::render(&machine, &settings()).is_err());
 }
 
@@ -1478,7 +1566,9 @@ fn periodic_redfish_telemetry_is_explicit_and_bounded() {
         assert!(resources::render(&machine, &settings()).is_err());
     }
     machine.spec.components.redfish.telemetry_interval_seconds = Some(5);
-    machine.spec.components.redfish.enabled = false;
+    // Only switching the BMC off as well turns Redfish off.
+    machine.spec.components.bmc.enabled = false;
+    machine.spec.components.redfish.enabled = Some(false);
     assert!(resources::render(&machine, &settings()).is_err());
 }
 
@@ -1708,8 +1798,9 @@ fn redfish_metrics_port_is_declared_and_admitted_only_from_monitoring_prometheus
                 {"key":"app.kubernetes.io/name","operator":"NotIn","values":["prometheus"]}]}
         ])
     );
-    // Without Redfish nothing listens, and no policy is kept.
-    let plain = with_components(true, false);
+    // Without Redfish (which the BMC would bring) nothing listens, and no
+    // policy is kept.
+    let plain = with_components(false, false);
     assert!(resources::redfish_metrics_policy(&plain, &settings())
         .unwrap()
         .is_none());

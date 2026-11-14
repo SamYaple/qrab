@@ -1,6 +1,7 @@
 // The only client-side script: noVNC against the dashboard's console proxy,
 // and the console page's power controls.
 import RFB from './novnc/core/rfb.js';
+import { createAudioContext } from './novnc/core/audio.js';
 
 const element = id => document.getElementById(id);
 const screen = element('screen');
@@ -47,7 +48,8 @@ function openConsole() {
     screen.replaceChildren();
     try {
         const scheme = location.protocol === 'https:' ? 'wss:' : 'ws:';
-        rfb = new RFB(screen, `${scheme}//${location.host}${screen.dataset.socket}`);
+        const audio = audioContext ? {audioContext} : {};
+        rfb = new RFB(screen, `${scheme}//${location.host}${screen.dataset.socket}${audioContext ? '?features=audio' : ''}`, audio);
         rfb.scaleViewport = true;
         rfb.resizeSession = false;
         rfb.focusOnClick = true;
@@ -73,6 +75,21 @@ connect.addEventListener('click', () => {
     stopReconnecting();
     if (rfb) { rfb.disconnect(); return; }
     openConsole();
+});
+// Admin-bucket guest audio, rendered only when the VM enables it: off until
+// clicked. The BMC admits audio per connection, so a change reconnects an
+// open console with or without `?features=audio`.
+let audioContext = null;
+const audioButton = element('audio');
+audioButton?.addEventListener('click', () => {
+    if (audioContext) { audioContext.close(); audioContext = null; } else { audioContext = createAudioContext(); }
+    audioButton.textContent = audioContext ? 'Audio on' : 'Audio off';
+    audioButton.setAttribute('aria-pressed', String(Boolean(audioContext)));
+    if (rfb) {
+        stopReconnecting();
+        rfb.addEventListener('disconnect', openConsole, {once: true});
+        rfb.disconnect();
+    }
 });
 element('cad').addEventListener('click', () => rfb?.sendCtrlAltDel());
 element('fullscreen').addEventListener('click', () => screen.requestFullscreen().catch(error => showError(error.message)));

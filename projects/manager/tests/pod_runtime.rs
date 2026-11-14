@@ -67,6 +67,43 @@ fn arguments_separate_paths_from_qemu_option_syntax() {
 }
 
 #[test]
+fn admin_bucket_audio_adds_a_playback_device_on_the_vnc_audio_capture() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut config = config(dir.path(), PathBuf::from("/bin/true"), dir.path().join("k"));
+    config.console = true;
+    let socket = Path::new("/tmp/private/qmp.sock");
+    let plain = config.arguments(socket);
+    config.admin_bucket = pod::AdminBucket {
+        audio: false,
+        usb_redirect: true,
+    };
+    assert_eq!(config.arguments(socket), plain);
+    assert!(!plain.iter().any(|a| a.contains("audio")));
+    config.admin_bucket.audio = true;
+    let args = config.arguments(socket);
+    for pair in [
+        ["-audiodev", "none,id=snd0"],
+        ["-device", "intel-hda,id=hda"],
+        ["-device", "hda-output,audiodev=snd0"],
+        [
+            "-vnc",
+            "unix:/tmp/private/vnc.sock,share=force-shared,audiodev=snd0",
+        ],
+    ] {
+        assert!(args.windows(2).any(|a| a == pair), "{pair:?} in {args:?}");
+    }
+    // Playback only: no input (microphone) device or second audiodev.
+    assert!(!args
+        .iter()
+        .any(|a| a.contains("hda-duplex") || a.contains("hda-micro")));
+    assert_eq!(args.iter().filter(|a| *a == "-audiodev").count(), 1);
+    assert_eq!(args.len(), plain.len() + 6);
+    // Without the console there is nothing to carry the audio.
+    config.console = false;
+    assert!(!config.arguments(socket).iter().any(|a| a.contains("audio")));
+}
+
+#[test]
 fn guest_nics_replace_nic_none_with_stream_netdevs_to_their_relays() {
     let dir = tempfile::tempdir().unwrap();
     let kernel = dir.path().join("kernel");

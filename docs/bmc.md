@@ -16,9 +16,11 @@ DNS and Cilium ingress, like `idm-dashboard`. It requires LAN/private-DNS access
 this manifest does not add a public edge route. Sign in with Kanidm, then choose
 **Connect console**. Video, keyboard, USB tablet input, Ctrl Alt Del and full
 screen run through the vendored noVNC client. There are no CDN dependencies.
-Pause, resume, reset and bounded shutdown use a small typed manager control API.
-The dashboard also shows the VM's live QMP event history and its effective
-configuration.
+Everything else on the page (power state, power actions, guest-agent actions,
+the live QMP event history, the effective configuration and metrics)
+is read from and sent to the VM's in-pod [Redfish](redfish.md) service through
+the BMC's [`/redfish` proxy](#redfish-proxy).
+
 Shutdown ends the current VM instance. With spec.running=true, the operator
 starts another; set spec.running=false to keep it off.
 
@@ -29,11 +31,50 @@ USB tablet events. The fixture has no persistent root filesystem or NIC.
 Clipboard sharing, sound and guest networking remain outside this stage.
 The minimal [operator](operator.md) now creates the per-VM Pod from a CR.
 
+## Browser UI
+
+The page is console-first (`projects/bmc/assets`, plain HTML, CSS and ES
+modules):
+
+- **Status header** (sticky): VM name, a `PowerState · Health` chip from
+  `Systems/1`, the role badge and **Sign out**. The chip is re-read every 3 s
+  and shortly after every `EventService/SSE` event, so pause, resume or a
+  guest panic shows without a reload.
+- **Console toolbar**, attached to the display: **Connect console** /
+  **Disconnect**, **Ctrl Alt Del**, a **Fit** / **1:1** scaling toggle (noVNC
+  `scaleViewport`; 1:1 scrolls inside the display), **Full screen**, the
+  admin-bucket **Audio** toggle when enabled, and the **Power** group. The power
+  buttons are the `ResetType` values Redfish's `ResetActionInfo` allows (Pause,
+  Resume, Reset = `ForceRestart`, Restart guest = `GracefulRestart`, Shut down,
+  Power cycle, NMI). Disruptive ones use an inline two-step confirm: the first
+  click turns the button into **Confirm <action>** for 5 s and only a second
+  click sends it. Pressing a toolbar or tab button while the console has
+  keyboard focus keeps that focus; clicking anywhere else releases it.
+- **Side rail** beside the console (stacked below it at 1000 px and narrower),
+  with keyboard-accessible tabs (arrow keys, Home, End). The selected tab is
+  remembered per user in the browser's `localStorage`.
+  - *Overview*: power, health, vCPUs, memory, disks, NICs, guest network and
+    guest-agent state.
+  - *Metrics*: current values from `TelemetryService/MetricReports/VM` and
+    `Managers/1/Oem/Qrab/Resources`, polled every 5 s only while the tab is
+    shown (each report read takes a fresh QMP sample). The `#metric-history`
+    slot is reserved for the history graphs of `work/bmc-metric-history-graphs`.
+  - *Events*: the QMP event log and live stream, a name filter and the
+    dropped-events warning.
+  - *Guest agent*: agent status and the freeze (two-step confirm), thaw and
+    update actions.
+  - *Configuration*: `Oem.Qrab.Configuration`, redacted for viewers.
+
+Viewers get the same header and rail, but the console toolbar, power group,
+keyboard hint and guest-agent actions are not in the page at all. The palette
+is dark by default and switches to a light one with the system preference.
+
 ## Runtime configuration
 
-In sidecar mode the BMC needs only the control socket. It keeps a local mirror
-of the manager's event history and opens a short socket connection for each
-status, configuration, action or console request. The VM config, which must
+In sidecar mode the BMC needs the control socket and the Redfish sidecar on the
+Pod's loopback. It keeps a local mirror of the manager's event history and
+opens a short socket connection for each console request and for the
+dashboard's remaining `/api/*` reads. The VM config, which must
 set `console: true`, belongs to the manager container. In embedded mode
 (`--config`) the BMC runs the supervisor itself. See [manager.md](manager.md).
 On SIGTERM the sidecar closes live streams within two seconds and exits 0.
@@ -52,6 +93,7 @@ On SIGTERM the sidecar closes live streams within two seconds and exits 0.
 | `BMC_VIEWER_GROUPS` | Comma-separated Kanidm group UUIDs whose members have viewer access |
 | `BMC_ADMIN_BUCKET` | Comma-separated [admin-bucket](#admin-bucket) features enabled for this VM: `audio`, `usb-redirect`. Unset means none; an unknown name stops startup |
 | `QRAB_NODE_NAME`, `QRAB_POD_NAME`, `QRAB_POD_NAMESPACE`, `QRAB_IMAGE` | Optional deployment metadata shown to admins |
+| `BMC_REDFISH_URL` | Origin of the in-pod Redfish sidecar behind `/redfish`; defaults to `http://127.0.0.1:8081` |
 | `BMC_LISTEN` | Listener; defaults to `0.0.0.0:8080` |
 | `BMC_ASSETS_DIR` | Defaults to the source assets directory; image sets `/opt/qrab/bmc/assets` |
 | `BMC_CA_FILE` | Optional PEM root certificate for an isolated test IdP |
@@ -66,7 +108,9 @@ At least one of `BMC_PUBLIC_URL` (browser console) and the
 both may be set. The BMC discovers each configured issuer at startup.
 
 Sessions are opaque server-side records, bounded to 2,048 per VM and lost on
-restart. Cookies are host-only, Secure, HttpOnly and SameSite=Lax under the
+restart. Each keeps the login's verified ID token (at most 16 KiB; a larger one
+is refused at login) for the Redfish proxy. The token never appears in a
+cookie or a response. Cookies are host-only, Secure, HttpOnly and SameSite=Lax under the
 `__Host-qrab-session` name. A session expires at the earlier of the ID-token
 expiry and 15 minutes after login. There is no refresh token in the browser.
 Signing out revokes active consoles across tabs within one second; expiry also
@@ -85,15 +129,25 @@ session.
 
 | Role | Access |
 | --- | --- |
-| viewer | `/api/session`, `/api/status`, `/api/events`, `/api/events/stream`, redacted `/api/config` |
-| admin | Everything a viewer has, the full `/api/config`, `/api/action`, `/api/console` and `POST /api/agent/{freeze,thaw,update}`, plus the VM's enabled [admin-bucket](#admin-bucket) features when requested |
+| viewer | `/api/session`, `/api/status`, `/api/events`, `/api/agent`, redacted `/api/config` |
+| admin | Everything a viewer has, the full `/api/config`, `/api/action` and `/api/console`, plus the VM's enabled [admin-bucket](#admin-bucket) features when requested |
+
+Through `/redfish` a user's role is Redfish's, from the same Kanidm subject
+and groups ([below](#redfish-proxy)).
+
+### Routes kept for the dashboard
+
+Redfish is the VM's single management plane. The BMC's own
+`/api/status`, `/api/action`, `/api/events`, `/api/agent` and `/api/config`
+remain only because the dashboard still calls them; work/dashboard-uses-redfish
+removes them. `/api/events/stream`, `/api/resources` and
+`POST /api/agent/{freeze,thaw,update}` are gone: use `EventService/SSE`,
+`Managers/1/Oem/Qrab/Resources` and the `Oem/QrabComputerSystem` actions.
+Add new management capabilities to Redfish, never to the BMC.
 
 `GET /api/agent` (both roles) returns the manager's cached guest-agent status
 and, while connected, the freeze state and last update run; viewers do not see
-update arguments, output or errors. Admin `POST /api/agent/freeze`,
-`/api/agent/thaw` and `/api/agent/update` (`{"args":[...]}`) need the same
-Origin and CSRF checks as power actions. The dashboard's guest-agent panel
-shows the status and offers the admin buttons.
+update arguments, output or errors.
 
 A viewer's configuration keeps sizing, boot mode, TPM/console flags, disk kinds,
 IDs, buses and read-only flags. It omits iSCSI portals, targets, LUNs,
@@ -101,7 +155,7 @@ initiator names, CHAP usernames and password-file references, file paths,
 kernel arguments, the state ID, node, pod and image. Secret contents are never
 read into any view. The console is admin-only: a server-side view-only RFB
 filter is not implemented, so viewers are refused at WebSocket admission
-(403) and the UI hides the console and power controls.
+(403) and the UI leaves the console and power controls out of the page.
 
 Every `/api/*` route requires a valid session or, in bearer mode, a valid
 bearer token: missing, expired or unlisted sessions get 401, and an
@@ -116,17 +170,47 @@ use. Binary WebSocket messages are limited to 64 KiB and blocked writes time out
 manager's QMP event history (`events`, `next`, `latest`, `missed`,
 `rejected`, `qmp_dropped`); without `after` it returns the newest events. Each event has a
 sequence number, receive time, QEMU timestamp, QAPI name and payload.
-`GET /api/events/stream` is a Server-Sent Events stream of `qmp` events (SSE
-`id` is the sequence number, so a reconnecting browser resumes with
-`Last-Event-ID`), `missed` events when the history evicted events first, and
-`qmp_dropped` events when the manager's QMP client count of discarded events
-changes; the events panel shows that warning. 503 responses name what is
-unavailable (status, configuration, console, power action, or too many
-consoles/streams) and say so when the VM is shutting down.
-Its session is authorized at admission and rechecked at least once a second;
-logout, expiry or removal from the subject or group lists end the stream. A request
-carrying a foreign Origin is refused. Sixteen concurrent streams are allowed
-per BMC; further streams get 503.
+503 responses name what is unavailable (status, configuration, console, power
+action, Redfish, or too many consoles/streams) and say so when the VM is
+shutting down.
+
+## Redfish proxy
+
+`/redfish` and everything below it is a reverse proxy to the in-pod Redfish
+sidecar at `BMC_REDFISH_URL` (GET, HEAD, POST, PATCH and DELETE, including the
+streaming `EventService/SSE`). Redfish verifies every token and decides the
+role from the VM's lists; the BMC never grants a Redfish role itself. The
+operator gives Redfish the console's subjects and groups
+([operator.md](operator.md#bmc-users-in-redfish)), so a BMC admin or viewer
+has the same role through the proxy.
+
+- **Browser sessions.** A request with a valid session cookie is forwarded
+  with `Authorization: Bearer <the login's ID token>`. Mutations (POST, PATCH,
+  DELETE) need the exact Origin and the session's `X-CSRF-Token`, and a read
+  with a foreign Origin is refused, before a single byte is sent upstream.
+  The response is cut off at logout, expiry or role loss, rechecked at least
+  once a second, so a proxied event stream ends within two seconds. Redfish
+  refusing the token of a session the BMC accepted is 502, not 401, so the
+  browser does not mistake a configuration fault for a sign-out.
+- **Bearer requests.** A request with `Authorization: Bearer` is forwarded
+  with exactly that token and never touches the cookie session; Redfish
+  verifies it (its own, BMC and dashboard clients are trusted,
+  [redfish.md](redfish.md#trusted-token-sources)). Redfish ends such streams
+  at the token's expiry. No CSRF token or Origin is needed.
+- **No credential.** The request is forwarded without one and Redfish answers
+  401 with `WWW-Authenticate: Bearer`.
+- Only `Authorization`, `Content-Type`, `Accept` and `Last-Event-ID` are
+  forwarded, never a cookie, and only `Content-Type`, `OData-Version`,
+  `Location`, `ETag`, `Allow`, `Retry-After`, `Link` and `WWW-Authenticate`
+  come back. Bodies are bounded like Redfish's (4 KiB; 192 KiB for the signed
+  Secure Boot database update) and refused with 413 before forwarding; paths
+  with dot segments get 400. Sixteen event streams are proxied at once.
+  Redfish unreachable is 503 (`The VM's Redfish service is unavailable.`) and
+  a non-streaming exchange is bounded to 60 seconds (504).
+
+Redfish is reached over the Pod's loopback, which network policy does not
+filter; the BMC needs no other route to it. The embedded `--config` mode has no
+Redfish sidecar, so its page shows the console and the session only.
 
 QMP and VNC listen only on sockets under the supervisor's private session
 directory. A sidecar BMC receives an established VNC stream through the manager's control
@@ -184,15 +268,57 @@ The dashboard forwards `features` on its console proxy only for admins and
 only for features that VM enables; it drops the others and refuses unknown
 names with 400.
 
-This is the gate only. The manager records the flags but adds no QEMU audio or
-USB device, and the console carries no new stream yet. Audio playback and
-WebUSB redirection are separate work that waits on the console protocol
-decision (VNC with upstream extensions or SPICE).
+### Audio playback
+
+Audio uses QEMU's upstream VNC audio extension and travels in-band on the
+existing console stream; there is no new socket or manager operation, and
+QEMU is not patched. With `adminBucket.audio` (and the console) enabled, the
+manager adds `-audiodev none,id=snd0 -device intel-hda,id=hda -device
+hda-output,audiodev=snd0` and `,audiodev=snd0` on `-vnc`. The guest sees an
+Intel HDA controller with an output-only codec; there is no microphone. A VM
+without the flag keeps its exact command line, and QEMU then ignores the audio
+encoding on every connection. Turning the flag on or off changes the QEMU
+arguments, which take effect when the VM's Pod next starts.
+
+The enforcement point is the BMC's client-to-server RFB filter
+(`rfb_filter`), applied to every console connection. It parses the
+ProtocolVersion (3.3, 3.7 or 3.8), the None security choice and ClientInit,
+then every client message noVNC sends: SetPixelFormat (0), SetEncodings (2),
+FramebufferUpdateRequest (3), KeyEvent (4), PointerEvent (5), ClientCutText
+(6, including the extended clipboard's negative length), EnableContinuousUpdates
+(150), ClientFence (248), xvp (250), SetDesktopSize (251), the QEMU extended key
+event (255/0) and QEMU audio (255/1). Any other type, an unknown QEMU
+sub-message or audio operation, more than 1024 encodings or a fence payload over
+64 bytes closes the console. Unless the connection's grants admit `audio`, the
+filter removes the audio pseudo-encoding (-259) from SetEncodings and drops
+every 255/1 message, so QEMU never acknowledges audio or sends any on that
+connection; other viewers of the same VM are unaffected because QEMU captures
+audio per connection. When an admitted connection loses its audio grant, the BMC
+closes the console: stopping audio already in flight would mean parsing the
+server-to-client stream.
+
+Both console pages show an **Audio** toggle only to admins of a VM that enables
+audio (the BMC page reads `admin_bucket` from `/api/session`; the dashboard page
+reads `spec.console.adminBucket`). It is off on every page load. Clicking it
+creates the page's AudioContext (browsers allow playback only from a user
+gesture) and, if the console is open, reconnects it with `?features=audio`;
+otherwise the next connect asks for audio. Clicking it again closes the
+AudioContext and reconnects without audio. The vendored noVNC carries
+`contrib/novnc-audio.patch` (adapted from novnc/noVNC#1952, MPL-2.0) in both
+identical copies: it advertises -259 only when constructed with an
+`audioContext`, requests S16 stereo at 44.1 kHz on the acknowledgement, and
+plays through an AudioWorklet (`core/audio.js`, served same-origin) with a
+60-100 ms jitter buffer that drops frames on overflow. One listening console
+costs about 176 KB/s (1.4 Mbit/s).
+
+USB redirection is not built (decision note on
+`container/bmc-experience-2026-11`); its flag still changes nothing.
 
 Exit criteria, all required for a feature to leave the bucket:
 
 - **audio**: a security review of the audio path; a server-side protocol filter
-  that passes only playback (never capture) from the guest; per-feature RBAC
+  that passes only playback (never capture) from the guest (the client-side
+  `rfb_filter` gates negotiation; the server stream is not yet parsed); per-feature RBAC
   separate from console admin; rate and size limits on the audio stream; and
   the user's decision recorded on `container/bmc-experience-2026-11`.
 - **usb-redirect**: a security review of the redirection path; a server-side
@@ -219,7 +345,7 @@ them into every BMC sidecar when it has its own `QRAB_BMC_BEARER_*` settings
 ([operator.md](operator.md#dashboard-access-and-publicurl)).
 
 In bearer mode, any `/api/*` request with an `Authorization: Bearer` header,
-including `/api/console` WebSocket admission and `/api/events/stream`, is
+including `/api/console` WebSocket admission, is
 authenticated only by that token. It never falls back to, mixes with or
 creates a cookie session. The token is verified like Redfish's (the shared
 `oidc-bearer` crate): ES256 or RS256 signature against the issuer's discovered
@@ -235,7 +361,7 @@ scope `groups_uuid`), exactly as for a browser session; admin wins.
 - Bearer requests need no `X-CSRF-Token` and no matching Origin. Those checks
   protect ambient cookie credentials; a browser never attaches a bearer token
   by itself.
-- A console or event stream admitted by a bearer token ends at the token's
+- A console admitted by a bearer token ends at the token's
   `exp`. A bearer token cannot be revoked at the BMC: its lifetime is the
   IdP's ID-token lifetime, so keep that short. Group changes take effect with
   the next token.
@@ -307,7 +433,8 @@ pause/resume and logout across tabs. It takes a private credentials JSON file,
 a captured guest serial log, and a Chromium executable; it never saves cookies
 or passwords. Screenshots go to ignored `target/bmc-browser`.
 
-For example, against an isolated client/guest already running locally:
+It observes pause/resume through `/api/status` while that route remains. For
+example, against an isolated client/guest already running locally:
 
 ```sh
 python3 contrib/tests/bmc-browser.py --origin http://localhost:28080 \
@@ -328,6 +455,8 @@ QRAB_TEST_GUEST=/path/to/demo \
 See [Redfish resource accounting](redfish.md#separate-cpu-and-memory-accounting)
 for independent BMC/Redfish container budgets and per-container usage queries.
 
-The Service resources panel and authenticated `/api/resources` expose BMC and
-manager process/cgroup usage separately. The guest-agent reboot action requires
-a connected, thawed guest; delivery does not prove reboot completion.
+The Metrics tab's Service resources list shows Redfish's `Managers/1/Oem/Qrab/Resources`:
+Redfish and manager process/cgroup usage, separately. The BMC's own container
+usage is in the cluster's cAdvisor metrics. The guest-restart power action
+(`GracefulRestart`) requires a connected, thawed guest; delivery does not
+prove reboot completion.

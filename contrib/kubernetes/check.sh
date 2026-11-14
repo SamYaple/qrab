@@ -111,9 +111,12 @@ assert url.scheme=='https' and url.hostname=='idm.yaple.net', 'wrong OIDC author
 assert query['client_id']==[env['BMC_OIDC_CLIENT_ID']] and query['redirect_uri']==[origin+'/auth/callback'] and query['code_challenge_method']==['S256'], 'incorrect OIDC redirect/PKCE'
 cookie=login.headers['Set-Cookie']
 assert cookie.startswith('__Host-qrab-session=') and all(flag in cookie for flag in ['Secure','HttpOnly','SameSite=Lax','Path=/']) and 'Domain=' not in cookie, 'session cookie is not confined to this HTTPS origin'
-redfish=vm['spec'].get('components',{}).get('redfish',{}).get('enabled',False)
+components=vm['spec'].get('components',{})
+# The BMC manages the VM through Redfish, so it always brings the sidecar.
+redfish=components.get('bmc',{}).get('enabled',True) or components.get('redfish',{}).get('enabled') is True
 sidecars={c['name']:c for c in before['spec'].get('initContainers',[])}
-assert redfish==('redfish' in sidecars), 'Redfish sidecar presence differs from spec.components.redfish'
+assert redfish==('redfish' in sidecars), 'Redfish sidecar presence differs from spec.components'
+assert env.get('BMC_REDFISH_URL')=='http://127.0.0.1:8081', 'the BMC does not proxy /redfish to the loopback Redfish sidecar'
 if redfish:
     sidecar=sidecars['redfish']
     assert sidecar.get('restartPolicy')=='Always', 'Redfish is not a native sidecar'

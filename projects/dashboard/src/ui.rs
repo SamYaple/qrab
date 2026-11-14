@@ -58,6 +58,8 @@ pub struct ConsolePage {
     pub name: String,
     /// For the page script's power requests (`X-CSRF-Token`).
     pub csrf: String,
+    /// The VM enables admin-bucket audio: the page offers the speaker toggle.
+    pub audio: bool,
 }
 
 /// The console page's power buttons: (action, label, disruptive).
@@ -831,6 +833,9 @@ fn console_page(page: &ConsolePage) -> Element {
                 button { id: "connect", r#type: "button", "Connect console" }
                 button { id: "cad", r#type: "button", class: "quiet", disabled: true, "Ctrl Alt Del" }
                 button { id: "fullscreen", r#type: "button", class: "quiet", disabled: true, "Full screen" }
+                if page.audio {
+                    button { id: "audio", r#type: "button", class: "quiet", "aria-pressed": "false", title: "Guest audio playback, about 1.4 Mbit/s", "Audio off" }
+                }
             }
         }
         div { class: "toolbar power-bar", id: "power", "data-endpoint": "{back}/power", "data-csrf": "{page.csrf}",

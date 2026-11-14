@@ -209,9 +209,9 @@ pub struct Tpm {
 }
 
 /// Admin-bucket console features this VM opted into (docs/bmc.md#admin-bucket).
-/// The BMC gates each one per connection. The flags are recorded only: they
-/// add no QEMU device yet, so the command line is unchanged until a feature's
-/// stream exists.
+/// The BMC gates each one per connection. With the console enabled, `audio`
+/// adds a playback-only sound device on QEMU's VNC audio capture (no
+/// microphone); `usb_redirect` is recorded only and changes no argument.
 ///
 /// ```
 /// use manager::pod::AdminBucket;
@@ -636,13 +636,32 @@ impl Config {
                 "qemu-xhci,id=usb".into(),
                 "-device".into(),
                 "usb-tablet,bus=usb.0".into(),
+            ]);
+            // The silent `none` backend only feeds VNC's per-connection
+            // capture; QEMU ignores the -259 audio encoding without it.
+            let audio = self.admin_bucket.audio;
+            if audio {
+                args.extend(
+                    [
+                        "-audiodev",
+                        "none,id=snd0",
+                        "-device",
+                        "intel-hda,id=hda",
+                        "-device",
+                        "hda-output,audiodev=snd0",
+                    ]
+                    .map(String::from),
+                );
+            }
+            args.extend([
                 "-vnc".into(),
                 format!(
-                    "unix:{},share=force-shared",
+                    "unix:{},share=force-shared{}",
                     socket
                         .with_file_name("vnc.sock")
                         .to_string_lossy()
-                        .replace(',', ",,")
+                        .replace(',', ",,"),
+                    if audio { ",audiodev=snd0" } else { "" }
                 ),
             ]);
         }
@@ -693,7 +712,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn admin_bucket_flags_round_trip_without_changing_the_command_line() {
+    fn only_admin_bucket_audio_changes_the_command_line() {
         let base = serde_json::json!({"kernel":"/unused","console":true});
         let plain: Config = serde_json::from_value(base.clone()).unwrap();
         assert!(plain.admin_bucket.is_empty());
@@ -701,9 +720,12 @@ mod tests {
             .unwrap()
             .get("admin_bucket")
             .is_none());
-        let mut opted = base;
-        opted["admin_bucket"] = serde_json::json!({"audio":true,"usb_redirect":true});
-        let opted: Config = serde_json::from_value(opted).unwrap();
+        let with = |bucket: serde_json::Value| -> Config {
+            let mut value = base.clone();
+            value["admin_bucket"] = bucket;
+            serde_json::from_value(value).unwrap()
+        };
+        let opted = with(serde_json::json!({"audio":true,"usb_redirect":true}));
         assert_eq!(
             opted.admin_bucket,
             AdminBucket {
@@ -712,6 +734,29 @@ mod tests {
             }
         );
         let socket = Path::new("/run/qrab/qmp.sock");
-        assert_eq!(plain.arguments(socket), opted.arguments(socket));
+        let usb_only = with(serde_json::json!({"usb_redirect":true}));
+        assert_eq!(plain.arguments(socket), usb_only.arguments(socket));
+        let plain = plain.arguments(socket);
+        let audio = opted.arguments(socket);
+        assert!(!plain
+            .iter()
+            .any(|a| a.contains("audiodev") || a.contains("hda")));
+        let added: Vec<_> = audio.iter().filter(|a| !plain.contains(a)).collect();
+        assert_eq!(
+            added,
+            [
+                "-audiodev",
+                "none,id=snd0",
+                "intel-hda,id=hda",
+                "hda-output,audiodev=snd0",
+                "unix:/run/qrab/vnc.sock,share=force-shared,audiodev=snd0"
+            ]
+        );
+        let mut headless = opted;
+        headless.console = false;
+        assert!(!headless
+            .arguments(socket)
+            .iter()
+            .any(|a| a.contains("audiodev") || a.contains("hda")));
     }
 }

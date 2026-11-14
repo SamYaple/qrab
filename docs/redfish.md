@@ -6,7 +6,8 @@ one VM. It reaches the VM only through the manager's control socket
 runtime directory or the VM's private UEFI/TPM state. Its own Redfish state is
 separate. Optional password authentication needs an explicitly mounted hashed
 account Secret; optional workload mTLS needs its own Workload API socket.
-Neither mount is added by default. Enable it per VM with
+Neither mount is added by default. Every BMC-enabled VM has Redfish, since the
+BMC UI manages the VM through it; without the BMC, enable it per VM with
 `spec.components.redfish` ([operator.md](operator.md#components)).
 
 ```sh
@@ -39,13 +40,18 @@ for the BMC.
 
 ### Exposure
 
-`contrib/kubernetes/console.yaml` routes `https://qrab-demo.yapplesauce.com/redfish`
-(Redfish's own URI root, which the BMC does not serve) to Service port
-`redfish` (8081). The rest of the host still reaches the BMC, behind the same
-certificate. The VM's CiliumNetworkPolicy admits 8081 only from the ingress
-and host entities. With `spec.components.redfish.enabled`,
-`contrib/kubernetes/check.sh` requires a native `redfish` sidecar with a
-subject allowlist and no access to the runtime directory. It also requires
+Every BMC-enabled VM has a Redfish sidecar: the BMC's browser UI manages the
+VM through it ([bmc.md](bmc.md#redfish-proxy)). `contrib/kubernetes/console.yaml`
+(and `redfish-poc/console.yaml`) routes all of
+`https://qrab-demo.yapplesauce.com`, including `/redfish`, to the BMC, whose
+`/redfish` proxy forwards to Redfish over the Pod's loopback. Bearer requests
+pass through unchanged, so direct Redfish clients use the same URL. The
+Service port `redfish` (8081) and its policy entry remain for in-cluster and
+port-forwarded clients; a Redfish-only VM needs its own Ingress to it.
+`contrib/kubernetes/check.sh`
+requires a native `redfish` sidecar beside the BMC (or with
+`spec.components.redfish.enabled`) with a subject allowlist and no access to
+the runtime directory, and `BMC_REDFISH_URL` on the BMC. It also requires
 401 with `WWW-Authenticate: Bearer` on `/redfish`, the service root,
 `Systems/1` and `Reset`, with no token or a malformed one.
 
@@ -533,8 +539,8 @@ limits total guest CPU+2 and guest memory+768Mi. These are reservations/limits,
 not measurements. Manager CPU overhead has limit headroom rather than an
 additional CPU request. Guest resize never absorbs sidecar resources.
 
-The BMC page and authenticated `/api/resources` report BMC/manager separately.
-Redfish's OEM resource endpoint reports Redfish/manager separately. Process CPU
+Redfish's OEM resource endpoint reports Redfish/manager separately; the BMC
+page shows it. Process CPU
 seconds and RSS are exact local-process observations. Container usage is
 reported only with `QRAB_RESOURCE_SCOPE=container` (set by operator) and verified
 self-membership in the resolved cgroup v2; unavailable fields are omitted.

@@ -89,7 +89,6 @@
                       "redfish": {
                         "adminGroups": [],
                         "adminSubjects": [],
-                        "enabled": false,
                         "viewerGroups": [],
                         "viewerSubjects": []
                       }
@@ -113,7 +112,6 @@
                         "default": {
                           "adminGroups": [],
                           "adminSubjects": [],
-                          "enabled": false,
                           "viewerGroups": [],
                           "viewerSubjects": []
                         },
@@ -137,8 +135,7 @@
                             "type": "array"
                           },
                           "enabled": {
-                            "default": false,
-                            "description": "A DMTF Redfish API authenticated by OIDC bearer tokens.",
+                            "description": "A DMTF Redfish API authenticated by OIDC bearer tokens. Absent, it\nfollows `components.bmc.enabled`: the BMC manages the VM through it,\nso it cannot be turned off while the BMC is enabled.",
                             "type": "boolean"
                           },
                           "eventDestinations": {
@@ -184,7 +181,13 @@
                         "type": "object"
                       }
                     },
-                    "type": "object"
+                    "type": "object",
+                    "x-kubernetes-validations": [
+                      {
+                        "message": "components.redfish.enabled cannot be false while components.bmc is enabled: the BMC manages the VM through its Redfish sidecar",
+                        "rule": "!(has(self.redfish) && has(self.redfish.enabled) && !self.redfish.enabled) || (has(self.bmc) && has(self.bmc.enabled) && !self.bmc.enabled)"
+                      }
+                    ]
                   },
                   "console": {
                     "description": "Browser console settings; required while `components.bmc` is enabled.",

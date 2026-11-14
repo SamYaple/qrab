@@ -42,7 +42,13 @@ pub struct Config {
     pub ca_file: Option<PathBuf>,
     /// Admin-bucket features enabled for this VM (`BMC_ADMIN_BUCKET`).
     pub admin_bucket: BTreeSet<Feature>,
+    /// Origin of the in-pod Redfish sidecar behind `/redfish/*`, from
+    /// `BMC_REDFISH_URL`.
+    pub redfish_url: String,
 }
+
+/// The default in-pod Redfish listener, reached over the Pod's loopback.
+pub const DEFAULT_REDFISH_URL: &str = "http://127.0.0.1:8081";
 
 fn https(name: &str, raw: &str) -> Result<()> {
     ensure!(
@@ -96,6 +102,10 @@ impl Config {
     /// let audio = Config::from_vars(vars(&[ADMIN, ISSUER, AUDIENCE, ("BMC_ADMIN_BUCKET", "audio")]));
     /// assert_eq!(audio.unwrap().admin_bucket.into_iter().collect::<Vec<_>>(), [bmc::admin_bucket::Feature::Audio]);
     /// assert!(Config::from_vars(vars(&[ADMIN, ISSUER, AUDIENCE, ("BMC_ADMIN_BUCKET", "mic")])).is_err());
+    /// // `/redfish/*` goes to the in-pod Redfish sidecar unless overridden.
+    /// assert_eq!(both.redfish_url, "http://127.0.0.1:8081");
+    /// const PATHED: (&str, &str) = ("BMC_REDFISH_URL", "http://127.0.0.1:8081/redfish");
+    /// assert!(Config::from_vars(vars(&[ADMIN, ISSUER, AUDIENCE, PATHED])).is_err());
     /// ```
     pub fn from_vars(var: impl Fn(&str) -> Option<String>) -> Result<Self> {
         let var = |name: &str| var(name).filter(|value| !value.is_empty());
@@ -181,8 +191,27 @@ impl Config {
                 .map_err(|name| {
                     anyhow::anyhow!("BMC_ADMIN_BUCKET names an unknown feature: {name}")
                 })?,
+            redfish_url: redfish_origin(
+                &var("BMC_REDFISH_URL").unwrap_or_else(|| DEFAULT_REDFISH_URL.into()),
+            )?,
         })
     }
+}
+
+/// An HTTP(S) origin without credentials, path, query or fragment.
+fn redfish_origin(raw: &str) -> Result<String> {
+    let url = Url::parse(raw).context("BMC_REDFISH_URL must be a URL")?;
+    ensure!(
+        matches!(url.scheme(), "http" | "https")
+            && url.username().is_empty()
+            && url.password().is_none()
+            && url.query().is_none()
+            && url.fragment().is_none()
+            && url.path() == "/"
+            && url.host_str().is_some(),
+        "BMC_REDFISH_URL must be an HTTP(S) origin without credentials, path, query or fragment"
+    );
+    Ok(url.origin().ascii_serialization())
 }
 
 pub fn public_origin(raw: &str, allow_http: bool, listen: &SocketAddr) -> Result<String> {

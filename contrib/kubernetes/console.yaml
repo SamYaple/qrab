@@ -13,7 +13,8 @@ spec:
     port: 8080
     # Numeric: the port belongs to the BMC sidecar (a restartable init container).
     targetPort: 8080
-  # The Redfish sidecar; nothing listens unless spec.components.redfish is enabled.
+  # The Redfish sidecar, for in-cluster and port-forwarded clients; the Ingress
+  # reaches Redfish through the BMC.
   - name: redfish
     port: 8081
     targetPort: 8081
@@ -33,14 +34,8 @@ spec:
   - host: qrab-demo.yapplesauce.com
     http:
       paths:
-      # Redfish's own URI root; the BMC serves no /redfish routes.
-      - path: /redfish
-        pathType: Prefix
-        backend:
-          service:
-            name: qrab-demo
-            port:
-              name: redfish
+      # Everything, including /redfish, reaches the BMC; its /redfish proxy
+      # forwards to the Redfish sidecar over the Pod's loopback.
       - path: /
         pathType: Prefix
         backend:

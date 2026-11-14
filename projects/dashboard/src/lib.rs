@@ -449,6 +449,12 @@ async fn console_page(
             namespace,
             name,
             csrf: user.csrf.clone(),
+            audio: vm
+                .spec
+                .console
+                .as_ref()
+                .and_then(|console| console.admin_bucket)
+                .is_some_and(|bucket| bucket.audio),
         }),
     )
     .await?;

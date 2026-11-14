@@ -25,6 +25,11 @@ pub use oidc_bearer::groups_claim;
 /// Kanidm scope whose `groups` claim lists group UUIDs only.
 pub const GROUPS_SCOPE: &str = "groups_uuid";
 
+/// Session key of the login's verified ID token, which the `/redfish/*`
+/// proxy forwards. It lives only in the server-side session record, never in
+/// [`User`] (which `/api/session` returns) or a cookie.
+pub const ID_TOKEN: &str = "id_token";
+
 pub type Client = CoreClient<
     openidconnect::EndpointSet,
     openidconnect::EndpointNotSet,
@@ -233,6 +238,12 @@ pub async fn callback(
         .await
         .map_err(|_| Failure::unauthorized())?;
     let id = response.id_token().ok_or_else(Failure::unauthorized)?;
+    let token = id.to_string();
+    // Redfish refuses larger tokens, and this bounds each session record.
+    if token.len() > oidc_bearer::MAX_TOKEN_BYTES {
+        tracing::warn!("OIDC ID token exceeds the Redfish token size limit");
+        return Err(Failure::unauthorized());
+    }
     let verifier = oidc.client.id_token_verifier();
     let claims = id
         .claims(&verifier, &Nonce::new(pending.nonce))
@@ -254,7 +265,7 @@ pub async fn callback(
     }
     let user = User {
         subject: claims.subject().as_str().into(),
-        groups: app.access.configured_groups(&id.to_string()),
+        groups: app.access.configured_groups(&token),
         name: claims
             .preferred_username()
             .map(|s| s.as_str())
@@ -269,6 +280,10 @@ pub async fn callback(
     session.cycle_id().await.map_err(|_| Failure::internal())?;
     session
         .insert("user", &user)
+        .await
+        .map_err(|_| Failure::internal())?;
+    session
+        .insert(ID_TOKEN, token)
         .await
         .map_err(|_| Failure::internal())?;
     tracing::info!(subject=%user.subject, "BMC operator signed in");
@@ -410,6 +425,18 @@ pub async fn user(app: &AppState, session: &Session) -> Result<Principal, Failur
         role,
         credential: Credential::Session(id),
     })
+}
+
+/// The verified ID token stored with session `id` at login.
+pub async fn session_token(app: &AppState, id: &tower_sessions::session::Id) -> Option<String> {
+    use tower_sessions::SessionStore;
+    app.sessions
+        .load(id)
+        .await
+        .ok()
+        .flatten()
+        .and_then(|mut record| record.data.remove(ID_TOKEN))
+        .and_then(|value| serde_json::from_value(value).ok())
 }
 
 /// Re-read a long-lived stream's session from the store: it must still be the

@@ -4,13 +4,15 @@ pub mod auth;
 pub mod config;
 mod console;
 mod events;
+pub mod proxy;
+pub mod rfb_filter;
 pub mod session_store;
 
 use axum::{
     extract::{DefaultBodyLimit, State},
     http::{HeaderMap, StatusCode},
     response::{Html, IntoResponse, Response},
-    routing::{get, post},
+    routing::{any, get, post},
     Json, Router,
 };
 use manager::pod::{self, Action};
@@ -30,7 +32,10 @@ pub struct AppState {
     pub control: pod::Backend,
     pub sessions: session_store::BoundedStore,
     pub consoles: Arc<Semaphore>,
+    /// Live Redfish event streams proxied at once.
     pub event_streams: Arc<Semaphore>,
+    /// The in-pod Redfish sidecar behind `/redfish/*`.
+    pub redfish: proxy::Upstream,
 }
 
 pub struct Failure(StatusCode, &'static str);
@@ -72,7 +77,9 @@ impl IntoResponse for Failure {
 }
 
 /// Without a browser login (`BMC_PUBLIC_URL`) there is no UI, `/auth/*` or
-/// `/assets`: only the JSON API, for bearer tokens, and the probes.
+/// `/assets`: only `/redfish/*`, the JSON API for bearer tokens, and the probes.
+/// VM management lives in Redfish; the remaining `/api/*` management routes
+/// serve only the dashboard until it reads Redfish too.
 pub fn router(app: AppState) -> Router {
     let secure = app
         .config
@@ -106,17 +113,20 @@ pub fn router(app: AppState) -> Router {
     }
     router
         .route("/api/session", get(identity))
+        // Removed by work/dashboard-uses-redfish
         .route("/api/status", get(status))
-        .route("/api/resources", get(resource_usage))
+        // Removed by work/dashboard-uses-redfish
         .route("/api/config", get(config_view))
+        // Removed by work/dashboard-uses-redfish
         .route("/api/events", get(events::page))
-        .route("/api/events/stream", get(events::stream))
+        // Removed by work/dashboard-uses-redfish
         .route("/api/action", post(action))
+        // Removed by work/dashboard-uses-redfish
         .route("/api/agent", get(agent::view))
-        .route("/api/agent/freeze", post(agent::freeze))
-        .route("/api/agent/thaw", post(agent::thaw))
-        .route("/api/agent/update", post(agent::update))
         .route("/api/console", get(console::upgrade))
+        .route("/redfish", any(proxy::forward))
+        .route("/redfish/", any(proxy::forward))
+        .route("/redfish/{*path}", any(proxy::forward))
         .route("/healthz", get(|| async { "ok" }))
         // A paused VM must stay reachable so an operator can resume it.
         .route("/readyz", get(health))
@@ -236,13 +246,4 @@ async fn logout(
     mutation(&app, &headers, &principal)?;
     session.flush().await.map_err(|_| Failure::internal())?;
     Ok(StatusCode::NO_CONTENT)
-}
-
-async fn resource_usage(
-    State(app): State<AppState>,
-    _: auth::Principal,
-) -> Json<serde_json::Value> {
-    Json(
-        serde_json::json!({"bmc":pod::ResourceUsage::sample(),"manager":app.control.resource_usage().await.ok()}),
-    )
 }
