@@ -197,7 +197,7 @@ the loopback redirect, then calls e.g.
 | `/redfish/v1/Managers/1/LogServices/Events` | `LogService.v1_7_0` | 256 records, `WrapsWhenFull`; `Oem.Qrab.QmpDropped` counts events QMP discarded, with `Health: Warning` when nonzero |
 | `.../Events/Entries`, `.../Entries/{seq}` | `LogEntryCollection`, `LogEntry.v1_17_0` | one `Oem` entry per QMP event; QAPI name and data under `Oem.Qrab` |
 | `/redfish/v1/EventService` | `EventService.v1_10_0` | `ServerSentEventUri` and opt-in HTTPS push subscriptions |
-| `/redfish/v1/EventService/SSE` | SSE of `Event.v1_10_0` | SSE `id` is the QMP sequence; `Last-Event-ID` resumes; gap and QMP-dropped notices, see [Event stream](#event-stream-sse) |
+| `/redfish/v1/EventService/SSE` | SSE of `Event.v1_10_0` | SSE `id` is the QMP sequence; `Last-Event-ID` (or `?after=`) resumes; gap and QMP-dropped notices, see [Event stream](#event-stream-sse) |
 
 `PowerState` follows the manager status: `PoweringOn` while starting, `On`
 running, `Paused` when QEMU is paused or otherwise not running, `PoweringOff`
@@ -261,22 +261,45 @@ event streams are served at once.
 ### Event stream (SSE)
 
 `/redfish/v1/EventService/SSE` streams one `Event.v1_10_0` per frame. A stream
-without `Last-Event-ID` starts at the newest event; with one, it replays the
-retained events after that sequence. It closes at credential expiry or session
-revocation, as described under Authentication. Every record has
-`EventType: Other`, `MemberId: "0"` and a `Qrab.1.0.*` `MessageId`:
+without a resume cursor starts at the newest event; with one, it replays the
+retained events after that sequence. The cursor is the `Last-Event-ID` header,
+else the OEM query parameter `after=<sequence>` with the same meaning. Redfish
+defines no SSE resume query (its SSE `$filter` selects events, not a
+position), and a browser `EventSource` cannot set `Last-Event-ID` on its first
+request: a page that read the event log opens `SSE?after=<newest logged
+sequence>`, so a reconnect before the first `id` still resumes there. The
+header wins when both are present, because an automatic reconnect repeats the
+URL and sends the newest received `id`. A malformed or repeated `after` is 400
+`QueryParameterValueFormatError`; other query parameters are ignored. The
+stream closes at credential expiry or session revocation, as described under
+Authentication. Every record has `EventType: Other`, `MemberId: "0"` and a
+`Qrab.1.0.*` `MessageId`:
 
 | `MessageId` | SSE `id` | `OriginOfCondition` | `Oem.Qrab` |
 | --- | --- | --- | --- |
 | `Qrab.1.0.QmpEvent` | QMP sequence | `Systems/1` | `QrabEvent`: `Sequence`, `Event`, `Data`, `Truncated` |
-| `Qrab.1.0.EventsMissed` | none | `LogServices/Events` | `QrabEventGap`: `MissedEvents`, `After`, `OldestAvailableSequence` |
+| `Qrab.1.0.EventsMissed` | none | `LogServices/Events` | `QrabEventGap`: `Reason`, `MissedEvents`, `After`, `OldestAvailableSequence` |
 | `Qrab.1.0.QmpEventsDropped` | none | `LogServices/Events` | `QrabQmpDropped`: `QmpDropped` |
 
 `EventsMissed` (`Severity: Warning`, `MessageArgs: [missed, after]`) is sent
-once, before the replay, when events after the stream's cursor were already
-evicted from the 256-event history: a resume with an old `Last-Event-ID`, or a
-reader that fell more than the history behind. `OldestAvailableSequence` is the
-next sequence delivered (`null` when none is retained). `QmpEventsDropped`
+once, before the events that follow the gap, in two cases:
+
+- `Reason: Evicted`: events after the cursor were already evicted from the
+  256-event history (a resume with an old cursor, or a reader that fell more
+  than the history behind). `MissedEvents` is their count.
+- `Reason: SequenceRestarted`: the cursor is above the newest sequence. QMP
+  sequences count from 1 for each VM manager instance, so such a cursor was
+  numbered by an earlier instance (a manager restart or power cycle).
+  `MissedEvents` is `null` and `MessageArgs[0]` is `unknown`: how many events
+  the old instance recorded after the cursor is not known. Every event of the
+  current numbering is newer than anything that reader received, so the
+  stream replays the whole retained history from the oldest event; nothing
+  retained is skipped and nothing is repeated. A cursor from an earlier
+  instance that is not above the current newest sequence cannot be told
+  apart from a current one; the stream treats it as current.
+
+`After` is the cursor; `OldestAvailableSequence` is the next sequence
+delivered (`null` when none is retained). `QmpEventsDropped`
 carries the `LogServices/Events` `Oem.Qrab.QmpDropped` total (QEMU events the
 QMP client discarded during the current QEMU connection). It is sent when a
 stream opens with a nonzero total and again whenever the total changes,
@@ -287,7 +310,8 @@ The notices carry no SSE `id`. A client's `Last-Event-ID` therefore always
 names the last QMP event it received, so resuming never skips events because a
 notice arrived last. A notice can repeat after a reconnect, and the current
 dropped total is sent again on every reopened stream. Notices are not
-`LogEntry` records, and push subscriptions do not deliver them.
+`LogEntry` records. Push subscriptions deliver the same `EventsMissed`
+notices but not `QmpEventsDropped`; see [Push subscriptions](#push-subscriptions).
 
 ## Tests
 
@@ -296,8 +320,9 @@ rejection matrix (missing, Basic, malformed, expired, wrong audience, wrong
 issuer, foreign signing key, unlisted subject, viewer reset), trusted sources
 (each pair accepted with its listed role, cross-source audiences and keys and
 unconfigured issuers 401, unlisted subjects 403), reset mapping,
-power-state mapping, the event stream, its gap and QMP-dropped notices and its
-token-expiry bound, and the
+power-state mapping, the event stream (its eviction and restart gap notices,
+QMP-dropped notices, `after` resume cursor and token-expiry bound), push and
+SSE record parity and push gap delivery, and the
 Prometheus exposition (format, label sanitization, scrape coalescing, listener
 separation, and the shipped dashboard's queries), and metric history against a
 recording fake Prometheus (the exact PromQL, step and window per metric and
@@ -500,7 +525,16 @@ contain guest secrets and is intentionally excluded from redacted diagnostics.
 `/EventService/Subscriptions` supports admin POST and per-subscription GET/DELETE.
 At most 32 destinations are retained. Creation accepts only exact operator
 allowlisted HTTPS URLs, no credentials/query/fragment or custom HTTP headers.
-Payloads contain event names/sequence metadata; raw QMP data is omitted.
+Each POST is one `Event.v1_10_0` with the subscription's `Context`. QMP events
+use the SSE stream's `EventRecord` (the same builder, `MemberId` included)
+with `Oem.Qrab.Data` always `null`: raw QMP data is withheld from push
+destinations. When a subscription's cursor falls behind the history or names
+an earlier manager numbering, the SSE `EventsMissed` notice (same `Reason`
+semantics) is posted once before the next event, whatever the `Severities`
+filter, since the gap can hide matching events; `Oem.Qrab.MissedEvents` on the
+subscription adds the evicted count (an unknown restart loss adds nothing).
+`QmpEventsDropped` is not pushed: it is a per-QEMU-connection counter, read
+from `LogServices/Events` `Oem.Qrab.QmpDropped` and the Prometheus export.
 Viewers cannot see destinations or user Context. Subscriptions expire at the
 earlier of creator bearer expiry and 24 hours; tokens are never stored.
 
@@ -509,7 +543,7 @@ no redirects and no environment proxy. There are three attempts per event,
 two seconds between failures, then subscription termination. Successful cursors
 are checkpointed in batches per delivery cycle; an interrupted cycle can replay
 a previously delivered event, so receivers should deduplicate by event ID. Sequence cursors,
-missed-event counters and manager restart handling bound replay behavior.
+the missed-event counter and the gap notices bound replay behavior.
 A persistence failure pauses delivery instead of producing a retry storm.
 Disk writes run outside the async runtime and reader lock, with one admitted
 persistent writer; concurrent mutations return 503 instead of growing a queue.

@@ -69,10 +69,12 @@ modules):
     fails shows Redfish's error text instead of its chart. Colours are the
     page's CSS custom properties, with a light palette.
   - *Events*: the QMP event log (the newest 100 `LogServices/Events`
-    entries) followed by the live `EventService/SSE` stream, and a name
-    filter. A stream `Qrab.1.0.EventsMissed` notice (a reconnect whose
-    `Last-Event-ID` was already evicted) becomes a **Gap** row naming the
-    missed count, shown under any filter; `Qrab.1.0.QmpEventsDropped`
+    entries) followed by the live `EventService/SSE` stream, opened with
+    `?after=<newest logged sequence>` so a reconnect before the first event
+    still resumes from the log, and a name filter. A stream
+    `Qrab.1.0.EventsMissed` notice (a resume cursor already evicted, or one
+    from before a manager restart) becomes a **Gap** row naming the missed
+    count or the restart, shown under any filter; `Qrab.1.0.QmpEventsDropped`
     notices set or clear the dropped-events warning. Nothing on this tab
     polls ([redfish.md](redfish.md#event-stream-sse)).
   - *Guest agent*: agent status, the filesystem freeze state and the last

@@ -1037,12 +1037,24 @@ fn event_time(event: &VmEvent) -> String {
     rfc3339(millis)
 }
 
-fn oem(event: &VmEvent) -> Value {
+/// Whether a QMP record carries the raw QMP `Data`. Authenticated readers of
+/// the event log and the SSE stream get it; push destinations never do.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Payload {
+    Included,
+    Withheld,
+}
+
+fn oem(event: &VmEvent, payload: Payload) -> Value {
+    let data = match payload {
+        Payload::Included => event.data.clone(),
+        Payload::Withheld => Value::Null,
+    };
     json!({"Qrab": {
         "@odata.type": "#QrabEvent.v1_0_0.QrabEvent",
         "Sequence": event.seq,
         "Event": event.event,
-        "Data": event.data,
+        "Data": data,
         "Truncated": event.truncated,
     }})
 }
@@ -1058,7 +1070,7 @@ pub fn log_entry_json(event: &VmEvent) -> Value {
         "Created": event_time(event),
         "Severity": severity(&event.event),
         "Message": event.event,
-        "Oem": oem(event),
+        "Oem": oem(event, Payload::Included),
     })
 }
 
@@ -1118,24 +1130,53 @@ async fn event_service(
     Ok(Json(value))
 }
 
-pub fn event_json(event: &VmEvent) -> Value {
+/// An `Event` envelope around one `EventRecord`.
+fn event_envelope(id: String, name: &str, record: Value) -> Value {
     json!({
         "@odata.type": "#Event.v1_10_0.Event",
-        "Id": event.seq.to_string(),
-        "Name": "qrab VM event",
-        "Events": [{
-            "MemberId": "0",
-            "EventType": "Other",
-            "EventId": event.seq.to_string(),
-            "EventTimestamp": event_time(event),
-            "Severity": severity(&event.event),
-            "Message": event.event,
-            "MessageId": "Qrab.1.0.QmpEvent",
-            "MessageArgs": [event.event],
-            "OriginOfCondition": link(SYSTEM),
-            "Oem": oem(event),
-        }],
+        "Id": id,
+        "Name": name,
+        "Events": [record],
     })
+}
+
+/// The one `EventRecord` for a QMP event, shared by the SSE stream and push
+/// delivery so both carry the same fields, including the required `MemberId`.
+fn qmp_event_record(event: &VmEvent, payload: Payload) -> Value {
+    json!({
+        "MemberId": "0",
+        "EventType": "Other",
+        "EventId": event.seq.to_string(),
+        "EventTimestamp": event_time(event),
+        "Severity": severity(&event.event),
+        "Message": event.event,
+        "MessageId": "Qrab.1.0.QmpEvent",
+        "MessageArgs": [event.event],
+        "OriginOfCondition": link(SYSTEM),
+        "Oem": oem(event, payload),
+    })
+}
+
+fn qmp_event(event: &VmEvent, payload: Payload) -> Value {
+    event_envelope(
+        event.seq.to_string(),
+        "qrab VM event",
+        qmp_event_record(event, payload),
+    )
+}
+
+/// The SSE `Event` for a QMP event. Push delivery sends the same record with
+/// `Oem.Qrab.Data` withheld.
+///
+/// ```
+/// # let event = manager::pod::VmEvent { seq: 4, received_unix_ms: 0, qemu_time: None,
+/// #     event: "STOP".into(), data: serde_json::json!({}), truncated: false };
+/// let record = &qrab_redfish::event_json(&event)["Events"][0];
+/// assert_eq!(record["MemberId"], "0");
+/// assert_eq!(record["Oem"]["Qrab"]["Sequence"], 4);
+/// ```
+pub fn event_json(event: &VmEvent) -> Value {
+    qmp_event(event, Payload::Included)
 }
 
 /// A stream-only notice: these describe the stream, not a QMP event, so they
@@ -1148,11 +1189,10 @@ fn notice(
     args: Vec<String>,
     oem: Value,
 ) -> Value {
-    json!({
-        "@odata.type": "#Event.v1_10_0.Event",
-        "Id": id,
-        "Name": "qrab event stream notice",
-        "Events": [{
+    event_envelope(
+        id.clone(),
+        "qrab event stream notice",
+        json!({
             "MemberId": "0",
             "EventType": "Other",
             "EventId": id,
@@ -1163,14 +1203,72 @@ fn notice(
             "MessageArgs": args,
             "OriginOfCondition": link(LOG),
             "Oem": {"Qrab": oem},
-        }],
-    })
+        }),
+    )
 }
 
 fn now_ms() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
+}
+
+/// Why a cursor read cannot continue gaplessly.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum GapCause {
+    /// Events after the cursor were evicted from the bounded history.
+    Evicted,
+    /// The cursor is above the newest sequence, so it names an event of an
+    /// earlier numbering: the manager restarted and numbers from 1 again.
+    SequenceRestarted,
+}
+
+/// One gap a reader must be told about before the events that follow it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Gap {
+    pub cause: GapCause,
+    /// The reader's cursor (its last delivered sequence).
+    pub after: u64,
+    /// Evicted events of the current numbering. The earlier numbering's events
+    /// a restarted reader never got are unknown, so its notice reports `null`.
+    pub evicted: u64,
+    /// The first retained sequence delivered next.
+    pub resumes_at: Option<u64>,
+}
+
+impl Gap {
+    pub fn json(&self) -> Value {
+        let missed = match self.cause {
+            GapCause::Evicted => Some(self.evicted),
+            GapCause::SequenceRestarted => None,
+        };
+        gap_json(self.cause, self.after, missed, self.resumes_at)
+    }
+}
+
+/// Read the retained events after `cursor` with `read`, and the one gap to
+/// report before them, if any. A cursor above the newest sequence comes from a
+/// manager instance that has since restarted (sequences start at 1 again).
+/// Every event of the current numbering is newer than anything that reader
+/// received, so the read restarts at 0: nothing retained is skipped and
+/// nothing it already saw is replayed.
+pub(crate) fn read_after(
+    cursor: u64,
+    read: impl Fn(u64) -> pod::EventPage,
+) -> (pod::EventPage, Option<Gap>) {
+    let page = read(cursor);
+    let (page, cause) = if cursor > page.latest {
+        (read(0), GapCause::SequenceRestarted)
+    } else {
+        (page, GapCause::Evicted)
+    };
+    let gap = (cause == GapCause::SequenceRestarted || page.missed > 0).then(|| Gap {
+        cause,
+        after: cursor,
+        evicted: page.missed,
+        resumes_at: page.events.first().map(|event| event.seq),
+    });
+    (page, gap)
 }
 
 /// The SSE gap record: `missed` QMP events after sequence `after` were evicted
@@ -1183,17 +1281,54 @@ fn now_ms() -> u64 {
 /// assert_eq!(record["MessageId"], "Qrab.1.0.EventsMissed");
 /// assert_eq!(record["MessageArgs"], serde_json::json!(["7", "3"]));
 /// assert_eq!(record["Oem"]["Qrab"]["MissedEvents"], 7);
+/// assert_eq!(record["Oem"]["Qrab"]["Reason"], "Evicted");
 /// assert_eq!(record["Oem"]["Qrab"]["OldestAvailableSequence"], 11);
 /// ```
 pub fn missed_event_json(after: u64, missed: u64, resumes_at: Option<u64>) -> Value {
+    gap_json(GapCause::Evicted, after, Some(missed), resumes_at)
+}
+
+/// The gap record for a cursor from an earlier manager numbering: how many
+/// events after `after` the reader missed is unknown (`MissedEvents: null`);
+/// delivery resumes at the oldest retained event of the current numbering.
+///
+/// ```
+/// let gap = qrab_redfish::sequence_restarted_event_json(500, Some(1));
+/// let record = &gap["Events"][0];
+/// assert_eq!(record["MessageId"], "Qrab.1.0.EventsMissed");
+/// assert_eq!(record["MessageArgs"], serde_json::json!(["unknown", "500"]));
+/// assert!(record["Oem"]["Qrab"]["MissedEvents"].is_null());
+/// assert_eq!(record["Oem"]["Qrab"]["Reason"], "SequenceRestarted");
+/// ```
+pub fn sequence_restarted_event_json(after: u64, resumes_at: Option<u64>) -> Value {
+    gap_json(GapCause::SequenceRestarted, after, None, resumes_at)
+}
+
+fn gap_json(cause: GapCause, after: u64, missed: Option<u64>, resumes_at: Option<u64>) -> Value {
+    let (id, reason, message) = match (cause, missed) {
+        (GapCause::Evicted, Some(missed)) => (
+            format!("missed-{after}"),
+            "Evicted",
+            format!("{missed} QMP event(s) after sequence {after} were evicted from the event history before they were delivered."),
+        ),
+        _ => (
+            format!("restarted-{after}"),
+            "SequenceRestarted",
+            format!("The event sequence restarted after sequence {after} because the VM manager restarted; an unknown number of QMP events may have been missed."),
+        ),
+    };
     notice(
-        format!("missed-{after}"),
+        id,
         "Warning",
-        format!("{missed} QMP event(s) after sequence {after} were evicted from the event history before this stream read them."),
+        message,
         MISSED_MESSAGE,
-        vec![missed.to_string(), after.to_string()],
+        vec![
+            missed.map_or_else(|| "unknown".into(), |missed| missed.to_string()),
+            after.to_string(),
+        ],
         json!({
             "@odata.type": "#QrabEventGap.v1_0_0.QrabEventGap",
+            "Reason": reason,
             "MissedEvents": missed,
             "After": after,
             "OldestAvailableSequence": resumes_at,
@@ -1226,6 +1361,54 @@ pub fn qmp_dropped_event_json(total: u64) -> Value {
 pub const MISSED_MESSAGE: &str = "Qrab.1.0.EventsMissed";
 pub const DROPPED_MESSAGE: &str = "Qrab.1.0.QmpEventsDropped";
 
+fn bad_cursor(message: String) -> Failure {
+    Failure::new(
+        StatusCode::BAD_REQUEST,
+        "QueryParameterValueFormatError",
+        message,
+        "Pass the last received QMP sequence as a decimal integer, once.",
+    )
+}
+
+/// The stream's resume cursor: the `Last-Event-ID` header, else the `after`
+/// query parameter, else none (start at the newest event). The header wins
+/// because a browser's automatic reconnect repeats the original URL but sends
+/// the newest id it received. Other query parameters are ignored.
+///
+/// ```
+/// use axum::http::HeaderMap;
+/// let none = HeaderMap::new();
+/// assert_eq!(qrab_redfish::resume_cursor(&none, Some("after=7")).unwrap(), Some(7));
+/// let mut header = HeaderMap::new();
+/// header.insert("last-event-id", "9".parse().unwrap());
+/// assert_eq!(qrab_redfish::resume_cursor(&header, Some("after=7")).unwrap(), Some(9));
+/// assert_eq!(qrab_redfish::resume_cursor(&none, None).unwrap(), None);
+/// assert!(qrab_redfish::resume_cursor(&none, Some("after=-1")).is_err());
+/// assert!(qrab_redfish::resume_cursor(&none, Some("after=1&after=2")).is_err());
+/// ```
+pub fn resume_cursor(headers: &HeaderMap, query: Option<&str>) -> Result<Option<u64>, Failure> {
+    let mut after = None;
+    for pair in query.unwrap_or("").split('&') {
+        let Some(value) = pair.strip_prefix("after=") else {
+            continue;
+        };
+        if after.is_some() {
+            return Err(bad_cursor("The query parameter after is repeated.".into()));
+        }
+        let shown: String = value.chars().take(32).collect();
+        after = Some(value.parse::<u64>().map_err(|_| {
+            bad_cursor(format!(
+                "The value {shown:?} for the query parameter after is not a QMP sequence."
+            ))
+        })?);
+    }
+    let header = headers
+        .get("last-event-id")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.parse().ok());
+    Ok(header.or(after))
+}
+
 /// Live events close on credential expiry or session revocation. Idle streams
 /// do not refresh a session's last authenticated request time.
 ///
@@ -1233,19 +1416,21 @@ pub const DROPPED_MESSAGE: &str = "Qrab.1.0.QmpEventsDropped";
 /// notices omit it, so the client's Last-Event-ID stays the last QMP sequence
 /// it received: a resume neither skips events nor depends on notice ordering.
 /// A gap is reported whenever the cursor falls behind the retained history
-/// (an evicted resume cursor or a reader slower than the history); the
-/// dropped total is sent at open when nonzero and again on every change.
-async fn sse(State(app): State<AppState>, headers: HeaderMap) -> Result<Response, Failure> {
+/// (an evicted resume cursor or a reader slower than the history) or names an
+/// earlier manager numbering (see [`read_after`]); the dropped total is sent
+/// at open when nonzero and again on every change.
+async fn sse(
+    State(app): State<AppState>,
+    headers: HeaderMap,
+    axum::extract::RawQuery(query): axum::extract::RawQuery,
+) -> Result<Response, Failure> {
     let who = principal(&app, &headers).await?;
+    let resume = resume_cursor(&headers, query.as_deref())?;
     let permit = app
         .streams
         .clone()
         .try_acquire_owned()
         .map_err(|_| Failure::unavailable("Too many event streams are open."))?;
-    let resume = headers
-        .get("last-event-id")
-        .and_then(|v| v.to_str().ok())
-        .and_then(|v| v.parse().ok());
     let cursor = resume.unwrap_or_else(|| app.control.events(None, 1).latest);
     let deadline =
         tokio::time::Instant::now() + Duration::from_secs(who.expires.saturating_sub(auth::now()));
@@ -1276,10 +1461,9 @@ async fn sse(State(app): State<AppState>, headers: HeaderMap) -> Result<Response
                 if tokio::time::Instant::now() >= deadline {
                     return None;
                 }
-                let page = app.control.events(Some(cursor), 64);
-                if page.missed > 0 {
-                    let resumes_at = page.events.first().map(|event| event.seq);
-                    queue.push_back((None, missed_event_json(cursor, page.missed, resumes_at)));
+                let (page, gap) = read_after(cursor, |after| app.control.events(Some(after), 64));
+                if let Some(gap) = gap {
+                    queue.push_back((None, gap.json()));
                 }
                 if page.qmp_dropped != dropped {
                     dropped = page.qmp_dropped;

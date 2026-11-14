@@ -149,7 +149,7 @@ const DROPPED = 'Qrab.1.0.QmpEventsDropped';
 const fromEntry = entry => ({seq: entry.Oem?.Qrab?.Sequence ?? Number(entry.Id), time: entry.Created, ...qmp(entry)});
 const fromEvent = record => {
     const oem = record.Oem?.Qrab ?? {};
-    if (record.MessageId === MISSED) return {kind: 'gap', time: record.EventTimestamp, missed: oem.MissedEvents, after: oem.After, resumes: oem.OldestAvailableSequence};
+    if (record.MessageId === MISSED) return {kind: 'gap', time: record.EventTimestamp, restarted: oem.Reason === 'SequenceRestarted', missed: oem.MissedEvents, after: oem.After, resumes: oem.OldestAvailableSequence};
     if (record.MessageId === DROPPED) return {kind: 'dropped', total: oem.QmpDropped ?? 0};
     return {kind: 'qmp', seq: oem.Sequence ?? Number(record.EventId), time: record.EventTimestamp, ...qmp(record)};
 };
@@ -183,8 +183,11 @@ function gapRow(gap) {
     const time = node('time', at.toLocaleTimeString());
     time.dateTime = at.toISOString();
     const after = gap.resumes ? `; history resumes at #${gap.resumes}` : '';
+    const text = gap.restarted
+        ? `The VM manager restarted after #${gap.after} and numbers events from #1 again; events in between may be missing${after}`
+        : `${gap.missed} event(s) after #${gap.after} were evicted before they could be shown${after}`;
     const row = node('li', undefined, 'gap');
-    row.append(time, node('b', 'Gap'), node('code', `${gap.missed} event(s) after #${gap.after} were evicted before they could be shown${after}`));
+    row.append(time, node('b', 'Gap'), node('code', text));
     row.dataset.event = '';
     return row;
 }
@@ -198,23 +201,39 @@ function refreshSoon() {
     clearTimeout(refreshTimer);
     refreshTimer = setTimeout(refresh, 250);
 }
-// The stream opens first and buffers until the history is shown, so no event
-// falls between them; sequence numbers drop the overlap.
+// The history is read first and the stream opens after its newest sequence
+// (?after=), so no event falls between them, and a reconnect before any SSE id
+// arrives still resumes from that cursor rather than the newest event. Once an
+// id has arrived, the browser's Last-Event-ID takes precedence on reconnect.
 async function startEvents() {
     const status = element('events-status');
-    let last = -1, pending = [];
+    let last = 0, cursor = '';
     const show = record => {
-        if (record.kind === 'gap') addEvents([gapRow(record)]);
-        else if (record.seq > last) { last = record.seq; addEvents([eventRow(record)]); }
+        if (record.kind === 'gap') {
+            // The replay after a restart is numbered from #1 again.
+            if (record.restarted) last = 0;
+            addEvents([gapRow(record)]);
+        } else if (record.seq > last) { last = record.seq; addEvents([eventRow(record)]); }
     };
-    events = new EventSource(browserPath(EVENT_STREAM));
+    try {
+        const page = await request(`${EVENT_LOG}/Entries`);
+        const history = (page.Members || []).map(fromEntry).sort((a, b) => a.seq - b.seq);
+        for (const record of history.slice(-100)) show(record);
+        last = history.at(-1)?.seq ?? 0;
+        cursor = `?after=${last}`;
+    } catch (error) {
+        // Without a history cursor the stream starts at the newest event.
+        if (!session) return;
+        showError(error.message);
+    }
+    if (!session || events) return;
+    events = new EventSource(browserPath(`${EVENT_STREAM}${cursor}`));
     events.addEventListener('open', () => { status.textContent = 'Live'; });
     events.addEventListener('message', message => {
         let records;
         try { records = (JSON.parse(message.data).Events || []).map(fromEvent); } catch { return; }
         for (const record of records) {
             if (record.kind === 'dropped') showDropped(record.total);
-            else if (pending) pending.push(record);
             else show(record);
         }
         if (records.some(record => record.kind === 'qmp')) refreshSoon();
@@ -223,12 +242,6 @@ async function startEvents() {
         status.textContent = events?.readyState === EventSource.CLOSED ? 'Disconnected' : 'Reconnecting…';
         refresh();
     });
-    const page = await request(`${EVENT_LOG}/Entries`);
-    const history = (page.Members || []).map(fromEntry).sort((a, b) => a.seq - b.seq).slice(-100);
-    for (const record of history) show(record);
-    const buffered = pending;
-    pending = null;
-    for (const record of buffered) show(record);
 }
 
 // ── Status header and overview, from one Systems/1 read.

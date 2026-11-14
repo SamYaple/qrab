@@ -1610,7 +1610,7 @@ async fn proxied_event_streams_close_within_two_seconds_of_logout() {
     let viewer = token_cookie(app.sessions.clone(), VIEWER, SESSION_TOKEN).await;
     let response = bmc::router(app.clone())
         .oneshot(
-            req("/redfish/v1/EventService/SSE", Some(&viewer))
+            req("/redfish/v1/EventService/SSE?after=5", Some(&viewer))
                 .header("accept", "text/event-stream")
                 .header("last-event-id", "6")
                 .body(Body::empty())
@@ -1635,6 +1635,8 @@ async fn proxied_event_streams_close_within_two_seconds_of_logout() {
     .unwrap_or_else(|_| panic!("event not streamed: {seen}"));
     assert!(seen.contains("id: 7"), "{seen}");
     let request = upstream.seen().pop().unwrap();
+    // The page's history cursor reaches Redfish with the reconnect header.
+    assert_eq!(request.uri, "/redfish/v1/EventService/SSE?after=5");
     assert_eq!(request.headers["last-event-id"], "6");
     assert_eq!(
         request.headers["authorization"],

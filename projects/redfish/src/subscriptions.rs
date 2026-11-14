@@ -548,13 +548,72 @@ pub(super) async fn delete(
     Ok(StatusCode::NO_CONTENT)
 }
 
+/// The push body for a QMP event: the SSE record with `Oem.Qrab.Data`
+/// withheld (the payload is never cloned), plus the subscription's Context.
 fn outbound(event: &VmEvent, context: &str) -> Vec<u8> {
-    // Construct only the sanitized envelope. Never clone a potentially 8KiB
-    // QMP payload merely to discard it before delivery.
-    serde_json::to_vec(&json!({"@odata.type":"#Event.v1_10_0.Event","Id":event.seq.to_string(),"Name":"qrab VM event","Context":context,
-        "Events":[{"EventType":"Other","EventId":event.seq.to_string(),"EventTimestamp":event_time(event),"Severity":severity(&event.event),
-            "Message":event.event,"MessageId":"Qrab.1.0.QmpEvent","MessageArgs":[event.event],"OriginOfCondition":link(SYSTEM),
-            "Oem":{"Qrab":{"@odata.type":"#QrabEvent.v1_0_0.QrabEvent","QapiEvent":event.event,"Sequence":event.seq}}}]})).expect("event JSON serializes")
+    with_context(qmp_event(event, Payload::Withheld), context)
+}
+
+fn with_context(mut event: Value, context: &str) -> Vec<u8> {
+    event["Context"] = json!(context);
+    serde_json::to_vec(&event).expect("event JSON serializes")
+}
+
+/// What one delivery cycle sends a subscription.
+#[derive(Debug, PartialEq)]
+enum Next {
+    Idle,
+    /// The SSE gap notice, ahead of any later event and regardless of the
+    /// Severities filter (the gap can hide matching events). Once accepted
+    /// the cursor moves to `resume`, so the gap is delivered once.
+    Gap {
+        gap: Gap,
+        resume: u64,
+    },
+    /// No retained event passes the filter: advance without a POST.
+    Skip {
+        next: u64,
+        skipped: u64,
+    },
+    /// Post `event`, the first match after `skipped` filtered events; a
+    /// failed POST still moves the cursor to `before`, past those.
+    Event {
+        event: VmEvent,
+        skipped: u64,
+        before: u64,
+    },
+}
+
+/// Skip nonmatching events in one bounded page instead of one disk commit
+/// and one 250ms timer per filtered event.
+fn next(entry: &Subscription, read: impl Fn(u64) -> pod::EventPage) -> Next {
+    let (page, gap) = read_after(entry.cursor, read);
+    if let Some(gap) = gap {
+        let resume = gap
+            .resumes_at
+            .map_or(page.next, |seq| seq.saturating_sub(1));
+        return Next::Gap { gap, resume };
+    }
+    let Some(index) = page.events.iter().position(|event| entry.accepts(event)) else {
+        return match page.events.len() {
+            0 => Next::Idle,
+            skipped => Next::Skip {
+                next: page.next,
+                skipped: skipped as u64,
+            },
+        };
+    };
+    Next::Event {
+        before: index
+            .checked_sub(1)
+            .map_or(entry.cursor, |before| page.events[before].seq),
+        skipped: index as u64,
+        event: page
+            .events
+            .into_iter()
+            .nth(index)
+            .expect("index is in range"),
+    }
 }
 
 struct DeliveryUpdate {
@@ -578,36 +637,45 @@ async fn deliver(
     {
         return None;
     }
-    let latest = app.control.event_summaries(None, 1).latest;
-    let cursor = if entry.cursor > latest {
-        0
-    } else {
-        entry.cursor
-    };
-    // Skip nonmatching events in one bounded page instead of one disk commit
-    // and one 250ms timer per filtered event.
-    let page = app.control.event_summaries(Some(cursor), 64);
-    if page.events.is_empty() {
-        return None;
-    }
-    let matched = page.events.iter().position(|event| entry.accepts(event));
-    let Some(index) = matched else {
-        return Some(DeliveryUpdate {
-            id: entry.id,
-            expected_cursor: entry.cursor,
-            next_cursor: page.next,
-            missed: page.missed,
-            skipped: page.events.len() as u64,
-            success: true,
-            delivered: false,
-        });
-    };
-    let event = &page.events[index];
+    // (body, cursor once accepted, cursor if refused, missed once accepted, skipped)
+    let (body, accepted, refused, missed, skipped) =
+        match next(&entry, |after| app.control.event_summaries(Some(after), 64)) {
+            Next::Idle => return None,
+            Next::Skip { next, skipped } => {
+                return Some(DeliveryUpdate {
+                    id: entry.id,
+                    expected_cursor: entry.cursor,
+                    next_cursor: next,
+                    missed: 0,
+                    skipped,
+                    success: true,
+                    delivered: false,
+                })
+            }
+            Next::Gap { gap, resume } => (
+                with_context(gap.json(), &entry.context),
+                resume,
+                entry.cursor,
+                gap.evicted,
+                0,
+            ),
+            Next::Event {
+                event,
+                skipped,
+                before,
+            } => (
+                outbound(&event, &entry.context),
+                event.seq,
+                before,
+                0,
+                skipped,
+            ),
+        };
     app.subscriptions.0.attempts.fetch_add(1, Ordering::Relaxed);
     let response = client
         .post(&entry.destination)
         .header(header::CONTENT_TYPE.as_str(), "application/json")
-        .body(outbound(event, &entry.context))
+        .body(body)
         .send()
         .await;
     let success = match response {
@@ -626,19 +694,12 @@ async fn deliver(
         }
         _ => false,
     };
-    let next_cursor = if success {
-        event.seq
-    } else if index > 0 {
-        page.events[index - 1].seq
-    } else {
-        entry.cursor
-    };
     Some(DeliveryUpdate {
         id: entry.id,
         expected_cursor: entry.cursor,
-        next_cursor,
-        missed: page.missed,
-        skipped: index as u64,
+        next_cursor: if success { accepted } else { refused },
+        missed: if success { missed } else { 0 },
+        skipped,
         success,
         delivered: success,
     })
@@ -877,6 +938,126 @@ mod tests {
         assert!(!entry().json(false).to_string().contains("events.example"));
         assert!(!entry().json(false).to_string().contains("private"));
     }
+    #[test]
+    fn push_and_sse_share_one_event_record_with_the_payload_withheld() {
+        let event = VmEvent {
+            seq: 9,
+            received_unix_ms: 1_700_000_000_000,
+            qemu_time: None,
+            event: "GUEST_PANICKED".into(),
+            data: json!({"action":"pause"}),
+            truncated: false,
+        };
+        let push: Value = serde_json::from_slice(&outbound(&event, "ctx")).unwrap();
+        let sse = event_json(&VmEvent {
+            data: Value::Null,
+            ..event.clone()
+        });
+        assert_eq!(push["Events"], sse["Events"]);
+        assert_eq!(push["Events"][0]["MemberId"], "0");
+        assert!(push["Events"][0]["Oem"]["Qrab"]["Data"].is_null());
+        assert_eq!(
+            event_json(&event)["Events"][0]["Oem"]["Qrab"]["Data"]["action"],
+            "pause"
+        );
+        assert_eq!(push["Context"], "ctx");
+        assert_eq!(push["Id"], sse["Id"]);
+    }
+
+    /// A control channel holding `count` recorded STOP events (`OK` severity).
+    fn history(count: usize) -> (manager::pod::Control, manager::pod::ControlReceiver) {
+        let config: manager::pod::Config = serde_json::from_value(json!({
+            "name":"push-vm","kernel":"/unused","cpus":1,"memory_mib":256,
+            "runtime_dir":std::env::temp_dir(),"state_id":"0f0e0d0c-0b0a-4908-8706-050403020100"
+        }))
+        .unwrap();
+        let (control, receiver) =
+            manager::pod::control_channel_for(&config, manager::pod::Deployment::default());
+        for _ in 0..count {
+            receiver.record_event(
+                serde_json::from_value(json!({"event":"STOP","data":{},
+                    "timestamp":{"seconds":-1,"microseconds":-1}}))
+                .unwrap(),
+            );
+        }
+        (control, receiver)
+    }
+
+    #[test]
+    fn a_cursor_from_an_earlier_numbering_delivers_one_gap_then_the_new_numbering() {
+        let (control, _receiver) = history(3);
+        let read = |after| control.event_summaries(Some(after), 64);
+        // The subscription only wants Critical events; the gap still goes out.
+        let stale = Subscription {
+            cursor: 500,
+            ..entry()
+        };
+        let Next::Gap { gap, resume } = next(&stale, read) else {
+            panic!("expected a gap");
+        };
+        assert_eq!(resume, 0);
+        assert_eq!((gap.after, gap.evicted, gap.resumes_at), (500, 0, Some(1)));
+        let body: Value = serde_json::from_slice(&with_context(gap.json(), "ctx")).unwrap();
+        let record = &body["Events"][0];
+        assert_eq!(record["MessageId"], MISSED_MESSAGE);
+        assert_eq!(record["MemberId"], "0");
+        assert_eq!(record["Oem"]["Qrab"]["Reason"], "SequenceRestarted");
+        assert!(record["Oem"]["Qrab"]["MissedEvents"].is_null());
+        assert_eq!(body["Context"], "ctx");
+        // From the resumed cursor nothing is missed again; the filter applies.
+        let resumed = Subscription {
+            cursor: resume,
+            ..entry()
+        };
+        assert_eq!(
+            next(&resumed, read),
+            Next::Skip {
+                next: 3,
+                skipped: 3
+            }
+        );
+        let all = Subscription {
+            severities: vec![],
+            ..resumed
+        };
+        let Next::Event {
+            event,
+            skipped,
+            before,
+        } = next(&all, read)
+        else {
+            panic!("expected an event");
+        };
+        assert_eq!((event.seq, skipped, before), (1, 0, 0));
+        let caught_up = Subscription {
+            cursor: 3,
+            ..entry()
+        };
+        assert_eq!(next(&caught_up, read), Next::Idle);
+    }
+
+    #[test]
+    fn an_evicted_cursor_delivers_one_gap_and_counts_the_evicted_events() {
+        let (control, _receiver) = history(manager::pod::EVENT_CAPACITY + 10);
+        let read = |after| control.event_summaries(Some(after), 64);
+        let behind = Subscription {
+            cursor: 3,
+            ..entry()
+        };
+        let Next::Gap { gap, resume } = next(&behind, read) else {
+            panic!("expected a gap");
+        };
+        assert_eq!((gap.after, gap.evicted, gap.resumes_at), (3, 7, Some(11)));
+        assert_eq!(resume, 10);
+        assert_eq!(gap.json()["Events"][0]["Oem"]["Qrab"]["MissedEvents"], 7);
+        let resumed = Subscription {
+            cursor: resume,
+            severities: vec![],
+            ..entry()
+        };
+        assert!(matches!(next(&resumed, read), Next::Event { ref event, .. } if event.seq == 11));
+    }
+
     #[test]
     fn persistence_is_private_bounded_and_rechecks_allowlist() {
         let dir = std::env::temp_dir().join(format!("qrab-subscriptions-{}", std::process::id()));

@@ -771,7 +771,7 @@ async fn an_evicted_resume_cursor_gets_one_gap_event_before_the_replay() {
     );
     assert_eq!(
         record_["Oem"]["Qrab"],
-        json!({"@odata.type":"#QrabEventGap.v1_0_0.QrabEventGap",
+        json!({"@odata.type":"#QrabEventGap.v1_0_0.QrabEventGap","Reason":"Evicted",
             "MissedEvents":7,"After":3,"OldestAvailableSequence":11})
     );
     // The gap precedes the replay of what the history still holds.
@@ -786,6 +786,89 @@ async fn an_evicted_resume_cursor_gets_one_gap_event_before_the_replay() {
     let frames = frames_until(&mut body, &total.to_string()).await;
     assert_eq!(frames.len(), 2, "{frames:?}");
     assert!(frames.iter().all(|(id, _)| id.is_some()));
+}
+
+#[tokio::test]
+async fn a_resume_cursor_from_an_earlier_manager_numbering_gets_one_gap_then_the_whole_replay() {
+    let fixture = fixture();
+    for _ in 0..3 {
+        record(&fixture, "STOP", json!({}));
+    }
+    // #500 was numbered by a manager instance that has since restarted, so
+    // the client has seen none of the current #1..=#3.
+    let mut body = open_stream(&fixture.app, Some("500")).await;
+    let frames = frames_until(&mut body, "3").await;
+    assert_eq!(frames.len(), 4, "{frames:?}");
+    let (id, gap) = &frames[0];
+    assert!(id.is_none());
+    let record_ = &gap["Events"][0];
+    assert_eq!(record_["MessageId"], qrab_redfish::MISSED_MESSAGE);
+    assert_eq!(record_["Severity"], "Warning");
+    assert_eq!(record_["MessageArgs"], json!(["unknown", "500"]));
+    assert_eq!(
+        record_["Oem"]["Qrab"],
+        json!({"@odata.type":"#QrabEventGap.v1_0_0.QrabEventGap","Reason":"SequenceRestarted",
+            "MissedEvents":null,"After":500,"OldestAvailableSequence":1})
+    );
+    let replay: Vec<_> = frames[1..].iter().map(|(id, _)| id.as_deref()).collect();
+    assert_eq!(replay, [Some("1"), Some("2"), Some("3")]);
+}
+
+/// Open the SSE stream at `uri`, optionally with a Last-Event-ID header.
+async fn open_stream_at(app: &AppState, uri: &str, last: Option<&str>) -> axum::response::Response {
+    let mut request = Request::builder()
+        .uri(uri)
+        .header("authorization", format!("Bearer {}", good(VIEWER)));
+    if let Some(last) = last {
+        request = request.header("last-event-id", last);
+    }
+    qrab_redfish::router(app.clone())
+        .oneshot(request.body(Body::empty()).unwrap())
+        .await
+        .unwrap()
+}
+
+#[tokio::test]
+async fn the_after_query_resumes_like_last_event_id_and_the_header_wins() {
+    let fixture = fixture();
+    for _ in 0..3 {
+        record(&fixture, "STOP", json!({}));
+    }
+    // A page that read the history up to #1 opens the stream after it.
+    let response = open_stream_at(&fixture.app, "/redfish/v1/EventService/SSE?after=1", None).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let mut body = response.into_body().into_data_stream();
+    let frames = frames_until(&mut body, "3").await;
+    let ids: Vec<_> = frames.iter().map(|(id, _)| id.as_deref()).collect();
+    assert_eq!(ids, [Some("2"), Some("3")], "{frames:?}");
+    drop(body);
+
+    // A browser reconnect repeats the URL but names the newest id it received.
+    let response = open_stream_at(
+        &fixture.app,
+        "/redfish/v1/EventService/SSE?after=0",
+        Some("2"),
+    )
+    .await;
+    let mut body = response.into_body().into_data_stream();
+    let frames = frames_until(&mut body, "3").await;
+    let ids: Vec<_> = frames.iter().map(|(id, _)| id.as_deref()).collect();
+    assert_eq!(ids, [Some("3")], "{frames:?}");
+    drop(body);
+
+    for query in ["after=x", "after=-1", "after=", "after=1&after=2"] {
+        let uri = format!("/redfish/v1/EventService/SSE?{query}");
+        let response = open_stream_at(&fixture.app, &uri, None).await;
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST, "{query}");
+        let bytes = axum::body::to_bytes(response.into_body(), 1 << 16)
+            .await
+            .unwrap();
+        assert_error(
+            &serde_json::from_slice(&bytes).unwrap(),
+            "QueryParameterValueFormatError",
+        );
+    }
+    assert_eq!(fixture.app.streams.available_permits(), 2);
 }
 
 #[tokio::test]
