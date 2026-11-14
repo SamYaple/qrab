@@ -3,7 +3,10 @@ use anyhow::Result;
 use k8s_openapi::api::core::v1::{ConfigMap, PersistentVolumeClaim, Pod};
 use kube::{
     Api, Client,
-    api::{ApiResource, DeleteParams, DynamicObject, ListParams, PostParams, Preconditions},
+    api::{
+        ApiResource, DeleteParams, DynamicObject, ListParams, Patch, PatchParams, PostParams,
+        Preconditions,
+    },
 };
 use qrab_operator::api::VirtualMachine;
 use std::{collections::HashMap, net::IpAddr};
@@ -31,6 +34,20 @@ pub trait Cluster: Send + Sync {
     async fn create_vm(&self, vm: &serde_json::Value) -> Result<()>;
     /// Deletes exactly the VM with this UID.
     async fn delete_vm(&self, name: &str, uid: &str) -> Result<()>;
+    /// Sets `spec.running` on exactly the VM with this UID, and nothing else.
+    async fn set_running(&self, name: &str, uid: &str, running: bool) -> Result<()>;
+}
+
+/// The merge patch for [`Cluster::set_running`]. The API server refuses a
+/// patch whose `metadata.uid` differs from the object's, so it cannot reach a
+/// recreated VM of the same name.
+///
+/// ```
+/// let patch = qrab_dashboard::cluster::running_patch("uid-a", false);
+/// assert_eq!(patch, serde_json::json!({"metadata": {"uid": "uid-a"}, "spec": {"running": false}}));
+/// ```
+pub fn running_patch(uid: &str, running: bool) -> serde_json::Value {
+    serde_json::json!({"metadata": {"uid": uid}, "spec": {"running": running}})
 }
 
 /// The API server's own message for a failed request.
@@ -228,6 +245,16 @@ impl Cluster for Kube {
             ..Default::default()
         };
         self.vms.delete(name, &params).await?;
+        Ok(())
+    }
+    async fn set_running(&self, name: &str, uid: &str, running: bool) -> Result<()> {
+        let params = PatchParams {
+            field_manager: Some(FIELD_MANAGER.into()),
+            ..Default::default()
+        };
+        self.vms
+            .patch(name, &params, &Patch::Merge(running_patch(uid, running)))
+            .await?;
         Ok(())
     }
 }

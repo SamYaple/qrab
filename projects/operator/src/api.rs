@@ -479,6 +479,68 @@ pub struct ResizeStatus {
     pub max_memory_mib: u32,
 }
 
+/// The dashboard ServiceAccount, which may patch VMs only to power them on or off.
+pub const DASHBOARD_USER: &str = "system:serviceaccount:qrab:qrab-dashboard";
+
+/// A ValidatingAdmissionPolicy that refuses any dashboard update changing
+/// anything but `spec.running`. CEL cannot iterate a CRD's typed object
+/// fields, so the rule names every other top-level spec field from the CRD
+/// itself and is regenerated with it (checked by `contrib/check-runtime.sh`).
+///
+/// ```
+/// let policy = qrab_operator::api::dashboard_update_policy();
+/// let rule = policy["spec"]["validations"][0]["expression"].as_str().unwrap();
+/// assert!(rule.contains("object.spec.console == oldObject.spec.console"));
+/// assert!(!rule.contains("spec.running"));
+/// ```
+pub fn dashboard_update_policy() -> serde_json::Value {
+    let crd = crd();
+    let mut fields: Vec<&String> = crd["spec"]["versions"][0]["schema"]["openAPIV3Schema"]
+        ["properties"]["spec"]["properties"]
+        .as_object()
+        .expect("spec properties")
+        .keys()
+        .filter(|field| field.as_str() != "running")
+        .collect();
+    fields.sort();
+    let unchanged = fields
+        .iter()
+        .map(|f| {
+            format!(
+                "(has(object.spec.{f}) == has(oldObject.spec.{f}) && (!has(object.spec.{f}) || object.spec.{f} == oldObject.spec.{f}))"
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(" && ");
+    let same = |key: &str| {
+        format!(
+            "(has(object.metadata.{key}) ? object.metadata.{key} : {{}}) == (has(oldObject.metadata.{key}) ? oldObject.metadata.{key} : {{}})"
+        )
+    };
+    serde_json::json!({
+        "apiVersion": "admissionregistration.k8s.io/v1",
+        "kind": "ValidatingAdmissionPolicy",
+        "metadata": {"name": "qrab-dashboard-vm-updates"},
+        "spec": {
+            "failurePolicy": "Fail",
+            "matchConstraints": {"resourceRules": [{
+                "apiGroups": ["qrab.yapplesauce.com"], "apiVersions": ["v1alpha1"],
+                "operations": ["UPDATE"], "resources": ["virtualmachines"]
+            }]},
+            "matchConditions": [{
+                "name": "dashboard",
+                "expression": format!("request.userInfo.username == '{DASHBOARD_USER}'")
+            }],
+            "validations": [
+                {"expression": unchanged,
+                 "message": "the dashboard may change only spec.running on an existing VirtualMachine"},
+                {"expression": format!("{} && {}", same("labels"), same("annotations")),
+                 "message": "the dashboard may not change a VirtualMachine's labels or annotations"}
+            ]
+        }
+    })
+}
+
 pub fn crd() -> serde_json::Value {
     let mut value = serde_json::to_value(VirtualMachine::crd()).expect("CRD serializes");
     value["spec"]["versions"][0]["schema"]["openAPIV3Schema"]["x-kubernetes-validations"] = serde_json::json!([

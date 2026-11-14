@@ -11,6 +11,7 @@ pub mod images;
 pub mod kanidm;
 pub mod launch;
 pub mod model;
+pub mod power;
 pub mod session_store;
 #[cfg(test)]
 mod tests;
@@ -149,6 +150,10 @@ pub fn router(state: AppState) -> Router {
         .route("/vms/{namespace}/{name}", get(detail))
         .route("/vms/{namespace}/{name}/action", post(action))
         .route("/vms/{namespace}/{name}/delete", post(delete))
+        .route(
+            "/vms/{namespace}/{name}/power",
+            get(power::status).post(power::act),
+        )
         .route("/vms/{namespace}/{name}/console", get(console_page))
         .route("/vms/{namespace}/{name}/console/ws", get(console::upgrade))
         .route("/auth/login", get(auth::login))
@@ -440,7 +445,11 @@ async fn console_page(
         &app,
         &session,
         &user,
-        ui::Body::Console(ui::ConsolePage { namespace, name }),
+        ui::Body::Console(ui::ConsolePage {
+            namespace,
+            name,
+            csrf: user.csrf.clone(),
+        }),
     )
     .await?;
     Ok((

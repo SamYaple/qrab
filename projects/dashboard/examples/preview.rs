@@ -245,6 +245,7 @@ fn main() {
         page(Body::Console(ConsolePage {
             namespace: "qrab".into(),
             name: "qrab-demo".into(),
+            csrf: "preview".into(),
         })),
         &css,
     );
