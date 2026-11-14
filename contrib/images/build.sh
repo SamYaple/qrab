@@ -10,18 +10,18 @@ image="$registry/qrab/$component:$tag"
 case "$component" in
   qemu)
     contrib/images/prepare-source.py
-    podman build -f contrib/images/Containerfile.qemu --build-arg "QRAB_REVISION=$revision" -t "$image" target/images/context
+    podman build --label "org.opencontainers.image.revision=$revision" -f contrib/images/Containerfile.qemu --build-arg "QRAB_REVISION=$revision" -t "$image" target/images/context
     ;;
   manager)
     qemu_image=${QEMU_IMAGE:-$(cat target/images/qemu.ref 2>/dev/null || true)}
     [[ $qemu_image =~ @sha256:[a-f0-9]{64}$ ]] || { echo 'QEMU_IMAGE must be an immutable published digest reference' >&2; exit 1; }
-    podman build -f contrib/images/Containerfile.manager --build-arg "QRAB_REVISION=$revision" --build-arg "QEMU_IMAGE=$qemu_image" -t "$image" .
+    podman build --label "org.opencontainers.image.revision=$revision" -f contrib/images/Containerfile.manager --build-arg "QRAB_REVISION=$revision" --build-arg "QEMU_IMAGE=$qemu_image" -t "$image" .
     ;;
   operator)
-    podman build -f contrib/images/Containerfile.operator --build-arg "QRAB_REVISION=$revision" -t "$image" .
+    podman build --label "org.opencontainers.image.revision=$revision" -f contrib/images/Containerfile.operator --build-arg "QRAB_REVISION=$revision" -t "$image" .
     ;;
   dashboard)
-    podman build -f contrib/images/Containerfile.dashboard --build-arg "QRAB_REVISION=$revision" -t "$image" .
+    podman build --label "org.opencontainers.image.revision=$revision" -f contrib/images/Containerfile.dashboard --build-arg "QRAB_REVISION=$revision" -t "$image" .
     ;;
   *) echo 'component must be qemu, manager, operator or dashboard' >&2; exit 1;;
 esac
