@@ -32,6 +32,9 @@ pub const COMPONENT: &str = "vm-nic-address";
 pub const ROUTE_BASE_LABEL: &str = "qrab.yapplesauce.com/nic-route-base";
 pub const POOL_ANNOTATION: &str = "ipam.cilium.io/ip-pool";
 pub const REQUIRE_POOL_MATCH: &str = "ipam.cilium.io/require-pool-match";
+/// Cilium multi-pool IPAM gives endpoints from a pool with this annotation set
+/// to "true" the no-SNAT flag, so a guest's traffic keeps its own address.
+pub const SKIP_MASQUERADE: &str = "ipam.cilium.io/skip-masquerade";
 const NAME_PREFIX: &str = "qrab-nic-";
 const VM_ANNOTATION: &str = "qrab.yapplesauce.com/vm";
 
@@ -179,7 +182,7 @@ pub fn render_pool(vm: &VirtualMachine, nic: &str, ip: Ipv4Addr) -> Result<Dynam
     Ok(serde_json::from_value(json!({
         "apiVersion":"cilium.io/v2alpha1","kind":"CiliumPodIPPool",
         "metadata":{"name":pool_name(ip),"labels":labels(&uid,nic),
-            "annotations":{VM_ANNOTATION:vm_ref},"finalizers":[FINALIZER]},
+            "annotations":{VM_ANNOTATION:vm_ref,SKIP_MASQUERADE:"true"},"finalizers":[FINALIZER]},
         "spec":{"ipv4":{"cidrs":[format!("{ip}/32")],"maskSize":32}}
     }))?)
 }

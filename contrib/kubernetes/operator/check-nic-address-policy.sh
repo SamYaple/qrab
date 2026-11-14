@@ -43,13 +43,14 @@ assert out.count("'system:serviceaccount:qrab:qrab-operator'") == 1
 print(out.replace("'system:serviceaccount:qrab:qrab-operator'", f"'{who}'"))
 EOF
 
-pool() { # name cidr [component]
+pool() { # name cidr [component] [skip-masquerade value]
   cat <<EOF
 apiVersion: cilium.io/v2alpha1
 kind: CiliumPodIPPool
 metadata:
   name: $1
   labels: {app.kubernetes.io/name: qrab, app.kubernetes.io/component: ${3:-vm-nic-address}}
+  annotations: {ipam.cilium.io/skip-masquerade: '${4-true}'}
   finalizers: [qrab.yapplesauce.com/nic-address]
 spec: {ipv4: {cidrs: ['$2'], maskSize: 32}}
 EOF
@@ -91,6 +92,8 @@ expect_denied "a pool outside the NIC range" run "pool qrab-nic-10-244-3-5 10.24
 expect_denied "a pool whose CIDR is not its name" run "pool qrab-nic-10-244-128-250 10.244.128.251/32 | create"
 expect_denied "a wider pool" run "pool qrab-nic-10-244-128-0 10.244.128.0/24 | create"
 expect_denied "an unlabelled pool" run "pool qrab-nic-10-244-128-250 10.244.128.250/32 other | create"
+expect_denied "a pool that masquerades its guest" run "pool qrab-nic-10-244-128-250 10.244.128.250/32 vm-nic-address false | create"
+expect_denied "a pool without skip-masquerade" run "pool qrab-nic-10-244-128-250 10.244.128.250/32 vm-nic-address '' | create"
 expect_denied "resizing the default pool" kubectl patch ciliumpodippool default --type merge --dry-run=server "${as[@]}" -p '{"spec":{"ipv4":{"cidrs":["10.244.0.0/16"]}}}'
 expect_denied "deleting the default pool" kubectl delete ciliumpodippool default --dry-run=server "${as[@]}"
 expect_allowed "a NIC route in frr-k8s-system" run "route frr-k8s-system qrab-nic-10-244-128-250 10.244.128.250/32 | create"
