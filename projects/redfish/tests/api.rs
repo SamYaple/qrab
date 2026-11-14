@@ -199,7 +199,10 @@ async fn call(
     token: Option<&str>,
     body: &str,
 ) -> (StatusCode, axum::http::HeaderMap, Value) {
-    let mut request = Request::builder().method(method).uri(path);
+    let mut request = Request::builder()
+        .method(method)
+        .uri(path)
+        .header("content-type", "application/json");
     if let Some(token) = token {
         request = request.header("authorization", format!("Bearer {token}"));
     }
@@ -2397,4 +2400,379 @@ async fn metrics_listener_serves_only_metrics_and_the_api_never_does() {
         assert_eq!(status, StatusCode::NOT_FOUND, "{body}");
         assert_error(&body, "ResourceNotFound");
     }
+}
+
+#[tokio::test]
+async fn optional_public_discovery_never_downgrades_bad_credentials() {
+    let mut fixture = fixture();
+    let auth = Arc::try_unwrap(fixture.app.auth).ok().unwrap();
+    fixture.app.auth = Arc::new(auth.with_public_discovery(true));
+    for path in ["/redfish", "/redfish/v1", "/redfish/v1/"] {
+        let (status, _, value) = call(&fixture.app, "GET", path, None, "").await;
+        assert_eq!(status, StatusCode::OK, "{value}");
+        assert!(value.get("UUID").is_none());
+        assert!(!value.to_string().contains(STATE_ID));
+        assert_eq!(
+            call(&fixture.app, "GET", path, Some("bad"), "").await.0,
+            StatusCode::UNAUTHORIZED
+        );
+    }
+    assert_eq!(
+        call(&fixture.app, "GET", "/redfish/v1/Systems/1", None, "")
+            .await
+            .0,
+        StatusCode::UNAUTHORIZED
+    );
+    let (_, _, root) = call(&fixture.app, "GET", "/redfish/v1/", Some(&good(ADMIN)), "").await;
+    assert_eq!(root["UUID"], STATE_ID);
+    assert_eq!(
+        root["Links"]["Sessions"]["@odata.id"],
+        "/redfish/v1/SessionService/Sessions"
+    );
+}
+
+/// Manual independent-client target. It is the real router/auth implementation
+/// with a deterministic manager fixture, not a booted VM or conformance claim.
+/// Bind only loopback, use ephemeral test credentials, and keep it time bounded.
+#[tokio::test]
+#[ignore = "explicit loopback target for independent Redfish clients"]
+async fn independent_client_fixture_server() {
+    let mut fixture = fixture();
+    write_status(&fixture.config, "running", "running");
+    drop(fixture.receiver.take());
+    let accounts =
+        std::env::var("REDFISH_LOCAL_ACCOUNTS_FILE").expect("ephemeral test account file required");
+    let auth = Arc::try_unwrap(fixture.app.auth)
+        .ok()
+        .unwrap()
+        .with_local_accounts(std::path::Path::new(&accounts))
+        .unwrap()
+        .with_public_discovery(true);
+    fixture.app.auth = Arc::new(auth);
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:18881")
+        .await
+        .unwrap();
+    println!("Independent Redfish fixture listening on http://127.0.0.1:18881 (600 seconds)");
+    axum::serve(listener, qrab_redfish::router(fixture.app.clone()))
+        .with_graceful_shutdown(async { tokio::time::sleep(Duration::from_secs(600)).await })
+        .await
+        .unwrap();
+}
+
+async fn session_call(
+    app: &AppState,
+    method: &str,
+    path: &str,
+    session: &str,
+) -> (StatusCode, Value) {
+    let response = qrab_redfish::router(app.clone())
+        .oneshot(
+            Request::builder()
+                .method(method)
+                .uri(path)
+                .header("x-auth-token", session)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let status = response.status();
+    let bytes = axum::body::to_bytes(response.into_body(), 1 << 20)
+        .await
+        .unwrap();
+    let value = if bytes.is_empty() {
+        Value::Null
+    } else {
+        serde_json::from_slice(&bytes).unwrap()
+    };
+    (status, value)
+}
+
+#[tokio::test]
+async fn oidc_sessions_preserve_roles_are_revocable_and_never_escape_in_json() {
+    let fixture = fixture();
+    let mut sessions = Vec::new();
+    for subject in [ADMIN, VIEWER] {
+        let (status, headers, body) = call(
+            &fixture.app,
+            "POST",
+            qrab_redfish::sessions::OIDC_CREATE,
+            Some(&good(subject)),
+            "{}",
+        )
+        .await;
+        assert_eq!(status, StatusCode::CREATED, "{body}");
+        let token = headers["x-auth-token"].to_str().unwrap().to_owned();
+        let location = headers["location"].to_str().unwrap().to_owned();
+        assert!(!body.to_string().contains(&token));
+        assert!(!location.contains(&token));
+        assert_eq!(
+            session_call(&fixture.app, "GET", "/redfish/v1/Systems/1", &token)
+                .await
+                .0,
+            StatusCode::OK
+        );
+        sessions.push((token, location));
+    }
+    let (viewer, location) = &sessions[1];
+    assert_eq!(
+        session_call(
+            &fixture.app,
+            "POST",
+            "/redfish/v1/Systems/1/Actions/ComputerSystem.Reset",
+            viewer
+        )
+        .await
+        .0,
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        session_call(&fixture.app, "DELETE", &sessions[0].1, viewer)
+            .await
+            .0,
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        session_call(&fixture.app, "DELETE", location, viewer)
+            .await
+            .0,
+        StatusCode::NO_CONTENT
+    );
+    assert_eq!(
+        session_call(&fixture.app, "GET", "/redfish/v1/Systems/1", viewer)
+            .await
+            .0,
+        StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(
+        session_call(&fixture.app, "GET", "/redfish/v1/Systems/1", &sessions[0].0)
+            .await
+            .0,
+        StatusCode::OK
+    );
+    let mixed = qrab_redfish::router(fixture.app.clone())
+        .oneshot(
+            Request::builder()
+                .uri("/redfish/v1/Systems/1")
+                .header("x-auth-token", &sessions[0].0)
+                .header("authorization", format!("Bearer {}", good(ADMIN)))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(mixed.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn revoked_session_closes_an_already_admitted_idle_event_stream() {
+    let fixture = fixture();
+    let (status, headers, _) = call(
+        &fixture.app,
+        "POST",
+        qrab_redfish::sessions::OIDC_CREATE,
+        Some(&good(VIEWER)),
+        "{}",
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    let token = headers["x-auth-token"].to_str().unwrap();
+    let location = headers["location"].to_str().unwrap();
+    let response = qrab_redfish::router(fixture.app.clone())
+        .oneshot(
+            Request::builder()
+                .uri("/redfish/v1/EventService/SSE")
+                .header("x-auth-token", token)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    // Begin polling before revocation, so this checks ongoing authorization.
+    let reader = tokio::spawn(async move {
+        axum::body::to_bytes(response.into_body(), 1 << 20)
+            .await
+            .unwrap()
+    });
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    assert_eq!(
+        session_call(&fixture.app, "DELETE", location, token)
+            .await
+            .0,
+        StatusCode::NO_CONTENT
+    );
+    tokio::time::timeout(Duration::from_secs(3), reader)
+        .await
+        .expect("revoked idle SSE must close promptly")
+        .unwrap();
+    assert_eq!(fixture.app.streams.available_permits(), 2);
+}
+
+#[tokio::test]
+async fn protocol_discovery_and_negotiation_are_explicit_and_auth_stays_required() {
+    let mut fixture = fixture();
+    let auth = Arc::try_unwrap(fixture.app.auth).ok().unwrap();
+    fixture.app.auth = Arc::new(auth.with_public_discovery(true));
+    for path in ["/redfish/v1/AccountService", "/redfish/v1/SessionService"] {
+        assert_eq!(
+            call(&fixture.app, "GET", path, None, "").await.0,
+            StatusCode::UNAUTHORIZED
+        );
+    }
+    let (_, headers, root) = call(&fixture.app, "GET", "/redfish/v1/", None, "").await;
+    assert_eq!(headers["allow"], "GET, HEAD");
+    assert_eq!(
+        headers["link"],
+        "<https://redfish.dmtf.org/schemas/v1/ServiceRoot.v1_17_0.json>; rel=describedby"
+    );
+    assert_eq!(root["Tasks"]["@odata.id"], "/redfish/v1/TaskService");
+    let (_, headers, _) = call(
+        &fixture.app,
+        "GET",
+        "/redfish/v1/Systems/1",
+        Some(&good(ADMIN)),
+        "",
+    )
+    .await;
+    assert_eq!(headers["allow"], "GET, HEAD, PATCH");
+    let response = qrab_redfish::router(fixture.app.clone())
+        .oneshot(
+            Request::builder()
+                .uri("/redfish/v1/")
+                .header("odata-version", "4.1")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::PRECONDITION_FAILED);
+    assert_eq!(response.headers()["odata-version"], "4.0");
+    let response = qrab_redfish::router(fixture.app.clone())
+        .oneshot(
+            Request::builder()
+                .uri("/redfish/v1/$metadata")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert!(response.headers()["content-type"]
+        .to_str()
+        .unwrap()
+        .starts_with("application/xml"));
+    let xml = axum::body::to_bytes(response.into_body(), 1 << 20)
+        .await
+        .unwrap();
+    assert!(std::str::from_utf8(&xml)
+        .unwrap()
+        .contains("ServiceRoot.v1_17_0.ServiceRoot"));
+    let (status, _, odata) = call(&fixture.app, "GET", "/redfish/v1/odata", None, "").await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(!odata.to_string().contains(STATE_ID));
+    assert_eq!(
+        call(
+            &fixture.app,
+            "GET",
+            "/redfish/v1/$metadata",
+            Some("invalid"),
+            ""
+        )
+        .await
+        .0,
+        StatusCode::UNAUTHORIZED
+    );
+}
+
+#[tokio::test]
+async fn malformed_session_creation_is_redfish_json_and_alias_uses_same_validation() {
+    let fixture = fixture();
+    for path in [
+        qrab_redfish::sessions::COLLECTION,
+        "/redfish/v1/SessionService/Sessions/Members",
+    ] {
+        let (status, _, error) = call(&fixture.app, "POST", path, None, "{}").await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert!(error["error"]["code"]
+            .as_str()
+            .unwrap()
+            .starts_with("Base."));
+        let (status, _, error) = call(
+            &fixture.app,
+            "POST",
+            path,
+            None,
+            r#"{"UserName":"absent","Password":"wrong"}"#,
+        )
+        .await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+        assert!(!error.to_string().contains("wrong"));
+    }
+}
+
+#[tokio::test]
+async fn oidc_session_cannot_extend_the_originating_id_tokens_lifetime() {
+    let fixture = fixture();
+    let short = token("test-only-signing-key.pem", ISSUER, AUDIENCE, ADMIN, 2);
+    let (status, headers, body) = call(
+        &fixture.app,
+        "POST",
+        qrab_redfish::sessions::OIDC_CREATE,
+        Some(&short),
+        "{}",
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{body}");
+    let expiry = chrono::DateTime::parse_from_rfc3339(body["ExpirationTime"].as_str().unwrap())
+        .unwrap()
+        .timestamp();
+    assert!(expiry <= auth::now() as i64 + 2);
+    let session = headers["x-auth-token"].to_str().unwrap();
+    assert_eq!(
+        session_call(&fixture.app, "GET", "/redfish/v1/Systems/1", session)
+            .await
+            .0,
+        StatusCode::OK
+    );
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    assert_eq!(
+        session_call(&fixture.app, "GET", "/redfish/v1/Systems/1", session)
+            .await
+            .0,
+        StatusCode::UNAUTHORIZED
+    );
+}
+
+#[tokio::test]
+async fn event_discovery_advertises_push_only_when_push_delivery_is_enabled() {
+    let mut fixture = fixture();
+    let (_, _, disabled) = call(
+        &fixture.app,
+        "GET",
+        "/redfish/v1/EventService",
+        Some(&good(VIEWER)),
+        "",
+    )
+    .await;
+    assert!(disabled.get("Subscriptions").is_none());
+    assert_eq!(
+        disabled["ServerSentEventUri"],
+        "/redfish/v1/EventService/SSE"
+    );
+    fixture.app.subscriptions =
+        qrab_redfish::SubscriptionStore::new(vec!["https://events.example/receiver".into()], None)
+            .unwrap();
+    let (_, _, enabled) = call(
+        &fixture.app,
+        "GET",
+        "/redfish/v1/EventService",
+        Some(&good(VIEWER)),
+        "",
+    )
+    .await;
+    assert_eq!(
+        enabled["Subscriptions"]["@odata.id"],
+        "/redfish/v1/EventService/Subscriptions"
+    );
 }

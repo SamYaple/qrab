@@ -159,7 +159,7 @@ pub(super) async fn chassis(
     let (power_state, state, health) = power(status.as_ref());
     Ok(Json(json!({
         "@odata.id":CHASSIS,"@odata.type":"#Chassis.v1_25_0.Chassis",
-        "Id":"1","Name":view.name,"ChassisType":"Virtual","Manufacturer":"QEMU",
+        "Id":"1","Name":view.name,"ChassisType":"Other","Description":"Virtual machine chassis","Manufacturer":"QEMU",
         "PowerState":if power_state == "Paused" { json!("On") } else { power_state },"Status":{"State":state,"Health":health},
         "Links":{"ComputerSystems":[link(SYSTEM)],"ManagedBy":[link(MANAGER)]},
         "TrustedComponents":link(hardware::TRUSTED)

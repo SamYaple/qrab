@@ -3,7 +3,10 @@
 pub mod auth;
 pub mod config;
 mod diagnostics;
+mod discovery;
+pub mod sessions;
 mod subscriptions;
+pub mod workload;
 pub use subscriptions::{spawn as spawn_subscriptions, SubscriptionStore};
 mod boot;
 mod firmware;
@@ -31,12 +34,43 @@ use axum::{
         IntoResponse, Response,
     },
     routing::{get, post},
-    Json, Router,
+    Router,
 };
 use manager::pod::{self, Action, Phase, VmEvent};
 use serde_json::{json, Value};
 use std::{convert::Infallible, sync::Arc, time::Duration};
 use tokio::sync::Semaphore;
+
+/// A resource response attaches its schema link before serialization. This
+/// avoids buffering or reparsing response bodies (including streaming bodies).
+pub struct Json<T>(pub T);
+impl IntoResponse for Json<Value> {
+    fn into_response(self) -> Response {
+        let schema = self
+            .0
+            .get("@odata.type")
+            .and_then(Value::as_str)
+            .and_then(|kind| kind.strip_prefix('#'))
+            .and_then(|kind| kind.rsplit_once('.').map(|(namespace, _)| namespace))
+            .filter(|namespace| {
+                !namespace.starts_with("Qrab")
+                    && namespace
+                        .bytes()
+                        .all(|c| c.is_ascii_alphanumeric() || matches!(c, b'.' | b'_'))
+            })
+            .and_then(|namespace| {
+                HeaderValue::from_str(&format!(
+                    "<https://redfish.dmtf.org/schemas/v1/{namespace}.json>; rel=describedby"
+                ))
+                .ok()
+            });
+        let mut response = axum::Json(self.0).into_response();
+        if let Some(schema) = schema {
+            response.headers_mut().insert(header::LINK, schema);
+        }
+        response
+    }
+}
 
 pub const SYSTEM: &str = "/redfish/v1/Systems/1";
 pub const MANAGER: &str = "/redfish/v1/Managers/1";
@@ -107,8 +141,8 @@ impl Failure {
         Self::new(
             StatusCode::UNAUTHORIZED,
             "NoValidSession",
-            "A valid OIDC bearer token is required.",
-            "Present an unexpired ID token for this service's audience.",
+            "Valid authentication credentials are required.",
+            "Present an authorized OIDC bearer token or a supported Redfish credential.",
         )
     }
     fn forbidden() -> Self {
@@ -175,12 +209,18 @@ pub fn metrics_router(app: AppState) -> Router {
 
 pub fn router(app: AppState) -> Router {
     Router::new()
+        .merge(sessions::routes())
+        .merge(discovery::routes())
         .merge(hardware::routes())
         .merge(boot::routes())
         .merge(serial::routes())
         .route(
             triggers::COLLECTION,
             get(triggers::collection_handler).post(triggers::create),
+        )
+        .route(
+            "/redfish/v1/TelemetryService/Triggers/Members",
+            post(triggers::create),
         )
         .route(
             "/redfish/v1/TelemetryService/Triggers/{id}",
@@ -283,6 +323,10 @@ pub fn router(app: AppState) -> Router {
             get(subscriptions::collection_handler).post(subscriptions::create),
         )
         .route(
+            "/redfish/v1/EventService/Subscriptions/Members",
+            post(subscriptions::create),
+        )
+        .route(
             "/redfish/v1/EventService/Subscriptions/{id}",
             get(subscriptions::get).delete(subscriptions::delete),
         )
@@ -300,7 +344,7 @@ pub fn router(app: AppState) -> Router {
         })
         .layer(DefaultBodyLimit::max(4096))
         .layer(axum::middleware::from_fn_with_state(app.clone(), admission))
-        .layer(axum::middleware::from_fn(headers))
+        .layer(axum::middleware::from_fn_with_state(app.clone(), headers))
         .with_state(app)
 }
 
@@ -328,8 +372,60 @@ async fn admission(
     })
 }
 
-async fn headers(request: axum::extract::Request, next: axum::middleware::Next) -> Response {
-    let mut response = next.run(request).await;
+async fn headers(
+    State(app): State<AppState>,
+    request: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> Response {
+    let read = matches!(
+        *request.method(),
+        axum::http::Method::GET | axum::http::Method::HEAD
+    );
+    let matched = request
+        .extensions()
+        .get::<axum::extract::MatchedPath>()
+        .cloned();
+    let version_ok = request.headers().get_all("odata-version").iter().count() <= 1
+        && request
+            .headers()
+            .get("odata-version")
+            .is_none_or(|value| value == "4.0");
+    let mut response = if version_ok {
+        next.run(request).await
+    } else {
+        Failure::new(
+            StatusCode::PRECONDITION_FAILED,
+            "HeaderInvalid",
+            "Only OData-Version 4.0 is supported.",
+            "Use OData-Version 4.0.",
+        )
+        .into_response()
+    };
+    if read && response.status().is_success() {
+        if let Some(matched) = matched {
+            let allow = match matched.as_str() {
+                SYSTEM | firmware::SECURE_BOOT | "/redfish/v1/Systems/1/SecureBoot/Settings" => {
+                    "GET, HEAD, PATCH"
+                }
+                triggers::COLLECTION
+                | sessions::COLLECTION
+                | "/redfish/v1/EventService/Subscriptions" => "GET, HEAD, POST",
+                "/redfish/v1/TelemetryService/Triggers/{id}" => "GET, HEAD, PATCH, DELETE",
+                "/redfish/v1/EventService/Subscriptions/{id}"
+                | "/redfish/v1/SessionService/Sessions/{id}" => "GET, HEAD, DELETE",
+                _ => "GET, HEAD",
+            };
+            response
+                .headers_mut()
+                .insert(header::ALLOW, HeaderValue::from_static(allow));
+        }
+    }
+    if response.status() == StatusCode::UNAUTHORIZED && app.auth.basic_enabled() {
+        response.headers_mut().append(
+            header::WWW_AUTHENTICATE,
+            HeaderValue::from_static("Basic realm=\"qrab-redfish\", charset=\"UTF-8\""),
+        );
+    }
     for (key, value) in [
         ("odata-version", "4.0"),
         ("cache-control", "no-store"),
@@ -344,16 +440,17 @@ async fn headers(request: axum::extract::Request, next: axum::middleware::Next) 
 }
 
 async fn principal(app: &AppState, headers: &HeaderMap) -> Result<Principal, Failure> {
-    let header = headers
-        .get(header::AUTHORIZATION)
-        .and_then(|v| v.to_str().ok());
     app.auth
-        .authenticate(header)
+        .authenticate_headers(headers)
         .await
         .map_err(|rejection| match rejection {
             Rejection::Unauthenticated => Failure::unauthenticated(),
             Rejection::Forbidden => Failure::forbidden(),
         })
+}
+
+fn has_credentials(headers: &HeaderMap) -> bool {
+    headers.contains_key(header::AUTHORIZATION) || headers.contains_key("x-auth-token")
 }
 
 fn link(path: &str) -> Value {
@@ -371,7 +468,9 @@ fn collection(path: &str, kind: &str, name: &str, members: Vec<Value>) -> Value 
 }
 
 async fn versions(State(app): State<AppState>, headers: HeaderMap) -> Result<Json<Value>, Failure> {
-    principal(&app, &headers).await?;
+    if !app.auth.public_discovery() || has_credentials(&headers) {
+        principal(&app, &headers).await?;
+    }
     Ok(Json(json!({"v1": "/redfish/v1/"})))
 }
 
@@ -379,7 +478,11 @@ async fn service_root(
     State(app): State<AppState>,
     headers: HeaderMap,
 ) -> Result<Json<Value>, Failure> {
-    let who = principal(&app, &headers).await?;
+    let who = if app.auth.public_discovery() && !has_credentials(&headers) {
+        None
+    } else {
+        Some(principal(&app, &headers).await?)
+    };
     let mut root = json!({
         "@odata.id": "/redfish/v1/",
         "@odata.type": "#ServiceRoot.v1_17_0.ServiceRoot",
@@ -393,12 +496,16 @@ async fn service_root(
         "Chassis": link("/redfish/v1/Chassis"),
         "EventService": link("/redfish/v1/EventService"),
         "TelemetryService": link(telemetry::SERVICE),
-        "TaskService": link(tasks::SERVICE),
+        "Tasks": link(tasks::SERVICE),
         "UpdateService": link("/redfish/v1/UpdateService"),
-        "Links": {},
+        "SessionService": link("/redfish/v1/SessionService"),
+        "AccountService": link("/redfish/v1/AccountService"),
+        "Links": {"Sessions":link("/redfish/v1/SessionService/Sessions")},
     });
-    if let Some(uuid) = vm_uuid(&app, &who).await {
-        root["UUID"] = json!(uuid);
+    if let Some(who) = who {
+        if let Some(uuid) = vm_uuid(&app, &who).await {
+            root["UUID"] = json!(uuid);
+        }
     }
     Ok(Json(root))
 }
@@ -899,14 +1006,13 @@ async fn event_service(
     headers: HeaderMap,
 ) -> Result<Json<Value>, Failure> {
     principal(&app, &headers).await?;
-    Ok(Json(json!({
+    let mut value = json!({
         "@odata.id": "/redfish/v1/EventService",
         "@odata.type": "#EventService.v1_10_0.EventService",
         "Id": "EventService",
         "Name": "Event Service",
         "ServiceEnabled": true,
         "ServerSentEventUri": "/redfish/v1/EventService/SSE",
-        "Subscriptions": link(subscriptions::COLLECTION),
         "DeliveryRetryAttempts":subscriptions::DELIVERY_RETRY_ATTEMPTS,
         "DeliveryRetryIntervalSeconds":subscriptions::DELIVERY_RETRY_INTERVAL,
         "EventFormatTypes":["Event"],"RegistryPrefixes":["Qrab"],
@@ -915,7 +1021,11 @@ async fn event_service(
             "PushDeliveryEnabled":app.subscriptions.enabled(),"PersistentSubscriptions":app.subscriptions.persistent(),
             "MaxSubscriptions":32,"MaxDeliveryConcurrency":2}},
         "Status": {"State": "Enabled", "Health": "OK"},
-    })))
+    });
+    if app.subscriptions.enabled() {
+        value["Subscriptions"] = link(subscriptions::COLLECTION);
+    }
+    Ok(Json(value))
 }
 
 pub fn event_json(event: &VmEvent) -> Value {
@@ -937,8 +1047,8 @@ pub fn event_json(event: &VmEvent) -> Value {
     })
 }
 
-/// Live Redfish events. The bearer token is checked at admission; the
-/// stream ends when the token expires, since bearer tokens cannot be revoked.
+/// Live events close on credential expiry or session revocation. Idle streams
+/// do not refresh a session's last authenticated request time.
 async fn sse(State(app): State<AppState>, headers: HeaderMap) -> Result<Response, Failure> {
     let who = principal(&app, &headers).await?;
     let permit = app
@@ -958,16 +1068,20 @@ async fn sse(State(app): State<AppState>, headers: HeaderMap) -> Result<Response
         cursor,
         std::collections::VecDeque::<VmEvent>::new(),
         permit,
+        who,
     );
     let stream = futures::stream::unfold(
         state,
-        move |(app, mut cursor, mut queue, permit)| async move {
+        move |(app, mut cursor, mut queue, permit, who)| async move {
             loop {
+                if tokio::time::Instant::now() >= deadline || !app.auth.principal_active(&who) {
+                    return None;
+                }
                 if let Some(event) = queue.pop_front() {
                     let data = serde_json::to_string(&event_json(&event)).unwrap_or_default();
                     let item: Result<Event, Infallible> =
                         Ok(Event::default().id(event.seq.to_string()).data(data));
-                    return Some((item, (app, cursor, queue, permit)));
+                    return Some((item, (app, cursor, queue, permit, who)));
                 }
                 if tokio::time::Instant::now() >= deadline {
                     return None;
@@ -979,6 +1093,7 @@ async fn sse(State(app): State<AppState>, headers: HeaderMap) -> Result<Response
                     tokio::select! {
                         () = app.control.wait_events(cursor) => {}
                         () = tokio::time::sleep_until(deadline) => return None,
+                        () = tokio::time::sleep(Duration::from_secs(1)) => {},
                     }
                 }
             }

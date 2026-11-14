@@ -2,8 +2,11 @@
 
 `qrab-redfish` is an optional sidecar that serves a native DMTF Redfish API for
 one VM. It reaches the VM only through the manager's control socket
-([manager.md](manager.md#control-api)); it never sees QMP, VNC, the runtime
-directory, persistent state or Secrets. Enable it per VM with
+([manager.md](manager.md#control-api)); it never sees QMP, VNC, the manager's
+runtime directory or the VM's private UEFI/TPM state. Its own Redfish state is
+separate. Optional password authentication needs an explicitly mounted hashed
+account Secret; optional workload mTLS needs its own Workload API socket.
+Neither mount is added by default. Enable it per VM with
 `spec.components.redfish` ([operator.md](operator.md#components)).
 
 ```sh
@@ -22,6 +25,11 @@ qrab-redfish --socket /run/qrab-control/manager/control.sock
 | `REDFISH_LISTEN` | Listener; defaults to `0.0.0.0:8081` |
 | `REDFISH_METRICS_LISTEN` | Unauthenticated Prometheus listener serving only `/metrics`; defaults to `0.0.0.0:9181` and must use another port ([Prometheus export](#prometheus-export)) |
 | `REDFISH_CA_FILE` | Optional PEM root certificate for an isolated test IdP |
+| `REDFISH_LOCAL_ACCOUNTS_FILE` | Optional read-only JSON Secret file containing Argon2id password hashes; enables Basic authentication and password-based session creation |
+| `REDFISH_PUBLIC_DISCOVERY` | Optional `true` permits static anonymous version/root/OData discovery; default `false` preserves the deployed OIDC-only discovery policy |
+| `REDFISH_WORKLOAD_LISTEN` | Optional separate SPIFFE mTLS listener, e.g. `0.0.0.0:8443`; requires exact allowed peers |
+| `REDFISH_WORKLOAD_PEERS` | Comma-separated exact SPIFFE client IDs allowed on the workload listener; grants no Redfish role |
+| `SPIFFE_ENDPOINT_SOCKET` | Workload API Unix endpoint for the optional mTLS listener; the CSI socket and registration must be explicitly provisioned |
 | `RUST_LOG` | Default `qrab_redfish=info` |
 
 At least one subject or group is required. The admin and viewer lists of each
@@ -49,10 +57,14 @@ requires 403 for `Reset`.
 
 ## Authentication
 
-Every request, including `/redfish` and the service root, needs
-`Authorization: Bearer <OIDC ID token>`. This deliberately departs from the
-DMTF convention that the service root is anonymous: no VM data or version
-information is served without a token. Like Kubernetes API-server OIDC
+By default, requests including `/redfish` and the service root need
+`Authorization: Bearer <OIDC ID token>` or a valid Redfish session token.
+Without optional local accounts, password authentication is disabled.
+The default private discovery policy deliberately departs from DMTF anonymous
+service-root discovery. `REDFISH_PUBLIC_DISCOVERY=true` allows static version,
+root, OData service-document and metadata discovery without VM UUID or configuration.
+Supplied invalid credentials still fail; they never fall back to anonymous.
+This opt-in alone does not establish full conformance. Like Kubernetes API-server OIDC
 authentication, the token is an ID token (a signed JWT) issued to the
 `REDFISH_OIDC_AUDIENCE` client or to a `REDFISH_TRUSTED_TOKENS` pair. Each
 request verifies the signature against the issuer's discovered JWKS (ES256 or
@@ -79,13 +91,70 @@ and the dashboard client
 ([operator.md](operator.md#dashboard-access-and-publicurl)) so their users'
 ID tokens reach Redfish unchanged.
 
-There are no Redfish sessions, static tokens, Basic authentication, stored
-passwords or anonymous routes other than `/healthz` and `/readyz`. Missing,
-malformed, expired, wrong-issuer, wrong-audience or badly signed tokens get 401
-with `WWW-Authenticate: Bearer`; a valid token for an unlisted subject without a
-configured group gets 403.
-Bearer tokens cannot be revoked here: their lifetime is the IdP's ID-token
-lifetime, and event streams close when the token expires.
+Missing, malformed, expired, wrong-issuer, wrong-audience or badly signed
+OIDC credentials get 401 with `WWW-Authenticate: Bearer`; a valid token for an
+unlisted subject without a configured group gets 403. Optional Basic accounts
+add a Basic challenge. Conflicting or repeated credential headers are rejected.
+OIDC bearer tokens retain the IdP expiry; event streams close at expiry.
+Redfish sessions can additionally be revoked with DELETE.
+
+### Redfish sessions and optional password authentication
+
+`/redfish/v1/SessionService` advertises `/Sessions`, also linked from the root's
+`Links.Sessions`. Standard password-based session creation accepts
+`{"UserName":"validator","Password":"..."}` and returns 201, `Location`, a
+Session resource and a random `X-Auth-Token`. Authenticate subsequent requests
+with that header; DELETE the session URI to terminate it. Session secrets are
+returned only in that header, stored as SHA-256 digests in memory, and discarded
+on restart. There are at most 64 sessions, with a 600-second sliding idle timeout
+and a one-day hard ceiling for local-account sessions. No Redis is needed.
+
+OIDC callers can instead POST `{}` with their bearer token to
+`/redfish/v1/SessionService/Actions/Oem/QrabSessionService.CreateFromOIDC`.
+This explicitly OEM exchange retains the verified role and caps the session's
+absolute expiration at the original ID token's expiry. It does not repurpose
+Session's standard MFA `Token` field. Session deletion closes admitted event
+streams within one second; streaming does not renew an idle session.
+
+Optional local accounts are loaded from `REDFISH_LOCAL_ACCOUNTS_FILE`:
+
+```json
+{"accounts":[{"username":"validator","password_hash":"<Argon2id PHC hash>","role":"viewer"}]}
+```
+
+Use a read-only Secret projection, never a plaintext password in configuration.
+The file supports 1–16 distinct accounts and is bounded to 64 KiB. Accepted PHC
+parameters are Argon2id v19, m=19456–32768 KiB, t=2–4, p=1–2, a salt of at least
+16 bytes and a 32-byte output. Password checks run outside the async reactor,
+with two workers and a global burst of 16/refill four checks per second.
+Use sessions for bulk clients to avoid hashing on every GET. Changing the file
+requires a sidecar restart, also invalidating sessions. Local accounts do not
+change the OIDC subject/group allowlists. Basic is disabled when no account file
+is configured; `AccountService.HTTPBasicAuth` reflects this state.
+
+The existing OIDC ID-token/group flow is an additional authentication mechanism,
+not Redfish's standard OAuth2 access-token/`Redfish.Role.*` scope model. The
+service does not advertise `AccountService.OAuth2` support. See
+[DSP0266](https://www.dmtf.org/sites/default/files/standards/documents/DSP0266_1.22.0.pdf)
+and the [Session schema](https://redfish.dmtf.org/schemas/v1/Session.v1_8_0.json).
+
+### Optional workload admission
+
+The separate workload listener uses rotating X.509 SVIDs from `qrab-spiffe`,
+TLS 1.3 and exact client SPIFFE ID allowlists. It requires the same application
+authentication and role checks as the ordinary API: workload identity grants
+access to the transport, not a user role. No forwarded identity header is
+trusted. Admission is bounded to 32 connections and eight concurrent handshakes;
+slow handshakes have the shared 15-second timeout. Incomplete configuration or
+unavailable Workload API fails startup rather than falling back to plain HTTP.
+
+This listener is disabled by default and is not automatically exposed by the
+operator. Provision its Workload API socket, exact SPIRE registration, separate
+Service port and Cilium policy explicitly. The ordinary ingress listener remains
+separate. The currently deployed cluster has Cilium mesh authentication disabled;
+its ingress/host network policy does not itself verify Redfish SPIFFE identity.
+Enabling Cilium mutual authentication also requires its mesh/SPIRE integration;
+it is not a substitute for application TLS.
 
 ### Kanidm provisioning
 

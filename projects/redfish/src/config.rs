@@ -13,6 +13,8 @@ pub struct Config {
     pub admin_groups: HashSet<String>,
     pub viewer_groups: HashSet<String>,
     pub ca_file: Option<PathBuf>,
+    pub local_accounts_file: Option<PathBuf>,
+    pub public_discovery: bool,
 }
 
 /// An issuer and the audiences (OAuth2 client IDs) whose ID tokens it may
@@ -160,6 +162,11 @@ impl Config {
             admin_groups,
             viewer_groups,
             ca_file: std::env::var_os("REDFISH_CA_FILE").map(PathBuf::from),
+            local_accounts_file: std::env::var_os("REDFISH_LOCAL_ACCOUNTS_FILE").map(PathBuf::from),
+            public_discovery: std::env::var("REDFISH_PUBLIC_DISCOVERY")
+                .unwrap_or_else(|_| "false".into())
+                .parse()
+                .context("REDFISH_PUBLIC_DISCOVERY must be true or false")?,
         })
     }
 }

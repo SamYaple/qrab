@@ -15,17 +15,22 @@ async fn service(State(app): State<AppState>, headers: HeaderMap) -> Result<Json
     admin(&app, &headers).await?;
     Ok(Json(
         json!({"@odata.id":SERVICE,"@odata.type":"#LogService.v1_7_0.LogService","Id":"Serial","Name":"Guest serial tail",
-        "ServiceEnabled":true,"LogEntryType":"Oem","OverWritePolicy":"WrapsWhenFull","MaxNumberOfRecords":1,"Entries":link(ENTRIES),
+        "ServiceEnabled":true,"LogEntryType":"OEM","OverWritePolicy":"WrapsWhenFull","MaxNumberOfRecords":1,"Entries":link(ENTRIES),
         "Oem":{"Qrab":{"@odata.type":"#QrabSerialLog.v1_0_0.QrabSerialLog","CapacityBytes":pod::SERIAL_CAPACITY}}}),
     ))
 }
 async fn entries(State(app): State<AppState>, headers: HeaderMap) -> Result<Json<Value>, Failure> {
     admin(&app, &headers).await?;
+    let tail = app
+        .control
+        .serial()
+        .await
+        .map_err(|_| Failure::unavailable("Serial history is unavailable."))?;
     Ok(Json(collection(
         ENTRIES,
         "LogEntryCollection",
         "Guest serial tail",
-        vec![link(ENTRY)],
+        vec![entry_json(&tail)],
     )))
 }
 async fn entry(State(app): State<AppState>, headers: HeaderMap) -> Result<Json<Value>, Failure> {
@@ -35,11 +40,13 @@ async fn entry(State(app): State<AppState>, headers: HeaderMap) -> Result<Json<V
         .serial()
         .await
         .map_err(|_| Failure::unavailable("Serial history is unavailable."))?;
-    Ok(Json(
-        json!({"@odata.id":ENTRY,"@odata.type":"#LogEntry.v1_17_0.LogEntry","Id":"Tail","Name":"Guest serial tail","EntryType":"Oem",
+    Ok(Json(entry_json(&tail)))
+}
+
+fn entry_json(tail: &pod::SerialSnapshot) -> Value {
+    json!({"@odata.id":ENTRY,"@odata.type":"#LogEntry.v1_17_0.LogEntry","Id":"Tail","Name":"Guest serial tail","EntryType":"Oem",
         "OemRecordFormat":"QrabSerialTail","AdditionalDataURI":ATTACHMENT,"AdditionalDataSizeBytes":tail.text.len(),
-        "Oem":{"Qrab":{"@odata.type":"#QrabSerialTail.v1_0_0.QrabSerialTail","DroppedBytes":tail.dropped_bytes,"RetainedBytes":tail.retained_bytes}}}),
-    ))
+        "Oem":{"Qrab":{"@odata.type":"#QrabSerialTail.v1_0_0.QrabSerialTail","DroppedBytes":tail.dropped_bytes,"RetainedBytes":tail.retained_bytes}}})
 }
 async fn attachment(State(app): State<AppState>, headers: HeaderMap) -> Result<Response, Failure> {
     admin(&app, &headers).await?;

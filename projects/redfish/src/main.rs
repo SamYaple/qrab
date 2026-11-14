@@ -42,6 +42,17 @@ async fn main() -> Result<()> {
     let subscriptions = qrab_redfish::spawn_subscriptions(state.clone());
     let metrics = qrab_redfish::metrics_router(state.clone());
     let app = qrab_redfish::router(state);
+    let workload =
+        match qrab_redfish::workload::Config::from_env(config.listen, config.metrics_listen)? {
+            Some(workload) => Some(
+                workload
+                    .bind()
+                    .await
+                    .context("Redfish workload mTLS listener")?,
+            ),
+            None => None,
+        };
+    let workload_app = app.clone();
     let listener = tokio::net::TcpListener::bind(config.listen).await?;
     let metrics_listener = tokio::net::TcpListener::bind(config.metrics_listen).await?;
     let (stop, stopped) = watch::channel(false);
@@ -49,12 +60,24 @@ async fn main() -> Result<()> {
         let _ = stopped.wait_for(|v| *v).await;
     };
     let api = axum::serve(listener, app).with_graceful_shutdown(shutdown(stopped.clone()));
-    let exporter = axum::serve(metrics_listener, metrics).with_graceful_shutdown(shutdown(stopped));
-    // Either listener failing ends the sidecar; both drain on SIGTERM.
+    let exporter =
+        axum::serve(metrics_listener, metrics).with_graceful_shutdown(shutdown(stopped.clone()));
+    let workloads = async move {
+        match workload {
+            Some(listener) => {
+                axum::serve(listener, workload_app)
+                    .with_graceful_shutdown(shutdown(stopped))
+                    .await
+            }
+            None => Ok(()),
+        }
+    };
+    // Any listener failing ends the sidecar; all drain on SIGTERM.
     let server = async move {
         tokio::try_join!(
             std::future::IntoFuture::into_future(api),
-            std::future::IntoFuture::into_future(exporter)
+            std::future::IntoFuture::into_future(exporter),
+            workloads
         )
         .map(|_| ())
     };
