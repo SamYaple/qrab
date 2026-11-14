@@ -153,13 +153,14 @@ with server-side dry runs.
 ### Dashboard access and publicUrl
 
 The dashboard (Kanidm client `qrab-dashboard`) is meant to be the cluster's
-only browser OIDC client. It calls each VM's BMC JSON API server-side at the
-Pod IP, port 8080, and forwards the signed-in user's ID token as
-`Authorization: Bearer`. With `QRAB_BMC_BEARER_ISSUER` and
-`QRAB_BMC_BEARER_AUDIENCE` set, every BMC sidecar receives `BMC_BEARER_ISSUER`
-and `BMC_BEARER_AUDIENCE` and verifies those tokens itself. The VM's subject
-and group lists decide that user's role, exactly as for the BMC login
-([bmc.md](bmc.md#dashboard-bearer-tokens)).
+only browser OIDC client. It calls each VM's Redfish service (Pod IP, port
+8081) for status, events and power and its BMC console (port 8080) server-side,
+and forwards the signed-in user's ID token as `Authorization: Bearer`. With
+`QRAB_BMC_BEARER_ISSUER` and `QRAB_BMC_BEARER_AUDIENCE` set, every BMC sidecar
+receives `BMC_BEARER_ISSUER` and `BMC_BEARER_AUDIENCE` and Redfish lists the
+pair in `REDFISH_TRUSTED_TOKENS`; both verify those tokens themselves. The VM's
+subject and group lists decide that user's role, exactly as for the BMC login
+([bmc.md](bmc.md#dashboard-bearer-tokens), [above](#bmc-users-in-redfish)).
 
 `console.publicUrl` is then optional. Without it the BMC gets no
 `BMC_PUBLIC_URL` or `BMC_OIDC_*`: it has no login, browser UI, Service,
@@ -168,7 +169,7 @@ dashboard. The operator refuses a BMC-enabled VM with neither a `publicUrl` nor
 its own bearer settings, since that BMC would have no way in. With a
 `publicUrl`, the per-VM browser console works as before, and the BMC also
 accepts dashboard tokens. Network policy must admit the dashboard's Pods to
-port 8080 of the VM Pods.
+ports 8080 and 8081 of the VM Pods.
 
 | components | Pod |
 | --- | --- |

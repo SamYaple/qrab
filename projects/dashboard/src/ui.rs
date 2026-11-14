@@ -2,10 +2,10 @@
 //! rendered as escaped text or an escaped attribute value.
 use crate::{
     access::Role,
-    bmc::{self, Action, Panel},
     images::BaseImage,
     launch::{self, Report},
     model::{self, Detail, Row},
+    redfish::{self, Panel, ResetType},
 };
 use dioxus::prelude::*;
 
@@ -62,15 +62,41 @@ pub struct ConsolePage {
     pub audio: bool,
 }
 
-/// The console page's power buttons: (action, label, disruptive).
-pub const CONSOLE_POWER: [(&str, &str, bool); 6] = [
-    ("on", "Power on", false),
-    ("resume", "Resume", false),
-    ("pause", "Pause", false),
-    ("reset", "Reset", true),
-    ("powerdown", "Shut down", true),
-    ("off", "Power off", true),
-];
+/// One console power button.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PowerButton {
+    /// `on`, `off` or a Redfish ResetType.
+    pub action: &'static str,
+    pub label: &'static str,
+    /// Armed by a first click and sent by a second.
+    pub disruptive: bool,
+    /// A Redfish reset, shown only while `ResetActionInfo` allows it.
+    pub in_pod: bool,
+}
+
+/// The console page's power buttons: Power on, every offered Redfish reset,
+/// then Power off.
+pub fn console_power() -> Vec<PowerButton> {
+    let mut buttons = vec![PowerButton {
+        action: "on",
+        label: "Power on",
+        disruptive: false,
+        in_pod: false,
+    }];
+    buttons.extend(ResetType::ALL.into_iter().map(|reset| PowerButton {
+        action: reset.name(),
+        label: reset.label(),
+        disruptive: reset.needs_confirmation(),
+        in_pod: true,
+    }));
+    buttons.push(PowerButton {
+        action: "off",
+        label: "Power off",
+        disruptive: true,
+        in_pod: false,
+    });
+    buttons
+}
 
 #[derive(Clone, Default)]
 pub enum Body {
@@ -209,96 +235,40 @@ fn stamp(ms: Option<u64>) -> String {
     }
 }
 
+fn or_dash(value: &Option<String>) -> String {
+    value.clone().unwrap_or_else(|| "—".into())
+}
+
 fn bmc_panel(panel: &Panel) -> Element {
-    let status = match &panel.status {
-        Ok(s) => {
-            let mut rows = vec![
-                ("Phase", s.phase.clone()),
-                (
-                    "QEMU run state",
-                    s.run_state.clone().unwrap_or_else(|| "—".into()),
-                ),
-                ("Ready", if s.ready { "yes".into() } else { "no".into() }),
-                (
-                    "QEMU version",
-                    s.qemu_version
-                        .as_ref()
-                        .map(|v| v.iter().map(u32::to_string).collect::<Vec<_>>().join("."))
-                        .unwrap_or_else(|| "—".into()),
-                ),
-                ("Observed", stamp(Some(s.observed_unix_ms))),
-            ];
-            if let Some(code) = s.exit_code {
-                rows.push(("Exit code", code.to_string()));
-            }
-            if let Some(detail) = &s.detail {
-                rows.push(("Detail", detail.clone()));
-            }
-            rsx! { section { class: "card", h3 { "Status" } {dl(rows)} } }
-        }
-        Err(e) => panel_error("Status", e),
-    };
-    let agent = match &panel.agent {
-        Ok(a) => {
-            let s = &a.status;
-            let mut rows = vec![
-                (
-                    "Channel",
-                    if s.enabled {
-                        "enabled".into()
-                    } else {
-                        "disabled".into()
-                    },
-                ),
-                (
-                    "Connected",
-                    if s.connected {
-                        format!("yes, since {}", stamp(s.connected_since_unix_ms))
-                    } else {
-                        "no".into()
-                    },
-                ),
-                ("Version", s.version.clone().unwrap_or_else(|| "—".into())),
-                ("Last seen", stamp(s.last_seen_unix_ms)),
-            ];
-            if let Some(e) = &s.last_error {
-                rows.push(("Last error", e.clone()));
-            }
-            if let Some(f) = &a.freeze {
-                rows.push(("Filesystems", f.clone()));
-            }
-            if let Some(u) = &a.update {
-                let mut text = format!("{} · run {}", u.state, u.run_id);
-                if let Some(code) = u.exit_code {
-                    text.push_str(&format!(" · exit {code}"));
-                }
-                if !u.hook_installed {
-                    text.push_str(" · no hook installed");
-                }
-                rows.push(("Update", text));
-                if !u.output.is_empty() {
-                    rows.push(("Update output", u.output.clone()));
-                }
-                if let Some(e) = &u.error {
-                    rows.push(("Update error", e.clone()));
-                }
-            }
-            rsx! { section { class: "card", h3 { "Guest agent" } {dl(rows)} } }
-        }
-        Err(e) => panel_error("Guest agent", e),
+    let (status, agent, config) = match &panel.system {
+        Ok(system) => (
+            rsx! { section { class: "card", h3 { "Status" } {dl(vec![
+                ("Power state", or_dash(&system.power_state)),
+                ("State", or_dash(&system.status.state)),
+                ("Health", or_dash(&system.status.health)),
+            ])} } },
+            agent_card(system.oem.qrab.guest_agent.as_ref()),
+            config_card(system.oem.qrab.configuration.as_ref()),
+        ),
+        Err(e) => (
+            panel_error("Status", e),
+            panel_error("Guest agent", e),
+            panel_error("Effective configuration", e),
+        ),
     };
     let events = match &panel.events {
         Ok(page) => rsx! {
             section { class: "card wide", h3 { "Recent QMP events" }
-                if page.qmp_dropped > 0 { p { class: "notice", role: "status", "{page.qmp_dropped} QMP event(s) were dropped before the manager recorded them." } }
-                if page.events.is_empty() { p { class: "empty", "No events recorded." } }
+                if let Some(dropped) = page.qmp_dropped.filter(|d| *d > 0) { p { class: "notice", role: "status", "{dropped} QMP event(s) were dropped before the manager recorded them." } }
+                if page.entries.is_empty() { p { class: "empty", "No events recorded." } }
                 else { ol { class: "events", reversed: true,
-                    for event in page.events.iter().rev() {
+                    for entry in page.entries.iter() {
                         {
-                            let data = bmc::event_data(event);
+                            let data = redfish::event_data(&entry.oem.qrab);
                             rsx! { li {
-                                time { {stamp(Some(event.received_unix_ms))} }
-                                b { "{event.event}" }
+                                time { "{entry.created}" }
+                                b { "{entry.oem.qrab.event}" }
+                                if !entry.severity.is_empty() && entry.severity != "OK" { span { class: "badge", "{entry.severity}" } }
                                 if data.is_empty() { span { class: "muted", "no data" } } else { code { "{data}" } }
                             } }
                         }
@@ -308,83 +278,130 @@ fn bmc_panel(panel: &Panel) -> Element {
         },
         Err(e) => panel_error("Recent QMP events", e),
     };
-    let config = match &panel.config {
-        Ok(c) => {
-            let mut rows = vec![
-                ("Name", c.name.clone()),
-                ("Memory", format!("{} MiB", c.memory_mib)),
-                ("vCPUs", c.cpus.to_string()),
-                ("Accelerator", c.accelerator.clone()),
-                ("Boot", c.boot.clone()),
-                ("TPM", if c.tpm { "yes".into() } else { "no".into() }),
-                (
-                    "Guest network",
-                    if c.guest_network {
-                        "enabled".into()
-                    } else {
-                        "disabled".into()
-                    },
-                ),
-                ("Startup timeout", format!("{}s", c.startup_timeout_secs)),
-                ("Shutdown grace", format!("{}s", c.shutdown_grace_secs)),
-            ];
-            for disk in &c.disks {
-                rows.push(("Disk", bmc::describe_disk(disk)));
-            }
-            if let Some(h) = &c.hotplug {
-                rows.push((
-                    "Hot-plug maximum",
-                    format!("{} vCPUs · {} MiB", h.max_cpus, h.max_memory_mib),
-                ));
-                if let Some(phase) = &h.phase {
-                    rows.push(("Hot-plug phase", phase.clone()));
-                }
-                if let Some(e) = &h.last_error {
-                    rows.push(("Hot-plug error", e.clone()));
-                }
-            }
-            if let Some(id) = &c.state_id {
-                rows.push(("State ID", id.clone()));
-            }
-            for (key, value) in c.deployment.iter().flatten() {
-                let label: &'static str = match key.as_str() {
-                    "node" => "Node",
-                    "pod" => "Pod",
-                    "namespace" => "Namespace",
-                    "image" => "Image",
-                    _ => continue,
-                };
-                rows.push((label, value.clone()));
-            }
-            let note = if c.redacted {
-                "Sensitive fields hidden for viewers"
-            } else {
-                "Full view"
-            };
-            rsx! { section { class: "card wide", h3 { "Effective configuration" } p { class: "muted", "{note}" } {dl(rows)} } }
-        }
-        Err(e) => panel_error("Effective configuration", e),
-    };
-    rsx! { div { class: "panel-grid", {status} {agent} {config} {events} } }
+    rsx! {
+        p { class: "muted", "Read from the VM's Redfish service with your sign-in." }
+        div { class: "panel-grid", {status} {agent} {config} {events} }
+    }
 }
 
-fn power_controls(detail: &Detail, csrf: &str) -> Element {
+fn agent_card(agent: Option<&redfish::AgentStatus>) -> Element {
+    let Some(s) = agent else {
+        return panel_error("Guest agent", "the manager did not report it");
+    };
+    let mut rows = vec![
+        (
+            "Channel",
+            if s.enabled {
+                "enabled".into()
+            } else {
+                "disabled".into()
+            },
+        ),
+        (
+            "Connected",
+            if s.connected {
+                format!("yes, since {}", stamp(s.connected_since_unix_ms))
+            } else {
+                "no".into()
+            },
+        ),
+        ("Version", or_dash(&s.version)),
+        ("Last seen", stamp(s.last_seen_unix_ms)),
+    ];
+    if let Some(e) = &s.last_error {
+        rows.push(("Last error", e.clone()));
+    }
+    rsx! { section { class: "card", h3 { "Guest agent" } {dl(rows)} } }
+}
+
+fn config_card(config: Option<&redfish::Config>) -> Element {
+    let Some(c) = config else {
+        return panel_error("Effective configuration", "the manager did not report it");
+    };
+    let mut rows = vec![
+        ("Name", c.name.clone()),
+        ("Memory", format!("{} MiB", c.memory_mib)),
+        ("vCPUs", c.cpus.to_string()),
+        ("Accelerator", c.accelerator.clone()),
+        ("Boot", c.boot.clone()),
+        ("TPM", if c.tpm { "yes".into() } else { "no".into() }),
+        (
+            "Guest network",
+            if c.guest_network {
+                "enabled".into()
+            } else {
+                "disabled".into()
+            },
+        ),
+        ("Startup timeout", format!("{}s", c.startup_timeout_secs)),
+        ("Shutdown grace", format!("{}s", c.shutdown_grace_secs)),
+    ];
+    for disk in &c.disks {
+        rows.push(("Disk", redfish::describe_disk(disk)));
+    }
+    if let Some(h) = &c.hotplug {
+        rows.push((
+            "Hot-plug maximum",
+            format!("{} vCPUs · {} MiB", h.max_cpus, h.max_memory_mib),
+        ));
+        if let Some(phase) = &h.phase {
+            rows.push(("Hot-plug phase", phase.clone()));
+        }
+        if let Some(e) = &h.last_error {
+            rows.push(("Hot-plug error", e.clone()));
+        }
+    }
+    if let Some(id) = &c.state_id {
+        rows.push(("State ID", id.clone()));
+    }
+    for (key, value) in c.deployment.iter().flatten() {
+        let label: &'static str = match key.as_str() {
+            "node" => "Node",
+            "pod" => "Pod",
+            "namespace" => "Namespace",
+            "image" => "Image",
+            _ => continue,
+        };
+        rows.push((label, value.clone()));
+    }
+    let note = if c.redacted {
+        "Sensitive fields hidden for viewers"
+    } else {
+        "Full view"
+    };
+    rsx! { section { class: "card wide", h3 { "Effective configuration" } p { class: "muted", "{note}" } {dl(rows)} } }
+}
+
+/// In-pod power, offered as Redfish's `Systems/1` currently allows. Power on
+/// and off (`spec.running`) are on the console page.
+fn power_controls(detail: &Detail, csrf: &str, panel: &PanelState) -> Element {
     let action = format!("{}/action", detail.row.path());
+    let allowed = match panel {
+        PanelState::Loaded(panel) => panel
+            .system
+            .as_ref()
+            .ok()
+            .map(|system| redfish::offered(&system.actions.reset.allowable_values)),
+        _ => None,
+    };
     rsx! {
         section { class: "card", aria_labelledby: "power-title",
             h2 { id: "power-title", "Power" }
-            p { class: "muted", "Sent to the BMC with your sign-in. Shut down ends this instance; while the VM is set to run, the operator starts another." }
-            div { class: "actions",
-                for a in Action::ALL {
-                    form { method: "post", action: "{action}",
-                        input { r#type: "hidden", name: "csrf", value: "{csrf}" }
-                        input { r#type: "hidden", name: "action", value: a.key() }
-                        if a.needs_confirmation() {
-                            label { class: "confirm", input { r#type: "checkbox", name: "confirm", value: "yes", required: true } "Confirm" }
+            p { class: "muted", "Sent to the VM's Redfish service with your sign-in. Shut down ends this instance; while the VM is set to run, the operator starts another. Power on and off are on the console page." }
+            match allowed {
+                None => rsx! { p { class: "muted", role: "status", "Power actions are unavailable while the VM's Redfish service cannot be read." } },
+                Some(allowed) => rsx! { div { class: "actions",
+                    for a in allowed {
+                        form { method: "post", action: "{action}",
+                            input { r#type: "hidden", name: "csrf", value: "{csrf}" }
+                            input { r#type: "hidden", name: "action", value: a.name() }
+                            if a.needs_confirmation() {
+                                label { class: "confirm", input { r#type: "checkbox", name: "confirm", value: "yes", required: true } "Confirm" }
+                            }
+                            button { class: if a.needs_confirmation() { "danger" } else { "quiet" }, r#type: "submit", {a.label()} }
                         }
-                        button { class: if a.needs_confirmation() { "danger" } else { "quiet" }, r#type: "submit", {a.label()} }
                     }
-                }
+                } },
             }
         }
     }
@@ -408,7 +425,6 @@ fn delete_form(detail: &Detail, csrf: &str) -> Element {
 }
 
 fn network_card(d: &Detail) -> Element {
-    let or_dash = |v: &Option<String>| v.clone().unwrap_or_else(|| "—".into());
     rsx! {
         section { class: if d.nics.is_empty() { "card" } else { "card wide" }, h2 { "Network" }
             if d.nics.is_empty() { p { "No guest NIC." } }
@@ -595,7 +611,7 @@ fn detail_page(page: &DetailPage, user: &UserView) -> Element {
                 PanelState::Loaded(panel) => bmc_panel(panel),
             }
         }
-        if admin && d.bmc_enabled { {power_controls(d, &user.csrf)} }
+        if admin && d.bmc_enabled { {power_controls(d, &user.csrf, &page.panel)} }
         if page.deletable { {delete_form(d, &user.csrf)} }
     }
 }
@@ -841,8 +857,8 @@ fn console_page(page: &ConsolePage) -> Element {
         div { class: "toolbar power-bar", id: "power", "data-endpoint": "{back}/power", "data-csrf": "{page.csrf}",
             p { class: "power-state", span { id: "power-chip", class: "chip", "Checking…" } span { id: "power-detail", class: "muted" } }
             div { class: "actions", role: "group", aria_label: "Power",
-                for (action, label, disruptive) in CONSOLE_POWER {
-                    button { r#type: "button", class: if disruptive { "danger" } else { "quiet" }, "data-power": action, "data-label": label, disabled: true, {label} }
+                for b in console_power() {
+                    button { r#type: "button", class: if b.disruptive { "danger" } else { "quiet" }, "data-power": b.action, "data-label": b.label, "data-in-pod": if b.in_pod { "true" } else { "false" }, disabled: true, {b.label} }
                 }
             }
         }
@@ -885,7 +901,7 @@ fn app() -> Element {
                         a { class: "button", href: "/auth/login", "Sign in with Kanidm →" }
                         p { class: "muted", "Access follows your Kanidm VM groups." } } },
                 }
-                footer { "Kubernetes and Kanidm are the source of truth · Each VM's BMC enforces its own roles" }
+                footer { "Kubernetes and Kanidm are the source of truth · Each VM's Redfish service and BMC enforce its roles" }
             }
         }
     }

@@ -1,6 +1,7 @@
 //! qrab-dashboard: launch, inspect and open the consoles of VMs through one
-//! Kanidm OIDC client. Each VM's BMC is called server-side with the user's
-//! ID token as a bearer; the token never reaches the browser.
+//! Kanidm OIDC client. Each VM's Redfish service (status, events, power) and
+//! BMC console are called server-side with the user's ID token as a bearer;
+//! the token never reaches the browser.
 pub mod access;
 pub mod auth;
 pub mod bmc;
@@ -12,6 +13,7 @@ pub mod kanidm;
 pub mod launch;
 pub mod model;
 pub mod power;
+pub mod redfish;
 pub mod session_store;
 #[cfg(test)]
 mod tests;
@@ -40,7 +42,10 @@ pub struct AppState {
     pub storage_node: Option<String>,
     pub cluster: Arc<dyn cluster::Cluster>,
     pub kanidm: kanidm::Kanidm,
+    /// Each VM's console WebSocket (port 8080).
     pub bmc: bmc::Bmc,
+    /// Each VM's Redfish service (port 8081).
+    pub redfish: redfish::Redfish,
     pub sessions: session_store::BoundedStore,
     pub novnc_dir: PathBuf,
     /// Global cap on open consoles.
@@ -325,7 +330,7 @@ async fn detail(
         (false, _) => ui::PanelState::Disabled,
         (true, None) => ui::PanelState::NoPod,
         (true, Some(ip)) => {
-            ui::PanelState::Loaded(Box::new(app.bmc.panel(ip, &user.id_token).await))
+            ui::PanelState::Loaded(Box::new(app.redfish.panel(ip, &user.id_token).await))
         }
     };
     let catalog = base_images(&app).await.unwrap_or_default();
@@ -360,6 +365,7 @@ async fn mutation(
     Ok(user)
 }
 
+/// The detail page's power form: one Redfish reset, reported as a flash.
 async fn action(
     State(app): State<AppState>,
     session: Session,
@@ -368,9 +374,9 @@ async fn action(
     Form(fields): Fields,
 ) -> Result<Redirect, Failure> {
     let user = mutation(&app, &session, &headers, &fields).await?;
-    let action = bmc::Action::parse(launch::field(&fields, "action"))
+    let reset = redfish::ResetType::parse(launch::field(&fields, "action"))
         .ok_or_else(|| Failure::invalid("Unknown power action."))?;
-    if action.needs_confirmation() && launch::field(&fields, "confirm") != "yes" {
+    if reset.needs_confirmation() && launch::field(&fields, "confirm") != "yes" {
         return Err(Failure::invalid("Confirm the power action."));
     }
     let (vm, role) = visible_vm(&app, &user, &namespace, &name).await?;
@@ -380,13 +386,13 @@ async fn action(
     let ip = pod_ip(&app, &vm)
         .await?
         .ok_or_else(|| Failure::unavailable("The VM's Pod is not running."))?;
-    let result = app.bmc.action(ip, &user.id_token, action).await;
-    tracing::info!(subject=%user.subject, vm=%name, action=action.key(), success=result.is_ok(), "power action");
+    let result = power::reset(&app, ip, &user.id_token, reset).await;
+    tracing::info!(subject=%user.subject, vm=%name, action=reset.name(), success=result.is_ok(), "power action");
     flash(
         &session,
         match result {
-            Ok(()) => format!("{} sent to {name}.", action.label()),
-            Err(e) => format!("{} failed: {e}.", action.label()),
+            Ok(()) => format!("{} sent to {name}.", reset.label()),
+            Err(failure) => failure.1,
         },
     )
     .await?;

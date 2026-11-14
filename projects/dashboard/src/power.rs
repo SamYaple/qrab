@@ -1,7 +1,14 @@
 //! The console page's power controls, as JSON for its script. In-pod actions
-//! go to the VM's BMC with the user's ID token; power on and off set the
-//! VM's `spec.running`, since an off VM has no Pod or BMC to ask.
-use crate::{AppState, Failure, access::Role, auth, bmc, pod_ip, visible_vm};
+//! are Redfish `ComputerSystem.Reset` requests to the VM's own Pod with the
+//! user's ID token; power on and off set the VM's `spec.running`, since an off
+//! VM has no Pod or Redfish service to ask.
+use crate::{
+    AppState, Failure,
+    access::Role,
+    auth, pod_ip,
+    redfish::{self, RedfishError, ResetType},
+    visible_vm,
+};
 use axum::{
     Json,
     extract::{Path, State},
@@ -9,13 +16,14 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use serde::{Deserialize, Serialize};
+use std::net::IpAddr;
 use tower_sessions::Session;
 
 /// What the console page can ask for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Power {
-    /// Sent to the running VM's BMC.
-    Bmc(bmc::Action),
+    /// Sent to the running VM's Redfish service.
+    Reset(ResetType),
     /// `spec.running: true`: the operator starts a Pod.
     On,
     /// `spec.running: false`: the operator stops the VM and keeps it off.
@@ -24,9 +32,9 @@ pub enum Power {
 
 impl Power {
     /// ```
-    /// use qrab_dashboard::{bmc::Action, power::Power};
+    /// use qrab_dashboard::{power::Power, redfish::ResetType};
     /// assert_eq!(Power::parse("on"), Some(Power::On));
-    /// assert_eq!(Power::parse("reset"), Some(Power::Bmc(Action::Reset)));
+    /// assert_eq!(Power::parse("ForceRestart"), Some(Power::Reset(ResetType::ForceRestart)));
     /// assert_eq!(Power::parse("system_reset"), None);
     /// assert!(Power::Off.needs_confirmation() && !Power::On.needs_confirmation());
     /// ```
@@ -34,19 +42,19 @@ impl Power {
         match value {
             "on" => Some(Self::On),
             "off" => Some(Self::Off),
-            other => bmc::Action::parse(other).map(Self::Bmc),
+            other => ResetType::parse(other).map(Self::Reset),
         }
     }
     pub fn key(self) -> &'static str {
         match self {
-            Self::Bmc(action) => action.key(),
+            Self::Reset(reset) => reset.name(),
             Self::On => "on",
             Self::Off => "off",
         }
     }
     pub fn needs_confirmation(self) -> bool {
         match self {
-            Self::Bmc(action) => action.needs_confirmation(),
+            Self::Reset(reset) => reset.needs_confirmation(),
             Self::On => false,
             Self::Off => true,
         }
@@ -69,10 +77,15 @@ pub struct PowerState {
     pub phase: String,
     /// Whether the VM's own Pod is up with an address.
     pub pod: bool,
-    /// The manager's QEMU run state through the BMC (`running`, `paused`, …).
-    pub run_state: Option<String>,
-    /// Why the BMC could not be asked, when it could not.
-    pub bmc_error: Option<String>,
+    /// Redfish `Systems/1` `PowerState` (`On`, `Paused`, `PoweringOn`, …).
+    pub power_state: Option<String>,
+    /// Redfish `Systems/1` `Status.Health`.
+    pub health: Option<String>,
+    /// The in-pod ResetTypes Redfish allows (`ResetActionInfo`), in button
+    /// order; `None` when Redfish could not be asked.
+    pub reset_types: Option<Vec<ResetType>>,
+    /// Why Redfish could not be asked, when it could not.
+    pub redfish_error: Option<String>,
 }
 
 /// Errors as plain text: the page shows them in its alert line.
@@ -102,20 +115,7 @@ async fn state(
         return Err(Failure::forbidden());
     }
     let ip = pod_ip(app, &vm).await?;
-    let (run_state, bmc_error) = match ip {
-        Some(ip) if vm.spec.components.bmc.enabled => {
-            match app
-                .bmc
-                .get::<bmc::Status>(ip, bmc::STATUS, &user.id_token)
-                .await
-            {
-                Ok(status) => (status.run_state, None),
-                Err(error) => (None, Some(error.to_string())),
-            }
-        }
-        _ => (None, None),
-    };
-    Ok(PowerState {
+    let mut state = PowerState {
         running: vm.spec.running,
         phase: vm
             .status
@@ -123,9 +123,28 @@ async fn state(
             .map(|s| s.phase.clone())
             .unwrap_or_default(),
         pod: ip.is_some(),
-        run_state,
-        bmc_error,
-    })
+        power_state: None,
+        health: None,
+        reset_types: None,
+        redfish_error: None,
+    };
+    let Some(ip) = ip.filter(|_| vm.spec.components.bmc.enabled) else {
+        return Ok(state);
+    };
+    let (system, reset_types) = tokio::join!(
+        app.redfish
+            .get::<redfish::System>(ip, redfish::SYSTEM, &user.id_token, redfish::MAX_BODY),
+        app.redfish.reset_types(ip, &user.id_token),
+    );
+    match (system, reset_types) {
+        (Ok(system), Ok(reset_types)) => {
+            state.power_state = system.power_state;
+            state.health = system.status.health;
+            state.reset_types = Some(reset_types);
+        }
+        (Err(error), _) | (_, Err(error)) => state.redfish_error = Some(error.to_string()),
+    }
+    Ok(state)
 }
 
 pub async fn act(
@@ -139,6 +158,29 @@ pub async fn act(
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
         Err(failure) => plain(failure),
     }
+}
+
+/// Sends one reset to the VM's own Pod. A Redfish refusal (403) stays a
+/// refusal; other failures are the upstream's.
+pub(crate) async fn reset(
+    app: &AppState,
+    ip: IpAddr,
+    token: &str,
+    reset: ResetType,
+) -> Result<(), Failure> {
+    app.redfish.reset(ip, token, reset).await.map_err(|error| {
+        let code = match error {
+            RedfishError::Status(403) => StatusCode::FORBIDDEN,
+            RedfishError::Status(409) => StatusCode::CONFLICT,
+            _ => StatusCode::BAD_GATEWAY,
+        };
+        let verb = if code == StatusCode::FORBIDDEN {
+            "was refused"
+        } else {
+            "failed"
+        };
+        Failure(code, format!("{} {verb}: {error}.", reset.label()))
+    })
 }
 
 async fn power(
@@ -174,22 +216,14 @@ async fn power(
                 .await
                 .map_err(|e| Failure::upstream(&e))
         }
-        Power::Bmc(action) => {
+        Power::Reset(kind) => {
             if !vm.spec.components.bmc.enabled {
                 return Err(Failure::forbidden());
             }
             let ip = pod_ip(app, &vm)
                 .await?
                 .ok_or_else(|| Failure::unavailable("The VM's Pod is not running."))?;
-            app.bmc
-                .action(ip, &user.id_token, action)
-                .await
-                .map_err(|e| {
-                    Failure(
-                        StatusCode::BAD_GATEWAY,
-                        format!("{} failed: {e}.", action.label()),
-                    )
-                })
+            reset(app, ip, &user.id_token, kind).await
         }
     };
     tracing::info!(subject=%user.subject, vm=%name, action=power.key(), success=result.is_ok(), "power action");

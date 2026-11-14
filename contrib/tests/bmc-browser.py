@@ -83,11 +83,12 @@ try:
             command(page, 'test "$(ls /sys/class/net)" = lo && echo QRAB_GUEST_NO_NIC_OK > /dev/ttyS0')
             serial_marker('QRAB_GUEST_NO_NIC_OK')
             print('PASS real Kanidm OIDC, video, physical keyboard, USB mouse and no guest NIC')
+            # Power state comes from Redfish Systems/1 through the BMC's /redfish proxy.
             page.get_by_role('group', name='Power').get_by_role('button', name='Pause', exact=True).click()
-            page.wait_for_function("async () => (await (await fetch('/api/status')).json()).run_state === 'paused'")
+            page.wait_for_function("async () => (await (await fetch('/redfish/v1/Systems/1')).json()).PowerState === 'Paused'")
             assert page.request.get(a.origin + '/readyz').status == 200
             page.get_by_role('group', name='Power').get_by_role('button', name='Resume', exact=True).click()
-            page.wait_for_function("async () => (await (await fetch('/api/status')).json()).run_state === 'running'")
+            page.wait_for_function("async () => (await (await fetch('/redfish/v1/Systems/1')).json()).PowerState === 'On'")
             page.screenshot(path=str(a.output / 'input-verified.png'), full_page=True)
             print('PASS authenticated pause/resume; paused VM stays reachable')
             # Another tab signs out while this tab holds an active VNC connection.
