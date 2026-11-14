@@ -74,7 +74,9 @@ small API without exposing arbitrary Pod specifications.
 
 The `manager` container always owns the VM: `qrab-manager run` supervises QEMU
 and swtpm and serves the control socket. The browser BMC and the Redfish API
-are optional sidecars in the same image:
+are sidecars in the same image. The BMC's UI manages the VM through Redfish
+([bmc.md](bmc.md#redfish-proxy)), so Redfish is always rendered beside the
+BMC:
 
 ```yaml
 spec:
@@ -88,12 +90,27 @@ spec:
     bmc:
       enabled: true              # default; existing CRs keep the BMC
     redfish:
-      enabled: false             # default
+      # enabled: absent follows components.bmc.enabled; false is refused
+      # while the BMC is enabled. Set true for Redfish without the BMC.
       adminSubjects: []          # may read and ComputerSystem.Reset
       viewerSubjects: []         # read-only
       adminGroups: []
       viewerGroups: []
 ```
+
+### BMC users in Redfish
+
+While the BMC is enabled the operator renders Redfish's lists as the union of
+`components.redfish` and the console's: `console.allowedSubjects` and
+`console.adminGroups` join `REDFISH_ADMIN_SUBJECTS` / `REDFISH_ADMIN_GROUPS`,
+and `console.viewerSubjects` and `console.viewerGroups` join the viewer
+lists. The BMC proxy forwards each user's own ID token, so a BMC admin or
+viewer holds the same role in Redfish without being listed twice. Each
+source's admin and viewer lists must still be disjoint; across the two
+sources admin wins (a console admin listed as a Redfish viewer is a Redfish
+admin), so the rendered lists stay disjoint. `components.redfish`'s own lists
+add Redfish-only grants, for example for direct Redfish clients. Without the
+BMC the console's lists grant nothing in Redfish.
 
 ### Access through Kanidm groups
 
@@ -155,10 +172,17 @@ port 8080 of the VM Pods.
 
 | components | Pod |
 | --- | --- |
-| BMC only (default) | `manager` + `bmc` sidecar on port 8080 |
-| BMC and Redfish | `manager` + `bmc` (8080) + `redfish` (8081, `metrics` 9181) |
-| Redfish only | `manager` + `redfish` (8081, `metrics` 9181); `console` may be omitted |
-| none | `manager` alone; the VM runs with no HTTP surface |
+| BMC (default) | `manager` + `bmc` (8080) + `redfish` (8081, reached through the BMC's `/redfish` proxy; `metrics` 9181) |
+| Redfish only (`bmc.enabled: false`, `redfish.enabled: true`) | `manager` + `redfish` (8081, `metrics` 9181); `console` may be omitted |
+| none (`bmc.enabled: false`) | `manager` alone; the VM runs with no HTTP surface |
+
+The CRD refuses `components.redfish.enabled: false` while the BMC is enabled.
+Objects written under earlier CRDs store `enabled: false` (the old default);
+the operator renders Redfish for them anyway, and CRD validation ratcheting
+keeps admitting updates that leave `components` unchanged, such as the
+dashboard's `spec.running` patch. Changing `components` requires removing the
+stale value: `kubectl patch qvm <vm> --type=json -p
+'[{"op":"remove","path":"/spec/components/redfish/enabled"}]'`.
 
 Sidecars are native sidecars (`initContainers` with `restartPolicy: Always`):
 they start before the manager, keep serving while it stops the VM, restart on
@@ -189,9 +213,11 @@ The BMC sidecar receives `BMC_PUBLIC_URL`, `BMC_OIDC_ISSUER` and
 `BMC_OIDC_CLIENT_ID` when `console.publicUrl` is set, `BMC_BEARER_ISSUER` and
 `BMC_BEARER_AUDIENCE` when the operator has bearer settings, and the non-empty
 `BMC_ALLOWED_SUBJECTS`, `BMC_VIEWER_SUBJECTS`, `BMC_ADMIN_GROUPS` and
-`BMC_VIEWER_GROUPS`. The Redfish sidecar receives `REDFISH_OIDC_ISSUER`,
-`REDFISH_OIDC_AUDIENCE` and the non-empty `REDFISH_ADMIN_SUBJECTS` /
-`REDFISH_VIEWER_SUBJECTS`. Its `REDFISH_TRUSTED_TOKENS` lists the BMC client
+`BMC_VIEWER_GROUPS`, and `BMC_REDFISH_URL=http://127.0.0.1:8081`. The Redfish
+sidecar receives `REDFISH_OIDC_ISSUER`, `REDFISH_OIDC_AUDIENCE` and the
+non-empty `REDFISH_ADMIN_SUBJECTS` / `REDFISH_VIEWER_SUBJECTS` /
+`REDFISH_ADMIN_GROUPS` / `REDFISH_VIEWER_GROUPS`
+([merged with the console's](#bmc-users-in-redfish)). Its `REDFISH_TRUSTED_TOKENS` lists the BMC client
 (`QRAB_OIDC_ISSUER|QRAB_OIDC_CLIENT_ID`) when the BMC is enabled with a
 `console.publicUrl`, and the dashboard client
 (`QRAB_BMC_BEARER_ISSUER|QRAB_BMC_BEARER_AUDIENCE`) when those are set, so
@@ -210,9 +236,12 @@ environment selects the issuers:
 Changing components, subjects, the operator's bearer settings or this layout
 changes the Pod template hash, so the operator replaces the VM Pod while
 keeping its identity. Setting the bearer variables therefore restarts every
-BMC- or Redfish-enabled VM once. Service, Ingress
-and network-policy entries for port 8081 are explicit infrastructure, like the
-console's; see [redfish.md](redfish.md).
+BMC- or Redfish-enabled VM once, and so does the operator release that made
+Redfish mandatory beside the BMC (new `redfish` sidecar, `BMC_REDFISH_URL`,
+merged role lists). A BMC-enabled VM needs no Service, Ingress or policy
+entry for port 8081: browsers and Redfish clients reach Redfish through the
+BMC's `/redfish` proxy. For a Redfish-only VM those are explicit
+infrastructure, like the console's; see [redfish.md](redfish.md#exposure).
 
 The Redfish sidecar also declares port `metrics` (9181), its unauthenticated
 Prometheus listener ([redfish.md](redfish.md#prometheus-export)). For each

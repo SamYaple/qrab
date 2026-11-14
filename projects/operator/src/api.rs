@@ -185,6 +185,25 @@ pub struct Components {
     pub redfish: RedfishComponent,
 }
 
+impl Components {
+    /// Whether the Pod gets a Redfish sidecar: always with the BMC, whose
+    /// browser UI manages the VM through it, and otherwise when explicitly
+    /// enabled. A stored `false` beside an enabled BMC (the old CRD default,
+    /// persisted into every object written before) does not remove it.
+    ///
+    /// ```
+    /// use qrab_operator::api::Components;
+    /// let components = |json| serde_json::from_value::<Components>(json).unwrap();
+    /// assert!(components(serde_json::json!({})).redfish_enabled());
+    /// assert!(components(serde_json::json!({"redfish": {"enabled": false}})).redfish_enabled());
+    /// assert!(!components(serde_json::json!({"bmc": {"enabled": false}})).redfish_enabled());
+    /// assert!(components(serde_json::json!({"bmc": {"enabled": false}, "redfish": {"enabled": true}})).redfish_enabled());
+    /// ```
+    pub fn redfish_enabled(&self) -> bool {
+        self.bmc.enabled || self.redfish.enabled == Some(true)
+    }
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct BmcComponent {
@@ -216,9 +235,11 @@ pub struct RedfishComponent {
     /// creates or deletes it; it must not be the VM's firmware/TPM state PVC.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub state_volume_claim: Option<String>,
-    /// A DMTF Redfish API authenticated by OIDC bearer tokens.
-    #[serde(default)]
-    pub enabled: bool,
+    /// A DMTF Redfish API authenticated by OIDC bearer tokens. Absent, it
+    /// follows `components.bmc.enabled`: the BMC manages the VM through it,
+    /// so it cannot be turned off while the BMC is enabled.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub enabled: Option<bool>,
     /// Subject UUIDs that may read and reset the VM.
     #[serde(default)]
     #[schemars(length(max = 128))]
@@ -591,6 +612,18 @@ pub fn crd() -> serde_json::Value {
         {"rule":"!has(self.spec.maxMemoryMiB) || self.spec.memoryMiB <= self.spec.maxMemoryMiB", "message":"memoryMiB must not exceed maxMemoryMiB"},
         {"rule":"has(self.spec.console) || (has(self.spec.components) && has(self.spec.components.bmc) && has(self.spec.components.bmc.enabled) && !self.spec.components.bmc.enabled)", "message":"console is required while components.bmc is enabled"}
     ]);
+    // On `components`, not the root: CRD validation ratcheting then keeps
+    // admitting updates of objects whose stored components still carry the
+    // old `redfish.enabled: false` default, while new values are checked.
+    let components = &mut value["spec"]["versions"][0]["schema"]["openAPIV3Schema"]["properties"]
+        ["spec"]["properties"]["components"];
+    components["x-kubernetes-validations"] = serde_json::json!([
+        {"rule":"!(has(self.redfish) && has(self.redfish.enabled) && !self.redfish.enabled) || (has(self.bmc) && has(self.bmc.enabled) && !self.bmc.enabled)", "message":"components.redfish.enabled cannot be false while components.bmc is enabled: the BMC manages the VM through its Redfish sidecar"}
+    ]);
+    components["properties"]["redfish"]["properties"]["enabled"]
+        .as_object_mut()
+        .expect("redfish.enabled schema")
+        .remove("nullable");
     let disks = &mut value["spec"]["versions"][0]["schema"]["openAPIV3Schema"]["properties"]
         ["spec"]["properties"]["iscsiDisks"];
     disks["x-kubernetes-list-type"] = serde_json::json!("map");

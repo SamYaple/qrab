@@ -1,17 +1,46 @@
 import RFB from './novnc/core/rfb.js';
 
+// Every management read and action goes to the in-pod Redfish service
+// through the BMC's /redfish proxy; the BMC itself serves only the session
+// and the console.
+const SYSTEM = '/redfish/v1/Systems/1';
+const RESET_INFO = `${SYSTEM}/ResetActionInfo`;
+const EVENT_LOG = '/redfish/v1/Managers/1/LogServices/Events';
+const EVENT_STREAM = '/redfish/v1/EventService/SSE';
+const RESOURCES = '/redfish/v1/Managers/1/Oem/Qrab/Resources';
+// ResetType, label and confirmation; only those Redfish allows are shown.
+const RESETS = [
+    ['Pause', 'Pause'],
+    ['Resume', 'Resume'],
+    ['ForceRestart', 'Reset', 'Reset this VM?'],
+    ['GracefulRestart', 'Restart guest', 'Ask the guest agent to restart the guest?'],
+    ['GracefulShutdown', 'Shut down', 'Shut down this VM?'],
+    ['PowerCycle', 'Power cycle', 'Power-cycle this VM? QEMU exits and a fresh instance starts.'],
+    ['Nmi', 'NMI', 'Send a non-maskable interrupt to every vCPU?'],
+];
 const element = id => document.getElementById(id);
-let session, rfb, polling, events;
+let session, rfb, polling, background, events, system;
+let agentResult = [];
+const rendered = {};
 const MAX_EVENT_ROWS = 200;
 const showError = message => { element('error').textContent = message; element('error').hidden = !message; };
+async function failure(response) {
+    const text = await response.text();
+    try {
+        const error = JSON.parse(text).error;
+        return error?.['@Message.ExtendedInfo']?.[0]?.Message || error?.message || text;
+    } catch { return text; }
+}
 async function request(path, options = {}) {
     const response = await fetch(path, {credentials: 'same-origin', ...options});
     if (response.status === 401) { signedOut(); throw new Error('Your session ended. Sign in to reconnect.'); }
-    if (!response.ok) throw new Error(await response.text());
+    if (!response.ok) throw new Error(await failure(response));
     return response.status === 204 ? null : response.json();
 }
+const post = (path, body) => request(path, {method: 'POST', headers: {'Content-Type': 'application/json', 'X-CSRF-Token': session.user.csrf}, body: JSON.stringify(body)});
 function signedOut() {
     clearInterval(polling);
+    clearInterval(background);
     if (events) { events.close(); events = null; }
     if (rfb) rfb.disconnect();
     session = null;
@@ -27,10 +56,22 @@ const node = (tag, text, className) => {
     if (className) item.className = className;
     return item;
 };
+const pairs = rows => rows.flatMap(([key, value]) => [node('dt', key), node('dd', String(value))]);
+// Replace a panel only when its content changed, so polling keeps selections.
+function render(id, rows) {
+    const key = JSON.stringify(rows);
+    if (rendered[id] === key) return;
+    rendered[id] = key;
+    element(id).replaceChildren(...pairs(rows));
+}
+// LogEntry (history) and Event (SSE) records carry the QMP event under Oem.Qrab.
+const fromEntry = entry => ({seq: entry.Oem?.Qrab?.Sequence ?? Number(entry.Id), time: entry.Created, ...qmp(entry)});
+const fromEvent = record => ({seq: record.Oem?.Qrab?.Sequence ?? Number(record.EventId), time: record.EventTimestamp, ...qmp(record)});
+const qmp = record => ({event: record.Oem?.Qrab?.Event ?? record.Message, data: record.Oem?.Qrab?.Data, truncated: record.Oem?.Qrab?.Truncated});
 function eventRow(event) {
-    const millis = event.qemu_time ? event.qemu_time.seconds * 1000 + Math.floor(event.qemu_time.microseconds / 1000) : event.received_unix_ms;
-    const time = node('time', new Date(millis).toLocaleTimeString());
-    time.dateTime = new Date(millis).toISOString();
+    const at = event.time ? new Date(event.time) : new Date();
+    const time = node('time', at.toLocaleTimeString());
+    time.dateTime = at.toISOString();
     const data = event.truncated ? '(payload too large; omitted)' : JSON.stringify(event.data ?? {});
     const row = node('li');
     row.append(time, node('b', event.event), node('code', data === '{}' ? '' : data));
@@ -42,29 +83,36 @@ function addEvents(rows) {
     for (const row of rows) list.prepend(row);
     while (list.children.length > MAX_EVENT_ROWS) list.lastElementChild.remove();
 }
-function missedRow(count) {
-    const row = node('li', undefined, 'gap');
-    row.append(node('time', new Date().toLocaleTimeString()), node('b', 'MISSED'), node('code', `${count} older event(s) were evicted`));
-    return row;
+async function loadDropped() {
+    const log = await request(EVENT_LOG);
+    const count = log.Oem?.Qrab?.QmpDropped ?? 0;
+    element('events-dropped').textContent = count > 0 ? `${count} QMP event(s) were dropped before the manager recorded them` : '';
+    element('events-dropped').hidden = !(count > 0);
 }
+// The stream opens first and buffers until the history is shown, so no event
+// falls between them; sequence numbers drop the overlap.
 async function startEvents() {
-    const page = await request('/api/events?limit=100');
-    addEvents(page.events.map(eventRow));
     const status = element('events-status');
-    const dropped = count => {
-        element('events-dropped').textContent = count > 0 ? `${count} QMP event(s) were dropped before the manager recorded them` : '';
-        element('events-dropped').hidden = !(count > 0);
-    };
-    dropped(page.qmp_dropped);
-    events = new EventSource(`/api/events/stream?after=${page.next}`);
+    let last = -1, pending = [];
+    const show = record => { if (record.seq > last) { last = record.seq; addEvents([eventRow(record)]); } };
+    events = new EventSource(EVENT_STREAM);
     events.addEventListener('open', () => { status.textContent = 'Live'; });
-    events.addEventListener('qmp', message => addEvents([eventRow(JSON.parse(message.data))]));
-    events.addEventListener('missed', message => addEvents([missedRow(message.data)]));
-    events.addEventListener('qmp_dropped', message => dropped(Number(message.data)));
+    events.addEventListener('message', message => {
+        let records;
+        try { records = (JSON.parse(message.data).Events || []).map(fromEvent); } catch { return; }
+        for (const record of records) pending ? pending.push(record) : show(record);
+    });
     events.addEventListener('error', () => {
         status.textContent = events?.readyState === EventSource.CLOSED ? 'Disconnected' : 'Reconnecting…';
         refresh();
     });
+    const page = await request(`${EVENT_LOG}/Entries`);
+    const history = (page.Members || []).map(fromEntry).sort((a, b) => a.seq - b.seq).slice(-100);
+    for (const record of history) show(record);
+    const buffered = pending;
+    pending = null;
+    for (const record of buffered) show(record);
+    await loadDropped();
 }
 function describeDisk(disk) {
     const parts = [disk.kind === 'iscsi' ? `iSCSI ${disk.id} (${disk.bus})` : `file (${disk.format})`, disk.read_only ? 'read-only' : 'read-write'];
@@ -74,46 +122,50 @@ function describeDisk(disk) {
     return parts.join(' · ');
 }
 const stamp = millis => millis ? new Date(millis).toLocaleString() : '—';
-async function loadAgent() {
-    const view = await request('/api/agent');
-    const status = view.status;
-    const rows = [
-        ['Channel', status.enabled ? 'enabled' : 'disabled'],
-        ['Connected', status.connected ? `yes, since ${stamp(status.connected_since_unix_ms)}` : 'no'],
-        ['Version', status.version || '—'],
-        ['Last seen', stamp(status.last_seen_unix_ms)],
-    ];
-    if (status.last_error) rows.push(['Last error', status.last_error]);
-    if (view.freeze) rows.push(['Filesystems', view.freeze]);
-    if (view.update) {
-        const update = view.update;
-        rows.push(['Update', `${update.state}${update['run-id'] ? ` · run ${update['run-id']}` : ''}${update['exit-code'] !== null && update['exit-code'] !== undefined ? ` · exit ${update['exit-code']}` : ''}${update['hook-installed'] ? '' : ' · no hook installed'}`]);
-        if (update.output) rows.push(['Update output', update.output]);
-    }
-    element('agent').replaceChildren(...rows.flatMap(([key, value]) => [node('dt', key), node('dd', String(value))]));
-    element('agent-note').textContent = status.connected ? 'Connected' : 'Not connected';
-    for (const button of document.querySelectorAll('[data-agent]')) button.disabled = !status.connected;
+function updateSummary(update) {
+    const exit = update['exit-code'] !== null && update['exit-code'] !== undefined ? ` · exit ${update['exit-code']}` : '';
+    return `${update.state}${update['run-id'] ? ` · run ${update['run-id']}` : ''}${exit}${update['hook-installed'] ? '' : ' · no hook installed'}`;
 }
+function showAgent(status) {
+    const rows = [
+        ['Channel', status?.enabled ? 'enabled' : 'disabled'],
+        ['Connected', status?.connected ? `yes, since ${stamp(status.connected_since_unix_ms)}` : 'no'],
+        ['Version', status?.version || '—'],
+        ['Last seen', stamp(status?.last_seen_unix_ms)],
+    ];
+    if (status?.last_error) rows.push(['Last error', status.last_error]);
+    render('agent', [...rows, ...agentResult]);
+    element('agent-note').textContent = status?.connected ? 'Connected' : 'Not connected';
+    for (const button of document.querySelectorAll('[data-agent]')) button.disabled = !status?.connected;
+}
+const agentTarget = name => system?.Actions?.Oem?.[`#QrabComputerSystem.${name}`]?.target || `${SYSTEM}/Actions/Oem/QrabComputerSystem.${name}`;
 for (const button of document.querySelectorAll('[data-agent]')) {
     button.addEventListener('click', async () => {
         const operation = button.dataset.agent;
-        let body;
+        let body = {};
         if (operation === 'freeze' && !confirm('Freeze guest filesystems? Writes block until thawed or the agent watchdog thaws them.')) return;
         if (operation === 'update') {
             const args = prompt('Update hook arguments (space separated tokens, may be empty):', '');
             if (args === null) return;
-            body = JSON.stringify({args: args.split(/\s+/).filter(Boolean)});
+            body = {Args: args.split(/\s+/).filter(Boolean)};
         }
         button.disabled = true;
         try {
-            await request(`/api/agent/${operation}`, {method: 'POST', headers: {'Content-Type': 'application/json', 'X-CSRF-Token': session.user.csrf}, body});
+            const name = operation[0].toUpperCase() + operation.slice(1);
+            const result = await post(agentTarget(name), body);
+            if (operation === 'freeze') agentResult = [['Filesystems', `frozen (${result.FrozenFilesystems})`]];
+            if (operation === 'thaw') agentResult = [['Filesystems', `thawed (${result.ThawedFilesystems})`]];
+            if (operation === 'update') {
+                agentResult = [['Update', updateSummary(result.Update)]];
+                if (result.Update.output) agentResult.push(['Update output', result.Update.output]);
+            }
             showError('');
         } catch (error) { showError(error.message); }
-        finally { await loadAgent().catch(error => showError(error.message)); }
+        finally { await refresh(); }
     });
 }
-async function loadConfig() {
-    const view = await request('/api/config');
+function showConfig(view) {
+    if (!view) return;
     const rows = [
         ['Name', view.name], ['Memory', `${view.memory_mib} MiB`], ['vCPUs', view.cpus], ['Accelerator', view.accelerator],
         ['Boot', view.boot], ['TPM', view.tpm ? 'yes' : 'no'], ['Console', view.console ? 'yes' : 'no'],
@@ -138,15 +190,15 @@ async function loadConfig() {
     if (view.kernel_args) rows.push(['Kernel args', view.kernel_args]);
     for (const [key, value] of Object.entries(view.deployment || {})) rows.push([key[0].toUpperCase() + key.slice(1), value]);
     for (const [key, value] of Object.entries(view.paths || {})) rows.push([key.replaceAll('_', ' '), value]);
-    const list = element('config');
-    list.replaceChildren(...rows.flatMap(([key, value]) => [node('dt', key), node('dd', String(value))]));
+    render('config', rows);
     element('config-note').textContent = view.redacted ? 'Sensitive fields hidden for viewers' : 'Full view';
 }
 async function loadResources() {
-    const usage = await request('/api/resources');
+    const usage = await request(RESOURCES);
     const rows = [];
     const mib = value => value == null ? 'unavailable' : `${(value / 1048576).toFixed(1)} MiB`;
-    for (const [name, sample] of Object.entries(usage)) {
+    for (const name of ['Redfish', 'Manager']) {
+        const sample = usage[name];
         if (!sample) { rows.push([name, 'unavailable']); continue; }
         const process = sample.process || {};
         rows.push([`${name} process RSS`, mib(process.resident_memory_bytes)]);
@@ -157,14 +209,38 @@ async function loadResources() {
             rows.push([`${name} container CPU total`, sample.container.cpu_usage_seconds == null ? 'unavailable' : `${sample.container.cpu_usage_seconds.toFixed(2)} s`]);
         }
     }
-    element('resources').replaceChildren(...rows.flatMap(([key, value]) => [node('dt', key), node('dd', value)]));
+    render('resources', rows);
 }
+// One ComputerSystem read carries power state, health, the guest agent and
+// the (role-redacted) configuration.
 async function refresh() {
     try {
-        const status = await request('/api/status');
-        element('vm-status').textContent = `${status.run_state || status.phase} · QEMU ${(status.qemu_version || []).join('.')}`;
-        element('vm-status').className = status.ready ? 'running' : '';
+        system = await request(SYSTEM);
+        const health = system.Status?.Health;
+        element('vm-status').textContent = `${system.PowerState ?? 'Unavailable'}${health ? ` · ${health}` : ''}`;
+        element('vm-status').className = system.PowerState === 'On' ? 'running' : '';
+        showAgent(system.Oem?.Qrab?.GuestAgent);
+        showConfig(system.Oem?.Qrab?.Configuration);
     } catch (error) { showError(error.message); }
+}
+async function loadPower() {
+    const info = await request(RESET_INFO);
+    const allowed = new Set(info.Parameters?.find(parameter => parameter.Name === 'ResetType')?.AllowableValues || []);
+    const target = () => system?.Actions?.['#ComputerSystem.Reset']?.target || `${SYSTEM}/Actions/ComputerSystem.Reset`;
+    element('power').replaceChildren(...RESETS.filter(([type]) => allowed.has(type)).map(([type, label, question]) => {
+        const button = node('button', label);
+        button.addEventListener('click', async () => {
+            if (question && !confirm(question)) return;
+            button.disabled = true;
+            try {
+                await post(target(), {ResetType: type});
+                showError('');
+                await refresh();
+            } catch (error) { showError(error.message); }
+            finally { button.disabled = false; }
+        });
+        return button;
+    }));
 }
 function disconnected(message) {
     rfb = null;
@@ -198,19 +274,6 @@ element('connect').addEventListener('click', () => {
 });
 element('cad').addEventListener('click', () => rfb?.sendCtrlAltDel());
 element('fullscreen').addEventListener('click', () => element('screen').requestFullscreen().catch(error => showError(error.message)));
-for (const button of document.querySelectorAll('[data-action]')) {
-    button.addEventListener('click', async () => {
-        const action = button.dataset.action;
-        if (['reset', 'powerdown'].includes(action) && !confirm(`${action === 'reset' ? 'Reset' : 'Shut down'} this VM?`)) return;
-        button.disabled = true;
-        try {
-            await request('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json', 'X-CSRF-Token': session.user.csrf}, body: JSON.stringify(action)});
-            showError('');
-            await refresh();
-        } catch (error) { showError(error.message); }
-        finally { button.disabled = false; }
-    });
-}
 element('logout').addEventListener('click', async () => {
     try {
         await request('/auth/logout', {method: 'POST', headers: {'X-CSRF-Token': session.user.csrf}});
@@ -223,7 +286,8 @@ try {
     element('role').textContent = session.role === 'admin' ? 'Admin' : 'Viewer';
     element('role').hidden = false;
     element('vm-name').textContent = session.vm_name;
-    if (session.role !== 'admin') {
+    const admin = session.role === 'admin';
+    if (!admin) {
         for (const item of document.querySelectorAll('.admin-only')) item.hidden = true;
         element('screen').replaceChildren(node('p', 'Console and power actions require the admin role.'));
         element('console-status').textContent = 'View-only access';
@@ -232,7 +296,7 @@ try {
     element('dashboard').hidden = false;
     element('logout').hidden = false;
     await refresh();
-    polling = setInterval(refresh, 2000);
-    await Promise.all([loadConfig(), loadAgent(), loadResources(), startEvents()]).catch(error => showError(error.message));
-    setInterval(() => { loadAgent().catch(() => {}); loadResources().catch(() => {}); }, 5000);
+    polling = setInterval(refresh, 3000);
+    await Promise.all([admin ? loadPower() : null, loadResources(), startEvents()]).catch(error => showError(error.message));
+    background = setInterval(() => { loadResources().catch(() => {}); loadDropped().catch(() => {}); }, 5000);
 } catch (error) { signedOut(); if (!error.message.startsWith('Your session ended')) showError(error.message); }

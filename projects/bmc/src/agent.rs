@@ -1,8 +1,9 @@
-//! Guest-agent status for every role; quiesce and the update trigger for admins.
+//! Guest-agent status for the dashboard. Freeze, thaw and the update trigger
+//! are Redfish's `Oem/QrabComputerSystem` actions.
 use crate::{auth, AppState, Failure};
-use axum::{extract::State, http::HeaderMap, Json};
+use axum::{extract::State, Json};
 use manager::pod::{FreezeState, UpdateStatus};
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use std::time::Duration;
 
 /// Bound on the guest round trips behind a status read.
@@ -54,61 +55,6 @@ pub async fn view(
         freeze,
         update,
     }))
-}
-
-fn agent_failure(error: manager::Error) -> Failure {
-    match error {
-        manager::Error::Config(_) => Failure::bad_request(
-            "Update arguments must be at most 16 tokens of [A-Za-z0-9._:/=+@,-] that do not start with '-'.",
-        ),
-        error => Failure::vm(&error, "The guest agent did not complete the request."),
-    }
-}
-
-pub async fn freeze(
-    State(app): State<AppState>,
-    principal: auth::Principal,
-    headers: HeaderMap,
-) -> Result<Json<serde_json::Value>, Failure> {
-    let principal = principal.admin()?;
-    crate::mutation(&app, &headers, &principal)?;
-    let result = app.control.agent_freeze(None).await;
-    tracing::info!(subject=%principal.user.subject, bearer=principal.is_bearer(), success=result.is_ok(), "guest filesystems freeze requested");
-    let frozen = result.map_err(agent_failure)?;
-    Ok(Json(serde_json::json!({ "frozen": frozen })))
-}
-
-pub async fn thaw(
-    State(app): State<AppState>,
-    principal: auth::Principal,
-    headers: HeaderMap,
-) -> Result<Json<serde_json::Value>, Failure> {
-    let principal = principal.admin()?;
-    crate::mutation(&app, &headers, &principal)?;
-    let result = app.control.agent_thaw().await;
-    tracing::info!(subject=%principal.user.subject, bearer=principal.is_bearer(), success=result.is_ok(), "guest filesystems thaw requested");
-    let thawed = result.map_err(agent_failure)?;
-    Ok(Json(serde_json::json!({ "thawed": thawed })))
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct UpdateRequest {
-    #[serde(default)]
-    args: Vec<String>,
-}
-
-pub async fn update(
-    State(app): State<AppState>,
-    principal: auth::Principal,
-    headers: HeaderMap,
-    Json(request): Json<UpdateRequest>,
-) -> Result<Json<UpdateStatus>, Failure> {
-    let principal = principal.admin()?;
-    crate::mutation(&app, &headers, &principal)?;
-    let result = app.control.agent_update_trigger(request.args).await;
-    tracing::info!(subject=%principal.user.subject, bearer=principal.is_bearer(), success=result.is_ok(), "guest update requested");
-    result.map(Json).map_err(agent_failure)
 }
 
 #[cfg(test)]

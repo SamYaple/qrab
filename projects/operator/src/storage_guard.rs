@@ -1150,9 +1150,14 @@ mod tests {
             store.0.lock().unwrap().pod.as_ref().unwrap()
         ));
         step(&store, ctx).await;
+        // The BMC brings Redfish, whose metrics policy precedes the launch.
         assert_eq!(
             store.0.lock().unwrap().calls,
-            vec!["observe-owner", "remove-launch-gate"]
+            vec![
+                "observe-owner",
+                "create-redfish-policy",
+                "remove-launch-gate"
+            ]
         );
         let gates = store
             .0
@@ -1352,7 +1357,10 @@ mod tests {
         vm.spec.restart_nonce = "new-template".into();
         let (store, ctx, server) = server(vm, Some(pod)).await;
         step(&store, ctx).await;
-        assert_eq!(store.0.lock().unwrap().calls, vec!["delete-pod"]);
+        assert_eq!(
+            store.0.lock().unwrap().calls,
+            vec!["create-redfish-policy", "delete-pod"]
+        );
         assert!(has_owner_gate(
             store.0.lock().unwrap().pod.as_ref().unwrap()
         ));

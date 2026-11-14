@@ -53,6 +53,7 @@ async fn main() -> Result<()> {
         )),
     };
     let origin = config.browser.as_ref().map(|b| b.origin.clone());
+    let redfish = bmc::proxy::Upstream::new(&config.redfish_url)?;
     let listener = tokio::net::TcpListener::bind(config.listen).await?;
     let state = |control| bmc::AppState {
         oidc,
@@ -63,6 +64,7 @@ async fn main() -> Result<()> {
         sessions: Default::default(),
         consoles: Arc::new(Semaphore::new(4)),
         event_streams: Arc::new(Semaphore::new(16)),
+        redfish,
     };
     let mut term = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
     let mut interrupt = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())?;
@@ -72,7 +74,7 @@ async fn main() -> Result<()> {
     if args[0] == "--socket" {
         let remote = pod::Remote::new(args[1].clone().into());
         let app = bmc::router(state(pod::Backend::Socket(remote.clone())));
-        tracing::info!(listen=%config.listen, origin=?origin, bearer=config.bearer.is_some(), socket=%args[1], "BMC sidecar started");
+        tracing::info!(listen=%config.listen, origin=?origin, bearer=config.bearer.is_some(), redfish=%config.redfish_url, socket=%args[1], "BMC sidecar started");
         return sidecar(listener, app, remote, signal).await;
     }
     let vm = pod::Config::read(Path::new(&args[1]))?;

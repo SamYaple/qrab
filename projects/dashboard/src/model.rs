@@ -208,7 +208,7 @@ pub fn detail(
         nics: nics(vm),
         cloud_init: cloud_init(vm),
         bmc_enabled: vm.spec.components.bmc.enabled,
-        redfish_enabled: vm.spec.components.redfish.enabled,
+        redfish_enabled: vm.spec.components.redfish_enabled(),
         pod_name: status.pod_name.clone(),
         pod_ip: pod_ip.map(|ip| ip.to_string()),
         containers,

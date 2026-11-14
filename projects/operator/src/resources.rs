@@ -259,7 +259,7 @@ pub fn redfish_metrics_policy(
     settings: &Settings,
 ) -> Result<Option<DynamicObject>> {
     validate(vm, settings)?;
-    if !vm.spec.components.redfish.enabled {
+    if !vm.spec.components.redfish_enabled() {
         return Ok(None);
     }
     let uid = vm
@@ -294,7 +294,7 @@ pub fn redfish_metrics_policy(
 pub fn redfish_policy(vm: &VirtualMachine, settings: &Settings) -> Result<Option<DynamicObject>> {
     validate(vm, settings)?;
     let redfish = &vm.spec.components.redfish;
-    if !redfish.enabled || redfish.event_destinations.is_empty() {
+    if !vm.spec.components.redfish_enabled() || redfish.event_destinations.is_empty() {
         return Ok(None);
     }
     let uid = vm
@@ -435,6 +435,76 @@ fn viewers_with_creator(
     all
 }
 
+/// The in-pod Redfish listener the BMC's `/redfish/*` proxy forwards to,
+/// over the Pod's loopback.
+pub const BMC_REDFISH_URL: &str = "http://127.0.0.1:8081";
+
+/// The subject and group grants rendered into the Redfish sidecar.
+pub struct RedfishAccess {
+    pub admins: Vec<String>,
+    pub viewers: Vec<String>,
+    pub admin_groups: Vec<String>,
+    pub viewer_groups: Vec<String>,
+}
+
+impl RedfishAccess {
+    fn is_empty(&self) -> bool {
+        self.admins.is_empty()
+            && self.viewers.is_empty()
+            && self.admin_groups.is_empty()
+            && self.viewer_groups.is_empty()
+    }
+}
+
+fn canonical(id: &str) -> String {
+    uuid::Uuid::parse_str(id).map_or_else(|_| id.to_owned(), |id| id.to_string())
+}
+
+/// Redfish's grants: `components.redfish`'s lists and, while the BMC is
+/// enabled, the console's. The BMC UI manages the VM through Redfish with each
+/// user's own ID token, so a console admin or viewer holds the same Redfish
+/// role. Admin wins across the two sources, so the merged admin and viewer
+/// lists stay disjoint; the creator is a viewer unless already an admin.
+pub fn redfish_access(vm: &VirtualMachine, creator: Option<&str>) -> RedfishAccess {
+    let redfish = &vm.spec.components.redfish;
+    let console = vm
+        .spec
+        .console
+        .as_ref()
+        .filter(|_| vm.spec.components.bmc.enabled);
+    let union = |own: &[String], bmc: Option<&Vec<String>>, except: &[String]| {
+        let mut seen: BTreeSet<String> = except.iter().map(|id| canonical(id)).collect();
+        own.iter()
+            .chain(bmc.into_iter().flatten())
+            .filter(|id| seen.insert(canonical(id)))
+            .cloned()
+            .collect::<Vec<_>>()
+    };
+    let admins = union(
+        &redfish.admin_subjects,
+        console.map(|c| &c.allowed_subjects),
+        &[],
+    );
+    let viewers = union(
+        &redfish.viewer_subjects,
+        console.map(|c| &c.viewer_subjects),
+        &admins,
+    );
+    let viewers = viewers_with_creator(&admins, &viewers, creator);
+    let admin_groups = union(&redfish.admin_groups, console.map(|c| &c.admin_groups), &[]);
+    let viewer_groups = union(
+        &redfish.viewer_groups,
+        console.map(|c| &c.viewer_groups),
+        &admin_groups,
+    );
+    RedfishAccess {
+        admins,
+        viewers,
+        admin_groups,
+        viewer_groups,
+    }
+}
+
 /// Whether the BMC has its own browser login (and so holds `qrab-bmc` ID tokens).
 fn browser_login(vm: &VirtualMachine) -> bool {
     vm.spec.components.bmc.enabled
@@ -551,7 +621,7 @@ pub fn validate(vm: &VirtualMachine, settings: &Settings) -> Result<()> {
         None => {}
     }
     let redfish = &vm.spec.components.redfish;
-    if !redfish.enabled
+    if !vm.spec.components.redfish_enabled()
         && (!redfish.event_destinations.is_empty()
             || redfish.state_volume_claim.is_some()
             || redfish.telemetry_interval_seconds.is_some())
@@ -603,13 +673,22 @@ pub fn validate(vm: &VirtualMachine, settings: &Settings) -> Result<()> {
             return Err(Error::Invalid("identity, Redfish state, media and firmware PVC roles must use distinct valid claim names".into()));
         }
     }
-    if redfish.enabled {
-        access(
-            "components.redfish",
-            (&redfish.admin_subjects, &redfish.viewer_subjects),
-            (&redfish.admin_groups, &redfish.viewer_groups),
-            creator.as_deref(),
+    if vm.spec.components.redfish_enabled() {
+        subjects(
+            "components.redfish subjects",
+            &redfish.admin_subjects,
+            &redfish.viewer_subjects,
         )?;
+        subjects(
+            "components.redfish groups",
+            &redfish.admin_groups,
+            &redfish.viewer_groups,
+        )?;
+        if redfish_access(vm, creator.as_deref()).is_empty() {
+            return Err(Error::Invalid(
+                "components.redfish needs admin or viewer subjects or groups".into(),
+            ));
+        }
     }
     if vm.uid().is_none() {
         return Err(Error::Invalid("VM UID is required".into()));
@@ -1042,6 +1121,7 @@ fn sidecars(
         if !bucket.is_empty() {
             env.push(json!({"name":"BMC_ADMIN_BUCKET","value":bucket.join(",")}));
         }
+        env.push(json!({"name":"BMC_REDFISH_URL","value":BMC_REDFISH_URL}));
         containers.push(sidecar(
             "bmc",
             "qrab-bmc",
@@ -1050,7 +1130,7 @@ fn sidecars(
         ));
     }
     let redfish = &vm.spec.components.redfish;
-    if redfish.enabled {
+    if vm.spec.components.redfish_enabled() {
         let mut env = vec![
             json!({"name":"REDFISH_OIDC_ISSUER","value":settings.redfish_oidc_issuer}),
             json!({"name":"REDFISH_OIDC_AUDIENCE","value":settings.redfish_oidc_audience}),
@@ -1063,16 +1143,12 @@ fn sidecars(
                 .collect();
             env.push(json!({"name":"REDFISH_TRUSTED_TOKENS","value":pairs.join(",")}));
         }
-        let viewers = viewers_with_creator(
-            &redfish.admin_subjects,
-            &redfish.viewer_subjects,
-            creator.as_deref(),
-        );
+        let access = redfish_access(vm, creator.as_deref());
         for (name, list) in [
-            ("REDFISH_ADMIN_SUBJECTS", &redfish.admin_subjects),
-            ("REDFISH_VIEWER_SUBJECTS", &viewers),
-            ("REDFISH_ADMIN_GROUPS", &redfish.admin_groups),
-            ("REDFISH_VIEWER_GROUPS", &redfish.viewer_groups),
+            ("REDFISH_ADMIN_SUBJECTS", &access.admins),
+            ("REDFISH_VIEWER_SUBJECTS", &access.viewers),
+            ("REDFISH_ADMIN_GROUPS", &access.admin_groups),
+            ("REDFISH_VIEWER_GROUPS", &access.viewer_groups),
         ] {
             if !list.is_empty() {
                 env.push(json!({"name":name,"value":subject_list(list)}));
@@ -1308,7 +1384,7 @@ pub fn render_incarnation(
         .redfish
         .state_volume_claim
         .as_ref()
-        .filter(|_| vm.spec.components.redfish.enabled)
+        .filter(|_| vm.spec.components.redfish_enabled())
     {
         pod["spec"]["volumes"]
             .as_array_mut()
@@ -1393,7 +1469,7 @@ pub fn render_incarnation(
     if let Some(ip) = &settings.idp_ip {
         let mut hosts = BTreeSet::new();
         let bmc = vm.spec.components.bmc.enabled;
-        let redfish = vm.spec.components.redfish.enabled;
+        let redfish = vm.spec.components.redfish_enabled();
         let bearer = settings.bmc_bearer.as_ref().filter(|_| bmc);
         let trusted = redfish_trusted_tokens(vm, settings);
         for (enabled, issuer) in [

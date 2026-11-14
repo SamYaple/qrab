@@ -26,6 +26,8 @@ const ISSUER: &str = "https://idm.example/oauth2/openid/qrab-dashboard";
 const AUDIENCE: &str = "qrab-dashboard";
 const UNLISTED: &str = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
 const SIGNER: &str = "test-only-signing-key.pem";
+/// No Redfish listens here.
+const UNREACHABLE: &str = "http://127.0.0.1:1";
 
 /// Redfish's test-only RSA keys; the BMC verifies tokens the same way.
 fn key(name: &str) -> openidconnect::core::CoreRsaPrivateSigningKey {
@@ -157,6 +159,7 @@ fn app_with_receiver() -> (AppState, manager::pod::ControlReceiver) {
         ca_file: None,
         // Audio is enabled for this VM; USB redirection is not.
         admin_bucket: [Feature::Audio].into(),
+        redfish_url: UNREACHABLE.into(),
     };
     let vm: manager::pod::Config = serde_json::from_value(serde_json::json!({
         "kernel":"/unused", "console":true,
@@ -185,6 +188,7 @@ fn app_with_receiver() -> (AppState, manager::pod::ControlReceiver) {
         sessions: BoundedStore::default(),
         consoles: Arc::new(Semaphore::new(4)),
         event_streams: Arc::new(Semaphore::new(2)),
+        redfish: bmc::proxy::Upstream::new(UNREACHABLE).unwrap(),
     };
     (app, receiver)
 }
@@ -247,10 +251,8 @@ async fn vm_apis_reject_missing_expired_and_unlisted_sessions() {
     for path in [
         "/api/session",
         "/api/status",
-        "/api/resources",
         "/api/config",
         "/api/events",
-        "/api/events/stream",
         "/api/agent",
     ] {
         for cookie in [
@@ -502,95 +504,6 @@ async fn event_pages_follow_cursors() {
 }
 
 #[tokio::test]
-async fn event_stream_checks_admission_and_ends_on_revocation() {
-    use futures::StreamExt;
-    use std::time::Duration;
-    use tower_sessions::SessionStore;
-    let (app, receiver) = app_with_receiver();
-    let viewer = cookie(app.sessions.clone(), VIEWER, auth::now() + 60).await;
-    receiver.record_event(qmp_event("RESUME"));
-    let response = bmc::router(app.clone())
-        .oneshot(
-            req("/api/events/stream", Some(&viewer))
-                .header("origin", "https://evil.example")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(response.status(), StatusCode::FORBIDDEN);
-    let response = bmc::router(app.clone())
-        .oneshot(
-            req("/api/events/stream?after=0", Some(&viewer))
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(response.status(), StatusCode::OK);
-    assert!(response.headers()["content-type"]
-        .to_str()
-        .unwrap()
-        .starts_with("text/event-stream"));
-    let mut body = response.into_body().into_data_stream();
-    let mut seen = String::new();
-    let mut read_until = async |needle: &str, seen: &mut String| {
-        tokio::time::timeout(Duration::from_secs(5), async {
-            while !seen.contains(needle) {
-                let chunk = body.next().await.expect("stream ended").unwrap();
-                seen.push_str(std::str::from_utf8(&chunk).unwrap());
-            }
-        })
-        .await
-        .unwrap_or_else(|_| panic!("{needle} not streamed: {seen}"));
-    };
-    read_until("\"event\":\"RESUME\"", &mut seen).await;
-    assert!(seen.contains("event: qmp") && seen.contains("id: 1"));
-    receiver.record_event(qmp_event("STOP"));
-    read_until("\"event\":\"STOP\"", &mut seen).await;
-    // Streams are bounded per BMC; the second permit is still free, the third is not.
-    let second = bmc::router(app.clone())
-        .oneshot(
-            req("/api/events/stream", Some(&viewer))
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(second.status(), StatusCode::OK);
-    let third = bmc::router(app.clone())
-        .oneshot(
-            req("/api/events/stream", Some(&viewer))
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(third.status(), StatusCode::SERVICE_UNAVAILABLE);
-    let refused = axum::body::to_bytes(third.into_body(), 1024).await.unwrap();
-    assert_eq!(&refused[..], b"Too many live event streams are open.");
-    drop(second);
-    // Server-side revocation ends an idle, already-waiting stream without
-    // client cooperation.
-    let drain = tokio::spawn(async move {
-        while let Some(chunk) = body.next().await {
-            chunk.unwrap();
-        }
-    });
-    tokio::time::sleep(Duration::from_millis(200)).await;
-    assert!(!drain.is_finished());
-    app.sessions
-        .delete(&viewer.split_once('=').unwrap().1.parse().unwrap())
-        .await
-        .unwrap();
-    tokio::time::timeout(Duration::from_secs(4), drain)
-        .await
-        .expect("revoked event stream stayed open")
-        .unwrap();
-    assert_eq!(app.event_streams.available_permits(), 2);
-}
-
-#[tokio::test]
 async fn viewers_are_refused_at_console_websocket_admission() {
     let app = app();
     let viewer = cookie(app.sessions.clone(), VIEWER, auth::now() + 60).await;
@@ -782,10 +695,9 @@ fn post(path: &str, cookie: &str, csrf: &str, body: &str) -> Request<Body> {
 }
 
 #[tokio::test]
-async fn guest_agent_status_is_for_viewers_and_its_mutations_for_admins() {
+async fn guest_agent_status_is_for_viewers() {
     let app = app();
     let viewer = cookie(app.sessions.clone(), VIEWER, auth::now() + 60).await;
-    let admin = cookie(app.sessions.clone(), SUBJECT, auth::now() + 60).await;
     // Status is answered from the manager's cached state, before QEMU runs.
     let started = std::time::Instant::now();
     let (status, body) = get(&app, "/api/agent", &viewer).await;
@@ -795,54 +707,29 @@ async fn guest_agent_status_is_for_viewers_and_its_mutations_for_admins() {
     assert_eq!(view["status"]["enabled"], true);
     assert_eq!(view["status"]["connected"], false);
     assert!(view["freeze"].is_null() && view["update"].is_null());
-    let paths = [
-        ("/api/agent/freeze", ""),
-        ("/api/agent/thaw", ""),
-        ("/api/agent/update", r#"{"args":["release=2"]}"#),
-    ];
-    for (path, body) in paths {
-        let response = bmc::router(app.clone())
-            .oneshot(post(path, &viewer, "correct", body))
-            .await
+}
+
+/// Management lives in Redfish; only the dashboard's routes remain.
+#[tokio::test]
+async fn duplicate_management_routes_are_gone() {
+    let app = app();
+    let admin = cookie(app.sessions.clone(), SUBJECT, auth::now() + 60).await;
+    for (method, path) in [
+        ("GET", "/api/resources"),
+        ("GET", "/api/events/stream"),
+        ("POST", "/api/agent/freeze"),
+        ("POST", "/api/agent/thaw"),
+        ("POST", "/api/agent/update"),
+    ] {
+        let request = req(path, Some(&admin))
+            .method(method)
+            .header("content-type", "application/json")
+            .header("origin", "https://vm.example")
+            .header("x-csrf-token", "correct")
+            .body(Body::from("{}"))
             .unwrap();
-        assert_eq!(response.status(), StatusCode::FORBIDDEN, "viewer {path}");
-        let response = bmc::router(app.clone())
-            .oneshot(post(path, &admin, "wrong", body))
-            .await
-            .unwrap();
-        assert_eq!(
-            response.status(),
-            StatusCode::FORBIDDEN,
-            "admin without CSRF {path}"
-        );
-        // An admin passes authorization; the agent is not connected yet.
-        let response = bmc::router(app.clone())
-            .oneshot(post(path, &admin, "correct", body))
-            .await
-            .unwrap();
-        assert_eq!(
-            response.status(),
-            StatusCode::SERVICE_UNAVAILABLE,
-            "admin {path}"
-        );
-        let message = axum::body::to_bytes(response.into_body(), 1024)
-            .await
-            .unwrap();
-        assert_eq!(
-            &message[..],
-            b"The guest agent did not complete the request."
-        );
+        assert_eq!(send(&app, request).await.0, StatusCode::NOT_FOUND, "{path}");
     }
-    let response = bmc::router(app.clone())
-        .oneshot(post(
-            "/api/agent/update",
-            &admin,
-            "correct",
-            r#"{"args":["$(reboot)"]}"#,
-        ))
-        .await
-        .unwrap();
-    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
 }
 
 #[tokio::test]
@@ -937,10 +824,8 @@ async fn bearer_tokens_are_fully_verified_on_every_api_route() {
     for path in [
         "/api/session",
         "/api/status",
-        "/api/resources",
         "/api/config",
         "/api/events",
-        "/api/events/stream",
         "/api/agent",
     ] {
         for token in &rejected {
@@ -961,12 +846,7 @@ async fn bearer_tokens_are_fully_verified_on_every_api_route() {
         let request = breq(path, &unlisted).body(Body::empty()).unwrap();
         assert_eq!(send(&app, request).await.0, StatusCode::FORBIDDEN, "{path}");
     }
-    for (path, body) in [
-        ("/api/action", "\"reset\""),
-        ("/api/agent/freeze", ""),
-        ("/api/agent/thaw", ""),
-        ("/api/agent/update", r#"{"args":[]}"#),
-    ] {
+    for (path, body) in [("/api/action", "\"reset\"")] {
         let request = breq(path, &expired)
             .method("POST")
             .header("content-type", "application/json")
@@ -1004,17 +884,11 @@ async fn bearer_roles_come_from_subjects_and_groups_and_need_no_csrf() {
     let (status, body) = send(&app, request).await;
     assert_eq!(status, StatusCode::OK);
     assert!(body.contains("\"redacted\":true") && !body.contains(PORTAL));
-    let agent = "The guest agent did not complete the request.";
-    let mutations = [
-        (
-            "/api/action",
-            "\"reset\"",
-            "The VM did not complete the power action.",
-        ),
-        ("/api/agent/freeze", "", agent),
-        ("/api/agent/thaw", "", agent),
-        ("/api/agent/update", r#"{"args":["release=2"]}"#, agent),
-    ];
+    let mutations = [(
+        "/api/action",
+        "\"reset\"",
+        "The VM did not complete the power action.",
+    )];
     for (path, body, _) in mutations {
         let request = breq(path, &viewer)
             .method("POST")
@@ -1049,13 +923,7 @@ async fn bearer_roles_come_from_subjects_and_groups_and_need_no_csrf() {
 async fn authorization_headers_grant_nothing_without_bearer_mode() {
     let mut app = app();
     app.bearer = None;
-    for path in [
-        "/api/session",
-        "/api/status",
-        "/api/resources",
-        "/api/config",
-        "/api/events/stream",
-    ] {
+    for path in ["/api/session", "/api/status", "/api/config", "/api/events"] {
         let request = breq(path, &bearer(SUBJECT)).body(Body::empty()).unwrap();
         assert_eq!(
             send(&app, request).await.0,
@@ -1166,43 +1034,6 @@ async fn bearer_admission_lasts_until_the_token_expires() {
 }
 
 #[tokio::test]
-async fn bearer_event_streams_skip_origin_checks_and_end_at_token_expiry() {
-    use futures::StreamExt;
-    use std::time::Duration;
-    let (app, receiver) = app_with_receiver();
-    receiver.record_event(qmp_event("RESUME"));
-    let token = signed(SIGNER, ISSUER, AUDIENCE, UNLISTED, &[VIEWER_GROUP], 2);
-    let response = bmc::router(app.clone())
-        .oneshot(
-            breq("/api/events/stream?after=0", &token)
-                .header("origin", "https://dashboard.example")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(response.status(), StatusCode::OK);
-    let mut body = response.into_body().into_data_stream();
-    let mut seen = String::new();
-    tokio::time::timeout(Duration::from_secs(5), async {
-        while !seen.contains("\"event\":\"RESUME\"") {
-            let chunk = body.next().await.expect("stream ended").unwrap();
-            seen.push_str(std::str::from_utf8(&chunk).unwrap());
-        }
-    })
-    .await
-    .unwrap_or_else(|_| panic!("RESUME not streamed: {seen}"));
-    let drain = tokio::spawn(async move { while body.next().await.is_some() {} });
-    tokio::time::sleep(Duration::from_millis(200)).await;
-    assert!(!drain.is_finished(), "ended before the token expired");
-    tokio::time::timeout(Duration::from_secs(5), drain)
-        .await
-        .expect("event stream outlived its bearer token")
-        .unwrap();
-    assert_eq!(app.event_streams.available_permits(), 2);
-}
-
-#[tokio::test]
 async fn bearer_only_bmc_serves_the_api_but_no_login_or_ui() {
     let app = bearer_only();
     for (method, path) in [
@@ -1231,7 +1062,7 @@ async fn bearer_only_bmc_serves_the_api_but_no_login_or_ui() {
         .body(Body::from("\"reset\""))
         .unwrap();
     assert_eq!(send(&app, request).await.0, StatusCode::SERVICE_UNAVAILABLE);
-    for path in ["/api/session", "/api/status", "/api/events/stream"] {
+    for path in ["/api/session", "/api/status", "/api/events"] {
         let request = req(path, None).body(Body::empty()).unwrap();
         assert_eq!(
             send(&app, request).await.0,
@@ -1528,4 +1359,478 @@ async fn only_admins_see_the_enabled_admin_bucket_in_their_session() {
         .await
         .1
         .contains("\"admin_bucket\":[\"audio\"]"));
+}
+
+const SESSION_TOKEN: &str = "session.id-token.never-shown";
+const RESET: &str = "/redfish/v1/Systems/1/Actions/ComputerSystem.Reset";
+const SIGNED_UPDATE: &str =
+    "/redfish/v1/Systems/1/SecureBoot/Actions/Oem/QrabSecureBoot.UpdateAuthenticatedDatabase";
+
+/// A browser session whose login stored `token` server-side.
+async fn token_cookie(store: BoundedStore, subject: &str, token: &str) -> String {
+    let session = Session::new(None, Arc::new(store), None);
+    session
+        .insert(
+            "user",
+            auth::User {
+                subject: subject.into(),
+                groups: vec![],
+                name: "operator".into(),
+                csrf: "correct".into(),
+                expires: auth::now() + 60,
+            },
+        )
+        .await
+        .unwrap();
+    session.insert(auth::ID_TOKEN, token).await.unwrap();
+    session.save().await.unwrap();
+    format!("__Host-qrab-session={}", session.id().unwrap())
+}
+
+#[derive(Debug, Clone)]
+struct Seen {
+    method: String,
+    uri: String,
+    headers: axum::http::HeaderMap,
+    body: Vec<u8>,
+}
+
+/// A fake in-pod Redfish that records every connection and request.
+struct Recording {
+    url: String,
+    connections: Arc<std::sync::atomic::AtomicUsize>,
+    seen: Arc<std::sync::Mutex<Vec<Seen>>>,
+    /// Live SSE responses; each decrements when its stream is dropped.
+    streams: Arc<std::sync::atomic::AtomicUsize>,
+    server: tokio::task::JoinHandle<()>,
+}
+
+struct Open(Arc<std::sync::atomic::AtomicUsize>);
+impl Drop for Open {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+impl Recording {
+    async fn start() -> Self {
+        use axum::{
+            response::{sse, IntoResponse},
+            routing::{get, post},
+        };
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let connections = Arc::new(AtomicUsize::new(0));
+        let seen = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let streams = Arc::new(AtomicUsize::new(0));
+        let open = streams.clone();
+        let sse = move || {
+            let open = open.clone();
+            async move {
+                open.fetch_add(1, Ordering::SeqCst);
+                let guard = Open(open);
+                let first = futures::stream::once(async {
+                    Ok::<_, std::convert::Infallible>(
+                        sse::Event::default()
+                            .id("7")
+                            .data(r#"{"Events":[{"EventId":"7"}]}"#),
+                    )
+                });
+                let rest = futures::stream::unfold(guard, |guard| async move {
+                    std::future::pending::<()>().await;
+                    Some((Ok(sse::Event::default()), guard))
+                });
+                sse::Sse::new(futures::StreamExt::chain(first, rest))
+            }
+        };
+        let resource = || async {
+            (
+                [
+                    ("odata-version", "4.0"),
+                    ("set-cookie", "upstream=leak"),
+                    ("x-upstream-secret", "leak"),
+                ],
+                axum::Json(serde_json::json!({
+                    "@odata.id": "/redfish/v1/Systems/1", "PowerState": "On"
+                })),
+            )
+        };
+        let recorder = seen.clone();
+        let app = axum::Router::new()
+            .route("/redfish/v1/Systems/1", get(resource))
+            .route(RESET, post(|| async { StatusCode::NO_CONTENT }))
+            .route(SIGNED_UPDATE, post(|| async { StatusCode::NO_CONTENT }))
+            .route("/redfish/v1/EventService/SSE", get(sse))
+            .route(
+                "/redfish/v1/Refused",
+                get(|| async { (StatusCode::UNAUTHORIZED, "token refused") }),
+            )
+            .layer(axum::middleware::from_fn(
+                |request: axum::extract::Request, next: axum::middleware::Next| async move {
+                    // Like Redfish, nothing is served without a bearer token.
+                    if !request.headers().contains_key("authorization") {
+                        return (
+                            StatusCode::UNAUTHORIZED,
+                            [("www-authenticate", "Bearer realm=\"qrab-redfish\"")],
+                        )
+                            .into_response();
+                    }
+                    next.run(request).await
+                },
+            ))
+            .layer(axum::middleware::from_fn(
+                move |request: axum::extract::Request, next: axum::middleware::Next| {
+                    let recorder = recorder.clone();
+                    async move {
+                        let (parts, body) = request.into_parts();
+                        let body = axum::body::to_bytes(body, 1 << 20).await.unwrap();
+                        recorder.lock().unwrap().push(Seen {
+                            method: parts.method.to_string(),
+                            uri: parts.uri.to_string(),
+                            headers: parts.headers.clone(),
+                            body: body.to_vec(),
+                        });
+                        next.run(axum::extract::Request::from_parts(parts, Body::from(body)))
+                            .await
+                    }
+                },
+            ));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        let counter = connections.clone();
+        use axum::serve::ListenerExt;
+        let listener = listener.tap_io(move |_| {
+            counter.fetch_add(1, Ordering::SeqCst);
+        });
+        let server = tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+        Self {
+            url,
+            connections,
+            seen,
+            streams,
+            server,
+        }
+    }
+
+    fn connections(&self) -> usize {
+        self.connections.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    fn seen(&self) -> Vec<Seen> {
+        self.seen.lock().unwrap().clone()
+    }
+}
+
+impl Drop for Recording {
+    fn drop(&mut self) {
+        self.server.abort();
+    }
+}
+
+async fn proxied() -> (AppState, Recording) {
+    let upstream = Recording::start().await;
+    let mut app = app();
+    app.redfish = bmc::proxy::Upstream::new(&upstream.url).unwrap();
+    (app, upstream)
+}
+
+/// Only these headers may reach Redfish.
+fn assert_forwarded_only_allowed_headers(seen: &Seen) {
+    for (name, _) in &seen.headers {
+        assert!(
+            [
+                "authorization",
+                "content-type",
+                "accept",
+                "last-event-id",
+                "host",
+                "content-length"
+            ]
+            .contains(&name.as_str()),
+            "{name} was forwarded to Redfish: {seen:?}"
+        );
+    }
+}
+
+/// Every response header and body, to search for leaked secrets.
+async fn everything(response: axum::response::Response) -> (StatusCode, String) {
+    let status = response.status();
+    let mut text = format!("{:?}", response.headers());
+    let body = axum::body::to_bytes(response.into_body(), 1 << 20)
+        .await
+        .unwrap();
+    text.push_str(std::str::from_utf8(&body).unwrap());
+    (status, text)
+}
+
+#[tokio::test]
+async fn redfish_proxy_forwards_the_session_token_or_the_request_bearer_and_nothing_else() {
+    let (app, upstream) = proxied().await;
+    let admin = token_cookie(app.sessions.clone(), SUBJECT, SESSION_TOKEN).await;
+    let viewer = token_cookie(app.sessions.clone(), VIEWER, "viewer.id-token").await;
+    for (cookie, token) in [(&admin, SESSION_TOKEN), (&viewer, "viewer.id-token")] {
+        let response = bmc::router(app.clone())
+            .oneshot(
+                req("/redfish/v1/Systems/1", Some(cookie))
+                    .header("accept", "application/json")
+                    .header("x-forwarded-for", "203.0.113.9")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.headers()["odata-version"], "4.0");
+        assert!(response.headers().get("x-upstream-secret").is_none());
+        assert!(response
+            .headers()
+            .get_all("set-cookie")
+            .iter()
+            .all(|value| !value.to_str().unwrap().contains("upstream")));
+        let (status, text) = everything(response).await;
+        assert_eq!(status, StatusCode::OK, "{text}");
+        assert!(text.contains("\"PowerState\":\"On\""), "{text}");
+        assert!(!text.contains(token), "the ID token left the BMC: {text}");
+        let seen = upstream.seen().pop().unwrap();
+        assert_eq!(seen.uri, "/redfish/v1/Systems/1");
+        assert_eq!(seen.headers["authorization"], format!("Bearer {token}"));
+        assert_eq!(seen.headers["accept"], "application/json");
+        assert_forwarded_only_allowed_headers(&seen);
+    }
+    // The session's own view never includes the token either.
+    let response = bmc::router(app.clone())
+        .oneshot(
+            req("/api/session", Some(&admin))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let (status, text) = everything(response).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(!text.contains(SESSION_TOKEN), "{text}");
+
+    // A bearer request is forwarded with its own token, never the session's
+    // or the cookie, and needs no CSRF token or Origin.
+    let token = bearer(SUBJECT);
+    for (method, path) in [("GET", "/redfish/v1/Systems/1"), ("POST", RESET)] {
+        let response = bmc::router(app.clone())
+            .oneshot(
+                breq(path, &token)
+                    .method(method)
+                    .header("cookie", &admin)
+                    .header("origin", "https://evil.example")
+                    .header("content-type", "application/json")
+                    .body(Body::from(if method == "POST" {
+                        r#"{"ResetType":"Pause"}"#
+                    } else {
+                        ""
+                    }))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let (status, text) = everything(response).await;
+        assert!(status.is_success(), "{method} {path}: {status} {text}");
+        let seen = upstream.seen().pop().unwrap();
+        assert_eq!(seen.headers["authorization"], format!("Bearer {token}"));
+        assert_forwarded_only_allowed_headers(&seen);
+    }
+
+    // Without either credential Redfish itself answers 401; an expired
+    // session's cookie is not forwarded.
+    let expired = cookie(app.sessions.clone(), SUBJECT, auth::now()).await;
+    for cookie in [None, Some(expired.as_str())] {
+        let response = bmc::router(app.clone())
+            .oneshot(
+                req("/redfish/v1/Systems/1", cookie)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        assert!(response.headers()["www-authenticate"]
+            .to_str()
+            .unwrap()
+            .starts_with("Bearer"));
+    }
+    assert!(upstream
+        .seen()
+        .iter()
+        .all(|seen| !seen.headers.contains_key("cookie")));
+
+    // Redfish refusing a session the BMC accepted is a gateway fault, not a
+    // signed-out browser.
+    let (status, body) = get(&app, "/redfish/v1/Refused", &admin).await;
+    assert_eq!(
+        (status, body.as_str()),
+        (
+            StatusCode::BAD_GATEWAY,
+            "The VM's Redfish service did not accept this sign-in."
+        )
+    );
+}
+
+#[tokio::test]
+async fn cookie_mutations_need_origin_and_csrf_before_any_byte_reaches_redfish() {
+    let (app, upstream) = proxied().await;
+    let admin = token_cookie(app.sessions.clone(), SUBJECT, SESSION_TOKEN).await;
+    let body = r#"{"ResetType":"Pause"}"#;
+    for (origin, csrf) in [
+        (None, Some("correct")),
+        (Some("https://evil.example"), Some("correct")),
+        (Some("null"), Some("correct")),
+        (Some("https://vm.example"), None),
+        (Some("https://vm.example"), Some("wrong")),
+    ] {
+        for method in ["POST", "PATCH", "DELETE"] {
+            let mut request = req(RESET, Some(&admin))
+                .method(method)
+                .header("content-type", "application/json");
+            if let Some(origin) = origin {
+                request = request.header("origin", origin);
+            }
+            if let Some(csrf) = csrf {
+                request = request.header("x-csrf-token", csrf);
+            }
+            let (status, _) = send(&app, request.body(Body::from(body)).unwrap()).await;
+            assert_eq!(
+                status,
+                StatusCode::FORBIDDEN,
+                "{method} {origin:?} {csrf:?}"
+            );
+        }
+    }
+    // A cross-origin read with the cookie is refused too.
+    let request = req("/redfish/v1/Systems/1", Some(&admin))
+        .header("origin", "https://evil.example")
+        .body(Body::empty())
+        .unwrap();
+    assert_eq!(send(&app, request).await.0, StatusCode::FORBIDDEN);
+    // Bodies over Redfish's bounds are refused here.
+    let large = format!(r#"{{"ResetType":"{}"}}"#, "x".repeat(4096));
+    let (status, _) = send(&app, post(RESET, &admin, "correct", &large)).await;
+    assert_eq!(status, StatusCode::PAYLOAD_TOO_LARGE);
+    let (status, _) = send(
+        &app,
+        post(SIGNED_UPDATE, &admin, "correct", &"x".repeat(193 * 1024)),
+    )
+    .await;
+    assert_eq!(status, StatusCode::PAYLOAD_TOO_LARGE);
+    // Path traversal never reaches another upstream route.
+    let request = req("/redfish/v1/../../readyz", Some(&admin))
+        .body(Body::empty())
+        .unwrap();
+    assert_eq!(send(&app, request).await.0, StatusCode::BAD_REQUEST);
+    assert_eq!(
+        upstream.connections(),
+        0,
+        "refused requests reached Redfish"
+    );
+    assert!(upstream.seen().is_empty());
+
+    let (status, _) = send(&app, post(RESET, &admin, "correct", body)).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    let seen = upstream.seen().pop().unwrap();
+    assert_eq!((seen.method.as_str(), seen.uri.as_str()), ("POST", RESET));
+    assert_eq!(seen.body, body.as_bytes());
+    assert_eq!(seen.headers["content-type"], "application/json");
+    assert_eq!(
+        seen.headers["authorization"],
+        format!("Bearer {SESSION_TOKEN}")
+    );
+    assert_forwarded_only_allowed_headers(&seen);
+    // Signed EFI updates have Redfish's larger bound.
+    let (status, _) = send(
+        &app,
+        post(SIGNED_UPDATE, &admin, "correct", &"x".repeat(100 * 1024)),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    assert_eq!(upstream.seen().pop().unwrap().body.len(), 100 * 1024);
+}
+
+#[tokio::test]
+async fn proxied_event_streams_close_within_two_seconds_of_logout() {
+    use futures::StreamExt;
+    use std::sync::atomic::Ordering;
+    use std::time::{Duration, Instant};
+    let (app, upstream) = proxied().await;
+    let viewer = token_cookie(app.sessions.clone(), VIEWER, SESSION_TOKEN).await;
+    let response = bmc::router(app.clone())
+        .oneshot(
+            req("/redfish/v1/EventService/SSE", Some(&viewer))
+                .header("accept", "text/event-stream")
+                .header("last-event-id", "6")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert!(response.headers()["content-type"]
+        .to_str()
+        .unwrap()
+        .starts_with("text/event-stream"));
+    let mut body = response.into_body().into_data_stream();
+    let mut seen = String::new();
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while !seen.contains("EventId") {
+            let chunk = body.next().await.expect("stream ended").unwrap();
+            seen.push_str(std::str::from_utf8(&chunk).unwrap());
+        }
+    })
+    .await
+    .unwrap_or_else(|_| panic!("event not streamed: {seen}"));
+    assert!(seen.contains("id: 7"), "{seen}");
+    let request = upstream.seen().pop().unwrap();
+    assert_eq!(request.headers["last-event-id"], "6");
+    assert_eq!(
+        request.headers["authorization"],
+        format!("Bearer {SESSION_TOKEN}")
+    );
+    assert!(!request.headers.contains_key("cookie"));
+    assert_forwarded_only_allowed_headers(&request);
+    assert_eq!(upstream.streams.load(Ordering::SeqCst), 1);
+    assert_eq!(app.event_streams.available_permits(), 1);
+    let drain = tokio::spawn(async move { while body.next().await.is_some() {} });
+    tokio::time::sleep(Duration::from_millis(1200)).await;
+    assert!(!drain.is_finished(), "the stream ended while signed in");
+    let request = req("/auth/logout", Some(&viewer))
+        .method("POST")
+        .header("origin", "https://vm.example")
+        .header("x-csrf-token", "correct")
+        .body(Body::empty())
+        .unwrap();
+    assert_eq!(send(&app, request).await.0, StatusCode::NO_CONTENT);
+    let logged_out = Instant::now();
+    tokio::time::timeout(Duration::from_secs(2), drain)
+        .await
+        .expect("the proxied stream outlived the session")
+        .unwrap();
+    assert!(logged_out.elapsed() < Duration::from_secs(2));
+    assert_eq!(app.event_streams.available_permits(), 2);
+    // The upstream stream is dropped with it.
+    tokio::time::timeout(Duration::from_secs(2), async {
+        while upstream.streams.load(Ordering::SeqCst) != 0 {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("the upstream Redfish stream stayed open");
+}
+
+#[tokio::test]
+async fn unreachable_redfish_is_a_named_503() {
+    let app = app();
+    let admin = token_cookie(app.sessions.clone(), SUBJECT, SESSION_TOKEN).await;
+    let (status, body) = get(&app, "/redfish/v1/Systems/1", &admin).await;
+    assert_eq!(
+        (status, body.as_str()),
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "The VM's Redfish service is unavailable."
+        )
+    );
 }
