@@ -40,5 +40,12 @@ for dependency in manifest['subprojects']:
     patches = source / 'subprojects/packagefiles' / dependency['name']
     if patches.is_dir():
         shutil.copytree(patches, destination, dirs_exist_ok=True)
+# qrab's own fixes on top of the locked revision, each pinned by digest.
+for patch in manifest.get('patches', []):
+    path = ROOT / patch['file']
+    if hashlib.sha256(path.read_bytes()).hexdigest() != patch['sha256']:
+        raise SystemExit('Bad QEMU patch digest: ' + str(path))
+    # Not `git apply`: inside this repository it skips paths outside the cwd.
+    subprocess.run(['patch', '-p1', '--forward', '--batch', '--silent', '-i', str(path)], cwd=source, check=True)
 (context / 'qemu-source.json').write_text(json.dumps(manifest, indent=2) + '\n')
 print(context)

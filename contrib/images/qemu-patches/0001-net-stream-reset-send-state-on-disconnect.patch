@@ -1,0 +1,20 @@
+diff --git a/net/stream_data.c b/net/stream_data.c
+index 73b45da9fe..50cf778281 100644
+--- a/net/stream_data.c
++++ b/net/stream_data.c
+@@ -119,6 +119,15 @@ gboolean net_stream_data_send(QIOChannel *ioc, GIOCondition condition,
+ 
+         net_socket_rs_init(&d->rs, net_stream_data_rs_finalize, false);
+         d->nc.link_down = true;
++        /*
++         * A frame may have been partly written, or the writable watch removed
++         * above may have been the only thing that would clear
++         * receive_disabled. Start the next connection on a frame boundary and
++         * release the queue: with link_down set, every queued frame is
++         * dropped and its sender's completion runs, so the guest's TX resumes.
++         */
++        d->send_index = 0;
++        qemu_flush_queued_packets(&d->nc);
+ 
+         return G_SOURCE_REMOVE;
+     }

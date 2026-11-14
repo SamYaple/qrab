@@ -23,5 +23,12 @@
       "archive": "vendor/qemu-build/keycodemapdb.tar.gz",
       "sha256": "086946752e67e931333936cbc097f897c3ef079a5d7e87e3e56f01ad6aa0d740"
     }
+  ],
+  "patches": [
+    {
+      "file": "contrib/images/qemu-patches/0001-net-stream-reset-send-state-on-disconnect.patch",
+      "sha256": "fc4c4c02dc7016571297d4bad7f15be417b82d88cd116093118d126d8ac6b4c4",
+      "reason": "net/stream: reset send state and release queued frames when the peer disconnects (a lost NIC pod otherwise stalls guest TX forever)"
+    }
   ]
 }
