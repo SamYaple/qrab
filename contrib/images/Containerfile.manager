@@ -19,16 +19,17 @@ COPY contrib/images/make-uefi-boot.py /make-uefi-boot.py
 RUN python3 /prepare-guest.py && chmod 0755 /guest/init /guest/usr/bin/qrab-disk-probe /guest/usr/sbin/qrab-guest-agent /guest/etc/qrab/update-hook && chmod 0755 /guest/etc/qrab && python3 /make-initramfs.py /guest /out/initramfs.gz && python3 /make-uefi-boot.py
 
 # passt for NIC pods, from the Debian source in the base image's snapshot plus
-# contrib/images/passt/0001-no-ns-isolation.patch: a restricted pod's
-# RuntimeDefault seccomp refuses the namespaces passt would create itself.
+# contrib/images/passt/*.patch in order: 0001 adds --no-ns-isolation (a
+# restricted pod's RuntimeDefault seccomp refuses the namespaces passt would
+# create itself); 0002 fixes a crash on inbound TCP before a guest attaches.
 FROM ${DEBIAN_IMAGE} AS passt-build
 ARG PASST_VERSION=0.0~git20250503.587980c-2+deb13u1
 COPY contrib/images/passt /passt
 RUN cp /passt/snapshot.sources /etc/apt/sources.list.d/passt-src.sources && apt-get update && apt-get install -y --no-install-recommends dpkg-dev gcc libc6-dev make patch xz-utils \
  && mkdir /build && cd /build && apt-get source --download-only "passt=${PASST_VERSION}" \
  && sha256sum -c /passt/source.sha256 \
- && dpkg-source -x "passt_${PASST_VERSION}.dsc" src && cd src && patch -p1 --no-backup-if-mismatch < /passt/0001-no-ns-isolation.patch \
- && export DEB_BUILD_MAINT_OPTIONS=hardening=+all && make passt VERSION="${PASST_VERSION}+qrab1" CFLAGS="$(dpkg-buildflags --get CFLAGS)" CPPFLAGS="$(dpkg-buildflags --get CPPFLAGS)" LDFLAGS="$(dpkg-buildflags --get LDFLAGS)" \
+ && dpkg-source -x "passt_${PASST_VERSION}.dsc" src && cd src && for p in /passt/*.patch; do patch -p1 --no-backup-if-mismatch < "$p" || exit 1; done \
+ && export DEB_BUILD_MAINT_OPTIONS=hardening=+all && make passt VERSION="${PASST_VERSION}+qrab2" CFLAGS="$(dpkg-buildflags --get CFLAGS)" CPPFLAGS="$(dpkg-buildflags --get CPPFLAGS)" LDFLAGS="$(dpkg-buildflags --get LDFLAGS)" \
  && install -D -m 0755 passt /out/passt && /out/passt --version | head -1 && /out/passt --help | grep -q -- --no-ns-isolation
 
 FROM ${QEMU_IMAGE}
