@@ -1,6 +1,7 @@
 .git
-/target
-/vendor
+.claude
 .worktrees
-.agent-memory
-contrib/attest-keys
+target
+vendor
+__pycache__
+*.pyc
