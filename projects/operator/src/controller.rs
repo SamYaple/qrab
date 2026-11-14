@@ -612,6 +612,7 @@ async fn synchronize(
     }
     resources::validate(vm, &ctx.settings)?;
     reconcile_redfish_policy(vm, ctx).await?;
+    reconcile_redfish_metrics_policy(vm, ctx).await?;
     if let Some(pod) = &pod {
         if !resources::owned(pod, vm) {
             return Err(Error::Ownership(format!(
@@ -1042,13 +1043,37 @@ pub async fn sweep_orphans(ctx: Arc<Context>) -> Result<()> {
 
 /// Event egress is reconciled independently of NIC presence and NIC GC labels.
 async fn reconcile_redfish_policy(vm: &VirtualMachine, ctx: &Context) -> Result<()> {
+    reconcile_vm_policy(
+        vm,
+        ctx,
+        resources::redfish_policy_name(vm),
+        resources::redfish_policy(vm, &ctx.settings)?,
+    )
+    .await
+}
+
+/// The Prometheus-only ingress of the Redfish metrics port, like event egress.
+async fn reconcile_redfish_metrics_policy(vm: &VirtualMachine, ctx: &Context) -> Result<()> {
+    reconcile_vm_policy(
+        vm,
+        ctx,
+        resources::redfish_metrics_policy_name(vm),
+        resources::redfish_metrics_policy(vm, &ctx.settings)?,
+    )
+    .await
+}
+
+async fn reconcile_vm_policy(
+    vm: &VirtualMachine,
+    ctx: &Context,
+    name: String,
+    desired: Option<DynamicObject>,
+) -> Result<()> {
     let policies: Api<DynamicObject> = Api::namespaced_with(
         ctx.client.clone(),
         &ctx.settings.namespace,
         &nic::policy_resource(),
     );
-    let name = resources::redfish_policy_name(vm);
-    let desired = resources::redfish_policy(vm, &ctx.settings)?;
     let actual = policies.get_opt(&name).await?;
     if actual
         .as_ref()

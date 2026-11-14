@@ -183,7 +183,10 @@ fn fake_bmc(label: &'static str, log: Log) -> axum::Router {
             }
         }
     };
-    let console = |headers: HeaderMap, ws: WebSocketUpgrade| async move {
+    // A query (admin-bucket features) is announced before the RFB greeting.
+    let console = |headers: HeaderMap,
+                   axum::extract::RawQuery(query): axum::extract::RawQuery,
+                   ws: WebSocketUpgrade| async move {
         if headers.get("authorization").and_then(|v| v.to_str().ok())
             != Some("Bearer id-token-of-alice")
             || headers.contains_key("origin")
@@ -193,6 +196,11 @@ fn fake_bmc(label: &'static str, log: Log) -> axum::Router {
         }
         ws.on_upgrade(|mut socket| async move {
             use axum::extract::ws::Message;
+            if let Some(query) = query {
+                let _ = socket
+                    .send(Message::Binary(format!("query:{query}").into()))
+                    .await;
+            }
             let _ = socket.send(Message::Binary("RFB 003.008\n".into())).await;
             while let Some(Ok(Message::Binary(bytes))) = socket.recv().await {
                 let mut echo = b"echo:".to_vec();
@@ -1669,6 +1677,70 @@ async fn console_page_and_socket_require_admin_and_exact_origin() {
     })
     .await;
     assert!(closed.is_ok(), "console outlived the session");
+}
+
+#[tokio::test]
+async fn console_forwards_only_the_admin_bucket_features_the_vm_enables() {
+    use futures::StreamExt;
+    use tokio_tungstenite::tungstenite::{Message, client::IntoClientRequest};
+    let h = harness().await;
+    let admin = session(&h.state.sessions, ALICE, &[]).await;
+    let viewer = session(&h.state.sessions, BOB, &[VIEWERS]).await;
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    serve(listener, router(h.state.clone())).await;
+    let connect = |vm: &str, query: &str, cookie: &str| {
+        let mut req = format!("ws://{addr}/vms/qrab/{vm}/console/ws{query}")
+            .into_client_request()
+            .unwrap();
+        req.headers_mut()
+            .insert("cookie", HeaderValue::from_str(cookie).unwrap());
+        req.headers_mut()
+            .insert("origin", HeaderValue::from_static(ORIGIN));
+        tokio_tungstenite::connect_async(req)
+    };
+    let hello = Message::Binary("RFB 003.008\n".into());
+    // Without spec.console.adminBucket nothing is forwarded.
+    let (mut socket, _) = connect("a", "?features=audio", &admin).await.unwrap();
+    assert_eq!(socket.next().await.unwrap().unwrap(), hello);
+    drop(socket);
+    h.cluster.vms.lock().unwrap()[0]
+        .spec
+        .console
+        .as_mut()
+        .unwrap()
+        .admin_bucket = Some(qrab_operator::api::AdminBucket {
+        audio: true,
+        usb_redirect: false,
+    });
+    let (mut socket, _) = connect("a", "?features=audio,usb-redirect", &admin)
+        .await
+        .unwrap();
+    assert_eq!(
+        socket.next().await.unwrap().unwrap(),
+        Message::Binary("query:features=audio".into())
+    );
+    assert_eq!(socket.next().await.unwrap().unwrap(), hello);
+    drop(socket);
+    let (mut socket, _) = connect("a", "?features=usb-redirect", &admin)
+        .await
+        .unwrap();
+    assert_eq!(socket.next().await.unwrap().unwrap(), hello);
+    drop(socket);
+    for (vm, query, cookie, expected) in [
+        ("a", "?features=microphone", &admin, 400),
+        ("b", "?features=audio", &viewer, 403),
+    ] {
+        match connect(vm, query, cookie).await {
+            Err(tokio_tungstenite::tungstenite::Error::Http(response)) => {
+                assert_eq!(response.status().as_u16(), expected, "{vm} {query}")
+            }
+            other => panic!(
+                "{vm} {query}: expected refusal, got {:?}",
+                other.map(|_| ())
+            ),
+        }
+    }
 }
 
 #[tokio::test]

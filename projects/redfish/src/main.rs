@@ -36,19 +36,32 @@ async fn main() -> Result<()> {
         telemetry: qrab_redfish::TelemetryStore::from_env().map_err(anyhow::Error::msg)?,
         triggers: Default::default(),
         subscriptions: qrab_redfish::SubscriptionStore::from_env().map_err(anyhow::Error::msg)?,
+        exporter: Default::default(),
     };
     let sampler = qrab_redfish::spawn_sampler(state.clone());
     let subscriptions = qrab_redfish::spawn_subscriptions(state.clone());
+    let metrics = qrab_redfish::metrics_router(state.clone());
     let app = qrab_redfish::router(state);
     let listener = tokio::net::TcpListener::bind(config.listen).await?;
-    let (stop, mut stopped) = watch::channel(false);
-    let server = axum::serve(listener, app).with_graceful_shutdown(async move {
+    let metrics_listener = tokio::net::TcpListener::bind(config.metrics_listen).await?;
+    let (stop, stopped) = watch::channel(false);
+    let shutdown = |mut stopped: watch::Receiver<bool>| async move {
         let _ = stopped.wait_for(|v| *v).await;
-    });
-    let mut server = std::pin::pin!(std::future::IntoFuture::into_future(server));
+    };
+    let api = axum::serve(listener, app).with_graceful_shutdown(shutdown(stopped.clone()));
+    let exporter = axum::serve(metrics_listener, metrics).with_graceful_shutdown(shutdown(stopped));
+    // Either listener failing ends the sidecar; both drain on SIGTERM.
+    let server = async move {
+        tokio::try_join!(
+            std::future::IntoFuture::into_future(api),
+            std::future::IntoFuture::into_future(exporter)
+        )
+        .map(|_| ())
+    };
+    let mut server = std::pin::pin!(server);
     let mut term = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
     let mut interrupt = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())?;
-    tracing::info!(listen=%config.listen, socket=%args[1], issuers=config.sources.len(), "Redfish sidecar started");
+    tracing::info!(listen=%config.listen, metrics=%config.metrics_listen, socket=%args[1], issuers=config.sources.len(), "Redfish sidecar started");
     tokio::select! {
         result=&mut server => result?,
         () = remote.mirror() => unreachable!("the event mirror never returns"),

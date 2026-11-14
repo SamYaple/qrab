@@ -190,6 +190,23 @@
                     "description": "Browser console settings; required while `components.bmc` is enabled.",
                     "nullable": true,
                     "properties": {
+                      "adminBucket": {
+                        "description": "Console features with data-exfiltration or device-injection risk.\nEach is off unless set here, and even then only a console admin who\nrequests it on a connection gets it (docs/bmc.md#admin-bucket).",
+                        "nullable": true,
+                        "properties": {
+                          "audio": {
+                            "default": false,
+                            "description": "Guest audio playback in the console (no microphone).",
+                            "type": "boolean"
+                          },
+                          "usbRedirect": {
+                            "default": false,
+                            "description": "Browser USB device redirection into the guest.",
+                            "type": "boolean"
+                          }
+                        },
+                        "type": "object"
+                      },
                       "adminGroups": {
                         "default": [],
                         "description": "Kanidm group UUIDs whose members have full BMC access.",

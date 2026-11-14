@@ -1,3 +1,4 @@
+pub mod admin_bucket;
 mod agent;
 pub mod auth;
 pub mod config;
@@ -146,9 +147,13 @@ async fn identity(
         .config_view()
         .await
         .map_or_else(|_| "VM".into(), |view| view.name);
-    Ok(Json(
-        serde_json::json!({"user":principal.user,"role":principal.role,"vm_name":vm_name}),
-    ))
+    let mut body =
+        serde_json::json!({"user":principal.user,"role":principal.role,"vm_name":vm_name});
+    // Only admins learn which risky features this VM enables.
+    if principal.role == auth::Role::Admin {
+        body["admin_bucket"] = serde_json::json!(app.config.admin_bucket);
+    }
+    Ok(Json(body))
 }
 async fn status(
     State(app): State<AppState>,

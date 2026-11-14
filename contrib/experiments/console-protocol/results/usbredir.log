@@ -1,0 +1,18 @@
+{
+  "first_packet_type": 0,
+  "is_hello": true,
+  "id": 0,
+  "qemu_usbredir_version": "qemu usb-redir guest 11.1.3",
+  "qemu_caps": [
+    "bulk_streams",
+    "connect_device_version",
+    "filter",
+    "device_disconnect_ack",
+    "ep_info_max_packet_size",
+    "64bits_ids",
+    "32bits_bulk_length",
+    "bulk_receiving"
+  ],
+  "after_our_hello": "open, waiting for device_connect"
+}
+## qemu container: running exit=0

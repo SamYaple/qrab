@@ -2,7 +2,7 @@
 use crate::{AppState, Failure, access::Role, auth};
 use axum::{
     extract::{
-        Path, State,
+        Path, Query, State,
         ws::{Message, WebSocket, WebSocketUpgrade},
     },
     http::HeaderMap,
@@ -59,11 +59,49 @@ const WRITE_TIMEOUT: Duration = Duration::from_secs(5);
 /// How often the VM's grants are re-read while a console is open.
 const ROLE_RECHECK: Duration = Duration::from_secs(30);
 
+/// The admin-bucket features to forward from a `?features=` request: only
+/// those this VM enables, in the VM's order. Unknown names are refused, as
+/// the BMC refuses them.
+///
+/// ```
+/// use qrab_dashboard::console::forwarded_features;
+/// let query = |v: &str| vec![("features".to_string(), v.to_string())];
+/// let enabled = ["audio"];
+/// let forwarded = |v: &str| forwarded_features(&query(v), &enabled).ok();
+/// assert_eq!(forwarded("usb-redirect,audio"), Some(vec!["audio"]));
+/// assert_eq!(forwarded("usb-redirect"), Some(vec![]));
+/// assert_eq!(forwarded_features(&[], &enabled).ok(), Some(vec![]));
+/// assert!(forwarded("microphone").is_none());
+/// ```
+pub fn forwarded_features(
+    query: &[(String, String)],
+    enabled: &[&'static str],
+) -> Result<Vec<&'static str>, Failure> {
+    let mut requested = Vec::new();
+    for (_, value) in query.iter().filter(|(key, _)| key == "features") {
+        for name in value.split(',').map(str::trim).filter(|n| !n.is_empty()) {
+            if !FEATURES.contains(&name) {
+                return Err(Failure::invalid("Unknown console feature requested."));
+            }
+            requested.push(name);
+        }
+    }
+    Ok(enabled
+        .iter()
+        .copied()
+        .filter(|name| requested.contains(name))
+        .collect())
+}
+
+/// Every admin-bucket feature name the BMC knows.
+const FEATURES: [&str; 2] = ["audio", "usb-redirect"];
+
 pub async fn upgrade(
     State(app): State<AppState>,
     session: Session,
     headers: HeaderMap,
     Path((namespace, name)): Path<(String, String)>,
+    Query(query): Query<Vec<(String, String)>>,
     ws: WebSocketUpgrade,
 ) -> Result<Response, Failure> {
     let user = auth::user(&session).await?;
@@ -75,6 +113,16 @@ pub async fn upgrade(
     if role != Role::Admin || !vm.spec.components.bmc.enabled {
         return Err(Failure::forbidden());
     }
+    // Admin-bucket features go upstream only for an admin (checked above)
+    // and only when this VM enables them.
+    let enabled = vm
+        .spec
+        .console
+        .as_ref()
+        .and_then(|console| console.admin_bucket)
+        .unwrap_or_default()
+        .features();
+    let features = forwarded_features(&query, &enabled)?;
     let ip = crate::pod_ip(&app, &vm)
         .await?
         .ok_or_else(|| Failure::unavailable("The VM's Pod is not running."))?;
@@ -87,7 +135,7 @@ pub async fn upgrade(
         .map_err(|_| Failure::unavailable("Too many consoles are open."))?;
     let request = app
         .bmc
-        .console_request(ip, &user.id_token)
+        .console_request(ip, &user.id_token, &features)
         .map_err(|_| Failure::internal())?;
     let (upstream, _) = tokio::time::timeout(
         Duration::from_secs(5),
@@ -100,7 +148,7 @@ pub async fn upgrade(
         Failure::unavailable("The VM console is unavailable.")
     })?;
     let id = session.id().ok_or_else(Failure::unauthorized)?;
-    tracing::info!(subject=%user.subject, vm=%name, "VM console connected");
+    tracing::info!(subject=%user.subject, vm=%name, ?features, "VM console connected");
     Ok(ws
         .max_message_size(FRAME)
         .max_frame_size(FRAME)

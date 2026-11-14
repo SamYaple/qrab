@@ -1,0 +1,758 @@
+# Grafana picks this up through kube-prometheus-stack's dashboard sidecar
+# (label grafana_dashboard: "1", all namespaces). Keep the JSON valid:
+# projects/redfish/tests/api.rs checks that every qrab_* family it queries is exported.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: qrab-vm-grafana-dashboard
+  labels:
+    grafana_dashboard: "1"
+    app.kubernetes.io/name: qrab
+    app.kubernetes.io/component: monitoring
+data:
+  qrab-vm.json: |
+    {
+      "uid": "qrab-vm",
+      "title": "qrab VM",
+      "description": "Per-VM history from the Redfish Prometheus export and kubelet cAdvisor.",
+      "tags": [
+        "qrab",
+        "kubernetes"
+      ],
+      "editable": false,
+      "schemaVersion": 39,
+      "version": 1,
+      "refresh": "30s",
+      "time": {
+        "from": "now-6h",
+        "to": "now"
+      },
+      "timezone": "",
+      "panels": [
+        {
+          "id": 1,
+          "type": "stat",
+          "title": "Power state",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "gridPos": {
+            "x": 0,
+            "y": 0,
+            "w": 6,
+            "h": 4
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "refId": "A",
+              "expr": "max by (state) (qrab_vm_power_state{namespace=\"$namespace\",vm=\"$vm\"}) == 1",
+              "legendFormat": "{{state}}",
+              "instant": true
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {},
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "colorMode": "none",
+            "graphMode": "none",
+            "textMode": "name"
+          },
+          "description": "Redfish PowerState from the VM's Redfish sidecar."
+        },
+        {
+          "id": 2,
+          "type": "stat",
+          "title": "Health",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "gridPos": {
+            "x": 6,
+            "y": 0,
+            "w": 4,
+            "h": 4
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "refId": "A",
+              "expr": "max(qrab_vm_health{namespace=\"$namespace\",vm=\"$vm\"})",
+              "instant": true
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "mappings": [
+                {
+                  "type": "value",
+                  "options": {
+                    "0": {
+                      "text": "OK",
+                      "color": "green",
+                      "index": 0
+                    },
+                    "1": {
+                      "text": "Warning",
+                      "color": "yellow",
+                      "index": 1
+                    },
+                    "2": {
+                      "text": "Critical",
+                      "color": "red",
+                      "index": 2
+                    }
+                  }
+                }
+              ]
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "colorMode": "background",
+            "graphMode": "none",
+            "textMode": "auto"
+          }
+        },
+        {
+          "id": 3,
+          "type": "stat",
+          "title": "Guest agent",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "gridPos": {
+            "x": 10,
+            "y": 0,
+            "w": 4,
+            "h": 4
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "refId": "A",
+              "expr": "max(qrab_vm_guest_agent_connected{namespace=\"$namespace\",vm=\"$vm\"})",
+              "instant": true
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "mappings": [
+                {
+                  "type": "value",
+                  "options": {
+                    "0": {
+                      "text": "Disconnected",
+                      "color": "yellow",
+                      "index": 0
+                    },
+                    "1": {
+                      "text": "Connected",
+                      "color": "green",
+                      "index": 1
+                    }
+                  }
+                }
+              ]
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "colorMode": "background",
+            "graphMode": "none",
+            "textMode": "auto"
+          }
+        },
+        {
+          "id": 4,
+          "type": "stat",
+          "title": "vCPUs",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "gridPos": {
+            "x": 14,
+            "y": 0,
+            "w": 3,
+            "h": 4
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "refId": "A",
+              "expr": "max(qrab_vm_vcpus{namespace=\"$namespace\",vm=\"$vm\"})",
+              "instant": true
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {},
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "colorMode": "none",
+            "graphMode": "none"
+          }
+        },
+        {
+          "id": 5,
+          "type": "stat",
+          "title": "Configured RAM",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "gridPos": {
+            "x": 17,
+            "y": 0,
+            "w": 4,
+            "h": 4
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "refId": "A",
+              "expr": "max(qrab_vm_memory_configured_bytes{namespace=\"$namespace\",vm=\"$vm\"})",
+              "instant": true
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "bytes"
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "colorMode": "none",
+            "graphMode": "none"
+          }
+        },
+        {
+          "id": 6,
+          "type": "stat",
+          "title": "QMP events dropped",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "gridPos": {
+            "x": 21,
+            "y": 0,
+            "w": 3,
+            "h": 4
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "refId": "A",
+              "expr": "sum(increase(qrab_vm_qmp_events_dropped_total{namespace=\"$namespace\",vm=\"$vm\"}[$__range]))",
+              "instant": true
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "yellow",
+                    "value": 1
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "colorMode": "background",
+            "graphMode": "none",
+            "textMode": "auto"
+          }
+        },
+        {
+          "id": 7,
+          "type": "timeseries",
+          "title": "CPU by container (cAdvisor)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "gridPos": {
+            "x": 0,
+            "y": 4,
+            "w": 12,
+            "h": 8
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "refId": "A",
+              "expr": "sum by (container) (rate(container_cpu_usage_seconds_total{namespace=\"$namespace\",pod=~\"$pod\",container=~\"manager|bmc|redfish\"}[$__rate_interval]))",
+              "legendFormat": "{{container}}"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "refId": "B",
+              "expr": "max(qrab_vm_vcpus{namespace=\"$namespace\",vm=\"$vm\"})",
+              "legendFormat": "guest vCPUs"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "custom": {
+                "showPoints": "never",
+                "fillOpacity": 10
+              }
+            },
+            "overrides": []
+          },
+          "options": {},
+          "description": "Cores used per container; manager includes QEMU and swtpm."
+        },
+        {
+          "id": 8,
+          "type": "timeseries",
+          "title": "Memory working set by container (cAdvisor)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "gridPos": {
+            "x": 12,
+            "y": 4,
+            "w": 12,
+            "h": 8
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "refId": "A",
+              "expr": "sum by (container) (container_memory_working_set_bytes{namespace=\"$namespace\",pod=~\"$pod\",container=~\"manager|bmc|redfish\"})",
+              "legendFormat": "{{container}}"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "refId": "B",
+              "expr": "max(qrab_vm_memory_configured_bytes{namespace=\"$namespace\",vm=\"$vm\"})",
+              "legendFormat": "configured guest RAM"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "bytes",
+              "custom": {
+                "showPoints": "never",
+                "fillOpacity": 10
+              }
+            },
+            "overrides": []
+          },
+          "options": {}
+        },
+        {
+          "id": 9,
+          "type": "timeseries",
+          "title": "Block throughput",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "gridPos": {
+            "x": 0,
+            "y": 12,
+            "w": 12,
+            "h": 8
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "refId": "A",
+              "expr": "sum by (drive) (rate(qrab_vm_block_read_bytes_total{namespace=\"$namespace\",vm=\"$vm\"}[$__rate_interval]))",
+              "legendFormat": "{{drive}} read"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "refId": "B",
+              "expr": "-sum by (drive) (rate(qrab_vm_block_write_bytes_total{namespace=\"$namespace\",vm=\"$vm\"}[$__rate_interval]))",
+              "legendFormat": "{{drive}} write"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "Bps",
+              "custom": {
+                "showPoints": "never",
+                "fillOpacity": 10
+              }
+            },
+            "overrides": []
+          },
+          "options": {},
+          "description": "Reads above zero, writes below."
+        },
+        {
+          "id": 10,
+          "type": "timeseries",
+          "title": "Block IOPS",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "gridPos": {
+            "x": 12,
+            "y": 12,
+            "w": 12,
+            "h": 8
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "refId": "A",
+              "expr": "sum by (drive) (rate(qrab_vm_block_read_ops_total{namespace=\"$namespace\",vm=\"$vm\"}[$__rate_interval]))",
+              "legendFormat": "{{drive}} read"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "refId": "B",
+              "expr": "-sum by (drive) (rate(qrab_vm_block_write_ops_total{namespace=\"$namespace\",vm=\"$vm\"}[$__rate_interval]))",
+              "legendFormat": "{{drive}} write"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "iops",
+              "custom": {
+                "showPoints": "never",
+                "fillOpacity": 10
+              }
+            },
+            "overrides": []
+          },
+          "options": {},
+          "description": "Reads above zero, writes below."
+        },
+        {
+          "id": 11,
+          "type": "timeseries",
+          "title": "Guest NIC throughput",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "gridPos": {
+            "x": 0,
+            "y": 20,
+            "w": 12,
+            "h": 8
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "refId": "A",
+              "expr": "sum by (nic) (rate(qrab_vm_nic_rx_bytes_total{namespace=\"$namespace\",vm=\"$vm\"}[$__rate_interval]))",
+              "legendFormat": "{{nic}} rx"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "refId": "B",
+              "expr": "-sum by (nic) (rate(qrab_vm_nic_tx_bytes_total{namespace=\"$namespace\",vm=\"$vm\"}[$__rate_interval]))",
+              "legendFormat": "{{nic}} tx"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "Bps",
+              "custom": {
+                "showPoints": "never",
+                "fillOpacity": 10
+              }
+            },
+            "overrides": []
+          },
+          "options": {},
+          "description": "Guest-agent counters; empty while the agent is disconnected."
+        },
+        {
+          "id": 12,
+          "type": "timeseries",
+          "title": "Guest NIC packets",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "gridPos": {
+            "x": 12,
+            "y": 20,
+            "w": 12,
+            "h": 8
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "refId": "A",
+              "expr": "sum by (nic) (rate(qrab_vm_nic_rx_packets_total{namespace=\"$namespace\",vm=\"$vm\"}[$__rate_interval]))",
+              "legendFormat": "{{nic}} rx"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "refId": "B",
+              "expr": "-sum by (nic) (rate(qrab_vm_nic_tx_packets_total{namespace=\"$namespace\",vm=\"$vm\"}[$__rate_interval]))",
+              "legendFormat": "{{nic}} tx"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "pps",
+              "custom": {
+                "showPoints": "never",
+                "fillOpacity": 10
+              }
+            },
+            "overrides": []
+          },
+          "options": {}
+        },
+        {
+          "id": 13,
+          "type": "state-timeline",
+          "title": "Power state history",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "gridPos": {
+            "x": 0,
+            "y": 28,
+            "w": 24,
+            "h": 5
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "refId": "A",
+              "expr": "max by (state) (qrab_vm_power_state{namespace=\"$namespace\",vm=\"$vm\"})",
+              "legendFormat": "{{state}}"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "mappings": [
+                {
+                  "type": "value",
+                  "options": {
+                    "0": {
+                      "text": " ",
+                      "color": "transparent",
+                      "index": 0
+                    },
+                    "1": {
+                      "text": "current",
+                      "color": "green",
+                      "index": 1
+                    }
+                  }
+                }
+              ]
+            },
+            "overrides": []
+          },
+          "options": {
+            "showValue": "never",
+            "mergeValues": true
+          }
+        }
+      ],
+      "templating": {
+        "list": [
+          {
+            "name": "datasource",
+            "label": "Data source",
+            "type": "datasource",
+            "query": "prometheus",
+            "current": {
+              "text": "Prometheus",
+              "value": "prometheus"
+            },
+            "hide": 0,
+            "options": [],
+            "refresh": 1
+          },
+          {
+            "name": "namespace",
+            "label": "Namespace",
+            "type": "query",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            },
+            "definition": "label_values(qrab_vm_power_state, namespace)",
+            "query": {
+              "query": "label_values(qrab_vm_power_state, namespace)",
+              "refId": "namespace-var"
+            },
+            "refresh": 2,
+            "sort": 1,
+            "hide": 0,
+            "multi": false,
+            "includeAll": false,
+            "current": {},
+            "options": []
+          },
+          {
+            "name": "vm",
+            "label": "VM",
+            "type": "query",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            },
+            "definition": "label_values(qrab_vm_power_state{namespace=\"$namespace\"}, vm)",
+            "query": {
+              "query": "label_values(qrab_vm_power_state{namespace=\"$namespace\"}, vm)",
+              "refId": "vm-var"
+            },
+            "refresh": 2,
+            "sort": 1,
+            "hide": 0,
+            "multi": false,
+            "includeAll": false,
+            "current": {},
+            "options": []
+          },
+          {
+            "name": "pod",
+            "label": "Pod",
+            "type": "query",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            },
+            "definition": "label_values(qrab_vm_power_state{namespace=\"$namespace\",vm=\"$vm\"}, pod)",
+            "query": {
+              "query": "label_values(qrab_vm_power_state{namespace=\"$namespace\",vm=\"$vm\"}, pod)",
+              "refId": "pod-var"
+            },
+            "refresh": 2,
+            "sort": 1,
+            "hide": 2,
+            "multi": true,
+            "includeAll": true,
+            "current": {},
+            "options": []
+          }
+        ]
+      },
+      "annotations": {
+        "list": []
+      },
+      "links": []
+    }

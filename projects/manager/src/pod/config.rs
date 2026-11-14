@@ -208,6 +208,35 @@ pub struct Tpm {
     pub swtpm_binary: PathBuf,
 }
 
+/// Admin-bucket console features this VM opted into (docs/bmc.md#admin-bucket).
+/// The BMC gates each one per connection. The flags are recorded only: they
+/// add no QEMU device yet, so the command line is unchanged until a feature's
+/// stream exists.
+///
+/// ```
+/// use manager::pod::AdminBucket;
+/// let bucket: AdminBucket = serde_json::from_str(r#"{"audio":true}"#).unwrap();
+/// assert!(bucket.audio && !bucket.usb_redirect && !bucket.is_empty());
+/// assert!(AdminBucket::default().is_empty());
+/// assert!(serde_json::from_str::<AdminBucket>(r#"{"microphone":true}"#).is_err());
+/// ```
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct AdminBucket {
+    /// Guest audio playback (no microphone).
+    #[serde(default)]
+    pub audio: bool,
+    /// Browser USB device redirection into the guest.
+    #[serde(default)]
+    pub usb_redirect: bool,
+}
+
+impl AdminBucket {
+    pub fn is_empty(&self) -> bool {
+        *self == Self::default()
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
@@ -278,6 +307,8 @@ pub struct Config {
     /// cloud-init NoCloud files, attached as a read-only `cidata` disk.
     #[serde(default)]
     pub seed: Option<Seed>,
+    #[serde(default, skip_serializing_if = "AdminBucket::is_empty")]
+    pub admin_bucket: AdminBucket,
     /// Accept live migrations of this VM to another manager.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub migration: Option<super::migration::Outgoing>,
@@ -655,4 +686,32 @@ fn required_file(path: &Path) -> Result<()> {
         )));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn admin_bucket_flags_round_trip_without_changing_the_command_line() {
+        let base = serde_json::json!({"kernel":"/unused","console":true});
+        let plain: Config = serde_json::from_value(base.clone()).unwrap();
+        assert!(plain.admin_bucket.is_empty());
+        assert!(serde_json::to_value(&plain)
+            .unwrap()
+            .get("admin_bucket")
+            .is_none());
+        let mut opted = base;
+        opted["admin_bucket"] = serde_json::json!({"audio":true,"usb_redirect":true});
+        let opted: Config = serde_json::from_value(opted).unwrap();
+        assert_eq!(
+            opted.admin_bucket,
+            AdminBucket {
+                audio: true,
+                usb_redirect: true
+            }
+        );
+        let socket = Path::new("/run/qrab/qmp.sock");
+        assert_eq!(plain.arguments(socket), opted.arguments(socket));
+    }
 }

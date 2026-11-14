@@ -1,8 +1,8 @@
-use crate::{auth, AppState, Failure};
+use crate::{admin_bucket, auth, AppState, Failure};
 use axum::{
     extract::{
         ws::{Message, WebSocket, WebSocketUpgrade},
-        State,
+        Query, State,
     },
     http::HeaderMap,
     response::Response,
@@ -16,16 +16,21 @@ use tokio::{
 
 /// Admission authenticates before the upgrade. Cookie sessions need the exact
 /// Origin; a bearer token is not ambient browser state and needs none.
+/// `?features=` asks for admin-bucket features; each must pass
+/// [`admin_bucket::admit`] or the whole admission is refused.
 pub async fn upgrade(
     State(app): State<AppState>,
     principal: auth::Principal,
+    Query(query): Query<Vec<(String, String)>>,
     headers: HeaderMap,
     ws: WebSocketUpgrade,
 ) -> Result<Response, Failure> {
-    let principal = principal.admin()?;
+    let requested = admin_bucket::requested(&query)?;
     if !principal.is_bearer() && !crate::same_origin(&app, &headers) {
         return Err(Failure::forbidden());
     }
+    let grants = admin_bucket::admission(&app, &principal, &requested)?;
+    let principal = principal.admin()?;
     let permit = app
         .consoles
         .clone()
@@ -36,20 +41,29 @@ pub async fn upgrade(
         .console()
         .await
         .map_err(|error| Failure::vm(&error, "The VM console is unavailable."))?;
-    tracing::info!(subject=%principal.user.subject, bearer=principal.is_bearer(), "VM console connected");
+    let features: Vec<_> = grants.active().into_iter().map(|f| f.name()).collect();
+    tracing::info!(subject=%principal.user.subject, bearer=principal.is_bearer(), ?features, "VM console connected");
     Ok(ws
         .protocols(["binary"])
         .max_message_size(64 * 1024)
         .max_frame_size(64 * 1024)
         .on_upgrade(move |socket| async move {
             let _permit = permit;
-            bridge(socket, stream, app, principal).await;
+            bridge(socket, stream, app, principal, grants).await;
         }))
 }
 
 /// Ends at logout, expiry or role loss for sessions, and at the token's
-/// expiry for bearer admission.
-async fn bridge(ws: WebSocket, stream: UnixStream, app: AppState, principal: auth::Principal) {
+/// expiry for bearer admission. `grants` is the connection's admin-bucket
+/// state: feature channels consult it, and it is rechecked independently of
+/// the console and revoked when the console closes.
+async fn bridge(
+    ws: WebSocket,
+    stream: UnixStream,
+    app: AppState,
+    principal: auth::Principal,
+    grants: admin_bucket::Grants,
+) {
     let (mut tx, mut rx) = ws.split();
     let (mut read, mut write) = stream.into_split();
     // Neither direction is detached. Dropping either copy future also drops
@@ -91,6 +105,8 @@ async fn bridge(ws: WebSocket, stream: UnixStream, app: AppState, principal: aut
     tokio::select! {
         _=to_vnc => {}, _=to_ws => {},
         _=principal.ended(&app, auth::Role::Admin) => {},
+        _=grants.supervise(&app, &principal) => {},
     }
+    grants.revoke_all(&principal.user.subject, "console closed");
     tracing::info!(subject=%principal.user.subject, "VM console disconnected");
 }

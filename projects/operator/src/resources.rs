@@ -1,5 +1,5 @@
 use crate::{
-    api::{Accelerator, CloudInit, Nic, VirtualMachine},
+    api::{Accelerator, AdminBucket, CloudInit, Nic, VirtualMachine},
     nic::{mac as nic_mac, NicEndpoint, GUEST_GATEWAY, NIC_LIMIT, RELAY_PORT},
     provision::Attached,
     Error, Result,
@@ -239,6 +239,54 @@ pub fn event_destination(raw: &str) -> Result<url::Url> {
 
 pub fn redfish_policy_name(vm: &VirtualMachine) -> String {
     format!("{}-redfish-events", vm.name_any())
+}
+
+/// The Redfish sidecar's unauthenticated Prometheus listener.
+pub const REDFISH_METRICS_PORT: u16 = 9181;
+/// kube-prometheus-stack's Prometheus Pods, the only metrics scrapers.
+pub const PROMETHEUS_NAMESPACE: &str = "monitoring";
+pub const PROMETHEUS_NAME: &str = "prometheus";
+
+pub fn redfish_metrics_policy_name(vm: &VirtualMachine) -> String {
+    format!("{}-redfish-metrics", vm.name_any())
+}
+
+/// Additive ingress for the Redfish metrics port: admitted from the monitoring
+/// namespace's Prometheus Pods and denied to every other endpoint and entity,
+/// whatever other policies select the VM Pod. Never enables default deny.
+pub fn redfish_metrics_policy(
+    vm: &VirtualMachine,
+    settings: &Settings,
+) -> Result<Option<DynamicObject>> {
+    validate(vm, settings)?;
+    if !vm.spec.components.redfish.enabled {
+        return Ok(None);
+    }
+    let uid = vm
+        .uid()
+        .ok_or_else(|| Error::Invalid("VM UID is required".into()))?;
+    let owner = vm
+        .controller_owner_ref(&())
+        .ok_or_else(|| Error::Invalid("VM owner reference is unavailable".into()))?;
+    let port = json!([{"ports":[{"port":REDFISH_METRICS_PORT.to_string(),"protocol":"TCP"}]}]);
+    let namespace = "k8s:io.kubernetes.pod.namespace";
+    Ok(Some(serde_json::from_value(
+        json!({"apiVersion":"cilium.io/v2","kind":"CiliumNetworkPolicy",
+            "metadata":{"name":redfish_metrics_policy_name(vm),"namespace":settings.namespace,"ownerReferences":[owner],
+                "labels":{"app.kubernetes.io/name":"qrab","app.kubernetes.io/component":"redfish-metrics","app.kubernetes.io/instance":vm.name_any(),crate::nic::OWNER_UID:uid}},
+            "spec":{"description":format!("The Redfish metrics port of VM {} admits only the {PROMETHEUS_NAMESPACE} namespace's Prometheus",vm.name_any()),
+                "endpointSelector":{"matchLabels":{"app.kubernetes.io/name":"qrab","app.kubernetes.io/component":"vm",crate::nic::OWNER_UID:uid}},
+                "enableDefaultDeny":{"ingress":false,"egress":false},
+                "ingress":[{"fromEndpoints":[{"matchLabels":{namespace:PROMETHEUS_NAMESPACE,"app.kubernetes.io/name":PROMETHEUS_NAME}}],"toPorts":port}],
+                "ingressDeny":[
+                    {"fromEntities":["world","host","remote-node","kube-apiserver","ingress","health","init","unmanaged"],"toPorts":port},
+                    {"fromEndpoints":[
+                        {"matchExpressions":[{"key":namespace,"operator":"NotIn","values":[PROMETHEUS_NAMESPACE]}]},
+                        {"matchExpressions":[{"key":namespace,"operator":"In","values":[PROMETHEUS_NAMESPACE]},
+                            {"key":"app.kubernetes.io/name","operator":"NotIn","values":[PROMETHEUS_NAME]}]}],
+                     "toPorts":port}]}
+        }),
+    )?))
 }
 
 /// Additive VM-Pod egress for explicitly enabled event receivers. Cilium policy
@@ -918,6 +966,17 @@ fn subject_list(subjects: &[String]) -> String {
     subjects.join(",")
 }
 
+/// The VM's enabled admin-bucket features. They are console features, so
+/// they render only with the BMC that gates them.
+fn admin_bucket(vm: &VirtualMachine) -> AdminBucket {
+    vm.spec
+        .console
+        .as_ref()
+        .and_then(|console| console.admin_bucket)
+        .filter(|_| vm.spec.components.bmc.enabled)
+        .unwrap_or_default()
+}
+
 /// Native sidecars (restartable init containers) start before the manager,
 /// keep serving while it stops the VM, and do not hold the Pod open after it
 /// exits. They mount the control socket; only Redfish may additionally mount
@@ -979,6 +1038,10 @@ fn sidecars(
                 env.push(json!({"name":name,"value":subject_list(list)}));
             }
         }
+        let bucket = admin_bucket(vm).features();
+        if !bucket.is_empty() {
+            env.push(json!({"name":"BMC_ADMIN_BUCKET","value":bucket.join(",")}));
+        }
         containers.push(sidecar(
             "bmc",
             "qrab-bmc",
@@ -1035,6 +1098,11 @@ fn sidecars(
             ("redfish", 8081),
             Value::Array(env),
         );
+        // Prometheus-only and unauthenticated; see redfish_metrics_policy.
+        container["ports"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({"name":"metrics","containerPort":REDFISH_METRICS_PORT}));
         if redfish.state_volume_claim.is_some() {
             container["volumeMounts"]
                 .as_array_mut()
@@ -1197,6 +1265,11 @@ pub fn render_incarnation(
     // Absent without spec.cloudInit or NICs, so existing template hashes are unchanged.
     if let Some(seed) = seed(vm, &uid, nics) {
         config["seed"] = seed;
+    }
+    // Absent unless a feature is enabled, so existing template hashes are unchanged.
+    let bucket = admin_bucket(vm);
+    if bucket != AdminBucket::default() {
+        config["admin_bucket"] = json!({"audio":bucket.audio,"usb_redirect":bucket.usb_redirect});
     }
     let config_data = serde_json::to_string_pretty(&config)?;
     let config_map: ConfigMap = serde_json::from_value(

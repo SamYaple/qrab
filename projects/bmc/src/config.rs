@@ -1,6 +1,11 @@
+use crate::admin_bucket::{self, Feature};
 use anyhow::{ensure, Context, Result};
 use openidconnect::url::Url;
-use std::{collections::HashSet, net::SocketAddr, path::PathBuf};
+use std::{
+    collections::{BTreeSet, HashSet},
+    net::SocketAddr,
+    path::PathBuf,
+};
 
 /// The browser console: a Kanidm authorization-code login with cookie sessions.
 #[derive(Clone)]
@@ -35,6 +40,8 @@ pub struct Config {
     pub viewer_groups: HashSet<String>,
     pub assets_dir: PathBuf,
     pub ca_file: Option<PathBuf>,
+    /// Admin-bucket features enabled for this VM (`BMC_ADMIN_BUCKET`).
+    pub admin_bucket: BTreeSet<Feature>,
 }
 
 fn https(name: &str, raw: &str) -> Result<()> {
@@ -84,6 +91,11 @@ impl Config {
     /// .unwrap();
     /// assert_eq!(both.browser.unwrap().origin, "https://vm.example");
     /// assert!(both.bearer.is_some());
+    /// // The admin bucket is empty unless named, and names must be known.
+    /// assert!(config.admin_bucket.is_empty());
+    /// let audio = Config::from_vars(vars(&[ADMIN, ISSUER, AUDIENCE, ("BMC_ADMIN_BUCKET", "audio")]));
+    /// assert_eq!(audio.unwrap().admin_bucket.into_iter().collect::<Vec<_>>(), [bmc::admin_bucket::Feature::Audio]);
+    /// assert!(Config::from_vars(vars(&[ADMIN, ISSUER, AUDIENCE, ("BMC_ADMIN_BUCKET", "mic")])).is_err());
     /// ```
     pub fn from_vars(var: impl Fn(&str) -> Option<String>) -> Result<Self> {
         let var = |name: &str| var(name).filter(|value| !value.is_empty());
@@ -165,6 +177,10 @@ impl Config {
                 .map(PathBuf::from)
                 .unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("assets")),
             ca_file: var("BMC_CA_FILE").map(PathBuf::from),
+            admin_bucket: admin_bucket::parse_list(&var("BMC_ADMIN_BUCKET").unwrap_or_default())
+                .map_err(|name| {
+                    anyhow::anyhow!("BMC_ADMIN_BUCKET names an unknown feature: {name}")
+                })?,
         })
     }
 }

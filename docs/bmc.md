@@ -50,6 +50,7 @@ On SIGTERM the sidecar closes live streams within two seconds and exits 0.
 | `BMC_VIEWER_SUBJECTS` | Comma-separated read-only (viewer) subject UUIDs |
 | `BMC_ADMIN_GROUPS` | Comma-separated Kanidm group UUIDs whose members have admin access |
 | `BMC_VIEWER_GROUPS` | Comma-separated Kanidm group UUIDs whose members have viewer access |
+| `BMC_ADMIN_BUCKET` | Comma-separated [admin-bucket](#admin-bucket) features enabled for this VM: `audio`, `usb-redirect`. Unset means none; an unknown name stops startup |
 | `QRAB_NODE_NAME`, `QRAB_POD_NAME`, `QRAB_POD_NAMESPACE`, `QRAB_IMAGE` | Optional deployment metadata shown to admins |
 | `BMC_LISTEN` | Listener; defaults to `0.0.0.0:8080` |
 | `BMC_ASSETS_DIR` | Defaults to the source assets directory; image sets `/opt/qrab/bmc/assets` |
@@ -85,7 +86,7 @@ session.
 | Role | Access |
 | --- | --- |
 | viewer | `/api/session`, `/api/status`, `/api/events`, `/api/events/stream`, redacted `/api/config` |
-| admin | Everything a viewer has, the full `/api/config`, `/api/action`, `/api/console` and `POST /api/agent/{freeze,thaw,update}` |
+| admin | Everything a viewer has, the full `/api/config`, `/api/action`, `/api/console` and `POST /api/agent/{freeze,thaw,update}`, plus the VM's enabled [admin-bucket](#admin-bucket) features when requested |
 
 `GET /api/agent` (both roles) returns the manager's cached guest-agent status
 and, while connected, the freeze state and last update run; viewers do not see
@@ -139,6 +140,72 @@ control-socket volume, never the directory holding QMP and VNC sockets; see
 with `-nic none`; opening the BMC's pod port does not create guest networking.
 The sample Cilium policy admits ingress/host probes on 8080 and permits only DNS
 and Kanidm HTTPS outbound from the pod. It mounts no Kubernetes API token.
+
+## Admin bucket
+
+The admin bucket holds console features with a concrete data-exfiltration or
+device-injection risk. During the proof-of-concept phase they are available
+only as admin-only actions. A feature leaves the bucket only when it meets its
+exit criteria below and the user records that decision as a note on
+`container/bmc-experience-2026-11`.
+
+| Feature | Name | Risk |
+| --- | --- | --- |
+| Guest audio playback (no microphone) | `audio` | Data exfiltration: whatever the guest plays (calls, media, screen readers, a covert audio channel) leaves the VM to the browser |
+| Browser USB redirection into the guest | `usb-redirect` | Device injection into the guest (a malicious or keystroke-injecting device), and data exfiltration through a host-attached USB storage device |
+
+The gate, `admin_bucket::admit(feature, principal, requested)`, admits a
+feature on a console connection only when all of these hold:
+
+- **Enabled for this VM.** The CR opts in per feature with
+  `spec.console.adminBucket: {audio: true, usbRedirect: true}`; both default to
+  false ([operator.md](operator.md#admin-bucket)). The operator renders the
+  enabled names into `BMC_ADMIN_BUCKET` and the manager's `vm.json`
+  `admin_bucket` flags only when at least one is enabled and the BMC is.
+- **Admin role.** Viewers are refused at admission, not merely hidden in the UI.
+- **Explicitly requested on this connection**, with
+  `GET /api/console?features=audio,usb-redirect` (the parameter may repeat).
+  Unknown names are 400. If any requested feature is refused, the whole
+  admission is refused with 403; a console without `features` is admitted by
+  the existing console rules.
+
+An admitted feature is part of that connection's grant state
+(`admin_bucket::Grants`). It is rechecked at least once a second like the
+console: logout, expiry, or loss of the admin role (subject or group removal)
+revokes the feature within two seconds, and closing the console revokes it too.
+Revocation is final for the connection. A feature channel checks
+`Grants::is_active(feature)` before it starts and ends when
+`Grants::revoked(feature)` resolves. The console itself follows its own rules.
+Every admission, denial and revocation is logged at info with the subject,
+feature, outcome and, for denials, the reason. `GET /api/session` lists the
+VM's enabled features as `admin_bucket` for admins only.
+
+The dashboard forwards `features` on its console proxy only for admins and
+only for features that VM enables; it drops the others and refuses unknown
+names with 400.
+
+This is the gate only. The manager records the flags but adds no QEMU audio or
+USB device, and the console carries no new stream yet. Audio playback and
+WebUSB redirection are separate work that waits on the console protocol
+decision (VNC with upstream extensions or SPICE).
+
+Exit criteria, all required for a feature to leave the bucket:
+
+- **audio**: a security review of the audio path; a server-side protocol filter
+  that passes only playback (never capture) from the guest; per-feature RBAC
+  separate from console admin; rate and size limits on the audio stream; and
+  the user's decision recorded on `container/bmc-experience-2026-11`.
+- **usb-redirect**: a security review of the redirection path; a server-side
+  protocol filter enforcing a device-class allowlist (for example, refusing
+  HID and mass storage unless separately granted); per-feature RBAC separate
+  from console admin; rate and size limits on transfers; and the user's
+  decision recorded on `container/bmc-experience-2026-11`.
+
+Known bucket concern: Prometheus in this cluster
+(`kube-prometheus-stack-prometheus:9090`) has no query authentication. The
+planned VM-pod egress to it for metric history graphs
+(`work/bmc-metric-history-graphs`) would let a compromised BMC or Redfish
+sidecar query every series in the cluster, not only its own VM's.
 
 ## Dashboard bearer tokens
 

@@ -153,13 +153,22 @@ impl Bmc {
     }
 
     /// The upstream console WebSocket request. No Origin or cookie is sent.
+    /// `features` are admin-bucket feature names, already limited to an admin
+    /// and to what the VM enables; the BMC checks them again at admission.
     pub fn console_request(
         &self,
         ip: IpAddr,
         token: &str,
+        features: &[&str],
     ) -> anyhow::Result<tokio_tungstenite::tungstenite::handshake::client::Request> {
         use tokio_tungstenite::tungstenite::client::IntoClientRequest;
-        let mut request = format!("ws://{}{CONSOLE}", self.address(ip)).into_client_request()?;
+        let query = if features.is_empty() {
+            String::new()
+        } else {
+            format!("?features={}", features.join(","))
+        };
+        let mut request =
+            format!("ws://{}{CONSOLE}{query}", self.address(ip)).into_client_request()?;
         let mut bearer: axum::http::HeaderValue = format!("Bearer {token}").parse()?;
         bearer.set_sensitive(true);
         request.headers_mut().insert("authorization", bearer);

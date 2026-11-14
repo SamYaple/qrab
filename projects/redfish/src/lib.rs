@@ -10,6 +10,8 @@ mod firmware;
 mod hardware;
 mod inventory;
 mod media;
+pub mod prometheus;
+pub use prometheus::MetricsExport;
 mod secure_boot;
 mod serial;
 mod tasks;
@@ -74,6 +76,8 @@ pub struct AppState {
     pub telemetry: TelemetryStore,
     pub triggers: TriggerStore,
     pub subscriptions: SubscriptionStore,
+    /// Coalesced Prometheus collection for [`metrics_router`].
+    pub exporter: MetricsExport,
 }
 
 /// A Redfish error response with a Base registry message.
@@ -162,6 +166,11 @@ impl IntoResponse for Failure {
         }
         response
     }
+}
+
+/// The separate unauthenticated Prometheus listener; see [`prometheus`].
+pub fn metrics_router(app: AppState) -> Router {
+    prometheus::router(app)
 }
 
 pub fn router(app: AppState) -> Router {

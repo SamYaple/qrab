@@ -162,6 +162,7 @@ fn fixture() -> Fixture {
             telemetry: Default::default(),
             subscriptions: Default::default(),
             triggers: Default::default(),
+            exporter: Default::default(),
         },
         receiver: Some(receiver),
         config,
@@ -1892,5 +1893,508 @@ async fn trusted_token_sources_are_selected_by_issuer_and_grant_only_listed_role
             Some(issuer)
         );
         assert_unauthenticated(app, &token).await;
+    }
+}
+
+const GUEST_MAC: &str = "02:00:00:00:00:01";
+const GUEST_IP: &str = "198.51.100.7";
+const RELAY: &str = "10.203.0.40:7700";
+
+async fn scrape(
+    app: &AppState,
+    method: &str,
+    path: &str,
+) -> (StatusCode, axum::http::HeaderMap, String) {
+    let response = qrab_redfish::metrics_router(app.clone())
+        .oneshot(
+            Request::builder()
+                .method(method)
+                .uri(path)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let status = response.status();
+    let headers = response.headers().clone();
+    let bytes = axum::body::to_bytes(response.into_body(), 1 << 20)
+        .await
+        .unwrap();
+    (status, headers, String::from_utf8(bytes.to_vec()).unwrap())
+}
+
+type Sample = (String, Vec<(String, String)>, f64);
+
+/// A strict reader for the Prometheus text format subset the exporter emits:
+/// every line is HELP, TYPE or a sample of a family already typed.
+fn parse_exposition(text: &str) -> Vec<Sample> {
+    fn metric_name(name: &str) -> bool {
+        let mut bytes = name.bytes();
+        bytes
+            .next()
+            .is_some_and(|b| b.is_ascii_alphabetic() || b == b'_' || b == b':')
+            && bytes.all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b':')
+    }
+    assert!(text.ends_with('\n'), "exposition ends with a newline");
+    let mut types = std::collections::BTreeMap::new();
+    let mut helped = std::collections::BTreeSet::new();
+    let mut samples = Vec::new();
+    for line in text.lines() {
+        if let Some(rest) = line.strip_prefix("# HELP ") {
+            let (name, help) = rest.split_once(' ').expect(line);
+            assert!(metric_name(name) && !help.is_empty(), "{line}");
+            assert!(helped.insert(name.to_owned()), "duplicate HELP: {line}");
+            continue;
+        }
+        if let Some(rest) = line.strip_prefix("# TYPE ") {
+            let (name, kind) = rest.split_once(' ').expect(line);
+            assert!(metric_name(name) && helped.contains(name), "{line}");
+            assert!(matches!(kind, "gauge" | "counter"), "{line}");
+            assert!(
+                types.insert(name.to_owned(), kind.to_owned()).is_none(),
+                "{line}"
+            );
+            continue;
+        }
+        assert!(
+            !line.starts_with('#') && !line.is_empty(),
+            "unexpected line {line:?}"
+        );
+        let (series, value) = line.rsplit_once(' ').expect(line);
+        let value: f64 = value.parse().expect(line);
+        let (name, labels) = match series.split_once('{') {
+            None => (series, Vec::new()),
+            Some((name, rest)) => {
+                let body = rest.strip_suffix('}').expect(line);
+                let mut labels = Vec::new();
+                let mut chars = body.chars().peekable();
+                while chars.peek().is_some() {
+                    let key: String = chars.by_ref().take_while(|c| *c != '=').collect();
+                    assert!(metric_name(&key) && !key.contains(':'), "{line}");
+                    assert_eq!(chars.next(), Some('"'), "{line}");
+                    let mut value = String::new();
+                    loop {
+                        match chars.next().expect(line) {
+                            '"' => break,
+                            '\\' => match chars.next().expect(line) {
+                                'n' => value.push('\n'),
+                                c @ ('\\' | '"') => value.push(c),
+                                other => panic!("bad escape {other} in {line}"),
+                            },
+                            c => value.push(c),
+                        }
+                    }
+                    labels.push((key, value));
+                    match chars.next() {
+                        None => break,
+                        Some(',') => {}
+                        Some(other) => panic!("unexpected {other} in {line}"),
+                    }
+                }
+                (name, labels)
+            }
+        };
+        let kind = types
+            .get(name)
+            .unwrap_or_else(|| panic!("untyped sample {line}"));
+        if kind == "counter" {
+            assert!(name.ends_with("_total"), "{line}");
+            assert!(value >= 0.0, "{line}");
+        }
+        samples.push((name.to_owned(), labels, value));
+    }
+    samples
+}
+
+fn sensitive(value: &str) -> bool {
+    let mac = |sep: char| {
+        let parts: Vec<_> = value.split(sep).collect();
+        parts.len() == 6
+            && parts
+                .iter()
+                .all(|p| p.len() == 2 && p.bytes().all(|b| b.is_ascii_hexdigit()))
+    };
+    value.contains('/')
+        || value.contains(':')
+        || ["iqn.", "eui.", "naa."]
+            .iter()
+            .any(|p| value.to_ascii_lowercase().starts_with(p))
+        || value.parse::<std::net::IpAddr>().is_ok()
+        || mac(':')
+        || mac('-')
+}
+
+/// The Grafana dashboard's queries, read from the shipped ConfigMap.
+fn dashboard_exprs() -> Vec<String> {
+    let yaml = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../contrib/kubernetes/monitoring/grafana-dashboard.yaml"),
+    )
+    .unwrap();
+    let mut lines = yaml
+        .lines()
+        .skip_while(|l| !l.trim_end().ends_with("qrab-vm.json: |"));
+    let key = lines.next().expect("qrab-vm.json block");
+    let indent = key.len() - key.trim_start().len();
+    let json: String = lines
+        .take_while(|l| l.trim().is_empty() || l.len() - l.trim_start().len() > indent)
+        .map(|l| format!("{}\n", l.trim_start()))
+        .collect();
+    let dashboard: Value = serde_json::from_str(&json).unwrap();
+    assert_eq!(dashboard["uid"], "qrab-vm");
+    fn walk(value: &Value, out: &mut Vec<String>) {
+        match value {
+            Value::Object(map) => {
+                for (key, value) in map {
+                    match (key.as_str(), value) {
+                        ("expr", Value::String(expr)) => out.push(expr.clone()),
+                        ("definition", Value::String(expr)) => out.push(expr.clone()),
+                        _ => walk(value, out),
+                    }
+                }
+            }
+            Value::Array(items) => items.iter().for_each(|v| walk(v, out)),
+            _ => {}
+        }
+    }
+    let mut out = Vec::new();
+    walk(&dashboard, &mut out);
+    out
+}
+
+fn label_set<'a>(samples: &'a [Sample], key: &str) -> std::collections::BTreeSet<&'a str> {
+    samples
+        .iter()
+        .flat_map(|(_, labels, _)| labels.iter())
+        .filter(|(k, _)| k == key)
+        .map(|(_, v)| v.as_str())
+        .collect()
+}
+
+#[tokio::test]
+async fn prometheus_scrape_is_valid_sanitized_viewer_data_and_coalesced() {
+    use std::collections::{BTreeMap, BTreeSet};
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+    let mut fixture = fixture();
+    // The full admin view still carries the iSCSI portal/IQN and NIC relay.
+    let mut view = fixture.app.control.config_view().await.unwrap();
+    view.nics.push(
+        serde_json::from_value(json!({"id":"lan","mac":GUEST_MAC,"endpoint":RELAY})).unwrap(),
+    );
+    view.nics.push(
+        serde_json::from_value(json!({"id":"02-00-00-00-00-09","mac":"02:00:00:00:00:09"}))
+            .unwrap(),
+    );
+    assert!(serde_json::to_string(&view).unwrap().contains(PORTAL));
+    let path = fixture.config.runtime_dir.join("prometheus.sock");
+    let listener = tokio::net::UnixListener::bind(&path).unwrap();
+    fixture.app.control = manager::pod::Backend::Socket(manager::pod::Remote::new(path));
+    let drive = |id: &str, read_bytes| manager::pod::DriveInventory {
+        id: id.into(),
+        capacity_bytes: Some(1 << 30),
+        read_only: false,
+        removable: false,
+        media_present: true,
+        encrypted: false,
+        format: Some("raw".into()),
+        io_failed: false,
+        counters: Some(manager::pod::DriveCounters {
+            read_bytes,
+            write_bytes: 8192,
+            read_operations: 3,
+            write_operations: 4,
+            flush_operations: 1,
+        }),
+    };
+    let interface = |name: &str, mac: Option<&str>| manager::pod::NetworkInterface {
+        name: name.into(),
+        hardware_address: mac.map(str::to_owned),
+        ip_addresses: vec![manager::pod::NetworkAddress {
+            address: GUEST_IP.into(),
+            prefix: 24,
+        }],
+        statistics: Some(manager::pod::NetworkStatistics {
+            rx_bytes: 1000,
+            rx_packets: 10,
+            tx_bytes: 2000,
+            tx_packets: 20,
+            ..Default::default()
+        }),
+        interface_enabled: Some(true),
+        link_up: Some(true),
+    };
+    let replies: BTreeMap<&str, Value> = [
+        (
+            "status",
+            json!({"phase":"running","ready":true,"manager_pid":1,"manager_start_ticks":1,
+            "qemu_pid":2,"qemu_start_ticks":2,"qemu_version":[11,1,3],"run_state":"running",
+            "observed_unix_ms":0,"exit_code":null,"detail":"/run/qrab/private"}),
+        ),
+        (
+            "agent_status",
+            serde_json::to_value(manager::pod::AgentStatus {
+                enabled: true,
+                connected: true,
+                version: Some("1.0".into()),
+                ..Default::default()
+            })
+            .unwrap(),
+        ),
+        (
+            "metrics",
+            serde_json::to_value(manager::pod::VmMetrics {
+                observed_unix_ms: 1_700_000_000_123,
+                logical_processors: 4,
+                memory_bytes: 3_221_225_472,
+                ..Default::default()
+            })
+            .unwrap(),
+        ),
+        (
+            "inventory",
+            serde_json::to_value(manager::pod::HardwareInventory {
+                observed_unix_ms: 1_700_000_000_123,
+                processors: vec![],
+                drives: vec![
+                    drive("disk-root", 4096),
+                    drive("iqn.2026-11.com.example:leak", 1),
+                ],
+            })
+            .unwrap(),
+        ),
+        ("config", serde_json::to_value(&view).unwrap()),
+        (
+            "agent_network",
+            serde_json::to_value(manager::pod::GuestNetworkSnapshot {
+                observed_unix_ms: 1_700_000_000_123,
+                interfaces: vec![
+                    interface("enp1s0", Some(&GUEST_MAC.to_ascii_uppercase())),
+                    interface("lo", None),
+                ],
+            })
+            .unwrap(),
+        ),
+    ]
+    .into_iter()
+    .collect();
+    let replies = Arc::new(replies);
+    let counts = Arc::new(std::sync::Mutex::new(BTreeMap::<String, u64>::new()));
+    let server = {
+        let counts = counts.clone();
+        tokio::spawn(async move {
+            loop {
+                let (stream, _) = listener.accept().await.unwrap();
+                let (counts, replies) = (counts.clone(), replies.clone());
+                tokio::spawn(async move {
+                    let mut stream = BufReader::new(stream);
+                    let hello = json!({"protocol":"qrab-control","version":1,"vm":"test",
+                        "operations":replies.keys().collect::<Vec<_>>()})
+                    .to_string()
+                        + "\n";
+                    stream.get_mut().write_all(hello.as_bytes()).await.unwrap();
+                    loop {
+                        let mut line = String::new();
+                        if stream.read_line(&mut line).await.unwrap() == 0 {
+                            return;
+                        }
+                        let request: Value = serde_json::from_str(&line).unwrap();
+                        let op = request["op"].as_str().unwrap().to_owned();
+                        let result = replies
+                            .get(op.as_str())
+                            .unwrap_or_else(|| panic!("unexpected {op}"))
+                            .clone();
+                        *counts.lock().unwrap().entry(op).or_default() += 1;
+                        let reply =
+                            json!({"v":1,"id":request["id"],"result":result}).to_string() + "\n";
+                        stream.get_mut().write_all(reply.as_bytes()).await.unwrap();
+                    }
+                });
+            }
+        })
+    };
+
+    let (status, headers, text) = scrape(&fixture.app, "GET", "/metrics").await;
+    assert_eq!(status, StatusCode::OK, "{text}");
+    assert_eq!(
+        headers["content-type"],
+        qrab_redfish::prometheus::CONTENT_TYPE
+    );
+    let (_, _, again) = scrape(&fixture.app, "GET", "/metrics").await;
+    assert_eq!(
+        again, text,
+        "a scrape inside the window reuses the collection"
+    );
+    {
+        let counts = counts.lock().unwrap();
+        assert_eq!(counts.get("metrics"), Some(&1), "{counts:?}");
+        assert_eq!(counts.len(), 6, "{counts:?}");
+        assert!(counts.values().all(|n| *n == 1), "{counts:?}");
+    }
+    // The scrape's sample feeds the shared on-request telemetry history.
+    let (status, _, reports) = call(
+        &fixture.app,
+        "GET",
+        "/redfish/v1/TelemetryService/MetricReports",
+        Some(&good(VIEWER)),
+        "",
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(reports["Members@odata.count"], 2, "{reports}");
+
+    let samples = parse_exposition(&text);
+    let value = |name: &str, label: Option<(&str, &str)>| {
+        samples
+            .iter()
+            .find(|(n, labels, _)| {
+                n == name
+                    && label.is_none_or(|(k, v)| labels.iter().any(|(lk, lv)| lk == k && lv == v))
+            })
+            .map(|(_, _, v)| *v)
+    };
+    let families: BTreeSet<_> = samples.iter().map(|(n, _, _)| n.as_str()).collect();
+    for family in [
+        "qrab_redfish_build_info",
+        "qrab_vm_power_state",
+        "qrab_vm_health",
+        "qrab_vm_vcpus",
+        "qrab_vm_memory_configured_bytes",
+        "qrab_vm_block_read_bytes_total",
+        "qrab_vm_block_write_bytes_total",
+        "qrab_vm_block_read_ops_total",
+        "qrab_vm_block_write_ops_total",
+        "qrab_vm_nic_rx_bytes_total",
+        "qrab_vm_nic_tx_bytes_total",
+        "qrab_vm_nic_rx_packets_total",
+        "qrab_vm_nic_tx_packets_total",
+        "qrab_vm_guest_agent_connected",
+        "qrab_vm_qmp_events_dropped_total",
+    ] {
+        assert!(families.contains(family), "missing {family}:\n{text}");
+    }
+    assert_eq!(
+        value("qrab_vm_power_state", Some(("state", "On"))),
+        Some(1.0)
+    );
+    assert_eq!(
+        value("qrab_vm_power_state", Some(("state", "Off"))),
+        Some(0.0)
+    );
+    assert_eq!(value("qrab_vm_health", None), Some(0.0));
+    assert_eq!(value("qrab_vm_vcpus", None), Some(4.0));
+    assert_eq!(
+        value("qrab_vm_memory_configured_bytes", None),
+        Some(3_221_225_472.0)
+    );
+    assert_eq!(
+        value(
+            "qrab_vm_block_read_bytes_total",
+            Some(("drive", "disk-root"))
+        ),
+        Some(4096.0)
+    );
+    assert_eq!(
+        value("qrab_vm_nic_tx_bytes_total", Some(("nic", "lan"))),
+        Some(2000.0)
+    );
+    assert_eq!(value("qrab_vm_guest_agent_connected", None), Some(1.0));
+    // Only configured, safe drive and NIC ids become label values; the
+    // PodMonitor owns the vm/pod/instance target labels.
+    for (name, labels, _) in &samples {
+        for (key, value) in labels {
+            assert!(
+                !matches!(key.as_str(), "vm" | "pod" | "instance" | "namespace"),
+                "{name}"
+            );
+            assert!(!sensitive(value), "{name}{{{key}={value:?}}}");
+        }
+    }
+    assert_eq!(label_set(&samples, "drive"), BTreeSet::from(["disk-root"]));
+    assert_eq!(label_set(&samples, "nic"), BTreeSet::from(["lan"]));
+    let lower = text.to_ascii_lowercase();
+    for secret in [
+        PORTAL,
+        "iqn.",
+        GUEST_MAC,
+        "02:00:00:00:00:09",
+        GUEST_IP,
+        RELAY,
+        "enp1s0",
+        "/run/",
+    ] {
+        assert!(
+            !lower.contains(&secret.to_ascii_lowercase()),
+            "{secret} leaked:\n{text}"
+        );
+    }
+
+    // The shipped Grafana dashboard queries only exported families or cAdvisor.
+    let exprs = dashboard_exprs();
+    let mut referenced = BTreeSet::new();
+    for expr in &exprs {
+        let mut rest = expr.as_str();
+        while let Some(at) = rest.find("qrab_") {
+            let name: String = rest[at..]
+                .chars()
+                .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
+                .collect();
+            rest = &rest[at + name.len()..];
+            referenced.insert(name);
+        }
+    }
+    assert!(referenced.contains("qrab_vm_power_state"), "{referenced:?}");
+    for name in &referenced {
+        assert!(
+            families.contains(name.as_str()),
+            "dashboard queries unknown {name}"
+        );
+    }
+    for cadvisor in [
+        "container_cpu_usage_seconds_total",
+        "container_memory_working_set_bytes",
+    ] {
+        assert!(exprs.iter().any(|e| e.contains(cadvisor)), "{cadvisor}");
+    }
+    server.abort();
+}
+
+#[tokio::test]
+async fn metrics_listener_serves_only_metrics_and_the_api_never_does() {
+    let mut fixture = fixture();
+    fixture.receiver = None; // A down manager still yields a valid, partial exposition.
+    let (status, _, text) = scrape(&fixture.app, "GET", "/metrics").await;
+    assert_eq!(status, StatusCode::OK);
+    let samples = parse_exposition(&text);
+    assert!(samples.iter().any(|(n, _, _)| n == "qrab_vm_power_state"));
+    assert!(
+        !samples.iter().any(|(n, _, _)| n == "qrab_vm_vcpus"),
+        "no invented zeroes"
+    );
+    for path in [
+        "/",
+        "/redfish",
+        "/redfish/v1/",
+        "/healthz",
+        "/readyz",
+        "/metrics/",
+        "/redfish/v1/Systems/1/Oem/Qrab/Metrics",
+    ] {
+        assert_eq!(
+            scrape(&fixture.app, "GET", path).await.0,
+            StatusCode::NOT_FOUND,
+            "{path}"
+        );
+    }
+    for method in ["POST", "PUT", "DELETE", "PATCH"] {
+        assert_eq!(
+            scrape(&fixture.app, method, "/metrics").await.0,
+            StatusCode::METHOD_NOT_ALLOWED,
+            "{method}"
+        );
+    }
+    for token in [None, Some(good(ADMIN))] {
+        let (status, _, body) = call(&fixture.app, "GET", "/metrics", token.as_deref(), "").await;
+        assert_eq!(status, StatusCode::NOT_FOUND, "{body}");
+        assert_error(&body, "ResourceNotFound");
     }
 }

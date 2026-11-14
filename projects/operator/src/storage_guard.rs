@@ -829,6 +829,8 @@ mod tests {
             .route("/api/v1/namespaces/qrab/configmaps/test-vm-config",get(get_config))
             .route("/apis/cilium.io/v2/namespaces/qrab/ciliumnetworkpolicies/test-vm-redfish-events",get(get_redfish_policy).patch(patch_redfish_policy).delete(delete_redfish_policy))
             .route("/apis/cilium.io/v2/namespaces/qrab/ciliumnetworkpolicies",axum::routing::post(create_redfish_policy))
+            // These VMs have no Redfish metrics listener, so no metrics policy.
+            .route("/apis/cilium.io/v2/namespaces/qrab/ciliumnetworkpolicies/test-vm-redfish-metrics",get(not_found_handler))
             // No live migrations; the migration guard policy is accepted.
             .route("/apis/qrab.yapplesauce.com/v1alpha1/namespaces/qrab/virtualmachinemigrations",get(|| async { Json(json!({"apiVersion":"qrab.yapplesauce.com/v1alpha1","kind":"VirtualMachineMigrationList","metadata":{"resourceVersion":"1"},"items":[]})) }))
             .route("/apis/cilium.io/v2/namespaces/qrab/ciliumnetworkpolicies/test-vm-migration-guard",get(not_found_handler).patch(|body: axum::body::Bytes| async move { Json(serde_json::from_slice::<serde_json::Value>(&body).unwrap()) }))

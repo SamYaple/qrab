@@ -600,7 +600,7 @@ fn operator_renders_exactly_the_enabled_sidecars() {
             .flat_map(|c| c["ports"].as_array().unwrap().clone())
             .map(|p| p["containerPort"].as_u64().unwrap())
             .collect();
-        let expected_ports: Vec<u64> = [(8080, bmc), (8081, redfish)]
+        let expected_ports: Vec<u64> = [(8080, bmc), (8081, redfish), (9181, redfish)]
             .into_iter()
             .filter_map(|(port, on)| on.then_some(port))
             .collect();
@@ -1641,4 +1641,141 @@ fn boot_media_schema_and_dashboard_admission_preserve_the_same_narrow_boundary()
     assert!(unchanged.contains("object.spec.mediaVolumeClaim == oldObject.spec.mediaVolumeClaim"));
     assert!(!unchanged.contains("spec.running"));
     assert_eq!(dashboard["spec"]["failurePolicy"], "Fail");
+}
+
+#[test]
+fn redfish_metrics_port_is_declared_and_admitted_only_from_monitoring_prometheus() {
+    let machine = with_components(true, true);
+    let pod = serde_json::to_value(&resources::render(&machine, &settings()).unwrap().pod).unwrap();
+    let sidecar = |pod: &Value, name: &str| {
+        pod["spec"]["initContainers"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|c| c["name"] == name)
+            .cloned()
+            .unwrap()
+    };
+    let redfish = sidecar(&pod, "redfish");
+    assert_eq!(
+        redfish["ports"],
+        json!([{"name":"redfish","containerPort":8081},{"name":"metrics","containerPort":9181}])
+    );
+    // Probes stay on the API listener; the metrics listener serves only /metrics.
+    assert_eq!(redfish["readinessProbe"]["httpGet"]["port"], "redfish");
+    assert!(!env(&redfish).contains_key("REDFISH_METRICS_LISTEN"));
+    assert!(!sidecar(&pod, "bmc")["ports"]
+        .to_string()
+        .contains("metrics"));
+
+    let policy = resources::redfish_metrics_policy(&machine, &settings())
+        .unwrap()
+        .unwrap();
+    assert_eq!(policy.name_any(), "test-vm-redfish-metrics");
+    assert_eq!(policy.metadata.namespace.as_deref(), Some("qrab"));
+    let owners = policy.metadata.owner_references.as_ref().unwrap();
+    assert_eq!(owners.len(), 1);
+    assert_eq!(owners[0].uid, "owner-one");
+    assert_eq!(owners[0].controller, Some(true));
+    let spec = &policy.data["spec"];
+    assert_eq!(
+        spec["endpointSelector"],
+        json!({"matchLabels":{"app.kubernetes.io/name":"qrab","app.kubernetes.io/component":"vm","qrab.yapplesauce.com/owner-uid":"owner-one"}})
+    );
+    // Additive: other ports and other policies are unaffected.
+    assert_eq!(
+        spec["enableDefaultDeny"],
+        json!({"ingress":false,"egress":false})
+    );
+    assert!(spec.get("egress").is_none());
+    let metrics_port = json!([{"ports":[{"port":"9181","protocol":"TCP"}]}]);
+    assert_eq!(
+        spec["ingress"],
+        json!([{"fromEndpoints":[{"matchLabels":{"k8s:io.kubernetes.pod.namespace":"monitoring","app.kubernetes.io/name":"prometheus"}}],"toPorts":metrics_port}])
+    );
+    let deny = spec["ingressDeny"].as_array().unwrap();
+    assert_eq!(deny.len(), 2);
+    assert!(deny.iter().all(|rule| rule["toPorts"] == metrics_port));
+    let entities = deny[0]["fromEntities"].as_array().unwrap();
+    for entity in ["world", "host", "remote-node", "ingress", "kube-apiserver"] {
+        assert!(entities.iter().any(|e| e == entity), "{entity}");
+    }
+    assert_eq!(
+        deny[1]["fromEndpoints"],
+        json!([
+            {"matchExpressions":[{"key":"k8s:io.kubernetes.pod.namespace","operator":"NotIn","values":["monitoring"]}]},
+            {"matchExpressions":[{"key":"k8s:io.kubernetes.pod.namespace","operator":"In","values":["monitoring"]},
+                {"key":"app.kubernetes.io/name","operator":"NotIn","values":["prometheus"]}]}
+        ])
+    );
+    // Without Redfish nothing listens, and no policy is kept.
+    let plain = with_components(true, false);
+    assert!(resources::redfish_metrics_policy(&plain, &settings())
+        .unwrap()
+        .is_none());
+    let pod = serde_json::to_value(&resources::render(&plain, &settings()).unwrap().pod).unwrap();
+    assert!(!pod.to_string().contains("9181"));
+}
+
+#[test]
+fn admin_bucket_is_default_off_and_renders_only_enabled_features() {
+    let rendered = |machine: &VirtualMachine| {
+        let desired = resources::render(machine, &settings()).unwrap();
+        let config: Value =
+            serde_json::from_str(&desired.config.data.as_ref().unwrap()["vm.json"]).unwrap();
+        let pod = serde_json::to_value(&desired.pod).unwrap();
+        let bmc = pod["spec"]["initContainers"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .find(|c| c["name"] == "bmc")
+            .map(env);
+        (desired.hash, config, bmc)
+    };
+    let plain = vm();
+    let (plain_hash, config, bmc) = rendered(&plain);
+    assert!(config.get("admin_bucket").is_none());
+    assert!(!bmc.unwrap().contains_key("BMC_ADMIN_BUCKET"));
+    // An all-false bucket is the same as none: no restart, nothing rendered.
+    let mut off = vm();
+    off.spec.console.as_mut().unwrap().admin_bucket = Some(api::AdminBucket::default());
+    let (off_hash, config, bmc) = rendered(&off);
+    assert_eq!(off_hash, plain_hash);
+    assert!(config.get("admin_bucket").is_none());
+    assert!(!bmc.unwrap().contains_key("BMC_ADMIN_BUCKET"));
+    for (bucket, names) in [
+        (json!({"audio":true}), "audio"),
+        (json!({"usbRedirect":true}), "usb-redirect"),
+        (
+            json!({"audio":true,"usbRedirect":true}),
+            "audio,usb-redirect",
+        ),
+    ] {
+        let mut machine = vm();
+        machine.spec.console.as_mut().unwrap().admin_bucket =
+            Some(serde_json::from_value(bucket.clone()).unwrap());
+        let (hash, config, bmc) = rendered(&machine);
+        assert_ne!(hash, plain_hash, "{bucket}");
+        assert_eq!(
+            config["admin_bucket"],
+            json!({"audio":bucket["audio"] == true,"usb_redirect":bucket["usbRedirect"] == true})
+        );
+        assert_eq!(bmc.unwrap()["BMC_ADMIN_BUCKET"], names);
+    }
+    // Without the BMC that gates them, the features render nowhere.
+    let mut headless = vm();
+    headless.spec.console.as_mut().unwrap().admin_bucket = Some(api::AdminBucket {
+        audio: true,
+        usb_redirect: true,
+    });
+    headless.spec.components.bmc.enabled = false;
+    let (_, config, bmc) = rendered(&headless);
+    assert!(config.get("admin_bucket").is_none() && bmc.is_none());
+    let crd = api::crd();
+    let bucket = &crd["spec"]["versions"][0]["schema"]["openAPIV3Schema"]["properties"]["spec"]
+        ["properties"]["console"]["properties"]["adminBucket"]["properties"];
+    for field in ["audio", "usbRedirect"] {
+        assert_eq!(bucket[field]["default"], false, "{field}");
+    }
+    assert!(serde_json::from_value::<api::AdminBucket>(json!({"microphone":true})).is_err());
 }
