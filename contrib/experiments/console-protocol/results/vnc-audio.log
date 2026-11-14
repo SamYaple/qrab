@@ -1,0 +1,68 @@
+## 1. current qrab args (no -audiodev), client advertises -259
+{
+  "version": "RFB 003.008",
+  "size": [
+    720,
+    400
+  ],
+  "name": "QEMU",
+  "audio_ack_rect": false,
+  "closed_by_server": "closed after 0/1 bytes",
+  "messages": {},
+  "audio_bytes": 0,
+  "audio_bytes_per_second": 0,
+  "expected_bytes_per_second_s16_stereo_44k1": 176400,
+  "nonzero_samples": 0
+}
+## 2. proposed admin-bucket audio args, client advertises -259
+{
+  "version": "RFB 003.008",
+  "size": [
+    720,
+    400
+  ],
+  "name": "QEMU",
+  "audio_ack_rect": true,
+  "messages": {
+    "audio-begin": 1,
+    "audio-data": 306
+  },
+  "audio_bytes": 530844,
+  "audio_bytes_per_second": 176966,
+  "expected_bytes_per_second_s16_stereo_44k1": 176400,
+  "nonzero_samples": 265422
+}
+## 3. same VM, client sends audio enable without negotiating -259
+{
+  "version": "RFB 003.008",
+  "size": [
+    720,
+    400
+  ],
+  "name": "QEMU",
+  "audio_ack_rect": false,
+  "closed_by_server": "closed after 0/1 bytes",
+  "messages": {},
+  "audio_bytes": 0,
+  "audio_bytes_per_second": 0,
+  "expected_bytes_per_second_s16_stereo_44k1": 176400,
+  "nonzero_samples": 0
+}
+## 4. same VM, a fresh negotiating client after 3 (per-connection isolation)
+{
+  "version": "RFB 003.008",
+  "size": [
+    720,
+    400
+  ],
+  "name": "QEMU",
+  "audio_ack_rect": true,
+  "messages": {
+    "audio-begin": 1,
+    "audio-data": 102
+  },
+  "audio_bytes": 178004,
+  "audio_bytes_per_second": 178102,
+  "expected_bytes_per_second_s16_stereo_44k1": 176400,
+  "nonzero_samples": 89002
+}

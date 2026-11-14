@@ -1,0 +1,149 @@
+## B1. channel links, playback stream, single-client behaviour (usbredir + port configured)
+{
+  "main": {
+    "gate_view": {
+      "magic": "REDQ",
+      "major": 2,
+      "size": 22,
+      "channel": "main",
+      "channel_id": 0
+    },
+    "reply_magic": "REDQ",
+    "reply_version": [
+      2,
+      2
+    ],
+    "link_error": "OK",
+    "server_common_caps": "0xb",
+    "server_channel_caps": "0xf",
+    "auth_result": "OK"
+  },
+  "session_id_present": true,
+  "channels_list": [
+    "display:0",
+    "cursor:0",
+    "usbredir:0",
+    "playback:0",
+    "port:0",
+    "inputs:0"
+  ],
+  "playback": {
+    "gate_view": {
+      "magic": "REDQ",
+      "major": 2,
+      "size": 26,
+      "channel": "playback",
+      "channel_id": 0
+    },
+    "reply_magic": "REDQ",
+    "reply_version": [
+      2,
+      2
+    ],
+    "link_error": "OK",
+    "server_common_caps": "0xb",
+    "server_channel_caps": "0xa",
+    "auth_result": "OK"
+  },
+  "playback_stream": {
+    "message_counts": {
+      "101": 300,
+      "102": 1,
+      "103": 1
+    },
+    "mode": "opus",
+    "start": {
+      "channels": 2,
+      "format": "S16",
+      "frequency": 48000
+    },
+    "payload_bytes": 38677,
+    "payload_bytes_per_second": 12880,
+    "data_messages_per_second": 99.9
+  },
+  "bad_connection_id": "BAD_CONNECTION_ID",
+  "link_record": "closed without reply",
+  "link_smartcard": "closed without reply",
+  "link_usbredir": "OK",
+  "link_port": "OK",
+  "link_webdav": "closed without reply",
+  "second_main": "OK",
+  "first_main_after_second": "disconnected: ConnectionError: closed after 0/6 bytes"
+}
+## B1. VNC console on the same VM still answers
+  "version": "RFB 003.008",
+  "size": [
+  "name": "QEMU",
+## qemu container: running exit=0
+qemu-system-x86_64: warning: Spice: ../server/reds.cpp:1567:reds_send_link_ack: Received wrong header: channel_type != SPICE_CHANNEL_MAIN
+qemu-system-x86_64: warning: Spice: ../server/reds.cpp:1567:reds_send_link_ack: Received wrong header: channel_type != SPICE_CHANNEL_MAIN
+qemu-system-x86_64: warning: Spice: Connection reset by peer
+qemu-system-x86_64: Audio message 0 with audio disabled
+## B2. link one channel, close it, check the server survives (fresh VM each)
+{"channels": ["record"], "hold_seconds": 0.0, "link": ["closed without reply"], "server_alive_after_close": "OK"}
+## qemu container: running exit=0
+qemu-system-x86_64: warning: Spice: ../server/reds.cpp:1567:reds_send_link_ack: Received wrong header: channel_type != SPICE_CHANNEL_MAIN
+{"channels": ["record"], "hold_seconds": 1.0, "link": ["closed without reply"], "server_alive_after_close": "OK"}
+## qemu container: running exit=0
+qemu-system-x86_64: warning: Spice: ../server/reds.cpp:1567:reds_send_link_ack: Received wrong header: channel_type != SPICE_CHANNEL_MAIN
+{"channels": ["usbredir"], "hold_seconds": 0.0, "link": ["OK"], "server_alive_after_close": "OK"}
+## qemu container: running exit=0
+{"channels": ["usbredir"], "hold_seconds": 1.0, "link": ["OK"], "server_alive_after_close": "OK"}
+## qemu container: running exit=0
+qemu-system-x86_64: warning: Spice: Connection reset by peer
+{"channels": ["port"], "hold_seconds": 0.0, "link": ["OK"], "server_alive_after_close": "OK"}
+## qemu container: running exit=0
+qemu-system-x86_64: warning: Spice: Connection reset by peer
+{"channels": ["port"], "hold_seconds": 1.0, "link": ["OK"], "server_alive_after_close": "OK"}
+## qemu container: running exit=0
+qemu-system-x86_64: warning: Spice: Connection reset by peer
+## B3. link usbredir and port, close both, then link playback (fresh VM each)
+{"channels": ["usbredir", "port"], "hold_seconds": 0.0, "link": ["OK", "OK"], "server_alive_after_close": "OK"}
+## qemu container: running exit=0
+qemu-system-x86_64: warning: Spice: Connection reset by peer
+qemu-system-x86_64: warning: Spice: Connection reset by peer
+{"channels": ["port", "usbredir"], "hold_seconds": 0.0, "link": ["OK", "OK"], "server_alive_after_close": "OK"}
+## qemu container: running exit=0
+qemu-system-x86_64: warning: Spice: Connection reset by peer
+qemu-system-x86_64: warning: Spice: Connection reset by peer
+{"channels": ["port", "port"], "hold_seconds": 0.0, "link": ["OK", "OK"], "server_alive_after_close": "OK"}
+## qemu container: running exit=0
+qemu-system-x86_64: warning: Spice: port:0 (0x5601856b75c0): channel client (0x5601856142e0) already connected, refusing second connection
+qemu-system-x86_64: warning: Spice: Connection reset by peer
+## B4. replay of the sequence that first crashed QEMU (fresh VM each, 5 runs)
+playback/wrong-id=BAD_CONNECTION_ID record=closed without reply smartcard=closed without reply usbredir=OK port=OK webdav=closed without reply playback=OK
+## qemu container: running exit=0
+qemu-system-x86_64: warning: Spice: ../server/reds.cpp:1567:reds_send_link_ack: Received wrong header: channel_type != SPICE_CHANNEL_MAIN
+qemu-system-x86_64: warning: Spice: ../server/reds.cpp:1567:reds_send_link_ack: Received wrong header: channel_type != SPICE_CHANNEL_MAIN
+qemu-system-x86_64: warning: Spice: Connection reset by peer
+qemu-system-x86_64: warning: Spice: ../server/reds.cpp:1567:reds_send_link_ack: Received wrong header: channel_type != SPICE_CHANNEL_MAIN
+playback/wrong-id=BAD_CONNECTION_ID record=closed without reply smartcard=closed without reply usbredir=OK port=OK webdav=closed without reply playback=ConnectionRefusedError: [Errno 111] Connection refused
+## qemu container: stopped exit=139
+qemu-system-x86_64: warning: Spice: ../server/reds.cpp:1567:reds_send_link_ack: Received wrong header: channel_type != SPICE_CHANNEL_MAIN
+qemu-system-x86_64: warning: Spice: ../server/reds.cpp:1567:reds_send_link_ack: Received wrong header: channel_type != SPICE_CHANNEL_MAIN
+qemu-system-x86_64: warning: Spice: port:0 (0x5602c5fc75c0): client 0x5602c655dda0 have already been removed from char dev 0x5602c5fc7740
+playback/wrong-id=BAD_CONNECTION_ID record=closed without reply smartcard=closed without reply usbredir=OK port=OK webdav=closed without reply playback=ConnectionRefusedError: [Errno 111] Connection refused
+## qemu container: exited exit=139
+qemu-system-x86_64: warning: Spice: ../server/reds.cpp:1567:reds_send_link_ack: Received wrong header: channel_type != SPICE_CHANNEL_MAIN
+qemu-system-x86_64: warning: Spice: ../server/reds.cpp:1567:reds_send_link_ack: Received wrong header: channel_type != SPICE_CHANNEL_MAIN
+qemu-system-x86_64: warning: Spice: port:0 (0x5629e21a95c0): client 0x5629e23a3d60 have already been removed from char dev 0x5629e21a9740
+playback/wrong-id=BAD_CONNECTION_ID record=closed without reply smartcard=closed without reply usbredir=OK port=OK webdav=TimeoutError: timed out playback=closed without reply
+## qemu container: exited exit=139
+qemu-system-x86_64: warning: Spice: ../server/reds.cpp:1567:reds_send_link_ack: Received wrong header: channel_type != SPICE_CHANNEL_MAIN
+qemu-system-x86_64: warning: Spice: ../server/reds.cpp:1567:reds_send_link_ack: Received wrong header: channel_type != SPICE_CHANNEL_MAIN
+qemu-system-x86_64: warning: Spice: port:0 (0x55c78450f5c0): client 0x55c784a9fdd0 have already been removed from char dev 0x55c78450f740
+playback/wrong-id=BAD_CONNECTION_ID record=closed without reply smartcard=closed without reply usbredir=OK port=OK webdav=closed without reply playback=ConnectionRefusedError: [Errno 111] Connection refused
+## qemu container: exited exit=139
+qemu-system-x86_64: warning: Spice: ../server/reds.cpp:1567:reds_send_link_ack: Received wrong header: channel_type != SPICE_CHANNEL_MAIN
+qemu-system-x86_64: warning: Spice: ../server/reds.cpp:1567:reds_send_link_ack: Received wrong header: channel_type != SPICE_CHANNEL_MAIN
+qemu-system-x86_64: warning: Spice: port:0 (0x55cf6ebd45c0): client 0x55cf6f165130 have already been removed from char dev 0x55cf6ebd4740
+## B5. minimise: wrong-id playback link, then only the listed channels (fresh VM each)
+playback/wrong-id=BAD_CONNECTION_ID port=OK playback=closed without reply
+## qemu container: exited exit=139
+qemu-system-x86_64: warning: Spice: port:0 (0x55631604d5c0): client 0x5563165e3490 have already been removed from char dev 0x55631604d740
+playback/wrong-id=BAD_CONNECTION_ID usbredir=OK playback=OK
+## qemu container: running exit=0
+playback/wrong-id=BAD_CONNECTION_ID usbredir=OK port=OK playback=OK
+## qemu container: running exit=0
+qemu-system-x86_64: warning: Spice: Connection reset by peer
+qemu-system-x86_64: warning: Spice: Connection reset by peer
