@@ -1,12 +1,12 @@
 use super::parser_version;
+use nom::IResult;
+use nom::Parser;
 use nom::bytes::complete::{is_a, tag, tag_no_case, take_while1};
 use nom::character::complete::{line_ending, not_line_ending, space0};
 use nom::combinator::{not, opt, peek, recognize};
 use nom::error::{Error, ErrorKind};
 use nom::multi::{many0, many1};
 use nom::sequence::{preceded, terminated};
-use nom::IResult;
-use nom::Parser;
 
 // ─── Shared helpers ────────────────────────────────────────────────
 

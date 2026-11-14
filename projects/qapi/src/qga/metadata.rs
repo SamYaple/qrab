@@ -410,6 +410,25 @@ static STRUCT_GuestDiskSmart: StructMeta = StructMeta {
 };
 static VARIANTS_GuestDiskSmartBranch: &[EnumVariantMeta] = &[
     EnumVariantMeta { name: "Nvme", wire_name: "nvme", payload_struct: Some("GuestNvMeSmart"), since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "Ide", wire_name: "ide", payload_struct: None, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "IDE disks" },
+    EnumVariantMeta { name: "Fdc", wire_name: "fdc", payload_struct: None, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "floppy disks" },
+    EnumVariantMeta { name: "Scsi", wire_name: "scsi", payload_struct: None, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "SCSI disks" },
+    EnumVariantMeta { name: "Virtio", wire_name: "virtio", payload_struct: None, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "virtio disks" },
+    EnumVariantMeta { name: "Xen", wire_name: "xen", payload_struct: None, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Xen disks" },
+    EnumVariantMeta { name: "Usb", wire_name: "usb", payload_struct: None, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "USB disks" },
+    EnumVariantMeta { name: "Uml", wire_name: "uml", payload_struct: None, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "UML disks" },
+    EnumVariantMeta { name: "Sata", wire_name: "sata", payload_struct: None, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "SATA disks" },
+    EnumVariantMeta { name: "Sd", wire_name: "sd", payload_struct: None, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "SD cards" },
+    EnumVariantMeta { name: "Unknown", wire_name: "unknown", payload_struct: None, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Unknown bus type" },
+    EnumVariantMeta { name: "Ieee1394", wire_name: "ieee1394", payload_struct: None, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Win IEEE 1394 bus type" },
+    EnumVariantMeta { name: "Ssa", wire_name: "ssa", payload_struct: None, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Win SSA bus type" },
+    EnumVariantMeta { name: "Fibre", wire_name: "fibre", payload_struct: None, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Win fiber channel bus type" },
+    EnumVariantMeta { name: "Raid", wire_name: "raid", payload_struct: None, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Win RAID bus type" },
+    EnumVariantMeta { name: "Iscsi", wire_name: "iscsi", payload_struct: None, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Win iScsi bus type" },
+    EnumVariantMeta { name: "Sas", wire_name: "sas", payload_struct: None, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Win serial-attaches SCSI bus type" },
+    EnumVariantMeta { name: "Mmc", wire_name: "mmc", payload_struct: None, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Win multimedia card (MMC) bus type" },
+    EnumVariantMeta { name: "Virtual", wire_name: "virtual", payload_struct: None, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Win virtual bus type" },
+    EnumVariantMeta { name: "FileBackedVirtual", wire_name: "file-backed-virtual", payload_struct: None, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Win file-backed bus type" },
 ];
 static ENUM_GuestDiskSmartBranch: EnumMeta = EnumMeta {
     name: "GuestDiskSmartBranch",

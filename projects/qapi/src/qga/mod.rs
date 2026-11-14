@@ -276,8 +276,65 @@ pub struct GuestDiskSmart {
 #[qapi(condition = "(CONFIG_WIN32 || CONFIG_LIBUDEV)")]
 #[qapi(added = "7.1.0")]
 pub enum GuestDiskSmartBranch {
+    /// floppy disks
+    #[qapi(name = "fdc")]
+    Fdc,
+    /// Win fiber channel bus type
+    #[qapi(name = "fibre")]
+    Fibre,
+    /// Win file-backed bus type
+    #[qapi(name = "file-backed-virtual")]
+    FileBackedVirtual,
+    /// IDE disks
+    #[qapi(name = "ide")]
+    Ide,
+    /// Win IEEE 1394 bus type
+    #[qapi(name = "ieee1394")]
+    Ieee1394,
+    /// Win iScsi bus type
+    #[qapi(name = "iscsi")]
+    Iscsi,
+    /// Win multimedia card (MMC) bus type
+    #[qapi(name = "mmc")]
+    Mmc,
     #[qapi(name = "nvme")]
     Nvme(GuestNvMeSmart),
+    /// Win RAID bus type
+    #[qapi(name = "raid")]
+    Raid,
+    /// Win serial-attaches SCSI bus type
+    #[qapi(name = "sas")]
+    Sas,
+    /// SATA disks
+    #[qapi(name = "sata")]
+    Sata,
+    /// SCSI disks
+    #[qapi(name = "scsi")]
+    Scsi,
+    /// SD cards
+    #[qapi(name = "sd")]
+    Sd,
+    /// Win SSA bus type
+    #[qapi(name = "ssa")]
+    Ssa,
+    /// UML disks
+    #[qapi(name = "uml")]
+    Uml,
+    /// Unknown bus type
+    #[qapi(name = "unknown")]
+    Unknown,
+    /// USB disks
+    #[qapi(name = "usb")]
+    Usb,
+    /// virtio disks
+    #[qapi(name = "virtio")]
+    Virtio,
+    /// Win virtual bus type
+    #[qapi(name = "virtual")]
+    Virtual,
+    /// Xen disks
+    #[qapi(name = "xen")]
+    Xen,
 }
 
 #[qapi(condition = "CONFIG_LINUX")]

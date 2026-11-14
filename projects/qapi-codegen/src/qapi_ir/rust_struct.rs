@@ -1,4 +1,4 @@
-use super::{doc_to_tokens, generate_attribute, rustify_field, rustify_type, Metadata};
+use super::{Metadata, doc_to_tokens, generate_attribute, rustify_field, rustify_type};
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 use std::cmp::Ordering;

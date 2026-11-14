@@ -1455,3 +1455,125 @@ fn secure_boot_capability_is_explicit_without_inventing_enabled_state_or_resourc
         "changing firmware capability must replace the booted instance"
     );
 }
+
+#[test]
+fn approved_boot_media_requires_its_explicit_read_only_pvc_without_extra_resources() {
+    let mut machine = with_components(true, true);
+    let original = resources::render(&machine, &settings()).unwrap();
+    let original_pod = serde_json::to_value(&original.pod).unwrap();
+    let image_config: Value =
+        serde_json::from_str(&original.config.data.as_ref().unwrap()["vm.json"]).unwrap();
+    assert_eq!(image_config["uefi"]["boot_disk"], "/opt/qrab/demo/boot.img");
+    for name in [
+        "signed-boot.img",
+        "install.iso",
+        "Boot_2026-11.efi.img",
+        "a.img",
+    ] {
+        machine.spec.boot_disk = format!("/var/lib/qrab-media/{name}");
+        assert!(
+            resources::render(&machine, &settings()).is_err(),
+            "media boot accepted without a claim"
+        );
+        machine.spec.media_volume_claim = Some("approved-media".into());
+        let desired = resources::render(&machine, &settings()).unwrap();
+        let config: Value =
+            serde_json::from_str(&desired.config.data.as_ref().unwrap()["vm.json"]).unwrap();
+        assert_eq!(config["uefi"]["boot_disk"], machine.spec.boot_disk);
+        let pod = serde_json::to_value(&desired.pod).unwrap();
+        assert_eq!(
+            pod["spec"]["containers"][0]["resources"],
+            original_pod["spec"]["containers"][0]["resources"]
+        );
+        assert_eq!(
+            pod["spec"]["initContainers"],
+            original_pod["spec"]["initContainers"]
+        );
+        assert!(pod["spec"]["containers"][0]["volumeMounts"].as_array().unwrap().iter().any(|m|m==&json!({"name":"media-catalog","mountPath":"/var/lib/qrab-media","readOnly":true})));
+        assert!(pod["spec"]["volumes"].as_array().unwrap().iter().any(|v|v==&json!({"name":"media-catalog","persistentVolumeClaim":{"claimName":"approved-media","readOnly":true}})));
+        assert!(resources::pod_matches(&desired.pod, &desired));
+        machine.spec.media_volume_claim = None;
+    }
+    machine.spec.media_volume_claim = Some("approved-media".into());
+    machine.spec.boot_disk = format!("/var/lib/qrab-media/{}.img", "a".repeat(124));
+    assert!(
+        resources::render(&machine, &settings()).is_ok(),
+        "128-byte basename must be accepted"
+    );
+    machine.spec.boot_disk = format!("/var/lib/qrab-media/{}.img", "a".repeat(125));
+    assert!(resources::render(&machine, &settings()).is_err());
+}
+
+#[test]
+fn approved_boot_media_cannot_select_identity_secrets_or_ambiguous_paths() {
+    let mut machine = vm();
+    machine.spec.media_volume_claim = Some("approved-media".into());
+    for path in [
+        "/var/lib/qrab/identity/boot.img",
+        "/run/qrab-auth/password.img",
+        "/run/secrets/boot.img",
+        "/opt/qrab/demo/other.img",
+        "/var/lib/qrab-firmware/code.img",
+        "/var/lib/qrab-media/../qrab/boot.img",
+        "/var/lib/qrab-media/nested/boot.img",
+        "/var/lib/qrab-media/.boot.img",
+        "/var/lib/qrab-media/a..img",
+        "/var/lib/qrab-media/a..b.iso",
+        "/var/lib/qrab-media/-boot.img",
+        "/var/lib/qrab-media/a.qcow2",
+        "/var/lib/qrab-media/boot.IMG",
+        "/var/lib/qrab-media/boot.img/",
+        "/var/lib/qrab-media/a%2eb.iso",
+        "/var/lib/qrab-media/boot image.img",
+        "/var/lib/qrab-media/é.img",
+        "/var/lib/qrab-media/a.img\n",
+        "var/lib/qrab-media/boot.img",
+        "/var/lib/qrab-media//boot.img",
+    ] {
+        machine.spec.boot_disk = path.into();
+        assert!(
+            resources::render(&machine, &settings()).is_err(),
+            "unsafe boot path accepted: {path:?}"
+        );
+    }
+    machine.spec.boot_disk = "/var/lib/qrab-media/signed-boot.img".into();
+    for claim in [None, Some(""), Some("invalid_claim"), Some("test-state")] {
+        machine.spec.media_volume_claim = claim.map(str::to_owned);
+        assert!(
+            resources::render(&machine, &settings()).is_err(),
+            "unsafe media claim accepted: {claim:?}"
+        );
+    }
+    machine.spec.media_volume_claim = Some("approved-media".into());
+    machine.spec.firmware_catalog_volume_claim = Some("approved-media".into());
+    assert!(
+        resources::render(&machine, &settings()).is_err(),
+        "firmware and media PVC roles must stay distinct"
+    );
+}
+
+#[test]
+fn boot_media_schema_and_dashboard_admission_preserve_the_same_narrow_boundary() {
+    let crd = api::crd();
+    let spec = &crd["spec"]["versions"][0]["schema"]["openAPIV3Schema"]["properties"]["spec"];
+    let boot = &spec["properties"]["bootDisk"];
+    assert!(boot.get("enum").is_none());
+    assert_eq!(boot["default"], "/opt/qrab/demo/boot.img");
+    assert_eq!(boot["maxLength"], 148);
+    assert_eq!(boot["pattern"],"^(/opt/qrab/demo/boot[.]img|/var/lib/qrab-media/[A-Za-z0-9][A-Za-z0-9._-]{0,123}[.](img|iso))$");
+    let rule = spec["x-kubernetes-validations"][0]["rule"]
+        .as_str()
+        .unwrap();
+    assert!(rule.contains("has(self.mediaVolumeClaim)"));
+    assert!(rule.contains("self.mediaVolumeClaim != ''"));
+    assert!(rule.contains("self.mediaVolumeClaim != self.stateVolumeClaim"));
+    assert!(rule.contains("!self.bootDisk.contains('..')"));
+    let dashboard = api::dashboard_update_policy();
+    let unchanged = dashboard["spec"]["validations"][0]["expression"]
+        .as_str()
+        .unwrap();
+    assert!(unchanged.contains("object.spec.bootDisk == oldObject.spec.bootDisk"));
+    assert!(unchanged.contains("object.spec.mediaVolumeClaim == oldObject.spec.mediaVolumeClaim"));
+    assert!(!unchanged.contains("spec.running"));
+    assert_eq!(dashboard["spec"]["failurePolicy"], "Fail");
+}

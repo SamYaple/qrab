@@ -81,9 +81,14 @@ pub struct VirtualMachineSpec {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(regex(pattern = r"^zot\.yapplesauce\.com/qrab/manager@sha256:[a-f0-9]{64}$"))]
     pub image: Option<String>,
-    /// Readonly UEFI boot disk inside the manager image. No direct kernel boot.
+    /// Read-only UEFI boot media: the immutable image ESP, or one safe .img/.iso
+    /// basename in /var/lib/qrab-media when mediaVolumeClaim is configured.
+    /// State, Secrets, nested paths and direct kernel boot are never selected.
     #[serde(default = "boot_disk")]
-    #[schemars(length(min = 2, max = 4096))]
+    #[schemars(length(min = 2, max = 148))]
+    #[schemars(regex(
+        pattern = r"^(/opt/qrab/demo/boot[.]img|/var/lib/qrab-media/[A-Za-z0-9][A-Za-z0-9._-]{0,123}[.](img|iso))$"
+    ))]
     pub boot_disk: String,
     /// Select explicit secure-capable OVMF with SMM-protected variable flash.
     /// Key enrollment and requested enablement remain separate operations.
@@ -578,8 +583,11 @@ pub fn crd() -> serde_json::Value {
         ["stateVolumeClaim"]["x-kubernetes-validations"] = serde_json::json!([
         {"rule":"self == oldSelf", "message":"stateVolumeClaim is immutable; identity migration must be deliberate"}
     ]);
-    value["spec"]["versions"][0]["schema"]["openAPIV3Schema"]["properties"]["spec"]["properties"]
-        ["bootDisk"]["enum"] = serde_json::json!(["/opt/qrab/demo/boot.img"]);
+    value["spec"]["versions"][0]["schema"]["openAPIV3Schema"]["properties"]["spec"]
+        ["x-kubernetes-validations"] = serde_json::json!([
+        {"rule":"self.bootDisk == '/opt/qrab/demo/boot.img' || (has(self.mediaVolumeClaim) && self.mediaVolumeClaim != '' && self.mediaVolumeClaim != self.stateVolumeClaim && !self.bootDisk.contains('..'))",
+         "message":"bootDisk media requires a separate mediaVolumeClaim and a safe basename without '..'"}
+    ]);
     // Optional means absent. Prune explicit null rather than pinning to it.
     for field in ["storageNode", "maxCpus", "maxMemoryMiB"] {
         let schema = value["spec"]["versions"][0]["schema"]["openAPIV3Schema"]["properties"]

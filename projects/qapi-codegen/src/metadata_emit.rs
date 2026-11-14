@@ -17,7 +17,7 @@
 //!   its arg `StructMeta`.
 
 use crate::qapi_ir::{
-    rustify_field, rustify_name, Attribute, EnumVariantKind, Struct, StructField,
+    Attribute, EnumVariantKind, Struct, StructField, rustify_field, rustify_name,
 };
 use crate::unified::{
     UnifiedEnum, UnifiedRegistry, UnifiedStruct, UnifiedType, Version, VersionRange,
@@ -58,7 +58,9 @@ fn rs_str(s: &str) -> String {
 
 /// Find a `Unit` attribute by name.
 fn has_unit_attr(attrs: &[Attribute], name: &str) -> bool {
-    attrs.iter().any(|a| matches!(a, Attribute::Unit(n) if n == name))
+    attrs
+        .iter()
+        .any(|a| matches!(a, Attribute::Unit(n) if n == name))
 }
 
 /// Find an `Item` attribute and return its value.
@@ -73,9 +75,9 @@ fn item_attr<'a>(attrs: &'a [Attribute], name: &str) -> Option<&'a str> {
 /// `List(...)` attribute bundle on the IR node.
 fn has_feature(attrs: &[Attribute], feat: &str) -> bool {
     attrs.iter().any(|a| match a {
-        Attribute::List(items) => items.iter().any(|i| {
-            matches!(i, Attribute::Item { name, value } if name == "feature" && value == feat)
-        }),
+        Attribute::List(items) => items.iter().any(
+            |i| matches!(i, Attribute::Item { name, value } if name == "feature" && value == feat),
+        ),
         _ => false,
     })
 }
@@ -415,10 +417,7 @@ fn emit_field_array(
     enum_names: &BTreeSet<String>,
 ) -> String {
     let mut s = String::new();
-    s.push_str(&format!(
-        "static {}: &[FieldMeta] = &[\n",
-        var_name
-    ));
+    s.push_str(&format!("static {}: &[FieldMeta] = &[\n", var_name));
     for f in &us.ir.fields {
         // Skip the synthetic `arguments: HashMap<...>` flatten field on free-form
         // commands and the `u: Option<XBranch>` flatten field on unions; the BMC
@@ -519,15 +518,9 @@ fn payload_for_variant(kind: &EnumVariantKind) -> Option<String> {
     }
 }
 
-fn emit_enum_variants(
-    ue: &UnifiedEnum,
-    var_name: &str,
-) -> String {
+fn emit_enum_variants(ue: &UnifiedEnum, var_name: &str) -> String {
     let mut s = String::new();
-    s.push_str(&format!(
-        "static {}: &[EnumVariantMeta] = &[\n",
-        var_name
-    ));
+    s.push_str(&format!("static {}: &[EnumVariantMeta] = &[\n", var_name));
     for v in &ue.ir.variants {
         let rust = rustify_name(&v.name);
         let wire = item_attr(&v.meta.attributes, "name")
@@ -726,7 +719,12 @@ pub fn emit(registry: &UnifiedRegistry) -> String {
                 let _ = cat; // events stay only as StructMeta entries; CommandMeta is QMP-only.
             }
             UnifiedType::Enum(ue) => {
-                let kind = if ue.ir.variants.iter().all(|v| matches!(v.kind, EnumVariantKind::Unit)) {
+                let kind = if ue
+                    .ir
+                    .variants
+                    .iter()
+                    .all(|v| matches!(v.kind, EnumVariantKind::Unit))
+                {
                     "Unit"
                 } else if branch_enums.contains(&rust_name) {
                     "FlatUnionBranch"

@@ -353,6 +353,15 @@ impl Config {
                         .into(),
                 ));
             }
+            if uefi.boot_disk.starts_with("/var/lib/qrab-media") {
+                super::MediaPolicy::from_env()?
+                    .ok_or_else(|| {
+                        Error::Config(
+                            "boot media requires an explicit approved media policy".into(),
+                        )
+                    })?
+                    .validate_boot_disk(&uefi.boot_disk)?;
+            }
             for path in [&uefi.code, &uefi.vars_template, &uefi.boot_disk] {
                 required_file(path)?;
             }

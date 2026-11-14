@@ -1,0 +1,103 @@
+# Existing public hostname, now explicitly routed to the fresh POC identity.
+apiVersion: v1
+kind: Service
+metadata:
+  name: qrab-demo
+spec:
+  # component: vm keeps the VM's NIC Pods (component: vm-nic) out of the BMC Service.
+  selector:
+    app.kubernetes.io/name: qrab
+    app.kubernetes.io/component: vm
+    app.kubernetes.io/instance: qrab-redfish-poc
+  ports:
+  - name: http
+    port: 8080
+    # Numeric: the port belongs to the BMC sidecar (a restartable init container).
+    targetPort: 8080
+  # The Redfish sidecar; nothing listens unless spec.components.redfish is enabled.
+  - name: redfish
+    port: 8081
+    targetPort: 8081
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: qrab-demo
+  annotations:
+    ingress.cilium.io/force-https: enabled
+spec:
+  ingressClassName: cilium
+  tls:
+  - hosts: [qrab-demo.yapplesauce.com]
+    secretName: qrab-demo-tls
+  rules:
+  - host: qrab-demo.yapplesauce.com
+    http:
+      paths:
+      # Redfish's own URI root; the BMC serves no /redfish routes.
+      - path: /redfish
+        pathType: Prefix
+        backend:
+          service:
+            name: qrab-demo
+            port:
+              name: redfish
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: qrab-demo
+            port:
+              name: http
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: qrab-demo-tls
+spec:
+  secretName: qrab-demo-tls
+  dnsNames: [qrab-demo.yapplesauce.com]
+  issuerRef:
+    kind: ClusterIssuer
+    name: letsencrypt-production
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+    rotationPolicy: Always
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: qrab-demo
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: qrab
+      app.kubernetes.io/component: vm
+      app.kubernetes.io/instance: qrab-redfish-poc
+  ingress:
+  - fromEntities: [ingress, host]
+    toPorts:
+    - ports:
+      - {port: '8080', protocol: TCP}
+      - {port: '8081', protocol: TCP}
+  egress:
+  - toEndpoints:
+    - matchLabels:
+        k8s:io.kubernetes.pod.namespace: kube-system
+        k8s:k8s-app: kube-dns
+    toPorts:
+    - ports:
+      - {port: '53', protocol: UDP}
+      - {port: '53', protocol: TCP}
+  - toCIDR: [192.168.0.251/32]
+    toPorts:
+    - ports:
+      - {port: '443', protocol: TCP}
+  # Native QEMU iSCSI uses the Pod's storage network. Guest NICs are separate
+  # NIC Pods; the operator's <vm>-nic-<name>-relay policies add this Pod's
+  # egress to their relay port 7700.
+  - toCIDR: [10.203.0.1/32]
+    toPorts:
+    - ports:
+      - {port: '3260', protocol: TCP}

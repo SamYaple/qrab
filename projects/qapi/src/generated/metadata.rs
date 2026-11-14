@@ -1864,6 +1864,52 @@ static STRUCT_BlockdevAmendOptions: StructMeta = StructMeta {
 static VARIANTS_BlockdevAmendOptionsBranch: &[EnumVariantMeta] = &[
     EnumVariantMeta { name: "Luks", wire_name: "luks", payload_struct: Some("BlockdevAmendOptionsLuks"), since: (5u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
     EnumVariantMeta { name: "Qcow2", wire_name: "qcow2", payload_struct: Some("BlockdevAmendOptionsQcow2"), since: (5u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "Blkdebug", wire_name: "blkdebug", payload_struct: None, since: (5u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "Blklogwrites", wire_name: "blklogwrites", payload_struct: None, since: (5u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Since 3.0" },
+    EnumVariantMeta { name: "Blkreplay", wire_name: "blkreplay", payload_struct: None, since: (5u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Since 4.2" },
+    EnumVariantMeta { name: "Blkverify", wire_name: "blkverify", payload_struct: None, since: (5u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "Bochs", wire_name: "bochs", payload_struct: None, since: (5u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "Cloop", wire_name: "cloop", payload_struct: None, since: (5u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "Compress", wire_name: "compress", payload_struct: None, since: (5u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Since 5.0" },
+    EnumVariantMeta { name: "CopyOnRead", wire_name: "copy-on-read", payload_struct: None, since: (5u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Since 3.0" },
+    EnumVariantMeta { name: "Dmg", wire_name: "dmg", payload_struct: None, since: (5u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "File", wire_name: "file", payload_struct: None, since: (5u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "Ftp", wire_name: "ftp", payload_struct: None, since: (5u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "Ftps", wire_name: "ftps", payload_struct: None, since: (5u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "Gluster", wire_name: "gluster", payload_struct: None, since: (5u32, 1u32, 0u32), until: Some((11u32, 1u32, 0u32)), deprecated: true, unstable: false, doc: "" },
+    EnumVariantMeta { name: "HostCdrom", wire_name: "host_cdrom", payload_struct: None, since: (5u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "HostDevice", wire_name: "host_device", payload_struct: None, since: (5u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "Http", wire_name: "http", payload_struct: None, since: (5u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "Https", wire_name: "https", payload_struct: None, since: (5u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "Iscsi", wire_name: "iscsi", payload_struct: None, since: (5u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "Nbd", wire_name: "nbd", payload_struct: None, since: (5u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "Nfs", wire_name: "nfs", payload_struct: None, since: (5u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "NullAio", wire_name: "null-aio", payload_struct: None, since: (5u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "NullCo", wire_name: "null-co", payload_struct: None, since: (5u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "Nvme", wire_name: "nvme", payload_struct: None, since: (5u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Since 2.12" },
+    EnumVariantMeta { name: "Parallels", wire_name: "parallels", payload_struct: None, since: (5u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "Qcow", wire_name: "qcow", payload_struct: None, since: (5u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "Qed", wire_name: "qed", payload_struct: None, since: (5u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "Quorum", wire_name: "quorum", payload_struct: None, since: (5u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "Raw", wire_name: "raw", payload_struct: None, since: (5u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "Rbd", wire_name: "rbd", payload_struct: None, since: (5u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "Replication", wire_name: "replication", payload_struct: None, since: (5u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "Sheepdog", wire_name: "sheepdog", payload_struct: None, since: (5u32, 1u32, 0u32), until: Some((6u32, 1u32, 0u32)), deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "Ssh", wire_name: "ssh", payload_struct: None, since: (5u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "Throttle", wire_name: "throttle", payload_struct: None, since: (5u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Since 2.11" },
+    EnumVariantMeta { name: "Vdi", wire_name: "vdi", payload_struct: None, since: (5u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "Vhdx", wire_name: "vhdx", payload_struct: None, since: (5u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "Vmdk", wire_name: "vmdk", payload_struct: None, since: (5u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "Vpc", wire_name: "vpc", payload_struct: None, since: (5u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "Vvfat", wire_name: "vvfat", payload_struct: None, since: (5u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "Preallocate", wire_name: "preallocate", payload_struct: None, since: (6u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "CopyBeforeWrite", wire_name: "copy-before-write", payload_struct: None, since: (6u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Since 6.2" },
+    EnumVariantMeta { name: "SnapshotAccess", wire_name: "snapshot-access", payload_struct: None, since: (7u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Since 7.0" },
+    EnumVariantMeta { name: "IoUring", wire_name: "io_uring", payload_struct: None, since: (7u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "NvmeIoUring", wire_name: "nvme-io_uring", payload_struct: None, since: (7u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "VirtioBlkVfioPci", wire_name: "virtio-blk-vfio-pci", payload_struct: None, since: (7u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "VirtioBlkVhostUser", wire_name: "virtio-blk-vhost-user", payload_struct: None, since: (7u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "VirtioBlkVhostVdpa", wire_name: "virtio-blk-vhost-vdpa", payload_struct: None, since: (7u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
 ];
 static ENUM_BlockdevAmendOptionsBranch: EnumMeta = EnumMeta {
     name: "BlockdevAmendOptionsBranch",
@@ -2086,43 +2132,55 @@ static STRUCT_BlockdevCreateOptions: StructMeta = StructMeta {
     until: None,
 };
 static VARIANTS_BlockdevCreateOptionsBranch: &[EnumVariantMeta] = &[
-    EnumVariantMeta { name: "Blkdebug", wire_name: "blkdebug", payload_struct: Some("BlockdevCreateNotSupported"), since: (2u32, 12u32, 0u32), until: Some((3u32, 0u32, 0u32)), deprecated: false, unstable: false, doc: "" },
-    EnumVariantMeta { name: "Blkverify", wire_name: "blkverify", payload_struct: Some("BlockdevCreateNotSupported"), since: (2u32, 12u32, 0u32), until: Some((3u32, 0u32, 0u32)), deprecated: false, unstable: false, doc: "" },
-    EnumVariantMeta { name: "Bochs", wire_name: "bochs", payload_struct: Some("BlockdevCreateNotSupported"), since: (2u32, 12u32, 0u32), until: Some((3u32, 0u32, 0u32)), deprecated: false, unstable: false, doc: "" },
-    EnumVariantMeta { name: "Cloop", wire_name: "cloop", payload_struct: Some("BlockdevCreateNotSupported"), since: (2u32, 12u32, 0u32), until: Some((3u32, 0u32, 0u32)), deprecated: false, unstable: false, doc: "" },
-    EnumVariantMeta { name: "Dmg", wire_name: "dmg", payload_struct: Some("BlockdevCreateNotSupported"), since: (2u32, 12u32, 0u32), until: Some((3u32, 0u32, 0u32)), deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "Blkdebug", wire_name: "blkdebug", payload_struct: None, since: (2u32, 12u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "Blkverify", wire_name: "blkverify", payload_struct: None, since: (2u32, 12u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "Bochs", wire_name: "bochs", payload_struct: None, since: (2u32, 12u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "Cloop", wire_name: "cloop", payload_struct: None, since: (2u32, 12u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "Dmg", wire_name: "dmg", payload_struct: None, since: (2u32, 12u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
     EnumVariantMeta { name: "File", wire_name: "file", payload_struct: Some("BlockdevCreateOptionsFile"), since: (2u32, 12u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
-    EnumVariantMeta { name: "Ftp", wire_name: "ftp", payload_struct: Some("BlockdevCreateNotSupported"), since: (2u32, 12u32, 0u32), until: Some((3u32, 0u32, 0u32)), deprecated: false, unstable: false, doc: "" },
-    EnumVariantMeta { name: "Ftps", wire_name: "ftps", payload_struct: Some("BlockdevCreateNotSupported"), since: (2u32, 12u32, 0u32), until: Some((3u32, 0u32, 0u32)), deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "Ftp", wire_name: "ftp", payload_struct: None, since: (2u32, 12u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "Ftps", wire_name: "ftps", payload_struct: None, since: (2u32, 12u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
     EnumVariantMeta { name: "Gluster", wire_name: "gluster", payload_struct: Some("BlockdevCreateOptionsGluster"), since: (2u32, 12u32, 0u32), until: Some((11u32, 1u32, 0u32)), deprecated: false, unstable: false, doc: "" },
-    EnumVariantMeta { name: "HostCdrom", wire_name: "host_cdrom", payload_struct: Some("BlockdevCreateNotSupported"), since: (2u32, 12u32, 0u32), until: Some((3u32, 0u32, 0u32)), deprecated: false, unstable: false, doc: "" },
-    EnumVariantMeta { name: "HostDevice", wire_name: "host_device", payload_struct: Some("BlockdevCreateNotSupported"), since: (2u32, 12u32, 0u32), until: Some((3u32, 0u32, 0u32)), deprecated: false, unstable: false, doc: "" },
-    EnumVariantMeta { name: "Http", wire_name: "http", payload_struct: Some("BlockdevCreateNotSupported"), since: (2u32, 12u32, 0u32), until: Some((3u32, 0u32, 0u32)), deprecated: false, unstable: false, doc: "" },
-    EnumVariantMeta { name: "Https", wire_name: "https", payload_struct: Some("BlockdevCreateNotSupported"), since: (2u32, 12u32, 0u32), until: Some((3u32, 0u32, 0u32)), deprecated: false, unstable: false, doc: "" },
-    EnumVariantMeta { name: "Iscsi", wire_name: "iscsi", payload_struct: Some("BlockdevCreateNotSupported"), since: (2u32, 12u32, 0u32), until: Some((3u32, 0u32, 0u32)), deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "HostCdrom", wire_name: "host_cdrom", payload_struct: None, since: (2u32, 12u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "HostDevice", wire_name: "host_device", payload_struct: None, since: (2u32, 12u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "Http", wire_name: "http", payload_struct: None, since: (2u32, 12u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "Https", wire_name: "https", payload_struct: None, since: (2u32, 12u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "Iscsi", wire_name: "iscsi", payload_struct: None, since: (2u32, 12u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
     EnumVariantMeta { name: "Luks", wire_name: "luks", payload_struct: Some("BlockdevCreateOptionsLuks"), since: (2u32, 12u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
-    EnumVariantMeta { name: "Nbd", wire_name: "nbd", payload_struct: Some("BlockdevCreateNotSupported"), since: (2u32, 12u32, 0u32), until: Some((3u32, 0u32, 0u32)), deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "Nbd", wire_name: "nbd", payload_struct: None, since: (2u32, 12u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
     EnumVariantMeta { name: "Nfs", wire_name: "nfs", payload_struct: Some("BlockdevCreateOptionsNfs"), since: (2u32, 12u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
-    EnumVariantMeta { name: "NullAio", wire_name: "null-aio", payload_struct: Some("BlockdevCreateNotSupported"), since: (2u32, 12u32, 0u32), until: Some((3u32, 0u32, 0u32)), deprecated: false, unstable: false, doc: "" },
-    EnumVariantMeta { name: "NullCo", wire_name: "null-co", payload_struct: Some("BlockdevCreateNotSupported"), since: (2u32, 12u32, 0u32), until: Some((3u32, 0u32, 0u32)), deprecated: false, unstable: false, doc: "" },
-    EnumVariantMeta { name: "Nvme", wire_name: "nvme", payload_struct: Some("BlockdevCreateNotSupported"), since: (2u32, 12u32, 0u32), until: Some((3u32, 0u32, 0u32)), deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "NullAio", wire_name: "null-aio", payload_struct: None, since: (2u32, 12u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "NullCo", wire_name: "null-co", payload_struct: None, since: (2u32, 12u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "Nvme", wire_name: "nvme", payload_struct: None, since: (2u32, 12u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Since 2.12" },
     EnumVariantMeta { name: "Parallels", wire_name: "parallels", payload_struct: Some("BlockdevCreateOptionsParallels"), since: (2u32, 12u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
     EnumVariantMeta { name: "Qcow", wire_name: "qcow", payload_struct: Some("BlockdevCreateOptionsQcow"), since: (2u32, 12u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
     EnumVariantMeta { name: "Qcow2", wire_name: "qcow2", payload_struct: Some("BlockdevCreateOptionsQcow2"), since: (2u32, 12u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
     EnumVariantMeta { name: "Qed", wire_name: "qed", payload_struct: Some("BlockdevCreateOptionsQed"), since: (2u32, 12u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
-    EnumVariantMeta { name: "Quorum", wire_name: "quorum", payload_struct: Some("BlockdevCreateNotSupported"), since: (2u32, 12u32, 0u32), until: Some((3u32, 0u32, 0u32)), deprecated: false, unstable: false, doc: "" },
-    EnumVariantMeta { name: "Raw", wire_name: "raw", payload_struct: Some("BlockdevCreateNotSupported"), since: (2u32, 12u32, 0u32), until: Some((3u32, 0u32, 0u32)), deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "Quorum", wire_name: "quorum", payload_struct: None, since: (2u32, 12u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "Raw", wire_name: "raw", payload_struct: None, since: (2u32, 12u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
     EnumVariantMeta { name: "Rbd", wire_name: "rbd", payload_struct: Some("BlockdevCreateOptionsRbd"), since: (2u32, 12u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
-    EnumVariantMeta { name: "Replication", wire_name: "replication", payload_struct: Some("BlockdevCreateNotSupported"), since: (2u32, 12u32, 0u32), until: Some((3u32, 0u32, 0u32)), deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "Replication", wire_name: "replication", payload_struct: None, since: (2u32, 12u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
     EnumVariantMeta { name: "Sheepdog", wire_name: "sheepdog", payload_struct: Some("BlockdevCreateOptionsSheepdog"), since: (2u32, 12u32, 0u32), until: Some((6u32, 1u32, 0u32)), deprecated: false, unstable: false, doc: "" },
     EnumVariantMeta { name: "Ssh", wire_name: "ssh", payload_struct: Some("BlockdevCreateOptionsSsh"), since: (2u32, 12u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
-    EnumVariantMeta { name: "Throttle", wire_name: "throttle", payload_struct: Some("BlockdevCreateNotSupported"), since: (2u32, 12u32, 0u32), until: Some((3u32, 0u32, 0u32)), deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "Throttle", wire_name: "throttle", payload_struct: None, since: (2u32, 12u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Since 2.11" },
     EnumVariantMeta { name: "Vdi", wire_name: "vdi", payload_struct: Some("BlockdevCreateOptionsVdi"), since: (2u32, 12u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
     EnumVariantMeta { name: "Vhdx", wire_name: "vhdx", payload_struct: Some("BlockdevCreateOptionsVhdx"), since: (2u32, 12u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
     EnumVariantMeta { name: "Vmdk", wire_name: "vmdk", payload_struct: Some("BlockdevCreateOptionsVmdk"), since: (2u32, 12u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
     EnumVariantMeta { name: "Vpc", wire_name: "vpc", payload_struct: Some("BlockdevCreateOptionsVpc"), since: (2u32, 12u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
-    EnumVariantMeta { name: "Vvfat", wire_name: "vvfat", payload_struct: Some("BlockdevCreateNotSupported"), since: (2u32, 12u32, 0u32), until: Some((3u32, 0u32, 0u32)), deprecated: false, unstable: false, doc: "" },
-    EnumVariantMeta { name: "Vxhs", wire_name: "vxhs", payload_struct: Some("BlockdevCreateNotSupported"), since: (2u32, 12u32, 0u32), until: Some((3u32, 0u32, 0u32)), deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "Vvfat", wire_name: "vvfat", payload_struct: None, since: (2u32, 12u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "Vxhs", wire_name: "vxhs", payload_struct: None, since: (2u32, 12u32, 0u32), until: Some((5u32, 1u32, 0u32)), deprecated: false, unstable: false, doc: "Since 2.10" },
+    EnumVariantMeta { name: "Blklogwrites", wire_name: "blklogwrites", payload_struct: None, since: (3u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Since 3.0" },
+    EnumVariantMeta { name: "CopyOnRead", wire_name: "copy-on-read", payload_struct: None, since: (3u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Since 3.0" },
+    EnumVariantMeta { name: "Blkreplay", wire_name: "blkreplay", payload_struct: None, since: (4u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Since 4.2" },
+    EnumVariantMeta { name: "Compress", wire_name: "compress", payload_struct: None, since: (5u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Since 5.0" },
+    EnumVariantMeta { name: "Preallocate", wire_name: "preallocate", payload_struct: None, since: (6u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "CopyBeforeWrite", wire_name: "copy-before-write", payload_struct: None, since: (6u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Since 6.2" },
+    EnumVariantMeta { name: "SnapshotAccess", wire_name: "snapshot-access", payload_struct: None, since: (7u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Since 7.0" },
+    EnumVariantMeta { name: "IoUring", wire_name: "io_uring", payload_struct: None, since: (7u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "NvmeIoUring", wire_name: "nvme-io_uring", payload_struct: None, since: (7u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "VirtioBlkVfioPci", wire_name: "virtio-blk-vfio-pci", payload_struct: None, since: (7u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "VirtioBlkVhostUser", wire_name: "virtio-blk-vhost-user", payload_struct: None, since: (7u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "VirtioBlkVhostVdpa", wire_name: "virtio-blk-vhost-vdpa", payload_struct: None, since: (7u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
 ];
 static ENUM_BlockdevCreateOptionsBranch: EnumMeta = EnumMeta {
     name: "BlockdevCreateOptionsBranch",
@@ -4616,6 +4674,14 @@ static STRUCT_BlockJobChangeOptions: StructMeta = StructMeta {
 };
 static VARIANTS_BlockJobChangeOptionsBranch: &[EnumVariantMeta] = &[
     EnumVariantMeta { name: "Mirror", wire_name: "mirror", payload_struct: Some("BlockJobChangeOptionsMirror"), since: (8u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "Commit", wire_name: "commit", payload_struct: None, since: (8u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "block commit job type, see `block-commit`" },
+    EnumVariantMeta { name: "Stream", wire_name: "stream", payload_struct: None, since: (8u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "block stream job type, see `block-stream`" },
+    EnumVariantMeta { name: "Backup", wire_name: "backup", payload_struct: None, since: (8u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "drive backup job type, see `drive-backup`" },
+    EnumVariantMeta { name: "Create", wire_name: "create", payload_struct: None, since: (8u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "image creation job type, see `blockdev-create` (since 3.0)" },
+    EnumVariantMeta { name: "Amend", wire_name: "amend", payload_struct: None, since: (8u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "image options amend job type, see `x-blockdev-amend`\n(since 5.1)" },
+    EnumVariantMeta { name: "SnapshotLoad", wire_name: "snapshot-load", payload_struct: None, since: (8u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "snapshot load job type, see `snapshot-load`\n(since 6.0)" },
+    EnumVariantMeta { name: "SnapshotSave", wire_name: "snapshot-save", payload_struct: None, since: (8u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "snapshot save job type, see `snapshot-save`\n(since 6.0)" },
+    EnumVariantMeta { name: "SnapshotDelete", wire_name: "snapshot-delete", payload_struct: None, since: (8u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "snapshot delete job type, see `snapshot-delete`\n(since 6.0)" },
 ];
 static ENUM_BlockJobChangeOptionsBranch: EnumMeta = EnumMeta {
     name: "BlockJobChangeOptionsBranch",
@@ -4744,6 +4810,14 @@ static STRUCT_BlockJobInfo: StructMeta = StructMeta {
 };
 static VARIANTS_BlockJobInfoBranch: &[EnumVariantMeta] = &[
     EnumVariantMeta { name: "Mirror", wire_name: "mirror", payload_struct: Some("BlockJobInfoMirror"), since: (8u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "Commit", wire_name: "commit", payload_struct: None, since: (8u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "block commit job type, see `block-commit`" },
+    EnumVariantMeta { name: "Stream", wire_name: "stream", payload_struct: None, since: (8u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "block stream job type, see `block-stream`" },
+    EnumVariantMeta { name: "Backup", wire_name: "backup", payload_struct: None, since: (8u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "drive backup job type, see `drive-backup`" },
+    EnumVariantMeta { name: "Create", wire_name: "create", payload_struct: None, since: (8u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "image creation job type, see `blockdev-create` (since 3.0)" },
+    EnumVariantMeta { name: "Amend", wire_name: "amend", payload_struct: None, since: (8u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "image options amend job type, see `x-blockdev-amend`\n(since 5.1)" },
+    EnumVariantMeta { name: "SnapshotLoad", wire_name: "snapshot-load", payload_struct: None, since: (8u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "snapshot load job type, see `snapshot-load`\n(since 6.0)" },
+    EnumVariantMeta { name: "SnapshotSave", wire_name: "snapshot-save", payload_struct: None, since: (8u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "snapshot save job type, see `snapshot-save`\n(since 6.0)" },
+    EnumVariantMeta { name: "SnapshotDelete", wire_name: "snapshot-delete", payload_struct: None, since: (8u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "snapshot delete job type, see `snapshot-delete`\n(since 6.0)" },
 ];
 static ENUM_BlockJobInfoBranch: EnumMeta = EnumMeta {
     name: "BlockJobInfoBranch",
@@ -5131,7 +5205,53 @@ static STRUCT_BlockStatsSpecific: StructMeta = StructMeta {
 static VARIANTS_BlockStatsSpecificBranch: &[EnumVariantMeta] = &[
     EnumVariantMeta { name: "File", wire_name: "file", payload_struct: Some("BlockStatsSpecificFile"), since: (4u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
     EnumVariantMeta { name: "HostDevice", wire_name: "host_device", payload_struct: Some("BlockStatsSpecificFile"), since: (4u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
-    EnumVariantMeta { name: "Nvme", wire_name: "nvme", payload_struct: Some("BlockStatsSpecificNvme"), since: (5u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "Blkdebug", wire_name: "blkdebug", payload_struct: None, since: (4u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "Blklogwrites", wire_name: "blklogwrites", payload_struct: None, since: (4u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Since 3.0" },
+    EnumVariantMeta { name: "Blkreplay", wire_name: "blkreplay", payload_struct: None, since: (4u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Since 4.2" },
+    EnumVariantMeta { name: "Blkverify", wire_name: "blkverify", payload_struct: None, since: (4u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "Bochs", wire_name: "bochs", payload_struct: None, since: (4u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "Cloop", wire_name: "cloop", payload_struct: None, since: (4u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "CopyOnRead", wire_name: "copy-on-read", payload_struct: None, since: (4u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Since 3.0" },
+    EnumVariantMeta { name: "Dmg", wire_name: "dmg", payload_struct: None, since: (4u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "Ftp", wire_name: "ftp", payload_struct: None, since: (4u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "Ftps", wire_name: "ftps", payload_struct: None, since: (4u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "Gluster", wire_name: "gluster", payload_struct: None, since: (4u32, 2u32, 0u32), until: Some((11u32, 1u32, 0u32)), deprecated: true, unstable: false, doc: "" },
+    EnumVariantMeta { name: "HostCdrom", wire_name: "host_cdrom", payload_struct: None, since: (4u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "Http", wire_name: "http", payload_struct: None, since: (4u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "Https", wire_name: "https", payload_struct: None, since: (4u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "Iscsi", wire_name: "iscsi", payload_struct: None, since: (4u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "Luks", wire_name: "luks", payload_struct: None, since: (4u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "Nbd", wire_name: "nbd", payload_struct: None, since: (4u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "Nfs", wire_name: "nfs", payload_struct: None, since: (4u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "NullAio", wire_name: "null-aio", payload_struct: None, since: (4u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "NullCo", wire_name: "null-co", payload_struct: None, since: (4u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "Nvme", wire_name: "nvme", payload_struct: Some("BlockStatsSpecificNvme"), since: (4u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Since 2.12" },
+    EnumVariantMeta { name: "Parallels", wire_name: "parallels", payload_struct: None, since: (4u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "Qcow", wire_name: "qcow", payload_struct: None, since: (4u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "Qcow2", wire_name: "qcow2", payload_struct: None, since: (4u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "Qed", wire_name: "qed", payload_struct: None, since: (4u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "Quorum", wire_name: "quorum", payload_struct: None, since: (4u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "Raw", wire_name: "raw", payload_struct: None, since: (4u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "Rbd", wire_name: "rbd", payload_struct: None, since: (4u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "Replication", wire_name: "replication", payload_struct: None, since: (4u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "Sheepdog", wire_name: "sheepdog", payload_struct: None, since: (4u32, 2u32, 0u32), until: Some((6u32, 1u32, 0u32)), deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "Ssh", wire_name: "ssh", payload_struct: None, since: (4u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "Throttle", wire_name: "throttle", payload_struct: None, since: (4u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Since 2.11" },
+    EnumVariantMeta { name: "Vdi", wire_name: "vdi", payload_struct: None, since: (4u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "Vhdx", wire_name: "vhdx", payload_struct: None, since: (4u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "Vmdk", wire_name: "vmdk", payload_struct: None, since: (4u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "Vpc", wire_name: "vpc", payload_struct: None, since: (4u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "Vvfat", wire_name: "vvfat", payload_struct: None, since: (4u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "Vxhs", wire_name: "vxhs", payload_struct: None, since: (4u32, 2u32, 0u32), until: Some((5u32, 1u32, 0u32)), deprecated: false, unstable: false, doc: "Since 2.10" },
+    EnumVariantMeta { name: "Compress", wire_name: "compress", payload_struct: None, since: (5u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Since 5.0" },
+    EnumVariantMeta { name: "Preallocate", wire_name: "preallocate", payload_struct: None, since: (6u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "CopyBeforeWrite", wire_name: "copy-before-write", payload_struct: None, since: (6u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Since 6.2" },
+    EnumVariantMeta { name: "SnapshotAccess", wire_name: "snapshot-access", payload_struct: None, since: (7u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Since 7.0" },
+    EnumVariantMeta { name: "IoUring", wire_name: "io_uring", payload_struct: None, since: (7u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "NvmeIoUring", wire_name: "nvme-io_uring", payload_struct: None, since: (7u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "VirtioBlkVfioPci", wire_name: "virtio-blk-vfio-pci", payload_struct: None, since: (7u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "VirtioBlkVhostUser", wire_name: "virtio-blk-vhost-user", payload_struct: None, since: (7u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "VirtioBlkVhostVdpa", wire_name: "virtio-blk-vhost-vdpa", payload_struct: None, since: (7u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
 ];
 static ENUM_BlockStatsSpecificBranch: EnumMeta = EnumMeta {
     name: "BlockStatsSpecificBranch",
@@ -6463,7 +6583,7 @@ static VARIANTS_CpuInfoBranch: &[EnumVariantMeta] = &[
     EnumVariantMeta { name: "Ppc", wire_name: "ppc", payload_struct: Some("CpuInfoPpc"), since: (2u32, 6u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
     EnumVariantMeta { name: "Mips", wire_name: "mips", payload_struct: Some("CpuInfoMips"), since: (2u32, 6u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
     EnumVariantMeta { name: "Tricore", wire_name: "tricore", payload_struct: Some("CpuInfoTricore"), since: (2u32, 6u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
-    EnumVariantMeta { name: "Other", wire_name: "other", payload_struct: Some("CpuInfoOther"), since: (2u32, 6u32, 0u32), until: Some((3u32, 0u32, 0u32)), deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "Other", wire_name: "other", payload_struct: None, since: (2u32, 6u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
     EnumVariantMeta { name: "S390", wire_name: "s390", payload_struct: Some("CpuInfoS390"), since: (2u32, 12u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
     EnumVariantMeta { name: "Riscv", wire_name: "riscv", payload_struct: Some("CpuInfoRiscv"), since: (2u32, 12u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
 ];
@@ -6497,14 +6617,45 @@ static STRUCT_CpuInfoFast: StructMeta = StructMeta {
 };
 static VARIANTS_CpuInfoFastBranch: &[EnumVariantMeta] = &[
     EnumVariantMeta { name: "X86", wire_name: "x86", payload_struct: Some("CpuInfoOther"), since: (2u32, 12u32, 0u32), until: Some((3u32, 0u32, 0u32)), deprecated: false, unstable: false, doc: "" },
-    EnumVariantMeta { name: "Sparc", wire_name: "sparc", payload_struct: Some("CpuInfoOther"), since: (2u32, 12u32, 0u32), until: Some((3u32, 0u32, 0u32)), deprecated: false, unstable: false, doc: "" },
-    EnumVariantMeta { name: "Ppc", wire_name: "ppc", payload_struct: Some("CpuInfoOther"), since: (2u32, 12u32, 0u32), until: Some((3u32, 0u32, 0u32)), deprecated: false, unstable: false, doc: "" },
-    EnumVariantMeta { name: "Mips", wire_name: "mips", payload_struct: Some("CpuInfoOther"), since: (2u32, 12u32, 0u32), until: Some((3u32, 0u32, 0u32)), deprecated: false, unstable: false, doc: "" },
-    EnumVariantMeta { name: "Tricore", wire_name: "tricore", payload_struct: Some("CpuInfoOther"), since: (2u32, 12u32, 0u32), until: Some((3u32, 0u32, 0u32)), deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "Sparc", wire_name: "sparc", payload_struct: None, since: (2u32, 12u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "Ppc", wire_name: "ppc", payload_struct: None, since: (2u32, 12u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "Mips", wire_name: "mips", payload_struct: None, since: (2u32, 12u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "Tricore", wire_name: "tricore", payload_struct: None, since: (2u32, 12u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
     EnumVariantMeta { name: "S390", wire_name: "s390", payload_struct: Some("CpuInfoS390"), since: (2u32, 12u32, 0u32), until: Some((3u32, 0u32, 0u32)), deprecated: false, unstable: false, doc: "" },
     EnumVariantMeta { name: "Riscv", wire_name: "riscv", payload_struct: Some("CpuInfoOther"), since: (2u32, 12u32, 0u32), until: Some((3u32, 0u32, 0u32)), deprecated: false, unstable: false, doc: "" },
     EnumVariantMeta { name: "Other", wire_name: "other", payload_struct: Some("CpuInfoOther"), since: (2u32, 12u32, 0u32), until: Some((3u32, 0u32, 0u32)), deprecated: false, unstable: false, doc: "" },
     EnumVariantMeta { name: "S390x", wire_name: "s390x", payload_struct: Some("CpuInfoS390"), since: (3u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "Aarch64", wire_name: "aarch64", payload_struct: None, since: (3u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "Alpha", wire_name: "alpha", payload_struct: None, since: (3u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "Arm", wire_name: "arm", payload_struct: None, since: (3u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "Cris", wire_name: "cris", payload_struct: None, since: (3u32, 0u32, 0u32), until: Some((9u32, 2u32, 0u32)), deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "Hppa", wire_name: "hppa", payload_struct: None, since: (3u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "I386", wire_name: "i386", payload_struct: None, since: (3u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "Lm32", wire_name: "lm32", payload_struct: None, since: (3u32, 0u32, 0u32), until: Some((6u32, 1u32, 0u32)), deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "M68k", wire_name: "m68k", payload_struct: None, since: (3u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "Microblaze", wire_name: "microblaze", payload_struct: None, since: (3u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "Microblazeel", wire_name: "microblazeel", payload_struct: None, since: (3u32, 0u32, 0u32), until: Some((11u32, 0u32, 0u32)), deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "Mips64", wire_name: "mips64", payload_struct: None, since: (3u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "Mips64el", wire_name: "mips64el", payload_struct: None, since: (3u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "Mipsel", wire_name: "mipsel", payload_struct: None, since: (3u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "Moxie", wire_name: "moxie", payload_struct: None, since: (3u32, 0u32, 0u32), until: Some((6u32, 1u32, 0u32)), deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "Nios2", wire_name: "nios2", payload_struct: None, since: (3u32, 0u32, 0u32), until: Some((9u32, 1u32, 0u32)), deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "Or1k", wire_name: "or1k", payload_struct: None, since: (3u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "Ppc64", wire_name: "ppc64", payload_struct: None, since: (3u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "Ppcemb", wire_name: "ppcemb", payload_struct: None, since: (3u32, 0u32, 0u32), until: Some((3u32, 1u32, 0u32)), deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "Riscv32", wire_name: "riscv32", payload_struct: None, since: (3u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "Riscv64", wire_name: "riscv64", payload_struct: None, since: (3u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "Sh4", wire_name: "sh4", payload_struct: None, since: (3u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "Sh4eb", wire_name: "sh4eb", payload_struct: None, since: (3u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "Sparc64", wire_name: "sparc64", payload_struct: None, since: (3u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "Unicore32", wire_name: "unicore32", payload_struct: None, since: (3u32, 0u32, 0u32), until: Some((6u32, 1u32, 0u32)), deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "X8664", wire_name: "x86_64", payload_struct: None, since: (3u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "Xtensa", wire_name: "xtensa", payload_struct: None, since: (3u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "Xtensaeb", wire_name: "xtensaeb", payload_struct: None, since: (3u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "Rx", wire_name: "rx", payload_struct: None, since: (5u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "since 5.0" },
+    EnumVariantMeta { name: "Avr", wire_name: "avr", payload_struct: None, since: (5u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "since 5.1" },
+    EnumVariantMeta { name: "Loongarch64", wire_name: "loongarch64", payload_struct: None, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "since 7.1" },
+    EnumVariantMeta { name: "Hexagon", wire_name: "hexagon", payload_struct: None, since: (11u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "since 11.0\n\n.. note:: The resulting QMP strings can be appended to the\n\"qemu-system-\" prefix to produce the corresponding QEMU\nexecutable name.  This is true even for \"qemu-system-x86_64\"." },
 ];
 static ENUM_CpuInfoFastBranch: EnumMeta = EnumMeta {
     name: "CpuInfoFastBranch",
@@ -7691,13 +7842,14 @@ static STRUCT_DisplayOptions: StructMeta = StructMeta {
     until: None,
 };
 static VARIANTS_DisplayOptionsBranch: &[EnumVariantMeta] = &[
-    EnumVariantMeta { name: "Default", wire_name: "default", payload_struct: Some("DisplayNoOpts"), since: (2u32, 12u32, 0u32), until: Some((3u32, 0u32, 0u32)), deprecated: false, unstable: false, doc: "" },
-    EnumVariantMeta { name: "None", wire_name: "none", payload_struct: Some("DisplayNoOpts"), since: (2u32, 12u32, 0u32), until: Some((3u32, 0u32, 0u32)), deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "Default", wire_name: "default", payload_struct: None, since: (2u32, 12u32, 0u32), until: None, deprecated: false, unstable: false, doc: "The default user interface, selecting from the first\navailable of gtk, sdl, cocoa, and vnc." },
+    EnumVariantMeta { name: "None", wire_name: "none", payload_struct: None, since: (2u32, 12u32, 0u32), until: None, deprecated: false, unstable: false, doc: "No user interface or video output display.  The guest will\nstill see an emulated graphics card, but its output will not be\ndisplayed to the QEMU user." },
     EnumVariantMeta { name: "Gtk", wire_name: "gtk", payload_struct: Some("DisplayGtk"), since: (2u32, 12u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
-    EnumVariantMeta { name: "Sdl", wire_name: "sdl", payload_struct: Some("DisplaySdl"), since: (2u32, 12u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "Sdl", wire_name: "sdl", payload_struct: Some("DisplaySdl"), since: (2u32, 12u32, 0u32), until: None, deprecated: false, unstable: false, doc: "The SDL user interface." },
     EnumVariantMeta { name: "EglHeadless", wire_name: "egl-headless", payload_struct: Some("DisplayEglHeadless"), since: (2u32, 12u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
     EnumVariantMeta { name: "Curses", wire_name: "curses", payload_struct: Some("DisplayCurses"), since: (2u32, 12u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
-    EnumVariantMeta { name: "Cocoa", wire_name: "cocoa", payload_struct: Some("DisplayCocoa"), since: (2u32, 12u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "Cocoa", wire_name: "cocoa", payload_struct: Some("DisplayCocoa"), since: (2u32, 12u32, 0u32), until: None, deprecated: false, unstable: false, doc: "The Cocoa user interface." },
+    EnumVariantMeta { name: "SpiceApp", wire_name: "spice-app", payload_struct: None, since: (4u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Set up a Spice server and run the default associated\napplication to connect to it.  The server will redirect the\nserial console and QEMU monitors.  (Since 4.0)" },
     EnumVariantMeta { name: "Dbus", wire_name: "dbus", payload_struct: Some("DisplayDBus"), since: (7u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
 ];
 static ENUM_DisplayOptionsBranch: EnumMeta = EnumMeta {
@@ -8292,6 +8444,7 @@ static STRUCT_ExpirePasswordOptions: StructMeta = StructMeta {
 };
 static VARIANTS_ExpirePasswordOptionsBranch: &[EnumVariantMeta] = &[
     EnumVariantMeta { name: "Vnc", wire_name: "vnc", payload_struct: Some("ExpirePasswordOptionsVnc"), since: (7u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "Spice", wire_name: "spice", payload_struct: None, since: (7u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
 ];
 static ENUM_ExpirePasswordOptionsBranch: EnumMeta = EnumMeta {
     name: "ExpirePasswordOptionsBranch",
@@ -9259,7 +9412,7 @@ static STRUCT_ImageInfoSpecificQCow2EncryptionBase: StructMeta = StructMeta {
     until: None,
 };
 static VARIANTS_ImageInfoSpecificQCow2EncryptionBranch: &[EnumVariantMeta] = &[
-    EnumVariantMeta { name: "Aes", wire_name: "aes", payload_struct: Some("QCryptoBlockInfoQCow"), since: (2u32, 10u32, 0u32), until: Some((3u32, 0u32, 0u32)), deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "Aes", wire_name: "aes", payload_struct: None, since: (2u32, 10u32, 0u32), until: None, deprecated: false, unstable: false, doc: "AES-CBC with plain64 initialization vectors" },
     EnumVariantMeta { name: "Luks", wire_name: "luks", payload_struct: Some("QCryptoBlockInfoLuks"), since: (2u32, 10u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
 ];
 static ENUM_ImageInfoSpecificQCow2EncryptionBranch: EnumMeta = EnumMeta {
@@ -11605,7 +11758,7 @@ static STRUCT_NetdevAfxdpOptions: StructMeta = StructMeta {
     until: None,
 };
 static VARIANTS_NetdevBranch: &[EnumVariantMeta] = &[
-    EnumVariantMeta { name: "None", wire_name: "none", payload_struct: Some("NetdevNoneOptions"), since: (2u32, 7u32, 0u32), until: Some((3u32, 0u32, 0u32)), deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "None", wire_name: "none", payload_struct: None, since: (2u32, 7u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
     EnumVariantMeta { name: "Nic", wire_name: "nic", payload_struct: Some("NetLegacyNicOptions"), since: (2u32, 7u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
     EnumVariantMeta { name: "User", wire_name: "user", payload_struct: Some("NetdevUserOptions"), since: (2u32, 7u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
     EnumVariantMeta { name: "Tap", wire_name: "tap", payload_struct: Some("NetdevTapOptions"), since: (2u32, 7u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
@@ -12251,7 +12404,7 @@ static STRUCT_NetLegacyOptions: StructMeta = StructMeta {
     until: Some((5u32, 1u32, 0u32)),
 };
 static VARIANTS_NetLegacyOptionsBranch: &[EnumVariantMeta] = &[
-    EnumVariantMeta { name: "None", wire_name: "none", payload_struct: Some("NetdevNoneOptions"), since: (2u32, 7u32, 0u32), until: Some((3u32, 0u32, 0u32)), deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "None", wire_name: "none", payload_struct: None, since: (2u32, 7u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
     EnumVariantMeta { name: "Nic", wire_name: "nic", payload_struct: Some("NetLegacyNicOptions"), since: (2u32, 7u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
     EnumVariantMeta { name: "User", wire_name: "user", payload_struct: Some("NetdevUserOptions"), since: (2u32, 7u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
     EnumVariantMeta { name: "Tap", wire_name: "tap", payload_struct: Some("NetdevTapOptions"), since: (2u32, 7u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
@@ -12612,6 +12765,9 @@ static VARIANTS_ObjectOptionsBranch: &[EnumVariantMeta] = &[
     EnumVariantMeta { name: "TlsCredsX509", wire_name: "tls-creds-x509", payload_struct: Some("TlsCredsX509Properties"), since: (6u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
     EnumVariantMeta { name: "TlsCipherSuites", wire_name: "tls-cipher-suites", payload_struct: Some("TlsCredsProperties"), since: (6u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
     EnumVariantMeta { name: "XRemoteObject", wire_name: "x-remote-object", payload_struct: Some("RemoteObjectProperties"), since: (6u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "CanBus", wire_name: "can-bus", payload_struct: None, since: (6u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "PefGuest", wire_name: "pef-guest", payload_struct: None, since: (6u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "S390PvGuest", wire_name: "s390-pv-guest", payload_struct: None, since: (6u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
     EnumVariantMeta { name: "Qtest", wire_name: "qtest", payload_struct: Some("QtestProperties"), since: (6u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
     EnumVariantMeta { name: "MemoryBackendEpc", wire_name: "memory-backend-epc", payload_struct: Some("MemoryBackendEpcProperties"), since: (6u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
     EnumVariantMeta { name: "MainLoop", wire_name: "main-loop", payload_struct: Some("MainLoopProperties"), since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
@@ -13521,6 +13677,7 @@ static STRUCT_QCryptoBlockAmendOptions: StructMeta = StructMeta {
 };
 static VARIANTS_QCryptoBlockAmendOptionsBranch: &[EnumVariantMeta] = &[
     EnumVariantMeta { name: "Luks", wire_name: "luks", payload_struct: Some("QCryptoBlockAmendOptionsLuks"), since: (5u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "Qcow", wire_name: "qcow", payload_struct: None, since: (5u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "QCow/QCow2 built-in AES-CBC encryption.  Use only for\nliberating data from old images." },
 ];
 static ENUM_QCryptoBlockAmendOptionsBranch: EnumMeta = EnumMeta {
     name: "QCryptoBlockAmendOptionsBranch",
@@ -13637,7 +13794,7 @@ static STRUCT_QCryptoBlockInfoBase: StructMeta = StructMeta {
     until: None,
 };
 static VARIANTS_QCryptoBlockInfoBranch: &[EnumVariantMeta] = &[
-    EnumVariantMeta { name: "Qcow", wire_name: "qcow", payload_struct: Some("QCryptoBlockInfoQCow"), since: (2u32, 7u32, 0u32), until: Some((3u32, 0u32, 0u32)), deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "Qcow", wire_name: "qcow", payload_struct: None, since: (2u32, 7u32, 0u32), until: None, deprecated: false, unstable: false, doc: "QCow/QCow2 built-in AES-CBC encryption.  Use only for\nliberating data from old images." },
     EnumVariantMeta { name: "Luks", wire_name: "luks", payload_struct: Some("QCryptoBlockInfoLuks"), since: (2u32, 7u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
 ];
 static ENUM_QCryptoBlockInfoBranch: EnumMeta = EnumMeta {
@@ -15503,6 +15660,7 @@ static STRUCT_RbdEncryptionCreateOptions: StructMeta = StructMeta {
 static VARIANTS_RbdEncryptionCreateOptionsBranch: &[EnumVariantMeta] = &[
     EnumVariantMeta { name: "Luks", wire_name: "luks", payload_struct: Some("RbdEncryptionCreateOptionsLuks"), since: (6u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
     EnumVariantMeta { name: "Luks2", wire_name: "luks2", payload_struct: Some("RbdEncryptionCreateOptionsLuks2"), since: (6u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "LuksAny", wire_name: "luks-any", payload_struct: None, since: (8u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Used for opening either luks or luks2 (Since 8.0)" },
 ];
 static ENUM_RbdEncryptionCreateOptionsBranch: EnumMeta = EnumMeta {
     name: "RbdEncryptionCreateOptionsBranch",
@@ -16685,6 +16843,7 @@ static STRUCT_SetPasswordOptions: StructMeta = StructMeta {
 };
 static VARIANTS_SetPasswordOptionsBranch: &[EnumVariantMeta] = &[
     EnumVariantMeta { name: "Vnc", wire_name: "vnc", payload_struct: Some("SetPasswordOptionsVnc"), since: (7u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "Spice", wire_name: "spice", payload_struct: None, since: (7u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
 ];
 static ENUM_SetPasswordOptionsBranch: EnumMeta = EnumMeta {
     name: "SetPasswordOptionsBranch",
@@ -17620,9 +17779,9 @@ static STRUCT_SshHostKeyCheck: StructMeta = StructMeta {
     until: None,
 };
 static VARIANTS_SshHostKeyCheckBranch: &[EnumVariantMeta] = &[
-    EnumVariantMeta { name: "None", wire_name: "none", payload_struct: Some("SshHostKeyDummy"), since: (2u32, 12u32, 0u32), until: Some((3u32, 0u32, 0u32)), deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "None", wire_name: "none", payload_struct: None, since: (2u32, 12u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Don't check the host key at all" },
     EnumVariantMeta { name: "Hash", wire_name: "hash", payload_struct: Some("SshHostKeyHash"), since: (2u32, 12u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
-    EnumVariantMeta { name: "KnownHosts", wire_name: "known_hosts", payload_struct: Some("SshHostKeyDummy"), since: (2u32, 12u32, 0u32), until: Some((3u32, 0u32, 0u32)), deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "KnownHosts", wire_name: "known_hosts", payload_struct: None, since: (2u32, 12u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Check the host key against the known_hosts file" },
 ];
 static ENUM_SshHostKeyCheckBranch: EnumMeta = EnumMeta {
     name: "SshHostKeyCheckBranch",
@@ -17750,6 +17909,8 @@ static STRUCT_StatsFilter: StructMeta = StructMeta {
 };
 static VARIANTS_StatsFilterBranch: &[EnumVariantMeta] = &[
     EnumVariantMeta { name: "Vcpu", wire_name: "vcpu", payload_struct: Some("StatsVcpuFilter"), since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "Vm", wire_name: "vm", payload_struct: None, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "statistics that apply to the entire virtual machine or the\nentire QEMU process." },
+    EnumVariantMeta { name: "Cryptodev", wire_name: "cryptodev", payload_struct: None, since: (8u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "statistics that apply to a crypto device (since 8.0)" },
 ];
 static ENUM_StatsFilterBranch: EnumMeta = EnumMeta {
     name: "StatsFilterBranch",
@@ -20287,6 +20448,7 @@ static STRUCT_YankInstanceBlockNode: StructMeta = StructMeta {
 static VARIANTS_YankInstanceBranch: &[EnumVariantMeta] = &[
     EnumVariantMeta { name: "BlockNode", wire_name: "block-node", payload_struct: Some("YankInstanceBlockNode"), since: (6u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
     EnumVariantMeta { name: "Chardev", wire_name: "chardev", payload_struct: Some("YankInstanceChardev"), since: (6u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "Migration", wire_name: "migration", payload_struct: None, since: (6u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
 ];
 static ENUM_YankInstanceBranch: EnumMeta = EnumMeta {
     name: "YankInstanceBranch",

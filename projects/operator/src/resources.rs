@@ -389,6 +389,21 @@ fn viewers_with_creator(
 
 const NO_BMC_ACCESS: &str = "console.publicUrl is required unless the operator sets QRAB_BMC_BEARER_ISSUER and QRAB_BMC_BEARER_AUDIENCE for dashboard access";
 
+/// The only mounted boot-media namespace. This is a path-string policy;
+/// the manager also validates the actual file against its approved media root.
+fn valid_boot_media_path(path: &str) -> bool {
+    let Some(name) = path.strip_prefix("/var/lib/qrab-media/") else {
+        return false;
+    };
+    (5..=128).contains(&name.len())
+        && name.as_bytes()[0].is_ascii_alphanumeric()
+        && !name.contains("..")
+        && name
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || b"._-".contains(&byte))
+        && (name.ends_with(".img") || name.ends_with(".iso"))
+}
+
 pub fn validate(vm: &VirtualMachine, settings: &Settings) -> Result<()> {
     if vm.name_any().len() > 50
         || !dns_name(&vm.name_any())
@@ -424,9 +439,11 @@ pub fn validate(vm: &VirtualMachine, settings: &Settings) -> Result<()> {
             "image must pin an immutable qrab/manager digest".into(),
         ));
     }
-    if vm.spec.boot_disk != "/opt/qrab/demo/boot.img" {
+    if vm.spec.boot_disk != "/opt/qrab/demo/boot.img"
+        && !(vm.spec.media_volume_claim.is_some() && valid_boot_media_path(&vm.spec.boot_disk))
+    {
         return Err(Error::Invalid(
-            "bootDisk must be the immutable image ESP /opt/qrab/demo/boot.img; mounted state and Secrets cannot be guest disks".into(),
+            "bootDisk must be /opt/qrab/demo/boot.img or /var/lib/qrab-media/<safe-basename>.img|.iso with a separate mediaVolumeClaim; state and Secrets are forbidden".into(),
         ));
     }
     let creator = creator(vm)?;

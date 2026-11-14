@@ -1337,10 +1337,130 @@ pub struct BlockdevAmendOptions {
 
 #[qapi(added = "5.1.0")]
 pub enum BlockdevAmendOptionsBranch {
+    #[qapi(name = "blkdebug")]
+    Blkdebug,
+    /// Since 3.0
+    #[qapi(name = "blklogwrites")]
+    Blklogwrites,
+    /// Since 4.2
+    #[qapi(name = "blkreplay")]
+    Blkreplay,
+    #[qapi(name = "blkverify")]
+    Blkverify,
+    #[qapi(name = "bochs")]
+    Bochs,
+    #[qapi(name = "cloop")]
+    Cloop,
+    /// Since 5.0
+    #[qapi(name = "compress")]
+    Compress,
+    /// Since 6.2
+    #[qapi(name = "copy-before-write")]
+    #[qapi(added = "6.2.0")]
+    CopyBeforeWrite,
+    /// Since 3.0
+    #[qapi(name = "copy-on-read")]
+    CopyOnRead,
+    #[qapi(name = "dmg")]
+    Dmg,
+    #[qapi(name = "file")]
+    File,
+    #[qapi(name = "ftp")]
+    Ftp,
+    #[qapi(name = "ftps")]
+    Ftps,
+    #[qapi(name = "gluster")]
+    #[qapi(feature = "deprecated")]
+    #[qapi(deprecated(added = "9.2.0"))]
+    #[qapi(removed = "11.1.0")]
+    Gluster,
+    #[qapi(name = "host_cdrom")]
+    #[qapi(condition = "defined(HAVE_HOST_BLOCK_DEVICE)")]
+    HostCdrom,
+    #[qapi(name = "host_device")]
+    #[qapi(condition = "defined(HAVE_HOST_BLOCK_DEVICE)")]
+    HostDevice,
+    #[qapi(name = "http")]
+    Http,
+    #[qapi(name = "https")]
+    Https,
+    #[qapi(name = "io_uring")]
+    #[qapi(condition = "CONFIG_BLKIO")]
+    #[qapi(added = "7.2.0")]
+    IoUring,
+    #[qapi(name = "iscsi")]
+    Iscsi,
     #[qapi(name = "luks")]
     Luks(BlockdevAmendOptionsLuks),
+    #[qapi(name = "nbd")]
+    Nbd,
+    #[qapi(name = "nfs")]
+    Nfs,
+    #[qapi(name = "null-aio")]
+    NullAio,
+    #[qapi(name = "null-co")]
+    NullCo,
+    /// Since 2.12
+    #[qapi(name = "nvme")]
+    Nvme,
+    #[qapi(name = "nvme-io_uring")]
+    #[qapi(condition = "CONFIG_BLKIO")]
+    #[qapi(added = "7.2.0")]
+    NvmeIoUring,
+    #[qapi(name = "parallels")]
+    Parallels,
+    #[qapi(name = "preallocate")]
+    #[qapi(added = "6.0.0")]
+    Preallocate,
+    #[qapi(name = "qcow")]
+    Qcow,
     #[qapi(name = "qcow2")]
     Qcow2(BlockdevAmendOptionsQcow2),
+    #[qapi(name = "qed")]
+    Qed,
+    #[qapi(name = "quorum")]
+    Quorum,
+    #[qapi(name = "raw")]
+    Raw,
+    #[qapi(name = "rbd")]
+    Rbd,
+    #[qapi(name = "replication")]
+    #[qapi(condition = "defined(CONFIG_REPLICATION)")]
+    Replication,
+    #[qapi(name = "sheepdog")]
+    #[qapi(removed = "6.1.0")]
+    Sheepdog,
+    /// Since 7.0
+    #[qapi(name = "snapshot-access")]
+    #[qapi(added = "7.0.0")]
+    SnapshotAccess,
+    #[qapi(name = "ssh")]
+    Ssh,
+    /// Since 2.11
+    #[qapi(name = "throttle")]
+    Throttle,
+    #[qapi(name = "vdi")]
+    Vdi,
+    #[qapi(name = "vhdx")]
+    Vhdx,
+    #[qapi(name = "virtio-blk-vfio-pci")]
+    #[qapi(condition = "CONFIG_BLKIO")]
+    #[qapi(added = "7.2.0")]
+    VirtioBlkVfioPci,
+    #[qapi(name = "virtio-blk-vhost-user")]
+    #[qapi(condition = "CONFIG_BLKIO")]
+    #[qapi(added = "7.2.0")]
+    VirtioBlkVhostUser,
+    #[qapi(name = "virtio-blk-vhost-vdpa")]
+    #[qapi(condition = "CONFIG_BLKIO")]
+    #[qapi(added = "7.2.0")]
+    VirtioBlkVhostVdpa,
+    #[qapi(name = "vmdk")]
+    Vmdk,
+    #[qapi(name = "vpc")]
+    Vpc,
+    #[qapi(name = "vvfat")]
+    Vvfat,
 }
 
 /// Driver specific image amend options for LUKS.
@@ -1521,64 +1641,82 @@ pub struct BlockdevCreateOptions {
 #[qapi(added = "2.12.0")]
 pub enum BlockdevCreateOptionsBranch {
     #[qapi(name = "blkdebug")]
-    #[qapi(removed = "3.0.0")]
-    Blkdebug(BlockdevCreateNotSupported),
+    Blkdebug,
+    /// Since 3.0
+    #[qapi(name = "blklogwrites")]
+    #[qapi(added = "3.0.0")]
+    Blklogwrites,
+    /// Since 4.2
+    #[qapi(name = "blkreplay")]
+    #[qapi(added = "4.2.0")]
+    Blkreplay,
     #[qapi(name = "blkverify")]
-    #[qapi(removed = "3.0.0")]
-    Blkverify(BlockdevCreateNotSupported),
+    Blkverify,
     #[qapi(name = "bochs")]
-    #[qapi(removed = "3.0.0")]
-    Bochs(BlockdevCreateNotSupported),
+    Bochs,
     #[qapi(name = "cloop")]
-    #[qapi(removed = "3.0.0")]
-    Cloop(BlockdevCreateNotSupported),
+    Cloop,
+    /// Since 5.0
+    #[qapi(name = "compress")]
+    #[qapi(added = "5.0.0")]
+    Compress,
+    /// Since 6.2
+    #[qapi(name = "copy-before-write")]
+    #[qapi(added = "6.2.0")]
+    CopyBeforeWrite,
+    /// Since 3.0
+    #[qapi(name = "copy-on-read")]
+    #[qapi(added = "3.0.0")]
+    CopyOnRead,
     #[qapi(name = "dmg")]
-    #[qapi(removed = "3.0.0")]
-    Dmg(BlockdevCreateNotSupported),
+    Dmg,
     #[qapi(name = "file")]
     File(BlockdevCreateOptionsFile),
     #[qapi(name = "ftp")]
-    #[qapi(removed = "3.0.0")]
-    Ftp(BlockdevCreateNotSupported),
+    Ftp,
     #[qapi(name = "ftps")]
-    #[qapi(removed = "3.0.0")]
-    Ftps(BlockdevCreateNotSupported),
+    Ftps,
     #[qapi(name = "gluster")]
     #[qapi(removed = "11.1.0")]
     Gluster(BlockdevCreateOptionsGluster),
     #[qapi(name = "host_cdrom")]
-    #[qapi(removed = "3.0.0")]
-    HostCdrom(BlockdevCreateNotSupported),
+    #[qapi(condition = "defined(HAVE_HOST_BLOCK_DEVICE)")]
+    HostCdrom,
     #[qapi(name = "host_device")]
-    #[qapi(removed = "3.0.0")]
-    HostDevice(BlockdevCreateNotSupported),
+    #[qapi(condition = "defined(HAVE_HOST_BLOCK_DEVICE)")]
+    HostDevice,
     #[qapi(name = "http")]
-    #[qapi(removed = "3.0.0")]
-    Http(BlockdevCreateNotSupported),
+    Http,
     #[qapi(name = "https")]
-    #[qapi(removed = "3.0.0")]
-    Https(BlockdevCreateNotSupported),
+    Https,
+    #[qapi(name = "io_uring")]
+    #[qapi(condition = "CONFIG_BLKIO")]
+    #[qapi(added = "7.2.0")]
+    IoUring,
     #[qapi(name = "iscsi")]
-    #[qapi(removed = "3.0.0")]
-    Iscsi(BlockdevCreateNotSupported),
+    Iscsi,
     #[qapi(name = "luks")]
     Luks(BlockdevCreateOptionsLuks),
     #[qapi(name = "nbd")]
-    #[qapi(removed = "3.0.0")]
-    Nbd(BlockdevCreateNotSupported),
+    Nbd,
     #[qapi(name = "nfs")]
     Nfs(BlockdevCreateOptionsNfs),
     #[qapi(name = "null-aio")]
-    #[qapi(removed = "3.0.0")]
-    NullAio(BlockdevCreateNotSupported),
+    NullAio,
     #[qapi(name = "null-co")]
-    #[qapi(removed = "3.0.0")]
-    NullCo(BlockdevCreateNotSupported),
+    NullCo,
+    /// Since 2.12
     #[qapi(name = "nvme")]
-    #[qapi(removed = "3.0.0")]
-    Nvme(BlockdevCreateNotSupported),
+    Nvme,
+    #[qapi(name = "nvme-io_uring")]
+    #[qapi(condition = "CONFIG_BLKIO")]
+    #[qapi(added = "7.2.0")]
+    NvmeIoUring,
     #[qapi(name = "parallels")]
     Parallels(BlockdevCreateOptionsParallels),
+    #[qapi(name = "preallocate")]
+    #[qapi(added = "6.0.0")]
+    Preallocate,
     #[qapi(name = "qcow")]
     Qcow(BlockdevCreateOptionsQcow),
     #[qapi(name = "qcow2")]
@@ -1586,38 +1724,52 @@ pub enum BlockdevCreateOptionsBranch {
     #[qapi(name = "qed")]
     Qed(BlockdevCreateOptionsQed),
     #[qapi(name = "quorum")]
-    #[qapi(removed = "3.0.0")]
-    Quorum(BlockdevCreateNotSupported),
+    Quorum,
     #[qapi(name = "raw")]
-    #[qapi(removed = "3.0.0")]
-    Raw(BlockdevCreateNotSupported),
+    Raw,
     #[qapi(name = "rbd")]
     Rbd(BlockdevCreateOptionsRbd),
     #[qapi(name = "replication")]
-    #[qapi(removed = "3.0.0")]
-    Replication(BlockdevCreateNotSupported),
+    #[qapi(condition = "defined(CONFIG_REPLICATION)")]
+    Replication,
     #[qapi(name = "sheepdog")]
     #[qapi(removed = "6.1.0")]
     Sheepdog(BlockdevCreateOptionsSheepdog),
+    /// Since 7.0
+    #[qapi(name = "snapshot-access")]
+    #[qapi(added = "7.0.0")]
+    SnapshotAccess,
     #[qapi(name = "ssh")]
     Ssh(BlockdevCreateOptionsSsh),
+    /// Since 2.11
     #[qapi(name = "throttle")]
-    #[qapi(removed = "3.0.0")]
-    Throttle(BlockdevCreateNotSupported),
+    Throttle,
     #[qapi(name = "vdi")]
     Vdi(BlockdevCreateOptionsVdi),
     #[qapi(name = "vhdx")]
     Vhdx(BlockdevCreateOptionsVhdx),
+    #[qapi(name = "virtio-blk-vfio-pci")]
+    #[qapi(condition = "CONFIG_BLKIO")]
+    #[qapi(added = "7.2.0")]
+    VirtioBlkVfioPci,
+    #[qapi(name = "virtio-blk-vhost-user")]
+    #[qapi(condition = "CONFIG_BLKIO")]
+    #[qapi(added = "7.2.0")]
+    VirtioBlkVhostUser,
+    #[qapi(name = "virtio-blk-vhost-vdpa")]
+    #[qapi(condition = "CONFIG_BLKIO")]
+    #[qapi(added = "7.2.0")]
+    VirtioBlkVhostVdpa,
     #[qapi(name = "vmdk")]
     Vmdk(BlockdevCreateOptionsVmdk),
     #[qapi(name = "vpc")]
     Vpc(BlockdevCreateOptionsVpc),
     #[qapi(name = "vvfat")]
-    #[qapi(removed = "3.0.0")]
-    Vvfat(BlockdevCreateNotSupported),
+    Vvfat,
+    /// Since 2.10
     #[qapi(name = "vxhs")]
-    #[qapi(removed = "3.0.0")]
-    Vxhs(BlockdevCreateNotSupported),
+    #[qapi(removed = "5.1.0")]
+    Vxhs,
 }
 
 /// Driver specific image creation options for file.
@@ -4784,8 +4936,36 @@ pub struct BlockJobChangeOptions {
 
 #[qapi(added = "8.2.0")]
 pub enum BlockJobChangeOptionsBranch {
+    /// image options amend job type, see `x-blockdev-amend`
+    /// (since 5.1)
+    #[qapi(name = "amend")]
+    Amend,
+    /// drive backup job type, see `drive-backup`
+    #[qapi(name = "backup")]
+    Backup,
+    /// block commit job type, see `block-commit`
+    #[qapi(name = "commit")]
+    Commit,
+    /// image creation job type, see `blockdev-create` (since 3.0)
+    #[qapi(name = "create")]
+    Create,
     #[qapi(name = "mirror")]
     Mirror(BlockJobChangeOptionsMirror),
+    /// snapshot delete job type, see `snapshot-delete`
+    /// (since 6.0)
+    #[qapi(name = "snapshot-delete")]
+    SnapshotDelete,
+    /// snapshot load job type, see `snapshot-load`
+    /// (since 6.0)
+    #[qapi(name = "snapshot-load")]
+    SnapshotLoad,
+    /// snapshot save job type, see `snapshot-save`
+    /// (since 6.0)
+    #[qapi(name = "snapshot-save")]
+    SnapshotSave,
+    /// block stream job type, see `block-stream`
+    #[qapi(name = "stream")]
+    Stream,
 }
 
 #[qapi(added = "8.2.0")]
@@ -4857,8 +5037,36 @@ pub struct BlockJobInfo {
 
 #[qapi(added = "8.2.0")]
 pub enum BlockJobInfoBranch {
+    /// image options amend job type, see `x-blockdev-amend`
+    /// (since 5.1)
+    #[qapi(name = "amend")]
+    Amend,
+    /// drive backup job type, see `drive-backup`
+    #[qapi(name = "backup")]
+    Backup,
+    /// block commit job type, see `block-commit`
+    #[qapi(name = "commit")]
+    Commit,
+    /// image creation job type, see `blockdev-create` (since 3.0)
+    #[qapi(name = "create")]
+    Create,
     #[qapi(name = "mirror")]
     Mirror(BlockJobInfoMirror),
+    /// snapshot delete job type, see `snapshot-delete`
+    /// (since 6.0)
+    #[qapi(name = "snapshot-delete")]
+    SnapshotDelete,
+    /// snapshot load job type, see `snapshot-load`
+    /// (since 6.0)
+    #[qapi(name = "snapshot-load")]
+    SnapshotLoad,
+    /// snapshot save job type, see `snapshot-save`
+    /// (since 6.0)
+    #[qapi(name = "snapshot-save")]
+    SnapshotSave,
+    /// block stream job type, see `block-stream`
+    #[qapi(name = "stream")]
+    Stream,
 }
 
 /// Information specific to mirror block jobs.
@@ -5184,14 +5392,135 @@ pub struct BlockStatsSpecific {
 
 #[qapi(added = "4.2.0")]
 pub enum BlockStatsSpecificBranch {
+    #[qapi(name = "blkdebug")]
+    Blkdebug,
+    /// Since 3.0
+    #[qapi(name = "blklogwrites")]
+    Blklogwrites,
+    /// Since 4.2
+    #[qapi(name = "blkreplay")]
+    Blkreplay,
+    #[qapi(name = "blkverify")]
+    Blkverify,
+    #[qapi(name = "bochs")]
+    Bochs,
+    #[qapi(name = "cloop")]
+    Cloop,
+    /// Since 5.0
+    #[qapi(name = "compress")]
+    #[qapi(added = "5.0.0")]
+    Compress,
+    /// Since 6.2
+    #[qapi(name = "copy-before-write")]
+    #[qapi(added = "6.2.0")]
+    CopyBeforeWrite,
+    /// Since 3.0
+    #[qapi(name = "copy-on-read")]
+    CopyOnRead,
+    #[qapi(name = "dmg")]
+    Dmg,
     #[qapi(name = "file")]
     File(BlockStatsSpecificFile),
+    #[qapi(name = "ftp")]
+    Ftp,
+    #[qapi(name = "ftps")]
+    Ftps,
+    #[qapi(name = "gluster")]
+    #[qapi(feature = "deprecated")]
+    #[qapi(deprecated(added = "9.2.0"))]
+    #[qapi(removed = "11.1.0")]
+    Gluster,
+    #[qapi(name = "host_cdrom")]
+    #[qapi(condition = "defined(HAVE_HOST_BLOCK_DEVICE)")]
+    HostCdrom,
     #[qapi(name = "host_device")]
     #[qapi(condition = "defined(HAVE_HOST_BLOCK_DEVICE)")]
     HostDevice(BlockStatsSpecificFile),
+    #[qapi(name = "http")]
+    Http,
+    #[qapi(name = "https")]
+    Https,
+    #[qapi(name = "io_uring")]
+    #[qapi(condition = "CONFIG_BLKIO")]
+    #[qapi(added = "7.2.0")]
+    IoUring,
+    #[qapi(name = "iscsi")]
+    Iscsi,
+    #[qapi(name = "luks")]
+    Luks,
+    #[qapi(name = "nbd")]
+    Nbd,
+    #[qapi(name = "nfs")]
+    Nfs,
+    #[qapi(name = "null-aio")]
+    NullAio,
+    #[qapi(name = "null-co")]
+    NullCo,
+    /// Since 2.12
     #[qapi(name = "nvme")]
-    #[qapi(added = "5.2.0")]
     Nvme(BlockStatsSpecificNvme),
+    #[qapi(name = "nvme-io_uring")]
+    #[qapi(condition = "CONFIG_BLKIO")]
+    #[qapi(added = "7.2.0")]
+    NvmeIoUring,
+    #[qapi(name = "parallels")]
+    Parallels,
+    #[qapi(name = "preallocate")]
+    #[qapi(added = "6.0.0")]
+    Preallocate,
+    #[qapi(name = "qcow")]
+    Qcow,
+    #[qapi(name = "qcow2")]
+    Qcow2,
+    #[qapi(name = "qed")]
+    Qed,
+    #[qapi(name = "quorum")]
+    Quorum,
+    #[qapi(name = "raw")]
+    Raw,
+    #[qapi(name = "rbd")]
+    Rbd,
+    #[qapi(name = "replication")]
+    #[qapi(condition = "defined(CONFIG_REPLICATION)")]
+    Replication,
+    #[qapi(name = "sheepdog")]
+    #[qapi(removed = "6.1.0")]
+    Sheepdog,
+    /// Since 7.0
+    #[qapi(name = "snapshot-access")]
+    #[qapi(added = "7.0.0")]
+    SnapshotAccess,
+    #[qapi(name = "ssh")]
+    Ssh,
+    /// Since 2.11
+    #[qapi(name = "throttle")]
+    Throttle,
+    #[qapi(name = "vdi")]
+    Vdi,
+    #[qapi(name = "vhdx")]
+    Vhdx,
+    #[qapi(name = "virtio-blk-vfio-pci")]
+    #[qapi(condition = "CONFIG_BLKIO")]
+    #[qapi(added = "7.2.0")]
+    VirtioBlkVfioPci,
+    #[qapi(name = "virtio-blk-vhost-user")]
+    #[qapi(condition = "CONFIG_BLKIO")]
+    #[qapi(added = "7.2.0")]
+    VirtioBlkVhostUser,
+    #[qapi(name = "virtio-blk-vhost-vdpa")]
+    #[qapi(condition = "CONFIG_BLKIO")]
+    #[qapi(added = "7.2.0")]
+    VirtioBlkVhostVdpa,
+    #[qapi(name = "vmdk")]
+    Vmdk,
+    #[qapi(name = "vpc")]
+    Vpc,
+    #[qapi(name = "vvfat")]
+    Vvfat,
+    /// Since 2.10
+    #[qapi(name = "vxhs")]
+    #[qapi(removed = "5.1.0")]
+    Vxhs,
 }
 
 /// File driver statistics
@@ -6427,8 +6756,7 @@ pub enum CpuInfoBranch {
     #[qapi(name = "mips")]
     Mips(CpuInfoMips),
     #[qapi(name = "other")]
-    #[qapi(removed = "3.0.0")]
-    Other(CpuInfoOther),
+    Other,
     #[qapi(name = "ppc")]
     Ppc(CpuInfoPpc),
     #[qapi(name = "riscv")]
@@ -6483,33 +6811,137 @@ pub struct CpuInfoFast {
 
 #[qapi(added = "2.12.0")]
 pub enum CpuInfoFastBranch {
+    #[qapi(name = "aarch64")]
+    #[qapi(added = "3.0.0")]
+    Aarch64,
+    #[qapi(name = "alpha")]
+    #[qapi(added = "3.0.0")]
+    Alpha,
+    #[qapi(name = "arm")]
+    #[qapi(added = "3.0.0")]
+    Arm,
+    /// since 5.1
+    #[qapi(name = "avr")]
+    #[qapi(added = "5.1.0")]
+    Avr,
+    #[qapi(name = "cris")]
+    #[qapi(added = "3.0.0")]
+    #[qapi(removed = "9.2.0")]
+    Cris,
+    /// since 11.0
+    ///
+    /// .. note:: The resulting QMP strings can be appended to the
+    /// "qemu-system-" prefix to produce the corresponding QEMU
+    /// executable name.  This is true even for "qemu-system-x86_64".
+    #[qapi(name = "hexagon")]
+    #[qapi(added = "11.0.0")]
+    Hexagon,
+    #[qapi(name = "hppa")]
+    #[qapi(added = "3.0.0")]
+    Hppa,
+    #[qapi(name = "i386")]
+    #[qapi(added = "3.0.0")]
+    I386,
+    #[qapi(name = "lm32")]
+    #[qapi(added = "3.0.0")]
+    #[qapi(removed = "6.1.0")]
+    Lm32,
+    /// since 7.1
+    #[qapi(name = "loongarch64")]
+    #[qapi(added = "7.1.0")]
+    Loongarch64,
+    #[qapi(name = "m68k")]
+    #[qapi(added = "3.0.0")]
+    M68k,
+    #[qapi(name = "microblaze")]
+    #[qapi(added = "3.0.0")]
+    Microblaze,
+    #[qapi(name = "microblazeel")]
+    #[qapi(added = "3.0.0")]
+    #[qapi(removed = "11.0.0")]
+    Microblazeel,
     #[qapi(name = "mips")]
-    #[qapi(removed = "3.0.0")]
-    Mips(CpuInfoOther),
+    Mips,
+    #[qapi(name = "mips64")]
+    #[qapi(added = "3.0.0")]
+    Mips64,
+    #[qapi(name = "mips64el")]
+    #[qapi(added = "3.0.0")]
+    Mips64el,
+    #[qapi(name = "mipsel")]
+    #[qapi(added = "3.0.0")]
+    Mipsel,
+    #[qapi(name = "moxie")]
+    #[qapi(added = "3.0.0")]
+    #[qapi(removed = "6.1.0")]
+    Moxie,
+    #[qapi(name = "nios2")]
+    #[qapi(added = "3.0.0")]
+    #[qapi(removed = "9.1.0")]
+    Nios2,
+    #[qapi(name = "or1k")]
+    #[qapi(added = "3.0.0")]
+    Or1k,
     #[qapi(name = "other")]
     #[qapi(removed = "3.0.0")]
     Other(CpuInfoOther),
     #[qapi(name = "ppc")]
-    #[qapi(removed = "3.0.0")]
-    Ppc(CpuInfoOther),
+    Ppc,
+    #[qapi(name = "ppc64")]
+    #[qapi(added = "3.0.0")]
+    Ppc64,
+    #[qapi(name = "ppcemb")]
+    #[qapi(added = "3.0.0")]
+    #[qapi(removed = "3.1.0")]
+    Ppcemb,
     #[qapi(name = "riscv")]
     #[qapi(removed = "3.0.0")]
     Riscv(CpuInfoOther),
+    #[qapi(name = "riscv32")]
+    #[qapi(added = "3.0.0")]
+    Riscv32,
+    #[qapi(name = "riscv64")]
+    #[qapi(added = "3.0.0")]
+    Riscv64,
+    /// since 5.0
+    #[qapi(name = "rx")]
+    #[qapi(added = "5.0.0")]
+    Rx,
     #[qapi(name = "s390")]
     #[qapi(removed = "3.0.0")]
     S390(CpuInfoS390),
     #[qapi(name = "s390x")]
     #[qapi(added = "3.0.0")]
     S390x(CpuInfoS390),
+    #[qapi(name = "sh4")]
+    #[qapi(added = "3.0.0")]
+    Sh4,
+    #[qapi(name = "sh4eb")]
+    #[qapi(added = "3.0.0")]
+    Sh4eb,
     #[qapi(name = "sparc")]
-    #[qapi(removed = "3.0.0")]
-    Sparc(CpuInfoOther),
+    Sparc,
+    #[qapi(name = "sparc64")]
+    #[qapi(added = "3.0.0")]
+    Sparc64,
     #[qapi(name = "tricore")]
-    #[qapi(removed = "3.0.0")]
-    Tricore(CpuInfoOther),
+    Tricore,
+    #[qapi(name = "unicore32")]
+    #[qapi(added = "3.0.0")]
+    #[qapi(removed = "6.1.0")]
+    Unicore32,
     #[qapi(name = "x86")]
     #[qapi(removed = "3.0.0")]
     X86(CpuInfoOther),
+    #[qapi(name = "x86_64")]
+    #[qapi(added = "3.0.0")]
+    X8664,
+    #[qapi(name = "xtensa")]
+    #[qapi(added = "3.0.0")]
+    Xtensa,
+    #[qapi(name = "xtensaeb")]
+    #[qapi(added = "3.0.0")]
+    Xtensaeb,
 }
 
 /// Additional information about a virtual MIPS CPU
@@ -7713,8 +8145,9 @@ pub struct DisplayOptions {
 
 #[qapi(added = "2.12.0")]
 pub enum DisplayOptionsBranch {
+    /// The Cocoa user interface.
     #[qapi(name = "cocoa")]
-    #[qapi(condition = "CONFIG_COCOA")]
+    #[qapi(condition = "defined(CONFIG_COCOA)")]
     Cocoa(DisplayCocoa),
     #[qapi(name = "curses")]
     #[qapi(condition = "defined(CONFIG_CURSES)")]
@@ -7723,21 +8156,32 @@ pub enum DisplayOptionsBranch {
     #[qapi(condition = "CONFIG_DBUS_DISPLAY")]
     #[qapi(added = "7.0.0")]
     Dbus(DisplayDBus),
+    /// The default user interface, selecting from the first
+    /// available of gtk, sdl, cocoa, and vnc.
     #[qapi(name = "default")]
-    #[qapi(removed = "3.0.0")]
-    Default(DisplayNoOpts),
+    Default,
     #[qapi(name = "egl-headless")]
     #[qapi(condition = "defined(CONFIG_OPENGL) && defined(CONFIG_GBM)")]
     EglHeadless(DisplayEglHeadless),
     #[qapi(name = "gtk")]
     #[qapi(condition = "defined(CONFIG_GTK)")]
     Gtk(DisplayGtk),
+    /// No user interface or video output display.  The guest will
+    /// still see an emulated graphics card, but its output will not be
+    /// displayed to the QEMU user.
     #[qapi(name = "none")]
-    #[qapi(removed = "3.0.0")]
-    None(DisplayNoOpts),
+    None,
+    /// The SDL user interface.
     #[qapi(name = "sdl")]
-    #[qapi(condition = "CONFIG_SDL")]
+    #[qapi(condition = "defined(CONFIG_SDL)")]
     Sdl(DisplaySdl),
+    /// Set up a Spice server and run the default associated
+    /// application to connect to it.  The server will redirect the
+    /// serial console and QEMU monitors.  (Since 4.0)
+    #[qapi(name = "spice-app")]
+    #[qapi(condition = "defined(CONFIG_SPICE)")]
+    #[qapi(added = "4.0.0")]
+    SpiceApp,
 }
 
 /// Display protocols which support changing password options.
@@ -8222,6 +8666,8 @@ pub struct ExpirePasswordOptions {
 
 #[qapi(added = "7.0.0")]
 pub enum ExpirePasswordOptionsBranch {
+    #[qapi(name = "spice")]
+    Spice,
     #[qapi(name = "vnc")]
     Vnc(ExpirePasswordOptionsVnc),
 }
@@ -9197,9 +9643,9 @@ pub struct ImageInfoSpecificQCow2EncryptionBase {
 
 #[qapi(added = "2.10.0")]
 pub enum ImageInfoSpecificQCow2EncryptionBranch {
+    /// AES-CBC with plain64 initialization vectors
     #[qapi(name = "aes")]
-    #[qapi(removed = "3.0.0")]
-    Aes(QCryptoBlockInfoQCow),
+    Aes,
     #[qapi(name = "luks")]
     Luks(QCryptoBlockInfoLuks),
 }
@@ -12053,8 +12499,7 @@ pub enum NetdevBranch {
     #[qapi(name = "nic")]
     Nic(NetLegacyNicOptions),
     #[qapi(name = "none")]
-    #[qapi(removed = "3.0.0")]
-    None(NetdevNoneOptions),
+    None,
     #[qapi(name = "passt")]
     #[qapi(condition = "CONFIG_PASST")]
     #[qapi(added = "10.1.0")]
@@ -12842,8 +13287,7 @@ pub enum NetLegacyOptionsBranch {
     #[qapi(name = "nic")]
     Nic(NetLegacyNicOptions),
     #[qapi(name = "none")]
-    #[qapi(removed = "3.0.0")]
-    None(NetdevNoneOptions),
+    None,
     #[qapi(name = "socket")]
     Socket(NetdevSocketOptions),
     #[qapi(name = "tap")]
@@ -13217,6 +13661,8 @@ pub enum ObjectOptionsBranch {
     AuthzPam(AuthZpamProperties),
     #[qapi(name = "authz-simple")]
     AuthzSimple(AuthZSimpleProperties),
+    #[qapi(name = "can-bus")]
+    CanBus,
     #[qapi(name = "can-host-socketcan")]
     #[qapi(condition = "CONFIG_LINUX")]
     CanHostSocketcan(CanHostSocketcanProperties),
@@ -13284,6 +13730,8 @@ pub enum ObjectOptionsBranch {
     #[qapi(name = "monitor-qmp")]
     #[qapi(added = "11.1.0")]
     MonitorQmp(MonitorQmpProperties),
+    #[qapi(name = "pef-guest")]
+    PefGuest,
     #[qapi(name = "pr-manager-helper")]
     #[qapi(condition = "CONFIG_LINUX")]
     PrManagerHelper(PrManagerHelperProperties),
@@ -13297,6 +13745,8 @@ pub enum ObjectOptionsBranch {
     #[qapi(name = "rng-random")]
     #[qapi(condition = "CONFIG_POSIX")]
     RngRandom(RngRandomProperties),
+    #[qapi(name = "s390-pv-guest")]
+    S390PvGuest,
     #[qapi(name = "secret")]
     Secret(SecretProperties),
     #[qapi(name = "secret_keyring")]
@@ -14261,6 +14711,10 @@ pub struct QCryptoBlockAmendOptions {
 pub enum QCryptoBlockAmendOptionsBranch {
     #[qapi(name = "luks")]
     Luks(QCryptoBlockAmendOptionsLuks),
+    /// QCow/QCow2 built-in AES-CBC encryption.  Use only for
+    /// liberating data from old images.
+    #[qapi(name = "qcow")]
+    Qcow,
 }
 
 /// This struct defines the update parameters that activate/de-activate
@@ -14401,9 +14855,10 @@ pub struct QCryptoBlockInfoBase {
 pub enum QCryptoBlockInfoBranch {
     #[qapi(name = "luks")]
     Luks(QCryptoBlockInfoLuks),
+    /// QCow/QCow2 built-in AES-CBC encryption.  Use only for
+    /// liberating data from old images.
     #[qapi(name = "qcow")]
-    #[qapi(removed = "3.0.0")]
-    Qcow(QCryptoBlockInfoQCow),
+    Qcow,
 }
 
 /// Information about the LUKS block encryption options
@@ -15406,6 +15861,10 @@ pub struct RbdEncryptionCreateOptions {
 pub enum RbdEncryptionCreateOptionsBranch {
     #[qapi(name = "luks")]
     Luks(RbdEncryptionCreateOptionsLuks),
+    /// Used for opening either luks or luks2 (Since 8.0)
+    #[qapi(name = "luks-any")]
+    #[qapi(added = "8.0.0")]
+    LuksAny,
     #[qapi(name = "luks2")]
     Luks2(RbdEncryptionCreateOptionsLuks2),
 }
@@ -16369,6 +16828,8 @@ pub struct SetPasswordOptions {
 
 #[qapi(added = "7.0.0")]
 pub enum SetPasswordOptionsBranch {
+    #[qapi(name = "spice")]
+    Spice,
     #[qapi(name = "vnc")]
     Vnc(SetPasswordOptionsVnc),
 }
@@ -17235,12 +17696,12 @@ pub struct SshHostKeyCheck {
 pub enum SshHostKeyCheckBranch {
     #[qapi(name = "hash")]
     Hash(SshHostKeyHash),
+    /// Check the host key against the known_hosts file
     #[qapi(name = "known_hosts")]
-    #[qapi(removed = "3.0.0")]
-    KnownHosts(SshHostKeyDummy),
+    KnownHosts,
+    /// Don't check the host key at all
     #[qapi(name = "none")]
-    #[qapi(removed = "3.0.0")]
-    None(SshHostKeyDummy),
+    None,
 }
 
 #[qapi(added = "2.12.0")]
@@ -17365,8 +17826,16 @@ pub struct StatsFilter {
 
 #[qapi(added = "7.1.0")]
 pub enum StatsFilterBranch {
+    /// statistics that apply to a crypto device (since 8.0)
+    #[qapi(name = "cryptodev")]
+    #[qapi(added = "8.0.0")]
+    Cryptodev,
     #[qapi(name = "vcpu")]
     Vcpu(StatsVcpuFilter),
+    /// statistics that apply to the entire virtual machine or the
+    /// entire QEMU process.
+    #[qapi(name = "vm")]
+    Vm,
 }
 
 /// Enumeration of statistics providers.
@@ -19378,6 +19847,8 @@ pub enum YankInstanceBranch {
     BlockNode(YankInstanceBlockNode),
     #[qapi(name = "chardev")]
     Chardev(YankInstanceChardev),
+    #[qapi(name = "migration")]
+    Migration,
 }
 
 /// Specifies which character device to yank.  See `YankInstance` for

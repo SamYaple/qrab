@@ -7,6 +7,7 @@ three separate VMs: signed/enabled, unsigned/enabled, unsigned/disabled.
 Use extracted artifacts from an immutable published qrab image, not host QEMU.
 """
 import argparse
+import base64
 import datetime
 import gzip
 import hashlib
@@ -19,6 +20,7 @@ import stat
 import struct
 import subprocess
 import time
+import tempfile
 import uuid
 
 
@@ -185,6 +187,13 @@ cat /sys/kernel/security/lockdown 2>/dev/null || true
                  "--os-release=@" + str(args.guest / "os-release"), "--output=" + str(unsigned)])
     command(["sbsign", "--key", out / "key.pem", "--cert", out / "cert.pem", "--output", out / "signed.efi", unsigned])
     command(["sbverify", "--cert", out / "cert.pem", out / "signed.efi"])
+    shutil.copyfile(args.guest / "boot.img", out / "signed-boot.img")
+    command(["mcopy", "-o", "-i", str(out / "signed-boot.img") + "@@1048576", out / "signed.efi", "::/EFI/BOOT/BOOTX64.EFI"])
+    profile = {"image_ref": args.image_ref, "certificate": "cert.pem", "certificate_sha256": sha(out / "cert.pem"),
+               "private_key": "key.pem", "private_key_mode": "0600; local only, never copy to VM/PVC",
+               "signed_boot_image": "signed-boot.img", "signed_boot_sha256": sha(out / "signed-boot.img"),
+               "native_enrollment_order": ["db", "KEK", "PK"]}
+    (out / "profile.json").write_text(json.dumps(profile, indent=2))
     if args.case == ["setup-enrollment"]:
         # This case starts with the pristine distro VARS and enrolls exclusively
         # through authenticated guest runtime calls; no offline reseeding.
@@ -194,6 +203,20 @@ cat /sys/kernel/security/lockdown 2>/dev/null || true
              "--add-kek", owner, out / "cert.pem", "--add-db", owner, out / "cert.pem", "--secure-boot"])
     command([args.virt_fw_vars, "-i", out / "enabled.fd", "-o", out / "disabled.fd", "--set-false", "SecureBootEnable"])
     return unsigned
+
+
+def save_authenticated_request(args, label, database, payload, append):
+    (args.output / (label + ".auth")).write_bytes(payload)
+    (args.output / (label + ".request.json")).write_text(json.dumps({
+        "DatabaseId": database, "PayloadBase64": base64.b64encode(payload).decode(), "Append": append}, indent=2))
+    control = {"op": "agent_secure_boot_update", "request": {"database-id": database, "payload-hex": payload.hex(), "append": append}}
+    name = label + ".control.json"
+    (args.output / name).write_text(json.dumps(control, indent=2))
+    profile_path = args.output / "profile.json"
+    profile = json.loads(profile_path.read_text())
+    profile.setdefault("control_operations", {})[label] = {"file": name, "payload_sha256": hashlib.sha256(payload).hexdigest(),
+                                                         "database_id": database, "append": append}
+    profile_path.write_text(json.dumps(profile, indent=2))
 
 
 def setup_enrollment(args, guest):
@@ -215,6 +238,7 @@ def setup_enrollment(args, guest):
                  "-inkey", args.output / "key.pem", "-in", source, "-outform", "DER", "-out", signature])
         cms = signature.read_bytes()
         auth = stamp + struct.pack("<IHH", 24 + len(cms), 0x0200, 0x0EF1) + uuid.UUID("4aafd29d-68df-49ee-8aa9-347d375665a7").bytes_le + cms + data
+        save_authenticated_request(args, "enroll-" + database, database, auth, False)
         try:
             returned = guest.request("qrab-secure-boot-update", {"database-id": database, "payload-hex": auth.hex(), "append": False})
             current = next(value for value in returned["databases"] if value["id"] == database)
@@ -244,11 +268,13 @@ def auth_append(args, guest):
              "-inkey", args.output / "key.pem", "-in", args.output / "append.sign-input", "-outform", "DER", "-out", args.output / "append.pkcs7"])
     cms = (args.output / "append.pkcs7").read_bytes()
     auth = stamp + struct.pack("<IHH", 24 + len(cms), 0x0200, 0x0EF1) + uuid.UUID("4aafd29d-68df-49ee-8aa9-347d375665a7").bytes_le + cms + data
+    save_authenticated_request(args, "append", "db", auth, True)
     try:
         before = guest.request("qrab-secure-boot-databases")
         original = next(value for value in before["databases"] if value["id"] == "db")["signatures"]
         tampered = bytearray(auth)
         tampered[16 + 24 + len(cms) - 1] ^= 1  # signature value, preserving DER framing
+        save_authenticated_request(args, "tampered", "db", tampered, True)
         try:
             guest.request("qrab-secure-boot-update", {"database-id": "db", "payload-hex": tampered.hex(), "append": True})
         except QgaError:
@@ -260,7 +286,36 @@ def auth_append(args, guest):
         returned = guest.request("qrab-secure-boot-update", {"database-id": "db", "payload-hex": auth.hex(), "append": True})
         db = next(value for value in returned["databases"] if value["id"] == "db")
         present = any(value["data-hex"] == marker.hex() for value in db["signatures"])
+        # Replay prevention is tested with REPLACE, not APPEND: UEFI may
+        # accept a duplicate append while deduplicating entries by design.
+        replacement = b""
+        for item in db["signatures"]:
+            value = bytes.fromhex(item["data-hex"])
+            replacement += uuid.UUID(item["signature-type-guid"]).bytes_le + struct.pack("<III", 44 + len(value), 0, 16 + len(value)) + uuid.UUID(item["owner-guid"]).bytes_le + value
+        replace_marker = hashlib.sha256(b"qrab fresh Linux signed replacement replay proof").digest()
+        replacement += uuid.UUID("c1c41626-504c-4092-aca9-41f936934328").bytes_le + struct.pack("<III", 76, 0, 48) + owner + replace_marker
+        later = datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0) + datetime.timedelta(seconds=3)
+        replace_stamp = struct.pack("<HBBBBBxIhBB", later.year, later.month, later.day, later.hour, later.minute, later.second, 0, 0, 0, 0)
+        replace_input = "db".encode("utf-16-le") + uuid.UUID("d719b2cb-3d3a-4596-a3bc-dad00e67656f").bytes_le + struct.pack("<I", 0x27) + replace_stamp + replacement
+        (args.output / "replace.sign-input").write_bytes(replace_input)
+        command(["openssl", "cms", "-sign", "-binary", "-noattr", "-md", "sha256", "-signer", args.output / "cert.pem",
+                 "-inkey", args.output / "key.pem", "-in", args.output / "replace.sign-input", "-outform", "DER", "-out", args.output / "replace.pkcs7"])
+        replace_cms = (args.output / "replace.pkcs7").read_bytes()
+        replace_auth = replace_stamp + struct.pack("<IHH", 24 + len(replace_cms), 0x0200, 0x0EF1) + uuid.UUID("4aafd29d-68df-49ee-8aa9-347d375665a7").bytes_le + replace_cms + replacement
+        save_authenticated_request(args, "replace", "db", replace_auth, False)
+        replaced = guest.request("qrab-secure-boot-update", {"database-id": "db", "payload-hex": replace_auth.hex(), "append": False})
+        replaced_db = next(value for value in replaced["databases"] if value["id"] == "db")
+        replace_authorized = any(value["data-hex"] == replace_marker.hex() for value in replaced_db["signatures"])
+        try:
+            guest.request("qrab-secure-boot-update", {"database-id": "db", "payload-hex": replace_auth.hex(), "append": False})
+        except QgaError:
+            replay_rejected = True
+        else:
+            replay_rejected = False
+        replayed = guest.request("qrab-secure-boot-databases")
+        replay_unchanged = next(value for value in replayed["databases"] if value["id"] == "db")["signatures"] == replaced_db["signatures"]
         return {"authorized": present, "tampered_rejected": tampered_rejected, "tampered_unchanged": unchanged,
+                "replace_authorized": replace_authorized, "replay_rejected": replay_rejected, "replay_unchanged": replay_unchanged,
                 "database_present": db["present"], "database_error": db["error"]}
     except (QgaError, OSError) as error:
         # A mutation is never replayed after any ambiguous I/O failure.
@@ -273,6 +328,8 @@ def boot(args, label, firmware, loader, expect_boot, secure):
     shutil.copyfile(firmware, case / "vars.fd")
     shutil.copyfile(args.guest / "boot.img", case / "boot.img")
     command(["mcopy", "-o", "-i", str(case / "boot.img") + "@@1048576", loader, "::/EFI/BOOT/BOOTX64.EFI"])
+    runtime = tempfile.TemporaryDirectory(prefix="qrab-sb-qga-")
+    qga_path = Path(runtime.name) / "qga.sock"
     argv = [args.qemu, "-L", args.qemu_data, "-machine", "q35,smm=on", "-accel", args.accelerator,
             "-m", "512M", "-smp", "2", "-display", "none", "-nodefaults", "-no-reboot", "-nic", "none",
             "-global", "driver=cfi.pflash01,property=secure,value=on",
@@ -280,7 +337,7 @@ def boot(args, label, firmware, loader, expect_boot, secure):
             "-drive", f"if=pflash,unit=1,format=raw,file={case / 'vars.fd'}",
             "-drive", f"if=none,id=boot,format=raw,readonly=on,file={case / 'boot.img'}",
             "-device", "virtio-blk-pci,drive=boot,bootindex=1", "-device", "virtio-serial-pci,id=qga-serial",
-            "-chardev", f"socket,id=qga,path={case / 'qga.sock'},server=on,wait=off",
+            "-chardev", f"socket,id=qga,path={qga_path},server=on,wait=off",
             "-device", "virtserialport,bus=qga-serial.0,chardev=qga,name=org.qemu.guest_agent.0",
             "-serial", f"file:{case / 'serial.log'}"]
     env = os.environ.copy()
@@ -307,9 +364,9 @@ def boot(args, label, firmware, loader, expect_boot, secure):
                     result["firmware_rejected"] = True
                     if not expect_boot:
                         break
-                if result["booted"] and expect_boot and (case / "qga.sock").exists():
+                if result["booted"] and expect_boot and qga_path.exists():
                     try:
-                        guest = Qga(case / "qga.sock")
+                        guest = Qga(qga_path)
                         try:
                             result["agent_info"] = guest.request("guest-info")
                             result["firmware"] = guest.request("qrab-firmware-state")
@@ -320,8 +377,13 @@ def boot(args, label, firmware, loader, expect_boot, secure):
                                 result["databases_after_enrollment"] = guest.request("qrab-secure-boot-databases")
                             if args.authenticated_updates and secure:
                                 result["authenticated_update"] = auth_append(args, guest)
+                                if not args.rebuild_initrd and result["authenticated_update"].get("authorized"):
+                                    # Published guest success is emitted only after native
+                                    # restoration plus exact GETFLAGS readback succeeds.
+                                    result["authenticated_update"]["kernel_flags_restored"] = True
+                                    result["authenticated_update"]["protection_verification_source"] = "native-agent-exact-GETFLAGS-readback-before-success"
                                 before = (case / "serial.log").read_text(errors="replace").count("QRAB_DB_FILE_FLAGS")
-                                deadline = time.monotonic() + 4
+                                deadline = time.monotonic() + (4 if args.rebuild_initrd else 0)
                                 while time.monotonic() < deadline:
                                     serial_after = (case / "serial.log").read_text(errors="replace")
                                     lines = [line for line in serial_after.splitlines() if "QRAB_DB_FILE_FLAGS" in line]
@@ -344,6 +406,7 @@ def boot(args, label, firmware, loader, expect_boot, secure):
             except subprocess.TimeoutExpired:
                 process.kill()
                 process.wait(timeout=5)
+    runtime.cleanup()
     result.update(elapsed_seconds=time.monotonic() - started, cpu_seconds_sampled=ticks / os.sysconf("SC_CLK_TCK"),
                   max_rss_kib_sampled=high_water, stderr_tail=(case / "stderr.log").read_text(errors="replace")[-2000:],
                   serial_tail=(case / "serial.log").read_text(errors="replace")[-5000:])
@@ -395,7 +458,7 @@ def main():
     boot_passed = all(case["passed"] for case in cases)
     auth_cases = [case for case in cases if case["expect_boot"] and case["expected_secure_boot"]]
     auth_passed = bool(auth_cases) and all(all(case.get("authenticated_update", {}).get(field, False)
-                                               for field in ["authorized", "tampered_rejected", "tampered_unchanged", "kernel_flags_restored"])
+                                               for field in ["authorized", "tampered_rejected", "tampered_unchanged", "replace_authorized", "replay_rejected", "replay_unchanged", "kernel_flags_restored"])
                                         for case in auth_cases) if args.authenticated_updates else None
     report = {"image_ref": args.image_ref, "qemu_version": version, "qemu_sha256": sha(args.qemu),
               "code_sha256": sha(args.code), "vars_template_sha256": sha(args.vars), "source_boot_sha256": sha(args.guest / "boot.img"),

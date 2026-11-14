@@ -55,6 +55,20 @@ impl MediaPolicy {
         Ok(Self { root, max_bytes })
     }
 
+    /// Apply the same canonical escape/size policy to operator-approved boot media.
+    pub(super) fn validate_boot_disk(&self, path: &Path) -> Result<()> {
+        let name = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .ok_or_else(|| Error::Config("boot media filename is invalid".into()))?;
+        if path.parent() != Some(Path::new("/var/lib/qrab-media")) {
+            return Err(Error::Config(
+                "boot media must be directly under its approved mount".into(),
+            ));
+        }
+        self.image_path(name)?;
+        Ok(())
+    }
     fn image_path(&self, name: &str) -> Result<PathBuf> {
         if !valid_image_name(name) {
             return Err(Error::Config(

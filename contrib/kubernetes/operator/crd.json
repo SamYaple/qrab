@@ -56,12 +56,10 @@
                   },
                   "bootDisk": {
                     "default": "/opt/qrab/demo/boot.img",
-                    "description": "Readonly UEFI boot disk inside the manager image. No direct kernel boot.",
-                    "enum": [
-                      "/opt/qrab/demo/boot.img"
-                    ],
-                    "maxLength": 4096,
+                    "description": "Read-only UEFI boot media: the immutable image ESP, or one safe .img/.iso\nbasename in /var/lib/qrab-media when mediaVolumeClaim is configured.\nState, Secrets, nested paths and direct kernel boot are never selected.",
+                    "maxLength": 148,
                     "minLength": 2,
+                    "pattern": "^(/opt/qrab/demo/boot[.]img|/var/lib/qrab-media/[A-Za-z0-9][A-Za-z0-9._-]{0,123}[.](img|iso))$",
                     "type": "string"
                   },
                   "cloudInit": {
@@ -496,7 +494,13 @@
                 "required": [
                   "stateVolumeClaim"
                 ],
-                "type": "object"
+                "type": "object",
+                "x-kubernetes-validations": [
+                  {
+                    "message": "bootDisk media requires a separate mediaVolumeClaim and a safe basename without '..'",
+                    "rule": "self.bootDisk == '/opt/qrab/demo/boot.img' || (has(self.mediaVolumeClaim) && self.mediaVolumeClaim != '' && self.mediaVolumeClaim != self.stateVolumeClaim && !self.bootDisk.contains('..'))"
+                  }
+                ]
               },
               "status": {
                 "nullable": true,

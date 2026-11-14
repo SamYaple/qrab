@@ -10,8 +10,8 @@
 use super::{Attribute, Enum, EnumVariant, EnumVariantKind, Metadata, Struct, StructField};
 use crate::qapi_ir::{rustify_field_name, rustify_name};
 use crate::{
-    extract_since_from_comment, MembersOrRef, QapiAlternate, QapiAlternative, QapiCommand,
-    QapiEnum, QapiEnumValue, QapiEvent, QapiMember, QapiStruct, QapiTypeRef, QapiUnion,
+    MembersOrRef, QapiAlternate, QapiAlternative, QapiCommand, QapiEnum, QapiEnumValue, QapiEvent,
+    QapiMember, QapiStruct, QapiTypeRef, QapiUnion, extract_since_from_comment,
 };
 use std::collections::HashMap;
 
@@ -392,6 +392,29 @@ pub fn process_union(
             meta,
             array: false,
         });
+    }
+    if !is_simple {
+        // QAPI flat unions implicitly select an empty branch for valid
+        // discriminator enum values omitted from `data` (QEMU's
+        // docs/devel/qapi-code-gen.rst, "Union types"). Model these explicitly
+        // rather than treating valid tags such as CpuInfoFast.x86_64 as unknown.
+        // The typed discriminator still refuses values outside its own enum.
+        let discriminator = fields
+            .iter()
+            .find(|field| field.name == q.discriminator.unwrap())
+            .expect("discriminator field not found");
+        if let Some(tags) = enums_lookup.get(&rustify_name(&discriminator.r#type)) {
+            for tag in &tags.variants {
+                if !variants.iter().any(|branch| branch.name == tag.name) {
+                    variants.push(EnumVariant {
+                        name: tag.name.clone(),
+                        kind: EnumVariantKind::Unit,
+                        meta: tag.meta.clone(),
+                        array: false,
+                    });
+                }
+            }
+        }
     }
     // The branch enum inherits the union's `if` condition. Without this, the
     // synthesized branch type would compile on targets where the union (and
@@ -867,6 +890,58 @@ mod tests {
         assert!(code.contains("pub struct MyData"));
         assert!(code.contains("pub name: String"));
         assert!(code.contains("pub count: Option<i64>"));
+    }
+    #[test]
+    fn flat_union_synthesizes_only_known_implicit_empty_discriminator_branches() {
+        let (_,q)=QapiUnion::parse_v3("{'union':'Cpu','base':{'target':'Target'},'discriminator':'target','data':{'s390x':'S390Details'}}").unwrap();
+        let mut tags = process_enum(QapiEnum {
+            name: "Target",
+            data: vec![
+                make_enum_value("x86_64"),
+                make_enum_value("aarch64"),
+                make_enum_value("s390x"),
+            ],
+            ..Default::default()
+        });
+        tags.variants[1]
+            .meta
+            .attributes
+            .push(Attribute::with_value("condition", "TARGET_AARCH64"));
+        let (_, branches, _) = process_union(
+            q,
+            &HashMap::new(),
+            &HashMap::from([("Target".into(), tags)]),
+        );
+        assert_eq!(branches.variants.len(), 3);
+        assert_eq!(
+            branches
+                .variants
+                .iter()
+                .find(|v| v.name == "x86_64")
+                .unwrap()
+                .kind,
+            EnumVariantKind::Unit
+        );
+        assert_eq!(
+            branches
+                .variants
+                .iter()
+                .find(|v| v.name == "s390x")
+                .unwrap()
+                .kind,
+            EnumVariantKind::Tuple("S390Details".into())
+        );
+        assert!(
+            branches
+                .variants
+                .iter()
+                .find(|v| v.name == "aarch64")
+                .unwrap()
+                .meta
+                .attributes
+                .contains(&Attribute::with_value("condition", "TARGET_AARCH64"))
+        );
+        assert!(branches.variants.iter().all(|v| v.name != "unknown"));
     }
 }
 

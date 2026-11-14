@@ -1,10 +1,10 @@
 use super::common::{qstring, qtag};
 use super::parser_version;
 use super::qapi_members::QapiMembers;
-use nom::branch::alt;
-use nom::sequence::delimited;
 use nom::IResult;
 use nom::Parser;
+use nom::branch::alt;
+use nom::sequence::delimited;
 
 pub fn take_type_ref(input: &str) -> IResult<&str, QapiTypeRef<'_>> {
     use super::common::take_kv;

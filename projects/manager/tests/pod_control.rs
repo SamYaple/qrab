@@ -92,7 +92,7 @@ async fn mock_qemu(runtime: PathBuf, mut inject: mpsc::Receiver<(String, Value)>
                     tokio::time::sleep(Duration::from_millis(1500)).await;
                 }
                 let reply = match command.name.as_str() {
-                    "query-cpus-fast" => json!([{"cpu-index":0,"qom-path":"/machine/private-cpu","thread-id":123}]),
+                    "query-cpus-fast" => json!([{"cpu-index":0,"qom-path":"/machine/private-cpu","qom-type":"max-x86_64-cpu","target":"x86_64","thread-id":123}]),
                     "query-memory-size-summary" => json!({"base-memory":1073741824,"plugged-memory":268435456}),
                     "query-blockstats" => json!([{
                         "device":"disk0","qdev":"/machine/private-storage",
