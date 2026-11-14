@@ -895,9 +895,135 @@ async fn guest_agent_actions_are_admin_only_and_validated() {
     }
 }
 
+/// A fake manager control socket: answers each operation in `replies`,
+/// refuses unknown ones and never answers the `silent` ones, whose requests it
+/// counts.
+fn fake_control(
+    listener: tokio::net::UnixListener,
+    replies: std::collections::BTreeMap<&'static str, Value>,
+    silent: &'static [&'static str],
+) -> (
+    tokio::task::JoinHandle<()>,
+    Arc<std::sync::atomic::AtomicUsize>,
+) {
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+    let replies = Arc::new(replies);
+    let unanswered = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let seen = unanswered.clone();
+    let server = tokio::spawn(async move {
+        loop {
+            let (stream, _) = listener.accept().await.unwrap();
+            let replies = replies.clone();
+            let seen = seen.clone();
+            tokio::spawn(async move {
+                let mut stream = BufReader::new(stream);
+                let operations: Vec<&str> = replies.keys().chain(silent).copied().collect();
+                let hello = json!({"protocol":"qrab-control","version":1,"vm":"test",
+                    "operations":operations})
+                .to_string()
+                    + "\n";
+                stream.get_mut().write_all(hello.as_bytes()).await.unwrap();
+                loop {
+                    let mut line = String::new();
+                    if stream.read_line(&mut line).await.unwrap_or(0) == 0 {
+                        return;
+                    }
+                    let request: Value = serde_json::from_str(&line).unwrap();
+                    let op = request["op"].as_str().unwrap();
+                    if silent.contains(&op) {
+                        seen.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                        continue;
+                    }
+                    // Hardware inventory and boot reads are optional for Systems/1.
+                    let reply = match replies.get(op) {
+                        Some(result) => json!({"v":1,"id":request["id"],"result":result}),
+                        None => json!({"v":1,"id":request["id"],
+                            "error":{"code":"unavailable","message":"not in this fixture"}}),
+                    };
+                    let reply = reply.to_string() + "\n";
+                    stream.get_mut().write_all(reply.as_bytes()).await.unwrap();
+                }
+            });
+        }
+    });
+    (server, unanswered)
+}
+
+#[tokio::test]
+async fn system_answers_in_time_when_the_agent_boot_read_hangs() {
+    let mut fixture = fixture();
+    let view = fixture.app.control.config_view().await.unwrap();
+    let path = fixture.config.runtime_dir.join("agent.sock");
+    let listener = tokio::net::UnixListener::bind(&path).unwrap();
+    fixture.app.control = manager::pod::Backend::Socket(manager::pod::Remote::new(path));
+    let replies = [
+        ("config", serde_json::to_value(&view).unwrap()),
+        (
+            "status",
+            json!({"phase":"running","ready":true,"manager_pid":1,"manager_start_ticks":1,
+            "qemu_pid":2,"qemu_start_ticks":2,"qemu_version":[11,1,3],"run_state":"running",
+            "observed_unix_ms":0,"exit_code":null,"detail":null}),
+        ),
+        (
+            "agent_status",
+            serde_json::to_value(manager::pod::AgentStatus {
+                enabled: true,
+                connected: true,
+                ..Default::default()
+            })
+            .unwrap(),
+        ),
+        ("agent_freeze_status", json!("thawed")),
+        (
+            "agent_update_status",
+            serde_json::to_value(manager::pod::UpdateStatus::default()).unwrap(),
+        ),
+    ]
+    .into_iter()
+    .collect();
+    let (server, unanswered) = fake_control(listener, replies, &["agent_boot"]);
+
+    let started = std::time::Instant::now();
+    let (status, _, system) = tokio::time::timeout(
+        Duration::from_secs(5),
+        call(&fixture.app, "GET", SYSTEM_PATH, Some(&good(ADMIN)), ""),
+    )
+    .await
+    .expect("Systems/1 waited on the unanswered agent_boot");
+    let elapsed = started.elapsed();
+    assert!(
+        elapsed < Duration::from_secs(2),
+        "Systems/1 took {elapsed:?}"
+    );
+    assert_eq!(status, StatusCode::OK, "{system}");
+    assert_eq!(
+        unanswered.load(std::sync::atomic::Ordering::SeqCst),
+        1,
+        "agent_boot was not requested"
+    );
+    // Boot data is unknown: only the BootOptions link remains.
+    assert_eq!(
+        system["Boot"],
+        json!({"BootOptions":{"@odata.id":"/redfish/v1/Systems/1/BootOptions"}})
+    );
+    // Everything else is intact.
+    assert_eq!(system["PowerState"], "On", "{system}");
+    assert_eq!(system["Status"]["State"], "Enabled", "{system}");
+    assert_eq!(system["UUID"], STATE_ID, "{system}");
+    assert_eq!(system["Name"], "redfish-vm", "{system}");
+    let agent = &system["Oem"]["Qrab"]["GuestAgent"];
+    assert_eq!(agent["connected"], true, "{agent}");
+    assert_eq!(agent["FreezeState"], "Thawed", "{agent}");
+    assert_eq!(agent["LastUpdate"]["State"], "Idle", "{agent}");
+    assert!(
+        system["Oem"]["Qrab"]["Configuration"].is_object(),
+        "{system}"
+    );
+    server.abort();
+}
+
 #[tokio::test]
 async fn system_reports_freeze_state_and_last_update_with_viewer_redaction() {
-    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
     let mut fixture = fixture();
     let view = fixture.app.control.config_view().await.unwrap();
     let path = fixture.config.runtime_dir.join("agent.sock");
@@ -942,36 +1068,7 @@ async fn system_reports_freeze_state_and_last_update_with_viewer_redaction() {
     ]
     .into_iter()
     .collect();
-    let replies = Arc::new(replies);
-    let server = tokio::spawn(async move {
-        loop {
-            let (stream, _) = listener.accept().await.unwrap();
-            let replies = replies.clone();
-            tokio::spawn(async move {
-                let mut stream = BufReader::new(stream);
-                let hello = json!({"protocol":"qrab-control","version":1,"vm":"test",
-                    "operations":replies.keys().collect::<Vec<_>>()})
-                .to_string()
-                    + "\n";
-                stream.get_mut().write_all(hello.as_bytes()).await.unwrap();
-                loop {
-                    let mut line = String::new();
-                    if stream.read_line(&mut line).await.unwrap() == 0 {
-                        return;
-                    }
-                    let request: Value = serde_json::from_str(&line).unwrap();
-                    // Hardware inventory and boot reads are optional for Systems/1.
-                    let reply = match replies.get(request["op"].as_str().unwrap()) {
-                        Some(result) => json!({"v":1,"id":request["id"],"result":result}),
-                        None => json!({"v":1,"id":request["id"],
-                            "error":{"code":"unavailable","message":"not in this fixture"}}),
-                    };
-                    let reply = reply.to_string() + "\n";
-                    stream.get_mut().write_all(reply.as_bytes()).await.unwrap();
-                }
-            });
-        }
-    });
+    let (server, _) = fake_control(listener, replies, &[]);
 
     let (status, _, admin) = call(&fixture.app, "GET", SYSTEM_PATH, Some(&good(ADMIN)), "").await;
     assert_eq!(status, StatusCode::OK, "{admin}");

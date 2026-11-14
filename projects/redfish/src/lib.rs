@@ -520,7 +520,14 @@ async fn vm_uuid(app: &AppState, who: &Principal) -> Option<String> {
     if who.role != Role::Admin {
         return None;
     }
-    let view = app.control.config_view().await.ok()?;
+    admin_uuid(&app.control.config_view().await.ok()?, who)
+}
+
+/// [`vm_uuid`] from an already-read configuration view.
+fn admin_uuid(view: &pod::ConfigView, who: &Principal) -> Option<String> {
+    if who.role != Role::Admin {
+        return None;
+    }
     uuid::Uuid::parse_str(view.state_id.as_deref()?)
         .ok()
         .map(|id| id.to_string())
@@ -558,12 +565,16 @@ pub fn power(status: Option<&pod::Status>) -> (Value, &'static str, &'static str
 
 async fn system(State(app): State<AppState>, headers: HeaderMap) -> Result<Json<Value>, Failure> {
     let who = principal(&app, &headers).await?;
-    let view = app
-        .control
-        .config_view()
-        .await
-        .map_err(|_| Failure::unavailable("The VM configuration is unavailable."))?;
-    let status = app.control.status().await.ok();
+    // Every manager and guest read is bounded and run concurrently, so a
+    // stalled manager or guest agent costs at most one bound per phase.
+    let (view, status, hardware, agent) = tokio::join!(
+        bounded(MANAGER_READ_TIMEOUT, app.control.config_view()),
+        bounded(MANAGER_READ_TIMEOUT, app.control.status()),
+        bounded(INVENTORY_READ_TIMEOUT, app.control.inventory()),
+        // Cached connection state from the manager; no guest round trip.
+        bounded(MANAGER_READ_TIMEOUT, app.control.agent_status()),
+    );
+    let view = view.ok_or_else(|| Failure::unavailable("The VM configuration is unavailable."))?;
     let (power_state, state, health) = power(status.as_ref());
     let status_object = json!({"State": state, "Health": health});
     let (cpus, memory_mib) = inventory::size(&view);
@@ -602,9 +613,7 @@ async fn system(State(app): State<AppState>, headers: HeaderMap) -> Result<Json<
         },
         "Links": {"ManagedBy": [link(MANAGER)], "Chassis": [link(inventory::CHASSIS)]},
     });
-    if let Ok(Ok(hardware)) =
-        tokio::time::timeout(Duration::from_millis(200), app.control.inventory()).await
-    {
+    if let Some(hardware) = hardware {
         system["ProcessorSummary"]["Count"] = json!(hardware.processors.len());
         system["ProcessorSummary"]["LogicalProcessorCount"] = json!(hardware
             .processors
@@ -612,45 +621,67 @@ async fn system(State(app): State<AppState>, headers: HeaderMap) -> Result<Json<
             .map(|p| p.total_threads)
             .sum::<u64>());
     }
-    if let Some(uuid) = vm_uuid(&app, &who).await {
+    if let Some(uuid) = admin_uuid(&view, &who) {
         system["UUID"] = json!(uuid);
     }
-    // Cached connection state from the manager; no guest round trip.
-    let agent = app.control.agent_status().await.ok();
-    if agent.as_ref().is_some_and(|status| status.connected) {
-        if let Ok(snapshot) = app.control.agent_boot().await {
-            system["Boot"] = boot::system_boot(&snapshot);
-        }
+    let connected = agent.as_ref().is_some_and(|status| status.connected);
+    let (boot, agent) = tokio::join!(
+        async {
+            if connected {
+                bounded(AGENT_READ_TIMEOUT, app.control.agent_boot()).await
+            } else {
+                None
+            }
+        },
+        async {
+            match agent {
+                Some(status) => guest_agent(&app, status, who.role).await,
+                None => Value::Null,
+            }
+        },
+    );
+    if let Some(snapshot) = boot {
+        system["Boot"] = boot::system_boot(&snapshot);
     }
     // The same role-based redaction as the browser BMC.
     let view = match who.role {
         Role::Admin => view,
         Role::Viewer => view.redacted(),
     };
-    let agent = match agent {
-        Some(status) => guest_agent(&app, status, who.role).await,
-        None => Value::Null,
-    };
     system["Oem"] = json!({"Qrab": {"@odata.type": "#QrabComputerSystem.v1_0_0.QrabComputerSystem", "Configuration": view, "GuestAgent": agent, "Metrics": link(telemetry::METRICS)}});
     Ok(Json(system))
 }
 
+/// Bound on each manager-local read behind a Systems/1 read (configuration,
+/// status and cached agent state), so a wedged manager cannot stall it.
+const MANAGER_READ_TIMEOUT: Duration = Duration::from_secs(1);
+
+/// Bound on the live QMP hardware inventory behind a Systems/1 read.
+const INVENTORY_READ_TIMEOUT: Duration = Duration::from_millis(200);
+
 /// Bound on each guest round trip behind a Systems/1 read, so a busy or
 /// freezing agent cannot stall it.
 const AGENT_READ_TIMEOUT: Duration = Duration::from_secs(1);
+
+/// `read`'s value, or `None` when it fails or outlasts `limit`.
+async fn bounded<T, E>(
+    limit: Duration,
+    read: impl std::future::Future<Output = Result<T, E>>,
+) -> Option<T> {
+    tokio::time::timeout(limit, read)
+        .await
+        .ok()
+        .and_then(Result::ok)
+}
 
 /// `Oem.Qrab.GuestAgent`: the cached connection state plus, while the agent
 /// is connected and answers in time, the filesystem freeze state and the last
 /// update-hook run. Both are `null` otherwise.
 async fn guest_agent(app: &AppState, status: pod::AgentStatus, role: Role) -> Value {
     let (freeze, update) = if status.connected {
-        let (freeze, update) = tokio::join!(
-            tokio::time::timeout(AGENT_READ_TIMEOUT, app.control.agent_freeze_status()),
-            tokio::time::timeout(AGENT_READ_TIMEOUT, app.control.agent_update_status()),
-        );
-        (
-            freeze.ok().and_then(Result::ok),
-            update.ok().and_then(Result::ok),
+        tokio::join!(
+            bounded(AGENT_READ_TIMEOUT, app.control.agent_freeze_status()),
+            bounded(AGENT_READ_TIMEOUT, app.control.agent_update_status()),
         )
     } else {
         (None, None)

@@ -220,6 +220,16 @@ agent is connected:
 
 Both are `null` while the agent is disconnected or does not answer in time.
 
+Every read behind `Systems/1` is bounded so a stalled manager or guest cannot
+hold the BMC poll or a dashboard render: the configuration view, status and
+cached agent state to one second each (an unanswered configuration view is a
+503; status reports `PowerState: null`, the agent `null`), the live QMP
+processor count to 200 ms, and the guest boot, freeze and update reads to one
+second each, made concurrently. When the guest's UEFI boot read fails or does
+not answer in time, `Boot` carries only the `BootOptions` link: `BootOrder`,
+`BootNext`, the `BootSourceOverride*` properties and `Oem.Qrab`
+(`EfiRuntimeAvailable`, `Observed`) are absent.
+
 `ComputerSystem.Reset` (`{"ResetType": ...}`) maps honestly to manager actions:
 
 | ResetType | Effect |
