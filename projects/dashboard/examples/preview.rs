@@ -180,7 +180,7 @@ fn network_vm() -> (VirtualMachine, Pod) {
             "storageNode": "kube03",
             "disks": [{"id": "root", "sizeBytes": 2147483648u64, "baseImage": {"name": "cirros", "generation": 1}, "bootIndex": 0}],
             "console": {"adminGroups": ["12f802c8-4daf-4481-9f6a-a6fdb5d086c3"], "viewerGroups": ["2724fd1d-78d0-4612-a42e-448094971abb"]},
-            "nics": [{"name": "eth0", "securityGroups": ["web", "ssh", "monitoring-scrape"]}, {"name": "eth1"}],
+            "nics": [{"name": "eth0", "securityGroups": ["web", "ssh", "monitoring-scrape"]}, {"name": "eth1", "vpn": {"secretName": "vpn-private-fixture"}}],
             "cloudInit": {"hostname": "web-1", "userData": "#cloud-config\nssh_authorized_keys: [ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExample sam]\npackages: [nginx]\n"}},
         "status": {"observedGeneration": 3, "phase": "Running", "ready": true, "reason": "", "message": "",
             "podName": "web-1", "nodeName": "kube02",
@@ -216,6 +216,13 @@ const CATALOG: &str = r#"[
 fn write(dir: &str, name: &str, page: Page, css: &str) {
     let html = ui::render(page)
         .replace("/assets/style.css", css)
+        .replace(
+            "/assets/favicon.svg",
+            &format!(
+                "file://{}/../bmc/assets/favicon.svg",
+                env!("CARGO_MANIFEST_DIR")
+            ),
+        )
         .replace("src=\"/assets/console.js\"", "src=\"about:blank\"");
     std::fs::write(format!("{dir}/{name}.html"), html).unwrap();
 }

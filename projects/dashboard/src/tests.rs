@@ -1,5 +1,6 @@
 //! HTTP and WebSocket tests against an in-memory cluster, a fake Kanidm and
 //! fake VM Pods (BMC console and Redfish) on loopback addresses.
+mod browser;
 use super::*;
 use crate::access::tests::{ADMINS, ALICE, BOB, VIEWERS, vm};
 use axum::{
@@ -2353,7 +2354,7 @@ async fn detail_draws_a_server_side_svg_sparkline_per_redfish_history_metric() {
     // Still the script-free page CSP: no client script and no inline styles.
     assert_eq!(
         headers["content-security-policy"],
-        "default-src 'none'; style-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"
+        "default-src 'none'; style-src 'self'; img-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"
     );
     assert!(
         !body.contains("<script") && !body.contains("style="),
@@ -2628,4 +2629,18 @@ async fn recovery_pages_preserve_status_and_safe_vm_context_while_power_errors_s
     );
     assert_eq!(body, "Sign in again to continue.");
     assert_eq!(h.cluster.mutations(), 0);
+}
+
+#[tokio::test]
+async fn vpn_network_summary_shows_routing_mode_without_secret_references() {
+    let h = harness().await;
+    h.cluster.vms.lock().unwrap()[0].spec.nics = serde_json::from_value(serde_json::json!([
+        {"name":"eth0","vpn":{"secretName":"vpn-private-reference"}}
+    ]))
+    .unwrap();
+    let cookie = session(&h.state.sessions, ALICE, &[]).await;
+    let (status, _, body) = send(&h, get("/vms/qrab/a", Some(&cookie))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(body.contains("VPN tunnel only") && body.contains("direct guest traffic is blocked"));
+    assert!(!body.contains("vpn-private-reference") && !body.contains("default-allow"));
 }

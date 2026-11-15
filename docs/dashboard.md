@@ -286,6 +286,12 @@ the same name reuses it while it is unbound.
 
 ### Network and cloud-init on the launch form
 
+Existing VPN-backed interfaces are marked **VPN tunnel only** on the VM detail
+page. This is a routing-mode summary, not a handshake/connection-health claim.
+The Secret reference and tunnel keys are not part of the dashboard view model.
+Default-allow guidance applies only to direct interfaces; the launch form still
+offers the same direct-interface configuration as before.
+
 - **Network.** "Attach a network interface (eth0)" is checked by default and
   renders `spec.nics: [{name: eth0, securityGroups}]`. Security groups are
   comma-separated DNS labels, at most 8, distinct. Each becomes the NIC Pod
@@ -639,3 +645,26 @@ loopback WebSocket held during RFB negotiation. It needs no credentials,
 cluster, VM or guest, and sends no action to a live VM.
 The separate `bmc-browser.py` test covers real
 OIDC and guest-console delivery.
+
+### Browser checks through the real router
+
+An ignored Rust test serves the actual dashboard router on loopback with the
+in-memory cluster, bounded session store and fake Pod upstreams. Python receives
+opaque test-session cookies on stdin; no test login route is added to the
+application. It uses the real response headers, CSP, HTTP proxies and WebSocket
+proxy rather than browser HTTP interception. It checks admin/viewer pages,
+keyboard chart focus across redraws, peer logout and real server-time expiry.
+
+```sh
+QRAB_UI_PYTHON=/path/to/python-with-playwright QRAB_UI_ENGINE=firefox \
+  cargo test --locked -p qrab-dashboard actual_router_browser -- --ignored --nocapture
+# The same check over a full 15-minute session:
+QRAB_UI_PYTHON=/path/to/python-with-playwright QRAB_UI_SESSION_SECONDS=900 \
+  cargo test --locked -p qrab-dashboard actual_router_browser -- --ignored --nocapture
+```
+
+`QRAB_UI_OUTPUT` selects the screenshot directory (default `target/ui-router`).
+The check has no guest, KVM, cluster or production credentials and sends no VM
+management action. The favicon is a shared same-origin SVG; SSR CSP permits
+same-origin images for it while retaining the script-free policy. A chart's
+keyboard focus and selected timestamp survive an ordinary history redraw.

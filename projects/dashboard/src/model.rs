@@ -48,6 +48,8 @@ pub struct NicRow {
     pub security_groups: Vec<String>,
     pub pod_name: Option<String>,
     pub ready: bool,
+    /// Routing mode only; never expose a tunnel's Secret reference or keys.
+    pub tunnel_only: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -236,6 +238,7 @@ pub fn nics(vm: &VirtualMachine) -> Vec<NicRow> {
                 security_groups: nic.security_groups.iter().map(|g| g.0.clone()).collect(),
                 pod_name: status.map(|s| s.pod_name.clone()).filter(|p| !p.is_empty()),
                 ready: status.is_some_and(|s| s.ready),
+                tunnel_only: nic.vpn.is_some(),
             }
         })
         .collect()
@@ -429,7 +432,7 @@ mod tests {
         let mut machine = vm(
             "web",
             serde_json::json!({"nics": [{"name": "eth0", "securityGroups": ["web", "ssh"]},
-                {"name": "eth1"}]}),
+                {"name": "eth1", "vpn": {"secretName": "vpn-private-fixture"}}]}),
             None,
         );
         assert_eq!(row(&machine, Role::Viewer, &HashMap::new()).ip, None);
@@ -459,9 +462,12 @@ mod tests {
                 security_groups: vec!["web".into(), "ssh".into()],
                 pod_name: Some("web-nic-eth0".into()),
                 ready: true,
+                tunnel_only: false,
             }
         );
         assert_eq!((nics[1].ip.as_deref(), nics[1].ready), (None, false));
+        assert!(nics[1].tunnel_only);
+        assert!(!format!("{nics:?}").contains("vpn-private-fixture"));
         machine.spec.cloud_init = Some(qrab_operator::api::CloudInit {
             hostname: Some("db".into()),
             user_data: None,

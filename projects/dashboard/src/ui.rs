@@ -166,7 +166,7 @@ pub fn render(page: Page) -> String {
         }
     }
     format!(
-        "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>{escaped}</title><link rel=\"stylesheet\" href=\"/assets/style.css\"></head>{}</html>",
+        "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>{escaped}</title><link rel=\"icon\" type=\"image/svg+xml\" href=\"/assets/favicon.svg\"><link rel=\"stylesheet\" href=\"/assets/style.css\"></head>{}</html>",
         dioxus_ssr::render(&dom)
     )
 }
@@ -707,7 +707,9 @@ fn network_card(d: &Detail) -> Element {
                 div { class: "table-wrap", table {
                     thead { tr { th { scope: "col", "NIC" } th { scope: "col", "MAC" } th { scope: "col", "IP" } th { scope: "col", "Security groups" } th { scope: "col", "NIC pod" } th { scope: "col", "Ready" } } }
                     tbody { for nic in &d.nics { tr {
-                        td { "data-label": "NIC", code { "{nic.name}" } }
+                        td { "data-label": "NIC", div { code { "{nic.name}" }
+                            if nic.tunnel_only { span { class: "cell-detail", "VPN tunnel only" } }
+                        } }
                         td { "data-label": "MAC", code { {or_dash(&nic.mac)} } }
                         td { "data-label": "IP", code { {or_dash(&nic.ip)} } }
                         td { "data-label": "Security groups",
@@ -718,7 +720,13 @@ fn network_card(d: &Detail) -> Element {
                         td { "data-label": "Ready", div { span { class: if nic.ready { "badge ok" } else { "badge" }, if nic.ready { "ready" } else { "not ready" } } } }
                     } } }
                 } }
-                p { class: "muted", "Guest traffic leaves from the NIC pod's IP; the VM pod (BMC) never carries it. A NIC that no security-group policy selects is default-allow. "
+                if d.nics.iter().any(|nic| nic.tunnel_only) {
+                    p { class: "muted", "On VPN interfaces, guest traffic stays inside the configured tunnel in its NIC Pod; direct guest traffic is blocked. The VM Pod never carries it." }
+                }
+                if d.nics.iter().any(|nic| !nic.tunnel_only) {
+                    p { class: "muted", "Guest traffic leaves from the NIC pod's IP; the VM pod (BMC) never carries it. A direct interface with no matching security-group policy is default-allow." }
+                }
+                p { class: "muted",
                     a { href: NETWORKING_DOCS, rel: "noreferrer", "Security groups" }
                 }
             }

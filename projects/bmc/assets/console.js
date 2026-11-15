@@ -637,6 +637,8 @@ function historySummary(answer, title, max) {
 function drawChart(figure, answer, title) {
     const body = figure.querySelector('.chart-body');
     const readout = figure.querySelector('.readout');
+    const keepFocus = body.contains(document.activeElement);
+    const previousTime = figure.dataset.selectedTime === undefined ? null : Number(figure.dataset.selectedTime);
     const width = Math.max(240, Math.round(body.clientWidth || 320));
     const height = 132;
     const pad = {left: 74, right: 8, top: 8, bottom: 20};
@@ -650,6 +652,8 @@ function drawChart(figure, answer, title) {
     const summary = historySummary(answer, title, max);
     figure.querySelector('.peak').textContent = values.length ? `peak ${formatValue(max, answer.unit)}` : '';
     if (!values.length) {
+        delete figure.dataset.selectedTime;
+        readout.textContent = '';
         body.replaceChildren(node('p', `No samples over the last ${answer.range}.`, 'chart-empty'));
         return;
     }
@@ -680,9 +684,10 @@ function drawChart(figure, answer, title) {
     const times = [...new Set(answer.series.flatMap(series => series.points.map(point => point[0])))].sort((a, b) => a - b);
     let selected = -1;
     const show = index => {
-        if (!times.length) return;
+        if (!times.length || !body.contains(svg)) return;
         selected = Math.min(times.length - 1, Math.max(0, index));
         const t = times[selected];
+        figure.dataset.selectedTime = String(t);
         cursor.setAttribute('x1', x(t));
         cursor.setAttribute('x2', x(t));
         cursor.setAttribute('visibility', 'visible');
@@ -692,7 +697,12 @@ function drawChart(figure, answer, title) {
         });
         readout.textContent = `${new Date(t * 1000).toLocaleString()}: ${parts.join(' · ')}`;
     };
-    const hide = () => { cursor.setAttribute('visibility', 'hidden'); selected = -1; readout.textContent = ''; };
+    const hide = () => {
+        if (!body.contains(svg)) return;
+        cursor.setAttribute('visibility', 'hidden'); selected = -1;
+        delete figure.dataset.selectedTime;
+        readout.textContent = '';
+    };
     const nearest = t => times.reduce((best, value, index) => Math.abs(value - t) < Math.abs(times[best] - t) ? index : best, 0);
     svg.addEventListener('pointermove', event => {
         const box = svg.getBoundingClientRect();
@@ -700,7 +710,11 @@ function drawChart(figure, answer, title) {
         show(nearest(answer.start + (px - pad.left) / plotWidth * (answer.end - answer.start)));
     });
     svg.addEventListener('pointerleave', () => { if (document.activeElement !== svg) hide(); });
-    svg.addEventListener('focus', () => show(times.length - 1));
+    let restoreIndex = null;
+    svg.addEventListener('focus', () => {
+        show(restoreIndex ?? times.length - 1);
+        restoreIndex = null;
+    });
     svg.addEventListener('blur', hide);
     svg.addEventListener('keydown', event => {
         const next = {ArrowLeft: selected - 1, ArrowRight: selected + 1, Home: 0, End: times.length - 1}[event.key];
@@ -716,6 +730,10 @@ function drawChart(figure, answer, title) {
         legend.append(item);
     });
     body.replaceChildren(svg, legend);
+    if (keepFocus) {
+        restoreIndex = previousTime === null ? times.length - 1 : nearest(previousTime);
+        svg.focus({preventScroll: true});
+    } else if (previousTime !== null) show(nearest(previousTime));
 }
 function drawHistory(slot) {
     for (const [metric, title] of HISTORY_METRICS) {
@@ -723,6 +741,7 @@ function drawHistory(slot) {
         const answer = metricHistory.answers[metric];
         if (!answer) continue;
         if (answer.error) {
+            delete figure.dataset.selectedTime;
             figure.querySelector('.peak').textContent = '';
             figure.querySelector('.readout').textContent = '';
             figure.querySelector('.chart-body').replaceChildren(node('p', answer.error, 'chart-error'));

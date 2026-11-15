@@ -57,6 +57,8 @@ def install_bmc(context, role='admin', power='On', legacy=False, origin='http://
             relative = path.removeprefix('/assets/')
             relative = {'bmc.js': 'console.js', 'bmc.css': 'style.css'}.get(relative, relative)
             asset_root = root / ('projects/dashboard/assets' if legacy else 'projects/bmc/assets')
+            if relative == 'favicon.svg':
+                asset_root = root / 'projects/bmc/assets'
             asset = asset_root / relative
             if asset.is_file() and asset.resolve().is_relative_to(asset_root):
                 request_route.fulfill(path=asset, content_type=mimetypes.guess_type(asset.name)[0] or 'application/octet-stream')
@@ -150,7 +152,7 @@ def native_console_socket():
 
         def do_GET(self):
             if self.path == base + '/console' and not self.headers.get('Upgrade'):
-                html = (args.previews / 'console.html').read_text().replace(f'file://{root}/projects/dashboard/assets/style.css', '/assets/style.css').replace('src="about:blank"', 'src="/assets/console.js"').encode()
+                html = (args.previews / 'console.html').read_text().replace(f'file://{root}/projects/dashboard/assets/style.css', '/assets/style.css').replace(f'file://{root}/projects/dashboard/../bmc/assets/favicon.svg', '/assets/favicon.svg').replace('src="about:blank"', 'src="/assets/console.js"').encode()
                 self.send_response(200)
                 self.send_header('Content-Type', 'text/html; charset=utf-8')
                 self.send_header('Content-Length', str(len(html)))

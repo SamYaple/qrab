@@ -134,7 +134,7 @@ pub fn origin(raw: &str, allow_local_http: bool) -> anyhow::Result<String> {
     Ok(url.origin().ascii_serialization())
 }
 
-const PAGE_CSP: &str = "default-src 'none'; style-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'";
+const PAGE_CSP: &str = "default-src 'none'; style-src 'self'; img-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'";
 /// noVNC needs scripts, a same-origin WebSocket and canvas images.
 const CONSOLE_CSP: &str = "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' data: blob:; form-action 'self'; base-uri 'none'; frame-ancestors 'none'";
 
@@ -178,6 +178,15 @@ pub fn router(state: AppState) -> Router {
             axum::routing::any(bmc_page::forward).layer(DefaultBodyLimit::max(192 * 1024)),
         )
         .route("/assets/bmc.js", get(bmc_page::script))
+        .route(
+            "/assets/favicon.svg",
+            get(|| async {
+                (
+                    [(axum::http::header::CONTENT_TYPE, "image/svg+xml")],
+                    include_str!("../../bmc/assets/favicon.svg"),
+                )
+            }),
+        )
         .route(
             "/assets/bmc.css",
             get(|| async {
