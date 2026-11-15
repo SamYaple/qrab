@@ -320,6 +320,35 @@ pub fn fence_patch(cilium_node: &DynamicObject, pool: &str) -> Value {
     json!({"metadata":{"resourceVersion":cilium_node.resource_version()},"spec":{"ipam":{"pools":pools}}})
 }
 
+/// A merge patch adding `pool`, which holds `ip`, to a CiliumNode's requested
+/// and allocated pools, or `None` when the node lists it in both. A live
+/// migration's target anchor took the address through a handoff (forks/cilium
+/// P1), so no IPAM on its node holds it; this moves the pool there while the
+/// source node still lists it (the fork lets a one-address pool sit on two
+/// nodes during a handoff), and the target agent adopts its handoff address
+/// into the pool. Valid only against the resourceVersion it was computed from.
+pub fn adopt_patch(cilium_node: &DynamicObject, pool: &str, ip: Ipv4Addr) -> Option<Value> {
+    let entries = [
+        ("requested", json!({"pool":pool,"needed":{"ipv4-addrs":1}})),
+        (
+            "allocated",
+            json!({"pool":pool,"cidrs":[format!("{ip}/32")]}),
+        ),
+    ];
+    let mut pools = serde_json::Map::new();
+    for (key, entry) in entries {
+        let current = pool_entries(cilium_node, key);
+        if !current.iter().any(|e| e["pool"] == pool) {
+            let mut grown = current.to_vec();
+            grown.push(entry);
+            pools.insert(key.into(), Value::Array(grown));
+        }
+    }
+    (!pools.is_empty()).then(|| {
+        json!({"metadata":{"resourceVersion":cilium_node.resource_version()},"spec":{"ipam":{"pools":pools}}})
+    })
+}
+
 /// The live address pools and routes of NICs.
 pub struct Addresses {
     pools: Api<DynamicObject>,
@@ -470,6 +499,20 @@ impl Addresses {
                     &PatchParams::default(),
                     &Patch::Merge(fence_patch(cn, &pool.name_any())),
                 )
+                .await?;
+        }
+        Ok(())
+    }
+
+    /// Move `pool` to `node`'s CiliumNode (see [`adopt_patch`]).
+    pub async fn adopt(&self, pool: &DynamicObject, node: &str, ip: Ipv4Addr) -> Result<()> {
+        let cilium_nodes: Api<DynamicObject> =
+            Api::all_with(self.client.clone(), &cilium_node_resource());
+        let cn = cilium_nodes.get(node).await?;
+        if let Some(patch) = adopt_patch(&cn, &pool.name_any(), ip) {
+            tracing::info!(pool=%pool.name_any(), %node, "moving a handed-off NIC address's pool to its new node");
+            cilium_nodes
+                .patch(node, &PatchParams::default(), &Patch::Merge(patch))
                 .await?;
         }
         Ok(())

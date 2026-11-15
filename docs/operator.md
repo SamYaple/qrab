@@ -352,7 +352,8 @@ Without stable addresses the VM is `Blocked` with reason `InvalidSpec`.
 - **Live migration.** Before the target VM Pod, the operator creates each
   NIC's anchor for the target node with `ipam.cilium.io/handoff-from` naming
   the source anchor and `qrab.yapplesauce.com/migration`, waits for its
-  readiness gate, and gives the target `incoming.node_ip`. A failed migration
+  readiness gate, and gives the target `incoming.node_ip`. After the move it
+  adds the NIC's pool to the new node's CiliumNode. A failed migration
   deletes them ([networking.md](networking.md#live-migration)).
 - **Readiness and status.** qrab-netd builds the NIC's tap in the anchor's
   network namespace and sets the anchor's readiness gate
