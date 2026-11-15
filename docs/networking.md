@@ -2,7 +2,7 @@
 
 A VM has no network interface unless `spec.nics` names one. Each guest NIC is
 a kernel tap with vhost-net in its own restricted **anchor Pod**,
-`<vm>-nic-<name>`, on the VM Pod's node. The anchor's IP is the NIC's stable
+`<vm>-nic-<name>-<node>`, on the VM Pod's node. The anchor's IP is the NIC's stable
 address and the guest's address on that NIC, its Cilium identity is the NIC's
 identity, and its labels carry the NIC's security groups. Guest traffic never
 enters the VM Pod's network namespace.
@@ -60,10 +60,14 @@ nftables. Outbound connections from the guest leave from the NIC's address,
 and Cilium delivers traffic for that address to the anchor, which forwards it
 to the tap.
 
-There is no DHCP. The VM's NoCloud seed carries the configuration
-statically: each NIC is matched by MAC, gets the NIC's address as a /32, a
-default route `on-link` via `169.254.1.1`, and nameserver `169.254.1.1`. A VM
-with NICs gets a seed even without `spec.cloudInit`.
+The VM's NoCloud seed carries the configuration statically: each NIC is
+matched by MAC, gets the NIC's address as a /32, a default route `on-link` via
+`169.254.1.1`, and nameserver `169.254.1.1`. A VM with NICs gets a seed even
+without `spec.cloudInit`. For guests that ignore the seed's network config
+(CirrOS runs dhcpcd), qrab-netd answers DHCP on each tap with the same
+contract as a static lease: only the guest's MAC, the NIC's /32, the gateway
+as a classless static route (option 121) and as router, and DNS
+`169.254.1.1`.
 
 ## Security groups
 
@@ -200,14 +204,15 @@ only that /32 and accepting no routes, and CiliumNode edits only removing
 dry runs.
 
 A moved anchor's first CNI ADD on the new node waits for the pool (Cilium's
-`ipam.ciliumNodeUpdateRate` is 1s). The addresses do not overlap, so this does
-not by itself allow live migration: two Pods cannot hold one address at once.
+`ipam.ciliumNodeUpdateRate` is 1s). Upstream Cilium cannot let two Pods hold
+one address at once, which live migration needs.
 
 The forked Cilium (`forks/cilium`, running since 2026-11-15) lets a second Pod
 hold the address during a handoff: a Pod annotated
 `ipam.cilium.io/handoff-from: <namespace>/<pod>` gets that Pod's IP as a fenced
 standby endpoint, which drops its own traffic until the node-local agent API
-activates it. The operator does not use it yet. The ValidatingAdmissionPolicy
+activates it. Tap [live migration](#live-migration) uses it for the target
+node's anchor. The ValidatingAdmissionPolicy
 in `contrib/kubernetes/operator/nic-handoff.yaml` lets only the qrab operator
 set the annotation, only when it creates a `vm-nic` Pod in `qrab` that takes
 over a Pod in `qrab` from its own `qrab-nic-<address>` pool in the range. Nobody
@@ -241,9 +246,7 @@ survive the NIC moving to another node. Beyond the cluster:
 
 The path is guest virtqueue → vhost-net → tap in the NIC's anchor Pod's
 network namespace → Cilium, as for any Pod. Guest frames never enter the VM
-Pod. Live migration of a VM with NICs is not driven end to end yet: the
-target manager needs `incoming.node_ip` for the tap handoff, and the operator
-does not set it. The pieces:
+Pod. The pieces:
 
 - **The anchor** (operator, [operator.md](operator.md#guest-nics)) is a
   restricted Pod on the VM Pod's node that runs `qrab-manager anchor`. It
@@ -271,8 +274,12 @@ the Pod's network namespace. There it:
   operator's `nic::mac`);
 - enables forwarding, turns off reverse-path filtering, and redirects the
   guest's DNS (`169.254.1.1:53`) to the anchor's own resolver with nftables;
-- removes the /32 from `eth0` last, so Cilium still delivers the address to
-  the anchor and the anchor forwards it to the tap.
+- gives `eth0` the placeholder `169.254.1.2/32` (scope link), then removes the
+  /32 from `eth0` last, so Cilium still delivers the address to the anchor and
+  the anchor forwards it to the tap. Without an address left on `eth0` the
+  kernel flushes the anchor's default route; the agent checks the route
+  survived;
+- answers DHCP on the tap (see [Data path](#data-path)).
 
 It reports the result as the Pod condition `qrab.yapplesauce.com/nic-plumbed`,
 which anchors list as a readiness gate. The
@@ -280,7 +287,9 @@ which anchors list as a readiness gate. The
 this one condition on tap anchors of the agent's own node.
 
 A VM's manager connects to `/run/qrab-netd/netd.sock` and sends
-`{"nic":"lan","queues":N}` (`qrab_netd::wire::request`). The KVM device
+`{"nic":"lan","queues":N}` (`qrab_netd::wire::request`; the other operations,
+used by live migration, are `prepare`, `activate`, `standby`, `forward` and
+`unforward`). The KVM device
 plugin's CDI spec mounts that directory into VM Pods read-only. The agent
 resolves the peer (`SO_PEERCRED` pid → cgroup → Pod) and refuses anything
 but a qrab VM Pod asking for its own NIC on this node. It also
@@ -296,21 +305,100 @@ At start it opens `/dev/net/tun` and `/dev/vhost-net`, which also loads
 Checks:
 
 - `cargo test -p qrab-netd`: unit tests and doctests.
-- Its `tests/netns.rs` builds a plan in throwaway namespaces and passes a
-  working queue to another namespace; it needs root and skips without it.
-  It passed as root on kube03 (kernel 7.0).
+- Its `tests/netns.rs` builds a plan in throwaway namespaces, passes a
+  working queue to another namespace and checks the default route survives;
+  it also adds and sweeps forward routes and gets a lease from the DHCP
+  responder over a veth. It needs root and skips without it. It passed as
+  root on kube03 (kernel 7.0).
 - `contrib/kubernetes/netd/check-status-policy.sh` checks the status policy
   with dry runs.
+
+## Live migration
+
+A VM with NICs live-migrates ([migration.md](migration.md)) with each NIC's
+address, MAC and security groups unchanged. The NIC switches nodes inside
+QEMU's final stop-and-copy pause, so the guest sees no link change and no
+extra loss beyond that pause. Egress stays unmasqueraded throughout.
+
+1. **Standby anchor.** Before it creates the target VM Pod the operator
+   creates the NIC's anchor for the target node, `<vm>-nic-<nic>-<target>`,
+   annotated `ipam.cilium.io/handoff-from: qrab/<source anchor>` and
+   `qrab.yapplesauce.com/migration: <migration>` (both outside the template
+   hash, so the anchor is the VM's normal anchor after the move). The forked
+   Cilium gives it the same address as a fenced **standby** endpoint
+   (traffic dropped as `DROP_HANDOFF_STANDBY`). qrab-netd plumbs its tap as
+   usual. The operator waits for the readiness gate, then starts the target
+   with `incoming.node_ip` set to the target node's InternalIP.
+2. **Prepare.** The target manager asks qrab-netd for the target taps' queues
+   as for any start. The source manager sends `prepare` to its own qrab-netd
+   and enables QEMU's `pause-before-switchover` migration capability.
+3. **Switchover.** At `pre-switchover` (the guest is paused and the last dirty
+   pages are about to go) the source manager, polling every 20 ms:
+   - adds a **forward route** in the source host's namespace, the guest's /32
+     via the target node's IP (`proto 252`), so stragglers that still reach
+     the old node follow the guest;
+   - asks the target manager, over a second SPIFFE mTLS connection to the
+     same listener (hello channel `switchover`), to `activate`: the target's
+     qrab-netd flips its Cilium endpoint from standby to active
+     (`PATCH /v1/endpoint/{id}/handoff`);
+   - sends `standby` to its own qrab-netd, which fences the source endpoint;
+   - continues the migration (`migrate-continue`).
+
+   If any step fails it undoes the earlier ones and the migration fails with
+   the source still running. The manager logs `migration_switched` with the
+   switch's duration in ms; `migration_completed` carries QEMU's
+   `downtime_ms`.
+4. **Announce.** After `cont` the target manager runs `announce-self`: QEMU
+   sends RARP frames from the guest MAC and asks a virtio-net guest to
+   announce itself, so anything on the path that learned the MAC updates.
+5. **Route move and retirement.** After the target is adopted, the VM's
+   reconcile moves the NIC's `FRRConfiguration` to the target node. Anchors
+   not on the VM Pod's node are annotated `qrab.yapplesauce.com/retire-after`
+   (20 s later) and then deleted. qrab-netd deletes forward routes whose
+   anchor has been gone for 20 s, by which time BGP announces the /32 from the
+   new node. If the migration fails, the operator deletes the target anchors
+   it created.
+
+`contrib/check-nic-migration.sh` moves a CirrOS VM around three nodes while
+pinging it, probing its SSH and receiving its per-second egress reports. It
+requires the same boot id, TPM state and UEFI variables throughout, the
+anchor and the VM host's route on the new node, egress from the guest's own
+/32, no gap over 2 s, and that one TCP connection the guest opened before
+the first move (a counter line per second to the VM host) survives every move.
+
+Measured on 2026-11-15 (manager `0725c44f`, operator `a9eb8b99`, CirrOS,
+2 vCPU, 512 MiB, pinging every 0.2 s):
+
+| Move | NIC switch | QEMU downtime | Longest ping gap | Pings lost | Stream gap |
+|---|---|---|---|---|---|
+| kube03 → kube01 | 7 ms | 126 ms | 0.25 s | 0 | 1.12 s |
+| kube01 → kube02 | 12 ms | 283 ms | 0.43 s | 1 | 1.25 s |
+| kube02 → kube03 | 8 ms | 104 ms | 0.23 s | 0 | 1.05 s |
+
+The NIC switch adds about 10 ms to QEMU's pause, and loss stays within the
+pause. The guest kept its boot id, TPM state and UEFI variables, its egress
+arrived from its own /32 after every move, and its TCP stream was never reset
+(the stream and report gaps are the 1 s send interval plus the pause). One
+SSH probe connection timed out during the second move: its SYN fell in the
+283 ms pause, and the retransmit after Linux's 1 s initial timeout came too
+late for the probe's 1 s limit. The kube01 anchor showed as
+`ready (handoff-standby)` in `cilium-dbg endpoint list` until the switch, and
+kube03's forward route was swept once its retired anchor's 20 s grace passed.
 
 ## Limits
 
 - Guest NICs need `accelerator: kvm`, stable NIC addresses and qrab-netd on
   the VM Pod's node.
 - Each NIC has one IPv4 address, a /32 from `QRAB_NIC_ADDRESS_RANGE`.
-- There is no DHCP: guests configure their NICs from the NoCloud seed.
 - At most 4 NICs per VM.
-- A VM with NICs cannot be live-migrated by the operator yet (see
-  [Tap datapath](#tap-datapath)).
+- Live migration hands over each NIC's address and endpoint but not
+  Cilium's conntrack. On the new node the first packet of an established flow
+  is judged as new in its direction. A TCP connection recovers as soon as the
+  side the security groups admit sends (the measured guest stream did), but
+  packets only the other side sends are dropped until then, and a one-way
+  flow in an unadmitted direction stays blocked (`work/cilium-ct-handoff`).
+- Replacing an anchor under a running VM leaves QEMU on the old tap: restart
+  the VM (`work/anchor-replacement-orphans-qemu-nic`).
 
 ## Benchmark (2026-11-15)
 

@@ -72,7 +72,9 @@ each NIC's tap queues first and then its vhost-net descriptors. QEMU gets
 `-device virtio-net-pci,id=nic-<id>,netdev=nic-<id>,mac=<mac>,romfile=,mq=on,vectors=<2q+2>`.
 The multiqueue options are omitted with one queue. The manager never opens
 `/dev/net/tun` or `/dev/vhost-net`. If qrab-netd refuses (the NIC is not
-plumbed yet, or the tap is still held), the launch fails with its reason. QEMU
+plumbed yet, or the tap is still held) the manager retries every 2 s for up to
+60 s, publishing "waiting for qrab-netd" so probes stay green, and then fails
+the launch with the refusal. QEMU
 never gets a user-mode (slirp) netdev or guest forwarding.
 
 `tpm` defaults to `/usr/bin/swtpm`, with private Unix control and TPM2 TIS in
@@ -160,8 +162,8 @@ alone is not trusted SPIRE node authentication.
 
 An optional `seed` gives the guest a cloud-init
 [NoCloud](https://docs.cloud-init.io/en/latest/reference/datasources/nocloud.html)
-volume, so it configures itself (hostname, user-data, later static network)
-without DHCP or a metadata service:
+volume, so it configures itself (hostname, user-data, static network)
+without a metadata service:
 
 ```json
 "seed": {"meta_data": "{\"instance-id\":\"<uid>\",\"local-hostname\":\"web-1\"}\n",
