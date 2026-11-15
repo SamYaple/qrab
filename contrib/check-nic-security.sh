@@ -195,7 +195,7 @@ for name in wide-bmc wide-redfish wide-migration wide-kubelet wide-peer-ssh; do
 done
 
 # qrab-netd refuses another VM's NIC to this VM Pod.
-netd=$(kubectl -n qrab-node get pods -o wide | awk -v n="$node" '/qrab-netd/ && $7 == n {print $1}')
+netd=$(kubectl -n qrab-node get pods -l app.kubernetes.io/name=qrab-netd --field-selector "spec.nodeName=$node" -o name | head -1)
 netd_bin=$(kubectl -n qrab-node exec "$netd" -- sh -c 'command -v qrab-netd')
 kubectl -n qrab-node exec "$netd" -- cat "$netd_bin" > "$work/qrab-netd"
 kubectl -n "$ns" exec -i "$pod" -c manager -- sh -c 'cat > /tmp/qrab-netd && chmod +x /tmp/qrab-netd' < "$work/qrab-netd"

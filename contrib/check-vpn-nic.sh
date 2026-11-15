@@ -165,7 +165,7 @@ if kubectl -n "$ns" exec "$vm_pod" -c manager -- sh -c "grep -rqsF '$key_prefix'
   fail "the private key is visible in the VM Pod"
 fi
 node=$(field virtualmachine "$vm" '{.status.nodeName}')
-netd=$(kubectl -n qrab-node get pods -o wide | awk -v n="$node" '/qrab-netd/ && $7 == n {print $1}')
+netd=$(kubectl -n qrab-node get pods -l app.kubernetes.io/name=qrab-netd --field-selector "spec.nodeName=$node" -o name | head -1)
 kubectl -n qrab-node logs "$netd" | grep -qF "$key_prefix" && fail "qrab-netd logged the private key"
 summary+=("key: absent from the VM Pod and qrab-netd's logs")
 

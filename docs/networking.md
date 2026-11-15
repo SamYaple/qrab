@@ -516,6 +516,13 @@ Nearly all of the add and remove time is the kubelet refreshing the ConfigMap;
 the QMP steps take milliseconds. Re-attach is the anchor's recreation and
 plumbing plus up to one 5 s probe interval.
 
+`CYCLES=5` repeats the add and remove on one VM. On manager `5b93cb27` and
+operator `cba15278` (2026-11-15), the five cycles took 70–88 s to attach and
+60–74 s to detach. The NIC got the same address and `eth1` each time, the
+manager attached it exactly five times with no refused try, the VM Pod and
+boot id never changed, and the anchor replacement (34 s) and migration steps
+passed afterwards.
+
 ## VPN NICs
 
 `spec.nics[].vpn.secretName` turns a NIC into a WireGuard VPN NIC: all of its
