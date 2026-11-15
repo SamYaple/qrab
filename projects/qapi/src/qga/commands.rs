@@ -48,7 +48,7 @@ pub struct GuestExecStatusCommand {
 #[qapi(command)]
 #[qapi(name = "guest-file-close")]
 #[qapi(returns = "()")]
-#[qapi(added = "1.4.0")]
+#[qapi(added = "0.15.0")]
 pub struct GuestFileClose {
     /// filehandle returned by `guest-file-open`
     pub handle: i64,
@@ -58,7 +58,7 @@ pub struct GuestFileClose {
 #[qapi(command)]
 #[qapi(name = "guest-file-flush")]
 #[qapi(returns = "()")]
-#[qapi(added = "1.4.0")]
+#[qapi(added = "0.15.0")]
 pub struct GuestFileFlush {
     /// filehandle returned by `guest-file-open`
     pub handle: i64,
@@ -70,7 +70,7 @@ pub struct GuestFileFlush {
 #[qapi(command)]
 #[qapi(name = "guest-file-open")]
 #[qapi(returns = "i64")]
-#[qapi(added = "1.4.0")]
+#[qapi(added = "0.15.0")]
 pub struct GuestFileOpen {
     /// open mode, as per fopen(), "r" is the default.
     pub mode: Option<String>,
@@ -84,7 +84,7 @@ pub struct GuestFileOpen {
 #[qapi(command)]
 #[qapi(returns = "GuestFileRead")]
 #[qapi(name = "guest-file-read")]
-#[qapi(added = "1.4.0")]
+#[qapi(added = "0.15.0")]
 pub struct GuestFileReadCommand {
     /// maximum number of bytes to read (default is 4KB, maximum is
     /// 48MB)
@@ -99,7 +99,7 @@ pub struct GuestFileReadCommand {
 #[qapi(command)]
 #[qapi(returns = "GuestFileSeek")]
 #[qapi(name = "guest-file-seek")]
-#[qapi(added = "1.4.0")]
+#[qapi(added = "0.15.0")]
 pub struct GuestFileSeekCommand {
     /// filehandle returned by `guest-file-open`
     pub handle: i64,
@@ -120,7 +120,7 @@ pub struct GuestFileSeekCommand {
 #[qapi(command)]
 #[qapi(returns = "GuestFileWrite")]
 #[qapi(name = "guest-file-write")]
-#[qapi(added = "1.4.0")]
+#[qapi(added = "0.15.0")]
 pub struct GuestFileWriteCommand {
     /// base64-encoded string representing data to be written
     #[qapi(name = "buf-b64")]
@@ -149,7 +149,7 @@ pub struct GuestFileWriteCommand {
 #[qapi(name = "guest-fsfreeze-freeze")]
 #[qapi(returns = "i64")]
 #[qapi(condition = "(CONFIG_WIN32 || CONFIG_FSFREEZE)")]
-#[qapi(added = "1.4.0")]
+#[qapi(added = "0.15.0")]
 pub struct GuestFsfreezeFreeze {}
 
 /// Sync and freeze specified guest filesystems.  See also
@@ -179,7 +179,7 @@ pub struct GuestFsfreezeFreezeList {
 #[qapi(returns = "GuestFsfreezeStatus")]
 #[qapi(name = "guest-fsfreeze-status")]
 #[qapi(condition = "(CONFIG_WIN32 || CONFIG_FSFREEZE)")]
-#[qapi(added = "1.4.0")]
+#[qapi(added = "0.15.0")]
 pub struct GuestFsfreezeStatusCommand {}
 
 /// Unfreeze all frozen guest filesystems
@@ -194,7 +194,7 @@ pub struct GuestFsfreezeStatusCommand {}
 #[qapi(name = "guest-fsfreeze-thaw")]
 #[qapi(returns = "i64")]
 #[qapi(condition = "(CONFIG_WIN32 || CONFIG_FSFREEZE)")]
-#[qapi(added = "1.4.0")]
+#[qapi(added = "0.15.0")]
 pub struct GuestFsfreezeThaw {}
 
 /// Discard (or "trim") blocks which are not in use by the filesystem.
@@ -204,8 +204,8 @@ pub struct GuestFsfreezeThaw {}
 #[qapi(name = "guest-fstrim")]
 #[qapi(returns = "GuestFilesystemTrimResponse")]
 #[qapi(condition = "(CONFIG_WIN32 || CONFIG_FSTRIM)")]
-#[qapi(added = "1.4.0")]
-#[qapi(returns(added = "1.4.0", value = "()"))]
+#[qapi(added = "1.2.0")]
+#[qapi(returns(added = "1.2.0", value = "()"))]
 #[qapi(returns(added = "2.4.0", value = "GuestFilesystemTrimResponse"))]
 pub struct GuestFstrim {
     /// Minimum contiguous free range to discard, in bytes.  Free
@@ -377,7 +377,7 @@ pub struct GuestGetVcpus {}
 #[qapi(command)]
 #[qapi(name = "guest-info")]
 #[qapi(returns = "GuestAgentInfo")]
-#[qapi(added = "1.4.0")]
+#[qapi(added = "0.15.0")]
 pub struct GuestInfo {}
 
 /// Get list of guest IP addresses, MAC addresses and netmasks.
@@ -385,7 +385,7 @@ pub struct GuestInfo {}
 #[qapi(name = "guest-network-get-interfaces")]
 #[qapi(returns = "Vec<GuestNetworkInterface>")]
 #[qapi(condition = "(CONFIG_WIN32 || HAVE_GETIFADDRS)")]
-#[qapi(added = "1.4.0")]
+#[qapi(added = "1.1.0")]
 pub struct GuestNetworkGetInterfaces {}
 
 /// Retrieve information about route of network.
@@ -402,7 +402,7 @@ pub struct GuestNetworkGetRoute {}
 #[qapi(command)]
 #[qapi(name = "guest-ping")]
 #[qapi(returns = "()")]
-#[qapi(added = "1.4.0")]
+#[qapi(added = "0.15.0")]
 pub struct GuestPing {}
 
 /// Attempt to reconfigure (currently: enable/disable) state of memory
@@ -545,7 +545,7 @@ pub struct GuestSetVcpus {
 #[qapi(command)]
 #[qapi(name = "guest-shutdown")]
 #[qapi(returns = "()")]
-#[qapi(added = "1.4.0")]
+#[qapi(added = "0.15.0")]
 #[qapi(no_success_response(added = "2.4.0"))]
 pub struct GuestShutdown {
     /// "halt", "powerdown" (default), or "reboot"
@@ -624,7 +624,7 @@ pub struct GuestSshRemoveAuthorizedKeys {
 #[qapi(name = "guest-suspend-disk")]
 #[qapi(returns = "()")]
 #[qapi(condition = "(CONFIG_LINUX || CONFIG_WIN32)")]
-#[qapi(added = "1.4.0")]
+#[qapi(added = "1.1.0")]
 #[qapi(no_success_response(added = "2.4.0"))]
 pub struct GuestSuspendDisk {}
 
@@ -661,7 +661,7 @@ pub struct GuestSuspendDisk {}
 #[qapi(name = "guest-suspend-hybrid")]
 #[qapi(returns = "()")]
 #[qapi(condition = "CONFIG_LINUX")]
-#[qapi(added = "1.4.0")]
+#[qapi(added = "1.1.0")]
 #[qapi(no_success_response(added = "2.4.0"))]
 pub struct GuestSuspendHybrid {}
 
@@ -699,7 +699,7 @@ pub struct GuestSuspendHybrid {}
 #[qapi(name = "guest-suspend-ram")]
 #[qapi(returns = "()")]
 #[qapi(condition = "(CONFIG_LINUX || CONFIG_WIN32)")]
-#[qapi(added = "1.4.0")]
+#[qapi(added = "1.1.0")]
 #[qapi(no_success_response(added = "2.4.0"))]
 pub struct GuestSuspendRam {}
 
@@ -731,7 +731,7 @@ pub struct GuestSuspendRam {}
 #[qapi(command)]
 #[qapi(name = "guest-sync")]
 #[qapi(returns = "i64")]
-#[qapi(added = "1.4.0")]
+#[qapi(added = "0.15.0")]
 pub struct GuestSync {
     /// randomly generated 64-bit integer
     pub id: i64,
@@ -763,7 +763,7 @@ pub struct GuestSync {
 #[qapi(command)]
 #[qapi(name = "guest-sync-delimited")]
 #[qapi(returns = "i64")]
-#[qapi(added = "1.4.0")]
+#[qapi(added = "1.1.0")]
 pub struct GuestSyncDelimited {
     /// randomly generated 64-bit integer
     pub id: i64,

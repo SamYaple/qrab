@@ -4459,22 +4459,12 @@ pub enum BlockdevQcowEncryptionFormat {
 }
 
 /// Reference to a block device.
-#[qapi(added = "2.4.0")]
+#[qapi(added = "1.7.0")]
 pub enum BlockdevRef {
     /// defines a new block device inline
     #[qapi(name = "definition")]
     Definition(BlockdevOptions),
     /// references the ID of an existing block device
-    #[qapi(name = "reference")]
-    Reference(String),
-}
-
-#[qapi(union_branch)]
-#[qapi(added = "1.7.0")]
-#[qapi(removed = "2.4.0")]
-pub enum BlockdevRefBranch {
-    #[qapi(name = "definition")]
-    Definition(BlockdevOptions),
     #[qapi(name = "reference")]
     Reference(String),
 }
@@ -4493,15 +4483,6 @@ pub enum BlockdevRefOrNull {
     /// Deprecated; use null instead.
     #[qapi(name = "reference")]
     Reference(String),
-}
-
-#[qapi(added = "1.7.0")]
-#[qapi(removed = "2.4.0")]
-pub enum BlockdevRefType {
-    #[qapi(name = "definition")]
-    Definition,
-    #[qapi(name = "reference")]
-    Reference,
 }
 
 /// Takes a snapshot of a block device.
@@ -16392,7 +16373,7 @@ pub enum Qcow2OverlapCheckMode {
 
 /// Specifies which metadata structures should be guarded against
 /// unintended overwriting.
-#[qapi(added = "2.4.0")]
+#[qapi(added = "2.2.0")]
 pub enum Qcow2OverlapChecks {
     /// set of flags for separate specification of each metadata
     /// structure type
@@ -16401,25 +16382,6 @@ pub enum Qcow2OverlapChecks {
     /// named mode which chooses a specific set of flags
     #[qapi(name = "mode")]
     Mode(Qcow2OverlapCheckMode),
-}
-
-#[qapi(union_branch)]
-#[qapi(added = "2.2.0")]
-#[qapi(removed = "2.4.0")]
-pub enum Qcow2OverlapChecksBranch {
-    #[qapi(name = "flags")]
-    Flags(Qcow2OverlapCheckFlags),
-    #[qapi(name = "mode")]
-    Mode(Qcow2OverlapCheckMode),
-}
-
-#[qapi(added = "2.2.0")]
-#[qapi(removed = "2.4.0")]
-pub enum Qcow2OverlapChecksType {
-    #[qapi(name = "flags")]
-    Flags,
-    #[qapi(name = "mode")]
-    Mode,
 }
 
 /// The supported algorithms for asymmetric encryption ciphers

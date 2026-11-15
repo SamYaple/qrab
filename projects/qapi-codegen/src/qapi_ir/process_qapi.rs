@@ -192,7 +192,6 @@ pub fn process_alternate(q: QapiAlternate) -> Enum {
     }
 
     let mut meta = Metadata::default();
-    //meta.attributes.push(Attribute::new("Alternate"));
     if let Some(attr) = name_attr(q.name) {
         meta.attributes.push(attr);
     }
@@ -200,6 +199,7 @@ pub fn process_alternate(q: QapiAlternate) -> Enum {
         meta.attributes
             .push(Attribute::with_value("condition", condition));
     }
+    add_feat! {meta, q.features};
     add_docs! {meta, q.doc, q.name, &mut variants};
 
     Enum {
@@ -355,6 +355,7 @@ pub fn process_struct(
     )
 }
 
+/// Lower a tagged union; legacy untagged unions are dispatched as alternates.
 pub fn process_union(
     q: QapiUnion,
     structs_lookup: &HashMap<String, Struct>,

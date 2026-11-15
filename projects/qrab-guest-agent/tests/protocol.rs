@@ -181,6 +181,8 @@ async fn sync_info_ping_and_identity() {
     let info = qga.execute(&GuestInfo {}).await.unwrap();
     let mut names: Vec<_> = info
         .supported_commands
+        .as_ref()
+        .expect("modern guest-info must include commands")
         .iter()
         .map(|c| c.name.as_str())
         .collect();
@@ -212,7 +214,7 @@ async fn sync_info_ping_and_identity() {
             "qrab-update-trigger",
         ]
     );
-    for command in &info.supported_commands {
+    for command in info.supported_commands.as_ref().unwrap() {
         // No hook is installed in this directory.
         assert_eq!(
             command.enabled,
@@ -343,6 +345,8 @@ async fn freeze_status_thaw_and_frozen_command_gating() {
     let info = qga.execute(&GuestInfo {}).await.unwrap();
     let enabled: Vec<_> = info
         .supported_commands
+        .as_ref()
+        .expect("modern guest-info must include commands")
         .iter()
         .filter(|c| c.enabled)
         .map(|c| c.name.as_str())
@@ -508,6 +512,8 @@ async fn update_trigger_runs_only_the_fixed_hook_with_validated_arguments() {
     let info = qga.execute(&GuestInfo {}).await.unwrap();
     assert!(info
         .supported_commands
+        .as_ref()
+        .expect("modern guest-info must include commands")
         .iter()
         .any(|c| c.name == "qrab-update-trigger" && c.enabled));
     assert_eq!(

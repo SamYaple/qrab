@@ -107,38 +107,46 @@ pub fn parse_version_tag(tag: &str) -> Option<(u32, u32, u32)> {
 }
 
 /// Extract schema files from a git tag into a temporary directory.
-/// Uses `git archive` for a single subprocess per version.
+/// Discover existing schema roots, then archive them in one operation.
 pub fn extract_schema_from_tag(qemu_repo: &Path, tag: &str) -> Result<tempfile::TempDir> {
     let tmpdir = tempfile::tempdir().context("Failed to create temp directory")?;
-
-    // Use git archive to extract all schema files in one shot.
-    // Try: qapi-schema.json + qapi/ + qga/ (covers all versions and QGA).
-    // git archive fails if ANY path doesn't exist, so try progressively.
-    let paths_to_try: &[&[&str]] = &[
-        &["qapi-schema.json", "qapi/", "qga/"], // root schema + qapi dir + qga
-        &["qapi-schema.json", "qapi/"],         // root schema + qapi dir (no qga)
-        &["qapi/", "qga/"],                     // qapi dir + qga (v2.12.0+)
-        &["qapi-schema.json", "qga/"],          // root schema + qga
-        &["qapi-schema.json"],                  // root schema only (v1.0-v1.4.0)
-        &["qapi/"],                             // qapi dir only
-    ];
-
-    let mut tar_data = None;
-    for paths in paths_to_try {
-        let mut args = vec!["archive".to_string(), tag.to_string(), "--".to_string()];
-        args.extend(paths.iter().map(|p| p.to_string()));
-        let output = Command::new("git")
-            .args(&args)
-            .current_dir(qemu_repo)
-            .output()
-            .context("Failed to run git archive")?;
-        if output.status.success() {
-            tar_data = Some(output.stdout);
-            break;
-        }
+    let tree = Command::new("git")
+        .args([
+            "ls-tree",
+            "--name-only",
+            "-z",
+            tag,
+            "--",
+            "qapi-schema.json",
+            "qapi-schema-guest.json",
+            "qapi",
+            "qga",
+        ])
+        .current_dir(qemu_repo)
+        .output()
+        .context("Failed to inspect schema roots")?;
+    anyhow::ensure!(
+        tree.status.success(),
+        "Failed to inspect QAPI schema roots for {tag}: {}",
+        String::from_utf8_lossy(&tree.stderr)
+    );
+    let roots = String::from_utf8(tree.stdout).context("Invalid UTF-8 in schema paths")?;
+    let paths: Vec<_> = roots.split('\0').filter(|path| !path.is_empty()).collect();
+    if paths.is_empty() {
+        return Ok(tmpdir);
     }
-    let tar_data = tar_data
-        .with_context(|| format!("git archive failed for all path combos on tag {}", tag))?;
+    let output = Command::new("git")
+        .args(["archive", tag, "--"])
+        .args(paths)
+        .current_dir(qemu_repo)
+        .output()
+        .context("Failed to run git archive")?;
+    anyhow::ensure!(
+        output.status.success(),
+        "Failed to archive QAPI schemas for {tag}: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let tar_data = output.stdout;
 
     // Extract tar to tmpdir, filtering to .json files only
     let mut archive = tar::Archive::new(&tar_data[..]);
@@ -190,12 +198,21 @@ pub fn find_extracted_qga_schema_entry(dir: &Path) -> Option<PathBuf> {
     if qga.exists() {
         return Some(qga);
     }
-    None
+    let legacy = dir.join("qapi-schema-guest.json");
+    legacy.exists().then_some(legacy)
 }
 
-/// Discover all QEMU version tags in a git repository.
-/// Returns all release tags (including patch releases), sorted by version.
+/// Discover release tags from the QMP schema era (1.0 onward).
 pub fn discover_version_tags(qemu_repo: &Path) -> Result<Vec<String>> {
+    discover_schema_era_tags(qemu_repo, (1, 0, 0))
+}
+
+/// Discover release tags from the guest-agent schema era (0.15 onward).
+pub fn discover_qga_version_tags(qemu_repo: &Path) -> Result<Vec<String>> {
+    discover_schema_era_tags(qemu_repo, (0, 15, 0))
+}
+
+fn discover_schema_era_tags(qemu_repo: &Path, earliest: (u32, u32, u32)) -> Result<Vec<String>> {
     let output = Command::new("git")
         .args(["tag", "--list", "v*"])
         .current_dir(qemu_repo)
@@ -215,7 +232,7 @@ pub fn discover_version_tags(qemu_repo: &Path) -> Result<Vec<String>> {
             let t = t.trim();
             !t.is_empty()
                 && !t.contains("rc")
-                && parse_version_tag(t).is_some_and(|v| v >= (1, 0, 0))
+                && parse_version_tag(t).is_some_and(|v| v >= earliest)
         })
         .map(|s| s.trim().to_string())
         .collect();
@@ -231,7 +248,7 @@ mod tests {
     #[test]
     fn pinned_releases_are_ordered_and_end_at_current_baseline() {
         let pins = parse_pinned_versions(PINNED_VERSIONS).unwrap();
-        assert_eq!(pins.first().unwrap().tag, "v1.0");
+        assert_eq!(pins.first().unwrap().tag, "v0.15.0");
         assert_eq!(pins.last().unwrap().tag, "v11.1.3");
     }
 

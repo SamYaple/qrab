@@ -297,7 +297,7 @@ fn command_returns_follow_the_newest_release() {
     let qga_expected: &[ReturnChange] = &[(
         "GuestFstrim",
         vec![
-            ((1, 4, 0), "()"),
+            ((1, 2, 0), "()"),
             ((2, 4, 0), "GuestFilesystemTrimResponse"),
         ],
     )];
@@ -418,4 +418,100 @@ fn simple_union_layout_lifetimes_follow_each_types_actual_transition() {
         };
         assert_eq!(value.attr_versions["simple_union"].until, Some(until));
     }
+}
+
+#[test]
+fn legacy_untagged_unions_keep_alternate_identity_and_original_lifetime() {
+    let registry =
+        build_unified_registry(&qemu(), &["v1.7.0", "v2.0.0", "v2.1.0", "v11.1.3"]).unwrap();
+    let UnifiedType::Enum(value) = &registry.types["BlockdevRef"] else {
+        panic!("legacy alternate became a tagged struct")
+    };
+    assert_eq!(value.versions.since, (1, 7, 0));
+    assert!(
+        value
+            .ir
+            .variants
+            .iter()
+            .any(|variant| variant.name == "reference")
+    );
+    assert!(!registry.types.contains_key("BlockdevRefBranch"));
+    assert!(!registry.types.contains_key("BlockdevRefType"));
+}
+
+#[test]
+fn historical_guest_agent_schema_paths_are_not_silently_skipped() {
+    let registry = build_qga_registry(&qemu(), &["v0.15.0", "v1.0", "v1.4.0", "v11.1.3"]).unwrap();
+    assert_eq!(registry.versions.first(), Some(&(0, 15, 0)));
+    let UnifiedType::Struct(command) = &registry.types["GuestPing"] else {
+        panic!("missing early guest-ping")
+    };
+    assert_eq!(command.versions.since, (0, 15, 0));
+    let UnifiedType::Struct(info) = &registry.types["GuestAgentInfo"] else {
+        panic!("missing early guest-info result")
+    };
+    assert_eq!(info.versions.since, (0, 15, 0));
+}
+
+fn schema_fixture_repo(path: &str, content: &str) -> tempfile::TempDir {
+    let repo = tempfile::tempdir().unwrap();
+    let file = repo.path().join(path);
+    std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+    std::fs::write(file, content).unwrap();
+    git(repo.path(), &["init", "-q"]);
+    git(repo.path(), &["add", "."]);
+    git(
+        repo.path(),
+        &[
+            "-c",
+            "user.name=Test",
+            "-c",
+            "user.email=test@example.invalid",
+            "commit",
+            "-qm",
+            "fixture",
+        ],
+    );
+    git(repo.path(), &["tag", "v11.1.3"]);
+    repo
+}
+
+#[test]
+fn qga_only_schema_repositories_extract_without_a_qmp_tree() {
+    let repo = schema_fixture_repo(
+        "qga/qapi-schema.json",
+        "{ 'command':'guest-test', 'returns':'bool' }",
+    );
+    let registry = build_qga_registry(repo.path(), &["v11.1.3"]).unwrap();
+    assert!(registry.types.contains_key("GuestTest"));
+    let error = build_unified_registry(repo.path(), &["v11.1.3"]).unwrap_err();
+    assert!(format!("{error:#}").contains("No QMP schema entry point"));
+    git(repo.path(), &["tag", "v0.15.0"]);
+    assert!(
+        build_unified_registry(repo.path(), &["v0.15.0"])
+            .unwrap()
+            .types
+            .is_empty()
+    );
+}
+
+#[test]
+fn missing_modern_guest_agent_schemas_are_errors_not_skipped_releases() {
+    let repo = schema_fixture_repo("qapi/qapi-schema.json", "");
+    let error = build_qga_registry(repo.path(), &["v11.1.3"]).unwrap_err();
+    assert!(format!("{error:#}").contains("No QGA schema entry point"));
+    git(repo.path(), &["tag", "v0.14.0"]);
+    assert!(
+        build_qga_registry(repo.path(), &["v0.14.0"])
+            .unwrap()
+            .types
+            .is_empty()
+    );
+}
+
+#[test]
+fn guest_agent_discovery_reaches_its_first_schema_release() {
+    let tags = qapi_codegen::versions::discover_qga_version_tags(&qemu()).unwrap();
+    assert_eq!(tags.first().map(String::as_str), Some("v0.15.0"));
+    assert!(tags.iter().any(|tag| tag == "v0.15.1"));
 }

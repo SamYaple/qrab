@@ -292,6 +292,16 @@ fn process_version_schema(
                         structs_lookup.insert(rustify_name(&e.name), e);
                     }
                 }
+                QapiSchemaToken::Union(value) if value.legacy_alternate => {
+                    let processed = process_alternate(crate::QapiAlternate {
+                        name: value.name,
+                        data: crate::QapiAlternatives(value.data.0),
+                        r#if: value.r#if,
+                        features: value.features,
+                        doc: value.doc,
+                    });
+                    enums_lookup.insert(rustify_name(&processed.name), processed);
+                }
                 QapiSchemaToken::Union(v) => {
                     unprocessed_unions.push(v);
                 }
@@ -528,15 +538,18 @@ fn parse_versions<T: Send>(
 
 /// Extract, parse, and process IR for a single version.
 /// This is the work done per-thread in parallel.
-fn process_single_version(qemu_repo: &Path, tag: &str) -> Result<VersionResult> {
+fn process_single_version(qemu_repo: &Path, tag: &str) -> Result<Option<VersionResult>> {
     let version =
         parse_version_tag(tag).with_context(|| format!("Invalid version tag: {}", tag))?;
 
     let tmpdir = extract_schema_from_tag(qemu_repo, tag)
         .with_context(|| format!("Failed to extract schema for {}", tag))?;
 
-    let schema_entry = find_extracted_schema_entry(tmpdir.path())
-        .with_context(|| format!("No schema entry point found for {}", tag))?;
+    let schema_entry = match find_extracted_schema_entry(tmpdir.path()) {
+        Some(entry) => entry,
+        None if version < (1, 0, 0) => return Ok(None),
+        None => anyhow::bail!("No QMP schema entry point found for {tag}"),
+    };
 
     // Parser version is thread-local, safe to set per-thread
     crate::set_parser_version(version);
@@ -558,13 +571,13 @@ fn process_single_version(qemu_repo: &Path, tag: &str) -> Result<VersionResult> 
     let (enums, structs) = process_version_schema(&sources)
         .with_context(|| format!("Failed to process IR for {}", tag))?;
 
-    Ok(VersionResult {
+    Ok(Some(VersionResult {
         _tag: tag.to_string(),
         version,
         schema_hash,
         enums,
         structs,
-    })
+    }))
 }
 
 /// Extract, parse, and process IR for a single version's QGA schema.
@@ -577,7 +590,8 @@ fn process_single_version_qga(qemu_repo: &Path, tag: &str) -> Result<Option<Vers
 
     let schema_entry = match find_extracted_qga_schema_entry(tmpdir.path()) {
         Some(entry) => entry,
-        None => return Ok(None), // No QGA schema in this version
+        None if version < (0, 15, 0) => return Ok(None),
+        None => anyhow::bail!("No QGA schema entry point found for {tag}"),
     };
 
     crate::set_parser_version(version);
@@ -619,8 +633,11 @@ pub fn build_unified_registry(qemu_repo: &Path, version_tags: &[&str]) -> Result
         "Extracting and parsing {} versions in parallel...",
         version_tags.len()
     );
-    let mut version_results =
-        parse_versions(version_tags, |tag| process_single_version(qemu_repo, tag))?;
+    let mut version_results: Vec<_> =
+        parse_versions(version_tags, |tag| process_single_version(qemu_repo, tag))?
+            .into_iter()
+            .flatten()
+            .collect();
 
     eprintln!(
         "  Extraction + parsing: {:.1}s",
@@ -1926,6 +1943,23 @@ mod schema_resolution_tests {
     fn process(input: &str) -> Result<(HashMap<String, Enum>, HashMap<String, Struct>)> {
         crate::set_parser_version((11, 1, 3));
         process_version_schema(&[("fixture.json".into(), input.into())])
+    }
+
+    #[test]
+    fn legacy_alternate_lowers_to_a_bare_value_enum_and_keeps_features() {
+        crate::set_parser_version((1, 7, 0));
+        let input = "{ 'union': 'Ref', 'discriminator': {}, 'data': {'reference':'str'}, 'features':['deprecated'] }";
+        let (enums, structs) =
+            process_version_schema(&[("fixture.json".into(), input.into())]).unwrap();
+        assert!(!structs.contains_key("Ref"));
+        let value = &enums["Ref"];
+        assert!(has_feature(&value.meta, "deprecated"));
+        assert!(
+            !value
+                .meta
+                .attributes
+                .contains(&Attribute::new("union_branch"))
+        );
     }
 
     #[test]

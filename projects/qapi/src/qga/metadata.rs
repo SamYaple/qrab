@@ -160,8 +160,8 @@ pub static TYPE_REFS: &[TypeRef] = &[
 ];
 
 static FIELDS_GuestAgentCommandInfo: &[FieldMeta] = &[
-    FieldMeta { name: "name", wire_name: "name", ty: 0, optional: false, is_discriminator: false, recursive: false, since: (1u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "name of the command" },
-    FieldMeta { name: "enabled", wire_name: "enabled", ty: 1, optional: false, is_discriminator: false, recursive: false, since: (1u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "whether command is currently enabled by guest admin" },
+    FieldMeta { name: "name", wire_name: "name", ty: 0, optional: false, is_discriminator: false, recursive: false, since: (1u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "name of the command" },
+    FieldMeta { name: "enabled", wire_name: "enabled", ty: 1, optional: false, is_discriminator: false, recursive: false, since: (1u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "whether command is currently enabled by guest admin" },
     FieldMeta { name: "success_response", wire_name: "success-response", ty: 1, optional: false, is_discriminator: false, recursive: false, since: (1u32, 7u32, 0u32), until: None, deprecated: false, unstable: false, doc: "whether command returns a response on success\n(since 1.7)" },
 ];
 static STRUCT_GuestAgentCommandInfo: StructMeta = StructMeta {
@@ -172,12 +172,12 @@ static STRUCT_GuestAgentCommandInfo: StructMeta = StructMeta {
     discriminator_field: None,
     branch_enum: None,
     free_form: false,
-    since: (1u32, 4u32, 0u32),
+    since: (1u32, 1u32, 0u32),
     until: None,
 };
 static FIELDS_GuestAgentInfo: &[FieldMeta] = &[
-    FieldMeta { name: "version", wire_name: "version", ty: 0, optional: false, is_discriminator: false, recursive: false, since: (1u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "guest agent version" },
-    FieldMeta { name: "supported_commands", wire_name: "supported_commands", ty: 3, optional: false, is_discriminator: false, recursive: false, since: (1u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Information about guest agent commands" },
+    FieldMeta { name: "version", wire_name: "version", ty: 0, optional: false, is_discriminator: false, recursive: false, since: (0u32, 15u32, 0u32), until: None, deprecated: false, unstable: false, doc: "guest agent version" },
+    FieldMeta { name: "supported_commands", wire_name: "supported_commands", ty: 3, optional: false, is_discriminator: false, recursive: false, since: (1u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Information about guest agent commands" },
 ];
 static STRUCT_GuestAgentInfo: StructMeta = StructMeta {
     name: "GuestAgentInfo",
@@ -187,7 +187,7 @@ static STRUCT_GuestAgentInfo: StructMeta = StructMeta {
     discriminator_field: None,
     branch_enum: None,
     free_form: false,
-    since: (1u32, 4u32, 0u32),
+    since: (0u32, 15u32, 0u32),
     until: None,
 };
 static FIELDS_GuestAuthorizedKeys: &[FieldMeta] = &[
@@ -581,7 +581,7 @@ static STRUCT_GuestExecStatusCommand: StructMeta = StructMeta {
     until: None,
 };
 static FIELDS_GuestFileClose: &[FieldMeta] = &[
-    FieldMeta { name: "handle", wire_name: "handle", ty: 5, optional: false, is_discriminator: false, recursive: false, since: (1u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "filehandle returned by `guest-file-open`" },
+    FieldMeta { name: "handle", wire_name: "handle", ty: 5, optional: false, is_discriminator: false, recursive: false, since: (0u32, 15u32, 0u32), until: None, deprecated: false, unstable: false, doc: "filehandle returned by `guest-file-open`" },
 ];
 static STRUCT_GuestFileClose: StructMeta = StructMeta {
     name: "guest-file-close",
@@ -591,11 +591,11 @@ static STRUCT_GuestFileClose: StructMeta = StructMeta {
     discriminator_field: None,
     branch_enum: None,
     free_form: false,
-    since: (1u32, 4u32, 0u32),
+    since: (0u32, 15u32, 0u32),
     until: None,
 };
 static FIELDS_GuestFileFlush: &[FieldMeta] = &[
-    FieldMeta { name: "handle", wire_name: "handle", ty: 5, optional: false, is_discriminator: false, recursive: false, since: (1u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "filehandle returned by `guest-file-open`" },
+    FieldMeta { name: "handle", wire_name: "handle", ty: 5, optional: false, is_discriminator: false, recursive: false, since: (0u32, 15u32, 0u32), until: None, deprecated: false, unstable: false, doc: "filehandle returned by `guest-file-open`" },
 ];
 static STRUCT_GuestFileFlush: StructMeta = StructMeta {
     name: "guest-file-flush",
@@ -605,12 +605,12 @@ static STRUCT_GuestFileFlush: StructMeta = StructMeta {
     discriminator_field: None,
     branch_enum: None,
     free_form: false,
-    since: (1u32, 4u32, 0u32),
+    since: (0u32, 15u32, 0u32),
     until: None,
 };
 static FIELDS_GuestFileOpen: &[FieldMeta] = &[
-    FieldMeta { name: "path", wire_name: "path", ty: 0, optional: false, is_discriminator: false, recursive: false, since: (1u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Full path to the file in the guest to open." },
-    FieldMeta { name: "mode", wire_name: "mode", ty: 0, optional: true, is_discriminator: false, recursive: false, since: (1u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "open mode, as per fopen(), \"r\" is the default." },
+    FieldMeta { name: "path", wire_name: "path", ty: 0, optional: false, is_discriminator: false, recursive: false, since: (0u32, 15u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Full path to the file in the guest to open." },
+    FieldMeta { name: "mode", wire_name: "mode", ty: 0, optional: true, is_discriminator: false, recursive: false, since: (0u32, 15u32, 0u32), until: None, deprecated: false, unstable: false, doc: "open mode, as per fopen(), \"r\" is the default." },
 ];
 static STRUCT_GuestFileOpen: StructMeta = StructMeta {
     name: "guest-file-open",
@@ -620,13 +620,13 @@ static STRUCT_GuestFileOpen: StructMeta = StructMeta {
     discriminator_field: None,
     branch_enum: None,
     free_form: false,
-    since: (1u32, 4u32, 0u32),
+    since: (0u32, 15u32, 0u32),
     until: None,
 };
 static FIELDS_GuestFileRead: &[FieldMeta] = &[
-    FieldMeta { name: "count", wire_name: "count", ty: 5, optional: false, is_discriminator: false, recursive: false, since: (1u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "number of bytes read (note: count is *before*\nbase64-encoding is applied)" },
-    FieldMeta { name: "buf_b64", wire_name: "buf-b64", ty: 0, optional: false, is_discriminator: false, recursive: false, since: (1u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "base64-encoded bytes read" },
-    FieldMeta { name: "eof", wire_name: "eof", ty: 1, optional: false, is_discriminator: false, recursive: false, since: (1u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "whether EOF was encountered during read operation." },
+    FieldMeta { name: "count", wire_name: "count", ty: 5, optional: false, is_discriminator: false, recursive: false, since: (0u32, 15u32, 0u32), until: None, deprecated: false, unstable: false, doc: "number of bytes read (note: count is *before*\nbase64-encoding is applied)" },
+    FieldMeta { name: "buf_b64", wire_name: "buf-b64", ty: 0, optional: false, is_discriminator: false, recursive: false, since: (0u32, 15u32, 0u32), until: None, deprecated: false, unstable: false, doc: "base64-encoded bytes read" },
+    FieldMeta { name: "eof", wire_name: "eof", ty: 1, optional: false, is_discriminator: false, recursive: false, since: (0u32, 15u32, 0u32), until: None, deprecated: false, unstable: false, doc: "whether EOF was encountered during read operation." },
 ];
 static STRUCT_GuestFileRead: StructMeta = StructMeta {
     name: "GuestFileRead",
@@ -636,12 +636,12 @@ static STRUCT_GuestFileRead: StructMeta = StructMeta {
     discriminator_field: None,
     branch_enum: None,
     free_form: false,
-    since: (1u32, 4u32, 0u32),
+    since: (0u32, 15u32, 0u32),
     until: None,
 };
 static FIELDS_GuestFileReadCommand: &[FieldMeta] = &[
-    FieldMeta { name: "handle", wire_name: "handle", ty: 5, optional: false, is_discriminator: false, recursive: false, since: (1u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "filehandle returned by `guest-file-open`" },
-    FieldMeta { name: "count", wire_name: "count", ty: 5, optional: true, is_discriminator: false, recursive: false, since: (1u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "maximum number of bytes to read (default is 4KB, maximum is\n48MB)" },
+    FieldMeta { name: "handle", wire_name: "handle", ty: 5, optional: false, is_discriminator: false, recursive: false, since: (0u32, 15u32, 0u32), until: None, deprecated: false, unstable: false, doc: "filehandle returned by `guest-file-open`" },
+    FieldMeta { name: "count", wire_name: "count", ty: 5, optional: true, is_discriminator: false, recursive: false, since: (0u32, 15u32, 0u32), until: None, deprecated: false, unstable: false, doc: "maximum number of bytes to read (default is 4KB, maximum is\n48MB)" },
 ];
 static STRUCT_GuestFileReadCommand: StructMeta = StructMeta {
     name: "guest-file-read",
@@ -651,12 +651,12 @@ static STRUCT_GuestFileReadCommand: StructMeta = StructMeta {
     discriminator_field: None,
     branch_enum: None,
     free_form: false,
-    since: (1u32, 4u32, 0u32),
+    since: (0u32, 15u32, 0u32),
     until: None,
 };
 static FIELDS_GuestFileSeek: &[FieldMeta] = &[
-    FieldMeta { name: "position", wire_name: "position", ty: 5, optional: false, is_discriminator: false, recursive: false, since: (1u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "current file position" },
-    FieldMeta { name: "eof", wire_name: "eof", ty: 1, optional: false, is_discriminator: false, recursive: false, since: (1u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "whether EOF was encountered during file seek" },
+    FieldMeta { name: "position", wire_name: "position", ty: 5, optional: false, is_discriminator: false, recursive: false, since: (0u32, 15u32, 0u32), until: None, deprecated: false, unstable: false, doc: "current file position" },
+    FieldMeta { name: "eof", wire_name: "eof", ty: 1, optional: false, is_discriminator: false, recursive: false, since: (0u32, 15u32, 0u32), until: None, deprecated: false, unstable: false, doc: "whether EOF was encountered during file seek" },
 ];
 static STRUCT_GuestFileSeek: StructMeta = StructMeta {
     name: "GuestFileSeek",
@@ -666,14 +666,14 @@ static STRUCT_GuestFileSeek: StructMeta = StructMeta {
     discriminator_field: None,
     branch_enum: None,
     free_form: false,
-    since: (1u32, 4u32, 0u32),
+    since: (0u32, 15u32, 0u32),
     until: None,
 };
 static FIELDS_GuestFileSeekCommand: &[FieldMeta] = &[
-    FieldMeta { name: "handle", wire_name: "handle", ty: 5, optional: false, is_discriminator: false, recursive: false, since: (1u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "filehandle returned by `guest-file-open`" },
-    FieldMeta { name: "offset", wire_name: "offset", ty: 5, optional: false, is_discriminator: false, recursive: false, since: (1u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "bytes to skip over in the file stream" },
+    FieldMeta { name: "handle", wire_name: "handle", ty: 5, optional: false, is_discriminator: false, recursive: false, since: (0u32, 15u32, 0u32), until: None, deprecated: false, unstable: false, doc: "filehandle returned by `guest-file-open`" },
+    FieldMeta { name: "offset", wire_name: "offset", ty: 5, optional: false, is_discriminator: false, recursive: false, since: (0u32, 15u32, 0u32), until: None, deprecated: false, unstable: false, doc: "bytes to skip over in the file stream" },
     FieldMeta { name: "whence", wire_name: "whence", ty: 22, optional: false, is_discriminator: false, recursive: false, since: (2u32, 6u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Symbolic or numeric code for interpreting offset" },
-    FieldMeta { name: "whence_legacy", wire_name: "whence", ty: 5, optional: false, is_discriminator: false, recursive: false, since: (1u32, 4u32, 0u32), until: Some((2u32, 6u32, 0u32)), deprecated: false, unstable: false, doc: "0 for SEEK_SET, 1 for SEEK_CUR, or 2 for SEEK_END" },
+    FieldMeta { name: "whence_legacy", wire_name: "whence", ty: 5, optional: false, is_discriminator: false, recursive: false, since: (0u32, 15u32, 0u32), until: Some((2u32, 6u32, 0u32)), deprecated: false, unstable: false, doc: "0 for SEEK_SET, 1 for SEEK_CUR, or 2 for SEEK_END" },
 ];
 static STRUCT_GuestFileSeekCommand: StructMeta = StructMeta {
     name: "guest-file-seek",
@@ -683,7 +683,7 @@ static STRUCT_GuestFileSeekCommand: StructMeta = StructMeta {
     discriminator_field: None,
     branch_enum: None,
     free_form: false,
-    since: (1u32, 4u32, 0u32),
+    since: (0u32, 15u32, 0u32),
     until: None,
 };
 static FIELDS_GuestFilesystemInfo: &[FieldMeta] = &[
@@ -750,8 +750,8 @@ static ENUM_GuestFileWhence: EnumMeta = EnumMeta {
     until: None,
 };
 static FIELDS_GuestFileWrite: &[FieldMeta] = &[
-    FieldMeta { name: "count", wire_name: "count", ty: 5, optional: false, is_discriminator: false, recursive: false, since: (1u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "number of bytes written (note: count is actual bytes\nwritten, after base64-decoding of provided buffer)" },
-    FieldMeta { name: "eof", wire_name: "eof", ty: 1, optional: false, is_discriminator: false, recursive: false, since: (1u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "whether EOF was encountered during write operation." },
+    FieldMeta { name: "count", wire_name: "count", ty: 5, optional: false, is_discriminator: false, recursive: false, since: (0u32, 15u32, 0u32), until: None, deprecated: false, unstable: false, doc: "number of bytes written (note: count is actual bytes\nwritten, after base64-decoding of provided buffer)" },
+    FieldMeta { name: "eof", wire_name: "eof", ty: 1, optional: false, is_discriminator: false, recursive: false, since: (0u32, 15u32, 0u32), until: None, deprecated: false, unstable: false, doc: "whether EOF was encountered during write operation." },
 ];
 static STRUCT_GuestFileWrite: StructMeta = StructMeta {
     name: "GuestFileWrite",
@@ -761,13 +761,13 @@ static STRUCT_GuestFileWrite: StructMeta = StructMeta {
     discriminator_field: None,
     branch_enum: None,
     free_form: false,
-    since: (1u32, 4u32, 0u32),
+    since: (0u32, 15u32, 0u32),
     until: None,
 };
 static FIELDS_GuestFileWriteCommand: &[FieldMeta] = &[
-    FieldMeta { name: "handle", wire_name: "handle", ty: 5, optional: false, is_discriminator: false, recursive: false, since: (1u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "filehandle returned by `guest-file-open`" },
-    FieldMeta { name: "buf_b64", wire_name: "buf-b64", ty: 0, optional: false, is_discriminator: false, recursive: false, since: (1u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "base64-encoded string representing data to be written" },
-    FieldMeta { name: "count", wire_name: "count", ty: 5, optional: true, is_discriminator: false, recursive: false, since: (1u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "bytes to write (actual bytes, after base64-decode), default\nis all content in buf-b64 buffer after base64 decoding" },
+    FieldMeta { name: "handle", wire_name: "handle", ty: 5, optional: false, is_discriminator: false, recursive: false, since: (0u32, 15u32, 0u32), until: None, deprecated: false, unstable: false, doc: "filehandle returned by `guest-file-open`" },
+    FieldMeta { name: "buf_b64", wire_name: "buf-b64", ty: 0, optional: false, is_discriminator: false, recursive: false, since: (0u32, 15u32, 0u32), until: None, deprecated: false, unstable: false, doc: "base64-encoded string representing data to be written" },
+    FieldMeta { name: "count", wire_name: "count", ty: 5, optional: true, is_discriminator: false, recursive: false, since: (0u32, 15u32, 0u32), until: None, deprecated: false, unstable: false, doc: "bytes to write (actual bytes, after base64-decode), default\nis all content in buf-b64 buffer after base64 decoding" },
 ];
 static STRUCT_GuestFileWriteCommand: StructMeta = StructMeta {
     name: "guest-file-write",
@@ -777,7 +777,7 @@ static STRUCT_GuestFileWriteCommand: StructMeta = StructMeta {
     discriminator_field: None,
     branch_enum: None,
     free_form: false,
-    since: (1u32, 4u32, 0u32),
+    since: (0u32, 15u32, 0u32),
     until: None,
 };
 static FIELDS_GuestFsfreezeFreeze: &[FieldMeta] = &[
@@ -790,7 +790,7 @@ static STRUCT_GuestFsfreezeFreeze: StructMeta = StructMeta {
     discriminator_field: None,
     branch_enum: None,
     free_form: false,
-    since: (1u32, 4u32, 0u32),
+    since: (0u32, 15u32, 0u32),
     until: None,
 };
 static FIELDS_GuestFsfreezeFreezeList: &[FieldMeta] = &[
@@ -808,15 +808,16 @@ static STRUCT_GuestFsfreezeFreezeList: StructMeta = StructMeta {
     until: None,
 };
 static VARIANTS_GuestFsfreezeStatus: &[EnumVariantMeta] = &[
-    EnumVariantMeta { name: "Thawed", wire_name: "thawed", payload_struct: None, since: (1u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "filesystems thawed/unfrozen" },
-    EnumVariantMeta { name: "Frozen", wire_name: "frozen", payload_struct: None, since: (1u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "all non-network guest filesystems frozen" },
+    EnumVariantMeta { name: "Thawed", wire_name: "thawed", payload_struct: None, since: (0u32, 15u32, 0u32), until: None, deprecated: false, unstable: false, doc: "filesystems thawed/unfrozen" },
+    EnumVariantMeta { name: "Frozen", wire_name: "frozen", payload_struct: None, since: (0u32, 15u32, 0u32), until: None, deprecated: false, unstable: false, doc: "all non-network guest filesystems frozen" },
+    EnumVariantMeta { name: "Error", wire_name: "error", payload_struct: None, since: (0u32, 15u32, 0u32), until: Some((1u32, 1u32, 0u32)), deprecated: false, unstable: false, doc: "" },
 ];
 static ENUM_GuestFsfreezeStatus: EnumMeta = EnumMeta {
     name: "GuestFsfreezeStatus",
     doc: "An enumeration of filesystem freeze states",
     variants: &VARIANTS_GuestFsfreezeStatus,
     kind: EnumKind::Unit,
-    since: (1u32, 4u32, 0u32),
+    since: (0u32, 15u32, 0u32),
     until: None,
 };
 static FIELDS_GuestFsfreezeStatusCommand: &[FieldMeta] = &[
@@ -829,7 +830,7 @@ static STRUCT_GuestFsfreezeStatusCommand: StructMeta = StructMeta {
     discriminator_field: None,
     branch_enum: None,
     free_form: false,
-    since: (1u32, 4u32, 0u32),
+    since: (0u32, 15u32, 0u32),
     until: None,
 };
 static FIELDS_GuestFsfreezeThaw: &[FieldMeta] = &[
@@ -842,11 +843,11 @@ static STRUCT_GuestFsfreezeThaw: StructMeta = StructMeta {
     discriminator_field: None,
     branch_enum: None,
     free_form: false,
-    since: (1u32, 4u32, 0u32),
+    since: (0u32, 15u32, 0u32),
     until: None,
 };
 static FIELDS_GuestFstrim: &[FieldMeta] = &[
-    FieldMeta { name: "minimum", wire_name: "minimum", ty: 5, optional: true, is_discriminator: false, recursive: false, since: (1u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Minimum contiguous free range to discard, in bytes.  Free\nranges smaller than this may be ignored (this is a hint and the\nguest may not respect it).  By increasing this value, the fstrim\noperation will complete more quickly for filesystems with badly\nfragmented free space, although not all blocks will be\ndiscarded.  The default value is zero, meaning \"discard every\nfree block\"." },
+    FieldMeta { name: "minimum", wire_name: "minimum", ty: 5, optional: true, is_discriminator: false, recursive: false, since: (1u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Minimum contiguous free range to discard, in bytes.  Free\nranges smaller than this may be ignored (this is a hint and the\nguest may not respect it).  By increasing this value, the fstrim\noperation will complete more quickly for filesystems with badly\nfragmented free space, although not all blocks will be\ndiscarded.  The default value is zero, meaning \"discard every\nfree block\"." },
 ];
 static STRUCT_GuestFstrim: StructMeta = StructMeta {
     name: "guest-fstrim",
@@ -856,7 +857,7 @@ static STRUCT_GuestFstrim: StructMeta = StructMeta {
     discriminator_field: None,
     branch_enum: None,
     free_form: false,
-    since: (1u32, 4u32, 0u32),
+    since: (1u32, 2u32, 0u32),
     until: None,
 };
 static FIELDS_GuestGetCpustats: &[FieldMeta] = &[
@@ -1065,13 +1066,13 @@ static STRUCT_GuestInfo: StructMeta = StructMeta {
     discriminator_field: None,
     branch_enum: None,
     free_form: false,
-    since: (1u32, 4u32, 0u32),
+    since: (0u32, 15u32, 0u32),
     until: None,
 };
 static FIELDS_GuestIpAddress: &[FieldMeta] = &[
-    FieldMeta { name: "ip_address", wire_name: "ip-address", ty: 0, optional: false, is_discriminator: false, recursive: false, since: (1u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "IP address" },
-    FieldMeta { name: "ip_address_type", wire_name: "ip-address-type", ty: 52, optional: false, is_discriminator: false, recursive: false, since: (1u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Type of @ip-address (e.g. ipv4, ipv6)" },
-    FieldMeta { name: "prefix", wire_name: "prefix", ty: 5, optional: false, is_discriminator: false, recursive: false, since: (1u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Network prefix length of @ip-address" },
+    FieldMeta { name: "ip_address", wire_name: "ip-address", ty: 0, optional: false, is_discriminator: false, recursive: false, since: (1u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "IP address" },
+    FieldMeta { name: "ip_address_type", wire_name: "ip-address-type", ty: 52, optional: false, is_discriminator: false, recursive: false, since: (1u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Type of @ip-address (e.g. ipv4, ipv6)" },
+    FieldMeta { name: "prefix", wire_name: "prefix", ty: 5, optional: false, is_discriminator: false, recursive: false, since: (1u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Network prefix length of @ip-address" },
 ];
 static STRUCT_GuestIpAddress: StructMeta = StructMeta {
     name: "GuestIpAddress",
@@ -1081,19 +1082,19 @@ static STRUCT_GuestIpAddress: StructMeta = StructMeta {
     discriminator_field: None,
     branch_enum: None,
     free_form: false,
-    since: (1u32, 4u32, 0u32),
+    since: (1u32, 1u32, 0u32),
     until: None,
 };
 static VARIANTS_GuestIpAddressType: &[EnumVariantMeta] = &[
-    EnumVariantMeta { name: "Ipv4", wire_name: "ipv4", payload_struct: None, since: (1u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "IP version 4" },
-    EnumVariantMeta { name: "Ipv6", wire_name: "ipv6", payload_struct: None, since: (1u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "IP version 6" },
+    EnumVariantMeta { name: "Ipv4", wire_name: "ipv4", payload_struct: None, since: (1u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "IP version 4" },
+    EnumVariantMeta { name: "Ipv6", wire_name: "ipv6", payload_struct: None, since: (1u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "IP version 6" },
 ];
 static ENUM_GuestIpAddressType: EnumMeta = EnumMeta {
     name: "GuestIpAddressType",
     doc: "An enumeration of supported IP address types",
     variants: &VARIANTS_GuestIpAddressType,
     kind: EnumKind::Unit,
-    since: (1u32, 4u32, 0u32),
+    since: (1u32, 1u32, 0u32),
     until: None,
 };
 static FIELDS_GuestLinuxCpuStats: &[FieldMeta] = &[
@@ -1222,7 +1223,7 @@ static STRUCT_GuestNetworkGetInterfaces: StructMeta = StructMeta {
     discriminator_field: None,
     branch_enum: None,
     free_form: false,
-    since: (1u32, 4u32, 0u32),
+    since: (1u32, 1u32, 0u32),
     until: None,
 };
 static FIELDS_GuestNetworkGetRoute: &[FieldMeta] = &[
@@ -1239,9 +1240,9 @@ static STRUCT_GuestNetworkGetRoute: StructMeta = StructMeta {
     until: None,
 };
 static FIELDS_GuestNetworkInterface: &[FieldMeta] = &[
-    FieldMeta { name: "name", wire_name: "name", ty: 0, optional: false, is_discriminator: false, recursive: false, since: (1u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "The name of interface for which info are being delivered" },
-    FieldMeta { name: "hardware_address", wire_name: "hardware-address", ty: 0, optional: true, is_discriminator: false, recursive: false, since: (1u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Hardware address of @name" },
-    FieldMeta { name: "ip_addresses", wire_name: "ip-addresses", ty: 60, optional: true, is_discriminator: false, recursive: false, since: (1u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "List of addresses assigned to @name" },
+    FieldMeta { name: "name", wire_name: "name", ty: 0, optional: false, is_discriminator: false, recursive: false, since: (1u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "The name of interface for which info are being delivered" },
+    FieldMeta { name: "hardware_address", wire_name: "hardware-address", ty: 0, optional: true, is_discriminator: false, recursive: false, since: (1u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Hardware address of @name" },
+    FieldMeta { name: "ip_addresses", wire_name: "ip-addresses", ty: 60, optional: true, is_discriminator: false, recursive: false, since: (1u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "List of addresses assigned to @name" },
     FieldMeta { name: "statistics", wire_name: "statistics", ty: 61, optional: true, is_discriminator: false, recursive: false, since: (2u32, 11u32, 0u32), until: None, deprecated: false, unstable: false, doc: "various statistic counters related to @name (since\n2.11)" },
 ];
 static STRUCT_GuestNetworkInterface: StructMeta = StructMeta {
@@ -1252,7 +1253,7 @@ static STRUCT_GuestNetworkInterface: StructMeta = StructMeta {
     discriminator_field: None,
     branch_enum: None,
     free_form: false,
-    since: (1u32, 4u32, 0u32),
+    since: (1u32, 1u32, 0u32),
     until: None,
 };
 static FIELDS_GuestNetworkInterfaceStat: &[FieldMeta] = &[
@@ -1393,7 +1394,7 @@ static STRUCT_GuestPing: StructMeta = StructMeta {
     discriminator_field: None,
     branch_enum: None,
     free_form: false,
-    since: (1u32, 4u32, 0u32),
+    since: (0u32, 15u32, 0u32),
     until: None,
 };
 static FIELDS_GuestSetMemoryBlocks: &[FieldMeta] = &[
@@ -1455,7 +1456,7 @@ static STRUCT_GuestSetVcpus: StructMeta = StructMeta {
     until: None,
 };
 static FIELDS_GuestShutdown: &[FieldMeta] = &[
-    FieldMeta { name: "mode", wire_name: "mode", ty: 0, optional: true, is_discriminator: false, recursive: false, since: (1u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "\"halt\", \"powerdown\" (default), or \"reboot\"" },
+    FieldMeta { name: "mode", wire_name: "mode", ty: 0, optional: true, is_discriminator: false, recursive: false, since: (0u32, 15u32, 0u32), until: None, deprecated: false, unstable: false, doc: "\"halt\", \"powerdown\" (default), or \"reboot\"" },
 ];
 static STRUCT_GuestShutdown: StructMeta = StructMeta {
     name: "guest-shutdown",
@@ -1465,7 +1466,7 @@ static STRUCT_GuestShutdown: StructMeta = StructMeta {
     discriminator_field: None,
     branch_enum: None,
     free_form: false,
-    since: (1u32, 4u32, 0u32),
+    since: (0u32, 15u32, 0u32),
     until: None,
 };
 static FIELDS_GuestSshAddAuthorizedKeys: &[FieldMeta] = &[
@@ -1523,7 +1524,7 @@ static STRUCT_GuestSuspendDisk: StructMeta = StructMeta {
     discriminator_field: None,
     branch_enum: None,
     free_form: false,
-    since: (1u32, 4u32, 0u32),
+    since: (1u32, 1u32, 0u32),
     until: None,
 };
 static FIELDS_GuestSuspendHybrid: &[FieldMeta] = &[
@@ -1536,7 +1537,7 @@ static STRUCT_GuestSuspendHybrid: StructMeta = StructMeta {
     discriminator_field: None,
     branch_enum: None,
     free_form: false,
-    since: (1u32, 4u32, 0u32),
+    since: (1u32, 1u32, 0u32),
     until: None,
 };
 static FIELDS_GuestSuspendRam: &[FieldMeta] = &[
@@ -1549,11 +1550,11 @@ static STRUCT_GuestSuspendRam: StructMeta = StructMeta {
     discriminator_field: None,
     branch_enum: None,
     free_form: false,
-    since: (1u32, 4u32, 0u32),
+    since: (1u32, 1u32, 0u32),
     until: None,
 };
 static FIELDS_GuestSync: &[FieldMeta] = &[
-    FieldMeta { name: "id", wire_name: "id", ty: 5, optional: false, is_discriminator: false, recursive: false, since: (1u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "randomly generated 64-bit integer" },
+    FieldMeta { name: "id", wire_name: "id", ty: 5, optional: false, is_discriminator: false, recursive: false, since: (0u32, 15u32, 0u32), until: None, deprecated: false, unstable: false, doc: "randomly generated 64-bit integer" },
 ];
 static STRUCT_GuestSync: StructMeta = StructMeta {
     name: "guest-sync",
@@ -1563,11 +1564,11 @@ static STRUCT_GuestSync: StructMeta = StructMeta {
     discriminator_field: None,
     branch_enum: None,
     free_form: false,
-    since: (1u32, 4u32, 0u32),
+    since: (0u32, 15u32, 0u32),
     until: None,
 };
 static FIELDS_GuestSyncDelimited: &[FieldMeta] = &[
-    FieldMeta { name: "id", wire_name: "id", ty: 5, optional: false, is_discriminator: false, recursive: false, since: (1u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "randomly generated 64-bit integer" },
+    FieldMeta { name: "id", wire_name: "id", ty: 5, optional: false, is_discriminator: false, recursive: false, since: (1u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "randomly generated 64-bit integer" },
 ];
 static STRUCT_GuestSyncDelimited: StructMeta = StructMeta {
     name: "guest-sync-delimited",
@@ -1577,7 +1578,7 @@ static STRUCT_GuestSyncDelimited: StructMeta = StructMeta {
     discriminator_field: None,
     branch_enum: None,
     free_form: false,
-    since: (1u32, 4u32, 0u32),
+    since: (1u32, 1u32, 0u32),
     until: None,
 };
 static FIELDS_GuestTimezone: &[FieldMeta] = &[
@@ -1628,17 +1629,17 @@ static ENUM_QgaSeek: EnumMeta = EnumMeta {
 pub static COMMANDS: &[CommandMeta] = &[
     CommandMeta { wire_name: "guest-exec", rust_name: "GuestExecCommand", args: &STRUCT_GuestExecCommand, returns: Some(18), allow_oob: false, allow_preconfig: false, success_response: true, since: (2u32, 5u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Execute a command in the guest\n\nReturns: PID", category: "guest" },
     CommandMeta { wire_name: "guest-exec-status", rust_name: "GuestExecStatusCommand", args: &STRUCT_GuestExecStatusCommand, returns: Some(19), allow_oob: false, allow_preconfig: false, success_response: true, since: (2u32, 5u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Check status of process associated with PID retrieved via\n`guest-exec`.  Reap the process and associated metadata if it has\nexited.", category: "guest" },
-    CommandMeta { wire_name: "guest-file-close", rust_name: "GuestFileClose", args: &STRUCT_GuestFileClose, returns: None, allow_oob: false, allow_preconfig: false, success_response: true, since: (1u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Close an open file in the guest", category: "guest" },
-    CommandMeta { wire_name: "guest-file-flush", rust_name: "GuestFileFlush", args: &STRUCT_GuestFileFlush, returns: None, allow_oob: false, allow_preconfig: false, success_response: true, since: (1u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Write file changes buffered in userspace to disk/kernel buffers", category: "guest" },
-    CommandMeta { wire_name: "guest-file-open", rust_name: "GuestFileOpen", args: &STRUCT_GuestFileOpen, returns: Some(20), allow_oob: false, allow_preconfig: false, success_response: true, since: (1u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Open a file in the guest and retrieve a file handle for it\n\nReturns: Guest file handle", category: "guest" },
-    CommandMeta { wire_name: "guest-file-read", rust_name: "GuestFileReadCommand", args: &STRUCT_GuestFileReadCommand, returns: Some(21), allow_oob: false, allow_preconfig: false, success_response: true, since: (1u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Read from an open file in the guest.  Data will be base64-encoded.\nAs this command is just for limited, ad-hoc debugging, such as log\nfile access, the number of bytes to read is limited to 48 MB.", category: "guest" },
-    CommandMeta { wire_name: "guest-file-seek", rust_name: "GuestFileSeekCommand", args: &STRUCT_GuestFileSeekCommand, returns: Some(23), allow_oob: false, allow_preconfig: false, success_response: true, since: (1u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Seek to a position in the file, as with fseek(), and return the\ncurrent file position afterward.  Also encapsulates ftell()'s\nfunctionality, with offset=0 and whence=1.", category: "guest" },
-    CommandMeta { wire_name: "guest-file-write", rust_name: "GuestFileWriteCommand", args: &STRUCT_GuestFileWriteCommand, returns: Some(27), allow_oob: false, allow_preconfig: false, success_response: true, since: (1u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Write to an open file in the guest.", category: "guest" },
-    CommandMeta { wire_name: "guest-fsfreeze-freeze", rust_name: "GuestFsfreezeFreeze", args: &STRUCT_GuestFsfreezeFreeze, returns: Some(20), allow_oob: false, allow_preconfig: false, success_response: true, since: (1u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Sync and freeze all freezable, local guest filesystems.  If this\ncommand succeeded, you may call `guest-fsfreeze-thaw` later to\nunfreeze.\n\nOn error, all filesystems will be thawed.  If no filesystems are\nfrozen as a result of this call, then `guest-fsfreeze-status` will\nremain \"thawed\" and calling `guest-fsfreeze-thaw` is not necessary.\n\nReturns: Number of file systems currently frozen.\n\n.. note:: On Windows, the command is implemented with the help of a\n   Volume Shadow-copy Service DLL helper.  The frozen state is\n   limited for up to 10 seconds by VSS.", category: "guest" },
+    CommandMeta { wire_name: "guest-file-close", rust_name: "GuestFileClose", args: &STRUCT_GuestFileClose, returns: None, allow_oob: false, allow_preconfig: false, success_response: true, since: (0u32, 15u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Close an open file in the guest", category: "guest" },
+    CommandMeta { wire_name: "guest-file-flush", rust_name: "GuestFileFlush", args: &STRUCT_GuestFileFlush, returns: None, allow_oob: false, allow_preconfig: false, success_response: true, since: (0u32, 15u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Write file changes buffered in userspace to disk/kernel buffers", category: "guest" },
+    CommandMeta { wire_name: "guest-file-open", rust_name: "GuestFileOpen", args: &STRUCT_GuestFileOpen, returns: Some(20), allow_oob: false, allow_preconfig: false, success_response: true, since: (0u32, 15u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Open a file in the guest and retrieve a file handle for it\n\nReturns: Guest file handle", category: "guest" },
+    CommandMeta { wire_name: "guest-file-read", rust_name: "GuestFileReadCommand", args: &STRUCT_GuestFileReadCommand, returns: Some(21), allow_oob: false, allow_preconfig: false, success_response: true, since: (0u32, 15u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Read from an open file in the guest.  Data will be base64-encoded.\nAs this command is just for limited, ad-hoc debugging, such as log\nfile access, the number of bytes to read is limited to 48 MB.", category: "guest" },
+    CommandMeta { wire_name: "guest-file-seek", rust_name: "GuestFileSeekCommand", args: &STRUCT_GuestFileSeekCommand, returns: Some(23), allow_oob: false, allow_preconfig: false, success_response: true, since: (0u32, 15u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Seek to a position in the file, as with fseek(), and return the\ncurrent file position afterward.  Also encapsulates ftell()'s\nfunctionality, with offset=0 and whence=1.", category: "guest" },
+    CommandMeta { wire_name: "guest-file-write", rust_name: "GuestFileWriteCommand", args: &STRUCT_GuestFileWriteCommand, returns: Some(27), allow_oob: false, allow_preconfig: false, success_response: true, since: (0u32, 15u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Write to an open file in the guest.", category: "guest" },
+    CommandMeta { wire_name: "guest-fsfreeze-freeze", rust_name: "GuestFsfreezeFreeze", args: &STRUCT_GuestFsfreezeFreeze, returns: Some(20), allow_oob: false, allow_preconfig: false, success_response: true, since: (0u32, 15u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Sync and freeze all freezable, local guest filesystems.  If this\ncommand succeeded, you may call `guest-fsfreeze-thaw` later to\nunfreeze.\n\nOn error, all filesystems will be thawed.  If no filesystems are\nfrozen as a result of this call, then `guest-fsfreeze-status` will\nremain \"thawed\" and calling `guest-fsfreeze-thaw` is not necessary.\n\nReturns: Number of file systems currently frozen.\n\n.. note:: On Windows, the command is implemented with the help of a\n   Volume Shadow-copy Service DLL helper.  The frozen state is\n   limited for up to 10 seconds by VSS.", category: "guest" },
     CommandMeta { wire_name: "guest-fsfreeze-freeze-list", rust_name: "GuestFsfreezeFreezeList", args: &STRUCT_GuestFsfreezeFreezeList, returns: Some(20), allow_oob: false, allow_preconfig: false, success_response: true, since: (2u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Sync and freeze specified guest filesystems.  See also\n`guest-fsfreeze-freeze`.\n\nOn error, all filesystems will be thawed.\n\nReturns: Number of file systems currently frozen.", category: "guest" },
-    CommandMeta { wire_name: "guest-fsfreeze-status", rust_name: "GuestFsfreezeStatusCommand", args: &STRUCT_GuestFsfreezeStatusCommand, returns: Some(28), allow_oob: false, allow_preconfig: false, success_response: true, since: (1u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Get guest fsfreeze state.\n\n.. note:: This may fail to properly report the current state as a\n   result of some other guest processes having issued an fs\n   freeze/thaw.", category: "guest" },
-    CommandMeta { wire_name: "guest-fsfreeze-thaw", rust_name: "GuestFsfreezeThaw", args: &STRUCT_GuestFsfreezeThaw, returns: Some(20), allow_oob: false, allow_preconfig: false, success_response: true, since: (1u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Unfreeze all frozen guest filesystems\n\nReturns: Number of file systems thawed by this call\n\n.. note:: If the return value does not match the previous call to\n   `guest-fsfreeze-freeze`, this likely means some freezable\n   filesystems were unfrozen before this call, and that the\n   filesystem state may have changed before issuing this command.", category: "guest" },
-    CommandMeta { wire_name: "guest-fstrim", rust_name: "GuestFstrim", args: &STRUCT_GuestFstrim, returns: Some(29), allow_oob: false, allow_preconfig: false, success_response: true, since: (1u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Discard (or \"trim\") blocks which are not in use by the filesystem.\n\nReturns: status of all trimmed paths.  (since 2.4)", category: "guest" },
+    CommandMeta { wire_name: "guest-fsfreeze-status", rust_name: "GuestFsfreezeStatusCommand", args: &STRUCT_GuestFsfreezeStatusCommand, returns: Some(28), allow_oob: false, allow_preconfig: false, success_response: true, since: (0u32, 15u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Get guest fsfreeze state.\n\n.. note:: This may fail to properly report the current state as a\n   result of some other guest processes having issued an fs\n   freeze/thaw.", category: "guest" },
+    CommandMeta { wire_name: "guest-fsfreeze-thaw", rust_name: "GuestFsfreezeThaw", args: &STRUCT_GuestFsfreezeThaw, returns: Some(20), allow_oob: false, allow_preconfig: false, success_response: true, since: (0u32, 15u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Unfreeze all frozen guest filesystems\n\nReturns: Number of file systems thawed by this call\n\n.. note:: If the return value does not match the previous call to\n   `guest-fsfreeze-freeze`, this likely means some freezable\n   filesystems were unfrozen before this call, and that the\n   filesystem state may have changed before issuing this command.", category: "guest" },
+    CommandMeta { wire_name: "guest-fstrim", rust_name: "GuestFstrim", args: &STRUCT_GuestFstrim, returns: Some(29), allow_oob: false, allow_preconfig: false, success_response: true, since: (1u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Discard (or \"trim\") blocks which are not in use by the filesystem.\n\nReturns: status of all trimmed paths.  (since 2.4)", category: "guest" },
     CommandMeta { wire_name: "guest-get-cpustats", rust_name: "GuestGetCpustats", args: &STRUCT_GuestGetCpustats, returns: Some(31), allow_oob: false, allow_preconfig: false, success_response: true, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Retrieve information about CPU stats.\n\nReturns: List of CPU stats of guest.", category: "guest" },
     CommandMeta { wire_name: "guest-get-devices", rust_name: "GuestGetDevices", args: &STRUCT_GuestGetDevices, returns: Some(33), allow_oob: false, allow_preconfig: false, success_response: true, since: (5u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Retrieve information about device drivers in Windows guest", category: "guest" },
     CommandMeta { wire_name: "guest-get-disks", rust_name: "GuestGetDisks", args: &STRUCT_GuestGetDisks, returns: Some(35), allow_oob: false, allow_preconfig: false, success_response: true, since: (5u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Returns: The list of disks in the guest.  For Windows these are only\n    the physical disks.  On Linux these are all root block devices\n    of non-zero size including e.g. removable devices, loop devices,\n    NBD, etc.", category: "guest" },
@@ -1653,23 +1654,23 @@ pub static COMMANDS: &[CommandMeta] = &[
     CommandMeta { wire_name: "guest-get-timezone", rust_name: "GuestGetTimezone", args: &STRUCT_GuestGetTimezone, returns: Some(46), allow_oob: false, allow_preconfig: false, success_response: true, since: (2u32, 10u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Retrieves the timezone information from the guest.", category: "guest" },
     CommandMeta { wire_name: "guest-get-users", rust_name: "GuestGetUsers", args: &STRUCT_GuestGetUsers, returns: Some(48), allow_oob: false, allow_preconfig: false, success_response: true, since: (2u32, 10u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Retrieves a list of currently active users on the VM.\n\nReturns: A unique list of users.", category: "guest" },
     CommandMeta { wire_name: "guest-get-vcpus", rust_name: "GuestGetVcpus", args: &STRUCT_GuestGetVcpus, returns: Some(50), allow_oob: false, allow_preconfig: false, success_response: true, since: (1u32, 5u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Retrieve the list of the guest's logical processors.\n\nThis is a read-only operation.\n\nReturns: The list of all VCPUs the guest knows about.  Each VCPU is\n    put on the list exactly once, but their order is unspecified.", category: "guest" },
-    CommandMeta { wire_name: "guest-info", rust_name: "GuestInfo", args: &STRUCT_GuestInfo, returns: Some(51), allow_oob: false, allow_preconfig: false, success_response: true, since: (1u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Get some information about the guest agent.", category: "guest" },
-    CommandMeta { wire_name: "guest-network-get-interfaces", rust_name: "GuestNetworkGetInterfaces", args: &STRUCT_GuestNetworkGetInterfaces, returns: Some(56), allow_oob: false, allow_preconfig: false, success_response: true, since: (1u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Get list of guest IP addresses, MAC addresses and netmasks.", category: "guest" },
+    CommandMeta { wire_name: "guest-info", rust_name: "GuestInfo", args: &STRUCT_GuestInfo, returns: Some(51), allow_oob: false, allow_preconfig: false, success_response: true, since: (0u32, 15u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Get some information about the guest agent.", category: "guest" },
+    CommandMeta { wire_name: "guest-network-get-interfaces", rust_name: "GuestNetworkGetInterfaces", args: &STRUCT_GuestNetworkGetInterfaces, returns: Some(56), allow_oob: false, allow_preconfig: false, success_response: true, since: (1u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Get list of guest IP addresses, MAC addresses and netmasks.", category: "guest" },
     CommandMeta { wire_name: "guest-network-get-route", rust_name: "GuestNetworkGetRoute", args: &STRUCT_GuestNetworkGetRoute, returns: Some(58), allow_oob: false, allow_preconfig: false, success_response: true, since: (9u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Retrieve information about route of network.\n\nReturns: List of route info of guest.", category: "guest" },
-    CommandMeta { wire_name: "guest-ping", rust_name: "GuestPing", args: &STRUCT_GuestPing, returns: None, allow_oob: false, allow_preconfig: false, success_response: true, since: (1u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Ping the guest agent, a non-error return implies success", category: "guest" },
+    CommandMeta { wire_name: "guest-ping", rust_name: "GuestPing", args: &STRUCT_GuestPing, returns: None, allow_oob: false, allow_preconfig: false, success_response: true, since: (0u32, 15u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Ping the guest agent, a non-error return implies success", category: "guest" },
     CommandMeta { wire_name: "guest-set-memory-blocks", rust_name: "GuestSetMemoryBlocks", args: &STRUCT_GuestSetMemoryBlocks, returns: Some(63), allow_oob: false, allow_preconfig: false, success_response: true, since: (2u32, 3u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Attempt to reconfigure (currently: enable/disable) state of memory\nblocks inside the guest.\n\nReturns: The operation results, it is a list of\n    `GuestMemoryBlockResponse`, which is corresponding to the input\n    list.\n\n    Note: it will return an empty list if the @mem-blks list was\n    empty on input, or there is an error, and in this case, guest\n    state will not be changed.", category: "guest" },
     CommandMeta { wire_name: "guest-set-time", rust_name: "GuestSetTime", args: &STRUCT_GuestSetTime, returns: None, allow_oob: false, allow_preconfig: false, success_response: true, since: (1u32, 5u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Set guest time.\n\nWhen a guest is paused or migrated to a file then loaded from that\nfile, the guest OS has no idea that there was a big gap in the time.\nDepending on how long the gap was, NTP might not be able to\nresynchronize the guest.\n\nThis command tries to set guest's System Time to the given value,\nthen sets the Hardware Clock (RTC) to the current System Time.  This\nwill make it easier for a guest to resynchronize without waiting for\nNTP.  If no @time is specified, then the time to set is read from\nRTC.  However, this may not be supported on all platforms (i.e.\nWindows).  If that's the case users are advised to always pass a\nvalue.", category: "guest" },
     CommandMeta { wire_name: "guest-set-user-password", rust_name: "GuestSetUserPassword", args: &STRUCT_GuestSetUserPassword, returns: None, allow_oob: false, allow_preconfig: false, success_response: true, since: (2u32, 3u32, 0u32), until: None, deprecated: false, unstable: false, doc: "If the @crypted flag is true, it is the caller's responsibility to\nensure the correct crypt() encryption scheme is used.  This command\ndoes not attempt to interpret or report on the encryption scheme.\nRefer to the documentation of the guest operating system in question\nto determine what is supported.\n\nNot all guest operating systems will support use of the @crypted\nflag, as they may require the clear-text password\n\nThe @password parameter must always be base64 encoded before\ntransmission, even if already crypt()d, to ensure it is 8-bit safe\nwhen passed as JSON.", category: "guest" },
     CommandMeta { wire_name: "guest-set-vcpus", rust_name: "GuestSetVcpus", args: &STRUCT_GuestSetVcpus, returns: Some(20), allow_oob: false, allow_preconfig: false, success_response: true, since: (1u32, 5u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Attempt to reconfigure (currently: enable/disable) logical\nprocessors inside the guest.\n\nReturns: The length of the initial sublist that has been\n    successfully processed.  The guest agent maximizes this value.\n    Possible cases:\n\n    - 0:\n      if the @vcpus list was empty on input.  Guest state has not\n      been changed.  Otherwise,\n    - < length(@vcpus):\n      more than zero initial nodes have been processed, but not the\n      entire @vcpus list.  Guest state has changed accordingly.  To\n      retrieve the error (assuming it persists), repeat the call\n      with the successfully processed initial sublist removed.\n      Otherwise,\n    - length(@vcpus):\n      call successful.\n\nErrors:\n    - If the reconfiguration of the first node in @vcpus failed.\n      Guest state has not been changed.", category: "guest" },
-    CommandMeta { wire_name: "guest-shutdown", rust_name: "GuestShutdown", args: &STRUCT_GuestShutdown, returns: None, allow_oob: false, allow_preconfig: false, success_response: false, since: (1u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Initiate guest-activated shutdown.  Note: this is an asynchronous\nshutdown request, with no guarantee of successful shutdown.\n\nThis command does NOT return a response on success.  Success\ncondition is indicated by the VM exiting with a zero exit status or,\nwhen running with --no-shutdown, by issuing the `query-status` QMP\ncommand to confirm the VM status is \"shutdown\".", category: "guest" },
+    CommandMeta { wire_name: "guest-shutdown", rust_name: "GuestShutdown", args: &STRUCT_GuestShutdown, returns: None, allow_oob: false, allow_preconfig: false, success_response: false, since: (0u32, 15u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Initiate guest-activated shutdown.  Note: this is an asynchronous\nshutdown request, with no guarantee of successful shutdown.\n\nThis command does NOT return a response on success.  Success\ncondition is indicated by the VM exiting with a zero exit status or,\nwhen running with --no-shutdown, by issuing the `query-status` QMP\ncommand to confirm the VM status is \"shutdown\".", category: "guest" },
     CommandMeta { wire_name: "guest-ssh-add-authorized-keys", rust_name: "GuestSshAddAuthorizedKeys", args: &STRUCT_GuestSshAddAuthorizedKeys, returns: None, allow_oob: false, allow_preconfig: false, success_response: true, since: (5u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Append public keys to user .ssh/authorized_keys on Unix systems (not\nimplemented for other systems).", category: "guest" },
     CommandMeta { wire_name: "guest-ssh-get-authorized-keys", rust_name: "GuestSshGetAuthorizedKeys", args: &STRUCT_GuestSshGetAuthorizedKeys, returns: Some(64), allow_oob: false, allow_preconfig: false, success_response: true, since: (5u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Return the public keys from user .ssh/authorized_keys on Unix\nsystems (not implemented for other systems).", category: "guest" },
     CommandMeta { wire_name: "guest-ssh-remove-authorized-keys", rust_name: "GuestSshRemoveAuthorizedKeys", args: &STRUCT_GuestSshRemoveAuthorizedKeys, returns: None, allow_oob: false, allow_preconfig: false, success_response: true, since: (5u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Remove public keys from the user .ssh/authorized_keys on Unix\nsystems (not implemented for other systems).  It's not an error if\nthe key is already missing.", category: "guest" },
-    CommandMeta { wire_name: "guest-suspend-disk", rust_name: "GuestSuspendDisk", args: &STRUCT_GuestSuspendDisk, returns: None, allow_oob: false, allow_preconfig: false, success_response: false, since: (1u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Suspend guest to disk.\n\nThis command attempts to suspend the guest using three strategies,\nin this order:\n\n- systemd hibernate\n- pm-utils (via pm-hibernate)\n- manual write into sysfs\n\nThis command does NOT return a response on success.  There is a high\nchance the command succeeded if the VM exits with a zero exit status\nor, when running with --no-shutdown, by issuing the `query-status`\nQMP command to to confirm the VM status is \"shutdown\".  However, the\nVM could also exit (or set its status to \"shutdown\") due to other\nreasons.\n\nErrors:\n    - If suspend to disk is not supported, Unsupported\n\n.. note:: It's strongly recommended to issue the `guest-sync`\n   command before sending commands when the guest resumes.", category: "guest" },
-    CommandMeta { wire_name: "guest-suspend-hybrid", rust_name: "GuestSuspendHybrid", args: &STRUCT_GuestSuspendHybrid, returns: None, allow_oob: false, allow_preconfig: false, success_response: false, since: (1u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Save guest state to disk and suspend to ram.\n\nThis command attempts to suspend the guest by executing, in this\norder:\n\n- systemd hybrid-sleep\n- pm-utils (via pm-suspend-hybrid)\n\nIMPORTANT: `guest-suspend-hybrid` requires working wakeup support in\nQEMU.  You should check QMP command `query-current-machine` returns\nwakeup-suspend-support: true before issuing this command.  Failure\nin doing so can result in a suspended guest that QEMU will not be\nable to awaken, forcing the user to power cycle the guest to bring\nit back.\n\nThis command does NOT return a response on success.  There are two\noptions to check for success:\n\n1. Wait for the `SUSPEND` QMP event from QEMU\n2. Issue the `query-status` QMP command to confirm the VM status is\n   \"suspended\"\n\nErrors:\n    - If hybrid suspend is not supported, Unsupported\n\n.. note:: It's strongly recommended to issue the `guest-sync`\n   command before sending commands when the guest resumes.", category: "guest" },
-    CommandMeta { wire_name: "guest-suspend-ram", rust_name: "GuestSuspendRam", args: &STRUCT_GuestSuspendRam, returns: None, allow_oob: false, allow_preconfig: false, success_response: false, since: (1u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Suspend guest to ram.\n\nThis command attempts to suspend the guest using three strategies,\nin this order:\n\n- systemd hibernate\n- pm-utils (via pm-hibernate)\n- manual write into sysfs\n\nIMPORTANT: `guest-suspend-ram` requires working wakeup support in\nQEMU.  You should check QMP command `query-current-machine` returns\nwakeup-suspend-support: true before issuing this command.  Failure\nin doing so can result in a suspended guest that QEMU will not be\nable to awaken, forcing the user to power cycle the guest to bring\nit back.\n\nThis command does NOT return a response on success.  There are two\noptions to check for success:\n\n1. Wait for the `SUSPEND` QMP event from QEMU\n2. Issue the `query-status` QMP command to confirm the VM status is\n   \"suspended\"\n\nErrors:\n    - If suspend to ram is not supported, Unsupported\n\n.. note:: It's strongly recommended to issue the `guest-sync`\n   command before sending commands when the guest resumes.", category: "guest" },
-    CommandMeta { wire_name: "guest-sync", rust_name: "GuestSync", args: &STRUCT_GuestSync, returns: Some(20), allow_oob: false, allow_preconfig: false, success_response: true, since: (1u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Echo back a unique integer value\n\nThis is used by clients talking to the guest agent over the wire to\nensure the stream is in sync and doesn't contain stale data from\nprevious client.  All guest agent responses should be ignored until\nthe provided unique integer value is returned, and it is up to the\nclient to handle stale whole or partially-delivered JSON text in\nsuch a way that this response can be obtained.\n\nIn cases where a partial stale response was previously received by\nthe client, this cannot always be done reliably.  One particular\nscenario being if qemu-ga responses are fed character-by-character\ninto a JSON parser.  In these situations, using\n`guest-sync-delimited` may be optimal.\n\nFor clients that fetch responses line by line and convert them to\nJSON objects, `guest-sync` should be sufficient, but note that in\ncases where the channel is dirty some attempts at parsing the\nresponse may result in a parser error.\n\nSuch clients should also precede this command with a 0xFF byte to\nmake sure the guest agent flushes any partially read JSON data from\na previous session.\n\nReturns: The unique integer id passed in by the client", category: "guest" },
-    CommandMeta { wire_name: "guest-sync-delimited", rust_name: "GuestSyncDelimited", args: &STRUCT_GuestSyncDelimited, returns: Some(20), allow_oob: false, allow_preconfig: false, success_response: true, since: (1u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Echo back a unique integer value, and prepend to response a leading\nsentinel byte (0xFF) the client can check scan for.\n\nThis is used by clients talking to the guest agent over the wire to\nensure the stream is in sync and doesn't contain stale data from\nprevious client.  It must be issued upon initial connection, and\nafter any client-side timeouts (including timeouts on receiving a\nresponse to this command).\n\nAfter issuing this request, all guest agent responses should be\nignored until the response containing the unique integer value the\nclient passed in is returned.  Receival of the 0xFF sentinel byte\nmust be handled as an indication that the client's\nlexer/tokenizer/parser state should be flushed/reset in preparation\nfor reliably receiving the subsequent response.  As an optimization,\nclients may opt to ignore all data until a sentinel value is\nreceiving to avoid unnecessary processing of stale data.\n\nSimilarly, clients should also precede this *request* with a 0xFF\nbyte to make sure the guest agent flushes any partially read JSON\ndata from a previous client connection.\n\nReturns: The unique integer id passed in by the client", category: "guest" },
+    CommandMeta { wire_name: "guest-suspend-disk", rust_name: "GuestSuspendDisk", args: &STRUCT_GuestSuspendDisk, returns: None, allow_oob: false, allow_preconfig: false, success_response: false, since: (1u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Suspend guest to disk.\n\nThis command attempts to suspend the guest using three strategies,\nin this order:\n\n- systemd hibernate\n- pm-utils (via pm-hibernate)\n- manual write into sysfs\n\nThis command does NOT return a response on success.  There is a high\nchance the command succeeded if the VM exits with a zero exit status\nor, when running with --no-shutdown, by issuing the `query-status`\nQMP command to to confirm the VM status is \"shutdown\".  However, the\nVM could also exit (or set its status to \"shutdown\") due to other\nreasons.\n\nErrors:\n    - If suspend to disk is not supported, Unsupported\n\n.. note:: It's strongly recommended to issue the `guest-sync`\n   command before sending commands when the guest resumes.", category: "guest" },
+    CommandMeta { wire_name: "guest-suspend-hybrid", rust_name: "GuestSuspendHybrid", args: &STRUCT_GuestSuspendHybrid, returns: None, allow_oob: false, allow_preconfig: false, success_response: false, since: (1u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Save guest state to disk and suspend to ram.\n\nThis command attempts to suspend the guest by executing, in this\norder:\n\n- systemd hybrid-sleep\n- pm-utils (via pm-suspend-hybrid)\n\nIMPORTANT: `guest-suspend-hybrid` requires working wakeup support in\nQEMU.  You should check QMP command `query-current-machine` returns\nwakeup-suspend-support: true before issuing this command.  Failure\nin doing so can result in a suspended guest that QEMU will not be\nable to awaken, forcing the user to power cycle the guest to bring\nit back.\n\nThis command does NOT return a response on success.  There are two\noptions to check for success:\n\n1. Wait for the `SUSPEND` QMP event from QEMU\n2. Issue the `query-status` QMP command to confirm the VM status is\n   \"suspended\"\n\nErrors:\n    - If hybrid suspend is not supported, Unsupported\n\n.. note:: It's strongly recommended to issue the `guest-sync`\n   command before sending commands when the guest resumes.", category: "guest" },
+    CommandMeta { wire_name: "guest-suspend-ram", rust_name: "GuestSuspendRam", args: &STRUCT_GuestSuspendRam, returns: None, allow_oob: false, allow_preconfig: false, success_response: false, since: (1u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Suspend guest to ram.\n\nThis command attempts to suspend the guest using three strategies,\nin this order:\n\n- systemd hibernate\n- pm-utils (via pm-hibernate)\n- manual write into sysfs\n\nIMPORTANT: `guest-suspend-ram` requires working wakeup support in\nQEMU.  You should check QMP command `query-current-machine` returns\nwakeup-suspend-support: true before issuing this command.  Failure\nin doing so can result in a suspended guest that QEMU will not be\nable to awaken, forcing the user to power cycle the guest to bring\nit back.\n\nThis command does NOT return a response on success.  There are two\noptions to check for success:\n\n1. Wait for the `SUSPEND` QMP event from QEMU\n2. Issue the `query-status` QMP command to confirm the VM status is\n   \"suspended\"\n\nErrors:\n    - If suspend to ram is not supported, Unsupported\n\n.. note:: It's strongly recommended to issue the `guest-sync`\n   command before sending commands when the guest resumes.", category: "guest" },
+    CommandMeta { wire_name: "guest-sync", rust_name: "GuestSync", args: &STRUCT_GuestSync, returns: Some(20), allow_oob: false, allow_preconfig: false, success_response: true, since: (0u32, 15u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Echo back a unique integer value\n\nThis is used by clients talking to the guest agent over the wire to\nensure the stream is in sync and doesn't contain stale data from\nprevious client.  All guest agent responses should be ignored until\nthe provided unique integer value is returned, and it is up to the\nclient to handle stale whole or partially-delivered JSON text in\nsuch a way that this response can be obtained.\n\nIn cases where a partial stale response was previously received by\nthe client, this cannot always be done reliably.  One particular\nscenario being if qemu-ga responses are fed character-by-character\ninto a JSON parser.  In these situations, using\n`guest-sync-delimited` may be optimal.\n\nFor clients that fetch responses line by line and convert them to\nJSON objects, `guest-sync` should be sufficient, but note that in\ncases where the channel is dirty some attempts at parsing the\nresponse may result in a parser error.\n\nSuch clients should also precede this command with a 0xFF byte to\nmake sure the guest agent flushes any partially read JSON data from\na previous session.\n\nReturns: The unique integer id passed in by the client", category: "guest" },
+    CommandMeta { wire_name: "guest-sync-delimited", rust_name: "GuestSyncDelimited", args: &STRUCT_GuestSyncDelimited, returns: Some(20), allow_oob: false, allow_preconfig: false, success_response: true, since: (1u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Echo back a unique integer value, and prepend to response a leading\nsentinel byte (0xFF) the client can check scan for.\n\nThis is used by clients talking to the guest agent over the wire to\nensure the stream is in sync and doesn't contain stale data from\nprevious client.  It must be issued upon initial connection, and\nafter any client-side timeouts (including timeouts on receiving a\nresponse to this command).\n\nAfter issuing this request, all guest agent responses should be\nignored until the response containing the unique integer value the\nclient passed in is returned.  Receival of the 0xFF sentinel byte\nmust be handled as an indication that the client's\nlexer/tokenizer/parser state should be flushed/reset in preparation\nfor reliably receiving the subsequent response.  As an optimization,\nclients may opt to ignore all data until a sentinel value is\nreceiving to avoid unnecessary processing of stale data.\n\nSimilarly, clients should also precede this *request* with a 0xFF\nbyte to make sure the guest agent flushes any partially read JSON\ndata from a previous client connection.\n\nReturns: The unique integer id passed in by the client", category: "guest" },
 ];
 
 pub static STRUCTS: phf::Map<&'static str, &'static StructMeta> = phf_map! {

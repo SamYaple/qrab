@@ -346,13 +346,7 @@ async fn execute(qga: &mut Qga, op: AgentOp, limit: Duration) -> std::result::Re
         AgentOp::FreezeStatus(reply) => {
             let read = timeout(limit, qga.execute(&GuestFsfreezeStatusCommand {})).await;
             let result = expire(qga, read);
-            finish(
-                reply,
-                result.map(|state| match state {
-                    GuestFsfreezeStatus::Frozen => FreezeState::Frozen,
-                    GuestFsfreezeStatus::Thawed => FreezeState::Thawed,
-                }),
-            )
+            finish(reply, result.and_then(freeze_state))
         }
         AgentOp::Freeze(Some(mountpoints), reply) => {
             let command = GuestFsfreezeFreezeList {
@@ -372,12 +366,24 @@ async fn execute(qga: &mut Qga, op: AgentOp, limit: Duration) -> std::result::Re
     }
 }
 
+fn freeze_state(state: GuestFsfreezeStatus) -> qapi_protocol::Result<FreezeState> {
+    match state {
+        GuestFsfreezeStatus::Frozen => Ok(FreezeState::Frozen),
+        GuestFsfreezeStatus::Thawed => Ok(FreezeState::Thawed),
+        GuestFsfreezeStatus::Error => Err(qapi_protocol::Error::InvalidRequest(
+            "guest reported a filesystem freeze error".into(),
+        )),
+    }
+}
+
 /// Deliver a native graceful reboot request. The protocol has no success
 /// response; completion is established only by later guest/QMP observations.
 async fn reboot(qga: &mut Qga) -> qapi_protocol::Result<()> {
     let info = qga.execute(&GuestInfo {}).await?;
     if !info
         .supported_commands
+        .as_deref()
+        .unwrap_or(&[])
         .iter()
         .any(|command| command.name == "guest-shutdown" && command.enabled)
     {
@@ -385,10 +391,7 @@ async fn reboot(qga: &mut Qga) -> qapi_protocol::Result<()> {
             "guest-shutdown is unavailable".into(),
         ));
     }
-    if matches!(
-        qga.execute(&GuestFsfreezeStatusCommand {}).await?,
-        GuestFsfreezeStatus::Frozen
-    ) {
+    if freeze_state(qga.execute(&GuestFsfreezeStatusCommand {}).await?)? == FreezeState::Frozen {
         return Err(qapi_protocol::Error::InvalidRequest(
             "guest filesystems are frozen".into(),
         ));
@@ -694,8 +697,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn graceful_reboot_is_not_sent_when_disabled_or_frozen() {
-        for enabled in [false, true] {
+    async fn graceful_reboot_is_not_sent_when_disabled_frozen_or_freeze_status_errors() {
+        for (enabled, state) in [(false, "thawed"), (true, "frozen"), (true, "error")] {
             let (host, guest) = tokio::net::UnixStream::pair().unwrap();
             let server = tokio::spawn(async move {
                 let mut session = QgaSession::from_stream(guest);
@@ -717,7 +720,7 @@ mod tests {
                         session.recv_command().await.unwrap().0,
                         "guest-fsfreeze-status"
                     );
-                    session.send_return(json!("frozen")).await.unwrap();
+                    session.send_return(json!(state)).await.unwrap();
                 }
                 // A successful subsequent ping proves no response-less reboot
                 // was dispatched and the preflight failure kept framing intact.

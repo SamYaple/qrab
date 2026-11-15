@@ -3815,28 +3815,16 @@ static ENUM_BlockdevQcowEncryptionFormat: EnumMeta = EnumMeta {
     until: None,
 };
 static VARIANTS_BlockdevRef: &[EnumVariantMeta] = &[
-    EnumVariantMeta { name: "Definition", wire_name: "definition", payload_struct: Some("BlockdevOptions"), since: (2u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "defines a new block device inline" },
-    EnumVariantMeta { name: "Reference", wire_name: "reference", payload_struct: None, since: (2u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "references the ID of an existing block device" },
+    EnumVariantMeta { name: "Definition", wire_name: "definition", payload_struct: Some("BlockdevOptions"), since: (1u32, 7u32, 0u32), until: None, deprecated: false, unstable: false, doc: "defines a new block device inline" },
+    EnumVariantMeta { name: "Reference", wire_name: "reference", payload_struct: None, since: (1u32, 7u32, 0u32), until: None, deprecated: false, unstable: false, doc: "references the ID of an existing block device" },
 ];
 static ENUM_BlockdevRef: EnumMeta = EnumMeta {
     name: "BlockdevRef",
     doc: "Reference to a block device.",
     variants: &VARIANTS_BlockdevRef,
     kind: EnumKind::Alternate,
-    since: (2u32, 4u32, 0u32),
-    until: None,
-};
-static VARIANTS_BlockdevRefBranch: &[EnumVariantMeta] = &[
-    EnumVariantMeta { name: "Definition", wire_name: "definition", payload_struct: Some("BlockdevOptions"), since: (1u32, 7u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
-    EnumVariantMeta { name: "Reference", wire_name: "reference", payload_struct: None, since: (1u32, 7u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
-];
-static ENUM_BlockdevRefBranch: EnumMeta = EnumMeta {
-    name: "BlockdevRefBranch",
-    doc: "",
-    variants: &VARIANTS_BlockdevRefBranch,
-    kind: EnumKind::Alternate,
     since: (1u32, 7u32, 0u32),
-    until: Some((2u32, 4u32, 0u32)),
+    until: None,
 };
 static VARIANTS_BlockdevRefOrNull: &[EnumVariantMeta] = &[
     EnumVariantMeta { name: "Definition", wire_name: "definition", payload_struct: Some("BlockdevOptions"), since: (2u32, 10u32, 0u32), until: None, deprecated: false, unstable: false, doc: "defines a new block device inline" },
@@ -3850,18 +3838,6 @@ static ENUM_BlockdevRefOrNull: EnumMeta = EnumMeta {
     kind: EnumKind::Alternate,
     since: (2u32, 10u32, 0u32),
     until: None,
-};
-static VARIANTS_BlockdevRefType: &[EnumVariantMeta] = &[
-    EnumVariantMeta { name: "Definition", wire_name: "definition", payload_struct: None, since: (1u32, 7u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
-    EnumVariantMeta { name: "Reference", wire_name: "reference", payload_struct: None, since: (1u32, 7u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
-];
-static ENUM_BlockdevRefType: EnumMeta = EnumMeta {
-    name: "BlockdevRefType",
-    doc: "",
-    variants: &VARIANTS_BlockdevRefType,
-    kind: EnumKind::Unit,
-    since: (1u32, 7u32, 0u32),
-    until: Some((2u32, 4u32, 0u32)),
 };
 static FIELDS_BlockdevRemoveMedium: &[FieldMeta] = &[
     FieldMeta { name: "id", wire_name: "id", ty: 4, optional: false, is_discriminator: false, recursive: false, since: (2u32, 12u32, 0u32), until: None, deprecated: false, unstable: false, doc: "The name or QOM path of the guest device" },
@@ -13825,40 +13801,16 @@ static ENUM_Qcow2OverlapCheckMode: EnumMeta = EnumMeta {
     until: None,
 };
 static VARIANTS_Qcow2OverlapChecks: &[EnumVariantMeta] = &[
-    EnumVariantMeta { name: "Flags", wire_name: "flags", payload_struct: Some("Qcow2OverlapCheckFlags"), since: (2u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "set of flags for separate specification of each metadata\nstructure type" },
-    EnumVariantMeta { name: "Mode", wire_name: "mode", payload_struct: Some("Qcow2OverlapCheckMode"), since: (2u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "named mode which chooses a specific set of flags" },
+    EnumVariantMeta { name: "Flags", wire_name: "flags", payload_struct: Some("Qcow2OverlapCheckFlags"), since: (2u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "set of flags for separate specification of each metadata\nstructure type" },
+    EnumVariantMeta { name: "Mode", wire_name: "mode", payload_struct: Some("Qcow2OverlapCheckMode"), since: (2u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "named mode which chooses a specific set of flags" },
 ];
 static ENUM_Qcow2OverlapChecks: EnumMeta = EnumMeta {
     name: "Qcow2OverlapChecks",
     doc: "Specifies which metadata structures should be guarded against\nunintended overwriting.",
     variants: &VARIANTS_Qcow2OverlapChecks,
     kind: EnumKind::Alternate,
-    since: (2u32, 4u32, 0u32),
+    since: (2u32, 2u32, 0u32),
     until: None,
-};
-static VARIANTS_Qcow2OverlapChecksBranch: &[EnumVariantMeta] = &[
-    EnumVariantMeta { name: "Flags", wire_name: "flags", payload_struct: Some("Qcow2OverlapCheckFlags"), since: (2u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
-    EnumVariantMeta { name: "Mode", wire_name: "mode", payload_struct: Some("Qcow2OverlapCheckMode"), since: (2u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
-];
-static ENUM_Qcow2OverlapChecksBranch: EnumMeta = EnumMeta {
-    name: "Qcow2OverlapChecksBranch",
-    doc: "",
-    variants: &VARIANTS_Qcow2OverlapChecksBranch,
-    kind: EnumKind::Alternate,
-    since: (2u32, 2u32, 0u32),
-    until: Some((2u32, 4u32, 0u32)),
-};
-static VARIANTS_Qcow2OverlapChecksType: &[EnumVariantMeta] = &[
-    EnumVariantMeta { name: "Flags", wire_name: "flags", payload_struct: None, since: (2u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
-    EnumVariantMeta { name: "Mode", wire_name: "mode", payload_struct: None, since: (2u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
-];
-static ENUM_Qcow2OverlapChecksType: EnumMeta = EnumMeta {
-    name: "Qcow2OverlapChecksType",
-    doc: "",
-    variants: &VARIANTS_Qcow2OverlapChecksType,
-    kind: EnumKind::Unit,
-    since: (2u32, 2u32, 0u32),
-    until: Some((2u32, 4u32, 0u32)),
 };
 static VARIANTS_QCryptoAkCipherAlgo: &[EnumVariantMeta] = &[
     EnumVariantMeta { name: "Rsa", wire_name: "rsa", payload_struct: None, since: (9u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "RSA algorithm" },
@@ -22050,9 +22002,7 @@ pub static ENUMS: phf::Map<&'static str, &'static EnumMeta> = phf_map! {
     "BlockdevQcowEncryptionBranch" => &ENUM_BlockdevQcowEncryptionBranch,
     "BlockdevQcowEncryptionFormat" => &ENUM_BlockdevQcowEncryptionFormat,
     "BlockdevRef" => &ENUM_BlockdevRef,
-    "BlockdevRefBranch" => &ENUM_BlockdevRefBranch,
     "BlockdevRefOrNull" => &ENUM_BlockdevRefOrNull,
-    "BlockdevRefType" => &ENUM_BlockdevRefType,
     "BlockdevVhdxSubformat" => &ENUM_BlockdevVhdxSubformat,
     "BlockdevVmdkAdapterType" => &ENUM_BlockdevVmdkAdapterType,
     "BlockdevVmdkSubformat" => &ENUM_BlockdevVmdkSubformat,
@@ -22217,8 +22167,6 @@ pub static ENUMS: phf::Map<&'static str, &'static EnumMeta> = phf_map! {
     "Qcow2CompressionType" => &ENUM_Qcow2CompressionType,
     "Qcow2OverlapCheckMode" => &ENUM_Qcow2OverlapCheckMode,
     "Qcow2OverlapChecks" => &ENUM_Qcow2OverlapChecks,
-    "Qcow2OverlapChecksBranch" => &ENUM_Qcow2OverlapChecksBranch,
-    "Qcow2OverlapChecksType" => &ENUM_Qcow2OverlapChecksType,
     "QmpCapability" => &ENUM_QmpCapability,
     "QuorumOpType" => &ENUM_QuorumOpType,
     "QuorumReadPattern" => &ENUM_QuorumReadPattern,

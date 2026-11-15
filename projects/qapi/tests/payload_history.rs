@@ -116,3 +116,14 @@ fn generated_enum_wire_renames_preserve_historical_spellings() {
         assert_eq!(qapi::to_value(version, &event).unwrap(), value);
     }
 }
+
+#[test]
+fn legacy_empty_discriminator_alternates_use_bare_values_at_their_original_versions() {
+    let reference = qapi::BlockdevRef::Reference("node0".into());
+    assert_eq!(
+        qapi::to_value((1, 7, 0), &reference).unwrap(),
+        json!("node0")
+    );
+    let mode = qapi::Qcow2OverlapChecks::Mode(qapi::Qcow2OverlapCheckMode::Cached);
+    assert_eq!(qapi::to_value((2, 2, 0), &mode).unwrap(), json!("cached"));
+}

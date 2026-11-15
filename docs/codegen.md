@@ -11,7 +11,8 @@ introductions, removals, flags and fields. QMP and QGA use the same pipeline.
 <https://gitea.yapplesauce.com/mirrors/qemu.git>.
 
 `projects/qapi-codegen/qemu-versions.lock` pins every selected stable release
-from v1.0 through v11.1.3 by tag and peeled commit. The generator checks all
+from v0.15.0 through v11.1.3 by tag and peeled commit. QGA input starts at
+0.15; QMP has no schema before 1.0. The generator checks all
 pins before parsing. Extra local tags and release candidates cannot alter the
 default output. Missing or moved pins fail generation. QEMU source and tag
 fetches use this local Gitea repository exclusively; do not fetch directly from
@@ -36,7 +37,7 @@ of every release.
 
 Older QEMU is **untested, not unsupported** below this matrix. Historical
 schemas remain generation inputs and regression fixtures back to QEMU 1.0,
-where the QMP schema first appears. Keep version-specific grammar where the
+where the QMP schema first appears, and QGA 0.15. Keep version-specific grammar where the
 language changed, and accept explicit older input sets through the library or
 `--versions-file`; do not add a minimum-version rejection to the parser.
 
@@ -83,9 +84,11 @@ Derived structs resolve bases independently of definition and include order;
 missing bases, inheritance cycles and conflicting Rust type names fail with
 schema context.
 
-QGA releases predating a guest-agent schema are allowed to have no QGA input.
-A present schema that fails parsing or IR processing is an error, never a
-skipped release. Duplicate emitted Rust names and invalid generated Rust also
+A missing QMP schema is allowed only before 1.0, and a missing QGA schema only
+before 0.15. These exceptions reflect source availability, not minimum supported
+peer versions. Present schemas that fail parsing or IR processing are errors,
+never skipped releases. Early guest-agent `qapi-schema-guest.json` files are
+extracted alongside the later `qga/qapi-schema.json` layout. Duplicate emitted Rust names and invalid generated Rust also
 fail generation. Historical documentation-name warnings are listed in
 `projects/qapi-codegen/KNOWN_ISSUES.md`.
 
@@ -154,3 +157,8 @@ the configured maximum, or the newest pinned shape without a maximum.
 `contrib/check-qapi.sh` compiles all maintained release series and restores an
 unbounded development build afterwards. Recursive-type analysis ignores `Vec`
 and existing `Box` indirections, which already make recursive values sized.
+
+The historical `union` form with an empty discriminator dictionary is an
+untagged alternate, not a simple tagged union. It lowers to the same bare-value
+Rust enum as modern `alternate` syntax, preserving the original introduction
+version and feature metadata.

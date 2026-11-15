@@ -300,14 +300,16 @@ impl Agent {
         let hook = self.updater.hook_ready().is_ok();
         GuestAgentInfo {
             version: proto::AGENT_VERSION.into(),
-            supported_commands: COMMANDS
-                .iter()
-                .map(|spec| GuestAgentCommandInfo {
-                    name: spec.name.into(),
-                    enabled: self.disabled_reason(spec, frozen, hook).is_none(),
-                    success_response: Some(spec.success_response),
-                })
-                .collect(),
+            supported_commands: Some(
+                COMMANDS
+                    .iter()
+                    .map(|spec| GuestAgentCommandInfo {
+                        name: spec.name.into(),
+                        enabled: self.disabled_reason(spec, frozen, hook).is_none(),
+                        success_response: Some(spec.success_response),
+                    })
+                    .collect(),
+            ),
         }
     }
 

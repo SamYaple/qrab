@@ -3,7 +3,7 @@ use crate as qapi;
 use qapi_macros::qapi;
 use std::collections::HashMap;
 /// Information about guest agent commands.
-#[qapi(added = "1.4.0")]
+#[qapi(added = "1.1.0")]
 pub struct GuestAgentCommandInfo {
     /// whether command is currently enabled by guest admin
     pub enabled: bool,
@@ -18,10 +18,12 @@ pub struct GuestAgentCommandInfo {
 }
 
 /// Information about guest agent.
-#[qapi(added = "1.4.0")]
+#[qapi(added = "0.15.0")]
 pub struct GuestAgentInfo {
     /// Information about guest agent commands
-    pub supported_commands: Vec<GuestAgentCommandInfo>,
+    #[qapi(added = "1.1.0")]
+    #[qapi(required)]
+    pub supported_commands: Option<Vec<GuestAgentCommandInfo>>,
     /// guest agent version
     pub version: String,
 }
@@ -482,7 +484,7 @@ pub struct GuestExecStatus {
 }
 
 /// Result of guest agent file-read operation
-#[qapi(added = "1.4.0")]
+#[qapi(added = "0.15.0")]
 pub struct GuestFileRead {
     /// base64-encoded bytes read
     #[qapi(name = "buf-b64")]
@@ -495,7 +497,7 @@ pub struct GuestFileRead {
 }
 
 /// Result of guest agent file-seek operation
-#[qapi(added = "1.4.0")]
+#[qapi(added = "0.15.0")]
 pub struct GuestFileSeek {
     /// whether EOF was encountered during file seek
     pub eof: bool,
@@ -566,7 +568,7 @@ pub enum GuestFileWhence {
 }
 
 /// Result of guest agent file-write operation
-#[qapi(added = "1.4.0")]
+#[qapi(added = "0.15.0")]
 pub struct GuestFileWrite {
     /// number of bytes written (note: count is actual bytes
     /// written, after base64-decoding of provided buffer)
@@ -577,8 +579,11 @@ pub struct GuestFileWrite {
 
 /// An enumeration of filesystem freeze states
 #[qapi(condition = "(CONFIG_WIN32 || CONFIG_FSFREEZE)")]
-#[qapi(added = "1.4.0")]
+#[qapi(added = "0.15.0")]
 pub enum GuestFsfreezeStatus {
+    #[qapi(name = "error")]
+    #[qapi(removed = "1.1.0")]
+    Error,
     /// all non-network guest filesystems frozen
     #[qapi(name = "frozen")]
     Frozen,
@@ -595,7 +600,7 @@ pub struct GuestHostName {
 }
 
 #[qapi(condition = "(CONFIG_WIN32 || HAVE_GETIFADDRS)")]
-#[qapi(added = "1.4.0")]
+#[qapi(added = "1.1.0")]
 pub struct GuestIpAddress {
     /// IP address
     #[qapi(name = "ip-address")]
@@ -609,7 +614,7 @@ pub struct GuestIpAddress {
 
 /// An enumeration of supported IP address types
 #[qapi(condition = "(CONFIG_WIN32 || HAVE_GETIFADDRS)")]
-#[qapi(added = "1.4.0")]
+#[qapi(added = "1.1.0")]
 pub enum GuestIpAddressType {
     /// IP version 4
     #[qapi(name = "ipv4")]
@@ -741,7 +746,7 @@ pub enum GuestMemoryBlockResponseType {
 }
 
 #[qapi(condition = "(CONFIG_WIN32 || HAVE_GETIFADDRS)")]
-#[qapi(added = "1.4.0")]
+#[qapi(added = "1.1.0")]
 pub struct GuestNetworkInterface {
     /// Hardware address of @name
     #[qapi(name = "hardware-address")]

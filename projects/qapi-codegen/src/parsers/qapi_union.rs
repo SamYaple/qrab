@@ -10,7 +10,6 @@ use nom::Parser;
 use nom::branch::alt;
 use nom::combinator::opt;
 use nom::error::{Error, ErrorKind};
-use nom::sequence::delimited;
 
 pub fn take_union(input: &str) -> IResult<&str, QapiUnion<'_>> {
     QapiUnion::parse(input)
@@ -21,8 +20,10 @@ pub struct QapiUnion<'i> {
     pub name: &'i str,
     pub data: QapiBranches<'i>,
     pub base: MembersOrRef<'i>,
-    /// None for simple unions (v1.x–v6.1.0)
+    /// Named for flat unions; absent for simple unions and legacy alternates.
     pub discriminator: Option<&'i str>,
+    /// An empty discriminator object denoted an untagged alternate.
+    pub legacy_alternate: bool,
     pub r#if: Option<QapiCond<'i>>,
     pub features: Option<QapiFeatures<'i>>,
     pub doc: Option<QapiDocumentation<'i>>,
@@ -51,12 +52,8 @@ impl<'i> QapiUnion<'i> {
         let (input, _) = take_dict(alt((
             take_kv("union", qstring).map(|v| s.name = v),
             take_kv("data", take_branches).map(|v| s.data = v),
-            // 'discriminator': {} — alternate syntax (treated as no discriminator)
-            take_kv(
-                "discriminator",
-                delimited(qtag("{"), opt(qstring), qtag("}")),
-            )
-            .map(|_| ()),
+            // Historical untagged alternate syntax.
+            take_kv("discriminator", (qtag("{"), qtag("}"))).map(|_| s.legacy_alternate = true),
             take_cond.map(|v| s.r#if = Some(v)),
             take_features.map(|v| s.features = Some(v)),
             take_kv("base", take_members_or_ref).map(|v| s.base = v),
@@ -64,6 +61,9 @@ impl<'i> QapiUnion<'i> {
         .parse(input)?;
         if s.name.is_empty() || s.data.is_empty() {
             return Err(nom::Err::Error(Error::new(start, ErrorKind::Tag)));
+        }
+        if s.legacy_alternate && s.base != MembersOrRef::Unset {
+            return Err(nom::Err::Error(Error::new(start, ErrorKind::Verify)));
         }
         // v1: simple unions are valid without discriminator/base
         Ok((input, s))
@@ -85,12 +85,8 @@ impl<'i> QapiUnion<'i> {
                 s.data = v;
             }),
             take_kv("discriminator", qstring).map(|v| s.discriminator = Some(v)),
-            // 'discriminator': {} — alternate syntax (v1.7.0–v2.0.0), treated as no discriminator
-            take_kv(
-                "discriminator",
-                delimited(qtag("{"), opt(qstring), qtag("}")),
-            )
-            .map(|_| ()),
+            // Historical untagged alternate syntax.
+            take_kv("discriminator", (qtag("{"), qtag("}"))).map(|_| s.legacy_alternate = true),
             take_cond.map(|v| s.r#if = Some(v)),
             take_features.map(|v| s.features = Some(v)),
             take_kv("base", take_members_or_ref).map(|v| s.base = v),
@@ -98,6 +94,9 @@ impl<'i> QapiUnion<'i> {
         .parse(input)?;
         if s.name.is_empty() || !has_data || (s.discriminator.is_none() && s.data.is_empty()) {
             return Err(nom::Err::Error(Error::new(start, ErrorKind::Tag)));
+        }
+        if s.legacy_alternate && s.base != MembersOrRef::Unset {
+            return Err(nom::Err::Error(Error::new(start, ErrorKind::Verify)));
         }
         // v2: both simple (no discriminator) and flat (with discriminator) are valid
         Ok((input, s))
@@ -155,6 +154,26 @@ mod tests {
     }
 
     #[test]
+    fn empty_discriminator_is_distinct_from_simple_union_and_rejects_nonempty_objects() {
+        set_parser_version((1, 7, 0));
+        let (_, alternate) = QapiUnion::parse(
+            "{ 'union': 'Ref', 'discriminator': {}, 'data': {'reference':'str'} }",
+        )
+        .unwrap();
+        assert!(alternate.legacy_alternate);
+        let (_, tagged) =
+            QapiUnion::parse("{ 'union': 'Ref', 'data': {'reference':'str'} }").unwrap();
+        assert!(!tagged.legacy_alternate);
+        assert!(
+            QapiUnion::parse(
+                "{ 'union': 'Ref', 'discriminator': {'ignored'}, 'data': {'reference':'str'} }"
+            )
+            .is_err()
+        );
+        assert!(QapiUnion::parse("{ 'union': 'Ref', 'discriminator': {}, 'base': 'Base', 'data': {'reference':'str'} }").is_err());
+    }
+
+    #[test]
     fn test_flat_union_v3() {
         set_parser_version((10, 2, 0));
         let input = "{'union':'SOMENAME', 'discriminator': 'testdiscrim', 'base': 'testbase', 'data':{'branchname':'branchtype'}}";
@@ -191,6 +210,7 @@ mod tests {
         assert_eq!(rem, "");
         assert_eq!(u.name, "BlockdevRef");
         assert!(u.discriminator.is_none());
+        assert!(u.legacy_alternate);
     }
 
     #[test]
