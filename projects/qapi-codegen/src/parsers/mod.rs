@@ -30,6 +30,7 @@ thread_local! {
 
 /// Set the QEMU schema version for parser dispatch.
 /// Each parser's `parse()` uses this to select the correct versioned parser.
+/// Prefer [`with_parser_version`] for operations that should restore the caller's grammar.
 pub fn set_parser_version(v: (u32, u32, u32)) {
     PARSER_VERSION.with(|c| c.set(v));
 }
@@ -37,6 +38,20 @@ pub fn set_parser_version(v: (u32, u32, u32)) {
 /// Get the current QEMU schema version for parser dispatch.
 pub fn parser_version() -> (u32, u32, u32) {
     PARSER_VERSION.with(|c| c.get())
+}
+
+/// Scope synchronous parsing and lowering to one schema version.
+/// Nested calls restore the previous grammar, including on unwind.
+pub fn with_parser_version<T>(version: (u32, u32, u32), f: impl FnOnce() -> T) -> T {
+    struct Restore((u32, u32, u32));
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            set_parser_version(self.0);
+        }
+    }
+    let _restore = Restore(parser_version());
+    set_parser_version(version);
+    f()
 }
 
 /// Generates Deref, DerefMut, and IntoIterator impls for a Vec newtype.

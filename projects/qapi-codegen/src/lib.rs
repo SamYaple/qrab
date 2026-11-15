@@ -39,7 +39,7 @@ pub use parsers::{
     qapi_type_ref::{QapiTypeRef, take_type_ref},
     qapi_union::{QapiUnion, take_union},
     qapi_variant::{QapiVariant, take_variant},
-    set_parser_version,
+    set_parser_version, with_parser_version,
 };
 
 pub use parsers::common::QapiString;
@@ -49,7 +49,12 @@ use anyhow::{Context, Result};
 use nom::{Parser, combinator::all_consuming};
 use std::path::{Path, PathBuf};
 
-/// Parse a single schema file's content into tokens.
+/// Parse one file with an explicit grammar, restoring the caller's parser version.
+pub fn parse_schema_with_version(input: &str, version: (u32, u32, u32)) -> Result<QapiSchema<'_>> {
+    with_parser_version(version, || parse_schema(input))
+}
+
+/// Parse one schema file using the current [`parser_version`].
 pub fn parse_schema(input: &str) -> Result<QapiSchema<'_>> {
     let (_, schema) = all_consuming(take_schema)
         .parse(input)
