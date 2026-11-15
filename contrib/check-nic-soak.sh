@@ -51,14 +51,15 @@ grep -q 'PASS: tap NIC live migration' "$work/migration.log" || fail "the migrat
 address=$(sed -n 's/.*guest \(10\.[0-9.]*\), boot.*/\1/p' "$work/migration.log" | head -1)
 pool="qrab-nic-${address//./-}"
 log "auditing what $vm ($address) left behind"
-kubectl get ciliumpodippool "$pool" >/dev/null 2>&1 && fail "pool $pool remains"
-kubectl -n frr-k8s-system get frrconfiguration "$pool" >/dev/null 2>&1 && fail "route $pool remains"
-[ -z "$(kubectl -n "$ns" get pods -l "app.kubernetes.io/instance=$vm" -o name)" ] || fail "Pods of $vm remain"
-kubectl -n "$ns" get ciliumendpoints -o name | grep -q "/$vm" && fail "CiliumEndpoints of $vm remain"
+# Retirement and the forward-route sweep each wait 20 s: allow two minutes.
+wait_for 120 "pool $pool to go" sh -c "! kubectl get ciliumpodippool $pool"
+wait_for 120 "route $pool to go" sh -c "! kubectl -n frr-k8s-system get frrconfiguration $pool"
+wait_for 120 "Pods of $vm to go" sh -c "[ -z \"\$(kubectl -n $ns get pods -l app.kubernetes.io/instance=$vm -o name)\" ]"
+wait_for 120 "CiliumEndpoints of $vm to go" sh -c "! kubectl -n $ns get ciliumendpoints -o name | grep -q /$vm"
 for n in kube01 kube02 kube03; do
-  kubectl get ciliumnode "$n" -o jsonpath='{.spec.ipam.pools.requested[*].pool}' | tr ' ' '\n' | grep -qx "$pool" \
-    && fail "CiliumNode $n still requests $pool"
-  node_ip_routes "$n" | grep -q "^$address " && fail "$n still forwards $address"
+  wait_for 120 "CiliumNode $n to drop $pool" sh -c "! kubectl get ciliumnode $n -o jsonpath='{.spec.ipam.pools.requested[*].pool}' | tr ' ' '\\n' | grep -qx $pool"
+  for _ in $(seq 1 120); do node_ip_routes "$n" | grep -q "^$address " || break; sleep 1; done
+  node_ip_routes "$n" | grep -q "^$address " && fail "$n still forwards $address after two minutes"
 done
 summary+=("$moves migrations passed; no pool, route, Pod, endpoint, CiliumNode entry or forward route left")
 summary+=("$(grep -c '^  move ' "$work/migration.log" || true) per-move lines:")
