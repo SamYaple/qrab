@@ -430,9 +430,15 @@ fn read_reply(stream: &UnixStream) -> io::Result<Reply> {
     Ok(reply)
 }
 
+/// How long a manager waits for a `ct-pull`: below the managers' 10 s
+/// switchover timeout, so the target always answers the source (if only
+/// with a failure) before the source stops waiting. A late answer would be
+/// read as the reply to the next switchover request.
+pub const PULL_DEADLINE: Duration = Duration::from_secs(8);
+
 /// Have this node's agent pull the NIC's conntrack entries from the other
-/// node holding its address and import them (the target manager's side).
-/// Returns how many were written.
+/// node holding its address and import them (the target manager's side),
+/// within [`PULL_DEADLINE`]. Returns how many were written.
 pub fn conntrack_pull(socket: &Path, nic: &str) -> io::Result<usize> {
     let request = Request {
         nic: nic.to_owned(),
@@ -440,7 +446,7 @@ pub fn conntrack_pull(socket: &Path, nic: &str) -> io::Result<usize> {
         op: Op::CtPull,
         via: None,
     };
-    read_reply(&connect(socket, &request, Duration::from_secs(20))?)?
+    read_reply(&connect(socket, &request, PULL_DEADLINE)?)?
         .imported
         .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "the reply names no count"))
 }

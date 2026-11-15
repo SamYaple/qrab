@@ -42,6 +42,9 @@ const FRAME_TIMEOUT: Duration = Duration::from_secs(10);
 const READY_TIMEOUT: Duration = Duration::from_secs(120);
 /// Each switchover exchange; the guest is paused meanwhile.
 const SWITCH_TIMEOUT: Duration = Duration::from_secs(10);
+// The target answers a conntrack request within its pull deadline, so its
+// reply never arrives after the source stopped waiting for it.
+const _: () = assert!(qrab_netd::wire::PULL_DEADLINE.as_secs() < SWITCH_TIMEOUT.as_secs());
 /// QEMU's own throttle, in bytes per second.
 const MAX_BANDWIDTH: u64 = 1 << 30;
 /// The refusal of a source whose QEMU is powered off. A target that receives
