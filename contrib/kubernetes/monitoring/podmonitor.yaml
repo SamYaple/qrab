@@ -5,6 +5,7 @@ apiVersion: monitoring.coreos.com/v1
 kind: PodMonitor
 metadata:
   name: qrab-vm-redfish
+  namespace: qrab
   labels:
     app.kubernetes.io/name: qrab
     app.kubernetes.io/component: monitoring
