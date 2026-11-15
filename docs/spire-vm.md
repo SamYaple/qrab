@@ -4,7 +4,11 @@ qrab boots VMs through OVMF and a UEFI boot medium and exposes a swtpm-backed
 TPM 2.0 device to Linux. The VM's retained state volume holds its firmware
 variables and TPM state. This prepares the guest for TPM-based SPIRE enrollment;
 the minimal operator does not provision a CA, issue DevID certificates or install
-a guest SPIRE agent. Guest networking remains disabled.
+a guest SPIRE agent. Guest NICs are optional; the bundled demo has none.
+This guest identity foundation is separate from the manager Pod's active
+SPIFFE identity for migration. See the
+[identity connection guide](connections/identity.md) for SVID delivery, exact
+peer matching, OIDC roles and the boundaries not enrolled by qrab.
 
 swtpm is a software TPM. Its identity depends on the protection of the hosting
 pod, hypervisor and state volume, consistent with the existing native deployment's
@@ -35,8 +39,9 @@ ls /sys/class/net
 ```
 
 Compare the EK marker across replacement pods using the same VM state PVC. It
-must remain unchanged; a fresh VM must have a different identity. The network
-listing should contain only `lo`. Keep the entire TPM state, not just the public
+must remain unchanged; a fresh VM must have a different identity. In the no-NIC
+demo the network listing should contain only `lo`; a configured guest NIC adds
+its own interfaces. Keep the entire TPM state, not just the public
 fingerprint. Clearing or replacing it invalidates TPM-bound credentials; copying
 it to another VM duplicates that identity.
 

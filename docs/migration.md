@@ -1,5 +1,11 @@
 # Live migration
 
+For the complete transport/identity picture, see the
+[migration sequence diagram](connections/data-paths.md#live-migration-three-cross-node-streams-not-one)
+and [connection inventory](connections.md#guest-network-and-migration-connections).
+The manager's migration and switchover connections use SPIFFE mTLS; netd's
+node-to-node conntrack exchange is a separate plain TCP connection on 7911.
+
 A running VM moves to another node without a reboot. The guest's memory,
 devices, TPM state and UEFI variables travel in QEMU's migration stream over a
 SPIFFE mTLS tunnel between the two managers of the same VM. Disks are shared
@@ -25,6 +31,9 @@ Design and work items: towl
   lifetime. Outside a migration a VM has one Pod, so nothing can use the port.
 - The target's hello names the VM (`state_id`) and the migration UID; the source
   refuses another VM, a protocol mismatch, local disks and hot-plugged growth.
+  The main hello's migration UID is logged, not checked against an independently
+  operator-authorized expected UID. Per-VM SVID registration and the temporary
+  source/target policy provide the authorization boundary.
 
 ## Moving a VM
 
@@ -112,10 +121,11 @@ else `spec.storageNode`).
    target node's InternalIP), the source enables `pause-before-switchover`,
    and at `pre-switchover` it switches the NICs over (forward route, target
    `activate` over a second hello on channel `switchover`, source `standby`)
-   before `migrate-continue`, undoing them on failure. Before `migrate` and
-   again after `completed` it sends `Conntrack { nic }` on that channel: the
-   target's qrab-netd then pulls the NIC's conntrack entries from the source
-   node's qrab-netd, node to node, and the managers never carry them
+   before `migrate-continue`, undoing them on failure. Before connecting QEMU's
+   incoming socket the target manager asks its local qrab-netd for a conntrack
+   precopy. After `completed` the source sends `Conntrack { nic }` on the
+   switchover channel for a delta pull. The target's qrab-netd pulls entries
+   from the source node's qrab-netd over TCP 7911; the managers never carry them
    ([networking.md](networking.md#live-migration)).
 4. Both managers poll `query-migrate` every 250 ms (20 ms with NICs, since the
    pre-switchover wait is guest downtime) and keep publishing status,

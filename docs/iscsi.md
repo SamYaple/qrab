@@ -4,7 +4,12 @@ QEMU connects directly to an iSCSI target through libiscsi and presents the LUN
 as a virtio disk. There is no kernel initiator, block PVC, host filesystem or disk
 image file in this guest-disk path. The storage host exports an owned ZFS zvol
 through Linux LIO. The small filesystem PVC for TPM/UEFI state stays separate.
-Guest NICs remain disabled; only the QEMU Pod connects to the storage endpoint.
+Only QEMU in the VM Pod connects to the storage endpoint; optional guest NICs
+use separate anchor Pods. The data path is plain iSCSI with CHAP authentication,
+which does not encrypt block traffic. The storage provisioning API's TLS and
+SPIFFE exchange are separate connections. See the
+[storage diagram](connections/data-paths.md#storage-identity-exchange-and-data-io-are-different-paths)
+and [connection inventory](connections.md#storage-firmware-and-local-device-connections).
 
 ## VM configuration
 

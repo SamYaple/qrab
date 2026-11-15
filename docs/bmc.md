@@ -1,5 +1,10 @@
 # Per-VM BMC
 
+The [connection atlas](connections.md#management-and-console-connections) and
+[OIDC sequence diagram](connections/identity.md#oidc-browser-login-and-downstream-user-tokens)
+show public TLS termination, dashboard/BMC forwarding, user credentials and the
+local VNC/control channels hop by hop.
+
 `qrab-bmc` serves one VM's browser console. Operator Pods run it as an optional
 sidecar, `qrab-bmc --socket /run/qrab-control/manager/control.sock`, next to the
 `qrab-manager` container that owns the VM ([operator.md](operator.md#components)).

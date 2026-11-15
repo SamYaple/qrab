@@ -1,5 +1,12 @@
 # Redfish sidecar
 
+See the [connection atlas](connections.md#management-and-console-connections)
+for HTTP versus optional SPIFFE mTLS, the native ingress versus browser bridges,
+and [observability streams](connections.md#platform-control-and-observability-connections)
+for metrics, SSE and HTTPS push delivery. The
+[identity guide](connections/identity.md) distinguishes user roles from workload
+transport admission.
+
 `qrab-redfish` is an optional sidecar that serves a native DMTF Redfish API for
 one VM. It reaches the VM only through the manager's control socket
 ([manager.md](manager.md#control-api)); it never sees QMP, VNC, the manager's

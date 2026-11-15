@@ -1,5 +1,11 @@
 # Guest networking
 
+The [connection atlas](connections.md#guest-network-and-migration-connections)
+records each transport's encryption and authentication. See its
+[TAP/VPN diagrams](connections/data-paths.md#guest-nic-how-tun-access-reaches-qemu)
+and [capture guide](connections/capture.md) for descriptor handoff versus packet
+traffic, anchor namespaces and the separate node conntrack stream.
+
 A VM has no network interface unless `spec.nics` names one. Each guest NIC is
 a kernel tap with vhost-net in its own restricted **anchor Pod**,
 `<vm>-nic-<name>-<node>`, on the VM Pod's node. The anchor's IP is the NIC's stable

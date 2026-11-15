@@ -23,6 +23,8 @@ no guest NIC. `qrab-manager` also remains available as a standalone supervisor.
 | `qrab-guest-agent` | Static in-guest QGA daemon with a fixed command allowlist |
 | `qrab-kvm-device-plugin` | `/dev/kvm` device plugin for KVM-accelerated VMs |
 | `qrab-spiffe` | SPIFFE X509-SVID mutual TLS (migration tunnel, Redfish workload admission) |
+| `qrab-netd` | Per-node TAP/vhost descriptor grants, VPN anchors and NIC handoff |
+| `qrab-proton` | Workstation ProtonVPN login and Kubernetes VPN-profile broker |
 | `qapi-codegen` | Explicit schema parsing and generation tool |
 
 ## Development
@@ -44,6 +46,10 @@ The QEMU image is built from **11.1.3**, pinned in `vendor/qemu` from our
 See [manager.md](docs/manager.md) for the runtime images, strict VM config,
 probes and shutdown behavior. Published digests and their source revision are
 recorded in [images.lock.json](contrib/images/images.lock.json).
+
+See the [connection atlas](docs/connections.md) for the complete stream inventory,
+transport/encryption status, SPIFFE/SPIRE and OIDC boundaries, diagrams and
+capture points across VM, network, storage and management paths.
 
 See [iscsi.md](docs/iscsi.md) for native network disks, fencing and retained-data
 cleanup, and [migration.md](docs/migration.md) for live migration.

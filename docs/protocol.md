@@ -1,5 +1,10 @@
 # Protocol clients
 
+See [QAPI access in the connection atlas](connections.md#what-qapi-access-means)
+for the private QMP/QGA socket boundaries and their encryption/authentication
+status, and [local stream capture](connections/capture.md#local-channels-and-encrypted-traffic)
+for observation without taking over the manager's connection.
+
 `qapi-protocol` 0.2 targets the locally vendored QEMU **11.1.3** protocol. It
 provides Tokio Unix-socket QMP/QGA clients and bounded mock sessions without
 depending on manager, systemd, Kubernetes or guest hardware. Older-release

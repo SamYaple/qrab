@@ -1,5 +1,10 @@
 # VM dashboard
 
+See the [connection atlas](connections.md) and
+[OIDC forwarding diagram](connections/identity.md#oidc-browser-login-and-downstream-user-tokens)
+for transport encryption, user-token forwarding to VM Pods and the separate
+Kubernetes and Kanidm service-account connections.
+
 `qrab-dashboard` (`projects/dashboard`) is the web entry point for qrab VMs at
 **https://vms.yapplesauce.com**. Signed-in users see the VMs shared with them,
 with their size, disks and live usage, and open a VM's status, guest agent,
