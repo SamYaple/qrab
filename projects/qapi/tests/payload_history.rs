@@ -2,6 +2,67 @@
 use serde_json::json;
 
 #[qapi::qapi]
+enum NumericChoice {
+    Floating(f64),
+    #[qapi(removed = "2.10.0")]
+    Integer(i8),
+}
+
+#[qapi::qapi(union_branch)]
+enum UniqueBranches {
+    #[qapi(name = "new", added = "10.2.0")]
+    New(After),
+    #[qapi(name = "old", removed = "11.0.0")]
+    Old,
+}
+
+#[test]
+fn scoped_union_dispatch_checks_unique_branch_lifetimes() {
+    use qapi::QapiFlatUnion;
+    let payload: serde_json::Map<String, serde_json::Value> =
+        serde_json::from_value(json!({"new":"value"})).unwrap();
+    qapi::with_version((10, 1, 0), || {
+        assert!(UniqueBranches::deserialize_variant("new", payload.clone()).is_err());
+    });
+    qapi::with_version((10, 2, 0), || {
+        assert!(UniqueBranches::deserialize_variant("new", payload.clone()).is_ok());
+        assert!(UniqueBranches::deserialize_variant("old", Default::default()).is_ok());
+    });
+    qapi::with_version((11, 0, 0), || {
+        assert!(UniqueBranches::deserialize_variant("old", Default::default()).is_err());
+    });
+    assert!(UniqueBranches::deserialize_variant("new", payload).is_ok());
+    assert!(UniqueBranches::deserialize_variant("old", Default::default()).is_ok());
+}
+
+#[test]
+fn legacy_numeric_alternates_preserve_shape_and_reject_integer_range_errors() {
+    qapi::with_version((2, 9, 0), || {
+        for number in [-128, 0, 127] {
+            let value: NumericChoice = serde_json::from_value(json!(number)).unwrap();
+            assert!(matches!(value, NumericChoice::Integer(_)));
+            assert_eq!(serde_json::to_value(value).unwrap(), json!(number));
+        }
+        for number in [-129i64, 128, 9_007_199_254_740_993] {
+            assert!(serde_json::from_value::<NumericChoice>(json!(number)).is_err());
+        }
+        for number in [42.0, 42.5, -0.0] {
+            let value: NumericChoice = serde_json::from_value(json!(number)).unwrap();
+            assert!(matches!(value, NumericChoice::Floating(_)));
+            assert_eq!(serde_json::to_value(value).unwrap(), json!(number));
+        }
+    });
+    qapi::with_version((2, 10, 0), || {
+        for number in [42, 128] {
+            let value: NumericChoice = serde_json::from_value(json!(number)).unwrap();
+            assert!(matches!(value, NumericChoice::Floating(_)));
+        }
+    });
+    // With no asserted peer, recorded numeric values remain inspectable.
+    assert!(serde_json::from_value::<NumericChoice>(json!(128)).is_ok());
+}
+
+#[qapi::qapi]
 enum Kind {
     #[qapi(name = "value")]
     Value,

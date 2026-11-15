@@ -897,43 +897,47 @@ fn gen_alt_ser(name: &syn::Ident, variants: &[VariantInfo], ta: &TypeAttrs) -> T
     }
 }
 
-/// Classify a variant's inner type into a specificity bucket used to order
-/// alternate deserialization attempts. Lower numbers are tried first.
-///
-/// QAPI alternate types accept one of several shapes. Trying variants in
-/// declaration order is wrong when variants overlap (e.g. a struct with all
-/// optional fields would happily accept any object, including one intended
-/// for a later variant). We try the least ambiguous shapes first:
-///
-///   0: null-matching variants (unit enum variants, or tuples wrapping `()`)
-///   1: primitive JSON scalars (bool / number / string)
-///   2: JSON arrays (`Vec<_>`, `[_; N]`)
-///   3: everything else (object-like / unknown — highest ambiguity risk)
-fn alt_variant_priority(kind: &VariantKind) -> u8 {
+/// Try narrow JSON shapes before permissive payloads. Integers precede floats
+/// because serde accepts integer JSON as f64, losing precision for large values.
+/// Pre-2.10 QAPI alternates distinguish those two numeric branches.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum AlternateShape {
+    Null,
+    Integer,
+    Scalar,
+    Float,
+    Array,
+    Object,
+}
+
+fn alt_variant_priority(kind: &VariantKind) -> AlternateShape {
+    use AlternateShape::*;
     let ty = match kind {
-        VariantKind::Unit => return 0,
+        VariantKind::Unit => return Null,
         VariantKind::Tuple(ty) => ty.as_ref(),
     };
     match ty {
         // `Null(())` — empty tuple type, matches only JSON null
-        Type::Tuple(t) if t.elems.is_empty() => 0,
-        Type::Array(_) | Type::Slice(_) => 2,
+        Type::Tuple(t) if t.elems.is_empty() => Null,
+        Type::Array(_) | Type::Slice(_) => Array,
         Type::Path(tp) => {
             let name = match tp.path.segments.last() {
                 Some(seg) => seg.ident.to_string(),
-                None => return 3,
+                None => return Object,
             };
             match name.as_str() {
                 // Rust primitives that map to JSON scalars
-                "bool" | "char" | "String" | "str" | "i8" | "i16" | "i32" | "i64" | "i128"
-                | "isize" | "u8" | "u16" | "u32" | "u64" | "u128" | "usize" | "f32" | "f64" => 1,
+                "i8" | "i16" | "i32" | "i64" | "i128" | "isize" | "u8" | "u16" | "u32" | "u64"
+                | "u128" | "usize" => Integer,
+                "bool" | "char" | "String" | "str" => Scalar,
+                "f32" | "f64" => Float,
                 // Array-like
-                "Vec" => 2,
+                "Vec" => Array,
                 // Everything else is object-like (structs, tagged unions, …)
-                _ => 3,
+                _ => Object,
             }
         }
-        _ => 3,
+        _ => Object,
     }
 }
 
@@ -946,12 +950,25 @@ fn gen_alt_de(name: &syn::Ident, variants: &[VariantInfo], ta: &TypeAttrs) -> To
     // come first in declaration order.
     let mut ordered: Vec<&VariantInfo> = variants.iter().collect();
     ordered.sort_by_key(|v| alt_variant_priority(&v.kind));
+    let integer_candidates: Vec<_> = variants
+        .iter()
+        .filter(|v| alt_variant_priority(&v.kind) == AlternateShape::Integer)
+        .map(|v| payload_history_selection(v, variants))
+        .collect();
 
     let try_arms: Vec<TokenStream2> = ordered
         .into_iter()
         .map(|v| {
             let ident = &v.ident;
-            let selected = payload_history_selection(v, variants);
+            let mut selected = payload_history_selection(v, variants);
+            if alt_variant_priority(&v.kind) == AlternateShape::Float
+                && !integer_candidates.is_empty()
+            {
+                // An integer branch's range error must not fall through to a
+                // float. QEMU promotes integers only when no integer arm exists.
+                selected = quote! { (#selected) && !(qapi::scoped_qemu_version().is_some()
+                && (value.is_i64() || value.is_u64()) && (#(#integer_candidates)||*)) };
+            }
             match &v.kind {
                 VariantKind::Tuple(ty) => {
                     quote! {
@@ -1018,16 +1035,16 @@ fn payload_history_selection(variant: &VariantInfo, variants: &[VariantInfo]) ->
         .iter()
         .filter(|candidate| wire_name(&candidate.attrs.name, &candidate.ident) == wire)
         .collect();
-    if same_wire.len() == 1 {
-        return quote! { true };
-    }
-    newest_variants_first(&mut same_wire);
-    let latest = same_wire[0].ident == variant.ident;
     let active = version_range_check(
         variant.attrs.since.as_deref(),
         variant.attrs.until.as_deref(),
     )
     .unwrap_or_else(|| quote! { true });
+    if same_wire.len() == 1 {
+        return quote! { qapi::scoped_qemu_version().is_none() || (#active) };
+    }
+    newest_variants_first(&mut same_wire);
+    let latest = same_wire[0].ident == variant.ident;
     quote! { (qapi::qemu_version() == (0, 0, 0) && #latest)
     || (qapi::qemu_version() != (0, 0, 0) && (#active)) }
 }
@@ -1057,8 +1074,9 @@ fn gen_flat_union_impl(name: &syn::Ident, variants: &[VariantInfo]) -> TokenStre
     let arms: Vec<_> = groups.into_iter().map(|(wire, mut group)| {
         if group.len() == 1 {
             let variant = group[0];
+            let selected = payload_history_selection(variant, variants);
             let decode = branch_decode(name, variant);
-            return quote! { #wire => { #decode }, };
+            return quote! { #wire if #selected => { #decode }, };
         }
         newest_variants_first(&mut group);
         let candidates: Vec<_> = group.into_iter().map(|variant| {

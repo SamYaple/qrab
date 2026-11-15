@@ -101,6 +101,26 @@ fn alternate_serialization_checks_type_and_variant_lifetimes() {
 }
 
 #[test]
+fn scoped_enum_and_alternate_decoding_enforces_unique_variant_lifetimes() {
+    for (version, wire) in [((10, 1, 0), "introduced"), ((11, 0, 0), "retired")] {
+        with_version(version, || {
+            assert!(serde_json::from_value::<VersionedUnitEnum>(wire.into()).is_err());
+        });
+        assert!(serde_json::from_value::<VersionedUnitEnum>(wire.into()).is_ok());
+    }
+    for (version, wire) in [
+        ((10, 1, 0), serde_json::json!("value")),
+        ((11, 0, 0), serde_json::json!(1)),
+        ((9, 2, 0), serde_json::Value::Null),
+    ] {
+        with_version(version, || {
+            assert!(serde_json::from_value::<VersionedAlternate>(wire.clone()).is_err());
+        });
+        assert!(serde_json::from_value::<VersionedAlternate>(wire).is_ok());
+    }
+}
+
+#[test]
 fn generated_migration_commands_cannot_send_capabilities_outside_their_lifetime() {
     let command = qapi::commands::MigrateSetCapabilities {
         capabilities: vec![qapi::MigrationCapabilityStatus {

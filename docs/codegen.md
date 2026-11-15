@@ -106,6 +106,10 @@ are rejected before lowering.
 Alternates reject overlapping JSON-type branches, including broad `any` values.
 Before 2.10 integer and floating-point branches remain distinct; newer schemas
 also apply QEMU's string and enum scalar-conversion conflict rules.
+Alternate decoding tries integer payloads before floating-point conversion,
+preserving large values exactly. Within an explicit peer context, an integer
+range error cannot fall through to a floating branch; integer promotion applies
+only when no integer branch is active.
 Boxed command and event data must name an object type. Missing, anonymous,
 scalar and false-boxing forms fail before lowering; valid named objects keep
 their fields flat on the wire.
@@ -192,8 +196,8 @@ Generated enum serializers enforce both type and variant lifetimes. The same
 checks apply to alternate values and union branch payloads, including scalar
 payloads whose Rust types carry no QEMU metadata. Invalid outgoing values name
 the unavailable type or variant and peer version. Explicitly scoped decoding
-also checks type lifetimes. Unscoped decoding remains permissive so recorded
-and newer replies can still be inspected.
+also checks type and variant lifetimes, including union dispatch. Unscoped
+decoding remains permissive so recorded and newer replies can still be inspected.
 
 Definition documentation is parsed as complete comment blocks. A closing `##`
 is never treated as prose, and malformed modern blocks cannot fall back to

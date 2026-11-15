@@ -34,6 +34,17 @@ fn main() {
         );
     });
     with_version((2, 3, 0), || {
+        let integer = serde_json::json!(9_007_199_254_740_993i64);
+        let value: LegacyNumber = serde_json::from_value(integer.clone()).unwrap();
+        assert!(matches!(
+            value,
+            LegacyNumber::Integer(9_007_199_254_740_993)
+        ));
+        assert_eq!(serde_json::to_value(value).unwrap(), integer);
+        let floating = serde_json::json!(42.5);
+        let value: LegacyNumber = serde_json::from_value(floating.clone()).unwrap();
+        assert!(matches!(value, LegacyNumber::Floating(42.5)));
+        assert_eq!(serde_json::to_value(value).unwrap(), floating);
         for wire in [
             serde_json::json!({"kind":"value","value":"old"}),
             serde_json::json!({"kind":"empty"}),
