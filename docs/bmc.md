@@ -11,10 +11,16 @@ and expiry validation. `/api/session` and the `/api/console` WebSocket can
 also accept the dashboard's Kanidm ID tokens as bearer credentials ([below](#dashboard-bearer-tokens)). There are no
 static tokens and no anonymous development bypass.
 
-The console is at **https://qrab-demo.yapplesauce.com** (VM `qrab-redfish-poc`),
-using the cluster's private DNS and Cilium ingress, like `idm-dashboard`. It requires LAN/private-DNS access;
-this manifest does not add a public edge route. Sign in with Kanidm, then choose
-**Connect console**. Video, keyboard, USB tablet input, Ctrl Alt Del and full
+Open **https://vms.yapplesauce.com**, sign in with Kanidm, choose a VM, then
+**Open BMC**. The full page runs under the dashboard at
+`/vms/{namespace}/{name}/bmc`; new VMs need no per-VM ingress, certificate or
+browser OIDC callback. See [dashboard.md](dashboard.md#full-bmc-page) for the
+VM-scoped proxy and authorization details.
+
+The older standalone demo uses **https://qrab-demo.yapplesauce.com** (VM
+`qrab-redfish-poc`), with private DNS and Cilium ingress. Its manifest does not
+add a public edge route. On either page, choose **Connect console**.
+Video, keyboard, USB tablet input, Ctrl Alt Del and full
 screen run through the vendored noVNC client. There are no CDN dependencies.
 Everything else on the page (power state, power actions, guest-agent actions,
 the live QMP event history, the effective configuration and metrics)

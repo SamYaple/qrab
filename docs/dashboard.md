@@ -67,7 +67,8 @@ component is disabled instead:
 - `TelemetryService/Oem/Qrab/MetricHistory` with a fixed `range=1h` for each
   metric (`container-cpu`, `container-memory`, `block-read`, `block-write`,
   `nic-rx`, `nic-tx`), drawn as server-side SVG sparklines in a *Metric
-  history* card: one polyline per series scaled to the hour and the peak, a
+  history* card: one SVG path per series scaled to the hour and the peak, with
+  gaps between missing samples, a
   legend with the latest values and an `aria-label` summary. Series colours
   are stylesheet classes, so the page keeps its script-free CSP without
   inline styles. A metric with no samples says so, and a failed read shows
@@ -89,6 +90,7 @@ Redfish admin actions offered on the full BMC page's Guest agent tab.
 | `GET /vms/{ns}/{name}/power` | Admin JSON power state: `running` (spec), operator `phase`, `pod`, Redfish `power_state` and `health` from `Systems/1`, the allowed in-pod `reset_types` from `ResetActionInfo`, `redfish_error` |
 | `POST /vms/{ns}/{name}/power` | Admin JSON power request `{"action": ..., "confirm": bool}`: `on`, `off`, or a Redfish ResetType (`Resume`, `Pause`, `GracefulRestart`, `ForceRestart`, `PowerCycle`, `Nmi`, `GracefulShutdown`, `ForceOff`) |
 | `GET /vms/{ns}/{name}/console` | noVNC page with power controls (admin) |
+| `GET /vms/{ns}/{name}/bmc` | Full BMC page with live status, metrics, configuration, events and role-appropriate controls |
 | `GET /vms/{ns}/{name}/console/ws` | Console WebSocket proxy (admin, exact Origin) |
 | `GET`/`POST /launch` | Launch form (launchers) |
 | `GET /images` | Base-image catalog and how images are staged (any signed-in user) |
