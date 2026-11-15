@@ -69,7 +69,9 @@ pub struct StructMeta {
     pub doc: &'static str,
     pub fields: &'static [FieldMeta],
     pub is_union: bool,
+    /// Rust field name of the newest observed discriminator representation.
     pub discriminator_field: Option<&'static str>,
+    /// Newest branch representation; earlier branch enums retain their own metadata.
     pub branch_enum: Option<&'static str>,
     pub free_form: bool,
     pub since: Ver,

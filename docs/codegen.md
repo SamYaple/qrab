@@ -215,3 +215,6 @@ returns as already mapped Rust names. A declared `String` is therefore distinct
 from builtin `str`. Enum variants expose `payload_type` indices into `TYPE_REFS`
 for scalar, null, enum, struct and list payloads; `payload_struct` is retained
 for direct struct payloads.
+Union metadata selects the newest observed discriminator and branch fields.
+Historical discriminator representations remain ordinary versioned fields;
+every generated branch enum retains its `FlatUnionBranch` classification.

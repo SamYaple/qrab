@@ -8,6 +8,33 @@
 use qapi::metadata::{EnumKind, COMMANDS, ENUMS, STRUCTS};
 
 #[test]
+fn historical_discriminator_fields_do_not_hide_current_unions() {
+    for (name, wire_name) in [
+        ("SocketAddress", "type"),
+        ("NumaOptions", "type"),
+        ("NetLegacyOptions", "type"),
+        ("BlockdevOptions", "driver"),
+        ("ChardevBackend", "type"),
+        ("CpuInfoFast", "target"),
+        ("ImageInfoSpecific", "type"),
+        ("InputEvent", "type"),
+    ] {
+        let info = STRUCTS.get(name).unwrap();
+        assert!(info.is_union, "{name}");
+        assert!(info.discriminator_field.is_some(), "{name}");
+        let branch = ENUMS.get(info.branch_enum.unwrap()).unwrap();
+        assert_eq!(branch.kind, EnumKind::FlatUnionBranch, "{name}");
+        let discriminator = info
+            .fields
+            .iter()
+            .find(|field| Some(field.name) == info.discriminator_field)
+            .unwrap();
+        assert_eq!(discriminator.wire_name, wire_name);
+        assert!(discriminator.until.is_none(), "{name}");
+    }
+}
+
+#[test]
 fn metadata_references_resolve_including_enum_payloads() {
     use qapi::metadata::{TypeKind, TYPE_REFS};
     for (index, ty) in TYPE_REFS.iter().enumerate() {

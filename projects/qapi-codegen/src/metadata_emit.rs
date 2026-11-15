@@ -331,50 +331,42 @@ fn is_free_form(s: &Struct) -> bool {
         .any(|f| f.r#type.starts_with("HashMap<") && has_unit_attr(&f.meta.attributes, "flatten"))
 }
 
-/// Detect a flat-union struct: contains exactly one `#[qapi(discriminator)]`
-/// field plus a sibling `#[qapi(union, flatten)]` field whose type is
-/// `<X>Branch`. Returns `(discriminator_rust_field, branch_enum_name)`.
-fn detect_union(s: &Struct) -> Option<(String, String)> {
-    let mut disc: Option<&StructField> = None;
-    let mut branch: Option<String> = None;
-    for f in &s.fields {
-        if has_unit_attr(&f.meta.attributes, "discriminator") {
-            if disc.is_some() {
-                return None; // more than one discriminator
-            }
-            disc = Some(f);
-        }
-        if has_unit_attr(&f.meta.attributes, "union")
-            && has_unit_attr(&f.meta.attributes, "flatten")
-        {
-            // Field type is the enum (or Box<enum>), but the IR stores the
-            // raw type name — `XBranch`. Strip any `Box<...>` wrappers.
-            let mut t = f.r#type.as_str();
-            if let Some(inner) = t.strip_prefix("Box<").and_then(|s| s.strip_suffix('>')) {
-                t = inner.trim();
-            }
-            branch = Some(rustify_name(t));
-        }
+/// Pick the newest discriminator and branch representation from merged history.
+fn detect_union(value: &UnifiedStruct) -> Option<(String, String)> {
+    let newest = |predicate: fn(&StructField) -> bool| {
+        value
+            .ir
+            .fields
+            .iter()
+            .filter(|field| predicate(field))
+            .max_by_key(|field| field_versions(value, &field.name).0)
+    };
+    let discriminator = newest(|field| has_unit_attr(&field.meta.attributes, "discriminator"))?;
+    let branch = newest(|field| {
+        has_unit_attr(&field.meta.attributes, "union")
+            && has_unit_attr(&field.meta.attributes, "flatten")
+    })?;
+    let mut ty = branch.r#type.as_str();
+    if let Some(inner) = ty.strip_prefix("Box<").and_then(|s| s.strip_suffix('>')) {
+        ty = inner.trim();
     }
-    match (disc, branch) {
-        (Some(d), Some(b)) => Some((rustify_field(&d.name), b)),
-        _ => None,
-    }
+    Some((rustify_field(&discriminator.name), rustify_name(ty)))
 }
 
-/// Walk every struct, collect the set of branch-enum type names that any
-/// flat-union references via a flattened branch receiver. Used to classify enums as
-/// `FlatUnionBranch` vs `Alternate`.
+/// The explicit IR marker also identifies historical and empty branch enums.
 fn collect_branch_enums(registry: &UnifiedRegistry) -> BTreeSet<String> {
-    let mut out = BTreeSet::new();
-    for ut in registry.types.values() {
-        if let UnifiedType::Struct(us) = ut {
-            if let Some((_, branch)) = detect_union(&us.ir) {
-                out.insert(branch);
+    registry
+        .types
+        .values()
+        .filter_map(|value| match value {
+            UnifiedType::Enum(value)
+                if has_unit_attr(&value.ir.meta.attributes, "union_branch") =>
+            {
+                Some(rustify_name(&value.ir.name))
             }
-        }
-    }
-    out
+            _ => None,
+        })
+        .collect()
 }
 
 // ── version helpers for fields/variants ────────────────────────────────────
@@ -414,7 +406,7 @@ fn emit_struct(us: &UnifiedStruct) -> StructEmit {
     let wire_name = type_wire_name(&us.ir.name, &us.ir.meta.attributes);
     let doc = us.ir.meta.doc.clone().unwrap_or_default();
 
-    let union = detect_union(&us.ir);
+    let union = detect_union(us);
     let is_union = union.is_some();
     let (disc, branch) = union.unzip();
     let free_form = is_free_form(&us.ir);
@@ -885,7 +877,9 @@ pub struct StructMeta {
     pub doc: &'static str,
     pub fields: &'static [FieldMeta],
     pub is_union: bool,
+    /// Rust field name of the newest observed discriminator representation.
     pub discriminator_field: Option<&'static str>,
+    /// Newest branch representation; earlier branch enums retain their own metadata.
     pub branch_enum: Option<&'static str>,
     pub free_form: bool,
     pub since: Ver,
