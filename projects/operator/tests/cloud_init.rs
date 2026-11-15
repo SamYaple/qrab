@@ -143,18 +143,21 @@ fn network_config_matches_by_mac_and_routes_host_addresses_on_link() {
             address_cidr: "10.203.4.5/32".into(),
             gateway: Some("10.203.4.1".into()),
             nameservers: vec!["10.203.0.53".into(), "10.203.0.54".into()],
+            dhcp: false,
         },
         NicAddress {
             mac: "52:54:00:ab:cd:02".into(),
             address_cidr: "192.168.10.7/24".into(),
             gateway: None,
             nameservers: vec![],
+            dhcp: false,
         },
         NicAddress {
             mac: "52:54:00:ab:cd:03".into(),
             address_cidr: "fd00::5/128".into(),
             gateway: Some("fd00::1".into()),
             nameservers: vec![],
+            dhcp: false,
         },
     ]);
     assert_eq!(
@@ -198,6 +201,7 @@ ethernets:
         address_cidr: "10.0.0.5/24".into(),
         gateway: Some("10.0.0.1".into()),
         nameservers: vec![],
+        dhcp: false,
     }]);
     assert!(routed.contains("via: \"10.0.0.1\"\n") && !routed.contains("on-link"));
     assert_eq!(

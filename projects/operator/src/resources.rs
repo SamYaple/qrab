@@ -981,7 +981,15 @@ fn seed(vm: &VirtualMachine, uid: &str, nics: &[NicEndpoint]) -> Option<Value> {
         seed["user_data"] = json!(user_data);
     }
     if !nics.is_empty() {
-        seed["network_config"] = json!(seed_network_config(&nic_addresses(uid, nics)));
+        let mut addresses = nic_addresses(uid, nics);
+        for (address, nic) in addresses.iter_mut().zip(nics) {
+            address.dhcp = vm
+                .spec
+                .nics
+                .iter()
+                .any(|spec| spec.name == nic.name && spec.vpn.is_some());
+        }
+        seed["network_config"] = json!(seed_network_config(&addresses));
     }
     Some(seed)
 }
@@ -1003,6 +1011,7 @@ pub fn nic_addresses(uid: &str, nics: &[NicEndpoint]) -> Vec<NicAddress> {
             } else {
                 Vec::new()
             },
+            dhcp: false,
         })
         .collect()
 }
@@ -1016,6 +1025,9 @@ pub struct NicAddress {
     pub address_cidr: String,
     pub gateway: Option<String>,
     pub nameservers: Vec<String>,
+    /// Configure by DHCP instead (a VPN NIC: qrab-netd offers the tunnel's
+    /// address, which only the anchor's Secret holds).
+    pub dhcp: bool,
 }
 
 /// cloud-init network-config v2 for static addresses: NIC `i` is matched by
@@ -1029,6 +1041,7 @@ pub struct NicAddress {
 ///     address_cidr: "10.0.0.5/32".into(),
 ///     gateway: Some("10.0.0.1".into()),
 ///     nameservers: vec!["10.0.0.53".into()],
+///     dhcp: false,
 /// }]);
 /// assert!(yaml.starts_with("version: 2\nethernets:\n  eth0:\n"));
 /// assert!(yaml.contains("        on-link: true\n"));
@@ -1040,6 +1053,14 @@ pub fn seed_network_config(nics: &[NicAddress]) -> String {
     let mut yaml = String::from("version: 2\nethernets:\n");
     for (index, nic) in nics.iter().enumerate() {
         let name = format!("eth{index}");
+        if nic.dhcp {
+            yaml += &format!(
+                "  {name}:\n    match:\n      macaddress: {}\n    set-name: {}\n    dhcp4: true\n",
+                yaml_string(&nic.mac.to_ascii_lowercase()),
+                yaml_string(&name)
+            );
+            continue;
+        }
         yaml += &format!(
             "  {name}:\n    match:\n      macaddress: {}\n    set-name: {}\n    addresses:\n      - {}\n",
             yaml_string(&nic.mac.to_ascii_lowercase()),

@@ -49,12 +49,27 @@ impl Agent {
     }
 
     fn plumb(&self, pod: &Pod) -> Result<String, String> {
-        let plan = NicPlan::for_anchor(pod)?;
+        let mut plan = NicPlan::for_anchor(pod)?;
         let (pid, ns) = self.netns(pod)?;
+        if NicPlan::is_vpn(pod) {
+            plan = plan.with_tunnel(sys::read_tunnel(&self.proc_root, pid)?);
+        }
         let resolver = sys::pod_resolver(&self.proc_root, pid);
-        let summary = format!("tap {} routes {}", plan.tap, plan.guest_ip);
+        let summary = match &plan.vpn {
+            Some(tunnel) => format!(
+                "tap {} routes {} only through wg0 to {}",
+                plan.tap, plan.guest_ip, tunnel.endpoint
+            ),
+            None => format!("tap {} routes {}", plan.tap, plan.guest_ip),
+        };
         let (tap, guest_mac, guest_ip) = (plan.tap.clone(), plan.guest_mac.clone(), plan.guest_ip);
-        sys::in_netns(&ns, move || sys::apply(&plan, resolver)).map_err(|e| e.to_string())?;
+        let dns = match &plan.vpn {
+            Some(tunnel) => tunnel.dns.first().copied(),
+            None => Some(qrab_netd::GUEST_GATEWAY),
+        };
+        let vpn = plan.vpn.is_some();
+        let mtu =
+            sys::in_netns(&ns, move || sys::apply(&plan, resolver)).map_err(|e| e.to_string())?;
         // One DHCP responder per anchor, for guests that configure by DHCP.
         let uid = pod.uid().unwrap_or_default();
         if let std::collections::hash_map::Entry::Vacant(slot) =
@@ -65,6 +80,8 @@ impl Agent {
                 mac,
                 ip: guest_ip,
                 seconds: 86400,
+                dns,
+                mtu: vpn.then(|| u16::try_from(mtu).unwrap_or(1420)),
             };
             let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
             sys::serve_dhcp(ns, tap, lease, stop.clone()).map_err(|e| e.to_string())?;

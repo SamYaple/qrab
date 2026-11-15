@@ -16,6 +16,7 @@ pub mod identity;
 pub mod plan;
 #[cfg(feature = "agent")]
 pub mod sys;
+pub mod vpn;
 pub mod wire;
 
 /// Anchor annotation selecting the tap datapath; any other value (or none)
