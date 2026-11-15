@@ -340,8 +340,12 @@ extra loss beyond that pause. Egress stays unmasqueraded throughout.
 3. **Switchover.** At `pre-switchover` (the guest is paused and the last dirty
    pages are about to go) the source manager, polling every 20 ms:
    - adds a **forward route** in the source host's namespace, the guest's /32
-     via the target node's IP (`proto 252`), so stragglers that still reach
-     the old node follow the guest;
+     via the target node's IP (`proto 252`, in table 252, which a rule at
+     priority 200 consults before `main`), so stragglers that still reach
+     the old node follow the guest. It has its own table because Cilium
+     re-installs its multi-pool route for the /32 in `main`, to the
+     now-standby endpoint (measured 16 s after a switch), and in a shared
+     table the last writer wins;
    - asks the target manager, over a second SPIFFE mTLS connection to the
      same listener (hello channel `switchover`), to `activate`: the target's
      qrab-netd flips its Cilium endpoint from standby to active
@@ -372,20 +376,20 @@ extra loss beyond that pause. Egress stays unmasqueraded throughout.
    not on the VM Pod's node are annotated `qrab.yapplesauce.com/retire-after`
    (20 s later) and then deleted, which also withdraws the `-prev`
    announcement. qrab-netd deletes forward routes whose anchor has been gone
-   for 20 s. zebra installs no BGP route for the /32 on the source while the
-   forward route (a kernel route to it) exists, and installs the one via the
-   new node as soon as it goes. If the migration fails, the operator deletes
-   the target anchors it created.
-6. **Conntrack.** Twice, best effort: the source manager asks the target
-   over the switchover channel, the target manager asks its node's
+   for 20 s. If the migration fails, the operator deletes the target anchors
+   it created.
+6. **Conntrack.** Twice, best effort: the target manager asks its node's
    qrab-netd (`ct-pull`), and that agent pulls the NIC's entries straight
    from the source node's qrab-netd (`qrab_netd::peer`, TCP 7911 in the
    nodes' host network namespaces). It rebases their lifetimes onto its own
    monotonic clock and writes them into its node's Cilium global IPv4
-   conntrack maps. The *precopy* runs before QEMU starts streaming, outside
-   the guest's pause, so established flows are on the target node before it
-   activates. The *delta* runs once QEMU reports the migration completed,
-   for flows opened in between. Established flows then keep their verdicts
+   conntrack maps. The target pulls the *precopy* itself before
+   `migrate-incoming`, outside the guest's pause, so established flows are
+   on the target node before it activates. Once its QEMU has accepted the
+   incoming connection, QEMU answers no QMP until the stream starts, so a
+   pull there that ran past the manager's 2 s QMP timeout failed the
+   migration. The source asks for the *delta* over the switchover channel
+   once QEMU reports the migration completed, for flows opened in between. Established flows then keep their verdicts
    on the new node, including flows only the guest sends on, which groups
    denying new egress would otherwise drop for good. A flow opened after the
    precopy loses its packets on the new node until the delta lands, a few
@@ -405,9 +409,10 @@ oracle failed as intended on a release without the copy (the stream stalled
 for good). With the copy after the switch only, it passed one move (0.76 s
 gap) but failed others: a 6.77 s gap with the entry present, and once a
 stall because qrab-netd was OOM-killed exporting kube03's 36,000-entry map.
-Both are fixed in qrab 5ba04f6 (streamed export, precopy, node-to-node
-pull), which waits on the kubernetes-gitops re-pin
-(work/gitops-repin-qrab-operator-cb700cb) before it can be measured.
+With the streamed export, the target-side precopy and the node-to-node
+pull (manager `78f1f287`, operator `42cae9cc`), three moves passed with
+stream gaps of 0.55, 0.72 and 0.56 s, each with a precopy and a delta.
+The check now also requires the managers' reports of imported entries.
 
 `contrib/check-nic-handoff-detail.sh` measures the handoff's parts. A probe
 Pod on every node pings the guest every 0.1 s, each node's Cilium agent
@@ -433,7 +438,12 @@ guest through the VM host's route, saw a 5.11 s gap. An earlier run's move
 failed the same way (a 5.13 s gap on a third node) before the check printed
 routes. That matches the
 soak's earlier 12–31 lost pings in 3 of 20 moves. The `-prev` announcement
-(qrab 5ba04f6) removes the window; it ships with the same re-pin.
+removes the window. It then exposed the second fault: from +15.9 s the old
+node's Cilium pool route had replaced its main-table forward route, and two
+nodes' probes lost 22 s. With the forward route in table 252 (operator
+`3db5c074`), three moves lost no ping outside the pause on any node, and the
+VM host's route moved to the new node in one step (+19 to +47 s, while the
+old node still announced and forwarded).
 
 `contrib/check-nic-migration.sh` moves a CirrOS VM around three nodes while
 pinging it, probing its SSH and receiving its per-second egress reports. It
@@ -645,6 +655,15 @@ Measured on 2026-11-15 (manager `5b93cb27`, operator `cba15278`):
   12–31 pings, and the SSH probe failed 10 times, 40–50 s after their
   moves began. That fits the BGP withdraw-before-announce window measured
   under [Live migration](#live-migration), which `-prev` closes.
+- On manager `78f1f287` and operator `3db5c074` (make-before-break routes,
+  forward routes in table 252), 20 consecutive moves passed: switch 13–23 ms
+  (one 149 ms), QEMU downtime 111–194 ms. At most one ping went unanswered
+  per move (longest gap 0.41 s, pinging every 0.2 s), and the audit found
+  nothing left behind. The SSH probe (a connection every 0.5 s with a 1 s
+  limit) timed out once in 10 of the moves, each 33–44 s after the move
+  began. That is consistent with a SYN lost in the pause and retransmitted
+  after Linux's 1 s initial timeout, though the check does not log switch
+  times to prove it.
 - qrab-netd restart on the VM's node: longest ping gap 0.21 s, stream gap
   1.00 s (its send interval), stream intact. The guest holds its tap and
   vhost-net descriptors through QEMU; the agent re-plumbs nothing that
