@@ -294,19 +294,28 @@ def wait_native(page, event, diagnostics=None):
     assert event.is_set(), (page.locator('#console-status').inner_text(), diagnostics)
 
 
-def long_content_checks(browser, width, theme, height=1000, scale=1):
+def long_content_checks(browser, width, theme, height=1000, scale=1, text_size=None):
     context = browser_context(browser, viewport={'width': width, 'height': height}, device_scale_factor=scale, color_scheme=theme)
     fixture = install_bmc(context)
-    fixture['vm_name'] = 'vm-' + 'a' * 60
+    fixture['vm_name'] = 'vm-' + 'a' * (40 if text_size else 60)
     fixture['user_name'] = 'sam.with-a-long-operator-name-for-production'
     fixture['system']['Oem']['Qrab']['Configuration']['name'] = fixture['vm_name']
+    if text_size:
+        fixture['system']['PowerState'] = 'PoweringOff'
+        fixture['system']['Status']['Health'] = 'Critical'
     page = context.new_page()
     page.goto('http://ui.test' + base + '/bmc')
     expect(page.locator('#vm-name')).to_have_text(fixture['vm_name'])
     expect(page.locator('#overview')).to_contain_text('Health')
+    if text_size:
+        page.add_style_tag(content=f'.vm-title h1, .vm-title .chip, .who .badge, .who button {{ font-size: {text_size}px; }}')
     page.wait_for_function("Math.abs(parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--topbar-height')) - document.querySelector('.topbar').getBoundingClientRect().height) <= 1")
     assert page.locator('#vm-name').evaluate('(e) => e.scrollWidth <= e.clientWidth + 1'), 'VM name is clipped'
     no_overflow(page, 'bmc-long-name', width)
+    if text_size:
+        assert page.locator('.topbar').bounding_box()['height'] < height / 2, 'Large header text must leave a useful viewport'
+        assert page.locator('#vm-name').bounding_box()['width'] > width * 0.75, 'The status must not squeeze the name into a sliver'
+        assert page.locator('#vm-status').evaluate('e => e.scrollWidth <= e.clientWidth + 1')
     if width <= 1000:
         page.locator('.panel-jump').click()
         sticky = page.locator('.topbar').evaluate("(e) => getComputedStyle(e).position === 'sticky'")
@@ -314,7 +323,8 @@ def long_content_checks(browser, width, theme, height=1000, scale=1):
         if height < 400:
             health = page.locator('#overview dd').nth(1).bounding_box()
             assert health['y'] + health['height'] <= height, 'Header leaves too little room for VM health'
-    capture(page, args.output / f'bmc-long-name-{theme}-{width}-{height}-{scale}x.png')
+    font_suffix = f'-font{text_size}' if text_size else ''
+    capture(page, args.output / f'bmc-long-name-{theme}-{width}-{height}-{scale}x{font_suffix}.png')
     context.close()
 
 
@@ -1479,6 +1489,8 @@ with sync_playwright() as playwright:
     console_state_checks(browser, 320, 'dark')
     if not args.states_only:
         long_content_checks(browser, 320, 'light', height=320, scale=2)
+        for text_size in [24, 32]:
+            long_content_checks(browser, 320, 'light', text_size=text_size)
     browser.close()
 mode = 'state/lifecycle' if args.states_only else 'layout and state/lifecycle'
 print(f'{args.engine}: Dashboard/BMC {mode} checks passed.')

@@ -731,6 +731,8 @@ removed, focus returns to the Guest agent panel. SSR multiline diagnostic output
 also has a labelled keyboard focus target.
 Long VM names wrap in the BMC header, which scrolls normally in short windows so
 it does not cover the useful panel area.
+Names and status chips can wrap onto separate header rows at larger text sizes.
+Dashboard cards wrap long event names, identifiers and other unbroken text.
 
 The dashboard and BMC follow the system light/dark preference. Dashboard pages
 remain server-rendered; the BMC uses the shared interface assets. Keyboard users
@@ -773,6 +775,8 @@ The event checks include malformed/missing timestamps and long payload text that
 must render without becoming HTML.
 Long names, large capacities, namespace-specific name limits and a 320×320
 CSS-pixel viewport at 2× density are included in the layout checks.
+Header reflow checks also use 24px and 32px text with a valid long VM name and
+the longer power/health labels, checking both useful viewport space and panel access.
 Metric fixtures include CPU, memory and I/O series as well as an empty series;
 the checks inspect keyboard sample selection and chart-label fit. Chart labels
 and readouts use larger text, with fewer time ticks on narrow plots. The history
