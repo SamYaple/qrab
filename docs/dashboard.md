@@ -643,6 +643,11 @@ Metric fixtures include CPU, memory and I/O series as well as an empty series;
 the checks inspect keyboard sample selection and chart-label fit. Chart labels
 and readouts use larger text, with fewer time ticks on narrow plots. The history
 panel explains the existing pointer and keyboard controls.
+Focused charts keep their position through empty/error responses and recovery;
+an unchanged message keeps its DOM and focus. Availability live regions announce
+source failures and recovery, while routine sample timestamps remain quiet.
+The browser checks observe these live-region mutations; they do not substitute
+for testing with an actual screen reader.
 It writes screenshots to the output directory. BMC requests use
 in-memory browser fixtures; the dedicated console's socket is a temporary
 loopback WebSocket held during RFB negotiation. It needs no credentials,

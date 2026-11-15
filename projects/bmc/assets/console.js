@@ -43,6 +43,10 @@ const POWER_ALLOWS = {
 };
 const TABS = ['overview', 'metrics', 'events', 'agent', 'config'];
 const element = id => document.getElementById(id);
+// Live regions announce changes, not repeated writes of the same state.
+function updateText(target, text) {
+    if (target.textContent !== text) target.textContent = text;
+}
 // Header wrapping changes with zoom, long names and narrow screens. Keep the
 // rail and anchor offsets tied to its actual height rather than a fixed guess.
 if (typeof ResizeObserver === 'function') {
@@ -525,7 +529,7 @@ function refresh() {
             system = null;
             showStatus();
             const note = element('read-status');
-            note.textContent = `Live data unavailable: ${error.message} ${lastRead ? `Values below were last updated at ${lastRead.toLocaleTimeString()}.` : 'No live data has been loaded yet.'} Retrying automatically.`;
+            updateText(note, `Live data unavailable: ${error.message} ${lastRead ? `Values below were last updated at ${lastRead.toLocaleTimeString()}.` : 'No live data has been loaded yet.'} Retrying automatically.`);
             note.hidden = false;
         }
     })().finally(() => { refreshTask = null; });
@@ -634,6 +638,26 @@ function historySummary(answer, title, max) {
     if (!latest.length) return `${title}: no data over the last ${answer.range}.`;
     return `${title} over the last ${answer.range}: peak ${formatValue(max, answer.unit)}; latest ${latest.join(', ')}.`;
 }
+const replacingCharts = new WeakSet();
+function replaceChartBody(figure, ...children) {
+    replacingCharts.add(figure);
+    try { figure.querySelector('.chart-body').replaceChildren(...children); }
+    finally { replacingCharts.delete(figure); }
+}
+function chartMessage(figure, message, className) {
+    const body = figure.querySelector('.chart-body');
+    const existing = body.firstElementChild;
+    if (body.children.length === 1 && existing.classList.contains(className) && existing.textContent === message) return;
+    const keepFocus = body.contains(document.activeElement);
+    const text = node('p', message, className);
+    text.tabIndex = -1;
+    text.setAttribute('aria-describedby', figure.querySelector('figcaption b').id);
+    delete figure.dataset.selectedTime;
+    figure.querySelector('.peak').textContent = '';
+    figure.querySelector('.readout').textContent = '';
+    replaceChartBody(figure, text);
+    if (keepFocus) text.focus({preventScroll: true});
+}
 function drawChart(figure, answer, title) {
     const body = figure.querySelector('.chart-body');
     const readout = figure.querySelector('.readout');
@@ -652,9 +676,7 @@ function drawChart(figure, answer, title) {
     const summary = historySummary(answer, title, max);
     figure.querySelector('.peak').textContent = values.length ? `peak ${formatValue(max, answer.unit)}` : '';
     if (!values.length) {
-        delete figure.dataset.selectedTime;
-        readout.textContent = '';
-        body.replaceChildren(node('p', `No samples over the last ${answer.range}.`, 'chart-empty'));
+        chartMessage(figure, `No samples over the last ${answer.range}.`, 'chart-empty');
         return;
     }
     const svg = svgNode('svg', {viewBox: `0 0 ${width} ${height}`, width, height, role: 'img', 'aria-label': summary, 'aria-describedby': 'history-help', tabindex: 0, class: 'chart'});
@@ -696,13 +718,15 @@ function drawChart(figure, answer, title) {
             const point = series.points.find(p => p[0] === t);
             return `${seriesLabel(series)} ${point ? formatValue(point[1], answer.unit) : '—'}`;
         });
-        readout.textContent = `${new Date(t * 1000).toLocaleString()}: ${parts.join(' · ')}`;
+        updateText(readout, `${new Date(t * 1000).toLocaleString()}: ${parts.join(' · ')}`);
     };
     const hide = () => {
-        if (!body.contains(svg)) return;
+        // Chromium may dispatch blur before removing the old SVG. A redraw
+        // restores the same selection; it must not announce a cleared readout.
+        if (replacingCharts.has(figure) || !body.contains(svg)) return;
         cursor.setAttribute('visibility', 'hidden'); selected = -1;
         delete figure.dataset.selectedTime;
-        readout.textContent = '';
+        updateText(readout, '');
     };
     const nearest = t => times.reduce((best, value, index) => Math.abs(value - t) < Math.abs(times[best] - t) ? index : best, 0);
     svg.addEventListener('pointermove', event => {
@@ -730,7 +754,7 @@ function drawChart(figure, answer, title) {
         item.append(node('span', undefined, `swatch series-${index % SERIES_COLOURS}`), node('code', seriesLabel(series)), document.createTextNode(` ${last ? formatValue(last[1], answer.unit) : 'no data'}`));
         legend.append(item);
     });
-    body.replaceChildren(svg, legend);
+    replaceChartBody(figure, svg, legend);
     if (keepFocus) {
         restoreIndex = previousTime === null ? times.length - 1 : nearest(previousTime);
         svg.focus({preventScroll: true});
@@ -742,10 +766,7 @@ function drawHistory(slot) {
         const answer = metricHistory.answers[metric];
         if (!answer) continue;
         if (answer.error) {
-            delete figure.dataset.selectedTime;
-            figure.querySelector('.peak').textContent = '';
-            figure.querySelector('.readout').textContent = '';
-            figure.querySelector('.chart-body').replaceChildren(node('p', answer.error, 'chart-error'));
+            chartMessage(figure, answer.error, 'chart-error');
         } else drawChart(figure, answer.value, title);
     }
 }
@@ -771,13 +792,17 @@ function buildHistory(slot) {
         ranges.append(button);
     }
     const status = node('span', 'Loading…', 'history-status');
-    status.setAttribute('role', 'status');
-    head.append(node('h3', 'History'), ranges, status);
+    const availability = node('span', '', 'visually-hidden');
+    availability.id = 'history-availability';
+    availability.setAttribute('role', 'status');
+    head.append(node('h3', 'History'), ranges, status, availability);
     const charts = HISTORY_METRICS.map(([metric, title]) => {
         const figure = node('figure', undefined, 'history-chart');
         figure.dataset.metric = metric;
         const caption = node('figcaption');
-        caption.append(node('b', title), node('span', '', 'peak'));
+        const label = node('b', title);
+        label.id = `history-${metric}-title`;
+        caption.append(label, node('span', '', 'peak'));
         const readout = node('p', '', 'readout');
         readout.setAttribute('aria-live', 'polite');
         figure.append(caption, node('div', undefined, 'chart-body'), readout);
@@ -811,6 +836,8 @@ async function renderMetricHistory(slot) {
         drawHistory(slot);
         const failed = results.filter(result => result.status === 'rejected').length;
         status.textContent = failed === results.length ? 'Unavailable' : `Updated ${new Date().toLocaleTimeString()}`;
+        updateText(element('history-availability'), failed === results.length ? 'Metric history unavailable.'
+            : failed ? 'Some metric history unavailable.' : 'Metric history available.');
     } finally {
         metricHistory.loading = false;
         if (range !== metricHistory.range) renderMetricHistory(slot);
@@ -828,6 +855,8 @@ function loadMetrics() {
         const failures = [report, resources].filter(result => result.status === 'rejected').length;
         note.textContent = failures === 2 ? 'Unavailable' : failures ? 'Some data unavailable'
             : report.value ? `Sampled ${new Date(report.value).toLocaleTimeString()}` : 'Live';
+        updateText(element('metrics-availability'), failures === 2 ? 'VM metrics unavailable.'
+            : failures ? 'Some VM metrics unavailable.' : 'VM metrics available.');
         renderMetricHistory(element('metric-history'));
     })().finally(() => { metricsTask = null; });
     return metricsTask;

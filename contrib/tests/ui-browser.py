@@ -46,7 +46,7 @@ def system(power='On'):
 def install_bmc(context, role='admin', power='On', legacy=False, origin='http://ui.test'):
     fixture = {'system': system(power), 'posts': [], 'expired': False,
                'hold_posts': False, 'pending_posts': [], 'post_error': None,
-               'fail_system': None, 'fail_metrics': False, 'empty_metrics': False, 'hold_session': False, 'pending_session': [], 'empty_events': False, 'extra_events': [], 'requests': [],
+               'fail_system': None, 'fail_metrics': False, 'fail_history': False, 'empty_metrics': False, 'hold_session': False, 'pending_session': [], 'empty_events': False, 'extra_events': [], 'requests': [],
                'vm_name': 'web-1', 'user_name': 'sam'}
     fixture['system']['Oem']['Qrab']['Configuration']['redacted'] = role == 'viewer'
 
@@ -120,6 +120,9 @@ def install_bmc(context, role='admin', power='On', legacy=False, origin='http://
             request_route.fulfill(body=': fixture\n\n', content_type='text/event-stream')
             return
         elif path.endswith('/MetricHistory'):
+            if fixture['fail_history']:
+                request_route.fulfill(status=503, json={'error': {'message': 'History temporarily unavailable.'}})
+                return
             query = parse_qs(urlparse(req.url).query)
             metric, interval = query['metric'][0], query['range'][0]
             duration = {'15m': 900, '1h': 3600, '6h': 21600, '24h': 86400, '7d': 604800}[interval]
@@ -133,7 +136,12 @@ def install_bmc(context, role='admin', power='On', legacy=False, origin='http://
         elif path.endswith('/MetricReports/VM'):
             data = {'MetricValues': [] if fixture['empty_metrics'] else [{'MetricId': key, 'MetricValue': str(value)} for key, value in [('LogicalProcessors', 2), ('MemoryBytes', 1073741824), ('BlockReadBytes', 83886080), ('BlockWriteBytes', 41943040)]], 'Timestamp': '2026-11-15T04:00:00Z'}
         elif path.endswith('/Resources'):
-            data = {}
+            data = {} if fixture['empty_metrics'] else {
+                name: {'process': {'resident_memory_bytes': rss, 'cpu_time_seconds': 3.42},
+                       'container': {'memory_current_bytes': rss + 8388608,
+                                     'memory_limit_bytes': 268435456, 'cpu_usage_seconds': 5.15}}
+                for name, rss in [('Redfish', 33554432), ('Manager', 67108864)]
+            }
         else:
             request_route.fulfill(status=404, body='Unknown fixture route: ' + path)
             return
@@ -372,6 +380,13 @@ def bmc_state_checks(browser, width, theme):
     expect(page.locator('#connect')).to_be_disabled()
     no_overflow(page, 'bmc-stale', width)
     capture(page, args.output / f'bmc-stale-{theme}-{width}.png')
+    page.evaluate('''() => {
+        window.staleAnnouncements = 0;
+        new MutationObserver(() => window.staleAnnouncements++)
+            .observe(document.getElementById('read-status'), {childList: true, subtree: true, characterData: true});
+    }''')
+    page.clock.fast_forward(3100)
+    assert page.evaluate('window.staleAnnouncements') == 0, 'Repeated read failures must not repeat the same warning'
     fixture['fail_system'] = {'body': '<!doctype html><html><body>Gateway unavailable</body></html>', 'content_type': 'text/html'}
     page.clock.fast_forward(3100)
     expect(page.locator('#read-status')).to_contain_text('VM access is unavailable (503)')
@@ -473,6 +488,79 @@ def bmc_state_checks(browser, width, theme):
     assert page.locator('#panel-events').evaluate('(e) => e.scrollWidth <= e.clientWidth + 1')
     capture(page, args.output / f'bmc-event-payload-{theme}-{width}.png')
     assert not errors, errors
+    context.close()
+
+
+def metric_focus_checks(browser):
+    context = browser.new_context(viewport={'width': 390, 'height': 1000})
+    fixture = install_bmc(context)
+    page = context.new_page()
+    page.clock.install()
+    page.goto('http://ui.test' + base + '/bmc')
+    page.locator('#tab-metrics').click()
+    chart = page.locator('[data-metric="container-cpu"]')
+
+    def poll():
+        status = page.locator('.history-status')
+        previous = status.inner_text()
+        page.clock.fast_forward(31000)
+        expect(status).not_to_have_text(previous)
+        expect(status).not_to_have_text('Loading…')
+
+    expect(chart.locator('svg')).to_be_visible()
+    chart.locator('svg').focus()
+    expect(page.locator('#history-availability')).to_have_text('Metric history available.')
+    page.evaluate('''() => {
+        window.metricAnnouncements = [];
+        window.sampleAnnouncements = [];
+        const sample = document.querySelector('[data-metric="container-cpu"] .readout');
+        new MutationObserver(() => window.sampleAnnouncements.push(sample.textContent))
+            .observe(sample, {childList: true, subtree: true, characterData: true});
+        for (const id of ['metrics-availability', 'history-availability']) {
+            const region = document.getElementById(id);
+            new MutationObserver(() => window.metricAnnouncements.push(region.textContent))
+                .observe(region, {childList: true, subtree: true, characterData: true});
+        }
+    }''')
+    poll()
+    expect(chart.locator('svg')).to_be_focused()
+    assert page.evaluate('window.metricAnnouncements') == [], 'Ordinary polls must not repeat live announcements'
+    sample_announcements = page.evaluate('window.sampleAnnouncements')
+    assert sample_announcements == [], ('An unchanged selected sample must remain quiet', sample_announcements)
+    fixture['empty_metrics'] = True
+    poll()
+    expect(chart.locator('.chart-empty')).to_be_focused()
+    message = chart.locator('.chart-empty').element_handle()
+    poll()
+    assert message.evaluate('(e) => e.isConnected'), 'An unchanged empty message should keep its DOM and focus'
+    expect(chart.locator('.chart-empty')).to_be_focused()
+    fixture['empty_metrics'] = False
+    poll()
+    expect(chart.locator('svg')).to_be_focused()
+    fixture['fail_history'] = True
+    poll()
+    expect(chart.locator('.chart-error')).to_be_focused()
+    expect(page.locator('#history-availability')).to_have_text('Metric history unavailable.')
+    fixture['fail_history'] = False
+    poll()
+    expect(chart.locator('svg')).to_be_focused()
+    assert page.evaluate('window.metricAnnouncements') == ['Metric history unavailable.', 'Metric history available.']
+    # Background updates must not move the user's focus from another control.
+    range_button = page.locator('.ranges button').first
+    range_button.focus()
+    fixture['empty_metrics'] = True
+    poll()
+    expect(range_button).to_be_focused()
+    fixture['fail_metrics'] = True
+    poll()
+    expect(page.locator('#metrics-availability')).to_have_text('VM metrics unavailable.')
+    poll()
+    assert page.evaluate("window.metricAnnouncements.filter(v => v === 'VM metrics unavailable.').length") == 1
+    fixture['fail_metrics'] = False
+    poll()
+    expect(page.locator('#metrics-availability')).to_have_text('VM metrics available.')
+    expect(range_button).to_be_focused()
+    assert page.evaluate("window.metricAnnouncements.filter(v => v === 'VM metrics available.').length") == 1
     context.close()
 
 
@@ -616,6 +704,7 @@ with sync_playwright() as playwright:
                 assert not errors, errors
                 context.close()
             long_content_checks(browser, width, theme)
+    metric_focus_checks(browser)
     bmc_state_checks(browser, 1440, 'dark')
     bmc_state_checks(browser, 390, 'light')
     console_state_checks(browser, 1440, 'dark')
