@@ -45,7 +45,7 @@ wait_for() {
 }
 node_ip() { kubectl get node "$1" -o jsonpath='{.status.addresses[?(@.type=="InternalIP")].address}'; }
 agent() { kubectl -n kube-system get pods -l k8s-app=cilium --field-selector "spec.nodeName=$1" -o name | head -1; }
-netd_pod() { kubectl -n qrab-node get pods -o wide | awk -v n="$1" '/qrab-netd/ && $7 == n {print $1}'; }
+netd_pod() { kubectl -n qrab-node get pods -l app.kubernetes.io/name=qrab-netd --field-selector "spec.nodeName=$1" -o name | head -1; }
 ts() { date -u -d "$1" +%s.%N; }
 
 log "creating VM $vm"
@@ -160,18 +160,20 @@ EOF
     [ "$n" = "$target" ] && c=$(awk -v s="$start" -v b="$switched" '$1+0 > s && /tunnelendpoint=0.0.0.0|flags=<none>/ {printf "%+.0f", ($1-b)*1000; exit}' "$work/ipcache-$n.log")
     converge="$converge $n:${c:-?}ms"
   done
-  # Per-node probe gaps and Hubble drops inside the move.
-  gaps=""
+  # Per-node probe gaps (the longest, and where it began relative to the
+  # switch end) and Hubble drops inside the move. Problems fail the move only
+  # after its details are printed.
+  gaps=""; problems=""
   for n in kube01 kube02 kube03; do
-    g=$(kubectl -n default logs "$vm-probe-$n" 2>/dev/null | awk -v s="$start" -v e="$done_at" '$1+0>=s && $1+0<=e {t=$1+0; if (p && t-p>g) g=t-p; p=t} END {printf "%.2f", g+0}')
-    awk -v a="$g" -v m="$max_gap" 'BEGIN {exit !(a <= m)}' || fail "move $i: the probe on $n saw a ${g}s gap"
-    gaps="$gaps $n:${g}s"
+    read -r g at < <(kubectl -n default logs "$vm-probe-$n" 2>/dev/null | awk -v s="$start" -v e="$done_at" -v b="$switched" '$1+0>=s && $1+0<=e {t=$1+0; if (p && t-p>g) {g=t-p; at=p-b}; p=t} END {printf "%.2f %+.1f\n", g+0, at+0}')
+    awk -v a="$g" -v m="$max_gap" 'BEGIN {exit !(a <= m)}' || problems="$problems the probe on $n saw a ${g}s gap from ${at}s;"
+    gaps="$gaps $n:${g}s@${at}s"
   done
   drops=""
   for n in kube01 kube02 kube03; do
     d=$(kubectl -n kube-system exec "$(agent "$n")" -c cilium-agent -- hubble observe --since "$since" --ip "$address" --verdict DROPPED -o compact 2>/dev/null | grep -v -c -i 'standby' || true)
     sd=$(kubectl -n kube-system exec "$(agent "$n")" -c cilium-agent -- hubble observe --since "$since" --ip "$address" --verdict DROPPED -o compact 2>/dev/null | grep -c -i 'standby' || true)
-    [ "${d:-0}" -eq 0 ] || fail "move $i: $n dropped $d packets of $address for reasons other than the standby fence"
+    [ "${d:-0}" -eq 0 ] || problems="$problems $n dropped $d packets of $address for reasons other than the standby fence;"
     drops="$drops $n:${sd:-0}"
   done
   # The VM host: unanswered pings (seconds after the switch end) and its route changes.
@@ -183,6 +185,7 @@ EOF
   log "${summary[-1]}"
   summary+=("move $i node routes for $address/32:$kroutes")
   log "${summary[-1]}"
+  [ -z "$problems" ] || fail "move $i:$problems"
 done
 log "summary:"; printf '  %s\n' "${summary[@]}"
 log "PASS: handoff detail"
