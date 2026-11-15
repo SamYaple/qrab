@@ -310,6 +310,17 @@ pool; Cilium's `ipam.ciliumNodeUpdateRate` is 1s). The addresses do not
 overlap, so this does not by itself allow live migration: two Pods cannot hold
 one address at once.
 
+The forked Cilium (`forks/cilium`, running since 2026-11-15) lets a second Pod
+hold the address during a handoff: a Pod annotated
+`ipam.cilium.io/handoff-from: <namespace>/<pod>` gets that Pod's IP as a fenced
+standby endpoint, which drops its own traffic until the node-local agent API
+activates it. The operator does not use it yet. The ValidatingAdmissionPolicy
+in `contrib/kubernetes/operator/nic-handoff.yaml` lets only the qrab operator
+set the annotation, only when it creates a `vm-nic` Pod in `qrab` that takes
+over a Pod in `qrab` from its own `qrab-nic-<address>` pool in the range. Nobody
+may add, change or remove the annotation later. `check-nic-handoff-policy.sh`
+checks it live with dry runs.
+
 ### Egress keeps the guest's address
 
 Cilium masquerades pod traffic to anything outside `10.244.0.0/16` as the
