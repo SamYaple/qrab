@@ -2684,6 +2684,49 @@ mod schema_resolution_tests {
     }
 
     #[test]
+    #[ignore = "audits all QEMU negative fixtures, including intentional legacy allowances"]
+    fn upstream_negative_fixtures_never_panic_during_lowering_or_emission() {
+        let root =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../vendor/qemu/tests/qapi-schema");
+        let mut fixtures = Vec::new();
+        for entry in std::fs::read_dir(&root).unwrap() {
+            let path = entry.unwrap().path();
+            if path.extension().is_some_and(|extension| extension == "err")
+                && !std::fs::read_to_string(&path).unwrap().trim().is_empty()
+                && path.with_extension("json").exists()
+            {
+                fixtures.push(path.with_extension("json"));
+            }
+        }
+        fixtures.sort();
+        let mut accepted = Vec::new();
+        let mut panicked = Vec::new();
+        for path in fixtures {
+            let Ok(sources) = crate::read_schema_with_version(&path, Some((11, 1, 3))) else {
+                continue;
+            };
+            match std::panic::catch_unwind(|| -> Result<()> {
+                let (enums, structs) = process_version_schema(&sources)?;
+                for value in enums.values() {
+                    let _ = value.generate();
+                }
+                for value in structs.values() {
+                    let _ = value.generate();
+                }
+                Ok(())
+            }) {
+                Ok(Ok(())) => {
+                    accepted.push(path.file_stem().unwrap().to_string_lossy().into_owned())
+                }
+                Ok(Err(_)) => {}
+                Err(_) => panicked.push(path.display().to_string()),
+            }
+        }
+        eprintln!("Accepted negative fixtures (audit legacy allowances separately): {accepted:#?}");
+        assert!(panicked.is_empty(), "Panicked on: {}", panicked.join("\n"));
+    }
+
+    #[test]
     fn upstream_positive_schema_fixtures_lower() {
         let root =
             Path::new(env!("CARGO_MANIFEST_DIR")).join("../../vendor/qemu/tests/qapi-schema");
