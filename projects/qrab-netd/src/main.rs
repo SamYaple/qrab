@@ -224,7 +224,8 @@ impl Agent {
     }
 
     /// Drop forward routes whose address no anchor on this node has held for
-    /// [`FORWARD_GRACE`]: by then the new node announces the address.
+    /// [`FORWARD_GRACE`], once this node has learned the address's route from
+    /// BGP (see [`sweep_due`]).
     fn sweep_forwards(&self) {
         let host = sys::host_netns(&self.proc_root);
         let Ok(routes) = sys::in_netns(&host, sys::forwards) else {
@@ -245,9 +246,16 @@ impl Agent {
                 continue;
             }
             let since = *orphaned.entry(ip).or_insert_with(Instant::now);
-            if since.elapsed() >= FORWARD_GRACE {
+            if since.elapsed() < FORWARD_GRACE {
+                continue;
+            }
+            let learned = sys::in_netns(&host, move || sys::learned(ip)).unwrap_or(false);
+            if sweep_due(since.elapsed(), learned) {
                 match sys::in_netns(&host, move || sys::unforward(ip)) {
-                    Ok(()) => log("unforwarded", serde_json::json!({"address": ip})),
+                    Ok(()) => log(
+                        "unforwarded",
+                        serde_json::json!({"address": ip, "learned": learned, "after_s": since.elapsed().as_secs()}),
+                    ),
                     Err(error) => log(
                         "unforward_failed",
                         serde_json::json!({"address": ip, "error": error.to_string()}),
@@ -259,8 +267,21 @@ impl Agent {
     }
 }
 
-/// How long a forward route outlives the last local anchor of its address.
+/// How long a forward route outlives the last local anchor of its address
+/// at least.
 const FORWARD_GRACE: Duration = Duration::from_secs(20);
+/// How long it outlives it at most, for an address nobody announces any more
+/// (its VM deleted after the move).
+const FORWARD_LIMIT: Duration = Duration::from_secs(600);
+
+/// Whether a forward route orphaned `elapsed` ago goes. Before this node has
+/// a BGP route for the address it still announces the /32 itself or has not
+/// installed the new node's announcement yet: traffic the VM host or a peer
+/// still sends here would have no route but the forward one, so the forward
+/// route stays (up to [`FORWARD_LIMIT`]).
+fn sweep_due(elapsed: Duration, learned: bool) -> bool {
+    elapsed >= FORWARD_LIMIT || (elapsed >= FORWARD_GRACE && learned)
+}
 
 async fn report(pods: &Api<Pod>, agent: &Agent, pod: &Pod, outcome: &Result<String, String>) {
     let (Some(uid), name) = (pod.uid(), pod.name_any()) else {
@@ -489,5 +510,19 @@ async fn main() -> Result<()> {
         reconcile(&agent, &pods).await;
         let sweeper = agent.clone();
         let _ = tokio::task::spawn_blocking(move || sweeper.sweep_forwards()).await;
+    }
+}
+
+#[cfg(test)]
+mod sweep_tests {
+    use super::*;
+
+    #[test]
+    fn a_forward_route_waits_for_the_new_route_up_to_a_limit() {
+        let s = Duration::from_secs;
+        assert!(!sweep_due(s(5), true), "inside the grace period");
+        assert!(!sweep_due(s(25), false), "not yet learned from BGP");
+        assert!(sweep_due(s(25), true));
+        assert!(sweep_due(s(600), false), "nobody announces it any more");
     }
 }

@@ -517,6 +517,17 @@ pub fn unforward(ip: Ipv4Addr) -> io::Result<()> {
     }
 }
 
+/// Whether the calling thread's namespace has a BGP route for `ip`'s /32:
+/// this node no longer originates it and installed another node's
+/// announcement.
+pub fn learned(ip: Ipv4Addr) -> io::Result<bool> {
+    Ok(
+        !ip_words(&["-4", "route", "show", &format!("{ip}/32"), "proto", "bgp"])?
+            .trim()
+            .is_empty(),
+    )
+}
+
 /// Addresses with a forward route of ours in the calling thread's namespace.
 pub fn forwards() -> io::Result<Vec<Ipv4Addr>> {
     Ok(ip_words(&["-4", "route", "show", "proto", FORWARD_PROTO])?
