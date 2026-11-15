@@ -515,10 +515,10 @@ function showOverview() {
         ['State', system?.Status?.State ?? '—'],
         ['vCPUs', system?.ProcessorSummary?.LogicalProcessorCount ?? '—'],
         ['Memory', memory == null ? '—' : memory >= 1 ? `${+memory.toFixed(2)} GiB` : `${Math.round(memory * 1024)} MiB`],
-        ['Disks', disks.length ? `${disks.length} (${kinds.join(', ')})` : 'none'],
-        ['NICs', nics.length ? `${nics.length} (${nics.map(nic => nic.mac).join(', ')})` : 'none'],
-        ['Guest network', view ? (view.guest_network ? 'enabled' : 'disabled') : '—'],
-        ['Guest agent', !agent?.enabled ? 'disabled' : agent.connected ? `connected${agent.version ? ` · ${agent.version}` : ''}` : 'not connected'],
+        ['Disks', !Array.isArray(view?.disks) ? 'Unavailable' : disks.length ? `${disks.length} (${kinds.join(', ')})` : 'none'],
+        ['NICs', !Array.isArray(view?.nics) ? 'Unavailable' : nics.length ? `${nics.length} (${nics.map(nic => nic.mac).join(', ')})` : 'none'],
+        ['Guest network', view?.guest_network == null ? 'Unavailable' : view.guest_network ? 'enabled' : 'disabled'],
+        ['Guest agent', agent?.enabled == null ? 'Unavailable' : !agent.enabled ? 'disabled' : agent.connected == null ? 'Connection unavailable' : agent.connected ? `connected${agent.version ? ` · ${agent.version}` : ''}` : 'not connected'],
     ]);
 }
 function describeDisk(disk) {
@@ -536,8 +536,8 @@ function updateSummary(update) {
 }
 function showAgent(status) {
     const rows = [
-        ['Channel', status?.enabled ? 'enabled' : 'disabled'],
-        ['Connected', status?.connected ? `yes, since ${stamp(status.connected_since_unix_ms)}` : 'no'],
+        ['Channel', status?.enabled == null ? 'Unavailable' : status.enabled ? 'enabled' : 'disabled'],
+        ['Connected', status?.connected == null ? 'Unavailable' : status.connected ? `yes, since ${stamp(status.connected_since_unix_ms)}` : 'no'],
         ['Version', status?.version || '—'],
         ['Last seen', stamp(status?.last_seen_unix_ms)],
     ];
@@ -551,7 +551,7 @@ function showAgent(status) {
         if (update.Output) rows.push([update.OutputTruncated ? 'Update output (tail)' : 'Update output', update.Output]);
     }
     render('agent', [...rows, ...agentResult]);
-    element('agent-note').textContent = status?.connected ? 'Connected' : 'Not connected';
+    updateText(element('agent-note'), status?.connected == null ? 'Unavailable' : status.connected ? 'Connected' : 'Not connected');
     updateActionControls();
 }
 const agentTarget = name => system?.Actions?.Oem?.[`#QrabComputerSystem.${name}`]?.target || `${SYSTEM}/Actions/Oem/QrabComputerSystem.${name}`;
@@ -585,7 +585,11 @@ function wireAgentActions() {
     }
 }
 function showConfig(view) {
-    if (!view) return;
+    if (!view) {
+        render('config', [['Configuration', 'Unavailable']]);
+        updateText(element('config-note'), 'Unavailable');
+        return;
+    }
     const rows = [
         ['Name', view.name], ['Memory', `${view.memory_mib} MiB`], ['vCPUs', view.cpus], ['Accelerator', view.accelerator],
         ['Boot', view.boot], ['TPM', view.tpm ? 'yes' : 'no'], ['Console', view.console ? 'yes' : 'no'],

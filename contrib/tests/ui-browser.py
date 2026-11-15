@@ -619,6 +619,36 @@ def bmc_state_checks(browser, width, theme):
     expect(thaw).to_be_enabled()
     page.locator('#tab-overview').click()
 
+    config = fixture['system']['Oem']['Qrab'].pop('Configuration')
+    agent = fixture['system']['Oem']['Qrab'].pop('GuestAgent')
+    page.clock.fast_forward(3100)
+    for label in ['Disks', 'NICs', 'Guest agent']:
+        expect(page.locator('#overview dt').filter(has_text=label).locator('xpath=following-sibling::dd[1]')).to_have_text('Unavailable')
+    page.locator('#tab-config').click()
+    expect(page.locator('#config')).to_have_text('ConfigurationUnavailable')
+    expect(page.locator('#config-note')).to_have_text('Unavailable')
+    page.locator('#tab-agent').click()
+    expect(page.locator('#agent dt').filter(has_text='Channel').locator('xpath=following-sibling::dd[1]')).to_have_text('Unavailable')
+    expect(page.locator('#agent dt').filter(has_text='Connected').locator('xpath=following-sibling::dd[1]')).to_have_text('Unavailable')
+    expect(page.locator('#agent-note')).to_have_text('Unavailable')
+    fixture['system']['Oem']['Qrab']['Configuration'] = {**config, 'disks': [], 'nics': [], 'guest_network': False}
+    fixture['system']['Oem']['Qrab']['GuestAgent'] = {**agent, 'enabled': False, 'connected': False}
+    page.clock.fast_forward(3100)
+    page.locator('#tab-overview').click()
+    for label in ['Disks', 'NICs']:
+        expect(page.locator('#overview dt').filter(has_text=label).locator('xpath=following-sibling::dd[1]')).to_have_text('none')
+    for label in ['Guest network', 'Guest agent']:
+        expect(page.locator('#overview dt').filter(has_text=label).locator('xpath=following-sibling::dd[1]')).to_have_text('disabled')
+    fixture['system']['Oem']['Qrab']['Configuration'] = config
+    fixture['system']['Oem']['Qrab']['GuestAgent'] = agent
+    page.clock.fast_forward(3100)
+    page.locator('#tab-agent').click()
+    expect(page.locator('#agent-note')).to_have_text('Connected')
+    page.locator('#tab-config').click()
+    expect(page.locator('#config-note')).to_have_text('Full view')
+    expect(page.locator('#config')).to_contain_text('web-1')
+    page.locator('#tab-overview').click()
+
     fixture['fail_system'] = {'json': {'error': {'message': 'The VM has no running Pod.'}}}
     page.clock.fast_forward(3100)
     expect(page.locator('#read-status')).to_contain_text('The VM has no running Pod.')

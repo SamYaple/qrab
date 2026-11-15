@@ -690,6 +690,9 @@ labelled explicitly; exact whole memory capacities use GiB/TiB where applicable.
 CPU usage is shown in cores and larger memory snapshots in GiB/TiB. Positive
 sub-millicore samples remain distinct from zero, and invalid samples show no data.
 SSR usage is a page-load snapshot, not a poll; the BMC provides continuing updates.
+Missing BMC configuration or guest-agent data is labelled unavailable; it is
+distinct from an explicitly empty disk/NIC list or a disabled channel. A successful
+System response without configuration clears the previous configuration values.
 Long VM names wrap in the BMC header, which scrolls normally in short windows so
 it does not cover the useful panel area.
 
