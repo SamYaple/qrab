@@ -43,6 +43,24 @@ const POWER_ALLOWS = {
 };
 const TABS = ['overview', 'metrics', 'events', 'agent', 'config'];
 const element = id => document.getElementById(id);
+// Use one timezone for this page's labels and date formatting, including
+// history windows that cross a daylight-saving boundary.
+const displayTimeZone = (() => {
+    try { return Intl.DateTimeFormat().resolvedOptions().timeZone || undefined; }
+    catch { return undefined; }
+})();
+const dateOptions = options => displayTimeZone ? {...options, timeZone: displayTimeZone} : options;
+const dateFormatter = options => {
+    const formatter = new Intl.DateTimeFormat([], dateOptions(options));
+    return date => Number.isFinite(date.getTime()) ? formatter.format(date) : 'Time unavailable';
+};
+const localTime = dateFormatter({hour: 'numeric', minute: 'numeric', second: 'numeric'});
+const localStamp = dateFormatter({year: 'numeric', month: 'numeric', day: 'numeric', hour: 'numeric', minute: 'numeric', second: 'numeric'});
+const historyClock = dateFormatter({hour: '2-digit', minute: '2-digit'});
+const historyDay = dateFormatter({weekday: 'short', day: 'numeric'});
+for (const note of document.querySelectorAll('[data-local-time]')) {
+    note.textContent = displayTimeZone ? `Times on this page use ${displayTimeZone}.` : 'Times use your browser’s local timezone.';
+}
 // Live regions announce changes, not repeated writes of the same state.
 function updateText(target, text) {
     if (target.textContent !== text) target.textContent = text;
@@ -282,8 +300,8 @@ const matches = (row, filter) => !filter || row.classList.contains('gap') || row
 function eventTime(value) {
     const at = value ? new Date(value) : null;
     const known = at && Number.isFinite(at.getTime());
-    const time = node(known ? 'time' : 'span', known ? at.toLocaleTimeString() : 'Time unavailable', 'event-time');
-    if (known) { time.dateTime = at.toISOString(); time.title = at.toLocaleString(); }
+    const time = node(known ? 'time' : 'span', known ? localTime(at) : 'Time unavailable', 'event-time');
+    if (known) { time.dateTime = at.toISOString(); time.title = localStamp(at); }
     return time;
 }
 function eventRow(event) {
@@ -391,7 +409,7 @@ async function startEvents() {
 }
 
 // ── Status header and overview, from one Systems/1 read.
-const stamp = millis => millis ? new Date(millis).toLocaleString() : '—';
+const stamp = millis => millis ? localStamp(new Date(millis)) : '—';
 function showStatus() {
     const chip = element('vm-status');
     const power = system?.PowerState ?? 'Unavailable';
@@ -482,7 +500,7 @@ function describeDisk(disk) {
 // Oem.Qrab.GuestAgent.LastUpdate; Output and Error are present for admins only.
 function updateSummary(update) {
     const exit = update.ExitCode != null ? ` · exit ${update.ExitCode}` : update.Signal != null ? ` · signal ${update.Signal}` : '';
-    const ended = update.EndTime ? ` · ${new Date(update.EndTime).toLocaleString()}` : '';
+    const ended = update.EndTime ? ` · ${localStamp(new Date(update.EndTime))}` : '';
     return `${update.State.toLowerCase()}${update.RunId ? ` · run ${update.RunId}` : ''}${exit}${ended}${update.HookInstalled ? '' : ' · no hook installed'}`;
 }
 function showAgent(status) {
@@ -586,7 +604,7 @@ function refresh() {
             system = null;
             showStatus();
             const note = element('read-status');
-            updateText(note, `Live data unavailable: ${error.message} ${lastRead ? `Values below were last updated at ${lastRead.toLocaleTimeString()}.` : 'No live data has been loaded yet.'} Retrying automatically.`);
+            updateText(note, `Live data unavailable: ${error.message} ${lastRead ? `Values below were last updated at ${localTime(lastRead)}.` : 'No live data has been loaded yet.'} Retrying automatically.`);
             note.hidden = false;
         }
     })().finally(() => { refreshTask = null; });
@@ -684,7 +702,7 @@ function niceMax(max, unit) {
 }
 function axisTime(unix, range) {
     const at = new Date(unix * 1000);
-    return range === '7d' ? at.toLocaleDateString([], {weekday: 'short', day: 'numeric'}) : at.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'});
+    return range === '7d' ? historyDay(at) : historyClock(at);
 }
 const seriesLabel = series => Object.values(series.labels || {})[0] || '—';
 function historySummary(answer, title, max) {
@@ -775,7 +793,7 @@ function drawChart(figure, answer, title) {
             const point = series.points.find(p => p[0] === t);
             return `${seriesLabel(series)} ${point ? formatValue(point[1], answer.unit) : '—'}`;
         });
-        updateText(readout, `${new Date(t * 1000).toLocaleString()}: ${parts.join(' · ')}`);
+        updateText(readout, `${localStamp(new Date(t * 1000))}: ${parts.join(' · ')}`);
     };
     const hide = () => {
         // Chromium may dispatch blur before removing the old SVG. A redraw
@@ -911,7 +929,7 @@ async function renderMetricHistory(slot) {
         metricHistory.fetchedAt = Date.now();
         drawHistory(slot);
         const failed = results.filter(result => result.status === 'rejected').length;
-        status.textContent = failed === results.length ? 'Unavailable' : `Updated ${new Date().toLocaleTimeString()}`;
+        status.textContent = failed === results.length ? 'Unavailable' : `Updated ${localTime(new Date())}`;
         updateText(element('history-availability'), failed === results.length ? 'Metric history unavailable.'
             : failed ? 'Some metric history unavailable.' : 'Metric history available.');
     } finally {
@@ -930,7 +948,7 @@ function loadMetrics() {
         if (resources.status === 'rejected') render('resources', [['Resources', resources.reason.message]]);
         const failures = [report, resources].filter(result => result.status === 'rejected').length;
         note.textContent = failures === 2 ? 'Unavailable' : failures ? 'Some data unavailable'
-            : report.value ? `Sampled ${new Date(report.value).toLocaleTimeString()}` : 'Live';
+            : report.value ? `Sampled ${localTime(new Date(report.value))}` : 'Live';
         updateText(element('metrics-availability'), failures === 2 ? 'VM metrics unavailable.'
             : failures ? 'Some VM metrics unavailable.' : 'VM metrics available.');
         renderMetricHistory(element('metric-history'));

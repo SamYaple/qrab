@@ -144,6 +144,11 @@ Full-screen ownership also counts as console focus if a disconnected socket
 has already removed the focused canvas. The real-router browser check enters
 full-screen before natural expiry; `QRAB_UI_EARLY_DISCONNECT=1` additionally
 closes the console first to exercise this recovery race.
+Metrics, Events and Guest agent name the browser timezone used by the page.
+Date formatters use that same zone for the page lifetime and account for
+daylight-saving transitions; expanded event timestamps remain explicitly UTC.
+Formatters are cached for repeated chart/event rendering. Browser checks cover
+Los Angeles winter/summer times and Kolkata's half-hour offset.
 
 ### Console power controls
 

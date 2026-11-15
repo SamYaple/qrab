@@ -697,6 +697,47 @@ def bmc_state_checks(browser, width, theme):
     context.close()
 
 
+def timezone_checks(browser):
+    cases = [
+        ('America/Los_Angeles', ['America/Los_Angeles'], '8:00:01', '9:00:01', '8:00:00', '7:00:00', 'PM'),
+        ('Asia/Kolkata', ['Asia/Kolkata', 'Asia/Calcutta'], '9:30:01', '9:30:01', '9:30:00', '8:30:00', 'AM'),
+    ]
+    for zone, aliases, winter, summer, sampled, first_sample, period in cases:
+        context = browser_context(browser, viewport={'width': 390, 'height': 1000}, locale='en-US', timezone_id=zone)
+        fixture = install_bmc(context)
+        fixture['system']['Oem']['Qrab']['GuestAgent']['connected_since_unix_ms'] = 1794715200000
+        fixture['system']['Oem']['Qrab']['GuestAgent']['LastUpdate']['EndTime'] = 'not-a-date'
+        fixture['extra_events'] = [{'Id': '100', 'Created': '2026-07-15T04:00:01Z',
+                                    'Oem': {'Qrab': {'Sequence': 100, 'Event': 'SUMMER', 'Data': {}}}}]
+        page = context.new_page()
+        page.goto('http://ui.test' + base + '/bmc')
+        page.locator('#tab-events').click()
+        note = page.locator('#panel-events [data-local-time]').inner_text()
+        assert any(alias in note for alias in aliases), note
+        for event, clock in [('STOP', winter), ('SUMMER', summer)]:
+            at = page.locator(f'#events li[data-event={event}] time')
+            expect(at).to_contain_text(clock)
+            expect(at).to_contain_text(period)
+        row = page.locator('#events li[data-event=STOP]')
+        row.locator('summary').click()
+        expect(row.locator('.event-context')).to_contain_text('2026-11-15T04:00:01.000Z')
+        page.locator('#tab-metrics').click()
+        expect(page.locator('#metrics-note')).to_contain_text(sampled)
+        expect(page.locator('#metrics-note')).to_contain_text(period)
+        chart = page.locator('svg.chart').first
+        expect(chart).to_be_visible()
+        chart.focus()
+        page.keyboard.press('Home')
+        expect(page.locator('.history-chart .readout').first).to_contain_text(first_sample)
+        page.locator('#tab-agent').click()
+        connected = page.locator('#agent').get_by_text('Connected', exact=True).locator('xpath=following-sibling::dd[1]')
+        expect(connected).to_contain_text(sampled)
+        expect(page.locator('#agent')).to_contain_text('Time unavailable')
+        no_overflow(page, 'timezone-' + zone, 390)
+        capture(page, args.output / ('timezone-' + zone.replace('/', '-') + '.png'))
+        context.close()
+
+
 def metric_focus_checks(browser):
     context = browser_context(browser, viewport={'width': 390, 'height': 1000})
     fixture = install_bmc(context)
@@ -987,6 +1028,7 @@ with sync_playwright() as playwright:
                 assert not errors, errors
                 context.close()
             long_content_checks(browser, width, theme)
+    timezone_checks(browser)
     metric_focus_checks(browser)
     bmc_state_checks(browser, 1440, 'dark')
     bmc_state_checks(browser, 390, 'light')

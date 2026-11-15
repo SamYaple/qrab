@@ -36,13 +36,14 @@
 <section class="panel" role="tabpanel" id="panel-overview" aria-labelledby="tab-overview" tabindex="0"><dl id="overview"><dt>Status</dt><dd>Loading live data…</dd></dl></section>
 <section class="panel" role="tabpanel" id="panel-metrics" aria-labelledby="tab-metrics" tabindex="0" hidden>
 <div class="panel-head"><h2>Current values</h2><span id="metrics-note">Loading…</span><span id="metrics-availability" class="visually-hidden" role="status"></span></div>
+<p class="panel-help" data-local-time></p>
 <h3>VM report</h3><dl id="telemetry"></dl>
 <h3>Service resources</h3><dl id="resources"></dl>
 <section id="metric-history" class="slot" aria-label="Metric history"><h3>History</h3><p>Loading history…</p></section>
 </section>
 <section class="panel" role="tabpanel" id="panel-events" aria-labelledby="tab-events" tabindex="0" hidden>
 <div class="panel-head"><h2>QMP events</h2><span id="events-status" role="status">Loading…</span></div>
-<p class="panel-help">Expand an event to read its timestamp and payload.</p>
+<p class="panel-help">Expand an event to read its timestamp and payload. <span data-local-time></span> Expanded timestamps use UTC.</p>
 <p id="events-dropped" class="warning" role="alert" hidden></p>
 <input id="events-filter" type="search" placeholder="Filter by event name" aria-label="Filter events by name" autocomplete="off">
 <p id="events-empty" class="empty-note" role="status">Loading event history…</p>
@@ -50,6 +51,7 @@
 </section>
 <section class="panel" role="tabpanel" id="panel-agent" aria-labelledby="tab-agent" tabindex="0" hidden>
 <div class="panel-head"><h2>Guest agent</h2><span id="agent-note"></span></div>
+<p class="panel-help" data-local-time></p>
 <dl id="agent"></dl>
 <div class="group agent-actions" data-admin><button data-agent="freeze" disabled>Freeze filesystems</button><button data-agent="thaw" disabled>Thaw</button><button data-agent="update" disabled>Run update…</button></div>
 </section>
