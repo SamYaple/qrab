@@ -240,13 +240,20 @@ fn process_version_schema(
     let mut unprocessed_commands = Vec::new();
     let mut unprocessed_events = Vec::new();
     let mut definitions = HashMap::new();
+    let schemas = sources
+        .iter()
+        .map(|(path, content)| {
+            let schema = parse_schema(content)
+                .with_context(|| format!("Failed to parse QAPI source {}", path.display()))?;
+            Ok((path.as_path(), schema))
+        })
+        .collect::<Result<Vec<_>>>()?;
+    crate::schema_validation::validate(&schemas)?;
 
     // All types are keyed by their rustified form so that cross-version renames
     // (e.g. SGXInfo → SgxInfo in v10.1) and command/data-struct pairs that
     // happen to rustify to the same identifier land in a single entry.
-    for (path, content) in sources {
-        let schema = parse_schema(content)
-            .with_context(|| format!("Failed to parse QAPI source {}", path.display()))?;
+    for (path, schema) in schemas {
         for token in schema.0 {
             let definition = match &token {
                 QapiSchemaToken::Enum(value) => Some((false, value.name)),
@@ -1959,6 +1966,91 @@ mod schema_resolution_tests {
     }
 
     #[test]
+    fn undefined_type_references_report_the_source_and_definition() {
+        for (input, definition, member) in [
+            (
+                "{'struct':'Record','data':{'value':'Missing'}}",
+                "Record",
+                "value",
+            ),
+            (
+                "{'struct':'Record','data':{'values':['Missing']}}",
+                "Record",
+                "values",
+            ),
+            (
+                "{'command':'query-record','returns':'Missing'}",
+                "query-record",
+                "return",
+            ),
+            (
+                "{'event':'RECORD','data':{'value':'Missing'}}",
+                "RECORD",
+                "value",
+            ),
+            (
+                "{'alternate':'Choice','data':{'value':'Missing'}}",
+                "Choice",
+                "value",
+            ),
+            (
+                "{'command':'query-record','data':{'value':'Missing'}}",
+                "query-record",
+                "value",
+            ),
+        ] {
+            let error = format!("{:#}", process(input).unwrap_err());
+            for expected in ["fixture.json", definition, member, "Missing"] {
+                assert!(error.contains(expected), "{expected}: {error}");
+            }
+        }
+    }
+
+    #[test]
+    fn type_references_use_schema_names_not_rust_names_or_command_names() {
+        for input in [
+            "{'struct':'FooBAR','data':{}} {'struct':'Record','data':{'value':'FooBar'}}",
+            "{'command':'Example'} {'struct':'Record','data':{'value':'Example'}}",
+            "{'event':'EXAMPLE'} {'struct':'Record','data':{'value':'EXAMPLE'}}",
+            "{'struct':'Record','data':{'value':'String'}}",
+        ] {
+            let error = format!("{:#}", process(input).unwrap_err());
+            assert!(error.contains("Unknown QAPI type"), "{error}");
+        }
+    }
+
+    #[test]
+    fn forward_member_references_resolve_across_source_files() {
+        crate::set_parser_version((11, 1, 3));
+        let (_, structs) = process_version_schema(&[
+            (
+                "first.json".into(),
+                "{'struct':'First','data':{'value':'Second'}}".into(),
+            ),
+            (
+                "second.json".into(),
+                "{'struct':'Second','data':{'value':'str'}}".into(),
+            ),
+        ])
+        .unwrap();
+        assert_eq!(structs["First"].fields[0].r#type, "Second");
+    }
+
+    #[test]
+    fn historical_inline_members_validate_nested_references() {
+        crate::set_parser_version((1, 0, 0));
+        let error = process_version_schema(&[(
+            "old.json".into(),
+            "{'type':'Record','data':{'outer':{'inner':'Missing'}}}".into(),
+        )])
+        .unwrap_err();
+        let error = format!("{error:#}");
+        for expected in ["old.json", "Record", "outer", "inner", "Missing"] {
+            assert!(error.contains(expected), "{expected}: {error}");
+        }
+    }
+
+    #[test]
     fn legacy_alternate_lowers_to_a_bare_value_enum_and_keeps_features() {
         crate::set_parser_version((1, 7, 0));
         let input = "{ 'union': 'Ref', 'discriminator': {}, 'data': {'reference':'str'}, 'features':['deprecated'] }";
@@ -2046,8 +2138,8 @@ mod schema_resolution_tests {
             "{ 'command': 'example', 'data': 'Missing' }",
             "{ 'event': 'EXAMPLE', 'data': 'Missing' }",
         ] {
-            let error = process(input).unwrap_err().to_string();
-            assert!(error.contains("missing argument type Missing"), "{error}");
+            let error = format!("{:#}", process(input).unwrap_err());
+            assert!(error.contains("Unknown QAPI type 'Missing'"), "{error}");
         }
     }
 
@@ -2069,12 +2161,18 @@ mod schema_resolution_tests {
 
     #[test]
     fn unresolved_inheritance_returns_an_error() {
-        for input in [
-            "{ 'struct': 'Leaf', 'base': 'Missing', 'data': {} }",
-            "{ 'struct': 'First', 'base': 'Second', 'data': {} }\n{ 'struct': 'Second', 'base': 'First', 'data': {} }",
+        for (input, expected) in [
+            (
+                "{ 'struct': 'Leaf', 'base': 'Missing', 'data': {} }",
+                "Unknown QAPI type 'Missing'",
+            ),
+            (
+                "{ 'struct': 'First', 'base': 'Second', 'data': {} }\n{ 'struct': 'Second', 'base': 'First', 'data': {} }",
+                "Unresolved QAPI struct bases",
+            ),
         ] {
-            let error = process(input).unwrap_err().to_string();
-            assert!(error.contains("Unresolved QAPI struct bases"), "{error}");
+            let error = format!("{:#}", process(input).unwrap_err());
+            assert!(error.contains(expected), "{error}");
         }
     }
 
@@ -2083,14 +2181,14 @@ mod schema_resolution_tests {
         for (input, message) in [
             (
                 "{ 'union': 'ExampleUnion', 'base': 'Missing', 'discriminator': 'kind', 'data': { 'one': 'Missing' } }",
-                "missing base Missing",
+                "Unknown QAPI type 'Missing'",
             ),
             (
                 "{ 'struct': 'Base', 'data': {} }\n{ 'union': 'ExampleUnion', 'base': 'Base', 'discriminator': 'kind', 'data': { 'one': 'Base' } }",
                 "no discriminator field kind",
             ),
         ] {
-            let error = process(input).unwrap_err().to_string();
+            let error = format!("{:#}", process(input).unwrap_err());
             assert!(error.contains(message), "{error}");
         }
     }

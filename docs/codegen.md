@@ -79,6 +79,9 @@ printable-ASCII grammar, including escaped backslashes in include paths.
 Conditions before 6.2 retain C expressions and lists of expressions; newer
 conditions require configuration identifiers and nonempty boolean expressions.
 Empty enums and structs are valid, but their `data` key is still required.
+Type references resolve against exact QAPI names across all source files before
+Rust name mapping. Undefined member, branch and return types report their source
+and definition; historical inline objects include the nested member path.
 Flat unions may omit every payload branch when their discriminator enum is
 nonempty. Generated branch enums carry `union_branch` even when all variants
 have no payload, preserving discriminator dispatch and empty-object wire shape.
