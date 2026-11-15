@@ -353,6 +353,7 @@ input[aria-invalid=true], select[aria-invalid=true], textarea[aria-invalid=true]
     button, .button, .quiet, .operator .button { min-height: 44px; min-width: 44px; }
     input:not([type=checkbox]):not([type=radio]), select { min-height: 44px; }
     .site-nav a, .back, .section-nav a { display: inline-flex; align-items: center; min-height: 44px; }
+    .identity-link { display: flex; align-items: center; min-height: 44px; min-width: 44px; }
     summary { min-height: 44px; padding-top: 10px; padding-bottom: 10px; }
     .disclosure > summary, .inline-disclosure > summary, .console-power-more > summary { min-height: 44px; padding-top: 10px; padding-bottom: 10px; }
     .choices label { min-height: 44px; }
