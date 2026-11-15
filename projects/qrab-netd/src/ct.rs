@@ -138,43 +138,83 @@ impl Export {
     }
 }
 
-/// `bpftool -j map dump` output: `[{"key": ["0x0a", …], "value": [...]}, …]`.
-pub fn parse_dump(map: char, json: &str) -> Result<Vec<Entry>, String> {
-    #[derive(Deserialize)]
-    struct Record {
-        key: Vec<String>,
-        value: Vec<String>,
-    }
-    let records: Vec<Record> =
-        serde_json::from_str(json).map_err(|e| format!("bpftool dump: {e}"))?;
-    let bytes = |field: &[String]| -> Option<Vec<u8>> {
-        field
-            .iter()
-            .map(|b| u8::from_str_radix(b.trim_start_matches("0x"), 16).ok())
-            .collect()
-    };
-    records
-        .iter()
-        .map(|r| {
-            Ok(Entry {
-                map,
-                key: bytes(&r.key)
-                    .and_then(|k| k.try_into().ok())
-                    .ok_or("a conntrack key is not 14 bytes")?,
-                value: bytes(&r.value)
-                    .and_then(|v| v.try_into().ok())
-                    .ok_or("a conntrack value is not 56 bytes")?,
-            })
-        })
-        .collect()
-}
-
 /// The entries of flows to or from `ip`, service entries excepted.
 pub fn select(entries: Vec<Entry>, ip: Ipv4Addr) -> Vec<Entry> {
-    entries
-        .into_iter()
-        .filter(|e| e.addresses().contains(&ip) && !e.is_service())
-        .collect()
+    entries.into_iter().filter(|e| selected(e, ip)).collect()
+}
+
+fn selected(entry: &Entry, ip: Ipv4Addr) -> bool {
+    entry.addresses().contains(&ip) && !entry.is_service()
+}
+
+/// [`select`] over a streamed `bpftool -j map dump` of `map`
+/// (`[{"key": ["0x0a", …], "value": [...]}, …]`). A node's map holds tens of
+/// thousands of entries (16 MB of JSON), so the dump is read record by record
+/// and never held whole: memory is bounded by the selection, of which at most
+/// `MAX_ENTRIES + 1` are kept (enough for [`Export::new`] to mark truncation).
+pub fn select_dump(
+    map: char,
+    dump: impl std::io::Read,
+    ip: Ipv4Addr,
+) -> Result<Vec<Entry>, String> {
+    use serde::de::{self, SeqAccess, Visitor};
+    struct HexByte(u8);
+    impl<'de> Deserialize<'de> for HexByte {
+        fn deserialize<D: de::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+            struct Hex;
+            impl Visitor<'_> for Hex {
+                type Value = HexByte;
+                fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                    f.write_str("a byte as \"0x..\"")
+                }
+                fn visit_str<E: de::Error>(self, v: &str) -> Result<HexByte, E> {
+                    u8::from_str_radix(v.trim_start_matches("0x"), 16)
+                        .map(HexByte)
+                        .map_err(|_| E::custom(format!("{v:?} is not a hex byte")))
+                }
+            }
+            d.deserialize_str(Hex)
+        }
+    }
+    #[derive(Deserialize)]
+    struct Record {
+        key: Vec<HexByte>,
+        value: Vec<HexByte>,
+    }
+    struct Selecting {
+        map: char,
+        ip: Ipv4Addr,
+    }
+    impl<'de> Visitor<'de> for Selecting {
+        type Value = Vec<Entry>;
+        fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+            f.write_str("a bpftool map dump")
+        }
+        fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Vec<Entry>, A::Error> {
+            let bytes = |field: Vec<HexByte>| field.into_iter().map(|b| b.0).collect::<Vec<_>>();
+            let mut kept = Vec::new();
+            while let Some(record) = seq.next_element::<Record>()? {
+                let entry = Entry {
+                    map: self.map,
+                    key: bytes(record.key)
+                        .try_into()
+                        .map_err(|_| de::Error::custom("a conntrack key is not 14 bytes"))?,
+                    value: bytes(record.value)
+                        .try_into()
+                        .map_err(|_| de::Error::custom("a conntrack value is not 56 bytes"))?,
+                };
+                if kept.len() <= MAX_ENTRIES && selected(&entry, self.ip) {
+                    kept.push(entry);
+                }
+            }
+            Ok(kept)
+        }
+    }
+    let mut reader = serde_json::Deserializer::from_reader(std::io::BufReader::new(dump));
+    let kept = de::Deserializer::deserialize_seq(&mut reader, Selecting { map, ip })
+        .and_then(|kept| reader.end().map(|()| kept))
+        .map_err(|e| format!("bpftool dump: {e}"))?;
+    Ok(kept)
 }
 
 /// `entry` moved from a clock reading `from` to one reading `to`: its
@@ -274,7 +314,7 @@ mod tests {
           "0x05","0x00","0x00","0x00","0x00","0x00","0x00","0x00","0x40","0x02","0x00","0x00","0x00","0x00","0x00","0x00",
           "0x50","0xf1","0x30","0x00","0x13","0x00","0x00","0x00","0x00","0x00","0x1b","0x1b","0x01","0x00","0x00","0x00",
           "0x46","0xf1","0x30","0x00","0x46","0xf1","0x30","0x00"]}]"#;
-        let parsed = parse_dump('t', json).unwrap();
+        let parsed = select_dump('t', json.as_bytes(), GUEST).unwrap();
         assert_eq!(parsed.len(), 1);
         assert_eq!(
             parsed[0].addresses(),
@@ -286,7 +326,7 @@ mod tests {
         let back: Export = serde_json::from_str(&wire).unwrap();
         assert_eq!(back.decode().unwrap(), parsed);
         // A wrong-sized record is refused, not truncated.
-        assert!(parse_dump('t', r#"[{"key":["0x01"],"value":[]}]"#).is_err());
+        assert!(select_dump('t', &br#"[{"key":["0x01"],"value":[]}]"#[..], GUEST).is_err());
     }
 
     #[test]
@@ -298,6 +338,37 @@ mod tests {
         service.value[REV_NAT] = 3;
         let chosen = select(vec![mine.clone(), reverse.clone(), others, service], GUEST);
         assert_eq!(chosen, [mine, reverse]);
+    }
+
+    #[test]
+    fn a_streamed_dump_keeps_only_a_bounded_selection() {
+        let record = |e: &Entry| {
+            let list = |b: &[u8]| {
+                b.iter()
+                    .map(|x| format!("\"0x{x:02x}\""))
+                    .collect::<Vec<_>>()
+                    .join(",")
+            };
+            format!(
+                r#"{{"key":[{}],"value":[{}]}}"#,
+                list(&e.key),
+                list(&e.value)
+            )
+        };
+        let mine = entry([203, 0, 113, 5], [10, 244, 128, 7], 100);
+        let others = entry([203, 0, 113, 5], [10, 244, 128, 8], 100);
+        let records: Vec<String> = (0..4 * MAX_ENTRIES)
+            .map(|i| record(if i % 2 == 0 { &mine } else { &others }))
+            .collect();
+        let dump = format!("[{}]", records.join(","));
+        let kept = select_dump('t', dump.as_bytes(), GUEST).unwrap();
+        assert_eq!(kept.len(), MAX_ENTRIES + 1);
+        assert!(kept.iter().all(|e| e == &mine));
+        let export = Export::new(1, kept);
+        assert!(export.truncated);
+        assert_eq!(export.entries.len(), MAX_ENTRIES);
+        // Trailing garbage after the array is refused.
+        assert!(select_dump('t', &b"[] x"[..], GUEST).is_err());
     }
 
     #[test]
