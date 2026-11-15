@@ -1,21 +1,53 @@
 //! Real QMP smoke test, independent of manager, KVM, guest images or systemd.
 use qapi::{commands::*, QapiCommand};
 use qapi_protocol::Qmp;
-use std::{collections::BTreeSet, process::Stdio, time::Duration};
+use std::{collections::BTreeSet, ffi::OsStr, process::Stdio, time::Duration};
+
+#[derive(Clone, Copy, Debug)]
+enum MonitorFrontend {
+    MonitorOption,
+    MonitorObject,
+}
 
 #[tokio::test]
 #[ignore = "requires a QEMU binary; set QRAB_TEST_QEMU and run with --ignored"]
 async fn real_qmp_handshake_schema_and_typed_commands() {
-    for pretty in [false, true] {
-        smoke(pretty).await;
+    let binary = std::env::var_os("QRAB_TEST_QEMU").unwrap_or_else(|| "qemu-system-x86_64".into());
+    let objects = tokio::time::timeout(
+        Duration::from_secs(10),
+        tokio::process::Command::new(&binary)
+            .args(["-object", "help"])
+            .kill_on_drop(true)
+            .output(),
+    )
+    .await
+    .expect("QEMU object discovery timed out")
+    .expect("failed to list QEMU object types");
+    assert!(
+        objects.status.success(),
+        "QEMU object discovery failed: {}",
+        String::from_utf8_lossy(&objects.stderr)
+    );
+    let mut frontends = vec![MonitorFrontend::MonitorOption];
+    if [objects.stdout, objects.stderr].iter().any(|output| {
+        String::from_utf8_lossy(output)
+            .lines()
+            .any(|line| line.trim() == "monitor-qmp")
+    }) {
+        frontends.push(MonitorFrontend::MonitorObject);
+    }
+    for frontend in frontends {
+        for pretty in [false, true] {
+            smoke(&binary, frontend, pretty).await;
+        }
     }
 }
 
-async fn smoke(pretty: bool) {
-    let binary = std::env::var_os("QRAB_TEST_QEMU").unwrap_or_else(|| "qemu-system-x86_64".into());
+async fn smoke(binary: &OsStr, frontend: MonitorFrontend, pretty: bool) {
     let dir = tempfile::tempdir().unwrap();
     let socket = dir.path().join("qmp.sock");
-    let mut child = tokio::process::Command::new(binary)
+    let mut command = tokio::process::Command::new(binary);
+    command
         .args([
             "-machine",
             "none",
@@ -30,12 +62,17 @@ async fn smoke(pretty: bool) {
         .arg(format!(
             "socket,id=qmp,path={},server=on,wait=off",
             socket.display()
-        ))
-        .arg("-object")
-        .arg(format!(
-            "monitor-qmp,id=monitor,chardev=qmp,pretty={}",
-            if pretty { "on" } else { "off" }
-        ))
+        ));
+    let pretty = if pretty { "on" } else { "off" };
+    match frontend {
+        MonitorFrontend::MonitorOption => command
+            .arg("-mon")
+            .arg(format!("chardev=qmp,mode=control,pretty={pretty}")),
+        MonitorFrontend::MonitorObject => command.arg("-object").arg(format!(
+            "monitor-qmp,id=monitor,chardev=qmp,pretty={pretty}"
+        )),
+    };
+    let mut child = command
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::inherit())
@@ -64,7 +101,7 @@ async fn smoke(pretty: bool) {
         )
     );
     eprintln!(
-        "Validated QMP peer version: {:?}, pretty={pretty}",
+        "Validated QMP peer version: {:?}, frontend={frontend:?}, pretty={pretty}",
         qmp.version()
     );
     let status = qmp.execute(&QueryStatus {}).await.unwrap();

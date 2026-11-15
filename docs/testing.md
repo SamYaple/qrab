@@ -63,7 +63,9 @@ image, network download, root privileges, systemd or cluster access. It checks
 the greeting, typed query-version/query-status, query-commands against generated
 metadata, typed query-qmp-schema decoding, concurrent and OOB commands, error
 recovery, and clean quit. Both compact and pretty monitor output are tested
-using QEMU 11.1's monitor-qmp object.
+through `-mon`. If the binary advertises QEMU 11.1's `monitor-qmp` object,
+the same checks also run through that frontend. This keeps the smoke test
+usable across the recent release matrix.
 
 A minimal current-QEMU build for this test is:
 
