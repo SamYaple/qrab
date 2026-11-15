@@ -507,6 +507,7 @@ fn emit_struct_meta(decl_name: &str, e: &StructEmit) -> String {
 
 struct EnumEmit {
     rust_name: String,
+    wire_name: String,
     doc: String,
     variants_var: String,
     kind: &'static str,
@@ -565,6 +566,7 @@ fn emit_enum_meta(decl_name: &str, e: &EnumEmit) -> String {
     format!(
         "static {}: EnumMeta = EnumMeta {{\n\
          \x20   name: {},\n\
+         \x20   wire_name: {},\n\
          \x20   doc: {},\n\
          \x20   variants: &{},\n\
          \x20   kind: EnumKind::{},\n\
@@ -573,6 +575,7 @@ fn emit_enum_meta(decl_name: &str, e: &EnumEmit) -> String {
          }};\n",
         decl_name,
         rs_str(&e.rust_name),
+        rs_str(&e.wire_name),
         rs_str(&e.doc),
         e.variants_var,
         e.kind,
@@ -753,6 +756,7 @@ pub fn emit(registry: &UnifiedRegistry) -> String {
                 let decl = format!("ENUM_{}", rust_name);
                 let ee = EnumEmit {
                     rust_name: rust_name.clone(),
+                    wire_name: type_wire_name(&ue.ir.name, &ue.ir.meta.attributes),
                     doc: ue.ir.meta.doc.clone().unwrap_or_default(),
                     variants_var: var_name,
                     kind,
@@ -863,7 +867,10 @@ pub enum EnumKind { Unit, Alternate, FlatUnionBranch }
 
 #[derive(Debug)]
 pub struct EnumMeta {
+    /// Rust type name, also used as the ENUMS lookup key.
     pub name: &'static str,
+    /// Original QAPI spelling when retained; synthesized enums use their generated name.
+    pub wire_name: &'static str,
     pub doc: &'static str,
     pub variants: &'static [EnumVariantMeta],
     pub kind: EnumKind,

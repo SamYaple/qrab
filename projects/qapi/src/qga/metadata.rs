@@ -55,7 +55,10 @@ pub enum EnumKind { Unit, Alternate, FlatUnionBranch }
 
 #[derive(Debug)]
 pub struct EnumMeta {
+    /// Rust type name, also used as the ENUMS lookup key.
     pub name: &'static str,
+    /// Original QAPI spelling when retained; synthesized enums use their generated name.
+    pub wire_name: &'static str,
     pub doc: &'static str,
     pub variants: &'static [EnumVariantMeta],
     pub kind: EnumKind,
@@ -250,6 +253,7 @@ static VARIANTS_GuestCpuStatsBranch: &[EnumVariantMeta] = &[
 ];
 static ENUM_GuestCpuStatsBranch: EnumMeta = EnumMeta {
     name: "GuestCpuStatsBranch",
+    wire_name: "GuestCpuStatsBranch",
     doc: "",
     variants: &VARIANTS_GuestCpuStatsBranch,
     kind: EnumKind::FlatUnionBranch,
@@ -261,6 +265,7 @@ static VARIANTS_GuestCpuStatsType: &[EnumVariantMeta] = &[
 ];
 static ENUM_GuestCpuStatsType: EnumMeta = EnumMeta {
     name: "GuestCpuStatsType",
+    wire_name: "GuestCpuStatsType",
     doc: "Guest operating systems supporting CPU statistics",
     variants: &VARIANTS_GuestCpuStatsType,
     kind: EnumKind::Unit,
@@ -286,6 +291,7 @@ static VARIANTS_GuestDeviceIdBranch: &[EnumVariantMeta] = &[
 ];
 static ENUM_GuestDeviceIdBranch: EnumMeta = EnumMeta {
     name: "GuestDeviceIdBranch",
+    wire_name: "GuestDeviceIdBranch",
     doc: "",
     variants: &VARIANTS_GuestDeviceIdBranch,
     kind: EnumKind::FlatUnionBranch,
@@ -329,6 +335,7 @@ static VARIANTS_GuestDeviceType: &[EnumVariantMeta] = &[
 ];
 static ENUM_GuestDeviceType: EnumMeta = EnumMeta {
     name: "GuestDeviceType",
+    wire_name: "GuestDeviceType",
     doc: "",
     variants: &VARIANTS_GuestDeviceType,
     kind: EnumKind::Unit,
@@ -380,6 +387,7 @@ static VARIANTS_GuestDiskBusType: &[EnumVariantMeta] = &[
 ];
 static ENUM_GuestDiskBusType: EnumMeta = EnumMeta {
     name: "GuestDiskBusType",
+    wire_name: "GuestDiskBusType",
     doc: "An enumeration of bus type of disks",
     variants: &VARIANTS_GuestDiskBusType,
     kind: EnumKind::Unit,
@@ -443,6 +451,7 @@ static VARIANTS_GuestDiskSmartBranch: &[EnumVariantMeta] = &[
 ];
 static ENUM_GuestDiskSmartBranch: EnumMeta = EnumMeta {
     name: "GuestDiskSmartBranch",
+    wire_name: "GuestDiskSmartBranch",
     doc: "",
     variants: &VARIANTS_GuestDiskSmartBranch,
     kind: EnumKind::FlatUnionBranch,
@@ -516,6 +525,7 @@ static VARIANTS_GuestExecCaptureOutput: &[EnumVariantMeta] = &[
 ];
 static ENUM_GuestExecCaptureOutput: EnumMeta = EnumMeta {
     name: "GuestExecCaptureOutput",
+    wire_name: "GuestExecCaptureOutput",
     doc: "Controls what `guest-exec` output gets captures.",
     variants: &VARIANTS_GuestExecCaptureOutput,
     kind: EnumKind::Alternate,
@@ -531,6 +541,7 @@ static VARIANTS_GuestExecCaptureOutputMode: &[EnumVariantMeta] = &[
 ];
 static ENUM_GuestExecCaptureOutputMode: EnumMeta = EnumMeta {
     name: "GuestExecCaptureOutputMode",
+    wire_name: "GuestExecCaptureOutputMode",
     doc: "An enumeration of `guest-exec` capture modes.",
     variants: &VARIANTS_GuestExecCaptureOutputMode,
     kind: EnumKind::Unit,
@@ -753,6 +764,7 @@ static VARIANTS_GuestFileWhence: &[EnumVariantMeta] = &[
 ];
 static ENUM_GuestFileWhence: EnumMeta = EnumMeta {
     name: "GuestFileWhence",
+    wire_name: "GuestFileWhence",
     doc: "Controls the meaning of offset to `guest-file-seek`.",
     variants: &VARIANTS_GuestFileWhence,
     kind: EnumKind::Alternate,
@@ -824,6 +836,7 @@ static VARIANTS_GuestFsfreezeStatus: &[EnumVariantMeta] = &[
 ];
 static ENUM_GuestFsfreezeStatus: EnumMeta = EnumMeta {
     name: "GuestFsfreezeStatus",
+    wire_name: "GuestFsfreezeStatus",
     doc: "An enumeration of filesystem freeze states",
     variants: &VARIANTS_GuestFsfreezeStatus,
     kind: EnumKind::Unit,
@@ -1101,6 +1114,7 @@ static VARIANTS_GuestIpAddressType: &[EnumVariantMeta] = &[
 ];
 static ENUM_GuestIpAddressType: EnumMeta = EnumMeta {
     name: "GuestIpAddressType",
+    wire_name: "GuestIpAddressType",
     doc: "An enumeration of supported IP address types",
     variants: &VARIANTS_GuestIpAddressType,
     kind: EnumKind::Unit,
@@ -1217,6 +1231,7 @@ static VARIANTS_GuestMemoryBlockResponseType: &[EnumVariantMeta] = &[
 ];
 static ENUM_GuestMemoryBlockResponseType: EnumMeta = EnumMeta {
     name: "GuestMemoryBlockResponseType",
+    wire_name: "GuestMemoryBlockResponseType",
     doc: "An enumeration of memory block operation result.",
     variants: &VARIANTS_GuestMemoryBlockResponseType,
     kind: EnumKind::Unit,
@@ -1629,6 +1644,7 @@ static VARIANTS_QgaSeek: &[EnumVariantMeta] = &[
 ];
 static ENUM_QgaSeek: EnumMeta = EnumMeta {
     name: "QgaSeek",
+    wire_name: "QGASeek",
     doc: "Symbolic names for use in `guest-file-seek`",
     variants: &VARIANTS_QgaSeek,
     kind: EnumKind::Unit,

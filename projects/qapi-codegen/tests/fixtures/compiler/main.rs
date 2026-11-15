@@ -5,6 +5,25 @@ pub use qapi_runtime::{
 mod generated;
 pub use generated::*;
 fn main() {
+    assert_eq!(
+        metadata::ENUMS.get("KindFlagGenerated").unwrap().wire_name,
+        "KindFLAG"
+    );
+    assert_eq!(
+        metadata::ENUMS.get("KindFlag").unwrap().wire_name,
+        "KindFlag"
+    );
+    assert_eq!(
+        metadata::ENUMS
+            .get("ChangingTypeLegacy2")
+            .unwrap()
+            .wire_name,
+        "ChangingType"
+    );
+    assert_eq!(
+        metadata::ENUMS.get("VariantUnionBranch").unwrap().wire_name,
+        "VariantUnionBranch"
+    );
     with_version((11, 1, 3), || {
         for tag in ["self", "qapi-self", "qapi-self-alt"] {
             let value: KeywordVariants = serde_json::from_value(serde_json::json!(tag)).unwrap();

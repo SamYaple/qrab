@@ -55,7 +55,10 @@ pub enum EnumKind { Unit, Alternate, FlatUnionBranch }
 
 #[derive(Debug)]
 pub struct EnumMeta {
+    /// Rust type name, also used as the ENUMS lookup key.
     pub name: &'static str,
+    /// Original QAPI spelling when retained; synthesized enums use their generated name.
+    pub wire_name: &'static str,
     pub doc: &'static str,
     pub variants: &'static [EnumVariantMeta],
     pub kind: EnumKind,
@@ -1011,6 +1014,7 @@ static VARIANTS_Accelerator: &[EnumVariantMeta] = &[
 ];
 static ENUM_Accelerator: EnumMeta = EnumMeta {
     name: "Accelerator",
+    wire_name: "Accelerator",
     doc: "Information about support for MSHV acceleration",
     variants: &VARIANTS_Accelerator,
     kind: EnumKind::Unit,
@@ -1100,6 +1104,7 @@ static VARIANTS_AcpiSlotType: &[EnumVariantMeta] = &[
 ];
 static ENUM_AcpiSlotType: EnumMeta = EnumMeta {
     name: "AcpiSlotType",
+    wire_name: "ACPISlotType",
     doc: "",
     variants: &VARIANTS_AcpiSlotType,
     kind: EnumKind::Unit,
@@ -1134,6 +1139,7 @@ static VARIANTS_ActionCompletionMode: &[EnumVariantMeta] = &[
 ];
 static ENUM_ActionCompletionMode: EnumMeta = EnumMeta {
     name: "ActionCompletionMode",
+    wire_name: "ActionCompletionMode",
     doc: "An enumeration of transactional completion modes.",
     variants: &VARIANTS_ActionCompletionMode,
     kind: EnumKind::Unit,
@@ -1193,6 +1199,7 @@ static VARIANTS_AfxdpMode: &[EnumVariantMeta] = &[
 ];
 static ENUM_AfxdpMode: EnumMeta = EnumMeta {
     name: "AfxdpMode",
+    wire_name: "AFXDPMode",
     doc: "Attach mode for a default XDP program",
     variants: &VARIANTS_AfxdpMode,
     kind: EnumKind::Unit,
@@ -1311,6 +1318,7 @@ static VARIANTS_AudiodevBranch: &[EnumVariantMeta] = &[
 ];
 static ENUM_AudiodevBranch: EnumMeta = EnumMeta {
     name: "AudiodevBranch",
+    wire_name: "AudiodevBranch",
     doc: "",
     variants: &VARIANTS_AudiodevBranch,
     kind: EnumKind::FlatUnionBranch,
@@ -1386,6 +1394,7 @@ static VARIANTS_AudiodevDriver: &[EnumVariantMeta] = &[
 ];
 static ENUM_AudiodevDriver: EnumMeta = EnumMeta {
     name: "AudiodevDriver",
+    wire_name: "AudiodevDriver",
     doc: "An enumeration of possible audio backend drivers.",
     variants: &VARIANTS_AudiodevDriver,
     kind: EnumKind::Unit,
@@ -1681,6 +1690,7 @@ static VARIANTS_AudioFormat: &[EnumVariantMeta] = &[
 ];
 static ENUM_AudioFormat: EnumMeta = EnumMeta {
     name: "AudioFormat",
+    wire_name: "AudioFormat",
     doc: "An enumeration of possible audio formats.",
     variants: &VARIANTS_AudioFormat,
     kind: EnumKind::Unit,
@@ -1847,6 +1857,7 @@ static VARIANTS_BiosAtaTranslation: &[EnumVariantMeta] = &[
 ];
 static ENUM_BiosAtaTranslation: EnumMeta = EnumMeta {
     name: "BiosAtaTranslation",
+    wire_name: "BiosAtaTranslation",
     doc: "Policy that BIOS should use to interpret cylinder/head/sector\naddresses.  Note that Bochs BIOS and SeaBIOS will not actually\ntranslate logical CHS to physical; instead, they will use logical\nblock addressing.",
     variants: &VARIANTS_BiosAtaTranslation,
     kind: EnumKind::Unit,
@@ -1906,6 +1917,7 @@ static VARIANTS_BitmapSyncMode: &[EnumVariantMeta] = &[
 ];
 static ENUM_BitmapSyncMode: EnumMeta = EnumMeta {
     name: "BitmapSyncMode",
+    wire_name: "BitmapSyncMode",
     doc: "An enumeration of possible behaviors for the synchronization of a\nbitmap when used for data copy operations.",
     variants: &VARIANTS_BitmapSyncMode,
     kind: EnumKind::Unit,
@@ -1978,6 +1990,7 @@ static VARIANTS_BlkdebugEvent: &[EnumVariantMeta] = &[
 ];
 static ENUM_BlkdebugEvent: EnumMeta = EnumMeta {
     name: "BlkdebugEvent",
+    wire_name: "BlkdebugEvent",
     doc: "Trigger events supported by blkdebug.",
     variants: &VARIANTS_BlkdebugEvent,
     kind: EnumKind::Unit,
@@ -2015,6 +2028,7 @@ static VARIANTS_BlkdebugIoType: &[EnumVariantMeta] = &[
 ];
 static ENUM_BlkdebugIoType: EnumMeta = EnumMeta {
     name: "BlkdebugIoType",
+    wire_name: "BlkdebugIOType",
     doc: "Kinds of I/O that blkdebug can inject errors in.",
     variants: &VARIANTS_BlkdebugIoType,
     kind: EnumKind::Unit,
@@ -2097,6 +2111,7 @@ static VARIANTS_BlockdevActionBranch: &[EnumVariantMeta] = &[
 ];
 static ENUM_BlockdevActionBranch: EnumMeta = EnumMeta {
     name: "BlockdevActionBranch",
+    wire_name: "BlockdevActionBranch",
     doc: "",
     variants: &VARIANTS_BlockdevActionBranch,
     kind: EnumKind::FlatUnionBranch,
@@ -2108,6 +2123,7 @@ static VARIANTS_BlockdevActionType: &[EnumVariantMeta] = &[
 ];
 static ENUM_BlockdevActionType: EnumMeta = EnumMeta {
     name: "BlockdevActionType",
+    wire_name: "BlockdevActionType",
     doc: "",
     variants: &VARIANTS_BlockdevActionType,
     kind: EnumKind::Unit,
@@ -2144,6 +2160,7 @@ static VARIANTS_BlockdevAioOptions: &[EnumVariantMeta] = &[
 ];
 static ENUM_BlockdevAioOptions: EnumMeta = EnumMeta {
     name: "BlockdevAioOptions",
+    wire_name: "BlockdevAioOptions",
     doc: "Selects the AIO backend to handle I/O requests",
     variants: &VARIANTS_BlockdevAioOptions,
     kind: EnumKind::Unit,
@@ -2216,6 +2233,7 @@ static VARIANTS_BlockdevAmendOptionsBranch: &[EnumVariantMeta] = &[
 ];
 static ENUM_BlockdevAmendOptionsBranch: EnumMeta = EnumMeta {
     name: "BlockdevAmendOptionsBranch",
+    wire_name: "BlockdevAmendOptionsBranch",
     doc: "",
     variants: &VARIANTS_BlockdevAmendOptionsBranch,
     kind: EnumKind::FlatUnionBranch,
@@ -2356,6 +2374,7 @@ static VARIANTS_BlockdevChangeReadOnlyMode: &[EnumVariantMeta] = &[
 ];
 static ENUM_BlockdevChangeReadOnlyMode: EnumMeta = EnumMeta {
     name: "BlockdevChangeReadOnlyMode",
+    wire_name: "BlockdevChangeReadOnlyMode",
     doc: "Specifies the new read-only mode of a block device subject to the\n`blockdev-change-medium` command.",
     variants: &VARIANTS_BlockdevChangeReadOnlyMode,
     kind: EnumKind::Unit,
@@ -2511,6 +2530,7 @@ static VARIANTS_BlockdevCreateOptionsBranch: &[EnumVariantMeta] = &[
 ];
 static ENUM_BlockdevCreateOptionsBranch: EnumMeta = EnumMeta {
     name: "BlockdevCreateOptionsBranch",
+    wire_name: "BlockdevCreateOptionsBranch",
     doc: "",
     variants: &VARIANTS_BlockdevCreateOptionsBranch,
     kind: EnumKind::FlatUnionBranch,
@@ -2820,6 +2840,7 @@ static VARIANTS_BlockdevDetectZeroesOptions: &[EnumVariantMeta] = &[
 ];
 static ENUM_BlockdevDetectZeroesOptions: EnumMeta = EnumMeta {
     name: "BlockdevDetectZeroesOptions",
+    wire_name: "BlockdevDetectZeroesOptions",
     doc: "Describes the operation mode for the automatic conversion of plain\nzero writes by the OS to driver specific optimized zero write\ncommands.",
     variants: &VARIANTS_BlockdevDetectZeroesOptions,
     kind: EnumKind::Unit,
@@ -2832,6 +2853,7 @@ static VARIANTS_BlockdevDiscardOptions: &[EnumVariantMeta] = &[
 ];
 static ENUM_BlockdevDiscardOptions: EnumMeta = EnumMeta {
     name: "BlockdevDiscardOptions",
+    wire_name: "BlockdevDiscardOptions",
     doc: "Determines how to handle discard requests.",
     variants: &VARIANTS_BlockdevDiscardOptions,
     kind: EnumKind::Unit,
@@ -2895,6 +2917,7 @@ static VARIANTS_BlockdevDriver: &[EnumVariantMeta] = &[
 ];
 static ENUM_BlockdevDriver: EnumMeta = EnumMeta {
     name: "BlockdevDriver",
+    wire_name: "BlockdevDriver",
     doc: "Drivers that are supported in block device operations.",
     variants: &VARIANTS_BlockdevDriver,
     kind: EnumKind::Unit,
@@ -2956,6 +2979,7 @@ static VARIANTS_BlockDeviceIoStatus: &[EnumVariantMeta] = &[
 ];
 static ENUM_BlockDeviceIoStatus: EnumMeta = EnumMeta {
     name: "BlockDeviceIoStatus",
+    wire_name: "BlockDeviceIoStatus",
     doc: "An enumeration of block device I/O status.",
     variants: &VARIANTS_BlockDeviceIoStatus,
     kind: EnumKind::Unit,
@@ -3115,6 +3139,7 @@ static VARIANTS_BlockdevOnError: &[EnumVariantMeta] = &[
 ];
 static ENUM_BlockdevOnError: EnumMeta = EnumMeta {
     name: "BlockdevOnError",
+    wire_name: "BlockdevOnError",
     doc: "An enumeration of possible behaviors for errors on I/O operations.\nThe exact meaning depends on whether the I/O was initiated by a\nguest or by a block job",
     variants: &VARIANTS_BlockdevOnError,
     kind: EnumKind::Unit,
@@ -3351,6 +3376,7 @@ static VARIANTS_BlockdevOptionsBranch: &[EnumVariantMeta] = &[
 ];
 static ENUM_BlockdevOptionsBranch: EnumMeta = EnumMeta {
     name: "BlockdevOptionsBranch",
+    wire_name: "BlockdevOptionsBranch",
     doc: "",
     variants: &VARIANTS_BlockdevOptionsBranch,
     kind: EnumKind::FlatUnionBranch,
@@ -4004,6 +4030,7 @@ static VARIANTS_BlockdevQcow2EncryptionBranch: &[EnumVariantMeta] = &[
 ];
 static ENUM_BlockdevQcow2EncryptionBranch: EnumMeta = EnumMeta {
     name: "BlockdevQcow2EncryptionBranch",
+    wire_name: "BlockdevQcow2EncryptionBranch",
     doc: "",
     variants: &VARIANTS_BlockdevQcow2EncryptionBranch,
     kind: EnumKind::FlatUnionBranch,
@@ -4016,6 +4043,7 @@ static VARIANTS_BlockdevQcow2EncryptionFormat: &[EnumVariantMeta] = &[
 ];
 static ENUM_BlockdevQcow2EncryptionFormat: EnumMeta = EnumMeta {
     name: "BlockdevQcow2EncryptionFormat",
+    wire_name: "BlockdevQcow2EncryptionFormat",
     doc: "",
     variants: &VARIANTS_BlockdevQcow2EncryptionFormat,
     kind: EnumKind::Unit,
@@ -4028,6 +4056,7 @@ static VARIANTS_BlockdevQcow2Version: &[EnumVariantMeta] = &[
 ];
 static ENUM_BlockdevQcow2Version: EnumMeta = EnumMeta {
     name: "BlockdevQcow2Version",
+    wire_name: "BlockdevQcow2Version",
     doc: "",
     variants: &VARIANTS_BlockdevQcow2Version,
     kind: EnumKind::Unit,
@@ -4053,6 +4082,7 @@ static VARIANTS_BlockdevQcowEncryptionBranch: &[EnumVariantMeta] = &[
 ];
 static ENUM_BlockdevQcowEncryptionBranch: EnumMeta = EnumMeta {
     name: "BlockdevQcowEncryptionBranch",
+    wire_name: "BlockdevQcowEncryptionBranch",
     doc: "",
     variants: &VARIANTS_BlockdevQcowEncryptionBranch,
     kind: EnumKind::FlatUnionBranch,
@@ -4064,6 +4094,7 @@ static VARIANTS_BlockdevQcowEncryptionFormat: &[EnumVariantMeta] = &[
 ];
 static ENUM_BlockdevQcowEncryptionFormat: EnumMeta = EnumMeta {
     name: "BlockdevQcowEncryptionFormat",
+    wire_name: "BlockdevQcowEncryptionFormat",
     doc: "",
     variants: &VARIANTS_BlockdevQcowEncryptionFormat,
     kind: EnumKind::Unit,
@@ -4076,6 +4107,7 @@ static VARIANTS_BlockdevRef: &[EnumVariantMeta] = &[
 ];
 static ENUM_BlockdevRef: EnumMeta = EnumMeta {
     name: "BlockdevRef",
+    wire_name: "BlockdevRef",
     doc: "Reference to a block device.",
     variants: &VARIANTS_BlockdevRef,
     kind: EnumKind::Alternate,
@@ -4089,6 +4121,7 @@ static VARIANTS_BlockdevRefOrNull: &[EnumVariantMeta] = &[
 ];
 static ENUM_BlockdevRefOrNull: EnumMeta = EnumMeta {
     name: "BlockdevRefOrNull",
+    wire_name: "BlockdevRefOrNull",
     doc: "Reference to a block device.",
     variants: &VARIANTS_BlockdevRefOrNull,
     kind: EnumKind::Alternate,
@@ -4272,6 +4305,7 @@ static VARIANTS_BlockdevVhdxSubformat: &[EnumVariantMeta] = &[
 ];
 static ENUM_BlockdevVhdxSubformat: EnumMeta = EnumMeta {
     name: "BlockdevVhdxSubformat",
+    wire_name: "BlockdevVhdxSubformat",
     doc: "",
     variants: &VARIANTS_BlockdevVhdxSubformat,
     kind: EnumKind::Unit,
@@ -4286,6 +4320,7 @@ static VARIANTS_BlockdevVmdkAdapterType: &[EnumVariantMeta] = &[
 ];
 static ENUM_BlockdevVmdkAdapterType: EnumMeta = EnumMeta {
     name: "BlockdevVmdkAdapterType",
+    wire_name: "BlockdevVmdkAdapterType",
     doc: "Adapter type info for VMDK images",
     variants: &VARIANTS_BlockdevVmdkAdapterType,
     kind: EnumKind::Unit,
@@ -4301,6 +4336,7 @@ static VARIANTS_BlockdevVmdkSubformat: &[EnumVariantMeta] = &[
 ];
 static ENUM_BlockdevVmdkSubformat: EnumMeta = EnumMeta {
     name: "BlockdevVmdkSubformat",
+    wire_name: "BlockdevVmdkSubformat",
     doc: "Subformat options for VMDK images",
     variants: &VARIANTS_BlockdevVmdkSubformat,
     kind: EnumKind::Unit,
@@ -4313,6 +4349,7 @@ static VARIANTS_BlockdevVpcSubformat: &[EnumVariantMeta] = &[
 ];
 static ENUM_BlockdevVpcSubformat: EnumMeta = EnumMeta {
     name: "BlockdevVpcSubformat",
+    wire_name: "BlockdevVpcSubformat",
     doc: "",
     variants: &VARIANTS_BlockdevVpcSubformat,
     kind: EnumKind::Unit,
@@ -4439,6 +4476,7 @@ static VARIANTS_BlockDirtyBitmapMergeSource: &[EnumVariantMeta] = &[
 ];
 static ENUM_BlockDirtyBitmapMergeSource: EnumMeta = EnumMeta {
     name: "BlockDirtyBitmapMergeSource",
+    wire_name: "BlockDirtyBitmapMergeSource",
     doc: "",
     variants: &VARIANTS_BlockDirtyBitmapMergeSource,
     kind: EnumKind::Alternate,
@@ -4465,6 +4503,7 @@ static VARIANTS_BlockDirtyBitmapOrStr: &[EnumVariantMeta] = &[
 ];
 static ENUM_BlockDirtyBitmapOrStr: EnumMeta = EnumMeta {
     name: "BlockDirtyBitmapOrStr",
+    wire_name: "BlockDirtyBitmapOrStr",
     doc: "",
     variants: &VARIANTS_BlockDirtyBitmapOrStr,
     kind: EnumKind::Alternate,
@@ -4543,6 +4582,7 @@ static VARIANTS_BlockErrorAction: &[EnumVariantMeta] = &[
 ];
 static ENUM_BlockErrorAction: EnumMeta = EnumMeta {
     name: "BlockErrorAction",
+    wire_name: "BlockErrorAction",
     doc: "An enumeration of action that has been taken when a DISK I/O occurs",
     variants: &VARIANTS_BlockErrorAction,
     kind: EnumKind::Unit,
@@ -4590,6 +4630,7 @@ static VARIANTS_BlockExportBranch: &[EnumVariantMeta] = &[
 ];
 static ENUM_BlockExportBranch: EnumMeta = EnumMeta {
     name: "BlockExportBranch",
+    wire_name: "BlockExportBranch",
     doc: "",
     variants: &VARIANTS_BlockExportBranch,
     kind: EnumKind::FlatUnionBranch,
@@ -4648,6 +4689,7 @@ static VARIANTS_BlockExportIothreads: &[EnumVariantMeta] = &[
 ];
 static ENUM_BlockExportIothreads: EnumMeta = EnumMeta {
     name: "BlockExportIothreads",
+    wire_name: "BlockExportIothreads",
     doc: "Specify a single or multiple I/O threads in which to run a block\nexport's I/O.",
     variants: &VARIANTS_BlockExportIothreads,
     kind: EnumKind::Alternate,
@@ -4702,6 +4744,7 @@ static VARIANTS_BlockExportOptionsBranch: &[EnumVariantMeta] = &[
 ];
 static ENUM_BlockExportOptionsBranch: EnumMeta = EnumMeta {
     name: "BlockExportOptionsBranch",
+    wire_name: "BlockExportOptionsBranch",
     doc: "",
     variants: &VARIANTS_BlockExportOptionsBranch,
     kind: EnumKind::FlatUnionBranch,
@@ -4797,6 +4840,7 @@ static VARIANTS_BlockExportRemoveMode: &[EnumVariantMeta] = &[
 ];
 static ENUM_BlockExportRemoveMode: EnumMeta = EnumMeta {
     name: "BlockExportRemoveMode",
+    wire_name: "BlockExportRemoveMode",
     doc: "Mode for removing a block export.\n\nTODO: Potential additional modes to be added in the future:\n\n    - hide: Just hide export from new clients, leave existing\n      connections as is.  Remove export after all clients are\n      disconnected.\n\n    - soft: Hide export from new clients, answer with ESHUTDOWN for\n      all further requests from existing clients.",
     variants: &VARIANTS_BlockExportRemoveMode,
     kind: EnumKind::Unit,
@@ -4811,6 +4855,7 @@ static VARIANTS_BlockExportType: &[EnumVariantMeta] = &[
 ];
 static ENUM_BlockExportType: EnumMeta = EnumMeta {
     name: "BlockExportType",
+    wire_name: "BlockExportType",
     doc: "An enumeration of block export types",
     variants: &VARIANTS_BlockExportType,
     kind: EnumKind::Unit,
@@ -5019,6 +5064,7 @@ static VARIANTS_BlockJobChangeOptionsBranch: &[EnumVariantMeta] = &[
 ];
 static ENUM_BlockJobChangeOptionsBranch: EnumMeta = EnumMeta {
     name: "BlockJobChangeOptionsBranch",
+    wire_name: "BlockJobChangeOptionsBranch",
     doc: "",
     variants: &VARIANTS_BlockJobChangeOptionsBranch,
     kind: EnumKind::FlatUnionBranch,
@@ -5158,6 +5204,7 @@ static VARIANTS_BlockJobInfoBranch: &[EnumVariantMeta] = &[
 ];
 static ENUM_BlockJobInfoBranch: EnumMeta = EnumMeta {
     name: "BlockJobInfoBranch",
+    wire_name: "BlockJobInfoBranch",
     doc: "",
     variants: &VARIANTS_BlockJobInfoBranch,
     kind: EnumKind::FlatUnionBranch,
@@ -5271,6 +5318,7 @@ static VARIANTS_BlockJobStatus: &[EnumVariantMeta] = &[
 ];
 static ENUM_BlockJobStatus: EnumMeta = EnumMeta {
     name: "BlockJobStatus",
+    wire_name: "BlockJobStatus",
     doc: "Indicates the present state of a given blockjob in its lifetime.",
     variants: &VARIANTS_BlockJobStatus,
     kind: EnumKind::Unit,
@@ -5285,6 +5333,7 @@ static VARIANTS_BlockJobType: &[EnumVariantMeta] = &[
 ];
 static ENUM_BlockJobType: EnumMeta = EnumMeta {
     name: "BlockJobType",
+    wire_name: "BlockJobType",
     doc: "Type of a block job.",
     variants: &VARIANTS_BlockJobType,
     kind: EnumKind::Unit,
@@ -5302,6 +5351,7 @@ static VARIANTS_BlockJobVerb: &[EnumVariantMeta] = &[
 ];
 static ENUM_BlockJobVerb: EnumMeta = EnumMeta {
     name: "BlockJobVerb",
+    wire_name: "BlockJobVerb",
     doc: "Represents command verbs that can be applied to a blockjob.",
     variants: &VARIANTS_BlockJobVerb,
     kind: EnumKind::Unit,
@@ -5435,6 +5485,7 @@ static VARIANTS_BlockPermission: &[EnumVariantMeta] = &[
 ];
 static ENUM_BlockPermission: EnumMeta = EnumMeta {
     name: "BlockPermission",
+    wire_name: "BlockPermission",
     doc: "Enum of base block permissions.",
     variants: &VARIANTS_BlockPermission,
     kind: EnumKind::Unit,
@@ -5595,6 +5646,7 @@ static VARIANTS_BlockStatsSpecificBranch: &[EnumVariantMeta] = &[
 ];
 static ENUM_BlockStatsSpecificBranch: EnumMeta = EnumMeta {
     name: "BlockStatsSpecificBranch",
+    wire_name: "BlockStatsSpecificBranch",
     doc: "",
     variants: &VARIANTS_BlockStatsSpecificBranch,
     kind: EnumKind::FlatUnionBranch,
@@ -5702,6 +5754,7 @@ static VARIANTS_CacheLevelAndType: &[EnumVariantMeta] = &[
 ];
 static ENUM_CacheLevelAndType: EnumMeta = EnumMeta {
     name: "CacheLevelAndType",
+    wire_name: "CacheLevelAndType",
     doc: "Caches a system may have.  The enumeration value here is the\ncombination of cache level and cache type.",
     variants: &VARIANTS_CacheLevelAndType,
     kind: EnumKind::Unit,
@@ -5885,6 +5938,7 @@ static VARIANTS_ChardevBackendBranch: &[EnumVariantMeta] = &[
 ];
 static ENUM_ChardevBackendBranch: EnumMeta = EnumMeta {
     name: "ChardevBackendBranch",
+    wire_name: "ChardevBackendBranch",
     doc: "",
     variants: &VARIANTS_ChardevBackendBranch,
     kind: EnumKind::FlatUnionBranch,
@@ -5932,6 +5986,7 @@ static VARIANTS_ChardevBackendKind: &[EnumVariantMeta] = &[
 ];
 static ENUM_ChardevBackendKind: EnumMeta = EnumMeta {
     name: "ChardevBackendKind",
+    wire_name: "ChardevBackendKind",
     doc: "Features:\n\n@deprecated: Member @memory is deprecated.  Use @ringbuf instead.",
     variants: &VARIANTS_ChardevBackendKind,
     kind: EnumKind::Unit,
@@ -5963,6 +6018,7 @@ static VARIANTS_ChardevBackendType: &[EnumVariantMeta] = &[
 ];
 static ENUM_ChardevBackendType: EnumMeta = EnumMeta {
     name: "ChardevBackendType",
+    wire_name: "ChardevBackendType",
     doc: "",
     variants: &VARIANTS_ChardevBackendType,
     kind: EnumKind::Unit,
@@ -6533,6 +6589,7 @@ static VARIANTS_ChardevVcEncoding: &[EnumVariantMeta] = &[
 ];
 static ENUM_ChardevVcEncoding: EnumMeta = EnumMeta {
     name: "ChardevVcEncoding",
+    wire_name: "ChardevVCEncoding",
     doc: "Character encoding expected from the guest on a virtual console.",
     variants: &VARIANTS_ChardevVcEncoding,
     kind: EnumKind::Unit,
@@ -6630,6 +6687,7 @@ static VARIANTS_ColoExitReason: &[EnumVariantMeta] = &[
 ];
 static ENUM_ColoExitReason: EnumMeta = EnumMeta {
     name: "ColoExitReason",
+    wire_name: "COLOExitReason",
     doc: "The reason for a COLO exit.",
     variants: &VARIANTS_ColoExitReason,
     kind: EnumKind::Unit,
@@ -6647,6 +6705,7 @@ static VARIANTS_ColoMessage: &[EnumVariantMeta] = &[
 ];
 static ENUM_ColoMessage: EnumMeta = EnumMeta {
     name: "ColoMessage",
+    wire_name: "COLOMessage",
     doc: "The message transmission between Primary side and Secondary side.",
     variants: &VARIANTS_ColoMessage,
     kind: EnumKind::Unit,
@@ -6661,6 +6720,7 @@ static VARIANTS_ColoMode: &[EnumVariantMeta] = &[
 ];
 static ENUM_ColoMode: EnumMeta = EnumMeta {
     name: "ColoMode",
+    wire_name: "COLOMode",
     doc: "The COLO current mode.",
     variants: &VARIANTS_ColoMode,
     kind: EnumKind::Unit,
@@ -6703,6 +6763,7 @@ static VARIANTS_CommandDropReason: &[EnumVariantMeta] = &[
 ];
 static ENUM_CommandDropReason: EnumMeta = EnumMeta {
     name: "CommandDropReason",
+    wire_name: "CommandDropReason",
     doc: "Reasons that caused one command to be dropped.",
     variants: &VARIANTS_CommandDropReason,
     kind: EnumKind::Unit,
@@ -6763,6 +6824,7 @@ static VARIANTS_CommandLineParameterType: &[EnumVariantMeta] = &[
 ];
 static ENUM_CommandLineParameterType: EnumMeta = EnumMeta {
     name: "CommandLineParameterType",
+    wire_name: "CommandLineParameterType",
     doc: "Possible types for an option parameter.",
     variants: &VARIANTS_CommandLineParameterType,
     kind: EnumKind::Unit,
@@ -6793,6 +6855,7 @@ static VARIANTS_CompatPolicyInput: &[EnumVariantMeta] = &[
 ];
 static ENUM_CompatPolicyInput: EnumMeta = EnumMeta {
     name: "CompatPolicyInput",
+    wire_name: "CompatPolicyInput",
     doc: "Policy for handling \"funny\" input.",
     variants: &VARIANTS_CompatPolicyInput,
     kind: EnumKind::Unit,
@@ -6805,6 +6868,7 @@ static VARIANTS_CompatPolicyOutput: &[EnumVariantMeta] = &[
 ];
 static ENUM_CompatPolicyOutput: EnumMeta = EnumMeta {
     name: "CompatPolicyOutput",
+    wire_name: "CompatPolicyOutput",
     doc: "Policy for handling \"funny\" output.",
     variants: &VARIANTS_CompatPolicyOutput,
     kind: EnumKind::Unit,
@@ -6942,6 +7006,7 @@ static VARIANTS_CpuInfoArch: &[EnumVariantMeta] = &[
 ];
 static ENUM_CpuInfoArch: EnumMeta = EnumMeta {
     name: "CpuInfoArch",
+    wire_name: "CpuInfoArch",
     doc: "An enumeration of cpu types that enable additional information during\n@query-cpus and @query-cpus-fast.",
     variants: &VARIANTS_CpuInfoArch,
     kind: EnumKind::Unit,
@@ -6961,6 +7026,7 @@ static VARIANTS_CpuInfoBranch: &[EnumVariantMeta] = &[
 ];
 static ENUM_CpuInfoBranch: EnumMeta = EnumMeta {
     name: "CpuInfoBranch",
+    wire_name: "CpuInfoBranch",
     doc: "",
     variants: &VARIANTS_CpuInfoBranch,
     kind: EnumKind::FlatUnionBranch,
@@ -7036,6 +7102,7 @@ static VARIANTS_CpuInfoFastBranch: &[EnumVariantMeta] = &[
 ];
 static ENUM_CpuInfoFastBranch: EnumMeta = EnumMeta {
     name: "CpuInfoFastBranch",
+    wire_name: "CpuInfoFastBranch",
     doc: "",
     variants: &VARIANTS_CpuInfoFastBranch,
     kind: EnumKind::FlatUnionBranch,
@@ -7217,6 +7284,7 @@ static VARIANTS_CpuModelCompareResult: &[EnumVariantMeta] = &[
 ];
 static ENUM_CpuModelCompareResult: EnumMeta = EnumMeta {
     name: "CpuModelCompareResult",
+    wire_name: "CpuModelCompareResult",
     doc: "An enumeration of CPU model comparison results.  The result is\nusually calculated using e.g. CPU features or CPU generations.",
     variants: &VARIANTS_CpuModelCompareResult,
     kind: EnumKind::Unit,
@@ -7244,6 +7312,7 @@ static VARIANTS_CpuModelExpansionType: &[EnumVariantMeta] = &[
 ];
 static ENUM_CpuModelExpansionType: EnumMeta = EnumMeta {
     name: "CpuModelExpansionType",
+    wire_name: "CpuModelExpansionType",
     doc: "An enumeration of CPU model expansion types.\n\n.. note:: When a non-migration-safe CPU model is expanded in static\n   mode, some features enabled by the CPU model may be omitted,\n   because they can't be implemented by a static CPU model\n   definition (e.g. cache info passthrough and PMU passthrough in\n   x86).  If you need an accurate representation of the features\n   enabled by a non-migration-safe CPU model, use @full.  If you\n   need a static representation that will keep ABI compatibility\n   even when changing QEMU version or machine-type, use @static (but\n   keep in mind that some features may be omitted).",
     variants: &VARIANTS_CpuModelExpansionType,
     kind: EnumKind::Unit,
@@ -7303,6 +7372,7 @@ static VARIANTS_CpuS390Entitlement: &[EnumVariantMeta] = &[
 ];
 static ENUM_CpuS390Entitlement: EnumMeta = EnumMeta {
     name: "CpuS390Entitlement",
+    wire_name: "CpuS390Entitlement",
     doc: "An enumeration of CPU entitlements that can be assumed by a virtual\nS390 CPU",
     variants: &VARIANTS_CpuS390Entitlement,
     kind: EnumKind::Unit,
@@ -7315,6 +7385,7 @@ static VARIANTS_CpuS390Polarization: &[EnumVariantMeta] = &[
 ];
 static ENUM_CpuS390Polarization: EnumMeta = EnumMeta {
     name: "CpuS390Polarization",
+    wire_name: "CpuS390Polarization",
     doc: "An enumeration of CPU polarization that can be assumed by a virtual\nS390 CPU",
     variants: &VARIANTS_CpuS390Polarization,
     kind: EnumKind::Unit,
@@ -7330,6 +7401,7 @@ static VARIANTS_CpuS390State: &[EnumVariantMeta] = &[
 ];
 static ENUM_CpuS390State: EnumMeta = EnumMeta {
     name: "CpuS390State",
+    wire_name: "CpuS390State",
     doc: "An enumeration of cpu states that can be assumed by a virtual S390\nCPU",
     variants: &VARIANTS_CpuS390State,
     kind: EnumKind::Unit,
@@ -7349,6 +7421,7 @@ static VARIANTS_CpuTopologyLevel: &[EnumVariantMeta] = &[
 ];
 static ENUM_CpuTopologyLevel: EnumMeta = EnumMeta {
     name: "CpuTopologyLevel",
+    wire_name: "CpuTopologyLevel",
     doc: "An enumeration of CPU topology levels.",
     variants: &VARIANTS_CpuTopologyLevel,
     kind: EnumKind::Unit,
@@ -7452,6 +7525,7 @@ static VARIANTS_CxlCorErrorType: &[EnumVariantMeta] = &[
 ];
 static ENUM_CxlCorErrorType: EnumMeta = EnumMeta {
     name: "CxlCorErrorType",
+    wire_name: "CxlCorErrorType",
     doc: "Type of CXL correctable error to inject",
     variants: &VARIANTS_CxlCorErrorType,
     kind: EnumKind::Unit,
@@ -7519,6 +7593,7 @@ static VARIANTS_CxlEventLog: &[EnumVariantMeta] = &[
 ];
 static ENUM_CxlEventLog: EnumMeta = EnumMeta {
     name: "CxlEventLog",
+    wire_name: "CxlEventLog",
     doc: "CXL has a number of separate event logs for different types of\nevents.  Each such event log is handled and signaled independently.",
     variants: &VARIANTS_CxlEventLog,
     kind: EnumKind::Unit,
@@ -7531,6 +7606,7 @@ static VARIANTS_CxlExtentRemovalPolicy: &[EnumVariantMeta] = &[
 ];
 static ENUM_CxlExtentRemovalPolicy: EnumMeta = EnumMeta {
     name: "CxlExtentRemovalPolicy",
+    wire_name: "CxlExtentRemovalPolicy",
     doc: "The policy to use for selecting which extents comprise the released\ncapacity, defined in the \"Flags\" field in Compute Express Link (CXL)\nSpecification, Revision 3.1, Table 7-71.",
     variants: &VARIANTS_CxlExtentRemovalPolicy,
     kind: EnumKind::Unit,
@@ -7545,6 +7621,7 @@ static VARIANTS_CxlExtentSelectionPolicy: &[EnumVariantMeta] = &[
 ];
 static ENUM_CxlExtentSelectionPolicy: EnumMeta = EnumMeta {
     name: "CxlExtentSelectionPolicy",
+    wire_name: "CxlExtentSelectionPolicy",
     doc: "The policy to use for selecting which extents comprise the added\ncapacity, as defined in Compute Express Link (CXL) Specification,\nRevision 3.1, Table 7-70.",
     variants: &VARIANTS_CxlExtentSelectionPolicy,
     kind: EnumKind::Unit,
@@ -7851,6 +7928,7 @@ static VARIANTS_CxlUncorErrorType: &[EnumVariantMeta] = &[
 ];
 static ENUM_CxlUncorErrorType: EnumMeta = EnumMeta {
     name: "CxlUncorErrorType",
+    wire_name: "CxlUncorErrorType",
     doc: "Type of uncorrectable CXL error to inject.  These errors are\nreported via an AER uncorrectable internal error with additional\ninformation logged at the CXL device.",
     variants: &VARIANTS_CxlUncorErrorType,
     kind: EnumKind::Unit,
@@ -7863,6 +7941,7 @@ static VARIANTS_DataFormat: &[EnumVariantMeta] = &[
 ];
 static ENUM_DataFormat: EnumMeta = EnumMeta {
     name: "DataFormat",
+    wire_name: "DataFormat",
     doc: "An enumeration of data format.",
     variants: &VARIANTS_DataFormat,
     kind: EnumKind::Unit,
@@ -8013,6 +8092,7 @@ static VARIANTS_DirtyBitmapStatus: &[EnumVariantMeta] = &[
 ];
 static ENUM_DirtyBitmapStatus: EnumMeta = EnumMeta {
     name: "DirtyBitmapStatus",
+    wire_name: "DirtyBitmapStatus",
     doc: "An enumeration of possible states that a dirty bitmap can report to the user.",
     variants: &VARIANTS_DirtyBitmapStatus,
     kind: EnumKind::Unit,
@@ -8063,6 +8143,7 @@ static VARIANTS_DirtyRateMeasureMode: &[EnumVariantMeta] = &[
 ];
 static ENUM_DirtyRateMeasureMode: EnumMeta = EnumMeta {
     name: "DirtyRateMeasureMode",
+    wire_name: "DirtyRateMeasureMode",
     doc: "Method used to measure dirty page rate.  Differences between\navailable methods are explained in `calc-dirty-rate`.",
     variants: &VARIANTS_DirtyRateMeasureMode,
     kind: EnumKind::Unit,
@@ -8076,6 +8157,7 @@ static VARIANTS_DirtyRateStatus: &[EnumVariantMeta] = &[
 ];
 static ENUM_DirtyRateStatus: EnumMeta = EnumMeta {
     name: "DirtyRateStatus",
+    wire_name: "DirtyRateStatus",
     doc: "Dirty page rate measurement status.",
     variants: &VARIANTS_DirtyRateStatus,
     kind: EnumKind::Unit,
@@ -8168,6 +8250,7 @@ static VARIANTS_DisplayGlMode: &[EnumVariantMeta] = &[
 ];
 static ENUM_DisplayGlMode: EnumMeta = EnumMeta {
     name: "DisplayGlMode",
+    wire_name: "DisplayGLMode",
     doc: "Display OpenGL mode.",
     variants: &VARIANTS_DisplayGlMode,
     kind: EnumKind::Unit,
@@ -8249,6 +8332,7 @@ static VARIANTS_DisplayOptionsBranch: &[EnumVariantMeta] = &[
 ];
 static ENUM_DisplayOptionsBranch: EnumMeta = EnumMeta {
     name: "DisplayOptionsBranch",
+    wire_name: "DisplayOptionsBranch",
     doc: "",
     variants: &VARIANTS_DisplayOptionsBranch,
     kind: EnumKind::FlatUnionBranch,
@@ -8261,6 +8345,7 @@ static VARIANTS_DisplayProtocol: &[EnumVariantMeta] = &[
 ];
 static ENUM_DisplayProtocol: EnumMeta = EnumMeta {
     name: "DisplayProtocol",
+    wire_name: "DisplayProtocol",
     doc: "Display protocols which support changing password options.",
     variants: &VARIANTS_DisplayProtocol,
     kind: EnumKind::Unit,
@@ -8300,6 +8385,7 @@ static VARIANTS_DisplayReloadOptionsBranch: &[EnumVariantMeta] = &[
 ];
 static ENUM_DisplayReloadOptionsBranch: EnumMeta = EnumMeta {
     name: "DisplayReloadOptionsBranch",
+    wire_name: "DisplayReloadOptionsBranch",
     doc: "",
     variants: &VARIANTS_DisplayReloadOptionsBranch,
     kind: EnumKind::FlatUnionBranch,
@@ -8325,6 +8411,7 @@ static VARIANTS_DisplayReloadType: &[EnumVariantMeta] = &[
 ];
 static ENUM_DisplayReloadType: EnumMeta = EnumMeta {
     name: "DisplayReloadType",
+    wire_name: "DisplayReloadType",
     doc: "Available DisplayReload types.",
     variants: &VARIANTS_DisplayReloadType,
     kind: EnumKind::Unit,
@@ -8358,6 +8445,7 @@ static VARIANTS_DisplayType: &[EnumVariantMeta] = &[
 ];
 static ENUM_DisplayType: EnumMeta = EnumMeta {
     name: "DisplayType",
+    wire_name: "DisplayType",
     doc: "Display (user interface) type.",
     variants: &VARIANTS_DisplayType,
     kind: EnumKind::Unit,
@@ -8397,6 +8485,7 @@ static VARIANTS_DisplayUpdateOptionsBranch: &[EnumVariantMeta] = &[
 ];
 static ENUM_DisplayUpdateOptionsBranch: EnumMeta = EnumMeta {
     name: "DisplayUpdateOptionsBranch",
+    wire_name: "DisplayUpdateOptionsBranch",
     doc: "",
     variants: &VARIANTS_DisplayUpdateOptionsBranch,
     kind: EnumKind::FlatUnionBranch,
@@ -8422,6 +8511,7 @@ static VARIANTS_DisplayUpdateType: &[EnumVariantMeta] = &[
 ];
 static ENUM_DisplayUpdateType: EnumMeta = EnumMeta {
     name: "DisplayUpdateType",
+    wire_name: "DisplayUpdateType",
     doc: "Available DisplayUpdate types.",
     variants: &VARIANTS_DisplayUpdateType,
     kind: EnumKind::Unit,
@@ -8620,6 +8710,7 @@ static VARIANTS_DumpGuestMemoryFormat: &[EnumVariantMeta] = &[
 ];
 static ENUM_DumpGuestMemoryFormat: EnumMeta = EnumMeta {
     name: "DumpGuestMemoryFormat",
+    wire_name: "DumpGuestMemoryFormat",
     doc: "An enumeration of guest-memory-dump's format.\n\nFeatures:\n\n@allowed-by-guest: If present, @win-dmp is listed by\n    `query-dump-guest-memory-capability`, and accepted by\n    `dump-guest-memory`, only when the guest has published a Windows\n    dump header through the vmcoreinfo device (since 11.1)",
     variants: &VARIANTS_DumpGuestMemoryFormat,
     kind: EnumKind::Unit,
@@ -8664,6 +8755,7 @@ static VARIANTS_DumpStatus: &[EnumVariantMeta] = &[
 ];
 static ENUM_DumpStatus: EnumMeta = EnumMeta {
     name: "DumpStatus",
+    wire_name: "DumpStatus",
     doc: "Describe the status of a long-running background guest memory dump.",
     variants: &VARIANTS_DumpStatus,
     kind: EnumKind::Unit,
@@ -8689,6 +8781,7 @@ static VARIANTS_EbpfProgramId: &[EnumVariantMeta] = &[
 ];
 static ENUM_EbpfProgramId: EnumMeta = EnumMeta {
     name: "EbpfProgramId",
+    wire_name: "EbpfProgramID",
     doc: "The eBPF programs that can be gotten with `request-ebpf`.",
     variants: &VARIANTS_EbpfProgramId,
     kind: EnumKind::Unit,
@@ -8718,6 +8811,7 @@ static VARIANTS_EndianMode: &[EnumVariantMeta] = &[
 ];
 static ENUM_EndianMode: EnumMeta = EnumMeta {
     name: "EndianMode",
+    wire_name: "EndianMode",
     doc: "",
     variants: &VARIANTS_EndianMode,
     kind: EnumKind::Unit,
@@ -8735,6 +8829,7 @@ static VARIANTS_ErrorClass: &[EnumVariantMeta] = &[
 ];
 static ENUM_ErrorClass: EnumMeta = EnumMeta {
     name: "ErrorClass",
+    wire_name: "ErrorClass",
     doc: "QEMU error classes",
     variants: &VARIANTS_ErrorClass,
     kind: EnumKind::Unit,
@@ -8801,6 +8896,7 @@ static VARIANTS_EvtchnPortType: &[EnumVariantMeta] = &[
 ];
 static ENUM_EvtchnPortType: EnumMeta = EnumMeta {
     name: "EvtchnPortType",
+    wire_name: "EvtchnPortType",
     doc: "An enumeration of Xen event channel port types.",
     variants: &VARIANTS_EvtchnPortType,
     kind: EnumKind::Unit,
@@ -8844,6 +8940,7 @@ static VARIANTS_ExpirePasswordOptionsBranch: &[EnumVariantMeta] = &[
 ];
 static ENUM_ExpirePasswordOptionsBranch: EnumMeta = EnumMeta {
     name: "ExpirePasswordOptionsBranch",
+    wire_name: "ExpirePasswordOptionsBranch",
     doc: "",
     variants: &VARIANTS_ExpirePasswordOptionsBranch,
     kind: EnumKind::FlatUnionBranch,
@@ -8887,6 +8984,7 @@ static VARIANTS_FailoverStatus: &[EnumVariantMeta] = &[
 ];
 static ENUM_FailoverStatus: EnumMeta = EnumMeta {
     name: "FailoverStatus",
+    wire_name: "FailoverStatus",
     doc: "An enumeration of COLO failover status",
     variants: &VARIANTS_FailoverStatus,
     kind: EnumKind::Unit,
@@ -9089,6 +9187,7 @@ static VARIANTS_FloppyDriveType: &[EnumVariantMeta] = &[
 ];
 static ENUM_FloppyDriveType: EnumMeta = EnumMeta {
     name: "FloppyDriveType",
+    wire_name: "FloppyDriveType",
     doc: "Type of floppy drive to be emulated by the Floppy Disk Controller.",
     variants: &VARIANTS_FloppyDriveType,
     kind: EnumKind::Unit,
@@ -9102,6 +9201,7 @@ static VARIANTS_FuseExportAllowOther: &[EnumVariantMeta] = &[
 ];
 static ENUM_FuseExportAllowOther: EnumMeta = EnumMeta {
     name: "FuseExportAllowOther",
+    wire_name: "FuseExportAllowOther",
     doc: "Possible allow_other modes for FUSE exports.",
     variants: &VARIANTS_FuseExportAllowOther,
     kind: EnumKind::Unit,
@@ -9173,6 +9273,7 @@ static VARIANTS_GlusterServerBranch: &[EnumVariantMeta] = &[
 ];
 static ENUM_GlusterServerBranch: EnumMeta = EnumMeta {
     name: "GlusterServerBranch",
+    wire_name: "GlusterServerBranch",
     doc: "",
     variants: &VARIANTS_GlusterServerBranch,
     kind: EnumKind::FlatUnionBranch,
@@ -9185,6 +9286,7 @@ static VARIANTS_GlusterTransport: &[EnumVariantMeta] = &[
 ];
 static ENUM_GlusterTransport: EnumMeta = EnumMeta {
     name: "GlusterTransport",
+    wire_name: "GlusterTransport",
     doc: "An enumeration of Gluster transport types",
     variants: &VARIANTS_GlusterTransport,
     kind: EnumKind::Unit,
@@ -9201,6 +9303,7 @@ static VARIANTS_GrabToggleKeys: &[EnumVariantMeta] = &[
 ];
 static ENUM_GrabToggleKeys: EnumMeta = EnumMeta {
     name: "GrabToggleKeys",
+    wire_name: "GrabToggleKeys",
     doc: "Key combinations to toggle input-linux between host and guest.",
     variants: &VARIANTS_GrabToggleKeys,
     kind: EnumKind::Unit,
@@ -9216,6 +9319,7 @@ static VARIANTS_GranuleMode: &[EnumVariantMeta] = &[
 ];
 static ENUM_GranuleMode: EnumMeta = EnumMeta {
     name: "GranuleMode",
+    wire_name: "GranuleMode",
     doc: "",
     variants: &VARIANTS_GranuleMode,
     kind: EnumKind::Unit,
@@ -9244,6 +9348,7 @@ static VARIANTS_GuestPanicAction: &[EnumVariantMeta] = &[
 ];
 static ENUM_GuestPanicAction: EnumMeta = EnumMeta {
     name: "GuestPanicAction",
+    wire_name: "GuestPanicAction",
     doc: "An enumeration of the actions taken when guest OS panic is detected",
     variants: &VARIANTS_GuestPanicAction,
     kind: EnumKind::Unit,
@@ -9272,6 +9377,7 @@ static VARIANTS_GuestPanicInformationBranch: &[EnumVariantMeta] = &[
 ];
 static ENUM_GuestPanicInformationBranch: EnumMeta = EnumMeta {
     name: "GuestPanicInformationBranch",
+    wire_name: "GuestPanicInformationBranch",
     doc: "",
     variants: &VARIANTS_GuestPanicInformationBranch,
     kind: EnumKind::FlatUnionBranch,
@@ -9352,6 +9458,7 @@ static VARIANTS_GuestPanicInformationType: &[EnumVariantMeta] = &[
 ];
 static ENUM_GuestPanicInformationType: EnumMeta = EnumMeta {
     name: "GuestPanicInformationType",
+    wire_name: "GuestPanicInformationType",
     doc: "An enumeration of the guest panic information types",
     variants: &VARIANTS_GuestPanicInformationType,
     kind: EnumKind::Unit,
@@ -9407,6 +9514,7 @@ static VARIANTS_HmatCacheAssociativity: &[EnumVariantMeta] = &[
 ];
 static ENUM_HmatCacheAssociativity: EnumMeta = EnumMeta {
     name: "HmatCacheAssociativity",
+    wire_name: "HmatCacheAssociativity",
     doc: "Cache associativity in the Memory Side Cache Information Structure\nof HMAT\n\nFor more information of `HmatCacheAssociativity`, see chapter\n5.2.27.5: Table 5-147 of ACPI 6.3 spec.",
     variants: &VARIANTS_HmatCacheAssociativity,
     kind: EnumKind::Unit,
@@ -9420,6 +9528,7 @@ static VARIANTS_HmatCacheWritePolicy: &[EnumVariantMeta] = &[
 ];
 static ENUM_HmatCacheWritePolicy: EnumMeta = EnumMeta {
     name: "HmatCacheWritePolicy",
+    wire_name: "HmatCacheWritePolicy",
     doc: "Cache write policy in the Memory Side Cache Information Structure of\nHMAT\n\nFor more information of `HmatCacheWritePolicy`, see chapter\n5.2.27.5: Table 5-147: Field \"Cache Attributes\" of ACPI 6.3 spec.",
     variants: &VARIANTS_HmatCacheWritePolicy,
     kind: EnumKind::Unit,
@@ -9436,6 +9545,7 @@ static VARIANTS_HmatLbDataType: &[EnumVariantMeta] = &[
 ];
 static ENUM_HmatLbDataType: EnumMeta = EnumMeta {
     name: "HmatLbDataType",
+    wire_name: "HmatLBDataType",
     doc: "Data type in the System Locality Latency and Bandwidth Information\nStructure of HMAT (Heterogeneous Memory Attribute Table)\n\nFor more information about `HmatLBDataType`, see chapter 5.2.27.4:\nTable 5-146: Field \"Data Type\" of ACPI 6.3 spec.",
     variants: &VARIANTS_HmatLbDataType,
     kind: EnumKind::Unit,
@@ -9450,6 +9560,7 @@ static VARIANTS_HmatLbMemoryHierarchy: &[EnumVariantMeta] = &[
 ];
 static ENUM_HmatLbMemoryHierarchy: EnumMeta = EnumMeta {
     name: "HmatLbMemoryHierarchy",
+    wire_name: "HmatLBMemoryHierarchy",
     doc: "The memory hierarchy in the System Locality Latency and Bandwidth\nInformation Structure of HMAT (Heterogeneous Memory Attribute Table)\n\nFor more information about `HmatLBMemoryHierarchy`, see chapter\n5.2.27.4: Table 5-146: Field \"Flags\" of ACPI 6.3 spec.",
     variants: &VARIANTS_HmatLbMemoryHierarchy,
     kind: EnumKind::Unit,
@@ -9464,6 +9575,7 @@ static VARIANTS_HostMemPolicy: &[EnumVariantMeta] = &[
 ];
 static ENUM_HostMemPolicy: EnumMeta = EnumMeta {
     name: "HostMemPolicy",
+    wire_name: "HostMemPolicy",
     doc: "Host memory policy types",
     variants: &VARIANTS_HostMemPolicy,
     kind: EnumKind::Unit,
@@ -9477,6 +9589,7 @@ static VARIANTS_HotKeyMod: &[EnumVariantMeta] = &[
 ];
 static ENUM_HotKeyMod: EnumMeta = EnumMeta {
     name: "HotKeyMod",
+    wire_name: "HotKeyMod",
     doc: "Set of modifier keys that need to be held for shortcut key actions.",
     variants: &VARIANTS_HotKeyMod,
     kind: EnumKind::Unit,
@@ -9635,6 +9748,7 @@ static VARIANTS_ImageFormat: &[EnumVariantMeta] = &[
 ];
 static ENUM_ImageFormat: EnumMeta = EnumMeta {
     name: "ImageFormat",
+    wire_name: "ImageFormat",
     doc: "Supported image format types.",
     variants: &VARIANTS_ImageFormat,
     kind: EnumKind::Unit,
@@ -9697,6 +9811,7 @@ static VARIANTS_ImageInfoSpecificBranch: &[EnumVariantMeta] = &[
 ];
 static ENUM_ImageInfoSpecificBranch: EnumMeta = EnumMeta {
     name: "ImageInfoSpecificBranch",
+    wire_name: "ImageInfoSpecificBranch",
     doc: "",
     variants: &VARIANTS_ImageInfoSpecificBranch,
     kind: EnumKind::FlatUnionBranch,
@@ -9740,6 +9855,7 @@ static VARIANTS_ImageInfoSpecificKind: &[EnumVariantMeta] = &[
 ];
 static ENUM_ImageInfoSpecificKind: EnumMeta = EnumMeta {
     name: "ImageInfoSpecificKind",
+    wire_name: "ImageInfoSpecificKind",
     doc: "",
     variants: &VARIANTS_ImageInfoSpecificKind,
     kind: EnumKind::Unit,
@@ -9818,6 +9934,7 @@ static VARIANTS_ImageInfoSpecificQCow2EncryptionBranch: &[EnumVariantMeta] = &[
 ];
 static ENUM_ImageInfoSpecificQCow2EncryptionBranch: EnumMeta = EnumMeta {
     name: "ImageInfoSpecificQCow2EncryptionBranch",
+    wire_name: "ImageInfoSpecificQCow2EncryptionBranch",
     doc: "",
     variants: &VARIANTS_ImageInfoSpecificQCow2EncryptionBranch,
     kind: EnumKind::FlatUnionBranch,
@@ -9874,6 +9991,7 @@ static VARIANTS_ImageInfoSpecificType: &[EnumVariantMeta] = &[
 ];
 static ENUM_ImageInfoSpecificType: EnumMeta = EnumMeta {
     name: "ImageInfoSpecificType",
+    wire_name: "ImageInfoSpecificType",
     doc: "",
     variants: &VARIANTS_ImageInfoSpecificType,
     kind: EnumKind::Unit,
@@ -10000,6 +10118,7 @@ static VARIANTS_InputAxis: &[EnumVariantMeta] = &[
 ];
 static ENUM_InputAxis: EnumMeta = EnumMeta {
     name: "InputAxis",
+    wire_name: "InputAxis",
     doc: "Position axis of a pointer input device (mouse, tablet).",
     variants: &VARIANTS_InputAxis,
     kind: EnumKind::Unit,
@@ -10074,6 +10193,7 @@ static VARIANTS_InputButton: &[EnumVariantMeta] = &[
 ];
 static ENUM_InputButton: EnumMeta = EnumMeta {
     name: "InputButton",
+    wire_name: "InputButton",
     doc: "Button of a pointer input device (mouse, tablet).",
     variants: &VARIANTS_InputButton,
     kind: EnumKind::Unit,
@@ -10108,6 +10228,7 @@ static VARIANTS_InputEventBranch: &[EnumVariantMeta] = &[
 ];
 static ENUM_InputEventBranch: EnumMeta = EnumMeta {
     name: "InputEventBranch",
+    wire_name: "InputEventBranch",
     doc: "",
     variants: &VARIANTS_InputEventBranch,
     kind: EnumKind::FlatUnionBranch,
@@ -10123,6 +10244,7 @@ static VARIANTS_InputEventKind: &[EnumVariantMeta] = &[
 ];
 static ENUM_InputEventKind: EnumMeta = EnumMeta {
     name: "InputEventKind",
+    wire_name: "InputEventKind",
     doc: "",
     variants: &VARIANTS_InputEventKind,
     kind: EnumKind::Unit,
@@ -10137,6 +10259,7 @@ static VARIANTS_InputEventType: &[EnumVariantMeta] = &[
 ];
 static ENUM_InputEventType: EnumMeta = EnumMeta {
     name: "InputEventType",
+    wire_name: "InputEventType",
     doc: "",
     variants: &VARIANTS_InputEventType,
     kind: EnumKind::Unit,
@@ -10259,6 +10382,7 @@ static VARIANTS_InputMultiTouchType: &[EnumVariantMeta] = &[
 ];
 static ENUM_InputMultiTouchType: EnumMeta = EnumMeta {
     name: "InputMultiTouchType",
+    wire_name: "InputMultiTouchType",
     doc: "Type of a multi-touch event.",
     variants: &VARIANTS_InputMultiTouchType,
     kind: EnumKind::Unit,
@@ -10315,6 +10439,7 @@ static VARIANTS_IoOperationType: &[EnumVariantMeta] = &[
 ];
 static ENUM_IoOperationType: EnumMeta = EnumMeta {
     name: "IoOperationType",
+    wire_name: "IoOperationType",
     doc: "An enumeration of the I/O operation types",
     variants: &VARIANTS_IoOperationType,
     kind: EnumKind::Unit,
@@ -10384,6 +10509,7 @@ static VARIANTS_IscsiHeaderDigest: &[EnumVariantMeta] = &[
 ];
 static ENUM_IscsiHeaderDigest: EnumMeta = EnumMeta {
     name: "IscsiHeaderDigest",
+    wire_name: "IscsiHeaderDigest",
     doc: "An enumeration of header digests supported by libiscsi",
     variants: &VARIANTS_IscsiHeaderDigest,
     kind: EnumKind::Unit,
@@ -10396,6 +10522,7 @@ static VARIANTS_IscsiTransport: &[EnumVariantMeta] = &[
 ];
 static ENUM_IscsiTransport: EnumMeta = EnumMeta {
     name: "IscsiTransport",
+    wire_name: "IscsiTransport",
     doc: "An enumeration of libiscsi transport types",
     variants: &VARIANTS_IscsiTransport,
     kind: EnumKind::Unit,
@@ -10520,6 +10647,7 @@ static VARIANTS_JobStatus: &[EnumVariantMeta] = &[
 ];
 static ENUM_JobStatus: EnumMeta = EnumMeta {
     name: "JobStatus",
+    wire_name: "JobStatus",
     doc: "Indicates the present state of a given job in its lifetime.",
     variants: &VARIANTS_JobStatus,
     kind: EnumKind::Unit,
@@ -10554,6 +10682,7 @@ static VARIANTS_JobType: &[EnumVariantMeta] = &[
 ];
 static ENUM_JobType: EnumMeta = EnumMeta {
     name: "JobType",
+    wire_name: "JobType",
     doc: "Type of a background job.",
     variants: &VARIANTS_JobType,
     kind: EnumKind::Unit,
@@ -10572,6 +10701,7 @@ static VARIANTS_JobVerb: &[EnumVariantMeta] = &[
 ];
 static ENUM_JobVerb: EnumMeta = EnumMeta {
     name: "JobVerb",
+    wire_name: "JobVerb",
     doc: "Represents command verbs that can be applied to a job.",
     variants: &VARIANTS_JobVerb,
     kind: EnumKind::Unit,
@@ -10590,6 +10720,7 @@ static VARIANTS_JsonType: &[EnumVariantMeta] = &[
 ];
 static ENUM_JsonType: EnumMeta = EnumMeta {
     name: "JsonType",
+    wire_name: "JSONType",
     doc: "The four primitive and two structured types according to RFC 8259\nsection 1, plus 'int' (split off 'number'), plus the obvious top\ntype 'value'.",
     variants: &VARIANTS_JsonType,
     kind: EnumKind::Unit,
@@ -10619,6 +10750,7 @@ static VARIANTS_KeyValueBranch: &[EnumVariantMeta] = &[
 ];
 static ENUM_KeyValueBranch: EnumMeta = EnumMeta {
     name: "KeyValueBranch",
+    wire_name: "KeyValueBranch",
     doc: "",
     variants: &VARIANTS_KeyValueBranch,
     kind: EnumKind::FlatUnionBranch,
@@ -10631,6 +10763,7 @@ static VARIANTS_KeyValueKind: &[EnumVariantMeta] = &[
 ];
 static ENUM_KeyValueKind: EnumMeta = EnumMeta {
     name: "KeyValueKind",
+    wire_name: "KeyValueKind",
     doc: "",
     variants: &VARIANTS_KeyValueKind,
     kind: EnumKind::Unit,
@@ -10643,6 +10776,7 @@ static VARIANTS_KeyValueType: &[EnumVariantMeta] = &[
 ];
 static ENUM_KeyValueType: EnumMeta = EnumMeta {
     name: "KeyValueType",
+    wire_name: "KeyValueType",
     doc: "",
     variants: &VARIANTS_KeyValueType,
     kind: EnumKind::Unit,
@@ -10672,6 +10806,7 @@ static VARIANTS_LostTickPolicy: &[EnumVariantMeta] = &[
 ];
 static ENUM_LostTickPolicy: EnumMeta = EnumMeta {
     name: "LostTickPolicy",
+    wire_name: "LostTickPolicy",
     doc: "Policy for handling lost ticks in timer devices.  Ticks end up\ngetting lost when, for example, the guest is paused.",
     variants: &VARIANTS_LostTickPolicy,
     kind: EnumKind::Unit,
@@ -10922,6 +11057,7 @@ static VARIANTS_MemoryDeviceInfoBranch: &[EnumVariantMeta] = &[
 ];
 static ENUM_MemoryDeviceInfoBranch: EnumMeta = EnumMeta {
     name: "MemoryDeviceInfoBranch",
+    wire_name: "MemoryDeviceInfoBranch",
     doc: "",
     variants: &VARIANTS_MemoryDeviceInfoBranch,
     kind: EnumKind::FlatUnionBranch,
@@ -10939,6 +11075,7 @@ static VARIANTS_MemoryDeviceInfoKind: &[EnumVariantMeta] = &[
 ];
 static ENUM_MemoryDeviceInfoKind: EnumMeta = EnumMeta {
     name: "MemoryDeviceInfoKind",
+    wire_name: "MemoryDeviceInfoKind",
     doc: "",
     variants: &VARIANTS_MemoryDeviceInfoKind,
     kind: EnumKind::Unit,
@@ -10953,6 +11090,7 @@ static VARIANTS_MemoryDeviceInfoType: &[EnumVariantMeta] = &[
 ];
 static ENUM_MemoryDeviceInfoType: EnumMeta = EnumMeta {
     name: "MemoryDeviceInfoType",
+    wire_name: "MemoryDeviceInfoType",
     doc: "",
     variants: &VARIANTS_MemoryDeviceInfoType,
     kind: EnumKind::Unit,
@@ -10983,6 +11121,7 @@ static VARIANTS_MemoryFailureAction: &[EnumVariantMeta] = &[
 ];
 static ENUM_MemoryFailureAction: EnumMeta = EnumMeta {
     name: "MemoryFailureAction",
+    wire_name: "MemoryFailureAction",
     doc: "Actions taken by QEMU in response to a hardware memory failure.",
     variants: &VARIANTS_MemoryFailureAction,
     kind: EnumKind::Unit,
@@ -11026,6 +11165,7 @@ static VARIANTS_MemoryFailureRecipient: &[EnumVariantMeta] = &[
 ];
 static ENUM_MemoryFailureRecipient: EnumMeta = EnumMeta {
     name: "MemoryFailureRecipient",
+    wire_name: "MemoryFailureRecipient",
     doc: "Hardware memory failure occurs, handled by recipient.",
     variants: &VARIANTS_MemoryFailureRecipient,
     kind: EnumKind::Unit,
@@ -11105,6 +11245,7 @@ static VARIANTS_MigMode: &[EnumVariantMeta] = &[
 ];
 static ENUM_MigMode: EnumMeta = EnumMeta {
     name: "MigMode",
+    wire_name: "MigMode",
     doc: "",
     variants: &VARIANTS_MigMode,
     kind: EnumKind::Unit,
@@ -11359,6 +11500,7 @@ static VARIANTS_MigrationAddressBranch: &[EnumVariantMeta] = &[
 ];
 static ENUM_MigrationAddressBranch: EnumMeta = EnumMeta {
     name: "MigrationAddressBranch",
+    wire_name: "MigrationAddressBranch",
     doc: "",
     variants: &VARIANTS_MigrationAddressBranch,
     kind: EnumKind::FlatUnionBranch,
@@ -11373,6 +11515,7 @@ static VARIANTS_MigrationAddressType: &[EnumVariantMeta] = &[
 ];
 static ENUM_MigrationAddressType: EnumMeta = EnumMeta {
     name: "MigrationAddressType",
+    wire_name: "MigrationAddressType",
     doc: "The migration stream transport mechanisms.",
     variants: &VARIANTS_MigrationAddressType,
     kind: EnumKind::Unit,
@@ -11410,6 +11553,7 @@ static VARIANTS_MigrationCapability: &[EnumVariantMeta] = &[
 ];
 static ENUM_MigrationCapability: EnumMeta = EnumMeta {
     name: "MigrationCapability",
+    wire_name: "MigrationCapability",
     doc: "Migration capabilities enumeration\n\nFeatures:\n\n@unstable: Members @x-colo and @x-ignore-shared are experimental.",
     variants: &VARIANTS_MigrationCapability,
     kind: EnumKind::Unit,
@@ -11452,6 +11596,7 @@ static VARIANTS_MigrationChannelType: &[EnumVariantMeta] = &[
 ];
 static ENUM_MigrationChannelType: EnumMeta = EnumMeta {
     name: "MigrationChannelType",
+    wire_name: "MigrationChannelType",
     doc: "The migration channel-type request options.",
     variants: &VARIANTS_MigrationChannelType,
     kind: EnumKind::Unit,
@@ -11570,6 +11715,7 @@ static VARIANTS_MigrationParameter: &[EnumVariantMeta] = &[
 ];
 static ENUM_MigrationParameter: EnumMeta = EnumMeta {
     name: "MigrationParameter",
+    wire_name: "MigrationParameter",
     doc: "Migration parameters enumeration.  The enumeration values mirror the\nmembers of @MigrationParameters.\n\nFeatures:\n\n@unstable: Members @x-checkpoint-delay, @x-rdma-chunk-size, and\n    @x-vcpu-dirty-limit-period are experimental.",
     variants: &VARIANTS_MigrationParameter,
     kind: EnumKind::Unit,
@@ -11738,6 +11884,7 @@ static VARIANTS_MigrationStatus: &[EnumVariantMeta] = &[
 ];
 static ENUM_MigrationStatus: EnumMeta = EnumMeta {
     name: "MigrationStatus",
+    wire_name: "MigrationStatus",
     doc: "An enumeration of migration status.",
     variants: &VARIANTS_MigrationStatus,
     kind: EnumKind::Unit,
@@ -11765,6 +11912,7 @@ static VARIANTS_MirrorCopyMode: &[EnumVariantMeta] = &[
 ];
 static ENUM_MirrorCopyMode: EnumMeta = EnumMeta {
     name: "MirrorCopyMode",
+    wire_name: "MirrorCopyMode",
     doc: "An enumeration whose values tell the mirror block job when to\ntrigger writes to the target.",
     variants: &VARIANTS_MirrorCopyMode,
     kind: EnumKind::Unit,
@@ -11780,6 +11928,7 @@ static VARIANTS_MirrorSyncMode: &[EnumVariantMeta] = &[
 ];
 static ENUM_MirrorSyncMode: EnumMeta = EnumMeta {
     name: "MirrorSyncMode",
+    wire_name: "MirrorSyncMode",
     doc: "An enumeration of possible behaviors for the initial synchronization\nphase of storage mirroring.",
     variants: &VARIANTS_MirrorSyncMode,
     kind: EnumKind::Unit,
@@ -11807,6 +11956,7 @@ static VARIANTS_MonitorMode: &[EnumVariantMeta] = &[
 ];
 static ENUM_MonitorMode: EnumMeta = EnumMeta {
     name: "MonitorMode",
+    wire_name: "MonitorMode",
     doc: "An enumeration of monitor modes.",
     variants: &VARIANTS_MonitorMode,
     kind: EnumKind::Unit,
@@ -11850,6 +12000,7 @@ static VARIANTS_MonitorQmpCloseAction: &[EnumVariantMeta] = &[
 ];
 static ENUM_MonitorQmpCloseAction: EnumMeta = EnumMeta {
     name: "MonitorQmpCloseAction",
+    wire_name: "MonitorQMPCloseAction",
     doc: "Action to take when the character device backend is closed.",
     variants: &VARIANTS_MonitorQmpCloseAction,
     kind: EnumKind::Unit,
@@ -11899,6 +12050,7 @@ static VARIANTS_MultiFdCompression: &[EnumVariantMeta] = &[
 ];
 static ENUM_MultiFdCompression: EnumMeta = EnumMeta {
     name: "MultiFdCompression",
+    wire_name: "MultiFDCompression",
     doc: "An enumeration of multifd compression methods.",
     variants: &VARIANTS_MultiFdCompression,
     kind: EnumKind::Unit,
@@ -12030,6 +12182,7 @@ static VARIANTS_NbdServerRemoveMode: &[EnumVariantMeta] = &[
 ];
 static ENUM_NbdServerRemoveMode: EnumMeta = EnumMeta {
     name: "NbdServerRemoveMode",
+    wire_name: "NbdServerRemoveMode",
     doc: "Mode for removing an NBD export.\n\nPotential additional modes to be added in the future:\n\nhide: Just hide export from new clients, leave existing connections as is.\nRemove export after all clients are disconnected.\n\nsoft: Hide export from new clients, answer with ESHUTDOWN for all further\nrequests from existing clients.",
     variants: &VARIANTS_NbdServerRemoveMode,
     kind: EnumKind::Unit,
@@ -12092,6 +12245,7 @@ static VARIANTS_NetClientDriver: &[EnumVariantMeta] = &[
 ];
 static ENUM_NetClientDriver: EnumMeta = EnumMeta {
     name: "NetClientDriver",
+    wire_name: "NetClientDriver",
     doc: "Available netdev drivers.",
     variants: &VARIANTS_NetClientDriver,
     kind: EnumKind::Unit,
@@ -12128,6 +12282,7 @@ static VARIANTS_NetClientOptionsBranch: &[EnumVariantMeta] = &[
 ];
 static ENUM_NetClientOptionsBranch: EnumMeta = EnumMeta {
     name: "NetClientOptionsBranch",
+    wire_name: "NetClientOptionsBranch",
     doc: "",
     variants: &VARIANTS_NetClientOptionsBranch,
     kind: EnumKind::FlatUnionBranch,
@@ -12150,6 +12305,7 @@ static VARIANTS_NetClientOptionsType: &[EnumVariantMeta] = &[
 ];
 static ENUM_NetClientOptionsType: EnumMeta = EnumMeta {
     name: "NetClientOptionsType",
+    wire_name: "NetClientOptionsType",
     doc: "",
     variants: &VARIANTS_NetClientOptionsType,
     kind: EnumKind::Unit,
@@ -12237,6 +12393,7 @@ static VARIANTS_NetdevBranch: &[EnumVariantMeta] = &[
 ];
 static ENUM_NetdevBranch: EnumMeta = EnumMeta {
     name: "NetdevBranch",
+    wire_name: "NetdevBranch",
     doc: "",
     variants: &VARIANTS_NetdevBranch,
     kind: EnumKind::FlatUnionBranch,
@@ -12777,6 +12934,7 @@ static VARIANTS_NetFilterDirection: &[EnumVariantMeta] = &[
 ];
 static ENUM_NetFilterDirection: EnumMeta = EnumMeta {
     name: "NetFilterDirection",
+    wire_name: "NetFilterDirection",
     doc: "Indicates whether a netfilter is attached to a netdev's transmit\nqueue or receive queue or both.",
     variants: &VARIANTS_NetFilterDirection,
     kind: EnumKind::Unit,
@@ -12789,6 +12947,7 @@ static VARIANTS_NetfilterInsert: &[EnumVariantMeta] = &[
 ];
 static ENUM_NetfilterInsert: EnumMeta = EnumMeta {
     name: "NetfilterInsert",
+    wire_name: "NetfilterInsert",
     doc: "Indicates where to insert a netfilter relative to a given other\nfilter.",
     variants: &VARIANTS_NetfilterInsert,
     kind: EnumKind::Unit,
@@ -12880,6 +13039,7 @@ static VARIANTS_NetLegacyOptionsBranch: &[EnumVariantMeta] = &[
 ];
 static ENUM_NetLegacyOptionsBranch: EnumMeta = EnumMeta {
     name: "NetLegacyOptionsBranch",
+    wire_name: "NetLegacyOptionsBranch",
     doc: "",
     variants: &VARIANTS_NetLegacyOptionsBranch,
     kind: EnumKind::FlatUnionBranch,
@@ -12901,6 +13061,7 @@ static VARIANTS_NetLegacyOptionsType: &[EnumVariantMeta] = &[
 ];
 static ENUM_NetLegacyOptionsType: EnumMeta = EnumMeta {
     name: "NetLegacyOptionsType",
+    wire_name: "NetLegacyOptionsType",
     doc: "",
     variants: &VARIANTS_NetLegacyOptionsType,
     kind: EnumKind::Unit,
@@ -12922,6 +13083,7 @@ static VARIANTS_NetLegacyOptionsTypeGenerated: &[EnumVariantMeta] = &[
 ];
 static ENUM_NetLegacyOptionsTypeGenerated: EnumMeta = EnumMeta {
     name: "NetLegacyOptionsTypeGenerated",
+    wire_name: "NetLegacyOptionsTypeGenerated",
     doc: "",
     variants: &VARIANTS_NetLegacyOptionsTypeGenerated,
     kind: EnumKind::Unit,
@@ -12937,6 +13099,7 @@ static VARIANTS_NetworkAddressFamily: &[EnumVariantMeta] = &[
 ];
 static ENUM_NetworkAddressFamily: EnumMeta = EnumMeta {
     name: "NetworkAddressFamily",
+    wire_name: "NetworkAddressFamily",
     doc: "The network address family",
     variants: &VARIANTS_NetworkAddressFamily,
     kind: EnumKind::Unit,
@@ -12949,6 +13112,7 @@ static VARIANTS_NewImageMode: &[EnumVariantMeta] = &[
 ];
 static ENUM_NewImageMode: EnumMeta = EnumMeta {
     name: "NewImageMode",
+    wire_name: "NewImageMode",
     doc: "An enumeration that tells QEMU how to set the backing file path in a\nnew image file.",
     variants: &VARIANTS_NewImageMode,
     kind: EnumKind::Unit,
@@ -12975,6 +13139,7 @@ static VARIANTS_NfsTransport: &[EnumVariantMeta] = &[
 ];
 static ENUM_NfsTransport: EnumMeta = EnumMeta {
     name: "NfsTransport",
+    wire_name: "NFSTransport",
     doc: "An enumeration of NFS transport types",
     variants: &VARIANTS_NfsTransport,
     kind: EnumKind::Unit,
@@ -13003,6 +13168,7 @@ static VARIANTS_NotifyVmexitOption: &[EnumVariantMeta] = &[
 ];
 static ENUM_NotifyVmexitOption: EnumMeta = EnumMeta {
     name: "NotifyVmexitOption",
+    wire_name: "NotifyVmexitOption",
     doc: "An enumeration of the options specified when enabling notify VM exit",
     variants: &VARIANTS_NotifyVmexitOption,
     kind: EnumKind::Unit,
@@ -13127,6 +13293,7 @@ static VARIANTS_NumaOptionsBranch: &[EnumVariantMeta] = &[
 ];
 static ENUM_NumaOptionsBranch: EnumMeta = EnumMeta {
     name: "NumaOptionsBranch",
+    wire_name: "NumaOptionsBranch",
     doc: "",
     variants: &VARIANTS_NumaOptionsBranch,
     kind: EnumKind::FlatUnionBranch,
@@ -13142,6 +13309,7 @@ static VARIANTS_NumaOptionsType: &[EnumVariantMeta] = &[
 ];
 static ENUM_NumaOptionsType: EnumMeta = EnumMeta {
     name: "NumaOptionsType",
+    wire_name: "NumaOptionsType",
     doc: "",
     variants: &VARIANTS_NumaOptionsType,
     kind: EnumKind::Unit,
@@ -13153,6 +13321,7 @@ static VARIANTS_NumaOptionsTypeGenerated: &[EnumVariantMeta] = &[
 ];
 static ENUM_NumaOptionsTypeGenerated: EnumMeta = EnumMeta {
     name: "NumaOptionsTypeGenerated",
+    wire_name: "NumaOptionsTypeGenerated",
     doc: "",
     variants: &VARIANTS_NumaOptionsTypeGenerated,
     kind: EnumKind::Unit,
@@ -13172,6 +13341,7 @@ static VARIANTS_OasMode: &[EnumVariantMeta] = &[
 ];
 static ENUM_OasMode: EnumMeta = EnumMeta {
     name: "OasMode",
+    wire_name: "OasMode",
     doc: "SMMUv3 Output Address Size configuration mode.",
     variants: &VARIANTS_OasMode,
     kind: EnumKind::Unit,
@@ -13281,6 +13451,7 @@ static VARIANTS_ObjectOptionsBranch: &[EnumVariantMeta] = &[
 ];
 static ENUM_ObjectOptionsBranch: EnumMeta = EnumMeta {
     name: "ObjectOptionsBranch",
+    wire_name: "ObjectOptionsBranch",
     doc: "",
     variants: &VARIANTS_ObjectOptionsBranch,
     kind: EnumKind::FlatUnionBranch,
@@ -13391,6 +13562,7 @@ static VARIANTS_ObjectType: &[EnumVariantMeta] = &[
 ];
 static ENUM_ObjectType: EnumMeta = EnumMeta {
     name: "ObjectType",
+    wire_name: "ObjectType",
     doc: "Features:\n\n@unstable: Members @x-remote-object and @x-vfio-user-server are\n    experimental.",
     variants: &VARIANTS_ObjectType,
     kind: EnumKind::Unit,
@@ -13425,6 +13597,7 @@ static VARIANTS_OffAutoPcibar: &[EnumVariantMeta] = &[
 ];
 static ENUM_OffAutoPcibar: EnumMeta = EnumMeta {
     name: "OffAutoPcibar",
+    wire_name: "OffAutoPCIBAR",
     doc: "An enumeration of options for specifying a PCI BAR",
     variants: &VARIANTS_OffAutoPcibar,
     kind: EnumKind::Unit,
@@ -13437,6 +13610,7 @@ static VARIANTS_OnCbwError: &[EnumVariantMeta] = &[
 ];
 static ENUM_OnCbwError: EnumMeta = EnumMeta {
     name: "OnCbwError",
+    wire_name: "OnCbwError",
     doc: "An enumeration of possible behaviors for copy-before-write operation\nfailures.",
     variants: &VARIANTS_OnCbwError,
     kind: EnumKind::Unit,
@@ -13450,6 +13624,7 @@ static VARIANTS_OnOffAuto: &[EnumVariantMeta] = &[
 ];
 static ENUM_OnOffAuto: EnumMeta = EnumMeta {
     name: "OnOffAuto",
+    wire_name: "OnOffAuto",
     doc: "An enumeration of three options: on, off, and auto",
     variants: &VARIANTS_OnOffAuto,
     kind: EnumKind::Unit,
@@ -13463,6 +13638,7 @@ static VARIANTS_OnOffSplit: &[EnumVariantMeta] = &[
 ];
 static ENUM_OnOffSplit: EnumMeta = EnumMeta {
     name: "OnOffSplit",
+    wire_name: "OnOffSplit",
     doc: "An enumeration of three values: on, off, and split",
     variants: &VARIANTS_OnOffSplit,
     kind: EnumKind::Unit,
@@ -13477,6 +13653,7 @@ static VARIANTS_PanicAction: &[EnumVariantMeta] = &[
 ];
 static ENUM_PanicAction: EnumMeta = EnumMeta {
     name: "PanicAction",
+    wire_name: "PanicAction",
     doc: "",
     variants: &VARIANTS_PanicAction,
     kind: EnumKind::Unit,
@@ -13711,6 +13888,7 @@ static VARIANTS_PcieLinkSpeed: &[EnumVariantMeta] = &[
 ];
 static ENUM_PcieLinkSpeed: EnumMeta = EnumMeta {
     name: "PcieLinkSpeed",
+    wire_name: "PCIELinkSpeed",
     doc: "An enumeration of PCIe link speeds in units of GT/s",
     variants: &VARIANTS_PcieLinkSpeed,
     kind: EnumKind::Unit,
@@ -13728,6 +13906,7 @@ static VARIANTS_PcieLinkWidth: &[EnumVariantMeta] = &[
 ];
 static ENUM_PcieLinkWidth: EnumMeta = EnumMeta {
     name: "PcieLinkWidth",
+    wire_name: "PCIELinkWidth",
     doc: "An enumeration of PCIe link width",
     variants: &VARIANTS_PcieLinkWidth,
     kind: EnumKind::Unit,
@@ -13822,6 +14001,7 @@ static VARIANTS_PreallocMode: &[EnumVariantMeta] = &[
 ];
 static ENUM_PreallocMode: EnumMeta = EnumMeta {
     name: "PreallocMode",
+    wire_name: "PreallocMode",
     doc: "Preallocation mode of QEMU image file",
     variants: &VARIANTS_PreallocMode,
     kind: EnumKind::Unit,
@@ -13882,6 +14062,7 @@ static VARIANTS_QapiErrorClass: &[EnumVariantMeta] = &[
 ];
 static ENUM_QapiErrorClass: EnumMeta = EnumMeta {
     name: "QapiErrorClass",
+    wire_name: "QapiErrorClass",
     doc: "QEMU error classes",
     variants: &VARIANTS_QapiErrorClass,
     kind: EnumKind::Unit,
@@ -13914,6 +14095,7 @@ static VARIANTS_QapiVfioMigrationState: &[EnumVariantMeta] = &[
 ];
 static ENUM_QapiVfioMigrationState: EnumMeta = EnumMeta {
     name: "QapiVfioMigrationState",
+    wire_name: "QapiVfioMigrationState",
     doc: "An enumeration of the VFIO device migration states.  In addition to\nthe regular states, there are prepare states (with 'prepare' suffix)\nwhich indicate that the device is just about to transition to the\ncorresponding state.  Note that seeing a prepare state for state X\ndoesn't guarantee that the next state will be X, as the state\ntransition can fail and the device may transition to a different\nstate instead.",
     variants: &VARIANTS_QapiVfioMigrationState,
     kind: EnumKind::Unit,
@@ -13926,6 +14108,7 @@ static VARIANTS_QAuthZListFormat: &[EnumVariantMeta] = &[
 ];
 static ENUM_QAuthZListFormat: EnumMeta = EnumMeta {
     name: "QAuthZListFormat",
+    wire_name: "QAuthZListFormat",
     doc: "The authorization policy match format",
     variants: &VARIANTS_QAuthZListFormat,
     kind: EnumKind::Unit,
@@ -13938,6 +14121,7 @@ static VARIANTS_QAuthZListPolicy: &[EnumVariantMeta] = &[
 ];
 static ENUM_QAuthZListPolicy: EnumMeta = EnumMeta {
     name: "QAuthZListPolicy",
+    wire_name: "QAuthZListPolicy",
     doc: "The authorization policy result",
     variants: &VARIANTS_QAuthZListPolicy,
     kind: EnumKind::Unit,
@@ -13996,6 +14180,7 @@ static VARIANTS_Qcow2BitmapInfoFlags: &[EnumVariantMeta] = &[
 ];
 static ENUM_Qcow2BitmapInfoFlags: EnumMeta = EnumMeta {
     name: "Qcow2BitmapInfoFlags",
+    wire_name: "Qcow2BitmapInfoFlags",
     doc: "An enumeration of flags that a bitmap can report to the user.",
     variants: &VARIANTS_Qcow2BitmapInfoFlags,
     kind: EnumKind::Unit,
@@ -14008,6 +14193,7 @@ static VARIANTS_Qcow2CompressionType: &[EnumVariantMeta] = &[
 ];
 static ENUM_Qcow2CompressionType: EnumMeta = EnumMeta {
     name: "Qcow2CompressionType",
+    wire_name: "Qcow2CompressionType",
     doc: "Compression type used in qcow2 image file",
     variants: &VARIANTS_Qcow2CompressionType,
     kind: EnumKind::Unit,
@@ -14045,6 +14231,7 @@ static VARIANTS_Qcow2OverlapCheckMode: &[EnumVariantMeta] = &[
 ];
 static ENUM_Qcow2OverlapCheckMode: EnumMeta = EnumMeta {
     name: "Qcow2OverlapCheckMode",
+    wire_name: "Qcow2OverlapCheckMode",
     doc: "General overlap check modes.",
     variants: &VARIANTS_Qcow2OverlapCheckMode,
     kind: EnumKind::Unit,
@@ -14057,6 +14244,7 @@ static VARIANTS_Qcow2OverlapChecks: &[EnumVariantMeta] = &[
 ];
 static ENUM_Qcow2OverlapChecks: EnumMeta = EnumMeta {
     name: "Qcow2OverlapChecks",
+    wire_name: "Qcow2OverlapChecks",
     doc: "Specifies which metadata structures should be guarded against\nunintended overwriting.",
     variants: &VARIANTS_Qcow2OverlapChecks,
     kind: EnumKind::Alternate,
@@ -14068,6 +14256,7 @@ static VARIANTS_QCryptoAkCipherAlgo: &[EnumVariantMeta] = &[
 ];
 static ENUM_QCryptoAkCipherAlgo: EnumMeta = EnumMeta {
     name: "QCryptoAkCipherAlgo",
+    wire_name: "QCryptoAkCipherAlgo",
     doc: "The supported algorithms for asymmetric encryption ciphers",
     variants: &VARIANTS_QCryptoAkCipherAlgo,
     kind: EnumKind::Unit,
@@ -14079,6 +14268,7 @@ static VARIANTS_QCryptoAkCipherAlgorithm: &[EnumVariantMeta] = &[
 ];
 static ENUM_QCryptoAkCipherAlgorithm: EnumMeta = EnumMeta {
     name: "QCryptoAkCipherAlgorithm",
+    wire_name: "QCryptoAkCipherAlgorithm",
     doc: "The supported algorithms for asymmetric encryption ciphers",
     variants: &VARIANTS_QCryptoAkCipherAlgorithm,
     kind: EnumKind::Unit,
@@ -14091,6 +14281,7 @@ static VARIANTS_QCryptoAkCipherKeyType: &[EnumVariantMeta] = &[
 ];
 static ENUM_QCryptoAkCipherKeyType: EnumMeta = EnumMeta {
     name: "QCryptoAkCipherKeyType",
+    wire_name: "QCryptoAkCipherKeyType",
     doc: "The type of asymmetric keys.",
     variants: &VARIANTS_QCryptoAkCipherKeyType,
     kind: EnumKind::Unit,
@@ -14117,6 +14308,7 @@ static VARIANTS_QCryptoAkCipherOptionsBranch: &[EnumVariantMeta] = &[
 ];
 static ENUM_QCryptoAkCipherOptionsBranch: EnumMeta = EnumMeta {
     name: "QCryptoAkCipherOptionsBranch",
+    wire_name: "QCryptoAkCipherOptionsBranch",
     doc: "",
     variants: &VARIANTS_QCryptoAkCipherOptionsBranch,
     kind: EnumKind::FlatUnionBranch,
@@ -14160,6 +14352,7 @@ static VARIANTS_QCryptoBlockAmendOptionsBranch: &[EnumVariantMeta] = &[
 ];
 static ENUM_QCryptoBlockAmendOptionsBranch: EnumMeta = EnumMeta {
     name: "QCryptoBlockAmendOptionsBranch",
+    wire_name: "QCryptoBlockAmendOptionsBranch",
     doc: "",
     variants: &VARIANTS_QCryptoBlockAmendOptionsBranch,
     kind: EnumKind::FlatUnionBranch,
@@ -14205,6 +14398,7 @@ static VARIANTS_QCryptoBlockCreateOptionsBranch: &[EnumVariantMeta] = &[
 ];
 static ENUM_QCryptoBlockCreateOptionsBranch: EnumMeta = EnumMeta {
     name: "QCryptoBlockCreateOptionsBranch",
+    wire_name: "QCryptoBlockCreateOptionsBranch",
     doc: "",
     variants: &VARIANTS_QCryptoBlockCreateOptionsBranch,
     kind: EnumKind::FlatUnionBranch,
@@ -14242,6 +14436,7 @@ static VARIANTS_QCryptoBlockFormat: &[EnumVariantMeta] = &[
 ];
 static ENUM_QCryptoBlockFormat: EnumMeta = EnumMeta {
     name: "QCryptoBlockFormat",
+    wire_name: "QCryptoBlockFormat",
     doc: "The supported full disk encryption formats",
     variants: &VARIANTS_QCryptoBlockFormat,
     kind: EnumKind::Unit,
@@ -14283,6 +14478,7 @@ static VARIANTS_QCryptoBlockInfoBranch: &[EnumVariantMeta] = &[
 ];
 static ENUM_QCryptoBlockInfoBranch: EnumMeta = EnumMeta {
     name: "QCryptoBlockInfoBranch",
+    wire_name: "QCryptoBlockInfoBranch",
     doc: "",
     variants: &VARIANTS_QCryptoBlockInfoBranch,
     kind: EnumKind::FlatUnionBranch,
@@ -14352,6 +14548,7 @@ static VARIANTS_QCryptoBlockLuksKeyslotState: &[EnumVariantMeta] = &[
 ];
 static ENUM_QCryptoBlockLuksKeyslotState: EnumMeta = EnumMeta {
     name: "QCryptoBlockLuksKeyslotState",
+    wire_name: "QCryptoBlockLUKSKeyslotState",
     doc: "Defines state of keyslots that are affected by the update",
     variants: &VARIANTS_QCryptoBlockLuksKeyslotState,
     kind: EnumKind::Unit,
@@ -14378,6 +14575,7 @@ static VARIANTS_QCryptoBlockOpenOptionsBranch: &[EnumVariantMeta] = &[
 ];
 static ENUM_QCryptoBlockOpenOptionsBranch: EnumMeta = EnumMeta {
     name: "QCryptoBlockOpenOptionsBranch",
+    wire_name: "QCryptoBlockOpenOptionsBranch",
     doc: "",
     variants: &VARIANTS_QCryptoBlockOpenOptionsBranch,
     kind: EnumKind::FlatUnionBranch,
@@ -14443,6 +14641,7 @@ static VARIANTS_QCryptoCipherAlgo: &[EnumVariantMeta] = &[
 ];
 static ENUM_QCryptoCipherAlgo: EnumMeta = EnumMeta {
     name: "QCryptoCipherAlgo",
+    wire_name: "QCryptoCipherAlgo",
     doc: "The supported algorithms for content encryption ciphers",
     variants: &VARIANTS_QCryptoCipherAlgo,
     kind: EnumKind::Unit,
@@ -14467,6 +14666,7 @@ static VARIANTS_QCryptoCipherAlgorithm: &[EnumVariantMeta] = &[
 ];
 static ENUM_QCryptoCipherAlgorithm: EnumMeta = EnumMeta {
     name: "QCryptoCipherAlgorithm",
+    wire_name: "QCryptoCipherAlgorithm",
     doc: "The supported algorithms for content encryption ciphers",
     variants: &VARIANTS_QCryptoCipherAlgorithm,
     kind: EnumKind::Unit,
@@ -14481,6 +14681,7 @@ static VARIANTS_QCryptoCipherMode: &[EnumVariantMeta] = &[
 ];
 static ENUM_QCryptoCipherMode: EnumMeta = EnumMeta {
     name: "QCryptoCipherMode",
+    wire_name: "QCryptoCipherMode",
     doc: "The supported modes for content encryption ciphers",
     variants: &VARIANTS_QCryptoCipherMode,
     kind: EnumKind::Unit,
@@ -14493,6 +14694,7 @@ static VARIANTS_QCryptodevBackendAlgoType: &[EnumVariantMeta] = &[
 ];
 static ENUM_QCryptodevBackendAlgoType: EnumMeta = EnumMeta {
     name: "QCryptodevBackendAlgoType",
+    wire_name: "QCryptodevBackendAlgoType",
     doc: "The supported algorithm types of a crypto device.",
     variants: &VARIANTS_QCryptodevBackendAlgoType,
     kind: EnumKind::Unit,
@@ -14505,6 +14707,7 @@ static VARIANTS_QCryptodevBackendAlgType: &[EnumVariantMeta] = &[
 ];
 static ENUM_QCryptodevBackendAlgType: EnumMeta = EnumMeta {
     name: "QCryptodevBackendAlgType",
+    wire_name: "QCryptodevBackendAlgType",
     doc: "The supported algorithm types of a crypto device.",
     variants: &VARIANTS_QCryptodevBackendAlgType,
     kind: EnumKind::Unit,
@@ -14535,6 +14738,7 @@ static VARIANTS_QCryptodevBackendServiceType: &[EnumVariantMeta] = &[
 ];
 static ENUM_QCryptodevBackendServiceType: EnumMeta = EnumMeta {
     name: "QCryptodevBackendServiceType",
+    wire_name: "QCryptodevBackendServiceType",
     doc: "The supported service types of a crypto device.",
     variants: &VARIANTS_QCryptodevBackendServiceType,
     kind: EnumKind::Unit,
@@ -14548,6 +14752,7 @@ static VARIANTS_QCryptodevBackendType: &[EnumVariantMeta] = &[
 ];
 static ENUM_QCryptodevBackendType: EnumMeta = EnumMeta {
     name: "QCryptodevBackendType",
+    wire_name: "QCryptodevBackendType",
     doc: "The crypto device backend type",
     variants: &VARIANTS_QCryptodevBackendType,
     kind: EnumKind::Unit,
@@ -14582,6 +14787,7 @@ static VARIANTS_QCryptoHashAlgo: &[EnumVariantMeta] = &[
 ];
 static ENUM_QCryptoHashAlgo: EnumMeta = EnumMeta {
     name: "QCryptoHashAlgo",
+    wire_name: "QCryptoHashAlgo",
     doc: "The supported algorithms for computing content digests",
     variants: &VARIANTS_QCryptoHashAlgo,
     kind: EnumKind::Unit,
@@ -14599,6 +14805,7 @@ static VARIANTS_QCryptoHashAlgorithm: &[EnumVariantMeta] = &[
 ];
 static ENUM_QCryptoHashAlgorithm: EnumMeta = EnumMeta {
     name: "QCryptoHashAlgorithm",
+    wire_name: "QCryptoHashAlgorithm",
     doc: "The supported algorithms for computing content digests",
     variants: &VARIANTS_QCryptoHashAlgorithm,
     kind: EnumKind::Unit,
@@ -14612,6 +14819,7 @@ static VARIANTS_QCryptoIvGenAlgo: &[EnumVariantMeta] = &[
 ];
 static ENUM_QCryptoIvGenAlgo: EnumMeta = EnumMeta {
     name: "QCryptoIvGenAlgo",
+    wire_name: "QCryptoIVGenAlgo",
     doc: "The supported algorithms for generating initialization vectors for\nfull disk encryption.  The 'plain' generator should not be used for\ndisks with sector numbers larger than 2^32, except where\ncompatibility with pre-existing Linux dm-crypt volumes is required.",
     variants: &VARIANTS_QCryptoIvGenAlgo,
     kind: EnumKind::Unit,
@@ -14625,6 +14833,7 @@ static VARIANTS_QCryptoIvGenAlgorithm: &[EnumVariantMeta] = &[
 ];
 static ENUM_QCryptoIvGenAlgorithm: EnumMeta = EnumMeta {
     name: "QCryptoIvGenAlgorithm",
+    wire_name: "QCryptoIVGenAlgorithm",
     doc: "The supported algorithms for generating initialization vectors for\nfull disk encryption.  The 'plain' generator should not be used for\ndisks with sector numbers larger than 2^32, except where\ncompatibility with pre-existing Linux dm-crypt volumes is required.",
     variants: &VARIANTS_QCryptoIvGenAlgorithm,
     kind: EnumKind::Unit,
@@ -14637,6 +14846,7 @@ static VARIANTS_QCryptoRsaPaddingAlgo: &[EnumVariantMeta] = &[
 ];
 static ENUM_QCryptoRsaPaddingAlgo: EnumMeta = EnumMeta {
     name: "QCryptoRsaPaddingAlgo",
+    wire_name: "QCryptoRSAPaddingAlgo",
     doc: "The padding algorithm for RSA.",
     variants: &VARIANTS_QCryptoRsaPaddingAlgo,
     kind: EnumKind::Unit,
@@ -14649,6 +14859,7 @@ static VARIANTS_QCryptoRsaPaddingAlgorithm: &[EnumVariantMeta] = &[
 ];
 static ENUM_QCryptoRsaPaddingAlgorithm: EnumMeta = EnumMeta {
     name: "QCryptoRsaPaddingAlgorithm",
+    wire_name: "QCryptoRSAPaddingAlgorithm",
     doc: "The padding algorithm for RSA.",
     variants: &VARIANTS_QCryptoRsaPaddingAlgorithm,
     kind: EnumKind::Unit,
@@ -14661,6 +14872,7 @@ static VARIANTS_QCryptoSecretFormat: &[EnumVariantMeta] = &[
 ];
 static ENUM_QCryptoSecretFormat: EnumMeta = EnumMeta {
     name: "QCryptoSecretFormat",
+    wire_name: "QCryptoSecretFormat",
     doc: "The data format that the secret is provided in",
     variants: &VARIANTS_QCryptoSecretFormat,
     kind: EnumKind::Unit,
@@ -14673,6 +14885,7 @@ static VARIANTS_QCryptoTlsCredsEndpoint: &[EnumVariantMeta] = &[
 ];
 static ENUM_QCryptoTlsCredsEndpoint: EnumMeta = EnumMeta {
     name: "QCryptoTlsCredsEndpoint",
+    wire_name: "QCryptoTLSCredsEndpoint",
     doc: "The type of network endpoint that will be using the credentials.\nMost types of credential require different setup / structures\ndepending on whether they will be used in a server versus a client.",
     variants: &VARIANTS_QCryptoTlsCredsEndpoint,
     kind: EnumKind::Unit,
@@ -14861,6 +15074,7 @@ static VARIANTS_QKeyCode: &[EnumVariantMeta] = &[
 ];
 static ENUM_QKeyCode: EnumMeta = EnumMeta {
     name: "QKeyCode",
+    wire_name: "QKeyCode",
     doc: "An enumeration of key name.\n\nThis is used by the `send-key` command.\n\n'sysrq' was mistakenly added to hack around the fact that the ps2\ndriver was not generating correct scancodes sequences when\n'alt+print' was pressed.  This flaw is now fixed and the 'sysrq' key\nserves no further purpose.  Any further use of 'sysrq' will be\ntransparently changed to 'print', so they are effectively synonyms.",
     variants: &VARIANTS_QKeyCode,
     kind: EnumKind::Unit,
@@ -14900,6 +15114,7 @@ static VARIANTS_QmpCapability: &[EnumVariantMeta] = &[
 ];
 static ENUM_QmpCapability: EnumMeta = EnumMeta {
     name: "QmpCapability",
+    wire_name: "QMPCapability",
     doc: "Enumeration of capabilities to be advertised during initial client\nconnection, used for agreeing on particular QMP extension behaviors.",
     variants: &VARIANTS_QmpCapability,
     kind: EnumKind::Unit,
@@ -16083,6 +16298,7 @@ static VARIANTS_QuorumOpType: &[EnumVariantMeta] = &[
 ];
 static ENUM_QuorumOpType: EnumMeta = EnumMeta {
     name: "QuorumOpType",
+    wire_name: "QuorumOpType",
     doc: "An enumeration of the quorum operation types",
     variants: &VARIANTS_QuorumOpType,
     kind: EnumKind::Unit,
@@ -16095,6 +16311,7 @@ static VARIANTS_QuorumReadPattern: &[EnumVariantMeta] = &[
 ];
 static ENUM_QuorumReadPattern: EnumMeta = EnumMeta {
     name: "QuorumReadPattern",
+    wire_name: "QuorumReadPattern",
     doc: "An enumeration of quorum read patterns.",
     variants: &VARIANTS_QuorumReadPattern,
     kind: EnumKind::Unit,
@@ -16125,6 +16342,7 @@ static VARIANTS_RbdAuthMode: &[EnumVariantMeta] = &[
 ];
 static ENUM_RbdAuthMode: EnumMeta = EnumMeta {
     name: "RbdAuthMode",
+    wire_name: "RbdAuthMode",
     doc: "",
     variants: &VARIANTS_RbdAuthMode,
     kind: EnumKind::Unit,
@@ -16152,6 +16370,7 @@ static VARIANTS_RbdEncryptionCreateOptionsBranch: &[EnumVariantMeta] = &[
 ];
 static ENUM_RbdEncryptionCreateOptionsBranch: EnumMeta = EnumMeta {
     name: "RbdEncryptionCreateOptionsBranch",
+    wire_name: "RbdEncryptionCreateOptionsBranch",
     doc: "",
     variants: &VARIANTS_RbdEncryptionCreateOptionsBranch,
     kind: EnumKind::FlatUnionBranch,
@@ -16228,6 +16447,7 @@ static VARIANTS_RbdEncryptionOptionsBranch: &[EnumVariantMeta] = &[
 ];
 static ENUM_RbdEncryptionOptionsBranch: EnumMeta = EnumMeta {
     name: "RbdEncryptionOptionsBranch",
+    wire_name: "RbdEncryptionOptionsBranch",
     doc: "",
     variants: &VARIANTS_RbdEncryptionOptionsBranch,
     kind: EnumKind::FlatUnionBranch,
@@ -16297,6 +16517,7 @@ static VARIANTS_RbdImageEncryptionFormat: &[EnumVariantMeta] = &[
 ];
 static ENUM_RbdImageEncryptionFormat: EnumMeta = EnumMeta {
     name: "RbdImageEncryptionFormat",
+    wire_name: "RbdImageEncryptionFormat",
     doc: "",
     variants: &VARIANTS_RbdImageEncryptionFormat,
     kind: EnumKind::Unit,
@@ -16326,6 +16547,7 @@ static VARIANTS_RebootAction: &[EnumVariantMeta] = &[
 ];
 static ENUM_RebootAction: EnumMeta = EnumMeta {
     name: "RebootAction",
+    wire_name: "RebootAction",
     doc: "Possible QEMU actions upon guest reboot",
     variants: &VARIANTS_RebootAction,
     kind: EnumKind::Unit,
@@ -16412,6 +16634,7 @@ static VARIANTS_ReplayMode: &[EnumVariantMeta] = &[
 ];
 static ENUM_ReplayMode: EnumMeta = EnumMeta {
     name: "ReplayMode",
+    wire_name: "ReplayMode",
     doc: "Mode of the replay subsystem.",
     variants: &VARIANTS_ReplayMode,
     kind: EnumKind::Unit,
@@ -16438,6 +16661,7 @@ static VARIANTS_ReplicationMode: &[EnumVariantMeta] = &[
 ];
 static ENUM_ReplicationMode: EnumMeta = EnumMeta {
     name: "ReplicationMode",
+    wire_name: "ReplicationMode",
     doc: "An enumeration of replication modes.",
     variants: &VARIANTS_ReplicationMode,
     kind: EnumKind::Unit,
@@ -16709,6 +16933,7 @@ static VARIANTS_RockerPortAutoneg: &[EnumVariantMeta] = &[
 ];
 static ENUM_RockerPortAutoneg: EnumMeta = EnumMeta {
     name: "RockerPortAutoneg",
+    wire_name: "RockerPortAutoneg",
     doc: "An enumeration of port autoneg states.",
     variants: &VARIANTS_RockerPortAutoneg,
     kind: EnumKind::Unit,
@@ -16721,6 +16946,7 @@ static VARIANTS_RockerPortDuplex: &[EnumVariantMeta] = &[
 ];
 static ENUM_RockerPortDuplex: EnumMeta = EnumMeta {
     name: "RockerPortDuplex",
+    wire_name: "RockerPortDuplex",
     doc: "An enumeration of port duplex states.",
     variants: &VARIANTS_RockerPortDuplex,
     kind: EnumKind::Unit,
@@ -16792,6 +17018,7 @@ static VARIANTS_RunState: &[EnumVariantMeta] = &[
 ];
 static ENUM_RunState: EnumMeta = EnumMeta {
     name: "RunState",
+    wire_name: "RunState",
     doc: "An enumeration of VM run states.",
     variants: &VARIANTS_RunState,
     kind: EnumKind::Unit,
@@ -16830,6 +17057,7 @@ static VARIANTS_RxState: &[EnumVariantMeta] = &[
 ];
 static ENUM_RxState: EnumMeta = EnumMeta {
     name: "RxState",
+    wire_name: "RxState",
     doc: "Packets receiving state",
     variants: &VARIANTS_RxState,
     kind: EnumKind::Unit,
@@ -16844,6 +17072,7 @@ static VARIANTS_S390CpuEntitlement: &[EnumVariantMeta] = &[
 ];
 static ENUM_S390CpuEntitlement: EnumMeta = EnumMeta {
     name: "S390CpuEntitlement",
+    wire_name: "S390CpuEntitlement",
     doc: "An enumeration of CPU entitlements that can be assumed by a virtual\nS390 CPU",
     variants: &VARIANTS_S390CpuEntitlement,
     kind: EnumKind::Unit,
@@ -16856,6 +17085,7 @@ static VARIANTS_S390CpuPolarization: &[EnumVariantMeta] = &[
 ];
 static ENUM_S390CpuPolarization: EnumMeta = EnumMeta {
     name: "S390CpuPolarization",
+    wire_name: "S390CpuPolarization",
     doc: "An enumeration of CPU polarization that can be assumed by a virtual\nS390 CPU",
     variants: &VARIANTS_S390CpuPolarization,
     kind: EnumKind::Unit,
@@ -16871,6 +17101,7 @@ static VARIANTS_S390CpuState: &[EnumVariantMeta] = &[
 ];
 static ENUM_S390CpuState: EnumMeta = EnumMeta {
     name: "S390CpuState",
+    wire_name: "S390CpuState",
     doc: "An enumeration of cpu states that can be assumed by a virtual S390\nCPU",
     variants: &VARIANTS_S390CpuState,
     kind: EnumKind::Unit,
@@ -16886,6 +17117,7 @@ static VARIANTS_S390CrashReason: &[EnumVariantMeta] = &[
 ];
 static ENUM_S390CrashReason: EnumMeta = EnumMeta {
     name: "S390CrashReason",
+    wire_name: "S390CrashReason",
     doc: "Reason why the CPU is in a crashed state.",
     variants: &VARIANTS_S390CrashReason,
     kind: EnumKind::Unit,
@@ -16976,6 +17208,7 @@ static VARIANTS_SchemaInfoBranch: &[EnumVariantMeta] = &[
 ];
 static ENUM_SchemaInfoBranch: EnumMeta = EnumMeta {
     name: "SchemaInfoBranch",
+    wire_name: "SchemaInfoBranch",
     doc: "",
     variants: &VARIANTS_SchemaInfoBranch,
     kind: EnumKind::FlatUnionBranch,
@@ -17117,6 +17350,7 @@ static VARIANTS_SchemaMetaType: &[EnumVariantMeta] = &[
 ];
 static ENUM_SchemaMetaType: EnumMeta = EnumMeta {
     name: "SchemaMetaType",
+    wire_name: "SchemaMetaType",
     doc: "This is a `SchemaInfo`'s meta type, i.e. the kind of entity it\ndescribes.",
     variants: &VARIANTS_SchemaMetaType,
     kind: EnumKind::Unit,
@@ -17313,6 +17547,7 @@ static VARIANTS_SetPasswordAction: &[EnumVariantMeta] = &[
 ];
 static ENUM_SetPasswordAction: EnumMeta = EnumMeta {
     name: "SetPasswordAction",
+    wire_name: "SetPasswordAction",
     doc: "An action to take on changing a password on a connection with active\nclients.",
     variants: &VARIANTS_SetPasswordAction,
     kind: EnumKind::Unit,
@@ -17341,6 +17576,7 @@ static VARIANTS_SetPasswordOptionsBranch: &[EnumVariantMeta] = &[
 ];
 static ENUM_SetPasswordOptionsBranch: EnumMeta = EnumMeta {
     name: "SetPasswordOptionsBranch",
+    wire_name: "SetPasswordOptionsBranch",
     doc: "",
     variants: &VARIANTS_SetPasswordOptionsBranch,
     kind: EnumKind::FlatUnionBranch,
@@ -17468,6 +17704,7 @@ static VARIANTS_SevGuestType: &[EnumVariantMeta] = &[
 ];
 static ENUM_SevGuestType: EnumMeta = EnumMeta {
     name: "SevGuestType",
+    wire_name: "SevGuestType",
     doc: "An enumeration indicating the type of SEV guest being run.",
     variants: &VARIANTS_SevGuestType,
     kind: EnumKind::Unit,
@@ -17501,6 +17738,7 @@ static VARIANTS_SevInfoBranch: &[EnumVariantMeta] = &[
 ];
 static ENUM_SevInfoBranch: EnumMeta = EnumMeta {
     name: "SevInfoBranch",
+    wire_name: "SevInfoBranch",
     doc: "",
     variants: &VARIANTS_SevInfoBranch,
     kind: EnumKind::FlatUnionBranch,
@@ -17585,6 +17823,7 @@ static VARIANTS_SevState: &[EnumVariantMeta] = &[
 ];
 static ENUM_SevState: EnumMeta = EnumMeta {
     name: "SevState",
+    wire_name: "SevState",
     doc: "An enumeration of SEV state information used during `query-sev`.",
     variants: &VARIANTS_SevState,
     kind: EnumKind::Unit,
@@ -17722,6 +17961,7 @@ static VARIANTS_SheepdogRedundancyBranch: &[EnumVariantMeta] = &[
 ];
 static ENUM_SheepdogRedundancyBranch: EnumMeta = EnumMeta {
     name: "SheepdogRedundancyBranch",
+    wire_name: "SheepdogRedundancyBranch",
     doc: "",
     variants: &VARIANTS_SheepdogRedundancyBranch,
     kind: EnumKind::FlatUnionBranch,
@@ -17763,6 +18003,7 @@ static VARIANTS_SheepdogRedundancyType: &[EnumVariantMeta] = &[
 ];
 static ENUM_SheepdogRedundancyType: EnumMeta = EnumMeta {
     name: "SheepdogRedundancyType",
+    wire_name: "SheepdogRedundancyType",
     doc: "@full             Create a fully replicated vdi with x copies\n@erasure-coded    Create an erasure coded vdi with x data strips and\n                  y parity strips",
     variants: &VARIANTS_SheepdogRedundancyType,
     kind: EnumKind::Unit,
@@ -17775,6 +18016,7 @@ static VARIANTS_ShutdownAction: &[EnumVariantMeta] = &[
 ];
 static ENUM_ShutdownAction: EnumMeta = EnumMeta {
     name: "ShutdownAction",
+    wire_name: "ShutdownAction",
     doc: "Possible QEMU actions upon guest shutdown",
     variants: &VARIANTS_ShutdownAction,
     kind: EnumKind::Unit,
@@ -17796,6 +18038,7 @@ static VARIANTS_ShutdownCause: &[EnumVariantMeta] = &[
 ];
 static ENUM_ShutdownCause: EnumMeta = EnumMeta {
     name: "ShutdownCause",
+    wire_name: "ShutdownCause",
     doc: "An enumeration of reasons for a shutdown.",
     variants: &VARIANTS_ShutdownCause,
     kind: EnumKind::Unit,
@@ -17824,6 +18067,7 @@ static VARIANTS_SmbiosEntryPointType: &[EnumVariantMeta] = &[
 ];
 static ENUM_SmbiosEntryPointType: EnumMeta = EnumMeta {
     name: "SmbiosEntryPointType",
+    wire_name: "SmbiosEntryPointType",
     doc: "",
     variants: &VARIANTS_SmbiosEntryPointType,
     kind: EnumKind::Unit,
@@ -17977,6 +18221,7 @@ static VARIANTS_SocketAddressBranch: &[EnumVariantMeta] = &[
 ];
 static ENUM_SocketAddressBranch: EnumMeta = EnumMeta {
     name: "SocketAddressBranch",
+    wire_name: "SocketAddressBranch",
     doc: "",
     variants: &VARIANTS_SocketAddressBranch,
     kind: EnumKind::FlatUnionBranch,
@@ -18005,6 +18250,7 @@ static VARIANTS_SocketAddressFlatBranch: &[EnumVariantMeta] = &[
 ];
 static ENUM_SocketAddressFlatBranch: EnumMeta = EnumMeta {
     name: "SocketAddressFlatBranch",
+    wire_name: "SocketAddressFlatBranch",
     doc: "",
     variants: &VARIANTS_SocketAddressFlatBranch,
     kind: EnumKind::FlatUnionBranch,
@@ -18019,6 +18265,7 @@ static VARIANTS_SocketAddressFlatType: &[EnumVariantMeta] = &[
 ];
 static ENUM_SocketAddressFlatType: EnumMeta = EnumMeta {
     name: "SocketAddressFlatType",
+    wire_name: "SocketAddressFlatType",
     doc: "Available SocketAddressFlat types",
     variants: &VARIANTS_SocketAddressFlatType,
     kind: EnumKind::Unit,
@@ -18053,6 +18300,7 @@ static VARIANTS_SocketAddressLegacyBranch: &[EnumVariantMeta] = &[
 ];
 static ENUM_SocketAddressLegacyBranch: EnumMeta = EnumMeta {
     name: "SocketAddressLegacyBranch",
+    wire_name: "SocketAddressLegacyBranch",
     doc: "",
     variants: &VARIANTS_SocketAddressLegacyBranch,
     kind: EnumKind::FlatUnionBranch,
@@ -18067,6 +18315,7 @@ static VARIANTS_SocketAddressLegacyType: &[EnumVariantMeta] = &[
 ];
 static ENUM_SocketAddressLegacyType: EnumMeta = EnumMeta {
     name: "SocketAddressLegacyType",
+    wire_name: "SocketAddressLegacyType",
     doc: "",
     variants: &VARIANTS_SocketAddressLegacyType,
     kind: EnumKind::Unit,
@@ -18081,6 +18330,7 @@ static VARIANTS_SocketAddressType: &[EnumVariantMeta] = &[
 ];
 static ENUM_SocketAddressType: EnumMeta = EnumMeta {
     name: "SocketAddressType",
+    wire_name: "SocketAddressType",
     doc: "Available `SocketAddress` types",
     variants: &VARIANTS_SocketAddressType,
     kind: EnumKind::Unit,
@@ -18095,6 +18345,7 @@ static VARIANTS_SocketAddressTypeGenerated: &[EnumVariantMeta] = &[
 ];
 static ENUM_SocketAddressTypeGenerated: EnumMeta = EnumMeta {
     name: "SocketAddressTypeGenerated",
+    wire_name: "SocketAddressTypeGenerated",
     doc: "",
     variants: &VARIANTS_SocketAddressTypeGenerated,
     kind: EnumKind::Unit,
@@ -18225,6 +18476,7 @@ static VARIANTS_SpiceQueryMouseMode: &[EnumVariantMeta] = &[
 ];
 static ENUM_SpiceQueryMouseMode: EnumMeta = EnumMeta {
     name: "SpiceQueryMouseMode",
+    wire_name: "SpiceQueryMouseMode",
     doc: "An enumeration of Spice mouse states.",
     variants: &VARIANTS_SpiceQueryMouseMode,
     kind: EnumKind::Unit,
@@ -18303,6 +18555,7 @@ static VARIANTS_SshHostKeyCheckBranch: &[EnumVariantMeta] = &[
 ];
 static ENUM_SshHostKeyCheckBranch: EnumMeta = EnumMeta {
     name: "SshHostKeyCheckBranch",
+    wire_name: "SshHostKeyCheckBranch",
     doc: "",
     variants: &VARIANTS_SshHostKeyCheckBranch,
     kind: EnumKind::FlatUnionBranch,
@@ -18316,6 +18569,7 @@ static VARIANTS_SshHostKeyCheckHashType: &[EnumVariantMeta] = &[
 ];
 static ENUM_SshHostKeyCheckHashType: EnumMeta = EnumMeta {
     name: "SshHostKeyCheckHashType",
+    wire_name: "SshHostKeyCheckHashType",
     doc: "@md5              The given hash is an md5 hash\n@sha1             The given hash is an sha1 hash",
     variants: &VARIANTS_SshHostKeyCheckHashType,
     kind: EnumKind::Unit,
@@ -18329,6 +18583,7 @@ static VARIANTS_SshHostKeyCheckMode: &[EnumVariantMeta] = &[
 ];
 static ENUM_SshHostKeyCheckMode: EnumMeta = EnumMeta {
     name: "SshHostKeyCheckMode",
+    wire_name: "SshHostKeyCheckMode",
     doc: "@none             Don't check the host key at all\n@hash             Compare the host key with a given hash\n@known_hosts      Check the host key against the known_hosts file",
     variants: &VARIANTS_SshHostKeyCheckMode,
     kind: EnumKind::Unit,
@@ -18389,6 +18644,7 @@ static VARIANTS_SsidSizeMode: &[EnumVariantMeta] = &[
 ];
 static ENUM_SsidSizeMode: EnumMeta = EnumMeta {
     name: "SsidSizeMode",
+    wire_name: "SsidSizeMode",
     doc: "SMMUv3 SubstreamID size configuration mode.\n\nValues 0-20: SSIDSIZE value in bits.  0 disables SubstreamID.",
     variants: &VARIANTS_SsidSizeMode,
     kind: EnumKind::Unit,
@@ -18432,6 +18688,7 @@ static VARIANTS_StatsFilterBranch: &[EnumVariantMeta] = &[
 ];
 static ENUM_StatsFilterBranch: EnumMeta = EnumMeta {
     name: "StatsFilterBranch",
+    wire_name: "StatsFilterBranch",
     doc: "",
     variants: &VARIANTS_StatsFilterBranch,
     kind: EnumKind::FlatUnionBranch,
@@ -18444,6 +18701,7 @@ static VARIANTS_StatsProvider: &[EnumVariantMeta] = &[
 ];
 static ENUM_StatsProvider: EnumMeta = EnumMeta {
     name: "StatsProvider",
+    wire_name: "StatsProvider",
     doc: "Enumeration of statistics providers.",
     variants: &VARIANTS_StatsProvider,
     kind: EnumKind::Unit,
@@ -18523,6 +18781,7 @@ static VARIANTS_StatsTarget: &[EnumVariantMeta] = &[
 ];
 static ENUM_StatsTarget: EnumMeta = EnumMeta {
     name: "StatsTarget",
+    wire_name: "StatsTarget",
     doc: "The kinds of objects on which one can request statistics.",
     variants: &VARIANTS_StatsTarget,
     kind: EnumKind::Unit,
@@ -18538,6 +18797,7 @@ static VARIANTS_StatsType: &[EnumVariantMeta] = &[
 ];
 static ENUM_StatsType: EnumMeta = EnumMeta {
     name: "StatsType",
+    wire_name: "StatsType",
     doc: "Enumeration of statistics types",
     variants: &VARIANTS_StatsType,
     kind: EnumKind::Unit,
@@ -18552,6 +18812,7 @@ static VARIANTS_StatsUnit: &[EnumVariantMeta] = &[
 ];
 static ENUM_StatsUnit: EnumMeta = EnumMeta {
     name: "StatsUnit",
+    wire_name: "StatsUnit",
     doc: "Enumeration of unit of measurement for statistics",
     variants: &VARIANTS_StatsUnit,
     kind: EnumKind::Unit,
@@ -18565,6 +18826,7 @@ static VARIANTS_StatsValue: &[EnumVariantMeta] = &[
 ];
 static ENUM_StatsValue: EnumMeta = EnumMeta {
     name: "StatsValue",
+    wire_name: "StatsValue",
     doc: "",
     variants: &VARIANTS_StatsValue,
     kind: EnumKind::Alternate,
@@ -18647,6 +18909,7 @@ static VARIANTS_StrOrNull: &[EnumVariantMeta] = &[
 ];
 static ENUM_StrOrNull: EnumMeta = EnumMeta {
     name: "StrOrNull",
+    wire_name: "StrOrNull",
     doc: "This is a string value or the explicit lack of a string (null\npointer in C).  Intended for cases when 'optional absent' already\nhas a different meaning.",
     variants: &VARIANTS_StrOrNull,
     kind: EnumKind::Alternate,
@@ -18719,6 +18982,7 @@ static VARIANTS_SysEmuTarget: &[EnumVariantMeta] = &[
 ];
 static ENUM_SysEmuTarget: EnumMeta = EnumMeta {
     name: "SysEmuTarget",
+    wire_name: "SysEmuTarget",
     doc: "The comprehensive enumeration of QEMU system emulation (\"softmmu\")\ntargets.  Run \"./configure --help\" in the project root directory,\nand look for the \\*-softmmu targets near the \"--target-list\" option.\nThe individual target constants are not documented here, for the\ntime being.\n\n.. note:: The resulting QMP strings can be appended to the\n   \"qemu-system-\" prefix to produce the corresponding QEMU\n   executable name.  This is true even for \"qemu-system-x86_64\".",
     variants: &VARIANTS_SysEmuTarget,
     kind: EnumKind::Unit,
@@ -18810,6 +19074,7 @@ static VARIANTS_TargetType: &[EnumVariantMeta] = &[
 ];
 static ENUM_TargetType: EnumMeta = EnumMeta {
     name: "TargetType",
+    wire_name: "TargetType",
     doc: "Target CPU emulation type\n\nThese parameters correspond to the softmmu binary CPU name that is currently\nrunning.",
     variants: &VARIANTS_TargetType,
     kind: EnumKind::Unit,
@@ -18921,6 +19186,7 @@ static VARIANTS_TimeUnit: &[EnumVariantMeta] = &[
 ];
 static ENUM_TimeUnit: EnumMeta = EnumMeta {
     name: "TimeUnit",
+    wire_name: "TimeUnit",
     doc: "Specifies unit in which time-related value is specified.",
     variants: &VARIANTS_TimeUnit,
     kind: EnumKind::Unit,
@@ -19052,6 +19318,7 @@ static VARIANTS_TpmModel: &[EnumVariantMeta] = &[
 ];
 static ENUM_TpmModel: EnumMeta = EnumMeta {
     name: "TpmModel",
+    wire_name: "TpmModel",
     doc: "An enumeration of TPM models",
     variants: &VARIANTS_TpmModel,
     kind: EnumKind::Unit,
@@ -19093,6 +19360,7 @@ static VARIANTS_TpmType: &[EnumVariantMeta] = &[
 ];
 static ENUM_TpmType: EnumMeta = EnumMeta {
     name: "TpmType",
+    wire_name: "TpmType",
     doc: "An enumeration of TPM types",
     variants: &VARIANTS_TpmType,
     kind: EnumKind::Unit,
@@ -19122,6 +19390,7 @@ static VARIANTS_TpmTypeOptionsBranch: &[EnumVariantMeta] = &[
 ];
 static ENUM_TpmTypeOptionsBranch: EnumMeta = EnumMeta {
     name: "TpmTypeOptionsBranch",
+    wire_name: "TpmTypeOptionsBranch",
     doc: "",
     variants: &VARIANTS_TpmTypeOptionsBranch,
     kind: EnumKind::FlatUnionBranch,
@@ -19134,6 +19403,7 @@ static VARIANTS_TpmTypeOptionsType: &[EnumVariantMeta] = &[
 ];
 static ENUM_TpmTypeOptionsType: EnumMeta = EnumMeta {
     name: "TpmTypeOptionsType",
+    wire_name: "TpmTypeOptionsType",
     doc: "",
     variants: &VARIANTS_TpmTypeOptionsType,
     kind: EnumKind::Unit,
@@ -19195,6 +19465,7 @@ static VARIANTS_TraceEventState: &[EnumVariantMeta] = &[
 ];
 static ENUM_TraceEventState: EnumMeta = EnumMeta {
     name: "TraceEventState",
+    wire_name: "TraceEventState",
     doc: "State of a tracing event.",
     variants: &VARIANTS_TraceEventState,
     kind: EnumKind::Unit,
@@ -19264,6 +19535,7 @@ static VARIANTS_TransactionActionBranch: &[EnumVariantMeta] = &[
 ];
 static ENUM_TransactionActionBranch: EnumMeta = EnumMeta {
     name: "TransactionActionBranch",
+    wire_name: "TransactionActionBranch",
     doc: "",
     variants: &VARIANTS_TransactionActionBranch,
     kind: EnumKind::FlatUnionBranch,
@@ -19286,6 +19558,7 @@ static VARIANTS_TransactionActionKind: &[EnumVariantMeta] = &[
 ];
 static ENUM_TransactionActionKind: EnumMeta = EnumMeta {
     name: "TransactionActionKind",
+    wire_name: "TransactionActionKind",
     doc: "Features:\n\n@deprecated: Member `drive-backup` is deprecated.  Use member\n    `blockdev-backup` instead.",
     variants: &VARIANTS_TransactionActionKind,
     kind: EnumKind::Unit,
@@ -19311,6 +19584,7 @@ static VARIANTS_TransactionActionType: &[EnumVariantMeta] = &[
 ];
 static ENUM_TransactionActionType: EnumMeta = EnumMeta {
     name: "TransactionActionType",
+    wire_name: "TransactionActionType",
     doc: "",
     variants: &VARIANTS_TransactionActionType,
     kind: EnumKind::Unit,
@@ -19499,6 +19773,7 @@ static VARIANTS_VfioMigrationState: &[EnumVariantMeta] = &[
 ];
 static ENUM_VfioMigrationState: EnumMeta = EnumMeta {
     name: "VfioMigrationState",
+    wire_name: "VfioMigrationState",
     doc: "An enumeration of the VFIO device migration states.",
     variants: &VARIANTS_VfioMigrationState,
     kind: EnumKind::Unit,
@@ -19879,6 +20154,7 @@ static VARIANTS_VmAppleVirtioBlkVariant: &[EnumVariantMeta] = &[
 ];
 static ENUM_VmAppleVirtioBlkVariant: EnumMeta = EnumMeta {
     name: "VmAppleVirtioBlkVariant",
+    wire_name: "VMAppleVirtioBlkVariant",
     doc: "",
     variants: &VARIANTS_VmAppleVirtioBlkVariant,
     kind: EnumKind::Unit,
@@ -20038,6 +20314,7 @@ static VARIANTS_VncPrimaryAuth: &[EnumVariantMeta] = &[
 ];
 static ENUM_VncPrimaryAuth: EnumMeta = EnumMeta {
     name: "VncPrimaryAuth",
+    wire_name: "VncPrimaryAuth",
     doc: "vnc primary authentication method.",
     variants: &VARIANTS_VncPrimaryAuth,
     kind: EnumKind::Unit,
@@ -20094,6 +20371,7 @@ static VARIANTS_VncVencryptSubAuth: &[EnumVariantMeta] = &[
 ];
 static ENUM_VncVencryptSubAuth: EnumMeta = EnumMeta {
     name: "VncVencryptSubAuth",
+    wire_name: "VncVencryptSubAuth",
     doc: "vnc sub authentication method with vencrypt.",
     variants: &VARIANTS_VncVencryptSubAuth,
     kind: EnumKind::Unit,
@@ -20168,6 +20446,7 @@ static VARIANTS_WatchdogAction: &[EnumVariantMeta] = &[
 ];
 static ENUM_WatchdogAction: EnumMeta = EnumMeta {
     name: "WatchdogAction",
+    wire_name: "WatchdogAction",
     doc: "An enumeration of the actions taken when the watchdog device's timer\nis expired",
     variants: &VARIANTS_WatchdogAction,
     kind: EnumKind::Unit,
@@ -20200,6 +20479,7 @@ static VARIANTS_WatchdogExpirationAction: &[EnumVariantMeta] = &[
 ];
 static ENUM_WatchdogExpirationAction: EnumMeta = EnumMeta {
     name: "WatchdogExpirationAction",
+    wire_name: "WatchdogExpirationAction",
     doc: "An enumeration of the actions taken when the watchdog device's timer is\nexpired",
     variants: &VARIANTS_WatchdogExpirationAction,
     kind: EnumKind::Unit,
@@ -20249,6 +20529,7 @@ static VARIANTS_X86cpuRegister32: &[EnumVariantMeta] = &[
 ];
 static ENUM_X86cpuRegister32: EnumMeta = EnumMeta {
     name: "X86cpuRegister32",
+    wire_name: "X86CPURegister32",
     doc: "A X86 32-bit register",
     variants: &VARIANTS_X86cpuRegister32,
     kind: EnumKind::Unit,
@@ -20552,6 +20833,7 @@ static VARIANTS_XDbgBlockGraphNodeType: &[EnumVariantMeta] = &[
 ];
 static ENUM_XDbgBlockGraphNodeType: EnumMeta = EnumMeta {
     name: "XDbgBlockGraphNodeType",
+    wire_name: "XDbgBlockGraphNodeType",
     doc: "",
     variants: &VARIANTS_XDbgBlockGraphNodeType,
     kind: EnumKind::Unit,
@@ -20995,6 +21277,7 @@ static VARIANTS_YankInstanceBranch: &[EnumVariantMeta] = &[
 ];
 static ENUM_YankInstanceBranch: EnumMeta = EnumMeta {
     name: "YankInstanceBranch",
+    wire_name: "YankInstanceBranch",
     doc: "",
     variants: &VARIANTS_YankInstanceBranch,
     kind: EnumKind::FlatUnionBranch,
@@ -21022,6 +21305,7 @@ static VARIANTS_YankInstanceType: &[EnumVariantMeta] = &[
 ];
 static ENUM_YankInstanceType: EnumMeta = EnumMeta {
     name: "YankInstanceType",
+    wire_name: "YankInstanceType",
     doc: "An enumeration of yank instance types.  See `YankInstance` for more\ninformation.",
     variants: &VARIANTS_YankInstanceType,
     kind: EnumKind::Unit,
@@ -21035,6 +21319,7 @@ static VARIANTS_ZeroPageDetection: &[EnumVariantMeta] = &[
 ];
 static ENUM_ZeroPageDetection: EnumMeta = EnumMeta {
     name: "ZeroPageDetection",
+    wire_name: "ZeroPageDetection",
     doc: "",
     variants: &VARIANTS_ZeroPageDetection,
     kind: EnumKind::Unit,
