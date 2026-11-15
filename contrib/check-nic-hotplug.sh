@@ -5,7 +5,8 @@
 #   1. adds a second NIC to spec.nics and waits for the guest to reach the VM
 #      host through it (the guest runs DHCP on any new interface and pings the
 #      host through each one, reporting every success here);
-#   2. removes it again and waits for the manager to unplug it;
+#   2. removes it again and waits for the manager to unplug it; steps 1-2
+#      repeat CYCLES times (default 1) on the same Pod and guest;
 #   3. deletes the first NIC's anchor Pod and waits for the guest to reach the
 #      host through that NIC again (the manager re-plugs it with the new
 #      anchor's queues);
@@ -21,6 +22,7 @@ ns=qrab
 host_ip=${HOST_IP:-10.203.0.1}
 host_port=${HOST_PORT:-18187}
 limit=${LIMIT_S:-240}
+cycles=${CYCLES:-1}
 work=$(mktemp -d)
 log() { printf '%s %s\n' "$(date -u +%H:%M:%S)" "$*"; }
 fail() {
@@ -126,6 +128,7 @@ same_pod() {
 }
 summary=()
 
+for cycle in $(seq 1 "$cycles"); do
 # 1. Hot-attach.
 start=$(date +%s.%N)
 kubectl -n "$ns" patch virtualmachine "$vm" --type json -p "[{\"op\":\"add\",\"path\":\"/spec/nics/-\",\"value\":{\"name\":\"wan\",\"securityGroups\":[\"$vm\"]}}]" >/dev/null
@@ -133,18 +136,24 @@ wait_for "$limit" "the guest reaching the host through its hot-added NIC" report
 attach_s=$(since "$start")
 same_pod "hot-attach"
 wan=$(field virtualmachine "$vm" '{.status.nics[?(@.name=="wan")].address}')
-summary+=("hot-attach: eth1 ($wan) reachable after ${attach_s}s, same Pod and boot")
+summary+=("cycle $cycle hot-attach: eth1 ($wan) reachable after ${attach_s}s, same Pod and boot")
 log "${summary[-1]}"
 
 # 2. Detach.
 start=$(date +%s.%N)
 kubectl -n "$ns" patch virtualmachine "$vm" --type json -p '[{"op":"remove","path":"/spec/nics/1"}]' >/dev/null
 pod=$(field virtualmachine "$vm" '{.status.podName}')
-wait_for "$limit" "the manager unplugging wan" sh -c "kubectl -n $ns logs $pod -c manager | grep '\"event\":\"nic_detached\"' | grep -q '\"nic\":\"wan\"'"
+wait_for "$limit" "the manager unplugging wan (detach $cycle)" sh -c "[ \$(kubectl -n $ns logs $pod -c manager | grep '\"event\":\"nic_detached\"' | grep -c '\"nic\":\"wan\"') -ge $cycle ]"
 detach_s=$(since "$start")
 wait_for 120 "wan's anchor and address to go" sh -c "! kubectl -n $ns get pods -l qrab.yapplesauce.com/nic=wan -o name | grep -q . && ! kubectl get ciliumpodippool qrab-nic-${wan//./-} >/dev/null 2>&1"
 same_pod "detach"
-summary+=("detach: wan unplugged after ${detach_s}s, anchor and pool released")
+summary+=("cycle $cycle detach: wan unplugged after ${detach_s}s, anchor and pool released")
+log "${summary[-1]}"
+done
+attached=$(kubectl -n "$ns" logs "$pod" -c manager | grep '"event":"nic_attached"' | grep -c '"nic":"wan"' || true)
+[ "$attached" -eq "$cycles" ] || fail "the manager attached wan $attached times in $cycles cycles"
+failed=$(kubectl -n "$ns" logs "$pod" -c manager | grep -c '"event":"nic_change_failed"' || true)
+summary+=("$cycles attach/detach cycles: $attached attaches, $failed refused tries (backed off)")
 log "${summary[-1]}"
 
 # 3. Anchor replacement.

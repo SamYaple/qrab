@@ -516,6 +516,13 @@ Nearly all of the add and remove time is the kubelet refreshing the ConfigMap;
 the QMP steps take milliseconds. Re-attach is the anchor's recreation and
 plumbing plus up to one 5 s probe interval.
 
+`CYCLES=5` repeats the add and remove on one VM. On manager `5b93cb27` and
+operator `cba15278` (2026-11-15), the five cycles took 70–88 s to attach and
+60–74 s to detach. The NIC got the same address and `eth1` each time, the
+manager attached it exactly five times with no refused try, the VM Pod and
+boot id never changed, and the anchor replacement (34 s) and migration steps
+passed afterwards.
+
 ## VPN NICs
 
 `spec.nics[].vpn.secretName` turns a NIC into a WireGuard VPN NIC: all of its
@@ -611,7 +618,13 @@ What is tested, and how:
   holding that address, judged from the API server's Pods, and the target
   imports only that NIC's entries whose other side is not local to its node.
   The exchange itself is plain TCP between nodes, as trusted as their iBGP
-  sessions.
+  sessions. Connections from anything not on one of the node's host links
+  (Pods, guests, routed hosts) are dropped before any read or API lookup,
+  at most four are served at once, and a seeded fuzz test sends 200 random
+  requests. A port that cannot be bound is retried, never fatal.
+- **Forward routes**: `forward` installs the caller's own /32 only, and only
+  via an address on one of the node's host links (another node), checked
+  locally inside the guest's pause.
 
 ## Stability
 
