@@ -55,7 +55,8 @@
 <div class="panel-head"><h2>Guest agent</h2><span id="agent-note"></span></div>
 <p class="panel-help" data-local-time></p>
 <dl id="agent"></dl>
-<div class="group agent-actions" data-admin><button data-agent="freeze" disabled>Freeze filesystems</button><button data-agent="thaw" disabled>Thaw</button><button data-agent="update" disabled>Run update…</button></div>
+<p id="freeze-help" class="panel-help" data-admin>Freeze temporarily blocks guest filesystem writes. Thaw resumes writes; the guest agent watchdog also thaws filesystems left frozen.</p>
+<div class="group agent-actions" data-admin><button data-agent="freeze" aria-describedby="freeze-help" disabled>Freeze filesystems</button><button data-agent="thaw" aria-describedby="freeze-help" disabled>Thaw</button><button data-agent="update" disabled>Run update…</button></div>
 </section>
 <section class="panel" role="tabpanel" id="panel-config" aria-labelledby="tab-config" tabindex="0" hidden>
 <div class="panel-head"><h2>Configuration</h2><span id="config-note"></span></div>

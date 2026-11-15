@@ -1369,6 +1369,7 @@ fn console_page(page: &ConsolePage) -> Element {
                 for button in common { {console_power_button(button)} }
                 details { class: "console-power-more", id: "console-power-more",
                     summary { "More power actions" }
+                    p { class: "muted prose", "Reset restarts the guest immediately. Power cycle turns it off and on. NMI sends a diagnostic interrupt. Force off stops it immediately. Select an action twice within five seconds to confirm." }
                     div { class: "actions", for button in more { {console_power_button(button)} } }
                 }
             }

@@ -163,6 +163,7 @@ footer { padding: 12px 2vw; color: var(--faint); font-size: 12px; }
 .power-advanced > summary { cursor: pointer; width: max-content; max-width: 100%; min-height: 36px; padding: 7px 11px; border: 1px solid var(--border-strong); border-radius: 5px; background: var(--control); color: var(--text-control); font-size: 13px; }
 .power-advanced > summary:hover { background: var(--control-hover); }
 .power-advanced[open] { flex-basis: 100%; }
+.power-advanced > .panel-help { max-width: 75ch; margin: 10px 0; }
 .advanced-actions { margin-top: 8px; }
 #screen {
     height: calc(100dvh - var(--topbar-height) - 240px); min-height: 320px; position: relative; background: var(--screen);

@@ -1022,7 +1022,8 @@ async function loadPower() {
         controls.setAttribute('role', 'group');
         controls.setAttribute('aria-label', 'More power actions');
         controls.append(...secondary);
-        more.append(node('summary', 'More power actions'), controls);
+        const help = node('p', 'Reset restarts the guest immediately. Power cycle turns it off and on. NMI sends a diagnostic interrupt. Force off stops it immediately. Select an action twice within five seconds to confirm.', 'panel-help');
+        more.append(node('summary', 'More power actions'), help, controls);
         more.addEventListener('toggle', () => {
             if (!more.open && armed && more.contains(armed)) disarm();
         });
