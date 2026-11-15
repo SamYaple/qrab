@@ -505,28 +505,6 @@ fn process_version_schema_with_names(
             );
         }
         if let Some(discriminator) = v.discriminator {
-            let base_fields = match &v.base {
-                crate::MembersOrRef::Ref(base) => structs_lookup[*base].fields.clone(),
-                crate::MembersOrRef::Members(members) => {
-                    members.iter().cloned().map(process_member).collect()
-                }
-                crate::MembersOrRef::Unset => Vec::new(),
-            };
-            for branch in &v.data.0 {
-                if let crate::QapiTypeRef::Ref(name) = &branch.r#type
-                    && let Some(payload) = structs_lookup.get(*name)
-                {
-                    crate::schema_validation::ir_members(base_fields.iter().chain(&payload.fields))
-                        .with_context(|| {
-                            format!(
-                                "Invalid QAPI union '{}' branch '{}' in {}",
-                                v.name,
-                                branch.name,
-                                source_paths[v.name].display()
-                            )
-                        })?;
-                }
-            }
             let (discriminator_type, optional, array) = match &v.base {
                 crate::MembersOrRef::Ref(base) => structs_lookup[*base]
                     .fields
@@ -553,22 +531,6 @@ fn process_version_schema_with_names(
                 "QAPI union {} discriminator {discriminator} must be a required scalar enum",
                 v.name
             );
-            for branch in &v.data.0 {
-                anyhow::ensure!(
-                    !matches!(branch.r#type, crate::QapiTypeRef::ArrayRef(_)),
-                    "QAPI flat union {} branch {} must reference a struct, not an array",
-                    v.name,
-                    branch.name
-                );
-                if crate::parser_version() >= (6, 2, 0) {
-                    anyhow::ensure!(
-                        matches!(&branch.r#type, crate::QapiTypeRef::Ref(name) if structs_lookup.contains_key(*name)),
-                        "QAPI flat union {} branch {} must reference a struct",
-                        v.name,
-                        branch.name
-                    );
-                }
-            }
             if let Some(tags) = enums_lookup.get(&discriminator_type) {
                 anyhow::ensure!(
                     !tags.variants.is_empty(),
@@ -2672,6 +2634,40 @@ mod schema_resolution_tests {
     }
 
     #[test]
+    fn invalid_nested_union_layouts_report_source_context() {
+        let root =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../vendor/qemu/tests/qapi-schema");
+        for (name, detail) in [
+            ("union-invalid-if-discriminator", "conditional"),
+            ("union-invalid-union-subfield", "teeth"),
+        ] {
+            let sources = crate::read_schema_with_version(
+                &root.join(format!("{name}.json")),
+                Some((11, 1, 3)),
+            )
+            .unwrap();
+            let error = format!("{:#}", process_version_schema(&sources).unwrap_err());
+            assert!(error.contains(name), "{error}");
+            assert!(error.contains(detail), "{error}");
+        }
+        let error = process(concat!(
+            "{'enum':'Kind','data':['one']}\n",
+            "{'struct':'Base','data':{'kind':{'type':'Kind','if':'CONFIG_A'}}}\n",
+            "{'struct':'Derived','base':'Base','data':{}}\n",
+            "{'struct':'Payload','data':{}}\n",
+            "{'union':'Choice','base':'Derived','discriminator':'kind','data':{'one':'Payload'}}",
+        ))
+        .unwrap_err();
+        assert!(format!("{error:#}").contains("conditional"));
+        let error = process(concat!(
+            "{'enum':'Kind','data':['one']}\n",
+            "{'union':'Loop','base':{'kind':'Kind'},'discriminator':'kind','data':{'one':'Loop'}}",
+        ))
+        .unwrap_err();
+        assert!(format!("{error:#}").contains("cycle"));
+    }
+
+    #[test]
     fn separate_union_branches_can_reuse_member_names() {
         let (_, structs) = process(concat!(
             "{'enum':'Kind','data':['left','right']}\n",
@@ -2925,7 +2921,7 @@ mod schema_resolution_tests {
             let input = format!(
                 "{{ 'enum': 'Kind', 'data': ['known'] }}\n{{ 'enum': 'Empty', 'data': [] }}\n{{ 'struct': 'Payload', 'data': {{}} }}\n{{ 'union': 'Invalid', 'base': {base}, 'discriminator': 'kind', 'data': {branches} }}"
             );
-            let error = process(&input).unwrap_err().to_string();
+            let error = format!("{:#}", process(&input).unwrap_err());
             assert!(error.contains(message), "{error}");
         }
     }

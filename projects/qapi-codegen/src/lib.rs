@@ -9,6 +9,7 @@ mod schema_docs;
 mod schema_validation;
 mod symbols;
 pub mod unified;
+mod union_layout;
 pub mod versions;
 
 pub use parsers::{

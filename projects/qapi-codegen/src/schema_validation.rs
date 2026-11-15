@@ -7,7 +7,7 @@ use std::{
     path::Path,
 };
 
-fn member_names<'a>(names: impl IntoIterator<Item = &'a str>) -> Result<()> {
+pub(crate) fn member_names<'a>(names: impl IntoIterator<Item = &'a str>) -> Result<()> {
     unique_names("Member", names)
 }
 
@@ -355,6 +355,7 @@ pub(crate) fn validate(schemas: &[(&Path, QapiSchema<'_>)]) -> Result<()> {
                             type_ref(&branch.r#type, &types, false)
                                 .with_context(|| format!("Invalid branch '{}'", branch.name))?;
                         }
+                        crate::union_layout::validate(value, &declarations)?;
                     }
                     QapiSchemaToken::Alternate(value) => {
                         member_names(value.data.0.iter().map(|branch| branch.name))?;

@@ -124,9 +124,10 @@ Rust name mapping. Undefined member, branch and return types report their source
 and definition; historical inline objects include the nested member path.
 Definition names share one namespace across files and declaration kinds;
 duplicates report both sources before Rust symbol planning.
-Member clash checks include inherited fields and each flat-union branch against
-its base. Alternative branches retain independent member namespaces. Names
-that collapse to the same QAPI C member identifier fail with source context.
+Member clash checks include inherited fields and nested flat-union branches;
+each branch keeps its own member namespace. Branch types resolve independently
+of definition order. Names that collapse to the same QAPI C member identifier
+fail with source context.
 Historical anonymous structs lower recursively, including optional and empty
 objects. Extracted type names avoid declared types and generated role names,
 so anonymous objects cannot overwrite unrelated schema definitions.
@@ -135,8 +136,9 @@ compilation of complete generated Rust modules, including its schema stress test
 Flat unions may omit every payload branch when their discriminator enum is
 nonempty. Generated branch enums carry `union_branch` even when all variants
 have no payload, preserving discriminator dispatch and empty-object wire shape.
-Discriminators must be required scalar enums; unknown tags and empty discriminator
-enums fail IR processing. Historical non-enum discriminators retain legacy handling.
+Discriminators must be required, unconditional scalar enums; unknown tags and
+empty discriminator enums fail IR processing. Historical non-enum discriminators
+retain legacy handling.
 Derived structs resolve bases independently of definition and include order;
 named bases of structs and unions must refer to plain structs.
 Missing bases, inheritance cycles and conflicting Rust type names fail with

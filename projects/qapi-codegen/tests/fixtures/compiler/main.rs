@@ -5,6 +5,16 @@ pub use qapi_runtime::{
 mod generated;
 pub use generated::*;
 fn main() {
+    with_version((11, 1, 3), || {
+        for wire in [
+            serde_json::json!({"outer-kind":"child","common":"base","inner-kind":"left","value":"leaf"}),
+            serde_json::json!({"outer-kind":"child","common":"base","inner-kind":"right","value":"leaf"}),
+            serde_json::json!({"outer-kind":"empty","common":"base"}),
+        ] {
+            let value: NestedOuter = serde_json::from_value(wire.clone()).unwrap();
+            assert_eq!(serde_json::to_value(value).unwrap(), wire);
+        }
+    });
     with_version((6, 1, 0), || {
         let value: ChangingConditionality = serde_json::from_value(serde_json::json!({})).unwrap();
         assert_eq!(serde_json::to_value(value).unwrap(), serde_json::json!({}));

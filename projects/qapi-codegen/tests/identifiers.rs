@@ -138,6 +138,14 @@ fn valid_schema_keywords_and_standard_type_names_compile_and_round_trip() {
     schema.push_str(optionality);
     let conditionality = "{'struct':'ChangingConditionality','data':{'value':'str','other':{'type':'str','if':'CONFIG_B'}}}\n";
     schema.push_str(conditionality);
+    schema.push_str(concat!(
+        "{'enum':'NestedOuterKind','data':['child','empty']}\n",
+        "{'enum':'NestedInnerKind','data':['left','right']}\n",
+        "{'union':'NestedOuter','base':{'outer-kind':'NestedOuterKind','common':'str'},'discriminator':'outer-kind','data':{'child':'NestedInner','empty':'NestedEmpty'}}\n",
+        "{'union':'NestedInner','base':{'inner-kind':'NestedInnerKind'},'discriminator':'inner-kind','data':{'left':'NestedLeaf','right':'NestedLeaf'}}\n",
+        "{'struct':'NestedLeaf','data':{'value':'str'}}\n",
+        "{'struct':'NestedEmpty','data':{}}\n",
+    ));
     let late_flags = "{'command':'late-flags','allow-oob':true,'allow-preconfig':true,'success-response':false}\n";
     schema.push_str(late_flags);
     let entry = repo.join("qapi/qapi-schema.json");
