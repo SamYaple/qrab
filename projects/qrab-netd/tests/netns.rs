@@ -166,7 +166,15 @@ fn a_tap_built_in_one_namespace_works_from_another() {
         ip("link add eth0 mtu 1400 type dummy")?;
         ip("addr add 10.99.0.7/32 dev eth0")?;
         ip("link set eth0 up")?;
+        // Cilium's Pod routes: the gateway on-link, then the default via it.
+        ip("route add 10.99.9.1 dev eth0 scope link")?;
+        ip("route add default via 10.99.9.1 dev eth0")?;
         sys::apply(&check, None)?;
+        // Releasing the /32 must not flush the anchor's own routes.
+        assert!(
+            ip("-4 route show default")?.contains("via 10.99.9.1 dev eth0"),
+            "the default route survives"
+        );
         assert!(
             !ip("-o -4 addr show dev eth0")?.contains("10.99.0.7"),
             "the /32 left eth0"

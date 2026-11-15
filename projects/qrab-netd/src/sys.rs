@@ -235,9 +235,15 @@ pub fn apply(plan: &NicPlan, resolver: Option<Ipv4Addr>) -> io::Result<()> {
     if let Some(resolver) = resolver {
         nft(&plan.dns_ruleset(resolver))?;
     }
+    ip(&plan.uplink_placeholder())?;
     let held = ip_words(&["-o", "-4", "addr", "show", "dev", UPLINK])?;
     if held.contains(&format!("inet {}/", plan.guest_ip)) {
         ip(&plan.uplink_release())?;
+    }
+    if ip_words(&["-4", "route", "show", "default"])?.trim().is_empty() {
+        return Err(io::Error::other(
+            "the anchor has no default route (it was flushed with eth0's last address); recreate the anchor Pod",
+        ));
     }
     Ok(())
 }

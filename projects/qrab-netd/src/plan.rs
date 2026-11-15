@@ -7,6 +7,8 @@ use std::net::Ipv4Addr;
 
 /// The Pod's own interface, where Cilium delivers the guest's /32.
 pub const UPLINK: &str = "eth0";
+/// See [`NicPlan::uplink_placeholder`].
+pub const UPLINK_PLACEHOLDER: &str = "169.254.1.2/32";
 /// nftables table holding the guest's DNS redirect.
 pub const NFT_TABLE: &str = "qrab_netd";
 
@@ -77,6 +79,26 @@ impl NicPlan {
         .into_iter()
         .map(|args| args.into_iter().map(str::to_owned).collect())
         .collect()
+    }
+
+    /// A link-scope address `eth0` keeps once the guest's /32 has left it.
+    /// The kernel flushes every IPv4 route of a device whose last IPv4
+    /// address goes, including the anchor's default route, so this is added
+    /// before the release. Link scope keeps it out of source selection for
+    /// forwarded traffic; it only sources the anchor's own ARP for its
+    /// gateway.
+    pub fn uplink_placeholder(&self) -> Vec<String> {
+        [
+            "addr",
+            "replace",
+            UPLINK_PLACEHOLDER,
+            "dev",
+            UPLINK,
+            "scope",
+            "link",
+        ]
+        .map(str::to_owned)
+        .to_vec()
     }
 
     /// The command that hands the address over: once it leaves `eth0`, the
