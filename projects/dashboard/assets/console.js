@@ -10,10 +10,25 @@ const power = element('power');
 const morePower = element('console-power-more');
 let rfb = null;
 let expired = false, pollTask = null;
+function updateText(node, text) {
+    if (node.textContent !== text) node.textContent = text;
+}
 
 function showError(message) {
-    element('console-error').textContent = message;
+    updateText(element('console-error'), message);
     element('console-error').hidden = !message;
+}
+function showPowerStatus(message) {
+    const note = element('power-action-status');
+    if (!note) return;
+    updateText(note, message);
+    note.hidden = !message;
+}
+function showPowerError(message) {
+    const note = element('power-action-error');
+    if (!note) { if (message) showError(message); return; }
+    updateText(note, message);
+    note.hidden = !message;
 }
 
 function endedScreen() {
@@ -26,6 +41,10 @@ function sessionEnded() {
     if (expired) return;
     const hadConsoleFocus = [screen, power, element('console-controls') || connect.parentElement].some(node => node.contains(document.activeElement));
     expired = true;
+    pendingAction = null;
+    busy = false;
+    showPowerStatus('');
+    showPowerError('');
     stopReconnecting();
     clearInterval(polling);
     state = null;
@@ -227,6 +246,7 @@ const buttons = [...power.querySelectorAll('[data-power]')];
 const RECONNECTS = ['on', 'ForceRestart', 'GracefulRestart', 'GracefulShutdown', 'PowerCycle'];
 let state = null;
 let busy = false;
+let pendingAction = null;
 let armed = null;
 let armTimer = null;
 
@@ -264,13 +284,16 @@ function describe() {
 }
 function render() {
     const [chip, detail] = describe();
-    element('power-chip').textContent = chip;
+    updateText(element('power-chip'), chip);
     element('power-chip').dataset.state = chip.toLowerCase();
-    element('power-detail').textContent = detail;
+    updateText(element('power-detail'), detail);
     const menuFocused = morePower?.contains(document.activeElement);
     if (armed && (!offered(armed) || !allowed(armed.dataset.power))) disarm();
     for (const button of buttons) {
-        if (button !== armed) button.textContent = button.dataset.label;
+        const pending = pendingAction?.button === button;
+        if (pending) updateText(button, pendingAction.accepted ? 'Updating state…' : `Sending ${button.dataset.label.toLowerCase()}…`);
+        else if (button !== armed) updateText(button, button.dataset.label);
+        if (button.getAttribute('aria-busy') !== String(pending)) button.setAttribute('aria-busy', String(pending));
         button.hidden = !offered(button);
         button.disabled = expired || busy || !offered(button) || !allowed(button.dataset.power);
     }
@@ -318,6 +341,9 @@ async function send(button) {
     }
     disarm();
     busy = true;
+    showPowerError('');
+    pendingAction = {button, accepted: false};
+    showPowerStatus(`Sending ${button.dataset.label.toLowerCase()}…`);
     render();
     try {
         await powerRequest({
@@ -326,8 +352,9 @@ async function send(button) {
             body: JSON.stringify({action, confirm: disruptive}),
         });
         if (expired) return;
-        showError('');
-        status.textContent = `${button.dataset.label} sent.`;
+        pendingAction.accepted = true;
+        showPowerStatus(`${button.dataset.label} request accepted. Updating state…`);
+        render();
         if (RECONNECTS.includes(action)) {
             startReconnecting();
         } else if (action === 'off') {
@@ -335,10 +362,15 @@ async function send(button) {
             resume = false;
         }
     } catch (error) {
-        showError(error.message);
+        if (!expired) {
+            showPowerStatus('');
+            showPowerError(`${button.dataset.label}: ${error.message}`);
+        }
     } finally {
         if (pollTask) await pollTask;
         await poll();
+        if (!expired && pendingAction?.accepted) showPowerStatus(`${button.dataset.label} request accepted.`);
+        pendingAction = null;
         busy = false;
         render();
     }

@@ -66,7 +66,7 @@ def system(power='On'):
 
 def install_bmc(context, role='admin', power='On', legacy=False, origin='http://ui.test'):
     fixture = {'system': system(power), 'posts': [], 'expired': False,
-               'hold_posts': False, 'pending_posts': [], 'post_error': None,
+               'hold_posts': False, 'pending_posts': [], 'post_received': Event(), 'post_error': None, 'hold_power': False, 'pending_power': [],
                'fail_system': None, 'fail_metrics': False, 'fail_history': False, 'empty_metrics': False, 'hold_session': False, 'pending_session': [], 'empty_events': False, 'extra_events': [], 'requests': [],
                'vm_name': 'web-1', 'user_name': 'sam'}
     fixture['system']['Oem']['Qrab']['Configuration']['redacted'] = role == 'viewer'
@@ -109,6 +109,7 @@ def install_bmc(context, role='admin', power='On', legacy=False, origin='http://
                 return
         elif req.method == 'POST':
             fixture['posts'].append({'path': path, 'body': req.post_data_json if req.post_data else None, 'csrf': req.headers.get('x-csrf-token')})
+            fixture['post_received'].set()
             if fixture['hold_posts']:
                 fixture['pending_posts'].append(request_route)
                 return
@@ -126,6 +127,9 @@ def install_bmc(context, role='admin', power='On', legacy=False, origin='http://
                 return
             data = {'running': True, 'phase': 'Running', 'pod': True, 'power_state': fixture['system']['PowerState'],
                     'health': 'OK', 'reset_types': fixture['system']['Actions']['#ComputerSystem.Reset']['ResetType@Redfish.AllowableValues'], 'redfish_error': None}
+            if fixture['hold_power']:
+                fixture['pending_power'].append((request_route, data))
+                return
         elif path.endswith('/Systems/1'):
             if fixture['fail_system']:
                 error = fixture['fail_system']
@@ -256,7 +260,7 @@ def no_overflow(page, name, width):
 
 
 def wait_native(page, event, diagnostics=None):
-    # Allow browser events to settle while waiting for the socket thread.
+    # Pump browser callbacks while waiting for a fixture event.
     for _ in range(100):
         if event.is_set():
             return
@@ -334,20 +338,57 @@ def console_state_checks(browser, width, theme):
         more.locator('summary').click()
         fixture['post_error'] = 'Permission denied by the VM.'
         pause.click()
-        expect(page.locator('#console-error')).to_have_text('Permission denied by the VM.')
+        expect(page.locator('#power-action-error')).to_have_text('Pause: Permission denied by the VM.')
         fixture['post_error'] = None
         fixture['hold_posts'] = True
         previous_posts = len(fixture['posts'])
         pause.click()
         page.clock.fast_forward(3100)
+        expect(page.locator('#console-error')).to_be_hidden()
+        expect(page.locator('#power-action-error')).to_be_hidden()
         expect(pause).to_be_disabled()
+        expect(pause).to_have_text('Sending pause…')
+        expect(pause).to_have_attribute('aria-busy', 'true')
+        expect(page.locator('#power-action-status')).to_have_text('Sending pause…')
         pause.dispatch_event('click')
         assert len(fixture['posts']) == previous_posts + 1
         assert fixture['posts'][-1]['body'] == {'action': 'Pause', 'confirm': False}
         fixture['system']['PowerState'] = 'Paused'
         fixture['hold_posts'] = False
+        fixture['hold_power'] = True
         fixture['pending_posts'].pop().fulfill(status=204)
+        expect(pause).to_have_text('Updating state…')
+        expect(page.locator('#power-action-status')).to_contain_text('request accepted. Updating state')
+        page.clock.fast_forward(3100)
+        expect(pause).to_be_disabled()
+        assert len(fixture['pending_power']) == 1, 'Follow-up state reads must coalesce'
+        fixture['hold_power'] = False
+        pending_read, data = fixture['pending_power'].pop()
+        pending_read.fulfill(json=data)
         expect(page.locator('[data-power=Resume]')).to_be_enabled()
+        expect(pause).to_have_text('Pause')
+        expect(pause).to_have_attribute('aria-busy', 'false')
+        expect(page.locator('#power-action-status')).to_have_text('Pause request accepted.')
+        expect(page.locator('#console-status')).to_have_text('Console disconnected')
+
+        # A failed follow-up read must not erase the action's failure reason.
+        fixture['hold_posts'] = True
+        fixture['post_received'].clear()
+        page.locator('[data-power=Resume]').click()
+        wait_native(page, fixture['post_received'])
+        fixture['fail_system'] = {'json': {'error': {'message': 'State read unavailable.'}}}
+        fixture['pending_posts'].pop().fulfill(status=403, body='Permission denied by the VM.', content_type='text/plain')
+        expect(page.locator('#power-chip')).to_have_text('Unknown')
+        expect(page.locator('#power-action-error')).to_have_text('Resume: Permission denied by the VM.')
+        expect(page.locator('#console-error')).to_contain_text('State read unavailable.')
+        page.clock.fast_forward(3100)
+        expect(page.locator('#power-action-error')).to_have_text('Resume: Permission denied by the VM.')
+        fixture['hold_posts'] = False
+        fixture['fail_system'] = None
+        page.clock.fast_forward(3100)
+        expect(page.locator('[data-power=Resume]')).to_be_enabled()
+        expect(page.locator('#power-action-error')).to_have_text('Resume: Permission denied by the VM.')
+        expect(page.locator('#console-error')).to_be_hidden()
 
         page.locator('#connect').click()
         page.clock.run_for(50)
@@ -359,6 +400,9 @@ def console_state_checks(browser, width, theme):
         reset.click()
         reset.click()
         expect(reset).to_be_disabled()
+        expect(page.locator('#power-action-status')).to_have_text('Sending reset…')
+        more.locator('summary').click()
+        expect(page.locator('#power-action-status')).to_be_visible()
         if width == 1440:
             page.evaluate("document.querySelector('#screen').requestFullscreen()")
             assert page.evaluate('document.fullscreenElement.id') == 'screen'
@@ -367,6 +411,8 @@ def console_state_checks(browser, width, theme):
         fixture['expired'] = True
         page.clock.fast_forward(3100)
         expect(page.locator('#console-recovery')).to_be_visible()
+        expect(page.locator('#power-action-status')).to_be_hidden()
+        expect(reset).to_have_attribute('aria-busy', 'false')
         if width != 1440:
             expect(page.locator('#console-recovery a')).to_be_focused()
         expect(page.locator('#screen canvas')).to_have_count(0)
@@ -376,9 +422,15 @@ def console_state_checks(browser, width, theme):
         expect(page.locator('#screen')).to_contain_text('Your session has ended')
         expect(page.locator('#connect')).to_be_disabled()
         fixture['hold_posts'] = False
-        fixture['pending_posts'].pop().fulfill(status=204)
+        late = fixture['pending_posts'].pop()
+        if width == 1440:
+            late.fulfill(status=403, body='Late refusal.', content_type='text/plain')
+        else:
+            late.fulfill(status=204)
         page.wait_for_timeout(50)
         expect(page.locator('#console-status')).to_contain_text('Session ended')
+        expect(page.locator('#power-action-status')).to_be_hidden()
+        expect(page.locator('#power-action-error')).to_be_hidden()
         expect(page.locator('#audio')).to_be_disabled()
         destination = parse_qs(urlparse(page.locator('#console-recovery a').get_attribute('href')).query)
         assert destination['next'] == [base + '/console']

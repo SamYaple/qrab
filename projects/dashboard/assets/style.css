@@ -216,6 +216,9 @@ td .muted { margin: 3px 0 0; }
 .power-state { display: flex; align-items: center; gap: 12px; margin: 0; flex-wrap: wrap; }
 .power-bar .actions { gap: 8px; }
 .power-bar button { padding: 7px 12px; }
+.power-progress { flex-basis: 100%; margin: 0; color: var(--text-strong); font-size: .875rem; overflow-wrap: anywhere; }
+.power-error { color: var(--error-text); background: var(--error-bg); border: 1px solid var(--error-border); padding: 10px 12px; border-radius: 6px; }
+.power-bar button[aria-busy=true] { cursor: progress; }
 .console-power-more { min-width: 0; }
 .console-power-more > summary { min-height: 42px; padding: 8px 12px; border: 1px solid var(--border-strong); border-radius: 6px; background: var(--control); color: var(--text-control); font-size: .875rem; }
 .console-power-more > summary:hover { background: var(--control-hover); }

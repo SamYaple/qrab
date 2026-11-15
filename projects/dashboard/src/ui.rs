@@ -1284,6 +1284,8 @@ fn console_page(page: &ConsolePage) -> Element {
         }
         div { class: "toolbar power-bar", id: "power", "data-endpoint": "{back}/power", "data-csrf": "{page.csrf}",
             p { class: "power-state", span { id: "power-chip", class: "chip", tabindex: "-1", "Checking…" } span { id: "power-detail", class: "muted" } }
+            p { id: "power-action-status", class: "power-progress", role: "status", hidden: true }
+            p { id: "power-action-error", class: "power-progress power-error", role: "alert", hidden: true }
             div { class: "actions", role: "group", aria_label: "Power",
                 for button in common { {console_power_button(button)} }
                 details { class: "console-power-more", id: "console-power-more",
