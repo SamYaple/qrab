@@ -76,7 +76,7 @@ Redfish admin actions offered on the BMC's Guest agent tab, not here.
 
 | Route | Purpose |
 | --- | --- |
-| `GET /` | VMs visible to the user: phase/ready, node, the first NIC's IP, vCPUs and memory (current / hot-plug maximum), disks, live CPU and memory from `metrics.k8s.io`, role |
+| `GET /` | VMs visible to the user: phase/ready (`PoweredOff` or `Paused` for a guest off or paused inside its Pod), node, the first NIC's IP, vCPUs and memory (current / hot-plug maximum), disks, live CPU and memory from `metrics.k8s.io`, role |
 | `GET /vms/{ns}/{name}` | Spec and status, cloud-init summary, disks, `status.resize`, Pod requests/limits, live usage, guest NICs, and the BMC panel ([below](#the-bmc-panel)) |
 | `POST /vms/{ns}/{name}/action` | Admin form power action (`action`, plus `confirm=yes` for disruptive ones): one Redfish ResetType from `Systems/1`'s allowable values, or `on` / `off` as for the JSON route |
 | `POST /vms/{ns}/{name}/delete` | Admin deletion of a VM launched by the dashboard; the PVC is kept |

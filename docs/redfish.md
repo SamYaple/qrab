@@ -419,8 +419,9 @@ else: no Redfish routes, probes or other methods. The 8081 API does not serve
 `/metrics`. The listener is unauthenticated, so it carries only viewer-level
 values, and the operator's `<vm>-redfish-metrics` CiliumNetworkPolicy admits
 it only from Prometheus Pods (`app.kubernetes.io/name=prometheus`) in the
-`monitoring` namespace and denies it to every other endpoint and entity
-([operator.md](operator.md#components)).
+`monitoring` namespace and the operator's Pods, which read
+`qrab_vm_power_state` into the VM's `status.powerState`, and denies it to
+every other endpoint and entity ([operator.md](operator.md#components)).
 
 | Family | Type | Labels | Source |
 | --- | --- | --- | --- |

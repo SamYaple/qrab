@@ -246,13 +246,17 @@ pub const REDFISH_METRICS_PORT: u16 = 9181;
 /// kube-prometheus-stack's Prometheus Pods, the only metrics scrapers.
 pub const PROMETHEUS_NAMESPACE: &str = "monitoring";
 pub const PROMETHEUS_NAME: &str = "prometheus";
+/// The operator's own Pods (`app.kubernetes.io/name`), in the VMs' namespace.
+/// They read only the guest power state from the metrics port.
+pub const OPERATOR_NAME: &str = "qrab-operator";
 
 pub fn redfish_metrics_policy_name(vm: &VirtualMachine) -> String {
     format!("{}-redfish-metrics", vm.name_any())
 }
 
 /// Additive ingress for the Redfish metrics port: admitted from the monitoring
-/// namespace's Prometheus Pods and denied to every other endpoint and entity,
+/// namespace's Prometheus Pods and the operator's own Pods (for the guest
+/// power state in `status`), and denied to every other endpoint and entity,
 /// whatever other policies select the VM Pod. Never enables default deny.
 pub fn redfish_metrics_policy(
     vm: &VirtualMachine,
@@ -270,21 +274,42 @@ pub fn redfish_metrics_policy(
         .ok_or_else(|| Error::Invalid("VM owner reference is unavailable".into()))?;
     let port = json!([{"ports":[{"port":REDFISH_METRICS_PORT.to_string(),"protocol":"TCP"}]}]);
     let namespace = "k8s:io.kubernetes.pod.namespace";
+    let name = "app.kubernetes.io/name";
+    let mut readers: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
+    readers
+        .entry(PROMETHEUS_NAMESPACE)
+        .or_default()
+        .push(PROMETHEUS_NAME);
+    readers
+        .entry(settings.namespace.as_str())
+        .or_default()
+        .push(OPERATOR_NAME);
+    let admitted: Vec<_> = readers
+        .iter()
+        .flat_map(|(ns, names)| {
+            names
+                .iter()
+                .map(move |n| json!({"matchLabels":{namespace:ns,name:n}}))
+        })
+        .collect();
+    let mut denied = vec![
+        json!({"matchExpressions":[{"key":namespace,"operator":"NotIn","values":readers.keys().collect::<Vec<_>>()}]}),
+    ];
+    denied.extend(readers.iter().map(|(ns, names)| {
+        json!({"matchExpressions":[{"key":namespace,"operator":"In","values":[ns]},
+            {"key":name,"operator":"NotIn","values":names}]})
+    }));
     Ok(Some(serde_json::from_value(
         json!({"apiVersion":"cilium.io/v2","kind":"CiliumNetworkPolicy",
             "metadata":{"name":redfish_metrics_policy_name(vm),"namespace":settings.namespace,"ownerReferences":[owner],
                 "labels":{"app.kubernetes.io/name":"qrab","app.kubernetes.io/component":"redfish-metrics","app.kubernetes.io/instance":vm.name_any(),crate::nic::OWNER_UID:uid}},
-            "spec":{"description":format!("The Redfish metrics port of VM {} admits only the {PROMETHEUS_NAMESPACE} namespace's Prometheus",vm.name_any()),
+            "spec":{"description":format!("The Redfish metrics port of VM {} admits only the {PROMETHEUS_NAMESPACE} namespace's Prometheus and the {OPERATOR_NAME}",vm.name_any()),
                 "endpointSelector":{"matchLabels":{"app.kubernetes.io/name":"qrab","app.kubernetes.io/component":"vm",crate::nic::OWNER_UID:uid}},
                 "enableDefaultDeny":{"ingress":false,"egress":false},
-                "ingress":[{"fromEndpoints":[{"matchLabels":{namespace:PROMETHEUS_NAMESPACE,"app.kubernetes.io/name":PROMETHEUS_NAME}}],"toPorts":port}],
+                "ingress":[{"fromEndpoints":admitted,"toPorts":port}],
                 "ingressDeny":[
                     {"fromEntities":["world","host","remote-node","kube-apiserver","ingress","health","init","unmanaged"],"toPorts":port},
-                    {"fromEndpoints":[
-                        {"matchExpressions":[{"key":namespace,"operator":"NotIn","values":[PROMETHEUS_NAMESPACE]}]},
-                        {"matchExpressions":[{"key":namespace,"operator":"In","values":[PROMETHEUS_NAMESPACE]},
-                            {"key":"app.kubernetes.io/name","operator":"NotIn","values":[PROMETHEUS_NAME]}]}],
-                     "toPorts":port}]}
+                    {"fromEndpoints":denied,"toPorts":port}]}
         }),
     )?))
 }

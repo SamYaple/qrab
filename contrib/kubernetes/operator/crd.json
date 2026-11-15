@@ -29,6 +29,11 @@
             "type": "boolean"
           },
           {
+            "jsonPath": ".status.powerState",
+            "name": "Power",
+            "type": "string"
+          },
+          {
             "jsonPath": ".status.nodeName",
             "name": "Node",
             "type": "string"
@@ -533,6 +538,46 @@
               "status": {
                 "nullable": true,
                 "properties": {
+                  "conditions": {
+                    "default": [],
+                    "description": "`PoweredOff`: True while the VM is off (`spec.running=false`, or the\nguest powered off inside its Pod), Unknown when the read failed.",
+                    "items": {
+                      "description": "A Kubernetes-style status condition, as `kubectl wait --for=condition=`\nreads it.",
+                      "properties": {
+                        "lastTransitionTime": {
+                          "description": "When `status` last changed; RFC 3339 at second precision.",
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "observedGeneration": {
+                          "format": "int64",
+                          "type": "integer"
+                        },
+                        "reason": {
+                          "type": "string"
+                        },
+                        "status": {
+                          "description": "`True`, `False` or `Unknown`.",
+                          "type": "string"
+                        },
+                        "type": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "lastTransitionTime",
+                        "message",
+                        "observedGeneration",
+                        "reason",
+                        "status",
+                        "type"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
                   "disks": {
                     "default": [],
                     "items": {
@@ -628,6 +673,11 @@
                     "type": "string"
                   },
                   "podUid": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "powerState": {
+                    "description": "Redfish `PowerState` of the guest in the Ready VM Pod (`On`, `Off`,\n`PoweringOn`, `PoweringOff`, `Paused`), read from its metrics export.\nAbsent without a Ready Pod with Redfish, or when the read failed.",
                     "nullable": true,
                     "type": "string"
                   },

@@ -537,7 +537,9 @@ any image update does. An older manager answers Redfish `On` on an off VM with
 409 and still exits on shutdown; an older operator needs no change, since it
 only reads Pod readiness and a powered-off VM's Pod stays Running and Ready.
 Its `Running`/`VMRunning` status then means the Pod is live: Redfish
-`PowerState` says whether the guest is on. Rollout checks: GracefulShutdown then
+`PowerState` says whether the guest is on. A later operator reads that state
+into `status.powerState` and reports phase `PoweredOff`
+([operator.md](operator.md#power-restart-and-deletion)). Rollout checks: GracefulShutdown then
 On keeps the Pod UID, restart count and TPM EK and changes `qemu_pid`;
 PowerCycle changes `qemu_pid` in the same Pod; Pod deletion, `spec.running:
 false` and a killed QEMU behave as before. The manager pin from 661eaf6

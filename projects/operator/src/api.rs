@@ -30,6 +30,7 @@ fn enabled() -> bool {
 )]
 #[kube(printcolumn = r#"{"name":"Phase","type":"string","jsonPath":".status.phase"}"#)]
 #[kube(printcolumn = r#"{"name":"Ready","type":"boolean","jsonPath":".status.ready"}"#)]
+#[kube(printcolumn = r#"{"name":"Power","type":"string","jsonPath":".status.powerState"}"#)]
 #[kube(printcolumn = r#"{"name":"Node","type":"string","jsonPath":".status.nodeName"}"#)]
 #[kube(printcolumn = r#"{"name":"Resize","type":"string","jsonPath":".status.resize.phase"}"#)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -473,6 +474,31 @@ pub struct VirtualMachineStatus {
     /// `spec.storageNode` as the scheduling pin.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub placement_node: Option<String>,
+    /// Redfish `PowerState` of the guest in the Ready VM Pod (`On`, `Off`,
+    /// `PoweringOn`, `PoweringOff`, `Paused`), read from its metrics export.
+    /// Absent without a Ready Pod with Redfish, or when the read failed.
+    #[serde(default)]
+    pub power_state: Option<String>,
+    /// `PoweredOff`: True while the VM is off (`spec.running=false`, or the
+    /// guest powered off inside its Pod), Unknown when the read failed.
+    #[serde(default)]
+    pub conditions: Vec<VirtualMachineCondition>,
+}
+
+/// A Kubernetes-style status condition, as `kubectl wait --for=condition=`
+/// reads it.
+#[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct VirtualMachineCondition {
+    #[serde(rename = "type")]
+    pub type_: String,
+    /// `True`, `False` or `Unknown`.
+    pub status: String,
+    pub reason: String,
+    pub message: String,
+    /// When `status` last changed; RFC 3339 at second precision.
+    pub last_transition_time: String,
+    pub observed_generation: i64,
 }
 
 /// Move a running VM to another node without rebooting it. Create one per

@@ -264,9 +264,11 @@ The Redfish sidecar also declares port `metrics` (9181), its unauthenticated
 Prometheus listener ([redfish.md](redfish.md#prometheus-export)). For each
 Redfish-enabled VM the operator keeps an owned, additive CiliumNetworkPolicy
 `<vm>-redfish-metrics`: it admits 9181 from Prometheus Pods
-(`app.kubernetes.io/name=prometheus`) in the `monitoring` namespace and denies
-9181 to every other endpoint and entity, without enabling default deny or
-touching other ports. It is deleted when Redfish is disabled. Adding the port
+(`app.kubernetes.io/name=prometheus`) in the `monitoring` namespace and from
+the operator's own Pods (`app.kubernetes.io/name=qrab-operator`, in the VMs'
+namespace), and denies 9181 to every other endpoint and entity, without
+enabling default deny or touching other ports. The operator reads only the
+guest power state from it ([below](#power-restart-and-deletion)). It is deleted when Redfish is disabled. Adding the port
 changes the Pod template, so the first operator rollout with it replaces each
 Redfish-enabled VM Pod once. `contrib/kubernetes/monitoring/` holds the one
 static PodMonitor and the Grafana dashboard ConfigMap.
@@ -461,13 +463,31 @@ routine remounts from broadening retained private-file access.
 
 Status reports `observedGeneration`, `phase`, `ready`, `reason`, `message`, Pod
 name/UID/node, the state PVC UID, in-place `resize` progress, provisioned
-`disks`, `nics`, iSCSI release/recovery fields and, after a live migration,
-`stateVolumeClaim` and `placementNode` ([migration.md](migration.md)). Ready
-means the VM Pod is Ready: the manager and the enabled sidecars are live,
-including a paused VM or one powered off in place. Redfish `PowerState` says
-whether the guest is on; guest boot evidence is checked separately. Invalid
-specs and ownership conflicts are reported as Blocked rather than mutating
-unrelated resources.
+`disks`, `nics`, iSCSI release/recovery fields, `powerState`, `conditions`
+and, after a live migration, `stateVolumeClaim` and `placementNode`
+([migration.md](migration.md)). Invalid specs and ownership conflicts are
+reported as Blocked rather than mutating unrelated resources.
+
+While the VM Pod is Ready and the VM has Redfish, every reconcile (about every
+15 s) reads the guest's Redfish `PowerState` from the Pod's metrics port
+(`GET http://<pod IP>:9181/metrics`, `qrab_vm_power_state`, three-second
+bound) into `status.powerState`, which `kubectl get qvm` shows as `Power`. The
+read is unauthenticated and read-only; the operator has no exec or control
+socket access to the Pod. The phase follows the guest:
+
+| Pod and guest | `phase` | `ready` | `reason` | `PoweredOff` condition |
+| --- | --- | --- | --- | --- |
+| Pod Ready, guest `On`, `PoweringOn` or `PoweringOff` | `Running` | true | `VMRunning` | False (`PowerState<state>`) |
+| Pod Ready, guest `Off` (powered off in place) | `PoweredOff` | false | `GuestPoweredOff` | True (`GuestPoweredOff`) |
+| Pod Ready, guest `Paused` | `Paused` | false | `GuestPaused` | False (`PowerStatePaused`) |
+| Pod Ready, read failed or no current state | `Running` | true | `VMRunning` | Unknown (`PowerStateUnknown`, the error as message) |
+| Pod Ready, Redfish disabled | `Running` | true | `VMRunning` | Unknown (`PowerStateUnavailable`) |
+| `spec.running: false`, no Pod | `Stopped` | false | `PowerOff` | True (`PowerOff`) |
+
+Other phases (Pending, Updating, Stopping, ...) carry no `powerState` and no
+condition. A failed read never fails, replaces or restarts the Pod; guest boot
+evidence is checked separately. `kubectl wait --for=condition=PoweredOff qvm/<vm>`
+waits for a power off, and `--for=condition=PoweredOff=false` for power on.
 
 ## Resizing a running VM
 

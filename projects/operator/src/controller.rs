@@ -5,6 +5,7 @@ use crate::{
     address,
     api::{NicStatus, VirtualMachine, VirtualMachineStatus},
     nic::{self, NicEndpoint},
+    power,
     provision::{self, Attached, SecretStore, Step},
     resources::{self, Desired, GuestSize, ResizePlan, Settings},
     storage::{SharedStorage, StorageError},
@@ -83,6 +84,8 @@ pub(crate) fn state(
             .as_ref()
             .and_then(|s| s.state_volume_claim.clone()),
         placement_node: vm.status.as_ref().and_then(|s| s.placement_node.clone()),
+        power_state: None,
+        conditions: Vec::new(),
     }
 }
 
@@ -711,19 +714,16 @@ async fn synchronize(
             .await?;
             return Ok(Action::requeue(Duration::from_secs(2)));
         }
-        publish(
-            vms,
+        let mut stopped = state(
             vm,
-            state(
-                vm,
-                None,
-                "Stopped",
-                false,
-                "PowerOff",
-                "Set spec.running=true to start this VM",
-            ),
-        )
-        .await?;
+            None,
+            "Stopped",
+            false,
+            "PowerOff",
+            "Set spec.running=true to start this VM",
+        );
+        power::stopped(&mut stopped, vm, &power::now());
+        publish(vms, vm, stopped).await?;
         return Ok(Action::await_change());
     }
     let Some(claim) = claims.get_opt(&incarnation.state_claim).await? else {
@@ -1005,24 +1005,17 @@ async fn synchronize(
             .as_ref()
             .and_then(|s| s.conditions.as_ref())
             .is_some_and(|c| c.iter().any(|c| c.type_ == "Ready" && c.status == "True"));
-        let mut status = state(
-            vm,
-            Some(pod),
-            if ready { "Running" } else { "Pending" },
-            ready,
-            if ready { "VMRunning" } else { "PodNotReady" },
-            if ready {
-                // A guest powered off in place keeps its Pod Ready so Redfish
-                // can power it on again; Redfish PowerState tells them apart.
-                if vm.spec.nics.is_empty() {
-                    "The VM manager and the enabled BMC/Redfish components are live; Redfish PowerState reports whether the guest is on; guest networking is disabled"
-                } else {
-                    "The VM manager, the enabled BMC/Redfish components and the NIC Pods are live; Redfish PowerState reports whether the guest is on"
-                }
-            } else {
-                "Waiting for the VM Pod to become ready"
-            },
-        );
+        // A guest powered off in place keeps its Pod Ready so Redfish can
+        // power it on again; only its metrics export tells the two apart.
+        let reading = if ready && vm.spec.components.redfish_enabled() {
+            Some(power::read(pod).await)
+        } else {
+            None
+        };
+        if let Some(Err(error)) = &reading {
+            tracing::debug!(vm=%vm.name_any(), %error, "guest power state unknown");
+        }
+        let mut status = power::pod_status(vm, pod, ready, reading.as_ref(), &power::now());
         let resize = resources::resize_status(pod, &desired, rejected);
         let settled = resize.phase == "Applied";
         status.resize = Some(resize);

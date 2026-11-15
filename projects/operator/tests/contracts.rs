@@ -1835,7 +1835,7 @@ fn boot_media_schema_and_dashboard_admission_preserve_the_same_narrow_boundary()
 }
 
 #[test]
-fn redfish_metrics_port_is_declared_and_admitted_only_from_monitoring_prometheus() {
+fn redfish_metrics_port_is_declared_and_admitted_only_from_prometheus_and_the_operator() {
     let machine = with_components(true, true);
     let pod = serde_json::to_value(&resources::render(&machine, &settings()).unwrap().pod).unwrap();
     let sidecar = |pod: &Value, name: &str| {
@@ -1880,9 +1880,13 @@ fn redfish_metrics_port_is_declared_and_admitted_only_from_monitoring_prometheus
     );
     assert!(spec.get("egress").is_none());
     let metrics_port = json!([{"ports":[{"port":"9181","protocol":"TCP"}]}]);
+    // The operator reads only the guest power state (qrab_vm_power_state).
     assert_eq!(
         spec["ingress"],
-        json!([{"fromEndpoints":[{"matchLabels":{"k8s:io.kubernetes.pod.namespace":"monitoring","app.kubernetes.io/name":"prometheus"}}],"toPorts":metrics_port}])
+        json!([{"fromEndpoints":[
+            {"matchLabels":{"k8s:io.kubernetes.pod.namespace":"monitoring","app.kubernetes.io/name":"prometheus"}},
+            {"matchLabels":{"k8s:io.kubernetes.pod.namespace":"qrab","app.kubernetes.io/name":"qrab-operator"}}],
+            "toPorts":metrics_port}])
     );
     let deny = spec["ingressDeny"].as_array().unwrap();
     assert_eq!(deny.len(), 2);
@@ -1894,9 +1898,27 @@ fn redfish_metrics_port_is_declared_and_admitted_only_from_monitoring_prometheus
     assert_eq!(
         deny[1]["fromEndpoints"],
         json!([
+            {"matchExpressions":[{"key":"k8s:io.kubernetes.pod.namespace","operator":"NotIn","values":["monitoring","qrab"]}]},
+            {"matchExpressions":[{"key":"k8s:io.kubernetes.pod.namespace","operator":"In","values":["monitoring"]},
+                {"key":"app.kubernetes.io/name","operator":"NotIn","values":["prometheus"]}]},
+            {"matchExpressions":[{"key":"k8s:io.kubernetes.pod.namespace","operator":"In","values":["qrab"]},
+                {"key":"app.kubernetes.io/name","operator":"NotIn","values":["qrab-operator"]}]}
+        ])
+    );
+    // Sharing the monitoring namespace still denies its other Pods.
+    let shared = Settings {
+        namespace: "monitoring".into(),
+        ..settings()
+    };
+    let policy = resources::redfish_metrics_policy(&machine, &shared)
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        policy.data["spec"]["ingressDeny"][1]["fromEndpoints"],
+        json!([
             {"matchExpressions":[{"key":"k8s:io.kubernetes.pod.namespace","operator":"NotIn","values":["monitoring"]}]},
             {"matchExpressions":[{"key":"k8s:io.kubernetes.pod.namespace","operator":"In","values":["monitoring"]},
-                {"key":"app.kubernetes.io/name","operator":"NotIn","values":["prometheus"]}]}
+                {"key":"app.kubernetes.io/name","operator":"NotIn","values":["prometheus","qrab-operator"]}]}
         ])
     );
     // Without Redfish (which the BMC would bring) nothing listens, and no

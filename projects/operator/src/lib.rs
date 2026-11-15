@@ -3,6 +3,7 @@ pub mod api;
 pub mod controller;
 pub mod migration;
 pub mod nic;
+pub mod power;
 pub mod provision;
 pub mod resources;
 pub mod storage;
