@@ -2370,15 +2370,19 @@ async fn detail_draws_a_server_side_svg_sparkline_per_redfish_history_metric() {
         body[start..end].to_owned()
     };
     // One accessible chart per metric with data, plus decorative line keys;
-    // one polyline per series scaled into the 240x48 viewBox.
+    // One path per series, with gaps and visible isolated samples.
     let cpu = figure("container-cpu");
     assert_eq!(cpu.matches("role=\"img\"").count(), 1, "{cpu}");
     assert_eq!(cpu.matches("aria-hidden=\"true\"").count(), 2, "{cpu}");
-    assert_eq!(cpu.matches("<polyline").count(), 2, "{cpu}");
+    assert_eq!(cpu.matches("<path").count(), 2, "{cpu}");
     assert!(cpu.contains("viewBox=\"0 0 240 48\""), "{cpu}");
     assert!(
-        cpu.contains("points=\"0.0,24.0 120.0,1.0 240.0,35.5\""),
+        cpu.contains("d=\"M0.0,24.0L120.0,1.0L240.0,35.5\""),
         "{cpu}"
+    );
+    assert!(
+        cpu.contains("d=\"M0.0,46.9h1M240.0,46.8h-1\""),
+        "Missing bmc samples must remain a gap, with both observed samples visible: {cpu}"
     );
     assert!(cpu.contains("role=\"img\""));
     assert!(
@@ -2387,17 +2391,17 @@ async fn detail_draws_a_server_side_svg_sparkline_per_redfish_history_metric() {
     );
     assert!(!body.contains("<b>manager</b>"));
     let memory = figure("container-memory");
-    assert_eq!(memory.matches("<polyline").count(), 1);
+    assert_eq!(memory.matches("<path").count(), 1);
     assert!(memory.contains("512 MiB"), "{memory}");
     for metric in ["block-read", "block-write"] {
         let disk = figure(metric);
-        assert_eq!(disk.matches("<polyline").count(), 1, "{disk}");
+        assert_eq!(disk.matches("<path").count(), 1, "{disk}");
         assert!(disk.contains("2.0 KiB/s"), "{disk}");
     }
     // An empty answer and a failed one say so instead of drawing a line.
     let rx = figure("nic-rx");
     assert!(
-        rx.contains("No data in the last hour.") && !rx.contains("<polyline"),
+        rx.contains("No data in the last hour.") && !rx.contains("<path"),
         "{rx}"
     );
     let tx = figure("nic-tx");

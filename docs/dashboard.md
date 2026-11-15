@@ -704,6 +704,10 @@ VM names and checksums can use the full row.
 CPU usage is shown in cores and larger memory snapshots in GiB/TiB. Positive
 sub-millicore samples remain distinct from zero, and invalid samples show no data.
 SSR usage is a page-load snapshot, not a poll; the BMC provides continuing updates.
+CPU history retains fractional millicores below one millicore; very small positive
+samples say `<0.01 mcores`, distinct from zero. Both history views break lines
+across missing intervals longer than two sample steps and visibly mark isolated
+samples instead of losing them or connecting through missing data.
 Missing BMC configuration or guest-agent data is labelled unavailable; it is
 distinct from an explicitly empty disk/NIC list or a disabled channel. A successful
 System response without configuration clears the previous configuration values.

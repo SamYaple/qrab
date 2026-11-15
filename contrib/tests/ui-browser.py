@@ -68,7 +68,8 @@ def install_bmc(context, role='admin', power='On', legacy=False, origin='http://
     fixture = {'system': system(power), 'posts': [], 'expired': False,
                'hold_posts': False, 'pending_posts': [], 'post_received': Event(), 'post_error': None, 'hold_power': False, 'pending_power': [],
                'fail_session': None, 'fail_system': None, 'fail_reset_info': None, 'reset_types': list(resets), 'hold_reset_info': False, 'pending_reset_info': [],
-               'fail_metrics': False, 'fail_history': False, 'fail_events': None, 'empty_metrics': False, 'hold_session': False, 'pending_session': [], 'empty_events': False, 'extra_events': [], 'requests': [],
+               'fail_metrics': False, 'fail_history': False, 'fail_events': None, 'empty_metrics': False, 'small_cpu': False, 'sparse_history': False,
+               'hold_session': False, 'pending_session': [], 'empty_events': False, 'extra_events': [], 'requests': [],
                'vm_name': 'web-1', 'user_name': 'sam'}
     fixture['system']['Oem']['Qrab']['Configuration']['redacted'] = role == 'viewer'
 
@@ -174,10 +175,15 @@ def install_bmc(context, role='admin', power='On', legacy=False, origin='http://
             end, step = 1794715200, duration // 4
             unit = 'cores' if metric == 'container-cpu' else 'bytes' if metric == 'container-memory' else 'bytes/s'
             values = [0.125, 0.25, 0.5, 0.1875] if unit == 'cores' else [536870912, 805306368, 1073741824, 939524096] if unit == 'bytes' else [0, 16384, 65536, 8192]
+            if unit == 'cores' and fixture['small_cpu']:
+                values = [0, 0.00025, 0.0005, 0.000000001]
             data = {'metric': metric, 'range': interval, 'start': end - duration, 'end': end, 'step': step, 'unit': unit, 'series': []}
             if not fixture['empty_metrics'] and metric != 'nic-rx':
                 labels = ['manager', 'redfish', 'bmc'] if metric.startswith('container-') else ['root' if metric.startswith('block-') else 'eth0']
                 data['series'] = [{'labels': {'name': label}, 'points': [[end - duration + i * step, value / (j + 1)] for i, value in enumerate(values)]} for j, label in enumerate(labels)]
+                if fixture['sparse_history']:
+                    for series in data['series']:
+                        series['points'] = [series['points'][0], series['points'][-1]]
         elif path.endswith('/MetricReports/VM'):
             data = {'MetricValues': [] if fixture['empty_metrics'] else [{'MetricId': key, 'MetricValue': str(value)} for key, value in [('LogicalProcessors', 2), ('MemoryBytes', 1073741824), ('BlockReadBytes', 83886080), ('BlockWriteBytes', 41943040)]], 'Timestamp': '2026-11-15T04:00:00Z'}
         elif path.endswith('/Resources'):
@@ -1096,6 +1102,41 @@ def timezone_checks(browser):
         context.close()
 
 
+def history_precision_checks(browser):
+    context = browser_context(browser, viewport={'width': 320, 'height': 1000})
+    fixture = install_bmc(context)
+    fixture['small_cpu'] = True
+    page = context.new_page()
+    page.clock.install()
+    page.goto('http://ui.test' + base + '/bmc')
+    page.locator('#tab-metrics').click()
+    figure = page.locator('[data-metric=container-cpu]')
+    expect(figure.locator('.peak')).to_have_text('peak 0.5 mcores')
+    expect(figure.locator('.legend')).to_contain_text('manager <0.01 mcores')
+    chart = figure.locator('svg.chart')
+    chart.focus()
+    page.keyboard.press('Home')
+    expect(figure.locator('.readout')).to_contain_text('manager 0 mcores')
+    page.keyboard.press('ArrowRight')
+    expect(figure.locator('.readout')).to_contain_text('manager 0.25 mcores')
+    page.keyboard.press('End')
+    expect(figure.locator('.readout')).to_contain_text('manager <0.01 mcores')
+    assert chart.locator('.tick').evaluate_all('es=>es.every(e=>e.getBBox().x >= 0)'), 'Fractional labels must fit the chart'
+    fixture['sparse_history'] = True
+    status = page.locator('.history-status')
+    previous = status.inner_text()
+    page.clock.fast_forward(31000)
+    expect(status).not_to_have_text(previous)
+    expect(status).not_to_have_text('Loading…')
+    lengths = chart.locator('path.line').evaluate_all('es=>es.map(e=>e.getTotalLength())')
+    assert lengths and all(abs(length - 2) < 0.01 for length in lengths), ('Isolated samples need visible marks with no line across missing data', lengths)
+    expect(chart).to_be_focused()
+    no_overflow(page, 'history-small-and-sparse', 320)
+    capture(page, args.output / 'bmc-history-small-and-sparse.png')
+    assert fixture['posts'] == []
+    context.close()
+
+
 def metric_focus_checks(browser):
     context = browser_context(browser, viewport={'width': 390, 'height': 1000})
     fixture = install_bmc(context)
@@ -1258,7 +1299,7 @@ with sync_playwright() as playwright:
                             expect(page.get_by_role('button', name='Power on', exact=True)).to_be_disabled()
                         expect(page.get_by_role('button', name='Power off', exact=True)).to_be_enabled()
                         expect(page.locator('#power-state-help')).to_contain_text('snapshot')
-                    chart_keys(page, '.spark:has(polyline)', 'polyline')
+                    chart_keys(page, '.spark:has(path.spark-line)', 'path.spark-line')
                     more_power = page.locator('#more-power-actions')
                     if more_power.count():
                         assert not more_power.evaluate('(e) => e.open')
@@ -1409,6 +1450,7 @@ with sync_playwright() as playwright:
     access_recovery_checks(browser)
     action_discovery_checks(browser)
     metric_focus_checks(browser)
+    history_precision_checks(browser)
     bmc_state_checks(browser, 1440, 'dark')
     bmc_state_checks(browser, 390, 'light')
     bmc_state_checks(browser, 320, 'dark')

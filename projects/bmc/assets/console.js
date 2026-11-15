@@ -776,6 +776,8 @@ function scaled(value, suffix) {
 function formatValue(value, unit) {
     if (unit === 'bytes') return scaled(value, '');
     if (unit === 'bytes/s') return scaled(value, '/s');
+    if (unit === 'cores' && value > 0 && value < 0.00001) return '<0.01 mcores';
+    if (unit === 'cores' && value > 0 && value < 0.001) return `${Math.round(value * 100000) / 100} mcores`;
     if (unit === 'cores') return Math.abs(value) < 1 ? `${Math.round(value * 1000)} mcores` : `${value.toFixed(2)} cores`;
     return `${+value.toPrecision(3)} ${unit || ''}`.trim();
 }
@@ -855,12 +857,15 @@ function drawChart(figure, answer, title) {
     }
     answer.series.forEach((series, index) => {
         // A gap longer than two steps (no samples, or NaN) breaks the line.
-        let d = '', previous = null;
+        let d = '', previous = null, segmentLength = 0;
         for (const [t, v] of series.points) {
-            d += `${previous !== null && t - previous <= 2 * answer.step ? 'L' : 'M'}${x(t).toFixed(1)},${y(v).toFixed(1)}`;
+            const connected = previous !== null && t >= previous && (!answer.step || t - previous <= 2 * answer.step);
+            if (!connected && segmentLength === 1) d += 'h1';
+            d += `${connected ? 'L' : 'M'}${x(t).toFixed(1)},${y(v).toFixed(1)}`;
+            segmentLength = connected ? segmentLength + 1 : 1;
             previous = t;
         }
-        if (series.points.length === 1) d += `h1`;
+        if (segmentLength === 1) d += 'h1';
         svg.append(svgNode('path', {d, class: `line series-${index % SERIES_COLOURS}`}));
     });
     const cursor = svgNode('line', {y1: pad.top, y2: pad.top + plotHeight, class: 'cursor', visibility: 'hidden'});
@@ -976,7 +981,7 @@ function buildHistory(slot) {
         return figure;
     });
     slot.classList.remove('slot');
-    const help = node('p', 'Point to a chart to inspect a sample. With keyboard focus, use Left/Right arrows or Home/End.', 'panel-help');
+    const help = node('p', 'Point to a chart to inspect a sample. With keyboard focus, use Left/Right arrows or Home/End. Gaps indicate missing samples; a short mark shows a lone sample.', 'panel-help');
     help.id = 'history-help';
     slot.replaceChildren(head, help, ...charts);
     // Drawing changes the panel's height. Only width changes require a new

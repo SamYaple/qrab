@@ -401,6 +401,11 @@ pub fn history_value(value: f64, unit: &str) -> String {
     match unit {
         "bytes" => scaled(value, ""),
         "bytes/s" => scaled(value, "/s"),
+        "cores" if value > 0.0 && value < 0.00001 => "<0.01 mcores".into(),
+        "cores" if value > 0.0 && value < 0.001 => {
+            let milli = format!("{:.2}", (value * 100_000.0).round() / 100.0);
+            format!("{} mcores", milli.trim_end_matches('0').trim_end_matches('.'))
+        }
         "cores" if value.abs() < 1.0 => format!("{:.0} mcores", value * 1000.0),
         "cores" => format!("{value:.2} cores"),
         unit => format!("{value} {unit}"),
@@ -422,6 +427,37 @@ pub fn spark_points(points: &[(f64, f64)], start: f64, end: f64, max: f64) -> St
         .join(" ")
 }
 
+/// Break at missing intervals; a lone sample gets a short visible mark.
+pub fn spark_path(points: &[(f64, f64)], start: f64, end: f64, max: f64, step: u64) -> String {
+    let geometry = spark_points(points, start, end, max);
+    let mut path = String::new();
+    let mut previous = None;
+    let mut segment_len = 0;
+    let mut mark = "h1";
+    for ((time, _), position) in points.iter().zip(geometry.split_whitespace()) {
+        let connected = previous.is_some_and(|last| {
+            *time >= last && (step == 0 || *time - last <= 2.0 * step as f64)
+        });
+        if connected {
+            path.push('L');
+        } else {
+            if segment_len == 1 {
+                path.push_str(mark);
+            }
+            path.push('M');
+            segment_len = 0;
+        }
+        path.push_str(position);
+        segment_len += 1;
+        previous = Some(*time);
+        mark = if *time > (start + end) / 2.0 { "h-1" } else { "h1" };
+    }
+    if segment_len == 1 {
+        path.push_str(mark);
+    }
+    path
+}
+
 fn sparkline(metric: &str, history: &redfish::History) -> Element {
     let max = history
         .series
@@ -441,11 +477,12 @@ fn sparkline(metric: &str, history: &redfish::History) -> Element {
             (
                 format!("spark-{}", index % SPARK_COLOURS),
                 series.label(),
-                spark_points(
+                spark_path(
                     &series.points,
                     history.start as f64,
                     history.end as f64,
                     max,
+                    history.step,
                 ),
                 latest,
             )
@@ -473,8 +510,8 @@ fn sparkline(metric: &str, history: &redfish::History) -> Element {
             else { figcaption { b { "{title}" } span { class: "muted", " · peak {history_value(max, &history.unit)}" } }
             svg { view_box: "0 0 240 48", preserve_aspect_ratio: "none", role: "img", "aria-label": "{summary}",
                 line { class: "spark-axis", x1: "0", y1: "47", x2: "240", y2: "47" }
-                for (class, _, points, _) in lines.iter() {
-                    polyline { class: "{class}", points: "{points}" }
+                for (class, _, path, _) in lines.iter() {
+                    path { class: "spark-line {class}", d: "{path}" }
                 }
             }
             ul { class: "spark-legend",
@@ -505,6 +542,7 @@ fn history_card(history: &[redfish::HistoryRead]) -> Element {
     rsx! {
         section { class: "card wide", h3 { "Metric history (last hour)" }
             p { class: "muted", "From the cluster Prometheus through the VM's Redfish MetricHistory: container CPU and memory from kubelet cAdvisor, disk and network rates from the Redfish export." }
+            p { class: "muted", "Gaps indicate missing samples; a short mark shows a lone sample." }
             div { class: "spark-grid",
                 for (metric, read) in history.iter() {
                     match read {
