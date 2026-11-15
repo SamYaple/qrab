@@ -58,7 +58,7 @@ impl<'i> QapiEvent<'i> {
         if s.name.is_empty() {
             return Err(nom::Err::Error(Error::new(start, ErrorKind::Tag)));
         }
-        // if boxed is set to true, `data` is no optional. I do no account for this at all.
+        // Named boxed payload requirements are checked after schema resolution.
         // the qapi spec needs to be correct here, data being equal to None is allowed for us.
         Ok((input, s))
     }

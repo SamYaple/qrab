@@ -108,6 +108,30 @@ fn members_or_ref(value: &MembersOrRef<'_>, types: &HashSet<&str>) -> Result<()>
     }
 }
 
+fn boxed_arguments(
+    data: &Option<MembersOrRef<'_>>,
+    boxed: Option<&str>,
+    declarations: &HashMap<&str, &QapiSchemaToken<'_>>,
+) -> Result<()> {
+    let Some(boxed) = boxed else {
+        return Ok(());
+    };
+    ensure!(boxed == "true", "Flag 'boxed' may only use true value");
+    let Some(MembersOrRef::Ref(name)) = data else {
+        anyhow::bail!("Boxed arguments require a named 'data' type");
+    };
+    let object = match declarations.get(name) {
+        Some(QapiSchemaToken::Struct(_)) => true,
+        Some(QapiSchemaToken::Union(value)) => !value.legacy_alternate,
+        _ => false,
+    };
+    ensure!(
+        object,
+        "Boxed arguments require an object type, not '{name}'"
+    );
+    Ok(())
+}
+
 fn alternate_branches(
     branches: &crate::QapiAlternatives<'_>,
     declarations: &HashMap<&str, &QapiSchemaToken<'_>>,
@@ -265,6 +289,7 @@ pub(crate) fn validate(schemas: &[(&Path, QapiSchema<'_>)]) -> Result<()> {
                         alternate_branches(&value.data, &declarations)?;
                     }
                     QapiSchemaToken::Command(value) => {
+                        boxed_arguments(&value.data, value.boxed, &declarations)?;
                         if let Some(data) = &value.data {
                             members_or_ref(data, &types).context("Invalid arguments")?;
                         }
@@ -273,6 +298,7 @@ pub(crate) fn validate(schemas: &[(&Path, QapiSchema<'_>)]) -> Result<()> {
                         }
                     }
                     QapiSchemaToken::Event(value) => {
+                        boxed_arguments(&value.data, value.boxed, &declarations)?;
                         if let Some(data) = &value.data {
                             members_or_ref(data, &types).context("Invalid event data")?;
                         }

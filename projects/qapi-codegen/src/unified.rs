@@ -2246,6 +2246,37 @@ mod schema_resolution_tests {
     use super::*;
 
     #[test]
+    fn upstream_invalid_boxed_arguments_are_rejected() {
+        let root =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../vendor/qemu/tests/qapi-schema");
+        for name in [
+            "args-bad-boxed",
+            "args-boxed-anon",
+            "args-boxed-string",
+            "event-boxed-empty",
+        ] {
+            let path = root.join(format!("{name}.json"));
+            let sources = crate::read_schema_with_version(&path, Some((11, 1, 3))).unwrap();
+            let error = format!("{:#}", process_version_schema(&sources).unwrap_err());
+            assert!(error.contains(name), "{name}: {error}");
+        }
+    }
+
+    #[test]
+    fn boxed_commands_and_events_keep_named_object_fields_flat() {
+        let (_, structs) = process(concat!(
+            "{'struct':'Payload','data':{'value':'str'}}\n",
+            "{'command':'boxed-command','boxed':true,'data':'Payload'}\n",
+            "{'event':'BOXED_EVENT','boxed':true,'data':'Payload'}\n",
+            "{'command':'boxed-empty','boxed':true,'data':'q_empty'}",
+        ))
+        .unwrap();
+        assert_eq!(structs["BoxedCommand"].fields[0].name, "value");
+        assert_eq!(structs["BoxedEventEvent"].fields[0].name, "value");
+        assert!(structs["BoxedEmpty"].fields.is_empty());
+    }
+
+    #[test]
     fn upstream_ambiguous_alternate_fixtures_are_rejected() {
         let root =
             Path::new(env!("CARGO_MANIFEST_DIR")).join("../../vendor/qemu/tests/qapi-schema");
