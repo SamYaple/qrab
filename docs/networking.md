@@ -680,9 +680,7 @@ provider Pod on kube01, the VM on kube03):
 ### ProtonVPN
 
 ProtonVPN is the supported provider; qrab keeps its `vpn-*` Secrets itself
-instead of having them pasted in (container `protonvpn-nics` in towl tracks
-the parts still being built: the broker, the login command, port forwarding
-and the dashboard page).
+instead of having them pasted in (towl container `protonvpn-nics`).
 
 - **Account access.** The Proton account is a full account (Mail, Drive), so
   its password and TOTP never enter the cluster. `qrab-proton login` runs on
@@ -755,6 +753,22 @@ and the dashboard page).
   ConfigMap, a live server switch with the same key, and garbage collection
   with the profile; it refuses to run when a real `proton-session` exists.
   `contrib/kubernetes/proton/check-policy.sh` checks the write confinement.
+- **Live check.** `bash contrib/check-proton-vpn.sh` (after
+  `qrab-proton login`) runs the whole path against the real account: a
+  profile with port forwarding, a CirrOS VM whose `vpn` NIC is its default
+  route and whose `ctl` NIC carries only the script's command channel (the
+  tunnel cannot reach the VM host's private address), the guest's egress IP
+  as a public echo service sees it, a TCP connection from the VM host's own
+  uplink to `<egress IP>:<forwardedPort>` reaching a listener in the guest,
+  the key absent from the VM Pod and qrab-netd's logs, a manual switch to a
+  server in `SWITCH_COUNTRY` (default CH), and a live migration. `KEEP=1`
+  leaves everything up after a failure. Measured on 2026-11-15 (operator
+  `f3d7d09d`): auto selection chose US-GA#442 with a 7-day certificate; the
+  guest egressed as a Proton address, never the VM host's; forwarded port
+  41476 reached the guest from outside on the first try; switching to CH#496
+  changed the guest's egress 41 s after the patch (58 s in a second run)
+  and its new port 56682 worked; after a migration kube03 → kube01 the same
+  boot kept the same egress and port.
 - **Least privilege.** The broker reads only `proton-session` and
   `proton-keys` (by name) and writes profile Secrets without reading them.
   `ValidatingAdmissionPolicy` `qrab-proton-broker-writes` limits its writes to
