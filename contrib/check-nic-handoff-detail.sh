@@ -3,13 +3,16 @@
 # (docs/networking.md, "Live migration"). Run on the VM host as an admin
 # kubectl user. One CirrOS VM moves MOVES times (default 3) while:
 #   - a probe Pod on every node pings the guest every 0.1 s;
-#   - each node's Cilium agent reports the guest address's ipcache entry
-#     every ~0.1 s.
+#   - each node's Cilium agent reports the guest address's ipcache entry and
+#     the node's kernel routes for its /32 (qrab-netd's forward route, proto
+#     252, and BGP's) every ~0.1 s.
 # For every move it prints, from the agents' and managers' timestamped logs:
 # the forward route, target activate and source standby completion times
 # relative to the manager's switch end; when each node's ipcache named the new
-# node; each node's longest ping gap; and Hubble's drops for the guest's
-# address. It fails only on a failed move, a probe gap over MAX_GAP_S, or a
+# node; each node's kernel route changes for the /32 and when the source
+# swept its forward route; each node's longest ping gap; and Hubble's drops
+# for the guest's address. Each move is measured until SETTLE_S (default 70)
+# after it succeeds, past the anchor retirement and the forward-route sweep. It fails only on a failed move, a probe gap over MAX_GAP_S, or a
 # drop other than the expected standby drops.
 #
 #   bash contrib/check-nic-handoff-detail.sh [vm-name]
@@ -18,6 +21,7 @@ vm=${1:-nichandoff}
 ns=qrab
 moves=${MOVES:-3}
 max_gap=${MAX_GAP_S:-2}
+settle=${SETTLE_S:-70}
 work=$(mktemp -d)
 log() { printf '%s %s\n' "$(date -u +%H:%M:%S)" "$*"; }
 fail() { log "FAIL: $*"; exit 1; }
@@ -90,9 +94,10 @@ while True:
     t=time.time(); ok=subprocess.run(['ping','-c','1','-W','1','$address'],stdout=subprocess.DEVNULL).returncode==0
     if ok: print(f'{t:.3f}',flush=True)
     time.sleep(max(0,0.1-(time.time()-t)))" >/dev/null
-  # ipcache entry every ~0.1 s, timestamped inside the agent.
+  # ipcache entry and the node's routes for the /32 every ~0.1 s, timestamped
+  # inside the agent (host network namespace).
   kubectl -n kube-system exec "$(agent "$n")" -c cilium-agent -- sh -c \
-    "while true; do echo \"\$(date +%s.%N) \$(cilium-dbg bpf ipcache get $address 2>/dev/null | tail -1)\"; sleep 0.1; done" \
+    "while true; do echo \"\$(date +%s.%N) \$(cilium-dbg bpf ipcache get $address 2>/dev/null | tail -1) | \$(ip -4 route show $address/32 | tr '\n' ';')\"; sleep 0.1; done" \
     > "$work/ipcache-$n.log" 2>/dev/null &
   pids+=($!)
 done
@@ -125,7 +130,7 @@ EOF
     sleep 1
   done
   [ "$phase" = Succeeded ] || fail "move $i did not finish"
-  sleep 25
+  sleep "$settle"
   done_at=$(date +%s.%N)
   # The manager's switch end, and each netd step's completion.
   switch_line=$(kubectl -n "$ns" logs "$source_pod" -c manager --timestamps 2>/dev/null | grep '"event":"migration_switched"' | tail -1)
@@ -138,6 +143,13 @@ EOF
   fwd=$(step "$source_node" "$address/32 forwarded via")
   act=$(step "$target" "nic-eth0-$target is active")
   stb=$(step "$source_node" "nic-eth0-$source_node is standby")
+  swept=$(step "$source_node" "\"unforwarded\"")
+  # Each node's kernel routes for the /32 (after "|"), as changes.
+  kroutes=""
+  for n in kube01 kube02 kube03; do
+    r=$(awk -v s="$start" -v e="$done_at" -v b="$switched" '$1+0>=s && $1+0<=e {r=$0; sub(/^[^|]*\| ?/,"",r); gsub(/ (dev|metric|nhid) [^ ;]*/,"",r); gsub(/ +;/,";",r); if (r != last) {printf "%+.1fs:[%s] ", $1-b, r; last=r}}' "$work/ipcache-$n.log")
+    kroutes="$kroutes $n:{${r}}"
+  done
   # ipcache convergence: first entry naming the target after the switch.
   target_ip=$(node_ip "$target")
   converge=""
@@ -165,7 +177,9 @@ EOF
   routes=$(awk -v s="$start" -v e="$done_at" -v b="$switched" '$1+0>=s && $1+0<=e {r=$0; sub(/^[^ ]+ /,"",r); if (r != last) {printf "%+.1fs:%s; ", $1-b, r; last=r}}' "$work/host-route.log" | sed 's/ dev [a-z0-9]*//g; s/ src [0-9.]*//g; s/ uid [0-9]*//g')
   summary+=("move $i host: unanswered pings at [${lost}] s; route changes: ${routes}")
   log "${summary[-1]}"
-  summary+=("move $i $source_node->$target: switch ${switch_ms}ms; steps vs switch end: forward ${fwd}ms, target active ${act}ms, source standby ${stb}ms; ipcache names $target:$converge; probe gaps:$gaps; standby drops:$drops")
+  summary+=("move $i $source_node->$target: switch ${switch_ms}ms; steps vs switch end: forward ${fwd}ms, target active ${act}ms, source standby ${stb}ms, forward swept ${swept}ms; ipcache names $target:$converge; probe gaps:$gaps; standby drops:$drops")
+  log "${summary[-1]}"
+  summary+=("move $i node routes for $address/32:$kroutes")
   log "${summary[-1]}"
 done
 log "summary:"; printf '  %s\n' "${summary[@]}"
