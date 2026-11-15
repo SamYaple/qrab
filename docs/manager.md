@@ -207,17 +207,50 @@ manager/BMC lifecycle records go to stderr. No raw QMP/VNC TCP listener is opene
 A one-second QMP heartbeat atomically writes `status.json`. Probes validate
 freshness and process start times for manager, QEMU and swtpm. The CLI's `ready`
 requires QMP running; `live` permits paused guests. BMC HTTP `/readyz` uses live
-semantics so an operator can resume a paused VM. Process readiness does not
-prove the guest has finished booting; the demo serial probes provide that
-separate evidence.
+semantics so an operator can resume a paused VM. A powered-off VM (phase `off`)
+and one being powered on, off or cycled in place (`starting`/`stopping` with
+`relaunch: true`) is `live` while its manager heartbeat is fresh, but never
+`ready`: its Pod stays Ready, so the BMC and Redfish remain reachable to power
+it on. Process readiness does not prove the guest has finished booting; the
+demo serial probes provide that separate evidence.
 
-SIGTERM/SIGINT or BMC powerdown attempts ACPI, waits the configured guest grace,
-then QMP quit and bounded kill/reap. Both children are owned and reaped. A TPM
-crash fails the VM and reaps QEMU. Cancellation uses kill-on-drop cleanup. Pod
+### Power lifecycle
+
+The manager is the VM's init. The runtime lock, control socket, persistent
+state lease and event numbering (one epoch) last for the whole manager
+process, across every QEMU it starts. Each power-on cycle creates a fresh
+session directory (QMP, VNC, QGA and swtpm sockets), applies staged firmware
+and Secure Boot settings, starts swtpm and waits for it, then runs QEMU.
+A live-migration target receives its guest only in the first cycle.
+
+| Event | Result |
+| --- | --- |
+| `powerdown` (Redfish GracefulShutdown) | ACPI, the configured guest grace, then QMP quit and bounded kill; the VM rests `off` |
+| The guest powers itself off (QEMU exits 0) | `off` |
+| `forceoff` | QMP quit, SIGKILL after 2 s; `off` |
+| `on` while `off` | a new cycle: new QEMU and swtpm PIDs, same TPM identity, NVRAM and disks |
+| `coldrestart` (PowerCycle) | QMP quit and reap, then a new cycle at once; while `off` it powers on |
+| SIGTERM/SIGINT (Pod deletion, `spec.running: false`) | stop as for `powerdown` (or at once while `off`), then the manager exits |
+| QEMU exits non-zero or by a signal we did not send, swtpm dies, or QMP is lost while QEMU keeps running | the manager fails and exits; the operator replaces the Pod |
+| A completed outgoing live migration | the manager exits (`migrated`) |
+
+While `off`, `status` reports phase `off` with no QEMU or swtpm PID and the
+heartbeat continues. Requests that need QEMU (metrics, inventory, media,
+console, guest agent, pause/resume/reset/NMI/reboot) fail at once with
+`Error::PoweredOff` (`powered_off` on the socket); `powerdown` and `forceoff`
+succeed as no-ops, and `on` while QEMU runs is refused. Firmware and Secure
+Boot staging work while off and take effect at the next power on. Each
+transition records a `QRAB_POWER_STATE` event (data
+`{"power_state": "Off"|"PoweringOn"|"On", "reason": ...}`, no QEMU
+timestamp) in the same history as QMP events. A native iSCSI VM whose QEMU
+needed SIGKILL still fails the manager, since clean disk release is not
+proven; a clean stop logs out and the next QEMU logs in again with the same
+initiator name, so the Pod, its exported LUNs and the operator's storage
+guard are untouched. A powered-off VM cannot live-migrate.
+
+All children are owned and reaped. Cancellation uses kill-on-drop cleanup. Pod
 grace must exceed guest grace plus command/kill bounds; the example uses 20s.
-The tiny init has no ACPI handler, so normal shutdown may use QMP quit. The
-operator's `running:true` policy creates another instance after exit; use the CR
-to keep a VM off.
+The tiny init has no ACPI handler, so a graceful shutdown may use QMP quit.
 
 ## Control API
 
@@ -250,9 +283,11 @@ dispatched request and on the heartbeat.
 
 `status()` returns the record the supervisor last published, from memory
 (`watch_status()` follows changes); before this channel's supervisor publishes,
-it reads `status.json`. Once the supervisor starts stopping QEMU, every request
-fails at once with `Error::ShuttingDown` (a repeated powerdown succeeds)
-instead of waiting for the 5 s request timeout.
+it reads `status.json`. While the supervisor stops QEMU, every request fails
+at once with `Error::ShuttingDown` (a repeated power off succeeds) instead of
+waiting for the 5 s request timeout; while the VM is off, requests that need
+QEMU fail with `Error::PoweredOff`. A new power-on cycle accepts requests again.
+`qmp_dropped` counts drops across every QEMU the manager has run.
 
 ### Control socket
 
@@ -289,7 +324,7 @@ changes run to their outcome whether or not the client is still waiting.
 | `config` | `redacted` (default false) | `ConfigView` |
 | `metrics` | | `VmMetrics`: timestamp, logical processor count, configured RAM bytes and aggregate guest-facing block counters; one-second cache, two-second QMP deadline |
 | `events` | `after`, `limit` (≤256) | `EventPage` |
-| `action` | `action`: `pause`/`resume`/`reset`/`powerdown`/`nmi`/`reboot`/`coldrestart` | `null` |
+| `action` | `action`: `pause`/`resume`/`reset`/`powerdown`/`nmi`/`reboot`/`coldrestart`/`on`/`forceoff` | `null` |
 | `follow` | `after` (default: latest) | `{"after":n}`, then the connection streams `{"v":1,"event":{...}}`, `{"v":1,"missed":n}` and `{"v":1,"qmp_dropped":n}` (on change) frames until the client closes or sends anything |
 | `console` | | `null`, then the connection is the raw VNC (RFB) byte stream |
 | `agent_status` | | cached `AgentStatus` (`enabled`, `connected`, `version`, timestamps, `last_error`); never queues |
@@ -448,10 +483,23 @@ certificate/signature count 512, decoded AUTH2 payload 128KiB. The existing 16
 control connections and 32 Redfish response-lifetime admissions bound memory.
 Read caches last five seconds; mutation failure never preserves stale trust data.
 
-The operator sets `restart_on_exit=true` as its lifecycle guarantee. Managed
-`coldrestart` exits QEMU cleanly and lets the operator create the next instance
-under retained identity. A normal `reset` upgrades to this path if cold settings
-or CODE activation is pending. Standalone config defaults false and refuses
-coldrestart rather than claiming the process will restart itself. QGA reboot
-remains a warm guest operation. Full force-off/On intent reconciliation remains
-separate work. See [Redfish](redfish.md) for API semantics and measured experiments.
+`coldrestart` quits QEMU and starts a fresh one in the same manager, applying
+staged CODE and Secure Boot settings; a normal `reset` upgrades to it if cold
+settings or CODE activation is pending. This no longer depends on
+`restart_on_exit` (still set by the operator, and still accepted), so a
+standalone manager power-cycles too. QGA reboot remains a warm guest
+operation. See [Redfish](redfish.md) for API semantics and measured experiments.
+
+### In-pod power rollout (2026-11-15)
+
+The manager, BMC and Redfish ship in one image, so the Pod's containers always
+agree on phase `off`, `Error::PoweredOff` and the new actions. Rolling the
+manager image replaces each VM Pod once (the operator's template check), as
+any image update does. An older manager answers Redfish `On` on an off VM with
+409 and still exits on shutdown; an older operator needs no change, since it
+only reads Pod readiness and a powered-off VM's Pod stays Running and Ready.
+Its `Running`/`VMRunning` status then means the Pod is live: Redfish
+`PowerState` says whether the guest is on. Live checks: GracefulShutdown then
+On keeps the Pod UID, restart count and TPM EK and changes `qemu_pid`;
+PowerCycle changes `qemu_pid` in the same Pod; Pod deletion, `spec.running:
+false` and a killed QEMU behave as before.

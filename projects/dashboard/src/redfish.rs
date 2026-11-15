@@ -36,9 +36,9 @@ pub const MAX_BODY: usize = 1024 * 1024;
 /// 8 KiB each) and keeps the newest [`EVENTS_SHOWN`].
 pub const MAX_LOG_BODY: usize = 4 * 1024 * 1024;
 
-/// The in-pod `ComputerSystem.Reset` types the dashboard offers. `On` is
-/// absent: Resume covers a paused VM, and an off VM is started through
-/// `spec.running`.
+/// The in-pod `ComputerSystem.Reset` types the dashboard sends. `On` is not
+/// offered as a button of its own: the console's Power on sends it to an
+/// existing Pod (see [`crate::power::PowerOn`]), and Resume covers a paused VM.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub enum ResetType {
     Resume,
@@ -48,10 +48,13 @@ pub enum ResetType {
     PowerCycle,
     Nmi,
     GracefulShutdown,
+    ForceOff,
+    On,
 }
 
 impl ResetType {
-    pub const ALL: [Self; 7] = [
+    /// The offered reset types, in button order.
+    pub const ALL: [Self; 8] = [
         Self::Resume,
         Self::Pause,
         Self::GracefulRestart,
@@ -59,6 +62,7 @@ impl ResetType {
         Self::PowerCycle,
         Self::Nmi,
         Self::GracefulShutdown,
+        Self::ForceOff,
     ];
 
     /// ```
@@ -80,6 +84,8 @@ impl ResetType {
             Self::PowerCycle => "PowerCycle",
             Self::Nmi => "Nmi",
             Self::GracefulShutdown => "GracefulShutdown",
+            Self::ForceOff => "ForceOff",
+            Self::On => "On",
         }
     }
     pub fn label(self) -> &'static str {
@@ -91,11 +97,13 @@ impl ResetType {
             Self::PowerCycle => "Power cycle",
             Self::Nmi => "NMI",
             Self::GracefulShutdown => "Shut down",
+            Self::ForceOff => "Force off",
+            Self::On => "Power on",
         }
     }
     /// Disruptive actions need an explicit confirmation.
     pub fn needs_confirmation(self) -> bool {
-        !matches!(self, Self::Resume | Self::Pause)
+        !matches!(self, Self::Resume | Self::Pause | Self::On)
     }
 }
 
@@ -536,10 +544,17 @@ mod tests {
             );
         }
         assert!(ResetType::Nmi.needs_confirmation() && !ResetType::Pause.needs_confirmation());
-        let allowed: Vec<String> = ["On", "Nmi", "ForceOff", "Pause"]
+        assert!(ResetType::ForceOff.needs_confirmation() && !ResetType::On.needs_confirmation());
+        let allowed: Vec<String> = ["On", "Nmi", "ForceOff", "Pause", "ForceOn"]
             .map(String::from)
             .to_vec();
-        assert_eq!(offered(&allowed), [ResetType::Pause, ResetType::Nmi]);
+        // On is sent by Power on, never offered as a reset button.
+        assert_eq!(
+            offered(&allowed),
+            [ResetType::Pause, ResetType::Nmi, ResetType::ForceOff]
+        );
+        assert_eq!(ResetType::parse("On"), None);
+        assert_eq!(ResetType::On.name(), "On");
     }
     #[test]
     fn redfish_shapes_parse_leniently() {

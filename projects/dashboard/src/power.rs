@@ -1,7 +1,8 @@
 //! The console page's power controls, as JSON for its script. In-pod actions
 //! are Redfish `ComputerSystem.Reset` requests to the VM's own Pod with the
-//! user's ID token; power on and off set the VM's `spec.running`, since an off
-//! VM has no Pod or Redfish service to ask.
+//! user's ID token. A powered-off VM keeps its Pod, so power on is Redfish
+//! `On` while that Pod exists and `spec.running` otherwise; power off sets
+//! `spec.running: false`, which ends the Pod and keeps the VM off.
 use crate::{
     AppState, Failure,
     access::Role,
@@ -24,7 +25,8 @@ use tower_sessions::Session;
 pub enum Power {
     /// Sent to the running VM's Redfish service.
     Reset(ResetType),
-    /// `spec.running: true`: the operator starts a Pod.
+    /// Redfish `On` to the VM's Pod, or `spec.running: true` when there is
+    /// none; see [`PowerOn::route`].
     On,
     /// `spec.running: false`: the operator stops the VM and keeps it off.
     Off,
@@ -57,6 +59,34 @@ impl Power {
             Self::Reset(reset) => reset.needs_confirmation(),
             Self::On => false,
             Self::Off => true,
+        }
+    }
+}
+
+/// Where Power on goes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PowerOn {
+    /// The VM's Pod is up: Redfish `On` starts its QEMU in place (a no-op
+    /// while on; a paused VM resumes).
+    Redfish(IpAddr),
+    /// No Pod, or the VM is set to stop: `spec.running: true`.
+    Spec,
+}
+
+impl PowerOn {
+    /// ```
+    /// use qrab_dashboard::power::PowerOn;
+    /// let pod = Some("10.0.0.7".parse().unwrap());
+    /// assert_eq!(PowerOn::route(true, true, pod), PowerOn::Redfish(pod.unwrap()));
+    /// // No Pod yet, a VM set to stop (its Pod is ending) or no Redfish.
+    /// assert_eq!(PowerOn::route(true, true, None), PowerOn::Spec);
+    /// assert_eq!(PowerOn::route(false, true, pod), PowerOn::Spec);
+    /// assert_eq!(PowerOn::route(true, false, pod), PowerOn::Spec);
+    /// ```
+    pub fn route(running: bool, redfish: bool, pod: Option<IpAddr>) -> Self {
+        match pod {
+            Some(ip) if running && redfish => Self::Redfish(ip),
+            _ => Self::Spec,
         }
     }
 }
@@ -208,16 +238,24 @@ async fn power(
     if role != Role::Admin {
         return Err(Failure::forbidden());
     }
-    let result = match power {
-        Power::On | Power::Off => {
+    let redfish = vm.spec.components.bmc.enabled;
+    let on = match power {
+        Power::On if vm.spec.running && redfish => {
+            PowerOn::route(true, redfish, pod_ip(app, &vm).await?)
+        }
+        _ => PowerOn::Spec,
+    };
+    let result = match (power, on) {
+        (Power::On, PowerOn::Redfish(ip)) => reset(app, ip, &user.id_token, ResetType::On).await,
+        (Power::On | Power::Off, _) => {
             let uid = vm.metadata.uid.as_deref().ok_or_else(Failure::internal)?;
             app.cluster
                 .set_running(name, uid, power == Power::On)
                 .await
                 .map_err(|e| Failure::upstream(&e))
         }
-        Power::Reset(kind) => {
-            if !vm.spec.components.bmc.enabled {
+        (Power::Reset(kind), _) => {
+            if !redfish {
                 return Err(Failure::forbidden());
             }
             let ip = pod_ip(app, &vm)

@@ -51,7 +51,7 @@ pub use config::{
 };
 pub use control::{control_channel, control_channel_for, Action, Control, ControlReceiver};
 pub use events::{
-    EventPage, QemuTime, VmEvent, EVENT_CAPACITY, EVENT_DATA_LIMIT, EVENT_PAGE_LIMIT,
+    EventPage, QemuTime, VmEvent, EVENT_CAPACITY, EVENT_DATA_LIMIT, EVENT_PAGE_LIMIT, POWER_EVENT,
 };
 pub use hotplug::{GuestSize, Resize, ResizePhase};
 pub use iscsi::{IscsiBus, IscsiDisk};

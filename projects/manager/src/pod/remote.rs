@@ -278,8 +278,10 @@ impl Remote {
 /// The manager answered with an error, so the connection is healthy.
 /// `Client` reports other manager errors as "control request failed (...)".
 fn is_refusal(error: &Error) -> bool {
-    matches!(error, Error::ShuttingDown | Error::Config(_))
-        || error.to_string().starts_with("control request failed")
+    matches!(
+        error,
+        Error::ShuttingDown | Error::PoweredOff | Error::Config(_)
+    ) || error.to_string().starts_with("control request failed")
 }
 
 /// Where a BMC-like service reaches its VM.

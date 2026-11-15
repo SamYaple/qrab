@@ -58,10 +58,12 @@ async fn mock_qemu_with(
 ) {
     let session = tokio::time::timeout(Duration::from_secs(5), async {
         loop {
+            // A relaunched QEMU gets a fresh session: skip one already served.
             let found = std::fs::read_dir(&runtime).ok().and_then(|entries| {
-                entries
-                    .flatten()
-                    .find(|e| e.file_name().to_string_lossy().starts_with("session-"))
+                entries.flatten().find(|e| {
+                    e.file_name().to_string_lossy().starts_with("session-")
+                        && !e.path().join("qmp.sock").exists()
+                })
             });
             if let Some(entry) = found {
                 return entry.path();
@@ -220,7 +222,7 @@ async fn supervisor_records_qmp_events_and_serves_them_over_control_and_socket()
     );
     config.iscsi_disks.clear();
     let (inject, injected) = mpsc::channel(8);
-    let qemu = tokio::spawn(mock_qemu(config.runtime_dir.clone(), injected));
+    let _first_qemu = tokio::spawn(mock_qemu(config.runtime_dir.clone(), injected));
     let (stop, stopped) = tokio::sync::oneshot::channel::<()>();
     let runner = tokio::spawn(pod::run_controlled(
         config.clone(),
@@ -496,20 +498,156 @@ async fn supervisor_records_qmp_events_and_serves_them_over_control_and_socket()
         "{:?}",
         started.elapsed()
     );
+    // A graceful shutdown leaves the manager serving a powered-off VM.
+    let first = wait_for_phase(&control, pod::Phase::Off).await;
+    assert!(control
+        .events(None, pod::EVENT_PAGE_LIMIT)
+        .events
+        .iter()
+        .any(|e| e.event == "POWERDOWN"));
+    let off = wait_for(&control, pod::POWER_EVENT).await;
+    assert_eq!(
+        off.data,
+        json!({"power_state":"Off","reason":"graceful-shutdown"})
+    );
+    assert_eq!(off.qemu_time, None);
+    assert!(first.qemu_pid.is_none() && first.swtpm_pid.is_none() && !first.ready);
+    assert!(!runner.is_finished());
+    pod::probe(&config, false).unwrap();
+    assert!(pod::probe(&config, true).is_err());
+    // QEMU requests fail at once with a typed error, in process and over
+    // the socket; a repeated power off is already in effect.
+    assert!(matches!(
+        control.metrics().await,
+        Err(manager::Error::PoweredOff)
+    ));
+    assert!(matches!(
+        control.action(Action::Reset).await,
+        Err(manager::Error::PoweredOff)
+    ));
+    let mut off_client = Client::connect(&path).await.unwrap();
+    assert!(matches!(
+        off_client.action(Action::Pause).await,
+        Err(manager::Error::PoweredOff)
+    ));
+    assert!(matches!(
+        Client::connect(&path).await.unwrap().console().await,
+        Err(manager::Error::PoweredOff)
+    ));
+    assert_eq!(off_client.status().await.unwrap().phase, pod::Phase::Off);
+    off_client.action(Action::Powerdown).await.unwrap();
+    off_client.action(Action::ForceOff).await.unwrap();
+    // Power on starts a new QEMU in the same manager and event numbering.
+    let epoch = control.events(None, 1).epoch;
+    let qemu = tokio::spawn(mock_qemu(config.runtime_dir.clone(), mpsc::channel(1).1));
+    let before = control.events(None, 1).latest;
+    off_client.action(Action::On).await.unwrap();
+    let on = wait_for(&control, pod::POWER_EVENT).await;
+    assert!(on.seq > before);
+    let running = wait_for_phase(&control, pod::Phase::Running).await;
+    assert!(running.qemu_pid.is_some());
+    let resumed = wait_for(&control, "RESUME").await;
+    assert!(resumed.seq > before);
+    assert_eq!(control.events(None, 1).epoch, epoch);
+    let power: Vec<_> = control
+        .events(Some(before), pod::EVENT_PAGE_LIMIT)
+        .events
+        .into_iter()
+        .filter(|e| e.event == pod::POWER_EVENT)
+        .map(|e| e.data["power_state"].clone())
+        .collect();
+    assert_eq!(power, [json!("PoweringOn"), json!("On")]);
+    control.action(Action::Pause).await.unwrap();
+    assert!(matches!(
+        control.action(Action::On).await,
+        Err(manager::Error::Config(_))
+    ));
+    // Pod shutdown still ends the manager.
+    let _ = stop.send(());
     let outcome = tokio::time::timeout(Duration::from_secs(10), runner)
         .await
         .unwrap()
         .unwrap()
         .unwrap();
     assert_eq!(outcome.reason, "shutdown-requested");
-    assert!(control
-        .events(None, pod::EVENT_PAGE_LIMIT)
-        .events
-        .iter()
-        .any(|e| e.event == "POWERDOWN"));
+    assert_eq!(control.status().unwrap().phase, pod::Phase::Exited);
     assert!(!path.exists(), "control socket outlived its supervisor");
-    let _ = stop.send(());
     qemu.abort();
+}
+
+/// The first status record in `phase`, as the supervisor publishes it.
+async fn wait_for_phase(control: &pod::Control, phase: pod::Phase) -> pod::Status {
+    let mut watch = control.watch_status();
+    tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            if let Some(status) = watch.borrow_and_update().clone() {
+                if status.phase == phase {
+                    return status;
+                }
+            }
+            watch.changed().await.unwrap();
+        }
+    })
+    .await
+    .unwrap_or_else(|_| panic!("phase {phase:?} was not published"))
+}
+
+#[tokio::test]
+async fn power_cycle_and_force_off_relaunch_qemu_without_ending_the_manager() {
+    let (_dir, config) = fixture();
+    let (control, _inject, runner) = start(&config);
+    wait_for(&control, "RESUME").await;
+    let first = wait_for_phase(&control, pod::Phase::Running).await;
+    let first_pid = first.qemu_pid.unwrap();
+    // Power cycle: QMP quit, then a fresh QEMU with no Off in between.
+    tokio::spawn(mock_qemu(config.runtime_dir.clone(), mpsc::channel(1).1));
+    control.action(Action::ColdRestart).await.unwrap();
+    let cycled = tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            let status = wait_for_phase(&control, pod::Phase::Running).await;
+            if status.qemu_pid.is_some_and(|pid| pid != first_pid) {
+                return status;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("power cycle did not start a new QEMU");
+    assert_eq!(cycled.manager_pid, first.manager_pid);
+    assert!(
+        !std::path::PathBuf::from(format!("/proc/{first_pid}")).exists(),
+        "the cycled QEMU was not reaped"
+    );
+    let reasons: Vec<_> = control
+        .events(Some(0), pod::EVENT_PAGE_LIMIT)
+        .events
+        .into_iter()
+        .filter(|e| e.event == pod::POWER_EVENT)
+        .map(|e| e.data)
+        .collect();
+    assert_eq!(
+        reasons,
+        [
+            json!({"power_state":"PoweringOn","reason":"power-cycle"}),
+            json!({"power_state":"On","reason":"power-cycle"})
+        ]
+    );
+    // Force off: the VM rests Off, then a power cycle while off powers it on.
+    control.action(Action::ForceOff).await.unwrap();
+    let off = wait_for_phase(&control, pod::Phase::Off).await;
+    assert!(off.qemu_pid.is_none());
+    assert_eq!(
+        wait_for(&control, pod::POWER_EVENT).await.data["reason"],
+        "force-off"
+    );
+    tokio::spawn(mock_qemu(config.runtime_dir.clone(), mpsc::channel(1).1));
+    control.action(Action::ColdRestart).await.unwrap();
+    assert!(wait_for_phase(&control, pod::Phase::Running)
+        .await
+        .qemu_pid
+        .is_some());
+    assert!(!runner.task.is_finished());
+    assert_eq!(runner.shutdown().await.reason, "shutdown-requested");
 }
 
 #[test]
@@ -730,24 +868,43 @@ async fn next(follower: &mut socket::Follower) -> pod::VmEvent {
     }
 }
 
+/// A supervisor task and its pod-shutdown trigger.
+struct Runner {
+    stop: tokio::sync::oneshot::Sender<()>,
+    task: tokio::task::JoinHandle<manager::Result<pod::Outcome>>,
+}
+
+impl Runner {
+    fn spawn(config: &Config, receiver: pod::ControlReceiver) -> Self {
+        let (stop, stopped) = tokio::sync::oneshot::channel::<()>();
+        let task = tokio::spawn(pod::run_controlled(
+            config.clone(),
+            async {
+                let _ = stopped.await;
+            },
+            receiver,
+        ));
+        Self { stop, task }
+    }
+
+    /// Pod shutdown: the manager stops QEMU and exits.
+    async fn shutdown(self) -> pod::Outcome {
+        let _ = self.stop.send(());
+        tokio::time::timeout(Duration::from_secs(10), self.task)
+            .await
+            .expect("manager did not exit on shutdown")
+            .unwrap()
+            .unwrap()
+    }
+}
+
 /// Start a supervisor with its mock QEMU; returns the control, an event
-/// injector and the supervisor task.
-fn start(
-    config: &Config,
-) -> (
-    pod::Control,
-    mpsc::Sender<(String, Value)>,
-    tokio::task::JoinHandle<manager::Result<pod::Outcome>>,
-) {
+/// injector and the supervisor.
+fn start(config: &Config) -> (pod::Control, mpsc::Sender<(String, Value)>, Runner) {
     let (control, receiver) = pod::control_channel_for(config, Deployment::default());
     let (inject, injected) = mpsc::channel(8);
     tokio::spawn(mock_qemu(config.runtime_dir.clone(), injected));
-    let runner = tokio::spawn(pod::run_controlled(
-        config.clone(),
-        std::future::pending(),
-        receiver,
-    ));
-    (control, inject, runner)
+    (control, inject, Runner::spawn(config, receiver))
 }
 
 #[tokio::test]
@@ -827,13 +984,8 @@ async fn sidecar_mirror_resyncs_after_a_manager_restart_and_reuses_connections()
     backend.status().await.unwrap();
     assert_eq!(remote.connections_opened(), before);
 
-    control.action(Action::Powerdown).await.unwrap();
-    tokio::time::timeout(Duration::from_secs(10), runner)
-        .await
-        .unwrap()
-        .unwrap()
-        .unwrap();
-    // The mirror holds the old manager's full numbering, through POWERDOWN.
+    runner.shutdown().await;
+    // The mirror holds the old manager's full numbering, through its shutdown.
     let old = control.events(None, 1).latest;
     tokio::time::timeout(Duration::from_secs(5), async {
         while backend.events(None, 1).latest < old {
@@ -874,8 +1026,7 @@ async fn sidecar_mirror_resyncs_after_a_manager_restart_and_reuses_connections()
     // Pooled connections to the old manager are replaced transparently.
     backend.status().await.unwrap();
     mirror.abort();
-    control.action(Action::Powerdown).await.unwrap();
-    let _ = tokio::time::timeout(Duration::from_secs(10), runner).await;
+    runner.shutdown().await;
 }
 
 /// A wedged guest agent: it completes every handshake and answers pings but
@@ -916,7 +1067,7 @@ async fn start_with_hung_agent(
     pod::Control,
     mpsc::Sender<(String, Value)>,
     Arc<AtomicUsize>,
-    tokio::task::JoinHandle<manager::Result<pod::Outcome>>,
+    Runner,
 ) {
     let (control, receiver) = pod::control_channel_for(config, Deployment::default());
     let (inject, injected) = mpsc::channel(8);
@@ -925,11 +1076,7 @@ async fn start_with_hung_agent(
         let received = received.clone();
         move |path: &Path| serve_hung_agent(path, received)
     }));
-    let runner = tokio::spawn(pod::run_controlled(
-        config.clone(),
-        std::future::pending(),
-        receiver,
-    ));
+    let runner = Runner::spawn(config, receiver);
     wait_for(&control, "RESUME").await;
     tokio::time::timeout(Duration::from_secs(10), async {
         while !control.agent_status().await.unwrap().connected {
@@ -975,7 +1122,7 @@ async fn all_connections(path: &Path, within: Duration) -> Vec<Client> {
 async fn a_disconnected_client_abandons_its_pending_guest_read_at_once() {
     let (_dir, config) = fixture();
     let path = socket::socket_path(&config);
-    let (control, _inject, _received, runner) = start_with_hung_agent(&config).await;
+    let (_control, _inject, _received, runner) = start_with_hung_agent(&config).await;
     // Every connection slot waits on the same unanswered guest read: none is
     // turned away as busy by the agent queue.
     let mut pending = Vec::new();
@@ -1006,15 +1153,14 @@ async fn a_disconnected_client_abandons_its_pending_guest_read_at_once() {
         client.status().await.unwrap();
     }
     drop(held);
-    control.action(Action::Powerdown).await.unwrap();
-    let _ = tokio::time::timeout(Duration::from_secs(10), runner).await;
+    runner.shutdown().await;
 }
 
 #[tokio::test]
 async fn polling_a_hung_agent_never_exhausts_control_connections() {
     let (_dir, config) = fixture();
     let path = socket::socket_path(&config);
-    let (control, _inject, received, runner) = start_with_hung_agent(&config).await;
+    let (_control, _inject, received, runner) = start_with_hung_agent(&config).await;
     // A Redfish-like poller: every 100 ms a new client asks for the boot state
     // and gives up after 1 s. None is ever refused a connection.
     let clients: Vec<_> = (0..40u64)
@@ -1054,6 +1200,5 @@ async fn polling_a_hung_agent_never_exhausts_control_connections() {
         "{console}"
     );
     drop(held);
-    control.action(Action::Powerdown).await.unwrap();
-    let _ = tokio::time::timeout(Duration::from_secs(10), runner).await;
+    runner.shutdown().await;
 }

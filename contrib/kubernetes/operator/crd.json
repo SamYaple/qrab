@@ -487,7 +487,7 @@
                   },
                   "running": {
                     "default": true,
-                    "description": "Desired power state. A running VM is recreated after exit or Pod loss.",
+                    "description": "Desired power state. While true the operator keeps a VM Pod and recreates\nit after exit or loss; a guest powered off inside it stays off until a\nRedfish On. False deletes the Pod and keeps the VM off.",
                     "type": "boolean"
                   },
                   "secureBootCapable": {

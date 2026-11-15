@@ -12,15 +12,26 @@ const RESOURCES = '/redfish/v1/Managers/1/Oem/Qrab/Resources';
 const VM_REPORT = '/redfish/v1/TelemetryService/MetricReports/VM';
 // ResetType, label and whether it is disruptive (two-step confirm); only
 // those Redfish allows are shown.
+// A powered-off VM keeps its pod: On starts QEMU again in place.
 const RESETS = [
+    ['On', 'Power on'],
     ['Pause', 'Pause'],
     ['Resume', 'Resume'],
     ['ForceRestart', 'Reset', true],
     ['GracefulRestart', 'Restart guest', true],
     ['GracefulShutdown', 'Shut down', true],
+    ['ForceOff', 'Force off', true],
     ['PowerCycle', 'Power cycle', true],
     ['Nmi', 'NMI', true],
 ];
+// Which reset types make sense in each PowerState; unknown states allow all.
+const POWER_ALLOWS = {
+    On: new Set(['Pause', 'ForceRestart', 'GracefulRestart', 'GracefulShutdown', 'ForceOff', 'PowerCycle', 'Nmi']),
+    Paused: new Set(['Resume', 'ForceRestart', 'GracefulShutdown', 'ForceOff', 'PowerCycle']),
+    Off: new Set(['On']),
+    PoweringOn: new Set(['ForceOff']),
+    PoweringOff: new Set(['ForceOff']),
+};
 const TABS = ['overview', 'metrics', 'events', 'agent', 'config'];
 const element = id => document.getElementById(id);
 let session, rfb, polling, metricsTimer, events, system, refreshTimer;
@@ -259,9 +270,9 @@ function showStatus() {
     chip.dataset.health = health || '';
     chip.title = system?.Status?.State ? `State: ${system.Status.State}` : '';
     chip.hidden = false;
+    const allows = POWER_ALLOWS[system?.PowerState];
     for (const button of element('power')?.children || []) {
-        if (button.dataset.type === 'Pause') button.disabled = system?.PowerState === 'Paused';
-        if (button.dataset.type === 'Resume') button.disabled = system?.PowerState === 'On';
+        button.disabled = Boolean(allows) && !allows.has(button.dataset.type);
     }
 }
 function showOverview() {

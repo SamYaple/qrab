@@ -21,8 +21,9 @@ the live QMP event history, the effective configuration and metrics)
 is read from and sent to the VM's in-pod [Redfish](redfish.md) service through
 the BMC's [`/bmc/redfish` session adapter](#redfish-proxy).
 
-Shutdown ends the current VM instance. With spec.running=true, the operator
-starts another; set spec.running=false to keep it off.
+Shut down and Force off leave the VM powered off in its Pod; Power on starts
+QEMU again in place with the same TPM identity and disks. Set
+spec.running=false to end the Pod and keep the VM off.
 
 The RAM-only fixture has an interactive root shell on its virtual terminal.
 Keyboard and absolute pointer devices are exposed to the guest; the fixture's

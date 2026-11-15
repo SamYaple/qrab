@@ -1755,6 +1755,7 @@ async fn console_power_controls_are_admin_only_checked_and_reach_redfish_or_the_
         "PowerCycle",
         "Nmi",
         "GracefulShutdown",
+        "ForceOff",
     ];
     for reset in resets {
         let (status, _, text) = send(
@@ -1788,26 +1789,46 @@ async fn console_power_controls_are_admin_only_checked_and_reach_redfish_or_the_
         assert_eq!(status, StatusCode::NO_CONTENT, "{body}: {text}");
     }
     // Each in-pod action is the matching ResetType with the user's bearer.
+    // Power on reaches the running VM's Pod as Redfish On: a powered-off
+    // VM keeps its Pod and starts again in place.
     let sent: Vec<_> = h.bmc_a.lock().unwrap().clone();
     assert_eq!(
         sent,
         resets
+            .into_iter()
+            .chain(["On"])
             .map(|reset| (
                 "POST".to_string(),
                 "/redfish/v1/Systems/1/Actions/ComputerSystem.Reset".to_string(),
                 "Bearer id-token-of-alice".to_string(),
                 format!(r#"{{"ResetType":"{reset}"}}"#)
             ))
-            .to_vec()
+            .collect::<Vec<_>>()
     );
     assert!(h.bmc_b.lock().unwrap().is_empty());
     assert_eq!(
         *h.cluster.running.lock().unwrap(),
-        [
-            ("a".into(), "uid-a".into(), false),
-            ("a".into(), "uid-a".into(), true)
-        ]
+        [("a".into(), "uid-a".into(), false)]
     );
+    // A VM set to stop has no Pod to ask: Power on sets spec.running.
+    h.cluster.vms.lock().unwrap()[0].spec.running = false;
+    let (status, _, text) = send(
+        &h,
+        post_json(
+            path,
+            Some(&admin),
+            Some(ORIGIN),
+            Some("correct"),
+            serde_json::json!({"action": "on"}),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT, "{text}");
+    assert_eq!(
+        h.cluster.running.lock().unwrap().last(),
+        Some(&("a".into(), "uid-a".into(), true))
+    );
+    assert_eq!(h.bmc_a.lock().unwrap().len(), resets.len() + 1);
 }
 
 #[tokio::test]

@@ -77,7 +77,7 @@ Redfish admin actions offered on the BMC's Guest agent tab, not here.
 | `POST /vms/{ns}/{name}/action` | Admin form power action: one Redfish ResetType from `Systems/1`'s allowable values (`action`, plus `confirm=yes` for disruptive ones) |
 | `POST /vms/{ns}/{name}/delete` | Admin deletion of a VM launched by the dashboard; the PVC is kept |
 | `GET /vms/{ns}/{name}/power` | Admin JSON power state: `running` (spec), operator `phase`, `pod`, Redfish `power_state` and `health` from `Systems/1`, the allowed in-pod `reset_types` from `ResetActionInfo`, `redfish_error` |
-| `POST /vms/{ns}/{name}/power` | Admin JSON power request `{"action": ..., "confirm": bool}`: `on`, `off`, or a Redfish ResetType (`Resume`, `Pause`, `GracefulRestart`, `ForceRestart`, `PowerCycle`, `Nmi`, `GracefulShutdown`) |
+| `POST /vms/{ns}/{name}/power` | Admin JSON power request `{"action": ..., "confirm": bool}`: `on`, `off`, or a Redfish ResetType (`Resume`, `Pause`, `GracefulRestart`, `ForceRestart`, `PowerCycle`, `Nmi`, `GracefulShutdown`, `ForceOff`) |
 | `GET /vms/{ns}/{name}/console` | noVNC page with power controls (admin) |
 | `GET /vms/{ns}/{name}/console/ws` | Console WebSocket proxy (admin, exact Origin) |
 | `GET`/`POST /launch` | Launch form (launchers) |
@@ -89,25 +89,29 @@ Redfish admin actions offered on the BMC's Guest agent tab, not here.
 
 The console page's toolbar has **Power on**, the in-pod Redfish resets
 **Resume**, **Pause**, **Restart guest** (`GracefulRestart`), **Reset**
-(`ForceRestart`), **Power cycle** (`PowerCycle`), **NMI** (`Nmi`) and **Shut
-down** (`GracefulShutdown`), and **Power off**, enabled from a state poll
-every 3 seconds while the tab is visible. An in-pod button is shown only while
-the VM's `Systems/1/ResetActionInfo` lists its ResetType (Power cycle needs an
-operator-managed restart, Restart guest a connected guest agent at action
-time), and enabled from `Systems/1` `PowerState`: Resume while `Paused`;
-Pause, Restart guest, NMI and Shut down while `On`; Reset and Power cycle while
-`On` or `Paused`. Every button except Power on, Resume and Pause arms on the
-first click ("Confirm reset") and sends only on a second click within 5
-seconds; the server also refuses them without `"confirm": true`.
+(`ForceRestart`), **Power cycle** (`PowerCycle`), **NMI** (`Nmi`), **Shut
+down** (`GracefulShutdown`) and **Force off** (`ForceOff`), and **Power off**,
+enabled from a state poll every 3 seconds while the tab is visible. An in-pod
+button is shown only while the VM's `Systems/1/ResetActionInfo` lists its
+ResetType (Restart guest also needs a connected guest agent at action time),
+and enabled from `Systems/1` `PowerState`: Resume while `Paused`; Pause,
+Restart guest, NMI and Shut down while `On`; Reset while `On` or `Paused`;
+Power cycle also while `Off`; Force off unless `Off`. Every button except
+Power on, Resume and Pause arms on the first click ("Confirm reset") and sends
+only on a second click within 5 seconds; the server also refuses them without
+`"confirm": true`.
 
 - The in-pod buttons send `ComputerSystem.Reset` with the matching ResetType
-  to the running VM's Redfish service with the user's ID token. Shut down ends
-  this instance; while `spec.running` is true the operator starts another.
-  Redfish's `On` is not offered: Resume covers a paused VM.
-- **Power on** and **Power off** set `spec.running` with a merge patch that
-  carries the VM's UID (so it cannot reach a recreated VM of the same name).
-  An off VM has no Pod or Redfish service, so these go through Kubernetes.
-  Power off is the operator's stop and keeps the VM off.
+  to the running VM's Redfish service with the user's ID token. Shut down and
+  Force off leave the VM powered off in its Pod (`PowerState` `Off`).
+- **Power on** is enabled while `spec.running` is false or `PowerState` is
+  `Off`. While the VM is set to run and its Pod exists, it sends Redfish `On`
+  to that Pod, which starts QEMU again in place (a no-op while on). Otherwise
+  it sets `spec.running: true`.
+- **Power off** sets `spec.running: false`. Both `spec.running` patches are
+  merge patches that carry the VM's UID (so they cannot reach a recreated VM
+  of the same name). Power off is the operator's stop: it ends the Pod and
+  keeps the VM off.
 - After Power on, Reset, Restart guest, Power cycle or Shut down, the console
   reconnects by itself, backing off from 1 to 30 seconds, for two minutes.
   Disconnect or Power off cancels that.

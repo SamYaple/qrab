@@ -962,10 +962,12 @@ async fn synchronize(
             ready,
             if ready { "VMRunning" } else { "PodNotReady" },
             if ready {
+                // A guest powered off in place keeps its Pod Ready so Redfish
+                // can power it on again; Redfish PowerState tells them apart.
                 if vm.spec.nics.is_empty() {
-                    "QEMU, swtpm and the enabled BMC/Redfish components are live; guest networking is disabled"
+                    "The VM manager and the enabled BMC/Redfish components are live; Redfish PowerState reports whether the guest is on; guest networking is disabled"
                 } else {
-                    "QEMU, swtpm, the enabled BMC/Redfish components and the NIC Pods are live"
+                    "The VM manager, the enabled BMC/Redfish components and the NIC Pods are live; Redfish PowerState reports whether the guest is on"
                 }
             } else {
                 "Waiting for the VM Pod to become ready"

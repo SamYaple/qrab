@@ -567,7 +567,7 @@ fn power_controls(detail: &Detail, csrf: &str, panel: &PanelState) -> Element {
     rsx! {
         section { class: "card", aria_labelledby: "power-title",
             h2 { id: "power-title", "Power" }
-            p { class: "muted", "Sent to the VM's Redfish service with your sign-in. Shut down ends this instance; while the VM is set to run, the operator starts another. Power on and off are on the console page." }
+            p { class: "muted", "Sent to the VM's Redfish service with your sign-in. Shut down and Force off leave the VM powered off in its Pod; Power on (on the console page) starts it again in place. Power off on the console page stops the VM and keeps it off." }
             match allowed {
                 None => rsx! { p { class: "muted", role: "status", "Power actions are unavailable while the VM's Redfish service cannot be read." } },
                 Some(allowed) => rsx! { div { class: "actions",

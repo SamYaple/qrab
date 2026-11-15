@@ -8,7 +8,7 @@ use qapi::commands::{Cont, InjectNmi, Quit, Stop, SystemReset};
 use qapi_protocol::{Qmp, QmpEvent};
 use serde::{Deserialize, Serialize};
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
+    atomic::{AtomicBool, AtomicU64, Ordering},
     Arc, RwLock,
 };
 use tokio::{
@@ -23,9 +23,43 @@ pub enum Action {
     Pause,
     Resume,
     Reset,
+    /// ACPI power button; once QEMU exits the VM rests powered off.
     Powerdown,
     Nmi,
     Reboot,
+    /// Stop QEMU and start a fresh process in the same pod.
+    ColdRestart,
+    /// Start QEMU in the same pod; only valid while powered off.
+    On,
+    /// Quit QEMU at once (SIGKILL after a bounded wait); the VM rests powered off.
+    ForceOff,
+}
+
+impl Action {
+    /// What a powered-off VM accepts: power on and power cycle start QEMU,
+    /// and a power off is already in effect.
+    ///
+    /// ```
+    /// use manager::pod::Action;
+    /// assert!(Action::On.serves_off() && Action::ForceOff.serves_off());
+    /// assert!(!Action::Reset.serves_off() && !Action::Pause.serves_off());
+    /// ```
+    pub fn serves_off(self) -> bool {
+        matches!(
+            self,
+            Self::On | Self::ColdRestart | Self::Powerdown | Self::ForceOff
+        )
+    }
+}
+
+/// How a dispatched request ends the current QEMU process.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum PowerStop {
+    /// ACPI powerdown with the shutdown grace, then rest powered off.
+    PowerOff,
+    /// QMP quit was sent; reap it, then rest powered off.
+    ForceOff,
+    /// QMP quit was sent; reap it, then start a fresh QEMU.
     ColdRestart,
 }
 
@@ -59,8 +93,12 @@ struct Shared {
     config: RwLock<Option<Config>>,
     /// Every record the supervisor publishes, as it publishes it.
     status: Arc<watch::Sender<Option<Status>>>,
-    /// Set once the supervisor stops serving requests.
+    /// Set while the supervisor stops QEMU, and for good once it exits.
     stopping: AtomicBool,
+    /// Set while QEMU is powered off and the supervisor waits for power-on.
+    off: AtomicBool,
+    /// QMP client event drops of the QEMU processes that already ended.
+    qmp_dropped_base: AtomicU64,
     /// Guest-agent connection state, published by the agent task.
     agent: Arc<watch::Sender<AgentStatus>>,
     reads: GuestReads,
@@ -83,6 +121,7 @@ struct GuestReads {
 #[derive(Clone)]
 enum FlightError {
     ShuttingDown,
+    PoweredOff,
     Config(String),
     Other(String),
 }
@@ -91,6 +130,7 @@ impl From<Error> for FlightError {
     fn from(error: Error) -> Self {
         match error {
             Error::ShuttingDown => Self::ShuttingDown,
+            Error::PoweredOff => Self::PoweredOff,
             Error::Config(message) => Self::Config(message),
             error => Self::Other(error.to_string()),
         }
@@ -101,6 +141,7 @@ impl From<FlightError> for Error {
     fn from(error: FlightError) -> Self {
         match error {
             FlightError::ShuttingDown => Error::ShuttingDown,
+            FlightError::PoweredOff => Error::PoweredOff,
             FlightError::Config(message) => Error::Config(message),
             FlightError::Other(message) => Error::Spawn(message),
         }
@@ -208,6 +249,8 @@ fn channel(config: Option<Config>, deployment: Deployment) -> (Control, ControlR
         config: RwLock::new(config),
         status: Arc::new(watch::channel(None).0),
         stopping: AtomicBool::new(false),
+        off: AtomicBool::new(false),
+        qmp_dropped_base: AtomicU64::new(0),
         agent: Arc::new(watch::channel(agent).0),
         reads: GuestReads::default(),
     });
@@ -306,15 +349,59 @@ impl ControlReceiver {
         })
     }
 
-    /// Events the QMP client discarded because its queue was full or an
-    /// event exceeded its size bound.
+    /// Events the current QMP client discarded because its queue was full or
+    /// an event exceeded its size bound.
     pub fn set_qmp_dropped(&self, dropped: u64) {
-        self.shared.events.set_qmp_dropped(dropped);
+        let base = self.shared.qmp_dropped_base.load(Ordering::Acquire);
+        self.shared.events.set_qmp_dropped(base + dropped);
     }
 
-    /// From now on requests fail at once with [`Error::ShuttingDown`].
+    /// Keep the ended QEMU connection's drops in the manager-lifetime count.
+    pub(super) fn end_qmp_connection(&self) {
+        let total = self.shared.events.summary_page(None, 1).qmp_dropped;
+        self.shared.qmp_dropped_base.store(total, Ordering::Release);
+    }
+
+    /// Requests fail at once with [`Error::ShuttingDown`] until
+    /// [`Self::set_powering_on`] or [`Self::set_off`].
     pub(super) fn set_stopping(&self) {
         self.shared.stopping.store(true, Ordering::Release);
+    }
+
+    /// QEMU is gone and the supervisor answers requests itself: QMP and
+    /// guest requests fail at once with [`Error::PoweredOff`].
+    pub(super) fn set_off(&self) {
+        self.shared.off.store(true, Ordering::Release);
+        self.shared.stopping.store(false, Ordering::Release);
+    }
+
+    /// A new QEMU is starting: requests queue for it as at first start.
+    pub(super) fn set_powering_on(&self) {
+        // A new process: no cached sample or setting describes it yet. A
+        // cache held by a caller is refilled by that caller after this.
+        fn clear<T>(cache: &tokio::sync::Mutex<Option<T>>) {
+            if let Ok(mut cache) = cache.try_lock() {
+                *cache = None;
+            }
+        }
+        clear(&self.shared.metrics);
+        clear(&self.shared.inventory);
+        clear(&self.shared.firmware_status_cache);
+        clear(&self.shared.secure_boot_settings);
+        clear(&self.shared.secure_boot_databases);
+        self.shared.off.store(false, Ordering::Release);
+        self.shared.stopping.store(false, Ordering::Release);
+    }
+
+    /// Record a manager power transition in the event history.
+    pub(super) fn record_power(&self, power_state: &str, reason: &str) {
+        self.shared.events.record_power(power_state, reason);
+    }
+
+    /// Serialize applying staged firmware and Secure Boot settings with
+    /// staging them through the control API.
+    pub(super) async fn firmware_guard(&self) -> tokio::sync::MutexGuard<'_, ()> {
+        self.shared.firmware_stage.lock().await
     }
 
     pub(super) fn status_sink(&self) -> super::state::StatusSink {
@@ -529,9 +616,7 @@ impl Control {
     }
 
     pub async fn inventory(&self) -> Result<super::HardwareInventory> {
-        if self.shared.stopping.load(Ordering::Acquire) {
-            return Err(Error::ShuttingDown);
-        }
+        self.admit_qemu()?;
         let mut cached = self.shared.inventory.lock().await;
         if let Some((at, sample)) = cached.as_ref() {
             if at.elapsed() < std::time::Duration::from_secs(1) {
@@ -549,9 +634,7 @@ impl Control {
 
     /// Fixed read-only queries through the same bounded queue as VM actions.
     pub async fn metrics(&self) -> Result<super::VmMetrics> {
-        if self.shared.stopping.load(Ordering::Acquire) {
-            return Err(Error::ShuttingDown);
-        }
+        self.admit_qemu()?;
         // Coalesce BMC/Redfish readers into one successful sample per second.
         // Failures never become cached zero values or indefinitely stale data.
         let mut cached = self.shared.metrics.lock().await;
@@ -563,6 +646,17 @@ impl Control {
         let sample = self.request(Request::Metrics).await?;
         *cached = Some((std::time::Instant::now(), sample.clone()));
         Ok(sample)
+    }
+
+    /// Fail at once rather than queue a request no QEMU can serve now.
+    fn admit_qemu(&self) -> Result<()> {
+        if self.shared.stopping.load(Ordering::Acquire) {
+            return Err(Error::ShuttingDown);
+        }
+        if self.shared.off.load(Ordering::Acquire) {
+            return Err(Error::PoweredOff);
+        }
+        Ok(())
     }
 
     async fn request<T>(
@@ -582,8 +676,12 @@ impl Control {
             return Err(Error::ShuttingDown);
         }
         let (tx, rx) = oneshot::channel();
+        let request = make(tx);
+        if self.shared.off.load(Ordering::Acquire) && !request.serves_off() {
+            return Err(Error::PoweredOff);
+        }
         self.requests
-            .try_send(make(tx))
+            .try_send(request)
             .map_err(|e| Error::Spawn(format!("VM control unavailable: {e}")))?;
         // A caller timeout never retries a potentially dispatched action.
         tokio::time::timeout(deadline, rx)
@@ -593,12 +691,10 @@ impl Control {
     }
 
     pub async fn action(&self, action: Action) -> Result<()> {
-        if action == Action::ColdRestart && !self.config()?.restart_on_exit {
-            return Err(Error::Config(
-                "cold restart requires an operator restart-on-exit guarantee".into(),
-            ));
+        if !action.serves_off() {
+            self.admit_qemu()?;
         }
-        if action == Action::Reset && self.config()?.restart_on_exit {
+        if action == Action::Reset {
             let pending_settings = self.secure_boot_settings().await?.pending_cold_boot;
             let pending_code =
                 self.firmware_stage_status().await?.activation.as_deref() == Some("PendingRestart");
@@ -706,6 +802,7 @@ impl Control {
         make: impl FnOnce(oneshot::Sender<Result<T>>) -> AgentOp,
     ) -> Result<T> {
         // Fail at once rather than queue behind startup or a reconnect.
+        self.admit_qemu()?;
         let status = self.shared.agent.borrow().clone();
         if !status.enabled {
             return Err(Error::Spawn("guest agent channel is disabled".into()));
@@ -775,11 +872,15 @@ const AGENT_REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_sec
 const AGENT_STATUS_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 
 impl Request {
+    fn serves_off(&self) -> bool {
+        matches!(self, Self::Action(action, _) if action.serves_off())
+    }
+
     /// Answer a request that arrives while the VM is being stopped. A
-    /// repeated powerdown is already in effect.
+    /// repeated power off is already in effect.
     pub(super) fn shutting_down(self) {
         match self {
-            Self::Action(Action::Powerdown, reply) => drop(reply.send(Ok(()))),
+            Self::Action(Action::Powerdown | Action::ForceOff, reply) => drop(reply.send(Ok(()))),
             Self::Action(_, reply) => drop(reply.send(Err(Error::ShuttingDown))),
             Self::Console(reply) => drop(reply.send(Err(Error::ShuttingDown))),
             Self::Metrics(reply) => drop(reply.send(Err(Error::ShuttingDown))),
@@ -789,22 +890,51 @@ impl Request {
         }
     }
 
-    /// True requests the supervisor's bounded ACPI/quit/reap shutdown path.
+    /// Answer a request while QEMU is powered off. True starts QEMU: power
+    /// on and power cycle. A power off is already in effect; everything else
+    /// needs a running QEMU.
+    pub(super) fn powered_off(self) -> bool {
+        match self {
+            Self::Action(Action::On | Action::ColdRestart, reply) => {
+                let _ = reply.send(Ok(()));
+                return true;
+            }
+            Self::Action(Action::Powerdown | Action::ForceOff, reply) => drop(reply.send(Ok(()))),
+            Self::Action(_, reply) => drop(reply.send(Err(Error::PoweredOff))),
+            Self::Console(reply) => drop(reply.send(Err(Error::PoweredOff))),
+            Self::Metrics(reply) => drop(reply.send(Err(Error::PoweredOff))),
+            Self::Inventory(reply) => drop(reply.send(Err(Error::PoweredOff))),
+            Self::Media(_, reply) => drop(reply.send(Err(Error::PoweredOff))),
+            Self::Agent(op) => op.reject(|| Error::PoweredOff),
+        }
+        false
+    }
+
+    /// `Some` ends the current QEMU process through the supervisor's bounded
+    /// stop path. Power cycle and force off have already sent QMP `quit`.
     pub(super) async fn dispatch(
         self,
         qmp: &Qmp,
         console: Option<&std::path::Path>,
         agent: Option<&GuestAgent>,
-    ) -> bool {
+    ) -> Option<PowerStop> {
         match self {
-            Self::Action(Action::ColdRestart, reply) if !reply.is_closed() => {
+            Self::Action(action @ (Action::ColdRestart | Action::ForceOff), reply)
+                if !reply.is_closed() =>
+            {
                 let result = qmp
                     .execute(&Quit {})
                     .await
                     .map(|_| ())
                     .map_err(Error::Protocol);
                 let _ = reply.send(result);
-                return true;
+                return Some(match action {
+                    Action::ColdRestart => PowerStop::ColdRestart,
+                    _ => PowerStop::ForceOff,
+                });
+            }
+            Self::Action(Action::On, reply) => {
+                let _ = reply.send(Err(Error::Config("the VM is already powered on".into())));
             }
             Self::Media(operation, reply) if !reply.is_closed() => {
                 let result = match super::MediaPolicy::from_env() {
@@ -849,7 +979,7 @@ impl Request {
             },
             Self::Action(Action::Powerdown, reply) if !reply.is_closed() => {
                 let _ = reply.send(Ok(()));
-                return true;
+                return Some(PowerStop::PowerOff);
             }
             Self::Action(action, reply) if !reply.is_closed() => {
                 let result = match action {
@@ -857,7 +987,11 @@ impl Request {
                     Action::Resume => qmp.execute(&Cont {}).await,
                     Action::Reset => qmp.execute(&SystemReset {}).await,
                     Action::Nmi => qmp.execute(&InjectNmi {}).await,
-                    Action::Powerdown | Action::Reboot | Action::ColdRestart => unreachable!(),
+                    Action::Powerdown
+                    | Action::Reboot
+                    | Action::ColdRestart
+                    | Action::On
+                    | Action::ForceOff => unreachable!(),
                 }
                 .map(|_| ())
                 .map_err(Error::Protocol);
@@ -884,7 +1018,7 @@ impl Request {
             },
             _ => {}
         }
-        false
+        None
     }
 }
 
@@ -1138,14 +1272,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn cold_restart_uses_quit_and_unmanaged_callers_are_refused() {
-        let config: Config =
-            serde_json::from_value(serde_json::json!({"kernel":"/unused"})).unwrap();
-        let (control, _) = control_channel_for(&config, Deployment::default());
-        assert!(matches!(
-            control.action(Action::ColdRestart).await,
-            Err(Error::Config(_))
-        ));
+    async fn power_actions_stop_qemu_their_own_way_and_on_needs_a_powered_off_vm() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("qmp.sock");
         let listener = tokio::net::UnixListener::bind(&path).unwrap();
@@ -1153,22 +1280,97 @@ mod tests {
             let mut session = QmpSession::accept(&listener).await.unwrap();
             session.send_greeting(11, 1, 3).await.unwrap();
             session.negotiate().await.unwrap();
-            let request = session.recv_command_full().await.unwrap();
-            assert_eq!(request.name, "quit");
-            session
-                .send_return_with_id(serde_json::json!({}), request.id)
-                .await
-                .unwrap();
+            let mut seen = Vec::new();
+            while let Ok(request) = session.recv_command_full().await {
+                seen.push(request.name.clone());
+                session
+                    .send_return_with_id(serde_json::json!({}), request.id)
+                    .await
+                    .unwrap();
+            }
+            seen
         });
         let (qmp, _) = Qmp::new(&path).await.unwrap();
+        let dispatch = |action| {
+            let qmp = &qmp;
+            async move {
+                let (reply, answer) = oneshot::channel();
+                let stop = Request::Action(action, reply)
+                    .dispatch(qmp, None, None)
+                    .await;
+                (stop, answer.await.unwrap())
+            }
+        };
+        // Power cycle and force off quit QEMU before the supervisor reaps it.
+        let (stop, answer) = dispatch(Action::ColdRestart).await;
+        assert_eq!(stop, Some(PowerStop::ColdRestart));
+        answer.unwrap();
+        let (stop, answer) = dispatch(Action::ForceOff).await;
+        assert_eq!(stop, Some(PowerStop::ForceOff));
+        answer.unwrap();
+        // A graceful shutdown leaves the ACPI request to the stop path.
+        let (stop, answer) = dispatch(Action::Powerdown).await;
+        assert_eq!(stop, Some(PowerStop::PowerOff));
+        answer.unwrap();
+        // QEMU is already running: On is refused and stops nothing.
+        let (stop, answer) = dispatch(Action::On).await;
+        assert_eq!(stop, None);
+        assert!(matches!(answer, Err(Error::Config(_))), "{answer:?}");
+        qmp.shutdown().await;
+        assert_eq!(server.await.unwrap(), ["quit", "quit"]);
+    }
+
+    #[tokio::test]
+    async fn a_powered_off_vm_answers_power_requests_and_refuses_qemu_ones() {
+        let config: Config =
+            serde_json::from_value(serde_json::json!({"kernel":"/unused"})).unwrap();
+        let (control, mut receiver) = control_channel_for(&config, Deployment::default());
+        receiver.set_off();
+        // Requests that need QEMU fail at once, before reaching the queue.
+        for action in [Action::Pause, Action::Resume, Action::Reset, Action::Nmi] {
+            assert!(
+                matches!(control.action(action).await, Err(Error::PoweredOff)),
+                "{action:?}"
+            );
+        }
+        assert!(matches!(control.metrics().await, Err(Error::PoweredOff)));
+        assert!(matches!(control.inventory().await, Err(Error::PoweredOff)));
+        assert!(matches!(control.console().await, Err(Error::PoweredOff)));
+        assert!(matches!(control.agent_ping().await, Err(Error::PoweredOff)));
+        assert!(matches!(
+            control.action(Action::Reboot).await,
+            Err(Error::PoweredOff)
+        ));
+        assert!(receiver.requests.try_recv().is_err());
+        // Power requests reach the supervisor, which answers them while off.
+        for (action, starts) in [
+            (Action::Powerdown, false),
+            (Action::ForceOff, false),
+            (Action::On, true),
+            (Action::ColdRestart, true),
+        ] {
+            let call = tokio::spawn({
+                let control = control.clone();
+                async move { control.action(action).await }
+            });
+            let request = receiver.requests.recv().await.unwrap();
+            assert_eq!(request.powered_off(), starts, "{action:?}");
+            call.await.unwrap().unwrap();
+        }
+        // A request that raced the off flag is answered, not served.
         let (reply, answer) = oneshot::channel();
-        assert!(
-            Request::Action(Action::ColdRestart, reply)
-                .dispatch(&qmp, None, None)
-                .await
-        );
-        answer.await.unwrap().unwrap();
-        server.await.unwrap();
+        assert!(!Request::Metrics(reply).powered_off());
+        assert!(matches!(answer.await.unwrap(), Err(Error::PoweredOff)));
+        // Powering on again queues requests for the new QEMU.
+        receiver.set_powering_on();
+        let call = tokio::spawn({
+            let control = control.clone();
+            async move { control.action(Action::Pause).await }
+        });
+        let request = receiver.requests.recv().await.unwrap();
+        assert!(matches!(&request, Request::Action(Action::Pause, _)));
+        request.shutting_down();
+        assert!(matches!(call.await.unwrap(), Err(Error::ShuttingDown)));
     }
     #[tokio::test]
     async fn pending_secure_boot_setting_upgrades_managed_force_restart_to_cold() {

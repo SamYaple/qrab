@@ -237,6 +237,7 @@ async fn agent_reply(control: &Control, id: Option<u64>, command: AgentCommand) 
 fn error_reply(id: Option<u64>, error: Error) -> Response {
     let code = match error {
         Error::ShuttingDown => ErrorCode::ShuttingDown,
+        Error::PoweredOff => ErrorCode::PoweredOff,
         // A request the manager refused on its merits, e.g. update arguments.
         Error::Config(_) => ErrorCode::BadRequest,
         _ => ErrorCode::Unavailable,
@@ -271,6 +272,8 @@ pub enum ErrorCode {
     Unavailable,
     /// The supervisor is stopping the VM ([`Error::ShuttingDown`]).
     ShuttingDown,
+    /// QEMU is powered off ([`Error::PoweredOff`]).
+    PoweredOff,
     /// A code from a newer manager.
     #[serde(other)]
     Other,
@@ -779,6 +782,7 @@ impl Client {
             (_, _, Some(error)) if error.code == ErrorCode::ShuttingDown => {
                 Err(Error::ShuttingDown)
             }
+            (_, _, Some(error)) if error.code == ErrorCode::PoweredOff => Err(Error::PoweredOff),
             (_, _, Some(error)) if error.code == ErrorCode::BadRequest => {
                 Err(Error::Config(error.message))
             }

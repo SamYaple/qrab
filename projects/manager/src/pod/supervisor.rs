@@ -1,4 +1,5 @@
 use super::{
+    control::PowerStop,
     iscsi::Binding,
     migration::{self, Pending, Receiving, Sent},
     persistent::{PersistentState, StateLease},
@@ -40,6 +41,26 @@ pub struct Outcome {
     pub shutdown_method: String,
 }
 
+/// How one QEMU process (a power-on cycle) ended.
+enum Cycle {
+    /// The manager exits: pod shutdown, or a completed outgoing migration.
+    Exit(Outcome),
+    /// QEMU stopped cleanly for this reason; the VM rests powered off.
+    Off(&'static str),
+    /// Power cycle: start a fresh QEMU at once.
+    Restart,
+}
+
+/// Why the supervision loop of a running QEMU ended.
+enum Ended {
+    /// QEMU exited by itself.
+    Exited(ExitStatus),
+    /// The pod is shutting down.
+    Shutdown,
+    /// A control request stops this QEMU.
+    Stop(PowerStop),
+}
+
 async fn reap_after_kill(child: &mut Child) -> Result<ExitStatus> {
     child.start_kill()?;
     timeout(Duration::from_secs(2), child.wait())
@@ -76,6 +97,14 @@ async fn stop_child(
     Ok((reap_after_kill(child).await?, "sigkill"))
 }
 
+/// Reap QEMU after QMP `quit` was sent, killing it if it does not exit soon.
+async fn reap_after_quit(child: &mut Child) -> Result<(ExitStatus, &'static str)> {
+    if let Ok(result) = timeout(Duration::from_secs(2), child.wait()).await {
+        return Ok((result?, "qmp-quit"));
+    }
+    Ok((reap_after_kill(child).await?, "sigkill"))
+}
+
 /// Own one QEMU child until it exits or shutdown resolves. kill_on_drop covers
 /// cancellation of this future; explicit paths always wait and reap the child.
 pub async fn run(config: Config, shutdown: impl Future<Output = ()>) -> Result<Outcome> {
@@ -84,6 +113,12 @@ pub async fn run(config: Config, shutdown: impl Future<Output = ()>) -> Result<O
 }
 
 /// Supervise a VM with a bounded in-process control channel for its BMC.
+///
+/// The manager is the VM's init: the runtime lock, control socket and
+/// persistent-state lease live as long as this call, across every QEMU it
+/// starts. A requested or guest-initiated power off leaves the VM `Off` until
+/// a power-on request; a power cycle starts a fresh QEMU at once. Pod
+/// shutdown, a completed outgoing migration or a QEMU failure ends the call.
 pub async fn run_controlled(
     mut config: Config,
     shutdown: impl Future<Output = ()>,
@@ -105,6 +140,124 @@ pub async fn run_controlled(
     let _control_socket = match config.control_socket {
         true => Some(super::socket::spawn(&config, control.control())?),
         false => None,
+    };
+    // A target learns the source's machine type and retained state before it
+    // prepares anything of its own.
+    let mut receiving = match &config.incoming {
+        Some(incoming) => {
+            let receiving = migration::connect(&config, incoming).await?;
+            config.machine = Some(receiving.offer.machine.clone());
+            Some(receiving)
+        }
+        None => None,
+    };
+    let mut persistent = PersistentState::prepare(&config)?;
+    let _firmware_lease = control.firmware_lease(persistent.as_ref().map(PersistentState::lease));
+    if let (Some(state), Some(receiving)) = (persistent.as_mut(), &receiving) {
+        state.retain(&receiving.offer.iscsi_disks)?;
+    }
+    let retained = persistent
+        .as_ref()
+        .map(PersistentState::bindings)
+        .unwrap_or_default();
+
+    let mut state = Status {
+        phase: Phase::Starting,
+        ready: false,
+        manager_pid: std::process::id(),
+        manager_start_ticks: start_ticks(std::process::id())?,
+        qemu_pid: None,
+        qemu_start_ticks: None,
+        qemu_version: None,
+        swtpm_pid: None,
+        swtpm_start_ticks: None,
+        run_state: None,
+        observed_unix_ms: 0,
+        exit_code: None,
+        detail: None,
+        resize: super::Resize::new(&config),
+        relaunch: false,
+    };
+    let mut shutdown = Box::pin(shutdown);
+    let base = config;
+    // Why the next QEMU starts; `None` for the pod's first one.
+    let mut relaunch: Option<&'static str> = None;
+    loop {
+        let cycle = power_on(
+            &base,
+            &mut shutdown,
+            &mut control,
+            &mut state,
+            &mut persistent,
+            (receiving.take(), &retained),
+            relaunch,
+        )
+        .await;
+        match cycle {
+            Ok(Cycle::Exit(outcome)) => {
+                state.ready = false;
+                publish(&base, &mut state)?;
+                return Ok(outcome);
+            }
+            Ok(Cycle::Restart) => relaunch = Some("power-cycle"),
+            Ok(Cycle::Off(reason)) => {
+                if !powered_off(&base, &mut shutdown, &mut control, &mut state, reason).await? {
+                    return Ok(Outcome {
+                        reason: "shutdown-requested".into(),
+                        exit_code: state.exit_code,
+                        shutdown_method: "powered-off".into(),
+                    });
+                }
+                relaunch = Some("power-on");
+            }
+            Err(error) => {
+                control.set_stopping();
+                state.phase = Phase::Failed;
+                state.detail = Some(error.to_string());
+                state.ready = false;
+                publish(&base, &mut state)?;
+                return Err(error);
+            }
+        }
+    }
+}
+
+/// One power-on cycle: a fresh session directory, staged firmware and Secure
+/// Boot settings applied, swtpm, then QEMU until it ends. A migration target
+/// receives its guest only in the first cycle.
+async fn power_on(
+    base: &Config,
+    shutdown: &mut (impl Future<Output = ()> + Unpin),
+    control: &mut super::ControlReceiver,
+    state: &mut Status,
+    persistent: &mut Option<PersistentState>,
+    migration: (Option<Receiving>, &BTreeMap<String, Binding>),
+    relaunch: Option<&'static str>,
+) -> Result<Cycle> {
+    let (receiving, retained) = migration;
+    let mut config = base.clone();
+    if let Some(reason) = relaunch {
+        config.incoming = None;
+        control.set_powering_on();
+        control.record_power("PoweringOn", reason);
+        eprintln!(
+            "{}",
+            serde_json::json!({"event":"qemu_relaunch","reason":reason})
+        );
+    }
+    *state = Status {
+        phase: Phase::Starting,
+        ready: false,
+        qemu_pid: None,
+        qemu_start_ticks: None,
+        qemu_version: None,
+        swtpm_pid: None,
+        swtpm_start_ticks: None,
+        run_state: None,
+        exit_code: None,
+        detail: None,
+        relaunch: relaunch.is_some(),
+        ..state.clone()
     };
     let session = tempfile::Builder::new()
         .prefix("session-")
@@ -133,90 +286,137 @@ pub async fn run_controlled(
     if let Some(seed) = &config.seed {
         seed.write(&super::seed::image_path(&socket))?;
     }
-    // A target learns the source's machine type and retained state before it
-    // prepares anything of its own.
-    let receiving = match &config.incoming {
-        Some(incoming) => {
-            let receiving = migration::connect(&config, incoming).await?;
-            config.machine = Some(receiving.offer.machine.clone());
-            Some(receiving)
-        }
-        None => None,
-    };
-    let mut persistent = PersistentState::prepare(&config)?;
-    let _firmware_lease = control.firmware_lease(persistent.as_ref().map(PersistentState::lease));
     if receiving.is_none() {
+        // A power cycle is where staged firmware and settings take effect.
+        let _staging = control.firmware_guard().await;
         super::firmware::apply_staged_firmware(&mut config)?;
         super::secure_boot_policy::apply(&config)?;
     }
     config.validate()?;
     control.set_config(&config);
-    if let (Some(state), Some(receiving)) = (persistent.as_mut(), &receiving) {
-        state.retain(&receiving.offer.iscsi_disks)?;
+    state.resize = super::Resize::new(&config);
+    publish(&config, state)?;
+    let mut tpm = None;
+    let result = async {
+        if let Some(tpm_config) = &config.tpm {
+            let identity = persistent.as_ref().expect("persistent TPM state");
+            tpm = Some(Swtpm::spawn(
+                tpm_config,
+                session.path(),
+                &identity.tpm_directory(),
+                identity.lease(),
+            )?);
+            let process = tpm.as_mut().expect("TPM process");
+            state.swtpm_pid = process.id();
+            state.swtpm_start_ticks = process.id().and_then(|pid| start_ticks(pid).ok());
+            publish(&config, state)?;
+            let ready = process.ready();
+            tokio::pin!(ready);
+            let deadline = tokio::time::sleep(Duration::from_secs(config.startup_timeout_secs));
+            tokio::pin!(deadline);
+            // Keep the heartbeat fresh: a relaunch is live while it starts.
+            let mut heartbeat = tokio::time::interval(Duration::from_secs(1));
+            let ready = loop {
+                tokio::select! {
+                    _=&mut *shutdown => break None,
+                    _=&mut deadline => break Some(Err(())),
+                    result=&mut ready => break Some(Ok(result)),
+                    _=heartbeat.tick() => publish(&config, state)?,
+                }
+            };
+            match ready {
+                None => {
+                    control.set_stopping();
+                    state.phase = Phase::Exited;
+                    return Ok(Cycle::Exit(Outcome {
+                        reason: "shutdown-during-tpm-startup".into(),
+                        exit_code: None,
+                        shutdown_method: "swtpm-term".into(),
+                    }));
+                }
+                Some(Ok(result)) => result?,
+                Some(Err(())) => return Err(Error::Spawn("swtpm startup timed out".into())),
+            }
+            persistent
+                .as_mut()
+                .expect("persistent TPM state")
+                .mark_tpm_initialized()?;
+        }
+        let migration = Migration {
+            receiving,
+            retained: retained.clone(),
+        };
+        run_qemu(
+            &config,
+            &mut *shutdown,
+            control,
+            (&socket, console.as_deref()),
+            state,
+            &mut tpm,
+            persistent.as_ref().map(PersistentState::lease),
+            migration,
+            relaunch,
+        )
+        .await
     }
-    let retained = persistent
-        .as_ref()
-        .map(PersistentState::bindings)
-        .unwrap_or_default();
+    .await;
+    match (&mut tpm, result) {
+        (Some(process), result) => match process.stop(!config.iscsi_disks.is_empty()).await {
+            Ok(()) => result,
+            Err(error) => Err(error),
+        },
+        (None, result) => result,
+    }
+}
 
-    let mut state = Status {
-        phase: Phase::Starting,
+/// Serve the control socket with QEMU powered off until a power-on request
+/// (true) or pod shutdown (false).
+async fn powered_off(
+    config: &Config,
+    shutdown: &mut (impl Future<Output = ()> + Unpin),
+    control: &mut super::ControlReceiver,
+    state: &mut Status,
+    reason: &'static str,
+) -> Result<bool> {
+    control.set_off();
+    *state = Status {
+        phase: Phase::Off,
         ready: false,
-        manager_pid: std::process::id(),
-        manager_start_ticks: start_ticks(std::process::id())?,
         qemu_pid: None,
         qemu_start_ticks: None,
         qemu_version: None,
         swtpm_pid: None,
         swtpm_start_ticks: None,
         run_state: None,
-        observed_unix_ms: 0,
-        exit_code: None,
         detail: None,
-        resize: super::Resize::new(&config),
+        resize: super::Resize::new(config),
+        relaunch: false,
+        ..state.clone()
     };
-    publish(&config, &mut state)?;
-    let mut shutdown = Box::pin(shutdown);
-    let mut tpm = None;
-    let result = async {
-        if let Some(tpm_config) = &config.tpm {
-            let identity=persistent.as_ref().expect("persistent TPM state");
-            tpm = Some(Swtpm::spawn(tpm_config, session.path(), &identity.tpm_directory(), identity.lease())?);
-            let process = tpm.as_mut().expect("TPM process");
-            state.swtpm_pid = process.id();
-            state.swtpm_start_ticks = process.id().and_then(|pid| start_ticks(pid).ok());
-            publish(&config, &mut state)?;
-            let ready = tokio::select! {
-                _=&mut shutdown => None,
-                result=timeout(Duration::from_secs(config.startup_timeout_secs),process.ready()) => Some(result),
-            };
-            match ready {
-                None => {
-                    state.phase=Phase::Exited;
-                    return Ok(Outcome {reason:"shutdown-during-tpm-startup".into(),exit_code:None,shutdown_method:"swtpm-term".into()});
-                },
-                Some(Ok(result)) => result?,
-                Some(Err(_)) => return Err(Error::Spawn("swtpm startup timed out".into())),
+    publish(config, state)?;
+    control.record_power("Off", reason);
+    eprintln!(
+        "{}",
+        serde_json::json!({"event":"powered_off","reason":reason,"exit_code":state.exit_code})
+    );
+    let mut heartbeat = tokio::time::interval(Duration::from_secs(1));
+    loop {
+        tokio::select! {
+            biased;
+            _ = &mut *shutdown => {
+                control.set_stopping();
+                state.phase = Phase::Exited;
+                publish(config, state)?;
+                return Ok(false);
             }
-            persistent.as_mut().expect("persistent TPM state").mark_tpm_initialized()?;
+            Some(request) = control.requests.recv() => {
+                if request.powered_off() {
+                    return Ok(true);
+                }
+            }
+            _ = heartbeat.tick() => publish(config, state)?,
         }
-        let migration = Migration { receiving, retained };
-        run_qemu(&config, &mut shutdown, &mut control, (&socket, console.as_deref()), &mut state, &mut tpm, persistent.as_ref().map(PersistentState::lease), migration).await
-    }.await;
-    let result = match (&mut tpm, result) {
-        (Some(process), result) => match process.stop(!config.iscsi_disks.is_empty()).await {
-            Ok(()) => result,
-            Err(error) => Err(error),
-        },
-        (None, result) => result,
-    };
-    if let Err(error) = &result {
-        state.phase = Phase::Failed;
-        state.detail = Some(error.to_string());
     }
-    state.ready = false;
-    publish(&config, &mut state)?;
-    result
 }
 
 /// What a QEMU run needs for live migration in either direction.
@@ -237,7 +437,8 @@ async fn run_qemu(
     tpm: &mut Option<Swtpm>,
     lease: Option<StateLease>,
     migration: Migration,
-) -> Result<Outcome> {
+    relaunch: Option<&'static str>,
+) -> Result<Cycle> {
     let (socket, console) = sockets;
     let session = socket
         .parent()
@@ -319,11 +520,11 @@ async fn run_qemu(
         native_clean_shutdown(config, &exit, method)?;
         state.phase = Phase::Exited;
         publish(config, state)?;
-        return Ok(Outcome {
+        return Ok(Cycle::Exit(Outcome {
             reason: "shutdown-during-startup".into(),
             exit_code: exit.code(),
             shutdown_method: method.into(),
-        });
+        }));
     };
     state.qemu_version = Some(qmp.version());
     eprintln!(
@@ -347,7 +548,7 @@ async fn run_qemu(
             state.phase=Phase::Running;state.run_state=Some("inmigrate".into());publish(config,state)?;
             let received = tokio::select! {
                 biased;
-                _=&mut shutdown => return Ok(None),
+                _=&mut shutdown => return Ok(Ended::Shutdown),
                 received=receiving.receive(&qmp, session, |progress| {
                     state.run_state=Some(format!("inmigrate:{progress}"));
                     std::future::ready(publish(config,state).map(|_| true))
@@ -357,16 +558,17 @@ async fn run_qemu(
         }
         tokio::select! {
             biased;
-            _=&mut shutdown => return Ok(None),
+            _=&mut shutdown => return Ok(Ended::Shutdown),
             started=qmp.execute(&Cont {}) => {started?;}
         }
+        if let Some(reason) = relaunch { control.record_power("On", reason); }
         let mut outgoing = config.migration.as_ref().map(migration::listen);
         let mut heartbeat=tokio::time::interval(Duration::from_secs(1));
         let mut disk_growth=super::disks::DiskGrowth::default();
         loop {
             tokio::select! {
-                _=&mut shutdown => return Ok(None),
-                exit=child.wait() => return Ok(Some(exit?)),
+                _=&mut shutdown => return Ok(Ended::Shutdown),
+                exit=child.wait() => return Ok(Ended::Exited(exit?)),
                 exit=super::tpm::wait(tpm) => return Err(Error::Spawn(format!("swtpm exited while QEMU was active: {}", exit?))),
                 Some(pending)=next_migration(&mut outgoing) => {
                     let Ok(_management)=control.migration_guard() else {
@@ -377,7 +579,7 @@ async fn run_qemu(
                         biased;
                         _=&mut shutdown => {
                             let _=qmp.execute_raw(serde_json::json!({"execute":"migrate_cancel"})).await;
-                            return Ok(None);
+                            return Ok(Ended::Shutdown);
                         }
                         sent=migration::send(config, &qmp, session, pending, retained.clone(), grown, |progress| {
                             state.run_state=Some(format!("migrating:{progress}"));
@@ -392,7 +594,7 @@ async fn run_qemu(
                             state.ready=false;state.run_state=Some("postmigrate".into());publish(config,state)?;
                             let _=qmp.execute(&Quit {}).await;
                             return match timeout(Duration::from_secs(10), child.wait()).await {
-                                Ok(exit) => Ok(Some(exit?)),
+                                Ok(exit) => Ok(Ended::Exited(exit?)),
                                 Err(_) => Err(Error::Spawn("QEMU did not quit after migration".into())),
                             };
                         }
@@ -405,11 +607,11 @@ async fn run_qemu(
                     let stop = request.dispatch(&qmp, console, agent.as_ref()).await;
                     // A slow command is when the QMP event queue can overflow.
                     control.set_qmp_dropped(qmp.dropped_events());
-                    if stop { return Ok(None); }
+                    if let Some(stop) = stop { return Ok(Ended::Stop(stop)); }
                 },
                 reason=qmp.closed() => {
                     state.ready=false;state.phase=Phase::Stopping;publish(config,state)?;
-                    if let Ok(exit)=timeout(Duration::from_secs(2),child.wait()).await { return Ok(Some(exit?)); }
+                    if let Ok(exit)=timeout(Duration::from_secs(2),child.wait()).await { return Ok(Ended::Exited(exit?)); }
                     return Err(Error::Spawn(format!("QMP disconnected: {reason}")));
                 },
                 _=heartbeat.tick() => {
@@ -427,63 +629,82 @@ async fn run_qemu(
     control.set_stopping();
     state.ready = false;
     let result = match execution {
-        Ok(Some(exit)) => {
+        Ok(Ended::Exited(exit)) => {
             state.exit_code = exit.code();
-            if exit.success() {
-                state.phase = Phase::Exited;
-                Ok(Outcome {
-                    reason: if migrated { "migrated" } else { "guest-exited" }.into(),
-                    exit_code: exit.code(),
-                    shutdown_method: if migrated { "migration" } else { "guest" }.into(),
-                })
-            } else {
+            if !exit.success() {
                 state.phase = Phase::Failed;
                 Err(Error::Spawn(format!("QEMU exited unexpectedly: {exit}")))
+            } else if migrated {
+                state.phase = Phase::Exited;
+                Ok(Cycle::Exit(Outcome {
+                    reason: "migrated".into(),
+                    exit_code: exit.code(),
+                    shutdown_method: "migration".into(),
+                }))
+            } else {
+                // The guest powered itself off.
+                Ok(Cycle::Off("guest-poweroff"))
             }
         }
         other => {
+            let stop = match &other {
+                Ok(Ended::Stop(stop)) => Some(*stop),
+                _ => None,
+            };
             state.phase = Phase::Stopping;
+            state.relaunch = stop.is_some();
             let _ = publish(config, state);
-            // Requests that raced the stopping flag are answered, not queued.
-            let stopping = stop_child(
-                &mut child,
-                Some(&qmp),
-                Duration::from_secs(config.shutdown_grace_secs),
-            );
+            let grace = Duration::from_secs(config.shutdown_grace_secs);
+            let stopping = async {
+                match stop {
+                    Some(PowerStop::ForceOff | PowerStop::ColdRestart) => {
+                        reap_after_quit(&mut child).await
+                    }
+                    Some(PowerStop::PowerOff) | None => {
+                        stop_child(&mut child, Some(&qmp), grace).await
+                    }
+                }
+            };
             tokio::pin!(stopping);
+            let mut heartbeat = tokio::time::interval(Duration::from_secs(1));
+            // Requests that raced the stopping flag are answered, not queued.
             let stopped = loop {
                 tokio::select! {
                     biased;
                     stopped = &mut stopping => break stopped,
                     Some(request) = control.requests.recv() => request.shutting_down(),
+                    _ = heartbeat.tick() => { let _ = publish(config, state); }
                 }
             };
             match (other, stopped) {
-                (Ok(None), Ok((exit, method))) => {
+                (Ok(ended), Ok((exit, method))) => {
                     state.exit_code = exit.code();
                     native_clean_shutdown(config, &exit, method)?;
-                    state.phase = Phase::Exited;
-                    Ok(Outcome {
-                        reason: "shutdown-requested".into(),
-                        exit_code: exit.code(),
-                        shutdown_method: method.into(),
-                    })
+                    match ended {
+                        Ended::Shutdown => {
+                            state.phase = Phase::Exited;
+                            Ok(Cycle::Exit(Outcome {
+                                reason: "shutdown-requested".into(),
+                                exit_code: exit.code(),
+                                shutdown_method: method.into(),
+                            }))
+                        }
+                        Ended::Stop(PowerStop::PowerOff) => Ok(Cycle::Off("graceful-shutdown")),
+                        Ended::Stop(PowerStop::ForceOff) => Ok(Cycle::Off("force-off")),
+                        Ended::Stop(PowerStop::ColdRestart) => Ok(Cycle::Restart),
+                        Ended::Exited(_) => unreachable!(),
+                    }
                 }
-                (Err(error), _) => {
+                (Err(error), _) | (_, Err(error)) => {
                     state.phase = Phase::Failed;
                     state.detail = Some(error.to_string());
                     Err(error)
                 }
-                (_, Err(error)) => {
-                    state.phase = Phase::Failed;
-                    state.detail = Some(error.to_string());
-                    Err(error)
-                }
-                _ => unreachable!(),
             }
         }
     };
     control.set_qmp_dropped(qmp.dropped_events());
+    control.end_qmp_connection();
     qmp.shutdown().await;
     // Shutdown and exit events arrive while stopping; the pump ends when the
     // closed connection drops its event queue.

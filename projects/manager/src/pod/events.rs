@@ -17,6 +17,10 @@ pub const EVENT_PAGE_LIMIT: usize = 256;
 /// Event payloads larger than this are replaced by `null` and marked truncated.
 pub const EVENT_DATA_LIMIT: usize = 8 * 1024;
 const EVENT_NAME_LIMIT: usize = 64;
+/// The manager's own event for a power transition, numbered with the QMP
+/// events. Its data is `{"power_state": <Redfish PowerState>, "reason": …}`;
+/// it has no QEMU timestamp.
+pub const POWER_EVENT: &str = "QRAB_POWER_STATE";
 
 /// QEMU's host timestamp. Absent when QEMU reported the -1/-1 "unavailable" form.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -76,7 +80,8 @@ pub struct EventPage {
     /// Events the supervisor discarded (invalid names) since the channel started.
     pub rejected: u64,
     /// Events the QMP client discarded before the supervisor saw them (full
-    /// queue or oversized event) during the current QEMU connection.
+    /// queue or oversized event) since the manager started, across every
+    /// QEMU process it ran.
     #[serde(default)]
     pub qmp_dropped: u64,
     /// The numbering these sequences belong to: an opaque token (16 lowercase
@@ -197,6 +202,18 @@ impl EventLog {
         });
         drop(ring);
         self.latest.send_replace(seq);
+    }
+
+    /// Record a [`POWER_EVENT`] for a transition to `power_state`.
+    pub(super) fn record_power(&self, power_state: &str, reason: &str) {
+        self.record(QmpEvent {
+            event: POWER_EVENT.into(),
+            timestamp: qapi_protocol::Timestamp {
+                seconds: -1,
+                microseconds: -1,
+            },
+            data: serde_json::json!({"power_state": power_state, "reason": reason}),
+        });
     }
 
     /// `after: None` returns the newest `limit` events; `Some(cursor)` returns

@@ -70,7 +70,9 @@ pub struct VirtualMachineSpec {
     /// without the qrab KVM device plugin. Changing it restarts the VM.
     #[serde(default, skip_serializing_if = "Accelerator::is_tcg")]
     pub accelerator: Accelerator,
-    /// Desired power state. A running VM is recreated after exit or Pod loss.
+    /// Desired power state. While true the operator keeps a VM Pod and recreates
+    /// it after exit or loss; a guest powered off inside it stays off until a
+    /// Redfish On. False deletes the Pod and keeps the VM off.
     #[serde(default = "running")]
     pub running: bool,
     /// Change this value to restart without discarding the retained identity.

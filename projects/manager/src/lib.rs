@@ -17,6 +17,10 @@ pub enum Error {
     /// The supervisor is stopping the VM and accepts no further requests.
     #[error("VM is shutting down")]
     ShuttingDown,
+    /// QEMU is not running: the VM is powered off and its manager waits for
+    /// a power-on request.
+    #[error("VM is powered off")]
+    PoweredOff,
     /// QMP/QGA protocol error.
     #[error(transparent)]
     Protocol(#[from] qapi_protocol::Error),

@@ -64,6 +64,7 @@ impl Failure {
     pub fn vm(error: &manager::Error, message: &'static str) -> Self {
         match error {
             manager::Error::ShuttingDown => Self::unavailable("The VM is shutting down."),
+            manager::Error::PoweredOff => Self(StatusCode::CONFLICT, "The VM is powered off."),
             _ => Self::unavailable(message),
         }
     }

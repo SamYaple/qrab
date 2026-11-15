@@ -85,21 +85,18 @@ const REGISTRY: &str = "Base.1.18";
 /// Reset types this service performs; see [`reset_action`].
 pub const RESET_TYPES: &[&str] = &[
     "On",
+    "ForceOn",
     "GracefulShutdown",
+    "ForceOff",
     "ForceRestart",
+    "PowerCycle",
     "Pause",
     "Resume",
     "Nmi",
     "GracefulRestart",
 ];
 /// DMTF ResetType values that are valid but cannot be performed honestly.
-const UNSUPPORTED_RESET_TYPES: &[&str] = &[
-    "ForceOff",
-    "ForceOn",
-    "PushPowerButton",
-    "Suspend",
-    "FullPowerCycle",
-];
+const UNSUPPORTED_RESET_TYPES: &[&str] = &["PushPowerButton", "Suspend", "FullPowerCycle"];
 
 #[derive(Clone)]
 pub struct AppState {
@@ -173,9 +170,18 @@ impl Failure {
             "Retry later.",
         )
     }
+    fn powered_off() -> Self {
+        Self::new(
+            StatusCode::CONFLICT,
+            "OperationNotAllowed",
+            "The VM is powered off.",
+            "Power the VM on with ComputerSystem.Reset and ResetType On.",
+        )
+    }
     fn vm(error: &manager::Error, message: &'static str) -> Self {
         match error {
             manager::Error::ShuttingDown => Self::unavailable("The VM is shutting down."),
+            manager::Error::PoweredOff => Self::powered_off(),
             _ => Self::unavailable(message),
         }
     }
@@ -551,6 +557,8 @@ pub fn power(status: Option<&pod::Status>) -> (Value, &'static str, &'static str
     match status.phase {
         Phase::Starting => (json!("PoweringOn"), "Starting", "OK"),
         Phase::Stopping => (json!("PoweringOff"), "Disabled", "OK"),
+        // The manager stays up to power the VM on again.
+        Phase::Off => (json!("Off"), "StandbyOffline", "OK"),
         Phase::Exited => (json!("Off"), "Disabled", "OK"),
         Phase::Failed => (json!("Off"), "Disabled", "Critical"),
         Phase::Running => match status.run_state.as_deref() {
@@ -602,7 +610,7 @@ async fn system(State(app): State<AppState>, headers: HeaderMap) -> Result<Json<
             "#ComputerSystem.Reset": {
                 "target": RESET_TARGET,
                 "@Redfish.ActionInfo": inventory::RESET_INFO,
-                "ResetType@Redfish.AllowableValues": reset_types(&view),
+                "ResetType@Redfish.AllowableValues": RESET_TYPES,
             },
             // Guest-agent operations; admin only, like Reset.
             "Oem": {
@@ -723,26 +731,52 @@ fn last_update(update: &pod::UpdateStatus, role: Role) -> Value {
 }
 
 /// Map a Redfish ResetType to a manager action. `Ok(None)` is a no-op.
+///
+/// A powered-off VM's manager keeps running, so On starts QEMU in the same
+/// pod; an instance that has ended (or not started) is the operator's to
+/// start through `spec.running`.
+///
+/// ```
+/// use manager::pod::{Action, Phase, Status};
+/// let mut status: Status = serde_json::from_value(serde_json::json!({
+///     "phase": "off", "ready": false, "manager_pid": 1, "manager_start_ticks": 1,
+///     "qemu_pid": null, "qemu_start_ticks": null, "qemu_version": null,
+///     "run_state": null, "observed_unix_ms": 0, "exit_code": 0, "detail": null,
+/// })).unwrap();
+/// let action = |reset| qrab_redfish::reset_action(reset, Some(&status)).ok().flatten();
+/// assert_eq!(action("On"), Some(Action::On));
+/// assert_eq!(action("ForceOn"), Some(Action::On));
+/// assert_eq!(action("ForceOff"), Some(Action::ForceOff));
+/// assert_eq!(action("PowerCycle"), Some(Action::ColdRestart));
+/// status.phase = Phase::Running;
+/// status.run_state = Some("running".into());
+/// assert_eq!(qrab_redfish::reset_action("On", Some(&status)).unwrap(), None);
+/// status.phase = Phase::Exited;
+/// assert!(qrab_redfish::reset_action("On", Some(&status)).is_err());
+/// ```
 pub fn reset_action(
     reset_type: &str,
     status: Option<&pod::Status>,
 ) -> Result<Option<Action>, Failure> {
     let power_state = power(status).0;
+    let phase = status.map(|status| status.phase);
     match reset_type {
         "GracefulShutdown" => Ok(Some(Action::Powerdown)),
+        "ForceOff" => Ok(Some(Action::ForceOff)),
         "ForceRestart" => Ok(Some(Action::Reset)),
         "Nmi" => Ok(Some(Action::Nmi)),
         "GracefulRestart" => Ok(Some(Action::Reboot)),
         "PowerCycle" => Ok(Some(Action::ColdRestart)),
         "Pause" => Ok(Some(Action::Pause)),
         "Resume" => Ok(Some(Action::Resume)),
-        "On" if power_state == "Paused" => Ok(Some(Action::Resume)),
-        "On" if power_state == "On" => Ok(None),
-        "On" => Err(Failure::new(
+        "On" | "ForceOn" if phase == Some(Phase::Off) => Ok(Some(Action::On)),
+        "On" | "ForceOn" if power_state == "Paused" => Ok(Some(Action::Resume)),
+        "On" | "ForceOn" if matches!(phase, Some(Phase::Running | Phase::Starting)) => Ok(None),
+        "On" | "ForceOn" => Err(Failure::new(
             StatusCode::CONFLICT,
             "OperationNotAllowed",
-            "The VM is not running; a new VM instance is started by the VirtualMachine spec.running field.",
-            "Set spec.running on the VirtualMachine resource.",
+            "The VM instance is not running; a new instance is started by the VirtualMachine spec.running field.",
+            "Set spec.running on the VirtualMachine resource, or retry once the VM has powered off.",
         )),
         other if UNSUPPORTED_RESET_TYPES.contains(&other) => Err(Failure::new(
             StatusCode::BAD_REQUEST,
@@ -882,21 +916,6 @@ async fn reset(
                 "Supply ResetType.",
             )
         })?;
-    if reset_type == "PowerCycle" {
-        let view = app
-            .control
-            .config_view()
-            .await
-            .map_err(|_| Failure::unavailable("Power-cycle capabilities are unavailable."))?;
-        if !view.restart_on_exit {
-            return Err(Failure::new(
-                StatusCode::CONFLICT,
-                "OperationNotAllowed",
-                "PowerCycle requires an operator-managed restart-on-exit guarantee.",
-                "Cold-restart the standalone manager explicitly.",
-            ));
-        }
-    }
     let status = app.control.status().await.ok();
     let action = reset_action(reset_type, status.as_ref())?;
     let result = match action {
@@ -1637,12 +1656,4 @@ async fn update_service(
         "Actions":{"Oem":{"#QrabUpdateService.StageFirmware":{"target":firmware::STAGE}}},
         "Oem":{"Qrab":{"@odata.type":"#QrabUpdateService.v1_0_0.QrabUpdateService","Artifacts":link(firmware::ARTIFACTS),"StagedFirmware":link(firmware::STAGED)}}}),
     ))
-}
-
-pub(crate) fn reset_types(view: &pod::ConfigView) -> Vec<&'static str> {
-    let mut types = RESET_TYPES.to_vec();
-    if view.restart_on_exit {
-        types.push("PowerCycle");
-    }
-    types
 }

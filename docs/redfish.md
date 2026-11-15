@@ -237,18 +237,27 @@ not answer in time, `Boot` carries only the `BootOptions` link: `BootOrder`,
 
 | ResetType | Effect |
 | --- | --- |
-| `On` | resume a paused VM; no-op while on; 409 when off (start/stop is `spec.running`) |
-| `GracefulShutdown` | ACPI powerdown with the bounded quit/kill fallback; ends this VM instance, and the operator starts another when `spec.running` is true |
+| `On`, `ForceOn` | while `PowerState` is `Off`: start a new QEMU in the same Pod; resume a paused VM; no-op while on or powering on; 409 while powering off or once the instance has ended (that restart is `spec.running`) |
+| `GracefulShutdown` | ACPI powerdown with the bounded quit/kill fallback; the VM rests `Off` in its Pod |
+| `ForceOff` | QMP `quit`, SIGKILL after 2 s; the VM rests `Off` in its Pod |
 | `ForceRestart` | QMP `system_reset` |
 | `Pause`, `Resume` | QMP `stop` / `cont` |
 | `Nmi` | QMP `inject-nmi` (all virtual CPUs; admin only) |
-| `PowerCycle` | Operator-managed VMs only: clean QEMU exit and fresh manager instance under the same retained identity |
+| `PowerCycle` | QMP `quit`, then a new QEMU in the same Pod under the same retained identity; powers on an `Off` VM |
 | `GracefulRestart` | QGA `guest-shutdown` in reboot mode; requires connected agent, enabled command and thawed filesystems. Success acknowledges delivery, subsequent observations establish restart |
 
-`ForceOff`, `ForceOn`, `PushPowerButton`,
-`Suspend` and `FullPowerCycle` get 400
+`PushPowerButton`, `Suspend` and `FullPowerCycle` get 400
 `ActionParameterNotSupported`; other values get `ActionParameterValueNotInList`.
-A successful reset returns 204.
+A successful reset returns 204. While the VM is `Off` (`Status.State`
+`StandbyOffline`), GracefulShutdown and ForceOff are no-ops; the other resets,
+virtual media, BootNext and guest-agent actions get 409 `OperationNotAllowed`
+"The VM is powered off" (the BMC console likewise), and QEMU-backed readings
+(metrics, inventory) are absent.
+The manager stays up while off, so the Manager resource and `/readyz` stay
+healthy. Each power transition is a `QRAB_POWER_STATE` event
+(`Oem.Qrab.Data`: `power_state` `Off`, `PoweringOn` or `On`, and `reason`
+`graceful-shutdown`, `force-off`, `guest-poweroff`, `power-on` or
+`power-cycle`) in the same numbering and epoch as the QMP events.
 
 Errors use the Redfish error format with `Base.1.18` message IDs
 (`NoValidSession`, `InsufficientPrivilege`, `ResourceNotFound`,
@@ -560,7 +569,7 @@ numbering, the SSE `EventsMissed` notice (same `Reason`
 semantics) is posted once before the next event, whatever the `Severities`
 filter, since the gap can hide matching events; `Oem.Qrab.MissedEvents` on the
 subscription adds the evicted count (an unknown restart loss adds nothing).
-`QmpEventsDropped` is not pushed: it is a per-QEMU-connection counter, read
+`QmpEventsDropped` is not pushed: it is a per-manager counter, read
 from `LogServices/Events` `Oem.Qrab.QmpDropped` and the Prometheus export.
 Viewers cannot see destinations or user Context. Subscriptions expire at the
 earlier of creator bearer expiry and 24 hours; tokens are never stored.
@@ -644,11 +653,12 @@ Unsupported/corrupt/full stores fail closed. Atomic replacement retains the
 previous complete store as `identity/OVMF_VARS.before-secure-boot.fd`; keys,
 boot options, authenticated metadata and TPM identity are preserved.
 
-For operator-managed VMs, `ResetType: PowerCycle` starts a fresh VM instance
-under the same identity after clean QEMU/storage release. `ForceRestart`
-automatically takes this cold path when Secure Boot or CODE staging is pending.
-A guest/QGA graceful reboot does not reload manager configuration. Standalone
-managers must be cold-restarted explicitly; no restart guarantee is invented.
+`ResetType: PowerCycle` starts a fresh QEMU in the same Pod under the same
+identity after a clean QEMU exit, and that power-on applies staged CODE and
+Secure Boot settings. `ForceRestart` automatically takes this cold path when
+Secure Boot or CODE staging is pending. A guest/QGA graceful reboot does not
+reload manager configuration. Staging while the VM is `Off` takes effect at
+the next `On`.
 Current-boot enabled status still comes from observed firmware, never from a
 completed staging task or applied-generation marker.
 
@@ -758,8 +768,8 @@ Prometheus.
 ## Remaining full-stack lifecycle work
 
 The `redfish-full-stack` container in towl retains the complete scope. Further
-work covers operator-coordinated ForceOff/On (without unintended respawn),
-durable task/history semantics, threshold event forwarding, remote media
+work covers reporting a guest powered off in place in the VirtualMachine
+status (the operator sees only Pod readiness), durable task/history semantics, threshold event forwarding, remote media
 acquisition, firmware rollback, persistent BootOrder settings and approved
 default-key reset. PowerCycle/cold activation, Secure Boot settings and signed
 key-database updates are now implemented; deployment/live-baseline validation

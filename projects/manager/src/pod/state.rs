@@ -12,6 +12,9 @@ pub enum Phase {
     Starting,
     Running,
     Stopping,
+    /// QEMU is not running and the manager keeps serving its control socket
+    /// until a power-on request or pod shutdown.
+    Off,
     Exited,
     Failed,
 }
@@ -36,6 +39,10 @@ pub struct Status {
     /// In-place vCPU/memory growth progress when hot-plug headroom is configured.
     #[serde(default)]
     pub resize: Option<super::Resize>,
+    /// True while `Starting` or `Stopping` QEMU for a power transition inside
+    /// this manager (power on, off or cycle), which keeps serving throughout.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub relaunch: bool,
 }
 
 fn now_ms() -> u64 {
@@ -114,26 +121,31 @@ pub fn status(config: &Config) -> Result<Status> {
 /// Readiness means QMP reports running, not that guest applications are ready.
 /// Liveness permits paused VMs, but both probes require a fresh QMP heartbeat
 /// and exact manager/child process identities. No second QMP client is opened.
+/// A powered-off VM, and one being powered on, off or cycled in place, is
+/// live while its manager heartbeat is fresh, so its pod keeps serving the
+/// BMC and Redfish that can power it on; it is never ready.
 pub fn probe(config: &Config, readiness: bool) -> Result<()> {
     let status = status(config)?;
     let age = now_ms()
         .checked_sub(status.observed_unix_ms)
         .ok_or_else(|| Error::Spawn("status timestamp is in the future".into()))?;
-    let child_alive = status
-        .qemu_pid
-        .zip(status.qemu_start_ticks)
-        .is_some_and(|(pid, ticks)| start_ticks(pid).ok() == Some(ticks));
-    let tpm_alive = config.tpm.is_none()
-        || status
-            .swtpm_pid
-            .zip(status.swtpm_start_ticks)
-            .is_some_and(|(pid, ticks)| start_ticks(pid).ok() == Some(ticks));
+    let alive = |pid: Option<u32>, ticks: Option<u64>| {
+        pid.zip(ticks)
+            .is_some_and(|(pid, ticks)| start_ticks(pid).ok() == Some(ticks))
+    };
+    let healthy = match status.phase {
+        Phase::Running => {
+            alive(status.qemu_pid, status.qemu_start_ticks)
+                && (config.tpm.is_none() || alive(status.swtpm_pid, status.swtpm_start_ticks))
+                && (!readiness || status.ready)
+        }
+        Phase::Off => !readiness,
+        Phase::Starting | Phase::Stopping => !readiness && status.relaunch,
+        Phase::Exited | Phase::Failed => false,
+    };
     if age > 5_000
         || start_ticks(status.manager_pid).ok() != Some(status.manager_start_ticks)
-        || !child_alive
-        || !tpm_alive
-        || status.phase != Phase::Running
-        || (readiness && !status.ready)
+        || !healthy
     {
         return Err(Error::Spawn(
             "VM is not healthy or its status is stale".into(),
@@ -191,6 +203,7 @@ mod tests {
             exit_code: None,
             detail: None,
             resize: None,
+            relaunch: false,
         };
         (dir, config, status)
     }
@@ -236,5 +249,53 @@ mod tests {
         status.phase = Phase::Exited;
         write(&config, &status);
         assert!(probe(&config, false).is_err());
+    }
+
+    #[test]
+    fn a_powered_off_vm_is_live_but_never_ready_while_its_manager_serves() {
+        let (_dir, config, mut status) = fixture();
+        status.phase = Phase::Off;
+        status.ready = false;
+        status.qemu_pid = None;
+        status.qemu_start_ticks = None;
+        status.run_state = None;
+        write(&config, &status);
+        probe(&config, false).unwrap();
+        assert!(probe(&config, true).is_err());
+        // Off still needs the exact manager identity and a fresh heartbeat.
+        status.manager_start_ticks += 1;
+        write(&config, &status);
+        assert!(probe(&config, false).is_err());
+        status.manager_start_ticks -= 1;
+        status.observed_unix_ms = now_ms().saturating_sub(60_000);
+        write(&config, &status);
+        assert!(probe(&config, false).is_err());
+    }
+
+    #[test]
+    fn only_an_in_place_power_transition_keeps_starting_or_stopping_live() {
+        let (_dir, config, mut status) = fixture();
+        for phase in [Phase::Starting, Phase::Stopping] {
+            status.phase = phase;
+            status.qemu_pid = None;
+            status.relaunch = false;
+            write(&config, &status);
+            assert!(
+                probe(&config, false).is_err(),
+                "{phase:?} at pod start/stop"
+            );
+            status.relaunch = true;
+            write(&config, &status);
+            probe(&config, false).unwrap();
+            assert!(probe(&config, true).is_err());
+        }
+        // The phase round-trips as `off`; older records omit `relaunch`.
+        let value = serde_json::to_value(Phase::Off).unwrap();
+        assert_eq!(value, "off");
+        status.relaunch = false;
+        assert!(serde_json::to_value(&status)
+            .unwrap()
+            .get("relaunch")
+            .is_none());
     }
 }

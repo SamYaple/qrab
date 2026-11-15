@@ -399,8 +399,11 @@ async fn resources_have_redfish_shapes_and_links() {
         reset["ResetType@Redfish.AllowableValues"],
         json!([
             "On",
+            "ForceOn",
             "GracefulShutdown",
+            "ForceOff",
             "ForceRestart",
+            "PowerCycle",
             "Pause",
             "Resume",
             "Nmi",
@@ -551,8 +554,11 @@ async fn reset_types_map_honestly_and_bad_requests_get_redfish_errors() {
     write_status(&fixture.config, "running", "paused");
     let admin = good(ADMIN);
     for (body, message_id) in [
-        (r#"{"ResetType":"ForceOff"}"#, "ActionParameterNotSupported"),
-        (r#"{"ResetType":"ForceOn"}"#, "ActionParameterNotSupported"),
+        (
+            r#"{"ResetType":"PushPowerButton"}"#,
+            "ActionParameterNotSupported",
+        ),
+        (r#"{"ResetType":"Suspend"}"#, "ActionParameterNotSupported"),
         (
             r#"{"ResetType":"Explode"}"#,
             "ActionParameterValueNotInList",
@@ -571,29 +577,51 @@ async fn reset_types_map_honestly_and_bad_requests_get_redfish_errors() {
     use manager::pod::Action;
     for (reset_type, action) in [
         ("On", Action::Resume),
+        ("ForceOn", Action::Resume),
         ("Resume", Action::Resume),
         ("Pause", Action::Pause),
         ("ForceRestart", Action::Reset),
         ("Nmi", Action::Nmi),
         ("GracefulRestart", Action::Reboot),
         ("GracefulShutdown", Action::Powerdown),
+        ("ForceOff", Action::ForceOff),
+        ("PowerCycle", Action::ColdRestart),
     ] {
         assert_eq!(
             qrab_redfish::reset_action(reset_type, Some(&paused)).unwrap(),
             Some(action)
         );
     }
-    write_status(&fixture.config, "exited", "shutdown");
-    let (status, _, reply) = call(
-        &fixture.app,
-        "POST",
-        RESET,
-        Some(&admin),
-        r#"{"ResetType":"On"}"#,
-    )
-    .await;
-    assert_eq!(status, StatusCode::CONFLICT);
-    assert_error(&reply, "OperationNotAllowed");
+    // A powered-off VM's manager starts QEMU again in the same pod.
+    let mut off = paused.clone();
+    off.phase = manager::pod::Phase::Off;
+    off.qemu_pid = None;
+    for reset_type in ["On", "ForceOn"] {
+        assert_eq!(
+            qrab_redfish::reset_action(reset_type, Some(&off)).unwrap(),
+            Some(Action::On)
+        );
+    }
+    let mut running = paused.clone();
+    running.run_state = Some("running".into());
+    assert_eq!(
+        qrab_redfish::reset_action("On", Some(&running)).unwrap(),
+        None
+    );
+    // An ended instance is restarted by the operator, not by Redfish.
+    for (phase, run_state) in [("exited", "shutdown"), ("stopping", "shutdown")] {
+        write_status(&fixture.config, phase, run_state);
+        let (status, _, reply) = call(
+            &fixture.app,
+            "POST",
+            RESET,
+            Some(&admin),
+            r#"{"ResetType":"On"}"#,
+        )
+        .await;
+        assert_eq!(status, StatusCode::CONFLICT, "{phase}");
+        assert_error(&reply, "OperationNotAllowed");
+    }
     // An admin action reaches the manager; with no supervisor it is unavailable.
     fixture.receiver = None;
     let (status, _, reply) = call(
@@ -640,6 +668,7 @@ async fn power_state_follows_the_manager_status() {
             "OK",
         ),
         ("failed", "shutdown", json!("Off"), "Disabled", "Critical"),
+        ("off", "shutdown", json!("Off"), "StandbyOffline", "OK"),
     ] {
         write_status(&fixture.config, phase, run_state);
         let (_, _, system) = call(&fixture.app, "GET", SYSTEM_PATH, Some(&viewer), "").await;

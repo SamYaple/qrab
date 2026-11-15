@@ -171,15 +171,15 @@ pub(super) async fn reset_info(
     headers: HeaderMap,
 ) -> Result<Json<Value>, Failure> {
     principal(&app, &headers).await?;
-    let view = app
-        .control
+    // Every reset needs the manager: an unreachable one offers none.
+    app.control
         .config_view()
         .await
         .map_err(|_| Failure::unavailable("Reset capabilities are unavailable."))?;
     Ok(Json(json!({
         "@odata.id":RESET_INFO,"@odata.type":"#ActionInfo.v1_4_2.ActionInfo",
         "Id":"ResetActionInfo","Name":"ComputerSystem Reset action information",
-        "Parameters":[{"Name":"ResetType","Required":true,"DataType":"String","AllowableValues":reset_types(&view)}]
+        "Parameters":[{"Name":"ResetType","Required":true,"DataType":"String","AllowableValues":RESET_TYPES}]
     })))
 }
 

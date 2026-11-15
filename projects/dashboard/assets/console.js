@@ -97,7 +97,9 @@ element('fullscreen').addEventListener('click', () => screen.requestFullscreen()
 // Power. The server enforces role, CSRF, Origin and confirmation, and Redfish
 // enforces the role again; the buttons only reflect what currently makes
 // sense. In-pod buttons are Redfish ResetTypes, shown while ResetActionInfo
-// allows them; Power on and Power off set the VM's spec.running.
+// allows them. Power on asks the VM's Pod (Redfish On) while it exists, since
+// a powered-off VM keeps its Pod, and sets spec.running otherwise; Power off
+// sets spec.running false, which ends the Pod and keeps the VM off.
 const buttons = [...power.querySelectorAll('[data-power]')];
 const RECONNECTS = ['on', 'ForceRestart', 'GracefulRestart', 'GracefulShutdown', 'PowerCycle'];
 let state = null;
@@ -114,19 +116,20 @@ function allowed(action) {
     const power = state.power_state || '';
     const live = state.pod && !state.redfish_error;
     switch (action) {
-        case 'on': return !state.running;
+        case 'on': return !state.running || (live && power === 'Off');
         case 'off': return state.running || state.pod;
         case 'Resume': return live && power === 'Paused';
         case 'Pause':
         case 'GracefulRestart':
         case 'GracefulShutdown':
         case 'Nmi': return live && power === 'On';
-        case 'ForceRestart':
-        case 'PowerCycle': return live && (power === 'On' || power === 'Paused');
+        case 'ForceRestart': return live && (power === 'On' || power === 'Paused');
+        case 'PowerCycle': return live && (power === 'On' || power === 'Paused' || power === 'Off');
+        case 'ForceOff': return live && power !== 'Off';
         default: return false;
     }
 }
-const POWER_STATES = {On: 'Running', Paused: 'Paused', PoweringOn: 'Starting', PoweringOff: 'Stopping', Off: 'Exited'};
+const POWER_STATES = {On: 'Running', Paused: 'Paused', PoweringOn: 'Starting', PoweringOff: 'Stopping', Off: 'Off'};
 function describe() {
     if (!state) return ['Unknown', ''];
     const phase = state.phase ? `Operator: ${state.phase}` : '';

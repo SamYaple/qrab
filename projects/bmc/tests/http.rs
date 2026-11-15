@@ -557,17 +557,26 @@ async fn real_vnc_streams_expire_and_are_revoked_without_browser_cooperation() {
         .expect("server retained an expired/revoked VNC connection");
     }
     assert_eq!(app.consoles.available_permits(), 4);
+    // A graceful shutdown leaves the manager serving a powered-off VM; Pod
+    // shutdown ends it.
     app.control
         .action(manager::pod::Action::Powerdown)
         .await
         .unwrap();
+    tokio::time::timeout(Duration::from_secs(10), async {
+        while app.control.status().await.unwrap().phase != manager::pod::Phase::Off {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    })
+    .await
+    .unwrap();
+    let _ = stop.send(());
     let outcome = tokio::time::timeout(Duration::from_secs(5), runner)
         .await
         .unwrap()
         .unwrap()
         .unwrap();
     assert_eq!(outcome.reason, "shutdown-requested");
-    let _ = stop.send(());
     server.abort();
 }
 
