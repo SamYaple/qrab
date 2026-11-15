@@ -97,7 +97,10 @@ impl VersionRange {
             .any(|(since, until)| version >= *since && until.is_none_or(|end| version < end))
     }
 
-    fn track_unstable(&mut self, meta: &Metadata, version: Version) {
+    fn track_features(&mut self, meta: &Metadata, version: Version) {
+        if has_feature(meta, "deprecated") {
+            self.deprecated.get_or_insert(version);
+        }
         if has_feature(meta, "unstable") {
             self.unstable.get_or_insert(version);
             if self
@@ -1205,10 +1208,6 @@ fn materialize_variant_history(registry: &mut UnifiedRegistry) {
 fn merge_enum(registry: &mut UnifiedRegistry, name: &str, e: &Enum, version: Version) {
     if let Some(UnifiedType::Enum(existing)) = registry.types.get_mut(name) {
         existing.versions.until = None;
-        // Track type-level deprecation
-        if has_feature(&e.meta, "deprecated") && existing.versions.deprecated.is_none() {
-            existing.versions.deprecated = Some(version);
-        }
         // Update doc from latest version (latest has best docs)
         merge_doc_from(&mut existing.ir.meta.doc, e.meta.doc.as_deref());
         refresh_current_attributes(&mut existing.ir.meta, &e.meta);
@@ -1245,12 +1244,9 @@ fn merge_enum(registry: &mut UnifiedRegistry, name: &str, e: &Enum, version: Ver
                         .variant_versions
                         .insert(variant.name.clone(), VersionRange::new(version));
                 }
-                // Variant still exists — clear until, track deprecation.
+                // Variant still exists — clear its removal marker.
                 let vr = existing.variant_versions.get_mut(&variant.name).unwrap();
                 vr.until = None;
-                if has_feature(&variant.meta, "deprecated") && vr.deprecated.is_none() {
-                    vr.deprecated = Some(version);
-                }
                 // Promote the variant to the latest version's definition:
                 // tuple payload type and array marker track the newest
                 // schema; attributes are unioned with the existing set;
@@ -1327,10 +1323,7 @@ fn merge_enum(registry: &mut UnifiedRegistry, name: &str, e: &Enum, version: Ver
         for v in &mut ir.variants {
             clean_doc_in_place(&mut v.meta.doc);
         }
-        let mut versions = VersionRange::new(version);
-        if has_feature(&ir.meta, "deprecated") {
-            versions.deprecated = Some(version);
-        }
+        let versions = VersionRange::new(version);
         registry.types.insert(
             name.to_string(),
             UnifiedType::Enum(UnifiedEnum {
@@ -1342,13 +1335,13 @@ fn merge_enum(registry: &mut UnifiedRegistry, name: &str, e: &Enum, version: Ver
         );
     }
     if let Some(UnifiedType::Enum(value)) = registry.types.get_mut(name) {
-        value.versions.track_unstable(&e.meta, version);
+        value.versions.track_features(&e.meta, version);
         for variant in &e.variants {
             value
                 .variant_versions
                 .get_mut(&variant.name)
                 .unwrap()
-                .track_unstable(&variant.meta, version);
+                .track_features(&variant.meta, version);
         }
     }
 }
@@ -1409,10 +1402,6 @@ fn materialize_field_history(registry: &mut UnifiedRegistry) {
 fn merge_struct(registry: &mut UnifiedRegistry, name: &str, s: &Struct, version: Version) {
     if let Some(UnifiedType::Struct(existing)) = registry.types.get_mut(name) {
         existing.versions.until = None;
-        // Track type-level deprecation
-        if has_feature(&s.meta, "deprecated") && existing.versions.deprecated.is_none() {
-            existing.versions.deprecated = Some(version);
-        }
         // Update doc from latest version (latest has best docs)
         merge_doc_from(&mut existing.ir.meta.doc, s.meta.doc.as_deref());
         refresh_current_attributes(&mut existing.ir.meta, &s.meta);
@@ -1456,12 +1445,9 @@ fn merge_struct(registry: &mut UnifiedRegistry, name: &str, s: &Struct, version:
                         .field_versions
                         .insert(field.name.clone(), VersionRange::new(version));
                 }
-                // Field still exists — clear until, track deprecation.
+                // Field still exists — clear its removal marker.
                 let fr = existing.field_versions.get_mut(&field.name).unwrap();
                 fr.until = None;
-                if has_feature(&field.meta, "deprecated") && fr.deprecated.is_none() {
-                    fr.deprecated = Some(version);
-                }
                 // Promote the field to the latest version's definition.
                 // Type / optional / array always use the newer value (the
                 // latest schema is authoritative for the field shape).
@@ -1593,10 +1579,7 @@ fn merge_struct(registry: &mut UnifiedRegistry, name: &str, s: &Struct, version:
         let returns_history = returns_attr(&ir.meta)
             .map(|r| vec![(version, r.to_owned())])
             .unwrap_or_default();
-        let mut versions = VersionRange::new(version);
-        if has_feature(&ir.meta, "deprecated") {
-            versions.deprecated = Some(version);
-        }
+        let versions = VersionRange::new(version);
         registry.types.insert(
             name.to_string(),
             UnifiedType::Struct(UnifiedStruct {
@@ -1611,10 +1594,10 @@ fn merge_struct(registry: &mut UnifiedRegistry, name: &str, s: &Struct, version:
         );
     }
     if let Some(UnifiedType::Struct(value)) = registry.types.get_mut(name) {
-        value.versions.track_unstable(&s.meta, version);
+        value.versions.track_features(&s.meta, version);
         for field in &s.fields {
             if let Some(range) = value.field_versions.get_mut(&field.name) {
-                range.track_unstable(&field.meta, version);
+                range.track_features(&field.meta, version);
             }
         }
     }
@@ -3299,6 +3282,40 @@ mod field_history_tests {
     }
 
     #[test]
+    fn initially_deprecated_members_record_their_first_release() {
+        let mut registry = UnifiedRegistry::default();
+        let feature = Attribute::List(vec![Attribute::with_value("feature", "deprecated")]);
+        let mut member = field("value", "str", false);
+        member.meta.attributes.push(feature.clone());
+        let record = record(vec![member]);
+        let enumeration = Enum {
+            name: "Kind".into(),
+            variants: vec![EnumVariant {
+                name: "value".into(),
+                kind: EnumVariantKind::Unit,
+                array: false,
+                meta: Metadata {
+                    doc: None,
+                    attributes: vec![feature],
+                },
+            }],
+            meta: Metadata::default(),
+        };
+        for version in [(6, 1, 0), (8, 0, 0)] {
+            merge_struct(&mut registry, "Record", &record, version);
+            merge_enum(&mut registry, "Kind", &enumeration, version);
+            let UnifiedType::Struct(value) = &registry.types["Record"] else {
+                panic!()
+            };
+            assert_eq!(value.field_versions["value"].deprecated, Some((6, 1, 0)));
+            let UnifiedType::Enum(value) = &registry.types["Kind"] else {
+                panic!()
+            };
+            assert_eq!(value.variant_versions["value"].deprecated, Some((6, 1, 0)));
+        }
+    }
+
+    #[test]
     fn stabilization_clears_latest_type_and_field_feature_metadata() {
         let mut registry = UnifiedRegistry::default();
         for (major, unstable) in [(6, true), (8, false), (11, true), (12, false)] {
@@ -3534,6 +3551,17 @@ mod field_history_tests {
 mod flag_timeline_tests {
     use super::*;
 
+    fn deprecation_recorded<'a>(
+        ranges: impl Iterator<Item = &'a VersionRange>,
+        version: Version,
+    ) -> bool {
+        ranges
+            .filter(|range| {
+                version >= range.since && range.until.is_none_or(|until| version < until)
+            })
+            .any(|range| range.deprecated.is_some_and(|since| since <= version))
+    }
+
     #[test]
     fn reintroduced_flags_start_a_new_lifetime() {
         for flag in TRACKED_BOOL_ATTRS {
@@ -3595,6 +3623,21 @@ mod flag_timeline_tests {
                             ));
                         }
                     }
+                    for field in &value.fields {
+                        if has_feature(&field.meta, "deprecated") {
+                            let ranges = merged.field_versions.get(&field.name).into_iter().chain(
+                                merged.field_history.iter().filter_map(|(old, range)| {
+                                    (old.name == field.name).then_some(range)
+                                }),
+                            );
+                            if !deprecation_recorded(ranges, source.version) {
+                                mismatches.push(format!(
+                                    "{} {name}.{}: missing or late deprecation date",
+                                    source.tag, field.name
+                                ));
+                            }
+                        }
+                    }
                 }
                 for (name, value) in source.enums {
                     let UnifiedType::Enum(merged) = &registry.types[&name] else {
@@ -3605,6 +3648,23 @@ mod flag_timeline_tests {
                     {
                         mismatches
                             .push(format!("{} {name}: unstable feature mismatch", source.tag));
+                    }
+                    for variant in &value.variants {
+                        if has_feature(&variant.meta, "deprecated") {
+                            let ranges = merged
+                                .variant_versions
+                                .get(&variant.name)
+                                .into_iter()
+                                .chain(merged.variant_history.iter().filter_map(|(old, range)| {
+                                    (old.name == variant.name).then_some(range)
+                                }));
+                            if !deprecation_recorded(ranges, source.version) {
+                                mismatches.push(format!(
+                                    "{} {name}.{}: missing or late deprecation date",
+                                    source.tag, variant.name
+                                ));
+                            }
+                        }
                     }
                 }
             }

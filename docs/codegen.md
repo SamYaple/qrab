@@ -126,6 +126,8 @@ and the `UNSTABLE` constant describe the newest declaration.
 Member expansion retains all features, so ordinary features cannot hide
 deprecation or instability. Duplicate feature names and C-name collisions fail
 with source context on definitions, fields and enum values.
+Members deprecated on introduction record that first release immediately,
+including when later patch schemas are identical and skipped during merging.
 From 8.1, conditional members in command/event argument objects require boxing,
 including members inherited from a base. Earlier schemas retain the older rules.
 Type references resolve against exact QAPI names across all source files before

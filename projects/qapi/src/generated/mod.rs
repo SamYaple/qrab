@@ -12410,6 +12410,7 @@ pub struct MigrationInfo {
     /// True if outgoing migration is blocked (since 6.0)
     #[qapi(feature = "deprecated")]
     #[qapi(added = "6.0.0")]
+    #[qapi(deprecated(added = "6.0.0"))]
     #[qapi(removed = "6.1.0")]
     #[qapi(required)]
     pub blocked: Option<bool>,
@@ -17781,7 +17782,7 @@ pub struct RngEgdProperties {
     /// option.  Don't use; only provided for compatibility.
     /// (default: false)
     #[qapi(feature = "deprecated")]
-    #[qapi(deprecated(added = "6.1.0"))]
+    #[qapi(deprecated(added = "6.0.0"))]
     pub opened: Option<bool>,
 }
 
@@ -17800,7 +17801,7 @@ pub struct RngProperties {
     /// option.  Don't use; only provided for compatibility.
     /// (default: false)
     #[qapi(feature = "deprecated")]
-    #[qapi(deprecated(added = "6.1.0"))]
+    #[qapi(deprecated(added = "6.0.0"))]
     pub opened: Option<bool>,
 }
 
@@ -17816,7 +17817,7 @@ pub struct RngRandomProperties {
     /// option.  Don't use; only provided for compatibility.
     /// (default: false)
     #[qapi(feature = "deprecated")]
-    #[qapi(deprecated(added = "6.1.0"))]
+    #[qapi(deprecated(added = "6.0.0"))]
     pub opened: Option<bool>,
 }
 
@@ -18481,7 +18482,7 @@ pub struct SecretCommonProperties {
     /// option.  Don't use; only provided for compatibility.
     /// (default: false)
     #[qapi(feature = "deprecated")]
-    #[qapi(deprecated(added = "6.1.0"))]
+    #[qapi(deprecated(added = "6.0.0"))]
     #[qapi(removed = "9.2.0")]
     pub loaded: Option<bool>,
 }
@@ -18507,7 +18508,7 @@ pub struct SecretKeyringProperties {
     /// option.  Don't use; only provided for compatibility.
     /// (default: false)
     #[qapi(feature = "deprecated")]
-    #[qapi(deprecated(added = "6.1.0"))]
+    #[qapi(deprecated(added = "6.0.0"))]
     #[qapi(removed = "9.2.0")]
     pub loaded: Option<bool>,
     /// serial number that identifies a key to get from the kernel
@@ -18540,7 +18541,7 @@ pub struct SecretProperties {
     /// option.  Don't use; only provided for compatibility.
     /// (default: false)
     #[qapi(feature = "deprecated")]
-    #[qapi(deprecated(added = "6.1.0"))]
+    #[qapi(deprecated(added = "6.0.0"))]
     #[qapi(removed = "9.2.0")]
     pub loaded: Option<bool>,
 }
@@ -20273,7 +20274,7 @@ pub struct TlsCredsAnonProperties {
     /// later.  Don't use; only provided for compatibility.
     /// (default: false)
     #[qapi(feature = "deprecated")]
-    #[qapi(deprecated(added = "6.1.0"))]
+    #[qapi(deprecated(added = "6.0.0"))]
     #[qapi(removed = "9.2.0")]
     pub loaded: Option<bool>,
     /// a gnutls priority string as described at
@@ -20319,7 +20320,7 @@ pub struct TlsCredsPskProperties {
     /// later.  Don't use; only provided for compatibility.
     /// (default: false)
     #[qapi(feature = "deprecated")]
-    #[qapi(deprecated(added = "6.1.0"))]
+    #[qapi(deprecated(added = "6.0.0"))]
     #[qapi(removed = "9.2.0")]
     pub loaded: Option<bool>,
     /// a gnutls priority string as described at
@@ -20350,7 +20351,7 @@ pub struct TlsCredsX509Properties {
     /// later.  Don't use; only provided for compatibility.
     /// (default: false)
     #[qapi(feature = "deprecated")]
-    #[qapi(deprecated(added = "6.1.0"))]
+    #[qapi(deprecated(added = "6.0.0"))]
     #[qapi(removed = "9.2.0")]
     pub loaded: Option<bool>,
     /// For the server-key.pem and client-key.pem files which
@@ -20706,7 +20707,7 @@ pub enum TransactionActionKind {
     /// Since 1.6
     #[qapi(name = "drive-backup")]
     #[qapi(feature = "deprecated")]
-    #[qapi(deprecated(added = "7.0.0"))]
+    #[qapi(deprecated(added = "6.2.0"))]
     DriveBackup,
 }
 
