@@ -35,8 +35,9 @@ spec:
         effect: NoSchedule
       containers:
       - name: broker
-        # The operator image carries qrab-proton; updated by the release pin commit.
-        image: zot.yapplesauce.com/qrab/operator@sha256:62b96ae7a8bc16286ef4b8cbb46e422d22bd3ae973f9620d792305386338a2f6
+        # The operator image carries qrab-proton; pinned with the operator, whose
+        # digest zot retains (kubernetes-gitops infrastructure/zot/retained-tags.txt).
+        image: zot.yapplesauce.com/qrab/operator@sha256:f3d7d09dd3403bd9c11ec8f35173d19ec698a32df04d43d57be5881eb160eeea
         # Zot images must be pulled Always (cluster policy zot-delegated-pulls).
         imagePullPolicy: Always
         command: [/usr/local/bin/qrab-proton, broker]
