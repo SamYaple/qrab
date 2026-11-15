@@ -233,3 +233,32 @@ fn a_tap_built_in_one_namespace_works_from_another() {
     assert!(saw(&packets, b"after-reapply"), "queues survive a re-apply");
     std::thread::sleep(Duration::from_millis(10));
 }
+
+#[test]
+fn forward_routes_are_marked_listed_and_removed() {
+    // SAFETY: geteuid has no preconditions.
+    if unsafe { libc::geteuid() } != 0 {
+        eprintln!("skipped: needs root to create network namespaces");
+        return;
+    }
+    let host = Netns::new();
+    sys::in_netns(&host.path, || {
+        ip("link add peer0 type dummy")?;
+        ip("addr add 10.99.1.1/24 dev peer0")?;
+        ip("link set peer0 up")?;
+        let (guest, via) = ("10.99.0.50".parse().unwrap(), "10.99.1.2".parse().unwrap());
+        sys::forward(guest, via)?;
+        sys::forward(guest, via)?; // idempotent
+        assert_eq!(sys::forwards()?, vec![guest]);
+        assert!(ip("route get 10.99.0.50")?.contains("via 10.99.1.2"));
+        // Other routes are never ours.
+        ip("route add 10.99.0.60/32 via 10.99.1.2")?;
+        assert_eq!(sys::forwards()?, vec![guest]);
+        sys::unforward(guest)?;
+        sys::unforward(guest)?; // already gone is fine
+        assert!(sys::forwards()?.is_empty());
+        assert!(ip("route get 10.99.0.60")?.contains("via 10.99.1.2"));
+        Ok(())
+    })
+    .unwrap();
+}

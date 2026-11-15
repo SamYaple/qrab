@@ -16,6 +16,17 @@
 //! send_refusal(&agent, "no").unwrap();
 //! assert_eq!(receive_grant(&manager).unwrap_err().to_string(), "qrab-netd refused: no");
 //! ```
+//!
+//! Control ops carry no descriptors; `fds` stays the default, so a request
+//! without `op` is the original grant request:
+//!
+//! ```
+//! use qrab_netd::wire::{Op, Request};
+//! let old: Request = serde_json::from_str(r#"{"nic":"lan","queues":2}"#).unwrap();
+//! assert_eq!(old.op, Op::Fds);
+//! let forward = Request { nic: "lan".into(), queues: 0, op: Op::Forward, via: Some("10.203.0.12".parse().unwrap()) };
+//! assert_eq!(serde_json::to_string(&forward).unwrap(), r#"{"nic":"lan","queues":0,"op":"forward","via":"10.203.0.12"}"#);
+//! ```
 use serde::{Deserialize, Serialize};
 use std::{
     io::{self, BufRead, BufReader, IoSlice, IoSliceMut, Write},
@@ -29,11 +40,42 @@ use std::{
 pub const MAX_QUEUES: u8 = 8;
 const MAX_MESSAGE: usize = 4096;
 
+/// What a request asks for. `fds` hands out the NIC's queues; the others
+/// drive a live-migration handoff of the NIC's anchor on this node
+/// (docs/networking.md, "Tap live migration").
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Op {
+    #[default]
+    Fds,
+    /// Fence the anchor's endpoint so it can later stand by (Cilium handoff
+    /// `prepare`; regenerates, up to a minute).
+    Prepare,
+    /// Make the anchor's endpoint the IP's active owner on this node.
+    Activate,
+    /// Make it a standby: not delivered locally, its own traffic dropped.
+    Standby,
+    /// Route the NIC's address from this node's host to `via` (the
+    /// destination node), for traffic still arriving here after the switch.
+    Forward,
+    /// Remove that route.
+    Unforward,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Request {
     pub nic: String,
+    #[serde(default)]
     pub queues: u8,
+    #[serde(default, skip_serializing_if = "is_fds")]
+    pub op: Op,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub via: Option<std::net::Ipv4Addr>,
+}
+
+fn is_fds(op: &Op) -> bool {
+    *op == Op::Fds
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -61,10 +103,16 @@ pub fn read_request(stream: &UnixStream) -> io::Result<Request> {
     BufReader::new(io::Read::take(stream, MAX_MESSAGE as u64)).read_line(&mut line)?;
     let request: Request = serde_json::from_str(line.trim_end())
         .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, format!("bad request: {e}")))?;
-    if request.nic.is_empty() || !(1..=MAX_QUEUES).contains(&request.queues) {
+    let valid = !request.nic.is_empty()
+        && match request.op {
+            Op::Fds => (1..=MAX_QUEUES).contains(&request.queues) && request.via.is_none(),
+            Op::Forward => request.queues == 0 && request.via.is_some(),
+            _ => request.queues == 0 && request.via.is_none(),
+        };
+    if !valid {
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,
-            format!("a request names a NIC and 1..={MAX_QUEUES} queues"),
+            format!("a request names a NIC; fds takes 1..={MAX_QUEUES} queues, forward takes via, the rest take neither"),
         ));
     }
     Ok(request)
@@ -108,6 +156,20 @@ pub fn send_grant(
             queues,
         },
         &fds,
+    )
+}
+
+/// Acknowledge a control op (anything but `fds`).
+pub fn send_ok(stream: &UnixStream) -> io::Result<()> {
+    send(
+        stream,
+        &Reply {
+            ok: true,
+            error: None,
+            tap: None,
+            queues: 0,
+        },
+        &[],
     )
 }
 
@@ -173,15 +235,51 @@ pub fn receive_grant(stream: &UnixStream) -> io::Result<Grant> {
     })
 }
 
-/// Ask the agent at `socket` for `nic`'s descriptors (the manager's side).
-pub fn request(socket: &Path, nic: &str, queues: u8) -> io::Result<Grant> {
+fn connect(socket: &Path, request: &Request, timeout: Duration) -> io::Result<UnixStream> {
     let mut stream = UnixStream::connect(socket)?;
-    stream.set_read_timeout(Some(Duration::from_secs(30)))?;
-    let mut line = serde_json::to_vec(&Request {
-        nic: nic.to_owned(),
-        queues,
-    })?;
+    stream.set_read_timeout(Some(timeout))?;
+    let mut line = serde_json::to_vec(request)?;
     line.push(b'\n');
     stream.write_all(&line)?;
-    receive_grant(&stream)
+    Ok(stream)
+}
+
+/// Ask the agent at `socket` for `nic`'s descriptors (the manager's side).
+pub fn request(socket: &Path, nic: &str, queues: u8) -> io::Result<Grant> {
+    let request = Request {
+        nic: nic.to_owned(),
+        queues,
+        op: Op::Fds,
+        via: None,
+    };
+    receive_grant(&connect(socket, &request, Duration::from_secs(30))?)
+}
+
+/// Run a handoff control op for `nic` (the manager's side). `prepare` may
+/// take up to a minute while Cilium regenerates the endpoint.
+pub fn control(
+    socket: &Path,
+    nic: &str,
+    op: Op,
+    via: Option<std::net::Ipv4Addr>,
+) -> io::Result<()> {
+    let request = Request {
+        nic: nic.to_owned(),
+        queues: 0,
+        op,
+        via,
+    };
+    let stream = connect(socket, &request, Duration::from_secs(90))?;
+    let mut body = vec![0u8; MAX_MESSAGE];
+    let n = io::Read::read(&mut &stream, &mut body)?;
+    let reply: Reply = serde_json::from_slice(&body[..n])
+        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, format!("bad reply: {e}")))?;
+    if reply.ok {
+        Ok(())
+    } else {
+        Err(io::Error::other(format!(
+            "qrab-netd refused: {}",
+            reply.error.unwrap_or_default()
+        )))
+    }
 }

@@ -31,6 +31,11 @@ struct Agent {
     reported: Mutex<HashMap<String, (bool, String)>>,
     /// One grant at a time, so the busy check and the attach cannot race.
     granting: Mutex<()>,
+    /// The node's Cilium agent API socket (handoff states).
+    cilium: PathBuf,
+    namespace: String,
+    /// Forward routes whose address no local anchor holds any more → since when.
+    orphaned: Mutex<HashMap<std::net::Ipv4Addr, Instant>>,
 }
 
 impl Agent {
@@ -66,6 +71,11 @@ impl Agent {
             pods.iter().map(|p| p.as_ref()),
         )
         .map_err(|r| r.to_string())?;
+        if request.op != wire::Op::Fds {
+            let summary = self.control(anchor, &request)?;
+            wire::send_ok(stream).map_err(|e| e.to_string())?;
+            return Ok(format!("pid {pid}: {summary}"));
+        }
         let anchor_uid = anchor.uid().unwrap_or_default();
         if !self.plumbed.lock().unwrap().contains_key(&anchor_uid) {
             return Err(format!("NIC {:?} is not plumbed yet", request.nic));
@@ -90,7 +100,78 @@ impl Agent {
             plan.tap, request.nic
         ))
     }
+
+    /// A live-migration handoff step for `anchor`, the requester's NIC here.
+    fn control(&self, anchor: &Pod, request: &wire::Request) -> Result<String, String> {
+        let endpoint = format!("cep-name:{}/{}", self.namespace, anchor.name_any());
+        let state = match request.op {
+            wire::Op::Prepare => Some("prepare"),
+            wire::Op::Activate => Some("active"),
+            wire::Op::Standby => Some("standby"),
+            _ => None,
+        };
+        if let Some(state) = state {
+            sys::cilium_handoff(&self.cilium, &endpoint, state).map_err(|e| e.to_string())?;
+            return Ok(format!("{endpoint} is {state}"));
+        }
+        let ip: std::net::Ipv4Addr = anchor
+            .status
+            .as_ref()
+            .and_then(|s| s.pod_ip.as_deref())
+            .and_then(|ip| ip.parse().ok())
+            .ok_or("the anchor has no IPv4 address")?;
+        let host = sys::host_netns(&self.proc_root);
+        match (request.op, request.via) {
+            (wire::Op::Forward, Some(via)) => {
+                sys::in_netns(&host, move || sys::forward(ip, via)).map_err(|e| e.to_string())?;
+                Ok(format!("{ip}/32 forwarded via {via}"))
+            }
+            (wire::Op::Unforward, _) => {
+                sys::in_netns(&host, move || sys::unforward(ip)).map_err(|e| e.to_string())?;
+                Ok(format!("{ip}/32 no longer forwarded"))
+            }
+            _ => Err("unsupported request".into()),
+        }
+    }
+
+    /// Drop forward routes whose address no anchor on this node has held for
+    /// [`FORWARD_GRACE`]: by then the new node announces the address.
+    fn sweep_forwards(&self) {
+        let host = sys::host_netns(&self.proc_root);
+        let Ok(routes) = sys::in_netns(&host, sys::forwards) else {
+            return;
+        };
+        let held: Vec<String> = self
+            .store
+            .state()
+            .iter()
+            .filter(|p| authz::is_tap_anchor(p))
+            .filter_map(|p| p.status.as_ref()?.pod_ip.clone())
+            .collect();
+        let mut orphaned = self.orphaned.lock().unwrap();
+        orphaned.retain(|ip, _| routes.contains(ip));
+        for ip in routes {
+            if held.contains(&ip.to_string()) {
+                orphaned.remove(&ip);
+                continue;
+            }
+            let since = *orphaned.entry(ip).or_insert_with(Instant::now);
+            if since.elapsed() >= FORWARD_GRACE {
+                match sys::in_netns(&host, move || sys::unforward(ip)) {
+                    Ok(()) => log("unforwarded", serde_json::json!({"address": ip})),
+                    Err(error) => log(
+                        "unforward_failed",
+                        serde_json::json!({"address": ip, "error": error.to_string()}),
+                    ),
+                }
+                orphaned.remove(&ip);
+            }
+        }
+    }
 }
+
+/// How long a forward route outlives the last local anchor of its address.
+const FORWARD_GRACE: Duration = Duration::from_secs(20);
 
 async fn report(pods: &Api<Pod>, agent: &Agent, pod: &Pod, outcome: &Result<String, String>) {
     let (Some(uid), name) = (pod.uid(), pod.name_any()) else {
@@ -268,6 +349,12 @@ async fn main() -> Result<()> {
         plumbed: Mutex::default(),
         reported: Mutex::default(),
         granting: Mutex::default(),
+        cilium: PathBuf::from(
+            std::env::var("QRAB_CILIUM_SOCKET")
+                .unwrap_or_else(|_| "/var/run/cilium/cilium.sock".into()),
+        ),
+        namespace: namespace.clone(),
+        orphaned: Mutex::default(),
     });
     let mut server = tokio::spawn(serve(
         agent.clone(),
@@ -285,5 +372,7 @@ async fn main() -> Result<()> {
             }
         }
         reconcile(&agent, &pods).await;
+        let sweeper = agent.clone();
+        let _ = tokio::task::spawn_blocking(move || sweeper.sweep_forwards()).await;
     }
 }
