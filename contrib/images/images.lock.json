@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "source_revision": "661eaf690e9193d3c8455d6f1df6f66e977ee0c0",
+  "source_revision": "4b5c246665b1c6f528d00a32a026f093cae62f82",
   "qemu": {
     "image": "zot.yapplesauce.com/qrab/qemu@sha256:771ce49b1185dc38986a67e7cafbd3de4fa5100f80661e681f4f3add012c66b5",
     "version": "11.1.3",
@@ -17,7 +17,7 @@
     ]
   },
   "manager": {
-    "image": "zot.yapplesauce.com/qrab/manager@sha256:fcac320b35347d73d3902c1a1b27adf31859e2df5a10224f2b835127f2e3b558",
+    "image": "zot.yapplesauce.com/qrab/manager@sha256:4522193142cd2ba484c4826bc5d1a043c9fbd9ef68bd1fd09e1fdd2eee9d56be",
     "bmc_version": "0.2.0",
     "redfish_version": "0.1.0",
     "guest_agent_version": "0.1.0",
@@ -31,7 +31,7 @@
       },
       "binary_version": "0.0~git20250503.587980c-2+deb13u1+qrab3"
     },
-    "source_revision": "661eaf690e9193d3c8455d6f1df6f66e977ee0c0"
+    "source_revision": "4b5c246665b1c6f528d00a32a026f093cae62f82"
   },
   "demo_guest_packages": [
     "busybox-static\t1:1.37.0-6+b9",
@@ -46,12 +46,12 @@
     "tpm2-tools\t5.7-1"
   ],
   "operator": {
-    "image": "zot.yapplesauce.com/qrab/operator@sha256:d9216ef62466bd64b03d1c6a7e90526e6c38f8a9af24ea55a8cb85a579a4b473",
+    "image": "zot.yapplesauce.com/qrab/operator@sha256:2b9633daad6bc156a4be550908e60344d6825250cae15e6844377bfcbb489056",
     "version": "0.1.0",
-    "source_revision": "efd531e09f508e16da108d61669a85da730c8b0d"
+    "source_revision": "4b5c246665b1c6f528d00a32a026f093cae62f82"
   },
   "dashboard": {
-    "image": "zot.yapplesauce.com/qrab/dashboard@sha256:04ed2504cbc8a7e852b1f61b565855c2cea68bab0eef94963f7a8ac729bc9535",
-    "source_revision": "661eaf690e9193d3c8455d6f1df6f66e977ee0c0"
+    "image": "zot.yapplesauce.com/qrab/dashboard@sha256:d0764ec72168d048843ed9ca59ef19e2510937d805566eee1c068cf76a1bd9dd",
+    "source_revision": "4b5c246665b1c6f528d00a32a026f093cae62f82"
   }
 }
