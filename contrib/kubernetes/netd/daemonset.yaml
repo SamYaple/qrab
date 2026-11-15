@@ -5,10 +5,10 @@
 # and vhost-net descriptors to VM managers over /run/qrab-netd/netd.sock,
 # which the plugin's CDI spec mounts into VM Pods.
 #
-# It runs as the plugin's ServiceAccount because the nodes' pull policy for
-# zot.yapplesauce.com/qrab/operator is bound to that account's UID; a
-# dedicated account needs a node pull-policy apply first. The plugin's Pods
-# mount no token, so only this DaemonSet uses the API rights in rbac.yaml.
+# The dedicated ServiceAccount has its own delegated pull enrollment. Node
+# SPIFFE identity is separate: enroll clusterspiffeid.yaml before updating the
+# image. Conntrack TCP 7911 accepts only exact node identities over TLS 1.3.
+# Missing SVIDs disable peer handoff; TAP/DHCP plumbing continues.
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
@@ -47,6 +47,7 @@ spec:
         - name: NODE_NAME
           valueFrom: {fieldRef: {fieldPath: spec.nodeName}}
         - {name: QRAB_NAMESPACE, value: qrab}
+        - {name: QRAB_SPIFFE_ENDPOINT_SOCKET, value: 'unix:/run/spire/agent.sock'}
         resources:
           requests: {cpu: 10m, memory: 32Mi}
           limits: {cpu: 500m, memory: 128Mi}
@@ -59,6 +60,7 @@ spec:
         - {name: api, mountPath: /var/run/secrets/kubernetes.io/serviceaccount, readOnly: true}
         # The Cilium agent's local API: live-migration handoff states.
         - {name: cilium, mountPath: /var/run/cilium, readOnly: true}
+        - {name: workload-socket, mountPath: /run/spire, readOnly: true}
       volumes:
       - name: socket
         hostPath: {path: /run/qrab-netd, type: DirectoryOrCreate}
@@ -70,3 +72,5 @@ spec:
           - downwardAPI: {items: [{path: namespace, fieldRef: {fieldPath: metadata.namespace}}]}
       - name: cilium
         hostPath: {path: /var/run/cilium, type: Directory}
+      - name: workload-socket
+        csi: {driver: csi.spiffe.io, readOnly: true}

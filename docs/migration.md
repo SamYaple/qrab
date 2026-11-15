@@ -4,7 +4,8 @@ For the complete transport/identity picture, see the
 [migration sequence diagram](connections/data-paths.md#live-migration-three-cross-node-streams-not-one)
 and [connection inventory](connections.md#guest-network-and-migration-connections).
 The manager's migration and switchover connections use SPIFFE mTLS; netd's
-node-to-node conntrack exchange is a separate plain TCP connection on 7911.
+node-to-node conntrack exchange is a separate TLS 1.3 connection on 7911 with
+exact per-node SPIFFE IDs ([enrollment](networking.md#conntrack-peer-spiffe-enrollment)).
 
 A running VM moves to another node without a reboot. The guest's memory,
 devices, TPM state and UEFI variables travel in QEMU's migration stream over a

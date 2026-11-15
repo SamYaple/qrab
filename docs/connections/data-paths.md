@@ -175,7 +175,7 @@ Sources: [VPN parser and kill switch](../../projects/qrab-netd/src/vpn.rs),
 
 The source and target managers tunnel QEMU migration over mTLS (N6). TAP
 handoff adds a second manager mTLS connection (N7). Copying Cilium conntrack
-adds a **plain node-to-node** connection between netds (N9). Established guest
+adds a separate **per-node SPIFFE mTLS** connection between netds (N9). Established guest
 application flows (N3/N5/N12) continue independently of all three.
 
 ```mermaid
@@ -192,7 +192,7 @@ sequenceDiagram
     TM->>SM: Hello(version, migration UID, state_id)
     SM-->>TM: Offer(machine type, retained disk bindings, NIC slots)
     TM->>TN: N1: local ct-pull before QEMU incoming socket accepts
-    TN->>SN: N9: plain TCP 7911, request this NIC address
+    TN->>SN: N9: per-node SPIFFE mTLS 7911, request NIC address
     SN-->>TN: Conntrack map entries, monotonic clock, truncated flag
     TM->>TQ: QMP migrate-incoming unix:migrate-in.sock
     TM->>TQ: N8: connect local migration socket
@@ -215,7 +215,7 @@ sequenceDiagram
     SQ-->>SM: QMP completed
     SM->>TM: N7: Conntrack(nic), delta request
     TM->>TN: N1: local ct-pull
-    TN->>SN: N9: fetch delta over plain TCP 7911
+    TN->>SN: N9: fetch delta over per-node SPIFFE mTLS 7911
     SN-->>TN: Current filtered conntrack export
     TM-->>SM: N7: Imported(count), no entries
     SM->>SQ: QMP quit, wait for clean exit
@@ -252,14 +252,19 @@ Important boundaries:
   retained identity. Media/firmware/Redfish claims mounted concurrently must
   support multi-node access. Retained management metadata/dynamic media can
   block migration; do not assume every local file is streamed.
-- **Conntrack is outside the TLS tunnel.** netds derive peers from same-owner,
-  same-NIC anchor host IPs. Source checks an on-link TCP peer and corresponding
-  target anchor. Client trusts the selected node's plaintext response; there
-  is no certificate, MAC or signed export. Payloads include flow tuples and
-  state/counters, not packet bodies. Export/import validates/filter records,
-  rebases lifetime clocks and caps each NIC at 384 entries; it is best effort.
-  A precopy happens before incoming QEMU accepts, with a delta after completion,
-  rather than adding conntrack pull time to QEMU's final pause.
+- **Conntrack has its own TLS tunnel.** netds derive peer node names from
+  current API-backed anchor host-IP/node metadata and require the exact URI
+  `spiffe://<local-domain>/kubernetes/qrab-node/qrab-netd/<node>` over TLS 1.3.
+  Each daemon verifies its own SVID has its configured node name. Source still
+  checks the on-link peer and same-VM/same-NIC target anchor before exporting.
+  Unknown/ambiguous node metadata and absent/invalid credentials fail closed;
+  there is no plain-TCP compatibility mode. This identity is distinct from the
+  managers' shared per-VM migration ID. Entries are flow tuples/state/counters,
+  not packet bodies. Export/import validates/filter records, rebases lifetime
+  clocks and caps each NIC at 384 entries; it remains best effort. A precopy
+  happens before incoming QEMU accepts, with a delta after completion, rather
+  than adding conntrack pull time to QEMU's final pause. Deploying the updated
+  daemon requires [node SVID enrollment](../networking.md#conntrack-peer-spiffe-enrollment).
 - **Guest forwarding is its own stream.** The source node temporarily routes
   the guest /32 to the target until BGP converges (N12). That traffic does not
   enter N6. Standby/active maps in the patched Cilium fence packet emission

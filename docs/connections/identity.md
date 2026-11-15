@@ -9,7 +9,7 @@ manager Pod's workload identity.
 
 | Mechanism | Holder and issuer | What it authorizes | What it does not establish |
 | --- | --- | --- | --- |
-| SPIFFE X509-SVID | Manager/operator, optionally Redfish; issued by SPIRE | Workload peer admission for migration, exchange shim and optional Redfish TLS | A human user role, guest attestation, guest packet encryption, or TLS on every Pod listener |
+| SPIFFE X509-SVID | Manager/operator, optionally Redfish; issued by SPIRE | Workload peer admission for migration, node conntrack exchange, exchange shim and optional Redfish TLS | A human user role, guest attestation, guest packet encryption, or TLS on every Pod listener |
 | Kanidm OIDC ID token | Signed-in user; audience is BMC/dashboard/Redfish client | User subject/group grants in BMC and Redfish; dashboard session identity | Transport secrecy: JWT signature is not encryption; claims can be decoded by anyone holding the token |
 | Browser session cookie | Opaque server-store identifier in browser | Lookup of verified user/login data; Origin/CSRF rules protect ambient-cookie mutations | A transferable SPIFFE identity, or the user's raw ID token in the cookie |
 | Redfish session `X-Auth-Token` | Native client; issued locally after permitted bootstrap | Revocable opaque session with the original local/OIDC principal and expiry | A new OAuth2 access token or a workload TLS identity |
@@ -69,6 +69,15 @@ other end. It does not itself construct/enforce the `/vm/<uid>` URI template:
 the external SPIRE registrations must bind the correct owner UID/Pod/container.
 This is why a broad registration shared by all VMs would weaken isolation even
 though the stream still uses valid mTLS.
+
+Conntrack peers additionally use per-node netd identities, independent of
+manager IDs: `spiffe://<local-domain>/kubernetes/qrab-node/qrab-netd/<node>`.
+Source and target resolve the peer's node name from API-backed live anchors
+and host IP, then authorize exactly that URI. netd refuses a local SVID naming
+another node. The same-VM/same-NIC check still authorizes the requested export
+only after TLS admission. No credential downgrade is supported. See
+[node enrollment](../networking.md#conntrack-peer-spiffe-enrollment); the dated
+live snapshot precedes this source hardening and does not prove its rollout.
 
 The operator example registration is
 `spiffe://yapplesauce.com/kubernetes/qrab/qrab-operator`, class

@@ -7,8 +7,8 @@ use kube::{
     Client, ResourceExt,
 };
 use qrab_netd::{
-    authz, natpmp, peer, plan::NicPlan, sys, wire, PLUMBED_CONDITION, PORT_FORWARD_CONDITION,
-    SOCKET_DIR, SOCKET_NAME,
+    authz, natpmp, peer, peer_tls, plan::NicPlan, sys, wire, PLUMBED_CONDITION,
+    PORT_FORWARD_CONDITION, SOCKET_DIR, SOCKET_NAME,
 };
 use std::{
     collections::HashMap,
@@ -49,6 +49,8 @@ struct Agent {
     runtime: tokio::runtime::Handle,
     /// Node-to-node conntrack requests being served.
     peers_busy: std::sync::atomic::AtomicUsize,
+    /// Rotating node-bound identity; missing identity disables peers, never TLS.
+    peer_tls: Mutex<Option<peer_tls::Transport>>,
     /// Peer connections refused for not coming from a host link (logged at
     /// powers of two).
     peer_strangers: std::sync::atomic::AtomicU64,
@@ -303,6 +305,30 @@ impl Agent {
             .collect())
     }
 
+    /// Current API-backed binding from peer host IP to node SPIFFE identity.
+    fn peer_node(&self, host: std::net::Ipv4Addr) -> std::io::Result<String> {
+        let params = ListParams::default()
+            .labels("app.kubernetes.io/name=qrab,app.kubernetes.io/component=vm-nic");
+        let pods = self.runtime.block_on(async {
+            tokio::time::timeout(Duration::from_secs(1), self.api.list(&params))
+                .await
+                .map_err(|_| {
+                    std::io::Error::new(std::io::ErrorKind::TimedOut, "anchor lookup timed out")
+                })?
+                .map_err(std::io::Error::other)
+        })?;
+        peer_tls::node_for_host(&pods.items, host)
+    }
+
+    fn peer_transport(&self) -> std::io::Result<peer_tls::Transport> {
+        self.peer_tls.lock().unwrap().clone().ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::NotConnected,
+                "netd SPIFFE identity unavailable",
+            )
+        })
+    }
+
     /// `ct-pull` for `anchor`, the caller's NIC here: fetch the address's
     /// entries from the other node holding the NIC ([`peer`]) and import them
     /// (only entries of this NIC whose other side is not local here; see
@@ -328,14 +354,22 @@ impl Agent {
         let (mut imported, mut failures) = (0, Vec::new());
         for source in sources {
             let (root, host) = (self.proc_root.clone(), host.clone());
-            let pulled = sys::in_netns(&host.clone(), move || {
-                let address = std::net::SocketAddr::from((source, peer::PEER_PORT));
-                let connection = std::net::TcpStream::connect_timeout(&address, peer::DEADLINE)?;
-                peer::fetch(&connection, ip)
-            })
-            .and_then(|export| {
+            let pulled = (|| {
+                let transport = self.peer_transport()?;
+                let node = self.peer_node(source)?;
+                // Create/connect in the host netns, then wrap this exact socket
+                // in TLS on the runtime. No async task changes a worker's netns.
+                let connection = sys::in_netns(&host, move || {
+                    let address = std::net::SocketAddr::from((source, peer::PEER_PORT));
+                    std::net::TcpStream::connect_timeout(&address, Duration::from_secs(1))
+                })?;
+                connection.set_nonblocking(true)?;
+                let export = self.runtime.block_on(async {
+                    let tcp = tokio::net::TcpStream::from_std(connection)?;
+                    transport.fetch(tcp, &node, ip).await
+                })?;
                 sys::in_netns(&host, move || sys::import_conntrack(&root, ip, &export))
-            });
+            })();
             match pulled {
                 Ok(count) => imported += count,
                 Err(error) => failures.push(format!("{source}: {error}")),
@@ -387,17 +421,35 @@ impl Agent {
                     return;
                 }
                 let mut outcome = None;
-                let served = peer::serve_one(&stream, |address| {
-                    let result = agent.answer_peer(peer, address);
-                    outcome = Some((
-                        address,
-                        result
-                            .as_ref()
-                            .map(|e| e.entries.len())
-                            .map_err(Clone::clone),
-                    ));
-                    result
-                });
+                let served = (|| {
+                    let transport = agent.peer_transport()?;
+                    let node = agent.peer_node(peer)?;
+                    stream.set_nonblocking(true)?;
+                    agent.runtime.block_on(async {
+                        let stream = tokio::net::TcpStream::from_std(stream)?;
+                        transport
+                            .serve(stream, &node, |address| {
+                                let outcome = &mut outcome;
+                                let worker = agent.clone();
+                                async move {
+                                    let result = tokio::task::spawn_blocking(move || {
+                                        worker.answer_peer(peer, address)
+                                    })
+                                    .await
+                                    .map_err(|e| e.to_string())?;
+                                    *outcome = Some((
+                                        address,
+                                        result
+                                            .as_ref()
+                                            .map(|e| e.entries.len())
+                                            .map_err(Clone::clone),
+                                    ));
+                                    result
+                                }
+                            })
+                            .await
+                    })
+                })();
                 match (served, outcome) {
                     (Ok(()), Some((address, Ok(count)))) => log(
                         "conntrack_served",
@@ -749,9 +801,37 @@ async fn main() -> Result<()> {
         api: pods.clone(),
         runtime: tokio::runtime::Handle::current(),
         peers_busy: Default::default(),
+        peer_tls: Mutex::new(None),
         peer_strangers: Default::default(),
         forwarded: Mutex::default(),
         tunnels: Mutex::default(),
+    });
+    // Keep local TAP/DHCP plumbing available while SPIRE is unavailable.
+    // Conntrack peers fail closed until this node has its exact SVID. The
+    // Workload API source then follows rotations without restarting listeners.
+    let identity_agent = agent.clone();
+    tokio::spawn(async move {
+        loop {
+            let result = async {
+                let identity = qrab_spiffe::Identity::from_env()
+                    .await
+                    .map_err(std::io::Error::other)?;
+                peer_tls::Transport::new(identity, &node)
+            }
+            .await;
+            match result {
+                Ok(transport) => {
+                    *identity_agent.peer_tls.lock().unwrap() = Some(transport);
+                    log("peer_identity_ready", serde_json::json!({"node": node}));
+                    break;
+                }
+                Err(error) => log(
+                    "peer_identity_unavailable",
+                    serde_json::json!(error.to_string()),
+                ),
+            }
+            tokio::time::sleep(Duration::from_secs(5)).await;
+        }
     });
     // Conntrack pulls from other nodes, in the host network namespace. Best
     // effort like the copy itself: a port that cannot be bound is retried,

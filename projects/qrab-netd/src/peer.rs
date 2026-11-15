@@ -10,6 +10,9 @@
 //! another anchor of the same VM's same NIC holding that address (the
 //! migration's standby or new active anchor); see [`may_fetch`].
 //!
+//! The production transport is TLS 1.3 with exact node SPIFFE IDs in
+//! `peer_tls`; there is no plaintext peer transport.
+//!
 //! ```
 //! use qrab_netd::peer::{may_fetch, sources, Holder};
 //! let anchor = |host: [u8; 4]| Holder { owner: "vm-uid".into(), nic: "eth0".into(), host: host.into() };
@@ -21,33 +24,12 @@
 //! assert!(may_fetch(&[source.clone()], &cluster, target.host).is_ok());
 //! assert!(may_fetch(&[source.clone()], &cluster, [10, 203, 0, 13].into()).is_err());
 //! ```
-use crate::ct::Export;
-use serde::{Deserialize, Serialize};
-use std::{
-    io::{self, BufRead, BufReader, Read, Write},
-    net::{Ipv4Addr, TcpStream},
-    time::Duration,
-};
+use std::{net::Ipv4Addr, time::Duration};
 
 /// The agents' node-to-node port.
 pub const PEER_PORT: u16 = 7911;
-/// Deadline for each read and write of an exchange.
+/// Deadline for each authenticated peer handshake/read/write.
 pub const DEADLINE: Duration = Duration::from_secs(5);
-const REQUEST_LIMIT: u64 = 256;
-
-#[derive(Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct PeerRequest {
-    address: Ipv4Addr,
-}
-
-#[derive(Serialize, Deserialize)]
-struct PeerReply {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    error: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    conntrack: Option<Export>,
-}
 
 /// A tap anchor holding an address: its VM (owner UID), NIC and node.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -93,161 +75,9 @@ pub fn sources(mine: &Holder, cluster: &[Holder]) -> Vec<Ipv4Addr> {
     hosts
 }
 
-/// Serve one requester: read its address, answer with `answer`'s entries or
-/// its refusal.
-pub fn serve_one(
-    stream: &TcpStream,
-    answer: impl FnOnce(Ipv4Addr) -> Result<Export, String>,
-) -> io::Result<()> {
-    stream.set_read_timeout(Some(DEADLINE))?;
-    stream.set_write_timeout(Some(DEADLINE))?;
-    let mut line = String::new();
-    BufReader::new(stream.take(REQUEST_LIMIT)).read_line(&mut line)?;
-    let reply = match serde_json::from_str::<PeerRequest>(line.trim_end()) {
-        Ok(request) => match answer(request.address) {
-            Ok(export) => PeerReply {
-                error: None,
-                conntrack: Some(export),
-            },
-            Err(error) => PeerReply {
-                error: Some(error),
-                conntrack: None,
-            },
-        },
-        Err(error) => PeerReply {
-            error: Some(format!("bad request: {error}")),
-            conntrack: None,
-        },
-    };
-    let mut body = serde_json::to_vec(&reply)?;
-    body.push(b'\n');
-    let mut stream = stream;
-    stream.write_all(&body)
-}
-
-/// Fetch `address`'s entries over a connection to another node's agent.
-pub fn fetch(stream: &TcpStream, address: Ipv4Addr) -> io::Result<Export> {
-    stream.set_read_timeout(Some(DEADLINE))?;
-    stream.set_write_timeout(Some(DEADLINE))?;
-    let mut request = serde_json::to_vec(&PeerRequest { address })?;
-    request.push(b'\n');
-    let mut writer = stream;
-    writer.write_all(&request)?;
-    let mut body = Vec::new();
-    stream
-        .take(crate::wire::PAYLOAD_LIMIT as u64 + 1)
-        .read_to_end(&mut body)?;
-    if body.len() > crate::wire::PAYLOAD_LIMIT {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            "reply too large",
-        ));
-    }
-    let end = body.iter().position(|b| *b == b'\n').unwrap_or(body.len());
-    let reply: PeerReply = serde_json::from_slice(&body[..end])
-        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, format!("bad reply: {e}")))?;
-    match (reply.conntrack, reply.error) {
-        (Some(export), None) => Ok(export),
-        (_, error) => Err(io::Error::other(format!(
-            "the source node refused: {}",
-            error.unwrap_or_default()
-        ))),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::net::TcpListener;
-
-    fn exchange(
-        answer: impl FnOnce(Ipv4Addr) -> Result<Export, String> + Send + 'static,
-    ) -> io::Result<Export> {
-        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-        let addr = listener.local_addr().unwrap();
-        let server = std::thread::spawn(move || {
-            let (stream, _) = listener.accept().unwrap();
-            serve_one(&stream, answer).unwrap();
-        });
-        let stream = TcpStream::connect(addr).unwrap();
-        let fetched = fetch(&stream, Ipv4Addr::new(10, 244, 128, 7));
-        server.join().unwrap();
-        fetched
-    }
-
-    #[test]
-    fn entries_travel_node_to_node_and_refusals_come_back() {
-        let export = Export {
-            now: 42,
-            entries: (0..300)
-                .map(|i| ('t', format!("{i:028x}"), "00".repeat(56)))
-                .collect(),
-            truncated: false,
-        };
-        let served = export.clone();
-        let fetched = exchange(move |address| {
-            assert_eq!(address, Ipv4Addr::new(10, 244, 128, 7));
-            Ok(served)
-        })
-        .unwrap();
-        assert_eq!(fetched, export);
-        let refused = exchange(|_| Err("node 10.203.0.13 holds no anchor".into())).unwrap_err();
-        assert!(refused.to_string().contains("holds no anchor"), "{refused}");
-    }
-
-    #[test]
-    fn an_oversized_or_malformed_request_is_refused() {
-        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-        let addr = listener.local_addr().unwrap();
-        let server = std::thread::spawn(move || {
-            let (stream, _) = listener.accept().unwrap();
-            serve_one(&stream, |_| panic!("no answer for a bad request")).unwrap();
-        });
-        let mut stream = TcpStream::connect(addr).unwrap();
-        stream.write_all(&[b'x'; 1024]).unwrap();
-        let mut reply = String::new();
-        BufReader::new(&stream).read_line(&mut reply).unwrap();
-        assert!(reply.contains("bad request"), "{reply}");
-        server.join().unwrap();
-    }
-
-    #[test]
-    fn random_requests_never_reach_the_answer_or_hang() {
-        // A seeded xorshift64*, so failures reproduce.
-        let mut state: u64 = 0x9e37_79b9_7f4a_7c15;
-        let mut next = move || {
-            state ^= state >> 12;
-            state ^= state << 25;
-            state ^= state >> 27;
-            state.wrapping_mul(0x2545_f491_4f6c_dd1d)
-        };
-        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-        let addr = listener.local_addr().unwrap();
-        for round in 0..200 {
-            let len = (next() % 600) as usize;
-            let mut body: Vec<u8> = (0..len).map(|_| next() as u8).collect();
-            if round % 4 == 0 {
-                // Near-valid JSON with a non-address value.
-                body = format!(r#"{{"address":"{}"}}"#, next()).into_bytes();
-            }
-            body.push(b'\n');
-            let server = {
-                let listener = listener.try_clone().unwrap();
-                std::thread::spawn(move || {
-                    let (stream, _) = listener.accept().unwrap();
-                    serve_one(&stream, |_| panic!("answered a random request"))
-                })
-            };
-            let mut stream = TcpStream::connect(addr).unwrap();
-            let _ = stream.write_all(&body);
-            let mut reply = String::new();
-            let _ = BufReader::new(&stream).read_line(&mut reply);
-            server.join().unwrap().ok();
-            if !reply.is_empty() {
-                assert!(reply.contains("error"), "{reply}");
-            }
-        }
-    }
 
     #[test]
     fn only_another_node_of_the_same_nic_may_fetch() {

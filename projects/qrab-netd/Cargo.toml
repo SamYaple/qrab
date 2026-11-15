@@ -8,7 +8,7 @@ description = "Per-node agent that builds each qrab NIC anchor's tap and hands t
 # The node agent itself. Without it the crate is just the wire protocol and
 # name derivation, which the VM manager uses as a client.
 default = ["agent"]
-agent = ["dep:anyhow", "dep:libc", "dep:futures", "dep:tokio", "dep:kube", "dep:k8s-openapi"]
+agent = ["dep:anyhow", "dep:libc", "dep:futures", "dep:tokio", "dep:kube", "dep:k8s-openapi", "dep:qrab-spiffe"]
 
 [dependencies]
 serde = { workspace = true }
@@ -21,10 +21,14 @@ futures = { workspace = true, optional = true }
 tokio = { workspace = true, features = ["macros", "rt", "rt-multi-thread", "signal", "net", "time", "sync"], optional = true }
 kube = { version = "5", features = ["runtime"], optional = true }
 k8s-openapi = { version = "0.29", features = ["v1_37"], optional = true }
+qrab-spiffe = { path = "../qrab-spiffe", optional = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }
+qrab-spiffe = { path = "../qrab-spiffe", features = ["fixture"] }
 libc = "0.2"
+rustls = { version = "0.23", default-features = false, features = ["std", "ring"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring"] }
 
 [[bin]]
 name = "qrab-netd"

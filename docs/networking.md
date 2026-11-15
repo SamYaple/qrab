@@ -487,6 +487,53 @@ in 7, 7 and 8 ms with QEMU downtime of 135, 119 and 111 ms, lost two pings in
 all (each within a pause) and no SSH probe; the old node dropped the pool
 once its anchor was retired.
 
+### Conntrack peer SPIFFE enrollment
+
+The updated netd peer listener on host TCP 7911 requires **TLS 1.3 mutual
+SPIFFE authentication** in both directions. Its ID is
+`spiffe://<local-domain>/kubernetes/qrab-node/qrab-netd/<node-name>`. The local
+SVID must match `NODE_NAME`; the remote expected ID comes from current
+nonterminating anchor Pods' `status.hostIP`/`spec.nodeName`, not a field in the
+peer request. Unknown/ambiguous mappings fail closed. The source's on-link and
+same-VM/same-NIC authorization still runs before exporting any entries.
+
+The daemon has at most four incoming peer connections (including handshakes),
+five-second TLS/request/write bounds, a one-second node lookup/connect bound,
+256-byte request frames and 256KiB response frames; exports retain the 384-entry
+cap. TLS completes before the address is read or the export callback runs.
+The client bounds TLS plus the whole exchange to five seconds. A slow export
+retains its incoming connection slot until the blocking backend completes,
+even when the client has gone. The manager/VM never receives raw entries.
+
+The library-only manager client builds without netd's TLS/Kubernetes dependencies.
+No plaintext peer mode or opportunistic TLS fallback is provided. An old peer
+cannot exchange state with the updated daemon. Missing SVIDs disable only peer
+handoff; local TAP/DHCP/VPN plumbing remains available while netd retries SPIRE.
+Established source identity follows Workload API certificate/bundle rotation.
+
+Source preparation and rollout are separate:
+
+1. Stage [clusterspiffeid.yaml](../contrib/kubernetes/netd/clusterspiffeid.yaml)
+   in kubernetes-gitops. It binds node name from the Pod spec, namespace
+   `qrab-node`, dedicated ServiceAccount `qrab-netd`, container `netd`, UID 0
+   and the reviewed published image digest. The SPIRE controller adds the Pod
+   UID selector. Do not give VM Pods or the KVM plugin the node identity.
+2. Release the operator image containing netd and pin the **same digest** in
+   registration and DaemonSet. Stage the CSI Workload API mount/environment in
+   [daemonset.yaml](../contrib/kubernetes/netd/daemonset.yaml). These examples
+   contain `OPERATOR_DIGEST` placeholders and are not applied automatically.
+3. Verify enrollment and `peer_identity_ready` on each node, then verify a
+   controlled NIC migration and conntrack handoff. A mixed old/new peer period
+   fails the best-effort conntrack copy, not TLS open; coordinate the node roll
+   before using migration as an availability check. No image publication or
+   cluster rollout is implied by merging this source change.
+
+Tests use fixture SVIDs over the real Unix Workload API and loopback TLS:
+positive exchange/refusal, wrong local/peer IDs, untrusted CA, no client
+certificate, plaintext client, malformed/oversized frames, stall deadline,
+ambiguous host/node metadata and certificate rotation. These are transport
+proofs without requiring a cluster, root, KVM or a guest image.
+
 ## Hot-attach and detach
 
 NICs can be added to or removed from `spec.nics` while the VM runs; the VM

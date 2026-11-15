@@ -16,6 +16,8 @@ pub mod identity;
 pub mod natpmp;
 pub mod peer;
 #[cfg(feature = "agent")]
+pub mod peer_tls;
+#[cfg(feature = "agent")]
 pub mod plan;
 #[cfg(feature = "agent")]
 pub mod sys;

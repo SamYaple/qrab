@@ -8,6 +8,11 @@ supplemented by
 No packet captures were taken. Image digests in manifests can describe earlier
 builds; source capability is not proof that a running image has it enabled.
 
+**Subsequent source hardening:** netd conntrack peers (N9) now require node-bound
+SPIFFE mTLS. The dated platform snapshot predates this change; deployment needs
+its own image release, socket mount and SPIRE enrollment. See
+[netd peer enrollment](networking.md#conntrack-peer-spiffe-enrollment).
+
 Start here for endpoints, payloads and transport protection. Continue with:
 
 - [Data paths and migration diagrams](connections/data-paths.md).
@@ -43,7 +48,7 @@ Do not infer encryption from Cilium being present or from a SPIFFE socket mount.
 The confirmed application-level encrypted paths are manager-to-manager migration
 (TLS 1.3 mTLS), operator-to-exchange-shim (SPIFFE mTLS), operator-to-storage-ingress
 (TLS 1.3 plus bearer), OIDC/Kanidm/Proton HTTPS, HTTPS event delivery, public
-ingress TLS, and a VPN NIC's WireGuard outer tunnel. Redfish has an additional
+ingress TLS, netd conntrack peer TLS 1.3 mTLS, and a VPN NIC's WireGuard outer tunnel. Redfish has an additional
 **optional**, separately configured SPIFFE mTLS listener. The other paths below
 are either plain, local, or externally controlled.
 
@@ -156,7 +161,7 @@ management access. Mock servers and test socketpairs are not deployed listeners.
 | N6 | Target manager → source manager Pod `:7800` | Hello/offer/ready JSON, then bidirectional QEMU migration byte stream, bulk state source → target | **SPIFFE TLS 1.3 mTLS** between managers; exact same per-VM SVID. Local QEMU ends are unencrypted Unix sockets. Standing deny guard plus temporary source/target policy restrict network reachability. |
 | N7 | Target manager → source manager `:7800`, second connection for TAP handoff | JSON `channel: switchover`, activate/activated/abort/failure, delta conntrack request/result count | Same **SPIFFE mTLS** as N6, separate TCP connection. No raw conntrack entries in managers. Migration UID selects the waiting handoff slot. |
 | N8 | Source QEMU → source manager `migrate-out.sock`; target manager → target QEMU `migrate-in.sock` | QEMU migration stream including RAM, device, swtpm state blobs and pflash RAM | **Local**, private session directories. Managers wrap/unwrap TLS for N6. Shared iSCSI disk blocks are not sent in this stream. |
-| N9 | Target node netd → source node netd host `:7911` | One JSON line each way: NIC address request, hex-encoded Cilium conntrack map records and clock/truncation metadata | **Plain TCP; no TLS/SPIFFE or signed response**. Source checks on-link requester IP and API-backed same-VM/same-NIC anchors on the two host IPs. Client selects source from those anchors. Host IP checks are not cryptographic peer authentication. |
+| N9 | Target node netd → source node netd host `:7911` | One JSON line each way: NIC address request, hex-encoded Cilium conntrack map records and clock/truncation metadata | **SPIFFE TLS 1.3 mTLS**, exact per-node URI `/kubernetes/qrab-node/qrab-netd/<node>` resolved from current anchor host-IP/node metadata. Source retains on-link and same-VM/same-NIC authorization. Missing/mismatched SVID or ambiguous node mapping refuses exchange; no plaintext fallback. Enrollment/release required. |
 | N10 | netd → `/var/run/cilium/cilium.sock` | HTTP/1.1 `PATCH /v1/endpoint/cep-name:.../handoff` with prepare/active/standby | **Local**, root/hostPath access; no TLS or user bearer. netd also uses local bpftool/BPF map access to export/import conntrack. |
 | N11 | Node FRR ↔ BGP neighbors | TCP 179 route advertisements/withdrawals for guest /32s | **External configuration**. Operator writes `FRRConfiguration` via Kubernetes; it does not speak BGP. No BGP TLS or message-authentication guarantee is established here. BGP carries routes, not guest payloads. |
 | N12 | Old node → new node during handoff | Temporarily routed guest packets over a host /32 forward route | **Plain at qrab layer**, separate from N6 migration TLS. Route installation is restricted to the caller's NIC /32 and an on-link next hop; withdrawn after the grace period. |
@@ -172,7 +177,8 @@ Source: [TAP launch](../projects/manager/src/pod/tap.rs),
 [NAT-PMP mapping](../projects/qrab-netd/src/natpmp.rs),
 [migration transport](../projects/manager/src/pod/migration.rs),
 [migration policies](../projects/operator/src/migration.rs),
-[conntrack peers](../projects/qrab-netd/src/peer.rs),
+[conntrack authorization](../projects/qrab-netd/src/peer.rs),
+[conntrack mTLS](../projects/qrab-netd/src/peer_tls.rs),
 [conntrack records](../projects/qrab-netd/src/ct.rs) and
 [address/route controller](../projects/operator/src/address.rs).
 

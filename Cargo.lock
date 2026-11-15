@@ -3889,11 +3889,14 @@ dependencies = [
  "kube",
  "libc",
  "nix 0.29.0",
+ "qrab-spiffe",
+ "rustls",
  "serde",
  "serde_json",
  "sha2 0.10.9",
  "tempfile",
  "tokio",
+ "tokio-rustls",
 ]
 
 [[package]]
