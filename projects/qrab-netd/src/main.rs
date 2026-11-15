@@ -45,6 +45,9 @@ struct Agent {
     runtime: tokio::runtime::Handle,
     /// Node-to-node conntrack requests being served.
     peers_busy: std::sync::atomic::AtomicUsize,
+    /// Peer connections refused for not coming from a host link (logged at
+    /// powers of two).
+    peer_strangers: std::sync::atomic::AtomicU64,
 }
 
 /// A tap anchor holding `address`, as a conntrack peer sees it.
@@ -268,10 +271,13 @@ impl Agent {
                 // is dropped before it costs an API call.
                 let host = sys::host_netns(&agent.proc_root);
                 if !sys::in_netns(&host, move || Ok(sys::is_link_peer(peer))).unwrap_or(false) {
-                    log(
-                        "conntrack_refused",
-                        serde_json::json!({"to": peer, "error": "not a node on a host link"}),
-                    );
+                    let strangers = agent.peer_strangers.fetch_add(1, Ordering::SeqCst) + 1;
+                    if strangers.is_power_of_two() {
+                        log(
+                            "conntrack_refused",
+                            serde_json::json!({"to": peer, "error": "not a node on a host link", "refused_so_far": strangers}),
+                        );
+                    }
                     agent.peers_busy.fetch_sub(1, Ordering::SeqCst);
                     return;
                 }
@@ -609,19 +615,33 @@ async fn main() -> Result<()> {
         api: pods.clone(),
         runtime: tokio::runtime::Handle::current(),
         peers_busy: Default::default(),
+        peer_strangers: Default::default(),
     });
-    // Conntrack pulls from other nodes, in the host network namespace.
-    let listener = sys::in_netns(&sys::host_netns(&agent.proc_root), || {
-        std::net::TcpListener::bind(("0.0.0.0", peer::PEER_PORT))
-    })
-    .with_context(|| {
-        format!(
-            "listening on port {} in the host namespace",
-            peer::PEER_PORT
-        )
-    })?;
+    // Conntrack pulls from other nodes, in the host network namespace. Best
+    // effort like the copy itself: a port that cannot be bound is retried,
+    // never a reason to stop plumbing NICs.
     let peers = agent.clone();
-    std::thread::spawn(move || peers.serve_peers(listener));
+    std::thread::spawn(move || loop {
+        let host = sys::host_netns(&peers.proc_root);
+        match sys::in_netns(&host, || {
+            std::net::TcpListener::bind(("0.0.0.0", peer::PEER_PORT))
+        }) {
+            Ok(listener) => {
+                log(
+                    "peer_listening",
+                    serde_json::json!({"port": peer::PEER_PORT}),
+                );
+                return peers.serve_peers(listener);
+            }
+            Err(error) => {
+                log(
+                    "peer_listen_failed",
+                    serde_json::json!({"port": peer::PEER_PORT, "error": error.to_string()}),
+                );
+                std::thread::sleep(Duration::from_secs(10));
+            }
+        }
+    });
     let mut server = tokio::spawn(serve(
         agent.clone(),
         Path::new(SOCKET_DIR).join(SOCKET_NAME),
