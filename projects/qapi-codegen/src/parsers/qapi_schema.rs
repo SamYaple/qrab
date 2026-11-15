@@ -1,7 +1,7 @@
 use super::common::{line_ending, lines, qcomment, whitespace1};
 use super::qapi_alternate::QapiAlternate;
 use super::qapi_command::QapiCommand;
-use super::qapi_documentation::{QapiFreeformDoc, QapiSectionDocumentation};
+use super::qapi_documentation::{QapiDocumentation, QapiFreeformDoc, QapiSectionDocumentation};
 use super::qapi_enum::QapiEnum;
 use super::qapi_event::QapiEvent;
 use super::qapi_include::QapiInclude;
@@ -36,6 +36,32 @@ pub enum QapiSchemaToken<'i> {
     FreeformDoc(QapiFreeformDoc<'i>),
     Comment(&'i str),
     EmptyLines,
+}
+
+impl<'i> QapiSchemaToken<'i> {
+    pub(crate) fn definition_name(&self) -> Option<&'i str> {
+        match self {
+            Self::Alternate(value) => Some(value.name),
+            Self::Command(value) => Some(value.name),
+            Self::Enum(value) => Some(value.name),
+            Self::Event(value) => Some(value.name),
+            Self::Struct(value) => Some(value.name),
+            Self::Union(value) => Some(value.name),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn documentation_mut(&mut self) -> Option<&mut Option<QapiDocumentation<'i>>> {
+        match self {
+            Self::Alternate(value) => Some(&mut value.doc),
+            Self::Command(value) => Some(&mut value.doc),
+            Self::Enum(value) => Some(&mut value.doc),
+            Self::Event(value) => Some(&mut value.doc),
+            Self::Struct(value) => Some(&mut value.doc),
+            Self::Union(value) => Some(&mut value.doc),
+            _ => None,
+        }
+    }
 }
 
 // To preserve the token ordering at this stage, the parsers schema output is a

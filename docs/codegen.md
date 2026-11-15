@@ -49,6 +49,8 @@ Lexing follows QEMU's Python parser, including Unicode/C0 whitespace and
 LF, CRLF or CR line endings. Shared nom 8 helpers borrow the original source;
 parse errors report its line and column. A differential lexical corpus checks
 acceptance against the parser in the pinned QEMU tree.
+Legacy comments naming a later definition in the same file follow that
+definition across intervening helpers; existing attached documentation wins.
 
 ## Regeneration
 

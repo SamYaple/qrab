@@ -6121,7 +6121,7 @@ static FIELDS_ChardevDummy: &[FieldMeta] = &[
 ];
 static STRUCT_ChardevDummy: StructMeta = StructMeta {
     name: "ChardevDummy",
-    doc: "Configuration info for the new chardev backend.",
+    doc: "",
     fields: &FIELDS_ChardevDummy,
     is_union: false,
     discriminator_field: None,

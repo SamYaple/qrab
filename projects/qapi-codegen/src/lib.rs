@@ -5,6 +5,7 @@ mod builtins;
 pub mod metadata_emit;
 pub mod parsers;
 pub mod qapi_ir;
+mod schema_docs;
 mod schema_validation;
 mod symbols;
 pub mod unified;

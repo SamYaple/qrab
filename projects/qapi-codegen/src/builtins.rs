@@ -93,20 +93,13 @@ pub(crate) fn parse_sources(sources: &[(PathBuf, String)]) -> Result<Vec<(&Path,
         })
         .collect::<Result<Vec<_>>>()?;
     let model = model(crate::parser_version());
+    crate::schema_docs::resolve_legacy(&mut schemas);
     crate::arrays::normalize(&mut schemas, model)?;
     let mut used = Usage::default();
     let mut definitions = HashMap::new();
     for (path, schema) in &schemas {
         for token in &schema.0 {
-            let name = match token {
-                QapiSchemaToken::Enum(value) => Some(value.name),
-                QapiSchemaToken::Struct(value) => Some(value.name),
-                QapiSchemaToken::Union(value) => Some(value.name),
-                QapiSchemaToken::Alternate(value) => Some(value.name),
-                QapiSchemaToken::Command(value) => Some(value.name),
-                QapiSchemaToken::Event(value) => Some(value.name),
-                _ => None,
-            };
+            let name = token.definition_name();
             if let Some(name) = name {
                 ensure!(
                     !reserved(name, model),

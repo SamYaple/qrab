@@ -6613,7 +6613,6 @@ pub struct ChardevDBusWrapper {
     pub data: ChardevDBus,
 }
 
-/// Configuration info for the new chardev backend.
 #[qapi(added = "1.4.0")]
 #[qapi(removed = "2.6.0")]
 pub struct ChardevDummy {}

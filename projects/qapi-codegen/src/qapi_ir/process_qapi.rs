@@ -74,7 +74,7 @@ fn member_documentation(lines: &[&str]) -> String {
 macro_rules! add_docs {
     ($meta:expr, $docs:expr, $name:expr, $variants:expr) => {
         if let Some(doc) = $docs {
-            if doc.name != $name {
+            if !doc.name.eq_ignore_ascii_case($name) {
                 eprintln!(
                     "WARNING: Doc section name '{}' does not match '{}'",
                     doc.name, $name
