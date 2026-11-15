@@ -200,7 +200,9 @@ FRRConfigurations: `contrib/kubernetes/operator/nic-addresses.yaml`). The
 ValidatingAdmissionPolicy in the same file confines it: pools and routes only
 as labelled `qrab-nic-<address>` objects inside the range, holding or announcing
 only that /32 and accepting no routes, and CiliumNode edits only removing
-`qrab-nic-*` entries. `check-nic-address-policy.sh` checks the policy live with
+`qrab-nic-*` entries or adding one `qrab-nic-<address>` pool in the range
+(requesting one address, allocated exactly its /32) for a live migration's
+pool move. `check-nic-address-policy.sh` checks the policy live with
 dry runs.
 
 A moved anchor's first CNI ADD on the new node waits for the pool (Cilium's
@@ -351,8 +353,13 @@ extra loss beyond that pause. Egress stays unmasqueraded throughout.
 4. **Announce.** After `cont` the target manager runs `announce-self`: QEMU
    sends RARP frames from the guest MAC and asks a virtio-net guest to
    announce itself, so anything on the path that learned the MAC updates.
-5. **Route move and retirement.** After the target is adopted, the VM's
-   reconcile moves the NIC's `FRRConfiguration` to the target node. Anchors
+5. **Route, pool and retirement.** After the target is adopted, the VM's
+   reconcile moves the NIC's `FRRConfiguration` to the target node, and adds
+   the NIC's pool to the target's CiliumNode (`requested` one address,
+   `allocated` the /32) while the source still lists it; the forked Cilium
+   tolerates a one-address pool on two nodes and the target agent adopts the
+   handed-off address into it, so the address stays IPAM-owned after the
+   source anchor goes. Anchors
    not on the VM Pod's node are annotated `qrab.yapplesauce.com/retire-after`
    (20 s later) and then deleted. qrab-netd deletes forward routes whose
    anchor has been gone for 20 s, by which time BGP announces the /32 from the

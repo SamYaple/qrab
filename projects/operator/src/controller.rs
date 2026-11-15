@@ -343,6 +343,23 @@ async fn reconcile_nics(
                 }
             }
         }
+        // A live migration's target anchor holds its address through a
+        // handoff: move the pool to its node before the source anchor goes.
+        if let (Some(addresses), Some(pool), Some(ip), Some(actual)) =
+            (&addresses, &pool, address, &live)
+        {
+            let annotated = actual.annotations().contains_key(nic::HANDOFF_FROM);
+            let holds =
+                actual.status.as_ref().and_then(|s| s.pod_ip.as_deref()) == Some(&ip.to_string());
+            if let Some(node) = actual
+                .spec
+                .as_ref()
+                .and_then(|s| s.node_name.as_deref())
+                .filter(|_| annotated && holds && endpoint.is_some())
+            {
+                addresses.adopt(pool, node, ip).await?;
+            }
+        }
         if vm_node.is_some() {
             retire_other_anchors(ctx, pods, vm, pods_of(&nic_pods, &spec.name), &name).await?;
         }

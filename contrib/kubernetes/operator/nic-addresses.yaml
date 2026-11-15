@@ -1,7 +1,8 @@
 # Stable guest NIC addresses (QRAB_NIC_ADDRESS_RANGE in deployment.yaml).
 # The operator claims one address per NIC as a one-address CiliumPodIPPool
 # (cluster-scoped), announces it through a per-NIC FRRConfiguration in
-# frr-k8s-system, and frees it from the CiliumNode of a dead node. That needs
+# frr-k8s-system, frees it from the CiliumNode of a dead node, and after a
+# live migration's address handoff moves it to the new node. That needs
 # cluster-wide RBAC; the policy below confines it to qrab's own objects inside
 # the NIC range. Keep the range in the policy equal to QRAB_NIC_ADDRESS_RANGE.
 # Checked live by contrib/kubernetes/operator/check-nic-address-policy.sh.
@@ -75,8 +76,27 @@ spec:
       variables.name.startsWith('qrab-nic-') && isIP(variables.address) &&
       ip(variables.address).family() == 4 && cidr(variables.range).containsIP(variables.address) &&
       variables.subject.metadata.?labels['app.kubernetes.io/component'].orValue('') == 'vm-nic-address'
+  # A pool entry naming a qrab-nic-<address> pool inside the range, in the
+  # shape the agent writes: requested asks for one address, allocated holds
+  # exactly that /32 (variables.added checks each new entry).
+  - name: nicEntry
+    expression: >-
+      ['requested', 'allocated'].all(key,
+        object.spec.?ipam.?pools[key].orValue([]).all(e,
+          e in oldObject.spec.?ipam.?pools[key].orValue([]) ||
+          (e.?pool.orValue('').startsWith('qrab-nic-') &&
+           isIP(e.pool.substring(9).replace('-', '.')) &&
+           ip(e.pool.substring(9).replace('-', '.')).family() == 4 &&
+           cidr(variables.range).containsIP(e.pool.substring(9).replace('-', '.')) &&
+           (key == 'requested' ?
+             (e.all(k, k in ['pool', 'needed']) &&
+              e.?needed.orValue({}).all(k, k == 'ipv4-addrs') &&
+              e.?needed['ipv4-addrs'].orValue(0) == 1) :
+             (e.all(k, k in ['pool', 'cidrs']) &&
+              e.?cidrs.orValue([]) == [e.pool.substring(9).replace('-', '.') + '/32'])))))
   # CiliumNodes: the operator may only drop qrab-nic-* entries from
-  # spec.ipam.pools.requested and .allocated; everything else stays as it was.
+  # spec.ipam.pools.requested and .allocated, or add one qrab-nic-* pool to
+  # both (the handoff pool move); everything else stays as it was.
   - name: nodeOk
     expression: >-
       request.operation == 'UPDATE' &&
@@ -90,13 +110,15 @@ spec:
       object.spec.?ipam.orValue({}).all(k, k in oldObject.spec.?ipam.orValue({})) &&
       oldObject.spec.?ipam.?pools.orValue({}).all(k, k in ['requested', 'allocated'] || (k in object.spec.ipam.pools && object.spec.ipam.pools[k] == oldObject.spec.ipam.pools[k])) &&
       object.spec.?ipam.?pools.orValue({}).all(k, k in oldObject.spec.?ipam.?pools.orValue({})) &&
+      variables.nicEntry &&
       ['requested', 'allocated'].all(key,
-        object.spec.?ipam.?pools[key].orValue([]).all(e, e in oldObject.spec.?ipam.?pools[key].orValue([])) &&
+        object.spec.?ipam.?pools[key].orValue([]).filter(e,
+          !(e in oldObject.spec.?ipam.?pools[key].orValue([]))).size() <= 1 &&
         oldObject.spec.?ipam.?pools[key].orValue([]).all(e,
           e.?pool.orValue('').startsWith('qrab-nic-') || e in object.spec.?ipam.?pools[key].orValue([])))
   validations:
   - expression: "request.resource.resource != 'ciliumnodes' || variables.nodeOk"
-    message: the qrab operator may only remove qrab-nic-* pools from a CiliumNode's requested and allocated lists
+    message: the qrab operator may only remove qrab-nic-* pools from a CiliumNode's requested and allocated lists, or add one qrab-nic-<address> pool in the range
   - expression: "request.resource.resource == 'ciliumnodes' || variables.owned"
     messageExpression: "'the qrab operator may only write labelled qrab-nic-<address> objects inside ' + variables.range"
   - expression: >-

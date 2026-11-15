@@ -92,7 +92,7 @@ spec:
       while True:
           try:
               s = socket.create_connection(("$address", 22), timeout=1); s.settimeout(1)
-              state = "ok " + s.recv(32).decode(errors="replace").strip(); s.close()
+              state = "ok " + s.recv(64).split(b"\r\n")[0].decode(errors="replace"); s.close()
           except Exception as e:
               state = "fail " + type(e).__name__
           if state != last:

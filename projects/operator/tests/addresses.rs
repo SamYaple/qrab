@@ -2,7 +2,7 @@
 use k8s_openapi::api::core::v1::Node;
 use kube::api::DynamicObject;
 use qrab_operator::address::{
-    fence_patch, render_pool, render_route, selects, stranded, SKIP_MASQUERADE,
+    adopt_patch, fence_patch, render_pool, render_route, selects, stranded, SKIP_MASQUERADE,
 };
 use qrab_operator::api::VirtualMachine;
 use serde_json::{json, Value};
@@ -95,6 +95,44 @@ fn only_dead_or_missing_nodes_without_a_bound_pod_lose_the_pool() {
         json!({"metadata":{"resourceVersion":"3"},"spec":{"ipam":{"pools":{
             "allocated":[{"pool":"default"}],"requested":[]}}}})
     );
+}
+
+#[test]
+fn a_handed_off_address_moves_its_pool_to_the_new_node_once() {
+    let ip = "10.244.128.9".parse().unwrap();
+    let fresh = object(json!({"apiVersion":"cilium.io/v2","kind":"CiliumNode",
+        "metadata":{"name":"kube02","resourceVersion":"7"},
+        "spec":{"ipam":{"pools":{
+            "allocated":[{"pool":"default","cidrs":["10.244.2.0/24"]}],
+            "requested":[{"pool":"default","needed":{"ipv4-addrs":16}}]}}}}));
+    assert_eq!(
+        adopt_patch(&fresh, "qrab-nic-10-244-128-9", ip),
+        Some(
+            json!({"metadata":{"resourceVersion":"7"},"spec":{"ipam":{"pools":{
+            "allocated":[{"pool":"default","cidrs":["10.244.2.0/24"]},
+                         {"pool":"qrab-nic-10-244-128-9","cidrs":["10.244.128.9/32"]}],
+            "requested":[{"pool":"default","needed":{"ipv4-addrs":16}},
+                         {"pool":"qrab-nic-10-244-128-9","needed":{"ipv4-addrs":1}}]}}}})
+        )
+    );
+    // Only the missing half is added; a node listing both needs nothing.
+    let half = object(json!({"apiVersion":"cilium.io/v2","kind":"CiliumNode",
+        "metadata":{"name":"kube02","resourceVersion":"8"},
+        "spec":{"ipam":{"pools":{
+            "requested":[{"pool":"qrab-nic-10-244-128-9","needed":{"ipv4-addrs":1}}]}}}}));
+    assert_eq!(
+        adopt_patch(&half, "qrab-nic-10-244-128-9", ip),
+        Some(
+            json!({"metadata":{"resourceVersion":"8"},"spec":{"ipam":{"pools":{
+            "allocated":[{"pool":"qrab-nic-10-244-128-9","cidrs":["10.244.128.9/32"]}]}}}})
+        )
+    );
+    let both = object(json!({"apiVersion":"cilium.io/v2","kind":"CiliumNode",
+        "metadata":{"name":"kube02","resourceVersion":"9"},
+        "spec":{"ipam":{"pools":{
+            "allocated":[{"pool":"qrab-nic-10-244-128-9","cidrs":["10.244.128.9/32"]}],
+            "requested":[{"pool":"qrab-nic-10-244-128-9","needed":{"ipv4-addrs":1}}]}}}}));
+    assert_eq!(adopt_patch(&both, "qrab-nic-10-244-128-9", ip), None);
 }
 
 #[test]

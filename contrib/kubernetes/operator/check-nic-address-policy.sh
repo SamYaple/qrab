@@ -81,9 +81,15 @@ export -f pool route create
 export policy who
 run() { bash -c "as=(${as[*]}); $1"; }
 
-# Policies take effect asynchronously; wait until a known-bad write is refused.
-for _ in $(seq 1 60); do
-  if ! pool qrab-nic-10-244-3-5 10.244.3.5/32 | kubectl create --dry-run=server "${as[@]}" -f - >/dev/null 2>&1; then break; fi
+# Policies take effect asynchronously on each API server; wait until a
+# known-bad write is refused five times in a row.
+refused=0
+for _ in $(seq 1 90); do
+  if pool qrab-nic-10-244-3-5 10.244.3.5/32 | kubectl create --dry-run=server "${as[@]}" -f - >/dev/null 2>&1; then
+    refused=0
+  else
+    refused=$((refused + 1)); [ "$refused" -ge 5 ] && break
+  fi
   sleep 1
 done
 
@@ -106,4 +112,20 @@ allocated=$(kubectl get ciliumnode "$node" -o jsonpath='{.spec.ipam.pools.alloca
 expect_denied "dropping a node's default pool" kubectl patch ciliumnode "$node" --type merge --dry-run=server "${as[@]}" -p '{"spec":{"ipam":{"pools":{"allocated":[]}}}}'
 expect_denied "relabelling a CiliumNode" kubectl patch ciliumnode "$node" --type merge --dry-run=server "${as[@]}" -p '{"metadata":{"labels":{"x":"y"}}}'
 expect_allowed "rewriting a node's pools unchanged" kubectl patch ciliumnode "$node" --type merge --dry-run=server "${as[@]}" -p "{\"spec\":{\"ipam\":{\"pools\":{\"allocated\":$allocated}}}}"
+requested=$(kubectl get ciliumnode "$node" -o jsonpath='{.spec.ipam.pools.requested}')
+grow() { # key entry: the node's list with entry appended
+  local current; [ "$1" = requested ] && current=$requested || current=$allocated
+  python3 -c 'import json,sys; print(json.dumps(json.loads(sys.argv[1] or "[]") + [json.loads(sys.argv[2])]))' "$current" "$2"
+}
+move() { # requested-entry allocated-entry
+  kubectl patch ciliumnode "$node" --type merge --dry-run=server "${as[@]}" \
+    -p "{\"spec\":{\"ipam\":{\"pools\":{\"requested\":$(grow requested "$1"),\"allocated\":$(grow allocated "$2")}}}}"
+}
+want='{"pool":"qrab-nic-10-244-128-250","needed":{"ipv4-addrs":1}}'
+have='{"pool":"qrab-nic-10-244-128-250","cidrs":["10.244.128.250/32"]}'
+expect_allowed "moving a NIC pool to a node" move "$want" "$have"
+expect_denied "moving a pool outside the range" move '{"pool":"qrab-nic-10-244-3-5","needed":{"ipv4-addrs":1}}' '{"pool":"qrab-nic-10-244-3-5","cidrs":["10.244.3.5/32"]}'
+expect_denied "allocating a CIDR its pool name does not give" move "$want" '{"pool":"qrab-nic-10-244-128-250","cidrs":["10.244.128.0/24"]}'
+expect_denied "requesting more than one NIC address" move '{"pool":"qrab-nic-10-244-128-250","needed":{"ipv4-addrs":2}}' "$have"
+expect_denied "adding a non-NIC pool" move '{"pool":"default","needed":{"ipv4-addrs":1}}' '{"pool":"default","cidrs":["10.244.128.250/32"]}'
 echo "PASS: NIC address policy"
