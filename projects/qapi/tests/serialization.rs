@@ -478,3 +478,14 @@ fn shared_wire_discriminator_roundtrips_once() {
     assert_eq!(back["path"], "/run/qrab/qmp.sock");
     assert_eq!(back.as_object().unwrap().len(), 2, "{back}");
 }
+
+// Empty enums are valid QAPI schemas, though no wire value can inhabit them.
+#[qapi::qapi]
+enum EmptySchemaEnum {}
+
+#[test]
+fn empty_schema_enum_rejects_every_wire_value() {
+    for input in ["null", "\"anything\"", "{}", "0"] {
+        assert!(serde_json::from_str::<EmptySchemaEnum>(input).is_err());
+    }
+}

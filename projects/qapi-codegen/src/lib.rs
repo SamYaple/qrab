@@ -110,7 +110,10 @@ fn read_schema_file(
         })
         .collect();
     for include in includes {
-        let include_path = schema_file.parent().unwrap().join(include);
+        let include_path = schema_file
+            .parent()
+            .unwrap()
+            .join(include.replace("\\\\", "\\"));
         read_schema_file(&include_path, sources, active, version)?;
     }
     active.pop();

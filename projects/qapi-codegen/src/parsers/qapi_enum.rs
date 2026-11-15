@@ -43,15 +43,19 @@ impl<'i> QapiEnum<'i> {
             ..Default::default()
         };
         let start = input;
+        let mut has_data = false;
         let (input, _) = take_dict(alt((
             take_kv("enum", qstring).map(|v| s.name = v),
             take_kv("prefix", qstring).map(|v| s.prefix = Some(v)),
-            take_kv("data", take_list(take_enum_value)).map(|v| s.data = v),
+            take_kv("data", take_list(take_enum_value)).map(|v| {
+                has_data = true;
+                s.data = v;
+            }),
             take_cond.map(|v| s.r#if = Some(v)),
             take_features.map(|v| s.features = Some(v)),
         )))
         .parse(input)?;
-        if s.name.is_empty() || s.data.is_empty() {
+        if s.name.is_empty() || !has_data {
             return Err(nom::Err::Error(Error::new(start, ErrorKind::Tag)));
         }
         Ok((input, s))
@@ -65,6 +69,14 @@ mod tests {
     const VALID_INPUTS: [&str; 1] = [
         "{ 'enum': 'Qcow2CompressionType', 'data': [ 'zlib', { 'name': 'zstd', 'if': 'CONFIG_ZSTD' } ] }",
     ];
+
+    #[test]
+    fn empty_enum_retains_required_data_key() {
+        let (remaining, value) = QapiEnum::parse("{ 'enum': 'Empty', 'data': [] }").unwrap();
+        assert!(remaining.is_empty());
+        assert!(value.data.is_empty());
+        assert!(QapiEnum::parse("{ 'enum': 'MissingData' }").is_err());
+    }
 
     #[test]
     fn test_valid() {

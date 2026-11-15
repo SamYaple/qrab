@@ -81,10 +81,10 @@ mod tests {
 
     #[test]
     fn test_parse_dict_feature_with_if() {
-        let input = "{ 'name': 'feature_name', 'if': 'condition' }";
+        let input = "{ 'name': 'feature_name', 'if': 'CONFIG_CONDITION' }";
         let expected = QapiFeature {
             name: "feature_name",
-            r#if: Some(QapiCond::ConfigName("condition")),
+            r#if: Some(QapiCond::ConfigName("CONFIG_CONDITION")),
         };
         let (remaining, result) = QapiFeature::parse(input).expect("Parsing failed");
         assert_eq!(remaining, "");
@@ -153,10 +153,10 @@ mod tests {
 
     #[test]
     fn test_parse_feature_with_whitespace() {
-        let input = " { 'name' : 'feature_name' , 'if' : 'condition' } ";
+        let input = " { 'name' : 'feature_name' , 'if' : 'CONFIG_CONDITION' } ";
         let expected = QapiFeature {
             name: "feature_name",
-            r#if: Some(QapiCond::ConfigName("condition")),
+            r#if: Some(QapiCond::ConfigName("CONFIG_CONDITION")),
         };
         let (remaining, result) = QapiFeature::parse(input).expect("Parsing failed");
         assert_eq!(remaining.trim(), "");
@@ -165,7 +165,7 @@ mod tests {
 
     #[test]
     fn test_parse_invalid_missing_name() {
-        let input = "{'if':'condition'}";
+        let input = "{'if':'CONFIG_CONDITION'}";
         let result = QapiFeature::parse(input);
         assert!(
             result.is_err(),
@@ -231,7 +231,7 @@ mod tests {
         crate::set_parser_version((11, 1, 3));
         let inputs = [
             "{'name':'feature_name',}",
-            "{'name':'feature_name', 'if':'condition',}",
+            "{'name':'feature_name', 'if':'CONFIG_CONDITION',}",
         ];
         for input in inputs.iter() {
             let result = QapiFeature::parse(input);
@@ -260,7 +260,7 @@ mod tests {
 
     #[test]
     fn test_parse_invalid_extra_fields() {
-        let input = "{'name':'feature_name', 'if':'condition', 'extra':'value'}";
+        let input = "{'name':'feature_name', 'if':'CONFIG_CONDITION', 'extra':'value'}";
         let result = QapiFeature::parse(input);
         assert!(
             result.is_err(),

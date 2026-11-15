@@ -42,7 +42,10 @@ impl<'i> QapiMember<'i> {
         if member.name.starts_with('*') {
             member.optional = true;
             member.name = &member.name[1..];
-        };
+        }
+        if member.name.is_empty() {
+            return Err(nom::Err::Error(Error::new(start, ErrorKind::Verify)));
+        }
         Ok((input, member))
     }
 
@@ -78,7 +81,6 @@ mod tests {
     use super::*;
 
     const VALID_INPUTS: [&str; 4] = [
-        //"{'name':'type', 'name':{'type':['sometype'], 'if':{'not':'CONFIG_VALUE'}}}",
         "'name':'type'",
         "'name':['type']",
         "'name':{'if':'CONFIG_OPTION', 'type': ['sometype'], 'features': ['yes']}",

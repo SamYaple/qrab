@@ -1,10 +1,9 @@
-use super::common::{qstring, qtag};
+use super::common::{qstring, take_list};
 use super::parser_version;
 use super::qapi_members::QapiMembers;
 use nom::IResult;
 use nom::Parser;
 use nom::branch::alt;
-use nom::sequence::delimited;
 
 pub fn take_type_ref(input: &str) -> IResult<&str, QapiTypeRef<'_>> {
     use super::common::take_kv;
@@ -35,7 +34,10 @@ impl<'i> QapiTypeRef<'i> {
     /// v1 (QEMU v1.0–v2.3.0): accepts string, array, or inline struct dict.
     pub fn parse_v1(input: &'i str) -> IResult<&'i str, Self> {
         use super::qapi_members::take_members;
-        let array_parser = delimited(qtag("["), qstring, qtag("]"));
+        let array_parser = take_list(qstring).map_opt(|items| match items.as_slice() {
+            [name] => Some(*name),
+            _ => None,
+        });
         alt((
             qstring.map(Self::Ref),
             array_parser.map(Self::ArrayRef),
@@ -46,7 +48,10 @@ impl<'i> QapiTypeRef<'i> {
 
     /// v2 (QEMU v2.4.0+): only string or array refs.
     pub fn parse_v2(input: &'i str) -> IResult<&'i str, Self> {
-        let array_parser = delimited(qtag("["), qstring, qtag("]"));
+        let array_parser = take_list(qstring).map_opt(|items| match items.as_slice() {
+            [name] => Some(*name),
+            _ => None,
+        });
         alt((qstring.map(Self::Ref), array_parser.map(Self::ArrayRef))).parse(input)
     }
 }
@@ -55,6 +60,16 @@ impl<'i> QapiTypeRef<'i> {
 mod tests {
     use super::*;
     use crate::parsers::set_parser_version;
+
+    #[test]
+    fn arrays_require_one_element_and_follow_versioned_separator_rules() {
+        for version in [(1, 0, 0), (11, 1, 3)] {
+            set_parser_version(version);
+            assert!(QapiTypeRef::parse("[]").is_err());
+            assert!(QapiTypeRef::parse("['str', 'int']").is_err());
+            assert_eq!(QapiTypeRef::parse("['str',]").is_ok(), version < (2, 4, 0));
+        }
+    }
 
     #[test]
     fn test_string_ref() {

@@ -43,16 +43,20 @@ impl<'i> QapiStruct<'i> {
             ..Default::default()
         };
         let start = input;
+        let mut has_data = false;
         let take_name = alt((take_kv("struct", qstring), take_kv("type", qstring)));
         let (input, _) = take_dict(alt((
             take_name.map(|v| s.name = v),
             take_kv("base", qstring).map(|v| s.base = Some(v)),
             take_cond.map(|v| s.r#if = Some(v)),
             take_features.map(|v| s.features = Some(v)),
-            take_kv("data", take_members).map(|v| s.data = v),
+            take_kv("data", take_members).map(|v| {
+                has_data = true;
+                s.data = v;
+            }),
         )))
         .parse(input)?;
-        if s.name.is_empty() {
+        if s.name.is_empty() || !has_data {
             return Err(nom::Err::Error(Error::new(start, ErrorKind::Tag)));
         }
         Ok((input, s))
@@ -66,15 +70,19 @@ impl<'i> QapiStruct<'i> {
             ..Default::default()
         };
         let start = input;
+        let mut has_data = false;
         let (input, _) = take_dict(alt((
             take_kv("struct", qstring).map(|v| s.name = v),
             take_kv("base", qstring).map(|v| s.base = Some(v)),
             take_cond.map(|v| s.r#if = Some(v)),
             take_features.map(|v| s.features = Some(v)),
-            take_kv("data", take_members).map(|v| s.data = v),
+            take_kv("data", take_members).map(|v| {
+                has_data = true;
+                s.data = v;
+            }),
         )))
         .parse(input)?;
-        if s.name.is_empty() {
+        if s.name.is_empty() || !has_data {
             return Err(nom::Err::Error(Error::new(start, ErrorKind::Tag)));
         }
         Ok((input, s))
@@ -92,6 +100,20 @@ mod tests {
         "{'struct': 'SOMENAME', 'data':{'membername':'membertype'}, 'if':{'not':'CONFIG_VALUE'}}",
         "{'struct': 'SOMENAME', 'data':{'membername':'membertype'}, 'base':'SOMETHING'}",
     ];
+
+    #[test]
+    fn data_is_required_even_when_empty() {
+        for version in [(1, 0, 0), (11, 1, 3)] {
+            set_parser_version(version);
+            assert!(QapiStruct::parse("{ 'struct': 'MissingData' }").is_err());
+            assert_eq!(
+                QapiStruct::parse("{ 'struct': 'Empty', 'data': {} }")
+                    .unwrap()
+                    .0,
+                ""
+            );
+        }
+    }
 
     #[test]
     fn test_valid_v2() {

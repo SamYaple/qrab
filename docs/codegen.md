@@ -26,6 +26,20 @@ git submodule update --init vendor/qemu
 git -C vendor/qemu fetch origin --tags
 ```
 
+## Compatibility policy
+
+The maintained QEMU matrix covers release series **9.2, 10.0, 10.1, 10.2,
+11.0 and 11.1**. The latest pinned patch in each series is the representative
+schema input. The current baseline remains 11.1.3; see `docs/testing.md` for
+explicit live-QEMU checks. Schema coverage does not imply live runtime testing
+of every release.
+
+Older QEMU is **untested, not unsupported** below this matrix. Historical
+schemas remain generation inputs and regression fixtures back to QEMU 1.0,
+where the QMP schema first appears. Keep version-specific grammar where the
+language changed, and accept explicit older input sets through the library or
+`--versions-file`; do not add a minimum-version rejection to the parser.
+
 ## Regeneration
 
 Run from the repository root:
@@ -55,7 +69,14 @@ release order. Regenerate both protocols and run
 Modern schemas require commas and reject duplicate dictionary keys. The
 permissive separator grammar remains restricted to pre-2.4 schemas for legacy
 compatibility. Includes are canonicalized, aliases are read once, and include
-cycles fail. Complete-file parsing rejects any unconsumed input.
+cycles fail. Complete-file parsing rejects any unconsumed input. Strings follow QEMU's
+printable-ASCII grammar, including escaped backslashes in include paths.
+Conditions before 6.2 retain C expressions and lists of expressions; newer
+conditions require configuration identifiers and nonempty boolean expressions.
+Empty enums and structs are valid, but their `data` key is still required.
+Derived structs resolve bases independently of definition and include order;
+missing bases, inheritance cycles and conflicting Rust type names fail with
+schema context.
 
 QGA releases predating a guest-agent schema are allowed to have no QGA input.
 A present schema that fails parsing or IR processing is an error, never a

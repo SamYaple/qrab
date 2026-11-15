@@ -3,7 +3,7 @@
 use nom::IResult;
 use nom::Parser;
 use nom::branch::alt;
-use nom::bytes::complete::{tag, take_until};
+use nom::bytes::complete::{escaped, tag, take_while1};
 use nom::character::complete::{line_ending, multispace0, not_line_ending, space0};
 use nom::combinator::{eof, not, opt, peek, recognize};
 use nom::error::{Error, ErrorKind};
@@ -32,8 +32,19 @@ pub fn qtag<'i>(t: &'static str) -> impl Parser<&'i str, Output = &'i str, Error
     preceded(clean_lines, tag(t))
 }
 
+/// Borrow raw string contents; QAPI permits only printable ASCII and `\\` escapes.
 pub fn qstring(input: &str) -> IResult<&str, &str> {
-    delimited(qtag("'"), take_until("'"), tag("'")).parse(input)
+    delimited(
+        qtag("'"),
+        opt(escaped(
+            take_while1(|c: char| (c.is_ascii_graphic() && c != '\\' && c != '\'') || c == ' '),
+            '\\',
+            tag("\\"),
+        ))
+        .map(|value| value.unwrap_or("")),
+        tag("'"),
+    )
+    .parse(input)
 }
 
 pub fn qbool(input: &str) -> IResult<&str, &str> {
@@ -144,6 +155,23 @@ mod tests {
     use crate::{parse_schema, set_parser_version};
 
     #[test]
+    fn strings_follow_qemu_lexical_rules() {
+        use super::qstring;
+        for input in ["''", "'name with spaces'", r"'path\\name'"] {
+            assert_eq!(qstring(input).unwrap().0, "");
+        }
+        for input in [
+            "'line\nbreak'",
+            "'tab\there'",
+            "'snowman ☃'",
+            r"'bad\n'",
+            r"'bad\'quote'",
+        ] {
+            assert!(qstring(input).is_err(), "accepted {input}");
+        }
+    }
+
+    #[test]
     fn modern_separators_match_qemu() {
         set_parser_version((11, 1, 3));
         for input in [
@@ -160,6 +188,19 @@ mod tests {
             );
         }
         parse_schema("{ 'enum': 'E', 'data': ['a', 'b'] }").unwrap();
+    }
+
+    #[test]
+    fn dictionary_keywords_are_exact_strings() {
+        set_parser_version((11, 1, 3));
+        for input in [
+            "{ 'enum ': 'E', 'data': ['a'] }",
+            "{ 'enum# comment\n': 'E', 'data': ['a'] }",
+            "{ 'enum': 'E', 'data ': ['a'] }",
+        ] {
+            assert!(parse_schema(input).is_err(), "accepted {input}");
+        }
+        parse_schema("{ 'enum' # comment\n : 'E', 'data': ['a'] }").unwrap();
     }
 
     #[test]
@@ -183,7 +224,7 @@ where
     I: Parser<&'i str, Output = O, Error = Error<&'i str>>,
 {
     delimited(
-        (qtag("'"), tag(key), qtag("'"), qtag(":")),
+        (qtag("'"), tag(key), tag("'"), qtag(":")),
         value_parser,
         clean_lines,
     )

@@ -4,6 +4,8 @@ use super::vec_newtype;
 use nom::IResult;
 use nom::Parser;
 use nom::branch::alt;
+use nom::combinator::verify;
+use std::collections::HashSet;
 
 pub fn take_members(input: &str) -> IResult<&str, QapiMembers<'_>> {
     QapiMembers::parse(input)
@@ -18,7 +20,15 @@ impl<'i> QapiMembers<'i> {
     }
 
     pub fn parse_v1(input: &'i str) -> IResult<&'i str, Self> {
-        take_dict(QapiMember::parse).map(Self).parse(input)
+        verify(
+            take_dict(QapiMember::parse),
+            |members: &Vec<QapiMember<'i>>| {
+                let mut names = HashSet::new();
+                members.iter().all(|member| names.insert(member.name))
+            },
+        )
+        .map(Self)
+        .parse(input)
     }
 }
 vec_newtype!(QapiMembers, QapiMember<'i>);
@@ -50,6 +60,13 @@ impl<'i> MembersOrRef<'i> {
 mod tests {
     use super::*;
     use crate::parsers::qapi_type_ref::QapiTypeRef;
+
+    #[test]
+    fn optional_marker_does_not_hide_empty_or_duplicate_member_names() {
+        for input in ["{ '*': 'str' }", "{ 'name': 'str', '*name': 'int' }"] {
+            assert!(QapiMembers::parse(input).is_err(), "accepted {input}");
+        }
+    }
 
     #[test]
     fn test_empty_members() {

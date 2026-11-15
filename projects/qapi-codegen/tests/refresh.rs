@@ -15,15 +15,11 @@ fn qemu() -> std::path::PathBuf {
         .unwrap()
 }
 
-#[test]
-fn current_definitions_match_upstream_parser() {
-    let repo = qemu();
-    for entry in ["qapi/qapi-schema.json", "qga/qapi-schema.json"] {
-        // QEMU's own parser provides an independent completeness oracle.
-        let output = Command::new("python3")
-            .arg("-c")
-            .arg(
-                r#"
+fn assert_definition_coverage(repo: &Path, entry: &str, version: (u32, u32, u32)) {
+    let output = Command::new("python3")
+        .arg("-c")
+        .arg(
+            r#"
 import sys
 sys.path.insert(0, sys.argv[1] + '/scripts')
 from qapi.parser import QAPISchemaParser
@@ -33,40 +29,85 @@ for expr in parser.exprs:
         if kind in expr:
             print(kind + ' ' + expr[kind])
 "#,
-            )
-            .arg(&repo)
-            .arg(entry)
-            .output()
-            .expect("python3 is required for the upstream parser oracle");
-        assert!(
-            output.status.success(),
-            "Upstream parser failed: {}",
-            String::from_utf8_lossy(&output.stderr)
-        );
-        let expected: BTreeSet<_> = String::from_utf8(output.stdout)
-            .unwrap()
-            .lines()
-            .map(str::to_owned)
-            .collect();
-        let mut actual = BTreeSet::new();
-        for (_, content) in read_schema_with_version(&repo.join(entry), Some((11, 1, 3))).unwrap() {
-            for token in parse_schema(&content).unwrap() {
-                let (kind, name) = match token {
-                    QapiSchemaToken::Enum(v) => ("enum", v.name),
-                    QapiSchemaToken::Struct(v) => ("struct", v.name),
-                    QapiSchemaToken::Union(v) => ("union", v.name),
-                    QapiSchemaToken::Alternate(v) => ("alternate", v.name),
-                    QapiSchemaToken::Command(v) => ("command", v.name),
-                    QapiSchemaToken::Event(v) => ("event", v.name),
-                    _ => continue,
-                };
-                assert!(
-                    actual.insert(format!("{kind} {name}")),
-                    "Duplicate {kind} {name}"
-                );
-            }
+        )
+        .arg(repo)
+        .arg(entry)
+        .output()
+        .expect("python3 is required for the upstream parser oracle");
+    assert!(
+        output.status.success(),
+        "Upstream parser failed for {version:?}/{entry}: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let expected: BTreeSet<_> = String::from_utf8(output.stdout)
+        .unwrap()
+        .lines()
+        .map(str::to_owned)
+        .collect();
+    let mut actual = BTreeSet::new();
+    for (_, content) in read_schema_with_version(&repo.join(entry), Some(version)).unwrap() {
+        for token in parse_schema(&content).unwrap() {
+            let (kind, name) = match token {
+                QapiSchemaToken::Enum(v) => ("enum", v.name),
+                QapiSchemaToken::Struct(v) => ("struct", v.name),
+                QapiSchemaToken::Union(v) => ("union", v.name),
+                QapiSchemaToken::Alternate(v) => ("alternate", v.name),
+                QapiSchemaToken::Command(v) => ("command", v.name),
+                QapiSchemaToken::Event(v) => ("event", v.name),
+                _ => continue,
+            };
+            assert!(
+                actual.insert(format!("{kind} {name}")),
+                "Duplicate {kind} {name}"
+            );
         }
-        assert_eq!(actual, expected, "Schema coverage differs for {entry}");
+    }
+    assert_eq!(
+        actual, expected,
+        "Schema coverage differs for {version:?}/{entry}"
+    );
+}
+
+#[test]
+fn current_definitions_match_upstream_parser() {
+    for entry in ["qapi/qapi-schema.json", "qga/qapi-schema.json"] {
+        assert_definition_coverage(&qemu(), entry, (11, 1, 3));
+    }
+}
+
+#[test]
+fn recent_release_matrix_matches_each_releases_own_parser() {
+    use qapi_codegen::versions::{extract_schema_from_tag, parse_version_tag};
+    let pins = parse_pinned_versions(PINNED_VERSIONS).unwrap();
+    let repo = qemu();
+    for series in [(9, 2), (10, 0), (10, 1), (10, 2), (11, 0), (11, 1)] {
+        let pin = pins
+            .iter()
+            .rev()
+            .find(|pin| {
+                let (major, minor, _) = parse_version_tag(&pin.tag).unwrap();
+                (major, minor) == series
+            })
+            .unwrap();
+        let schemas = extract_schema_from_tag(&repo, &pin.tag).unwrap();
+        // Use that release's parser, so newer documentation rules cannot mask
+        // a compatibility regression in the Rust grammar.
+        let archive = Command::new("git")
+            .current_dir(&repo)
+            .args(["archive", &pin.tag, "--", "scripts/qapi"])
+            .output()
+            .unwrap();
+        assert!(
+            archive.status.success(),
+            "{}",
+            String::from_utf8_lossy(&archive.stderr)
+        );
+        tar::Archive::new(archive.stdout.as_slice())
+            .unpack(schemas.path())
+            .unwrap();
+        for entry in ["qapi/qapi-schema.json", "qga/qapi-schema.json"] {
+            assert_definition_coverage(schemas.path(), entry, parse_version_tag(&pin.tag).unwrap());
+        }
     }
 }
 
@@ -270,4 +311,89 @@ fn guest_fstrim_returns_the_trim_response() {
         panic!("Missing guest-fstrim")
     };
     assert_eq!(command.returns(), Some("GuestFilesystemTrimResponse"));
+}
+
+#[test]
+fn schema_grammar_matches_qemu() {
+    let repo = qemu();
+    let dir = tempfile::tempdir().unwrap();
+    let cases = [
+        ("{ 'enum': 'Empty', 'data': [] }", true),
+        ("{ 'struct': 'Empty', 'data': {} }", true),
+        ("{ 'struct': 'MissingData' }", false),
+        ("{ 'enum': 'MissingData' }", false),
+        ("{ 'pragma': {} }", true),
+        (
+            "{ 'pragma': { 'doc-required': false, 'doc-required': true } }",
+            false,
+        ),
+        ("{ 'enum ': 'ExampleEnum', 'data': ['a'] }", false),
+        ("{ 'enum': 'ExampleEnum', 'data': ['line\nbreak'] }", false),
+        ("{ 'enum': 'ExampleEnum', 'data': ['☃'] }", false),
+        (
+            "{ 'enum': 'ExampleEnum', 'data': ['a'], 'if': { 'all': [] } }",
+            false,
+        ),
+        (
+            "{ 'enum': 'ExampleEnum', 'data': ['a'], 'if': 'config_a' }",
+            false,
+        ),
+        (
+            "{ 'enum': 'ExampleEnum', 'data': ['a'], 'if': {'not': {'any': ['CONFIG_A', 'CONFIG_B']}} }",
+            true,
+        ),
+    ];
+    qapi_codegen::set_parser_version((11, 1, 3));
+    for (index, (input, valid)) in cases.iter().enumerate() {
+        let file = dir.path().join(format!("case-{index}.json"));
+        std::fs::write(&file, input).unwrap();
+        let output = Command::new("python3")
+            .arg("-c")
+            .arg(
+                r#"
+import sys
+sys.path.insert(0, sys.argv[1] + '/scripts')
+from qapi.schema import QAPISchema
+from qapi.error import QAPIError
+try:
+    QAPISchema(sys.argv[2])
+except QAPIError as error:
+    print(error, file=sys.stderr)
+    sys.exit(1)
+"#,
+            )
+            .arg(&repo)
+            .arg(&file)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.code().is_some_and(|code| code <= 1),
+            "Python oracle failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(
+            output.status.success(),
+            *valid,
+            "QEMU oracle disagrees for {input}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(
+            parse_schema(input).is_ok(),
+            *valid,
+            "Rust parser disagrees for {input}"
+        );
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn escaped_backslash_in_include_is_decoded() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("root.json");
+    let child = dir.path().join(r"child\name.json");
+    std::fs::write(&root, r"{ 'include': 'child\\name.json' }").unwrap();
+    std::fs::write(&child, "{ 'struct': 'Empty', 'data': {} }").unwrap();
+    let sources = read_schema_with_version(&root, None).unwrap();
+    assert_eq!(sources.len(), 2);
+    assert!(sources.iter().any(|(path, _)| path == &child));
 }

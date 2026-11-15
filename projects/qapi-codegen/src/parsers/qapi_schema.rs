@@ -72,7 +72,6 @@ impl<'i> QapiSchema<'i> {
     }
 }
 
-/// Matches a bare `##\n` line that acts as a separator (not a doc block).
 /// Matches a bare `##` line (with optional trailing whitespace) that acts as a separator.
 fn bare_doc_separator(input: &str) -> IResult<&str, &str> {
     recognize(terminated((space0, tag("##"), space0), line_ending)).parse(input)

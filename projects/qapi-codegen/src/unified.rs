@@ -20,12 +20,6 @@ fn version_str(v: Version) -> String {
     format!("{}.{}.{}", v.0, v.1, v.2)
 }
 
-/// Normalize "Since X.Y" patterns in doc strings to "Since X.Y.0"
-/// Strip "since" version information from doc strings.
-/// The since/until metadata is already captured in #[qapi(since/until)] attributes,
-/// so it should not appear in the generated Rust doc comments.
-/// Clean a doc string: strip leading `# ` from each line (QAPI comment syntax)
-/// but preserve whitespace structure and all content.
 /// Classify a unified type as a command, event, or plain data type.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum TypeCategory {
@@ -241,13 +235,39 @@ fn process_version_schema(
     let mut unprocessed_unions = Vec::new();
     let mut unprocessed_commands = Vec::new();
     let mut unprocessed_events = Vec::new();
+    let mut definitions = HashMap::new();
 
     // All types are keyed by their rustified form so that cross-version renames
     // (e.g. SGXInfo → SgxInfo in v10.1) and command/data-struct pairs that
     // happen to rustify to the same identifier land in a single entry.
-    for (_path, content) in sources {
-        let schema = parse_schema(content)?;
+    for (path, content) in sources {
+        let schema = parse_schema(content)
+            .with_context(|| format!("Failed to parse QAPI source {}", path.display()))?;
         for token in schema.0 {
+            let definition = match &token {
+                QapiSchemaToken::Enum(value) => Some((false, value.name)),
+                QapiSchemaToken::Alternate(value) => Some((false, value.name)),
+                QapiSchemaToken::Struct(value) => Some((false, value.name)),
+                QapiSchemaToken::Union(value) => Some((false, value.name)),
+                QapiSchemaToken::Event(value) => Some((false, value.name)),
+                QapiSchemaToken::Command(value) => Some((true, value.name)),
+                _ => None,
+            };
+            if let Some((command, name)) = definition {
+                let rust_name = if matches!(&token, QapiSchemaToken::Event(_)) {
+                    rustify_name(&format!("{name}Event"))
+                } else {
+                    rustify_name(name)
+                };
+                let key = (command, rust_name);
+                if let Some(previous) = definitions.insert(key.clone(), name) {
+                    anyhow::bail!(
+                        "Conflicting QAPI definitions {previous} and {name} map to Rust type {} in {}",
+                        key.1,
+                        path.display()
+                    );
+                }
+            }
             match token {
                 QapiSchemaToken::Enum(v) => {
                     let processed = process_enum(v);
@@ -282,14 +302,58 @@ fn process_version_schema(
         }
     }
 
-    for v in unprocessed_structs {
-        let (processed, extracted) = process_struct(v, &structs_lookup);
-        structs_lookup.insert(rustify_name(&processed.name), processed);
-        for e in extracted {
-            structs_lookup.insert(rustify_name(&e.name), e);
+    // A derived struct may precede its base, including across include files.
+    while !unprocessed_structs.is_empty() {
+        let count = unprocessed_structs.len();
+        let mut pending = Vec::new();
+        for value in unprocessed_structs {
+            let base = value.base.expect("only derived structs are deferred");
+            if !structs_lookup.contains_key(&rustify_name(base)) {
+                pending.push(value);
+                continue;
+            }
+            let (processed, extracted) = process_struct(value, &structs_lookup);
+            structs_lookup.insert(rustify_name(&processed.name), processed);
+            for value in extracted {
+                structs_lookup.insert(rustify_name(&value.name), value);
+            }
         }
+        anyhow::ensure!(
+            pending.len() < count,
+            "Unresolved QAPI struct bases (missing definition or inheritance cycle): {}",
+            pending
+                .iter()
+                .map(|value| format!("{} -> {}", value.name, value.base.unwrap()))
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+        unprocessed_structs = pending;
     }
     for v in unprocessed_unions {
+        if let crate::MembersOrRef::Ref(base) = &v.base {
+            anyhow::ensure!(
+                structs_lookup.contains_key(&rustify_name(base)),
+                "QAPI union {} references missing base {base}",
+                v.name
+            );
+        }
+        if let Some(discriminator) = v.discriminator {
+            let has_discriminator = match &v.base {
+                crate::MembersOrRef::Ref(base) => structs_lookup[&rustify_name(base)]
+                    .fields
+                    .iter()
+                    .any(|field| field.name == discriminator),
+                crate::MembersOrRef::Members(members) => {
+                    members.iter().any(|field| field.name == discriminator)
+                }
+                crate::MembersOrRef::Unset => false,
+            };
+            anyhow::ensure!(
+                has_discriminator,
+                "QAPI union {} has no discriminator field {discriminator} in its base",
+                v.name
+            );
+        }
         let (s, e, disc_enum) = process_union(v, &structs_lookup, &enums_lookup);
         if let Some(de) = disc_enum {
             enums_lookup.insert(rustify_name(&de.name), de);
@@ -298,10 +362,24 @@ fn process_version_schema(
         structs_lookup.insert(rustify_name(&s.name), s);
     }
     for v in unprocessed_events {
+        if let Some(crate::MembersOrRef::Ref(data)) = &v.data {
+            anyhow::ensure!(
+                structs_lookup.contains_key(&rustify_name(data)),
+                "QAPI event {} references missing argument type {data}",
+                v.name
+            );
+        }
         let processed = process_event(v, &structs_lookup);
         structs_lookup.insert(rustify_name(&processed.name), processed);
     }
     for v in unprocessed_commands {
+        if let Some(crate::MembersOrRef::Ref(data)) = &v.data {
+            anyhow::ensure!(
+                structs_lookup.contains_key(&rustify_name(data)),
+                "QAPI command {} references missing argument type {data}",
+                v.name
+            );
+        }
         // Check if this command references an existing struct via data
         let data_ref_name = match &v.data {
             Some(crate::MembersOrRef::Ref(name)) => Some(name.to_string()),
@@ -345,7 +423,7 @@ fn process_version_schema(
             processed.name = format!("{cmd_key}Command");
             cmd_key = rustify_name(&processed.name);
             anyhow::ensure!(
-                !structs_lookup.contains_key(&cmd_key),
+                !structs_lookup.contains_key(&cmd_key) && !enums_lookup.contains_key(&cmd_key),
                 "Conflicting command type: {cmd_key}"
             );
         }
@@ -1625,4 +1703,81 @@ pub fn generate_qga_code(qemu_repo: &Path, version_tags: &[&str]) -> Result<Gene
             verbose_timing: false,
         },
     )
+}
+
+#[cfg(test)]
+mod schema_resolution_tests {
+    use super::*;
+
+    fn process(input: &str) -> Result<(HashMap<String, Enum>, HashMap<String, Struct>)> {
+        crate::set_parser_version((11, 1, 3));
+        process_version_schema(&[("fixture.json".into(), input.into())])
+    }
+
+    #[test]
+    fn conflicting_schema_definitions_do_not_silently_overwrite_types() {
+        for input in [
+            "{ 'struct': 'Example', 'data': {} }\n{ 'struct': 'Example', 'data': {} }",
+            "{ 'struct': 'FooBAR', 'data': {} }\n{ 'enum': 'FooBar', 'data': ['one'] }",
+            "{ 'command': 'foo-bar' }\n{ 'command': 'foo_bar' }",
+        ] {
+            let error = process(input).unwrap_err().to_string();
+            assert!(error.contains("Conflicting QAPI definitions"), "{error}");
+        }
+    }
+
+    #[test]
+    fn missing_argument_structs_return_an_error() {
+        for input in [
+            "{ 'command': 'example', 'data': 'Missing' }",
+            "{ 'event': 'EXAMPLE', 'data': 'Missing' }",
+        ] {
+            let error = process(input).unwrap_err().to_string();
+            assert!(error.contains("missing argument type Missing"), "{error}");
+        }
+    }
+
+    #[test]
+    fn inherited_structs_resolve_forward_base_chains() {
+        let (_, structs) = process(concat!(
+            "{ 'struct': 'Leaf', 'base': 'Middle', 'data': { 'leaf': 'int' } }\n",
+            "{ 'struct': 'Middle', 'base': 'Root', 'data': { 'middle': 'int' } }\n",
+            "{ 'struct': 'Root', 'data': { 'root': 'int' } }\n",
+        ))
+        .unwrap();
+        let fields: Vec<_> = structs["Leaf"]
+            .fields
+            .iter()
+            .map(|field| field.name.as_str())
+            .collect();
+        assert_eq!(fields, ["root", "middle", "leaf"]);
+    }
+
+    #[test]
+    fn unresolved_inheritance_returns_an_error() {
+        for input in [
+            "{ 'struct': 'Leaf', 'base': 'Missing', 'data': {} }",
+            "{ 'struct': 'First', 'base': 'Second', 'data': {} }\n{ 'struct': 'Second', 'base': 'First', 'data': {} }",
+        ] {
+            let error = process(input).unwrap_err().to_string();
+            assert!(error.contains("Unresolved QAPI struct bases"), "{error}");
+        }
+    }
+
+    #[test]
+    fn invalid_union_bases_return_an_error() {
+        for (input, message) in [
+            (
+                "{ 'union': 'ExampleUnion', 'base': 'Missing', 'discriminator': 'kind', 'data': { 'one': 'Missing' } }",
+                "missing base Missing",
+            ),
+            (
+                "{ 'struct': 'Base', 'data': {} }\n{ 'union': 'ExampleUnion', 'base': 'Base', 'discriminator': 'kind', 'data': { 'one': 'Base' } }",
+                "no discriminator field kind",
+            ),
+        ] {
+            let error = process(input).unwrap_err().to_string();
+            assert!(error.contains(message), "{error}");
+        }
+    }
 }

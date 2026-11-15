@@ -2,14 +2,10 @@ use super::common::{qstring, qtag, take_kv, take_list};
 use nom::IResult;
 use nom::Parser;
 use nom::branch::alt;
+use nom::combinator::verify;
 use nom::sequence::delimited;
 
-/// Convenience wrapper for taking a condition keypair.
-/// Examples:
-///   - `'if': CONFIG_OPT1`
-///   - `'if': {'not': CONFIG_OPT1}`
-///   - `'if': {'all': [CONFIG_OPT1, CONFIG_OPT2}`
-///   - `'if': {'any': [CONFIG_OPT1, CONFIG_OPT2}`
+/// Parse an `if` key and its nested configuration expression.
 pub fn take_cond(input: &str) -> IResult<&str, QapiCond<'_>> {
     take_kv("if", QapiCond::parse).parse(input)
 }
@@ -26,19 +22,42 @@ pub enum QapiCond<'i> {
 impl<'i> QapiCond<'i> {
     /// Parses a `COND` as defined in the QAPI spec:
     ///     COND = STRING
-    ///          | { 'all: [ COND, ... ] }
-    ///          | { 'any: [ COND, ... ] }
+    ///          | { 'all': [ COND, ... ] }
+    ///          | { 'any': [ COND, ... ] }
     ///          | { 'not': COND }
     pub fn parse(input: &'i str) -> IResult<&'i str, Self> {
+        if super::parser_version() < (6, 2, 0) {
+            return alt((
+                verify(qstring, |name: &str| !name.trim().is_empty()).map(Self::ConfigName),
+                verify(
+                    take_list(verify(qstring, |name: &str| !name.trim().is_empty())),
+                    |v: &Vec<_>| !v.is_empty(),
+                )
+                .map(|names| Self::All(names.into_iter().map(Self::ConfigName).collect())),
+            ))
+            .parse(input);
+        }
         Self::parse_v1(input)
     }
 
     pub fn parse_v1(input: &'i str) -> IResult<&'i str, Self> {
         let not_parser = take_kv("not", Self::parse);
-        let any_parser = take_kv("any", take_list(Self::parse));
-        let all_parser = take_kv("all", take_list(Self::parse));
+        let any_parser = take_kv(
+            "any",
+            verify(take_list(Self::parse), |v: &Vec<_>| !v.is_empty()),
+        );
+        let all_parser = take_kv(
+            "all",
+            verify(take_list(Self::parse), |v: &Vec<_>| !v.is_empty()),
+        );
         alt((
-            qstring.map(Self::ConfigName),
+            verify(qstring, |name: &str| {
+                name.as_bytes().first().is_some_and(u8::is_ascii_uppercase)
+                    && name
+                        .bytes()
+                        .all(|b| b.is_ascii_uppercase() || b.is_ascii_digit() || b == b'_')
+            })
+            .map(Self::ConfigName),
             delimited(
                 qtag("{"),
                 alt((
@@ -93,7 +112,25 @@ mod tests {
     use super::*;
 
     #[test]
+    fn legacy_c_expressions_and_condition_lists() {
+        crate::set_parser_version((6, 1, 0));
+        let (_, value) = QapiCond::parse("'defined(CONFIG_SPICE)'").unwrap();
+        assert_eq!(value.to_string(), "defined(CONFIG_SPICE)");
+        let (remaining, value) =
+            QapiCond::parse("['defined(CONFIG_A)', 'defined(CONFIG_B)']").unwrap();
+        assert!(remaining.is_empty());
+        assert_eq!(
+            value.to_string(),
+            "(defined(CONFIG_A) && defined(CONFIG_B))"
+        );
+        crate::set_parser_version((6, 2, 0));
+        assert!(QapiCond::parse("'defined(CONFIG_SPICE)'").is_err());
+        assert!(QapiCond::parse("['CONFIG_A']").is_err());
+    }
+
+    #[test]
     fn test_parse_with_whitespace() {
+        crate::set_parser_version((11, 1, 3));
         let inputs = [
             " 'CONFIG_OPTION'",
             "{ 'not' : 'CONFIG_OPTION' }",
@@ -112,7 +149,13 @@ mod tests {
 
     #[test]
     fn test_parse_invalid_inputs() {
+        crate::set_parser_version((11, 1, 3));
         let invalid_inputs = [
+            "'invalid'",
+            "''",
+            "'1CONFIG'",
+            "{'all':[]}",
+            "{'any':[]}",
             "",                              // Empty input
             "'CONFIG_OPTION",                // Missing closing quote
             "{'unknown':['CONFIG_OPTION']}", // Unknown keyword
@@ -131,6 +174,7 @@ mod tests {
 
     #[test]
     fn test_parse_config_name() {
+        crate::set_parser_version((11, 1, 3));
         let input = "'CONFIG_OPTION'";
         let expected = QapiCond::ConfigName("CONFIG_OPTION");
         let (remaining, parsed) = QapiCond::parse(input).expect("Parsing failed");
@@ -140,6 +184,7 @@ mod tests {
 
     #[test]
     fn test_parse_not_condition() {
+        crate::set_parser_version((11, 1, 3));
         let input = "{'not':'CONFIG_OPTION'}";
         let expected = QapiCond::Not(Box::new(QapiCond::ConfigName("CONFIG_OPTION")));
         let (remaining, parsed) = QapiCond::parse(input).expect("Parsing failed");
@@ -149,6 +194,7 @@ mod tests {
 
     #[test]
     fn test_parse_any_condition_single() {
+        crate::set_parser_version((11, 1, 3));
         let input = "{'any':['CONFIG_OPTION']}";
         let expected = QapiCond::Any(vec![QapiCond::ConfigName("CONFIG_OPTION")]);
         let (remaining, parsed) = QapiCond::parse(input).expect("Parsing failed");
@@ -158,6 +204,7 @@ mod tests {
 
     #[test]
     fn test_parse_any_condition_multiple() {
+        crate::set_parser_version((11, 1, 3));
         let input = "{'any':['CONFIG_OPTION','CONFIG_OPTION2']}";
         let expected = QapiCond::Any(vec![
             QapiCond::ConfigName("CONFIG_OPTION"),
@@ -170,6 +217,7 @@ mod tests {
 
     #[test]
     fn test_parse_all_condition() {
+        crate::set_parser_version((11, 1, 3));
         let input = "{'all':['CONFIG_OPTION','CONFIG_OPTION2']}";
         let expected = QapiCond::All(vec![
             QapiCond::ConfigName("CONFIG_OPTION"),

@@ -658,7 +658,7 @@ fn gen_enum(
             &enum_name,
             &cond,
             quote! { #[allow(deprecated)] },
-            quote! { match self { #(#display_arms)* } },
+            quote! { match *self { #(#display_arms)* } },
         )
     } else {
         TokenStream2::new()
@@ -713,12 +713,12 @@ fn gen_unit_enum_ser(name: &syn::Ident, variants: &[VariantInfo], ta: &TypeAttrs
                 return Err(serde::ser::Error::custom(qapi::unavailable_type_message(stringify!(#name))));
             }
             #dep_warn
-            match self { #(#arms)* }
+            match *self { #(#arms)* }
         }
     } else {
         quote! {
             #dep_warn
-            match self { #(#arms)* }
+            match *self { #(#arms)* }
         }
     };
 

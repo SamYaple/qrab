@@ -1,10 +1,8 @@
-use super::common::{qbool, qstring, qtag, take_kv, take_list};
+use super::common::{qbool, qstring, take_dict, take_kv, take_list};
 use super::parser_version;
 use nom::IResult;
 use nom::Parser;
 use nom::branch::alt;
-use nom::multi::separated_list1;
-use nom::sequence::delimited;
 
 pub fn take_pragma(input: &str) -> IResult<&str, QapiPragma<'_>> {
     QapiPragma::parse(input)
@@ -66,40 +64,34 @@ impl<'i> QapiPragma<'i> {
             let name_case_whitelist_parser = take_kv("name-case-whitelist", take_list(qstring))
                 .map(ParserToken::MemberNameExceptions);
 
-            delimited(
-                (qtag("{"), qtag("'pragma'"), qtag(":"), qtag("{")),
-                separated_list1(
-                    qtag(","),
-                    alt((
-                        doc_required_parser,
-                        command_name_exceptions_parser,
-                        command_returns_exceptions_parser,
-                        documentation_exceptions_parser,
-                        member_name_exceptions_parser,
-                        returns_whitelist_parser,
-                        name_case_whitelist_parser,
-                    )),
-                )
+            take_dict(take_kv(
+                "pragma",
+                take_dict(alt((
+                    doc_required_parser,
+                    command_name_exceptions_parser,
+                    command_returns_exceptions_parser,
+                    documentation_exceptions_parser,
+                    member_name_exceptions_parser,
+                    returns_whitelist_parser,
+                    name_case_whitelist_parser,
+                )))
                 .map(Self::from_tokens),
-                (qtag("}"), qtag("}")),
-            )
+            ))
+            .map_opt(|mut values| values.pop())
             .parse(input)
         } else {
-            delimited(
-                (qtag("{"), qtag("'pragma'"), qtag(":"), qtag("{")),
-                separated_list1(
-                    qtag(","),
-                    alt((
-                        doc_required_parser,
-                        command_name_exceptions_parser,
-                        command_returns_exceptions_parser,
-                        documentation_exceptions_parser,
-                        member_name_exceptions_parser,
-                    )),
-                )
+            take_dict(take_kv(
+                "pragma",
+                take_dict(alt((
+                    doc_required_parser,
+                    command_name_exceptions_parser,
+                    command_returns_exceptions_parser,
+                    documentation_exceptions_parser,
+                    member_name_exceptions_parser,
+                )))
                 .map(Self::from_tokens),
-                (qtag("}"), qtag("}")),
-            )
+            ))
+            .map_opt(|mut values| values.pop())
             .parse(input)
         }
     }
@@ -133,6 +125,25 @@ impl<'i> QapiPragma<'i> {
 mod tests {
     use super::*;
     use crate::parsers::set_parser_version;
+
+    #[test]
+    fn empty_pragma_is_valid_but_missing_pragma_is_not() {
+        set_parser_version((11, 1, 3));
+        assert_eq!(QapiPragma::parse("{ 'pragma': {} }").unwrap().0, "");
+        assert!(QapiPragma::parse("{}").is_err());
+    }
+
+    #[test]
+    fn duplicate_pragma_keys_are_rejected() {
+        set_parser_version((11, 1, 3));
+        for input in [
+            "{ 'pragma': { 'doc-required': true, 'doc-required': false } }",
+            "{ 'pragma': {}, 'pragma': {} }",
+            "{ 'pragma': { 'member-name-exceptions': [], 'member-name-exceptions': ['X'] } }",
+        ] {
+            assert!(QapiPragma::parse(input).is_err(), "accepted {input}");
+        }
+    }
 
     #[test]
     fn test_valid_v2() {
