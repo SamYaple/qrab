@@ -412,11 +412,15 @@ async fn switch_over(
     netd_all(config, nics, Op::Standby, None).await
 }
 
-/// Best effort, after the switch: export each NIC's conntrack entries on
-/// this node and have the target node import them, so established flows keep
-/// their verdicts there (a flow only the guest sends on would otherwise be
-/// new, and refused by groups that deny new egress). Failures are logged.
-async fn copy_conntrack(config: &Config, nics: &[String], channel: &mut Channel) {
+/// Best effort: export each NIC's conntrack entries on this node and have
+/// the target node import them, so established flows keep their verdicts
+/// there (a flow only the guest sends on would otherwise be new, and refused
+/// by groups that deny new egress). Run twice: `precopy` before QEMU starts
+/// streaming, so the flows are on the target the moment it activates (an
+/// import only after the switch left the guest's first segments there
+/// dropped, and TCP's retransmission backoff stretched that to seconds), and
+/// `delta` after the switch, for flows opened meanwhile. Failures are logged.
+async fn copy_conntrack(config: &Config, nics: &[String], channel: &mut Channel, phase: &str) {
     let started = tokio::time::Instant::now();
     let mut copied = 0;
     for nic in nics {
@@ -430,13 +434,13 @@ async fn copy_conntrack(config: &Config, nics: &[String], channel: &mut Channel)
             Ok(Ok(export)) => export,
             Ok(Err(error)) => {
                 log(
-                    json!({"event":"migration_conntrack_failed","nic":nic,"step":"export","error":error.to_string()}),
+                    json!({"event":"migration_conntrack_failed","phase":phase,"nic":nic,"step":"export","error":error.to_string()}),
                 );
                 continue;
             }
             Err(error) => {
                 log(
-                    json!({"event":"migration_conntrack_failed","nic":nic,"step":"export","error":error.to_string()}),
+                    json!({"event":"migration_conntrack_failed","phase":phase,"nic":nic,"step":"export","error":error.to_string()}),
                 );
                 continue;
             }
@@ -453,31 +457,33 @@ async fn copy_conntrack(config: &Config, nics: &[String], channel: &mut Channel)
         .await
         .is_err()
         {
-            log(json!({"event":"migration_conntrack_failed","nic":nic,"step":"send"}));
+            log(
+                json!({"event":"migration_conntrack_failed","phase":phase,"nic":nic,"step":"send"}),
+            );
             return;
         }
         match read_frame(channel, SWITCH_TIMEOUT).await {
             Ok(Switch::Imported(count)) => {
                 copied += count;
                 log(
-                    json!({"event":"migration_conntrack","nic":nic,"exported":exported,"imported":count,"truncated":truncated}),
+                    json!({"event":"migration_conntrack","phase":phase,"nic":nic,"exported":exported,"imported":count,"truncated":truncated}),
                 );
             }
             Ok(Switch::Failed(reason)) => {
                 log(
-                    json!({"event":"migration_conntrack_failed","nic":nic,"step":"import","error":reason}),
+                    json!({"event":"migration_conntrack_failed","phase":phase,"nic":nic,"step":"import","error":reason}),
                 );
             }
             other => {
                 log(
-                    json!({"event":"migration_conntrack_failed","nic":nic,"step":"import","error":format!("{other:?}")}),
+                    json!({"event":"migration_conntrack_failed","phase":phase,"nic":nic,"step":"import","error":format!("{other:?}")}),
                 );
                 return;
             }
         }
     }
     log(
-        json!({"event":"migration_conntrack_copied","entries":copied,"ms":started.elapsed().as_millis()}),
+        json!({"event":"migration_conntrack_copied","phase":phase,"entries":copied,"ms":started.elapsed().as_millis()}),
     );
 }
 
@@ -682,11 +688,12 @@ where
             // Fence this node's anchors now (it regenerates their programs),
             // so standing them down later is a map update inside the pause.
             netd_all(config, &nics, Op::Prepare, None).await?;
-            let (connection, node_ip) = tokio::time::timeout(SWITCH_TIMEOUT * 3, channel)
+            let (mut connection, node_ip) = tokio::time::timeout(SWITCH_TIMEOUT * 3, channel)
                 .await
                 .map_err(|_| failure("the target opened no switchover connection"))?
                 .map_err(|_| failure("the switchover slot closed"))?;
             let via = node_ip.ok_or_else(|| failure("the target sent no node address"))?;
+            copy_conntrack(config, &nics, &mut connection, "precopy").await;
             switch = Some((connection, via));
         }
         let path = session.join("migrate-out.sock");
@@ -755,7 +762,7 @@ where
         }
         // The guest runs on the target: carry its NICs' established flows over.
         if let (true, Some((connection, _))) = (switched, switch.as_mut()) {
-            copy_conntrack(config, &nics, connection).await;
+            copy_conntrack(config, &nics, connection, "delta").await;
         }
         // QEMU closes its end after the last byte; wait for it to drain.
         match tokio::time::timeout(Duration::from_secs(30), splice).await {
@@ -1357,7 +1364,7 @@ mod tests {
         let (target_config, target_ops) = fake_netd(dir.path(), "target", None);
         let (mut channel, _, client) = switchover_pair(&source, &target, "m-conntrack").await;
         let serving = tokio::spawn(serve_switchover(target_config, vec!["lan".into()], client));
-        copy_conntrack(&source_config, &["lan".into()], &mut channel).await;
+        copy_conntrack(&source_config, &["lan".into()], &mut channel, "delta").await;
         assert_eq!(*source_ops.lock().unwrap(), [(Op::CtExport, None)]);
         assert_eq!(*target_ops.lock().unwrap(), [(Op::CtImport, None)]);
         // The channel still serves the switchover afterwards.
