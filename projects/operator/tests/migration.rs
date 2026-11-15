@@ -450,6 +450,7 @@ async fn a_target_that_stops_fails_the_migration_and_leaves_the_source_running()
         .as_str()
         .unwrap()
         .contains("stopped before taking over"));
+    assert!(moving(&store).get("reason").is_none(), "unclassified");
     until(&store, &ctx, 6, |s| moving(s)["cleaned"] == true).await;
     assert!(store.get(TARGET).is_none());
     assert!(store.get(POLICY).is_none());
@@ -457,6 +458,51 @@ async fn a_target_that_stops_fails_the_migration_and_leaves_the_source_running()
     assert_eq!(store.get(SOURCE).unwrap()["metadata"]["uid"], "uid-test-vm");
     assert_eq!(store.status()["podName"], "test-vm");
     store.step(&ctx).await;
+    assert_eq!(store.status()["phase"], "Running");
+}
+
+#[tokio::test]
+async fn a_powered_off_vm_fails_its_migration_as_powered_off_and_cleans_up() {
+    // The VM Pod stays Ready while its QEMU is powered off; only the
+    // target learns it, from the source's refusal.
+    let (store, ctx) = running().await;
+    store.0.lock().unwrap().insert(
+        format!("{MIGRATIONS}/move"),
+        migration(
+            "move",
+            "aaaa1111-2222-3333-4444-555566667777",
+            "2026-11-14T17:00:00Z",
+        ),
+    );
+    until(&store, &ctx, 8, |s| s.get(TARGET).is_some()).await;
+    assert!(store
+        .get(&format!("{CONFIGS}/test-vm-maaaa11-config"))
+        .is_some());
+    store.edit(TARGET, |pod| {
+        pod["spec"]["nodeName"] = json!("node-b");
+        terminated(pod, 1, "source-powered-off");
+    });
+    until(&store, &ctx, 4, |s| moving(s)["phase"] == "Failed").await;
+    let status = moving(&store);
+    assert_eq!(status["reason"], "PoweredOff");
+    let message = status["message"].as_str().unwrap();
+    assert!(message.contains("powered off"), "{message}");
+    assert!(message.contains("power it on"), "{message}");
+    // Terminal: cleaned up like any failed move, and never retried.
+    until(&store, &ctx, 6, |s| moving(s)["cleaned"] == true).await;
+    assert!(store.get(TARGET).is_none());
+    assert!(store.get(POLICY).is_none());
+    assert!(store.get(TARGET_CLAIM).is_none());
+    assert!(store
+        .get(&format!("{CONFIGS}/test-vm-maaaa11-config"))
+        .is_none());
+    for _ in 0..3 {
+        store.step(&ctx).await;
+    }
+    assert!(store.get(TARGET).is_none(), "no second target is started");
+    assert_eq!(moving(&store)["phase"], "Failed");
+    assert_eq!(moving(&store)["reason"], "PoweredOff");
+    assert_eq!(store.status()["podName"], "test-vm");
     assert_eq!(store.status()["phase"], "Running");
 }
 

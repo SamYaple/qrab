@@ -281,7 +281,9 @@ timestamp) in the same history as QMP events. A native iSCSI VM whose QEMU
 needed SIGKILL still fails the manager, since clean disk release is not
 proven; a clean stop logs out and the next QEMU logs in again with the same
 initiator name, so the Pod, its exported LUNs and the operator's storage
-guard are untouched. A powered-off VM cannot live-migrate.
+guard are untouched. A powered-off VM cannot live-migrate: its migration
+listener stays up and refuses targets as powered off
+([migration.md](migration.md#powered-off-vms)).
 
 All children are owned and reaped. Cancellation uses kill-on-drop cleanup. Pod
 grace must exceed guest grace plus command/kill bounds; operator Pods use 20 s

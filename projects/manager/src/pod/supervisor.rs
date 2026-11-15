@@ -182,6 +182,9 @@ pub async fn run_controlled(
     let base = config;
     // Why the next QEMU starts; `None` for the pod's first one.
     let mut relaunch: Option<&'static str> = None;
+    // Opened when QEMU first runs, then kept across power cycles so a VM
+    // powered off in place still refuses migrations instead of going silent.
+    let mut outgoing = None;
     loop {
         let cycle = power_on(
             &base,
@@ -189,7 +192,7 @@ pub async fn run_controlled(
             &mut control,
             &mut state,
             &mut persistent,
-            (receiving.take(), &retained),
+            (receiving.take(), &retained, &mut outgoing),
             relaunch,
         )
         .await;
@@ -201,7 +204,16 @@ pub async fn run_controlled(
             }
             Ok(Cycle::Restart) => relaunch = Some("power-cycle"),
             Ok(Cycle::Off(reason)) => {
-                if !powered_off(&base, &mut shutdown, &mut control, &mut state, reason).await? {
+                if !powered_off(
+                    &base,
+                    &mut shutdown,
+                    &mut control,
+                    &mut state,
+                    &mut outgoing,
+                    reason,
+                )
+                .await?
+                {
                     return Ok(Outcome {
                         reason: "shutdown-requested".into(),
                         exit_code: state.exit_code,
@@ -231,10 +243,10 @@ async fn power_on(
     control: &mut super::ControlReceiver,
     state: &mut Status,
     persistent: &mut Option<PersistentState>,
-    migration: (Option<Receiving>, &BTreeMap<String, Binding>),
+    migration: (Option<Receiving>, &BTreeMap<String, Binding>, &mut Outgoing),
     relaunch: Option<&'static str>,
 ) -> Result<Cycle> {
-    let (receiving, retained) = migration;
+    let (receiving, retained, outgoing) = migration;
     let mut config = base.clone();
     if let Some(reason) = relaunch {
         config.incoming = None;
@@ -345,6 +357,7 @@ async fn power_on(
         let migration = Migration {
             receiving,
             retained: retained.clone(),
+            outgoing,
         };
         run_qemu(
             &config,
@@ -370,12 +383,14 @@ async fn power_on(
 }
 
 /// Serve the control socket with QEMU powered off until a power-on request
-/// (true) or pod shutdown (false).
+/// (true) or pod shutdown (false). A migration queued before QEMU stopped is
+/// refused as powered off.
 async fn powered_off(
     config: &Config,
     shutdown: &mut (impl Future<Output = ()> + Unpin),
     control: &mut super::ControlReceiver,
     state: &mut Status,
+    outgoing: &mut Outgoing,
     reason: &'static str,
 ) -> Result<bool> {
     control.set_off();
@@ -414,17 +429,25 @@ async fn powered_off(
                     return Ok(true);
                 }
             }
+            Some(pending) = next_migration(outgoing) => {
+                migration::reject(pending, migration::POWERED_OFF).await;
+            }
             _ = heartbeat.tick() => publish(config, state)?,
         }
     }
 }
 
+/// The manager-lifetime queue of authenticated migration targets.
+type Outgoing = Option<mpsc::Receiver<Pending>>;
+
 /// What a QEMU run needs for live migration in either direction.
-struct Migration {
+struct Migration<'a> {
     /// The source's offer when this run is a migration target.
     receiving: Option<Receiving>,
     /// This VM's retained iSCSI bindings, offered to a target.
     retained: BTreeMap<String, Binding>,
+    /// Targets asking to receive this VM; opened by the first run.
+    outgoing: &'a mut Outgoing,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -436,7 +459,7 @@ async fn run_qemu(
     state: &mut Status,
     tpm: &mut Option<Swtpm>,
     lease: Option<StateLease>,
-    migration: Migration,
+    migration: Migration<'_>,
     relaunch: Option<&'static str>,
 ) -> Result<Cycle> {
     let (socket, console) = sockets;
@@ -446,6 +469,7 @@ async fn run_qemu(
     let Migration {
         receiving,
         retained,
+        outgoing,
     } = migration;
     let mut migrated = false;
     // Tap NICs get fresh queues from qrab-netd for every QEMU start; the
@@ -590,7 +614,9 @@ async fn run_qemu(
             started=qmp.execute(&Cont {}) => {started?;}
         }
         if let Some(reason) = relaunch { control.record_power("On", reason); }
-        let mut outgoing = config.migration.as_ref().map(migration::listen);
+        if outgoing.is_none() {
+            *outgoing = config.migration.as_ref().map(|o| migration::listen(o, control.control().watch_status()));
+        }
         let mut heartbeat=tokio::time::interval(Duration::from_secs(1));
         let mut disk_growth=super::disks::DiskGrowth::default();
         loop {
@@ -598,7 +624,7 @@ async fn run_qemu(
                 _=&mut shutdown => return Ok(Ended::Shutdown),
                 exit=child.wait() => return Ok(Ended::Exited(exit?)),
                 exit=super::tpm::wait(tpm) => return Err(Error::Spawn(format!("swtpm exited while QEMU was active: {}", exit?))),
-                Some(pending)=next_migration(&mut outgoing) => {
+                Some(pending)=next_migration(outgoing) => {
                     let Ok(_management)=control.migration_guard() else {
                         migration::reject(pending,"firmware management is busy").await;continue;
                     };

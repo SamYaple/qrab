@@ -14,6 +14,8 @@
 //!    `migrated`, the target owns the guest and its disks: strip `incoming`,
 //!    and point VM status at the target Pod, its PVC and node (**Succeeded**).
 //!    Anything else ending first fails the migration and leaves the source.
+//!    A target ending with `source-powered-off` (the VM's QEMU is powered
+//!    off in its Pod) fails it with reason `PoweredOff`.
 //! 4. Clean up: the source Pod, the policy and the replaced PVC after success;
 //!    the target Pod, policy and PVC after failure.
 //!
@@ -44,6 +46,11 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 pub const DEADLINE_SECS: i64 = 600;
 /// Termination message of a source manager that handed its guest over.
 pub const MIGRATED: &str = "migrated";
+/// Termination message of a target manager whose source refused because the
+/// VM is powered off in its Pod (QEMU stopped, manager still serving).
+pub const SOURCE_POWERED_OFF: &str = "source-powered-off";
+/// Failure reason of a migration whose VM is powered off.
+pub const POWERED_OFF: &str = "PoweredOff";
 const STATE_COMPONENT: &str = "vm-state";
 
 /// What the VM reconcile rendered for its current Pod.
@@ -216,6 +223,23 @@ pub fn handed_over(pod: &Pod) -> bool {
     manager_exit(pod).is_some_and(|(code, message)| code == 0 && message.trim() == MIGRATED)
 }
 
+/// Why a stopped target failed the migration: the reason (empty when not
+/// classified) and the message.
+fn target_failure(target: &str, pod: &Pod) -> (&'static str, String) {
+    match manager_exit(pod) {
+        Some((_, message)) if message.trim() == SOURCE_POWERED_OFF => (
+            POWERED_OFF,
+            "the VM is powered off, so there is no running guest to live-migrate; power it on and create a new migration".into(),
+        ),
+        exit => {
+            let detail = exit
+                .map(|(code, message)| format!(" (exit {code}: {})", message.trim()))
+                .unwrap_or_default();
+            ("", format!("the target {target} stopped before taking over{detail}"))
+        }
+    }
+}
+
 fn failed(pod: &Pod) -> bool {
     manager_exit(pod).is_some()
         || pod
@@ -295,9 +319,19 @@ async fn fail(
     migration: &VirtualMachineMigration,
     message: &str,
 ) -> Result<Option<Action>> {
-    tracing::warn!(migration=%migration.name_any(), %message, "live migration failed");
+    fail_because(api, migration, "", message).await
+}
+
+async fn fail_because(
+    api: &Api<VirtualMachineMigration>,
+    migration: &VirtualMachineMigration,
+    reason: &str,
+    message: &str,
+) -> Result<Option<Action>> {
+    tracing::warn!(migration=%migration.name_any(), %reason, %message, "live migration failed");
     let mut status = migration.status.clone().unwrap_or_default();
     status.phase = "Failed".into();
+    status.reason = reason.into();
     status.message = message.into();
     status.completed_at = Some(now());
     set_status(api, migration, &status).await?;
@@ -534,6 +568,7 @@ async fn step(
         let current = Incarnation::of(vm);
         status = VirtualMachineMigrationStatus {
             phase: "TargetStarting".into(),
+            reason: String::new(),
             message: format!("Starting the target on {target_node}"),
             source_pod: Some(source.name_any()),
             source_pod_uid: source.uid(),
@@ -697,15 +732,8 @@ async fn step(
         return Ok(Some(Action::requeue(Duration::from_secs(1))));
     }
     if failed(&target_pod) || target_pod.metadata.deletion_timestamp.is_some() {
-        let detail = manager_exit(&target_pod)
-            .map(|(code, message)| format!(" (exit {code}: {})", message.trim()))
-            .unwrap_or_default();
-        return fail(
-            api,
-            migration,
-            &format!("the target {target} stopped before taking over{detail}"),
-        )
-        .await;
+        let (reason, message) = target_failure(&target, &target_pod);
+        return fail_because(api, migration, reason, &message).await;
     }
     let running = target_pod.status.as_ref().and_then(|s| s.phase.as_deref()) == Some("Running");
     if running && status.phase != "Migrating" {

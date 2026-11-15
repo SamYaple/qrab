@@ -72,14 +72,25 @@ async fn execute() -> manager::Result<()> {
                 tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())?;
             let (_control, receiver) =
                 pod::control_channel_for(&config, pod::Deployment::from_env());
-            let outcome = pod::run_controlled(
+            let target = config.incoming.is_some();
+            let outcome = match pod::run_controlled(
                 config,
                 async {
                     tokio::select! {_=term.recv()=>{},_=interrupt.recv()=>{}}
                 },
                 receiver,
             )
-            .await?;
+            .await
+            {
+                // The source is powered off: the operator reports this
+                // message as the migration's `PoweredOff` reason.
+                Err(manager::Error::PoweredOff) if target => {
+                    let _ =
+                        std::fs::write("/dev/termination-log", pod::migration::SOURCE_POWERED_OFF);
+                    return Err(manager::Error::PoweredOff);
+                }
+                outcome => outcome?,
+            };
             eprintln!(
                 "{}",
                 serde_json::json!({"event":"manager_exit","outcome":outcome})

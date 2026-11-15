@@ -7,6 +7,7 @@ use manager::pod::{
     Action, Config, Deployment, DiskView,
 };
 use qapi_protocol::server::{QgaSession, QmpSession};
+use qrab_spiffe::fixture::{Authority, Workload};
 use serde_json::{json, Value};
 use std::{
     os::unix::fs::PermissionsExt,
@@ -687,6 +688,59 @@ async fn force_off_during_a_graceful_stop_reaps_qemu_within_the_force_off_bound(
         json!({"power_state":"Off","reason":"force-off"})
     );
     assert!(!runner.task.is_finished());
+    assert_eq!(runner.shutdown().await.reason, "shutdown-requested");
+}
+
+#[tokio::test]
+async fn a_powered_off_vm_refuses_a_live_migration_as_powered_off() {
+    const VM: &str = "spiffe://yapplesauce.com/kubernetes/qrab/vm/uid-1";
+    let ca = Authority::new();
+    let (source_identity, target_identity) = (
+        Workload::serve(vec![ca.svid(VM)]),
+        Workload::serve(vec![ca.svid(VM)]),
+    );
+    let port = {
+        let probe = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        probe.local_addr().unwrap().port()
+    };
+    let (_dir, mut config) = fixture();
+    config.migration = Some(
+        serde_json::from_value(json!({"port":port,"workload_api":source_identity.endpoint}))
+            .unwrap(),
+    );
+    let (control, _inject, runner) = start(&config);
+    wait_for_phase(&control, pod::Phase::Running).await;
+    control.action(Action::ForceOff).await.unwrap();
+    wait_for_phase(&control, pod::Phase::Off).await;
+    // A target of the powered-off VM is refused with the typed error its
+    // manager turns into the `source-powered-off` termination message.
+    let (_target_dir, mut target) = fixture();
+    target.control_socket = false;
+    target.incoming = Some(
+        serde_json::from_value(
+            json!({"migration":"m-1","source":format!("127.0.0.1:{port}"),
+            "workload_api":target_identity.endpoint}),
+        )
+        .unwrap(),
+    );
+    let (_target_control, receiver) = pod::control_channel_for(&target, Deployment::default());
+    let ended = tokio::time::timeout(
+        Duration::from_secs(30),
+        pod::run_controlled(target, std::future::pending(), receiver),
+    )
+    .await
+    .expect("the target was neither refused nor failed");
+    assert!(
+        matches!(ended, Err(manager::Error::PoweredOff)),
+        "{:?}",
+        ended.map(|outcome| outcome.reason)
+    );
+    assert_eq!(pod::migration::SOURCE_POWERED_OFF, "source-powered-off");
+    // The source keeps serving Off and powers on as before.
+    assert_eq!(control.status().unwrap().phase, pod::Phase::Off);
+    tokio::spawn(mock_qemu(config.runtime_dir.clone(), mpsc::channel(1).1));
+    control.action(Action::On).await.unwrap();
+    wait_for_phase(&control, pod::Phase::Running).await;
     assert_eq!(runner.shutdown().await.reason, "shutdown-requested");
 }
 

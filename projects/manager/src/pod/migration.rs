@@ -11,7 +11,11 @@
 //!
 //! Frames are single JSON lines before the QEMU stream starts; after "ready"
 //! the connection carries only QEMU's migration stream (with return path).
-use super::{iscsi::Binding, Config};
+//!
+//! The listener lives as long as the manager once QEMU first runs, so a VM
+//! powered off in place still answers: it refuses with [`POWERED_OFF`], and
+//! the target ends with [`Error::PoweredOff`] instead of a connect failure.
+use super::{iscsi::Binding, Config, Phase, Status};
 use crate::{Error, Result};
 use qapi_protocol::Qmp;
 use serde::{Deserialize, Serialize};
@@ -20,7 +24,7 @@ use std::{collections::BTreeMap, path::Path, time::Duration};
 use tokio::{
     io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt},
     net::{TcpListener, TcpStream, UnixListener, UnixStream},
-    sync::mpsc,
+    sync::{mpsc, watch},
 };
 
 /// The source manager's migration listener port.
@@ -32,6 +36,12 @@ const FRAME_TIMEOUT: Duration = Duration::from_secs(10);
 const READY_TIMEOUT: Duration = Duration::from_secs(120);
 /// QEMU's own throttle, in bytes per second.
 const MAX_BANDWIDTH: u64 = 1 << 30;
+/// The refusal of a source whose QEMU is powered off. A target that receives
+/// it fails with [`Error::PoweredOff`].
+pub const POWERED_OFF: &str = "the VM is powered off";
+/// Termination message of a target whose source refused with
+/// [`POWERED_OFF`]; the operator reports the migration as `PoweredOff`.
+pub const SOURCE_POWERED_OFF: &str = "source-powered-off";
 
 /// Source side: accept migrations of this VM.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -152,10 +162,27 @@ pub(super) struct Pending {
     hello: Hello,
 }
 
-/// Accept target connections in the background. Connecting to the Workload
-/// API is retried, so a VM starts even while SPIRE is unavailable; only
-/// migration waits for it. One migration is handled at a time.
-pub(super) fn listen(outgoing: &Outgoing) -> mpsc::Receiver<Pending> {
+/// Why a VM in this published state cannot be offered, before any per-VM
+/// check: only a running QEMU can stream its guest.
+pub(super) fn unavailable(status: Option<&Status>) -> Option<&'static str> {
+    match status.map(|status| status.phase) {
+        Some(Phase::Running) => None,
+        Some(Phase::Off) => Some(POWERED_OFF),
+        Some(Phase::Starting) => Some("the VM is starting; retry once it runs"),
+        Some(Phase::Stopping) => Some("the VM is stopping"),
+        None | Some(Phase::Exited | Phase::Failed) => Some("the VM is not running"),
+    }
+}
+
+/// Accept target connections in the background until the receiver is
+/// dropped, which releases the port. Connecting to the Workload API is
+/// retried, so a VM starts even while SPIRE is unavailable; only migration
+/// waits for it. A target arriving while the published `status` is not
+/// running is refused at once; otherwise it is queued, one at a time.
+pub(super) fn listen(
+    outgoing: &Outgoing,
+    status: watch::Receiver<Option<Status>>,
+) -> mpsc::Receiver<Pending> {
     let (sender, receiver) = mpsc::channel(1);
     let outgoing = outgoing.clone();
     tokio::spawn(async move {
@@ -166,7 +193,10 @@ pub(super) fn listen(outgoing: &Outgoing) -> mpsc::Receiver<Pending> {
                     log(
                         json!({"event":"migration_identity_unavailable","error":error.to_string()}),
                     );
-                    tokio::time::sleep(Duration::from_secs(5)).await;
+                    tokio::select! {
+                        _ = sender.closed() => return,
+                        _ = tokio::time::sleep(Duration::from_secs(5)) => {}
+                    }
                 }
             }
         };
@@ -186,12 +216,17 @@ pub(super) fn listen(outgoing: &Outgoing) -> mpsc::Receiver<Pending> {
         };
         log(json!({"event":"migration_listening","port":outgoing.port,"spiffe_id":id.to_string()}));
         loop {
-            let Ok((tcp, peer)) = listener.accept().await else {
+            let accepted = tokio::select! {
+                _ = sender.closed() => return,
+                accepted = listener.accept() => accepted,
+            };
+            let Ok((tcp, peer)) = accepted else {
                 tokio::time::sleep(Duration::from_millis(200)).await;
                 continue;
             };
             let acceptor = acceptor.clone();
             let sender = sender.clone();
+            let status = status.clone();
             tokio::spawn(async move {
                 let _ = tcp.set_nodelay(true);
                 let mut stream = match acceptor.accept(tcp).await {
@@ -213,15 +248,24 @@ pub(super) fn listen(outgoing: &Outgoing) -> mpsc::Receiver<Pending> {
                     }
                 };
                 log(json!({"event":"migration_requested","peer":peer,"migration":hello.migration}));
-                if let Err(mpsc::error::TrySendError::Full(mut pending)) =
-                    sender.try_send(Pending { stream, hello })
-                {
-                    let _ = write_frame(
-                        &mut pending.stream,
-                        &Reply::Refused("another migration is in progress".into()),
-                    )
-                    .await;
-                }
+                let pending = Pending { stream, hello };
+                let unavailable = unavailable(status.borrow().as_ref());
+                let (mut pending, reason) = match unavailable {
+                    Some(reason) => (pending, reason),
+                    None => match sender.try_send(pending) {
+                        Ok(()) => return,
+                        Err(mpsc::error::TrySendError::Full(pending)) => {
+                            (pending, "another migration is in progress")
+                        }
+                        Err(mpsc::error::TrySendError::Closed(pending)) => {
+                            (pending, "the VM is stopping")
+                        }
+                    },
+                };
+                log(
+                    json!({"event":"migration_refused","peer":peer,"migration":pending.hello.migration,"reason":reason}),
+                );
+                let _ = write_frame(&mut pending.stream, &Reply::Refused(reason.into())).await;
             });
         }
     });
@@ -450,7 +494,15 @@ pub(super) async fn connect(config: &Config, incoming: &Incoming) -> Result<Rece
                 migration: incoming.migration.clone(),
             })
         }
-        Reply::Refused(reason) => Err(failure(format!("the source refused: {reason}"))),
+        Reply::Refused(reason) => {
+            log(
+                json!({"event":"migration_refused_by_source","migration":incoming.migration,"reason":reason}),
+            );
+            if reason == POWERED_OFF {
+                return Err(Error::PoweredOff);
+            }
+            Err(failure(format!("the source refused: {reason}")))
+        }
     }
 }
 
@@ -547,14 +599,47 @@ mod tests {
         assert_eq!(refusal(&local, &hello("uid-1"), false), None);
     }
 
+    fn published(phase: Phase) -> Status {
+        serde_json::from_value(json!({"phase":phase,"ready":phase == Phase::Running,
+            "manager_pid":1,"manager_start_ticks":1,"observed_unix_ms":0}))
+        .unwrap()
+    }
+
+    #[test]
+    fn only_a_running_qemu_is_offered_and_off_is_refused_as_powered_off() {
+        assert_eq!(unavailable(Some(&published(Phase::Running))), None);
+        assert_eq!(unavailable(Some(&published(Phase::Off))), Some(POWERED_OFF));
+        for phase in [
+            Phase::Starting,
+            Phase::Stopping,
+            Phase::Exited,
+            Phase::Failed,
+        ] {
+            let reason = unavailable(Some(&published(phase))).unwrap();
+            assert_ne!(reason, POWERED_OFF, "{phase:?}");
+        }
+        assert!(unavailable(None).is_some());
+    }
+
     async fn listening(workload: &Workload) -> (u16, mpsc::Receiver<Pending>) {
+        let (_, status) = watch::channel(Some(published(Phase::Running)));
+        listening_with(workload, status).await
+    }
+
+    async fn listening_with(
+        workload: &Workload,
+        status: watch::Receiver<Option<Status>>,
+    ) -> (u16, mpsc::Receiver<Pending>) {
         let probe = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let port = probe.local_addr().unwrap().port();
         drop(probe);
-        let receiver = listen(&Outgoing {
-            port,
-            workload_api: Some(workload.endpoint.clone()),
-        });
+        let receiver = listen(
+            &Outgoing {
+                port,
+                workload_api: Some(workload.endpoint.clone()),
+            },
+            status,
+        );
         for _ in 0..200 {
             if TcpStream::connect(("127.0.0.1", port)).await.is_ok() {
                 return (port, receiver);
@@ -644,6 +729,59 @@ mod tests {
             .await
             .unwrap();
         assert!(dial.await.unwrap().unwrap().contains("refused: busy"));
+    }
+
+    #[tokio::test]
+    async fn a_powered_off_source_answers_and_its_target_fails_as_powered_off() {
+        let ca = Authority::new();
+        let source = Workload::serve(vec![ca.svid(VM)]);
+        let target = Workload::serve(vec![ca.svid(VM)]);
+        let (phase, status) = watch::channel(Some(published(Phase::Off)));
+        let (port, mut pending) = listening_with(&source, status).await;
+        let started = std::time::Instant::now();
+        let refused = connect(&config(), &incoming(&target, port)).await;
+        assert!(matches!(refused, Err(Error::PoweredOff)));
+        assert!(
+            started.elapsed() < Duration::from_secs(5),
+            "refused at once"
+        );
+        assert!(
+            tokio::time::timeout(Duration::from_millis(300), pending.recv())
+                .await
+                .is_err(),
+            "nothing is queued for the supervisor"
+        );
+        // Powered on again, the same listener queues the next target.
+        phase.send_replace(Some(published(Phase::Running)));
+        let dial = tokio::spawn({
+            let incoming = incoming(&target, port);
+            async move {
+                connect(&config(), &incoming)
+                    .await
+                    .err()
+                    .map(|e| e.to_string())
+            }
+        });
+        let Pending { mut stream, .. } = pending.recv().await.unwrap();
+        write_frame(&mut stream, &Reply::Refused("busy".into()))
+            .await
+            .unwrap();
+        assert!(dial.await.unwrap().unwrap().contains("refused: busy"));
+    }
+
+    #[tokio::test]
+    async fn dropping_the_receiver_releases_the_port() {
+        let ca = Authority::new();
+        let source = Workload::serve(vec![ca.svid(VM)]);
+        let (port, pending) = listening(&source).await;
+        drop(pending);
+        for _ in 0..200 {
+            if std::net::TcpListener::bind(("0.0.0.0", port)).is_ok() {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        panic!("the listener kept port {port}");
     }
     #[test]
     fn migration_never_drops_retained_management_policy() {

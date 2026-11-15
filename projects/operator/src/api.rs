@@ -489,6 +489,7 @@ pub struct VirtualMachineStatus {
 )]
 #[kube(printcolumn = r#"{"name":"VM","type":"string","jsonPath":".spec.vmName"}"#)]
 #[kube(printcolumn = r#"{"name":"Phase","type":"string","jsonPath":".status.phase"}"#)]
+#[kube(printcolumn = r#"{"name":"Reason","type":"string","jsonPath":".status.reason"}"#)]
 #[kube(printcolumn = r#"{"name":"Source","type":"string","jsonPath":".status.sourceNode"}"#)]
 #[kube(printcolumn = r#"{"name":"Target","type":"string","jsonPath":".status.targetNode"}"#)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -507,6 +508,10 @@ pub struct VirtualMachineMigrationSpec {
 pub struct VirtualMachineMigrationStatus {
     /// Pending, TargetStarting, Migrating, Succeeded or Failed.
     pub phase: String,
+    /// Machine-readable cause of a `Failed` phase, when one is known:
+    /// `PoweredOff` means the VM's QEMU was powered off in its Pod.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub reason: String,
     pub message: String,
     pub source_pod: Option<String>,
     pub source_pod_uid: Option<String>,

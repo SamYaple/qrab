@@ -35,7 +35,8 @@ spec:
 ```
 
 `kubectl get qvmm` shows the phase: `Pending` (waiting for a Ready VM),
-`TargetStarting`, `Migrating`, then `Succeeded` or `Failed` with a message. A
+`TargetStarting`, `Migrating`, then `Succeeded` or `Failed` with a message
+and, when the cause is classified, a `reason` (`PoweredOff`). A
 migration object is single-use and immutable; create a new one per move. One
 migration per VM runs at a time; a second one created meanwhile fails.
 
@@ -68,13 +69,32 @@ the target. If no migration adopts such a Pod, the VM blocks with reason
 `spec.storageNode` is only the initial placement; `status.placementNode`
 replaces it as the scheduling pin after a move, and the VM restarts there.
 
+### Powered-off VMs
+
+A VM powered off in place (Redfish/BMC power off, or the guest shutting
+down) keeps its Pod Running and Ready while its manager waits in phase `off`
+with no QEMU, so there is no guest to stream. Such a migration is refused, not
+retried: the operator starts the target as usual, the source's manager answers
+the target's hello with "the VM is powered off", and the target exits 1 with the
+termination message `source-powered-off`. The migration then ends `Failed`
+with reason `PoweredOff` and the message "the VM is powered off, so there is no
+running guest to live-migrate; power it on and create a new migration", and is
+cleaned up like any other failure (target Pod, policy, PVC and ConfigMap). The
+VM stays powered off where it is. There is no cold move: a VM stopped with
+`spec.running: false` restarts on its pinned node (`status.placementNode`,
+else `spec.storageNode`).
+
 ## Manager protocol
 
 `projects/manager/src/pod/migration.rs`.
 
 1. The target manager (config `incoming: {migration, source}`) dials the
    source, sends `Hello`, and receives an `Offer`: the source's exact machine
-   type (e.g. `pc-q35-11.1`) and every iSCSI binding it has recorded.
+   type (e.g. `pc-q35-11.1`) and every iSCSI binding it has recorded. The
+   source's listener opens when its QEMU first runs and stays up for the
+   manager's lifetime, across in-place power cycles; while the published phase
+   is not `running` it refuses at once (`off`: "the VM is powered off", which
+   the target reports as `Error::PoweredOff`).
 2. The target prepares **empty** state (it refuses a retained identity, which
    would be a second, divergent copy), starts swtpm with a fresh directory and
    QEMU with the offered machine type and `-incoming defer`, calls
@@ -102,7 +122,9 @@ SIGTERM during an outgoing migration cancels it and stops the VM normally.
 
 Unit tests in `migration.rs` cover the hello/offer frames, refusals and a
 different VM's SVID being refused, with fixture SVIDs from
-`qrab-spiffe`'s `fixture` feature.
+`qrab-spiffe`'s `fixture` feature. `tests/pod_control.rs` powers a supervised
+mock VM off and checks that a target manager ends with `Error::PoweredOff`;
+the operator's `tests/migration.rs` maps `source-powered-off` to `PoweredOff`.
 
 `projects/manager/tests/pod_migration.rs` migrates a real UEFI + swtpm guest
 between two managers (TCG), checks the guest agent answers on the target

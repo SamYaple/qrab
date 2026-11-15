@@ -29,6 +29,11 @@
             "type": "string"
           },
           {
+            "jsonPath": ".status.reason",
+            "name": "Reason",
+            "type": "string"
+          },
+          {
             "jsonPath": ".status.sourceNode",
             "name": "Source",
             "type": "string"
@@ -88,6 +93,10 @@
                   "previousStateVolumeClaim": {
                     "description": "The source's previous state PVC, deleted after success when the\noperator created it for an earlier migration.",
                     "nullable": true,
+                    "type": "string"
+                  },
+                  "reason": {
+                    "description": "Machine-readable cause of a `Failed` phase, when one is known:\n`PoweredOff` means the VM's QEMU was powered off in its Pod.",
                     "type": "string"
                   },
                   "sourceNode": {
