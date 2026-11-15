@@ -429,6 +429,32 @@ fn bpftool_dump<T>(
     read.map_err(io::Error::other)
 }
 
+/// Whether `route` (`ip route get` in a node's host namespace) reaches its
+/// address directly on a host link: another node or the VM host on the node
+/// network, not a Pod (local ones go through Cilium's devices, remote ones
+/// via a node) or anything behind a router.
+///
+/// ```
+/// use qrab_netd::sys::on_link;
+/// assert!(on_link("10.203.0.12 dev enp0s2 src 10.203.0.11 uid 0"));
+/// assert!(!on_link("10.244.3.250 via 10.203.0.12 dev enp0s2 src 10.203.0.11 uid 0"));
+/// assert!(!on_link("10.244.0.49 dev cilium_host src 10.244.0.66 uid 0"));
+/// assert!(!on_link("10.244.0.9 dev lxc1a2b src 10.244.0.66 uid 0"));
+/// assert!(!on_link("local 10.203.0.11 dev lo src 10.203.0.11 uid 0"));
+/// ```
+pub fn on_link(route: &str) -> bool {
+    !route.starts_with("local ")
+        && !route.contains(" via ")
+        && !route.contains(" dev cilium_")
+        && !route.contains(" dev lxc")
+}
+
+/// Whether `ip` is a peer on this node's host links (see [`on_link`]),
+/// judged in the calling thread's (host) namespace.
+pub fn is_link_peer(ip: Ipv4Addr) -> bool {
+    ip_words(&["-4", "route", "get", &ip.to_string()]).is_ok_and(|route| on_link(&route))
+}
+
 /// Whether `ip` is this node's own or one of its local endpoints', judged
 /// in the calling thread's (host) namespace.
 fn is_local_here(ip: Ipv4Addr) -> bool {

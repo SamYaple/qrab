@@ -212,6 +212,44 @@ mod tests {
     }
 
     #[test]
+    fn random_requests_never_reach_the_answer_or_hang() {
+        // A seeded xorshift64*, so failures reproduce.
+        let mut state: u64 = 0x9e37_79b9_7f4a_7c15;
+        let mut next = move || {
+            state ^= state >> 12;
+            state ^= state << 25;
+            state ^= state >> 27;
+            state.wrapping_mul(0x2545_f491_4f6c_dd1d)
+        };
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        for round in 0..200 {
+            let len = (next() % 600) as usize;
+            let mut body: Vec<u8> = (0..len).map(|_| next() as u8).collect();
+            if round % 4 == 0 {
+                // Near-valid JSON with a non-address value.
+                body = format!(r#"{{"address":"{}"}}"#, next()).into_bytes();
+            }
+            body.push(b'\n');
+            let server = {
+                let listener = listener.try_clone().unwrap();
+                std::thread::spawn(move || {
+                    let (stream, _) = listener.accept().unwrap();
+                    serve_one(&stream, |_| panic!("answered a random request"))
+                })
+            };
+            let mut stream = TcpStream::connect(addr).unwrap();
+            let _ = stream.write_all(&body);
+            let mut reply = String::new();
+            let _ = BufReader::new(&stream).read_line(&mut reply);
+            server.join().unwrap().ok();
+            if !reply.is_empty() {
+                assert!(reply.contains("error"), "{reply}");
+            }
+        }
+    }
+
+    #[test]
     fn only_another_node_of_the_same_nic_may_fetch() {
         let holder = |owner: &str, nic: &str, host: [u8; 4]| Holder {
             owner: owner.into(),
