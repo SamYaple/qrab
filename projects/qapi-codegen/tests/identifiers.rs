@@ -122,6 +122,8 @@ fn valid_schema_keywords_and_standard_type_names_compile_and_round_trip() {
         "{ 'alternate':'VariantAlt', 'data':{'a1':'str','a-1':['int'],'a1-alt':'null'} }\n";
     schema.push_str(case_alt);
     schema.push_str("{ 'enum':'KeywordVariants', 'data':['self','qapi-self','qapi-self-alt'] }\n");
+    let builtin_schema = "{ 'struct':'QEmpty', 'data':{'marker':'bool'} }\n{ 'struct':'BuiltinHolder', 'data':{'kind':'QType','empty':'q_empty'} }\n";
+    schema.push_str(builtin_schema);
     let entry = repo.join("qapi/qapi-schema.json");
     std::fs::write(&entry, &schema).unwrap();
     let oracle = Command::new("python3").arg("-c").arg("import sys; sys.path.insert(0, sys.argv[1]+'/scripts'); from qapi.schema import QAPISchema; QAPISchema(sys.argv[2])")
@@ -177,6 +179,22 @@ fn valid_schema_keywords_and_standard_type_names_compile_and_round_trip() {
         ],
     );
     git(&repo, &["tag", "v2.3.0"]);
+    std::fs::write(&entry, builtin_schema).unwrap();
+    git(&repo, &["add", "."]);
+    git(
+        &repo,
+        &[
+            "-c",
+            "user.name=Test",
+            "-c",
+            "user.email=test@example.invalid",
+            "commit",
+            "-qm",
+            "builtin references",
+        ],
+    );
+    git(&repo, &["tag", "v2.9.0"]);
+    git(&repo, &["tag", "v2.10.0"]);
     std::fs::write(&entry, &schema).unwrap();
     git(&repo, &["add", "."]);
     git(
@@ -208,7 +226,9 @@ fn valid_schema_keywords_and_standard_type_names_compile_and_round_trip() {
     );
     git(&repo, &["tag", "v11.1.3"]);
     qapi_codegen::set_parser_version((1, 0, 0));
-    let output = generate_unified_code(&repo, &["v2.3.0", "v6.1.0", "v11.1.3"]).unwrap();
+    let output =
+        generate_unified_code(&repo, &["v2.3.0", "v2.9.0", "v2.10.0", "v6.1.0", "v11.1.3"])
+            .unwrap();
     assert_eq!(qapi_codegen::parser_version(), (1, 0, 0));
     let fixture = temp.path().join("fixture");
     write_module(&fixture.join("src/generated"), output);

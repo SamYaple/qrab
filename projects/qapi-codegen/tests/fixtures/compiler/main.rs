@@ -5,6 +5,48 @@ pub use qapi_runtime::{
 mod generated;
 pub use generated::*;
 fn main() {
+    for (version, tag) in [
+        ((2, 9, 0), "qint"),
+        ((2, 9, 0), "qfloat"),
+        ((2, 10, 0), "qnum"),
+    ] {
+        with_version(version, || {
+            let wire = serde_json::json!({"kind":tag,"empty":{}});
+            let value: BuiltinHolder = serde_json::from_value(wire.clone()).unwrap();
+            assert_eq!(serde_json::to_value(value).unwrap(), wire);
+        });
+    }
+    with_version((2, 9, 0), || {
+        assert!(serde_json::to_value(QType::Qnum).is_err());
+    });
+    with_version((2, 10, 0), || {
+        assert!(serde_json::to_value(QType::Qint).is_err());
+    });
+    let qtype = metadata::ENUMS.get("QType").unwrap();
+    assert_eq!(
+        qtype
+            .variants
+            .iter()
+            .find(|variant| variant.wire_name == "qint")
+            .unwrap()
+            .until,
+        Some((2, 10, 0))
+    );
+    assert_eq!(
+        qtype
+            .variants
+            .iter()
+            .find(|variant| variant.wire_name == "qnum")
+            .unwrap()
+            .since,
+        (2, 10, 0)
+    );
+    with_version((11, 1, 3), || {
+        let _ = QEmpty { marker: true };
+        let wire = serde_json::json!({"kind":"qnum","empty":{}});
+        let value: BuiltinHolder = serde_json::from_value(wire.clone()).unwrap();
+        assert_eq!(serde_json::to_value(value).unwrap(), wire);
+    });
     assert_eq!(
         metadata::ENUMS.get("KindFlagGenerated").unwrap().wire_name,
         "KindFLAG"

@@ -79,6 +79,10 @@ printable-ASCII grammar, including escaped backslashes in include paths.
 Conditions before 6.2 retain C expressions and lists of expressions; newer
 conditions require configuration identifiers and nonempty boolean expressions.
 Empty enums and structs are valid, but their `data` key is still required.
+Referenced predefined `QType` and `q_empty` definitions are synthesized from
+QEMU 2.6 onward. The QType number variants follow the 2.10 `qint`/`qfloat` to
+`qnum` transition. Implicit-definition versions participate in schema hashes,
+so identical source files across that boundary still retain both wire shapes.
 Type references resolve against exact QAPI names across all source files before
 Rust name mapping. Undefined member, branch and return types report their source
 and definition; historical inline objects include the nested member path.

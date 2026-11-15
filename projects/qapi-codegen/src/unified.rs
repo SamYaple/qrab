@@ -4,12 +4,12 @@
 //! unified type registry where each type, field, and variant has version range
 //! annotations (since/until).
 
+use crate::QapiSchemaToken;
 use crate::qapi_ir::*;
 use crate::versions::{
     extract_schema_from_tag, find_extracted_qga_schema_entry, find_extracted_schema_entry,
     parse_version_tag,
 };
-use crate::{QapiSchemaToken, parse_schema};
 use anyhow::{Context, Result};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::Path;
@@ -248,14 +248,7 @@ fn process_version_schema_with_names(
     let mut unprocessed_commands = Vec::new();
     let mut unprocessed_events = Vec::new();
     let mut definitions = HashMap::new();
-    let schemas = sources
-        .iter()
-        .map(|(path, content)| {
-            let schema = parse_schema(content)
-                .with_context(|| format!("Failed to parse QAPI source {}", path.display()))?;
-            Ok((path.as_path(), schema))
-        })
-        .collect::<Result<Vec<_>>>()?;
+    let schemas = crate::builtins::parse_sources(sources)?;
     crate::schema_validation::validate(&schemas)?;
     let declared = crate::symbols::SchemaNames::declared_names(&schemas);
     let source_paths: HashMap<_, _> = schemas
@@ -863,6 +856,7 @@ fn extract_version_sources(
     let schema_hash = {
         use std::hash::{Hash, Hasher};
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        crate::builtins::model(version).hash(&mut hasher);
         if qga {
             hasher.write(b"qga");
         }
@@ -898,10 +892,7 @@ fn load_versions(
         };
         crate::set_parser_version(source.version);
         let mut symbols = crate::symbols::SchemaNames::default();
-        for (path, content) in &source.sources {
-            let schema = parse_schema(content).with_context(|| {
-                format!("Failed to plan QAPI names for {tag} in {}", path.display())
-            })?;
+        for (_, schema) in crate::builtins::parse_sources(&source.sources)? {
             symbols.collect(&schema);
         }
         Ok(Some(symbols))
@@ -2253,6 +2244,40 @@ pub fn generate_qga_code(qemu_repo: &Path, version_tags: &[&str]) -> Result<Gene
 #[cfg(test)]
 mod schema_resolution_tests {
     use super::*;
+
+    #[test]
+    fn predefined_types_are_reserved_and_synthesized_only_when_used() {
+        let root =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../vendor/qemu/tests/qapi-schema");
+        let path = root.join("redefined-predefined.json");
+        let sources = crate::read_schema_with_version(&path, Some((11, 1, 3))).unwrap();
+        let error = format!("{:#}", process_version_schema(&sources).unwrap_err());
+        assert!(error.contains("redefined-predefined.json"), "{error}");
+        assert!(error.contains("Predefined QAPI type 'QType'"), "{error}");
+        let (enums, structs) = process("{'struct':'Plain','data':{}}").unwrap();
+        assert!(!enums.contains_key("QType"));
+        assert!(!structs.contains_key("QEmpty"));
+        crate::set_parser_version((2, 6, 0));
+        let (enums, structs) = process_version_schema(&[(
+            "builtin.json".into(),
+            "{'struct':'Holder','data':{'kind':'QType','empty':'q_empty'}}".into(),
+        )])
+        .unwrap();
+        assert!(
+            enums["QType"]
+                .variants
+                .iter()
+                .any(|variant| variant.name == "qint")
+        );
+        assert!(structs.contains_key("QEmpty"));
+        crate::set_parser_version((2, 5, 0));
+        let error = process_version_schema(&[(
+            "old.json".into(),
+            "{'struct':'Holder','data':{'kind':'QType'}}".into(),
+        )])
+        .unwrap_err();
+        assert!(format!("{error:#}").contains("Unknown QAPI type 'QType'"));
+    }
 
     #[test]
     fn upstream_member_clash_fixtures_fail_before_codegen() {
