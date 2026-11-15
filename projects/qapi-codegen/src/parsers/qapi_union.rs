@@ -77,9 +77,13 @@ impl<'i> QapiUnion<'i> {
             ..Default::default()
         };
         let start = input;
+        let mut has_data = false;
         let (input, _) = take_dict(alt((
             take_kv("union", qstring).map(|v| s.name = v),
-            take_kv("data", take_branches).map(|v| s.data = v),
+            take_kv("data", take_branches).map(|v| {
+                has_data = true;
+                s.data = v;
+            }),
             take_kv("discriminator", qstring).map(|v| s.discriminator = Some(v)),
             // 'discriminator': {} — alternate syntax (v1.7.0–v2.0.0), treated as no discriminator
             take_kv(
@@ -92,7 +96,7 @@ impl<'i> QapiUnion<'i> {
             take_kv("base", take_members_or_ref).map(|v| s.base = v),
         )))
         .parse(input)?;
-        if s.name.is_empty() || s.data.is_empty() {
+        if s.name.is_empty() || !has_data || (s.discriminator.is_none() && s.data.is_empty()) {
             return Err(nom::Err::Error(Error::new(start, ErrorKind::Tag)));
         }
         // v2: both simple (no discriminator) and flat (with discriminator) are valid
@@ -107,16 +111,20 @@ impl<'i> QapiUnion<'i> {
             ..Default::default()
         };
         let start = input;
+        let mut has_data = false;
         let (input, _) = take_dict(alt((
             take_kv("union", qstring).map(|v| s.name = v),
-            take_kv("data", take_branches).map(|v| s.data = v),
+            take_kv("data", take_branches).map(|v| {
+                has_data = true;
+                s.data = v;
+            }),
             take_kv("discriminator", qstring).map(|v| s.discriminator = Some(v)),
             take_cond.map(|v| s.r#if = Some(v)),
             take_features.map(|v| s.features = Some(v)),
             take_kv("base", take_members_or_ref).map(|v| s.base = v),
         )))
         .parse(input)?;
-        if s.name.is_empty() || s.data.is_empty() {
+        if s.name.is_empty() || !has_data {
             return Err(nom::Err::Error(Error::new(start, ErrorKind::Tag)));
         }
         // v3: discriminator and base are required
@@ -131,6 +139,20 @@ impl<'i> QapiUnion<'i> {
 mod tests {
     use super::*;
     use crate::parsers::set_parser_version;
+
+    #[test]
+    fn flat_unions_allow_implicit_empty_payloads_but_require_data() {
+        for version in [(2, 1, 0), (6, 2, 0), (11, 1, 3)] {
+            set_parser_version(version);
+            let prefix =
+                "{ 'union': 'EmptyPayload', 'base': {'kind': 'Kind'}, 'discriminator': 'kind'";
+            assert!(QapiUnion::parse(&format!("{prefix} }}")).is_err());
+            let input = format!("{prefix}, 'data': {{}} }}");
+            let (remaining, value) = QapiUnion::parse(&input).unwrap();
+            assert!(remaining.is_empty());
+            assert!(value.data.is_empty());
+        }
+    }
 
     #[test]
     fn test_flat_union_v3() {

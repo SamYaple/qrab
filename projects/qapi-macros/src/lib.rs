@@ -44,6 +44,7 @@ struct TypeAttrs {
     no_success_response: AttrRange,
     is_command: bool,
     is_event: bool,
+    is_union_branch: bool,
 }
 
 #[derive(Default, Clone)]
@@ -213,6 +214,8 @@ fn parse_type_attrs(args: &[NestedMeta]) -> TypeAttrs {
                     attrs.is_command = true;
                 } else if path.is_ident("event") {
                     attrs.is_event = true;
+                } else if path.is_ident("union_branch") {
+                    attrs.is_union_branch = true;
                 }
             }
             _ => {}
@@ -495,6 +498,7 @@ pub fn qapi(args: TokenStream, input: TokenStream) -> TokenStream {
                 }
                 ta.is_command = ta.is_command || extra.is_command;
                 ta.is_event = ta.is_event || extra.is_event;
+                ta.is_union_branch = ta.is_union_branch || extra.is_union_branch;
             }
         }
     }
@@ -624,24 +628,25 @@ fn gen_enum(
         });
     }
 
-    let all_unit = variants.iter().all(|v| matches!(v.kind, VariantKind::Unit));
+    let is_string_enum =
+        !ta.is_union_branch && variants.iter().all(|v| matches!(v.kind, VariantKind::Unit));
 
     let cond = ta.condition.as_ref().map(|c| condition_cfg(c));
 
-    let ser = if all_unit {
+    let ser = if is_string_enum {
         gen_unit_enum_ser(&enum_name, &variants, ta)
     } else {
         gen_alt_ser(&enum_name, &variants, ta)
     };
 
-    let de = if all_unit {
+    let de = if is_string_enum {
         gen_unit_enum_de(&enum_name, &variants)
     } else {
         gen_alt_de(&enum_name, &variants)
     };
 
     // Generate Display impl for unit enums (prints the QAPI wire name)
-    let display = if all_unit {
+    let display = if is_string_enum {
         let display_arms: Vec<TokenStream2> = variants
             .iter()
             .map(|v| {
@@ -665,7 +670,7 @@ fn gen_enum(
     };
 
     // Generate QapiFlatUnion impl for non-unit enums (union branch enums)
-    let flat_union = if !all_unit {
+    let flat_union = if !is_string_enum {
         let fu = gen_flat_union_impl(&enum_name, &variants);
         quote! { #cond #fu }
     } else {
@@ -814,7 +819,7 @@ fn gen_alt_ser(name: &syn::Ident, variants: &[VariantInfo], ta: &TypeAttrs) -> T
             match &variant.kind {
                 VariantKind::Tuple(_) => quote! {
                     #cond
-                    #name::#ident(inner) => {
+                    #name::#ident(ref inner) => {
                         #guard
                         serde::Serialize::serialize(inner, serializer)
                     }
@@ -837,7 +842,7 @@ fn gen_alt_ser(name: &syn::Ident, variants: &[VariantInfo], ta: &TypeAttrs) -> T
             where S: serde::Serializer {
                 #type_guard
                 #warning
-                match self { #(#arms)* }
+                match *self { #(#arms)* }
             }
         }
     }
@@ -930,7 +935,7 @@ fn gen_alt_de(name: &syn::Ident, variants: &[VariantInfo]) -> TokenStream2 {
     }
 }
 
-/// Generate a `QapiFlatUnion` impl for non-unit enums (union branch enums).
+/// Select union branches by discriminator, including branches with no payload.
 ///
 /// Maps discriminator wire values to specific variant constructors, enabling
 /// deterministic variant selection instead of brute-force trial deserialization.
@@ -945,7 +950,7 @@ fn gen_flat_union_impl(name: &syn::Ident, variants: &[VariantInfo]) -> TokenStre
                 VariantKind::Tuple(_) => Some(quote! {
                     #cond
                     #wn => Ok(#name::#ident(
-                        serde_json::from_value(serde_json::Value::Object(map))
+                        serde_json::from_value(serde_json::Value::Object(_map))
                             .map_err(|e| serde_json::Error::custom(format!(
                                 "deserializing {} variant '{}': {}",
                                 stringify!(#name), discriminator, e
@@ -960,16 +965,12 @@ fn gen_flat_union_impl(name: &syn::Ident, variants: &[VariantInfo]) -> TokenStre
         })
         .collect();
 
-    if arms.is_empty() {
-        return TokenStream2::new();
-    }
-
     quote! {
         #[allow(deprecated)]
         impl qapi::QapiFlatUnion for #name {
             fn deserialize_variant(
                 discriminator: &str,
-                map: serde_json::Map<String, serde_json::Value>,
+                _map: serde_json::Map<String, serde_json::Value>,
             ) -> Result<Self, serde_json::Error> {
                 use serde::de::Error as _;
                 match discriminator {

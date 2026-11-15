@@ -317,6 +317,7 @@ pub struct AudiodevAlsaPerDirectionOptions {
     pub voices: Option<u32>,
 }
 
+#[qapi(union_branch)]
 #[qapi(added = "4.0.0")]
 pub enum AudiodevBranch {
     #[qapi(name = "alsa")]
@@ -1292,6 +1293,7 @@ pub struct BlockdevAction {
     pub u: Option<BlockdevActionBranch>,
 }
 
+#[qapi(union_branch)]
 #[qapi(added = "1.1.0")]
 #[qapi(removed = "1.6.0")]
 pub enum BlockdevActionBranch {
@@ -1335,6 +1337,7 @@ pub struct BlockdevAmendOptions {
     pub u: Option<BlockdevAmendOptionsBranch>,
 }
 
+#[qapi(union_branch)]
 #[qapi(added = "5.1.0")]
 pub enum BlockdevAmendOptionsBranch {
     #[qapi(name = "blkdebug")]
@@ -1638,6 +1641,7 @@ pub struct BlockdevCreateOptions {
     pub u: Option<BlockdevCreateOptionsBranch>,
 }
 
+#[qapi(union_branch)]
 #[qapi(added = "2.12.0")]
 pub enum BlockdevCreateOptionsBranch {
     #[qapi(name = "blkdebug")]
@@ -3033,6 +3037,7 @@ pub struct BlockdevOptionsBlkverify {
     pub test: Box<BlockdevRef>,
 }
 
+#[qapi(union_branch)]
 #[qapi(added = "1.7.0")]
 pub enum BlockdevOptionsBranch {
     #[qapi(name = "archipelago")]
@@ -4027,6 +4032,7 @@ pub struct BlockdevQcow2Encryption {
     pub u: Option<BlockdevQcow2EncryptionBranch>,
 }
 
+#[qapi(union_branch)]
 #[qapi(added = "2.10.0")]
 pub enum BlockdevQcow2EncryptionBranch {
     #[qapi(name = "aes")]
@@ -4065,6 +4071,7 @@ pub struct BlockdevQcowEncryption {
     pub u: Option<BlockdevQcowEncryptionBranch>,
 }
 
+#[qapi(union_branch)]
 #[qapi(added = "2.10.0")]
 pub enum BlockdevQcowEncryptionBranch {
     #[qapi(name = "aes")]
@@ -4090,6 +4097,7 @@ pub enum BlockdevRef {
     Reference(String),
 }
 
+#[qapi(union_branch)]
 #[qapi(added = "1.7.0")]
 #[qapi(removed = "2.4.0")]
 pub enum BlockdevRefBranch {
@@ -4468,6 +4476,7 @@ pub struct BlockExport {
     pub u: Option<BlockExportBranch>,
 }
 
+#[qapi(union_branch)]
 #[qapi(added = "5.0.0")]
 #[qapi(removed = "5.2.0")]
 pub enum BlockExportBranch {
@@ -4581,6 +4590,7 @@ pub struct BlockExportOptions {
     pub writethrough: Option<bool>,
 }
 
+#[qapi(union_branch)]
 #[qapi(added = "5.2.0")]
 pub enum BlockExportOptionsBranch {
     #[qapi(name = "fuse")]
@@ -4934,6 +4944,7 @@ pub struct BlockJobChangeOptions {
     pub u: Option<BlockJobChangeOptionsBranch>,
 }
 
+#[qapi(union_branch)]
 #[qapi(added = "8.2.0")]
 pub enum BlockJobChangeOptionsBranch {
     /// image options amend job type, see `x-blockdev-amend`
@@ -5035,6 +5046,7 @@ pub struct BlockJobInfo {
     pub u: Option<BlockJobInfoBranch>,
 }
 
+#[qapi(union_branch)]
 #[qapi(added = "8.2.0")]
 pub enum BlockJobInfoBranch {
     /// image options amend job type, see `x-blockdev-amend`
@@ -5390,6 +5402,7 @@ pub struct BlockStatsSpecific {
     pub u: Option<BlockStatsSpecificBranch>,
 }
 
+#[qapi(union_branch)]
 #[qapi(added = "4.2.0")]
 pub enum BlockStatsSpecificBranch {
     #[qapi(name = "blkdebug")]
@@ -5629,6 +5642,7 @@ pub struct ChardevBackend {
     pub u: Option<ChardevBackendBranch>,
 }
 
+#[qapi(union_branch)]
 #[qapi(added = "1.4.0")]
 pub enum ChardevBackendBranch {
     #[qapi(name = "braille")]
@@ -6750,6 +6764,7 @@ pub enum CpuInfoArch {
     X86,
 }
 
+#[qapi(union_branch)]
 #[qapi(added = "2.6.0")]
 #[qapi(removed = "6.0.0")]
 pub enum CpuInfoBranch {
@@ -6809,6 +6824,7 @@ pub struct CpuInfoFast {
     pub u: Option<CpuInfoFastBranch>,
 }
 
+#[qapi(union_branch)]
 #[qapi(added = "2.12.0")]
 pub enum CpuInfoFastBranch {
     #[qapi(name = "aarch64")]
@@ -8143,6 +8159,7 @@ pub struct DisplayOptions {
     pub window_close: Option<bool>,
 }
 
+#[qapi(union_branch)]
 #[qapi(added = "2.12.0")]
 pub enum DisplayOptionsBranch {
     /// The Cocoa user interface.
@@ -8206,6 +8223,7 @@ pub struct DisplayReloadOptions {
     pub u: Option<DisplayReloadOptionsBranch>,
 }
 
+#[qapi(union_branch)]
 #[qapi(added = "6.0.0")]
 pub enum DisplayReloadOptionsBranch {
     #[qapi(name = "vnc")]
@@ -8308,6 +8326,7 @@ pub struct DisplayUpdateOptions {
     pub u: Option<DisplayUpdateOptionsBranch>,
 }
 
+#[qapi(union_branch)]
 #[qapi(added = "7.1.0")]
 pub enum DisplayUpdateOptionsBranch {
     #[qapi(name = "vnc")]
@@ -8664,6 +8683,7 @@ pub struct ExpirePasswordOptions {
     pub u: Option<ExpirePasswordOptionsBranch>,
 }
 
+#[qapi(union_branch)]
 #[qapi(added = "7.0.0")]
 pub enum ExpirePasswordOptionsBranch {
     #[qapi(name = "spice")]
@@ -8999,6 +9019,7 @@ pub struct GlusterServer {
     pub u: Option<GlusterServerBranch>,
 }
 
+#[qapi(union_branch)]
 #[qapi(added = "2.7.0")]
 #[qapi(removed = "2.9.0")]
 pub enum GlusterServerBranch {
@@ -9094,6 +9115,7 @@ pub struct GuestPanicInformation {
     pub u: Option<GuestPanicInformationBranch>,
 }
 
+#[qapi(union_branch)]
 #[qapi(added = "2.9.0")]
 pub enum GuestPanicInformationBranch {
     #[qapi(name = "hyper-v")]
@@ -9525,6 +9547,7 @@ pub struct ImageInfoSpecific {
     pub u: Option<ImageInfoSpecificBranch>,
 }
 
+#[qapi(union_branch)]
 #[qapi(added = "1.7.0")]
 pub enum ImageInfoSpecificBranch {
     #[qapi(name = "file")]
@@ -9641,6 +9664,7 @@ pub struct ImageInfoSpecificQCow2EncryptionBase {
     pub format: BlockdevQcow2EncryptionFormat,
 }
 
+#[qapi(union_branch)]
 #[qapi(added = "2.10.0")]
 pub enum ImageInfoSpecificQCow2EncryptionBranch {
     /// AES-CBC with plain64 initialization vectors
@@ -9887,6 +9911,7 @@ pub struct InputEvent {
     pub u: Option<InputEventBranch>,
 }
 
+#[qapi(union_branch)]
 #[qapi(added = "2.0.0")]
 pub enum InputEventBranch {
     #[qapi(name = "abs")]
@@ -10392,6 +10417,7 @@ pub struct KeyValue {
     pub u: Option<KeyValueBranch>,
 }
 
+#[qapi(union_branch)]
 #[qapi(added = "1.3.0")]
 pub enum KeyValueBranch {
     #[qapi(name = "number")]
@@ -10918,6 +10944,7 @@ pub struct MemoryDeviceInfo {
     pub u: Option<MemoryDeviceInfoBranch>,
 }
 
+#[qapi(union_branch)]
 #[qapi(added = "2.1.0")]
 pub enum MemoryDeviceInfoBranch {
     #[qapi(name = "dimm")]
@@ -11089,6 +11116,7 @@ pub struct MigrationAddress {
     pub u: Option<MigrationAddressBranch>,
 }
 
+#[qapi(union_branch)]
 #[qapi(added = "8.2.0")]
 pub enum MigrationAddressBranch {
     #[qapi(name = "exec")]
@@ -12348,6 +12376,7 @@ pub struct NetClientOptions {
     pub u: Option<NetClientOptionsBranch>,
 }
 
+#[qapi(union_branch)]
 #[qapi(added = "1.2.0")]
 #[qapi(removed = "2.7.0")]
 pub enum NetClientOptionsBranch {
@@ -12476,6 +12505,7 @@ pub struct NetdevAfxdpOptions {
     pub start_queue: Option<i64>,
 }
 
+#[qapi(union_branch)]
 #[qapi(added = "2.7.0")]
 pub enum NetdevBranch {
     #[qapi(name = "af-xdp")]
@@ -13272,6 +13302,7 @@ pub struct NetLegacyOptions {
     pub u: Option<NetLegacyOptionsBranch>,
 }
 
+#[qapi(union_branch)]
 #[qapi(added = "2.7.0")]
 #[qapi(removed = "5.1.0")]
 pub enum NetLegacyOptionsBranch {
@@ -13556,6 +13587,7 @@ pub struct NumaOptions {
     pub u: Option<NumaOptionsBranch>,
 }
 
+#[qapi(union_branch)]
 #[qapi(added = "2.1.0")]
 pub enum NumaOptionsBranch {
     #[qapi(name = "cpu")]
@@ -13645,6 +13677,7 @@ pub struct ObjectOptions {
     pub u: Option<ObjectOptionsBranch>,
 }
 
+#[qapi(union_branch)]
 #[qapi(added = "6.0.0")]
 pub enum ObjectOptionsBranch {
     #[qapi(name = "acpi-generic-initiator")]
@@ -14613,6 +14646,7 @@ pub enum Qcow2OverlapChecks {
     Mode(Qcow2OverlapCheckMode),
 }
 
+#[qapi(union_branch)]
 #[qapi(added = "2.2.0")]
 #[qapi(removed = "2.4.0")]
 pub enum Qcow2OverlapChecksBranch {
@@ -14675,6 +14709,7 @@ pub struct QCryptoAkCipherOptions {
     pub u: Option<QCryptoAkCipherOptionsBranch>,
 }
 
+#[qapi(union_branch)]
 #[qapi(added = "7.1.0")]
 pub enum QCryptoAkCipherOptionsBranch {
     #[qapi(name = "rsa")]
@@ -14707,6 +14742,7 @@ pub struct QCryptoBlockAmendOptions {
     pub u: Option<QCryptoBlockAmendOptionsBranch>,
 }
 
+#[qapi(union_branch)]
 #[qapi(added = "5.1.0")]
 pub enum QCryptoBlockAmendOptionsBranch {
     #[qapi(name = "luks")]
@@ -14767,6 +14803,7 @@ pub struct QCryptoBlockCreateOptions {
     pub u: Option<QCryptoBlockCreateOptionsBranch>,
 }
 
+#[qapi(union_branch)]
 #[qapi(added = "2.6.0")]
 pub enum QCryptoBlockCreateOptionsBranch {
     #[qapi(name = "luks")]
@@ -14851,6 +14888,7 @@ pub struct QCryptoBlockInfoBase {
     pub format: QCryptoBlockFormat,
 }
 
+#[qapi(union_branch)]
 #[qapi(added = "2.7.0")]
 pub enum QCryptoBlockInfoBranch {
     #[qapi(name = "luks")]
@@ -14946,6 +14984,7 @@ pub struct QCryptoBlockOpenOptions {
     pub u: Option<QCryptoBlockOpenOptionsBranch>,
 }
 
+#[qapi(union_branch)]
 #[qapi(added = "2.6.0")]
 pub enum QCryptoBlockOpenOptionsBranch {
     #[qapi(name = "luks")]
@@ -15857,6 +15896,7 @@ pub struct RbdEncryptionCreateOptions {
     pub u: Option<RbdEncryptionCreateOptionsBranch>,
 }
 
+#[qapi(union_branch)]
 #[qapi(added = "6.1.0")]
 pub enum RbdEncryptionCreateOptionsBranch {
     #[qapi(name = "luks")]
@@ -15921,6 +15961,7 @@ pub struct RbdEncryptionOptions {
     pub u: Option<RbdEncryptionOptionsBranch>,
 }
 
+#[qapi(union_branch)]
 #[qapi(added = "6.1.0")]
 pub enum RbdEncryptionOptionsBranch {
     #[qapi(name = "luks")]
@@ -16557,6 +16598,7 @@ pub struct SchemaInfoBase {
     pub name: String,
 }
 
+#[qapi(union_branch)]
 #[qapi(added = "2.5.0")]
 pub enum SchemaInfoBranch {
     #[qapi(name = "alternate")]
@@ -16826,6 +16868,7 @@ pub struct SetPasswordOptions {
     pub u: Option<SetPasswordOptionsBranch>,
 }
 
+#[qapi(union_branch)]
 #[qapi(added = "7.0.0")]
 pub enum SetPasswordOptionsBranch {
     #[qapi(name = "spice")]
@@ -17000,6 +17043,7 @@ pub struct SevInfo {
     pub u: Option<SevInfoBranch>,
 }
 
+#[qapi(union_branch)]
 #[qapi(condition = "TARGET_I386")]
 #[qapi(added = "9.1.0")]
 pub enum SevInfoBranch {
@@ -17225,6 +17269,7 @@ pub struct SheepdogRedundancy {
     pub u: Option<SheepdogRedundancyBranch>,
 }
 
+#[qapi(union_branch)]
 #[qapi(added = "2.12.0")]
 #[qapi(removed = "6.1.0")]
 pub enum SheepdogRedundancyBranch {
@@ -17425,6 +17470,7 @@ pub struct SocketAddress {
     pub u: Option<SocketAddressBranch>,
 }
 
+#[qapi(union_branch)]
 #[qapi(added = "1.3.0")]
 pub enum SocketAddressBranch {
     #[qapi(name = "fd")]
@@ -17455,6 +17501,7 @@ pub struct SocketAddressFlat {
     pub u: Option<SocketAddressFlatBranch>,
 }
 
+#[qapi(union_branch)]
 #[qapi(added = "2.9.0")]
 #[qapi(removed = "2.10.0")]
 pub enum SocketAddressFlatBranch {
@@ -17503,6 +17550,7 @@ pub struct SocketAddressLegacy {
     pub u: Option<SocketAddressLegacyBranch>,
 }
 
+#[qapi(union_branch)]
 #[qapi(added = "2.10.0")]
 pub enum SocketAddressLegacyBranch {
     #[qapi(name = "fd")]
@@ -17692,6 +17740,7 @@ pub struct SshHostKeyCheck {
     pub u: Option<SshHostKeyCheckBranch>,
 }
 
+#[qapi(union_branch)]
 #[qapi(added = "2.12.0")]
 pub enum SshHostKeyCheckBranch {
     #[qapi(name = "hash")]
@@ -17824,6 +17873,7 @@ pub struct StatsFilter {
     pub u: Option<StatsFilterBranch>,
 }
 
+#[qapi(union_branch)]
 #[qapi(added = "7.1.0")]
 pub enum StatsFilterBranch {
     /// statistics that apply to a crypto device (since 8.0)
@@ -18615,6 +18665,7 @@ pub struct TpmTypeOptions {
     pub u: Option<TpmTypeOptionsBranch>,
 }
 
+#[qapi(union_branch)]
 #[qapi(condition = "defined(CONFIG_TPM)")]
 #[qapi(added = "1.5.0")]
 pub enum TpmTypeOptionsBranch {
@@ -18688,6 +18739,7 @@ pub struct TransactionAction {
     pub u: Option<TransactionActionBranch>,
 }
 
+#[qapi(union_branch)]
 #[qapi(added = "1.6.0")]
 pub enum TransactionActionBranch {
     #[qapi(name = "abort")]
@@ -19841,6 +19893,7 @@ pub struct YankInstanceBlockNode {
     pub node_name: String,
 }
 
+#[qapi(union_branch)]
 #[qapi(added = "6.0.0")]
 pub enum YankInstanceBranch {
     #[qapi(name = "block-node")]

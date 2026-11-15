@@ -61,6 +61,7 @@ pub struct GuestCpuStats {
     pub u: Option<GuestCpuStatsBranch>,
 }
 
+#[qapi(union_branch)]
 #[qapi(condition = "CONFIG_LINUX")]
 #[qapi(added = "7.1.0")]
 pub enum GuestCpuStatsBranch {
@@ -91,6 +92,7 @@ pub struct GuestDeviceId {
     pub u: Option<GuestDeviceIdBranch>,
 }
 
+#[qapi(union_branch)]
 #[qapi(condition = "CONFIG_WIN32")]
 #[qapi(added = "5.2.0")]
 pub enum GuestDeviceIdBranch {
@@ -273,6 +275,7 @@ pub struct GuestDiskSmart {
     pub u: Option<GuestDiskSmartBranch>,
 }
 
+#[qapi(union_branch)]
 #[qapi(condition = "(CONFIG_WIN32 || CONFIG_LIBUDEV)")]
 #[qapi(added = "7.1.0")]
 pub enum GuestDiskSmartBranch {

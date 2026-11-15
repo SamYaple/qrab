@@ -318,6 +318,10 @@ fn schema_grammar_matches_qemu() {
     let repo = qemu();
     let dir = tempfile::tempdir().unwrap();
     let cases = [
+        (
+            "{ 'enum': 'UnionKind', 'data': ['first', 'second'] }\n{ 'union': 'EmptyPayload', 'base': {'kind': 'UnionKind'}, 'discriminator': 'kind', 'data': {} }",
+            true,
+        ),
         ("{ 'enum': 'Empty', 'data': [] }", true),
         ("{ 'struct': 'Empty', 'data': {} }", true),
         ("{ 'struct': 'MissingData' }", false),

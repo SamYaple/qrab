@@ -338,21 +338,53 @@ fn process_version_schema(
             );
         }
         if let Some(discriminator) = v.discriminator {
-            let has_discriminator = match &v.base {
+            let (discriminator_type, optional, array) = match &v.base {
                 crate::MembersOrRef::Ref(base) => structs_lookup[&rustify_name(base)]
                     .fields
                     .iter()
-                    .any(|field| field.name == discriminator),
-                crate::MembersOrRef::Members(members) => {
-                    members.iter().any(|field| field.name == discriminator)
-                }
-                crate::MembersOrRef::Unset => false,
-            };
+                    .find(|field| field.name == discriminator)
+                    .map(|field| (field.r#type.clone(), field.optional, field.array)),
+                crate::MembersOrRef::Members(members) => members
+                    .iter()
+                    .find(|field| field.name == discriminator)
+                    .map(|field| {
+                        let field = process_member(field.clone());
+                        (field.r#type, field.optional, field.array)
+                    }),
+                crate::MembersOrRef::Unset => None,
+            }
+            .with_context(|| {
+                format!(
+                    "QAPI union {} has no discriminator field {discriminator} in its base",
+                    v.name
+                )
+            })?;
             anyhow::ensure!(
-                has_discriminator,
-                "QAPI union {} has no discriminator field {discriminator} in its base",
+                !optional && !array,
+                "QAPI union {} discriminator {discriminator} must be a required scalar enum",
                 v.name
             );
+            if let Some(tags) = enums_lookup.get(&rustify_name(&discriminator_type)) {
+                anyhow::ensure!(
+                    !tags.variants.is_empty(),
+                    "QAPI union {} has no branches",
+                    v.name
+                );
+                for branch in &v.data.0 {
+                    anyhow::ensure!(
+                        tags.variants.iter().any(|tag| tag.name == branch.name),
+                        "QAPI union {} branch {} is not a value of discriminator enum {discriminator_type}",
+                        v.name,
+                        branch.name
+                    );
+                }
+            } else {
+                anyhow::ensure!(
+                    crate::parser_version() < (6, 2, 0),
+                    "QAPI union {} discriminator {discriminator} has non-enum type {discriminator_type}",
+                    v.name
+                );
+            }
         }
         let (s, e, disc_enum) = process_union(v, &structs_lookup, &enums_lookup);
         if let Some(de) = disc_enum {
@@ -1712,6 +1744,53 @@ mod schema_resolution_tests {
     fn process(input: &str) -> Result<(HashMap<String, Enum>, HashMap<String, Struct>)> {
         crate::set_parser_version((11, 1, 3));
         process_version_schema(&[("fixture.json".into(), input.into())])
+    }
+
+    #[test]
+    fn all_implicit_union_branches_are_preserved_as_branch_enums() {
+        let (enums, structs) = process(concat!(
+            "{ 'enum': 'Kind', 'data': ['first', 'second'] }\n",
+            "{ 'union': 'EmptyPayload', 'base': {'kind': 'Kind'}, 'discriminator': 'kind', 'data': {} }",
+        )).unwrap();
+        assert!(structs.contains_key("EmptyPayload"));
+        let branches = &enums["EmptyPayloadBranch"];
+        assert_eq!(branches.variants.len(), 2);
+        assert!(
+            branches
+                .variants
+                .iter()
+                .all(|branch| branch.kind == EnumVariantKind::Unit)
+        );
+        assert!(
+            branches
+                .meta
+                .attributes
+                .iter()
+                .any(|attr| matches!(attr, Attribute::Unit(name) if name == "union_branch"))
+        );
+        let code = branches.generate().to_string();
+        assert!(code.contains("union_branch"));
+    }
+
+    #[test]
+    fn invalid_discriminator_shapes_and_tags_are_rejected() {
+        for (base, branches, message) in [
+            ("{'*kind': 'Kind'}", "{}", "required scalar enum"),
+            ("{'kind': ['Kind']}", "{}", "required scalar enum"),
+            ("{'kind': 'str'}", "{}", "non-enum type"),
+            ("{'kind': 'Empty'}", "{}", "has no branches"),
+            (
+                "{'kind': 'Kind'}",
+                "{'unknown': 'Payload'}",
+                "not a value of discriminator enum",
+            ),
+        ] {
+            let input = format!(
+                "{{ 'enum': 'Kind', 'data': ['known'] }}\n{{ 'enum': 'Empty', 'data': [] }}\n{{ 'struct': 'Payload', 'data': {{}} }}\n{{ 'union': 'Invalid', 'base': {base}, 'discriminator': 'kind', 'data': {branches} }}"
+            );
+            let error = process(&input).unwrap_err().to_string();
+            assert!(error.contains(message), "{error}");
+        }
     }
 
     #[test]

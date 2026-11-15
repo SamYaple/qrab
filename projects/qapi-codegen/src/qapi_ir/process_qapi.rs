@@ -421,6 +421,7 @@ pub fn process_union(
     // its variant payload structs) are cfg-gated away, leaving dangling type
     // references.
     let mut branch_meta = Metadata::default();
+    branch_meta.attributes.push(Attribute::new("union_branch"));
     if let Some(condition) = &q.r#if {
         branch_meta
             .attributes

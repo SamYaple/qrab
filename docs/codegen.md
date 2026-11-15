@@ -74,6 +74,11 @@ printable-ASCII grammar, including escaped backslashes in include paths.
 Conditions before 6.2 retain C expressions and lists of expressions; newer
 conditions require configuration identifiers and nonempty boolean expressions.
 Empty enums and structs are valid, but their `data` key is still required.
+Flat unions may omit every payload branch when their discriminator enum is
+nonempty. Generated branch enums carry `union_branch` even when all variants
+have no payload, preserving discriminator dispatch and empty-object wire shape.
+Discriminators must be required scalar enums; unknown tags and empty discriminator
+enums fail IR processing. Historical non-enum discriminators retain legacy handling.
 Derived structs resolve bases independently of definition and include order;
 missing bases, inheritance cycles and conflicting Rust type names fail with
 schema context.
