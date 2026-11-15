@@ -67,7 +67,7 @@ def system(power='On'):
 def install_bmc(context, role='admin', power='On', legacy=False, origin='http://ui.test'):
     fixture = {'system': system(power), 'posts': [], 'expired': False,
                'hold_posts': False, 'pending_posts': [], 'post_received': Event(), 'post_error': None, 'hold_power': False, 'pending_power': [],
-               'fail_system': None, 'fail_reset_info': None, 'reset_types': list(resets), 'hold_reset_info': False, 'pending_reset_info': [],
+               'fail_session': None, 'fail_system': None, 'fail_reset_info': None, 'reset_types': list(resets), 'hold_reset_info': False, 'pending_reset_info': [],
                'fail_metrics': False, 'fail_history': False, 'empty_metrics': False, 'hold_session': False, 'pending_session': [], 'empty_events': False, 'extra_events': [], 'requests': [],
                'vm_name': 'web-1', 'user_name': 'sam'}
     fixture['system']['Oem']['Qrab']['Configuration']['redacted'] = role == 'viewer'
@@ -104,6 +104,13 @@ def install_bmc(context, role='admin', power='On', legacy=False, origin='http://
             request_route.fulfill(status=503, json={'error': {'message': 'Measurements unavailable.'}})
             return
         if path == base + '/bmc/session':
+            if fixture['fail_session']:
+                failure = fixture['fail_session']
+                if failure.get('abort'):
+                    request_route.abort(failure['abort'])
+                else:
+                    request_route.fulfill(status=failure['status'], json={'error': {'message': failure['message']}})
+                return
             data = {'user': {'name': fixture['user_name'], 'subject': 'fixture-user', 'csrf': 'fixture-csrf'}, 'role': role, 'vm_name': fixture['vm_name'], 'admin_bucket': []}
             if fixture['hold_session']:
                 fixture['pending_session'].append((request_route, data))
@@ -852,6 +859,43 @@ def bmc_state_checks(browser, width, theme):
     context.close()
 
 
+def access_recovery_checks(browser):
+    for failure in [{'status': 503, 'message': 'Access details temporarily unavailable.'},
+                    {'abort': 'failed'}, {'status': 401, 'message': 'Sign in again.'}]:
+        context = browser_context(browser, viewport={'width': 390, 'height': 1000})
+        fixture = install_bmc(context)
+        fixture['fail_session'] = failure
+        page = context.new_page()
+        page.clock.install()
+        page.goto('http://ui.test' + base + '/bmc')
+        expect(page.locator('#dashboard')).to_be_hidden()
+        expect(page.locator('#loading')).to_be_hidden()
+        if failure.get('status') == 401:
+            expect(page.locator('#login')).to_be_visible()
+            expect(page.locator('#access-error')).to_be_hidden()
+        else:
+            expect(page.locator('#login')).to_be_hidden()
+            expect(page.locator('#access-error')).to_be_visible()
+            expect(page.locator('#error')).to_contain_text(failure.get('message', 'Unable to reach the VM'))
+            assert page.locator('#reload-access').get_attribute('href') == base + '/bmc'
+            no_overflow(page, 'access-recovery', 390)
+            capture(page, args.output / f'bmc-access-recovery-{failure.get("status", "network")}.png')
+        requests = len(fixture['requests'])
+        page.clock.fast_forward(11000)
+        page.wait_for_timeout(100)
+        assert len(fixture['requests']) == requests
+        fixture['fail_session'] = None
+        if failure.get('status') == 401:
+            page.reload()
+        else:
+            page.locator('#reload-access').click()
+        expect(page.locator('#dashboard')).to_be_visible()
+        expect(page.locator('#access-error')).to_be_hidden()
+        expect(page.locator('#error')).to_be_hidden()
+        assert fixture['posts'] == []
+        context.close()
+
+
 def action_discovery_checks(browser):
     for failed in [False, True]:
         context = browser_context(browser, viewport={'width': 390, 'height': 1000}, color_scheme='light')
@@ -1295,6 +1339,7 @@ with sync_playwright() as playwright:
                 context.close()
             long_content_checks(browser, width, theme)
     timezone_checks(browser)
+    access_recovery_checks(browser)
     action_discovery_checks(browser)
     metric_focus_checks(browser)
     bmc_state_checks(browser, 1440, 'dark')

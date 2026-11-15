@@ -145,6 +145,8 @@ action type is added. Server authorization is unchanged.
 While discovery is pending, the power area says it is loading; known controls
 can recover from System polling before that request finishes. Metric polling
 also starts independently of optional startup reads.
+If initial access metadata fails to load, the BMC offers a same-page reload
+instead of implying that sign-in expired. A 401 still shows the sign-in path.
 Power and guest-agent requests retain keyboard focus while pending, using
 `aria-disabled` with the existing request guard. A focused action that becomes
 unavailable moves to the VM state or guest-agent tab. Blocked held keys cannot

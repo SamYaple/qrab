@@ -12,6 +12,7 @@ if (vmBase) {
     document.getElementById('vm-navigation').hidden = false;
     document.getElementById('vm-detail-link').href = vmBase;
     document.getElementById('sign-in').href = `/auth/login?next=${encodeURIComponent(`${vmBase}/bmc`)}`;
+    document.getElementById('reload-access').href = `${vmBase}/bmc`;
 }
 const SYSTEM = '/redfish/v1/Systems/1';
 const RESET_INFO = `${SYSTEM}/ResetActionInfo`;
@@ -133,8 +134,9 @@ const browserPath = path => {
     // never traverse out of its bridge or post to another dashboard VM.
     return `${vmBase}/bmc${target.pathname}${target.search}`;
 };
+const sessionError = () => Object.assign(new Error('Your session ended. Sign in to reconnect.'), {sessionEnded: true});
 async function request(path, options = {}) {
-    if (path !== '/api/session' && !session) throw new Error('Your session ended. Sign in to reconnect.');
+    if (path !== '/api/session' && !session) throw sessionError();
     const url = browserPath(path);
     let response;
     try {
@@ -144,8 +146,8 @@ async function request(path, options = {}) {
             ? 'Connection lost. The action may have reached the VM; check its status before retrying.'
             : 'Unable to reach the VM. Check your connection or try again shortly.');
     }
-    if (response.status === 401) { signedOut(); throw new Error('Your session ended. Sign in to reconnect.'); }
-    if (path !== '/api/session' && !session) throw new Error('Your session ended. Sign in to reconnect.');
+    if (response.status === 401) { signedOut(); throw sessionError(); }
+    if (path !== '/api/session' && !session) throw sessionError();
     if (!response.ok) throw new Error(await failure(response));
     return response.status === 204 ? null : response.json();
 }
@@ -183,6 +185,7 @@ function signedOut() {
     showAction('');
     element('dashboard').hidden = true;
     element('login').hidden = false;
+    element('access-error').hidden = true;
     element('logout').hidden = true;
     element('identity').textContent = '';
     element('role').hidden = true;
@@ -190,7 +193,7 @@ function signedOut() {
     leaveFullscreen.then(() => {
         const focused = document.activeElement;
         if (hadDashboardFocus && (focused === document.body || element('dashboard').contains(focused) || focused === element('logout'))) {
-            focusInView(element('sign-in'));
+            focusInView(element(element('access-error').hidden ? 'sign-in' : 'reload-access'));
         }
     });
 }
@@ -1229,11 +1232,18 @@ try {
     element('logout').hidden = false;
     selectTab(remembered() || 'overview', {store: false});
     await refresh();
-    if (!session) throw new Error('Your session ended. Sign in to reconnect.');
+    if (!session) throw sessionError();
     polling = setInterval(() => { if (!document.hidden) refresh(); }, 3000);
     metricsTimer = setInterval(() => { if (!document.hidden) loadMetrics(); }, 5000);
     await Promise.all([admin ? loadPower() : null, startEvents()]).catch(error => { if (session) showError(error.message); });
-} catch (error) { signedOut(); if (!error.message.startsWith('Your session ended')) showError(error.message); }
+} catch (error) {
+    signedOut();
+    if (!error.sessionEnded) {
+        element('login').hidden = true;
+        element('access-error').hidden = false;
+        showError(error.message);
+    }
+}
 
 document.addEventListener('visibilitychange', () => {
     if (!document.hidden && session) { refresh(); loadMetrics(); }

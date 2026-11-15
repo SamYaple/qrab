@@ -117,9 +117,9 @@ button.armed { background: var(--armed); border-color: var(--armed-border); colo
 .badge { color: var(--muted); border: 1px solid var(--border-strong); border-radius: 30px; padding: 5px 11px; font-size: 12px; white-space: nowrap; }
 .warning { margin: 0 0 8px; font-size: 12px; color: var(--warn); }
 #error { margin: 0 0 14px; padding: 12px 14px; border: 1px solid var(--error-border); background: var(--error-bg); color: var(--error-text); border-radius: 5px; overflow-wrap: anywhere; }
-#login { padding: 55px 0; max-width: 560px; }
-#login h2 { font-size: 30px; }
-#login p { color: var(--muted); line-height: 1.7; margin-bottom: 28px; }
+#login, #access-error { padding: 55px 0; max-width: 560px; }
+#login h2, #access-error h2 { font-size: 30px; }
+#login p, #access-error p { color: var(--muted); line-height: 1.7; margin-bottom: 28px; }
 footer { padding: 12px 2vw; color: var(--faint); font-size: 12px; }
 
 /* ── Sticky status header ── */
