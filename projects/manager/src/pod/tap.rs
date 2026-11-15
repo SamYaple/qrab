@@ -10,9 +10,13 @@ use std::{
     path::Path,
 };
 
-/// Descriptors for one QEMU start, each with the number QEMU expects it at.
+/// Descriptors for one QEMU start, each with the number QEMU expects it at,
+/// and the anchor (UID) each NIC's queues came from.
 #[derive(Debug, Default)]
-pub(super) struct Inherited(Vec<(RawFd, OwnedFd)>);
+pub(super) struct Inherited(
+    Vec<(RawFd, OwnedFd)>,
+    pub(super) std::collections::BTreeMap<String, Option<String>>,
+);
 
 /// One attempt at every guest NIC's descriptors (no-op without NICs).
 /// The caller retries a refusal: the VM Pod starts before qrab-netd has
@@ -36,6 +40,7 @@ pub(super) const RETRY: std::time::Duration = std::time::Duration::from_secs(2);
 
 fn fetch_blocking(socket: &Path, layout: &[TapFds], queues: u8) -> Result<Inherited> {
     let mut held = Vec::new();
+    let mut anchors = std::collections::BTreeMap::new();
     for nic in layout {
         let grant = qrab_netd::wire::request(socket, &nic.nic, queues)
             .map_err(|e| Error::Spawn(format!("tap NIC {}: {e}", nic.nic)))?;
@@ -48,6 +53,7 @@ fn fetch_blocking(socket: &Path, layout: &[TapFds], queues: u8) -> Result<Inheri
                 queues
             )));
         }
+        anchors.insert(nic.nic.clone(), grant.anchor.clone());
         let pairs = nic
             .taps
             .iter()
@@ -55,7 +61,7 @@ fn fetch_blocking(socket: &Path, layout: &[TapFds], queues: u8) -> Result<Inheri
             .chain(nic.vhosts.iter().zip(grant.vhosts));
         held.extend(pairs.map(|(target, fd)| (*target, fd)));
     }
-    Ok(Inherited(held))
+    Ok(Inherited(held, anchors))
 }
 
 impl Inherited {
@@ -119,7 +125,14 @@ mod tests {
                     };
                     let taps: Vec<_> = (0..request.queues).map(|q| file("tap", q)).collect();
                     let vhosts: Vec<_> = (0..request.queues).map(|q| file("vhost", q)).collect();
-                    qrab_netd::wire::send_grant(&stream, "qt000000000000", &taps, &vhosts).unwrap();
+                    qrab_netd::wire::send_grant(
+                        &stream,
+                        "qt000000000000",
+                        &format!("anchor-{}", request.nic),
+                        &taps,
+                        &vhosts,
+                    )
+                    .unwrap();
                     request
                 })
                 .collect()
@@ -240,6 +253,7 @@ mod tests {
             qrab_netd::wire::send_grant(
                 &second,
                 "qt000000000000",
+                "anchor-lan",
                 &[file("tap")],
                 &[file("vhost")],
             )

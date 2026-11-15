@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 getrandom = "0.4"
+nix = { workspace = true, features = ["socket", "uio"] }
 thiserror = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

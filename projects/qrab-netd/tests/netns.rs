@@ -207,7 +207,7 @@ fn a_tap_built_in_one_namespace_works_from_another() {
     let taps = sys::in_netns(&anchor.path, move || sys::open_tap_queues(&tap, queues)).unwrap();
     let vhosts = sys::open_vhost(queues).unwrap();
     let (agent, manager) = UnixStream::pair().unwrap();
-    wire::send_grant(&agent, &plan.tap, &taps, &vhosts).unwrap();
+    wire::send_grant(&agent, &plan.tap, "anchor-uid", &taps, &vhosts).unwrap();
     drop((taps, vhosts));
 
     let (guest_mac, marker) = (plan.guest_mac.clone(), b"qrab-netd-test-frame".to_vec());

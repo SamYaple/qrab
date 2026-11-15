@@ -1256,7 +1256,8 @@ fn vm_config_carries_nics_only_once_every_nic_has_an_address() {
         },
     ];
     let desired = resources::render_attached(&vm, &settings(), &[], boot, &endpoints).unwrap();
-    let config: Value = serde_json::from_str(&desired.config.data.unwrap()["vm.json"]).unwrap();
+    let config: Value =
+        serde_json::from_str(&desired.config.data.clone().unwrap()["vm.json"]).unwrap();
     assert_eq!(
         config["nics"],
         json!([
@@ -1309,11 +1310,19 @@ fn vm_config_carries_nics_only_once_every_nic_has_an_address() {
         resources::seed_meta_data("owner-one", "web-1")
     );
     assert_eq!(with_user["seed"]["network_config"], seed["network_config"]);
-    // A changed NIC address is a new VM template.
+    // NIC changes reach the running manager through the ConfigMap; they are
+    // not a new VM template (the manager plugs NICs while the guest runs).
     let mut moved = endpoints.clone();
     moved[0].ip = "10.0.3.8".parse().unwrap();
     let replaced = resources::render_attached(&vm, &settings(), &[], boot, &moved).unwrap();
-    assert_ne!(replaced.hash, desired.hash);
+    assert_eq!(replaced.hash, desired.hash);
+    assert_ne!(replaced.config.data, desired.config.data);
+    let mut one = vm.clone();
+    one.spec.nics.truncate(1);
+    let fewer = resources::render_attached(&one, &settings(), &[], boot, &endpoints[..1]).unwrap();
+    assert_eq!(fewer.hash, desired.hash);
+    let fewer: Value = serde_json::from_str(&fewer.config.data.unwrap()["vm.json"]).unwrap();
+    assert_eq!(fewer["nics"].as_array().unwrap().len(), 1);
     // Without NICs nothing changes for existing VMs.
     let plain = resources::render(&self::vm(), &settings()).unwrap();
     let config: Value = serde_json::from_str(&plain.config.data.unwrap()["vm.json"]).unwrap();
@@ -1977,4 +1986,25 @@ fn redfish_may_reach_only_monitoring_prometheus_on_9090_for_its_own_pods_history
         .is_none());
     let pod = serde_json::to_value(&resources::render(&plain, &settings()).unwrap().pod).unwrap();
     assert!(!pod.to_string().contains("REDFISH_PROMETHEUS_URL"));
+}
+
+#[test]
+fn kvm_vms_with_nic_addresses_get_nic_root_ports() {
+    let addressed = Settings {
+        nic_addresses: Some(qrab_operator::address::Addressing {
+            range: "10.244.128.0/29".parse().unwrap(),
+            frr_namespace: "frr-k8s-system".into(),
+        }),
+        ..settings()
+    };
+    let config = |vm: &VirtualMachine, settings: &Settings| -> Value {
+        let desired = resources::render(vm, settings).unwrap();
+        serde_json::from_str(&desired.config.data.unwrap()["vm.json"]).unwrap()
+    };
+    let mut kvm = vm();
+    kvm.spec.accelerator = qrab_operator::api::Accelerator::Kvm;
+    assert_eq!(config(&kvm, &addressed)["nic_slots"], 4);
+    // Without stable addresses no VM can have NICs, and TCG VMs never do.
+    assert!(config(&kvm, &settings()).get("nic_slots").is_none());
+    assert!(config(&vm(), &addressed).get("nic_slots").is_none());
 }
