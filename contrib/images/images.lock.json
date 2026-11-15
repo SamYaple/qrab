@@ -17,11 +17,11 @@
     ]
   },
   "manager": {
-    "image": "zot.yapplesauce.com/qrab/manager@sha256:2c1facba969056cbf1f112a7a669b81aa25bf8c8c62507306e4ee577f06d0e09",
+    "image": "zot.yapplesauce.com/qrab/manager@sha256:42a16a21b10ebb6e198521f7d5122bff58d9774779ccc6564f9efaf214b88b62",
     "bmc_version": "0.2.0",
     "redfish_version": "0.1.0",
     "guest_agent_version": "0.1.0",
-    "source_revision": "afb88b898616efee4c4797a76b3593831152687f"
+    "source_revision": "8d9d98d830f44b0a1d4278ed438df41370006a3c"
   },
   "demo_guest_packages": [
     "busybox-static\t1:1.37.0-6+b9",
@@ -36,9 +36,9 @@
     "tpm2-tools\t5.7-1"
   ],
   "operator": {
-    "image": "zot.yapplesauce.com/qrab/operator@sha256:bfe370bd0ea8775bef8eee2b311c3a3864c1cef596f82a684c3a0bc6963bd9be",
+    "image": "zot.yapplesauce.com/qrab/operator@sha256:f85de8ffa31d627243be1cc053525ae91a63c1d5d4c79b1ab69e75bd43dc0797",
     "version": "0.1.0",
-    "source_revision": "def0078497905dd369c0d4290cb20102424064cd"
+    "source_revision": "5ba04f6c8ab76cbcc4a49841862bb26ea083ea04"
   },
   "dashboard": {
     "image": "zot.yapplesauce.com/qrab/dashboard@sha256:0a95b2948f0d9578bd4728cbc7d560173acb13fed234671b6d9843fa31af24c4",

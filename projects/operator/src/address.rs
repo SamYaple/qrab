@@ -8,7 +8,10 @@
 //! `FRRConfiguration` per NIC, selecting the node that holds the address,
 //! announces the /32 to that node's BGP neighbors; frr-k8s merges it with the
 //! node's base configuration (labelled [`ROUTE_BASE_LABEL`]), whose ASN and
-//! neighbors it copies.
+//! neighbors it copies. After a live migration a second one
+//! ([`previous_route_name`]) keeps announcing it from the node it left while
+//! that node's anchor retires, so the new node's announcement reaches every
+//! peer before the old one is withdrawn.
 use crate::{api::VirtualMachine, nic, Error, Result};
 use k8s_openapi::api::core::v1::{Node, Pod};
 use kube::{
@@ -209,6 +212,16 @@ pub fn selects(base: &DynamicObject, node: &Node) -> bool {
     })
 }
 
+/// The FRRConfiguration announcing the address of `pool` from the node a
+/// live migration left, while that node's anchor retires.
+///
+/// ```
+/// assert_eq!(qrab_operator::address::previous_route_name("qrab-nic-10-244-128-1"), "qrab-nic-10-244-128-1-prev");
+/// ```
+pub fn previous_route_name(pool: &str) -> String {
+    format!("{pool}-prev")
+}
+
 /// The FRRConfiguration announcing `pool`'s address from the nodes `base`
 /// selects: the base's single router ASN (and VRF), its neighbors with every
 /// receive filter dropped and the /32 as the only prefix they are sent.
@@ -216,6 +229,15 @@ pub fn render_route(
     base: &DynamicObject,
     pool: &DynamicObject,
     namespace: &str,
+) -> Result<DynamicObject> {
+    render_named_route(base, pool, namespace, &pool.name_any())
+}
+
+fn render_named_route(
+    base: &DynamicObject,
+    pool: &DynamicObject,
+    namespace: &str,
+    name: &str,
 ) -> Result<DynamicObject> {
     let base_name = base.name_any();
     let ip = pool_address(&pool.name_any())
@@ -254,7 +276,7 @@ pub fn render_route(
     }
     Ok(serde_json::from_value(json!({
         "apiVersion":"frrk8s.metallb.io/v1beta1","kind":"FRRConfiguration",
-        "metadata":{"name":pool.name_any(),"namespace":namespace,"labels":pool.labels()},
+        "metadata":{"name":name,"namespace":namespace,"labels":pool.labels()},
         "spec":{"nodeSelector":{"matchLabels":selector},"bgp":{"routers":[out]}}
     }))?)
 }
@@ -430,17 +452,35 @@ impl Addresses {
     }
 
     /// Announce the address from the node of the Pod that holds it, or
-    /// withdraw it while none does.
-    pub async fn route(&self, pool: &DynamicObject, pod: Option<&Pod>) -> Result<()> {
+    /// withdraw it while none does; and from the node of `previous` (the
+    /// anchor a live migration took it over from, while it retires) when
+    /// that is another node, or withdraw that announcement.
+    pub async fn route(
+        &self,
+        pool: &DynamicObject,
+        pod: Option<&Pod>,
+        previous: Option<&Pod>,
+    ) -> Result<()> {
         let name = pool.name_any();
         let ip = pool_address(&name).map(|ip| ip.to_string());
-        let node = pod
-            .filter(|p| p.status.as_ref().and_then(|s| s.pod_ip.as_ref()) == ip.as_ref())
-            .and_then(|p| p.spec.as_ref()?.node_name.clone());
-        let actual = self.routes.get_opt(&name).await?;
+        let node_of = |pod: Option<&Pod>| {
+            pod.filter(|p| p.status.as_ref().and_then(|s| s.pod_ip.as_ref()) == ip.as_ref())
+                .and_then(|p| p.spec.as_ref()?.node_name.clone())
+        };
+        let node = node_of(pod);
+        let left = node_of(previous).filter(|n| node.as_ref().is_some_and(|node| node != n));
+        // Make before break: the new node's announcement first.
+        self.announce(pool, &name, node).await?;
+        self.announce(pool, &previous_route_name(&name), left).await
+    }
+
+    /// Announce `pool`'s address from `node` as FRRConfiguration `name`, or
+    /// withdraw `name` when `node` is `None`.
+    async fn announce(&self, pool: &DynamicObject, name: &str, node: Option<String>) -> Result<()> {
+        let actual = self.routes.get_opt(name).await?;
         let Some(node) = node else {
             if let Some(actual) = actual {
-                self.routes.delete(&name, &by_uid(&actual)).await?;
+                self.routes.delete(name, &by_uid(&actual)).await?;
             }
             return Ok(());
         };
@@ -459,7 +499,12 @@ impl Addresses {
                     node.name_any()
                 ))
             })?;
-        let desired = render_route(base, pool, self.routes.namespace().unwrap_or_default())?;
+        let desired = render_named_route(
+            base,
+            pool,
+            self.routes.namespace().unwrap_or_default(),
+            name,
+        )?;
         if actual.is_some_and(|a| {
             crate::resources::contains(&a.data, &desired.data)
                 && desired
@@ -471,7 +516,7 @@ impl Addresses {
         }
         self.routes
             .patch(
-                &name,
+                name,
                 &PatchParams::apply("qrab-operator").force(),
                 &Patch::Apply(&desired),
             )
@@ -518,11 +563,13 @@ impl Addresses {
         Ok(())
     }
 
-    /// Withdraw the route, then let the pool go. Only once no Pod holds it.
+    /// Withdraw the routes, then let the pool go. Only once no Pod holds it.
     pub async fn release(&self, pool: &DynamicObject) -> Result<()> {
         let name = pool.name_any();
-        if let Some(route) = self.routes.get_opt(&name).await? {
-            self.routes.delete(&name, &by_uid(&route)).await?;
+        for route_name in [name.clone(), previous_route_name(&name)] {
+            if let Some(route) = self.routes.get_opt(&route_name).await? {
+                self.routes.delete(&route_name, &by_uid(&route)).await?;
+            }
         }
         if pool.finalizers().iter().any(|f| f == FINALIZER) {
             let kept: Vec<_> = pool
