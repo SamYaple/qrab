@@ -497,13 +497,39 @@ async fn switch_back(config: &Config, nics: &[String], channel: &mut Channel) {
     }
 }
 
-struct AbortOnDrop(tokio::task::JoinHandle<()>);
+struct AbortOnDrop(Option<tokio::task::JoinHandle<()>>);
+
+impl AbortOnDrop {
+    fn new(task: tokio::task::JoinHandle<()>) -> Self {
+        Self(Some(task))
+    }
+
+    /// Let the task run on for at most `limit`, then abort it: a target's
+    /// switchover server outlives the guest's arrival so the source can still
+    /// hand over the NICs' conntrack entries.
+    fn linger(mut self, limit: Duration) {
+        if let Some(task) = self.0.take() {
+            let abort = task.abort_handle();
+            tokio::spawn(async move {
+                if tokio::time::timeout(limit, task).await.is_err() {
+                    abort.abort();
+                }
+            });
+        }
+    }
+}
 
 impl Drop for AbortOnDrop {
     fn drop(&mut self) {
-        self.0.abort();
+        if let Some(task) = &self.0 {
+            task.abort();
+        }
     }
 }
+
+/// How long a target keeps serving the switchover connection once the guest
+/// has arrived (the source's conntrack copy follows the arrival).
+const SWITCHOVER_LINGER: Duration = Duration::from_secs(30);
 
 /// The target's half: serve the source's switchover requests.
 async fn serve_switchover(
@@ -877,14 +903,14 @@ impl Receiving {
             .await?;
         let mut local = UnixStream::connect(&path).await?;
         write_frame(&mut stream, &Ready { ready: true }).await?;
-        // Dropped (and so aborted) when the guest has arrived or this fails.
-        let _switchover = match switchover {
+        // Aborted when this fails; lingers briefly once the guest has arrived.
+        let switchover = match switchover {
             Some(plan) => {
                 let tcp = TcpStream::connect(&plan.source).await?;
                 tcp.set_nodelay(true)?;
                 let mut channel = plan.connector.connect(tcp).await.map_err(failure)?;
                 write_frame(&mut channel, &plan.hello).await?;
-                Some(AbortOnDrop(tokio::spawn(serve_switchover(
+                Some(AbortOnDrop::new(tokio::spawn(serve_switchover(
                     plan.config,
                     plan.nics,
                     channel,
@@ -916,6 +942,9 @@ impl Receiving {
             }
         }
         log(json!({"event":"migration_received","migration":migration}));
+        if let Some(server) = switchover {
+            server.linger(SWITCHOVER_LINGER);
+        }
         Ok(())
     }
 }
@@ -1340,6 +1369,33 @@ mod tests {
             Switch::Abort
         );
         serving.abort();
+    }
+
+    #[tokio::test]
+    async fn a_lingering_switchover_server_keeps_serving_then_stops() {
+        let (tx, mut rx) = tokio::sync::mpsc::channel(4);
+        let task = tokio::spawn(async move {
+            loop {
+                if tx.send(()).await.is_err() {
+                    return;
+                }
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        });
+        let abort = task.abort_handle();
+        AbortOnDrop::new(task).linger(Duration::from_millis(150));
+        // Still running after the owner let go...
+        tokio::time::sleep(Duration::from_millis(60)).await;
+        assert!(rx.recv().await.is_some());
+        // ...and aborted once the window passed.
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        assert!(abort.is_finished());
+        // A plain drop aborts at once.
+        let task = tokio::spawn(std::future::pending::<()>());
+        let abort = task.abort_handle();
+        drop(AbortOnDrop::new(task));
+        tokio::time::sleep(Duration::from_millis(10)).await;
+        assert!(abort.is_finished());
     }
 
     #[test]
