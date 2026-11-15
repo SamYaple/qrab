@@ -2608,12 +2608,27 @@ mod schema_resolution_tests {
             "union-clash-member",
             "enum-clash-member",
             "alternate-clash",
+            "features-duplicate-name",
         ] {
             let path = root.join(format!("{name}.json"));
             let sources = crate::read_schema_with_version(&path, Some((11, 1, 3))).unwrap();
             let error = format!("{:#}", process_version_schema(&sources).unwrap_err());
             assert!(error.contains(name), "{name}: {error}");
             assert!(error.contains("collid"), "{name}: {error}");
+        }
+    }
+
+    #[test]
+    fn feature_names_are_unique_on_definitions_and_members() {
+        for input in [
+            "{'struct':'Example','data':{'value':{'type':'str','features':['foo','foo']}}}",
+            "{'enum':'Example','data':[{'name':'one','features':['foo','foo']}]}",
+            "{'command':'example','features':['foo-bar','foo_bar']}",
+        ] {
+            let error = format!("{:#}", process(input).unwrap_err());
+            assert!(error.contains("Feature"), "{error}");
+            assert!(error.contains("collid"), "{error}");
+            assert!(error.contains("fixture.json"), "{error}");
         }
     }
 

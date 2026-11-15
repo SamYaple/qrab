@@ -114,6 +114,9 @@ simple-union layouts. Repeated macro ranges combine independently of order.
 Instability also tracks stabilization and later reintroduction for types and
 members. Command `is_unstable(version)` queries the peer release; reflection
 and the `UNSTABLE` constant describe the newest declaration.
+Member expansion retains all features, so ordinary features cannot hide
+deprecation or instability. Duplicate feature names and C-name collisions fail
+with source context on definitions, fields and enum values.
 From 8.1, conditional members in command/event argument objects require boxing,
 including members inherited from a base. Earlier schemas retain the older rules.
 Type references resolve against exact QAPI names across all source files before

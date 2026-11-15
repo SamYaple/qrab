@@ -56,11 +56,17 @@ struct ItemAttrs {
     until: Option<String>,
     deprecated: Option<String>,
     condition: Option<String>,
-    feature: Option<String>,
+    features: Vec<String>,
     flatten: bool,
     discriminator: bool,
     union_field: bool,
     required: bool,
+}
+
+impl ItemAttrs {
+    fn has_feature(&self, name: &str) -> bool {
+        self.features.iter().any(|feature| feature == name)
+    }
 }
 
 // ─── Compile-time version bounds ───
@@ -272,7 +278,7 @@ fn parse_item_attrs(meta_list: &MetaList) -> ItemAttrs {
                     } else if nv.path.is_ident("condition") {
                         attrs.condition = Some(val);
                     } else if nv.path.is_ident("feature") {
-                        attrs.feature = Some(val);
+                        attrs.features.push(val);
                     }
                 }
             }
@@ -304,7 +310,7 @@ fn extract_all_item_attrs(syn_attrs: &[syn::Attribute]) -> ItemAttrs {
                 result.until = result.until.or(parsed.until);
                 result.deprecated = result.deprecated.or(parsed.deprecated);
                 result.condition = result.condition.or(parsed.condition);
-                result.feature = result.feature.or(parsed.feature);
+                result.features.extend(parsed.features);
                 result.flatten = result.flatten || parsed.flatten;
                 result.discriminator = result.discriminator || parsed.discriminator;
                 result.union_field = result.union_field || parsed.union_field;
@@ -635,14 +641,14 @@ fn gen_enum(
             let msg = format!("deprecated since QEMU {}", dep_ver);
             v.attrs
                 .push(syn::parse_quote! { #[deprecated(note = #msg)] });
-        } else if attrs.feature.as_deref() == Some("deprecated") {
+        } else if attrs.has_feature("deprecated") {
             let msg = "deprecated QAPI variant";
             v.attrs
                 .push(syn::parse_quote! { #[deprecated(note = #msg)] });
         }
 
         // Mark unstable variants with a doc comment (not #[deprecated])
-        if attrs.feature.as_deref() == Some("unstable") {
+        if attrs.has_feature("unstable") {
             let msg = " **Unstable** — this variant may change without notice.";
             v.attrs.push(syn::parse_quote! { #[doc = #msg] });
         }
@@ -1115,14 +1121,14 @@ fn gen_struct(
                 let msg = format!("deprecated since QEMU {}", dep_ver);
                 f.attrs
                     .push(syn::parse_quote! { #[deprecated(note = #msg)] });
-            } else if attrs.feature.as_deref() == Some("deprecated") && attrs.deprecated.is_none() {
+            } else if attrs.has_feature("deprecated") && attrs.deprecated.is_none() {
                 let msg = "deprecated QAPI field";
                 f.attrs
                     .push(syn::parse_quote! { #[deprecated(note = #msg)] });
             }
 
             // Mark unstable fields with a doc comment (not #[deprecated])
-            if attrs.feature.as_deref() == Some("unstable") {
+            if attrs.has_feature("unstable") {
                 let msg = " **Unstable** — this field may change without notice.";
                 f.attrs.push(syn::parse_quote! { #[doc = #msg] });
             }
@@ -2061,6 +2067,62 @@ fn gen_event_impl(name: &syn::Ident, wn: &str) -> TokenStream2 {
         #[allow(deprecated)]
         impl qapi::QapiEvent for #name {
             const NAME: &'static str = #wn;
+        }
+    }
+}
+
+#[cfg(test)]
+mod feature_tests {
+    use super::*;
+
+    fn assert_annotations(attrs: &[syn::Attribute]) {
+        assert!(attrs.iter().any(|attr| attr.path.is_ident("deprecated")));
+        assert!(attrs.iter().any(|attr| matches!(attr.parse_meta(), Ok(Meta::NameValue(value))
+            if value.path.is_ident("doc") && matches!(&value.lit, Lit::Str(text) if text.value().contains("Unstable")))));
+    }
+
+    #[test]
+    fn builtin_features_survive_other_features_in_one_or_multiple_blocks() {
+        for split in [false, true] {
+            let attrs = if split {
+                vec![
+                    syn::parse_quote!(#[qapi(feature = "ordinary")]),
+                    syn::parse_quote!(#[qapi(feature = "deprecated")]),
+                    syn::parse_quote!(#[qapi(feature = "unstable")]),
+                ]
+            } else {
+                vec![
+                    syn::parse_quote!(#[qapi(feature = "ordinary", feature = "deprecated", feature = "unstable")]),
+                ]
+            };
+            let bounds = VersionBounds {
+                min: None,
+                max: None,
+            };
+            let mut record: DeriveInput = syn::parse_quote!(
+                struct Example {
+                    value: String,
+                }
+            );
+            if let syn::Data::Struct(value) = &mut record.data {
+                value.fields.iter_mut().next().unwrap().attrs = attrs.clone();
+            }
+            gen_struct(&mut record, &TypeAttrs::default(), &bounds).unwrap();
+            if let syn::Data::Struct(value) = &record.data {
+                assert_annotations(&value.fields.iter().next().unwrap().attrs);
+            }
+            let mut enumeration: DeriveInput = syn::parse_quote!(
+                enum Example {
+                    Value,
+                }
+            );
+            if let syn::Data::Enum(value) = &mut enumeration.data {
+                value.variants[0].attrs = attrs;
+            }
+            gen_enum(&mut enumeration, &TypeAttrs::default(), &bounds).unwrap();
+            if let syn::Data::Enum(value) = &enumeration.data {
+                assert_annotations(&value.variants[0].attrs);
+            }
         }
     }
 }

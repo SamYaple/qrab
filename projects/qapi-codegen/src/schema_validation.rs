@@ -1,6 +1,6 @@
 //! Resolve source-level references before Rust name mapping or IR synthesis.
 
-use crate::{MembersOrRef, QapiMembers, QapiSchema, QapiSchemaToken, QapiTypeRef};
+use crate::{MembersOrRef, QapiFeatures, QapiMembers, QapiSchema, QapiSchemaToken, QapiTypeRef};
 use anyhow::{Context, Result, ensure};
 use std::{
     collections::{HashMap, HashSet},
@@ -8,6 +8,17 @@ use std::{
 };
 
 fn member_names<'a>(names: impl IntoIterator<Item = &'a str>) -> Result<()> {
+    unique_names("Member", names)
+}
+
+fn features(features: Option<&QapiFeatures<'_>>) -> Result<()> {
+    if let Some(features) = features {
+        unique_names("Feature", features.iter().map(|feature| feature.name))?;
+    }
+    Ok(())
+}
+
+fn unique_names<'a>(kind: &str, names: impl IntoIterator<Item = &'a str>) -> Result<()> {
     let mut seen = HashMap::new();
     for name in names {
         let key: String = name
@@ -21,7 +32,7 @@ fn member_names<'a>(names: impl IntoIterator<Item = &'a str>) -> Result<()> {
             })
             .collect();
         if let Some(previous) = seen.insert(key, name) {
-            anyhow::bail!("Member '{name}' collides with '{previous}'");
+            anyhow::bail!("{kind} '{name}' collides with '{previous}'");
         }
     }
     Ok(())
@@ -94,7 +105,8 @@ fn type_ref(value: &QapiTypeRef<'_>, types: &HashSet<&str>, inline: bool) -> Res
 fn members(fields: &QapiMembers<'_>, types: &HashSet<&str>, inline: bool) -> Result<()> {
     member_names(fields.0.iter().map(|field| field.name))?;
     for field in &fields.0 {
-        type_ref(&field.r#type, types, inline)
+        features(field.features.as_ref())
+            .and_then(|()| type_ref(&field.r#type, types, inline))
             .with_context(|| format!("Invalid member '{}'", field.name))?;
     }
     Ok(())
@@ -306,19 +318,25 @@ pub(crate) fn validate(schemas: &[(&Path, QapiSchema<'_>)]) -> Result<()> {
         .collect();
     for (path, schema) in schemas {
         for token in &schema.0 {
-            let (kind, name) = match token {
-                QapiSchemaToken::Enum(value) => ("enum", value.name),
-                QapiSchemaToken::Struct(value) => ("struct", value.name),
-                QapiSchemaToken::Union(value) => ("union", value.name),
-                QapiSchemaToken::Alternate(value) => ("alternate", value.name),
-                QapiSchemaToken::Command(value) => ("command", value.name),
-                QapiSchemaToken::Event(value) => ("event", value.name),
+            let (kind, name, feature_list) = match token {
+                QapiSchemaToken::Enum(value) => ("enum", value.name, &value.features),
+                QapiSchemaToken::Struct(value) => ("struct", value.name, &value.features),
+                QapiSchemaToken::Union(value) => ("union", value.name, &value.features),
+                QapiSchemaToken::Alternate(value) => ("alternate", value.name, &value.features),
+                QapiSchemaToken::Command(value) => ("command", value.name, &value.features),
+                QapiSchemaToken::Event(value) => ("event", value.name, &value.features),
                 _ => continue,
             };
             let check = || -> Result<()> {
+                features(feature_list.as_ref())?;
                 match token {
                     QapiSchemaToken::Enum(value) => {
                         member_names(value.data.iter().map(|value| value.name))?;
+                        for member in &value.data {
+                            features(member.features.as_ref()).with_context(|| {
+                                format!("Invalid enum member '{}'", member.name)
+                            })?;
+                        }
                     }
                     QapiSchemaToken::Struct(value) => {
                         if let Some(base) = value.base {
