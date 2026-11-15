@@ -28,7 +28,9 @@ launch new VMs; VM admins can send power actions and delete VMs.
   while the BMC is enabled the operator merges the console's admin and viewer
   lists into Redfish's ([operator.md](operator.md#bmc-users-in-redfish)), so a
   dashboard user holds the same role in Redfish, and the dashboard cannot
-  widen access to anything either serves. Launch and delete use the
+  widen access to anything either serves. Redfish calls need only the Redfish
+  component (always present with the BMC, or `components.redfish.enabled:
+  true` without it); the console needs the BMC. Launch and delete use the
   dashboard's own ServiceAccount; the dashboard gates them itself
   ([below](#roles)). Redfish responses larger than 1 MiB are refused (4 MiB
   for the whole event log).
@@ -45,7 +47,9 @@ launch new VMs; VM admins can send power actions and delete VMs.
 ### The BMC panel
 
 The detail page's BMC panel reads the VM's Redfish service with the user's
-token (viewers and admins alike):
+token (viewers and admins alike), for any VM whose Pod runs the Redfish
+sidecar, with or without the BMC. A VM without Redfish shows that the Redfish
+component is disabled instead:
 
 - `Systems/1`: `PowerState`, `Status` (`State`, `Health`), the guest agent
   status (`Oem.Qrab.GuestAgent`) and the effective configuration
@@ -74,7 +78,7 @@ Redfish admin actions offered on the BMC's Guest agent tab, not here.
 | --- | --- |
 | `GET /` | VMs visible to the user: phase/ready, node, the first NIC's IP, vCPUs and memory (current / hot-plug maximum), disks, live CPU and memory from `metrics.k8s.io`, role |
 | `GET /vms/{ns}/{name}` | Spec and status, cloud-init summary, disks, `status.resize`, Pod requests/limits, live usage, guest NICs, and the BMC panel ([below](#the-bmc-panel)) |
-| `POST /vms/{ns}/{name}/action` | Admin form power action: one Redfish ResetType from `Systems/1`'s allowable values (`action`, plus `confirm=yes` for disruptive ones) |
+| `POST /vms/{ns}/{name}/action` | Admin form power action (`action`, plus `confirm=yes` for disruptive ones): one Redfish ResetType from `Systems/1`'s allowable values, or `on` / `off` as for the JSON route |
 | `POST /vms/{ns}/{name}/delete` | Admin deletion of a VM launched by the dashboard; the PVC is kept |
 | `GET /vms/{ns}/{name}/power` | Admin JSON power state: `running` (spec), operator `phase`, `pod`, Redfish `power_state` and `health` from `Systems/1`, the allowed in-pod `reset_types` from `ResetActionInfo`, `redfish_error` |
 | `POST /vms/{ns}/{name}/power` | Admin JSON power request `{"action": ..., "confirm": bool}`: `on`, `off`, or a Redfish ResetType (`Resume`, `Pause`, `GracefulRestart`, `ForceRestart`, `PowerCycle`, `Nmi`, `GracefulShutdown`, `ForceOff`) |
@@ -102,11 +106,13 @@ only on a second click within 5 seconds; the server also refuses them without
 `"confirm": true`.
 
 - The in-pod buttons send `ComputerSystem.Reset` with the matching ResetType
-  to the running VM's Redfish service with the user's ID token, only for a VM
-  with the BMC enabled (otherwise 403, even for a Redfish-only VM). Shut down
-  and Force off leave the VM powered off in its Pod (`PowerState` `Off`).
+  to the running VM's Redfish service with the user's ID token, for any VM
+  with the Redfish component. On a VM without it they are refused with a 409
+  that says in-pod actions need `components.redfish` and that Power on and
+  Power off still work. Shut down and Force off leave the VM powered off in
+  its Pod (`PowerState` `Off`).
 - **Power on** is enabled while `spec.running` is false or `PowerState` is
-  `Off`. While the VM is set to run, has the BMC and its Pod exists, it sends
+  `Off`. While the VM is set to run, has Redfish and its Pod exists, it sends
   Redfish `On` to that Pod, which starts QEMU again in place (a no-op while
   on). Otherwise it sets `spec.running: true`.
 - **Power off** sets `spec.running: false`. Both `spec.running` patches are
@@ -126,8 +132,12 @@ other failures as 502.
 The detail page keeps a no-script power form for the same in-pod resets,
 rendered from the allowable values in the `Systems/1` it already read and
 posted to `POST /vms/{ns}/{name}/action`; its result, including a Redfish
-refusal, comes back as the page notice. Power on and off are only on the
-console page.
+refusal, comes back as the page notice. A VM with the BMC has Power on and
+off on its console page. A VM without the BMC has no console page, so its
+detail form also offers **Power on** and **Power off** (confirmed), routed as
+above: a Redfish-only VM gets Redfish `On` while its Pod is up, and a VM with
+neither component gets only the `spec.running` patches and a note that
+in-pod actions need `components.redfish`.
 
 ### Roles
 
@@ -142,6 +152,13 @@ operator's merged lists, its Redfish service):
 - otherwise the VM is invisible: it is not listed and its pages are 404, as for
   a VM that does not exist. `components.redfish`'s own lists grant nothing in
   the dashboard.
+
+On a Redfish-only VM (`bmc.enabled: false`, `redfish.enabled: true`) the
+operator does not merge the console's lists into Redfish's, so Redfish decides
+by `components.redfish`'s lists alone. A dashboard admin there must also be a
+Redfish admin, or Redfish refuses the resets (shown as a refused action); the
+dashboard role still comes from `spec.console` (or the creator annotation), so
+such a VM is visible only with a `console` grant.
 
 Admin wins when both apply. Deleting additionally requires the VM to carry
 `app.kubernetes.io/managed-by: qrab-dashboard`, which only dashboard launches
@@ -460,7 +477,9 @@ authorization, the rendered names, PVC and VirtualMachine, rollback, CSRF and
 Origin on every POST, Redfish and console calls with the bearer only to the
 selected Pod, the panel from `Systems/1`, the event log and a sparkline per
 metric history answer, each power action
-as its ResetType, Redfish refusals as refused actions, the response bounds,
+as its ResetType, Redfish reads and power for a Redfish-only VM, the
+console kept BMC-only, the `spec.running`-only path and in-pod refusal for a
+VM with neither, Redfish refusals as refused actions, the response bounds,
 escaping of guest strings, the base-image catalog parser, the Images page,
 OS launches (root clone, stale or unknown images, root minimum, a data disk
 named root), NIC and cloud-init rendering and validation (user-data never

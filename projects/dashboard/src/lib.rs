@@ -326,7 +326,7 @@ async fn detail(
     };
     let ip = pod.as_ref().and_then(|p| cluster::vm_pod_ip(&vm, p));
     let usage = app.cluster.pod_usage().await.unwrap_or_default();
-    let panel = match (vm.spec.components.bmc.enabled, ip) {
+    let panel = match (vm.spec.components.redfish_enabled(), ip) {
         (false, _) => ui::PanelState::Disabled,
         (true, None) => ui::PanelState::NoPod,
         (true, Some(ip)) => {
@@ -365,7 +365,8 @@ async fn mutation(
     Ok(user)
 }
 
-/// The detail page's power form: one Redfish reset, reported as a flash.
+/// The detail page's power form: one power action (a Redfish reset, or power
+/// on/off), reported as a flash.
 async fn action(
     State(app): State<AppState>,
     session: Session,
@@ -374,24 +375,21 @@ async fn action(
     Form(fields): Fields,
 ) -> Result<Redirect, Failure> {
     let user = mutation(&app, &session, &headers, &fields).await?;
-    let reset = redfish::ResetType::parse(launch::field(&fields, "action"))
+    let action = power::Power::parse(launch::field(&fields, "action"))
         .ok_or_else(|| Failure::invalid("Unknown power action."))?;
-    if reset.needs_confirmation() && launch::field(&fields, "confirm") != "yes" {
+    if action.needs_confirmation() && launch::field(&fields, "confirm") != "yes" {
         return Err(Failure::invalid("Confirm the power action."));
     }
     let (vm, role) = visible_vm(&app, &user, &namespace, &name).await?;
-    if role != Role::Admin || !vm.spec.components.bmc.enabled {
+    if role != Role::Admin {
         return Err(Failure::forbidden());
     }
-    let ip = pod_ip(&app, &vm)
-        .await?
-        .ok_or_else(|| Failure::unavailable("The VM's Pod is not running."))?;
-    let result = power::reset(&app, ip, &user.id_token, reset).await;
-    tracing::info!(subject=%user.subject, vm=%name, action=reset.name(), success=result.is_ok(), "power action");
+    let result = power::apply(&app, &user, &vm, action).await;
+    tracing::info!(subject=%user.subject, vm=%name, action=action.key(), success=result.is_ok(), "power action");
     flash(
         &session,
         match result {
-            Ok(()) => format!("{} sent to {name}.", reset.label()),
+            Ok(()) => format!("{} sent to {name}.", action.label()),
             Err(failure) => failure.1,
         },
     )

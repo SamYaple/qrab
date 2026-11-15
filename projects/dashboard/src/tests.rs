@@ -1893,6 +1893,196 @@ async fn console_power_state_is_admin_only_and_reads_the_vms_own_redfish() {
     assert!(h.bmc_b.lock().unwrap().is_empty());
 }
 
+/// Sets VM `a`'s components: Redfish-only VMs and VMs with neither.
+fn set_components(h: &Harness, components: serde_json::Value) {
+    h.cluster.vms.lock().unwrap()[0].spec.components = serde_json::from_value(components).unwrap();
+}
+
+/// The POSTed ResetTypes VM a's Redfish saw, in order.
+fn resets_sent(h: &Harness) -> Vec<String> {
+    h.bmc_a
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|(m, _, _, _)| m == "POST")
+        .map(|(_, _, auth, body)| {
+            assert_eq!(auth, "Bearer id-token-of-alice");
+            body.clone()
+        })
+        .collect()
+}
+
+#[tokio::test]
+async fn a_redfish_only_vm_is_read_and_power_managed_through_its_redfish() {
+    let h = harness().await;
+    // Redfish's own lists hold Alice; the console's are the dashboard's role.
+    set_components(
+        &h,
+        serde_json::json!({"bmc": {"enabled": false},
+            "redfish": {"enabled": true, "adminSubjects": [ALICE]}}),
+    );
+    let admin = session(&h.state.sessions, ALICE, &[]).await;
+    let (status, _, body) = send(&h, get("/vms/qrab/a", Some(&admin))).await;
+    assert_eq!(status, StatusCode::OK);
+    // The panel comes from Redfish; there is no console without the BMC.
+    assert!(
+        body.contains("bmc-a") && body.contains("Recent QMP events"),
+        "{body}"
+    );
+    assert!(body.contains("BMC off · Redfish on"));
+    assert!(!body.contains("Open console") && !body.contains("Console: admins only"));
+    // Power on and off sit beside the in-pod resets, since no console page has them.
+    assert!(body.contains("power-title"));
+    for action in ["on", "off", "ForceRestart", "Pause"] {
+        assert!(body.contains(&format!("value=\"{action}\"")), "{action}");
+    }
+    let (status, _, text) = send(&h, get("/vms/qrab/a/power", Some(&admin))).await;
+    assert_eq!(status, StatusCode::OK);
+    let state: serde_json::Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(state["power_state"], "On");
+    assert!(state["reset_types"].is_array() && state["redfish_error"].is_null());
+    h.bmc_a.lock().unwrap().clear();
+
+    let form = |body: &'static str| post("/vms/qrab/a/action", Some(&admin), Some(ORIGIN), body);
+    let (status, _, _) = send(&h, form("csrf=correct&action=ForceRestart&confirm=yes")).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let (_, _, body) = send(&h, get("/vms/qrab/a", Some(&admin))).await;
+    assert!(body.contains("Reset sent to a."), "{body}");
+    // Power on while the VM is set to run and its Pod is up (it may be
+    // powered off in place) is Redfish On, from the form and the JSON route.
+    let (status, _, _) = send(&h, form("csrf=correct&action=on")).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let (_, _, body) = send(&h, get("/vms/qrab/a", Some(&admin))).await;
+    assert!(body.contains("Power on sent to a."), "{body}");
+    for action in [
+        serde_json::json!({"action": "on"}),
+        serde_json::json!({"action": "Nmi", "confirm": true}),
+    ] {
+        let (status, _, text) = send(
+            &h,
+            post_json(
+                "/vms/qrab/a/power",
+                Some(&admin),
+                Some(ORIGIN),
+                Some("correct"),
+                action.clone(),
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NO_CONTENT, "{action}: {text}");
+    }
+    assert_eq!(
+        resets_sent(&h),
+        ["ForceRestart", "On", "On", "Nmi"].map(|reset| format!(r#"{{"ResetType":"{reset}"}}"#))
+    );
+    assert!(h.cluster.running.lock().unwrap().is_empty());
+    // Power off is the operator's stop, as with the BMC.
+    let (status, _, _) = send(&h, form("csrf=correct&action=off")).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    let (status, _, _) = send(&h, form("csrf=correct&action=off&confirm=yes")).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert_eq!(
+        *h.cluster.running.lock().unwrap(),
+        [("a".into(), "uid-a".into(), false)]
+    );
+    assert!(h.bmc_b.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn the_console_stays_bmc_only_and_a_vm_without_redfish_powers_through_its_spec() {
+    let h = harness().await;
+    let admin = session(&h.state.sessions, ALICE, &[]).await;
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    serve(listener, router(h.state.clone())).await;
+    let socket_status = async || {
+        use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+        let mut req = format!("ws://{addr}/vms/qrab/a/console/ws")
+            .into_client_request()
+            .unwrap();
+        req.headers_mut()
+            .insert("cookie", HeaderValue::from_str(&admin).unwrap());
+        req.headers_mut()
+            .insert("origin", HeaderValue::from_static(ORIGIN));
+        match tokio_tungstenite::connect_async(req).await {
+            Ok(_) => 101,
+            Err(tokio_tungstenite::tungstenite::Error::Http(response)) => {
+                response.status().as_u16()
+            }
+            Err(error) => panic!("{error}"),
+        }
+    };
+    // With the BMC (and so Redfish), the console is open to the admin.
+    assert_eq!(
+        send(&h, get("/vms/qrab/a/console", Some(&admin))).await.0,
+        StatusCode::OK
+    );
+    assert_eq!(socket_status().await, 101);
+    for components in [
+        serde_json::json!({"bmc": {"enabled": false},
+            "redfish": {"enabled": true, "adminSubjects": [ALICE]}}),
+        serde_json::json!({"bmc": {"enabled": false}}),
+    ] {
+        set_components(&h, components.clone());
+        let (status, _, _) = send(&h, get("/vms/qrab/a/console", Some(&admin))).await;
+        assert_eq!(status, StatusCode::FORBIDDEN, "{components}");
+        assert_eq!(socket_status().await, 403, "{components}");
+    }
+    h.bmc_a.lock().unwrap().clear();
+
+    // Neither component: no Redfish call, Power on/off through spec.running,
+    // and a clear refusal for in-pod actions.
+    let (status, _, body) = send(&h, get("/vms/qrab/a", Some(&admin))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(body.contains("BMC off · Redfish off"));
+    assert!(body.contains("The Redfish component is disabled for this VM"));
+    assert!(body.contains("components.redfish is not enabled for this VM"));
+    assert!(body.contains("value=\"on\"") && body.contains("value=\"off\""));
+    assert!(!body.contains("value=\"Pause\"") && !body.contains("Open console"));
+    let (status, _, text) = send(&h, get("/vms/qrab/a/power", Some(&admin))).await;
+    assert_eq!(status, StatusCode::OK);
+    let state: serde_json::Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(state["pod"], true);
+    assert!(state["power_state"].is_null() && state["redfish_error"].is_null());
+    let (status, _, text) = send(
+        &h,
+        post_json(
+            "/vms/qrab/a/power",
+            Some(&admin),
+            Some(ORIGIN),
+            Some("correct"),
+            serde_json::json!({"action": "Pause"}),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CONFLICT);
+    assert_eq!(
+        text,
+        "Pause needs the VM's Redfish service, and components.redfish is not enabled for this VM. Power on and Power off still work."
+    );
+    let form = |body: &'static str| post("/vms/qrab/a/action", Some(&admin), Some(ORIGIN), body);
+    let (status, _, _) = send(&h, form("csrf=correct&action=Pause")).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let (_, _, body) = send(&h, get("/vms/qrab/a", Some(&admin))).await;
+    assert!(body.contains("Pause needs the VM"), "{body}");
+    // Power on with the Pod up still patches spec.running: no Redfish to ask.
+    for body in [
+        "csrf=correct&action=on",
+        "csrf=correct&action=off&confirm=yes",
+    ] {
+        let (status, _, _) = send(&h, form(body)).await;
+        assert_eq!(status, StatusCode::SEE_OTHER, "{body}");
+    }
+    assert_eq!(
+        *h.cluster.running.lock().unwrap(),
+        [
+            ("a".into(), "uid-a".into(), true),
+            ("a".into(), "uid-a".into(), false)
+        ]
+    );
+    assert!(h.bmc_a.lock().unwrap().is_empty() && h.bmc_b.lock().unwrap().is_empty());
+}
+
 #[tokio::test]
 async fn console_page_and_socket_require_admin_and_exact_origin() {
     use futures::{SinkExt, StreamExt};

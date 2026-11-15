@@ -5,6 +5,7 @@ use crate::{
     images::BaseImage,
     launch::{self, Report},
     model::{self, Detail, Row},
+    power::Power,
     redfish::{self, Panel, ResetType},
 };
 use dioxus::prelude::*;
@@ -564,12 +565,33 @@ fn power_controls(detail: &Detail, csrf: &str, panel: &PanelState) -> Element {
             .map(|system| redfish::offered(&system.actions.reset.allowable_values)),
         _ => None,
     };
+    // Without the BMC there is no console page, so Power on and off are here.
+    let spec_power = (!detail.bmc_enabled).then_some([Power::On, Power::Off]);
     rsx! {
         section { class: "card", aria_labelledby: "power-title",
             h2 { id: "power-title", "Power" }
-            p { class: "muted", "Sent to the VM's Redfish service with your sign-in. Shut down and Force off leave the VM powered off in its Pod; Power on (on the console page) starts it again in place. Power off on the console page stops the VM and keeps it off." }
+            if !detail.redfish_enabled {
+                p { class: "muted", role: "status", "In-pod actions (restart, shut down, pause) need the VM's Redfish service, and components.redfish is not enabled for this VM. Power on sets spec.running; Power off stops the VM and keeps it off." }
+            } else if detail.bmc_enabled {
+                p { class: "muted", "Sent to the VM's Redfish service with your sign-in. Shut down and Force off leave the VM powered off in its Pod; Power on (on the console page) starts it again in place. Power off on the console page stops the VM and keeps it off." }
+            } else {
+                p { class: "muted", "Sent to the VM's Redfish service with your sign-in. Shut down and Force off leave the VM powered off in its Pod; Power on starts it again in place. Power off stops the VM and keeps it off." }
+            }
+            if let Some(actions) = spec_power { div { class: "actions",
+                for a in actions {
+                    form { method: "post", action: "{action}",
+                        input { r#type: "hidden", name: "csrf", value: "{csrf}" }
+                        input { r#type: "hidden", name: "action", value: a.key() }
+                        if a.needs_confirmation() {
+                            label { class: "confirm", input { r#type: "checkbox", name: "confirm", value: "yes", required: true } "Confirm" }
+                        }
+                        button { class: if a.needs_confirmation() { "danger" } else { "quiet" }, r#type: "submit", {a.label()} }
+                    }
+                }
+            } }
             match allowed {
-                None => rsx! { p { class: "muted", role: "status", "Power actions are unavailable while the VM's Redfish service cannot be read." } },
+                None if !detail.redfish_enabled => rsx! {},
+                None => rsx! { p { class: "muted", role: "status", "In-pod power actions are unavailable while the VM's Redfish service cannot be read." } },
                 Some(allowed) => rsx! { div { class: "actions",
                     for a in allowed {
                         form { method: "post", action: "{action}",
@@ -786,12 +808,12 @@ fn detail_page(page: &DetailPage, user: &UserView) -> Element {
         section { aria_labelledby: "bmc-title",
             h2 { id: "bmc-title", class: "subheading", "BMC" }
             match &page.panel {
-                PanelState::Disabled => rsx! { p { class: "muted", "The BMC component is disabled for this VM." } },
-                PanelState::NoPod => rsx! { p { class: "muted", "The BMC is unavailable until the VM's Pod is running." } },
+                PanelState::Disabled => rsx! { p { class: "muted", "The Redfish component is disabled for this VM, so its status and events are unavailable." } },
+                PanelState::NoPod => rsx! { p { class: "muted", "Redfish is unavailable until the VM's Pod is running." } },
                 PanelState::Loaded(panel) => bmc_panel(panel),
             }
         }
-        if admin && d.bmc_enabled { {power_controls(d, &user.csrf, &page.panel)} }
+        if admin { {power_controls(d, &user.csrf, &page.panel)} }
         if page.deletable { {delete_form(d, &user.csrf)} }
     }
 }

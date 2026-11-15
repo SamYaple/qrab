@@ -1,8 +1,11 @@
-//! The console page's power controls, as JSON for its script. In-pod actions
-//! are Redfish `ComputerSystem.Reset` requests to the VM's own Pod with the
-//! user's ID token. A powered-off VM keeps its Pod, so power on is Redfish
-//! `On` while that Pod exists and `spec.running` otherwise; power off sets
-//! `spec.running: false`, which ends the Pod and keeps the VM off.
+//! The console page's power controls, as JSON for its script, and the power
+//! actions the detail page's form shares with them. In-pod actions are Redfish
+//! `ComputerSystem.Reset` requests to the VM's own Pod with the user's ID
+//! token, for any VM with the Redfish component (which the dashboard calls
+//! directly, so the BMC is not needed). A powered-off VM keeps its Pod, so
+//! power on is Redfish `On` while that Pod exists and `spec.running`
+//! otherwise; power off sets `spec.running: false`, which ends the Pod and
+//! keeps the VM off. A VM without Redfish gets only the `spec.running` path.
 use crate::{
     AppState, Failure,
     access::Role,
@@ -16,6 +19,7 @@ use axum::{
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
 };
+use qrab_operator::api::VirtualMachine;
 use serde::{Deserialize, Serialize};
 use std::net::IpAddr;
 use tower_sessions::Session;
@@ -59,6 +63,13 @@ impl Power {
             Self::Reset(reset) => reset.needs_confirmation(),
             Self::On => false,
             Self::Off => true,
+        }
+    }
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Reset(reset) => reset.label(),
+            Self::On => "Power on",
+            Self::Off => "Power off",
         }
     }
 }
@@ -158,7 +169,7 @@ async fn state(
         reset_types: None,
         redfish_error: None,
     };
-    let Some(ip) = ip.filter(|_| vm.spec.components.bmc.enabled) else {
+    let Some(ip) = ip.filter(|_| vm.spec.components.redfish_enabled()) else {
         return Ok(state);
     };
     let (system, reset_types) = tokio::join!(
@@ -238,16 +249,41 @@ async fn power(
     if role != Role::Admin {
         return Err(Failure::forbidden());
     }
-    let redfish = vm.spec.components.bmc.enabled;
+    let result = apply(app, &user, &vm, power).await;
+    tracing::info!(subject=%user.subject, vm=%name, action=power.key(), success=result.is_ok(), "power action");
+    result
+}
+
+/// The refusal for an in-pod action on a VM without the Redfish component.
+fn no_redfish(reset: ResetType) -> Failure {
+    Failure(
+        StatusCode::CONFLICT,
+        format!(
+            "{} needs the VM's Redfish service, and components.redfish is not enabled for this VM. Power on and Power off still work.",
+            reset.label()
+        ),
+    )
+}
+
+/// Carries out one power action on a VM the caller has already checked the
+/// user is an admin of.
+pub(crate) async fn apply(
+    app: &AppState,
+    user: &auth::User,
+    vm: &VirtualMachine,
+    power: Power,
+) -> Result<(), Failure> {
+    let redfish = vm.spec.components.redfish_enabled();
     let on = match power {
         Power::On if vm.spec.running && redfish => {
-            PowerOn::route(true, redfish, pod_ip(app, &vm).await?)
+            PowerOn::route(true, redfish, pod_ip(app, vm).await?)
         }
         _ => PowerOn::Spec,
     };
-    let result = match (power, on) {
+    match (power, on) {
         (Power::On, PowerOn::Redfish(ip)) => reset(app, ip, &user.id_token, ResetType::On).await,
         (Power::On | Power::Off, _) => {
+            let name = vm.metadata.name.as_deref().ok_or_else(Failure::internal)?;
             let uid = vm.metadata.uid.as_deref().ok_or_else(Failure::internal)?;
             app.cluster
                 .set_running(name, uid, power == Power::On)
@@ -256,14 +292,12 @@ async fn power(
         }
         (Power::Reset(kind), _) => {
             if !redfish {
-                return Err(Failure::forbidden());
+                return Err(no_redfish(kind));
             }
-            let ip = pod_ip(app, &vm)
+            let ip = pod_ip(app, vm)
                 .await?
                 .ok_or_else(|| Failure::unavailable("The VM's Pod is not running."))?;
             reset(app, ip, &user.id_token, kind).await
         }
-    };
-    tracing::info!(subject=%user.subject, vm=%name, action=power.key(), success=result.is_ok(), "power action");
-    result
+    }
 }

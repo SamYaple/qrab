@@ -2,7 +2,9 @@
 //! carrying the signed-in user's ID token as `Authorization: Bearer`. Redfish
 //! trusts the dashboard's token audience and applies the VM's admin/viewer
 //! lists, which include the console's while the BMC is enabled, so it
-//! enforces the same roles as the dashboard.
+//! enforces the same roles as the dashboard. On a Redfish-only VM (no BMC) only
+//! `components.redfish`'s own lists apply, so Redfish may refuse a dashboard
+//! admin who is not in them.
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use std::{
     collections::BTreeMap,
@@ -37,7 +39,7 @@ pub const MAX_BODY: usize = 1024 * 1024;
 pub const MAX_LOG_BODY: usize = 4 * 1024 * 1024;
 
 /// The in-pod `ComputerSystem.Reset` types the dashboard sends. `On` is not
-/// offered as a button of its own: the console's Power on sends it to an
+/// offered as a reset button of its own: Power on sends it to an
 /// existing Pod (see [`crate::power::PowerOn`]), and Resume covers a paused VM.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub enum ResetType {
