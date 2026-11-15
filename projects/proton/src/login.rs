@@ -103,6 +103,59 @@ pub fn secret_manifest(namespace: &str, session: &Session) -> String {
     .to_string()
 }
 
+/// What `qrab-proton check` found with a fresh login.
+#[derive(Debug)]
+pub struct Report {
+    pub plan: VpnPlan,
+    pub servers: usize,
+    pub eligible: usize,
+    pub best: Option<crate::catalog::Choice>,
+    pub best_p2p: Option<crate::catalog::Choice>,
+    pub certificate_expires: Option<i64>,
+}
+
+/// Exercise everything the broker will need with `session`: the catalog,
+/// loads, selection and (with `certify`) a certificate for a throwaway key.
+pub async fn check(
+    client: &Client,
+    session: &Session,
+    plan: VpnPlan,
+    certify: bool,
+) -> Result<Report, Error> {
+    use crate::catalog::Criteria;
+    let mut catalog = client.logicals(session).await?;
+    catalog.apply_loads(&client.loads(session).await?);
+    let all = Criteria::default();
+    let p2p = Criteria {
+        port_forwarding: true,
+        ..Default::default()
+    };
+    let certificate_expires = if certify {
+        let key = crate::keys::ProfileKey::generate()
+            .map_err(|e| Error::Transport(format!("no randomness: {e}")))?;
+        let features = crate::wg::Features {
+            port_forwarding: true,
+            ..Default::default()
+        };
+        Some(
+            client
+                .certificate(session, &key, 24 * 60, &features)
+                .await?
+                .expiration_time,
+        )
+    } else {
+        None
+    };
+    Ok(Report {
+        servers: catalog.servers.len(),
+        eligible: catalog.eligible(&all, plan.max_tier).len(),
+        best: catalog.select(&all, plan.max_tier, None).ok(),
+        best_p2p: catalog.select(&p2p, plan.max_tier, None).ok(),
+        certificate_expires,
+        plan,
+    })
+}
+
 /// End a stored session at Proton. Stop the broker first: this refreshes
 /// the session to get an access token, which the broker's next refresh
 /// would then race.

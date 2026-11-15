@@ -13,6 +13,7 @@ qrab-proton: ProtonVPN for qrab VPN NICs
 USAGE:
   qrab-proton login  [--namespace NS] [--print] [--api URL]
   qrab-proton logout [--namespace NS] [--api URL]
+  qrab-proton check  [--no-certificate] [--api URL]
 
 login   Log in to Proton (email, password, a TOTP code if the account has
         two-factor, human verification in a browser if Proton asks) and store
@@ -22,6 +23,10 @@ login   Log in to Proton (email, password, a TOTP code if the account has
 logout  Revoke the stored session at Proton and delete the Secret. Scale the
         broker to zero first: logging out refreshes the session, which a
         running broker would race.
+check   Log in as `login` does, then read the plan, the server catalog and
+        loads, pick the best server and the best P2P server, and request a
+        one-day certificate for a throwaway key (skip with --no-certificate),
+        then log out. Nothing is stored; nothing secret is printed.
 
 OPTIONS:
   --namespace NS  The VPN NICs' namespace (default: qrab)
@@ -64,6 +69,7 @@ impl Prompt for Terminal {
 struct Options {
     namespace: String,
     print: bool,
+    no_certificate: bool,
     api: Option<String>,
 }
 
@@ -71,6 +77,7 @@ fn options(args: &[String]) -> Result<Options, String> {
     let mut options = Options {
         namespace: "qrab".into(),
         print: false,
+        no_certificate: false,
         api: None,
     };
     let mut args = args.iter();
@@ -80,6 +87,7 @@ fn options(args: &[String]) -> Result<Options, String> {
                 options.namespace = args.next().ok_or("--namespace needs a value")?.clone()
             }
             "--print" => options.print = true,
+            "--no-certificate" => options.no_certificate = true,
             "--api" => options.api = Some(args.next().ok_or("--api needs a value")?.clone()),
             other => return Err(format!("unknown argument {other:?}")),
         }
@@ -201,6 +209,57 @@ async fn run(args: Vec<String>) -> Result<(), String> {
             eprintln!(
                 "Stored Secret {}/{SESSION_SECRET} (UID and refresh token only).",
                 options.namespace
+            );
+            Ok(())
+        }
+        "check" => {
+            let client = client(&options)?;
+            let logged_in = login::login(&client, &mut Terminal)
+                .await
+                .map_err(|e| e.to_string())?;
+            let session = logged_in.session.clone();
+            let report =
+                login::check(&client, &session, logged_in.plan, !options.no_certificate).await;
+            // Log out whatever the check found: nothing is left behind.
+            let logout = client.logout(&session).await;
+            let report = report.map_err(|e| e.to_string())?;
+            let show = |c: &Option<qrab_proton::catalog::Choice>| match c {
+                Some(c) => format!(
+                    "{} ({}{}, load {}%, score {:.2}, entry {})",
+                    c.name,
+                    c.exit_country,
+                    c.city
+                        .as_deref()
+                        .map(|x| format!(" {x}"))
+                        .unwrap_or_default(),
+                    c.load,
+                    c.score,
+                    c.entry_ip
+                ),
+                None => "none".into(),
+            };
+            println!(
+                "plan:        {} (tier {}, {} connections)",
+                report.plan.plan_name.as_deref().unwrap_or("?"),
+                report.plan.max_tier,
+                report.plan.max_connect
+            );
+            println!(
+                "servers:     {} logical, {} eligible for auto",
+                report.servers, report.eligible
+            );
+            println!("best:        {}", show(&report.best));
+            println!("best P2P:    {}", show(&report.best_p2p));
+            match report.certificate_expires {
+                Some(at) => println!("certificate: issued, expires at unix {at}"),
+                None => println!("certificate: skipped"),
+            }
+            println!(
+                "logout:      {}",
+                match logout {
+                    Ok(()) => "done".to_owned(),
+                    Err(e) => format!("failed ({e}); remove the session in Proton's settings"),
+                }
             );
             Ok(())
         }

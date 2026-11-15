@@ -152,3 +152,47 @@ async fn the_command_prints_a_session_secret_from_piped_answers() {
     let everything = format!("{stderr}{}", String::from_utf8_lossy(&output.stdout));
     assert!(!everything.contains(PASSWORD));
 }
+
+#[tokio::test]
+async fn check_exercises_the_catalog_and_a_certificate_then_logs_out() {
+    use std::io::Write;
+    let (base, shared) = serve(Fake::new()).await;
+    let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_qrab-proton"))
+        .args(["check", "--api", &base])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(format!("{USER}\n{PASSWORD}\n").as_bytes())
+        .unwrap();
+    let output = tokio::task::spawn_blocking(move || child.wait_with_output().unwrap())
+        .await
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        stdout.contains("servers:     3 logical, 3 eligible"),
+        "{stdout}"
+    );
+    assert!(
+        stdout.contains("best:        CH#1 (CH Zurich, load 12%"),
+        "{stdout}"
+    );
+    assert!(stdout.contains("certificate: issued"), "{stdout}");
+    assert!(stdout.contains("logout:      done"), "{stdout}");
+    let fake = shared.lock().unwrap();
+    assert_eq!(fake.certificates.len(), 1);
+    assert!(
+        fake.sessions.is_empty(),
+        "the check leaves no session behind"
+    );
+}
