@@ -2512,6 +2512,45 @@ mod schema_resolution_tests {
     }
 
     #[test]
+    fn inheritance_requires_plain_struct_bases() {
+        let root =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../vendor/qemu/tests/qapi-schema");
+        for name in ["bad-base", "union-base-union", "union-base-any"] {
+            let sources = crate::read_schema_with_version(
+                &root.join(format!("{name}.json")),
+                Some((11, 1, 3)),
+            )
+            .unwrap();
+            let error = format!("{:#}", process_version_schema(&sources).unwrap_err());
+            assert!(error.contains(name), "{name}: {error}");
+            assert!(error.contains("requires a struct type"), "{name}: {error}");
+        }
+        for base in ["str", "Kind", "Choice"] {
+            let definitions = concat!(
+                "{'enum':'Kind','data':['one']}\n",
+                "{'alternate':'Choice','data':{'flag':'bool','integer':'int'}}\n",
+            );
+            for definition in [
+                format!("{{'struct':'Derived','base':'{base}','data':{{}}}}"),
+                format!("{{'union':'Derived','base':'{base}','discriminator':'kind','data':{{}}}}"),
+            ] {
+                let error = format!(
+                    "{:#}",
+                    process(&format!("{definitions}{definition}")).unwrap_err()
+                );
+                assert!(error.contains("fixture.json"), "{error}");
+                assert!(error.contains("requires a struct type"), "{error}");
+            }
+        }
+        let (_, structs) = process(concat!(
+            "{'struct':'Derived','base':'Base','data':{'extra':'bool'}}\n",
+            "{'struct':'Base','data':{'value':'str'}}",
+        ))
+        .unwrap();
+        assert_eq!(structs["Derived"].fields.len(), 2);
+    }
+
+    #[test]
     fn separate_union_branches_can_reuse_member_names() {
         let (_, structs) = process(concat!(
             "{'enum':'Kind','data':['left','right']}\n",

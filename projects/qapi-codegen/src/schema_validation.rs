@@ -135,6 +135,14 @@ fn argument_type(
     Ok(())
 }
 
+fn base_type(name: &str, declarations: &HashMap<&str, &QapiSchemaToken<'_>>) -> Result<()> {
+    ensure!(
+        matches!(declarations.get(name), Some(QapiSchemaToken::Struct(_))),
+        "Base '{name}' requires a struct type"
+    );
+    Ok(())
+}
+
 fn conditional_arguments(
     data: &Option<MembersOrRef<'_>>,
     boxed: Option<&str>,
@@ -315,12 +323,16 @@ pub(crate) fn validate(schemas: &[(&Path, QapiSchema<'_>)]) -> Result<()> {
                     QapiSchemaToken::Struct(value) => {
                         if let Some(base) = value.base {
                             known_type(base, &types).context("Invalid base")?;
+                            base_type(base, &declarations)?;
                         }
                         members(&value.data, &types, true)?;
                     }
                     QapiSchemaToken::Union(value) => {
                         member_names(value.data.0.iter().map(|branch| branch.name))?;
                         members_or_ref(&value.base, &types).context("Invalid base")?;
+                        if let MembersOrRef::Ref(base) = &value.base {
+                            base_type(base, &declarations)?;
+                        }
                         for branch in &value.data.0 {
                             type_ref(&branch.r#type, &types, false)
                                 .with_context(|| format!("Invalid branch '{}'", branch.name))?;

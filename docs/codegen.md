@@ -117,7 +117,8 @@ have no payload, preserving discriminator dispatch and empty-object wire shape.
 Discriminators must be required scalar enums; unknown tags and empty discriminator
 enums fail IR processing. Historical non-enum discriminators retain legacy handling.
 Derived structs resolve bases independently of definition and include order;
-missing bases, inheritance cycles and conflicting Rust type names fail with
+named bases of structs and unions must refer to plain structs.
+Missing bases, inheritance cycles and conflicting Rust type names fail with
 schema context.
 
 A missing QMP schema is allowed only before 1.0, and a missing QGA schema only
