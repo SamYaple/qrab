@@ -112,6 +112,8 @@ including members inherited from a base. Earlier schemas retain the older rules.
 Type references resolve against exact QAPI names across all source files before
 Rust name mapping. Undefined member, branch and return types report their source
 and definition; historical inline objects include the nested member path.
+Definition names share one namespace across files and declaration kinds;
+duplicates report both sources before Rust symbol planning.
 Member clash checks include inherited fields and each flat-union branch against
 its base. Alternative branches retain independent member namespaces. Names
 that collapse to the same QAPI C member identifier fail with source context.

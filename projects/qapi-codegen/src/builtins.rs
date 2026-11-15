@@ -4,7 +4,10 @@ use crate::{
     QapiTypeRef,
 };
 use anyhow::{Context, Result, ensure};
-use std::path::{Path, PathBuf};
+use std::{
+    collections::HashMap,
+    path::{Path, PathBuf},
+};
 
 #[derive(Default)]
 struct Usage {
@@ -92,6 +95,7 @@ pub(crate) fn parse_sources(sources: &[(PathBuf, String)]) -> Result<Vec<(&Path,
     let model = model(crate::parser_version());
     crate::arrays::normalize(&mut schemas, model)?;
     let mut used = Usage::default();
+    let mut definitions = HashMap::new();
     for (path, schema) in &schemas {
         for token in &schema.0 {
             let name = match token {
@@ -109,6 +113,13 @@ pub(crate) fn parse_sources(sources: &[(PathBuf, String)]) -> Result<Vec<(&Path,
                     "Predefined QAPI type '{name}' cannot be redefined in {}",
                     path.display()
                 );
+                if let Some(previous) = definitions.insert(name, *path) {
+                    anyhow::bail!(
+                        "Conflicting QAPI definitions: '{name}' in {} is already defined in {}",
+                        path.display(),
+                        previous.display()
+                    );
+                }
             }
             match token {
                 QapiSchemaToken::Struct(value) => {

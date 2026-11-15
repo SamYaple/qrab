@@ -2478,6 +2478,36 @@ mod schema_resolution_tests {
     }
 
     #[test]
+    fn duplicate_definitions_fail_across_kinds_and_source_files() {
+        let root =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../vendor/qemu/tests/qapi-schema");
+        for name in ["redefined-type", "redefined-command", "redefined-event"] {
+            let sources = crate::read_schema_with_version(
+                &root.join(format!("{name}.json")),
+                Some((11, 1, 3)),
+            )
+            .unwrap();
+            let error = format!("{:#}", process_version_schema(&sources).unwrap_err());
+            assert!(error.contains(name), "{name}: {error}");
+            assert!(error.contains("already defined"), "{name}: {error}");
+        }
+        let sources = [
+            (
+                "first.json".into(),
+                "{'struct':'Repeated','data':{}}".into(),
+            ),
+            (
+                "included.json".into(),
+                "{'enum':'Repeated','data':['one']}".into(),
+            ),
+        ];
+        let error = format!("{:#}", process_version_schema(&sources).unwrap_err());
+        for expected in ["Repeated", "first.json", "included.json"] {
+            assert!(error.contains(expected), "{error}");
+        }
+    }
+
+    #[test]
     fn primitive_type_names_cannot_be_redefined() {
         for name in [
             "str", "number", "int", "int8", "int16", "int32", "int64", "uint8", "uint16", "uint32",
