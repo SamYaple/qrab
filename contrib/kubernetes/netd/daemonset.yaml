@@ -57,6 +57,8 @@ spec:
         volumeMounts:
         - {name: socket, mountPath: /run/qrab-netd}
         - {name: api, mountPath: /var/run/secrets/kubernetes.io/serviceaccount, readOnly: true}
+        # The Cilium agent's local API: live-migration handoff states.
+        - {name: cilium, mountPath: /var/run/cilium, readOnly: true}
       volumes:
       - name: socket
         hostPath: {path: /run/qrab-netd, type: DirectoryOrCreate}
@@ -66,3 +68,5 @@ spec:
           - serviceAccountToken: {path: token, expirationSeconds: 3600}
           - configMap: {name: kube-root-ca.crt, items: [{key: ca.crt, path: ca.crt}]}
           - downwardAPI: {items: [{path: namespace, fieldRef: {fieldPath: metadata.namespace}}]}
+      - name: cilium
+        hostPath: {path: /var/run/cilium, type: Directory}
