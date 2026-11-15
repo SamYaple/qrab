@@ -97,6 +97,7 @@ if (typeof ResizeObserver === 'function') {
 }
 let session, rfb, polling, metricsTimer, events, system, refreshTimer;
 let pendingAction = null, refreshTask = null, metricsTask = null, lastRead = null;
+let initialPowerTypes = null;
 let agentResult = [];
 let scaleToFit = true;
 const rendered = {};
@@ -430,6 +431,11 @@ function updateActionControls() {
         button.disabled = blocked && button !== pendingAction;
     };
     const allows = POWER_ALLOWS[system?.PowerState];
+    const reportedTypes = system?.Actions?.['#ComputerSystem.Reset']?.['ResetType@Redfish.AllowableValues'];
+    const offers = Array.isArray(reportedTypes) ? new Set(reportedTypes) : initialPowerTypes;
+    const power = element('power');
+    const more = element('advanced-power');
+    const moreFocused = more?.contains(focused);
     const agent = system?.Oem?.Qrab?.GuestAgent;
     const restartReason = !agent ? '' : !agent.enabled || !agent.connected
         ? 'Guest restart needs a connected guest agent.'
@@ -437,23 +443,33 @@ function updateActionControls() {
     const restartNote = element('restart-requirement');
     if (restartNote) {
         updateText(restartNote, restartReason);
-        restartNote.hidden = !restartReason || system?.PowerState !== 'On' || !element('power')?.querySelector('[data-type=GracefulRestart]');
+        restartNote.hidden = !restartReason || system?.PowerState !== 'On' || !offers?.has('GracefulRestart');
     }
     for (const button of element('power')?.querySelectorAll('button[data-type]') || []) {
         const restart = button.dataset.type === 'GracefulRestart';
-        available(button, allows?.has(button.dataset.type) && (!restart || !restartReason));
+        const offered = offers?.has(button.dataset.type);
+        button.hidden = !offered;
+        available(button, offered && allows?.has(button.dataset.type) && (!restart || !restartReason));
         if (restart) {
             button.title = restartReason;
             if (restartReason && restartNote) button.setAttribute('aria-describedby', 'restart-requirement');
             else button.removeAttribute('aria-describedby');
         }
     }
+    if (more) {
+        more.hidden = [...more.querySelectorAll('button[data-type]')].every(button => button.hidden);
+        if (more.hidden) more.open = false;
+    }
+    const anyOffered = power && [...power.querySelectorAll('button[data-type]')].some(button => !button.hidden);
+    if (power) power.hidden = !anyOffered;
+    const unavailable = element('power-unavailable');
+    if (unavailable) unavailable.hidden = !session || !system || initialPowerTypes === null || Boolean(anyOffered);
     const connected = system?.Oem?.Qrab?.GuestAgent?.connected;
     for (const button of document.querySelectorAll('[data-agent]')) available(button, connected);
     const connect = element('connect');
     if (connect && !rfb) connect.disabled = !session || !system || system.PowerState === 'Off';
     if (armed?.disabled) disarm();
-    if (session && focused?.matches('button[data-type], button[data-agent]') && focused.disabled) {
+    if (session && ((focused?.matches('button[data-type], button[data-agent]') && (focused.disabled || focused.hidden)) || (more?.hidden && moreFocused))) {
         focusInView(element(focused.dataset.agent ? 'tab-agent' : 'vm-status'));
     }
 }
@@ -974,9 +990,9 @@ function loadMetrics() {
 // ── Power group: the ResetType values Redfish's ResetActionInfo allows.
 async function loadPower() {
     const info = await request(RESET_INFO);
-    const allowed = new Set(info.Parameters?.find(parameter => parameter.Name === 'ResetType')?.AllowableValues || []);
+    initialPowerTypes = new Set(info.Parameters?.find(parameter => parameter.Name === 'ResetType')?.AllowableValues || []);
     const target = () => system?.Actions?.['#ComputerSystem.Reset']?.target || `${SYSTEM}/Actions/ComputerSystem.Reset`;
-    const buttons = RESETS.filter(([type]) => allowed.has(type)).map(([type, label, disruptive]) => {
+    const buttons = RESETS.map(([type, label, disruptive]) => {
         const button = node('button', label, disruptive ? 'danger' : undefined);
         button.dataset.type = type;
         button.dataset.label = label;

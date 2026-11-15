@@ -132,6 +132,13 @@ Rare power actions are grouped under **More power actions**, with the same
 two-step confirmations. On narrow screens, **VM panels ↓** moves focus past the
 console to the details. Event rows expand with Enter or a tap to show the full
 timestamp, sequence and wrapped payload; they do not depend on hover tooltips.
+The full BMC updates known power controls from the allowable values on each
+existing System poll. Newly removed actions become hidden and disabled; newly
+advertised known actions become available without a page reload. Empty groups
+disappear with an explicit no-actions message. Controls keep their DOM nodes,
+so an availability change does not rebuild a pending action. Missing inline
+allowable values fall back to the initial ResetActionInfo response; no extra
+polling request or new action type is added. Server authorization is unchanged.
 Power and guest-agent requests retain keyboard focus while pending, using
 `aria-disabled` with the existing request guard. A focused action that becomes
 unavailable moves to the VM state or guest-agent tab. Blocked held keys cannot

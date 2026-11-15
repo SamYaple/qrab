@@ -500,6 +500,8 @@ def console_state_checks(browser, width, theme):
 def bmc_state_checks(browser, width, theme):
     context = browser_context(browser, viewport={'width': width, 'height': 320 if width == 320 else 1000}, color_scheme=theme)
     fixture = install_bmc(context)
+    full_advertised = fixture['system']['Actions']['#ComputerSystem.Reset']['ResetType@Redfish.AllowableValues']
+    fixture['system']['Actions']['#ComputerSystem.Reset']['ResetType@Redfish.AllowableValues'] = ['Pause']
     fixture['hold_session'] = True
     page = context.new_page()
     errors = []
@@ -516,6 +518,38 @@ def bmc_state_checks(browser, width, theme):
     pause = page.locator('#power button[data-type=Pause]')
     expect(pause).to_be_enabled()
     expect(page.locator('#loading')).to_be_hidden()
+    advertised = fixture['system']['Actions']['#ComputerSystem.Reset']
+    advertised['ResetType@Redfish.AllowableValues'] = full_advertised
+    page.clock.fast_forward(3100)
+    expect(page.locator('#advanced-power')).to_be_visible()
+    original_advertised = advertised['ResetType@Redfish.AllowableValues']
+    page.locator('#advanced-power summary').click()
+    advertised['ResetType@Redfish.AllowableValues'] = ['Pause']
+    page.clock.fast_forward(3100)
+    expect(page.locator('#power button[data-type=ForceRestart]')).to_be_hidden()
+    expect(page.locator('#power button[data-type=ForceRestart]')).to_be_disabled()
+    expect(page.locator('#advanced-power')).to_be_hidden()
+    expect(page.locator('#vm-status')).to_be_focused()
+    expect(pause).to_be_enabled()
+    page.locator('#power button[data-type=ForceRestart]').dispatch_event('click')
+    assert fixture['posts'] == []
+    advertised['ResetType@Redfish.AllowableValues'] = []
+    page.clock.fast_forward(3100)
+    expect(page.locator('#power')).to_be_hidden()
+    expect(page.locator('#power-unavailable')).to_be_visible()
+    advertised['ResetType@Redfish.AllowableValues'] = original_advertised
+    page.clock.fast_forward(3100)
+    expect(page.locator('#power')).to_be_visible()
+    expect(page.locator('#power-unavailable')).to_be_hidden()
+    assert not page.locator('#advanced-power').evaluate('(e) => e.open')
+    advertised.pop('ResetType@Redfish.AllowableValues')
+    page.clock.fast_forward(3100)
+    expect(pause).to_be_enabled()
+    expect(page.locator('#advanced-power')).to_be_hidden()
+    assert sum(path.endswith('/ResetActionInfo') for _, path in fixture['requests']) == 1, 'Availability refresh must use the existing System poll'
+    advertised['ResetType@Redfish.AllowableValues'] = original_advertised
+    page.clock.fast_forward(3100)
+    expect(page.locator('#advanced-power')).to_be_visible()
     restart_guest = page.locator('#power button[data-type=GracefulRestart]')
     fixture['system']['Oem']['Qrab']['GuestAgent']['connected'] = False
     page.clock.fast_forward(3100)
