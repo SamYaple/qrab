@@ -191,7 +191,11 @@ function disconnected(message) {
     if (expired) {
         status.textContent = 'Session ended · Sign in to reconnect';
         endedScreen();
-    } else if (poweredOff) showPoweredOff(); else status.textContent = message;
+    } else if (poweredOff) showPoweredOff();
+    else {
+        status.textContent = message;
+        screen.replaceChildren(...placeholder.map(child => child.cloneNode(true)));
+    }
 }
 function openConsole() {
     if (expired) return;

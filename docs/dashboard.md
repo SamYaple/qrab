@@ -194,6 +194,8 @@ to console controls, leaving console full screen first; Right Alt/AltGr remains
 available to the guest. Leaving display focus releases held keys. Shared static
 keyboard handling is served at `/assets/console-keyboard.js`; it adds no management
 endpoint and uses no private noVNC API.
+An ordinary disconnect restores the connection prompt in the display; powered-off
+and expired-session states keep their own guidance.
 The full BMC also reflects known guest-agent prerequisites for freeze and update,
 with visible action-specific reasons. Thaw remains available for connected-agent
 recovery. These checks use the existing System snapshot; missing optional status
@@ -796,6 +798,7 @@ an unchanged message keeps its DOM and focus. Availability live regions announce
 source failures and recovery, while routine sample timestamps remain quiet.
 The browser checks observe these live-region mutations; they do not substitute
 for testing with an actual screen reader.
+Unchanged control titles and descriptions are not rewritten by ordinary polls.
 Chart resize handling responds to width changes outside ResizeObserver's
 delivery cycle, avoiding a WebKit resize loop. Resizing keeps a keyboard-selected
 sample; a stationary mouse event from layout does not replace that selection.

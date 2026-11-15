@@ -503,9 +503,10 @@ function updateActionControls() {
         button.hidden = !offered;
         available(button, offered && allows?.has(button.dataset.type) && (!restart || !restartReason));
         if (restart) {
-            button.title = restartReason;
-            if (restartReason && restartNote) button.setAttribute('aria-describedby', 'restart-requirement');
-            else button.removeAttribute('aria-describedby');
+            if (button.title !== restartReason) button.title = restartReason;
+            if (restartReason && restartNote) {
+                if (button.getAttribute('aria-describedby') !== 'restart-requirement') button.setAttribute('aria-describedby', 'restart-requirement');
+            } else if (button.hasAttribute('aria-describedby')) button.removeAttribute('aria-describedby');
         }
     }
     if (more) {
@@ -526,10 +527,12 @@ function updateActionControls() {
     for (const button of document.querySelectorAll('[data-agent]')) {
         const reason = agentActionReason(button.dataset.agent, agent);
         available(button, !reason);
-        button.title = reason || button.dataset.hint || '';
+        const hint = reason || button.dataset.hint || '';
+        if (button.title !== hint) button.title = hint;
         const description = [button.dataset.description || '', reason ? 'agent-requirement' : ''].filter(Boolean).join(' ');
-        if (description) button.setAttribute('aria-describedby', description);
-        else button.removeAttribute('aria-describedby');
+        if (description) {
+            if (button.getAttribute('aria-describedby') !== description) button.setAttribute('aria-describedby', description);
+        } else if (button.hasAttribute('aria-describedby')) button.removeAttribute('aria-describedby');
         if (reason) agentReasons.push(`${button.dataset.label?.replace(/…$/, '') || 'Guest action'}: ${reason}`);
     }
     const requirement = element('agent-requirement');
@@ -1175,7 +1178,11 @@ function disconnected(message) {
     updateActionControls();
     element('cad').disabled = true;
     element('fullscreen').disabled = true;
-    if (poweredOff) showPoweredOff(); else element('console-status').textContent = message;
+    if (poweredOff) showPoweredOff();
+    else {
+        element('console-status').textContent = message;
+        if (session) element('screen').replaceChildren(...placeholder.map(child => child.cloneNode(true)));
+    }
 }
 function connect() {
     if (rfb) { rfb.disconnect(); return; }
