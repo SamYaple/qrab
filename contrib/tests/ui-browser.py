@@ -1,22 +1,29 @@
 #!/usr/bin/env python3
 """Inspect dashboard previews and the shared BMC using isolated browser fixtures.
 
-Requires Playwright and Chromium. No cluster, login, guest or production token.
+Requires Playwright and Chromium or Firefox. No cluster, login, guest or production token.
 Generate previews with `cargo run -p qrab-dashboard --example preview -- OUT_DIR`.
 All BMC HTTP requests are intercepted; POSTs only mutate the in-memory fixture.
 """
 import argparse
+import base64
+from contextlib import contextmanager
+import hashlib
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import mimetypes
 from pathlib import Path
+import socket
+from threading import Event, Thread
 from urllib.parse import parse_qs, urlparse
 from playwright.sync_api import expect, sync_playwright
 
 parser = argparse.ArgumentParser(description=__doc__)
-parser.add_argument('--browser', default='/opt/google/chrome/chrome')
+parser.add_argument('--engine', choices=['chromium', 'firefox'], default='chromium')
+parser.add_argument('--browser', help='Optional browser executable; Chromium defaults to the installed Chrome.')
 parser.add_argument('--previews', type=Path, required=True)
 parser.add_argument('--output', type=Path, default=Path('target/ui-browser'))
-parser.add_argument('--states-only', action='store_true', help='Run only BMC loading, failure, pending-request and expiry checks.')
+parser.add_argument('--states-only', action='store_true', help='Run only BMC and dedicated-console state/lifecycle checks.')
 args = parser.parse_args()
 root = Path(__file__).resolve().parents[2]
 args.output.mkdir(parents=True, exist_ok=True)
@@ -36,7 +43,7 @@ def system(power='On'):
                                                'nics': [{'id': 'eth0', 'mac': '02:5e:a1:3c:77:0b'}]}}}}
 
 
-def install_bmc(context, role='admin', power='On'):
+def install_bmc(context, role='admin', power='On', legacy=False, origin='http://ui.test'):
     fixture = {'system': system(power), 'posts': [], 'expired': False,
                'hold_posts': False, 'pending_posts': [], 'post_error': None,
                'fail_system': None, 'fail_metrics': False, 'hold_session': False, 'pending_session': [], 'empty_events': False, 'extra_events': [], 'requests': []}
@@ -48,11 +55,17 @@ def install_bmc(context, role='admin', power='On'):
         if path.startswith('/assets/'):
             relative = path.removeprefix('/assets/')
             relative = {'bmc.js': 'console.js', 'bmc.css': 'style.css'}.get(relative, relative)
-            asset = root / 'projects/bmc/assets' / relative
-            if asset.is_file() and asset.resolve().is_relative_to(root / 'projects/bmc/assets'):
+            asset_root = root / ('projects/dashboard/assets' if legacy else 'projects/bmc/assets')
+            asset = asset_root / relative
+            if asset.is_file() and asset.resolve().is_relative_to(asset_root):
                 request_route.fulfill(path=asset, content_type=mimetypes.guess_type(asset.name)[0] or 'application/octet-stream')
             else:
                 request_route.fulfill(status=404)
+            return
+        if legacy and path == base + '/console':
+            # Chromium needs the document's real loopback address space for
+            # the native socket, so let the local fixture serve this page.
+            request_route.continue_()
             return
         if path == base + '/bmc':
             html = (root / 'projects/bmc/assets/index.html').read_text().replace('/assets/style.css', '/assets/bmc.css').replace('/assets/console.js', '/assets/bmc.js').replace('<body>', f'<body data-vm-base="{base}">')
@@ -76,10 +89,19 @@ def install_bmc(context, role='admin', power='On'):
                 fixture['pending_posts'].append(request_route)
                 return
             if fixture['post_error']:
-                request_route.fulfill(status=403, json={'error': {'message': fixture['post_error']}})
+                if legacy:
+                    request_route.fulfill(status=403, body=fixture['post_error'], content_type='text/plain')
+                else:
+                    request_route.fulfill(status=403, json={'error': {'message': fixture['post_error']}})
                 return
             request_route.fulfill(status=204)
             return
+        elif legacy and path == base + '/power':
+            if fixture['fail_system']:
+                request_route.fulfill(status=503, **fixture['fail_system'])
+                return
+            data = {'running': True, 'phase': 'Running', 'pod': True, 'power_state': fixture['system']['PowerState'],
+                    'health': 'OK', 'reset_types': resets, 'redfish_error': None}
         elif path.endswith('/Systems/1'):
             if fixture['fail_system']:
                 error = fixture['fail_system']
@@ -105,8 +127,78 @@ def install_bmc(context, role='admin', power='On'):
             return
         request_route.fulfill(json=data)
 
-    context.route('http://ui.test/**', route)
+    context.route(origin + '/**', route)
     return fixture
+
+
+@contextmanager
+def native_console_socket():
+    """A native WebSocket with no guest payload, held during RFB negotiation.
+
+    noVNC checks native channel properties. Playwright's WebSocket proxy wraps
+    their prototype, so use a loopback upgrade for the disconnect lifecycle.
+    """
+    opened, closed = Event(), Event()
+    connections = []
+
+    class Handler(BaseHTTPRequestHandler):
+        protocol_version = 'HTTP/1.1'
+
+        def log_message(self, *_):
+            pass
+
+        def do_GET(self):
+            if self.path == base + '/console' and not self.headers.get('Upgrade'):
+                html = (args.previews / 'console.html').read_text().replace(f'file://{root}/projects/dashboard/assets/style.css', '/assets/style.css').replace('src="about:blank"', 'src="/assets/console.js"').encode()
+                self.send_response(200)
+                self.send_header('Content-Type', 'text/html; charset=utf-8')
+                self.send_header('Content-Length', str(len(html)))
+                self.send_header('Connection', 'close')
+                self.end_headers()
+                self.wfile.write(html)
+                self.close_connection = True
+                return
+            key = self.headers.get('Sec-WebSocket-Key')
+            if not key or self.headers.get('Upgrade', '').lower() != 'websocket':
+                self.send_error(400)
+                return
+            accept = base64.b64encode(hashlib.sha1((key + '258EAFA5-E914-47DA-95CA-C5AB0DC85B11').encode()).digest()).decode()
+            self.send_response(101)
+            self.send_header('Upgrade', 'websocket')
+            self.send_header('Connection', 'Upgrade')
+            self.send_header('Sec-WebSocket-Accept', accept)
+            self.end_headers()
+            connections.append(self.connection)
+            opened.set()
+            self.connection.settimeout(10)
+            try:
+                # RFB waits for the server greeting, so the browser sends no
+                # data before its close frame. Acknowledge the native close.
+                while data := self.connection.recv(4096):
+                    if data[0] & 15 == 8:
+                        self.connection.sendall(b'\x88\x00')
+                        break
+            except OSError:
+                pass
+            finally:
+                self.close_connection = True
+                closed.set()
+
+    server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
+    thread = Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield f'http://127.0.0.1:{server.server_port}', opened, closed
+    finally:
+        for connection in connections:
+            try:
+                connection.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
+            connection.close()
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
 
 
 def capture(page, path):
@@ -118,7 +210,76 @@ def capture(page, path):
 
 def no_overflow(page, name, width):
     measured = page.evaluate('({viewport:innerWidth, content:document.documentElement.scrollWidth})')
+    assert page.evaluate("getComputedStyle(document.documentElement).getPropertyValue('--surface').trim()"), f'{name}: stylesheet missing'
     assert measured['content'] <= measured['viewport'], f'{name} at {width}: {measured}'
+
+
+def wait_native(page, event, diagnostics=None):
+    # Allow browser events to settle while waiting for the socket thread.
+    for _ in range(100):
+        if event.is_set():
+            return
+        page.wait_for_timeout(20)
+    assert event.is_set(), (page.locator('#console-status').inner_text(), diagnostics)
+
+
+def console_state_checks(browser, width, theme):
+    with native_console_socket() as (origin, opened, closed):
+        context = browser.new_context(viewport={'width': width, 'height': 1000}, color_scheme=theme)
+        fixture = install_bmc(context, legacy=True, origin=origin)
+        page = context.new_page()
+        page.clock.install()
+        errors = []
+        console_errors = []
+        page.on('pageerror', lambda error: errors.append(str(error)))
+        page.on('console', lambda message: console_errors.append(message.text) if message.type == 'error' else None)
+        page.goto(origin + base + '/console')
+        pause = page.locator('[data-power=Pause]')
+        expect(pause).to_be_enabled()
+        fixture['post_error'] = 'Permission denied by the VM.'
+        pause.click()
+        expect(page.locator('#console-error')).to_have_text('Permission denied by the VM.')
+        fixture['post_error'] = None
+        fixture['hold_posts'] = True
+        previous_posts = len(fixture['posts'])
+        pause.click()
+        page.clock.fast_forward(3100)
+        expect(pause).to_be_disabled()
+        pause.dispatch_event('click')
+        assert len(fixture['posts']) == previous_posts + 1
+        assert fixture['posts'][-1]['body'] == {'action': 'Pause', 'confirm': False}
+        fixture['system']['PowerState'] = 'Paused'
+        fixture['hold_posts'] = False
+        fixture['pending_posts'].pop().fulfill(status=204)
+        expect(page.locator('[data-power=Resume]')).to_be_enabled()
+
+        page.locator('#connect').click()
+        page.clock.run_for(50)
+        assert page.locator('#console-error').is_hidden(), page.locator('#console-error').inner_text()
+        expect(page.locator('#screen canvas')).to_have_count(1)
+        wait_native(page, opened, (fixture['requests'], console_errors))
+        if width == 1440:
+            page.evaluate("document.querySelector('#screen').requestFullscreen()")
+            assert page.evaluate('document.fullscreenElement.id') == 'screen'
+        fixture['expired'] = True
+        page.clock.fast_forward(3100)
+        expect(page.locator('#console-recovery')).to_be_visible()
+        expect(page.locator('#screen canvas')).to_have_count(0)
+        wait_native(page, closed)
+        if width == 1440:
+            page.wait_for_function('document.fullscreenElement === null')
+        expect(page.locator('#screen')).to_contain_text('Your session has ended')
+        expect(page.locator('#connect')).to_be_disabled()
+        destination = parse_qs(urlparse(page.locator('#console-recovery a').get_attribute('href')).query)
+        assert destination['next'] == [base + '/console']
+        requests = len(fixture['requests'])
+        page.clock.fast_forward(10000)
+        assert len(fixture['requests']) == requests
+        assert page.locator('#power button:enabled').count() == 0
+        no_overflow(page, 'console-expired', width)
+        capture(page, args.output / f'console-expired-{theme}-{width}.png')
+        assert not errors, errors
+        context.close()
 
 
 def bmc_state_checks(browser, width, theme):
@@ -269,12 +430,20 @@ def bmc_state_checks(browser, width, theme):
 
 
 with sync_playwright() as playwright:
-    browser = playwright.chromium.launch(executable_path=args.browser, headless=True, args=['--no-sandbox'])
+    options = {'headless': True}
+    if args.browser:
+        options['executable_path'] = args.browser
+    elif args.engine == 'chromium':
+        options['executable_path'] = '/opt/google/chrome/chrome'
+    if args.engine == 'chromium':
+        options['args'] = ['--no-sandbox']
+    browser = getattr(playwright, args.engine).launch(**options)
     for theme in ([] if args.states_only else ['dark', 'light']):
         for width in [1440, 768, 390, 320]:
             context = browser.new_context(viewport={'width': width, 'height': 1000}, color_scheme=theme)
             page = context.new_page()
-            for name in ['list', 'detail', 'detail-viewer', 'images', 'launch', 'launch-os', 'launch-options', 'launched']:
+            for name in ['list', 'detail', 'detail-viewer', 'images', 'launch', 'launch-os', 'launch-options', 'launched',
+                         'error-session', 'error-denied', 'error-missing', 'error-service']:
                 page.goto((args.previews / f'{name}.html').resolve().as_uri())
                 no_overflow(page, name, width)
                 if name in ['launch', 'launch-os']:
@@ -368,5 +537,8 @@ with sync_playwright() as playwright:
                 context.close()
     bmc_state_checks(browser, 1440, 'dark')
     bmc_state_checks(browser, 390, 'light')
+    console_state_checks(browser, 1440, 'dark')
+    console_state_checks(browser, 390, 'light')
     browser.close()
-print('Dashboard and BMC browser checks passed (desktop, tablet, mobile; dark and light; admin and viewer).')
+mode = 'state/lifecycle' if args.states_only else 'layout and state/lifecycle'
+print(f'{args.engine}: Dashboard/BMC {mode} checks passed.')

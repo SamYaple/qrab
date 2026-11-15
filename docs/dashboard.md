@@ -135,6 +135,11 @@ timestamp, sequence and wrapped payload; they do not depend on hover tooltips.
 
 ### Console power controls
 
+Dashboard HTML errors keep their HTTP status and provide a next step: sign-in
+after expiry, a VM/list link for failed requests, and an explanation for access
+denials. VM sign-in destinations pass the same allowlist as normal login.
+Unknown pages have a readable 404; invisible and absent VMs remain identical.
+
 The console page's toolbar has **Power on**, the in-pod Redfish resets
 **Resume**, **Pause**, **Restart guest** (`GracefulRestart`), **Reset**
 (`ForceRestart`), **Power cycle** (`PowerCycle`), **NMI** (`Nmi`), **Shut
@@ -179,6 +184,12 @@ Origin, and is admin-only (viewers 403, invisible VMs 404), like the console.
 Redfish enforces the role again: its 403 (for example a grant removed since
 sign-in) is returned as a 403 naming the refused action, a 409 as a 409, and
 other failures as 502.
+
+The dedicated console keeps its existing plain-text power API errors and shows
+their messages above the display. On expiry it stops polling and reconnecting,
+closes the socket, clears the display, exits the display's full-screen mode and
+offers sign-in back to the same console. Pending actions remain locked through
+their follow-up state read.
 
 The detail page keeps a no-script power form for the same in-pod resets,
 rendered from the allowable values in the `Systems/1` it already read and
@@ -582,7 +593,7 @@ The dashboard and BMC follow the system light/dark preference. Dashboard pages
 remain server-rendered; the BMC uses the shared interface assets. Keyboard users
 can skip the header, and the navigation identifies the current dashboard page.
 
-For a visual check, generate representative pages and run the isolated Chromium
+For a visual check, generate representative pages and run the isolated browser
 checks. The Python environment needs `playwright`; use an existing Chromium
 binary with `--browser` if it is not at the default path:
 
@@ -591,16 +602,24 @@ mkdir -p target/ui-preview
 cargo run --locked -p qrab-dashboard --example preview -- target/ui-preview
 python3 contrib/tests/ui-browser.py --previews target/ui-preview \
   --browser /path/to/chromium --output target/ui-browser
+# Optional second engine in the same Python environment:
+python3 -m playwright install firefox
+python3 contrib/tests/ui-browser.py --engine firefox --previews target/ui-preview \
+  --output target/ui-browser-firefox
 ```
 
 This checks desktop, tablet and mobile layouts down to 320px in light and dark themes, shared
 BMC admin/viewer controls, keyboard tabs, event filtering and two-step power
 confirmation. It also checks loading, stale reads and recovery, pending requests
 across polls, denied actions, empty history/filters, powered-off layouts and
-session expiry. `--states-only` runs just those BMC state checks during iteration.
+session expiry. `--states-only` runs just the BMC and dedicated-console state
+checks during iteration. Console expiry also checks native WebSocket closure,
+canvas cleanup, full-screen exit and the same-console sign-in destination.
 The event checks include malformed/missing timestamps and long payload text that
 must render without becoming HTML.
 It writes screenshots to the output directory. BMC requests use
-in-memory browser fixtures: it needs no credentials, cluster, VM or guest, and
-sends no action to a live VM. The separate `bmc-browser.py` test covers real
+in-memory browser fixtures; the dedicated console's socket is a temporary
+loopback WebSocket held during RFB negotiation. It needs no credentials,
+cluster, VM or guest, and sends no action to a live VM.
+The separate `bmc-browser.py` test covers real
 OIDC and guest-console delivery.

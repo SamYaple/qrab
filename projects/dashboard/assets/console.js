@@ -1,5 +1,4 @@
-// The only client-side script: noVNC against the dashboard's console proxy,
-// and the console page's power controls.
+// noVNC and power controls for the dashboard's dedicated console page.
 import RFB from './novnc/core/rfb.js';
 import { createAudioContext } from './novnc/core/audio.js';
 
@@ -9,10 +8,58 @@ const status = element('console-status');
 const connect = element('connect');
 const power = element('power');
 let rfb = null;
+let expired = false, pollTask = null;
 
 function showError(message) {
     element('console-error').textContent = message;
     element('console-error').hidden = !message;
+}
+
+function endedScreen() {
+    const note = document.createElement('p');
+    note.textContent = 'Your session has ended. Sign in again to reconnect.';
+    screen.replaceChildren(note);
+}
+
+function sessionEnded() {
+    if (expired) return;
+    expired = true;
+    stopReconnecting();
+    clearInterval(polling);
+    state = null;
+    resume = false;
+    disarm();
+    render();
+    connect.disabled = true;
+    status.textContent = 'Session ended · Sign in to reconnect';
+    element('console-recovery').hidden = false;
+    if (document.fullscreenElement === screen) document.exitFullscreen().catch(() => {});
+    if (rfb) rfb.disconnect();
+    else endedScreen();
+    if (audioContext) { audioContext.close(); audioContext = null; }
+}
+
+async function failure(response) {
+    if (response.status === 401) { sessionEnded(); return 'Your session ended. Sign in again to reconnect.'; }
+    const text = await response.text();
+    try {
+        const message = JSON.parse(text).error?.message;
+        if (typeof message === 'string') return message.slice(0, 600);
+    } catch { /* Proxies may return a plain text or HTML error. */ }
+    if (response.headers.get('content-type')?.includes('text/html') || /^\s*</.test(text)) return `VM access is unavailable (${response.status}). Try again shortly.`;
+    return text.trim().slice(0, 600) || `Request failed (${response.status}).`;
+}
+
+async function powerRequest(options = {}) {
+    let response;
+    try { response = await fetch(power.dataset.endpoint, {credentials: 'same-origin', ...options}); }
+    catch {
+        throw new Error(options.method === 'POST'
+            ? 'Connection lost. The action may have reached the VM; check its status before retrying.'
+            : 'Unable to reach the VM. Check your connection or try again shortly.');
+    }
+    if (!response.ok) throw new Error(await failure(response));
+    return response;
 }
 
 // After a reset, restart, shutdown, power cycle or power-on the console comes back by itself:
@@ -93,13 +140,17 @@ function followPower() {
 function disconnected(message) {
     rfb = null;
     connect.textContent = 'Connect console';
-    connect.disabled = poweredOff;
+    connect.disabled = expired || poweredOff;
     element('cad').disabled = true;
     element('fullscreen').disabled = true;
     if (scheduleReconnect()) return;
-    if (poweredOff) showPoweredOff(); else status.textContent = message;
+    if (expired) {
+        status.textContent = 'Session ended · Sign in to reconnect';
+        endedScreen();
+    } else if (poweredOff) showPoweredOff(); else status.textContent = message;
 }
 function openConsole() {
+    if (expired) return;
     reconnectTimer = null;
     showError('');
     screen.replaceChildren();
@@ -206,7 +257,7 @@ function render() {
         if (button !== armed) button.textContent = button.dataset.label;
         // The stylesheet sets buttons' display, so `hidden` alone would not hide them.
         button.style.display = offered(button) ? '' : 'none';
-        button.disabled = busy || !allowed(button.dataset.power);
+        button.disabled = expired || busy || !allowed(button.dataset.power);
     }
 }
 function disarm() {
@@ -214,20 +265,27 @@ function disarm() {
     if (armed) { armed.textContent = armed.dataset.label; armed.classList.remove('armed'); }
     armed = null;
 }
-async function poll() {
-    try {
-        const response = await fetch(power.dataset.endpoint, {credentials: 'same-origin'});
-        if (!response.ok) throw new Error(await response.text());
-        state = await response.json();
-        if (element('console-error').textContent.startsWith('Power state unavailable')) showError('');
-    } catch (error) {
-        state = null;
-        showError(`Power state unavailable: ${error.message}`);
-    }
-    followPower();
-    render();
+function poll() {
+    if (expired) return Promise.resolve();
+    if (pollTask) return pollTask;
+    pollTask = (async () => {
+        try {
+            const response = await powerRequest();
+            const current = await response.json();
+            if (expired) return;
+            state = current;
+            if (element('console-error').textContent.startsWith('Power state unavailable')) showError('');
+        } catch (error) {
+            state = null;
+            showError(`Power state unavailable: ${error.message}`);
+        }
+        followPower();
+        render();
+    })().finally(() => { pollTask = null; });
+    return pollTask;
 }
 async function send(button) {
+    if (expired || busy || button.disabled) return;
     const action = button.dataset.power;
     const disruptive = button.classList.contains('danger');
     if (disruptive && armed !== button) {
@@ -242,13 +300,11 @@ async function send(button) {
     busy = true;
     render();
     try {
-        const response = await fetch(power.dataset.endpoint, {
+        await powerRequest({
             method: 'POST',
-            credentials: 'same-origin',
             headers: {'Content-Type': 'application/json', 'X-CSRF-Token': power.dataset.csrf},
             body: JSON.stringify({action, confirm: disruptive}),
         });
-        if (!response.ok) throw new Error(await response.text());
         showError('');
         status.textContent = `${button.dataset.label} sent.`;
         if (RECONNECTS.includes(action)) {
@@ -260,8 +316,10 @@ async function send(button) {
     } catch (error) {
         showError(error.message);
     } finally {
-        busy = false;
+        if (pollTask) await pollTask;
         await poll();
+        busy = false;
+        render();
     }
 }
 for (const button of buttons) button.addEventListener('click', () => send(button));
@@ -270,7 +328,7 @@ let polling = null;
 function watch() {
     clearInterval(polling);
     polling = null;
-    if (document.visibilityState === 'visible') {
+    if (!expired && document.visibilityState === 'visible') {
         poll();
         polling = setInterval(poll, 3000);
     }

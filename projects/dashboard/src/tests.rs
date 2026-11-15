@@ -2575,3 +2575,57 @@ async fn rejected_optional_launch_values_are_validated_without_creating_resource
     assert_eq!(h.cluster.mutations(), 0);
     assert!(h.kanidm.lock().unwrap().is_empty());
 }
+
+#[tokio::test]
+async fn recovery_pages_preserve_status_and_safe_vm_context_while_power_errors_stay_plain() {
+    let h = harness().await;
+    for path in ["/vms/qrab/a", "/vms/qrab/a/bmc", "/vms/qrab/a/console"] {
+        let (status, headers, body) = send(&h, get(path, None)).await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+        assert!(
+            headers["content-type"]
+                .to_str()
+                .unwrap()
+                .starts_with("text/html")
+        );
+        assert!(body.contains("Sign in to continue") && body.contains("Sign in with Kanidm"));
+        let query = url::form_urlencoded::Serializer::new(String::new())
+            .append_pair("next", path)
+            .finish();
+        assert!(
+            body.contains(&format!("href=\"/auth/login?{query}\"")),
+            "{body}"
+        );
+        assert!(!body.contains("id-token"));
+    }
+    let cookie = session(&h.state.sessions, ALICE, &[]).await;
+    let (status, _, missing) = send(&h, get("/vms/qrab/missing", Some(&cookie))).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert!(missing.contains("VM not found"));
+    let (status, _, invisible) = send(&h, get("/vms/qrab/c", Some(&cookie))).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert_eq!(
+        missing, invisible,
+        "Existence must not change the recovery page"
+    );
+    let (status, _, body) = send(&h, get("/not-a-page", None)).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert!(body.contains("Page not found") && body.contains("All VMs"));
+    let (status, _, body) = send(
+        &h,
+        post("/vms/qrab/a/action", Some(&cookie), None, "action=Pause"),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert!(body.contains("Access isn&#39;t available") && body.contains("href=\"/vms/qrab/a\""));
+    let (status, headers, body) = send(&h, get("/vms/qrab/a/power", None)).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    assert!(
+        headers["content-type"]
+            .to_str()
+            .unwrap()
+            .starts_with("text/plain")
+    );
+    assert_eq!(body, "Sign in again to continue.");
+    assert_eq!(h.cluster.mutations(), 0);
+}

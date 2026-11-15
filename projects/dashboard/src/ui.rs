@@ -103,13 +103,37 @@ pub fn console_power() -> Vec<PowerButton> {
 pub enum Body {
     #[default]
     Welcome,
-    Error(String),
+    Error(ErrorPage),
     List(Vec<Row>),
     Detail(Box<DetailPage>),
     Launch(LaunchPage),
     Launched(Launched),
     Console(ConsolePage),
     Images(Vec<BaseImage>),
+}
+
+#[derive(Clone)]
+pub struct ErrorPage {
+    pub status: u16,
+    pub message: String,
+    /// An allowlisted same-origin VM page, set by the response middleware.
+    pub return_to: Option<String>,
+}
+
+impl ErrorPage {
+    fn title(&self) -> &'static str {
+        match self.status {
+            400 | 413 | 422 => "Check your request",
+            401 => "Sign in to continue",
+            403 => "Access isn't available",
+            404 if self.return_to.is_some() => "VM not found",
+            404 => "Page not found",
+            409 => "This action isn't available right now",
+            429 => "Too many requests",
+            502..=504 => "Service temporarily unavailable",
+            _ => "Request could not be completed",
+        }
+    }
 }
 
 #[derive(Clone, Default)]
@@ -125,6 +149,7 @@ pub fn render(page: Page) -> String {
         Body::Console(c) => format!("{} console · qrab VMs", c.name),
         Body::Launch(_) | Body::Launched(_) => "Launch a VM · qrab VMs".into(),
         Body::Images(_) => "Base images · qrab VMs".into(),
+        Body::Error(error) => format!("{} · qrab VMs", error.title()),
         _ => "qrab VMs".into(),
     };
     let mut dom = VirtualDom::new(app);
@@ -1123,9 +1148,12 @@ fn launched(page: &Launched) -> Element {
 fn console_page(page: &ConsolePage) -> Element {
     let back = format!("/vms/{}/{}", page.namespace, page.name);
     let socket = format!("{back}/console/ws");
+    let login = sign_in_path(Some(&format!("{back}/console")));
     rsx! {
         a { class: "back", href: "{back}", "← Back to {page.name}" }
         div { class: "heading", div { p { class: "eyebrow", "CONSOLE · {page.namespace}" } h1 { "{page.name}" } } }
+        p { id: "console-error", role: "alert", hidden: true }
+        p { id: "console-recovery", hidden: true, a { class: "button", href: "{login}", "Sign in again" } }
         div { class: "toolbar",
             p { id: "console-status", role: "status", "Console disconnected" }
             div { class: "actions",
@@ -1146,8 +1174,52 @@ fn console_page(page: &ConsolePage) -> Element {
             }
         }
         div { id: "screen", "data-socket": "{socket}", p { "Open the console for video, keyboard and mouse access. It closes when your session ends." } }
-        p { id: "console-error", role: "alert", hidden: true }
         script { r#type: "module", src: "/assets/console.js" }
+    }
+}
+
+fn sign_in_path(next: Option<&str>) -> String {
+    next.map_or_else(
+        || "/auth/login".to_owned(),
+        |path| {
+            let query = url::form_urlencoded::Serializer::new(String::new())
+                .append_pair("next", path)
+                .finish();
+            format!("/auth/login?{query}")
+        },
+    )
+}
+
+fn error_page(error: &ErrorPage) -> Element {
+    let login = sign_in_path(error.return_to.as_deref());
+    let vm = error
+        .return_to
+        .as_ref()
+        .map(|path| path.split('/').take(4).collect::<Vec<_>>().join("/"));
+    rsx! {
+        section { class: "card error-card", aria_labelledby: "error-title",
+            p { class: "eyebrow", "VM DASHBOARD" }
+            h1 { id: "error-title", "{error.title()}" }
+            if error.status != 404 {
+                if let Some(path) = &vm { p { class: "muted", "VM · " code { {path.trim_start_matches("/vms/")} } } }
+            }
+            p { class: "error-message", "{error.message}" }
+            if error.status == 403 {
+                p { class: "muted", "Ask a VM administrator to check your access. If your access recently changed, refresh your sign-in." }
+            }
+            div { class: "error-actions",
+                if error.status == 401 {
+                    a { class: "button", href: "{login}", "Sign in with Kanidm" }
+                    a { class: "button secondary", href: "/", "All VMs" }
+                } else {
+                    if let Some(vm) = vm.filter(|_| error.status != 404) {
+                        a { class: "button", href: "{vm}", "Back to VM" }
+                        a { class: "button secondary", href: "/", "All VMs" }
+                    } else { a { class: "button", href: "/", "All VMs" } }
+                    if error.status == 403 { a { href: "{login}", "Refresh sign-in" } }
+                }
+            }
+        }
     }
 }
 
@@ -1172,7 +1244,7 @@ fn app() -> Element {
             main { id: "main", tabindex: "-1",
                 if let Some(notice) = &page.notice { p { class: "notice", role: "status", "{notice}" } }
                 match (&page.body, &page.user) {
-                    (Body::Error(error), _) => rsx! { section { class: "card", role: "alert", h1 { "Request could not be completed" } p { "{error}" } a { href: "/", "Return to the dashboard" } } },
+                    (Body::Error(error), _) => error_page(error),
                     (Body::List(rows), Some(_user)) => rsx! {
                         div { class: "heading", div { p { class: "eyebrow", "VIRTUAL MACHINES" } h1 { "Your VMs" }
                             p { class: "muted", "Your shared and personal virtual machines. Open a VM to inspect it or use its BMC." } }

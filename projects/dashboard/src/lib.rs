@@ -97,14 +97,21 @@ impl Failure {
 }
 impl IntoResponse for Failure {
     fn into_response(self) -> Response {
-        (
+        let error = ui::ErrorPage {
+            status: self.0.as_u16(),
+            message: self.1,
+            return_to: None,
+        };
+        let mut response = (
             self.0,
             Html(ui::render(ui::Page {
-                body: ui::Body::Error(self.1),
+                body: ui::Body::Error(error.clone()),
                 ..Default::default()
             })),
         )
-            .into_response()
+            .into_response();
+        response.extensions_mut().insert(error);
+        response
     }
 }
 
@@ -209,6 +216,12 @@ pub fn router(state: AppState) -> Router {
             }),
         )
         .nest_service("/assets/novnc", novnc)
+        .fallback(|| async {
+            Failure(
+                StatusCode::NOT_FOUND,
+                "This page could not be found.".into(),
+            )
+        })
         .layer(DefaultBodyLimit::max(16 * 1024))
         .layer(axum::middleware::from_fn(headers))
         .layer(sessions)
@@ -216,7 +229,27 @@ pub fn router(state: AppState) -> Router {
 }
 
 async fn headers(request: axum::extract::Request, next: axum::middleware::Next) -> Response {
+    // Request context is used only for safe GET recovery links. Never retry a
+    // submitted action or replace its status with a sign-in redirect.
+    let path = request.uri().path();
+    let return_to = auth::return_path(path).or_else(|| {
+        ["/action", "/delete"]
+            .iter()
+            .find_map(|suffix| path.strip_suffix(suffix).and_then(auth::return_path))
+    });
     let mut response = next.run(request).await;
+    if let Some(mut error) = response.extensions_mut().remove::<ui::ErrorPage>()
+        && let Some(path) = return_to
+    {
+        error.return_to = Some(path);
+        *response.body_mut() = axum::body::Body::from(ui::render(ui::Page {
+            body: ui::Body::Error(error),
+            ..Default::default()
+        }));
+        response
+            .headers_mut()
+            .remove(axum::http::header::CONTENT_LENGTH);
+    }
     let h = response.headers_mut();
     if !h.contains_key("content-security-policy") {
         h.insert(

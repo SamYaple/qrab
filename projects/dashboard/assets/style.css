@@ -130,12 +130,12 @@ footer { text-align: center; color: var(--muted); font-size: .8rem; padding: 36p
 
 /* Controls */
 button, .button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 40px; padding: 8px 16px; font-size: .875rem; font-weight: 600; line-height: 1.4; cursor: pointer; color: #fff; background: var(--primary); border: 1px solid var(--primary-border); border-radius: 6px; text-decoration: none; }
-button:hover, .button:hover { filter: brightness(1.12); text-decoration: none; }
+button:hover, .button:hover { box-shadow: 0 0 0 1px var(--border-strong); text-decoration: none; }
 .quiet, .button.secondary { color: var(--text-control); border-color: var(--border-strong); background: var(--control); }
 .quiet { padding: 7px 12px; min-height: 36px; }
 .danger { color: var(--bad); background: var(--surface); border-color: var(--bad-border); }
 button.armed { color: #fff; background: var(--armed); border-color: var(--armed-border); }
-button:disabled, .button.disabled { cursor: not-allowed; color: var(--muted); border-color: var(--border); background: var(--surface-raised); filter: none; }
+button:disabled, .button.disabled { cursor: not-allowed; color: var(--muted); border-color: var(--border); background: var(--surface-raised); filter: none; box-shadow: none; }
 input, select, textarea { color: var(--text); border: 1px solid var(--border-strong); background: var(--surface); border-radius: 6px; padding: 10px 12px; min-width: 0; min-height: 42px; }
 input::placeholder, textarea::placeholder { color: var(--faint); }
 input[type=checkbox], input[type=radio] { min-height: 0; width: 18px; height: 18px; padding: 0; margin: 0; flex-shrink: 0; }
@@ -287,3 +287,9 @@ summary::marker { color: var(--accent); }
     .disclosure > summary .muted { display: block; margin: 4px 0 0 16px; }
     .form-disclosure { padding: 16px; }
 }
+
+/* Recovery pages are ordinary navigation, with a clear next action. */
+.error-card { max-width: 48rem; margin: 48px auto; padding: 32px; }
+.error-message { margin-top: 20px; overflow-wrap: anywhere; line-height: 1.7; }
+.error-actions { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-top: 24px; }
+@media (max-width: 700px) { .error-card { padding: 24px; margin: 24px 0; } }

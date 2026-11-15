@@ -378,10 +378,50 @@ fn main() {
         "console",
         page(Body::Console(ConsolePage {
             namespace: "qrab".into(),
-            name: "qrab-demo".into(),
+            name: "web-1".into(),
             csrf: "preview".into(),
             audio: true,
         })),
         &css,
     );
+    for (name, status, message, return_to) in [
+        (
+            "error-session",
+            401,
+            "Sign in again to continue.",
+            Some("/vms/qrab/web-1/bmc"),
+        ),
+        (
+            "error-denied",
+            403,
+            "The console requires the admin role on this VM.",
+            Some("/vms/qrab/web-1/console"),
+        ),
+        (
+            "error-missing",
+            404,
+            "This VM does not exist or is not shared with you.",
+            Some("/vms/qrab/missing"),
+        ),
+        (
+            "error-service",
+            503,
+            "The VM service could not complete this request.",
+            Some("/vms/qrab/web-1"),
+        ),
+    ] {
+        write(
+            dir,
+            name,
+            Page {
+                body: Body::Error(ui::ErrorPage {
+                    status,
+                    message: message.into(),
+                    return_to: return_to.map(str::to_owned),
+                }),
+                ..Default::default()
+            },
+            &css,
+        );
+    }
 }
