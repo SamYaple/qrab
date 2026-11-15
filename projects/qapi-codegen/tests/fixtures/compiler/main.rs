@@ -5,6 +5,34 @@ pub use qapi_runtime::{
 mod generated;
 pub use generated::*;
 fn main() {
+    assert_eq!(commands::Request1::NAME, "request-1");
+    assert_eq!(commands::Request1Generated::NAME, "request1");
+    assert_eq!(events::NoticeBarEvent::NAME, "NOTICE_BAR");
+    assert_eq!(events::NoticeBarEventGenerated::NAME, "NOTICE__BAR");
+    with_version((11, 1, 3), || {
+        assert_eq!(
+            serde_json::to_value(commands::Request1 {
+                left: "left".into()
+            })
+            .unwrap(),
+            serde_json::json!({"left":"left"})
+        );
+        assert_eq!(
+            serde_json::to_value(commands::Request1Generated { right: 42 }).unwrap(),
+            serde_json::json!({"right":42})
+        );
+        assert_eq!(
+            serde_json::to_value(events::NoticeBarEvent { right: 42 }).unwrap(),
+            serde_json::json!({"right":42})
+        );
+        assert_eq!(
+            serde_json::to_value(events::NoticeBarEventGenerated {
+                left: "left".into()
+            })
+            .unwrap(),
+            serde_json::json!({"left":"left"})
+        );
+    });
     with_version((2, 3, 0), || {
         for wire in [
             serde_json::json!({"kind":"value","value":"old"}),

@@ -378,7 +378,8 @@ fn process_version_schema_with_names(
                     event_names.insert(value.name.to_string(), name);
                 }
                 QapiSchemaToken::Command(value) => {
-                    let name = symbols.role(&format!("{}Command", rustify_name(&value.name)));
+                    let name =
+                        symbols.role(&format!("{}Command", symbols.command_root(&value.name)));
                     command_names.insert(value.name.to_string(), name);
                 }
                 _ => {}
@@ -404,7 +405,7 @@ fn process_version_schema_with_names(
                     if namespace == "type" {
                         name.to_owned()
                     } else {
-                        rustify_name(name)
+                        crate::schema_names::c_name(name)
                     },
                 );
                 if let Some(previous) = definitions.insert(key.clone(), name.to_owned()) {
@@ -612,7 +613,9 @@ fn process_version_schema_with_names(
     occupied.extend(enums_lookup.values().map(|value| symbol_name(&value.name)));
     for v in unprocessed_commands {
         let split = symbols.separate_request(&v.name);
-        let historical = symbols.historical_command(&v.name);
+        let request_name = symbols
+            .historical_command(&v.name)
+            .unwrap_or_else(|| symbols.command_root(&v.name));
         if let Some(crate::MembersOrRef::Ref(data)) = &v.data {
             anyhow::ensure!(
                 structs_lookup.contains_key::<str>(data.as_ref()),
@@ -641,7 +644,7 @@ fn process_version_schema_with_names(
             Some(if array { format!("Vec<{name}>") } else { name })
         });
         let mut processed = process_command(v, &structs_lookup);
-        if let Some(name) = historical {
+        if request_name != rustify_name(&processed.name) {
             processed
                 .meta
                 .attributes
@@ -650,7 +653,7 @@ fn process_version_schema_with_names(
                 .meta
                 .attributes
                 .push(Attribute::with_value("name", processed.name.clone()));
-            processed.name = name;
+            processed.name = request_name;
         }
         if let Some(returns) = returns {
             for attr in &mut processed.meta.attributes {

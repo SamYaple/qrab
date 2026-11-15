@@ -44,8 +44,13 @@ fn generated_command_flags_preserve_a_removed_interval() {
         } else {
             ""
         };
+        let renamed = match tag {
+            "v6.1.0" => "{'command':'renamed-1'}\n{'event':'RENAMED_BAR'}",
+            "v11.1.3" => "{'command':'renamed1'}\n{'event':'RENAMED__BAR'}",
+            _ => "",
+        };
         let schema = format!(
-            "{schema}\n{{'command':'feature-flip','features':{feature}}}\n{{'command':'stabilized','features':{initial}}}\n{{'struct':'Foo','data':{{'value':'str'}}}}\n{{'struct':'Late','data':{{'value':'str'}}}}\n{surface}\n{late}"
+            "{schema}\n{{'command':'feature-flip','features':{feature}}}\n{{'command':'stabilized','features':{initial}}}\n{{'struct':'Foo','data':{{'value':'str'}}}}\n{{'struct':'Late','data':{{'value':'str'}}}}\n{surface}\n{late}\n{renamed}"
         );
         std::fs::write(repo.join("qapi/qapi-schema.json"), schema).unwrap();
         git(&repo, &["add", "."]);
@@ -76,6 +81,12 @@ pub use qapi_runtime::{PreconfigSafe, QapiCommand, QapiEvent, QapiFlatUnion, qem
 mod generated;
 pub use generated::*;
 fn main() {
+    assert_eq!(commands::Renamed1::NAME, "renamed-1");
+    assert_eq!(commands::Renamed1::REMOVED_IN, Some((8,0,0)));
+    assert_eq!(commands::Renamed1Generated::NAME, "renamed1");
+    assert_eq!(commands::Renamed1Generated::AVAILABLE_SINCE, (11,1,3));
+    assert_eq!(events::RenamedBarEvent::NAME, "RENAMED_BAR");
+    assert_eq!(events::RenamedBarEventGenerated::NAME, "RENAMED__BAR");
     assert_eq!(commands::LateCommand::AVAILABLE_SINCE,(11,1,3));
     with_version((8,0,0), || {
         assert!(serde_json::to_value(Late {value:"data".into()}).is_ok());

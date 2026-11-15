@@ -42,6 +42,8 @@ pub(crate) struct SchemaNames {
     type_runs: BTreeMap<String, BTreeMap<(u32, u32, u32), String>>,
     commands: BTreeMap<String, BTreeSet<(u32, u32, u32)>>,
     events: BTreeMap<String, BTreeSet<(u32, u32, u32)>>,
+    command_aliases: BTreeMap<String, String>,
+    event_aliases: BTreeMap<String, String>,
     command_runs: BTreeMap<String, BTreeMap<(u32, u32, u32), String>>,
     separate_requests: HashSet<String>,
     event_runs: BTreeMap<String, BTreeMap<(u32, u32, u32), String>>,
@@ -201,10 +203,30 @@ impl SchemaNames {
             }
             self.type_runs.insert(root.clone(), assigned);
         }
+        // Wire-distinct commands must never share request identity, even when
+        // they occur in disjoint releases and normalize to the same Rust name.
+        let mut command_roots = HashSet::new();
+        for raw in self.commands.keys() {
+            let root = rustify_name(raw);
+            if !command_roots.insert(root.clone()) {
+                let assigned = generated_name(&mut self.names, &root);
+                self.roles.entry(format!("{assigned}Command")).or_default();
+                self.command_aliases.insert(raw.clone(), assigned);
+            }
+        }
+        for raw in self.commands.keys() {
+            if self
+                .command_aliases
+                .keys()
+                .any(|alias| rustify_name(alias) == rustify_name(raw))
+            {
+                self.separate_requests.insert(raw.clone());
+            }
+        }
         for (raw, versions) in &self.commands {
             let runs = presence_runs(&self.versions, versions);
             if runs.len() > 1 {
-                let root = rustify_name(raw);
+                let root = self.command_root(raw);
                 let mut names = BTreeMap::new();
                 for (index, since) in runs.into_iter().rev().enumerate() {
                     names.insert(
@@ -266,10 +288,18 @@ impl SchemaNames {
             }
             *allocated = name;
         }
+        let mut event_roots = HashSet::new();
+        for raw in self.events.keys() {
+            let root = rustify_name(&format!("{raw}Event"));
+            if !event_roots.insert(root.clone()) {
+                let assigned = generated_name(&mut self.names, &self.roles[&root]);
+                self.event_aliases.insert(raw.clone(), assigned);
+            }
+        }
         for (raw, versions) in &self.events {
             let runs = presence_runs(&self.versions, versions);
             if runs.len() > 1 {
-                let root = self.roles[&rustify_name(&format!("{raw}Event"))].clone();
+                let root = self.event_root(raw);
                 let mut names = BTreeMap::new();
                 for (index, since) in runs.into_iter().rev().enumerate() {
                     names.insert(
@@ -290,6 +320,20 @@ impl SchemaNames {
         self.separate_requests.contains(name)
     }
 
+    pub fn command_root(&self, name: &str) -> String {
+        self.command_aliases
+            .get(name)
+            .cloned()
+            .unwrap_or_else(|| rustify_name(name))
+    }
+
+    fn event_root(&self, name: &str) -> String {
+        self.event_aliases
+            .get(name)
+            .cloned()
+            .unwrap_or_else(|| self.role(&rustify_name(&format!("{name}Event"))))
+    }
+
     pub fn historical_command(&self, name: &str) -> Option<String> {
         self.command_runs
             .get(name)
@@ -304,7 +348,7 @@ impl SchemaNames {
             .get(name)
             .and_then(|runs| runs.range(..=crate::parser_version()).next_back())
             .map(|(_, name)| name.clone())
-            .unwrap_or_else(|| self.role(&rustify_name(&format!("{name}Event"))))
+            .unwrap_or_else(|| self.event_root(name))
     }
 
     pub fn role(&self, preferred: &str) -> String {
@@ -429,6 +473,17 @@ fn presence_runs(
 
 fn legacy_name(names: &mut HashSet<String>, root: &str) -> String {
     let base = format!("{root}Legacy");
+    let mut name = base.clone();
+    let mut suffix = 2;
+    while !names.insert(name.clone()) {
+        name = format!("{base}{suffix}");
+        suffix += 1;
+    }
+    name
+}
+
+fn generated_name(names: &mut HashSet<String>, root: &str) -> String {
+    let base = format!("{root}Generated");
     let mut name = base.clone();
     let mut suffix = 2;
     while !names.insert(name.clone()) {

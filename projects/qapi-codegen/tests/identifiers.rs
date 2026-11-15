@@ -37,6 +37,10 @@ fn valid_schema_keywords_and_standard_type_names_compile_and_round_trip() {
     schema.push_str("{ 'pragma':{'command-returns-exceptions':['read-string','read-strings','query-changing-direct','query-changing-array','read-implicit-ints']} }\n");
     schema.push_str("{ 'command':'read-string', 'returns':'str' }\n");
     schema.push_str("{ 'command':'read-strings', 'returns':['str'] }\n");
+    schema.push_str("{'command':'request-1','data':{'left':'str'}}\n{'command':'request1','data':{'right':'int'}}\n");
+    schema.push_str(
+        "{'event':'NOTICE__BAR','data':{'left':'str'}}\n{'event':'NOTICE_BAR','data':{'right':'int'}}\n",
+    );
     schema.push_str(
         "{ 'alternate':'PeerPayload', 'data':{'text':'str','object':'String','nothing':'null'} }\n",
     );

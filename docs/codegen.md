@@ -282,6 +282,9 @@ check declarations, references, commands and metadata together.
 Generated union branches, simple-union tags, event types and command fallbacks
 avoid declared symbols, adding `Generated` or numbered suffixes when needed.
 References and wire names remain attached to the correct definitions.
+Wire-distinct commands and events that normalize to the same Rust name also
+receive distinct identities across the full history, even if they never coexist.
+For example, `request-1` and `request1` keep separate command names and lifetimes.
 Exact QAPI type references resolve before Rust conversion. Coexisting declarations
 such as `Option`/`QapiOption` or `FooBAR`/`FooBar` receive distinct Rust symbols;
 mutually exclusive historical spellings can retain a shared identity.

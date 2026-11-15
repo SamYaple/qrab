@@ -27,16 +27,7 @@ fn features(features: Option<&QapiFeatures<'_>>) -> Result<()> {
 fn unique_names<'a>(kind: &str, names: impl IntoIterator<Item = &'a str>) -> Result<()> {
     let mut seen = HashMap::new();
     for name in names {
-        let key: String = name
-            .chars()
-            .map(|c| {
-                if c.is_ascii_alphanumeric() || c == '_' {
-                    c
-                } else {
-                    '_'
-                }
-            })
-            .collect();
+        let key = crate::schema_names::c_name(name);
         if let Some(previous) = seen.insert(key, name) {
             anyhow::bail!("{kind} '{name}' collides with '{previous}'");
         }

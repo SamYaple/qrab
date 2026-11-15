@@ -1,6 +1,18 @@
 //! Version-specific QName syntax, independent of casing/pragma style rules.
 use anyhow::{Result, ensure};
 
+pub(crate) fn c_name(name: &str) -> String {
+    name.chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect()
+}
+
 pub(crate) fn validate(name: &str, enum_member: bool) -> Result<()> {
     let version = crate::parser_version();
     if version < (2, 4, 0) {
