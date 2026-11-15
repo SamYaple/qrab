@@ -183,6 +183,17 @@ def bmc_state_checks(browser, width, theme):
     page.locator('#tab-events').click()
     page.locator('#events-filter').fill('not-a-recorded-event')
     expect(page.locator('#events-empty')).to_contain_text('No events match')
+    fixture['post_error'] = None
+    previous_posts = len(fixture['posts'])
+    for target in ['/vms/qrab/other/bmc/redfish/v1/Systems/1/Actions/ComputerSystem.Reset',
+                   '/redfish/../../vms/qrab/other/power', '//other.example/redfish/v1/Systems/1',
+                   '/redfish/v1/Systems/1#unexpected-fragment']:
+        fixture['system']['Actions']['#ComputerSystem.Reset']['target'] = target
+        page.clock.fast_forward(3100)
+        resume.click()
+        expect(resume).to_be_enabled()
+        assert len(fixture['posts']) == previous_posts, 'A VM action URL must stay in its own Redfish bridge'
+        expect(page.locator('#error')).to_contain_text('Invalid management URL')
     fixture['expired'] = True
     page.clock.fast_forward(3100)
     expect(page.locator('#login')).to_be_visible()

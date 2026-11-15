@@ -68,16 +68,23 @@ async function failure(response) {
 // cookie/CSRF bridge; the public /redfish endpoint stays directly on Redfish.
 const browserPath = path => {
     if (typeof path !== 'string' || !path.startsWith('/') || path.startsWith('//')) throw new Error('Invalid management URL');
-    if (path === '/redfish' || path.startsWith('/redfish/')) return `${vmBase}/bmc${path}`;
-    if (vmBase && path === '/api/session') return `${vmBase}/bmc/session`;
-    if (vmBase && path === '/auth/logout') return `${vmBase}/bmc/logout`;
-    return path;
+    if (path === '/api/session') return vmBase ? `${vmBase}/bmc/session` : path;
+    if (path === '/auth/logout') return vmBase ? `${vmBase}/bmc/logout` : path;
+    let target;
+    try { target = new URL(path, location.origin); } catch { throw new Error('Invalid management URL'); }
+    if (target.origin !== location.origin || target.hash || !(target.pathname === '/redfish' || target.pathname.startsWith('/redfish/'))) {
+        throw new Error('Invalid management URL');
+    }
+    // Normalize before adding this VM's prefix, so an upstream action URL can
+    // never traverse out of its bridge or post to another dashboard VM.
+    return `${vmBase}/bmc${target.pathname}${target.search}`;
 };
 async function request(path, options = {}) {
     if (path !== '/api/session' && !session) throw new Error('Your session ended. Sign in to reconnect.');
+    const url = browserPath(path);
     let response;
     try {
-        response = await fetch(browserPath(path), {credentials: 'same-origin', ...options});
+        response = await fetch(url, {credentials: 'same-origin', ...options});
     } catch {
         throw new Error(options.method === 'POST'
             ? 'Connection lost. The action may have reached the VM; check its status before retrying.'

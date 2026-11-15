@@ -2505,7 +2505,7 @@ async fn bmc_assets_scope_all_browser_connections_to_the_dashboard_vm() {
     let h = harness().await;
     let (status, _, js) = send(&h, get("/assets/bmc.js", None)).await;
     assert_eq!(status, StatusCode::OK);
-    assert!(js.contains("`${vmBase}/bmc${path}`"));
+    assert!(js.contains("`${vmBase}/bmc${target.pathname}${target.search}`"));
     assert!(js.contains("`${vmBase}/bmc/session`"));
     assert!(js.contains("`${vmBase}/bmc/logout`"));
     assert!(js.contains("`${vmBase}/console/ws`") && js.contains("${location.host}${consolePath}"));

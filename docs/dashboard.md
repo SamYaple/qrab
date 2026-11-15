@@ -126,6 +126,8 @@ polling and offers sign-in back to the same VM's BMC page. Only the VM detail,
 BMC and console paths are allowed as VM sign-in return destinations. Fetch
 routes return JSON errors; an HTML error from an ingress is shown as a short
 availability message, never as a document dumped into the error banner.
+Action URLs advertised by Redfish are normalized and restricted to the selected
+VM's Redfish bridge; they cannot select a different dashboard VM or origin.
 
 ### Console power controls
 
