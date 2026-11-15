@@ -126,6 +126,13 @@ fn valid_schema_keywords_and_standard_type_names_compile_and_round_trip() {
     schema.push_str(builtin_schema);
     let presence = "{'enum':'PresenceKind','data':['stable','returning']}\n{'struct':'PresenceRecord','data':{'returning':'str'}}\n";
     schema.push_str(presence);
+    let type_presence = concat!(
+        "{'enum':'GappedEnum','data':['value','empty']}\n",
+        "{'union':'GappedUnion','base':{'kind':'GappedEnum'},'discriminator':'kind','data':{'value':'GappedPayload','empty':'GappedEmpty'}}\n",
+        "{'struct':'GappedPayload','data':{'value':'str'}}\n",
+        "{'struct':'GappedEmpty','data':{}}\n",
+    );
+    schema.push_str(type_presence);
     schema.push_str("{ 'struct':'ImplicitLists', 'data':{'ints':'intList','strs':'strList','direct':['String'],'named':'StringList','type-direct':['QType'],'types':'QTypeList','nulls':'nullList'} }\n");
     schema.push_str("{ 'command':'read-implicit-ints', 'returns':'intList' }\n");
     schema.push_str("{ 'command':'read-implicit-named', 'returns':'StringList' }\n");
@@ -195,7 +202,11 @@ fn valid_schema_keywords_and_standard_type_names_compile_and_round_trip() {
     schema.push_str("{ 'union':'HistoricalChangingPayload', 'data':{'item':'ChangingType'} }\n");
     let nested_schema = "{ 'struct':'NestedInline', 'data':{'outer':{'inner':{'value':'str','*count':'int'},'*empty':{}},'*choice':{'flag':'bool'}} }\n{ 'struct':'NestedInlineOuterInner', 'data':{'declared':'bool'} }\n{ 'enum':'CycleShape', 'data':['old'] }\n{ 'struct':'CycleHolder', 'data':{'item':'CycleShape'} }\n";
     let legacy_names = "{'type':'_','data':{'_':'str','qapi-unnamed':'str'}}\n{'enum':'LegacyNames','data':['','qapi-unnamed','1','1-foo']}\n";
-    std::fs::write(&entry, format!("{nested_schema}{presence}{legacy_names}")).unwrap();
+    std::fs::write(
+        &entry,
+        format!("{nested_schema}{presence}{type_presence}{legacy_names}"),
+    )
+    .unwrap();
     git(&repo, &["init", "-q"]);
     git(&repo, &["add", "."]);
     git(

@@ -6,6 +6,34 @@ mod generated;
 pub use generated::*;
 fn main() {
     with_version((2, 3, 0), || {
+        for wire in [
+            serde_json::json!({"kind":"value","value":"old"}),
+            serde_json::json!({"kind":"empty"}),
+        ] {
+            let value: GappedUnionLegacy = serde_json::from_value(wire.clone()).unwrap();
+            assert_eq!(serde_json::to_value(value).unwrap(), wire);
+        }
+    });
+    for version in [(6, 1, 0), (11, 1, 3)] {
+        with_version(version, || {
+            let wire = serde_json::json!({"kind":"value","value":"current"});
+            let value: GappedUnion = serde_json::from_value(wire.clone()).unwrap();
+            assert_eq!(serde_json::to_value(value).unwrap(), wire);
+        });
+    }
+    with_version((2, 9, 0), || {
+        assert!(serde_json::to_value(GappedEnum::Value).is_err());
+        assert!(serde_json::to_value(GappedEnumLegacy::Value).is_err());
+    });
+    assert_eq!(metadata::ENUMS.get("GappedEnum").unwrap().since, (6, 1, 0));
+    assert_eq!(
+        metadata::ENUMS.get("GappedEnumLegacy").unwrap().until,
+        Some((2, 9, 0))
+    );
+    with_version((2, 3, 0), || {
+        let wire = serde_json::json!({"item":"old"});
+        let value: CycleHolderLegacy = serde_json::from_value(wire.clone()).unwrap();
+        assert_eq!(serde_json::to_value(value).unwrap(), wire);
         let wire = serde_json::json!({"_":"legacy","qapi-unnamed":"ordinary"});
         let value: QapiUnnamed = serde_json::from_value(wire.clone()).unwrap();
         assert_eq!(serde_json::to_value(value).unwrap(), wire);
@@ -342,7 +370,6 @@ fn main() {
         "CycleShape"
     );
     for (version, wire) in [
-        ((2, 3, 0), serde_json::json!({"item":"old"})),
         ((6, 1, 0), serde_json::json!({"item":{"value":"middle"}})),
         ((11, 1, 3), serde_json::json!({"item":"new"})),
     ] {

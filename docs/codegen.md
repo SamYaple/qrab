@@ -235,6 +235,9 @@ When a named type changes between a string enum, alternate and object, earlier
 definitions receive lifetime-gated `Legacy` names. References follow each
 release's definition; a return to an earlier kind starts a separate lifetime.
 Structs and tagged unions retain their shared object field history.
+Named data types that disappear and return also receive separate lifetime-gated
+representations, even when the wire kind is unchanged. Their union helpers
+follow the same lifetime; the restored declaration keeps the ordinary Rust name.
 
 QAPI build conditions describe the remote QEMU or guest-agent build. They are
 retained in generated documentation, never translated into Rust host OS gates.

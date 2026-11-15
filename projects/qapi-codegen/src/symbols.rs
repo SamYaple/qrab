@@ -31,6 +31,7 @@ fn declaration<'a>(token: &'a QapiSchemaToken<'_>) -> Option<(&'a str, Kind)> {
 
 #[derive(Default)]
 pub(crate) struct SchemaNames {
+    versions: BTreeSet<(u32, u32, u32)>,
     pub names: HashSet<String>,
     roles: BTreeMap<String, String>,
     union_owners: BTreeSet<String>,
@@ -43,6 +44,7 @@ pub(crate) struct SchemaNames {
 
 impl SchemaNames {
     pub fn merge(&mut self, other: Self) {
+        self.versions.extend(other.versions);
         self.names.extend(other.names);
         self.roles.extend(other.roles);
         self.union_owners.extend(other.union_owners);
@@ -53,6 +55,7 @@ impl SchemaNames {
     }
 
     pub fn collect(&mut self, schema: &QapiSchema<'_>) {
+        self.versions.insert(crate::parser_version());
         for token in &schema.0 {
             if let Some((name, kind)) = declaration(token) {
                 self.declarations
@@ -148,10 +151,15 @@ impl SchemaNames {
         // A return to an earlier kind starts a distinct lifetime as well.
         for (root, versions) in &histories {
             let mut runs = Vec::new();
-            for (&version, &kind) in versions {
-                if runs.last().is_none_or(|&(_, previous)| previous != kind) {
+            let mut previous = None;
+            for &version in &self.versions {
+                let kind = versions.get(&version).copied();
+                if let Some(kind) = kind
+                    && previous != Some(kind)
+                {
                     runs.push((version, kind));
                 }
+                previous = kind;
             }
             if runs.len() < 2 {
                 continue;
@@ -184,6 +192,12 @@ impl SchemaNames {
             let root = self.alias_name(owner);
             self.roles.entry(format!("{root}Branch")).or_default();
             self.roles.entry(format!("{root}Type")).or_default();
+            if let Some(runs) = self.type_runs.get(&root) {
+                for name in runs.values() {
+                    self.roles.entry(format!("{name}Branch")).or_default();
+                    self.roles.entry(format!("{name}Type")).or_default();
+                }
+            }
         }
         for (preferred, allocated) in &mut self.roles {
             let mut name = preferred.clone();

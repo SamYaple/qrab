@@ -368,7 +368,7 @@ fn process_version_schema_with_names(
         for token in &schema.0 {
             match token {
                 QapiSchemaToken::Union(value) => {
-                    let root = symbols.alias_name(&value.name);
+                    let root = symbols.type_name(&value.name);
                     let branch = symbols.role(&format!("{root}Branch"));
                     let discriminator = symbols.role(&format!("{root}Type"));
                     union_names.insert(value.name.to_string(), (branch, discriminator));
@@ -3603,6 +3603,22 @@ mod flag_timeline_tests {
                 build_unified_registry(&repo, &tags).unwrap()
             };
             for source in sources {
+                for (name, value) in &registry.types {
+                    let present =
+                        source.structs.contains_key(name) || source.enums.contains_key(name);
+                    let range = match value {
+                        UnifiedType::Enum(value) => &value.versions,
+                        UnifiedType::Struct(value) => &value.versions,
+                    };
+                    let active = source.version >= range.since
+                        && range.until.is_none_or(|until| source.version < until);
+                    if present != active {
+                        mismatches.push(format!(
+                            "{} {name}: definition present={present}, merged availability={active}",
+                            source.tag
+                        ));
+                    }
+                }
                 for (name, value) in source.structs {
                     let UnifiedType::Struct(merged) = &registry.types[&name] else {
                         panic!()
