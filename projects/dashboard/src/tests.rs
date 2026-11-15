@@ -2476,9 +2476,27 @@ async fn central_bmc_page_and_bridge_preserve_vm_and_login_boundaries() {
         .as_mut()
         .unwrap()
         .pod_name = Some("b".into());
-    assert_eq!(
-        send(&h, get(&resource, Some(&admin))).await.0,
-        StatusCode::SERVICE_UNAVAILABLE
+    let (status, headers, body) = send(&h, get(&resource, Some(&admin))).await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+    assert!(
+        headers["content-type"]
+            .to_str()
+            .unwrap()
+            .starts_with("application/json")
+    );
+    let error: serde_json::Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(error["error"]["message"], "The VM has no running Pod.");
+    assert!(!body.contains("id-token-of-alice"));
+    let (status, headers, body) = send(&h, get(&format!("{base}/session"), None)).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    assert!(
+        headers["content-type"]
+            .to_str()
+            .unwrap()
+            .starts_with("application/json")
+    );
+    assert!(
+        serde_json::from_str::<serde_json::Value>(&body).unwrap()["error"]["message"].is_string()
     );
 }
 

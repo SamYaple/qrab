@@ -9,13 +9,14 @@ import argparse
 import json
 import mimetypes
 from pathlib import Path
-from urllib.parse import urlparse
-from playwright.sync_api import sync_playwright
+from urllib.parse import parse_qs, urlparse
+from playwright.sync_api import expect, sync_playwright
 
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--browser', default='/opt/google/chrome/chrome')
 parser.add_argument('--previews', type=Path, required=True)
 parser.add_argument('--output', type=Path, default=Path('target/ui-browser'))
+parser.add_argument('--states-only', action='store_true', help='Run only BMC loading, failure, pending-request and expiry checks.')
 args = parser.parse_args()
 root = Path(__file__).resolve().parents[2]
 args.output.mkdir(parents=True, exist_ok=True)
@@ -36,7 +37,9 @@ def system(power='On'):
 
 
 def install_bmc(context, role='admin', power='On'):
-    fixture = {'system': system(power), 'posts': [], 'expired': False}
+    fixture = {'system': system(power), 'posts': [], 'expired': False,
+               'hold_posts': False, 'pending_posts': [], 'post_error': None,
+               'fail_system': None, 'fail_metrics': False, 'hold_session': False, 'pending_session': [], 'empty_events': False, 'requests': []}
     fixture['system']['Oem']['Qrab']['Configuration']['redacted'] = role == 'viewer'
 
     def route(request_route):
@@ -55,21 +58,38 @@ def install_bmc(context, role='admin', power='On'):
             html = (root / 'projects/bmc/assets/index.html').read_text().replace('/assets/style.css', '/assets/bmc.css').replace('/assets/console.js', '/assets/bmc.js').replace('<body>', f'<body data-vm-base="{base}">')
             request_route.fulfill(body=html, content_type='text/html')
             return
+        fixture['requests'].append((req.method, path))
         if fixture['expired']:
             request_route.fulfill(status=401, body='Sign in again.')
             return
+        if fixture['fail_metrics'] and (path.endswith('/Resources') or path.endswith('/MetricReports/VM')):
+            request_route.fulfill(status=503, json={'error': {'message': 'Measurements unavailable.'}})
+            return
         if path == base + '/bmc/session':
             data = {'user': {'name': 'sam', 'subject': 'fixture-user', 'csrf': 'fixture-csrf'}, 'role': role, 'vm_name': 'web-1', 'admin_bucket': []}
+            if fixture['hold_session']:
+                fixture['pending_session'].append((request_route, data))
+                return
         elif req.method == 'POST':
-            fixture['posts'].append({'path': path, 'body': req.post_data_json, 'csrf': req.headers.get('x-csrf-token')})
+            fixture['posts'].append({'path': path, 'body': req.post_data_json if req.post_data else None, 'csrf': req.headers.get('x-csrf-token')})
+            if fixture['hold_posts']:
+                fixture['pending_posts'].append(request_route)
+                return
+            if fixture['post_error']:
+                request_route.fulfill(status=403, json={'error': {'message': fixture['post_error']}})
+                return
             request_route.fulfill(status=204)
             return
         elif path.endswith('/Systems/1'):
+            if fixture['fail_system']:
+                error = fixture['fail_system']
+                request_route.fulfill(status=503, **error)
+                return
             data = fixture['system']
         elif path.endswith('/ResetActionInfo'):
             data = {'Parameters': [{'Name': 'ResetType', 'AllowableValues': resets}]}
         elif path.endswith('/Events/Entries'):
-            data = {'Members': [{'Id': str(i), 'Created': f'2026-11-15T04:00:{i:02d}Z', 'Oem': {'Qrab': {'Sequence': i, 'Event': event, 'Data': {'reason': 'requested by user'}}}} for i, event in [(1, 'STOP'), (2, 'RESUME'), (3, 'DEVICE_DELETED')]]}
+            data = {'Members': [] if fixture['empty_events'] else [{'Id': str(i), 'Created': f'2026-11-15T04:00:{i:02d}Z', 'Oem': {'Qrab': {'Sequence': i, 'Event': event, 'Data': {'reason': 'requested by user'}}}} for i, event in [(1, 'STOP'), (2, 'RESUME'), (3, 'DEVICE_DELETED')]]}
         elif path.endswith('/EventService/SSE'):
             request_route.fulfill(body=': fixture\n\n', content_type='text/event-stream')
             return
@@ -93,9 +113,115 @@ def no_overflow(page, name, width):
     assert measured['content'] <= measured['viewport'], f'{name} at {width}: {measured}'
 
 
+def bmc_state_checks(browser, width, theme):
+    context = browser.new_context(viewport={'width': width, 'height': 1000}, color_scheme=theme)
+    fixture = install_bmc(context)
+    fixture['hold_session'] = True
+    page = context.new_page()
+    errors = []
+    page.on('pageerror', lambda error: errors.append(str(error)))
+    page.clock.install()
+    page.goto('http://ui.test' + base + '/bmc', wait_until='domcontentloaded')
+    expect(page.locator('#loading')).to_be_visible()
+    page.screenshot(path=str(args.output / f'bmc-loading-{theme}-{width}.png'), full_page=True)
+    page.wait_for_timeout(100)
+    assert len(fixture['pending_session']) == 1
+    request_route, data = fixture['pending_session'].pop()
+    fixture['hold_session'] = False
+    request_route.fulfill(json=data)
+    pause = page.locator('#power button[data-type=Pause]')
+    expect(pause).to_be_enabled()
+    expect(page.locator('#loading')).to_be_hidden()
+
+    # Polls must never unlock a pending action, and synthetic duplicate events
+    # must not send another POST even if a caller bypasses the disabled DOM.
+    fixture['hold_posts'] = True
+    pause.click()
+    expect(pause).to_have_attribute('aria-busy', 'true')
+    page.clock.fast_forward(3100)
+    assert page.locator('#power button:enabled, [data-agent]:enabled').count() == 0
+    pause.dispatch_event('click')
+    assert len(fixture['posts']) == 1
+    page.screenshot(path=str(args.output / f'bmc-pending-{theme}-{width}.png'), full_page=True)
+    fixture['system']['PowerState'] = 'Paused'
+    fixture['hold_posts'] = False
+    fixture['pending_posts'].pop().fulfill(status=204)
+    expect(page.locator('#power button[data-type=Resume]')).to_be_enabled()
+    expect(page.locator('#action-status')).to_contain_text('request accepted')
+
+    fixture['fail_system'] = {'json': {'error': {'message': 'The VM has no running Pod.'}}}
+    page.clock.fast_forward(3100)
+    expect(page.locator('#read-status')).to_contain_text('The VM has no running Pod.')
+    expect(page.locator('#read-status')).to_contain_text('last updated')
+    assert page.locator('#power button:enabled, [data-agent]:enabled').count() == 0
+    expect(page.locator('#connect')).to_be_disabled()
+    no_overflow(page, 'bmc-stale', width)
+    page.screenshot(path=str(args.output / f'bmc-stale-{theme}-{width}.png'), full_page=True)
+    fixture['fail_system'] = {'body': '<!doctype html><html><body>Gateway unavailable</body></html>', 'content_type': 'text/html'}
+    page.clock.fast_forward(3100)
+    expect(page.locator('#read-status')).to_contain_text('VM access is unavailable (503)')
+    assert '<!doctype' not in page.locator('#read-status').inner_text()
+    fixture['fail_system'] = None
+    page.clock.fast_forward(3100)
+    expect(page.locator('#read-status')).to_be_hidden()
+    resume = page.locator('#power button[data-type=Resume]')
+    expect(resume).to_be_enabled()
+    fixture['fail_metrics'] = True
+    page.locator('#tab-metrics').click()
+    expect(page.locator('#metrics-note')).to_have_text('Unavailable')
+    fixture['fail_metrics'] = False
+    page.clock.fast_forward(5100)
+    expect(page.locator('#telemetry')).to_contain_text('No metrics have been reported yet.')
+    expect(page.locator('#resources dd')).to_have_text(['unavailable', 'unavailable'])
+    expect(page.locator('#metrics-note')).to_contain_text('Sampled')
+    fixture['post_error'] = 'Permission denied by the VM.'
+    resume.click()
+    expect(page.locator('#error')).to_contain_text('Resume: Permission denied by the VM.')
+    expect(page.locator('#action-status')).to_be_hidden()
+    expect(resume).to_be_enabled()
+
+    page.locator('#tab-events').click()
+    page.locator('#events-filter').fill('not-a-recorded-event')
+    expect(page.locator('#events-empty')).to_contain_text('No events match')
+    fixture['expired'] = True
+    page.clock.fast_forward(3100)
+    expect(page.locator('#login')).to_be_visible()
+    expect(page.locator('#dashboard')).to_be_hidden()
+    expect(page.locator('#error')).to_be_hidden()
+    destination = parse_qs(urlparse(page.locator('#sign-in').get_attribute('href')).query)
+    assert destination['next'] == [base + '/bmc']
+    requests = len(fixture['requests'])
+    page.clock.fast_forward(10000)
+    assert len(fixture['requests']) == requests, 'Logout/expiry must stop background requests'
+    page.screenshot(path=str(args.output / f'bmc-expired-{theme}-{width}.png'), full_page=True)
+    assert not errors, errors
+    context.close()
+
+    context = browser.new_context(viewport={'width': width, 'height': 1000}, color_scheme=theme)
+    fixture = install_bmc(context, power='Off')
+    fixture['empty_events'] = True
+    page = context.new_page()
+    page.clock.install()
+    page.goto('http://ui.test' + base + '/bmc')
+    page.locator('#dashboard').wait_for(state='visible')
+    expect(page.locator('#connect')).to_be_disabled()
+    expect(page.locator('#power button[data-type=On]')).to_be_enabled()
+    page.locator('#tab-events').click()
+    expect(page.locator('#events-empty')).to_have_text('No events recorded yet.')
+    assert page.locator('#screen').bounding_box()['height'] <= 200
+    no_overflow(page, 'bmc-off-empty', width)
+    page.screenshot(path=str(args.output / f'bmc-off-empty-{theme}-{width}.png'), full_page=True)
+    fixture['system']['PowerState'] = 'On'
+    page.clock.fast_forward(3100)
+    expect(page.locator('#connect')).to_be_enabled()
+    assert page.locator('#screen').get_attribute('data-state') is None
+    assert fixture['posts'] == []
+    context.close()
+
+
 with sync_playwright() as playwright:
     browser = playwright.chromium.launch(executable_path=args.browser, headless=True, args=['--no-sandbox'])
-    for theme in ['dark', 'light']:
+    for theme in ([] if args.states_only else ['dark', 'light']):
         for width in [1440, 768, 390]:
             context = browser.new_context(viewport={'width': width, 'height': 1000}, color_scheme=theme)
             page = context.new_page()
@@ -173,5 +299,7 @@ with sync_playwright() as playwright:
                     assert fixture['posts'][-1]['body'] == {'ResetType': 'ForceRestart'}
                 assert not errors, errors
                 context.close()
+    bmc_state_checks(browser, 1440, 'dark')
+    bmc_state_checks(browser, 390, 'light')
     browser.close()
 print('Dashboard and BMC browser checks passed (desktop, tablet, mobile; dark and light; admin and viewer).')

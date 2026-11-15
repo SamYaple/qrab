@@ -41,7 +41,29 @@ pub async fn script() -> impl IntoResponse {
     )
 }
 
+/// The BMC's fetch routes return a small JSON error, while navigation errors
+/// on `page` remain normal dashboard HTML. Never send a whole error page to a
+/// control that expects a Redfish-shaped response.
+fn api_response<T: IntoResponse>(result: Result<T, Failure>) -> Response {
+    match result {
+        Ok(reply) => reply.into_response(),
+        Err(Failure(status, message)) => (
+            status,
+            Json(serde_json::json!({"error": {"message": message}})),
+        )
+            .into_response(),
+    }
+}
+
 pub async fn identity(
+    app: State<AppState>,
+    session: Session,
+    path: Path<(String, String)>,
+) -> Response {
+    api_response(identity_inner(app, session, path).await)
+}
+
+async fn identity_inner(
     State(app): State<AppState>,
     session: Session,
     Path((ns, name)): Path<(String, String)>,
@@ -65,6 +87,15 @@ pub async fn identity(
 }
 
 pub async fn logout(
+    app: State<AppState>,
+    session: Session,
+    path: Path<(String, String)>,
+    headers: axum::http::HeaderMap,
+) -> Response {
+    api_response(logout_inner(app, session, path, headers).await)
+}
+
+async fn logout_inner(
     State(app): State<AppState>,
     session: Session,
     Path((ns, name)): Path<(String, String)>,
@@ -92,6 +123,15 @@ fn guard(
 }
 
 pub async fn forward(
+    app: State<AppState>,
+    session: Session,
+    path: Path<(String, String, String)>,
+    request: Request,
+) -> Response {
+    api_response(forward_inner(app, session, path, request).await)
+}
+
+async fn forward_inner(
     State(app): State<AppState>,
     session: Session,
     Path((ns, name, path)): Path<(String, String, String)>,

@@ -11,6 +11,7 @@ const consolePath = vmBase ? `${vmBase}/console/ws` : '/api/console';
 if (vmBase) {
     document.getElementById('vm-navigation').hidden = false;
     document.getElementById('vm-detail-link').href = vmBase;
+    document.getElementById('sign-in').href = `/auth/login?next=${encodeURIComponent(`${vmBase}/bmc`)}`;
 }
 const SYSTEM = '/redfish/v1/Systems/1';
 const RESET_INFO = `${SYSTEM}/ResetActionInfo`;
@@ -43,17 +44,25 @@ const POWER_ALLOWS = {
 const TABS = ['overview', 'metrics', 'events', 'agent', 'config'];
 const element = id => document.getElementById(id);
 let session, rfb, polling, metricsTimer, events, system, refreshTimer;
+let pendingAction = null, refreshTask = null, metricsTask = null, lastRead = null;
 let agentResult = [];
 let scaleToFit = true;
 const rendered = {};
 const MAX_EVENT_ROWS = 200;
 const showError = message => { element('error').textContent = message; element('error').hidden = !message; };
+const showAction = message => { element('action-status').textContent = message; element('action-status').hidden = !message; };
 async function failure(response) {
     const text = await response.text();
+    let message;
     try {
         const error = JSON.parse(text).error;
-        return error?.['@Message.ExtendedInfo']?.[0]?.Message || error?.message || text;
-    } catch { return text; }
+        message = typeof error === 'string' ? error : error?.['@Message.ExtendedInfo']?.[0]?.Message || error?.message;
+    } catch { /* A failed proxy or ingress may return plain text or HTML. */ }
+    if (typeof message !== 'string') message = null;
+    if (!message && (response.headers.get('content-type')?.includes('text/html') || /^\s*</.test(text))) {
+        return `VM access is unavailable (${response.status}). Check the VM's status or try again shortly.`;
+    }
+    return (message || text).trim().slice(0, 600) || `Request failed (${response.status}).`;
 }
 // Redfish advertises native /redfish URIs. Browser requests use a separate
 // cookie/CSRF bridge; the public /redfish endpoint stays directly on Redfish.
@@ -65,8 +74,17 @@ const browserPath = path => {
     return path;
 };
 async function request(path, options = {}) {
-    const response = await fetch(browserPath(path), {credentials: 'same-origin', ...options});
+    if (path !== '/api/session' && !session) throw new Error('Your session ended. Sign in to reconnect.');
+    let response;
+    try {
+        response = await fetch(browserPath(path), {credentials: 'same-origin', ...options});
+    } catch {
+        throw new Error(options.method === 'POST'
+            ? 'Connection lost. The action may have reached the VM; check its status before retrying.'
+            : 'Unable to reach the VM. Check your connection or try again shortly.');
+    }
     if (response.status === 401) { signedOut(); throw new Error('Your session ended. Sign in to reconnect.'); }
+    if (path !== '/api/session' && !session) throw new Error('Your session ended. Sign in to reconnect.');
     if (!response.ok) throw new Error(await failure(response));
     return response.status === 204 ? null : response.json();
 }
@@ -77,7 +95,14 @@ function signedOut() {
     clearTimeout(refreshTimer);
     if (events) { events.close(); events = null; }
     if (rfb) rfb.disconnect();
+    if (audioContext) { audioContext.close(); audioContext = null; }
     session = null;
+    system = null;
+    disarm();
+    showError('');
+    element('loading').hidden = true;
+    element('read-status').hidden = true;
+    showAction('');
     element('dashboard').hidden = true;
     element('login').hidden = false;
     element('logout').hidden = true;
@@ -178,6 +203,16 @@ const fromEvent = record => {
 };
 const qmp = record => ({event: record.Oem?.Qrab?.Event ?? record.Message, data: record.Oem?.Qrab?.Data, truncated: record.Oem?.Qrab?.Truncated});
 const eventFilter = () => element('events-filter').value.trim().toLowerCase();
+let eventHistoryLoaded = false;
+function showEventEmpty() {
+    const list = element('events');
+    const empty = element('events-empty');
+    const visible = [...list.children].some(row => !row.hidden);
+    empty.hidden = visible;
+    if (!visible) empty.textContent = list.children.length
+        ? `No events match “${element('events-filter').value.trim()}”.`
+        : eventHistoryLoaded ? 'No events recorded yet.' : 'Event history is unavailable. New events will appear when connected.';
+}
 // Gap markers stay visible under any filter: the gap may hide matching events.
 const matches = (row, filter) => !filter || row.classList.contains('gap') || row.dataset.event.toLowerCase().includes(filter);
 function eventRow(event) {
@@ -196,10 +231,12 @@ function addEvents(rows) {
     const list = element('events');
     for (const row of rows) list.prepend(row);
     while (list.children.length > MAX_EVENT_ROWS) list.lastElementChild.remove();
+    showEventEmpty();
 }
 element('events-filter').addEventListener('input', () => {
     const filter = eventFilter();
     for (const row of element('events').children) row.hidden = !matches(row, filter);
+    showEventEmpty();
 });
 function gapRow(gap) {
     const at = gap.time ? new Date(gap.time) : new Date();
@@ -222,6 +259,7 @@ function showDropped(count) {
 // Systems/1 soon, coalescing bursts.
 function refreshSoon() {
     clearTimeout(refreshTimer);
+    if (document.hidden) return;
     refreshTimer = setTimeout(refresh, 250);
 }
 // The history is read first and the stream opens after its newest event
@@ -243,6 +281,7 @@ async function startEvents() {
     try {
         const page = await request(`${EVENT_LOG}/Entries`);
         const history = (page.Members || []).map(fromEntry).sort((a, b) => a.seq - b.seq);
+        eventHistoryLoaded = true;
         for (const record of history.slice(-100)) show(record);
         last = history.at(-1)?.seq ?? 0;
         const epoch = history.at(-1)?.epoch;
@@ -252,6 +291,7 @@ async function startEvents() {
         if (!session) return;
         showError(error.message);
     }
+    showEventEmpty();
     if (!session || events) return;
     events = new EventSource(browserPath(`${EVENT_STREAM}${cursor}`));
     events.addEventListener('open', () => { status.textContent = 'Live'; });
@@ -266,7 +306,7 @@ async function startEvents() {
     });
     events.addEventListener('error', () => {
         status.textContent = events?.readyState === EventSource.CLOSED ? 'Disconnected' : 'Reconnecting…';
-        refresh();
+        if (!document.hidden) refresh();
     });
 }
 
@@ -282,9 +322,44 @@ function showStatus() {
     chip.dataset.health = health || '';
     chip.title = system?.Status?.State ? `State: ${system.Status.State}` : '';
     chip.hidden = false;
+    updateActionControls();
+}
+function updateActionControls() {
     const allows = POWER_ALLOWS[system?.PowerState];
     for (const button of element('power')?.children || []) {
-        button.disabled = Boolean(allows) && !allows.has(button.dataset.type);
+        button.disabled = !session || Boolean(pendingAction) || !allows?.has(button.dataset.type);
+    }
+    const connected = system?.Oem?.Qrab?.GuestAgent?.connected;
+    for (const button of document.querySelectorAll('[data-agent]')) button.disabled = !session || Boolean(pendingAction) || !connected;
+    const connect = element('connect');
+    if (connect && !rfb) connect.disabled = !session || !system || system.PowerState === 'Off';
+    if (armed?.disabled) disarm();
+}
+async function runAction(button, operation) {
+    if (pendingAction || !session) return;
+    disarm();
+    pendingAction = button;
+    const label = button.dataset.label.replace(/…$/, '');
+    button.textContent = `${label}…`;
+    button.setAttribute('aria-busy', 'true');
+    showError('');
+    showAction(`${label} in progress…`);
+    updateActionControls();
+    try {
+        await operation();
+        if (session) showAction(`${label}: request accepted.`);
+    } catch (error) {
+        showAction('');
+        showError(`${label}: ${error.message}`);
+    } finally {
+        // A poll already in flight may predate the action. Read again after it
+        // settles, keeping controls locked until that fresh read completes.
+        if (refreshTask) await refreshTask;
+        await refresh();
+        pendingAction = null;
+        button.textContent = button.dataset.label;
+        button.removeAttribute('aria-busy');
+        updateActionControls();
     }
 }
 function showOverview() {
@@ -337,7 +412,7 @@ function showAgent(status) {
     }
     render('agent', [...rows, ...agentResult]);
     element('agent-note').textContent = status?.connected ? 'Connected' : 'Not connected';
-    for (const button of document.querySelectorAll('[data-agent]')) if (button !== armed) button.disabled = !status?.connected;
+    updateActionControls();
 }
 const agentTarget = name => system?.Actions?.Oem?.[`#QrabComputerSystem.${name}`]?.target || `${SYSTEM}/Actions/Oem/QrabComputerSystem.${name}`;
 function wireAgentActions() {
@@ -348,6 +423,7 @@ function wireAgentActions() {
             button.title = 'Writes block until thawed or the agent watchdog thaws them';
         }
         button.addEventListener('click', async () => {
+            if (pendingAction || !session || button.disabled) return;
             const operation = button.dataset.agent;
             let body = {};
             if (operation === 'freeze' && !confirmed(button)) return;
@@ -356,17 +432,14 @@ function wireAgentActions() {
                 if (args === null) return;
                 body = {Args: args.split(/\s+/).filter(Boolean)};
             }
-            button.disabled = true;
-            try {
+            await runAction(button, async () => {
                 const name = operation[0].toUpperCase() + operation.slice(1);
                 const result = await post(agentTarget(name), body);
                 // The freeze state and update run come back with the refresh below.
                 if (operation === 'freeze') agentResult = [['Last action', `froze ${result.FrozenFilesystems} filesystems`]];
                 if (operation === 'thaw') agentResult = [['Last action', `thawed ${result.ThawedFilesystems} filesystems`]];
                 if (operation === 'update') agentResult = [['Last action', `started update run ${result.Update['run-id']}`]];
-                showError('');
-            } catch (error) { showError(error.message); }
-            finally { await refresh(); }
+            });
         });
     }
 }
@@ -401,18 +474,31 @@ function showConfig(view) {
 }
 // One ComputerSystem read carries power state, health, the guest agent and
 // the (role-redacted) configuration.
-async function refresh() {
-    try {
-        system = await request(SYSTEM);
-        showStatus();
-        followPower();
-        showOverview();
-        showAgent(system.Oem?.Qrab?.GuestAgent);
-        showConfig(system.Oem?.Qrab?.Configuration);
-    } catch (error) {
-        showError(error.message);
-        if (session) { system = null; showStatus(); }
-    }
+function refresh() {
+    if (!session) return Promise.resolve();
+    if (refreshTask) return refreshTask;
+    refreshTask = (async () => {
+        try {
+            const current = await request(SYSTEM);
+            if (!session) return;
+            system = current;
+            lastRead = new Date();
+            element('read-status').hidden = true;
+            showStatus();
+            followPower();
+            showOverview();
+            showAgent(system.Oem?.Qrab?.GuestAgent);
+            showConfig(system.Oem?.Qrab?.Configuration);
+        } catch (error) {
+            if (!session) return;
+            system = null;
+            showStatus();
+            const note = element('read-status');
+            note.textContent = `Live data unavailable: ${error.message} ${lastRead ? `Values below were last updated at ${lastRead.toLocaleTimeString()}.` : 'No live data has been loaded yet.'} Retrying automatically.`;
+            note.hidden = false;
+        }
+    })().finally(() => { refreshTask = null; });
+    return refreshTask;
 }
 
 // ── Metrics: current values only. Each VM report read takes a fresh QMP
@@ -449,11 +535,12 @@ async function loadResources() {
 }
 async function loadReport() {
     const report = await request(VM_REPORT);
-    render('telemetry', (report.MetricValues || []).map(({MetricId, MetricValue}) => {
+    const rows = (report.MetricValues || []).map(({MetricId, MetricValue}) => {
         const [label, format] = REPORT_FORMATS[MetricId] || [MetricId, value => value];
         const number = Number(MetricValue);
         return [label, Number.isFinite(number) ? format(number) : MetricValue];
-    }));
+    });
+    render('telemetry', rows.length ? rows : [['Samples', 'No metrics have been reported yet.']]);
     return report.Timestamp;
 }
 // ── Metric history: Redfish MetricHistory, answered from the cluster
@@ -661,6 +748,7 @@ async function renderMetricHistory(slot) {
     status.textContent = 'Loading…';
     try {
         const results = await Promise.allSettled(HISTORY_METRICS.map(([metric]) => request(`${HISTORY}?metric=${metric}&range=${range}`)));
+        if (!session) return;
         if (range !== metricHistory.range) return;
         HISTORY_METRICS.forEach(([metric], index) => {
             const result = results[index];
@@ -675,14 +763,21 @@ async function renderMetricHistory(slot) {
         if (range !== metricHistory.range) renderMetricHistory(slot);
     }
 }
-async function loadMetrics() {
-    if (!session || currentTab !== 'metrics') return;
-    const note = element('metrics-note');
-    const [report, resources] = await Promise.allSettled([loadReport(), loadResources()]);
-    if (report.status === 'rejected') render('telemetry', [['VM report', report.reason.message]]);
-    if (resources.status === 'rejected') render('resources', [['Resources', resources.reason.message]]);
-    note.textContent = report.status === 'fulfilled' && report.value ? `Sampled ${new Date(report.value).toLocaleTimeString()}` : 'Live';
-    renderMetricHistory(element('metric-history'));
+function loadMetrics() {
+    if (!session || currentTab !== 'metrics' || document.hidden) return Promise.resolve();
+    if (metricsTask) return metricsTask;
+    metricsTask = (async () => {
+        const note = element('metrics-note');
+        const [report, resources] = await Promise.allSettled([loadReport(), loadResources()]);
+        if (!session) return;
+        if (report.status === 'rejected') render('telemetry', [['VM report', report.reason.message]]);
+        if (resources.status === 'rejected') render('resources', [['Resources', resources.reason.message]]);
+        const failures = [report, resources].filter(result => result.status === 'rejected').length;
+        note.textContent = failures === 2 ? 'Unavailable' : failures ? 'Some data unavailable'
+            : report.value ? `Sampled ${new Date(report.value).toLocaleTimeString()}` : 'Live';
+        renderMetricHistory(element('metric-history'));
+    })().finally(() => { metricsTask = null; });
+    return metricsTask;
 }
 
 // ── Power group: the ResetType values Redfish's ResetActionInfo allows.
@@ -695,16 +790,13 @@ async function loadPower() {
         button.dataset.type = type;
         button.dataset.label = label;
         button.addEventListener('click', async () => {
+            if (pendingAction || !session || button.disabled) return;
             if (disruptive && !confirmed(button)) return;
-            disarm();
-            button.disabled = true;
-            try {
+            await runAction(button, async () => {
                 await post(target(), {ResetType: type});
-                showError('');
                 // Power on brings the console up once the VM runs.
                 if (type === 'On') { consoleWanted = true; resume = true; }
-            } catch (error) { showError(error.message); }
-            finally { button.disabled = false; await refresh(); }
+            });
         });
         return button;
     }));
@@ -723,7 +815,10 @@ let resume = false;
 const placeholder = [...element('screen').childNodes].map(child => child.cloneNode(true));
 function showPoweredOff() {
     element('console-status').textContent = POWERED_OFF;
-    element('screen').replaceChildren(node('p', 'The VM is powered off. The console reconnects when it is powered on again.'));
+    element('screen').dataset.state = 'off';
+    element('screen').replaceChildren(node('p', resume
+        ? 'The VM is powered off. The console will reconnect when it powers on.'
+        : 'The VM is powered off. Power it on to make the console available.'));
 }
 function followPower() {
     if (session?.role !== 'admin' || !system) return;
@@ -734,6 +829,7 @@ function followPower() {
         if (!rfb) showPoweredOff();
     } else if (!off && poweredOff) {
         poweredOff = false;
+        element('screen').removeAttribute('data-state');
         if (!rfb && resume) {
             element('console-status').textContent = 'Powering on · The console reconnects when the VM is running';
         } else if (!rfb) {
@@ -750,13 +846,14 @@ function followPower() {
 function disconnected(message) {
     rfb = null;
     element('connect').textContent = 'Connect console';
-    element('connect').disabled = poweredOff;
+    updateActionControls();
     element('cad').disabled = true;
     element('fullscreen').disabled = true;
     if (poweredOff) showPoweredOff(); else element('console-status').textContent = message;
 }
 function connect() {
     if (rfb) { rfb.disconnect(); return; }
+    if (!session || !system || system.PowerState === 'Off') return;
     showError('');
     const screen = element('screen');
     screen.replaceChildren();
@@ -843,10 +940,16 @@ try {
         element('console-status').textContent = 'View-only access';
     }
     element('dashboard').hidden = false;
+    element('loading').hidden = true;
     element('logout').hidden = false;
     selectTab(remembered() || 'overview', {store: false});
     await refresh();
-    polling = setInterval(refresh, 3000);
+    if (!session) throw new Error('Your session ended. Sign in to reconnect.');
+    polling = setInterval(() => { if (!document.hidden) refresh(); }, 3000);
     await Promise.all([admin ? loadPower() : null, startEvents()]).catch(error => showError(error.message));
     metricsTimer = setInterval(() => { if (!document.hidden) loadMetrics(); }, 5000);
 } catch (error) { signedOut(); if (!error.message.startsWith('Your session ended')) showError(error.message); }
+
+document.addEventListener('visibilitychange', () => {
+    if (!document.hidden && session) { refresh(); loadMetrics(); }
+});

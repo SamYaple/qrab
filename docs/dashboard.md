@@ -113,6 +113,20 @@ and close when the dashboard session ends. No per-VM ingress, certificate,
 public URL or OIDC callback is needed. BMC assets are embedded in the dashboard
 binary, so interface changes require a dashboard image build and rollout.
 
+The interface shows access loading separately from live VM data. A failed live
+read labels the last successful snapshot and disables state-dependent actions
+until a read succeeds. Management requests show pending/accepted/error feedback;
+polling cannot unlock a pending request, and other management controls remain
+disabled until the action and its follow-up read settle. Acceptance does not
+claim that a guest reboot or shutdown has finished.
+
+Status and metric polls pause in a hidden tab and resume when it becomes visible.
+Overlapping reads are coalesced. Session expiry closes the event stream, stops
+polling and offers sign-in back to the same VM's BMC page. Only the VM detail,
+BMC and console paths are allowed as VM sign-in return destinations. Fetch
+routes return JSON errors; an HTML error from an ingress is shown as a short
+availability message, never as a document dumped into the error banner.
+
 ### Console power controls
 
 The console page's toolbar has **Power on**, the in-pod Redfish resets
@@ -575,7 +589,10 @@ python3 contrib/tests/ui-browser.py --previews target/ui-preview \
 
 This checks desktop, tablet and mobile layouts in light and dark themes, shared
 BMC admin/viewer controls, keyboard tabs, event filtering and two-step power
-confirmation. It writes screenshots to the output directory. BMC requests use
+confirmation. It also checks loading, stale reads and recovery, pending requests
+across polls, denied actions, empty history/filters, powered-off layouts and
+session expiry. `--states-only` runs just those BMC state checks during iteration.
+It writes screenshots to the output directory. BMC requests use
 in-memory browser fixtures: it needs no credentials, cluster, VM or guest, and
 sends no action to a live VM. The separate `bmc-browser.py` test covers real
 OIDC and guest-console delivery.

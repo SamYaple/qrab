@@ -65,14 +65,23 @@ pub struct LoginQuery {
 /// use qrab_dashboard::auth::return_path;
 /// assert_eq!(return_path("/vms/qrab/test").as_deref(), Some("/vms/qrab/test"));
 /// assert_eq!(return_path("/vms/qrab/web.a"), Some("/vms/qrab/web.a".into()));
+/// assert_eq!(return_path("/vms/qrab/test/bmc").as_deref(), Some("/vms/qrab/test/bmc"));
+/// assert_eq!(return_path("/vms/qrab/test/console").as_deref(), Some("/vms/qrab/test/console"));
 /// for bad in ["//evil.example/vms/a/b", "https://evil.example/", "/vms/qrab", "/vms/qrab/a/../b",
-///             "/vms/qrab/a?x=1", "/vms/qrab/A", "/launch", "/vms//a"] {
+///             "/vms/qrab/a?x=1", "/vms/qrab/A", "/launch", "/vms//a", "/vms/qrab/a/bmc/x",
+///             "/vms/qrab/a/console/ws", "/vms/qrab/a/bmc?x=1", "/vms/qrab/a/bmc#tab", "/vms/qrab/a/"] {
 ///     assert_eq!(return_path(bad), None, "{bad}");
 /// }
 /// ```
 pub fn return_path(next: &str) -> Option<String> {
     let rest = next.strip_prefix("/vms/")?;
-    let (namespace, name) = rest.split_once('/')?;
+    let (namespace, rest) = rest.split_once('/')?;
+    let (name, page) = rest
+        .split_once('/')
+        .map_or((rest, None), |(name, page)| (name, Some(page)));
+    if page.is_some_and(|page| !matches!(page, "bmc" | "console")) {
+        return None;
+    }
     let label = |s: &str, dots: bool| {
         !s.is_empty()
             && s.len() <= 63

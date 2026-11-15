@@ -10,12 +10,16 @@
 </header>
 <main id="main" tabindex="-1">
 <nav id="vm-navigation" class="vm-navigation" aria-label="Virtual machine" hidden><a href="/">← All VMs</a><span aria-hidden="true">/</span><a id="vm-detail-link">VM details</a><span aria-hidden="true">/</span><span aria-current="page">BMC</span></nav>
+<p id="loading" class="loading-note" role="status">Loading VM access…</p>
+<noscript><p class="warning">JavaScript is required to use this BMC interface.</p></noscript>
 <p id="error" role="alert" hidden></p>
-<section id="login" hidden><h2>Your VM console</h2><p>Sign in with your infrastructure account to open this VM.</p><a class="button primary" href="/auth/login">Sign in with Kanidm</a></section>
+<p id="action-status" class="action-status" role="status" hidden></p>
+<p id="read-status" class="read-status" role="status" hidden></p>
+<section id="login" hidden><h2>Your VM console</h2><p>Sign in with your infrastructure account to open this VM.</p><a id="sign-in" class="button primary" href="/auth/login">Sign in with Kanidm</a></section>
 <section id="dashboard" class="workspace" hidden>
 <section class="console" aria-label="Console">
 <div class="console-bar" id="console-toolbar" role="toolbar" aria-label="Console controls" data-admin>
-<div class="group" id="console-controls"><button id="connect">Connect console</button><button id="cad" disabled>Ctrl Alt Del</button><button id="scale" aria-pressed="true" title="Fit the display to the window, or show it at 1:1 with scrolling">Fit</button><button id="fullscreen" disabled>Full screen</button></div>
+<div class="group" id="console-controls"><button id="connect" disabled>Connect console</button><button id="cad" disabled>Ctrl Alt Del</button><button id="scale" aria-pressed="true" title="Fit the display to the window, or show it at 1:1 with scrolling">Fit</button><button id="fullscreen" disabled>Full screen</button></div>
 <div class="group power" id="power" role="group" aria-label="Power"></div>
 </div>
 <div id="screen"><p>Open the console for video, keyboard and mouse access.</p></div>
@@ -29,7 +33,7 @@
 <button role="tab" id="tab-agent" aria-controls="panel-agent" aria-selected="false" tabindex="-1">Guest agent</button>
 <button role="tab" id="tab-config" aria-controls="panel-config" aria-selected="false" tabindex="-1">Configuration</button>
 </div>
-<section class="panel" role="tabpanel" id="panel-overview" aria-labelledby="tab-overview" tabindex="0"><dl id="overview"></dl></section>
+<section class="panel" role="tabpanel" id="panel-overview" aria-labelledby="tab-overview" tabindex="0"><dl id="overview"><dt>Status</dt><dd>Loading live data…</dd></dl></section>
 <section class="panel" role="tabpanel" id="panel-metrics" aria-labelledby="tab-metrics" tabindex="0" hidden>
 <div class="panel-head"><h2>Current values</h2><span id="metrics-note" role="status">Loading…</span></div>
 <h3>VM report</h3><dl id="telemetry"></dl>
@@ -40,12 +44,13 @@
 <div class="panel-head"><h2>QMP events</h2><span id="events-status" role="status">Loading…</span></div>
 <p id="events-dropped" class="warning" role="alert" hidden></p>
 <input id="events-filter" type="search" placeholder="Filter by event name" aria-label="Filter events by name" autocomplete="off">
+<p id="events-empty" class="empty-note" role="status">Loading event history…</p>
 <ol id="events"></ol>
 </section>
 <section class="panel" role="tabpanel" id="panel-agent" aria-labelledby="tab-agent" tabindex="0" hidden>
 <div class="panel-head"><h2>Guest agent</h2><span id="agent-note"></span></div>
 <dl id="agent"></dl>
-<div class="group agent-actions" data-admin><button data-agent="freeze">Freeze filesystems</button><button data-agent="thaw">Thaw</button><button data-agent="update">Run update…</button></div>
+<div class="group agent-actions" data-admin><button data-agent="freeze" disabled>Freeze filesystems</button><button data-agent="thaw" disabled>Thaw</button><button data-agent="update" disabled>Run update…</button></div>
 </section>
 <section class="panel" role="tabpanel" id="panel-config" aria-labelledby="tab-config" tabindex="0" hidden>
 <div class="panel-head"><h2>Configuration</h2><span id="config-note"></span></div>
