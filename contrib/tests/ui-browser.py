@@ -127,6 +127,9 @@ def install_bmc(context, role='admin', power='On', legacy=False, origin='http://
                 return
             data = {'running': True, 'phase': 'Running', 'pod': True, 'power_state': fixture['system']['PowerState'],
                     'health': 'OK', 'reset_types': fixture['system']['Actions']['#ComputerSystem.Reset']['ResetType@Redfish.AllowableValues'], 'redfish_error': None}
+            agent = fixture['system']['Oem']['Qrab']['GuestAgent']
+            data['guest_restart_unavailable'] = ('Guest restart needs a connected guest agent.' if not agent['enabled'] or not agent['connected']
+                                                  else 'Thaw guest filesystems before restarting the guest.' if agent.get('FreezeState') == 'Frozen' else None)
             if fixture['hold_power']:
                 fixture['pending_power'].append((request_route, data))
                 return
@@ -309,6 +312,20 @@ def console_state_checks(browser, width, theme):
         page.goto(origin + base + '/console')
         pause = page.locator('[data-power=Pause]')
         expect(pause).to_be_enabled()
+        restart_guest = page.locator('[data-power=GracefulRestart]')
+        fixture['system']['Oem']['Qrab']['GuestAgent']['connected'] = False
+        page.clock.fast_forward(3100)
+        expect(restart_guest).to_be_disabled()
+        expect(page.locator('#restart-requirement')).to_contain_text('connected guest agent')
+        fixture['system']['Oem']['Qrab']['GuestAgent']['connected'] = True
+        fixture['system']['Oem']['Qrab']['GuestAgent']['FreezeState'] = 'Frozen'
+        page.clock.fast_forward(3100)
+        expect(restart_guest).to_be_disabled()
+        expect(page.locator('#restart-requirement')).to_contain_text('Thaw guest filesystems')
+        fixture['system']['Oem']['Qrab']['GuestAgent']['FreezeState'] = 'Thawed'
+        page.clock.fast_forward(3100)
+        expect(restart_guest).to_be_enabled()
+        expect(page.locator('#restart-requirement')).to_be_hidden()
         more = page.locator('#console-power-more')
         expect(more).to_be_visible()
         assert not more.evaluate('(e) => e.open')
@@ -499,6 +516,19 @@ def bmc_state_checks(browser, width, theme):
     pause = page.locator('#power button[data-type=Pause]')
     expect(pause).to_be_enabled()
     expect(page.locator('#loading')).to_be_hidden()
+    restart_guest = page.locator('#power button[data-type=GracefulRestart]')
+    fixture['system']['Oem']['Qrab']['GuestAgent']['connected'] = False
+    page.clock.fast_forward(3100)
+    expect(restart_guest).to_be_disabled()
+    expect(page.locator('#restart-requirement')).to_contain_text('connected guest agent')
+    fixture['system']['Oem']['Qrab']['GuestAgent']['connected'] = True
+    fixture['system']['Oem']['Qrab']['GuestAgent']['FreezeState'] = 'Frozen'
+    page.clock.fast_forward(3100)
+    expect(restart_guest).to_be_disabled()
+    expect(page.locator('#restart-requirement')).to_contain_text('Thaw guest filesystems')
+    fixture['system']['Oem']['Qrab']['GuestAgent']['FreezeState'] = 'Thawed'
+    page.clock.fast_forward(3100)
+    expect(restart_guest).to_be_enabled()
 
     advanced = page.locator('#advanced-power')
     advanced.locator('summary').click()
@@ -839,7 +869,7 @@ with sync_playwright() as playwright:
         for width in [1440, 768, 390, 320]:
             context = browser_context(browser, viewport={'width': width, 'height': 1000}, color_scheme=theme)
             page = context.new_page()
-            for name in ['list', 'list-long', 'list-storage', 'detail', 'detail-long', 'detail-viewer', 'detail-redfish-only', 'detail-no-power-actions', 'images', 'launch', 'launch-os', 'launch-options', 'launch-unavailable', 'launched',
+            for name in ['list', 'list-long', 'list-storage', 'detail', 'detail-long', 'detail-viewer', 'detail-redfish-only', 'detail-no-power-actions', 'detail-needs-agent', 'detail-frozen-agent', 'images', 'launch', 'launch-os', 'launch-options', 'launch-unavailable', 'launched',
                          'error-session', 'error-denied', 'error-missing', 'error-service']:
                 page.goto((args.previews / f'{name}.html').resolve().as_uri())
                 if args.forced_colors:
@@ -903,7 +933,7 @@ with sync_playwright() as playwright:
                         names = [box.get_attribute('aria-label') for box in confirmations.all()]
                         assert all(label and label.startswith('Confirm ') and ' for ' in label for label in names)
                         assert len(set(names)) == len(names), 'Power confirmations must identify their action'
-                        box = confirmations.first
+                        box = page.get_by_role('checkbox', disabled=False).first
                         label = box.locator('..')
                         assert label.bounding_box()['height'] >= 44
                         form = box.locator('xpath=ancestor::form')
@@ -917,6 +947,10 @@ with sync_playwright() as playwright:
                         expect(page.locator('label[for=confirm-name] code')).to_have_text(page.locator('h1').inner_text())
                         expect(page.locator('#confirm-name')).to_have_attribute('autocapitalize', 'none')
                         expect(page.locator('.danger-zone')).to_contain_text('Access groups are kept')
+                    if name in ['detail-needs-agent', 'detail-frozen-agent']:
+                        expect(page.get_by_role('button', name='Restart guest', exact=True)).to_be_disabled()
+                        expect(page.locator('#restart-requirement')).to_contain_text('connected guest agent' if name == 'detail-needs-agent' else 'Thaw guest filesystems')
+                        expect(page.get_by_role('button', name='Shut down', exact=True)).to_be_enabled()
                     for selector in ['#effective-configuration', '#pod-resources', '#recent-events']:
                         disclosure = page.locator(selector)
                         assert not disclosure.evaluate('(e) => e.open')

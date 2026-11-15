@@ -198,6 +198,14 @@ Power on, Resume and Pause arms on the first click ("Confirm reset") and sends
 only on a second click within 5 seconds; the server also refuses them without
 `"confirm": true`.
 
+The BMC, detail page and dedicated console disable guest restart when their
+current snapshot reports a disconnected/disabled guest agent or frozen
+filesystems, and show the reason beside the controls. Other actions retain
+their existing rules. The console's admin-only power snapshot includes an
+optional `guest_restart_unavailable` explanation derived from the same System
+read; it adds no upstream request. Missing/unknown agent information is not a
+permission grant, and the backend still performs its action-time checks.
+
 - The in-pod buttons send `ComputerSystem.Reset` with the matching ResetType
   to the running VM's Redfish service with the user's ID token, for any VM
   with the Redfish component. On a VM without it they are refused with a 409

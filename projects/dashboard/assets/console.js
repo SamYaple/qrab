@@ -275,9 +275,9 @@ function allowed(action) {
         case 'off': return state.running || state.pod;
         case 'Resume': return live && power === 'Paused';
         case 'Pause':
-        case 'GracefulRestart':
         case 'GracefulShutdown':
         case 'Nmi': return live && power === 'On';
+        case 'GracefulRestart': return live && power === 'On' && !state.guest_restart_unavailable;
         case 'ForceRestart': return live && (power === 'On' || power === 'Paused');
         case 'PowerCycle': return live && (power === 'On' || power === 'Paused' || power === 'Off');
         case 'ForceOff': return live && power !== 'Off';
@@ -300,6 +300,11 @@ function render() {
     updateText(element('power-chip'), chip);
     element('power-chip').dataset.state = chip.toLowerCase();
     updateText(element('power-detail'), detail);
+    const restartNote = element('restart-requirement');
+    if (restartNote) {
+        updateText(restartNote, state?.guest_restart_unavailable || '');
+        restartNote.hidden = !state?.guest_restart_unavailable || state.power_state !== 'On' || !buttons.some(button => button.dataset.power === 'GracefulRestart' && offered(button));
+    }
     const menuFocused = morePower?.contains(document.activeElement);
     if (armed && (!offered(armed) || !allowed(armed.dataset.power))) disarm();
     for (const button of buttons) {
@@ -308,6 +313,11 @@ function render() {
         else if (button !== armed) updateText(button, button.dataset.label);
         if (button.getAttribute('aria-busy') !== String(pending)) button.setAttribute('aria-busy', String(pending));
         button.hidden = !offered(button);
+        if (button.dataset.power === 'GracefulRestart') {
+            button.title = state?.guest_restart_unavailable || '';
+            if (state?.guest_restart_unavailable && restartNote) button.setAttribute('aria-describedby', 'restart-requirement');
+            else button.removeAttribute('aria-describedby');
+        }
         const blocked = expired || busy || !offered(button) || !allowed(button.dataset.power);
         if (button.getAttribute('aria-disabled') !== String(blocked)) button.setAttribute('aria-disabled', String(blocked));
         // Keep the active request focusable while busy; the handler still

@@ -125,6 +125,8 @@ pub struct PowerState {
     /// The in-pod ResetTypes Redfish allows (`ResetActionInfo`), in button
     /// order; `None` when Redfish could not be asked.
     pub reset_types: Option<Vec<ResetType>>,
+    /// Known agent prerequisite from the same Redfish snapshot, for UI feedback.
+    pub guest_restart_unavailable: Option<String>,
     /// Why Redfish could not be asked, when it could not.
     pub redfish_error: Option<String>,
 }
@@ -167,6 +169,7 @@ async fn state(
         power_state: None,
         health: None,
         reset_types: None,
+        guest_restart_unavailable: None,
         redfish_error: None,
     };
     let Some(ip) = ip.filter(|_| vm.spec.components.redfish_enabled()) else {
@@ -179,6 +182,8 @@ async fn state(
     );
     match (system, reset_types) {
         (Ok(system), Ok(reset_types)) => {
+            state.guest_restart_unavailable =
+                redfish::guest_restart_unavailable(&system).map(str::to_owned);
             state.power_state = system.power_state;
             state.health = system.status.health;
             state.reset_types = Some(reset_types);

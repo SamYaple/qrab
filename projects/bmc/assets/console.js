@@ -430,8 +430,23 @@ function updateActionControls() {
         button.disabled = blocked && button !== pendingAction;
     };
     const allows = POWER_ALLOWS[system?.PowerState];
+    const agent = system?.Oem?.Qrab?.GuestAgent;
+    const restartReason = !agent ? '' : !agent.enabled || !agent.connected
+        ? 'Guest restart needs a connected guest agent.'
+        : agent.FreezeState === 'Frozen' ? 'Thaw guest filesystems before restarting the guest.' : '';
+    const restartNote = element('restart-requirement');
+    if (restartNote) {
+        updateText(restartNote, restartReason);
+        restartNote.hidden = !restartReason || system?.PowerState !== 'On' || !element('power')?.querySelector('[data-type=GracefulRestart]');
+    }
     for (const button of element('power')?.querySelectorAll('button[data-type]') || []) {
-        available(button, allows?.has(button.dataset.type));
+        const restart = button.dataset.type === 'GracefulRestart';
+        available(button, allows?.has(button.dataset.type) && (!restart || !restartReason));
+        if (restart) {
+            button.title = restartReason;
+            if (restartReason && restartNote) button.setAttribute('aria-describedby', 'restart-requirement');
+            else button.removeAttribute('aria-describedby');
+        }
     }
     const connected = system?.Oem?.Qrab?.GuestAgent?.connected;
     for (const button of document.querySelectorAll('[data-agent]')) available(button, connected);

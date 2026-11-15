@@ -656,15 +656,16 @@ fn config_card(config: Option<&redfish::Config>) -> Element {
 }
 
 /// All native power forms share the same confirmation and CSRF fields.
-fn power_form(detail: &Detail, csrf: &str, power: Power) -> Element {
+fn power_form(detail: &Detail, csrf: &str, power: Power, restart_reason: Option<&str>) -> Element {
     let action = format!("{}/action", detail.row.path());
+    let blocked = power == Power::Reset(ResetType::GracefulRestart) && restart_reason.is_some();
     rsx! { form { method: "post", action: "{action}",
         input { r#type: "hidden", name: "csrf", value: "{csrf}" }
         input { r#type: "hidden", name: "action", value: power.key() }
         if power.needs_confirmation() {
-            label { class: "confirm", input { r#type: "checkbox", name: "confirm", value: "yes", required: true, aria_label: "Confirm {power.label()} for {detail.row.name}" } "Confirm" }
+            label { class: "confirm", input { r#type: "checkbox", name: "confirm", value: "yes", required: true, disabled: blocked, aria_label: "Confirm {power.label()} for {detail.row.name}" } "Confirm" }
         }
-        button { class: if power.needs_confirmation() { "danger" } else { "quiet" }, r#type: "submit", {power.label()} }
+        button { class: if power.needs_confirmation() { "danger" } else { "quiet" }, r#type: "submit", disabled: blocked, aria_describedby: blocked.then_some("restart-requirement"), {power.label()} }
     } }
 }
 
@@ -681,6 +682,20 @@ fn power_controls(detail: &Detail, csrf: &str, panel: &PanelState) -> Element {
     };
     // Without the BMC there is no console page, so Power on and off are here.
     let spec_power = (!detail.bmc_enabled).then_some([Power::On, Power::Off]);
+    let restart_reason = match panel {
+        _ if !allowed
+            .as_ref()
+            .is_some_and(|actions| actions.contains(&ResetType::GracefulRestart)) =>
+        {
+            None
+        }
+        PanelState::Loaded(panel) => panel
+            .system
+            .as_ref()
+            .ok()
+            .and_then(|system| redfish::guest_restart_unavailable(system)),
+        _ => None,
+    };
     rsx! {
         section { class: "card", aria_labelledby: "power-title",
             h2 { id: "power-title", "Power" }
@@ -692,7 +707,7 @@ fn power_controls(detail: &Detail, csrf: &str, panel: &PanelState) -> Element {
                 p { class: "muted", "Sent to the VM's Redfish service with your sign-in. Shut down and Force off leave the VM powered off in its Pod; Power on starts it again in place. Power off stops the VM and keeps it off." }
             }
             if let Some(actions) = spec_power { div { class: "actions",
-                for power in actions { {power_form(detail, csrf, power)} }
+                for power in actions { {power_form(detail, csrf, power, restart_reason)} }
             } }
             match allowed {
                 None if !detail.redfish_enabled => rsx! {},
@@ -702,12 +717,13 @@ fn power_controls(detail: &Detail, csrf: &str, panel: &PanelState) -> Element {
                     let (common, more): (Vec<_>, Vec<_>) = allowed.into_iter().partition(|power|
                         matches!(power, ResetType::Resume | ResetType::Pause | ResetType::GracefulRestart | ResetType::GracefulShutdown));
                     rsx! {
-                        div { class: "actions", for power in common { {power_form(detail, csrf, Power::Reset(power))} } }
+                        div { class: "actions", for power in common { {power_form(detail, csrf, Power::Reset(power), restart_reason)} } }
+                        if let Some(reason) = restart_reason { p { class: "muted prose", id: "restart-requirement", "{reason}" } }
                         if !more.is_empty() {
                             details { class: "inline-disclosure", id: "more-power-actions",
                                 summary { "More power actions" }
                                 p { class: "muted prose", "Reset restarts the guest immediately. Power cycle turns it off and on. NMI sends a diagnostic interrupt. Force off stops it immediately." }
-                                div { class: "actions", for power in more { {power_form(detail, csrf, Power::Reset(power))} } }
+                                div { class: "actions", for power in more { {power_form(detail, csrf, Power::Reset(power), restart_reason)} } }
                             }
                         }
                     }
@@ -1286,6 +1302,7 @@ fn console_page(page: &ConsolePage) -> Element {
             p { class: "power-state", span { id: "power-chip", class: "chip", tabindex: "-1", "Checking…" } span { id: "power-detail", class: "muted" } }
             p { id: "power-action-status", class: "power-progress", role: "status", hidden: true }
             p { id: "power-action-error", class: "power-progress power-error", role: "alert", hidden: true }
+            p { id: "restart-requirement", class: "power-progress", hidden: true }
             div { class: "actions", role: "group", aria_label: "Power",
                 for button in common { {console_power_button(button)} }
                 details { class: "console-power-more", id: "console-power-more",

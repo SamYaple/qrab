@@ -411,6 +411,28 @@ fn main() {
             }
         }
         if name == "detail-network" {
+            for (page_name, connected, frozen) in [
+                ("detail-needs-agent", false, false),
+                ("detail-frozen-agent", true, true),
+            ] {
+                let mut blocked = live_panel.clone();
+                if let Ok(system) = &mut blocked.system
+                    && let Some(agent) = &mut system.oem.qrab.guest_agent
+                {
+                    agent.connected = connected;
+                    agent.freeze_state = Some(if frozen { "Frozen" } else { "Thawed" }.into());
+                }
+                write(
+                    dir,
+                    page_name,
+                    page(Body::Detail(Box::new(DetailPage {
+                        detail: detail.clone(),
+                        panel: PanelState::Loaded(Box::new(blocked)),
+                        deletable: true,
+                    }))),
+                    &css,
+                );
+            }
             let mut no_actions = live_panel.clone();
             if let Ok(system) = &mut no_actions.system {
                 system.actions.reset.allowable_values.clear();
