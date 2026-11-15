@@ -113,3 +113,15 @@ assets (`contrib/images`):
 | `pod_migration` | live migration between two managers ([migration.md](migration.md#testing)) | run inside the manager image |
 
 Run one with `cargo test --locked -p manager --test <name> -- --ignored --nocapture`.
+
+For an explicit scan of every locally mirrored schema-era stable release up to
+the pinned baseline, independent of the normal locked input selection:
+
+```sh
+cargo test --locked --release -p qapi-codegen --test mirrored_releases \
+  -- --ignored --nocapture
+```
+
+It lowers QMP inputs from 1.0 and QGA inputs from 0.15, including historical
+four-component release tags. The normal check stays deterministic when extra
+local tags are present.

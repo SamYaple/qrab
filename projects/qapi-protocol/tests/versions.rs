@@ -197,3 +197,50 @@ async fn qga_reply_layout_uses_guest_version() {
     assert_eq!(qapi::to_value((2, 9, 0), &value).unwrap(), reply);
     server.await.unwrap();
 }
+
+#[tokio::test]
+async fn guest_agent_four_component_release_versions_use_the_greeting_triple() {
+    for version in ["2.4.0.1", "2.8.1.1", "3.1.1.1-package"] {
+        let (client, server) = tokio::net::UnixStream::pair().unwrap();
+        let mut peer = QgaSession::from_stream(server);
+        let server = tokio::spawn(async move {
+            peer.handle_sync().await.unwrap();
+            assert_eq!(peer.recv_command().await.unwrap().0, "guest-info");
+            peer.send_return(serde_json::json!({"version":version,"supported_commands":[]}))
+                .await
+                .unwrap();
+        });
+        let client = Qga::from_stream(client).await.unwrap();
+        let expected = match version {
+            "2.4.0.1" => (2, 4, 0),
+            "2.8.1.1" => (2, 8, 1),
+            _ => (3, 1, 1),
+        };
+        assert_eq!(client.version(), expected);
+        server.await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn malformed_four_component_guest_versions_do_not_become_a_different_peer_version() {
+    for version in ["2.8.1.x", "2.8.1.1.1", "2.8.1rc0.1", "2.8.1.4294967296"] {
+        let (client, server) = tokio::net::UnixStream::pair().unwrap();
+        let mut peer = QgaSession::from_stream(server);
+        let server = tokio::spawn(async move {
+            peer.handle_sync().await.unwrap();
+            assert_eq!(peer.recv_command().await.unwrap().0, "guest-info");
+            peer.send_return(serde_json::json!({"version":version,"supported_commands":[]}))
+                .await
+                .unwrap();
+        });
+        let error = Qga::from_stream(client)
+            .await
+            .err()
+            .expect("invalid version accepted");
+        assert!(
+            error.to_string().contains("invalid guest-agent version"),
+            "{error}"
+        );
+        server.await.unwrap();
+    }
+}

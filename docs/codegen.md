@@ -17,7 +17,11 @@ pins before parsing. Extra local tags and release candidates cannot alter the
 default output. Missing or moved pins fail generation. QEMU source and tag
 fetches use this local Gitea repository exclusively; do not fetch directly from
 upstream. Library functions may still accept explicit tag lists for testing;
-the CLI always uses a lockfile.
+the CLI always uses a lockfile. Stable release tags may have two, three or
+four numeric components. Historical fourth-component releases retain their
+full ordering in discovery and pins, while lifecycle metadata and peer versions
+use the three components carried by QMP greetings. The four mirrored subpatch
+releases have schema-equivalence regression checks against their base tags.
 
 `vendor/qemu` is the only submodule. Initialize it and fetch the release tags:
 

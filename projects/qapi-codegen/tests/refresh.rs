@@ -515,3 +515,29 @@ fn guest_agent_discovery_reaches_its_first_schema_release() {
     assert_eq!(tags.first().map(String::as_str), Some("v0.15.0"));
     assert!(tags.iter().any(|tag| tag == "v0.15.1"));
 }
+
+#[test]
+fn four_component_release_schemas_generate_the_same_rust_as_their_base_release() {
+    use qapi_codegen::unified::{generate_qga_code, generate_unified_code};
+    let repo = qemu();
+    let discovered = qapi_codegen::versions::discover_version_tags(&repo).unwrap();
+    for (base, extra) in [
+        ("v2.4.0", "v2.4.0.1"),
+        ("v2.5.1", "v2.5.1.1"),
+        ("v2.8.1", "v2.8.1.1"),
+        ("v3.1.1", "v3.1.1.1"),
+    ] {
+        assert!(
+            discovered.iter().position(|tag| tag == base).unwrap()
+                < discovered.iter().position(|tag| tag == extra).unwrap()
+        );
+        let before = generate_unified_code(&repo, &[base]).unwrap();
+        let after = generate_unified_code(&repo, &[extra]).unwrap();
+        assert_eq!(before.combined(), after.combined(), "QMP {extra}");
+        assert_eq!(before.metadata, after.metadata, "QMP metadata {extra}");
+        let before = generate_qga_code(&repo, &[base]).unwrap();
+        let after = generate_qga_code(&repo, &[extra]).unwrap();
+        assert_eq!(before.combined(), after.combined(), "QGA {extra}");
+        assert_eq!(before.metadata, after.metadata, "QGA metadata {extra}");
+    }
+}

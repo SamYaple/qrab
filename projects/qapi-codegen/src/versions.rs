@@ -26,7 +26,7 @@ pub fn parse_pinned_versions(input: &str) -> Result<Vec<PinnedVersion>> {
             "Invalid release pin on line {}",
             line + 1
         );
-        let version = parse_version_tag(fields[0])
+        let version = parse_version_tag_full(fields[0])
             .with_context(|| format!("Invalid release tag on line {}", line + 1))?;
         anyhow::ensure!(
             fields[0].starts_with('v') && previous.is_none_or(|v| version > v),
@@ -91,19 +91,27 @@ pub fn find_schema_entry(qemu_root: &Path) -> Option<PathBuf> {
     None
 }
 
-/// Parse a QEMU version tag like "v1.1.0" into (major, minor, patch).
-pub fn parse_version_tag(tag: &str) -> Option<(u32, u32, u32)> {
+/// Parse a stable release tag, retaining its historical fourth component for ordering.
+pub fn parse_version_tag_full(tag: &str) -> Option<(u32, u32, u32, u32)> {
     let tag = tag.strip_prefix('v').unwrap_or(tag);
-    let parts: Vec<&str> = tag.split('.').collect();
-    match parts.len() {
-        2 => Some((parts[0].parse().ok()?, parts[1].parse().ok()?, 0)),
-        3 => Some((
-            parts[0].parse().ok()?,
-            parts[1].parse().ok()?,
-            parts[2].parse().ok()?,
-        )),
-        _ => None,
+    let parts: Vec<_> = tag.split('.').collect();
+    if !(2..=4).contains(&parts.len()) {
+        return None;
     }
+    let mut values = [0; 4];
+    for (index, part) in parts.iter().enumerate() {
+        if part.is_empty() || !part.bytes().all(|byte| byte.is_ascii_digit()) {
+            return None;
+        }
+        values[index] = part.parse().ok()?;
+    }
+    Some((values[0], values[1], values[2], values[3]))
+}
+
+/// Parse the three-part version carried by QMP greetings and lifecycle metadata.
+pub fn parse_version_tag(tag: &str) -> Option<(u32, u32, u32)> {
+    let (major, minor, patch, _) = parse_version_tag_full(tag)?;
+    Some((major, minor, patch))
 }
 
 /// Extract schema files from a git tag into a temporary directory.
@@ -237,13 +245,34 @@ fn discover_schema_era_tags(qemu_repo: &Path, earliest: (u32, u32, u32)) -> Resu
         .map(|s| s.trim().to_string())
         .collect();
 
-    tags.sort_by_key(|t| parse_version_tag(t).unwrap_or((0, 0, 0)));
+    tags.sort_by_key(|tag| parse_version_tag_full(tag).unwrap());
     Ok(tags)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn stable_release_components_are_strict_and_preserve_subpatch_order() {
+        assert_eq!(parse_version_tag("v2.8.1.1"), Some((2, 8, 1)));
+        assert_eq!(parse_version_tag_full("v2.8.1.1"), Some((2, 8, 1, 1)));
+        for invalid in [
+            "v+2.8.1",
+            "v2..1",
+            "v2.8.1.x",
+            "v2.8.1.1.1",
+            "v2.8.1.4294967296",
+            "v2.8.1-rc0",
+        ] {
+            assert!(parse_version_tag(invalid).is_none(), "{invalid}");
+        }
+        let commit = "0".repeat(40);
+        let pins = format!("v2.8.1 {commit}\nv2.8.1.1 {commit}\nv2.8.2 {commit}\n");
+        assert_eq!(parse_pinned_versions(&pins).unwrap().len(), 3);
+        assert!(parse_pinned_versions(&format!("v2.8.1.1 {commit}\nv2.8.1 {commit}\n")).is_err());
+        assert!(parse_pinned_versions(&format!("v2.8.1 {commit}\nv2.8.1.0 {commit}\n")).is_err());
+    }
 
     #[test]
     fn pinned_releases_are_ordered_and_end_at_current_baseline() {

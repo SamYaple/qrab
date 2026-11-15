@@ -179,8 +179,15 @@ fn parse_version(raw: &str) -> Result<(u32, u32, u32)> {
     let raw = raw.trim().trim_start_matches(['v', 'V']);
     let parts: Vec<_> = raw.split('.').collect();
     let parse = || -> Option<(u32, u32, u32)> {
-        if parts.len() != 3 {
+        if !matches!(parts.len(), 3 | 4) {
             return None;
+        }
+        if parts.len() == 4 {
+            if !parts[2].bytes().all(|byte| byte.is_ascii_digit()) {
+                return None;
+            }
+            let extra: String = parts[3].chars().take_while(char::is_ascii_digit).collect();
+            extra.parse::<u32>().ok()?;
         }
         let patch: String = parts[2].chars().take_while(char::is_ascii_digit).collect();
         Some((

@@ -497,7 +497,7 @@ fn process_version_schema(
 
 /// Result of extracting and parsing a single version's schema.
 struct VersionResult {
-    _tag: String,
+    tag: String,
     version: Version,
     /// Hash of the raw schema content (for dedup of identical patch releases).
     schema_hash: u64,
@@ -572,7 +572,7 @@ fn process_single_version(qemu_repo: &Path, tag: &str) -> Result<Option<VersionR
         .with_context(|| format!("Failed to process IR for {}", tag))?;
 
     Ok(Some(VersionResult {
-        _tag: tag.to_string(),
+        tag: tag.to_string(),
         version,
         schema_hash,
         enums,
@@ -614,7 +614,7 @@ fn process_single_version_qga(qemu_repo: &Path, tag: &str) -> Result<Option<Vers
         .with_context(|| format!("Failed to process QGA IR for {}", tag))?;
 
     Ok(Some(VersionResult {
-        _tag: tag.to_string(),
+        tag: tag.to_string(),
         version,
         schema_hash,
         enums,
@@ -645,7 +645,8 @@ pub fn build_unified_registry(qemu_repo: &Path, version_tags: &[&str]) -> Result
     );
 
     // Sort by version to ensure deterministic merge order
-    version_results.sort_by_key(|r| r.version);
+    version_results
+        .sort_by_key(|result| crate::versions::parse_version_tag_full(&result.tag).unwrap());
 
     // Phase 2: Merge sequentially in version order
     let merge_start = Instant::now();
@@ -1867,7 +1868,8 @@ pub fn build_qga_registry(qemu_repo: &Path, version_tags: &[&str]) -> Result<Uni
 
     let absent = results.iter().filter(|r| r.is_none()).count();
     let mut version_results: Vec<VersionResult> = results.into_iter().flatten().collect();
-    version_results.sort_by_key(|r| r.version);
+    version_results
+        .sort_by_key(|result| crate::versions::parse_version_tag_full(&result.tag).unwrap());
     eprintln!(
         "  QGA: {} versions parsed, {} without a guest-agent schema",
         version_results.len(),
