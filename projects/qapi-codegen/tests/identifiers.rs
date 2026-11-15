@@ -75,6 +75,12 @@ fn valid_schema_keywords_and_standard_type_names_compile_and_round_trip() {
     let changing_alt = "{ 'alternate':'ChangingAlt', 'data':{'text':'str','object':'String'} }\n";
     schema.push_str(changing_alt);
     schema.push_str("{ 'struct':'AltHolder', 'data':{'item':'ChangingAlt'} }\n");
+    schema.push_str("{ 'pragma':{'member-name-exceptions':['CollisionFields','VirtualBase']} }\n");
+    let collision_fields = "{ 'struct':'CollisionFields', 'data':{'FooBAR':'str','FooBar':'str','foo_bar_alt':'str','FooBAR_alt':'str'} }\n";
+    schema.push_str(collision_fields);
+    schema.push_str("{ 'command':'manual-arguments', 'gen':false, 'data':{'arguments':'str'} }\n");
+    schema.push_str("{ 'struct':'VirtualBase', 'data':{'kind':'EmptyKind','U':'str'} }\n");
+    schema.push_str("{ 'union':'VirtualOwner', 'base':'VirtualBase', 'discriminator':'kind', 'data':{'none':'PeerWindows'} }\n");
     let entry = repo.join("qapi/qapi-schema.json");
     std::fs::write(&entry, &schema).unwrap();
     let oracle = Command::new("python3").arg("-c").arg("import sys; sys.path.insert(0, sys.argv[1]+'/scripts'); from qapi.schema import QAPISchema; QAPISchema(sys.argv[2])")
@@ -86,6 +92,7 @@ fn valid_schema_keywords_and_standard_type_names_compile_and_round_trip() {
     );
     let modern_schema = schema.clone();
     schema = schema.replace(modern_only, "");
+    schema = schema.replace(collision_fields, "{ 'struct':'CollisionFields', 'data':{'FooBAR':'str','FooBar':'str','FooBAR_alt':'str'} }\n");
     schema = schema.replace(changing_alt, "{ 'enum':'ChangingAlt', 'data':['old'] }\n");
     schema = schema.replace(changing_type, "{ 'enum':'ChangingType', 'data':['old'] }\n");
     schema = schema.replace(

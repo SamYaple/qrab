@@ -202,6 +202,9 @@ check declarations, references, commands and metadata together.
 Generated union branches, simple-union tags, event types and command fallbacks
 avoid declared symbols, adding `Generated` or numbered suffixes when needed.
 References and wire names remain attached to the correct definitions.
+Coexisting field names that normalize alike receive stable `_alt` names across
+the selected history. Allocation reserves future declared fields and distinguishes
+virtual flatten receivers from wire fields, preserving keys such as `pc` and `PC`.
 Name planning covers every selected release before IR lowering, so a newer
 declaration cannot overwrite an older generated branch or anonymous object.
 Extraction, name collection and lowering use bounded workers; schema hashes

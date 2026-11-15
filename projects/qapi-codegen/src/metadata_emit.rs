@@ -324,17 +324,15 @@ fn classify(us: &UnifiedStruct) -> Category {
 }
 
 /// Detect a `gen: false` command — currently encoded as a flattened
-/// `arguments: HashMap<String, serde_json::Value>` field.
+/// JSON argument map field.
 fn is_free_form(s: &Struct) -> bool {
-    s.fields.iter().any(|f| {
-        f.name == "arguments"
-            && f.r#type.starts_with("HashMap<")
-            && has_unit_attr(&f.meta.attributes, "flatten")
-    })
+    s.fields
+        .iter()
+        .any(|f| f.r#type.starts_with("HashMap<") && has_unit_attr(&f.meta.attributes, "flatten"))
 }
 
 /// Detect a flat-union struct: contains exactly one `#[qapi(discriminator)]`
-/// field plus a sibling field named `u` with `#[qapi(flatten)]` whose type is
+/// field plus a sibling `#[qapi(union, flatten)]` field whose type is
 /// `<X>Branch`. Returns `(discriminator_rust_field, branch_enum_name)`.
 fn detect_union(s: &Struct) -> Option<(String, String)> {
     let mut disc: Option<&StructField> = None;
@@ -346,7 +344,9 @@ fn detect_union(s: &Struct) -> Option<(String, String)> {
             }
             disc = Some(f);
         }
-        if f.name == "u" && has_unit_attr(&f.meta.attributes, "flatten") {
+        if has_unit_attr(&f.meta.attributes, "union")
+            && has_unit_attr(&f.meta.attributes, "flatten")
+        {
             // Field type is the enum (or Box<enum>), but the IR stores the
             // raw type name — `XBranch`. Strip any `Box<...>` wrappers.
             let mut t = f.r#type.as_str();
@@ -363,7 +363,7 @@ fn detect_union(s: &Struct) -> Option<(String, String)> {
 }
 
 /// Walk every struct, collect the set of branch-enum type names that any
-/// flat-union references via its `u` field. Used to classify enums as
+/// flat-union references via a flattened branch receiver. Used to classify enums as
 /// `FlatUnionBranch` vs `Alternate`.
 fn collect_branch_enums(registry: &UnifiedRegistry) -> BTreeSet<String> {
     let mut out = BTreeSet::new();
@@ -444,13 +444,8 @@ fn emit_field_array(
     let mut s = String::new();
     s.push_str(&format!("static {}: &[FieldMeta] = &[\n", var_name));
     for f in &us.ir.fields {
-        // Skip the synthetic `arguments: HashMap<...>` flatten field on free-form
-        // commands and the `u: Option<XBranch>` flatten field on unions; the BMC
-        // doesn't render them as input fields.
-        if f.name == "arguments" && f.r#type.starts_with("HashMap<") {
-            continue;
-        }
-        if f.name == "u" && has_unit_attr(&f.meta.attributes, "flatten") {
+        // Flatten receivers are virtual Rust fields without their own wire key.
+        if has_unit_attr(&f.meta.attributes, "flatten") {
             continue;
         }
 

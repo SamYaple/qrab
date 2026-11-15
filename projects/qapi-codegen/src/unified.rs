@@ -574,6 +574,90 @@ struct VersionResult {
     structs: HashMap<String, Struct>,
 }
 
+fn normalize_field_names(versions: &mut [VersionResult]) {
+    #[derive(Default)]
+    struct Group {
+        identities: Vec<(String, bool)>,
+        collision: bool,
+    }
+    let mut groups: BTreeMap<(String, String), Group> = BTreeMap::new();
+    let mut reserved: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    let mut ordered: Vec<_> = versions.iter().collect();
+    ordered.sort_by_key(|version| {
+        std::cmp::Reverse(crate::versions::parse_version_tag_full(&version.tag).unwrap())
+    });
+    for version in ordered {
+        for (owner, value) in &version.structs {
+            let mut local: BTreeMap<String, Vec<_>> = BTreeMap::new();
+            for field in &value.fields {
+                local.entry(field_rust_name(field)).or_default().push(field);
+            }
+            for (preferred, fields) in local {
+                reserved
+                    .entry(owner.clone())
+                    .or_default()
+                    .insert(preferred.clone());
+                let group = groups.entry((owner.clone(), preferred)).or_default();
+                group.collision |= fields.len() > 1;
+                for field in fields {
+                    let identity = (
+                        field.name.clone(),
+                        field.meta.attributes.contains(&Attribute::new("flatten")),
+                    );
+                    if !group.identities.contains(&identity) {
+                        group.identities.push(identity);
+                    }
+                }
+            }
+        }
+    }
+    let mut aliases = BTreeMap::new();
+    for ((owner, preferred), mut group) in groups {
+        if !group.collision {
+            continue;
+        }
+        // Declared wire fields keep priority over virtual flatten receivers.
+        group.identities.sort_by_key(|(_, flatten)| *flatten);
+        let used = reserved.get_mut(&owner).unwrap();
+        for identity in group.identities.into_iter().skip(1) {
+            let mut suffix = 1;
+            let mut name = format!("{preferred}_alt");
+            while !used.insert(name.clone()) {
+                suffix += 1;
+                name = format!("{preferred}_alt{suffix}");
+            }
+            aliases.insert((owner.clone(), identity), name);
+        }
+    }
+    if aliases.is_empty() {
+        return;
+    }
+    for version in versions {
+        for (owner, value) in &mut version.structs {
+            for field in &mut value.fields {
+                let identity = (
+                    field.name.clone(),
+                    field.meta.attributes.contains(&Attribute::new("flatten")),
+                );
+                if let Some(name) = aliases.get(&(owner.clone(), identity)) {
+                    if !field
+                        .meta
+                        .attributes
+                        .iter()
+                        .any(|attr| matches!(attr, Attribute::Item { name, .. } if name == "name"))
+                    {
+                        field
+                            .meta
+                            .attributes
+                            .push(Attribute::with_value("name", &field.name));
+                    }
+                    field.name.clone_from(name);
+                }
+            }
+        }
+    }
+}
+
 /// Bound concurrent git processes and parser workers even on hosts with large
 /// CPU counts. Keep input order so errors and merges are reproducible.
 fn parse_versions<T: Send>(
@@ -702,7 +786,9 @@ fn load_versions(
             structs,
         }))
     })?;
-    Ok((results.into_iter().flatten().collect(), absent))
+    let mut results: Vec<_> = results.into_iter().flatten().collect();
+    normalize_field_names(&mut results);
+    Ok((results, absent))
 }
 
 /// Parse schemas from multiple versions and build a unified registry.

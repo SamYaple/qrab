@@ -5,6 +5,45 @@ pub use qapi_runtime::{
 mod generated;
 pub use generated::*;
 fn main() {
+    with_version((11, 1, 3), || {
+        let wire = serde_json::json!({"kind":"none","U":"named","value":"payload"});
+        let value: VirtualOwner = serde_json::from_value(wire.clone()).unwrap();
+        assert_eq!(value.u, "named");
+        assert_eq!(serde_json::to_value(value).unwrap(), wire);
+        let info = metadata::STRUCTS.get("VirtualOwner").unwrap();
+        assert!(info.is_union);
+        assert_eq!(info.fields.len(), 2);
+        assert_eq!(
+            metadata::ENUMS.get(info.branch_enum.unwrap()).unwrap().kind,
+            metadata::EnumKind::FlatUnionBranch
+        );
+    });
+    with_version((6, 1, 0), || {
+        let wire = serde_json::json!({"FooBAR":"first","FooBar":"second","FooBAR_alt":"fourth"});
+        let value: CollisionFields = serde_json::from_value(wire.clone()).unwrap();
+        assert_eq!(serde_json::to_value(value).unwrap(), wire);
+    });
+    with_version((11, 1, 3), || {
+        let wire = serde_json::json!({"arguments":"named","extra":42});
+        let command: commands::ManualArguments = serde_json::from_value(wire.clone()).unwrap();
+        assert_eq!(command.arguments, "named");
+        assert_eq!(serde_json::to_value(command).unwrap(), wire);
+        let command = metadata::COMMANDS
+            .iter()
+            .find(|command| command.wire_name == "manual-arguments")
+            .unwrap();
+        assert!(command.args.free_form);
+        assert_eq!(command.args.fields.len(), 1);
+        assert_eq!(command.args.fields[0].wire_name, "arguments");
+    });
+    with_version((11, 1, 3), || {
+        let wire = serde_json::json!({"FooBAR":"first","FooBar":"second","foo_bar_alt":"third","FooBAR_alt":"fourth"});
+        let value: CollisionFields = serde_json::from_value(wire.clone()).unwrap();
+        assert_eq!(serde_json::to_value(value).unwrap(), wire);
+        let fields = metadata::STRUCTS.get("CollisionFields").unwrap().fields;
+        let names: std::collections::BTreeSet<_> = fields.iter().map(|field| field.name).collect();
+        assert_eq!(names.len(), fields.len());
+    });
     for (version, wire) in [
         ((6, 1, 0), serde_json::json!({"item":"old"})),
         ((11, 1, 3), serde_json::json!({"item":{"value":"new"}})),
