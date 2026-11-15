@@ -3,6 +3,7 @@ use super::{
     parser_version,
 };
 use nom::IResult;
+use nom::Offset;
 use nom::Parser;
 use nom::bytes::complete::{tag, tag_no_case};
 use nom::character::complete::space0;
@@ -176,7 +177,7 @@ impl<'i> QapiDocumentation<'i> {
                     name,
                     ..Self::default()
                 };
-                doc.parse_lines(&lines, legacy);
+                doc.parse_lines(&lines, legacy, start)?;
                 return Ok((next, doc));
             }
             if let Ok((next, _)) = (space0::<&str, Error<&str>>, line_ending).parse(input) {
@@ -193,7 +194,7 @@ impl<'i> QapiDocumentation<'i> {
                         name,
                         ..Self::default()
                     };
-                    doc.parse_lines(&lines, legacy);
+                    doc.parse_lines(&lines, legacy, start)?;
                     return Ok((input, doc));
                 }
                 Err(error) => return Err(error),
@@ -201,7 +202,18 @@ impl<'i> QapiDocumentation<'i> {
         }
     }
 
-    fn parse_lines(&mut self, lines: &[&'i str], legacy: bool) {
+    fn parse_lines(
+        &mut self,
+        lines: &[&'i str],
+        legacy: bool,
+        source: &'i str,
+    ) -> Result<(), nom::Err<Error<&'i str>>> {
+        let duplicate = |line| {
+            nom::Err::Failure(Error::new(
+                &source[source.offset(line)..],
+                ErrorKind::Verify,
+            ))
+        };
         #[derive(Clone, Copy)]
         enum Section {
             Description,
@@ -230,6 +242,8 @@ impl<'i> QapiDocumentation<'i> {
         }
         let mut section = Section::Description;
         let mut features = false;
+        let mut features_seen = false;
+        let mut singleton_sections = std::collections::HashSet::new();
         let mut previous_blank = true;
         for &line in lines {
             let indented = line.starts_with([' ', '\t']);
@@ -244,6 +258,9 @@ impl<'i> QapiDocumentation<'i> {
                     } else {
                         &mut self.fields
                     };
+                    if !legacy && target.iter().any(|(previous, _)| *previous == name) {
+                        return Err(duplicate(line));
+                    }
                     target.push((name, vec![value.trim_start()]));
                     if features {
                         self.body.push(line);
@@ -260,13 +277,27 @@ impl<'i> QapiDocumentation<'i> {
                     .split_once(':')
                     .filter(|(_, value)| !value.starts_with(':'))
                 {
-                    let next = match name.to_ascii_lowercase().as_str() {
+                    let name = name.to_ascii_lowercase();
+                    // Returns/Since have been singleton sections since formal
+                    // docs arrived; Errors joined them in the 9.0 doc parser.
+                    if !legacy
+                        && (matches!(name.as_str(), "returns" | "since")
+                            || name == "errors" && parser_version() >= (9, 0, 0))
+                        && !singleton_sections.insert(name.clone())
+                    {
+                        return Err(duplicate(line));
+                    }
+                    let next = match name.as_str() {
                         "returns" => Some(Section::Returns),
                         "errors" => Some(Section::Errors),
                         "note" | "notes" => Some(Section::Notes),
                         "example" | "examples" => Some(Section::Examples),
                         "todo" => Some(Section::Todos),
                         "features" if value.trim().is_empty() => {
+                            if features_seen && parser_version() >= (9, 0, 0) {
+                                return Err(duplicate(line));
+                            }
+                            features_seen = true;
                             self.body.push(line);
                             features = true;
                             section = Section::Description;
@@ -345,6 +376,7 @@ impl<'i> QapiDocumentation<'i> {
         for (_, lines) in self.fields.iter_mut().chain(self.features.iter_mut()) {
             trim_lines(lines);
         }
+        Ok(())
     }
 }
 
@@ -495,6 +527,37 @@ impl<'i> QapiFreeformDoc<'i> {
 mod tests {
     use super::*;
     use crate::parsers::set_parser_version;
+
+    #[test]
+    fn duplicate_doc_sections_follow_their_grammar_era() {
+        for (section, introduced) in [
+            ("Since: 1.0", (2, 9, 0)),
+            ("Returns: result", (2, 9, 0)),
+            ("Errors: failure", (9, 0, 0)),
+            ("Features:\n# @flag: description", (9, 0, 0)),
+            ("@member: description", (2, 9, 0)),
+        ] {
+            let input = format!("##\n# @Example:\n#\n# {section}\n#\n# {section}\n##\n");
+            // Duplicate Features would also duplicate @flag, independently
+            // invalid since formal docs, so keep the second header empty.
+            let input = if section.starts_with("Features:") {
+                input.replacen("# @flag: description\n##", "##", 1)
+            } else {
+                input
+            };
+            set_parser_version(if introduced == (9, 0, 0) {
+                (8, 2, 0)
+            } else {
+                (2, 8, 0)
+            });
+            assert!(QapiDocumentation::parse(&input).is_ok(), "{input}");
+            set_parser_version(introduced);
+            assert!(QapiDocumentation::parse(&input).is_err(), "{input}");
+        }
+        set_parser_version((11, 1, 3));
+        let input = "##\n# @Example:\n# Note: first\n#\n# Note: second\n##\n";
+        assert!(QapiDocumentation::parse(input).is_ok());
+    }
 
     #[test]
     fn legacy_docs_allow_bare_blank_lines_and_triple_hash_terminators() {

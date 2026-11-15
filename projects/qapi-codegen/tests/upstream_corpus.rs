@@ -81,6 +81,19 @@ fn malformed_schema_diagnostics_locate_later_definitions() {
 }
 
 #[test]
+fn duplicate_doc_sections_report_the_original_source_location() {
+    qapi_codegen::set_parser_version((11, 1, 3));
+    let input = "##\n# @example:\n# Since: 1.0\n#\n# Since: 2.0\n##\n{'command':'example'}\n";
+    for ending in ["\n", "\r\n", "\r"] {
+        let error = qapi_codegen::parse_schema(&input.replace('\n', ending))
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("line 5, column 3"), "{error}");
+        assert!(error.contains("Since: 2.0"), "{error}");
+    }
+}
+
+#[test]
 fn upstream_positive_schema_fixtures_parse() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../vendor/qemu/tests/qapi-schema");
     let mut fixtures = Vec::new();

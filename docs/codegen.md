@@ -191,9 +191,9 @@ advertised command appears under its exact wire name in generated metadata.
 Generated enum serializers enforce both type and variant lifetimes. The same
 checks apply to alternate values and union branch payloads, including scalar
 payloads whose Rust types carry no QEMU metadata. Invalid outgoing values name
-the unavailable type or variant and peer version. Enum deserialization does not
-enforce serialization lifetimes, so recorded and newer replies can still be
-inspected.
+the unavailable type or variant and peer version. Explicitly scoped decoding
+also checks type lifetimes. Unscoped decoding remains permissive so recorded
+and newer replies can still be inspected.
 
 Definition documentation is parsed as complete comment blocks. A closing `##`
 is never treated as prose, and malformed modern blocks cannot fall back to
