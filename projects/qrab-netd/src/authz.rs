@@ -121,7 +121,7 @@ mod tests {
             owner(select_anchor(Some(&b), "lan", &anchors).unwrap()),
             Some("vm-b")
         );
-        // A passt-mode NIC is not handed out, and another VM's NIC is never found.
+        // An unannotated NIC Pod is not handed out, and another VM's NIC is never found.
         assert_eq!(
             select_anchor(Some(&a), "wan", &anchors),
             Err(Refusal::NoSuchNic("wan".into()))

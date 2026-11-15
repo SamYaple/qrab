@@ -19,7 +19,7 @@ pub mod sys;
 pub mod wire;
 
 /// Anchor annotation selecting the tap datapath; any other value (or none)
-/// leaves the Pod alone, so passt NIC Pods are never touched.
+/// leaves the Pod alone.
 pub const DATAPATH_ANNOTATION: &str = "qrab.yapplesauce.com/nic-datapath";
 pub const DATAPATH_TAP: &str = "tap";
 /// Pod condition the agent sets on each anchor it serves; anchors list it as
@@ -29,5 +29,5 @@ pub const PLUMBED_CONDITION: &str = "qrab.yapplesauce.com/nic-plumbed";
 /// spec mounts it into VM Pods at the same path.
 pub const SOCKET_DIR: &str = "/run/qrab-netd";
 pub const SOCKET_NAME: &str = "netd.sock";
-/// The guest's on-link gateway and DNS server (the same as passt mode).
+/// The guest's on-link gateway and DNS server.
 pub const GUEST_GATEWAY: std::net::Ipv4Addr = std::net::Ipv4Addr::new(169, 254, 1, 1);

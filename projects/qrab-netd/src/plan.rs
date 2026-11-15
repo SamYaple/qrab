@@ -234,8 +234,8 @@ mod tests {
         let mut v6 = anchor();
         v6.status.as_mut().unwrap().pod_ip = Some("fd00::7".into());
         assert!(NicPlan::for_anchor(&v6).is_err());
-        let mut passt = anchor();
-        passt.metadata.annotations = None;
-        assert!(NicPlan::for_anchor(&passt).is_err());
+        let mut unannotated = anchor();
+        unannotated.metadata.annotations = None;
+        assert!(NicPlan::for_anchor(&unannotated).is_err());
     }
 }
