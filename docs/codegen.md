@@ -166,3 +166,8 @@ The historical `union` form with an empty discriminator dictionary is an
 untagged alternate, not a simple tagged union. It lowers to the same bare-value
 Rust enum as modern `alternate` syntax, preserving the original introduction
 version and feature metadata.
+
+Serde macro expansions allocate helper names against user fields, referenced
+types and other generated helpers. Fields such as `map` and internal-looking
+identifiers cannot capture JSON storage, visitors or serde generic parameters.
+These cases have compile-and-round-trip regressions.

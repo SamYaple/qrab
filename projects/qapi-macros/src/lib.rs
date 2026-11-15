@@ -774,6 +774,7 @@ fn variant_serialization_guard(name: &syn::Ident, variant: &VariantInfo) -> Toke
 }
 
 fn gen_unit_enum_ser(name: &syn::Ident, variants: &[VariantInfo], ta: &TypeAttrs) -> TokenStream2 {
+    let serializer_ty = HelperNames::for_enum(name, variants).ty("Serializer");
     let type_name_str = name.to_string();
 
     let arms: Vec<TokenStream2> = variants
@@ -818,8 +819,8 @@ fn gen_unit_enum_ser(name: &syn::Ident, variants: &[VariantInfo], ta: &TypeAttrs
     quote! {
         #[allow(deprecated)]
         impl serde::Serialize for #name {
-            fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-            where S: serde::Serializer {
+            fn serialize<#serializer_ty>(&self, serializer: #serializer_ty) -> Result<#serializer_ty::Ok, #serializer_ty::Error>
+            where #serializer_ty: serde::Serializer {
                 #body
             }
         }
@@ -827,6 +828,7 @@ fn gen_unit_enum_ser(name: &syn::Ident, variants: &[VariantInfo], ta: &TypeAttrs
 }
 
 fn gen_unit_enum_de(name: &syn::Ident, variants: &[VariantInfo]) -> TokenStream2 {
+    let deserializer_ty = HelperNames::for_enum(name, variants).ty("Deserializer");
     let arms: Vec<TokenStream2> = variants
         .iter()
         .map(|v| {
@@ -848,8 +850,8 @@ fn gen_unit_enum_de(name: &syn::Ident, variants: &[VariantInfo]) -> TokenStream2
     quote! {
         #[allow(deprecated)]
         impl<'de> serde::Deserialize<'de> for #name {
-            fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-            where D: serde::Deserializer<'de> {
+            fn deserialize<#deserializer_ty>(deserializer: #deserializer_ty) -> Result<Self, #deserializer_ty::Error>
+            where #deserializer_ty: serde::Deserializer<'de> {
                 let s = <String as serde::Deserialize>::deserialize(deserializer)?;
                 match s.as_str() {
                     #(#arms)*
@@ -861,6 +863,7 @@ fn gen_unit_enum_de(name: &syn::Ident, variants: &[VariantInfo]) -> TokenStream2
 }
 
 fn gen_alt_ser(name: &syn::Ident, variants: &[VariantInfo], ta: &TypeAttrs) -> TokenStream2 {
+    let serializer_ty = HelperNames::for_enum(name, variants).ty("Serializer");
     let type_guard = version_range_check(ta.since.as_deref(), ta.until.as_deref())
         .map(|available| quote! {
             if !(#available) {
@@ -900,8 +903,8 @@ fn gen_alt_ser(name: &syn::Ident, variants: &[VariantInfo], ta: &TypeAttrs) -> T
     quote! {
         #[allow(deprecated)]
         impl serde::Serialize for #name {
-            fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-            where S: serde::Serializer {
+            fn serialize<#serializer_ty>(&self, serializer: #serializer_ty) -> Result<#serializer_ty::Ok, #serializer_ty::Error>
+            where #serializer_ty: serde::Serializer {
                 #type_guard
                 #warning
                 match *self { #(#arms)* }
@@ -951,6 +954,7 @@ fn alt_variant_priority(kind: &VariantKind) -> u8 {
 }
 
 fn gen_alt_de(name: &syn::Ident, variants: &[VariantInfo]) -> TokenStream2 {
+    let deserializer_ty = HelperNames::for_enum(name, variants).ty("Deserializer");
     // Stable-sort variants by specificity so overlapping shapes (e.g. a
     // primitive vs an all-optional-fields struct) resolve to the least
     // ambiguous match instead of silently picking whichever happens to
@@ -990,8 +994,8 @@ fn gen_alt_de(name: &syn::Ident, variants: &[VariantInfo]) -> TokenStream2 {
     quote! {
         #[allow(deprecated)]
         impl<'de> serde::Deserialize<'de> for #name {
-            fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-            where D: serde::Deserializer<'de> {
+            fn deserialize<#deserializer_ty>(deserializer: #deserializer_ty) -> Result<Self, #deserializer_ty::Error>
+            where #deserializer_ty: serde::Deserializer<'de> {
                 let value = <serde_json::Value as serde::Deserialize>::deserialize(deserializer)?;
                 #(#try_arms)*
                 Err(serde::de::Error::custom(concat!("no matching variant for ", stringify!(#name))))
@@ -1339,6 +1343,7 @@ fn gen_struct_ser(
     fields: &[FieldInfo],
     ta: &TypeAttrs,
 ) -> TokenStream2 {
+    let serializer_ty = HelperNames::new(name, fields).ty("Serializer");
     let shared_validation = validate_shared_fields(name, fields);
     let required = required_field_checks(name, fields, false);
     let type_name_str = name.to_string();
@@ -1414,13 +1419,14 @@ fn gen_struct_ser(
     quote! {
         #[allow(deprecated)]
         impl serde::Serialize for #name {
-            fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-            where S: serde::Serializer { #body }
+            fn serialize<#serializer_ty>(&self, serializer: #serializer_ty) -> Result<#serializer_ty::Ok, #serializer_ty::Error>
+            where #serializer_ty: serde::Serializer { #body }
         }
     }
 }
 
 fn gen_struct_ser_flatten(name: &syn::Ident, fields: &[FieldInfo], ta: &TypeAttrs) -> TokenStream2 {
+    let serializer_ty = HelperNames::new(name, fields).ty("Serializer");
     let shared_validation = validate_shared_fields(name, fields);
     let required = required_field_checks(name, fields, false);
     let type_name_str = name.to_string();
@@ -1543,8 +1549,8 @@ fn gen_struct_ser_flatten(name: &syn::Ident, fields: &[FieldInfo], ta: &TypeAttr
     quote! {
         #[allow(deprecated)]
         impl serde::Serialize for #name {
-            fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-            where S: serde::Serializer { #body }
+            fn serialize<#serializer_ty>(&self, serializer: #serializer_ty) -> Result<#serializer_ty::Ok, #serializer_ty::Error>
+            where #serializer_ty: serde::Serializer { #body }
         }
     }
 }
@@ -1637,12 +1643,84 @@ fn alternates_check(
     }
 }
 
-fn raw_ident(wire: &str) -> syn::Ident {
-    let encoded: String = wire.bytes().map(|byte| format!("{byte:02x}")).collect();
-    format_ident!("__qapi_raw_{encoded}")
+struct HelperNames {
+    used: std::collections::BTreeSet<String>,
+}
+
+impl HelperNames {
+    fn new(parent: &syn::Ident, fields: &[FieldInfo]) -> Self {
+        let mut names = Self {
+            used: fields
+                .iter()
+                .map(|field| field.ident.unraw().to_string())
+                .collect(),
+        };
+        names.used.insert(parent.unraw().to_string());
+        for field in fields {
+            let ty = &field.ty;
+            names.reserve(quote! { #ty });
+        }
+        names
+    }
+
+    fn for_enum(parent: &syn::Ident, variants: &[VariantInfo]) -> Self {
+        let mut names = Self::new(parent, &[]);
+        for variant in variants {
+            if let VariantKind::Tuple(ty) = &variant.kind {
+                names.reserve(quote! { #ty });
+            }
+        }
+        names
+    }
+
+    fn reserve(&mut self, tokens: TokenStream2) {
+        for token in tokens {
+            match token {
+                proc_macro2::TokenTree::Ident(ident) => {
+                    self.used.insert(ident.unraw().to_string());
+                }
+                proc_macro2::TokenTree::Group(group) => self.reserve(group.stream()),
+                _ => {}
+            }
+        }
+    }
+
+    fn allocate(&mut self, base: String) -> syn::Ident {
+        let mut candidate = base.clone();
+        let mut suffix = 2;
+        while !self.used.insert(candidate.clone()) {
+            candidate = format!("{base}{suffix}");
+            suffix += 1;
+        }
+        format_ident!("{candidate}")
+    }
+
+    fn ident(&mut self, stem: &str) -> syn::Ident {
+        self.allocate(format!("__qapi_{stem}"))
+    }
+    fn ty(&mut self, stem: &str) -> syn::Ident {
+        self.allocate(format!("__Qapi{stem}"))
+    }
+
+    fn raw_fields(
+        &mut self,
+        wires: &std::collections::BTreeSet<String>,
+    ) -> std::collections::BTreeMap<String, syn::Ident> {
+        wires
+            .iter()
+            .map(|wire| {
+                let encoded: String = wire.bytes().map(|byte| format!("{byte:02x}")).collect();
+                (wire.clone(), self.ident(&format!("raw_{encoded}")))
+            })
+            .collect()
+    }
 }
 
 fn gen_struct_de(name: &syn::Ident, fields: &[FieldInfo]) -> TokenStream2 {
+    let deserializer_ty = HelperNames::new(name, fields).ty("Deserializer");
+    let mut names = HelperNames::new(name, fields);
+    let visitor_ty = names.ty("Visitor");
+    let map_access_ty = names.ty("MapAccess");
     let required = required_field_checks(name, fields, true);
     let field_idents: Vec<&syn::Ident> = fields.iter().map(|f| &f.ident).collect();
     let field_wires: Vec<String> = fields
@@ -1651,7 +1729,7 @@ fn gen_struct_de(name: &syn::Ident, fields: &[FieldInfo]) -> TokenStream2 {
         .collect();
     let field_vars: Vec<syn::Ident> = fields
         .iter()
-        .map(|f| format_ident!("__field_{}", f.ident))
+        .map(|field| names.ident(&format!("field_{}", field.ident.unraw())))
         .collect();
 
     let none_inits: Vec<TokenStream2> = field_vars
@@ -1660,6 +1738,7 @@ fn gen_struct_de(name: &syn::Ident, fields: &[FieldInfo]) -> TokenStream2 {
         .collect();
 
     let shared = shared_wires(fields);
+    let raw_names = names.raw_fields(&shared);
     let mut match_arms: Vec<TokenStream2> = fields
         .iter()
         .enumerate()
@@ -1682,7 +1761,7 @@ fn gen_struct_de(name: &syn::Ident, fields: &[FieldInfo]) -> TokenStream2 {
         .map(|(_, t)| t)
         .collect();
     for w in &shared {
-        let raw = raw_ident(w);
+        let raw = raw_names.get(w.as_str()).unwrap();
         none_inits.push(quote! { let mut #raw: Option<serde_json::Value> = None; });
         match_arms.push(quote! { #w => { #raw = Some(map.next_value()?); } });
     }
@@ -1695,7 +1774,7 @@ fn gen_struct_de(name: &syn::Ident, fields: &[FieldInfo]) -> TokenStream2 {
             let id = &f.ident;
             let w = &field_wires[i];
             if shared.contains(w) {
-                let raw = raw_ident(w);
+                let raw = raw_names.get(w.as_str()).unwrap();
                 alternate_init(f, &quote! { #raw }, fields)
             } else if is_option_type(&f.ty) {
                 quote! { let #id = #v.unwrap_or(None); }
@@ -1705,7 +1784,7 @@ fn gen_struct_de(name: &syn::Ident, fields: &[FieldInfo]) -> TokenStream2 {
         })
         .collect();
     for w in &shared {
-        let raw = raw_ident(w);
+        let raw = raw_names.get(w.as_str()).unwrap();
         let ids: Vec<&syn::Ident> = fields
             .iter()
             .filter(|f| !f.attrs.flatten && &wire_name(&f.attrs.name, &f.ident) == w)
@@ -1717,16 +1796,16 @@ fn gen_struct_de(name: &syn::Ident, fields: &[FieldInfo]) -> TokenStream2 {
     quote! {
         #[allow(deprecated)]
         impl<'de> serde::Deserialize<'de> for #name {
-            fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-            where D: serde::Deserializer<'de> {
-                struct __Visitor;
-                impl<'de> serde::de::Visitor<'de> for __Visitor {
+            fn deserialize<#deserializer_ty>(deserializer: #deserializer_ty) -> Result<Self, #deserializer_ty::Error>
+            where #deserializer_ty: serde::Deserializer<'de> {
+                struct #visitor_ty;
+                impl<'de> serde::de::Visitor<'de> for #visitor_ty {
                     type Value = #name;
                     fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
                         f.write_str(stringify!(#name))
                     }
-                    fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
-                    where A: serde::de::MapAccess<'de> {
+                    fn visit_map<#map_access_ty>(self, mut map: #map_access_ty) -> Result<Self::Value, #map_access_ty::Error>
+                    where #map_access_ty: serde::de::MapAccess<'de> {
                         #(#none_inits)*
                         while let Some(key) = map.next_key::<String>()? {
                             match key.as_str() {
@@ -1739,23 +1818,31 @@ fn gen_struct_de(name: &syn::Ident, fields: &[FieldInfo]) -> TokenStream2 {
                         Ok(#name { #(#field_idents),* })
                     }
                 }
-                deserializer.deserialize_map(__Visitor)
+                deserializer.deserialize_map(#visitor_ty)
             }
         }
     }
 }
 
 fn gen_struct_de_flatten(name: &syn::Ident, fields: &[FieldInfo], ta: &TypeAttrs) -> TokenStream2 {
+    let deserializer_ty = HelperNames::new(name, fields).ty("Deserializer");
+    let mut names = HelperNames::new(name, fields);
+    let map_var = names.ident("map");
+    let full_map_var = names.ident("full_map");
+    let value_var = names.ident("value");
+    let payload_var = names.ident("union_payload");
+    let disc_var = names.ident("discriminator");
     let required = required_field_checks(name, fields, true);
     let non_flat: Vec<&FieldInfo> = fields.iter().filter(|f| !f.attrs.flatten).collect();
     let flat: Vec<&FieldInfo> = fields.iter().filter(|f| f.attrs.flatten).collect();
 
     let shared = shared_wires(fields);
+    let raw_names = names.raw_fields(&shared);
     let mut extractions: Vec<TokenStream2> = shared
         .iter()
         .map(|w| {
-            let raw = raw_ident(w);
-            quote! { let #raw: Option<serde_json::Value> = map.remove(#w); }
+            let raw = raw_names.get(w.as_str()).unwrap();
+            quote! { let #raw: Option<serde_json::Value> = #map_var.remove(#w); }
         })
         .collect();
     extractions.extend(non_flat.iter().map(|f| {
@@ -1763,18 +1850,18 @@ fn gen_struct_de_flatten(name: &syn::Ident, fields: &[FieldInfo], ta: &TypeAttrs
         let w = wire_name(&f.attrs.name, &f.ident);
         let ty = &f.ty;
         if shared.contains(&w) {
-            let raw = raw_ident(&w);
+            let raw = raw_names.get(w.as_str()).unwrap();
             alternate_init(f, &quote! { #raw }, fields)
         } else if is_option_type(ty) {
             quote! {
-                let #id: #ty = match map.remove(#w) {
+                let #id: #ty = match #map_var.remove(#w) {
                     Some(v) => Some(serde_json::from_value(v).map_err(serde::de::Error::custom)?),
                     None => None,
                 };
             }
         } else {
             quote! {
-                let #id: #ty = match map.remove(#w) {
+                let #id: #ty = match #map_var.remove(#w) {
                     Some(v) => serde_json::from_value(v).map_err(serde::de::Error::custom)?,
                     None => return Err(serde::de::Error::missing_field(#w)),
                 };
@@ -1782,7 +1869,7 @@ fn gen_struct_de_flatten(name: &syn::Ident, fields: &[FieldInfo], ta: &TypeAttrs
         }
     }));
     for w in &shared {
-        let raw = raw_ident(w);
+        let raw = raw_names.get(w.as_str()).unwrap();
         let ids: Vec<&syn::Ident> = non_flat
             .iter()
             .filter(|f| &wire_name(&f.attrs.name, &f.ident) == w)
@@ -1810,11 +1897,11 @@ fn gen_struct_de_flatten(name: &syn::Ident, fields: &[FieldInfo], ta: &TypeAttrs
                     ordered.sort_by_key(|f| f.attrs.until.is_some());
                     let ids: Vec<&syn::Ident> = ordered.iter().map(|f| &f.ident).collect();
                     quote! {
-                        let __disc: Option<String> = None #(.or_else(|| #ids.as_ref().map(|d| d.to_string())))*;
-                        let #id: #ty = match __disc {
+                        let #disc_var: Option<String> = None #(.or_else(|| #ids.as_ref().map(|d| d.to_string())))*;
+                        let #id: #ty = match #disc_var {
                             Some(d) => Some(<#inner_ty as qapi::QapiFlatUnion>::deserialize_variant_value(
                                 &d,
-                                __qapi_union_payload.clone(),
+                                #payload_var.clone(),
                             ).map_err(serde::de::Error::custom)?),
                             None => None,
                         };
@@ -1829,7 +1916,7 @@ fn gen_struct_de_flatten(name: &syn::Ident, fields: &[FieldInfo], ta: &TypeAttrs
                         let #id: #ty = if let Some(ref __disc_val) = #disc_id {
                             Some(<#inner_ty as qapi::QapiFlatUnion>::deserialize_variant_value(
                                 &__disc_val.to_string(),
-                                __qapi_union_payload.clone(),
+                                #payload_var.clone(),
                             ).map_err(serde::de::Error::custom)?)
                         } else {
                             None
@@ -1842,14 +1929,14 @@ fn gen_struct_de_flatten(name: &syn::Ident, fields: &[FieldInfo], ta: &TypeAttrs
                         quote! {
                             let #id: #ty = Some(<#inner_ty as qapi::QapiFlatUnion>::deserialize_variant_value(
                                 &#disc_id.to_string(),
-                                __qapi_union_payload.clone(),
+                                #payload_var.clone(),
                             ).map_err(serde::de::Error::custom)?);
                         }
                     } else {
                         quote! {
                             let #id: #ty = <#ty as qapi::QapiFlatUnion>::deserialize_variant_value(
                                 &#disc_id.to_string(),
-                                __qapi_union_payload.clone(),
+                                #payload_var.clone(),
                             ).map_err(serde::de::Error::custom)?;
                         }
                     }
@@ -1857,12 +1944,12 @@ fn gen_struct_de_flatten(name: &syn::Ident, fields: &[FieldInfo], ta: &TypeAttrs
             } else {
                 // Union field without discriminator — fall back to full map deser
                 quote! {
-                    let #id: #ty = serde_json::from_value(serde_json::Value::Object(full_map.clone())).map_err(serde::de::Error::custom)?;
+                    let #id: #ty = serde_json::from_value(serde_json::Value::Object(#full_map_var.clone())).map_err(serde::de::Error::custom)?;
                 }
             }
         } else {
             quote! {
-                let #id: #ty = serde_json::from_value(serde_json::Value::Object(map.clone())).map_err(serde::de::Error::custom)?;
+                let #id: #ty = serde_json::from_value(serde_json::Value::Object(#map_var.clone())).map_err(serde::de::Error::custom)?;
             }
         };
         if is_option_type(ty) {
@@ -1883,9 +1970,9 @@ fn gen_struct_de_flatten(name: &syn::Ident, fields: &[FieldInfo], ta: &TypeAttrs
     let payload = if flat.iter().any(|field| field.attrs.union_field) {
         let simple = simple_union_layout(ta, true);
         quote! {
-            let __qapi_union_payload = if #simple {
-                full_map.get("data").cloned().ok_or_else(|| serde::de::Error::missing_field("data"))?
-            } else { serde_json::Value::Object(full_map.clone()) };
+            let #payload_var = if #simple {
+                #full_map_var.get("data").cloned().ok_or_else(|| serde::de::Error::missing_field("data"))?
+            } else { serde_json::Value::Object(#full_map_var.clone()) };
         }
     } else {
         TokenStream2::new()
@@ -1896,14 +1983,14 @@ fn gen_struct_de_flatten(name: &syn::Ident, fields: &[FieldInfo], ta: &TypeAttrs
     quote! {
         #[allow(deprecated)]
         impl<'de> serde::Deserialize<'de> for #name {
-            fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-            where D: serde::Deserializer<'de> {
-                let value = <serde_json::Value as serde::Deserialize>::deserialize(deserializer)?;
-                let mut map = match value {
+            fn deserialize<#deserializer_ty>(deserializer: #deserializer_ty) -> Result<Self, #deserializer_ty::Error>
+            where #deserializer_ty: serde::Deserializer<'de> {
+                let #value_var = <serde_json::Value as serde::Deserialize>::deserialize(deserializer)?;
+                let mut #map_var = match #value_var {
                     serde_json::Value::Object(m) => m,
                     _ => return Err(serde::de::Error::custom("expected object")),
                 };
-                let full_map = map.clone();
+                let #full_map_var = #map_var.clone();
                 #payload
                 #(#extractions)*
                 #(#flat_extractions)*
