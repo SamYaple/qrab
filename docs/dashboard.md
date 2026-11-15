@@ -314,6 +314,9 @@ still enforces the limit; the browser no longer invites a longer name that will
 be rejected after submission. A namespace that leaves no room for a VM name gets
 an unavailable message instead of an unusable form.
 
+The image catalogue shows names and generations separately, matching the optional
+data-disk fields. Its form link opens a new tab so in-progress values stay in place.
+Leave every field of an unused data-disk row empty; a clone needs both image fields.
 Hot-plug limits and additional data disks are optional disclosures. Submitted
 values reopen their section when the form is rejected. Numeric controls inside
 closable sections use a numeric keyboard and server validation: native browser
@@ -710,6 +713,9 @@ across missing intervals longer than two sample steps and visibly mark isolated
 samples instead of losing them or connecting through missing data.
 The BMC Metrics tab keeps service-resource counters in a native disclosure so
 the history charts are easier to reach; opening it explains cumulative CPU totals.
+VM-report disk counters are labelled as totals. Current byte values use adaptive
+binary units, keeping small values visible; tiny positive time totals use a
+threshold label instead of rounding to zero.
 Missing BMC configuration or guest-agent data is labelled unavailable; it is
 distinct from an explicitly empty disk/NIC list or a disabled channel. A successful
 System response without configuration clears the previous configuration values.

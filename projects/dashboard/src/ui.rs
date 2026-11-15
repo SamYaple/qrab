@@ -1182,7 +1182,10 @@ fn launch_form(page: &LaunchPage, user: &UserView) -> Element {
             {cloud_init_fieldset(page)}
             details { class: "form-disclosure", id: "launch-disks", open: disks_open,
                 summary { "Data disks (optional)" }
-                p { class: "muted", "Provisioned by the storage service on node {node}. Use whole GiB from 1 to 1024. Leave the ID empty to skip a row." }
+                p { id: "data-disk-help", class: "muted", "Provisioned by the storage service on node {node}. Use whole GiB from 1 to 1024. Leave every field in a row empty to skip it. IDs use lowercase letters, digits and hyphens." }
+                p { id: "data-disk-image-help", class: "muted", "For a clone, enter the base image name and its generation separately. Leave both blank for an empty disk. "
+                    a { href: "/images", target: "_blank", rel: "noopener noreferrer", "View staged images (opens in a new tab)" }
+                }
                 for i in 0..launch::FORM_DISKS {
                     {
                         let id = format!("disk{i}_id");
@@ -1191,10 +1194,10 @@ fn launch_form(page: &LaunchPage, user: &UserView) -> Element {
                         let generation = format!("disk{i}_base_generation");
                         let n = i + 1;
                         rsx! { div { class: "pair disk-row", role: "group", aria_label: "Disk {n}",
-                            div { label { r#for: "{id}", "Disk {n} ID" } input { id: "{id}", name: "{id}", aria_invalid: page.invalid(&id), aria_describedby: page.described_by(&id, ""), maxlength: "20", value: v(&id, "") } {field_error(page, &id)} }
-                            div { label { r#for: "{size}", "Size (GiB)" } input { id: "{size}", name: "{size}", aria_invalid: page.invalid(&size), aria_describedby: page.described_by(&size, ""), r#type: "text", inputmode: "numeric", value: v(&size, "") } {field_error(page, &size)} }
-                            div { label { r#for: "{base}", "Base image (optional)" } input { id: "{base}", name: "{base}", aria_invalid: page.invalid(&base), aria_describedby: page.described_by(&base, ""), maxlength: "32", value: v(&base, "") } {field_error(page, &base)} }
-                            div { label { r#for: "{generation}", "Generation" } input { id: "{generation}", name: "{generation}", aria_invalid: page.invalid(&generation), aria_describedby: page.described_by(&generation, ""), r#type: "text", inputmode: "numeric", value: v(&generation, "") } {field_error(page, &generation)} }
+                            div { label { r#for: "{id}", "Disk {n} ID" } input { id: "{id}", name: "{id}", aria_invalid: page.invalid(&id), aria_describedby: page.described_by(&id, "data-disk-help"), maxlength: "20", value: v(&id, "") } {field_error(page, &id)} }
+                            div { label { r#for: "{size}", "Size (GiB)" } input { id: "{size}", name: "{size}", aria_invalid: page.invalid(&size), aria_describedby: page.described_by(&size, "data-disk-help"), r#type: "text", inputmode: "numeric", value: v(&size, "") } {field_error(page, &size)} }
+                            div { label { r#for: "{base}", "Base image name (optional)" } input { id: "{base}", name: "{base}", aria_invalid: page.invalid(&base), aria_describedby: page.described_by(&base, "data-disk-image-help"), maxlength: "32", value: v(&base, "") } {field_error(page, &base)} }
+                            div { label { r#for: "{generation}", "Base image generation" } input { id: "{generation}", name: "{generation}", aria_invalid: page.invalid(&generation), aria_describedby: page.described_by(&generation, "data-disk-image-help"), r#type: "text", inputmode: "numeric", value: v(&generation, "") } {field_error(page, &generation)} }
                         } }
                     }
                 }
@@ -1330,12 +1333,13 @@ fn images_page(images: &[BaseImage]) -> Element {
             else { div { class: "table-wrap", table {
                 caption { class: "visually-hidden", "Staged base images" }
                 thead { tr {
-                    th { scope: "col", "Image" } th { scope: "col", "Name" } th { scope: "col", "Size" }
+                    th { scope: "col", "Image" } th { scope: "col", "Name" } th { scope: "col", "Generation" } th { scope: "col", "Size" }
                     th { scope: "col", "Raw SHA-256" } th { scope: "col", "Source" } th { scope: "col", "Boot" }
                 } }
                 tbody { for image in images { tr {
                     td { "data-label": "Image", div { strong { "{image.title}" } p { class: "muted", "{image.os} {image.version}" } } }
-                    td { "data-label": "Name", code { {image.label()} } }
+                    td { "data-label": "Name", code { "{image.name}" } }
+                    td { "data-label": "Generation", "{image.generation}" }
                     td { "data-label": "Size", {mib(image.size_bytes)} }
                     td { "data-label": "Raw SHA-256", code { "{image.sha256}" } }
                     td { "data-label": "Source", a { href: "{image.source_url}", rel: "noreferrer", "{image.source_url}" } }

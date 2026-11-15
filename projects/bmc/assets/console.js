@@ -700,18 +700,18 @@ function refresh() {
 
 // ── Metrics: current values only. Each VM report read takes a fresh QMP
 // sample, so the Metrics tab polls only while it is shown.
-const mib = value => value == null ? 'unavailable' : `${(value / 1048576).toFixed(1)} MiB`;
-const seconds = value => value == null ? 'unavailable' : `${value.toFixed(2)} s`;
+const byteSize = value => value == null ? 'unavailable' : formatValue(value, 'bytes');
+const seconds = value => value == null ? 'unavailable' : value > 0 && value < 0.01 ? '<0.01 s' : `${value.toFixed(2)} s`;
 const REPORT_FORMATS = {
     LogicalProcessors: ['vCPUs', value => value],
-    MemoryBytes: ['Memory', mib],
-    BlockReadBytes: ['Disk read', mib],
-    BlockWriteBytes: ['Disk written', mib],
-    BlockReadOperations: ['Read operations', value => value.toLocaleString()],
-    BlockWriteOperations: ['Write operations', value => value.toLocaleString()],
-    BlockFlushOperations: ['Flush operations', value => value.toLocaleString()],
-    BlockReadTimeNanoseconds: ['Read time', value => seconds(value / 1e9)],
-    BlockWriteTimeNanoseconds: ['Write time', value => seconds(value / 1e9)],
+    MemoryBytes: ['Memory', byteSize],
+    BlockReadBytes: ['Disk read total', byteSize],
+    BlockWriteBytes: ['Disk written total', byteSize],
+    BlockReadOperations: ['Read operations total', value => value.toLocaleString()],
+    BlockWriteOperations: ['Write operations total', value => value.toLocaleString()],
+    BlockFlushOperations: ['Flush operations total', value => value.toLocaleString()],
+    BlockReadTimeNanoseconds: ['Read time total', value => seconds(value / 1e9)],
+    BlockWriteTimeNanoseconds: ['Write time total', value => seconds(value / 1e9)],
 };
 async function loadResources() {
     const usage = await request(RESOURCES);
@@ -720,11 +720,11 @@ async function loadResources() {
         const sample = usage[name];
         if (!sample) { rows.push([name, 'unavailable']); continue; }
         const process = sample.process || {};
-        rows.push([`${name} process RSS`, mib(process.resident_memory_bytes)]);
+        rows.push([`${name} process RSS`, byteSize(process.resident_memory_bytes)]);
         rows.push([`${name} process CPU total`, seconds(process.cpu_time_seconds)]);
         if (sample.container) {
-            rows.push([`${name} container memory`, mib(sample.container.memory_current_bytes)]);
-            rows.push([`${name} memory limit`, mib(sample.container.memory_limit_bytes)]);
+            rows.push([`${name} container memory`, byteSize(sample.container.memory_current_bytes)]);
+            rows.push([`${name} memory limit`, byteSize(sample.container.memory_limit_bytes)]);
             rows.push([`${name} container CPU total`, seconds(sample.container.cpu_usage_seconds)]);
         }
     }

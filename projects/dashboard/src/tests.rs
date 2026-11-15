@@ -1012,7 +1012,7 @@ async fn the_images_page_lists_the_catalog_for_any_signed_in_user() {
     assert_eq!(status, StatusCode::OK);
     for text in [
         "CirrOS 0.6.3",
-        "<code>cirros g1</code>",
+        "<code>cirros</code>",
         "112 MiB",
         "<code>0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef</code>",
         "https://download.cirros-cloud.net/0.6.3/cirros-0.6.3-x86_64-disk.img",
