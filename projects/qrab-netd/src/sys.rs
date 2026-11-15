@@ -338,6 +338,103 @@ fn wg_syncconf(config: &str) -> io::Result<()> {
     )))
 }
 
+/// The node's Cilium agent process, whose mount namespace has the pinned
+/// BPF maps and bpftool.
+pub fn cilium_agent_pid(proc_root: &Path) -> Option<i32> {
+    fs::read_dir(proc_root)
+        .ok()?
+        .filter_map(Result::ok)
+        .filter_map(|e| e.file_name().to_str()?.parse::<i32>().ok())
+        .find(|pid| {
+            fs::read_to_string(proc_root.join(pid.to_string()).join("comm"))
+                .is_ok_and(|c| c.trim() == "cilium-agent")
+        })
+}
+
+/// bpftool in the agent's mount and PID namespaces (its /proc must match
+/// for bpftool's fdinfo reads).
+fn bpftool(proc_root: &Path, args: &[&str], stdin: Option<&str>) -> io::Result<String> {
+    let pid = cilium_agent_pid(proc_root)
+        .ok_or_else(|| io::Error::other("no cilium-agent process on this node"))?;
+    let mut child = Command::new("nsenter")
+        .args(["-t", &pid.to_string(), "-m", "-p", "--", "bpftool"])
+        .args(args)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?;
+    child
+        .stdin
+        .take()
+        .expect("piped stdin")
+        .write_all(stdin.unwrap_or_default().as_bytes())?;
+    let output = child.wait_with_output()?;
+    if !output.status.success() {
+        return Err(io::Error::other(format!(
+            "bpftool {}: {}",
+            args.first().copied().unwrap_or_default(),
+            String::from_utf8_lossy(&output.stderr).trim()
+        )));
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+}
+
+/// CLOCK_MONOTONIC in seconds: Cilium's conntrack clock (`ktime`).
+pub fn monotonic_secs() -> u64 {
+    nix::time::clock_gettime(nix::time::ClockId::CLOCK_MONOTONIC)
+        .map(|t| u64::try_from(t.tv_sec()).unwrap_or(0))
+        .unwrap_or(0)
+}
+
+/// This node's conntrack entries for flows of `ip`.
+pub fn export_conntrack(proc_root: &Path, ip: Ipv4Addr) -> io::Result<crate::ct::Export> {
+    let mut entries = Vec::new();
+    for (map, name) in crate::ct::MAPS {
+        let path = format!("{}/{name}", crate::ct::PIN_DIR);
+        let dump = bpftool(proc_root, &["-j", "map", "dump", "pinned", &path], None)?;
+        entries.extend(crate::ct::select(
+            crate::ct::parse_dump(map, &dump).map_err(io::Error::other)?,
+            ip,
+        ));
+    }
+    Ok(crate::ct::Export::new(monotonic_secs(), entries))
+}
+
+/// Whether `ip` is this node's own or one of its local endpoints', judged
+/// in the calling thread's (host) namespace.
+fn is_local_here(ip: Ipv4Addr) -> bool {
+    match ip_words(&["-4", "route", "get", &ip.to_string()]) {
+        Ok(route) => route.starts_with("local ") || route.contains(" dev lxc"),
+        // Unroutable: treat as local, so nothing is imported for it.
+        Err(_) => true,
+    }
+}
+
+/// Import an export into this node's maps for the NIC at `ip`. Runs in the
+/// host namespace; returns how many entries were written.
+pub fn import_conntrack(
+    proc_root: &Path,
+    ip: Ipv4Addr,
+    export: &crate::ct::Export,
+) -> io::Result<usize> {
+    let now = monotonic_secs();
+    let mut accepted = Vec::new();
+    for entry in export.decode().map_err(io::Error::other)? {
+        crate::ct::importable(&entry, ip, is_local_here).map_err(io::Error::other)?;
+        if let Some(moved) = crate::ct::rebase(&entry, export.now, now) {
+            accepted.push(moved);
+        }
+    }
+    if !accepted.is_empty() {
+        bpftool(
+            proc_root,
+            &["batch", "file", "/dev/stdin"],
+            Some(&crate::ct::batch(&accepted)),
+        )?;
+    }
+    Ok(accepted.len())
+}
+
 /// The wg-quick config a VPN anchor mounts, read through the root of the
 /// Pod's process that has the mount: the anchor container's, not the
 /// sandbox's (whose mount namespace has no volumes).
