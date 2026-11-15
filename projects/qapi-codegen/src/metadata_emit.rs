@@ -487,7 +487,7 @@ fn emit_struct_meta(decl_name: &str, e: &StructEmit) -> String {
         decl_name,
         rs_str(&e.wire_name),
         rs_str(&e.doc),
-        format!("&{}", e.fields_var),
+        format_args!("&{}", e.fields_var),
         e.is_union,
         match &e.discriminator_field {
             Some(d) => format!("Some({})", rs_str(d)),
@@ -670,7 +670,7 @@ pub fn emit(registry: &UnifiedRegistry) -> String {
     // Build the name sets needed for type-pool resolution.
     let mut struct_names: BTreeSet<String> = BTreeSet::new();
     let mut enum_names: BTreeSet<String> = BTreeSet::new();
-    for (_, ut) in &registry.types {
+    for ut in registry.types.values() {
         match ut {
             UnifiedType::Struct(us) => {
                 struct_names.insert(rustify_name(&us.ir.name));
@@ -779,15 +779,15 @@ pub fn emit(registry: &UnifiedRegistry) -> String {
     out.push_str("#![allow(non_upper_case_globals, dead_code)]\n\n");
     out.push_str("use phf::phf_map;\n\n");
     out.push_str(METADATA_TYPES);
-    out.push_str("\n");
+    out.push('\n');
 
     // ── type-ref pool ─────────────────────────────────────────────────────
     out.push_str(&pool.emit());
-    out.push_str("\n");
+    out.push('\n');
 
     // ── per-type bodies ───────────────────────────────────────────────────
     out.push_str(&bodies);
-    out.push_str("\n");
+    out.push('\n');
 
     // ── COMMANDS ──────────────────────────────────────────────────────────
     out.push_str("pub static COMMANDS: &[CommandMeta] = &[\n");

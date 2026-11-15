@@ -606,6 +606,66 @@ pub fn process_event(q: QapiEvent, structs_lookup: &HashMap<String, Struct>) -> 
     }
 }
 
+pub fn process_command(q: QapiCommand, structs_lookup: &HashMap<String, Struct>) -> Struct {
+    let mut fields = Vec::new();
+    if let Some(data) = q.data {
+        fields.extend(process_members_or_ref(data, structs_lookup));
+    }
+    let mut meta = Metadata::default();
+    meta.attributes.push(Attribute::new("command"));
+    if let Some(attr) = name_attr(q.name) {
+        meta.attributes.push(attr);
+    }
+    if let Some(condition) = q.r#if {
+        meta.attributes
+            .push(Attribute::with_value("condition", condition));
+    }
+    add_feat! {meta, q.r#features};
+    add_docs! {meta, q.doc, q.name, &mut fields};
+    if let Some(returns) = q.returns {
+        let (r#type, array) = process_type_ref(&returns);
+        let rust_type = super::rustify_type(r#type);
+        let r#type = if array {
+            format!("Vec<{}>", rust_type)
+        } else {
+            rust_type
+        };
+        meta.attributes
+            .push(Attribute::with_value("returns", r#type));
+    } else {
+        meta.attributes.push(Attribute::with_value("returns", "()"));
+    }
+    if q.allow_oob == Some("true") {
+        meta.attributes.push(Attribute::new("allow_oob"));
+    }
+    if q.allow_preconfig == Some("true") {
+        meta.attributes.push(Attribute::new("allow_preconfig"));
+    }
+    if matches!(q.success_response, Some("false" | "no")) {
+        meta.attributes.push(Attribute::new("no_success_response"));
+    }
+
+    // gen:false/no commands accept properties beyond their declared arguments.
+    if q.r#gen == Some("false") || q.r#gen == Some("no") {
+        fields.push(StructField {
+            name: "arguments".into(),
+            r#type: "HashMap<String, serde_json::Value>".into(),
+            optional: true,
+            array: false,
+            meta: Metadata {
+                doc: Some("Additional command arguments not modeled by this schema.".into()),
+                attributes: vec![Attribute::new("flatten")],
+            },
+        });
+    }
+
+    Struct {
+        name: q.name.into(),
+        fields,
+        meta,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -657,7 +717,7 @@ mod tests {
     fn test_process_enum_simple() {
         let q = QapiEnum {
             name: "StatusCode",
-            data: vec![make_enum_value("ok"), make_enum_value("error")].into(),
+            data: vec![make_enum_value("ok"), make_enum_value("error")],
             prefix: None,
             r#if: None,
             features: None,
@@ -682,8 +742,7 @@ mod tests {
                     name: "deprecated",
                     r#if: None,
                 }])),
-            }]
-            .into(),
+            }],
             prefix: None,
             r#if: None,
             features: None,
@@ -950,7 +1009,7 @@ mod tests {
     fn test_enum_codegen_roundtrip() {
         let q = QapiEnum {
             name: "TestEnum",
-            data: vec![make_enum_value("value-one"), make_enum_value("value-two")].into(),
+            data: vec![make_enum_value("value-one"), make_enum_value("value-two")],
             prefix: None,
             r#if: None,
             features: None,
@@ -1051,70 +1110,5 @@ mod tests {
                 .contains(&Attribute::with_value("condition", "TARGET_AARCH64"))
         );
         assert!(branches.variants.iter().all(|v| v.name != "unknown"));
-    }
-}
-
-pub fn process_command(q: QapiCommand, structs_lookup: &HashMap<String, Struct>) -> Struct {
-    let mut fields = Vec::new();
-    if let Some(data) = q.data {
-        fields.extend(process_members_or_ref(data, structs_lookup));
-    }
-    let mut meta = Metadata::default();
-    meta.attributes.push(Attribute::new("command"));
-    if let Some(attr) = name_attr(q.name) {
-        meta.attributes.push(attr);
-    }
-    if let Some(condition) = q.r#if {
-        meta.attributes
-            .push(Attribute::with_value("condition", condition));
-    }
-    add_feat! {meta, q.r#features};
-    add_docs! {meta, q.doc, q.name, &mut fields};
-    if let Some(returns) = q.returns {
-        let (r#type, array) = process_type_ref(&returns);
-        let rust_type = super::rustify_type(r#type);
-        let r#type = if array {
-            format!("Vec<{}>", rust_type)
-        } else {
-            rust_type
-        };
-        meta.attributes
-            .push(Attribute::with_value("returns", r#type));
-    } else {
-        meta.attributes.push(Attribute::with_value("returns", "()"));
-    }
-    if q.allow_oob == Some("true") {
-        meta.attributes.push(Attribute::new("allow_oob"));
-    }
-    if q.allow_preconfig == Some("true") {
-        meta.attributes.push(Attribute::new("allow_preconfig"));
-    }
-    if matches!(q.success_response, Some("false" | "no")) {
-        meta.attributes.push(Attribute::new("no_success_response"));
-    }
-
-    // Commands with 'gen': false accept arbitrary additional properties
-    // beyond the declared fields (e.g., device_add takes device-specific props).
-    // Add a flattened HashMap catch-all field to support this.
-    // The field defaults to an empty map so callers don't need to specify it.
-    if q.r#gen == Some("false") || q.r#gen == Some("no") {
-        fields.push(StructField {
-            name: "arguments".into(),
-            r#type: "HashMap<String, serde_json::Value>".into(),
-            optional: true,
-            array: false,
-            meta: {
-                let mut m = Metadata::default();
-                m.doc = Some("Additional command arguments not modeled by this schema.".into());
-                m.attributes.push(Attribute::new("flatten"));
-                m
-            },
-        });
-    }
-
-    Struct {
-        name: q.name.into(),
-        fields,
-        meta,
     }
 }

@@ -82,14 +82,14 @@ impl SchemaNames {
                 }
                 QapiSchemaToken::Command(value) => {
                     self.roles.entry(format!("{root}Command")).or_default();
-                    if let Some(crate::MembersOrRef::Ref(data)) = &value.data {
-                        if root == rustify_name(data) {
-                            self.shared_requests.insert((
-                                root.clone(),
-                                (*data).to_owned(),
-                                crate::parser_version(),
-                            ));
-                        }
+                    if let Some(crate::MembersOrRef::Ref(data)) = &value.data
+                        && root == rustify_name(data)
+                    {
+                        self.shared_requests.insert((
+                            root.clone(),
+                            (*data).to_owned(),
+                            crate::parser_version(),
+                        ));
                     }
                 }
                 _ => {}

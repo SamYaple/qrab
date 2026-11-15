@@ -438,13 +438,12 @@ fn test_doc_preservation_in_ir() {
     let mut found = false;
     for (_, content) in &sources {
         for token in parse_schema(content).unwrap().iter() {
-            if let QapiSchemaToken::Struct(s) = token {
-                if s.name == "StatusInfo" {
-                    if let Some(doc) = &s.doc {
-                        assert!(!doc.description.is_empty(), "StatusInfo should have docs");
-                        found = true;
-                    }
-                }
+            if let QapiSchemaToken::Struct(s) = token
+                && s.name == "StatusInfo"
+                && let Some(doc) = &s.doc
+            {
+                assert!(!doc.description.is_empty(), "StatusInfo should have docs");
+                found = true;
             }
         }
     }
@@ -528,24 +527,22 @@ fn test_boxed_command_different_name_not_lost() {
         // entry when their rustified names match. We only assert the data
         // struct doesn't carry the command attribute when it's a separate
         // entry — i.e., when their rustified names differ.
-        if rustify_name(cmd_name) != rustify_name(data_ref) {
-            if let Some(ut) = lookup(&registry, data_ref) {
-                let has_command = match ut {
-                    qapi_codegen::unified::UnifiedType::Struct(us) =>
-                        us.ir.meta.attributes.iter().any(
-                            |a| matches!(a, qapi_codegen::qapi_ir::Attribute::Unit(n) if n == "command"),
-                        ),
-                    qapi_codegen::unified::UnifiedType::Enum(ue) =>
-                        ue.ir.meta.attributes.iter().any(
-                            |a| matches!(a, qapi_codegen::qapi_ir::Attribute::Unit(n) if n == "command"),
-                        ),
-                };
-                assert!(
-                    !has_command,
-                    "Data type '{}' should NOT have #[qapi(command)] (command is '{}')",
-                    data_ref, cmd_name,
-                );
-            }
+        if rustify_name(cmd_name) != rustify_name(data_ref)
+            && let Some(ut) = lookup(&registry, data_ref)
+        {
+            let has_command = match ut {
+                qapi_codegen::unified::UnifiedType::Struct(us) => us.ir.meta.attributes.iter().any(
+                    |a| matches!(a, qapi_codegen::qapi_ir::Attribute::Unit(n) if n == "command"),
+                ),
+                qapi_codegen::unified::UnifiedType::Enum(ue) => ue.ir.meta.attributes.iter().any(
+                    |a| matches!(a, qapi_codegen::qapi_ir::Attribute::Unit(n) if n == "command"),
+                ),
+            };
+            assert!(
+                !has_command,
+                "Data type '{}' should NOT have #[qapi(command)] (command is '{}')",
+                data_ref, cmd_name,
+            );
         }
     }
 }
@@ -860,7 +857,7 @@ fn test_field_evolution_inline_to_boxed() {
             .filter(|f| {
                 us.field_versions
                     .get(&f.name)
-                    .map_or(false, |vr| vr.until.is_some())
+                    .is_some_and(|vr| vr.until.is_some())
             })
             .collect();
 
@@ -944,7 +941,7 @@ fn test_enum_version_tracking() {
     let mut enums_with_since = 0;
     let mut enums_with_until = 0;
 
-    for (_name, ut) in &registry.types {
+    for ut in registry.types.values() {
         if let qapi_codegen::unified::UnifiedType::Enum(ue) = ut {
             if ue.versions.since >= (1, 0, 0) {
                 enums_with_since += 1;
@@ -979,7 +976,7 @@ fn test_deprecated_feature_tracking() {
 
     let mut deprecated_count = 0;
 
-    for (_name, ut) in &registry.types {
+    for ut in registry.types.values() {
         let versions = match ut {
             qapi_codegen::unified::UnifiedType::Enum(ue) => &ue.versions,
             qapi_codegen::unified::UnifiedType::Struct(us) => &us.versions,
@@ -1209,7 +1206,7 @@ fn test_unions_have_discriminators() {
     let mut union_count = 0;
     let mut with_discriminator = 0;
 
-    for (_name, ut) in &registry.types {
+    for ut in registry.types.values() {
         if let qapi_codegen::unified::UnifiedType::Struct(us) = ut {
             // Union structs have a discriminator field with the "u" field (union branch)
             let has_u_field = us.ir.fields.iter().any(|f| f.name == "u");
@@ -1286,7 +1283,7 @@ fn test_condition_attributes_preserved() {
 
     let mut types_with_conditions = 0;
 
-    for (_name, ut) in &registry.types {
+    for ut in registry.types.values() {
         let attrs = match ut {
             qapi_codegen::unified::UnifiedType::Struct(us) => &us.ir.meta.attributes,
             qapi_codegen::unified::UnifiedType::Enum(ue) => &ue.ir.meta.attributes,
@@ -1385,12 +1382,11 @@ fn test_generated_code_inlines_boxed_command_data() {
                     if segment.ident == "HashMap" {
                         return true;
                     }
-                    if segment.ident == "Option" {
-                        if let syn::PathArguments::AngleBracketed(args) = &segment.arguments {
-                            if let Some(syn::GenericArgument::Type(inner)) = args.args.first() {
-                                return argument_map_type(inner);
-                            }
-                        }
+                    if segment.ident == "Option"
+                        && let syn::PathArguments::AngleBracketed(args) = &segment.arguments
+                        && let Some(syn::GenericArgument::Type(inner)) = args.args.first()
+                    {
+                        return argument_map_type(inner);
                     }
                     false
                 }
@@ -1483,9 +1479,9 @@ fn test_field_version_tracking() {
     let mut fields_with_since_gt_type = 0;
     let mut fields_with_until = 0;
 
-    for (_name, ut) in &registry.types {
+    for ut in registry.types.values() {
         if let qapi_codegen::unified::UnifiedType::Struct(us) = ut {
-            for (_fname, fvr) in &us.field_versions {
+            for fvr in us.field_versions.values() {
                 if fvr.since > us.versions.since {
                     fields_with_since_gt_type += 1;
                 }
@@ -1522,7 +1518,7 @@ fn test_name_attributes_preserved() {
 
     let mut types_with_name_attr = 0;
 
-    for (_name, ut) in &registry.types {
+    for ut in registry.types.values() {
         let attrs = match ut {
             qapi_codegen::unified::UnifiedType::Struct(us) => &us.ir.meta.attributes,
             qapi_codegen::unified::UnifiedType::Enum(ue) => &ue.ir.meta.attributes,

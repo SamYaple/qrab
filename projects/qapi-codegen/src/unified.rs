@@ -142,10 +142,10 @@ fn merge_returns(existing: &mut UnifiedStruct, new_meta: &Metadata, version: Ver
     // A struct first seen as plain data gains `returns` through the
     // ordinary attribute union, keeping attribute order stable.
     for attr in &mut existing.ir.meta.attributes {
-        if let Attribute::Item { name, value } = attr {
-            if name == "returns" {
-                *value = new.to_owned();
-            }
+        if let Attribute::Item { name, value } = attr
+            && name == "returns"
+        {
+            *value = new.to_owned();
         }
     }
 }
@@ -226,15 +226,13 @@ fn merge_command_attrs_onto(source: &Struct, target: &mut Struct) {
                     target.meta.attributes.push(attr.clone());
                 }
             }
-            Attribute::Item { name, .. } if name == "returns" => {
-                if !target
-                    .meta
-                    .attributes
-                    .iter()
-                    .any(|a| matches!(a, Attribute::Item { name: n, .. } if n == "returns"))
-                {
-                    target.meta.attributes.push(attr.clone());
-                }
+            Attribute::Item { name, .. }
+                if name == "returns"
+                    && !target.meta.attributes.iter().any(
+                        |a| matches!(a, Attribute::Item { name: n, .. } if n == "returns"),
+                    ) =>
+            {
+                target.meta.attributes.push(attr.clone());
             }
             _ => {}
         }
@@ -448,11 +446,10 @@ fn process_version_schema_with_names(
                 crate::MembersOrRef::Unset => Vec::new(),
             };
             for branch in &v.data.0 {
-                if let crate::QapiTypeRef::Ref(name) = &branch.r#type {
-                    if let Some(payload) = structs_lookup.get(*name) {
-                        crate::schema_validation::ir_members(
-                            base_fields.iter().chain(&payload.fields),
-                        )
+                if let crate::QapiTypeRef::Ref(name) = &branch.r#type
+                    && let Some(payload) = structs_lookup.get(*name)
+                {
+                    crate::schema_validation::ir_members(base_fields.iter().chain(&payload.fields))
                         .with_context(|| {
                             format!(
                                 "Invalid QAPI union '{}' branch '{}' in {}",
@@ -461,7 +458,6 @@ fn process_version_schema_with_names(
                                 source_paths[v.name].display()
                             )
                         })?;
-                    }
                 }
             }
             let (discriminator_type, optional, array) = match &v.base {
@@ -610,10 +606,10 @@ fn process_version_schema_with_names(
         let mut processed = process_command(v, &structs_lookup);
         if let Some(returns) = returns {
             for attr in &mut processed.meta.attributes {
-                if let Attribute::Item { name, value } = attr {
-                    if name == "returns" {
-                        value.clone_from(&returns);
-                    }
+                if let Attribute::Item { name, value } = attr
+                    && name == "returns"
+                {
+                    value.clone_from(&returns);
                 }
             }
         }
@@ -1606,10 +1602,10 @@ fn fix_recursive_types(registry: &mut UnifiedRegistry) {
                 }
                 UnifiedType::Enum(ue) => {
                     for variant in &ue.ir.variants {
-                        if !variant.array {
-                            if let EnumVariantKind::Tuple(t) = &variant.kind {
-                                referenced.insert(rustify_type(t));
-                            }
+                        if !variant.array
+                            && let EnumVariantKind::Tuple(t) = &variant.kind
+                        {
+                            referenced.insert(rustify_type(t));
                         }
                     }
                 }
@@ -2035,8 +2031,7 @@ fn generate_unified_enum(
     }
 
     // Sort variants alphabetically by name
-    ir.variants
-        .sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    ir.variants.sort_by_cached_key(|a| a.name.to_lowercase());
 
     ir.generate()
 }
@@ -2181,8 +2176,7 @@ fn generate_unified_struct(
     }
 
     // Sort fields alphabetically by name
-    ir.fields
-        .sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    ir.fields.sort_by_cached_key(|a| a.name.to_lowercase());
 
     ir.generate()
 }

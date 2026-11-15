@@ -1,6 +1,6 @@
 //! Current-schema coverage and regressions in the generation pipeline.
 use qapi_codegen::unified::{
-    UnifiedRegistry, UnifiedType, build_qga_registry, build_unified_registry,
+    UnifiedRegistry, UnifiedType, Version, build_qga_registry, build_unified_registry,
 };
 use qapi_codegen::versions::{
     PINNED_VERSIONS, PinnedVersion, parse_pinned_versions, verify_pinned_versions,
@@ -231,11 +231,11 @@ fn invalid_utf8_boundary_in_schema_excerpt_does_not_panic() {
     assert!(parse_schema(&"☃".repeat(100)).is_err());
 }
 
-type ReturnChange = (&'static str, Vec<((u32, u32, u32), &'static str)>);
+type ReturnChange<S = &'static str> = (S, Vec<(Version, S)>);
 
 /// Every command whose return type changed between pinned releases, with
 /// the first version of each type. Generated code must use the newest one.
-fn changed_returns(registry: &UnifiedRegistry) -> Vec<(String, Vec<((u32, u32, u32), String)>)> {
+fn changed_returns(registry: &UnifiedRegistry) -> Vec<ReturnChange<String>> {
     registry
         .types
         .iter()
@@ -253,7 +253,7 @@ fn changed_returns(registry: &UnifiedRegistry) -> Vec<(String, Vec<((u32, u32, u
         .collect()
 }
 
-fn owned(expected: &[ReturnChange]) -> Vec<(String, Vec<((u32, u32, u32), String)>)> {
+fn owned(expected: &[ReturnChange]) -> Vec<ReturnChange<String>> {
     expected
         .iter()
         .map(|(name, history)| {

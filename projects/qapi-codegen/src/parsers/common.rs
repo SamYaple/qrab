@@ -189,6 +189,20 @@ where
     }
 }
 
+pub fn take_kv<'i, I, O>(
+    key: &'static str,
+    value_parser: I,
+) -> impl Parser<&'i str, Output = O, Error = Error<&'i str>>
+where
+    I: Parser<&'i str, Output = O, Error = Error<&'i str>>,
+{
+    delimited(
+        (qtag("'"), tag(key), tag("'"), qtag(":")),
+        value_parser,
+        clean_lines,
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use crate::{parse_schema, set_parser_version};
@@ -253,18 +267,4 @@ mod tests {
         parse_schema("# final comment").unwrap();
         parse_schema("{ 'enum': 'E', 'data': ['a'] } # final comment").unwrap();
     }
-}
-
-pub fn take_kv<'i, I, O>(
-    key: &'static str,
-    value_parser: I,
-) -> impl Parser<&'i str, Output = O, Error = Error<&'i str>>
-where
-    I: Parser<&'i str, Output = O, Error = Error<&'i str>>,
-{
-    delimited(
-        (qtag("'"), tag(key), tag("'"), qtag(":")),
-        value_parser,
-        clean_lines,
-    )
 }

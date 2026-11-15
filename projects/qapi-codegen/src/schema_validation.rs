@@ -263,8 +263,8 @@ fn alternate_branches(
                 conflicting.extend([Kind::Bool, Kind::Number]);
             }
         }
-        for kind in conflicting.iter().copied() {
-            if let Some(previous) = seen.get(&kind) {
+        for kind in conflicting.iter() {
+            if let Some(previous) = seen.get(kind) {
                 ensure!(
                     *previous == branch.name,
                     "Alternate branch '{}' cannot be distinguished from '{}'",
