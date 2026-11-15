@@ -171,7 +171,9 @@ pub fn render(page: Page) -> String {
         }
         Body::Launch(form) if !form.errors.is_empty() => "Check launch form · qrab VMs".into(),
         Body::Launch(_) => "Launch a VM · qrab VMs".into(),
-        Body::Launched(result) if result.report.failed.is_some() => "Launch failed · qrab VMs".into(),
+        Body::Launched(result) if result.report.failed.is_some() => {
+            "Launch failed · qrab VMs".into()
+        }
         Body::Launched(_) => "VM launched · qrab VMs".into(),
         Body::Images(_) => "Base images · qrab VMs".into(),
         Body::Error(error) => format!("{} · qrab VMs", error.title()),
