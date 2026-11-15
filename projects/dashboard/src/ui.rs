@@ -1353,7 +1353,7 @@ fn images_page(images: &[BaseImage]) -> Element {
             p { class: "muted", "Sealed images a new VM can boot from. Choose one on the launch form." } }
             span { class: "count", "{images.len()} staged" } }
         section { class: "card wide directory image-directory",
-            if images.is_empty() { p { class: "empty", "No base images are staged yet." } }
+            if images.is_empty() { p { class: "empty", "No base images are staged yet. An administrator can stage an operating-system image." } }
             else { div { class: "table-wrap", table {
                 caption { class: "visually-hidden", "Staged base images" }
                 thead { tr {
@@ -1524,12 +1524,19 @@ fn app() -> Element {
                 if let Some(notice) = &page.notice { p { class: "notice", role: "status", "{notice}" } }
                 match (&page.body, &page.user) {
                     (Body::Error(error), _) => error_page(error),
-                    (Body::List(rows), Some(_user)) => rsx! {
+                    (Body::List(rows), Some(user)) => rsx! {
                         div { class: "heading", div { p { class: "eyebrow", "VIRTUAL MACHINES" } h1 { "Your VMs" }
                             p { class: "muted", "Your shared and personal virtual machines. Open a VM to inspect it or use its BMC." }
                             p { class: "muted", "Usage is a page-load snapshot for the VM and its control services. Reload to update." } }
                             span { class: "count", "{rows.len()} shown" } }
-                        if rows.is_empty() { p { class: "empty", "No VMs are shared with you yet." } } else { {vm_table(rows)} }
+                        if rows.is_empty() { section { class: "card", aria_labelledby: "empty-vms-title",
+                            h2 { id: "empty-vms-title", "No VMs are visible to your account" }
+                            p { class: "muted prose", "Ask a VM administrator to check your admin or viewer access. If access was recently granted, refresh your sign-in." }
+                            div { class: "actions",
+                                if user.launcher { a { class: "button", href: "/launch", "Launch a VM" } }
+                                a { class: "button secondary", href: "/auth/login", "Refresh sign-in" }
+                            }
+                        } } else { {vm_table(rows)} }
                     },
                     (Body::Detail(detail), Some(user)) => detail_page(detail, user),
                     (Body::Launch(launch), Some(user)) => launch_form(launch, user),

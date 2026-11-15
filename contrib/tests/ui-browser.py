@@ -1485,7 +1485,7 @@ with sync_playwright() as playwright:
         for width in [1440, 768, 390, 320]:
             context = browser_context(browser, viewport={'width': width, 'height': 1000}, color_scheme=theme)
             page = context.new_page()
-            for name in ['list', 'list-long', 'list-storage', 'detail', 'detail-long', 'detail-viewer', 'detail-redfish-only', 'detail-no-power-actions', 'detail-needs-agent', 'detail-frozen-agent', 'detail-paused', 'detail-powered-off', 'detail-powering-on', 'detail-unknown-power', 'images', 'launch', 'launch-os', 'launch-options', 'launch-unavailable', 'launched',
+            for name in ['list', 'list-long', 'list-storage', 'list-empty-launcher', 'list-empty-viewer', 'detail', 'detail-long', 'detail-viewer', 'detail-redfish-only', 'detail-no-power-actions', 'detail-needs-agent', 'detail-frozen-agent', 'detail-paused', 'detail-powered-off', 'detail-powering-on', 'detail-unknown-power', 'images', 'images-empty', 'launch', 'launch-os', 'launch-options', 'launch-unavailable', 'launched',
                          'error-session', 'error-denied', 'error-missing', 'error-service']:
                 page.goto((args.previews / f'{name}.html').resolve().as_uri())
                 if args.forced_colors:
@@ -1494,6 +1494,11 @@ with sync_playwright() as playwright:
                     if current.count():
                         assert 'underline' in current.evaluate('(e) => getComputedStyle(e).textDecorationLine')
                 no_overflow(page, name, width)
+                if name in ['list-empty-launcher', 'list-empty-viewer']:
+                    expect(page.locator('#empty-vms-title')).to_be_visible()
+                    assert page.get_by_role('link', name='Launch a VM', exact=True).count() == (1 if name.endswith('launcher') else 0)
+                    assert page.get_by_role('link', name='Refresh sign-in', exact=True).get_attribute('href') == '/auth/login'
+                    assert page.locator('.vm-directory').count() == 0
                 if name in ['launch', 'launch-os']:
                     assert page.locator('#name').get_attribute('maxlength') == '43'
                     for radio in page.locator('input[type=radio]').all():

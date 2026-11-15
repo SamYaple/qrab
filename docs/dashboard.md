@@ -720,6 +720,10 @@ Dashboard data tables become labelled cards below 1000px. Capacity maxima are
 labelled explicitly; exact whole memory capacities use GiB/TiB where applicable.
 At phone widths up to 480px, table cards stack labels above values so addresses,
 VM names and checksums can use the full row.
+Empty VM lists explain account visibility and access refresh without exposing
+hidden VMs; only launch-enabled accounts get the empty-state launch action.
+Empty image catalogues point to administrator staging rather than leaving the
+user with an unexplained blank list.
 CPU usage is shown in cores and larger memory snapshots in GiB/TiB. Positive
 sub-millicore samples remain distinct from zero, and invalid samples show no data.
 SSR usage is a page-load snapshot, not a poll; the BMC provides continuing updates.

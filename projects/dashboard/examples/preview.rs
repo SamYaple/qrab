@@ -281,8 +281,28 @@ fn main() {
     .collect();
     write(dir, "list-storage", page(Body::List(storage_rows)), &css);
     write(dir, "list", page(Body::List(rows)), &css);
+    write(
+        dir,
+        "list-empty-launcher",
+        page(Body::List(Vec::new())),
+        &css,
+    );
+    write(
+        dir,
+        "list-empty-viewer",
+        Page {
+            user: Some(UserView {
+                launcher: false,
+                ..user.clone()
+            }),
+            notice: None,
+            body: Body::List(Vec::new()),
+        },
+        &css,
+    );
     let catalog = images::parse(CATALOG);
     write(dir, "images", page(Body::Images(catalog.clone())), &css);
+    write(dir, "images-empty", page(Body::Images(Vec::new())), &css);
     let (mut long_vm, mut long_pod) = network_vm();
     let long_name = format!("vm-{}", "a".repeat(60));
     long_vm.metadata.name = Some(long_name.clone());
