@@ -384,6 +384,16 @@ const SPARK_COLOURS: usize = 4;
 /// A value in a history unit, short enough for a legend.
 pub fn history_value(value: f64, unit: &str) -> String {
     let scaled = |value: f64, suffix: &str| {
+        if value > 0.0 && value < 0.01 {
+            return format!("<0.01 B{suffix}");
+        }
+        if value > 0.0 && value < 1.0 {
+            let small = format!("{:.2}", (value * 100.0).round() / 100.0);
+            return format!(
+                "{} B{suffix}",
+                small.trim_end_matches('0').trim_end_matches('.')
+            );
+        }
         let units = ["B", "KiB", "MiB", "GiB", "TiB"];
         let mut value = value;
         let mut index = 0;

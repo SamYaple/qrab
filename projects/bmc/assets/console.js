@@ -798,6 +798,8 @@ function svgNode(tag, attributes = {}, text) {
     return item;
 }
 function scaled(value, suffix) {
+    if (value > 0 && value < 0.01) return `<0.01 B${suffix}`;
+    if (value > 0 && value < 1) return `${Math.round(value * 100) / 100} B${suffix}`;
     const units = ['B', 'KiB', 'MiB', 'GiB', 'TiB'];
     let index = 0;
     while (Math.abs(value) >= 1024 && index < units.length - 1) { value /= 1024; index += 1; }
@@ -812,10 +814,10 @@ function formatValue(value, unit) {
     if (unit === 'cores') return Math.abs(value) < 1 ? `${Math.round(value * 1000)} mcores` : `${value.toFixed(2)} cores`;
     return `${+value.toPrecision(3)} ${unit || ''}`.trim();
 }
-// A round axis maximum: 1, 2 or 5 times a power of 1024 (bytes) or 10.
+// Binary byte axes, decimal sub-byte ranges and CPU axes.
 function niceMax(max, unit) {
     if (!(max > 0)) return 1;
-    const base = unit === 'bytes' || unit === 'bytes/s' ? 1024 : 10;
+    const base = (unit === 'bytes' || unit === 'bytes/s') && max >= 1 ? 1024 : 10;
     const power = base ** Math.floor(Math.log(max) / Math.log(base));
     const step = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000].find(n => n * power >= max);
     return step * power;

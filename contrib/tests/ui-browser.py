@@ -68,7 +68,7 @@ def install_bmc(context, role='admin', power='On', legacy=False, origin='http://
     fixture = {'system': system(power), 'posts': [], 'expired': False,
                'hold_posts': False, 'pending_posts': [], 'post_received': Event(), 'post_error': None, 'hold_power': False, 'pending_power': [],
                'fail_session': None, 'fail_system': None, 'fail_reset_info': None, 'reset_types': list(resets), 'hold_reset_info': False, 'pending_reset_info': [],
-               'fail_metrics': False, 'fail_history': False, 'fail_events': None, 'empty_metrics': False, 'small_cpu': False, 'sparse_history': False,
+               'fail_metrics': False, 'fail_history': False, 'fail_events': None, 'empty_metrics': False, 'small_cpu': False, 'small_rates': False, 'sparse_history': False,
                'hold_session': False, 'pending_session': [], 'empty_events': False, 'extra_events': [], 'requests': [],
                'vm_name': 'web-1', 'user_name': 'sam'}
     fixture['system']['Oem']['Qrab']['Configuration']['redacted'] = role == 'viewer'
@@ -180,6 +180,8 @@ def install_bmc(context, role='admin', power='On', legacy=False, origin='http://
             values = [0.125, 0.25, 0.5, 0.1875] if unit == 'cores' else [536870912, 805306368, 1073741824, 939524096] if unit == 'bytes' else [0, 16384, 65536, 8192]
             if unit == 'cores' and fixture['small_cpu']:
                 values = [0, 0.00025, 0.0005, 0.000000001]
+            if unit == 'bytes/s' and fixture['small_rates']:
+                values = [0, 0.25, 0.5, 0.0001]
             data = {'metric': metric, 'range': interval, 'start': end - duration, 'end': end, 'step': step, 'unit': unit, 'series': []}
             if not fixture['empty_metrics'] and metric != 'nic-rx':
                 labels = ['manager', 'redfish', 'bmc'] if metric.startswith('container-') else ['root' if metric.startswith('block-') else 'eth0']
@@ -1338,6 +1340,7 @@ def history_precision_checks(browser):
     context = browser_context(browser, viewport={'width': 320, 'height': 1000})
     fixture = install_bmc(context)
     fixture['small_cpu'] = True
+    fixture['small_rates'] = True
     page = context.new_page()
     page.clock.install()
     page.goto('http://ui.test' + base + '/bmc')
@@ -1354,6 +1357,18 @@ def history_precision_checks(browser):
     page.keyboard.press('End')
     expect(figure.locator('.readout')).to_contain_text('manager <0.01 mcores')
     assert chart.locator('.tick').evaluate_all('es=>es.every(e=>e.getBBox().x >= 0)'), 'Fractional labels must fit the chart'
+    rate = page.locator('[data-metric=block-read]')
+    expect(rate.locator('.peak')).to_have_text('peak 0.5 B/s')
+    expect(rate.locator('.tick').nth(2)).to_have_text('0.5 B/s')
+    rate.locator('svg.chart').focus()
+    page.keyboard.press('Home')
+    expect(rate.locator('.readout')).to_contain_text('root 0 B/s')
+    page.keyboard.press('ArrowRight')
+    expect(rate.locator('.readout')).to_contain_text('root 0.25 B/s')
+    page.keyboard.press('End')
+    expect(rate.locator('.readout')).to_contain_text('root <0.01 B/s')
+    assert rate.locator('.tick').evaluate_all('es=>es.every(e=>e.getBBox().x >= 0)')
+    chart.focus()
     fixture['sparse_history'] = True
     status = page.locator('.history-status')
     previous = status.inner_text()
