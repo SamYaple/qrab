@@ -96,9 +96,12 @@ while True:
     time.sleep(max(0,0.1-(time.time()-t)))" >/dev/null
   # ipcache entry and the node's routes for the /32 every ~0.1 s, timestamped
   # inside the agent (host network namespace).
-  kubectl -n kube-system exec "$(agent "$n")" -c cilium-agent -- sh -c \
-    "while true; do echo \"\$(date +%s.%N) \$(cilium-dbg bpf ipcache get $address 2>/dev/null | tail -1) | \$(ip -4 route show $address/32 | tr '\n' ';')\"; sleep 0.1; done" \
-    > "$work/ipcache-$n.log" 2>/dev/null &
+  # The exec stream can drop; it is reopened at once.
+  ( while true; do
+      kubectl -n kube-system exec "$(agent "$n")" -c cilium-agent -- sh -c \
+        "while true; do echo \"\$(date +%s.%N) \$(cilium-dbg bpf ipcache get $address 2>/dev/null | tail -1) | \$(ip -4 route show $address/32 | tr '\n' ';')\"; sleep 0.1; done" 2>/dev/null
+      sleep 0.5
+    done ) >> "$work/ipcache-$n.log" &
   pids+=($!)
 done
 for n in kube01 kube02 kube03; do
