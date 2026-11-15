@@ -556,7 +556,7 @@ pub static TYPE_REFS: &[TypeRef] = &[
     TypeRef { kind: TypeKind::Struct, name: "NetdevVhostUserOptions", prim: Prim::Null, inner: 0 },
     TypeRef { kind: TypeKind::Struct, name: "NetClientOptions", prim: Prim::Null, inner: 0 },
     TypeRef { kind: TypeKind::Enum, name: "NetClientDriver", prim: Prim::Null, inner: 0 },
-    TypeRef { kind: TypeKind::Primitive, name: "", prim: Prim::Any, inner: 0 },
+    TypeRef { kind: TypeKind::Primitive, name: "**", prim: Prim::Any, inner: 0 },
     TypeRef { kind: TypeKind::Enum, name: "AfxdpMode", prim: Prim::Null, inner: 0 },
     TypeRef { kind: TypeKind::Struct, name: "NetdevVhostVdpaOptions", prim: Prim::Null, inner: 0 },
     TypeRef { kind: TypeKind::Struct, name: "NetdevVmnetHostOptions", prim: Prim::Null, inner: 0 },

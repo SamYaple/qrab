@@ -125,7 +125,7 @@ fn qapi_prim_for_type(t: &str) -> Option<&'static str> {
         "uint64" | "size" => "U64",
         "number" => "F64",
         "null" => "Null",
-        "any" => "Any",
+        "any" | "visitor" | "dict" | "**" => "Any",
         _ => return None,
     })
 }
@@ -743,15 +743,15 @@ pub fn emit(registry: &UnifiedRegistry) -> String {
                 let _ = cat; // events stay only as StructMeta entries; CommandMeta is QMP-only.
             }
             UnifiedType::Enum(ue) => {
-                let kind = if ue
+                let kind = if branch_enums.contains(&rust_name) {
+                    "FlatUnionBranch"
+                } else if ue
                     .ir
                     .variants
                     .iter()
                     .all(|v| matches!(v.kind, EnumVariantKind::Unit))
                 {
                     "Unit"
-                } else if branch_enums.contains(&rust_name) {
-                    "FlatUnionBranch"
                 } else {
                     "Alternate"
                 };

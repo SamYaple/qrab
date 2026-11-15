@@ -62,6 +62,11 @@ fn valid_schema_keywords_and_standard_type_names_compile_and_round_trip() {
     schema.push_str(
         "{ 'alternate':'PeerNumber', 'data':{'number':'int','kind':'Kind','nothing':'null'} }\n",
     );
+    schema.push_str("{ 'enum':'EmptyKind', 'data':['none'] }\n");
+    schema.push_str("{ 'struct':'EmptyBase', 'data':{'kind':'EmptyKind'} }\n");
+    schema.push_str(
+        "{ 'union':'EmptyUnion', 'base':'EmptyBase', 'discriminator':'kind', 'data':{} }\n",
+    );
     let entry = repo.join("qapi/qapi-schema.json");
     std::fs::write(&entry, &schema).unwrap();
     let oracle = Command::new("python3").arg("-c").arg("import sys; sys.path.insert(0, sys.argv[1]+'/scripts'); from qapi.schema import QAPISchema; QAPISchema(sys.argv[2])")
@@ -75,6 +80,7 @@ fn valid_schema_keywords_and_standard_type_names_compile_and_round_trip() {
     // Modern QEMU no longer accepts simple unions. Keep a historical array
     // payload in the compiled fixture after validating the modern definitions.
     schema.push_str("{ 'union':'ArrayPayload', 'data':{'strings':['str'],'objects':['String'],'kinds':['Kind']} }\n");
+    schema.push_str("{ 'struct':'OpaqueReferences', 'data':{'visitor':'visitor','dict':'dict','wildcard':'**'} }\n");
     std::fs::write(&entry, &schema).unwrap();
     git(&repo, &["init", "-q"]);
     git(&repo, &["add", "."]);
@@ -141,6 +147,9 @@ mod generated;
 pub use generated::*;
 fn main() {
     with_version((11,1,3), || {
+        let empty: EmptyUnion = serde_json::from_value(serde_json::json!({"kind":"none"})).unwrap();
+        assert_eq!(serde_json::to_value(empty).unwrap(), serde_json::json!({"kind":"none"}));
+        assert_eq!(metadata::ENUMS.get("EmptyUnionBranch").unwrap().kind, metadata::EnumKind::FlatUnionBranch);
         let _: Option<<commands::PeerWindowsCommand as QapiCommand>::Returns> = Some(PeerWindows { value: "remote".into() });
         for wire in [serde_json::json!({}), serde_json::json!({"windows":"remote"}), serde_json::json!({"posix":"remote"})] {
             let value: PeerFields = serde_json::from_value(wire.clone()).unwrap();
@@ -153,6 +162,14 @@ fn main() {
         // Schema optionality still describes the member when its peer condition holds.
         assert!(metadata::STRUCTS.get("PeerFields").unwrap().fields.iter().all(|field| !field.optional));
         with_version((6,1,0), || {
+        let wire = serde_json::json!({"visitor":[1,2],"dict":false,"wildcard":null});
+        let opaque: OpaqueReferences = serde_json::from_value(wire.clone()).unwrap();
+        assert_eq!(serde_json::to_value(opaque).unwrap(), wire);
+        for field in metadata::STRUCTS.get("OpaqueReferences").unwrap().fields {
+            let ty = &metadata::TYPE_REFS[field.ty as usize];
+            assert_eq!(ty.kind, metadata::TypeKind::Primitive);
+            assert_eq!(ty.prim, metadata::Prim::Any);
+        }
         for wire in [serde_json::json!({"type":"strings","data":["a"]}), serde_json::json!({"type":"objects","data":[{"value":"a"}]}), serde_json::json!({"type":"kinds","data":["string"]})] {
             let value: ArrayPayload = serde_json::from_value(wire.clone()).unwrap();
             assert_eq!(serde_json::to_value(value).unwrap(), wire);
