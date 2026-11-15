@@ -53,9 +53,39 @@ fn fix_leading_digit(input: &str) -> String {
     }
 }
 
+// Legacy QNames can contain Unicode outside Rust's identifier grammar.
+// ASCII escapes also keep Rust normalization from merging distinct wire names.
+fn ascii_identifier(input: &str) -> std::borrow::Cow<'_, str> {
+    if input.is_ascii() {
+        return input.into();
+    }
+    let mut name = String::with_capacity(input.len());
+    for c in input.chars() {
+        if c.is_ascii() {
+            name.push(c);
+        } else {
+            use std::fmt::Write;
+            write!(name, "_u{:x}_", c as u32).unwrap();
+        }
+    }
+    name.into()
+}
+
+fn pascal_identifier(input: &str) -> String {
+    let name = ascii_identifier(input).to_pascal_case();
+    // Escapes can introduce an acronym boundary (E + U301); settle its case
+    // before the resulting symbol is used again as a generated type reference.
+    let name = if input.is_ascii() {
+        name
+    } else {
+        name.to_pascal_case()
+    };
+    fix_leading_digit(&name)
+}
+
 /// Map a type name without shadowing Rust types, constructors or runtime traits.
 pub fn rustify_name(input: &str) -> String {
-    let name = fix_leading_digit(&input.to_pascal_case());
+    let name = pascal_identifier(input);
     match name.as_str() {
         "" => "QapiUnnamed".into(),
         "Self" | "String" | "Option" | "Vec" | "Box" | "Result" | "HashMap" | "Send" | "Sync"
@@ -68,7 +98,7 @@ pub fn rustify_name(input: &str) -> String {
 
 /// Enum variants have their own namespace; String and None remain ordinary variants.
 pub(crate) fn rustify_variant(input: &str) -> String {
-    let name = fix_leading_digit(&input.to_pascal_case());
+    let name = pascal_identifier(input);
     if name.is_empty() {
         "QapiUnnamed".into()
     } else if name == "Self" {
@@ -79,7 +109,7 @@ pub(crate) fn rustify_variant(input: &str) -> String {
 }
 
 fn rustify_field_name(input: &str) -> String {
-    let name = fix_leading_digit(&input.to_snake_case());
+    let name = fix_leading_digit(&ascii_identifier(input).to_snake_case());
     match name.as_str() {
         "" => "qapi_unnamed".into(),
         "self" | "super" | "crate" => format!("{name}_"),
@@ -227,4 +257,27 @@ pub fn doc_to_tokens(doc: &str) -> proc_macro2::TokenStream {
         })
         .collect();
     quote! { #(#tokens)* }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn legacy_unicode_names_have_stable_ascii_identifiers() {
+        for raw in ["١Thing", "²", "É", "E\u{301}", "𐀀", "Ⅸ", "汉字", "Καλημέρα"]
+        {
+            let name = rustify_name(raw);
+            assert!(name.is_ascii(), "{raw}: {name}");
+            syn::parse_str::<syn::Ident>(&name).unwrap();
+            assert_eq!(rustify_name(&name), name);
+            let field = rustify_field(raw);
+            assert!(field.is_ascii(), "{raw}: {field}");
+            syn::parse_str::<syn::Ident>(&field).unwrap();
+            assert_eq!(rustify_field(&field), field);
+            let variant = rustify_variant(raw);
+            syn::parse_str::<syn::Ident>(&variant).unwrap();
+            assert_eq!(rustify_variant(&variant), variant);
+        }
+    }
 }

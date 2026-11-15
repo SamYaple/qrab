@@ -1,60 +1,35 @@
-# Known Parser / Codegen Issues
+# Historical schema diagnostics
 
-## Warnings (non-blocking)
+The pinned history parses and generates both protocols. These diagnostics
+describe old source quirks, not a minimum supported QEMU release. The maintained
+release matrix and generation rules are in [the pipeline guide](../../docs/codegen.md).
 
-### Doc section name mismatches
+## Mislabeled legacy documentation
 
-QEMU renamed some types between versions but kept old documentation
-section names. The doc `@Name` in the `##` block doesn't match the
-actual type definition name.
+Some pre-2.9 comments name a symbol that does not exist in that file:
 
-| Doc Name | Actual Type | Versions |
-|---|---|---|
-| `ChardevBackend` | `ChardevDummy` | v2.0.0–v3.1.0 |
-| `GuestFsFreezeStatus` | `GuestFsfreezeStatus` | historical and current QGA schemas |
-| `InputButton` | `InputAxis` | v2.0.0–v4.2.0 |
-| `Rocker` | `RockerSwitch` | v2.4.0–v5.2.0 |
-| `TpmInfo` | `TPMInfo` | v2.5.0–v10.2.0 |
-| `VncPriAuth` | `VncPrimaryAuth` | v2.7.0–v4.2.0 |
+- `Rocker` above `RockerSwitch`
+- `VncPriAuth` above `VncPrimaryAuth`
 
-These are harmless — the doc content is still attached to the correct
-type via the unified merge. The warning fires because the parser's
-`add_docs!` macro checks `doc.name != type_name`.
+The generator warns and retains the attached text. When the named definition
+does exist later in the same file, legacy documentation follows it without
+overwriting its own comment. Formal documentation from 2.9 requires the exact
+definition name. Case-only differences do not trigger the legacy warning.
 
-### BlockdevOptions discriminator type 'str'
+## String discriminators
 
-In QEMU v1.7.0–v2.0.0, `BlockdevOptions` used `'discriminator': 'str'`
-(a bare string type) instead of a named enum type. The IR processing
-expects the discriminator to reference an enum. This is handled by
-skipping the enum lookup, but the union struct may have a less precise
-discriminator type.
+QEMU 1.7–2.0 used `str` for the `BlockdevOptions.driver` discriminator.
+The generator retains that string field and the declared payload branches,
+and warns that the discriminator is not an enum. Its Rust type cannot restrict
+the driver to the declared branch tags as newer enum discriminators do.
 
-### CpuInfo field 'PC' renamed to 'PC_alt'
+## Generated representation choices
 
-The `CpuInfo` union (removed in v9.0.0) had a base field `'CPU': 'int'`
-in all versions, but an older version (v1.0) also had a `'PC': 'int'`
-field. Both `CPU` and `PC` rustify to names that don't collide (`Cpu`
-and `Pc`), but the `PC` field from v1.0 was renamed to `PC_alt` to
-avoid a collision with `pc` from `CpuInfoX86`. This is a version-merge
-artifact and correct behavior.
+Recursive object references use `Box`; existing `Vec` indirection needs no
+additional box. This is normal Rust sizing, not a missing schema feature.
 
-## Recursive type boxing
-
-The codegen detects recursive types (where a struct field references
-the containing struct, directly or transitively) and wraps them in
-`Box<>`. This is correct and necessary for Rust's type system.
-These fields occur mainly in the block layer: `BlockdevOptions*`,
-`ImageInfo*` and `BlockStats`. Regeneration logs every field that is boxed.
-
-## Type merges
-
-When a command transitioned from inline data to referencing an existing
-struct (e.g., `drive-mirror` changed from inline `'data': {...}` to
-`'data': 'DriveMirror'` with `'boxed': true`), the codegen merges the
-command attributes onto the existing struct and removes the duplicate.
-4 types are currently merged:
-
-- `blockdev-snapshot-sync` → `BlockdevSnapshotSync`
-- `drive-mirror` → `DriveMirror`
-- `migrate-set-parameters` → `MigrateSetParameters`
-- `SgxInfo` → `SGXInfo` (renamed in v10.1.0)
+History-wide name allocation preserves distinct wire fields such as `PC` and
+`pc` with `_alt` Rust names. Safe command/argument sharing preserves the command
+wire name; requests receive separate types when data lifetimes or name
+collisions make sharing incorrect. These choices are covered by compiled
+generation fixtures.

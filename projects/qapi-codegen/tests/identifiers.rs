@@ -207,9 +207,12 @@ fn valid_schema_keywords_and_standard_type_names_compile_and_round_trip() {
     let nested_schema = "{ 'struct':'NestedInline', 'data':{'outer':{'inner':{'value':'str','*count':'int'},'*empty':{}},'*choice':{'flag':'bool'}} }\n{ 'struct':'NestedInlineOuterInner', 'data':{'declared':'bool'} }\n{ 'enum':'CycleShape', 'data':['old'] }\n{ 'struct':'CycleHolder', 'data':{'item':'CycleShape'} }\n";
     let legacy_names = "{'type':'_','data':{'_':'str','qapi-unnamed':'str'}}\n{'enum':'LegacyNames','data':['','qapi-unnamed','1','1-foo']}\n";
     let legacy_numbers = "{'union':'LegacyNumber','discriminator':{},'data':{'floating':'number','integer':'int'}}\n";
+    let legacy_unicode = "{'type':'١Thing','data':{'١field':'str'}}\n{'type':'U661Thing','data':{'ordinary':'bool'}}\n{'enum':'UnicodeKind','data':['²','normal']}\n{'type':'É','data':{}}\n{'type':'É','data':{}}\n{'type':'UnicodeHolder','data':{'value':'١Thing','canonical':'É','decomposed':'É'}}\n{'command':'read-unicode','returns':'É'}\n";
     std::fs::write(
         &entry,
-        format!("{nested_schema}{presence}{type_presence}{legacy_names}{legacy_numbers}"),
+        format!(
+            "{nested_schema}{presence}{type_presence}{legacy_names}{legacy_numbers}{legacy_unicode}"
+        ),
     )
     .unwrap();
     git(&repo, &["init", "-q"]);

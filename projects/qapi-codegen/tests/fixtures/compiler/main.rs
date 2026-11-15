@@ -34,6 +34,19 @@ fn main() {
         );
     });
     with_version((2, 3, 0), || {
+        let unicode_wire = serde_json::json!({"١field":"legacy"});
+        let value: U661ThingGenerated = serde_json::from_value(unicode_wire.clone()).unwrap();
+        assert_eq!(serde_json::to_value(value).unwrap(), unicode_wire);
+        for wire in ["²", "normal"] {
+            let value: UnicodeKind = serde_json::from_value(serde_json::json!(wire)).unwrap();
+            assert_eq!(
+                serde_json::to_value(value).unwrap(),
+                serde_json::json!(wire)
+            );
+        }
+        let holder = serde_json::json!({"value":unicode_wire,"canonical":{},"decomposed":{}});
+        let value: UnicodeHolder = serde_json::from_value(holder.clone()).unwrap();
+        assert_eq!(serde_json::to_value(value).unwrap(), holder);
         let integer = serde_json::json!(9_007_199_254_740_993i64);
         let value: LegacyNumber = serde_json::from_value(integer.clone()).unwrap();
         assert!(matches!(

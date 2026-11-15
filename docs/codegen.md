@@ -144,6 +144,8 @@ reserved prefix, and the downstream-prefix grammar from 2.6. Numeric enum
 members remain valid; casing and pragma style rules are separate.
 Legacy names with no Rust spelling use `QapiUnnamed` or `qapi_unnamed`, with
 normal collision allocation. Pre-2.6 empty-string enum values keep their wire tag.
+Pre-2.4 Unicode names use stable ASCII escapes, preserving their wire spelling
+and avoiding invalid Rust identifiers or Unicode normalization collisions.
 Member clash checks include inherited fields and nested flat-union branches;
 each branch keeps its own member namespace. Branch types resolve independently
 of definition order. Names that collapse to the same QAPI C member identifier
