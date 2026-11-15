@@ -3,6 +3,35 @@ use qapi_codegen::read_schema_with_version;
 use std::path::Path;
 
 #[test]
+fn freeform_documentation_cannot_replace_definition_documentation() {
+    qapi_codegen::set_parser_version((11, 1, 3));
+    let section = "##\n# = Section\n#\n# Body.\n##\n";
+    for ending in ["\n", "\r\n", "\r"] {
+        for definition in [
+            "{'struct':'Example','data':{}}",
+            "{'enum':'Example','data':['one']}",
+            "{'alternate':'Example','data':{'one':'str'}}",
+            "{'union':'Example','data':{'one':'str'}}",
+            "{'command':'example'}",
+            "{'event':'EXAMPLE'}",
+        ] {
+            let input = format!("{section}{definition}").replace('\n', ending);
+            assert!(qapi_codegen::parse_schema(&input).is_err(), "{input:?}");
+        }
+        let input =
+            format!("{section}##\n# @Example:\n# Summary.\n##\n{{'struct':'Example','data':{{}}}}")
+                .replace('\n', ending);
+        qapi_codegen::parse_schema(&input).unwrap();
+        let input = format!("{section}{{'pragma':{{}}}}\n{{'struct':'Example','data':{{}}}}")
+            .replace('\n', ending);
+        qapi_codegen::parse_schema(&input).unwrap();
+    }
+    qapi_codegen::set_parser_version((2, 7, 0));
+    qapi_codegen::parse_schema(&format!("{section}{{'struct':'Example','data':{{}}}}")).unwrap();
+    qapi_codegen::set_parser_version((11, 1, 3));
+}
+
+#[test]
 fn malformed_schema_diagnostics_locate_later_definitions() {
     qapi_codegen::set_parser_version((11, 1, 3));
     let prefix = "# Unicode comment: ☃\n{'struct':'Good','data':{}}\n\n    ";

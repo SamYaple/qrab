@@ -80,6 +80,10 @@ fn lexical_acceptance_matches_qemu() {
     let documented =
         "##\n# @E:\n# Summary.\n#\n# @one: First.\n# @two: Second.\n#\n# Since: 1.0\n##\n";
     for ending in ["\n", "\r\n", "\r"] {
+        cases.push(format!(
+            "{}{valid}",
+            "##\n# = Section\n#\n# Body.\n##\n".replace('\n', ending)
+        ));
         cases.push(format!("{}{valid}", documented.replace('\n', ending)));
         cases.push(format!(
             "{}{valid}",

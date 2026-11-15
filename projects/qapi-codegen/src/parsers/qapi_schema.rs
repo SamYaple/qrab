@@ -50,7 +50,7 @@ impl<'i> QapiSchema<'i> {
     }
 
     pub fn parse_v1(input: &'i str) -> IResult<&'i str, Self> {
-        many0(alt((
+        let mut token_parser = alt((
             QapiAlternate::parse.map(QapiSchemaToken::Alternate),
             QapiCommand::parse.map(QapiSchemaToken::Command),
             QapiEnum::parse.map(QapiSchemaToken::Enum),
@@ -66,7 +66,42 @@ impl<'i> QapiSchema<'i> {
             bare_doc_separator.map(|_| QapiSchemaToken::EmptyLines),
             qcomment.map(QapiSchemaToken::Comment),
             whitespace1.map(|_| QapiSchemaToken::EmptyLines),
-        )))
+        ));
+        let strict = super::parser_version() >= (2, 8, 0);
+        // Free-form prose cannot replace a declaration's own documentation.
+        let mut needs_definition_doc = false;
+        many0(|input| {
+            let (remaining, token) = token_parser.parse(input)?;
+            let documented = match &token {
+                QapiSchemaToken::Alternate(value) => Some(value.doc.is_some()),
+                QapiSchemaToken::Command(value) => Some(value.doc.is_some()),
+                QapiSchemaToken::Enum(value) => Some(value.doc.is_some()),
+                QapiSchemaToken::Event(value) => Some(value.doc.is_some()),
+                QapiSchemaToken::Struct(value) => Some(value.doc.is_some()),
+                QapiSchemaToken::Union(value) => Some(value.doc.is_some()),
+                _ => None,
+            };
+            if strict && needs_definition_doc && documented == Some(false) {
+                return Err(nom::Err::Failure(nom::error::Error::new(
+                    input,
+                    nom::error::ErrorKind::Verify,
+                )));
+            }
+            if matches!(
+                &token,
+                QapiSchemaToken::Doc(_) | QapiSchemaToken::FreeformDoc(_)
+            ) {
+                needs_definition_doc = true;
+            } else if documented.is_some()
+                || matches!(
+                    &token,
+                    QapiSchemaToken::Include(_) | QapiSchemaToken::Pragma(_)
+                )
+            {
+                needs_definition_doc = false;
+            }
+            Ok((remaining, token))
+        })
         .map(Self)
         .parse(input)
     }
