@@ -43,6 +43,7 @@ pub(crate) struct SchemaNames {
     commands: BTreeMap<String, BTreeSet<(u32, u32, u32)>>,
     events: BTreeMap<String, BTreeSet<(u32, u32, u32)>>,
     command_runs: BTreeMap<String, BTreeMap<(u32, u32, u32), String>>,
+    separate_requests: HashSet<String>,
     event_runs: BTreeMap<String, BTreeMap<(u32, u32, u32), String>>,
 }
 
@@ -218,11 +219,24 @@ impl SchemaNames {
                 self.command_runs.insert(raw.clone(), names);
             }
         }
+        self.separate_requests
+            .extend(self.command_runs.keys().cloned());
+        for (root, data, _) in &self.shared_requests {
+            for (command, present) in &self.commands {
+                if rustify_name(command) == *root
+                    && self.declarations.get(data).is_some_and(|versions| {
+                        versions.keys().any(|version| !present.contains(version))
+                    })
+                {
+                    self.separate_requests.insert(command.clone());
+                }
+            }
+        }
         // A later named DTO can continue an earlier anonymous request type.
         for (root, data, version) in &self.shared_requests {
             let split = self
-                .command_runs
-                .keys()
+                .separate_requests
+                .iter()
                 .any(|name| rustify_name(name) == *root);
             if !split && &self.type_name_at(data, *version) == root {
                 self.shared_roots.insert(root.clone());
@@ -272,8 +286,8 @@ impl SchemaNames {
         }
     }
 
-    pub fn split_command(&self, name: &str) -> bool {
-        self.command_runs.contains_key(name)
+    pub fn separate_request(&self, name: &str) -> bool {
+        self.separate_requests.contains(name)
     }
 
     pub fn historical_command(&self, name: &str) -> Option<String> {

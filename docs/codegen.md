@@ -242,6 +242,8 @@ Commands and events also retain separate historical lifetimes. A persistent
 named argument type stays usable while an absent command is represented by
 separate request DTOs. Explicit peer decoding checks type lifetimes; unscoped
 record inspection remains permissive.
+Sharing also stops when a named argument type predates the command, so request
+availability never inherits an earlier data-only lifetime.
 
 QAPI build conditions describe the remote QEMU or guest-agent build. They are
 retained in generated documentation, never translated into Rust host OS gates.

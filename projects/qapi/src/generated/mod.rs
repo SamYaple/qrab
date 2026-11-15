@@ -4510,49 +4510,8 @@ pub enum BlockdevRefOrNull {
     Reference(String),
 }
 
-/// Takes a snapshot of a block device.
-///
-/// Take a snapshot, by installing 'node' as the backing image of
-/// 'overlay'.  Additionally, if 'node' is associated with a block
-/// device, the block device changes to using 'overlay' as its new
-/// active image.
-///
-/// Features:
-///
-/// @allow-write-only-overlay: If present, the check whether this
-/// ```text
-///     operation is safe was relaxed so that it can be used to change
-///     backing file of a destination of a `blockdev-mirror`.
-///     (since 5.0)
-/// ```
-///
-///
-/// .. qmp-example::
-///
-/// ```text
-///     -> { "execute": "blockdev-add",
-///          "arguments": { "driver": "qcow2",
-///                         "node-name": "node1534",
-///                         "file": { "driver": "file",
-///                                   "filename": "hd1.qcow2" },
-///                         "backing": null } }
-/// ```
-///
-/// ```text
-///     <- { "return": {} }
-/// ```
-///
-/// ```text
-///     -> { "execute": "blockdev-snapshot",
-///          "arguments": { "node": "ide-hd0",
-///                         "overlay": "node1534" } }
-///     <- { "return": {} }
-/// ```
-#[qapi(name = "blockdev-snapshot")]
-#[qapi(command)]
-#[qapi(returns = "()")]
+/// Either @device or @node-name must be set but not both.
 #[qapi(added = "1.1.0")]
-#[qapi(allow_preconfig(added = "7.1.0"))]
 pub struct BlockdevSnapshot {
     /// #optional the name of the device to generate the snapshot from.
     #[qapi(added = "2.0.0")]
@@ -4809,39 +4768,7 @@ pub struct BlockDirtyBitmapAddWrapper {
     pub data: BlockDirtyBitmapAdd,
 }
 
-/// Merge dirty bitmaps listed in @bitmaps to the @target dirty bitmap.
-/// Dirty bitmaps in @bitmaps will be unchanged, except if it also
-/// appears as the @target bitmap.  Any bits already set in @target will
-/// still be set after the merge, i.e., this operation does not clear
-/// the target.  On error, @target is unchanged.
-///
-/// The resulting bitmap will count as dirty any clusters that were
-/// dirty in any of the source bitmaps.  This can be used to achieve
-/// backup checkpoints, or in simpler usages, to copy bitmaps.
-///
-/// Errors:
-/// ```text
-///     - If @node is not a valid block device, DeviceNotFound
-///     - If any bitmap in @bitmaps or @target is not found,
-///       GenericError
-///     - If any of the bitmaps have different sizes or granularities,
-///       GenericError
-/// ```
-///
-///
-/// .. qmp-example::
-///
-/// ```text
-///     -> { "execute": "block-dirty-bitmap-merge",
-///          "arguments": { "node": "drive0", "target": "bitmap0",
-///                         "bitmaps": ["bitmap1"] } }
-///     <- { "return": {} }
-/// ```
-#[qapi(name = "block-dirty-bitmap-merge")]
-#[qapi(command)]
-#[qapi(returns = "()")]
 #[qapi(added = "3.0.0")]
-#[qapi(allow_preconfig(added = "7.1.0"))]
 pub struct BlockDirtyBitmapMerge {
     /// name(s) of the source dirty bitmap(s) at @node and/or
     /// fully specified `BlockDirtyBitmap` elements.  The latter are

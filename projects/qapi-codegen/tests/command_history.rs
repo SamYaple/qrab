@@ -39,8 +39,13 @@ fn generated_command_flags_preserve_a_removed_interval() {
         } else {
             "{'command':'foo','data':'Foo','returns':'Foo'}\n{'command':'ping'}\n{'event':'FOO','data':'Foo'}"
         };
+        let late = if tag == "v11.1.3" {
+            "{'command':'late','data':'Late'}"
+        } else {
+            ""
+        };
         let schema = format!(
-            "{schema}\n{{'command':'feature-flip','features':{feature}}}\n{{'command':'stabilized','features':{initial}}}\n{{'struct':'Foo','data':{{'value':'str'}}}}\n{surface}"
+            "{schema}\n{{'command':'feature-flip','features':{feature}}}\n{{'command':'stabilized','features':{initial}}}\n{{'struct':'Foo','data':{{'value':'str'}}}}\n{{'struct':'Late','data':{{'value':'str'}}}}\n{surface}\n{late}"
         );
         std::fs::write(repo.join("qapi/qapi-schema.json"), schema).unwrap();
         git(&repo, &["add", "."]);
@@ -71,6 +76,11 @@ pub use qapi_runtime::{PreconfigSafe, QapiCommand, QapiEvent, QapiFlatUnion, qem
 mod generated;
 pub use generated::*;
 fn main() {
+    assert_eq!(commands::LateCommand::AVAILABLE_SINCE,(11,1,3));
+    with_version((8,0,0), || {
+        assert!(serde_json::to_value(Late {value:"data".into()}).is_ok());
+        assert!(serde_json::to_value(commands::LateCommand {value:"request".into()}).is_err());
+    });
     with_version((6,1,0), || {
         let command = commands::FooLegacy { value:"old".into() };
         assert_eq!(commands::FooLegacy::NAME, "foo");

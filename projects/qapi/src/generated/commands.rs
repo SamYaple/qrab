@@ -953,6 +953,60 @@ pub struct BlockdevSetActive {
     pub node_name: Option<String>,
 }
 
+/// Takes a snapshot of a block device.
+///
+/// Take a snapshot, by installing 'node' as the backing image of
+/// 'overlay'.  Additionally, if 'node' is associated with a block
+/// device, the block device changes to using 'overlay' as its new
+/// active image.
+///
+/// Features:
+///
+/// @allow-write-only-overlay: If present, the check whether this
+/// ```text
+///     operation is safe was relaxed so that it can be used to change
+///     backing file of a destination of a `blockdev-mirror`.
+///     (since 5.0)
+/// ```
+///
+///
+/// .. qmp-example::
+///
+/// ```text
+///     -> { "execute": "blockdev-add",
+///          "arguments": { "driver": "qcow2",
+///                         "node-name": "node1534",
+///                         "file": { "driver": "file",
+///                                   "filename": "hd1.qcow2" },
+///                         "backing": null } }
+/// ```
+///
+/// ```text
+///     <- { "return": {} }
+/// ```
+///
+/// ```text
+///     -> { "execute": "blockdev-snapshot",
+///          "arguments": { "node": "ide-hd0",
+///                         "overlay": "node1534" } }
+///     <- { "return": {} }
+/// ```
+#[qapi(command)]
+#[qapi(returns = "()")]
+#[qapi(name = "blockdev-snapshot")]
+#[qapi(feature = "allow-write-only-overlay")]
+#[qapi(added = "2.5.0")]
+#[qapi(allow_preconfig(added = "7.1.0"))]
+pub struct BlockdevSnapshotCommand {
+    /// device or node name that will have a snapshot taken.
+    pub node: String,
+    /// reference to the existing block device that will become
+    /// the overlay of @node, as part of taking the snapshot.  It must
+    /// not have a current backing file (this can be achieved by passing
+    /// "backing": null to `blockdev-add`).
+    pub overlay: String,
+}
+
 /// Synchronously delete an internal snapshot of a block device, when
 /// the format of the image used support it.  The snapshot is identified
 /// by name or id or both.  One of the name or id is required.  Return
@@ -1128,6 +1182,65 @@ pub struct BlockDirtyBitmapEnable {
     pub name: String,
     /// name of device/node which the bitmap is tracking
     pub node: String,
+}
+
+/// Merge dirty bitmaps listed in @bitmaps to the @target dirty bitmap.
+/// Dirty bitmaps in @bitmaps will be unchanged, except if it also
+/// appears as the @target bitmap.  Any bits already set in @target will
+/// still be set after the merge, i.e., this operation does not clear
+/// the target.  On error, @target is unchanged.
+///
+/// The resulting bitmap will count as dirty any clusters that were
+/// dirty in any of the source bitmaps.  This can be used to achieve
+/// backup checkpoints, or in simpler usages, to copy bitmaps.
+///
+/// Errors:
+/// ```text
+///     - If @node is not a valid block device, DeviceNotFound
+///     - If any bitmap in @bitmaps or @target is not found,
+///       GenericError
+///     - If any of the bitmaps have different sizes or granularities,
+///       GenericError
+/// ```
+///
+///
+/// .. qmp-example::
+///
+/// ```text
+///     -> { "execute": "block-dirty-bitmap-merge",
+///          "arguments": { "node": "drive0", "target": "bitmap0",
+///                         "bitmaps": ["bitmap1"] } }
+///     <- { "return": {} }
+/// ```
+#[qapi(command)]
+#[qapi(returns = "()")]
+#[qapi(name = "block-dirty-bitmap-merge")]
+#[qapi(added = "4.0.0")]
+#[qapi(allow_preconfig(added = "7.1.0"))]
+pub struct BlockDirtyBitmapMergeCommand {
+    /// name(s) of the source dirty bitmap(s) at @node and/or
+    /// fully specified `BlockDirtyBitmap` elements.  The latter are
+    /// supported since 4.1.
+    #[qapi(added = "7.1.0")]
+    #[qapi(required)]
+    pub bitmaps: Option<Vec<BlockDirtyBitmapOrStr>>,
+    /// name(s) of the source dirty bitmap(s)
+    #[qapi(name = "bitmaps")]
+    #[qapi(removed = "4.1.0")]
+    #[qapi(required)]
+    pub bitmaps_legacy: Option<Vec<String>>,
+    /// name(s) of the source dirty bitmap(s) at @node and/or fully
+    /// specified BlockDirtyBitmap elements. The latter are supported
+    /// since 4.1.
+    #[qapi(name = "bitmaps")]
+    #[qapi(added = "4.1.0")]
+    #[qapi(removed = "7.1.0")]
+    #[qapi(required)]
+    pub bitmaps_legacy2: Option<Vec<BlockDirtyBitmapMergeSource>>,
+    /// name of device/node which the @target bitmap is tracking
+    pub node: String,
+    /// name of the destination dirty bitmap
+    pub target: String,
 }
 
 /// Stop write tracking and remove the dirty bitmap that was created

@@ -611,7 +611,7 @@ fn process_version_schema_with_names(
     );
     occupied.extend(enums_lookup.values().map(|value| symbol_name(&value.name)));
     for v in unprocessed_commands {
-        let split = symbols.split_command(&v.name);
+        let split = symbols.separate_request(&v.name);
         let historical = symbols.historical_command(&v.name);
         if let Some(crate::MembersOrRef::Ref(data)) = &v.data {
             anyhow::ensure!(
@@ -3630,6 +3630,20 @@ mod flag_timeline_tests {
                             "{} {name}: definition present={present}, merged availability={active}",
                             source.tag
                         ));
+                    }
+                    if let UnifiedType::Struct(value) = value {
+                        let command = Attribute::new("command");
+                        let expected = source
+                            .structs
+                            .get(name)
+                            .is_some_and(|value| value.meta.attributes.contains(&command));
+                        let actual = active && value.ir.meta.attributes.contains(&command);
+                        if expected != actual {
+                            mismatches.push(format!(
+                                "{} {name}: command binding present={expected}, merged={actual}",
+                                source.tag
+                            ));
+                        }
                     }
                 }
                 for (name, value) in source.structs {
