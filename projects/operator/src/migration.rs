@@ -51,6 +51,11 @@ pub const MIGRATED: &str = "migrated";
 pub const SOURCE_POWERED_OFF: &str = "source-powered-off";
 /// Failure reason of a migration whose VM is powered off.
 pub const POWERED_OFF: &str = "PoweredOff";
+/// On a target Pod until it takes over: the migration that created it. A Pod
+/// still carrying it never ran the guest (its QEMU at most held the disks
+/// inactive for `-incoming`), so once its manager has exited it holds no disk
+/// session, and objects of a migration that no longer exists can be found.
+pub const TARGET_ANNOTATION: &str = "qrab.yapplesauce.com/migration-target";
 const STATE_COMPONENT: &str = "vm-state";
 
 /// What the VM reconcile rendered for its current Pod.
@@ -212,7 +217,7 @@ fn ready(pod: &Pod) -> bool {
 }
 
 /// How the manager container of `pod` ended, if it has.
-fn manager_exit(pod: &Pod) -> Option<(i32, String)> {
+pub(crate) fn manager_exit(pod: &Pod) -> Option<(i32, String)> {
     pod.status
         .as_ref()?
         .container_statuses
@@ -224,6 +229,13 @@ fn manager_exit(pod: &Pod) -> Option<(i32, String)> {
         .terminated
         .as_ref()
         .map(|t| (t.exit_code, t.message.clone().unwrap_or_default()))
+}
+
+/// A migration target that never took over and whose process is gone (or
+/// never ran): it holds no disk session, whatever its exit code.
+pub(crate) fn abandoned_target(pod: &Pod) -> bool {
+    pod.annotations().contains_key(TARGET_ANNOTATION)
+        && (manager_exit(pod).is_some() || storage_guard::never_launched(pod))
 }
 
 /// The Pod's manager handed its guest to a migration target. Its disks belong
@@ -798,7 +810,10 @@ async fn step(
         configs.create(&PostParams::default(), &config).await?;
     }
     let Some(target_pod) = live_target else {
-        pods.create(&PostParams::default(), &desired.pod).await?;
+        let mut pod = desired.pod.clone();
+        pod.annotations_mut()
+            .insert(TARGET_ANNOTATION.into(), name.clone());
+        pods.create(&PostParams::default(), &pod).await?;
         return Ok(Some(Action::requeue(Duration::from_secs(1))));
     };
     if !resources::owned(&target_pod, vm) {
@@ -914,6 +929,16 @@ async fn adopt(
     vm_status.state_volume_claim = Some(claim_name);
     vm_status.state_volume_uid = Some(claim_uid);
     vm_status.placement_node = Some(target_node);
+    // The target owns the guest now: it is no longer a disposable target.
+    let pods: Api<Pod> = Api::namespaced(ctx.client.clone(), &ctx.settings.namespace);
+    pods.patch(
+        &target.name_any(),
+        &PatchParams::default(),
+        &Patch::Merge(
+            json!({"metadata":{"uid":target.uid(),"annotations":{TARGET_ANNOTATION:null}}}),
+        ),
+    )
+    .await?;
     crate::controller::publish(vms, vm, vm_status).await?;
     status.phase = "Succeeded".into();
     status.message = format!("The guest runs on {} now", target.name_any());
