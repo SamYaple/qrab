@@ -248,7 +248,7 @@ fn requested_secure_boot(body: &Bytes) -> Result<bool, Failure> {
             StatusCode::BAD_REQUEST,
             "PropertyNotWritable",
             "Only SecureBootEnable may be changed.",
-            "Supply a boolean SecureBootEnable; activation requires a cold manager boot.",
+            "Supply a boolean SecureBootEnable; it takes effect at the next power-on.",
         ));
     }
     object["SecureBootEnable"].as_bool().ok_or_else(|| {

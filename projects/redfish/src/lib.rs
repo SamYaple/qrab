@@ -1475,7 +1475,7 @@ pub fn qmp_dropped_event_json(total: u64) -> Value {
     notice(
         format!("qmp-dropped-{total}"),
         if total > 0 { "Warning" } else { "OK" },
-        format!("The QMP client has discarded {total} QEMU event(s) during the current QEMU connection."),
+        format!("The QMP client has discarded {total} QEMU event(s) since the manager started."),
         DROPPED_MESSAGE,
         vec![total.to_string()],
         json!({

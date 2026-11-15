@@ -169,7 +169,7 @@ fn families(snapshot: &Snapshot) -> Vec<Family> {
         Family::new(
             "qrab_vm_qmp_events_dropped_total",
             "counter",
-            "QMP events the manager discarded during the current QEMU connection.",
+            "QMP events the manager discarded since it started, across every QEMU it ran.",
         )
         .value(snapshot.qmp_dropped),
     );
