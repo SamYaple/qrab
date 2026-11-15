@@ -13,6 +13,9 @@ pub(crate) fn member_names<'a>(names: impl IntoIterator<Item = &'a str>) -> Resu
 
 fn features(features: Option<&QapiFeatures<'_>>) -> Result<()> {
     if let Some(features) = features {
+        for feature in features.iter() {
+            crate::schema_names::validate(feature.name, false)?;
+        }
         unique_names("Feature", features.iter().map(|feature| feature.name))?;
     }
     Ok(())
@@ -105,6 +108,8 @@ fn type_ref(value: &QapiTypeRef<'_>, types: &HashSet<&str>, inline: bool) -> Res
 fn members(fields: &QapiMembers<'_>, types: &HashSet<&str>, inline: bool) -> Result<()> {
     member_names(fields.0.iter().map(|field| field.name))?;
     for field in &fields.0 {
+        crate::schema_names::validate(field.name, false)
+            .with_context(|| format!("Invalid member '{}'", field.name))?;
         features(field.features.as_ref())
             .and_then(|()| type_ref(&field.r#type, types, inline))
             .with_context(|| format!("Invalid member '{}'", field.name))?;
@@ -333,6 +338,7 @@ pub(crate) fn validate(schemas: &[(&Path, QapiSchema<'_>)]) -> Result<()> {
                     QapiSchemaToken::Enum(value) => {
                         member_names(value.data.iter().map(|value| value.name))?;
                         for member in &value.data {
+                            crate::schema_names::validate(member.name, true)?;
                             features(member.features.as_ref()).with_context(|| {
                                 format!("Invalid enum member '{}'", member.name)
                             })?;
@@ -360,6 +366,7 @@ pub(crate) fn validate(schemas: &[(&Path, QapiSchema<'_>)]) -> Result<()> {
                     QapiSchemaToken::Alternate(value) => {
                         member_names(value.data.0.iter().map(|branch| branch.name))?;
                         for branch in &value.data.0 {
+                            crate::schema_names::validate(branch.name, false)?;
                             type_ref(&branch.r#type, &types, false)
                                 .with_context(|| format!("Invalid branch '{}'", branch.name))?;
                         }

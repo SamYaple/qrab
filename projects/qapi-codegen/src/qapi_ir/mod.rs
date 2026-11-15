@@ -57,6 +57,7 @@ fn fix_leading_digit(input: &str) -> String {
 pub fn rustify_name(input: &str) -> String {
     let name = fix_leading_digit(&input.to_pascal_case());
     match name.as_str() {
+        "" => "QapiUnnamed".into(),
         "Self" | "String" | "Option" | "Vec" | "Box" | "Result" | "HashMap" | "Send" | "Sync"
         | "Sized" | "Drop" | "Fn" | "FnMut" | "FnOnce" | "Some" | "None" | "Ok" | "Err" => {
             format!("Qapi{name}")
@@ -68,7 +69,9 @@ pub fn rustify_name(input: &str) -> String {
 /// Enum variants have their own namespace; String and None remain ordinary variants.
 pub(crate) fn rustify_variant(input: &str) -> String {
     let name = fix_leading_digit(&input.to_pascal_case());
-    if name == "Self" {
+    if name.is_empty() {
+        "QapiUnnamed".into()
+    } else if name == "Self" {
         "QapiSelf".into()
     } else {
         name
@@ -78,6 +81,7 @@ pub(crate) fn rustify_variant(input: &str) -> String {
 fn rustify_field_name(input: &str) -> String {
     let name = fix_leading_digit(&input.to_snake_case());
     match name.as_str() {
+        "" => "qapi_unnamed".into(),
         "self" | "super" | "crate" => format!("{name}_"),
         _ => name,
     }

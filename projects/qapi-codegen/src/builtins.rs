@@ -106,6 +106,8 @@ pub(crate) fn parse_sources(sources: &[(PathBuf, String)]) -> Result<Vec<(&Path,
                     "Predefined QAPI type '{name}' cannot be redefined in {}",
                     path.display()
                 );
+                crate::schema_names::validate(name, false)
+                    .with_context(|| format!("Invalid definition in {}", path.display()))?;
                 if let Some(previous) = definitions.insert(name, *path) {
                     anyhow::bail!(
                         "Conflicting QAPI definitions: '{name}' in {} is already defined in {}",

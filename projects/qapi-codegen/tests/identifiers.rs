@@ -194,7 +194,8 @@ fn valid_schema_keywords_and_standard_type_names_compile_and_round_trip() {
     schema.push_str("{ 'struct':'OpaqueReferences', 'data':{'visitor':'visitor','dict':'dict','wildcard':'**'} }\n");
     schema.push_str("{ 'union':'HistoricalChangingPayload', 'data':{'item':'ChangingType'} }\n");
     let nested_schema = "{ 'struct':'NestedInline', 'data':{'outer':{'inner':{'value':'str','*count':'int'},'*empty':{}},'*choice':{'flag':'bool'}} }\n{ 'struct':'NestedInlineOuterInner', 'data':{'declared':'bool'} }\n{ 'enum':'CycleShape', 'data':['old'] }\n{ 'struct':'CycleHolder', 'data':{'item':'CycleShape'} }\n";
-    std::fs::write(&entry, format!("{nested_schema}{presence}")).unwrap();
+    let legacy_names = "{'type':'_','data':{'_':'str','qapi-unnamed':'str'}}\n{'enum':'LegacyNames','data':['','qapi-unnamed','1','1-foo']}\n";
+    std::fs::write(&entry, format!("{nested_schema}{presence}{legacy_names}")).unwrap();
     git(&repo, &["init", "-q"]);
     git(&repo, &["add", "."]);
     git(

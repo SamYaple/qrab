@@ -5,6 +5,15 @@ pub use qapi_runtime::{
 mod generated;
 pub use generated::*;
 fn main() {
+    with_version((2, 3, 0), || {
+        let wire = serde_json::json!({"_":"legacy","qapi-unnamed":"ordinary"});
+        let value: QapiUnnamed = serde_json::from_value(wire.clone()).unwrap();
+        assert_eq!(serde_json::to_value(value).unwrap(), wire);
+        for tag in ["", "qapi-unnamed", "1", "1-foo"] {
+            let value: LegacyNames = serde_json::from_value(serde_json::json!(tag)).unwrap();
+            assert_eq!(serde_json::to_value(value).unwrap(), serde_json::json!(tag));
+        }
+    });
     with_version((11, 1, 3), || {
         for wire in [
             serde_json::json!({"outer-kind":"child","common":"base","inner-kind":"left","value":"leaf"}),

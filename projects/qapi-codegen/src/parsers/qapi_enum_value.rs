@@ -30,8 +30,12 @@ impl<'i> QapiEnumValue<'i> {
 
     pub fn parse_v1(input: &'i str) -> IResult<&'i str, Self> {
         let start = input;
-        let (input, enumvalue) = alt((Self::simple_parser, Self::complex_parser)).parse(input)?;
-        if enumvalue.name.is_empty() {
+        let (input, (enumvalue, simple)) = alt((
+            Self::simple_parser.map(|value| (value, true)),
+            Self::complex_parser.map(|value| (value, false)),
+        ))
+        .parse(input)?;
+        if enumvalue.name.is_empty() && (!simple || super::parser_version() >= (2, 6, 0)) {
             return Err(nom::Err::Error(Error::new(start, ErrorKind::Tag)));
         }
         Ok((input, enumvalue))
@@ -111,7 +115,18 @@ mod tests {
 
     #[test]
     fn test_empty_name_fails() {
+        crate::set_parser_version((11, 1, 3));
         assert!(QapiEnumValue::parse("''").is_err());
+    }
+
+    #[test]
+    fn legacy_empty_enum_values_do_not_allow_missing_dictionary_names() {
+        crate::set_parser_version((2, 5, 0));
+        assert_eq!(QapiEnumValue::parse("''").unwrap().1.name, "");
+        assert!(QapiEnumValue::parse("{}").is_err());
+        crate::set_parser_version((2, 6, 0));
+        assert!(QapiEnumValue::parse("''").is_err());
+        crate::set_parser_version((11, 1, 3));
     }
 
     #[test]
