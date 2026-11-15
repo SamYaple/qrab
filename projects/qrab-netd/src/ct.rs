@@ -34,6 +34,9 @@ pub const MAPS: [(char, &str); 2] = [('t', "cilium_ct4_global"), ('a', "cilium_c
 pub const PIN_DIR: &str = "/sys/fs/bpf/tc/globals";
 pub const KEY_LEN: usize = 14;
 pub const VALUE_LEN: usize = 56;
+/// Offset of the protocol in the key.
+const NEXTHDR: usize = 12;
+const UDP: u8 = 17;
 const LIFETIME: usize = 32;
 const REV_NAT: usize = 38;
 const TX_REPORT: usize = 48;
@@ -192,7 +195,9 @@ pub fn select_dump(
         }
         fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Vec<Entry>, A::Error> {
             let bytes = |field: Vec<HexByte>| field.into_iter().map(|b| b.0).collect::<Vec<_>>();
-            let mut kept = Vec::new();
+            // UDP before the rest of the any-protocol map (ICMP echoes, one
+            // entry per ping), so a ping flood cannot crowd flows out.
+            let (mut kept, mut rest) = (Vec::new(), Vec::new());
             while let Some(record) = seq.next_element::<Record>()? {
                 let entry = Entry {
                     map: self.map,
@@ -203,10 +208,17 @@ pub fn select_dump(
                         .try_into()
                         .map_err(|_| de::Error::custom("a conntrack value is not 56 bytes"))?,
                 };
-                if kept.len() <= MAX_ENTRIES && selected(&entry, self.ip) {
-                    kept.push(entry);
+                let class = if entry.map == 't' || entry.key[NEXTHDR] == UDP {
+                    &mut kept
+                } else {
+                    &mut rest
+                };
+                if class.len() <= MAX_ENTRIES && selected(&entry, self.ip) {
+                    class.push(entry);
                 }
             }
+            kept.extend(rest);
+            kept.truncate(MAX_ENTRIES + 1);
             Ok(kept)
         }
     }
@@ -367,6 +379,19 @@ mod tests {
         let export = Export::new(1, kept);
         assert!(export.truncated);
         assert_eq!(export.entries.len(), MAX_ENTRIES);
+        // In the any-protocol map, UDP flows survive an ICMP flood.
+        let mut icmp = entry([203, 0, 113, 5], [10, 244, 128, 7], 100);
+        icmp.map = 'a';
+        icmp.key[NEXTHDR] = 1;
+        let mut udp = icmp.clone();
+        udp.key[NEXTHDR] = UDP;
+        let flood: Vec<String> = (0..2 * MAX_ENTRIES)
+            .map(|_| record(&icmp))
+            .chain((0..3).map(|_| record(&udp)))
+            .collect();
+        let kept = select_dump('a', format!("[{}]", flood.join(",")).as_bytes(), GUEST).unwrap();
+        assert_eq!(kept.len(), MAX_ENTRIES + 1);
+        assert_eq!(kept.iter().filter(|e| e.key[NEXTHDR] == UDP).count(), 3);
         // Trailing garbage after the array is refused.
         assert!(select_dump('t', &b"[] x"[..], GUEST).is_err());
     }
