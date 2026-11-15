@@ -110,11 +110,13 @@ enum Switch {
     /// The switch is undone: the target stands its anchors down again.
     Abort,
     Failed(String),
-    /// After the switch: the source node's conntrack entries for one NIC,
-    /// for the target node to import (qrab_netd::ct).
+    /// Have the target node pull one NIC's conntrack entries from the
+    /// source node (qrab_netd::peer). The managers carry no entries: they sit
+    /// inside the VM's trust boundary, and entries they relayed could name
+    /// flows the NIC's groups would not admit. An older source's `export`
+    /// field is ignored.
     Conntrack {
         nic: String,
-        export: qrab_netd::ct::Export,
     },
     /// How many entries the target node imported.
     Imported(usize),
@@ -412,50 +414,21 @@ async fn switch_over(
     netd_all(config, nics, Op::Standby, None).await
 }
 
-/// Best effort: export each NIC's conntrack entries on this node and have
-/// the target node import them, so established flows keep their verdicts
+/// Best effort: have the target node pull each NIC's conntrack entries from
+/// this node and import them, so established flows keep their verdicts
 /// there (a flow only the guest sends on would otherwise be new, and refused
 /// by groups that deny new egress). Run twice: `precopy` before QEMU starts
 /// streaming, so the flows are on the target the moment it activates (an
 /// import only after the switch left the guest's first segments there
 /// dropped, and TCP's retransmission backoff stretched that to seconds), and
 /// `delta` after the switch, for flows opened meanwhile. Failures are logged.
-async fn copy_conntrack(config: &Config, nics: &[String], channel: &mut Channel, phase: &str) {
+async fn copy_conntrack(nics: &[String], channel: &mut Channel, phase: &str) {
     let started = tokio::time::Instant::now();
     let mut copied = 0;
     for nic in nics {
-        let socket = config.netd_socket.clone();
-        let name = nic.clone();
-        let export = match tokio::task::spawn_blocking(move || {
-            qrab_netd::wire::conntrack_export(&socket, &name)
-        })
-        .await
-        {
-            Ok(Ok(export)) => export,
-            Ok(Err(error)) => {
-                log(
-                    json!({"event":"migration_conntrack_failed","phase":phase,"nic":nic,"step":"export","error":error.to_string()}),
-                );
-                continue;
-            }
-            Err(error) => {
-                log(
-                    json!({"event":"migration_conntrack_failed","phase":phase,"nic":nic,"step":"export","error":error.to_string()}),
-                );
-                continue;
-            }
-        };
-        let exported = export.entries.len();
-        let truncated = export.truncated;
-        if write_frame(
-            channel,
-            &Switch::Conntrack {
-                nic: nic.clone(),
-                export,
-            },
-        )
-        .await
-        .is_err()
+        if write_frame(channel, &Switch::Conntrack { nic: nic.clone() })
+            .await
+            .is_err()
         {
             log(
                 json!({"event":"migration_conntrack_failed","phase":phase,"nic":nic,"step":"send"}),
@@ -466,17 +439,17 @@ async fn copy_conntrack(config: &Config, nics: &[String], channel: &mut Channel,
             Ok(Switch::Imported(count)) => {
                 copied += count;
                 log(
-                    json!({"event":"migration_conntrack","phase":phase,"nic":nic,"exported":exported,"imported":count,"truncated":truncated}),
+                    json!({"event":"migration_conntrack","phase":phase,"nic":nic,"imported":count}),
                 );
             }
             Ok(Switch::Failed(reason)) => {
                 log(
-                    json!({"event":"migration_conntrack_failed","phase":phase,"nic":nic,"step":"import","error":reason}),
+                    json!({"event":"migration_conntrack_failed","phase":phase,"nic":nic,"step":"pull","error":reason}),
                 );
             }
             other => {
                 log(
-                    json!({"event":"migration_conntrack_failed","phase":phase,"nic":nic,"step":"import","error":format!("{other:?}")}),
+                    json!({"event":"migration_conntrack_failed","phase":phase,"nic":nic,"step":"pull","error":format!("{other:?}")}),
                 );
                 return;
             }
@@ -551,10 +524,10 @@ async fn serve_switchover(
         let (op, reply_ok) = match frame {
             Switch::Activate => (Op::Activate, Switch::Activated),
             Switch::Abort => (Op::Standby, Switch::Abort),
-            Switch::Conntrack { nic, export } => {
+            Switch::Conntrack { nic } => {
                 let socket = config.netd_socket.clone();
                 let imported = tokio::task::spawn_blocking(move || {
-                    qrab_netd::wire::conntrack_import(&socket, &nic, &export)
+                    qrab_netd::wire::conntrack_pull(&socket, &nic)
                 })
                 .await;
                 let reply = match imported {
@@ -693,7 +666,7 @@ where
                 .map_err(|_| failure("the target opened no switchover connection"))?
                 .map_err(|_| failure("the switchover slot closed"))?;
             let via = node_ip.ok_or_else(|| failure("the target sent no node address"))?;
-            copy_conntrack(config, &nics, &mut connection, "precopy").await;
+            copy_conntrack(&nics, &mut connection, "precopy").await;
             switch = Some((connection, via));
         }
         let path = session.join("migrate-out.sock");
@@ -762,7 +735,7 @@ where
         }
         // The guest runs on the target: carry its NICs' established flows over.
         if let (true, Some((connection, _))) = (switched, switch.as_mut()) {
-            copy_conntrack(config, &nics, connection, "delta").await;
+            copy_conntrack(&nics, connection, "delta").await;
         }
         // QEMU closes its end after the last byte; wait for it to drain.
         match tokio::time::timeout(Duration::from_secs(30), splice).await {
@@ -1225,21 +1198,8 @@ mod tests {
                 record.lock().unwrap().push((request.op, request.via));
                 if Some(request.op) == refuse {
                     qrab_netd::wire::send_refusal(&stream, "no").unwrap();
-                } else if request.op == Op::CtExport {
-                    let entries = (0..2)
-                        .map(|i| ('t', format!("{i:028x}"), "00".repeat(56)))
-                        .collect();
-                    let export = qrab_netd::ct::Export {
-                        now: 7,
-                        entries,
-                        truncated: false,
-                    };
-                    qrab_netd::wire::send_conntrack(&stream, &export).unwrap();
-                } else if request.op == Op::CtImport {
-                    qrab_netd::wire::send_ok(&stream).unwrap();
-                    let export: qrab_netd::ct::Export =
-                        qrab_netd::wire::read_payload(&stream).unwrap();
-                    qrab_netd::wire::send_imported(&stream, export.entries.len()).unwrap();
+                } else if request.op == Op::CtPull {
+                    qrab_netd::wire::send_imported(&stream, 2).unwrap();
                 } else {
                     qrab_netd::wire::send_ok(&stream).unwrap();
                 }
@@ -1360,13 +1320,14 @@ mod tests {
             Workload::serve(vec![ca.svid(VM)]),
         );
         let dir = tempfile::tempdir().unwrap();
-        let (source_config, source_ops) = fake_netd(dir.path(), "source", None);
+        let (_, source_ops) = fake_netd(dir.path(), "source", None);
         let (target_config, target_ops) = fake_netd(dir.path(), "target", None);
         let (mut channel, _, client) = switchover_pair(&source, &target, "m-conntrack").await;
         let serving = tokio::spawn(serve_switchover(target_config, vec!["lan".into()], client));
-        copy_conntrack(&source_config, &["lan".into()], &mut channel, "delta").await;
-        assert_eq!(*source_ops.lock().unwrap(), [(Op::CtExport, None)]);
-        assert_eq!(*target_ops.lock().unwrap(), [(Op::CtImport, None)]);
+        copy_conntrack(&["lan".into()], &mut channel, "delta").await;
+        // The source's agent is not asked: the target's pulls node to node.
+        assert!(source_ops.lock().unwrap().is_empty());
+        assert_eq!(*target_ops.lock().unwrap(), [(Op::CtPull, None)]);
         // The channel still serves the switchover afterwards.
         write_frame(&mut channel, &Switch::Abort).await.unwrap();
         assert_eq!(
