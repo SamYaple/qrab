@@ -28,6 +28,11 @@ spec:
         runAsGroup: 10001
         seccompProfile:
           type: RuntimeDefault
+      # Every node is a control-plane node.
+      tolerations:
+      - key: node-role.kubernetes.io/control-plane
+        operator: Exists
+        effect: NoSchedule
       containers:
       - name: broker
         # The operator image carries qrab-proton; updated by the release pin commit.
