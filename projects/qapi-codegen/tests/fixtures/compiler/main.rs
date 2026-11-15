@@ -5,7 +5,16 @@ pub use qapi_runtime::{
 mod generated;
 pub use generated::*;
 fn main() {
+    for version in [(6, 1, 0), (11, 1, 3)] {
+        with_version(version, || {
+            let wire = serde_json::json!({"kind":"none","value":"historical"});
+            let value: VersionedUnion = serde_json::from_value(wire.clone()).unwrap();
+            assert_eq!(serde_json::to_value(value).unwrap(), wire);
+        });
+    }
     with_version((11, 1, 3), || {
+        let _ = VersionedUnionBranch { marker: true };
+        let _ = NestedInlineOuterEmpty { marker: true };
         let command = commands::FooCommandGenerated {
             value: "request".into(),
         };

@@ -100,6 +100,10 @@ fn simple_to_flat_transition_selects_the_peer_layout() {
 fn generated_socket_addresses_use_the_pre_2_10_nested_layout() {
     for (version, value) in [
         (
+            (1, 3, 0),
+            json!({"type":"inet","data":{"host":"127.0.0.1","port":"10809"}}),
+        ),
+        (
             (2, 9, 0),
             json!({"type":"inet","data":{"host":"127.0.0.1","port":"10809"}}),
         ),
@@ -113,6 +117,26 @@ fn generated_socket_addresses_use_the_pre_2_10_nested_layout() {
             assert_eq!(serde_json::to_value(address).unwrap(), value);
         });
     }
+}
+
+#[test]
+fn historical_generated_tags_stay_separate_from_later_schema_enums() {
+    qapi::with_version((2, 1, 0), || {
+        let wire = json!({"type":"node","data":{}});
+        let value: qapi::NumaOptions = serde_json::from_value(wire.clone()).unwrap();
+        assert_eq!(serde_json::to_value(value).unwrap(), wire);
+        assert_eq!(
+            serde_json::to_value(qapi::NumaOptionsTypeGenerated::Node).unwrap(),
+            json!("node")
+        );
+        assert!(serde_json::to_value(qapi::NumaOptionsType::Node).is_err());
+    });
+    qapi::with_version((2, 7, 0), || {
+        let wire = json!({"type":"none","data":{}});
+        let value: qapi::NetLegacyOptions = serde_json::from_value(wire.clone()).unwrap();
+        assert_eq!(serde_json::to_value(value).unwrap(), wire);
+        assert!(serde_json::to_value(qapi::NetLegacyOptionsType::None).is_err());
+    });
 }
 
 #[test]

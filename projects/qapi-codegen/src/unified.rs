@@ -11,7 +11,7 @@ use crate::versions::{
 };
 use crate::{QapiSchemaToken, parse_schema};
 use anyhow::{Context, Result};
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::Path;
 
 pub type Version = (u32, u32, u32);
@@ -228,24 +228,18 @@ fn merge_command_attrs_onto(source: &Struct, target: &mut Struct) {
     }
 }
 
-fn generated_role_name(names: &mut HashSet<String>, preferred: &str) -> String {
-    let mut name = preferred.to_owned();
-    let mut suffix = 0;
-    while !names.insert(name.clone()) {
-        suffix += 1;
-        name = if suffix == 1 {
-            format!("{preferred}Generated")
-        } else {
-            format!("{preferred}Generated{suffix}")
-        };
-    }
-    name
-}
-
 /// Process a single version's schema through the IR pipeline.
 /// Returns maps of enum name → Enum IR and struct name → Struct IR.
+#[cfg(test)]
 fn process_version_schema(
     sources: &[(std::path::PathBuf, String)],
+) -> Result<(HashMap<String, Enum>, HashMap<String, Struct>)> {
+    process_version_schema_with_names(sources, None)
+}
+
+fn process_version_schema_with_names(
+    sources: &[(std::path::PathBuf, String)],
+    shared: Option<&crate::symbols::SchemaNames>,
 ) -> Result<(HashMap<String, Enum>, HashMap<String, Struct>)> {
     let mut enums_lookup = HashMap::new();
     let mut structs_lookup = HashMap::new();
@@ -263,21 +257,17 @@ fn process_version_schema(
         })
         .collect::<Result<Vec<_>>>()?;
     crate::schema_validation::validate(&schemas)?;
-    // Reserve declared symbols first, then generated roles, then anonymous types.
-    let mut names = HashSet::new();
-    for (_, schema) in &schemas {
-        for token in &schema.0 {
-            let name = match token {
-                QapiSchemaToken::Enum(value) => value.name,
-                QapiSchemaToken::Struct(value) => value.name,
-                QapiSchemaToken::Alternate(value) => value.name,
-                QapiSchemaToken::Union(value) => value.name,
-                QapiSchemaToken::Command(value) => value.name,
-                _ => continue,
-            };
-            names.insert(rustify_name(name));
+    let mut local = crate::symbols::SchemaNames::default();
+    let symbols = if let Some(shared) = shared {
+        shared
+    } else {
+        for (_, schema) in &schemas {
+            local.collect(schema);
         }
-    }
+        local.finish();
+        &local
+    };
+    let mut names = symbols.names.clone();
     let mut union_names = HashMap::new();
     let mut event_names = HashMap::new();
     let mut command_names = HashMap::new();
@@ -286,22 +276,16 @@ fn process_version_schema(
             match token {
                 QapiSchemaToken::Union(value) => {
                     let root = rustify_name(value.name);
-                    let branch = generated_role_name(&mut names, &format!("{root}Branch"));
-                    let discriminator = generated_role_name(&mut names, &format!("{root}Type"));
+                    let branch = symbols.role(&format!("{root}Branch"));
+                    let discriminator = symbols.role(&format!("{root}Type"));
                     union_names.insert(value.name, (branch, discriminator));
                 }
                 QapiSchemaToken::Event(value) => {
-                    let name = generated_role_name(
-                        &mut names,
-                        &rustify_name(&format!("{}Event", value.name)),
-                    );
+                    let name = symbols.role(&rustify_name(&format!("{}Event", value.name)));
                     event_names.insert(value.name, name);
                 }
                 QapiSchemaToken::Command(value) => {
-                    let name = generated_role_name(
-                        &mut names,
-                        &format!("{}Command", rustify_name(value.name)),
-                    );
+                    let name = symbols.role(&format!("{}Command", rustify_name(value.name)));
                     command_names.insert(value.name, name);
                 }
                 _ => {}
@@ -619,90 +603,104 @@ fn parse_versions<T: Send>(
     Ok(results)
 }
 
-/// Extract, parse, and process IR for a single version.
-/// This is the work done per-thread in parallel.
-fn process_single_version(qemu_repo: &Path, tag: &str) -> Result<Option<VersionResult>> {
-    let version =
-        parse_version_tag(tag).with_context(|| format!("Invalid version tag: {}", tag))?;
+struct VersionSources {
+    tag: String,
+    version: Version,
+    schema_hash: u64,
+    sources: Vec<(std::path::PathBuf, String)>,
+}
 
+fn extract_version_sources(
+    qemu_repo: &Path,
+    tag: &str,
+    qga: bool,
+) -> Result<Option<VersionSources>> {
+    let version = parse_version_tag(tag).with_context(|| format!("Invalid version tag: {tag}"))?;
     let tmpdir = extract_schema_from_tag(qemu_repo, tag)
-        .with_context(|| format!("Failed to extract schema for {}", tag))?;
-
-    let schema_entry = match find_extracted_schema_entry(tmpdir.path()) {
-        Some(entry) => entry,
-        None if version < (1, 0, 0) => return Ok(None),
-        None => anyhow::bail!("No QMP schema entry point found for {tag}"),
+        .with_context(|| format!("Failed to extract schema for {tag}"))?;
+    let entry = if qga {
+        find_extracted_qga_schema_entry(tmpdir.path())
+    } else {
+        find_extracted_schema_entry(tmpdir.path())
     };
-
-    // Parser version is thread-local, safe to set per-thread
-    crate::set_parser_version(version);
-
+    let first_schema = if qga { (0, 15, 0) } else { (1, 0, 0) };
+    let schema_entry = match entry {
+        Some(entry) => entry,
+        None if version < first_schema => return Ok(None),
+        None => anyhow::bail!(
+            "No {} schema entry point found for {tag}",
+            if qga { "QGA" } else { "QMP" }
+        ),
+    };
     let sources = crate::read_schema_with_version(&schema_entry, Some(version))
-        .with_context(|| format!("Failed to read schema for {}", tag))?;
-
-    // Hash the raw schema content for deduplication (use filename only, not temp dir path)
+        .with_context(|| format!("Failed to read schema for {tag}"))?;
     let schema_hash = {
         use std::hash::{Hash, Hasher};
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        if qga {
+            hasher.write(b"qga");
+        }
         for (path, content) in &sources {
             path.file_name().hash(&mut hasher);
             content.hash(&mut hasher);
         }
         hasher.finish()
     };
-
-    let (enums, structs) = process_version_schema(&sources)
-        .with_context(|| format!("Failed to process IR for {}", tag))?;
-
-    Ok(Some(VersionResult {
-        tag: tag.to_string(),
+    Ok(Some(VersionSources {
+        tag: tag.into(),
         version,
         schema_hash,
-        enums,
-        structs,
+        sources,
     }))
 }
 
-/// Extract, parse, and process IR for a single version's QGA schema.
-fn process_single_version_qga(qemu_repo: &Path, tag: &str) -> Result<Option<VersionResult>> {
-    let version =
-        parse_version_tag(tag).with_context(|| format!("Invalid version tag: {}", tag))?;
-
-    let tmpdir = extract_schema_from_tag(qemu_repo, tag)
-        .with_context(|| format!("Failed to extract schema for {}", tag))?;
-
-    let schema_entry = match find_extracted_qga_schema_entry(tmpdir.path()) {
-        Some(entry) => entry,
-        None if version < (0, 15, 0) => return Ok(None),
-        None => anyhow::bail!("No QGA schema entry point found for {tag}"),
-    };
-
-    crate::set_parser_version(version);
-
-    let sources = crate::read_schema_with_version(&schema_entry, Some(version))
-        .with_context(|| format!("Failed to read QGA schema for {}", tag))?;
-
-    let schema_hash = {
-        use std::hash::{Hash, Hasher};
-        let mut hasher = std::collections::hash_map::DefaultHasher::new();
-        hasher.write(b"qga"); // Differentiate from QMP hash
-        for (path, content) in &sources {
-            path.file_name().hash(&mut hasher);
-            content.hash(&mut hasher);
+fn load_versions(
+    qemu_repo: &Path,
+    tags: &[&str],
+    qga: bool,
+) -> Result<(Vec<VersionResult>, usize)> {
+    let extracted = parse_versions(tags, |tag| extract_version_sources(qemu_repo, tag, qga))?;
+    let absent = extracted.iter().filter(|version| version.is_none()).count();
+    let sources: Vec<_> = extracted.into_iter().flatten().collect();
+    let by_tag: HashMap<_, _> = sources
+        .iter()
+        .map(|source| (source.tag.as_str(), source))
+        .collect();
+    let plans = parse_versions(tags, |tag| {
+        let Some(source) = by_tag.get(tag) else {
+            return Ok(None);
+        };
+        crate::set_parser_version(source.version);
+        let mut symbols = crate::symbols::SchemaNames::default();
+        for (path, content) in &source.sources {
+            let schema = parse_schema(content).with_context(|| {
+                format!("Failed to plan QAPI names for {tag} in {}", path.display())
+            })?;
+            symbols.collect(&schema);
         }
-        hasher.finish()
-    };
-
-    let (enums, structs) = process_version_schema(&sources)
-        .with_context(|| format!("Failed to process QGA IR for {}", tag))?;
-
-    Ok(Some(VersionResult {
-        tag: tag.to_string(),
-        version,
-        schema_hash,
-        enums,
-        structs,
-    }))
+        Ok(Some(symbols))
+    })?;
+    let mut symbols = crate::symbols::SchemaNames::default();
+    for plan in plans.into_iter().flatten() {
+        symbols.merge(plan);
+    }
+    symbols.finish();
+    let results = parse_versions(tags, |tag| {
+        let Some(source) = by_tag.get(tag) else {
+            return Ok(None);
+        };
+        crate::set_parser_version(source.version);
+        let (enums, structs) = process_version_schema_with_names(&source.sources, Some(&symbols))
+            .with_context(|| format!("Failed to process IR for {tag}"))?;
+        Ok(Some(VersionResult {
+            tag: source.tag.clone(),
+            version: source.version,
+            schema_hash: source.schema_hash,
+            enums,
+            structs,
+        }))
+    })?;
+    Ok((results.into_iter().flatten().collect(), absent))
 }
 
 /// Parse schemas from multiple versions and build a unified registry.
@@ -716,11 +714,7 @@ pub fn build_unified_registry(qemu_repo: &Path, version_tags: &[&str]) -> Result
         "Extracting and parsing {} versions in parallel...",
         version_tags.len()
     );
-    let mut version_results: Vec<_> =
-        parse_versions(version_tags, |tag| process_single_version(qemu_repo, tag))?
-            .into_iter()
-            .flatten()
-            .collect();
+    let (mut version_results, _) = load_versions(qemu_repo, version_tags, false)?;
 
     eprintln!(
         "  Extraction + parsing: {:.1}s",
@@ -1951,17 +1945,13 @@ pub fn build_qga_registry(qemu_repo: &Path, version_tags: &[&str]) -> Result<Uni
         "Extracting and parsing QGA schemas from {} versions...",
         version_tags.len()
     );
-    let results = parse_versions(version_tags, |tag| {
-        process_single_version_qga(qemu_repo, tag)
-    })?;
+    let (mut version_results, absent) = load_versions(qemu_repo, version_tags, true)?;
 
     eprintln!(
         "  QGA extraction + parsing: {:.1}s",
         start.elapsed().as_secs_f64()
     );
 
-    let absent = results.iter().filter(|r| r.is_none()).count();
-    let mut version_results: Vec<VersionResult> = results.into_iter().flatten().collect();
     version_results
         .sort_by_key(|result| crate::versions::parse_version_tag_full(&result.tag).unwrap());
     eprintln!(

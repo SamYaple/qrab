@@ -59,6 +59,9 @@ fn valid_schema_keywords_and_standard_type_names_compile_and_round_trip() {
     schema.push_str("{ 'struct':'FooCommand', 'data':{'marker':'bool'} }\n");
     schema.push_str("{ 'command':'foo', 'data':{'value':'str'}, 'returns':'Foo' }\n");
     schema.push_str("{ 'struct':'ArrayPayloadType', 'data':{'marker':'bool'} }\n");
+    schema.push_str("{ 'union':'VersionedUnion', 'base':'CollisionBase', 'discriminator':'kind', 'data':{'none':'PeerWindows'} }\n");
+    let modern_only = "{ 'struct':'VersionedUnionBranch', 'data':{'marker':'bool'} }\n{ 'struct':'NestedInlineOuterEmpty', 'data':{'marker':'bool'} }\n";
+    schema.push_str(modern_only);
     let entry = repo.join("qapi/qapi-schema.json");
     std::fs::write(&entry, &schema).unwrap();
     let oracle = Command::new("python3").arg("-c").arg("import sys; sys.path.insert(0, sys.argv[1]+'/scripts'); from qapi.schema import QAPISchema; QAPISchema(sys.argv[2])")
@@ -69,6 +72,7 @@ fn valid_schema_keywords_and_standard_type_names_compile_and_round_trip() {
         String::from_utf8_lossy(&oracle.stderr)
     );
     let modern_schema = schema.clone();
+    schema = schema.replace(modern_only, "");
     // Modern QEMU no longer accepts simple unions. Keep a historical array
     // payload in the compiled fixture after validating the modern definitions.
     schema.push_str("{ 'union':'ArrayPayload', 'data':{'strings':['str'],'objects':['String'],'kinds':['Kind']} }\n");
@@ -120,7 +124,9 @@ fn valid_schema_keywords_and_standard_type_names_compile_and_round_trip() {
         ],
     );
     git(&repo, &["tag", "v11.1.3"]);
+    qapi_codegen::set_parser_version((1, 0, 0));
     let output = generate_unified_code(&repo, &["v2.3.0", "v6.1.0", "v11.1.3"]).unwrap();
+    assert_eq!(qapi_codegen::parser_version(), (1, 0, 0));
     let fixture = temp.path().join("fixture");
     write_module(&fixture.join("src/generated"), output);
     run_fixture(

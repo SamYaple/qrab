@@ -15066,7 +15066,7 @@ pub struct NetLegacyOptions {
     #[qapi(name = "type")]
     #[qapi(removed = "2.9.0")]
     #[qapi(required)]
-    pub r_type: Option<NetLegacyOptionsType>,
+    pub r_type: Option<NetLegacyOptionsTypeGenerated>,
     #[qapi(discriminator)]
     #[qapi(added = "2.9.0")]
     #[qapi(required)]
@@ -15109,13 +15109,40 @@ pub enum NetLegacyOptionsBranch {
     VhostUser(NetdevVhostUserOptions),
 }
 
-#[qapi(added = "2.7.0")]
+#[qapi(added = "2.9.0")]
 #[qapi(removed = "5.1.0")]
 pub enum NetLegacyOptionsType {
     #[qapi(name = "bridge")]
     Bridge,
     #[qapi(name = "dump")]
     #[qapi(removed = "2.12.0")]
+    Dump,
+    #[qapi(name = "l2tpv3")]
+    L2tpv3,
+    #[qapi(name = "netmap")]
+    Netmap,
+    #[qapi(name = "nic")]
+    Nic,
+    #[qapi(name = "none")]
+    None,
+    #[qapi(name = "socket")]
+    Socket,
+    #[qapi(name = "tap")]
+    Tap,
+    #[qapi(name = "user")]
+    User,
+    #[qapi(name = "vde")]
+    Vde,
+    #[qapi(name = "vhost-user")]
+    VhostUser,
+}
+
+#[qapi(added = "2.7.0")]
+#[qapi(removed = "2.9.0")]
+pub enum NetLegacyOptionsTypeGenerated {
+    #[qapi(name = "bridge")]
+    Bridge,
+    #[qapi(name = "dump")]
     Dump,
     #[qapi(name = "l2tpv3")]
     L2tpv3,
@@ -15346,7 +15373,7 @@ pub struct NumaOptions {
     #[qapi(name = "type")]
     #[qapi(removed = "2.9.0")]
     #[qapi(required)]
-    pub r_type: Option<NumaOptionsType>,
+    pub r_type: Option<NumaOptionsTypeGenerated>,
     /// NUMA option type
     #[qapi(discriminator)]
     #[qapi(added = "2.9.0")]
@@ -15376,7 +15403,7 @@ pub enum NumaOptionsBranch {
     Node(NumaNodeOptions),
 }
 
-#[qapi(added = "2.1.0")]
+#[qapi(added = "2.9.0")]
 pub enum NumaOptionsType {
     /// property based CPU(s) to node mapping (Since: 2.10)
     #[qapi(name = "cpu")]
@@ -15395,6 +15422,13 @@ pub enum NumaOptionsType {
     #[qapi(added = "5.0.0")]
     HmatLb,
     /// NUMA nodes configuration
+    #[qapi(name = "node")]
+    Node,
+}
+
+#[qapi(added = "2.1.0")]
+#[qapi(removed = "2.9.0")]
+pub enum NumaOptionsTypeGenerated {
     #[qapi(name = "node")]
     Node,
 }
@@ -19326,7 +19360,7 @@ pub struct SocketAddress {
     #[qapi(name = "type")]
     #[qapi(removed = "2.10.0")]
     #[qapi(required)]
-    pub r_type: Option<SocketAddressType>,
+    pub r_type: Option<SocketAddressTypeGenerated>,
     /// Transport type
     #[qapi(discriminator)]
     #[qapi(added = "2.10.0")]
@@ -19468,7 +19502,7 @@ pub enum SocketAddressLegacyType {
 }
 
 /// Available `SocketAddress` types
-#[qapi(added = "1.3.0")]
+#[qapi(added = "2.10.0")]
 pub enum SocketAddressType {
     /// Socket file descriptor
     #[qapi(name = "fd")]
@@ -19480,6 +19514,19 @@ pub enum SocketAddressType {
     #[qapi(name = "unix")]
     Unix,
     /// VMCI address
+    #[qapi(name = "vsock")]
+    Vsock,
+}
+
+#[qapi(added = "1.3.0")]
+#[qapi(removed = "2.10.0")]
+pub enum SocketAddressTypeGenerated {
+    #[qapi(name = "fd")]
+    Fd,
+    #[qapi(name = "inet")]
+    Inet,
+    #[qapi(name = "unix")]
+    Unix,
     #[qapi(name = "vsock")]
     #[qapi(added = "2.8.0")]
     Vsock,

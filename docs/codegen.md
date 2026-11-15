@@ -197,6 +197,10 @@ check declarations, references, commands and metadata together.
 Generated union branches, simple-union tags, event types and command fallbacks
 avoid declared symbols, adding `Generated` or numbered suffixes when needed.
 References and wire names remain attached to the correct definitions.
+Name planning covers every selected release before IR lowering, so a newer
+declaration cannot overwrite an older generated branch or anonymous object.
+Extraction, name collection and lowering use bounded workers; schema hashes
+still deduplicate identical releases during merging.
 
 Metadata resolves field and variant references as QAPI names, and command
 returns as already mapped Rust names. A declared `String` is therefore distinct
