@@ -17,11 +17,11 @@
     ]
   },
   "manager": {
-    "image": "zot.yapplesauce.com/qrab/manager@sha256:b4b47d6f46952efca6a999e807560e75be9d77e324bc84f3b05c7fb7624a7b8a",
+    "image": "zot.yapplesauce.com/qrab/manager@sha256:78f1f287a8b169e2421037ba719a9de678c1388dc790f206857f9951f5a46c7a",
     "bmc_version": "0.2.0",
     "redfish_version": "0.1.0",
     "guest_agent_version": "0.1.0",
-    "source_revision": "41614abc514ecabad38f004f44b5d03e92907fb2"
+    "source_revision": "3d12161899924ac2d5dc4c073f2a3ce97cfb8e5b"
   },
   "demo_guest_packages": [
     "busybox-static\t1:1.37.0-6+b9",
