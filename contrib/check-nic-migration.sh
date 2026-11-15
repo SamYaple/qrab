@@ -21,7 +21,7 @@
 # loss. Deletes the VM at the end. Its root disk is a retained 1 GiB clone
 # (contrib/storage/README.md).
 #
-#   bash contrib/check-nic-migration.sh [vm-name]
+#   MOVES=20 bash contrib/check-nic-migration.sh [vm-name]   (default 3 moves)
 set -euo pipefail
 vm=${1:-nicmig}
 ns=qrab
@@ -29,6 +29,8 @@ host_ip=${HOST_IP:-10.203.0.1}
 host_port=${HOST_PORT:-18185}
 stream_port=$((host_port + 1))
 max_gap=${MAX_GAP_S:-2}
+# Moves to make, cycling kube01 -> kube02 -> kube03 (the VM starts on kube03).
+moves=${MOVES:-3}
 work=$(mktemp -d)
 log() { printf '%s %s\n' "$(date -u +%H:%M:%S)" "$*"; }
 fail() {
@@ -155,7 +157,9 @@ state() { # sha256 of the TPM state and UEFI variables in the VM Pod
 identity_before=$(state)
 summary=()
 step=0
-for target in kube01 kube02 kube03; do
+targets=()
+for i in $(seq 0 $((moves - 1))); do targets+=("kube0$((i % 3 + 1))"); done
+for target in "${targets[@]}"; do
   step=$((step + 1))
   name="$vm-move-$step"
   source_node=$(field virtualmachine "$vm" '{.status.nodeName}')
