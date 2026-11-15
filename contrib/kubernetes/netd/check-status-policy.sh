@@ -40,7 +40,7 @@ text, policy, who = open(sys.argv[1]).read(), sys.argv[2], sys.argv[3]
 docs = [d for d in text.split('\n---\n') if 'kind: ValidatingAdmissionPolicy' in d]
 out = '\n---\n'.join(docs).replace('name: qrab-netd-anchor-status\n', f'name: {policy}\n')
 out = out.replace('policyName: qrab-netd-anchor-status\n', f'policyName: {policy}\n')
-old = "'system:serviceaccount:qrab-node:qrab-kvm-device-plugin'"
+old = "'system:serviceaccount:qrab-node:qrab-netd'"
 assert out.count(old) == 1
 print(out.replace(old, f"'{who}'"))
 EOF

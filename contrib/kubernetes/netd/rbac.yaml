@@ -24,7 +24,7 @@ roleRef:
   kind: Role
   name: qrab-netd
 subjects:
-- {kind: ServiceAccount, name: qrab-kvm-device-plugin, namespace: qrab-node}
+- {kind: ServiceAccount, name: qrab-netd, namespace: qrab-node}
 ---
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicy
@@ -43,7 +43,7 @@ spec:
       resources: [pods/status]
   matchConditions:
   - name: qrab-netd
-    expression: "request.userInfo.username == 'system:serviceaccount:qrab-node:qrab-kvm-device-plugin'"
+    expression: "request.userInfo.username == 'system:serviceaccount:qrab-node:qrab-netd'"
   variables:
   - name: condition
     expression: "'qrab.yapplesauce.com/nic-plumbed'"

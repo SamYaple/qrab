@@ -27,7 +27,7 @@ spec:
       labels:
         app.kubernetes.io/name: qrab-netd
     spec:
-      serviceAccountName: qrab-kvm-device-plugin
+      serviceAccountName: qrab-netd
       automountServiceAccountToken: false
       enableServiceLinks: false
       hostPID: true
