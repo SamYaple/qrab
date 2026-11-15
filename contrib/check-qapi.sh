@@ -42,3 +42,6 @@ if [[ ${QRAB_QAPI_HISTORICAL_BOUNDS:-0} == 1 ]]; then
 fi
 # Leave the ordinary development build with the complete API surface.
 env -u QEMU_MIN_VERSION -u QEMU_MAX_VERSION cargo check --locked -p qapi
+
+RUSTDOCFLAGS="${RUSTDOCFLAGS:+$RUSTDOCFLAGS }-D warnings" \
+    cargo doc --locked --no-deps -p qapi-codegen -p qapi-macros -p qapi -p qapi-protocol

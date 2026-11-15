@@ -2265,21 +2265,21 @@ pub struct CancelVcpuDirtyLimit {
 ///
 /// 1. Change a removable medium
 ///
-/// -> { "execute": "change",
+/// -&gt; { "execute": "change",
 /// ```text
 ///      "arguments": { "device": "ide1-cd0",
 ///                     "target": "/srv/images/Fedora-12-x86_64-DVD.iso" } }
 /// ```
-/// <- { "return": {} }
+/// &lt;- { "return": {} }
 ///
 /// 2. Change VNC password
 ///
-/// -> { "execute": "change",
+/// -&gt; { "execute": "change",
 /// ```text
 ///      "arguments": { "device": "vnc", "target": "password",
 ///                     "arg": "foobar1" } }
 /// ```
-/// <- { "return": {} }
+/// &lt;- { "return": {} }
 #[qapi(command)]
 #[qapi(name = "change")]
 #[qapi(returns = "()")]
@@ -2305,8 +2305,8 @@ pub struct Change {
 
 /// Change the backing file in the image file metadata.  This does not
 /// cause QEMU to reopen the image file to reparse the backing filename
-/// (it may, however, perform a reopen to change permissions from r/o ->
-/// r/w -> r/o, if needed).  The new backing file string is written into
+/// (it may, however, perform a reopen to change permissions from r/o -&gt;
+/// r/w -&gt; r/o, if needed).  The new backing file string is written into
 /// the image file metadata, and the QEMU internal strings are updated.
 ///
 /// Errors:
@@ -2578,8 +2578,8 @@ pub struct Cpu {
 ///
 /// Example:
 ///
-/// -> { "execute": "cpu-add", "arguments": { "id": 2 } }
-/// <- { "return": {} }
+/// -&gt; { "execute": "cpu-add", "arguments": { "id": 2 } }
+/// &lt;- { "return": {} }
 #[qapi(command)]
 #[qapi(name = "cpu-add")]
 #[qapi(returns = "()")]
@@ -2588,7 +2588,7 @@ pub struct Cpu {
 #[qapi(deprecated(added = "5.0.0"))]
 #[qapi(removed = "5.2.0")]
 pub struct CpuAdd {
-    /// ID of CPU to be created, valid values [0..max_cpus)
+    /// ID of CPU to be created, valid values \[0..max_cpus)
     pub id: i64,
 }
 
@@ -2995,7 +2995,7 @@ pub struct CxlReleaseDynamicCapacity {
     /// The "Extent List" field as defined in Compute Express
     /// Link (CXL) Specification, Revision 3.1, Table 7-71.
     pub extents: Vec<CxlDynamicCapacityExtent>,
-    /// Bit[4] of the "Flags" field in Compute Express
+    /// Bit\[4\] of the "Flags" field in Compute Express
     /// Link (CXL) Specification, Revision 3.1, Table 7-71.  When set,
     /// the device does not wait for a Release Dynamic Capacity command
     /// from the host.  Instead, the host immediately looses access to
@@ -3012,12 +3012,12 @@ pub struct CxlReleaseDynamicCapacity {
     /// Link Specification, Revision 3.1, Table 7-71.  Valid range
     /// is from 0-7.
     pub region: u8,
-    /// Bit[3:0] of the "Flags" field as defined in
+    /// Bit\[3:0\] of the "Flags" field as defined in
     /// Compute Express Link (CXL) Specification, Revision 3.1,
     /// Table 7-71.
     #[qapi(name = "removal-policy")]
     pub removal_policy: CxlExtentRemovalPolicy,
-    /// Bit[5] of the "Flags" field in Compute Express
+    /// Bit\[5\] of the "Flags" field in Compute Express
     /// Link (CXL) Specification, Revision 3.1, Table 7-71.  When set,
     /// the device should sanitize all released capacity as a result of
     /// this request.  This ensures that all user data and metadata is
@@ -3682,7 +3682,7 @@ pub struct InjectGhesV2Error {
     /// contains a base64 encoded string with raw data for a single
     /// CPER record with Generic Error Status Block, Generic Error Data
     /// Entry and generic error data payload, as described at
-    /// https://uefi.org/specs/UEFI/2.10/Apx_N_Common_Platform_Error_Record.html#format
+    /// <https://uefi.org/specs/UEFI/2.10/Apx_N_Common_Platform_Error_Record.html#format>
     pub cper: String,
 }
 
@@ -4263,11 +4263,11 @@ pub struct MigrateRecover {
 ///
 /// Example:
 ///
-/// -> { "execute": "migrate-set-cache-size",
+/// -&gt; { "execute": "migrate-set-cache-size",
 /// ```text
 ///      "arguments": { "value": 536870912 } }
 /// ```
-/// <- { "return": {} }
+/// &lt;- { "return": {} }
 #[qapi(command)]
 #[qapi(name = "migrate-set-cache-size")]
 #[qapi(returns = "()")]
@@ -4312,8 +4312,8 @@ pub struct MigrateSetCapabilities {
 ///
 /// Example:
 ///
-/// -> { "execute": "migrate_set_downtime", "arguments": { "value": 0.1 } }
-/// <- { "return": {} }
+/// -&gt; { "execute": "migrate_set_downtime", "arguments": { "value": 0.1 } }
+/// &lt;- { "return": {} }
 #[qapi(command)]
 #[qapi(name = "migrate_set_downtime")]
 #[qapi(returns = "()")]
@@ -4719,7 +4719,7 @@ pub struct MigrateSetParameters {
     pub x_multifd_page_count: Option<i64>,
     /// RDMA memory registration chunk size in bytes.
     /// Default is 1MiB.  Must be a power of 2 in the range
-    /// [1MiB, 1024MiB].  Only applies when migrating via RDMA.
+    /// \[1MiB, 1024MiB\].  Only applies when migrating via RDMA.
     /// Must be set to the same value on both source and destination
     /// before migration starts.  (Since 11.1)
     #[qapi(name = "x-rdma-chunk-size")]
@@ -4765,8 +4765,8 @@ pub struct MigrateSetParameters {
 ///
 /// Example:
 ///
-/// -> { "execute": "migrate_set_speed", "arguments": { "value": 1024 } }
-/// <- { "return": {} }
+/// -&gt; { "execute": "migrate_set_speed", "arguments": { "value": 1024 } }
+/// &lt;- { "return": {} }
 #[qapi(command)]
 #[qapi(name = "migrate_set_speed")]
 #[qapi(returns = "()")]
@@ -5216,7 +5216,7 @@ pub struct QomGet {
     /// supported paths--absolute and partial paths.
     ///
     /// Absolute paths are derived from the root object and can follow
-    /// child<> or link<> properties.  Since they can follow link<>
+    /// child&lt;&gt; or link&lt;&gt; properties.  Since they can follow link&lt;&gt;
     /// properties, they can be arbitrarily long.  Absolute paths look
     /// like absolute filenames and are prefixed with a leading slash.
     ///
@@ -6001,8 +6001,8 @@ pub struct QueryCpuModelExpansion {
 ///
 /// Example:
 ///
-/// -> { "execute": "query-cpus" }
-/// <- { "return": [
+/// -&gt; { "execute": "query-cpus" }
+/// &lt;- { "return": \[
 /// ```text
 ///          {
 ///             "CPU":0,
@@ -6180,8 +6180,8 @@ pub struct QueryDumpGuestMemoryCapability {}
 ///
 /// Example:
 ///
-/// -> { "execute": "query-events" }
-/// <- {
+/// -&gt; { "execute": "query-events" }
+/// &lt;- {
 /// ```text
 ///      "return": [
 ///          {
@@ -6742,8 +6742,8 @@ pub struct QueryMigrate {}
 ///
 /// Example:
 ///
-/// -> { "execute": "query-migrate-cache-size" }
-/// <- { "return": 67108864 }
+/// -&gt; { "execute": "query-migrate-cache-size" }
+/// &lt;- { "return": 67108864 }
 #[qapi(command)]
 #[qapi(name = "query-migrate-cache-size")]
 #[qapi(returns = "i64")]
@@ -8867,7 +8867,7 @@ pub struct XBlockdevDel {
 ///
 /// Example:
 ///
-/// -> { "execute": "blockdev-add",
+/// -&gt; { "execute": "blockdev-add",
 /// ```text
 ///      "arguments": {
 ///          "node-name": "node0",
@@ -8875,15 +8875,15 @@ pub struct XBlockdevDel {
 ///          "file": { "driver": "file",
 ///                    "filename": "fedora.iso" } } }
 /// ```
-/// <- { "return": {} }
+/// &lt;- { "return": {} }
 ///
-/// -> { "execute": "x-blockdev-insert-medium",
+/// -&gt; { "execute": "x-blockdev-insert-medium",
 /// ```text
 ///      "arguments": { "id": "ide0-1-0",
 ///                     "node-name": "node0" } }
 /// ```
 ///
-/// <- { "return": {} }
+/// &lt;- { "return": {} }
 #[qapi(command)]
 #[qapi(name = "x-blockdev-insert-medium")]
 #[qapi(returns = "()")]
@@ -8918,22 +8918,22 @@ pub struct XBlockdevInsertMedium {
 ///
 /// Example:
 ///
-/// -> { "execute": "x-blockdev-remove-medium",
+/// -&gt; { "execute": "x-blockdev-remove-medium",
 /// ```text
 ///      "arguments": { "id": "ide0-1-0" } }
 /// ```
 ///
-/// <- { "error": { "class": "GenericError",
+/// &lt;- { "error": { "class": "GenericError",
 /// ```text
 ///                 "desc": "Tray of device 'ide0-1-0' is not open" } }
 /// ```
 ///
-/// -> { "execute": "blockdev-open-tray",
+/// -&gt; { "execute": "blockdev-open-tray",
 /// ```text
 ///      "arguments": { "id": "ide0-1-0" } }
 /// ```
 ///
-/// <- { "timestamp": { "seconds": 1418751627,
+/// &lt;- { "timestamp": { "seconds": 1418751627,
 /// ```text
 ///                     "microseconds": 549958 },
 ///      "event": "DEVICE_TRAY_MOVED",
@@ -8942,14 +8942,14 @@ pub struct XBlockdevInsertMedium {
 ///                "tray-open": true } }
 /// ```
 ///
-/// <- { "return": {} }
+/// &lt;- { "return": {} }
 ///
-/// -> { "execute": "x-blockdev-remove-medium",
+/// -&gt; { "execute": "x-blockdev-remove-medium",
 /// ```text
 ///      "arguments": { "id": "ide0-1-0" } }
 /// ```
 ///
-/// <- { "return": {} }
+/// &lt;- { "return": {} }
 #[qapi(command)]
 #[qapi(name = "x-blockdev-remove-medium")]
 #[qapi(returns = "()")]
@@ -9120,11 +9120,11 @@ pub struct XBlockdevSetIothread {
 ///
 /// Example:
 ///
-/// -> { "execute": "x-block-dirty-bitmap-disable",
+/// -&gt; { "execute": "x-block-dirty-bitmap-disable",
 /// ```text
 ///      "arguments": { "node": "drive0", "name": "bitmap0" } }
 /// ```
-/// <- { "return": {} }
+/// &lt;- { "return": {} }
 #[qapi(command)]
 #[qapi(name = "x-block-dirty-bitmap-disable")]
 #[qapi(returns = "()")]
@@ -9148,11 +9148,11 @@ pub struct XBlockDirtyBitmapDisable {
 ///
 /// Example:
 ///
-/// -> { "execute": "x-block-dirty-bitmap-enable",
+/// -&gt; { "execute": "x-block-dirty-bitmap-enable",
 /// ```text
 ///      "arguments": { "node": "drive0", "name": "bitmap0" } }
 /// ```
-/// <- { "return": {} }
+/// &lt;- { "return": {} }
 #[qapi(command)]
 #[qapi(name = "x-block-dirty-bitmap-enable")]
 #[qapi(returns = "()")]
@@ -9180,12 +9180,12 @@ pub struct XBlockDirtyBitmapEnable {
 ///
 /// Example:
 ///
-/// -> { "execute": "x-block-dirty-bitmap-merge",
+/// -&gt; { "execute": "x-block-dirty-bitmap-merge",
 /// ```text
 ///      "arguments": { "node": "drive0", "dst_name": "bitmap0",
 ///                     "src_name": "bitmap1" } }
 /// ```
-/// <- { "return": {} }
+/// &lt;- { "return": {} }
 #[qapi(command)]
 #[qapi(name = "x-block-dirty-bitmap-merge")]
 #[qapi(returns = "()")]
@@ -9209,44 +9209,44 @@ pub struct XBlockDirtyBitmapMerge {
 ///
 ///
 /// Example: set new histograms for all io types with intervals
-/// [0, 10), [10, 50), [50, 100), [100, +inf):
+/// \[0, 10), \[10, 50), \[50, 100), \[100, +inf):
 ///
-/// -> { "execute": "block-latency-histogram-set",
+/// -&gt; { "execute": "block-latency-histogram-set",
 /// ```text
 ///      "arguments": { "device": "drive0",
 ///                     "boundaries": [10, 50, 100] } }
 /// ```
-/// <- { "return": {} }
+/// &lt;- { "return": {} }
 ///
 /// Example: set new histogram only for write, other histograms will remain
 /// not changed (or not created):
 ///
-/// -> { "execute": "block-latency-histogram-set",
+/// -&gt; { "execute": "block-latency-histogram-set",
 /// ```text
 ///      "arguments": { "device": "drive0",
 ///                     "boundaries-write": [10, 50, 100] } }
 /// ```
-/// <- { "return": {} }
+/// &lt;- { "return": {} }
 ///
 /// Example: set new histograms with the following intervals:
-///   read, flush: [0, 10), [10, 50), [50, 100), [100, +inf)
-///   write: [0, 1000), [1000, 5000), [5000, +inf)
+///   read, flush: \[0, 10), \[10, 50), \[50, 100), \[100, +inf)
+///   write: \[0, 1000), \[1000, 5000), \[5000, +inf)
 ///
-/// -> { "execute": "block-latency-histogram-set",
+/// -&gt; { "execute": "block-latency-histogram-set",
 /// ```text
 ///      "arguments": { "device": "drive0",
 ///                     "boundaries": [10, 50, 100],
 ///                     "boundaries-write": [1000, 5000] } }
 /// ```
-/// <- { "return": {} }
+/// &lt;- { "return": {} }
 ///
 /// Example: remove all latency histograms:
 ///
-/// -> { "execute": "block-latency-histogram-set",
+/// -&gt; { "execute": "block-latency-histogram-set",
 /// ```text
 ///      "arguments": { "device": "drive0" } }
 /// ```
-/// <- { "return": {} }
+/// &lt;- { "return": {} }
 #[qapi(command)]
 #[qapi(name = "x-block-latency-histogram-set")]
 #[qapi(returns = "()")]

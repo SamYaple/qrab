@@ -34,6 +34,7 @@ bash contrib/check-qapi.sh
 It requires Git, Python 3 and the initialized local QEMU submodule with pinned
 release tags. It compares definition coverage with QEMU's own parser, tests the
 generator, and regenerates QMP/QGA to verify committed outputs byte for byte.
+It also builds the API documentation with warnings treated as errors.
 Historical schemas remain tooling inputs; their compatibility work is not a
 mandatory runtime development step.
 

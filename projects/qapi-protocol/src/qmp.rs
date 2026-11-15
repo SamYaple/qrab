@@ -278,7 +278,7 @@ impl Qmp {
         }
     }
 
-    /// Can be called through Arc<Qmp> while other tasks await replies.
+    /// Can be called through `Arc<Qmp>` while other tasks await replies.
     pub async fn shutdown(&self) {
         self.shutdown.send_replace(());
         let _ = self.closed().await;

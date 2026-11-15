@@ -224,16 +224,113 @@ pub struct Metadata {
     pub attributes: Vec<Attribute>,
 }
 
+/// Render QAPI reStructuredText prose as literal-safe Rustdoc.
+fn rustdoc_prose(line: &str) -> String {
+    let trimmed = line.trim();
+    if (trimmed.starts_with("https://") || trimmed.starts_with("http://"))
+        && !trimmed.chars().any(char::is_whitespace)
+    {
+        return line.replacen(trimmed, &format!("<{trimmed}>"), 1);
+    }
+    let mut output = String::with_capacity(line.len());
+    let mut rest = line;
+    let mut code_ticks = 0;
+    while !rest.is_empty() {
+        if code_ticks == 0
+            && rest.starts_with('\\')
+            && let Some(c) = rest[1..].chars().next()
+            && matches!(c, '[' | ']' | '<' | '>' | '`' | '\\')
+        {
+            let end = 1 + c.len_utf8();
+            output.push_str(&rest[..end]);
+            rest = &rest[end..];
+            continue;
+        }
+        if rest.starts_with('`') {
+            let count = rest.bytes().take_while(|byte| *byte == b'`').count();
+            if code_ticks == 0 {
+                code_ticks = count;
+            } else if code_ticks == count {
+                code_ticks = 0;
+            }
+            output.push_str(&rest[..count]);
+            rest = &rest[count..];
+            continue;
+        }
+        if code_ticks == 0 {
+            // Preserve existing Markdown links and autolinks.
+            let link_end = if rest.starts_with('[') {
+                rest.find("](")
+                    .and_then(|label| rest[label + 2..].find(')').map(|end| label + 3 + end))
+            } else if rest.starts_with("<https://") || rest.starts_with("<http://") {
+                rest.find('>').map(|end| end + 1)
+            } else {
+                None
+            };
+            if let Some(end) = link_end {
+                output.push_str(&rest[..end]);
+                rest = &rest[end..];
+                continue;
+            }
+        }
+        let c = rest.chars().next().unwrap();
+        if code_ticks == 0 {
+            match c {
+                '[' => output.push_str("\\["),
+                ']' => output.push_str("\\]"),
+                '<' => output.push_str("&lt;"),
+                '>' => output.push_str("&gt;"),
+                _ => output.push(c),
+            }
+        } else {
+            output.push(c);
+        }
+        rest = &rest[c.len_utf8()..];
+    }
+    output
+}
+
 /// Convert a doc string into `#[doc = "..."]` token stream.
 /// Each line gets its own `#[doc]` attribute so `prettyplease` renders them as `///`.
 /// Fence indented schema prose as text, accounting for the doc-comment space.
 pub fn doc_to_tokens(doc: &str) -> proc_macro2::TokenStream {
     let mut result_lines: Vec<String> = Vec::new();
     let mut in_code_block = false;
+    let mut explicit_fence = None;
 
     for line in doc.lines() {
         let is_indented =
             (line.starts_with("   ") || line.starts_with('\t')) && !line.trim().is_empty();
+
+        let marker = line.trim_start();
+        let fence = marker
+            .chars()
+            .next()
+            .filter(|c| matches!(c, '`' | '~'))
+            .and_then(|c| {
+                let count = marker.chars().take_while(|next| *next == c).count();
+                (count >= 3).then_some((c, count))
+            });
+        if let Some((character, count)) = fence.filter(|_| explicit_fence.is_some() || !is_indented)
+        {
+            if let Some((open, length)) = explicit_fence {
+                if character == open && count >= length && marker[count..].trim().is_empty() {
+                    explicit_fence = None;
+                }
+            } else if !is_indented {
+                if in_code_block {
+                    result_lines.push(" ```".into());
+                    in_code_block = false;
+                }
+                explicit_fence = Some((character, count));
+            }
+            result_lines.push(format!(" {line}"));
+            continue;
+        }
+        if explicit_fence.is_some() {
+            result_lines.push(format!(" {line}"));
+            continue;
+        }
 
         if is_indented && !in_code_block {
             result_lines.push(" ```text".to_string());
@@ -243,7 +340,12 @@ pub fn doc_to_tokens(doc: &str) -> proc_macro2::TokenStream {
             in_code_block = false;
         }
 
-        result_lines.push(format!(" {}", line));
+        let line = if in_code_block {
+            line.to_string()
+        } else {
+            rustdoc_prose(line)
+        };
+        result_lines.push(format!(" {line}"));
     }
 
     if in_code_block {
@@ -262,6 +364,58 @@ pub fn doc_to_tokens(doc: &str) -> proc_macro2::TokenStream {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn schema_prose_preserves_literals_and_links_in_rustdoc() {
+        assert_eq!(
+            rustdoc_prose(r"Escaped \[4\] \<id\> \`text"),
+            r"Escaped \[4\] \<id\> \`text"
+        );
+        assert_eq!(
+            rustdoc_prose("Bit[3:0] and child<subtype>"),
+            "Bit\\[3:0\\] and child&lt;subtype&gt;"
+        );
+        assert_eq!(
+            rustdoc_prose("Use `Bit[4] <id>` or ``[literal]<id>``."),
+            "Use `Bit[4] <id>` or ``[literal]<id>``."
+        );
+        assert_eq!(
+            rustdoc_prose("https://example.test/path#anchor"),
+            "<https://example.test/path#anchor>"
+        );
+        assert_eq!(
+            rustdoc_prose("[link](https://example.test/) and <https://example.test/>"),
+            "[link](https://example.test/) and <https://example.test/>"
+        );
+        let tokens = doc_to_tokens("Text [4]\n```text\n    <id> [4]\n```\nAfter <id>");
+        let item: syn::ItemStruct = syn::parse2(quote! { #tokens struct Example; }).unwrap();
+        let lines: Vec<_> = item
+            .attrs
+            .iter()
+            .map(|attr| {
+                let syn::Meta::NameValue(value) = &attr.meta else {
+                    panic!("doc attribute")
+                };
+                let syn::Expr::Lit(value) = &value.value else {
+                    panic!("doc literal")
+                };
+                let syn::Lit::Str(value) = &value.lit else {
+                    panic!("doc string")
+                };
+                value.value()
+            })
+            .collect();
+        assert_eq!(
+            lines,
+            [
+                " Text \\[4\\]",
+                " ```text",
+                "     <id> [4]",
+                " ```",
+                " After &lt;id&gt;"
+            ]
+        );
+    }
 
     #[test]
     fn legacy_unicode_names_have_stable_ascii_identifiers() {

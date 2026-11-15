@@ -833,7 +833,7 @@ pub struct GuestNetworkRoute {
 }
 
 /// NVMe smart information, based on NVMe specification, section
-/// <SMART / Health Information (Log Identifier 02h)>
+/// &lt;SMART / Health Information (Log Identifier 02h)&gt;
 ///
 /// TODO: document members briefly
 #[qapi(name = "GuestNVMeSmart")]

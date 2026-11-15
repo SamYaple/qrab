@@ -1023,7 +1023,7 @@ pub enum BiosAtaTranslation {
     /// LBA depending on the size of the disk.  If they are not passed,
     /// choose none if QEMU can guess that the disk had 16 or fewer
     /// heads, large if QEMU can guess that the disk had 131072 or fewer
-    /// tracks across all heads (i.e. cylinders*heads<131072), otherwise
+    /// tracks across all heads (i.e. cylinders*heads&lt;131072), otherwise
     /// LBA.
     #[qapi(name = "auto")]
     Auto,
@@ -5136,8 +5136,8 @@ pub struct BlockExportOptionsNbdBase {
 /// A vduse-blk block export.
 #[qapi(added = "7.1.0")]
 pub struct BlockExportOptionsVduseBlk {
-    /// Logical block size in bytes.  Range [512,
-    /// PAGE_SIZE] and must be power of 2.  Defaults to 512 bytes.
+    /// Logical block size in bytes.  Range \[512,
+    /// PAGE_SIZE\] and must be power of 2.  Defaults to 512 bytes.
     #[qapi(name = "logical-block-size")]
     pub logical_block_size: Option<u64>,
     /// the name of VDUSE device (must be unique across the host).
@@ -5669,7 +5669,7 @@ pub enum BlockJobVerb {
 pub struct BlockLatencyHistogramInfo {
     /// list of io request counts corresponding to histogram
     /// intervals, one more element than @boundaries has.  For the
-    /// example above, @bins may be something like [3, 1, 5, 2], and
+    /// example above, @bins may be something like \[3, 1, 5, 2\], and
     /// corresponding histogram looks like::
     ///
     /// ```text
@@ -5684,8 +5684,8 @@ pub struct BlockLatencyHistogramInfo {
     pub bins: Vec<u64>,
     /// list of interval boundary values in nanoseconds, all
     /// greater than zero and in ascending order.  For example, the list
-    /// [10, 50, 100] produces the following histogram intervals: [0,
-    /// 10), [10, 50), [50, 100), [100, +inf).
+    /// \[10, 50, 100\] produces the following histogram intervals: \[0,
+    /// 10), \[10, 50), \[50, 100), \[100, +inf).
     pub boundaries: Vec<u64>,
 }
 
@@ -8285,13 +8285,13 @@ pub enum CxlExtentSelectionPolicy {
 pub struct CxlFixedMemoryWindowOptions {
     /// Number of contiguous bytes for which
     /// accesses will go to a given interleave target.  Accepted values
-    /// [256, 512, 1k, 2k, 4k, 8k, 16k]
+    /// \[256, 512, 1k, 2k, 4k, 8k, 16k\]
     #[qapi(name = "interleave-granularity")]
     pub interleave_granularity: Option<u64>,
     /// Size of the Fixed Memory Window in bytes.  Must be a multiple
     /// of 256MiB.
     pub size: u64,
-    /// Target root bridge IDs from -device ...,id=<ID> for each
+    /// Target root bridge IDs from -device ...,id=&lt;ID&gt; for each
     /// root bridge.
     pub targets: Vec<String>,
 }
@@ -8694,7 +8694,7 @@ pub struct DisplayCocoa {
     /// Capture all key presses, including system combos.  This
     /// requires accessibility permissions, since it performs a global
     /// grab on key events.  (default: off)  See
-    /// https://support.apple.com/en-in/guide/mac-help/mh32356/mac
+    /// <https://support.apple.com/en-in/guide/mac-help/mh32356/mac>
     #[qapi(name = "full-grab")]
     pub full_grab: Option<bool>,
     /// Enable/disable forwarding of left command key to
@@ -9504,7 +9504,7 @@ pub enum FailoverStatus {
     /// no failover has ever happened
     #[qapi(name = "none")]
     None,
-    /// restart the failover process, from 'none' -> 'completed'
+    /// restart the failover process, from 'none' -&gt; 'completed'
     /// (Since 2.9)
     #[qapi(name = "relaunch")]
     #[qapi(added = "2.9.0")]
@@ -9576,8 +9576,8 @@ pub struct FilterBufferProperties {
     /// filter list.  "head" means the filter is inserted at the head of
     /// the filter list, before any existing filters.  "tail" means the
     /// filter is inserted at the tail of the filter list, behind any
-    /// existing filters (default).  "id=<id>" means the filter is
-    /// inserted before or behind the filter specified by <id>,
+    /// existing filters (default).  "id=&lt;id&gt;" means the filter is
+    /// inserted before or behind the filter specified by &lt;id&gt;,
     /// depending on the @insert property.  (default: "tail")
     pub position: Option<String>,
     /// indicates which queue(s) to filter (default: all)
@@ -9605,8 +9605,8 @@ pub struct FilterDumpProperties {
     /// filter list.  "head" means the filter is inserted at the head of
     /// the filter list, before any existing filters.  "tail" means the
     /// filter is inserted at the tail of the filter list, behind any
-    /// existing filters (default).  "id=<id>" means the filter is
-    /// inserted before or behind the filter specified by <id>,
+    /// existing filters (default).  "id=&lt;id&gt;" means the filter is
+    /// inserted before or behind the filter specified by &lt;id&gt;,
     /// depending on the @insert property.  (default: "tail")
     pub position: Option<String>,
     /// indicates which queue(s) to filter (default: all)
@@ -9632,8 +9632,8 @@ pub struct FilterMirrorProperties {
     /// filter list.  "head" means the filter is inserted at the head of
     /// the filter list, before any existing filters.  "tail" means the
     /// filter is inserted at the tail of the filter list, behind any
-    /// existing filters (default).  "id=<id>" means the filter is
-    /// inserted before or behind the filter specified by <id>,
+    /// existing filters (default).  "id=&lt;id&gt;" means the filter is
+    /// inserted before or behind the filter specified by &lt;id&gt;,
     /// depending on the @insert property.  (default: "tail")
     pub position: Option<String>,
     /// indicates which queue(s) to filter (default: all)
@@ -9668,8 +9668,8 @@ pub struct FilterRedirectorProperties {
     /// filter list.  "head" means the filter is inserted at the head of
     /// the filter list, before any existing filters.  "tail" means the
     /// filter is inserted at the tail of the filter list, behind any
-    /// existing filters (default).  "id=<id>" means the filter is
-    /// inserted before or behind the filter specified by <id>,
+    /// existing filters (default).  "id=&lt;id&gt;" means the filter is
+    /// inserted before or behind the filter specified by &lt;id&gt;,
     /// depending on the @insert property.  (default: "tail")
     pub position: Option<String>,
     /// indicates which queue(s) to filter (default: all)
@@ -9695,8 +9695,8 @@ pub struct FilterRewriterProperties {
     /// filter list.  "head" means the filter is inserted at the head of
     /// the filter list, before any existing filters.  "tail" means the
     /// filter is inserted at the tail of the filter list, behind any
-    /// existing filters (default).  "id=<id>" means the filter is
-    /// inserted before or behind the filter specified by <id>,
+    /// existing filters (default).  "id=&lt;id&gt;" means the filter is
+    /// inserted before or behind the filter specified by &lt;id&gt;,
     /// depending on the @insert property.  (default: "tail")
     pub position: Option<String>,
     /// indicates which queue(s) to filter (default: all)
@@ -9957,7 +9957,7 @@ pub struct GuestPanicInformationSev {
 
 /// TDX Guest panic information specific to TDX, as specified in the
 /// "Guest-Hypervisor Communication Interface (GHCI) Specification",
-/// section TDG.VP.VMCALL<ReportFatalError>.
+/// section TDG.VP.VMCALL&lt;ReportFatalError&gt;.
 #[qapi(added = "10.1.0")]
 pub struct GuestPanicInformationTdx {
     /// TD-specific error code
@@ -10395,7 +10395,7 @@ pub struct ImageInfoSpecificQCow2 {
     #[qapi(required)]
     pub compression_type: Option<Qcow2CompressionType>,
     /// true if the image has been marked corrupt; only valid for
-    /// compat >= 1.1 (since 2.2)
+    /// compat &gt;= 1.1 (since 2.2)
     #[qapi(added = "2.2.0")]
     pub corrupt: Option<bool>,
     /// the filename of the external data file that is stored in
@@ -10415,11 +10415,11 @@ pub struct ImageInfoSpecificQCow2 {
     #[qapi(added = "2.10.0")]
     pub encrypt: Option<ImageInfoSpecificQCow2Encryption>,
     /// true if the image has extended L2 entries; only valid
-    /// for compat >= 1.1 (since 5.2)
+    /// for compat &gt;= 1.1 (since 5.2)
     #[qapi(name = "extended-l2")]
     #[qapi(added = "5.2.0")]
     pub extended_l2: Option<bool>,
-    /// on or off; only valid for compat >= 1.1
+    /// on or off; only valid for compat &gt;= 1.1
     #[qapi(name = "lazy-refcounts")]
     pub lazy_refcounts: Option<bool>,
     /// width of a refcount entry in bits (since 2.3)
@@ -11519,7 +11519,7 @@ pub struct MemoryBackendEpcProperties {
     /// if true, the canonical path
     /// is used for ramblock-id.  Disable this for 4.0 machine types or
     /// older to allow migration with newer QEMU versions.
-    /// (default: false generally, but true for machine types <= 4.0)
+    /// (default: false generally, but true for machine types &lt;= 4.0)
     #[qapi(name = "x-use-canonical-path-for-ramblock-id")]
     pub x_use_canonical_path_for_ramblock_id: Option<bool>,
 }
@@ -11612,7 +11612,7 @@ pub struct MemoryBackendFileProperties {
     /// if true, the canonical path
     /// is used for ramblock-id.  Disable this for 4.0 machine types or
     /// older to allow migration with newer QEMU versions.
-    /// (default: false generally, but true for machine types <= 4.0)
+    /// (default: false generally, but true for machine types &lt;= 4.0)
     #[qapi(name = "x-use-canonical-path-for-ramblock-id")]
     pub x_use_canonical_path_for_ramblock_id: Option<bool>,
 }
@@ -11668,7 +11668,7 @@ pub struct MemoryBackendMemfdProperties {
     /// if true, the canonical path
     /// is used for ramblock-id.  Disable this for 4.0 machine types or
     /// older to allow migration with newer QEMU versions.
-    /// (default: false generally, but true for machine types <= 4.0)
+    /// (default: false generally, but true for machine types &lt;= 4.0)
     #[qapi(name = "x-use-canonical-path-for-ramblock-id")]
     pub x_use_canonical_path_for_ramblock_id: Option<bool>,
 }
@@ -11720,7 +11720,7 @@ pub struct MemoryBackendProperties {
     /// if true, the canonical path
     /// is used for ramblock-id.  Disable this for 4.0 machine types or
     /// older to allow migration with newer QEMU versions.
-    /// (default: false generally, but true for machine types <= 4.0)
+    /// (default: false generally, but true for machine types &lt;= 4.0)
     #[qapi(name = "x-use-canonical-path-for-ramblock-id")]
     pub x_use_canonical_path_for_ramblock_id: Option<bool>,
 }
@@ -11766,7 +11766,7 @@ pub struct MemoryBackendShmProperties {
     /// if true, the canonical path
     /// is used for ramblock-id.  Disable this for 4.0 machine types or
     /// older to allow migration with newer QEMU versions.
-    /// (default: false generally, but true for machine types <= 4.0)
+    /// (default: false generally, but true for machine types &lt;= 4.0)
     #[qapi(name = "x-use-canonical-path-for-ramblock-id")]
     pub x_use_canonical_path_for_ramblock_id: Option<bool>,
 }
@@ -12416,9 +12416,9 @@ pub struct MigrationInfo {
     pub postcopy_latency: Option<u64>,
     /// remote page fault latency distributions.
     /// Each element of the array is the number of faults that fall into
-    /// the bucket period.  For the N-th bucket (N>=0), the latency
-    /// window is [2^Nus, 2^(N+1)us).  For example, the 8th element
-    /// stores how many remote faults got resolved within [256us, 512us)
+    /// the bucket period.  For the N-th bucket (N&gt;=0), the latency
+    /// window is \[2^Nus, 2^(N+1)us).  For example, the 8th element
+    /// stores how many remote faults got resolved within \[256us, 512us)
     /// window.  This is only present when the postcopy-blocktime
     /// migration capability is enabled.  (Since 10.1)
     #[qapi(name = "postcopy-latency-dist")]
@@ -13197,7 +13197,7 @@ pub struct MigrationParameters {
     pub x_multifd_page_count: Option<u32>,
     /// RDMA memory registration chunk size in bytes.
     /// Default is 1MiB.  Must be a power of 2 in the range
-    /// [1MiB, 1024MiB].  Only applies when migrating via RDMA.
+    /// \[1MiB, 1024MiB\].  Only applies when migrating via RDMA.
     /// Must be set to the same value on both source and destination
     /// before migration starts.  (Since 11.1)
     #[qapi(name = "x-rdma-chunk-size")]
@@ -14122,7 +14122,7 @@ pub struct NetdevDgramOptions {
 pub struct NetdevDumpOptions {
     /// dump file path (default is qemu-vlan0.pcap)
     pub file: Option<String>,
-    /// per-packet size limit (64k default). Understands [TGMKkb]
+    /// per-packet size limit (64k default). Understands \[TGMKkb\]
     /// suffixes.
     pub len: Option<u64>,
 }
@@ -14449,7 +14449,7 @@ pub struct NetdevTapOptions {
     pub queues: Option<u32>,
     /// script to initialize the interface
     pub script: Option<String>,
-    /// send buffer limit.  Understands [TGMKkb] suffixes.
+    /// send buffer limit.  Understands \[TGMKkb\] suffixes.
     pub sndbuf: Option<u64>,
     /// enable vhost-net network accelerator
     pub vhost: Option<bool>,
@@ -14572,7 +14572,7 @@ pub struct NetdevUserOptions {
     #[qapi(added = "2.6.0")]
     pub ipv6_prefixlen: Option<i64>,
     /// IP network address that the guest will see, in the form
-    /// addr[/netmask] The netmask is optional, and can be either in the
+    /// addr\[/netmask\] The netmask is optional, and can be either in the
     /// form a.b.c.d or as a number of valid top-most bits.  Default is
     /// 10.0.2.0/24.
     pub net: Option<String>,
@@ -14777,8 +14777,8 @@ pub struct NetfilterProperties {
     /// filter list.  "head" means the filter is inserted at the head of
     /// the filter list, before any existing filters.  "tail" means the
     /// filter is inserted at the tail of the filter list, behind any
-    /// existing filters (default).  "id=<id>" means the filter is
-    /// inserted before or behind the filter specified by <id>,
+    /// existing filters (default).  "id=&lt;id&gt;" means the filter is
+    /// inserted before or behind the filter specified by &lt;id&gt;,
     /// depending on the @insert property.  (default: "tail")
     pub position: Option<String>,
     /// indicates which queue(s) to filter (default: all)
@@ -15411,13 +15411,13 @@ pub struct ObjectPropertyInfo {
     ///    type.
     /// ```
     ///
-    /// 2) A child type in the form 'child<subtype>' where subtype is a
+    /// 2) A child type in the form 'child&lt;subtype&gt;' where subtype is a
     /// ```text
     ///    qdev device type name.  Child properties create the
     ///    composition tree.
     /// ```
     ///
-    /// 3) A link type in the form 'link<subtype>' where subtype is a
+    /// 3) A link type in the form 'link&lt;subtype&gt;' where subtype is a
     /// ```text
     ///    qdev device type name.  Link properties form the device model
     ///    graph.
@@ -18606,7 +18606,7 @@ pub struct SevGuestProperties {
     #[qapi(added = "6.2.0")]
     pub kernel_hashes: Option<bool>,
     /// Use legacy KVM_SEV_INIT KVM interface for creating
-    /// the VM.  The newer KVM_SEV_INIT2 interface, from Linux >= 6.10,
+    /// the VM.  The newer KVM_SEV_INIT2 interface, from Linux &gt;= 6.10,
     /// syncs additional vCPU state when initializing the VMSA
     /// structures, which will result in a different guest measurement.
     /// Set this to 'on' to force compatibility with older QEMU or kernel
@@ -20205,7 +20205,7 @@ pub struct TlsCredsAnonProperties {
     #[qapi(removed = "9.2.0")]
     pub loaded: Option<bool>,
     /// a gnutls priority string as described at
-    /// https://gnutls.org/manual/html_node/Priority-Strings.html
+    /// <https://gnutls.org/manual/html_node/Priority-Strings.html>
     pub priority: Option<String>,
     /// if true the peer credentials will be verified once the
     /// handshake is completed.  This is a no-op for anonymous
@@ -20224,7 +20224,7 @@ pub struct TlsCredsProperties {
     /// (default: client)
     pub endpoint: Option<QCryptoTlsCredsEndpoint>,
     /// a gnutls priority string as described at
-    /// https://gnutls.org/manual/html_node/Priority-Strings.html
+    /// <https://gnutls.org/manual/html_node/Priority-Strings.html>
     pub priority: Option<String>,
     /// if true the peer credentials will be verified once the
     /// handshake is completed.  This is a no-op for anonymous
@@ -20251,7 +20251,7 @@ pub struct TlsCredsPskProperties {
     #[qapi(removed = "9.2.0")]
     pub loaded: Option<bool>,
     /// a gnutls priority string as described at
-    /// https://gnutls.org/manual/html_node/Priority-Strings.html
+    /// <https://gnutls.org/manual/html_node/Priority-Strings.html>
     pub priority: Option<String>,
     /// the username which will be sent to the server.  For
     /// clients only.  If absent, "qemu" is sent and the property will
@@ -20288,7 +20288,7 @@ pub struct TlsCredsX509Properties {
     /// the password for decryption.
     pub passwordid: Option<String>,
     /// a gnutls priority string as described at
-    /// https://gnutls.org/manual/html_node/Priority-Strings.html
+    /// <https://gnutls.org/manual/html_node/Priority-Strings.html>
     pub priority: Option<String>,
     /// if true, perform some sanity checks before using the
     /// credentials (default: true)
@@ -21055,7 +21055,7 @@ pub struct VirtioRingAvail {
     pub flags: u16,
     /// VRingAvail index
     pub idx: u16,
-    /// VRingAvail ring[] entry at provided index
+    /// VRingAvail ring\[\] entry at provided index
     pub ring: u16,
 }
 

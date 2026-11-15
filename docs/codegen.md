@@ -215,6 +215,9 @@ ordinary comments. Member and feature text is compared with QEMU's own parser
 for the production schemas and its documentation fixture. Generated comments
 retain ordered prose, Returns/Errors sections and literal examples; member
 continuation indentation is normalized separately from literal-block indentation.
+Rustdoc prose escapes literal brackets and angle placeholders, links standalone
+URLs, and preserves inline code and fenced examples. The checker builds these
+API docs with warnings treated as errors.
 Legacy headers, optional closing markers and the historical `###` terminator
 remain accepted for older inputs.
 
