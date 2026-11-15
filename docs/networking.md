@@ -153,7 +153,10 @@ VM owns: these relay policies belong to the removed stream datapath (see the
   `ip`, `address` and `ready` (the anchor's readiness gate).
 - **Replacing an anchor.** Anchors hold no VM state, so a missing or Failed
   anchor is recreated on the VM Pod's node with the same address. A VM Pod on
-  another node gets new anchors there.
+  another node gets new anchors there. The running manager notices the new
+  anchor (qrab-netd's `probe` names another anchor UID) and re-plugs the NIC
+  with the new tap's queues ([Hot-attach](#hot-attach-and-detach)); the guest
+  sees the NIC leave and return.
 - **While the VM is off.** Existing anchors are left in place while
   `running: false`, and the NICs keep their addresses.
 - **Removal.** Removing a NIC deletes its anchor, then releases its address.
@@ -337,8 +340,12 @@ extra loss beyond that pause. Egress stays unmasqueraded throughout.
 3. **Switchover.** At `pre-switchover` (the guest is paused and the last dirty
    pages are about to go) the source manager, polling every 20 ms:
    - adds a **forward route** in the source host's namespace, the guest's /32
-     via the target node's IP (`proto 252`), so stragglers that still reach
-     the old node follow the guest;
+     via the target node's IP (`proto 252`, in table 252, which a rule at
+     priority 200 consults before `main`), so stragglers that still reach
+     the old node follow the guest. It has its own table because Cilium
+     re-installs its multi-pool route for the /32 in `main`, to the
+     now-standby endpoint (measured 16 s after a switch), and in a shared
+     table the last writer wins;
    - asks the target manager, over a second SPIFFE mTLS connection to the
      same listener (hello channel `switchover`), to `activate`: the target's
      qrab-netd flips its Cilium endpoint from standby to active
@@ -354,17 +361,89 @@ extra loss beyond that pause. Egress stays unmasqueraded throughout.
    sends RARP frames from the guest MAC and asks a virtio-net guest to
    announce itself, so anything on the path that learned the MAC updates.
 5. **Route, pool and retirement.** After the target is adopted, the VM's
-   reconcile moves the NIC's `FRRConfiguration` to the target node, and adds
+   reconcile moves the NIC's `FRRConfiguration` to the target node. While
+   the source anchor (the new anchor's `handoff-from`) still exists, a
+   second one, `qrab-nic-<address>-prev`, keeps announcing the /32 from the
+   source node, which forwards to the target meanwhile: make before break.
+   Without it the source withdrew before the VM host had the target's
+   announcement, and the VM host routed the guest to its default route for
+   5 s (measured below). The reconcile also adds
    the NIC's pool to the target's CiliumNode (`requested` one address,
    `allocated` the /32) while the source still lists it; the forked Cilium
    tolerates a one-address pool on two nodes and the target agent adopts the
    handed-off address into it, so the address stays IPAM-owned after the
    source anchor goes. Anchors
    not on the VM Pod's node are annotated `qrab.yapplesauce.com/retire-after`
-   (20 s later) and then deleted. qrab-netd deletes forward routes whose
-   anchor has been gone for 20 s, by which time BGP announces the /32 from the
-   new node. If the migration fails, the operator deletes the target anchors
+   (20 s later) and then deleted, which also withdraws the `-prev`
+   announcement. qrab-netd deletes forward routes whose anchor has been gone
+   for 20 s. If the migration fails, the operator deletes the target anchors
    it created.
+6. **Conntrack.** Twice, best effort: the target manager asks its node's
+   qrab-netd (`ct-pull`), and that agent pulls the NIC's entries straight
+   from the source node's qrab-netd (`qrab_netd::peer`, TCP 7911 in the
+   nodes' host network namespaces). It rebases their lifetimes onto its own
+   monotonic clock and writes them into its node's Cilium global IPv4
+   conntrack maps. The target pulls the *precopy* itself before
+   `migrate-incoming`, outside the guest's pause, so established flows are
+   on the target node before it activates. Once its QEMU has accepted the
+   incoming connection, QEMU answers no QMP until the stream starts, so a
+   pull there that ran past the manager's 2 s QMP timeout failed the
+   migration. The source asks for the *delta* over the switchover channel
+   once QEMU reports the migration completed, for flows opened in between. Established flows then keep their verdicts
+   on the new node, including flows only the guest sends on, which groups
+   denying new egress would otherwise drop for good. A flow opened after the
+   precopy loses its packets on the new node until the delta lands, a few
+   hundred milliseconds (TCP retransmits them). The export streams
+   bpftool's dump: a node's map can hold tens of thousands of entries (16 MB
+   of JSON), while qrab-netd's memory limit is 128 MiB. qrab-netd imports
+   only entries of the caller's own NIC whose other side is not local to the
+   node (a local Pod or the host), so an import cannot open another
+   workload's policy; service entries (node-local IDs) and entries beyond 384
+   per NIC are not copied.
+
+`contrib/check-nic-ct-handoff.sh` is the conntrack oracle. The guest's group
+admits TCP 5000 in and no new egress. The guest pushes a counter line every
+0.5 s to a client on the VM host, which only reads, so after the handshake
+the guest's segments exist on the new node only through a copied entry. The
+oracle failed as intended on a release without the copy (the stream stalled
+for good). With the copy after the switch only, it passed one move (0.76 s
+gap) but failed others: a 6.77 s gap with the entry present, and once a
+stall because qrab-netd was OOM-killed exporting kube03's 36,000-entry map.
+With the streamed export, the target-side precopy and the node-to-node
+pull (manager `78f1f287`, operator `42cae9cc`), three moves passed with
+stream gaps of 0.55, 0.72 and 0.56 s, each with a precopy and a delta.
+The check now also requires the managers' reports of imported entries.
+
+`contrib/check-nic-handoff-detail.sh` measures the handoff's parts. A probe
+Pod on every node pings the guest every 0.1 s, each node's Cilium agent
+logs the guest's ipcache entry and the node's routes for the /32 every
+0.1 s, and the VM host pings and logs its own route. Over four fully
+measured moves on 2026-11-15 (manager `5b93cb27`, operator `cba15278`),
+relative to the end of the manager's switch:
+
+| Part | Measured |
+|---|---|
+| Whole switch (forward, activate, standby) | 7–30 ms |
+| Forward route, target active, source standby done | −23…−4 ms, −5…−2 ms, −2…−1 ms |
+| ipcache names the new node, every node | +29…+119 ms |
+| Longest probe gap, every node (pings every 0.1 s, 1 s timeout) | 0.10–1.11 s (one ping lost in the pause) |
+| Hubble drops of the guest's address | none (no standby or host-policy drops) |
+| VM host's route moves to the new node | +16.3…+17.2 s |
+| Source sweeps its forward route | +59.7…+80.5 s |
+
+In one of the four (kube02 → kube03) the VM host had no route for the
+guest from +17.3 s to +22.3 s: kube02 withdrew before kube03's announcement
+arrived. The VM host lost 47 pings, and kube01's probe, which reached the
+guest through the VM host's route, saw a 5.11 s gap. An earlier run's move
+failed the same way (a 5.13 s gap on a third node) before the check printed
+routes. That matches the
+soak's earlier 12–31 lost pings in 3 of 20 moves. The `-prev` announcement
+removes the window. It then exposed the second fault: from +15.9 s the old
+node's Cilium pool route had replaced its main-table forward route, and two
+nodes' probes lost 22 s. With the forward route in table 252 (operator
+`3db5c074`), three moves lost no ping outside the pause on any node, and the
+VM host's route moved to the new node in one step (+19 to +47 s, while the
+old node still announced and forwarded).
 
 `contrib/check-nic-migration.sh` moves a CirrOS VM around three nodes while
 pinging it, probing its SSH and receiving its per-second egress reports. It
@@ -398,20 +477,252 @@ in 7, 7 and 8 ms with QEMU downtime of 135, 119 and 111 ms, lost two pings in
 all (each within a pause) and no SSH probe; the old node dropped the pool
 once its anchor was retired.
 
+## Hot-attach and detach
+
+NICs can be added to or removed from `spec.nics` while the VM runs; the VM
+Pod and the guest stay up.
+
+- **PCI layout.** Every KVM VM (with stable NIC addresses configured) boots
+  with four `pcie-root-port` devices `nicport0..3` (manager config
+  `nic_slots: 4`), and every NIC sits on its own port, since q35's root bus is
+  not hot-pluggable. The manager gives boot NICs slots in order and a new NIC
+  the lowest free one.
+- **Delivery.** The VM's template hash and the operator's restart decision
+  leave out `nics` and the seed's network-config, so a NIC change patches the
+  VM ConfigMap instead of replacing the Pod. The kubelet refreshes `vm.json`
+  in the running Pod (up to about a minute), and the manager re-reads it each
+  heartbeat.
+- **Attach.** The operator claims the new NIC's address and creates its
+  anchor as usual. The manager asks qrab-netd for the tap and vhost-net
+  queues, hands them to QEMU with QMP `getfd` (SCM_RIGHTS on the QMP socket,
+  [protocol.md](protocol.md)), then `netdev_add tap,fds=…,vhost=on` and
+  `device_add virtio-net-pci,bus=nicport<slot>`. Refusals (the anchor still
+  plumbing) back off 1 s, 2 s, 4 s … up to 60 s.
+- **Detach.** `device_del`, then, once the guest has released the device (it
+  is gone from `/machine/peripheral`; asked again after 30 s), `netdev_del`.
+  The operator deletes the anchor and releases the address.
+- **Guests.** A hot-added NIC is configured by qrab-netd's DHCP (the seed
+  lists it from the next start); the guest must run DHCP on new interfaces.
+- **Migration and power cycles.** An outgoing migration is refused while a
+  NIC change is in flight; otherwise the source sends its live NICs and slots
+  in the migration offer and the target recreates exactly those. An in-pod
+  power cycle boots with the ConfigMap's current NICs and seed.
+
+`contrib/check-nic-hotplug.sh` adds a NIC to a running CirrOS VM, removes it,
+replaces the first NIC's anchor and finally migrates the VM with a hot-added
+NIC, requiring the same VM Pod and boot id throughout:
+
+Measured on 2026-11-15 (manager `47d2fca9`, operator `a3e8430b`, CirrOS,
+1 vCPU):
+
+| Step | Result |
+|---|---|
+| Add a second NIC | reachable from the guest after 70 s (71 s in an earlier run), same Pod and boot |
+| Remove it | unplugged after 82 s (71 s), anchor and pool released |
+| Delete the first NIC's anchor | the guest reaches the host through it again after 31 s |
+| Live-migrate with the hot-added NIC | both NICs answer on the new node, same boot |
+
+Nearly all of the add and remove time is the kubelet refreshing the ConfigMap;
+the QMP steps take milliseconds. Re-attach is the anchor's recreation and
+plumbing plus up to one 5 s probe interval.
+
+`CYCLES=5` repeats the add and remove on one VM. On manager `5b93cb27` and
+operator `cba15278` (2026-11-15), the five cycles took 70–88 s to attach and
+60–74 s to detach. The NIC got the same address and `eth1` each time, the
+manager attached it exactly five times with no refused try, the VM Pod and
+boot id never changed, and the anchor replacement (34 s) and migration steps
+passed afterwards.
+
+## VPN NICs
+
+`spec.nics[].vpn.secretName` turns a NIC into a WireGuard VPN NIC: all of its
+guest traffic goes through a tunnel that the NIC's anchor terminates, and
+nothing goes around it.
+
+```yaml
+nics:
+- name: vpn
+  securityGroups: [vpn-egress]      # must admit UDP to the VPN endpoint
+  vpn: {secretName: vpn-proton}     # a Secret in the VM's namespace, named vpn-*
+```
+
+- **Config.** The Secret's key `wg.conf` is a wg-quick file with one
+  `[Peer]`, as ProtonVPN and most providers export it (`PrivateKey`,
+  `Address`, `DNS`, `MTU`; `PublicKey`, `PresharedKey`, `AllowedIPs`,
+  `Endpoint`, `PersistentKeepalive`). The endpoint must be an IPv4 literal;
+  wg-quick hooks (`PostUp` …) are refused. Only Secrets named `vpn-*` can be
+  referenced, so a VM cannot have other Secrets mounted.
+- **Where the key lives.** The operator mounts the Secret read-only (0400,
+  root) into the NIC's anchor, whose own process cannot read it. qrab-netd
+  reads it through the anchor's mount namespace and hands it to `wg syncconf`
+  on stdin. The key never reaches the VM Pod or the guest, and qrab-netd
+  never logs it.
+- **Datapath.** In the anchor's namespace qrab-netd creates `wg0` (fixed
+  ListenPort 51820, keepalive 25 s), whose UDP leaves through `eth0` from the
+  anchor's pool /32, which stays on `eth0` as the tunnel's outer address.
+  The tap's traffic is steered into table 100 (`default dev wg0`, with a
+  blackhole fallback). nftables in the anchor (installed before anything
+  else) forward only tap↔`wg0` and admit from the tap only DHCP and pings of
+  the gateway: with the tunnel down nothing of the guest's leaves. The guest
+  gets the tunnel's address, DNS and MTU by DHCP; its seed says `dhcp4: true`
+  for that NIC.
+- **Security groups** select the anchor as for any NIC, so they now govern
+  the tunnel's UDP (admit the endpoint's port). Inbound traffic is whatever
+  the provider forwards into the tunnel.
+- **Live migration** works as for plain NICs: the standby target anchor
+  builds the same `wg0` (its UDP dropped while standby), and once active it
+  handshakes from the same address and port, so the server sees no roam.
+
+`contrib/check-vpn-nic.sh` runs against a lab provider (a WireGuard server
+Pod that NATs to the world) or, with `VPN_SECRET`, a real config.
+`tests/netns.rs` checks the datapath as root: a provider namespace answers
+through the tunnel, plaintext never reaches the uplink, and with `wg0` gone
+nothing leaves.
+
+Measured on 2026-11-15 with the lab provider (operator `b8abf736`; the
+provider Pod on kube01, the VM on kube03):
+
+- The guest got the tunnel's 10.66.0.2 by DHCP; its egress reached the VM
+  host from the provider's node (10.203.0.11), never from the anchor's pool
+  address.
+- The private key was in neither the VM Pod's filesystem nor qrab-netd's
+  logs.
+- Kill switch: with the provider's `wg0` down for 15 s no report arrived and
+  none leaked from the pool address; reports resumed 1 s after it came back.
+- After a live migration kube03 → kube01 the tunnel resumed from the new
+  anchor with the same boot id.
+
+### ProtonVPN
+
+ProtonVPN is the supported provider; qrab keeps its `vpn-*` Secrets itself
+instead of having them pasted in (container `protonvpn-nics` in towl tracks
+the parts still being built: the broker, the login command, port forwarding
+and the dashboard page).
+
+- **Account access.** The Proton account is a full account (Mail, Drive), so
+  its password and TOTP never enter the cluster. `qrab-proton login` runs on
+  a workstation and stores only the session (UID and refresh token) in
+  Secret `qrab/proton-session`. Proton rotates the refresh token on every
+  refresh, so its holder writes the new one back before using it.
+  Run `qrab-proton login` (prompts for email, password, a TOTP code if the
+  account has two-factor, and a browser step if Proton asks for human
+  verification; `--print` writes the manifest instead of applying it). The
+  command never refreshes the session it handed over: two holders refreshing
+  one session would make Proton revoke it. `qrab-proton logout` revokes it;
+  stop the broker first.
+- **Keys.** Each profile has its own Ed25519 key; its X25519 form is the
+  WireGuard key. Proton certifies the Ed25519 public key
+  (`/vpn/v1/certificate`, at least a day, renewed with the same key), and the
+  certificate binds the connection features: NetShield level, port
+  forwarding, Moderate NAT and VPN Accelerator. A certified key works on any
+  Proton server, so changing servers changes only the peer.
+- **Servers.** `/vpn/v1/logicals` and `/vpn/v1/loads` need a session.
+  Auto selection filters by the account's tier, status, features and
+  location, then takes the lowest Score, Proton's own ranking; Secure Core
+  and Tor servers only when asked for, and port forwarding only on P2P
+  servers. A working server is kept while it stays eligible.
+- **The API is not public.** The `x-pm-appversion` header
+  (`qrab_proton::api::APP_VERSION`) breaks when Proton retires a client
+  version: a 5003 reply is reported as such, never retried in a loop.
+- `cargo test -p qrab-proton` runs the client against an in-process fake
+  Proton API with real SRP and a modulus signed by Proton's key: login, TOTP,
+  human verification, refresh rotation, the catalog and certificates, and a
+  `wg.conf` that qrab-netd's own parser accepts.
+
+## Security
+
+What is tested, and how:
+
+- **Inputs of qrab-netd** (`cargo test -p qrab-netd`): seeded fuzz tests send
+  50,000 random and mutated DHCP packets (none panics, none is answered for a
+  foreign MAC, every answer carries the lease) and 20,000 random wire
+  requests. A whole request must arrive within 5 s; NIC names are DNS labels;
+  `queues` is bounded before any descriptor is opened. At most 16 control
+  connections are served at once.
+- **Who gets descriptors** (unit tests and `contrib/check-nic-security.sh`):
+  qrab-netd authenticates the peer by `SO_PEERCRED` → cgroup → Pod, and hands
+  a VM Pod only its own NICs; a NIC the VM lacks is refused, and a tap QEMU
+  already holds is refused too.
+- **What a guest can reach** (`contrib/check-nic-security.sh`, live
+  2026-11-15): a guest in a group admitting only world egress reached the
+  world but not its own VM Pod's BMC (8080), Redfish (8081) or migration
+  port (7800), the node's kubelet (10250) or SSH, cluster DNS, another VM's
+  NIC, or the anchor's own addresses. With the group widened to the whole
+  cluster, its VM Pod's BMC, Redfish and migration ports still refused it;
+  the kubelet and an ungrouped VM answered, as they would any Pod, so groups
+  should not admit `cluster` or `host` without need.
+- **Spoofing**: a datagram the guest sent from a forged source address never
+  arrived (Cilium drops traffic whose source is not the endpoint's address),
+  while its genuine datagram did.
+- **VPN NICs**: see [VPN NICs](#vpn-nics) (no plaintext on the uplink, kill
+  switch, key confinement).
+- **Conntrack handoff** (`cargo test -p qrab-netd`, `peer` and `ct`): no VM
+  manager carries entries, since a manager sits inside its VM's trust
+  boundary (QEMU runs beside it). The target node's qrab-netd fetches them
+  from the source node's qrab-netd, which listens in the host network
+  namespace (a port only host processes can bind). The source serves an
+  address only to the node of another anchor of the same VM's same NIC
+  holding that address, judged from the API server's Pods, and the target
+  imports only that NIC's entries whose other side is not local to its node.
+  The exchange itself is plain TCP between nodes, as trusted as their iBGP
+  sessions. Connections from anything not on one of the node's host links
+  (Pods, guests, routed hosts) are dropped before any read or API lookup,
+  at most four are served at once, and a seeded fuzz test sends 200 random
+  requests. A port that cannot be bound is retried, never fatal.
+- **Forward routes**: `forward` installs the caller's own /32 only, and only
+  via an address on one of the node's host links (another node), checked
+  locally inside the guest's pause.
+
+## Stability
+
+`contrib/check-nic-soak.sh` (`PHASES` selects `1`, `2` or both):
+
+1. MOVES (default 20) live migrations through `check-nic-migration.sh`, then
+   a cluster-wide audit. The VM must leave no address pool, FRRConfiguration
+   (including `-prev`), Pod, CiliumEndpoint, CiliumNode pool entry or forward
+   route behind.
+2. A fresh VM pinged every 0.2 s and streaming over one TCP connection while
+   qrab-netd, then the Cilium agent, restart on its node. The longest gap
+   must stay within `RESTART_GAP_S` (3 s), without a reset.
+
+Measured on 2026-11-15 (manager `5b93cb27`, operator `cba15278`):
+
+- 20 consecutive moves passed: switch 6–31 ms (one 116 ms), QEMU downtime
+  86–186 ms, the guest's TCP stream intact. Moves 2, 7 and 14 also lost
+  12–31 pings, and the SSH probe failed 10 times, 40–50 s after their
+  moves began. That fits the BGP withdraw-before-announce window measured
+  under [Live migration](#live-migration), which `-prev` closes.
+- On manager `78f1f287` and operator `3db5c074` (make-before-break routes,
+  forward routes in table 252), 20 consecutive moves passed: switch 13–23 ms
+  (one 149 ms), QEMU downtime 111–194 ms. At most one ping went unanswered
+  per move (longest gap 0.41 s, pinging every 0.2 s), and the audit found
+  nothing left behind. The SSH probe (a connection every 0.5 s with a 1 s
+  limit) timed out once in 10 of the moves, each 33–44 s after the move
+  began. That is consistent with a SYN lost in the pause and retransmitted
+  after Linux's 1 s initial timeout, though the check does not log switch
+  times to prove it.
+- qrab-netd restart on the VM's node: longest ping gap 0.21 s, stream gap
+  1.00 s (its send interval), stream intact. The guest holds its tap and
+  vhost-net descriptors through QEMU; the agent re-plumbs nothing that
+  works.
+- Cilium agent restart on the VM's node: longest ping gap 0.21 s, stream gap
+  1.00 s, stream intact. The active handoff endpoint kept its state.
+
 ## Limits
 
 - Guest NICs need `accelerator: kvm`, stable NIC addresses and qrab-netd on
   the VM Pod's node.
 - Each NIC has one IPv4 address, a /32 from `QRAB_NIC_ADDRESS_RANGE`.
 - At most 4 NICs per VM.
-- Live migration hands over each NIC's address and endpoint but not
-  Cilium's conntrack. On the new node the first packet of an established flow
-  is judged as new in its direction. A TCP connection recovers as soon as the
-  side the security groups admit sends (the measured guest stream did), but
-  packets only the other side sends are dropped until then, and a one-way
-  flow in an unadmitted direction stays blocked (`work/cilium-ct-handoff`).
-- Replacing an anchor under a running VM leaves QEMU on the old tap: restart
-  the VM (`work/anchor-replacement-orphans-qemu-nic`).
+- Conntrack is copied before and after the pause, not inside it: a flow
+  opened during the RAM copy has no entry on the new node until the delta
+  lands, so a packet of it the groups would not admit as new is dropped (TCP
+  retransmits it). Flows through Cilium services and a NIC's entries beyond
+  384 are not copied.
+- A NIC change takes effect when the kubelet refreshes the VM ConfigMap,
+  about a minute; a hot-added NIC needs the guest to run DHCP on it.
+- A VPN NIC has one peer and IPv4 inside the tunnel; its endpoint must be an
+  IPv4 literal.
 
 ## Benchmark (2026-11-15)
 

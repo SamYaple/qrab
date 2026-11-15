@@ -51,6 +51,11 @@ pub const MIGRATED: &str = "migrated";
 pub const SOURCE_POWERED_OFF: &str = "source-powered-off";
 /// Failure reason of a migration whose VM is powered off.
 pub const POWERED_OFF: &str = "PoweredOff";
+/// On a target Pod until it takes over: the migration that created it. A Pod
+/// still carrying it never ran the guest (its QEMU at most held the disks
+/// inactive for `-incoming`), so once its manager has exited it holds no disk
+/// session, and objects of a migration that no longer exists can be found.
+pub const TARGET_ANNOTATION: &str = "qrab.yapplesauce.com/migration-target";
 const STATE_COMPONENT: &str = "vm-state";
 
 /// What the VM reconcile rendered for its current Pod.
@@ -212,7 +217,7 @@ fn ready(pod: &Pod) -> bool {
 }
 
 /// How the manager container of `pod` ended, if it has.
-fn manager_exit(pod: &Pod) -> Option<(i32, String)> {
+pub(crate) fn manager_exit(pod: &Pod) -> Option<(i32, String)> {
     pod.status
         .as_ref()?
         .container_statuses
@@ -226,6 +231,13 @@ fn manager_exit(pod: &Pod) -> Option<(i32, String)> {
         .map(|t| (t.exit_code, t.message.clone().unwrap_or_default()))
 }
 
+/// A migration target that never took over and whose process is gone (or
+/// never ran): it holds no disk session, whatever its exit code.
+pub(crate) fn abandoned_target(pod: &Pod) -> bool {
+    pod.annotations().contains_key(TARGET_ANNOTATION)
+        && (manager_exit(pod).is_some() || storage_guard::never_launched(pod))
+}
+
 /// The Pod's manager handed its guest to a migration target. Its disks belong
 /// to that target now: nothing may fence them or boot the VM here again.
 pub fn handed_over(pod: &Pod) -> bool {
@@ -234,17 +246,70 @@ pub fn handed_over(pod: &Pod) -> bool {
 
 /// Why a stopped target failed the migration: the reason (empty when not
 /// classified) and the message.
+const POWERED_OFF_MESSAGE: &str = "the VM is powered off, so there is no running guest to live-migrate; power it on and create a new migration";
+
+/// Reason of a migration refused because the target could not mount one of
+/// the VM's claims while the source still holds it.
+pub const UNSHARED_CLAIM: &str = "UnsharedClaim";
+
+/// The claims a VM Pod mounts besides its state claim, by role: the Redfish
+/// state claim and the media and firmware catalogs. The target Pod mounts the
+/// same claims, on another node, while the source still runs.
+///
+/// ```
+/// let vm: qrab_operator::api::VirtualMachine = serde_json::from_value(serde_json::json!({
+///     "apiVersion": "qrab.yapplesauce.com/v1alpha1", "kind": "VirtualMachine",
+///     "metadata": {"name": "vm"},
+///     "spec": {"stateVolumeClaim": "state", "mediaVolumeClaim": "media"}})).unwrap();
+/// assert_eq!(qrab_operator::migration::shared_claims(&vm), [("media catalog", "media")]);
+/// ```
+pub fn shared_claims(vm: &VirtualMachine) -> Vec<(&'static str, &str)> {
+    let redfish = &vm.spec.components.redfish;
+    [
+        (
+            "Redfish state",
+            redfish
+                .state_volume_claim
+                .as_deref()
+                .filter(|_| vm.spec.components.redfish_enabled()),
+        ),
+        ("media catalog", vm.spec.media_volume_claim.as_deref()),
+        (
+            "firmware catalog",
+            vm.spec.firmware_catalog_volume_claim.as_deref(),
+        ),
+    ]
+    .into_iter()
+    .filter_map(|(role, claim)| Some((role, claim?)))
+    .collect()
+}
+
+/// Whether two Pods on different nodes can mount `claim` at once.
+pub fn shareable(claim: &PersistentVolumeClaim) -> bool {
+    claim
+        .spec
+        .as_ref()
+        .and_then(|s| s.access_modes.as_ref())
+        .is_some_and(|modes| {
+            modes
+                .iter()
+                .any(|m| m == "ReadWriteMany" || m == "ReadOnlyMany")
+        })
+}
+
 fn target_failure(target: &str, pod: &Pod) -> (&'static str, String) {
     match manager_exit(pod) {
-        Some((_, message)) if message.trim() == SOURCE_POWERED_OFF => (
-            POWERED_OFF,
-            "the VM is powered off, so there is no running guest to live-migrate; power it on and create a new migration".into(),
-        ),
+        Some((_, message)) if message.trim() == SOURCE_POWERED_OFF => {
+            (POWERED_OFF, POWERED_OFF_MESSAGE.into())
+        }
         exit => {
             let detail = exit
                 .map(|(code, message)| format!(" (exit {code}: {})", message.trim()))
                 .unwrap_or_default();
-            ("", format!("the target {target} stopped before taking over{detail}"))
+            (
+                "",
+                format!("the target {target} stopped before taking over{detail}"),
+            )
         }
     }
 }
@@ -482,6 +547,99 @@ async fn clean(
     Ok(gone)
 }
 
+/// Remove what migrations that no longer exist (deleted mid-flight) left: their
+/// target Pods (released once their manager exits), the targets' ConfigMaps and
+/// state PVCs, their standby anchors and time-boxed policies. The VM's own Pod
+/// and its live anchors are never touched, and nothing while the source has
+/// handed its guest over (a deleted migration's target may run it: the VM
+/// blocks as `HandedOver` instead).
+async fn collect_abandoned(
+    ctx: &Context,
+    vm: &VirtualMachine,
+    pods: &Api<Pod>,
+    source: &Pod,
+    existing: &[String],
+) -> Result<()> {
+    if handed_over(source) {
+        return Ok(());
+    }
+    let uid = uid(vm)?;
+    let gone = |name: Option<&String>| name.is_some_and(|n| !existing.contains(n));
+    let current = vm.status.as_ref().and_then(|s| s.pod_name.clone());
+    let owned = format!("{OWNER_UID}={uid}");
+    let claims: Api<PersistentVolumeClaim> =
+        Api::namespaced(ctx.client.clone(), &ctx.settings.namespace);
+    let configs: Api<ConfigMap> = Api::namespaced(ctx.client.clone(), &ctx.settings.namespace);
+    for pod in pods
+        .list(&ListParams::default().labels(&owned))
+        .await?
+        .items
+    {
+        let name = pod.name_any();
+        if Some(&name) == current.as_ref() || Some(&name) == source.metadata.name.as_ref() {
+            continue;
+        }
+        let target = pod.annotations().get(TARGET_ANNOTATION);
+        let standby = pod.annotations().get(crate::nic::MIGRATION_ANNOTATION);
+        // A standby anchor on the VM's node is its live anchor after a move.
+        let live_anchor = standby.is_some()
+            && pod.spec.as_ref().and_then(|s| s.node_name.as_deref())
+                == source.spec.as_ref().and_then(|s| s.node_name.as_deref());
+        if gone(target) {
+            let claim = pod.spec.as_ref().and_then(|s| {
+                s.volumes.iter().flatten().find_map(|v| {
+                    v.persistent_volume_claim
+                        .as_ref()
+                        .filter(|_| v.name == "state")
+                        .map(|c| c.claim_name.clone())
+                })
+            });
+            tracing::warn!(pod=%name, migration=?target, "removing the target of a deleted migration");
+            delete_pod(pods, &name).await?;
+            // Now, while the Pod still names them: PVC protection keeps the
+            // claim until the Pod is gone.
+            if let Some(claim) = claim.filter(|c| {
+                Some(c)
+                    != vm
+                        .status
+                        .as_ref()
+                        .and_then(|s| s.state_volume_claim.as_ref())
+            }) {
+                delete_state_claim(&claims, &claim, &uid).await?;
+            }
+            let config = Incarnation {
+                pod: name.clone(),
+                state_claim: String::new(),
+                node: None,
+            }
+            .config_name();
+            if configs.get_opt(&config).await?.is_some() {
+                configs.delete(&config, &DeleteParams::default()).await?;
+            }
+        } else if gone(standby) && !live_anchor {
+            tracing::warn!(pod=%name, migration=?standby, "removing a standby anchor of a deleted migration");
+            delete_pod(pods, &name).await?;
+        }
+    }
+    let windows = policies(ctx)
+        .list(
+            &ListParams::default()
+                .labels(&format!("app.kubernetes.io/component=vm-migration,{owned}")),
+        )
+        .await?
+        .items;
+    for window in windows {
+        let migration = window
+            .name_any()
+            .strip_prefix("qrab-migration-")
+            .map(str::to_owned);
+        if gone(migration.as_ref()) {
+            delete_policy(ctx, &window.name_any()).await?;
+        }
+    }
+    Ok(())
+}
+
 async fn ensure_guard(ctx: &Context, vm: &VirtualMachine) -> Result<()> {
     let guard = guard(vm, &ctx.settings.namespace)?;
     let api = policies(ctx);
@@ -521,6 +679,8 @@ pub async fn drive(
         .into_iter()
         .filter(|m| m.spec.vm_name == vm.name_any())
         .collect();
+    let existing: Vec<String> = migrations.iter().map(|m| m.name_any()).collect();
+    collect_abandoned(ctx, vm, pods, source, &existing).await?;
     migrations.sort_by_key(|m| {
         (
             m.metadata.creation_timestamp.clone().map(|t| t.0),
@@ -573,6 +733,19 @@ async fn step(
         }
         if GuestSize::of(vm) != inputs.boot {
             return fail(api, migration, "the VM has hot-plugged vCPUs or memory beyond its boot size; restart it at the new size first").await;
+        }
+        // The Pod stays Ready while its guest is off; Redfish reports it.
+        if vm.status.as_ref().and_then(|s| s.power_state.as_deref()) == Some("Off") {
+            return fail_because(api, migration, POWERED_OFF, POWERED_OFF_MESSAGE).await;
+        }
+        let claims: Api<PersistentVolumeClaim> =
+            Api::namespaced(ctx.client.clone(), &ctx.settings.namespace);
+        for (role, claim) in shared_claims(vm) {
+            if !claims.get_opt(claim).await?.is_some_and(|c| shareable(&c)) {
+                return fail_because(api, migration, UNSHARED_CLAIM, &format!(
+                    "the VM's {role} claim {claim} is not ReadWriteMany or ReadOnlyMany, so a target on another node cannot mount it while the source runs; live migration needs shareable {role} claims"
+                )).await;
+            }
         }
         let source_node = source
             .spec
@@ -798,7 +971,10 @@ async fn step(
         configs.create(&PostParams::default(), &config).await?;
     }
     let Some(target_pod) = live_target else {
-        pods.create(&PostParams::default(), &desired.pod).await?;
+        let mut pod = desired.pod.clone();
+        pod.annotations_mut()
+            .insert(TARGET_ANNOTATION.into(), name.clone());
+        pods.create(&PostParams::default(), &pod).await?;
         return Ok(Some(Action::requeue(Duration::from_secs(1))));
     };
     if !resources::owned(&target_pod, vm) {
@@ -914,6 +1090,16 @@ async fn adopt(
     vm_status.state_volume_claim = Some(claim_name);
     vm_status.state_volume_uid = Some(claim_uid);
     vm_status.placement_node = Some(target_node);
+    // The target owns the guest now: it is no longer a disposable target.
+    let pods: Api<Pod> = Api::namespaced(ctx.client.clone(), &ctx.settings.namespace);
+    pods.patch(
+        &target.name_any(),
+        &PatchParams::default(),
+        &Patch::Merge(
+            json!({"metadata":{"uid":target.uid(),"annotations":{TARGET_ANNOTATION:null}}}),
+        ),
+    )
+    .await?;
     crate::controller::publish(vms, vm, vm_status).await?;
     status.phase = "Succeeded".into();
     status.message = format!("The guest runs on {} now", target.name_any());

@@ -1,5 +1,6 @@
 //! HTTP and WebSocket tests against an in-memory cluster, a fake Kanidm and
 //! fake VM Pods (BMC console and Redfish) on loopback addresses.
+mod browser;
 use super::*;
 use crate::access::tests::{ADMINS, ALICE, BOB, VIEWERS, vm};
 use axum::{
@@ -577,7 +578,7 @@ async fn the_list_shows_only_visible_vms_and_launch_only_to_launchers() {
     );
     assert!(body.contains("href=\"/vms/qrab/a\"") && body.contains("href=\"/vms/qrab/b\""));
     assert!(!body.contains("/vms/qrab/c"));
-    assert!(body.contains("250m") && body.contains("300 MiB"));
+    assert!(body.contains("0.25 cores") && body.contains("300 MiB"));
     assert!(!body.contains("href=\"/launch\""));
     assert!(!body.contains("id-token-of-alice"));
     let launcher = session(&h.state.sessions, ALICE, &[LAUNCHERS]).await;
@@ -1011,12 +1012,13 @@ async fn the_images_page_lists_the_catalog_for_any_signed_in_user() {
     assert_eq!(status, StatusCode::OK);
     for text in [
         "CirrOS 0.6.3",
-        "<code>cirros g1</code>",
+        "<code>cirros</code>",
         "112 MiB",
         "<code>0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef</code>",
         "https://download.cirros-cloud.net/0.6.3/cirros-0.6.3-x86_64-disk.img",
         "data-label=\"Raw SHA-256\"",
-        "How images get here",
+        "A separate disk for each VM",
+        "Image verification and staging",
         "contrib/images/stage-base-image.sh",
         "1 staged",
     ] {
@@ -2353,7 +2355,7 @@ async fn detail_draws_a_server_side_svg_sparkline_per_redfish_history_metric() {
     // Still the script-free page CSP: no client script and no inline styles.
     assert_eq!(
         headers["content-security-policy"],
-        "default-src 'none'; style-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"
+        "default-src 'none'; style-src 'self'; img-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"
     );
     assert!(
         !body.contains("<script") && !body.contains("style="),
@@ -2367,15 +2369,20 @@ async fn detail_draws_a_server_side_svg_sparkline_per_redfish_history_metric() {
         let end = start + body[start..].find("</figure>").unwrap();
         body[start..end].to_owned()
     };
-    // One SVG per metric with data, one polyline per series, scaled into the
-    // 240x48 viewBox over [start, end] and [0, peak].
+    // One accessible chart per metric with data, plus decorative line keys;
+    // One path per series, with gaps and visible isolated samples.
     let cpu = figure("container-cpu");
-    assert_eq!(cpu.matches("<svg").count(), 1, "{cpu}");
-    assert_eq!(cpu.matches("<polyline").count(), 2, "{cpu}");
+    assert_eq!(cpu.matches("role=\"img\"").count(), 1, "{cpu}");
+    assert_eq!(cpu.matches("aria-hidden=\"true\"").count(), 2, "{cpu}");
+    assert_eq!(cpu.matches("<path").count(), 2, "{cpu}");
     assert!(cpu.contains("viewBox=\"0 0 240 48\""), "{cpu}");
     assert!(
-        cpu.contains("points=\"0.0,24.0 120.0,1.0 240.0,35.5\""),
+        cpu.contains("d=\"M0.0,24.0L120.0,1.0L240.0,35.5\""),
         "{cpu}"
+    );
+    assert!(
+        cpu.contains("d=\"M0.0,46.9h1M240.0,46.8h-1\""),
+        "Missing bmc samples must remain a gap, with both observed samples visible: {cpu}"
     );
     assert!(cpu.contains("role=\"img\""));
     assert!(
@@ -2384,17 +2391,17 @@ async fn detail_draws_a_server_side_svg_sparkline_per_redfish_history_metric() {
     );
     assert!(!body.contains("<b>manager</b>"));
     let memory = figure("container-memory");
-    assert_eq!(memory.matches("<polyline").count(), 1);
+    assert_eq!(memory.matches("<path").count(), 1);
     assert!(memory.contains("512 MiB"), "{memory}");
     for metric in ["block-read", "block-write"] {
         let disk = figure(metric);
-        assert_eq!(disk.matches("<polyline").count(), 1, "{disk}");
+        assert_eq!(disk.matches("<path").count(), 1, "{disk}");
         assert!(disk.contains("2.0 KiB/s"), "{disk}");
     }
     // An empty answer and a failed one say so instead of drawing a line.
     let rx = figure("nic-rx");
     assert!(
-        rx.contains("No data in the last hour.") && !rx.contains("<polyline"),
+        rx.contains("No data in the last hour.") && !rx.contains("<path"),
         "{rx}"
     );
     let tx = figure("nic-tx");
@@ -2510,6 +2517,15 @@ async fn bmc_assets_scope_all_browser_connections_to_the_dashboard_vm() {
     assert!(js.contains("`${vmBase}/bmc/logout`"));
     assert!(js.contains("`${vmBase}/console/ws`") && js.contains("${location.host}${consolePath}"));
     assert!(!js.contains("${location.host}/api/console"));
+    let (status, headers, keyboard) = send(&h, get("/assets/console-keyboard.js", None)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        headers["content-type"]
+            .to_str()
+            .unwrap()
+            .starts_with("text/javascript")
+    );
+    assert!(keyboard.contains("wireConsoleKeyboard"));
 }
 
 #[tokio::test]
@@ -2563,7 +2579,7 @@ async fn rejected_optional_launch_values_are_validated_without_creating_resource
             "/launch",
             Some(&cookie),
             Some(ORIGIN),
-            "csrf=correct&name=web&cpus=2&memory_mib=512&max_cpus=1&disk0_id=logs&disk0_size_gib=0",
+            "csrf=correct&name=web&cpus=2&memory_mib=512&max_cpus=1&disk0_id=logs&disk0_size_gib=0&user_data=PRIVATE_FORM_VALUE",
         ),
     )
     .await;
@@ -2572,6 +2588,82 @@ async fn rejected_optional_launch_values_are_validated_without_creating_resource
     assert!(body.contains("Disk 1 size (GiB) must be a whole number from 1 to 1024."));
     assert!(body.contains("name=\"max_cpus\"") && body.contains("value=\"1\""));
     assert!(body.contains("name=\"disk0_size_gib\"") && body.contains("value=\"0\""));
+    for field in ["max_cpus", "disk0_size_gib"] {
+        assert!(body.contains(&format!("href=\"#{field}\"")));
+        assert!(body.contains(&format!("id=\"error-{field}\"")));
+    }
+    assert!(body.contains("aria-invalid=\"true\""));
+    assert!(body.contains("autofocus"));
+    assert!(!body.contains("PRIVATE_FORM_VALUE"));
+    assert!(body.contains("User-data is cleared for privacy"));
     assert_eq!(h.cluster.mutations(), 0);
     assert!(h.kanidm.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn recovery_pages_preserve_status_and_safe_vm_context_while_power_errors_stay_plain() {
+    let h = harness().await;
+    for path in ["/vms/qrab/a", "/vms/qrab/a/bmc", "/vms/qrab/a/console"] {
+        let (status, headers, body) = send(&h, get(path, None)).await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+        assert!(
+            headers["content-type"]
+                .to_str()
+                .unwrap()
+                .starts_with("text/html")
+        );
+        assert!(body.contains("Sign in to continue") && body.contains("Sign in with Kanidm"));
+        let query = url::form_urlencoded::Serializer::new(String::new())
+            .append_pair("next", path)
+            .finish();
+        assert!(
+            body.contains(&format!("href=\"/auth/login?{query}\"")),
+            "{body}"
+        );
+        assert!(!body.contains("id-token"));
+    }
+    let cookie = session(&h.state.sessions, ALICE, &[]).await;
+    let (status, _, missing) = send(&h, get("/vms/qrab/missing", Some(&cookie))).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert!(missing.contains("VM not found"));
+    let (status, _, invisible) = send(&h, get("/vms/qrab/c", Some(&cookie))).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert_eq!(
+        missing, invisible,
+        "Existence must not change the recovery page"
+    );
+    let (status, _, body) = send(&h, get("/not-a-page", None)).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert!(body.contains("Page not found") && body.contains("All VMs"));
+    let (status, _, body) = send(
+        &h,
+        post("/vms/qrab/a/action", Some(&cookie), None, "action=Pause"),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert!(body.contains("Access isn&#39;t available") && body.contains("href=\"/vms/qrab/a\""));
+    let (status, headers, body) = send(&h, get("/vms/qrab/a/power", None)).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    assert!(
+        headers["content-type"]
+            .to_str()
+            .unwrap()
+            .starts_with("text/plain")
+    );
+    assert_eq!(body, "Sign in again to continue.");
+    assert_eq!(h.cluster.mutations(), 0);
+}
+
+#[tokio::test]
+async fn vpn_network_summary_shows_routing_mode_without_secret_references() {
+    let h = harness().await;
+    h.cluster.vms.lock().unwrap()[0].spec.nics = serde_json::from_value(serde_json::json!([
+        {"name":"eth0","vpn":{"secretName":"vpn-private-reference"}}
+    ]))
+    .unwrap();
+    let cookie = session(&h.state.sessions, ALICE, &[]).await;
+    let (status, _, body) = send(&h, get("/vms/qrab/a", Some(&cookie))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(body.contains("VPN tunnel only") && body.contains("direct guest traffic is blocked"));
+    assert!(!body.contains("vpn-private-reference") && !body.contains("default-allow"));
 }

@@ -77,6 +77,20 @@ plumbed yet, or the tap is still held) the manager retries every 2 s for up to
 the launch with the refusal. QEMU
 never gets a user-mode (slirp) netdev or guest forwarding.
 
+With `nic_slots: N` (the operator sets 4 for KVM VMs with stable NIC
+addresses) QEMU also gets `pcie-root-port` devices `nicport0..N-1` and each
+NIC device gets `,bus=nicport<slot>` (an optional per-NIC `slot`, else the
+lowest free in order). While QEMU runs, each heartbeat re-reads the config
+file and makes at most one NIC change over QMP, backing off on failure:
+attach (`getfd` for each queue, `netdev_add`, `device_add`, then `closefd`),
+detach (`device_del`, wait until the device leaves `/machine/peripheral`,
+`netdev_del`), and every 5 s a qrab-netd `probe` per NIC, re-plugging a NIC
+whose anchor UID changed. JSON events `nic_attached`, `nic_detaching`,
+`nic_detached`, `nic_anchor_replaced` and `nic_change_failed` go to stderr.
+An outgoing migration is refused while a change is in flight, and its offer
+carries the live NICs (with slots), which the target uses instead of its own
+config's. An in-pod power cycle re-reads the NICs and seed.
+
 `tpm` defaults to `/usr/bin/swtpm`, with private Unix control and TPM2 TIS in
 QEMU. `state_dir` must be writable persistent storage; its owner lock prevents
 concurrent supervisors. `identity/OVMF_VARS.fd`, `identity/tpm/` and a manifest

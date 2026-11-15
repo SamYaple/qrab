@@ -11,10 +11,16 @@ and expiry validation. `/api/session` and the `/api/console` WebSocket can
 also accept the dashboard's Kanidm ID tokens as bearer credentials ([below](#dashboard-bearer-tokens)). There are no
 static tokens and no anonymous development bypass.
 
-The console is at **https://qrab-demo.yapplesauce.com** (VM `qrab-redfish-poc`),
-using the cluster's private DNS and Cilium ingress, like `idm-dashboard`. It requires LAN/private-DNS access;
-this manifest does not add a public edge route. Sign in with Kanidm, then choose
-**Connect console**. Video, keyboard, USB tablet input, Ctrl Alt Del and full
+Open **https://vms.yapplesauce.com**, sign in with Kanidm, choose a VM, then
+**Open BMC**. The full page runs under the dashboard at
+`/vms/{namespace}/{name}/bmc`; new VMs need no per-VM ingress, certificate or
+browser OIDC callback. See [dashboard.md](dashboard.md#full-bmc-page) for the
+VM-scoped proxy and authorization details.
+
+The older standalone demo uses **https://qrab-demo.yapplesauce.com** (VM
+`qrab-redfish-poc`), with private DNS and Cilium ingress. Its manifest does not
+add a public edge route. On either page, choose **Connect console**.
+Video, keyboard, USB tablet input, Ctrl Alt Del and full
 screen run through the vendored noVNC client. There are no CDN dependencies.
 Everything else on the page (power state, power actions, guest-agent actions,
 the live QMP event history, the effective configuration and metrics)
@@ -51,12 +57,18 @@ modules):
   on = `On`, Pause, Resume, Reset = `ForceRestart`, Restart guest =
   `GracefulRestart`, Shut down = `GracefulShutdown`, Force off, Power cycle,
   NMI). Reset, Force off, Power cycle and NMI sit under **More power actions**,
-  a keyboard-accessible native disclosure. Buttons are enabled for the current `PowerState`: only Power on while `Off`, only
+  a keyboard-accessible native disclosure. Buttons are enabled for the current `PowerState`: Power on and Power cycle while `Off`, only
   Force off while powering on or off. All but Power on, Pause and Resume use an
   inline two-step confirm: the first
   click turns the button into **Confirm <action>** for 5 s and only a second
   click sends it. Pressing a toolbar or tab button while the console has
   keyboard focus keeps that focus; clicking anywhere else releases it.
+  Tab can enter the display, with a visible keyboard-focus indicator. Ordinary
+  Tab and Escape then go to the guest. Ctrl+Alt+Shift (using left Alt) returns
+  focus to the console controls and exits console full screen if needed.
+  Right Alt/AltGr combinations remain guest input. Held keys are released when
+  display focus is left; this uses the SDK's DOM key-up handling rather than
+  private SDK methods.
   While `PowerState` is `Off` the console shows a powered-off state and
   **Connect console** is disabled; the Power group is unchanged. A console
   that was open when the VM went off, or after **Power on**, reconnects once
@@ -97,6 +109,12 @@ modules):
   - *Guest agent*: agent status, the filesystem freeze state and the last
     update run from `Oem.Qrab.GuestAgent` (update output and errors for
     admins only), and the freeze (two-step confirm), thaw and update actions.
+    Known prerequisites disable freeze while frozen or while an update runs,
+    and update while frozen, already running or reporting no installed hook.
+    Reasons are visible beside the controls. Thaw stays available whenever the
+    agent is connected, including recovery of freezes outside its recorded state.
+    Missing optional status leaves backend validation in charge; no extra reads
+    or permissions are added.
   - *Configuration*: `Oem.Qrab.Configuration`, redacted for viewers.
 
 Viewers get the same header and rail, but the console toolbar, power group,

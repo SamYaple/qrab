@@ -166,11 +166,22 @@ pub fn pod_uid_of(proc_root: &Path, pid: i32) -> Option<String> {
 
 /// A process of the Pod (any of its containers shares the namespace).
 pub fn pid_of_pod(proc_root: &Path, uid: &str) -> Option<i32> {
-    fs::read_dir(proc_root)
-        .ok()?
+    pids_of_pod(proc_root, uid).into_iter().next()
+}
+
+/// Every process of the Pod: its sandbox (pause) and its containers'. They
+/// share the network namespace but not the mount namespace.
+pub fn pids_of_pod(proc_root: &Path, uid: &str) -> Vec<i32> {
+    let Ok(entries) = fs::read_dir(proc_root) else {
+        return Vec::new();
+    };
+    let mut pids: Vec<i32> = entries
         .filter_map(Result::ok)
         .filter_map(|e| e.file_name().to_str()?.parse::<i32>().ok())
-        .find(|pid| pod_uid_of(proc_root, *pid).as_deref() == Some(uid))
+        .filter(|pid| pod_uid_of(proc_root, *pid).as_deref() == Some(uid))
+        .collect();
+    pids.sort_unstable();
+    pids
 }
 
 pub fn netns_of(proc_root: &Path, pid: i32) -> PathBuf {
@@ -219,13 +230,18 @@ fn nft(ruleset: &str) -> io::Result<()> {
 /// needed, route the guest's /32 and gateway to it, redirect DNS when a
 /// resolver is given, and finally take the address off `eth0`. Re-applying
 /// a finished plan changes nothing.
-pub fn apply(plan: &NicPlan, resolver: Option<Ipv4Addr>) -> io::Result<()> {
+/// Build `plan` in the calling thread's (anchor) namespace. Returns the tap's
+/// MTU, which the DHCP responder offers to a VPN NIC's guest.
+pub fn apply(plan: &NicPlan, resolver: Option<Ipv4Addr>) -> io::Result<u32> {
     if !tap_exists(&plan.tap) {
         create_persistent_tap(&plan.tap)?;
     }
     let uplink = ip_words(&["-o", "link", "show", "dev", UPLINK])?;
     let mtu =
         crate::plan::mtu(&uplink).ok_or_else(|| io::Error::other("cannot read the eth0 MTU"))?;
+    if let Some(tunnel) = &plan.vpn {
+        return apply_vpn(plan, tunnel, tunnel.mtu_on(mtu));
+    }
     for command in plan.link_commands(mtu) {
         ip(&command)?;
     }
@@ -248,20 +264,296 @@ pub fn apply(plan: &NicPlan, resolver: Option<Ipv4Addr>) -> io::Result<()> {
             "the anchor has no default route (it was flushed with eth0's last address); recreate the anchor Pod",
         ));
     }
-    Ok(())
+    Ok(mtu)
 }
 
-/// Route protocol marking the transient forward routes this agent owns in
-/// the host's main table, so it finds and removes only its own.
+/// A VPN NIC: the tap reaches only `wg0`, whose UDP leaves through `eth0`
+/// from the anchor's own (pool) address, which therefore stays on `eth0`.
+fn apply_vpn(plan: &NicPlan, tunnel: &crate::vpn::Tunnel, mtu: u32) -> io::Result<u32> {
+    use crate::vpn::{kill_switch, TABLE, WG_LINK};
+    // The kill switch goes in first, so no step below opens a path to eth0.
+    nft(&kill_switch(&plan.tap, plan.guest_ip))?;
+    for command in plan.link_commands(mtu) {
+        ip(&command)?;
+    }
+    for (key, value) in plan.sysctls() {
+        write_sysctl(&key, value)?;
+    }
+    if !link_exists(WG_LINK) {
+        ip_words(&["link", "add", WG_LINK, "type", "wireguard"])?;
+    }
+    wg_syncconf(&tunnel.setconf())?;
+    write_sysctl(&format!("net/ipv4/conf/{WG_LINK}/rp_filter"), "0")?;
+    ip_words(&["link", "set", WG_LINK, "mtu", &mtu.to_string(), "up"])?;
+    // Everything from the tap goes through the tunnel's table: wg0, else
+    // nothing (the blackhole keeps a down tunnel from falling back to main).
+    if !ip_words(&["-4", "rule", "show"])?.contains(&format!("iif {} lookup {TABLE}", plan.tap)) {
+        ip_words(&[
+            "-4", "rule", "add", "iif", &plan.tap, "lookup", TABLE, "priority", "100",
+        ])?;
+    }
+    ip_words(&[
+        "-4", "route", "replace", "default", "dev", WG_LINK, "table", TABLE,
+    ])?;
+    ip_words(&[
+        "-4",
+        "route",
+        "replace",
+        "blackhole",
+        "default",
+        "table",
+        TABLE,
+        "metric",
+        "4096",
+    ])?;
+    Ok(mtu)
+}
+
+fn link_exists(name: &str) -> bool {
+    ip_words(&["link", "show", "dev", name]).is_ok()
+}
+
+/// `wg syncconf wg0` with the config on stdin: the private key is never on a
+/// command line, and an unchanged peer keeps its session.
+fn wg_syncconf(config: &str) -> io::Result<()> {
+    let mut child = Command::new("wg")
+        .args(["syncconf", crate::vpn::WG_LINK, "/dev/stdin"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()?;
+    child
+        .stdin
+        .take()
+        .expect("piped stdin")
+        .write_all(config.as_bytes())?;
+    let output = child.wait_with_output()?;
+    if output.status.success() {
+        return Ok(());
+    }
+    // wg's own messages do not echo keys.
+    Err(io::Error::other(format!(
+        "wg syncconf: {}",
+        String::from_utf8_lossy(&output.stderr).trim()
+    )))
+}
+
+/// The node's Cilium agent process, whose mount namespace has the pinned
+/// BPF maps and bpftool.
+pub fn cilium_agent_pid(proc_root: &Path) -> Option<i32> {
+    fs::read_dir(proc_root)
+        .ok()?
+        .filter_map(Result::ok)
+        .filter_map(|e| e.file_name().to_str()?.parse::<i32>().ok())
+        .find(|pid| {
+            fs::read_to_string(proc_root.join(pid.to_string()).join("comm"))
+                .is_ok_and(|c| c.trim() == "cilium-agent")
+        })
+}
+
+/// bpftool in the agent's mount and PID namespaces (its /proc must match
+/// for bpftool's fdinfo reads).
+fn bpftool(proc_root: &Path, args: &[&str], stdin: Option<&str>) -> io::Result<String> {
+    let pid = cilium_agent_pid(proc_root)
+        .ok_or_else(|| io::Error::other("no cilium-agent process on this node"))?;
+    let mut child = Command::new("nsenter")
+        .args(["-t", &pid.to_string(), "-m", "-p", "--", "bpftool"])
+        .args(args)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?;
+    child
+        .stdin
+        .take()
+        .expect("piped stdin")
+        .write_all(stdin.unwrap_or_default().as_bytes())?;
+    let output = child.wait_with_output()?;
+    if !output.status.success() {
+        return Err(io::Error::other(format!(
+            "bpftool {}: {}",
+            args.first().copied().unwrap_or_default(),
+            String::from_utf8_lossy(&output.stderr).trim()
+        )));
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+}
+
+/// CLOCK_MONOTONIC in seconds: Cilium's conntrack clock (`ktime`).
+pub fn monotonic_secs() -> u64 {
+    nix::time::clock_gettime(nix::time::ClockId::CLOCK_MONOTONIC)
+        .map(|t| u64::try_from(t.tv_sec()).unwrap_or(0))
+        .unwrap_or(0)
+}
+
+/// This node's conntrack entries for flows of `ip`.
+pub fn export_conntrack(proc_root: &Path, ip: Ipv4Addr) -> io::Result<crate::ct::Export> {
+    let mut entries = Vec::new();
+    for (map, name) in crate::ct::MAPS {
+        let path = format!("{}/{name}", crate::ct::PIN_DIR);
+        entries.extend(bpftool_dump(proc_root, &path, |dump| {
+            crate::ct::select_dump(map, dump, ip)
+        })?);
+    }
+    Ok(crate::ct::Export::new(monotonic_secs(), entries))
+}
+
+/// `bpftool -j map dump pinned <path>`, its output handed to `read` as it
+/// streams (a whole dump is tens of MB once parsed; netd's memory limit is
+/// 128 MiB).
+fn bpftool_dump<T>(
+    proc_root: &Path,
+    path: &str,
+    read: impl FnOnce(std::process::ChildStdout) -> Result<T, String>,
+) -> io::Result<T> {
+    let pid = cilium_agent_pid(proc_root)
+        .ok_or_else(|| io::Error::other("no cilium-agent process on this node"))?;
+    let mut child = Command::new("nsenter")
+        .args(["-t", &pid.to_string(), "-m", "-p", "--", "bpftool"])
+        .args(["-j", "map", "dump", "pinned", path])
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?;
+    let read = read(child.stdout.take().expect("piped stdout"));
+    if read.is_err() {
+        let _ = child.kill();
+    }
+    let output = child.wait_with_output()?;
+    if !output.status.success() {
+        return Err(io::Error::other(format!(
+            "bpftool dump: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        )));
+    }
+    read.map_err(io::Error::other)
+}
+
+/// Whether `route` (`ip route get` in a node's host namespace) reaches its
+/// address directly on a host link: another node or the VM host on the node
+/// network, not a Pod (local ones go through Cilium's devices, remote ones
+/// via a node) or anything behind a router.
+///
+/// ```
+/// use qrab_netd::sys::on_link;
+/// assert!(on_link("10.203.0.12 dev enp0s2 src 10.203.0.11 uid 0"));
+/// assert!(!on_link("10.244.3.250 via 10.203.0.12 dev enp0s2 src 10.203.0.11 uid 0"));
+/// assert!(!on_link("10.244.0.49 dev cilium_host src 10.244.0.66 uid 0"));
+/// assert!(!on_link("10.244.0.9 dev lxc1a2b src 10.244.0.66 uid 0"));
+/// assert!(!on_link("local 10.203.0.11 dev lo src 10.203.0.11 uid 0"));
+/// ```
+pub fn on_link(route: &str) -> bool {
+    !route.starts_with("local ")
+        && !route.contains(" via ")
+        && !route.contains(" dev cilium_")
+        && !route.contains(" dev lxc")
+}
+
+/// Whether `ip` is a peer on this node's host links (see [`on_link`]),
+/// judged in the calling thread's (host) namespace.
+pub fn is_link_peer(ip: Ipv4Addr) -> bool {
+    ip_words(&["-4", "route", "get", &ip.to_string()]).is_ok_and(|route| on_link(&route))
+}
+
+/// Whether `ip` is this node's own or one of its local endpoints', judged
+/// in the calling thread's (host) namespace.
+fn is_local_here(ip: Ipv4Addr) -> bool {
+    match ip_words(&["-4", "route", "get", &ip.to_string()]) {
+        Ok(route) => route.starts_with("local ") || route.contains(" dev lxc"),
+        // Unroutable: treat as local, so nothing is imported for it.
+        Err(_) => true,
+    }
+}
+
+/// Import an export into this node's maps for the NIC at `ip`. Runs in the
+/// host namespace; returns how many entries were written.
+pub fn import_conntrack(
+    proc_root: &Path,
+    ip: Ipv4Addr,
+    export: &crate::ct::Export,
+) -> io::Result<usize> {
+    let now = monotonic_secs();
+    let mut accepted = Vec::new();
+    for entry in export.decode().map_err(io::Error::other)? {
+        crate::ct::importable(&entry, ip, is_local_here).map_err(io::Error::other)?;
+        if let Some(moved) = crate::ct::rebase(&entry, export.now, now) {
+            accepted.push(moved);
+        }
+    }
+    if !accepted.is_empty() {
+        bpftool(
+            proc_root,
+            &["batch", "file", "/dev/stdin"],
+            Some(&crate::ct::batch(&accepted)),
+        )?;
+    }
+    Ok(accepted.len())
+}
+
+/// The wg-quick config a VPN anchor mounts, read through the root of the
+/// Pod's process that has the mount: the anchor container's, not the
+/// sandbox's (whose mount namespace has no volumes).
+pub fn read_tunnel(proc_root: &Path, pod_uid: &str) -> Result<crate::vpn::Tunnel, String> {
+    let mut last = None;
+    for pid in pids_of_pod(proc_root, pod_uid) {
+        let path = proc_root
+            .join(pid.to_string())
+            .join("root")
+            .join(crate::vpn::VPN_MOUNT.trim_start_matches('/'))
+            .join(crate::vpn::VPN_FILE);
+        match std::fs::read_to_string(&path) {
+            Ok(text) => return crate::vpn::Tunnel::parse(&text),
+            Err(error) => last = Some(error),
+        }
+    }
+    Err(match last {
+        Some(error) => format!("cannot read the anchor's VPN config: {error}"),
+        None => "no running process of the anchor yet".into(),
+    })
+}
+
+/// Route protocol marking the transient forward routes this agent owns, so
+/// it finds and removes only its own.
 pub const FORWARD_PROTO: &str = "252";
+/// The table forward routes live in. They used to share the main table
+/// with Cilium's multi-pool route for the same /32, and whoever wrote last
+/// won: live, the source's agent re-installed its pool route (to the
+/// now-standby endpoint) 16 s after a switch, black-holing what still
+/// reached the old node.
+pub const FORWARD_TABLE: &str = "252";
+/// The rule sending every lookup to [`FORWARD_TABLE`] first: after Cilium's
+/// `local` rule (priority 100), before `main`. Cilium's BPF FIB lookups
+/// honour rules (no `BPF_FIB_LOOKUP_DIRECT` without a table id).
+pub const FORWARD_RULE_PRIORITY: &str = "200";
 
 /// The host's network namespace (the agent runs with host PIDs).
 pub fn host_netns(proc_root: &Path) -> PathBuf {
     proc_root.join("1/ns/net")
 }
 
-/// `<ip>/32 via <via>` in the calling thread's (host) namespace.
+/// Ensure the [`FORWARD_RULE_PRIORITY`] rule exists in the calling thread's
+/// namespace.
+fn ensure_forward_rule() -> io::Result<()> {
+    let rules = ip_words(&["-4", "rule", "show", "priority", FORWARD_RULE_PRIORITY])?;
+    if rules.contains(&format!("lookup {FORWARD_TABLE}")) {
+        return Ok(());
+    }
+    ip_words(&[
+        "-4",
+        "rule",
+        "add",
+        "priority",
+        FORWARD_RULE_PRIORITY,
+        "lookup",
+        FORWARD_TABLE,
+    ])
+    .map(drop)
+}
+
+/// `<ip>/32 via <via>` in [`FORWARD_TABLE`] of the calling thread's (host)
+/// namespace, ahead of any main-table route for it.
 pub fn forward(ip: Ipv4Addr, via: Ipv4Addr) -> io::Result<()> {
+    ensure_forward_rule()?;
     ip_words(&[
         "route",
         "replace",
@@ -270,30 +562,66 @@ pub fn forward(ip: Ipv4Addr, via: Ipv4Addr) -> io::Result<()> {
         &via.to_string(),
         "proto",
         FORWARD_PROTO,
+        "table",
+        FORWARD_TABLE,
     ])
-    .map(drop)
+    .map(drop)?;
+    // An older agent's main-table forward for the address goes.
+    delete_forward(ip, "main")
 }
 
-/// Remove the forward route for `ip`, if any.
-pub fn unforward(ip: Ipv4Addr) -> io::Result<()> {
-    match ip_words(&["route", "del", &format!("{ip}/32"), "proto", FORWARD_PROTO]) {
+fn delete_forward(ip: Ipv4Addr, table: &str) -> io::Result<()> {
+    match ip_words(&[
+        "route",
+        "del",
+        &format!("{ip}/32"),
+        "proto",
+        FORWARD_PROTO,
+        "table",
+        table,
+    ]) {
         Err(e) if e.to_string().contains("No such process") => Ok(()),
+        Err(e) if e.to_string().contains("does not exist") => Ok(()),
         other => other.map(drop),
     }
 }
 
+/// Remove the forward route for `ip`, if any (also an older agent's, in the
+/// main table).
+pub fn unforward(ip: Ipv4Addr) -> io::Result<()> {
+    delete_forward(ip, FORWARD_TABLE)?;
+    delete_forward(ip, "main")
+}
+
 /// Addresses with a forward route of ours in the calling thread's namespace.
 pub fn forwards() -> io::Result<Vec<Ipv4Addr>> {
-    Ok(ip_words(&["-4", "route", "show", "proto", FORWARD_PROTO])?
-        .lines()
-        .filter_map(|line| {
+    let mut found = Vec::new();
+    for table in [FORWARD_TABLE, "main"] {
+        let routes = match ip_words(&[
+            "-4",
+            "route",
+            "show",
+            "table",
+            table,
+            "proto",
+            FORWARD_PROTO,
+        ]) {
+            Ok(routes) => routes,
+            // A table nothing was ever added to does not exist yet.
+            Err(e) if e.to_string().contains("does not exist") => continue,
+            Err(e) => return Err(e),
+        };
+        found.extend(routes.lines().filter_map(|line| {
             line.split_whitespace()
                 .next()?
                 .trim_end_matches("/32")
-                .parse()
+                .parse::<Ipv4Addr>()
                 .ok()
-        })
-        .collect())
+        }));
+    }
+    found.sort();
+    found.dedup();
+    Ok(found)
 }
 
 /// Ask the node's Cilium agent to move an endpoint through the handoff
@@ -379,6 +707,46 @@ fn socket2_udp(tap: &str) -> io::Result<std::net::UdpSocket> {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn a_vpn_config_is_read_through_the_process_that_mounts_it() {
+        let uid = "6b9f0c44-0000-4000-8000-0000000000cc";
+        let proc_root = tempfile::tempdir().unwrap();
+        let cgroup = format!(
+            "0::/kubepods.slice/kubepods-pod{}.slice/cri-containerd-x.scope\n",
+            uid.replace('-', "_")
+        );
+        // pid 7: the sandbox, no volumes; pid 9: the anchor container.
+        for pid in ["7", "9", "11"] {
+            let dir = proc_root.path().join(pid);
+            std::fs::create_dir_all(dir.join("root")).unwrap();
+            let owner = if pid == "11" {
+                "0::/system.slice/other.scope\n".to_owned()
+            } else {
+                cgroup.clone()
+            };
+            std::fs::write(dir.join("cgroup"), owner).unwrap();
+        }
+        assert_eq!(pids_of_pod(proc_root.path(), uid), [7, 9]);
+        assert!(read_tunnel(proc_root.path(), uid)
+            .unwrap_err()
+            .contains("No such file"));
+        let mount = proc_root.path().join("9/root/run/qrab-vpn");
+        std::fs::create_dir_all(&mount).unwrap();
+        std::fs::write(mount.join("wg.conf"), "[Interface]\nPrivateKey = yAnz5TF+lXXJte14tji3zlMNq+hd2rYUIgJBgB3fBmk=\nAddress = 10.2.0.2/32\n[Peer]\nPublicKey = xTIBA5rboUvnH4htodjb6e697QjLERt1NAB4mZqp8Dg=\nEndpoint = 203.0.113.9:51820\n").unwrap();
+        // The sandbox comes first but lacks the mount; the container has it.
+        assert_eq!(
+            read_tunnel(proc_root.path(), uid)
+                .unwrap()
+                .address
+                .to_string(),
+            "10.2.0.2"
+        );
+        assert_eq!(
+            read_tunnel(proc_root.path(), "00000000-0000-4000-8000-000000000000").unwrap_err(),
+            "no running process of the anchor yet"
+        );
+    }
     use super::*;
     use std::io::{BufRead, BufReader, Read};
 

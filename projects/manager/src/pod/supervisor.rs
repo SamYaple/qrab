@@ -147,6 +147,10 @@ pub async fn run_controlled(
         Some(incoming) => {
             let receiving = migration::connect(&config, incoming).await?;
             config.machine = Some(receiving.offer.machine.clone());
+            // The source's live NICs, hot-plugged ones and slots included.
+            if let Some(nics) = &receiving.offer.nics {
+                config.nics = nics.clone();
+            }
             Some(receiving)
         }
         None => None,
@@ -250,6 +254,11 @@ async fn power_on(
     let mut config = base.clone();
     if let Some(reason) = relaunch {
         config.incoming = None;
+        // NICs and the seed follow the VM ConfigMap across in-place power cycles.
+        if let Some(fresh) = config.source.as_deref().and_then(|p| Config::read(p).ok()) {
+            config.nics = fresh.nics;
+            config.seed = fresh.seed;
+        }
         control.set_powering_on();
         control.record_power("PoweringOn", reason);
         eprintln!(
@@ -496,6 +505,7 @@ async fn run_qemu(
     if !config.tap_fds().is_empty() {
         state.detail = None;
     }
+    let mut nics = super::nics::Nics::booted(config, &inherited.1);
     let mut command = Command::new(&config.qemu_binary);
     command
         .args(config.arguments(socket))
@@ -635,6 +645,12 @@ async fn run_qemu(
                     let Ok(_management)=control.migration_guard() else {
                         migration::reject(pending,"firmware management is busy").await;continue;
                     };
+                    if nics.changing() {
+                        migration::reject(pending,"a guest NIC is being plugged or unplugged").await;continue;
+                    }
+                    // The target recreates the NICs QEMU has now, hot-plugged ones included.
+                    let live = nics.live(config);
+                    let config = &live;
                     let grown=state.resize.as_ref().is_some_and(|resize| resize.current!=resize.boot);
                     let sent = tokio::select! {
                         biased;
@@ -679,6 +695,7 @@ async fn run_qemu(
                     let status=qmp.execute(&QueryStatus {}).await?;
                     state.phase=Phase::Running;state.ready=status.running;state.run_state=Some(status.status.to_string());
                     if let Some(resize)=state.resize.as_mut() { super::hotplug::reconcile(config,&qmp,resize).await; }
+                    super::nics::reconcile(config,&qmp,&mut nics).await;
                     super::disks::reconcile(config,&qmp,&mut disk_growth).await;
                     control.set_qmp_dropped(qmp.dropped_events());
                     publish(config,state)?;

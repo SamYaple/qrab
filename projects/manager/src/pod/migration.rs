@@ -42,6 +42,9 @@ const FRAME_TIMEOUT: Duration = Duration::from_secs(10);
 const READY_TIMEOUT: Duration = Duration::from_secs(120);
 /// Each switchover exchange; the guest is paused meanwhile.
 const SWITCH_TIMEOUT: Duration = Duration::from_secs(10);
+// The target answers a conntrack request within its pull deadline, so its
+// reply never arrives after the source stopped waiting for it.
+const _: () = assert!(qrab_netd::wire::PULL_DEADLINE.as_secs() < SWITCH_TIMEOUT.as_secs());
 /// QEMU's own throttle, in bytes per second.
 const MAX_BANDWIDTH: u64 = 1 << 30;
 /// The refusal of a source whose QEMU is powered off. A target that receives
@@ -110,6 +113,16 @@ enum Switch {
     /// The switch is undone: the target stands its anchors down again.
     Abort,
     Failed(String),
+    /// Have the target node pull one NIC's conntrack entries from the
+    /// source node (qrab_netd::peer). The managers carry no entries: they sit
+    /// inside the VM's trust boundary, and entries they relayed could name
+    /// flows the NIC's groups would not admit. An older source's `export`
+    /// field is ignored.
+    Conntrack {
+        nic: String,
+    },
+    /// How many entries the target node imported.
+    Imported(usize),
 }
 
 type Channel = qrab_spiffe::server::TlsStream<TcpStream>;
@@ -155,6 +168,10 @@ pub(super) struct Offer {
     pub machine: String,
     /// Every iSCSI binding the source ever recorded, including removed IDs.
     pub iscsi_disks: BTreeMap<String, Binding>,
+    /// The guest NICs the source's QEMU has, with their root-port slots
+    /// (absent from an older source: the target uses its own config's).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub nics: Option<Vec<super::config::Nic>>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -400,6 +417,81 @@ async fn switch_over(
     netd_all(config, nics, Op::Standby, None).await
 }
 
+/// Best effort, after the switch: have the target node pull each NIC's
+/// conntrack entries from this node again (`delta`, for flows opened since
+/// the target's own `precopy`, see [`pull_conntrack`]). Failures are logged.
+async fn copy_conntrack(nics: &[String], channel: &mut Channel, phase: &str) {
+    let started = tokio::time::Instant::now();
+    let mut copied = 0;
+    for nic in nics {
+        if write_frame(channel, &Switch::Conntrack { nic: nic.clone() })
+            .await
+            .is_err()
+        {
+            log(
+                json!({"event":"migration_conntrack_failed","phase":phase,"nic":nic,"step":"send"}),
+            );
+            return;
+        }
+        match read_frame(channel, SWITCH_TIMEOUT).await {
+            Ok(Switch::Imported(count)) => {
+                copied += count;
+                log(
+                    json!({"event":"migration_conntrack","phase":phase,"nic":nic,"imported":count}),
+                );
+            }
+            Ok(Switch::Failed(reason)) => {
+                log(
+                    json!({"event":"migration_conntrack_failed","phase":phase,"nic":nic,"step":"pull","error":reason}),
+                );
+            }
+            other => {
+                log(
+                    json!({"event":"migration_conntrack_failed","phase":phase,"nic":nic,"step":"pull","error":format!("{other:?}")}),
+                );
+                return;
+            }
+        }
+    }
+    log(
+        json!({"event":"migration_conntrack_copied","phase":phase,"entries":copied,"ms":started.elapsed().as_millis()}),
+    );
+}
+
+/// The target's best-effort `precopy`, before it accepts the stream: its
+/// node's qrab-netd pulls each NIC's conntrack entries from the source node
+/// and imports them, so established flows keep their verdicts the moment the
+/// target activates (a flow only the guest sends on would otherwise be new,
+/// and refused by groups that deny new egress; an import only after the switch
+/// left the guest's first segments dropped, and TCP's backoff stretched that
+/// to seconds). Failures are logged.
+async fn pull_conntrack(config: &Config, nics: &[String], phase: &str) {
+    let started = tokio::time::Instant::now();
+    let mut copied = 0;
+    for nic in nics {
+        let (socket, name) = (config.netd_socket.clone(), nic.clone());
+        match tokio::task::spawn_blocking(move || qrab_netd::wire::conntrack_pull(&socket, &name))
+            .await
+        {
+            Ok(Ok(count)) => {
+                copied += count;
+                log(
+                    json!({"event":"migration_conntrack","phase":phase,"nic":nic,"imported":count}),
+                );
+            }
+            Ok(Err(error)) => log(
+                json!({"event":"migration_conntrack_failed","phase":phase,"nic":nic,"step":"pull","error":error.to_string()}),
+            ),
+            Err(error) => log(
+                json!({"event":"migration_conntrack_failed","phase":phase,"nic":nic,"step":"pull","error":error.to_string()}),
+            ),
+        }
+    }
+    log(
+        json!({"event":"migration_conntrack_copied","phase":phase,"entries":copied,"ms":started.elapsed().as_millis()}),
+    );
+}
+
 /// Undo a partial or complete switch so the source keeps serving the guest:
 /// this node's anchors active again, the target's standing by, no forward.
 async fn switch_back(config: &Config, nics: &[String], channel: &mut Channel) {
@@ -416,13 +508,39 @@ async fn switch_back(config: &Config, nics: &[String], channel: &mut Channel) {
     }
 }
 
-struct AbortOnDrop(tokio::task::JoinHandle<()>);
+struct AbortOnDrop(Option<tokio::task::JoinHandle<()>>);
+
+impl AbortOnDrop {
+    fn new(task: tokio::task::JoinHandle<()>) -> Self {
+        Self(Some(task))
+    }
+
+    /// Let the task run on for at most `limit`, then abort it: a target's
+    /// switchover server outlives the guest's arrival so the source can still
+    /// hand over the NICs' conntrack entries.
+    fn linger(mut self, limit: Duration) {
+        if let Some(task) = self.0.take() {
+            let abort = task.abort_handle();
+            tokio::spawn(async move {
+                if tokio::time::timeout(limit, task).await.is_err() {
+                    abort.abort();
+                }
+            });
+        }
+    }
+}
 
 impl Drop for AbortOnDrop {
     fn drop(&mut self) {
-        self.0.abort();
+        if let Some(task) = &self.0 {
+            task.abort();
+        }
     }
 }
+
+/// How long a target keeps serving the switchover connection once the guest
+/// has arrived (the source's conntrack copy follows the arrival).
+const SWITCHOVER_LINGER: Duration = Duration::from_secs(30);
 
 /// The target's half: serve the source's switchover requests.
 async fn serve_switchover(
@@ -438,6 +556,22 @@ async fn serve_switchover(
         let (op, reply_ok) = match frame {
             Switch::Activate => (Op::Activate, Switch::Activated),
             Switch::Abort => (Op::Standby, Switch::Abort),
+            Switch::Conntrack { nic } => {
+                let socket = config.netd_socket.clone();
+                let imported = tokio::task::spawn_blocking(move || {
+                    qrab_netd::wire::conntrack_pull(&socket, &nic)
+                })
+                .await;
+                let reply = match imported {
+                    Ok(Ok(count)) => Switch::Imported(count),
+                    Ok(Err(error)) => Switch::Failed(error.to_string()),
+                    Err(error) => Switch::Failed(error.to_string()),
+                };
+                if write_frame(&mut channel, &reply).await.is_err() {
+                    return;
+                }
+                continue;
+            }
             _ => return,
         };
         let reply = match netd_all(&config, &nics, op, None).await {
@@ -547,6 +681,7 @@ where
             &Reply::Offer(Offer {
                 machine,
                 iscsi_disks: retained,
+                nics: (config.nic_slots > 0).then(|| config.slotted_nics()),
             }),
         )
         .await?;
@@ -628,6 +763,10 @@ where
                 splice.abort();
                 return Err(failure("cancelled by shutdown"));
             }
+        }
+        // The guest runs on the target: carry its NICs' established flows over.
+        if let (true, Some((connection, _))) = (switched, switch.as_mut()) {
+            copy_conntrack(&nics, connection, "delta").await;
         }
         // QEMU closes its end after the last byte; wait for it to drain.
         match tokio::time::timeout(Duration::from_secs(30), splice).await {
@@ -770,19 +909,26 @@ impl Receiving {
             ..
         } = self;
         let path = session.join("migrate-in.sock");
+        // The conntrack precopy, pulled here before QEMU takes the stream:
+        // once it has accepted the incoming connection QEMU stops answering
+        // QMP until data arrives, so a pull of more than the 2 s QMP command
+        // timeout in between failed the migration.
+        if let Some(plan) = &switchover {
+            pull_conntrack(&plan.config, &plan.nics, "precopy").await;
+        }
         capabilities(qmp, false).await?;
         qmp.execute_raw(json!({"execute":"migrate-incoming","arguments":{"uri":format!("unix:{}", path.display())}}))
             .await?;
         let mut local = UnixStream::connect(&path).await?;
         write_frame(&mut stream, &Ready { ready: true }).await?;
-        // Dropped (and so aborted) when the guest has arrived or this fails.
-        let _switchover = match switchover {
+        // Aborted when this fails; lingers briefly once the guest has arrived.
+        let switchover = match switchover {
             Some(plan) => {
                 let tcp = TcpStream::connect(&plan.source).await?;
                 tcp.set_nodelay(true)?;
                 let mut channel = plan.connector.connect(tcp).await.map_err(failure)?;
                 write_frame(&mut channel, &plan.hello).await?;
-                Some(AbortOnDrop(tokio::spawn(serve_switchover(
+                Some(AbortOnDrop::new(tokio::spawn(serve_switchover(
                     plan.config,
                     plan.nics,
                     channel,
@@ -814,6 +960,9 @@ impl Receiving {
             }
         }
         log(json!({"event":"migration_received","migration":migration}));
+        if let Some(server) = switchover {
+            server.linger(SWITCHOVER_LINGER);
+        }
         Ok(())
     }
 }
@@ -943,6 +1092,7 @@ mod tests {
         let offer = Offer {
             machine: "pc-q35-11.1".into(),
             iscsi_disks: BTreeMap::new(),
+            nics: None,
         };
         write_frame(&mut stream, &Reply::Offer(offer))
             .await
@@ -1086,6 +1236,8 @@ mod tests {
                 record.lock().unwrap().push((request.op, request.via));
                 if Some(request.op) == refuse {
                     qrab_netd::wire::send_refusal(&stream, "no").unwrap();
+                } else if request.op == Op::CtPull {
+                    qrab_netd::wire::send_imported(&stream, 2).unwrap();
                 } else {
                     qrab_netd::wire::send_ok(&stream).unwrap();
                 }
@@ -1196,6 +1348,60 @@ mod tests {
             [(Op::Activate, None), (Op::Standby, None)]
         );
         serving.abort();
+    }
+
+    #[tokio::test]
+    async fn after_the_switch_the_sources_conntrack_entries_reach_the_target_node() {
+        let ca = Authority::new();
+        let (source, target) = (
+            Workload::serve(vec![ca.svid(VM)]),
+            Workload::serve(vec![ca.svid(VM)]),
+        );
+        let dir = tempfile::tempdir().unwrap();
+        let (_, source_ops) = fake_netd(dir.path(), "source", None);
+        let (target_config, target_ops) = fake_netd(dir.path(), "target", None);
+        let (mut channel, _, client) = switchover_pair(&source, &target, "m-conntrack").await;
+        let serving = tokio::spawn(serve_switchover(target_config, vec!["lan".into()], client));
+        copy_conntrack(&["lan".into()], &mut channel, "delta").await;
+        // The source's agent is not asked: the target's pulls node to node.
+        assert!(source_ops.lock().unwrap().is_empty());
+        assert_eq!(*target_ops.lock().unwrap(), [(Op::CtPull, None)]);
+        // The channel still serves the switchover afterwards.
+        write_frame(&mut channel, &Switch::Abort).await.unwrap();
+        assert_eq!(
+            read_frame::<_, Switch>(&mut channel, SWITCH_TIMEOUT)
+                .await
+                .unwrap(),
+            Switch::Abort
+        );
+        serving.abort();
+    }
+
+    #[tokio::test]
+    async fn a_lingering_switchover_server_keeps_serving_then_stops() {
+        let (tx, mut rx) = tokio::sync::mpsc::channel(4);
+        let task = tokio::spawn(async move {
+            loop {
+                if tx.send(()).await.is_err() {
+                    return;
+                }
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        });
+        let abort = task.abort_handle();
+        AbortOnDrop::new(task).linger(Duration::from_millis(150));
+        // Still running after the owner let go...
+        tokio::time::sleep(Duration::from_millis(60)).await;
+        assert!(rx.recv().await.is_some());
+        // ...and aborted once the window passed.
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        assert!(abort.is_finished());
+        // A plain drop aborts at once.
+        let task = tokio::spawn(std::future::pending::<()>());
+        let abort = task.abort_handle();
+        drop(AbortOnDrop::new(task));
+        tokio::time::sleep(Duration::from_millis(10)).await;
+        assert!(abort.is_finished());
     }
 
     #[test]

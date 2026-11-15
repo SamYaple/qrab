@@ -158,6 +158,7 @@ fn a_tap_built_in_one_namespace_works_from_another() {
         tap_mac: identity::tap_mac(uid, "lan"),
         guest_mac: identity::guest_mac(uid, "lan"),
         guest_ip: "10.99.0.7".parse().unwrap(),
+        vpn: None,
     };
     let check = plan.clone();
     let packets = sys::in_netns(&anchor.path, move || {
@@ -207,7 +208,7 @@ fn a_tap_built_in_one_namespace_works_from_another() {
     let taps = sys::in_netns(&anchor.path, move || sys::open_tap_queues(&tap, queues)).unwrap();
     let vhosts = sys::open_vhost(queues).unwrap();
     let (agent, manager) = UnixStream::pair().unwrap();
-    wire::send_grant(&agent, &plan.tap, &taps, &vhosts).unwrap();
+    wire::send_grant(&agent, &plan.tap, "anchor-uid", &taps, &vhosts).unwrap();
     drop((taps, vhosts));
 
     let (guest_mac, marker) = (plan.guest_mac.clone(), b"qrab-netd-test-frame".to_vec());
@@ -247,10 +248,28 @@ fn forward_routes_are_marked_listed_and_removed() {
         ip("addr add 10.99.1.1/24 dev peer0")?;
         ip("link set peer0 up")?;
         let (guest, via) = ("10.99.0.50".parse().unwrap(), "10.99.1.2".parse().unwrap());
+        assert!(sys::forwards()?.is_empty(), "no table yet");
         sys::forward(guest, via)?;
         sys::forward(guest, via)?; // idempotent
         assert_eq!(sys::forwards()?, vec![guest]);
         assert!(ip("route get 10.99.0.50")?.contains("via 10.99.1.2"));
+        assert_eq!(
+            ip("-4 rule show priority 200")?
+                .matches("lookup 252")
+                .count(),
+            1
+        );
+        // A main-table route for the same /32 (Cilium's pool route, written
+        // after ours) does not take the address back.
+        ip("route replace 10.99.0.50/32 dev peer0")?;
+        assert!(ip("route get 10.99.0.50")?.contains("via 10.99.1.2"));
+        ip("route del 10.99.0.50/32 dev peer0")?;
+        // An older agent's main-table forward is listed, and replaced.
+        ip("route add 10.99.0.70/32 via 10.99.1.2 proto 252")?;
+        assert_eq!(sys::forwards()?.len(), 2);
+        sys::forward("10.99.0.70".parse().unwrap(), via)?;
+        assert!(!ip("route show proto 252")?.contains("10.99.0.70"));
+        sys::unforward("10.99.0.70".parse().unwrap())?;
         // Other routes are never ours.
         ip("route add 10.99.0.60/32 via 10.99.1.2")?;
         assert_eq!(sys::forwards()?, vec![guest]);
@@ -297,6 +316,8 @@ fn the_dhcp_responder_offers_the_lease_over_a_real_link() {
         mac: [2, 0, 0, 0, 0, 0x42],
         ip: "10.99.0.42".parse().unwrap(),
         seconds: 600,
+        dns: Some(qrab_netd::GUEST_GATEWAY),
+        mtu: None,
     };
     let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     sys::serve_dhcp(anchor.path.clone(), "qtdhcp0".into(), lease, stop.clone()).unwrap();
@@ -335,4 +356,206 @@ fn the_dhcp_responder_offers_the_lease_over_a_real_link() {
     let (offer, from) = reply;
     assert_eq!(from.ip().to_string(), "169.254.1.1");
     assert_eq!(&offer[16..20], &[10, 99, 0, 42], "yiaddr is the lease");
+}
+
+/// One's-complement sum over 16-bit words (IPv4 and ICMP checksums).
+fn checksum(bytes: &[u8]) -> u16 {
+    let mut sum: u32 = bytes
+        .chunks(2)
+        .map(|c| u32::from(u16::from_be_bytes([c[0], *c.get(1).unwrap_or(&0)])))
+        .sum();
+    while sum > 0xffff {
+        sum = (sum & 0xffff) + (sum >> 16);
+    }
+    !(sum as u16)
+}
+
+/// An ICMP echo request `src -> dst` as the guest would send it to its
+/// gateway's MAC, behind the 10-byte virtio-net header.
+fn icmp_frame(dst_mac: &str, src_mac: &str, src: [u8; 4], dst: [u8; 4], marker: &[u8]) -> Vec<u8> {
+    let mac = |m: &str| {
+        m.split(':')
+            .map(|b| u8::from_str_radix(b, 16).unwrap())
+            .collect::<Vec<_>>()
+    };
+    let mut icmp = vec![8, 0, 0, 0, 0x51, 0x52, 0, 1];
+    icmp.extend(marker);
+    let sum = checksum(&icmp).to_be_bytes();
+    icmp[2..4].copy_from_slice(&sum);
+    let mut ipv4 = vec![0x45, 0, 0, 0, 0, 0, 0x40, 0, 64, 1, 0, 0];
+    ipv4[2..4].copy_from_slice(&((20 + icmp.len()) as u16).to_be_bytes());
+    ipv4.extend(src);
+    ipv4.extend(dst);
+    let sum = checksum(&ipv4).to_be_bytes();
+    ipv4[10..12].copy_from_slice(&sum);
+    let mut frame = vec![0u8; 10];
+    frame.extend(mac(dst_mac));
+    frame.extend(mac(src_mac));
+    frame.extend([0x08, 0x00]);
+    frame.extend(ipv4);
+    frame.extend(icmp);
+    frame
+}
+
+/// Read frames from a tap queue until one carries `marker` (or ~2 s pass).
+fn queue_saw(queue: &OwnedFd, marker: &[u8]) -> bool {
+    let mut buffer = [0u8; 2048];
+    for _ in 0..40 {
+        let mut poll = libc::pollfd {
+            fd: queue.as_raw_fd(),
+            events: libc::POLLIN,
+            revents: 0,
+        };
+        // SAFETY: one valid pollfd.
+        if unsafe { libc::poll(&mut poll, 1, 50) } <= 0 {
+            continue;
+        }
+        // SAFETY: buffer is valid for its length.
+        let n = unsafe { libc::read(queue.as_raw_fd(), buffer.as_mut_ptr().cast(), buffer.len()) };
+        if n > 0
+            && buffer[..n as usize]
+                .windows(marker.len())
+                .any(|w| w == marker)
+        {
+            return true;
+        }
+    }
+    false
+}
+
+fn wg(words: &str, stdin: Option<&str>) -> io::Result<String> {
+    use std::io::Write;
+    let mut child = std::process::Command::new("wg")
+        .args(words.split(' '))
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .spawn()?;
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(stdin.unwrap_or("").as_bytes())?;
+    let out = child.wait_with_output()?;
+    if !out.status.success() {
+        return Err(io::Error::other(format!("wg {words} failed")));
+    }
+    Ok(String::from_utf8_lossy(&out.stdout).trim().to_owned())
+}
+
+#[test]
+fn a_vpn_tap_reaches_only_its_tunnel() {
+    // SAFETY: geteuid has no preconditions.
+    if unsafe { libc::geteuid() } != 0 {
+        eprintln!("skipped: needs root to create network namespaces and taps");
+        return;
+    }
+    if let Err(reason) = sys::check_devices() {
+        eprintln!("skipped: {reason}");
+        return;
+    }
+    if wg("--version", None).is_err() {
+        eprintln!("skipped: needs wireguard-tools");
+        return;
+    }
+    let (anchor_key, provider_key) = (wg("genkey", None).unwrap(), wg("genkey", None).unwrap());
+    let (anchor_pub, provider_pub) = (
+        wg("pubkey", Some(&anchor_key)).unwrap(),
+        wg("pubkey", Some(&provider_key)).unwrap(),
+    );
+    let anchor = Netns::new();
+    let provider = Netns::new();
+    // The provider: a WireGuard server at 10.50.0.1, tunnel address 10.66.0.1.
+    let (key, peer) = (provider_key.clone(), anchor_pub.clone());
+    let provider_packets = sys::in_netns(&provider.path, move || {
+        ip("link set lo up")?;
+        ip("link add wg0 type wireguard")?;
+        let conf = format!("[Interface]\nPrivateKey = {key}\nListenPort = 51820\n\n[Peer]\nPublicKey = {peer}\nAllowedIPs = 10.66.0.2/32\n");
+        wg("setconf wg0 /dev/stdin", Some(&conf))?;
+        ip("addr add 10.66.0.1/24 dev wg0")?;
+        ip("link set wg0 up")?;
+        Ok::<_, io::Error>(())
+    });
+    provider_packets.unwrap();
+    // The anchor's eth0 is a veth to the provider (the Pod's uplink).
+    let provider_tid = provider
+        .path
+        .to_string_lossy()
+        .split('/')
+        .nth(4)
+        .unwrap()
+        .to_owned();
+    let uid = "6b9f0c44-0000-4000-8000-0000000000bb";
+    let tunnel = qrab_netd::vpn::Tunnel::parse(&format!(
+        "[Interface]\nPrivateKey = {anchor_key}\nAddress = 10.66.0.2/32\nDNS = 10.66.0.1\n\n[Peer]\nPublicKey = {provider_pub}\nAllowedIPs = 0.0.0.0/0\nEndpoint = 10.50.0.1:51820\n"
+    ))
+    .unwrap();
+    let plan = NicPlan {
+        tap: identity::tap_name(uid, "vpn"),
+        tap_mac: identity::tap_mac(uid, "vpn"),
+        guest_mac: identity::guest_mac(uid, "vpn"),
+        guest_ip: "10.244.128.99".parse().unwrap(),
+        vpn: None,
+    }
+    .with_tunnel(tunnel);
+    let check = plan.clone();
+    let uplink = sys::in_netns(&anchor.path, move || {
+        ip("link set lo up")?;
+        ip(&format!(
+            "link add eth0 type veth peer name vp0 netns {provider_tid}"
+        ))?;
+        ip("addr add 10.50.0.2/24 dev eth0")?;
+        ip("link set eth0 up")?;
+        let mtu = sys::apply(&check, None)?;
+        assert_eq!(mtu, 1420, "the tap takes the tunnel's MTU");
+        // The pool address would stay on eth0; here the guest has the tunnel's.
+        assert!(ip("route get 10.66.0.2")?.contains(&format!("dev {}", check.tap)));
+        assert!(ip("-4 rule show")?.contains(&format!("iif {} lookup 100", check.tap)));
+        assert!(ip("-4 route show table 100")?.contains("default dev wg0"));
+        assert!(ip("-4 route show table 100")?.contains("blackhole default"));
+        sys::apply(&check, None)?; // re-applying keeps the session
+        Ok::<_, io::Error>(())
+    });
+    uplink.unwrap();
+    let vp0 = sys::in_netns(&provider.path, || {
+        ip("addr add 10.50.0.1/24 dev vp0")?;
+        ip("link set vp0 up")?;
+        packet_socket("vp0")
+    })
+    .unwrap();
+    let tap = plan.tap.clone();
+    let queue = sys::in_netns(&anchor.path, move || sys::open_tap_queues(&tap, 1))
+        .unwrap()
+        .remove(0);
+    let ping = |dst: [u8; 4], marker: &[u8]| {
+        let frame = icmp_frame(&plan.tap_mac, &plan.guest_mac, [10, 66, 0, 2], dst, marker);
+        // SAFETY: frame is valid for its length.
+        let n = unsafe { libc::write(queue.as_raw_fd(), frame.as_ptr().cast(), frame.len()) };
+        assert_eq!(n, frame.len() as isize, "{}", io::Error::last_os_error());
+    };
+    // Through the tunnel: the provider answers, and the reply comes back.
+    let mut answered = false;
+    for attempt in 0..20 {
+        ping([10, 66, 0, 1], format!("qrab-vpn-{attempt:02}").as_bytes());
+        if queue_saw(&queue, format!("qrab-vpn-{attempt:02}").as_bytes()) {
+            answered = true;
+            break;
+        }
+    }
+    assert!(answered, "the provider answered through the tunnel");
+    // Plaintext never reaches the uplink: aimed past the tunnel at the
+    // provider's own uplink address, the ping is still encrypted.
+    ping([10, 50, 0, 1], b"qrab-vpn-leak-test");
+    assert!(
+        !saw(&vp0, b"qrab-vpn-leak-test"),
+        "no plaintext on the uplink"
+    );
+    // Kill switch: with the tunnel gone, nothing of the guest's leaves.
+    sys::in_netns(&anchor.path, || ip("link del wg0").map(drop)).unwrap();
+    ping([10, 50, 0, 1], b"qrab-vpn-killswitch");
+    ping([1, 1, 1, 1], b"qrab-vpn-killswitch");
+    assert!(
+        !saw(&vp0, b"qrab-vpn-killswitch"),
+        "nothing leaves without the tunnel"
+    );
+    drop(provider);
 }

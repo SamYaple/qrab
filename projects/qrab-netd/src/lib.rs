@@ -10,12 +10,15 @@
 #[cfg(feature = "agent")]
 pub mod authz;
 pub mod cgroup;
+pub mod ct;
 pub mod dhcp;
 pub mod identity;
+pub mod peer;
 #[cfg(feature = "agent")]
 pub mod plan;
 #[cfg(feature = "agent")]
 pub mod sys;
+pub mod vpn;
 pub mod wire;
 
 /// Anchor annotation selecting the tap datapath; any other value (or none)

@@ -97,14 +97,21 @@ impl Failure {
 }
 impl IntoResponse for Failure {
     fn into_response(self) -> Response {
-        (
+        let error = ui::ErrorPage {
+            status: self.0.as_u16(),
+            message: self.1,
+            return_to: None,
+        };
+        let mut response = (
             self.0,
             Html(ui::render(ui::Page {
-                body: ui::Body::Error(self.1),
+                body: ui::Body::Error(error.clone()),
                 ..Default::default()
             })),
         )
-            .into_response()
+            .into_response();
+        response.extensions_mut().insert(error);
+        response
     }
 }
 
@@ -127,7 +134,7 @@ pub fn origin(raw: &str, allow_local_http: bool) -> anyhow::Result<String> {
     Ok(url.origin().ascii_serialization())
 }
 
-const PAGE_CSP: &str = "default-src 'none'; style-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'";
+const PAGE_CSP: &str = "default-src 'none'; style-src 'self'; img-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'";
 /// noVNC needs scripts, a same-origin WebSocket and canvas images.
 const CONSOLE_CSP: &str = "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' data: blob:; form-action 'self'; base-uri 'none'; frame-ancestors 'none'";
 
@@ -172,6 +179,27 @@ pub fn router(state: AppState) -> Router {
         )
         .route("/assets/bmc.js", get(bmc_page::script))
         .route(
+            "/assets/console-keyboard.js",
+            get(|| async {
+                (
+                    [(
+                        axum::http::header::CONTENT_TYPE,
+                        "text/javascript; charset=utf-8",
+                    )],
+                    include_str!("../../bmc/assets/console-keyboard.js"),
+                )
+            }),
+        )
+        .route(
+            "/assets/favicon.svg",
+            get(|| async {
+                (
+                    [(axum::http::header::CONTENT_TYPE, "image/svg+xml")],
+                    include_str!("../../bmc/assets/favicon.svg"),
+                )
+            }),
+        )
+        .route(
             "/assets/bmc.css",
             get(|| async {
                 (
@@ -209,6 +237,12 @@ pub fn router(state: AppState) -> Router {
             }),
         )
         .nest_service("/assets/novnc", novnc)
+        .fallback(|| async {
+            Failure(
+                StatusCode::NOT_FOUND,
+                "This page could not be found.".into(),
+            )
+        })
         .layer(DefaultBodyLimit::max(16 * 1024))
         .layer(axum::middleware::from_fn(headers))
         .layer(sessions)
@@ -216,7 +250,27 @@ pub fn router(state: AppState) -> Router {
 }
 
 async fn headers(request: axum::extract::Request, next: axum::middleware::Next) -> Response {
+    // Request context is used only for safe GET recovery links. Never retry a
+    // submitted action or replace its status with a sign-in redirect.
+    let path = request.uri().path();
+    let return_to = auth::return_path(path).or_else(|| {
+        ["/action", "/delete"]
+            .iter()
+            .find_map(|suffix| path.strip_suffix(suffix).and_then(auth::return_path))
+    });
     let mut response = next.run(request).await;
+    if let Some(mut error) = response.extensions_mut().remove::<ui::ErrorPage>()
+        && let Some(path) = return_to
+    {
+        error.return_to = Some(path);
+        *response.body_mut() = axum::body::Body::from(ui::render(ui::Page {
+            body: ui::Body::Error(error),
+            ..Default::default()
+        }));
+        response
+            .headers_mut()
+            .remove(axum::http::header::CONTENT_LENGTH);
+    }
     let h = response.headers_mut();
     if !h.contains_key("content-security-policy") {
         h.insert(
@@ -445,7 +499,7 @@ async fn delete(
     flash(
         &session,
         format!(
-            "Deleted VM {name}. Its state PVC {} was kept: it holds the TPM identity and firmware variables. An administrator deletes it deliberately.",
+            "Deleted VM {name}. Its state PVC {} was kept: it holds the TPM identity and firmware variables. Provisioned guest disks and access groups are retained too. Ask an administrator to clean up retained resources before reusing this VM name.",
             vm.spec.state_volume_claim
         ),
     )
@@ -517,7 +571,7 @@ async fn images_page(
 fn launch_page(
     app: &AppState,
     values: Vec<(String, String)>,
-    errors: Vec<String>,
+    errors: Vec<launch::FormError>,
     images: Vec<images::BaseImage>,
 ) -> ui::Body {
     // user-data is never rendered, not even back to the user who typed it.
@@ -579,7 +633,7 @@ async fn launch(
         }
         Err(_) => Vec::new(),
     };
-    let request = match launch::parse(
+    let request = match launch::parse_form(
         &fields,
         &app.namespace,
         app.storage_node.as_deref(),

@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{
     collections::HashMap,
+    os::fd::{AsRawFd, OwnedFd, RawFd},
     path::Path,
     sync::{
         atomic::{AtomicU64, Ordering},
@@ -48,6 +49,8 @@ pub struct QemuVersion {
 
 struct Request {
     json: Value,
+    // Sent as SCM_RIGHTS with the frame's first bytes, then closed.
+    fds: Vec<OwnedFd>,
     deadline: Instant,
     reply: oneshot::Sender<Result<Value>>,
     // The request owns admission, even after its caller stops waiting.
@@ -302,7 +305,7 @@ impl Qmp {
         let request = qapi::with_version(self.version(), || {
             wire::request(C::NAME, serde_json::to_value(cmd)?, false)
         })?;
-        let reply = self.dispatch(request, false, duration).await?;
+        let reply = self.dispatch(request, Vec::new(), false, duration).await?;
         qapi::with_version(self.version(), || wire::decode(reply))
     }
 
@@ -322,7 +325,7 @@ impl Qmp {
             wire::request(C::NAME, serde_json::to_value(cmd)?, true)
         })?;
         let reply = self
-            .dispatch(request, true, self.options.command_timeout)
+            .dispatch(request, Vec::new(), true, self.options.command_timeout)
             .await?;
         qapi::with_version(self.version(), || wire::decode(reply))
     }
@@ -338,11 +341,30 @@ impl Qmp {
         request: Value,
         duration: Duration,
     ) -> Result<Value> {
-        self.dispatch(request, false, duration).await
+        self.dispatch(request, Vec::new(), false, duration).await
     }
     pub async fn execute_raw_oob(&self, request: Value) -> Result<Value> {
-        self.dispatch(request, true, self.options.command_timeout)
+        self.dispatch(request, Vec::new(), true, self.options.command_timeout)
             .await
+    }
+
+    /// Run an in-band raw `request` with `fds` attached to it as SCM_RIGHTS,
+    /// as QMP's `getfd` and `add-fd` expect. The descriptors are moved in and
+    /// closed here once sent, or when the request is refused or expires.
+    pub async fn execute_raw_with_fds(&self, request: Value, fds: Vec<OwnedFd>) -> Result<Value> {
+        self.dispatch(request, fds, false, self.options.command_timeout)
+            .await
+    }
+
+    /// `getfd`: hand QEMU `fd` under `name` for a later `netdev_add`
+    /// (`fds=name:...`) or `device_add`.
+    pub async fn getfd(&self, name: &str, fd: OwnedFd) -> Result<()> {
+        self.execute_raw_with_fds(
+            json!({"execute":"getfd","arguments":{"fdname":name}}),
+            vec![fd],
+        )
+        .await
+        .map(drop)
     }
 
     fn disconnected(&self) -> Error {
@@ -352,7 +374,13 @@ impl Qmp {
         )
     }
 
-    async fn dispatch(&self, request: Value, oob: bool, duration: Duration) -> Result<Value> {
+    async fn dispatch(
+        &self,
+        request: Value,
+        fds: Vec<OwnedFd>,
+        oob: bool,
+        duration: Duration,
+    ) -> Result<Value> {
         wire::validate_request(&request, oob)?;
         framing::encode(&request, self.options.max_message_bytes)?;
         if oob && !self.oob {
@@ -375,6 +403,7 @@ impl Qmp {
             self.requests
                 .send(Request {
                     json: request,
+                    fds,
                     deadline,
                     reply,
                     _permit: permit,
@@ -428,6 +457,32 @@ struct Writing {
     id: u64,
     bytes: Vec<u8>,
     offset: usize,
+    fds: Vec<OwnedFd>,
+}
+
+/// One `sendmsg` carrying `fds` with (a prefix of) `bytes`. Like `write()`
+/// it is cancellation safe: nothing is sent until it returns.
+async fn send_with_fds(
+    stream: &UnixStream,
+    bytes: &[u8],
+    fds: &[OwnedFd],
+) -> std::io::Result<usize> {
+    use nix::sys::socket::{sendmsg, ControlMessage, MsgFlags};
+    let raw: Vec<RawFd> = fds.iter().map(AsRawFd::as_raw_fd).collect();
+    stream
+        .async_io(tokio::io::Interest::WRITABLE, || {
+            let iov = [std::io::IoSlice::new(bytes)];
+            let cmsg = [ControlMessage::ScmRights(&raw)];
+            sendmsg::<()>(
+                stream.as_raw_fd(),
+                &iov,
+                &cmsg,
+                MsgFlags::MSG_NOSIGNAL,
+                None,
+            )
+            .map_err(std::io::Error::from)
+        })
+        .await
 }
 
 async fn drive(
@@ -482,16 +537,22 @@ async fn drive(
             // backpressure without losing or repeating bytes in the frame.
             written = async {
                 let frame = writing.as_ref().unwrap();
-                writer.write(&frame.bytes[frame.offset..]).await
+                if frame.fds.is_empty() {
+                    writer.write(&frame.bytes[frame.offset..]).await
+                } else {
+                    send_with_fds(writer.as_ref(), &frame.bytes[frame.offset..], &frame.fds).await
+                }
             }, if writing.is_some() => {
                 let n = written?;
                 if n == 0 { return Err(std::io::Error::from(std::io::ErrorKind::WriteZero).into()); }
                 let frame = writing.as_mut().unwrap();
+                // The descriptors went with these bytes; QEMU holds its own copies.
+                frame.fds.clear();
                 frame.offset += n;
                 if frame.offset == frame.bytes.len() { writing = None; }
             }
             request = requests.recv(), if writing.is_none() => {
-                let Some(Request { mut json, deadline: request_deadline, reply, _permit }) = request else { return Ok(()); };
+                let Some(Request { mut json, fds, deadline: request_deadline, reply, _permit }) = request else { return Ok(()); };
                 if reply.is_closed() { continue; }
                 if deadline.is_some_and(|d| d <= Instant::now()) {
                     return Err(Error::Timeout("dispatched QMP command expired; remote outcome unknown".into()));
@@ -510,7 +571,7 @@ async fn drive(
                 // of potentially large arguments throughout remote execution.
                 drop(json);
                 pending.insert(id, Pending { deadline: request_deadline, reply, _permit });
-                writing = Some(Writing { id, bytes, offset: 0 });
+                writing = Some(Writing { id, bytes, offset: 0, fds });
                 depth.send_replace(pending.len());
             }
         }

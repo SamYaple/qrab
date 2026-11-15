@@ -8,7 +8,7 @@
 //! built-in VM with NICs and cloud-init is always added and gets
 //! `detail-network.html`. A sample base-image catalog feeds the Images page
 //! and the launch forms.
-use k8s_openapi::api::core::v1::Pod;
+use k8s_openapi::{api::core::v1::Pod, apimachinery::pkg::api::resource::Quantity};
 use qrab_dashboard::{
     access::Role,
     cluster::Usage,
@@ -180,7 +180,7 @@ fn network_vm() -> (VirtualMachine, Pod) {
             "storageNode": "kube03",
             "disks": [{"id": "root", "sizeBytes": 2147483648u64, "baseImage": {"name": "cirros", "generation": 1}, "bootIndex": 0}],
             "console": {"adminGroups": ["12f802c8-4daf-4481-9f6a-a6fdb5d086c3"], "viewerGroups": ["2724fd1d-78d0-4612-a42e-448094971abb"]},
-            "nics": [{"name": "eth0", "securityGroups": ["web", "ssh", "monitoring-scrape"]}, {"name": "eth1"}],
+            "nics": [{"name": "eth0", "securityGroups": ["web", "ssh", "monitoring-scrape"]}, {"name": "eth1", "vpn": {"secretName": "vpn-private-fixture"}}],
             "cloudInit": {"hostname": "web-1", "userData": "#cloud-config\nssh_authorized_keys: [ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExample sam]\npackages: [nginx]\n"}},
         "status": {"observedGeneration": 3, "phase": "Running", "ready": true, "reason": "", "message": "",
             "podName": "web-1", "nodeName": "kube02",
@@ -216,6 +216,13 @@ const CATALOG: &str = r#"[
 fn write(dir: &str, name: &str, page: Page, css: &str) {
     let html = ui::render(page)
         .replace("/assets/style.css", css)
+        .replace(
+            "/assets/favicon.svg",
+            &format!(
+                "file://{}/../bmc/assets/favicon.svg",
+                env!("CARGO_MANIFEST_DIR")
+            ),
+        )
         .replace("src=\"/assets/console.js\"", "src=\"about:blank\"");
     std::fs::write(format!("{dir}/{name}.html"), html).unwrap();
 }
@@ -255,9 +262,141 @@ fn main() {
         notice: None,
         body,
     };
+    let storage_rows = [
+        ("pending-storage", 1, 0, "Provisioning"),
+        ("static-media", 1, 0, "Running"),
+        ("without-disks", 0, 0, "Running"),
+        ("reported-storage", 3, 8 * 1024u64.pow(3), "Running"),
+    ]
+    .into_iter()
+    .map(|(name, disks, bytes, phase)| {
+        let mut row = rows[0].clone();
+        row.name = name.into();
+        row.disks = disks;
+        row.disk_bytes = bytes;
+        row.phase = phase.into();
+        row.ready = phase == "Running";
+        row
+    })
+    .collect();
+    write(dir, "list-storage", page(Body::List(storage_rows)), &css);
     write(dir, "list", page(Body::List(rows)), &css);
+    write(
+        dir,
+        "list-empty-launcher",
+        page(Body::List(Vec::new())),
+        &css,
+    );
+    write(
+        dir,
+        "list-empty-viewer",
+        Page {
+            user: Some(UserView {
+                launcher: false,
+                ..user.clone()
+            }),
+            notice: None,
+            body: Body::List(Vec::new()),
+        },
+        &css,
+    );
     let catalog = images::parse(CATALOG);
     write(dir, "images", page(Body::Images(catalog.clone())), &css);
+    write(dir, "images-empty", page(Body::Images(Vec::new())), &css);
+    let (mut long_vm, mut long_pod) = network_vm();
+    let long_name = format!("vm-{}", "a".repeat(60));
+    long_vm.metadata.name = Some(long_name.clone());
+    if let Some(labels) = &mut long_vm.metadata.labels {
+        labels.remove("app.kubernetes.io/managed-by");
+    }
+    long_vm.spec.state_volume_claim = format!("{long_name}-state");
+    long_vm.spec.cpus = 8;
+    long_vm.spec.max_cpus = Some(256);
+    long_vm.spec.memory_mib = 16384;
+    long_vm.spec.max_memory_mib = Some(1048576);
+    long_pod.metadata.name = Some(long_name.clone());
+    if let Some(resources) = long_pod
+        .spec
+        .as_mut()
+        .and_then(|pod| pod.containers.first_mut())
+        .and_then(|container| container.resources.as_mut())
+    {
+        resources.requests = Some(
+            [
+                ("cpu".into(), Quantity("8".into())),
+                ("memory".into(), Quantity("17Gi".into())),
+            ]
+            .into(),
+        );
+        resources.limits = Some(
+            [
+                ("cpu".into(), Quantity("256".into())),
+                ("memory".into(), Quantity("1025Gi".into())),
+            ]
+            .into(),
+        );
+    }
+    if let Some(status) = &mut long_vm.status {
+        status.pod_name = Some(long_name.clone());
+        status.node_name = Some(format!("production-worker-{}", "b".repeat(45)));
+        status.ready = false;
+        status.message = format!(
+            "Waiting for storage volume {} to finish provisioning.",
+            "c".repeat(120)
+        );
+    }
+    let mut long_user = user.clone();
+    long_user.name = "sam.with-a-long-operator-name-for-production".into();
+    let long_usage = HashMap::from([(
+        long_name.clone(),
+        Usage {
+            cpu_cores: 8.125,
+            memory_bytes: 15.5 * 1024.0 * 1024.0 * 1024.0,
+        },
+    )]);
+    write(
+        dir,
+        "list-long",
+        Page {
+            user: Some(long_user.clone()),
+            body: Body::List(vec![model::row(&long_vm, Role::Admin, &long_usage)]),
+            ..Default::default()
+        },
+        &css,
+    );
+    let mut long_panel = panel();
+    if let Ok(system) = &mut long_panel.system
+        && let Some(config) = &mut system.oem.qrab.configuration
+    {
+        config.name = long_name;
+        config.cpus = 8;
+        config.memory_mib = 16384;
+        if let Some(limits) = &mut config.hotplug {
+            limits.max_cpus = 256;
+            limits.max_memory_mib = 1048576;
+        }
+    }
+    write(
+        dir,
+        "detail-long",
+        Page {
+            user: Some(long_user),
+            body: Body::Detail(Box::new(DetailPage {
+                detail: model::detail(
+                    &long_vm,
+                    Role::Admin,
+                    &long_usage,
+                    Some(&long_pod),
+                    Some("10.244.2.141".parse().unwrap()),
+                    &catalog,
+                ),
+                panel: PanelState::Loaded(Box::new(long_panel)),
+                deletable: false,
+            })),
+            ..Default::default()
+        },
+        &css,
+    );
     let network = pairs.len() - 1;
     for (name, index, role) in [
         ("detail", 0, Role::Admin),
@@ -291,6 +430,79 @@ fn main() {
                 update.error = None;
             }
         }
+        if name == "detail-network" {
+            for (page_name, power_state) in [
+                ("detail-paused", Some("Paused")),
+                ("detail-powered-off", Some("Off")),
+                ("detail-powering-on", Some("PoweringOn")),
+                ("detail-unknown-power", None),
+            ] {
+                let mut snapshot = live_panel.clone();
+                if let Ok(system) = &mut snapshot.system {
+                    system.power_state = power_state.map(str::to_owned);
+                }
+                let mut snapshot_detail = detail.clone();
+                snapshot_detail.bmc_enabled = false;
+                write(
+                    dir,
+                    page_name,
+                    page(Body::Detail(Box::new(DetailPage {
+                        detail: snapshot_detail,
+                        panel: PanelState::Loaded(Box::new(snapshot)),
+                        deletable: true,
+                    }))),
+                    &css,
+                );
+            }
+            for (page_name, connected, frozen) in [
+                ("detail-needs-agent", false, false),
+                ("detail-frozen-agent", true, true),
+            ] {
+                let mut blocked = live_panel.clone();
+                if let Ok(system) = &mut blocked.system
+                    && let Some(agent) = &mut system.oem.qrab.guest_agent
+                {
+                    agent.connected = connected;
+                    agent.freeze_state = Some(if frozen { "Frozen" } else { "Thawed" }.into());
+                }
+                write(
+                    dir,
+                    page_name,
+                    page(Body::Detail(Box::new(DetailPage {
+                        detail: detail.clone(),
+                        panel: PanelState::Loaded(Box::new(blocked)),
+                        deletable: true,
+                    }))),
+                    &css,
+                );
+            }
+            let mut no_actions = live_panel.clone();
+            if let Ok(system) = &mut no_actions.system {
+                system.actions.reset.allowable_values.clear();
+            }
+            write(
+                dir,
+                "detail-no-power-actions",
+                page(Body::Detail(Box::new(DetailPage {
+                    detail: detail.clone(),
+                    panel: PanelState::Loaded(Box::new(no_actions)),
+                    deletable: true,
+                }))),
+                &css,
+            );
+            let mut redfish_only = detail.clone();
+            redfish_only.bmc_enabled = false;
+            write(
+                dir,
+                "detail-redfish-only",
+                page(Body::Detail(Box::new(DetailPage {
+                    detail: redfish_only,
+                    panel: PanelState::Loaded(Box::new(live_panel.clone())),
+                    deletable: true,
+                }))),
+                &css,
+            );
+        }
         let body = Body::Detail(Box::new(DetailPage {
             detail,
             panel: PanelState::Loaded(Box::new(live_panel)),
@@ -311,6 +523,15 @@ fn main() {
     );
     write(
         dir,
+        "launch-unavailable",
+        page(Body::Launch(LaunchPage {
+            namespace: "a".repeat(63),
+            ..Default::default()
+        })),
+        &css,
+    );
+    write(
+        dir,
         "launch-os",
         page(Body::Launch(LaunchPage {
             values: vec![
@@ -322,8 +543,14 @@ fn main() {
                 ("hostname".into(), "web-1".into()),
             ],
             errors: vec![
-                "Root disk size (GiB) must be a whole number from 2 to 1024.".into(),
-                "Security group SSH on eth0 must be a DNS label: 1-63 lowercase letters, digits or '-', starting and ending with a letter or digit.".into(),
+                qrab_dashboard::launch::FormError::at(
+                    "root_size_gib",
+                    "Root disk size (GiB) must be a whole number from 2 to 1024.",
+                ),
+                qrab_dashboard::launch::FormError::at(
+                    "nic0_security_groups",
+                    "Security group SSH on eth0 must be a DNS label: 1-63 lowercase letters, digits or '-', starting and ending with a letter or digit.",
+                ),
             ],
             namespace: "qrab".into(),
             storage_node: Some("kube03".into()),
@@ -343,10 +570,24 @@ fn main() {
                 ("memory_mib".into(), "512".into()),
                 ("disk0_id".into(), "logs".into()),
                 ("disk0_size_gib".into(), "0".into()),
+                ("disk1_id".into(), "scratch".into()),
+                ("disk1_size_gib".into(), "4".into()),
+                ("disk1_base_image".into(), "cirros".into()),
+                ("disk1_base_generation".into(), "invalid".into()),
             ],
             errors: vec![
-                "Maximum vCPUs must be at least vCPUs.".into(),
-                "Disk 1 size (GiB) must be a whole number from 1 to 1024.".into(),
+                qrab_dashboard::launch::FormError::at(
+                    "max_cpus",
+                    "Maximum vCPUs must be at least vCPUs.",
+                ),
+                qrab_dashboard::launch::FormError::at(
+                    "disk0_size_gib",
+                    "Disk 1 size (GiB) must be a whole number from 1 to 1024.",
+                ),
+                qrab_dashboard::launch::FormError::at(
+                    "disk1_base_generation",
+                    "Disk 2 base image generation must be a whole number from 1 to 999999.",
+                ),
             ],
             namespace: "qrab".into(),
             storage_node: Some("kube03".into()),
@@ -373,15 +614,75 @@ fn main() {
         })),
         &css,
     );
+    for (name, report) in [
+        (
+            "launch-failed-empty",
+            Report {
+                failed: Some(("Check that the name is free".into(), "VirtualMachine test already exists.".into())),
+                ..Default::default()
+            },
+        ),
+        (
+            "launch-failed-left",
+            Report {
+                created: vec!["Kanidm group qrab_vm_qrab_test_admins".into(), "PersistentVolumeClaim qrab/test-state".into()],
+                failed: Some(("Create the VirtualMachine".into(), "The VM service is temporarily unavailable.".into())),
+                rolled_back: vec!["Kanidm group qrab_vm_qrab_test_admins".into()],
+                left: vec!["PersistentVolumeClaim qrab/test-state: kept (the dashboard cannot delete PVCs); a retry with the same name reuses it while it is unbound".into()],
+            },
+        ),
+    ] {
+        write(dir, name, page(Body::Launched(Launched { vm_path: None, report })), &css);
+    }
     write(
         dir,
         "console",
         page(Body::Console(ConsolePage {
             namespace: "qrab".into(),
-            name: "qrab-demo".into(),
+            name: "web-1".into(),
             csrf: "preview".into(),
             audio: true,
         })),
         &css,
     );
+    for (name, status, message, return_to) in [
+        (
+            "error-session",
+            401,
+            "Sign in again to continue.",
+            Some("/vms/qrab/web-1/bmc"),
+        ),
+        (
+            "error-denied",
+            403,
+            "The console requires the admin role on this VM.",
+            Some("/vms/qrab/web-1/console"),
+        ),
+        (
+            "error-missing",
+            404,
+            "This VM does not exist or is not shared with you.",
+            Some("/vms/qrab/missing"),
+        ),
+        (
+            "error-service",
+            503,
+            "The VM service could not complete this request.",
+            Some("/vms/qrab/web-1"),
+        ),
+    ] {
+        write(
+            dir,
+            name,
+            Page {
+                body: Body::Error(ui::ErrorPage {
+                    status,
+                    message: message.into(),
+                    return_to: return_to.map(str::to_owned),
+                }),
+                ..Default::default()
+            },
+            &css,
+        );
+    }
 }

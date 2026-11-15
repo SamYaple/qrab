@@ -6,6 +6,8 @@ workspace selects this path. Retired confidential-computing/SVSM projects are
 archived under `eol/confidential-computing-svsm-2026-11-15`; see `docs/legacy.md`.
 Work tracking and durable operational notes belong to the `qrab` project in towl.
 
+- Do implementation work in a dedicated git worktree. Keep the primary `main`
+  checkout clean and synchronize it after merging.
 - Read the crate's `AGENTS.md` before editing it.
 - Generated files under `projects/qapi/src/generated/` and `projects/qapi/src/qga/`
   are outputs. Change the parser, IR, generator or macros and regenerate them.

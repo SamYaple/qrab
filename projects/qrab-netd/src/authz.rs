@@ -133,6 +133,39 @@ mod tests {
     }
 
     #[test]
+    fn crafted_nic_names_and_owners_never_cross_vms() {
+        let weird = [
+            "",
+            "lan ",
+            "LAN",
+            "../lan",
+            "lan\0",
+            "*",
+            ".*",
+            &"l".repeat(5000),
+        ];
+        let mut anchors = vec![pod(NIC_COMPONENT, "vm-b", Some("lan"), true)];
+        for name in weird {
+            anchors.push(pod(NIC_COMPONENT, "vm-b", Some(name), true));
+        }
+        // An anchor with an empty owner is never anyone's.
+        anchors.push(pod(NIC_COMPONENT, "", Some("lan"), true));
+        let a = pod(VM_COMPONENT, "vm-a", None, false);
+        for name in weird.iter().copied().chain(["lan"]) {
+            assert!(
+                select_anchor(Some(&a), name, &anchors).is_err(),
+                "vm-a got {name:?}"
+            );
+        }
+        // A VM Pod whose own owner label is empty is not a VM.
+        let ownerless = pod(VM_COMPONENT, "", None, false);
+        assert_eq!(
+            select_anchor(Some(&ownerless), "lan", &anchors),
+            Err(Refusal::NotAVmPod)
+        );
+    }
+
+    #[test]
     fn unknown_peers_and_non_vm_pods_are_refused() {
         let anchors = [pod(NIC_COMPONENT, "vm-a", Some("lan"), true)];
         assert_eq!(

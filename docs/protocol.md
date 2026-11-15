@@ -45,6 +45,13 @@ conflicting verbs and malformed arguments fail before any socket I/O. Unknown
 response IDs of any JSON type are dropped as required by QMP. An ID-less server
 parser error closes the connection while preserving its error class and description.
 
+`execute_raw_with_fds` (and its `getfd(name, fd)` shorthand) attaches file
+descriptors to an in-band command as SCM_RIGHTS, the way QEMU's `getfd` and
+`add-fd` read them: the driver sends them with the frame's first bytes in one
+`sendmsg`, then the rest with ordinary writes. The descriptors are moved in and
+closed once sent, or when the request is refused or expires. The manager uses it
+to hand a hot-attached NIC's tap and vhost-net descriptors to QEMU.
+
 Admission is bounded to eight unanswered in-band commands, following QEMU's
 recommendation for keeping OOB responsive. A separate eight-command bound
 limits OOB requests. Permits belong to dispatched requests, not their callers:

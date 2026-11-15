@@ -217,6 +217,12 @@ pub fn render_anchor(
             json!(qrab_netd::DATAPATH_TAP),
         ),
     ]);
+    if nic.vpn.is_some() {
+        annotations.insert(
+            qrab_netd::vpn::VPN_ANNOTATION.to_owned(),
+            json!(qrab_netd::vpn::VPN_WIREGUARD),
+        );
+    }
     let mut pod = json!({"apiVersion":"v1","kind":"Pod","metadata":{"name":anchor_name(vm,&nic.name,node),"namespace":settings.namespace,"labels":labels,"annotations":annotations,"ownerReferences":[owner]},"spec":{
         "serviceAccountName":"qrab-manager","automountServiceAccountToken":false,"enableServiceLinks":false,
         "hostNetwork":false,"hostPID":false,"hostIPC":false,
@@ -229,6 +235,14 @@ pub fn render_anchor(
             "resources":{"requests":{"cpu":"5m","memory":"16Mi"},"limits":{"cpu":"100m","memory":"32Mi"}},
             "securityContext":security,"terminationMessagePolicy":"FallbackToLogsOnError"}]
     }});
+    // The tunnel's config, readable only by root: qrab-netd reads it through
+    // the anchor's mount namespace; the anchor's own process cannot.
+    if let Some(vpn) = &nic.vpn {
+        pod["spec"]["volumes"] = json!([{"name":"vpn","secret":{"secretName":vpn.secret_name,
+            "items":[{"key":qrab_netd::vpn::VPN_FILE,"path":qrab_netd::vpn::VPN_FILE}],"defaultMode":0o400}}]);
+        pod["spec"]["containers"][0]["volumeMounts"] =
+            json!([{"name":"vpn","mountPath":qrab_netd::vpn::VPN_MOUNT,"readOnly":true}]);
+    }
     let hash = format!("{:x}", Sha256::digest(serde_json::to_vec(&pod)?));
     annotations.insert(HASH.into(), json!(hash));
     pod["metadata"]["annotations"] = Value::Object(annotations);

@@ -1,5 +1,6 @@
 import RFB from './novnc/core/rfb.js';
 import { createAudioContext } from './novnc/core/audio.js';
+import { wireConsoleKeyboard } from './console-keyboard.js';
 
 // Every management read and action goes to the in-pod Redfish service
 // through the BMC's /bmc/redfish browser bridge; the BMC itself serves only the session
@@ -12,6 +13,7 @@ if (vmBase) {
     document.getElementById('vm-navigation').hidden = false;
     document.getElementById('vm-detail-link').href = vmBase;
     document.getElementById('sign-in').href = `/auth/login?next=${encodeURIComponent(`${vmBase}/bmc`)}`;
+    document.getElementById('reload-access').href = `${vmBase}/bmc`;
 }
 const SYSTEM = '/redfish/v1/Systems/1';
 const RESET_INFO = `${SYSTEM}/ResetActionInfo`;
@@ -33,16 +35,60 @@ const RESETS = [
     ['PowerCycle', 'Power cycle', true],
     ['Nmi', 'NMI', true],
 ];
-// Which reset types make sense in each PowerState; unknown states allow all.
+// Which reset types make sense in each PowerState; unknown states stay disabled.
 const POWER_ALLOWS = {
     On: new Set(['Pause', 'ForceRestart', 'GracefulRestart', 'GracefulShutdown', 'ForceOff', 'PowerCycle', 'Nmi']),
     Paused: new Set(['Resume', 'ForceRestart', 'GracefulShutdown', 'ForceOff', 'PowerCycle']),
-    Off: new Set(['On']),
+    Off: new Set(['On', 'PowerCycle']),
     PoweringOn: new Set(['ForceOff']),
     PoweringOff: new Set(['ForceOff']),
 };
 const TABS = ['overview', 'metrics', 'events', 'agent', 'config'];
 const element = id => document.getElementById(id);
+// Use one timezone for this page's labels and date formatting, including
+// history windows that cross a daylight-saving boundary.
+const displayTimeZone = (() => {
+    try { return Intl.DateTimeFormat().resolvedOptions().timeZone || undefined; }
+    catch { return undefined; }
+})();
+const dateOptions = options => displayTimeZone ? {...options, timeZone: displayTimeZone} : options;
+const dateFormatter = options => {
+    const formatter = new Intl.DateTimeFormat([], dateOptions(options));
+    return date => Number.isFinite(date.getTime()) ? formatter.format(date) : 'Time unavailable';
+};
+const localTime = dateFormatter({hour: 'numeric', minute: 'numeric', second: 'numeric'});
+const localStamp = dateFormatter({year: 'numeric', month: 'numeric', day: 'numeric', hour: 'numeric', minute: 'numeric', second: 'numeric'});
+const historyClock = dateFormatter({hour: '2-digit', minute: '2-digit'});
+const historyDay = dateFormatter({weekday: 'short', day: 'numeric'});
+for (const note of document.querySelectorAll('[data-local-time]')) {
+    note.textContent = displayTimeZone ? `Times on this page use ${displayTimeZone}.` : 'Times use your browser’s local timezone.';
+}
+// Live regions announce changes, not repeated writes of the same state.
+function updateText(target, text) {
+    if (target.textContent !== text) target.textContent = text;
+}
+function focusInView(target) {
+    target.focus();
+    const box = target.getBoundingClientRect();
+    const header = document.querySelector('.topbar');
+    const top = header && !header.contains(target) && getComputedStyle(header).position === 'sticky' ? header.getBoundingClientRect().bottom : 0;
+    if (box.top < top || box.bottom > innerHeight || box.left < 0 || box.right > innerWidth) {
+        target.scrollIntoView({block: 'center', inline: 'nearest'});
+    }
+}
+function wireActionKeys(button) {
+    const suppressedKeys = new Set();
+    button.addEventListener('keydown', event => {
+        if (event.key === 'Enter' && event.repeat) { event.preventDefault(); return; }
+        if ((event.key === 'Enter' || event.key === ' ') &&
+            (button.getAttribute('aria-disabled') === 'true' || suppressedKeys.has(event.key))) {
+            suppressedKeys.add(event.key);
+            event.preventDefault();
+        }
+    });
+    button.addEventListener('keyup', event => { if (suppressedKeys.delete(event.key)) event.preventDefault(); });
+    button.addEventListener('blur', () => suppressedKeys.clear());
+}
 // Header wrapping changes with zoom, long names and narrow screens. Keep the
 // rail and anchor offsets tied to its actual height rather than a fixed guess.
 if (typeof ResizeObserver === 'function') {
@@ -53,6 +99,8 @@ if (typeof ResizeObserver === 'function') {
 }
 let session, rfb, polling, metricsTimer, events, system, refreshTimer;
 let pendingAction = null, refreshTask = null, metricsTask = null, lastRead = null;
+let initialPowerTypes = null;
+let initialPowerError = '';
 let agentResult = [];
 let scaleToFit = true;
 const rendered = {};
@@ -87,8 +135,9 @@ const browserPath = path => {
     // never traverse out of its bridge or post to another dashboard VM.
     return `${vmBase}/bmc${target.pathname}${target.search}`;
 };
+const sessionError = () => Object.assign(new Error('Your session ended. Sign in to reconnect.'), {sessionEnded: true});
 async function request(path, options = {}) {
-    if (path !== '/api/session' && !session) throw new Error('Your session ended. Sign in to reconnect.');
+    if (path !== '/api/session' && !session) throw sessionError();
     const url = browserPath(path);
     let response;
     try {
@@ -98,21 +147,38 @@ async function request(path, options = {}) {
             ? 'Connection lost. The action may have reached the VM; check its status before retrying.'
             : 'Unable to reach the VM. Check your connection or try again shortly.');
     }
-    if (response.status === 401) { signedOut(); throw new Error('Your session ended. Sign in to reconnect.'); }
-    if (path !== '/api/session' && !session) throw new Error('Your session ended. Sign in to reconnect.');
+    if (response.status === 401) { signedOut(); throw sessionError(); }
+    if (path !== '/api/session' && !session) throw sessionError();
     if (!response.ok) throw new Error(await failure(response));
     return response.status === 204 ? null : response.json();
 }
 const post = (path, body) => request(path, {method: 'POST', headers: {'Content-Type': 'application/json', 'X-CSRF-Token': session.user.csrf}, body: JSON.stringify(body)});
 function signedOut() {
+    if (!session && !element('login').hidden) return;
+    const ownedFullscreen = document.fullscreenElement === element('screen');
+    // A dropped socket can remove the focused canvas before the next auth
+    // poll. Full-screen ownership still identifies the console context.
+    const hadDashboardFocus = ownedFullscreen || element('dashboard').contains(document.activeElement) || document.activeElement === element('logout');
+    const leaveFullscreen = ownedFullscreen ? document.exitFullscreen().catch(() => {}) : Promise.resolve();
     clearInterval(polling);
     clearInterval(metricsTimer);
     clearTimeout(refreshTimer);
+    metricHistory.resize?.disconnect();
+    metricHistory.resize = null;
+    if (metricHistory.frame !== null) cancelAnimationFrame(metricHistory.frame);
+    metricHistory.frame = null;
     if (events) { events.close(); events = null; }
-    if (rfb) rfb.disconnect();
-    if (audioContext) { audioContext.close(); audioContext = null; }
     session = null;
     system = null;
+    if (pendingAction) {
+        updateText(pendingAction, pendingAction.dataset.label);
+        pendingAction.removeAttribute('aria-busy');
+    }
+    pendingAction = null;
+    if (rfb) rfb.disconnect();
+    if (audioContext) { audioContext.close(); audioContext = null; }
+    updateActionControls();
+    for (const button of document.querySelectorAll('#console-controls button')) button.disabled = true;
     disarm();
     showError('');
     element('loading').hidden = true;
@@ -120,10 +186,17 @@ function signedOut() {
     showAction('');
     element('dashboard').hidden = true;
     element('login').hidden = false;
+    element('access-error').hidden = true;
     element('logout').hidden = true;
     element('identity').textContent = '';
     element('role').hidden = true;
     element('vm-status').hidden = true;
+    leaveFullscreen.then(() => {
+        const focused = document.activeElement;
+        if (hadDashboardFocus && (focused === document.body || element('dashboard').contains(focused) || focused === element('logout'))) {
+            focusInView(element(element('access-error').hidden ? 'sign-in' : 'reload-access'));
+        }
+    });
 }
 const node = (tag, text, className) => {
     const item = document.createElement(tag);
@@ -131,13 +204,45 @@ const node = (tag, text, className) => {
     if (className) item.className = className;
     return item;
 };
-const pairs = rows => rows.flatMap(([key, value]) => [node('dt', key), node('dd', String(value))]);
-// Replace a list only when its content changed, so polling keeps selections.
+const pairs = rows => rows.flatMap(([key, value, format]) => {
+    const definition = node('dd');
+    if (format === 'output') {
+        const output = node('pre', String(value), 'agent-output');
+        output.tabIndex = 0;
+        output.setAttribute('role', 'region');
+        output.setAttribute('aria-label', key);
+        definition.append(output);
+    } else definition.textContent = String(value);
+    return [node('dt', key), definition];
+});
+// Keep rows by label and format, including when optional neighbors appear or
+// disappear. Polling must not replace unchanged output, focus or selection.
 function render(id, rows) {
     const key = JSON.stringify(rows);
-    if (rendered[id] === key) return;
-    rendered[id] = key;
-    element(id).replaceChildren(...pairs(rows));
+    if (rendered[id]?.key === key) return;
+    const list = element(id);
+    const focused = document.activeElement;
+    const hadFocus = list.contains(focused);
+    const available = [...(rendered[id]?.entries || [])];
+    const entries = rows.map(([name, value, format]) => {
+        const index = available.findIndex(entry => entry.name === name && entry.format === format);
+        const entry = index >= 0 ? available.splice(index, 1)[0]
+            : {name, format, nodes: pairs([[name, value, format]])};
+        const definition = entry.nodes[1];
+        updateText(definition.firstElementChild || definition, String(value));
+        return entry;
+    });
+    const children = entries.flatMap(entry => entry.nodes);
+    const keep = new Set(children);
+    for (const child of [...list.childNodes]) if (!keep.has(child)) child.remove();
+    children.forEach((child, index) => {
+        if (list.children[index] !== child) list.insertBefore(child, list.children[index] || null);
+    });
+    if (hadFocus && document.activeElement !== focused) {
+        const target = list.contains(focused) ? focused : list.closest('[role=tabpanel]');
+        if (target) focusInView(target);
+    }
+    rendered[id] = {key, entries};
 }
 
 // ── Two-step confirmation: a disruptive button first turns into
@@ -226,15 +331,16 @@ function showEventEmpty() {
     empty.hidden = visible;
     if (!visible) empty.textContent = list.children.length
         ? `No events match “${element('events-filter').value.trim()}”.`
-        : eventHistoryLoaded ? 'No events recorded yet.' : 'Event history is unavailable. New events will appear when connected.';
+        : eventHistoryLoaded ? 'No events recorded yet.'
+        : element('events-history-status').hidden ? 'Loading event history…' : 'Waiting for live events.';
 }
 // Gap markers stay visible under any filter: the gap may hide matching events.
 const matches = (row, filter) => !filter || row.classList.contains('gap') || row.dataset.event.toLowerCase().includes(filter);
 function eventTime(value) {
     const at = value ? new Date(value) : null;
     const known = at && Number.isFinite(at.getTime());
-    const time = node(known ? 'time' : 'span', known ? at.toLocaleTimeString() : 'Time unavailable', 'event-time');
-    if (known) { time.dateTime = at.toISOString(); time.title = at.toLocaleString(); }
+    const time = node(known ? 'time' : 'span', known ? localTime(at) : 'Time unavailable', 'event-time');
+    if (known) { time.dateTime = at.toISOString(); time.title = localStamp(at); }
     return time;
 }
 function eventRow(event) {
@@ -320,13 +426,16 @@ async function startEvents() {
     } catch (error) {
         // Without a history cursor the stream starts at the newest event.
         if (!session) return;
-        showError(error.message);
+        const historyStatus = element('events-history-status');
+        updateText(historyStatus, `Past events unavailable: ${error.message} Reload to retry history. Live events are shown when connected.`);
+        historyStatus.hidden = false;
     }
     showEventEmpty();
     if (!session || events) return;
     events = new EventSource(browserPath(`${EVENT_STREAM}${cursor}`));
-    events.addEventListener('open', () => { status.textContent = 'Live'; });
+    events.addEventListener('open', () => { if (session) updateText(status, 'Live'); });
     events.addEventListener('message', message => {
+        if (!session) return;
         let records;
         try { records = (JSON.parse(message.data).Events || []).map(fromEvent); } catch { return; }
         for (const record of records) {
@@ -336,13 +445,14 @@ async function startEvents() {
         if (records.some(record => record.kind === 'qmp')) refreshSoon();
     });
     events.addEventListener('error', () => {
-        status.textContent = events?.readyState === EventSource.CLOSED ? 'Disconnected' : 'Reconnecting…';
+        if (!session) return;
+        updateText(status, events?.readyState === EventSource.CLOSED ? 'Disconnected' : 'Reconnecting…');
         if (!document.hidden) refresh();
     });
 }
 
 // ── Status header and overview, from one Systems/1 read.
-const stamp = millis => millis ? new Date(millis).toLocaleString() : '—';
+const stamp = millis => millis ? localStamp(new Date(millis)) : '—';
 function showStatus() {
     const chip = element('vm-status');
     const power = system?.PowerState ?? 'Unavailable';
@@ -355,16 +465,89 @@ function showStatus() {
     chip.hidden = false;
     updateActionControls();
 }
+function agentActionReason(operation, agent) {
+    if (!agent?.connected) return 'Guest actions need a connected guest agent.';
+    if (operation === 'freeze' && agent.FreezeState === 'Frozen') return 'Filesystems are already frozen.';
+    if (operation === 'update' && agent.FreezeState === 'Frozen') return 'Thaw filesystems before running an update.';
+    if (operation !== 'thaw' && agent.LastUpdate?.State === 'Running') return 'Wait for the current update to finish.';
+    if (operation === 'update' && agent.LastUpdate?.HookInstalled === false) return 'Install the guest update hook before running an update.';
+    // Thaw remains available while connected, including recovery of freezes
+    // not recorded by the agent. Missing optional status is not a denial.
+    return '';
+}
 function updateActionControls() {
+    const focused = document.activeElement;
+    const available = (button, allowed) => {
+        const blocked = !session || Boolean(pendingAction) || !allowed;
+        if (button.getAttribute('aria-disabled') !== String(blocked)) button.setAttribute('aria-disabled', String(blocked));
+        button.disabled = blocked && button !== pendingAction;
+    };
     const allows = POWER_ALLOWS[system?.PowerState];
-    for (const button of element('power')?.querySelectorAll('button[data-type]') || []) {
-        button.disabled = !session || Boolean(pendingAction) || !allows?.has(button.dataset.type);
+    const reportedTypes = system?.Actions?.['#ComputerSystem.Reset']?.['ResetType@Redfish.AllowableValues'];
+    const offers = Array.isArray(reportedTypes) ? new Set(reportedTypes) : initialPowerTypes;
+    const power = element('power');
+    const more = element('advanced-power');
+    const moreFocused = more?.contains(focused);
+    const agent = system?.Oem?.Qrab?.GuestAgent;
+    const restartReason = !agent ? '' : !agent.enabled || !agent.connected
+        ? 'Guest restart needs a connected guest agent.'
+        : agent.FreezeState === 'Frozen' ? 'Thaw guest filesystems before restarting the guest.' : '';
+    const restartNote = element('restart-requirement');
+    if (restartNote) {
+        updateText(restartNote, restartReason);
+        restartNote.hidden = !restartReason || system?.PowerState !== 'On' || !offers?.has('GracefulRestart');
     }
-    const connected = system?.Oem?.Qrab?.GuestAgent?.connected;
-    for (const button of document.querySelectorAll('[data-agent]')) button.disabled = !session || Boolean(pendingAction) || !connected;
+    for (const button of element('power')?.querySelectorAll('button[data-type]') || []) {
+        const restart = button.dataset.type === 'GracefulRestart';
+        const offered = offers?.has(button.dataset.type);
+        button.hidden = !offered;
+        available(button, offered && allows?.has(button.dataset.type) && (!restart || !restartReason));
+        if (restart) {
+            if (button.title !== restartReason) button.title = restartReason;
+            if (restartReason && restartNote) {
+                if (button.getAttribute('aria-describedby') !== 'restart-requirement') button.setAttribute('aria-describedby', 'restart-requirement');
+            } else if (button.hasAttribute('aria-describedby')) button.removeAttribute('aria-describedby');
+        }
+    }
+    if (more) {
+        more.hidden = [...more.querySelectorAll('button[data-type]')].every(button => button.hidden);
+        if (more.hidden) more.open = false;
+    }
+    const anyOffered = power && [...power.querySelectorAll('button[data-type]')].some(button => !button.hidden);
+    if (power) power.hidden = !anyOffered;
+    const unavailable = element('power-unavailable');
+    if (unavailable) {
+        updateText(unavailable, !Array.isArray(reportedTypes) && initialPowerTypes === null ? 'Loading power actions…'
+            : !Array.isArray(reportedTypes) && initialPowerError
+            ? `Power actions unavailable: ${initialPowerError} Reload to retry.`
+            : 'No power actions are currently offered.');
+        unavailable.hidden = !session || !system || !power?.children.length || Boolean(anyOffered);
+    }
+    const agentReasons = [];
+    for (const button of document.querySelectorAll('[data-agent]')) {
+        const reason = agentActionReason(button.dataset.agent, agent);
+        available(button, !reason);
+        const hint = reason || button.dataset.hint || '';
+        if (button.title !== hint) button.title = hint;
+        const description = [button.dataset.description || '', reason ? 'agent-requirement' : ''].filter(Boolean).join(' ');
+        if (description) {
+            if (button.getAttribute('aria-describedby') !== description) button.setAttribute('aria-describedby', description);
+        } else if (button.hasAttribute('aria-describedby')) button.removeAttribute('aria-describedby');
+        if (reason) agentReasons.push(`${button.dataset.label?.replace(/…$/, '') || 'Guest action'}: ${reason}`);
+    }
+    const requirement = element('agent-requirement');
+    if (requirement) {
+        const message = !session || !system ? '' : !agent?.connected
+            ? 'Guest actions need a connected guest agent.' : agentReasons.join(' ');
+        updateText(requirement, message);
+        requirement.hidden = !message;
+    }
     const connect = element('connect');
     if (connect && !rfb) connect.disabled = !session || !system || system.PowerState === 'Off';
     if (armed?.disabled) disarm();
+    if (session && ((focused?.matches('button[data-type], button[data-agent]') && (focused.disabled || focused.hidden)) || (more?.hidden && moreFocused))) {
+        focusInView(element(focused.dataset.agent ? 'tab-agent' : 'vm-status'));
+    }
 }
 async function runAction(button, operation) {
     if (pendingAction || !session) return;
@@ -380,8 +563,10 @@ async function runAction(button, operation) {
         await operation();
         if (session) showAction(`${label}: request accepted.`);
     } catch (error) {
-        showAction('');
-        showError(`${label}: ${error.message}`);
+        if (session) {
+            showAction('');
+            showError(`${label}: ${error.message}`);
+        }
     } finally {
         // A poll already in flight may predate the action. Read again after it
         // settles, keeping controls locked until that fresh read completes.
@@ -406,10 +591,10 @@ function showOverview() {
         ['State', system?.Status?.State ?? '—'],
         ['vCPUs', system?.ProcessorSummary?.LogicalProcessorCount ?? '—'],
         ['Memory', memory == null ? '—' : memory >= 1 ? `${+memory.toFixed(2)} GiB` : `${Math.round(memory * 1024)} MiB`],
-        ['Disks', disks.length ? `${disks.length} (${kinds.join(', ')})` : 'none'],
-        ['NICs', nics.length ? `${nics.length} (${nics.map(nic => nic.mac).join(', ')})` : 'none'],
-        ['Guest network', view ? (view.guest_network ? 'enabled' : 'disabled') : '—'],
-        ['Guest agent', !agent?.enabled ? 'disabled' : agent.connected ? `connected${agent.version ? ` · ${agent.version}` : ''}` : 'not connected'],
+        ['Disks', !Array.isArray(view?.disks) ? 'Unavailable' : disks.length ? `${disks.length} (${kinds.join(', ')})` : 'none'],
+        ['NICs', !Array.isArray(view?.nics) ? 'Unavailable' : nics.length ? `${nics.length} (${nics.map(nic => nic.mac).join(', ')})` : 'none'],
+        ['Guest network', view?.guest_network == null ? 'Unavailable' : view.guest_network ? 'enabled' : 'disabled'],
+        ['Guest agent', agent?.enabled == null ? 'Unavailable' : !agent.enabled ? 'disabled' : agent.connected == null ? 'Connection unavailable' : agent.connected ? `connected${agent.version ? ` · ${agent.version}` : ''}` : 'not connected'],
     ]);
 }
 function describeDisk(disk) {
@@ -422,13 +607,18 @@ function describeDisk(disk) {
 // Oem.Qrab.GuestAgent.LastUpdate; Output and Error are present for admins only.
 function updateSummary(update) {
     const exit = update.ExitCode != null ? ` · exit ${update.ExitCode}` : update.Signal != null ? ` · signal ${update.Signal}` : '';
-    const ended = update.EndTime ? ` · ${new Date(update.EndTime).toLocaleString()}` : '';
+    const ended = update.EndTime ? ` · ${localStamp(new Date(update.EndTime))}` : '';
     return `${update.State.toLowerCase()}${update.RunId ? ` · run ${update.RunId}` : ''}${exit}${ended}${update.HookInstalled ? '' : ' · no hook installed'}`;
 }
 function showAgent(status) {
+    let connected = 'Unavailable';
+    if (status?.connected) {
+        const since = stamp(status.connected_since_unix_ms);
+        connected = since === '—' || since === 'Time unavailable' ? 'yes' : `yes, since ${since}`;
+    } else if (status?.connected === false) connected = 'no';
     const rows = [
-        ['Channel', status?.enabled ? 'enabled' : 'disabled'],
-        ['Connected', status?.connected ? `yes, since ${stamp(status.connected_since_unix_ms)}` : 'no'],
+        ['Channel', status?.enabled == null ? 'Unavailable' : status.enabled ? 'enabled' : 'disabled'],
+        ['Connected', connected],
         ['Version', status?.version || '—'],
         ['Last seen', stamp(status?.last_seen_unix_ms)],
     ];
@@ -439,20 +629,23 @@ function showAgent(status) {
     if (update) {
         rows.push(['Last update', updateSummary(update)]);
         if (update.Error) rows.push(['Update error', update.Error]);
-        if (update.Output) rows.push([update.OutputTruncated ? 'Update output (tail)' : 'Update output', update.Output]);
+        if (update.Output) rows.push([update.OutputTruncated ? 'Update output (tail)' : 'Update output', update.Output, 'output']);
     }
     render('agent', [...rows, ...agentResult]);
-    element('agent-note').textContent = status?.connected ? 'Connected' : 'Not connected';
+    updateText(element('agent-note'), status?.connected == null ? 'Unavailable' : status.connected ? 'Connected' : 'Not connected');
     updateActionControls();
 }
 const agentTarget = name => system?.Actions?.Oem?.[`#QrabComputerSystem.${name}`]?.target || `${SYSTEM}/Actions/Oem/QrabComputerSystem.${name}`;
 function wireAgentActions() {
     for (const button of document.querySelectorAll('[data-agent]')) {
         button.dataset.label = button.textContent;
+        wireActionKeys(button);
         if (button.dataset.agent === 'freeze') {
             button.classList.add('danger');
             button.title = 'Writes block until thawed or the agent watchdog thaws them';
         }
+        button.dataset.hint = button.title;
+        button.dataset.description = button.getAttribute('aria-describedby') || '';
         button.addEventListener('click', async () => {
             if (pendingAction || !session || button.disabled) return;
             const operation = button.dataset.agent;
@@ -475,7 +668,11 @@ function wireAgentActions() {
     }
 }
 function showConfig(view) {
-    if (!view) return;
+    if (!view) {
+        render('config', [['Configuration', 'Unavailable']]);
+        updateText(element('config-note'), 'Unavailable');
+        return;
+    }
     const rows = [
         ['Name', view.name], ['Memory', `${view.memory_mib} MiB`], ['vCPUs', view.cpus], ['Accelerator', view.accelerator],
         ['Boot', view.boot], ['TPM', view.tpm ? 'yes' : 'no'], ['Console', view.console ? 'yes' : 'no'],
@@ -525,7 +722,7 @@ function refresh() {
             system = null;
             showStatus();
             const note = element('read-status');
-            note.textContent = `Live data unavailable: ${error.message} ${lastRead ? `Values below were last updated at ${lastRead.toLocaleTimeString()}.` : 'No live data has been loaded yet.'} Retrying automatically.`;
+            updateText(note, `Live data unavailable: ${error.message} ${lastRead ? `Values below were last updated at ${localTime(lastRead)}.` : 'No live data has been loaded yet.'} Retrying automatically.`);
             note.hidden = false;
         }
     })().finally(() => { refreshTask = null; });
@@ -534,18 +731,18 @@ function refresh() {
 
 // ── Metrics: current values only. Each VM report read takes a fresh QMP
 // sample, so the Metrics tab polls only while it is shown.
-const mib = value => value == null ? 'unavailable' : `${(value / 1048576).toFixed(1)} MiB`;
-const seconds = value => value == null ? 'unavailable' : `${value.toFixed(2)} s`;
+const byteSize = value => value == null ? 'unavailable' : formatValue(value, 'bytes');
+const seconds = value => value == null ? 'unavailable' : value > 0 && value < 0.01 ? '<0.01 s' : `${value.toFixed(2)} s`;
 const REPORT_FORMATS = {
     LogicalProcessors: ['vCPUs', value => value],
-    MemoryBytes: ['Memory', mib],
-    BlockReadBytes: ['Disk read', mib],
-    BlockWriteBytes: ['Disk written', mib],
-    BlockReadOperations: ['Read operations', value => value.toLocaleString()],
-    BlockWriteOperations: ['Write operations', value => value.toLocaleString()],
-    BlockFlushOperations: ['Flush operations', value => value.toLocaleString()],
-    BlockReadTimeNanoseconds: ['Read time', value => seconds(value / 1e9)],
-    BlockWriteTimeNanoseconds: ['Write time', value => seconds(value / 1e9)],
+    MemoryBytes: ['Memory', byteSize],
+    BlockReadBytes: ['Disk read total', byteSize],
+    BlockWriteBytes: ['Disk written total', byteSize],
+    BlockReadOperations: ['Read operations total', value => value.toLocaleString()],
+    BlockWriteOperations: ['Write operations total', value => value.toLocaleString()],
+    BlockFlushOperations: ['Flush operations total', value => value.toLocaleString()],
+    BlockReadTimeNanoseconds: ['Read time total', value => seconds(value / 1e9)],
+    BlockWriteTimeNanoseconds: ['Write time total', value => seconds(value / 1e9)],
 };
 async function loadResources() {
     const usage = await request(RESOURCES);
@@ -554,11 +751,11 @@ async function loadResources() {
         const sample = usage[name];
         if (!sample) { rows.push([name, 'unavailable']); continue; }
         const process = sample.process || {};
-        rows.push([`${name} process RSS`, mib(process.resident_memory_bytes)]);
+        rows.push([`${name} process RSS`, byteSize(process.resident_memory_bytes)]);
         rows.push([`${name} process CPU total`, seconds(process.cpu_time_seconds)]);
         if (sample.container) {
-            rows.push([`${name} container memory`, mib(sample.container.memory_current_bytes)]);
-            rows.push([`${name} memory limit`, mib(sample.container.memory_limit_bytes)]);
+            rows.push([`${name} container memory`, byteSize(sample.container.memory_current_bytes)]);
+            rows.push([`${name} memory limit`, byteSize(sample.container.memory_limit_bytes)]);
             rows.push([`${name} container CPU total`, seconds(sample.container.cpu_usage_seconds)]);
         }
     }
@@ -592,7 +789,7 @@ const HISTORY_RANGES = ['15m', '1h', '6h', '24h', '7d'];
 const HISTORY_REFRESH_MS = 30000;
 const SERIES_COLOURS = 6;
 const SVG_NS = 'http://www.w3.org/2000/svg';
-const metricHistory = {range: '1h', fetchedAt: 0, loading: false, answers: {}, built: false, resize: null};
+const metricHistory = {range: '1h', fetchedAt: 0, loading: false, answers: {}, built: false, resize: null, frame: null};
 const rangeKey = () => `qrab-bmc:history-range:${session?.user?.subject || 'anonymous'}`;
 function svgNode(tag, attributes = {}, text) {
     const item = document.createElementNS(SVG_NS, tag);
@@ -601,6 +798,8 @@ function svgNode(tag, attributes = {}, text) {
     return item;
 }
 function scaled(value, suffix) {
+    if (value > 0 && value < 0.01) return `<0.01 B${suffix}`;
+    if (value > 0 && value < 1) return `${Math.round(value * 100) / 100} B${suffix}`;
     const units = ['B', 'KiB', 'MiB', 'GiB', 'TiB'];
     let index = 0;
     while (Math.abs(value) >= 1024 && index < units.length - 1) { value /= 1024; index += 1; }
@@ -610,20 +809,22 @@ function scaled(value, suffix) {
 function formatValue(value, unit) {
     if (unit === 'bytes') return scaled(value, '');
     if (unit === 'bytes/s') return scaled(value, '/s');
+    if (unit === 'cores' && value > 0 && value < 0.00001) return '<0.01 mcores';
+    if (unit === 'cores' && value > 0 && value < 0.001) return `${Math.round(value * 100000) / 100} mcores`;
     if (unit === 'cores') return Math.abs(value) < 1 ? `${Math.round(value * 1000)} mcores` : `${value.toFixed(2)} cores`;
     return `${+value.toPrecision(3)} ${unit || ''}`.trim();
 }
-// A round axis maximum: 1, 2 or 5 times a power of 1024 (bytes) or 10.
+// Binary byte axes, decimal sub-byte ranges and CPU axes.
 function niceMax(max, unit) {
     if (!(max > 0)) return 1;
-    const base = unit === 'bytes' || unit === 'bytes/s' ? 1024 : 10;
+    const base = (unit === 'bytes' || unit === 'bytes/s') && max >= 1 ? 1024 : 10;
     const power = base ** Math.floor(Math.log(max) / Math.log(base));
     const step = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000].find(n => n * power >= max);
     return step * power;
 }
 function axisTime(unix, range) {
     const at = new Date(unix * 1000);
-    return range === '7d' ? at.toLocaleDateString([], {weekday: 'short', day: 'numeric'}) : at.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'});
+    return range === '7d' ? historyDay(at) : historyClock(at);
 }
 const seriesLabel = series => Object.values(series.labels || {})[0] || '—';
 function historySummary(answer, title, max) {
@@ -634,12 +835,34 @@ function historySummary(answer, title, max) {
     if (!latest.length) return `${title}: no data over the last ${answer.range}.`;
     return `${title} over the last ${answer.range}: peak ${formatValue(max, answer.unit)}; latest ${latest.join(', ')}.`;
 }
+const replacingCharts = new WeakSet();
+function replaceChartBody(figure, ...children) {
+    replacingCharts.add(figure);
+    try { figure.querySelector('.chart-body').replaceChildren(...children); }
+    finally { replacingCharts.delete(figure); }
+}
+function chartMessage(figure, message, className) {
+    const body = figure.querySelector('.chart-body');
+    const existing = body.firstElementChild;
+    if (body.children.length === 1 && existing.classList.contains(className) && existing.textContent === message) return;
+    const keepFocus = body.contains(document.activeElement);
+    const text = node('p', message, className);
+    text.tabIndex = -1;
+    text.setAttribute('aria-describedby', figure.querySelector('figcaption b').id);
+    delete figure.dataset.selectedTime;
+    figure.querySelector('.peak').textContent = '';
+    figure.querySelector('.readout').textContent = '';
+    replaceChartBody(figure, text);
+    if (keepFocus) text.focus({preventScroll: true});
+}
 function drawChart(figure, answer, title) {
     const body = figure.querySelector('.chart-body');
     const readout = figure.querySelector('.readout');
+    const keepFocus = body.contains(document.activeElement);
+    const previousTime = figure.dataset.selectedTime === undefined ? null : Number(figure.dataset.selectedTime);
     const width = Math.max(240, Math.round(body.clientWidth || 320));
-    const height = 132;
-    const pad = {left: 74, right: 8, top: 8, bottom: 20};
+    const height = 148;
+    const pad = {left: 100, right: 8, top: 10, bottom: 24};
     const plotWidth = width - pad.left - pad.right;
     const plotHeight = height - pad.top - pad.bottom;
     const values = answer.series.flatMap(series => series.points.map(point => point[1]));
@@ -650,28 +873,32 @@ function drawChart(figure, answer, title) {
     const summary = historySummary(answer, title, max);
     figure.querySelector('.peak').textContent = values.length ? `peak ${formatValue(max, answer.unit)}` : '';
     if (!values.length) {
-        body.replaceChildren(node('p', `No samples over the last ${answer.range}.`, 'chart-empty'));
+        chartMessage(figure, `No samples over the last ${answer.range}.`, 'chart-empty');
         return;
     }
-    const svg = svgNode('svg', {viewBox: `0 0 ${width} ${height}`, width, height, role: 'img', 'aria-label': summary, tabindex: 0, class: 'chart'});
+    const svg = svgNode('svg', {viewBox: `0 0 ${width} ${height}`, width, height, role: 'img', 'aria-label': summary, 'aria-describedby': 'history-help', tabindex: 0, class: 'chart'});
     svg.append(svgNode('title', {}, summary));
     for (const fraction of [0, 0.5, 1]) {
         const level = pad.top + plotHeight * (1 - fraction);
         svg.append(svgNode('line', {x1: pad.left, x2: width - pad.right, y1: level, y2: level, class: fraction ? 'grid' : 'axis'}));
         svg.append(svgNode('text', {x: pad.left - 5, y: level + 4, 'text-anchor': 'end', class: 'tick'}, formatValue(top * fraction, answer.unit)));
     }
-    for (const [fraction, anchor] of [[0, 'start'], [0.5, 'middle'], [1, 'end']]) {
+    const ticks = plotWidth >= 220 ? [[0, 'start'], [0.5, 'middle'], [1, 'end']] : [[0, 'start'], [1, 'end']];
+    for (const [fraction, anchor] of ticks) {
         const t = answer.start + (answer.end - answer.start) * fraction;
         svg.append(svgNode('text', {x: pad.left + plotWidth * fraction, y: height - 5, 'text-anchor': anchor, class: 'tick'}, axisTime(t, answer.range)));
     }
     answer.series.forEach((series, index) => {
         // A gap longer than two steps (no samples, or NaN) breaks the line.
-        let d = '', previous = null;
+        let d = '', previous = null, segmentLength = 0;
         for (const [t, v] of series.points) {
-            d += `${previous !== null && t - previous <= 2 * answer.step ? 'L' : 'M'}${x(t).toFixed(1)},${y(v).toFixed(1)}`;
+            const connected = previous !== null && t >= previous && (!answer.step || t - previous <= 2 * answer.step);
+            if (!connected && segmentLength === 1) d += 'h1';
+            d += `${connected ? 'L' : 'M'}${x(t).toFixed(1)},${y(v).toFixed(1)}`;
+            segmentLength = connected ? segmentLength + 1 : 1;
             previous = t;
         }
-        if (series.points.length === 1) d += `h1`;
+        if (segmentLength === 1) d += 'h1';
         svg.append(svgNode('path', {d, class: `line series-${index % SERIES_COLOURS}`}));
     });
     const cursor = svgNode('line', {y1: pad.top, y2: pad.top + plotHeight, class: 'cursor', visibility: 'hidden'});
@@ -680,9 +907,10 @@ function drawChart(figure, answer, title) {
     const times = [...new Set(answer.series.flatMap(series => series.points.map(point => point[0])))].sort((a, b) => a - b);
     let selected = -1;
     const show = index => {
-        if (!times.length) return;
+        if (!times.length || !body.contains(svg)) return;
         selected = Math.min(times.length - 1, Math.max(0, index));
         const t = times[selected];
+        figure.dataset.selectedTime = String(t);
         cursor.setAttribute('x1', x(t));
         cursor.setAttribute('x2', x(t));
         cursor.setAttribute('visibility', 'visible');
@@ -690,17 +918,31 @@ function drawChart(figure, answer, title) {
             const point = series.points.find(p => p[0] === t);
             return `${seriesLabel(series)} ${point ? formatValue(point[1], answer.unit) : '—'}`;
         });
-        readout.textContent = `${new Date(t * 1000).toLocaleString()}: ${parts.join(' · ')}`;
+        updateText(readout, `${localStamp(new Date(t * 1000))}: ${parts.join(' · ')}`);
     };
-    const hide = () => { cursor.setAttribute('visibility', 'hidden'); selected = -1; readout.textContent = ''; };
+    const hide = () => {
+        // Chromium may dispatch blur before removing the old SVG. A redraw
+        // restores the same selection; it must not announce a cleared readout.
+        if (replacingCharts.has(figure) || !body.contains(svg)) return;
+        cursor.setAttribute('visibility', 'hidden'); selected = -1;
+        delete figure.dataset.selectedTime;
+        updateText(readout, '');
+    };
     const nearest = t => times.reduce((best, value, index) => Math.abs(value - t) < Math.abs(times[best] - t) ? index : best, 0);
     svg.addEventListener('pointermove', event => {
+        // Layout changes can send a stationary mouse event over a focused
+        // chart. Keep its keyboard selection until the pointer actually moves.
+        if (document.activeElement === svg && event.pointerType === 'mouse' && event.movementX === 0 && event.movementY === 0) return;
         const box = svg.getBoundingClientRect();
         const px = (event.clientX - box.left) * width / box.width;
         show(nearest(answer.start + (px - pad.left) / plotWidth * (answer.end - answer.start)));
     });
     svg.addEventListener('pointerleave', () => { if (document.activeElement !== svg) hide(); });
-    svg.addEventListener('focus', () => show(times.length - 1));
+    let restoreIndex = null;
+    svg.addEventListener('focus', () => {
+        show(restoreIndex ?? times.length - 1);
+        restoreIndex = null;
+    });
     svg.addEventListener('blur', hide);
     svg.addEventListener('keydown', event => {
         const next = {ArrowLeft: selected - 1, ArrowRight: selected + 1, Home: 0, End: times.length - 1}[event.key];
@@ -712,10 +954,16 @@ function drawChart(figure, answer, title) {
     answer.series.forEach((series, index) => {
         const item = node('li');
         const last = series.points.at(-1);
-        item.append(node('span', undefined, `swatch series-${index % SERIES_COLOURS}`), node('code', seriesLabel(series)), document.createTextNode(` ${last ? formatValue(last[1], answer.unit) : 'no data'}`));
+        const key = svgNode('svg', {viewBox: '0 0 32 10', class: 'swatch', 'aria-hidden': 'true'});
+        key.append(svgNode('line', {x1: 1, y1: 5, x2: 31, y2: 5, class: `series-${index % SERIES_COLOURS}`}));
+        item.append(key, node('code', seriesLabel(series)), document.createTextNode(` ${last ? formatValue(last[1], answer.unit) : 'no data'}`));
         legend.append(item);
     });
-    body.replaceChildren(svg, legend);
+    replaceChartBody(figure, svg, legend);
+    if (keepFocus) {
+        restoreIndex = previousTime === null ? times.length - 1 : nearest(previousTime);
+        svg.focus({preventScroll: true});
+    } else if (previousTime !== null) show(nearest(previousTime));
 }
 function drawHistory(slot) {
     for (const [metric, title] of HISTORY_METRICS) {
@@ -723,9 +971,7 @@ function drawHistory(slot) {
         const answer = metricHistory.answers[metric];
         if (!answer) continue;
         if (answer.error) {
-            figure.querySelector('.peak').textContent = '';
-            figure.querySelector('.readout').textContent = '';
-            figure.querySelector('.chart-body').replaceChildren(node('p', answer.error, 'chart-error'));
+            chartMessage(figure, answer.error, 'chart-error');
         } else drawChart(figure, answer.value, title);
     }
 }
@@ -751,21 +997,41 @@ function buildHistory(slot) {
         ranges.append(button);
     }
     const status = node('span', 'Loading…', 'history-status');
-    status.setAttribute('role', 'status');
-    head.append(node('h3', 'History'), ranges, status);
+    const availability = node('span', '', 'visually-hidden');
+    availability.id = 'history-availability';
+    availability.setAttribute('role', 'status');
+    head.append(node('h3', 'History'), ranges, status, availability);
     const charts = HISTORY_METRICS.map(([metric, title]) => {
         const figure = node('figure', undefined, 'history-chart');
         figure.dataset.metric = metric;
         const caption = node('figcaption');
-        caption.append(node('b', title), node('span', '', 'peak'));
+        const label = node('b', title);
+        label.id = `history-${metric}-title`;
+        caption.append(label, node('span', '', 'peak'));
         const readout = node('p', '', 'readout');
         readout.setAttribute('aria-live', 'polite');
         figure.append(caption, node('div', undefined, 'chart-body'), readout);
         return figure;
     });
     slot.classList.remove('slot');
-    slot.replaceChildren(head, ...charts);
-    metricHistory.resize = new ResizeObserver(() => drawHistory(slot));
+    const help = node('p', 'Point to a chart to inspect a sample. With keyboard focus, use Left/Right arrows or Home/End. Gaps indicate missing samples; a short mark shows a lone sample.', 'panel-help');
+    help.id = 'history-help';
+    slot.replaceChildren(head, help, ...charts);
+    // Drawing changes the panel's height. Only width changes require a new
+    // plot, and DOM writes belong outside ResizeObserver's delivery cycle.
+    let lastWidth = 0, nextWidth = 0;
+    metricHistory.resize = new ResizeObserver(([entry]) => {
+        nextWidth = Math.round(entry.contentRect.width);
+        if (nextWidth <= 0 || nextWidth === lastWidth) return;
+        if (metricHistory.frame !== null) return;
+        metricHistory.frame = requestAnimationFrame(() => {
+            metricHistory.frame = null;
+            if (session && currentTab === 'metrics' && !document.hidden) {
+                drawHistory(slot);
+                lastWidth = nextWidth;
+            }
+        });
+    });
     metricHistory.resize.observe(slot);
     metricHistory.built = true;
 }
@@ -788,7 +1054,9 @@ async function renderMetricHistory(slot) {
         metricHistory.fetchedAt = Date.now();
         drawHistory(slot);
         const failed = results.filter(result => result.status === 'rejected').length;
-        status.textContent = failed === results.length ? 'Unavailable' : `Updated ${new Date().toLocaleTimeString()}`;
+        status.textContent = failed === results.length ? 'Unavailable' : `Updated ${localTime(new Date())}`;
+        updateText(element('history-availability'), failed === results.length ? 'Metric history unavailable.'
+            : failed ? 'Some metric history unavailable.' : 'Metric history available.');
     } finally {
         metricHistory.loading = false;
         if (range !== metricHistory.range) renderMetricHistory(slot);
@@ -805,21 +1073,24 @@ function loadMetrics() {
         if (resources.status === 'rejected') render('resources', [['Resources', resources.reason.message]]);
         const failures = [report, resources].filter(result => result.status === 'rejected').length;
         note.textContent = failures === 2 ? 'Unavailable' : failures ? 'Some data unavailable'
-            : report.value ? `Sampled ${new Date(report.value).toLocaleTimeString()}` : 'Live';
+            : report.value ? `Sampled ${localTime(new Date(report.value))}` : 'Live';
+        updateText(element('metrics-availability'), failures === 2 ? 'VM metrics unavailable.'
+            : failures ? 'Some VM metrics unavailable.' : 'VM metrics available.');
         renderMetricHistory(element('metric-history'));
     })().finally(() => { metricsTask = null; });
     return metricsTask;
 }
 
-// ── Power group: the ResetType values Redfish's ResetActionInfo allows.
+// ── Power group: use the System's advertised values when available. The
+// optional discovery request is only a fallback; failure must not prevent
+// controls from recovering with a later successful System poll.
 async function loadPower() {
-    const info = await request(RESET_INFO);
-    const allowed = new Set(info.Parameters?.find(parameter => parameter.Name === 'ResetType')?.AllowableValues || []);
     const target = () => system?.Actions?.['#ComputerSystem.Reset']?.target || `${SYSTEM}/Actions/ComputerSystem.Reset`;
-    const buttons = RESETS.filter(([type]) => allowed.has(type)).map(([type, label, disruptive]) => {
+    const buttons = RESETS.map(([type, label, disruptive]) => {
         const button = node('button', label, disruptive ? 'danger' : undefined);
         button.dataset.type = type;
         button.dataset.label = label;
+        wireActionKeys(button);
         button.addEventListener('click', async () => {
             if (pendingAction || !session || button.disabled) return;
             if (disruptive && !confirmed(button)) return;
@@ -841,10 +1112,25 @@ async function loadPower() {
         controls.setAttribute('role', 'group');
         controls.setAttribute('aria-label', 'More power actions');
         controls.append(...secondary);
-        more.append(node('summary', 'More power actions'), controls);
+        const help = node('p', 'Reset restarts the guest immediately. Power cycle turns it off and on. NMI sends a diagnostic interrupt. Force off stops it immediately. Select an action twice within five seconds to confirm.', 'panel-help');
+        more.append(node('summary', 'More power actions'), help, controls);
+        more.addEventListener('toggle', () => {
+            if (!more.open && armed && more.contains(armed)) disarm();
+        });
         primary.push(more);
     }
     element('power').replaceChildren(...primary);
+    showStatus();
+    const reportedTypes = system?.Actions?.['#ComputerSystem.Reset']?.['ResetType@Redfish.AllowableValues'];
+    try {
+        const info = Array.isArray(reportedTypes) ? null : await request(RESET_INFO);
+        initialPowerTypes = new Set(Array.isArray(reportedTypes) ? reportedTypes
+            : info?.Parameters?.find(parameter => parameter.Name === 'ResetType')?.AllowableValues || []);
+    } catch (error) {
+        if (!session) throw error;
+        initialPowerTypes = new Set();
+        initialPowerError = error.message;
+    }
     showStatus();
 }
 
@@ -894,7 +1180,11 @@ function disconnected(message) {
     updateActionControls();
     element('cad').disabled = true;
     element('fullscreen').disabled = true;
-    if (poweredOff) showPoweredOff(); else element('console-status').textContent = message;
+    if (poweredOff) showPoweredOff();
+    else {
+        element('console-status').textContent = message;
+        if (session) element('screen').replaceChildren(...placeholder.map(child => child.cloneNode(true)));
+    }
 }
 function connect() {
     if (rfb) { rfb.disconnect(); return; }
@@ -910,13 +1200,20 @@ function connect() {
         rfb.resizeSession = false;
         rfb.focusOnClick = true;
         rfb.showDotCursor = true;
+        const client = rfb;
+        const keyboard = wireConsoleKeyboard(screen.querySelector('canvas'), {
+            enabled: () => Boolean(session) && rfb === client,
+            returnFocus: () => focusInView(element('connect')),
+            describedBy: 'hint',
+        });
         rfb.addEventListener('connect', () => {
+            keyboard.connected();
             element('connect').textContent = 'Disconnect';
             element('console-status').textContent = 'Connected · Keyboard and mouse enabled';
             element('cad').disabled = false;
             element('fullscreen').disabled = false;
         });
-        rfb.addEventListener('disconnect', event => { disconnected(event.detail.clean ? 'Console disconnected' : 'Connection closed. Check your session and reconnect.'); });
+        rfb.addEventListener('disconnect', event => { keyboard.dispose(); disconnected(event.detail.clean ? 'Console disconnected' : 'Connection closed. Check your session and reconnect.'); });
         rfb.addEventListener('securityfailure', () => { showError('Console connection failed.'); });
         element('console-status').textContent = 'Connecting…';
     } catch (error) { disconnected('Console disconnected'); showError(error.message); }
@@ -989,11 +1286,18 @@ try {
     element('logout').hidden = false;
     selectTab(remembered() || 'overview', {store: false});
     await refresh();
-    if (!session) throw new Error('Your session ended. Sign in to reconnect.');
+    if (!session) throw sessionError();
     polling = setInterval(() => { if (!document.hidden) refresh(); }, 3000);
-    await Promise.all([admin ? loadPower() : null, startEvents()]).catch(error => showError(error.message));
     metricsTimer = setInterval(() => { if (!document.hidden) loadMetrics(); }, 5000);
-} catch (error) { signedOut(); if (!error.message.startsWith('Your session ended')) showError(error.message); }
+    await Promise.all([admin ? loadPower() : null, startEvents()]).catch(error => { if (session) showError(error.message); });
+} catch (error) {
+    signedOut();
+    if (!error.sessionEnded) {
+        element('login').hidden = true;
+        element('access-error').hidden = false;
+        showError(error.message);
+    }
+}
 
 document.addEventListener('visibilitychange', () => {
     if (!document.hidden && session) { refresh(); loadMetrics(); }

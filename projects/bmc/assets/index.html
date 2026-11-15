@@ -1,11 +1,11 @@
 <!doctype html>
 <html lang="en">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>qrab · VM console</title><link rel="stylesheet" href="/assets/style.css"><script type="module" src="/assets/console.js"></script></head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>qrab · VM console</title><link rel="icon" type="image/svg+xml" href="/assets/favicon.svg"><link rel="stylesheet" href="/assets/style.css"><script type="module" src="/assets/console.js"></script></head>
 <body>
 <a class="skip-link" href="#main">Skip to content</a>
 <header class="topbar">
 <a class="brand" href="/">qrab<span>BMC</span></a>
-<div class="vm-title"><h1 id="vm-name">Console</h1><span id="vm-status" class="chip" data-state="unknown" role="status" hidden>Connecting…</span></div>
+<div class="vm-title"><h1 id="vm-name">Console</h1><span id="vm-status" class="chip" data-state="unknown" role="status" tabindex="-1" hidden>Connecting…</span></div>
 <div class="who"><span id="identity"></span><span id="role" class="badge" hidden></span><button id="logout" hidden>Sign out</button></div>
 </header>
 <main id="main" tabindex="-1">
@@ -16,14 +16,17 @@
 <p id="action-status" class="action-status" role="status" hidden></p>
 <p id="read-status" class="read-status" role="status" hidden></p>
 <section id="login" hidden><h2>Your VM console</h2><p>Sign in with your infrastructure account to open this VM.</p><a id="sign-in" class="button primary" href="/auth/login">Sign in with Kanidm</a></section>
+<section id="access-error" hidden><h2>VM access unavailable</h2><p>Access details could not be loaded. Reload this page to try again.</p><a id="reload-access" class="button primary" href="/">Reload BMC</a></section>
 <section id="dashboard" class="workspace" hidden>
 <section class="console" aria-label="Console">
 <div class="console-bar" id="console-toolbar" role="toolbar" aria-label="Console controls" data-admin>
 <div class="group" id="console-controls"><button id="connect" class="primary" disabled>Connect console</button><button id="cad" disabled>Ctrl Alt Del</button><button id="scale" aria-pressed="true" title="Fit the display to the window, or show it at 1:1 with scrolling">Fit</button><button id="fullscreen" disabled>Full screen</button><a class="button panel-jump" href="#vm-panels">VM panels ↓</a></div>
 <div class="group power" id="power" role="group" aria-label="Power"></div>
+<p id="power-unavailable" class="restart-requirement" hidden>No power actions are currently offered.</p>
+<p id="restart-requirement" class="restart-requirement" hidden></p>
 </div>
 <div id="screen"><p>Open the console for video, keyboard and mouse access.</p></div>
-<div class="console-foot"><p id="console-status" role="status">Console disconnected</p><p class="hint" id="hint" data-admin>Click the display to send keyboard input; click outside it to release the keyboard. Power actions apply to this VM only.</p></div>
+<div class="console-foot"><p id="console-status" role="status">Console disconnected</p><p class="hint" id="hint" data-admin>Tab or click the display for guest input. Ctrl+Alt+Shift (left Alt) returns to console controls; clicking outside also releases keys. Power actions apply to this VM only.</p></div>
 </section>
 <aside class="rail" id="vm-panels" tabindex="-1" aria-label="VM details">
 <div class="tabs" role="tablist" aria-label="VM details" id="rail-tabs">
@@ -35,14 +38,17 @@
 </div>
 <section class="panel" role="tabpanel" id="panel-overview" aria-labelledby="tab-overview" tabindex="0"><dl id="overview"><dt>Status</dt><dd>Loading live data…</dd></dl></section>
 <section class="panel" role="tabpanel" id="panel-metrics" aria-labelledby="tab-metrics" tabindex="0" hidden>
-<div class="panel-head"><h2>Current values</h2><span id="metrics-note" role="status">Loading…</span></div>
+<div class="panel-head"><h2>Current values</h2><span id="metrics-note">Loading…</span><span id="metrics-availability" class="visually-hidden" role="status"></span></div>
+<p class="panel-help" data-local-time></p>
 <h3>VM report</h3><dl id="telemetry"></dl>
-<h3>Service resources</h3><dl id="resources"></dl>
+<p class="panel-help">Disk counters are cumulative totals.</p>
+<details id="service-resources" class="resource-details"><summary>Service resources</summary><p class="panel-help">Process and container counters. CPU totals are cumulative.</p><dl id="resources"></dl></details>
 <section id="metric-history" class="slot" aria-label="Metric history"><h3>History</h3><p>Loading history…</p></section>
 </section>
 <section class="panel" role="tabpanel" id="panel-events" aria-labelledby="tab-events" tabindex="0" hidden>
 <div class="panel-head"><h2>QMP events</h2><span id="events-status" role="status">Loading…</span></div>
-<p class="panel-help">Expand an event to read its timestamp and payload.</p>
+<p class="panel-help">Expand an event to read its timestamp and payload. <span data-local-time></span> Expanded timestamps use UTC.</p>
+<p id="events-history-status" class="warning" role="status" hidden></p>
 <p id="events-dropped" class="warning" role="alert" hidden></p>
 <input id="events-filter" type="search" placeholder="Filter by event name" aria-label="Filter events by name" autocomplete="off">
 <p id="events-empty" class="empty-note" role="status">Loading event history…</p>
@@ -50,8 +56,11 @@
 </section>
 <section class="panel" role="tabpanel" id="panel-agent" aria-labelledby="tab-agent" tabindex="0" hidden>
 <div class="panel-head"><h2>Guest agent</h2><span id="agent-note"></span></div>
+<p class="panel-help" data-local-time></p>
 <dl id="agent"></dl>
-<div class="group agent-actions" data-admin><button data-agent="freeze" disabled>Freeze filesystems</button><button data-agent="thaw" disabled>Thaw</button><button data-agent="update" disabled>Run update…</button></div>
+<p id="freeze-help" class="panel-help" data-admin>Freeze temporarily blocks guest filesystem writes. Thaw resumes writes; the guest agent watchdog also thaws filesystems left frozen.</p>
+<p id="agent-requirement" class="panel-help" role="status" data-admin hidden></p>
+<div class="group agent-actions" data-admin><button data-agent="freeze" aria-describedby="freeze-help" disabled>Freeze filesystems</button><button data-agent="thaw" aria-describedby="freeze-help" disabled>Thaw</button><button data-agent="update" disabled>Run update…</button></div>
 </section>
 <section class="panel" role="tabpanel" id="panel-config" aria-labelledby="tab-config" tabindex="0" hidden>
 <div class="panel-head"><h2>Configuration</h2><span id="config-note"></span></div>

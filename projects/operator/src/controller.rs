@@ -372,7 +372,14 @@ async fn reconcile_nics(
             let holder = live.as_ref().filter(|p| {
                 p.status.as_ref().and_then(|s| s.pod_ip.as_deref()) == Some(&ip.to_string())
             });
-            addresses.route(pool, holder).await?;
+            // The anchor a live migration took the address over from keeps
+            // announcing it while it retires (make before break).
+            let previous = holder
+                .and_then(|h| h.annotations().get(nic::HANDOFF_FROM))
+                .and_then(|from| from.split_once('/'))
+                .and_then(|(_, name)| pods_of(&nic_pods, &spec.name).find(|p| p.name_any() == name))
+                .filter(|p| p.metadata.deletion_timestamp.is_none());
+            addresses.route(pool, holder, previous).await?;
             if holder.is_none() {
                 let bound = pods_of(&nic_pods, &spec.name)
                     .filter_map(|p| p.spec.as_ref()?.node_name.clone())
@@ -650,9 +657,21 @@ async fn ensure_config(
                 "ConfigMap {name} belongs to another owner"
             )));
         }
-        let boot_changed = resources::data(&actual).get("vm.json")
-            != resources::data(&desired.config).get("vm.json");
-        if !boot_changed
+        let (actual_json, desired_json) = (
+            resources::data(&actual).get("vm.json").cloned(),
+            resources::data(&desired.config).get("vm.json").cloned(),
+        );
+        let changed = actual_json != desired_json;
+        // A NIC change reaches the running manager through the refreshed
+        // ConfigMap; only the rest of the config needs a new VM Pod.
+        let boot_changed = changed
+            && match (&actual_json, &desired_json) {
+                (Some(actual), Some(desired)) => {
+                    resources::boot_identity(actual).ok() != resources::boot_identity(desired).ok()
+                }
+                _ => true,
+            };
+        if !changed
             && desired
                 .config
                 .labels()

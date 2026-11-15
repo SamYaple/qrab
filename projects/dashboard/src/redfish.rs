@@ -323,6 +323,18 @@ pub struct QrabSystem {
     pub guest_agent: Option<AgentStatus>,
 }
 
+/// A known guest-agent prerequisite; absence does not grant action permission.
+pub fn guest_restart_unavailable(system: &System) -> Option<&'static str> {
+    let agent = system.oem.qrab.guest_agent.as_ref()?;
+    if !agent.enabled || !agent.connected {
+        Some("Guest restart needs a connected guest agent.")
+    } else if agent.freeze_state.as_deref() == Some("Frozen") {
+        Some("Thaw guest filesystems before restarting the guest.")
+    } else {
+        None
+    }
+}
+
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default, rename_all = "PascalCase")]
 struct ActionInfo {
@@ -547,6 +559,30 @@ pub fn event_data(event: &QrabEvent) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn restart_prerequisites_report_only_known_agent_obstructions() {
+        let mut system = super::System::default();
+        assert_eq!(super::guest_restart_unavailable(&system), None);
+        system.oem.qrab.guest_agent = Some(super::AgentStatus::default());
+        assert!(
+            super::guest_restart_unavailable(&system)
+                .unwrap()
+                .contains("connected")
+        );
+        let agent = system.oem.qrab.guest_agent.as_mut().unwrap();
+        agent.enabled = true;
+        agent.connected = true;
+        agent.freeze_state = Some("Frozen".into());
+        assert!(
+            super::guest_restart_unavailable(&system)
+                .unwrap()
+                .contains("Thaw")
+        );
+        system.oem.qrab.guest_agent.as_mut().unwrap().freeze_state = Some("Thawed".into());
+        assert_eq!(super::guest_restart_unavailable(&system), None);
+        system.oem.qrab.guest_agent.as_mut().unwrap().freeze_state = None;
+        assert_eq!(super::guest_restart_unavailable(&system), None);
+    }
     use super::*;
     #[test]
     fn reset_types_round_trip_and_only_known_allowed_values_are_offered() {

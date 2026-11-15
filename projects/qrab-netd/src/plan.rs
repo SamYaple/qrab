@@ -10,14 +10,19 @@ pub const UPLINK: &str = "eth0";
 /// See [`NicPlan::uplink_placeholder`].
 pub const UPLINK_PLACEHOLDER: &str = "169.254.1.2/32";
 /// nftables table holding the guest's DNS redirect.
-pub const NFT_TABLE: &str = "qrab_netd";
+pub const NFT_TABLE: &str = crate::vpn::NFT_TABLE;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NicPlan {
     pub tap: String,
     pub tap_mac: String,
     pub guest_mac: String,
+    /// The guest's address: the anchor's pool /32 for a plain NIC, the
+    /// tunnel's address for a VPN NIC.
     pub guest_ip: Ipv4Addr,
+    /// The WireGuard tunnel of a VPN NIC ([`crate::vpn`]); the agent loads it
+    /// from the anchor's mounted Secret ([`NicPlan::with_tunnel`]).
+    pub vpn: Option<crate::vpn::Tunnel>,
 }
 
 impl NicPlan {
@@ -41,7 +46,25 @@ impl NicPlan {
             tap_mac: identity::tap_mac(uid, nic),
             guest_mac: identity::guest_mac(uid, nic),
             guest_ip,
+            vpn: None,
         })
+    }
+
+    /// Whether the anchor is a VPN NIC's (its tunnel config is mounted).
+    pub fn is_vpn(pod: &Pod) -> bool {
+        pod.metadata
+            .annotations
+            .as_ref()
+            .and_then(|a| a.get(crate::vpn::VPN_ANNOTATION))
+            .is_some_and(|v| v == crate::vpn::VPN_WIREGUARD)
+    }
+
+    /// A VPN NIC's plan: the guest gets the tunnel's address; the anchor's
+    /// pool /32 stays on `eth0` as the tunnel's outer address.
+    pub fn with_tunnel(mut self, tunnel: crate::vpn::Tunnel) -> Self {
+        self.guest_ip = tunnel.address;
+        self.vpn = Some(tunnel);
+        self
     }
 
     /// `ip` commands for an existing tap, run inside the anchor's namespace

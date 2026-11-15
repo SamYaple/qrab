@@ -39,7 +39,7 @@ spec:
 
 `kubectl get qvmm` shows the phase: `Pending` (waiting for a Ready VM),
 `TargetStarting`, `Migrating`, then `Succeeded` or `Failed` with a message
-and, when the cause is classified, a `reason` (`PoweredOff`). A
+and, when the cause is classified, a `reason` (`PoweredOff`, `UnsharedClaim`). A
 migration object is single-use and immutable; create a new one per move. One
 migration per VM runs at a time; a second one created meanwhile fails.
 
@@ -77,7 +77,9 @@ replaces it as the scheduling pin after a move, and the VM restarts there.
 A VM powered off in place (Redfish/BMC power off, or the guest shutting
 down) keeps its Pod Running and Ready while its manager waits in phase `off`
 with no QEMU, so there is no guest to stream. Such a migration is refused, not
-retried: the operator starts the target as usual, the source's manager answers
+retried. When the VM has Redfish, its `status.powerState` already reads `Off`
+and the operator fails the migration before creating any target object.
+Otherwise the operator starts the target as usual, the source's manager answers
 the target's hello with "the VM is powered off", and the target exits 1 with the
 termination message `source-powered-off`. The migration then ends `Failed`
 with reason `PoweredOff` and the message "the VM is powered off, so there is no
@@ -110,7 +112,10 @@ else `spec.storageNode`).
    target node's InternalIP), the source enables `pause-before-switchover`,
    and at `pre-switchover` it switches the NICs over (forward route, target
    `activate` over a second hello on channel `switchover`, source `standby`)
-   before `migrate-continue`, undoing them on failure
+   before `migrate-continue`, undoing them on failure. Before `migrate` and
+   again after `completed` it sends `Conntrack { nic }` on that channel: the
+   target's qrab-netd then pulls the NIC's conntrack entries from the source
+   node's qrab-netd, node to node, and the managers never carry them
    ([networking.md](networking.md#live-migration)).
 4. Both managers poll `query-migrate` every 250 ms (20 ms with NICs, since the
    pre-switchover wait is guest downtime) and keep publishing status,
@@ -170,3 +175,14 @@ and migration admission share a bounded management lock. The incoming target
 does not cold-apply policy to the placeholder VARS that is about to be replaced
 by the authenticated migration stream. Unmodified default-image VMs retain the
 existing migration behavior. Full policy/artifact transfer is a follow-up.
+
+The target Pod mounts the same Redfish state claim
+(`spec.components.redfish.stateVolumeClaim`) and media/firmware catalog claims
+(`spec.mediaVolumeClaim`, `spec.firmwareCatalogVolumeClaim`) as the source, on
+another node, while the source still runs. Only a `ReadWriteMany` or
+`ReadOnlyMany` claim allows that. The operator therefore fails a migration
+with reason `UnsharedClaim`, before creating any target object, when one of
+these claims has neither mode. A `ReadWriteOncePod` claim would leave the
+target Pod Pending ("unbound immediate PersistentVolumeClaims"). Handing a
+single-attach Redfish state claim over at the switch, the way the identity
+state streams over the migration channel, is a follow-up.

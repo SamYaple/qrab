@@ -1256,7 +1256,8 @@ fn vm_config_carries_nics_only_once_every_nic_has_an_address() {
         },
     ];
     let desired = resources::render_attached(&vm, &settings(), &[], boot, &endpoints).unwrap();
-    let config: Value = serde_json::from_str(&desired.config.data.unwrap()["vm.json"]).unwrap();
+    let config: Value =
+        serde_json::from_str(&desired.config.data.clone().unwrap()["vm.json"]).unwrap();
     assert_eq!(
         config["nics"],
         json!([
@@ -1282,12 +1283,14 @@ fn vm_config_carries_nics_only_once_every_nic_has_an_address() {
                 address_cidr: "10.0.3.7/32".into(),
                 gateway: Some("169.254.1.1".into()),
                 nameservers: vec!["169.254.1.1".into()],
+                dhcp: false,
             },
             resources::NicAddress {
                 mac: backup_mac,
                 address_cidr: "fd00::9/128".into(),
                 gateway: None,
                 nameservers: vec![],
+                dhcp: false,
             },
         ])
     );
@@ -1309,11 +1312,19 @@ fn vm_config_carries_nics_only_once_every_nic_has_an_address() {
         resources::seed_meta_data("owner-one", "web-1")
     );
     assert_eq!(with_user["seed"]["network_config"], seed["network_config"]);
-    // A changed NIC address is a new VM template.
+    // NIC changes reach the running manager through the ConfigMap; they are
+    // not a new VM template (the manager plugs NICs while the guest runs).
     let mut moved = endpoints.clone();
     moved[0].ip = "10.0.3.8".parse().unwrap();
     let replaced = resources::render_attached(&vm, &settings(), &[], boot, &moved).unwrap();
-    assert_ne!(replaced.hash, desired.hash);
+    assert_eq!(replaced.hash, desired.hash);
+    assert_ne!(replaced.config.data, desired.config.data);
+    let mut one = vm.clone();
+    one.spec.nics.truncate(1);
+    let fewer = resources::render_attached(&one, &settings(), &[], boot, &endpoints[..1]).unwrap();
+    assert_eq!(fewer.hash, desired.hash);
+    let fewer: Value = serde_json::from_str(&fewer.config.data.unwrap()["vm.json"]).unwrap();
+    assert_eq!(fewer["nics"].as_array().unwrap().len(), 1);
     // Without NICs nothing changes for existing VMs.
     let plain = resources::render(&self::vm(), &settings()).unwrap();
     let config: Value = serde_json::from_str(&plain.config.data.unwrap()["vm.json"]).unwrap();
@@ -1977,4 +1988,91 @@ fn redfish_may_reach_only_monitoring_prometheus_on_9090_for_its_own_pods_history
         .is_none());
     let pod = serde_json::to_value(&resources::render(&plain, &settings()).unwrap().pod).unwrap();
     assert!(!pod.to_string().contains("REDFISH_PROMETHEUS_URL"));
+}
+
+#[test]
+fn kvm_vms_with_nic_addresses_get_nic_root_ports() {
+    let addressed = Settings {
+        nic_addresses: Some(qrab_operator::address::Addressing {
+            range: "10.244.128.0/29".parse().unwrap(),
+            frr_namespace: "frr-k8s-system".into(),
+        }),
+        ..settings()
+    };
+    let config = |vm: &VirtualMachine, settings: &Settings| -> Value {
+        let desired = resources::render(vm, settings).unwrap();
+        serde_json::from_str(&desired.config.data.unwrap()["vm.json"]).unwrap()
+    };
+    let mut kvm = vm();
+    kvm.spec.accelerator = qrab_operator::api::Accelerator::Kvm;
+    assert_eq!(config(&kvm, &addressed)["nic_slots"], 4);
+    // Without stable addresses no VM can have NICs, and TCG VMs never do.
+    assert!(config(&kvm, &settings()).get("nic_slots").is_none());
+    assert!(config(&vm(), &addressed).get("nic_slots").is_none());
+}
+
+#[test]
+fn a_vpn_nic_anchor_mounts_its_tunnel_config_and_the_guest_uses_dhcp() {
+    use qrab_operator::nic::{self, NicEndpoint};
+    let mut vm = networked();
+    vm.spec.nics[0].vpn = Some(qrab_operator::api::NicVpn {
+        secret_name: "vpn-proton".into(),
+    });
+    let pool = "qrab-nic-10-244-128-7";
+    let anchor = nic::render_anchor(&vm, &settings(), &vm.spec.nics[0], pool, "kube02").unwrap();
+    let pod = serde_json::to_value(&anchor.pod).unwrap();
+    assert_eq!(
+        pod["metadata"]["annotations"][qrab_netd::vpn::VPN_ANNOTATION],
+        "wireguard"
+    );
+    assert_eq!(
+        pod["spec"]["volumes"],
+        json!([{"name":"vpn","secret":{"secretName":"vpn-proton","items":[{"key":"wg.conf","path":"wg.conf"}],"defaultMode":0o400}}])
+    );
+    assert_eq!(
+        pod["spec"]["containers"][0]["volumeMounts"],
+        json!([{"name":"vpn","mountPath":"/run/qrab-vpn","readOnly":true}])
+    );
+    // The anchor stays restricted: no added capability, no privilege.
+    assert_eq!(
+        pod["spec"]["containers"][0]["securityContext"]["capabilities"]["drop"],
+        json!(["ALL"])
+    );
+    // The plain NIC's anchor carries neither.
+    let plain = nic::render_anchor(&vm, &settings(), &vm.spec.nics[1], pool, "kube02").unwrap();
+    let plain = serde_json::to_value(&plain.pod).unwrap();
+    assert!(plain["spec"].get("volumes").is_none());
+    assert!(plain["metadata"]["annotations"]
+        .get(qrab_netd::vpn::VPN_ANNOTATION)
+        .is_none());
+    // The guest configures the VPN NIC by DHCP (only the Secret knows its address).
+    let endpoints = [
+        NicEndpoint {
+            name: "lan".into(),
+            ip: "10.0.3.7".parse().unwrap(),
+        },
+        NicEndpoint {
+            name: "backup".into(),
+            ip: "10.0.3.8".parse().unwrap(),
+        },
+    ];
+    let desired = resources::render_attached(
+        &vm,
+        &settings(),
+        &[],
+        resources::GuestSize::of(&vm),
+        &endpoints,
+    )
+    .unwrap();
+    let config: Value = serde_json::from_str(&desired.config.data.unwrap()["vm.json"]).unwrap();
+    let network = config["seed"]["network_config"].as_str().unwrap();
+    let lan = &network[network.find("  eth0:").unwrap()..network.find("  eth1:").unwrap()];
+    assert!(
+        lan.contains("    dhcp4: true\n") && !lan.contains("addresses"),
+        "{lan}"
+    );
+    assert!(network[network.find("  eth1:").unwrap()..].contains("- \"10.0.3.8/32\""));
+    // Only Secrets named vpn-* can be referenced.
+    let crd = include_str!("../../../contrib/kubernetes/operator/crd.json");
+    assert!(crd.contains(r#""pattern": "^vpn-[a-z0-9]([-a-z0-9]{0,243}[a-z0-9])?$""#));
 }

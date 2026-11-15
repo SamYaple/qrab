@@ -48,6 +48,8 @@ pub struct NicRow {
     pub security_groups: Vec<String>,
     pub pod_name: Option<String>,
     pub ready: bool,
+    /// Routing mode only; never expose a tunnel's Secret reference or keys.
+    pub tunnel_only: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -236,6 +238,7 @@ pub fn nics(vm: &VirtualMachine) -> Vec<NicRow> {
                 security_groups: nic.security_groups.iter().map(|g| g.0.clone()).collect(),
                 pod_name: status.map(|s| s.pod_name.clone()).filter(|p| !p.is_empty()),
                 ready: status.is_some_and(|s| s.ready),
+                tunnel_only: nic.vpn.is_some(),
             }
         })
         .collect()
@@ -299,8 +302,35 @@ pub fn gib(bytes: u64) -> String {
 pub fn usage_text(usage: Option<Usage>) -> (String, String) {
     match usage {
         Some(u) => (
-            format!("{:.0}m", u.cpu_cores * 1000.0),
-            format!("{:.0} MiB", u.memory_bytes / 1024f64.powi(2)),
+            if !u.cpu_cores.is_finite() || u.cpu_cores < 0.0 {
+                "—".into()
+            } else if u.cpu_cores > 0.0 && u.cpu_cores < 0.001 {
+                "<0.001 cores".into()
+            } else if u.cpu_cores == 0.0 {
+                "0 cores".into()
+            } else {
+                let value = format!("{:.3}", u.cpu_cores);
+                let value = value.trim_end_matches('0').trim_end_matches('.');
+                format!("{value} {}", if value == "1" { "core" } else { "cores" })
+            },
+            if !u.memory_bytes.is_finite() || u.memory_bytes < 0.0 {
+                "—".into()
+            } else if u.memory_bytes > 0.0 && u.memory_bytes < 1024f64.powi(2) {
+                "<1 MiB".into()
+            } else if u.memory_bytes < 1024f64.powi(3) {
+                format!("{:.0} MiB", u.memory_bytes / 1024f64.powi(2))
+            } else {
+                let (value, unit) = if u.memory_bytes >= 1024f64.powi(4) {
+                    (u.memory_bytes / 1024f64.powi(4), "TiB")
+                } else {
+                    (u.memory_bytes / 1024f64.powi(3), "GiB")
+                };
+                let value = format!("{value:.2}");
+                format!(
+                    "{} {unit}",
+                    value.trim_end_matches('0').trim_end_matches('.')
+                )
+            },
         ),
         None => ("—".into(), "—".into()),
     }
@@ -310,6 +340,51 @@ pub fn usage_text(usage: Option<Usage>) -> (String, String) {
 mod tests {
     use super::*;
     use crate::access::tests::vm;
+
+    #[test]
+    fn cpu_usage_keeps_small_samples_distinct_from_zero_and_invalid_samples_missing() {
+        for (value, expected) in [
+            (0.0, "0 cores"),
+            (-0.0, "0 cores"),
+            (0.0004, "<0.001 cores"),
+            (0.125, "0.125 cores"),
+            (1.0, "1 core"),
+            (8.125, "8.125 cores"),
+            (f64::NAN, "—"),
+        ] {
+            assert_eq!(
+                usage_text(Some(Usage {
+                    cpu_cores: value,
+                    memory_bytes: 0.0
+                }))
+                .0,
+                expected
+            );
+        }
+        assert_eq!(
+            usage_text(Some(Usage {
+                cpu_cores: 0.0,
+                memory_bytes: f64::INFINITY
+            }))
+            .1,
+            "—"
+        );
+        for (bytes, expected) in [
+            (0.0, "0 MiB"),
+            (1.0, "<1 MiB"),
+            (15.5 * 1024f64.powi(3), "15.5 GiB"),
+            (1024f64.powi(4), "1 TiB"),
+        ] {
+            assert_eq!(
+                usage_text(Some(Usage {
+                    cpu_cores: 0.0,
+                    memory_bytes: bytes
+                }))
+                .1,
+                expected
+            );
+        }
+    }
 
     #[test]
     fn rows_show_current_size_ceilings_disks_and_usage() {
@@ -342,7 +417,7 @@ mod tests {
         assert_eq!((r.cpus, r.max_cpus), (3, Some(8)));
         assert_eq!((r.memory_mib, r.max_memory_mib), (1024, None));
         assert_eq!((r.disks, r.disk_bytes), (2, 1073741824));
-        assert_eq!(usage_text(r.usage), ("500m".into(), "600 MiB".into()));
+        assert_eq!(usage_text(r.usage), ("0.5 cores".into(), "600 MiB".into()));
         assert_eq!(r.path(), "/vms/qrab/web");
         let d = detail(&machine, Role::Viewer, &usage, None, None, &[]);
         assert_eq!(d.boots_from, "demo ESP");
@@ -357,7 +432,7 @@ mod tests {
         let mut machine = vm(
             "web",
             serde_json::json!({"nics": [{"name": "eth0", "securityGroups": ["web", "ssh"]},
-                {"name": "eth1"}]}),
+                {"name": "eth1", "vpn": {"secretName": "vpn-private-fixture"}}]}),
             None,
         );
         assert_eq!(row(&machine, Role::Viewer, &HashMap::new()).ip, None);
@@ -387,9 +462,12 @@ mod tests {
                 security_groups: vec!["web".into(), "ssh".into()],
                 pod_name: Some("web-nic-eth0".into()),
                 ready: true,
+                tunnel_only: false,
             }
         );
         assert_eq!((nics[1].ip.as_deref(), nics[1].ready), (None, false));
+        assert!(nics[1].tunnel_only);
+        assert!(!format!("{nics:?}").contains("vpn-private-fixture"));
         machine.spec.cloud_init = Some(qrab_operator::api::CloudInit {
             hostname: Some("db".into()),
             user_data: None,

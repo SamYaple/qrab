@@ -2,11 +2,13 @@ use anyhow::{Context, Result};
 use futures::StreamExt;
 use k8s_openapi::api::core::v1::Pod;
 use kube::{
-    api::{Api, Patch, PatchParams},
+    api::{Api, ListParams, Patch, PatchParams},
     runtime::{reflector, watcher, WatchStreamExt},
     Client, ResourceExt,
 };
-use qrab_netd::{authz, plan::NicPlan, sys, wire, PLUMBED_CONDITION, SOCKET_DIR, SOCKET_NAME};
+use qrab_netd::{
+    authz, peer, plan::NicPlan, sys, wire, PLUMBED_CONDITION, SOCKET_DIR, SOCKET_NAME,
+};
 use std::{
     collections::HashMap,
     os::unix::{fs::PermissionsExt, net::UnixStream},
@@ -38,7 +40,32 @@ struct Agent {
     dhcp: Mutex<HashMap<String, Arc<std::sync::atomic::AtomicBool>>>,
     /// Forward routes whose address no local anchor holds any more → since when.
     orphaned: Mutex<HashMap<std::net::Ipv4Addr, Instant>>,
+    /// Pods of the VM namespace on every node (conntrack peers).
+    api: Api<Pod>,
+    runtime: tokio::runtime::Handle,
+    /// Node-to-node conntrack requests being served.
+    peers_busy: std::sync::atomic::AtomicUsize,
+    /// Peer connections refused for not coming from a host link (logged at
+    /// powers of two).
+    peer_strangers: std::sync::atomic::AtomicU64,
 }
+
+/// A tap anchor holding `address`, as a conntrack peer sees it.
+fn holder(pod: &Pod, address: std::net::Ipv4Addr) -> Option<peer::Holder> {
+    let status = pod.status.as_ref()?;
+    (authz::is_tap_anchor(pod) && status.pod_ip.as_deref()?.parse().ok() == Some(address)).then(
+        || {
+            Some(peer::Holder {
+                owner: authz::owner(pod)?.to_owned(),
+                nic: authz::nic(pod)?.to_owned(),
+                host: status.host_ip.as_deref()?.parse().ok()?,
+            })
+        },
+    )?
+}
+
+/// At most this many node-to-node conntrack requests are served at once.
+const PEER_CONCURRENCY: usize = 4;
 
 impl Agent {
     fn netns(&self, pod: &Pod) -> Result<(i32, PathBuf), String> {
@@ -49,12 +76,30 @@ impl Agent {
     }
 
     fn plumb(&self, pod: &Pod) -> Result<String, String> {
-        let plan = NicPlan::for_anchor(pod)?;
+        let mut plan = NicPlan::for_anchor(pod)?;
         let (pid, ns) = self.netns(pod)?;
+        if NicPlan::is_vpn(pod) {
+            plan = plan.with_tunnel(sys::read_tunnel(
+                &self.proc_root,
+                &pod.uid().unwrap_or_default(),
+            )?);
+        }
         let resolver = sys::pod_resolver(&self.proc_root, pid);
-        let summary = format!("tap {} routes {}", plan.tap, plan.guest_ip);
+        let summary = match &plan.vpn {
+            Some(tunnel) => format!(
+                "tap {} routes {} only through wg0 to {}",
+                plan.tap, plan.guest_ip, tunnel.endpoint
+            ),
+            None => format!("tap {} routes {}", plan.tap, plan.guest_ip),
+        };
         let (tap, guest_mac, guest_ip) = (plan.tap.clone(), plan.guest_mac.clone(), plan.guest_ip);
-        sys::in_netns(&ns, move || sys::apply(&plan, resolver)).map_err(|e| e.to_string())?;
+        let dns = match &plan.vpn {
+            Some(tunnel) => tunnel.dns.first().copied(),
+            None => Some(qrab_netd::GUEST_GATEWAY),
+        };
+        let vpn = plan.vpn.is_some();
+        let mtu =
+            sys::in_netns(&ns, move || sys::apply(&plan, resolver)).map_err(|e| e.to_string())?;
         // One DHCP responder per anchor, for guests that configure by DHCP.
         let uid = pod.uid().unwrap_or_default();
         if let std::collections::hash_map::Entry::Vacant(slot) =
@@ -65,6 +110,8 @@ impl Agent {
                 mac,
                 ip: guest_ip,
                 seconds: 86400,
+                dns,
+                mtu: vpn.then(|| u16::try_from(mtu).unwrap_or(1420)),
             };
             let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
             sys::serve_dhcp(ns, tap, lease, stop.clone()).map_err(|e| e.to_string())?;
@@ -89,12 +136,27 @@ impl Agent {
             pods.iter().map(|p| p.as_ref()),
         )
         .map_err(|r| r.to_string())?;
+        let anchor_uid = anchor.uid().unwrap_or_default();
+        if request.op == wire::Op::Probe {
+            if !self.plumbed.lock().unwrap().contains_key(&anchor_uid) {
+                return Err(format!("NIC {:?} is not plumbed yet", request.nic));
+            }
+            wire::send_probe(stream, &anchor_uid).map_err(|e| e.to_string())?;
+            return Ok(format!(
+                "pid {pid}: NIC {:?} is served by anchor {anchor_uid}",
+                request.nic
+            ));
+        }
+        if request.op == wire::Op::CtPull {
+            return self
+                .conntrack(stream, anchor, &request)
+                .map(|s| format!("pid {pid}: {s}"));
+        }
         if request.op != wire::Op::Fds {
             let summary = self.control(anchor, &request)?;
             wire::send_ok(stream).map_err(|e| e.to_string())?;
             return Ok(format!("pid {pid}: {summary}"));
         }
-        let anchor_uid = anchor.uid().unwrap_or_default();
         if !self.plumbed.lock().unwrap().contains_key(&anchor_uid) {
             return Err(format!("NIC {:?} is not plumbed yet", request.nic));
         }
@@ -112,11 +174,162 @@ impl Agent {
         let taps = sys::in_netns(&ns, move || sys::open_tap_queues(&tap, queues))
             .map_err(|e| e.to_string())?;
         let vhosts = sys::open_vhost(queues).map_err(|e| e.to_string())?;
-        wire::send_grant(stream, &plan.tap, &taps, &vhosts).map_err(|e| e.to_string())?;
+        wire::send_grant(stream, &plan.tap, &anchor_uid, &taps, &vhosts)
+            .map_err(|e| e.to_string())?;
         Ok(format!(
             "pid {pid} received {queues} queue(s) of {} for NIC {:?}",
             plan.tap, request.nic
         ))
+    }
+
+    /// Every node's tap anchors holding `address` (one API list).
+    fn holders(&self, address: std::net::Ipv4Addr) -> Result<Vec<peer::Holder>, String> {
+        let params = ListParams::default()
+            .fields(&format!("status.podIP={address}"))
+            .labels("app.kubernetes.io/name=qrab");
+        let pods = self
+            .runtime
+            .block_on(self.api.list(&params))
+            .map_err(|e| format!("listing the anchors of {address}: {e}"))?;
+        Ok(pods
+            .items
+            .iter()
+            .filter_map(|p| holder(p, address))
+            .collect())
+    }
+
+    /// `ct-pull` for `anchor`, the caller's NIC here: fetch the address's
+    /// entries from the other node holding the NIC ([`peer`]) and import them
+    /// (only entries of this NIC whose other side is not local here; see
+    /// `qrab_netd::ct::importable`).
+    fn conntrack(
+        &self,
+        stream: &UnixStream,
+        anchor: &Pod,
+        _request: &wire::Request,
+    ) -> Result<String, String> {
+        let ip: std::net::Ipv4Addr = anchor
+            .status
+            .as_ref()
+            .and_then(|s| s.pod_ip.as_deref())
+            .and_then(|ip| ip.parse().ok())
+            .ok_or("the anchor has no IPv4 address")?;
+        let mine = holder(anchor, ip).ok_or("the anchor has no node address")?;
+        let sources = peer::sources(&mine, &self.holders(ip)?);
+        if sources.is_empty() {
+            return Err(format!("no other node holds an anchor of {ip}"));
+        }
+        let host = sys::host_netns(&self.proc_root);
+        let (mut imported, mut failures) = (0, Vec::new());
+        for source in sources {
+            let (root, host) = (self.proc_root.clone(), host.clone());
+            let pulled = sys::in_netns(&host.clone(), move || {
+                let address = std::net::SocketAddr::from((source, peer::PEER_PORT));
+                let connection = std::net::TcpStream::connect_timeout(&address, peer::DEADLINE)?;
+                peer::fetch(&connection, ip)
+            })
+            .and_then(|export| {
+                sys::in_netns(&host, move || sys::import_conntrack(&root, ip, &export))
+            });
+            match pulled {
+                Ok(count) => imported += count,
+                Err(error) => failures.push(format!("{source}: {error}")),
+            }
+        }
+        if imported == 0 && !failures.is_empty() {
+            return Err(failures.join("; "));
+        }
+        wire::send_imported(stream, imported).map_err(|e| e.to_string())?;
+        Ok(format!(
+            "imported {imported} conntrack entries of {ip}{}",
+            if failures.is_empty() {
+                String::new()
+            } else {
+                format!(" ({})", failures.join("; "))
+            }
+        ))
+    }
+
+    /// Serve other nodes' conntrack pulls on [`peer::PEER_PORT`] in the
+    /// host network namespace.
+    fn serve_peers(self: Arc<Self>, listener: std::net::TcpListener) {
+        use std::sync::atomic::Ordering;
+        for stream in listener.incoming() {
+            let Ok(stream) = stream else { continue };
+            let Ok(std::net::SocketAddr::V4(from)) = stream.peer_addr() else {
+                continue;
+            };
+            if self.peers_busy.fetch_add(1, Ordering::SeqCst) >= PEER_CONCURRENCY {
+                self.peers_busy.fetch_sub(1, Ordering::SeqCst);
+                log("peer_busy", serde_json::json!({"from": from.ip()}));
+                continue;
+            }
+            let agent = self.clone();
+            std::thread::spawn(move || {
+                let peer = *from.ip();
+                // Only another node (on a host link) may ask; anything else
+                // is dropped before it costs an API call.
+                let host = sys::host_netns(&agent.proc_root);
+                if !sys::in_netns(&host, move || Ok(sys::is_link_peer(peer))).unwrap_or(false) {
+                    let strangers = agent.peer_strangers.fetch_add(1, Ordering::SeqCst) + 1;
+                    if strangers.is_power_of_two() {
+                        log(
+                            "conntrack_refused",
+                            serde_json::json!({"to": peer, "error": "not a node on a host link", "refused_so_far": strangers}),
+                        );
+                    }
+                    agent.peers_busy.fetch_sub(1, Ordering::SeqCst);
+                    return;
+                }
+                let mut outcome = None;
+                let served = peer::serve_one(&stream, |address| {
+                    let result = agent.answer_peer(peer, address);
+                    outcome = Some((
+                        address,
+                        result
+                            .as_ref()
+                            .map(|e| e.entries.len())
+                            .map_err(Clone::clone),
+                    ));
+                    result
+                });
+                match (served, outcome) {
+                    (Ok(()), Some((address, Ok(count)))) => log(
+                        "conntrack_served",
+                        serde_json::json!({"to": peer, "address": address, "entries": count}),
+                    ),
+                    (Ok(()), Some((address, Err(error)))) => log(
+                        "conntrack_refused",
+                        serde_json::json!({"to": peer, "address": address, "error": error}),
+                    ),
+                    (served, _) => log(
+                        "conntrack_refused",
+                        serde_json::json!({"to": peer, "error": served.err().map(|e| e.to_string())}),
+                    ),
+                }
+                agent.peers_busy.fetch_sub(1, Ordering::SeqCst);
+            });
+        }
+    }
+
+    /// The entries of `address` for the node at `peer`, if it may have them.
+    fn answer_peer(
+        &self,
+        peer: std::net::Ipv4Addr,
+        address: std::net::Ipv4Addr,
+    ) -> Result<qrab_netd::ct::Export, String> {
+        let local: Vec<peer::Holder> = self
+            .store
+            .state()
+            .iter()
+            .filter_map(|p| holder(p, address))
+            .collect();
+        peer::may_fetch(&local, &self.holders(address)?, peer)?;
+        let root = self.proc_root.clone();
+        sys::in_netns(&sys::host_netns(&self.proc_root), move || {
+            sys::export_conntrack(&root, address)
+        })
+        .map_err(|e| e.to_string())
     }
 
     /// A live-migration handoff step for `anchor`, the requester's NIC here.
@@ -141,7 +354,18 @@ impl Agent {
         let host = sys::host_netns(&self.proc_root);
         match (request.op, request.via) {
             (wire::Op::Forward, Some(via)) => {
-                sys::in_netns(&host, move || sys::forward(ip, via)).map_err(|e| e.to_string())?;
+                // Only to another node: a manager cannot route its address
+                // to anything off the node network (checked locally, since
+                // this runs inside the guest's pause).
+                sys::in_netns(&host, move || {
+                    if !sys::is_link_peer(via) {
+                        return Err(std::io::Error::other(format!(
+                            "{via} is not a node on a host link"
+                        )));
+                    }
+                    sys::forward(ip, via)
+                })
+                .map_err(|e| e.to_string())?;
                 Ok(format!("{ip}/32 forwarded via {via}"))
             }
             (wire::Op::Unforward, _) => {
@@ -286,6 +510,9 @@ async fn reconcile(agent: &Arc<Agent>, pods: &Api<Pod>) {
         .retain(|uid, _| live.contains(uid));
 }
 
+/// Control connections served at once; see [`serve`].
+const CONTROL_CONCURRENCY: usize = 16;
+
 async fn serve(agent: Arc<Agent>, socket: PathBuf) -> Result<()> {
     std::fs::create_dir_all(socket.parent().context("socket path has no directory")?)?;
     let _ = std::fs::remove_file(&socket);
@@ -293,10 +520,24 @@ async fn serve(agent: Arc<Agent>, socket: PathBuf) -> Result<()> {
     // VM managers run unprivileged; access control is the peer check.
     std::fs::set_permissions(&socket, std::fs::Permissions::from_mode(0o666))?;
     log("listening", serde_json::json!(socket));
+    let slots = Arc::new(tokio::sync::Semaphore::new(CONTROL_CONCURRENCY));
+    let mut turned_away: u64 = 0;
     loop {
         let (stream, _) = listener.accept().await?;
+        // Each connection holds a blocking thread for up to its request
+        // deadline; past the bound, refuse at once instead of queueing behind
+        // slow peers (managers retry). Plumbing shares the blocking pool.
+        let Ok(permit) = slots.clone().try_acquire_owned() else {
+            turned_away += 1;
+            if turned_away.is_power_of_two() {
+                log("busy", serde_json::json!({"turned_away": turned_away}));
+            }
+            drop(stream);
+            continue;
+        };
         let agent = agent.clone();
         tokio::task::spawn_blocking(move || {
+            let _permit = permit;
             let stream = match stream
                 .into_std()
                 .and_then(|s| s.set_nonblocking(false).map(|()| s))
@@ -382,6 +623,35 @@ async fn main() -> Result<()> {
         namespace: namespace.clone(),
         orphaned: Mutex::default(),
         dhcp: Mutex::default(),
+        api: pods.clone(),
+        runtime: tokio::runtime::Handle::current(),
+        peers_busy: Default::default(),
+        peer_strangers: Default::default(),
+    });
+    // Conntrack pulls from other nodes, in the host network namespace. Best
+    // effort like the copy itself: a port that cannot be bound is retried,
+    // never a reason to stop plumbing NICs.
+    let peers = agent.clone();
+    std::thread::spawn(move || loop {
+        let host = sys::host_netns(&peers.proc_root);
+        match sys::in_netns(&host, || {
+            std::net::TcpListener::bind(("0.0.0.0", peer::PEER_PORT))
+        }) {
+            Ok(listener) => {
+                log(
+                    "peer_listening",
+                    serde_json::json!({"port": peer::PEER_PORT}),
+                );
+                return peers.serve_peers(listener);
+            }
+            Err(error) => {
+                log(
+                    "peer_listen_failed",
+                    serde_json::json!({"port": peer::PEER_PORT, "error": error.to_string()}),
+                );
+                std::thread::sleep(Duration::from_secs(10));
+            }
+        }
     });
     let mut server = tokio::spawn(serve(
         agent.clone(),

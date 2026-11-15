@@ -11,7 +11,7 @@ ARG QRAB_REVISION=unknown
 LABEL org.opencontainers.image.source="https://gitea.yapplesauce.com/infrastructure/qrab" \
       org.opencontainers.image.revision="${QRAB_REVISION}" \
       org.opencontainers.image.description="Minimal namespaced qrab VirtualMachine operator"
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates iproute2 nftables && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates iproute2 nftables wireguard-tools && rm -rf /var/lib/apt/lists/*
 COPY --from=build /out/qrab-operator /out/qrab-kvm-device-plugin /out/qrab-netd /usr/local/bin/
 USER 10001:10001
 ENTRYPOINT ["/usr/local/bin/qrab-operator"]

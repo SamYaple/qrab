@@ -1,18 +1,109 @@
-// The only client-side script: noVNC against the dashboard's console proxy,
-// and the console page's power controls.
+// noVNC and power controls for the dashboard's dedicated console page.
 import RFB from './novnc/core/rfb.js';
 import { createAudioContext } from './novnc/core/audio.js';
+import { wireConsoleKeyboard } from './console-keyboard.js';
 
 const element = id => document.getElementById(id);
 const screen = element('screen');
 const status = element('console-status');
 const connect = element('connect');
 const power = element('power');
+const morePower = element('console-power-more');
 let rfb = null;
+let expired = false, pollTask = null;
+function updateText(node, text) {
+    if (node.textContent !== text) node.textContent = text;
+}
+function focusInView(node) {
+    node.focus({preventScroll: true});
+    const box = node.getBoundingClientRect();
+    const header = document.querySelector('header');
+    const top = header && getComputedStyle(header).position === 'sticky' ? header.getBoundingClientRect().bottom : 0;
+    if (box.top < top || box.bottom > innerHeight || box.left < 0 || box.right > innerWidth) {
+        node.scrollIntoView({block: 'center', inline: 'nearest'});
+    }
+}
 
 function showError(message) {
-    element('console-error').textContent = message;
+    updateText(element('console-error'), message);
     element('console-error').hidden = !message;
+}
+function showPowerStatus(message) {
+    const note = element('power-action-status');
+    if (!note) return;
+    updateText(note, message);
+    note.hidden = !message;
+}
+function showPowerError(message) {
+    const note = element('power-action-error');
+    if (!note) { if (message) showError(message); return; }
+    updateText(note, message);
+    note.hidden = !message;
+}
+
+function endedScreen() {
+    const note = document.createElement('p');
+    note.textContent = 'Your session has ended. Sign in again to reconnect.';
+    screen.replaceChildren(note);
+}
+
+function sessionEnded() {
+    if (expired) return;
+    const hadConsoleFocus = [screen, power, element('console-controls') || connect.parentElement].some(node => node.contains(document.activeElement));
+    expired = true;
+    pendingAction = null;
+    busy = false;
+    showPowerStatus('');
+    showPowerError('');
+    stopReconnecting();
+    clearInterval(polling);
+    state = null;
+    resume = false;
+    disarm();
+    render();
+    connect.disabled = true;
+    element('cad').disabled = true;
+    element('fullscreen').disabled = true;
+    status.textContent = 'Session ended · Sign in to reconnect';
+    element('console-recovery').hidden = false;
+    const leaveFullscreen = document.fullscreenElement === screen ? document.exitFullscreen().catch(() => {}) : Promise.resolve();
+    if (rfb) rfb.disconnect();
+    else endedScreen();
+    if (audioContext) { audioContext.close(); audioContext = null; }
+    if (audioButton) {
+        audioButton.disabled = true;
+        audioButton.textContent = 'Audio off';
+        audioButton.setAttribute('aria-pressed', 'false');
+    }
+    leaveFullscreen.then(() => {
+        if (hadConsoleFocus) {
+            const link = element('console-recovery').querySelector('a');
+            focusInView(link);
+        }
+    });
+}
+
+async function failure(response) {
+    if (response.status === 401) { sessionEnded(); return 'Your session ended. Sign in again to reconnect.'; }
+    const text = await response.text();
+    try {
+        const message = JSON.parse(text).error?.message;
+        if (typeof message === 'string') return message.slice(0, 600);
+    } catch { /* Proxies may return a plain text or HTML error. */ }
+    if (response.headers.get('content-type')?.includes('text/html') || /^\s*</.test(text)) return `VM access is unavailable (${response.status}). Try again shortly.`;
+    return text.trim().slice(0, 600) || `Request failed (${response.status}).`;
+}
+
+async function powerRequest(options = {}) {
+    let response;
+    try { response = await fetch(power.dataset.endpoint, {credentials: 'same-origin', ...options}); }
+    catch {
+        throw new Error(options.method === 'POST'
+            ? 'Connection lost. The action may have reached the VM; check its status before retrying.'
+            : 'Unable to reach the VM. Check your connection or try again shortly.');
+    }
+    if (!response.ok) throw new Error(await failure(response));
+    return response;
 }
 
 // After a reset, restart, shutdown, power cycle or power-on the console comes back by itself:
@@ -93,13 +184,21 @@ function followPower() {
 function disconnected(message) {
     rfb = null;
     connect.textContent = 'Connect console';
-    connect.disabled = poweredOff;
+    connect.disabled = expired || poweredOff;
     element('cad').disabled = true;
     element('fullscreen').disabled = true;
     if (scheduleReconnect()) return;
-    if (poweredOff) showPoweredOff(); else status.textContent = message;
+    if (expired) {
+        status.textContent = 'Session ended · Sign in to reconnect';
+        endedScreen();
+    } else if (poweredOff) showPoweredOff();
+    else {
+        status.textContent = message;
+        screen.replaceChildren(...placeholder.map(child => child.cloneNode(true)));
+    }
 }
 function openConsole() {
+    if (expired) return;
     reconnectTimer = null;
     showError('');
     screen.replaceChildren();
@@ -111,7 +210,14 @@ function openConsole() {
         rfb.resizeSession = false;
         rfb.focusOnClick = true;
         rfb.showDotCursor = true;
+        const client = rfb;
+        const keyboard = wireConsoleKeyboard(screen.querySelector('canvas'), {
+            enabled: () => !expired && rfb === client,
+            returnFocus: () => focusInView(connect),
+            describedBy: 'console-input-help',
+        });
         rfb.addEventListener('connect', () => {
+            keyboard.connected();
             reconnectDelay = 1000;
             connect.textContent = 'Disconnect';
             status.textContent = 'Connected · Keyboard and mouse enabled';
@@ -119,6 +225,7 @@ function openConsole() {
             element('fullscreen').disabled = false;
         });
         rfb.addEventListener('disconnect', event => {
+            keyboard.dispose();
             disconnected(event.detail.clean ? 'Console disconnected' : 'Connection closed. Your session may have ended: reload the page or sign in again.');
         });
         rfb.addEventListener('securityfailure', () => showError('Console connection failed.'));
@@ -129,6 +236,7 @@ function openConsole() {
     }
 }
 connect.addEventListener('click', () => {
+    if (expired) return;
     stopReconnecting();
     resume = false;
     if (rfb) { rfb.disconnect(); return; }
@@ -140,6 +248,7 @@ connect.addEventListener('click', () => {
 let audioContext = null;
 const audioButton = element('audio');
 audioButton?.addEventListener('click', () => {
+    if (expired) return;
     if (audioContext) { audioContext.close(); audioContext = null; } else { audioContext = createAudioContext(); }
     audioButton.textContent = audioContext ? 'Audio on' : 'Audio off';
     audioButton.setAttribute('aria-pressed', String(Boolean(audioContext)));
@@ -149,8 +258,8 @@ audioButton?.addEventListener('click', () => {
         rfb.disconnect();
     }
 });
-element('cad').addEventListener('click', () => rfb?.sendCtrlAltDel());
-element('fullscreen').addEventListener('click', () => screen.requestFullscreen().catch(error => showError(error.message)));
+element('cad').addEventListener('click', () => { if (!expired) rfb?.sendCtrlAltDel(); });
+element('fullscreen').addEventListener('click', () => { if (!expired) screen.requestFullscreen().catch(error => showError(error.message)); });
 
 // Power. The server enforces role, CSRF, Origin and confirmation, and Redfish
 // enforces the role again; the buttons only reflect what currently makes
@@ -162,6 +271,7 @@ const buttons = [...power.querySelectorAll('[data-power]')];
 const RECONNECTS = ['on', 'ForceRestart', 'GracefulRestart', 'GracefulShutdown', 'PowerCycle'];
 let state = null;
 let busy = false;
+let pendingAction = null;
 let armed = null;
 let armTimer = null;
 
@@ -178,9 +288,9 @@ function allowed(action) {
         case 'off': return state.running || state.pod;
         case 'Resume': return live && power === 'Paused';
         case 'Pause':
-        case 'GracefulRestart':
-        case 'GracefulShutdown':
         case 'Nmi': return live && power === 'On';
+        case 'GracefulRestart': return live && power === 'On' && !state.guest_restart_unavailable;
+        case 'GracefulShutdown':
         case 'ForceRestart': return live && (power === 'On' || power === 'Paused');
         case 'PowerCycle': return live && (power === 'On' || power === 'Paused' || power === 'Off');
         case 'ForceOff': return live && power !== 'Off';
@@ -198,36 +308,68 @@ function describe() {
     return [POWER_STATES[state.power_state] || state.power_state || 'Unknown', [health, phase].filter(Boolean).join(' · ')];
 }
 function render() {
+    const focused = document.activeElement;
     const [chip, detail] = describe();
-    element('power-chip').textContent = chip;
+    updateText(element('power-chip'), chip);
     element('power-chip').dataset.state = chip.toLowerCase();
-    element('power-detail').textContent = detail;
-    for (const button of buttons) {
-        if (button !== armed) button.textContent = button.dataset.label;
-        // The stylesheet sets buttons' display, so `hidden` alone would not hide them.
-        button.style.display = offered(button) ? '' : 'none';
-        button.disabled = busy || !allowed(button.dataset.power);
+    updateText(element('power-detail'), detail);
+    const restartNote = element('restart-requirement');
+    if (restartNote) {
+        updateText(restartNote, state?.guest_restart_unavailable || '');
+        restartNote.hidden = !state?.guest_restart_unavailable || state.power_state !== 'On' || !buttons.some(button => button.dataset.power === 'GracefulRestart' && offered(button));
     }
+    const menuFocused = morePower?.contains(document.activeElement);
+    if (armed && (!offered(armed) || !allowed(armed.dataset.power))) disarm();
+    for (const button of buttons) {
+        const pending = pendingAction?.button === button;
+        if (pending) updateText(button, pendingAction.accepted ? 'Updating state…' : `Sending ${button.dataset.label.toLowerCase()}…`);
+        else if (button !== armed) updateText(button, button.dataset.label);
+        if (button.getAttribute('aria-busy') !== String(pending)) button.setAttribute('aria-busy', String(pending));
+        button.hidden = !offered(button);
+        if (button.dataset.power === 'GracefulRestart') {
+            button.title = state?.guest_restart_unavailable || '';
+            if (state?.guest_restart_unavailable && restartNote) button.setAttribute('aria-describedby', 'restart-requirement');
+            else button.removeAttribute('aria-describedby');
+        }
+        const blocked = expired || busy || !offered(button) || !allowed(button.dataset.power);
+        if (button.getAttribute('aria-disabled') !== String(blocked)) button.setAttribute('aria-disabled', String(blocked));
+        // Keep the active request focusable while busy; the handler still
+        // rejects every further send. Other unavailable controls stay native-disabled.
+        button.disabled = blocked && !pending;
+    }
+    if (morePower) {
+        morePower.hidden = expired || [...morePower.querySelectorAll('[data-power]')].every(button => !offered(button));
+        if (morePower.hidden) morePower.open = false;
+    }
+    const unavailableFocus = buttons.includes(focused) && (focused.disabled || focused.hidden);
+    if (!expired && (unavailableFocus || (morePower?.hidden && menuFocused))) focusInView(element('power-chip'));
 }
 function disarm() {
     clearTimeout(armTimer);
     if (armed) { armed.textContent = armed.dataset.label; armed.classList.remove('armed'); }
     armed = null;
 }
-async function poll() {
-    try {
-        const response = await fetch(power.dataset.endpoint, {credentials: 'same-origin'});
-        if (!response.ok) throw new Error(await response.text());
-        state = await response.json();
-        if (element('console-error').textContent.startsWith('Power state unavailable')) showError('');
-    } catch (error) {
-        state = null;
-        showError(`Power state unavailable: ${error.message}`);
-    }
-    followPower();
-    render();
+function poll() {
+    if (expired) return Promise.resolve();
+    if (pollTask) return pollTask;
+    pollTask = (async () => {
+        try {
+            const response = await powerRequest();
+            const current = await response.json();
+            if (expired) return;
+            state = current;
+            if (element('console-error').textContent.startsWith('Power state unavailable')) showError('');
+        } catch (error) {
+            state = null;
+            showError(`Power state unavailable: ${error.message}`);
+        }
+        followPower();
+        render();
+    })().finally(() => { pollTask = null; });
+    return pollTask;
 }
 async function send(button) {
+    if (expired || busy || button.disabled || !offered(button) || !allowed(button.dataset.power)) return;
     const action = button.dataset.power;
     const disruptive = button.classList.contains('danger');
     if (disruptive && armed !== button) {
@@ -240,17 +382,20 @@ async function send(button) {
     }
     disarm();
     busy = true;
+    showPowerError('');
+    pendingAction = {button, accepted: false};
+    showPowerStatus(`Sending ${button.dataset.label.toLowerCase()}…`);
     render();
     try {
-        const response = await fetch(power.dataset.endpoint, {
+        await powerRequest({
             method: 'POST',
-            credentials: 'same-origin',
             headers: {'Content-Type': 'application/json', 'X-CSRF-Token': power.dataset.csrf},
             body: JSON.stringify({action, confirm: disruptive}),
         });
-        if (!response.ok) throw new Error(await response.text());
-        showError('');
-        status.textContent = `${button.dataset.label} sent.`;
+        if (expired) return;
+        pendingAction.accepted = true;
+        showPowerStatus(`${button.dataset.label} request accepted. Updating state…`);
+        render();
         if (RECONNECTS.includes(action)) {
             startReconnecting();
         } else if (action === 'off') {
@@ -258,19 +403,42 @@ async function send(button) {
             resume = false;
         }
     } catch (error) {
-        showError(error.message);
+        if (!expired) {
+            showPowerStatus('');
+            showPowerError(`${button.dataset.label}: ${error.message}`);
+        }
     } finally {
-        busy = false;
+        if (pollTask) await pollTask;
         await poll();
+        if (!expired && pendingAction?.accepted) showPowerStatus(`${button.dataset.label} request accepted.`);
+        pendingAction = null;
+        busy = false;
+        render();
     }
 }
-for (const button of buttons) button.addEventListener('click', () => send(button));
+for (const button of buttons) {
+    const suppressedKeys = new Set();
+    button.addEventListener('keydown', event => {
+        if (event.key === 'Enter' && event.repeat) { event.preventDefault(); return; }
+        if ((event.key === 'Enter' || event.key === ' ') &&
+            (button.getAttribute('aria-disabled') === 'true' || suppressedKeys.has(event.key))) {
+            suppressedKeys.add(event.key);
+            event.preventDefault();
+        }
+    });
+    button.addEventListener('keyup', event => { if (suppressedKeys.delete(event.key)) event.preventDefault(); });
+    button.addEventListener('blur', () => suppressedKeys.clear());
+    button.addEventListener('click', () => send(button));
+}
+morePower?.addEventListener('toggle', () => {
+    if (!morePower.open && armed && morePower.contains(armed)) disarm();
+});
 
 let polling = null;
 function watch() {
     clearInterval(polling);
     polling = null;
-    if (document.visibilityState === 'visible') {
+    if (!expired && document.visibilityState === 'visible') {
         poll();
         polling = setInterval(poll, 3000);
     }

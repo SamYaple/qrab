@@ -67,7 +67,8 @@ component is disabled instead:
 - `TelemetryService/Oem/Qrab/MetricHistory` with a fixed `range=1h` for each
   metric (`container-cpu`, `container-memory`, `block-read`, `block-write`,
   `nic-rx`, `nic-tx`), drawn as server-side SVG sparklines in a *Metric
-  history* card: one polyline per series scaled to the hour and the peak, a
+  history* card: one SVG path per series scaled to the hour and the peak, with
+  gaps between missing samples, a
   legend with the latest values and an `aria-label` summary. Series colours
   are stylesheet classes, so the page keeps its script-free CSP without
   inline styles. A metric with no samples says so, and a failed read shows
@@ -82,13 +83,14 @@ Redfish admin actions offered on the full BMC page's Guest agent tab.
 
 | Route | Purpose |
 | --- | --- |
-| `GET /` | VMs visible to the user: phase/ready (`PoweredOff` or `Paused` for a guest off or paused inside its Pod), node, the first NIC's IP, vCPUs and memory (current / hot-plug maximum), disks, live CPU and memory from `metrics.k8s.io`, role |
+| `GET /` | VMs visible to the user: phase/ready (`PoweredOff` or `Paused` for a guest off or paused inside its Pod), node, the first NIC's IP, vCPUs and memory (current, with maxima labelled), disks, CPU/memory snapshot from `metrics.k8s.io`, role |
 | `GET /vms/{ns}/{name}` | Spec and status, cloud-init summary, disks, `status.resize`, Pod requests/limits, live usage, guest NICs, and the BMC panel ([below](#the-bmc-panel)) |
 | `POST /vms/{ns}/{name}/action` | Admin form power action (`action`, plus `confirm=yes` for disruptive ones): one Redfish ResetType from `Systems/1`'s allowable values, or `on` / `off` as for the JSON route |
 | `POST /vms/{ns}/{name}/delete` | Admin deletion of a VM launched by the dashboard; the PVC is kept |
 | `GET /vms/{ns}/{name}/power` | Admin JSON power state: `running` (spec), operator `phase`, `pod`, Redfish `power_state` and `health` from `Systems/1`, the allowed in-pod `reset_types` from `ResetActionInfo`, `redfish_error` |
 | `POST /vms/{ns}/{name}/power` | Admin JSON power request `{"action": ..., "confirm": bool}`: `on`, `off`, or a Redfish ResetType (`Resume`, `Pause`, `GracefulRestart`, `ForceRestart`, `PowerCycle`, `Nmi`, `GracefulShutdown`, `ForceOff`) |
 | `GET /vms/{ns}/{name}/console` | noVNC page with power controls (admin) |
+| `GET /vms/{ns}/{name}/bmc` | Full BMC page with live status, metrics, configuration, events and role-appropriate controls |
 | `GET /vms/{ns}/{name}/console/ws` | Console WebSocket proxy (admin, exact Origin) |
 | `GET`/`POST /launch` | Launch form (launchers) |
 | `GET /images` | Base-image catalog and how images are staged (any signed-in user) |
@@ -132,8 +134,88 @@ Rare power actions are grouped under **More power actions**, with the same
 two-step confirmations. On narrow screens, **VM panels ↓** moves focus past the
 console to the details. Event rows expand with Enter or a tap to show the full
 timestamp, sequence and wrapped payload; they do not depend on hover tooltips.
+The full BMC updates known power controls from the allowable values on each
+existing System poll. Newly removed actions become hidden and disabled; newly
+advertised known actions become available without a page reload. Empty groups
+disappear with an explicit no-actions message. Controls keep their DOM nodes,
+so an availability change does not rebuild a pending action. The initial System
+list avoids a separate discovery request when present; otherwise ResetActionInfo
+provides the fallback. If discovery fails, the power area explains how to retry,
+and a later System list can restore controls through the existing poll. Missing
+inline values use the initial successful list. No extra polling request or new
+action type is added. Server authorization is unchanged.
+While discovery is pending, the power area says it is loading; known controls
+can recover from System polling before that request finishes. Metric polling
+also starts independently of optional startup reads.
+If initial access metadata fails to load, the BMC offers a same-page reload
+instead of implying that sign-in expired. A 401 still shows the sign-in path.
+Event-history failures stay in the Events panel, independently of the live
+stream's status. Incoming events do not hide the warning about missing past
+records. Empty history, pending history and waiting for live events have distinct
+messages. Queued stream callbacks are ignored after session cleanup.
+Power and guest-agent requests retain keyboard focus while pending, using
+`aria-disabled` with the existing request guard. A focused action that becomes
+unavailable moves to the VM state or guest-agent tab. Blocked held keys cannot
+activate after settlement, and Enter autorepeat is not a confirmation gesture.
+Closing the optional power group clears its armed confirmation. Expiry stops
+pending feedback, exits application full-screen mode and moves dashboard focus
+to visible sign-in; unrelated VM navigation focus is preserved. Late action
+refusals cannot reopen an error after the signed-out view appears.
+Full-screen ownership also counts as console focus if a disconnected socket
+has already removed the focused canvas. The real-router browser check enters
+full-screen before natural expiry; `QRAB_UI_EARLY_DISCONNECT=1` additionally
+closes the console first to exercise this recovery race.
+Metrics, Events and Guest agent name the browser timezone used by the page.
+Date formatters use that same zone for the page lifetime and account for
+daylight-saving transitions; expanded event timestamps remain explicitly UTC.
+Formatters are cached for repeated chart/event rendering. Browser checks cover
+Los Angeles winter/summer times and Kolkata's half-hour offset.
 
 ### Console power controls
+
+The dedicated console keeps routine controls visible and groups Reset, Power
+cycle, NMI and Force off in a native “More power actions” disclosure. It hides
+the group when none of those resets are offered. Closing the group, or losing
+an offered action, clears that action's armed confirmation. Unoffered controls
+are hidden and disabled, and the click handler rechecks their eligibility.
+If the group disappears while focused, focus stays near the power state. If
+the session ends while a console control is focused, focus moves to sign-in
+after leaving full-screen mode. Background expiry does not steal focus from
+navigation outside the console.
+Pending actions show “Sending…” and then “Updating state…” on the active
+button, with `aria-busy` and a status line outside the optional menu. Controls
+stay locked until the request and follow-up read settle. “Request accepted”
+describes delivery, not completion of a guest transition, and does not replace
+the console connection status. Action failures have a separate alert so a
+failed state read cannot overwrite the command's outcome. A new request clears
+the previous action error; session expiry clears pending feedback and late
+responses cannot restore it.
+Both console views allow Tab entry into the display and show keyboard focus.
+Ordinary Tab and Escape remain guest keys. Ctrl+Alt+Shift with left Alt returns
+to console controls, leaving console full screen first; Right Alt/AltGr remains
+available to the guest. Leaving display focus releases held keys. Shared static
+keyboard handling is served at `/assets/console-keyboard.js`; it adds no management
+endpoint and uses no private noVNC API.
+An ordinary disconnect restores the connection prompt in the display; powered-off
+and expired-session states keep their own guidance.
+The full BMC also reflects known guest-agent prerequisites for freeze and update,
+with visible action-specific reasons. Thaw remains available for connected-agent
+recovery. These checks use the existing System snapshot; missing optional status
+does not become a denial, and the backend remains authoritative.
+The active pending control uses `aria-disabled` with the existing busy guard,
+so keyboard focus survives the request. Other unavailable controls remain
+natively disabled. If the focused action becomes unavailable after settling,
+focus moves to the power state; unrelated navigation focus is preserved.
+Power-state and sign-in recovery targets are brought into view, including in
+a scrolled 320×320 window.
+Activation keys pressed while blocked remain suppressed through key release,
+even if the request settles in between. Enter autorepeat does not count as
+another confirmation gesture.
+
+Dashboard HTML errors keep their HTTP status and provide a next step: sign-in
+after expiry, a VM/list link for failed requests, and an explanation for access
+denials. VM sign-in destinations pass the same allowlist as normal login.
+Unknown pages have a readable 404; invisible and absent VMs remain identical.
 
 The console page's toolbar has **Power on**, the in-pod Redfish resets
 **Resume**, **Pause**, **Restart guest** (`GracefulRestart`), **Reset**
@@ -143,11 +225,20 @@ enabled from a state poll every 3 seconds while the tab is visible. An in-pod
 button is shown only while the VM's `Systems/1/ResetActionInfo` lists its
 ResetType (Restart guest also needs a connected guest agent at action time),
 and enabled from `Systems/1` `PowerState`: Resume while `Paused`; Pause,
-Restart guest, NMI and Shut down while `On`; Reset while `On` or `Paused`;
-Power cycle also while `Off`; Force off unless `Off`. Every button except
+Restart guest and NMI while `On`; Reset and Shut down while `On` or `Paused`;
+Power cycle also while `Off`; Force off unless `Off`. The full BMC and detail
+page use the same rules for these existing operations. Every button except
 Power on, Resume and Pause arms on the first click ("Confirm reset") and sends
 only on a second click within 5 seconds; the server also refuses them without
 `"confirm": true`.
+
+The BMC, detail page and dedicated console disable guest restart when their
+current snapshot reports a disconnected/disabled guest agent or frozen
+filesystems, and show the reason beside the controls. Other actions retain
+their existing rules. The console's admin-only power snapshot includes an
+optional `guest_restart_unavailable` explanation derived from the same System
+read; it adds no upstream request. Missing/unknown agent information is not a
+permission grant, and the backend still performs its action-time checks.
 
 - The in-pod buttons send `ComputerSystem.Reset` with the matching ResetType
   to the running VM's Redfish service with the user's ID token, for any VM
@@ -179,6 +270,12 @@ Origin, and is admin-only (viewers 403, invisible VMs 404), like the console.
 Redfish enforces the role again: its 403 (for example a grant removed since
 sign-in) is returned as a 403 naming the refused action, a 409 as a 409, and
 other failures as 502.
+
+The dedicated console keeps its existing plain-text power API errors and shows
+their messages above the display. On expiry it stops polling and reconnecting,
+closes the socket, clears the display, exits the display's full-screen mode and
+offers sign-in back to the same console. Pending actions remain locked through
+their follow-up state read.
 
 The detail page keeps a no-script power form for the same in-pod resets,
 rendered from the allowable values in the `Systems/1` it already read and
@@ -216,8 +313,28 @@ Admin wins when both apply. Deleting additionally requires the VM to carry
 set, so qrab-redfish-poc and other hand-made VMs cannot be deleted here. Kanidm group changes reach the dashboard, the
 BMC and Redfish at the next sign-in; sessions last at most 15 minutes.
 
+The VM directory shows configured disk counts separately from reported
+capacity. A missing capacity report says “Capacity not reported”; it does not
+classify a pending provisioned disk as static or count an unreported size as
+zero. Reported capacity may cover only some of a VM's configured disks.
+The images page explains the independent writable VM disks first. Detailed
+verification and staging instructions remain available in a native disclosure.
+
 ### Launching a VM
 
+The form shows the effective name limit for its namespace, including the generated
+access-group names (43 characters in `qrab`). The server's existing validation
+still enforces the limit; the browser no longer invites a longer name that will
+be rejected after submission. A namespace that leaves no room for a VM name gets
+an unavailable message instead of an unusable form.
+
+The image catalogue shows names and generations separately, matching the optional
+data-disk fields. Its form link opens a new tab so in-progress values stay in place.
+Leave every field of an unused data-disk row empty; a clone needs both image fields.
+Within the optional disk section, the first row starts open and additional rows
+have native disclosures. Submitted values and field errors reopen their own row.
+Case-sensitive identifier and cloud-init controls disable automatic capitalization
+and spellchecking hints.
 Hot-plug limits and additional data disks are optional disclosures. Submitted
 values reopen their section when the form is rejected. Numeric controls inside
 closable sections use a numeric keyboard and server validation: native browser
@@ -269,6 +386,12 @@ the same name reuses it while it is unbound.
 
 ### Network and cloud-init on the launch form
 
+Existing VPN-backed interfaces are marked **VPN tunnel only** on the VM detail
+page. This is a routing-mode summary, not a handshake/connection-health claim.
+The Secret reference and tunnel keys are not part of the dashboard view model.
+Default-allow guidance applies only to direct interfaces; the launch form still
+offers the same direct-interface configuration as before.
+
 - **Network.** "Attach a network interface (eth0)" is checked by default and
   renders `spec.nics: [{name: eth0, securityGroups}]`. Security groups are
   comma-separated DNS labels, at most 8, distinct. Each becomes the NIC Pod
@@ -300,7 +423,24 @@ Deleting a VM (console admin of a dashboard-launched VM, type its name to
 confirm) deletes the VirtualMachine
 with a UID precondition. Its Pod, ConfigMap and disk Secrets follow. The
 state PVC stays: it holds the firmware variables and TPM identity, and an
-administrator deletes it deliberately. The Kanidm groups stay too.
+administrator deletes it deliberately. Provisioned guest disks retain their data
+after their connections are closed (see [retained storage](iscsi.md#destroying-retained-data)).
+The Kanidm groups stay too. The confirmation form repeats the exact VM name and
+explains these retained resources; an administrator must clean up the existing
+PVC and groups before the dashboard can reuse the name. Power confirmation
+checkboxes identify both their action and VM to assistive technology, and their
+click targets include the full label height. These changes do not alter the
+server's exact-name and explicit-confirmation requirements.
+The detail page keeps routine power controls visible and puts Reset, Power
+cycle, NMI and Force off under “More power actions,” matching the BMC. This is
+a native disclosure; each action still has its own confirmed POST form, and
+only resets currently offered by the VM's Redfish service are rendered. An
+empty offered-action list has an explicit message instead of an empty toolbar.
+The detail page also disables actions incompatible with its guest-power
+snapshot (for example Resume while On, or Pause while Paused/Off). It shows
+the snapshot state beside the controls and says to reload after a state
+change. Persistent Power on/off retain their separate desired-power/Pod rules;
+the server and Redfish still validate every submitted action independently.
 
 ### The detail page
 
@@ -576,13 +716,55 @@ A dated record; the qrab-demo VM it mentions has since been retired.
 - Not yet exercised: a browser login, the BMC panel and console through the
   proxy, and a real launch.
 
-### Interface checks without a cluster
+## Interface checks without a cluster
+
+Dashboard data tables become labelled cards below 1000px. Capacity maxima are
+labelled explicitly; exact whole memory capacities use GiB/TiB where applicable.
+At phone widths up to 480px, table cards stack labels above values so addresses,
+VM names and checksums can use the full row.
+Empty VM lists explain account visibility and access refresh without exposing
+hidden VMs; only launch-enabled accounts get the empty-state launch action.
+Empty image catalogues point to administrator staging rather than leaving the
+user with an unexplained blank list.
+CPU usage is shown in cores and larger memory snapshots in GiB/TiB. Positive
+sub-millicore samples remain distinct from zero, and invalid samples show no data.
+SSR usage is a page-load snapshot, not a poll; the BMC provides continuing updates.
+CPU history retains fractional millicores below one millicore; very small positive
+samples say `<0.01 mcores`, distinct from zero. Both history views break lines
+across missing intervals longer than two sample steps and visibly mark isolated
+samples instead of losing them or connecting through missing data.
+Byte-rate history also preserves fractions below 1 B/s, with `<0.01 B/s` for
+smaller positive samples; true zero remains distinct. Light-theme faint text
+has extra contrast on raised console surfaces.
+The BMC Metrics tab keeps service-resource counters in a native disclosure so
+the history charts are easier to reach; opening it explains cumulative CPU totals.
+VM-report disk counters are labelled as totals. Current byte values use adaptive
+binary units, keeping small values visible; tiny positive time totals use a
+threshold label instead of rounding to zero.
+Missing BMC configuration or guest-agent data is labelled unavailable; it is
+distinct from an explicitly empty disk/NIC list or a disabled channel. A successful
+System response without configuration clears the previous configuration values.
+Polling updates individual BMC list values so a changing timestamp preserves
+unchanged text selections and update-output focus and scroll, even when optional
+neighboring fields appear or disappear. Long guest update
+output has a bounded, labelled keyboard-scrollable region. If that output is
+removed, focus returns to the Guest agent panel. SSR multiline diagnostic output
+also has a labelled keyboard focus target.
+Long VM names wrap in the BMC header, which scrolls normally in short windows so
+it does not cover the useful panel area.
+The signed-in account remains visible beside its role and Sign out on narrow
+screens; long account names truncate without increasing the header height.
+Names and status chips can wrap onto separate header rows at larger text sizes.
+Dashboard cards wrap long event names, identifiers and other unbroken text.
 
 The dashboard and BMC follow the system light/dark preference. Dashboard pages
 remain server-rendered; the BMC uses the shared interface assets. Keyboard users
 can skip the header, and the navigation identifies the current dashboard page.
+Coarse-pointer devices get larger controls, navigation links and disclosure
+targets, including tablets with wide viewports. VM directory name links have a
+44px minimum touch target; precise-pointer layouts keep their compact links.
 
-For a visual check, generate representative pages and run the isolated Chromium
+For a visual check, generate representative pages and run the isolated browser
 checks. The Python environment needs `playwright`; use an existing Chromium
 binary with `--browser` if it is not at the default path:
 
@@ -591,16 +773,93 @@ mkdir -p target/ui-preview
 cargo run --locked -p qrab-dashboard --example preview -- target/ui-preview
 python3 contrib/tests/ui-browser.py --previews target/ui-preview \
   --browser /path/to/chromium --output target/ui-browser
+# Optional second engine in the same Python environment:
+python3 -m playwright install firefox
+python3 contrib/tests/ui-browser.py --engine firefox --previews target/ui-preview \
+  --output target/ui-browser-firefox
+# WebKit in an environment with its platform libraries installed:
+python3 -m playwright install webkit
+python3 contrib/tests/ui-browser.py --engine webkit --previews target/ui-preview \
+  --output target/ui-browser-webkit
+# Browser emulation of system high-contrast colors:
+python3 contrib/tests/ui-browser.py --forced-colors --previews target/ui-preview \
+  --output target/ui-browser-forced-colors
 ```
 
 This checks desktop, tablet and mobile layouts down to 320px in light and dark themes, shared
 BMC admin/viewer controls, keyboard tabs, event filtering and two-step power
 confirmation. It also checks loading, stale reads and recovery, pending requests
 across polls, denied actions, empty history/filters, powered-off layouts and
-session expiry. `--states-only` runs just those BMC state checks during iteration.
+session expiry. `--states-only` runs just the BMC and dedicated-console state
+checks during iteration. Console expiry also checks native WebSocket closure,
+canvas cleanup, full-screen exit and the same-console sign-in destination.
+Dedicated-console checks cover expanded controls down to 320px, confirmation
+reset on close/availability loss, and recovery-link focus after expiry.
 The event checks include malformed/missing timestamps and long payload text that
 must render without becoming HTML.
+Long names, large capacities, namespace-specific name limits and a 320×320
+CSS-pixel viewport at 2× density are included in the layout checks.
+Header reflow checks also use 24px and 32px text with a valid long VM name and
+the longer power/health labels, checking both useful viewport space and panel access.
+Metric fixtures include CPU, memory and I/O series as well as an empty series;
+the checks inspect keyboard sample selection and chart-label fit. Chart labels
+and readouts use larger text, with fewer time ticks on narrow plots. The history
+panel explains the existing pointer and keyboard controls.
+Focused charts keep their position through empty/error responses and recovery;
+an unchanged message keeps its DOM and focus. Availability live regions announce
+source failures and recovery, while routine sample timestamps remain quiet.
+The browser checks observe these live-region mutations; they do not substitute
+for testing with an actual screen reader.
+Unchanged control titles and descriptions are not rewritten by ordinary polls.
+Chart resize handling responds to width changes outside ResizeObserver's
+delivery cycle, avoiding a WebKit resize loop. Resizing keeps a keyboard-selected
+sample; a stationary mouse event from layout does not replace that selection.
+The checks resize an already-focused chart and then verify genuine pointer input.
+Pending chart resize work and its observer are stopped when the session ends.
+Chart series use matching line patterns in their plots and SVG legend keys,
+so color is not the only distinction. The keys are decorative to assistive
+technology. Forced-colors mode uses the system chart colors and preserves
+current-navigation, selected-tab and pressed-range indicators. The browser
+checks compare plot/key styles and include an optional forced-colors run;
+this emulation does not substitute for testing an actual OS accessibility setup.
 It writes screenshots to the output directory. BMC requests use
-in-memory browser fixtures: it needs no credentials, cluster, VM or guest, and
-sends no action to a live VM. The separate `bmc-browser.py` test covers real
+in-memory browser fixtures. Lifecycle checks use a temporary loopback WebSocket
+held during RFB negotiation; keyboard checks complete a minimal RFB 3.8 handshake
+and capture key-down/key-up pairs. These fixtures send no guest framebuffer data.
+The checks need no credentials,
+cluster, VM or guest, and sends no action to a live VM.
+The separate `bmc-browser.py` test covers real
 OIDC and guest-console delivery.
+
+### Browser checks through the real router
+
+An ignored Rust test serves the actual dashboard router on loopback with the
+in-memory cluster, bounded session store and fake Pod upstreams. Python receives
+opaque test-session cookies on stdin; no test login route is added to the
+application. It uses the real response headers, CSP, HTTP proxies and WebSocket
+proxy rather than browser HTTP interception. It checks admin/viewer pages,
+keyboard chart focus across redraws, rejected launch-form feedback, peer logout
+and real server-time expiry.
+Its fake console upstream holds RFB negotiation open, so this check proves
+authenticated admission and browser lifecycle behavior rather than guest input
+or framebuffer delivery.
+
+```sh
+QRAB_UI_PYTHON=/path/to/python-with-playwright QRAB_UI_ENGINE=firefox \
+  cargo test --locked -p qrab-dashboard actual_router_browser -- --ignored --nocapture
+# The same check over a full 15-minute session:
+QRAB_UI_PYTHON=/path/to/python-with-playwright QRAB_UI_SESSION_SECONDS=900 \
+  cargo test --locked -p qrab-dashboard actual_router_browser -- --ignored --nocapture
+```
+
+`QRAB_UI_OUTPUT` selects the screenshot directory (default `target/ui-router`).
+The check has no guest, KVM, cluster or production credentials. Its invalid
+launch submission must create no resources; it sends no action to a live VM.
+The favicon is a shared same-origin SVG; SSR CSP permits
+same-origin images for it while retaining the script-free policy. A chart's
+keyboard focus and selected timestamp survive an ordinary history redraw.
+
+Rejected launch forms retain non-secret values and identify each invalid field
+with an inline message and an error-summary link. The summary receives native
+browser focus after submission; linked fields in optional sections remain
+visible. User-data is cleared instead of being echoed into the response.

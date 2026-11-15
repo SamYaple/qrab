@@ -235,8 +235,7 @@ async fn malformed_four_component_guest_versions_do_not_become_a_different_peer_
         });
         let error = Qga::from_stream(client)
             .await
-            .err()
-            .expect("invalid version accepted");
+            .expect_err("invalid version accepted");
         assert!(
             error.to_string().contains("invalid guest-agent version"),
             "{error}"
