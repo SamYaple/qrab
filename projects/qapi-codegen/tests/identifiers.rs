@@ -1,27 +1,8 @@
 //! Compile generated Rust for names accepted by QEMU but special in Rust.
+mod common;
+use common::{git, run_fixture, write_module};
 use qapi_codegen::unified::generate_unified_code;
 use std::{path::Path, process::Command};
-
-fn git(repo: &Path, args: &[&str]) {
-    let result = Command::new("git")
-        .args([
-            "-c",
-            "commit.gpgsign=false",
-            "-c",
-            "tag.gpgsign=false",
-            "-c",
-            "core.hooksPath=/dev/null",
-        ])
-        .current_dir(repo)
-        .args(args)
-        .output()
-        .unwrap();
-    assert!(
-        result.status.success(),
-        "{}",
-        String::from_utf8_lossy(&result.stderr)
-    );
-}
 
 #[test]
 fn valid_schema_keywords_and_standard_type_names_compile_and_round_trip() {
@@ -130,47 +111,10 @@ fn valid_schema_keywords_and_standard_type_names_compile_and_round_trip() {
     git(&repo, &["tag", "v11.1.3"]);
     let output = generate_unified_code(&repo, &["v2.3.0", "v6.1.0", "v11.1.3"]).unwrap();
     let fixture = temp.path().join("fixture");
-    let generated = fixture.join("src/generated");
-    std::fs::create_dir_all(&generated).unwrap();
-    for (name, text) in [
-        ("mod.rs", output.types),
-        ("commands.rs", output.commands),
-        ("events.rs", output.events),
-        ("metadata.rs", output.metadata),
-    ] {
-        std::fs::write(generated.join(name), text).unwrap();
-    }
-    let manifest = format!(
-        r#"[package]
-name = "qapi-generated-identifiers"
-version = "0.0.0"
-edition = "2024"
-[workspace]
-[dependencies]
-qapi_runtime = {{ package = "qapi", path = {:?} }}
-qapi-macros = {{ path = {:?} }}
-serde = "1"
-serde_json = "1"
-phf = {{ version = "0.11", features = ["macros"] }}
-"#,
-        workspace.join("projects/qapi"),
-        workspace.join("projects/qapi-macros")
-    );
-    std::fs::write(fixture.join("Cargo.toml"), manifest).unwrap();
-    let main = include_str!("fixtures/compiler/main.rs");
-    std::fs::write(fixture.join("src/main.rs"), main).unwrap();
-    let result = Command::new(env!("CARGO"))
-        .args(["run", "--offline", "--quiet", "--manifest-path"])
-        .arg(fixture.join("Cargo.toml"))
-        .arg("--target-dir")
-        .arg(workspace.join("target/qapi-identifier-fixtures"))
-        .env_remove("QEMU_MIN_VERSION")
-        .env_remove("QEMU_MAX_VERSION")
-        .output()
-        .unwrap();
-    assert!(
-        result.status.success(),
-        "Generated fixture failed:\n{}",
-        String::from_utf8_lossy(&result.stderr)
+    write_module(&fixture.join("src/generated"), output);
+    run_fixture(
+        &workspace,
+        &fixture,
+        include_str!("fixtures/compiler/main.rs"),
     );
 }

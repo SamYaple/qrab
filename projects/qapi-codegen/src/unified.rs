@@ -1992,6 +1992,34 @@ pub fn generate_qga_code(qemu_repo: &Path, version_tags: &[&str]) -> Result<Gene
 mod schema_resolution_tests {
     use super::*;
 
+    #[test]
+    fn upstream_positive_schema_fixtures_lower() {
+        let root =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../vendor/qemu/tests/qapi-schema");
+        let mut fixtures = Vec::new();
+        for entry in std::fs::read_dir(&root).unwrap() {
+            let path = entry.unwrap().path();
+            if path.extension().is_some_and(|extension| extension == "err")
+                && std::fs::read_to_string(&path).unwrap().trim().is_empty()
+                && path.with_extension("json").exists()
+            {
+                fixtures.push(path.with_extension("json"));
+            }
+        }
+        fixtures.sort();
+        assert!(!fixtures.is_empty());
+        let mut failures = Vec::new();
+        for path in fixtures {
+            let sources = crate::read_schema_with_version(&path, Some((11, 1, 3))).unwrap();
+            match std::panic::catch_unwind(|| process_version_schema(&sources)) {
+                Ok(Ok(_)) => {}
+                Ok(Err(error)) => failures.push(format!("{}: {error:#}", path.display())),
+                Err(_) => failures.push(format!("{}: lowering panicked", path.display())),
+            }
+        }
+        assert!(failures.is_empty(), "{}", failures.join("\n"));
+    }
+
     fn process(input: &str) -> Result<(HashMap<String, Enum>, HashMap<String, Struct>)> {
         crate::set_parser_version((11, 1, 3));
         process_version_schema(&[("fixture.json".into(), input.into())])

@@ -85,6 +85,8 @@ and definition; historical inline objects include the nested member path.
 Historical anonymous structs lower recursively, including optional and empty
 objects. Extracted type names avoid declared types and generated role names,
 so anonymous objects cannot overwrite unrelated schema definitions.
+QEMU's positive schema fixtures are checked through parsing, IR lowering and
+compilation of complete generated Rust modules, including its schema stress test.
 Flat unions may omit every payload branch when their discriminator enum is
 nonempty. Generated branch enums carry `union_branch` even when all variants
 have no payload, preserving discriminator dispatch and empty-object wire shape.
