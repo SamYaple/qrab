@@ -210,25 +210,34 @@ const pairs = rows => rows.flatMap(([key, value, format]) => {
     } else definition.textContent = String(value);
     return [node('dt', key), definition];
 });
-// Update individual values while the rows stay the same. A changing timestamp
-// must not replace selected output or reset its keyboard focus and scroll.
+// Keep rows by label and format, including when optional neighbors appear or
+// disappear. Polling must not replace unchanged output, focus or selection.
 function render(id, rows) {
     const key = JSON.stringify(rows);
     if (rendered[id]?.key === key) return;
-    const shape = JSON.stringify(rows.map(([name, , format]) => [name, format]));
     const list = element(id);
-    if (rendered[id]?.shape === shape) {
-        rows.forEach(([, value], index) => {
-            const definition = list.children[index * 2 + 1];
-            updateText(definition.firstElementChild || definition, String(value));
-        });
-    } else {
-        const hadFocus = list.contains(document.activeElement);
-        list.replaceChildren(...pairs(rows));
-        const panel = list.closest('[role=tabpanel]');
-        if (hadFocus && panel) focusInView(panel);
+    const focused = document.activeElement;
+    const hadFocus = list.contains(focused);
+    const available = [...(rendered[id]?.entries || [])];
+    const entries = rows.map(([name, value, format]) => {
+        const index = available.findIndex(entry => entry.name === name && entry.format === format);
+        const entry = index >= 0 ? available.splice(index, 1)[0]
+            : {name, format, nodes: pairs([[name, value, format]])};
+        const definition = entry.nodes[1];
+        updateText(definition.firstElementChild || definition, String(value));
+        return entry;
+    });
+    const children = entries.flatMap(entry => entry.nodes);
+    const keep = new Set(children);
+    for (const child of [...list.childNodes]) if (!keep.has(child)) child.remove();
+    children.forEach((child, index) => {
+        if (list.children[index] !== child) list.insertBefore(child, list.children[index] || null);
+    });
+    if (hadFocus && document.activeElement !== focused) {
+        const target = list.contains(focused) ? focused : list.closest('[role=tabpanel]');
+        if (target) focusInView(target);
     }
-    rendered[id] = {key, shape};
+    rendered[id] = {key, entries};
 }
 
 // ── Two-step confirmation: a disruptive button first turns into

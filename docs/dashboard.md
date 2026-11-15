@@ -694,7 +694,8 @@ Missing BMC configuration or guest-agent data is labelled unavailable; it is
 distinct from an explicitly empty disk/NIC list or a disabled channel. A successful
 System response without configuration clears the previous configuration values.
 Polling updates individual BMC list values so a changing timestamp preserves
-unchanged text selections and update-output focus and scroll. Long guest update
+unchanged text selections and update-output focus and scroll, even when optional
+neighboring fields appear or disappear. Long guest update
 output has a bounded, labelled keyboard-scrollable region. If that output is
 removed, focus returns to the Guest agent panel. SSR multiline diagnostic output
 also has a labelled keyboard focus target.

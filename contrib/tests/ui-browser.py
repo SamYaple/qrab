@@ -676,6 +676,17 @@ def bmc_state_checks(browser, width, theme):
     expect(last_seen).not_to_have_text(previous_seen)
     expect(output_area).to_be_focused()
     assert output_area.evaluate('e => e.scrollTop') == 150
+    agent['last_error'] = 'Fixture agent warning.'
+    page.clock.fast_forward(3100)
+    expect(page.locator('#agent')).to_contain_text('Fixture agent warning.')
+    assert output.evaluate('dd => dd === window.updateOutputNode'), 'A neighboring error must not replace unchanged output'
+    expect(output_area).to_be_focused()
+    assert output_area.evaluate('e => e.scrollTop') == 150
+    agent.pop('last_error')
+    page.clock.fast_forward(3100)
+    expect(page.locator('#agent')).not_to_contain_text('Fixture agent warning.')
+    expect(output_area).to_be_focused()
+    assert output_area.evaluate('e => e.scrollTop') == 150
     assert output_area.bounding_box()['height'] <= 260
     assert output.locator('script').count() == 0
     capture(page, args.output / f'bmc-agent-output-{theme}-{width}.png')
