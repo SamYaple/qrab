@@ -82,7 +82,7 @@ Redfish admin actions offered on the full BMC page's Guest agent tab.
 
 | Route | Purpose |
 | --- | --- |
-| `GET /` | VMs visible to the user: phase/ready (`PoweredOff` or `Paused` for a guest off or paused inside its Pod), node, the first NIC's IP, vCPUs and memory (current / hot-plug maximum), disks, live CPU and memory from `metrics.k8s.io`, role |
+| `GET /` | VMs visible to the user: phase/ready (`PoweredOff` or `Paused` for a guest off or paused inside its Pod), node, the first NIC's IP, vCPUs and memory (current, with maxima labelled), disks, CPU/memory snapshot from `metrics.k8s.io`, role |
 | `GET /vms/{ns}/{name}` | Spec and status, cloud-init summary, disks, `status.resize`, Pod requests/limits, live usage, guest NICs, and the BMC panel ([below](#the-bmc-panel)) |
 | `POST /vms/{ns}/{name}/action` | Admin form power action (`action`, plus `confirm=yes` for disruptive ones): one Redfish ResetType from `Systems/1`'s allowable values, or `on` / `off` as for the JSON route |
 | `POST /vms/{ns}/{name}/delete` | Admin deletion of a VM launched by the dashboard; the PVC is kept |
@@ -228,6 +228,12 @@ set, so qrab-redfish-poc and other hand-made VMs cannot be deleted here. Kanidm 
 BMC and Redfish at the next sign-in; sessions last at most 15 minutes.
 
 ### Launching a VM
+
+The form shows the effective name limit for its namespace, including the generated
+access-group names (43 characters in `qrab`). The server's existing validation
+still enforces the limit; the browser no longer invites a longer name that will
+be rejected after submission. A namespace that leaves no room for a VM name gets
+an unavailable message instead of an unusable form.
 
 Hot-plug limits and additional data disks are optional disclosures. Submitted
 values reopen their section when the form is rejected. Numeric controls inside
@@ -589,6 +595,14 @@ A dated record; the qrab-demo VM it mentions has since been retired.
 
 ### Interface checks without a cluster
 
+The VM directory becomes labelled cards below 1000px. Capacity maxima are
+labelled explicitly; exact whole memory capacities use GiB/TiB where applicable.
+CPU usage is shown in cores and larger memory snapshots in GiB/TiB. Positive
+sub-millicore samples remain distinct from zero, and invalid samples show no data.
+SSR usage is a page-load snapshot, not a poll; the BMC provides continuing updates.
+Long VM names wrap in the BMC header, which scrolls normally in short windows so
+it does not cover the useful panel area.
+
 The dashboard and BMC follow the system light/dark preference. Dashboard pages
 remain server-rendered; the BMC uses the shared interface assets. Keyboard users
 can skip the header, and the navigation identifies the current dashboard page.
@@ -617,6 +631,8 @@ checks during iteration. Console expiry also checks native WebSocket closure,
 canvas cleanup, full-screen exit and the same-console sign-in destination.
 The event checks include malformed/missing timestamps and long payload text that
 must render without becoming HTML.
+Long names, large capacities, namespace-specific name limits and a 320×320
+CSS-pixel viewport at 2× density are included in the layout checks.
 It writes screenshots to the output directory. BMC requests use
 in-memory browser fixtures; the dedicated console's socket is a temporary
 loopback WebSocket held during RFB negotiation. It needs no credentials,

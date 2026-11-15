@@ -171,10 +171,29 @@ pub fn render(page: Page) -> String {
     )
 }
 
-fn sizes(current: u32, max: Option<u32>, unit: &str) -> String {
+fn cpu_size(current: u32, max: Option<u32>) -> String {
+    let unit = if current == 1 { "vCPU" } else { "vCPUs" };
     match max {
-        Some(max) => format!("{current} / {max}{unit}"),
-        None => format!("{current}{unit}"),
+        Some(max) => format!("{current} {unit} (max {max})"),
+        None => format!("{current} {unit}"),
+    }
+}
+
+fn memory_unit(mib: u32) -> String {
+    if mib > 0 && mib.is_multiple_of(1048576) {
+        format!("{} TiB", mib / 1048576)
+    } else if mib > 0 && mib.is_multiple_of(1024) {
+        format!("{} GiB", mib / 1024)
+    } else {
+        format!("{mib} MiB")
+    }
+}
+
+fn memory_size(current: u32, max: Option<u32>) -> String {
+    let current = memory_unit(current);
+    match max {
+        Some(max) => format!("{current} (max {})", memory_unit(max)),
+        None => current,
     }
 }
 
@@ -190,18 +209,18 @@ fn state_badge(row: &Row) -> Element {
 
 fn vm_table(rows: &[Row]) -> Element {
     rsx! {
-        section { class: "card directory", div { class: "table-wrap", table {
+        section { class: "card directory vm-directory", div { class: "table-wrap", table {
             caption { class: "visually-hidden", "Virtual machines you can access" }
             thead { tr {
                 th { scope: "col", "Virtual machine" } th { scope: "col", "State" }
                 th { scope: "col", "Compute" } th { scope: "col", "Storage" }
-                th { scope: "col", "Live usage" } th { scope: "col", "Location" } th { scope: "col", "Access" }
+                th { scope: "col", "Usage snapshot" } th { scope: "col", "Location" } th { scope: "col", "Access" }
             } }
             tbody { for row in rows {
                 {
                     let (cpu, mem) = model::usage_text(row.usage);
-                    let cpu_size = sizes(row.cpus, row.max_cpus, "");
-                    let memory_size = sizes(row.memory_mib, row.max_memory_mib, "");
+                    let cpu_size = cpu_size(row.cpus, row.max_cpus);
+                    let memory_size = memory_size(row.memory_mib, row.max_memory_mib);
                     let disks = match (row.disks, row.disk_bytes) {
                         (0, _) => "none".to_string(),
                         (n, 0) => format!("{n} static"),
@@ -211,13 +230,13 @@ fn vm_table(rows: &[Row]) -> Element {
                         td { "data-label": "Name", div { a { class: "identity-link", href: row.path(), "{row.name}" } p { class: "muted", "{row.namespace}" } } }
                         td { "data-label": "State", div { {state_badge(row)} } }
                         td { "data-label": "Compute", div {
-                            span { "{cpu_size} vCPUs" }
-                            span { class: "cell-detail", "{memory_size} MiB memory" }
+                            span { "{cpu_size}" }
+                            span { class: "cell-detail", "{memory_size} memory" }
                         } }
                         td { "data-label": "Storage", "{disks}" }
-                        td { "data-label": "Live usage", div {
-                            span { "{cpu} CPU" }
-                            span { class: "cell-detail", "{mem} memory" }
+                        td { "data-label": "Usage snapshot", div {
+                            span { "CPU {cpu}" }
+                            span { class: "cell-detail", "Memory {mem}" }
                         } }
                         td { "data-label": "Location", div {
                             if row.node.is_empty() { span { class: "muted", "Not scheduled" } } else { span { "{row.node}" } }
@@ -324,7 +343,7 @@ fn bmc_panel(panel: &Panel) -> Element {
     };
     let history = history_card(&panel.history);
     rsx! {
-        p { class: "muted", "Read from the VM's Redfish service with your sign-in." }
+        p { class: "muted", "Fetched when this page loads. Reload to update." }
         div { class: "panel-grid", {status} {agent} {history} {config} {events} }
     }
 }
@@ -735,10 +754,10 @@ fn detail_page(page: &DetailPage, user: &UserView) -> Element {
                 d.row.node.clone()
             },
         ),
-        ("vCPUs", sizes(d.row.cpus, d.row.max_cpus, "")),
+        ("CPU allocation", cpu_size(d.row.cpus, d.row.max_cpus)),
         (
             "Memory",
-            sizes(d.row.memory_mib, d.row.max_memory_mib, " MiB"),
+            memory_size(d.row.memory_mib, d.row.max_memory_mib),
         ),
         ("Boots from", d.boots_from.clone()),
         ("Cloud-init", d.cloud_init.clone()),
@@ -842,8 +861,8 @@ fn detail_page(page: &DetailPage, user: &UserView) -> Element {
                     {dl(metadata)}
                 }
             }
-            section { class: "card", h2 { "Live usage" }
-                p { class: "muted", "From metrics.k8s.io for the whole Pod, including the BMC and Redfish sidecars." }
+            section { class: "card", h2 { "Usage snapshot" }
+                p { class: "muted", "Includes the VM and its control services. Reload this page to update." }
                 {dl(vec![("CPU", cpu), ("Memory", mem)])}
             }
             {network_card(d)}
@@ -904,6 +923,16 @@ fn input_value(values: &[(String, String)], key: &str, default: &str) -> String 
 }
 
 fn launch_form(page: &LaunchPage, user: &UserView) -> Element {
+    let name_limit = launch::max_name_length(&page.namespace);
+    if name_limit == 0 {
+        return rsx! {
+            a { class: "back", href: "/", "← All VMs" }
+            section { class: "card error-card", h1 { "Launching is unavailable" }
+                p { "The namespace name leaves no room for VM access-group names. Ask an administrator to configure a shorter launcher namespace." }
+                a { class: "button", href: "/", "All VMs" }
+            }
+        };
+    }
     let v = |key: &str, default: &str| input_value(&page.values, key, default);
     let kvm = v("accelerator", "kvm") == "kvm";
     let node = page
@@ -932,8 +961,8 @@ fn launch_form(page: &LaunchPage, user: &UserView) -> Element {
             {os_fieldset(page)}
             fieldset { legend { "Machine" }
                 label { r#for: "name", "Name" }
-                input { id: "name", name: "name", required: true, maxlength: "50", pattern: r"[a-z0-9]([a-z0-9\-]*[a-z0-9])?", value: v("name", ""), aria_describedby: "name-help" }
-                p { id: "name-help", class: "muted", "Lowercase DNS label. Group names qrab_vm_{page.namespace}_<name>_viewers must fit in 64 characters." }
+                input { id: "name", name: "name", required: true, maxlength: "{name_limit}", pattern: r"[a-z0-9]([a-z0-9\-]*[a-z0-9])?", value: v("name", ""), aria_describedby: "name-help" }
+                p { id: "name-help", class: "muted", "Up to {name_limit} characters in this namespace. Use lowercase letters, digits and hyphens; start and end with a letter or digit." }
                 div { class: "pair",
                     div { label { r#for: "cpus", "vCPUs" } input { id: "cpus", name: "cpus", r#type: "number", min: "1", max: "256", required: true, value: v("cpus", "1") } }
                     div { label { r#for: "memory_mib", "Memory (MiB)" } input { id: "memory_mib", name: "memory_mib", r#type: "number", min: "256", max: "1048576", required: true, value: v("memory_mib", "512") } }
@@ -1247,7 +1276,8 @@ fn app() -> Element {
                     (Body::Error(error), _) => error_page(error),
                     (Body::List(rows), Some(_user)) => rsx! {
                         div { class: "heading", div { p { class: "eyebrow", "VIRTUAL MACHINES" } h1 { "Your VMs" }
-                            p { class: "muted", "Your shared and personal virtual machines. Open a VM to inspect it or use its BMC." } }
+                            p { class: "muted", "Your shared and personal virtual machines. Open a VM to inspect it or use its BMC." }
+                            p { class: "muted", "Usage is a page-load snapshot for the VM and its control services. Reload to update." } }
                             span { class: "count", "{rows.len()} shown" } }
                         if rows.is_empty() { p { class: "empty", "No VMs are shared with you yet." } } else { {vm_table(rows)} }
                     },

@@ -8,7 +8,7 @@
 //! built-in VM with NICs and cloud-init is always added and gets
 //! `detail-network.html`. A sample base-image catalog feeds the Images page
 //! and the launch forms.
-use k8s_openapi::api::core::v1::Pod;
+use k8s_openapi::{api::core::v1::Pod, apimachinery::pkg::api::resource::Quantity};
 use qrab_dashboard::{
     access::Role,
     cluster::Usage,
@@ -258,6 +258,100 @@ fn main() {
     write(dir, "list", page(Body::List(rows)), &css);
     let catalog = images::parse(CATALOG);
     write(dir, "images", page(Body::Images(catalog.clone())), &css);
+    let (mut long_vm, mut long_pod) = network_vm();
+    let long_name = format!("vm-{}", "a".repeat(60));
+    long_vm.metadata.name = Some(long_name.clone());
+    if let Some(labels) = &mut long_vm.metadata.labels {
+        labels.remove("app.kubernetes.io/managed-by");
+    }
+    long_vm.spec.state_volume_claim = format!("{long_name}-state");
+    long_vm.spec.cpus = 8;
+    long_vm.spec.max_cpus = Some(256);
+    long_vm.spec.memory_mib = 16384;
+    long_vm.spec.max_memory_mib = Some(1048576);
+    long_pod.metadata.name = Some(long_name.clone());
+    if let Some(resources) = long_pod
+        .spec
+        .as_mut()
+        .and_then(|pod| pod.containers.first_mut())
+        .and_then(|container| container.resources.as_mut())
+    {
+        resources.requests = Some(
+            [
+                ("cpu".into(), Quantity("8".into())),
+                ("memory".into(), Quantity("17Gi".into())),
+            ]
+            .into(),
+        );
+        resources.limits = Some(
+            [
+                ("cpu".into(), Quantity("256".into())),
+                ("memory".into(), Quantity("1025Gi".into())),
+            ]
+            .into(),
+        );
+    }
+    if let Some(status) = &mut long_vm.status {
+        status.pod_name = Some(long_name.clone());
+        status.node_name = Some(format!("production-worker-{}", "b".repeat(45)));
+        status.ready = false;
+        status.message = format!(
+            "Waiting for storage volume {} to finish provisioning.",
+            "c".repeat(120)
+        );
+    }
+    let mut long_user = user.clone();
+    long_user.name = "sam.with-a-long-operator-name-for-production".into();
+    let long_usage = HashMap::from([(
+        long_name.clone(),
+        Usage {
+            cpu_cores: 8.125,
+            memory_bytes: 15.5 * 1024.0 * 1024.0 * 1024.0,
+        },
+    )]);
+    write(
+        dir,
+        "list-long",
+        Page {
+            user: Some(long_user.clone()),
+            body: Body::List(vec![model::row(&long_vm, Role::Admin, &long_usage)]),
+            ..Default::default()
+        },
+        &css,
+    );
+    let mut long_panel = panel();
+    if let Ok(system) = &mut long_panel.system
+        && let Some(config) = &mut system.oem.qrab.configuration
+    {
+        config.name = long_name;
+        config.cpus = 8;
+        config.memory_mib = 16384;
+        if let Some(limits) = &mut config.hotplug {
+            limits.max_cpus = 256;
+            limits.max_memory_mib = 1048576;
+        }
+    }
+    write(
+        dir,
+        "detail-long",
+        Page {
+            user: Some(long_user),
+            body: Body::Detail(Box::new(DetailPage {
+                detail: model::detail(
+                    &long_vm,
+                    Role::Admin,
+                    &long_usage,
+                    Some(&long_pod),
+                    Some("10.244.2.141".parse().unwrap()),
+                    &catalog,
+                ),
+                panel: PanelState::Loaded(Box::new(long_panel)),
+                deletable: false,
+            })),
+            ..Default::default()
+        },
+        &css,
+    );
     let network = pairs.len() - 1;
     for (name, index, role) in [
         ("detail", 0, Role::Admin),
@@ -305,6 +399,15 @@ fn main() {
             namespace: "qrab".into(),
             storage_node: Some("kube03".into()),
             images: catalog.clone(),
+            ..Default::default()
+        })),
+        &css,
+    );
+    write(
+        dir,
+        "launch-unavailable",
+        page(Body::Launch(LaunchPage {
+            namespace: "a".repeat(63),
             ..Default::default()
         })),
         &css,

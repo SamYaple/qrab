@@ -577,7 +577,7 @@ async fn the_list_shows_only_visible_vms_and_launch_only_to_launchers() {
     );
     assert!(body.contains("href=\"/vms/qrab/a\"") && body.contains("href=\"/vms/qrab/b\""));
     assert!(!body.contains("/vms/qrab/c"));
-    assert!(body.contains("250m") && body.contains("300 MiB"));
+    assert!(body.contains("0.25 cores") && body.contains("300 MiB"));
     assert!(!body.contains("href=\"/launch\""));
     assert!(!body.contains("id-token-of-alice"));
     let launcher = session(&h.state.sessions, ALICE, &[LAUNCHERS]).await;

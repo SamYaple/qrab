@@ -267,7 +267,7 @@ svg.chart .hit { fill: transparent; }
     .topbar { padding: 8px 12px; gap: 6px 12px; }
     .brand, #identity { display: none; }
     .vm-title { flex: 1 1 100%; flex-wrap: nowrap; }
-    .vm-title h1 { font-size: 16px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .vm-title h1 { font-size: 16px; min-width: 0; white-space: normal; overflow-wrap: anywhere; }
     #screen { height: 52vh; min-height: 260px; }
     button, .button { font-size: 13px; min-height: 44px; padding: 8px 10px; }
     .power-advanced > summary, .event-details > summary { min-height: 44px; }
@@ -275,6 +275,13 @@ svg.chart .hit { fill: transparent; }
     .panel { padding: 16px; }
     .panel dl, .view-only .panel dl { grid-template-columns: minmax(0,1fr); gap: 3px; }
     .panel dd { margin-bottom: 10px; }
+}
+
+/* In a short/reflowed window, the header must not consume the panel's useful
+   viewport. The VM remains identified by the page title and normal header. */
+@media (max-height: 600px) {
+    .topbar { position: static; }
+    .rail { position: static; max-height: none; scroll-margin-top: 16px; }
 }
 
 /* Request feedback remains separate from the last successful VM snapshot. */

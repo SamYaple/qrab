@@ -92,6 +92,11 @@ pub struct Names {
     pub viewers: String,
 }
 
+/// The namespace-specific VM name limit, including generated access groups.
+pub fn max_name_length(namespace: &str) -> usize {
+    MAX_NAME.min(64usize.saturating_sub(format!("qrab_vm_{namespace}__viewers").len()))
+}
+
 /// The names one launch creates. Kanidm names are at most 64 characters.
 ///
 /// ```
@@ -752,6 +757,9 @@ mod tests {
             }
         );
         // 8 + 4 + 1 + name + 8 <= 64 → name <= 43 in namespace "qrab".
+        assert_eq!(max_name_length("qrab"), 43);
+        assert_eq!(max_name_length("q"), 46);
+        assert_eq!(max_name_length(&"a".repeat(63)), 0);
         assert!(names("qrab", &"a".repeat(43)).is_ok());
         assert!(names("qrab", &"a".repeat(44)).unwrap_err().contains("64"));
         assert!(names("q", &"a".repeat(46)).is_ok());

@@ -46,7 +46,8 @@ def system(power='On'):
 def install_bmc(context, role='admin', power='On', legacy=False, origin='http://ui.test'):
     fixture = {'system': system(power), 'posts': [], 'expired': False,
                'hold_posts': False, 'pending_posts': [], 'post_error': None,
-               'fail_system': None, 'fail_metrics': False, 'hold_session': False, 'pending_session': [], 'empty_events': False, 'extra_events': [], 'requests': []}
+               'fail_system': None, 'fail_metrics': False, 'hold_session': False, 'pending_session': [], 'empty_events': False, 'extra_events': [], 'requests': [],
+               'vm_name': 'web-1', 'user_name': 'sam'}
     fixture['system']['Oem']['Qrab']['Configuration']['redacted'] = role == 'viewer'
 
     def route(request_route):
@@ -79,7 +80,7 @@ def install_bmc(context, role='admin', power='On', legacy=False, origin='http://
             request_route.fulfill(status=503, json={'error': {'message': 'Measurements unavailable.'}})
             return
         if path == base + '/bmc/session':
-            data = {'user': {'name': 'sam', 'subject': 'fixture-user', 'csrf': 'fixture-csrf'}, 'role': role, 'vm_name': 'web-1', 'admin_bucket': []}
+            data = {'user': {'name': fixture['user_name'], 'subject': 'fixture-user', 'csrf': 'fixture-csrf'}, 'role': role, 'vm_name': fixture['vm_name'], 'admin_bucket': []}
             if fixture['hold_session']:
                 fixture['pending_session'].append((request_route, data))
                 return
@@ -221,6 +222,30 @@ def wait_native(page, event, diagnostics=None):
             return
         page.wait_for_timeout(20)
     assert event.is_set(), (page.locator('#console-status').inner_text(), diagnostics)
+
+
+def long_content_checks(browser, width, theme, height=1000, scale=1):
+    context = browser.new_context(viewport={'width': width, 'height': height}, device_scale_factor=scale, color_scheme=theme)
+    fixture = install_bmc(context)
+    fixture['vm_name'] = 'vm-' + 'a' * 60
+    fixture['user_name'] = 'sam.with-a-long-operator-name-for-production'
+    fixture['system']['Oem']['Qrab']['Configuration']['name'] = fixture['vm_name']
+    page = context.new_page()
+    page.goto('http://ui.test' + base + '/bmc')
+    expect(page.locator('#vm-name')).to_have_text(fixture['vm_name'])
+    expect(page.locator('#overview')).to_contain_text('Health')
+    page.wait_for_function("Math.abs(parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--topbar-height')) - document.querySelector('.topbar').getBoundingClientRect().height) <= 1")
+    assert page.locator('#vm-name').evaluate('(e) => e.scrollWidth <= e.clientWidth + 1'), 'VM name is clipped'
+    no_overflow(page, 'bmc-long-name', width)
+    if width <= 1000:
+        page.locator('.panel-jump').click()
+        sticky = page.locator('.topbar').evaluate("(e) => getComputedStyle(e).position === 'sticky'")
+        assert page.locator('#vm-panels').bounding_box()['y'] >= (page.locator('.topbar').bounding_box()['height'] if sticky else 0)
+        if height < 400:
+            health = page.locator('#overview dd').nth(1).bounding_box()
+            assert health['y'] + health['height'] <= height, 'Header leaves too little room for VM health'
+    capture(page, args.output / f'bmc-long-name-{theme}-{width}-{height}-{scale}x.png')
+    context.close()
 
 
 def console_state_checks(browser, width, theme):
@@ -452,16 +477,24 @@ with sync_playwright() as playwright:
         for width in [1440, 768, 390, 320]:
             context = browser.new_context(viewport={'width': width, 'height': 1000}, color_scheme=theme)
             page = context.new_page()
-            for name in ['list', 'detail', 'detail-viewer', 'images', 'launch', 'launch-os', 'launch-options', 'launched',
+            for name in ['list', 'list-long', 'detail', 'detail-long', 'detail-viewer', 'images', 'launch', 'launch-os', 'launch-options', 'launch-unavailable', 'launched',
                          'error-session', 'error-denied', 'error-missing', 'error-service']:
                 page.goto((args.previews / f'{name}.html').resolve().as_uri())
                 no_overflow(page, name, width)
                 if name in ['launch', 'launch-os']:
+                    assert page.locator('#name').get_attribute('maxlength') == '43'
                     for radio in page.locator('input[type=radio]').all():
                         bounds = radio.bounding_box()
                         assert bounds['width'] <= 24 and bounds['height'] <= 24, bounds
                     page.locator('input[name=os]').nth(1).check()
                     assert page.locator('input[name=os]').nth(1).is_checked()
+                if name == 'launch-unavailable':
+                    assert page.locator('form.launch').count() == 0
+                    expect(page.locator('h1')).to_have_text('Launching is unavailable')
+                if name == 'list-long':
+                    assert page.locator('.table-wrap').evaluate('(e) => e.scrollWidth <= e.clientWidth + 1')
+                    expect(page.locator('td[data-label=Compute]')).to_contain_text('16 GiB (max 1 TiB)')
+                    expect(page.locator('td[data-label="Usage snapshot"]')).to_contain_text('8.125 cores')
                 capture(page, args.output / f'{name}-{theme}-{width}.png')
                 if name.startswith('detail'):
                     for selector in ['#effective-configuration', '#pod-resources', '#recent-events']:
@@ -545,10 +578,13 @@ with sync_playwright() as playwright:
                     assert fixture['posts'][-1]['body'] == {'ResetType': 'ForceRestart'}
                 assert not errors, errors
                 context.close()
+            long_content_checks(browser, width, theme)
     bmc_state_checks(browser, 1440, 'dark')
     bmc_state_checks(browser, 390, 'light')
     console_state_checks(browser, 1440, 'dark')
     console_state_checks(browser, 390, 'light')
+    if not args.states_only:
+        long_content_checks(browser, 320, 'light', height=320, scale=2)
     browser.close()
 mode = 'state/lifecycle' if args.states_only else 'layout and state/lifecycle'
 print(f'{args.engine}: Dashboard/BMC {mode} checks passed.')
