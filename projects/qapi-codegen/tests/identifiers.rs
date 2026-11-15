@@ -48,6 +48,17 @@ fn valid_schema_keywords_and_standard_type_names_compile_and_round_trip() {
     schema.push_str(
         "{ 'union':'EmptyUnion', 'base':'EmptyBase', 'discriminator':'kind', 'data':{} }\n",
     );
+    schema.push_str("{ 'struct':'CollisionBranch', 'data':{'marker':'str'} }\n");
+    schema.push_str("{ 'struct':'CollisionBranchGenerated', 'data':{'marker':'int'} }\n");
+    schema.push_str("{ 'struct':'CollisionBase', 'data':{'kind':'EmptyKind'} }\n");
+    schema.push_str("{ 'union':'Collision', 'base':'CollisionBase', 'discriminator':'kind', 'data':{'none':'PeerWindows'} }\n");
+    schema.push_str("{ 'struct':'SignalEvent', 'data':{'marker':'str'} }\n");
+    schema.push_str("{ 'struct':'SignalEventGenerated', 'data':{'marker':'int'} }\n");
+    schema.push_str("{ 'event':'SIGNAL', 'data':{'value':'str'} }\n");
+    schema.push_str("{ 'struct':'Foo', 'data':{'marker':'str'} }\n");
+    schema.push_str("{ 'struct':'FooCommand', 'data':{'marker':'bool'} }\n");
+    schema.push_str("{ 'command':'foo', 'data':{'value':'str'}, 'returns':'Foo' }\n");
+    schema.push_str("{ 'struct':'ArrayPayloadType', 'data':{'marker':'bool'} }\n");
     let entry = repo.join("qapi/qapi-schema.json");
     std::fs::write(&entry, &schema).unwrap();
     let oracle = Command::new("python3").arg("-c").arg("import sys; sys.path.insert(0, sys.argv[1]+'/scripts'); from qapi.schema import QAPISchema; QAPISchema(sys.argv[2])")

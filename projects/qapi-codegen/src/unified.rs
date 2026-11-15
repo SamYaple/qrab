@@ -228,6 +228,20 @@ fn merge_command_attrs_onto(source: &Struct, target: &mut Struct) {
     }
 }
 
+fn generated_role_name(names: &mut HashSet<String>, preferred: &str) -> String {
+    let mut name = preferred.to_owned();
+    let mut suffix = 0;
+    while !names.insert(name.clone()) {
+        suffix += 1;
+        name = if suffix == 1 {
+            format!("{preferred}Generated")
+        } else {
+            format!("{preferred}Generated{suffix}")
+        };
+    }
+    name
+}
+
 /// Process a single version's schema through the IR pipeline.
 /// Returns maps of enum name → Enum IR and struct name → Struct IR.
 fn process_version_schema(
@@ -249,31 +263,46 @@ fn process_version_schema(
         })
         .collect::<Result<Vec<_>>>()?;
     crate::schema_validation::validate(&schemas)?;
-    // Anonymous structs must not overwrite declared types or generated role types.
+    // Reserve declared symbols first, then generated roles, then anonymous types.
     let mut names = HashSet::new();
     for (_, schema) in &schemas {
         for token in &schema.0 {
+            let name = match token {
+                QapiSchemaToken::Enum(value) => value.name,
+                QapiSchemaToken::Struct(value) => value.name,
+                QapiSchemaToken::Alternate(value) => value.name,
+                QapiSchemaToken::Union(value) => value.name,
+                QapiSchemaToken::Command(value) => value.name,
+                _ => continue,
+            };
+            names.insert(rustify_name(name));
+        }
+    }
+    let mut union_names = HashMap::new();
+    let mut event_names = HashMap::new();
+    let mut command_names = HashMap::new();
+    for (_, schema) in &schemas {
+        for token in &schema.0 {
             match token {
-                QapiSchemaToken::Enum(value) => {
-                    names.insert(rustify_name(value.name));
-                }
-                QapiSchemaToken::Struct(value) => {
-                    names.insert(rustify_name(value.name));
-                }
-                QapiSchemaToken::Alternate(value) => {
-                    names.insert(rustify_name(value.name));
-                }
-                QapiSchemaToken::Command(value) => {
-                    names.insert(rustify_name(value.name));
-                    names.insert(format!("{}Command", rustify_name(value.name)));
+                QapiSchemaToken::Union(value) => {
+                    let root = rustify_name(value.name);
+                    let branch = generated_role_name(&mut names, &format!("{root}Branch"));
+                    let discriminator = generated_role_name(&mut names, &format!("{root}Type"));
+                    union_names.insert(value.name, (branch, discriminator));
                 }
                 QapiSchemaToken::Event(value) => {
-                    names.insert(rustify_name(&format!("{}Event", value.name)));
+                    let name = generated_role_name(
+                        &mut names,
+                        &rustify_name(&format!("{}Event", value.name)),
+                    );
+                    event_names.insert(value.name, name);
                 }
-                QapiSchemaToken::Union(value) => {
-                    names.insert(rustify_name(value.name));
-                    names.insert(format!("{}Branch", rustify_name(value.name)));
-                    names.insert(format!("{}Type", rustify_name(value.name)));
+                QapiSchemaToken::Command(value) => {
+                    let name = generated_role_name(
+                        &mut names,
+                        &format!("{}Command", rustify_name(value.name)),
+                    );
+                    command_names.insert(value.name, name);
                 }
                 _ => {}
             }
@@ -286,21 +315,16 @@ fn process_version_schema(
     for (path, schema) in schemas {
         for token in schema.0 {
             let definition = match &token {
-                QapiSchemaToken::Enum(value) => Some((false, value.name)),
-                QapiSchemaToken::Alternate(value) => Some((false, value.name)),
-                QapiSchemaToken::Struct(value) => Some((false, value.name)),
-                QapiSchemaToken::Union(value) => Some((false, value.name)),
-                QapiSchemaToken::Event(value) => Some((false, value.name)),
-                QapiSchemaToken::Command(value) => Some((true, value.name)),
+                QapiSchemaToken::Enum(value) => Some(("type", value.name)),
+                QapiSchemaToken::Alternate(value) => Some(("type", value.name)),
+                QapiSchemaToken::Struct(value) => Some(("type", value.name)),
+                QapiSchemaToken::Union(value) => Some(("type", value.name)),
+                QapiSchemaToken::Event(value) => Some(("event", value.name)),
+                QapiSchemaToken::Command(value) => Some(("command", value.name)),
                 _ => None,
             };
-            if let Some((command, name)) = definition {
-                let rust_name = if matches!(&token, QapiSchemaToken::Event(_)) {
-                    rustify_name(&format!("{name}Event"))
-                } else {
-                    rustify_name(name)
-                };
-                let key = (command, rust_name);
+            if let Some((namespace, name)) = definition {
+                let key = (namespace, rustify_name(name));
                 if let Some(previous) = definitions.insert(key.clone(), name) {
                     anyhow::bail!(
                         "Conflicting QAPI definitions {previous} and {name} map to Rust type {} in {}",
@@ -455,8 +479,25 @@ fn process_version_schema(
                 );
             }
         }
-        let (s, e, disc_enum) = process_union(v, &structs_lookup, &enums_lookup);
-        if let Some(de) = disc_enum {
+        let (branch_name, discriminator_name) = &union_names[v.name];
+        let (mut s, mut e, disc_enum) = process_union(v, &structs_lookup, &enums_lookup);
+        e.name.clone_from(branch_name);
+        for field in &mut s.fields {
+            if field.meta.attributes.contains(&Attribute::new("flatten")) {
+                field.r#type.clone_from(branch_name);
+            }
+        }
+        if let Some(mut de) = disc_enum {
+            for field in &mut s.fields {
+                if field
+                    .meta
+                    .attributes
+                    .contains(&Attribute::new("discriminator"))
+                {
+                    field.r#type.clone_from(discriminator_name);
+                }
+            }
+            de.name.clone_from(discriminator_name);
             enums_lookup.insert(rustify_name(&de.name), de);
         }
         enums_lookup.insert(rustify_name(&e.name), e);
@@ -470,7 +511,9 @@ fn process_version_schema(
                 v.name
             );
         }
-        let processed = process_event(v, &structs_lookup);
+        let event_name = &event_names[v.name];
+        let mut processed = process_event(v, &structs_lookup);
+        processed.name.clone_from(event_name);
         structs_lookup.insert(rustify_name(&processed.name), processed);
     }
     for v in unprocessed_commands {
@@ -487,6 +530,7 @@ fn process_version_schema(
             _ => None,
         };
 
+        let command_name = &command_names[v.name];
         let mut processed = process_command(v, &structs_lookup);
         let mut cmd_key = rustify_name(&processed.name);
 
@@ -521,7 +565,7 @@ fn process_version_schema(
                 .meta
                 .attributes
                 .push(Attribute::with_value("name", processed.name.clone()));
-            processed.name = format!("{cmd_key}Command");
+            processed.name.clone_from(command_name);
             cmd_key = rustify_name(&processed.name);
             anyhow::ensure!(
                 !structs_lookup.contains_key(&cmd_key) && !enums_lookup.contains_key(&cmd_key),

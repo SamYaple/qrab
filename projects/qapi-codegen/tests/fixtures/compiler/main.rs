@@ -6,6 +6,42 @@ mod generated;
 pub use generated::*;
 fn main() {
     with_version((11, 1, 3), || {
+        let command = commands::FooCommandGenerated {
+            value: "request".into(),
+        };
+        assert_eq!(<commands::FooCommandGenerated as QapiCommand>::NAME, "foo");
+        assert_eq!(
+            serde_json::to_value(command).unwrap(),
+            serde_json::json!({"value":"request"})
+        );
+        let _: <commands::FooCommandGenerated as QapiCommand>::Returns = Foo {
+            marker: "response".into(),
+        };
+        let event = events::SignalEventGenerated2 {
+            value: "event".into(),
+        };
+        assert_eq!(<events::SignalEventGenerated2 as QapiEvent>::NAME, "SIGNAL");
+        assert_eq!(
+            serde_json::to_value(event).unwrap(),
+            serde_json::json!({"value":"event"})
+        );
+        let collision: Collision =
+            serde_json::from_value(serde_json::json!({"kind":"none","value":"payload"})).unwrap();
+        assert_eq!(
+            serde_json::to_value(collision).unwrap(),
+            serde_json::json!({"kind":"none","value":"payload"})
+        );
+        let _ = CollisionBranch {
+            marker: "declared".into(),
+        };
+        let _ = CollisionBranchGenerated { marker: 42 };
+        let _ = SignalEvent {
+            marker: "declared".into(),
+        };
+        let _ = SignalEventGenerated { marker: 42 };
+        let _ = FooCommand { marker: true };
+        let _ = ArrayPayloadType { marker: true };
+        assert!(metadata::ENUMS.contains_key("CollisionBranchGenerated2"));
         let empty: EmptyUnion = serde_json::from_value(serde_json::json!({"kind":"none"})).unwrap();
         assert_eq!(
             serde_json::to_value(empty).unwrap(),

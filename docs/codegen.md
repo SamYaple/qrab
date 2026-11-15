@@ -194,6 +194,9 @@ not builtin-value mapping: a declared `Visitor` remains a real struct, while
 the historical lowercase `visitor` opaque reference remains a JSON value.
 A QEMU-validated fixture is generated, compiled offline and round-tripped to
 check declarations, references, commands and metadata together.
+Generated union branches, simple-union tags, event types and command fallbacks
+avoid declared symbols, adding `Generated` or numbered suffixes when needed.
+References and wire names remain attached to the correct definitions.
 
 Metadata resolves field and variant references as QAPI names, and command
 returns as already mapped Rust names. A declared `String` is therefore distinct
