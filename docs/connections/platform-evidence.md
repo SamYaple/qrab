@@ -174,3 +174,36 @@ host-listener configuration versus the external source, host firewall/BGP auth,
 log collection, API-server-to-node transport and encryption at rest. The
 [capture guide](capture.md) explains how to extend evidence to those streams
 without confusing source, live configuration and actual packet observations.
+
+## Netd peer mTLS rollout: 2026-11-15 22:02–22:09 UTC
+
+The node peer source `b2022f5` was published as
+`zot.yapplesauce.com/qrab/operator@sha256:88818c3fb502a0e51c610bc934132ed72f201a457a5c8a50d62e7a4ac93dba2e`
+(tag `secure-netd-b2022f5`), with the source revision label verified after push
+and immutable pull. [GitOps PR 465](https://gitea.yapplesauce.com/sam/kubernetes-gitops/pulls/465)
+passed CI/review and merged as `7d19b6c`. Flux rolled netd and the KVM plugin
+(they share the pinned node artifact) to that digest on kube01, kube02 and kube03.
+The operator Deployment and Proton broker retained their existing image.
+
+`ClusterSPIFFEID/qrab-netd` selected all three Pods with zero entry failures;
+all three daemons logged `peer_identity_ready` for their own node after initial
+Workload API synchronization. The DaemonSet has the read-only CSI socket mount,
+exact image-bound node registration and Flux identity dependency described in
+[the enrollment contract](../networking.md#conntrack-peer-spiffe-enrollment).
+
+The explicit conntrack oracle ran a disposable VM, with TCP 5000 ingress and
+no new egress, through two live moves. The client connected once and only read;
+its established server-push stream needed imported conntrack on each target:
+
+| Move | Longest observed stream gap | Result |
+| --- | --- | --- |
+| kube03 → kube01 | 0.54s | precopy and delta imported; stream continued |
+| kube01 → kube02 | 0.57s | precopy and delta imported; stream continued |
+
+`contrib/check-nic-ct-handoff.sh mtlsct-20261115` returned PASS. Its VM,
+migration objects, policy and claims were cleaned up; the storage system's
+Retain semantics still apply to the disposable disk/state data. No existing
+VM was moved by this test. This is live functional proof on the TLS-only node
+artifact, in addition to the fixture tests for wrong peers, missing certificates,
+plaintext refusal, malformed exports and rotation. It is not a recorded packet
+capture or a guarantee about unrelated management/metrics/iSCSI streams.

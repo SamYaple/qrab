@@ -536,6 +536,12 @@ certificate, plaintext client, malformed/oversized frames, stall deadline,
 ambiguous host/node metadata and certificate rotation. These are transport
 proofs without requiring a cluster, root, KVM or a guest image.
 
+The first rollout completed on 2026-11-15 with node artifact `88818c3f…`
+(source `b2022f5`), identity-ready logs on kube01–03 and two live conntrack
+handoffs preserving the server-push stream (0.54s and 0.57s longest gaps).
+See the [dated rollout evidence](connections/platform-evidence.md#netd-peer-mtls-rollout-2026-11-15-22022209-utc)
+for the digest, GitOps merge and verification boundary.
+
 ## Hot-attach and detach
 
 NICs can be added to or removed from `spec.nics` while the VM runs; the VM

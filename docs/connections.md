@@ -9,8 +9,9 @@ No packet captures were taken. Image digests in manifests can describe earlier
 builds; source capability is not proof that a running image has it enabled.
 
 **Subsequent source hardening:** netd conntrack peers (N9) now require node-bound
-SPIFFE mTLS. The dated platform snapshot predates this change; deployment needs
-its own image release, socket mount and SPIRE enrollment. See
+SPIFFE mTLS. The original platform snapshot predates this change; the
+[separate node rollout and live handoff proof](connections/platform-evidence.md#netd-peer-mtls-rollout-2026-11-15-22022209-utc)
+verify its subsequent deployment. See
 [netd peer enrollment](networking.md#conntrack-peer-spiffe-enrollment).
 
 Start here for endpoints, payloads and transport protection. Continue with:
