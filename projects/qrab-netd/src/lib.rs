@@ -13,6 +13,7 @@ pub mod cgroup;
 pub mod ct;
 pub mod dhcp;
 pub mod identity;
+pub mod peer;
 #[cfg(feature = "agent")]
 pub mod plan;
 #[cfg(feature = "agent")]

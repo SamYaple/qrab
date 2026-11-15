@@ -71,17 +71,15 @@ pub enum Op {
     /// is plumbed. A manager compares it with the anchor its QEMU's queues
     /// came from and re-attaches the NIC when the anchor was replaced.
     Probe,
-    /// Export this node's conntrack entries for the NIC's address
-    /// ([`crate::ct`]); the reply carries them.
-    #[serde(rename = "ct-export")]
-    CtExport,
-    /// Import an export for the NIC: after the agent's `ready`, the client
-    /// sends the export as one line ([`PAYLOAD_LIMIT`]).
-    #[serde(rename = "ct-import")]
-    CtImport,
+    /// Pull the NIC's conntrack entries ([`crate::ct`]) from the other
+    /// node holding its address and import them here; the reply counts them.
+    /// The agents exchange them directly ([`crate::peer`]): a manager never
+    /// supplies entries.
+    #[serde(rename = "ct-pull")]
+    CtPull,
 }
 
-/// Largest conntrack payload line or reply.
+/// Largest conntrack reply.
 pub const PAYLOAD_LIMIT: usize = 256 << 10;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -112,8 +110,6 @@ struct Reply {
     /// UID of the anchor Pod whose tap a grant or probe refers to.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     anchor: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    conntrack: Option<crate::ct::Export>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     imported: Option<usize>,
 }
@@ -242,7 +238,6 @@ pub fn send_grant(
             tap: Some(tap.to_owned()),
             queues,
             anchor: Some(anchor.to_owned()),
-            conntrack: None,
             imported: None,
         },
         &fds,
@@ -259,7 +254,6 @@ pub fn send_probe(stream: &UnixStream, anchor: &str) -> io::Result<()> {
             tap: None,
             queues: 0,
             anchor: Some(anchor.to_owned()),
-            conntrack: None,
             imported: None,
         },
         &[],
@@ -276,7 +270,6 @@ pub fn send_ok(stream: &UnixStream) -> io::Result<()> {
             tap: None,
             queues: 0,
             anchor: None,
-            conntrack: None,
             imported: None,
         },
         &[],
@@ -292,7 +285,6 @@ pub fn send_refusal(stream: &UnixStream, error: &str) -> io::Result<()> {
             tap: None,
             queues: 0,
             anchor: None,
-            conntrack: None,
             imported: None,
         },
         &[],
@@ -398,22 +390,7 @@ pub fn control(
     }
 }
 
-/// Answer a `ct-export` with the entries.
-pub fn send_conntrack(stream: &UnixStream, export: &crate::ct::Export) -> io::Result<()> {
-    let mut body = serde_json::to_vec(&Reply {
-        ok: true,
-        error: None,
-        tap: None,
-        queues: 0,
-        anchor: None,
-        conntrack: Some(export.clone()),
-        imported: None,
-    })?;
-    body.push(b'\n');
-    (&*stream).write_all(&body)
-}
-
-/// Answer a `ct-import` with how many entries were written.
+/// Answer a `ct-pull` with how many entries were written.
 pub fn send_imported(stream: &UnixStream, imported: usize) -> io::Result<()> {
     send(
         stream,
@@ -423,43 +400,10 @@ pub fn send_imported(stream: &UnixStream, imported: usize) -> io::Result<()> {
             tap: None,
             queues: 0,
             anchor: None,
-            conntrack: None,
             imported: Some(imported),
         },
         &[],
     )
-}
-
-/// Read one payload line of at most [`PAYLOAD_LIMIT`] within
-/// [`REQUEST_DEADLINE`] (the agent's side of `ct-import`).
-pub fn read_payload<T: for<'de> Deserialize<'de>>(stream: &UnixStream) -> io::Result<T> {
-    let start = Instant::now();
-    let mut line = Vec::new();
-    let mut chunk = [0u8; 4096];
-    loop {
-        let remaining = REQUEST_DEADLINE
-            .checked_sub(start.elapsed())
-            .filter(|d| !d.is_zero())
-            .ok_or_else(|| io::Error::new(io::ErrorKind::TimedOut, "payload deadline elapsed"))?;
-        stream.set_read_timeout(Some(remaining))?;
-        let n = (&*stream).read(&mut chunk)?;
-        if n == 0 {
-            break;
-        }
-        line.extend_from_slice(&chunk[..n]);
-        if line.len() > PAYLOAD_LIMIT {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "payload too large",
-            ));
-        }
-        if let Some(end) = line.iter().position(|b| *b == b'\n') {
-            line.truncate(end);
-            break;
-        }
-    }
-    serde_json::from_slice(&line)
-        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, format!("bad payload: {e}")))
 }
 
 /// Read a whole reply (up to [`PAYLOAD_LIMIT`]) until the agent closes.
@@ -486,43 +430,17 @@ fn read_reply(stream: &UnixStream) -> io::Result<Reply> {
     Ok(reply)
 }
 
-/// The NIC's conntrack entries on this node (the source manager's side).
-pub fn conntrack_export(socket: &Path, nic: &str) -> io::Result<crate::ct::Export> {
+/// Have this node's agent pull the NIC's conntrack entries from the other
+/// node holding its address and import them (the target manager's side).
+/// Returns how many were written.
+pub fn conntrack_pull(socket: &Path, nic: &str) -> io::Result<usize> {
     let request = Request {
         nic: nic.to_owned(),
         queues: 0,
-        op: Op::CtExport,
+        op: Op::CtPull,
         via: None,
     };
-    read_reply(&connect(socket, &request, Duration::from_secs(10))?)?
-        .conntrack
-        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "the reply carries no entries"))
-}
-
-/// Import entries for the NIC on this node (the target manager's side).
-pub fn conntrack_import(socket: &Path, nic: &str, export: &crate::ct::Export) -> io::Result<usize> {
-    let request = Request {
-        nic: nic.to_owned(),
-        queues: 0,
-        op: Op::CtImport,
-        via: None,
-    };
-    let mut stream = connect(socket, &request, Duration::from_secs(10))?;
-    // The agent's `ready` (a plain ok) precedes the payload.
-    let mut body = vec![0u8; MAX_MESSAGE];
-    let n = io::Read::read(&mut &stream, &mut body)?;
-    let ready: Reply = serde_json::from_slice(&body[..n])
-        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, format!("bad reply: {e}")))?;
-    if !ready.ok {
-        return Err(io::Error::other(format!(
-            "qrab-netd refused: {}",
-            ready.error.unwrap_or_default()
-        )));
-    }
-    let mut line = serde_json::to_vec(export)?;
-    line.push(b'\n');
-    stream.write_all(&line)?;
-    read_reply(&stream)?
+    read_reply(&connect(socket, &request, Duration::from_secs(20))?)?
         .imported
         .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "the reply names no count"))
 }
@@ -563,59 +481,33 @@ mod tests {
     use super::*;
 
     #[test]
-    fn conntrack_entries_travel_both_ways_over_the_socket() {
+    fn a_conntrack_pull_names_only_the_nic_and_returns_a_count() {
         let dir = tempfile::tempdir().unwrap();
         let socket = dir.path().join("netd.sock");
         let listener = std::os::unix::net::UnixListener::bind(&socket).unwrap();
-        let entries: Vec<(char, String, String)> = (0..300)
-            .map(|i| ('t', format!("{i:028x}"), "00".repeat(56)))
-            .collect();
-        let export = crate::ct::Export {
-            now: 42,
-            entries,
-            truncated: false,
-        };
-        let served = export.clone();
         let agent = std::thread::spawn(move || {
-            for _ in 0..2 {
-                let (stream, _) = listener.accept().unwrap();
-                let request = read_request(&stream).unwrap();
-                match request.op {
-                    Op::CtExport => send_conntrack(&stream, &served).unwrap(),
-                    Op::CtImport => {
-                        send_ok(&stream).unwrap();
-                        let got: crate::ct::Export = read_payload(&stream).unwrap();
-                        assert_eq!(got, served);
-                        send_imported(&stream, got.entries.len()).unwrap();
-                    }
-                    other => panic!("unexpected {other:?}"),
-                }
-            }
+            let (stream, _) = listener.accept().unwrap();
+            let request = read_request(&stream).unwrap();
+            assert_eq!(request.op, Op::CtPull);
+            send_imported(&stream, 7).unwrap();
         });
-        // 300 entries are far past one 4 KiB message.
-        let fetched = conntrack_export(&socket, "lan").unwrap();
-        assert_eq!(fetched, export);
-        assert_eq!(conntrack_import(&socket, "lan", &fetched).unwrap(), 300);
+        assert_eq!(conntrack_pull(&socket, "lan").unwrap(), 7);
         agent.join().unwrap();
-        let ops: Vec<String> = ["ct-export", "ct-import"]
-            .iter()
-            .map(|op| {
-                serde_json::to_string(&Request {
-                    nic: "lan".into(),
-                    queues: 0,
-                    op: serde_json::from_str(&format!("{op:?}")).unwrap(),
-                    via: None,
-                })
-                .unwrap()
-            })
-            .collect();
+        let request = Request {
+            nic: "lan".into(),
+            queues: 0,
+            op: Op::CtPull,
+            via: None,
+        };
         assert_eq!(
-            ops,
-            [
-                r#"{"nic":"lan","queues":0,"op":"ct-export"}"#,
-                r#"{"nic":"lan","queues":0,"op":"ct-import"}"#
-            ]
+            serde_json::to_string(&request).unwrap(),
+            r#"{"nic":"lan","queues":0,"op":"ct-pull"}"#
         );
+        // An older manager's ops are unknown now.
+        for op in ["ct-export", "ct-import"] {
+            let line = format!(r#"{{"nic":"lan","op":"{op}"}}"#);
+            assert!(serde_json::from_str::<Request>(&line).is_err(), "{op}");
+        }
     }
 
     /// A seeded xorshift64*, so failures reproduce.
