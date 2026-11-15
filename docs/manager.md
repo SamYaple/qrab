@@ -1,9 +1,11 @@
 # Pod manager
 
 `manager::pod` runs QEMU and its swtpm child inside an existing container sandbox.
-`qrab-bmc` embeds it for authenticated browser access; `qrab-manager` remains a
-standalone CLI. [operator.md](operator.md) describes the default CR-driven
-Kubernetes deployment, and [bmc.md](bmc.md) describes OIDC and the console.
+`qrab-manager run` supervises the VM; in operator Pods the BMC and Redfish
+sidecars reach it over its [control socket](#control-socket), and
+`qrab-bmc --config` can instead embed it. [operator.md](operator.md) describes
+the default CR-driven Kubernetes deployment, [bmc.md](bmc.md) OIDC and the
+console, and [redfish.md](redfish.md) the management API.
 There is no systemd, host namespace helper or Kubernetes client in the manager.
 The retired host/confidential-guest API is archived; see [legacy.md](legacy.md).
 
@@ -11,10 +13,13 @@ The retired host/confidential-guest API is archived; see [legacy.md](legacy.md).
 
 - `qrab/qemu`: pinned local-Gitea QEMU 11.1.3, TCG/KVM, VNC/pixman/TPM, swtpm and
   OVMF CODE/VARS under `/opt/qrab/firmware`. QEMU source/provenance stays local.
-- `qrab/manager`: Rust supervisor and BMC plus the readonly GPT/FAT ESP demo UKI,
+- `qrab/manager`: built on `qrab/qemu`; `qrab-manager`, `qrab-bmc`,
+  `qrab-redfish` and the patched passt, plus the readonly GPT/FAT ESP demo UKI,
   kernel, initramfs (with `qrab-guest-agent`) and TPM2 guest probes under `/opt/qrab/demo`.
 - `qrab/operator`: the small namespace-scoped Rust reconciler without QEMU or
   guest assets. Its Kubernetes API token is separate from the token-free VM Pod.
+  It also ships `qrab-kvm-device-plugin` and `qrab-netd`.
+- `qrab/dashboard`: the VM dashboard ([dashboard.md](dashboard.md)).
 
 All run as UID/GID 10001. The default VM uses TCG, read-only container rootfs,
 RuntimeDefault seccomp and zero capabilities. KVM requires an openable
@@ -25,7 +30,9 @@ Published immutable references and source revision are in
 
 ## Runtime configuration
 
-Config is strict JSON. The example `contrib/kubernetes/vm.json` uses:
+Config is strict JSON. The manager image's default `/etc/qrab/vm.json` is
+`contrib/kubernetes/vm.json`, a standalone RAM-only demo VM (operator Pods mount
+their own rendered ConfigMap over `/etc/qrab` instead):
 
 ```json
 {
@@ -33,11 +40,13 @@ Config is strict JSON. The example `contrib/kubernetes/vm.json` uses:
   "memory_mib": 512,
   "cpus": 1,
   "accelerator": "tcg",
-  "console": true,
   "uefi": {},
   "tpm": {},
+  "console": true,
   "state_dir": "/var/lib/qrab",
-  "runtime_dir": "/run/qrab"
+  "runtime_dir": "/run/qrab",
+  "startup_timeout_secs": 30,
+  "shutdown_grace_secs": 5
 }
 ```
 
@@ -191,10 +200,16 @@ qrab-manager run --config /etc/qrab/vm.json
 qrab-manager status --config /etc/qrab/vm.json
 qrab-manager ready --config /etc/qrab/vm.json
 qrab-manager live --config /etc/qrab/vm.json
+qrab-manager inspect config --socket /run/qrab-control/manager/control.sock
+qrab-manager control --socket /run/qrab-control/manager/control.sock < operation.json
 qrab-manager nic --listen 0.0.0.0:7700 --socket /run/nic/passt.sock
 qrab-manager nic-ready --socket /run/nic/passt.sock
 ```
 
+`inspect` prints one fixed read-only query (`inventory`, `metrics`, `network`,
+`boot`, `firmware`, `secure-boot`, `settings`, `resources`, `media` or the
+redacted `config`) and `control` sends one typed socket operation read from
+stdin (at most 384 KiB); both need an absolute `--socket` path.
 `nic` and `nic-ready` are the NIC Pod's relay and readiness probe
 ([networking.md](networking.md)). The manager image carries a patched passt
 at `/usr/bin/passt` for them.
@@ -249,7 +264,8 @@ initiator name, so the Pod, its exported LUNs and the operator's storage
 guard are untouched. A powered-off VM cannot live-migrate.
 
 All children are owned and reaped. Cancellation uses kill-on-drop cleanup. Pod
-grace must exceed guest grace plus command/kill bounds; the example uses 20s.
+grace must exceed guest grace plus command/kill bounds; operator Pods use 20 s
+with `shutdown_grace_secs: 5`.
 The tiny init has no ACPI handler, so a graceful shutdown may use QMP quit.
 
 ## Control API
@@ -310,7 +326,7 @@ Each request is `{"v":1,"id":<u64>,"op":"<op>",...}` and each reply
 `{"v":1,"id":<id>,"result":...}` or
 `{"v":1,"id":<id>,"error":{"code":"<code>","message":"..."}}` with codes
 `bad_request`, `unsupported_version`, `frame_too_large`, `busy`,
-`unavailable` and `shutting_down`; clients must accept unknown codes from
+`unavailable`, `shutting_down` and `powered_off`; clients must accept unknown codes from
 newer managers. A connection may carry any number of requests, answered in
 order. A client that closes its connection (including only its write side)
 while a read-only request is pending abandons that request, and the manager
@@ -461,8 +477,8 @@ are accepted.
 `firmware_catalog`, `firmware_stage_status` and `firmware_stage` expose the
 approved immutable firmware catalog and identity-bound staging selection.
 `QRAB_FIRMWARE_ROOT` enables that catalog; staging retains the supervisor's
-exclusive persistent-state lease even if the caller stops waiting. Cold-start
-application follows PersistentState preparation, revalidates the catalog,
+exclusive persistent-state lease even if the caller stops waiting. Each
+power-on cycle applies it before swtpm and QEMU start: it revalidates the catalog,
 changes only selected CODE and republishes the effective configuration.
 NVRAM/TPM identity is retained. See [Redfish](redfish.md) for catalog format,
 authorization, task semantics and separate service budgets.
@@ -473,7 +489,7 @@ authorization, task semantics and separate service budgets.
 it selects q35 SMM and protected flash. It is separate from enablement and
 key enrollment. `secure_boot_settings` observes the next-boot flag and staged
 policy; `stage_secure_boot` records a boolean under retained identity and lease.
-Cold startup applies it only before a QEMU child exists, using the bounded
+Each power-on cycle applies it before its QEMU starts, using the bounded
 native FV editor and atomic backup/replacement. No Python runtime helper is used.
 
 `agent_secure_boot_databases` reads fixed public PK/KEK/db/dbx inventory;
@@ -499,7 +515,8 @@ any image update does. An older manager answers Redfish `On` on an off VM with
 409 and still exits on shutdown; an older operator needs no change, since it
 only reads Pod readiness and a powered-off VM's Pod stays Running and Ready.
 Its `Running`/`VMRunning` status then means the Pod is live: Redfish
-`PowerState` says whether the guest is on. Live checks: GracefulShutdown then
+`PowerState` says whether the guest is on. Rollout checks: GracefulShutdown then
 On keeps the Pod UID, restart count and TPM EK and changes `qemu_pid`;
 PowerCycle changes `qemu_pid` in the same Pod; Pod deletion, `spec.running:
-false` and a killed QEMU behave as before.
+false` and a killed QEMU behave as before. The manager pin from 661eaf6
+carries this lifecycle.

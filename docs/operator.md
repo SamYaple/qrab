@@ -1,8 +1,9 @@
 # Minimal VM operator
 
 `qrab-operator` reconciles namespaced `VirtualMachine` resources in
-`qrab.yapplesauce.com/v1alpha1`. It owns one Pod and ConfigMap per VM. Each Pod
-runs `qrab-manager` (QEMU, OVMF UEFI and swtpm TPM2), plus the optional BMC and
+`qrab.yapplesauce.com/v1alpha1`. It owns one Pod and ConfigMap per VM, plus
+the NIC Pods, CiliumNetworkPolicies and disk CHAP Secrets described below.
+Each VM Pod runs `qrab-manager` (QEMU, OVMF UEFI and swtpm TPM2), plus the optional BMC and
 Redfish sidecars. Guest NICs are opt-in (`spec.nics`); each is a separate NIC Pod,
 so guest traffic never enters the VM Pod (see [Guest NICs](#guest-nics)). No guest Kubernetes token, VIF, arbitrary Pod template,
 leader election, VM admission webhook or cluster-wide controller is involved.
@@ -10,8 +11,10 @@ Use one operator replica with `Recreate` deployment strategy.
 
 PVCs, console Services/Ingresses/certificates and OIDC callback registration stay
 explicit infrastructure resources. This keeps storage and identity retention
-independent of controller garbage collection. The operator only reads PVCs;
-it cannot create or delete them, change VM specs, or manage another namespace.
+independent of controller garbage collection. The operator reads PVCs and
+creates or deletes only a live migration's target state PVC, labelled for the
+same VM UID ([migration.md](migration.md)); it cannot change VM specs or
+manage another namespace.
 
 ## Create a VM
 
@@ -214,7 +217,7 @@ The manager container receives `QRAB_NODE_NAME`, `QRAB_POD_NAME`,
 `QRAB_POD_NAMESPACE` (downward API) and `QRAB_IMAGE`; admins see them in the
 configuration view. Pods carry `kubectl.kubernetes.io/default-container:
 manager`, so unqualified `kubectl exec`/`logs` reach it. Its startup, readiness and liveness probes run
-`qrab-manager live`, so a paused VM stays reachable. Sidecars have readiness on
+`qrab-manager live`, so a paused or powered-off VM stays reachable. Sidecars have readiness on
 `/readyz` (the manager's live probe over the socket) and liveness on `/healthz`,
 and no startup probe, which would delay the manager's start.
 
@@ -305,9 +308,10 @@ and at least one feature is true, the BMC sidecar receives
 `"admin_bucket": {"audio": true, "usb_redirect": false}`. With every feature
 off, or the BMC disabled, neither is rendered, so the Pod template hash is
 unchanged. Enabling or disabling a feature changes the hash and restarts the VM
-once. The manager only records the flags for now: no QEMU audio or USB device
-is added yet. Even when enabled, only a console admin who requests a feature
-on a console connection gets it; see [bmc.md](bmc.md#admin-bucket).
+once. `audio` adds an output-only Intel HDA device and VNC audio to QEMU;
+`usbRedirect` is only recorded, since USB redirection is not built. Even when
+enabled, only a console admin who requests a feature on a console connection
+gets it; see [bmc.md](bmc.md#admin-bucket).
 
 ## Guest NICs
 
@@ -406,11 +410,14 @@ kubectl -n qrab patch qvm "$vm" --type merge -p '{"spec":{"restartNonce":"restar
 kubectl -n qrab get qvm "$vm" -o yaml
 ```
 
-`running:true` means the operator restores an exited or deleted Pod. BMC
-shutdown ends the current instance; the operator starts another after a short
-backoff. Use `running:false` to keep the VM off. Stop/restart and spec changes
-reap the old instance before its replacement; they retain firmware variables,
-TPM state and its endorsement key. ConfigMap drift is repaired and the Pod is
+`running:true` means the operator keeps a VM Pod and replaces one that exited
+or was deleted, about 10 s after it ended. A guest shutdown or power off (BMC,
+dashboard, Redfish `GracefulShutdown`/`ForceOff`, or the guest itself) leaves
+QEMU off inside the Pod, which stays Ready; Redfish `On` starts it again in
+place ([manager.md](manager.md#power-lifecycle)). `running:false` deletes the
+Pod and keeps the VM off; a new `restartNonce` replaces the Pod. Stop/restart
+and spec changes reap the old instance before its replacement; they retain
+firmware variables, TPM state and its endorsement key. ConfigMap drift is repaired and the Pod is
 replaced so its effective config converges. Required Pod fields, image and
 state mounts are checked without treating Kubernetes defaults as drift.
 
@@ -420,8 +427,9 @@ with the same name is rejected. The runtime binds state to the immutable CR UID
 as well as its name: creating a new CR over an old identity volume fails closed.
 Restoring/migrating an identity to a new CR is a deliberate recovery operation,
 not an automatic adoption path. Never copy a TPM volume to create another VM:
-that duplicates its cryptographic identity. The operator has no PVC deletion
-permission and does not reset missing/corrupt initialized TPM state.
+that duplicates its cryptographic identity. The operator deletes no PVC but a
+migration's own target or, after success, the previous state PVC it created,
+and does not reset missing/corrupt initialized TPM state.
 
 Use `ReadWriteOncePod` for state where the driver supports it; single-node
 `ReadWriteOnce` is also accepted. Each volume has a runtime owner lock, and
@@ -429,10 +437,14 @@ identity files are owner-only. `fsGroupChangePolicy: OnRootMismatch` prevents
 routine remounts from broadening retained private-file access.
 
 Status reports `observedGeneration`, `phase`, `ready`, `reason`, `message`, Pod
-name/UID/node, the state PVC UID and in-place `resize` progress. Ready means the manager/QEMU/swtpm processes and the enabled
-sidecars are healthy, including a deliberately paused VM; guest boot evidence
-is checked separately. Invalid specs and ownership conflicts are reported as
-Blocked rather than mutating unrelated resources.
+name/UID/node, the state PVC UID, in-place `resize` progress, provisioned
+`disks`, `nics`, iSCSI release/recovery fields and, after a live migration,
+`stateVolumeClaim` and `placementNode` ([migration.md](migration.md)). Ready
+means the VM Pod is Ready: the manager and the enabled sidecars are live,
+including a paused VM or one powered off in place. Redfish `PowerState` says
+whether the guest is on; guest boot evidence is checked separately. Invalid
+specs and ownership conflicts are reported as Blocked rather than mutating
+unrelated resources.
 
 ## Resizing a running VM
 
@@ -607,8 +619,8 @@ cargo run --locked -p qrab-operator -- crd > contrib/kubernetes/operator/crd.jso
 bash contrib/check-runtime.sh
 ```
 
-Build/publish `qemu`, then `manager`, then `operator` with the scripts under
-`contrib/images`; commit source first, publish, then pin all immutable references
+Build/publish `qemu`, then `manager`, then `operator` (and `dashboard`) with
+the scripts under `contrib/images`; commit source first, publish, then pin all immutable references
 and the manager default in the operator Deployment. Each image records its exact
 source revision. No QEMU source is downloaded from upstream during these builds.
 
@@ -784,8 +796,6 @@ current/pending lifecycle support. Source changes do not deploy these features.
 sets SecureBootEnable. Use Redfish authenticated database updates, staged settings
 and managed PowerCycle to control those separately. Retained NVRAM/TPM is never
 reseeded when this capability changes; incompatible/malformed state fails closed.
-The new secure-capable artifact must be present in the separately built/pinned
-image before enabling the option in a cluster.
 
 Redfish defaults to on-request telemetry. Set
 `spec.components.redfish.telemetryIntervalSeconds: 5` (allowed 5..3600) for explicit

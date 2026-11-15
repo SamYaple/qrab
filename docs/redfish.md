@@ -201,9 +201,10 @@ the loopback redirect, then calls e.g.
 
 `PowerState` follows the manager status: `PoweringOn` while starting, `On`
 running, `Paused` when QEMU is paused or otherwise not running, `PoweringOff`
-while stopping, `Off` after exit; `null` with `UnavailableOffline` when the
-manager cannot be reached. Panicked or I/O-errored guests and failed managers
-report `Health: Critical`.
+while stopping, `Off` while powered off in its Pod (`Status.State`
+`StandbyOffline`) or after the manager exited (`Disabled`); `null` with
+`UnavailableOffline` when the manager cannot be reached. Panicked or
+I/O-errored guests and failed managers report `Health: Critical`.
 
 ### Guest agent status
 
@@ -312,9 +313,10 @@ once, before the events that follow the gap, in two cases:
   256-event history (a resume with an old cursor, or a reader that fell more
   than the history behind). `MissedEvents` is their count.
 - `Reason: SequenceRestarted`: the cursor was numbered by an earlier manager
-  instance (a manager restart or power cycle): its epoch differs from the
-  current one, whatever the sequence values, or, with a plain cursor (or a
-  manager without epochs), its sequence is above the newest one. `MissedEvents`
+  instance (a manager restart; an in-pod power cycle keeps the numbering):
+  its epoch differs from the current one, whatever the sequence values, or,
+  with a plain cursor (or a manager without epochs), its sequence is above
+  the newest one. `MissedEvents`
   is `null` and `MessageArgs[0]` is `unknown`: how many events the old
   instance recorded after the cursor is not known. Every event of the current
   numbering is newer than anything that reader received, so the stream
@@ -333,10 +335,10 @@ still catching up) waits for newer events rather than replaying.
 `After` is the cursor's sequence; `OldestAvailableSequence` is the next sequence
 delivered (`null` when none is retained). `QmpEventsDropped`
 carries the `LogServices/Events` `Oem.Qrab.QmpDropped` total (QEMU events the
-QMP client discarded during the current QEMU connection). It is sent when a
-stream opens with a nonzero total and again whenever the total changes,
-including the reset to 0 after a QEMU reconnect; `Severity` is `Warning` while
-nonzero.
+QMP client discarded since the manager started, across every QEMU it ran). It
+is sent when a stream opens with a nonzero total and again whenever the total
+changes, including the reset to 0 after a manager restart; `Severity` is
+`Warning` while nonzero.
 
 The notices carry no SSE `id`. A client's `Last-Event-ID` therefore always
 names the last QMP event it received (with its epoch), so resuming never skips events because a
@@ -365,7 +367,8 @@ tokens with the test-only keys under `projects/redfish/tests/fixtures`.
 ## Native inventory and telemetry
 
 Resource mappings follow [DMTF schemas](https://redfish.dmtf.org/schemas/).
-All routes, including discovery, require OIDC. Viewers may read sanitized
+Every Redfish route needs a credential ([Authentication](#authentication));
+`REDFISH_PUBLIC_DISCOVERY` exempts only static discovery. Viewers may read sanitized
 inventory and metrics; mutations, diagnostic attachments and serial history
 require admin. Native protocol support does not imply physical sensors or an
 unimplemented power-management path.
@@ -428,15 +431,16 @@ it only from Prometheus Pods (`app.kubernetes.io/name=prometheus`) in the
 | `qrab_vm_block_{read,write}_{bytes,ops}_total` | counter | `drive` | Per-drive guest-facing counters (the `Chassis/1/Drives` ids) |
 | `qrab_vm_nic_{rx,tx}_{bytes,packets}_total` | counter | `nic` | Guest-agent counters for configured NICs, matched by MAC; only while the agent is connected |
 | `qrab_vm_guest_agent_connected` | gauge | | 1 while the guest agent is connected |
-| `qrab_vm_qmp_events_dropped_total` | counter | | QMP events discarded during the current QEMU connection |
+| `qrab_vm_qmp_events_dropped_total` | counter | | QMP events discarded since the manager started |
 | `qrab_redfish_build_info` | gauge | `version` | Always 1 |
 
 Label values are configured identifiers only (`[A-Za-z0-9_-]`, at most 64
 bytes). Values that could be a path, IQN, portal, MAC or IP address are
 dropped, never escaped; guest-chosen interface names, MACs and addresses are
 not exported. The PodMonitor adds `namespace`, `pod` and `vm`; the exporter
-emits none of them. Counters reset with the QEMU instance or connection, which
-`rate()` handles. A family whose source query fails is omitted rather than
+emits none of them. Block counters reset with each QEMU, NIC counters with
+the guest's own interface counters and the drop counter with the manager,
+which `rate()` handles. A family whose source query fails is omitted rather than
 reported as zero.
 
 Scrapes within five seconds share one collection, held under a lock so
@@ -635,8 +639,8 @@ the next-boot SecureBootEnable setting; neither is inferred from a filename.
 `spec.secureBootCapable: true` selects explicit secure-capable OVMF CODE and
 SMM-protected pflash. Standalone config uses `uefi.secure_boot_capable: true`
 with approved secure-capable CODE. This capability flag does not enroll keys or
-enable Secure Boot. The manager image source now includes
-`OVMF_CODE_4M.secboot.fd`; publishing/deploying that image is a separate step.
+enable Secure Boot. The `qrab/qemu` base image installs
+`/opt/qrab/firmware/OVMF_CODE_4M.secboot.fd`, which operator VMs use.
 
 Admin PATCH `/Systems/1/SecureBoot` or `/SecureBoot/Settings` accepts exactly
 `{"SecureBootEnable":true}` or false and returns a staging task. Enablement
@@ -645,8 +649,8 @@ only private VM-identity-bound metadata, not a running VM's VARS. The ordinary
 resource retains its actual current setting; `@Redfish.Settings.SettingsObject`
 links the requested value and OEM pending/generation fields.
 
-At cold manager startup, while holding the exclusive persistent-state lease,
-a bounded native EDK2 authenticated-FV editor validates headers/checksum,
+At each power-on (manager start, PowerCycle or On), while holding the
+exclusive persistent-state lease, a bounded native EDK2 authenticated-FV editor validates headers/checksum,
 record states, bounds and databases. It changes an existing enable flag by one
 byte, or appends into erased space if absent; no compaction or key deletion.
 Unsupported/corrupt/full stores fail closed. Atomic replacement retains the
@@ -699,9 +703,9 @@ a raw EFI variable or filesystem API.
 `/UpdateService/Oem/Qrab/StagedFirmware` reports pending/active selection.
 Admin `POST /UpdateService/Actions/Oem/QrabUpdateService.StageFirmware`
 with `{"ArtifactId":"ovmf-v2"}` returns a task. Completion means staging
-succeeded; activation remains `PendingRestart` until a cold manager start
-selects the validated CODE and a live QEMU reaches Running. A QMP system_reset
-alone does not reload CODE.
+succeeded; activation remains `PendingRestart` until a power-on (PowerCycle,
+On, or a new Pod) selects the validated CODE and a live QEMU reaches Running.
+A QMP system_reset alone does not reload CODE.
 
 `QRAB_FIRMWARE_ROOT` points to an immutable root-owned directory (0555), with
 0444 manifest/CODE files, no symlinks. Operator mode uses
@@ -757,8 +761,8 @@ or task requirements justify it.
 With kubelet/cAdvisor scraping, retain container identity in usage queries:
 
 ```promql
-sum by (namespace,pod,container) (rate(container_cpu_usage_seconds_total{namespace="qrab",container=~"manager|bmc|redfish|redis"}[5m]))
-sum by (namespace,pod,container) (container_memory_working_set_bytes{namespace="qrab",container=~"manager|bmc|redfish|redis"})
+sum by (namespace,pod,container) (rate(container_cpu_usage_seconds_total{namespace="qrab",container=~"manager|bmc|redfish"}[5m]))
+sum by (namespace,pod,container) (container_memory_working_set_bytes{namespace="qrab",container=~"manager|bmc|redfish"})
 ```
 
 No Prometheus credentials or Kubernetes API tokens are introduced into VM Pods;

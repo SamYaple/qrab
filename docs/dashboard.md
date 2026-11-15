@@ -102,12 +102,13 @@ only on a second click within 5 seconds; the server also refuses them without
 `"confirm": true`.
 
 - The in-pod buttons send `ComputerSystem.Reset` with the matching ResetType
-  to the running VM's Redfish service with the user's ID token. Shut down and
-  Force off leave the VM powered off in its Pod (`PowerState` `Off`).
+  to the running VM's Redfish service with the user's ID token, only for a VM
+  with the BMC enabled (otherwise 403, even for a Redfish-only VM). Shut down
+  and Force off leave the VM powered off in its Pod (`PowerState` `Off`).
 - **Power on** is enabled while `spec.running` is false or `PowerState` is
-  `Off`. While the VM is set to run and its Pod exists, it sends Redfish `On`
-  to that Pod, which starts QEMU again in place (a no-op while on). Otherwise
-  it sets `spec.running: true`.
+  `Off`. While the VM is set to run, has the BMC and its Pod exists, it sends
+  Redfish `On` to that Pod, which starts QEMU again in place (a no-op while
+  on). Otherwise it sets `spec.running: true`.
 - **Power off** sets `spec.running: false`. Both `spec.running` patches are
   merge patches that carry the VM's UID (so they cannot reach a recreated VM
   of the same name). Power off is the operator's stop: it ends the Pod and
@@ -144,7 +145,7 @@ operator's merged lists, its Redfish service):
 
 Admin wins when both apply. Deleting additionally requires the VM to carry
 `app.kubernetes.io/managed-by: qrab-dashboard`, which only dashboard launches
-set, so qrab-demo and other hand-made VMs cannot be deleted here. Kanidm group changes reach the dashboard, the
+set, so qrab-redfish-poc and other hand-made VMs cannot be deleted here. Kanidm group changes reach the dashboard, the
 BMC and Redfish at the next sign-in; sessions last at most 15 minutes.
 
 ### Launching a VM
@@ -377,8 +378,9 @@ and two CiliumNetworkPolicies. The first lets the dashboard receive from the
 ingress and host, and reach the API server, DNS, Kanidm (192.168.0.251:443)
 and VM Pods on 8080 (BMC console) and 8081 (Redfish). The second,
 `qrab-vm-from-dashboard`, selects every VM Pod and admits the dashboard on 8080
-and 8081. Cilium policies are additive, so per-VM
-policies such as qrab-demo's keep working and gain only the dashboard. A VM Pod
+and 8081. Cilium policies are additive, so per-VM policies such as
+`qrab-demo` (the qrab-redfish-poc console's) keep working and gain only the
+dashboard. A VM Pod
 without a policy of its own, such as every dashboard-launched VM, becomes
 ingress default-deny once this policy selects it: only the dashboard to 8080
 and 8081 is admitted. Its egress is not
@@ -391,7 +393,8 @@ kubectl apply -k contrib/kubernetes/dashboard
 kubectl -n qrab rollout status deployment/qrab-dashboard
 ```
 
-The Deployment's image is a placeholder digest until the first publication.
+Record the same digest in `contrib/images/images.lock.json`, as for the other
+images.
 Bearer access also needs the operator's `QRAB_BMC_BEARER_ISSUER` and
 `QRAB_BMC_BEARER_AUDIENCE`, and the admission policy that trusts only
 `system:serviceaccount:qrab:qrab-dashboard` to set the creator annotation
@@ -467,6 +470,8 @@ refusals, proxying and revocation. A live Kanidm login and a browser console
 session are part of the rollout check.
 
 ## Rollout record (2026-11-12)
+
+A dated record; the qrab-demo VM it mentions has since been retired.
 
 - Kanidm: confidential client `qrab-dashboard` (one strict callback,
   `https://vms.yapplesauce.com/auth/callback`), scope maps `openid profile

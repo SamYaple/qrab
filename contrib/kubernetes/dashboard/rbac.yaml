@@ -3,7 +3,7 @@
 # policies bind its UID. It disables token automount; the Deployment enables it.
 # Namespace-scoped. VM patches are for power on/off only: the
 # ValidatingAdmissionPolicy qrab-dashboard-vm-updates
-# (contrib/kubernetes/operator/dashboard-update-policy.yaml) refuses any
+# (contrib/kubernetes/operator/dashboard-update-policy.json) refuses any
 # dashboard update that changes anything but spec.running. No update verb, no
 # PVC deletion (PVCs hold TPM identities), no Secrets. The creator-subject
 # annotation it sets is trusted by admission only for

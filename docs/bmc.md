@@ -46,9 +46,12 @@ modules):
   **Disconnect**, **Ctrl Alt Del**, a **Fit** / **1:1** scaling toggle (noVNC
   `scaleViewport`; 1:1 scrolls inside the display), **Full screen**, the
   admin-bucket **Audio** toggle when enabled, and the **Power** group. The power
-  buttons are the `ResetType` values Redfish's `ResetActionInfo` allows (Pause,
-  Resume, Reset = `ForceRestart`, Restart guest = `GracefulRestart`, Shut down,
-  Power cycle, NMI). Disruptive ones use an inline two-step confirm: the first
+  buttons are the `ResetType` values Redfish's `ResetActionInfo` allows (Power
+  on = `On`, Pause, Resume, Reset = `ForceRestart`, Restart guest =
+  `GracefulRestart`, Shut down = `GracefulShutdown`, Force off, Power cycle,
+  NMI), enabled for the current `PowerState`: only Power on while `Off`, only
+  Force off while powering on or off. All but Power on, Pause and Resume use an
+  inline two-step confirm: the first
   click turns the button into **Confirm <action>** for 5 s and only a second
   click sends it. Pressing a toolbar or tab button while the console has
   keyboard focus keeps that focus; clicking anywhere else releases it.
@@ -112,7 +115,7 @@ On SIGTERM the sidecar closes live streams within two seconds and exits 0.
 | `BMC_VIEWER_GROUPS` | Comma-separated Kanidm group UUIDs whose members have viewer access |
 | `BMC_ADMIN_BUCKET` | Comma-separated [admin-bucket](#admin-bucket) features enabled for this VM: `audio`, `usb-redirect`. Unset means none; an unknown name stops startup |
 | `QRAB_NODE_NAME`, `QRAB_POD_NAME`, `QRAB_POD_NAMESPACE`, `QRAB_IMAGE` | Optional deployment metadata shown to admins |
-| `BMC_REDFISH_URL` | Origin of the in-pod Redfish sidecar behind `/redfish`; defaults to `http://127.0.0.1:8081` |
+| `BMC_REDFISH_URL` | Origin of the in-pod Redfish sidecar behind `/bmc/redfish`; defaults to `http://127.0.0.1:8081` |
 | `BMC_LISTEN` | Listener; defaults to `0.0.0.0:8080` |
 | `BMC_ASSETS_DIR` | Defaults to the source assets directory; image sets `/opt/qrab/bmc/assets` |
 | `BMC_CA_FILE` | Optional PEM root certificate for an isolated test IdP |
@@ -151,7 +154,7 @@ session.
 | viewer | `/api/session` |
 | admin | `/api/session` and `/api/console`, plus the VM's enabled [admin-bucket](#admin-bucket) features when requested |
 
-Through `/redfish` a user's role is Redfish's, from the same Kanidm subject
+Through `/bmc/redfish` a user's role is Redfish's, from the same Kanidm subject
 and groups ([below](#redfish-proxy)).
 
 ### Routes
@@ -230,8 +233,9 @@ control-socket volume, never the directory holding QMP and VNC sockets; see
 [manager.md](manager.md#control-api). For a token-authenticated machine API, see
 [redfish.md](redfish.md). It never accepts a socket path from HTTP. QEMU always starts
 with `-nic none`; opening the BMC's pod port does not create guest networking.
-The sample Cilium policy admits ingress/host probes on 8080 and permits only DNS
-and Kanidm HTTPS outbound from the pod. It mounts no Kubernetes API token.
+The console's Cilium policy (`contrib/kubernetes/redfish-poc/console.yaml`)
+admits the ingress and host on 8080 and 8081 and permits only DNS, Kanidm
+HTTPS and the native iSCSI portal outbound. The VM Pod mounts no Kubernetes API token.
 
 ## Admin bucket
 
@@ -436,10 +440,13 @@ The per-VM Service/Ingress and certificate are part of each VM's own bundle
 (`contrib/kubernetes/redfish-poc/console.yaml`), never of the root
 kustomization.
 The namespace and private-image-pull ServiceAccount stay in Kubernetes GitOps.
-Pod readiness uses HTTP `/readyz`, which validates a live manager/QEMU heartbeat
-and permits paused VMs so the operator can resume them. It is separate from the
-standalone manager's `ready` command, which requires the guest to be running.
-A failed QEMU child makes the pod process fail; clean guest exit/shutdown ends it.
+The sidecars' readiness is HTTP `/readyz`, the manager's live probe over the
+socket: a fresh manager heartbeat with QEMU paused or running, or powered off
+in place, so a paused or powered-off VM stays reachable to resume or power on.
+It is separate from the manager's `ready` command, which requires the guest to
+be running. A shutdown or guest poweroff leaves the VM off in its Pod; a failed
+QEMU or swtpm child ends the manager and the Pod
+([manager.md](manager.md#power-lifecycle)).
 
 `contrib/check-runtime.sh` includes BMC HTTP/WebSocket authentication tests and
 strict Clippy. `contrib/tests/bmc-browser.py` performs real Kanidm login against
