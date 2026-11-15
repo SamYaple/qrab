@@ -67,7 +67,7 @@ def system(power='On'):
 def install_bmc(context, role='admin', power='On', legacy=False, origin='http://ui.test'):
     fixture = {'system': system(power), 'posts': [], 'expired': False,
                'hold_posts': False, 'pending_posts': [], 'post_received': Event(), 'post_error': None, 'hold_power': False, 'pending_power': [],
-               'fail_system': None, 'fail_metrics': False, 'fail_history': False, 'empty_metrics': False, 'hold_session': False, 'pending_session': [], 'empty_events': False, 'extra_events': [], 'requests': [],
+               'fail_system': None, 'fail_reset_info': None, 'reset_types': list(resets), 'fail_metrics': False, 'fail_history': False, 'empty_metrics': False, 'hold_session': False, 'pending_session': [], 'empty_events': False, 'extra_events': [], 'requests': [],
                'vm_name': 'web-1', 'user_name': 'sam'}
     fixture['system']['Oem']['Qrab']['Configuration']['redacted'] = role == 'viewer'
 
@@ -140,7 +140,10 @@ def install_bmc(context, role='admin', power='On', legacy=False, origin='http://
                 return
             data = fixture['system']
         elif path.endswith('/ResetActionInfo'):
-            data = {'Parameters': [{'Name': 'ResetType', 'AllowableValues': fixture['system']['Actions']['#ComputerSystem.Reset']['ResetType@Redfish.AllowableValues']}]}
+            if fixture['fail_reset_info']:
+                request_route.fulfill(status=fixture.get('reset_info_status', 503), json={'error': {'message': fixture['fail_reset_info']}})
+                return
+            data = {'Parameters': [{'Name': 'ResetType', 'AllowableValues': fixture['reset_types']}]}
         elif path.endswith('/Events/Entries'):
             data = {'Members': [] if fixture['empty_events'] else [{'Id': str(i), 'Created': f'2026-11-15T04:00:{i:02d}Z', 'Oem': {'Qrab': {'Sequence': i, 'Event': event, 'Data': {'reason': 'requested by user'}}}} for i, event in [(1, 'STOP'), (2, 'RESUME'), (3, 'DEVICE_DELETED')]]}
             data['Members'].extend(fixture['extra_events'])
@@ -503,6 +506,7 @@ def bmc_state_checks(browser, width, theme):
     fixture = install_bmc(context)
     full_advertised = fixture['system']['Actions']['#ComputerSystem.Reset']['ResetType@Redfish.AllowableValues']
     fixture['system']['Actions']['#ComputerSystem.Reset']['ResetType@Redfish.AllowableValues'] = ['Pause']
+    fixture['fail_reset_info'] = 'Action information temporarily unavailable.'
     fixture['hold_session'] = True
     page = context.new_page()
     errors = []
@@ -547,7 +551,7 @@ def bmc_state_checks(browser, width, theme):
     page.clock.fast_forward(3100)
     expect(pause).to_be_enabled()
     expect(page.locator('#advanced-power')).to_be_hidden()
-    assert sum(path.endswith('/ResetActionInfo') for _, path in fixture['requests']) == 1, 'Availability refresh must use the existing System poll'
+    assert sum(path.endswith('/ResetActionInfo') for _, path in fixture['requests']) == 0, 'Inline action availability needs no separate discovery request'
     advertised['ResetType@Redfish.AllowableValues'] = original_advertised
     page.clock.fast_forward(3100)
     expect(page.locator('#advanced-power')).to_be_visible()
@@ -841,6 +845,69 @@ def bmc_state_checks(browser, width, theme):
     assert page.locator('#panel-events').evaluate('(e) => e.scrollWidth <= e.clientWidth + 1')
     capture(page, args.output / f'bmc-event-payload-{theme}-{width}.png')
     assert not errors, errors
+    context.close()
+
+
+def action_discovery_checks(browser):
+    for failed in [False, True]:
+        context = browser_context(browser, viewport={'width': 390, 'height': 1000}, color_scheme='light')
+        fixture = install_bmc(context)
+        advertised = fixture['system']['Actions']['#ComputerSystem.Reset']
+        advertised.pop('ResetType@Redfish.AllowableValues')
+        fixture['reset_types'] = ['Pause']
+        if failed:
+            fixture['fail_reset_info'] = 'Action information temporarily unavailable.'
+            fixture['fail_system'] = {'json': {'error': {'message': 'VM is starting.'}}}
+        page = context.new_page()
+        errors = []
+        page.on('pageerror', lambda error: errors.append(str(error)))
+        page.clock.install()
+        page.goto('http://ui.test' + base + '/bmc')
+        expect(page.locator('#dashboard')).to_be_visible()
+        pause = page.locator('#power button[data-type=Pause]')
+        if failed:
+            expect(page.locator('#read-status')).to_contain_text('VM is starting.')
+            fixture['fail_system'] = None
+            page.clock.fast_forward(3100)
+            expect(page.locator('#power-unavailable')).to_contain_text('Action information temporarily unavailable.')
+            expect(page.locator('#power-unavailable')).to_contain_text('Reload to retry')
+            expect(page.locator('#connect')).to_be_enabled()
+            expect(page.locator('#error')).to_be_hidden()
+            assert page.locator('#power button:enabled').count() == 0
+            capture(page, args.output / 'bmc-power-discovery-unavailable.png')
+            advertised['ResetType@Redfish.AllowableValues'] = ['Pause']
+            page.clock.fast_forward(3100)
+        expect(pause).to_be_enabled()
+        expect(page.locator('#power-unavailable')).to_be_hidden()
+        advertised['ResetType@Redfish.AllowableValues'] = []
+        page.clock.fast_forward(3100)
+        expect(page.locator('#power-unavailable')).to_have_text('No power actions are currently offered.')
+        advertised['ResetType@Redfish.AllowableValues'] = list(resets)
+        page.clock.fast_forward(3100)
+        expect(pause).to_be_enabled()
+        expect(page.locator('#advanced-power')).to_be_visible()
+        expect(page.locator('#power-unavailable')).to_be_hidden()
+        assert sum(path.endswith('/ResetActionInfo') for _, path in fixture['requests']) == 1
+        assert fixture['posts'] == []
+        assert not errors, errors
+        context.close()
+
+    context = browser_context(browser, viewport={'width': 390, 'height': 1000})
+    fixture = install_bmc(context)
+    fixture['system']['Actions']['#ComputerSystem.Reset'].pop('ResetType@Redfish.AllowableValues')
+    fixture['fail_reset_info'] = 'Sign in again.'
+    fixture['reset_info_status'] = 401
+    page = context.new_page()
+    page.clock.install()
+    page.goto('http://ui.test' + base + '/bmc')
+    expect(page.locator('#login')).to_be_visible()
+    expect(page.locator('#dashboard')).to_be_hidden()
+    expect(page.locator('#error')).to_be_hidden()
+    page.wait_for_timeout(100)
+    requests = len(fixture['requests'])
+    page.clock.fast_forward(11000)
+    page.wait_for_timeout(100)
+    assert len(fixture['requests']) == requests, 'Discovery expiry must not restart polling'
     context.close()
 
 
@@ -1194,6 +1261,7 @@ with sync_playwright() as playwright:
                 context.close()
             long_content_checks(browser, width, theme)
     timezone_checks(browser)
+    action_discovery_checks(browser)
     metric_focus_checks(browser)
     bmc_state_checks(browser, 1440, 'dark')
     bmc_state_checks(browser, 390, 'light')
