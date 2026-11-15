@@ -262,3 +262,28 @@ polyline.spark-0 { stroke: var(--series-0); } polyline.spark-1 { stroke: var(--s
     #screen { height: 50vh; min-height: 260px; }
 }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; } }
+
+/* Page-local navigation and optional technical detail. Native disclosures work
+   without JavaScript and retain their normal keyboard/expanded semantics. */
+.status-line, .form-footer { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
+.section-nav { display: flex; flex-wrap: wrap; gap: 4px 16px; padding: 0 0 12px; border-bottom: 1px solid var(--border); margin-bottom: 24px; font-size: .875rem; }
+.section-nav a { display: inline-block; padding: 6px 0; }
+[id] { scroll-margin-top: 100px; }
+summary { cursor: pointer; }
+summary::marker { color: var(--accent); }
+.disclosure > summary { min-height: 26px; line-height: 1.6; }
+.disclosure-title { font-weight: 650; color: var(--text-strong); }
+.disclosure > summary .muted, .disclosure > summary .badge { margin: 0 0 0 12px; }
+.disclosure[open] > summary { margin-bottom: 16px; padding-bottom: 16px; border-bottom: 1px solid var(--border-subtle); }
+.inline-disclosure { margin-top: 18px; padding-top: 12px; border-top: 1px solid var(--border-subtle); }
+.inline-disclosure > summary { color: var(--link); font-size: .875rem; padding: 4px 0; }
+.inline-disclosure[open] > summary { margin-bottom: 10px; }
+.form-disclosure { border: 1px solid var(--border); border-radius: 8px; padding: 16px 20px; margin-bottom: 24px; }
+.form-disclosure > summary { font-weight: 650; color: var(--text-strong); }
+.form-disclosure[open] > summary { margin-bottom: 16px; }
+.form-footer { gap: 12px; }
+@media (max-width: 700px) {
+    [id] { scroll-margin-top: 20px; }
+    .disclosure > summary .muted { display: block; margin: 4px 0 0 16px; }
+    .form-disclosure { padding: 16px; }
+}

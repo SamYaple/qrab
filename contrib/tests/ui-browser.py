@@ -99,7 +99,7 @@ with sync_playwright() as playwright:
         for width in [1440, 768, 390]:
             context = browser.new_context(viewport={'width': width, 'height': 1000}, color_scheme=theme)
             page = context.new_page()
-            for name in ['list', 'detail', 'detail-viewer', 'images', 'launch', 'launch-os', 'launched']:
+            for name in ['list', 'detail', 'detail-viewer', 'images', 'launch', 'launch-os', 'launch-options', 'launched']:
                 page.goto((args.previews / f'{name}.html').resolve().as_uri())
                 no_overflow(page, name, width)
                 if name in ['launch', 'launch-os']:
@@ -109,6 +109,37 @@ with sync_playwright() as playwright:
                     page.locator('input[name=os]').nth(1).check()
                     assert page.locator('input[name=os]').nth(1).is_checked()
                 page.screenshot(path=str(args.output / f'{name}-{theme}-{width}.png'), full_page=True)
+                if name.startswith('detail'):
+                    for selector in ['#effective-configuration', '#pod-resources', '#recent-events']:
+                        disclosure = page.locator(selector)
+                        assert not disclosure.evaluate('(e) => e.open')
+                        disclosure.locator('summary').focus()
+                        page.keyboard.press('Enter')
+                        assert disclosure.evaluate('(e) => e.open')
+                    no_overflow(page, name + '-expanded', width)
+                    page.screenshot(path=str(args.output / f'{name}-expanded-{theme}-{width}.png'), full_page=True)
+                    anchors = page.locator('.section-nav a').evaluate_all('(links) => links.map(a => a.hash.slice(1))')
+                    assert all(page.locator('[id="' + anchor + '"]').count() == 1 for anchor in anchors), anchors
+                if name == 'launch-options':
+                    assert page.locator('#launch-limits').evaluate('(e) => e.open')
+                    assert page.locator('#launch-disks').evaluate('(e) => e.open')
+                    assert page.locator('#max_cpus').input_value() == '1'
+                    assert page.locator('#disk0_size_gib').input_value() == '0'
+                if name == 'launch':
+                    assert not page.locator('#launch-limits').evaluate('(e) => e.open')
+                    assert not page.locator('#launch-disks').evaluate('(e) => e.open')
+                    page.locator('#name').fill('Invalid VM')
+                    assert page.locator('#name').evaluate('(e) => e.validity.patternMismatch')
+                    page.locator('#name').fill('fixture-vm')
+                    page.locator('#launch-disks summary').click()
+                    page.locator('#disk0_id').fill('logs')
+                    page.locator('#disk0_size_gib').fill('0')
+                    page.locator('#launch-disks summary').click()
+                    # Hidden optional values are server-validated and survive
+                    # submission, instead of blocking on an unfocusable input.
+                    assert page.locator('form.launch').evaluate('(e) => e.checkValidity()')
+                    values = page.locator('form.launch').evaluate('(e) => Object.fromEntries(new FormData(e))')
+                    assert values['disk0_size_gib'] == '0'
             context.close()
             for role in ['admin', 'viewer']:
                 context = browser.new_context(viewport={'width': width, 'height': 1000}, color_scheme=theme)

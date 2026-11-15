@@ -271,9 +271,29 @@ fn main() {
             .and_then(|s| s.pod_ip.as_ref())
             .and_then(|ip| ip.parse().ok());
         let detail = model::detail(vm, role, &usage, Some(pod), ip, &catalog);
+        let mut live_panel = panel();
+        if role == Role::Viewer
+            && let Ok(system) = &mut live_panel.system
+        {
+            if let Some(config) = &mut system.oem.qrab.configuration {
+                config.redacted = true;
+                config.state_id = None;
+                config.deployment = None;
+            }
+            if let Some(update) = system
+                .oem
+                .qrab
+                .guest_agent
+                .as_mut()
+                .and_then(|a| a.last_update.as_mut())
+            {
+                update.output = None;
+                update.error = None;
+            }
+        }
         let body = Body::Detail(Box::new(DetailPage {
             detail,
-            panel: PanelState::Loaded(Box::new(panel())),
+            panel: PanelState::Loaded(Box::new(live_panel)),
             deletable: role == Role::Admin,
         }));
         write(dir, name, Page { user: Some(user.clone()), notice: Some("Launched test. Your sign-in was refreshed so it includes the VM's new admins group (console and power).".into()), body }, &css);
@@ -309,6 +329,29 @@ fn main() {
             storage_node: Some("kube03".into()),
             images: catalog.clone(),
             user_data_cleared: true,
+        })),
+        &css,
+    );
+    write(
+        dir,
+        "launch-options",
+        page(Body::Launch(LaunchPage {
+            values: vec![
+                ("name".into(), "web".into()),
+                ("cpus".into(), "2".into()),
+                ("max_cpus".into(), "1".into()),
+                ("memory_mib".into(), "512".into()),
+                ("disk0_id".into(), "logs".into()),
+                ("disk0_size_gib".into(), "0".into()),
+            ],
+            errors: vec![
+                "Maximum vCPUs must be at least vCPUs.".into(),
+                "Disk 1 size (GiB) must be a whole number from 1 to 1024.".into(),
+            ],
+            namespace: "qrab".into(),
+            storage_node: Some("kube03".into()),
+            images: catalog.clone(),
+            ..Default::default()
         })),
         &css,
     );

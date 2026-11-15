@@ -46,6 +46,12 @@ launch new VMs; VM admins can send power actions and delete VMs.
 
 ### The BMC panel
 
+The VM page keeps status, usage, networking and health visible, with local links
+to jump between sections. Infrastructure identity, Pod budgets, effective
+configuration and recent event payloads use native HTML disclosures. Event-drop
+counts remain visible in the closed event heading, and a configuration with a
+resize error starts expanded. These controls need no JavaScript.
+
 The detail page's BMC panel reads the VM's Redfish service with the user's
 token (viewers and admins alike), for any VM whose Pod runs the Redfish
 sidecar, with or without the BMC. A VM without Redfish shows that the Redfish
@@ -191,6 +197,13 @@ set, so qrab-redfish-poc and other hand-made VMs cannot be deleted here. Kanidm 
 BMC and Redfish at the next sign-in; sessions last at most 15 minutes.
 
 ### Launching a VM
+
+Hot-plug limits and additional data disks are optional disclosures. Submitted
+values reopen their section when the form is rejected. Numeric controls inside
+closable sections use a numeric keyboard and server validation: native browser
+constraint validation cannot focus an invalid input in a closed disclosure.
+The server checks all ranges before provisioning anything. Required fields
+outside those sections retain native validation too.
 
 The form takes an operating system (see [Base images](#base-images)): "None:
 demo ESP only" or one catalog image, with a root disk size in GiB (default 1,

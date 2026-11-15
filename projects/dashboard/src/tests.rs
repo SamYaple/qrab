@@ -685,7 +685,7 @@ async fn detail_reads_only_the_selected_vms_redfish_with_the_bearer_and_escapes_
     assert!(body.contains("Recent QMP events") && !body.contains("power-title"));
     // A viewer learns why, and can refresh a sign-in that predates a new grant.
     assert!(
-        body.contains("Console: admins only")
+        body.contains("Console and power controls require an admin")
             && body.contains("href=\"/auth/login?next=/vms/qrab/b\"")
     );
     assert_eq!(h.bmc_b.lock().unwrap().len(), 9);
@@ -2533,4 +2533,27 @@ async fn bmc_live_events_close_on_logout_and_release_the_stream_limit() {
             .0,
         StatusCode::UNAUTHORIZED
     );
+}
+
+#[tokio::test]
+async fn rejected_optional_launch_values_are_validated_without_creating_resources() {
+    let h = harness().await;
+    let cookie = session(&h.state.sessions, ALICE, &[LAUNCHERS]).await;
+    let (status, _, body) = send(
+        &h,
+        post(
+            "/launch",
+            Some(&cookie),
+            Some(ORIGIN),
+            "csrf=correct&name=web&cpus=2&memory_mib=512&max_cpus=1&disk0_id=logs&disk0_size_gib=0",
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert!(body.contains("Maximum vCPUs must be at least vCPUs."));
+    assert!(body.contains("Disk 1 size (GiB) must be a whole number from 1 to 1024."));
+    assert!(body.contains("name=\"max_cpus\"") && body.contains("value=\"1\""));
+    assert!(body.contains("name=\"disk0_size_gib\"") && body.contains("value=\"0\""));
+    assert_eq!(h.cluster.mutations(), 0);
+    assert!(h.kanidm.lock().unwrap().is_empty());
 }

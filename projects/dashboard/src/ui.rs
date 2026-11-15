@@ -210,7 +210,7 @@ fn vm_table(rows: &[Row]) -> Element {
 
 /// Values that are identifiers render as code; multi-line output keeps its
 /// line breaks.
-const CODE_KEYS: &[&str] = &["Image", "State ID", "State PVC", "Pod"];
+const CODE_KEYS: &[&str] = &["Image", "State ID", "State PVC", "Pod", "VM UID"];
 
 fn dl(rows: Vec<(&'static str, String)>) -> Element {
     rsx! { dl { class: "identity-details",
@@ -269,7 +269,13 @@ fn bmc_panel(panel: &Panel) -> Element {
     };
     let events = match &panel.events {
         Ok(page) => rsx! {
-            section { class: "card wide", h3 { "Recent QMP events" }
+            details { class: "card wide disclosure", id: "recent-events",
+                summary { span { class: "disclosure-title", "Recent QMP events" }
+                    span { class: "muted", "{page.entries.len()} recent" }
+                    if let Some(dropped) = page.qmp_dropped.filter(|d| *d > 0) {
+                        span { class: "badge warning", "{dropped} dropped" }
+                    }
+                }
                 if let Some(dropped) = page.qmp_dropped.filter(|d| *d > 0) { p { class: "notice warning", role: "status", "{dropped} QMP event(s) were dropped before the manager recorded them." } }
                 if page.entries.is_empty() { p { class: "empty", "No events recorded." } }
                 else { ol { class: "events", reversed: true,
@@ -294,7 +300,7 @@ fn bmc_panel(panel: &Panel) -> Element {
     let history = history_card(&panel.history);
     rsx! {
         p { class: "muted", "Read from the VM's Redfish service with your sign-in." }
-        div { class: "panel-grid", {status} {agent} {config} {history} {events} }
+        div { class: "panel-grid", {status} {agent} {history} {config} {events} }
     }
 }
 
@@ -562,7 +568,18 @@ fn config_card(config: Option<&redfish::Config>) -> Element {
     } else {
         "Full view"
     };
-    rsx! { section { class: "card wide", h3 { "Effective configuration" } p { class: "muted", "{note}" } {dl(rows)} } }
+    let has_error = c
+        .hotplug
+        .as_ref()
+        .and_then(|h| h.last_error.as_ref())
+        .is_some();
+    rsx! { details { class: "card wide disclosure", id: "effective-configuration", open: has_error,
+        summary { span { class: "disclosure-title", "Effective configuration" }
+            span { class: "muted", "Boot, devices and deployment" }
+            if has_error { span { class: "badge warning", "Resize error" } }
+        }
+        p { class: "muted", "{note}" } {dl(rows)}
+    } }
 }
 
 /// In-pod power, offered as Redfish's `Systems/1` currently allows. Power on
@@ -640,7 +657,7 @@ fn delete_form(detail: &Detail, csrf: &str) -> Element {
 
 fn network_card(d: &Detail) -> Element {
     rsx! {
-        section { class: if d.nics.is_empty() { "card" } else { "card wide" }, h2 { "Network" }
+        section { class: if d.nics.is_empty() { "card" } else { "card wide" }, id: "vm-network", h2 { "Network" }
             if d.nics.is_empty() { p { "No guest NIC." } }
             else {
                 div { class: "table-wrap", table {
@@ -698,8 +715,12 @@ fn detail_page(page: &DetailPage, user: &UserView) -> Element {
             "Memory",
             sizes(d.row.memory_mib, d.row.max_memory_mib, " MiB"),
         ),
-        ("Accelerator", d.accelerator.to_string()),
         ("Boots from", d.boots_from.clone()),
+        ("Cloud-init", d.cloud_init.clone()),
+    ];
+    let metadata = vec![
+        ("VM UID", d.uid.clone()),
+        ("Accelerator", d.accelerator.to_string()),
         ("Boot", d.boot.clone()),
         (
             "Storage node",
@@ -710,7 +731,6 @@ fn detail_page(page: &DetailPage, user: &UserView) -> Element {
             },
         ),
         ("State PVC", d.state_pvc.clone()),
-        ("Cloud-init", d.cloud_init.clone()),
         (
             "Components",
             format!(
@@ -719,7 +739,6 @@ fn detail_page(page: &DetailPage, user: &UserView) -> Element {
                 if d.redfish_enabled { "on" } else { "off" }
             ),
         ),
-        ("Your role", d.row.role.label().into()),
     ];
     if !d.reason.is_empty() {
         summary.push(("Reason", d.reason.clone()));
@@ -765,15 +784,18 @@ fn detail_page(page: &DetailPage, user: &UserView) -> Element {
     rsx! {
         a { class: "back", href: "/", "← All VMs" }
         div { class: "heading",
-            div { p { class: "eyebrow", "VIRTUAL MACHINE · {d.row.namespace}" } h1 { "{d.row.name}" } p { class: "muted", "UID " code { "{d.uid}" } } }
+            div { p { class: "eyebrow", "VIRTUAL MACHINE · {d.row.namespace}" } h1 { "{d.row.name}" }
+                div { class: "status-line", {state_badge(&d.row)}
+                    span { class: if admin { "badge admin" } else { "badge" }, "{d.row.role.label()}" }
+                }
+            }
             div { class: "heading-actions",
                 if d.bmc_enabled { a { class: "button", href: "{d.row.path()}/bmc", "Open BMC →" } }
                 if admin && d.bmc_enabled { a { class: "button secondary", href: "{console}", "Open console →" } }
                 if !admin && d.bmc_enabled {
                     div { class: "console-locked",
-                        span { class: "button disabled", aria_disabled: "true", "Console: admins only" }
                         p { class: "muted",
-                            "Opening the console needs admin access to this VM. If you were just given it, "
+                            "View-only access. Console and power controls require an admin. If your access changed, "
                             a { href: "{refresh}", "refresh your sign-in" }
                             "."
                         }
@@ -781,14 +803,26 @@ fn detail_page(page: &DetailPage, user: &UserView) -> Element {
                 }
             }
         }
+        nav { class: "section-nav", aria_label: "On this VM page",
+            a { href: "#vm-overview", "Overview" }
+            a { href: "#vm-network", "Network" }
+            a { href: "#vm-storage", "Storage" }
+            a { href: "#vm-health", "Health & metrics" }
+            if admin { a { href: "#power-title", "Power" } }
+        }
         div { class: "detail-grid",
-            section { class: "card", h2 { "Overview" } {dl(summary)} }
+            section { class: "card", id: "vm-overview", h2 { "Overview" } {dl(summary)}
+                details { class: "inline-disclosure",
+                    summary { "Infrastructure details" }
+                    {dl(metadata)}
+                }
+            }
             section { class: "card", h2 { "Live usage" }
                 p { class: "muted", "From metrics.k8s.io for the whole Pod, including the BMC and Redfish sidecars." }
                 {dl(vec![("CPU", cpu), ("Memory", mem)])}
             }
             {network_card(d)}
-            section { class: if d.disks.is_empty() { "card" } else { "card wide" }, h2 { "Disks" }
+            section { class: if d.disks.is_empty() { "card" } else { "card wide" }, id: "vm-storage", h2 { "Disks" }
                 if d.disks.is_empty() && d.iscsi_disks.is_empty() { p { class: "empty", "No disks. The VM boots the read-only demo ESP." } }
                 if !d.disks.is_empty() {
                     div { class: "table-wrap", table {
@@ -806,7 +840,10 @@ fn detail_page(page: &DetailPage, user: &UserView) -> Element {
                 for id in &d.iscsi_disks { p { class: "muted", "Static iSCSI disk " code { "{id}" } } }
             }
             if let Some(rows) = resize { section { class: "card", h2 { "In-place resize" } {dl(rows)} } }
-            section { class: "card wide", h2 { "Pod resources" }
+            details { class: "card wide disclosure", id: "pod-resources",
+                summary { span { class: "disclosure-title", "Pod resources" }
+                    span { class: "muted", "Container requests and limits" }
+                }
                 if let Some(pod) = &d.pod_name { p { class: "muted", "Pod " code { "{pod}" } if let Some(ip) = &d.pod_ip { " · " code { "{ip}" } } } }
                 if d.containers.is_empty() { p { class: "empty", "No Pod is running." } }
                 else { div { class: "table-wrap", table {
@@ -820,8 +857,8 @@ fn detail_page(page: &DetailPage, user: &UserView) -> Element {
                 } } }
             }
         }
-        section { aria_labelledby: "bmc-title",
-            h2 { id: "bmc-title", class: "subheading", "BMC" }
+        section { id: "vm-health", aria_labelledby: "bmc-title",
+            h2 { id: "bmc-title", class: "subheading", "Health & metrics" }
             match &page.panel {
                 PanelState::Disabled => rsx! { p { class: "muted", "The Redfish component is disabled for this VM, so its status and events are unavailable." } },
                 PanelState::NoPod => rsx! { p { class: "muted", "Redfish is unavailable until the VM's Pod is running." } },
@@ -848,10 +885,20 @@ fn launch_form(page: &LaunchPage, user: &UserView) -> Element {
         .storage_node
         .clone()
         .unwrap_or_else(|| "not configured".into());
+    // Optional controls inside a closable disclosure use server validation:
+    // native constraint validation cannot focus an invalid hidden control.
+    // Keep the numeric keyboard, and reopen nonempty sections on rejection.
+    let limits_open = page.values.iter().any(|(key, value)| {
+        matches!(key.as_str(), "max_cpus" | "max_memory_mib") && !value.trim().is_empty()
+    });
+    let disks_open = page
+        .values
+        .iter()
+        .any(|(key, value)| key.starts_with("disk") && !value.trim().is_empty());
     rsx! {
         a { class: "back", href: "/", "← All VMs" }
         div { class: "heading", div { p { class: "eyebrow", "LAUNCH" } h1 { "Launch a VM" }
-            p { class: "muted", "Creates Kanidm groups for its admins and viewers (you join the admins), a 1 GiB state PVC and the VirtualMachine in namespace {page.namespace}. The VM boots its own copy-on-write clone of the chosen operating system, or the demo ESP. Each network interface gets its own NIC Pod, whose IP is the guest's address." } } }
+            p { class: "muted", "Choose an operating system and resources. You'll be the VM's administrator. Created in namespace " code { "{page.namespace}" } "." } } }
         if !page.errors.is_empty() {
             section { class: "card", role: "alert", h2 { "Check the form" } ul { for e in &page.errors { li { "{e}" } } } }
         }
@@ -860,15 +907,20 @@ fn launch_form(page: &LaunchPage, user: &UserView) -> Element {
             {os_fieldset(page)}
             fieldset { legend { "Machine" }
                 label { r#for: "name", "Name" }
-                input { id: "name", name: "name", required: true, maxlength: "50", pattern: "[a-z0-9]([a-z0-9-]*[a-z0-9])?", value: v("name", ""), aria_describedby: "name-help" }
+                input { id: "name", name: "name", required: true, maxlength: "50", pattern: r"[a-z0-9]([a-z0-9\-]*[a-z0-9])?", value: v("name", ""), aria_describedby: "name-help" }
                 p { id: "name-help", class: "muted", "Lowercase DNS label. Group names qrab_vm_{page.namespace}_<name>_viewers must fit in 64 characters." }
                 div { class: "pair",
                     div { label { r#for: "cpus", "vCPUs" } input { id: "cpus", name: "cpus", r#type: "number", min: "1", max: "256", required: true, value: v("cpus", "1") } }
-                    div { label { r#for: "max_cpus", "Maximum vCPUs (optional)" } input { id: "max_cpus", name: "max_cpus", r#type: "number", min: "1", max: "256", value: v("max_cpus", "") } }
                     div { label { r#for: "memory_mib", "Memory (MiB)" } input { id: "memory_mib", name: "memory_mib", r#type: "number", min: "256", max: "1048576", required: true, value: v("memory_mib", "512") } }
-                    div { label { r#for: "max_memory_mib", "Maximum memory (MiB, optional)" } input { id: "max_memory_mib", name: "max_memory_mib", r#type: "number", min: "256", max: "1048576", value: v("max_memory_mib", "") } }
                 }
-                p { class: "muted", "Maxima are hot-plug ceilings fixed at boot. TCG guests cannot hot-add vCPUs." }
+                details { class: "inline-disclosure", id: "launch-limits", open: limits_open,
+                    summary { "Hot-plug limits (optional)" }
+                    p { class: "muted", "Reserve room to grow after boot. Leave blank to use the initial size as the maximum. A maximum must be at least the initial size. TCG guests cannot hot-add vCPUs." }
+                    div { class: "pair",
+                        div { label { r#for: "max_cpus", "Maximum vCPUs (optional)" } input { id: "max_cpus", name: "max_cpus", r#type: "text", inputmode: "numeric", value: v("max_cpus", "") } }
+                        div { label { r#for: "max_memory_mib", "Maximum memory (MiB, optional)" } input { id: "max_memory_mib", name: "max_memory_mib", r#type: "text", inputmode: "numeric", value: v("max_memory_mib", "") } }
+                    }
+                }
                 label { r#for: "accelerator", "Accelerator" }
                 select { id: "accelerator", name: "accelerator",
                     option { value: "kvm", selected: kvm, "KVM (hardware)" }
@@ -877,8 +929,9 @@ fn launch_form(page: &LaunchPage, user: &UserView) -> Element {
             }
             {network_fieldset(page)}
             {cloud_init_fieldset(page)}
-            fieldset { legend { "Data disks (optional)" }
-                p { class: "muted", "Provisioned by the storage service on node {node}. Leave the ID empty to skip a row." }
+            details { class: "form-disclosure", id: "launch-disks", open: disks_open,
+                summary { "Data disks (optional)" }
+                p { class: "muted", "Provisioned by the storage service on node {node}. Use whole GiB from 1 to 1024. Leave the ID empty to skip a row." }
                 for i in 0..launch::FORM_DISKS {
                     {
                         let id = format!("disk{i}_id");
@@ -888,14 +941,21 @@ fn launch_form(page: &LaunchPage, user: &UserView) -> Element {
                         let n = i + 1;
                         rsx! { div { class: "pair disk-row", role: "group", aria_label: "Disk {n}",
                             div { label { r#for: "{id}", "Disk {n} ID" } input { id: "{id}", name: "{id}", maxlength: "20", value: v(&id, "") } }
-                            div { label { r#for: "{size}", "Size (GiB)" } input { id: "{size}", name: "{size}", r#type: "number", min: "1", max: "1024", value: v(&size, "") } }
+                            div { label { r#for: "{size}", "Size (GiB)" } input { id: "{size}", name: "{size}", r#type: "text", inputmode: "numeric", value: v(&size, "") } }
                             div { label { r#for: "{base}", "Base image (optional)" } input { id: "{base}", name: "{base}", maxlength: "32", value: v(&base, "") } }
-                            div { label { r#for: "{generation}", "Generation" } input { id: "{generation}", name: "{generation}", r#type: "number", min: "1", max: "999999", value: v(&generation, "") } }
+                            div { label { r#for: "{generation}", "Generation" } input { id: "{generation}", name: "{generation}", r#type: "text", inputmode: "numeric", value: v(&generation, "") } }
                         } }
                     }
                 }
             }
-            button { r#type: "submit", "Launch VM" }
+            div { class: "form-footer",
+                button { r#type: "submit", "Launch VM" }
+                a { class: "button secondary", href: "/", "Cancel" }
+            }
+            details { class: "inline-disclosure",
+                summary { "What gets created?" }
+                p { class: "muted", "The VM, its admin and viewer groups, and a 1 GiB volume for its firmware and TPM state. You join the admin group. An operating system gets its own copy-on-write disk; each network interface gets a NIC Pod whose IP is the guest's address." }
+            }
         }
     }
 }
@@ -923,13 +983,19 @@ fn network_fieldset(page: &LaunchPage) -> Element {
                 }
             }
             p { id: "nic-help", class: "muted",
-                "Comma-separated DNS labels, at most {launch::MAX_SECURITY_GROUPS}. Each becomes the label "
-                code { "sg.qrab.yapplesauce.com/<group>" } " on the NIC Pod, and CiliumNetworkPolicies select those labels. "
-                strong { "Without any matching policy the NIC is default-allow" }
-                ": every forwarded guest port is reachable and the guest can reach anything. See "
-                a { href: NETWORKING_DOCS, rel: "noreferrer", "docs/networking.md" } "."
+                "Optional, comma-separated names such as web, ssh. At most {launch::MAX_SECURITY_GROUPS}; use lowercase letters, digits and hyphens."
             }
-            p { class: "muted", "The guest's address is its NIC Pod's IP, configured statically through the cloud-init seed. Guest traffic never passes through the VM Pod." }
+            p { class: "muted",
+                strong { "Without any matching policy the NIC is default-allow" }
+                ": every forwarded guest port is reachable and the guest can reach anything."
+            }
+            details { class: "inline-disclosure",
+                summary { "How network policies are applied" }
+                p { class: "muted", "Each group becomes the label " code { "sg.qrab.yapplesauce.com/<group>" }
+                    " on the NIC Pod. CiliumNetworkPolicies select those labels. The guest uses its NIC Pod's IP; cloud-init configures the address. See "
+                    a { href: NETWORKING_DOCS, rel: "noreferrer", "docs/networking.md" } "."
+                }
+            }
         }
     }
 }
@@ -937,9 +1003,9 @@ fn network_fieldset(page: &LaunchPage) -> Element {
 fn cloud_init_fieldset(page: &LaunchPage) -> Element {
     rsx! {
         fieldset { legend { "Cloud-init" }
-            p { class: "muted", "A NoCloud seed disk (" code { "cidata" } "). An operating system image or a network interface always gets one; the seed also carries each NIC's network-config." }
+            p { class: "muted", "Set the guest's hostname or provide cloud-init configuration. Leave blank to use the defaults." }
             label { r#for: "hostname", "Hostname (optional)" }
-            input { id: "hostname", name: "hostname", maxlength: "63", pattern: "[a-z0-9]([a-z0-9-]*[a-z0-9])?", autocomplete: "off", placeholder: "the VM name", value: input_value(&page.values, "hostname", ""), aria_describedby: "hostname-help" }
+            input { id: "hostname", name: "hostname", maxlength: "63", pattern: r"[a-z0-9]([a-z0-9\-]*[a-z0-9])?", autocomplete: "off", placeholder: "the VM name", value: input_value(&page.values, "hostname", ""), aria_describedby: "hostname-help" }
             p { id: "hostname-help", class: "muted", "DNS label. Defaults to the VM name." }
             label { r#for: "user_data", "User-data (optional)" }
             textarea { id: "user_data", name: "user_data", rows: "8", spellcheck: "false", autocomplete: "off", maxlength: "{launch::USER_DATA_LIMIT}", placeholder: "#cloud-config\nssh_authorized_keys: [ssh-ed25519 AAAA...]", aria_describedby: "user-data-help" }
@@ -964,14 +1030,14 @@ fn os_fieldset(page: &LaunchPage) -> Element {
     rsx! {
         fieldset { legend { "Operating system" }
             p { class: "muted",
-                "The VM boots a private copy-on-write clone of a sealed base image over iSCSI, as its "
-                code { "root" } " disk. The demo ESP stays as the fallback boot entry. "
+                "Each VM gets its own writable copy of the selected image as its "
+                code { "root" } " disk. Changes belong to this VM. "
                 a { href: "/images", "About the images" }
             }
             div { class: "choices", role: "radiogroup", aria_label: "Operating system",
                 label { class: "confirm",
                     input { r#type: "radio", name: "os", value: "none", checked: chosen == "none" || chosen.is_empty() }
-                    "None: demo ESP only"
+                    "None: demo ESP only (no operating system)"
                 }
                 for image in &page.images {
                     {
