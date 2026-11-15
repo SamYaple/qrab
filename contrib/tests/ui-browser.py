@@ -19,7 +19,7 @@ from urllib.parse import parse_qs, urlparse
 from playwright.sync_api import expect, sync_playwright
 
 parser = argparse.ArgumentParser(description=__doc__)
-parser.add_argument('--engine', choices=['chromium', 'firefox'], default='chromium')
+parser.add_argument('--engine', choices=['chromium', 'firefox', 'webkit'], default='chromium')
 parser.add_argument('--browser', help='Optional browser executable; Chromium defaults to the installed Chrome.')
 parser.add_argument('--previews', type=Path, required=True)
 parser.add_argument('--output', type=Path, default=Path('target/ui-browser'))
@@ -495,6 +495,8 @@ def metric_focus_checks(browser):
     context = browser.new_context(viewport={'width': 390, 'height': 1000})
     fixture = install_bmc(context)
     page = context.new_page()
+    errors = []
+    page.on('pageerror', lambda error: errors.append(str(error)))
     page.clock.install()
     page.goto('http://ui.test' + base + '/bmc')
     page.locator('#tab-metrics').click()
@@ -527,6 +529,18 @@ def metric_focus_checks(browser):
     assert page.evaluate('window.metricAnnouncements') == [], 'Ordinary polls must not repeat live announcements'
     sample_announcements = page.evaluate('window.sampleAnnouncements')
     assert sample_announcements == [], ('An unchanged selected sample must remain quiet', sample_announcements)
+    selected = chart.locator('.readout').inner_text()
+    for width in [768, 390, 320]:
+        page.set_viewport_size({'width': width, 'height': 1000})
+        plot_width = max(240, chart.locator('.chart-body').evaluate('(e) => e.clientWidth'))
+        expect(chart.locator('svg')).to_have_attribute('width', str(plot_width))
+        expect(chart.locator('svg')).to_be_focused()
+        expect(chart.locator('.readout')).to_have_text(selected)
+    hit = chart.locator('rect.hit').bounding_box()
+    page.mouse.move(hit['x'] + 1, hit['y'] + hit['height'] / 2)
+    expect(chart.locator('.readout')).to_contain_text('manager 125 mcores')
+    page.mouse.move(hit['x'] + hit['width'] - 1, hit['y'] + hit['height'] / 2)
+    expect(chart.locator('.readout')).to_contain_text('manager 188 mcores')
     fixture['empty_metrics'] = True
     poll()
     expect(chart.locator('.chart-empty')).to_be_focused()
@@ -561,6 +575,7 @@ def metric_focus_checks(browser):
     expect(page.locator('#metrics-availability')).to_have_text('VM metrics available.')
     expect(range_button).to_be_focused()
     assert page.evaluate("window.metricAnnouncements.filter(v => v === 'VM metrics available.').length") == 1
+    assert not errors, errors
     context.close()
 
 

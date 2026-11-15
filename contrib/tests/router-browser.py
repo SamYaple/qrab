@@ -13,7 +13,7 @@ from urllib.parse import urlparse
 from playwright.sync_api import expect, sync_playwright
 
 parser = argparse.ArgumentParser(description=__doc__)
-parser.add_argument('--engine', choices=['chromium', 'firefox'], default='chromium')
+parser.add_argument('--engine', choices=['chromium', 'firefox', 'webkit'], default='chromium')
 parser.add_argument('--output', type=Path, default=Path('target/ui-router'))
 args = parser.parse_args()
 config = json.load(sys.stdin)

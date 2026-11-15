@@ -640,6 +640,10 @@ python3 contrib/tests/ui-browser.py --previews target/ui-preview \
 python3 -m playwright install firefox
 python3 contrib/tests/ui-browser.py --engine firefox --previews target/ui-preview \
   --output target/ui-browser-firefox
+# WebKit in an environment with its platform libraries installed:
+python3 -m playwright install webkit
+python3 contrib/tests/ui-browser.py --engine webkit --previews target/ui-preview \
+  --output target/ui-browser-webkit
 ```
 
 This checks desktop, tablet and mobile layouts down to 320px in light and dark themes, shared
@@ -662,6 +666,11 @@ an unchanged message keeps its DOM and focus. Availability live regions announce
 source failures and recovery, while routine sample timestamps remain quiet.
 The browser checks observe these live-region mutations; they do not substitute
 for testing with an actual screen reader.
+Chart resize handling responds to width changes outside ResizeObserver's
+delivery cycle, avoiding a WebKit resize loop. Resizing keeps a keyboard-selected
+sample; a stationary mouse event from layout does not replace that selection.
+The checks resize an already-focused chart and then verify genuine pointer input.
+Pending chart resize work and its observer are stopped when the session ends.
 It writes screenshots to the output directory. BMC requests use
 in-memory browser fixtures; the dedicated console's socket is a temporary
 loopback WebSocket held during RFB negotiation. It needs no credentials,

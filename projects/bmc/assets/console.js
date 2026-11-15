@@ -112,6 +112,10 @@ function signedOut() {
     clearInterval(polling);
     clearInterval(metricsTimer);
     clearTimeout(refreshTimer);
+    metricHistory.resize?.disconnect();
+    metricHistory.resize = null;
+    if (metricHistory.frame !== null) cancelAnimationFrame(metricHistory.frame);
+    metricHistory.frame = null;
     if (events) { events.close(); events = null; }
     if (rfb) rfb.disconnect();
     if (audioContext) { audioContext.close(); audioContext = null; }
@@ -596,7 +600,7 @@ const HISTORY_RANGES = ['15m', '1h', '6h', '24h', '7d'];
 const HISTORY_REFRESH_MS = 30000;
 const SERIES_COLOURS = 6;
 const SVG_NS = 'http://www.w3.org/2000/svg';
-const metricHistory = {range: '1h', fetchedAt: 0, loading: false, answers: {}, built: false, resize: null};
+const metricHistory = {range: '1h', fetchedAt: 0, loading: false, answers: {}, built: false, resize: null, frame: null};
 const rangeKey = () => `qrab-bmc:history-range:${session?.user?.subject || 'anonymous'}`;
 function svgNode(tag, attributes = {}, text) {
     const item = document.createElementNS(SVG_NS, tag);
@@ -730,6 +734,9 @@ function drawChart(figure, answer, title) {
     };
     const nearest = t => times.reduce((best, value, index) => Math.abs(value - t) < Math.abs(times[best] - t) ? index : best, 0);
     svg.addEventListener('pointermove', event => {
+        // Layout changes can send a stationary mouse event over a focused
+        // chart. Keep its keyboard selection until the pointer actually moves.
+        if (document.activeElement === svg && event.pointerType === 'mouse' && event.movementX === 0 && event.movementY === 0) return;
         const box = svg.getBoundingClientRect();
         const px = (event.clientX - box.left) * width / box.width;
         show(nearest(answer.start + (px - pad.left) / plotWidth * (answer.end - answer.start)));
@@ -812,7 +819,21 @@ function buildHistory(slot) {
     const help = node('p', 'Point to a chart to inspect a sample. With keyboard focus, use Left/Right arrows or Home/End.', 'panel-help');
     help.id = 'history-help';
     slot.replaceChildren(head, help, ...charts);
-    metricHistory.resize = new ResizeObserver(() => drawHistory(slot));
+    // Drawing changes the panel's height. Only width changes require a new
+    // plot, and DOM writes belong outside ResizeObserver's delivery cycle.
+    let lastWidth = 0, nextWidth = 0;
+    metricHistory.resize = new ResizeObserver(([entry]) => {
+        nextWidth = Math.round(entry.contentRect.width);
+        if (nextWidth <= 0 || nextWidth === lastWidth) return;
+        if (metricHistory.frame !== null) return;
+        metricHistory.frame = requestAnimationFrame(() => {
+            metricHistory.frame = null;
+            if (session && currentTab === 'metrics' && !document.hidden) {
+                drawHistory(slot);
+                lastWidth = nextWidth;
+            }
+        });
+    });
     metricHistory.resize.observe(slot);
     metricHistory.built = true;
 }
