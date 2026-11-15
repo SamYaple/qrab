@@ -66,6 +66,11 @@ pub fn whitespace1(input: &str) -> IResult<&str, &str> {
     take_while1(is_whitespace).parse(input)
 }
 
+/// Python whitespace that stays on one physical schema line.
+pub(crate) fn line_space0(input: &str) -> IResult<&str, &str> {
+    take_while(|c| is_whitespace(c) && !matches!(c, '\r' | '\n')).parse(input)
+}
+
 pub fn clean_lines(input: &str) -> IResult<&str, &str> {
     let comment = if super::parser_version() < (2, 9, 0) {
         any_comment

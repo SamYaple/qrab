@@ -1,5 +1,5 @@
 use super::{
-    common::{line_ending, lines, not_line_ending},
+    common::{is_whitespace, line_ending, line_space0, lines, not_line_ending},
     parser_version,
 };
 use nom::IResult;
@@ -20,11 +20,11 @@ fn not_name_break(c: char) -> bool {
 
 fn take_line_start(input: &str) -> IResult<&str, &str> {
     // Accept optional leading whitespace before # (some versions indent doc blocks)
-    recognize((space0, tag("#"), not(peek(tag("#"))), space0)).parse(input)
+    recognize((line_space0, tag("#"), not(peek(tag("#"))), space0)).parse(input)
 }
 
 fn take_line_end(input: &str) -> IResult<&str, &str> {
-    recognize((space0, line_ending)).parse(input)
+    recognize((line_space0, line_ending)).parse(input)
 }
 
 fn take_empty_line(input: &str) -> IResult<&str, &str> {
@@ -95,18 +95,26 @@ pub struct QapiDocumentation<'i> {
 }
 
 fn documentation_line(input: &str) -> IResult<&str, &str> {
-    let (input, _) = (space0, tag("#"), not(peek(tag("#"))), opt(tag(" "))).parse(input)?;
+    let (input, _) = (line_space0, tag("#"), not(peek(tag("#"))), opt(tag(" "))).parse(input)?;
     terminated(not_line_ending, line_ending).parse(input)
 }
 
 fn documentation_end(input: &str) -> IResult<&str, &str> {
     recognize((
-        space0,
+        line_space0,
         tag("##"),
-        space0,
         peek(nom::branch::alt((line_ending, nom::combinator::eof))),
     ))
     .parse(input)
+}
+
+fn documentation_start(input: &str) -> IResult<&str, &str> {
+    let ending = if parser_version() < (2, 9, 0) {
+        take_line_end
+    } else {
+        line_ending
+    };
+    terminated(preceded(line_space0, tag("##")), ending).parse(input)
 }
 
 impl<'i> QapiDocumentation<'i> {
@@ -135,21 +143,21 @@ impl<'i> QapiDocumentation<'i> {
 
     fn parse_common(input: &'i str, legacy: bool) -> IResult<&'i str, Self> {
         let start = input;
-        let (input, _) = (space0, tag("##")).parse(input)?;
+        let (input, _) = (line_space0, tag("##")).parse(input)?;
         let (mut input, opening) = terminated(not_line_ending, line_ending).parse(input)?;
-        let header = if legacy && opening.trim_start().starts_with('@') {
-            opening.trim()
+        let header = if legacy && opening.trim_start_matches(is_whitespace).starts_with('@') {
+            opening.trim_matches(is_whitespace)
         } else {
-            if !opening.trim().is_empty() {
+            if !opening.is_empty() && (!legacy || !opening.trim_matches(is_whitespace).is_empty()) {
                 return Err(nom::Err::Error(Error::new(start, ErrorKind::Tag)));
             }
             loop {
-                let (next, _) = many0((space0, line_ending)).parse(input)?;
+                let (next, _) = many0((line_space0, line_ending)).parse(input)?;
                 input = next;
                 let (next, line) = documentation_line(input)?;
                 input = next;
-                if !line.trim().is_empty() {
-                    break line.trim();
+                if !line.trim_matches(is_whitespace).is_empty() {
+                    break line.trim_matches(is_whitespace);
                 }
             }
         };
@@ -162,10 +170,10 @@ impl<'i> QapiDocumentation<'i> {
         loop {
             let end = if legacy {
                 recognize((
-                    space0,
+                    line_space0,
                     tag("##"),
                     nom::bytes::complete::take_while(|c| c == '#'),
-                    space0,
+                    line_space0,
                     peek(nom::branch::alt((line_ending, nom::combinator::eof))),
                 ))
                 .parse(input)
@@ -180,7 +188,7 @@ impl<'i> QapiDocumentation<'i> {
                 doc.parse_lines(&lines, legacy, start)?;
                 return Ok((next, doc));
             }
-            if let Ok((next, _)) = (space0::<&str, Error<&str>>, line_ending).parse(input) {
+            if let Ok((next, _)) = (line_space0, line_ending).parse(input) {
                 input = next;
                 continue;
             }
@@ -416,8 +424,7 @@ impl<'i> QapiSectionDocumentation<'i> {
     }
 
     fn parse_common(input: &'i str, _allow_leading_ws: bool) -> IResult<&'i str, Self> {
-        // Always accept optional leading whitespace (harmless)
-        let (input, _) = terminated(preceded(space0, tag("##")), take_line_end).parse(input)?;
+        let (input, _) = documentation_start(input)?;
         let (input, _) = many0(take_empty_line).parse(input)?;
         // Section docs start with "= Section Name" or similar
         let (input, name) = preceded(
@@ -431,7 +438,11 @@ impl<'i> QapiSectionDocumentation<'i> {
         let (input, _) = many0(take_empty_line).parse(input)?;
         let (input, desc_str) = opt(take_multiline_text).parse(input)?;
         let (input, _) = many0(take_empty_line).parse(input)?;
-        let (input, _) = preceded(space0, tag("##")).parse(input)?;
+        let (input, _) = if parser_version() < (2, 9, 0) {
+            preceded(line_space0, tag("##")).parse(input)
+        } else {
+            documentation_end(input)
+        }?;
 
         let description = desc_str.map(|s| lines(s).collect()).unwrap_or_default();
 
@@ -480,12 +491,9 @@ impl<'i> QapiFreeformDoc<'i> {
     }
 
     fn parse_common(input: &'i str, _allow_leading_ws: bool) -> IResult<&'i str, Self> {
-        // Always accept optional leading whitespace (harmless)
         let start = input;
-        let (input, _) = terminated(preceded(space0, tag("##")), take_line_end).parse(input)?;
-        // Don't match if this is a doc block (starts with # @Name)
-        // A freeform doc has NO @Name line — it's just free text
-        // Check if this looks like a type doc block (has @Name)
+        let (input, _) = documentation_start(input)?;
+        // Named documentation must reach its definition parser.
         let check_input = {
             let mut tmp = input;
             while let Ok((next, _)) = take_empty_line(tmp) {
@@ -493,18 +501,20 @@ impl<'i> QapiFreeformDoc<'i> {
             }
             tmp
         };
-        if check_input.trim_start_matches(['#', ' ']).starts_with('@') {
+        if documentation_line(check_input)
+            .is_ok_and(|(_, line)| line.trim_start_matches(is_whitespace).starts_with('@'))
+        {
             return Err(nom::Err::Error(Error::new(start, ErrorKind::Tag)));
         }
         // Consume lines starting with # until ##
         let mut input = input;
         loop {
-            if let Ok((next, _)) = preceded(
-                space0::<&str, Error<&str>>,
-                tag::<&str, &str, Error<&str>>("##"),
-            )
-            .parse(input)
-            {
+            let end = if parser_version() < (2, 9, 0) {
+                preceded(line_space0, tag::<&str, &str, Error<&str>>("##")).parse(input)
+            } else {
+                documentation_end(input)
+            };
+            if let Ok((next, _)) = end {
                 let consumed = &start[..start.len() - next.len()];
                 return Ok((next, Self { text: consumed }));
             }

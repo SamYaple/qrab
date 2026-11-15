@@ -50,6 +50,11 @@ LF, CRLF or CR line endings. Ordinary literals and documentation borrow the
 original source; escaped literals own decoded text. Parse errors still report
 the original line and column. A differential lexical corpus checks
 acceptance against the parser in the pinned QEMU tree.
+Documentation markers allow Python whitespace before `#`, including Unicode,
+but formal opening and closing `##` markers must end the line exactly.
+Library callers can use `parse_schema_with_version` for one file or
+`with_parser_version` around synchronous parsing and lowering. Both restore
+the caller's grammar, including when the operation fails or unwinds.
 Legacy comments naming a later definition in the same file follow that
 definition across intervening helpers; existing attached documentation wins.
 Formal symbol checks begin in 2.9; global member/feature links follow the 4.2
@@ -200,6 +205,9 @@ payloads whose Rust types carry no QEMU metadata. Invalid outgoing values name
 the unavailable type or variant and peer version. Explicitly scoped decoding
 also checks type and variant lifetimes, including union dispatch. Unscoped
 decoding remains permissive so recorded and newer replies can still be inspected.
+Union serialization also checks that a present typed payload matches its active
+discriminator, for both flat and historical nested layouts. The branch trait's
+optional `wire_tag` hook keeps handwritten implementations compatible.
 
 Definition documentation is parsed as complete comment blocks. A closing `##`
 is never treated as prose, and malformed modern blocks cannot fall back to

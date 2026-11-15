@@ -79,6 +79,43 @@ fn lexical_acceptance_matches_qemu() {
     let valid = tokens.concat();
     let documented =
         "##\n# @E:\n# Summary.\n#\n# @one: First.\n# @two: Second.\n#\n# Since: 1.0\n##\n";
+    let doc_blocks = [
+        documented.to_string(),
+        format!("##\n# = Section\n# Body.\n##\n{documented}"),
+        format!("##\n# General prose.\n##\n{documented}"),
+    ];
+    for prefix in [" ", "\t", "\u{a0}", "\u{2003}", "\u{1c}", "\u{2028}"] {
+        for ending in ["\n", "\r\n", "\r"] {
+            for block in &doc_blocks {
+                let doc = block
+                    .lines()
+                    .map(|line| format!("{prefix}{line}{ending}"))
+                    .collect::<String>();
+                cases.push(format!("{doc}{valid}"));
+                for marker in [
+                    0,
+                    block
+                        .lines()
+                        .enumerate()
+                        .find_map(|(index, line)| (index > 0 && line == "##").then_some(index))
+                        .unwrap(),
+                ] {
+                    let doc = block
+                        .lines()
+                        .enumerate()
+                        .map(|(index, line)| {
+                            if index == marker {
+                                format!("{line}{prefix}{ending}")
+                            } else {
+                                format!("{line}{ending}")
+                            }
+                        })
+                        .collect::<String>();
+                    cases.push(format!("{doc}{valid}"));
+                }
+            }
+        }
+    }
     for ending in ["\n", "\r\n", "\r"] {
         cases.push(format!(
             "{}{valid}",
