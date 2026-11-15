@@ -1,6 +1,6 @@
 //! Read-only live oracle. Execute in the attested container; do not export keys.
-//! The executable can be staged by the manager in its shared control directory,
-//! shared with Redfish, then removed after the disposable VM test.
+//! Use contrib/probe-observability.sh to run in memory within that container.
+//! The VM control volume is deliberately small and is not a staging area.
 use anyhow::{ensure, Context, Result};
 use qrab_observability::ID;
 use qrab_redfish::history::{Metric, PodIdentity};

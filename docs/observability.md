@@ -38,7 +38,8 @@ its default is `127.0.0.1:9181`.
 
 Prometheus's PodMonitor sends scrapes to `127.0.0.1:19993`, supplying namespace,
 VM UID and Pod IP from discovery metadata. The adapter accepts only a current
-VM-owned, nonterminating Redfish Pod at that address. It fixes the remote port
+VM-owned, nonterminating Pod with a native, restartable Redfish init container
+at that address. It fixes the remote port
 to 9181, path to `/metrics` and expected SVID to that VM's `/redfish` role.
 No URL, proxy destination or certificate identity comes from the caller.
 
@@ -102,7 +103,11 @@ Run `workload_probe metrics qrab VM-UID POD-IP` inside an attested telemetry
 container, and `workload_probe history qrab VM-UID POD-NAME` inside that VM's
 Redfish container. It prints only identity, HTTP status, body size and series
 count. Using another VM's Pod name tests the gateway's scope rejection.
-For a disposable VM, an administrator can stage the executable through the
-manager's shared control directory and remove it after checking; it does not
-need a persistent mount or any exported key/token. This tests workload
-transport and history scope; it does not substitute for browser OIDC testing.
+Use `bash contrib/probe-observability.sh POD-NAMESPACE POD CONTAINER metrics|history VM-NAMESPACE VM-UID POD-IP|POD-NAME`
+for the current x86_64 Linux cluster. The wrapper strips the local diagnostic
+build, bounds it to32MiB and executes it from an anonymous memfd inside the
+attested container. It uses the runtime's existing Perl and normal kernel/
+seccomp policy; refusal fails the diagnostic, without a disk or plaintext
+fallback. The VM's bounded1MiB control volume is never a staging area.
+This tests workload transport and history scope, without an exported key or
+token; it does not substitute for browser OIDC testing.

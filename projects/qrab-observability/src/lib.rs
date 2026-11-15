@@ -87,10 +87,15 @@ impl Inventory {
                             && o.kind == "VirtualMachine"
                             && o.api_version == "qrab.yapplesauce.com/v1alpha1"
                     })
-                    || !pod
-                        .spec
-                        .as_ref()
-                        .is_some_and(|s| s.containers.iter().any(|c| c.name == "redfish"))
+                    || !pod.spec.as_ref().is_some_and(|s| {
+                        s.init_containers
+                            .as_deref()
+                            .unwrap_or_default()
+                            .iter()
+                            .any(|c| {
+                                c.name == "redfish" && c.restart_policy.as_deref() == Some("Always")
+                            })
+                    })
                 {
                     continue;
                 }
@@ -114,10 +119,28 @@ impl Inventory {
                 );
             }
         }
-        *self
+        let counts = (
+            selected.len(),
+            selected.values().map(|vm| vm.pods.len()).sum::<usize>(),
+        );
+        let mut current = self
             .0
             .write()
-            .map_err(|_| anyhow::anyhow!("inventory poisoned"))? = Some(Snapshot {
+            .map_err(|_| anyhow::anyhow!("inventory poisoned"))?;
+        let previous = current.as_ref().map(|s| {
+            (
+                s.vms.len(),
+                s.vms.values().map(|vm| vm.pods.len()).sum::<usize>(),
+            )
+        });
+        if previous != Some(counts) {
+            tracing::info!(
+                eligible_vms = counts.0,
+                owned_pods = counts.1,
+                "VM observability inventory updated"
+            );
+        }
+        *current = Some(Snapshot {
             refreshed: Instant::now(),
             vms: selected,
         });
@@ -389,7 +412,9 @@ mod tests {
     fn pod(name: &str, uid: &str, ip: &str) -> Pod {
         serde_json::from_value(json!({"metadata":{"name":name,"namespace":"qrab",
             "ownerReferences":[{"apiVersion":"qrab.yapplesauce.com/v1alpha1","kind":"VirtualMachine","name":uid,"uid":uid,"controller":true}]},
-            "spec":{"containers":[{"name":"redfish","image":"unused"}]},"status":{"podIP":ip}})).unwrap()
+            "spec":{"containers":[{"name":"manager","image":"unused"}],
+                "initContainers":[{"name":"redfish","image":"unused","restartPolicy":"Always"}]},
+            "status":{"podIP":ip}})).unwrap()
     }
     fn inventory() -> Inventory {
         let inventory = Inventory::default();
@@ -442,8 +467,20 @@ mod tests {
             ));
         let mut wrong = pod("forged", "one", "10.244.3.1");
         wrong.metadata.owner_references.as_mut().unwrap()[0].controller = Some(false);
+        let mut nonnative = pod("ordinary", "one", "10.244.2.8");
+        let mut container = nonnative
+            .spec
+            .as_mut()
+            .unwrap()
+            .init_containers
+            .take()
+            .unwrap()
+            .pop()
+            .unwrap();
+        container.restart_policy = None;
+        nonnative.spec.as_mut().unwrap().containers.push(container);
         inventory
-            .replace("qrab", &[vm("one")], &[terminating, wrong])
+            .replace("qrab", &[vm("one")], &[terminating, wrong, nonnative])
             .unwrap();
         assert!(!inventory.authorizes(&id(VM_ID).unwrap()));
     }
