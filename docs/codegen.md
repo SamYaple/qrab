@@ -238,6 +238,10 @@ Structs and tagged unions retain their shared object field history.
 Named data types that disappear and return also receive separate lifetime-gated
 representations, even when the wire kind is unchanged. Their union helpers
 follow the same lifetime; the restored declaration keeps the ordinary Rust name.
+Commands and events also retain separate historical lifetimes. A persistent
+named argument type stays usable while an absent command is represented by
+separate request DTOs. Explicit peer decoding checks type lifetimes; unscoped
+record inspection remains permissive.
 
 QAPI build conditions describe the remote QEMU or guest-agent build. They are
 retained in generated documentation, never translated into Rust host OS gates.

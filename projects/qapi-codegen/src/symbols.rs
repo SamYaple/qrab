@@ -40,6 +40,10 @@ pub(crate) struct SchemaNames {
     shared_roots: HashSet<String>,
     declarations: BTreeMap<String, BTreeMap<(u32, u32, u32), Kind>>,
     type_runs: BTreeMap<String, BTreeMap<(u32, u32, u32), String>>,
+    commands: BTreeMap<String, BTreeSet<(u32, u32, u32)>>,
+    events: BTreeMap<String, BTreeSet<(u32, u32, u32)>>,
+    command_runs: BTreeMap<String, BTreeMap<(u32, u32, u32), String>>,
+    event_runs: BTreeMap<String, BTreeMap<(u32, u32, u32), String>>,
 }
 
 impl SchemaNames {
@@ -49,6 +53,12 @@ impl SchemaNames {
         self.roles.extend(other.roles);
         self.union_owners.extend(other.union_owners);
         self.shared_requests.extend(other.shared_requests);
+        for (name, versions) in other.commands {
+            self.commands.entry(name).or_default().extend(versions);
+        }
+        for (name, versions) in other.events {
+            self.events.entry(name).or_default().extend(versions);
+        }
         for (name, versions) in other.declarations {
             self.declarations.entry(name).or_default().extend(versions);
         }
@@ -70,6 +80,10 @@ impl SchemaNames {
                 QapiSchemaToken::Union(value) => value.name.as_ref(),
                 QapiSchemaToken::Command(value) => value.name.as_ref(),
                 QapiSchemaToken::Event(value) => {
+                    self.events
+                        .entry(value.name.to_string())
+                        .or_default()
+                        .insert(crate::parser_version());
                     self.roles
                         .entry(rustify_name(&format!("{}Event", value.name)))
                         .or_default();
@@ -84,6 +98,10 @@ impl SchemaNames {
                     self.union_owners.insert(name.to_owned());
                 }
                 QapiSchemaToken::Command(value) => {
+                    self.commands
+                        .entry(value.name.to_string())
+                        .or_default()
+                        .insert(crate::parser_version());
                     self.roles.entry(format!("{root}Command")).or_default();
                     if let Some(crate::MembersOrRef::Ref(data)) = &value.data
                         && root == rustify_name(data)
@@ -182,9 +200,31 @@ impl SchemaNames {
             }
             self.type_runs.insert(root.clone(), assigned);
         }
+        for (raw, versions) in &self.commands {
+            let runs = presence_runs(&self.versions, versions);
+            if runs.len() > 1 {
+                let root = rustify_name(raw);
+                let mut names = BTreeMap::new();
+                for (index, since) in runs.into_iter().rev().enumerate() {
+                    names.insert(
+                        since,
+                        if index == 0 {
+                            String::new()
+                        } else {
+                            legacy_name(&mut self.names, &root)
+                        },
+                    );
+                }
+                self.command_runs.insert(raw.clone(), names);
+            }
+        }
         // A later named DTO can continue an earlier anonymous request type.
         for (root, data, version) in &self.shared_requests {
-            if &self.type_name_at(data, *version) == root {
+            let split = self
+                .command_runs
+                .keys()
+                .any(|name| rustify_name(name) == *root);
+            if !split && &self.type_name_at(data, *version) == root {
                 self.shared_roots.insert(root.clone());
             }
         }
@@ -212,6 +252,45 @@ impl SchemaNames {
             }
             *allocated = name;
         }
+        for (raw, versions) in &self.events {
+            let runs = presence_runs(&self.versions, versions);
+            if runs.len() > 1 {
+                let root = self.roles[&rustify_name(&format!("{raw}Event"))].clone();
+                let mut names = BTreeMap::new();
+                for (index, since) in runs.into_iter().rev().enumerate() {
+                    names.insert(
+                        since,
+                        if index == 0 {
+                            root.clone()
+                        } else {
+                            legacy_name(&mut self.names, &root)
+                        },
+                    );
+                }
+                self.event_runs.insert(raw.clone(), names);
+            }
+        }
+    }
+
+    pub fn split_command(&self, name: &str) -> bool {
+        self.command_runs.contains_key(name)
+    }
+
+    pub fn historical_command(&self, name: &str) -> Option<String> {
+        self.command_runs
+            .get(name)
+            .and_then(|runs| runs.range(..=crate::parser_version()).next_back())
+            .map(|(_, name)| name)
+            .filter(|name| !name.is_empty())
+            .cloned()
+    }
+
+    pub fn event_name(&self, name: &str) -> String {
+        self.event_runs
+            .get(name)
+            .and_then(|runs| runs.range(..=crate::parser_version()).next_back())
+            .map(|(_, name)| name.clone())
+            .unwrap_or_else(|| self.role(&rustify_name(&format!("{name}Event"))))
     }
 
     pub fn role(&self, preferred: &str) -> String {
@@ -317,4 +396,30 @@ impl SchemaNames {
             .map(|(name, _)| name.to_owned())
             .collect()
     }
+}
+
+fn presence_runs(
+    all: &BTreeSet<(u32, u32, u32)>,
+    present: &BTreeSet<(u32, u32, u32)>,
+) -> Vec<(u32, u32, u32)> {
+    let mut previous = false;
+    all.iter()
+        .filter_map(|version| {
+            let active = present.contains(version);
+            let start = active && !previous;
+            previous = active;
+            start.then_some(*version)
+        })
+        .collect()
+}
+
+fn legacy_name(names: &mut HashSet<String>, root: &str) -> String {
+    let base = format!("{root}Legacy");
+    let mut name = base.clone();
+    let mut suffix = 2;
+    while !names.insert(name.clone()) {
+        name = format!("{base}{suffix}");
+        suffix += 1;
+    }
+    name
 }

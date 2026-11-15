@@ -374,7 +374,7 @@ fn process_version_schema_with_names(
                     union_names.insert(value.name.to_string(), (branch, discriminator));
                 }
                 QapiSchemaToken::Event(value) => {
-                    let name = symbols.role(&rustify_name(&format!("{}Event", value.name)));
+                    let name = symbols.event_name(&value.name);
                     event_names.insert(value.name.to_string(), name);
                 }
                 QapiSchemaToken::Command(value) => {
@@ -611,6 +611,8 @@ fn process_version_schema_with_names(
     );
     occupied.extend(enums_lookup.values().map(|value| symbol_name(&value.name)));
     for v in unprocessed_commands {
+        let split = symbols.split_command(&v.name);
+        let historical = symbols.historical_command(&v.name);
         if let Some(crate::MembersOrRef::Ref(data)) = &v.data {
             anyhow::ensure!(
                 structs_lookup.contains_key::<str>(data.as_ref()),
@@ -639,6 +641,17 @@ fn process_version_schema_with_names(
             Some(if array { format!("Vec<{name}>") } else { name })
         });
         let mut processed = process_command(v, &structs_lookup);
+        if let Some(name) = historical {
+            processed
+                .meta
+                .attributes
+                .retain(|attr| !matches!(attr, Attribute::Item { name, .. } if name == "name"));
+            processed
+                .meta
+                .attributes
+                .push(Attribute::with_value("name", processed.name.clone()));
+            processed.name = name;
+        }
         if let Some(returns) = returns {
             for attr in &mut processed.meta.attributes {
                 if let Attribute::Item { name, value } = attr
@@ -652,7 +665,7 @@ fn process_version_schema_with_names(
 
         if let Some(ref ref_name) = data_ref_name {
             let ref_key = rustify_name(ref_name);
-            if cmd_key == ref_key {
+            if !split && cmd_key == ref_key {
                 // Command and its data ref share the same rustified name
                 // (e.g. command `blockdev-snapshot-sync` → struct
                 // `BlockdevSnapshotSync`). Merge command attributes onto the

@@ -358,6 +358,16 @@ fn version_range_check(since: Option<&str>, until: Option<&str>) -> Option<Token
     }
 }
 
+fn type_deserialization_guard(name: &syn::Ident, attrs: &TypeAttrs) -> TokenStream2 {
+    version_range_check(attrs.since.as_deref(), attrs.until.as_deref()).map(|active| {
+        quote! {
+            if qapi::scoped_qemu_version().is_some() && !(#active) {
+                return Err(serde::de::Error::custom(qapi::unavailable_type_message(stringify!(#name))));
+            }
+        }
+    }).unwrap_or_default()
+}
+
 // Unscoped decoding uses the latest layout; explicit contexts can select an older one.
 fn simple_union_layout(ta: &TypeAttrs, decoding: bool) -> TokenStream2 {
     if ta.simple_union.is_empty() {
@@ -684,9 +694,9 @@ fn gen_enum(
     };
 
     let de = if is_string_enum {
-        gen_unit_enum_de(&enum_name, &variants)
+        gen_unit_enum_de(&enum_name, &variants, ta)
     } else {
-        gen_alt_de(&enum_name, &variants)
+        gen_alt_de(&enum_name, &variants, ta)
     };
 
     // Generate Display impl for unit enums (prints the QAPI wire name)
@@ -801,7 +811,8 @@ fn gen_unit_enum_ser(name: &syn::Ident, variants: &[VariantInfo], ta: &TypeAttrs
     }
 }
 
-fn gen_unit_enum_de(name: &syn::Ident, variants: &[VariantInfo]) -> TokenStream2 {
+fn gen_unit_enum_de(name: &syn::Ident, variants: &[VariantInfo], ta: &TypeAttrs) -> TokenStream2 {
+    let type_guard = type_deserialization_guard(name, ta);
     let deserializer_ty = HelperNames::for_enum(name, variants).ty("Deserializer");
     let arms: Vec<TokenStream2> = variants
         .iter()
@@ -827,6 +838,7 @@ fn gen_unit_enum_de(name: &syn::Ident, variants: &[VariantInfo]) -> TokenStream2
         impl<'de> serde::Deserialize<'de> for #name {
             fn deserialize<#deserializer_ty>(deserializer: #deserializer_ty) -> Result<Self, #deserializer_ty::Error>
             where #deserializer_ty: serde::Deserializer<'de> {
+                #type_guard
                 let s = <String as serde::Deserialize>::deserialize(deserializer)?;
                 match s.as_str() {
                     #(#arms)*
@@ -925,7 +937,8 @@ fn alt_variant_priority(kind: &VariantKind) -> u8 {
     }
 }
 
-fn gen_alt_de(name: &syn::Ident, variants: &[VariantInfo]) -> TokenStream2 {
+fn gen_alt_de(name: &syn::Ident, variants: &[VariantInfo], ta: &TypeAttrs) -> TokenStream2 {
+    let type_guard = type_deserialization_guard(name, ta);
     let deserializer_ty = HelperNames::for_enum(name, variants).ty("Deserializer");
     // Stable-sort variants by specificity so overlapping shapes (e.g. a
     // primitive vs an all-optional-fields struct) resolve to the least
@@ -965,6 +978,7 @@ fn gen_alt_de(name: &syn::Ident, variants: &[VariantInfo]) -> TokenStream2 {
         impl<'de> serde::Deserialize<'de> for #name {
             fn deserialize<#deserializer_ty>(deserializer: #deserializer_ty) -> Result<Self, #deserializer_ty::Error>
             where #deserializer_ty: serde::Deserializer<'de> {
+                #type_guard
                 let value = <serde_json::Value as serde::Deserialize>::deserialize(deserializer)?;
                 #(#try_arms)*
                 Err(serde::de::Error::custom(concat!("no matching variant for ", stringify!(#name))))
@@ -1155,7 +1169,7 @@ fn gen_struct(
     let de = if has_flatten {
         gen_struct_de_flatten(&struct_name, &fields, ta)
     } else {
-        gen_struct_de(&struct_name, &fields)
+        gen_struct_de(&struct_name, &fields, ta)
     };
 
     let cmd = if ta.is_command {
@@ -1661,7 +1675,8 @@ impl HelperNames {
     }
 }
 
-fn gen_struct_de(name: &syn::Ident, fields: &[FieldInfo]) -> TokenStream2 {
+fn gen_struct_de(name: &syn::Ident, fields: &[FieldInfo], ta: &TypeAttrs) -> TokenStream2 {
+    let type_guard = type_deserialization_guard(name, ta);
     let deserializer_ty = HelperNames::new(name, fields).ty("Deserializer");
     let mut names = HelperNames::new(name, fields);
     let visitor_ty = names.ty("Visitor");
@@ -1742,6 +1757,7 @@ fn gen_struct_de(name: &syn::Ident, fields: &[FieldInfo]) -> TokenStream2 {
         impl<'de> serde::Deserialize<'de> for #name {
             fn deserialize<#deserializer_ty>(deserializer: #deserializer_ty) -> Result<Self, #deserializer_ty::Error>
             where #deserializer_ty: serde::Deserializer<'de> {
+                #type_guard
                 struct #visitor_ty;
                 impl<'de> serde::de::Visitor<'de> for #visitor_ty {
                     type Value = #name;
@@ -1769,6 +1785,7 @@ fn gen_struct_de(name: &syn::Ident, fields: &[FieldInfo]) -> TokenStream2 {
 }
 
 fn gen_struct_de_flatten(name: &syn::Ident, fields: &[FieldInfo], ta: &TypeAttrs) -> TokenStream2 {
+    let type_guard = type_deserialization_guard(name, ta);
     let deserializer_ty = HelperNames::new(name, fields).ty("Deserializer");
     let mut names = HelperNames::new(name, fields);
     let map_var = names.ident("map");
@@ -1929,6 +1946,7 @@ fn gen_struct_de_flatten(name: &syn::Ident, fields: &[FieldInfo], ta: &TypeAttrs
         impl<'de> serde::Deserialize<'de> for #name {
             fn deserialize<#deserializer_ty>(deserializer: #deserializer_ty) -> Result<Self, #deserializer_ty::Error>
             where #deserializer_ty: serde::Deserializer<'de> {
+                #type_guard
                 let #value_var = <serde_json::Value as serde::Deserialize>::deserialize(deserializer)?;
                 let mut #map_var = match #value_var {
                     serde_json::Value::Object(m) => m,
