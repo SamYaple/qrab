@@ -294,10 +294,14 @@ def long_content_checks(browser, width, theme, height=1000, scale=1):
 
 def console_state_checks(browser, width, theme):
     with native_console_socket() as (origin, opened, closed):
-        context = browser_context(browser, viewport={'width': width, 'height': 1000}, color_scheme=theme)
+        context = browser_context(browser, viewport={'width': width, 'height': 320 if width == 320 else 1000}, color_scheme=theme)
         fixture = install_bmc(context, legacy=True, origin=origin)
         page = context.new_page()
         page.clock.install()
+        def focused_in_view(target):
+            expect(target).to_be_focused()
+            box = target.bounding_box()
+            assert box['y'] >= 0 and box['y'] + box['height'] <= page.viewport_size['height'], 'Focused recovery must be visible'
         errors = []
         console_errors = []
         page.on('pageerror', lambda error: errors.append(str(error)))
@@ -326,7 +330,7 @@ def console_state_checks(browser, width, theme):
         more.locator('summary').focus()
         page.clock.fast_forward(3100)
         expect(more).to_be_hidden()
-        expect(page.locator('#power-chip')).to_be_focused()
+        focused_in_view(page.locator('#power-chip'))
         expect(reset).to_be_disabled()
         expect(reset).to_have_text('Reset')
         reset.dispatch_event('click')
@@ -348,7 +352,9 @@ def console_state_checks(browser, width, theme):
         expect(page.locator('#power-action-error')).to_be_hidden()
         expect(pause).to_be_disabled()
         expect(pause).to_have_text('Sending pause…')
+        expect(pause).to_be_focused()
         expect(pause).to_have_attribute('aria-busy', 'true')
+        expect(pause).to_have_attribute('aria-disabled', 'true')
         expect(page.locator('#power-action-status')).to_have_text('Sending pause…')
         pause.dispatch_event('click')
         assert len(fixture['posts']) == previous_posts + 1
@@ -358,14 +364,18 @@ def console_state_checks(browser, width, theme):
         fixture['hold_power'] = True
         fixture['pending_posts'].pop().fulfill(status=204)
         expect(pause).to_have_text('Updating state…')
+        expect(pause).to_be_focused()
         expect(page.locator('#power-action-status')).to_contain_text('request accepted. Updating state')
         page.clock.fast_forward(3100)
         expect(pause).to_be_disabled()
         assert len(fixture['pending_power']) == 1, 'Follow-up state reads must coalesce'
         fixture['hold_power'] = False
         pending_read, data = fixture['pending_power'].pop()
+        if width == 390:
+            page.locator('.back').focus()
         pending_read.fulfill(json=data)
         expect(page.locator('[data-power=Resume]')).to_be_enabled()
+        focused_in_view(page.locator('.back' if width == 390 else '#power-chip'))
         expect(pause).to_have_text('Pause')
         expect(pause).to_have_attribute('aria-busy', 'false')
         expect(page.locator('#power-action-status')).to_have_text('Pause request accepted.')
@@ -406,6 +416,10 @@ def console_state_checks(browser, width, theme):
         if width == 1440:
             page.evaluate("document.querySelector('#screen').requestFullscreen()")
             assert page.evaluate('document.fullscreenElement.id') == 'screen'
+        elif width == 320:
+            more.locator('summary').focus()
+            more.locator('summary').scroll_into_view_if_needed()
+            assert page.evaluate('scrollY > 0')
         else:
             page.locator('#connect').focus()
         fixture['expired'] = True
@@ -414,7 +428,7 @@ def console_state_checks(browser, width, theme):
         expect(page.locator('#power-action-status')).to_be_hidden()
         expect(reset).to_have_attribute('aria-busy', 'false')
         if width != 1440:
-            expect(page.locator('#console-recovery a')).to_be_focused()
+            focused_in_view(page.locator('#console-recovery a'))
         expect(page.locator('#screen canvas')).to_have_count(0)
         wait_native(page, closed)
         if width == 1440:
@@ -440,6 +454,15 @@ def console_state_checks(browser, width, theme):
         assert page.locator('#power button:enabled').count() == 0
         no_overflow(page, 'console-expired', width)
         capture(page, args.output / f'console-expired-{theme}-{width}.png')
+        # Expiry while navigating elsewhere must preserve that focus.
+        fixture['expired'] = False
+        page.goto(origin + base + '/console')
+        expect(page.locator('[data-power=Resume]')).to_be_enabled()
+        page.locator('.back').focus()
+        fixture['expired'] = True
+        page.clock.fast_forward(3100)
+        expect(page.locator('#console-recovery')).to_be_visible()
+        focused_in_view(page.locator('.back'))
         assert not errors, errors
         context.close()
 

@@ -13,6 +13,15 @@ let expired = false, pollTask = null;
 function updateText(node, text) {
     if (node.textContent !== text) node.textContent = text;
 }
+function focusInView(node) {
+    node.focus({preventScroll: true});
+    const box = node.getBoundingClientRect();
+    const header = document.querySelector('header');
+    const top = header && getComputedStyle(header).position === 'sticky' ? header.getBoundingClientRect().bottom : 0;
+    if (box.top < top || box.bottom > innerHeight || box.left < 0 || box.right > innerWidth) {
+        node.scrollIntoView({block: 'center', inline: 'nearest'});
+    }
+}
 
 function showError(message) {
     updateText(element('console-error'), message);
@@ -66,7 +75,10 @@ function sessionEnded() {
         audioButton.setAttribute('aria-pressed', 'false');
     }
     leaveFullscreen.then(() => {
-        if (hadConsoleFocus) element('console-recovery').querySelector('a').focus({preventScroll: true});
+        if (hadConsoleFocus) {
+            const link = element('console-recovery').querySelector('a');
+            focusInView(link);
+        }
     });
 }
 
@@ -283,6 +295,7 @@ function describe() {
     return [POWER_STATES[state.power_state] || state.power_state || 'Unknown', [health, phase].filter(Boolean).join(' · ')];
 }
 function render() {
+    const focused = document.activeElement;
     const [chip, detail] = describe();
     updateText(element('power-chip'), chip);
     element('power-chip').dataset.state = chip.toLowerCase();
@@ -295,13 +308,18 @@ function render() {
         else if (button !== armed) updateText(button, button.dataset.label);
         if (button.getAttribute('aria-busy') !== String(pending)) button.setAttribute('aria-busy', String(pending));
         button.hidden = !offered(button);
-        button.disabled = expired || busy || !offered(button) || !allowed(button.dataset.power);
+        const blocked = expired || busy || !offered(button) || !allowed(button.dataset.power);
+        if (button.getAttribute('aria-disabled') !== String(blocked)) button.setAttribute('aria-disabled', String(blocked));
+        // Keep the active request focusable while busy; the handler still
+        // rejects every further send. Other unavailable controls stay native-disabled.
+        button.disabled = blocked && !pending;
     }
     if (morePower) {
         morePower.hidden = expired || [...morePower.querySelectorAll('[data-power]')].every(button => !offered(button));
         if (morePower.hidden) morePower.open = false;
-        if (morePower.hidden && menuFocused && !expired) element('power-chip').focus({preventScroll: true});
     }
+    const unavailableFocus = buttons.includes(focused) && (focused.disabled || focused.hidden);
+    if (!expired && (unavailableFocus || (morePower?.hidden && menuFocused))) focusInView(element('power-chip'));
 }
 function disarm() {
     clearTimeout(armTimer);

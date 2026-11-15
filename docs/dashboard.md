@@ -152,6 +152,12 @@ the console connection status. Action failures have a separate alert so a
 failed state read cannot overwrite the command's outcome. A new request clears
 the previous action error; session expiry clears pending feedback and late
 responses cannot restore it.
+The active pending control uses `aria-disabled` with the existing busy guard,
+so keyboard focus survives the request. Other unavailable controls remain
+natively disabled. If the focused action becomes unavailable after settling,
+focus moves to the power state; unrelated navigation focus is preserved.
+Power-state and sign-in recovery targets are brought into view, including in
+a scrolled 320×320 window.
 
 Dashboard HTML errors keep their HTTP status and provide a next step: sign-in
 after expiry, a VM/list link for failed requests, and an explanation for access
