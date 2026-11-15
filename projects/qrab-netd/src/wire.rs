@@ -29,16 +29,22 @@
 //! ```
 use serde::{Deserialize, Serialize};
 use std::{
-    io::{self, BufRead, BufReader, IoSlice, IoSliceMut, Write},
+    io::{self, IoSlice, IoSliceMut, Read, Write},
     os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd},
     os::unix::net::UnixStream,
     path::Path,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 /// Queues per NIC the agent hands out at most (QEMU queue pairs).
 pub const MAX_QUEUES: u8 = 8;
 const MAX_MESSAGE: usize = 4096;
+/// How long a client has to send its whole request line. A per-read timeout
+/// alone would let a peer that dribbles one byte at a time hold an agent
+/// thread for hours.
+pub const REQUEST_DEADLINE: Duration = Duration::from_secs(5);
+/// Longest NIC name accepted (a DNS label; the CRD allows 15).
+pub const MAX_NIC_NAME: usize = 63;
 
 /// What a request asks for. `fds` hands out the NIC's queues; the others
 /// drive a live-migration handoff of the NIC's anchor on this node
@@ -97,13 +103,68 @@ pub struct Grant {
     pub vhosts: Vec<OwnedFd>,
 }
 
-/// Read one request line, bounded in size.
+/// Read one request line, bounded in size and in total time
+/// ([`REQUEST_DEADLINE`]).
 pub fn read_request(stream: &UnixStream) -> io::Result<Request> {
-    let mut line = String::new();
-    BufReader::new(io::Read::take(stream, MAX_MESSAGE as u64)).read_line(&mut line)?;
-    let request: Request = serde_json::from_str(line.trim_end())
+    read_request_within(stream, REQUEST_DEADLINE)
+}
+
+fn read_request_within(stream: &UnixStream, deadline: Duration) -> io::Result<Request> {
+    let start = Instant::now();
+    let mut line = Vec::with_capacity(256);
+    let mut chunk = [0u8; 512];
+    loop {
+        let remaining = deadline
+            .checked_sub(start.elapsed())
+            .filter(|d| !d.is_zero())
+            .ok_or_else(|| io::Error::new(io::ErrorKind::TimedOut, "request deadline elapsed"))?;
+        stream.set_read_timeout(Some(remaining))?;
+        let n = (&*stream).read(&mut chunk)?;
+        if n == 0 {
+            break;
+        }
+        line.extend_from_slice(&chunk[..n]);
+        if let Some(end) = line.iter().position(|b| *b == b'\n') {
+            line.truncate(end);
+            break;
+        }
+        if line.len() > MAX_MESSAGE {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "request line too long",
+            ));
+        }
+    }
+    parse_request(&line)
+}
+
+fn is_nic_name(name: &str) -> bool {
+    (1..=MAX_NIC_NAME).contains(&name.len())
+        && name
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+        && !name.starts_with('-')
+        && !name.ends_with('-')
+}
+
+/// Decode and validate one request line (without its newline).
+///
+/// ```
+/// use qrab_netd::wire::{parse_request, Op};
+/// assert_eq!(parse_request(br#"{"nic":"lan","queues":2}"#).unwrap().op, Op::Fds);
+/// assert!(parse_request(br#"{"nic":"lan","queues":9}"#).is_err(), "more than MAX_QUEUES");
+/// assert!(parse_request(br#"{"nic":"../x","queues":1}"#).is_err(), "not a DNS label");
+/// ```
+pub fn parse_request(line: &[u8]) -> io::Result<Request> {
+    if line.len() > MAX_MESSAGE {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "request line too long",
+        ));
+    }
+    let request: Request = serde_json::from_slice(line.trim_ascii_end())
         .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, format!("bad request: {e}")))?;
-    let valid = !request.nic.is_empty()
+    let valid = is_nic_name(&request.nic)
         && match request.op {
             Op::Fds => (1..=MAX_QUEUES).contains(&request.queues) && request.via.is_none(),
             Op::Forward => request.queues == 0 && request.via.is_some(),
@@ -112,7 +173,7 @@ pub fn read_request(stream: &UnixStream) -> io::Result<Request> {
     if !valid {
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,
-            format!("a request names a NIC; fds takes 1..={MAX_QUEUES} queues, forward takes via, the rest take neither"),
+            format!("a request names a NIC (a DNS label of at most {MAX_NIC_NAME}); fds takes 1..={MAX_QUEUES} queues, forward takes via, the rest take neither"),
         ));
     }
     Ok(request)
@@ -281,5 +342,140 @@ pub fn control(
             "qrab-netd refused: {}",
             reply.error.unwrap_or_default()
         )))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A seeded xorshift64*, so failures reproduce.
+    struct Rng(u64);
+    impl Rng {
+        fn new(seed: u64) -> Self {
+            Self(seed.max(1))
+        }
+        fn next(&mut self) -> u64 {
+            self.0 ^= self.0 >> 12;
+            self.0 ^= self.0 << 25;
+            self.0 ^= self.0 >> 27;
+            self.0.wrapping_mul(0x2545_F491_4F6C_DD1D)
+        }
+        fn below(&mut self, n: usize) -> usize {
+            (self.next() % n.max(1) as u64) as usize
+        }
+        fn bytes(&mut self, max: usize) -> Vec<u8> {
+            (0..self.below(max + 1))
+                .map(|_| self.next() as u8)
+                .collect()
+        }
+    }
+
+    #[test]
+    fn random_bytes_and_mutated_requests_never_panic_and_stay_bounded() {
+        let mut rng = Rng::new(0x5eed_0001);
+        let valid = br#"{"nic":"lan","queues":2,"op":"forward","via":"10.203.0.12"}"#;
+        for _ in 0..20_000 {
+            let line = if rng.below(2) == 0 {
+                rng.bytes(300)
+            } else {
+                let mut line = valid.to_vec();
+                for _ in 0..=rng.below(4) {
+                    let at = rng.below(line.len());
+                    line[at] = rng.next() as u8;
+                }
+                line
+            };
+            if let Ok(request) = parse_request(&line) {
+                assert!(is_nic_name(&request.nic));
+                match request.op {
+                    Op::Fds => assert!((1..=MAX_QUEUES).contains(&request.queues)),
+                    _ => assert_eq!(request.queues, 0),
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn out_of_range_and_malformed_fields_are_refused() {
+        for line in [
+            r#"{"nic":"lan","queues":0}"#,
+            r#"{"nic":"lan","queues":9}"#,
+            r#"{"nic":"lan","queues":65535}"#,
+            r#"{"nic":"lan","queues":-1}"#,
+            r#"{"nic":"lan","queues":2.5}"#,
+            r#"{"nic":"","queues":1}"#,
+            r#"{"queues":1}"#,
+            r#"{"nic":"LAN","queues":1}"#,
+            r#"{"nic":"-lan","queues":1}"#,
+            r#"{"nic":"lan/../x","queues":1}"#,
+            r#"{"nic":"l\u0000n","queues":1}"#,
+            r#"{"nic":"lan","queues":1,"op":"fds","via":"10.0.0.1"}"#,
+            r#"{"nic":"lan","queues":1,"op":"activate"}"#,
+            r#"{"nic":"lan","op":"forward"}"#,
+            r#"{"nic":"lan","op":"standby","via":"10.0.0.1"}"#,
+            r#"{"nic":"lan","op":"reboot"}"#,
+            r#"{"nic":"lan","queues":1,"extra":true}"#,
+            r#"{"nic":"lan","queues":1}{"nic":"wan","queues":1}"#,
+            r#"[]"#,
+            "",
+        ] {
+            assert!(parse_request(line.as_bytes()).is_err(), "{line}");
+        }
+        let long = format!(r#"{{"nic":"{}","queues":1}}"#, "a".repeat(MAX_NIC_NAME + 1));
+        assert!(parse_request(long.as_bytes()).is_err());
+        let ok = format!(r#"{{"nic":"{}","queues":8}}"#, "a".repeat(MAX_NIC_NAME));
+        assert!(parse_request(ok.as_bytes()).is_ok());
+    }
+
+    #[test]
+    fn a_dribbling_client_cannot_hold_the_reader_past_the_deadline() {
+        let (agent, mut client) = UnixStream::pair().unwrap();
+        let writer = std::thread::spawn(move || {
+            for byte in br#"{"nic":"lan","queues":1}"# {
+                if client.write_all(&[*byte]).is_err() {
+                    return;
+                }
+                std::thread::sleep(Duration::from_millis(40));
+            }
+        });
+        let start = Instant::now();
+        let error = read_request_within(&agent, Duration::from_millis(200)).unwrap_err();
+        assert!(
+            start.elapsed() < Duration::from_secs(1),
+            "{:?}",
+            start.elapsed()
+        );
+        assert!(
+            matches!(
+                error.kind(),
+                io::ErrorKind::TimedOut | io::ErrorKind::WouldBlock
+            ),
+            "{error}"
+        );
+        drop(agent);
+        writer.join().unwrap();
+    }
+
+    #[test]
+    fn an_endless_line_is_refused_at_the_size_bound() {
+        let (agent, mut client) = UnixStream::pair().unwrap();
+        let writer = std::thread::spawn(move || {
+            let _ = client.write_all(&[b'x'; 3 * MAX_MESSAGE]);
+        });
+        let error = read_request_within(&agent, Duration::from_secs(5)).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData, "{error}");
+        drop(agent);
+        writer.join().unwrap();
+    }
+
+    #[test]
+    fn a_complete_request_is_read_and_anything_after_its_newline_ignored() {
+        let (agent, mut client) = UnixStream::pair().unwrap();
+        client
+            .write_all(b"{\"nic\":\"lan\",\"queues\":2}\ntrailing")
+            .unwrap();
+        let request = read_request(&agent).unwrap();
+        assert_eq!((request.nic.as_str(), request.queues), ("lan", 2));
     }
 }

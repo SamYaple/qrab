@@ -176,4 +176,98 @@ mod tests {
         assert!(reply(&[1; 100], &lease).is_none(), "truncated");
         assert_eq!(mac("02:21:c2:51:b0"), None);
     }
+
+    /// A seeded xorshift64*, so failures reproduce.
+    struct Rng(u64);
+    impl Rng {
+        fn next(&mut self) -> u64 {
+            self.0 ^= self.0 >> 12;
+            self.0 ^= self.0 << 25;
+            self.0 ^= self.0 >> 27;
+            self.0.wrapping_mul(0x2545_F491_4F6C_DD1D)
+        }
+        fn below(&mut self, n: usize) -> usize {
+            (self.next() % n.max(1) as u64) as usize
+        }
+    }
+
+    /// Every reply is a BOOTREPLY to the lease's MAC carrying the lease's
+    /// address, whatever the client sent.
+    fn check(packet: &[u8], lease: &Lease) {
+        if let Some(answer) = reply(packet, lease) {
+            assert_eq!(&packet[28..34], &lease.mac, "answered a foreign MAC");
+            assert_eq!(answer[0], 2, "BOOTREPLY");
+            assert_eq!(&answer[16..20], &lease.ip.octets(), "yiaddr");
+            assert_eq!(&answer[28..34], &lease.mac, "chaddr");
+            assert!(matches!(
+                option(&answer, 53).as_deref(),
+                Some([2]) | Some([5])
+            ));
+        }
+    }
+
+    #[test]
+    fn random_and_mutated_packets_never_panic_or_answer_strangers() {
+        let lease = lease();
+        let mut rng = Rng(0x5eed_d4c9);
+        let mut answered = 0;
+        for round in 0..50_000 {
+            let mut packet = match round % 4 {
+                0 => (0..rng.below(700)).map(|_| rng.next() as u8).collect(),
+                1 => request(1, rng.next() as u32, lease.mac),
+                2 => request(3, rng.next() as u32, lease.mac),
+                _ => request(1 + rng.below(8) as u8, 7, [2, 0, 0, 0, 0, rng.next() as u8]),
+            };
+            if round % 4 != 0 {
+                // Corrupt or append option bytes (lengths past the end, no
+                // END, pads), sometimes truncate.
+                for _ in 0..rng.below(6) {
+                    if rng.below(2) == 0 && packet.len() > HEADER + 4 {
+                        let at = HEADER + 4 + rng.below(packet.len() - HEADER - 4);
+                        packet[at] = rng.next() as u8;
+                    } else {
+                        packet.push(rng.next() as u8);
+                    }
+                }
+                if rng.below(5) == 0 {
+                    packet.truncate(rng.below(packet.len() + 1));
+                }
+            }
+            check(&packet, &lease);
+            answered += usize::from(reply(&packet, &lease).is_some());
+        }
+        assert!(
+            answered > 1000,
+            "the mutations still exercise answering ({answered})"
+        );
+    }
+
+    #[test]
+    fn hostile_option_lengths_and_padding_are_bounded() {
+        let lease = lease();
+        let mut base = request(1, 1, lease.mac);
+        base.truncate(HEADER + 4);
+        // An option whose length runs past the end; only padding; no END;
+        // a message-type option of length 0.
+        for options in [
+            vec![53, 200, 1],
+            vec![0; 2000],
+            vec![12, 3, b'a', b'b', b'c', 53, 1, 1],
+            vec![53, 0, 255],
+            vec![255, 53, 1, 1],
+        ] {
+            let mut packet = base.clone();
+            packet.extend(&options);
+            check(&packet, &lease);
+        }
+        let mut no_end = base.clone();
+        no_end.extend([12, 3, b'a', b'b', b'c', 53, 1, 1]);
+        assert!(reply(&no_end, &lease).is_some(), "END is optional");
+        let mut after_end = base;
+        after_end.extend([255, 53, 1, 1]);
+        assert!(
+            reply(&after_end, &lease).is_none(),
+            "nothing after END counts"
+        );
+    }
 }
