@@ -313,8 +313,12 @@ Checks:
 - Its `tests/netns.rs` builds a plan in throwaway namespaces, passes a
   working queue to another namespace and checks the default route survives;
   it also adds and sweeps forward routes and gets a lease from the DHCP
-  responder over a veth. It needs root and skips without it. It passed as
-  root on kube03 (kernel 7.0).
+  responder over a veth. It needs root, `ip`, `nft` and `wg`, and skips
+  without them. The nodes have no `nft` or `wg`, so run it with
+  `contrib/check-netd-netns.sh`: in a throwaway privileged Pod from the
+  deployed qrab-netd image on a node, failing if any test skipped. All five
+  passed that way on kube03 (kernel 7.0) on 2026-11-15; before that the two
+  VPN tests had only ever skipped on the nodes.
 - `contrib/kubernetes/netd/check-status-policy.sh` checks the status policy
   with dry runs.
 
@@ -572,6 +576,26 @@ nics:
 - **Live migration** works as for plain NICs: the standby target anchor
   builds the same `wg0` (its UDP dropped while standby), and once active it
   handshakes from the same address and port, so the server sees no roam.
+- **Server switches.** qrab-netd compares a digest of the mounted config
+  every 10 s, so a rewritten Secret (a ProtonVPN server switch) is applied on
+  the next tick after the kubelet syncs it, not at the next 60 s re-verify.
+- **Port forwarding.** A config carrying `# qrab: port-forwarding` (the
+  ProtonVPN broker writes it when the certificate allows forwarding) makes
+  qrab-netd keep a NAT-PMP (RFC 6886) mapping with the tunnel gateway (the
+  config's first DNS, 10.2.0.1 at Proton): UDP and TCP, lifetime 60 s,
+  renewed every 40 s (10 s after a failure), as Proton documents it
+  (`natpmpc -a 1 0 <proto> 60`). The provider accepts only the guest's
+  tunnel address, which the guest owns, so qrab-netd sends from the tap's
+  gateway address 169.254.1.1 and the kill switch's `natpmp` chain
+  source-NATs exactly those packets (to the gateway, UDP 5351, out `wg0`)
+  to the tunnel address; conntrack brings the replies back to qrab-netd,
+  never to the guest. The forwarded public port arrives at the guest's
+  tunnel address on the same port number. qrab-netd reports it as anchor
+  condition `qrab.yapplesauce.com/vpn-port-forward` (True with the port as
+  its message, False with why not; a migration's standby anchor gets no
+  reply until it is active), and the broker copies it to the profile's
+  `status.forwardedPort`. The guest has to listen on that port, and should
+  look it up there: it changes when the server does.
 
 `contrib/check-vpn-nic.sh` runs against a lab provider (a WireGuard server
 Pod that NATs to the world) or, with `VPN_SECRET`, a real config.

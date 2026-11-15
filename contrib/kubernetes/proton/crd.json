@@ -119,6 +119,34 @@
               "status": {
                 "nullable": true,
                 "properties": {
+                  "attached": {
+                    "description": "The NIC anchors using the profile's Secret (two during a migration).",
+                    "items": {
+                      "description": "A NIC anchor using a profile.",
+                      "properties": {
+                        "anchor": {
+                          "type": "string"
+                        },
+                        "nic": {
+                          "type": "string"
+                        },
+                        "node": {
+                          "nullable": true,
+                          "type": "string"
+                        },
+                        "vm": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "anchor",
+                        "nic",
+                        "vm"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
                   "certificateExpires": {
                     "description": "Unix seconds.",
                     "format": "int64",
@@ -206,6 +234,14 @@
                     "nullable": true,
                     "type": "string"
                   },
+                  "forwardedPort": {
+                    "description": "The public port Proton forwards to the guest (port forwarding only),\nas the active anchor's qrab-netd mapped it.",
+                    "format": "uint16",
+                    "maximum": 65535.0,
+                    "minimum": 0.0,
+                    "nullable": true,
+                    "type": "integer"
+                  },
                   "load": {
                     "format": "uint8",
                     "maximum": 255.0,
@@ -223,6 +259,11 @@
                     "type": "integer"
                   },
                   "physicalId": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "portForwardMessage": {
+                    "description": "Why there is no forwarded port, when one was asked for.",
                     "nullable": true,
                     "type": "string"
                   },

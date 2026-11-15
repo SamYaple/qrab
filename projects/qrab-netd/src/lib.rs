@@ -13,6 +13,7 @@ pub mod cgroup;
 pub mod ct;
 pub mod dhcp;
 pub mod identity;
+pub mod natpmp;
 pub mod peer;
 #[cfg(feature = "agent")]
 pub mod plan;
@@ -28,6 +29,9 @@ pub const DATAPATH_TAP: &str = "tap";
 /// Pod condition the agent sets on each anchor it serves; anchors list it as
 /// a readiness gate so they become Ready only once plumbed.
 pub const PLUMBED_CONDITION: &str = "qrab.yapplesauce.com/nic-plumbed";
+/// Anchor condition of a port-forwarding VPN NIC: True with the forwarded
+/// public port as its message, False with why not.
+pub const PORT_FORWARD_CONDITION: &str = "qrab.yapplesauce.com/vpn-port-forward";
 /// Host directory holding the agent's socket. The KVM device plugin's CDI
 /// spec mounts it into VM Pods at the same path.
 pub const SOCKET_DIR: &str = "/run/qrab-netd";

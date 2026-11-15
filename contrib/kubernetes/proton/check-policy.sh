@@ -90,4 +90,8 @@ expect_denied "listing Secrets" \
   kubectl "${as[@]}" -n "$ns" get secrets
 expect_allowed "reading proton-session" \
   kubectl "${as[@]}" -n "$ns" get secret proton-session
+expect_allowed "listing Pods (NIC anchors)" \
+  kubectl "${as[@]}" -n "$ns" get pods
+expect_denied "reading Pod logs" \
+  kubectl "${as[@]}" -n "$ns" logs nothing
 echo "PASS: the broker's Secret and ConfigMap writes are confined"

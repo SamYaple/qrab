@@ -174,4 +174,89 @@ where
     }
 }
 
+/// A NIC anchor Pod as the broker sees it: which Secret it mounts and its
+/// qrab-netd port-forward condition (status, message).
+#[derive(Clone, Debug, PartialEq, Eq, Default)]
+pub struct Anchor {
+    pub name: String,
+    pub vm: String,
+    pub nic: String,
+    pub node: Option<String>,
+    pub secret: String,
+    pub port_forward: Option<(bool, String)>,
+}
+
+/// Fill a profile's attachments and forwarded port from the anchors that
+/// mount its Secret. One profile is one key and one Proton connection, so
+/// anchors of two different VMs make the profile not ready.
+///
+/// ```
+/// use qrab_proton::{broker::{attach, Anchor}, crd::VpnProfileStatus};
+/// let anchor = |name: &str, node: &str, port: Option<(bool, &str)>| Anchor {
+///     name: name.into(), vm: "vm1".into(), nic: "vpn".into(), node: Some(node.into()),
+///     secret: "vpn-ch".into(), port_forward: port.map(|(ok, m)| (ok, m.into())),
+/// };
+/// let mut status = VpnProfileStatus::default();
+/// // Mid-migration: the standby anchor gets no reply, the active one maps.
+/// attach(&mut status, "vpn-ch", true, &[
+///     anchor("vm1-nic-vpn-kube01", "kube01", Some((false, "no NAT-PMP reply"))),
+///     anchor("vm1-nic-vpn-kube03", "kube03", Some((true, "41234"))),
+/// ]);
+/// assert_eq!(status.forwarded_port, Some(41234));
+/// assert_eq!(status.attached.len(), 2);
+/// ```
+pub fn attach(
+    status: &mut VpnProfileStatus,
+    secret: &str,
+    port_forwarding: bool,
+    anchors: &[Anchor],
+) {
+    let mine: Vec<&Anchor> = anchors.iter().filter(|a| a.secret == secret).collect();
+    status.attached = mine
+        .iter()
+        .map(|a| crate::crd::Attachment {
+            vm: a.vm.clone(),
+            nic: a.nic.clone(),
+            node: a.node.clone(),
+            anchor: a.name.clone(),
+        })
+        .collect();
+    status.attached.sort_by(|a, b| a.anchor.cmp(&b.anchor));
+    status.forwarded_port = None;
+    status.port_forward_message = None;
+    if port_forwarding {
+        let mapped = mine.iter().find_map(|a| match &a.port_forward {
+            Some((true, port)) => port.parse::<u16>().ok(),
+            _ => None,
+        });
+        status.forwarded_port = mapped;
+        if mapped.is_none() {
+            status.port_forward_message = Some(
+                mine.iter()
+                    .find_map(|a| a.port_forward.as_ref().map(|(_, m)| m.clone()))
+                    .unwrap_or_else(|| {
+                        if mine.is_empty() {
+                            "no NIC uses the profile yet".into()
+                        } else {
+                            "waiting for qrab-netd's first mapping".into()
+                        }
+                    }),
+            );
+        }
+    }
+    let mut vms: Vec<&str> = mine.iter().map(|a| a.vm.as_str()).collect();
+    vms.sort();
+    vms.dedup();
+    if vms.len() > 1 {
+        status.conditions = vec![ready(
+            false,
+            "SharedProfile",
+            format!(
+                "NICs of {} all use {secret}; one profile is one connection, give each NIC its own",
+                vms.join(", ")
+            ),
+        )];
+    }
+}
+
 pub mod runner;

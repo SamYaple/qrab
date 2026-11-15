@@ -9,7 +9,7 @@ use crate::{
 };
 use base64::{engine::general_purpose::STANDARD, Engine};
 use k8s_openapi::{
-    api::core::v1::{ConfigMap, Secret},
+    api::core::v1::{ConfigMap, Pod, Secret},
     ByteString,
 };
 use kube::{
@@ -202,6 +202,7 @@ pub struct Broker {
     profiles: Api<VpnProfile>,
     secrets: Api<Secret>,
     configmaps: Api<ConfigMap>,
+    pods: Api<Pod>,
     keys: KeyRing,
     account: Option<Account>,
 }
@@ -229,7 +230,8 @@ impl Broker {
             ),
             profiles: Api::namespaced(client.clone(), namespace),
             secrets: secrets.clone(),
-            configmaps: Api::namespaced(client, namespace),
+            configmaps: Api::namespaced(client.clone(), namespace),
+            pods: Api::namespaced(client, namespace),
             keys: KeyRing {
                 api: secrets,
                 keys: BTreeMap::new(),
@@ -358,6 +360,56 @@ impl Broker {
         }
     }
 
+    /// The NIC anchors that mount a `vpn-*` Secret, or `None` if they could
+    /// not be listed (attachments then stay as they were).
+    async fn anchors(&self) -> Option<Vec<Anchor>> {
+        let params = kube::api::ListParams::default().labels("app.kubernetes.io/component=vm-nic");
+        let pods = match self.pods.list(&params).await {
+            Ok(list) => list.items,
+            Err(error) => {
+                log("anchors_failed", json!(error.to_string()));
+                return None;
+            }
+        };
+        Some(
+            pods.into_iter()
+                .filter(|p| p.metadata.deletion_timestamp.is_none())
+                .filter_map(|p| {
+                    let spec = p.spec.as_ref()?;
+                    let secret = spec.volumes.as_ref()?.iter().find_map(|v| {
+                        v.secret
+                            .as_ref()?
+                            .secret_name
+                            .clone()
+                            .filter(|n| n.starts_with("vpn-"))
+                    })?;
+                    let labels = p.metadata.labels.clone().unwrap_or_default();
+                    let port_forward = p.status.as_ref().and_then(|s| {
+                        s.conditions.as_ref()?.iter().find_map(|c| {
+                            (c.type_ == PORT_FORWARD_CONDITION).then(|| {
+                                (c.status == "True", c.message.clone().unwrap_or_default())
+                            })
+                        })
+                    });
+                    Some(Anchor {
+                        name: p.name_any(),
+                        vm: labels
+                            .get("app.kubernetes.io/instance")
+                            .cloned()
+                            .unwrap_or_default(),
+                        nic: labels
+                            .get("qrab.yapplesauce.com/nic")
+                            .cloned()
+                            .unwrap_or_default(),
+                        node: spec.node_name.clone(),
+                        secret,
+                        port_forward,
+                    })
+                })
+                .collect(),
+        )
+    }
+
     /// One pass over every profile.
     pub async fn pass(&mut self) {
         let mut profiles = match self.profiles.list(&Default::default()).await {
@@ -373,6 +425,17 @@ impl Broker {
         if profiles.is_empty() {
             return;
         }
+        let anchors = self.anchors().await;
+        let attached = |profile: &VpnProfile, status: &mut VpnProfileStatus| {
+            if let Some(anchors) = &anchors {
+                attach(
+                    status,
+                    &secret_name(&profile.name_any()),
+                    profile.spec.proton.port_forwarding,
+                    anchors,
+                );
+            }
+        };
         if let Err(error) = self.refresh_account().await {
             log(
                 "proton_failed",
@@ -380,11 +443,9 @@ impl Broker {
             );
             let message = error.to_string();
             for profile in &profiles {
-                self.set_status(
-                    profile,
-                    &blocked(profile, blocking_reason(&error), &message),
-                )
-                .await;
+                let mut status = blocked(profile, blocking_reason(&error), &message);
+                attached(profile, &mut status);
+                self.set_status(profile, &status).await;
             }
             return;
         }
@@ -417,6 +478,7 @@ impl Broker {
             })
             .await;
             let mut status = outcome.status;
+            attached(profile, &mut status);
             if let Some(conf) = &outcome.conf {
                 if let Err(error) = self.apply_secret(profile, conf).await {
                     status.conditions = vec![ready(false, "SecretFailed", error.to_string())];
@@ -432,6 +494,10 @@ impl Broker {
         }
     }
 }
+
+/// qrab-netd's anchor condition carrying the forwarded port
+/// (qrab_netd::PORT_FORWARD_CONDITION).
+pub const PORT_FORWARD_CONDITION: &str = "qrab.yapplesauce.com/vpn-port-forward";
 
 /// The Secret key a VPN NIC's anchor mounts (qrab_netd::vpn::VPN_FILE).
 pub const VPN_FILE: &str = "wg.conf";

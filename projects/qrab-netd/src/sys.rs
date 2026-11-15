@@ -272,7 +272,8 @@ pub fn apply(plan: &NicPlan, resolver: Option<Ipv4Addr>) -> io::Result<u32> {
 fn apply_vpn(plan: &NicPlan, tunnel: &crate::vpn::Tunnel, mtu: u32) -> io::Result<u32> {
     use crate::vpn::{kill_switch, TABLE, WG_LINK};
     // The kill switch goes in first, so no step below opens a path to eth0.
-    nft(&kill_switch(&plan.tap, plan.guest_ip))?;
+    let natpmp = tunnel.port_forwarding.then(|| tunnel.gateway()).flatten();
+    nft(&kill_switch(&plan.tap, plan.guest_ip, natpmp))?;
     for command in plan.link_commands(mtu) {
         ip(&command)?;
     }
@@ -306,7 +307,31 @@ fn apply_vpn(plan: &NicPlan, tunnel: &crate::vpn::Tunnel, mtu: u32) -> io::Resul
         "metric",
         "4096",
     ])?;
+    // qrab-netd's own NAT-PMP requests reach the gateway through the tunnel
+    // (the main table: the guest's traffic follows table 100 instead).
+    if let Some(gateway) = natpmp {
+        ip_words(&[
+            "-4",
+            "route",
+            "replace",
+            &format!("{gateway}/32"),
+            "dev",
+            WG_LINK,
+        ])?;
+    }
     Ok(mtu)
+}
+
+/// Map a forwarded port with the tunnel gateway, from the calling thread's
+/// (anchor) namespace: requests leave from the tap's gateway address and
+/// the kill switch's `natpmp` chain gives them the tunnel address.
+pub fn map_forwarded_port(gateway: Ipv4Addr) -> Result<u16, String> {
+    let socket = std::net::UdpSocket::bind((crate::GUEST_GATEWAY, 0))
+        .map_err(|e| format!("cannot bind the NAT-PMP socket: {e}"))?;
+    socket
+        .connect((gateway, crate::natpmp::PORT))
+        .map_err(|e| format!("cannot reach the tunnel gateway {gateway}: {e}"))?;
+    crate::natpmp::map_both(&socket)
 }
 
 fn link_exists(name: &str) -> bool {
@@ -494,6 +519,19 @@ pub fn import_conntrack(
 /// Pod's process that has the mount: the anchor container's, not the
 /// sandbox's (whose mount namespace has no volumes).
 pub fn read_tunnel(proc_root: &Path, pod_uid: &str) -> Result<crate::vpn::Tunnel, String> {
+    read_tunnel_text(proc_root, pod_uid).and_then(|text| crate::vpn::Tunnel::parse(&text))
+}
+
+/// A digest of the anchor's mounted VPN config, to notice a rewritten
+/// Secret (a server switch) without waiting for the periodic re-verify.
+pub fn tunnel_digest(proc_root: &Path, pod_uid: &str) -> Option<[u8; 32]> {
+    use sha2::{Digest, Sha256};
+    read_tunnel_text(proc_root, pod_uid)
+        .ok()
+        .map(|text| Sha256::digest(text.as_bytes()).into())
+}
+
+fn read_tunnel_text(proc_root: &Path, pod_uid: &str) -> Result<String, String> {
     let mut last = None;
     for pid in pids_of_pod(proc_root, pod_uid) {
         let path = proc_root
@@ -502,7 +540,8 @@ pub fn read_tunnel(proc_root: &Path, pod_uid: &str) -> Result<crate::vpn::Tunnel
             .join(crate::vpn::VPN_MOUNT.trim_start_matches('/'))
             .join(crate::vpn::VPN_FILE);
         match std::fs::read_to_string(&path) {
-            Ok(text) => return crate::vpn::Tunnel::parse(&text),
+            Ok(text) if text.len() <= crate::vpn::MAX_CONFIG => return Ok(text),
+            Ok(_) => return Err("the WireGuard config is too large".into()),
             Err(error) => last = Some(error),
         }
     }

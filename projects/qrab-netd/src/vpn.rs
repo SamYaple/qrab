@@ -53,6 +53,9 @@ pub const KEEPALIVE: u16 = 25;
 pub const NFT_TABLE: &str = "qrab_netd";
 /// Largest config accepted.
 pub const MAX_CONFIG: usize = 16 * 1024;
+/// The line the ProtonVPN broker writes when the certificate allows port
+/// forwarding (qrab_proton::wg::PORT_FORWARDING_MARKER).
+pub const PORT_FORWARDING_MARKER: &str = "# qrab: port-forwarding";
 
 /// One WireGuard tunnel: what the guest sees and what `wg` is told.
 #[derive(Clone, PartialEq, Eq)]
@@ -67,6 +70,9 @@ pub struct Tunnel {
     preshared_key: Option<String>,
     allowed_ips: String,
     keepalive: u16,
+    /// The config carries [`PORT_FORWARDING_MARKER`]: qrab-netd keeps a
+    /// NAT-PMP mapping with the tunnel gateway ([`Tunnel::gateway`]).
+    pub port_forwarding: bool,
 }
 
 impl std::fmt::Debug for Tunnel {
@@ -77,6 +83,7 @@ impl std::fmt::Debug for Tunnel {
             .field("mtu", &self.mtu)
             .field("endpoint", &self.endpoint)
             .field("public_key", &self.public_key)
+            .field("port_forwarding", &self.port_forwarding)
             .field("private_key", &"<redacted>")
             .finish_non_exhaustive()
     }
@@ -111,6 +118,7 @@ impl Tunnel {
         let (mut private_key, mut address, mut dns, mut mtu) = (None, None, Vec::new(), None);
         let (mut public_key, mut preshared_key, mut allowed_ips, mut endpoint, mut keepalive) =
             (None, None, None, None, None);
+        let port_forwarding = text.lines().any(|l| l.trim() == PORT_FORWARDING_MARKER);
         for (number, raw) in text.lines().enumerate() {
             let line = raw.split('#').next().unwrap_or_default().trim();
             if line.is_empty() {
@@ -210,6 +218,7 @@ impl Tunnel {
             preshared_key,
             allowed_ips: allowed_ips.unwrap_or_else(|| "0.0.0.0/0".into()),
             keepalive: keepalive.filter(|k| *k > 0).unwrap_or(KEEPALIVE),
+            port_forwarding,
         })
     }
 
@@ -229,6 +238,12 @@ impl Tunnel {
         text
     }
 
+    /// The gateway inside the tunnel, where NAT-PMP goes: the first DNS
+    /// server (Proton's 10.2.0.1).
+    pub fn gateway(&self) -> Option<Ipv4Addr> {
+        self.dns.first().copied()
+    }
+
     /// The tunnel's MTU on an uplink of `uplink` bytes.
     pub fn mtu_on(&self, uplink: u32) -> u32 {
         self.mtu.unwrap_or(uplink.saturating_sub(OVERHEAD))
@@ -239,7 +254,13 @@ impl Tunnel {
 /// tunnel (the kill switch: with `wg0` down nothing of the guest's leaves), and
 /// the guest reaches the anchor itself only for DHCP and pings of its
 /// gateway. Replacing the table is one atomic transaction.
-pub fn kill_switch(tap: &str, guest: Ipv4Addr) -> String {
+///
+/// With `natpmp` (the tunnel gateway of a port-forwarding NIC), qrab-netd's
+/// own NAT-PMP requests, sent from the tap's gateway address, leave `wg0`
+/// with the guest's tunnel address: the only source the provider accepts.
+/// Conntrack maps the replies back to qrab-netd, so they never reach the
+/// guest, and nothing else is translated.
+pub fn kill_switch(tap: &str, guest: Ipv4Addr, natpmp: Option<Ipv4Addr>) -> String {
     let table = NFT_TABLE;
     format!(
         "table inet {table}\ndelete table inet {table}\n\
@@ -249,8 +270,17 @@ pub fn kill_switch(tap: &str, guest: Ipv4Addr) -> String {
          chain input {{\n    type filter hook input priority filter; policy accept;\n    \
          iifname \"{tap}\" udp dport 67 accept\n    \
          iifname \"{tap}\" ip daddr {gw} icmp type echo-request accept\n    \
-         iifname \"{tap}\" drop\n  }}\n}}\n",
-        gw = crate::GUEST_GATEWAY
+         iifname \"{tap}\" drop\n  }}\n{nat}}}\n",
+        gw = crate::GUEST_GATEWAY,
+        nat = match natpmp {
+            Some(gateway) => format!(
+                "  chain natpmp {{\n    type nat hook postrouting priority srcnat; policy accept;\n    \
+                 oifname \"{WG_LINK}\" ip saddr {gw} ip daddr {gateway} udp dport {port} snat ip to {guest}\n  }}\n",
+                gw = crate::GUEST_GATEWAY,
+                port = crate::natpmp::PORT,
+            ),
+            None => String::new(),
+        }
     )
 }
 
@@ -355,8 +385,38 @@ mod tests {
     }
 
     #[test]
+    fn port_forwarding_translates_only_natpmp_to_the_gateway() {
+        let plain =
+            Tunnel::parse(&config("Address = 10.2.0.2/32\nDNS = 10.2.0.1", &peer(""))).unwrap();
+        assert!(!plain.port_forwarding);
+        let marked = Tunnel::parse(&config(
+            "# qrab: proton CH#1 (p)\n# qrab: port-forwarding\nAddress = 10.2.0.2/32\nDNS = 10.2.0.1",
+            &peer(""),
+        ))
+        .unwrap();
+        assert!(marked.port_forwarding);
+        assert_eq!(marked.gateway(), Some(Ipv4Addr::new(10, 2, 0, 1)));
+        assert!(!marked.setconf().contains('#'), "comments never reach wg");
+        let rules = kill_switch(
+            "qt0123456789ab",
+            Ipv4Addr::new(10, 2, 0, 2),
+            marked.gateway(),
+        );
+        assert!(rules.contains(
+            "oifname \"wg0\" ip saddr 169.254.1.1 ip daddr 10.2.0.1 udp dport 5351 snat ip to 10.2.0.2"
+        ));
+        assert!(rules.contains("type nat hook postrouting priority srcnat"));
+        // The forward filter is unchanged: still tap and tunnel only.
+        assert!(rules.contains("type filter hook forward priority filter; policy drop;"));
+    }
+
+    #[test]
     fn the_kill_switch_forwards_only_between_tap_and_tunnel() {
-        let rules = kill_switch("qt0123456789ab", Ipv4Addr::new(10, 2, 0, 2));
+        let rules = kill_switch("qt0123456789ab", Ipv4Addr::new(10, 2, 0, 2), None);
+        assert!(
+            !rules.contains("snat"),
+            "nothing is translated without port forwarding"
+        );
         assert!(rules.contains("type filter hook forward priority filter; policy drop;"));
         assert!(
             rules.contains("iifname \"qt0123456789ab\" oifname \"wg0\" ip saddr 10.2.0.2 accept")

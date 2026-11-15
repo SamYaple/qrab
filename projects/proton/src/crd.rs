@@ -144,11 +144,32 @@ pub struct VpnProfileStatus {
     /// The connection features the certificate binds, as certified.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub certified_features: Option<crate::wg::Features>,
+    /// The NIC anchors using the profile's Secret (two during a migration).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub attached: Vec<Attachment>,
+    /// The public port Proton forwards to the guest (port forwarding only),
+    /// as the active anchor's qrab-netd mapped it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub forwarded_port: Option<u16>,
+    /// Why there is no forwarded port, when one was asked for.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub port_forward_message: Option<String>,
     /// SHA-256 of the applied wg.conf, so unchanged configs are not rewritten.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub config_hash: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub conditions: Vec<Condition>,
+}
+
+/// A NIC anchor using a profile.
+#[derive(Clone, Debug, Deserialize, Serialize, JsonSchema, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct Attachment {
+    pub vm: String,
+    pub nic: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub node: Option<String>,
+    pub anchor: String,
 }
 
 impl VpnProfileStatus {

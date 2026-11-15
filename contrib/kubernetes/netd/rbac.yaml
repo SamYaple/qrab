@@ -45,8 +45,9 @@ spec:
   - name: qrab-netd
     expression: "request.userInfo.username == 'system:serviceaccount:qrab-node:qrab-netd'"
   variables:
-  - name: condition
-    expression: "'qrab.yapplesauce.com/nic-plumbed'"
+  # nic-plumbed for every anchor; vpn-port-forward for port-forwarding VPN NICs.
+  - name: conditions
+    expression: "['qrab.yapplesauce.com/nic-plumbed', 'qrab.yapplesauce.com/vpn-port-forward']"
   - name: node
     expression: "request.userInfo.extra[?'authentication.kubernetes.io/node-name'].orValue([''])[0]"
   validations:
@@ -57,11 +58,11 @@ spec:
       object.metadata.?annotations['qrab.yapplesauce.com/nic-datapath'].orValue('') == 'tap'
     message: qrab-netd writes only tap-mode NIC anchors
   - expression: >-
-      object.status.?conditions.orValue([]).filter(c, c.type != variables.condition) ==
-        oldObject.status.?conditions.orValue([]).filter(c, c.type != variables.condition) &&
+      object.status.?conditions.orValue([]).filter(c, !(c.type in variables.conditions)) ==
+        oldObject.status.?conditions.orValue([]).filter(c, !(c.type in variables.conditions)) &&
       object.status.all(k, k == 'conditions' || (k in oldObject.status && object.status[k] == oldObject.status[k])) &&
       oldObject.status.all(k, k == 'conditions' || k in object.status)
-    message: qrab-netd changes only its own nic-plumbed condition
+    message: qrab-netd changes only its own nic-plumbed and vpn-port-forward conditions
 ---
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicyBinding

@@ -7,7 +7,8 @@ use kube::{
     Client, ResourceExt,
 };
 use qrab_netd::{
-    authz, peer, plan::NicPlan, sys, wire, PLUMBED_CONDITION, SOCKET_DIR, SOCKET_NAME,
+    authz, natpmp, peer, plan::NicPlan, sys, wire, PLUMBED_CONDITION, PORT_FORWARD_CONDITION,
+    SOCKET_DIR, SOCKET_NAME,
 };
 use std::{
     collections::HashMap,
@@ -23,6 +24,9 @@ const REVERIFY: Duration = Duration::from_secs(60);
 fn log(event: &str, detail: serde_json::Value) {
     eprintln!("{}", serde_json::json!({"event": event, "detail": detail}));
 }
+
+/// One NAT-PMP round: when, and the forwarded port or why not.
+type PortRound = (Instant, Result<u16, String>);
 
 struct Agent {
     proc_root: PathBuf,
@@ -48,6 +52,10 @@ struct Agent {
     /// Peer connections refused for not coming from a host link (logged at
     /// powers of two).
     peer_strangers: std::sync::atomic::AtomicU64,
+    /// VPN anchor UID → digest of the config last plumbed.
+    tunnels: Mutex<HashMap<String, [u8; 32]>>,
+    /// Port-forwarding anchor UID → the last NAT-PMP round and its result.
+    forwarded: Mutex<HashMap<String, PortRound>>,
 }
 
 /// A tap anchor holding `address`, as a conntrack peer sees it.
@@ -68,6 +76,103 @@ fn holder(pod: &Pod, address: std::net::Ipv4Addr) -> Option<peer::Holder> {
 const PEER_CONCURRENCY: usize = 4;
 
 impl Agent {
+    /// Keep each plumbed port-forwarding VPN anchor's mapping alive (every
+    /// [`natpmp::RENEW`], or 10 s after a failure) and report its port. A
+    /// migration's standby anchor gets no reply (its traffic is dropped) and
+    /// reports so; it maps once it is active.
+    fn renew_port_forwards(&self) {
+        let anchors: Vec<_> = self
+            .store
+            .state()
+            .into_iter()
+            .filter(|p| authz::is_tap_anchor(p) && NicPlan::is_vpn(p))
+            .collect();
+        let live: Vec<String> = anchors.iter().filter_map(|p| p.uid()).collect();
+        self.forwarded
+            .lock()
+            .unwrap()
+            .retain(|uid, _| live.contains(uid));
+        for pod in anchors {
+            let uid = pod.uid().unwrap_or_default();
+            if !self.plumbed.lock().unwrap().contains_key(&uid) {
+                continue;
+            }
+            let previous = self.forwarded.lock().unwrap().get(&uid).cloned();
+            let due = previous.as_ref().is_none_or(|(at, result)| {
+                at.elapsed()
+                    >= if result.is_ok() {
+                        natpmp::RENEW
+                    } else {
+                        Duration::from_secs(10)
+                    }
+            });
+            if !due {
+                continue;
+            }
+            let Ok(tunnel) = sys::read_tunnel(&self.proc_root, &uid) else {
+                continue;
+            };
+            let gateway = match (tunnel.port_forwarding, tunnel.gateway()) {
+                (true, Some(gateway)) => gateway,
+                _ => {
+                    if previous.is_some() {
+                        self.forwarded.lock().unwrap().remove(&uid);
+                        self.report_port(&pod, &Err("port forwarding is not requested".into()));
+                    }
+                    continue;
+                }
+            };
+            let result = match self.netns(&pod) {
+                Ok((_, ns)) => sys::in_netns(&ns, move || Ok(sys::map_forwarded_port(gateway)))
+                    .unwrap_or_else(|e| Err(e.to_string())),
+                Err(error) => Err(error),
+            };
+            let changed = previous.as_ref().map(|(_, r)| r) != Some(&result);
+            self.forwarded
+                .lock()
+                .unwrap()
+                .insert(uid, (Instant::now(), result.clone()));
+            if changed {
+                log(
+                    "port_forward",
+                    serde_json::json!({"pod": pod.name_any(), "result": format!("{result:?}")}),
+                );
+                self.report_port(&pod, &result);
+            }
+        }
+    }
+
+    fn report_port(&self, pod: &Pod, result: &Result<u16, String>) {
+        let (ok, message) = match result {
+            Ok(port) => (true, port.to_string()),
+            Err(error) => (false, error.clone()),
+        };
+        let condition = serde_json::json!({
+            "type": PORT_FORWARD_CONDITION,
+            "status": if ok { "True" } else { "False" },
+            "reason": if ok { "Mapped" } else { "NotMapped" },
+            "message": message,
+            "lastTransitionTime": k8s_openapi::apimachinery::pkg::apis::meta::v1::Time(k8s_openapi::jiff::Timestamp::now()),
+        });
+        let patch = Patch::Strategic(serde_json::json!({"status": {"conditions": [condition]}}));
+        let name = pod.name_any();
+        if let Err(error) = self.runtime.block_on(self.api.patch_status(
+            &name,
+            &PatchParams::default(),
+            &patch,
+        )) {
+            log(
+                "report_failed",
+                serde_json::json!({"pod": name, "error": error.to_string()}),
+            );
+            // Report again next round.
+            self.forwarded
+                .lock()
+                .unwrap()
+                .remove(&pod.uid().unwrap_or_default());
+        }
+    }
+
     fn netns(&self, pod: &Pod) -> Result<(i32, PathBuf), String> {
         let uid = pod.uid().ok_or("Pod has no UID")?;
         let pid =
@@ -467,7 +572,13 @@ async fn reconcile(agent: &Arc<Agent>, pods: &Api<Pod>) {
             .unwrap()
             .get(&uid)
             .is_some_and(|at| at.elapsed() < REVERIFY);
-        if fresh {
+        // A rewritten VPN Secret (a server switch) is applied on the next
+        // tick, not at the next re-verify.
+        let digest = NicPlan::is_vpn(pod)
+            .then(|| sys::tunnel_digest(&agent.proc_root, &uid))
+            .flatten();
+        let rewritten = digest.is_some_and(|d| agent.tunnels.lock().unwrap().get(&uid) != Some(&d));
+        if fresh && !rewritten {
             continue;
         }
         let worker = agent.clone();
@@ -477,6 +588,13 @@ async fn reconcile(agent: &Arc<Agent>, pods: &Api<Pod>) {
             .unwrap_or_else(|e| Err(e.to_string()));
         match &outcome {
             Ok(_) => {
+                if let Some(digest) = digest {
+                    agent.tunnels.lock().unwrap().insert(uid.clone(), digest);
+                    // A new server needs a new mapping right away.
+                    if rewritten {
+                        agent.forwarded.lock().unwrap().remove(&uid);
+                    }
+                }
                 agent.plumbed.lock().unwrap().insert(uid, Instant::now());
             }
             Err(error) => {
@@ -500,6 +618,11 @@ async fn reconcile(agent: &Arc<Agent>, pods: &Api<Pod>) {
     });
     agent
         .plumbed
+        .lock()
+        .unwrap()
+        .retain(|uid, _| live.contains(uid));
+    agent
+        .tunnels
         .lock()
         .unwrap()
         .retain(|uid, _| live.contains(uid));
@@ -627,6 +750,8 @@ async fn main() -> Result<()> {
         runtime: tokio::runtime::Handle::current(),
         peers_busy: Default::default(),
         peer_strangers: Default::default(),
+        forwarded: Mutex::default(),
+        tunnels: Mutex::default(),
     });
     // Conntrack pulls from other nodes, in the host network namespace. Best
     // effort like the copy itself: a port that cannot be bound is retried,
@@ -657,6 +782,13 @@ async fn main() -> Result<()> {
         agent.clone(),
         Path::new(SOCKET_DIR).join(SOCKET_NAME),
     ));
+    // NAT-PMP renewals for port-forwarding VPN NICs, apart from plumbing so a
+    // slow gateway never delays it.
+    let forwarder = agent.clone();
+    std::thread::spawn(move || loop {
+        forwarder.renew_port_forwards();
+        std::thread::sleep(Duration::from_secs(5));
+    });
     let mut tick = tokio::time::interval(Duration::from_secs(10));
     let mut term = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
     loop {

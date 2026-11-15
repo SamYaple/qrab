@@ -356,3 +356,78 @@ async fn unservable_profiles_report_why_and_keep_the_existing_tunnel() {
     assert!(outcome.conf.is_none());
     assert_eq!(outcome.status.ready().unwrap().reason, "CertificateFailed");
 }
+
+#[test]
+fn attachments_report_the_port_and_refuse_a_shared_profile() {
+    use qrab_proton::broker::{attach, ready, Anchor};
+    let anchor = |name: &str, vm: &str, secret: &str, port: Option<(bool, &str)>| Anchor {
+        name: name.into(),
+        vm: vm.into(),
+        nic: "vpn".into(),
+        node: Some("kube01".into()),
+        secret: secret.into(),
+        port_forward: port.map(|(ok, m)| (ok, m.into())),
+    };
+    let configured = || qrab_proton::crd::VpnProfileStatus {
+        conditions: vec![ready(true, "Configured", "CH#1")],
+        ..Default::default()
+    };
+    // No NIC yet, and an unmapped one: the reason is reported.
+    let mut status = configured();
+    attach(
+        &mut status,
+        "vpn-ch",
+        true,
+        &[anchor("other", "vm9", "vpn-other", Some((true, "1")))],
+    );
+    assert_eq!((status.forwarded_port, status.attached.len()), (None, 0));
+    assert_eq!(
+        status.port_forward_message.as_deref(),
+        Some("no NIC uses the profile yet")
+    );
+    attach(
+        &mut status,
+        "vpn-ch",
+        true,
+        &[anchor(
+            "a",
+            "vm1",
+            "vpn-ch",
+            Some((false, "NAT-PMP refused: not authorized")),
+        )],
+    );
+    assert!(status
+        .port_forward_message
+        .as_deref()
+        .unwrap()
+        .contains("not authorized"));
+    // Without port forwarding nothing is reported about it.
+    attach(
+        &mut status,
+        "vpn-ch",
+        false,
+        &[anchor("a", "vm1", "vpn-ch", Some((true, "41234")))],
+    );
+    assert_eq!(
+        (status.forwarded_port, status.port_forward_message.clone()),
+        (None, None)
+    );
+    assert_eq!(status.ready().unwrap().status, "True");
+    // Two VMs on one profile: not ready, with the fix in the message.
+    let mut status = configured();
+    attach(
+        &mut status,
+        "vpn-ch",
+        true,
+        &[
+            anchor("a", "vm1", "vpn-ch", Some((true, "41234"))),
+            anchor("b", "vm2", "vpn-ch", None),
+        ],
+    );
+    let ready = status.ready().unwrap();
+    assert_eq!(
+        (ready.status.as_str(), ready.reason.as_str()),
+        ("False", "SharedProfile")
+    );
+    assert!(ready.message.contains("vm1, vm2"));
+}

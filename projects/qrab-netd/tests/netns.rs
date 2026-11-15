@@ -559,3 +559,141 @@ fn a_vpn_tap_reaches_only_its_tunnel() {
     );
     drop(provider);
 }
+
+#[test]
+fn a_port_forwarding_vpn_nic_maps_through_the_tunnel_only() {
+    // SAFETY: geteuid has no preconditions.
+    if unsafe { libc::geteuid() } != 0 {
+        eprintln!("skipped: needs root to create network namespaces and taps");
+        return;
+    }
+    if let Err(reason) = sys::check_devices() {
+        eprintln!("skipped: {reason}");
+        return;
+    }
+    if wg("--version", None).is_err() {
+        eprintln!("skipped: needs wireguard-tools");
+        return;
+    }
+    let (anchor_key, provider_key) = (wg("genkey", None).unwrap(), wg("genkey", None).unwrap());
+    let (anchor_pub, provider_pub) = (
+        wg("pubkey", Some(&anchor_key)).unwrap(),
+        wg("pubkey", Some(&provider_key)).unwrap(),
+    );
+    let anchor = Netns::new();
+    let provider = Netns::new();
+    // The provider accepts only the client's tunnel address, as Proton does,
+    // and runs a NAT-PMP gateway on its tunnel address.
+    let (key, peer) = (provider_key.clone(), anchor_pub.clone());
+    let gateway = sys::in_netns(&provider.path, move || {
+        ip("link set lo up")?;
+        ip("link add wg0 type wireguard")?;
+        let conf = format!("[Interface]\nPrivateKey = {key}\nListenPort = 51820\n\n[Peer]\nPublicKey = {peer}\nAllowedIPs = 10.66.0.2/32\n");
+        wg("setconf wg0 /dev/stdin", Some(&conf))?;
+        ip("addr add 10.66.0.1/24 dev wg0")?;
+        ip("link set wg0 up")?;
+        std::net::UdpSocket::bind("10.66.0.1:5351")
+    })
+    .unwrap();
+    let (seen_tx, seen) = mpsc::channel();
+    std::thread::spawn(move || {
+        gateway
+            .set_read_timeout(Some(Duration::from_secs(30)))
+            .unwrap();
+        let mut buf = [0u8; 64];
+        while let Ok((n, from)) = gateway.recv_from(&mut buf) {
+            let _ = seen_tx.send((from, buf[..n].to_vec()));
+            let mut reply = vec![0, 128 + buf[1], 0, 0, 0, 0, 0, 9, 0, 0];
+            reply.extend(41234u16.to_be_bytes());
+            reply.extend(60u32.to_be_bytes());
+            gateway.send_to(&reply, from).unwrap();
+        }
+    });
+    let provider_tid = provider
+        .path
+        .to_string_lossy()
+        .split('/')
+        .nth(4)
+        .unwrap()
+        .to_owned();
+    let uid = "6b9f0c44-0000-4000-8000-0000000000cc";
+    let tunnel = qrab_netd::vpn::Tunnel::parse(&format!(
+        "[Interface]\n# qrab: port-forwarding\nPrivateKey = {anchor_key}\nAddress = 10.66.0.2/32\nDNS = 10.66.0.1\n\n[Peer]\nPublicKey = {provider_pub}\nAllowedIPs = 0.0.0.0/0\nEndpoint = 10.50.0.1:51820\n"
+    ))
+    .unwrap();
+    assert!(tunnel.port_forwarding);
+    let plan = NicPlan {
+        tap: identity::tap_name(uid, "vpn"),
+        tap_mac: identity::tap_mac(uid, "vpn"),
+        guest_mac: identity::guest_mac(uid, "vpn"),
+        guest_ip: "10.244.128.98".parse().unwrap(),
+        vpn: None,
+    }
+    .with_tunnel(tunnel);
+    let check = plan.clone();
+    sys::in_netns(&anchor.path, move || {
+        ip("link set lo up")?;
+        ip(&format!(
+            "link add eth0 type veth peer name vp0 netns {provider_tid}"
+        ))?;
+        ip("addr add 10.50.0.2/24 dev eth0")?;
+        ip("link set eth0 up")?;
+        sys::apply(&check, None)?;
+        sys::apply(&check, None)?; // idempotent with the NAT chain too
+        Ok::<_, io::Error>(())
+    })
+    .unwrap();
+    sys::in_netns(&provider.path, || {
+        ip("addr add 10.50.0.1/24 dev vp0")?;
+        ip("link set vp0 up")
+    })
+    .unwrap();
+    let tap = plan.tap.clone();
+    let queue = sys::in_netns(&anchor.path, move || sys::open_tap_queues(&tap, 1))
+        .unwrap()
+        .remove(0);
+    // The mapping, from the anchor namespace, as qrab-netd does it.
+    let mapped = sys::in_netns(&anchor.path, || {
+        Ok(sys::map_forwarded_port("10.66.0.1".parse().unwrap()))
+    })
+    .unwrap();
+    assert_eq!(mapped, Ok(41234));
+    // Every request arrived from the tunnel address (the only source the
+    // provider admits): UDP (retransmitted while WireGuard's first handshake
+    // completes), then TCP, as Proton documents them.
+    let requests: Vec<_> = seen.try_iter().collect();
+    assert!(
+        requests
+            .iter()
+            .all(|(from, _)| from.ip().to_string() == "10.66.0.2"),
+        "{requests:?}"
+    );
+    let mut kinds: Vec<Vec<u8>> = requests.iter().map(|(_, body)| body.clone()).collect();
+    kinds.dedup();
+    use qrab_netd::natpmp::{request, Proto};
+    assert_eq!(
+        kinds,
+        [
+            request(Proto::Udp, 0, 1, 60).to_vec(),
+            request(Proto::Tcp, 0, 1, 60).to_vec()
+        ]
+    );
+    // A renewal over the established tunnel needs no retransmission.
+    let before = requests.len();
+    let renewed = sys::in_netns(&anchor.path, || {
+        Ok(sys::map_forwarded_port("10.66.0.1".parse().unwrap()))
+    })
+    .unwrap();
+    assert_eq!(renewed, Ok(41234));
+    assert_eq!(
+        seen.try_iter().count(),
+        2,
+        "one UDP and one TCP request after {before}"
+    );
+    // The replies went to qrab-netd, not to the guest.
+    assert!(
+        !queue_saw(&queue, &[0xa1, 0x12, 0, 0, 0, 60]),
+        "no NAT-PMP reply reaches the tap"
+    );
+    drop(provider);
+}

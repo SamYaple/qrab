@@ -15,6 +15,10 @@ rules:
 - apiGroups: [qrab.yapplesauce.com]
   resources: [vpnprofiles/status]
   verbs: [patch]
+# Which NIC anchors mount a profile's Secret, and the port qrab-netd mapped.
+- apiGroups: ['']
+  resources: [pods]
+  verbs: [list]
 - apiGroups: ['']
   resources: [secrets]
   resourceNames: [proton-session, proton-keys]
