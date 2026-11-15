@@ -494,6 +494,99 @@ async fn clean(
     Ok(gone)
 }
 
+/// Remove what migrations that no longer exist (deleted mid-flight) left: their
+/// target Pods (released once their manager exits), the targets' ConfigMaps and
+/// state PVCs, their standby anchors and time-boxed policies. The VM's own Pod
+/// and its live anchors are never touched, and nothing while the source has
+/// handed its guest over (a deleted migration's target may run it: the VM
+/// blocks as `HandedOver` instead).
+async fn collect_abandoned(
+    ctx: &Context,
+    vm: &VirtualMachine,
+    pods: &Api<Pod>,
+    source: &Pod,
+    existing: &[String],
+) -> Result<()> {
+    if handed_over(source) {
+        return Ok(());
+    }
+    let uid = uid(vm)?;
+    let gone = |name: Option<&String>| name.is_some_and(|n| !existing.contains(n));
+    let current = vm.status.as_ref().and_then(|s| s.pod_name.clone());
+    let owned = format!("{OWNER_UID}={uid}");
+    let claims: Api<PersistentVolumeClaim> =
+        Api::namespaced(ctx.client.clone(), &ctx.settings.namespace);
+    let configs: Api<ConfigMap> = Api::namespaced(ctx.client.clone(), &ctx.settings.namespace);
+    for pod in pods
+        .list(&ListParams::default().labels(&owned))
+        .await?
+        .items
+    {
+        let name = pod.name_any();
+        if Some(&name) == current.as_ref() || Some(&name) == source.metadata.name.as_ref() {
+            continue;
+        }
+        let target = pod.annotations().get(TARGET_ANNOTATION);
+        let standby = pod.annotations().get(crate::nic::MIGRATION_ANNOTATION);
+        // A standby anchor on the VM's node is its live anchor after a move.
+        let live_anchor = standby.is_some()
+            && pod.spec.as_ref().and_then(|s| s.node_name.as_deref())
+                == source.spec.as_ref().and_then(|s| s.node_name.as_deref());
+        if gone(target) {
+            let claim = pod.spec.as_ref().and_then(|s| {
+                s.volumes.iter().flatten().find_map(|v| {
+                    v.persistent_volume_claim
+                        .as_ref()
+                        .filter(|_| v.name == "state")
+                        .map(|c| c.claim_name.clone())
+                })
+            });
+            tracing::warn!(pod=%name, migration=?target, "removing the target of a deleted migration");
+            delete_pod(pods, &name).await?;
+            // Now, while the Pod still names them: PVC protection keeps the
+            // claim until the Pod is gone.
+            if let Some(claim) = claim.filter(|c| {
+                Some(c)
+                    != vm
+                        .status
+                        .as_ref()
+                        .and_then(|s| s.state_volume_claim.as_ref())
+            }) {
+                delete_state_claim(&claims, &claim, &uid).await?;
+            }
+            let config = Incarnation {
+                pod: name.clone(),
+                state_claim: String::new(),
+                node: None,
+            }
+            .config_name();
+            if configs.get_opt(&config).await?.is_some() {
+                configs.delete(&config, &DeleteParams::default()).await?;
+            }
+        } else if gone(standby) && !live_anchor {
+            tracing::warn!(pod=%name, migration=?standby, "removing a standby anchor of a deleted migration");
+            delete_pod(pods, &name).await?;
+        }
+    }
+    let windows = policies(ctx)
+        .list(
+            &ListParams::default()
+                .labels(&format!("app.kubernetes.io/component=vm-migration,{owned}")),
+        )
+        .await?
+        .items;
+    for window in windows {
+        let migration = window
+            .name_any()
+            .strip_prefix("qrab-migration-")
+            .map(str::to_owned);
+        if gone(migration.as_ref()) {
+            delete_policy(ctx, &window.name_any()).await?;
+        }
+    }
+    Ok(())
+}
+
 async fn ensure_guard(ctx: &Context, vm: &VirtualMachine) -> Result<()> {
     let guard = guard(vm, &ctx.settings.namespace)?;
     let api = policies(ctx);
@@ -533,6 +626,8 @@ pub async fn drive(
         .into_iter()
         .filter(|m| m.spec.vm_name == vm.name_any())
         .collect();
+    let existing: Vec<String> = migrations.iter().map(|m| m.name_any()).collect();
+    collect_abandoned(ctx, vm, pods, source, &existing).await?;
     migrations.sort_by_key(|m| {
         (
             m.metadata.creation_timestamp.clone().map(|t| t.0),

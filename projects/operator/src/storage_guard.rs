@@ -830,7 +830,7 @@ mod tests {
             .route("/api/v1/namespaces/qrab/persistentvolumeclaims/state",get(get_claim))
             .route("/api/v1/namespaces/qrab/configmaps/test-vm-config",get(get_config))
             .route("/apis/cilium.io/v2/namespaces/qrab/ciliumnetworkpolicies/test-vm-redfish-events",get(get_redfish_policy).patch(patch_redfish_policy).delete(delete_redfish_policy))
-            .route("/apis/cilium.io/v2/namespaces/qrab/ciliumnetworkpolicies",axum::routing::post(create_redfish_policy))
+            .route("/apis/cilium.io/v2/namespaces/qrab/ciliumnetworkpolicies",get(|| async { Json(json!({"apiVersion":"cilium.io/v2","kind":"CiliumNetworkPolicyList","metadata":{"resourceVersion":"1"},"items":[]})) }).post(create_redfish_policy))
             // Not found: the BMC's Redfish gets its metrics and Prometheus policies created.
             .route("/apis/cilium.io/v2/namespaces/qrab/ciliumnetworkpolicies/test-vm-redfish-metrics",get(not_found_handler))
             .route("/apis/cilium.io/v2/namespaces/qrab/ciliumnetworkpolicies/test-vm-redfish-prometheus",get(not_found_handler))

@@ -427,6 +427,28 @@ async fn a_vm_moves_to_another_node_and_its_target_takes_over_only_after_the_han
         store.get(SOURCE).is_none(),
         "no second boot under the old name"
     );
+    // The adopted target is no longer a disposable target: deleting the
+    // finished migration leaves the VM's Pod, PVC and ConfigMap alone.
+    assert!(store.get(TARGET).unwrap()["metadata"]["annotations"]
+        .get("qrab.yapplesauce.com/migration-target")
+        .is_none());
+    store
+        .0
+        .lock()
+        .unwrap()
+        .remove(&format!("{MIGRATIONS}/move"));
+    for _ in 0..4 {
+        store.step(&ctx).await;
+    }
+    assert_eq!(
+        store.get(TARGET).unwrap()["metadata"]["uid"],
+        "uid-test-vm-maaaa11"
+    );
+    assert!(store.get(TARGET_CLAIM).is_some());
+    assert!(store
+        .get(&format!("{CONFIGS}/test-vm-maaaa11-config"))
+        .is_some());
+    assert_eq!(store.status()["phase"], "Running");
 }
 
 #[tokio::test]
@@ -615,6 +637,110 @@ fn plumb(store: &Store, anchor: &str, node: &str, ip: &str) {
         pod["status"] = json!({"phase":"Running","podIP":ip,"conditions":[
             {"type":"Ready","status":"True"},{"type":"qrab.yapplesauce.com/nic-plumbed","status":"True"}]});
     });
+}
+
+/// A running tap-NIC VM on node-a (anchor plumbed) and a migration `move`
+/// created for it; returns the store, the context and the source anchor path.
+async fn nic_vm_migrating() -> (Store, Arc<Context>, String) {
+    let store = Store::default();
+    let mut settings = settings();
+    settings.nic_addresses = Some(qrab_operator::address::Addressing {
+        range: "10.244.128.0/17".parse().unwrap(),
+        frr_namespace: "frr-k8s-system".into(),
+    });
+    store.0.lock().unwrap().extend([
+        (VM.to_owned(), json!({"apiVersion":"qrab.yapplesauce.com/v1alpha1","kind":"VirtualMachine",
+            "metadata":{"name":"test-vm","namespace":"qrab","uid":"vm-uid","generation":1,"resourceVersion":"1"},
+            "spec":{"stateVolumeClaim":"state","accelerator":"kvm","components":{"bmc":{"enabled":false}},"nics":[{"name":"lan"}]},
+            "status":{"observedGeneration":1,"phase":"Pending","ready":false,"reason":"","message":"","stateVolumeUid":"pvc-uid"}})),
+        (format!("{CLAIMS}/state"),
+            json!({"apiVersion":"v1","kind":"PersistentVolumeClaim","metadata":{"name":"state","namespace":"qrab","uid":"pvc-uid"},
+                "spec":{"accessModes":["ReadWriteOncePod"],"volumeMode":"Filesystem","storageClassName":"zfs-block","resources":{"requests":{"storage":"1Gi"}}},"status":{"phase":"Bound"}})),
+        (format!("{ROUTES}/node-a"), base_route("node-a", "10.203.0.11")),
+        (format!("{ROUTES}/node-b"), base_route("node-b", "10.203.0.12")),
+        (format!("{NODES}/node-a"), labelled(node("node-a"))),
+        (format!("{NODES}/node-b"), {
+            let mut node = labelled(node("node-b"));
+            node["status"]["addresses"] = json!([{"type":"InternalIP","address":"10.203.0.12"}]);
+            node["status"]["allocatable"] = json!({"qrab.yapplesauce.com/kvm":"32"});
+            node
+        }),
+    ]);
+    let ctx = server_with(&store, settings).await;
+    until(&store, &ctx, 10, |s| s.get(SOURCE).is_some()).await;
+    store.edit(SOURCE, |pod| {
+        pod["spec"]["nodeName"] = json!("node-a");
+        pod["status"] = json!({"phase":"Running","podIP":"10.244.1.5","conditions":[{"type":"Ready","status":"True"}],
+            "containerStatuses":[{"name":"manager","image":"x","imageID":"x","ready":true,"restartCount":0,"state":{"running":{}}}]});
+    });
+    let source_anchor = format!("{PODS}/test-vm-nic-lan-node-a");
+    until(&store, &ctx, 6, |s| s.get(&source_anchor).is_some()).await;
+    let ip = store.status()["nics"][0]["address"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    plumb(&store, "test-vm-nic-lan-node-a", "node-a", &ip);
+    until(&store, &ctx, 6, |s| s.status()["phase"] == "Running").await;
+
+    store.0.lock().unwrap().insert(
+        format!("{MIGRATIONS}/move"),
+        migration(
+            "move",
+            "aaaa1111-2222-3333-4444-555566667777",
+            "2026-11-14T17:00:00Z",
+        ),
+    );
+    (store, ctx, source_anchor)
+}
+
+#[tokio::test]
+async fn deleting_a_migration_mid_flight_removes_its_target_objects() {
+    let (store, ctx, source_anchor) = nic_vm_migrating().await;
+    let target_anchor = format!("{PODS}/test-vm-nic-lan-node-b");
+    until(&store, &ctx, 8, |s| s.get(&target_anchor).is_some()).await;
+    let ip = store.status()["nics"][0]["address"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    plumb(&store, "test-vm-nic-lan-node-b", "node-b", &ip);
+    until(&store, &ctx, 6, |s| s.get(TARGET).is_some()).await;
+    assert_eq!(moving(&store)["phase"], "TargetStarting");
+    assert_eq!(
+        store.get(TARGET).unwrap()["metadata"]["annotations"]
+            ["qrab.yapplesauce.com/migration-target"],
+        "move"
+    );
+    let target_config = format!("{CONFIGS}/test-vm-maaaa11-config");
+    for leftover in [TARGET, TARGET_CLAIM, POLICY, &target_config, &target_anchor] {
+        assert!(
+            store.get(leftover).is_some(),
+            "{leftover} exists before the deletion"
+        );
+    }
+    // The user deletes the migration while its target starts.
+    store
+        .0
+        .lock()
+        .unwrap()
+        .remove(&format!("{MIGRATIONS}/move"));
+    until(&store, &ctx, 6, |s| {
+        [
+            TARGET,
+            TARGET_CLAIM,
+            POLICY,
+            target_config.as_str(),
+            target_anchor.as_str(),
+        ]
+        .iter()
+        .all(|p| s.get(p).is_none())
+    })
+    .await;
+    // The source and its anchor are untouched and the VM keeps running there.
+    assert!(store.get(SOURCE).is_some());
+    assert!(store.get(&source_anchor).is_some());
+    assert!(store.get(&format!("{CLAIMS}/state")).is_some());
+    until(&store, &ctx, 4, |s| s.status()["phase"] == "Running").await;
+    assert_eq!(store.status()["podName"], "test-vm");
 }
 
 #[tokio::test]
