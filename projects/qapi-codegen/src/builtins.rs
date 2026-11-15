@@ -118,7 +118,7 @@ pub(crate) fn parse_sources(sources: &[(PathBuf, String)]) -> Result<Vec<(&Path,
             }
             match token {
                 QapiSchemaToken::Struct(value) => {
-                    if let Some(base) = value.base {
+                    if let Some(base) = value.base.as_deref() {
                         used.reference(base);
                     }
                     members(&value.data, &mut used);
@@ -167,12 +167,12 @@ pub(crate) fn parse_sources(sources: &[(PathBuf, String)]) -> Result<Vec<(&Path,
             ][..]
         };
         predefined.push(QapiSchemaToken::Enum(QapiEnum {
-            name: "QType",
-            prefix: Some("QTYPE"),
+            name: "QType".into(),
+            prefix: Some("QTYPE".into()),
             data: values
                 .iter()
                 .map(|&name| QapiEnumValue {
-                    name,
+                    name: name.into(),
                     ..Default::default()
                 })
                 .collect(),
@@ -181,7 +181,7 @@ pub(crate) fn parse_sources(sources: &[(PathBuf, String)]) -> Result<Vec<(&Path,
     }
     if used.empty {
         predefined.push(QapiSchemaToken::Struct(QapiStruct {
-            name: "q_empty",
+            name: "q_empty".into(),
             ..Default::default()
         }));
     }

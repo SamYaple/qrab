@@ -42,6 +42,7 @@ pub use parsers::{
     set_parser_version,
 };
 
+pub use parsers::common::QapiString;
 pub use qapi_ir::*;
 
 use anyhow::{Context, Result};
@@ -133,7 +134,7 @@ fn read_schema_file(
             version
         )
     })?;
-    let includes: Vec<&str> = schema_tokens
+    let includes: Vec<_> = schema_tokens
         .into_iter()
         .filter_map(|token| match token {
             QapiSchemaToken::Include(filename) => Some(filename.0),
@@ -141,10 +142,7 @@ fn read_schema_file(
         })
         .collect();
     for include in includes {
-        let include_path = schema_file
-            .parent()
-            .unwrap()
-            .join(include.replace("\\\\", "\\"));
+        let include_path = schema_file.parent().unwrap().join(include.as_ref());
         read_schema_file(&include_path, sources, active, version)?;
     }
     active.pop();

@@ -1,3 +1,4 @@
+use super::common::QapiString;
 use super::common::{qstring, take_dict, take_kv};
 use super::parser_version;
 use super::qapi_cond::{QapiCond, take_cond};
@@ -16,9 +17,9 @@ pub fn take_struct(input: &str) -> IResult<&str, QapiStruct<'_>> {
 
 #[derive(Debug, Clone, Default)]
 pub struct QapiStruct<'i> {
-    pub name: &'i str,
+    pub name: QapiString<'i>,
     pub data: QapiMembers<'i>,
-    pub base: Option<&'i str>,
+    pub base: Option<QapiString<'i>>,
     pub r#if: Option<QapiCond<'i>>,
     pub features: Option<QapiFeatures<'i>>,
     pub doc: Option<QapiDocumentation<'i>>,

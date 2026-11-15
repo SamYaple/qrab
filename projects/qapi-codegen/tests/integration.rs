@@ -1015,7 +1015,7 @@ fn test_all_latest_commands_in_registry() {
         let schema = parse_schema(content).unwrap();
         for token in schema.iter() {
             if let QapiSchemaToken::Command(cmd) = token {
-                let cmd_name = cmd.name;
+                let cmd_name = cmd.name.as_ref();
                 // Existence of a similarly named data type is insufficient:
                 // the generated command must preserve its exact wire name.
                 let found = registry.types.values().any(|ty| {

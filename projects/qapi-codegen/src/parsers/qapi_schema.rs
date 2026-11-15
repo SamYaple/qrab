@@ -39,14 +39,14 @@ pub enum QapiSchemaToken<'i> {
 }
 
 impl<'i> QapiSchemaToken<'i> {
-    pub(crate) fn definition_name(&self) -> Option<&'i str> {
+    pub(crate) fn definition_name(&self) -> Option<&str> {
         match self {
-            Self::Alternate(value) => Some(value.name),
-            Self::Command(value) => Some(value.name),
-            Self::Enum(value) => Some(value.name),
-            Self::Event(value) => Some(value.name),
-            Self::Struct(value) => Some(value.name),
-            Self::Union(value) => Some(value.name),
+            Self::Alternate(value) => Some(value.name.as_ref()),
+            Self::Command(value) => Some(value.name.as_ref()),
+            Self::Enum(value) => Some(value.name.as_ref()),
+            Self::Event(value) => Some(value.name.as_ref()),
+            Self::Struct(value) => Some(value.name.as_ref()),
+            Self::Union(value) => Some(value.name.as_ref()),
             _ => None,
         }
     }

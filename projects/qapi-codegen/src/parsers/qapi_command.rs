@@ -1,3 +1,4 @@
+use super::common::QapiString;
 use super::common::{qbool, qstring, take_dict, take_kv};
 use super::parser_version;
 use super::qapi_cond::{QapiCond, take_cond};
@@ -17,14 +18,14 @@ pub fn take_command(input: &str) -> IResult<&str, QapiCommand<'_>> {
 
 #[derive(Debug, Clone, Default)]
 pub struct QapiCommand<'i> {
-    pub name: &'i str,
+    pub name: QapiString<'i>,
     pub data: Option<MembersOrRef<'i>>,
     pub boxed: Option<&'i str>,
     pub r#if: Option<QapiCond<'i>>,
     pub features: Option<QapiFeatures<'i>>,
     pub returns: Option<QapiTypeRef<'i>>,
-    pub success_response: Option<&'i str>,
-    pub r#gen: Option<&'i str>,
+    pub success_response: Option<QapiString<'i>>,
+    pub r#gen: Option<QapiString<'i>>,
     pub allow_oob: Option<&'i str>,
     pub allow_preconfig: Option<&'i str>,
     pub coroutine: Option<&'i str>,
@@ -66,17 +67,17 @@ impl<'i> QapiCommand<'i> {
             take_kv("returns", QapiTypeRef::parse).map(|v| s.returns = Some(v)),
             take_kv("success-response", move |input| {
                 if gen_string_as_bool {
-                    alt((qbool, qstring)).parse(input)
+                    alt((qbool.map(QapiString::Borrowed), qstring)).parse(input)
                 } else {
-                    qbool(input)
+                    qbool.map(QapiString::Borrowed).parse(input)
                 }
             })
             .map(|v| s.success_response = Some(v)),
             take_kv("gen", move |input| {
                 if gen_string_as_bool {
-                    alt((qbool, qstring)).parse(input)
+                    alt((qbool.map(QapiString::Borrowed), qstring)).parse(input)
                 } else {
-                    qbool(input)
+                    qbool.map(QapiString::Borrowed).parse(input)
                 }
             })
             .map(|v| s.r#gen = Some(v)),
@@ -116,7 +117,7 @@ mod tests {
         let (rem, cmd) = QapiCommand::parse(input).unwrap();
         assert_eq!(rem, "");
         assert_eq!(cmd.name, "query-name");
-        assert_eq!(cmd.r#gen, Some("no"));
+        assert_eq!(cmd.r#gen, Some("no".into()));
     }
 
     #[test]
@@ -133,6 +134,6 @@ mod tests {
         let input = "{ 'command': 'test', 'gen': false }";
         let (rem, cmd) = QapiCommand::parse(input).unwrap();
         assert_eq!(rem, "");
-        assert_eq!(cmd.r#gen, Some("false"));
+        assert_eq!(cmd.r#gen, Some("false".into()));
     }
 }

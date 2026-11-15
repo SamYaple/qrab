@@ -13,11 +13,11 @@ pub(crate) fn resolve_legacy(schemas: &mut [(&Path, QapiSchema<'_>)]) {
         let names: HashSet<_> = schema
             .0
             .iter()
-            .filter_map(|token| token.definition_name())
+            .filter_map(|token| token.definition_name().map(str::to_owned))
             .collect();
         let mut pending = HashMap::new();
         for token in &mut schema.0 {
-            let Some(name) = token.definition_name() else {
+            let Some(name) = token.definition_name().map(str::to_owned) else {
                 continue;
             };
             let Some(slot) = token.documentation_mut() else {

@@ -40,7 +40,7 @@ mod tests {
         assert_eq!(rem, "");
         assert_eq!(b.len(), 1);
         assert_eq!(b[0].name, "variant-a");
-        assert_eq!(b[0].r#type, QapiTypeRef::Ref("TypeA"));
+        assert_eq!(b[0].r#type, QapiTypeRef::Ref("TypeA".into()));
     }
 
     #[test]
@@ -49,7 +49,7 @@ mod tests {
         let (rem, b) = QapiBranches::parse(input).unwrap();
         assert_eq!(rem, "");
         assert_eq!(b.len(), 3);
-        assert_eq!(b[1].r#type, QapiTypeRef::ArrayRef("TypeB"));
+        assert_eq!(b[1].r#type, QapiTypeRef::ArrayRef("TypeB".into()));
     }
 
     #[test]

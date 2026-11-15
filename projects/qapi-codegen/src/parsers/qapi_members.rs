@@ -1,3 +1,4 @@
+use super::common::QapiString;
 use super::common::{qstring, take_dict};
 use super::qapi_member::QapiMember;
 use super::vec_newtype;
@@ -24,7 +25,9 @@ impl<'i> QapiMembers<'i> {
             take_dict(QapiMember::parse),
             |members: &Vec<QapiMember<'i>>| {
                 let mut names = HashSet::new();
-                members.iter().all(|member| names.insert(member.name))
+                members
+                    .iter()
+                    .all(|member| names.insert(member.name.as_ref()))
             },
         )
         .map(Self)
@@ -41,7 +44,7 @@ pub fn take_members_or_ref(input: &str) -> IResult<&str, MembersOrRef<'_>> {
 pub enum MembersOrRef<'i> {
     #[default]
     Unset,
-    Ref(&'i str),
+    Ref(QapiString<'i>),
     Members(QapiMembers<'i>),
 }
 
@@ -81,7 +84,7 @@ mod tests {
         assert_eq!(rem, "");
         assert_eq!(m.len(), 1);
         assert_eq!(m[0].name, "name");
-        assert_eq!(m[0].r#type, QapiTypeRef::Ref("str"));
+        assert_eq!(m[0].r#type, QapiTypeRef::Ref("str".into()));
     }
 
     #[test]
@@ -100,7 +103,7 @@ mod tests {
     fn test_members_or_ref_string() {
         let (rem, mor) = MembersOrRef::parse("'SomeStruct'").unwrap();
         assert_eq!(rem, "");
-        assert_eq!(mor, MembersOrRef::Ref("SomeStruct"));
+        assert_eq!(mor, MembersOrRef::Ref("SomeStruct".into()));
     }
 
     #[test]

@@ -14,9 +14,12 @@ pub(crate) fn member_names<'a>(names: impl IntoIterator<Item = &'a str>) -> Resu
 fn features(features: Option<&QapiFeatures<'_>>) -> Result<()> {
     if let Some(features) = features {
         for feature in features.iter() {
-            crate::schema_names::validate(feature.name, false)?;
+            crate::schema_names::validate(&feature.name, false)?;
         }
-        unique_names("Feature", features.iter().map(|feature| feature.name))?;
+        unique_names(
+            "Feature",
+            features.iter().map(|feature| feature.name.as_ref()),
+        )?;
     }
     Ok(())
 }
@@ -106,9 +109,9 @@ fn type_ref(value: &QapiTypeRef<'_>, types: &HashSet<&str>, inline: bool) -> Res
 }
 
 fn members(fields: &QapiMembers<'_>, types: &HashSet<&str>, inline: bool) -> Result<()> {
-    member_names(fields.0.iter().map(|field| field.name))?;
+    member_names(fields.0.iter().map(|field| field.name.as_ref()))?;
     for field in &fields.0 {
-        crate::schema_names::validate(field.name, false)
+        crate::schema_names::validate(&field.name, false)
             .with_context(|| format!("Invalid member '{}'", field.name))?;
         features(field.features.as_ref())
             .and_then(|()| type_ref(&field.r#type, types, inline))
@@ -138,7 +141,7 @@ fn argument_type(
         );
     }
     if let Some(MembersOrRef::Ref(name)) = data {
-        match declarations.get(name) {
+        match declarations.get::<str>(name.as_ref()) {
             Some(QapiSchemaToken::Struct(_)) => {}
             Some(QapiSchemaToken::Union(value)) if !value.legacy_alternate => {
                 ensure!(
@@ -154,7 +157,10 @@ fn argument_type(
 
 fn base_type(name: &str, declarations: &HashMap<&str, &QapiSchemaToken<'_>>) -> Result<()> {
     ensure!(
-        matches!(declarations.get(name), Some(QapiSchemaToken::Struct(_))),
+        matches!(
+            declarations.get::<str>(name.as_ref()),
+            Some(QapiSchemaToken::Struct(_))
+        ),
         "Base '{name}' requires a struct type"
     );
     Ok(())
@@ -176,14 +182,14 @@ fn conditional_arguments(
         match value {
             MembersOrRef::Members(fields) => fields.0.iter().any(|field| field.r#if.is_some()),
             MembersOrRef::Ref(name) => {
-                if !seen.insert((*name).to_owned()) {
+                if !seen.insert(name.to_string()) {
                     return false;
                 }
-                match declarations.get(name) {
+                match declarations.get::<str>(name.as_ref()) {
                     Some(QapiSchemaToken::Struct(value)) => {
                         value.data.0.iter().any(|field| field.r#if.is_some())
-                            || value.base.is_some_and(|base| {
-                                conditional(&MembersOrRef::Ref(base), declarations, seen)
+                            || value.base.as_ref().is_some_and(|base| {
+                                conditional(&MembersOrRef::Ref(base.clone()), declarations, seen)
                             })
                     }
                     Some(QapiSchemaToken::Union(value)) => {
@@ -224,11 +230,11 @@ fn alternate_branches(
         let (kind, enumeration) = match &branch.r#type {
             QapiTypeRef::ArrayRef(_) => (Some(Kind::Array), None),
             QapiTypeRef::Ref(name) => {
-                let enumeration = match declarations.get(name) {
+                let enumeration = match declarations.get::<str>(name.as_ref()) {
                     Some(QapiSchemaToken::Enum(value)) => Some(value),
                     _ => None,
                 };
-                let kind = match *name {
+                let kind = match name.as_ref() {
                     "str" => Some(Kind::String),
                     "bool" => Some(Kind::Bool),
                     "null" => Some(Kind::Null),
@@ -243,7 +249,7 @@ fn alternate_branches(
                     } else {
                         Kind::Integer
                     }),
-                    _ => match declarations.get(name) {
+                    _ => match declarations.get::<str>(name.as_ref()) {
                         Some(QapiSchemaToken::Enum(_)) => Some(Kind::String),
                         Some(QapiSchemaToken::Struct(_)) => Some(Kind::Object),
                         Some(QapiSchemaToken::Union(value)) if !value.legacy_alternate => {
@@ -266,7 +272,7 @@ fn alternate_branches(
         if unified_numbers && kind == Kind::String {
             if let Some(enumeration) = enumeration {
                 for member in &enumeration.data {
-                    if matches!(member.name, "on" | "off") {
+                    if matches!(member.name.as_ref(), "on" | "off") {
                         conflicting.push(Kind::Bool);
                     }
                     if member
@@ -291,7 +297,7 @@ fn alternate_branches(
             }
         }
         for kind in conflicting {
-            seen.insert(kind, branch.name);
+            seen.insert(kind, branch.name.as_ref());
         }
     }
     Ok(())
@@ -303,10 +309,10 @@ pub(crate) fn validate(schemas: &[(&Path, QapiSchema<'_>)]) -> Result<()> {
         .iter()
         .flat_map(|(_, schema)| &schema.0)
         .filter_map(|token| match token {
-            QapiSchemaToken::Enum(value) => Some(value.name),
-            QapiSchemaToken::Struct(value) => Some(value.name),
-            QapiSchemaToken::Union(value) => Some(value.name),
-            QapiSchemaToken::Alternate(value) => Some(value.name),
+            QapiSchemaToken::Enum(value) => Some(value.name.as_ref()),
+            QapiSchemaToken::Struct(value) => Some(value.name.as_ref()),
+            QapiSchemaToken::Union(value) => Some(value.name.as_ref()),
+            QapiSchemaToken::Alternate(value) => Some(value.name.as_ref()),
             _ => None,
         })
         .collect();
@@ -314,45 +320,49 @@ pub(crate) fn validate(schemas: &[(&Path, QapiSchema<'_>)]) -> Result<()> {
         .iter()
         .flat_map(|(_, schema)| &schema.0)
         .filter_map(|token| match token {
-            QapiSchemaToken::Enum(value) => Some((value.name, token)),
-            QapiSchemaToken::Struct(value) => Some((value.name, token)),
-            QapiSchemaToken::Union(value) => Some((value.name, token)),
-            QapiSchemaToken::Alternate(value) => Some((value.name, token)),
+            QapiSchemaToken::Enum(value) => Some((value.name.as_ref(), token)),
+            QapiSchemaToken::Struct(value) => Some((value.name.as_ref(), token)),
+            QapiSchemaToken::Union(value) => Some((value.name.as_ref(), token)),
+            QapiSchemaToken::Alternate(value) => Some((value.name.as_ref(), token)),
             _ => None,
         })
         .collect();
     for (path, schema) in schemas {
         for token in &schema.0 {
             let (kind, name, feature_list) = match token {
-                QapiSchemaToken::Enum(value) => ("enum", value.name, &value.features),
-                QapiSchemaToken::Struct(value) => ("struct", value.name, &value.features),
-                QapiSchemaToken::Union(value) => ("union", value.name, &value.features),
-                QapiSchemaToken::Alternate(value) => ("alternate", value.name, &value.features),
-                QapiSchemaToken::Command(value) => ("command", value.name, &value.features),
-                QapiSchemaToken::Event(value) => ("event", value.name, &value.features),
+                QapiSchemaToken::Enum(value) => ("enum", value.name.as_ref(), &value.features),
+                QapiSchemaToken::Struct(value) => ("struct", value.name.as_ref(), &value.features),
+                QapiSchemaToken::Union(value) => ("union", value.name.as_ref(), &value.features),
+                QapiSchemaToken::Alternate(value) => {
+                    ("alternate", value.name.as_ref(), &value.features)
+                }
+                QapiSchemaToken::Command(value) => {
+                    ("command", value.name.as_ref(), &value.features)
+                }
+                QapiSchemaToken::Event(value) => ("event", value.name.as_ref(), &value.features),
                 _ => continue,
             };
             let check = || -> Result<()> {
                 features(feature_list.as_ref())?;
                 match token {
                     QapiSchemaToken::Enum(value) => {
-                        member_names(value.data.iter().map(|value| value.name))?;
+                        member_names(value.data.iter().map(|value| value.name.as_ref()))?;
                         for member in &value.data {
-                            crate::schema_names::validate(member.name, true)?;
+                            crate::schema_names::validate(&member.name, true)?;
                             features(member.features.as_ref()).with_context(|| {
                                 format!("Invalid enum member '{}'", member.name)
                             })?;
                         }
                     }
                     QapiSchemaToken::Struct(value) => {
-                        if let Some(base) = value.base {
+                        if let Some(base) = value.base.as_deref() {
                             known_type(base, &types).context("Invalid base")?;
                             base_type(base, &declarations)?;
                         }
                         members(&value.data, &types, true)?;
                     }
                     QapiSchemaToken::Union(value) => {
-                        member_names(value.data.0.iter().map(|branch| branch.name))?;
+                        member_names(value.data.0.iter().map(|branch| branch.name.as_ref()))?;
                         members_or_ref(&value.base, &types).context("Invalid base")?;
                         if let MembersOrRef::Ref(base) = &value.base {
                             base_type(base, &declarations)?;
@@ -364,9 +374,9 @@ pub(crate) fn validate(schemas: &[(&Path, QapiSchema<'_>)]) -> Result<()> {
                         crate::union_layout::validate(value, &declarations)?;
                     }
                     QapiSchemaToken::Alternate(value) => {
-                        member_names(value.data.0.iter().map(|branch| branch.name))?;
+                        member_names(value.data.0.iter().map(|branch| branch.name.as_ref()))?;
                         for branch in &value.data.0 {
-                            crate::schema_names::validate(branch.name, false)?;
+                            crate::schema_names::validate(&branch.name, false)?;
                             type_ref(&branch.r#type, &types, false)
                                 .with_context(|| format!("Invalid branch '{}'", branch.name))?;
                         }
@@ -385,8 +395,8 @@ pub(crate) fn validate(schemas: &[(&Path, QapiSchema<'_>)]) -> Result<()> {
                         }
                         if crate::parser_version() >= (2, 4, 0) {
                             for (name, flag) in [
-                                ("gen", value.r#gen),
-                                ("success-response", value.success_response),
+                                ("gen", value.r#gen.as_deref()),
+                                ("success-response", value.success_response.as_deref()),
                             ] {
                                 ensure!(
                                     flag.is_none_or(|flag| flag == "false"),

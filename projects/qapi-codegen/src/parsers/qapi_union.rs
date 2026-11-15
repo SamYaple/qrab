@@ -1,3 +1,4 @@
+use super::common::QapiString;
 use super::common::{qstring, qtag, take_dict, take_kv};
 use super::parser_version;
 use super::qapi_branches::{QapiBranches, take_branches};
@@ -17,11 +18,11 @@ pub fn take_union(input: &str) -> IResult<&str, QapiUnion<'_>> {
 
 #[derive(Debug, Clone, Default)]
 pub struct QapiUnion<'i> {
-    pub name: &'i str,
+    pub name: QapiString<'i>,
     pub data: QapiBranches<'i>,
     pub base: MembersOrRef<'i>,
     /// Named for flat unions; absent for simple unions and legacy alternates.
-    pub discriminator: Option<&'i str>,
+    pub discriminator: Option<QapiString<'i>>,
     /// An empty discriminator object denoted an untagged alternate.
     pub legacy_alternate: bool,
     pub r#if: Option<QapiCond<'i>>,
@@ -180,7 +181,7 @@ mod tests {
         let (rem, u) = QapiUnion::parse(input).unwrap();
         assert_eq!(rem, "");
         assert_eq!(u.name, "SOMENAME");
-        assert_eq!(u.discriminator, Some("testdiscrim"));
+        assert_eq!(u.discriminator, Some("testdiscrim".into()));
     }
 
     #[test]
@@ -219,6 +220,6 @@ mod tests {
         let input = "{'union': 'TestUnion', 'discriminator': 'type', 'base': 'TestBase', 'data': {'a': 'TypeA'}}";
         let (rem, u) = QapiUnion::parse(input).unwrap();
         assert_eq!(rem, "");
-        assert_eq!(u.discriminator, Some("type"));
+        assert_eq!(u.discriminator, Some("type".into()));
     }
 }

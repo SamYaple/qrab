@@ -1,3 +1,4 @@
+use super::common::QapiString;
 use super::common::{qstring, take_dict, take_kv};
 use super::qapi_cond::{QapiCond, take_cond};
 use nom::IResult;
@@ -13,7 +14,7 @@ pub fn take_feature(input: &str) -> IResult<&str, QapiFeature<'_>> {
 /// Holds information on a specific Feature in a single option
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct QapiFeature<'i> {
-    pub name: &'i str,
+    pub name: QapiString<'i>,
     pub r#if: Option<QapiCond<'i>>,
 }
 
@@ -59,7 +60,7 @@ mod tests {
     fn test_parse_string_feature() {
         let input = "'feature_name'";
         let expected = QapiFeature {
-            name: "feature_name",
+            name: "feature_name".into(),
             r#if: None,
         };
         let (remaining, result) = QapiFeature::parse(input).expect("Parsing failed");
@@ -71,7 +72,7 @@ mod tests {
     fn test_parse_dict_feature_minimal() {
         let input = "{'name':'feature_name'}";
         let expected = QapiFeature {
-            name: "feature_name",
+            name: "feature_name".into(),
             r#if: None,
         };
         let (remaining, result) = QapiFeature::parse(input).expect("Parsing failed");
@@ -83,8 +84,8 @@ mod tests {
     fn test_parse_dict_feature_with_if() {
         let input = "{ 'name': 'feature_name', 'if': 'CONFIG_CONDITION' }";
         let expected = QapiFeature {
-            name: "feature_name",
-            r#if: Some(QapiCond::ConfigName("CONFIG_CONDITION")),
+            name: "feature_name".into(),
+            r#if: Some(QapiCond::ConfigName("CONFIG_CONDITION".into())),
         };
         let (remaining, result) = QapiFeature::parse(input).expect("Parsing failed");
         assert_eq!(remaining, "");
@@ -95,9 +96,9 @@ mod tests {
     fn test_parse_dict_feature_with_complex_if() {
         let input = "{ 'name': 'feature_name', 'if': { 'not': 'CONFIG_CONDITION' } }";
         let expected = QapiFeature {
-            name: "feature_name",
+            name: "feature_name".into(),
             r#if: Some(QapiCond::Not(Box::new(QapiCond::ConfigName(
-                "CONFIG_CONDITION",
+                "CONFIG_CONDITION".into(),
             )))),
         };
         let (remaining, result) = QapiFeature::parse(input).expect("Parsing failed");
@@ -109,10 +110,10 @@ mod tests {
     fn test_parse_dict_feature_with_any_if() {
         let input = "{ 'name': 'feature_name', 'if': { 'any': [ 'CONFIG_A', 'CONFIG_B' ] } }";
         let expected = QapiFeature {
-            name: "feature_name",
+            name: "feature_name".into(),
             r#if: Some(QapiCond::Any(vec![
-                QapiCond::ConfigName("CONFIG_A"),
-                QapiCond::ConfigName("CONFIG_B"),
+                QapiCond::ConfigName("CONFIG_A".into()),
+                QapiCond::ConfigName("CONFIG_B".into()),
             ])),
         };
         let (remaining, result) = QapiFeature::parse(input).expect("Parsing failed");
@@ -124,10 +125,10 @@ mod tests {
     fn test_parse_dict_feature_with_all_if() {
         let input = "{ 'name': 'feature_name', 'if': { 'all': [ 'CONFIG_A', 'CONFIG_B' ] } }";
         let expected = QapiFeature {
-            name: "feature_name",
+            name: "feature_name".into(),
             r#if: Some(QapiCond::All(vec![
-                QapiCond::ConfigName("CONFIG_A"),
-                QapiCond::ConfigName("CONFIG_B"),
+                QapiCond::ConfigName("CONFIG_A".into()),
+                QapiCond::ConfigName("CONFIG_B".into()),
             ])),
         };
         let (remaining, result) = QapiFeature::parse(input).expect("Parsing failed");
@@ -140,10 +141,10 @@ mod tests {
         let input =
             "{ 'name': 'feature_name', 'if': { 'all': [ 'CONFIG_A', { 'not': 'CONFIG_B' } ] } }";
         let expected = QapiFeature {
-            name: "feature_name",
+            name: "feature_name".into(),
             r#if: Some(QapiCond::All(vec![
-                QapiCond::ConfigName("CONFIG_A"),
-                QapiCond::Not(Box::new(QapiCond::ConfigName("CONFIG_B"))),
+                QapiCond::ConfigName("CONFIG_A".into()),
+                QapiCond::Not(Box::new(QapiCond::ConfigName("CONFIG_B".into()))),
             ])),
         };
         let (remaining, result) = QapiFeature::parse(input).expect("Parsing failed");
@@ -155,8 +156,8 @@ mod tests {
     fn test_parse_feature_with_whitespace() {
         let input = " { 'name' : 'feature_name' , 'if' : 'CONFIG_CONDITION' } ";
         let expected = QapiFeature {
-            name: "feature_name",
-            r#if: Some(QapiCond::ConfigName("CONFIG_CONDITION")),
+            name: "feature_name".into(),
+            r#if: Some(QapiCond::ConfigName("CONFIG_CONDITION".into())),
         };
         let (remaining, result) = QapiFeature::parse(input).expect("Parsing failed");
         assert_eq!(remaining.trim(), "");

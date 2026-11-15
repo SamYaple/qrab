@@ -41,7 +41,7 @@ mod tests {
         assert_eq!(rem, "");
         assert_eq!(a.len(), 1);
         assert_eq!(a[0].name, "str-val");
-        assert_eq!(a[0].r#type, QapiTypeRef::Ref("str"));
+        assert_eq!(a[0].r#type, QapiTypeRef::Ref("str".into()));
     }
 
     #[test]
@@ -50,7 +50,7 @@ mod tests {
         let (rem, a) = QapiAlternatives::parse(input).unwrap();
         assert_eq!(rem, "");
         assert_eq!(a.len(), 3);
-        assert_eq!(a[2].r#type, QapiTypeRef::ArrayRef("bool"));
+        assert_eq!(a[2].r#type, QapiTypeRef::ArrayRef("bool".into()));
     }
 
     #[test]

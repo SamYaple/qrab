@@ -1,3 +1,4 @@
+use super::common::QapiString;
 use super::common::{qstring, qtag, take_dict};
 use super::qapi_cond::QapiCond;
 use super::qapi_cond::take_cond;
@@ -22,7 +23,7 @@ mod tests {
         let (rem, v) = QapiVariant::parse("'branch-name': 'SomeType'").unwrap();
         assert_eq!(rem, "");
         assert_eq!(v.name, "branch-name");
-        assert_eq!(v.r#type, QapiTypeRef::Ref("SomeType"));
+        assert_eq!(v.r#type, QapiTypeRef::Ref("SomeType".into()));
         assert!(v.r#if.is_none());
     }
 
@@ -31,7 +32,7 @@ mod tests {
         let (rem, v) = QapiVariant::parse("'items': ['ItemType']").unwrap();
         assert_eq!(rem, "");
         assert_eq!(v.name, "items");
-        assert_eq!(v.r#type, QapiTypeRef::ArrayRef("ItemType"));
+        assert_eq!(v.r#type, QapiTypeRef::ArrayRef("ItemType".into()));
     }
 
     #[test]
@@ -40,7 +41,7 @@ mod tests {
         let (rem, v) = QapiVariant::parse(input).unwrap();
         assert_eq!(rem, "");
         assert_eq!(v.name, "branch-name");
-        assert_eq!(v.r#type, QapiTypeRef::Ref("SomeType"));
+        assert_eq!(v.r#type, QapiTypeRef::Ref("SomeType".into()));
         assert!(v.r#if.is_some());
     }
 
@@ -50,7 +51,7 @@ mod tests {
         let (rem, v) = QapiVariant::parse(input).unwrap();
         assert_eq!(rem, "");
         assert_eq!(v.name, "data");
-        assert_eq!(v.r#type, QapiTypeRef::ArrayRef("MyType"));
+        assert_eq!(v.r#type, QapiTypeRef::ArrayRef("MyType".into()));
         assert!(v.r#if.is_some());
     }
 
@@ -59,7 +60,7 @@ mod tests {
         let input = " 'name' : 'Type' ";
         let (_, v) = QapiVariant::parse(input).unwrap();
         assert_eq!(v.name, "name");
-        assert_eq!(v.r#type, QapiTypeRef::Ref("Type"));
+        assert_eq!(v.r#type, QapiTypeRef::Ref("Type".into()));
     }
 
     #[test]
@@ -82,7 +83,7 @@ mod tests {
 /// Used for both union branches and alternate alternatives in the QAPI schema.
 #[derive(Debug, Clone, Default)]
 pub struct QapiVariant<'i> {
-    pub name: &'i str,
+    pub name: QapiString<'i>,
     pub r#type: QapiTypeRef<'i>,
     pub r#if: Option<QapiCond<'i>>,
 }

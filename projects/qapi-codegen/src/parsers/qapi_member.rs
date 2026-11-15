@@ -1,3 +1,4 @@
+use super::common::QapiString;
 use super::common::{qstring, qtag, take_dict};
 use super::qapi_cond::QapiCond;
 use super::qapi_cond::take_cond;
@@ -17,7 +18,7 @@ pub fn take_member(input: &str) -> IResult<&str, QapiMember<'_>> {
 
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct QapiMember<'i> {
-    pub name: &'i str,
+    pub name: QapiString<'i>,
     pub optional: bool,
     pub r#type: QapiTypeRef<'i>,
     pub r#if: Option<QapiCond<'i>>,
@@ -41,7 +42,10 @@ impl<'i> QapiMember<'i> {
         }
         if member.name.starts_with('*') {
             member.optional = true;
-            member.name = &member.name[1..];
+            member.name = match member.name {
+                QapiString::Borrowed(value) => QapiString::Borrowed(&value[1..]),
+                QapiString::Owned(value) => QapiString::Owned(value[1..].to_owned()),
+            };
         }
         if member.name.is_empty() {
             return Err(nom::Err::Error(Error::new(start, ErrorKind::Verify)));

@@ -1,3 +1,4 @@
+use super::common::QapiString;
 use super::common::{qstring, qtag, take_kv};
 use nom::IResult;
 use nom::Parser;
@@ -8,7 +9,7 @@ pub fn take_include(input: &str) -> IResult<&str, QapiInclude<'_>> {
 }
 
 #[derive(Debug, Clone)]
-pub struct QapiInclude<'i>(pub &'i str);
+pub struct QapiInclude<'i>(pub QapiString<'i>);
 impl<'i> QapiInclude<'i> {
     /// INCLUDE = { 'include': STRING }
     pub fn parse(input: &'i str) -> IResult<&'i str, Self> {

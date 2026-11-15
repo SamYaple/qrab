@@ -12,13 +12,13 @@ enum Kind {
     Alternate,
 }
 
-fn declaration<'a>(token: &QapiSchemaToken<'a>) -> Option<(&'a str, Kind)> {
+fn declaration<'a>(token: &'a QapiSchemaToken<'_>) -> Option<(&'a str, Kind)> {
     Some(match token {
-        QapiSchemaToken::Enum(value) => (value.name, Kind::Enum),
-        QapiSchemaToken::Struct(value) => (value.name, Kind::Object),
-        QapiSchemaToken::Alternate(value) => (value.name, Kind::Alternate),
+        QapiSchemaToken::Enum(value) => (value.name.as_ref(), Kind::Enum),
+        QapiSchemaToken::Struct(value) => (value.name.as_ref(), Kind::Object),
+        QapiSchemaToken::Alternate(value) => (value.name.as_ref(), Kind::Alternate),
         QapiSchemaToken::Union(value) => (
-            value.name,
+            value.name.as_ref(),
             if value.legacy_alternate {
                 Kind::Alternate
             } else {
@@ -61,11 +61,11 @@ impl SchemaNames {
                     .insert(crate::parser_version(), kind);
             }
             let name = match token {
-                QapiSchemaToken::Enum(value) => value.name,
-                QapiSchemaToken::Struct(value) => value.name,
-                QapiSchemaToken::Alternate(value) => value.name,
-                QapiSchemaToken::Union(value) => value.name,
-                QapiSchemaToken::Command(value) => value.name,
+                QapiSchemaToken::Enum(value) => value.name.as_ref(),
+                QapiSchemaToken::Struct(value) => value.name.as_ref(),
+                QapiSchemaToken::Alternate(value) => value.name.as_ref(),
+                QapiSchemaToken::Union(value) => value.name.as_ref(),
+                QapiSchemaToken::Command(value) => value.name.as_ref(),
                 QapiSchemaToken::Event(value) => {
                     self.roles
                         .entry(rustify_name(&format!("{}Event", value.name)))
@@ -87,7 +87,7 @@ impl SchemaNames {
                     {
                         self.shared_requests.insert((
                             root.clone(),
-                            (*data).to_owned(),
+                            data.to_string(),
                             crate::parser_version(),
                         ));
                     }
@@ -238,7 +238,7 @@ impl SchemaNames {
 
     pub fn rewrite_types(
         &self,
-        declared: &HashSet<&str>,
+        declared: &HashSet<String>,
         enums: &mut HashMap<String, Enum>,
         structs: &mut HashMap<String, Struct>,
     ) {
@@ -247,7 +247,8 @@ impl SchemaNames {
         }
         let raw: HashMap<_, _> = declared
             .iter()
-            .filter_map(|&name| {
+            .filter_map(|name| {
+                let name = name.as_str();
                 let assigned = self.type_name(name);
                 (assigned != rustify_name(name)).then_some((name, assigned))
             })
@@ -294,12 +295,12 @@ impl SchemaNames {
         }
     }
 
-    pub fn declared_names<'a>(schemas: &[(&std::path::Path, QapiSchema<'a>)]) -> HashSet<&'a str> {
+    pub fn declared_names<'a>(schemas: &[(&std::path::Path, QapiSchema<'a>)]) -> HashSet<String> {
         schemas
             .iter()
             .flat_map(|(_, schema)| &schema.0)
             .filter_map(declaration)
-            .map(|(name, _)| name)
+            .map(|(name, _)| name.to_owned())
             .collect()
     }
 }

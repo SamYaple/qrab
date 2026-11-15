@@ -1,3 +1,4 @@
+use super::common::QapiString;
 use super::common::{qstring, take_dict, take_kv};
 use super::qapi_cond::QapiCond;
 use super::qapi_cond::take_cond;
@@ -14,7 +15,7 @@ pub fn take_enum_value(input: &str) -> IResult<&str, QapiEnumValue<'_>> {
 
 #[derive(Debug, Clone, Default)]
 pub struct QapiEnumValue<'i> {
-    pub name: &'i str,
+    pub name: QapiString<'i>,
     pub r#if: Option<QapiCond<'i>>,
     pub features: Option<QapiFeatures<'i>>,
 }

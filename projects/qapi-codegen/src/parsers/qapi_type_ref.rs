@@ -1,3 +1,4 @@
+use super::common::QapiString;
 use super::common::{qstring, take_list};
 use super::parser_version;
 use super::qapi_members::QapiMembers;
@@ -14,8 +15,8 @@ pub fn take_type_ref(input: &str) -> IResult<&str, QapiTypeRef<'_>> {
 pub enum QapiTypeRef<'i> {
     #[default]
     Unset,
-    Ref(&'i str),
-    ArrayRef(&'i str),
+    Ref(QapiString<'i>),
+    ArrayRef(QapiString<'i>),
     /// Inline anonymous struct definition (v1.0–v2.3.0)
     InlineStruct(QapiMembers<'i>),
 }
@@ -35,7 +36,7 @@ impl<'i> QapiTypeRef<'i> {
     pub fn parse_v1(input: &'i str) -> IResult<&'i str, Self> {
         use super::qapi_members::take_members;
         let array_parser = take_list(qstring).map_opt(|items| match items.as_slice() {
-            [name] => Some(*name),
+            [name] => Some(name.clone()),
             _ => None,
         });
         alt((
@@ -49,7 +50,7 @@ impl<'i> QapiTypeRef<'i> {
     /// v2 (QEMU v2.4.0+): only string or array refs.
     pub fn parse_v2(input: &'i str) -> IResult<&'i str, Self> {
         let array_parser = take_list(qstring).map_opt(|items| match items.as_slice() {
-            [name] => Some(*name),
+            [name] => Some(name.clone()),
             _ => None,
         });
         alt((qstring.map(Self::Ref), array_parser.map(Self::ArrayRef))).parse(input)
@@ -76,7 +77,7 @@ mod tests {
         set_parser_version((10, 2, 0));
         let (rem, parsed) = QapiTypeRef::parse("'str'").unwrap();
         assert_eq!(rem, "");
-        assert_eq!(parsed, QapiTypeRef::Ref("str"));
+        assert_eq!(parsed, QapiTypeRef::Ref("str".into()));
     }
 
     #[test]
@@ -84,7 +85,7 @@ mod tests {
         set_parser_version((10, 2, 0));
         let (rem, parsed) = QapiTypeRef::parse("['int']").unwrap();
         assert_eq!(rem, "");
-        assert_eq!(parsed, QapiTypeRef::ArrayRef("int"));
+        assert_eq!(parsed, QapiTypeRef::ArrayRef("int".into()));
     }
 
     #[test]

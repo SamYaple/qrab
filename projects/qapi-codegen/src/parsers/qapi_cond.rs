@@ -1,3 +1,4 @@
+use super::common::QapiString;
 use super::common::{qstring, qtag, take_kv, take_list};
 use nom::IResult;
 use nom::Parser;
@@ -16,7 +17,7 @@ pub enum QapiCond<'i> {
     All(Vec<QapiCond<'i>>),
     Any(Vec<QapiCond<'i>>),
     Not(Box<QapiCond<'i>>),
-    ConfigName(&'i str),
+    ConfigName(QapiString<'i>),
 }
 
 impl<'i> QapiCond<'i> {
@@ -176,7 +177,7 @@ mod tests {
     fn test_parse_config_name() {
         crate::set_parser_version((11, 1, 3));
         let input = "'CONFIG_OPTION'";
-        let expected = QapiCond::ConfigName("CONFIG_OPTION");
+        let expected = QapiCond::ConfigName("CONFIG_OPTION".into());
         let (remaining, parsed) = QapiCond::parse(input).expect("Parsing failed");
         assert_eq!(remaining, "");
         assert_eq!(parsed, expected);
@@ -186,7 +187,7 @@ mod tests {
     fn test_parse_not_condition() {
         crate::set_parser_version((11, 1, 3));
         let input = "{'not':'CONFIG_OPTION'}";
-        let expected = QapiCond::Not(Box::new(QapiCond::ConfigName("CONFIG_OPTION")));
+        let expected = QapiCond::Not(Box::new(QapiCond::ConfigName("CONFIG_OPTION".into())));
         let (remaining, parsed) = QapiCond::parse(input).expect("Parsing failed");
         assert_eq!(remaining, "");
         assert_eq!(parsed, expected);
@@ -196,7 +197,7 @@ mod tests {
     fn test_parse_any_condition_single() {
         crate::set_parser_version((11, 1, 3));
         let input = "{'any':['CONFIG_OPTION']}";
-        let expected = QapiCond::Any(vec![QapiCond::ConfigName("CONFIG_OPTION")]);
+        let expected = QapiCond::Any(vec![QapiCond::ConfigName("CONFIG_OPTION".into())]);
         let (remaining, parsed) = QapiCond::parse(input).expect("Parsing failed");
         assert_eq!(remaining, "");
         assert_eq!(parsed, expected);
@@ -207,8 +208,8 @@ mod tests {
         crate::set_parser_version((11, 1, 3));
         let input = "{'any':['CONFIG_OPTION','CONFIG_OPTION2']}";
         let expected = QapiCond::Any(vec![
-            QapiCond::ConfigName("CONFIG_OPTION"),
-            QapiCond::ConfigName("CONFIG_OPTION2"),
+            QapiCond::ConfigName("CONFIG_OPTION".into()),
+            QapiCond::ConfigName("CONFIG_OPTION2".into()),
         ]);
         let (remaining, parsed) = QapiCond::parse(input).expect("Parsing failed");
         assert_eq!(remaining, "");
@@ -220,8 +221,8 @@ mod tests {
         crate::set_parser_version((11, 1, 3));
         let input = "{'all':['CONFIG_OPTION','CONFIG_OPTION2']}";
         let expected = QapiCond::All(vec![
-            QapiCond::ConfigName("CONFIG_OPTION"),
-            QapiCond::ConfigName("CONFIG_OPTION2"),
+            QapiCond::ConfigName("CONFIG_OPTION".into()),
+            QapiCond::ConfigName("CONFIG_OPTION2".into()),
         ]);
         let (remaining, parsed) = QapiCond::parse(input).expect("Parsing failed");
         assert_eq!(remaining, "");
@@ -230,21 +231,21 @@ mod tests {
 
     #[test]
     fn test_display_config_name() {
-        let cond = QapiCond::ConfigName("CONFIG_OPTION");
+        let cond = QapiCond::ConfigName("CONFIG_OPTION".into());
         assert_eq!(cond.to_string(), "CONFIG_OPTION");
     }
 
     #[test]
     fn test_display_not_condition() {
-        let cond = QapiCond::Not(Box::new(QapiCond::ConfigName("CONFIG_OPTION")));
+        let cond = QapiCond::Not(Box::new(QapiCond::ConfigName("CONFIG_OPTION".into())));
         assert_eq!(cond.to_string(), "!CONFIG_OPTION");
     }
 
     #[test]
     fn test_display_any_condition() {
         let cond = QapiCond::Any(vec![
-            QapiCond::ConfigName("CONFIG_OPTION1"),
-            QapiCond::ConfigName("CONFIG_OPTION2"),
+            QapiCond::ConfigName("CONFIG_OPTION1".into()),
+            QapiCond::ConfigName("CONFIG_OPTION2".into()),
         ]);
         assert_eq!(cond.to_string(), "(CONFIG_OPTION1 || CONFIG_OPTION2)");
     }
@@ -252,8 +253,8 @@ mod tests {
     #[test]
     fn test_display_all_condition() {
         let cond = QapiCond::All(vec![
-            QapiCond::ConfigName("CONFIG_OPTION1"),
-            QapiCond::ConfigName("CONFIG_OPTION2"),
+            QapiCond::ConfigName("CONFIG_OPTION1".into()),
+            QapiCond::ConfigName("CONFIG_OPTION2".into()),
         ]);
         assert_eq!(cond.to_string(), "(CONFIG_OPTION1 && CONFIG_OPTION2)");
     }
@@ -261,10 +262,10 @@ mod tests {
     #[test]
     fn test_display_complex_nested_conditions() {
         let cond = QapiCond::Any(vec![
-            QapiCond::ConfigName("CONFIG_OPTION1"),
+            QapiCond::ConfigName("CONFIG_OPTION1".into()),
             QapiCond::Not(Box::new(QapiCond::All(vec![
-                QapiCond::ConfigName("CONFIG_OPTION2"),
-                QapiCond::ConfigName("CONFIG_OPTION3"),
+                QapiCond::ConfigName("CONFIG_OPTION2".into()),
+                QapiCond::ConfigName("CONFIG_OPTION3".into()),
             ]))),
         ]);
         assert_eq!(

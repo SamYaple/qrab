@@ -74,7 +74,7 @@ fn member_documentation(lines: &[&str]) -> String {
 macro_rules! add_docs {
     ($meta:expr, $docs:expr, $name:expr, $variants:expr) => {
         if let Some(doc) = $docs {
-            if !doc.name.eq_ignore_ascii_case($name) {
+            if !doc.name.eq_ignore_ascii_case(&$name) {
                 eprintln!(
                     "WARNING: Doc section name '{}' does not match '{}'",
                     doc.name, $name
@@ -173,7 +173,7 @@ fn process_alternative(q: QapiAlternative) -> EnumVariant {
     let (r#type, array) = process_type_ref(&q.r#type);
 
     let mut meta = Metadata::default();
-    if let Some(attr) = variant_name_attr(q.name) {
+    if let Some(attr) = variant_name_attr(&q.name) {
         meta.attributes.push(attr);
     }
     if let Some(condition) = q.r#if {
@@ -197,7 +197,7 @@ pub fn process_alternate(q: QapiAlternate) -> Enum {
     }
 
     let mut meta = Metadata::default();
-    if let Some(attr) = name_attr(q.name) {
+    if let Some(attr) = name_attr(&q.name) {
         meta.attributes.push(attr);
     }
     if let Some(condition) = q.r#if {
@@ -216,7 +216,7 @@ pub fn process_alternate(q: QapiAlternate) -> Enum {
 
 fn process_enum_value(q: QapiEnumValue) -> EnumVariant {
     let mut meta = Metadata::default();
-    if let Some(attr) = variant_name_attr(q.name) {
+    if let Some(attr) = variant_name_attr(&q.name) {
         meta.attributes.push(attr);
     }
     if let Some(condition) = q.r#if {
@@ -242,7 +242,7 @@ pub fn process_enum(q: QapiEnum) -> Enum {
 
     let mut meta = Metadata::default();
     //meta.attributes.push(Attribute::new("Enum"));
-    if let Some(attr) = name_attr(q.name) {
+    if let Some(attr) = name_attr(&q.name) {
         meta.attributes.push(attr);
     }
     if let Some(condition) = q.r#if {
@@ -263,7 +263,7 @@ pub fn process_member(q: QapiMember) -> StructField {
     let (r#type, array) = process_type_ref(&q.r#type);
 
     let mut meta = Metadata::default();
-    if let Some(attr) = field_name_attr(q.name) {
+    if let Some(attr) = field_name_attr(&q.name) {
         meta.attributes.push(attr);
     }
     if let Some(condition) = q.r#if {
@@ -289,7 +289,7 @@ fn process_member_with_inline(
 ) -> (StructField, Vec<Struct>) {
     if let QapiTypeRef::InlineStruct(members) = q.r#type {
         // Generate a name: ParentNameFieldName (PascalCase)
-        let preferred = format!("{}{}", rustify_name(parent_name), rustify_name(q.name));
+        let preferred = format!("{}{}", rustify_name(parent_name), rustify_name(&q.name));
         let mut inline_name = preferred.clone();
         let mut suffix = 0;
         while !names.insert(inline_name.clone()) {
@@ -314,7 +314,7 @@ fn process_member_with_inline(
         });
 
         let mut meta = Metadata::default();
-        if let Some(attr) = field_name_attr(q.name) {
+        if let Some(attr) = field_name_attr(&q.name) {
             meta.attributes.push(attr);
         }
         if let Some(condition) = q.r#if {
@@ -352,22 +352,22 @@ pub(crate) fn process_struct_with_names(
     structs_lookup: &HashMap<String, Struct>,
     names: &mut HashSet<String>,
 ) -> (Struct, Vec<Struct>) {
-    names.insert(rustify_name(q.name));
+    names.insert(rustify_name(&q.name));
     let mut fields = Vec::new();
     let mut extracted = Vec::new();
-    if let Some(base) = q.base {
+    if let Some(base) = q.base.as_ref() {
         let struct_ref = structs_lookup
-            .get(base)
+            .get::<str>(base.as_ref())
             .unwrap_or_else(|| panic!("base struct not found for {} with base {}", q.name, base));
         fields.extend(struct_ref.fields.clone());
     }
     for member in q.data {
-        let (field, inline) = process_member_with_inline(member, q.name, names);
+        let (field, inline) = process_member_with_inline(member, &q.name, names);
         fields.push(field);
         extracted.extend(inline);
     }
     let mut meta = Metadata::default();
-    if let Some(attr) = name_attr(q.name) {
+    if let Some(attr) = name_attr(&q.name) {
         meta.attributes.push(attr);
     }
     if let Some(condition) = q.r#if {
@@ -420,7 +420,7 @@ pub fn process_union(
         }
     } else {
         // Simple union: synthesize a 'type' discriminator field
-        let type_name = format!("{}Type", rustify_name(q.name));
+        let type_name = format!("{}Type", rustify_name(&q.name));
         let mut meta = Metadata::default();
         meta.attributes.push(Attribute::new("discriminator"));
         meta.attributes.push(Attribute::with_value("name", "type"));
@@ -437,7 +437,7 @@ pub fn process_union(
     for branch in q.data {
         let (r#type, array) = process_type_ref(&branch.r#type);
         let mut meta = Metadata::default();
-        if let Some(attr) = variant_name_attr(branch.name) {
+        if let Some(attr) = variant_name_attr(&branch.name) {
             meta.attributes.push(attr);
         }
         if let Some(condition) = branch.r#if {
@@ -459,7 +459,7 @@ pub fn process_union(
         // The typed discriminator still refuses values outside its own enum.
         let discriminator = fields
             .iter()
-            .find(|field| field.name == q.discriminator.unwrap())
+            .find(|field| field.name == q.discriminator.as_deref().unwrap())
             .expect("discriminator field not found");
         if let Some(tags) = enums_lookup.get(&discriminator.r#type) {
             for tag in &tags.variants {
@@ -483,7 +483,7 @@ pub fn process_union(
             .push(Attribute::with_value("condition", condition));
     }
     let e = Enum {
-        name: q.name.to_owned() + "Branch",
+        name: q.name.to_string() + "Branch",
         variants,
         meta: branch_meta,
     };
@@ -497,12 +497,12 @@ pub fn process_union(
     fields.push(StructField {
         name: "u".into(),
         meta,
-        r#type: q.name.to_owned() + "Branch",
+        r#type: q.name.to_string() + "Branch",
         optional: true,
         array: false,
     });
     let mut meta = Metadata::default();
-    if let Some(attr) = name_attr(q.name) {
+    if let Some(attr) = name_attr(&q.name) {
         meta.attributes.push(attr);
     }
     if let Some(condition) = &q.r#if {
@@ -573,7 +573,7 @@ fn process_members_or_ref(
         }
         MembersOrRef::Ref(v) => {
             let struct_ref = structs_lookup
-                .get(v)
+                .get::<str>(v.as_ref())
                 .unwrap_or_else(|| panic!("failed to lookup base ref for {}", v));
             fields.extend(struct_ref.fields.clone());
         }
@@ -589,7 +589,7 @@ pub fn process_event(q: QapiEvent, structs_lookup: &HashMap<String, Struct>) -> 
     let mut meta = Metadata::default();
     meta.attributes.push(Attribute::new("event"));
     // Always store the original wire name for events
-    meta.attributes.push(Attribute::with_value("name", q.name));
+    meta.attributes.push(Attribute::with_value("name", &q.name));
     if let Some(condition) = q.r#if {
         meta.attributes
             .push(Attribute::with_value("condition", condition));
@@ -613,7 +613,7 @@ pub fn process_command(q: QapiCommand, structs_lookup: &HashMap<String, Struct>)
     }
     let mut meta = Metadata::default();
     meta.attributes.push(Attribute::new("command"));
-    if let Some(attr) = name_attr(q.name) {
+    if let Some(attr) = name_attr(&q.name) {
         meta.attributes.push(attr);
     }
     if let Some(condition) = q.r#if {
@@ -641,12 +641,12 @@ pub fn process_command(q: QapiCommand, structs_lookup: &HashMap<String, Struct>)
     if q.allow_preconfig == Some("true") {
         meta.attributes.push(Attribute::new("allow_preconfig"));
     }
-    if matches!(q.success_response, Some("false" | "no")) {
+    if matches!(q.success_response.as_deref(), Some("false" | "no")) {
         meta.attributes.push(Attribute::new("no_success_response"));
     }
 
     // gen:false/no commands accept properties beyond their declared arguments.
-    if q.r#gen == Some("false") || q.r#gen == Some("no") {
+    if q.r#gen.as_deref() == Some("false") || q.r#gen.as_deref() == Some("no") {
         fields.push(StructField {
             name: "arguments".into(),
             r#type: "HashMap<String, serde_json::Value>".into(),
@@ -673,7 +673,7 @@ mod tests {
 
     fn make_enum_value(name: &str) -> QapiEnumValue<'_> {
         QapiEnumValue {
-            name,
+            name: name.into(),
             r#if: None,
             features: None,
         }
@@ -716,7 +716,7 @@ mod tests {
     #[test]
     fn test_process_enum_simple() {
         let q = QapiEnum {
-            name: "StatusCode",
+            name: "StatusCode".into(),
             data: vec![make_enum_value("ok"), make_enum_value("error")],
             prefix: None,
             r#if: None,
@@ -734,12 +734,12 @@ mod tests {
     #[test]
     fn test_process_enum_with_features() {
         let q = QapiEnum {
-            name: "MyEnum",
+            name: "MyEnum".into(),
             data: vec![QapiEnumValue {
-                name: "deprecated-val",
+                name: "deprecated-val".into(),
                 r#if: None,
                 features: Some(QapiFeatures(vec![QapiFeature {
-                    name: "deprecated",
+                    name: "deprecated".into(),
                     r#if: None,
                 }])),
             }],
@@ -762,11 +762,11 @@ mod tests {
     #[test]
     fn test_process_struct_simple() {
         let q = QapiStruct {
-            name: "MyStruct",
+            name: "MyStruct".into(),
             data: QapiMembers(vec![QapiMember {
-                name: "field-name",
+                name: "field-name".into(),
                 optional: false,
-                r#type: QapiTypeRef::Ref("str"),
+                r#type: QapiTypeRef::Ref("str".into()),
                 r#if: None,
                 features: None,
             }]),
@@ -802,15 +802,15 @@ mod tests {
         );
 
         let q = QapiStruct {
-            name: "Child",
+            name: "Child".into(),
             data: QapiMembers(vec![QapiMember {
-                name: "extra",
+                name: "extra".into(),
                 optional: true,
-                r#type: QapiTypeRef::Ref("bool"),
+                r#type: QapiTypeRef::Ref("bool".into()),
                 r#if: None,
                 features: None,
             }]),
-            base: Some("BaseStruct"),
+            base: Some("BaseStruct".into()),
             r#if: None,
             features: None,
             doc: None,
@@ -826,9 +826,9 @@ mod tests {
     #[test]
     fn test_process_member_optional_and_array() {
         let m = QapiMember {
-            name: "items",
+            name: "items".into(),
             optional: true,
-            r#type: QapiTypeRef::ArrayRef("SomeType"),
+            r#type: QapiTypeRef::ArrayRef("SomeType".into()),
             r#if: None,
             features: None,
         };
@@ -844,30 +844,30 @@ mod tests {
         // Simulates VersionInfo.qemu from v1.1.0:
         // { 'type': 'VersionInfo', 'data': { 'qemu': {'major': 'int', 'minor': 'int', 'micro': 'int'}, ... } }
         let q = QapiStruct {
-            name: "VersionInfo",
+            name: "VersionInfo".into(),
             data: QapiMembers(vec![
                 QapiMember {
-                    name: "qemu",
+                    name: "qemu".into(),
                     optional: false,
                     r#type: QapiTypeRef::InlineStruct(QapiMembers(vec![
                         QapiMember {
-                            name: "major",
+                            name: "major".into(),
                             optional: false,
-                            r#type: QapiTypeRef::Ref("int"),
+                            r#type: QapiTypeRef::Ref("int".into()),
                             r#if: None,
                             features: None,
                         },
                         QapiMember {
-                            name: "minor",
+                            name: "minor".into(),
                             optional: false,
-                            r#type: QapiTypeRef::Ref("int"),
+                            r#type: QapiTypeRef::Ref("int".into()),
                             r#if: None,
                             features: None,
                         },
                         QapiMember {
-                            name: "micro",
+                            name: "micro".into(),
                             optional: false,
-                            r#type: QapiTypeRef::Ref("int"),
+                            r#type: QapiTypeRef::Ref("int".into()),
                             r#if: None,
                             features: None,
                         },
@@ -876,9 +876,9 @@ mod tests {
                     features: None,
                 },
                 QapiMember {
-                    name: "package",
+                    name: "package".into(),
                     optional: true,
-                    r#type: QapiTypeRef::Ref("str"),
+                    r#type: QapiTypeRef::Ref("str".into()),
                     r#if: None,
                     features: None,
                 },
@@ -908,9 +908,9 @@ mod tests {
     #[test]
     fn test_process_command_simple() {
         let q = QapiCommand {
-            name: "query-status",
+            name: "query-status".into(),
             data: Some(MembersOrRef::Members(QapiMembers(vec![]))),
-            returns: Some(QapiTypeRef::Ref("StatusInfo")),
+            returns: Some(QapiTypeRef::Ref("StatusInfo".into())),
             r#if: None,
             features: None,
             doc: None,
@@ -950,13 +950,13 @@ mod tests {
     #[test]
     fn test_process_command_with_flags() {
         let q = QapiCommand {
-            name: "test-cmd",
+            name: "test-cmd".into(),
             data: None,
             returns: None,
             r#if: None,
             features: None,
             doc: None,
-            success_response: Some("false"),
+            success_response: Some("false".into()),
             r#gen: None,
             boxed: None,
             allow_oob: Some("true"),
@@ -981,16 +981,16 @@ mod tests {
     #[test]
     fn test_process_alternate() {
         let q = QapiAlternate {
-            name: "StrOrInt",
+            name: "StrOrInt".into(),
             data: crate::QapiAlternatives(vec![
                 crate::QapiAlternative {
-                    name: "s",
-                    r#type: QapiTypeRef::Ref("str"),
+                    name: "s".into(),
+                    r#type: QapiTypeRef::Ref("str".into()),
                     r#if: None,
                 },
                 crate::QapiAlternative {
-                    name: "i",
-                    r#type: QapiTypeRef::Ref("int"),
+                    name: "i".into(),
+                    r#type: QapiTypeRef::Ref("int".into()),
                     r#if: None,
                 },
             ]),
@@ -1008,7 +1008,7 @@ mod tests {
     #[test]
     fn test_enum_codegen_roundtrip() {
         let q = QapiEnum {
-            name: "TestEnum",
+            name: "TestEnum".into(),
             data: vec![make_enum_value("value-one"), make_enum_value("value-two")],
             prefix: None,
             r#if: None,
@@ -1028,19 +1028,19 @@ mod tests {
     #[test]
     fn test_struct_codegen_roundtrip() {
         let q = QapiStruct {
-            name: "MyData",
+            name: "MyData".into(),
             data: QapiMembers(vec![
                 QapiMember {
-                    name: "name",
+                    name: "name".into(),
                     optional: false,
-                    r#type: QapiTypeRef::Ref("str"),
+                    r#type: QapiTypeRef::Ref("str".into()),
                     r#if: None,
                     features: None,
                 },
                 QapiMember {
-                    name: "count",
+                    name: "count".into(),
                     optional: true,
-                    r#type: QapiTypeRef::Ref("int"),
+                    r#type: QapiTypeRef::Ref("int".into()),
                     r#if: None,
                     features: None,
                 },
@@ -1063,7 +1063,7 @@ mod tests {
     fn flat_union_synthesizes_only_known_implicit_empty_discriminator_branches() {
         let (_,q)=QapiUnion::parse_v3("{'union':'Cpu','base':{'target':'Target'},'discriminator':'target','data':{'s390x':'S390Details'}}").unwrap();
         let mut tags = process_enum(QapiEnum {
-            name: "Target",
+            name: "Target".into(),
             data: vec![
                 make_enum_value("x86_64"),
                 make_enum_value("aarch64"),

@@ -1,5 +1,5 @@
 //! Resolve QEMU's implicit `ElementList` names to ordinary array references.
-use crate::{MembersOrRef, QapiMembers, QapiSchema, QapiSchemaToken, QapiTypeRef};
+use crate::{MembersOrRef, QapiMembers, QapiSchema, QapiSchemaToken, QapiString, QapiTypeRef};
 use anyhow::{Context, Result, ensure};
 use std::{collections::HashMap, path::Path};
 
@@ -81,19 +81,19 @@ pub(crate) fn normalize<'a>(schemas: &mut [(&Path, QapiSchema<'a>)], model: u8) 
         "str", "number", "int", "int8", "int16", "int32", "int64", "uint8", "uint16", "uint32",
         "uint64", "size", "bool", "any",
     ] {
-        aliases.insert(format!("{element}List"), element);
+        aliases.insert(format!("{element}List"), QapiString::Borrowed(element));
     }
     if model >= 2 {
-        aliases.insert("nullList".into(), "null");
+        aliases.insert("nullList".into(), QapiString::Borrowed("null"));
     }
     // Named arrays exist only after an explicit array use creates them.
     for (path, schema) in schemas.iter_mut() {
         for token in &schema.0 {
             let name = match token {
-                QapiSchemaToken::Enum(value) => Some(value.name),
-                QapiSchemaToken::Struct(value) => Some(value.name),
-                QapiSchemaToken::Union(value) => Some(value.name),
-                QapiSchemaToken::Alternate(value) => Some(value.name),
+                QapiSchemaToken::Enum(value) => Some(value.name.as_ref()),
+                QapiSchemaToken::Struct(value) => Some(value.name.as_ref()),
+                QapiSchemaToken::Union(value) => Some(value.name.as_ref()),
+                QapiSchemaToken::Alternate(value) => Some(value.name.as_ref()),
                 _ => None,
             };
             if let Some(name) = name {
@@ -106,24 +106,26 @@ pub(crate) fn normalize<'a>(schemas: &mut [(&Path, QapiSchema<'a>)], model: u8) 
         }
         visit(schema, |value| {
             if let QapiTypeRef::ArrayRef(element) = value {
-                aliases.entry(format!("{element}List")).or_insert(*element);
+                aliases
+                    .entry(format!("{element}List"))
+                    .or_insert_with(|| element.clone());
             }
             Ok(())
         })?;
     }
     for (path, schema) in schemas {
         visit(schema, |value| {
-            let (name, array) = match value {
-                QapiTypeRef::Ref(name) => (*name, false),
-                QapiTypeRef::ArrayRef(name) => (*name, true),
+            let (name, array) = match &*value {
+                QapiTypeRef::Ref(name) => (name.as_ref(), false),
+                QapiTypeRef::ArrayRef(name) => (name.as_ref(), true),
                 _ => return Ok(()),
             };
-            if let Some(&element) = aliases.get(name) {
+            if let Some(element) = aliases.get(name) {
                 ensure!(
-                    !array && !aliases.contains_key(element),
+                    !array && !aliases.contains_key(element.as_ref()),
                     "Nested QAPI arrays are not permitted: '{name}'"
                 );
-                *value = QapiTypeRef::ArrayRef(element);
+                *value = QapiTypeRef::ArrayRef(element.clone());
             }
             Ok(())
         })

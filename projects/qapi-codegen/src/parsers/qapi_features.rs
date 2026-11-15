@@ -34,7 +34,7 @@ mod tests {
     fn test_parse_features_single_dict() {
         let input = "[{'name':'deprecated'}]";
         let expected = QapiFeatures(vec![QapiFeature {
-            name: "deprecated",
+            name: "deprecated".into(),
             r#if: None,
         }]);
         let (remaining, result) = QapiFeatures::parse(input).expect("Parsing failed");
@@ -46,7 +46,7 @@ mod tests {
     fn test_parse_features_single_string() {
         let input = "['deprecated']";
         let expected = QapiFeatures(vec![QapiFeature {
-            name: "deprecated",
+            name: "deprecated".into(),
             r#if: None,
         }]);
         let (remaining, result) = QapiFeatures::parse(input).expect("Parsing failed");
@@ -58,8 +58,8 @@ mod tests {
     fn test_parse_features_with_if() {
         let input = "[{'name':'deprecated','if':'CONFIG_OPTION'}]";
         let expected = QapiFeatures(vec![QapiFeature {
-            name: "deprecated",
-            r#if: Some(QapiCond::ConfigName("CONFIG_OPTION")),
+            name: "deprecated".into(),
+            r#if: Some(QapiCond::ConfigName("CONFIG_OPTION".into())),
         }]);
         let (remaining, result) = QapiFeatures::parse(input).expect("Parsing failed");
         assert_eq!(remaining, "");
@@ -71,11 +71,11 @@ mod tests {
         let input = "[{'name':'deprecated','if':'CONFIG_OPTION'},'testfeature']";
         let expected = QapiFeatures(vec![
             QapiFeature {
-                name: "deprecated",
-                r#if: Some(QapiCond::ConfigName("CONFIG_OPTION")),
+                name: "deprecated".into(),
+                r#if: Some(QapiCond::ConfigName("CONFIG_OPTION".into())),
             },
             QapiFeature {
-                name: "testfeature",
+                name: "testfeature".into(),
                 r#if: None,
             },
         ]);
@@ -88,7 +88,7 @@ mod tests {
     fn test_parse_feature_dict() {
         let input = "{'name':'deprecated'}";
         let expected = QapiFeature {
-            name: "deprecated",
+            name: "deprecated".into(),
             r#if: None,
         };
         let (remaining, result) = QapiFeature::parse(input).expect("Parsing failed");
@@ -100,7 +100,7 @@ mod tests {
     fn test_parse_feature_string() {
         let input = "'deprecated'";
         let expected = QapiFeature {
-            name: "deprecated",
+            name: "deprecated".into(),
             r#if: None,
         };
         let (remaining, result) = QapiFeature::parse(input).expect("Parsing failed");
@@ -112,8 +112,8 @@ mod tests {
     fn test_parse_feature_with_if() {
         let input = "{'name':'deprecated','if':'CONFIG_OPTION'}";
         let expected = QapiFeature {
-            name: "deprecated",
-            r#if: Some(QapiCond::ConfigName("CONFIG_OPTION")),
+            name: "deprecated".into(),
+            r#if: Some(QapiCond::ConfigName("CONFIG_OPTION".into())),
         };
         let (remaining, result) = QapiFeature::parse(input).expect("Parsing failed");
         assert_eq!(remaining, "");

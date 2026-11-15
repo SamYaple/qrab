@@ -3,32 +3,35 @@ use crate::{MembersOrRef, QapiMembers, QapiSchemaToken, QapiTypeRef, QapiUnion};
 use anyhow::{Context, Result, ensure};
 use std::collections::{HashMap, HashSet};
 
-#[derive(Clone, Copy)]
-struct Member<'i> {
-    name: &'i str,
+#[derive(Clone)]
+struct Member {
+    name: String,
     conditional: bool,
 }
 
-fn members<'i>(fields: &QapiMembers<'i>) -> Vec<Member<'i>> {
+fn members<'i>(fields: &QapiMembers<'i>) -> Vec<Member> {
     fields
         .iter()
         .map(|field| Member {
-            name: field.name,
+            name: field.name.to_string(),
             conditional: field.r#if.is_some(),
         })
         .collect()
 }
 
 fn inherited<'i>(
-    name: &'i str,
+    name: &str,
     declarations: &HashMap<&str, &QapiSchemaToken<'i>>,
-    parents: &mut HashSet<&'i str>,
-) -> Result<Vec<Member<'i>>> {
-    ensure!(parents.insert(name), "Inheritance cycle involving '{name}'");
-    let Some(QapiSchemaToken::Struct(value)) = declarations.get(name) else {
+    parents: &mut HashSet<String>,
+) -> Result<Vec<Member>> {
+    ensure!(
+        parents.insert(name.to_owned()),
+        "Inheritance cycle involving '{name}'"
+    );
+    let Some(QapiSchemaToken::Struct(value)) = declarations.get::<str>(name.as_ref()) else {
         anyhow::bail!("Object base '{name}' requires a struct");
     };
-    let mut fields = match value.base {
+    let mut fields = match value.base.as_deref() {
         Some(base) => inherited(base, declarations, parents)?,
         None => Vec::new(),
     };
@@ -40,7 +43,7 @@ fn inherited<'i>(
 fn base_members<'i>(
     base: &MembersOrRef<'i>,
     declarations: &HashMap<&str, &QapiSchemaToken<'i>>,
-) -> Result<Vec<Member<'i>>> {
+) -> Result<Vec<Member>> {
     match base {
         MembersOrRef::Ref(name) => inherited(name, declarations, &mut HashSet::new()),
         MembersOrRef::Members(fields) => Ok(members(fields)),
@@ -51,11 +54,11 @@ fn base_members<'i>(
 fn layout<'i>(
     value: &QapiUnion<'i>,
     declarations: &HashMap<&str, &QapiSchemaToken<'i>>,
-    outer: &[Member<'i>],
-    parents: &mut HashSet<&'i str>,
+    outer: &[Member],
+    parents: &mut HashSet<String>,
 ) -> Result<()> {
     ensure!(
-        parents.insert(value.name),
+        parents.insert(value.name.to_string()),
         "Union branch cycle involving '{}'",
         value.name
     );
@@ -64,26 +67,29 @@ fn layout<'i>(
     if value.discriminator.is_none() {
         fields.extend([
             Member {
-                name: "type",
+                name: "type".into(),
                 conditional: false,
             },
             Member {
-                name: "data",
+                name: "data".into(),
                 conditional: false,
             },
         ]);
     }
-    crate::schema_validation::member_names(fields.iter().map(|field| field.name))?;
+    crate::schema_validation::member_names(fields.iter().map(|field| field.name.as_str()))?;
     // Simple-union payloads have their own namespace below the data key.
     if value.discriminator.is_some() {
         for branch in &value.data.0 {
             if let QapiTypeRef::Ref(name) = &branch.r#type {
                 let mut check = || -> Result<()> {
-                    match declarations.get(name) {
+                    match declarations.get::<str>(name.as_ref()) {
                         Some(QapiSchemaToken::Struct(_)) => {
                             let payload = inherited(name, declarations, &mut HashSet::new())?;
                             crate::schema_validation::member_names(
-                                fields.iter().chain(&payload).map(|field| field.name),
+                                fields
+                                    .iter()
+                                    .chain(&payload)
+                                    .map(|field| field.name.as_str()),
                             )
                             .with_context(|| format!("Invalid payload '{name}'"))?;
                         }
@@ -100,7 +106,7 @@ fn layout<'i>(
             }
         }
     }
-    parents.remove(value.name);
+    parents.remove(value.name.as_ref());
     Ok(())
 }
 
@@ -108,7 +114,7 @@ pub(crate) fn validate<'i>(
     value: &QapiUnion<'i>,
     declarations: &HashMap<&str, &QapiSchemaToken<'i>>,
 ) -> Result<()> {
-    let Some(discriminator) = value.discriminator else {
+    let Some(discriminator) = value.discriminator.as_deref() else {
         return Ok(());
     };
     let fields = base_members(&value.base, declarations)?;
@@ -126,8 +132,8 @@ pub(crate) fn validate<'i>(
         );
         if crate::parser_version() >= (6, 2, 0) {
             ensure!(
-                matches!(&branch.r#type, QapiTypeRef::Ref(name) if matches!(declarations.get(name), Some(QapiSchemaToken::Struct(_)))
-                || matches!(declarations.get(name), Some(QapiSchemaToken::Union(child)) if !child.legacy_alternate)),
+                matches!(&branch.r#type, QapiTypeRef::Ref(name) if matches!(declarations.get::<str>(name.as_ref()), Some(QapiSchemaToken::Struct(_)))
+                || matches!(declarations.get::<str>(name.as_ref()), Some(QapiSchemaToken::Union(child)) if !child.legacy_alternate)),
                 "Flat union branch '{}' must reference a struct or union",
                 branch.name
             );

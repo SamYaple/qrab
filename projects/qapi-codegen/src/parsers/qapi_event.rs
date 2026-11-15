@@ -1,3 +1,4 @@
+use super::common::QapiString;
 use super::common::{qbool, qstring, take_dict, take_kv};
 use super::qapi_cond::QapiCond;
 use super::qapi_cond::take_cond;
@@ -18,7 +19,7 @@ pub fn take_event(input: &str) -> IResult<&str, QapiEvent<'_>> {
 
 #[derive(Debug, Clone, Default)]
 pub struct QapiEvent<'i> {
-    pub name: &'i str,
+    pub name: QapiString<'i>,
     pub data: Option<MembersOrRef<'i>>,
     pub boxed: Option<&'i str>,
     pub r#if: Option<QapiCond<'i>>,

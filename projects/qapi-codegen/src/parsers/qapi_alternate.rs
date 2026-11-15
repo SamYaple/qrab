@@ -1,3 +1,4 @@
+use super::common::QapiString;
 use super::common::{qstring, take_dict, take_kv};
 use super::qapi_alternatives::QapiAlternatives;
 use super::qapi_alternatives::take_alternatives;
@@ -18,7 +19,7 @@ pub fn take_alternate(input: &str) -> IResult<&str, QapiAlternate<'_>> {
 
 #[derive(Debug, Clone, Default)]
 pub struct QapiAlternate<'i> {
-    pub name: &'i str,
+    pub name: QapiString<'i>,
     pub data: QapiAlternatives<'i>,
     pub r#if: Option<QapiCond<'i>>,
     pub features: Option<QapiFeatures<'i>>,

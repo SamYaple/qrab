@@ -3,13 +3,16 @@
 use nom::IResult;
 use nom::Parser;
 use nom::branch::alt;
-use nom::bytes::complete::{escaped, tag, take_till, take_while, take_while1};
+use nom::bytes::complete::{tag, take_till, take_while, take_while1};
 use nom::character::complete::space0;
 use nom::combinator::{eof, not, opt, peek, recognize};
 use nom::error::{Error, ErrorKind};
 use nom::multi::{many1, separated_list0};
 use nom::sequence::{delimited, preceded};
-use std::collections::HashSet;
+use std::{borrow::Cow, collections::HashSet};
+
+/// Decoded schema text; ordinary literals borrow their source.
+pub type QapiString<'i> = Cow<'i, str>;
 
 pub fn qcomment(input: &str) -> IResult<&str, &str> {
     delimited(
@@ -71,19 +74,91 @@ pub fn qtag<'i>(t: &'static str) -> impl Parser<&'i str, Output = &'i str, Error
     preceded(clean_lines, tag(t))
 }
 
-/// Borrow raw string contents; QAPI permits only printable ASCII and `\\` escapes.
-pub fn qstring(input: &str) -> IResult<&str, &str> {
-    delimited(
-        qtag("'"),
-        opt(escaped(
-            take_while1(|c: char| (c.is_ascii_graphic() && c != '\\' && c != '\'') || c == ' '),
-            '\\',
-            tag("\\"),
-        ))
-        .map(|value| value.unwrap_or("")),
-        tag("'"),
-    )
-    .parse(input)
+pub(crate) fn string_model(version: (u32, u32, u32)) -> u8 {
+    if version < (2, 4, 0) {
+        0
+    } else if version < (4, 2, 0) {
+        1
+    } else {
+        2
+    }
+}
+
+fn string_error(input: &str) -> nom::Err<Error<&str>> {
+    nom::Err::Error(Error::new(input, ErrorKind::Escaped))
+}
+
+/// Decode a literal, borrowing ordinary text and owning escaped values.
+pub fn qstring(input: &str) -> IResult<&str, QapiString<'_>> {
+    let (body, _) = qtag("'").parse(input)?;
+    let version = super::parser_version();
+    let model = string_model(version);
+    let modern = model == 2;
+    let mut offset = 0;
+    let mut decoded: Option<String> = None;
+    while offset < body.len() {
+        let c = body[offset..].chars().next().unwrap();
+        if c == '\'' {
+            return Ok((
+                &body[offset + 1..],
+                decoded.map_or_else(|| Cow::Borrowed(&body[..offset]), Cow::Owned),
+            ));
+        }
+        if matches!(c, '\r' | '\n') || (modern && !c.is_ascii_graphic() && c != ' ') {
+            return Err(string_error(&body[offset..]));
+        }
+        if c == '\\' {
+            let value = decoded.get_or_insert_with(|| body[..offset].to_owned());
+            offset += 1;
+            let Some(escape) = body[offset..].chars().next() else {
+                return Err(string_error(&body[offset..]));
+            };
+            if matches!(escape, '\r' | '\n') {
+                return Err(string_error(&body[offset..]));
+            }
+            offset += escape.len_utf8();
+            let c = if model == 0 {
+                escape
+            } else if !modern {
+                match escape {
+                    'b' => '\u{8}',
+                    'f' => '\u{c}',
+                    'n' => '\n',
+                    'r' => '\r',
+                    't' => '\t',
+                    '\\' | '/' | '\'' | '"' => escape,
+                    'u' => {
+                        let Some(hex) = body.get(offset..offset + 4) else {
+                            return Err(string_error(&body[offset..]));
+                        };
+                        let value = hex
+                            .bytes()
+                            .all(|byte| byte.is_ascii_hexdigit())
+                            .then(|| u8::from_str_radix(hex, 16).ok())
+                            .flatten()
+                            .filter(|value| *value != 0 && *value <= 0x7f)
+                            .ok_or_else(|| string_error(&body[offset..]))?;
+                        offset += 4;
+                        value as char
+                    }
+                    _ => {
+                        return Err(string_error(&body[offset - escape.len_utf8()..]));
+                    }
+                }
+            } else if escape == '\\' {
+                '\\'
+            } else {
+                return Err(string_error(&body[offset - escape.len_utf8()..]));
+            };
+            value.push(c);
+        } else {
+            if let Some(value) = &mut decoded {
+                value.push(c);
+            }
+            offset += c.len_utf8();
+        }
+    }
+    Err(string_error(&body[offset..]))
 }
 
 pub fn qbool(input: &str) -> IResult<&str, &str> {
@@ -197,7 +272,10 @@ where
     I: Parser<&'i str, Output = O, Error = Error<&'i str>>,
 {
     delimited(
-        (qtag("'"), tag(key), tag("'"), qtag(":")),
+        (
+            nom::combinator::verify(qstring, move |name: &QapiString<'i>| name.as_ref() == key),
+            qtag(":"),
+        ),
         value_parser,
         clean_lines,
     )
@@ -209,6 +287,7 @@ mod tests {
 
     #[test]
     fn strings_follow_qemu_lexical_rules() {
+        set_parser_version((11, 1, 3));
         use super::qstring;
         for input in ["''", "'name with spaces'", r"'path\\name'"] {
             assert_eq!(qstring(input).unwrap().0, "");
@@ -266,5 +345,33 @@ mod tests {
     fn comments_can_end_at_eof() {
         parse_schema("# final comment").unwrap();
         parse_schema("{ 'enum': 'E', 'data': ['a'] } # final comment").unwrap();
+    }
+    #[test]
+    fn string_decoding_follows_legacy_escape_eras() {
+        use super::{QapiString, qstring};
+        for (version, input, expected) in [
+            ((2, 3, 0), r"'a\nb'", "anb"),
+            ((2, 3, 0), r"'a\zb'", "azb"),
+            ((2, 4, 0), r"'a\nb'", "a\nb"),
+            ((4, 1, 0), r#"'\u0041\t\'\"\/\\'"#, "A\t'\"/\\"),
+            ((4, 1, 0), "'snowman ☃'", "snowman ☃"),
+            ((4, 2, 0), r"'a\\b'", "a\\b"),
+        ] {
+            set_parser_version(version);
+            assert_eq!(qstring(input).unwrap().1, expected, "{version:?} {input}");
+        }
+        set_parser_version((4, 1, 0));
+        for input in [r"'\u0000'", r"'\u0080'", r"'\u+041'", r"'\z'"] {
+            assert!(qstring(input).is_err(), "{input}");
+        }
+        set_parser_version((11, 1, 3));
+        assert!(matches!(
+            qstring("'ordinary'").unwrap().1,
+            QapiString::Borrowed("ordinary")
+        ));
+        assert!(matches!(
+            qstring(r"'a\\b'").unwrap().1,
+            QapiString::Owned(_)
+        ));
     }
 }

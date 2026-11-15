@@ -1,3 +1,4 @@
+use super::common::QapiString;
 use super::common::{qbool, qstring, take_dict, take_kv, take_list};
 use super::parser_version;
 use nom::IResult;
@@ -10,19 +11,19 @@ pub fn take_pragma(input: &str) -> IResult<&str, QapiPragma<'_>> {
 
 enum ParserToken<'i> {
     DocRequired(&'i str),
-    CommandReturnsExceptions(Vec<&'i str>),
-    CommandNameExceptions(Vec<&'i str>),
-    DocumentationExceptions(Vec<&'i str>),
-    MemberNameExceptions(Vec<&'i str>),
+    CommandReturnsExceptions(Vec<QapiString<'i>>),
+    CommandNameExceptions(Vec<QapiString<'i>>),
+    DocumentationExceptions(Vec<QapiString<'i>>),
+    MemberNameExceptions(Vec<QapiString<'i>>),
 }
 
 #[derive(Debug, Clone)]
 pub struct QapiPragma<'i> {
     _doc_required: Option<&'i str>,
-    _command_name_exceptions: Option<Vec<&'i str>>,
-    _command_returns_exceptions: Option<Vec<&'i str>>,
-    _documentation_exceptions: Option<Vec<&'i str>>,
-    _member_name_exceptions: Option<Vec<&'i str>>,
+    _command_name_exceptions: Option<Vec<QapiString<'i>>>,
+    _command_returns_exceptions: Option<Vec<QapiString<'i>>>,
+    _documentation_exceptions: Option<Vec<QapiString<'i>>>,
+    _member_name_exceptions: Option<Vec<QapiString<'i>>>,
 }
 
 impl<'i> QapiPragma<'i> {

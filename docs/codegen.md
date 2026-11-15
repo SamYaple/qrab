@@ -46,8 +46,9 @@ language changed, and accept explicit older input sets through the library or
 `--versions-file`; do not add a minimum-version rejection to the parser.
 
 Lexing follows QEMU's Python parser, including Unicode/C0 whitespace and
-LF, CRLF or CR line endings. Shared nom 8 helpers borrow the original source;
-parse errors report its line and column. A differential lexical corpus checks
+LF, CRLF or CR line endings. Ordinary literals and documentation borrow the
+original source; escaped literals own decoded text. Parse errors still report
+the original line and column. A differential lexical corpus checks
 acceptance against the parser in the pinned QEMU tree.
 Legacy comments naming a later definition in the same file follow that
 definition across intervening helpers; existing attached documentation wins.
@@ -81,8 +82,12 @@ release order. Regenerate both protocols and run
 Modern schemas require commas and reject duplicate dictionary keys. The
 permissive separator grammar remains restricted to pre-2.4 schemas for legacy
 compatibility. Includes are canonicalized, aliases are read once, and include
-cycles fail. Complete-file parsing rejects any unconsumed input. Strings follow QEMU's
-printable-ASCII grammar, including escaped backslashes in include paths.
+cycles fail. Complete-file parsing rejects any unconsumed input. String decoding
+follows three eras: permissive escaped characters before 2.4, JSON-style escapes
+and nonzero ASCII Unicode escapes through 4.1, then printable ASCII with escaped
+backslashes from 4.2. Include paths are decoded once; names and references use
+the same decoded identity. Literal grammar versions participate in schema hashes.
+String-valued AST fields use `QapiString` (`Cow`); use `as_ref()`/`as_deref()` to borrow them.
 Conditions before 6.2 retain C expressions and lists of expressions; newer
 conditions require configuration identifiers and nonempty boolean expressions.
 Empty enums and structs are valid, but their `data` key is still required.
