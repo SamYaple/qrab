@@ -132,6 +132,49 @@ fn boxed_arguments(
     Ok(())
 }
 
+fn conditional_arguments(
+    data: &Option<MembersOrRef<'_>>,
+    boxed: Option<&str>,
+    declarations: &HashMap<&str, &QapiSchemaToken<'_>>,
+) -> Result<()> {
+    if crate::parser_version() < (8, 1, 0) || boxed == Some("true") {
+        return Ok(());
+    }
+    fn conditional(
+        value: &MembersOrRef<'_>,
+        declarations: &HashMap<&str, &QapiSchemaToken<'_>>,
+        seen: &mut HashSet<String>,
+    ) -> bool {
+        match value {
+            MembersOrRef::Members(fields) => fields.0.iter().any(|field| field.r#if.is_some()),
+            MembersOrRef::Ref(name) => {
+                if !seen.insert((*name).to_owned()) {
+                    return false;
+                }
+                match declarations.get(name) {
+                    Some(QapiSchemaToken::Struct(value)) => {
+                        value.data.0.iter().any(|field| field.r#if.is_some())
+                            || value.base.is_some_and(|base| {
+                                conditional(&MembersOrRef::Ref(base), declarations, seen)
+                            })
+                    }
+                    Some(QapiSchemaToken::Union(value)) => {
+                        conditional(&value.base, declarations, seen)
+                    }
+                    _ => false,
+                }
+            }
+            MembersOrRef::Unset => false,
+        }
+    }
+    ensure!(
+        data.as_ref()
+            .is_none_or(|data| !conditional(data, declarations, &mut HashSet::new())),
+        "Conditional arguments require 'boxed': true"
+    );
+    Ok(())
+}
+
 fn alternate_branches(
     branches: &crate::QapiAlternatives<'_>,
     declarations: &HashMap<&str, &QapiSchemaToken<'_>>,
@@ -315,6 +358,7 @@ pub(crate) fn validate(schemas: &[(&Path, QapiSchema<'_>)]) -> Result<()> {
                             "Flags 'allow-oob' and 'coroutine' are incompatible"
                         );
                         boxed_arguments(&value.data, value.boxed, &declarations)?;
+                        conditional_arguments(&value.data, value.boxed, &declarations)?;
                         if let Some(data) = &value.data {
                             members_or_ref(data, &types).context("Invalid arguments")?;
                         }
@@ -324,6 +368,7 @@ pub(crate) fn validate(schemas: &[(&Path, QapiSchema<'_>)]) -> Result<()> {
                     }
                     QapiSchemaToken::Event(value) => {
                         boxed_arguments(&value.data, value.boxed, &declarations)?;
+                        conditional_arguments(&value.data, value.boxed, &declarations)?;
                         if let Some(data) = &value.data {
                             members_or_ref(data, &types).context("Invalid event data")?;
                         }

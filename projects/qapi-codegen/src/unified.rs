@@ -2246,6 +2246,34 @@ mod schema_resolution_tests {
     use super::*;
 
     #[test]
+    fn conditional_unboxed_argument_fixtures_are_rejected() {
+        let root =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../vendor/qemu/tests/qapi-schema");
+        for name in ["args-if-unboxed", "event-args-if-unboxed"] {
+            let path = root.join(format!("{name}.json"));
+            let sources = crate::read_schema_with_version(&path, Some((11, 1, 3))).unwrap();
+            let error = format!("{:#}", process_version_schema(&sources).unwrap_err());
+            assert!(error.contains(name), "{error}");
+            assert!(error.contains("boxed"), "{error}");
+        }
+    }
+
+    #[test]
+    fn boxed_inherited_conditions_and_older_unboxed_forms_remain_valid() {
+        let definitions = concat!(
+            "{'struct':'Base','data':{'optional-build':{'type':'str','if':'CONFIG_TEST'}}}\n",
+            "{'struct':'Args','base':'Base','data':{'value':'str'}}\n",
+        );
+        process(&format!("{definitions} {{'command':'good','boxed':true,'data':'Args'}} {{'event':'GOOD','boxed':true,'data':'Args'}}")).unwrap();
+        let bad = format!("{definitions} {{'command':'bad','data':'Args'}}");
+        assert!(
+            format!("{:#}", process(&bad).unwrap_err()).contains("Conditional arguments require")
+        );
+        crate::set_parser_version((8, 0, 0));
+        process_version_schema(&[("old.json".into(), bad)]).unwrap();
+    }
+
+    #[test]
     fn command_flags_reject_invalid_values_and_incompatible_execution_modes() {
         for input in [
             "{'command':'bad','allow-oob':false}",

@@ -96,6 +96,8 @@ their fields flat on the wire.
 Command flags enforce QEMU's true-only execution flags, false-only modern
 generation/reply flags and incompatible OOB/coroutine modes. Legacy string
 generation flags retain their historical handling.
+From 8.1, conditional members in command/event argument objects require boxing,
+including members inherited from a base. Earlier schemas retain the older rules.
 Type references resolve against exact QAPI names across all source files before
 Rust name mapping. Undefined member, branch and return types report their source
 and definition; historical inline objects include the nested member path.
