@@ -411,6 +411,29 @@ fn main() {
             }
         }
         if name == "detail-network" {
+            for (page_name, power_state) in [
+                ("detail-paused", Some("Paused")),
+                ("detail-powered-off", Some("Off")),
+                ("detail-powering-on", Some("PoweringOn")),
+                ("detail-unknown-power", None),
+            ] {
+                let mut snapshot = live_panel.clone();
+                if let Ok(system) = &mut snapshot.system {
+                    system.power_state = power_state.map(str::to_owned);
+                }
+                let mut snapshot_detail = detail.clone();
+                snapshot_detail.bmc_enabled = false;
+                write(
+                    dir,
+                    page_name,
+                    page(Body::Detail(Box::new(DetailPage {
+                        detail: snapshot_detail,
+                        panel: PanelState::Loaded(Box::new(snapshot)),
+                        deletable: true,
+                    }))),
+                    &css,
+                );
+            }
             for (page_name, connected, frozen) in [
                 ("detail-needs-agent", false, false),
                 ("detail-frozen-agent", true, true),

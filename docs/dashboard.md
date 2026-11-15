@@ -395,6 +395,11 @@ cycle, NMI and Force off under “More power actions,” matching the BMC. This 
 a native disclosure; each action still has its own confirmed POST form, and
 only resets currently offered by the VM's Redfish service are rendered. An
 empty offered-action list has an explicit message instead of an empty toolbar.
+The detail page also disables actions incompatible with its guest-power
+snapshot (for example Resume while On, or Pause while Paused/Off). It shows
+the snapshot state beside the controls and says to reload after a state
+change. Persistent Power on/off retain their separate desired-power/Pod rules;
+the server and Redfish still validate every submitted action independently.
 
 ### The detail page
 

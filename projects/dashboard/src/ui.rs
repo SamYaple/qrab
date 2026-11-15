@@ -655,23 +655,83 @@ fn config_card(config: Option<&redfish::Config>) -> Element {
     } }
 }
 
+/// A snapshot hint only; the server still checks every submitted action.
+fn power_state_reason(detail: &Detail, power: Power, state: Option<&str>) -> Option<&'static str> {
+    let available = match power {
+        Power::On => !detail.running || state == Some("Off"),
+        Power::Off => detail.running || detail.pod_name.is_some(),
+        Power::Reset(reset) => match (reset, state) {
+            (_, None) => {
+                return Some("Current guest power state is unavailable. Reload to update.");
+            }
+            (ResetType::Resume, Some(state)) => state == "Paused",
+            (ResetType::Pause | ResetType::GracefulRestart | ResetType::Nmi, Some(state)) => {
+                state == "On"
+            }
+            (ResetType::GracefulShutdown | ResetType::ForceRestart, Some(state)) => {
+                matches!(state, "On" | "Paused")
+            }
+            (ResetType::PowerCycle, Some(state)) => matches!(state, "On" | "Paused" | "Off"),
+            (ResetType::ForceOff, Some(state)) => state != "Off",
+            (ResetType::On, Some(state)) => state == "Off",
+        },
+    };
+    if available {
+        return None;
+    }
+    Some(match power {
+        Power::On => "Power on is already requested; use Resume for a paused guest.",
+        Power::Off => "The VM is already stopped.",
+        Power::Reset(ResetType::Resume) => "Resume needs a paused guest.",
+        Power::Reset(ResetType::Pause) => "Pause needs a running guest.",
+        Power::Reset(_) => "This action is unavailable in the current guest power state.",
+    })
+}
+
 /// All native power forms share the same confirmation and CSRF fields.
-fn power_form(detail: &Detail, csrf: &str, power: Power, restart_reason: Option<&str>) -> Element {
+fn power_form(
+    detail: &Detail,
+    csrf: &str,
+    power: Power,
+    restart_reason: Option<&str>,
+    state: Option<&str>,
+) -> Element {
     let action = format!("{}/action", detail.row.path());
-    let blocked = power == Power::Reset(ResetType::GracefulRestart) && restart_reason.is_some();
+    let state_reason = power_state_reason(detail, power, state);
+    let reason = state_reason.or(if power == Power::Reset(ResetType::GracefulRestart) {
+        restart_reason
+    } else {
+        None
+    });
+    let blocked = reason.is_some();
+    let description = if state_reason.is_some() {
+        Some("power-state-help")
+    } else if blocked {
+        Some("restart-requirement")
+    } else {
+        None
+    };
     rsx! { form { method: "post", action: "{action}",
         input { r#type: "hidden", name: "csrf", value: "{csrf}" }
         input { r#type: "hidden", name: "action", value: power.key() }
         if power.needs_confirmation() {
             label { class: "confirm", input { r#type: "checkbox", name: "confirm", value: "yes", required: true, disabled: blocked, aria_label: "Confirm {power.label()} for {detail.row.name}" } "Confirm" }
         }
-        button { class: if power.needs_confirmation() { "danger" } else { "quiet" }, r#type: "submit", disabled: blocked, aria_describedby: blocked.then_some("restart-requirement"), {power.label()} }
+        button { class: if power.needs_confirmation() { "danger" } else { "quiet" }, r#type: "submit", disabled: blocked, title: reason, aria_describedby: description, {power.label()} }
     } }
 }
 
 /// Detail-page power controls, limited to actions currently offered by Redfish.
 /// Power on/off also stay here when there is no BMC console page.
 fn power_controls(detail: &Detail, csrf: &str, panel: &PanelState) -> Element {
+    let state = match panel {
+        PanelState::Loaded(panel) => panel
+            .system
+            .as_ref()
+            .ok()
+            .and_then(|system| system.power_state.as_deref()),
+        _ => None,
+    };
     let allowed = match panel {
         PanelState::Loaded(panel) => panel
             .system
@@ -683,9 +743,10 @@ fn power_controls(detail: &Detail, csrf: &str, panel: &PanelState) -> Element {
     // Without the BMC there is no console page, so Power on and off are here.
     let spec_power = (!detail.bmc_enabled).then_some([Power::On, Power::Off]);
     let restart_reason = match panel {
-        _ if !allowed
-            .as_ref()
-            .is_some_and(|actions| actions.contains(&ResetType::GracefulRestart)) =>
+        _ if state != Some("On")
+            || !allowed
+                .as_ref()
+                .is_some_and(|actions| actions.contains(&ResetType::GracefulRestart)) =>
         {
             None
         }
@@ -699,6 +760,7 @@ fn power_controls(detail: &Detail, csrf: &str, panel: &PanelState) -> Element {
     rsx! {
         section { class: "card", aria_labelledby: "power-title",
             h2 { id: "power-title", "Power" }
+            p { class: "muted prose", id: "power-state-help", "Guest state: " strong { {state.unwrap_or("Unknown")} } ". Controls reflect this page's snapshot; reload after the state changes." }
             if !detail.redfish_enabled {
                 p { class: "muted", role: "status", "In-pod actions (restart, shut down, pause) need the VM's Redfish service, and components.redfish is not enabled for this VM. Power on sets spec.running; Power off stops the VM and keeps it off." }
             } else if detail.bmc_enabled {
@@ -707,7 +769,7 @@ fn power_controls(detail: &Detail, csrf: &str, panel: &PanelState) -> Element {
                 p { class: "muted", "Sent to the VM's Redfish service with your sign-in. Shut down and Force off leave the VM powered off in its Pod; Power on starts it again in place. Power off stops the VM and keeps it off." }
             }
             if let Some(actions) = spec_power { div { class: "actions",
-                for power in actions { {power_form(detail, csrf, power, restart_reason)} }
+                for power in actions { {power_form(detail, csrf, power, restart_reason, state)} }
             } }
             match allowed {
                 None if !detail.redfish_enabled => rsx! {},
@@ -717,13 +779,13 @@ fn power_controls(detail: &Detail, csrf: &str, panel: &PanelState) -> Element {
                     let (common, more): (Vec<_>, Vec<_>) = allowed.into_iter().partition(|power|
                         matches!(power, ResetType::Resume | ResetType::Pause | ResetType::GracefulRestart | ResetType::GracefulShutdown));
                     rsx! {
-                        div { class: "actions", for power in common { {power_form(detail, csrf, Power::Reset(power), restart_reason)} } }
+                        div { class: "actions", for power in common { {power_form(detail, csrf, Power::Reset(power), restart_reason, state)} } }
                         if let Some(reason) = restart_reason { p { class: "muted prose", id: "restart-requirement", "{reason}" } }
                         if !more.is_empty() {
                             details { class: "inline-disclosure", id: "more-power-actions",
                                 summary { "More power actions" }
                                 p { class: "muted prose", "Reset restarts the guest immediately. Power cycle turns it off and on. NMI sends a diagnostic interrupt. Force off stops it immediately." }
-                                div { class: "actions", for power in more { {power_form(detail, csrf, Power::Reset(power), restart_reason)} } }
+                                div { class: "actions", for power in more { {power_form(detail, csrf, Power::Reset(power), restart_reason, state)} } }
                             }
                         }
                     }
@@ -1403,5 +1465,46 @@ fn app() -> Element {
                 footer { "qrab · Virtual machines" }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn power_snapshot_distinguishes_guest_state_from_persistent_power() {
+        let vm = serde_json::from_value(serde_json::json!({
+            "apiVersion": "qrab.yapplesauce.com/v1alpha1", "kind": "VirtualMachine",
+            "metadata": {"name": "power-fixture", "namespace": "qrab"},
+            "spec": {"stateVolumeClaim": "identity"}
+        }))
+        .unwrap();
+        let mut detail = model::detail(&vm, Role::Admin, &Default::default(), None, None, &[]);
+        for (state, action, enabled) in [
+            (Some("On"), ResetType::Resume, false),
+            (Some("On"), ResetType::Pause, true),
+            (Some("Paused"), ResetType::Resume, true),
+            (Some("Paused"), ResetType::Pause, false),
+            (Some("Paused"), ResetType::ForceRestart, true),
+            (Some("Off"), ResetType::Pause, false),
+            (Some("Off"), ResetType::PowerCycle, true),
+            (Some("PoweringOn"), ResetType::ForceOff, true),
+            (None, ResetType::Pause, false),
+        ] {
+            assert_eq!(
+                power_state_reason(&detail, Power::Reset(action), state).is_none(),
+                enabled,
+                "{state:?} {action:?}"
+            );
+        }
+        detail.running = true;
+        assert!(power_state_reason(&detail, Power::On, Some("On")).is_some());
+        assert!(power_state_reason(&detail, Power::On, Some("Off")).is_none());
+        detail.running = false;
+        assert!(power_state_reason(&detail, Power::On, None).is_none());
+        assert!(power_state_reason(&detail, Power::Off, None).is_some());
+        detail.pod_name = Some("draining-pod".into());
+        assert!(power_state_reason(&detail, Power::Off, None).is_none());
     }
 }

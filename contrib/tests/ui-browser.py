@@ -869,7 +869,7 @@ with sync_playwright() as playwright:
         for width in [1440, 768, 390, 320]:
             context = browser_context(browser, viewport={'width': width, 'height': 1000}, color_scheme=theme)
             page = context.new_page()
-            for name in ['list', 'list-long', 'list-storage', 'detail', 'detail-long', 'detail-viewer', 'detail-redfish-only', 'detail-no-power-actions', 'detail-needs-agent', 'detail-frozen-agent', 'images', 'launch', 'launch-os', 'launch-options', 'launch-unavailable', 'launched',
+            for name in ['list', 'list-long', 'list-storage', 'detail', 'detail-long', 'detail-viewer', 'detail-redfish-only', 'detail-no-power-actions', 'detail-needs-agent', 'detail-frozen-agent', 'detail-paused', 'detail-powered-off', 'detail-powering-on', 'detail-unknown-power', 'images', 'launch', 'launch-os', 'launch-options', 'launch-unavailable', 'launched',
                          'error-session', 'error-denied', 'error-missing', 'error-service']:
                 page.goto((args.previews / f'{name}.html').resolve().as_uri())
                 if args.forced_colors:
@@ -916,6 +916,20 @@ with sync_playwright() as playwright:
                     expect(row.locator('td[data-label=Storage]')).to_contain_text('8.0 GiB reported')
                 capture(page, args.output / f'{name}-{theme}-{width}.png')
                 if name.startswith('detail'):
+                    if name == 'detail':
+                        expect(page.get_by_role('button', name='Resume', exact=True)).to_be_disabled()
+                    if name in ['detail-paused', 'detail-powered-off', 'detail-powering-on', 'detail-unknown-power']:
+                        expect(page.get_by_role('button', name='Pause', exact=True)).to_be_disabled()
+                        if name == 'detail-paused':
+                            expect(page.get_by_role('button', name='Resume', exact=True)).to_be_enabled()
+                        else:
+                            expect(page.get_by_role('button', name='Resume', exact=True)).to_be_disabled()
+                        if name == 'detail-powered-off':
+                            expect(page.get_by_role('button', name='Power on', exact=True)).to_be_enabled()
+                        else:
+                            expect(page.get_by_role('button', name='Power on', exact=True)).to_be_disabled()
+                        expect(page.get_by_role('button', name='Power off', exact=True)).to_be_enabled()
+                        expect(page.locator('#power-state-help')).to_contain_text('snapshot')
                     chart_keys(page, '.spark:has(polyline)', 'polyline')
                     more_power = page.locator('#more-power-actions')
                     if more_power.count():
