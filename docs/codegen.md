@@ -102,3 +102,10 @@ then `ObjectPropertyInfo`), `query-target` (`TargetInfo` until 10.1, then
 The test suite compares definition sets with QEMU's own Python parser for both
 current QMP and QGA schemas. Live QMP validation additionally checks that every
 advertised command appears under its exact wire name in generated metadata.
+
+Generated enum serializers enforce both type and variant lifetimes. The same
+checks apply to alternate values and union branch payloads, including scalar
+payloads whose Rust types carry no QEMU metadata. Invalid outgoing values name
+the unavailable type or variant and peer version. Deserialization remains
+independent of the serialization scope so recorded and newer replies can still
+be inspected.

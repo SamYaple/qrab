@@ -631,7 +631,7 @@ fn gen_enum(
     let ser = if all_unit {
         gen_unit_enum_ser(&enum_name, &variants, ta)
     } else {
-        gen_alt_ser(&enum_name, &variants)
+        gen_alt_ser(&enum_name, &variants, ta)
     };
 
     let de = if all_unit {
@@ -684,6 +684,28 @@ fn gen_enum(
     })
 }
 
+fn variant_serialization_guard(name: &syn::Ident, variant: &VariantInfo) -> TokenStream2 {
+    let ident = &variant.ident;
+    let check = version_range_check(
+        variant.attrs.since.as_deref(),
+        variant.attrs.until.as_deref(),
+    )
+    .map(|available| {
+        quote! {
+            if !(#available) {
+                return Err(serde::ser::Error::custom(qapi::unavailable_type_message(
+                    concat!(stringify!(#name), "::", stringify!(#ident))
+                )));
+            }
+        }
+    });
+    let warning =
+        variant.attrs.deprecated.as_deref().map(|version| {
+            deprecation_warning(&name.to_string(), Some(&ident.to_string()), version)
+        });
+    quote! { #check #warning }
+}
+
 fn gen_unit_enum_ser(name: &syn::Ident, variants: &[VariantInfo], ta: &TypeAttrs) -> TokenStream2 {
     let type_name_str = name.to_string();
 
@@ -693,9 +715,13 @@ fn gen_unit_enum_ser(name: &syn::Ident, variants: &[VariantInfo], ta: &TypeAttrs
             let ident = &v.ident;
             let wn = wire_name(&v.attrs.name, &v.ident);
             let cond = v.attrs.condition.as_ref().map(|c| condition_cfg(c));
+            let guard = variant_serialization_guard(name, v);
             quote! {
                 #cond
-                #name::#ident => serializer.serialize_str(#wn),
+                #name::#ident => {
+                    #guard
+                    serializer.serialize_str(#wn)
+                },
             }
         })
         .collect();
@@ -767,25 +793,50 @@ fn gen_unit_enum_de(name: &syn::Ident, variants: &[VariantInfo]) -> TokenStream2
     }
 }
 
-fn gen_alt_ser(name: &syn::Ident, variants: &[VariantInfo]) -> TokenStream2 {
-    let arms: Vec<TokenStream2> = variants.iter().map(|v| {
-        let ident = &v.ident;
-        let cond = v.attrs.condition.as_ref().map(|c| condition_cfg(c));
-        match &v.kind {
-            VariantKind::Tuple(_) => {
-                quote! { #cond #name::#ident(ref inner) => serde::Serialize::serialize(inner, serializer), }
+fn gen_alt_ser(name: &syn::Ident, variants: &[VariantInfo], ta: &TypeAttrs) -> TokenStream2 {
+    let type_guard = version_range_check(ta.since.as_deref(), ta.until.as_deref())
+        .map(|available| quote! {
+            if !(#available) {
+                return Err(serde::ser::Error::custom(qapi::unavailable_type_message(stringify!(#name))));
             }
-            VariantKind::Unit => {
-                quote! { #cond #name::#ident => serializer.serialize_unit(), }
+        });
+    let warning = ta
+        .deprecated
+        .added
+        .as_deref()
+        .map(|version| deprecation_warning(&name.to_string(), None, version));
+    let arms: Vec<TokenStream2> = variants
+        .iter()
+        .map(|variant| {
+            let ident = &variant.ident;
+            let cond = variant.attrs.condition.as_ref().map(|c| condition_cfg(c));
+            let guard = variant_serialization_guard(name, variant);
+            match &variant.kind {
+                VariantKind::Tuple(_) => quote! {
+                    #cond
+                    #name::#ident(inner) => {
+                        #guard
+                        serde::Serialize::serialize(inner, serializer)
+                    }
+                },
+                VariantKind::Unit => quote! {
+                    #cond
+                    #name::#ident => {
+                        #guard
+                        serializer.serialize_unit()
+                    }
+                },
             }
-        }
-    }).collect();
+        })
+        .collect();
 
     quote! {
         #[allow(deprecated)]
         impl serde::Serialize for #name {
             fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
             where S: serde::Serializer {
+                #type_guard
+                #warning
                 match self { #(#arms)* }
             }
         }

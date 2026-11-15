@@ -37,3 +37,91 @@ fn out_of_context_serialization_names_the_fix_and_the_helper_works() {
     assert!(error.contains("not available in QEMU 11.1.3"), "{error}");
     assert!(qapi::to_value((10, 0, 0), &removed).is_ok());
 }
+
+#[qapi::qapi(added = "9.2.0", removed = "12.0.0")]
+enum VersionedUnitEnum {
+    Stable,
+    #[qapi(name = "introduced", added = "10.2.0")]
+    Introduced,
+    #[qapi(name = "retired", removed = "11.0.0")]
+    Retired,
+}
+
+#[qapi::qapi(added = "9.2.0", removed = "12.0.0")]
+enum VersionedAlternate {
+    #[qapi(added = "10.2.0")]
+    Text(String),
+    #[qapi(removed = "11.0.0")]
+    Number(i64),
+    #[qapi(added = "10.0.0")]
+    Null,
+}
+
+#[test]
+fn enum_serialization_checks_variant_introduction_and_removal_boundaries() {
+    assert!(qapi::to_value((10, 1, 0), &VersionedUnitEnum::Introduced).is_err());
+    assert_eq!(
+        qapi::to_value((10, 2, 0), &VersionedUnitEnum::Introduced).unwrap(),
+        "introduced"
+    );
+    assert_eq!(
+        qapi::to_value((10, 2, 0), &VersionedUnitEnum::Retired).unwrap(),
+        "retired"
+    );
+    let error = qapi::to_value((11, 0, 0), &VersionedUnitEnum::Retired)
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("VersionedUnitEnum::Retired"), "{error}");
+    assert!(error.contains("11.0.0"), "{error}");
+    assert!(qapi::to_value((12, 0, 0), &VersionedUnitEnum::Stable).is_err());
+}
+
+#[test]
+fn alternate_serialization_checks_type_and_variant_lifetimes() {
+    assert!(qapi::to_value((10, 1, 0), &VersionedAlternate::Text("value".into())).is_err());
+    assert_eq!(
+        qapi::to_value((10, 2, 0), &VersionedAlternate::Text("value".into())).unwrap(),
+        "value"
+    );
+    assert_eq!(
+        qapi::to_value((10, 2, 0), &VersionedAlternate::Number(1)).unwrap(),
+        1
+    );
+    assert!(qapi::to_value((11, 0, 0), &VersionedAlternate::Number(1)).is_err());
+    assert!(qapi::to_value((9, 2, 0), &VersionedAlternate::Null).is_err());
+    assert!(qapi::to_value((10, 0, 0), &VersionedAlternate::Null)
+        .unwrap()
+        .is_null());
+    assert!(qapi::to_value((9, 1, 0), &VersionedAlternate::Number(1)).is_err());
+    assert!(qapi::to_value((12, 0, 0), &VersionedAlternate::Text("value".into())).is_err());
+    let error = serde_json::to_value(&VersionedAlternate::Number(1))
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("qapi::with_version"), "{error}");
+}
+
+#[test]
+fn generated_migration_commands_cannot_send_capabilities_outside_their_lifetime() {
+    let command = qapi::commands::MigrateSetCapabilities {
+        capabilities: vec![qapi::MigrationCapabilityStatus {
+            capability: qapi::MigrationCapability::MappedRam,
+            state: true,
+        }],
+    };
+    assert!(qapi::to_value((8, 2, 0), &command).is_err());
+    assert_eq!(
+        qapi::to_value((9, 0, 0), &command).unwrap(),
+        serde_json::json!({
+            "capabilities": [{ "capability": "mapped-ram", "state": true }]
+        })
+    );
+    #[allow(deprecated)]
+    let retired = qapi::commands::MigrateSetCapabilities {
+        capabilities: vec![qapi::MigrationCapabilityStatus {
+            capability: qapi::MigrationCapability::ZeroBlocks,
+            state: true,
+        }],
+    };
+    assert!(qapi::to_value((10, 2, 0), &retired).is_ok());
+    assert!(qapi::to_value((11, 0, 0), &retired).is_err());
+}

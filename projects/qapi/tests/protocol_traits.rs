@@ -155,15 +155,19 @@ fn enum_migration_capability_all_variants() {
         "mapped-ram",
     ];
     for name in &variants {
+        let version = if *name == "zero-blocks" {
+            (10, 2, 0)
+        } else {
+            (11, 1, 3)
+        };
         let json_str = format!("\"{}\"", name);
-        if let Ok(cap) = serde_json::from_str::<MigrationCapability>(&json_str) {
-            let back = serde_json::to_string(&cap).unwrap();
-            assert_eq!(
-                back, json_str,
-                "Roundtrip failed for MigrationCapability '{}'",
-                name
-            );
-        }
+        let cap = serde_json::from_str::<MigrationCapability>(&json_str)
+            .unwrap_or_else(|error| panic!("Missing MigrationCapability {name}: {error}"));
+        let back = qapi::with_version(version, || serde_json::to_string(&cap)).unwrap();
+        assert_eq!(
+            back, json_str,
+            "Roundtrip failed for MigrationCapability {name}"
+        );
     }
 }
 
