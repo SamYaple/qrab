@@ -1252,10 +1252,20 @@ fn launched(page: &Launched) -> Element {
     }
 }
 
+fn console_power_button(button: PowerButton) -> Element {
+    rsx! { button { r#type: "button", class: if button.disruptive { "danger" } else { "quiet" }, "data-power": button.action, "data-label": button.label, "data-in-pod": if button.in_pod { "true" } else { "false" }, disabled: true, {button.label} } }
+}
+
 fn console_page(page: &ConsolePage) -> Element {
     let back = format!("/vms/{}/{}", page.namespace, page.name);
     let socket = format!("{back}/console/ws");
     let login = sign_in_path(Some(&format!("{back}/console")));
+    let (common, more): (Vec<_>, Vec<_>) = console_power().into_iter().partition(|button| {
+        !matches!(
+            button.action,
+            "ForceRestart" | "ForceOff" | "PowerCycle" | "Nmi"
+        )
+    });
     rsx! {
         a { class: "back", href: "{back}", "← Back to {page.name}" }
         div { class: "heading", div { p { class: "eyebrow", "CONSOLE · {page.namespace}" } h1 { "{page.name}" } } }
@@ -1263,7 +1273,7 @@ fn console_page(page: &ConsolePage) -> Element {
         p { id: "console-recovery", hidden: true, a { class: "button", href: "{login}", "Sign in again" } }
         div { class: "toolbar",
             p { id: "console-status", role: "status", "Console disconnected" }
-            div { class: "actions",
+            div { class: "actions", id: "console-controls",
                 button { id: "connect", r#type: "button", "Connect console" }
                 button { id: "cad", r#type: "button", class: "quiet", disabled: true, "Ctrl Alt Del" }
                 button { id: "fullscreen", r#type: "button", class: "quiet", disabled: true, "Full screen" }
@@ -1273,10 +1283,12 @@ fn console_page(page: &ConsolePage) -> Element {
             }
         }
         div { class: "toolbar power-bar", id: "power", "data-endpoint": "{back}/power", "data-csrf": "{page.csrf}",
-            p { class: "power-state", span { id: "power-chip", class: "chip", "Checking…" } span { id: "power-detail", class: "muted" } }
+            p { class: "power-state", span { id: "power-chip", class: "chip", tabindex: "-1", "Checking…" } span { id: "power-detail", class: "muted" } }
             div { class: "actions", role: "group", aria_label: "Power",
-                for b in console_power() {
-                    button { r#type: "button", class: if b.disruptive { "danger" } else { "quiet" }, "data-power": b.action, "data-label": b.label, "data-in-pod": if b.in_pod { "true" } else { "false" }, disabled: true, {b.label} }
+                for button in common { {console_power_button(button)} }
+                details { class: "console-power-more", id: "console-power-more",
+                    summary { "More power actions" }
+                    div { class: "actions", for button in more { {console_power_button(button)} } }
                 }
             }
         }

@@ -135,6 +135,16 @@ timestamp, sequence and wrapped payload; they do not depend on hover tooltips.
 
 ### Console power controls
 
+The dedicated console keeps routine controls visible and groups Reset, Power
+cycle, NMI and Force off in a native “More power actions” disclosure. It hides
+the group when none of those resets are offered. Closing the group, or losing
+an offered action, clears that action's armed confirmation. Unoffered controls
+are hidden and disabled, and the click handler rechecks their eligibility.
+If the group disappears while focused, focus stays near the power state. If
+the session ends while a console control is focused, focus moves to sign-in
+after leaving full-screen mode. Background expiry does not steal focus from
+navigation outside the console.
+
 Dashboard HTML errors keep their HTTP status and provide a next step: sign-in
 after expiry, a VM/list link for failed requests, and an explanation for access
 denials. VM sign-in destinations pass the same allowlist as normal login.
@@ -661,6 +671,8 @@ across polls, denied actions, empty history/filters, powered-off layouts and
 session expiry. `--states-only` runs just the BMC and dedicated-console state
 checks during iteration. Console expiry also checks native WebSocket closure,
 canvas cleanup, full-screen exit and the same-console sign-in destination.
+Dedicated-console checks cover expanded controls down to 320px, confirmation
+reset on close/availability loss, and recovery-link focus after expiry.
 The event checks include malformed/missing timestamps and long payload text that
 must render without becoming HTML.
 Long names, large capacities, namespace-specific name limits and a 320×320

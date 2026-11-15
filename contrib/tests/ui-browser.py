@@ -125,7 +125,7 @@ def install_bmc(context, role='admin', power='On', legacy=False, origin='http://
                 request_route.fulfill(status=503, **fixture['fail_system'])
                 return
             data = {'running': True, 'phase': 'Running', 'pod': True, 'power_state': fixture['system']['PowerState'],
-                    'health': 'OK', 'reset_types': resets, 'redfish_error': None}
+                    'health': 'OK', 'reset_types': fixture['system']['Actions']['#ComputerSystem.Reset']['ResetType@Redfish.AllowableValues'], 'redfish_error': None}
         elif path.endswith('/Systems/1'):
             if fixture['fail_system']:
                 error = fixture['fail_system']
@@ -133,7 +133,7 @@ def install_bmc(context, role='admin', power='On', legacy=False, origin='http://
                 return
             data = fixture['system']
         elif path.endswith('/ResetActionInfo'):
-            data = {'Parameters': [{'Name': 'ResetType', 'AllowableValues': resets}]}
+            data = {'Parameters': [{'Name': 'ResetType', 'AllowableValues': fixture['system']['Actions']['#ComputerSystem.Reset']['ResetType@Redfish.AllowableValues']}]}
         elif path.endswith('/Events/Entries'):
             data = {'Members': [] if fixture['empty_events'] else [{'Id': str(i), 'Created': f'2026-11-15T04:00:{i:02d}Z', 'Oem': {'Qrab': {'Sequence': i, 'Event': event, 'Data': {'reason': 'requested by user'}}}} for i, event in [(1, 'STOP'), (2, 'RESUME'), (3, 'DEVICE_DELETED')]]}
             data['Members'].extend(fixture['extra_events'])
@@ -301,6 +301,37 @@ def console_state_checks(browser, width, theme):
         page.goto(origin + base + '/console')
         pause = page.locator('[data-power=Pause]')
         expect(pause).to_be_enabled()
+        more = page.locator('#console-power-more')
+        expect(more).to_be_visible()
+        assert not more.evaluate('(e) => e.open')
+        more.locator('summary').focus()
+        page.keyboard.press('Enter')
+        reset = page.locator('[data-power=ForceRestart]')
+        expect(reset).to_be_visible()
+        no_overflow(page, 'console-more-actions', width)
+        capture(page, args.output / f'console-more-actions-{theme}-{width}.png')
+        reset.click()
+        assert fixture['posts'] == [], 'First click only arms the action'
+        more.locator('summary').click()
+        expect(reset).to_have_text('Reset')
+        more.locator('summary').click()
+        reset.click()
+        action_info = fixture['system']['Actions']['#ComputerSystem.Reset']
+        original_types = action_info['ResetType@Redfish.AllowableValues']
+        action_info['ResetType@Redfish.AllowableValues'] = []
+        more.locator('summary').focus()
+        page.clock.fast_forward(3100)
+        expect(more).to_be_hidden()
+        expect(page.locator('#power-chip')).to_be_focused()
+        expect(reset).to_be_disabled()
+        expect(reset).to_have_text('Reset')
+        reset.dispatch_event('click')
+        assert fixture['posts'] == [], 'An unoffered action must not be sent'
+        action_info['ResetType@Redfish.AllowableValues'] = original_types
+        page.clock.fast_forward(3100)
+        expect(more).to_be_visible()
+        assert not more.evaluate('(e) => e.open')
+        more.locator('summary').click()
         fixture['post_error'] = 'Permission denied by the VM.'
         pause.click()
         expect(page.locator('#console-error')).to_have_text('Permission denied by the VM.')
@@ -331,9 +362,13 @@ def console_state_checks(browser, width, theme):
         if width == 1440:
             page.evaluate("document.querySelector('#screen').requestFullscreen()")
             assert page.evaluate('document.fullscreenElement.id') == 'screen'
+        else:
+            page.locator('#connect').focus()
         fixture['expired'] = True
         page.clock.fast_forward(3100)
         expect(page.locator('#console-recovery')).to_be_visible()
+        if width != 1440:
+            expect(page.locator('#console-recovery a')).to_be_focused()
         expect(page.locator('#screen canvas')).to_have_count(0)
         wait_native(page, closed)
         if width == 1440:
@@ -807,6 +842,7 @@ with sync_playwright() as playwright:
     bmc_state_checks(browser, 390, 'light')
     console_state_checks(browser, 1440, 'dark')
     console_state_checks(browser, 390, 'light')
+    console_state_checks(browser, 320, 'dark')
     if not args.states_only:
         long_content_checks(browser, 320, 'light', height=320, scale=2)
     browser.close()

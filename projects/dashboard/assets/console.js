@@ -7,6 +7,7 @@ const screen = element('screen');
 const status = element('console-status');
 const connect = element('connect');
 const power = element('power');
+const morePower = element('console-power-more');
 let rfb = null;
 let expired = false, pollTask = null;
 
@@ -23,6 +24,7 @@ function endedScreen() {
 
 function sessionEnded() {
     if (expired) return;
+    const hadConsoleFocus = [screen, power, element('console-controls') || connect.parentElement].some(node => node.contains(document.activeElement));
     expired = true;
     stopReconnecting();
     clearInterval(polling);
@@ -35,7 +37,7 @@ function sessionEnded() {
     element('fullscreen').disabled = true;
     status.textContent = 'Session ended · Sign in to reconnect';
     element('console-recovery').hidden = false;
-    if (document.fullscreenElement === screen) document.exitFullscreen().catch(() => {});
+    const leaveFullscreen = document.fullscreenElement === screen ? document.exitFullscreen().catch(() => {}) : Promise.resolve();
     if (rfb) rfb.disconnect();
     else endedScreen();
     if (audioContext) { audioContext.close(); audioContext = null; }
@@ -44,6 +46,9 @@ function sessionEnded() {
         audioButton.textContent = 'Audio off';
         audioButton.setAttribute('aria-pressed', 'false');
     }
+    leaveFullscreen.then(() => {
+        if (hadConsoleFocus) element('console-recovery').querySelector('a').focus({preventScroll: true});
+    });
 }
 
 async function failure(response) {
@@ -262,11 +267,17 @@ function render() {
     element('power-chip').textContent = chip;
     element('power-chip').dataset.state = chip.toLowerCase();
     element('power-detail').textContent = detail;
+    const menuFocused = morePower?.contains(document.activeElement);
+    if (armed && (!offered(armed) || !allowed(armed.dataset.power))) disarm();
     for (const button of buttons) {
         if (button !== armed) button.textContent = button.dataset.label;
-        // The stylesheet sets buttons' display, so `hidden` alone would not hide them.
-        button.style.display = offered(button) ? '' : 'none';
-        button.disabled = expired || busy || !allowed(button.dataset.power);
+        button.hidden = !offered(button);
+        button.disabled = expired || busy || !offered(button) || !allowed(button.dataset.power);
+    }
+    if (morePower) {
+        morePower.hidden = expired || [...morePower.querySelectorAll('[data-power]')].every(button => !offered(button));
+        if (morePower.hidden) morePower.open = false;
+        if (morePower.hidden && menuFocused && !expired) element('power-chip').focus({preventScroll: true});
     }
 }
 function disarm() {
@@ -294,7 +305,7 @@ function poll() {
     return pollTask;
 }
 async function send(button) {
-    if (expired || busy || button.disabled) return;
+    if (expired || busy || button.disabled || !offered(button) || !allowed(button.dataset.power)) return;
     const action = button.dataset.power;
     const disruptive = button.classList.contains('danger');
     if (disruptive && armed !== button) {
@@ -333,6 +344,9 @@ async function send(button) {
     }
 }
 for (const button of buttons) button.addEventListener('click', () => send(button));
+morePower?.addEventListener('toggle', () => {
+    if (!morePower.open && armed && morePower.contains(armed)) disarm();
+});
 
 let polling = null;
 function watch() {
