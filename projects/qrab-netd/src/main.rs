@@ -354,7 +354,18 @@ impl Agent {
         let host = sys::host_netns(&self.proc_root);
         match (request.op, request.via) {
             (wire::Op::Forward, Some(via)) => {
-                sys::in_netns(&host, move || sys::forward(ip, via)).map_err(|e| e.to_string())?;
+                // Only to another node: a manager cannot route its address
+                // to anything off the node network (checked locally, since
+                // this runs inside the guest's pause).
+                sys::in_netns(&host, move || {
+                    if !sys::is_link_peer(via) {
+                        return Err(std::io::Error::other(format!(
+                            "{via} is not a node on a host link"
+                        )));
+                    }
+                    sys::forward(ip, via)
+                })
+                .map_err(|e| e.to_string())?;
                 Ok(format!("{ip}/32 forwarded via {via}"))
             }
             (wire::Op::Unforward, _) => {
