@@ -1,4 +1,6 @@
-use super::{Metadata, doc_to_tokens, generate_attribute, rustify_field, rustify_type};
+use super::{
+    Metadata, doc_to_tokens, generate_attribute, rustify_field, rustify_name, rustify_type,
+};
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 use std::cmp::Ordering;
@@ -44,7 +46,7 @@ impl PartialOrd for Struct {
 }
 impl Struct {
     pub fn generate(&self) -> TokenStream {
-        let struct_name = format_ident!("{}", rustify_type(&self.name));
+        let struct_name = format_ident!("{}", rustify_name(&self.name));
         // Always emit at least #[qapi] so inner field attrs get processed
         let struct_attrs: Vec<TokenStream> = if self.meta.attributes.is_empty() {
             vec![quote! { #[qapi] }]

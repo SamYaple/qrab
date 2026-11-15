@@ -801,7 +801,7 @@ fn unified_type_rust_name(ut: &UnifiedType) -> String {
 
 /// Map from QAPI variant name to its Rust name (for detecting renames).
 fn variant_rust_name(v: &EnumVariant) -> String {
-    crate::qapi_ir::rustify_name(&v.name)
+    crate::qapi_ir::rustify_variant(&v.name)
 }
 
 fn same_variant_shape(left: &EnumVariant, right: &EnumVariant) -> bool {

@@ -1,6 +1,6 @@
 use super::{
     Metadata, StructField, doc_to_tokens, generate_attribute, rustify_field, rustify_name,
-    rustify_type,
+    rustify_type, rustify_variant,
 };
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
@@ -54,7 +54,7 @@ impl PartialOrd for Enum {
 
 impl Enum {
     pub fn generate(&self) -> TokenStream {
-        let enum_name = format_ident!("{}", rustify_type(&self.name));
+        let enum_name = format_ident!("{}", rustify_name(&self.name));
 
         // Always emit at least #[qapi] so inner variant attrs get processed
         let enum_attrs: Vec<TokenStream> = if self.meta.attributes.is_empty() {
@@ -69,7 +69,7 @@ impl Enum {
         let enum_doc = self.meta.doc.as_ref().map(|doc| doc_to_tokens(doc));
 
         let variants = self.variants.iter().map(|variant| {
-            let variant_name = format_ident!("{}", rustify_name(&variant.name));
+            let variant_name = format_ident!("{}", rustify_variant(&variant.name));
 
             let variant_attrs = variant.meta.attributes.iter().map(generate_attribute);
             let variant_doc = variant.meta.doc.as_ref().map(|doc| doc_to_tokens(doc));

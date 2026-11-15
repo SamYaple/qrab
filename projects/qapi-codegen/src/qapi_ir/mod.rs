@@ -30,9 +30,8 @@ fn qapi_to_rust_type(qapi_type: &str) -> String {
         "bool" => "bool".into(),
         "any" => "serde_json::Value".into(),
         "null" => "()".into(),
-        // Special opaque types used by QOM commands (qom-get, qom-set, object-add)
-        "Visitor" | "visitor" => "serde_json::Value".into(),
-        "Dict" | "dict" => "serde_json::Value".into(),
+        // Historical opaque references are lowercase; Visitor and Dict may be real types.
+        "visitor" | "dict" => "serde_json::Value".into(),
         // Wildcard type used in older versions (e.g., netdev_add '*props': '**')
         "**" => "serde_json::Value".into(),
         // Catch-all map for commands with 'gen': false (e.g., device_add)
@@ -54,18 +53,34 @@ fn fix_leading_digit(input: &str) -> String {
     }
 }
 
+/// Map a type name without shadowing Rust types, constructors or runtime traits.
 pub fn rustify_name(input: &str) -> String {
-    // Avoid collision with Rust built-in types
-    if input == "String" {
-        return "QapiString".to_string();
+    let name = fix_leading_digit(&input.to_pascal_case());
+    match name.as_str() {
+        "Self" | "String" | "Option" | "Vec" | "Box" | "Result" | "HashMap" | "Send" | "Sync"
+        | "Sized" | "Drop" | "Fn" | "FnMut" | "FnOnce" | "Some" | "None" | "Ok" | "Err" => {
+            format!("Qapi{name}")
+        }
+        _ => name,
     }
-    let input = input.to_pascal_case();
-    fix_leading_digit(&input)
+}
+
+/// Enum variants have their own namespace; String and None remain ordinary variants.
+pub(crate) fn rustify_variant(input: &str) -> String {
+    let name = fix_leading_digit(&input.to_pascal_case());
+    if name == "Self" {
+        "QapiSelf".into()
+    } else {
+        name
+    }
 }
 
 fn rustify_field_name(input: &str) -> String {
-    let input = input.to_snake_case();
-    fix_leading_digit(&input)
+    let name = fix_leading_digit(&input.to_snake_case());
+    match name.as_str() {
+        "self" | "super" | "crate" => format!("{name}_"),
+        _ => name,
+    }
 }
 
 pub(crate) fn rustify_type(input: &str) -> String {

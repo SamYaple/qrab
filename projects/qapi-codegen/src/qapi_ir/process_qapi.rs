@@ -1,7 +1,7 @@
 //! Lower parsed QAPI definitions into Rust IR with wire names and schema metadata.
 
 use super::{Attribute, Enum, EnumVariant, EnumVariantKind, Metadata, Struct, StructField};
-use crate::qapi_ir::{rustify_field_name, rustify_name};
+use crate::qapi_ir::{rustify_field_name, rustify_name, rustify_variant};
 use crate::{
     MembersOrRef, QapiAlternate, QapiAlternative, QapiCommand, QapiEnum, QapiEnumValue, QapiEvent,
     QapiMember, QapiStruct, QapiTypeRef, QapiUnion, extract_since_from_comment,
@@ -151,6 +151,10 @@ fn name_attr(name: &str) -> Option<Attribute> {
     }
 }
 
+fn variant_name_attr(name: &str) -> Option<Attribute> {
+    (name != rustify_variant(name)).then(|| Attribute::with_value("name", name))
+}
+
 fn process_type_ref<'a>(q: &'a QapiTypeRef<'a>) -> (&'a str, bool) {
     match q {
         QapiTypeRef::Unset => unreachable! {"this should have failed the parser"},
@@ -168,7 +172,7 @@ fn process_alternative(q: QapiAlternative) -> EnumVariant {
     let (r#type, array) = process_type_ref(&q.r#type);
 
     let mut meta = Metadata::default();
-    if let Some(attr) = name_attr(q.name) {
+    if let Some(attr) = variant_name_attr(q.name) {
         meta.attributes.push(attr);
     }
     if let Some(condition) = q.r#if {
@@ -211,7 +215,7 @@ pub fn process_alternate(q: QapiAlternate) -> Enum {
 
 fn process_enum_value(q: QapiEnumValue) -> EnumVariant {
     let mut meta = Metadata::default();
-    if let Some(attr) = name_attr(q.name) {
+    if let Some(attr) = variant_name_attr(q.name) {
         meta.attributes.push(attr);
     }
     if let Some(condition) = q.r#if {
@@ -405,7 +409,7 @@ pub fn process_union(
     for branch in q.data {
         let (r#type, array) = process_type_ref(&branch.r#type);
         let mut meta = Metadata::default();
-        if let Some(attr) = name_attr(branch.name) {
+        if let Some(attr) = variant_name_attr(branch.name) {
             meta.attributes.push(attr);
         }
         if let Some(condition) = branch.r#if {
@@ -497,7 +501,7 @@ pub fn process_union(
             .iter()
             .map(|v| {
                 let mut meta = Metadata::default();
-                if let Some(attr) = name_attr(&v.name) {
+                if let Some(attr) = variant_name_attr(&v.name) {
                     meta.attributes.push(attr);
                 }
                 EnumVariant {

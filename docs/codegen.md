@@ -171,3 +171,12 @@ Serde macro expansions allocate helper names against user fields, referenced
 types and other generated helpers. Fields such as `map` and internal-looking
 identifiers cannot capture JSON storage, visitors or serde generic parameters.
 These cases have compile-and-round-trip regressions.
+
+Rust identifiers are escaped by role. Reserved type names use a `Qapi` prefix;
+enum variants keep ordinary names such as `String` and `None`, with `Self`
+escaped. Fields `self`, `crate` and `super` receive a trailing underscore and
+retain their wire-name attributes. Type declarations use type-name mapping,
+not builtin-value mapping: a declared `Visitor` remains a real struct, while
+the historical lowercase `visitor` opaque reference remains a JSON value.
+A QEMU-validated fixture is generated, compiled offline and round-tripped to
+check declarations, references, commands and metadata together.

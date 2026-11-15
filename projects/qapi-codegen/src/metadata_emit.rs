@@ -522,7 +522,7 @@ fn emit_enum_variants(ue: &UnifiedEnum, var_name: &str) -> String {
     let mut s = String::new();
     s.push_str(&format!("static {}: &[EnumVariantMeta] = &[\n", var_name));
     for v in &ue.ir.variants {
-        let rust = rustify_name(&v.name);
+        let rust = crate::qapi_ir::rustify_variant(&v.name);
         let wire = item_attr(&v.meta.attributes, "name")
             .map(String::from)
             .unwrap_or_else(|| v.name.clone());
