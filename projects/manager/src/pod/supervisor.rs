@@ -594,6 +594,7 @@ async fn run_qemu(
     });
     let execution = async {
         if qmp.version() < (11,1,0) { return Err(Error::Config("pod manager requires QEMU 11.1 or newer".into())); }
+        let received_tap = receiving.is_some() && !config.tap_fds().is_empty();
         if let Some(receiving) = receiving {
             let _management=control.migration_guard()?;
             // Healthy but not ready while the guest arrives.
@@ -612,6 +613,12 @@ async fn run_qemu(
             biased;
             _=&mut shutdown => return Ok(Ended::Shutdown),
             started=qmp.execute(&Cont {}) => {started?;}
+        }
+        // Tap NICs moved nodes: let the guest's MACs be relearned at once.
+        if received_tap {
+            if let Err(error) = qmp.execute_raw(serde_json::json!({"execute":"announce-self","arguments":{"initial":50,"max":550,"rounds":5,"step":100}})).await {
+                eprintln!("{}", serde_json::json!({"event":"announce_self_failed","error":error.to_string()}));
+            }
         }
         if let Some(reason) = relaunch { control.record_power("On", reason); }
         if outgoing.is_none() {

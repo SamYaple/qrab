@@ -146,7 +146,9 @@ mod tests {
             requests,
             [("lan", 2), ("wan", 2)].map(|(nic, queues)| qrab_netd::wire::Request {
                 nic: nic.into(),
-                queues
+                queues,
+                op: qrab_netd::wire::Op::Fds,
+                via: None,
             })
         );
         // The child reads every inherited descriptor by the numbers the

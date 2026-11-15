@@ -18,13 +18,19 @@
 use super::{iscsi::Binding, Config, Phase, Status};
 use crate::{Error, Result};
 use qapi_protocol::Qmp;
+use qrab_netd::wire::Op;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::{collections::BTreeMap, path::Path, time::Duration};
+use std::{
+    collections::{BTreeMap, HashMap},
+    net::Ipv4Addr,
+    path::Path,
+    time::Duration,
+};
 use tokio::{
     io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt},
     net::{TcpListener, TcpStream, UnixListener, UnixStream},
-    sync::{mpsc, watch},
+    sync::{mpsc, oneshot, watch},
 };
 
 /// The source manager's migration listener port.
@@ -34,6 +40,8 @@ const FRAME_LIMIT: usize = 64 << 10;
 const FRAME_TIMEOUT: Duration = Duration::from_secs(10);
 /// Bound on the target preparing swtpm and QEMU after the offer.
 const READY_TIMEOUT: Duration = Duration::from_secs(120);
+/// Each switchover exchange; the guest is paused meanwhile.
+const SWITCH_TIMEOUT: Duration = Duration::from_secs(10);
 /// QEMU's own throttle, in bytes per second.
 const MAX_BANDWIDTH: u64 = 1 << 30;
 /// The refusal of a source whose QEMU is powered off. A target that receives
@@ -69,6 +77,10 @@ pub struct Incoming {
     pub source: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub workload_api: Option<String>,
+    /// This (the target) node's address, where the source node forwards
+    /// tap NICs' traffic during the switch. Required with tap NICs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub node_ip: Option<Ipv4Addr>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -77,6 +89,62 @@ pub(super) struct Hello {
     version: u32,
     migration: String,
     state_id: String,
+    /// [`SWITCHOVER`] for the tap handoff's control connection.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    channel: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    node_ip: Option<Ipv4Addr>,
+}
+
+/// The second connection a tap-mode target opens to its source: while the
+/// source's QEMU waits at `pre-switchover`, the source asks the target to
+/// activate its anchors before standing its own down.
+const SWITCHOVER: &str = "switchover";
+
+/// Frames on the switchover connection.
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
+enum Switch {
+    Activate,
+    Activated,
+    /// The switch is undone: the target stands its anchors down again.
+    Abort,
+    Failed(String),
+}
+
+type Channel = qrab_spiffe::server::TlsStream<TcpStream>;
+type ChannelSlot = oneshot::Sender<(Channel, Option<Ipv4Addr>)>;
+
+/// Switchover connections waiting for their migration's `send`, by migration.
+fn switchovers() -> &'static std::sync::Mutex<HashMap<String, ChannelSlot>> {
+    static SLOTS: std::sync::OnceLock<std::sync::Mutex<HashMap<String, ChannelSlot>>> =
+        std::sync::OnceLock::new();
+    SLOTS.get_or_init(Default::default)
+}
+
+/// Removes a migration's switchover slot however `send` ends.
+struct SlotGuard(String);
+
+impl Drop for SlotGuard {
+    fn drop(&mut self) {
+        switchovers().lock().unwrap().remove(&self.0);
+    }
+}
+
+/// One handoff step for every tap NIC through this node's qrab-netd.
+async fn netd_all(config: &Config, nics: &[String], op: Op, via: Option<Ipv4Addr>) -> Result<()> {
+    for nic in nics {
+        let (socket, name) = (config.netd_socket.clone(), nic.clone());
+        tokio::task::spawn_blocking(move || qrab_netd::wire::control(&socket, &name, op, via))
+            .await
+            .map_err(failure)?
+            .map_err(|e| failure(format!("tap NIC {nic} {op:?}: {e}")))?;
+    }
+    Ok(())
+}
+
+fn tap_nics(config: &Config) -> Vec<String> {
+    config.tap_fds().into_iter().map(|t| t.nic).collect()
 }
 
 /// What the target must reproduce to accept the source's stream.
@@ -247,6 +315,18 @@ pub(super) fn listen(
                         return;
                     }
                 };
+                if hello.channel.as_deref() == Some(SWITCHOVER) {
+                    let slot = switchovers().lock().unwrap().remove(&hello.migration);
+                    match slot {
+                        Some(slot) => {
+                            let _ = slot.send((stream, hello.node_ip));
+                        }
+                        None => log(
+                            json!({"event":"migration_switchover_unexpected","peer":peer,"migration":hello.migration}),
+                        ),
+                    }
+                    return;
+                }
                 log(json!({"event":"migration_requested","peer":peer,"migration":hello.migration}));
                 let pending = Pending { stream, hello };
                 let unavailable = unavailable(status.borrow().as_ref());
@@ -282,15 +362,95 @@ async fn machine_type(qmp: &Qmp) -> Result<String> {
     Ok(name.strip_suffix("-machine").unwrap_or(name).to_owned())
 }
 
-async fn capabilities(qmp: &Qmp) -> Result<()> {
+async fn capabilities(qmp: &Qmp, pause_before_switchover: bool) -> Result<()> {
+    let mut capabilities = vec![
+        json!({"capability":"return-path","state":true}),
+        json!({"capability":"events","state":true}),
+    ];
+    // Tap NICs switch nodes while the source waits at pre-switchover.
+    if pause_before_switchover {
+        capabilities.push(json!({"capability":"pause-before-switchover","state":true}));
+    }
     qmp.execute_raw(
-        json!({"execute":"migrate-set-capabilities","arguments":{"capabilities":[
-            {"capability":"return-path","state":true},
-            {"capability":"events","state":true},
-        ]}}),
+        json!({"execute":"migrate-set-capabilities","arguments":{"capabilities":capabilities}}),
     )
     .await?;
     Ok(())
+}
+
+/// The source's half of the tap handoff, run while its QEMU waits at
+/// `pre-switchover`: forward each NIC's address from this node to the
+/// target node, have the target activate its anchors, then stand this
+/// node's anchors down.
+async fn switch_over(
+    config: &Config,
+    nics: &[String],
+    channel: &mut Channel,
+    via: Ipv4Addr,
+) -> Result<()> {
+    netd_all(config, nics, Op::Forward, Some(via)).await?;
+    write_frame(channel, &Switch::Activate).await?;
+    match read_frame(channel, SWITCH_TIMEOUT).await? {
+        Switch::Activated => {}
+        Switch::Failed(reason) => {
+            return Err(failure(format!("the target could not activate: {reason}")))
+        }
+        other => return Err(failure(format!("unexpected switchover frame {other:?}"))),
+    }
+    netd_all(config, nics, Op::Standby, None).await
+}
+
+/// Undo a partial or complete switch so the source keeps serving the guest:
+/// this node's anchors active again, the target's standing by, no forward.
+async fn switch_back(config: &Config, nics: &[String], channel: &mut Channel) {
+    let report = |op: &str, error: Error| {
+        log(json!({"event":"migration_switch_back_failed","op":op,"error":error.to_string()}));
+    };
+    if let Err(error) = netd_all(config, nics, Op::Activate, None).await {
+        report("activate", error);
+    }
+    let _ = write_frame(channel, &Switch::Abort).await;
+    let _ = read_frame::<_, Switch>(channel, SWITCH_TIMEOUT).await;
+    if let Err(error) = netd_all(config, nics, Op::Unforward, None).await {
+        report("unforward", error);
+    }
+}
+
+struct AbortOnDrop(tokio::task::JoinHandle<()>);
+
+impl Drop for AbortOnDrop {
+    fn drop(&mut self) {
+        self.0.abort();
+    }
+}
+
+/// The target's half: serve the source's switchover requests.
+async fn serve_switchover(
+    config: Config,
+    nics: Vec<String>,
+    mut channel: qrab_spiffe::client::TlsStream<TcpStream>,
+) {
+    loop {
+        let frame = match read_frame::<_, Switch>(&mut channel, Duration::from_secs(3600)).await {
+            Ok(frame) => frame,
+            Err(_) => return,
+        };
+        let (op, reply_ok) = match frame {
+            Switch::Activate => (Op::Activate, Switch::Activated),
+            Switch::Abort => (Op::Standby, Switch::Abort),
+            _ => return,
+        };
+        let reply = match netd_all(&config, &nics, op, None).await {
+            Ok(()) => reply_ok,
+            Err(error) => Switch::Failed(error.to_string()),
+        };
+        log(
+            json!({"event":"migration_switchover","op":format!("{op:?}"),"reply":format!("{reply:?}")}),
+        );
+        if write_frame(&mut channel, &reply).await.is_err() {
+            return;
+        }
+    }
 }
 
 async fn status(qmp: &Qmp) -> Result<(String, Option<String>)> {
@@ -365,6 +525,20 @@ where
         let _ = write_frame(&mut stream, &Reply::Refused(reason.clone())).await;
         return Sent::Failed(reason);
     }
+    let nics = tap_nics(config);
+    let tap = !nics.is_empty();
+    // The target's switchover connection may arrive while this side still
+    // prepares, so its slot exists from the offer on.
+    let (slot, channel) = oneshot::channel();
+    let _slot = tap.then(|| {
+        switchovers()
+            .lock()
+            .unwrap()
+            .insert(migration.clone(), slot);
+        SlotGuard(migration.clone())
+    });
+    let mut switch: Option<(Channel, Ipv4Addr)> = None;
+    let mut switched = false;
     let attempt = async {
         let machine = machine_type(qmp).await?;
         write_frame(
@@ -379,10 +553,21 @@ where
         if !ready.ready {
             return Err(failure("the target is not ready"));
         }
+        if tap {
+            // Fence this node's anchors now (it regenerates their programs),
+            // so standing them down later is a map update inside the pause.
+            netd_all(config, &nics, Op::Prepare, None).await?;
+            let (connection, node_ip) = tokio::time::timeout(SWITCH_TIMEOUT * 3, channel)
+                .await
+                .map_err(|_| failure("the target opened no switchover connection"))?
+                .map_err(|_| failure("the switchover slot closed"))?;
+            let via = node_ip.ok_or_else(|| failure("the target sent no node address"))?;
+            switch = Some((connection, via));
+        }
         let path = session.join("migrate-out.sock");
         let _ = std::fs::remove_file(&path);
         let listener = UnixListener::bind(&path)?;
-        capabilities(qmp).await?;
+        capabilities(qmp, tap).await?;
         qmp.execute_raw(
             json!({"execute":"migrate-set-parameters","arguments":{"max-bandwidth":MAX_BANDWIDTH}}),
         )
@@ -402,7 +587,9 @@ where
             result
         });
         log(json!({"event":"migration_started","migration":migration}));
-        let mut interval = tokio::time::interval(Duration::from_millis(250));
+        // A tap migration polls often: the pre-switchover wait is guest downtime.
+        let period = if tap { 20 } else { 250 };
+        let mut interval = tokio::time::interval(Duration::from_millis(period));
         loop {
             interval.tick().await;
             let (state, error) = status(qmp).await?;
@@ -411,6 +598,19 @@ where
                 "failed" | "cancelled" => {
                     splice.abort();
                     return Err(failure(error.unwrap_or(state)));
+                }
+                "pre-switchover" if !switched => {
+                    let (connection, via) = switch
+                        .as_mut()
+                        .expect("a tap migration has a switchover connection");
+                    let started = tokio::time::Instant::now();
+                    switched = true;
+                    switch_over(config, &nics, connection, *via).await?;
+                    qmp.execute_raw(json!({"execute":"migrate-continue","arguments":{"state":"pre-switchover"}}))
+                        .await?;
+                    log(
+                        json!({"event":"migration_switched","migration":migration,"ms":started.elapsed().as_millis()}),
+                    );
                 }
                 _ => {}
             }
@@ -427,7 +627,15 @@ where
             _ => Err(failure("stream did not drain")),
         }
     };
-    match attempt.await {
+    let outcome = attempt.await;
+    if outcome.is_err() && switched {
+        // The source keeps the guest: take the network back before it resumes.
+        let _ = qmp.execute_raw(json!({"execute":"migrate_cancel"})).await;
+        if let Some((connection, _)) = switch.as_mut() {
+            switch_back(config, &nics, connection).await;
+        }
+    }
+    match outcome {
         Ok(()) => {
             log(json!({"event":"migration_completed","migration":hello.migration}));
             Sent::Completed
@@ -446,11 +654,25 @@ pub(super) struct Receiving {
     stream: qrab_spiffe::client::TlsStream<TcpStream>,
     pub offer: Offer,
     migration: String,
+    /// With tap NICs: how to open and serve the switchover connection.
+    switchover: Option<Switchover>,
+}
+
+struct Switchover {
+    connector: qrab_spiffe::Connector,
+    source: String,
+    hello: Hello,
+    config: Config,
+    nics: Vec<String>,
 }
 
 /// Dial the source and obtain its offer. Connection attempts are retried for
 /// up to a minute while the source's listener and policy settle.
 pub(super) async fn connect(config: &Config, incoming: &Incoming) -> Result<Receiving> {
+    let nics = tap_nics(config);
+    if !nics.is_empty() && incoming.node_ip.is_none() {
+        return Err(failure("a tap-mode target needs incoming.node_ip"));
+    }
     let (identity, id) = identity(incoming.workload_api.as_deref()).await?;
     let connector = identity
         .connector(std::slice::from_ref(&id))
@@ -479,10 +701,25 @@ pub(super) async fn connect(config: &Config, incoming: &Incoming) -> Result<Rece
         &Hello {
             version: VERSION,
             migration: incoming.migration.clone(),
-            state_id,
+            state_id: state_id.clone(),
+            channel: None,
+            node_ip: None,
         },
     )
     .await?;
+    let switchover = (!nics.is_empty()).then(|| Switchover {
+        connector: connector.clone(),
+        source: incoming.source.clone(),
+        hello: Hello {
+            version: VERSION,
+            migration: incoming.migration.clone(),
+            state_id,
+            channel: Some(SWITCHOVER.into()),
+            node_ip: incoming.node_ip,
+        },
+        config: config.clone(),
+        nics,
+    });
     match read_frame(&mut stream, FRAME_TIMEOUT).await? {
         Reply::Offer(offer) => {
             log(
@@ -492,6 +729,7 @@ pub(super) async fn connect(config: &Config, incoming: &Incoming) -> Result<Rece
                 stream,
                 offer,
                 migration: incoming.migration.clone(),
+                switchover,
             })
         }
         Reply::Refused(reason) => {
@@ -517,14 +755,30 @@ impl Receiving {
         let Receiving {
             mut stream,
             migration,
+            switchover,
             ..
         } = self;
         let path = session.join("migrate-in.sock");
-        capabilities(qmp).await?;
+        capabilities(qmp, false).await?;
         qmp.execute_raw(json!({"execute":"migrate-incoming","arguments":{"uri":format!("unix:{}", path.display())}}))
             .await?;
         let mut local = UnixStream::connect(&path).await?;
         write_frame(&mut stream, &Ready { ready: true }).await?;
+        // Dropped (and so aborted) when the guest has arrived or this fails.
+        let _switchover = match switchover {
+            Some(plan) => {
+                let tcp = TcpStream::connect(&plan.source).await?;
+                tcp.set_nodelay(true)?;
+                let mut channel = plan.connector.connect(tcp).await.map_err(failure)?;
+                write_frame(&mut channel, &plan.hello).await?;
+                Some(AbortOnDrop(tokio::spawn(serve_switchover(
+                    plan.config,
+                    plan.nics,
+                    channel,
+                ))))
+            }
+            None => None,
+        };
         log(json!({"event":"migration_receiving","migration":migration}));
         let mut splice = tokio::spawn(async move {
             let result = tokio::io::copy_bidirectional(&mut local, &mut stream).await;
@@ -571,6 +825,8 @@ mod tests {
             version: VERSION,
             migration: "m-1".into(),
             state_id: state_id.into(),
+            channel: None,
+            node_ip: None,
         }
     }
 
@@ -654,6 +910,7 @@ mod tests {
             migration: "m-1".into(),
             source: format!("127.0.0.1:{port}"),
             workload_api: Some(workload.endpoint.clone()),
+            node_ip: None,
         }
     }
 
