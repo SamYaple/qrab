@@ -47,6 +47,28 @@ const element = id => document.getElementById(id);
 function updateText(target, text) {
     if (target.textContent !== text) target.textContent = text;
 }
+function focusInView(target) {
+    target.focus();
+    const box = target.getBoundingClientRect();
+    const header = document.querySelector('.topbar');
+    const top = header && !header.contains(target) && getComputedStyle(header).position === 'sticky' ? header.getBoundingClientRect().bottom : 0;
+    if (box.top < top || box.bottom > innerHeight || box.left < 0 || box.right > innerWidth) {
+        target.scrollIntoView({block: 'center', inline: 'nearest'});
+    }
+}
+function wireActionKeys(button) {
+    const suppressedKeys = new Set();
+    button.addEventListener('keydown', event => {
+        if (event.key === 'Enter' && event.repeat) { event.preventDefault(); return; }
+        if ((event.key === 'Enter' || event.key === ' ') &&
+            (button.getAttribute('aria-disabled') === 'true' || suppressedKeys.has(event.key))) {
+            suppressedKeys.add(event.key);
+            event.preventDefault();
+        }
+    });
+    button.addEventListener('keyup', event => { if (suppressedKeys.delete(event.key)) event.preventDefault(); });
+    button.addEventListener('blur', () => suppressedKeys.clear());
+}
 // Header wrapping changes with zoom, long names and narrow screens. Keep the
 // rail and anchor offsets tied to its actual height rather than a fixed guess.
 if (typeof ResizeObserver === 'function') {
@@ -109,6 +131,9 @@ async function request(path, options = {}) {
 }
 const post = (path, body) => request(path, {method: 'POST', headers: {'Content-Type': 'application/json', 'X-CSRF-Token': session.user.csrf}, body: JSON.stringify(body)});
 function signedOut() {
+    if (!session && !element('login').hidden) return;
+    const hadDashboardFocus = element('dashboard').contains(document.activeElement) || document.activeElement === element('logout');
+    const leaveFullscreen = document.fullscreenElement === element('screen') ? document.exitFullscreen().catch(() => {}) : Promise.resolve();
     clearInterval(polling);
     clearInterval(metricsTimer);
     clearTimeout(refreshTimer);
@@ -117,10 +142,17 @@ function signedOut() {
     if (metricHistory.frame !== null) cancelAnimationFrame(metricHistory.frame);
     metricHistory.frame = null;
     if (events) { events.close(); events = null; }
-    if (rfb) rfb.disconnect();
-    if (audioContext) { audioContext.close(); audioContext = null; }
     session = null;
     system = null;
+    if (pendingAction) {
+        updateText(pendingAction, pendingAction.dataset.label);
+        pendingAction.removeAttribute('aria-busy');
+    }
+    pendingAction = null;
+    if (rfb) rfb.disconnect();
+    if (audioContext) { audioContext.close(); audioContext = null; }
+    updateActionControls();
+    for (const button of document.querySelectorAll('#console-controls button')) button.disabled = true;
     disarm();
     showError('');
     element('loading').hidden = true;
@@ -132,6 +164,12 @@ function signedOut() {
     element('identity').textContent = '';
     element('role').hidden = true;
     element('vm-status').hidden = true;
+    leaveFullscreen.then(() => {
+        const focused = document.activeElement;
+        if (hadDashboardFocus && (focused === document.body || element('dashboard').contains(focused) || focused === element('logout'))) {
+            focusInView(element('sign-in'));
+        }
+    });
 }
 const node = (tag, text, className) => {
     const item = document.createElement(tag);
@@ -364,15 +402,24 @@ function showStatus() {
     updateActionControls();
 }
 function updateActionControls() {
+    const focused = document.activeElement;
+    const available = (button, allowed) => {
+        const blocked = !session || Boolean(pendingAction) || !allowed;
+        if (button.getAttribute('aria-disabled') !== String(blocked)) button.setAttribute('aria-disabled', String(blocked));
+        button.disabled = blocked && button !== pendingAction;
+    };
     const allows = POWER_ALLOWS[system?.PowerState];
     for (const button of element('power')?.querySelectorAll('button[data-type]') || []) {
-        button.disabled = !session || Boolean(pendingAction) || !allows?.has(button.dataset.type);
+        available(button, allows?.has(button.dataset.type));
     }
     const connected = system?.Oem?.Qrab?.GuestAgent?.connected;
-    for (const button of document.querySelectorAll('[data-agent]')) button.disabled = !session || Boolean(pendingAction) || !connected;
+    for (const button of document.querySelectorAll('[data-agent]')) available(button, connected);
     const connect = element('connect');
     if (connect && !rfb) connect.disabled = !session || !system || system.PowerState === 'Off';
     if (armed?.disabled) disarm();
+    if (session && focused?.matches('button[data-type], button[data-agent]') && focused.disabled) {
+        focusInView(element(focused.dataset.agent ? 'tab-agent' : 'vm-status'));
+    }
 }
 async function runAction(button, operation) {
     if (pendingAction || !session) return;
@@ -388,8 +435,10 @@ async function runAction(button, operation) {
         await operation();
         if (session) showAction(`${label}: request accepted.`);
     } catch (error) {
-        showAction('');
-        showError(`${label}: ${error.message}`);
+        if (session) {
+            showAction('');
+            showError(`${label}: ${error.message}`);
+        }
     } finally {
         // A poll already in flight may predate the action. Read again after it
         // settles, keeping controls locked until that fresh read completes.
@@ -457,6 +506,7 @@ const agentTarget = name => system?.Actions?.Oem?.[`#QrabComputerSystem.${name}`
 function wireAgentActions() {
     for (const button of document.querySelectorAll('[data-agent]')) {
         button.dataset.label = button.textContent;
+        wireActionKeys(button);
         if (button.dataset.agent === 'freeze') {
             button.classList.add('danger');
             button.title = 'Writes block until thawed or the agent watchdog thaws them';
@@ -894,6 +944,7 @@ async function loadPower() {
         const button = node('button', label, disruptive ? 'danger' : undefined);
         button.dataset.type = type;
         button.dataset.label = label;
+        wireActionKeys(button);
         button.addEventListener('click', async () => {
             if (pendingAction || !session || button.disabled) return;
             if (disruptive && !confirmed(button)) return;
@@ -916,6 +967,9 @@ async function loadPower() {
         controls.setAttribute('aria-label', 'More power actions');
         controls.append(...secondary);
         more.append(node('summary', 'More power actions'), controls);
+        more.addEventListener('toggle', () => {
+            if (!more.open && armed && more.contains(armed)) disarm();
+        });
         primary.push(more);
     }
     element('power').replaceChildren(...primary);

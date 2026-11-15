@@ -298,5 +298,6 @@ svg.chart .hit { fill: transparent; }
 .loading-note, .empty-note { color: var(--muted); font-size: 13px; line-height: 1.6; }
 .action-status, .read-status { border: 1px solid var(--border); background: var(--surface-raised); border-radius: 6px; padding: 12px 14px; margin: 0 0 14px; font-size: 13px; overflow-wrap: anywhere; }
 .read-status { border-color: var(--warn-border); color: var(--warn); }
+button[aria-disabled=true] { cursor: default; }
 button[aria-busy=true] { cursor: progress; }
 #screen[data-state=off] { height: auto; min-height: 160px; }

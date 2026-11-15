@@ -146,7 +146,7 @@ with sync_playwright() as p:
     # Real server time, not a mocked browser clock. For the optional 15-minute
     # run, rotate panels and sample DOM counts while the same session lives.
     nodes = []
-    while time.time() < config['expires'] - 5:
+    while time.time() < config['expires'] - 10:
         for tab in ['overview', 'events', 'agent', 'config', 'metrics']:
             page.locator('#tab-' + tab).click()
         expect(page.locator('.history-status')).to_be_visible()
@@ -154,9 +154,15 @@ with sync_playwright() as p:
         nodes.append(page.locator('*').count())
         remaining = config['expires'] - time.time()
         print(f'{args.engine}: session live, {remaining:.0f}s to expiry, {nodes[-1]} DOM nodes', flush=True)
-        page.wait_for_timeout(min(15000, max(100, remaining * 1000 - 5000)))
+        page.wait_for_timeout(min(15000, max(100, remaining * 1000 - 10000)))
+    page.locator('#tab-overview').click()
+    page.locator('#screen canvas').focus()
+    page.locator('#screen').evaluate('(e) => e.requestFullscreen()')
+    expect(page.locator('#screen:fullscreen')).to_have_count(1)
     expect(page.locator('#login')).to_be_visible(timeout=15000)
     expect(page.locator('#screen canvas')).to_have_count(0)
+    expect(page.locator(':fullscreen')).to_have_count(0)
+    expect(page.locator('#sign-in')).to_be_focused()
     before = len(requests)
     page.wait_for_timeout(4000)
     assert len(requests) == before, 'Expired UI kept making background requests'

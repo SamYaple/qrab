@@ -481,7 +481,7 @@ def console_state_checks(browser, width, theme):
 
 
 def bmc_state_checks(browser, width, theme):
-    context = browser_context(browser, viewport={'width': width, 'height': 1000}, color_scheme=theme)
+    context = browser_context(browser, viewport={'width': width, 'height': 320 if width == 320 else 1000}, color_scheme=theme)
     fixture = install_bmc(context)
     fixture['hold_session'] = True
     page = context.new_page()
@@ -500,21 +500,59 @@ def bmc_state_checks(browser, width, theme):
     expect(pause).to_be_enabled()
     expect(page.locator('#loading')).to_be_hidden()
 
+    advanced = page.locator('#advanced-power')
+    advanced.locator('summary').click()
+    reset = page.locator('#power button[data-type=ForceRestart]')
+    reset.focus()
+    page.keyboard.down('Enter')
+    page.keyboard.down('Enter')
+    page.keyboard.up('Enter')
+    assert fixture['posts'] == [], 'Enter repeat must not confirm a reset'
+    advanced.locator('summary').click()
+    expect(reset).to_have_text('Reset')
+
     # Polls must never unlock a pending action, and synthetic duplicate events
     # must not send another POST even if a caller bypasses the disabled DOM.
     fixture['hold_posts'] = True
     pause.click()
     expect(pause).to_have_attribute('aria-busy', 'true')
+    expect(pause).to_be_focused()
     page.clock.fast_forward(3100)
-    assert page.locator('#power button:enabled, [data-agent]:enabled').count() == 0
+    expect(pause).to_be_focused()
+    assert page.locator('#power button:enabled:not([aria-disabled=true]), [data-agent]:enabled:not([aria-disabled=true])').count() == 0
     pause.dispatch_event('click')
     assert len(fixture['posts']) == 1
     capture(page, args.output / f'bmc-pending-{theme}-{width}.png')
-    fixture['system']['PowerState'] = 'Paused'
+    page.keyboard.down('Space')
     fixture['hold_posts'] = False
     fixture['pending_posts'].pop().fulfill(status=204)
+    expect(pause).to_be_enabled()
+    page.keyboard.up('Space')
+    page.clock.fast_forward(3100)
+    assert len(fixture['posts']) == 1, 'A blocked held key must not send after settlement'
+    fixture['system']['PowerState'] = 'Paused'
+    page.clock.fast_forward(3100)
     expect(page.locator('#power button[data-type=Resume]')).to_be_enabled()
+    expect(page.locator('#vm-status')).to_be_focused()
     expect(page.locator('#action-status')).to_contain_text('request accepted')
+
+    page.locator('#tab-agent').click()
+    fixture['hold_posts'] = True
+    fixture['post_received'].clear()
+    thaw = page.locator('[data-agent=thaw]')
+    thaw.click()
+    expect(thaw).to_have_attribute('aria-busy', 'true')
+    expect(thaw).to_be_focused()
+    fixture['system']['Oem']['Qrab']['GuestAgent']['connected'] = False
+    wait_native(page, fixture['post_received'])
+    fixture['hold_posts'] = False
+    fixture['pending_posts'].pop().fulfill(json={'ThawedFilesystems': 2})
+    expect(thaw).to_be_disabled()
+    expect(page.locator('#tab-agent')).to_be_focused()
+    fixture['system']['Oem']['Qrab']['GuestAgent']['connected'] = True
+    page.clock.fast_forward(3100)
+    expect(thaw).to_be_enabled()
+    page.locator('#tab-overview').click()
 
     fixture['fail_system'] = {'json': {'error': {'message': 'The VM has no running Pod.'}}}
     page.clock.fast_forward(3100)
@@ -569,17 +607,41 @@ def bmc_state_checks(browser, width, theme):
         expect(resume).to_be_enabled()
         assert len(fixture['posts']) == previous_posts, 'A VM action URL must stay in its own Redfish bridge'
         expect(page.locator('#error')).to_contain_text('Invalid management URL')
+    fixture['system']['Actions']['#ComputerSystem.Reset']['target'] = '/redfish/v1/Systems/1/Actions/ComputerSystem.Reset'
+    page.clock.fast_forward(3100)
+    fixture['hold_posts'] = True
+    fixture['post_received'].clear()
+    resume.click()
+    wait_native(page, fixture['post_received'])
+    page.locator('#tab-overview').focus()
     fixture['expired'] = True
     page.clock.fast_forward(3100)
     expect(page.locator('#login')).to_be_visible()
+    expect(page.locator('#sign-in')).to_be_focused()
+    box = page.locator('#sign-in').bounding_box()
+    assert box['y'] >= 0 and box['y'] + box['height'] <= page.viewport_size['height']
     expect(page.locator('#dashboard')).to_be_hidden()
     expect(page.locator('#error')).to_be_hidden()
+    expect(resume).not_to_have_attribute('aria-busy', 'true')
+    fixture['hold_posts'] = False
+    fixture['pending_posts'].pop().fulfill(status=403, body='Late refusal.', content_type='text/plain')
+    page.wait_for_timeout(50)
+    expect(page.locator('#error')).to_be_hidden()
+    expect(page.locator('#action-status')).to_be_hidden()
     destination = parse_qs(urlparse(page.locator('#sign-in').get_attribute('href')).query)
     assert destination['next'] == [base + '/bmc']
     requests = len(fixture['requests'])
     page.clock.fast_forward(10000)
     assert len(fixture['requests']) == requests, 'Logout/expiry must stop background requests'
     capture(page, args.output / f'bmc-expired-{theme}-{width}.png')
+    fixture['expired'] = False
+    page.goto('http://ui.test' + base + '/bmc')
+    expect(page.locator('#dashboard')).to_be_visible()
+    page.locator('#vm-detail-link').focus()
+    fixture['expired'] = True
+    page.clock.fast_forward(3100)
+    expect(page.locator('#login')).to_be_visible()
+    expect(page.locator('#vm-detail-link')).to_be_focused()
     assert not errors, errors
     context.close()
 
@@ -928,6 +990,7 @@ with sync_playwright() as playwright:
     metric_focus_checks(browser)
     bmc_state_checks(browser, 1440, 'dark')
     bmc_state_checks(browser, 390, 'light')
+    bmc_state_checks(browser, 320, 'dark')
     console_state_checks(browser, 1440, 'dark')
     console_state_checks(browser, 390, 'light')
     console_state_checks(browser, 320, 'dark')

@@ -132,6 +132,14 @@ Rare power actions are grouped under **More power actions**, with the same
 two-step confirmations. On narrow screens, **VM panels ↓** moves focus past the
 console to the details. Event rows expand with Enter or a tap to show the full
 timestamp, sequence and wrapped payload; they do not depend on hover tooltips.
+Power and guest-agent requests retain keyboard focus while pending, using
+`aria-disabled` with the existing request guard. A focused action that becomes
+unavailable moves to the VM state or guest-agent tab. Blocked held keys cannot
+activate after settlement, and Enter autorepeat is not a confirmation gesture.
+Closing the optional power group clears its armed confirmation. Expiry stops
+pending feedback, exits application full-screen mode and moves dashboard focus
+to visible sign-in; unrelated VM navigation focus is preserved. Late action
+refusals cannot reopen an error after the signed-out view appears.
 
 ### Console power controls
 
