@@ -417,14 +417,9 @@ async fn switch_over(
     netd_all(config, nics, Op::Standby, None).await
 }
 
-/// Best effort: have the target node pull each NIC's conntrack entries from
-/// this node and import them, so established flows keep their verdicts
-/// there (a flow only the guest sends on would otherwise be new, and refused
-/// by groups that deny new egress). Run twice: `precopy` before QEMU starts
-/// streaming, so the flows are on the target the moment it activates (an
-/// import only after the switch left the guest's first segments there
-/// dropped, and TCP's retransmission backoff stretched that to seconds), and
-/// `delta` after the switch, for flows opened meanwhile. Failures are logged.
+/// Best effort, after the switch: have the target node pull each NIC's
+/// conntrack entries from this node again (`delta`, for flows opened since
+/// the target's own `precopy`, see [`pull_conntrack`]). Failures are logged.
 async fn copy_conntrack(nics: &[String], channel: &mut Channel, phase: &str) {
     let started = tokio::time::Instant::now();
     let mut copied = 0;
@@ -456,6 +451,40 @@ async fn copy_conntrack(nics: &[String], channel: &mut Channel, phase: &str) {
                 );
                 return;
             }
+        }
+    }
+    log(
+        json!({"event":"migration_conntrack_copied","phase":phase,"entries":copied,"ms":started.elapsed().as_millis()}),
+    );
+}
+
+/// The target's best-effort `precopy`, before it accepts the stream: its
+/// node's qrab-netd pulls each NIC's conntrack entries from the source node
+/// and imports them, so established flows keep their verdicts the moment the
+/// target activates (a flow only the guest sends on would otherwise be new,
+/// and refused by groups that deny new egress; an import only after the switch
+/// left the guest's first segments dropped, and TCP's backoff stretched that
+/// to seconds). Failures are logged.
+async fn pull_conntrack(config: &Config, nics: &[String], phase: &str) {
+    let started = tokio::time::Instant::now();
+    let mut copied = 0;
+    for nic in nics {
+        let (socket, name) = (config.netd_socket.clone(), nic.clone());
+        match tokio::task::spawn_blocking(move || qrab_netd::wire::conntrack_pull(&socket, &name))
+            .await
+        {
+            Ok(Ok(count)) => {
+                copied += count;
+                log(
+                    json!({"event":"migration_conntrack","phase":phase,"nic":nic,"imported":count}),
+                );
+            }
+            Ok(Err(error)) => log(
+                json!({"event":"migration_conntrack_failed","phase":phase,"nic":nic,"step":"pull","error":error.to_string()}),
+            ),
+            Err(error) => log(
+                json!({"event":"migration_conntrack_failed","phase":phase,"nic":nic,"step":"pull","error":error.to_string()}),
+            ),
         }
     }
     log(
@@ -664,12 +693,11 @@ where
             // Fence this node's anchors now (it regenerates their programs),
             // so standing them down later is a map update inside the pause.
             netd_all(config, &nics, Op::Prepare, None).await?;
-            let (mut connection, node_ip) = tokio::time::timeout(SWITCH_TIMEOUT * 3, channel)
+            let (connection, node_ip) = tokio::time::timeout(SWITCH_TIMEOUT * 3, channel)
                 .await
                 .map_err(|_| failure("the target opened no switchover connection"))?
                 .map_err(|_| failure("the switchover slot closed"))?;
             let via = node_ip.ok_or_else(|| failure("the target sent no node address"))?;
-            copy_conntrack(&nics, &mut connection, "precopy").await;
             switch = Some((connection, via));
         }
         let path = session.join("migrate-out.sock");
@@ -881,6 +909,13 @@ impl Receiving {
             ..
         } = self;
         let path = session.join("migrate-in.sock");
+        // The conntrack precopy, pulled here before QEMU takes the stream:
+        // once it has accepted the incoming connection QEMU stops answering
+        // QMP until data arrives, so a pull of more than the 2 s QMP command
+        // timeout in between failed the migration.
+        if let Some(plan) = &switchover {
+            pull_conntrack(&plan.config, &plan.nics, "precopy").await;
+        }
         capabilities(qmp, false).await?;
         qmp.execute_raw(json!({"execute":"migrate-incoming","arguments":{"uri":format!("unix:{}", path.display())}}))
             .await?;
