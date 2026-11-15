@@ -317,6 +317,10 @@ an unavailable message instead of an unusable form.
 The image catalogue shows names and generations separately, matching the optional
 data-disk fields. Its form link opens a new tab so in-progress values stay in place.
 Leave every field of an unused data-disk row empty; a clone needs both image fields.
+Within the optional disk section, the first row starts open and additional rows
+have native disclosures. Submitted values and field errors reopen their own row.
+Case-sensitive identifier and cloud-init controls disable automatic capitalization
+and spellchecking hints.
 Hot-plug limits and additional data disks are optional disclosures. Submitted
 values reopen their section when the form is rejected. Numeric controls inside
 closable sections use a numeric keyboard and server validation: native browser

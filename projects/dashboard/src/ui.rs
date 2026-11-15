@@ -1133,7 +1133,13 @@ fn launch_form(page: &LaunchPage, user: &UserView) -> Element {
     let disks_open = page
         .values
         .iter()
-        .any(|(key, value)| key.starts_with("disk") && !value.trim().is_empty());
+        .any(|(key, value)| key.starts_with("disk") && !value.trim().is_empty())
+        || page.errors.iter().any(|error| {
+            error
+                .field
+                .as_deref()
+                .is_some_and(|field| field.starts_with("disk"))
+        });
     rsx! {
         a { class: "back", href: "/", "← All VMs" }
         div { class: "heading", div { p { class: "eyebrow", "LAUNCH" } h1 { "Launch a VM" }
@@ -1156,7 +1162,7 @@ fn launch_form(page: &LaunchPage, user: &UserView) -> Element {
             {os_fieldset(page)}
             fieldset { legend { "Machine" }
                 label { r#for: "name", "Name" }
-                input { id: "name", name: "name", aria_invalid: page.invalid("name"), required: true, maxlength: "{name_limit}", pattern: r"[a-z0-9]([a-z0-9\-]*[a-z0-9])?", value: v("name", ""), aria_describedby: page.described_by("name", "name-help") }
+                input { id: "name", name: "name", aria_invalid: page.invalid("name"), required: true, autocomplete: "off", autocapitalize: "none", spellcheck: "false", maxlength: "{name_limit}", pattern: r"[a-z0-9]([a-z0-9\-]*[a-z0-9])?", value: v("name", ""), aria_describedby: page.described_by("name", "name-help") }
                 p { id: "name-help", class: "muted", "Up to {name_limit} characters in this namespace. Use lowercase letters, digits and hyphens; start and end with a letter or digit." }
                 {field_error(page, "name")}
                 div { class: "pair",
@@ -1193,11 +1199,19 @@ fn launch_form(page: &LaunchPage, user: &UserView) -> Element {
                         let base = format!("disk{i}_base_image");
                         let generation = format!("disk{i}_base_generation");
                         let n = i + 1;
-                        rsx! { div { class: "pair disk-row", role: "group", aria_label: "Disk {n}",
-                            div { label { r#for: "{id}", "Disk {n} ID" } input { id: "{id}", name: "{id}", aria_invalid: page.invalid(&id), aria_describedby: page.described_by(&id, "data-disk-help"), maxlength: "20", value: v(&id, "") } {field_error(page, &id)} }
+                        let prefix = format!("disk{i}_");
+                        let row_id = format!("launch-disk-{i}");
+                        let row_open = i == 0
+                            || page.values.iter().any(|(key, value)| key.starts_with(prefix.as_str()) && !value.trim().is_empty())
+                            || page.errors.iter().any(|error| error.field.as_deref().is_some_and(|field| field.starts_with(prefix.as_str())));
+                        rsx! { details { class: "disk-row", id: "{row_id}", open: row_open,
+                            summary { id: "{row_id}-title", "Disk {n}" }
+                            div { class: "pair", role: "group", aria_labelledby: "{row_id}-title",
+                            div { label { r#for: "{id}", "Disk {n} ID" } input { id: "{id}", name: "{id}", aria_invalid: page.invalid(&id), aria_describedby: page.described_by(&id, "data-disk-help"), autocomplete: "off", autocapitalize: "none", spellcheck: "false", maxlength: "20", value: v(&id, "") } {field_error(page, &id)} }
                             div { label { r#for: "{size}", "Size (GiB)" } input { id: "{size}", name: "{size}", aria_invalid: page.invalid(&size), aria_describedby: page.described_by(&size, "data-disk-help"), r#type: "text", inputmode: "numeric", value: v(&size, "") } {field_error(page, &size)} }
-                            div { label { r#for: "{base}", "Base image name (optional)" } input { id: "{base}", name: "{base}", aria_invalid: page.invalid(&base), aria_describedby: page.described_by(&base, "data-disk-image-help"), maxlength: "32", value: v(&base, "") } {field_error(page, &base)} }
+                            div { label { r#for: "{base}", "Base image name (optional)" } input { id: "{base}", name: "{base}", aria_invalid: page.invalid(&base), aria_describedby: page.described_by(&base, "data-disk-image-help"), autocomplete: "off", autocapitalize: "none", spellcheck: "false", maxlength: "32", value: v(&base, "") } {field_error(page, &base)} }
                             div { label { r#for: "{generation}", "Base image generation" } input { id: "{generation}", name: "{generation}", aria_invalid: page.invalid(&generation), aria_describedby: page.described_by(&generation, "data-disk-image-help"), r#type: "text", inputmode: "numeric", value: v(&generation, "") } {field_error(page, &generation)} }
+                            }
                         } }
                     }
                 }
@@ -1232,7 +1246,7 @@ fn network_fieldset(page: &LaunchPage) -> Element {
                             "Attach a network interface ({nic})"
                         }
                         label { r#for: "{groups}", "Security groups" }
-                        input { id: "{groups}", name: "{groups}", aria_invalid: page.invalid(&groups), placeholder: "web, ssh", autocomplete: "off", spellcheck: "false", value: input_value(&page.values, &groups, ""), aria_describedby: page.described_by(&groups, "nic-help") }
+                        input { id: "{groups}", name: "{groups}", aria_invalid: page.invalid(&groups), placeholder: "web, ssh", autocomplete: "off", autocapitalize: "none", spellcheck: "false", value: input_value(&page.values, &groups, ""), aria_describedby: page.described_by(&groups, "nic-help") }
                         {field_error(page, &groups)}
                     } }
                 }
@@ -1260,11 +1274,11 @@ fn cloud_init_fieldset(page: &LaunchPage) -> Element {
         fieldset { legend { "Cloud-init" }
             p { class: "muted", "Set the guest's hostname or provide cloud-init configuration. Leave blank to use the defaults." }
             label { r#for: "hostname", "Hostname (optional)" }
-            input { id: "hostname", name: "hostname", aria_invalid: page.invalid("hostname"), maxlength: "63", pattern: r"[a-z0-9]([a-z0-9\-]*[a-z0-9])?", autocomplete: "off", placeholder: "the VM name", value: input_value(&page.values, "hostname", ""), aria_describedby: page.described_by("hostname", "hostname-help") }
+            input { id: "hostname", name: "hostname", aria_invalid: page.invalid("hostname"), maxlength: "63", pattern: r"[a-z0-9]([a-z0-9\-]*[a-z0-9])?", autocomplete: "off", autocapitalize: "none", spellcheck: "false", placeholder: "the VM name", value: input_value(&page.values, "hostname", ""), aria_describedby: page.described_by("hostname", "hostname-help") }
             p { id: "hostname-help", class: "muted", "DNS label. Defaults to the VM name." }
             {field_error(page, "hostname")}
             label { r#for: "user_data", "User-data (optional)" }
-            textarea { id: "user_data", name: "user_data", aria_invalid: page.invalid("user_data"), rows: "8", spellcheck: "false", autocomplete: "off", maxlength: "{launch::USER_DATA_LIMIT}", placeholder: "#cloud-config\nssh_authorized_keys: [ssh-ed25519 AAAA...]", aria_describedby: page.described_by("user_data", "user-data-help") }
+            textarea { id: "user_data", name: "user_data", aria_invalid: page.invalid("user_data"), rows: "8", autocapitalize: "none", spellcheck: "false", autocomplete: "off", maxlength: "{launch::USER_DATA_LIMIT}", placeholder: "#cloud-config\nssh_authorized_keys: [ssh-ed25519 AAAA...]", aria_describedby: page.described_by("user_data", "user-data-help") }
             {field_error(page, "user_data")}
             if page.user_data_cleared { p { class: "notice", role: "status", "Your user-data was not sent back with this form. Paste it again." } }
             p { id: "user-data-help", class: "muted",

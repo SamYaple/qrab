@@ -1347,14 +1347,20 @@ with sync_playwright() as playwright:
                 if name == 'launch-options':
                     assert page.locator('#launch-limits').evaluate('(e) => e.open')
                     assert page.locator('#launch-disks').evaluate('(e) => e.open')
+                    assert page.locator('#launch-disk-0').evaluate('e => e.open')
+                    assert page.locator('#launch-disk-1').evaluate('e => e.open')
+                    assert not page.locator('#launch-disk-2').evaluate('e => e.open')
                     assert page.locator('#max_cpus').input_value() == '1'
                     assert page.locator('#disk0_size_gib').input_value() == '0'
                     expect(page.locator('#form-errors')).to_be_focused()
-                    for field in ['max_cpus', 'disk0_size_gib']:
+                    for field in ['max_cpus', 'disk0_size_gib', 'disk1_base_generation']:
                         expect(page.locator('#' + field)).to_have_attribute('aria-invalid', 'true')
                         assert 'error-' + field in page.locator('#' + field).get_attribute('aria-describedby')
                         page.locator('#form-errors a[href="#' + field + '"]').click()
                         expect(page.locator('#' + field)).to_be_focused()
+                    page.locator('#launch-disk-1 > summary').click()
+                    page.locator('#form-errors a[href="#disk1_base_generation"]').click()
+                    expect(page.locator('#disk1_base_generation')).to_be_focused()
                     assert page.locator('#name').get_attribute('aria-invalid') is None
                 if name == 'launch':
                     assert not page.locator('#launch-limits').evaluate('(e) => e.open')
@@ -1362,15 +1368,22 @@ with sync_playwright() as playwright:
                     page.locator('#name').fill('Invalid VM')
                     assert page.locator('#name').evaluate('(e) => e.validity.patternMismatch')
                     page.locator('#name').fill('fixture-vm')
-                    page.locator('#launch-disks summary').click()
+                    page.locator('#launch-disks > summary').click()
+                    assert page.locator('#launch-disk-0').evaluate('e => e.open')
+                    assert not page.locator('#launch-disk-1').evaluate('e => e.open')
+                    page.locator('#launch-disk-1 > summary').focus()
+                    page.keyboard.press('Enter')
+                    page.locator('#disk1_base_generation').fill('invalid')
+                    page.locator('#launch-disk-1 > summary').click()
                     page.locator('#disk0_id').fill('logs')
                     page.locator('#disk0_size_gib').fill('0')
-                    page.locator('#launch-disks summary').click()
+                    page.locator('#launch-disks > summary').click()
                     # Hidden optional values are server-validated and survive
                     # submission, instead of blocking on an unfocusable input.
                     assert page.locator('form.launch').evaluate('(e) => e.checkValidity()')
                     values = page.locator('form.launch').evaluate('(e) => Object.fromEntries(new FormData(e))')
                     assert values['disk0_size_gib'] == '0'
+                    assert values['disk1_base_generation'] == 'invalid'
             context.close()
             for role in ['admin', 'viewer']:
                 context = browser_context(browser, viewport={'width': width, 'height': 1000}, color_scheme=theme)

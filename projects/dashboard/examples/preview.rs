@@ -550,6 +550,10 @@ fn main() {
                 ("memory_mib".into(), "512".into()),
                 ("disk0_id".into(), "logs".into()),
                 ("disk0_size_gib".into(), "0".into()),
+                ("disk1_id".into(), "scratch".into()),
+                ("disk1_size_gib".into(), "4".into()),
+                ("disk1_base_image".into(), "cirros".into()),
+                ("disk1_base_generation".into(), "invalid".into()),
             ],
             errors: vec![
                 qrab_dashboard::launch::FormError::at(
@@ -559,6 +563,10 @@ fn main() {
                 qrab_dashboard::launch::FormError::at(
                     "disk0_size_gib",
                     "Disk 1 size (GiB) must be a whole number from 1 to 1024.",
+                ),
+                qrab_dashboard::launch::FormError::at(
+                    "disk1_base_generation",
+                    "Disk 2 base image generation must be a whole number from 1 to 999999.",
                 ),
             ],
             namespace: "qrab".into(),

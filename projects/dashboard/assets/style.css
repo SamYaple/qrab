@@ -197,7 +197,9 @@ td .muted { margin: 3px 0 0; }
 .launch p { max-width: 80ch; }
 .pair { display: grid; grid-template-columns: repeat(auto-fit,minmax(min(100%,180px),1fr)); gap: 16px; }
 .pair > div { display: grid; gap: 6px; align-content: start; }
-.disk-row { border-top: 1px solid var(--border-subtle); padding-top: 16px; }
+.disk-row { border-top: 1px solid var(--border-subtle); padding-top: 8px; margin-top: 12px; }
+.disk-row > summary { min-height: 44px; padding: 8px 0; font-weight: 600; color: var(--text-strong); }
+.disk-row > .pair { margin: 8px 0 14px; }
 .choices, .nic-row { display: grid; gap: 10px; }
 .choices label { display: flex; align-items: center; gap: 10px; }
 .launch textarea { width: 100%; min-height: 12rem; resize: vertical; font: .86rem/1.6 ui-monospace,monospace; }
