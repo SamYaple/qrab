@@ -330,7 +330,8 @@ function showEventEmpty() {
     empty.hidden = visible;
     if (!visible) empty.textContent = list.children.length
         ? `No events match “${element('events-filter').value.trim()}”.`
-        : eventHistoryLoaded ? 'No events recorded yet.' : 'Event history is unavailable. New events will appear when connected.';
+        : eventHistoryLoaded ? 'No events recorded yet.'
+        : element('events-history-status').hidden ? 'Loading event history…' : 'Waiting for live events.';
 }
 // Gap markers stay visible under any filter: the gap may hide matching events.
 const matches = (row, filter) => !filter || row.classList.contains('gap') || row.dataset.event.toLowerCase().includes(filter);
@@ -424,13 +425,16 @@ async function startEvents() {
     } catch (error) {
         // Without a history cursor the stream starts at the newest event.
         if (!session) return;
-        showError(error.message);
+        const historyStatus = element('events-history-status');
+        updateText(historyStatus, `Past events unavailable: ${error.message} Reload to retry history. Live events are shown when connected.`);
+        historyStatus.hidden = false;
     }
     showEventEmpty();
     if (!session || events) return;
     events = new EventSource(browserPath(`${EVENT_STREAM}${cursor}`));
-    events.addEventListener('open', () => { status.textContent = 'Live'; });
+    events.addEventListener('open', () => { if (session) updateText(status, 'Live'); });
     events.addEventListener('message', message => {
+        if (!session) return;
         let records;
         try { records = (JSON.parse(message.data).Events || []).map(fromEvent); } catch { return; }
         for (const record of records) {
@@ -440,7 +444,8 @@ async function startEvents() {
         if (records.some(record => record.kind === 'qmp')) refreshSoon();
     });
     events.addEventListener('error', () => {
-        status.textContent = events?.readyState === EventSource.CLOSED ? 'Disconnected' : 'Reconnecting…';
+        if (!session) return;
+        updateText(status, events?.readyState === EventSource.CLOSED ? 'Disconnected' : 'Reconnecting…');
         if (!document.hidden) refresh();
     });
 }

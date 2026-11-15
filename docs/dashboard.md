@@ -147,6 +147,10 @@ can recover from System polling before that request finishes. Metric polling
 also starts independently of optional startup reads.
 If initial access metadata fails to load, the BMC offers a same-page reload
 instead of implying that sign-in expired. A 401 still shows the sign-in path.
+Event-history failures stay in the Events panel, independently of the live
+stream's status. Incoming events do not hide the warning about missing past
+records. Empty history, pending history and waiting for live events have distinct
+messages. Queued stream callbacks are ignored after session cleanup.
 Power and guest-agent requests retain keyboard focus while pending, using
 `aria-disabled` with the existing request guard. A focused action that becomes
 unavailable moves to the VM state or guest-agent tab. Blocked held keys cannot

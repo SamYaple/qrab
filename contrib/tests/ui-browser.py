@@ -68,7 +68,7 @@ def install_bmc(context, role='admin', power='On', legacy=False, origin='http://
     fixture = {'system': system(power), 'posts': [], 'expired': False,
                'hold_posts': False, 'pending_posts': [], 'post_received': Event(), 'post_error': None, 'hold_power': False, 'pending_power': [],
                'fail_session': None, 'fail_system': None, 'fail_reset_info': None, 'reset_types': list(resets), 'hold_reset_info': False, 'pending_reset_info': [],
-               'fail_metrics': False, 'fail_history': False, 'empty_metrics': False, 'hold_session': False, 'pending_session': [], 'empty_events': False, 'extra_events': [], 'requests': [],
+               'fail_metrics': False, 'fail_history': False, 'fail_events': None, 'empty_metrics': False, 'hold_session': False, 'pending_session': [], 'empty_events': False, 'extra_events': [], 'requests': [],
                'vm_name': 'web-1', 'user_name': 'sam'}
     fixture['system']['Oem']['Qrab']['Configuration']['redacted'] = role == 'viewer'
 
@@ -156,6 +156,9 @@ def install_bmc(context, role='admin', power='On', legacy=False, origin='http://
                 return
             data = {'Parameters': [{'Name': 'ResetType', 'AllowableValues': fixture['reset_types']}]}
         elif path.endswith('/Events/Entries'):
+            if fixture['fail_events']:
+                request_route.fulfill(status=503, json={'error': {'message': fixture['fail_events']}})
+                return
             data = {'Members': [] if fixture['empty_events'] else [{'Id': str(i), 'Created': f'2026-11-15T04:00:{i:02d}Z', 'Oem': {'Qrab': {'Sequence': i, 'Event': event, 'Data': {'reason': 'requested by user'}}}} for i, event in [(1, 'STOP'), (2, 'RESUME'), (3, 'DEVICE_DELETED')]]}
             data['Members'].extend(fixture['extra_events'])
         elif path.endswith('/EventService/SSE'):
@@ -859,6 +862,69 @@ def bmc_state_checks(browser, width, theme):
     context.close()
 
 
+def event_recovery_checks(browser):
+    context = browser_context(browser, viewport={'width': 320, 'height': 1000})
+    context.add_init_script('''
+        window.fixtureEventSources = [];
+        window.EventSource = class extends EventTarget {
+            static CONNECTING = 0; static OPEN = 1; static CLOSED = 2;
+            readyState = 0;
+            constructor(url) { super(); this.url = url; fixtureEventSources.push(this); }
+            close() { this.readyState = 2; }
+        };
+    ''')
+    fixture = install_bmc(context)
+    fixture['fail_events'] = 'Past records temporarily unavailable. ' + 'x' * 400
+    page = context.new_page()
+    page.clock.install()
+    page.goto('http://ui.test' + base + '/bmc')
+    page.locator('#tab-events').click()
+    expect(page.locator('#events-empty')).to_have_text('Waiting for live events.')
+    expect(page.locator('#error')).to_be_hidden()
+    expect(page.locator('#events-history-status')).to_contain_text('Past records temporarily unavailable.')
+    page.wait_for_function('fixtureEventSources.length === 1')
+    page.evaluate('''() => {
+        const source = fixtureEventSources[0]; source.readyState = 1; source.dispatchEvent(new Event('open'));
+        source.dispatchEvent(new MessageEvent('message', {data: JSON.stringify({Events: [{
+            EventId: '10', EventTimestamp: '2026-11-15T04:00:01Z',
+            Oem: {Qrab: {Sequence: 10, Event: 'RESET', Data: {reason: 'fixture'}}}
+        }]})}));
+    }''')
+    expect(page.locator('#events-status')).to_have_text('Live')
+    expect(page.locator('#events li[data-event=RESET]')).to_be_visible()
+    expect(page.locator('#events-history-status')).to_be_visible()
+    expect(page.locator('#events-empty')).to_be_hidden()
+    no_overflow(page, 'event-history-failure', 320)
+    assert page.locator('#panel-events').evaluate('e => e.scrollWidth <= e.clientWidth + 1')
+    capture(page, args.output / 'bmc-live-events-without-history.png')
+    page.evaluate("fixtureEventSources[0].readyState=0; fixtureEventSources[0].dispatchEvent(new Event('error'))")
+    expect(page.locator('#events-status')).to_have_text('Reconnecting…')
+    expect(page.locator('#events li[data-event=RESET]')).to_be_visible()
+    expect(page.locator('#events-history-status')).to_be_visible()
+    assert sum(path.endswith('/Events/Entries') for _, path in fixture['requests']) == 1
+    fixture['fail_events'] = None
+    page.reload()
+    expect(page.locator('#events li[data-event=STOP]')).to_be_visible()
+    expect(page.locator('#events-history-status')).to_be_hidden()
+    expect(page.locator('#error')).to_be_hidden()
+    fixture['expired'] = True
+    page.clock.fast_forward(3100)
+    expect(page.locator('#login')).to_be_visible()
+    assert page.evaluate('fixtureEventSources[0].readyState') == 2
+    rows = page.locator('#events li').count()
+    stream_status = page.locator('#events-status').text_content()
+    page.evaluate('''() => {
+        const source = fixtureEventSources[0]; source.dispatchEvent(new Event('open'));
+        source.dispatchEvent(new MessageEvent('message', {data: JSON.stringify({Events: [{
+            EventId: '99', Oem: {Qrab: {Sequence: 99, Event: 'LATE', Data: {}}}
+        }]})})); source.dispatchEvent(new Event('error'));
+    }''')
+    assert page.locator('#events li').count() == rows, 'Queued events must be ignored after session cleanup'
+    expect(page.locator('#events-status')).to_have_text(stream_status)
+    assert fixture['posts'] == []
+    context.close()
+
+
 def access_recovery_checks(browser):
     for failure in [{'status': 503, 'message': 'Access details temporarily unavailable.'},
                     {'abort': 'failed'}, {'status': 401, 'message': 'Sign in again.'}]:
@@ -1339,6 +1405,7 @@ with sync_playwright() as playwright:
                 context.close()
             long_content_checks(browser, width, theme)
     timezone_checks(browser)
+    event_recovery_checks(browser)
     access_recovery_checks(browser)
     action_discovery_checks(browser)
     metric_focus_checks(browser)
