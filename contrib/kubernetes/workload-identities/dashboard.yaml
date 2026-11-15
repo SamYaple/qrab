@@ -1,5 +1,5 @@
 # Image-bound dashboard workload identity. This is separate from registry pull
-# enrollment and OIDC user identities. Substitute the released dashboard digest
+# enrollment and OIDC user identities. Update the image pin with the Deployment
 # and stage through kubernetes-gitops, not the dashboard's own kustomization.
 apiVersion: spire.spiffe.io/v1alpha1
 kind: ClusterSPIFFEID
@@ -16,7 +16,7 @@ spec:
   - k8s:ns:qrab
   - k8s:sa:qrab-dashboard
   - k8s:container-name:dashboard
-  - k8s:container-image:zot.yapplesauce.com/qrab/dashboard@sha256:DASHBOARD_DIGEST
+  - k8s:container-image:zot.yapplesauce.com/qrab/dashboard@sha256:f200cfe745bde411c0202f23c850fb9422c6ea848c655f6dede8bef01957ab3c
   - unix:uid:10001
   ttl: 10m
   admin: false
