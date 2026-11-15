@@ -81,6 +81,15 @@ with sync_playwright() as p:
     expect(page.locator('#max_cpus')).to_be_focused()
     assert page.locator('#user_data').input_value() == ''
     assert 'DO_NOT_ECHO_PRIVATE_USER_DATA' not in page.content()
+    visit(page, '/vms/qrab/a/console')
+    expect(page.locator('#power-chip')).not_to_have_text('Checking…')
+    more_power = page.locator('#console-power-more')
+    expect(more_power).to_be_visible()
+    assert not more_power.evaluate('(e) => e.open')
+    more_power.locator('summary').focus()
+    page.keyboard.press('Enter')
+    expect(more_power.get_by_role('button', name='Reset', exact=True)).to_be_visible()
+    capture(page, 'actual-dedicated-console')
     visit(page, '/vms/qrab/a/bmc')
     expect(page.locator('#dashboard')).to_be_visible()
     for tab in ['overview', 'metrics', 'events', 'agent', 'config']:
