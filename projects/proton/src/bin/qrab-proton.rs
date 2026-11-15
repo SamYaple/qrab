@@ -14,6 +14,8 @@ USAGE:
   qrab-proton login  [--namespace NS] [--print] [--api URL]
   qrab-proton logout [--namespace NS] [--api URL]
   qrab-proton check  [--no-certificate] [--api URL]
+  qrab-proton broker
+  qrab-proton crd
 
 login   Log in to Proton (email, password, a TOTP code if the account has
         two-factor, human verification in a browser if Proton asks) and store
@@ -27,6 +29,13 @@ check   Log in as `login` does, then read the plan, the server catalog and
         loads, pick the best server and the best P2P server, and request a
         one-day certificate for a throwaway key (skip with --no-certificate),
         then log out. Nothing is stored; nothing secret is printed.
+
+broker  The in-cluster broker (one replica): keeps the session in
+        Secret proton-session alive and, for every VpnProfile, a key, a
+        certificate and Secret vpn-<profile>. Environment: QRAB_NAMESPACE,
+        QRAB_PROTON_API (default https://vpn-api.proton.me) and
+        QRAB_PROTON_APP_VERSION (when Proton retires the built-in one).
+crd     Print the VpnProfile CustomResourceDefinition.
 
 OPTIONS:
   --namespace NS  The VPN NICs' namespace (default: qrab)
@@ -163,6 +172,25 @@ fn client(options: &Options) -> Result<Client, String> {
 
 async fn run(args: Vec<String>) -> Result<(), String> {
     let (command, rest) = args.split_first().ok_or(HELP)?;
+    if command == "crd" {
+        use kube::CustomResourceExt;
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&qrab_proton::crd::VpnProfile::crd())
+                .map_err(|e| e.to_string())?
+        );
+        return Ok(());
+    }
+    if command == "broker" {
+        let namespace = std::env::var("QRAB_NAMESPACE").map_err(|_| "QRAB_NAMESPACE is not set")?;
+        let api =
+            std::env::var("QRAB_PROTON_API").unwrap_or_else(|_| qrab_proton::api::API_BASE.into());
+        let mut proton = Client::with_base(&api).map_err(|e| e.to_string())?;
+        if let Ok(version) = std::env::var("QRAB_PROTON_APP_VERSION") {
+            proton = proton.app_version(&version);
+        }
+        return qrab_proton::broker::runner::run(&namespace, proton).await;
+    }
     if rest.iter().any(|a| a == "--help" || a == "-h") || command == "help" {
         print!("{HELP}");
         return Ok(());

@@ -621,6 +621,50 @@ and the dashboard page).
   location, then takes the lowest Score, Proton's own ranking; Secure Core
   and Tor servers only when asked for, and port forwarding only on P2P
   servers. A working server is kept while it stays eligible.
+- **Profiles.** A `VpnProfile` is one Proton connection for one NIC; the
+  broker keeps Secret `vpn-<profile>` for it, which the NIC references:
+
+  ```yaml
+  apiVersion: qrab.yapplesauce.com/v1alpha1
+  kind: VpnProfile
+  metadata: {name: ch-p2p, namespace: qrab}
+  spec:
+    proton:
+      country: CH            # or server: CH#12 for a fixed server
+      portForwarding: true   # P2P servers only
+      netShield: 2           # 0 off, 1 malware, 2 + ads and trackers
+  ---
+  # in the VirtualMachine
+  nics:
+  - name: vpn
+    securityGroups: [vpn-egress]   # admit UDP 51820 to any address: servers change
+    vpn: {secretName: vpn-ch-p2p}
+  ```
+
+  `kubectl -n qrab get vpnp` shows each profile's server, country, load and
+  readiness; the status also carries the entry IP, the certificate's expiry
+  and why a profile is not ready (`NoServer`, `CertificateFailed`,
+  `SessionRevoked`, `AppVersionRejected`). Profiles beyond the plan's
+  simultaneous connections are configured but flagged.
+- **The broker** (`qrab-proton broker`, Deployment `qrab-proton-broker`,
+  `kubectl apply -k contrib/kubernetes/proton`) is the session's only holder.
+  Every 15 s it lists profiles, keeps a key per profile in Secret
+  `proton-keys`, renews certificates (a week, at half-life), and applies each
+  profile's Secret (server-side apply, a no-op when unchanged). It refreshes
+  the catalog every 6 h and loads every 15 min, and publishes them for the
+  dashboard in ConfigMap `proton-catalog` (gzip JSON, no addresses or keys).
+  When Proton is unreachable or the session is gone it reports that and leaves
+  existing Secrets alone, so tunnels keep running until their certificates
+  lapse.
+- **Least privilege.** The broker reads only `proton-session` and
+  `proton-keys` (by name) and writes profile Secrets without reading them.
+  `ValidatingAdmissionPolicy` `qrab-proton-broker-writes` limits its writes to
+  `vpn-<profile>` Secrets controller-owned by that profile and holding only
+  `wg.conf` (never a `vpn-*` Secret it did not already own), the two Secrets
+  above, and ConfigMap `proton-catalog`; it never deletes (profile Secrets go
+  with their profile by garbage collection). Its CiliumNetworkPolicy allows
+  egress only to the Kubernetes API, DNS for `vpn-api.proton.me`, and that
+  host on 443.
 - **The API is not public.** The `x-pm-appversion` header
   (`qrab_proton::api::APP_VERSION`) breaks when Proton retires a client
   version: a 5003 reply is reported as such, never retried in a loop.

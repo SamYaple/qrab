@@ -297,13 +297,21 @@ impl Client {
             .and_then(|v| v.parse().ok())
             .map(Duration::from_secs);
         let text = response.text().await.map_err(transport)?;
-        let value: Value = serde_json::from_str(&text)
+        #[derive(Deserialize)]
+        struct Envelope {
+            #[serde(rename = "Code", default)]
+            code: i64,
+        }
+        // The catalog is tens of megabytes: decode a success straight into
+        // its type, and build a JSON tree only for (small) errors.
+        let envelope: Envelope = serde_json::from_str(&text)
             .map_err(|_| Error::Decode(path.into(), format!("HTTP {status}, not JSON")))?;
-        let code = value.get("Code").and_then(Value::as_i64).unwrap_or(0);
-        if status == 200 && (code == 1000 || code == 1001) {
-            return serde_json::from_value(value)
+        if status == 200 && (envelope.code == 1000 || envelope.code == 1001) {
+            return serde_json::from_str(&text)
                 .map_err(|e| Error::Decode(path.into(), e.to_string()));
         }
+        let value: Value = serde_json::from_str(&text).unwrap_or_default();
+        let code = envelope.code;
         let message = value
             .get("Error")
             .and_then(Value::as_str)
