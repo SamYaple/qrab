@@ -2246,6 +2246,27 @@ mod schema_resolution_tests {
     use super::*;
 
     #[test]
+    fn non_object_and_unboxed_union_arguments_are_rejected() {
+        let root =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../vendor/qemu/tests/qapi-schema");
+        for name in ["args-union", "args-alternate"] {
+            let path = root.join(format!("{name}.json"));
+            let sources = crate::read_schema_with_version(&path, Some((11, 1, 3))).unwrap();
+            let error = format!("{:#}", process_version_schema(&sources).unwrap_err());
+            assert!(error.contains(name), "{error}");
+        }
+        let definitions = concat!(
+            "{'enum':'Kind','data':['one']}\n",
+            "{'struct':'Payload','data':{'value':'str'}}\n",
+            "{'union':'Choice','base':{'kind':'Kind'},'discriminator':'kind','data':{'one':'Payload'}}\n",
+        );
+        process(&format!("{definitions} {{'command':'good','boxed':true,'data':'Choice'}} {{'event':'GOOD','boxed':true,'data':'Choice'}} {{'command':'plain','data':'Payload'}}")).unwrap();
+        let error =
+            process(&format!("{definitions} {{'event':'BAD','data':'Choice'}}")).unwrap_err();
+        assert!(format!("{error:#}").contains("requires 'boxed': true"));
+    }
+
+    #[test]
     fn conditional_unboxed_argument_fixtures_are_rejected() {
         let root =
             Path::new(env!("CARGO_MANIFEST_DIR")).join("../../vendor/qemu/tests/qapi-schema");

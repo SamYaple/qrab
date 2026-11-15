@@ -108,27 +108,30 @@ fn members_or_ref(value: &MembersOrRef<'_>, types: &HashSet<&str>) -> Result<()>
     }
 }
 
-fn boxed_arguments(
+fn argument_type(
     data: &Option<MembersOrRef<'_>>,
     boxed: Option<&str>,
     declarations: &HashMap<&str, &QapiSchemaToken<'_>>,
 ) -> Result<()> {
-    let Some(boxed) = boxed else {
-        return Ok(());
-    };
-    ensure!(boxed == "true", "Flag 'boxed' may only use true value");
-    let Some(MembersOrRef::Ref(name)) = data else {
-        anyhow::bail!("Boxed arguments require a named 'data' type");
-    };
-    let object = match declarations.get(name) {
-        Some(QapiSchemaToken::Struct(_)) => true,
-        Some(QapiSchemaToken::Union(value)) => !value.legacy_alternate,
-        _ => false,
-    };
-    ensure!(
-        object,
-        "Boxed arguments require an object type, not '{name}'"
-    );
+    if let Some(flag) = boxed {
+        ensure!(flag == "true", "Flag 'boxed' may only use true value");
+        ensure!(
+            matches!(data, Some(MembersOrRef::Ref(_))),
+            "Boxed arguments require a named 'data' type"
+        );
+    }
+    if let Some(MembersOrRef::Ref(name)) = data {
+        match declarations.get(name) {
+            Some(QapiSchemaToken::Struct(_)) => {}
+            Some(QapiSchemaToken::Union(value)) if !value.legacy_alternate => {
+                ensure!(
+                    boxed == Some("true"),
+                    "Union argument type '{name}' requires 'boxed': true"
+                );
+            }
+            _ => anyhow::bail!("Argument 'data' requires an object type, not '{name}'"),
+        }
+    }
     Ok(())
 }
 
@@ -357,21 +360,21 @@ pub(crate) fn validate(schemas: &[(&Path, QapiSchema<'_>)]) -> Result<()> {
                             value.allow_oob.is_none() || value.coroutine.is_none(),
                             "Flags 'allow-oob' and 'coroutine' are incompatible"
                         );
-                        boxed_arguments(&value.data, value.boxed, &declarations)?;
-                        conditional_arguments(&value.data, value.boxed, &declarations)?;
                         if let Some(data) = &value.data {
                             members_or_ref(data, &types).context("Invalid arguments")?;
                         }
+                        argument_type(&value.data, value.boxed, &declarations)?;
+                        conditional_arguments(&value.data, value.boxed, &declarations)?;
                         if let Some(returns) = &value.returns {
                             type_ref(returns, &types, false).context("Invalid return type")?;
                         }
                     }
                     QapiSchemaToken::Event(value) => {
-                        boxed_arguments(&value.data, value.boxed, &declarations)?;
-                        conditional_arguments(&value.data, value.boxed, &declarations)?;
                         if let Some(data) = &value.data {
                             members_or_ref(data, &types).context("Invalid event data")?;
                         }
+                        argument_type(&value.data, value.boxed, &declarations)?;
+                        conditional_arguments(&value.data, value.boxed, &declarations)?;
                     }
                     _ => unreachable!(),
                 }

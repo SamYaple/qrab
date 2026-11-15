@@ -93,6 +93,8 @@ also apply QEMU's string and enum scalar-conversion conflict rules.
 Boxed command and event data must name an object type. Missing, anonymous,
 scalar and false-boxing forms fail before lowering; valid named objects keep
 their fields flat on the wire.
+Named union argument types require boxing for both commands and events;
+scalars, enums and alternates cannot serve as argument objects.
 Command flags enforce QEMU's true-only execution flags, false-only modern
 generation/reply flags and incompatible OOB/coroutine modes. Legacy string
 generation flags retain their historical handling.
