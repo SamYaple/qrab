@@ -4,8 +4,8 @@
 # kubectl user. One CirrOS VM moves MOVES times (default 3) while:
 #   - a probe Pod on every node pings the guest every 0.1 s;
 #   - each node's Cilium agent reports the guest address's ipcache entry and
-#     the node's kernel routes for its /32 (qrab-netd's forward route, proto
-#     252, and BGP's) every ~0.1 s.
+#     the node's effective route to it (ip route get: qrab-netd's forward in
+#     table 252, BGP's, or Cilium's pool route) every ~0.1 s.
 # For every move it prints, from the agents' and managers' timestamped logs:
 # the forward route, target activate and source standby completion times
 # relative to the manager's switch end; when each node's ipcache named the new
@@ -99,7 +99,7 @@ while True:
   # The exec stream can drop; it is reopened at once.
   ( while true; do
       kubectl -n kube-system exec "$(agent "$n")" -c cilium-agent -- sh -c \
-        "while true; do echo \"\$(date +%s.%N) \$(cilium-dbg bpf ipcache get $address 2>/dev/null | tail -1) | \$(ip -4 route show $address/32 | tr '\n' ';')\"; sleep 0.1; done" 2>/dev/null
+        "while true; do echo \"\$(date +%s.%N) \$(cilium-dbg bpf ipcache get $address 2>/dev/null | tail -1) | \$(ip -4 route get $address 2>&1 | head -1)\"; sleep 0.1; done" 2>/dev/null
       sleep 0.5
     done ) >> "$work/ipcache-$n.log" &
   pids+=($!)
@@ -152,7 +152,7 @@ EOF
   # Each node's kernel routes for the /32 (after "|"), as changes.
   kroutes=""
   for n in kube01 kube02 kube03; do
-    r=$(awk -v s="$start" -v e="$done_at" -v b="$switched" '$1+0>=s && $1+0<=e {r=$0; sub(/^[^|]*\| ?/,"",r); gsub(/ (dev|metric|nhid) [^ ;]*/,"",r); gsub(/ +;/,";",r); if (r != last) {printf "%+.1fs:[%s] ", $1-b, r; last=r}}' "$work/ipcache-$n.log")
+    r=$(awk -v s="$start" -v e="$done_at" -v b="$switched" '$1+0>=s && $1+0<=e {r=$0; sub(/^[^|]*\| ?/,"",r); gsub(/ (dev|metric|nhid|src|uid) [^ ;]*/,"",r); gsub(/ +;/,";",r); if (r != last) {printf "%+.1fs:[%s] ", $1-b, r; last=r}}' "$work/ipcache-$n.log")
     kroutes="$kroutes $n:{${r}}"
   done
   # ipcache convergence: first entry naming the target after the switch.
@@ -186,7 +186,8 @@ EOF
   log "${summary[-1]}"
   summary+=("move $i $source_node->$target: switch ${switch_ms}ms; steps vs switch end: forward ${fwd}ms, target active ${act}ms, source standby ${stb}ms, forward swept ${swept}ms; ipcache names $target:$converge; probe gaps:$gaps; standby drops:$drops")
   log "${summary[-1]}"
-  summary+=("move $i node routes for $address/32:$kroutes")
+  lines=""; for n in kube01 kube02 kube03; do lines="$lines $n:$(wc -l < "$work/ipcache-$n.log")"; done
+  summary+=("move $i node routes for $address/32:$kroutes (agent log lines:$lines)")
   log "${summary[-1]}"
   [ -z "$problems" ] || fail "move $i:$problems"
 done

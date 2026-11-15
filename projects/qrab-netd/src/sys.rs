@@ -512,17 +512,48 @@ pub fn read_tunnel(proc_root: &Path, pod_uid: &str) -> Result<crate::vpn::Tunnel
     })
 }
 
-/// Route protocol marking the transient forward routes this agent owns in
-/// the host's main table, so it finds and removes only its own.
+/// Route protocol marking the transient forward routes this agent owns, so
+/// it finds and removes only its own.
 pub const FORWARD_PROTO: &str = "252";
+/// The table forward routes live in. They used to share the main table
+/// with Cilium's multi-pool route for the same /32, and whoever wrote last
+/// won: live, the source's agent re-installed its pool route (to the
+/// now-standby endpoint) 16 s after a switch, black-holing what still
+/// reached the old node.
+pub const FORWARD_TABLE: &str = "252";
+/// The rule sending every lookup to [`FORWARD_TABLE`] first: after Cilium's
+/// `local` rule (priority 100), before `main`. Cilium's BPF FIB lookups
+/// honour rules (no `BPF_FIB_LOOKUP_DIRECT` without a table id).
+pub const FORWARD_RULE_PRIORITY: &str = "200";
 
 /// The host's network namespace (the agent runs with host PIDs).
 pub fn host_netns(proc_root: &Path) -> PathBuf {
     proc_root.join("1/ns/net")
 }
 
-/// `<ip>/32 via <via>` in the calling thread's (host) namespace.
+/// Ensure the [`FORWARD_RULE_PRIORITY`] rule exists in the calling thread's
+/// namespace.
+fn ensure_forward_rule() -> io::Result<()> {
+    let rules = ip_words(&["-4", "rule", "show", "priority", FORWARD_RULE_PRIORITY])?;
+    if rules.contains(&format!("lookup {FORWARD_TABLE}")) {
+        return Ok(());
+    }
+    ip_words(&[
+        "-4",
+        "rule",
+        "add",
+        "priority",
+        FORWARD_RULE_PRIORITY,
+        "lookup",
+        FORWARD_TABLE,
+    ])
+    .map(drop)
+}
+
+/// `<ip>/32 via <via>` in [`FORWARD_TABLE`] of the calling thread's (host)
+/// namespace, ahead of any main-table route for it.
 pub fn forward(ip: Ipv4Addr, via: Ipv4Addr) -> io::Result<()> {
+    ensure_forward_rule()?;
     ip_words(&[
         "route",
         "replace",
@@ -531,30 +562,66 @@ pub fn forward(ip: Ipv4Addr, via: Ipv4Addr) -> io::Result<()> {
         &via.to_string(),
         "proto",
         FORWARD_PROTO,
+        "table",
+        FORWARD_TABLE,
     ])
-    .map(drop)
+    .map(drop)?;
+    // An older agent's main-table forward for the address goes.
+    delete_forward(ip, "main")
 }
 
-/// Remove the forward route for `ip`, if any.
-pub fn unforward(ip: Ipv4Addr) -> io::Result<()> {
-    match ip_words(&["route", "del", &format!("{ip}/32"), "proto", FORWARD_PROTO]) {
+fn delete_forward(ip: Ipv4Addr, table: &str) -> io::Result<()> {
+    match ip_words(&[
+        "route",
+        "del",
+        &format!("{ip}/32"),
+        "proto",
+        FORWARD_PROTO,
+        "table",
+        table,
+    ]) {
         Err(e) if e.to_string().contains("No such process") => Ok(()),
+        Err(e) if e.to_string().contains("does not exist") => Ok(()),
         other => other.map(drop),
     }
 }
 
+/// Remove the forward route for `ip`, if any (also an older agent's, in the
+/// main table).
+pub fn unforward(ip: Ipv4Addr) -> io::Result<()> {
+    delete_forward(ip, FORWARD_TABLE)?;
+    delete_forward(ip, "main")
+}
+
 /// Addresses with a forward route of ours in the calling thread's namespace.
 pub fn forwards() -> io::Result<Vec<Ipv4Addr>> {
-    Ok(ip_words(&["-4", "route", "show", "proto", FORWARD_PROTO])?
-        .lines()
-        .filter_map(|line| {
+    let mut found = Vec::new();
+    for table in [FORWARD_TABLE, "main"] {
+        let routes = match ip_words(&[
+            "-4",
+            "route",
+            "show",
+            "table",
+            table,
+            "proto",
+            FORWARD_PROTO,
+        ]) {
+            Ok(routes) => routes,
+            // A table nothing was ever added to does not exist yet.
+            Err(e) if e.to_string().contains("does not exist") => continue,
+            Err(e) => return Err(e),
+        };
+        found.extend(routes.lines().filter_map(|line| {
             line.split_whitespace()
                 .next()?
                 .trim_end_matches("/32")
-                .parse()
+                .parse::<Ipv4Addr>()
                 .ok()
-        })
-        .collect())
+        }));
+    }
+    found.sort();
+    found.dedup();
+    Ok(found)
 }
 
 /// Ask the node's Cilium agent to move an endpoint through the handoff
