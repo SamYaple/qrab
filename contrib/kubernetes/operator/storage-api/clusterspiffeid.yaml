@@ -17,7 +17,7 @@ spec:
   - k8s:ns:qrab
   - k8s:sa:qrab-operator
   - k8s:container-name:operator
-  - k8s:container-image:zot.yapplesauce.com/qrab/operator@sha256:ddefafb3a2199bdc5e5aa2e91492f70a6c9bf79e1ce24cc94e8cba86872ea5d1
+  - k8s:container-image:zot.yapplesauce.com/qrab/operator@sha256:d9216ef62466bd64b03d1c6a7e90526e6c38f8a9af24ea55a8cb85a579a4b473
   - unix:uid:10001
   ttl: 10m
   admin: false
