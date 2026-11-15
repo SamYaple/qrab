@@ -1424,6 +1424,7 @@ fn console_page(page: &ConsolePage) -> Element {
     rsx! {
         a { class: "back", href: "{back}", "← Back to {page.name}" }
         div { class: "heading", div { p { class: "eyebrow", "CONSOLE · {page.namespace}" } h1 { "{page.name}" } } }
+        noscript { p { class: "notice warning", "JavaScript is required to connect to the console and use its controls. Use the Back link above to view VM details." } }
         p { id: "console-error", role: "alert", hidden: true }
         p { id: "console-recovery", hidden: true, a { class: "button", href: "{login}", "Sign in again" } }
         div { class: "toolbar",
