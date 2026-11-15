@@ -52,7 +52,10 @@ impl Agent {
         let mut plan = NicPlan::for_anchor(pod)?;
         let (pid, ns) = self.netns(pod)?;
         if NicPlan::is_vpn(pod) {
-            plan = plan.with_tunnel(sys::read_tunnel(&self.proc_root, pid)?);
+            plan = plan.with_tunnel(sys::read_tunnel(
+                &self.proc_root,
+                &pod.uid().unwrap_or_default(),
+            )?);
         }
         let resolver = sys::pod_resolver(&self.proc_root, pid);
         let summary = match &plan.vpn {
