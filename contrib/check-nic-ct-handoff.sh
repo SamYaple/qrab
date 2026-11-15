@@ -9,8 +9,8 @@
 # conntrack entry came along: without it the guest's next data segment is a
 # new egress flow the group denies, the client has nothing to acknowledge, and
 # the stream stalls. The check requires the stream to keep flowing (no gap
-# over MAX_GAP_S) across MOVES live migrations (default 2), and the source
-# manager to report imported entries for each move (REQUIRE_COPY=0 skips
+# over MAX_GAP_S) across MOVES live migrations (default 2), and the
+# managers to report imported entries for each move (REQUIRE_COPY=0 skips
 # that, to show the oracle failing on a release without the copy).
 #
 #   bash contrib/check-nic-ct-handoff.sh [vm-name]
@@ -125,9 +125,11 @@ EOF
     sleep 1
   done
   [ "$phase" = Succeeded ] || fail "move $i did not finish"
-  # The source manager's copy events, read before its Pod goes:
-  # phase=entries per copy, e.g. "precopy=1 delta=1".
-  events=$(kubectl -n "$ns" logs "$source_pod" -c manager 2>/dev/null | grep '"event":"migration_conntrack"' || true)
+  # The copy events, phase=entries, e.g. "precopy=1 delta=1": the target
+  # manager pulls the precopy, the source asks for the delta (read before
+  # the source Pod goes).
+  target_pod=$(field virtualmachine "$vm" '{.status.podName}')
+  events=$( (kubectl -n "$ns" logs "$target_pod" -c manager; kubectl -n "$ns" logs "$source_pod" -c manager) 2>/dev/null | grep '"event":"migration_conntrack"' || true)
   copies=$(echo "$events" | sed -n 's/.*"imported":\([0-9]*\).*"phase":"\([a-z]*\)".*/\2=\1/p' | tr '\n' ' ')
   copied=$(echo "$events" | grep -o '"imported":[0-9]*' | cut -d: -f2 | awk '{s+=$1} END {print s+0}')
   if [ -n "${CT_DEBUG:-}" ]; then
