@@ -16,6 +16,9 @@ tempfile = { workspace = true }
 # Writes the cloud-init NoCloud seed volume; no clock, so timestamps are fixed.
 fatfs = { version = "0.3.6", default-features = false, features = ["std", "alloc"] }
 
+# Places received tap and vhost-net fds at fixed numbers in QEMU.
+command-fds = { version = "0.3", features = ["tokio"] }
+
 [dependencies.qapi]
 path = "../qapi"
 
@@ -25,6 +28,11 @@ path = "../qapi-protocol"
 # SPIFFE mTLS for the live migration tunnel.
 [dependencies.qrab-spiffe]
 path = "../qrab-spiffe"
+
+# Tap datapath client: receives tap and vhost-net fds from qrab-netd.
+[dependencies.qrab-netd]
+path = "../qrab-netd"
+default-features = false
 
 # Wire types for the namespaced qrab guest-agent commands.
 [dependencies.qrab-guest-agent]

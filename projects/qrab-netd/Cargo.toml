@@ -4,17 +4,32 @@ version = "0.1.0"
 edition = "2021"
 description = "Per-node agent that builds each qrab NIC anchor's tap and hands tap and vhost-net fds to the owning VM's manager"
 
+[features]
+# The node agent itself. Without it the crate is just the wire protocol and
+# name derivation, which the VM manager uses as a client.
+default = ["agent"]
+agent = ["dep:anyhow", "dep:libc", "dep:futures", "dep:tokio", "dep:kube", "dep:k8s-openapi"]
+
 [dependencies]
-anyhow = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
-libc = "0.2"
 nix = { workspace = true, features = ["socket", "uio", "sched", "fs"] }
-futures = { workspace = true }
-tokio = { workspace = true, features = ["macros", "rt", "rt-multi-thread", "signal", "net", "time", "sync"] }
-kube = { version = "5", features = ["runtime"] }
-k8s-openapi = { version = "0.29", features = ["v1_37"] }
+anyhow = { workspace = true, optional = true }
+libc = { version = "0.2", optional = true }
+futures = { workspace = true, optional = true }
+tokio = { workspace = true, features = ["macros", "rt", "rt-multi-thread", "signal", "net", "time", "sync"], optional = true }
+kube = { version = "5", features = ["runtime"], optional = true }
+k8s-openapi = { version = "0.29", features = ["v1_37"], optional = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }
+libc = "0.2"
+
+[[bin]]
+name = "qrab-netd"
+required-features = ["agent"]
+
+[[test]]
+name = "netns"
+required-features = ["agent"]

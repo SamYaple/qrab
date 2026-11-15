@@ -448,20 +448,35 @@ async fn run_qemu(
         retained,
     } = migration;
     let mut migrated = false;
-    let mut child = match Command::new(&config.qemu_binary)
+    // Tap NICs get fresh queues from qrab-netd for every QEMU start; the
+    // previous QEMU's queues closed when it exited.
+    let inherited = match super::tap::fetch(config).await {
+        Ok(inherited) => inherited,
+        Err(error) => {
+            state.phase = Phase::Failed;
+            state.detail = Some(error.to_string());
+            let _ = publish(config, state);
+            return Err(error);
+        }
+    };
+    let mut command = Command::new(&config.qemu_binary);
+    command
         .args(config.arguments(socket))
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::inherit())
-        .kill_on_drop(true)
-        .spawn()
-    {
+        .kill_on_drop(true);
+    let spawned = inherited
+        .install(&mut command)
+        .and_then(|()| command.spawn().map_err(Error::Io));
+    drop(command);
+    let mut child = match spawned {
         Ok(child) => child,
         Err(error) => {
             state.phase = Phase::Failed;
             state.detail = Some(error.to_string());
             let _ = publish(config, state);
-            return Err(Error::Io(error));
+            return Err(error);
         }
     };
     let serial = child

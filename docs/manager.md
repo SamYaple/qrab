@@ -66,6 +66,21 @@ NIC Pod. The config view shows each NIC's id and MAC, and its endpoint to
 admins only; `guest_network` is true when NICs exist. See
 [networking.md](networking.md).
 
+A NIC with `"datapath": "tap"` (`{"id","mac","datapath":"tap"}`, with no
+`host` or `port`) uses the kernel tap datapath instead. Before every QEMU
+start, including each in-pod relaunch, the manager asks qrab-netd at
+`netd_socket` (default `/run/qrab-netd/netd.sock`, mounted by the KVM device
+plugin's CDI spec) for the NIC's queues: one per vCPU, at most 8. It passes
+the received descriptors to QEMU at fixed numbers from 3 upward, NIC by NIC,
+each NIC's tap queues first and then its vhost-net descriptors. QEMU gets
+`-netdev tap,id=nic-<id>,fds=3:4,vhost=on,vhostfds=5:6` and
+`-device virtio-net-pci,id=nic-<id>,netdev=nic-<id>,mac=<mac>,romfile=,mq=on,vectors=<2q+2>`.
+The multiqueue options are omitted with one queue. The manager never opens
+`/dev/net/tun` or `/dev/vhost-net`. If qrab-netd refuses (the NIC is not
+plumbed yet, or the tap is still held), the launch fails with its reason. No
+datapath gives QEMU a user-mode (slirp) netdev or guest forwarding. Omitting
+`datapath` means `stream`, which renders exactly as above.
+
 `tpm` defaults to `/usr/bin/swtpm`, with private Unix control and TPM2 TIS in
 QEMU. `state_dir` must be writable persistent storage; its owner lock prevents
 concurrent supervisors. `identity/OVMF_VARS.fd`, `identity/tpm/` and a manifest

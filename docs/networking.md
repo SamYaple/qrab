@@ -347,8 +347,9 @@ survive the NIC moving to another node. Beyond the cluster:
 ## Tap datapath
 
 The kernel datapath replacing passt is being built (container
-`nic-kernel-datapath` in towl). Its first piece, `qrab-netd`, is running; the
-operator and manager do not use it yet, so every NIC still runs on passt.
+`nic-kernel-datapath` in towl). `qrab-netd` is running, and the manager
+accepts tap-mode NICs ([manager.md](manager.md)). The operator does not
+create tap-mode anchors yet, so every NIC still runs on passt.
 
 `qrab-netd` (`projects/qrab-netd`) is a privileged per-node agent with host
 PIDs. It runs as a DaemonSet in `qrab-node` (`contrib/kubernetes/netd/`) and

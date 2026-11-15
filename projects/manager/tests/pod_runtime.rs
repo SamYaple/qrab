@@ -148,6 +148,86 @@ fn guest_nics_replace_nic_none_with_stream_netdevs_to_their_relays() {
 }
 
 #[test]
+fn tap_nics_take_inherited_multiqueue_fds_and_stream_nics_are_unchanged() {
+    let dir = tempfile::tempdir().unwrap();
+    let kernel = dir.path().join("kernel");
+    std::fs::write(&kernel, []).unwrap();
+    let mut config = config(dir.path(), PathBuf::from("/bin/true"), kernel);
+    let socket = Path::new("/tmp/private/qmp.sock");
+    let stream = serde_json::json!({"id": "lan", "mac": "02:12:34:56:78:9a", "host": "10.0.3.7", "port": 7700});
+    config.nics = serde_json::from_value(serde_json::json!([stream])).unwrap();
+    let implicit = config.arguments(socket);
+    // Stream mode serializes and renders exactly as before the datapath field.
+    assert_eq!(serde_json::to_value(&config.nics[0]).unwrap(), stream);
+    let mut explicit = stream.clone();
+    explicit["datapath"] = "stream".into();
+    config.nics = serde_json::from_value(serde_json::json!([explicit])).unwrap();
+    assert_eq!(config.arguments(socket), implicit);
+
+    config.cpus = 4;
+    config.nics = serde_json::from_value(serde_json::json!([
+        {"id": "lan", "mac": "02:12:34:56:78:9a", "datapath": "tap"},
+        {"id": "old", "mac": "02:00:00:00:00:02", "host": "10.0.3.7", "port": 7700},
+        {"id": "wan", "mac": "02:00:00:00:00:03", "datapath": "tap"},
+    ]))
+    .unwrap();
+    config.validate().unwrap();
+    let args = config.arguments(socket);
+    let pairs = |flag: &str| -> Vec<String> {
+        args.windows(2)
+            .filter(|a| a[0] == flag)
+            .map(|a| a[1].clone())
+            .collect()
+    };
+    let netdevs = pairs("-netdev");
+    assert_eq!(
+        netdevs[0],
+        "tap,id=nic-lan,fds=3:4:5:6,vhost=on,vhostfds=7:8:9:10"
+    );
+    assert!(netdevs[1].contains("\"type\":\"stream\""));
+    assert_eq!(
+        netdevs[2],
+        "tap,id=nic-wan,fds=11:12:13:14,vhost=on,vhostfds=15:16:17:18"
+    );
+    let devices = pairs("-device");
+    assert!(devices.contains(
+        &"virtio-net-pci,id=nic-lan,netdev=nic-lan,mac=02:12:34:56:78:9a,romfile=,mq=on,vectors=10"
+            .to_owned()
+    ));
+    assert!(devices.contains(
+        &"virtio-net-pci,id=nic-wan,netdev=nic-wan,mac=02:00:00:00:00:03,romfile=,mq=on,vectors=10"
+            .to_owned()
+    ));
+    // One vCPU: a single queue and no multiqueue device options.
+    config.cpus = 1;
+    let args = config.arguments(socket);
+    assert!(args.contains(&"tap,id=nic-lan,fds=3,vhost=on,vhostfds=4".to_owned()));
+    assert!(args.contains(
+        &"virtio-net-pci,id=nic-lan,netdev=nic-lan,mac=02:12:34:56:78:9a,romfile=".to_owned()
+    ));
+    // No mode ever gives QEMU a user-mode (slirp) netdev or guest forwarding.
+    for args in [implicit, args] {
+        assert!(
+            !args.iter().any(|a| a.contains("user")
+                || a.contains("slirp")
+                || a.contains("guestfwd")
+                || a.contains("hostfwd")),
+            "{args:?}"
+        );
+    }
+    // A tap NIC never names a relay.
+    config.nics = serde_json::from_value(serde_json::json!([
+        {"id": "lan", "mac": "02:12:34:56:78:9a", "datapath": "tap", "host": "10.0.3.7", "port": 7700}
+    ]))
+    .unwrap();
+    assert!(config
+        .validate()
+        .unwrap_err()
+        .to_string()
+        .contains("takes no relay address"));
+}
+
+#[test]
 fn guest_nics_need_unique_labels_local_unicast_macs_and_ip_relays() {
     let dir = tempfile::tempdir().unwrap();
     let kernel = dir.path().join("kernel");
@@ -158,6 +238,7 @@ fn guest_nics_need_unique_labels_local_unicast_macs_and_ip_relays() {
         mac: mac.into(),
         host: host.into(),
         port,
+        datapath: pod::Datapath::Stream,
     };
     for (nics, problem) in [
         (

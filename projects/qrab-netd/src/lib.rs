@@ -7,10 +7,13 @@
 //! owning VM's manager asks over [`wire`] for a NIC's queues and receives fresh
 //! tap and vhost-net descriptors, so restarting the agent never disturbs a
 //! running guest.
+#[cfg(feature = "agent")]
 pub mod authz;
 pub mod cgroup;
 pub mod identity;
+#[cfg(feature = "agent")]
 pub mod plan;
+#[cfg(feature = "agent")]
 pub mod sys;
 pub mod wire;
 

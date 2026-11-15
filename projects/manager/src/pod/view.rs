@@ -210,15 +210,16 @@ impl ConfigView {
                 .map(|nic| NicView {
                     id: nic.id.clone(),
                     mac: nic.mac.clone(),
-                    endpoint: Some(
+                    // A tap NIC has no relay; its traffic leaves through qrab-netd's tap.
+                    endpoint: (nic.datapath == super::Datapath::Stream).then(|| {
                         std::net::SocketAddr::new(
                             nic.host
                                 .parse()
                                 .unwrap_or(std::net::Ipv4Addr::UNSPECIFIED.into()),
                             nic.port,
                         )
-                        .to_string(),
-                    ),
+                        .to_string()
+                    }),
                 })
                 .collect(),
             disks,

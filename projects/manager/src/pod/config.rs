@@ -16,6 +16,10 @@ fn name() -> String {
 fn memory() -> u64 {
     256
 }
+fn netd_socket() -> PathBuf {
+    std::path::Path::new(qrab_netd::SOCKET_DIR).join(qrab_netd::SOCKET_NAME)
+}
+
 fn cpus() -> u32 {
     1
 }
@@ -118,19 +122,43 @@ pub struct Uefi {
 /// Most guest NICs one VM may attach.
 pub const NIC_LIMIT: usize = 8;
 
-/// A guest NIC whose frames travel over a QEMU `stream` netdev to a relay
-/// (`qrab-manager nic`) in a separate network namespace. The guest traffic
-/// never enters this VM's own namespace.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+/// How a guest NIC's frames leave QEMU. Either way the guest traffic never
+/// enters this VM's own network namespace.
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum Datapath {
+    /// A QEMU `stream` netdev to a relay (`qrab-manager nic`) and passt in
+    /// the NIC Pod.
+    #[default]
+    Stream,
+    /// A multiqueue tap with vhost-net in the NIC's anchor Pod, whose
+    /// descriptors qrab-netd hands over before each QEMU start
+    /// (docs/networking.md, "Tap datapath").
+    Tap,
+}
+
+impl Datapath {
+    fn is_stream(&self) -> bool {
+        *self == Self::Stream
+    }
+}
+
+/// A guest NIC.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct Nic {
-    /// DNS label; QEMU ids are `nic-<id>`.
+    /// DNS label; QEMU ids are `nic-<id>`. In tap mode it is also the NIC
+    /// name qrab-netd knows the anchor by.
     pub id: String,
     /// Unicast, locally administered guest MAC, e.g. `02:00:00:00:00:01`.
     pub mac: String,
-    /// IP literal of the relay.
+    /// IP literal of the relay (stream mode only).
+    #[serde(default)]
     pub host: String,
+    #[serde(default)]
     pub port: u16,
+    #[serde(default, skip_serializing_if = "Datapath::is_stream")]
+    pub datapath: Datapath,
 }
 
 impl Nic {
@@ -138,6 +166,18 @@ impl Nic {
     pub fn qemu_id(&self) -> String {
         format!("nic-{}", self.id)
     }
+}
+
+/// First descriptor number QEMU inherits for tap NICs; see
+/// [`Config::tap_fds`].
+pub const FIRST_TAP_FD: i32 = 3;
+
+/// Descriptor numbers one tap NIC's queues occupy in QEMU.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TapFds {
+    pub nic: String,
+    pub taps: Vec<i32>,
+    pub vhosts: Vec<i32>,
 }
 
 fn dns_label(value: &str) -> bool {
@@ -182,6 +222,15 @@ fn validate_nics(nics: &[Nic]) -> Result<()> {
                 "NIC {} needs a unique unicast, locally administered MAC",
                 nic.id
             )));
+        }
+        if nic.datapath == Datapath::Tap {
+            if !nic.host.is_empty() || nic.port != 0 {
+                return Err(Error::Config(format!(
+                    "tap NIC {} takes no relay address",
+                    nic.id
+                )));
+            }
+            continue;
         }
         let host: std::net::IpAddr = nic
             .host
@@ -295,6 +344,10 @@ pub struct Config {
     pub state_id: Option<String>,
     #[serde(default = "runtime")]
     pub runtime_dir: PathBuf,
+    /// qrab-netd's socket, mounted into VM Pods by the KVM device plugin's
+    /// CDI spec. Only tap-mode NICs use it.
+    #[serde(default = "netd_socket")]
+    pub netd_socket: PathBuf,
     #[serde(default = "startup")]
     pub startup_timeout_secs: u64,
     #[serde(default = "grace")]
@@ -480,6 +533,33 @@ impl Config {
         Ok(())
     }
 
+    /// Queues per tap NIC: one per vCPU, up to what qrab-netd hands out.
+    pub fn tap_queues(&self) -> u8 {
+        u8::try_from(self.cpus.clamp(1, u32::from(qrab_netd::wire::MAX_QUEUES))).unwrap_or(1)
+    }
+
+    /// Where each tap NIC's descriptors sit in QEMU: consecutive numbers from
+    /// [`FIRST_TAP_FD`] in NIC order, each NIC's tap queues then its
+    /// vhost-net descriptors.
+    pub fn tap_fds(&self) -> Vec<TapFds> {
+        let queues = i32::from(self.tap_queues());
+        let mut next = FIRST_TAP_FD;
+        let mut take = || {
+            let range: Vec<i32> = (next..next + queues).collect();
+            next += queues;
+            range
+        };
+        self.nics
+            .iter()
+            .filter(|nic| nic.datapath == Datapath::Tap)
+            .map(|nic| TapFds {
+                nic: nic.id.clone(),
+                taps: take(),
+                vhosts: take(),
+            })
+            .collect()
+    }
+
     /// JSON blockdev options keep filenames with commas or spaces unambiguous.
     pub fn arguments(&self, socket: &Path) -> Vec<String> {
         let hotplug_memory = self.hotplug_memory_mib();
@@ -534,7 +614,38 @@ impl Config {
         if self.nics.is_empty() {
             args.extend(["-nic".into(), "none".into()]);
         }
+        let tap_fds = self.tap_fds();
+        let joined = |fds: &[i32]| fds.iter().map(i32::to_string).collect::<Vec<_>>().join(":");
         for nic in &self.nics {
+            if nic.datapath == Datapath::Tap {
+                let fds = tap_fds
+                    .iter()
+                    .find(|t| t.nic == nic.id)
+                    .expect("every tap NIC has a layout");
+                let queues = fds.taps.len();
+                let multiqueue = if queues > 1 {
+                    format!(",mq=on,vectors={}", 2 * queues + 2)
+                } else {
+                    String::new()
+                };
+                args.extend([
+                    "-netdev".into(),
+                    format!(
+                        "tap,id={},fds={},vhost=on,vhostfds={}",
+                        nic.qemu_id(),
+                        joined(&fds.taps),
+                        joined(&fds.vhosts)
+                    ),
+                    "-device".into(),
+                    format!(
+                        "virtio-net-pci,id={0},netdev={0},mac={1},romfile={2}",
+                        nic.qemu_id(),
+                        nic.mac,
+                        multiqueue
+                    ),
+                ]);
+                continue;
+            }
             // QEMU reconnects on its own after the relay or its Pod restarts.
             // An empty romfile keeps iPXE out of the boot order.
             args.extend([

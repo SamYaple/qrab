@@ -41,13 +41,14 @@ pub use serial::{SerialSnapshot, SERIAL_CAPACITY};
 pub mod socket;
 mod state;
 mod supervisor;
+mod tap;
 mod tpm;
 mod view;
 
 pub use agent::{AgentStatus, FreezeState, UpdateState, UpdateStatus};
 pub use config::{
-    parse_guest_mac, Accelerator, AdminBucket, Config, Disk, DiskFormat, Hotplug, Nic, Tpm, Uefi,
-    HOTPLUG_BLOCK_MIB, NIC_LIMIT,
+    parse_guest_mac, Accelerator, AdminBucket, Config, Datapath, Disk, DiskFormat, Hotplug, Nic,
+    TapFds, Tpm, Uefi, FIRST_TAP_FD, HOTPLUG_BLOCK_MIB, NIC_LIMIT,
 };
 pub use control::{control_channel, control_channel_for, Action, Control, ControlReceiver};
 pub use events::{
