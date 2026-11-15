@@ -11,6 +11,9 @@ use tokio::io::{AsyncRead, AsyncWrite};
 pub use spiffe::{SpiffeId, X509Source};
 pub use tokio_rustls::{client, server};
 
+#[cfg(feature = "http")]
+pub mod http;
+
 #[cfg(feature = "fixture")]
 pub mod fixture;
 
@@ -171,4 +174,21 @@ impl Acceptor {
         tls13(stream.get_ref().1.protocol_version())?;
         Ok(stream)
     }
+}
+
+/// Separate container-scoped VM service identities; source metadata supplies
+/// namespace and immutable VM UID, never user query parameters or HTTP headers.
+pub fn vm_service_id(domain: &str, namespace: &str, uid: &str, service: &str) -> Result<SpiffeId> {
+    let component = |s: &str| {
+        !s.is_empty()
+            && s.len() <= 253
+            && s.bytes()
+                .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+    };
+    if !component(namespace) || !component(uid) || !matches!(service, "bmc" | "redfish") {
+        return Err(Error::Id("invalid VM service identity components".into()));
+    }
+    id(&format!(
+        "spiffe://{domain}/kubernetes/{namespace}/vm/{uid}/{service}"
+    ))
 }

@@ -165,7 +165,7 @@ with server-side dry runs.
 
 The dashboard (Kanidm client `qrab-dashboard`) is meant to be the cluster's
 only browser OIDC client. It calls each VM's Redfish service (Pod IP, port
-8081) for status, events and power and its BMC console (port 8080) server-side,
+8444) for status, events and power and its BMC console (port 8443) server-side,
 and forwards the signed-in user's ID token as `Authorization: Bearer`. With
 `QRAB_BMC_BEARER_ISSUER` and `QRAB_BMC_BEARER_AUDIENCE` set, every BMC sidecar
 receives `BMC_BEARER_ISSUER` and `BMC_BEARER_AUDIENCE` and Redfish lists the
@@ -180,12 +180,12 @@ dashboard. The operator refuses a BMC-enabled VM with neither a `publicUrl` nor
 its own bearer settings, since that BMC would have no way in. With a
 `publicUrl`, the per-VM browser console works as before, and the BMC also
 accepts dashboard tokens. Network policy must admit the dashboard's Pods to
-ports 8080 and 8081 of the VM Pods.
+workload ports 8443 and 8444 of the VM Pods.
 
 | components | Pod |
 | --- | --- |
-| BMC (default) | `manager` + `bmc` (8080) + `redfish` (8081; the BMC UI reaches it over Pod loopback through `/bmc/redfish`; `metrics` 9181) |
-| Redfish only (`bmc.enabled: false`, `redfish.enabled: true`) | `manager` + `redfish` (8081, `metrics` 9181); `console` may be omitted |
+| BMC (default) | `manager` + `bmc` (HTTP8080, mTLS8443) + `redfish` (HTTP8081, mTLS8444; browser bridge uses loopback mTLS; metrics9181) |
+| Redfish only (`bmc.enabled: false`, `redfish.enabled: true`) | `manager` + `redfish` (HTTP8081, mTLS8444, metrics9181); `console` may be omitted |
 | none (`bmc.enabled: false`) | `manager` alone; the VM runs with no HTTP surface |
 
 The CRD refuses `components.redfish.enabled: false` while the BMC is enabled.
@@ -225,7 +225,11 @@ The BMC sidecar receives `BMC_PUBLIC_URL`, `BMC_OIDC_ISSUER` and
 `BMC_OIDC_CLIENT_ID` when `console.publicUrl` is set, `BMC_BEARER_ISSUER` and
 `BMC_BEARER_AUDIENCE` when the operator has bearer settings, and the non-empty
 `BMC_ALLOWED_SUBJECTS`, `BMC_VIEWER_SUBJECTS`, `BMC_ADMIN_GROUPS` and
-`BMC_VIEWER_GROUPS`, and `BMC_REDFISH_URL=http://127.0.0.1:8081`. The Redfish
+`BMC_VIEWER_GROUPS`, and `BMC_REDFISH_URL=https://127.0.0.1:8444` with an
+exact `BMC_REDFISH_SPIFFE_ID` for this VM. Each sidecar also mounts the
+read-only Workload API socket and asserts its container-scoped
+`QRAB_EXPECTED_SPIFFE_ID`. BMC8443 admits dashboard only; Redfish8444 admits
+dashboard and this VM's BMC, with ordinary OIDC/role checks still required. The Redfish
 sidecar receives `REDFISH_OIDC_ISSUER`, `REDFISH_OIDC_AUDIENCE` and the
 non-empty `REDFISH_ADMIN_SUBJECTS` / `REDFISH_VIEWER_SUBJECTS` /
 `REDFISH_ADMIN_GROUPS` / `REDFISH_VIEWER_GROUPS`

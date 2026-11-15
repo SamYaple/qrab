@@ -52,13 +52,13 @@ owned ones. Multiple rows may observe the same bytes at different boundaries.
 | --- | --- | --- |
 | M1, M3, public part of M5 | Browser network tools; ingress-facing interface | HTTPS/WSS records and connection metadata in pcap. Browser/application boundary can show decrypted HTTP or WS frames; IdP credentials belong to the separate browser/IdP leg. |
 | M2, M4, backend of M5 | Ingress backend and destination Pod netns `eth0` | Plain HTTP/WS, including bearer/session/Basic credentials where supplied. Compare both sides if service NAT or a node proxy changes the tuple. |
-| M6, M7 | Dashboard egress and selected VM Pod `eth0` | Plain HTTP Redfish or WS upgrade and RFB payload. Capture must include the new Pod IP after replacement/migration; do not assume a Service fronts these direct clients. |
-| M8 | VM Pod netns `lo`, port 8081 | Browser adapter's plain loopback HTTP/SSE and forwarded application credential. Capturing only `eth0` misses this hop. |
+| M6, M7 | Dashboard egress and selected VM Pod `eth0` | TLS 1.3 on Redfish8444/BMC8443. HTTP bearer/WS/RFB data require endpoint tracing after TLS decryption. Include new Pod IP after replacement/migration and correlate exact service URI from namespace/VM UID. |
+| M8 | VM Pod netns `lo`, port 8444 | Browser adapter's loopback mTLS records; HTTP/SSE and forwarded credential remain encrypted on this interface. Plain loopback HTTP8081 is only standalone compatibility, not the updated operator path. |
 | M9 | BMC/Redfish and manager Unix-socket read/write boundary | Versioned JSON and events; after console acknowledgement, raw RFB. IP pcap sees nothing. Existing lifecycle logs are not a full socket transcript. |
 | M10 | Manager's QMP Unix read/write and sendmsg/recvmsg boundary | Greeting, commands, replies and events; SCM_RIGHTS ancillary metadata for NIC FDs. This requires local process/Unix tracing, not another QMP connection. |
 | M11 | Manager/QEMU VNC Unix boundary; corresponding WS frames | RFB frames/input/audio. No additional VNC encryption locally. WS message boundaries can split/coalesce RFB messages. |
 | M12 | Manager QGA Unix boundary or guest virtio-serial daemon boundary | JSON, `0xFF` synchronization and replies. Guest agent has a fixed allowlist. A guest NIC pcap cannot see QGA. |
-| M13 | Workload/client interface and configured Redfish TLS port; app boundary | TLS 1.3 records, not plaintext Redfish. Decrypted access requires endpoint-side evidence/session traffic secrets if deliberately supported; ordinary backend 8081 is a different connection. |
+| M13 | Workload/client interface, BMC8443/Redfish8444 and app boundary | TLS 1.3 records, not plaintext Redfish. Decrypted access requires endpoint-side evidence/session traffic secrets if deliberately supported; ordinary backend8081/8080 are different connections; enabling workload TLS does not implicitly encrypt ingress or metrics. |
 | N1 | netd and manager Unix sendmsg/recvmsg | Queue/grant/probe/handoff control and ancillary FD numbers/types. It does **not** contain guest Ethernet packets. |
 | N2, N3, N4 | Anchor netns TAP and `eth0`; DHCP/DNS/gateway filters | Guest packets on TAP and routed traffic on `eth0`. ARP and DHCP stay near TAP; application TLS remains ciphertext. Capture all NIC anchors, not just the VM Pod. |
 | N5 | VPN anchor TAP, `wg0` and `eth0`; provider if controlled | TAP/`wg0` show inner packets; `eth0` shows WireGuard UDP. Inner application TLS is still encrypted. Provider control API captures do not decrypt WireGuard packet traffic. |
@@ -130,7 +130,7 @@ mkdir -p "$capture_dir"
 # 'any' inside this netns includes loopback M8 as well as eth0.
 sudo timeout --signal=INT 60s nsenter -t "$vm_pid" -n \
   tcpdump -i any -nn -s 0 -U -c 100000 -w "$capture_dir/vm.pcap" \
-  'tcp port 8080 or tcp port 8081 or tcp port 9181 or tcp port 7800 or tcp port 3260 or tcp port 443 or port 53'
+  'tcp port 8080 or tcp port 8081 or tcp port 8443 or tcp port 8444 or tcp port 9181 or tcp port 7800 or tcp port 3260 or tcp port 443 or port 53'
 
 # Unfiltered Ethernet on the TAP: all queues, ARP/DHCP/DNS and guest apps.
 sudo timeout --signal=INT 60s nsenter -t "$anchor_pid" -n \

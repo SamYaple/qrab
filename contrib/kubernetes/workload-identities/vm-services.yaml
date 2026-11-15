@@ -1,0 +1,43 @@
+# Stage in kubernetes-gitops before enabling workload listeners in VM Pods.
+# Like the manager ID, these IDs survive image updates and live migration.
+# Container/UID/SA and the controller-added Pod UID bind each workload; image
+# admission restricts VM Pods to reviewed first-party manager images.
+apiVersion: spire.spiffe.io/v1alpha1
+kind: ClusterSPIFFEID
+metadata:
+  name: qrab-vm-bmc
+spec:
+  className: kubernetes-tpm
+  spiffeIDTemplate: 'spiffe://yapplesauce.com/kubernetes/qrab/vm/{{ index .PodMeta.Labels "qrab.yapplesauce.com/owner-uid" }}/bmc'
+  namespaceSelector:
+    matchLabels: {kubernetes.io/metadata.name: qrab}
+  podSelector:
+    matchLabels: {app.kubernetes.io/name: qrab, app.kubernetes.io/component: vm}
+  workloadSelectorTemplates:
+  - k8s:ns:qrab
+  - k8s:sa:qrab-manager
+  - k8s:container-name:bmc
+  - unix:uid:10001
+  ttl: 10m
+  admin: false
+  downstream: false
+---
+apiVersion: spire.spiffe.io/v1alpha1
+kind: ClusterSPIFFEID
+metadata:
+  name: qrab-vm-redfish
+spec:
+  className: kubernetes-tpm
+  spiffeIDTemplate: 'spiffe://yapplesauce.com/kubernetes/qrab/vm/{{ index .PodMeta.Labels "qrab.yapplesauce.com/owner-uid" }}/redfish'
+  namespaceSelector:
+    matchLabels: {kubernetes.io/metadata.name: qrab}
+  podSelector:
+    matchLabels: {app.kubernetes.io/name: qrab, app.kubernetes.io/component: vm}
+  workloadSelectorTemplates:
+  - k8s:ns:qrab
+  - k8s:sa:qrab-manager
+  - k8s:container-name:redfish
+  - unix:uid:10001
+  ttl: 10m
+  admin: false
+  downstream: false

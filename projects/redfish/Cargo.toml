@@ -17,7 +17,7 @@ futures = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt", "signal", "net", "time", "sync"] }
 manager = { path = "../manager" }
 oidc-bearer = { path = "../oidc-bearer" }
-qrab-spiffe = { path = "../qrab-spiffe" }
+qrab-spiffe = { path = "../qrab-spiffe", features = ["http"] }
 axum = "0.8"
 openidconnect = { version = "4", default-features = false, features = ["reqwest", "rustls-tls"] }
 uuid = "1"

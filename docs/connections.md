@@ -11,7 +11,9 @@ builds; source capability is not proof that a running image has it enabled.
 **Subsequent source hardening:** netd conntrack peers (N9) now require node-bound
 SPIFFE mTLS. The original platform snapshot predates this change; the
 [separate node rollout and live handoff proof](connections/platform-evidence.md#netd-peer-mtls-rollout-2026-11-15-22022209-utc)
-verify its subsequent deployment. See
+verify its subsequent deployment. Dashboard/BMC/Redfish management now has
+container-scoped mTLS service identities in source (M6–M8); release/enrollment
+evidence must be checked separately. See
 [netd peer enrollment](networking.md#conntrack-peer-spiffe-enrollment).
 
 Start here for endpoints, payloads and transport protection. Continue with:
@@ -46,11 +48,12 @@ tunnel could encrypt some physical links, but must be verified separately. The
 reported encryption disabled on all three nodes and mesh authentication disabled.
 Do not infer encryption from Cilium being present or from a SPIFFE socket mount.
 
-The confirmed application-level encrypted paths are manager-to-manager migration
+The application-level encrypted paths implemented in source are manager-to-manager migration
 (TLS 1.3 mTLS), operator-to-exchange-shim (SPIFFE mTLS), operator-to-storage-ingress
 (TLS 1.3 plus bearer), OIDC/Kanidm/Proton HTTPS, HTTPS event delivery, public
-ingress TLS, netd conntrack peer TLS 1.3 mTLS, and a VPN NIC's WireGuard outer tunnel. Redfish has an additional
-**optional**, separately configured SPIFFE mTLS listener. The other paths below
+ingress TLS, netd conntrack peer TLS 1.3 mTLS, dashboard-to-VM and BMC-to-Redfish
+workload mTLS, and a VPN NIC's WireGuard outer tunnel. The operator enables the
+management workload listeners; standalone mode must configure them explicitly. The other paths below
 are either plain, local, or externally controlled.
 
 ## System map
@@ -71,14 +74,14 @@ flowchart TB
     world["Cluster / LAN / internet / VPN peer"]
     disks["Shared LIO / ZFS disks<br/>iSCSI TCP 3260"]
     subgraph vm ["VM Pod"]
-        mgmt["BMC :8080 and Redfish :8081"]
+        mgmt["BMC HTTP8080 / mTLS8443<br/>Redfish HTTP8081 / mTLS8444"]
         manager["Manager control.sock"]
         qemu["QEMU and virtual guest"]
     end
     browser -->|"HTTPS / WSS"| edge
     edge -->|"HTTP / WS"| dash
     edge -->|"HTTP / WS"| mgmt
-    dash -->|"HTTP / WS + user ID token"| mgmt
+    dash -->|"SPIFFE mTLS + user ID token"| mgmt
     mgmt -->|"local JSON / RFB"| manager
     manager -->|"private QMP / VNC / QGA"| qemu
     manager <-->|"SPIFFE mTLS: state / handoff"| other
@@ -108,14 +111,14 @@ or operator-rendered values; separate Pods can reuse a port for unrelated APIs.
 | M3 | Browser → `qrab-demo.yapplesauce.com:443` ingress | Standalone per-VM BMC UI, OIDC callbacks, WS, browser `/bmc/redfish/*` | TLS/WSS ends at ingress. Example host routes to `qrab-redfish-poc`. New dashboard-launched VMs normally need no per-VM ingress. |
 | M4 | Ingress → VM Pod BMC `:8080` | HTTP/WS for all routes except native `/redfish` | **Plain** backend. BMC checks its cookie session or configured dashboard ID-token bearer. Console is admin-only. |
 | M5 | Native client → ingress `/redfish` → VM Pod Redfish `:8081` | Redfish JSON/OData, actions, sessions, SSE | TLS only to ingress, then **plain HTTP** directly to Redfish. This route bypasses the BMC. Redfish authenticates the application credential. |
-| M6 | Dashboard → selected VM Pod `:8081` | HTTP Redfish reads, actions and VM-scoped browser bridge/SSE | **Plain**, with the signed-in user's ID token in `Authorization: Bearer`. Dashboard verifies Pod ownership/labels/IP and VM visibility; Redfish verifies token and role again. |
-| M7 | Dashboard → selected VM Pod `:8080/api/console` | `ws://` binary RFB stream; optional audio inside RFB | **Plain WS**, same user bearer on upgrade, no browser cookie upstream. BMC independently checks admin access. |
-| M8 | BMC → `http://127.0.0.1:8081/redfish/*` | Browser bridge strips `/bmc`, forwards JSON/SSE | **Local plain HTTP** in the shared Pod netns. Browser session becomes its stored ID-token bearer; explicit Redfish credentials are forwarded as supplied. No cookie or trusted-user header upstream. |
+| M6 | Dashboard → selected VM Pod `:8444` | HTTPS Redfish reads, actions and VM-scoped browser bridge/SSE | **SPIFFE TLS 1.3 mTLS**, exact `/vm/<VM-UID>/redfish` service ID derived from trusted VM namespace/UID and controlled Pod IP. User ID-token bearer and roles remain separately verified. No HTTP fallback. |
+| M7 | Dashboard → selected VM Pod `:8443/api/console` | `wss://` binary RFB stream; optional audio inside RFB | **SPIFFE TLS 1.3 mTLS**, exact `/vm/<VM-UID>/bmc` ID plus user bearer on upgrade, no browser cookie upstream. BMC separately checks admin access. No WS/HTTP fallback. |
+| M8 | BMC → `https://127.0.0.1:8444/redfish/*` | Browser bridge strips `/bmc`, forwards JSON/SSE | **SPIFFE TLS 1.3 mTLS**: Redfish accepts this VM's BMC service ID; BMC verifies its own VM's Redfish ID. Session becomes stored ID-token bearer; explicit credentials remain explicit. Standalone legacy mode permits plain HTTP only to a literal loopback IP. |
 | M9 | BMC / Redfish → `/run/qrab-control/manager/control.sock` | Newline JSON v1 request/reply, `follow` event stream; `console` switches to raw RFB after acknowledgement | **Local**, manager-created 0700 directory, 0600 socket and same-UID peer check. This grants management authority; sidecars enforce user roles before calling it. |
 | M10 | Manager → private session `qmp.sock` | QMP greeting/capabilities, commands, replies and asynchronous events; SCM_RIGHTS for hotplug | **Local**, private 0700 session directory. No QMP TLS, password, OIDC or SPIFFE at this boundary. Manager is the production QMP owner. |
 | M11 | Manager → private session `vnc.sock` | RFB framebuffer, keys, pointer, clipboard protocol and optional output audio | **Local** Unix VNC; RFB security type None. Protection is the private runtime directory and authenticated BMC/dashboard chain. No VNC TCP listener. |
 | M12 | Manager → private session `qga.sock` → QEMU virtio-serial → guest agent | QGA sync nonce, JSON commands/replies, inventory, freeze/thaw, fixed update hook, boot/EFI operations | **Local** host socket plus virtual serial device, no protocol encryption or bearer. The guest daemon's fixed allowlist and host access boundary authorize operations. No guest network is required. |
-| M13 | Configured workload → separate Redfish listener, e.g. `:8443` | Same Redfish HTTP API over TLS | **Optional SPIFFE TLS 1.3 mTLS**, exact peer IDs **plus** ordinary application credential/role. Disabled unless configured; operator does not render it or mount its SVID socket into Redfish by default. Ordinary `:8081` remains separate. |
+| M13 | Dashboard / same-VM BMC → Redfish workload `:8444`; dashboard → BMC workload `:8443` | Existing app routers over workload TLS | **SPIFFE TLS 1.3 mTLS**, enabled by the updated operator with distinct container-scoped SVIDs and CSI socket mounts. Exact peer IDs **plus** normal app authorization. Standalone listeners remain opt-in. Ordinary ingress HTTP and metrics are separate, still tracked for protection. |
 
 Source: [ingress and Service routing](../contrib/kubernetes/redfish-poc/console.yaml),
 [dashboard ingress](../contrib/kubernetes/dashboard/ingress.yaml),

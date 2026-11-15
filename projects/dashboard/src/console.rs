@@ -133,13 +133,9 @@ pub async fn upgrade(
         .clone()
         .try_acquire_owned()
         .map_err(|_| Failure::unavailable("Too many consoles are open."))?;
-    let request = app
-        .bmc
-        .console_request(ip, &user.id_token, &features)
-        .map_err(|_| Failure::internal())?;
-    let (upstream, _) = tokio::time::timeout(
+    let upstream = tokio::time::timeout(
         Duration::from_secs(5),
-        tokio_tungstenite::connect_async(request),
+        app.bmc.connect(&vm, ip, &user.id_token, &features),
     )
     .await
     .map_err(|_| Failure::unavailable("The VM console is unavailable."))?

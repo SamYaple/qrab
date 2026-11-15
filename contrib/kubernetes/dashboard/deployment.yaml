@@ -59,6 +59,7 @@ spec:
               fieldPath: metadata.namespace
         - {name: DASHBOARD_STORAGE_NODE, value: kube03}
         - {name: DASHBOARD_LISTEN, value: '0.0.0.0:8080'}
+        - {name: QRAB_SPIFFE_ENDPOINT_SOCKET, value: 'unix:/run/spire/agent.sock'}
         ports:
         - name: http
           containerPort: 8080
@@ -74,6 +75,9 @@ spec:
         - name: secrets
           mountPath: /run/secrets/qrab-dashboard
           readOnly: true
+        - name: workload-socket
+          mountPath: /run/spire
+          readOnly: true
         startupProbe:
           httpGet: {path: /healthz, port: http}
           periodSeconds: 2
@@ -85,6 +89,8 @@ spec:
           httpGet: {path: /healthz, port: http}
           periodSeconds: 10
       volumes:
+      - name: workload-socket
+        csi: {driver: csi.spiffe.io, readOnly: true}
       # Files readable by the pod's fsGroup only; never env or argv.
       - name: secrets
         secret:

@@ -1,0 +1,23 @@
+# Image-bound dashboard workload identity. This is separate from registry pull
+# enrollment and OIDC user identities. Substitute the released dashboard digest
+# and stage through kubernetes-gitops, not the dashboard's own kustomization.
+apiVersion: spire.spiffe.io/v1alpha1
+kind: ClusterSPIFFEID
+metadata:
+  name: qrab-dashboard
+spec:
+  className: kubernetes-tpm
+  spiffeIDTemplate: spiffe://yapplesauce.com/kubernetes/qrab/qrab-dashboard
+  namespaceSelector:
+    matchLabels: {kubernetes.io/metadata.name: qrab}
+  podSelector:
+    matchLabels: {app.kubernetes.io/name: qrab-dashboard}
+  workloadSelectorTemplates:
+  - k8s:ns:qrab
+  - k8s:sa:qrab-dashboard
+  - k8s:container-name:dashboard
+  - k8s:container-image:zot.yapplesauce.com/qrab/dashboard@sha256:DASHBOARD_DIGEST
+  - unix:uid:10001
+  ttl: 10m
+  admin: false
+  downstream: false

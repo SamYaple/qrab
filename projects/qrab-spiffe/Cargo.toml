@@ -5,6 +5,7 @@ edition = "2021"
 description = "SPIFFE X509-SVID mTLS with exact peer IDs for qrab components"
 
 [features]
+http = ["dep:axum", "dep:futures", "dep:tracing", "dep:reqwest", "tokio/sync"]
 # A Workload API server and SVID generator for tests in dependent crates.
 fixture = ["dep:prost", "dep:rcgen", "dep:tempfile", "dep:tokio-stream", "dep:tonic", "dep:tonic-prost", "dep:tower", "dep:time", "tokio/rt"]
 
@@ -23,6 +24,11 @@ tonic = { version = "0.14", default-features = false, features = ["transport", "
 tonic-prost = { version = "0.14", optional = true }
 tower = { version = "0.5", features = ["util"], optional = true }
 time = { version = "0.3", optional = true }
+
+axum = { version = "0.8", optional = true }
+futures = { workspace = true, optional = true }
+tracing = { workspace = true, optional = true }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"], optional = true }
 
 [dev-dependencies]
 qrab-spiffe = { path = ".", features = ["fixture"] }

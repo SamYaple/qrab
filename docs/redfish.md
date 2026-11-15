@@ -165,9 +165,12 @@ trusted. Admission is bounded to 32 connections and eight concurrent handshakes;
 slow handshakes have the shared 15-second timeout. Incomplete configuration or
 unavailable Workload API fails startup rather than falling back to plain HTTP.
 
-This listener is disabled by default and is not automatically exposed by the
-operator. Provision its Workload API socket, exact SPIRE registration, separate
-Service port and Cilium policy explicitly. The ordinary ingress listener remains
+Standalone mode leaves this listener disabled until configured. The updated
+operator enables port8444 with the container-scoped per-VM `/redfish` SVID,
+exact dashboard/own-BMC peers and a CSI Workload API mount. Provision the
+matching SPIRE registrations before release; dashboard Cilium policy admits the
+workload ports and its clients dial the controlled Pod IP directly. Standalone
+service exposure must be configured explicitly. The ordinary ingress listener remains
 separate. The currently deployed cluster has Cilium mesh authentication disabled;
 its ingress/host network policy does not itself verify Redfish SPIFFE identity.
 Enabling Cilium mutual authentication also requires its mesh/SPIRE integration;
@@ -833,3 +836,9 @@ See script help and ignored target result JSON for reproduction. Primary
 references: [EDK2 enrollment](https://github.com/tianocore/edk2/blob/master/OvmfPkg/EnrollDefaultKeys/EnrollDefaultKeys.c),
 [UEFI authenticated variables](https://uefi.org/specs/UEFI/2.10/08_Services_Runtime_Services.html),
 and [DMTF SecureBoot](https://redfish.dmtf.org/schemas/v1/SecureBoot.v1_1_0.json).
+
+The operator management mTLS release uses BMC8443 and Redfish8444, with independent
+container-scoped per-VM identities and the existing user-token/role checks.
+See [management enrollment and live diagnostics](dashboard.md#workload-tls-enrollment-and-verification).
+Metrics9181, Prometheus history and ingress-facing HTTP have their own transport
+boundaries and do not become mTLS through this workload listener.

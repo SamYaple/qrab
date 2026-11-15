@@ -9,7 +9,7 @@ manager Pod's workload identity.
 
 | Mechanism | Holder and issuer | What it authorizes | What it does not establish |
 | --- | --- | --- | --- |
-| SPIFFE X509-SVID | Manager/operator, optionally Redfish; issued by SPIRE | Workload peer admission for migration, node conntrack exchange, exchange shim and optional Redfish TLS | A human user role, guest attestation, guest packet encryption, or TLS on every Pod listener |
+| SPIFFE X509-SVID | Manager/operator/dashboard/BMC/Redfish/netd; issued by SPIRE | Workload peer admission for migration, node conntrack exchange, management HTTP/WS and exchange shim | A human user role, guest attestation, guest packet encryption, or TLS on every Pod listener |
 | Kanidm OIDC ID token | Signed-in user; audience is BMC/dashboard/Redfish client | User subject/group grants in BMC and Redfish; dashboard session identity | Transport secrecy: JWT signature is not encryption; claims can be decoded by anyone holding the token |
 | Browser session cookie | Opaque server-store identifier in browser | Lookup of verified user/login data; Origin/CSRF rules protect ambient-cookie mutations | A transferable SPIFFE identity, or the user's raw ID token in the cookie |
 | Redfish session `X-Auth-Token` | Native client; issued locally after permitted bootstrap | Revocable opaque session with the original local/OIDC principal and expiry | A new OAuth2 access token or a workload TLS identity |
@@ -46,19 +46,24 @@ flowchart TB
     csi["csi.spiffe.io mounted Workload API socket"]
     vm["Manager: per-VM ID based on VM UID"]
     op["Operator: kubernetes/qrab/qrab-operator"]
-    rf["Optional Redfish workload listener"]
+    rf["Redfish workload listener"]
     other["Other manager of same VM"]
     shim["kanidm/exchange-shim"]
-    caller["Explicit allowed workload peer"]
+    caller["Dashboard: qrab-dashboard SVID"]
+    bmc["BMC: per-VM /bmc SVID"]
     config --> server
     agent <-->|"external agent-server attestation / issuance channel"| server
     agent --> csi
     csi -->|"I5: local SVID, private key and bundle stream"| vm
     csi -->|"I5: local SVID, private key and bundle stream"| op
-    csi -.->|"only when separately provisioned"| rf
+    csi -->|"per-container SVID"| rf
+    csi -->|"per-container SVID"| bmc
+    csi -->|"image-bound dashboard SVID"| caller
     vm <-->|"N6 / N7: exact same per-VM ID, mTLS"| other
     op <-->|"S1: exact shim server ID, mTLS"| shim
-    caller <-->|"M13: exact caller ID, mTLS plus app credential"| rf
+    caller <-->|"M6: exact VM /redfish ID and user token"| rf
+    caller <-->|"M7: exact VM /bmc ID and user token"| bmc
+    bmc <-->|"M8: same-VM IDs and user credential"| rf
 ```
 
 The deployment's intended manager identity is
@@ -91,17 +96,25 @@ The SPIRE controller supplies Pod UID selectors; do not duplicate them in a
 workload selector template.
 
 Operator rendering mounts the CSI Workload API volume into the **manager**.
-Normal BMC and Redfish sidecars receive the manager control volume, not its
-private runtime or SVID socket. NIC anchors have no active SPIFFE packet relay
+BMC and Redfish sidecars now also mount that CSI Workload API, with their
+**own container-scoped registrations**, not the manager ID or private runtime.
+Their IDs append `/bmc` or `/redfish` to the per-VM ID. Dashboard accepts exactly
+the service ID derived from the controlled VM's namespace/UID; BMC accepts only
+the dashboard, while Redfish admits dashboard and this VM's BMC. OIDC still
+decides user roles after TLS. NIC anchors have no active SPIFFE packet relay
 to enroll. The old NIC-relay mTLS plan was superseded by kernel TAP/vhost.
 
 The [optional Redfish listener](../../projects/redfish/src/workload.rs) requires
 `REDFISH_WORKLOAD_LISTEN`, exact `REDFISH_WORKLOAD_PEERS`, its own socket mount
 and SPIRE registration, and separate routing/policy. It uses the same app router
 as port 8081: successful mTLS with an allowed workload still needs an application
-credential and role. It bounds 32 connections/eight concurrent handshakes.
-The ordinary HTTP API and metrics sockets remain distinct. The operator's
-normal Redfish sidecar does not enable this listener.
+credential and role. The shared listener bounds 32 connections/eight concurrent handshakes and
+retains permits through HTTP response, SSE and WebSocket IO lifetimes.
+The ordinary HTTP API and metrics sockets remain distinct. The updated operator
+enables Redfish on 8444 and BMC on 8443, mounts each
+container's Workload API socket, and asserts `QRAB_EXPECTED_SPIFFE_ID` at startup.
+Its examples require separate GitOps enrollments before rollout. Ordinary
+ingress-facing HTTP and metrics remain distinct protection tasks.
 
 ## OIDC browser login and downstream user tokens
 
@@ -111,8 +124,8 @@ sequenceDiagram
     participant E as TLS ingress
     participant D as Dashboard
     participant K as Kanidm HTTPS
-    participant R as VM Redfish HTTP 8081
-    participant C as VM BMC WS 8080
+    participant R as VM Redfish mTLS 8444
+    participant C as VM BMC mTLS 8443
     B->>E: HTTPS GET dashboard login
     E->>D: Plain HTTP
     D-->>B: Redirect with state, nonce, S256 PKCE challenge
@@ -126,9 +139,9 @@ sequenceDiagram
     D-->>B: Opaque Secure HttpOnly SameSite=Lax session cookie
     B->>E: HTTPS VM action / SSE / WSS console
     E->>D: Plain HTTP / WS, cookie lookup and VM role checks
-    D->>R: M6: plain HTTP, Authorization Bearer user ID token
+    D->>R: M6: SPIFFE mTLS HTTPS, user ID-token bearer
     R->>R: Verify trusted issuer/audience/expiry and VM subject/group role
-    D->>C: M7: plain WS upgrade, same user ID token
+    D->>C: M7: SPIFFE mTLS WSS, same user ID token
     C->>C: Verify token and independent admin console grant
 ```
 
@@ -147,11 +160,14 @@ opaque session cookie and CSRF value. VM-scoped browser management under
 the full BMC page's HTML/assets can be served by the dashboard without fetching
 the standalone BMC page. The graphical console still goes dashboard → BMC →
 manager control socket → private VNC. TLS terminates at ingress; subsequent
-HTTP/WS carrying that user token is plain (M2, M6 and M7).
+M2 from the ingress to dashboard remains plain; M6/M7 use workload mTLS
+with exact per-VM service IDs.
 
 Standalone BMC browser management goes through `/bmc/redfish/*`. BMC validates
 the ambient session and exact Origin/CSRF for mutations, strips `/bmc` and
-sends the stored ID token over loopback HTTP to Redfish (M8). Explicit native
+sends the stored ID token over loopback SPIFFE mTLS to Redfish (M8) in
+operator Pods. Standalone compatibility permits HTTP only to a literal loopback
+IP; remote HTTP and an unpinned WebPKI proxy fallback are refused. Explicit native
 credentials remain explicit and cannot fall back to a browser session on
 failure. Native `/redfish` ingress requests bypass this adapter entirely.
 

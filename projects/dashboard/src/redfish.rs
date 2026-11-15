@@ -1,4 +1,4 @@
-//! Server-side calls to one VM's Redfish service at `http://<pod IP>:8081`,
+//! Server-side calls to one VM's Redfish service over SPIFFE mTLS,
 //! carrying the signed-in user's ID token as `Authorization: Bearer`. Redfish
 //! trusts the dashboard's token audience and applies the VM's admin/viewer
 //! lists, which include the console's while the BMC is enabled, so it
@@ -152,49 +152,97 @@ impl std::fmt::Display for RedfishError {
 
 #[derive(Clone)]
 pub struct Redfish {
-    http: reqwest::Client,
+    identity: Option<qrab_spiffe::Identity>,
     port: u16,
 }
 
+pub struct VmRedfish {
+    http: reqwest::Client,
+    origin: String,
+}
+
 impl Redfish {
-    pub fn new(port: u16) -> anyhow::Result<Self> {
+    pub fn new(identity: qrab_spiffe::Identity, port: u16) -> Self {
+        Self {
+            identity: Some(identity),
+            port,
+        }
+    }
+
+    #[cfg(test)]
+    pub fn for_test(port: u16) -> anyhow::Result<Self> {
         Ok(Self {
-            http: reqwest::Client::builder()
-                .redirect(reqwest::redirect::Policy::none())
-                .no_proxy()
-                .connect_timeout(Duration::from_secs(3))
-                .timeout(Duration::from_secs(8))
-                .build()?,
+            identity: None,
             port,
         })
     }
 
-    fn url(&self, ip: IpAddr, path: &str) -> String {
-        format!("http://{}{path}", SocketAddr::new(ip, self.port))
+    /// Resolve the expected service ID from trusted immutable VM metadata.
+    pub fn for_vm(
+        &self,
+        vm: &qrab_operator::api::VirtualMachine,
+        ip: IpAddr,
+    ) -> anyhow::Result<VmRedfish> {
+        let identity = self.identity.as_ref();
+        let (http, scheme) = if let Some(identity) = identity {
+            (
+                qrab_spiffe::http::client(
+                    identity,
+                    crate::workload::peer(identity, vm, "redfish")?,
+                )?,
+                "https",
+            )
+        } else {
+            #[cfg(test)]
+            {
+                anyhow::ensure!(ip.is_loopback(), "plaintext test fixture must be loopback");
+                (
+                    reqwest::Client::builder()
+                        .redirect(reqwest::redirect::Policy::none())
+                        .no_proxy()
+                        .connect_timeout(Duration::from_secs(3))
+                        .build()?,
+                    "http",
+                )
+            }
+            #[cfg(not(test))]
+            {
+                anyhow::bail!("SPIFFE identity unavailable")
+            }
+        };
+        Ok(VmRedfish {
+            http,
+            origin: format!("{scheme}://{}", SocketAddr::new(ip, self.port)),
+        })
+    }
+}
+
+impl VmRedfish {
+    fn url(&self, path: &str) -> String {
+        format!("{}{path}", self.origin)
     }
 
     /// Shared transport for the VM-scoped browser bridge, including SSE.
     pub(crate) fn browser_request(
         &self,
-        ip: IpAddr,
         path: &str,
         method: reqwest::Method,
     ) -> reqwest::RequestBuilder {
         self.http
-            .request(method, self.url(ip, path))
+            .request(method, self.url(path))
             .timeout(Duration::from_secs(60))
     }
 
     pub async fn get<T: DeserializeOwned>(
         &self,
-        ip: IpAddr,
         path: &'static str,
         token: &str,
         limit: usize,
     ) -> Result<T, RedfishError> {
         let response = self
             .http
-            .get(self.url(ip, path))
+            .get(self.url(path))
+            .timeout(Duration::from_secs(8))
             .bearer_auth(token)
             .send()
             .await
@@ -207,15 +255,11 @@ impl Redfish {
     }
 
     /// `ComputerSystem.Reset` with one ResetType.
-    pub async fn reset(
-        &self,
-        ip: IpAddr,
-        token: &str,
-        reset: ResetType,
-    ) -> Result<(), RedfishError> {
+    pub async fn reset(&self, token: &str, reset: ResetType) -> Result<(), RedfishError> {
         let response = self
             .http
-            .post(self.url(ip, RESET))
+            .post(self.url(RESET))
+            .timeout(Duration::from_secs(8))
             .bearer_auth(token)
             .json(&serde_json::json!({"ResetType": reset.name()}))
             .send()
@@ -229,12 +273,8 @@ impl Redfish {
     }
 
     /// The offered reset types Redfish currently allows, in the dashboard's order.
-    pub async fn reset_types(
-        &self,
-        ip: IpAddr,
-        token: &str,
-    ) -> Result<Vec<ResetType>, RedfishError> {
-        let info: ActionInfo = self.get(ip, RESET_INFO, token, MAX_BODY).await?;
+    pub async fn reset_types(&self, token: &str) -> Result<Vec<ResetType>, RedfishError> {
+        let info: ActionInfo = self.get(RESET_INFO, token, MAX_BODY).await?;
         let allowed = info
             .parameters
             .into_iter()
@@ -245,19 +285,19 @@ impl Redfish {
     }
 
     /// The detail page's reads, fetched concurrently.
-    pub async fn panel(&self, ip: IpAddr, token: &str) -> Panel {
+    pub async fn panel(&self, token: &str) -> Panel {
         let history = futures::future::join_all(HISTORY.map(|path| async move {
             let metric = path
                 .split_once("metric=")
                 .and_then(|(_, rest)| rest.split('&').next())
                 .unwrap_or_default();
-            let read = self.get::<History>(ip, path, token, MAX_BODY).await;
+            let read = self.get::<History>(path, token, MAX_BODY).await;
             (metric, read.map_err(|e| e.to_string()))
         }));
         let (system, log, entries, history) = tokio::join!(
-            self.get::<System>(ip, SYSTEM, token, MAX_BODY),
-            self.get::<LogService>(ip, EVENT_LOG, token, MAX_BODY),
-            self.get::<Collection<LogEntry>>(ip, EVENT_ENTRIES, token, MAX_LOG_BODY),
+            self.get::<System>(SYSTEM, token, MAX_BODY),
+            self.get::<LogService>(EVENT_LOG, token, MAX_BODY),
+            self.get::<Collection<LogEntry>>(EVENT_ENTRIES, token, MAX_LOG_BODY),
             history,
         );
         Panel {

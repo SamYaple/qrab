@@ -11,6 +11,14 @@ with their size, disks and live usage, and open a VM's status, guest agent,
 QMP events, configuration and console. Members of `qrab_vm_launchers` can
 launch new VMs; VM admins can send power actions and delete VMs.
 
+The updated dashboard uses SPIFFE mTLS for all per-VM management and console
+requests, with the user ID token still verified by the receiving service. BMC
+8443 and Redfish8444 have separate service IDs bound to immutable VM UID and
+container, rather than DNS/IP or the manager's migration identity. The dashboard
+has its own image-bound SVID and read-only CSI socket; no plaintext fallback is
+provided. Public ingress-to-dashboard and monitoring connections are separate
+hardening tasks, not implicitly encrypted by these service listeners.
+
 ## Architecture
 
 - **One OIDC client for the cluster.** The dashboard is the only browser OIDC
@@ -24,9 +32,9 @@ launch new VMs; VM admins can send power actions and delete VMs.
   operator checks) and that the Pod carries the operator's labels for it
   (`app.kubernetes.io/instance` and `qrab.yapplesauce.com/owner-uid`), and
   calls that Pod with `Authorization: Bearer <the user's ID token>`: its
-  Redfish service at `http://<pod IP>:8081/redfish/v1` for status, guest
+  Redfish service at `https://<pod IP>:8444/redfish/v1` for status, guest
   agent, configuration, events and power, and its BMC at
-  `ws://<pod IP>:8080/api/console` for the console only. Both verify the
+  `wss://<pod IP>:8443/api/console` for the console only. Both verify the
   token themselves (issuer `https://idm.yaple.net/oauth2/openid/qrab-dashboard`,
   audience `qrab-dashboard`; see [bmc.md](bmc.md#dashboard-bearer-tokens) and
   [redfish.md](redfish.md#trusted-token-sources)) and apply the VM's roles:
@@ -625,14 +633,14 @@ non-root UID 10001, read-only root, no capabilities, credentials mounted as
 files), the Service, the Ingress and Certificate for `vms.yapplesauce.com`,
 and two CiliumNetworkPolicies. The first lets the dashboard receive from the
 ingress and host, and reach the API server, DNS, Kanidm (192.168.0.251:443)
-and VM Pods on 8080 (BMC console) and 8081 (Redfish). The second,
-`qrab-vm-from-dashboard`, selects every VM Pod and admits the dashboard on 8080
-and 8081. Cilium policies are additive, so per-VM policies such as
+and VM Pods on 8443 (BMC workload console) and 8444 (Redfish workload API). The second,
+`qrab-vm-from-dashboard`, selects every VM Pod and admits the dashboard on 8443
+and 8444. Cilium policies are additive, so per-VM policies such as
 `qrab-demo` (the qrab-redfish-poc console's) keep working and gain only the
 dashboard. A VM Pod
 without a policy of its own, such as every dashboard-launched VM, becomes
-ingress default-deny once this policy selects it: only the dashboard to 8080
-and 8081 is admitted. Its egress is not
+ingress default-deny once this policy selects it: only the dashboard to 8443
+and 8444 is admitted. Its egress is not
 restricted by this policy.
 
 ```sh
@@ -897,3 +905,34 @@ Rejected launch forms retain non-secret values and identify each invalid field
 with an inline message and an error-summary link. The summary receives native
 browser focus after submission; linked fields in optional sections remain
 visible. User-data is cleared instead of being echoed into the response.
+
+## Workload TLS enrollment and verification
+
+Stage [workload identities](../contrib/kubernetes/workload-identities/) through
+kubernetes-gitops before deploying the new clients/servers. The dashboard's
+registration pins its reviewed image; BMC/Redfish registrations bind namespace,
+SA, container, UID and the controller-added Pod UID while preserving per-VM
+identity across image updates and migrations. The operator mounts the same CSI
+socket into each service; SPIRE issues only that container's selected identity.
+No sidecar receives the manager's SVID or private runtime volume.
+
+Release matching manager/operator images to enable BMC8443 and Redfish8444,
+then release dashboard and its Cilium policy (VM backend egress/ingress only
+8443/8444). The BMC's own browser adapter uses Redfish mTLS over loopback.
+Do not infer that old explicit manager image overrides start the new BMC
+listener: update such VM image pins deliberately and verify the resulting Pod.
+
+For a running test VM, an operator can run the deployed dashboard's fixed
+read-only transport probe with `kubectl exec deploy/qrab-dashboard --
+qrab-dashboard workload-probe qrab VM-UID POD-IP bmc` (or `redfish`). It always
+uses the selected service's fixed TLS port/path, sends no user token and prints
+only expected service identity plus the resulting **401**. This proves workload
+TLS admission while confirming application auth is still required; it is not
+a user-authenticated console session or a general URL proxy. A wrong UID must
+fail TLS rather than returning any HTTP response. No key material is printed.
+
+The HTTPS clients require `qrab_spiffe::http::install_tls13_provider()` before
+other TLS clients are built. This restricts cipher suites even for preconfigured
+reqwest/rustls configs; an incompatible already-installed provider refuses
+startup, rather than silently allowing TLS1.2. Redirects and environment proxies
+are disabled, and per-service client scopes bind both the trusted VM ID and Pod IP.

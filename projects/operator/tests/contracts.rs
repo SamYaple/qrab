@@ -513,7 +513,16 @@ fn existing_specs_keep_the_bmc_and_gain_its_redfish_sidecar() {
         let bmc = env(&pod["spec"]["initContainers"][0]);
         assert!(!bmc.contains_key("BMC_VIEWER_SUBJECTS"));
         // The BMC's /redfish proxy reaches Redfish over the Pod's loopback.
-        assert_eq!(bmc["BMC_REDFISH_URL"], "http://127.0.0.1:8081");
+        assert_eq!(bmc["BMC_REDFISH_URL"], "https://127.0.0.1:8444");
+        assert_eq!(bmc["BMC_WORKLOAD_LISTEN"], "0.0.0.0:8443");
+        assert_eq!(
+            bmc["BMC_WORKLOAD_PEERS"],
+            "spiffe://yapplesauce.com/kubernetes/qrab/qrab-dashboard"
+        );
+        assert_eq!(
+            bmc["BMC_REDFISH_SPIFFE_ID"],
+            "spiffe://yapplesauce.com/kubernetes/qrab/vm/owner-one/redfish"
+        );
         let redfish = env(&pod["spec"]["initContainers"][1]);
         assert_eq!(
             redfish["REDFISH_ADMIN_SUBJECTS"],
@@ -672,10 +681,10 @@ fn operator_renders_exactly_the_enabled_sidecars() {
                 sidecar["args"],
                 json!(["--socket", resources::CONTROL_SOCKET])
             );
-            // Only the control socket volume: no QMP/VNC runtime, state, Secrets or config.
+            // Control plus attested Workload API: no QMP/VNC runtime, state, Secrets or config.
             assert_eq!(
                 sidecar["volumeMounts"],
-                json!([{"name":"control","mountPath":"/run/qrab-control"}])
+                json!([{"name":"control","mountPath":"/run/qrab-control"},{"name":"workload-socket","mountPath":"/run/spire","readOnly":true}])
             );
             assert!(sidecar.get("startupProbe").is_none());
             assert_eq!(sidecar["securityContext"], manager["securityContext"]);
@@ -685,14 +694,31 @@ fn operator_renders_exactly_the_enabled_sidecars() {
             .flat_map(|c| c["ports"].as_array().unwrap().clone())
             .map(|p| p["containerPort"].as_u64().unwrap())
             .collect();
-        let expected_ports: Vec<u64> = [(8080, bmc), (8081, redfish), (9181, redfish)]
-            .into_iter()
-            .filter_map(|(port, on)| on.then_some(port))
-            .collect();
+        let expected_ports: Vec<u64> = [
+            (8080, bmc),
+            (8443, bmc),
+            (8081, redfish),
+            (8444, redfish),
+            (9181, redfish),
+        ]
+        .into_iter()
+        .filter_map(|(port, on)| on.then_some(port))
+        .collect();
         assert_eq!(ports, expected_ports);
         if redfish {
             let redfish = env(sidecars.iter().find(|c| c["name"] == "redfish").unwrap());
             assert_eq!(redfish["REDFISH_OIDC_AUDIENCE"], "qrab-redfish");
+            assert_eq!(redfish["REDFISH_WORKLOAD_LISTEN"], "0.0.0.0:8444");
+            let expected_peers = if bmc {
+                "spiffe://yapplesauce.com/kubernetes/qrab/qrab-dashboard,spiffe://yapplesauce.com/kubernetes/qrab/vm/owner-one/bmc"
+            } else {
+                "spiffe://yapplesauce.com/kubernetes/qrab/qrab-dashboard"
+            };
+            assert_eq!(redfish["REDFISH_WORKLOAD_PEERS"], expected_peers);
+            assert_eq!(
+                redfish["QRAB_EXPECTED_SPIFFE_ID"],
+                "spiffe://yapplesauce.com/kubernetes/qrab/vm/owner-one/redfish"
+            );
             assert_eq!(
                 redfish["REDFISH_OIDC_ISSUER"],
                 "https://idm.yaple.net/oauth2/openid/qrab-redfish"
@@ -1409,7 +1435,7 @@ fn redfish_push_is_opt_in_with_separate_state_and_exact_https_egress() {
     assert_eq!(configured["QRAB_RESOURCE_SCOPE"], "container");
     assert_eq!(
         redfish["volumeMounts"],
-        json!([{"name":"control","mountPath":"/run/qrab-control"},{"name":"redfish-state","mountPath":"/var/lib/qrab-redfish"}])
+        json!([{"name":"control","mountPath":"/run/qrab-control"},{"name":"workload-socket","mountPath":"/run/spire","readOnly":true},{"name":"redfish-state","mountPath":"/var/lib/qrab-redfish"}])
     );
     assert!(pod["spec"]["volumes"].as_array().unwrap().iter().any(|v|v==&json!({"name":"redfish-state","persistentVolumeClaim":{"claimName":"test-redfish-state"}})));
     for container in pod["spec"]["containers"]
@@ -1781,7 +1807,7 @@ fn redfish_metrics_port_is_declared_and_admitted_only_from_prometheus_and_the_op
     let redfish = sidecar(&pod, "redfish");
     assert_eq!(
         redfish["ports"],
-        json!([{"name":"redfish","containerPort":8081},{"name":"metrics","containerPort":9181}])
+        json!([{"name":"redfish","containerPort":8081},{"name":"redfish-mtls","containerPort":8444},{"name":"metrics","containerPort":9181}])
     );
     // Probes stay on the API listener; the metrics listener serves only /metrics.
     assert_eq!(redfish["readinessProbe"]["httpGet"]["port"], "redfish");

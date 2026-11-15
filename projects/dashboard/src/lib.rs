@@ -20,6 +20,7 @@ pub mod session_store;
 mod tests;
 pub mod ui;
 pub mod vpn_page;
+mod workload;
 
 use access::Role;
 use axum::{
@@ -409,9 +410,13 @@ async fn detail(
     let panel = match (vm.spec.components.redfish_enabled(), ip) {
         (false, _) => ui::PanelState::Disabled,
         (true, None) => ui::PanelState::NoPod,
-        (true, Some(ip)) => {
-            ui::PanelState::Loaded(Box::new(app.redfish.panel(ip, &user.id_token).await))
-        }
+        (true, Some(ip)) => ui::PanelState::Loaded(Box::new(
+            app.redfish
+                .for_vm(&vm, ip)
+                .map_err(|_| Failure::unavailable("The VM management service is unavailable."))?
+                .panel(&user.id_token)
+                .await,
+        )),
     };
     let catalog = base_images(&app).await.unwrap_or_default();
     let detail = model::detail(&vm, role, &usage, pod.as_ref(), ip, &catalog);

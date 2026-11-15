@@ -25,6 +25,7 @@ async fn main() -> Result<()> {
         args.len() == 2 && (args[0] == "--config" || args[0] == "--socket"),
         USAGE
     );
+    qrab_spiffe::http::install_tls13_provider()?;
     let config = bmc::config::Config::from_env()?;
     let oidc = match &config.browser {
         None => None,
@@ -53,7 +54,44 @@ async fn main() -> Result<()> {
         )),
     };
     let origin = config.browser.as_ref().map(|b| b.origin.clone());
-    let redfish = bmc::proxy::Upstream::new(&config.redfish_url)?;
+    let workload_config = qrab_spiffe::http::Config::from_env("BMC", &[config.listen.port()])?;
+    let tls_identity = if workload_config.is_some() || config.redfish_url.starts_with("https:") {
+        let identity = qrab_spiffe::Identity::from_env()
+            .await
+            .context("BMC SPIFFE identity")?;
+        if let Ok(expected) = std::env::var("QRAB_EXPECTED_SPIFFE_ID") {
+            ensure!(
+                identity.id()? == qrab_spiffe::id(&expected)?,
+                "unexpected BMC SPIFFE identity"
+            );
+        }
+        Some(identity)
+    } else {
+        None
+    };
+    let workload = match workload_config {
+        Some(config) => Some(
+            config
+                .bind(tls_identity.as_ref().expect("configured identity"))
+                .await?,
+        ),
+        None => None,
+    };
+    let redfish = if config.redfish_url.starts_with("https:") {
+        let peer = std::env::var("BMC_REDFISH_SPIFFE_ID")
+            .context("BMC_REDFISH_SPIFFE_ID is required for HTTPS Redfish")?;
+        bmc::proxy::Upstream::mtls(
+            &config.redfish_url,
+            tls_identity.as_ref().expect("configured identity"),
+            qrab_spiffe::id(&peer)?,
+        )?
+    } else {
+        ensure!(
+            workload.is_none(),
+            "workload-enabled BMC requires Redfish mTLS"
+        );
+        bmc::proxy::Upstream::new(&config.redfish_url)?
+    };
     let listener = tokio::net::TcpListener::bind(config.listen).await?;
     let state = |control| bmc::AppState {
         oidc,
@@ -75,7 +113,7 @@ async fn main() -> Result<()> {
         let remote = pod::Remote::new(args[1].clone().into());
         let app = bmc::router(state(pod::Backend::Socket(remote.clone())));
         tracing::info!(listen=%config.listen, origin=?origin, bearer=config.bearer.is_some(), redfish=%config.redfish_url, socket=%args[1], "BMC sidecar started");
-        return sidecar(listener, app, remote, signal).await;
+        return sidecar(listener, workload, app, remote, signal).await;
     }
     let vm = pod::Config::read(Path::new(&args[1]))?;
     vm.validate()?;
@@ -83,10 +121,7 @@ async fn main() -> Result<()> {
     let (control, receiver) = pod::control_channel_for(&vm, pod::Deployment::from_env());
     let app = bmc::router(state(pod::Backend::Local(control)));
     let (stop, signal_rx) = watch::channel(false);
-    let mut web_signal = signal_rx.clone();
-    let server = axum::serve(listener, app).with_graceful_shutdown(async move {
-        let _ = web_signal.wait_for(|v| *v).await;
-    });
+    let server = serve_http(listener, workload, app, signal_rx.clone());
     let mut server = std::pin::pin!(std::future::IntoFuture::into_future(server));
     let mut vm_signal = signal_rx;
     let runner = pod::run_controlled(
@@ -116,14 +151,13 @@ async fn main() -> Result<()> {
 /// the pod's clean-release check sees an orderly sidecar stop.
 async fn sidecar(
     listener: tokio::net::TcpListener,
+    workload: Option<qrab_spiffe::http::Listener>,
     app: axum::Router,
     remote: pod::Remote,
     signal: impl std::future::Future<Output = ()>,
 ) -> Result<()> {
-    let (stop, mut stopped) = watch::channel(false);
-    let server = axum::serve(listener, app).with_graceful_shutdown(async move {
-        let _ = stopped.wait_for(|v| *v).await;
-    });
+    let (stop, stopped) = watch::channel(false);
+    let server = serve_http(listener, workload, app, stopped);
     let mut server = std::pin::pin!(std::future::IntoFuture::into_future(server));
     tokio::select! {
         result=&mut server => result?,
@@ -135,4 +169,29 @@ async fn sidecar(
         }
     }
     Ok(())
+}
+
+/// Both listeners share app authorization, admission budgets and shutdown.
+async fn serve_http(
+    listener: tokio::net::TcpListener,
+    workload: Option<qrab_spiffe::http::Listener>,
+    app: axum::Router,
+    stopped: watch::Receiver<bool>,
+) -> std::io::Result<()> {
+    let shutdown = |mut signal: watch::Receiver<bool>| async move {
+        let _ = signal.wait_for(|v| *v).await;
+    };
+    let ordinary =
+        axum::serve(listener, app.clone()).with_graceful_shutdown(shutdown(stopped.clone()));
+    let protected = async move {
+        match workload {
+            Some(listener) => {
+                axum::serve(listener, app)
+                    .with_graceful_shutdown(shutdown(stopped))
+                    .await
+            }
+            None => Ok(()),
+        }
+    };
+    tokio::try_join!(std::future::IntoFuture::into_future(ordinary), protected).map(|_| ())
 }

@@ -151,7 +151,7 @@ On SIGTERM the sidecar closes live streams within two seconds and exits 0.
 | `BMC_VIEWER_GROUPS` | Comma-separated Kanidm group UUIDs whose members have viewer access |
 | `BMC_ADMIN_BUCKET` | Comma-separated [admin-bucket](#admin-bucket) features enabled for this VM: `audio`, `usb-redirect`. Unset means none; an unknown name stops startup |
 | `QRAB_NODE_NAME`, `QRAB_POD_NAME`, `QRAB_POD_NAMESPACE`, `QRAB_IMAGE` | Optional deployment metadata shown to admins |
-| `BMC_REDFISH_URL` | Origin of the in-pod Redfish sidecar behind `/bmc/redfish`; defaults to `http://127.0.0.1:8081` |
+| `BMC_REDFISH_URL` | Origin of the in-pod Redfish sidecar behind `/bmc/redfish`; standalone default `http://127.0.0.1:8081`; operator uses SPIFFE HTTPS `127.0.0.1:8444` |
 | `BMC_LISTEN` | Listener; defaults to `0.0.0.0:8080` |
 | `BMC_ASSETS_DIR` | Defaults to the source assets directory; image sets `/opt/qrab/bmc/assets` |
 | `BMC_CA_FILE` | Optional PEM root certificate for an isolated test IdP |
@@ -204,7 +204,7 @@ and the `/healthz` and `/readyz` probes. Status, power, events, the guest agent 
 `Oem.Qrab.GuestAgent`, `Oem.Qrab.Configuration`,
 `Managers/1/Oem/Qrab/Resources` and the `Oem/QrabComputerSystem` actions
 ([redfish.md](redfish.md)). The BMC page reads them through the proxy and the
-dashboard calls each VM's Redfish on port 8081 directly
+dashboard calls each VM's Redfish workload listener on port 8444 directly
 ([dashboard.md](dashboard.md)). The former `/api/status`, `/api/action`,
 `/api/events`, `/api/agent`, `/api/config`, `/api/events/stream`,
 `/api/resources` and `POST /api/agent/{freeze,thaw,update}` routes are gone
@@ -265,10 +265,11 @@ socket (`console` operation), and an embedded BMC receives it through the
 in-process channel. The BMC still authenticates the WebSocket at admission and
 rechecks the session every second, so logout, expiry or role loss closes the
 tunnel. The manager trusts its same-UID socket peer. The sidecar mounts only the
-control-socket volume, never the directory holding QMP and VNC sockets; see
+control-socket and attested Workload API volumes, never the directory holding QMP and VNC sockets; see
 [manager.md](manager.md#control-api). For a token-authenticated machine API, see
-[redfish.md](redfish.md). It never accepts a socket path from HTTP. QEMU always starts
-with `-nic none`; opening the BMC's pod port does not create guest networking.
+[redfish.md](redfish.md). It never accepts a socket path from HTTP. QEMU has `-nic none` when no guest NICs are configured; optional guest NICs
+use separate anchor namespaces and never share the BMC Pod network. Opening
+the BMC's Pod port does not create guest networking.
 The console's Cilium policy (`contrib/kubernetes/redfish-poc/console.yaml`)
 admits the ingress and host on 8080 and 8081 and permits only DNS, Kanidm
 HTTPS and the native iSCSI portal outbound. The VM Pod mounts no Kubernetes API token.
@@ -389,9 +390,9 @@ proxy keyed by the Pod's identity).
 
 The dashboard is the cluster's single browser OIDC client (Kanidm client
 `qrab-dashboard`). It proxies a VM's console server-side from the BMC's
-`/api/console` at the Pod IP on port 8080 and forwards the signed-in user's
+`/api/console` at the Pod IP on mTLS port 8443 and forwards the signed-in user's
 ID token as `Authorization: Bearer <JWT>`; status, events and power go to the
-VM's Redfish on port 8081 with the same token
+VM's Redfish on mTLS port 8444 with the same token
 ([dashboard.md](dashboard.md)). The BMC verifies that token itself, so a
 dashboard cannot forge identities. Bearer mode is on when both
 `BMC_BEARER_ISSUER` and `BMC_BEARER_AUDIENCE` are set; the operator renders
@@ -427,7 +428,7 @@ scope `groups_uuid`), exactly as for a browser session; admin wins.
 Without `BMC_PUBLIC_URL` the BMC is bearer-only: it registers no `/auth/*`
 routes and serves no browser UI or `/assets` (404). It needs no Service,
 Ingress, certificate or Kanidm callback, and only the dashboard reaches it.
-Its network policy must admit the dashboard's Pods to port 8080 and permit
+Its network policy must admit the dashboard's Pods to mTLS port 8443 and permit
 HTTPS to the token issuer for discovery and JWKS.
 
 Kanidm must issue `qrab-dashboard` ID tokens with the `groups_uuid` scope for
@@ -520,3 +521,23 @@ Redfish and manager process/cgroup usage, separately. The BMC's own container
 usage is in the cluster's cAdvisor metrics. The guest-restart power action
 (`GracefulRestart`) requires a connected, thawed guest; delivery does not
 prove reboot completion.
+
+## Management workload TLS
+
+Operator Pods enable BMC8443 with the shared bounded SPIFFE TLS1.3 listener,
+accepting exactly the dashboard workload ID. `BMC_WORKLOAD_LISTEN` and
+`BMC_WORKLOAD_PEERS` configure it in standalone mode; partial configuration
+refuses startup. The Workload API socket comes from `QRAB_SPIFFE_ENDPOINT_SOCKET`,
+and `QRAB_EXPECTED_SPIFFE_ID` asserts this container's own per-VM `/bmc` identity.
+The ordinary HTTP listener remains separate for ingress/probes; it is not
+protected merely by adding this listener.
+
+In operator mode `BMC_REDFISH_URL=https://127.0.0.1:8444` and
+`BMC_REDFISH_SPIFFE_ID` pins this VM's `/redfish` identity. The Redfish server
+admits this VM's BMC ID and still authenticates the forwarded user credential.
+The browser-session adapter keeps Origin/CSRF checks and never forwards cookies
+or trusts identity headers. HTTPS proxying requires SPIFFE credentials; HTTP
+compatibility is permitted only to a literal loopback IP without URL credentials,
+path, query or fragment. There is no remote plaintext or default WebPKI fallback.
+The updated operator's workload-enabled BMC cannot select that HTTP compatibility
+path. See [enrollment/verification](dashboard.md#workload-tls-enrollment-and-verification).

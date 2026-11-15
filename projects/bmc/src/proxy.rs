@@ -54,14 +54,53 @@ pub struct Upstream {
 impl Upstream {
     /// `origin` is an HTTP(S) origin such as `http://127.0.0.1:8081`.
     pub fn new(origin: &str) -> anyhow::Result<Self> {
+        let url = reqwest::Url::parse(origin)?;
+        anyhow::ensure!(
+            url.username().is_empty()
+                && url.password().is_none()
+                && url.query().is_none()
+                && url.fragment().is_none()
+                && url.path() == "/",
+            "Redfish transport requires a bare origin"
+        );
+        let loopback = match url.host() {
+            Some(openidconnect::url::Host::Ipv4(ip)) => ip.is_loopback(),
+            Some(openidconnect::url::Host::Ipv6(ip)) => ip.is_loopback(),
+            _ => false,
+        };
+        anyhow::ensure!(
+            url.scheme() == "http" && loopback,
+            "plain Redfish transport is local loopback only; HTTPS requires an exact SPIFFE peer"
+        );
         let client = reqwest::Client::builder()
             .redirect(reqwest::redirect::Policy::none())
             .no_proxy()
             .connect_timeout(Duration::from_secs(2))
             .build()?;
         Ok(Self {
-            origin: origin.trim_end_matches('/').to_owned(),
+            origin: origin.trim_end_matches('/').into(),
             client,
+        })
+    }
+
+    pub fn mtls(
+        origin: &str,
+        identity: &qrab_spiffe::Identity,
+        peer: qrab_spiffe::SpiffeId,
+    ) -> anyhow::Result<Self> {
+        let url = reqwest::Url::parse(origin)?;
+        anyhow::ensure!(
+            url.scheme() == "https"
+                && url.username().is_empty()
+                && url.password().is_none()
+                && url.query().is_none()
+                && url.fragment().is_none()
+                && url.path() == "/",
+            "Redfish mTLS requires a bare HTTPS origin"
+        );
+        Ok(Self {
+            origin: origin.trim_end_matches('/').into(),
+            client: qrab_spiffe::http::client(identity, peer)?,
         })
     }
 }

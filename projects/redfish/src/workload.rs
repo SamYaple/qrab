@@ -1,29 +1,10 @@
 //! Optional SPIFFE mTLS transport. Workload identity is an additional admission
 //! check: the ordinary router still authenticates and authorizes every request.
 //! No identity is taken from HTTP headers and no role is granted by this module.
-use anyhow::{bail, ensure, Context, Result};
-use axum::serve::Listener as AxumListener;
-use futures::{future::BoxFuture, stream::FuturesUnordered, StreamExt};
-use qrab_spiffe::{Acceptor, Identity, SpiffeId};
-use std::{
-    io,
-    net::SocketAddr,
-    pin::Pin,
-    sync::Arc,
-    task::{Context as TaskContext, Poll},
-    time::Duration,
-};
-use tokio::{
-    io::{AsyncRead, AsyncWrite, ReadBuf},
-    net::{TcpListener, TcpStream},
-    sync::{OwnedSemaphorePermit, Semaphore},
-};
-
-/// Includes pending handshakes and established HTTP connections. A permit is
-/// retained by the IO until Axum drops it, including upgraded/streaming bodies.
-pub const MAX_CONNECTIONS: usize = 32;
-/// Slow clients do not serialize other handshakes or allocate unbounded tasks.
-pub const MAX_HANDSHAKES: usize = 8;
+use anyhow::{ensure, Context, Result};
+pub use qrab_spiffe::http::{Connection, Listener, MAX_CONNECTIONS, MAX_HANDSHAKES};
+use qrab_spiffe::{Identity, SpiffeId};
+use std::net::SocketAddr;
 
 pub struct Config {
     listen: SocketAddr,
@@ -97,122 +78,13 @@ impl Config {
     /// Fails closed if no rotating identity or exact-peer TLS config is available.
     pub async fn bind(self) -> Result<Listener> {
         let identity = Identity::connect(&self.endpoint).await?;
-        Listener::bind(self.listen, &identity, &self.peers).await
-    }
-}
-
-type Accepted = Result<(Connection, SocketAddr), qrab_spiffe::Error>;
-
-pub struct Listener {
-    tcp: TcpListener,
-    acceptor: Acceptor,
-    handshakes: FuturesUnordered<BoxFuture<'static, Accepted>>,
-    slots: Arc<Semaphore>,
-    reserved: Option<OwnedSemaphorePermit>,
-}
-
-impl Listener {
-    pub async fn bind(
-        address: SocketAddr,
-        identity: &Identity,
-        peers: &[SpiffeId],
-    ) -> Result<Self> {
-        if peers.is_empty() {
-            bail!("at least one exact workload peer is required");
+        if let Ok(expected) = std::env::var("QRAB_EXPECTED_SPIFFE_ID") {
+            ensure!(
+                identity.id()? == qrab_spiffe::id(&expected)?,
+                "unexpected Redfish SPIFFE identity"
+            );
         }
-        let local_id = identity.id()?;
-        ensure!(
-            peers
-                .iter()
-                .all(|peer| peer.trust_domain() == local_id.trust_domain()),
-            "workload peers must belong to the local SPIFFE trust domain"
-        );
-        let acceptor = identity.acceptor(peers)?;
-        let tcp = TcpListener::bind(address).await?;
-        Ok(Self {
-            tcp,
-            acceptor,
-            handshakes: FuturesUnordered::new(),
-            slots: Arc::new(Semaphore::new(MAX_CONNECTIONS)),
-            reserved: None,
-        })
-    }
-}
-
-impl AxumListener for Listener {
-    type Io = Connection;
-    type Addr = SocketAddr;
-
-    async fn accept(&mut self) -> (Self::Io, Self::Addr) {
-        loop {
-            tokio::select! {
-                completed = self.handshakes.next(), if !self.handshakes.is_empty() => {
-                    match completed.expect("nonempty handshake set") {
-                        Ok(connection) => return connection,
-                        // Do not log certificates, peer identifiers or credentials.
-                        Err(_) => tracing::debug!("workload TLS handshake rejected"),
-                    }
-                }
-                permit = self.slots.clone().acquire_owned(),
-                    if self.reserved.is_none() && self.handshakes.len() < MAX_HANDSHAKES => {
-                    self.reserved = Some(permit.expect("private semaphore is never closed"));
-                }
-                accepted = self.tcp.accept(),
-                    if self.reserved.is_some() && self.handshakes.len() < MAX_HANDSHAKES => {
-                    match accepted {
-                        Ok((socket, address)) => {
-                            let permit = self.reserved.take().expect("reserved connection slot");
-                            let acceptor = self.acceptor.clone();
-                            self.handshakes.push(Box::pin(async move {
-                                let stream = acceptor.accept(socket).await?;
-                                Ok((Connection { stream, _permit: permit }, address))
-                            }));
-                        }
-                        Err(error) => {
-                            tracing::warn!(%error, "workload listener accept failed");
-                            tokio::time::sleep(Duration::from_millis(100)).await;
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    fn local_addr(&self) -> io::Result<Self::Addr> {
-        self.tcp.local_addr()
-    }
-}
-
-/// An authenticated TLS 1.3 stream. The shared qrab-spiffe acceptor enforces
-/// mandatory certificates, exact peer IDs, local trust domain and handshake timeout.
-pub struct Connection {
-    stream: qrab_spiffe::server::TlsStream<TcpStream>,
-    _permit: OwnedSemaphorePermit,
-}
-
-impl AsyncRead for Connection {
-    fn poll_read(
-        mut self: Pin<&mut Self>,
-        cx: &mut TaskContext<'_>,
-        buf: &mut ReadBuf<'_>,
-    ) -> Poll<io::Result<()>> {
-        Pin::new(&mut self.stream).poll_read(cx, buf)
-    }
-}
-
-impl AsyncWrite for Connection {
-    fn poll_write(
-        mut self: Pin<&mut Self>,
-        cx: &mut TaskContext<'_>,
-        buf: &[u8],
-    ) -> Poll<io::Result<usize>> {
-        Pin::new(&mut self.stream).poll_write(cx, buf)
-    }
-    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut TaskContext<'_>) -> Poll<io::Result<()>> {
-        Pin::new(&mut self.stream).poll_flush(cx)
-    }
-    fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut TaskContext<'_>) -> Poll<io::Result<()>> {
-        Pin::new(&mut self.stream).poll_shutdown(cx)
+        Ok(Listener::bind(self.listen, &identity, &self.peers).await?)
     }
 }
 

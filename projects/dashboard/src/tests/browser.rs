@@ -100,8 +100,8 @@ async fn actual_router_browser() {
             .fallback_service(fake_bmc("browser-vm", h.bmc_a.clone())),
     )
     .await;
-    h.state.bmc = bmc::Bmc::new(port);
-    h.state.redfish = redfish::Redfish::new(port).unwrap();
+    h.state.bmc = bmc::Bmc::for_test(port);
+    h.state.redfish = redfish::Redfish::for_test(port).unwrap();
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let origin = format!("http://{}", listener.local_addr().unwrap());
     h.state.origin = origin.clone();

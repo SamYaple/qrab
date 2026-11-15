@@ -169,7 +169,9 @@ async fn forward_inner(
         .unwrap_or_default();
     let mut upstream = app
         .redfish
-        .browser_request(ip, &format!("/redfish/{path}{suffix}"), parts.method)
+        .for_vm(&vm, ip)
+        .map_err(|_| Failure::unavailable("The VM management service is unavailable."))?
+        .browser_request(&format!("/redfish/{path}{suffix}"), parts.method)
         .bearer_auth(&user.id_token)
         .body(body);
     for key in [

@@ -501,7 +501,7 @@ fn viewers_with_creator(
 
 /// The in-pod Redfish listener the BMC's `/redfish/*` proxy forwards to,
 /// over the Pod's loopback.
-pub const BMC_REDFISH_URL: &str = "http://127.0.0.1:8081";
+pub const BMC_REDFISH_URL: &str = "https://127.0.0.1:8444";
 
 /// The subject and group grants rendered into the Redfish sidecar.
 pub struct RedfishAccess {
@@ -1143,7 +1143,8 @@ fn admin_bucket(vm: &VirtualMachine) -> AdminBucket {
 
 /// Native sidecars (restartable init containers) start before the manager,
 /// keep serving while it stops the VM, and do not hold the Pod open after it
-/// exits. They mount the control socket; only Redfish may additionally mount
+/// exits. They mount control and the attested Workload API, never the private
+/// QMP/VNC runtime. Only Redfish may additionally mount
 /// its separately configured subscription-state PVC.
 fn sidecars(
     vm: &VirtualMachine,
@@ -1154,13 +1155,17 @@ fn sidecars(
     let sidecar = |name: &str, command: &str, port: (&str, u16), mut env: Value| {
         env.as_array_mut()
             .unwrap()
-            .push(json!({"name":"QRAB_RESOURCE_SCOPE","value":"container"}));
+            .extend([
+                json!({"name":"QRAB_RESOURCE_SCOPE","value":"container"}),
+                workload_env(),
+                json!({"name":"QRAB_EXPECTED_SPIFFE_ID","value":format!("spiffe://yapplesauce.com/kubernetes/{}/vm/{}/{}",settings.namespace,vm.uid().unwrap_or_default(),name)}),
+            ]);
         json!({"name":name,"image":image,"imagePullPolicy":"Always","restartPolicy":"Always",
             "command":[command],"args":["--socket",CONTROL_SOCKET],
             "ports":[{"name":port.0,"containerPort":port.1}],"env":env,
             "resources":{"requests":{"cpu":"20m","memory":"32Mi"},"limits":{"cpu":"500m","memory":"128Mi"}},
             "securityContext":security,"terminationMessagePolicy":"FallbackToLogsOnError",
-            "volumeMounts":[{"name":"control","mountPath":"/run/qrab-control"}],
+            "volumeMounts":[{"name":"control","mountPath":"/run/qrab-control"},workload_socket().1],
             // No startup probe: it would delay the manager, which starts after sidecars.
             "readinessProbe":{"httpGet":{"path":"/readyz","port":port.0},"periodSeconds":2,"failureThreshold":3,"timeoutSeconds":2},
             "livenessProbe":{"httpGet":{"path":"/healthz","port":port.0},"periodSeconds":10,"failureThreshold":3,"timeoutSeconds":2}})
@@ -1206,19 +1211,37 @@ fn sidecars(
         if !bucket.is_empty() {
             env.push(json!({"name":"BMC_ADMIN_BUCKET","value":bucket.join(",")}));
         }
-        env.push(json!({"name":"BMC_REDFISH_URL","value":BMC_REDFISH_URL}));
-        containers.push(sidecar(
-            "bmc",
-            "qrab-bmc",
-            ("http", 8080),
-            Value::Array(env),
-        ));
+        env.extend([
+            json!({"name":"BMC_REDFISH_URL","value":BMC_REDFISH_URL}),
+            json!({"name":"BMC_REDFISH_SPIFFE_ID","value":format!("spiffe://yapplesauce.com/kubernetes/{}/vm/{}/redfish",settings.namespace,vm.uid().unwrap_or_default())}),
+            json!({"name":"BMC_WORKLOAD_LISTEN","value":"0.0.0.0:8443"}),
+            json!({"name":"BMC_WORKLOAD_PEERS","value":format!("spiffe://yapplesauce.com/kubernetes/{}/qrab-dashboard",settings.namespace)}),
+        ]);
+        let mut bmc = sidecar("bmc", "qrab-bmc", ("http", 8080), Value::Array(env));
+        bmc["ports"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({"name":"bmc-mtls","containerPort":8443}));
+        containers.push(bmc);
     }
     let redfish = &vm.spec.components.redfish;
     if vm.spec.components.redfish_enabled() {
+        let mut peers = vec![format!(
+            "spiffe://yapplesauce.com/kubernetes/{}/qrab-dashboard",
+            settings.namespace
+        )];
+        if vm.spec.components.bmc.enabled {
+            peers.push(format!(
+                "spiffe://yapplesauce.com/kubernetes/{}/vm/{}/bmc",
+                settings.namespace,
+                vm.uid().unwrap_or_default()
+            ));
+        }
         let mut env = vec![
             json!({"name":"REDFISH_OIDC_ISSUER","value":settings.redfish_oidc_issuer}),
             json!({"name":"REDFISH_OIDC_AUDIENCE","value":settings.redfish_oidc_audience}),
+            json!({"name":"REDFISH_WORKLOAD_LISTEN","value":"0.0.0.0:8444"}),
+            json!({"name":"REDFISH_WORKLOAD_PEERS","value":peers.join(",")}),
         ];
         let trusted = redfish_trusted_tokens(vm, settings);
         if !trusted.is_empty() {
@@ -1265,6 +1288,10 @@ fn sidecars(
             ("redfish", 8081),
             Value::Array(env),
         );
+        container["ports"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({"name":"redfish-mtls","containerPort":8444}));
         // Prometheus-only and unauthenticated; see redfish_metrics_policy.
         container["ports"]
             .as_array_mut()

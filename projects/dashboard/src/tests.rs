@@ -524,8 +524,8 @@ async fn harness() -> Harness {
         storage_node: Some("kube03".into()),
         cluster: cluster.clone(),
         kanidm: kanidm::Kanidm::new(&kanidm_url, KANIDM_TOKEN.into(), None, true).unwrap(),
-        bmc: bmc::Bmc::new(port),
-        redfish: redfish::Redfish::new(port).unwrap(),
+        bmc: bmc::Bmc::for_test(port),
+        redfish: redfish::Redfish::for_test(port).unwrap(),
         sessions: Default::default(),
         novnc_dir: PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("assets/novnc"),
         consoles: Arc::new(Semaphore::new(16)),
@@ -1579,15 +1579,16 @@ async fn oversized_redfish_responses_are_refused() {
             ),
     )
     .await;
-    let client = redfish::Redfish::new(port).unwrap();
+    let client = redfish::Redfish::for_test(port).unwrap();
     let ip = "127.0.0.1".parse().unwrap();
-    let system: Result<redfish::System, _> = client
-        .get(ip, redfish::SYSTEM, "t", redfish::MAX_BODY)
-        .await;
+    let metadata_vm: VirtualMachine = serde_json::from_value(serde_json::json!({"apiVersion":"qrab.yapplesauce.com/v1alpha1","kind":"VirtualMachine","metadata":{"name":"test","namespace":"qrab","uid":"uid-test"},"spec":{"stateVolumeClaim":"test-state"}})).unwrap();
+    let client = client.for_vm(&metadata_vm, ip).unwrap();
+    let system: Result<redfish::System, _> =
+        client.get(redfish::SYSTEM, "t", redfish::MAX_BODY).await;
     assert_eq!(system.unwrap_err(), redfish::RedfishError::Invalid);
-    assert_eq!(client.reset_types(ip, "t").await.unwrap(), []);
+    assert_eq!(client.reset_types("t").await.unwrap(), []);
     // The whole event log fits its larger bound; nothing else does.
-    let panel = client.panel(ip, "t").await;
+    let panel = client.panel("t").await;
     assert!(panel.system.is_err());
     let events = panel.events.unwrap();
     assert!(events.entries.is_empty() && events.qmp_dropped.is_none());

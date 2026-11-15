@@ -175,10 +175,13 @@ async fn state(
     let Some(ip) = ip.filter(|_| vm.spec.components.redfish_enabled()) else {
         return Ok(state);
     };
+    let redfish = app
+        .redfish
+        .for_vm(&vm, ip)
+        .map_err(|_| Failure::unavailable("The VM management service is unavailable."))?;
     let (system, reset_types) = tokio::join!(
-        app.redfish
-            .get::<redfish::System>(ip, redfish::SYSTEM, &user.id_token, redfish::MAX_BODY),
-        app.redfish.reset_types(ip, &user.id_token),
+        redfish.get::<redfish::System>(redfish::SYSTEM, &user.id_token, redfish::MAX_BODY),
+        redfish.reset_types(&user.id_token),
     );
     match (system, reset_types) {
         (Ok(system), Ok(reset_types)) => {
@@ -210,23 +213,29 @@ pub async fn act(
 /// refusal; other failures are the upstream's.
 pub(crate) async fn reset(
     app: &AppState,
+    vm: &VirtualMachine,
     ip: IpAddr,
     token: &str,
     reset: ResetType,
 ) -> Result<(), Failure> {
-    app.redfish.reset(ip, token, reset).await.map_err(|error| {
-        let code = match error {
-            RedfishError::Status(403) => StatusCode::FORBIDDEN,
-            RedfishError::Status(409) => StatusCode::CONFLICT,
-            _ => StatusCode::BAD_GATEWAY,
-        };
-        let verb = if code == StatusCode::FORBIDDEN {
-            "was refused"
-        } else {
-            "failed"
-        };
-        Failure(code, format!("{} {verb}: {error}.", reset.label()))
-    })
+    app.redfish
+        .for_vm(vm, ip)
+        .map_err(|_| Failure::unavailable("The VM management service is unavailable."))?
+        .reset(token, reset)
+        .await
+        .map_err(|error| {
+            let code = match error {
+                RedfishError::Status(403) => StatusCode::FORBIDDEN,
+                RedfishError::Status(409) => StatusCode::CONFLICT,
+                _ => StatusCode::BAD_GATEWAY,
+            };
+            let verb = if code == StatusCode::FORBIDDEN {
+                "was refused"
+            } else {
+                "failed"
+            };
+            Failure(code, format!("{} {verb}: {error}.", reset.label()))
+        })
 }
 
 async fn power(
@@ -286,7 +295,9 @@ pub(crate) async fn apply(
         _ => PowerOn::Spec,
     };
     match (power, on) {
-        (Power::On, PowerOn::Redfish(ip)) => reset(app, ip, &user.id_token, ResetType::On).await,
+        (Power::On, PowerOn::Redfish(ip)) => {
+            reset(app, vm, ip, &user.id_token, ResetType::On).await
+        }
         (Power::On | Power::Off, _) => {
             let name = vm.metadata.name.as_deref().ok_or_else(Failure::internal)?;
             let uid = vm.metadata.uid.as_deref().ok_or_else(Failure::internal)?;
@@ -302,7 +313,7 @@ pub(crate) async fn apply(
             let ip = pod_ip(app, vm)
                 .await?
                 .ok_or_else(|| Failure::unavailable("The VM's Pod is not running."))?;
-            reset(app, ip, &user.id_token, kind).await
+            reset(app, vm, ip, &user.id_token, kind).await
         }
     }
 }
