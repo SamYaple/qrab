@@ -408,6 +408,94 @@ async fn vm_boots_with_its_nic_addresses_and_anchors_follow_its_node() {
 }
 
 #[tokio::test]
+async fn after_a_handoff_the_left_node_keeps_announcing_until_its_anchor_goes() {
+    let store = Store::default();
+    store.0.lock().unwrap().extend([
+        (VM.to_owned(), addressed_vm()),
+        state_pvc(),
+        (
+            format!("{ROUTES}/kube01"),
+            base_route("kube01", "10.203.0.11"),
+        ),
+        (
+            format!("{ROUTES}/kube02"),
+            base_route("kube02", "10.203.0.12"),
+        ),
+        (format!("{NODES}/kube01"), node("kube01", true)),
+        (format!("{NODES}/kube02"), node("kube02", true)),
+        (
+            format!("{CILIUM_NODES}/kube01"),
+            cilium_node("kube01", &["default"]),
+        ),
+        (
+            format!("{CILIUM_NODES}/kube02"),
+            cilium_node("kube02", &["default"]),
+        ),
+    ]);
+    let ctx = server_with(&store, addressed()).await;
+    let source = format!("{PODS}/test-vm-nic-lan-kube01");
+    let target = format!("{PODS}/test-vm-nic-lan-kube02");
+    let route = format!("{ROUTES}/qrab-nic-10-244-128-1");
+    let previous = format!("{ROUTES}/qrab-nic-10-244-128-1-prev");
+    let selected = |store: &Store, path: &str| {
+        store
+            .get(path)
+            .map(|r| r["spec"]["nodeSelector"]["matchLabels"]["kubernetes.io/hostname"].clone())
+    };
+    for _ in 0..3 {
+        store.step(&ctx).await;
+    }
+    schedule_vm_pod(&store, "kube01");
+    store.step(&ctx).await;
+    store.edit(&source, running_on("kube01", "10.244.128.1"));
+    store.step(&ctx).await;
+    assert_eq!(selected(&store, &route), Some(json!("kube01")));
+    assert!(store.get(&previous).is_none());
+
+    // The guest moved: the VM Pod and the anchor that took the address over
+    // (a standby until the switch) are on kube02; kube01's anchor still
+    // holds the address and forwards to kube02.
+    schedule_vm_pod(&store, "kube02");
+    store.step(&ctx).await;
+    store.edit(&target, |pod| {
+        running_on("kube02", "10.244.128.1")(pod);
+        pod["metadata"]["annotations"]["ipam.cilium.io/handoff-from"] =
+            json!("qrab/test-vm-nic-lan-kube01");
+    });
+    store.step(&ctx).await;
+    assert_eq!(selected(&store, &route), Some(json!("kube02")));
+    assert_eq!(
+        selected(&store, &previous),
+        Some(json!("kube01")),
+        "the left node announces until its anchor goes"
+    );
+    assert_eq!(
+        store.get(&previous).unwrap()["spec"]["bgp"]["routers"][0]["prefixes"],
+        json!(["10.244.128.1/32"])
+    );
+
+    // Its retirement passes: the anchor and then its announcement go.
+    store.edit(&source, |pod| {
+        pod["metadata"]["annotations"]["qrab.yapplesauce.com/retire-after"] = json!("0");
+    });
+    store.step(&ctx).await;
+    assert!(store.get(&source).is_none());
+    store.step(&ctx).await;
+    assert!(store.get(&previous).is_none());
+    assert_eq!(selected(&store, &route), Some(json!("kube02")));
+
+    // Releasing the address withdraws both.
+    store.edit(VM, |vm| {
+        vm["metadata"]["deletionTimestamp"] = json!("2026-11-14T00:00:00Z")
+    });
+    for _ in 0..3 {
+        store.step(&ctx).await;
+    }
+    assert!(store.get(&route).is_none());
+    assert!(store.get(&previous).is_none());
+}
+
+#[tokio::test]
 async fn a_nic_keeps_its_claimed_address_and_its_route_follows_the_pod() {
     let store = Store::default();
     store.0.lock().unwrap().extend([

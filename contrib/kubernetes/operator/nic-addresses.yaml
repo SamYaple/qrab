@@ -67,8 +67,14 @@ spec:
     expression: "request.operation == 'DELETE' ? oldObject : object"
   - name: name
     expression: "variables.subject.metadata.name"
+  # A route may also be qrab-nic-<address>-prev: the announcement from the node
+  # a live migration left, while its anchor retires. Pools may not.
   - name: address
-    expression: "variables.name.startsWith('qrab-nic-') ? variables.name.substring(9).replace('-', '.') : ''"
+    expression: >-
+      !variables.name.startsWith('qrab-nic-') ? '' :
+      (request.resource.resource == 'frrconfigurations' && variables.name.endsWith('-prev')) ?
+      variables.name.substring(9, size(variables.name) - 5).replace('-', '.') :
+      variables.name.substring(9).replace('-', '.')
   - name: prefix
     expression: "variables.address + '/32'"
   - name: owned
