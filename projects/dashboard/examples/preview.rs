@@ -432,8 +432,14 @@ fn main() {
                 ("hostname".into(), "web-1".into()),
             ],
             errors: vec![
-                "Root disk size (GiB) must be a whole number from 2 to 1024.".into(),
-                "Security group SSH on eth0 must be a DNS label: 1-63 lowercase letters, digits or '-', starting and ending with a letter or digit.".into(),
+                qrab_dashboard::launch::FormError::at(
+                    "root_size_gib",
+                    "Root disk size (GiB) must be a whole number from 2 to 1024.",
+                ),
+                qrab_dashboard::launch::FormError::at(
+                    "nic0_security_groups",
+                    "Security group SSH on eth0 must be a DNS label: 1-63 lowercase letters, digits or '-', starting and ending with a letter or digit.",
+                ),
             ],
             namespace: "qrab".into(),
             storage_node: Some("kube03".into()),
@@ -455,8 +461,14 @@ fn main() {
                 ("disk0_size_gib".into(), "0".into()),
             ],
             errors: vec![
-                "Maximum vCPUs must be at least vCPUs.".into(),
-                "Disk 1 size (GiB) must be a whole number from 1 to 1024.".into(),
+                qrab_dashboard::launch::FormError::at(
+                    "max_cpus",
+                    "Maximum vCPUs must be at least vCPUs.",
+                ),
+                qrab_dashboard::launch::FormError::at(
+                    "disk0_size_gib",
+                    "Disk 1 size (GiB) must be a whole number from 1 to 1024.",
+                ),
             ],
             namespace: "qrab".into(),
             storage_node: Some("kube03".into()),

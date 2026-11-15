@@ -514,6 +514,13 @@ with sync_playwright() as playwright:
                     assert page.locator('#launch-disks').evaluate('(e) => e.open')
                     assert page.locator('#max_cpus').input_value() == '1'
                     assert page.locator('#disk0_size_gib').input_value() == '0'
+                    expect(page.locator('#form-errors')).to_be_focused()
+                    for field in ['max_cpus', 'disk0_size_gib']:
+                        expect(page.locator('#' + field)).to_have_attribute('aria-invalid', 'true')
+                        assert 'error-' + field in page.locator('#' + field).get_attribute('aria-describedby')
+                        page.locator('#form-errors a[href="#' + field + '"]').click()
+                        expect(page.locator('#' + field)).to_be_focused()
+                    assert page.locator('#name').get_attribute('aria-invalid') is None
                 if name == 'launch':
                     assert not page.locator('#launch-limits').evaluate('(e) => e.open')
                     assert not page.locator('#launch-disks').evaluate('(e) => e.open')

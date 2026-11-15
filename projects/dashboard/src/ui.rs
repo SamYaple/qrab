@@ -35,13 +35,32 @@ pub struct DetailPage {
 #[derive(Clone, Default)]
 pub struct LaunchPage {
     pub values: Vec<(String, String)>,
-    pub errors: Vec<String>,
+    pub errors: Vec<launch::FormError>,
     pub namespace: String,
     pub storage_node: Option<String>,
     /// The base-image catalog at render time.
     pub images: Vec<BaseImage>,
     /// The rejected form had user-data, which is never sent back.
     pub user_data_cleared: bool,
+}
+
+impl LaunchPage {
+    fn invalid(&self, field: &str) -> Option<&'static str> {
+        self.errors
+            .iter()
+            .any(|error| error.field.as_deref() == Some(field))
+            .then_some("true")
+    }
+    fn described_by(&self, field: &str, help: &str) -> Option<String> {
+        let mut ids = Vec::new();
+        if !help.is_empty() {
+            ids.push(help.to_owned());
+        }
+        if self.invalid(field).is_some() {
+            ids.push(format!("error-{field}"));
+        }
+        (!ids.is_empty()).then(|| ids.join(" "))
+    }
 }
 
 /// Where security groups and the default-allow rule are described.
@@ -930,6 +949,20 @@ fn input_value(values: &[(String, String)], key: &str, default: &str) -> String 
         .unwrap_or_else(|| default.into())
 }
 
+fn field_error(page: &LaunchPage, field: &str) -> Element {
+    let messages: Vec<_> = page
+        .errors
+        .iter()
+        .filter(|error| error.field.as_deref() == Some(field))
+        .collect();
+    if messages.is_empty() {
+        return rsx! {};
+    }
+    rsx! { div { id: "error-{field}", class: "field-error",
+        for error in messages { p { "{error.message}" } }
+    } }
+}
+
 fn launch_form(page: &LaunchPage, user: &UserView) -> Element {
     let name_limit = launch::max_name_length(&page.namespace);
     if name_limit == 0 {
@@ -962,32 +995,44 @@ fn launch_form(page: &LaunchPage, user: &UserView) -> Element {
         div { class: "heading", div { p { class: "eyebrow", "LAUNCH" } h1 { "Launch a VM" }
             p { class: "muted", "Choose an operating system and resources. You'll be the VM's administrator. Created in namespace " code { "{page.namespace}" } "." } } }
         if !page.errors.is_empty() {
-            section { class: "card", role: "alert", h2 { "Check the form" } ul { for e in &page.errors { li { "{e}" } } } }
+            section { class: "card form-errors", id: "form-errors", tabindex: "-1", role: "alert", aria_labelledby: "form-error-title", autofocus: !page.values.is_empty(),
+                h2 { id: "form-error-title", "Check the form" }
+                if page.errors.iter().any(|error| error.field.is_some()) {
+                    p { class: "muted", "Choose an error to go to its field. Your settings are kept below." }
+                }
+                if page.user_data_cleared { p { class: "muted", "User-data is cleared for privacy; paste it again before submitting." } }
+                ul { for error in &page.errors { li {
+                    if let Some(field) = &error.field { a { href: "#{field}", "{error.message}" } }
+                    else { "{error.message}" }
+                } } }
+            }
         }
         form { class: "card launch", method: "post", action: "/launch",
             input { r#type: "hidden", name: "csrf", value: "{user.csrf}" }
             {os_fieldset(page)}
             fieldset { legend { "Machine" }
                 label { r#for: "name", "Name" }
-                input { id: "name", name: "name", required: true, maxlength: "{name_limit}", pattern: r"[a-z0-9]([a-z0-9\-]*[a-z0-9])?", value: v("name", ""), aria_describedby: "name-help" }
+                input { id: "name", name: "name", aria_invalid: page.invalid("name"), required: true, maxlength: "{name_limit}", pattern: r"[a-z0-9]([a-z0-9\-]*[a-z0-9])?", value: v("name", ""), aria_describedby: page.described_by("name", "name-help") }
                 p { id: "name-help", class: "muted", "Up to {name_limit} characters in this namespace. Use lowercase letters, digits and hyphens; start and end with a letter or digit." }
+                {field_error(page, "name")}
                 div { class: "pair",
-                    div { label { r#for: "cpus", "vCPUs" } input { id: "cpus", name: "cpus", r#type: "number", min: "1", max: "256", required: true, value: v("cpus", "1") } }
-                    div { label { r#for: "memory_mib", "Memory (MiB)" } input { id: "memory_mib", name: "memory_mib", r#type: "number", min: "256", max: "1048576", required: true, value: v("memory_mib", "512") } }
+                    div { label { r#for: "cpus", "vCPUs" } input { id: "cpus", name: "cpus", aria_invalid: page.invalid("cpus"), aria_describedby: page.described_by("cpus", ""), r#type: "number", min: "1", max: "256", required: true, value: v("cpus", "1") } {field_error(page, "cpus")} }
+                    div { label { r#for: "memory_mib", "Memory (MiB)" } input { id: "memory_mib", name: "memory_mib", aria_invalid: page.invalid("memory_mib"), aria_describedby: page.described_by("memory_mib", ""), r#type: "number", min: "256", max: "1048576", required: true, value: v("memory_mib", "512") } {field_error(page, "memory_mib")} }
                 }
                 details { class: "inline-disclosure", id: "launch-limits", open: limits_open,
                     summary { "Hot-plug limits (optional)" }
                     p { class: "muted", "Reserve room to grow after boot. Leave blank to use the initial size as the maximum. A maximum must be at least the initial size. TCG guests cannot hot-add vCPUs." }
                     div { class: "pair",
-                        div { label { r#for: "max_cpus", "Maximum vCPUs (optional)" } input { id: "max_cpus", name: "max_cpus", r#type: "text", inputmode: "numeric", value: v("max_cpus", "") } }
-                        div { label { r#for: "max_memory_mib", "Maximum memory (MiB, optional)" } input { id: "max_memory_mib", name: "max_memory_mib", r#type: "text", inputmode: "numeric", value: v("max_memory_mib", "") } }
+                        div { label { r#for: "max_cpus", "Maximum vCPUs (optional)" } input { id: "max_cpus", name: "max_cpus", aria_invalid: page.invalid("max_cpus"), aria_describedby: page.described_by("max_cpus", ""), r#type: "text", inputmode: "numeric", value: v("max_cpus", "") } {field_error(page, "max_cpus")} }
+                        div { label { r#for: "max_memory_mib", "Maximum memory (MiB, optional)" } input { id: "max_memory_mib", name: "max_memory_mib", aria_invalid: page.invalid("max_memory_mib"), aria_describedby: page.described_by("max_memory_mib", ""), r#type: "text", inputmode: "numeric", value: v("max_memory_mib", "") } {field_error(page, "max_memory_mib")} }
                     }
                 }
                 label { r#for: "accelerator", "Accelerator" }
-                select { id: "accelerator", name: "accelerator",
+                select { id: "accelerator", name: "accelerator", aria_invalid: page.invalid("accelerator"), aria_describedby: page.described_by("accelerator", ""),
                     option { value: "kvm", selected: kvm, "KVM (hardware)" }
                     option { value: "tcg", selected: !kvm, "TCG (emulation)" }
                 }
+                {field_error(page, "accelerator")}
             }
             {network_fieldset(page)}
             {cloud_init_fieldset(page)}
@@ -1002,10 +1047,10 @@ fn launch_form(page: &LaunchPage, user: &UserView) -> Element {
                         let generation = format!("disk{i}_base_generation");
                         let n = i + 1;
                         rsx! { div { class: "pair disk-row", role: "group", aria_label: "Disk {n}",
-                            div { label { r#for: "{id}", "Disk {n} ID" } input { id: "{id}", name: "{id}", maxlength: "20", value: v(&id, "") } }
-                            div { label { r#for: "{size}", "Size (GiB)" } input { id: "{size}", name: "{size}", r#type: "text", inputmode: "numeric", value: v(&size, "") } }
-                            div { label { r#for: "{base}", "Base image (optional)" } input { id: "{base}", name: "{base}", maxlength: "32", value: v(&base, "") } }
-                            div { label { r#for: "{generation}", "Generation" } input { id: "{generation}", name: "{generation}", r#type: "text", inputmode: "numeric", value: v(&generation, "") } }
+                            div { label { r#for: "{id}", "Disk {n} ID" } input { id: "{id}", name: "{id}", aria_invalid: page.invalid(&id), aria_describedby: page.described_by(&id, ""), maxlength: "20", value: v(&id, "") } {field_error(page, &id)} }
+                            div { label { r#for: "{size}", "Size (GiB)" } input { id: "{size}", name: "{size}", aria_invalid: page.invalid(&size), aria_describedby: page.described_by(&size, ""), r#type: "text", inputmode: "numeric", value: v(&size, "") } {field_error(page, &size)} }
+                            div { label { r#for: "{base}", "Base image (optional)" } input { id: "{base}", name: "{base}", aria_invalid: page.invalid(&base), aria_describedby: page.described_by(&base, ""), maxlength: "32", value: v(&base, "") } {field_error(page, &base)} }
+                            div { label { r#for: "{generation}", "Generation" } input { id: "{generation}", name: "{generation}", aria_invalid: page.invalid(&generation), aria_describedby: page.described_by(&generation, ""), r#type: "text", inputmode: "numeric", value: v(&generation, "") } {field_error(page, &generation)} }
                         } }
                     }
                 }
@@ -1040,7 +1085,8 @@ fn network_fieldset(page: &LaunchPage) -> Element {
                             "Attach a network interface ({nic})"
                         }
                         label { r#for: "{groups}", "Security groups" }
-                        input { id: "{groups}", name: "{groups}", placeholder: "web, ssh", autocomplete: "off", spellcheck: "false", value: input_value(&page.values, &groups, ""), aria_describedby: "nic-help" }
+                        input { id: "{groups}", name: "{groups}", aria_invalid: page.invalid(&groups), placeholder: "web, ssh", autocomplete: "off", spellcheck: "false", value: input_value(&page.values, &groups, ""), aria_describedby: page.described_by(&groups, "nic-help") }
+                        {field_error(page, &groups)}
                     } }
                 }
             }
@@ -1067,10 +1113,12 @@ fn cloud_init_fieldset(page: &LaunchPage) -> Element {
         fieldset { legend { "Cloud-init" }
             p { class: "muted", "Set the guest's hostname or provide cloud-init configuration. Leave blank to use the defaults." }
             label { r#for: "hostname", "Hostname (optional)" }
-            input { id: "hostname", name: "hostname", maxlength: "63", pattern: r"[a-z0-9]([a-z0-9\-]*[a-z0-9])?", autocomplete: "off", placeholder: "the VM name", value: input_value(&page.values, "hostname", ""), aria_describedby: "hostname-help" }
+            input { id: "hostname", name: "hostname", aria_invalid: page.invalid("hostname"), maxlength: "63", pattern: r"[a-z0-9]([a-z0-9\-]*[a-z0-9])?", autocomplete: "off", placeholder: "the VM name", value: input_value(&page.values, "hostname", ""), aria_describedby: page.described_by("hostname", "hostname-help") }
             p { id: "hostname-help", class: "muted", "DNS label. Defaults to the VM name." }
+            {field_error(page, "hostname")}
             label { r#for: "user_data", "User-data (optional)" }
-            textarea { id: "user_data", name: "user_data", rows: "8", spellcheck: "false", autocomplete: "off", maxlength: "{launch::USER_DATA_LIMIT}", placeholder: "#cloud-config\nssh_authorized_keys: [ssh-ed25519 AAAA...]", aria_describedby: "user-data-help" }
+            textarea { id: "user_data", name: "user_data", aria_invalid: page.invalid("user_data"), rows: "8", spellcheck: "false", autocomplete: "off", maxlength: "{launch::USER_DATA_LIMIT}", placeholder: "#cloud-config\nssh_authorized_keys: [ssh-ed25519 AAAA...]", aria_describedby: page.described_by("user_data", "user-data-help") }
+            {field_error(page, "user_data")}
             if page.user_data_cleared { p { class: "notice", role: "status", "Your user-data was not sent back with this form. Paste it again." } }
             p { id: "user-data-help", class: "muted",
                 "Passed to the guest verbatim, at most 32 KiB. "
@@ -1090,7 +1138,8 @@ fn os_fieldset(page: &LaunchPage) -> Element {
     let root = input_value(&page.values, "root_size_gib", "1");
     let node = page.storage_node.clone();
     rsx! {
-        fieldset { legend { "Operating system" }
+        fieldset { id: "operating-system", tabindex: "-1", aria_invalid: page.invalid("operating-system"), aria_describedby: page.described_by("operating-system", ""), legend { "Operating system" }
+            {field_error(page, "operating-system")}
             p { class: "muted",
                 "Each VM gets its own writable copy of the selected image as its "
                 code { "root" } " disk. Changes belong to this VM. "
@@ -1118,7 +1167,8 @@ fn os_fieldset(page: &LaunchPage) -> Element {
             div { class: "pair",
                 div {
                     label { r#for: "root_size_gib", "Root disk size (GiB)" }
-                    input { id: "root_size_gib", name: "root_size_gib", r#type: "number", min: "1", max: "{launch::MAX_DISK_GIB}", value: "{root}", aria_describedby: "root-help" }
+                    input { id: "root_size_gib", name: "root_size_gib", aria_invalid: page.invalid("root_size_gib"), r#type: "number", min: "1", max: "{launch::MAX_DISK_GIB}", value: "{root}", aria_describedby: page.described_by("root_size_gib", "root-help") }
+                    {field_error(page, "root_size_gib")}
                 }
             }
             p { id: "root-help", class: "muted", "Used only with an operating system. At least the image size rounded up to whole GiB; the clone can grow later but never shrink." }

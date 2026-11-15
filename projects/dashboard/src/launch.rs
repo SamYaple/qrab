@@ -24,6 +24,34 @@ pub const LAUNCH_BODY_LIMIT: usize = 4 * USER_DATA_LIMIT;
 pub use crate::access::{MANAGED_BY, MANAGER};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FormError {
+    pub field: Option<String>,
+    pub message: String,
+}
+
+impl FormError {
+    pub fn at(field: impl Into<String>, message: impl Into<String>) -> Self {
+        Self {
+            field: Some(field.into()),
+            message: message.into(),
+        }
+    }
+}
+impl From<String> for FormError {
+    fn from(message: String) -> Self {
+        Self {
+            field: None,
+            message,
+        }
+    }
+}
+impl From<&str> for FormError {
+    fn from(message: &str) -> Self {
+        message.to_owned().into()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Disk {
     pub id: String,
     pub size_gib: u64,
@@ -154,7 +182,8 @@ pub fn field<'a>(fields: &'a [(String, String)], key: &str) -> &'a str {
 }
 
 fn number<T: std::str::FromStr + PartialOrd + std::fmt::Display + Copy>(
-    errors: &mut Vec<String>,
+    errors: &mut Vec<FormError>,
+    field: &str,
     label: &str,
     raw: &str,
     min: T,
@@ -163,8 +192,9 @@ fn number<T: std::str::FromStr + PartialOrd + std::fmt::Display + Copy>(
     match raw.parse::<T>() {
         Ok(v) if v >= min && v <= max => Some(v),
         _ => {
-            errors.push(format!(
-                "{label} must be a whole number from {min} to {max}."
+            errors.push(FormError::at(
+                field,
+                format!("{label} must be a whole number from {min} to {max}."),
             ));
             None
         }
@@ -172,22 +202,26 @@ fn number<T: std::str::FromStr + PartialOrd + std::fmt::Display + Copy>(
 }
 
 /// Comma-separated DNS labels, distinct, at most [`MAX_SECURITY_GROUPS`].
-fn security_groups(errors: &mut Vec<String>, nic: &str, raw: &str) -> Vec<String> {
+fn security_groups(errors: &mut Vec<FormError>, field: &str, nic: &str, raw: &str) -> Vec<String> {
     let mut groups: Vec<String> = Vec::new();
     for group in raw.split(',').map(str::trim).filter(|g| !g.is_empty()) {
         if !crate::config::dns_label(group) {
-            errors.push(format!(
+            errors.push(FormError::at(field, format!(
                 "Security group {group} on {nic} must be a DNS label: 1-63 lowercase letters, digits or '-', starting and ending with a letter or digit."
-            ));
+            )));
         } else if groups.iter().any(|g| g == group) {
-            errors.push(format!("Security group {group} on {nic} is listed twice."));
+            errors.push(FormError::at(
+                field,
+                format!("Security group {group} on {nic} is listed twice."),
+            ));
         } else {
             groups.push(group.to_owned());
         }
     }
     if groups.len() > MAX_SECURITY_GROUPS {
-        errors.push(format!(
-            "{nic} may have at most {MAX_SECURITY_GROUPS} security groups."
+        errors.push(FormError::at(
+            field,
+            format!("{nic} may have at most {MAX_SECURITY_GROUPS} security groups."),
         ));
     }
     groups
@@ -211,26 +245,44 @@ pub fn parse(
     storage_node: Option<&str>,
     catalog: &[BaseImage],
 ) -> Result<Request, Vec<String>> {
+    parse_form(fields, namespace, storage_node, catalog)
+        .map_err(|errors| errors.into_iter().map(|error| error.message).collect())
+}
+
+/// The same validation with stable field targets for the browser form.
+pub fn parse_form(
+    fields: &[(String, String)],
+    namespace: &str,
+    storage_node: Option<&str>,
+    catalog: &[BaseImage],
+) -> Result<Request, Vec<FormError>> {
     let mut errors = Vec::new();
     let name = field(fields, "name").to_owned();
     if let Err(e) = names(namespace, &name) {
-        errors.push(e);
+        errors.push(FormError::at("name", e));
     }
     // The choice must still be in the catalog at submit time.
     let os = match field(fields, "os") {
         "" | "none" => None,
         key => match catalog.iter().find(|image| image.key() == key) {
             None => {
-                errors.push(format!(
+                errors.push(FormError::at("operating-system", format!(
                     "The operating system image {key} is not in the base-image catalog (it may have been removed). Reload the form and choose again."
-                ));
+                )));
                 None
             }
             Some(image) => {
                 let min = image.min_root_gib();
                 let root = match field(fields, "root_size_gib") {
                     "" => Some(min),
-                    raw => number(&mut errors, "Root disk size (GiB)", raw, min, MAX_DISK_GIB),
+                    raw => number(
+                        &mut errors,
+                        "root_size_gib",
+                        "Root disk size (GiB)",
+                        raw,
+                        min,
+                        MAX_DISK_GIB,
+                    ),
                 };
                 if storage_node.is_none() {
                     errors.push("Operating system images need a storage node; DASHBOARD_STORAGE_NODE is not configured.".into());
@@ -242,13 +294,21 @@ pub fn parse(
             }
         },
     };
-    let cpus = number(&mut errors, "vCPUs", field(fields, "cpus"), 1u32, 256);
+    let cpus = number(
+        &mut errors,
+        "cpus",
+        "vCPUs",
+        field(fields, "cpus"),
+        1u32,
+        256,
+    );
     let max_cpus = match field(fields, "max_cpus") {
         "" => None,
-        raw => number(&mut errors, "Maximum vCPUs", raw, 1u32, 256),
+        raw => number(&mut errors, "max_cpus", "Maximum vCPUs", raw, 1u32, 256),
     };
     let memory_mib = number(
         &mut errors,
+        "memory_mib",
         "Memory",
         field(fields, "memory_mib"),
         256u32,
@@ -256,23 +316,39 @@ pub fn parse(
     );
     let max_memory_mib = match field(fields, "max_memory_mib") {
         "" => None,
-        raw => number(&mut errors, "Maximum memory", raw, 256u32, 1_048_576),
+        raw => number(
+            &mut errors,
+            "max_memory_mib",
+            "Maximum memory",
+            raw,
+            256u32,
+            1_048_576,
+        ),
     };
     if let (Some(c), Some(m)) = (cpus, max_cpus)
         && m < c
     {
-        errors.push("Maximum vCPUs must be at least vCPUs.".into());
+        errors.push(FormError::at(
+            "max_cpus",
+            "Maximum vCPUs must be at least vCPUs.",
+        ));
     }
     if let (Some(c), Some(m)) = (memory_mib, max_memory_mib)
         && m < c
     {
-        errors.push("Maximum memory must be at least the memory size.".into());
+        errors.push(FormError::at(
+            "max_memory_mib",
+            "Maximum memory must be at least the memory size.",
+        ));
     }
     let kvm = match field(fields, "accelerator") {
         "tcg" | "" => false,
         "kvm" => true,
         _ => {
-            errors.push("Accelerator must be kvm or tcg.".into());
+            errors.push(FormError::at(
+                "accelerator",
+                "Accelerator must be kvm or tcg.",
+            ));
             false
         }
     };
@@ -285,23 +361,31 @@ pub fn parse(
         let generation = field(fields, &key("base_generation"));
         if id.is_empty() {
             if !(size.is_empty() && base.is_empty() && generation.is_empty()) {
-                errors.push(format!("Disk {} needs an ID.", i + 1));
+                errors.push(FormError::at(
+                    key("id"),
+                    format!("Disk {} needs an ID.", i + 1),
+                ));
             }
             continue;
         }
         let label = format!("Disk {}", i + 1);
         if id == ROOT_DISK && !matches!(field(fields, "os"), "" | "none") {
-            errors.push(format!(
-                "{label} cannot be named {ROOT_DISK}: that is the operating system disk."
+            errors.push(FormError::at(
+                key("id"),
+                format!("{label} cannot be named {ROOT_DISK}: that is the operating system disk."),
             ));
         }
         if !disk_id(id) {
-            errors.push(format!("{label} ID must be 1-20 lowercase letters, digits or '-', starting and ending with a letter or digit."));
+            errors.push(FormError::at(key("id"), format!("{label} ID must be 1-20 lowercase letters, digits or '-', starting and ending with a letter or digit.")));
         } else if disks.iter().any(|d| d.id == id) {
-            errors.push(format!("{label} ID {id} is used twice."));
+            errors.push(FormError::at(
+                key("id"),
+                format!("{label} ID {id} is used twice."),
+            ));
         }
         let size_gib = number(
             &mut errors,
+            &key("size_gib"),
             &format!("{label} size (GiB)"),
             size,
             1u64,
@@ -311,6 +395,7 @@ pub fn parse(
             ("", "") => None,
             (name, raw) if image_name(name) => number(
                 &mut errors,
+                &key("base_generation"),
                 &format!("{label} base image generation"),
                 raw,
                 1u32,
@@ -318,8 +403,11 @@ pub fn parse(
             )
             .map(|g| (name.to_owned(), g)),
             _ => {
-                errors.push(format!(
-                    "{label} base image name must be 1-32 lowercase letters, digits or '-'."
+                errors.push(FormError::at(
+                    key("base_image"),
+                    format!(
+                        "{label} base image name must be 1-32 lowercase letters, digits or '-'."
+                    ),
                 ));
                 None
             }
@@ -341,23 +429,24 @@ pub fn parse(
     for i in 0..FORM_NICS {
         let name = nic_name(i);
         let raw = field(fields, &format!("nic{i}_security_groups"));
-        let security_groups = security_groups(&mut errors, &name, raw);
+        let security_groups =
+            security_groups(&mut errors, &format!("nic{i}_security_groups"), &name, raw);
         if field(fields, &format!("nic{i}_enabled")) == "on" {
             nics.push(Nic {
                 name,
                 security_groups,
             });
         } else if !raw.is_empty() {
-            errors.push(format!(
+            errors.push(FormError::at(format!("nic{i}_security_groups"), format!(
                 "Security groups apply to a network interface: attach {name} or clear its security groups."
-            ));
+            )));
         }
     }
     let hostname = match field(fields, "hostname") {
         "" => None,
         h if crate::config::dns_label(h) => Some(h.to_owned()),
         _ => {
-            errors.push("Hostname must be a DNS label: 1-63 lowercase letters, digits or '-', starting and ending with a letter or digit.".into());
+            errors.push(FormError::at("hostname", "Hostname must be a DNS label: 1-63 lowercase letters, digits or '-', starting and ending with a letter or digit."));
             None
         }
     };
@@ -365,9 +454,12 @@ pub fn parse(
     if let Some(u) = &user_data
         && u.len() > USER_DATA_LIMIT
     {
-        errors.push(format!(
-            "User-data is {} bytes; at most {USER_DATA_LIMIT} bytes (32 KiB) are allowed.",
-            u.len()
+        errors.push(FormError::at(
+            "user_data",
+            format!(
+                "User-data is {} bytes; at most {USER_DATA_LIMIT} bytes (32 KiB) are allowed.",
+                u.len()
+            ),
         ));
     }
     // Cloud images expect a seed, so an OS launch always gets one.
@@ -742,6 +834,33 @@ mod tests {
             .iter()
             .map(|(k, v)| (k.to_string(), v.to_string()))
             .collect()
+    }
+
+    #[test]
+    fn form_errors_target_the_fields_without_changing_validation_messages() {
+        let fields = form(&[
+            ("name", "web"),
+            ("cpus", "4"),
+            ("max_cpus", "2"),
+            ("memory_mib", "512"),
+            ("disk0_id", "data"),
+            ("disk0_size_gib", "oops"),
+        ]);
+        let errors = parse_form(&fields, "qrab", Some("kube03"), &[]).unwrap_err();
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.field.as_deref() == Some("max_cpus"))
+        );
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.field.as_deref() == Some("disk0_size_gib"))
+        );
+        assert_eq!(
+            parse(&fields, "qrab", Some("kube03"), &[]).unwrap_err(),
+            errors.into_iter().map(|e| e.message).collect::<Vec<_>>()
+        );
     }
 
     #[test]

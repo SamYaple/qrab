@@ -308,3 +308,10 @@ summary::marker { color: var(--accent); }
     .vm-directory .badge { max-width: 100%; white-space: normal; }
 }
 .vm-directory td[data-label=Location] code { white-space: nowrap; overflow-wrap: normal; }
+
+.form-errors { border-color: var(--bad-border); }
+.form-errors ul { margin-bottom: 0; padding-left: 22px; }
+.form-errors li + li { margin-top: 8px; }
+.field-error { color: var(--bad); font-size: .875rem; line-height: 1.6; }
+.field-error p { margin: 4px 0 0; }
+input[aria-invalid=true], select[aria-invalid=true], textarea[aria-invalid=true] { border-color: var(--bad); }

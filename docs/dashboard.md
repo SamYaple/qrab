@@ -653,7 +653,8 @@ in-memory cluster, bounded session store and fake Pod upstreams. Python receives
 opaque test-session cookies on stdin; no test login route is added to the
 application. It uses the real response headers, CSP, HTTP proxies and WebSocket
 proxy rather than browser HTTP interception. It checks admin/viewer pages,
-keyboard chart focus across redraws, peer logout and real server-time expiry.
+keyboard chart focus across redraws, rejected launch-form feedback, peer logout
+and real server-time expiry.
 
 ```sh
 QRAB_UI_PYTHON=/path/to/python-with-playwright QRAB_UI_ENGINE=firefox \
@@ -664,7 +665,13 @@ QRAB_UI_PYTHON=/path/to/python-with-playwright QRAB_UI_SESSION_SECONDS=900 \
 ```
 
 `QRAB_UI_OUTPUT` selects the screenshot directory (default `target/ui-router`).
-The check has no guest, KVM, cluster or production credentials and sends no VM
-management action. The favicon is a shared same-origin SVG; SSR CSP permits
+The check has no guest, KVM, cluster or production credentials. Its invalid
+launch submission must create no resources; it sends no action to a live VM.
+The favicon is a shared same-origin SVG; SSR CSP permits
 same-origin images for it while retaining the script-free policy. A chart's
 keyboard focus and selected timestamp survive an ordinary history redraw.
+
+Rejected launch forms retain non-secret values and identify each invalid field
+with an inline message and an error-summary link. The summary receives native
+browser focus after submission; linked fields in optional sections remain
+visible. User-data is cleared instead of being echoed into the response.

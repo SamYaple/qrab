@@ -559,7 +559,7 @@ async fn images_page(
 fn launch_page(
     app: &AppState,
     values: Vec<(String, String)>,
-    errors: Vec<String>,
+    errors: Vec<launch::FormError>,
     images: Vec<images::BaseImage>,
 ) -> ui::Body {
     // user-data is never rendered, not even back to the user who typed it.
@@ -621,7 +621,7 @@ async fn launch(
         }
         Err(_) => Vec::new(),
     };
-    let request = match launch::parse(
+    let request = match launch::parse_form(
         &fields,
         &app.namespace,
         app.storage_node.as_deref(),

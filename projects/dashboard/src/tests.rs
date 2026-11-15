@@ -2564,7 +2564,7 @@ async fn rejected_optional_launch_values_are_validated_without_creating_resource
             "/launch",
             Some(&cookie),
             Some(ORIGIN),
-            "csrf=correct&name=web&cpus=2&memory_mib=512&max_cpus=1&disk0_id=logs&disk0_size_gib=0",
+            "csrf=correct&name=web&cpus=2&memory_mib=512&max_cpus=1&disk0_id=logs&disk0_size_gib=0&user_data=PRIVATE_FORM_VALUE",
         ),
     )
     .await;
@@ -2573,6 +2573,14 @@ async fn rejected_optional_launch_values_are_validated_without_creating_resource
     assert!(body.contains("Disk 1 size (GiB) must be a whole number from 1 to 1024."));
     assert!(body.contains("name=\"max_cpus\"") && body.contains("value=\"1\""));
     assert!(body.contains("name=\"disk0_size_gib\"") && body.contains("value=\"0\""));
+    for field in ["max_cpus", "disk0_size_gib"] {
+        assert!(body.contains(&format!("href=\"#{field}\"")));
+        assert!(body.contains(&format!("id=\"error-{field}\"")));
+    }
+    assert!(body.contains("aria-invalid=\"true\""));
+    assert!(body.contains("autofocus"));
+    assert!(!body.contains("PRIVATE_FORM_VALUE"));
+    assert!(body.contains("User-data is cleared for privacy"));
     assert_eq!(h.cluster.mutations(), 0);
     assert!(h.kanidm.lock().unwrap().is_empty());
 }

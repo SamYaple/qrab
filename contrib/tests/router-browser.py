@@ -67,6 +67,20 @@ with sync_playwright() as p:
     for path in ['/', '/vms/qrab/a', '/images', '/launch']:
         visit(page, path)
         assert page.evaluate("getComputedStyle(document.documentElement).getPropertyValue('--surface').trim()")
+    page.locator('#name').fill('validation-fixture')
+    page.locator('#cpus').fill('2')
+    page.locator('#launch-limits summary').click()
+    page.locator('#max_cpus').fill('1')
+    page.locator('#user_data').fill('DO_NOT_ECHO_PRIVATE_USER_DATA')
+    page.get_by_role('button', name='Launch VM', exact=True).click()
+    expect(page.get_by_role('heading', name='Check the form')).to_be_visible()
+    expect(page.locator('#form-errors')).to_be_focused()
+    expect(page.locator('#max_cpus')).to_have_attribute('aria-invalid', 'true')
+    assert 'error-max_cpus' in page.locator('#max_cpus').get_attribute('aria-describedby')
+    page.locator('#form-errors a[href="#max_cpus"]').click()
+    expect(page.locator('#max_cpus')).to_be_focused()
+    assert page.locator('#user_data').input_value() == ''
+    assert 'DO_NOT_ECHO_PRIVATE_USER_DATA' not in page.content()
     visit(page, '/vms/qrab/a/bmc')
     expect(page.locator('#dashboard')).to_be_visible()
     for tab in ['overview', 'metrics', 'events', 'agent', 'config']:
