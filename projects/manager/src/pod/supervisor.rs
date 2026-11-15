@@ -23,7 +23,7 @@ use std::{
 };
 use tokio::{
     process::{Child, Command},
-    sync::mpsc,
+    sync::{mpsc, oneshot},
     time::timeout,
 };
 
@@ -680,15 +680,28 @@ async fn run_qemu(
                     }
                 }
             };
-            tokio::pin!(stopping);
-            let mut heartbeat = tokio::time::interval(Duration::from_secs(1));
-            // Requests that raced the stopping flag are answered, not queued.
-            let stopped = loop {
-                tokio::select! {
-                    biased;
-                    stopped = &mut stopping => break stopped,
-                    Some(request) = control.requests.recv() => request.shutting_down(),
-                    _ = heartbeat.tick() => { let _ = publish(config, state); }
+            let graceful = stop == Some(PowerStop::PowerOff);
+            // A force off during a graceful stop cuts the ACPI grace short.
+            if graceful {
+                control.set_graceful_stop();
+            }
+            let mut forced = false;
+            let stopped = match drive_stop(stopping, config, control, state, graceful).await {
+                Ok(stopped) => stopped,
+                Err(reply) => {
+                    forced = true;
+                    control.set_stopping();
+                    eprintln!("{}", serde_json::json!({"event":"power_stop_escalated"}));
+                    let quitting = async {
+                        // SIGKILL follows a failed quit, so the force off is in effect.
+                        let _ = qmp.execute(&Quit {}).await;
+                        let _ = reply.send(Ok(()));
+                        reap_after_quit(&mut child).await
+                    };
+                    match drive_stop(quitting, config, control, state, false).await {
+                        Ok(stopped) => stopped,
+                        Err(_) => unreachable!("a forced stop does not escalate"),
+                    }
                 }
             };
             match (other, stopped) {
@@ -704,6 +717,7 @@ async fn run_qemu(
                                 shutdown_method: method.into(),
                             }))
                         }
+                        Ended::Stop(PowerStop::PowerOff) if forced => Ok(Cycle::Off("force-off")),
                         Ended::Stop(PowerStop::PowerOff) => Ok(Cycle::Off("graceful-shutdown")),
                         Ended::Stop(PowerStop::ForceOff) => Ok(Cycle::Off("force-off")),
                         Ended::Stop(PowerStop::ColdRestart) => Ok(Cycle::Restart),
@@ -726,6 +740,35 @@ async fn run_qemu(
     let _ = timeout(Duration::from_secs(1), pump).await;
     publish(config, state)?;
     result
+}
+
+/// Drive a stop to completion, answering the requests that raced the
+/// stopping flag instead of queueing them and keeping the heartbeat fresh.
+/// When `escalable`, a live force off abandons `stopping` and its reply is
+/// returned for the caller's forced stop to answer.
+async fn drive_stop<T>(
+    stopping: impl Future<Output = T>,
+    config: &Config,
+    control: &mut super::ControlReceiver,
+    state: &mut Status,
+    escalable: bool,
+) -> std::result::Result<T, oneshot::Sender<Result<()>>> {
+    tokio::pin!(stopping);
+    let mut heartbeat = tokio::time::interval(Duration::from_secs(1));
+    loop {
+        tokio::select! {
+            biased;
+            stopped = &mut stopping => return Ok(stopped),
+            Some(request) = control.requests.recv() => {
+                if !escalable {
+                    request.shutting_down();
+                } else if let Some(reply) = request.escalates_graceful_stop() {
+                    return Err(reply);
+                }
+            }
+            _ = heartbeat.tick() => { let _ = publish(config, state); }
+        }
+    }
 }
 
 fn native_clean_shutdown(config: &Config, exit: &ExitStatus, method: &str) -> Result<()> {

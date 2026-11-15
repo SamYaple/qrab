@@ -26,8 +26,20 @@ function stopReconnecting() {
     clearTimeout(reconnectTimer);
     reconnectTimer = null;
 }
+function startReconnecting() {
+    reconnectUntil = Date.now() + RECONNECT_WINDOW_MS;
+    reconnectDelay = 1000;
+    if (!rfb && !reconnectTimer) scheduleReconnect();
+}
 function scheduleReconnect() {
     if (Date.now() >= reconnectUntil) { stopReconnecting(); return false; }
+    if (poweredOff) {
+        // Nothing serves the console until power on, which reconnects it.
+        stopReconnecting();
+        resume = true;
+        showPoweredOff();
+        return true;
+    }
     clearTimeout(reconnectTimer);
     status.textContent = `Reconnecting in ${Math.round(reconnectDelay / 1000)} s…`;
     reconnectTimer = setTimeout(openConsole, reconnectDelay);
@@ -35,12 +47,57 @@ function scheduleReconnect() {
     return true;
 }
 
+// While Redfish reports the VM Off (or the VM is stopped) the console rests:
+// no retries, Connect disabled, power controls unchanged. `resume` records
+// that the console was in use, so it reconnects once the polled power state
+// is On or Paused again.
+const placeholder = [...screen.childNodes].map(child => child.cloneNode(true));
+let poweredOff = false;
+let resume = false;
+function isOff(state) {
+    return (!state.running && !state.pod) || (state.pod && !state.redfish_error && state.power_state === 'Off');
+}
+function consoleServed(state) {
+    return state.running && state.pod && !state.redfish_error && ['On', 'Paused'].includes(state.power_state);
+}
+function showPoweredOff() {
+    status.textContent = 'Powered off · Power on to use the console';
+    const note = document.createElement('p');
+    note.textContent = 'The VM is powered off. The console reconnects when it is powered on again.';
+    screen.replaceChildren(note);
+}
+function followPower() {
+    if (!state) return;
+    const off = isOff(state);
+    if (off && !poweredOff) {
+        if (rfb || reconnectTimer || reconnectUntil > Date.now()) resume = true;
+        stopReconnecting();
+        poweredOff = true;
+        if (!rfb) showPoweredOff();
+    } else if (!off && poweredOff) {
+        poweredOff = false;
+        if (!rfb && resume) {
+            status.textContent = 'Powering on · The console reconnects when the VM is running';
+        } else if (!rfb) {
+            status.textContent = 'Console disconnected';
+            screen.replaceChildren(...placeholder.map(child => child.cloneNode(true)));
+        }
+    }
+    if (!off && resume && consoleServed(state)) {
+        resume = false;
+        startReconnecting();
+    }
+    connect.disabled = poweredOff && !rfb;
+}
+
 function disconnected(message) {
     rfb = null;
     connect.textContent = 'Connect console';
+    connect.disabled = poweredOff;
     element('cad').disabled = true;
     element('fullscreen').disabled = true;
-    if (!scheduleReconnect()) status.textContent = message;
+    if (scheduleReconnect()) return;
+    if (poweredOff) showPoweredOff(); else status.textContent = message;
 }
 function openConsole() {
     reconnectTimer = null;
@@ -73,6 +130,7 @@ function openConsole() {
 }
 connect.addEventListener('click', () => {
     stopReconnecting();
+    resume = false;
     if (rfb) { rfb.disconnect(); return; }
     openConsole();
 });
@@ -166,6 +224,7 @@ async function poll() {
         state = null;
         showError(`Power state unavailable: ${error.message}`);
     }
+    followPower();
     render();
 }
 async function send(button) {
@@ -193,11 +252,10 @@ async function send(button) {
         showError('');
         status.textContent = `${button.dataset.label} sent.`;
         if (RECONNECTS.includes(action)) {
-            reconnectUntil = Date.now() + RECONNECT_WINDOW_MS;
-            reconnectDelay = 1000;
-            if (!rfb && !reconnectTimer) scheduleReconnect();
+            startReconnecting();
         } else if (action === 'off') {
             stopReconnecting();
+            resume = false;
         }
     } catch (error) {
         showError(error.message);

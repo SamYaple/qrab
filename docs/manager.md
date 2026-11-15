@@ -258,6 +258,7 @@ A live-migration target receives its guest only in the first cycle.
 | `powerdown` (Redfish GracefulShutdown) | ACPI, the configured guest grace, then QMP quit and bounded kill; the VM rests `off` |
 | The guest powers itself off (QEMU exits 0) | `off` |
 | `forceoff` | QMP quit, SIGKILL after 2 s; `off` |
+| `forceoff` during a `powerdown`'s grace | the stop escalates at once: QMP quit, SIGKILL after 2 s; `off` with reason `force-off` |
 | `on` while `off` | a new cycle: new QEMU and swtpm PIDs, same TPM identity, NVRAM and disks |
 | `coldrestart` (PowerCycle) | QMP quit and reap, then a new cycle at once; while `off` it powers on |
 | SIGTERM/SIGINT (Pod deletion, `spec.running: false`) | stop as for `powerdown` (or at once while `off`), then the manager exits |
@@ -268,7 +269,11 @@ While `off`, `status` reports phase `off` with no QEMU or swtpm PID and the
 heartbeat continues. Requests that need QEMU (metrics, inventory, media,
 console, guest agent, pause/resume/reset/NMI/reboot) fail at once with
 `Error::PoweredOff` (`powered_off` on the socket); `powerdown` and `forceoff`
-succeed as no-ops, and `on` while QEMU runs is refused. Firmware and Secure
+succeed as no-ops, and `on` while QEMU runs is refused. While QEMU is being
+stopped, requests fail at once with `Error::ShuttingDown`, except a `forceoff`
+during a `powerdown`: it cuts the ACPI grace short and succeeds once QMP quit
+is sent (SIGKILL follows if QEMU does not exit). The power event then carries
+reason `force-off`, since the guest did not finish its own shutdown. Firmware and Secure
 Boot staging work while off and take effect at the next power on. Each
 transition records a `QRAB_POWER_STATE` event (data
 `{"power_state": "Off"|"PoweringOn"|"On", "reason": ...}`, no QEMU

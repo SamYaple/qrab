@@ -393,6 +393,7 @@ async function refresh() {
     try {
         system = await request(SYSTEM);
         showStatus();
+        followPower();
         showOverview();
         showAgent(system.Oem?.Qrab?.GuestAgent);
         showConfig(system.Oem?.Qrab?.Configuration);
@@ -688,6 +689,8 @@ async function loadPower() {
             try {
                 await post(target(), {ResetType: type});
                 showError('');
+                // Power on brings the console up once the VM runs.
+                if (type === 'On') { consoleWanted = true; resume = true; }
             } catch (error) { showError(error.message); }
             finally { button.disabled = false; await refresh(); }
         });
@@ -697,12 +700,48 @@ async function loadPower() {
 }
 
 // ── Console.
+// While Redfish reports PowerState Off nothing serves the console: Connect
+// is disabled and the console says so, with the power group unchanged. A
+// console that was in use when the VM went off reconnects once the polled
+// power state is On or Paused again; there are no retries in between.
+const POWERED_OFF = 'Powered off · Power on to use the console';
+let consoleWanted = false;
+let poweredOff = false;
+let resume = false;
+const placeholder = [...element('screen').childNodes].map(child => child.cloneNode(true));
+function showPoweredOff() {
+    element('console-status').textContent = POWERED_OFF;
+    element('screen').replaceChildren(node('p', 'The VM is powered off. The console reconnects when it is powered on again.'));
+}
+function followPower() {
+    if (session?.role !== 'admin' || !system) return;
+    const off = system.PowerState === 'Off';
+    if (off && !poweredOff) {
+        poweredOff = true;
+        if (consoleWanted) resume = true;
+        if (!rfb) showPoweredOff();
+    } else if (!off && poweredOff) {
+        poweredOff = false;
+        if (!rfb && resume) {
+            element('console-status').textContent = 'Powering on · The console reconnects when the VM is running';
+        } else if (!rfb) {
+            element('console-status').textContent = 'Console disconnected';
+            element('screen').replaceChildren(...placeholder.map(child => child.cloneNode(true)));
+        }
+    }
+    if (!off && resume && !rfb && ['On', 'Paused'].includes(system.PowerState)) {
+        resume = false;
+        connect();
+    }
+    element('connect').disabled = poweredOff && !rfb;
+}
 function disconnected(message) {
     rfb = null;
     element('connect').textContent = 'Connect console';
-    element('console-status').textContent = message;
+    element('connect').disabled = poweredOff;
     element('cad').disabled = true;
     element('fullscreen').disabled = true;
+    if (poweredOff) showPoweredOff(); else element('console-status').textContent = message;
 }
 function connect() {
     if (rfb) { rfb.disconnect(); return; }
@@ -755,7 +794,12 @@ function audioToggle() {
     element('fullscreen').after(button);
 }
 function wireConsole() {
-    element('connect').addEventListener('click', connect);
+    element('connect').addEventListener('click', () => {
+        // A console the user closed stays closed through power changes.
+        consoleWanted = !rfb;
+        resume = false;
+        connect();
+    });
     element('scale').addEventListener('click', toggleScale);
     element('cad').addEventListener('click', () => { rfb?.sendCtrlAltDel(); rfb?.focus(); });
     element('fullscreen').addEventListener('click', () => element('screen').requestFullscreen().catch(error => showError(error.message)));

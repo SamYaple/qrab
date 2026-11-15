@@ -122,6 +122,13 @@ only on a second click within 5 seconds; the server also refuses them without
 - After Power on, Reset, Restart guest, Power cycle or Shut down, the console
   reconnects by itself, backing off from 1 to 30 seconds, for two minutes.
   Disconnect or Power off cancels that.
+- While the VM is off (`PowerState` `Off`, or `spec.running` false with no
+  Pod) the console shows a powered-off state, stops retrying and disables
+  **Connect console**; the power buttons stay as above. A console that was in
+  use (open or reconnecting) when the VM went off, or after Power on, starts
+  that reconnect once the state poll reads `On` or `Paused`.
+- Force off during a Shut down's ACPI grace cuts the grace short; the VM
+  rests `Off` with reason `force-off`.
 
 `POST /vms/{ns}/{name}/power` takes JSON with `X-CSRF-Token` and the exact
 Origin, and is admin-only (viewers 403, invisible VMs 404), like the console.

@@ -95,6 +95,9 @@ struct Shared {
     status: Arc<watch::Sender<Option<Status>>>,
     /// Set while the supervisor stops QEMU, and for good once it exits.
     stopping: AtomicBool,
+    /// Set while a graceful power off waits out its grace: a force off is
+    /// still admitted, to cut that stop short.
+    graceful_stop: AtomicBool,
     /// Set while QEMU is powered off and the supervisor waits for power-on.
     off: AtomicBool,
     /// QMP client event drops of the QEMU processes that already ended.
@@ -249,6 +252,7 @@ fn channel(config: Option<Config>, deployment: Deployment) -> (Control, ControlR
         config: RwLock::new(config),
         status: Arc::new(watch::channel(None).0),
         stopping: AtomicBool::new(false),
+        graceful_stop: AtomicBool::new(false),
         off: AtomicBool::new(false),
         qmp_dropped_base: AtomicU64::new(0),
         agent: Arc::new(watch::channel(agent).0),
@@ -365,13 +369,21 @@ impl ControlReceiver {
     /// Requests fail at once with [`Error::ShuttingDown`] until
     /// [`Self::set_powering_on`] or [`Self::set_off`].
     pub(super) fn set_stopping(&self) {
+        self.shared.graceful_stop.store(false, Ordering::Release);
         self.shared.stopping.store(true, Ordering::Release);
+    }
+
+    /// The stop in progress is a graceful power off: until the next phase
+    /// change a force off is admitted and escalates it.
+    pub(super) fn set_graceful_stop(&self) {
+        self.shared.graceful_stop.store(true, Ordering::Release);
     }
 
     /// QEMU is gone and the supervisor answers requests itself: QMP and
     /// guest requests fail at once with [`Error::PoweredOff`].
     pub(super) fn set_off(&self) {
         self.shared.off.store(true, Ordering::Release);
+        self.shared.graceful_stop.store(false, Ordering::Release);
         self.shared.stopping.store(false, Ordering::Release);
     }
 
@@ -390,6 +402,7 @@ impl ControlReceiver {
         clear(&self.shared.secure_boot_settings);
         clear(&self.shared.secure_boot_databases);
         self.shared.off.store(false, Ordering::Release);
+        self.shared.graceful_stop.store(false, Ordering::Release);
         self.shared.stopping.store(false, Ordering::Release);
     }
 
@@ -672,11 +685,13 @@ impl Control {
         deadline: std::time::Duration,
         make: impl FnOnce(oneshot::Sender<Result<T>>) -> Request,
     ) -> Result<T> {
-        if self.shared.stopping.load(Ordering::Acquire) {
-            return Err(Error::ShuttingDown);
-        }
         let (tx, rx) = oneshot::channel();
         let request = make(tx);
+        if self.shared.stopping.load(Ordering::Acquire)
+            && !(request.forces_off() && self.shared.graceful_stop.load(Ordering::Acquire))
+        {
+            return Err(Error::ShuttingDown);
+        }
         if self.shared.off.load(Ordering::Acquire) && !request.serves_off() {
             return Err(Error::PoweredOff);
         }
@@ -876,6 +891,10 @@ impl Request {
         matches!(self, Self::Action(action, _) if action.serves_off())
     }
 
+    fn forces_off(&self) -> bool {
+        matches!(self, Self::Action(Action::ForceOff, _))
+    }
+
     /// Answer a request that arrives while the VM is being stopped. A
     /// repeated power off is already in effect.
     pub(super) fn shutting_down(self) {
@@ -887,6 +906,19 @@ impl Request {
             Self::Inventory(reply) => drop(reply.send(Err(Error::ShuttingDown))),
             Self::Media(_, reply) => drop(reply.send(Err(Error::ShuttingDown))),
             Self::Agent(op) => op.reject(|| Error::ShuttingDown),
+        }
+    }
+
+    /// Answer a request that arrives during a graceful stop. A live force off
+    /// hands its reply back: the supervisor escalates the stop to QMP `quit`
+    /// and answers it. Everything else is answered as [`Self::shutting_down`].
+    pub(super) fn escalates_graceful_stop(self) -> Option<oneshot::Sender<Result<()>>> {
+        match self {
+            Self::Action(Action::ForceOff, reply) if !reply.is_closed() => Some(reply),
+            other => {
+                other.shutting_down();
+                None
+            }
         }
     }
 

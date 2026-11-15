@@ -22,8 +22,9 @@ is read from and sent to the VM's in-pod [Redfish](redfish.md) service through
 the BMC's [`/bmc/redfish` session adapter](#redfish-proxy).
 
 Shut down and Force off leave the VM powered off in its Pod; Power on starts
-QEMU again in place with the same TPM identity and disks. Set
-spec.running=false to end the Pod and keep the VM off.
+QEMU again in place with the same TPM identity and disks. Force off during a
+Shut down's ACPI grace cuts the grace short. Set spec.running=false to end
+the Pod and keep the VM off.
 
 The RAM-only fixture has an interactive root shell on its virtual terminal.
 Keyboard and absolute pointer devices are exposed to the guest; the fixture's
@@ -55,6 +56,10 @@ modules):
   click turns the button into **Confirm <action>** for 5 s and only a second
   click sends it. Pressing a toolbar or tab button while the console has
   keyboard focus keeps that focus; clicking anywhere else releases it.
+  While `PowerState` is `Off` the console shows a powered-off state and
+  **Connect console** is disabled; the Power group is unchanged. A console
+  that was open when the VM went off, or after **Power on**, reconnects once
+  the 3 s `Systems/1` poll reads `On` or `Paused`; nothing retries in between.
 - **Side rail** beside the console (stacked below it at 1000 px and narrower),
   with keyboard-accessible tabs (arrow keys, Home, End). The selected tab is
   remembered per user in the browser's `localStorage`.

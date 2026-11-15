@@ -650,6 +650,46 @@ async fn power_cycle_and_force_off_relaunch_qemu_without_ending_the_manager() {
     assert_eq!(runner.shutdown().await.reason, "shutdown-requested");
 }
 
+#[tokio::test]
+async fn force_off_during_a_graceful_stop_reaps_qemu_within_the_force_off_bound() {
+    let (_dir, mut config) = fixture();
+    // The fixture QEMU ignores ACPI powerdown, so only escalation ends the stop early.
+    config.shutdown_grace_secs = 60;
+    let (control, _inject, runner) = start(&config);
+    wait_for(&control, "RESUME").await;
+    let pid = wait_for_phase(&control, pod::Phase::Running)
+        .await
+        .qemu_pid
+        .unwrap();
+    control.action(Action::Powerdown).await.unwrap();
+    wait_for_phase(&control, pod::Phase::Stopping).await;
+    // Other requests during the graceful stop still fail at once.
+    assert!(matches!(
+        control.action(Action::Pause).await,
+        Err(manager::Error::ShuttingDown)
+    ));
+    let started = std::time::Instant::now();
+    control.action(Action::ForceOff).await.unwrap();
+    let off = wait_for_phase(&control, pod::Phase::Off).await;
+    // QMP quit, then SIGKILL after the 2 s reap bound, plus scheduling slack.
+    assert!(
+        started.elapsed() < Duration::from_secs(4),
+        "{:?}",
+        started.elapsed()
+    );
+    assert!(off.qemu_pid.is_none());
+    assert!(
+        !PathBuf::from(format!("/proc/{pid}")).exists(),
+        "the escalated QEMU was not reaped"
+    );
+    assert_eq!(
+        wait_for(&control, pod::POWER_EVENT).await.data,
+        json!({"power_state":"Off","reason":"force-off"})
+    );
+    assert!(!runner.task.is_finished());
+    assert_eq!(runner.shutdown().await.reason, "shutdown-requested");
+}
+
 #[test]
 fn redacted_view_removes_storage_identity_paths_node_and_image() {
     let (_dir, mut config) = fixture();
