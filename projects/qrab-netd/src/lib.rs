@@ -10,6 +10,7 @@
 #[cfg(feature = "agent")]
 pub mod authz;
 pub mod cgroup;
+pub mod dhcp;
 pub mod identity;
 #[cfg(feature = "agent")]
 pub mod plan;

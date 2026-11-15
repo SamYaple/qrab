@@ -34,6 +34,8 @@ struct Agent {
     /// The node's Cilium agent API socket (handoff states).
     cilium: PathBuf,
     namespace: String,
+    /// Anchor UID → its DHCP responder's stop flag.
+    dhcp: Mutex<HashMap<String, Arc<std::sync::atomic::AtomicBool>>>,
     /// Forward routes whose address no local anchor holds any more → since when.
     orphaned: Mutex<HashMap<std::net::Ipv4Addr, Instant>>,
 }
@@ -51,7 +53,23 @@ impl Agent {
         let (pid, ns) = self.netns(pod)?;
         let resolver = sys::pod_resolver(&self.proc_root, pid);
         let summary = format!("tap {} routes {}", plan.tap, plan.guest_ip);
+        let (tap, guest_mac, guest_ip) = (plan.tap.clone(), plan.guest_mac.clone(), plan.guest_ip);
         sys::in_netns(&ns, move || sys::apply(&plan, resolver)).map_err(|e| e.to_string())?;
+        // One DHCP responder per anchor, for guests that configure by DHCP.
+        let uid = pod.uid().unwrap_or_default();
+        if let std::collections::hash_map::Entry::Vacant(slot) =
+            self.dhcp.lock().unwrap().entry(uid)
+        {
+            let mac = qrab_netd::dhcp::mac(&guest_mac).ok_or("bad guest MAC")?;
+            let lease = qrab_netd::dhcp::Lease {
+                mac,
+                ip: guest_ip,
+                seconds: 86400,
+            };
+            let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
+            sys::serve_dhcp(ns, tap, lease, stop.clone()).map_err(|e| e.to_string())?;
+            slot.insert(stop);
+        }
         Ok(summary)
     }
 
@@ -248,6 +266,14 @@ async fn reconcile(agent: &Arc<Agent>, pods: &Api<Pod>) {
         report(pods, agent, pod, &outcome).await;
     }
     let live: Vec<String> = anchors.iter().filter_map(|p| p.uid()).collect();
+    // A responder's socket pins its anchor's namespace: stop those of gone anchors.
+    agent.dhcp.lock().unwrap().retain(|uid, stop| {
+        let keep = live.contains(uid);
+        if !keep {
+            stop.store(true, std::sync::atomic::Ordering::Relaxed);
+        }
+        keep
+    });
     agent
         .plumbed
         .lock()
@@ -355,6 +381,7 @@ async fn main() -> Result<()> {
         ),
         namespace: namespace.clone(),
         orphaned: Mutex::default(),
+        dhcp: Mutex::default(),
     });
     let mut server = tokio::spawn(serve(
         agent.clone(),

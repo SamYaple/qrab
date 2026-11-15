@@ -262,3 +262,77 @@ fn forward_routes_are_marked_listed_and_removed() {
     })
     .unwrap();
 }
+
+#[test]
+fn the_dhcp_responder_offers_the_lease_over_a_real_link() {
+    // SAFETY: geteuid has no preconditions.
+    if unsafe { libc::geteuid() } != 0 {
+        eprintln!("skipped: needs root to create network namespaces");
+        return;
+    }
+    let anchor = Netns::new();
+    let guest = Netns::new();
+    // `ip ... netns <pid>` resolves /proc/<tid>/ns/net for the parked thread.
+    let peer_ns = guest
+        .path
+        .to_str()
+        .unwrap()
+        .split('/')
+        .nth(4)
+        .unwrap()
+        .to_owned();
+    sys::in_netns(&anchor.path, move || {
+        ip(&format!(
+            "link add qtdhcp0 type veth peer name gst0 netns {peer_ns}"
+        ))?;
+        ip("link set qtdhcp0 up")?;
+        // As on a plumbed anchor (the stand-in client sends from 10.99.0.99).
+        for key in ["all", "qtdhcp0"] {
+            std::fs::write(format!("/proc/sys/net/ipv4/conf/{key}/rp_filter"), "0")?;
+        }
+        ip("addr add 169.254.1.1/32 dev qtdhcp0")
+    })
+    .unwrap();
+    let lease = qrab_netd::dhcp::Lease {
+        mac: [2, 0, 0, 0, 0, 0x42],
+        ip: "10.99.0.42".parse().unwrap(),
+        seconds: 600,
+    };
+    let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    sys::serve_dhcp(anchor.path.clone(), "qtdhcp0".into(), lease, stop.clone()).unwrap();
+    let reply = sys::in_netns(&guest.path, move || {
+        ip("link set gst0 address 02:00:00:00:00:42 up")?;
+        // A real client sends from 0.0.0.0 on a raw socket; this UDP stand-in
+        // needs an address and a broadcast route to send at all.
+        ip("addr add 10.99.0.99/32 dev gst0")?;
+        ip("route add 255.255.255.255/32 dev gst0")?;
+        for key in ["all", "gst0"] {
+            std::fs::write(format!("/proc/sys/net/ipv4/conf/{key}/rp_filter"), "0")?;
+        }
+        let socket = std::net::UdpSocket::bind(("0.0.0.0", 68))?;
+        nix::sys::socket::setsockopt(
+            &socket,
+            nix::sys::socket::sockopt::BindToDevice,
+            &std::ffi::OsString::from("gst0"),
+        )
+        .map_err(io::Error::from)?;
+        socket.set_broadcast(true)?;
+        socket.set_read_timeout(Some(Duration::from_secs(2)))?;
+        let mut buffer = [0u8; 1500];
+        for _ in 0..5 {
+            socket.send_to(
+                &qrab_netd::dhcp::request(1, 7, lease.mac),
+                ("255.255.255.255", 67),
+            )?;
+            if let Ok((n, from)) = socket.recv_from(&mut buffer) {
+                return Ok((buffer[..n].to_vec(), from));
+            }
+        }
+        Err(io::Error::other("no DHCP reply"))
+    })
+    .unwrap();
+    stop.store(true, std::sync::atomic::Ordering::Relaxed);
+    let (offer, from) = reply;
+    assert_eq!(from.ip().to_string(), "169.254.1.1");
+    assert_eq!(&offer[16..20], &[10, 99, 0, 42], "yiaddr is the lease");
+}

@@ -323,6 +323,60 @@ pub fn cilium_handoff(socket: &Path, endpoint: &str, state: &str) -> io::Result<
     )))
 }
 
+/// Offset of the reply's DHCP message type value (option 53 comes first).
+const HEADER_KIND_OFFSET: usize = 242;
+
+/// Serve DHCP for one tap until `stop` is set: a UDP socket on port 67 in
+/// the anchor's namespace, bound to the tap, answering only `lease.mac`.
+/// The socket keeps the namespace alive, so the caller stops it when the
+/// anchor goes.
+pub fn serve_dhcp(
+    ns: PathBuf,
+    tap: String,
+    lease: crate::dhcp::Lease,
+    stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
+) -> io::Result<()> {
+    let netns = File::open(&ns)?;
+    std::thread::Builder::new().name(format!("dhcp-{tap}")).spawn(move || {
+        let run = || -> io::Result<()> {
+            nix::sched::setns(&netns, nix::sched::CloneFlags::CLONE_NEWNET).map_err(io::Error::from)?;
+            let socket = socket2_udp(&tap)?;
+            let mut buffer = [0u8; 1500];
+            eprintln!("{}", serde_json::json!({"event":"dhcp_serving","detail":{"tap":tap,"address":lease.ip}}));
+            while !stop.load(std::sync::atomic::Ordering::Relaxed) {
+                let (n, from) = match socket.recv_from(&mut buffer) {
+                    Ok(received) => received,
+                    Err(e) if matches!(e.kind(), io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut) => continue,
+                    Err(e) => return Err(e),
+                };
+                if let Some(reply) = crate::dhcp::reply(&buffer[..n], &lease) {
+                    socket.send_to(&reply, (Ipv4Addr::BROADCAST, 68))?;
+                    eprintln!("{}", serde_json::json!({"event":"dhcp_reply","detail":{"tap":tap,"from":from.to_string(),"kind":reply[HEADER_KIND_OFFSET]}}));
+                }
+            }
+            Ok(())
+        };
+        if let Err(error) = run() {
+            eprintln!("{}", serde_json::json!({"event":"dhcp_failed","detail":{"tap":tap,"error":error.to_string()}}));
+        }
+    })?;
+    Ok(())
+}
+
+fn socket2_udp(tap: &str) -> io::Result<std::net::UdpSocket> {
+    use nix::sys::socket::{setsockopt, sockopt};
+    let socket = std::net::UdpSocket::bind((Ipv4Addr::UNSPECIFIED, 67))?;
+    setsockopt(
+        &socket,
+        sockopt::BindToDevice,
+        &std::ffi::OsString::from(tap),
+    )
+    .map_err(io::Error::from)?;
+    socket.set_broadcast(true)?;
+    socket.set_read_timeout(Some(std::time::Duration::from_secs(1)))?;
+    Ok(socket)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
