@@ -18,8 +18,7 @@ fetches use this local Gitea repository exclusively; do not fetch directly from
 upstream. Library functions may still accept explicit tag lists for testing;
 the CLI always uses a lockfile.
 
-Initialize only the QEMU submodule; firmware and SVSM submodules are unrelated
-to protocol development:
+`vendor/qemu` is the only submodule. Initialize it and fetch the release tags:
 
 ```sh
 git submodule sync -- vendor/qemu

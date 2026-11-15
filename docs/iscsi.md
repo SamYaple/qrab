@@ -43,8 +43,8 @@ QEMU processes do not hot-reload secret objects.
 Optional `bootIndex: 0` requests UEFI priority ahead of the bundled ESP; the LUN
 must already contain a valid UEFI-bootable OS. Index 1 is reserved for the demo
 ESP; other boot indexes must be unique. Ordinary data disks omit it. The initial
-live proof uses a disposable 128MiB data LUN; OS installation and generic volume
-provisioning are outside the demo installer.
+live proof used a disposable 128MiB data LUN; ordinary volumes use provisioned
+disks (below) instead of hand-declared LUNs.
 
 ## Provisioned disks and CoW base images
 
@@ -103,7 +103,8 @@ Per disk the operator:
 4. when a disk leaves `spec.disks`, waits until no launched VM process mounts
    it, then fences its export and deletes its Secret. The zvol is retained, and
    re-adding the same ID reattaches that data with a new credential. Removing
-   the LIO objects (`vm-disk-retire`) stays an administrative storage verb.
+   the LIO objects (`vm-disk-retire`) stays an administrative storage verb, and
+   destroying the data is manual ([below](#destroying-retained-data)).
 
 A fence that outlives the storage daemon's wrapper budget leaves the journal in
 `Fencing`; the operator reports `StorageFenceInProgress` and resumes it on the
@@ -196,8 +197,9 @@ these.
 
 ## Ownership and recovery
 
-This first version requires immutable `storageNode` and scheduler nodeSelector.
-It does not automatically move a native-disk VM to another node. The target's
+`spec.storageNode` is immutable and pins the VM's first node. The operator never
+moves a native-disk VM on its own; a `VirtualMachineMigration` moves it live
+([migration.md](migration.md)) and records the new node in `status.placementNode`. The target's
 exact initiator ACL and CHAP credentials authorize a VM; they alone do not limit
 the number of sessions using those credentials. MaxConnections is per session.
 
@@ -236,11 +238,46 @@ administrator procedure above. Deleting a VM fences its provisioned disks
 before the finalizer is removed; zvols are retained. A failed orphan whose parent was forcibly removed
 remains a visible finalizer tombstone; hard-fence first, then explicitly remove
 its Pod finalizer. The periodic sweep only collects genuinely VM-owned clean
-orphans. There is no general migration workflow in this release.
+orphans.
 
 PVC state locks and RWOP still protect retained identity. Keep the target,
 credentials, guest disk and TPM/NVRAM identity together through deliberate
 recovery; never copy a TPM volume to make another identity.
+
+## Destroying retained data
+
+All VM storage is Retain-only, and no API destroys data. Deleting a VM, or
+dropping a disk from `spec.disks`, fences the export and keeps the zvol, which
+still counts against the `tank/qrab-iscsi` quota. Throwaway VMs therefore leave
+one retained disk each; the live check scripts are tracked by towl
+`work/test-vm-disk-leak`. Destroying a disk is a root operation on the storage
+host `bb`, after you have confirmed that no VM will reattach it:
+
+```sh
+t=/usr/local/sbin/qrab-iscsi-target
+# 1. Must report phase "fenced" (or "provisioned", never exported). The operator
+#    fences on VM deletion and when the disk leaves spec.disks.
+sudo $t vm-disk-status --vm-uid VM-UID --disk ID
+# 2. Remove the LIO target; the zvol stays and the journal phase becomes "retired".
+sudo $t vm-disk-retire --vm-uid VM-UID --disk ID
+# 3. Clones only: release the hold on the image snapshot.
+sudo zfs release qrab-clone-VM-UID.ID tank/qrab-iscsi/image-NAME-gGEN@sealed
+# 4. Destroy the data.
+sudo zfs destroy tank/qrab-iscsi/disk-VM-UID-ID
+```
+
+The retired journal `/var/lib/qrab-iscsi-target/<VM-UID>.<id>.json` stays, and
+`vm-image-retire` still counts it as a descendant of the clone's image. Image
+generations follow the same order: `vm-image-retire`, then
+`zfs release qrab-image` on the `@sealed` snapshot, then `zfs destroy -r` the
+image dataset.
+
+State, media and Redfish claims on `zfs-block` behave the same way. The
+`zfs-block.csi.yaple.net` provisioner refuses `DeleteVolume` ("Retain-only
+storage: retire preserved datasets through the host operator"), so changing a
+Released PV's reclaim policy to `Delete` only makes it retry. Destroy the
+Released PV's zvol under `tank/kubernetes-block-storage` with `zfs destroy` on
+`bb`, then delete the PV object.
 
 ## Checks
 

@@ -1,5 +1,7 @@
 # Redfish/Secure Boot POC rollout — 2026-11-14
 
+> Historical record of the 2026-11-14 release; the images named here are no longer the live ones. Current pins are in [images.lock.json](../contrib/images/images.lock.json) and [redfish-poc/vm.yaml](../contrib/kubernetes/redfish-poc/vm.yaml).
+
 The integrated release is deployed in `qrab`. The public console/Redfish hostname
 remains `https://qrab-demo.yapplesauce.com`, explicitly routed to the fresh
 `qrab-redfish-poc` VM. This environment requires private DNS/routing; tests used

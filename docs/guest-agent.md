@@ -5,7 +5,8 @@ agent (QGA) wire protocol on the virtio-serial port `org.qemu.guest_agent.0`.
 It gives the manager a narrow control path into the guest: liveness,
 filesystem quiesce for consistent disk snapshots, and one entry point for
 guest updates. It is not qemu-ga: it serves a fixed allowlist and has no
-arbitrary execution, file access, user, password or network commands.
+arbitrary execution, file access, user, password or network-configuration
+commands.
 
 ## Host access
 
@@ -31,6 +32,9 @@ and offers freeze, thaw and update to admins ([bmc.md](bmc.md)); Redfish has
 | `guest-shutdown` | `powerdown` (default), `halt` or `reboot`; no reply, like QEMU. |
 | `qrab-update-trigger` | Start the fixed update hook asynchronously. |
 | `qrab-update-status` | Report the current or last hook run. |
+| `guest-network-get-interfaces`, `qrab-network-get-interfaces` | Read-only interface inventory ([below](#redfish-inventory-and-boot-commands)). |
+| `qrab-firmware-state`, `qrab-boot-state`, `qrab-boot-next` | Fixed EFI variables; `qrab-boot-next` writes only BootNext. |
+| `qrab-secure-boot-databases`, `qrab-secure-boot-update` | Public PK/KEK/db/dbx lists and authenticated updates ([below](#authenticated-secure-boot-databases)). |
 
 Everything else, including `guest-exec`, `guest-file-*` and
 `guest-set-user-password`, returns `CommandNotFound`. Standard request and
@@ -90,7 +94,7 @@ Arguments are optional: at most 16 tokens of 1–256 bytes from
 through a shell. The hook runs in its own process group with a cleared
 environment (`PATH`, `QRAB_UPDATE_RUN_ID`), `/` as working directory and stdin
 from `/dev/null`. One run is active at a time. It is killed (whole process
-group) after the update timeout (default 1 h, `--update-timeout`). The trigger
+group) after the update timeout (default 1 h, `--update-timeout 1..86400`). The trigger
 reply and `qrab-update-status` carry `state`
 (`idle|running|succeeded|failed`), `run-id`, arguments, start/finish times,
 exit code or signal, an error and the last 8 KiB of combined stdout/stderr.
@@ -141,9 +145,8 @@ fault with `SIGILL` under TCG `-cpu max`. Use the musl target.
 
 ## Redfish inventory and boot commands
 
-The fixed command allowlist now includes standard
-`guest-network-get-interfaces` plus `qrab-network-get-interfaces` for real Linux
-interface/carrier flags. Names, MACs, addresses/prefixes and counters come from
+Standard `guest-network-get-interfaces` reports the qemu-ga shape;
+`qrab-network-get-interfaces` adds real Linux interface/carrier flags. Names, MACs, addresses/prefixes and counters come from
 the guest; the manager bounds and validates them before matching configured MACs.
 
 `qrab-firmware-state` reads the fixed EFI SecureBoot/SetupMode/AuditMode/
@@ -170,7 +173,7 @@ accepts a private key or arbitrary variable/path. The static guest adds a small
 pure-Rust DER/X.509 decoder, with no OpenSSL library, helper process or async
 runtime dependency. Firmware authorization remains intact. For an existing fixed-name database,
 the agent pins its regular NOFOLLOW inode (or atomically creates a missing fixed
-name with exclusive0600 semantics after validating the signed input), temporarily removes only the Linux
+name with exclusive 0600 semantics after validating the signed input), temporarily removes only the Linux
 immutable bit if necessary, writes once to the same verified inode, then restores
 and verifies the exact prior flags on success/error (with an unwind guard).
 Malformed input is rejected before any flag change. No generic chattr/ioctl
@@ -179,6 +182,6 @@ outcomes must be inspected, not automatically replayed. Native SecureBootEnable
 is boot-service-only on the tested OVMF, so enable/disable uses the manager's cold
 policy editor instead of pretending Linux runtime can write that flag.
 
-The checked musl release binary is static PIE:1,328,312 bytes unstripped
+The checked musl release binary is static PIE: 1,328,312 bytes unstripped
 (981,318 bytes text). This is executable size, not process RSS; measurement
 was taken after the Secure Boot parser/update additions on 2026-11-14.

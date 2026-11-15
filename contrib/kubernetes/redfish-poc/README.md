@@ -1,15 +1,19 @@
 # Redfish/Secure Boot POC
 
-Apply the digest-pinned operator with its storage-client overlay first:
+`qrab-redfish-poc` is the cluster's only VM. Apply the platform (the
+digest-pinned operator with its storage client, plus monitoring) first, from a
+checkout at current origin/main ([../README.md](../README.md)):
 
 ```sh
-kubectl apply -k contrib/kubernetes/operator-storage-api
+kubectl apply -k contrib/kubernetes
 ```
 
 This POC uses fresh identity and Redfish-state claims. Deleted earlier VMs'
 retained claims are recovery artifacts and are never adopted, reset or deleted.
-The existing `qrab-demo.yapplesauce.com` certificate/Ingress routes to the fresh
-`qrab-redfish-poc` VM. Private DNS must resolve it to the Cilium Ingress address.
+`console.yaml` serves the VM at `qrab-demo.yapplesauce.com`; its Service,
+Ingress and CiliumNetworkPolicy keep the name `qrab-demo` (Certificate
+`qrab-demo-tls`) from the retired qrab-demo VM, but belong to this bundle.
+Private DNS must resolve the host to the Cilium Ingress address.
 
 Before applying the VM, populate its separate read-only media claim with the
 signed public guest image produced by

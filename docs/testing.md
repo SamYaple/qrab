@@ -1,21 +1,27 @@
 # Core-library validation
 
-The normal developer path is the default workspace: `qapi-macros`, `qapi`,
-`qapi-protocol`, the pod-native `manager`, `bmc` and `qrab-operator`. No QEMU checkout, Python, firmware,
-privileged hardware or cluster is required for these tests:
+The normal developer path is the default workspace (`default-members` in the
+root `Cargo.toml`): the QAPI and protocol libraries, the pod-native `manager`,
+`bmc`, `qrab-redfish`, `oidc-bearer`, `qrab-operator`, `qrab-dashboard`,
+`qrab-iscsi-target`, `qrab-guest-agent`, `qrab-kvm-device-plugin` and
+`qrab-spiffe`. No QEMU checkout, Python, firmware, privileged hardware or
+cluster is required for these tests:
 
 ```sh
 cargo test --locked
 bash contrib/check-runtime.sh
 ```
 
-The script also checks formatting and runs strict manager/protocol/BMC/operator Clippy and verifies the generated VM CRD.
+The script also checks formatting, runs strict Clippy on those crates (the
+generated `qapi`/`qapi-macros` aside), and verifies that the committed VM and
+migration CRDs and the dashboard update policy match `qrab-operator`'s output.
 Provisioned-disk coverage is hermetic: `qrab-iscsi-target` drives its disk,
 image, export/rotation, fence, budget and argv/stdin contracts against an
 in-memory host, and the operator converges `spec.disks`, auto-fences and
 fences on deletion against a fake storage API and fake Kubernetes server.
 Neither proves LIO session drain, ZFS clone behaviour or the SPIFFE/Kanidm
-exchange; those remain privileged live checks after the root rollout.
+exchange; the live `contrib/kubernetes/operator-storage-api/check.sh` and
+`clone-check.sh` do ([contrib/kubernetes/README.md](../contrib/kubernetes/README.md#checks)).
 Generated QAPI modules are excluded from rustfmt traversal; update them through
 codegen, not manual formatting.
 
@@ -88,9 +94,16 @@ QRAB_TEST_QGA="$PWD/target/qemu-11.1.3/qga/qemu-ga" \
 It runs as the current user and reads no host agent configuration. No guest VM,
 root privileges, systemd or cluster is required for either protocol smoke test.
 
-The guest agent's protocol tests need none of these. Its explicit real-guest
-test, `manager/tests/pod_guest_agent.rs`, is described in
-[guest-agent.md](guest-agent.md#tests).
+The guest agent's protocol tests need none of these.
 
-UEFI/TPM boot and retained identity are tested explicitly with `manager/tests/pod_uefi.rs`;
-see [operator.md](operator.md). These require the built image assets and swtpm.
+The manager's real-guest tests are ignored by default and need the built guest
+assets (`contrib/images`):
+
+| Test | Checks | Inputs |
+| --- | --- | --- |
+| `pod_runtime` | CLI boot, probes and SIGTERM shutdown | `QRAB_TEST_QEMU`, `QRAB_TEST_QEMU_DATA`, `QRAB_TEST_GUEST` |
+| `pod_uefi` | UEFI/TPM boot and retained identity ([operator.md](operator.md#build-and-verification)) | the above plus `QRAB_TEST_FIRMWARE`, optional `QRAB_TEST_SWTPM` |
+| `pod_guest_agent` | ping, freeze/thaw and an update ([guest-agent.md](guest-agent.md#tests)) | `QRAB_TEST_QEMU`, `QRAB_TEST_FIRMWARE_DIR`, `QRAB_TEST_KERNEL`, `QRAB_TEST_INITRD` |
+| `pod_migration` | live migration between two managers ([migration.md](migration.md#testing)) | run inside the manager image |
+
+Run one with `cargo test --locked -p manager --test <name> -- --ignored --nocapture`.

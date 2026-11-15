@@ -1,6 +1,6 @@
 # VM identity foundation
 
-qrab boots the demo through OVMF and a UEFI boot medium and exposes a swtpm-backed
+qrab boots VMs through OVMF and a UEFI boot medium and exposes a swtpm-backed
 TPM 2.0 device to Linux. The VM's retained state volume holds its firmware
 variables and TPM state. This prepares the guest for TPM-based SPIRE enrollment;
 the minimal operator does not provision a CA, issue DevID certificates or install
@@ -14,7 +14,8 @@ identity, Secure Boot enforcement or an approved measured-boot policy.
 
 ## Offline checks
 
-The demo reports these markers on its serial console:
+The RAM-only demo guest in the manager image (`contrib/images/guest-init`)
+reports these markers on its serial console:
 
 | Marker | Evidence |
 | --- | --- |

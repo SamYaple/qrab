@@ -1,7 +1,8 @@
 # BMC
 
-The native `qrab-bmc` binary embeds `manager::pod` to own one VM per pod. Its
-Axum server authenticates browser requests with Kanidm OIDC and bridges the
+The native `qrab-bmc` binary runs as a VM-pod sidecar on the manager's control
+socket (`--socket`, as the operator deploys it); `--config` instead embeds
+`manager::pod` to run the VM in-process. Its Axum server authenticates browser requests with Kanidm OIDC and bridges the
 private VNC Unix socket to noVNC. There is no host launcher or WASM build.
 
 Keep QMP and VNC off TCP, keep the guest NIC disabled, and use the manager's
