@@ -54,6 +54,11 @@ deadlines; no 30-second stall test is required.
 `QEMU_MAX_VERSION` bounds for every maintained release series, selecting its
 latest pinned patch. The final check restores the full development API surface.
 
+For an exploratory compile at every distinct pinned historical version, use
+`QRAB_QAPI_HISTORICAL_BOUNDS=1 contrib/check-qapi.sh`. Fourth-component tags share
+their three-component bounds. This longer sweep does not expand the maintained
+release matrix or replace live peer tests.
+
 The default suite intentionally leaves the real-QEMU smoke tests ignored. Run
 it explicitly against an installed binary, or a locally built current release:
 
