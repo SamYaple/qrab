@@ -639,6 +639,10 @@ The event checks include malformed/missing timestamps and long payload text that
 must render without becoming HTML.
 Long names, large capacities, namespace-specific name limits and a 320×320
 CSS-pixel viewport at 2× density are included in the layout checks.
+Metric fixtures include CPU, memory and I/O series as well as an empty series;
+the checks inspect keyboard sample selection and chart-label fit. Chart labels
+and readouts use larger text, with fewer time ticks on narrow plots. The history
+panel explains the existing pointer and keyboard controls.
 It writes screenshots to the output directory. BMC requests use
 in-memory browser fixtures; the dedicated console's socket is a temporary
 loopback WebSocket held during RFB negotiation. It needs no credentials,

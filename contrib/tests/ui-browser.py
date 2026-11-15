@@ -46,7 +46,7 @@ def system(power='On'):
 def install_bmc(context, role='admin', power='On', legacy=False, origin='http://ui.test'):
     fixture = {'system': system(power), 'posts': [], 'expired': False,
                'hold_posts': False, 'pending_posts': [], 'post_error': None,
-               'fail_system': None, 'fail_metrics': False, 'hold_session': False, 'pending_session': [], 'empty_events': False, 'extra_events': [], 'requests': [],
+               'fail_system': None, 'fail_metrics': False, 'empty_metrics': False, 'hold_session': False, 'pending_session': [], 'empty_events': False, 'extra_events': [], 'requests': [],
                'vm_name': 'web-1', 'user_name': 'sam'}
     fixture['system']['Oem']['Qrab']['Configuration']['redacted'] = role == 'viewer'
 
@@ -120,9 +120,18 @@ def install_bmc(context, role='admin', power='On', legacy=False, origin='http://
             request_route.fulfill(body=': fixture\n\n', content_type='text/event-stream')
             return
         elif path.endswith('/MetricHistory'):
-            data = {'start': 1794711600, 'end': 1794715200, 'step': 60, 'unit': 'bytes/s', 'series': []}
+            query = parse_qs(urlparse(req.url).query)
+            metric, interval = query['metric'][0], query['range'][0]
+            duration = {'15m': 900, '1h': 3600, '6h': 21600, '24h': 86400, '7d': 604800}[interval]
+            end, step = 1794715200, duration // 4
+            unit = 'cores' if metric == 'container-cpu' else 'bytes' if metric == 'container-memory' else 'bytes/s'
+            values = [0.125, 0.25, 0.5, 0.1875] if unit == 'cores' else [536870912, 805306368, 1073741824, 939524096] if unit == 'bytes' else [0, 16384, 65536, 8192]
+            data = {'metric': metric, 'range': interval, 'start': end - duration, 'end': end, 'step': step, 'unit': unit, 'series': []}
+            if not fixture['empty_metrics'] and metric != 'nic-rx':
+                labels = ['manager', 'redfish', 'bmc'] if metric.startswith('container-') else ['root' if metric.startswith('block-') else 'eth0']
+                data['series'] = [{'labels': {'name': label}, 'points': [[end - duration + i * step, value / (j + 1)] for i, value in enumerate(values)]} for j, label in enumerate(labels)]
         elif path.endswith('/MetricReports/VM'):
-            data = {'MetricValues': [], 'Timestamp': '2026-11-15T04:00:00Z'}
+            data = {'MetricValues': [] if fixture['empty_metrics'] else [{'MetricId': key, 'MetricValue': str(value)} for key, value in [('LogicalProcessors', 2), ('MemoryBytes', 1073741824), ('BlockReadBytes', 83886080), ('BlockWriteBytes', 41943040)]], 'Timestamp': '2026-11-15T04:00:00Z'}
         elif path.endswith('/Resources'):
             data = {}
         else:
@@ -376,6 +385,7 @@ def bmc_state_checks(browser, width, theme):
     page.locator('#tab-metrics').click()
     expect(page.locator('#metrics-note')).to_have_text('Unavailable')
     fixture['fail_metrics'] = False
+    fixture['empty_metrics'] = True
     page.clock.fast_forward(5100)
     expect(page.locator('#telemetry')).to_contain_text('No metrics have been reported yet.')
     expect(page.locator('#resources dd')).to_have_text(['unavailable', 'unavailable'])
@@ -553,6 +563,24 @@ with sync_playwright() as playwright:
                     assert page.locator('#vm-panels').bounding_box()['y'] >= page.locator('.topbar').bounding_box()['height']
                 for tab in ['overview', 'metrics', 'events', 'agent', 'config']:
                     page.locator('#tab-' + tab).click()
+                    if tab == 'metrics':
+                        expect(page.locator('svg.chart')).to_have_count(5)
+                        expect(page.locator('[data-metric="nic-rx"] .chart-empty')).to_have_text('No samples over the last 1h.')
+                        assert 'undefined' not in page.locator('#metric-history').inner_text()
+                        chart = page.locator('svg.chart').first
+                        chart.focus()
+                        page.keyboard.press('Home')
+                        expect(page.locator('.history-chart .readout').first).to_contain_text('125 mcores')
+                        page.keyboard.press('End')
+                        expect(page.locator('.history-chart .readout').first).to_contain_text('188 mcores')
+                        for svg in page.locator('svg.chart').all():
+                            assert svg.evaluate('''svg => {
+                                const box = svg.getBoundingClientRect();
+                                const labels = [...svg.querySelectorAll('.tick')].map(t => t.getBoundingClientRect());
+                                return labels.every(a => a.left >= box.left && a.right <= box.right + 1)
+                                    && labels.every((a, i) => labels.slice(i + 1).every(b =>
+                                        a.right <= b.left || b.right <= a.left || a.bottom <= b.top || b.bottom <= a.top));
+                            }'''), 'Chart labels must fit without overlapping'
                     no_overflow(page, f'bmc-{role}-{tab}', width)
                     capture(page, args.output / f'bmc-{role}-{tab}-{theme}-{width}.png')
                 page.locator('#tab-events').click()

@@ -640,8 +640,8 @@ function drawChart(figure, answer, title) {
     const keepFocus = body.contains(document.activeElement);
     const previousTime = figure.dataset.selectedTime === undefined ? null : Number(figure.dataset.selectedTime);
     const width = Math.max(240, Math.round(body.clientWidth || 320));
-    const height = 132;
-    const pad = {left: 74, right: 8, top: 8, bottom: 20};
+    const height = 148;
+    const pad = {left: 100, right: 8, top: 10, bottom: 24};
     const plotWidth = width - pad.left - pad.right;
     const plotHeight = height - pad.top - pad.bottom;
     const values = answer.series.flatMap(series => series.points.map(point => point[1]));
@@ -657,14 +657,15 @@ function drawChart(figure, answer, title) {
         body.replaceChildren(node('p', `No samples over the last ${answer.range}.`, 'chart-empty'));
         return;
     }
-    const svg = svgNode('svg', {viewBox: `0 0 ${width} ${height}`, width, height, role: 'img', 'aria-label': summary, tabindex: 0, class: 'chart'});
+    const svg = svgNode('svg', {viewBox: `0 0 ${width} ${height}`, width, height, role: 'img', 'aria-label': summary, 'aria-describedby': 'history-help', tabindex: 0, class: 'chart'});
     svg.append(svgNode('title', {}, summary));
     for (const fraction of [0, 0.5, 1]) {
         const level = pad.top + plotHeight * (1 - fraction);
         svg.append(svgNode('line', {x1: pad.left, x2: width - pad.right, y1: level, y2: level, class: fraction ? 'grid' : 'axis'}));
         svg.append(svgNode('text', {x: pad.left - 5, y: level + 4, 'text-anchor': 'end', class: 'tick'}, formatValue(top * fraction, answer.unit)));
     }
-    for (const [fraction, anchor] of [[0, 'start'], [0.5, 'middle'], [1, 'end']]) {
+    const ticks = plotWidth >= 220 ? [[0, 'start'], [0.5, 'middle'], [1, 'end']] : [[0, 'start'], [1, 'end']];
+    for (const [fraction, anchor] of ticks) {
         const t = answer.start + (answer.end - answer.start) * fraction;
         svg.append(svgNode('text', {x: pad.left + plotWidth * fraction, y: height - 5, 'text-anchor': anchor, class: 'tick'}, axisTime(t, answer.range)));
     }
@@ -783,7 +784,9 @@ function buildHistory(slot) {
         return figure;
     });
     slot.classList.remove('slot');
-    slot.replaceChildren(head, ...charts);
+    const help = node('p', 'Point to a chart to inspect a sample. With keyboard focus, use Left/Right arrows or Home/End.', 'panel-help');
+    help.id = 'history-help';
+    slot.replaceChildren(head, help, ...charts);
     metricHistory.resize = new ResizeObserver(() => drawHistory(slot));
     metricHistory.resize.observe(slot);
     metricHistory.built = true;
