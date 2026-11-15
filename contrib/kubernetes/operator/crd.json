@@ -470,6 +470,21 @@
                           "maxItems": 8,
                           "type": "array",
                           "x-kubernetes-list-type": "set"
+                        },
+                        "vpn": {
+                          "description": "Send all of this NIC's guest traffic through a WireGuard tunnel that\nits anchor terminates, and none around it. The guest gets the\ntunnel's address and DNS by DHCP; the key never reaches the guest or\nthe VM Pod. Security groups then govern the tunnel's UDP.",
+                          "nullable": true,
+                          "properties": {
+                            "secretName": {
+                              "description": "A Secret in the VM's namespace whose key `wg.conf` holds a wg-quick\nconfig with one peer (as ProtonVPN exports it). Its name must start\nwith `vpn-`, so a VM cannot have other Secrets mounted into its anchor.",
+                              "pattern": "^vpn-[a-z0-9]([-a-z0-9]{0,243}[a-z0-9])?$",
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "secretName"
+                          ],
+                          "type": "object"
                         }
                       },
                       "required": [

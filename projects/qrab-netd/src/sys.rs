@@ -219,13 +219,18 @@ fn nft(ruleset: &str) -> io::Result<()> {
 /// needed, route the guest's /32 and gateway to it, redirect DNS when a
 /// resolver is given, and finally take the address off `eth0`. Re-applying
 /// a finished plan changes nothing.
-pub fn apply(plan: &NicPlan, resolver: Option<Ipv4Addr>) -> io::Result<()> {
+/// Build `plan` in the calling thread's (anchor) namespace. Returns the tap's
+/// MTU, which the DHCP responder offers to a VPN NIC's guest.
+pub fn apply(plan: &NicPlan, resolver: Option<Ipv4Addr>) -> io::Result<u32> {
     if !tap_exists(&plan.tap) {
         create_persistent_tap(&plan.tap)?;
     }
     let uplink = ip_words(&["-o", "link", "show", "dev", UPLINK])?;
     let mtu =
         crate::plan::mtu(&uplink).ok_or_else(|| io::Error::other("cannot read the eth0 MTU"))?;
+    if let Some(tunnel) = &plan.vpn {
+        return apply_vpn(plan, tunnel, tunnel.mtu_on(mtu));
+    }
     for command in plan.link_commands(mtu) {
         ip(&command)?;
     }
@@ -248,7 +253,90 @@ pub fn apply(plan: &NicPlan, resolver: Option<Ipv4Addr>) -> io::Result<()> {
             "the anchor has no default route (it was flushed with eth0's last address); recreate the anchor Pod",
         ));
     }
-    Ok(())
+    Ok(mtu)
+}
+
+/// A VPN NIC: the tap reaches only `wg0`, whose UDP leaves through `eth0`
+/// from the anchor's own (pool) address, which therefore stays on `eth0`.
+fn apply_vpn(plan: &NicPlan, tunnel: &crate::vpn::Tunnel, mtu: u32) -> io::Result<u32> {
+    use crate::vpn::{kill_switch, TABLE, WG_LINK};
+    // The kill switch goes in first, so no step below opens a path to eth0.
+    nft(&kill_switch(&plan.tap, plan.guest_ip))?;
+    for command in plan.link_commands(mtu) {
+        ip(&command)?;
+    }
+    for (key, value) in plan.sysctls() {
+        write_sysctl(&key, value)?;
+    }
+    if !link_exists(WG_LINK) {
+        ip_words(&["link", "add", WG_LINK, "type", "wireguard"])?;
+    }
+    wg_syncconf(&tunnel.setconf())?;
+    write_sysctl(&format!("net/ipv4/conf/{WG_LINK}/rp_filter"), "0")?;
+    ip_words(&["link", "set", WG_LINK, "mtu", &mtu.to_string(), "up"])?;
+    // Everything from the tap goes through the tunnel's table: wg0, else
+    // nothing (the blackhole keeps a down tunnel from falling back to main).
+    if !ip_words(&["-4", "rule", "show"])?.contains(&format!("iif {} lookup {TABLE}", plan.tap)) {
+        ip_words(&[
+            "-4", "rule", "add", "iif", &plan.tap, "lookup", TABLE, "priority", "100",
+        ])?;
+    }
+    ip_words(&[
+        "-4", "route", "replace", "default", "dev", WG_LINK, "table", TABLE,
+    ])?;
+    ip_words(&[
+        "-4",
+        "route",
+        "replace",
+        "blackhole",
+        "default",
+        "table",
+        TABLE,
+        "metric",
+        "4096",
+    ])?;
+    Ok(mtu)
+}
+
+fn link_exists(name: &str) -> bool {
+    ip_words(&["link", "show", "dev", name]).is_ok()
+}
+
+/// `wg syncconf wg0` with the config on stdin: the private key is never on a
+/// command line, and an unchanged peer keeps its session.
+fn wg_syncconf(config: &str) -> io::Result<()> {
+    let mut child = Command::new("wg")
+        .args(["syncconf", crate::vpn::WG_LINK, "/dev/stdin"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()?;
+    child
+        .stdin
+        .take()
+        .expect("piped stdin")
+        .write_all(config.as_bytes())?;
+    let output = child.wait_with_output()?;
+    if output.status.success() {
+        return Ok(());
+    }
+    // wg's own messages do not echo keys.
+    Err(io::Error::other(format!(
+        "wg syncconf: {}",
+        String::from_utf8_lossy(&output.stderr).trim()
+    )))
+}
+
+/// The wg-quick config a VPN anchor mounts, read through its process's root.
+pub fn read_tunnel(proc_root: &Path, pid: i32) -> Result<crate::vpn::Tunnel, String> {
+    let path = proc_root
+        .join(pid.to_string())
+        .join("root")
+        .join(crate::vpn::VPN_MOUNT.trim_start_matches('/'))
+        .join(crate::vpn::VPN_FILE);
+    let text = std::fs::read_to_string(&path)
+        .map_err(|e| format!("cannot read the anchor's VPN config: {e}"))?;
+    crate::vpn::Tunnel::parse(&text)
 }
 
 /// Route protocol marking the transient forward routes this agent owns in

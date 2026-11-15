@@ -5,7 +5,7 @@
 //!
 //! ```
 //! use qrab_netd::dhcp::{reply, Lease};
-//! let lease = Lease { mac: [2, 0x21, 0xc2, 0x51, 0xb0, 0x38], ip: "10.244.128.7".parse().unwrap(), seconds: 86400 };
+//! let lease = Lease { mac: [2, 0x21, 0xc2, 0x51, 0xb0, 0x38], ip: "10.244.128.7".parse().unwrap(), seconds: 86400, dns: Some(qrab_netd::GUEST_GATEWAY), mtu: None };
 //! let discover = qrab_netd::dhcp::request(1, 0x1234_5678, lease.mac);
 //! let offer = reply(&discover, &lease).unwrap();
 //! assert_eq!(&offer[16..20], &[10, 244, 128, 7]); // yiaddr
@@ -24,6 +24,11 @@ pub struct Lease {
     pub mac: [u8; 6],
     pub ip: Ipv4Addr,
     pub seconds: u32,
+    /// DNS server offered (option 6): the gateway for a plain NIC, the
+    /// tunnel's for a VPN NIC; none leaves the option out.
+    pub dns: Option<Ipv4Addr>,
+    /// Interface MTU offered (option 26), e.g. a VPN tunnel's.
+    pub mtu: Option<u16>,
 }
 
 /// `xx:xx:xx:xx:xx:xx` as bytes.
@@ -93,7 +98,12 @@ pub fn reply(request: &[u8], lease: &Lease) -> Option<Vec<u8>> {
     option(51, &lease.seconds.to_be_bytes());
     option(1, &[255, 255, 255, 255]);
     option(3, &gateway);
-    option(6, &gateway);
+    if let Some(dns) = lease.dns {
+        option(6, &dns.octets());
+    }
+    if let Some(mtu) = lease.mtu {
+        option(26, &mtu.to_be_bytes());
+    }
     // RFC 3442: the gateway itself on-link, then the default route via it.
     let mut routes = vec![32];
     routes.extend(gateway);
@@ -129,6 +139,8 @@ mod tests {
             mac: mac("02:21:c2:51:b0:38").unwrap(),
             ip: "10.244.128.7".parse().unwrap(),
             seconds: 86400,
+            dns: Some(GUEST_GATEWAY),
+            mtu: None,
         }
     }
 

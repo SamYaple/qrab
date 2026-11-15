@@ -155,6 +155,23 @@ pub struct Nic {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     #[schemars(length(max = 8))]
     pub security_groups: Vec<SecurityGroup>,
+    /// Send all of this NIC's guest traffic through a WireGuard tunnel that
+    /// its anchor terminates, and none around it. The guest gets the
+    /// tunnel's address and DNS by DHCP; the key never reaches the guest or
+    /// the VM Pod. Security groups then govern the tunnel's UDP.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vpn: Option<NicVpn>,
+}
+
+/// A VPN NIC's tunnel (docs/networking.md, "VPN NICs").
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct NicVpn {
+    /// A Secret in the VM's namespace whose key `wg.conf` holds a wg-quick
+    /// config with one peer (as ProtonVPN exports it). Its name must start
+    /// with `vpn-`, so a VM cannot have other Secrets mounted into its anchor.
+    #[schemars(regex(pattern = r"^vpn-[a-z0-9]([-a-z0-9]{0,243}[a-z0-9])?$"))]
+    pub secret_name: String,
 }
 
 /// A DNS label naming a security group.
