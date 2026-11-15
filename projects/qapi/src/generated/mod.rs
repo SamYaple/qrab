@@ -1348,7 +1348,7 @@ pub struct BlkdebugSetStateOptions {
 #[qapi(added = "8.0.0")]
 pub struct BlockChildInfo {
     /// Block graph information starting at this node
-    pub info: Box<BlockGraphInfo>,
+    pub info: BlockGraphInfo,
     /// Child name of the root node in the `BlockGraphInfo` struct,
     /// in its role as the child of some undescribed parent node
     pub name: String,
@@ -2035,11 +2035,17 @@ pub struct BlockdevCreateOptionsLuks {
     /// the cipher algorithm for data encryption.  Currently
     /// defaults to 'aes-256'.
     #[qapi(name = "cipher-alg")]
+    #[qapi(added = "9.2.0")]
     pub cipher_alg: Option<QCryptoCipherAlgo>,
     /// the cipher mode for data encryption.  Currently
     /// defaults to 'xts'
     #[qapi(name = "cipher-mode")]
     pub cipher_mode: Option<QCryptoCipherMode>,
+    /// the cipher algorithm for data encryption Currently
+    /// defaults to 'aes-256'.
+    #[qapi(name = "cipher-alg")]
+    #[qapi(removed = "9.2.0")]
+    pub cipher_alg_legacy: Option<QCryptoCipherAlgorithm>,
     /// create a detached LUKS header.  (since 9.0)
     #[qapi(name = "detached-header")]
     #[qapi(added = "9.0.0")]
@@ -2051,7 +2057,13 @@ pub struct BlockdevCreateOptionsLuks {
     /// the master key hash algorithm.  Currently defaults to
     /// 'sha256'
     #[qapi(name = "hash-alg")]
+    #[qapi(added = "9.2.0")]
     pub hash_alg: Option<QCryptoHashAlgo>,
+    /// the master key hash algorithm Currently defaults to
+    /// 'sha256'
+    #[qapi(name = "hash-alg")]
+    #[qapi(removed = "9.2.0")]
+    pub hash_alg_legacy: Option<QCryptoHashAlgorithm>,
     /// Block device holding a detached LUKS header.  (since 9.0)
     #[qapi(added = "9.0.0")]
     pub header: Option<BlockdevRef>,
@@ -2062,11 +2074,23 @@ pub struct BlockdevCreateOptionsLuks {
     /// the initialization vector generator.  Currently defaults
     /// to 'plain64'
     #[qapi(name = "ivgen-alg")]
+    #[qapi(added = "9.2.0")]
     pub ivgen_alg: Option<QCryptoIvGenAlgo>,
     /// the initialization vector generator hash.
     /// Currently defaults to 'sha256'
     #[qapi(name = "ivgen-hash-alg")]
+    #[qapi(added = "9.2.0")]
     pub ivgen_hash_alg: Option<QCryptoHashAlgo>,
+    /// the initialization vector generator Currently defaults
+    /// to 'plain64'
+    #[qapi(name = "ivgen-alg")]
+    #[qapi(removed = "9.2.0")]
+    pub ivgen_alg_legacy: Option<QCryptoIvGenAlgorithm>,
+    /// the initialization vector generator hash Currently
+    /// defaults to 'sha256'
+    #[qapi(name = "ivgen-hash-alg")]
+    #[qapi(removed = "9.2.0")]
+    pub ivgen_hash_alg_legacy: Option<QCryptoHashAlgorithm>,
     /// the ID of a QCryptoSecret object providing the
     /// decryption key.  Mandatory except when probing image for
     /// metadata only.
@@ -2544,15 +2568,18 @@ pub struct BlockDeviceInfo {
     /// completes and on the destination before it completes.
     /// (since: 10.0)
     #[qapi(added = "10.0.0")]
+    #[qapi(required)]
     pub active: Option<bool>,
     /// the name of the backing file (for copy-on-write)
     pub backing_file: Option<String>,
     /// number of files in the backing file chain
     /// (since: 1.2)
     #[qapi(added = "1.2.0")]
+    #[qapi(required)]
     pub backing_file_depth: Option<i64>,
     /// total throughput limit in bytes per second is specified
     #[qapi(added = "1.1.0")]
+    #[qapi(required)]
     pub bps: Option<i64>,
     /// total throughput limit during bursts, in bytes (Since 1.7)
     #[qapi(added = "1.7.0")]
@@ -2563,6 +2590,7 @@ pub struct BlockDeviceInfo {
     pub bps_max_length: Option<i64>,
     /// read throughput limit in bytes per second is specified
     #[qapi(added = "1.1.0")]
+    #[qapi(required)]
     pub bps_rd: Option<i64>,
     /// read throughput limit during bursts, in bytes
     /// (Since 1.7)
@@ -2574,6 +2602,7 @@ pub struct BlockDeviceInfo {
     pub bps_rd_max_length: Option<i64>,
     /// write throughput limit in bytes per second is specified
     #[qapi(added = "1.1.0")]
+    #[qapi(required)]
     pub bps_wr: Option<i64>,
     /// write throughput limit during bursts, in bytes
     /// (Since 1.7)
@@ -2585,12 +2614,15 @@ pub struct BlockDeviceInfo {
     pub bps_wr_max_length: Option<i64>,
     /// the cache mode used for the block device (since: 2.3)
     #[qapi(added = "2.3.0")]
+    #[qapi(required)]
     pub cache: Option<BlockdevCacheInfo>,
     /// Information about child block nodes.  (since: 10.1)
     #[qapi(added = "10.1.0")]
+    #[qapi(required)]
     pub children: Option<Vec<BlockdevChild>>,
     /// detect and optimize zero writes (Since 2.1)
     #[qapi(added = "2.1.0")]
+    #[qapi(required)]
     pub detect_zeroes: Option<BlockdevDetectZeroesOptions>,
     /// dirty bitmaps information (only present if node has
     /// one or more dirty bitmaps) (Since 4.2)
@@ -2613,6 +2645,7 @@ pub struct BlockDeviceInfo {
     #[qapi(added = "1.2.0")]
     #[qapi(deprecated(added = "5.0.0"))]
     #[qapi(removed = "6.0.0")]
+    #[qapi(required)]
     pub encryption_key_missing: Option<bool>,
     /// the filename of the backing device
     pub file: String,
@@ -2621,9 +2654,11 @@ pub struct BlockDeviceInfo {
     pub group: Option<String>,
     /// the info of image used (since: 1.6)
     #[qapi(added = "1.6.0")]
+    #[qapi(required)]
     pub image: Option<ImageInfo>,
     /// total I/O operations per second is specified
     #[qapi(added = "1.1.0")]
+    #[qapi(required)]
     pub iops: Option<i64>,
     /// total I/O operations per second during bursts, in bytes
     /// (Since 1.7)
@@ -2635,6 +2670,7 @@ pub struct BlockDeviceInfo {
     pub iops_max_length: Option<i64>,
     /// read I/O operations per second is specified
     #[qapi(added = "1.1.0")]
+    #[qapi(required)]
     pub iops_rd: Option<i64>,
     /// read I/O operations per second during bursts, in bytes
     /// (Since 1.7)
@@ -2649,6 +2685,7 @@ pub struct BlockDeviceInfo {
     pub iops_size: Option<i64>,
     /// write I/O operations per second is specified
     #[qapi(added = "1.1.0")]
+    #[qapi(required)]
     pub iops_wr: Option<i64>,
     /// write I/O operations per second during bursts, in
     /// bytes (Since 1.7)
@@ -2661,12 +2698,14 @@ pub struct BlockDeviceInfo {
     /// the name of the block driver node (Since 2.0)
     #[qapi(name = "node-name")]
     #[qapi(added = "2.0.0")]
+    #[qapi(required)]
     pub node_name: Option<String>,
     /// true if the backing device was open read-only
     pub ro: bool,
     /// configured write threshold for the device.  0 if
     /// disabled.  (Since 2.3)
     #[qapi(added = "2.3.0")]
+    #[qapi(required)]
     pub write_threshold: Option<i64>,
 }
 
@@ -2715,30 +2754,37 @@ pub struct BlockDeviceStats {
     /// Whether failed operations are included in the
     /// latency and last access statistics (Since 2.5)
     #[qapi(added = "2.5.0")]
+    #[qapi(required)]
     pub account_failed: Option<bool>,
     /// Whether invalid operations are included in the
     /// last access statistics (Since 2.5)
     #[qapi(added = "2.5.0")]
+    #[qapi(required)]
     pub account_invalid: Option<bool>,
     /// The number of failed flush operations
     /// performed by the device (Since 2.5)
     #[qapi(added = "2.5.0")]
+    #[qapi(required)]
     pub failed_flush_operations: Option<i64>,
     /// The number of failed read operations
     /// performed by the device (Since 2.5)
     #[qapi(added = "2.5.0")]
+    #[qapi(required)]
     pub failed_rd_operations: Option<i64>,
     /// The number of failed unmap operations
     /// performed by the device (Since 4.2)
     #[qapi(added = "4.2.0")]
+    #[qapi(required)]
     pub failed_unmap_operations: Option<i64>,
     /// The number of failed write operations
     /// performed by the device (Since 2.5)
     #[qapi(added = "2.5.0")]
+    #[qapi(required)]
     pub failed_wr_operations: Option<i64>,
     /// The number of failed zone append
     /// write operations performed by the zoned devices (since 8.1)
     #[qapi(added = "8.1.0")]
+    #[qapi(required)]
     pub failed_zone_append_operations: Option<i64>,
     /// `BlockLatencyHistogramInfo`.  (Since 4.0)
     #[qapi(added = "4.0.0")]
@@ -2757,22 +2803,27 @@ pub struct BlockDeviceStats {
     /// The number of invalid flush operations
     /// performed by the device (Since 2.5)
     #[qapi(added = "2.5.0")]
+    #[qapi(required)]
     pub invalid_flush_operations: Option<i64>,
     /// The number of invalid read operations
     /// performed by the device (Since 2.5)
     #[qapi(added = "2.5.0")]
+    #[qapi(required)]
     pub invalid_rd_operations: Option<i64>,
     /// The number of invalid unmap operations
     /// performed by the device (Since 4.2)
     #[qapi(added = "4.2.0")]
+    #[qapi(required)]
     pub invalid_unmap_operations: Option<i64>,
     /// The number of invalid write operations
     /// performed by the device (Since 2.5)
     #[qapi(added = "2.5.0")]
+    #[qapi(required)]
     pub invalid_wr_operations: Option<i64>,
     /// The number of invalid zone append
     /// operations performed by the zoned device (since 8.1)
     #[qapi(added = "8.1.0")]
+    #[qapi(required)]
     pub invalid_zone_append_operations: Option<i64>,
     /// The number of bytes read by the device.
     pub rd_bytes: i64,
@@ -2782,6 +2833,7 @@ pub struct BlockDeviceStats {
     /// Number of read requests that have been merged into
     /// another request (Since 2.3).
     #[qapi(added = "2.3.0")]
+    #[qapi(required)]
     pub rd_merged: Option<i64>,
     /// The number of read operations performed by the
     /// device.
@@ -2792,21 +2844,26 @@ pub struct BlockDeviceStats {
     /// Statistics specific to the set of previously defined
     /// intervals of time (Since 2.5)
     #[qapi(added = "2.5.0")]
+    #[qapi(required)]
     pub timed_stats: Option<Vec<BlockDeviceTimedStats>>,
     /// The number of bytes unmapped by the device (Since 4.2)
     #[qapi(added = "4.2.0")]
+    #[qapi(required)]
     pub unmap_bytes: Option<i64>,
     /// Number of unmap requests that have been merged into
     /// another request (Since 4.2)
     #[qapi(added = "4.2.0")]
+    #[qapi(required)]
     pub unmap_merged: Option<i64>,
     /// The number of unmap operations performed by the
     /// device (Since 4.2)
     #[qapi(added = "4.2.0")]
+    #[qapi(required)]
     pub unmap_operations: Option<i64>,
     /// Total time spent on unmap operations in
     /// nanoseconds (Since 4.2)
     #[qapi(added = "4.2.0")]
+    #[qapi(required)]
     pub unmap_total_time_ns: Option<i64>,
     /// The number of bytes written by the device.
     pub wr_bytes: i64,
@@ -2821,6 +2878,7 @@ pub struct BlockDeviceStats {
     /// Number of write requests that have been merged into
     /// another request (Since 2.3).
     #[qapi(added = "2.3.0")]
+    #[qapi(required)]
     pub wr_merged: Option<i64>,
     /// The number of write operations performed by the
     /// device.
@@ -2843,6 +2901,7 @@ pub struct BlockDeviceStats {
     /// The number of bytes appended by the zoned
     /// devices (since 8.1)
     #[qapi(added = "8.1.0")]
+    #[qapi(required)]
     pub zone_append_bytes: Option<i64>,
     /// `BlockLatencyHistogramInfo`.
     /// (since 8.1)
@@ -2851,14 +2910,17 @@ pub struct BlockDeviceStats {
     /// Number of zone append requests that have been
     /// merged into another request (since 8.1)
     #[qapi(added = "8.1.0")]
+    #[qapi(required)]
     pub zone_append_merged: Option<i64>,
     /// The number of zone append operations
     /// performed by the zoned devices (since 8.1)
     #[qapi(added = "8.1.0")]
+    #[qapi(required)]
     pub zone_append_operations: Option<i64>,
     /// Total time spent on zone append writes
     /// in nanoseconds (since 8.1)
     #[qapi(added = "8.1.0")]
+    #[qapi(required)]
     pub zone_append_total_time_ns: Option<i64>,
 }
 
@@ -2883,10 +2945,12 @@ pub struct BlockDeviceTimedStats {
     /// Average latency of zone append
     /// operations in the defined interval, in nanoseconds (since 8.1)
     #[qapi(added = "8.1.0")]
+    #[qapi(required)]
     pub avg_zone_append_latency_ns: Option<i64>,
     /// Average number of pending zone append
     /// operations in the defined interval (since 8.1).
     #[qapi(added = "8.1.0")]
+    #[qapi(required)]
     pub avg_zone_append_queue_depth: Option<f64>,
     /// Interval used for calculating the statistics, in
     /// seconds.
@@ -2903,6 +2967,7 @@ pub struct BlockDeviceTimedStats {
     /// Maximum latency of zone append
     /// operations in the defined interval, in nanoseconds (since 8.1)
     #[qapi(added = "8.1.0")]
+    #[qapi(required)]
     pub max_zone_append_latency_ns: Option<i64>,
     /// Minimum latency of flush operations in the
     /// defined interval, in nanoseconds.
@@ -2916,6 +2981,7 @@ pub struct BlockDeviceTimedStats {
     /// Minimum latency of zone append
     /// operations in the defined interval, in nanoseconds (since 8.1)
     #[qapi(added = "8.1.0")]
+    #[qapi(required)]
     pub min_zone_append_latency_ns: Option<i64>,
 }
 
@@ -2981,7 +3047,15 @@ pub struct BlockdevOptions {
     pub discard: Option<BlockdevDiscardOptions>,
     /// block driver name
     #[qapi(discriminator)]
-    pub driver: BlockdevDriver,
+    #[qapi(added = "2.0.0")]
+    #[qapi(required)]
+    pub driver: Option<BlockdevDriver>,
+    /// block driver name
+    #[qapi(discriminator)]
+    #[qapi(name = "driver")]
+    #[qapi(removed = "2.0.0")]
+    #[qapi(required)]
+    pub driver_legacy: Option<String>,
     /// force share all permission on added nodes.  Requires
     /// read-only=true.  (Since 2.10)
     #[qapi(name = "force-share")]
@@ -3081,7 +3155,14 @@ pub struct BlockdevOptionsBase {
     /// #optional discard-related options (default: ignore)
     pub discard: Option<BlockdevDiscardOptions>,
     /// block driver name
-    pub driver: BlockdevDriver,
+    #[qapi(added = "2.0.0")]
+    #[qapi(required)]
+    pub driver: Option<BlockdevDriver>,
+    /// block driver name
+    #[qapi(name = "driver")]
+    #[qapi(removed = "2.0.0")]
+    #[qapi(required)]
+    pub driver_legacy: Option<String>,
     /// #optional id by which the new block device can be referred to.
     /// This option is only allowed on the top level of blockdev-add.
     /// A BlockBackend will be created by blockdev-add if and only if
@@ -3734,9 +3815,17 @@ pub struct BlockdevOptionsGenericCowFormat {
     /// reference to or definition of the backing file block
     /// device, null disables the backing file entirely.  Defaults to
     /// the backing file stored the image file.
-    pub backing: Option<BlockdevRefOrNull>,
+    #[qapi(added = "2.10.0")]
+    pub backing: Option<Box<BlockdevRefOrNull>>,
+    /// reference to or definition of the backing file block
+    /// device (if missing, taken from the image file content). It is
+    /// allowed to pass an empty string here in order to disable the
+    /// default backing file.
+    #[qapi(name = "backing")]
+    #[qapi(removed = "2.10.0")]
+    pub backing_legacy: Option<Box<BlockdevRef>>,
     /// reference to or definition of the data source block device
-    pub file: BlockdevRef,
+    pub file: Box<BlockdevRef>,
 }
 
 /// Driver specific block device options for image format that have no
@@ -3764,7 +3853,20 @@ pub struct BlockdevOptionsGluster {
     /// absolute path to image file in gluster volume
     pub path: String,
     /// gluster servers description
-    pub server: Vec<SocketAddress>,
+    #[qapi(added = "2.10.0")]
+    #[qapi(required)]
+    pub server: Option<Vec<SocketAddress>>,
+    /// gluster servers description
+    #[qapi(name = "server")]
+    #[qapi(removed = "2.9.0")]
+    #[qapi(required)]
+    pub server_legacy: Option<Vec<GlusterServer>>,
+    /// gluster servers description
+    #[qapi(name = "server")]
+    #[qapi(added = "2.9.0")]
+    #[qapi(removed = "2.10.0")]
+    #[qapi(required)]
+    pub server_legacy2: Option<Vec<SocketAddressFlat>>,
     /// name of gluster volume where VM image resides
     pub volume: String,
 }
@@ -3814,10 +3916,10 @@ pub struct BlockdevOptionsIscsi {
 #[qapi(added = "2.6.0")]
 pub struct BlockdevOptionsLuks {
     /// reference to or definition of the data source block device
-    pub file: BlockdevRef,
+    pub file: Box<BlockdevRef>,
     /// block device holding a detached LUKS header.  (since 9.0)
     #[qapi(added = "9.0.0")]
-    pub header: Option<BlockdevRef>,
+    pub header: Option<Box<BlockdevRef>>,
     /// the ID of a QCryptoSecret object providing the
     /// decryption key.  Mandatory except when doing a metadata-only
     /// probe of the image.  (since 2.6)
@@ -3853,7 +3955,20 @@ pub struct BlockdevOptionsNbd {
     #[qapi(added = "4.2.0")]
     pub reconnect_delay: Option<u32>,
     /// NBD server address
-    pub server: SocketAddress,
+    #[qapi(added = "2.10.0")]
+    #[qapi(required)]
+    pub server: Option<SocketAddress>,
+    /// NBD server address
+    #[qapi(name = "server")]
+    #[qapi(removed = "2.9.0")]
+    #[qapi(required)]
+    pub server_legacy: Option<SocketAddress>,
+    /// NBD server address
+    #[qapi(name = "server")]
+    #[qapi(added = "2.9.0")]
+    #[qapi(removed = "2.10.0")]
+    #[qapi(required)]
+    pub server_legacy2: Option<SocketAddressFlat>,
     /// TLS credentials ID
     #[qapi(name = "tls-creds")]
     pub tls_creds: Option<String>,
@@ -3979,7 +4094,15 @@ pub struct BlockdevOptionsQcow2 {
     /// reference to or definition of the backing file block
     /// device, null disables the backing file entirely.  Defaults to
     /// the backing file stored the image file.
+    #[qapi(added = "2.10.0")]
     pub backing: Option<Box<BlockdevRefOrNull>>,
+    /// reference to or definition of the backing file block
+    /// device (if missing, taken from the image file content). It is
+    /// allowed to pass an empty string here in order to disable the
+    /// default backing file.
+    #[qapi(name = "backing")]
+    #[qapi(removed = "2.10.0")]
+    pub backing_legacy: Option<Box<BlockdevRef>>,
     /// clean unused entries in the L2 and refcount
     /// caches.  The interval is in seconds.  The default value is 600
     /// on supporting platforms, and 0 on other platforms.  0 disables
@@ -4070,7 +4193,7 @@ pub struct BlockdevOptionsQuorum {
     /// false by default
     pub blkverify: Option<bool>,
     /// the children block devices to use
-    pub children: Box<Vec<BlockdevRef>>,
+    pub children: Vec<BlockdevRef>,
     /// choose read pattern and set to quorum by default
     /// (Since 2.2)
     #[qapi(name = "read-pattern")]
@@ -4155,7 +4278,14 @@ pub struct BlockdevOptionsReplication {
 #[qapi(removed = "6.1.0")]
 pub struct BlockdevOptionsSheepdog {
     /// The Sheepdog server to connect to
-    pub server: SocketAddress,
+    #[qapi(added = "2.10.0")]
+    #[qapi(required)]
+    pub server: Option<SocketAddress>,
+    /// The Sheepdog server to connect to
+    #[qapi(name = "server")]
+    #[qapi(removed = "2.10.0")]
+    #[qapi(required)]
+    pub server_legacy: Option<SocketAddressFlat>,
     /// Snapshot ID
     #[qapi(name = "snap-id")]
     pub snap_id: Option<u32>,
@@ -4430,6 +4560,7 @@ pub struct BlockdevSnapshot {
     pub mode: Option<NewImageMode>,
     /// device or node name that will have a snapshot taken.
     #[qapi(added = "2.5.0")]
+    #[qapi(required)]
     pub node: Option<String>,
     /// #optional graph node name to generate the snapshot from (Since 2.0)
     #[qapi(name = "node-name")]
@@ -4441,10 +4572,12 @@ pub struct BlockdevSnapshot {
     /// not have a current backing file (this can be achieved by passing
     /// "backing": null to `blockdev-add`).
     #[qapi(added = "2.5.0")]
+    #[qapi(required)]
     pub overlay: Option<String>,
     /// the target of the new image. A new file will be created.
     #[qapi(name = "snapshot-file")]
     #[qapi(removed = "2.5.0")]
+    #[qapi(required)]
     pub snapshot_file: Option<String>,
     /// #optional the graph node name of the new image (Since 2.0)
     #[qapi(name = "snapshot-node-name")]
@@ -4695,18 +4828,36 @@ pub struct BlockDirtyBitmapMerge {
     /// name(s) of the source dirty bitmap(s) at @node and/or
     /// fully specified `BlockDirtyBitmap` elements.  The latter are
     /// supported since 4.1.
-    #[qapi(added = "4.0.0")]
+    #[qapi(added = "7.1.0")]
+    #[qapi(required)]
     pub bitmaps: Option<Vec<BlockDirtyBitmapOrStr>>,
+    /// name(s) of the source dirty bitmap(s)
+    #[qapi(name = "bitmaps")]
+    #[qapi(added = "4.0.0")]
+    #[qapi(removed = "4.1.0")]
+    #[qapi(required)]
+    pub bitmaps_legacy: Option<Vec<String>>,
+    /// name(s) of the source dirty bitmap(s) at @node and/or fully
+    /// specified BlockDirtyBitmap elements. The latter are supported
+    /// since 4.1.
+    #[qapi(name = "bitmaps")]
+    #[qapi(added = "4.1.0")]
+    #[qapi(removed = "7.1.0")]
+    #[qapi(required)]
+    pub bitmaps_legacy2: Option<Vec<BlockDirtyBitmapMergeSource>>,
     /// name of the destination dirty bitmap
     #[qapi(removed = "4.0.0")]
+    #[qapi(required)]
     pub dst_name: Option<String>,
     /// name of device/node which the @target bitmap is tracking
     pub node: String,
     /// name of the source dirty bitmap
     #[qapi(removed = "4.0.0")]
+    #[qapi(required)]
     pub src_name: Option<String>,
     /// name of the destination dirty bitmap
     #[qapi(added = "4.0.0")]
+    #[qapi(required)]
     pub target: Option<String>,
 }
 
@@ -4756,12 +4907,20 @@ pub struct BlockDirtyInfo {
     /// and cannot be modified via QMP or used by another operation.
     /// (since 4.0)
     #[qapi(added = "4.0.0")]
+    #[qapi(required)]
     pub busy: Option<bool>,
     /// number of dirty bytes according to the dirty bitmap
     pub count: i64,
     /// granularity of the dirty bitmap in bytes (since 1.4)
-    #[qapi(added = "1.4.0")]
+    #[qapi(added = "2.4.0")]
+    #[qapi(required)]
     pub granularity: Option<u32>,
+    /// granularity of the dirty bitmap in bytes (since 1.4)
+    #[qapi(name = "granularity")]
+    #[qapi(added = "1.4.0")]
+    #[qapi(removed = "2.4.0")]
+    #[qapi(required)]
+    pub granularity_legacy: Option<i64>,
     /// true if this is a persistent bitmap that was
     /// improperly stored.  Implies @persistent to be true; @recording
     /// and @busy to be false.  This bitmap cannot be used.  To remove
@@ -4774,16 +4933,19 @@ pub struct BlockDirtyInfo {
     /// true if the bitmap was stored on disk, is scheduled to
     /// be stored on disk, or both.  (since 4.0)
     #[qapi(added = "4.0.0")]
+    #[qapi(required)]
     pub persistent: Option<bool>,
     /// true if the bitmap is recording new writes from the
     /// guest.  (since 4.0)
     #[qapi(added = "4.0.0")]
+    #[qapi(required)]
     pub recording: Option<bool>,
     /// current status of the dirty bitmap (since 2.4)
     #[qapi(feature = "deprecated")]
     #[qapi(added = "2.4.0")]
     #[qapi(deprecated(added = "5.0.0"))]
     #[qapi(removed = "6.0.0")]
+    #[qapi(required)]
     pub status: Option<DirtyBitmapStatus>,
 }
 
@@ -4907,7 +5069,14 @@ pub struct BlockExportOptions {
     /// export will run.  The default is to use the thread currently
     /// associated with the block node.  (since: 5.2; multi-threading
     /// since 10.1)
+    #[qapi(added = "11.0.0")]
     pub iothread: Option<BlockExportIothreads>,
+    /// The name of the iothread object where the export will
+    /// run.  The default is to use the thread currently associated with
+    /// the block node.  (since: 5.2)
+    #[qapi(name = "iothread")]
+    #[qapi(removed = "11.0.0")]
+    pub iothread_legacy: Option<String>,
     /// The node name of the block node to be exported
     /// (since: 5.2)
     #[qapi(name = "node-name")]
@@ -4990,7 +5159,15 @@ pub struct BlockExportOptionsNbd {
     /// the metadata context name "qemu:dirty-bitmap:BITMAP" to inspect
     /// each bitmap.  Since 7.1 bitmap may be specified by node/name
     /// pair.
+    #[qapi(added = "7.1.0")]
     pub bitmaps: Option<Vec<BlockDirtyBitmapOrStr>>,
+    /// Also export each of the named dirty bitmaps reachable from
+    /// @device, so the NBD client can use NBD_OPT_SET_META_CONTEXT with
+    /// the metadata context name "qemu:dirty-bitmap:BITMAP" to inspect
+    /// each bitmap.
+    #[qapi(name = "bitmaps")]
+    #[qapi(removed = "7.1.0")]
+    pub bitmaps_legacy: Option<Vec<String>>,
     /// Free-form description of the export, up to 4096 bytes.
     /// (Since 5.0)
     pub description: Option<String>,
@@ -5111,7 +5288,7 @@ pub struct BlockGraphInfo {
     #[qapi(name = "backing-filename-format")]
     pub backing_filename_format: Option<String>,
     /// Array of links to this node's child nodes' information
-    pub children: Box<Vec<BlockChildInfo>>,
+    pub children: Vec<BlockChildInfo>,
     /// size of a cluster in bytes
     #[qapi(name = "cluster-size")]
     pub cluster_size: Option<i64>,
@@ -5325,15 +5502,18 @@ pub struct BlockJobInfo {
     /// disappear.  (since 2.12)
     #[qapi(name = "auto-dismiss")]
     #[qapi(added = "2.12.0")]
+    #[qapi(required)]
     pub auto_dismiss: Option<bool>,
     /// Job will finalize itself when PENDING, moving to the
     /// CONCLUDED state.  (since 2.12)
     #[qapi(name = "auto-finalize")]
     #[qapi(added = "2.12.0")]
+    #[qapi(required)]
     pub auto_finalize: Option<bool>,
     /// false if the job is known to be in a quiescent state, with no
     /// pending I/O.  (Since 1.3)
     #[qapi(added = "1.3.0")]
+    #[qapi(required)]
     pub busy: Option<bool>,
     /// The job identifier.  Originally the device name but other
     /// values are allowed since QEMU 2.7
@@ -5345,6 +5525,7 @@ pub struct BlockJobInfo {
     /// the status of the job (since 1.3)
     #[qapi(name = "io-status")]
     #[qapi(added = "1.3.0")]
+    #[qapi(required)]
     pub io_status: Option<BlockDeviceIoStatus>,
     /// Estimated @offset value at the completion of the job.  This
     /// value can arbitrarily change while the job is running, in both
@@ -5357,18 +5538,34 @@ pub struct BlockJobInfo {
     /// whether the job is paused or, if @busy is true, will pause
     /// itself as soon as possible.  (Since 1.3)
     #[qapi(added = "1.3.0")]
+    #[qapi(required)]
     pub paused: Option<bool>,
     /// true if the job may be completed (since 2.2)
     #[qapi(added = "2.2.0")]
+    #[qapi(required)]
     pub ready: Option<bool>,
     /// the rate limit, bytes per second
     pub speed: i64,
     /// Current job state/status (since 2.12)
-    #[qapi(added = "2.12.0")]
+    #[qapi(added = "3.0.0")]
+    #[qapi(required)]
     pub status: Option<JobStatus>,
+    /// Current job state/status (since 2.12)
+    #[qapi(name = "status")]
+    #[qapi(added = "2.12.0")]
+    #[qapi(removed = "3.0.0")]
+    #[qapi(required)]
+    pub status_legacy: Option<BlockJobStatus>,
     /// the job type ('stream' for image streaming)
     #[qapi(discriminator)]
-    pub r#type: JobType,
+    #[qapi(added = "8.2.0")]
+    #[qapi(required)]
+    pub r#type: Option<JobType>,
+    /// the job type ('stream' for image streaming)
+    #[qapi(name = "type")]
+    #[qapi(removed = "8.2.0")]
+    #[qapi(required)]
+    pub type_legacy: Option<String>,
     #[qapi(union)]
     #[qapi(flatten)]
     #[qapi(added = "8.2.0")]
@@ -5985,10 +6182,12 @@ pub struct ChardevBackend {
     #[qapi(discriminator)]
     #[qapi(name = "type")]
     #[qapi(removed = "6.2.0")]
+    #[qapi(required)]
     pub r_type: Option<ChardevBackendType>,
     /// backend type
     #[qapi(discriminator)]
     #[qapi(added = "6.2.0")]
+    #[qapi(required)]
     pub r#type: Option<ChardevBackendKind>,
     #[qapi(union)]
     #[qapi(flatten)]
@@ -6486,6 +6685,7 @@ pub struct ChardevInfo {
     /// state (since 2.1)
     #[qapi(name = "frontend-open")]
     #[qapi(added = "2.1.0")]
+    #[qapi(required)]
     pub frontend_open: Option<bool>,
     /// the label of the character device
     pub label: String,
@@ -6603,7 +6803,15 @@ pub struct ChardevRingbufWrapper {
 pub struct ChardevSocket {
     /// socket address to listen on (server=true) or connect to
     /// (server=false)
-    pub addr: SocketAddressLegacy,
+    #[qapi(added = "2.10.0")]
+    #[qapi(required)]
+    pub addr: Option<SocketAddressLegacy>,
+    /// socket address to listen on (server=true)
+    /// or connect to (server=false)
+    #[qapi(name = "addr")]
+    #[qapi(removed = "2.10.0")]
+    #[qapi(required)]
+    pub addr_legacy: Option<SocketAddress>,
     /// true to append instead of truncate (default to false to
     /// truncate)
     #[qapi(added = "2.6.0")]
@@ -6750,7 +6958,12 @@ pub struct ChardevStdioWrapper {
 #[qapi(added = "1.5.0")]
 pub struct ChardevUdp {
     /// local address
+    #[qapi(added = "2.10.0")]
     pub local: Option<SocketAddressLegacy>,
+    /// local address
+    #[qapi(name = "local")]
+    #[qapi(removed = "2.10.0")]
+    pub local_legacy: Option<SocketAddress>,
     /// true to append instead of truncate (default to false to
     /// truncate)
     #[qapi(added = "2.6.0")]
@@ -6763,7 +6976,14 @@ pub struct ChardevUdp {
     #[qapi(added = "11.0.0")]
     pub logtimestamp: Option<bool>,
     /// remote address
-    pub remote: SocketAddressLegacy,
+    #[qapi(added = "2.10.0")]
+    #[qapi(required)]
+    pub remote: Option<SocketAddressLegacy>,
+    /// remote address
+    #[qapi(name = "remote")]
+    #[qapi(removed = "2.10.0")]
+    #[qapi(required)]
+    pub remote_legacy: Option<SocketAddress>,
 }
 
 #[qapi(added = "6.2.0")]
@@ -6942,6 +7162,7 @@ pub struct ColoStatus {
     /// field to get last colo mode.  (since 4.0)
     #[qapi(name = "last-mode")]
     #[qapi(added = "4.0.0")]
+    #[qapi(required)]
     pub last_mode: Option<ColoMode>,
     /// COLO running mode.  If COLO is running, this field will
     /// return 'primary' or 'secondary'.
@@ -7133,6 +7354,7 @@ pub struct CpuDefinitionInfo {
     /// removed in some future version of QEMU according to the QEMU
     /// deprecation policy.  (since 5.2)
     #[qapi(added = "5.2.0")]
+    #[qapi(required)]
     pub deprecated: Option<bool>,
     /// whether a CPU definition can be safely used for
     /// migration in combination with a QEMU compatibility machine when
@@ -7150,11 +7372,13 @@ pub struct CpuDefinitionInfo {
     /// accelerator options.  A static model is always migration-safe.
     /// (since 2.8)
     #[qapi(added = "2.8.0")]
+    #[qapi(required)]
     pub r#static: Option<bool>,
     /// Type name that can be used as argument to
     /// `device-list-properties`, to introspect properties configurable
     /// using -cpu or -global.  (since 2.9)
     #[qapi(added = "2.9.0")]
+    #[qapi(required)]
     pub typename: Option<String>,
     /// List of properties that prevent the CPU model
     /// from running in the current host.  (since 2.8)
@@ -7177,6 +7401,7 @@ pub struct CpuInfo {
     /// will be listed (since 2.6)
     #[qapi(discriminator)]
     #[qapi(added = "2.6.0")]
+    #[qapi(required)]
     pub arch: Option<CpuInfoArch>,
     /// the index of the virtual CPU
     #[qapi(name = "CPU")]
@@ -7195,18 +7420,261 @@ pub struct CpuInfo {
     pub npc: Option<i64>,
     /// #optional If the target is MIPS, the instruction pointer
     #[qapi(name = "PC")]
+    #[qapi(added = "2.5.1")]
     #[qapi(removed = "2.6.0")]
     pub pc: Option<i64>,
     /// #optional If the target is MIPS, the instruction pointer
     #[qapi(name = "PC")]
     #[qapi(removed = "1.1.0")]
     pub pc_alt: Option<i64>,
+    /// #optional If the target is i386 or x86_64, this is the 64-bit instruction
+    /// pointer.
+    /// If the target is Sparc, this is the PC component of the
+    /// instruction pointer.
+    #[qapi(name = "pc")]
+    #[qapi(removed = "1.1.0")]
+    pub pc_legacy: Option<i64>,
+    /// #optional If the target is MIPS, the instruction pointer
+    #[qapi(name = "PC")]
+    #[qapi(added = "1.4.0")]
+    #[qapi(removed = "1.4.1")]
+    pub pc_legacy10: Option<i64>,
+    /// #optional If the target is i386 or x86_64, this is the 64-bit instruction
+    /// pointer.
+    /// If the target is Sparc, this is the PC component of the
+    /// instruction pointer.
+    #[qapi(name = "pc")]
+    #[qapi(added = "1.4.1")]
+    #[qapi(removed = "1.4.1")]
+    pub pc_legacy11: Option<i64>,
+    /// #optional If the target is MIPS, the instruction pointer
+    #[qapi(name = "PC")]
+    #[qapi(added = "1.4.1")]
+    #[qapi(removed = "1.5.0")]
+    pub pc_legacy12: Option<i64>,
+    /// #optional If the target is i386 or x86_64, this is the 64-bit instruction
+    /// pointer.
+    /// If the target is Sparc, this is the PC component of the
+    /// instruction pointer.
+    #[qapi(name = "pc")]
+    #[qapi(added = "1.5.0")]
+    #[qapi(removed = "1.5.0")]
+    pub pc_legacy13: Option<i64>,
+    /// #optional If the target is MIPS, the instruction pointer
+    #[qapi(name = "PC")]
+    #[qapi(added = "1.5.0")]
+    #[qapi(removed = "1.5.3")]
+    pub pc_legacy14: Option<i64>,
+    /// #optional If the target is i386 or x86_64, this is the 64-bit instruction
+    /// pointer.
+    /// If the target is Sparc, this is the PC component of the
+    /// instruction pointer.
+    #[qapi(name = "pc")]
+    #[qapi(added = "1.5.3")]
+    #[qapi(removed = "1.5.3")]
+    pub pc_legacy15: Option<i64>,
+    /// #optional If the target is MIPS, the instruction pointer
+    #[qapi(name = "PC")]
+    #[qapi(added = "1.5.3")]
+    #[qapi(removed = "1.6.0")]
+    pub pc_legacy16: Option<i64>,
+    /// #optional If the target is i386 or x86_64, this is the 64-bit instruction
+    /// pointer.
+    /// If the target is Sparc, this is the PC component of the
+    /// instruction pointer.
+    #[qapi(name = "pc")]
+    #[qapi(added = "1.6.0")]
+    #[qapi(removed = "1.6.0")]
+    pub pc_legacy17: Option<i64>,
+    /// #optional If the target is MIPS, the instruction pointer
+    #[qapi(name = "PC")]
+    #[qapi(added = "1.6.0")]
+    #[qapi(removed = "1.7.0")]
+    pub pc_legacy18: Option<i64>,
+    /// #optional If the target is i386 or x86_64, this is the 64-bit instruction
+    /// pointer.
+    /// If the target is Sparc, this is the PC component of the
+    /// instruction pointer.
+    #[qapi(name = "pc")]
+    #[qapi(added = "1.7.0")]
+    #[qapi(removed = "1.7.0")]
+    pub pc_legacy19: Option<i64>,
+    /// #optional If the target is MIPS, the instruction pointer
+    #[qapi(name = "PC")]
+    #[qapi(added = "1.1.0")]
+    #[qapi(removed = "1.2.0")]
+    pub pc_legacy2: Option<i64>,
+    /// #optional If the target is MIPS, the instruction pointer
+    #[qapi(name = "PC")]
+    #[qapi(added = "1.7.0")]
+    #[qapi(removed = "2.0.0")]
+    pub pc_legacy20: Option<i64>,
+    /// #optional If the target is i386 or x86_64, this is the 64-bit instruction
+    /// pointer.
+    /// If the target is Sparc, this is the PC component of the
+    /// instruction pointer.
+    #[qapi(name = "pc")]
+    #[qapi(added = "2.0.0")]
+    #[qapi(removed = "2.0.0")]
+    pub pc_legacy21: Option<i64>,
+    /// #optional If the target is MIPS, the instruction pointer
+    #[qapi(name = "PC")]
+    #[qapi(added = "2.0.0")]
+    #[qapi(removed = "2.0.1")]
+    pub pc_legacy22: Option<i64>,
+    /// #optional If the target is i386 or x86_64, this is the 64-bit instruction
+    /// pointer.
+    /// If the target is Sparc, this is the PC component of the
+    /// instruction pointer.
+    #[qapi(name = "pc")]
+    #[qapi(added = "2.0.1")]
+    #[qapi(removed = "2.0.1")]
+    pub pc_legacy23: Option<i64>,
+    /// #optional If the target is MIPS, the instruction pointer
+    #[qapi(name = "PC")]
+    #[qapi(added = "2.0.1")]
+    #[qapi(removed = "2.1.0")]
+    pub pc_legacy24: Option<i64>,
+    /// #optional If the target is i386 or x86_64, this is the 64-bit instruction
+    /// pointer.
+    /// If the target is Sparc, this is the PC component of the
+    /// instruction pointer.
+    #[qapi(name = "pc")]
+    #[qapi(added = "2.1.0")]
+    #[qapi(removed = "2.1.0")]
+    pub pc_legacy25: Option<i64>,
+    /// #optional If the target is MIPS, the instruction pointer
+    #[qapi(name = "PC")]
+    #[qapi(added = "2.1.0")]
+    #[qapi(removed = "2.2.0")]
+    pub pc_legacy26: Option<i64>,
+    /// #optional If the target is i386 or x86_64, this is the 64-bit instruction
+    /// pointer.
+    /// If the target is Sparc, this is the PC component of the
+    /// instruction pointer.
+    #[qapi(name = "pc")]
+    #[qapi(added = "2.2.0")]
+    #[qapi(removed = "2.2.0")]
+    pub pc_legacy27: Option<i64>,
+    /// #optional If the target is MIPS, the instruction pointer
+    #[qapi(name = "PC")]
+    #[qapi(added = "2.2.0")]
+    #[qapi(removed = "2.3.0")]
+    pub pc_legacy28: Option<i64>,
+    /// #optional If the target is i386 or x86_64, this is the 64-bit instruction
+    /// pointer.
+    /// If the target is Sparc, this is the PC component of the
+    /// instruction pointer.
+    #[qapi(name = "pc")]
+    #[qapi(added = "2.3.0")]
+    #[qapi(removed = "2.3.0")]
+    pub pc_legacy29: Option<i64>,
+    /// #optional If the target is i386 or x86_64, this is the 64-bit instruction
+    /// pointer.
+    /// If the target is Sparc, this is the PC component of the
+    /// instruction pointer.
+    #[qapi(name = "pc")]
+    #[qapi(added = "1.2.0")]
+    #[qapi(removed = "1.2.0")]
+    pub pc_legacy3: Option<i64>,
+    /// #optional If the target is MIPS, the instruction pointer
+    #[qapi(name = "PC")]
+    #[qapi(added = "2.3.0")]
+    #[qapi(removed = "2.3.1")]
+    pub pc_legacy30: Option<i64>,
+    /// #optional If the target is i386 or x86_64, this is the 64-bit instruction
+    /// pointer.
+    /// If the target is Sparc, this is the PC component of the
+    /// instruction pointer.
+    #[qapi(name = "pc")]
+    #[qapi(added = "2.3.1")]
+    #[qapi(removed = "2.3.1")]
+    pub pc_legacy31: Option<i64>,
+    /// #optional If the target is MIPS, the instruction pointer
+    #[qapi(name = "PC")]
+    #[qapi(added = "2.3.1")]
+    #[qapi(removed = "2.4.0")]
+    pub pc_legacy32: Option<i64>,
+    /// #optional If the target is i386 or x86_64, this is the 64-bit instruction
+    /// pointer.
+    /// If the target is Sparc, this is the PC component of the
+    /// instruction pointer.
+    #[qapi(name = "pc")]
+    #[qapi(added = "2.4.0")]
+    #[qapi(removed = "2.4.0")]
+    pub pc_legacy33: Option<i64>,
+    /// #optional If the target is MIPS, the instruction pointer
+    #[qapi(name = "PC")]
+    #[qapi(added = "2.4.0")]
+    #[qapi(removed = "2.5.0")]
+    pub pc_legacy34: Option<i64>,
+    /// #optional If the target is i386 or x86_64, this is the 64-bit instruction
+    /// pointer.
+    /// If the target is Sparc, this is the PC component of the
+    /// instruction pointer.
+    #[qapi(name = "pc")]
+    #[qapi(added = "2.5.0")]
+    #[qapi(removed = "2.5.0")]
+    pub pc_legacy35: Option<i64>,
+    /// #optional If the target is MIPS, the instruction pointer
+    #[qapi(name = "PC")]
+    #[qapi(added = "2.5.0")]
+    #[qapi(removed = "2.5.1")]
+    pub pc_legacy36: Option<i64>,
+    /// #optional If the target is i386 or x86_64, this is the 64-bit instruction
+    /// pointer.
+    /// If the target is Sparc, this is the PC component of the
+    /// instruction pointer.
+    #[qapi(name = "pc")]
+    #[qapi(added = "2.5.1")]
+    #[qapi(removed = "2.5.1")]
+    pub pc_legacy37: Option<i64>,
+    /// #optional If the target is MIPS, the instruction pointer
+    #[qapi(name = "PC")]
+    #[qapi(added = "1.2.0")]
+    #[qapi(removed = "1.2.1")]
+    pub pc_legacy4: Option<i64>,
+    /// #optional If the target is i386 or x86_64, this is the 64-bit instruction
+    /// pointer.
+    /// If the target is Sparc, this is the PC component of the
+    /// instruction pointer.
+    #[qapi(name = "pc")]
+    #[qapi(added = "1.2.1")]
+    #[qapi(removed = "1.2.1")]
+    pub pc_legacy5: Option<i64>,
+    /// #optional If the target is MIPS, the instruction pointer
+    #[qapi(name = "PC")]
+    #[qapi(added = "1.2.1")]
+    #[qapi(removed = "1.3.0")]
+    pub pc_legacy6: Option<i64>,
+    /// #optional If the target is i386 or x86_64, this is the 64-bit instruction
+    /// pointer.
+    /// If the target is Sparc, this is the PC component of the
+    /// instruction pointer.
+    #[qapi(name = "pc")]
+    #[qapi(added = "1.3.0")]
+    #[qapi(removed = "1.3.0")]
+    pub pc_legacy7: Option<i64>,
+    /// #optional If the target is MIPS, the instruction pointer
+    #[qapi(name = "PC")]
+    #[qapi(added = "1.3.0")]
+    #[qapi(removed = "1.4.0")]
+    pub pc_legacy8: Option<i64>,
+    /// #optional If the target is i386 or x86_64, this is the 64-bit instruction
+    /// pointer.
+    /// If the target is Sparc, this is the PC component of the
+    /// instruction pointer.
+    #[qapi(name = "pc")]
+    #[qapi(added = "1.4.0")]
+    #[qapi(removed = "1.4.0")]
+    pub pc_legacy9: Option<i64>,
     /// properties describing to which node/socket/core/thread
     /// virtual CPU belongs to, provided if supported by board (since 2.10)
     #[qapi(added = "2.10.0")]
     pub props: Option<CpuInstanceProperties>,
     /// path to the CPU object in the QOM tree (since 2.4)
     #[qapi(added = "2.4.0")]
+    #[qapi(required)]
     pub qom_path: Option<String>,
     /// ID of the underlying host thread
     pub thread_id: i64,
@@ -7279,6 +7747,7 @@ pub struct CpuInfoFast {
     #[qapi(feature = "deprecated")]
     #[qapi(deprecated(added = "5.0.0"))]
     #[qapi(removed = "6.0.0")]
+    #[qapi(required)]
     pub arch: Option<CpuInfoArch>,
     /// index of the virtual CPU
     #[qapi(name = "cpu-index")]
@@ -7291,11 +7760,13 @@ pub struct CpuInfoFast {
     /// QOM type name of the CPU (since 10.1)
     #[qapi(name = "qom-type")]
     #[qapi(added = "10.1.0")]
+    #[qapi(required)]
     pub qom_type: Option<String>,
     /// the QEMU system emulation target, which determines which
     /// additional fields will be listed (since 3.0)
     #[qapi(discriminator)]
     #[qapi(added = "3.0.0")]
+    #[qapi(required)]
     pub target: Option<SysEmuTarget>,
     /// ID of the underlying host thread
     #[qapi(name = "thread-id")]
@@ -7497,13 +7968,25 @@ pub struct CpuInfoRiscv {
 pub struct CpuInfoS390 {
     /// the virtual CPU's state
     #[qapi(name = "cpu-state")]
-    pub cpu_state: S390CpuState,
+    #[qapi(added = "9.2.0")]
+    #[qapi(required)]
+    pub cpu_state: Option<S390CpuState>,
+    /// the virtual CPU's state
+    #[qapi(name = "cpu-state")]
+    #[qapi(removed = "9.2.0")]
+    #[qapi(required)]
+    pub cpu_state_legacy: Option<CpuS390State>,
     /// the virtual CPU's dedication (since 8.2)
     #[qapi(added = "8.2.0")]
     pub dedicated: Option<bool>,
     /// the virtual CPU's entitlement (since 8.2)
-    #[qapi(added = "8.2.0")]
+    #[qapi(added = "9.2.0")]
     pub entitlement: Option<S390CpuEntitlement>,
+    /// the virtual CPU's entitlement (since 8.2)
+    #[qapi(name = "entitlement")]
+    #[qapi(added = "8.2.0")]
+    #[qapi(removed = "9.2.0")]
+    pub entitlement_legacy: Option<CpuS390Entitlement>,
 }
 
 /// Additional information about a virtual SPARC CPU
@@ -7704,7 +8187,14 @@ pub struct CpuModelInfo {
 #[qapi(added = "8.2.0")]
 pub struct CpuPolarizationInfo {
     /// the CPU polarization
-    pub polarization: S390CpuPolarization,
+    #[qapi(added = "9.2.0")]
+    #[qapi(required)]
+    pub polarization: Option<S390CpuPolarization>,
+    /// the CPU polarization
+    #[qapi(name = "polarization")]
+    #[qapi(removed = "9.2.0")]
+    #[qapi(required)]
+    pub polarization_legacy: Option<CpuS390Polarization>,
 }
 
 /// An enumeration of CPU entitlements that can be assumed by a virtual
@@ -8413,6 +8903,7 @@ pub struct DirtyRateInfo {
     /// time unit of @calc-time  (Since 8.2)
     #[qapi(name = "calc-time-unit")]
     #[qapi(added = "8.2.0")]
+    #[qapi(required)]
     pub calc_time_unit: Option<TimeUnit>,
     /// an estimate of the dirty page rate of the VM in units
     /// of MiB/s.  Value is present only when @status is 'measured'.
@@ -8420,11 +8911,13 @@ pub struct DirtyRateInfo {
     pub dirty_rate: Option<i64>,
     /// mode that was used to measure dirty page rate (Since 6.2)
     #[qapi(added = "6.2.0")]
+    #[qapi(required)]
     pub mode: Option<DirtyRateMeasureMode>,
     /// number of sampled pages per GiB of guest memory.
     /// Valid only in page-sampling mode (Since 6.1)
     #[qapi(name = "sample-pages")]
     #[qapi(added = "6.1.0")]
+    #[qapi(required)]
     pub sample_pages: Option<u64>,
     /// start time in units of second for calculation
     #[qapi(name = "start-time")]
@@ -8615,7 +9108,12 @@ pub struct DisplayOptions {
     #[qapi(name = "full-screen")]
     pub full_screen: Option<bool>,
     /// Enable OpenGL support (default: off).
+    #[qapi(added = "3.0.0")]
     pub gl: Option<DisplayGlMode>,
+    /// Enable OpenGL support (default: off).
+    #[qapi(name = "gl")]
+    #[qapi(removed = "3.0.0")]
+    pub gl_legacy: Option<bool>,
     /// Force showing the mouse cursor (default: off).
     /// (since: 5.0)
     #[qapi(name = "show-cursor")]
@@ -9014,6 +9512,7 @@ pub struct DummyVirtioForceArrays {
     pub unused_iothread_vq_mapping: Vec<IoThreadVirtQueueMapping>,
     #[qapi(name = "unused-virtio-gpu-output")]
     #[qapi(added = "10.1.0")]
+    #[qapi(required)]
     pub unused_virtio_gpu_output: Option<Vec<VirtIogpuOutput>>,
 }
 
@@ -10076,10 +10575,12 @@ pub struct ImageInfoSpecific {
     #[qapi(discriminator)]
     #[qapi(name = "type")]
     #[qapi(removed = "6.2.0")]
+    #[qapi(required)]
     pub r_type: Option<ImageInfoSpecificType>,
     /// block driver name
     #[qapi(discriminator)]
     #[qapi(added = "6.2.0")]
+    #[qapi(required)]
     pub r#type: Option<ImageInfoSpecificKind>,
     #[qapi(union)]
     #[qapi(flatten)]
@@ -10168,6 +10669,7 @@ pub struct ImageInfoSpecificQCow2 {
     /// the image cluster compression method (since 5.1)
     #[qapi(name = "compression-type")]
     #[qapi(added = "5.1.0")]
+    #[qapi(required)]
     pub compression_type: Option<Qcow2CompressionType>,
     /// true if the image has been marked corrupt; only valid for
     /// compat >= 1.1 (since 2.2)
@@ -10200,6 +10702,7 @@ pub struct ImageInfoSpecificQCow2 {
     /// width of a refcount entry in bits (since 2.3)
     #[qapi(name = "refcount-bits")]
     #[qapi(added = "2.3.0")]
+    #[qapi(required)]
     pub refcount_bits: Option<i64>,
 }
 
@@ -10283,7 +10786,14 @@ pub struct ImageInfoSpecificVmdk {
     #[qapi(name = "create-type")]
     pub create_type: String,
     /// List of extent files
-    pub extents: Vec<VmdkExtentInfo>,
+    #[qapi(added = "8.0.0")]
+    #[qapi(required)]
+    pub extents: Option<Vec<VmdkExtentInfo>>,
+    /// List of extent files
+    #[qapi(name = "extents")]
+    #[qapi(removed = "8.0.0")]
+    #[qapi(required)]
+    pub extents_legacy: Option<Vec<ImageInfo>>,
     /// Parent VMDK image's cid
     #[qapi(name = "parent-cid")]
     pub parent_cid: i64,
@@ -10485,10 +10995,12 @@ pub struct InputEvent {
     #[qapi(discriminator)]
     #[qapi(name = "type")]
     #[qapi(removed = "6.2.0")]
+    #[qapi(required)]
     pub r_type: Option<InputEventType>,
     /// the type of input event
     #[qapi(discriminator)]
     #[qapi(added = "6.2.0")]
+    #[qapi(required)]
     pub r#type: Option<InputEventKind>,
     #[qapi(union)]
     #[qapi(flatten)]
@@ -10688,6 +11200,7 @@ pub struct IoThreadInfo {
     /// engine, 0 means that the engine will use its default (since 6.1)
     #[qapi(name = "aio-max-batch")]
     #[qapi(added = "6.1.0")]
+    #[qapi(required)]
     pub aio_max_batch: Option<i64>,
     /// the identifier of the iothread
     pub id: String,
@@ -10695,16 +11208,19 @@ pub struct IoThreadInfo {
     /// it's not configured (since 2.9)
     #[qapi(name = "poll-grow")]
     #[qapi(added = "2.9.0")]
+    #[qapi(required)]
     pub poll_grow: Option<i64>,
     /// maximum polling time in ns, 0 means polling is
     /// disabled (since 2.9)
     #[qapi(name = "poll-max-ns")]
     #[qapi(added = "2.9.0")]
+    #[qapi(required)]
     pub poll_max_ns: Option<i64>,
     /// how many ns will be removed from polling time, 0 means
     /// that it's not configured (since 2.9)
     #[qapi(name = "poll-shrink")]
     #[qapi(added = "2.9.0")]
+    #[qapi(required)]
     pub poll_shrink: Option<i64>,
     /// the weight factor for adaptive polling.
     /// Determines how much the current event interval contributes to
@@ -10712,6 +11228,7 @@ pub struct IoThreadInfo {
     /// greater (since 11.1)
     #[qapi(name = "poll-weight")]
     #[qapi(added = "11.1.0")]
+    #[qapi(required)]
     pub poll_weight: Option<i64>,
     /// ID of the underlying host thread
     #[qapi(name = "thread-id")]
@@ -10993,10 +11510,12 @@ pub struct KeyValue {
     #[qapi(discriminator)]
     #[qapi(name = "type")]
     #[qapi(removed = "6.2.0")]
+    #[qapi(required)]
     pub r_type: Option<KeyValueType>,
     /// key encoding
     #[qapi(discriminator)]
     #[qapi(added = "6.2.0")]
+    #[qapi(required)]
     pub r#type: Option<KeyValueKind>,
     #[qapi(union)]
     #[qapi(flatten)]
@@ -11091,6 +11610,7 @@ pub enum LostTickPolicy {
 pub struct MachineInfo {
     /// machine type supports ACPI (since 8.0)
     #[qapi(added = "8.0.0")]
+    #[qapi(required)]
     pub acpi: Option<bool>,
     /// an alias for the machine name
     pub alias: Option<String>,
@@ -11105,6 +11625,7 @@ pub struct MachineInfo {
     /// (since 1.5)
     #[qapi(name = "cpu-max")]
     #[qapi(added = "1.5.0")]
+    #[qapi(required)]
     pub cpu_max: Option<i64>,
     /// default CPU model typename if none is requested
     /// via the -cpu argument.  (since 4.2)
@@ -11120,10 +11641,12 @@ pub struct MachineInfo {
     /// removed in future versions of QEMU according to the QEMU
     /// deprecation policy (since 4.1)
     #[qapi(added = "4.1.0")]
+    #[qapi(required)]
     pub deprecated: Option<bool>,
     /// cpu hotplug via -device is supported (since 2.7)
     #[qapi(name = "hotpluggable-cpus")]
     #[qapi(added = "2.7.0")]
+    #[qapi(required)]
     pub hotpluggable_cpus: Option<bool>,
     /// whether the machine is default
     #[qapi(name = "is-default")]
@@ -11134,6 +11657,7 @@ pub struct MachineInfo {
     /// the machine type and false otherwise (since 4.1)
     #[qapi(name = "numa-mem-supported")]
     #[qapi(added = "4.1.0")]
+    #[qapi(required)]
     pub numa_mem_supported: Option<bool>,
 }
 
@@ -11160,6 +11684,7 @@ pub struct MainLoopProperties {
 pub struct MapEntry {
     /// true if the data is stored compressed (since 8.2)
     #[qapi(added = "8.2.0")]
+    #[qapi(required)]
     pub compressed: Option<bool>,
     /// reading the image will actually read data from a file (in
     /// particular, if @offset is present this means that the sectors
@@ -11181,6 +11706,7 @@ pub struct MapEntry {
     /// true if this layer provides the data, false if adding a
     /// backing layer could impact this region (since 6.1)
     #[qapi(added = "6.1.0")]
+    #[qapi(required)]
     pub present: Option<bool>,
     /// virtual (guest) offset of the first byte described by this
     /// entry
@@ -11215,6 +11741,7 @@ pub struct Memdev {
     pub reserve: Option<bool>,
     /// whether memory is private to QEMU or shared (since 6.1)
     #[qapi(added = "6.1.0")]
+    #[qapi(required)]
     pub share: Option<bool>,
     /// memory backend size
     pub size: u64,
@@ -11520,10 +12047,12 @@ pub struct MemoryDeviceInfo {
     #[qapi(discriminator)]
     #[qapi(name = "type")]
     #[qapi(removed = "6.2.0")]
+    #[qapi(required)]
     pub r_type: Option<MemoryDeviceInfoType>,
     /// memory device type
     #[qapi(discriminator)]
     #[qapi(added = "6.2.0")]
+    #[qapi(required)]
     pub r#type: Option<MemoryDeviceInfoKind>,
     #[qapi(union)]
     #[qapi(flatten)]
@@ -12078,6 +12607,7 @@ pub struct MigrationInfo {
     #[qapi(feature = "deprecated")]
     #[qapi(added = "6.0.0")]
     #[qapi(removed = "6.1.0")]
+    #[qapi(required)]
     pub blocked: Option<bool>,
     /// A list of reasons an outgoing migration is
     /// blocked.  Present and non-empty when migration is blocked.
@@ -12190,7 +12720,13 @@ pub struct MigrationInfo {
     pub postcopy_vcpu_latency: Option<Vec<u64>>,
     /// Detailed migration RAM statistics, only returned if migration
     /// is in progress or completed (since 1.2)
+    #[qapi(added = "11.1.0")]
     pub ram: Option<MigrationRamStats>,
+    /// `MigrationStats` containing detailed migration status, only
+    /// returned if status is 'active' or 'completed'(since 1.2)
+    #[qapi(name = "ram")]
+    #[qapi(removed = "11.1.0")]
+    pub ram_legacy: Option<MigrationStats>,
     /// amount of bytes remaining to be migrated system-wide,
     /// includes both RAM and all devices (like VFIO).  (Since 11.1)
     #[qapi(added = "11.1.0")]
@@ -12211,7 +12747,15 @@ pub struct MigrationInfo {
     /// `MigrationStatus` describing the current migration status.
     /// If this field is not returned, no migration process has been
     /// initiated
+    #[qapi(added = "2.3.0")]
     pub status: Option<MigrationStatus>,
+    /// #optional string describing the current migration status.
+    /// As of 0.14.0 this can be 'setup', 'active', 'completed', 'failed' or
+    /// 'cancelled'. If this field is not returned, no migration process
+    /// has been initiated
+    #[qapi(name = "status")]
+    #[qapi(removed = "2.3.0")]
+    pub status_legacy: Option<String>,
     /// total amount of milliseconds since migration started.
     /// If migration has ended, it returns the total migration time.
     /// (since 1.2)
@@ -12619,12 +13163,14 @@ pub struct MigrationParameters {
     /// compression level
     #[qapi(name = "compress-level")]
     #[qapi(feature = "deprecated")]
+    #[qapi(added = "2.12.0")]
     #[qapi(deprecated(added = "8.2.0"))]
     #[qapi(removed = "9.1.0")]
     pub compress_level: Option<u8>,
     /// compression thread count
     #[qapi(name = "compress-threads")]
     #[qapi(feature = "deprecated")]
+    #[qapi(added = "2.12.0")]
     #[qapi(deprecated(added = "8.2.0"))]
     #[qapi(removed = "9.1.0")]
     pub compress_threads: Option<u8>,
@@ -12638,6 +13184,14 @@ pub struct MigrationParameters {
     #[qapi(deprecated(added = "8.2.0"))]
     #[qapi(removed = "9.1.0")]
     pub compress_wait_thread: Option<bool>,
+    /// compression level
+    #[qapi(name = "compress-level")]
+    #[qapi(removed = "2.12.0")]
+    pub compress_level_legacy: Option<i64>,
+    /// compression thread count
+    #[qapi(name = "compress-threads")]
+    #[qapi(removed = "2.12.0")]
+    pub compress_threads_legacy: Option<i64>,
     /// Command to start the new QEMU process when @mode
     /// is @cpr-exec.  The first list element is the program's filename,
     /// the remainder its arguments.  (Since 10.2)
@@ -12648,13 +13202,13 @@ pub struct MigrationParameters {
     /// auto-converge detects that migration is not making progress.
     /// The default value is 10.  (Since 2.7)
     #[qapi(name = "cpu-throttle-increment")]
-    #[qapi(added = "2.7.0")]
+    #[qapi(added = "2.12.0")]
     pub cpu_throttle_increment: Option<u8>,
     /// Initial percentage of time guest cpus are
     /// throttled when migration auto-converge is activated.  The
     /// default value is 20.  (Since 2.7)
     #[qapi(name = "cpu-throttle-initial")]
-    #[qapi(added = "2.7.0")]
+    #[qapi(added = "2.12.0")]
     pub cpu_throttle_initial: Option<u8>,
     /// Make CPU throttling slower at tail stage.
     /// At the tail stage of throttling, the Guest is very sensitive to
@@ -12671,12 +13225,31 @@ pub struct MigrationParameters {
     #[qapi(name = "cpu-throttle-tailslow")]
     #[qapi(added = "5.1.0")]
     pub cpu_throttle_tailslow: Option<bool>,
+    /// throttle percentage increase each time
+    /// auto-converge detects that migration is not making
+    /// progress. (Since 2.7)
+    #[qapi(name = "cpu-throttle-increment")]
+    #[qapi(added = "2.7.0")]
+    #[qapi(removed = "2.12.0")]
+    pub cpu_throttle_increment_legacy: Option<i64>,
+    /// Initial percentage of time guest cpus are
+    /// throttled when migration auto-converge is activated.
+    /// (Since 2.7)
+    #[qapi(name = "cpu-throttle-initial")]
+    #[qapi(added = "2.7.0")]
+    #[qapi(removed = "2.12.0")]
+    pub cpu_throttle_initial_legacy: Option<i64>,
     /// decompression thread count
     #[qapi(name = "decompress-threads")]
     #[qapi(feature = "deprecated")]
+    #[qapi(added = "2.12.0")]
     #[qapi(deprecated(added = "8.2.0"))]
     #[qapi(removed = "9.1.0")]
     pub decompress_threads: Option<u8>,
+    /// decompression thread count
+    #[qapi(name = "decompress-threads")]
+    #[qapi(removed = "2.12.0")]
+    pub decompress_threads_legacy: Option<i64>,
     /// Open migration files with O_DIRECT when possible.  This
     /// only has effect if the @mapped-ram capability is enabled.
     /// (Since 9.1)
@@ -12686,12 +13259,18 @@ pub struct MigrationParameters {
     /// set maximum tolerated downtime for migration.
     /// maximum downtime in milliseconds (Since 2.8)
     #[qapi(name = "downtime-limit")]
-    #[qapi(added = "2.8.0")]
+    #[qapi(added = "2.12.0")]
     pub downtime_limit: Option<u64>,
+    /// set maximum tolerated downtime for migration. maximum
+    /// downtime in milliseconds (Since 2.8)
+    #[qapi(name = "downtime-limit")]
+    #[qapi(added = "2.8.0")]
+    #[qapi(removed = "2.12.0")]
+    pub downtime_limit_legacy: Option<i64>,
     /// maximum speed for migration, in bytes per second.
     /// (Since 2.8)
     #[qapi(name = "max-bandwidth")]
-    #[qapi(added = "2.8.0")]
+    #[qapi(added = "2.12.0")]
     pub max_bandwidth: Option<u64>,
     /// maximum cpu throttle percentage.  Defaults to 99.
     /// (Since 3.1)
@@ -12704,6 +13283,12 @@ pub struct MigrationParameters {
     #[qapi(name = "max-postcopy-bandwidth")]
     #[qapi(added = "3.0.0")]
     pub max_postcopy_bandwidth: Option<u64>,
+    /// to set maximum speed for migration. maximum speed in
+    /// bytes per second. (Since 2.8)
+    #[qapi(name = "max-bandwidth")]
+    #[qapi(added = "2.8.0")]
+    #[qapi(removed = "2.12.0")]
+    pub max_bandwidth_legacy: Option<i64>,
     /// Migration mode.  See description in `MigMode`.  Default is
     /// 'normal'.  (Since 8.2)
     #[qapi(added = "8.2.0")]
@@ -12755,7 +13340,7 @@ pub struct MigrationParameters {
     /// and recreated on the fly while the migration server is active.
     /// If missing, it will default to denying access (Since 4.0)
     #[qapi(name = "tls-authz")]
-    #[qapi(added = "4.0.0")]
+    #[qapi(added = "11.0.0")]
     pub tls_authz: Option<StrOrNull>,
     /// ID of the 'tls-creds' object that provides credentials
     /// for establishing a TLS connection over the migration data
@@ -12766,7 +13351,7 @@ pub struct MigrationParameters {
     /// string means that QEMU will use plain text mode for migration,
     /// rather than TLS.  This is the default.  (Since 2.7)
     #[qapi(name = "tls-creds")]
-    #[qapi(added = "2.7.0")]
+    #[qapi(added = "11.0.0")]
     pub tls_creds: Option<StrOrNull>,
     /// migration target's hostname for validating the
     /// server's x509 certificate identity.  If empty, QEMU will use the
@@ -12777,8 +13362,37 @@ pub struct MigrationParameters {
     ///
     /// Note: empty value works only since 2.9.
     #[qapi(name = "tls-hostname")]
-    #[qapi(added = "2.7.0")]
+    #[qapi(added = "11.0.0")]
     pub tls_hostname: Option<StrOrNull>,
+    /// ID of the 'authz' object subclass that provides access
+    /// control checking of the TLS x509 certificate distinguished name.
+    /// (Since 4.0)
+    #[qapi(name = "tls-authz")]
+    #[qapi(added = "4.0.0")]
+    #[qapi(removed = "11.0.0")]
+    pub tls_authz_legacy: Option<String>,
+    /// ID of the 'tls-creds' object that provides credentials
+    /// for establishing a TLS connection over the migration data
+    /// channel.  On the outgoing side of the migration, the credentials
+    /// must be for a 'client' endpoint, while for the incoming side the
+    /// credentials must be for a 'server' endpoint.  An empty string
+    /// means that QEMU will use plain text mode for migration, rather
+    /// than TLS.  (Since 2.7)
+    ///
+    /// Note: 2.8 omits empty @tls-creds instead.
+    #[qapi(name = "tls-creds")]
+    #[qapi(added = "2.7.0")]
+    #[qapi(removed = "11.0.0")]
+    pub tls_creds_legacy: Option<String>,
+    /// migration target's hostname for validating the
+    /// server's x509 certificate identity.  If empty, QEMU will use the
+    /// hostname from the migration URI, if any.  (Since 2.7)
+    ///
+    /// Note: 2.8 omits empty @tls-hostname instead.
+    #[qapi(name = "tls-hostname")]
+    #[qapi(added = "2.7.0")]
+    #[qapi(removed = "11.0.0")]
+    pub tls_hostname_legacy: Option<String>,
     /// Dirtyrate limit (MB/s) during live migration.
     /// Defaults to 1.  (Since 8.1)
     #[qapi(name = "vcpu-dirty-limit")]
@@ -12788,28 +13402,30 @@ pub struct MigrationParameters {
     /// checkpoints in periodic mode.  (Since 2.8)
     #[qapi(name = "x-checkpoint-delay")]
     #[qapi(feature = "unstable")]
-    #[qapi(added = "2.8.0")]
+    #[qapi(added = "2.12.0")]
     pub x_checkpoint_delay: Option<u32>,
     #[qapi(name = "x-cpu-throttle-increment")]
     #[qapi(added = "2.5.0")]
     #[qapi(removed = "2.7.0")]
+    #[qapi(required)]
     pub x_cpu_throttle_increment: Option<i64>,
     #[qapi(name = "x-cpu-throttle-initial")]
     #[qapi(added = "2.5.0")]
     #[qapi(removed = "2.7.0")]
+    #[qapi(required)]
     pub x_cpu_throttle_initial: Option<i64>,
     /// Number of channels used to migrate data in
     /// parallel. This is the same number that the
     /// number of sockets used for migration.
     /// The default value is 2 (since 2.11)
     #[qapi(name = "x-multifd-channels")]
-    #[qapi(added = "2.11.0")]
+    #[qapi(added = "2.12.0")]
     #[qapi(removed = "4.0.0")]
     pub x_multifd_channels: Option<u8>,
     /// Number of pages sent together to a thread.
     /// The default value is 16 (since 2.11)
     #[qapi(name = "x-multifd-page-count")]
-    #[qapi(added = "2.11.0")]
+    #[qapi(added = "2.12.0")]
     #[qapi(removed = "4.0.0")]
     pub x_multifd_page_count: Option<u32>,
     /// RDMA memory registration chunk size in bytes.
@@ -12828,6 +13444,25 @@ pub struct MigrationParameters {
     #[qapi(feature = "unstable")]
     #[qapi(added = "8.1.0")]
     pub x_vcpu_dirty_limit_period: Option<u64>,
+    /// the delay time between two COLO checkpoints. (Since 2.8)
+    #[qapi(name = "x-checkpoint-delay")]
+    #[qapi(added = "2.8.0")]
+    #[qapi(removed = "2.12.0")]
+    pub x_checkpoint_delay_legacy: Option<i64>,
+    /// Number of channels used to migrate data in
+    /// parallel. This is the same number that the
+    /// number of sockets used for migration.
+    /// The default value is 2 (since 2.11)
+    #[qapi(name = "x-multifd-channels")]
+    #[qapi(added = "2.11.0")]
+    #[qapi(removed = "2.12.0")]
+    pub x_multifd_channels_legacy: Option<i64>,
+    /// Number of pages sent together to a thread.
+    /// The default value is 16 (since 2.11)
+    #[qapi(name = "x-multifd-page-count")]
+    #[qapi(added = "2.11.0")]
+    #[qapi(removed = "2.12.0")]
+    pub x_multifd_page_count_legacy: Option<i64>,
     /// cache size to be used by XBZRLE migration.  It
     /// needs to be a multiple of the target page size and a power of 2
     /// (Since 2.11)
@@ -12913,11 +13548,13 @@ pub struct MigrationStats {
     /// (since 1.3)
     #[qapi(name = "dirty-pages-rate")]
     #[qapi(added = "1.3.0")]
+    #[qapi(required)]
     pub dirty_pages_rate: Option<i64>,
     /// number of times that dirty ram was synchronized
     /// (since 2.1)
     #[qapi(name = "dirty-sync-count")]
     #[qapi(added = "2.1.0")]
+    #[qapi(required)]
     pub dirty_sync_count: Option<i64>,
     /// Number of times dirty RAM
     /// synchronization could not avoid copying dirty pages.  This is
@@ -12925,53 +13562,65 @@ pub struct MigrationStats {
     /// (since 7.1)
     #[qapi(name = "dirty-sync-missed-zero-copy")]
     #[qapi(added = "7.1.0")]
+    #[qapi(required)]
     pub dirty_sync_missed_zero_copy: Option<u64>,
     /// The number of bytes sent while the guest is paused
     /// (since 7.0).
     #[qapi(name = "downtime-bytes")]
     #[qapi(added = "7.0.0")]
+    #[qapi(required)]
     pub downtime_bytes: Option<u64>,
     /// number of duplicate (zero) pages (since 1.2)
     #[qapi(added = "1.2.0")]
+    #[qapi(required)]
     pub duplicate: Option<i64>,
     /// throughput in megabits/sec.  (since 1.6)
     #[qapi(added = "1.6.0")]
+    #[qapi(required)]
     pub mbps: Option<f64>,
     /// The number of bytes sent through multifd (since 3.0)
     #[qapi(name = "multifd-bytes")]
     #[qapi(added = "3.0.0")]
+    #[qapi(required)]
     pub multifd_bytes: Option<u64>,
     /// number of normal pages (since 1.2)
     #[qapi(added = "1.2.0")]
+    #[qapi(required)]
     pub normal: Option<i64>,
     /// number of normal bytes sent (since 1.2)
     #[qapi(name = "normal-bytes")]
     #[qapi(added = "1.2.0")]
+    #[qapi(required)]
     pub normal_bytes: Option<i64>,
     /// The number of bytes per page for the various page-based
     /// statistics (since 2.10)
     #[qapi(name = "page-size")]
     #[qapi(added = "2.10.0")]
+    #[qapi(required)]
     pub page_size: Option<i64>,
     /// the number of memory pages transferred per second
     /// (Since 4.0)
     #[qapi(name = "pages-per-second")]
     #[qapi(added = "4.0.0")]
+    #[qapi(required)]
     pub pages_per_second: Option<u64>,
     /// The number of bytes sent during the post-copy phase
     /// (since 7.0).
     #[qapi(name = "postcopy-bytes")]
     #[qapi(added = "7.0.0")]
+    #[qapi(required)]
     pub postcopy_bytes: Option<u64>,
     /// The number of page requests received from the
     /// destination (since 2.7)
     #[qapi(name = "postcopy-requests")]
     #[qapi(added = "2.7.0")]
+    #[qapi(required)]
     pub postcopy_requests: Option<i64>,
     /// The number of bytes sent in the pre-copy phase
     /// (since 7.0).
     #[qapi(name = "precopy-bytes")]
     #[qapi(added = "7.0.0")]
+    #[qapi(required)]
     pub precopy_bytes: Option<u64>,
     /// amount of bytes remaining to be transferred to the
     /// target VM
@@ -12982,6 +13631,7 @@ pub struct MigrationStats {
     #[qapi(added = "1.5.0")]
     #[qapi(deprecated(added = "8.1.0"))]
     #[qapi(removed = "9.1.0")]
+    #[qapi(required)]
     pub skipped: Option<i64>,
     /// total amount of bytes involved in the migration process
     pub total: i64,
@@ -13529,10 +14179,12 @@ pub struct Netdev {
     pub id: String,
     /// device type specific properties
     #[qapi(removed = "2.7.0")]
+    #[qapi(required)]
     pub opts: Option<NetClientOptions>,
     /// Specify the driver used for interpreting remaining arguments.
     #[qapi(discriminator)]
     #[qapi(added = "2.7.0")]
+    #[qapi(required)]
     pub r#type: Option<NetClientDriver>,
     #[qapi(union)]
     #[qapi(flatten)]
@@ -13976,7 +14628,7 @@ pub struct NetdevStreamOptions {
     /// attempt a reconnect after the given number of seconds.  Setting
     /// this to zero disables this function.  (default: 0) (since 8.0)
     #[qapi(feature = "deprecated")]
-    #[qapi(added = "8.0.0")]
+    #[qapi(added = "9.2.0")]
     #[qapi(deprecated(added = "9.2.0"))]
     #[qapi(removed = "10.2.0")]
     pub reconnect: Option<i64>,
@@ -13987,6 +14639,13 @@ pub struct NetdevStreamOptions {
     #[qapi(name = "reconnect-ms")]
     #[qapi(added = "9.2.0")]
     pub reconnect_ms: Option<i64>,
+    /// For a client socket, if a socket is disconnected, then
+    /// attempt a reconnect after the given number of seconds.  Setting
+    /// this to zero disables this function.  (default: 0) (since 8.0)
+    #[qapi(name = "reconnect")]
+    #[qapi(added = "8.0.0")]
+    #[qapi(removed = "9.2.0")]
+    pub reconnect_legacy: Option<u32>,
     /// create server socket (default: false)
     pub server: Option<bool>,
 }
@@ -14077,19 +14736,36 @@ pub struct NetdevUserOptions {
     pub dns: Option<String>,
     /// list of DNS suffixes to search, passed as DHCP option to
     /// the guest
-    #[qapi(added = "1.3.0")]
+    #[qapi(added = "11.1.0")]
     pub dnssearch: Option<Vec<NetdevUserDomainSuffix>>,
+    /// list of DNS suffixes to search, passed as DHCP option to
+    /// the guest
+    #[qapi(name = "dnssearch")]
+    #[qapi(added = "1.3.0")]
+    #[qapi(removed = "11.1.0")]
+    pub dnssearch_legacy: Option<Vec<QapiString>>,
     /// guest-visible domain name of the virtual nameserver
     /// (since 3.0)
     #[qapi(added = "3.0.0")]
     pub domainname: Option<String>,
     /// forward guest TCP connections
+    #[qapi(added = "11.1.0")]
     pub guestfwd: Option<Vec<NetdevUserGuestForward>>,
+    /// forward guest TCP connections
+    #[qapi(name = "guestfwd")]
+    #[qapi(removed = "11.1.0")]
+    pub guestfwd_legacy: Option<Vec<QapiString>>,
     /// guest-visible address of the host
     pub host: Option<String>,
     /// redirect incoming TCP, UDP or UNIX host connections to
     /// guest endpoints
+    #[qapi(added = "11.1.0")]
     pub hostfwd: Option<Vec<NetdevUserHostForward>>,
+    /// redirect incoming TCP, UDP or UNIX host connections to
+    /// guest endpoints
+    #[qapi(name = "hostfwd")]
+    #[qapi(removed = "11.1.0")]
+    pub hostfwd_legacy: Option<Vec<QapiString>>,
     /// client hostname reported by the builtin DHCP server
     pub hostname: Option<String>,
     /// legacy parameter, use net= instead
@@ -14346,7 +15022,14 @@ pub struct NetLegacy {
     /// identifier for monitor commands, ignored if @id is present
     pub name: Option<String>,
     /// device type specific properties (legacy)
-    pub opts: NetLegacyOptions,
+    #[qapi(added = "2.7.0")]
+    #[qapi(required)]
+    pub opts: Option<NetLegacyOptions>,
+    /// device type specific properties (legacy)
+    #[qapi(name = "opts")]
+    #[qapi(removed = "2.7.0")]
+    #[qapi(required)]
+    pub opts_legacy: Option<NetClientOptions>,
     /// vlan number
     #[qapi(removed = "3.0.0")]
     pub vlan: Option<i32>,
@@ -14375,9 +15058,11 @@ pub struct NetLegacyOptions {
     #[qapi(discriminator)]
     #[qapi(name = "type")]
     #[qapi(removed = "2.9.0")]
+    #[qapi(required)]
     pub r_type: Option<NetLegacyOptionsType>,
     #[qapi(discriminator)]
     #[qapi(added = "2.9.0")]
+    #[qapi(required)]
     pub r#type: Option<NetLegacyOptionsType>,
     #[qapi(union)]
     #[qapi(flatten)]
@@ -14653,10 +15338,12 @@ pub struct NumaOptions {
     #[qapi(discriminator)]
     #[qapi(name = "type")]
     #[qapi(removed = "2.9.0")]
+    #[qapi(required)]
     pub r_type: Option<NumaOptionsType>,
     /// NUMA option type
     #[qapi(discriminator)]
     #[qapi(added = "2.9.0")]
+    #[qapi(required)]
     pub r#type: Option<NumaOptionsType>,
     #[qapi(union)]
     #[qapi(flatten)]
@@ -15240,9 +15927,15 @@ pub struct PcdimmDeviceInfoWrapper {
 #[qapi(added = "1.0.0")]
 pub struct PciBridgeInfo {
     /// information about the bus the device resides on
-    pub bus: PciBusInfo,
+    #[qapi(added = "2.4.0")]
+    #[qapi(required)]
+    pub bus: Option<PciBusInfo>,
+    #[qapi(name = "bus")]
+    #[qapi(removed = "2.4.0")]
+    #[qapi(required)]
+    pub bus_legacy: Option<PciBridgeInfoBus>,
     /// a list of `PciDeviceInfo` for each device on this bridge
-    pub devices: Option<Box<Vec<PciDeviceInfo>>>,
+    pub devices: Option<Vec<PciDeviceInfo>>,
 }
 
 #[qapi(added = "1.0.0")]
@@ -15309,18 +16002,31 @@ pub struct PciDeviceInfo {
     /// the bus number of the device
     pub bus: i64,
     /// the class of the device
-    pub class_info: PciDeviceClass,
+    #[qapi(added = "2.4.0")]
+    #[qapi(required)]
+    pub class_info: Option<PciDeviceClass>,
+    #[qapi(name = "class_info")]
+    #[qapi(removed = "2.4.0")]
+    #[qapi(required)]
+    pub class_info_legacy: Option<PciDeviceInfoClassInfo>,
     /// the function of the slot used by the device
     pub function: i64,
     /// the PCI device id
-    pub id: PciDeviceId,
+    #[qapi(added = "2.4.0")]
+    #[qapi(required)]
+    pub id: Option<PciDeviceId>,
+    #[qapi(name = "id")]
+    #[qapi(removed = "2.4.0")]
+    #[qapi(required)]
+    pub id_legacy: Option<PciDeviceInfoId>,
     /// if an IRQ is assigned to the device, the IRQ number
     pub irq: Option<i64>,
     /// the IRQ pin, zero means no IRQ (since 5.1)
     #[qapi(added = "5.1.0")]
+    #[qapi(required)]
     pub irq_pin: Option<i64>,
     /// if the device is a PCI bridge, the bridge information
-    pub pci_bridge: Option<Box<PciBridgeInfo>>,
+    pub pci_bridge: Option<PciBridgeInfo>,
     /// the device name of the PCI device
     pub qdev_id: String,
     /// a list of the PCI I/O regions associated with the device
@@ -15750,7 +16456,15 @@ pub enum QCryptoAkCipherKeyType {
 pub struct QCryptoAkCipherOptions {
     /// encryption cipher algorithm
     #[qapi(discriminator)]
-    pub alg: QCryptoAkCipherAlgo,
+    #[qapi(added = "9.2.0")]
+    #[qapi(required)]
+    pub alg: Option<QCryptoAkCipherAlgo>,
+    /// encryption cipher algorithm
+    #[qapi(discriminator)]
+    #[qapi(name = "alg")]
+    #[qapi(removed = "9.2.0")]
+    #[qapi(required)]
+    pub alg_legacy: Option<QCryptoAkCipherAlgorithm>,
     #[qapi(union)]
     #[qapi(flatten)]
     pub u: Option<QCryptoAkCipherOptionsBranch>,
@@ -15769,10 +16483,24 @@ pub enum QCryptoAkCipherOptionsBranch {
 pub struct QCryptoAkCipherOptionsRsa {
     /// `QCryptoHashAlgo`
     #[qapi(name = "hash-alg")]
-    pub hash_alg: QCryptoHashAlgo,
+    #[qapi(added = "9.2.0")]
+    #[qapi(required)]
+    pub hash_alg: Option<QCryptoHashAlgo>,
+    /// QCryptoHashAlgorithm
+    #[qapi(name = "hash-alg")]
+    #[qapi(removed = "9.2.0")]
+    #[qapi(required)]
+    pub hash_alg_legacy: Option<QCryptoHashAlgorithm>,
     /// `QCryptoRSAPaddingAlgo`
     #[qapi(name = "padding-alg")]
-    pub padding_alg: QCryptoRsaPaddingAlgo,
+    #[qapi(added = "9.2.0")]
+    #[qapi(required)]
+    pub padding_alg: Option<QCryptoRsaPaddingAlgo>,
+    /// QCryptoRSAPaddingAlgorithm
+    #[qapi(name = "padding-alg")]
+    #[qapi(removed = "9.2.0")]
+    #[qapi(required)]
+    pub padding_alg_legacy: Option<QCryptoRsaPaddingAlgorithm>,
 }
 
 /// The options that are available for all encryption formats when
@@ -15862,11 +16590,17 @@ pub struct QCryptoBlockCreateOptionsLuks {
     /// the cipher algorithm for data encryption.  Currently
     /// defaults to 'aes-256'.
     #[qapi(name = "cipher-alg")]
+    #[qapi(added = "9.2.0")]
     pub cipher_alg: Option<QCryptoCipherAlgo>,
     /// the cipher mode for data encryption.  Currently
     /// defaults to 'xts'
     #[qapi(name = "cipher-mode")]
     pub cipher_mode: Option<QCryptoCipherMode>,
+    /// the cipher algorithm for data encryption Currently
+    /// defaults to 'aes-256'.
+    #[qapi(name = "cipher-alg")]
+    #[qapi(removed = "9.2.0")]
+    pub cipher_alg_legacy: Option<QCryptoCipherAlgorithm>,
     /// create a detached LUKS header.  (since 9.0)
     #[qapi(name = "detached-header")]
     #[qapi(added = "9.0.0")]
@@ -15875,7 +16609,13 @@ pub struct QCryptoBlockCreateOptionsLuks {
     /// the master key hash algorithm.  Currently defaults to
     /// 'sha256'
     #[qapi(name = "hash-alg")]
+    #[qapi(added = "9.2.0")]
     pub hash_alg: Option<QCryptoHashAlgo>,
+    /// the master key hash algorithm Currently defaults to
+    /// 'sha256'
+    #[qapi(name = "hash-alg")]
+    #[qapi(removed = "9.2.0")]
+    pub hash_alg_legacy: Option<QCryptoHashAlgorithm>,
     /// number of milliseconds to spend in PBKDF passphrase
     /// processing.  Currently defaults to 2000.  (since 2.8)
     #[qapi(name = "iter-time")]
@@ -15884,11 +16624,23 @@ pub struct QCryptoBlockCreateOptionsLuks {
     /// the initialization vector generator.  Currently defaults
     /// to 'plain64'
     #[qapi(name = "ivgen-alg")]
+    #[qapi(added = "9.2.0")]
     pub ivgen_alg: Option<QCryptoIvGenAlgo>,
     /// the initialization vector generator hash.
     /// Currently defaults to 'sha256'
     #[qapi(name = "ivgen-hash-alg")]
+    #[qapi(added = "9.2.0")]
     pub ivgen_hash_alg: Option<QCryptoHashAlgo>,
+    /// the initialization vector generator Currently defaults
+    /// to 'plain64'
+    #[qapi(name = "ivgen-alg")]
+    #[qapi(removed = "9.2.0")]
+    pub ivgen_alg_legacy: Option<QCryptoIvGenAlgorithm>,
+    /// the initialization vector generator hash Currently
+    /// defaults to 'sha256'
+    #[qapi(name = "ivgen-hash-alg")]
+    #[qapi(removed = "9.2.0")]
+    pub ivgen_hash_alg_legacy: Option<QCryptoHashAlgorithm>,
     /// the ID of a QCryptoSecret object providing the
     /// decryption key.  Mandatory except when probing image for
     /// metadata only.
@@ -15948,23 +16700,50 @@ pub enum QCryptoBlockInfoBranch {
 pub struct QCryptoBlockInfoLuks {
     /// the cipher algorithm for data encryption
     #[qapi(name = "cipher-alg")]
-    pub cipher_alg: QCryptoCipherAlgo,
+    #[qapi(added = "9.2.0")]
+    #[qapi(required)]
+    pub cipher_alg: Option<QCryptoCipherAlgo>,
     /// the cipher mode for data encryption
     #[qapi(name = "cipher-mode")]
     pub cipher_mode: QCryptoCipherMode,
+    /// the cipher algorithm for data encryption
+    #[qapi(name = "cipher-alg")]
+    #[qapi(removed = "9.2.0")]
+    #[qapi(required)]
+    pub cipher_alg_legacy: Option<QCryptoCipherAlgorithm>,
     /// whether the LUKS header is detached (Since 9.0)
     #[qapi(name = "detached-header")]
     #[qapi(added = "9.0.0")]
+    #[qapi(required)]
     pub detached_header: Option<bool>,
     /// the master key hash algorithm
     #[qapi(name = "hash-alg")]
-    pub hash_alg: QCryptoHashAlgo,
+    #[qapi(added = "9.2.0")]
+    #[qapi(required)]
+    pub hash_alg: Option<QCryptoHashAlgo>,
+    /// the master key hash algorithm
+    #[qapi(name = "hash-alg")]
+    #[qapi(removed = "9.2.0")]
+    #[qapi(required)]
+    pub hash_alg_legacy: Option<QCryptoHashAlgorithm>,
     /// the initialization vector generator
     #[qapi(name = "ivgen-alg")]
-    pub ivgen_alg: QCryptoIvGenAlgo,
+    #[qapi(added = "9.2.0")]
+    #[qapi(required)]
+    pub ivgen_alg: Option<QCryptoIvGenAlgo>,
     /// the initialization vector generator hash
     #[qapi(name = "ivgen-hash-alg")]
+    #[qapi(added = "9.2.0")]
     pub ivgen_hash_alg: Option<QCryptoHashAlgo>,
+    /// the initialization vector generator
+    #[qapi(name = "ivgen-alg")]
+    #[qapi(removed = "9.2.0")]
+    #[qapi(required)]
+    pub ivgen_alg_legacy: Option<QCryptoIvGenAlgorithm>,
+    /// the initialization vector generator hash
+    #[qapi(name = "ivgen-hash-alg")]
+    #[qapi(removed = "9.2.0")]
+    pub ivgen_hash_alg_legacy: Option<QCryptoHashAlgorithm>,
     /// number of PBKDF2 iterations for key material
     #[qapi(name = "master-key-iters")]
     pub master_key_iters: i64,
@@ -16926,7 +17705,12 @@ pub enum RbdEncryptionCreateOptionsBranch {
 pub struct RbdEncryptionCreateOptionsLuks {
     /// The encryption algorithm
     #[qapi(name = "cipher-alg")]
+    #[qapi(added = "9.2.0")]
     pub cipher_alg: Option<QCryptoCipherAlgo>,
+    /// The encryption algorithm
+    #[qapi(name = "cipher-alg")]
+    #[qapi(removed = "9.2.0")]
+    pub cipher_alg_legacy: Option<QCryptoCipherAlgorithm>,
     /// ID of a QCryptoSecret object providing a passphrase for
     /// unlocking the encryption
     #[qapi(name = "key-secret")]
@@ -16938,7 +17722,12 @@ pub struct RbdEncryptionCreateOptionsLuks {
 pub struct RbdEncryptionCreateOptionsLuks2 {
     /// The encryption algorithm
     #[qapi(name = "cipher-alg")]
+    #[qapi(added = "9.2.0")]
     pub cipher_alg: Option<QCryptoCipherAlgo>,
+    /// The encryption algorithm
+    #[qapi(name = "cipher-alg")]
+    #[qapi(removed = "9.2.0")]
+    pub cipher_alg_legacy: Option<QCryptoCipherAlgorithm>,
     /// ID of a QCryptoSecret object providing a passphrase for
     /// unlocking the encryption
     #[qapi(name = "key-secret")]
@@ -16950,7 +17739,12 @@ pub struct RbdEncryptionCreateOptionsLuks2 {
 pub struct RbdEncryptionCreateOptionsLuksBase {
     /// The encryption algorithm
     #[qapi(name = "cipher-alg")]
+    #[qapi(added = "9.2.0")]
     pub cipher_alg: Option<QCryptoCipherAlgo>,
+    /// The encryption algorithm
+    #[qapi(name = "cipher-alg")]
+    #[qapi(removed = "9.2.0")]
+    pub cipher_alg_legacy: Option<QCryptoCipherAlgorithm>,
     /// ID of a QCryptoSecret object providing a passphrase for
     /// unlocking the encryption
     #[qapi(name = "key-secret")]
@@ -17466,6 +18260,7 @@ pub struct RxFilterInfo {
     pub unicast_table: Vec<String>,
     /// vlan receive state (Since 2.0)
     #[qapi(added = "2.0.0")]
+    #[qapi(required)]
     pub vlan: Option<RxState>,
     /// a list of active vlan id
     #[qapi(name = "vlan-table")]
@@ -17676,6 +18471,7 @@ pub struct SchemaInfoEnum {
     /// the enum type's members, in no particular order.
     /// (since 6.2)
     #[qapi(added = "6.2.0")]
+    #[qapi(required)]
     pub members: Option<Vec<SchemaInfoEnumMember>>,
     /// the enumeration type's member names, in no particular
     /// order.  Redundant with @members.  Just for backward
@@ -17939,6 +18735,7 @@ pub struct SevCapability {
     /// Unique ID of CPU0 (base64 encoded) (since 7.1)
     #[qapi(name = "cpu0-id")]
     #[qapi(added = "7.1.0")]
+    #[qapi(required)]
     pub cpu0_id: Option<String>,
     /// Platform Diffie-Hellman key (base64 encoded)
     pub pdh: String,
@@ -18057,14 +18854,17 @@ pub struct SevInfo {
     pub enabled: bool,
     /// SEV firmware handle
     #[qapi(removed = "9.1.0")]
+    #[qapi(required)]
     pub handle: Option<u32>,
     /// SEV policy value
     #[qapi(removed = "9.1.0")]
+    #[qapi(required)]
     pub policy: Option<u32>,
     /// Type of SEV guest being run
     #[qapi(name = "sev-type")]
     #[qapi(discriminator)]
     #[qapi(added = "9.1.0")]
+    #[qapi(required)]
     pub sev_type: Option<SevGuestType>,
     /// SEV guest state
     pub state: SevState,
@@ -18200,6 +19000,7 @@ pub struct SgxEpc {
     pub memdev: String,
     /// the numa node (Since: 7.0)
     #[qapi(added = "7.0.0")]
+    #[qapi(required)]
     pub node: Option<i64>,
 }
 
@@ -18215,6 +19016,7 @@ pub struct SgxEpcDeviceInfo {
     pub memdev: String,
     /// the numa node (Since: 7.0)
     #[qapi(added = "7.0.0")]
+    #[qapi(required)]
     pub node: Option<i64>,
     /// size of memory that the device provides
     pub size: u64,
@@ -18269,10 +19071,18 @@ pub struct SgxInfo {
     #[qapi(feature = "deprecated")]
     #[qapi(deprecated(added = "7.0.0"))]
     #[qapi(removed = "8.0.0")]
+    #[qapi(required)]
     pub section_size: Option<u64>,
     /// The EPC sections information (Since: 7.0)
-    #[qapi(added = "7.0.0")]
+    #[qapi(added = "10.1.0")]
+    #[qapi(required)]
     pub sections: Option<Vec<SgxEpcSection>>,
+    /// The EPC sections info for guest (Since: 7.0)
+    #[qapi(name = "sections")]
+    #[qapi(added = "7.0.0")]
+    #[qapi(removed = "10.1.0")]
+    #[qapi(required)]
+    pub sections_legacy: Option<Vec<SgxepcSection>>,
     /// true if SGX is supported
     pub sgx: bool,
     /// true if SGX1 is supported
@@ -18513,10 +19323,12 @@ pub struct SocketAddress {
     #[qapi(discriminator)]
     #[qapi(name = "type")]
     #[qapi(removed = "2.10.0")]
+    #[qapi(required)]
     pub r_type: Option<SocketAddressType>,
     /// Transport type
     #[qapi(discriminator)]
     #[qapi(added = "2.10.0")]
+    #[qapi(required)]
     pub r#type: Option<SocketAddressType>,
     #[qapi(union)]
     #[qapi(flatten)]
@@ -18595,10 +19407,12 @@ pub struct SocketAddressLegacy {
     #[qapi(discriminator)]
     #[qapi(name = "type")]
     #[qapi(removed = "6.2.0")]
+    #[qapi(required)]
     pub r_type: Option<SocketAddressLegacyType>,
     /// Transport type
     #[qapi(discriminator)]
     #[qapi(added = "6.2.0")]
+    #[qapi(required)]
     pub r#type: Option<SocketAddressType>,
     #[qapi(union)]
     #[qapi(flatten)]
@@ -18700,7 +19514,17 @@ pub struct SpiceChannel {
     #[qapi(name = "connection-id")]
     pub connection_id: i64,
     /// address family
-    pub family: NetworkAddressFamily,
+    #[qapi(added = "2.1.0")]
+    #[qapi(required)]
+    pub family: Option<NetworkAddressFamily>,
+    /// 'ipv6' if the client is connected via IPv6 and TCP
+    /// 'ipv4' if the client is connected via IPv4 and TCP
+    /// 'unix' if the client is connected via a unix domain socket
+    /// 'unknown' otherwise
+    #[qapi(name = "family")]
+    #[qapi(removed = "2.1.0")]
+    #[qapi(required)]
+    pub family_legacy: Option<String>,
     /// IP address
     pub host: String,
     /// port number
@@ -18732,6 +19556,7 @@ pub struct SpiceInfo {
     /// true if the last guest migration completed and spice
     /// migration had completed as well, false otherwise (since 1.4)
     #[qapi(added = "1.2.1")]
+    #[qapi(required)]
     pub migrated: Option<bool>,
     /// The mode in which the mouse cursor is displayed
     /// currently.  Can be determined by the client or the server, or
@@ -18739,6 +19564,7 @@ pub struct SpiceInfo {
     /// (since: 1.1)
     #[qapi(name = "mouse-mode")]
     #[qapi(added = "1.1.0")]
+    #[qapi(required)]
     pub mouse_mode: Option<SpiceQueryMouseMode>,
     /// The SPICE server's port number.
     pub port: Option<i64>,
@@ -19125,6 +19951,7 @@ pub struct StatusInfo {
     #[qapi(feature = "deprecated")]
     #[qapi(deprecated(added = "8.1.0"))]
     #[qapi(removed = "9.0.0")]
+    #[qapi(required)]
     pub singlestep: Option<bool>,
     /// the virtual machine `RunState`
     pub status: RunState,
@@ -19254,7 +20081,20 @@ pub enum SysEmuTarget {
 #[qapi(removed = "10.1.0")]
 pub struct TargetInfo {
     /// the target architecture
-    pub arch: SysEmuTarget,
+    #[qapi(added = "3.0.0")]
+    #[qapi(required)]
+    pub arch: Option<SysEmuTarget>,
+    /// the target architecture (eg "x86_64", "i386", etc)
+    #[qapi(name = "arch")]
+    #[qapi(removed = "1.6.0")]
+    #[qapi(required)]
+    pub arch_legacy: Option<TargetType>,
+    /// the target architecture (eg "x86_64", "i386", etc)
+    #[qapi(name = "arch")]
+    #[qapi(added = "1.6.0")]
+    #[qapi(removed = "3.0.0")]
+    #[qapi(required)]
+    pub arch_legacy2: Option<String>,
 }
 
 /// Target CPU emulation type
@@ -19736,6 +20576,7 @@ pub struct TpmTypeOptions {
     #[qapi(discriminator)]
     #[qapi(name = "type")]
     #[qapi(removed = "6.2.0")]
+    #[qapi(required)]
     pub r_type: Option<TpmTypeOptionsType>,
     /// - 'passthrough' The configuration options for the TPM
     ///   passthrough type
@@ -19743,6 +20584,7 @@ pub struct TpmTypeOptions {
     ///   type
     #[qapi(discriminator)]
     #[qapi(added = "6.2.0")]
+    #[qapi(required)]
     pub r#type: Option<TpmType>,
     #[qapi(union)]
     #[qapi(flatten)]
@@ -19791,6 +20633,7 @@ pub struct TraceEventInfo {
     #[qapi(added = "2.7.0")]
     #[qapi(deprecated(added = "8.1.0"))]
     #[qapi(removed = "9.1.0")]
+    #[qapi(required)]
     pub vcpu: Option<bool>,
 }
 
@@ -19816,10 +20659,12 @@ pub struct TransactionAction {
     #[qapi(discriminator)]
     #[qapi(name = "type")]
     #[qapi(removed = "6.2.0")]
+    #[qapi(required)]
     pub r_type: Option<TransactionActionType>,
     /// the operation to be performed
     #[qapi(discriminator)]
     #[qapi(added = "6.2.0")]
+    #[qapi(required)]
     pub r#type: Option<TransactionActionKind>,
     #[qapi(union)]
     #[qapi(flatten)]
@@ -20121,7 +20966,13 @@ pub struct VersionInfo {
     /// than or equal to 90 signifies a release candidate for the next
     /// minor version.  A micro version of less than 50 signifies a
     /// stable release.
-    pub qemu: VersionTriple,
+    #[qapi(added = "2.4.0")]
+    #[qapi(required)]
+    pub qemu: Option<VersionTriple>,
+    #[qapi(name = "qemu")]
+    #[qapi(removed = "2.4.0")]
+    #[qapi(required)]
+    pub qemu_legacy: Option<VersionInfoQemu>,
 }
 
 #[qapi(added = "1.0.0")]
@@ -20218,6 +21069,7 @@ pub struct VhostStatus {
     /// vhost_dev backend_features
     #[qapi(name = "backend-features")]
     #[qapi(removed = "11.1.0")]
+    #[qapi(required)]
     pub backend_features: Option<VirtioDeviceFeatures>,
     /// vhost_dev features
     pub features: VirtioDeviceFeatures,
@@ -20528,6 +21380,7 @@ pub struct VirtQueueStatus {
 pub struct VirtVhostQueueStatus {
     /// vhost_virtqueue avail
     #[qapi(removed = "11.1.0")]
+    #[qapi(required)]
     pub avail: Option<u64>,
     /// vhost_virtqueue avail_phys (driver area physical
     /// address)
@@ -20540,6 +21393,7 @@ pub struct VirtVhostQueueStatus {
     pub call: i64,
     /// vhost_virtqueue desc
     #[qapi(removed = "11.1.0")]
+    #[qapi(required)]
     pub desc: Option<u64>,
     /// vhost_virtqueue desc_phys (descriptor area physical
     /// address)
@@ -20556,6 +21410,7 @@ pub struct VirtVhostQueueStatus {
     pub num: i64,
     /// vhost_virtqueue used
     #[qapi(removed = "11.1.0")]
+    #[qapi(required)]
     pub used: Option<u64>,
     /// vhost_virtqueue used_phys (device area physical address)
     #[qapi(name = "used-phys")]
@@ -20610,6 +21465,7 @@ pub struct VncBasicInfo {
     pub service: String,
     /// true in case the socket is a websocket (since 2.3).
     #[qapi(added = "2.3.0")]
+    #[qapi(required)]
     pub websocket: Option<bool>,
 }
 
@@ -20618,7 +21474,17 @@ pub struct VncBasicInfo {
 #[qapi(added = "1.0.0")]
 pub struct VncClientInfo {
     /// address family
-    pub family: NetworkAddressFamily,
+    #[qapi(added = "2.1.0")]
+    #[qapi(required)]
+    pub family: Option<NetworkAddressFamily>,
+    /// 'ipv6' if the client is connected via IPv6 and TCP
+    /// 'ipv4' if the client is connected via IPv4 and TCP
+    /// 'unix' if the client is connected via a unix domain socket
+    /// 'unknown' otherwise
+    #[qapi(name = "family")]
+    #[qapi(removed = "2.1.0")]
+    #[qapi(required)]
+    pub family_legacy: Option<String>,
     /// IP address
     pub host: String,
     /// If SASL authentication is in use, the SASL username
@@ -20630,6 +21496,7 @@ pub struct VncClientInfo {
     pub service: String,
     /// true in case the socket is a websocket (since 2.3).
     #[qapi(added = "2.3.0")]
+    #[qapi(required)]
     pub websocket: Option<bool>,
     /// If x509 authentication is in use, the Distinguished
     /// Name of the client.
@@ -20669,7 +21536,15 @@ pub struct VncInfo {
     /// - 'ipv4' if the host is listening for IPv4 connections
     /// - 'unix' if the host is listening on a unix domain socket
     /// - 'unknown' otherwise
+    #[qapi(added = "2.1.0")]
     pub family: Option<NetworkAddressFamily>,
+    /// #optional 'ipv6' if the host is listening for IPv6 connections
+    /// 'ipv4' if the host is listening for IPv4 connections
+    /// 'unix' if the host is listening on a unix domain socket
+    /// 'unknown' otherwise
+    #[qapi(name = "family")]
+    #[qapi(removed = "2.1.0")]
+    pub family_legacy: Option<String>,
     /// The hostname the VNC server is bound to.  This depends on the
     /// name resolution on the host and may be an IP address.
     pub host: Option<String>,
@@ -20697,7 +21572,17 @@ pub struct VncInfo2 {
     /// The list can be empty (in case the vnc server is disabled).  It
     /// also may have multiple entries: normal + websocket, possibly
     /// also ipv4 + ipv6 in the future.
-    pub server: Vec<VncServerInfo2>,
+    #[qapi(added = "2.9.0")]
+    #[qapi(required)]
+    pub server: Option<Vec<VncServerInfo2>>,
+    /// A list of @VncBasincInfo describing all listening sockets.
+    /// The list can be empty (in case the vnc server is disabled).
+    /// It also may have multiple entries: normal + websocket,
+    /// possibly also ipv4 + ipv6 in the future.
+    #[qapi(name = "server")]
+    #[qapi(removed = "2.9.0")]
+    #[qapi(required)]
+    pub server_legacy: Option<Vec<VncBasicInfo>>,
     /// The vencrypt authentication type used by the servers,
     /// only specified in case auth == vencrypt.
     pub vencrypt: Option<VncVencryptSubAuth>,
@@ -20744,6 +21629,7 @@ pub struct VncServerInfo {
     pub service: String,
     /// true in case the socket is a websocket (since 2.3).
     #[qapi(added = "2.3.0")]
+    #[qapi(required)]
     pub websocket: Option<bool>,
 }
 
@@ -20923,13 +21809,22 @@ pub struct XbzrleCacheStats {
     /// rate of cache miss (since 2.1)
     #[qapi(name = "cache-miss-rate")]
     #[qapi(added = "2.1.0")]
+    #[qapi(required)]
     pub cache_miss_rate: Option<f64>,
     /// XBZRLE cache size
     #[qapi(name = "cache-size")]
-    pub cache_size: u64,
+    #[qapi(added = "6.0.0")]
+    #[qapi(required)]
+    pub cache_size: Option<u64>,
+    /// XBZRLE cache size
+    #[qapi(name = "cache-size")]
+    #[qapi(removed = "6.0.0")]
+    #[qapi(required)]
+    pub cache_size_legacy: Option<i64>,
     /// rate of encoded bytes (since 5.1)
     #[qapi(name = "encoding-rate")]
     #[qapi(added = "5.1.0")]
+    #[qapi(required)]
     pub encoding_rate: Option<f64>,
     /// number of overflows
     pub overflow: i64,

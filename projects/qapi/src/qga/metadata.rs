@@ -24,6 +24,7 @@ pub struct FieldMeta {
     pub name: &'static str,
     pub wire_name: &'static str,
     pub ty: u32,
+    /// Whether the active wire field may be absent, independently of Rust's version-merged Option.
     pub optional: bool,
     pub is_discriminator: bool,
     pub recursive: bool,
@@ -531,7 +532,8 @@ static FIELDS_GuestExecCommand: &[FieldMeta] = &[
     FieldMeta { name: "arg", wire_name: "arg", ty: 4, optional: true, is_discriminator: false, recursive: false, since: (2u32, 5u32, 0u32), until: None, deprecated: false, unstable: false, doc: "argument list to pass to executable" },
     FieldMeta { name: "env", wire_name: "env", ty: 4, optional: true, is_discriminator: false, recursive: false, since: (2u32, 5u32, 0u32), until: None, deprecated: false, unstable: false, doc: "environment variables to pass to executable" },
     FieldMeta { name: "input_data", wire_name: "input-data", ty: 0, optional: true, is_discriminator: false, recursive: false, since: (2u32, 5u32, 0u32), until: None, deprecated: false, unstable: false, doc: "data to be passed to process stdin (base64 encoded)" },
-    FieldMeta { name: "capture_output", wire_name: "capture-output", ty: 17, optional: true, is_discriminator: false, recursive: false, since: (2u32, 5u32, 0u32), until: None, deprecated: false, unstable: false, doc: "bool flag to enable capture of stdout/stderr of\nrunning process.  Defaults to false." },
+    FieldMeta { name: "capture_output", wire_name: "capture-output", ty: 17, optional: true, is_discriminator: false, recursive: false, since: (8u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "bool flag to enable capture of stdout/stderr of\nrunning process.  Defaults to false." },
+    FieldMeta { name: "capture_output_legacy", wire_name: "capture-output", ty: 1, optional: true, is_discriminator: false, recursive: false, since: (2u32, 5u32, 0u32), until: Some((8u32, 1u32, 0u32)), deprecated: false, unstable: false, doc: "bool flag to enable capture of\nstdout/stderr of running process. defaults to false." },
 ];
 static STRUCT_GuestExecCommand: StructMeta = StructMeta {
     name: "guest-exec",
@@ -670,7 +672,8 @@ static STRUCT_GuestFileSeek: StructMeta = StructMeta {
 static FIELDS_GuestFileSeekCommand: &[FieldMeta] = &[
     FieldMeta { name: "handle", wire_name: "handle", ty: 5, optional: false, is_discriminator: false, recursive: false, since: (1u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "filehandle returned by `guest-file-open`" },
     FieldMeta { name: "offset", wire_name: "offset", ty: 5, optional: false, is_discriminator: false, recursive: false, since: (1u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "bytes to skip over in the file stream" },
-    FieldMeta { name: "whence", wire_name: "whence", ty: 22, optional: false, is_discriminator: false, recursive: false, since: (1u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Symbolic or numeric code for interpreting offset" },
+    FieldMeta { name: "whence", wire_name: "whence", ty: 22, optional: false, is_discriminator: false, recursive: false, since: (2u32, 6u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Symbolic or numeric code for interpreting offset" },
+    FieldMeta { name: "whence_legacy", wire_name: "whence", ty: 5, optional: false, is_discriminator: false, recursive: false, since: (1u32, 4u32, 0u32), until: Some((2u32, 6u32, 0u32)), deprecated: false, unstable: false, doc: "0 for SEEK_SET, 1 for SEEK_CUR, or 2 for SEEK_END" },
 ];
 static STRUCT_GuestFileSeekCommand: StructMeta = StructMeta {
     name: "guest-file-seek",

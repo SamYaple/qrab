@@ -50,6 +50,10 @@ cargo clippy --locked -p qapi-protocol --all-targets --no-deps -- -D warnings
 The timeout fault tests use Tokio's test clock or short explicit
 deadlines; no 30-second stall test is required.
 
+`contrib/check-qapi.sh` also compiles `qapi` with `QEMU_MIN_VERSION` and
+`QEMU_MAX_VERSION` bounds for every maintained release series, selecting its
+latest pinned patch. The final check restores the full development API surface.
+
 The default suite intentionally leaves the real-QEMU smoke tests ignored. Run
 it explicitly against an installed binary, or a locally built current release:
 

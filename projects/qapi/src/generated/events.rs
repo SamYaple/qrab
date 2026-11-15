@@ -82,6 +82,7 @@ pub struct BlockImageCorruptedEvent {
     /// after this event and must be repaired (Since 2.2; before, every
     /// `BLOCK_IMAGE_CORRUPTED` event was fatal)
     #[qapi(added = "2.2.0")]
+    #[qapi(required)]
     pub fatal: Option<bool>,
     /// informative message for human consumption, such as the kind of
     /// corruption being detected.  It should not be parsed by machine
@@ -147,11 +148,13 @@ pub struct BlockIoErrorEvent {
     /// path to the device object in the QOM tree (since 9.2)
     #[qapi(name = "qom-path")]
     #[qapi(added = "9.2.0")]
+    #[qapi(required)]
     pub qom_path: Option<String>,
     /// human readable string describing the error cause.  (This
     /// field is a debugging aid for humans, it should not be parsed by
     /// applications) (since: 2.2)
     #[qapi(added = "2.2.0")]
+    #[qapi(required)]
     pub reason: Option<String>,
 }
 
@@ -182,7 +185,14 @@ pub struct BlockJobCancelledEvent {
     /// rate limit, bytes per second
     pub speed: i64,
     /// job type
-    pub r#type: JobType,
+    #[qapi(added = "3.0.0")]
+    #[qapi(required)]
+    pub r#type: Option<JobType>,
+    /// job type
+    #[qapi(name = "type")]
+    #[qapi(removed = "3.0.0")]
+    #[qapi(required)]
+    pub type_legacy: Option<BlockJobType>,
 }
 
 /// Emitted when a block job has completed
@@ -217,7 +227,14 @@ pub struct BlockJobCompletedEvent {
     /// rate limit, bytes per second
     pub speed: i64,
     /// job type
-    pub r#type: JobType,
+    #[qapi(added = "3.0.0")]
+    #[qapi(required)]
+    pub r#type: Option<JobType>,
+    /// job type
+    #[qapi(name = "type")]
+    #[qapi(removed = "3.0.0")]
+    #[qapi(required)]
+    pub type_legacy: Option<BlockJobType>,
 }
 
 /// Emitted when a block job encounters an error
@@ -265,7 +282,14 @@ pub struct BlockJobPendingEvent {
     /// The job identifier.
     pub id: String,
     /// job type
-    pub r#type: JobType,
+    #[qapi(added = "3.0.0")]
+    #[qapi(required)]
+    pub r#type: Option<JobType>,
+    /// job type
+    #[qapi(name = "type")]
+    #[qapi(removed = "3.0.0")]
+    #[qapi(required)]
+    pub type_legacy: Option<BlockJobType>,
 }
 
 /// Emitted when a block job is ready to complete
@@ -297,7 +321,14 @@ pub struct BlockJobReadyEvent {
     /// rate limit, bytes per second
     pub speed: i64,
     /// job type
-    pub r#type: JobType,
+    #[qapi(added = "3.0.0")]
+    #[qapi(required)]
+    pub r#type: Option<JobType>,
+    /// job type
+    #[qapi(name = "type")]
+    #[qapi(removed = "3.0.0")]
+    #[qapi(required)]
+    pub type_legacy: Option<BlockJobType>,
 }
 
 /// Emitted when writes on block device reaches or exceeds the
@@ -399,7 +430,14 @@ pub struct CommandDroppedEvent {
 #[qapi(unstable(added = "8.2.0"))]
 pub struct CpuPolarizationChangeEvent {
     /// polarization specified by the guest
-    pub polarization: S390CpuPolarization,
+    #[qapi(added = "9.2.0")]
+    #[qapi(required)]
+    pub polarization: Option<S390CpuPolarization>,
+    /// polarization specified by the guest
+    #[qapi(name = "polarization")]
+    #[qapi(removed = "9.2.0")]
+    #[qapi(required)]
+    pub polarization_legacy: Option<CpuS390Polarization>,
 }
 
 /// Emitted whenever the device removal completion is acknowledged by
@@ -450,6 +488,7 @@ pub struct DeviceTrayMovedEvent {
     pub device: String,
     /// The name or QOM path of the guest device (since 2.8)
     #[qapi(added = "2.8.0")]
+    #[qapi(required)]
     pub id: Option<String>,
     /// true if the tray has been opened or false if it has been
     /// closed
@@ -640,6 +679,7 @@ pub struct MemoryDeviceSizeChangeEvent {
     /// path to the device object in the QOM tree (since 6.2)
     #[qapi(name = "qom-path")]
     #[qapi(added = "6.2.0")]
+    #[qapi(required)]
     pub qom_path: Option<String>,
     /// the new size of memory that the device provides
     pub size: u64,
@@ -960,6 +1000,7 @@ pub struct QuorumReportBadEvent {
     pub sectors_count: i64,
     /// quorum operation type (Since 2.6)
     #[qapi(added = "2.6.0")]
+    #[qapi(required)]
     pub r#type: Option<QuorumOpType>,
 }
 
@@ -1014,9 +1055,11 @@ pub struct ResetEvent {
     /// action) rather than a host request (such as the QMP command
     /// `system_reset`).  (since 2.10)
     #[qapi(added = "2.10.0")]
+    #[qapi(required)]
     pub guest: Option<bool>,
     /// The `ShutdownCause` of the `RESET`.  (since 4.0)
     #[qapi(added = "4.0.0")]
+    #[qapi(required)]
     pub reason: Option<ShutdownCause>,
 }
 
@@ -1061,6 +1104,7 @@ pub struct RtcChangeEvent {
     /// path to the RTC object in the QOM tree
     #[qapi(name = "qom-path")]
     #[qapi(added = "7.0.0")]
+    #[qapi(required)]
     pub qom_path: Option<String>,
 }
 
@@ -1109,10 +1153,12 @@ pub struct ShutdownEvent {
     /// hardware-specific action) rather than a host request (such as
     /// sending QEMU a SIGINT).  (since 2.10)
     #[qapi(added = "2.10.0")]
+    #[qapi(required)]
     pub guest: Option<bool>,
     /// The `ShutdownCause` which resulted in the `SHUTDOWN`.
     /// (since 4.0)
     #[qapi(added = "4.0.0")]
+    #[qapi(required)]
     pub reason: Option<ShutdownCause>,
 }
 
@@ -1298,7 +1344,14 @@ pub struct VfioMigrationEvent {
     pub device_id: String,
     /// The new changed device migration state.
     #[qapi(name = "device-state")]
-    pub device_state: QapiVfioMigrationState,
+    #[qapi(added = "9.2.0")]
+    #[qapi(required)]
+    pub device_state: Option<QapiVfioMigrationState>,
+    /// The new changed device migration state.
+    #[qapi(name = "device-state")]
+    #[qapi(removed = "9.2.0")]
+    #[qapi(required)]
+    pub device_state_legacy: Option<VfioMigrationState>,
     /// The device's QOM path.
     #[qapi(name = "qom-path")]
     pub qom_path: String,
@@ -1475,5 +1528,12 @@ pub struct WakeupEvent {}
 #[qapi(added = "2.1.0")]
 pub struct WatchdogEvent {
     /// action that has been taken
-    pub action: WatchdogAction,
+    #[qapi(added = "2.11.0")]
+    #[qapi(required)]
+    pub action: Option<WatchdogAction>,
+    /// action that has been taken
+    #[qapi(name = "action")]
+    #[qapi(removed = "2.11.0")]
+    #[qapi(required)]
+    pub action_legacy: Option<WatchdogExpirationAction>,
 }

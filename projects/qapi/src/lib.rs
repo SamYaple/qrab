@@ -159,6 +159,11 @@ pub fn unavailable_type_message(type_name: &str) -> String {
     }
 }
 
+/// Get the explicit peer override, excluding the legacy process default.
+pub fn scoped_qemu_version() -> Option<(u32, u32, u32)> {
+    SERIALIZATION_VERSION.get()
+}
+
 /// Get the scoped peer version, or the legacy process default.
 /// Returns (0, 0, 0) if neither has been set.
 pub fn qemu_version() -> (u32, u32, u32) {

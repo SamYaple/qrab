@@ -105,6 +105,8 @@ pub struct UnifiedStruct {
     pub versions: VersionRange,
     /// Per-field version ranges (keyed by field name)
     pub field_versions: BTreeMap<String, VersionRange>,
+    /// Earlier field payload types and wire spellings.
+    pub field_history: Vec<(StructField, VersionRange)>,
     /// Per-attribute version ranges for command/event flags that can appear/disappear
     /// across versions (e.g. allow_preconfig, allow_oob, no_success_response, unstable).
     pub attr_versions: BTreeMap<String, VersionRange>,
@@ -675,6 +677,7 @@ pub fn build_unified_registry(qemu_repo: &Path, version_tags: &[&str]) -> Result
     eprintln!("  Merge loop: {:.1}s", merge_start.elapsed().as_secs_f64());
     let fix_start = Instant::now();
     materialize_variant_history(&mut registry);
+    materialize_field_history(&mut registry);
     fix_recursive_types(&mut registry);
     eprintln!(
         "  fix_recursive_types: {:.1}s",
@@ -981,6 +984,52 @@ fn field_rust_name(f: &StructField) -> String {
     crate::qapi_ir::rustify_field(&f.name)
 }
 
+fn same_field_shape(left: &StructField, right: &StructField) -> bool {
+    rustify_type(&left.r#type) == rustify_type(&right.r#type) && left.array == right.array
+}
+
+fn materialize_field_history(registry: &mut UnifiedRegistry) {
+    for value in registry.types.values_mut() {
+        let UnifiedType::Struct(value) = value else {
+            continue;
+        };
+        let mut used: BTreeSet<_> = value.ir.fields.iter().map(field_rust_name).collect();
+        for (historical, versions) in &value.field_history {
+            let mut field = historical.clone();
+            let wire = field
+                .meta
+                .attributes
+                .iter()
+                .find_map(|attr| match attr {
+                    Attribute::Item { name, value } if name == "name" => Some(value.clone()),
+                    _ => None,
+                })
+                .unwrap_or_else(|| field.name.clone());
+            let base = format!(
+                "{}_legacy",
+                field_rust_name(&field).trim_start_matches("r#")
+            );
+            let mut name = base.clone();
+            let mut suffix = 2;
+            while !used.insert(name.clone()) {
+                name = format!("{base}{suffix}");
+                suffix += 1;
+            }
+            field.name = name.clone();
+            field
+                .meta
+                .attributes
+                .retain(|attr| !matches!(attr, Attribute::Item { name, .. } if name == "name"));
+            field
+                .meta
+                .attributes
+                .push(Attribute::with_value("name", wire));
+            value.field_versions.insert(name, versions.clone());
+            value.ir.fields.push(field);
+        }
+    }
+}
+
 fn merge_struct(registry: &mut UnifiedRegistry, name: &str, s: &Struct, version: Version) {
     if let Some(UnifiedType::Struct(existing)) = registry.types.get_mut(name) {
         existing.versions.until = None;
@@ -1018,6 +1067,20 @@ fn merge_struct(registry: &mut UnifiedRegistry, name: &str, s: &Struct, version:
         for field in &s.fields {
             seen_fields.insert(field.name.clone());
             if existing.field_versions.contains_key(&field.name) {
+                let old = existing
+                    .ir
+                    .fields
+                    .iter()
+                    .find(|old| old.name == field.name)
+                    .unwrap();
+                if !same_field_shape(old, field) {
+                    let mut old_versions = existing.field_versions[&field.name].clone();
+                    old_versions.until = old_versions.until.or(Some(version));
+                    existing.field_history.push((old.clone(), old_versions));
+                    existing
+                        .field_versions
+                        .insert(field.name.clone(), VersionRange::new(version));
+                }
                 // Field still exists — clear until, track deprecation.
                 let fr = existing.field_versions.get_mut(&field.name).unwrap();
                 fr.until = None;
@@ -1059,11 +1122,14 @@ fn merge_struct(registry: &mut UnifiedRegistry, name: &str, s: &Struct, version:
                     .position(|f| field_rust_name(f) == rust_name && f.name != field.name);
 
                 if let Some(old_idx) = renamed_from {
-                    let old_name = existing.ir.fields[old_idx].name.clone();
-                    let old_vr = existing.field_versions.remove(&old_name).unwrap();
+                    let old = existing.ir.fields[old_idx].clone();
+                    let mut old_versions = existing.field_versions.remove(&old.name).unwrap();
+                    old_versions.until = old_versions.until.or(Some(version));
+                    existing.field_history.push((old, old_versions));
                     existing.ir.fields[old_idx] = field.clone();
-                    existing.field_versions.insert(field.name.clone(), old_vr);
-                    seen_fields.insert(old_name);
+                    existing
+                        .field_versions
+                        .insert(field.name.clone(), VersionRange::new(version));
                 } else {
                     // Check for Rust name collision with existing fields
                     let rust_name = field_rust_name(field);
@@ -1164,6 +1230,7 @@ fn merge_struct(registry: &mut UnifiedRegistry, name: &str, s: &Struct, version:
                 ir,
                 versions,
                 field_versions,
+                field_history: Vec::new(),
                 attr_versions,
                 returns_history,
             }),
@@ -1178,25 +1245,30 @@ fn fix_recursive_types(registry: &mut UnifiedRegistry) {
     // Collect (type_name, field_name) pairs that need Box wrapping, then
     // apply mutations after releasing the immutable borrow on registry.
     let needs_box: BTreeSet<(String, String)> = {
-        // Build a dependency graph borrowing type names from registry.
-        let mut deps: HashMap<&str, BTreeSet<&str>> = HashMap::new();
+        // Only inline references affect Rust size; Vec and Box already break cycles.
+        let mut deps: HashMap<String, BTreeSet<String>> = HashMap::new();
         for (name, ut) in &registry.types {
             let mut referenced = BTreeSet::new();
             match ut {
                 UnifiedType::Struct(us) => {
                     for field in &us.ir.fields {
-                        referenced.insert(field.r#type.as_str());
+                        if !field.array && !field.meta.attributes.contains(&Attribute::new("boxed"))
+                        {
+                            referenced.insert(rustify_type(&field.r#type));
+                        }
                     }
                 }
                 UnifiedType::Enum(ue) => {
                     for variant in &ue.ir.variants {
-                        if let EnumVariantKind::Tuple(t) = &variant.kind {
-                            referenced.insert(t.as_str());
+                        if !variant.array {
+                            if let EnumVariantKind::Tuple(t) = &variant.kind {
+                                referenced.insert(rustify_type(t));
+                            }
                         }
                     }
                 }
             }
-            deps.insert(name.as_str(), referenced);
+            deps.insert(name.clone(), referenced);
         }
 
         // Find types that are part of a cycle
@@ -1204,7 +1276,11 @@ fn fix_recursive_types(registry: &mut UnifiedRegistry) {
         for (name, ut) in &registry.types {
             if let UnifiedType::Struct(us) = ut {
                 for field in &us.ir.fields {
-                    if is_reachable(&field.r#type, name, &deps, &mut BTreeSet::new()) {
+                    let referenced = rustify_type(&field.r#type);
+                    if !field.array
+                        && !field.meta.attributes.contains(&Attribute::new("boxed"))
+                        && is_reachable(&referenced, name, &deps, &mut BTreeSet::new())
+                    {
                         result.insert((name.clone(), field.name.clone()));
                     }
                 }
@@ -1235,7 +1311,7 @@ fn fix_recursive_types(registry: &mut UnifiedRegistry) {
 fn is_reachable<'a>(
     start: &'a str,
     target: &str,
-    deps: &HashMap<&'a str, BTreeSet<&'a str>>,
+    deps: &'a HashMap<String, BTreeSet<String>>,
     visited: &mut BTreeSet<&'a str>,
 ) -> bool {
     if start == target {
@@ -1693,8 +1769,21 @@ fn generate_unified_struct(
         }
     }
 
+    if us.returns_history.len() > 1 {
+        for (version, value) in &us.returns_history {
+            ir.meta.attributes.push(Attribute::nested(
+                "returns",
+                vec![
+                    Attribute::with_value("added", version_str(*version)),
+                    Attribute::with_value("value", value),
+                ],
+            ));
+        }
+    }
+
     // Add per-field added/deprecated/removed and make fields optional if needed
     for field in &mut ir.fields {
+        let required = !field.optional;
         strip_version_attrs(&mut field.meta.attributes, false);
         if let Some(fr) = us.field_versions.get(&field.name) {
             if fr.since > us.versions.since {
@@ -1721,6 +1810,10 @@ fn generate_unified_struct(
                     field.optional = true;
                 }
             }
+        }
+        if required && field.optional && !field.meta.attributes.contains(&Attribute::new("flatten"))
+        {
+            field.meta.attributes.push(Attribute::new("required"));
         }
     }
 
@@ -1803,6 +1896,7 @@ pub fn build_qga_registry(qemu_repo: &Path, version_tags: &[&str]) -> Result<Uni
         eprintln!("  QGA skipped {} identical schemas", skipped);
     }
     materialize_variant_history(&mut registry);
+    materialize_field_history(&mut registry);
     fix_recursive_types(&mut registry);
     eprintln!(
         "  QGA merge: {:.1}s — {} types",
@@ -1997,6 +2091,7 @@ mod enum_history_tests {
             merge_enum(&mut registry, "Example", &input, (major, 0, 0));
         }
         materialize_variant_history(&mut registry);
+        materialize_field_history(&mut registry);
         let UnifiedType::Enum(value) = &registry.types["Example"] else {
             panic!()
         };
@@ -2044,6 +2139,7 @@ mod enum_history_tests {
             (2, 0, 0),
         );
         materialize_variant_history(&mut registry);
+        materialize_field_history(&mut registry);
         let UnifiedType::Enum(value) = &registry.types["Example"] else {
             panic!()
         };
@@ -2062,6 +2158,144 @@ mod enum_history_tests {
             old.meta
                 .attributes
                 .contains(&Attribute::with_value("name", "foo-bar"))
+        );
+    }
+}
+
+#[cfg(test)]
+mod field_history_tests {
+    use super::*;
+
+    fn field(name: &str, ty: &str, array: bool) -> StructField {
+        StructField {
+            name: name.into(),
+            r#type: ty.into(),
+            array,
+            optional: false,
+            meta: Metadata::default(),
+        }
+    }
+
+    fn record(fields: Vec<StructField>) -> Struct {
+        Struct {
+            name: "Record".into(),
+            fields,
+            meta: Metadata::default(),
+        }
+    }
+
+    #[test]
+    fn field_type_history_preserves_arrays_and_does_not_collide_with_real_fields() {
+        let mut registry = UnifiedRegistry::default();
+        for (major, ty, array) in [
+            (1, "int", false),
+            (2, "str", false),
+            (3, "int", true),
+            (4, "int64", true),
+        ] {
+            let value = record(vec![
+                field("value", ty, array),
+                field("value_legacy", "bool", false),
+            ]);
+            merge_struct(&mut registry, "Record", &value, (major, 0, 0));
+        }
+        materialize_field_history(&mut registry);
+        let UnifiedType::Struct(value) = &registry.types["Record"] else {
+            panic!()
+        };
+        assert_eq!(value.field_history.len(), 2);
+        assert_eq!(value.field_versions["value"].since, (3, 0, 0));
+        assert_eq!(value.field_versions["value_legacy2"].until, Some((2, 0, 0)));
+        assert_eq!(value.field_versions["value_legacy3"].until, Some((3, 0, 0)));
+        assert_eq!(value.ir.fields.len(), 4);
+    }
+
+    #[test]
+    fn field_wire_renames_preserve_original_keys() {
+        let mut registry = UnifiedRegistry::default();
+        merge_struct(
+            &mut registry,
+            "Record",
+            &record(vec![field("foo-bar", "str", false)]),
+            (1, 0, 0),
+        );
+        merge_struct(
+            &mut registry,
+            "Record",
+            &record(vec![field("foo_bar", "str", false)]),
+            (2, 0, 0),
+        );
+        materialize_field_history(&mut registry);
+        let UnifiedType::Struct(value) = &registry.types["Record"] else {
+            panic!()
+        };
+        assert_eq!(value.field_versions["foo_bar"].since, (2, 0, 0));
+        let old = value
+            .ir
+            .fields
+            .iter()
+            .find(|field| field.name == "foo_bar_legacy")
+            .unwrap();
+        assert!(
+            old.meta
+                .attributes
+                .contains(&Attribute::with_value("name", "foo-bar"))
+        );
+    }
+
+    #[test]
+    fn recursive_vectors_break_size_cycles_but_inline_references_require_boxing() {
+        for array in [false, true] {
+            let mut registry = UnifiedRegistry::default();
+            let value = Struct {
+                name: "Node".into(),
+                fields: vec![field("children", "Node", array)],
+                meta: Metadata::default(),
+            };
+            merge_struct(&mut registry, "Node", &value, (1, 0, 0));
+            fix_recursive_types(&mut registry);
+            let UnifiedType::Struct(value) = &registry.types["Node"] else {
+                panic!()
+            };
+            assert_eq!(
+                value.ir.fields[0]
+                    .meta
+                    .attributes
+                    .contains(&Attribute::new("boxed")),
+                !array
+            );
+        }
+        let mut registry = UnifiedRegistry::default();
+        let value = Struct {
+            name: "Node".into(),
+            fields: vec![field("value", "Branch", false)],
+            meta: Metadata::default(),
+        };
+        merge_struct(&mut registry, "Node", &value, (1, 0, 0));
+        merge_enum(
+            &mut registry,
+            "Branch",
+            &Enum {
+                name: "Branch".into(),
+                meta: Metadata::default(),
+                variants: vec![EnumVariant {
+                    name: "nodes".into(),
+                    kind: EnumVariantKind::Tuple("Node".into()),
+                    array: true,
+                    meta: Metadata::default(),
+                }],
+            },
+            (1, 0, 0),
+        );
+        fix_recursive_types(&mut registry);
+        let UnifiedType::Struct(value) = &registry.types["Node"] else {
+            panic!()
+        };
+        assert!(
+            !value.ir.fields[0]
+                .meta
+                .attributes
+                .contains(&Attribute::new("boxed"))
         );
     }
 }

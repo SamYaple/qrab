@@ -815,6 +815,7 @@ pub struct FieldMeta {
     pub name: &'static str,
     pub wire_name: &'static str,
     pub ty: u32,
+    /// Whether the active wire field may be absent, independently of Rust's version-merged Option.
     pub optional: bool,
     pub is_discriminator: bool,
     pub recursive: bool,

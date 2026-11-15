@@ -96,9 +96,10 @@ command colliding with a distinct response type gets a `Command` suffix:
 `qapi::qga::GuestFileRead`. The same distinction applies to guest-file-write,
 guest-file-seek, guest-exec, guest-exec-status and guest-fsfreeze-status.
 
-A command's `Returns` type is the newest pinned release's, since a Rust
-associated type cannot vary by peer version. Earlier return types stay in the
-registry as `UnifiedStruct::returns_history`. The changes across pins are
+A command's `Returns` type is the newest pinned release's by default, since a
+Rust associated type cannot vary by peer version. A `QEMU_MAX_VERSION` build
+selects the newest return type within that ceiling. Earlier return types stay
+in the registry as `UnifiedStruct::returns_history`. The changes across pins are
 pinned by a test: `device-list-properties` (`DevicePropertyInfo` until 2.12,
 then `ObjectPropertyInfo`), `query-target` (`TargetInfo` until 10.1, then
 `QemuTargetInfo`) and `guest-fstrim` (unit until 2.4, then
@@ -138,3 +139,18 @@ with schema-defined names. Discriminator dispatch selects the representation
 for the scoped peer version; unscoped inspection uses the newest shape and
 does not fall back to an obsolete permissive shape after a decoding error.
 Generated metadata carries each representation's original wire tag and lifetime.
+
+Field payload changes and wire renames retain `_legacy` representations with
+separate lifetimes. Shared wire names populate only the selected representation;
+serializing a value in an inactive representation fails instead of discarding it.
+A required wire field remains required in metadata even when version merging
+needs a Rust `Option`. Explicit peer contexts enforce active required fields;
+unscoped record inspection remains lenient. Present nullable values retain
+`Some(null)` separately from absent fields.
+
+`QEMU_MIN_VERSION`/`QEMU_MAX_VERSION` builds prune representations outside the
+requested range. Command associated return types use the newest shape within
+the configured maximum, or the newest pinned shape without a maximum.
+`contrib/check-qapi.sh` compiles all maintained release series and restores an
+unbounded development build afterwards. Recursive-type analysis ignores `Vec`
+and existing `Box` indirections, which already make recursive values sized.

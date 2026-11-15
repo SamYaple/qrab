@@ -67,6 +67,7 @@ async fn real_guest_agent_sync_ping_and_large_typed_file_read() {
             capture_output: Some(qapi::qga::GuestExecCaptureOutput::Mode(
                 qapi::qga::GuestExecCaptureOutputMode::None,
             )),
+            capture_output_legacy: None,
             env: None,
             input_data: None,
         })

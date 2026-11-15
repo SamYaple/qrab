@@ -39,6 +39,7 @@ struct TypeAttrs {
     unstable: AttrRange,
     condition: Option<String>,
     returns: Option<String>,
+    returns_history: Vec<((u32, u32, u32), String)>,
     allow_oob: bool,
     allow_preconfig: AttrRange,
     no_success_response: AttrRange,
@@ -59,6 +60,7 @@ struct ItemAttrs {
     flatten: bool,
     discriminator: bool,
     union_field: bool,
+    required: bool,
 }
 
 // ─── Compile-time version bounds ───
@@ -189,7 +191,25 @@ fn parse_type_attrs(args: &[NestedMeta]) -> TypeAttrs {
             }
             NestedMeta::Meta(Meta::List(list)) => {
                 // Nested syntax: attr(added = "X", removed = "Y")
-                if list.path.is_ident("allow_preconfig") {
+                if list.path.is_ident("returns") {
+                    let mut version = None;
+                    let mut value = None;
+                    for item in &list.nested {
+                        if let NestedMeta::Meta(Meta::NameValue(item)) = item {
+                            if let Lit::Str(text) = &item.lit {
+                                if item.path.is_ident("added") || item.path.is_ident("since") {
+                                    version = Some(parse_version(&text.value()));
+                                } else if item.path.is_ident("value") {
+                                    value = Some(text.value());
+                                }
+                            }
+                        }
+                    }
+                    if let (Some(version), Some(value)) = (version, value) {
+                        attrs.returns_history.push((version, value));
+                    }
+                    attrs.is_command = true;
+                } else if list.path.is_ident("allow_preconfig") {
                     attrs.allow_preconfig = parse_attr_range(&list.nested);
                     attrs.is_command = true;
                 } else if list.path.is_ident("unstable") {
@@ -258,6 +278,8 @@ fn parse_item_attrs(meta_list: &MetaList) -> ItemAttrs {
                     attrs.discriminator = true;
                 } else if path.is_ident("union") {
                     attrs.union_field = true;
+                } else if path.is_ident("required") {
+                    attrs.required = true;
                 }
             }
             _ => {}
@@ -281,6 +303,7 @@ fn extract_all_item_attrs(syn_attrs: &[syn::Attribute]) -> ItemAttrs {
                 result.flatten = result.flatten || parsed.flatten;
                 result.discriminator = result.discriminator || parsed.discriminator;
                 result.union_field = result.union_field || parsed.union_field;
+                result.required = result.required || parsed.required;
             }
         }
     }
@@ -513,6 +536,7 @@ pub fn qapi(args: TokenStream, input: TokenStream) -> TokenStream {
                 if extra.unstable.present {
                     ta.unstable = extra.unstable;
                 }
+                ta.returns_history.extend(extra.returns_history);
                 ta.allow_oob = ta.allow_oob || extra.allow_oob;
                 if extra.allow_preconfig.present {
                     ta.allow_preconfig = extra.allow_preconfig;
@@ -536,6 +560,17 @@ pub fn qapi(args: TokenStream, input: TokenStream) -> TokenStream {
     if excluded_by_bounds(&bounds, ta.since.as_deref(), ta.until.as_deref()) {
         // Type is outside the declared version range — emit nothing
         return TokenStream::new();
+    }
+
+    if let Some(max) = bounds.max {
+        if let Some((_, returns)) = ta
+            .returns_history
+            .iter()
+            .filter(|(version, _)| *version <= max)
+            .max_by_key(|(version, _)| *version)
+        {
+            ta.returns = Some(returns.clone());
+        }
     }
 
     // Add Rust #[deprecated] attribute if the type is deprecated and bounds are set
@@ -1211,7 +1246,7 @@ fn gen_struct(
             gen_display_impl(
                 &struct_name,
                 &cond,
-                TokenStream2::new(),
+                quote! { #[allow(deprecated)] },
                 quote! { f.write_str(#wn) },
             )
         } else if fields.is_empty() {
@@ -1252,12 +1287,60 @@ fn gen_struct(
     })
 }
 
+fn required_field_checks(name: &syn::Ident, fields: &[FieldInfo], decoding: bool) -> TokenStream2 {
+    let checks: Vec<_> = fields.iter().filter(|field| field.attrs.required && is_option_type(&field.ty)).map(|field| {
+        let ident = &field.ident;
+        let wire = wire_name(&field.attrs.name, ident);
+        let cond = field.attrs.condition.as_ref().map(|condition| condition_cfg(condition));
+        let active = version_range_check(field.attrs.since.as_deref(), field.attrs.until.as_deref()).unwrap_or_else(|| quote! { true });
+        if decoding { quote! { #cond {
+            if qapi::scoped_qemu_version().is_some() && (#active) && #ident.is_none() {
+                return Err(serde::de::Error::missing_field(#wire));
+            }
+        }}} else { quote! { #cond {
+            if (#active) && self.#ident.is_none() {
+                return Err(serde::ser::Error::custom(concat!(stringify!(#name), ": missing required field '", #wire, "'")));
+            }
+        }}}
+    }).collect();
+    quote! { #(#checks)* }
+}
+
+fn validate_shared_fields(name: &syn::Ident, fields: &[FieldInfo]) -> TokenStream2 {
+    let checks: Vec<_> = shared_wires(fields).into_iter().map(|wire| {
+        let candidates: Vec<_> = fields.iter().filter(|field| !field.attrs.flatten
+            && wire_name(&field.attrs.name, &field.ident) == wire).map(|field| {
+            let ident = &field.ident;
+            let cond = field.attrs.condition.as_ref().map(|condition| condition_cfg(condition));
+            let active = version_range_check(field.attrs.since.as_deref(), field.attrs.until.as_deref()).unwrap_or_else(|| quote! { true });
+            quote! { #cond {
+                if self.#ident.is_some() {
+                    if !(#active) {
+                        return Err(serde::ser::Error::custom(concat!(stringify!(#name), ": inactive representation of field '", #wire, "'")));
+                    }
+                    __qapi_provided += 1;
+                }
+            } }
+        }).collect();
+        quote! { {
+            let mut __qapi_provided = 0usize;
+            #(#candidates)*
+            if __qapi_provided > 1 {
+                return Err(serde::ser::Error::custom(concat!(stringify!(#name), ": conflicting representations of field '", #wire, "'")));
+            }
+        } }
+    }).collect();
+    quote! { #(#checks)* }
+}
+
 fn gen_struct_ser(
     name: &syn::Ident,
     wn: &str,
     fields: &[FieldInfo],
     ta: &TypeAttrs,
 ) -> TokenStream2 {
+    let shared_validation = validate_shared_fields(name, fields);
+    let required = required_field_checks(name, fields, false);
     let type_name_str = name.to_string();
     let field_count = fields.len();
     let ser_fields: Vec<TokenStream2> = fields.iter().map(|f| {
@@ -1298,6 +1381,8 @@ fn gen_struct_ser(
     }).collect();
 
     let body = quote! {
+        #shared_validation
+        #required
         use serde::ser::SerializeStruct;
         let mut state = serializer.serialize_struct(#wn, #field_count)?;
         #(#ser_fields)*
@@ -1336,6 +1421,8 @@ fn gen_struct_ser(
 }
 
 fn gen_struct_ser_flatten(name: &syn::Ident, fields: &[FieldInfo], ta: &TypeAttrs) -> TokenStream2 {
+    let shared_validation = validate_shared_fields(name, fields);
+    let required = required_field_checks(name, fields, false);
     let type_name_str = name.to_string();
     let ser_fields: Vec<TokenStream2> = fields.iter().map(|f| {
         let ident = &f.ident;
@@ -1347,6 +1434,8 @@ fn gen_struct_ser_flatten(name: &syn::Ident, fields: &[FieldInfo], ta: &TypeAttr
         let dep_warn = field_deprecation_warn(&type_name_str, f);
 
         if f.attrs.flatten {
+            let active = version_range_check(f.attrs.since.as_deref(), f.attrs.until.as_deref()).unwrap_or_else(|| quote! { true });
+            let present = if is_opt { quote! { self.#ident.is_some() } } else { quote! { true } };
             let nested = if f.attrs.union_field { simple_union_layout(ta, false) } else { quote! { false } };
             let required = if is_opt && f.attrs.union_field { quote! {
                 if (#nested) && self.#ident.is_none() {
@@ -1357,6 +1446,7 @@ fn gen_struct_ser_flatten(name: &syn::Ident, fields: &[FieldInfo], ta: &TypeAttr
                 #cond
                 {
                     #dep_warn
+                    if #active {
                     #required
                     let flat_value = serde_json::to_value(&self.#ident).map_err(serde::ser::Error::custom)?;
                     if #nested {
@@ -1367,6 +1457,9 @@ fn gen_struct_ser_flatten(name: &syn::Ident, fields: &[FieldInfo], ta: &TypeAttr
                         }
                     } else if !flat_value.is_null() {
                         return Err(serde::ser::Error::custom(concat!(stringify!(#name), ": flattened QAPI payload must be an object")));
+                    }
+                    } else if #present {
+                        return Err(serde::ser::Error::custom(concat!(stringify!(#name), ": inactive flattened field '", #fwn, "'")));
                     }
                 }
             }
@@ -1417,6 +1510,8 @@ fn gen_struct_ser_flatten(name: &syn::Ident, fields: &[FieldInfo], ta: &TypeAttr
     }).collect();
 
     let body = quote! {
+        #shared_validation
+        #required
         use serde::ser::SerializeMap;
         let mut map = serializer.serialize_map(None)?;
         #(#ser_fields)*
@@ -1470,16 +1565,57 @@ fn shared_wires(fields: &[FieldInfo]) -> std::collections::BTreeSet<String> {
     shared
 }
 
-/// Lenient extraction of one version alternate from a raw JSON value.
-fn alternate_init(f: &FieldInfo, raw: &TokenStream2) -> TokenStream2 {
+fn field_history_selection(field: &FieldInfo, fields: &[FieldInfo]) -> TokenStream2 {
+    use std::cmp::Reverse;
+    let wire = wire_name(&field.attrs.name, &field.ident);
+    let mut candidates: Vec<_> = fields
+        .iter()
+        .filter(|candidate| {
+            !candidate.attrs.flatten && wire_name(&candidate.attrs.name, &candidate.ident) == wire
+        })
+        .collect();
+    candidates.sort_by_key(|candidate| {
+        (
+            candidate.attrs.until.is_some(),
+            Reverse(
+                candidate
+                    .attrs
+                    .until
+                    .as_deref()
+                    .map(parse_version)
+                    .unwrap_or((u32::MAX, u32::MAX, u32::MAX)),
+            ),
+            Reverse(
+                candidate
+                    .attrs
+                    .since
+                    .as_deref()
+                    .map(parse_version)
+                    .unwrap_or((0, 0, 0)),
+            ),
+        )
+    });
+    let latest = candidates[0].ident == field.ident;
+    let active = version_range_check(field.attrs.since.as_deref(), field.attrs.until.as_deref())
+        .unwrap_or_else(|| quote! { true });
+    quote! { (qapi::qemu_version() == (0, 0, 0) && #latest)
+    || (qapi::qemu_version() != (0, 0, 0) && (#active)) }
+}
+
+/// Decode only the peer-selected representation of a shared wire field.
+fn alternate_init(f: &FieldInfo, raw: &TokenStream2, fields: &[FieldInfo]) -> TokenStream2 {
     let id = &f.ident;
     let ty = &f.ty;
     assert!(
         is_option_type(ty),
         "fields sharing a wire name must be optional version alternates"
     );
+    let selected = field_history_selection(f, fields);
+    let inner = inner_option_type(ty).unwrap();
     quote! {
-        let #id: #ty = #raw.as_ref().and_then(|v| serde_json::from_value::<#ty>(v.clone()).ok().flatten());
+        let #id: #ty = if #selected {
+            #raw.as_ref().and_then(|v| serde_json::from_value::<#inner>(v.clone()).ok())
+        } else { None };
     }
 }
 
@@ -1502,10 +1638,12 @@ fn alternates_check(
 }
 
 fn raw_ident(wire: &str) -> syn::Ident {
-    format_ident!("__raw_{}", wire.replace(['-', '.'], "_"))
+    let encoded: String = wire.bytes().map(|byte| format!("{byte:02x}")).collect();
+    format_ident!("__qapi_raw_{encoded}")
 }
 
 fn gen_struct_de(name: &syn::Ident, fields: &[FieldInfo]) -> TokenStream2 {
+    let required = required_field_checks(name, fields, true);
     let field_idents: Vec<&syn::Ident> = fields.iter().map(|f| &f.ident).collect();
     let field_wires: Vec<String> = fields
         .iter()
@@ -1530,7 +1668,11 @@ fn gen_struct_de(name: &syn::Ident, fields: &[FieldInfo]) -> TokenStream2 {
             let w = &field_wires[i];
             let v = &field_vars[i];
             let cond = f.attrs.condition.as_ref().map(|c| condition_cfg(c));
-            quote! { #cond #w => { #v = Some(map.next_value()?); } }
+            if let Some(inner) = inner_option_type(&f.ty) {
+                quote! { #cond #w => { #v = Some(Some(map.next_value::<#inner>()?)); } }
+            } else {
+                quote! { #cond #w => { #v = Some(map.next_value()?); } }
+            }
         })
         .collect();
     let mut none_inits: Vec<TokenStream2> = none_inits
@@ -1554,7 +1696,7 @@ fn gen_struct_de(name: &syn::Ident, fields: &[FieldInfo]) -> TokenStream2 {
             let w = &field_wires[i];
             if shared.contains(w) {
                 let raw = raw_ident(w);
-                alternate_init(f, &quote! { #raw })
+                alternate_init(f, &quote! { #raw }, fields)
             } else if is_option_type(&f.ty) {
                 quote! { let #id = #v.unwrap_or(None); }
             } else {
@@ -1593,6 +1735,7 @@ fn gen_struct_de(name: &syn::Ident, fields: &[FieldInfo]) -> TokenStream2 {
                             }
                         }
                         #(#inits)*
+                        #required
                         Ok(#name { #(#field_idents),* })
                     }
                 }
@@ -1603,6 +1746,7 @@ fn gen_struct_de(name: &syn::Ident, fields: &[FieldInfo]) -> TokenStream2 {
 }
 
 fn gen_struct_de_flatten(name: &syn::Ident, fields: &[FieldInfo], ta: &TypeAttrs) -> TokenStream2 {
+    let required = required_field_checks(name, fields, true);
     let non_flat: Vec<&FieldInfo> = fields.iter().filter(|f| !f.attrs.flatten).collect();
     let flat: Vec<&FieldInfo> = fields.iter().filter(|f| f.attrs.flatten).collect();
 
@@ -1620,7 +1764,7 @@ fn gen_struct_de_flatten(name: &syn::Ident, fields: &[FieldInfo], ta: &TypeAttrs
         let ty = &f.ty;
         if shared.contains(&w) {
             let raw = raw_ident(&w);
-            alternate_init(f, &quote! { #raw })
+            alternate_init(f, &quote! { #raw }, fields)
         } else if is_option_type(ty) {
             quote! {
                 let #id: #ty = match map.remove(#w) {
@@ -1654,7 +1798,7 @@ fn gen_struct_de_flatten(name: &syn::Ident, fields: &[FieldInfo], ta: &TypeAttrs
     let flat_extractions: Vec<TokenStream2> = flat.iter().map(|f| {
         let id = &f.ident;
         let ty = &f.ty;
-        if f.attrs.union_field {
+        let extraction = if f.attrs.union_field {
             if let Some(disc_f) = discriminator_field {
                 let disc_id = &disc_f.ident;
                 if discriminators.len() > 1 {
@@ -1718,9 +1862,22 @@ fn gen_struct_de_flatten(name: &syn::Ident, fields: &[FieldInfo], ta: &TypeAttrs
             }
         } else {
             quote! {
-                let #id: #ty = serde_json::from_value(serde_json::Value::Object(full_map.clone())).map_err(serde::de::Error::custom)?;
+                let #id: #ty = serde_json::from_value(serde_json::Value::Object(map.clone())).map_err(serde::de::Error::custom)?;
+            }
+        };
+        if is_option_type(ty) {
+            if let Some(active) = version_range_check(f.attrs.since.as_deref(), f.attrs.until.as_deref()) {
+                let latest = f.attrs.until.is_none();
+                return quote! {
+                    let #id: #ty = if (qapi::qemu_version() == (0, 0, 0) && #latest)
+                        || (qapi::qemu_version() != (0, 0, 0) && (#active)) {
+                        #extraction
+                        #id
+                    } else { None };
+                };
             }
         }
+        extraction
     }).collect();
 
     let payload = if flat.iter().any(|field| field.attrs.union_field) {
@@ -1750,6 +1907,7 @@ fn gen_struct_de_flatten(name: &syn::Ident, fields: &[FieldInfo], ta: &TypeAttrs
                 #payload
                 #(#extractions)*
                 #(#flat_extractions)*
+                #required
                 Ok(#name { #(#all_ids),* })
             }
         }

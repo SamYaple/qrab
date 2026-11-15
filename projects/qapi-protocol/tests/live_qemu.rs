@@ -92,12 +92,15 @@ async fn smoke(binary: &OsStr, frontend: MonitorFrontend, pretty: bool) {
     .expect("QEMU did not open QMP socket");
     let (qmp, _) = Qmp::new(&socket).await.unwrap();
     let version = qmp.execute(&QueryVersion {}).await.unwrap();
+    let triple = version
+        .qemu
+        .expect("modern query-version must include VersionTriple");
     assert_eq!(
         qmp.version(),
         (
-            version.qemu.major as u32,
-            version.qemu.minor as u32,
-            version.qemu.micro as u32
+            triple.major as u32,
+            triple.minor as u32,
+            triple.micro as u32
         )
     );
     eprintln!(

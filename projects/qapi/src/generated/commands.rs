@@ -360,6 +360,7 @@ pub struct BlockdevAdd {
     /// block driver name
     #[qapi(discriminator)]
     #[qapi(added = "2.8.0")]
+    #[qapi(required)]
     pub driver: Option<BlockdevDriver>,
     /// force share all permission on added nodes.  Requires
     /// read-only=true.  (Since 2.10)
@@ -376,6 +377,7 @@ pub struct BlockdevAdd {
     pub node_name: Option<String>,
     /// block device options for the new device
     #[qapi(removed = "2.8.0")]
+    #[qapi(required)]
     pub options: Option<BlockdevOptions>,
     /// whether the block device should be read-only (default:
     /// false).  Note that some block drivers support only read-only
@@ -1138,7 +1140,14 @@ pub struct BlockExportAdd {
     /// export will run.  The default is to use the thread currently
     /// associated with the block node.  (since: 5.2; multi-threading
     /// since 10.1)
+    #[qapi(added = "11.0.0")]
     pub iothread: Option<BlockExportIothreads>,
+    /// The name of the iothread object where the export will
+    /// run.  The default is to use the thread currently associated with
+    /// the block node.  (since: 5.2)
+    #[qapi(name = "iothread")]
+    #[qapi(removed = "11.0.0")]
+    pub iothread_legacy: Option<String>,
     /// The node name of the block node to be exported
     /// (since: 5.2)
     #[qapi(name = "node-name")]
@@ -2467,7 +2476,15 @@ pub struct CxlInjectDramEvent {
     pub dpa: u64,
     /// Event Record Flags.  See CXL r3.2 Table 8-55 Common Event
     /// Record Format, Event Record Flags for subfield definitions.
-    pub flags: u32,
+    #[qapi(added = "11.0.0")]
+    #[qapi(required)]
+    pub flags: Option<u32>,
+    /// Event Record Flags.  See CXL r3.0 Table 8-42 Common Event
+    /// Record Format, Event Record Flags for subfield definitions.
+    #[qapi(name = "flags")]
+    #[qapi(removed = "11.0.0")]
+    #[qapi(required)]
+    pub flags_legacy: Option<u8>,
     /// ID of the device head from where the event originated.
     #[qapi(name = "head-id")]
     #[qapi(added = "11.0.0")]
@@ -2511,6 +2528,7 @@ pub struct CxlInjectDramEvent {
     /// Memory event sub-type.
     #[qapi(name = "sub-type")]
     #[qapi(added = "11.0.0")]
+    #[qapi(required)]
     pub sub_type: Option<u8>,
     /// Type of first transaction that caused the event
     /// to occur.  See CXL r3.2 Table 8-58 DRAM Event Record,
@@ -2559,7 +2577,15 @@ pub struct CxlInjectGeneralMediaEvent {
     pub dpa: u64,
     /// Event Record Flags.  See CXL r3.2 Table 8-55 Common Event
     /// Record Format, Event Record Flags for subfield definitions.
-    pub flags: u32,
+    #[qapi(added = "11.0.0")]
+    #[qapi(required)]
+    pub flags: Option<u32>,
+    /// Event Record Flags.  See CXL r3.0 Table 8-42 Common Event
+    /// Record Format, Event Record Flags for subfield definitions.
+    #[qapi(name = "flags")]
+    #[qapi(removed = "11.0.0")]
+    #[qapi(required)]
+    pub flags_legacy: Option<u8>,
     /// ID of the device head from where the event originated.
     #[qapi(name = "head-id")]
     #[qapi(added = "11.0.0")]
@@ -2594,6 +2620,7 @@ pub struct CxlInjectGeneralMediaEvent {
     /// Memory event sub-type.
     #[qapi(name = "sub-type")]
     #[qapi(added = "11.0.0")]
+    #[qapi(required)]
     pub sub_type: Option<u8>,
     /// Type of first transaction that caused the event
     /// to occur.  See CXL r3-2 Table 8-57 General Media Event Record,
@@ -2637,7 +2664,15 @@ pub struct CxlInjectMemoryModuleEvent {
     pub dirty_shutdown_count: u32,
     /// Event Record Flags.  See CXL r3.2 Table 8-55 Common Event
     /// Record Format, Event Record Flags for subfield definitions.
-    pub flags: u32,
+    #[qapi(added = "11.0.0")]
+    #[qapi(required)]
+    pub flags: Option<u32>,
+    /// Event Record Flags.  See CXL r3.0 Table 8-42 Common Event
+    /// Record Format, Event Record Flags for subfield definitions.
+    #[qapi(name = "flags")]
+    #[qapi(removed = "11.0.0")]
+    #[qapi(required)]
+    pub flags_legacy: Option<u8>,
     /// ID of the device head from where the event originated.
     #[qapi(name = "head-id")]
     #[qapi(added = "11.0.0")]
@@ -2682,6 +2717,7 @@ pub struct CxlInjectMemoryModuleEvent {
     /// Device event sub-type.
     #[qapi(name = "sub-type")]
     #[qapi(added = "11.0.0")]
+    #[qapi(required)]
     pub sub_type: Option<u8>,
     /// Device temperature in degrees Celsius.
     pub temperature: i16,
@@ -2833,7 +2869,7 @@ pub struct CxlReleaseDynamicCapacity {
 #[qapi(feature = "json-cli-hotplug")]
 #[qapi(added = "2.8.0")]
 pub struct DeviceAdd {
-    /// Additional device-specific properties.
+    /// Additional command arguments not modeled by this schema.
     #[qapi(flatten)]
     pub arguments: Option<HashMap<String, serde_json::Value>>,
     /// the device's parent bus (device tree path)
@@ -2898,6 +2934,8 @@ pub struct DeviceDel {
 #[qapi(name = "device-list-properties")]
 #[qapi(returns = "Vec<ObjectPropertyInfo>")]
 #[qapi(added = "1.2.0")]
+#[qapi(returns(added = "1.2.0", value = "Vec<DevicePropertyInfo>"))]
+#[qapi(returns(added = "2.12.0", value = "Vec<ObjectPropertyInfo>"))]
 pub struct DeviceListProperties {
     /// the type name of a device
     pub typename: String,
@@ -3250,7 +3288,14 @@ pub struct ExpirePassword {
     /// - 'vnc' to modify the VNC server expiration
     /// - 'spice' to modify the Spice server expiration
     #[qapi(discriminator)]
-    pub protocol: DisplayProtocol,
+    #[qapi(added = "7.0.0")]
+    #[qapi(required)]
+    pub protocol: Option<DisplayProtocol>,
+    /// the name of the remote display protocol 'vnc' or 'spice'
+    #[qapi(name = "protocol")]
+    #[qapi(removed = "7.0.0")]
+    #[qapi(required)]
+    pub protocol_legacy: Option<String>,
     /// when to expire the password.
     ///
     /// - 'now' to expire the password immediately
@@ -3632,9 +3677,23 @@ pub struct Memsave {
     /// the file to save the memory to as binary data
     pub filename: String,
     /// the size of memory region to save
-    pub size: u64,
+    #[qapi(added = "9.1.0")]
+    #[qapi(required)]
+    pub size: Option<u64>,
+    /// the size of memory region to save
+    #[qapi(name = "size")]
+    #[qapi(removed = "9.1.0")]
+    #[qapi(required)]
+    pub size_legacy: Option<i64>,
     /// the virtual address of the guest to start from
-    pub val: u64,
+    #[qapi(added = "9.1.0")]
+    #[qapi(required)]
+    pub val: Option<u64>,
+    /// the virtual address of the guest to start from
+    #[qapi(name = "val")]
+    #[qapi(removed = "9.1.0")]
+    #[qapi(required)]
+    pub val_legacy: Option<i64>,
 }
 
 /// Migrates the current running guest to another Virtual Machine.
@@ -4074,6 +4133,7 @@ pub struct MigrateSetParameters {
     /// more CPU.
     #[qapi(name = "compress-level")]
     #[qapi(feature = "deprecated")]
+    #[qapi(added = "6.0.0")]
     #[qapi(deprecated(added = "8.2.0"))]
     #[qapi(removed = "9.1.0")]
     pub compress_level: Option<u8>,
@@ -4082,6 +4142,7 @@ pub struct MigrateSetParameters {
     /// and 255.
     #[qapi(name = "compress-threads")]
     #[qapi(feature = "deprecated")]
+    #[qapi(added = "6.0.0")]
     #[qapi(deprecated(added = "8.2.0"))]
     #[qapi(removed = "9.1.0")]
     pub compress_threads: Option<u8>,
@@ -4095,6 +4156,14 @@ pub struct MigrateSetParameters {
     #[qapi(deprecated(added = "8.2.0"))]
     #[qapi(removed = "9.1.0")]
     pub compress_wait_thread: Option<bool>,
+    /// compression level
+    #[qapi(name = "compress-level")]
+    #[qapi(removed = "6.0.0")]
+    pub compress_level_legacy: Option<i64>,
+    /// compression thread count
+    #[qapi(name = "compress-threads")]
+    #[qapi(removed = "6.0.0")]
+    pub compress_threads_legacy: Option<i64>,
     /// Command to start the new QEMU process when @mode
     /// is @cpr-exec.  The first list element is the program's filename,
     /// the remainder its arguments.  (Since 10.2)
@@ -4105,13 +4174,13 @@ pub struct MigrateSetParameters {
     /// auto-converge detects that migration is not making progress.
     /// The default value is 10.  (Since 2.7)
     #[qapi(name = "cpu-throttle-increment")]
-    #[qapi(added = "2.7.0")]
+    #[qapi(added = "6.0.0")]
     pub cpu_throttle_increment: Option<u8>,
     /// Initial percentage of time guest cpus are
     /// throttled when migration auto-converge is activated.  The
     /// default value is 20.  (Since 2.7)
     #[qapi(name = "cpu-throttle-initial")]
-    #[qapi(added = "2.7.0")]
+    #[qapi(added = "6.0.0")]
     pub cpu_throttle_initial: Option<u8>,
     /// Make CPU throttling slower at tail stage.
     /// At the tail stage of throttling, the Guest is very sensitive to
@@ -4128,6 +4197,20 @@ pub struct MigrateSetParameters {
     #[qapi(name = "cpu-throttle-tailslow")]
     #[qapi(added = "5.1.0")]
     pub cpu_throttle_tailslow: Option<bool>,
+    /// throttle percentage increase each time
+    /// auto-converge detects that migration is not making
+    /// progress. The default value is 10. (Since 2.7)
+    #[qapi(name = "cpu-throttle-increment")]
+    #[qapi(added = "2.7.0")]
+    #[qapi(removed = "6.0.0")]
+    pub cpu_throttle_increment_legacy: Option<i64>,
+    /// Initial percentage of time guest cpus are
+    /// throttled when migration auto-converge is activated.
+    /// The default value is 20. (Since 2.7)
+    #[qapi(name = "cpu-throttle-initial")]
+    #[qapi(added = "2.7.0")]
+    #[qapi(removed = "6.0.0")]
+    pub cpu_throttle_initial_legacy: Option<i64>,
     /// Set decompression thread count to be used in
     /// live migration, the decompression thread count is an integer
     /// between 1 and 255. Usually, decompression is at least 4 times as
@@ -4135,9 +4218,14 @@ pub struct MigrateSetParameters {
     /// about 1/4 of compress-threads is adequate.
     #[qapi(name = "decompress-threads")]
     #[qapi(feature = "deprecated")]
+    #[qapi(added = "6.0.0")]
     #[qapi(deprecated(added = "8.2.0"))]
     #[qapi(removed = "9.1.0")]
     pub decompress_threads: Option<u8>,
+    /// decompression thread count
+    #[qapi(name = "decompress-threads")]
+    #[qapi(removed = "6.0.0")]
+    pub decompress_threads_legacy: Option<i64>,
     /// Open migration files with O_DIRECT when possible.  This
     /// only has effect if the @mapped-ram capability is enabled.
     /// (Since 9.1)
@@ -4147,17 +4235,23 @@ pub struct MigrateSetParameters {
     /// set maximum tolerated downtime for migration.
     /// maximum downtime in milliseconds (Since 2.8)
     #[qapi(name = "downtime-limit")]
-    #[qapi(added = "2.8.0")]
+    #[qapi(added = "6.0.0")]
     pub downtime_limit: Option<u64>,
+    /// set maximum tolerated downtime for migration. maximum
+    /// downtime in milliseconds (Since 2.8)
+    #[qapi(name = "downtime-limit")]
+    #[qapi(added = "2.8.0")]
+    #[qapi(removed = "6.0.0")]
+    pub downtime_limit_legacy: Option<i64>,
     /// maximum speed for migration, in bytes per second.
     /// (Since 2.8)
     #[qapi(name = "max-bandwidth")]
-    #[qapi(added = "2.8.0")]
+    #[qapi(added = "6.0.0")]
     pub max_bandwidth: Option<u64>,
     /// maximum cpu throttle percentage.  Defaults to 99.
     /// (Since 3.1)
     #[qapi(name = "max-cpu-throttle")]
-    #[qapi(added = "3.1.0")]
+    #[qapi(added = "6.0.0")]
     pub max_cpu_throttle: Option<u8>,
     /// Background transfer bandwidth during
     /// postcopy.  Defaults to 0 (unlimited).  In bytes per second.
@@ -4165,6 +4259,18 @@ pub struct MigrateSetParameters {
     #[qapi(name = "max-postcopy-bandwidth")]
     #[qapi(added = "3.0.0")]
     pub max_postcopy_bandwidth: Option<u64>,
+    /// to set maximum speed for migration. maximum speed in
+    /// bytes per second. (Since 2.8)
+    #[qapi(name = "max-bandwidth")]
+    #[qapi(added = "2.8.0")]
+    #[qapi(removed = "6.0.0")]
+    pub max_bandwidth_legacy: Option<i64>,
+    /// maximum cpu throttle percentage.
+    /// The default value is 99. (Since 3.1)
+    #[qapi(name = "max-cpu-throttle")]
+    #[qapi(added = "3.1.0")]
+    #[qapi(removed = "6.0.0")]
+    pub max_cpu_throttle_legacy: Option<i64>,
     /// Migration mode.  See description in `MigMode`.  Default is
     /// 'normal'.  (Since 8.2)
     #[qapi(added = "8.2.0")]
@@ -4173,7 +4279,7 @@ pub struct MigrateSetParameters {
     /// parallel.  This is the same number that the number of sockets
     /// used for migration.  The default value is 2 (since 4.0)
     #[qapi(name = "multifd-channels")]
-    #[qapi(added = "4.0.0")]
+    #[qapi(added = "6.0.0")]
     pub multifd_channels: Option<u8>,
     /// Which compression method to use.  Defaults to
     /// none.  (Since 5.0)
@@ -4194,7 +4300,7 @@ pub struct MigrateSetParameters {
     /// speed, and 9 means best compression ratio which will consume
     /// more CPU.  Defaults to 1.  (Since 5.0)
     #[qapi(name = "multifd-zlib-level")]
-    #[qapi(added = "5.0.0")]
+    #[qapi(added = "6.0.0")]
     pub multifd_zlib_level: Option<u8>,
     /// Set the compression level to be used in live
     /// migration, the compression level is an integer between 0 and 20,
@@ -4202,14 +4308,49 @@ pub struct MigrateSetParameters {
     /// speed, and 20 means best compression ratio which will consume
     /// more CPU.  Defaults to 1.  (Since 5.0)
     #[qapi(name = "multifd-zstd-level")]
-    #[qapi(added = "5.0.0")]
+    #[qapi(added = "6.0.0")]
     pub multifd_zstd_level: Option<u8>,
+    /// Number of channels used to migrate data in
+    /// parallel. This is the same number that the
+    /// number of sockets used for migration.  The
+    /// default value is 2 (since 4.0)
+    #[qapi(name = "multifd-channels")]
+    #[qapi(added = "4.0.0")]
+    #[qapi(removed = "6.0.0")]
+    pub multifd_channels_legacy: Option<i64>,
+    /// Set the compression level to be used in live
+    /// migration, the compression level is an integer between 0
+    /// and 9, where 0 means no compression, 1 means the best
+    /// compression speed, and 9 means best compression ratio which
+    /// will consume more CPU.
+    /// Defaults to 1. (Since 5.0)
+    #[qapi(name = "multifd-zlib-level")]
+    #[qapi(added = "5.0.0")]
+    #[qapi(removed = "6.0.0")]
+    pub multifd_zlib_level_legacy: Option<i64>,
+    /// Set the compression level to be used in live
+    /// migration, the compression level is an integer between 0
+    /// and 20, where 0 means no compression, 1 means the best
+    /// compression speed, and 20 means best compression ratio which
+    /// will consume more CPU.
+    /// Defaults to 1. (Since 5.0)
+    #[qapi(name = "multifd-zstd-level")]
+    #[qapi(added = "5.0.0")]
+    #[qapi(removed = "6.0.0")]
+    pub multifd_zstd_level_legacy: Option<i64>,
     /// The ratio of bytes_dirty_period and
     /// bytes_xfer_period to trigger throttling.  It is expressed as
     /// percentage.  The default value is 50.  (Since 5.0)
     #[qapi(name = "throttle-trigger-threshold")]
-    #[qapi(added = "5.0.0")]
+    #[qapi(added = "6.0.0")]
     pub throttle_trigger_threshold: Option<u8>,
+    /// The ratio of bytes_dirty_period and bytes_xfer_period
+    /// to trigger throttling. It is expressed as percentage.
+    /// The default value is 50. (Since 5.0)
+    #[qapi(name = "throttle-trigger-threshold")]
+    #[qapi(added = "5.0.0")]
+    #[qapi(removed = "6.0.0")]
+    pub throttle_trigger_threshold_legacy: Option<i64>,
     /// ID of the 'authz' object subclass that provides access
     /// control checking of the TLS x509 certificate distinguished name.
     /// This object is only resolved at time of use, so can be deleted
@@ -4227,7 +4368,7 @@ pub struct MigrateSetParameters {
     /// string means that QEMU will use plain text mode for migration,
     /// rather than TLS.  This is the default.  (Since 2.7)
     #[qapi(name = "tls-creds")]
-    #[qapi(added = "2.7.0")]
+    #[qapi(added = "2.10.0")]
     pub tls_creds: Option<StrOrNull>,
     /// migration target's hostname for validating the
     /// server's x509 certificate identity.  If empty, QEMU will use the
@@ -4238,8 +4379,33 @@ pub struct MigrateSetParameters {
     ///
     /// Note: empty value works only since 2.9.
     #[qapi(name = "tls-hostname")]
-    #[qapi(added = "2.7.0")]
+    #[qapi(added = "2.10.0")]
     pub tls_hostname: Option<StrOrNull>,
+    /// ID of the 'tls-creds' object that provides credentials
+    /// for establishing a TLS connection over the migration data
+    /// channel. On the outgoing side of the migration, the credentials
+    /// must be for a 'client' endpoint, while for the incoming side the
+    /// credentials must be for a 'server' endpoint. Setting this
+    /// will enable TLS for all migrations. The default is unset,
+    /// resulting in unsecured migration at the QEMU level. (Since 2.7)
+    /// An empty string means that QEMU will use plain text mode for
+    /// migration, rather than TLS (Since 2.9)
+    #[qapi(name = "tls-creds")]
+    #[qapi(added = "2.7.0")]
+    #[qapi(removed = "2.10.0")]
+    pub tls_creds_legacy: Option<String>,
+    /// hostname of the target host for the migration. This
+    /// is required when using x509 based TLS credentials and the
+    /// migration URI does not already include a hostname. For
+    /// example if using fd: or exec: based migration, the
+    /// hostname must be provided so that the server's x509
+    /// certificate identity can be validated. (Since 2.7)
+    /// An empty string means that QEMU will use the hostname
+    /// associated with the migration URI, if any. (Since 2.9)
+    #[qapi(name = "tls-hostname")]
+    #[qapi(added = "2.7.0")]
+    #[qapi(removed = "2.10.0")]
+    pub tls_hostname_legacy: Option<String>,
     /// Dirtyrate limit (MB/s) during live migration.
     /// Defaults to 1.  (Since 8.1)
     #[qapi(name = "vcpu-dirty-limit")]
@@ -4249,7 +4415,7 @@ pub struct MigrateSetParameters {
     /// checkpoints in periodic mode.  (Since 2.8)
     #[qapi(name = "x-checkpoint-delay")]
     #[qapi(feature = "unstable")]
-    #[qapi(added = "2.8.0")]
+    #[qapi(added = "6.0.0")]
     pub x_checkpoint_delay: Option<u32>,
     #[qapi(name = "x-cpu-throttle-increment")]
     #[qapi(added = "2.5.0")]
@@ -4289,6 +4455,11 @@ pub struct MigrateSetParameters {
     #[qapi(feature = "unstable")]
     #[qapi(added = "8.1.0")]
     pub x_vcpu_dirty_limit_period: Option<u64>,
+    /// the delay time between two COLO checkpoints. (Since 2.8)
+    #[qapi(name = "x-checkpoint-delay")]
+    #[qapi(added = "2.8.0")]
+    #[qapi(removed = "6.0.0")]
+    pub x_checkpoint_delay_legacy: Option<i64>,
     /// cache size to be used by XBZRLE migration.  It
     /// needs to be a multiple of the target page size and a power of 2
     /// (Since 2.11)
@@ -4418,7 +4589,13 @@ pub struct NbdServerAdd {
 pub struct NbdServerRemove {
     /// Mode of command operation.  See `BlockExportRemoveMode`
     /// description.  Default is 'safe'.
+    #[qapi(added = "5.2.0")]
     pub mode: Option<BlockExportRemoveMode>,
+    /// Mode of command operation. See @NbdServerRemoveMode description.
+    /// Default is 'safe'.
+    #[qapi(name = "mode")]
+    #[qapi(removed = "5.2.0")]
+    pub mode_legacy: Option<NbdServerRemoveMode>,
     /// Block export id.
     pub name: String,
 }
@@ -4439,7 +4616,14 @@ pub struct NbdServerRemove {
 #[qapi(allow_preconfig(added = "7.1.0"))]
 pub struct NbdServerStart {
     /// Address on which to listen (since 1.3).
-    pub addr: SocketAddressLegacy,
+    #[qapi(added = "2.10.0")]
+    #[qapi(required)]
+    pub addr: Option<SocketAddressLegacy>,
+    /// Address on which to listen.
+    #[qapi(name = "addr")]
+    #[qapi(removed = "2.10.0")]
+    #[qapi(required)]
+    pub addr_legacy: Option<SocketAddress>,
     /// Time limit, in seconds, at which a client
     /// that has not completed the negotiation handshake will be
     /// disconnected, or 0 for no limit (since 10.0; default: 10).
@@ -4500,7 +4684,7 @@ pub struct NbdServerStop {}
 #[qapi(added = "1.2.0")]
 #[qapi(allow_preconfig(added = "6.1.0"))]
 pub struct NetdevAdd {
-    /// Additional device-specific properties.
+    /// Additional command arguments not modeled by this schema.
     #[qapi(flatten)]
     #[qapi(removed = "5.0.0")]
     pub arguments: Option<HashMap<String, serde_json::Value>>,
@@ -4512,7 +4696,15 @@ pub struct NetdevAdd {
     pub props: Option<serde_json::Value>,
     /// Specify the driver used for interpreting remaining arguments.
     #[qapi(discriminator)]
-    pub r#type: NetClientDriver,
+    #[qapi(added = "5.0.0")]
+    #[qapi(required)]
+    pub r#type: Option<NetClientDriver>,
+    /// the type of network backend. Possible values are listed in
+    /// NetClientDriver (excluding 'none' and 'nic')
+    #[qapi(name = "type")]
+    #[qapi(removed = "5.0.0")]
+    #[qapi(required)]
+    pub type_legacy: Option<String>,
     #[qapi(union)]
     #[qapi(flatten)]
     #[qapi(added = "5.0.0")]
@@ -4565,7 +4757,7 @@ pub struct NetdevDel {
 #[qapi(added = "2.0.0")]
 #[qapi(allow_preconfig(added = "6.1.0"))]
 pub struct ObjectAdd {
-    /// Additional device-specific properties.
+    /// Additional command arguments not modeled by this schema.
     #[qapi(flatten)]
     #[qapi(removed = "6.0.0")]
     pub arguments: Option<HashMap<String, serde_json::Value>>,
@@ -4579,7 +4771,14 @@ pub struct ObjectAdd {
     /// the class name for the object to be created
     #[qapi(name = "qom-type")]
     #[qapi(discriminator)]
-    pub qom_type: ObjectType,
+    #[qapi(added = "6.0.0")]
+    #[qapi(required)]
+    pub qom_type: Option<ObjectType>,
+    /// the class name for the object to be created
+    #[qapi(name = "qom-type")]
+    #[qapi(removed = "6.0.0")]
+    #[qapi(required)]
+    pub qom_type_legacy: Option<String>,
     #[qapi(union)]
     #[qapi(flatten)]
     #[qapi(added = "6.0.0")]
@@ -4632,9 +4831,23 @@ pub struct Pmemsave {
     /// the file to save the memory to as binary data
     pub filename: String,
     /// the size of memory region to save
-    pub size: u64,
+    #[qapi(added = "9.1.0")]
+    #[qapi(required)]
+    pub size: Option<u64>,
+    /// the size of memory region to save
+    #[qapi(name = "size")]
+    #[qapi(removed = "9.1.0")]
+    #[qapi(required)]
+    pub size_legacy: Option<i64>,
     /// the physical address of the guest to start from
-    pub val: u64,
+    #[qapi(added = "9.1.0")]
+    #[qapi(required)]
+    pub val: Option<u64>,
+    /// the physical address of the guest to start from
+    #[qapi(name = "val")]
+    #[qapi(removed = "9.1.0")]
+    #[qapi(required)]
+    pub val_legacy: Option<i64>,
 }
 
 /// Enable QMP capabilities.
@@ -4703,7 +4916,7 @@ pub struct QmpCapabilities {
 #[qapi(added = "1.1.0")]
 #[qapi(allow_preconfig(added = "3.0.0"))]
 pub struct QomGet {
-    /// Additional device-specific properties.
+    /// Additional command arguments not modeled by this schema.
     #[qapi(flatten)]
     #[qapi(removed = "2.5.0")]
     pub arguments: Option<HashMap<String, serde_json::Value>>,
@@ -4828,7 +5041,7 @@ pub struct QomListTypes {
 #[qapi(added = "1.1.0")]
 #[qapi(allow_preconfig(added = "3.0.0"))]
 pub struct QomSet {
-    /// Additional device-specific properties.
+    /// Additional command arguments not modeled by this schema.
     #[qapi(flatten)]
     #[qapi(removed = "2.5.0")]
     pub arguments: Option<HashMap<String, serde_json::Value>>,
@@ -6567,7 +6780,7 @@ pub struct QueryPrManagers {}
 #[qapi(added = "2.5.0")]
 #[qapi(allow_preconfig(added = "6.0.0"))]
 pub struct QueryQmpSchema {
-    /// Additional device-specific properties.
+    /// Additional command arguments not modeled by this schema.
     #[qapi(flatten)]
     #[qapi(removed = "6.0.0")]
     pub arguments: Option<HashMap<String, serde_json::Value>>,
@@ -7028,6 +7241,8 @@ pub struct QueryStatus {}
 #[qapi(name = "query-target")]
 #[qapi(returns = "QemuTargetInfo")]
 #[qapi(added = "1.2.0")]
+#[qapi(returns(added = "1.2.0", value = "TargetInfo"))]
+#[qapi(returns(added = "10.1.0", value = "QemuTargetInfo"))]
 pub struct QueryTarget {}
 
 /// Return information about the TPM device
@@ -7576,7 +7791,12 @@ pub struct SetCpuTopology {
     #[qapi(name = "drawer-id")]
     pub drawer_id: Option<u16>,
     /// entitlement to set
+    #[qapi(added = "9.2.0")]
     pub entitlement: Option<S390CpuEntitlement>,
+    /// entitlement to set
+    #[qapi(name = "entitlement")]
+    #[qapi(removed = "9.2.0")]
+    pub entitlement_legacy: Option<CpuS390Entitlement>,
     /// destination socket to move the vCPU to
     #[qapi(name = "socket-id")]
     pub socket_id: Option<u16>,
@@ -7651,13 +7871,30 @@ pub struct SetPassword {
     /// How to handle existing clients when changing the
     /// password.  If nothing is specified, defaults to 'keep'.  For
     /// VNC, only 'keep' is currently implemented.
+    #[qapi(added = "7.0.0")]
     pub connected: Option<SetPasswordAction>,
+    /// how to handle existing clients when changing the
+    /// password.  If nothing is specified, defaults to 'keep'
+    /// 'fail' to fail the command if clients are connected
+    /// 'disconnect' to disconnect existing clients
+    /// 'keep' to maintain existing clients
+    #[qapi(name = "connected")]
+    #[qapi(removed = "7.0.0")]
+    pub connected_legacy: Option<String>,
     /// the new password
     pub password: String,
     /// - 'vnc' to modify the VNC server password
     /// - 'spice' to modify the Spice server password
     #[qapi(discriminator)]
-    pub protocol: DisplayProtocol,
+    #[qapi(added = "7.0.0")]
+    #[qapi(required)]
+    pub protocol: Option<DisplayProtocol>,
+    /// - 'vnc' to modify the VNC server password
+    /// - 'spice' to modify the Spice server password
+    #[qapi(name = "protocol")]
+    #[qapi(removed = "7.0.0")]
+    #[qapi(required)]
+    pub protocol_legacy: Option<String>,
     #[qapi(union)]
     #[qapi(flatten)]
     #[qapi(added = "7.0.0")]
@@ -8114,7 +8351,13 @@ pub struct TraceEventSetState {
 pub struct Transaction {
     /// List of `TransactionAction`; information needed for the
     /// respective operations.
-    pub actions: Vec<TransactionAction>,
+    #[qapi(added = "1.6.0")]
+    #[qapi(required)]
+    pub actions: Option<Vec<TransactionAction>>,
+    #[qapi(name = "actions")]
+    #[qapi(removed = "1.6.0")]
+    #[qapi(required)]
+    pub actions_legacy: Option<Vec<BlockdevAction>>,
     /// structure of additional options to control the
     /// execution of the transaction.  See `TransactionProperties` for
     /// additional detail.

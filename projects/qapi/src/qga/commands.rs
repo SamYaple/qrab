@@ -16,7 +16,13 @@ pub struct GuestExecCommand {
     /// bool flag to enable capture of stdout/stderr of
     /// running process.  Defaults to false.
     #[qapi(name = "capture-output")]
+    #[qapi(added = "8.1.0")]
     pub capture_output: Option<GuestExecCaptureOutput>,
+    /// bool flag to enable capture of
+    /// stdout/stderr of running process. defaults to false.
+    #[qapi(name = "capture-output")]
+    #[qapi(removed = "8.1.0")]
+    pub capture_output_legacy: Option<bool>,
     /// environment variables to pass to executable
     pub env: Option<Vec<String>>,
     /// data to be passed to process stdin (base64 encoded)
@@ -100,7 +106,14 @@ pub struct GuestFileSeekCommand {
     /// bytes to skip over in the file stream
     pub offset: i64,
     /// Symbolic or numeric code for interpreting offset
-    pub whence: GuestFileWhence,
+    #[qapi(added = "2.6.0")]
+    #[qapi(required)]
+    pub whence: Option<GuestFileWhence>,
+    /// 0 for SEEK_SET, 1 for SEEK_CUR, or 2 for SEEK_END
+    #[qapi(name = "whence")]
+    #[qapi(removed = "2.6.0")]
+    #[qapi(required)]
+    pub whence_legacy: Option<i64>,
 }
 
 /// Write to an open file in the guest.
@@ -192,6 +205,8 @@ pub struct GuestFsfreezeThaw {}
 #[qapi(returns = "GuestFilesystemTrimResponse")]
 #[qapi(condition = "(CONFIG_WIN32 || CONFIG_FSTRIM)")]
 #[qapi(added = "1.4.0")]
+#[qapi(returns(added = "1.4.0", value = "()"))]
+#[qapi(returns(added = "2.4.0", value = "GuestFilesystemTrimResponse"))]
 pub struct GuestFstrim {
     /// Minimum contiguous free range to discard, in bytes.  Free
     /// ranges smaller than this may be ignored (this is a hint and the

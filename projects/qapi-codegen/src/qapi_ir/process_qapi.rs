@@ -1059,7 +1059,7 @@ pub fn process_command(q: QapiCommand, structs_lookup: &HashMap<String, Struct>)
             array: false,
             meta: {
                 let mut m = Metadata::default();
-                m.doc = Some("Additional device-specific properties.".into());
+                m.doc = Some("Additional command arguments not modeled by this schema.".into());
                 m.attributes.push(Attribute::new("flatten"));
                 m
             },

@@ -124,3 +124,25 @@ fn changed_branch_payloads_expose_distinct_lifetimes_and_original_wire_tags() {
     assert_eq!(current.payload_struct, Some("InetSocketAddressWrapper"));
     assert_eq!(historical.payload_struct, Some("InetSocketAddress"));
 }
+
+#[test]
+fn required_wire_fields_stay_required_in_metadata_after_version_merging() {
+    let info = STRUCTS.get("VersionInfo").unwrap();
+    let qemu = info
+        .fields
+        .iter()
+        .find(|field| field.name == "qemu")
+        .unwrap();
+    assert!(
+        !qemu.optional,
+        "version merging must not turn wire-required into schema-optional"
+    );
+    let value: qapi::VersionInfo = serde_json::from_value(serde_json::json!({
+        "qemu":{"major":11,"minor":1,"micro":3},"package":""
+    }))
+    .unwrap();
+    assert!(
+        value.qemu.is_some(),
+        "Rust uses Option to accommodate the older inline representation"
+    );
+}

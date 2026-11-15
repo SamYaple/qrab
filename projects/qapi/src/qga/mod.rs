@@ -13,6 +13,7 @@ pub struct GuestAgentCommandInfo {
     /// (since 1.7)
     #[qapi(name = "success-response")]
     #[qapi(added = "1.7.0")]
+    #[qapi(required)]
     pub success_response: Option<bool>,
 }
 
