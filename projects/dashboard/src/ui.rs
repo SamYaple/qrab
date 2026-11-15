@@ -166,7 +166,13 @@ pub fn render(page: Page) -> String {
     let title = match &page.body {
         Body::Detail(d) => format!("{} · qrab VMs", d.detail.row.name),
         Body::Console(c) => format!("{} console · qrab VMs", c.name),
-        Body::Launch(_) | Body::Launched(_) => "Launch a VM · qrab VMs".into(),
+        Body::Launch(form) if launch::max_name_length(&form.namespace) == 0 => {
+            "Launching is unavailable · qrab VMs".into()
+        }
+        Body::Launch(form) if !form.errors.is_empty() => "Check launch form · qrab VMs".into(),
+        Body::Launch(_) => "Launch a VM · qrab VMs".into(),
+        Body::Launched(result) if result.report.failed.is_some() => "Launch failed · qrab VMs".into(),
+        Body::Launched(_) => "VM launched · qrab VMs".into(),
         Body::Images(_) => "Base images · qrab VMs".into(),
         Body::Error(error) => format!("{} · qrab VMs", error.title()),
         _ => "qrab VMs".into(),
