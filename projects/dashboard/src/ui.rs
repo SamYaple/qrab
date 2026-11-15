@@ -168,13 +168,15 @@ fn vm_table(rows: &[Row]) -> Element {
         section { class: "card directory", div { class: "table-wrap", table {
             caption { class: "visually-hidden", "Virtual machines you can access" }
             thead { tr {
-                th { scope: "col", "Name" } th { scope: "col", "State" } th { scope: "col", "Node" } th { scope: "col", "IP" }
-                th { scope: "col", "vCPUs" } th { scope: "col", "Memory (MiB)" } th { scope: "col", "Disks" }
-                th { scope: "col", "CPU use" } th { scope: "col", "Memory use" } th { scope: "col", "Your role" }
+                th { scope: "col", "Virtual machine" } th { scope: "col", "State" }
+                th { scope: "col", "Compute" } th { scope: "col", "Storage" }
+                th { scope: "col", "Live usage" } th { scope: "col", "Location" } th { scope: "col", "Access" }
             } }
             tbody { for row in rows {
                 {
                     let (cpu, mem) = model::usage_text(row.usage);
+                    let cpu_size = sizes(row.cpus, row.max_cpus, "");
+                    let memory_size = sizes(row.memory_mib, row.max_memory_mib, "");
                     let disks = match (row.disks, row.disk_bytes) {
                         (0, _) => "none".to_string(),
                         (n, 0) => format!("{n} static"),
@@ -183,14 +185,22 @@ fn vm_table(rows: &[Row]) -> Element {
                     rsx! { tr {
                         td { "data-label": "Name", div { a { class: "identity-link", href: row.path(), "{row.name}" } p { class: "muted", "{row.namespace}" } } }
                         td { "data-label": "State", div { {state_badge(row)} } }
-                        td { "data-label": "Node", if row.node.is_empty() { "—" } else { "{row.node}" } }
-                        td { "data-label": "IP", if let Some(ip) = &row.ip { code { "{ip}" } } else { "—" } }
-                        td { "data-label": "vCPUs", {sizes(row.cpus, row.max_cpus, "")} }
-                        td { "data-label": "Memory (MiB)", {sizes(row.memory_mib, row.max_memory_mib, "")} }
-                        td { "data-label": "Disks", "{disks}" }
-                        td { "data-label": "CPU use", "{cpu}" }
-                        td { "data-label": "Memory use", "{mem}" }
-                        td { "data-label": "Your role", div { span { class: if row.role == Role::Admin { "badge admin" } else { "badge" }, {row.role.label()} } } }
+                        td { "data-label": "Compute", div {
+                            span { "{cpu_size} vCPUs" }
+                            span { class: "cell-detail", "{memory_size} MiB memory" }
+                        } }
+                        td { "data-label": "Storage", "{disks}" }
+                        td { "data-label": "Live usage", div {
+                            span { "{cpu} CPU" }
+                            span { class: "cell-detail", "{mem} memory" }
+                        } }
+                        td { "data-label": "Location", div {
+                            if row.node.is_empty() { span { class: "muted", "Not scheduled" } } else { span { "{row.node}" } }
+                            if let Some(ip) = &row.ip { code { class: "cell-detail", "{ip}" } }
+                            else { span { class: "cell-detail", "No guest IP" } }
+                        } }
+                        td { "data-label": "Access", div { span { class: if row.role == Role::Admin { "badge admin" } else { "badge" }, {row.role.label()} } } }
+
                     } }
                 }
             } }
@@ -260,17 +270,19 @@ fn bmc_panel(panel: &Panel) -> Element {
     let events = match &panel.events {
         Ok(page) => rsx! {
             section { class: "card wide", h3 { "Recent QMP events" }
-                if let Some(dropped) = page.qmp_dropped.filter(|d| *d > 0) { p { class: "notice", role: "status", "{dropped} QMP event(s) were dropped before the manager recorded them." } }
+                if let Some(dropped) = page.qmp_dropped.filter(|d| *d > 0) { p { class: "notice warning", role: "status", "{dropped} QMP event(s) were dropped before the manager recorded them." } }
                 if page.entries.is_empty() { p { class: "empty", "No events recorded." } }
                 else { ol { class: "events", reversed: true,
                     for entry in page.entries.iter() {
                         {
                             let data = redfish::event_data(&entry.oem.qrab);
                             rsx! { li {
-                                time { "{entry.created}" }
-                                b { "{entry.oem.qrab.event}" }
-                                if !entry.severity.is_empty() && entry.severity != "OK" { span { class: "badge", "{entry.severity}" } }
-                                if data.is_empty() { span { class: "muted", "no data" } } else { code { "{data}" } }
+                                div { class: "event-meta",
+                                    time { datetime: "{entry.created}", "{entry.created}" }
+                                    b { "{entry.oem.qrab.event}" }
+                                    if !entry.severity.is_empty() && entry.severity != "OK" { span { class: "badge warning", "{entry.severity}" } }
+                                }
+                                if !data.is_empty() { code { "{data}" } }
                             } }
                         }
                     }
@@ -754,15 +766,17 @@ fn detail_page(page: &DetailPage, user: &UserView) -> Element {
         a { class: "back", href: "/", "← All VMs" }
         div { class: "heading",
             div { p { class: "eyebrow", "VIRTUAL MACHINE · {d.row.namespace}" } h1 { "{d.row.name}" } p { class: "muted", "UID " code { "{d.uid}" } } }
-            if d.bmc_enabled { a { class: "button", href: "{d.row.path()}/bmc", "Open BMC →" } }
-            if admin && d.bmc_enabled { a { class: "button", href: "{console}", "Open console →" } }
-            if !admin && d.bmc_enabled {
-                div { class: "console-locked",
-                    span { class: "button disabled", aria_disabled: "true", "Console: admins only" }
-                    p { class: "muted",
-                        "Opening the console needs admin access to this VM. If you were just given it, "
-                        a { href: "{refresh}", "refresh your sign-in" }
-                        "."
+            div { class: "heading-actions",
+                if d.bmc_enabled { a { class: "button", href: "{d.row.path()}/bmc", "Open BMC →" } }
+                if admin && d.bmc_enabled { a { class: "button secondary", href: "{console}", "Open console →" } }
+                if !admin && d.bmc_enabled {
+                    div { class: "console-locked",
+                        span { class: "button disabled", aria_disabled: "true", "Console: admins only" }
+                        p { class: "muted",
+                            "Opening the console needs admin access to this VM. If you were just given it, "
+                            a { href: "{refresh}", "refresh your sign-in" }
+                            "."
+                        }
                     }
                 }
             }
@@ -1073,26 +1087,31 @@ fn console_page(page: &ConsolePage) -> Element {
 
 fn app() -> Element {
     let page = consume_context::<Page>();
+    let on_images = matches!(&page.body, Body::Images(_));
+    let on_vms = matches!(
+        &page.body,
+        Body::List(_) | Body::Detail(_) | Body::Console(_)
+    );
     rsx! {
         body {
+            a { class: "skip-link", href: "#main", "Skip to content" }
             header { div { class: "brand", a { href: "/", "qrab" } span { "Virtual machines" } }
                 if let Some(user) = &page.user { div { class: "operator",
-                    nav { class: "site-nav", aria_label: "Dashboard", a { href: "/", "VMs" } a { href: "/images", "Images" } }
+                    nav { class: "site-nav", aria_label: "Dashboard", a { href: "/", aria_current: on_vms.then_some("page"), "VMs" } a { href: "/images", aria_current: on_images.then_some("page"), "Images" } }
                     if user.launcher { a { class: "button", href: "/launch", "Launch VM" } }
                     span { "{user.name}" }
                     form { method: "post", action: "/auth/logout", input { r#type: "hidden", name: "csrf", value: "{user.csrf}" } button { class: "quiet", r#type: "submit", "Sign out" } }
                 } }
             }
-            main {
+            main { id: "main", tabindex: "-1",
                 if let Some(notice) = &page.notice { p { class: "notice", role: "status", "{notice}" } }
                 match (&page.body, &page.user) {
                     (Body::Error(error), _) => rsx! { section { class: "card", role: "alert", h1 { "Request could not be completed" } p { "{error}" } a { href: "/", "Return to the dashboard" } } },
-                    (Body::List(rows), Some(user)) => rsx! {
+                    (Body::List(rows), Some(_user)) => rsx! {
                         div { class: "heading", div { p { class: "eyebrow", "VIRTUAL MACHINES" } h1 { "Your VMs" }
-                            p { class: "muted", "VMs where you are an admin, a viewer or the creator. Usage is live from metrics.k8s.io." } }
+                            p { class: "muted", "Your shared and personal virtual machines. Open a VM to inspect it or use its BMC." } }
                             span { class: "count", "{rows.len()} shown" } }
                         if rows.is_empty() { p { class: "empty", "No VMs are shared with you yet." } } else { {vm_table(rows)} }
-                        if user.launcher { p { a { class: "button", href: "/launch", "Launch VM" } } }
                     },
                     (Body::Detail(detail), Some(user)) => detail_page(detail, user),
                     (Body::Launch(launch), Some(user)) => launch_form(launch, user),
@@ -1104,7 +1123,7 @@ fn app() -> Element {
                         a { class: "button", href: "/auth/login", "Sign in with Kanidm →" }
                         p { class: "muted", "Access follows your Kanidm VM groups." } } },
                 }
-                footer { "Kubernetes and Kanidm are the source of truth · Each VM's Redfish service and BMC enforce its roles" }
+                footer { "qrab · Virtual machines" }
             }
         }
     }

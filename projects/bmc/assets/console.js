@@ -8,6 +8,10 @@ import { createAudioContext } from './novnc/core/audio.js';
 // keep their root routes. This prefix comes from server-rendered HTML.
 const vmBase = document.body.dataset.vmBase || '';
 const consolePath = vmBase ? `${vmBase}/console/ws` : '/api/console';
+if (vmBase) {
+    document.getElementById('vm-navigation').hidden = false;
+    document.getElementById('vm-detail-link').href = vmBase;
+}
 const SYSTEM = '/redfish/v1/Systems/1';
 const RESET_INFO = `${SYSTEM}/ResetActionInfo`;
 const EVENT_LOG = '/redfish/v1/Managers/1/LogServices/Events';
@@ -150,7 +154,8 @@ function selectTab(name, {focus = false, store = true} = {}) {
 for (const tab of TABS) element(`tab-${tab}`).addEventListener('click', () => selectTab(tab));
 // Arrow keys act only on a focused tab; keys sent to the console never reach here.
 element('rail-tabs').addEventListener('keydown', event => {
-    const index = TABS.indexOf(currentTab);
+    const index = TABS.indexOf(event.target.closest('[role=tab]')?.id.replace('tab-', ''));
+    if (index < 0) return;
     const next = {ArrowRight: index + 1, ArrowDown: index + 1, ArrowLeft: index - 1, ArrowUp: index - 1, Home: 0, End: TABS.length - 1}[event.key];
     if (next === undefined) return;
     event.preventDefault();

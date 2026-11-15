@@ -2,12 +2,14 @@
 <html lang="en">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>qrab · VM console</title><link rel="stylesheet" href="/assets/style.css"><script type="module" src="/assets/console.js"></script></head>
 <body>
+<a class="skip-link" href="#main">Skip to content</a>
 <header class="topbar">
 <a class="brand" href="/">qrab<span>BMC</span></a>
 <div class="vm-title"><h1 id="vm-name">Console</h1><span id="vm-status" class="chip" data-state="unknown" role="status" hidden>Connecting…</span></div>
 <div class="who"><span id="identity"></span><span id="role" class="badge" hidden></span><button id="logout" hidden>Sign out</button></div>
 </header>
-<main>
+<main id="main" tabindex="-1">
+<nav id="vm-navigation" class="vm-navigation" aria-label="Virtual machine" hidden><a href="/">← All VMs</a><span aria-hidden="true">/</span><a id="vm-detail-link">VM details</a><span aria-hidden="true">/</span><span aria-current="page">BMC</span></nav>
 <p id="error" role="alert" hidden></p>
 <section id="login" hidden><h2>Your VM console</h2><p>Sign in with your infrastructure account to open this VM.</p><a class="button primary" href="/auth/login">Sign in with Kanidm</a></section>
 <section id="dashboard" class="workspace" hidden>

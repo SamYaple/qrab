@@ -1482,7 +1482,7 @@ async fn launching_with_a_nic_and_cloud_init_never_shows_or_logs_user_data() {
         assert!(detail.contains(cell), "{cell}");
     }
     let (_, _, list) = send(&h, get("/", Some(&cookie))).await;
-    assert!(list.contains("data-label=\"IP\"") && list.contains("10.244.1.9"));
+    assert!(list.contains("data-label=\"Location\"") && list.contains("10.244.1.9"));
     let logs = String::from_utf8(logs.0.lock().unwrap().clone()).unwrap();
     assert!(logs.contains("VM launch"), "{logs}");
     for page in [&detail, &list, &logs] {

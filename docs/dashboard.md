@@ -542,3 +542,27 @@ A dated record; the qrab-demo VM it mentions has since been retired.
   `groups_uuid`.
 - Not yet exercised: a browser login, the BMC panel and console through the
   proxy, and a real launch.
+
+### Interface checks without a cluster
+
+The dashboard and BMC follow the system light/dark preference. Dashboard pages
+remain server-rendered; the BMC uses the shared interface assets. Keyboard users
+can skip the header, and the navigation identifies the current dashboard page.
+
+For a visual check, generate representative pages and run the isolated Chromium
+checks. The Python environment needs `playwright`; use an existing Chromium
+binary with `--browser` if it is not at the default path:
+
+```sh
+mkdir -p target/ui-preview
+cargo run --locked -p qrab-dashboard --example preview -- target/ui-preview
+python3 contrib/tests/ui-browser.py --previews target/ui-preview \
+  --browser /path/to/chromium --output target/ui-browser
+```
+
+This checks desktop, tablet and mobile layouts in light and dark themes, shared
+BMC admin/viewer controls, keyboard tabs, event filtering and two-step power
+confirmation. It writes screenshots to the output directory. BMC requests use
+in-memory browser fixtures: it needs no credentials, cluster, VM or guest, and
+sends no action to a live VM. The separate `bmc-browser.py` test covers real
+OIDC and guest-console delivery.
