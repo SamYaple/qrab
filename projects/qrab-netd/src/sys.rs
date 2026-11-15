@@ -391,13 +391,42 @@ pub fn export_conntrack(proc_root: &Path, ip: Ipv4Addr) -> io::Result<crate::ct:
     let mut entries = Vec::new();
     for (map, name) in crate::ct::MAPS {
         let path = format!("{}/{name}", crate::ct::PIN_DIR);
-        let dump = bpftool(proc_root, &["-j", "map", "dump", "pinned", &path], None)?;
-        entries.extend(crate::ct::select(
-            crate::ct::parse_dump(map, &dump).map_err(io::Error::other)?,
-            ip,
-        ));
+        entries.extend(bpftool_dump(proc_root, &path, |dump| {
+            crate::ct::select_dump(map, dump, ip)
+        })?);
     }
     Ok(crate::ct::Export::new(monotonic_secs(), entries))
+}
+
+/// `bpftool -j map dump pinned <path>`, its output handed to `read` as it
+/// streams (a whole dump is tens of MB once parsed; netd's memory limit is
+/// 128 MiB).
+fn bpftool_dump<T>(
+    proc_root: &Path,
+    path: &str,
+    read: impl FnOnce(std::process::ChildStdout) -> Result<T, String>,
+) -> io::Result<T> {
+    let pid = cilium_agent_pid(proc_root)
+        .ok_or_else(|| io::Error::other("no cilium-agent process on this node"))?;
+    let mut child = Command::new("nsenter")
+        .args(["-t", &pid.to_string(), "-m", "-p", "--", "bpftool"])
+        .args(["-j", "map", "dump", "pinned", path])
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?;
+    let read = read(child.stdout.take().expect("piped stdout"));
+    if read.is_err() {
+        let _ = child.kill();
+    }
+    let output = child.wait_with_output()?;
+    if !output.status.success() {
+        return Err(io::Error::other(format!(
+            "bpftool dump: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        )));
+    }
+    read.map_err(io::Error::other)
 }
 
 /// Whether `ip` is this node's own or one of its local endpoints', judged

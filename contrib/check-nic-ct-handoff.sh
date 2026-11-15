@@ -19,7 +19,14 @@ moves=${MOVES:-2}
 max_gap=${MAX_GAP_S:-3}
 work=$(mktemp -d)
 log() { printf '%s %s\n' "$(date -u +%H:%M:%S)" "$*"; }
-fail() { log "FAIL: $*"; tail -5 "$work/stream.log" 2>/dev/null | sed 's/^/  /'; exit 1; }
+keep() { # with DEBUG_DIR: the client's log and the managers' logs
+  [ -n "${DEBUG_DIR:-}" ] || return 0
+  mkdir -p "$DEBUG_DIR"; cp "$work/stream.log" "$DEBUG_DIR/" 2>/dev/null || true
+  for p in $(kubectl -n "$ns" get pods -o name | grep -E "/$vm(-m[0-9a-f]+)?\$"); do
+    kubectl -n "$ns" logs "$p" -c manager --timestamps > "$DEBUG_DIR/${p#pod/}.log" 2>/dev/null || true
+  done
+}
+fail() { log "FAIL: $*"; tail -5 "$work/stream.log" 2>/dev/null | sed 's/^/  /'; keep; exit 1; }
 pids=()
 cleanup() {
   for pid in "${pids[@]}"; do kill "$pid" 2>/dev/null || true; done
@@ -115,6 +122,15 @@ EOF
     sleep 1
   done
   [ "$phase" = Succeeded ] || fail "move $i did not finish"
+  if [ -n "${CT_DEBUG:-}" ]; then
+    a=$(kubectl -n kube-system get pods -l k8s-app=cilium --field-selector "spec.nodeName=$target" -o name | head -1)
+    for t in 0 10 20; do
+      log "conntrack on $target at +${t}s (node uptime $(kubectl -n kube-system exec "$a" -c cilium-agent -- cut -d' ' -f1 /proc/uptime)):"
+      kubectl -n kube-system exec "$a" -c cilium-agent -- sh -c "cilium-dbg bpf ct list global 2>/dev/null | grep -F '$address'" | sed 's/^/    /'
+      tail -1 "$work/stream.log" | sed 's/^/    stream: /'
+      [ "$t" -lt 20 ] && sleep 10
+    done
+  fi
   sleep $((max_gap + 5))
   gap=$(awk -v s="$start" '$2 ~ /^[0-9]+$/ {t=$1+0; if (t>=s) {if (p && t-p>g) g=t-p; p=t}} END {printf "%.2f", g+0}' "$work/stream.log")
   last=$(tail -1 "$work/stream.log" | awk '{print $1}')
@@ -125,5 +141,6 @@ EOF
   summary+=("move $i $source_node->$target: stream kept flowing, gap ${gap}s")
   log "${summary[-1]}"
 done
+keep
 log "summary:"; printf '  %s\n' "${summary[@]}"
 log "PASS: established flows keep their conntrack across moves"
