@@ -34,7 +34,7 @@ fn valid_schema_keywords_and_standard_type_names_compile_and_round_trip() {
     schema.push_str("{ 'struct':'PeerFields', 'data':{'windows':{'type':'str','if':'CONFIG_WIN32'},'posix':{'type':'str','if':'CONFIG_POSIX'}} }\n");
     schema.push_str("{ 'enum':'PeerKind', 'data':[{'name':'windows','if':'CONFIG_WIN32'},{'name':'posix','if':'CONFIG_POSIX'}] }\n");
     schema.push_str("{ 'command':'peer-windows', 'if':'CONFIG_WIN32', 'returns':'PeerWindows' }\n");
-    schema.push_str("{ 'pragma':{'command-returns-exceptions':['read-string','read-strings','query-changing-direct','query-changing-array']} }\n");
+    schema.push_str("{ 'pragma':{'command-returns-exceptions':['read-string','read-strings','query-changing-direct','query-changing-array','read-implicit-ints']} }\n");
     schema.push_str("{ 'command':'read-string', 'returns':'str' }\n");
     schema.push_str("{ 'command':'read-strings', 'returns':['str'] }\n");
     schema.push_str(
@@ -124,6 +124,12 @@ fn valid_schema_keywords_and_standard_type_names_compile_and_round_trip() {
     schema.push_str("{ 'enum':'KeywordVariants', 'data':['self','qapi-self','qapi-self-alt'] }\n");
     let builtin_schema = "{ 'struct':'QEmpty', 'data':{'marker':'bool'} }\n{ 'struct':'BuiltinHolder', 'data':{'kind':'QType','empty':'q_empty'} }\n";
     schema.push_str(builtin_schema);
+    schema.push_str("{ 'struct':'ImplicitLists', 'data':{'ints':'intList','strs':'strList','direct':['String'],'named':'StringList','type-direct':['QType'],'types':'QTypeList','nulls':'nullList'} }\n");
+    schema.push_str("{ 'command':'read-implicit-ints', 'returns':'intList' }\n");
+    schema.push_str("{ 'command':'read-implicit-named', 'returns':'StringList' }\n");
+    schema.push_str(
+        "{ 'alternate':'ListAliasChoice', 'data':{'numbers':'intList','object':'String'} }\n",
+    );
     let entry = repo.join("qapi/qapi-schema.json");
     std::fs::write(&entry, &schema).unwrap();
     let oracle = Command::new("python3").arg("-c").arg("import sys; sys.path.insert(0, sys.argv[1]+'/scripts'); from qapi.schema import QAPISchema; QAPISchema(sys.argv[2])")

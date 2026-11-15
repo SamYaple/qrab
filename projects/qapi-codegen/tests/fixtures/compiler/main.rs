@@ -5,6 +5,18 @@ pub use qapi_runtime::{
 mod generated;
 pub use generated::*;
 fn main() {
+    with_version((11, 1, 3), || {
+        let _: <commands::ReadImplicitInts as QapiCommand>::Returns = vec![1i64, 2];
+        let _: <commands::ReadImplicitNamed as QapiCommand>::Returns = vec![QapiStringGenerated {
+            value: "named".into(),
+        }];
+        let wire = serde_json::json!({"ints":[1,2],"strs":["a"],"direct":[{"value":"direct"}],"named":[{"value":"named"}],"type-direct":["qnum"],"types":["qbool"],"nulls":[null]});
+        let value: ImplicitLists = serde_json::from_value(wire.clone()).unwrap();
+        assert_eq!(serde_json::to_value(value).unwrap(), wire);
+        let wire = serde_json::json!([1, 2]);
+        let value: ListAliasChoice = serde_json::from_value(wire.clone()).unwrap();
+        assert_eq!(serde_json::to_value(value).unwrap(), wire);
+    });
     for (version, tag) in [
         ((2, 9, 0), "qint"),
         ((2, 9, 0), "qfloat"),

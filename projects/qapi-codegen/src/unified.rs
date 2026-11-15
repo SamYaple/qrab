@@ -2246,6 +2246,45 @@ mod schema_resolution_tests {
     use super::*;
 
     #[test]
+    fn implicit_arrays_require_creation_and_reject_nested_arrays() {
+        for (input, expected) in [
+            (
+                "{'struct':'Holder','data':{'values':'QTypeList'}}",
+                "Unknown QAPI type 'QTypeList'",
+            ),
+            (
+                "{'struct':'Item','data':{}} {'struct':'Holder','data':{'values':'ItemList'}}",
+                "Unknown QAPI type 'ItemList'",
+            ),
+            (
+                "{'struct':'Holder','data':{'values':['intList']}}",
+                "Nested QAPI arrays",
+            ),
+            (
+                "{'struct':'Holder','data':{'direct':['intList'],'alias':'intListList'}}",
+                "Nested QAPI arrays",
+            ),
+            ("{'struct':'ItemList','data':{}}", "reserved List suffix"),
+        ] {
+            let error = format!("{:#}", process(input).unwrap_err());
+            assert!(error.contains(expected), "{expected}: {error}");
+            assert!(error.contains("fixture.json"), "{error}");
+        }
+    }
+
+    #[test]
+    fn implicit_arrays_resolve_across_source_files() {
+        crate::set_parser_version((11, 1, 3));
+        let (_, structs) = process_version_schema(&[
+            ("first.json".into(), "{'struct':'Holder','data':{'values':'ItemList'}}".into()),
+            ("second.json".into(), "{'struct':'Item','data':{'value':'str'}} {'struct':'Seed','data':{'direct':['Item']}}".into()),
+        ]).unwrap();
+        let field = &structs["Holder"].fields[0];
+        assert!(field.array);
+        assert_eq!(field.r#type, "Item");
+    }
+
+    #[test]
     fn predefined_types_are_reserved_and_synthesized_only_when_used() {
         let root =
             Path::new(env!("CARGO_MANIFEST_DIR")).join("../../vendor/qemu/tests/qapi-schema");

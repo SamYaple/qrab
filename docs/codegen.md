@@ -83,6 +83,10 @@ Referenced predefined `QType` and `q_empty` definitions are synthesized from
 QEMU 2.6 onward. The QType number variants follow the 2.10 `qint`/`qfloat` to
 `qnum` transition. Implicit-definition versions participate in schema hashes,
 so identical source files across that boundary still retain both wire shapes.
+Implicit `ElementList` references normalize to ordinary arrays. Scalar builtin
+lists are predefined; named lists require an explicit array use somewhere in
+the schema graph. Nested arrays and declarations with reserved `List` suffixes
+are rejected before lowering.
 Type references resolve against exact QAPI names across all source files before
 Rust name mapping. Undefined member, branch and return types report their source
 and definition; historical inline objects include the nested member path.

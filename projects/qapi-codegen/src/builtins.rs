@@ -90,6 +90,7 @@ pub(crate) fn parse_sources(sources: &[(PathBuf, String)]) -> Result<Vec<(&Path,
         })
         .collect::<Result<Vec<_>>>()?;
     let model = model(crate::parser_version());
+    crate::arrays::normalize(&mut schemas, model)?;
     let mut used = Usage::default();
     for (path, schema) in &schemas {
         for token in &schema.0 {

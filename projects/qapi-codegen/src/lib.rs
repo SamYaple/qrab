@@ -1,5 +1,6 @@
 #![deny(unsafe_code)]
 
+mod arrays;
 mod builtins;
 pub mod metadata_emit;
 pub mod parsers;
