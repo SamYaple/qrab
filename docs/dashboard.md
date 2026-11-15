@@ -37,8 +37,8 @@ launch new VMs; VM admins can send power actions and delete VMs.
 - **The ID token never reaches the browser.** It lives in the server-side
   session with the subject, `preferred_username`, the token's group UUIDs and
   the expiry. The browser holds only an opaque `__Host-` cookie.
-- **Pages are Dioxus SSR with HTML forms.** The only client script is the
-  console page: the vendored noVNC (`projects/dashboard/assets/novnc`, a copy
+- **Pages are Dioxus SSR with HTML forms.** The console and full BMC pages
+  use JavaScript: the vendored noVNC (`projects/dashboard/assets/novnc`, a copy
   of the BMC's) connects to `/vms/{namespace}/{name}/console/ws`, which the
   dashboard proxies to the BMC's `/api/console` WebSocket, and its power
   controls call `/vms/{namespace}/{name}/power`
@@ -72,7 +72,7 @@ While the agent is connected, the guest-agent card also shows the filesystem
 freeze state and the last update-hook run (state, run id, exit code or
 signal, end time). Update errors and output appear only for admins, because
 Redfish sends them only to admins. Freeze, thaw and update themselves are
-Redfish admin actions offered on the BMC's Guest agent tab, not here.
+Redfish admin actions offered on the full BMC page's Guest agent tab.
 
 | Route | Purpose |
 | --- | --- |
@@ -88,6 +88,24 @@ Redfish admin actions offered on the BMC's Guest agent tab, not here.
 | `GET /images` | Base-image catalog and how images are staged (any signed-in user) |
 | `GET /auth/login`, `GET /auth/callback`, `POST /auth/logout` | OIDC |
 | `GET /healthz`, `GET /readyz` | Probes |
+
+### Full BMC page
+
+**Open BMC** on a VM's detail page opens `/vms/{namespace}/{name}/bmc` on
+`vms.yapplesauce.com`. This uses the same HTML, stylesheet and JavaScript as
+the per-VM BMC page: console, Overview, Metrics, Events, Guest agent and
+Configuration. Viewers can inspect the page; console and management actions
+require admin access. The existing **Open console** page remains available.
+
+The dashboard supplies the selected VM's session information, proxies the
+console through its existing WebSocket route and sends management requests
+to that VM's Redfish sidecar through `/vms/{namespace}/{name}/bmc/redfish/*`.
+Every request checks VM visibility and Pod ownership. Mutations require the
+exact dashboard Origin and session CSRF token, and Redfish independently
+authorizes the user's server-side ID token. Live event streams are bounded
+and close when the dashboard session ends. No per-VM ingress, certificate,
+public URL or OIDC callback is needed. BMC assets are embedded in the dashboard
+binary, so interface changes require a dashboard image build and rollout.
 
 ### Console power controls
 

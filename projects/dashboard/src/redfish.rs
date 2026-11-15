@@ -173,6 +173,18 @@ impl Redfish {
         format!("http://{}{path}", SocketAddr::new(ip, self.port))
     }
 
+    /// Shared transport for the VM-scoped browser bridge, including SSE.
+    pub(crate) fn browser_request(
+        &self,
+        ip: IpAddr,
+        path: &str,
+        method: reqwest::Method,
+    ) -> reqwest::RequestBuilder {
+        self.http
+            .request(method, self.url(ip, path))
+            .timeout(Duration::from_secs(60))
+    }
+
     pub async fn get<T: DeserializeOwned>(
         &self,
         ip: IpAddr,

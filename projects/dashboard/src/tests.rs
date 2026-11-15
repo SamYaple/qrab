@@ -217,6 +217,13 @@ fn fake_bmc(label: &'static str, log: Log) -> axum::Router {
                 _ => return StatusCode::UNAUTHORIZED.into_response(),
             };
             match (parts.method.clone(), parts.uri.path()) {
+                (Method::GET, "/redfish/v1/EventService/SSE") => {
+                    let stream = futures::stream::unfold((), |_| async {
+                        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+                        Some((Ok::<_, std::io::Error>("data: {}\n\n"), ()))
+                    });
+                    ([("content-type", "text/event-stream")], Body::from_stream(stream)).into_response()
+                }
                 (Method::GET, "/redfish/v1/Systems/1") => Json(serde_json::json!({
                     "Id": "1", "Name": label, "PowerState": "On",
                     "Status": {"State": "Enabled", "Health": "OK"},
@@ -2396,5 +2403,134 @@ async fn detail_draws_a_server_side_svg_sparkline_per_redfish_history_metric() {
             && tx.contains("Unavailable: Redfish answered HTTP 503")
             && !tx.contains("<svg"),
         "{tx}"
+    );
+}
+
+#[tokio::test]
+async fn central_bmc_page_and_bridge_preserve_vm_and_login_boundaries() {
+    let h = harness().await;
+    h.cluster.vms.lock().unwrap()[0]
+        .spec
+        .console
+        .as_mut()
+        .unwrap()
+        .viewer_subjects
+        .push(BOB.into());
+    let admin = session(&h.state.sessions, ALICE, &[]).await;
+    let viewer = session(&h.state.sessions, BOB, &[VIEWERS]).await;
+    let base = "/vms/qrab/a/bmc";
+    assert_eq!(send(&h, get(base, None)).await.0, StatusCode::UNAUTHORIZED);
+    for cookie in [&admin, &viewer] {
+        let (status, headers, html) = send(&h, get(base, Some(cookie))).await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(
+            headers["content-security-policy"]
+                .to_str()
+                .unwrap()
+                .contains("script-src 'self'")
+        );
+        assert!(html.contains("/assets/bmc.js") && html.contains("panel-agent"));
+        assert!(!html.contains("id-token-of-alice"));
+    }
+    let (status, _, identity) = send(&h, get(&format!("{base}/session"), Some(&viewer))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(identity.contains("\"role\":\"viewer\"") && !identity.contains("id-token"));
+    let resource = format!("{base}/redfish/v1/Systems/1");
+    let (status, _, body) = send(&h, get(&resource, Some(&admin))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(body.contains("bmc-a"));
+    assert!(h.bmc_b.lock().unwrap().is_empty());
+    assert_eq!(
+        send(&h, get("/vms/qrab/missing/bmc", Some(&admin))).await.0,
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        send(&h, get("/vms/other/a/bmc", Some(&admin))).await.0,
+        StatusCode::NOT_FOUND
+    );
+    let action = format!("{resource}/Actions/ComputerSystem.Reset");
+    for (cookie, origin, csrf, expected) in [
+        (&viewer, ORIGIN, "correct", StatusCode::FORBIDDEN),
+        (
+            &admin,
+            "https://other.example",
+            "correct",
+            StatusCode::FORBIDDEN,
+        ),
+        (&admin, ORIGIN, "wrong", StatusCode::FORBIDDEN),
+        (&admin, ORIGIN, "correct", StatusCode::NO_CONTENT),
+    ] {
+        let request = Request::builder()
+            .method("POST")
+            .uri(&action)
+            .header("cookie", cookie)
+            .header("origin", origin)
+            .header("x-csrf-token", csrf)
+            .header("content-type", "application/json")
+            .body(Body::from(r#"{"ResetType":"Pause"}"#))
+            .unwrap();
+        assert_eq!(send(&h, request).await.0, expected);
+    }
+    h.cluster.vms.lock().unwrap()[0]
+        .status
+        .as_mut()
+        .unwrap()
+        .pod_name = Some("b".into());
+    assert_eq!(
+        send(&h, get(&resource, Some(&admin))).await.0,
+        StatusCode::SERVICE_UNAVAILABLE
+    );
+}
+
+#[tokio::test]
+async fn bmc_assets_scope_all_browser_connections_to_the_dashboard_vm() {
+    let h = harness().await;
+    let (status, _, js) = send(&h, get("/assets/bmc.js", None)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(js.contains("`${vmBase}/bmc${path}`"));
+    assert!(js.contains("`${vmBase}/bmc/session`"));
+    assert!(js.contains("`${vmBase}/bmc/logout`"));
+    assert!(js.contains("`${vmBase}/console/ws`") && js.contains("${location.host}${consolePath}"));
+    assert!(!js.contains("${location.host}/api/console"));
+}
+
+#[tokio::test]
+async fn bmc_live_events_close_on_logout_and_release_the_stream_limit() {
+    let h = harness().await;
+    let cookie = session(&h.state.sessions, ALICE, &[]).await;
+    let response = router(h.state.clone())
+        .oneshot(get(
+            "/vms/qrab/a/bmc/redfish/v1/EventService/SSE",
+            Some(&cookie),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.headers()["content-type"], "text/event-stream");
+    assert_eq!(h.state.consoles.available_permits(), 15);
+    let logout = Request::builder()
+        .method("POST")
+        .uri("/vms/qrab/a/bmc/logout")
+        .header("cookie", &cookie)
+        .header("origin", ORIGIN)
+        .header("x-csrf-token", "correct")
+        .body(Body::empty())
+        .unwrap();
+    assert_eq!(send(&h, logout).await.0, StatusCode::NO_CONTENT);
+    let body = tokio::time::timeout(
+        std::time::Duration::from_secs(2),
+        http_body_util::BodyExt::collect(response.into_body()),
+    )
+    .await
+    .unwrap()
+    .unwrap()
+    .to_bytes();
+    assert!(body.is_empty());
+    assert_eq!(h.state.consoles.available_permits(), 16);
+    assert_eq!(
+        send(&h, get("/vms/qrab/a/bmc/session", Some(&cookie)))
+            .await
+            .0,
+        StatusCode::UNAUTHORIZED
     );
 }

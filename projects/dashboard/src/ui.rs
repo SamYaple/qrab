@@ -754,6 +754,7 @@ fn detail_page(page: &DetailPage, user: &UserView) -> Element {
         a { class: "back", href: "/", "← All VMs" }
         div { class: "heading",
             div { p { class: "eyebrow", "VIRTUAL MACHINE · {d.row.namespace}" } h1 { "{d.row.name}" } p { class: "muted", "UID " code { "{d.uid}" } } }
+            if d.bmc_enabled { a { class: "button", href: "{d.row.path()}/bmc", "Open BMC →" } }
             if admin && d.bmc_enabled { a { class: "button", href: "{console}", "Open console →" } }
             if !admin && d.bmc_enabled {
                 div { class: "console-locked",

@@ -5,6 +5,7 @@
 pub mod access;
 pub mod auth;
 pub mod bmc;
+mod bmc_page;
 pub mod cluster;
 pub mod config;
 pub mod console;
@@ -158,6 +159,26 @@ pub fn router(state: AppState) -> Router {
         .route(
             "/vms/{namespace}/{name}/power",
             get(power::status).post(power::act),
+        )
+        .route("/vms/{namespace}/{name}/bmc", get(bmc_page::page))
+        .route(
+            "/vms/{namespace}/{name}/bmc/session",
+            get(bmc_page::identity),
+        )
+        .route("/vms/{namespace}/{name}/bmc/logout", post(bmc_page::logout))
+        .route(
+            "/vms/{namespace}/{name}/bmc/redfish/{*path}",
+            axum::routing::any(bmc_page::forward).layer(DefaultBodyLimit::max(192 * 1024)),
+        )
+        .route("/assets/bmc.js", get(bmc_page::script))
+        .route(
+            "/assets/bmc.css",
+            get(|| async {
+                (
+                    [(axum::http::header::CONTENT_TYPE, "text/css; charset=utf-8")],
+                    include_str!("../../bmc/assets/style.css"),
+                )
+            }),
         )
         .route("/vms/{namespace}/{name}/console", get(console_page))
         .route("/vms/{namespace}/{name}/console/ws", get(console::upgrade))

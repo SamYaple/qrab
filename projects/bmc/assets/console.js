@@ -4,6 +4,10 @@ import { createAudioContext } from './novnc/core/audio.js';
 // Every management read and action goes to the in-pod Redfish service
 // through the BMC's /bmc/redfish browser bridge; the BMC itself serves only the session
 // and the console.
+// The dashboard mounts this same interface under one VM; standalone BMCs
+// keep their root routes. This prefix comes from server-rendered HTML.
+const vmBase = document.body.dataset.vmBase || '';
+const consolePath = vmBase ? `${vmBase}/console/ws` : '/api/console';
 const SYSTEM = '/redfish/v1/Systems/1';
 const RESET_INFO = `${SYSTEM}/ResetActionInfo`;
 const EVENT_LOG = '/redfish/v1/Managers/1/LogServices/Events';
@@ -51,7 +55,10 @@ async function failure(response) {
 // cookie/CSRF bridge; the public /redfish endpoint stays directly on Redfish.
 const browserPath = path => {
     if (typeof path !== 'string' || !path.startsWith('/') || path.startsWith('//')) throw new Error('Invalid management URL');
-    return path === '/redfish' || path.startsWith('/redfish/') ? `/bmc${path}` : path;
+    if (path === '/redfish' || path.startsWith('/redfish/')) return `${vmBase}/bmc${path}`;
+    if (vmBase && path === '/api/session') return `${vmBase}/bmc/session`;
+    if (vmBase && path === '/auth/logout') return `${vmBase}/bmc/logout`;
+    return path;
 };
 async function request(path, options = {}) {
     const response = await fetch(browserPath(path), {credentials: 'same-origin', ...options});
@@ -751,7 +758,7 @@ function connect() {
     try {
         const scheme = location.protocol === 'https:' ? 'wss:' : 'ws:';
         const audio = audioContext ? {audioContext} : {};
-        rfb = new RFB(screen, `${scheme}//${location.host}/api/console${audioContext ? '?features=audio' : ''}`, audio);
+        rfb = new RFB(screen, `${scheme}//${location.host}${consolePath}${audioContext ? '?features=audio' : ''}`, audio);
         rfb.scaleViewport = scaleToFit;
         rfb.resizeSession = false;
         rfb.focusOnClick = true;
